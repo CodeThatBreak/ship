@@ -6,7 +6,7 @@ import { Button } from "./ui/button";
 import { Spinner } from "./ui/spinner";
 import { Badge } from "./ui/badge";
 import { Checkbox } from "./ui/checkbox";
-import { Tooltip } from "./ui/tooltip";
+import { Tooltip, TooltipContent, TooltipTrigger } from "./ui/tooltip";
 import { cn } from "../lib/utils";
 
 interface PromptData {
@@ -136,20 +136,42 @@ export default function PromptModal({
   const selectedIds = blocks.filter((b) => selectedBlocks.has(b.id) || b.locked).map((b) => b.id);
 
   return (
-    <Modal open={open} onClose={onClose} title={data ? `Edit prompt — ${data.label}` : "Edit prompt"}>
+    <Modal
+      open={open}
+      onClose={onClose}
+      title={data ? `Edit prompt — ${data.label}` : "Edit prompt"}
+      footer={
+        <>
+          <Button variant="outline" onClick={onClose}>
+            <X size={14} /> Cancel
+          </Button>
+          <Button
+            onClick={() =>
+              onRun(edited, Boolean(data?.appendsInternal), {
+                fresh: hasAgent ? fresh : undefined,
+                contextBlocks: showContextPicker ? selectedIds : undefined,
+              })
+            }
+            disabled={!edited.trim()}
+          >
+            <Play size={14} /> Run with this prompt
+          </Button>
+        </>
+      }
+    >
       {loading ? (
-        <p className="text-muted"><Spinner /> Loading prompt…</p>
+        <p className="text-muted-foreground"><Spinner /> Loading prompt…</p>
       ) : data ? (
         <div className="grid gap-3">
-          <p className="text-muted text-[12.5px] m-0">{data.description}</p>
+          <p className="text-muted-foreground text-[12.5px] m-0">{data.description}</p>
 
           {data.variables.length > 0 && (
             <div className="flex flex-wrap gap-1.5 items-center">
-              <span className="text-[11px] text-muted uppercase tracking-[0.5px] mr-1">Insert:</span>
+              <span className="text-[11px] text-muted-foreground uppercase tracking-[0.5px] mr-1">Insert:</span>
               {data.variables.map((v) => (
                 <Badge
                   key={v}
-                  className="cursor-pointer hover:border-accent hover:text-accent transition-colors"
+                  className="cursor-pointer hover:border-blue-500 hover:text-blue-400 transition-colors"
                   onClick={() => insertVariable(v)}
                 >
                   {`{{${v}}}`}
@@ -163,16 +185,16 @@ export default function PromptModal({
             value={edited}
             onChange={(e) => setEdited(e.target.value)}
             className={cn(
-              "w-full bg-bg-soft border border-border rounded-[10px] px-3.5 py-3",
+              "w-full bg-background border border-border rounded-[10px] px-3.5 py-3",
               "text-[12.5px] font-mono leading-relaxed resize-y min-h-[280px]",
-              "focus:outline-none focus:border-accent focus:ring-[3px] focus:ring-accent-soft",
-              "placeholder:text-muted"
+              "focus:outline-none focus:border-blue-500 focus:ring-[3px] focus:ring-accent-soft",
+              "placeholder:text-muted-foreground"
             )}
             rows={16}
           />
 
           {data.appendsInternal && (
-            <p className="text-muted text-[12px] m-0 flex items-start gap-1.5">
+            <p className="text-muted-foreground text-[12px] m-0 flex items-start gap-1.5">
               <Info size={13} className="shrink-0 mt-[1px]" />
               <span>
                 Only the editable part is shown — the internal instructions
@@ -185,14 +207,19 @@ export default function PromptModal({
           {/* context picker — what the model sees, per block char counts. For a
               fresh agent this controls EVERYTHING the model sees. */}
           {showContextPicker && blocks.length > 0 && (
-            <div className="border border-border-soft rounded-[10px] px-3 py-2.5">
+            <div className="border border-border rounded-[10px] px-3 py-2.5">
               <div className="flex items-center gap-2 mb-2">
-                <span className="text-[11px] font-medium uppercase tracking-[0.5px] text-muted">Context blocks</span>
-                <span className="text-[11px] text-muted" title="total size of the selected context, assembled server-side">
+                <span className="text-[11px] font-medium uppercase tracking-[0.5px] text-muted-foreground">Context blocks</span>
+                <span className="text-[11px] text-muted-foreground" title="total size of the selected context, assembled server-side">
                   {totalContextChars.toLocaleString()} chars
                 </span>
-                <Tooltip content="What the model will receive. Context is always re-assembled on the server — this selection is a hint, never the spec. A fresh agent sees exactly these blocks, nothing else.">
-                  <Info size={12} className="text-muted hover:text-text-dim cursor-help" />
+                <Tooltip>
+                  <TooltipTrigger>
+                    <Info size={12} className="text-muted-foreground hover:text-muted-foreground cursor-help" />
+                  </TooltipTrigger>
+                  <TooltipContent>
+                    What the model will receive. Context is always re-assembled on the server — this selection is a hint, never the spec. A fresh agent sees exactly these blocks, nothing else.
+                  </TooltipContent>
                 </Tooltip>
               </div>
               <div className="grid gap-1.5">
@@ -201,7 +228,7 @@ export default function PromptModal({
                     key={b.id}
                     className={cn(
                       "flex items-start gap-2 text-[12.5px] rounded-[8px] px-2 py-1.5 transition-colors",
-                      b.locked ? "opacity-70 cursor-not-allowed" : "cursor-pointer hover:bg-bg-soft"
+                      b.locked ? "opacity-70 cursor-not-allowed" : "cursor-pointer hover:bg-background"
                     )}
                     title={b.text ? b.text : undefined}
                   >
@@ -215,13 +242,18 @@ export default function PromptModal({
                       <span className="flex items-center gap-1.5">
                         <span className="font-medium">{b.label}</span>
                         {b.locked && (
-                          <Tooltip content="Locked: the branch scope, files and dependencies are the contract a scoped refine works inside — the engine always includes it.">
-                            <span className="inline-flex items-center gap-1 text-[10.5px] text-amber"><Lock size={10} /> locked</span>
+                          <Tooltip>
+                            <TooltipTrigger>
+                              <span className="inline-flex items-center gap-1 text-[10.5px] text-amber-400"><Lock size={10} /> locked</span>
+                            </TooltipTrigger>
+                            <TooltipContent>
+                              Locked: the branch scope, files and dependencies are the contract a scoped refine works inside — the engine always includes it.
+                            </TooltipContent>
                           </Tooltip>
                         )}
-                        <span className="text-[11px] text-muted">{b.chars.toLocaleString()} chars</span>
+                        <span className="text-[11px] text-muted-foreground">{b.chars.toLocaleString()} chars</span>
                       </span>
-                      <span className="block text-[11.5px] text-muted">{b.description}</span>
+                      <span className="block text-[11.5px] text-muted-foreground">{b.description}</span>
                     </span>
                   </label>
                 ))}
@@ -234,7 +266,7 @@ export default function PromptModal({
               <Checkbox className="shrink-0 mt-[1px]" checked={fresh} onCheckedChange={(v) => setFresh(v === true)} />
               <span className="flex flex-col">
                 <span className="flex items-center gap-1.5 font-medium"><Bot size={12} /> New agent</span>
-                <span className="text-[11.5px] text-muted">
+                <span className="text-[11.5px] text-muted-foreground">
                   start a clean agent instead of continuing the current one — lower hallucination risk from
                   accumulated context; it only re-reads this branch's files
                 </span>
@@ -242,35 +274,17 @@ export default function PromptModal({
             </label>
           )}
 
-          <div className="flex items-center gap-2 text-[12px] text-muted">
+          <div className="flex items-center gap-2 text-[12px] text-muted-foreground">
             <span>{charCount.toLocaleString()} chars</span>
-            {data.source === "override" && <Badge variant="amber">custom override</Badge>}
+            {data.source === "override" && <Badge className="bg-amber-500/10 text-amber-400">custom override</Badge>}
             <div className="flex-1" />
             <Button size="sm" onClick={resetToTemplate} disabled={edited === data.prompt}>
               <RotateCcw size={12} /> Reset to template
             </Button>
           </div>
-
-          <div className="flex gap-2 pt-1">
-            <Button
-              variant="primary"
-              onClick={() =>
-                onRun(edited, Boolean(data.appendsInternal), {
-                  fresh: hasAgent ? fresh : undefined,
-                  contextBlocks: showContextPicker ? selectedIds : undefined,
-                })
-              }
-              disabled={!edited.trim()}
-            >
-              <Play size={14} /> Run with this prompt
-            </Button>
-            <Button onClick={onClose}>
-              <X size={14} /> Cancel
-            </Button>
-          </div>
         </div>
       ) : (
-        <p className="text-muted">Failed to load prompt.</p>
+        <p className="text-muted-foreground">Failed to load prompt.</p>
       )}
     </Modal>
   );

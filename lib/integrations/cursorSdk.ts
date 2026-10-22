@@ -7,6 +7,7 @@ import {
   type RunResult as SdkRunResult,
   type SDKAgent,
   type SDKMessage,
+  type SDKModel,
   type TokenUsage,
 } from "@cursor/sdk";
 import fs from "fs";
@@ -75,6 +76,10 @@ const TERMINAL_STATUSES = new Set(["finished", "error", "cancelled"]);
 export class CursorAgentService {
   private runs = new Map<string, StartedRun>();
 
+  /** Catalog cache TTL — fresh enough for param changes, rare enough to be cheap. */
+  private static readonly MODEL_TTL_MS = 10 * 60 * 1000;
+  private modelCache: { at: number; models: SDKModel[] } | null = null;
+
   private apiKey(): string {
     const key = config.cursor.apiKey();
     if (!key) throw new Error("CURSOR_API_KEY not set");
@@ -83,20 +88,46 @@ export class CursorAgentService {
 
   /** True when the SDK can run at all (Node >= 22.13 and an API key is set). */
   available(): boolean {
-    const [maj, min] = process.versions.node.split(".").map((n) => parseInt(n, 10));
+    const [maj, min] = process.versions.node
+      .split(".")
+      .map((n) => parseInt(n, 10));
     const nodeOk = maj > 22 || (maj === 22 && min >= 13);
     return nodeOk && Boolean(config.cursor.apiKey());
   }
 
   /** Models available to the authenticated account (null when unavailable). */
   async listModels(): Promise<string[] | null> {
+    const catalog = await this.listCatalog();
+    if (!catalog) return null;
+    const ids = catalog.map((m) => m.id).filter(Boolean);
+    return ids.length ? ids : null;
+  }
+
+  /**
+   * Full model catalog (id, displayName, parameters, variants) with the raw
+   * names for UI grouping. Cached for MODEL_TTL_MS so hot paths (chat panel
+   * mount, settings page, polling loops) don't hit Cursor.models.list
+   * repeatedly; on errors the last known catalog is served until it expires.
+   */
+  async listCatalog(): Promise<SDKModel[] | null> {
+    const now = Date.now();
+    if (
+      this.modelCache &&
+      now - this.modelCache.at < CursorAgentService.MODEL_TTL_MS
+    ) {
+      return this.modelCache.models;
+    }
     try {
       const models = await Cursor.models.list({ apiKey: this.apiKey() });
-      const ids = models.map((m) => m.id).filter(Boolean);
-      return ids.length ? ids : null;
+      if (models?.length) {
+        this.modelCache = { at: now, models };
+        return models;
+      }
     } catch {
-      return null;
+      /* fall through to cache/fallback */
     }
+
+    return this.modelCache?.models ?? null;
   }
 
   /** True if this server process still owns the given run (false after restart). */
@@ -145,7 +176,10 @@ export class CursorAgentService {
           opts.agents = Object.fromEntries(
             input.customSubagents
               .slice(0, 20)
-              .map((s) => [s.name, { description: s.instructions, prompt: s.instructions }]),
+              .map((s) => [
+                s.name,
+                { description: s.instructions, prompt: s.instructions },
+              ]),
           );
         }
       } else {
@@ -163,7 +197,12 @@ export class CursorAgentService {
       ...(!isCloud && input.force ? { local: { force: true } } : {}),
     });
 
-    const started: StartedRun = { agentId: agent.agentId, runId: run.id, agent, run };
+    const started: StartedRun = {
+      agentId: agent.agentId,
+      runId: run.id,
+      agent,
+      run,
+    };
     this.runs.set(run.id, started);
     return { agentId: agent.agentId, runId: run.id };
   }
@@ -235,10 +274,18 @@ export class CursorAgentService {
   // ── inspection & recovery (reconcile) ─────────────────────────────────────
 
   /** Fetch a run's terminal result without streaming (cloud or local). */
-  async getRun(agentId: string, runId: string, cwd?: string): Promise<AgentRunResult | null> {
+  async getRun(
+    agentId: string,
+    runId: string,
+    cwd?: string,
+  ): Promise<AgentRunResult | null> {
     try {
       if (agentId.startsWith("bc-")) {
-        const run = await Agent.getRun(runId, { runtime: "cloud", agentId, apiKey: this.apiKey() });
+        const run = await Agent.getRun(runId, {
+          runtime: "cloud",
+          agentId,
+          apiKey: this.apiKey(),
+        });
         if (run.status === "running") return null; // still going
         return await run.wait();
       }
@@ -255,10 +302,18 @@ export class CursorAgentService {
    * or null when it already reached a terminal state. The returned handle can
    * be pumped via pumpRun.
    */
-  async reattachRun(agentId: string, runId: string, cwd?: string): Promise<Run | null> {
+  async reattachRun(
+    agentId: string,
+    runId: string,
+    cwd?: string,
+  ): Promise<Run | null> {
     try {
       if (agentId.startsWith("bc-")) {
-        const run = await Agent.getRun(runId, { runtime: "cloud", agentId, apiKey: this.apiKey() });
+        const run = await Agent.getRun(runId, {
+          runtime: "cloud",
+          agentId,
+          apiKey: this.apiKey(),
+        });
         return run.status === "running" ? run : null;
       }
       const run = await Agent.getRun(runId, { runtime: "local", cwd });
@@ -304,11 +359,18 @@ export class CursorAgentService {
   async getRunUsage(
     agentId: string,
     runId: string,
-  ): Promise<{ usage: TokenUsage; cost?: { rawCostCents: number; chargedCents: number } } | null> {
+  ): Promise<{
+    usage: TokenUsage;
+    cost?: { rawCostCents: number; chargedCents: number };
+  } | null> {
     try {
-      const res = await Agent.getUsage(agentId, { apiKey: this.apiKey(), runId });
+      const res = await Agent.getUsage(agentId, {
+        apiKey: this.apiKey(),
+        runId,
+      });
       const entry = res.runs.find((r) => r.runId === runId) ?? res.runs[0];
-      if (!entry) return res.usage ? { usage: res.usage, cost: res.cost } : null;
+      if (!entry)
+        return res.usage ? { usage: res.usage, cost: res.cost } : null;
       return { usage: entry.usage, cost: entry.cost ?? res.cost };
     } catch {
       return null;

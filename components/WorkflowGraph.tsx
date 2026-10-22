@@ -35,12 +35,12 @@ function useGraphDef(): GraphDef | null {
 }
 
 const STATUS: Record<string, { border: string; text: string }> = {
-  running: { border: "border-accent", text: "text-accent" },
-  awaiting_approval: { border: "border-amber", text: "text-amber" },
-  approved: { border: "border-green", text: "text-green" },
-  done: { border: "border-green", text: "text-green" },
-  failed: { border: "border-red", text: "text-red" },
-  pending: { border: "border-border", text: "text-muted" },
+  running: { border: "border-blue-500", text: "text-blue-400" },
+  awaiting_approval: { border: "border-amber-500", text: "text-amber-400" },
+  approved: { border: "border-emerald-500", text: "text-emerald-400" },
+  done: { border: "border-emerald-500", text: "text-emerald-400" },
+  failed: { border: "border-rose-500", text: "text-rose-400" },
+  pending: { border: "border-border", text: "text-muted-foreground" },
 };
 
 const W = 148, H = 56;
@@ -105,17 +105,17 @@ export default function WorkflowGraph({
           <div key={n.node_key} onClick={() => onSelect(n.node_key)}
             className={cn(
               "absolute rounded-xl cursor-pointer flex items-center gap-[9px] px-3 border-[1.5px] transition-all duration-150",
-              isSel ? "bg-panel-3 shadow-panel" : "bg-panel-2",
+              isSel ? "bg-popover shadow-panel" : "bg-card",
               st.border,
-              isRunning && "animate-[pulse-ring_1.6s_ease-out_infinite]"
+              isRunning && "animate-ping"
             )}
             style={{ left: p.x - W / 2, top: p.y - H / 2, width: W, height: H }}>
             <Icon size={17} strokeWidth={2}
-              className={isRunning || n.status !== "pending" ? st.text : "text-muted"} />
+              className={isRunning || n.status !== "pending" ? st.text : "text-muted-foreground"} />
             <div className="min-w-0">
               <div className="text-[12.5px] font-semibold leading-[1.2]">{label}</div>
               <div className={cn("text-[10.5px] mt-0.5",
-                isRunning ? "text-accent" : n.status === "pending" ? "text-muted" : st.text)}>
+                isRunning ? "text-blue-400" : n.status === "pending" ? "text-muted-foreground" : st.text)}>
                 {statusLabel(n.status, isRunning)}
                 {n.artifacts.length > 0 && ` · v${Math.max(...n.artifacts.map((a) => a.version))}`}
               </div>

@@ -65,8 +65,9 @@ export abstract class NodeDefinition<I = unknown, O extends Record<string, unkno
 
   /**
    * Chat follow-up on this node's agent. Default: not supported.
+   * `model` is the per-run model override the developer picked in the chat panel.
    */
-  async chat(ctx: FlowCtx, content: string): Promise<string> {
+  async chat(ctx: FlowCtx, content: string, _model?: string): Promise<string> {
     return "This node doesn't accept chat input.";
   }
 

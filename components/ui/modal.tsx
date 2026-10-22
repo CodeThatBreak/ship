@@ -1,61 +1,59 @@
 "use client";
-import { useEffect, useRef } from "react";
-import { X } from "lucide-react";
+import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle, DialogDescription } from "./dialog";
 import { cn } from "../../lib/utils";
 
+/**
+ * Thin wrapper over the shadcn Dialog that keeps the old hand-rolled Modal API
+ * (`open`, `onClose`, `title`, `className`, `children`, `footer`). Escape/outside-click,
+ * focus trap, portal stacking and scroll lock now come from Radix.
+ *
+ * `footer` renders as a shadcn-style modal footer: pinned below the scrollable
+ * body, separated from it by a border line, with actions right-aligned.
+ */
 export function Modal({
   open,
   onClose,
   title,
   children,
+  footer,
   className,
 }: {
   open: boolean;
   onClose: () => void;
   title?: string;
   children: React.ReactNode;
+  footer?: React.ReactNode;
   className?: string;
 }) {
-  const ref = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    if (!open) return;
-    const handler = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose();
-    };
-    document.addEventListener("keydown", handler);
-    return () => document.removeEventListener("keydown", handler);
-  }, [open, onClose]);
-
-  if (!open) return null;
-
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm"
-      onClick={(e) => {
-        if (e.target === e.currentTarget) onClose();
+    <Dialog
+      open={open}
+      onOpenChange={(next) => {
+        if (!next) onClose();
       }}
     >
-      <div
-        ref={ref}
+      <DialogContent
         className={cn(
-          "bg-panel border border-border rounded-[14px] shadow-2xl w-full max-w-[720px] max-h-[85vh] flex flex-col mx-4",
+          "flex flex-col gap-0 p-0 w-full max-w-[720px] max-h-[85vh] mx-4",
+          "bg-card border-border rounded-[14px] shadow-2xl sm:max-w-[720px]",
           className
         )}
       >
-        {title && (
-          <div className="flex items-center justify-between px-5 py-3.5 border-b border-border-soft shrink-0">
-            <h3 className="m-0 text-[15px] font-medium">{title}</h3>
-            <button
-              onClick={onClose}
-              className="text-muted hover:text-text-dim transition-colors cursor-pointer bg-transparent border-none p-1"
-            >
-              <X size={16} />
-            </button>
-          </div>
+        {title ? (
+          <DialogHeader className="flex-row items-center justify-between px-5 py-3.5 border-b border-border shrink-0 space-y-0">
+            <DialogTitle className="text-[15px] font-medium">{title}</DialogTitle>
+            <DialogDescription className="sr-only">Dialog — {title}</DialogDescription>
+          </DialogHeader>
+        ) : (
+          <DialogTitle className="sr-only">Dialog</DialogTitle>
         )}
         <div className="flex-1 overflow-y-auto px-5 py-4">{children}</div>
-      </div>
-    </div>
+        {footer ? (
+          <DialogFooter className="px-5 py-3.5 border-t border-border bg-card rounded-b-[14px] shrink-0">
+            {footer}
+          </DialogFooter>
+        ) : null}
+      </DialogContent>
+    </Dialog>
   );
 }

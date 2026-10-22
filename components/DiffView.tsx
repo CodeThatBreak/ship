@@ -73,10 +73,10 @@ function toOldNew(lines: Line[]) {
 /** Renders a unified git diff as per-file split diffs with collapsible sections. */
 export default function DiffView({ raw }: { raw: string }) {
   if (!raw || raw.startsWith("(diff unavailable")) {
-    return <p className="text-muted">{raw || "No diff."}</p>;
+    return <p className="text-muted-foreground">{raw || "No diff."}</p>;
   }
   const files = splitFiles(raw);
-  if (!files.length) return <p className="text-muted">No diff content.</p>;
+  if (!files.length) return <p className="text-muted-foreground">No diff content.</p>;
   const count = (f: (typeof files)[number], t: Line["type"]) => f.lines.filter((l) => l.type === t).length;
   const totalAdd = files.reduce((s, f) => s + count(f, "add"), 0);
   const totalDel = files.reduce((s, f) => s + count(f, "del"), 0);
@@ -85,20 +85,20 @@ export default function DiffView({ raw }: { raw: string }) {
     <div className="font-mono text-xs leading-normal">
       <div className="flex items-center gap-2 mb-1 font-sans">
         <Badge>{files.length} file{files.length > 1 ? "s" : ""}</Badge>
-        <Badge variant="green">+{totalAdd}</Badge>
-        <Badge variant="red">−{totalDel}</Badge>
+        <Badge className="bg-emerald-500/10 text-emerald-400">+{totalAdd}</Badge>
+        <Badge variant="destructive">−{totalDel}</Badge>
       </div>
       {files.map((f) => {
         const { oldValue, newValue } = toOldNew(f.lines);
         return (
           <details key={f.name} open={files.length <= 5} className="group mt-3">
-            <summary className="cursor-pointer list-none flex items-center gap-2 font-sans font-semibold bg-panel-2 border border-border rounded-t-[9px] group-open:rounded-b-none group-not-open:rounded-[9px] px-3 py-2">
-              <FileCode2 size={14} className="text-muted" />
+            <summary className="cursor-pointer list-none flex items-center gap-2 font-sans font-semibold bg-card border border-border rounded-t-[9px] group-open:rounded-b-none group-not-open:rounded-[9px] px-3 py-2">
+              <FileCode2 size={14} className="text-muted-foreground" />
               <span className="flex-1">{f.name}</span>
-              <span className="text-green font-medium">+{count(f, "add")}</span>
-              <span className="text-red font-medium">−{count(f, "del")}</span>
+              <span className="text-emerald-400 font-medium">+{count(f, "add")}</span>
+              <span className="text-rose-400 font-medium">−{count(f, "del")}</span>
             </summary>
-            <div className="border border-border border-t-0 rounded-b-[9px] overflow-x-auto bg-bg-soft group-not-open:hidden">
+            <div className="border border-border border-t-0 rounded-b-[9px] overflow-x-auto bg-background group-not-open:hidden">
               <ReactDiffViewer
                 oldValue={oldValue}
                 newValue={newValue}

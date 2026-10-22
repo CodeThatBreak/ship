@@ -869,10 +869,10 @@ export class PlanNode extends NodeDefinition<PlanInput, PlanOutput> {
     return { status, output, event, reply: text };
   }
 
-  override async chat(ctx: FlowCtx, content: string): Promise<string> {
+  override async chat(ctx: FlowCtx, content: string, model?: string): Promise<string> {
     const outcome = await this.run(
       ctx,
-      this.inputSchema.parse({ feedback: content }),
+      this.inputSchema.parse({ feedback: content, model: model ?? null }),
     );
     return outcome.reply;
   }

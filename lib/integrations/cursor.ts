@@ -4,6 +4,7 @@ import {
   type StreamCallbacks,
   type TokenUsage,
 } from "./cursorSdk";
+import { parseModelSpec } from "../modelSpec";
 
 // ── cloud run result / usage shapes (SDK-native, re-exported) ───────────────
 // The cloud integration is now a thin adapter over the unified CursorAgentService
@@ -44,8 +45,7 @@ export interface CreateAgentInput {
  */
 export class CursorClient {
   private modelSelection(model?: string) {
-    const id = model?.trim();
-    return id ? { id } : undefined;
+    return parseModelSpec(model);
   }
 
   async createAgent(input: CreateAgentInput) {

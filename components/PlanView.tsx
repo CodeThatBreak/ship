@@ -1,23 +1,40 @@
 "use client";
 import { useMemo, useState } from "react";
-import { Compass, Check, GitBranch, FileCode, ListChecks, Layers, AlertTriangle, RotateCcw, Pencil, Info, Square, Braces, ChevronDown, ChevronRight, Plus, Minus, ArrowRightLeft } from "lucide-react";
+import {
+  Compass,
+  Check,
+  GitBranch,
+  ListChecks,
+  Layers,
+  AlertTriangle,
+  RotateCcw,
+  Pencil,
+  Info,
+  Square,
+  ChevronDown,
+  ChevronRight,
+  ArrowRightLeft,
+} from "lucide-react";
 import type { FlowData, Node, Artifact } from "../app/flows/[id]/page";
-import Markdown from "./Markdown";
-import ModelSelect from "./ModelSelect";
+import { Markdown } from "../components/markdown";
 import PlanSteps from "./PlanSteps";
 import PromptModal, { type PromptRunExtras } from "./PromptModal";
 import { VersionTabs, ArtifactLoader, CostChip } from "./NodePanel";
 import { Alert } from "./ui/alert";
-import { Badge, BadgeDot } from "./ui/badge";
+import { Badge } from "./ui/badge";
 import { Button } from "./ui/button";
 import { Card } from "./ui/card";
-import { Checkbox } from "./ui/checkbox";
 import { Spinner } from "./ui/spinner";
-import { Tooltip } from "./ui/tooltip";
+import { Tooltip, TooltipContent, TooltipTrigger } from "./ui/tooltip";
 
 // ── branch step diff (client copy of the engine's id-based classifier) ──────
 
-interface DiffStep { id: string; title: string; detail?: string; files?: string[] }
+interface DiffStep {
+  id: string;
+  title: string;
+  detail?: string;
+  files?: string[];
+}
 interface BranchStepDiff {
   added: DiffStep[];
   removed: DiffStep[];
@@ -25,11 +42,17 @@ interface BranchStepDiff {
 }
 
 const contentEqual = (a: DiffStep, b: DiffStep) =>
-  a.title === b.title && a.detail === b.detail && JSON.stringify(a.files ?? []) === JSON.stringify(b.files ?? []);
+  a.title === b.title &&
+  a.detail === b.detail &&
+  JSON.stringify(a.files ?? []) === JSON.stringify(b.files ?? []);
 
 /** Id-based diff with a title fallback — merge preserves ids for unchanged steps, so ids mean identity. */
-function diffBranchSteps(oldSteps: DiffStep[], newSteps: DiffStep[]): BranchStepDiff {
-  const byId = (arr: DiffStep[]) => new Map(arr.filter((s) => s.id).map((s) => [s.id, s]));
+function diffBranchSteps(
+  oldSteps: DiffStep[],
+  newSteps: DiffStep[],
+): BranchStepDiff {
+  const byId = (arr: DiffStep[]) =>
+    new Map(arr.filter((s) => s.id).map((s) => [s.id, s]));
   const oldById = byId(oldSteps);
   const newById = byId(newSteps);
 
@@ -38,15 +61,22 @@ function diffBranchSteps(oldSteps: DiffStep[], newSteps: DiffStep[]): BranchStep
   for (const [id, next] of newById) {
     const prev = oldById.get(id);
     if (!prev) added.push(next);
-    else if (!contentEqual(prev, next)) changed.push({ id, before: prev, after: next });
+    else if (!contentEqual(prev, next))
+      changed.push({ id, before: prev, after: next });
   }
   const leftoversOld = [...oldById.values()].filter((s) => !newById.has(s.id!));
   const removed: DiffStep[] = [];
   for (const o of leftoversOld) {
     // agents occasionally rename ids on unchanged steps — promote title matches
-    const idx = added.findIndex((n) => n.title === o.title && contentEqual(o, n));
+    const idx = added.findIndex(
+      (n) => n.title === o.title && contentEqual(o, n),
+    );
     if (idx >= 0) {
-      changed.push({ id: `${o.id} → ${added[idx].id}`, before: o, after: added[idx] });
+      changed.push({
+        id: `${o.id} → ${added[idx].id}`,
+        before: o,
+        after: added[idx],
+      });
       added.splice(idx, 1);
     } else {
       removed.push(o);
@@ -59,27 +89,45 @@ function diffBranchSteps(oldSteps: DiffStep[], newSteps: DiffStep[]): BranchStep
  * The latest version at which a branch's scoped markdown was written, from
  * artifact metas (scopedRefine provenance).
  */
-function latestScopedRefineVersion(arts: Artifact[], branchName: string): number {
+function latestScopedRefineVersion(
+  arts: Artifact[],
+  branchName: string,
+): number {
   let v = 0;
   for (const a of arts) {
     const sr = a.meta?.scopedRefine;
-    if (sr?.branch === branchName && typeof sr.from === "number" && a.version > v) v = a.version;
+    if (
+      sr?.branch === branchName &&
+      typeof sr.from === "number" &&
+      a.version > v
+    )
+      v = a.version;
   }
   return v;
 }
 
-export default function PlanView({ flow, node, action, fetchArtifact }:
-  { flow: FlowData; node: Node; action: (a: string, b?: any) => void; fetchArtifact: (id: string) => Promise<any> }) {
+export default function PlanView({
+  flow,
+  node,
+  action,
+  fetchArtifact,
+  model,
+  planOptions = { decompose: false, complex: false },
+}: {
+  flow: FlowData;
+  node: Node;
+  action: (a: string, b?: any) => void;
+  fetchArtifact: (id: string) => Promise<any>;
+  model: string;
+  /** generation options toggled in the chat panel (complex affects refines as well) */
+  planOptions?: { decompose: boolean; complex: boolean };
+}) {
   const plans = node.artifacts.filter((a: Artifact) => a.kind === "plan");
   const [sel, setSel] = useState<string | null>(null);
   const [showPrompt, setShowPrompt] = useState(false);
-  const [decompose, setDecompose] = useState(false);
-  const [complex, setComplex] = useState(false);
-  const [model, setModel] = useState("");
   // branch-scoped refine state (§7.1): which branch is being refined + the open tab
   const [refineBranch, setRefineBranch] = useState<string | null>(null);
   const [openBranchTab, setOpenBranchTab] = useState<string | null>(null);
-  const [showDiff, setShowDiff] = useState(false);
   const [freshScoped, setFreshScoped] = useState(true);
   const current = plans.find((a) => a.id === sel) ?? plans[plans.length - 1];
   const awaiting = node.status === "awaiting_approval";
@@ -90,27 +138,45 @@ export default function PlanView({ flow, node, action, fetchArtifact }:
   const branches = node.output?.branches ?? null;
   // structured checklist (live rows; editable until the plan is approved)
   const planSteps = flow.planSteps ?? [];
-  const showChecklist = planSteps.length > 0 || awaiting || node.status === "approved";
+  const showChecklist =
+    planSteps.length > 0 || awaiting || node.status === "approved";
 
   const statusVariant =
-    node.status === "approved" ? "green"
-    : node.status === "running" ? "blue"
-    : node.status === "awaiting_approval" ? "amber"
-    : node.status === "failed" ? "red" : "default";
+    node.status === "approved"
+      ? "bg-emerald-500/10 text-emerald-400"
+      : node.status === "running"
+        ? "bg-blue-500/10 text-blue-400"
+        : node.status === "awaiting_approval"
+          ? "bg-amber-500/10 text-amber-400"
+          : node.status === "failed"
+            ? undefined
+            : undefined;
 
   // malformed plan-meta: the agent returned a plan but the structured block
   // failed validation even after the automatic retry
   const malformed = node.output?.malformed === true;
-  const validationErrors: { path: string; message: string }[] = node.output?.validationErrors ?? [];
+  const validationErrors: { path: string; message: string }[] =
+    node.output?.validationErrors ?? [];
 
   const startPlan = (prompt?: string, promptIsBody?: boolean) =>
-    action("start_plan", { prompt, promptIsBody: promptIsBody || undefined, decompose: decompose || undefined, model: model || undefined, complex: complex || undefined });
+    action("start_plan", {
+      prompt,
+      promptIsBody: promptIsBody || undefined,
+      model: model || undefined,
+      complex: planOptions.complex || undefined,
+    });
 
   // Edit prompt runs a fresh plan when none exists yet; once a plan exists it
   // reruns as a refinement of the current one.
   const runWithPrompt = (prompt: string, promptIsBody: boolean) => {
     if (plans.length > 0) {
-      action("refine_plan", { feedback: "", prompt, promptIsBody: promptIsBody || undefined, model: model || undefined, complex: complex || undefined });
+      action("refine_plan", {
+        feedback: "",
+        prompt,
+        promptIsBody: promptIsBody || undefined,
+        model: model || undefined,
+        complex: planOptions.complex || undefined,
+      });
     } else {
       startPlan(prompt, promptIsBody);
     }
@@ -118,11 +184,17 @@ export default function PlanView({ flow, node, action, fetchArtifact }:
 
   // Branch-scoped sub-plan refine (§7.1): promptIsBody — the modal returns the
   // developer-editable body; the engine appends the internal scoped rules.
-  const runBranchRefine = (prompt: string, promptIsBody: boolean, extras: PromptRunExtras) => {
+  const runBranchRefine = (
+    prompt: string,
+    promptIsBody: boolean,
+    extras: PromptRunExtras,
+  ) => {
     if (!refineBranch) return;
     action("refine_plan", {
-      prompt, promptIsBody: promptIsBody || undefined,
-      complex: true, branchRef: refineBranch,
+      prompt,
+      promptIsBody: promptIsBody || undefined,
+      complex: true,
+      branchRef: refineBranch,
       fresh: extras.fresh ?? true, // scoped refines default fresh (§3)
       contextBlocks: extras.contextBlocks,
     });
@@ -137,13 +209,13 @@ export default function PlanView({ flow, node, action, fetchArtifact }:
     const prev = plans.find((a) => a.version === sr.from);
     if (!prev?.meta?.steps) return null;
     const branch = sr.branch as string;
-    const pick = (meta: any) => (meta.steps as any[]).filter((s) => s.branch === branch);
+    const pick = (meta: any) =>
+      (meta.steps as any[]).filter((s) => s.branch === branch);
     const diff = diffBranchSteps(pick(prev.meta), pick(latest.meta));
-    if (!diff.added.length && !diff.removed.length && !diff.changed.length) return null;
+    if (!diff.added.length && !diff.removed.length && !diff.changed.length)
+      return null;
     return { branch, from: sr.from as number, to: latest.version, diff };
   }, [plans]);
-
-  const openBranch = branches?.find((b: any) => b.name === openBranchTab) ?? null;
 
   // Staleness (§8): the overview prose is only rewritten by full-plan refines;
   // a scoped refine makes its branch doc newer than the overview.
@@ -163,134 +235,145 @@ export default function PlanView({ flow, node, action, fetchArtifact }:
   return (
     <div className="flex flex-col h-full min-h-0">
       {/* sticky header */}
-      <div className="flex items-center gap-2.5 px-5 py-3 border-b border-border-soft shrink-0">
+      <div className="flex items-center gap-2.5 px-5 py-3 border-b border-border shrink-0">
         <h2 className="m-0 text-[15px]">Implementation plan</h2>
-        <Badge variant={statusVariant as any}>
-          <BadgeDot />
+        <Badge
+          className={statusVariant}
+          variant={node.status === "failed" ? "destructive" : undefined}
+        >
+          <span className="size-1.5 rounded-full bg-current" />
           {node.status.replace(/_/g, " ")}
         </Badge>
         <CostChip node={node} />
         <div className="flex-1" />
-        <ModelSelect value={model} onChange={setModel} />
-        <Button size="sm" variant="ghost" onClick={() => setShowPrompt(true)}>
+        <Button
+          size="xs"
+          variant="secondary"
+          onClick={() => setShowPrompt(true)}
+        >
           <Pencil size={12} /> Edit prompt
         </Button>
       </div>
 
       {/* scrollable content */}
-      <div className="scroll flex-1 min-h-0 px-5 py-4">
+      <div className="overflow-y-auto flex-1 min-h-0 px-5 py-4 flex flex-col gap-4">
         {node.status === "failed" && (
-          <Alert variant="red" className="mb-3.5">
+          <Alert variant="destructive">
             <AlertTriangle size={16} className="shrink-0" />
             <div className="flex-1">
               {malformed ? (
                 <>
                   <span className="font-medium">Malformed plan response</span>
                   <p className="text-xs mt-1 mb-0">
-                    The agent generated a plan but the structured plan-meta block failed validation.
+                    The agent generated a plan but the structured plan-meta
+                    block failed validation.
                     {validationErrors.length > 0 && (
-                      <ul className="mt-1.5 ml-3 list-disc text-xs text-red/80">
+                      <ul className="mt-1.5 ml-3 list-disc text-xs text-rose-400/80">
                         {validationErrors.map((e, i) => (
-                          <li key={i}>{e.path ? `${e.path}: ` : ""}{e.message}</li>
+                          <li key={i}>
+                            {e.path ? `${e.path}: ` : ""}
+                            {e.message}
+                          </li>
                         ))}
                       </ul>
                     )}
                   </p>
                 </>
               ) : (
-                <span>This step failed — check the activity feed for details.</span>
+                <span>
+                  This step failed — check the activity feed for details.
+                </span>
               )}
             </div>
-            <Button size="sm" onClick={() => action("retry", { nodeKey: node.node_key })}>
+            <Button
+              size="sm"
+              onClick={() => action("retry", { nodeKey: node.node_key })}
+            >
               <RotateCcw size={13} /> Retry
             </Button>
           </Alert>
         )}
 
         {plans.length === 0 && node.status === "pending" && (
-          <div className="text-center px-5 py-16">
-            <Compass size={32} className="text-muted mb-3 mx-auto" />
-            <p className="text-muted max-w-[380px] mx-auto">
-              Generate an implementation plan from the ticket PRD, Figma links, and the repository.
-            </p>
+          <div className="flex flex-1 items-center justify-center py-10">
+            <div className="text-center px-5">
+              <Compass size={32} className="text-muted-foreground mb-3 mx-auto" />
+              <p className="text-muted-foreground max-w-[380px] mx-auto">
+                The plan prompt is ready as a preview box over the chat panel —
+                review or edit it there to generate an implementation plan from
+                the ticket PRD, Figma links, and the repository.
+              </p>
+            </div>
           </div>
         )}
 
         {running && (
           <div className="flex flex-col items-center justify-center text-center px-5 py-20 gap-3">
             <Spinner className="size-[22px] border-[3px]" />
-            <p className="text-text-dim text-sm font-medium m-0">
-              {plans.length === 0 ? "Agent is cooking up the plan…" : "Agent is reworking the plan…"}
+            <p className="text-muted-foreground text-sm font-medium m-0">
+              {plans.length === 0
+                ? "Agent is cooking up the plan…"
+                : "Agent is reworking the plan…"}
             </p>
-            <p className="text-muted text-xs m-0">Grabbing coffee while it reads the repo — watch the activity feed →</p>
-            <Button size="sm" variant="ghost" className="mt-1" onClick={() => action("cancel", { nodeKey: node.node_key })}>
+            <p className="text-muted-foreground text-xs m-0">
+              Grabbing coffee while it reads the repo — watch the activity feed
+              →
+            </p>
+            <Button
+              size="sm"
+              variant="ghost"
+              className="mt-1"
+              onClick={() => action("cancel", { nodeKey: node.node_key })}
+            >
               <Square size={12} /> Stop agent
             </Button>
           </div>
         )}
 
-        {plans.length > 1 && <VersionTabs arts={plans} sel={current?.id} onSel={setSel} />}
-
-        {/* structured editable checklist — the machine-readable plan steps */}
-        {showChecklist && (
-          <PlanSteps flowId={flow.id} steps={planSteps} editable={awaiting} action={action} />
+        {plans.length > 1 && (
+          <VersionTabs arts={plans} sel={current?.id} onSel={setSel} />
         )}
 
-        {/* branch cards → expandable tabs (§8) */}
-        {branches && branches.length > 0 && (
-          <div className="mb-4">
+        {/* ── main plan (level 1) — always on top, never hidden by an open sub-plan ── */}
+        {current && (
+          <div>
             <h3 className="text-sm font-semibold mb-2 flex items-center gap-1.5">
-              <GitBranch size={14} /> {branches.length} branch{branches.length > 1 ? "es" : ""} planned
+              <Layers size={14} /> Main plan
             </h3>
 
-            {/* scoped-refine diff banner (§7.3) */}
-            {scopedDiff && (
-              <Card className="px-3.5 py-2.5 mb-2">
-                <button
-                  className="w-full flex items-center gap-2 text-left text-xs"
-                  onClick={() => setShowDiff((v) => !v)}
-                >
-                  <Badge variant="purple" className="shrink-0"><ArrowRightLeft size={10} /> {scopedDiff.branch}</Badge>
-                  <span className="text-muted">
-                    sub-plan refined (v{scopedDiff.from} → v{scopedDiff.to}) ·{" "}
-                    {[
-                      scopedDiff.diff.changed.length ? `${scopedDiff.diff.changed.length} step${scopedDiff.diff.changed.length > 1 ? "s" : ""} changed` : null,
-                      scopedDiff.diff.added.length ? `${scopedDiff.diff.added.length} added` : null,
-                      scopedDiff.diff.removed.length ? `${scopedDiff.diff.removed.length} removed` : null,
-                    ].filter(Boolean).join(", ")}
-                  </span>
-                  <span className="flex-1" />
-                  <span className="text-accent">{showDiff ? "hide diff" : "view diff"}</span>
-                  {showDiff ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
-                </button>
-                {showDiff && (
-                  <div className="mt-2 border-t border-border-soft pt-2 grid gap-1">
-                    {scopedDiff.diff.removed.map((s: DiffStep) => (
-                      <DiffRow key={`rm-${s.id}`} kind="removed" text={`${s.id}: ${s.title}`} sub={s.detail} />
-                    ))}
-                    {scopedDiff.diff.changed.map((c) => (
-                      <DiffRow
-                        key={`ch-${c.id}`}
-                        kind="changed"
-                        text={`${c.id}: ${c.after.title}`}
-                        sub={c.after.detail}
-                        before={`${c.before.id}: ${c.before.title}`}
-                        beforeSub={c.before.detail}
-                      />
-                    ))}
-                    {scopedDiff.diff.added.map((s: DiffStep) => (
-                      <DiffRow key={`ad-${s.id}`} kind="added" text={`${s.id}: ${s.title}`} sub={s.detail} />
-                    ))}
-                  </div>
-                )}
-              </Card>
-            )}
+            <ArtifactLoader
+              id={current.id}
+              fetchArtifact={fetchArtifact}
+              render={(a: any) => (
+                <div>
+                  {a.meta?.feedback && (
+                    <div className="text-xs text-muted-foreground border-l-[3px] border-violet-500 pl-2.5 mb-3">
+                      Refined from feedback: "{a.meta.feedback}"
+                    </div>
+                  )}
+                  <Card className="px-4 py-4">
+                    <Markdown className="text-[13px]">{a.content}</Markdown>
+                  </Card>
+                </div>
+              )}
+            />
+          </div>
+        )}
 
-            {/* staleness note above the overview when any branch doc is newer (§8) */}
+        {/* ── sub-plans (level 2) — indented under the main plan to show hierarchy ── */}
+        {branches && branches.length > 0 && (
+          <div className="ml-4 pl-4 border-l border-border">
+            <h3 className="text-sm font-semibold mb-2 flex items-center gap-1.5 text-muted-foreground">
+              <GitBranch size={14} /> Sub-plans · {branches.length} branch
+              {branches.length > 1 ? "es" : ""}
+            </h3>
+
+            {/* staleness note when any branch doc is newer than the overview (§8) */}
             {hasStaleBranches && (
-              <p className="text-[11.5px] text-muted mb-2 flex items-start gap-1.5">
+              <p className="text-[11.5px] text-muted-foreground mb-2 flex items-start gap-1.5">
                 <Info size={12} className="shrink-0 mt-[1px]" />
-                branch sub-plans are more recent than this overview — open a branch tab for its current document
+                branch sub-plans are more recent than this overview — open a
+                sub-plan for its current document
               </p>
             )}
 
@@ -298,70 +381,149 @@ export default function PlanView({ flow, node, action, fetchArtifact }:
               {branches.map((b: any) => {
                 const staleV = staleBranches.get(b.name);
                 const expanded = openBranchTab === b.name;
+                // scoped-refine provenance tag (§6/§7.3) — which plan changed, as a tag
+                // on the changed branch card itself; no expandable diff rows.
+                const refined =
+                  scopedDiff?.branch === b.name ? scopedDiff : null;
                 return (
-                  <Card key={b.name} className="px-4 py-3">
+                  <Card key={b.name} className="px-3.5 py-2.5 gap-0">
                     <button
-                      className="w-full flex items-center gap-2 mb-1 text-left"
+                      className="w-full flex items-center gap-2 text-left min-w-0"
                       onClick={() => setOpenBranchTab(expanded ? null : b.name)}
                     >
-                      {expanded ? <ChevronDown size={13} className="text-muted" /> : <ChevronRight size={13} className="text-muted" />}
-                      <Badge variant="blue">{b.name}</Badge>
-                      <span className="font-medium text-sm">{b.title}</span>
-                      {b.subPlan && <Badge variant="purple">sub-plan</Badge>}
-                      {b.markdown && <Badge variant="green">branch doc</Badge>}
-                      {staleV && (
-                        <Tooltip content={`This branch's document was refined by a scoped run (v${staleV}) newer than the overview you're viewing`}>
-                          <Badge variant="amber">● sub-plan refined v{staleV}</Badge>
+                      {expanded ? (
+                        <ChevronDown
+                          size={13}
+                          className="text-muted-foreground shrink-0"
+                        />
+                      ) : (
+                        <ChevronRight
+                          size={13}
+                          className="text-muted-foreground shrink-0"
+                        />
+                      )}
+                      <Badge className="bg-blue-500/10 text-blue-400 shrink-0">
+                        {b.name}
+                      </Badge>
+                      <span className="font-medium text-[13px] truncate">
+                        {b.title}
+                      </span>
+                      <span className="flex-1" />
+
+                      {refined && (
+                        <Tooltip>
+                          <TooltipTrigger>
+                            <Badge className="bg-amber-500/10 text-amber-400 shrink-0">
+                              <ArrowRightLeft size={10} /> refined v
+                              {refined.from} → v{refined.to}
+                            </Badge>
+                          </TooltipTrigger>
+                          <TooltipContent>
+                            This branch was refined by a scoped run (v
+                            {refined.from} → v{refined.to}):{" "}
+                            {[
+                              refined.diff.changed.length
+                                ? `${refined.diff.changed.length} step${refined.diff.changed.length > 1 ? "s" : ""} changed`
+                                : null,
+                              refined.diff.added.length
+                                ? `${refined.diff.added.length} added`
+                                : null,
+                              refined.diff.removed.length
+                                ? `${refined.diff.removed.length} removed`
+                                : null,
+                            ]
+                              .filter(Boolean)
+                              .join(", ")}{" "}
+                            — other branches untouched
+                          </TooltipContent>
                         </Tooltip>
                       )}
-                      {b.dependsOn?.length > 0 && (
-                        <span className="text-xs text-muted">depends on: {b.dependsOn.join(", ")}</span>
+                      {staleV && !refined && (
+                        <Tooltip>
+                          <TooltipTrigger>
+                            <Badge className="bg-amber-500/10 text-amber-400 shrink-0">
+                              ● sub-plan refined v{staleV}
+                            </Badge>
+                          </TooltipTrigger>
+                          <TooltipContent>
+                            This branch's document was refined by a scoped run
+                            (v{staleV}) newer than the overview you're viewing
+                          </TooltipContent>
+                        </Tooltip>
                       )}
                     </button>
-                    {b.scope && <p className="text-xs text-muted mb-1.5">{b.scope}</p>}
-                    <div className="flex gap-3 text-xs text-muted items-center">
-                      <span className="flex items-center gap-1"><FileCode size={11} /> {b.files?.length ?? 0} files</span>
-                      <span className="flex items-center gap-1"><ListChecks size={11} /> {b.steps?.length ?? 0} steps</span>
-                      <div className="flex-1" />
+                    {/* one compact meta row: scope · depends on · counts · refine */}
+                    <div className="flex items-center gap-3 text-[11.5px] text-muted-foreground mt-1.5">
+                      {b.scope && (
+                        <span className="truncate min-w-0" title={b.scope}>
+                          {b.scope}
+                        </span>
+                      )}
+                      {b.dependsOn?.length > 0 && (
+                        <span
+                          className="shrink-0"
+                          title={b.dependsOn.join(", ")}
+                        >
+                          ↳ depends on: {b.dependsOn.join(", ")}
+                        </span>
+                      )}
+                      <span className="flex-1" />
                       {awaiting && isCurrent && (
-                        <Tooltip content="Refine ONLY this branch's sub-plan — the agent rewrites one branch, not the whole plan; everything else stays untouched">
-                          <Button
-                            size="sm"
-                            variant="ghost"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              setRefineBranch(b.name);
-                              setFreshScoped(true); // scoped refines default to a fresh agent (§3)
-                              setOpenBranchTab(null);
-                            }}
-                          >
-                            <Pencil size={11} /> Refine sub-plan
-                          </Button>
+                        <Tooltip>
+                          <TooltipTrigger>
+                            <Button
+                              size="xs"
+                              variant="secondary"
+                              className="shrink-0"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setRefineBranch(b.name);
+                                setFreshScoped(true); // scoped refines default to a fresh agent (§3)
+                                setOpenBranchTab(null);
+                              }}
+                            >
+                              <Pencil size={11} /> Refine
+                            </Button>
+                          </TooltipTrigger>
+                          <TooltipContent>
+                            Refine ONLY this branch's sub-plan — the agent
+                            rewrites one branch, not the whole plan; everything
+                            else stays untouched
+                          </TooltipContent>
                         </Tooltip>
                       )}
                     </div>
 
                     {expanded && (
-                      <div className="mt-2 pt-2 border-t border-border-soft">
-                        {b.markdown ? (
-                          <Card className="md px-[18px] py-1 pb-3.5">
-                            <Markdown text={b.markdown} />
-                          </Card>
-                        ) : (
-                          <div className="px-1">
-                            <p className="text-xs text-muted mb-1.5">
-                              No branch document yet — refined sub-plans write one. The plan overview still covers this branch.
-                            </p>
-                            {b.subPlan?.prompt && (
-                              <p className="text-xs text-muted mb-1">
-                                <span className="text-text-dim">Sub-plan prompt:</span> {b.subPlan.prompt}
+                      <div className="mt-2 pt-1.5 border-t border-border">
+                        {/* bounded scrollable doc — expanding doesn't stretch the card */}
+                        <div className="max-h-72 overflow-y-auto scrollbar-thin">
+                          {b.markdown ? (
+                            <Markdown className="text-[13px]">
+                              {b.markdown}
+                            </Markdown>
+                          ) : (
+                            <div className="px-1">
+                              <p className="text-xs text-muted-foreground mb-1.5">
+                                No branch document yet — refined sub-plans write
+                                one. The main plan still covers this branch.
                               </p>
-                            )}
-                            {b.subPlan?.steps?.length > 0 && (
-                              <p className="text-xs text-muted">{b.subPlan.steps.length} sub-plan steps</p>
-                            )}
-                          </div>
-                        )}
+                              {b.subPlan?.prompt && (
+                                <p className="text-xs text-muted-foreground mb-1">
+                                  <span className="text-muted-foreground">
+                                    Sub-plan prompt:
+                                  </span>{" "}
+                                  {b.subPlan.prompt}
+                                </p>
+                              )}
+                              {b.subPlan?.steps?.length > 0 && (
+                                <p className="text-xs text-muted-foreground">
+                                  {b.subPlan.steps.length} sub-plan steps
+                                </p>
+                              )}
+                            </div>
+                          )}
+                        </div>
                       </div>
                     )}
                   </Card>
@@ -371,70 +533,24 @@ export default function PlanView({ flow, node, action, fetchArtifact }:
           </div>
         )}
 
-        {current && !openBranch && (
-          <ArtifactLoader id={current.id} fetchArtifact={fetchArtifact}
-            render={(a: any) => (
-              <div>
-                {a.meta?.feedback && (
-                  <div className="text-xs text-muted border-l-[3px] border-purple pl-2.5 mb-3">
-                    Refined from feedback: "{a.meta.feedback}"
-                  </div>
-                )}
-                <Card className="md px-[18px] py-1 pb-3.5">
-                  <Markdown text={a.content} />
-                </Card>
-              </div>
-            )} />
-        )}
-
-        {awaiting && isCurrent && (
-          <p className="text-muted text-xs mt-4 mb-0">
-            Want changes? Refine the plan from the chat on the right →
-          </p>
+        {/* structured editable checklist — the machine-readable plan steps, at the bottom */}
+        {showChecklist && (
+          <PlanSteps
+            flowId={flow.id}
+            steps={planSteps}
+            editable={awaiting}
+            action={action}
+          />
         )}
       </div>
 
       {/* fixed footer */}
-      {(plans.length === 0 && node.status === "pending") || (awaiting && isCurrent) ? (
-        <div className="flex items-center gap-3 px-5 py-3 border-t border-border-soft shrink-0">
-          {plans.length === 0 && node.status === "pending" ? (
-            <>
-              <label className="flex items-center gap-2 text-xs text-muted cursor-pointer select-none">
-                <Checkbox checked={decompose} onCheckedChange={(v) => setDecompose(v === true)} />
-                <Layers size={13} /> Decompose
-              </label>
-              <Tooltip
-                content={
-                  flow.execution_mode === "local"
-                    ? "Use built-in Task subagents to explore different areas of the repo in parallel, then merge the results into a single cohesive plan."
-                    : "Delegate exploration of different repo areas to sub-agents, then merge the results into a single cohesive plan."
-                }
-              >
-                <Info size={13} className="text-muted hover:text-text-dim cursor-help" />
-              </Tooltip>
-              <label className="flex items-center gap-2 text-xs text-muted cursor-pointer select-none">
-                <Checkbox checked={complex} onCheckedChange={(v) => setComplex(v === true)} />
-                <Braces size={13} /> Complex plan
-              </label>
-              <Tooltip
-                content="For bigger tickets with multiple parts: the agent returns JSON with markdown plan + steps + branches + sub-plans. Each branch can have its own sub-plan for a dedicated planning run."
-              >
-                <Info size={13} className="text-muted hover:text-text-dim cursor-help" />
-              </Tooltip>
-              <div className="flex-1" />
-              <Button variant="primary" onClick={() => startPlan()}>
-                <Compass size={15} /> Generate plan
-              </Button>
-            </>
-          ) : (
-            <>
-              <span className="text-xs text-muted">Ready to build?</span>
-              <div className="flex-1" />
-              <Button variant="success" onClick={() => action("approve_plan")}>
-                <Check size={15} /> {branches?.length > 1 ? `Approve all ${branches.length} branches & start build` : "Approve plan & start build"}
-              </Button>
-            </>
-          )}
+      {awaiting && isCurrent ? (
+        <div className="flex items-center gap-3 px-5 py-3 border-t border-border shrink-0">
+          <div className="flex-1" />
+          <Button variant="default" onClick={() => action("approve_plan")}>
+            <Check size={15} /> Approve plan
+          </Button>
         </div>
       ) : null}
 
@@ -467,29 +583,6 @@ export default function PlanView({ flow, node, action, fetchArtifact }:
           hasAgent={Boolean(node.agent_id)}
         />
       )}
-    </div>
-  );
-}
-
-/** One old-vs-new step row in the expandable diff banner. */
-function DiffRow({ kind, text, sub, before, beforeSub }:
-  { kind: "added" | "removed" | "changed"; text: string; sub?: string; before?: string; beforeSub?: string }) {
-  const icon =
-    kind === "added" ? <Plus size={11} className="text-green shrink-0" />
-    : kind === "removed" ? <Minus size={11} className="text-red shrink-0" />
-    : <ArrowRightLeft size={11} className="text-amber shrink-0" />;
-  return (
-    <div className="flex items-start gap-2 text-[12px]">
-      {icon}
-      {before != null && (
-        <span className="text-muted line-through decoration-red/60 min-w-0">
-          {before}{beforeSub ? ` — ${beforeSub}` : ""}
-        </span>
-      )}
-      {before != null && <ArrowRightLeft size={10} className="text-muted shrink-0 mt-[2px]" />}
-      <span className={kind === "removed" ? "text-muted line-through min-w-0" : "min-w-0"}>
-        {text}{sub ? ` — ${sub}` : ""}
-      </span>
     </div>
   );
 }

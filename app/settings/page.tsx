@@ -4,9 +4,9 @@ import {
   ArrowLeft, Cloud, Cpu, Database, FileText, GitBranch, FolderGit2, Globe,
   Pencil, Plus, RefreshCw, Trash2, CheckCircle2, XCircle,
 } from "lucide-react";
-import { useModels } from "../../components/ModelSelect";
+import { useModels } from "../../components/ModelSelector";
 import { Alert } from "../../components/ui/alert";
-import { Badge, BadgeDot } from "../../components/ui/badge";
+import { Badge } from "../../components/ui/badge";
 import { Button } from "../../components/ui/button";
 import { Card } from "../../components/ui/card";
 import { Input } from "../../components/ui/input";
@@ -61,7 +61,7 @@ export default function SettingsPage() {
   return (
     <main className="max-w-[1000px] mx-auto px-6 py-8">
       <header className="flex items-center gap-3.5 mb-7">
-        <a href="/" className="inline-flex items-center gap-1.5 text-muted hover:text-text-dim">
+        <a href="/" className="inline-flex items-center gap-1.5 text-muted-foreground hover:text-muted-foreground">
           <ArrowLeft size={15} /> DevFlow
         </a>
         <span className="text-border">|</span>
@@ -69,7 +69,7 @@ export default function SettingsPage() {
       </header>
 
       {error && (
-        <Alert variant="red" className="mb-5">
+        <Alert variant="destructive" className="mb-5">
           <XCircle size={16} /><span className="flex-1">{error}</span>
         </Alert>
       )}
@@ -100,10 +100,10 @@ function StatusBar({ settings }: { settings: Settings }) {
   ];
   return (
     <Card className="flex flex-wrap gap-2.5 items-center px-4 py-3 mb-7">
-      <span className="text-[12px] text-muted uppercase tracking-[1px] mr-1">Status</span>
+      <span className="text-[12px] text-muted-foreground uppercase tracking-[1px] mr-1">Status</span>
       {items.map((i) => (
-        <Badge key={i.label} variant={i.ok ? "green" : "amber"}>
-          <BadgeDot />{i.label}
+        <Badge key={i.label} className={i.ok ? "bg-emerald-500/10 text-emerald-400" : "bg-amber-500/10 text-amber-400"}>
+          <span className="size-1.5 rounded-full bg-current" />{i.label}
         </Badge>
       ))}
     </Card>
@@ -119,7 +119,7 @@ function ExecutionSection({ settings, onSave }: { settings: Settings; onSave: (p
     : models?.models ?? [];
   return (
     <section className="mb-8">
-      <h2 className="text-[13px] mb-3 text-muted uppercase tracking-[1px] flex items-center gap-[7px]">
+      <h2 className="text-[13px] mb-3 text-muted-foreground uppercase tracking-[1px] flex items-center gap-[7px]">
         <Cpu size={14} /> Agent execution
       </h2>
       <Card className="p-4 grid gap-4">
@@ -130,7 +130,7 @@ function ExecutionSection({ settings, onSave }: { settings: Settings; onSave: (p
               <Button
                 key={m}
                 size="sm"
-                variant={mode === m ? "primary" : "default"}
+                variant={mode === m ? "default" : "outline"}
                 onClick={() => onSave({ default_execution_mode: m })}
               >
                 {m === "cloud" ? <Cloud size={13} /> : <FolderGit2 size={13} />}
@@ -138,18 +138,18 @@ function ExecutionSection({ settings, onSave }: { settings: Settings; onSave: (p
               </Button>
             ))}
           </div>
-          <p className="text-muted text-[12px] mt-2">
+          <p className="text-muted-foreground text-[12px] mt-2">
             Cloud: agents run on Cursor infrastructure against the repo&apos;s cloud URL (needs CURSOR_API_KEY).
             Local: agents run in-process via the Cursor SDK on this machine in the repo&apos;s configured local path (Node 22.13+ and CURSOR_API_KEY).
           </p>
         </div>
-        <div className="border-t border-border-soft pt-4">
+        <div className="border-t border-border pt-4">
           <div className="text-[13px] font-medium mb-2">Default model</div>
           <div className="flex gap-2 items-center">
             <select
               value={settings.default_model}
               onChange={(e) => onSave({ default_model: e.target.value })}
-              className="bg-panel-2 text-text border border-border rounded-[9px] px-3 py-[9px] text-[13px] font-sans transition-colors duration-150 focus:outline-none focus:border-accent focus:ring-[3px] focus:ring-accent-soft max-w-[280px]"
+              className="bg-card text-foreground border border-border rounded-[9px] px-3 py-[9px] text-[13px] font-sans transition-colors duration-150 focus:outline-none focus:border-blue-500 focus:ring-[3px] focus:ring-accent-soft max-w-[280px]"
             >
               <option value="">Account default{models?.source === "catalog" ? "" : " (or DEFAULT_MODEL env)"}</option>
               {modelOptions.map((m) => (
@@ -157,14 +157,14 @@ function ExecutionSection({ settings, onSave }: { settings: Settings; onSave: (p
               ))}
             </select>
             {models?.source === "fallback" && (
-              <span className="text-[12px] text-muted">model catalog unavailable — showing built-in list</span>
+              <span className="text-[12px] text-muted-foreground">model catalog unavailable — showing built-in list</span>
             )}
           </div>
-          <p className="text-muted text-[12px] mt-2">
+          <p className="text-muted-foreground text-[12px] mt-2">
             Used for every agent run unless a different model is picked when running a node. Overrides the <code className="font-mono">DEFAULT_MODEL</code> env var.
           </p>
         </div>
-        <div className="border-t border-border-soft pt-4">
+        <div className="border-t border-border pt-4">
           <div className="text-[13px] font-medium mb-2">Comment resolution</div>
           <div className="flex gap-2 items-center">
             <Input
@@ -180,30 +180,30 @@ function ExecutionSection({ settings, onSave }: { settings: Settings; onSave: (p
                 }
               }}
             />
-            <span className="text-[12px] text-muted">minutes of quiet before auto-resolve starts</span>
+            <span className="text-[12px] text-muted-foreground">minutes of quiet before auto-resolve starts</span>
           </div>
-          <p className="text-muted text-[12px] mt-2">
+          <p className="text-muted-foreground text-[12px] mt-2">
             New MR comments don&apos;t trigger the Resolve node immediately — it waits for the pipeline
             step to pass, then starts only after no new comment has arrived for this long (each new
             comment resets the timer). Set to 0 to resolve as soon as the pipeline is green.
             The <code className="font-mono">RESOLVE_DELAY_MINUTES</code> env var is the fallback when no value is saved here.
           </p>
         </div>
-        <div className="border-t border-border-soft pt-4">
+        <div className="border-t border-border pt-4">
           <div className="text-[13px] font-medium mb-2">Local agent options</div>
           <div className="flex flex-wrap gap-2 items-center">
-            <Button size="sm" variant={la.force ? "primary" : "default"} onClick={() => onSave({ local_agent: { force: !la.force } })}>
+            <Button size="sm" variant={la.force ? "default" : "outline"} onClick={() => onSave({ local_agent: { force: !la.force } })}>
               Auto-approve tools (--force): {la.force ? "on" : "off"}
             </Button>
-            <Button size="sm" variant={la.sandbox ? "primary" : "default"} onClick={() => onSave({ local_agent: { sandbox: !la.sandbox } })}>
+            <Button size="sm" variant={la.sandbox ? "default" : "outline"} onClick={() => onSave({ local_agent: { sandbox: !la.sandbox } })}>
               Sandbox: {la.sandbox ? "on" : "off"}
             </Button>
-            <span className="text-[12px] text-muted ml-1">
+            <span className="text-[12px] text-muted-foreground ml-1">
               Timeout: {Math.round(la.timeout_ms / 60000)} min
             </span>
           </div>
           {!la.force && (
-            <p className="text-amber text-[12px] mt-2">
+            <p className="text-amber-400 text-[12px] mt-2">
               Note: local runs are unattended — without --force the agent may stall waiting for tool approval.
             </p>
           )}
@@ -240,10 +240,10 @@ function PromptTemplatesSection({ templates, onSave }: { templates: Record<strin
 
   return (
     <section className="mb-8">
-      <h2 className="text-[13px] mb-3 text-muted uppercase tracking-[1px] flex items-center gap-[7px]">
+      <h2 className="text-[13px] mb-3 text-muted-foreground uppercase tracking-[1px] flex items-center gap-[7px]">
         <FileText size={14} /> Prompt templates
       </h2>
-      <p className="text-muted text-[12.5px] mb-3">
+      <p className="text-muted-foreground text-[12.5px] mb-3">
         Default prompts sent to each node. Use <code className="font-mono">{"{{variable}}"}</code> placeholders.
         Per-run overrides can be set from the flow screen.
       </p>
@@ -252,10 +252,10 @@ function PromptTemplatesSection({ templates, onSave }: { templates: Record<strin
           <Card key={key} className="p-4">
             <div className="flex items-center gap-2 mb-1.5">
               <span className="font-medium text-[13.5px]">{tpl.label}</span>
-              <Badge variant="blue">{key}</Badge>
+              <Badge className="bg-blue-500/10 text-blue-400">{key}</Badge>
               <Badge>{tpl.mode}</Badge>
             </div>
-            <p className="text-muted text-[12px] mb-2">{tpl.description}</p>
+            <p className="text-muted-foreground text-[12px] mb-2">{tpl.description}</p>
             <div className="flex flex-wrap gap-1 mb-2">
               {tpl.variables.map((v) => (
                 <Badge key={v} className="font-mono text-[10px]">{`{{${v}}}`}</Badge>
@@ -272,7 +272,7 @@ function PromptTemplatesSection({ templates, onSave }: { templates: Record<strin
       </div>
       {dirty && (
         <div className="mt-3">
-          <Button variant="primary" onClick={save} disabled={saving}>
+          <Button variant="default" onClick={save} disabled={saving}>
             {saving ? <Spinner /> : <CheckCircle2 size={14} />} Save prompt templates
           </Button>
         </div>
@@ -313,34 +313,34 @@ function ReposSection({ repos, onChanged, onError }: { repos: Repo[]; onChanged:
 
   return (
     <section className="mb-8">
-      <h2 className="text-[13px] mb-3 text-muted uppercase tracking-[1px] flex items-center gap-[7px]">
+      <h2 className="text-[13px] mb-3 text-muted-foreground uppercase tracking-[1px] flex items-center gap-[7px]">
         <Database size={14} /> Repositories
       </h2>
       <div className="grid gap-2.5 mb-3">
         {repos.map((r) => (
           <Card key={r.id} className="flex items-center gap-2.5 px-4 py-3 flex-wrap">
-            <FolderGit2 size={15} className="text-muted shrink-0" />
+            <FolderGit2 size={15} className="text-muted-foreground shrink-0" />
             <div className="flex-1 min-w-[220px]">
               <div className="font-medium text-[13.5px]">{r.name}</div>
-              <div className="text-muted text-[12px] font-mono truncate">{r.cloud_url}</div>
-              <div className="text-muted text-[12px] font-mono truncate flex items-center gap-1.5">
+              <div className="text-muted-foreground text-[12px] font-mono truncate">{r.cloud_url}</div>
+              <div className="text-muted-foreground text-[12px] font-mono truncate flex items-center gap-1.5">
                 {r.local_path ?? "(no local path — cloud mode only)"}
                 {r.local_path && (
                   r.local_path_exists
-                    ? <CheckCircle2 size={12} className="text-green" />
-                    : <XCircle size={12} className="text-red" />
+                    ? <CheckCircle2 size={12} className="text-emerald-400" />
+                    : <XCircle size={12} className="text-rose-400" />
                 )}
               </div>
             </div>
             <Badge><GitBranch size={11} /> {r.default_branch}</Badge>
-            {r.local_path && <Badge variant="blue">local-ready</Badge>}
+            {r.local_path && <Badge className="bg-blue-500/10 text-blue-400">local-ready</Badge>}
             <Button size="sm" onClick={() => { setEditing(r.id); setForm({ name: r.name, cloud_url: r.cloud_url, local_path: r.local_path ?? "", default_branch: r.default_branch }); }}>
               <Pencil size={12} /> Edit
             </Button>
-            <Button size="sm" variant="dangerGhost" onClick={() => del(r.id)}><Trash2 size={12} /></Button>
+            <Button size="sm" variant="ghost" className="text-rose-400 hover:text-rose-300 hover:bg-rose-500/10" onClick={() => del(r.id)}><Trash2 size={12} /></Button>
           </Card>
         ))}
-        {repos.length === 0 && <p className="text-muted text-[13px]">No repos registered yet — add one below.</p>}
+        {repos.length === 0 && <p className="text-muted-foreground text-[13px]">No repos registered yet — add one below.</p>}
       </div>
 
       <Card className="p-4">
@@ -353,7 +353,7 @@ function ReposSection({ repos, onChanged, onError }: { repos: Repo[]; onChanged:
           <Input placeholder="Cloud URL (e.g. https://gitlab.company.com/group/repo)" value={form.cloud_url} onChange={(e) => setForm({ ...form, cloud_url: e.target.value })} />
           <Input placeholder="Local path (e.g. ~/work/repo — required for local mode)" value={form.local_path} onChange={(e) => setForm({ ...form, local_path: e.target.value })} />
           <div className="flex gap-2">
-            <Button variant="primary" onClick={submit} disabled={saving || !form.name || !form.cloud_url}>
+            <Button variant="default" onClick={submit} disabled={saving || !form.name || !form.cloud_url}>
               {saving ? <Spinner /> : <Plus size={13} />} {editing ? "Save changes" : "Add repo"}
             </Button>
             {editing && <Button onClick={() => { setEditing(null); setForm(empty); }}>Cancel</Button>}
@@ -402,23 +402,23 @@ function InstancesSection({ instances, onChanged, onError }: { instances: Instan
 
   return (
     <section className="mb-8">
-      <h2 className="text-[13px] mb-3 text-muted uppercase tracking-[1px] flex items-center gap-[7px]">
+      <h2 className="text-[13px] mb-3 text-muted-foreground uppercase tracking-[1px] flex items-center gap-[7px]">
         <Globe size={14} /> GitLab instances
       </h2>
-      <p className="text-muted text-[12.5px] mb-3">
+      <p className="text-muted-foreground text-[12.5px] mb-3">
         Add one entry per self-hosted GitLab domain. DevFlow picks the token whose domain matches each repo&apos;s cloud URL.
         If no entry matches, it falls back to <code className="font-mono">GITLAB_BASE_URL</code>/<code className="font-mono">GITLAB_TOKEN</code> from <code className="font-mono">.env</code>.
       </p>
       <div className="grid gap-2.5 mb-3">
         {instances.map((i) => (
           <Card key={i.id} className="flex items-center gap-2.5 px-4 py-3 flex-wrap">
-            <Globe size={15} className="text-muted shrink-0" />
+            <Globe size={15} className="text-muted-foreground shrink-0" />
             <div className="flex-1 min-w-[220px]">
               <div className="font-medium text-[13.5px]">{i.name || i.base_url}</div>
-              <div className="text-muted text-[12px] font-mono">{i.base_url} · token {i.token}</div>
+              <div className="text-muted-foreground text-[12px] font-mono">{i.base_url} · token {i.token}</div>
             </div>
             {testResult[i.id] && (
-              <Badge variant={testResult[i.id].ok ? "green" : "red"}>
+              <Badge variant={testResult[i.id].ok ? undefined : "destructive"} className={testResult[i.id].ok ? "bg-emerald-500/10 text-emerald-400" : undefined}>
                 {testResult[i.id].ok ? <CheckCircle2 size={11} /> : <XCircle size={11} />}
                 {testResult[i.id].detail.slice(0, 60)}
               </Badge>
@@ -426,10 +426,10 @@ function InstancesSection({ instances, onChanged, onError }: { instances: Instan
             <Button size="sm" onClick={() => test(i.id)} disabled={testing === i.id}>
               {testing === i.id ? <Spinner /> : <RefreshCw size={12} />} Test
             </Button>
-            <Button size="sm" variant="dangerGhost" onClick={() => del(i.id)}><Trash2 size={12} /></Button>
+            <Button size="sm" variant="ghost" className="text-rose-400 hover:text-rose-300 hover:bg-rose-500/10" onClick={() => del(i.id)}><Trash2 size={12} /></Button>
           </Card>
         ))}
-        {instances.length === 0 && <p className="text-muted text-[13px]">No instances registered — using .env for all repos.</p>}
+        {instances.length === 0 && <p className="text-muted-foreground text-[13px]">No instances registered — using .env for all repos.</p>}
       </div>
 
       <Card className="p-4">
@@ -441,7 +441,7 @@ function InstancesSection({ instances, onChanged, onError }: { instances: Instan
           </div>
           <Input placeholder="Personal access token (api scope)" type="password" value={form.token} onChange={(e) => setForm({ ...form, token: e.target.value })} />
           <div>
-            <Button variant="primary" onClick={submit} disabled={saving || !form.base_url || !form.token}>
+            <Button variant="default" onClick={submit} disabled={saving || !form.base_url || !form.token}>
               {saving ? <Spinner /> : <Plus size={13} />} Add instance
             </Button>
           </div>

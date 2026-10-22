@@ -3,7 +3,7 @@ import { useEffect, useState, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { RefreshCw, Play, Frame, GitMerge, Ticket, Workflow, AlertTriangle, ExternalLink, Settings as SettingsIcon, Cloud, FolderGit2 } from "lucide-react";
 import { Alert } from "../components/ui/alert";
-import { Badge, BadgeDot } from "../components/ui/badge";
+import { Badge } from "../components/ui/badge";
 import { Button } from "../components/ui/button";
 import { Card } from "../components/ui/card";
 import { Spinner } from "../components/ui/spinner";
@@ -87,7 +87,7 @@ export default function Home() {
       <header className="flex items-center gap-3.5 mb-7">
         <div>
           <h1 className="text-2xl m-0 bg-gradient-to-br from-[#5b8def] to-[#a78bfa] bg-clip-text text-transparent">DevFlow</h1>
-          <div className="text-muted text-[12.5px] mt-0.5">Jira → Plan → Build → MR → CI → Review</div>
+          <div className="text-muted-foreground text-[12.5px] mt-0.5">Jira → Plan → Build → MR → CI → Review</div>
         </div>
         <div className="flex-1" />
         <a href="/settings">
@@ -99,13 +99,13 @@ export default function Home() {
       </header>
 
       {!jiraConfigured && (
-        <Alert variant="amber" className="mb-6">
+        <Alert className="bg-amber-500/10 text-amber-400 mb-6">
           <AlertTriangle size={16} />
           <span>Jira is not configured. Fill in <code className="font-mono">.env</code> (see <code className="font-mono">.env.example</code>) and restart.</span>
         </Alert>
       )}
       {repos.length === 0 && (
-        <Alert variant="amber" className="mb-6">
+        <Alert className="bg-amber-500/10 text-amber-400 mb-6">
           <AlertTriangle size={16} />
           <span>No repos registered yet — <a href="/settings" className="underline">add your repos on the Settings page</a> to start flows.</span>
         </Alert>
@@ -113,20 +113,20 @@ export default function Home() {
 
       {flows.length > 0 && (
         <section className="mb-8">
-          <h2 className="text-[13px] mb-3 text-muted uppercase tracking-[1px] flex items-center gap-[7px]">
+          <h2 className="text-[13px] mb-3 text-muted-foreground uppercase tracking-[1px] flex items-center gap-[7px]">
             <Workflow size={14} /> Active flows
           </h2>
           <div className="grid gap-2.5">
             {flows.map((f) => (
               <a key={f.id} href={`/flows/${f.id}`}>
-                <Card className="flex gap-3 items-center px-4 py-[13px] text-text hover:border-border transition-colors">
-                  <Badge variant="blue">{f.ticket_key}</Badge>
+                <Card className="flex gap-3 items-center px-4 py-[13px] text-foreground hover:border-border transition-colors">
+                  <Badge className="bg-blue-500/10 text-blue-400">{f.ticket_key}</Badge>
                   <span className="flex-1 font-medium">{f.ticket_summary}</span>
                   {f.execution_mode === "local"
                     ? <Badge><FolderGit2 size={11} /> local</Badge>
                     : <Badge><Cloud size={11} /> cloud</Badge>}
-                  {f.mr_url && <Badge variant="purple"><GitMerge size={11} /> MR open</Badge>}
-                  <Badge variant={f.status === "active" ? "green" : "default"}><BadgeDot />{f.status}</Badge>
+                  {f.mr_url && <Badge className="bg-violet-500/10 text-violet-400"><GitMerge size={11} /> MR open</Badge>}
+                  <Badge className={f.status === "active" ? "bg-emerald-500/10 text-emerald-400" : undefined}><span className="size-1.5 rounded-full bg-current" />{f.status}</Badge>
                 </Card>
               </a>
             ))}
@@ -135,10 +135,10 @@ export default function Home() {
       )}
 
       <section>
-        <h2 className="text-[13px] mb-3 text-muted uppercase tracking-[1px] flex items-center gap-[7px]">
+        <h2 className="text-[13px] mb-3 text-muted-foreground uppercase tracking-[1px] flex items-center gap-[7px]">
           <Ticket size={14} /> My tickets
         </h2>
-        {tickets.length === 0 && <p className="text-muted">No tickets yet — click “Sync Jira tickets”.</p>}
+        {tickets.length === 0 && <p className="text-muted-foreground">No tickets yet — click “Sync Jira tickets”.</p>}
         <div className="grid gap-3">
           {tickets.map((t) => {
             const mode = modeFor[t.id] ?? defaultMode;
@@ -146,16 +146,16 @@ export default function Home() {
             return (
               <Card key={t.id} className="p-4">
                 <div className="flex gap-2.5 items-center flex-wrap">
-                  <a href={t.jiraUrl} target="_blank"><Badge variant="blue">{t.key} <ExternalLink size={9} /></Badge></a>
+                  <a href={t.jiraUrl} target="_blank"><Badge className="bg-blue-500/10 text-blue-400">{t.key} <ExternalLink size={9} /></Badge></a>
                   <strong className="flex-1 min-w-[200px] text-sm">{t.summary}</strong>
                   <Badge>{t.issueType}</Badge>
-                  <Badge variant="amber">{t.status}</Badge>
+                  <Badge className="bg-amber-500/10 text-amber-400">{t.status}</Badge>
                   {t.priority && <Badge>{t.priority}</Badge>}
                 </div>
                 {t.figmaUrls.length > 0 && (
                   <div className="mt-2.5 flex gap-1.5 flex-wrap">
                     {t.figmaUrls.map((u) => (
-                      <a key={u} href={u} target="_blank"><Badge variant="purple"><Frame size={11} /> {u.replace(/https?:\/\/(www\.)?figma\.com\//, "").slice(0, 40)}…</Badge></a>
+                      <a key={u} href={u} target="_blank"><Badge className="bg-violet-500/10 text-violet-400"><Frame size={11} /> {u.replace(/https?:\/\/(www\.)?figma\.com\//, "").slice(0, 40)}…</Badge></a>
                     ))}
                   </div>
                 )}
@@ -163,7 +163,7 @@ export default function Home() {
                   <select
                     value={repoFor[t.id] ?? ""}
                     onChange={(e) => setRepoFor({ ...repoFor, [t.id]: e.target.value })}
-                    className="flex-1 min-w-[220px] bg-panel-2 text-text border border-border rounded-[9px] px-3 py-[9px] text-[13px] focus:outline-none focus:border-accent"
+                    className="flex-1 min-w-[220px] bg-card text-foreground border border-border rounded-[9px] px-3 py-[9px] text-[13px] focus:outline-none focus:border-blue-500"
                   >
                     <option value="">Select repo…</option>
                     {repos.map((r) => (
@@ -173,14 +173,14 @@ export default function Home() {
                   <select
                     value={mode}
                     onChange={(e) => setModeFor({ ...modeFor, [t.id]: e.target.value as "cloud" | "local" })}
-                    className="bg-panel-2 text-text border border-border rounded-[9px] px-3 py-[9px] text-[13px] focus:outline-none focus:border-accent"
+                    className="bg-card text-foreground border border-border rounded-[9px] px-3 py-[9px] text-[13px] focus:outline-none focus:border-blue-500"
                   >
                     <option value="cloud">☁ Cloud agent</option>
                     <option value="local" disabled={!selectedRepo?.local_path}>
                       💻 Local (SDK){!selectedRepo?.local_path ? " (no local path)" : ""}
                     </option>
                   </select>
-                  <Button variant="primary" onClick={() => startFlow(t)}><Play size={14} /> Build ticket</Button>
+                  <Button variant="default" onClick={() => startFlow(t)}><Play size={14} /> Build ticket</Button>
                 </div>
               </Card>
             );

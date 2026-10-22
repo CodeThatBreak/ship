@@ -75,7 +75,8 @@ export class FlowEngine {
         db.uid("node_"), id, def.key, def.key, ts, ts
       );
     }
-    db.emitEvent(id, null, "lifecycle", `flow created for ${ticket.key} (${executionMode} mode)`);
+    // no "flow created" announcement event — the chat feed starts with the
+    // user's first message instead of boilerplate
     return id;
   }
 
@@ -674,14 +675,14 @@ export class FlowEngine {
    * (usually a full refinement run); `chatOnly` asks for a lightweight
    * conversational reply that leaves node state and artifacts untouched.
    */
-  sendChat(flowId: string, nodeKey: string, content: string, chatOnly = false): void {
+  sendChat(flowId: string, nodeKey: string, content: string, chatOnly = false, model?: string): void {
     const def = nodeRegistry.get(nodeKey); // validates the key
     db.addMessage(flowId, nodeKey, "user", content);
     this.setCurrentNode(flowId, nodeKey);
     this.bg(flowId, nodeKey, async () => {
       const reply = chatOnly
         ? await def.converse(this.ctx(flowId), content)
-        : await def.chat(this.ctx(flowId), content);
+        : await def.chat(this.ctx(flowId), content, model);
       db.addMessage(flowId, nodeKey, "assistant", reply || "Done.");
       this.setCurrentNode(flowId, null);
     });

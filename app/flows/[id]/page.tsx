@@ -1,14 +1,13 @@
 "use client";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useParams } from "next/navigation";
-import { ArrowLeft, Frame, GitMerge, MessageSquare, Activity, Cloud, FolderGit2, Coins } from "lucide-react";
+import { ArrowLeft, Frame, GitMerge, Cloud, FolderGit2, Coins } from "lucide-react";
 import WorkflowGraph from "../../../components/WorkflowGraph";
 import NodePanel from "../../../components/NodePanel";
-import ActivityFeed from "../../../components/ActivityFeed";
 import ChatPanel from "../../../components/ChatPanel";
-import { Badge, BadgeDot } from "../../../components/ui/badge";
+import { Badge } from "../../../components/ui/badge";
 import { Spinner } from "../../../components/ui/spinner";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "../../../components/ui/tabs";
+import { composeModelChoice, type ModelChoice } from "../../../lib/modelSpec";
 
 export type Artifact = { id: string; kind: string; version: number; status: string; feedback?: string; created_at: string; meta?: any };
 export type NodeCost = { totalCents: number; tokens: number; runs: any[] };
@@ -82,9 +81,38 @@ export default function FlowScreen() {
     loadFlow();
   }, [id, loadFlow]);
 
+  // one model override for this flow's runs — picked in the chat panel's
+  // model selector, consumed by every run-start action below
+  const [modelChoice, setModelChoice] = useState<ModelChoice | null>(null);
+  const model = composeModelChoice(modelChoice);
+
+  // plan generation options — toggled via the icon buttons in the chat panel's
+  // prompt box / input row, shared by start_plan and refine runs
+  const [planOptions, setPlanOptions] = useState({ decompose: false, complex: false });
+
   const node = useMemo(
     () => flow?.nodes.find((n) => n.node_key === selected) ?? flow?.nodes[0],
     [flow, selected]
+  );
+
+  const hasPlan = Boolean(node?.artifacts.some((a) => a.kind === "plan"));
+  // the prompt preview box sits over the chat: plan tab, before any plan exists
+  const planPending =
+    node?.node_key === "plan" && !hasPlan && node?.status === "pending";
+
+  // start (or restart) the plan run — triggered from the prompt box over the
+  // chat or by running an edited prompt in the prompt modal
+  const startPlan = useCallback(
+    (opts?: { prompt?: string; promptIsBody?: boolean }) => {
+      return action("start_plan", {
+        prompt: opts?.prompt,
+        promptIsBody: opts?.promptIsBody || undefined,
+        decompose: planOptions.decompose || undefined,
+        complex: planOptions.complex || undefined,
+        model: model || undefined,
+      });
+    },
+    [action, planOptions.decompose, planOptions.complex, model]
   );
 
   const nodeKeysByNodeId = useMemo(
@@ -100,19 +128,19 @@ export default function FlowScreen() {
   return (
     <main className="flex flex-col h-screen">
       {/* header */}
-      <header className="flex items-center gap-2.5 px-5 py-3 border-b border-border-soft bg-panel">
-        <a href="/" className="inline-flex items-center gap-1.5 text-muted hover:text-text-dim">
+      <header className="flex items-center gap-2.5 px-5 py-3 border-b border-border bg-card">
+        <a href="/" className="inline-flex items-center gap-1.5 text-muted-foreground hover:text-muted-foreground">
           <ArrowLeft size={15} /> DevFlow
         </a>
         <span className="text-border">|</span>
-        <a href={flow.ticket.jiraUrl} target="_blank"><Badge variant="blue">{flow.ticket.key}</Badge></a>
+        <a href={flow.ticket.jiraUrl} target="_blank"><Badge className="bg-blue-500/10 text-blue-400">{flow.ticket.key}</Badge></a>
         <strong className="text-sm">{flow.ticket.summary}</strong>
-        <Badge variant="amber">{flow.ticket.status}</Badge>
+        <Badge className="bg-amber-500/10 text-amber-400">{flow.ticket.status}</Badge>
         {flow.execution_mode === "local"
           ? <Badge><FolderGit2 size={11} /> local</Badge>
           : <Badge><Cloud size={11} /> cloud</Badge>}
         {flow.ticket.figmaUrls.length > 0 && (
-          <a href={flow.ticket.figmaUrls[0]} target="_blank"><Badge variant="purple"><Frame size={11} /> Figma</Badge></a>
+          <a href={flow.ticket.figmaUrls[0]} target="_blank"><Badge className="bg-violet-500/10 text-violet-400"><Frame size={11} /> Figma</Badge></a>
         )}
         <div className="flex-1" />
         {flow.cost && flow.cost.runCount > 0 && (
@@ -125,50 +153,45 @@ export default function FlowScreen() {
           <span className="flex gap-1">
             {flow.branches.filter((b: BranchRow) => b.mr_url).map((b: BranchRow) => (
               <a key={b.id} href={b.mr_url} target="_blank">
-                <Badge variant="purple"><GitMerge size={11} /> {b.name} !{b.mr_iid}</Badge>
+                <Badge className="bg-violet-500/10 text-violet-400"><GitMerge size={11} /> {b.name} !{b.mr_iid}</Badge>
               </a>
             ))}
           </span>
         ) : flow.mr_url ? (
-          <a href={flow.mr_url} target="_blank"><Badge variant="purple"><GitMerge size={11} /> MR !{flow.mr_iid}</Badge></a>
+          <a href={flow.mr_url} target="_blank"><Badge className="bg-violet-500/10 text-violet-400"><GitMerge size={11} /> MR !{flow.mr_iid}</Badge></a>
         ) : (
           <Badge>no MR yet</Badge>
         )}
-        <Badge variant={flow.status === "active" ? "green" : "default"}>
-          <BadgeDot />{flow.status}
+        <Badge className={flow.status === "active" ? "bg-emerald-500/10 text-emerald-400" : undefined}>
+          <span className="size-1.5 rounded-full bg-current" />{flow.status}
         </Badge>
       </header>
 
       {/* workflow graph */}
-      <div className="border-b border-border-soft bg-bg-soft px-3 py-2.5 overflow-x-auto">
+      <div className="border-b border-border bg-background px-3 py-2.5 overflow-x-auto">
         <WorkflowGraph nodes={flow.nodes} selected={node?.node_key ?? ""} onSelect={(k) => { userSelected.current = true; setSelected(k); }} currentNode={flow.current_node} />
       </div>
 
       {/* main split: node panel + right rail */}
       <div className="flex flex-1 min-h-0">
-        <section className="flex-[1.6] border-r border-border-soft flex flex-col min-h-0 min-w-0">
-          {node && <NodePanel flow={flow} node={node} action={action} events={events} />}
+        <section className="flex-[1.6] border-r border-border flex flex-col min-h-0 min-w-0">
+          {node && <NodePanel flow={flow} node={node} action={action} events={events} model={model} planOptions={planOptions} />}
         </section>
-        <aside className="flex-1 flex flex-col bg-panel min-w-[340px]">
-          <Tabs defaultValue="chat" className="flex flex-col flex-1 min-h-0">
-            <TabsList className="px-3.5">
-              <TabsTrigger value="chat"><MessageSquare size={13} /> Chat</TabsTrigger>
-              <TabsTrigger value="activity"><Activity size={13} /> Activity</TabsTrigger>
-            </TabsList>
-            <TabsContent value="chat" className="flex-1 min-h-0 p-3.5 flex flex-col overflow-hidden data-[state=inactive]:hidden">
-              <ChatPanel
-                flowId={flow.id}
-                nodeKey={node?.node_key ?? "plan"}
-                busy={busy}
-                canRefine={Boolean(node?.artifacts.some((a) => a.kind === "plan"))}
-              />
-            </TabsContent>
-            <TabsContent value="activity" className="flex-1 min-h-0 p-3.5 overflow-hidden data-[state=inactive]:hidden">
-              <div className="scroll h-full">
-                <ActivityFeed events={events} nodeKeysByNodeId={nodeKeysByNodeId} />
-              </div>
-            </TabsContent>
-          </Tabs>
+        <aside className="flex-1 flex flex-col bg-card min-w-[340px] p-3.5">
+          <ChatPanel
+            flowId={flow.id}
+            nodeKey={node?.node_key ?? "plan"}
+            busy={busy}
+            canRefine={Boolean(node?.artifacts.some((a) => a.kind === "plan"))}
+            events={events}
+            nodeKeysByNodeId={nodeKeysByNodeId}
+            modelChoice={modelChoice}
+            setModelChoice={setModelChoice}
+            showPromptBox={planPending}
+            planOptions={planOptions}
+            setPlanOptions={setPlanOptions}
+            onStartPlan={startPlan}
+          />
         </aside>
       </div>
     </main>

@@ -6,6 +6,7 @@ import {
   type StreamCallbacks,
   type TokenUsage,
 } from "./cursorSdk";
+import { parseModelSpec } from "../modelSpec";
 import { db } from "../db";
 import { processSingleton } from "../singleton";
 // db is used for settings defaults (local_agent.*) below.
@@ -109,6 +110,11 @@ export class LocalAgentService {
     return cursorAgent.listModels();
   }
 
+  /** Full catalog (with parameters/variants for fast mode + effort UI). */
+  async listCatalog() {
+    return cursorAgent.listCatalog();
+  }
+
   /** Best-effort: make sure the workspace is on the requested branch. */
   private async ensureBranch(workspace: string, branch: string): Promise<void> {
     const git = ["-C", workspace];
@@ -138,21 +144,7 @@ export class LocalAgentService {
    * { id: "composer-2.5", params: [{ id: "fast", value: "false" }] }.
    */
   private modelSelection(raw: string | undefined) {
-    const spec = raw?.trim();
-    if (!spec) return undefined;
-    const m = spec.match(/^([^[]+?)\s*(?:\[(.*)\])?$/);
-    const base = (m?.[1] ?? spec).trim();
-    const params = (m?.[2] ?? "")
-      .split(",")
-      .map((p) => p.trim())
-      .filter(Boolean)
-      .map((kv) => {
-        const eq = kv.indexOf("=");
-        if (eq < 0) return { id: kv.trim(), value: "" };
-        return { id: kv.slice(0, eq).trim(), value: kv.slice(eq + 1).trim() };
-      })
-      .filter((p) => p.id);
-    return { id: base, ...(params.length ? { params } : {}) };
+    return parseModelSpec(raw);
   }
 
   /**

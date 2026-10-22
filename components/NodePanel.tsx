@@ -5,11 +5,10 @@ import type { FlowData, Node, Artifact } from "../app/flows/[id]/page";
 import PlanView from "./PlanView";
 import PlanSteps from "./PlanSteps";
 import DiffView from "./DiffView";
-import ModelSelect from "./ModelSelect";
 import ReviewView from "./ReviewView";
 import PromptModal from "./PromptModal";
 import { Alert } from "./ui/alert";
-import { Badge, BadgeDot } from "./ui/badge";
+import { Badge } from "./ui/badge";
 import { Button } from "./ui/button";
 import { Card } from "./ui/card";
 import { Spinner } from "./ui/spinner";
@@ -20,14 +19,14 @@ function fetchArtifact(id: string) {
 }
 
 export default function NodePanel({
-  flow, node, action, events = [],
-}: { flow: FlowData; node: Node; action: (a: string, b?: any) => Promise<void> | void; events?: any[] }) {
+  flow, node, action, events = [], model, planOptions = { decompose: false, complex: false },
+}: { flow: FlowData; node: Node; action: (a: string, b?: any) => Promise<void> | void; events?: any[]; model: string; planOptions?: { decompose: boolean; complex: boolean } }) {
   // The plan view owns its whole panel: sticky header, scrollable body, fixed footer.
   if (node.node_key === "plan") {
-    return <PlanView flow={flow} node={node} action={action} fetchArtifact={fetchArtifact} />;
+    return <PlanView flow={flow} node={node} action={action} fetchArtifact={fetchArtifact} model={model} planOptions={planOptions} />;
   }
 
-  const shared = { flow, node, action, fetchArtifact, events };
+  const shared = { flow, node, action, fetchArtifact, events, model };
   switch (node.node_key) {
     case "build":
       return <BuildView {...shared} />;
@@ -40,7 +39,7 @@ export default function NodePanel({
     default:
       return (
         <PanelShell node={node} action={action}>
-          <p className="text-muted">No panel for this node.</p>
+          <p className="text-muted-foreground">No panel for this node.</p>
         </PanelShell>
       );
   }
@@ -55,10 +54,10 @@ const PANEL_TITLES: Record<string, string> = {
 };
 
 function statusVariant(status: string) {
-  return status === "done" || status === "approved" ? "green"
-    : status === "running" ? "blue"
-    : status === "awaiting_approval" ? "amber"
-    : status === "failed" ? "red" : "default";
+  return status === "done" || status === "approved" ? "bg-emerald-500/10 text-emerald-400"
+    : status === "running" ? "bg-blue-500/10 text-blue-400"
+      : status === "awaiting_approval" ? "bg-amber-500/10 text-amber-400"
+        : status === "failed" ? undefined : undefined;
 }
 
 /**
@@ -80,17 +79,17 @@ export function PanelShell({
   return (
     <div className="flex flex-col h-full min-h-0">
       {/* sticky header */}
-      <div className="flex items-center gap-2.5 px-5 py-3 border-b border-border-soft shrink-0 flex-wrap">
+      <div className="flex items-center gap-2.5 px-5 py-3 border-b border-border shrink-0 flex-wrap">
         <h2 className="m-0 text-[15px]">{PANEL_TITLES[node.node_key] ?? node.node_key}</h2>
-        <Badge variant={statusVariant(node.status) as any}>
-          <BadgeDot />
+        <Badge className={statusVariant(node.status)} variant={node.status === "failed" ? "destructive" : undefined}>
+          <span className="size-1.5 rounded-full bg-current" />
           {node.status.replace(/_/g, " ")}
         </Badge>
         <CostChip node={node} />
         <span title={hasOverride ? "Custom prompt override" : `Template: ${node.node_key}`}>
           <Settings2
             size={14}
-            className={cn("shrink-0", hasOverride ? "text-amber" : "text-muted")}
+            className={cn("shrink-0", hasOverride ? "text-amber-400" : "text-muted-foreground")}
           />
         </span>
         <div className="flex-1" />
@@ -98,9 +97,9 @@ export function PanelShell({
       </div>
 
       {/* scrollable content */}
-      <div className="scroll flex-1 min-h-0 px-5 py-4">
+      <div className="overflow-y-auto flex-1 min-h-0 px-5 py-4">
         {node.status === "failed" && (
-          <Alert variant="red" className="mb-3.5">
+          <Alert variant="destructive" className="mb-3.5">
             <AlertTriangle size={16} className="shrink-0" />
             <span className="flex-1">This step failed — check the activity feed for details.</span>
             <Button size="sm" onClick={() => action("retry", { nodeKey: node.node_key })}>
@@ -111,7 +110,7 @@ export function PanelShell({
         {node.status === "running" && (
           <Alert variant="default" className="mb-3.5">
             <Spinner />
-            <span className="flex-1 text-muted">Working — watch the activity feed →</span>
+            <span className="flex-1 text-muted-foreground">Working — watch the activity feed →</span>
             <Button size="sm" onClick={() => action("cancel", { nodeKey: node.node_key })}>
               <Square size={13} /> Stop
             </Button>
@@ -122,7 +121,7 @@ export function PanelShell({
 
       {/* fixed footer */}
       {footer && (
-        <div className="flex items-center gap-3 px-5 py-3 border-t border-border-soft shrink-0 flex-wrap">
+        <div className="flex items-center gap-3 px-5 py-3 border-t border-border shrink-0 flex-wrap">
           {footer}
         </div>
       )}
@@ -213,7 +212,7 @@ function BuildView({ flow, node, action, fetchArtifact, events = [] }: any) {
 
   const footer = (
     <>
-      <span className="text-xs text-muted">
+      <span className="text-xs text-muted-foreground">
         {canApprove
           ? singleErr ?? (hasBranches ? "Review each diff, then create the merge requests." : "Review the diff, then create the merge request.")
           : creatingMr || creatingMrBranches.size > 0
@@ -224,12 +223,12 @@ function BuildView({ flow, node, action, fetchArtifact, events = [] }: any) {
       </span>
       <div className="flex-1" />
       {canApprove && !hasBranches && (
-        <Button variant="success" onClick={approveAll}>
+        <Button variant="default" className="bg-emerald-600 text-white hover:bg-emerald-600/90" onClick={approveAll}>
           <GitMerge size={14} /> {singleErr ? "Retry: accept & create MR" : "Accept & create MR"}
         </Button>
       )}
       {allAwaiting && (
-        <Button variant="success" onClick={approveAll}>
+        <Button variant="default" className="bg-emerald-600 text-white hover:bg-emerald-600/90" onClick={approveAll}>
           <GitMerge size={14} /> Accept all & create MRs
         </Button>
       )}
@@ -240,19 +239,19 @@ function BuildView({ flow, node, action, fetchArtifact, events = [] }: any) {
     <PanelShell node={node} action={action} footer={footer}>
       {/* structured plan progress — the build agent checks steps off as it reports them */}
       {planSteps.length > 0 && (
-        <PlanSteps flowId={flow.id} steps={planSteps} editable={false} highlight action={action} />
+        <PlanSteps flowId={flow.id} steps={planSteps} editable={false} highlight action={action} className="mb-4" />
       )}
       {creatingMr && (
         <Alert variant="default" className="mb-3.5">
           <Spinner />
-          <span className="flex-1 text-muted">Creating the merge request — the pipeline stage starts once the MR exists.</span>
+          <span className="flex-1 text-muted-foreground">Creating the merge request — the pipeline stage starts once the MR exists.</span>
         </Alert>
       )}
       {canApprove && !hasBranches && singleErr && (
-        <Alert variant="red" className="mb-3.5">
+        <Alert variant="destructive" className="mb-3.5">
           <AlertTriangle size={16} className="shrink-0" />
           <span className="flex-1">{singleErr}</span>
-          <Button variant="success" size="sm" onClick={approveAll}>
+          <Button variant="default" className="bg-emerald-600 text-white hover:bg-emerald-600/90" size="sm" onClick={approveAll}>
             <GitMerge size={13} /> Retry: accept & create MR
           </Button>
         </Alert>
@@ -264,24 +263,24 @@ function BuildView({ flow, node, action, fetchArtifact, events = [] }: any) {
             const err = b.status === "awaiting_approval" ? mrErrorFor(b.name) : null;
             return (
               <Card key={b.id} className="px-4 py-3 flex items-center gap-3 flex-wrap">
-                <Badge variant={b.status === "done" ? "green" : b.status === "failed" ? "red" : b.status === "building" ? "blue" : b.status === "awaiting_approval" ? "amber" : "default"}>
+                <Badge className={b.status === "done" ? "bg-emerald-500/10 text-emerald-400" : b.status === "failed" ? undefined : b.status === "building" ? "bg-blue-500/10 text-blue-400" : b.status === "awaiting_approval" ? "bg-amber-500/10 text-amber-400" : undefined} variant={b.status === "failed" ? "destructive" : undefined}>
                   {b.status.replace(/_/g, " ")}
                 </Badge>
                 <div className="flex-1 min-w-0">
                   <span className="font-medium text-sm">{b.title ?? b.name}</span>
-                  <code className="text-xs text-muted ml-2">{b.name}</code>
-                  {err && <div className="text-red text-xs mt-1">{err}</div>}
+                  <code className="text-xs text-muted-foreground ml-2">{b.name}</code>
+                  {err && <div className="text-rose-400 text-xs mt-1">{err}</div>}
                 </div>
                 {b.mr_url && (
-                  <a href={b.mr_url} target="_blank" className="text-accent hover:underline text-xs">MR !{b.mr_iid} ↗</a>
+                  <a href={b.mr_url} target="_blank" className="text-blue-400 hover:underline text-xs">MR !{b.mr_iid} ↗</a>
                 )}
                 {creatingMrBranches.has(b.name) && (
-                  <span className="inline-flex items-center gap-1.5 text-muted text-xs">
+                  <span className="inline-flex items-center gap-1.5 text-muted-foreground text-xs">
                     <Spinner /> Creating MR…
                   </span>
                 )}
                 {b.status === "awaiting_approval" && (
-                  <Button variant="success" size="sm" onClick={() => approveBranch(b.name)}>
+                  <Button variant="default" className="bg-emerald-600 text-white hover:bg-emerald-600/90" size="sm" onClick={() => approveBranch(b.name)}>
                     <GitMerge size={13} /> {err ? "Retry: accept & create MR" : "Accept & create MR"}
                   </Button>
                 )}
@@ -292,24 +291,22 @@ function BuildView({ flow, node, action, fetchArtifact, events = [] }: any) {
       )}
       {!hasBranches && flow.mr_url && (
         <p className="text-[13px]">
-          <a href={flow.mr_url} target="_blank" className="text-accent hover:underline">Open MR !{flow.mr_iid} ↗</a> on branch <code className="font-mono">{flow.mr_branch}</code>
+          <a href={flow.mr_url} target="_blank" className="text-blue-400 hover:underline">Open MR !{flow.mr_iid} ↗</a> on branch <code className="font-mono">{flow.mr_branch}</code>
         </p>
       )}
-      {latest ? <ArtifactLoader id={latest.id} fetchArtifact={fetchArtifact} render={(a: any) => <DiffView raw={a.content} />} /> : !canApprove && node.status !== "running" && <p className="text-muted">No changes yet.</p>}
+      {latest ? <ArtifactLoader id={latest.id} fetchArtifact={fetchArtifact} render={(a: any) => <DiffView raw={a.content} />} /> : !canApprove && node.status !== "running" && <p className="text-muted-foreground">No changes yet.</p>}
     </PanelShell>
   );
 }
 
-function PipelineView({ flow, node, action, fetchArtifact }: any) {
+function PipelineView({ flow, node, action, fetchArtifact, model }: any) {
   const [showPrompt, setShowPrompt] = useState(false);
-  const [model, setModel] = useState("");
   const output = node.output as { pipelineId?: number; status?: string; fixes?: number } | undefined;
   const hasMr = Boolean(flow.mr_url) || (flow.branches ?? []).some((b: any) => b.mr_url);
   const running = node.status === "running";
 
   const headerEnd = (
     <>
-      <ModelSelect value={model} onChange={setModel} />
       <Button size="sm" variant="ghost" onClick={() => setShowPrompt(true)}>
         <Pencil size={12} /> Edit prompt
       </Button>
@@ -318,18 +315,18 @@ function PipelineView({ flow, node, action, fetchArtifact }: any) {
 
   const footer = !running && hasMr ? (
     <>
-      <span className="text-xs text-muted">
+      <span className="text-xs text-muted-foreground">
         {node.status === "done"
           ? `Pipeline #${output?.pipelineId ?? "—"} is green${output?.fixes ? ` after ${output.fixes} fix run${output.fixes > 1 ? "s" : ""}` : ""}.`
           : "Run the pipeline gate to check CI and auto-fix failures."}
       </span>
       <div className="flex-1" />
-      <Button variant="primary" onClick={() => action("pipeline", { model: model || undefined })}>
+      <Button variant="default" onClick={() => action("pipeline", { model: model || undefined })}>
         {node.status === "done" ? "Re-check pipeline" : "Check pipeline"}
       </Button>
     </>
   ) : !running && !hasMr ? (
-    <span className="text-xs text-muted">Approve the build to create the merge request — the pipeline gate runs automatically once the MR exists.</span>
+    <span className="text-xs text-muted-foreground">Approve the build to create the merge request — the pipeline gate runs automatically once the MR exists.</span>
   ) : null;
 
   return (
@@ -338,13 +335,13 @@ function PipelineView({ flow, node, action, fetchArtifact }: any) {
         {running && (
           <Alert variant="default" className="mb-3.5">
             <Spinner />
-            <span className="flex-1 text-muted">
+            <span className="flex-1 text-muted-foreground">
               Waiting for a green pipeline — one is triggered via the API when none starts, and failures are fixed automatically (see the activity feed →)
             </span>
           </Alert>
         )}
         {node.status === "done" && output?.pipelineId && (
-          <Alert variant="green" className="mb-3.5">
+          <Alert className="bg-emerald-500/10 text-emerald-400 mb-3.5">
             <span className="flex-1">
               Pipeline #{output.pipelineId} is green{output.fixes ? ` after ${output.fixes} fix run${output.fixes > 1 ? "s" : ""}` : ""}.
             </span>
@@ -368,14 +365,12 @@ function PipelineView({ flow, node, action, fetchArtifact }: any) {
   );
 }
 
-function ResolveView({ flow, node, action, fetchArtifact }: any) {
+function ResolveView({ flow, node, action, fetchArtifact, model }: any) {
   const [showPrompt, setShowPrompt] = useState(false);
-  const [model, setModel] = useState("");
   const running = node.status === "running";
 
   const headerEnd = (
     <>
-      <ModelSelect value={model} onChange={setModel} />
       <Button size="sm" variant="ghost" onClick={() => setShowPrompt(true)}>
         <Pencil size={12} /> Edit prompt
       </Button>
@@ -384,9 +379,9 @@ function ResolveView({ flow, node, action, fetchArtifact }: any) {
 
   const footer = !running ? (
     <>
-      <span className="text-xs text-muted">Fix every open MR comment with an agent, then close the discussions.</span>
+      <span className="text-xs text-muted-foreground">Fix every open MR comment with an agent, then close the discussions.</span>
       <div className="flex-1" />
-      <Button variant="primary" onClick={() => action("resolve", { model: model || undefined })}>
+      <Button variant="default" onClick={() => action("resolve", { model: model || undefined })}>
         Resolve comments
       </Button>
     </>
@@ -419,21 +414,20 @@ function GenericArtifact({ node, kind, fetchArtifact, empty }: any) {
   const current = arts.find((a: Artifact) => a.id === sel) ?? arts[arts.length - 1];
   return (
     <div>
-      {arts.length > 1 && <VersionTabs arts={arts} sel={current?.id} onSel={setSel} />}
+      {arts.length > 1 && <VersionTabs arts={arts} sel={current?.id} onSel={setSel} className="mb-3.5" />}
       {current ? (
         <ArtifactLoader id={current.id} fetchArtifact={fetchArtifact}
-          render={(a: any) => <pre className="scroll whitespace-pre-wrap bg-bg-soft border border-border-soft rounded-[10px] p-3.5 text-[12.5px] font-mono">{a.content}</pre>} />
-      ) : <p className="text-muted">{empty}</p>}
+          render={(a: any) => <pre className="overflow-y-auto whitespace-pre-wrap bg-background border border-border rounded-[10px] p-3.5 text-[12.5px] font-mono">{a.content}</pre>} />
+      ) : <p className="text-muted-foreground">{empty}</p>}
     </div>
   );
 }
 
-export function VersionTabs({ arts, sel, onSel }: { arts: Artifact[]; sel?: string; onSel: (id: string) => void }) {
+export function VersionTabs({ arts, sel, onSel, className }: { arts: Artifact[]; sel?: string; onSel: (id: string) => void; className?: string }) {
   return (
-    <div className="flex gap-1.5 mb-3.5 flex-wrap">
+    <div className={cn("flex gap-1.5 flex-wrap", className)}>
       {arts.map((a) => (
-        <Button key={a.id} size="sm" onClick={() => onSel(a.id)}
-          className={cn(sel === a.id && "border-accent text-accent")}>
+        <Button key={a.id} size="sm" variant={sel === a.id ? "default" : "outline"} onClick={() => onSel(a.id)}>
           v{a.version}{a.status === "approved" ? " ✓" : ""}
         </Button>
       ))}
@@ -444,6 +438,6 @@ export function VersionTabs({ arts, sel, onSel }: { arts: Artifact[]; sel?: stri
 export function ArtifactLoader({ id, fetchArtifact, render }: { id: string; fetchArtifact: (id: string) => Promise<any>; render: (a: any) => React.ReactNode }) {
   const [art, setArt] = useState<any>(null);
   useEffect(() => { let live = true; fetchArtifact(id).then((a) => live && setArt(a)); return () => { live = false; }; }, [id, fetchArtifact]);
-  if (!art) return <p className="text-muted"><Spinner /> Loading…</p>;
+  if (!art) return <p className="text-muted-foreground"><Spinner /> Loading…</p>;
   return <>{render(art)}</>;
 }
