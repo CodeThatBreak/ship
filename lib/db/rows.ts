@@ -1,0 +1,273 @@
+import { z } from "zod";
+import { db } from "./index";
+
+/**
+ * Zod schemas for every DB row + typed query helpers.
+ *
+ * Rows cross the DB boundary exactly once — here — so every consumer gets a
+ * validated, fully-typed object instead of `any` + ad-hoc JSON.parse calls.
+ * JSON-encoded columns (figma_urls, input, output, meta, files, data, raw)
+ * are decoded to their real types by the schema.
+ */
+
+// ── helpers ──────────────────────────────────────────────────────────────────
+/** A TEXT column holding a JSON value of shape S. */
+const jsonCol = <S extends z.ZodTypeAny>(schema: S) =>
+  z
+    .string()
+    .nullable()
+    .transform((s, ctx): z.infer<S> | null => {
+      if (s == null) return null;
+      try {
+        return schema.parse(JSON.parse(s));
+      } catch {
+        ctx.addIssue({ code: z.ZodIssueCode.custom, message: "invalid JSON column" });
+        return z.NEVER;
+      }
+    });
+
+// ── tickets ──────────────────────────────────────────────────────────────────
+export const TicketRow = z.object({
+  id: z.string(),
+  key: z.string(),
+  summary: z.string(),
+  description: z.string().nullable(),
+  status: z.string().nullable(),
+  issue_type: z.string().nullable(),
+  priority: z.string().nullable(),
+  prd_text: z.string().nullable(),
+  figma_urls: jsonCol(z.array(z.string())),
+  repo_url: z.string().nullable(),
+  jira_url: z.string().nullable(),
+  raw: z.string().nullable(),
+  synced_at: z.string().nullable(),
+});
+export type TicketRow = z.infer<typeof TicketRow>;
+
+/** App-facing ticket shape (camelCase, parsed figma URLs). */
+export const Ticket = TicketRow.transform((t) => ({
+  id: t.id,
+  key: t.key,
+  summary: t.summary,
+  description: t.description,
+  status: t.status,
+  issueType: t.issue_type,
+  priority: t.priority,
+  prdText: t.prd_text,
+  figmaUrls: t.figma_urls ?? [],
+  repoUrl: t.repo_url,
+  jiraUrl: t.jira_url,
+  syncedAt: t.synced_at,
+}));
+export type Ticket = z.infer<typeof Ticket>;
+
+// ── flows ────────────────────────────────────────────────────────────────────
+export const FlowRow = z.object({
+  id: z.string(),
+  ticket_id: z.string(),
+  name: z.string(),
+  status: z.string(),
+  mr_url: z.string().nullable(),
+  mr_iid: z.number().nullable(),
+  mr_branch: z.string().nullable(),
+  repo_url: z.string().nullable(),
+  gitlab_project_id: z.number().nullable(),
+  current_node: z.string().nullable(),
+  execution_mode: z.string().nullable().default("cloud"),
+  repo_id: z.string().nullable(),
+  created_at: z.string(),
+  updated_at: z.string(),
+});
+export type FlowRow = z.infer<typeof FlowRow>;
+
+// ── nodes ────────────────────────────────────────────────────────────────────
+export const NODE_STATUSES = [
+  "pending",
+  "running",
+  "awaiting_approval",
+  "approved",
+  "failed",
+  "done",
+] as const;
+export type NodeStatus = (typeof NODE_STATUSES)[number];
+
+export const NodeRow = z.object({
+  id: z.string(),
+  flow_id: z.string(),
+  node_key: z.string(),
+  type: z.string(),
+  status: z.enum(NODE_STATUSES),
+  agent_id: z.string().nullable(),
+  cursor_agent_id: z.string().nullable(),
+  session_id: z.string().nullable(),
+  prompt_override: z.string().nullable(),
+  input: jsonCol(z.record(z.string(), z.unknown())),
+  output: jsonCol(z.record(z.string(), z.unknown())),
+  created_at: z.string(),
+  updated_at: z.string(),
+});
+export type NodeRow = z.infer<typeof NodeRow>;
+
+// ── artifacts ────────────────────────────────────────────────────────────────
+export const ArtifactRow = z.object({
+  id: z.string(),
+  node_id: z.string(),
+  flow_id: z.string(),
+  kind: z.string(),
+  version: z.number(),
+  content: z.string(),
+  meta: jsonCol(z.record(z.string(), z.unknown())),
+  status: z.string(),
+  feedback: z.string().nullable(),
+  created_at: z.string(),
+});
+export type ArtifactRow = z.infer<typeof ArtifactRow>;
+
+// ── comments ─────────────────────────────────────────────────────────────────
+export const CommentRow = z.object({
+  id: z.string(),
+  flow_id: z.string(),
+  mr_iid: z.number().nullable(),
+  discussion_id: z.string().nullable(),
+  author: z.string().nullable(),
+  body: z.string().nullable(),
+  file_path: z.string().nullable(),
+  line: z.number().nullable(),
+  status: z.string(),
+  resolved_by: z.string().nullable(),
+  raw: z.string().nullable(),
+  created_at: z.string(),
+  updated_at: z.string(),
+});
+export type CommentRow = z.infer<typeof CommentRow>;
+
+// ── messages ─────────────────────────────────────────────────────────────────
+export const MessageRow = z.object({
+  id: z.string(),
+  flow_id: z.string(),
+  node_key: z.string().nullable(),
+  role: z.enum(["user", "assistant"]),
+  content: z.string(),
+  created_at: z.string(),
+});
+export type MessageRow = z.infer<typeof MessageRow>;
+
+// ── events ───────────────────────────────────────────────────────────────────
+export const EventRow = z.object({
+  id: z.string(),
+  flow_id: z.string(),
+  node_id: z.string().nullable(),
+  type: z.string(),
+  message: z.string().nullable(),
+  data: jsonCol(z.record(z.string(), z.unknown())),
+  created_at: z.string(),
+});
+export type EventRow = z.infer<typeof EventRow>;
+
+// ── plan_steps ───────────────────────────────────────────────────────────────
+export const PlanStepRow = z.object({
+  id: z.string(),
+  flow_id: z.string(),
+  artifact_id: z.string().nullable(),
+  meta_id: z.string().nullable(),
+  position: z.number(),
+  title: z.string(),
+  detail: z.string().nullable(),
+  files: jsonCol(z.array(z.string())),
+  branch: z.string().nullable(),
+  status: z.string(),
+  origin: z.string(),
+  completed_by: z.string().nullable(),
+  created_at: z.string(),
+  updated_at: z.string(),
+});
+export type PlanStepRow = z.infer<typeof PlanStepRow>;
+
+// ── branches ─────────────────────────────────────────────────────────────────
+export const BranchRow = z.object({
+  id: z.string(),
+  flow_id: z.string(),
+  name: z.string(),
+  title: z.string().nullable(),
+  status: z.string(),
+  mr_url: z.string().nullable(),
+  mr_iid: z.number().nullable(),
+  order: z.number(),
+  created_at: z.string(),
+  updated_at: z.string(),
+});
+export type BranchRow = z.infer<typeof BranchRow>;
+
+// ── runs ─────────────────────────────────────────────────────────────────────
+export const RunRow = z.object({
+  id: z.string(),
+  flow_id: z.string(),
+  node_id: z.string(),
+  cursor_agent_id: z.string(),
+  cursor_run_id: z.string(),
+  branch_id: z.string().nullable(),
+  status: z.string(),
+  model: z.string().nullable(),
+  input_tokens: z.number().nullable(),
+  output_tokens: z.number().nullable(),
+  cache_read_tokens: z.number().nullable(),
+  cache_write_tokens: z.number().nullable(),
+  duration_ms: z.number().nullable(),
+  cost_cents: z.number().nullable(),
+  usage: jsonCol(z.record(z.string(), z.unknown())),
+  owner_pid: z.number().nullable(),
+  last_heartbeat_at: z.string().nullable(),
+  created_at: z.string(),
+  updated_at: z.string(),
+});
+export type RunRow = z.infer<typeof RunRow>;
+
+// ── repos ────────────────────────────────────────────────────────────────────
+export const RepoRow = z.object({
+  id: z.string(),
+  name: z.string(),
+  cloud_url: z.string(),
+  local_path: z.string().nullable(),
+  default_branch: z.string(),
+  created_at: z.string(),
+  updated_at: z.string(),
+});
+export type RepoRow = z.infer<typeof RepoRow>;
+
+// ── gitlab_instances ─────────────────────────────────────────────────────────
+export const GitLabInstanceRow = z.object({
+  id: z.string(),
+  name: z.string().nullable(),
+  base_url: z.string(),
+  token: z.string(),
+  created_at: z.string().optional(),
+});
+export type GitLabInstanceRow = z.infer<typeof GitLabInstanceRow>;
+
+// ── typed query helpers ──────────────────────────────────────────────────────
+/**
+ * Schema-validated access to DB rows. Like `db.get`/`db.all`, but each
+ * returned row is parsed through the given schema. Unknown columns are
+ * stripped (zod default) — SELECT * is fine.
+ */
+export class RowGateway {
+  get<S extends z.ZodTypeAny>(
+    schema: S,
+    sql: string,
+    ...args: unknown[]
+  ): z.infer<S> | undefined {
+    const row = db.get<unknown>(sql, ...(args as never[]));
+    if (row == null) return undefined;
+    return schema.parse(row);
+  }
+
+  all<S extends z.ZodTypeAny>(
+    schema: S,
+    sql: string,
+    ...args: unknown[]
+  ): z.infer<S>[] {
+    return db.all<unknown>(sql, ...(args as never[])).map((r) => schema.parse(r));
+  }
+}
+
+export const rows = new RowGateway();
