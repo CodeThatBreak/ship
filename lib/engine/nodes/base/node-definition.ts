@@ -90,17 +90,16 @@ export abstract class NodeDefinition<I = unknown, O extends Record<string, unkno
     const result = await this.runner.executeRun(
       ctx,
       node.id,
-      (nodeId) =>
+      () =>
         this.runner.startAgent(ctx, {
           prompt,
           mode: "plan",
           name: `${this.label} chat ${ctx.ticket.key}`,
           followUpOn: agentId,
-          nodeId,
         }),
       `${this.label} chat`,
     );
-    return result.text ?? "Done.";
+    return result.result ?? "Done.";
   }
 
   /**
@@ -145,8 +144,8 @@ export abstract class NodeDefinition<I = unknown, O extends Record<string, unkno
       prompt_override: opts.promptOverride ?? null,
       input: JSON.stringify(opts.input),
     });
-    const start = (nodeId: string) =>
-      this.runner.startAgent(ctx, { ...opts.agent, prompt: opts.prompt, nodeId });
+    const start = () =>
+      this.runner.startAgent(ctx, { ...opts.agent, prompt: opts.prompt });
     const result = await this.runner.executeRun(ctx, node.id, start, opts.label);
     const outcome = await opts.finalize(result);
     if (outcome.artifact) {

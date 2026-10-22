@@ -177,7 +177,7 @@ export default function Home() {
                   >
                     <option value="cloud">☁ Cloud agent</option>
                     <option value="local" disabled={!selectedRepo?.local_path}>
-                      💻 Local CLI{!selectedRepo?.local_path ? " (no local path)" : ""}
+                      💻 Local (SDK){!selectedRepo?.local_path ? " (no local path)" : ""}
                     </option>
                   </select>
                   <Button variant="primary" onClick={() => startFlow(t)}><Play size={14} /> Build ticket</Button>

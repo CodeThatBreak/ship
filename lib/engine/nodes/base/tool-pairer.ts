@@ -9,6 +9,12 @@ export type ToolEmitFn = (
   startedAt?: number
 ) => void;
 
+/** Serialize a tool result payload (unknown per the SDK) to display text. */
+function asResultText(v: unknown): string | undefined {
+  if (v == null) return undefined;
+  return typeof v === "string" ? v : JSON.stringify(v);
+}
+
 /**
  * Pairs tool-call start/end events for local runs: matches by callId when
  * present, otherwise FIFO per tool name; synthesizes ids for unpaired ends.
@@ -19,7 +25,8 @@ export class ToolPairer {
 
   constructor(private readonly emit: ToolEmitFn) {}
 
-  handle(name: string, status: string, args?: unknown, callId?: string, extra?: { result?: string }): void {
+  handle(name: string, status: string, args?: unknown, callId?: string, extra?: { result?: unknown }): void {
+    const resultText = asResultText(extra?.result);
     const isEnd = /complete|finish|success|fail|error|result|end/i.test(status) && !/start|begin|call|invok/i.test(status);
     if (isEnd) {
       const q = this.unmatched.get(name);
@@ -28,16 +35,16 @@ export class ToolPairer {
         const idx = q2.findIndex((p) => p.callId === callId);
         const start = idx >= 0 ? q2.splice(idx, 1)[0] : undefined;
         if (q2.length) this.unmatched.set(name, q2); else this.unmatched.delete(name);
-        this.emit(name, status, callId, args, extra?.result, start?.startedAt);
+        this.emit(name, status, callId, args, resultText, start?.startedAt);
         return;
       }
       if (q?.length) {
         const start = q.shift()!;
         if (!q.length) this.unmatched.delete(name);
-        this.emit(name, status, start.callId, args, extra?.result, start.startedAt);
+        this.emit(name, status, start.callId, args, resultText, start.startedAt);
         return;
       }
-      this.emit(name, status, callId ?? `${name}_${++this.seq}`, args, extra?.result);
+      this.emit(name, status, callId ?? `${name}_${++this.seq}`, args, resultText);
     } else {
       const id = callId ?? `${name}_${++this.seq}`;
       const q = this.unmatched.get(name) ?? [];

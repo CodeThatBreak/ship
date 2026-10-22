@@ -25,13 +25,13 @@ export interface AgentStartInput {
   customSubagents?: { name: string; instructions: string }[];
   cwd?: string; // local worktree override
   model?: string | null; // per-run model override
-  nodeId?: string; // owning node — enables DB heartbeat liveness for local runs
 }
 
 /**
- * Starts and supervises agent runs on the configured backend (Cursor cloud
- * API or the local cursor-agent CLI): model resolution, run-row persistence,
- * event streaming (buffered), and usage/cost capture.
+ * Starts and supervises agent runs on the configured runtime (Cursor cloud VM
+ * or local in-process agent loop, both via the unified CursorAgentService over
+ * @cursor/sdk): model resolution, run-row persistence, event streaming
+ * (buffered), and usage/cost capture.
  */
 export class AgentRunner {
   constructor(
@@ -40,7 +40,7 @@ export class AgentRunner {
     private readonly usage: UsageTracker
   ) {}
 
-  /** Start an agent run on the configured backend (cloud API or local CLI). */
+  /** Start an agent run on the configured runtime (cloud VM or local agent loop). */
   async startAgent(ctx: FlowCtx, input: AgentStartInput): Promise<Started> {
     const mode = this.ctxHelper.execMode(ctx);
     // Model resolution: per-run selection → Settings default → DEFAULT_MODEL env.
@@ -58,7 +58,6 @@ export class AgentRunner {
         sessionId: input.followUpOn ?? undefined,
         branch: input.startingRef,
         model,
-        nodeId: input.nodeId,
       });
     }
     if (input.followUpOn) {
@@ -88,15 +87,14 @@ export class AgentRunner {
   async executeRun(
     ctx: FlowCtx,
     nodeId: string,
-    start: (nodeId: string) => Promise<Started>,
+    start: () => Promise<Started>,
     label: string
   ): Promise<CursorRunResult> {
     const { flow } = ctx;
     const mode = this.ctxHelper.execMode(ctx);
     const startedAt = Date.now();
-    const { agentId, runId } = await start(nodeId);
+    const { agentId, runId } = await start();
     this.support.persistRun(flow.id, nodeId, agentId, runId);
-    this.support.claimRun(runId);
     const runRowId = db.get<{ id: string }>(`SELECT id FROM runs WHERE cursor_run_id=?`, runId)?.id as string;
     db.emitEvent(flow.id, nodeId, "lifecycle", `${label} started (${mode})`, { agentId, runId, run_id: runId, mode });
 
@@ -111,30 +109,35 @@ export class AgentRunner {
     const pairTool = new ToolPairer(emitTool);
 
     let result: CursorRunResult;
-    let sessionId: string | null = null;
     let costSummary: RunCostSummary = {};
+    // One streaming path for both runtimes: the SDK emits the same SDKMessage
+    // events whether the agent runs locally or in a Cursor VM. Tool events go
+    // through the pairer (local) so start/end are matched by callId; cloud tool
+    // events arrive already paired, so they emit directly.
+    const callbacks = {
+      onStatus: (s: string) => db.emitEvent(flow.id, nodeId, "status", `run ${s}`, { run_id: runId }),
+      onAssistant: (t: string) => stream.push("assistant", t),
+      onThinking: (t: string) => stream.push("thinking", t),
+      onTool: (name: string, status: string, args: unknown, callId: string | undefined, extra: { result?: unknown } | undefined) =>
+        mode === "local"
+          ? pairTool.handle(name, status, args, callId, extra)
+          : emitTool(name, status, callId ?? `${name}_${Date.now().toString(36)}`, args,
+              extra?.result == null ? undefined : typeof extra.result === "string" ? extra.result : JSON.stringify(extra.result)),
+    };
     try {
       if (mode === "local") {
-        const out = await localAgent.streamRun(runId, {
-          onStatus: (s) => db.emitEvent(flow.id, nodeId, "status", `run ${s}`, { run_id: runId }),
-          onAssistant: (t) => stream.push("assistant", t),
-          onThinking: (t) => stream.push("thinking", t),
-          onTool: (name, status, args, callId, extra) => pairTool.handle(name, status, args, callId, extra),
-        });
+        const out = await localAgent.streamRun(runId, callbacks);
         result = out.result;
-        sessionId = out.sessionId;
-        if (sessionId) this.support.setRunAgentId(runId, sessionId);
-        costSummary = this.usage.persistLocalUsage(runRowId, out.usage, result);
+        if (out.sessionId) this.support.setRunAgentId(runId, out.sessionId);
       } else {
-        result = await cursorClient.streamRun(agentId, runId, {
-          onStatus: (s) => db.emitEvent(flow.id, nodeId, "status", `run ${s}`, { run_id: runId }),
-          onAssistant: (t) => stream.push("assistant", t),
-          onThinking: (t) => stream.push("thinking", t),
-          onTool: (name, status, args, callId, extra) =>
-            emitTool(name, status, callId ?? `${name}_${Date.now().toString(36)}`, args, extra?.result),
-        });
-        costSummary = await this.usage.captureCloudUsage(agentId, runId, runRowId);
+        result = await cursorClient.streamRun(agentId, runId, callbacks);
       }
+      costSummary = await this.usage.captureRunUsage({
+        runRowId,
+        result,
+        runId,
+        cloudAgentId: mode === "cloud" ? agentId : undefined,
+      });
     } finally {
       stream.flushAll();
     }
@@ -145,7 +148,7 @@ export class AgentRunner {
     }
 
     db.run(`UPDATE runs SET status=?, updated_at=? WHERE cursor_run_id=?`,
-      result.status === "FINISHED" ? "finished" : "error", db.now(), runId);
+      result.status === "finished" ? "finished" : "error", db.now(), runId);
 
     // Late-write guard: if the node was already moved out of `running` while
     // this run was in flight (reconcile failed it, user cancelled/retried),
@@ -160,7 +163,7 @@ export class AgentRunner {
       return result;
     }
 
-    if (result.status !== "FINISHED") {
+    if (result.status !== "finished") {
       db.emitEvent(flow.id, nodeId, "error", `${label} ended with ${result.status}`, { run_id: runId });
       throw new Error(`${label} ended with status ${result.status}`);
     }

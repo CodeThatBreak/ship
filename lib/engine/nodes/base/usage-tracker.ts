@@ -1,6 +1,5 @@
 import { db } from "../../../db";
 import { cursorClient, type CursorRunResult, type RunUsage } from "../../../integrations/cursor";
-import type { LocalUsage } from "../../../integrations/localAgent";
 
 // ── cost & usage capture ─────────────────────────────────────────────────────
 
@@ -48,9 +47,11 @@ export class UsageTracker {
     );
   }
 
-  async captureCloudUsage(agentId: string, runId: string, runRowId: string): Promise<RunCostSummary> {
-    const usage = await cursorClient.getRunUsage(agentId, runId);
-    if (!usage) return {};
+  /**
+   * Persist a billed cloud usage payload (tokens + charged cost) onto the run
+   * row, estimating cost from the pricing table when the API doesn't report it.
+   */
+  private persistBilledUsage(runRowId: string, usage: RunUsage): RunCostSummary {
     const pricing = db.getSetting<Record<string, PricingEntry>>("pricing", {});
     let costCents: number | undefined;
     let estimated = false;
@@ -72,22 +73,45 @@ export class UsageTracker {
     return { tokens, costCents, estimated, model: usage.model };
   }
 
-  persistLocalUsage(runRowId: string, usage: LocalUsage | null, result: CursorRunResult): RunCostSummary {
-    const durationMs = usage?.durationMs ?? result.durationMs;
-    if (!usage) {
-      this.persistUsage(runRowId, { durationMs });
-      return { durationMs };
+  /**
+   * Unified usage capture for a finished run, regardless of runtime.
+   *
+   * Token counts come from the run result's `usage` (the SDK reports them for
+   * both local and cloud runs). Cloud runs additionally get billed cost from
+   * the usage API (estimating from the pricing table when charge-reporting is
+   * off); local runs skip billed cost (the SDK's local getUsage is account-
+   * gated) and report tokens + duration only.
+   */
+  async captureRunUsage(opts: {
+    runRowId: string;
+    result: CursorRunResult;
+    cloudAgentId?: string; // when set, fetch billed cost for this cloud run
+    runId: string;
+  }): Promise<RunCostSummary> {
+    const { runRowId, result, cloudAgentId, runId } = opts;
+
+    // Cloud: the billed-usage endpoint is the cost source of truth.
+    if (cloudAgentId) {
+      const billed = await cursorClient.getRunUsage(cloudAgentId, runId);
+      if (billed) {
+        const summary = this.persistBilledUsage(runRowId, billed);
+        return { ...summary, durationMs: summary.durationMs ?? result.durationMs };
+      }
+      // fall through to token counts from the run result when billing is off
     }
-    const tokens =
-      ((usage.inputTokens ?? 0) + (usage.outputTokens ?? 0) +
-       (usage.cacheReadTokens ?? 0) + (usage.cacheWriteTokens ?? 0)) || undefined;
+
+    const u = result.usage;
+    const model = result.model?.id;
+    const tokens = u
+      ? u.totalTokens || u.inputTokens + u.outputTokens + u.cacheReadTokens + u.cacheWriteTokens || undefined
+      : undefined;
     this.persistUsage(runRowId, {
-      model: usage.model,
-      input: usage.inputTokens, output: usage.outputTokens,
-      cacheRead: usage.cacheReadTokens, cacheWrite: usage.cacheWriteTokens,
-      durationMs, raw: usage.raw,
+      model,
+      input: u?.inputTokens, output: u?.outputTokens,
+      cacheRead: u?.cacheReadTokens, cacheWrite: u?.cacheWriteTokens,
+      durationMs: result.durationMs, raw: u,
     });
-    return { durationMs, tokens, model: usage.model };
+    return { durationMs: result.durationMs, tokens, model };
   }
 }
 

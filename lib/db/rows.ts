@@ -215,8 +215,6 @@ export const RunRow = z.object({
   duration_ms: z.number().nullable(),
   cost_cents: z.number().nullable(),
   usage: jsonCol(z.record(z.string(), z.unknown())),
-  owner_pid: z.number().nullable(),
-  last_heartbeat_at: z.string().nullable(),
   created_at: z.string(),
   updated_at: z.string(),
 });

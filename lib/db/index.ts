@@ -80,14 +80,6 @@ export class Database {
     if (!runCols.has("branch_id")) {
       d.exec(`ALTER TABLE runs ADD COLUMN branch_id TEXT REFERENCES branches(id)`);
     }
-    // Run liveness: reconcile trusts (owner alive + fresh heartbeat), not the
-    // in-memory handle map — which is per-module-graph under next dev.
-    if (!runCols.has("owner_pid")) {
-      d.exec(`ALTER TABLE runs ADD COLUMN owner_pid INTEGER`);
-    }
-    if (!runCols.has("last_heartbeat_at")) {
-      d.exec(`ALTER TABLE runs ADD COLUMN last_heartbeat_at TEXT`);
-    }
     // Pipeline gate node (order 25, between build and review): backfill a node
     // row for any flow created before the node existed. The standalone
     // pipeline_fix node was folded into the gate — drop its rows (fix history

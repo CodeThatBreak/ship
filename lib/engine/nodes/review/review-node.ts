@@ -66,7 +66,7 @@ export class ReviewNode extends NodeDefinition<ReviewInput, ReviewOutput> {
       finalize: async (result) => {
         let comments: { file?: string; line?: number; body: string }[] = [];
         try {
-          const m = (result.text ?? "").match(/\[[\s\S]*\]/);
+          const m = (result.result ?? "").match(/\[[\s\S]*\]/);
           comments = m ? JSON.parse(m[0]) : [];
         } catch { comments = []; }
 
@@ -79,9 +79,9 @@ export class ReviewNode extends NodeDefinition<ReviewInput, ReviewOutput> {
         return {
           status: "done" as const,
           output: this.outputSchema.parse({ comments: posted, branchName: input.branchName ?? undefined }),
-          artifact: { kind: "review", content: result.text ?? "", meta: { posted, branchName: input.branchName ?? undefined } },
+          artifact: { kind: "review", content: result.result ?? "", meta: { posted, branchName: input.branchName ?? undefined } },
           event: `review complete${input.branchName ? ` (${input.branchName})` : ""}: ${posted} comment(s) posted`,
-          reply: result.text ?? `Posted ${posted} comment(s).`,
+          reply: result.result ?? `Posted ${posted} comment(s).`,
         };
       },
     });

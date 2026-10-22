@@ -1,7 +1,7 @@
 import { db } from "../db";
 import { FlowRow, NodeRow, RunRow, rows } from "../db/rows";
 import { cursorClient } from "../integrations/cursor";
-import { localAgent, LocalAgentService } from "../integrations/localAgent";
+import { localAgent } from "../integrations/localAgent";
 import { nodeSupport, type FlowCtx } from "./nodes/base";
 import { flowEngine } from "./flow";
 import { processSingleton } from "../singleton";
@@ -11,9 +11,10 @@ import { processSingleton } from "../singleton";
  * Called when a flow is opened (throttled) so the UI recovers after a server
  * restart instead of showing "running" forever.
  *
- * - local mode: ACP sessions are persisted by the CLI — after a restart we
- *   session/load the run's session and reconstruct its last turn. Recovery
- *   itself is delegated to the node's own recover() via completeNodeFromResult.
+ * - local mode: SDK local agents are persisted in the workspace store — after
+ *   a restart we re-attach to the run's persisted state and reconstruct its
+ *   last turn. Recovery itself is delegated to the node's own recover() via
+ *   completeNodeFromResult.
  * - cloud mode: run handles are durable (agent id + run id), so we ask the
  *   Cursor API. Still-running runs are re-attached (streamed to completion).
  */
@@ -25,11 +26,6 @@ export class Reconciler {
    * hasn't registered its run row/handle yet would otherwise be failed mid-startup.
    */
   private static readonly START_GRACE_MS = 90_000;
-  /**
-   * A run heartbeat older than this with a dead owner pid means orphaned.
-   * 2.5× the 15s heartbeat interval tolerates a missed beat under load.
-   */
-  private static readonly HEARTBEAT_STALE_MS = 40_000;
   /**
    * The pipeline node runs a server-side wait loop with no agent run row while
    * polling, stamping its node row once per ~20s poll cycle. A stamp fresher
@@ -89,7 +85,8 @@ export class Reconciler {
     return this.reconcileCloud(ctx, node, runRow);
   }
 
-  // ── local mode: DB liveness first, the persisted ACP session as ground truth ─
+  // ── local mode: the in-process handle means alive; otherwise the SDK's ────
+  // ── persisted run state is the ground truth ───────────────────────────────
   private async reconcileLocal(ctx: FlowCtx, node: NodeRow, runRow: RunRow | undefined): Promise<void> {
     const { flow } = ctx;
     // run still owned by this process → genuinely running, nothing to do
@@ -100,48 +97,24 @@ export class Reconciler {
       return;
     }
 
-    // A live run proves itself with a fresh heartbeat, not with which module
-    // graph happens to hold its handle. Two cases mean "still running — leave
-    // it alone":
-    //   1. fresh heartbeat → the owner process is actively pumping events
-    //   2. owner pid alive but heartbeat stale/never started → owner is wedged;
-    //      don't fail (can't distinguish from slow), but don't recover either
-    const heartbeatMs = Date.parse(runRow.last_heartbeat_at ?? "");
-    const heartbeatFresh =
-      Number.isFinite(heartbeatMs) && Date.now() - heartbeatMs < Reconciler.HEARTBEAT_STALE_MS;
-    if (heartbeatFresh) return;
-    if (LocalAgentService.pidAlive(runRow.owner_pid)) return;
-
-    // Legacy row (started before run-liveness existed): no pid, no heartbeat.
-    // inspectSession can't tell "unfinished because dead" from "unfinished
-    // because still executing in another process" — both replay identically —
-    // so only fail when the session itself proves the turn ended badly or is
-    // unloadable. A probe that completes is recovered; an unfinished probe is
-    // left alone (retry is always available manually) rather than falsely
-    // failed, which was the original bug.
-    const legacy = runRow.owner_pid == null;
+    // Not owned by this process: local agent loops run in-process, so the run
+    // is no longer executing. Ask the SDK's persisted run state what happened.
     const localPath = ctx.repo?.local_path ?? null;
     const sessionId = runRow.cursor_agent_id;
     const probe =
       sessionId && localPath
         ? await localAgent
-            // legacy probes may hit a session a live process owns — keep the
-            // read-only window short so it can't linger on that session.
-            .inspectSession(sessionId, localPath, legacy ? 20_000 : 90_000)
+            .inspectSession(sessionId, runRow.cursor_run_id, localPath)
             .catch(() => null)
         : null;
 
     if (!probe) {
-      // unloadable: for a dead-owner run the session is truly gone; for a
-      // legacy run it's ambiguous — don't fail what we can't prove is dead.
-      if (legacy) return;
       nodeSupport.failOrphanedNode(flow.id, node.id, node.node_key,
         "server restarted mid-run and the agent session could not be re-attached");
       return;
     }
 
     if (!probe.completed) {
-      if (legacy) return;
       nodeSupport.failOrphanedNode(flow.id, node.id, node.node_key,
         "server restarted mid-run — the agent session shows an unfinished turn");
       return;
@@ -153,7 +126,7 @@ export class Reconciler {
     await flowEngine.completeNodeFromResult(
       ctx,
       node,
-      { status: "FINISHED", text: probe.text },
+      { id: runRow.cursor_run_id, status: "finished", result: probe.text },
       "recovered from the persisted agent session after server restart"
     );
   }
@@ -167,10 +140,9 @@ export class Reconciler {
     }
 
     const result = await cursorClient.getRun(runRow.cursor_agent_id, runRow.cursor_run_id).catch(() => null);
-    if (!result) return; // API unreachable — leave state as-is, try again next open
-
-    const TERMINAL = ["FINISHED", "ERROR", "CANCELLED", "EXPIRED"];
-    if (TERMINAL.includes(result.status)) {
+    // null means either unreachable or still in flight — distinguish below.
+    const TERMINAL = ["finished", "error", "cancelled"];
+    if (result && TERMINAL.includes(result.status)) {
       await flowEngine.completeNodeFromResult(ctx, node, result, "reconciled from Cursor API");
       return;
     }

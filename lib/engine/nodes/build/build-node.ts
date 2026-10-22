@@ -86,7 +86,7 @@ export class BuildNode extends NodeDefinition<BuildInput, BuildOutput> {
     nodeId: string,
   ): Promise<RunOutcome> {
     // apply the build agent's structured progress report to the plan checklist
-    planSteps.markDone(ctx.flow.id, nodeId, planSteps.parseBuildProgress(result.text ?? ""));
+    planSteps.markDone(ctx.flow.id, nodeId, planSteps.parseBuildProgress(result.result ?? ""));
 
     const resultBranch =
       this.ctxHelper.execMode(ctx) === "local"
@@ -121,7 +121,7 @@ export class BuildNode extends NodeDefinition<BuildInput, BuildOutput> {
       }),
       event: `build pushed branch ${resultBranch}; diff ready for review`,
       eventData: { stat: diff?.stat },
-      reply: result.text ?? "",
+      reply: result.result ?? "",
     };
   }
 
@@ -161,14 +161,14 @@ export class BuildNode extends NodeDefinition<BuildInput, BuildOutput> {
         const diff = branch ? await this.makeDiff(ctx, branch) : null;
         const art = this.support.saveArtifact(
           node.id, ctx.flow.id, "diff",
-          diff ? diff.raw : (result.text ?? ""),
+          diff ? diff.raw : (result.result ?? ""),
           { branch, stat: diff?.stat ?? "", feedback }
         );
         return {
           status: "awaiting_approval" as const,
           output: this.outputSchema.parse({ branch: branch ?? "", latestArtifact: art.id }),
           event: `build updated per feedback; new diff ready`,
-          reply: result.text ?? "Done.",
+          reply: result.result ?? "Done.",
         };
       },
     });
@@ -185,7 +185,7 @@ export class BuildNode extends NodeDefinition<BuildInput, BuildOutput> {
    * but left commits on the build branch.
    */
   async recover(ctx: FlowCtx, node: NodeRow, result: CursorRunResult, note: string): Promise<boolean> {
-    if (result.status !== "FINISHED") return false;
+    if (result.status !== "finished") return false;
     const branch = result.git?.branches?.[0]?.branch ?? ctx.flow.mr_branch ?? this.ctxHelper.buildBranch(ctx);
     await this.recoverBranch(ctx, node, branch, note);
     return true;

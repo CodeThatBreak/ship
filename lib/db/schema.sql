@@ -149,8 +149,6 @@ CREATE TABLE IF NOT EXISTS runs (
   cursor_run_id TEXT NOT NULL,
   branch_id     TEXT REFERENCES branches(id),  -- Phase 3C: per-branch attribution
   status        TEXT NOT NULL DEFAULT 'running',  -- running|finished|error|cancelled
-  owner_pid     INTEGER,                   -- pid of the process executing this run
-  last_heartbeat_at TEXT,                  -- refreshed while the run streams; reconcile's liveness signal
   created_at    TEXT NOT NULL,
   updated_at    TEXT NOT NULL
 );

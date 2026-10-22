@@ -94,7 +94,7 @@ export default function SettingsPage() {
 function StatusBar({ settings }: { settings: Settings }) {
   const items = [
     { ok: settings.status.cursorApiKeySet, label: "Cursor API key (cloud)" },
-    { ok: settings.status.cursorCliAvailable, label: "cursor-agent CLI (local)" },
+    { ok: settings.status.cursorCliAvailable, label: "Local runtime (SDK + API key)" },
     { ok: settings.status.gitlabConfigured, label: "GitLab" },
     { ok: settings.status.jiraConfigured, label: "Jira" },
   ];
@@ -134,13 +134,13 @@ function ExecutionSection({ settings, onSave }: { settings: Settings; onSave: (p
                 onClick={() => onSave({ default_execution_mode: m })}
               >
                 {m === "cloud" ? <Cloud size={13} /> : <FolderGit2 size={13} />}
-                {m === "cloud" ? "Cursor Cloud" : "Local CLI"}
+                {m === "cloud" ? "Cursor Cloud" : "Local (SDK)"}
               </Button>
             ))}
           </div>
           <p className="text-muted text-[12px] mt-2">
             Cloud: agents run on Cursor infrastructure against the repo&apos;s cloud URL (needs CURSOR_API_KEY).
-            Local: the <code className="font-mono">cursor-agent</code> CLI runs on this machine in the repo&apos;s configured local path.
+            Local: agents run in-process via the Cursor SDK on this machine in the repo&apos;s configured local path (Node 22.13+ and CURSOR_API_KEY).
           </p>
         </div>
         <div className="border-t border-border-soft pt-4">
@@ -151,13 +151,13 @@ function ExecutionSection({ settings, onSave }: { settings: Settings; onSave: (p
               onChange={(e) => onSave({ default_model: e.target.value })}
               className="bg-panel-2 text-text border border-border rounded-[9px] px-3 py-[9px] text-[13px] font-sans transition-colors duration-150 focus:outline-none focus:border-accent focus:ring-[3px] focus:ring-accent-soft max-w-[280px]"
             >
-              <option value="">Account default{models?.source === "cli" ? "" : " (or DEFAULT_MODEL env)"}</option>
+              <option value="">Account default{models?.source === "catalog" ? "" : " (or DEFAULT_MODEL env)"}</option>
               {modelOptions.map((m) => (
                 <option key={m} value={m}>{m}</option>
               ))}
             </select>
             {models?.source === "fallback" && (
-              <span className="text-[12px] text-muted">cursor-agent CLI not found — showing built-in list</span>
+              <span className="text-[12px] text-muted">model catalog unavailable — showing built-in list</span>
             )}
           </div>
           <p className="text-muted text-[12px] mt-2">

@@ -8,7 +8,7 @@ type ModelsResponse = { models: string[]; source: string; default: string | null
 
 let cache: ModelsResponse | null = null;
 
-/** Fetch the selectable model list (CLI-backed, cached for the session). */
+/** Fetch the selectable model list (catalog-backed, cached for the session). */
 export function useModels() {
   const [data, setData] = useState<ModelsResponse | null>(cache);
   useEffect(() => {

@@ -688,7 +688,7 @@ export class FlowEngine {
     note: string
   ): Promise<boolean> {
     db.run(`UPDATE runs SET status=?, updated_at=? WHERE node_id=? AND status='running'`,
-      result.status === "FINISHED" ? "finished" : "error", db.now(), node.id);
+      result.status === "finished" ? "finished" : "error", db.now(), node.id);
     if (node.status !== "running") return true; // already reconciled by a concurrent pass
 
     const def = nodeRegistry.get(node.node_key);
@@ -697,7 +697,7 @@ export class FlowEngine {
 
     // node declined recovery → fail it so the user can retry
     nodeSupport.setNode(node.id, { status: "failed" });
-    if (result.status !== "FINISHED") {
+    if (result.status !== "finished") {
       db.emitEvent(c.flow.id, node.id, "error", `${node.node_key} run ended with ${result.status} (${note}) — retry the node to continue`);
     } else {
       db.emitEvent(c.flow.id, node.id, "lifecycle", `${node.node_key} run finished while disconnected (${note}) — retry the node to apply it`);

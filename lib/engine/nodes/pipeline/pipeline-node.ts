@@ -344,19 +344,18 @@ export class PipelineNode extends NodeDefinition<PipelineInput, PipelineOutput> 
     const result = await this.runner.executeRun(
       ctx,
       node.id,
-      (nodeId) =>
+      () =>
         this.runner.startAgent(ctx, {
           prompt,
           mode: "agent",
           name: `${label} fix ${ctx.ticket.key}`,
           startingRef: mrBranch ?? undefined,
           model: input.model,
-          nodeId,
         }),
       `${label} fix`,
     );
 
-    this.support.saveArtifact(node.id, ctx.flow.id, "fix", result.text ?? "", { pipelineId, attempt });
+    this.support.saveArtifact(node.id, ctx.flow.id, "fix", result.result ?? "", { pipelineId, attempt });
     db.emitEvent(ctx.flow.id, node.id, "lifecycle",
       `fix run ${attempt} pushed to ${mrBranch} — waiting for the new pipeline`, { pipelineId });
   }

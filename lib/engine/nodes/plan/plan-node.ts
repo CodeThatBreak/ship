@@ -96,7 +96,7 @@ export class PlanNode extends NodeDefinition<PlanInput, PlanOutput> {
     return this.runner.executeRun(
       ctx,
       nodeId,
-      (nid) =>
+      () =>
         this.runner.startAgent(ctx, {
           prompt,
           mode: "plan",
@@ -104,7 +104,6 @@ export class PlanNode extends NodeDefinition<PlanInput, PlanOutput> {
           followUpOn: followUp,
           customSubagents,
           model: input.model,
-          nodeId: nid,
         }),
       label,
     );
@@ -124,7 +123,7 @@ export class PlanNode extends NodeDefinition<PlanInput, PlanOutput> {
       input.feedback ? "plan refine" : "plan",
       input.feedback && hasAgent ? node.agent_id : null,
     );
-    let text = result.text ?? "";
+    let text = result.result ?? "";
 
     let planMeta = this.metaParser.parse(text);
     if (planMeta || !text.includes("plan-meta")) return { text, planMeta };
@@ -141,7 +140,7 @@ export class PlanNode extends NodeDefinition<PlanInput, PlanOutput> {
       "plan meta retry",
       this.support.lastAgentId(node.id),
     );
-    text = result.text ?? "";
+    text = result.result ?? "";
     planMeta = this.metaParser.parse(text);
     return { text, planMeta };
   }
@@ -213,12 +212,12 @@ export class PlanNode extends NodeDefinition<PlanInput, PlanOutput> {
     result: CursorRunResult,
     note: string,
   ): Promise<boolean> {
-    if (result.status !== "FINISHED") return false;
+    if (result.status !== "finished") return false;
     const art = this.support.saveArtifact(
       node.id,
       ctx.flow.id,
       "plan",
-      result.text ?? "(no plan text)",
+      result.result ?? "(no plan text)",
       { recovered: true },
     );
     this.support.setNode(node.id, {

@@ -93,9 +93,9 @@ export class ResolveNode extends NodeDefinition<ResolveInput, ResolveOutput> {
         return {
           status: "done" as const,
           output: this.outputSchema.parse({ resolved: open.length, branchName: input.branchName ?? undefined }),
-          artifact: { kind: "resolve", content: result.text ?? "", meta: { resolved: open.length, branchName: input.branchName ?? undefined } },
+          artifact: { kind: "resolve", content: result.result ?? "", meta: { resolved: open.length, branchName: input.branchName ?? undefined } },
           event: `resolved ${open.length} comment(s)${input.branchName ? ` (${input.branchName})` : ""}`,
-          reply: result.text ?? "",
+          reply: result.result ?? "",
         };
       },
     });

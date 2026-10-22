@@ -73,12 +73,6 @@ export class NodeSupport {
     db.run(`UPDATE runs SET cursor_agent_id=?, updated_at=? WHERE cursor_run_id=?`, agentId, db.now(), runId);
   }
 
-  /** Stamp this process as the owner of a run and start its heartbeat clock. */
-  claimRun(runId: string): void {
-    db.run(`UPDATE runs SET owner_pid=?, last_heartbeat_at=? WHERE cursor_run_id=?`,
-      process.pid, db.now(), runId);
-  }
-
   /** Mark a node's orphaned run as failed after a server restart (nothing recoverable). */
   failOrphanedNode(flowId: string, nodeId: string, nodeKey: string, reason: string): void {
     const node = db.get<{ status: string }>(`SELECT status FROM nodes WHERE id=?`, nodeId);
