@@ -8,7 +8,9 @@
     "start": "next start",
     "lint": "next lint",
     "seed:demo": "node scripts/seed-demo-flow.mjs",
-    "seed:demo:reset": "node scripts/seed-demo-flow.mjs --reset"
+    "seed:demo:reset": "node scripts/seed-demo-flow.mjs --reset",
+    "seed:branch-refine": "node scripts/seed-branch-refine-demo.mjs",
+    "seed:branch-refine:reset": "node scripts/seed-branch-refine-demo.mjs --reset"
   },
   "dependencies": {
     "@cursor/sdk": "^1.0.40",

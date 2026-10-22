@@ -182,18 +182,30 @@ export class FlowEngine {
 
   // ── public triggers ──────────────────────────────────────────────────────
 
-  startPlan(flowId: string, prompt?: string, decompose?: boolean, model?: string, promptIsBody?: boolean): void {
+  startPlan(flowId: string, prompt?: string, decompose?: boolean, model?: string, promptIsBody?: boolean, complex?: boolean): void {
     this.setCurrentNode(flowId, NODE_KEYS.PLAN);
     this.bg(flowId, NODE_KEYS.PLAN, () => this.runNode(flowId, NODE_KEYS.PLAN, {
       feedback: null, prompt: prompt ?? null, promptIsBody: promptIsBody ?? false,
-      decompose: decompose ?? false, model: model ?? null,
+      decompose: decompose ?? false, model: model ?? null, complex: complex ?? false,
     }).then(() => {}));
   }
 
-  refinePlan(flowId: string, feedback: string, prompt?: string, model?: string, promptIsBody?: boolean): void {
+  refinePlan(
+    flowId: string,
+    feedback: string,
+    prompt?: string,
+    model?: string,
+    promptIsBody?: boolean,
+    complex?: boolean,
+    branchRef?: string,
+    fresh?: boolean,
+    contextBlocks?: string[],
+  ): void {
     this.setCurrentNode(flowId, NODE_KEYS.PLAN);
     this.bg(flowId, NODE_KEYS.PLAN, () => this.runNode(flowId, NODE_KEYS.PLAN, {
       feedback, prompt: prompt ?? null, promptIsBody: promptIsBody ?? false, decompose: false, model: model ?? null,
+      complex: complex ?? false, branchRef: branchRef ?? null,
+      fresh: fresh ?? null, contextBlocks: contextBlocks ?? [],
     }).then(() => {}));
   }
 

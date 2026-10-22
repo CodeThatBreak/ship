@@ -145,6 +145,49 @@ export class PlanStepStore {
     return this.list(flowId);
   }
 
+  /**
+   * Scoped checklist sync for a branch refine: replace this branch's agent
+   * rows in place — rows of other branches are never touched. Manual (user)
+   * rows of the branch are removed because the refine's `currentSteps` input
+   * (built from live rows) echoed them, so user intent flows back in, not out.
+   * Steps whose meta_id survives keep their done state, like syncFromPlan.
+   */
+  replaceBranch(flowId: string, artifactId: string, branchName: string, steps: PlanStepInput[]): number {
+    const ts = db.now();
+    const existing = this.list(flowId).filter((s) => s.branch === branchName);
+    if (!existing.length && !steps.length) return 0;
+    const stateByMetaId = new Map(existing.filter((s) => s.meta_id).map((s) => [s.meta_id!, s]));
+    const firstPos = existing.length ? existing[0].position : 0;
+    db.run(
+      `DELETE FROM plan_steps WHERE flow_id=? AND branch=?`,
+      flowId, branchName
+    );
+    steps.forEach((s, i) => {
+      const prev = s.id ? stateByMetaId.get(s.id) : undefined;
+      const status = prev?.status ?? "pending";
+      const completedBy = status === "done" ? prev?.completed_by ?? "manual" : null;
+      db.run(
+        `INSERT INTO plan_steps (id,flow_id,artifact_id,meta_id,position,title,detail,files,branch,status,origin,completed_by,created_at,updated_at)
+         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+        db.uid("step_"),
+        flowId,
+        artifactId,
+        s.id ?? null,
+        firstPos + i,
+        s.title,
+        s.detail ?? null,
+        JSON.stringify(s.files ?? []),
+        branchName,
+        status,
+        "agent",
+        completedBy,
+        ts,
+        ts
+      );
+    });
+    return steps.length;
+  }
+
   setStatus(
     flowId: string,
     stepId: string,

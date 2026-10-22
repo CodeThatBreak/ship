@@ -1,44 +1,90 @@
-import { PlanMeta } from "./schema";
+import {
+  validatePlanMeta,
+  validateSimplePlan,
+  validateComplexPlan,
+  validateSubPlan,
+  type PlanMeta,
+  type PlanValidationError,
+  type SimplePlanResponse,
+  type ComplexPlanResponse,
+  type SubPlanResponse,
+} from "./schema";
 
-/** Parses and validates the trailing ```json plan-meta``` block of a plan. */
+/** Result of parsing a plan response. */
+export interface PlanParseResult<T> {
+  /** The parsed and validated data, or null when invalid. */
+  data: T | null;
+  /** Validation errors (empty when valid). */
+  errors: PlanValidationError[];
+}
+
+/**
+ * Parses and validates JSON-only plan responses (simple and complex).
+ * Also handles legacy markdown + plan-meta code block format.
+ */
 export class PlanMetaParser {
-  /** Extract and validate the plan-meta JSON from the trailing code block. */
-  parse(text: string): PlanMeta | null {
-    const m = text.match(/```json plan-meta\s*\n([\s\S]*?)```/);
-    if (!m) return null;
+  /**
+   * Parse a JSON-only plan response (simple or complex).
+   * Handles optional code fences around the JSON.
+   */
+  parseJson<T>(
+    text: string,
+    validate: (raw: unknown) => { plan: T; errors: [] } | { plan: null; errors: PlanValidationError[] },
+  ): PlanParseResult<T> {
+    const jsonText = extractJson(text);
+    if (!jsonText) return { data: null, errors: [{ path: "", message: "no JSON object found in response" }] };
     try {
-      const raw = JSON.parse(m[1]);
-      // branch names must be unique and dependsOn references must resolve
-      if (Array.isArray(raw?.branches) && raw.branches.length) {
-        const names = new Set<string>();
-        for (const b of raw.branches) {
-          if (!b?.name || names.has(b.name)) return null;
-          names.add(b.name);
-        }
-        for (const b of raw.branches) {
-          for (const dep of b.dependsOn ?? []) {
-            if (!names.has(dep)) return null;
-          }
-        }
-      }
-      const parsed = PlanMeta.safeParse(raw);
-      if (!parsed.success) return null;
-      const out = parsed.data;
-      // steps need stable unique ids
-      if (out.steps?.length) {
-        const ids = new Set<string>();
-        out.steps = out.steps.map((s, i) => {
-          const id = s.id?.trim() || `s${i + 1}`;
-          return { ...s, id };
-        });
-        for (const s of out.steps) {
-          if (ids.has(s.id!)) return null;
-          ids.add(s.id!);
-        }
-      }
-      return out.steps?.length || out.branches?.length ? out : null;
-    } catch {
-      return null;
+      const raw = JSON.parse(jsonText);
+      const result = validate(raw);
+      return { data: result.plan ?? null, errors: result.errors as PlanValidationError[] };
+    } catch (e) {
+      return { data: null, errors: [{ path: "", message: `invalid JSON: ${e instanceof Error ? e.message : String(e)}` }] };
     }
   }
+
+  /** Parse a simple plan response (JSON with markdown + steps). */
+  parseSimple(text: string): PlanParseResult<SimplePlanResponse> {
+    return this.parseJson(text, validateSimplePlan);
+  }
+
+  /** Parse a complex plan response (JSON with markdown + steps + branches). */
+  parseComplex(text: string): PlanParseResult<ComplexPlanResponse> {
+    return this.parseJson(text, validateComplexPlan);
+  }
+
+  /** Parse a branch-scoped sub-plan response (this branch's markdown + steps only). */
+  parseSubPlan(text: string): PlanParseResult<SubPlanResponse> {
+    return this.parseJson(text, validateSubPlan);
+  }
+
+  /** Legacy: parse the trailing ```json plan-meta``` block from markdown text. */
+  parse(text: string): PlanMeta | null {
+    return this.parseDetailed(text).data;
+  }
+
+  /** Legacy: parse with detailed errors. */
+  parseDetailed(text: string): PlanParseResult<PlanMeta> & { hasBlock: boolean } {
+    const m = text.match(/```json plan-meta\s*\n([\s\S]*?)```/);
+    if (!m) return { data: null, errors: [], hasBlock: false };
+    try {
+      const raw = JSON.parse(m[1]);
+      const result = validatePlanMeta(raw);
+      return { data: result.meta ?? null, errors: result.errors as PlanValidationError[], hasBlock: true };
+    } catch (e) {
+      return { data: null, errors: [{ path: "", message: `invalid JSON: ${e instanceof Error ? e.message : String(e)}` }], hasBlock: true };
+    }
+  }
+}
+
+/** Extract a JSON object from text, handling optional code fences. */
+function extractJson(text: string): string | null {
+  const trimmed = text.trim();
+  // Strip markdown code fences if the entire response is wrapped
+  const fenceMatch = trimmed.match(/^```(?:json)?\s*\n?([\s\S]*?)\n?```$/);
+  const candidate = fenceMatch ? fenceMatch[1].trim() : trimmed;
+  // Find the JSON object boundaries
+  const firstBrace = candidate.indexOf("{");
+  const lastBrace = candidate.lastIndexOf("}");
+  if (firstBrace < 0 || lastBrace <= firstBrace) return null;
+  return candidate.slice(firstBrace, lastBrace + 1);
 }

@@ -13,7 +13,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "../../../components/ui
 export type Artifact = { id: string; kind: string; version: number; status: string; feedback?: string; created_at: string; meta?: any };
 export type NodeCost = { totalCents: number; tokens: number; runs: any[] };
 export type Node = {
-  id: string; node_key: string; type: string; status: string;
+  id: string; node_key: string; type: string; status: string; agent_id?: string | null;
   input?: any; output?: any; artifacts: Artifact[]; cost?: NodeCost;
 };
 export type BranchRow = {

@@ -4,6 +4,7 @@ import { FlowRow, Ticket, rows } from "../../../../../lib/db/rows";
 import { prompts } from "../../../../../lib/engine/prompts";
 import { flowCtxHelper, nodeSupport, type FlowCtx } from "../../../../../lib/engine/nodes/base";
 import { NODE_KEYS } from "../../../../../lib/engine/nodes/keys";
+import { previewSubPlanPrompt } from "../../../../../lib/engine/nodes/plan";
 
 export const dynamic = "force-dynamic";
 
@@ -13,6 +14,40 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
   const nodeKey = url.searchParams.get("node") ?? "";
   const feedback = url.searchParams.get("feedback") ?? undefined;
   const instructions = url.searchParams.get("instructions") ?? undefined;
+  const branchParam = url.searchParams.get("branch") ?? undefined;
+  const contextBlocksParam = url.searchParams.get("contextBlocks");
+  const contextBlocks = contextBlocksParam ? contextBlocksParam.split(",").filter(Boolean) : undefined;
+
+  // ── branch-scoped sub-plan refine prompt (§7.2) ────────────────────────────
+  // Resolves `plan_subplan_refine` (editable body only) + the context block
+  // list so the PromptModal can render the picker (id, label, preview, char
+  // count, default-on, locked).
+  if (branchParam && nodeKey === NODE_KEYS.PLAN) {
+    const flow = rows.get(FlowRow, `SELECT * FROM flows WHERE id=?`, id);
+    if (!flow) return NextResponse.json({ error: "flow not found" }, { status: 404 });
+    const ticket = rows.get(Ticket, `SELECT * FROM tickets WHERE id=?`, flow.ticket_id);
+    if (!ticket) return NextResponse.json({ error: "ticket not found" }, { status: 404 });
+    const repo = flow.repo_id ? db.repoById(flow.repo_id) ?? null : null;
+    const ctx: FlowCtx = { flow, ticket, repo };
+    const preview = previewSubPlanPrompt(ctx, branchParam, contextBlocks);
+    if (!preview) {
+      return NextResponse.json(
+        { error: `branch "${branchParam}" not found in the latest plan — sub-plan refine unavailable` },
+        { status: 400 },
+      );
+    }
+    const tpl = prompts.getTemplate("plan_subplan_refine");
+    return NextResponse.json({
+      prompt: preview.prompt,
+      label: tpl.label,
+      description: tpl.description,
+      variables: tpl.variables,
+      mode: tpl.mode,
+      source: "template",
+      appendsInternal: true,
+      contextBlocks: preview.contextBlocks,
+    });
+  }
 
   // the pipeline gate node renders the shared fix template
   const templateNodeKey = nodeKey === NODE_KEYS.PIPELINE ? "pipeline_fix" : nodeKey;

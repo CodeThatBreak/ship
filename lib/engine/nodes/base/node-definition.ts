@@ -12,8 +12,8 @@ import { nodeSupport, type NodeSupport } from "./node-support";
  */
 export interface RunOutcome {
   output: Record<string, unknown>;
-  /** final node status, e.g. awaiting_approval | done */
-  status: "awaiting_approval" | "done";
+  /** final node status, e.g. awaiting_approval | done | failed */
+  status: "awaiting_approval" | "done" | "failed";
   /** artifact to save (kind + content + meta); nodes may save more themselves */
   artifact?: { kind: string; content: string; meta?: unknown };
   /** lifecycle event message */

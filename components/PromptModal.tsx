@@ -1,10 +1,12 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
-import { RotateCcw, Play, X, Info } from "lucide-react";
+import { RotateCcw, Play, X, Info, Lock, Bot } from "lucide-react";
 import { Modal } from "./ui/modal";
 import { Button } from "./ui/button";
 import { Spinner } from "./ui/spinner";
 import { Badge } from "./ui/badge";
+import { Checkbox } from "./ui/checkbox";
+import { Tooltip } from "./ui/tooltip";
 import { cn } from "../lib/utils";
 
 interface PromptData {
@@ -16,6 +18,26 @@ interface PromptData {
   source: string;
   /** internal instructions were stripped from `prompt` and are re-appended at run time */
   appendsInternal?: boolean;
+  /** context blocks for the picker (sub-plan refine prompts, §4/§7.5) */
+  contextBlocks?: ContextBlockInfo[];
+}
+
+export interface ContextBlockInfo {
+  id: string;
+  label: string;
+  description: string;
+  /** rendered preview — what the model would see for this block */
+  text: string;
+  chars: number;
+  defaultOn: boolean;
+  locked: boolean;
+}
+
+export interface PromptRunExtras {
+  /** start a clean agent instead of following up on the node's existing one */
+  fresh?: boolean;
+  /** ids of the context blocks to assemble server-side into {{context}} */
+  contextBlocks?: string[];
 }
 
 export default function PromptModal({
@@ -26,18 +48,32 @@ export default function PromptModal({
   onRun,
   feedback,
   instructions,
+  branch,
+  showContextPicker,
+  defaultFresh,
+  hasAgent,
 }: {
   flowId: string;
   nodeKey: string;
   open: boolean;
   onClose: () => void;
-  onRun: (prompt: string, promptIsBody: boolean) => void;
+  onRun: (prompt: string, promptIsBody: boolean, extras: PromptRunExtras) => void;
   feedback?: string;
   instructions?: string;
+  /** seed a branch-scoped sub-plan refine prompt (?branch=) */
+  branch?: string;
+  /** show the context block picker (scoped refines — the picker controls everything a fresh agent sees) */
+  showContextPicker?: boolean;
+  /** initial state of the "New agent" checkbox (scoped refines default fresh) */
+  defaultFresh?: boolean;
+  /** hide the fresh toggle when no agent exists yet — the first run is always fresh */
+  hasAgent?: boolean;
 }) {
   const [data, setData] = useState<PromptData | null>(null);
   const [edited, setEdited] = useState("");
   const [loading, setLoading] = useState(false);
+  const [selectedBlocks, setSelectedBlocks] = useState<Set<string>>(new Set());
+  const [fresh, setFresh] = useState(defaultFresh ?? false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   useEffect(() => {
@@ -46,15 +82,21 @@ export default function PromptModal({
     const params = new URLSearchParams({ node: nodeKey });
     if (feedback) params.set("feedback", feedback);
     if (instructions) params.set("instructions", instructions);
+    if (branch) params.set("branch", branch);
     fetch(`/api/flows/${flowId}/prompt?${params}`)
       .then((r) => r.json())
       .then((d: PromptData) => {
         setData(d);
-        setEdited(d.prompt);
+        setEdited(d.prompt ?? "");
+        const defaults = new Set<string>();
+        for (const b of d.contextBlocks ?? []) {
+          if (b.defaultOn || b.locked) defaults.add(b.id);
+        }
+        setSelectedBlocks(defaults);
         setLoading(false);
       })
       .catch(() => setLoading(false));
-  }, [open, flowId, nodeKey, feedback, instructions]);
+  }, [open, flowId, nodeKey, feedback, instructions, branch]);
 
   const insertVariable = (v: string) => {
     const ta = textareaRef.current;
@@ -75,7 +117,23 @@ export default function PromptModal({
     if (data) setEdited(data.prompt);
   };
 
+  const toggleBlock = (id: string, locked: boolean) => {
+    if (locked) return; // pinned: the engine includes it regardless
+    setSelectedBlocks((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
   const charCount = edited.length;
+  const blocks = data?.contextBlocks ?? [];
+  // locked blocks are always included — count them in the total
+  const totalContextChars = blocks
+    .filter((b) => selectedBlocks.has(b.id) || b.locked)
+    .reduce((sum, b) => sum + b.chars, 0);
+  const selectedIds = blocks.filter((b) => selectedBlocks.has(b.id) || b.locked).map((b) => b.id);
 
   return (
     <Modal open={open} onClose={onClose} title={data ? `Edit prompt — ${data.label}` : "Edit prompt"}>
@@ -124,6 +182,66 @@ export default function PromptModal({
             </p>
           )}
 
+          {/* context picker — what the model sees, per block char counts. For a
+              fresh agent this controls EVERYTHING the model sees. */}
+          {showContextPicker && blocks.length > 0 && (
+            <div className="border border-border-soft rounded-[10px] px-3 py-2.5">
+              <div className="flex items-center gap-2 mb-2">
+                <span className="text-[11px] font-medium uppercase tracking-[0.5px] text-muted">Context blocks</span>
+                <span className="text-[11px] text-muted" title="total size of the selected context, assembled server-side">
+                  {totalContextChars.toLocaleString()} chars
+                </span>
+                <Tooltip content="What the model will receive. Context is always re-assembled on the server — this selection is a hint, never the spec. A fresh agent sees exactly these blocks, nothing else.">
+                  <Info size={12} className="text-muted hover:text-text-dim cursor-help" />
+                </Tooltip>
+              </div>
+              <div className="grid gap-1.5">
+                {blocks.map((b) => (
+                  <label
+                    key={b.id}
+                    className={cn(
+                      "flex items-start gap-2 text-[12.5px] rounded-[8px] px-2 py-1.5 transition-colors",
+                      b.locked ? "opacity-70 cursor-not-allowed" : "cursor-pointer hover:bg-bg-soft"
+                    )}
+                    title={b.text ? b.text : undefined}
+                  >
+                    <Checkbox
+                      className="shrink-0 mt-[1px]"
+                      checked={selectedBlocks.has(b.id) || b.locked}
+                      disabled={b.locked}
+                      onCheckedChange={() => toggleBlock(b.id, b.locked)}
+                    />
+                    <span className="flex-1">
+                      <span className="flex items-center gap-1.5">
+                        <span className="font-medium">{b.label}</span>
+                        {b.locked && (
+                          <Tooltip content="Locked: the branch scope, files and dependencies are the contract a scoped refine works inside — the engine always includes it.">
+                            <span className="inline-flex items-center gap-1 text-[10.5px] text-amber"><Lock size={10} /> locked</span>
+                          </Tooltip>
+                        )}
+                        <span className="text-[11px] text-muted">{b.chars.toLocaleString()} chars</span>
+                      </span>
+                      <span className="block text-[11.5px] text-muted">{b.description}</span>
+                    </span>
+                  </label>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {hasAgent && (
+            <label className="flex items-start gap-2 text-[12.5px] cursor-pointer select-none">
+              <Checkbox className="shrink-0 mt-[1px]" checked={fresh} onCheckedChange={(v) => setFresh(v === true)} />
+              <span className="flex flex-col">
+                <span className="flex items-center gap-1.5 font-medium"><Bot size={12} /> New agent</span>
+                <span className="text-[11.5px] text-muted">
+                  start a clean agent instead of continuing the current one — lower hallucination risk from
+                  accumulated context; it only re-reads this branch's files
+                </span>
+              </span>
+            </label>
+          )}
+
           <div className="flex items-center gap-2 text-[12px] text-muted">
             <span>{charCount.toLocaleString()} chars</span>
             {data.source === "override" && <Badge variant="amber">custom override</Badge>}
@@ -136,7 +254,12 @@ export default function PromptModal({
           <div className="flex gap-2 pt-1">
             <Button
               variant="primary"
-              onClick={() => onRun(edited, Boolean(data.appendsInternal))}
+              onClick={() =>
+                onRun(edited, Boolean(data.appendsInternal), {
+                  fresh: hasAgent ? fresh : undefined,
+                  contextBlocks: showContextPicker ? selectedIds : undefined,
+                })
+              }
               disabled={!edited.trim()}
             >
               <Play size={14} /> Run with this prompt
