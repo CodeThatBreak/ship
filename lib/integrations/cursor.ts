@@ -78,8 +78,7 @@ export class CursorClient {
   }
 
   /** Per-run token usage + cost (cloud agents only). */
-  async getRunUsage(agentId: string, runId: string): Promise<RunUsage | null> {
-    const u = await cursorAgent.getRunUsage(agentId, runId);
+  async getRunUsage(agentId: string, runId: string): Promise<RunUsage | null> {    const u = await cursorAgent.getRunUsage(agentId, runId);
     if (!u) return null;
     return {
       inputTokens: u.usage.inputTokens,

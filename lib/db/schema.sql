@@ -11,6 +11,7 @@ CREATE TABLE IF NOT EXISTS tickets (
   prd_text      TEXT,                       -- extracted PRD body
   figma_urls    TEXT,                       -- JSON array of figma links
   repo_url      TEXT,                       -- gitlab repo this ticket maps to
+  parent_key    TEXT,                       -- jira parent issue key (sub-task nesting)
   jira_url      TEXT,
   raw           TEXT,                       -- raw jira payload
   synced_at     TEXT

@@ -104,11 +104,9 @@ export default function ReviewView({ flow, node, action, model }:
   const running = node.status === "running";
 
   const headerEnd = (
-    <>
-      <Button size="sm" variant="ghost" onClick={() => setShowPrompt(true)} disabled={running}>
-        <Pencil size={12} /> Edit prompt
-      </Button>
-    </>
+    <Button size="xs" variant="secondary" onClick={() => setShowPrompt(true)}>
+      <Pencil size={12} /> Edit prompt
+    </Button>
   );
 
   const footer = flow.mr_iid ? (
@@ -120,11 +118,11 @@ export default function ReviewView({ flow, node, action, model }:
       </span>
       <div className="flex-1" />
       {openThreads.length > 0 && (
-        <Button variant="default" onClick={() => action("resolve", { model: model || undefined })}>
+        <Button onClick={() => action("resolve", { model: model || undefined })}>
           <CheckCheck size={14} /> Resolve {openThreads.length} open comment{openThreads.length > 1 ? "s" : ""}
         </Button>
       )}
-      <Button variant="default" onClick={() => action("review", { model: model || undefined })} disabled={running}>
+      <Button onClick={() => action("review", { model: model || undefined })} disabled={running}>
         {running ? <><Spinner /> Reviewing…</> : <><ScanSearch size={14} /> Run AI review</>}
       </Button>
     </>
@@ -134,7 +132,7 @@ export default function ReviewView({ flow, node, action, model }:
 
   return (
     <>
-      <PanelShell node={node} action={action} headerEnd={headerEnd} footer={footer}>
+      <PanelShell node={node} action={action} headerEnd={headerEnd} runningLabel="Agent is reviewing the merge request…" footer={footer}>
         {!flow.mr_iid && <p className="text-muted-foreground">Review runs after the merge request is created.</p>}
 
         {flow.mr_iid && comments.length === 0 && !running && (
@@ -148,6 +146,9 @@ export default function ReviewView({ flow, node, action, model }:
 
         {threads.length > 0 && (
           <div>
+            <h3 className="text-sm font-semibold mb-2 flex items-center gap-1.5">
+              <MessageSquare size={14} /> Discussion threads
+            </h3>
             <div className="flex gap-2 mb-3 flex-wrap">
               <Badge className="bg-amber-500/10 text-amber-400">{openThreads.length} open</Badge>
               <Badge className="bg-emerald-500/10 text-emerald-400">{resolvedThreads.length} resolved</Badge>

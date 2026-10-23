@@ -376,6 +376,7 @@ export class CursorAgentService {
       return null;
     }
   }
+
 }
 
 export const cursorAgent = processSingleton(

@@ -3,6 +3,7 @@ import { FlowRow, NodeRow, RunRow, rows } from "../db/rows";
 import { cursorClient } from "../integrations/cursor";
 import { localAgent } from "../integrations/localAgent";
 import { nodeSupport, type FlowCtx } from "./nodes/base";
+import { usageTracker } from "./nodes/base/usage-tracker";
 import { flowEngine } from "./flow";
 import { processSingleton } from "../singleton";
 
@@ -39,6 +40,9 @@ export class Reconciler {
   private readonly reattached = new Set<string>();
 
   async reconcileFlow(flowId: string): Promise<void> {
+    // legacy runs captured without cost (and stale estimates) get a cost from
+    // our list-price calculation — once per process, async, non-blocking
+    void usageTracker.backfillCosts().catch(() => {});
     const nowMs = Date.now();
     if (nowMs - (this.lastReconcile.get(flowId) ?? 0) < Reconciler.THROTTLE_MS) return;
     this.lastReconcile.set(flowId, nowMs);

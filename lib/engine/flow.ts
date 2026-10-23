@@ -13,6 +13,7 @@ import { hostOf } from "../integrations/gitlab";
 import type { CursorRunResult } from "../integrations/cursor";
 import { localAgent } from "../integrations/localAgent";
 import { nodeSupport, type FlowCtx } from "./nodes/base";
+import { uncachedInputTokens } from "./nodes/base/usage-tracker";
 import { branchStore } from "./nodes/build";
 import { NODE_KEYS } from "./nodes/keys";
 import { isCommitError, mergeRequests } from "./nodes/merge-request";
@@ -92,8 +93,14 @@ export class FlowEngine {
     for (const r of runs) {
       const c = nodeCosts.get(r.node_id) ?? { totalCents: 0, tokens: 0, runs: [] };
       if (r.cost_cents != null) c.totalCents += r.cost_cents;
-      c.tokens += (r.input_tokens ?? 0) + (r.output_tokens ?? 0) +
-                  (r.cache_read_tokens ?? 0) + (r.cache_write_tokens ?? 0);
+      // stored input_tokens is the full prompt for local runs (cache reads are
+      // a subset of it) — roll up the overlap the same way the cost estimator does
+      c.tokens += uncachedInputTokens({
+        inputTokens: r.input_tokens,
+        cacheReadTokens: r.cache_read_tokens,
+        cacheWriteTokens: r.cache_write_tokens,
+      }) + (r.output_tokens ?? 0) +
+        (r.cache_read_tokens ?? 0) + (r.cache_write_tokens ?? 0);
       c.runs.push(r);
       nodeCosts.set(r.node_id, c);
     }
@@ -163,7 +170,10 @@ export class FlowEngine {
         await fn();
       } catch (e: unknown) {
         const msg = e instanceof Error ? e.message : String(e);
-        db.emitEvent(flowId, null, "error", msg);
+        // tag the event with the node it belongs to — the chat panel groups
+        // flow-level rows per tab, and an untagged run failure would show up
+        // on every node's feed
+        db.emitEvent(flowId, null, "error", msg, { nodeKey });
         if (nodeKey) this.setNodeStatus(flowId, nodeKey, "failed");
         db.run(`UPDATE flows SET updated_at=? WHERE id=?`, db.now(), flowId);
       } finally {

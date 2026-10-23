@@ -1,11 +1,10 @@
 "use client";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useParams } from "next/navigation";
-import { ArrowLeft, Frame, GitMerge, Cloud, FolderGit2, Coins } from "lucide-react";
 import WorkflowGraph from "../../../components/WorkflowGraph";
 import NodePanel from "../../../components/NodePanel";
 import ChatPanel from "../../../components/ChatPanel";
-import { Badge } from "../../../components/ui/badge";
+import FlowHeader from "../../../components/FlowHeader";
 import { Spinner } from "../../../components/ui/spinner";
 import { composeModelChoice, type ModelChoice } from "../../../lib/modelSpec";
 
@@ -120,6 +119,12 @@ export default function FlowScreen() {
     [flow]
   );
 
+  // node id → status, for the chat panel to close stale "running" sections
+  const nodeStatusByNodeId = useMemo(
+    () => new Map((flow?.nodes ?? []).map((n) => [n.id, n.status])),
+    [flow]
+  );
+
   if (!flow) return <main className="p-6"><Spinner /> Loading…</main>;
 
   // busy for the chat panel = this node's agent is running (not just any node)
@@ -128,44 +133,7 @@ export default function FlowScreen() {
   return (
     <main className="flex flex-col h-screen">
       {/* header */}
-      <header className="flex items-center gap-2.5 px-5 py-3 border-b border-border bg-card">
-        <a href="/" className="inline-flex items-center gap-1.5 text-muted-foreground hover:text-muted-foreground">
-          <ArrowLeft size={15} /> DevFlow
-        </a>
-        <span className="text-border">|</span>
-        <a href={flow.ticket.jiraUrl} target="_blank"><Badge className="bg-blue-500/10 text-blue-400">{flow.ticket.key}</Badge></a>
-        <strong className="text-sm">{flow.ticket.summary}</strong>
-        <Badge className="bg-amber-500/10 text-amber-400">{flow.ticket.status}</Badge>
-        {flow.execution_mode === "local"
-          ? <Badge><FolderGit2 size={11} /> local</Badge>
-          : <Badge><Cloud size={11} /> cloud</Badge>}
-        {flow.ticket.figmaUrls.length > 0 && (
-          <a href={flow.ticket.figmaUrls[0]} target="_blank"><Badge className="bg-violet-500/10 text-violet-400"><Frame size={11} /> Figma</Badge></a>
-        )}
-        <div className="flex-1" />
-        {flow.cost && flow.cost.runCount > 0 && (
-          <Badge title={`${flow.cost.runCount} run${flow.cost.runCount > 1 ? "s" : ""}${flow.cost.tokens ? ` · ${Math.round(flow.cost.tokens / 1000)}k tokens` : ""}`}>
-            <Coins size={11} />
-            {flow.cost.totalCents > 0 ? `$${(flow.cost.totalCents / 100).toFixed(2)}` : `${Math.round(flow.cost.tokens / 1000)}k tok`}
-          </Badge>
-        )}
-        {flow.branches && flow.branches.filter((b: BranchRow) => b.mr_url).length > 0 ? (
-          <span className="flex gap-1">
-            {flow.branches.filter((b: BranchRow) => b.mr_url).map((b: BranchRow) => (
-              <a key={b.id} href={b.mr_url} target="_blank">
-                <Badge className="bg-violet-500/10 text-violet-400"><GitMerge size={11} /> {b.name} !{b.mr_iid}</Badge>
-              </a>
-            ))}
-          </span>
-        ) : flow.mr_url ? (
-          <a href={flow.mr_url} target="_blank"><Badge className="bg-violet-500/10 text-violet-400"><GitMerge size={11} /> MR !{flow.mr_iid}</Badge></a>
-        ) : (
-          <Badge>no MR yet</Badge>
-        )}
-        <Badge className={flow.status === "active" ? "bg-emerald-500/10 text-emerald-400" : undefined}>
-          <span className="size-1.5 rounded-full bg-current" />{flow.status}
-        </Badge>
-      </header>
+      <FlowHeader flow={flow} />
 
       {/* workflow graph */}
       <div className="border-b border-border bg-background px-3 py-2.5 overflow-x-auto">
@@ -185,6 +153,7 @@ export default function FlowScreen() {
             canRefine={Boolean(node?.artifacts.some((a) => a.kind === "plan"))}
             events={events}
             nodeKeysByNodeId={nodeKeysByNodeId}
+            nodeStatusByNodeId={nodeStatusByNodeId}
             modelChoice={modelChoice}
             setModelChoice={setModelChoice}
             showPromptBox={planPending}

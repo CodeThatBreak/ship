@@ -28,8 +28,12 @@ type Settings = {
   resolve_delay_ms: number;
   local_agent: { force: boolean; sandbox: boolean; timeout_ms: number };
   prompt_templates?: Record<string, PromptTemplate>;
+  pricing?: Record<string, PricingEntry>;
+  pricing_suggested?: Record<string, PricingEntry>;
   status: { cursorApiKeySet: boolean; cursorCliAvailable: boolean; gitlabConfigured: boolean; jiraConfigured: boolean };
 };
+type PricingEntry = { input_per_mtok?: number; output_per_mtok?: number; cache_read_per_mtok?: number; cache_write_per_mtok?: number };
+type PricingRow = { key: string; input?: number; output?: number; cacheRead?: number; cacheWrite?: number };
 
 export default function SettingsPage() {
   const [settings, setSettings] = useState<Settings | null>(null);
@@ -78,6 +82,10 @@ export default function SettingsPage() {
 
       {settings && (
         <ExecutionSection settings={settings} onSave={saveSettings} />
+      )}
+
+      {settings && (
+        <PricingSection settings={settings} onSave={saveSettings} />
       )}
 
       {settings?.prompt_templates && (
@@ -208,6 +216,101 @@ function ExecutionSection({ settings, onSave }: { settings: Settings; onSave: (p
             </p>
           )}
         </div>
+      </Card>
+    </section>
+  );
+}
+
+function PricingSection({ settings, onSave }: { settings: Settings; onSave: (p: any) => void }) {
+  // saved entries + suggested defaults that aren't overridden yet, so the
+  // editor always shows the effective table
+  const [rows, setRows] = useState<PricingRow[]>([]);
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    const saved = settings.pricing ?? {};
+    const suggested = settings.pricing_suggested ?? {};
+    setRows(Object.keys({ ...suggested, ...saved }).map((key) => {
+      const p = saved[key] ?? suggested[key] ?? {};
+      return { key, input: p.input_per_mtok, output: p.output_per_mtok, cacheRead: p.cache_read_per_mtok, cacheWrite: p.cache_write_per_mtok };
+    }));
+  }, [settings.pricing, settings.pricing_suggested]);
+
+  const update = (i: number, patch: Partial<PricingRow>) =>
+    setRows(rows.map((r, j) => (j === i ? { ...r, ...patch } : r)));
+  const remove = (i: number) => setRows(rows.filter((_, j) => j !== i));
+  const add = () => setRows([...rows, { key: "", ...{ input: undefined, output: undefined, cacheRead: undefined, cacheWrite: undefined } }]);
+
+  const save = async () => {
+    setSaving(true);
+    const payload: Record<string, PricingEntry> = {};
+    for (const r of rows) {
+      const key = r.key.trim();
+      if (!key) continue;
+      const entry: PricingEntry = {};
+      if (Number.isFinite(r.input)) entry.input_per_mtok = Number(r.input);
+      if (Number.isFinite(r.output)) entry.output_per_mtok = Number(r.output);
+      if (Number.isFinite(r.cacheRead)) entry.cache_read_per_mtok = Number(r.cacheRead);
+      if (Number.isFinite(r.cacheWrite)) entry.cache_write_per_mtok = Number(r.cacheWrite);
+      if (Object.keys(entry).length) payload[key] = entry;
+    }
+    await onSave({ pricing: payload });
+    setSaving(false);
+  };
+
+  return (
+    <section className="mb-8">
+      <h2 className="text-[13px] mb-3 text-muted-foreground uppercase tracking-[1px] flex items-center gap-[7px]">
+        <Database size={14} /> Model pricing <span className="normal-case tracking-normal">(USD per million tokens)</span>
+      </h2>
+      <Card className="p-4 grid gap-3">
+        <div className="grid gap-x-3 gap-y-1.5" style={{ gridTemplateColumns: "1fr 120px 120px 120px 120px auto" }}>
+          <span className="text-[12px] text-muted-foreground">model id / family prefix</span>
+          <span className="text-[12px] text-muted-foreground text-right">input</span>
+          <span className="text-[12px] text-muted-foreground text-right">output</span>
+          <span className="text-[12px] text-muted-foreground text-right">cache read</span>
+          <span className="text-[12px] text-muted-foreground text-right">cache write</span>
+          <span />
+          {rows.map((r, i) => (
+            <div key={i} className="contents">
+              <Input
+                placeholder='e.g. composer-2.5 or claude (prefix) or *'
+                className="font-mono text-[12px]"
+                value={r.key}
+                onChange={(e) => update(i, { key: e.target.value })}
+              />
+              {(["input", "output", "cacheRead", "cacheWrite"] as const).map((f) => (
+                <Input
+                  key={f}
+                  type="number"
+                  min={0}
+                  step="any"
+                  placeholder="—"
+                  className="text-right"
+                  value={r[f] ?? ""}
+                  onChange={(e) => update(i, { [f]: e.target.value === "" ? undefined : Number(e.target.value) } as Partial<PricingRow>)}
+                />
+              ))}
+              <Button size="sm" variant="ghost" onClick={() => remove(i)} aria-label="remove row">
+                <Trash2 size={13} />
+              </Button>
+            </div>
+          ))}
+        </div>
+        <div className="flex items-center gap-2">
+          <Button size="sm" variant="outline" onClick={add}><Plus size={13} /> Add rate</Button>
+          <div className="flex-1" />
+          <Button size="sm" onClick={save} disabled={saving}>
+            {saving ? <Spinner /> : <RefreshCw size={13} />} Save &amp; re-price runs
+          </Button>
+        </div>
+        <p className="text-muted-foreground text-[12px]">
+          Costs are our own calculation — token counts × this table, minus the 7% Enterprise
+          discount — because the Cursor billing API doesn&apos;t report per-run charges (it is
+          account-gated). The model id matches the longest family prefix you set, with{" "}
+          <code className="font-mono">*</code> as the fallback. Saving re-estimates every run
+          whose cost came from a previous estimate.
+        </p>
       </Card>
     </section>
   );

@@ -109,9 +109,14 @@ export class Database {
         }
       }
     }
+    // Tickets: parent issue key for sub-task hierarchy on the homepage
+    const ticketCols = cols("tickets");
+    if (!ticketCols.has("parent_key")) {
+      d.exec(`ALTER TABLE tickets ADD COLUMN parent_key TEXT`);
+    }
   }
 
-  // ── ids & timestamps ─────────────────────────────────────────────────────
+  // ── ids & timestamps ──────────────────────────────
   now(): string {
     return new Date().toISOString();
   }

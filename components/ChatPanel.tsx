@@ -74,6 +74,7 @@ import {
 import { cn } from "@/lib/utils";
 import {
   eventGrouper,
+  flowEventNodeKeys,
   type FeedEvent,
   type FeedGroup,
   type FeedItem,
@@ -158,6 +159,7 @@ export default function ChatPanel({
   canRefine = true,
   events,
   nodeKeysByNodeId,
+  nodeStatusByNodeId,
   modelChoice,
   setModelChoice,
   showPromptBox = false,
@@ -171,6 +173,9 @@ export default function ChatPanel({
   canRefine?: boolean;
   events: FeedEvent[];
   nodeKeysByNodeId?: Map<string, string>;
+  /** node id → status; used as the authority on whether a run is really running,
+   *  since a run's "finished" event can fall outside the fetched event window */
+  nodeStatusByNodeId?: Map<string, string>;
   modelChoice: ModelChoice | null;
   setModelChoice: (choice: ModelChoice | null) => void;
   /** plan tab, before any plan exists: show the prompt preview box over the chat */
@@ -232,13 +237,22 @@ export default function ChatPanel({
     (m) => !m.node_key || m.node_key === nodeKey,
   );
 
-  // run sections for this node only (chat is scoped by node_key; events by run/node-id)
+  // run sections for this node only (chat is scoped by node_key; events by run/node-id).
+  // A section whose "finished" event fell outside the fetched event window stays
+  // open in the grouper forever — the node's authoritative status (kept current
+  // by the engine/reconciler) is the tiebreaker: a closed/spinner-less section
+  // must never claim to be running when its node isn't.
   const sections = React.useMemo(
     () =>
       eventGrouper
         .group(events, nodeKeysByNodeId)
+        .map((s) => {
+          if (!s.active) return s;
+          const status = nodeStatusByNodeId?.get(s.nodeId ?? "");
+          return status && status !== "running" ? { ...s, active: false } : s;
+        })
         .filter((s) => s.nodeKey === nodeKey),
-    [events, nodeKeysByNodeId, nodeKey],
+    [events, nodeKeysByNodeId, nodeStatusByNodeId, nodeKey],
   );
 
   const rows = React.useMemo<Row[]>(() => {
@@ -250,17 +264,19 @@ export default function ChatPanel({
     for (const s of sections)
       out.push({ kind: "run", t: sectionSortKey(s), section: s });
     // flow-level events (node_id = null: MR pushes, pipeline results, checklist
-    // edits) never attach to a run section for this node — show them as
-    // standalone rows so they don't vanish with the per-node filter.
-    // The boilerplate "flow created" announcement is skipped — the chat feed
-    // starts with the user's first message.
+    // edits, resolve queueing) are mapped to the node they belong to so each
+    // tab only shows activity relevant to it; anything unmatched (infra errors)
+    // stays visible everywhere. The boilerplate "flow created" announcement is
+    // skipped — the chat feed starts with the user's first message.
     for (const e of events) {
-      if (e.node_id == null && !/^flow created\b/i.test(e.message ?? "")) {
-        out.push({ kind: "event", t: Date.parse(e.created_at), ev: e });
-      }
+      if (e.node_id != null) continue;
+      if (/^flow created\b/i.test(e.message ?? "")) continue;
+      const relevantTo = flowEventNodeKeys(e);
+      if (relevantTo && !relevantTo.includes(nodeKey)) continue;
+      out.push({ kind: "event", t: Date.parse(e.created_at), ev: e });
     }
     return out.sort((a, b) => a.t - b.t);
-  }, [nodeMsgs, sections, events]);
+  }, [nodeMsgs, sections, events, nodeKey]);
 
   const canSend = draft.trim().length > 0 && !sending && !inputLocked;
 
@@ -338,12 +354,14 @@ export default function ChatPanel({
                 aria-busy={awaitingReply}
                 className="gap-6 px-4 py-4 text-sm"
               >
-                {rows.map((row) => {
+                {rows.map((row, i) => {
                   const key =
                     row.kind === "msg"
                       ? `m${row.msg.id}`
                       : row.kind === "run"
-                        ? `r${row.section.key}`
+                        ? // index-qualified: two sections can share a runId key
+                          // (an event can re-open a run after it was closed)
+                          `r${row.section.key}#${i}`
                         : `e${row.ev.id}`;
                   return (
                     <MessageScrollerItem

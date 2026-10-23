@@ -11,6 +11,8 @@ export interface JiraTicket {
   prdText: string;
   figmaUrls: string[];
   jiraUrl: string;
+  /** Parent issue key when this is a sub-task (e.g. a story's child). */
+  parentKey: string;
   raw: any;
 }
 
@@ -66,6 +68,7 @@ export class JiraClient {
       prdText: this.extractPrd(descText || f.summary || ""),
       figmaUrls: figma,
       jiraUrl: `${config.jira.baseUrl()}/browse/${issue.key}`,
+      parentKey: f.parent?.key ?? "",
       raw: issue,
     };
   }
@@ -75,7 +78,7 @@ export class JiraClient {
     // /rest/api/2/search was removed (Atlassian CHANGE-2046); use /rest/api/3/search/jql
     const url = `${config.jira.baseUrl()}/rest/api/3/search/jql?jql=${encodeURIComponent(
       config.jira.jql()
-    )}&maxResults=50&fields=summary,description,status,issuetype,priority`;
+    )}&maxResults=50&fields=summary,description,status,issuetype,priority,parent`;
     const res = await fetch(url, { headers: this.headers() });
     if (!res.ok) throw new Error(`Jira search failed (${res.status}): ${await res.text()}`);
     const data = await res.json();

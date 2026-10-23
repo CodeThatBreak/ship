@@ -5,6 +5,7 @@ import { gitLab } from "../../../lib/integrations/gitlab";
 import { config } from "../../../lib/config";
 import { prompts, PromptLibrary } from "../../../lib/engine/prompts";
 import { flowEngine } from "../../../lib/engine/flow";
+import { DEFAULT_PRICING, usageTracker } from "../../../lib/engine/nodes/base/usage-tracker";
 
 export const dynamic = "force-dynamic";
 
@@ -20,6 +21,8 @@ export async function GET() {
       timeout_ms: db.getSetting<number>("local_agent.timeout_ms", 30 * 60 * 1000),
     },
     prompt_templates: prompts.allTemplates(),
+    pricing: db.getSetting("pricing", {}),
+    pricing_suggested: DEFAULT_PRICING,
     status: {
       cursorApiKeySet: Boolean(config.cursor.apiKey()),
       cursorCliAvailable: cli,
@@ -58,6 +61,26 @@ export async function PATCH(req: Request) {
       }
       db.setSetting("local_agent.timeout_ms", t);
     }
+  }
+  if (body.pricing !== undefined) {
+    // { [model|family|*]: { input_per_mtok, output_per_mtok, cache_read_per_mtok } } (USD / Mtok)
+    if (typeof body.pricing !== "object" || body.pricing === null || Array.isArray(body.pricing)) {
+      return NextResponse.json({ error: "pricing must be an object keyed by model id/family" }, { status: 400 });
+    }
+    const clean: Record<string, { input_per_mtok?: number; output_per_mtok?: number; cache_read_per_mtok?: number }> = {};
+    for (const [key, value] of Object.entries(body.pricing as Record<string, any>)) {
+      const id = String(key).trim();
+      if (!id) continue;
+      const entry: Record<string, number> = {};
+      for (const field of ["input_per_mtok", "output_per_mtok", "cache_read_per_mtok", "cache_write_per_mtok"]) {
+        const n = Number(value?.[field]);
+        if (Number.isFinite(n) && n >= 0) entry[field] = n;
+      }
+      if (Object.keys(entry).length) clean[id] = entry;
+    }
+    db.setSetting("pricing", clean);
+    // rates changed — re-price legacy/estimated rows with the new rate card
+    void usageTracker.backfillCosts(true).catch(() => {});
   }
   if (body.prompt_templates) {
     const pt = body.prompt_templates;
