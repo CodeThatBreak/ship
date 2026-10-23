@@ -93,10 +93,17 @@ export class FlowPoller {
         this.lastCommentCount.set(f.id, openCount);
         const mins = Math.round(flowEngine.resolveDelayMs() / 60_000);
         db.emitEvent(f.id, null, "lifecycle",
-          `${openCount} open comment(s)${branchName ? ` (${branchName})` : ""} — resolve queued ` +
-          `(after the pipeline passes + ${mins} min quiet)`);
+          `${openCount} open comment(s)${branchName ? ` (${branchName})` : ""} — resolve queued for ` +
+          `${flowEngine.resolveScheduleClock(f.id) ?? FlowPoller.clockIn(flowEngine.resolveDelayMs())} ` +
+          `(${mins} min quiet, then the pipeline gate)`);
       }
     }
+  }
+
+  /** Fallback clock text ("14:32") when the schedule wasn't readable. */
+  private static clockIn(delayMs: number): string {
+    return new Date(Date.now() + delayMs).toLocaleTimeString("en-GB",
+      { hour: "2-digit", minute: "2-digit", hour12: false });
   }
 }
 

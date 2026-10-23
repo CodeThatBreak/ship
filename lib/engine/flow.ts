@@ -119,6 +119,7 @@ export class FlowEngine {
       cost: flowCost,
       branches,
       planSteps: steps,
+      resolveScheduleAt: this.resolveScheduleAt(id),
       ticket: ticket ?? null,
       nodes: rows.all(NodeRow, `SELECT * FROM nodes WHERE flow_id=?`, id)
         .sort((a, b) => order.indexOf(a.node_key) - order.indexOf(b.node_key))
@@ -444,9 +445,9 @@ export class FlowEngine {
       await this.runNode(flowId, NODE_KEYS.RESOLVE, {
         instructions: null, prompt: null, promptIsBody: false, branchName: null, model: null,
       });
-      const resolveNode = rows.get(NodeRow, `SELECT * FROM nodes WHERE flow_id=? AND node_key=?`, flowId, NODE_KEYS.RESOLVE);
-      const resolved = (resolveNode?.output as { resolved?: number } | null)?.resolved ?? 0;
-      if (resolved === 0) return; // nothing changed — no re-gate needed
+      // only loop when the resolve agent actually pushed code changes — a
+      // fix run that touched nothing makes re-gate + re-review a no-op
+      if (!this.resolveChangedCode(flowId)) return;
       inResolveLoop = true; // code changed → loop: re-gate → review → resolve-if-open
     }
   }
@@ -501,8 +502,35 @@ export class FlowEngine {
   //   2. no new open comment arrived within the quiet period — so reviewers
   //      adding several comments in a row get one resolve run for all of them
 
+  // true when the latest resolve run actually pushed code changes to the MR
+  // branch — the review re-trigger is gated on this, not on the comment count
+  // (a resolve agent that only explained why comments were wrong resolves them
+  // but must not kick off another pipeline/review pass)
+  private resolveChangedCode(flowId: string): boolean {
+    const out = rows.get(NodeRow,
+      `SELECT * FROM nodes WHERE flow_id=? AND node_key=?`, flowId, NODE_KEYS.RESOLVE)?.output;
+    return (out as { codeChanged?: boolean } | null)?.codeChanged === true;
+  }
+
   /** Per-flow in-memory schedule state: "fire no earlier than". */
   private resolveDue = new Map<string, number>();
+
+  /**
+   * When the currently queued resolve run would start (epoch ms) — the quiet
+   * period has to elapse first, then the pipeline gate must be clear. The
+   * Resolve panel shows this as the scheduled start time. Null when nothing
+   * is queued.
+   */
+  resolveScheduleAt(flowId: string): number | null {
+    return this.resolveDue.get(flowId) ?? null;
+  }
+
+  /** The queued resolve's start time as wall-clock text ("14:32"), or null. */
+  resolveScheduleClock(flowId: string): string | null {
+    const at = this.resolveDue.get(flowId);
+    if (at == null) return null;
+    return new Date(at).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit", hour12: false });
+  }
 
   /** How long after the last new open comment the resolve may start. */
   resolveDelayMs(): number {
@@ -607,19 +635,21 @@ export class FlowEngine {
     }
     this.setCurrentNode(flowId, NODE_KEYS.RESOLVE);
     this.bg(flowId, NODE_KEYS.RESOLVE, async () => {
-      await this.runNode(flowId, NODE_KEYS.RESOLVE, {
-        instructions: null, prompt: prompt ?? null, promptIsBody: promptIsBody ?? false, branchName: null, model: model ?? null,
-      });
-      // code changed on the MR branch (comments were resolved) — re-enter the
-      // unified chain in resolve-loop mode (pipeline gate → review → resolve
-      // while open comments remain). Everything runs inline in this task, so
-      // resolve can never double-run for the same batch.
-      const resolveNode = rows.get(NodeRow, `SELECT * FROM nodes WHERE flow_id=? AND node_key=?`, flowId, NODE_KEYS.RESOLVE);
-      const resolved = (resolveNode?.output as { resolved?: number } | null)?.resolved ?? 0;
-      if (resolved > 0) {
-        await this.afterPipelineGate(flowId, null, { resolveLoop: true });
+      try {
+        await this.runNode(flowId, NODE_KEYS.RESOLVE, {
+          instructions: null, prompt: prompt ?? null, promptIsBody: promptIsBody ?? false, branchName: null, model: model ?? null,
+        });
+        // re-enter the unified chain in resolve-loop mode (pipeline gate →
+        // review → resolve while open comments remain) — but only when the
+        // resolve agent actually pushed code changes; a run that touched
+        // nothing makes re-gate + re-review a no-op. Everything runs inline in
+        // this task, so resolve can never double-run for the same batch.
+        if (this.resolveChangedCode(flowId)) {
+          await this.afterPipelineGate(flowId, null, { resolveLoop: true });
+        }
+      } finally {
+        this.setCurrentNode(flowId, null);
       }
-      this.setCurrentNode(flowId, null);
     });
   }
 

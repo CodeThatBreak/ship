@@ -4,6 +4,10 @@ import { flowEngine } from "../../../../lib/engine/flow";
 import { flowPoller } from "../../../../lib/engine/poller";
 import { db } from "../../../../lib/db";
 
+function flowScheduleFallback(delayMs: number): string {
+  return new Date(Date.now() + delayMs).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit", hour12: false });
+}
+
 export const dynamic = "force-dynamic";
 
 /**
@@ -41,11 +45,13 @@ export async function POST(req: Request) {
           }],
         }]);
         const mins = Math.round(flowEngine.resolveDelayMs() / 60_000);
+        flowEngine.scheduleResolve(f.id);
         db.emitEvent(f.id, null, "lifecycle",
-          `new MR comment from ${payload.user?.username} — resolve queued (after the pipeline passes + ${mins} min quiet)`);
+          `new MR comment from ${payload.user?.username} — resolve queued for ` +
+          `${flowEngine.resolveScheduleClock(f.id) ?? flowScheduleFallback(flowEngine.resolveDelayMs())} ` +
+          `(${mins} min quiet, then the pipeline gate)`);
         // debounce: the poller tick fires the resolve once the quiet period
         // has elapsed and the pipeline step is done — not immediately
-        flowEngine.scheduleResolve(f.id);
       }
     }
   } else if (kind === "pipeline") {

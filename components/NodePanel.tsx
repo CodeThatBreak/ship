@@ -1,6 +1,6 @@
 "use client";
 import { useEffect, useState } from "react";
-import { AlertTriangle, CheckCheck, FileDiff, GitMerge, Pencil, RotateCcw, Square, Wrench } from "lucide-react";
+import { AlertTriangle, CheckCheck, Clock, FileDiff, GitMerge, Pencil, RotateCcw, Square, Wrench } from "lucide-react";
 import { Tooltip, TooltipContent, TooltipTrigger } from "./ui/tooltip";
 import type { FlowData, Node, Artifact } from "../app/flows/[id]/page";
 import PlanView from "./PlanView";
@@ -440,6 +440,15 @@ function ResolveView({ flow, node, action, fetchArtifact, model }: any) {
   const [showPrompt, setShowPrompt] = useState(false);
   const running = node.status === "running";
 
+  // the queue's actual start time — "resolve queued for 14:32"; while the
+  // quiet period has already elapsed it flips to a "waiting on the gate" line
+  const scheduledAt: number | null = flow?.resolveScheduleAt ?? null;
+  const clock = running ? null
+    : scheduledAt == null ? null
+      : scheduledAt > Date.now()
+        ? new Date(scheduledAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", hour12: false })
+        : "pipeline-gated";
+
   const headerEnd = (
     <Button size="xs" variant="secondary" onClick={() => setShowPrompt(true)}>
       <Pencil size={12} /> Edit prompt
@@ -459,6 +468,14 @@ function ResolveView({ flow, node, action, fetchArtifact, model }: any) {
   return (
     <>
       <PanelShell node={node} action={action} headerEnd={headerEnd} runningLabel="Agent is fixing open comments…" footer={footer}>
+        {clock && (
+          <div className="mb-3 flex items-center gap-1.5 text-xs text-muted-foreground">
+            <Clock size={12} />
+            {clock === "pipeline-gated"
+              ? "Auto-resolve is queued — it starts once the quiet period has elapsed and the pipeline gate is clear."
+              : <>Auto-resolve of open comments starts at <span className="font-medium text-foreground">{clock}</span> (after the quiet period, once the pipeline gate is clear).</>}
+          </div>
+        )}
         <GenericArtifact node={node} kind="resolve" fetchArtifact={fetchArtifact} icon={CheckCheck} empty="Nothing resolved yet." />
       </PanelShell>
       {showPrompt && (

@@ -27,6 +27,8 @@ export type FlowData = {
   id: string; name: string; status: string; current_node?: string;
   mr_url?: string; mr_iid?: number; mr_branch?: string; repo_url?: string; execution_mode?: string;
   cost?: { totalCents: number; tokens: number; runCount: number };
+  /** epoch ms of the queued auto-resolve start (quiet-period end), or null */
+  resolveScheduleAt?: number | null;
   branches?: BranchRow[];
   planSteps?: PlanStepRow[];
   ticket: { key: string; summary: string; status: string; issueType: string; priority: string; prdText: string; figmaUrls: string[]; jiraUrl: string };
