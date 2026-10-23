@@ -1,6 +1,7 @@
 "use client";
 import { useEffect, useState, useCallback, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
 import {
   RefreshCw,
   Play,
@@ -21,6 +22,7 @@ import {
   ExternalLink,
   CircleDashed,
   Inbox,
+  LayoutTemplate,
 } from "lucide-react";
 import { Alert } from "../components/ui/alert";
 import { Badge } from "../components/ui/badge";
@@ -157,27 +159,48 @@ function StatusBadge({ status }: { status: string }) {
 /** Repo + execution-mode picks and the build action, for one ticket. */
 function BuildControls({
   repos,
+  templates,
+  templateId,
   repoId,
   selectedRepo,
   mode,
   defaultMode,
   setRepo,
   setMode,
+  setTemplate,
   onBuild,
   compact,
 }: {
   repos: Repo[];
+  templates: { id: string; name: string }[];
+  templateId: string;
   repoId?: string;
   selectedRepo?: Repo;
   mode: string;
   defaultMode: "cloud" | "local";
   setRepo: (id: string) => void;
   setMode: (m: "cloud" | "local") => void;
+  setTemplate: (id: string) => void;
   onBuild: () => void;
   compact?: boolean;
 }) {
   return (
     <div className="flex gap-2 items-center flex-wrap">
+      <select
+        value={templateId}
+        onChange={(e) => setTemplate(e.target.value)}
+        title="Flow template"
+        className={cn(
+          "bg-card text-foreground border border-border rounded-lg text-[13px] focus:outline-none focus:border-blue-500",
+          compact ? "min-w-[150px] px-2.5 py-1.5" : "min-w-[190px] px-3 py-2",
+        )}
+      >
+        {templates.map((t) => (
+          <option key={t.id} value={t.id}>
+            {t.name}
+          </option>
+        ))}
+      </select>
       <select
         value={repoId ?? ""}
         onChange={(e) => setRepo(e.target.value)}
@@ -222,14 +245,18 @@ export default function Home() {
   const [syncing, setSyncing] = useState(false);
   const [repoFor, setRepoFor] = useState<Record<string, string>>({}); // ticketId -> repoId
   const [modeFor, setModeFor] = useState<Record<string, "cloud" | "local">>({});
+  const [templates, setTemplates] = useState<{ id: string; name: string }[]>([]);
+  const [templateFor, setTemplateFor] = useState<Record<string, string>>({}); // ticketId -> templateId
+  const [defaultTemplateId, setDefaultTemplateId] = useState("tpl_sdlc_loop");
   const router = useRouter();
 
   const load = useCallback(async () => {
-    const [t, f, r, s] = await Promise.all([
+    const [t, f, r, s, tpl] = await Promise.all([
       fetch("/api/tickets").then((r) => r.json()),
       fetch("/api/flows").then((r) => r.json()),
       fetch("/api/repos").then((r) => r.json()),
       fetch("/api/settings").then((r) => r.json()),
+      fetch("/api/templates").then((r) => r.json()).catch(() => null),
     ]);
     setTickets(t.tickets ?? []);
     setJiraConfigured(t.jiraConfigured);
@@ -237,6 +264,13 @@ export default function Home() {
     const repoList: Repo[] = r.repos ?? [];
     setRepos(repoList);
     setDefaultMode(s.default_execution_mode === "local" ? "local" : "cloud");
+    // template picker entries (latest rows first); default = the built-in SDLC loop
+    const tplList: { id: string; name: string }[] = tpl?.templates ?? [];
+    tplList.reverse();
+    setTemplates(tplList);
+    if (!tplList.some((x) => x.id === defaultTemplateId) && tplList.length) {
+      setDefaultTemplateId(tplList.find((x) => x.id === "tpl_sdlc_loop")?.id ?? tplList[0].id);
+    }
     // preselect repo matching each ticket's stored repo_url
     const sel: Record<string, string> = {};
     for (const ticket of t.tickets ?? []) {
@@ -248,6 +282,7 @@ export default function Home() {
       if (match) sel[ticket.id] = match.id;
     }
     setRepoFor((prev) => ({ ...sel, ...prev }));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {
@@ -289,6 +324,7 @@ export default function Home() {
         ticketId: ticket.id,
         repoId: repo.id,
         executionMode,
+        templateId: templateFor[ticket.id] ?? defaultTemplateId,
       }),
     }).then((r) => r.json());
     if (res.id) router.push(`/flows/${res.id}`);
@@ -333,12 +369,15 @@ export default function Home() {
 
   const buildProps = (t: TicketT) => ({
     repos,
+    templates,
+    templateId: templateFor[t.id] ?? defaultTemplateId,
     repoId: repoFor[t.id],
     defaultMode,
     selectedRepo: repos.find((r) => r.id === repoFor[t.id]),
     mode: modeFor[t.id] ?? defaultMode,
     setRepo: (id: string) => setRepoFor((p) => ({ ...p, [t.id]: id })),
     setMode: (m: "cloud" | "local") => setModeFor((p) => ({ ...p, [t.id]: m })),
+    setTemplate: (id: string) => setTemplateFor((p) => ({ ...p, [t.id]: id })),
     onBuild: () => startFlow(t),
   });
 
@@ -361,6 +400,9 @@ export default function Home() {
           </div>
         </div>
         <div className="flex-1" />
+        <Button variant="outline" render={<Link href="/templates" />}>
+          <LayoutTemplate size={14} /> Templates
+        </Button>
         <Button variant="outline" render={<a href="/settings" />}>
           <SettingsIcon size={14} /> Settings
         </Button>

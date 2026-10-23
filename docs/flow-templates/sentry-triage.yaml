@@ -1,0 +1,52 @@
+# Sentry triage — the plan §7 fixture exercising the full declarative surface.
+# NOTE: this template uses `decision` and `http` node kinds, which ship with
+# Phase 3 — importing it today fails with that exact message, by design. Once
+# Phase 3 lands this file imports and runs end-to-end from a webhook payload.
+name: Sentry triage
+trigger:
+  type: webhook
+  filter: "payload.event = 'issue.created'"
+nodes:
+  - key: triage
+    type: agent
+    trigger: {type: auto}
+    config:
+      prompt: "Triage this Sentry issue: {{trigger.payload.issue.title}}\n\nStacktrace:\n{{trigger.payload.issue.stacktrace}}\nTicket context: {{ticket.key}} — {{ticket.summary}}\n\nScan the codebase for the likely cause, then output JSON: {severity, summary, suggested_fix}."
+      mode: plan
+      output: json
+      output_schema:
+        type: object
+        required: [severity, summary]
+        properties:
+          severity: {type: string, enum: [low, med, high]}
+          summary: {type: string}
+          suggested_fix: {type: string}
+    input_map:
+      summary: "trigger.payload.issue.title"
+      stack: "trigger.payload.issue.stacktrace"
+  - key: worth_fixing
+    type: decision
+    trigger: {type: approval}
+    config:
+      source: agent
+      question: "Given the triage result, is this issue worth an automated fix PR?"
+      choices:
+        - {label: fix, description: "Real user-facing bug with a plausible localized fix"}
+        - {label: ignore, description: "Noise, duplicate, or too risky to auto-fix"}
+  - key: open_pr
+    type: agent
+    trigger: {type: auto}
+    config:
+      mode: agent
+      prompt: "Fix the issue: {{nodes.triage.output.suggested_fix}} — issue {{ticket.key}}."
+  - key: notify
+    type: http
+    trigger: {type: auto}
+    config:
+      url: "{{secrets.SLACK_WEBHOOK}}"
+      method: POST
+      body: "{ \"text\": \"Triaged {{ticket.key}}: {{nodes.triage.output.summary}}\" }"
+edges:
+  - [triage, worth_fixing]
+  - [worth_fixing, open_pr, {label: fix}]
+  - [triage, notify]

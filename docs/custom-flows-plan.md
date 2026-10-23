@@ -577,6 +577,18 @@ Activepieces (MIT) is reference material for HTTP-node UX, not a dependency.
 
 ### Phase 2 — Templates UX + agent node
 
+> **Status (implemented, 2026-10-23).** Verified manually end-to-end: agent node
+> created → template composed of built-ins + that node → flow snapshotted and run
+> (real agent run produced a markdown artifact; approval-trigger instance held at
+> `awaiting_approval` and released via `approve_node`) → YAML export → edit name →
+> re-import round-tripped, reusing the identical node_templates row. Deviations:
+> contracts generate via zod v4 native `z.toJSONSchema()` (not `zod-to-json-schema`);
+> inline agent definitions in YAML resolve via `TemplateStore.ensureNodeTemplate`
+> (find-or-create, versioned); built-in component instances must key on the builtin
+> catalog key. The Phase-3 (`http`/`script`/`decision`) kinds reject creation and
+> import with that exact message — `docs/flow-templates/sentry-triage.yaml` documents
+> it as its expected Phase-2 import failure.
+
 - **2A.** Template gallery `/templates` + template editor (step list) + node
   configurator with Trigger/Config/Contract tabs (contract from `zod-to-json-schema`).
 - **2B.** `AgentTemplateNode` runtime (§4.2) registered as the handler for

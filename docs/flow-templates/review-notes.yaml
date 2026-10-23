@@ -1,0 +1,41 @@
+# Review summary — a Phase 2 "custom flow" composing built-in SDLC nodes with
+# a declarative agent node. Runs end-to-end on a flow: plan → build → MR →
+# pipeline gate → AI review → an agent that drafts review notes from the MR
+# state. Import via the /templates gallery or:
+#   node scripts/import-template.mjs docs/flow-templates/review-notes.yaml
+name: Review summary
+description: The built-in SDLC loop with an extra agent node summarizing the review.
+trigger:
+  type: manual
+nodes:
+  - key: plan
+    type: builtin/plan
+    trigger:
+      type: manual
+  - key: build
+    type: builtin/build
+    trigger:
+      type: approval
+  - key: pipeline
+    type: builtin/pipeline
+    trigger:
+      type: auto
+      wait_for: gitlab_pipeline
+  - key: review
+    type: builtin/review
+    trigger:
+      type: auto
+  - key: summarize
+    type: agent
+    trigger:
+      type: auto
+    config:
+      prompt: "You are summarizing the AI review of MR {{flow.mr_url}} (branch {{flow.mr_branch}}) for ticket {{ticket.key}} — {{ticket.summary}}.\n\nWrite a short reviewer-notes markdown document: what this change does, the review verdict, and anything the human reviewer should double-check.\n\nReview notes docs are published as {{nodes.review.output.comment_count}} open review comments worth of feedback — read the latest review output above the fold in the flow log. End with a 'Final verdict' line."
+      mode: plan
+      output: markdown
+    label: Review notes
+edges:
+  - [plan, build]
+  - [build, pipeline]
+  - [pipeline, review]
+  - [review, summarize]

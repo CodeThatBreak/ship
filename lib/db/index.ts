@@ -81,12 +81,16 @@ export class Database {
       d.exec(`ALTER TABLE runs ADD COLUMN branch_id TEXT REFERENCES branches(id)`);
     }
     // Pipeline gate node (order 25, between build and review): backfill a node
-    // row for any flow created before the node existed. The standalone
-    // pipeline_fix node was folded into the gate — drop its rows (fix history
-    // stays in the events log).
+    // row for pre-gate flows that were created before the node existed. Only
+    // flows whose template's graph contains a pipeline node get one — Phase 2
+    // custom templates without a gate must keep their snapshotted node set.
+    // The standalone pipeline_fix node was folded into the gate — drop its
+    // rows (fix history stays in the events log).
     {
       const missing = d.prepare(
-        `SELECT id FROM flows f WHERE NOT EXISTS (SELECT 1 FROM nodes n WHERE n.flow_id=f.id AND n.node_key='pipeline')`
+        `SELECT f.id FROM flows f
+         WHERE NOT EXISTS (SELECT 1 FROM nodes n WHERE n.flow_id=f.id AND n.node_key='pipeline')
+           AND EXISTS (SELECT 1 FROM flow_template_nodes t WHERE t.template_id=f.template_id AND t.node_key='pipeline')`
       ).all() as { id: string }[];
       if (missing.length) {
         const insert = d.prepare(

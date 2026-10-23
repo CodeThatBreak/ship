@@ -7,24 +7,49 @@ import {
   CheckCheck,
   CircleDot,
   Gauge,
+  Rocket,
+  Send,
+  Sparkles,
+  Split,
+  Tag,
+  Terminal,
+  BellRing,
 } from "lucide-react";
 import { useEffect, useState } from "react";
 import type { Node } from "../app/flows/[id]/page";
 import { cn } from "../lib/utils";
 
-// icons are a pure UI concern — keyed by node key, falling back to CircleDot
+// icons are a pure UI concern — resolved from the node_templates `icon` column
+// (lucide names, e.g. the seeded nodes) with a kind fallback, then CircleDot
 const ICONS: Record<string, any> = {
   plan: Compass,
   build: Hammer,
   pipeline: Gauge,
   review: ScanSearch,
   resolve: CheckCheck,
+  agent: Sparkles,
+  http: Send,
+  script: Terminal,
+  decision: Split,
+  // extra lucide names templates may reference in node_templates.icon
+  Bot: Sparkles,
+  BellRing: BellRing,
+  Rocket: Rocket,
+  Tag: Tag,
 };
 
 interface GraphDef {
   order: string[];
-  meta: Record<string, { label: string }>;
+  meta: Record<string, { label: string; kind?: string | null; icon?: string | null }>;
   edges: [string, string, "next" | "loop"][];
+}
+
+function iconFor(key: string, meta: GraphDef["meta"]): any {
+  const iconName = meta[key]?.icon;
+  if (iconName && ICONS[iconName]) return ICONS[iconName];
+  const kind = meta[key]?.kind;
+  const catalogKey = key.startsWith("builtin/") ? key.slice(8) : key;
+  return ICONS[iconName ?? ""] ?? ICONS[kind ?? ""] ?? ICONS[catalogKey] ?? CircleDot;
 }
 
 // fetched once per flow from /api/graph — with flowId the graph reflects the
@@ -152,7 +177,7 @@ export default function WorkflowGraph({
         // the node row's own label (template snapshot) wins; the graph meta
         // derives from the same template, so this only matters for fallbacks
         const label = n.label ?? meta[n.node_key]?.label ?? n.node_key;
-        const Icon = ICONS[n.node_key] ?? CircleDot;
+        const Icon = iconFor(n.node_key, meta);
         const isSel = selected === n.node_key;
         const isRunning = currentNode === n.node_key || n.status === "running";
         const st = STATUS[isRunning ? "running" : n.status] ?? STATUS.pending;

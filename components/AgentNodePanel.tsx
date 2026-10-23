@@ -1,0 +1,139 @@
+"use client";
+import { useState } from "react";
+import { CheckCheck, Pencil, Play, Sparkles } from "lucide-react";
+import type { FlowData, Node, Artifact } from "../app/flows/[id]/page";
+import { Markdown } from "./markdown";
+import { PanelShell, ArtifactLoader, VersionTabs } from "./NodePanel";
+import { Button } from "./ui/button";
+import { Card } from "./ui/card";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "./ui/dialog";
+import { Textarea } from "./ui/textarea";
+
+/**
+ * The generic runtime panel for declarative nodes (§8 2C): prompt view/edit,
+ * run button + model picker, markdown/JSON output viewer, approval button and
+ * a Configure dialog that writes the flow instance config (nodes.config).
+ */
+export default function AgentView({
+  flow, node, action, model, fetchArtifact,
+}: {
+  flow: FlowData;
+  node: Node;
+  action: (a: string, b?: any) => Promise<void> | void;
+  model: string;
+  fetchArtifact: (id: string) => Promise<any>;
+}) {
+  const cfg = (node.config ?? {}) as { prompt?: string; mode?: string; output?: string };
+  const outputKind = cfg.output === "json" ? "json" : "markdown";
+  const [editPrompt, setEditPrompt] = useState(false);
+  const [draft, setDraft] = useState("");
+
+  const running = node.status === "running";
+  const pending = node.status === "pending";
+  const awaitingApproval = node.status === "awaiting_approval";
+  const finished = node.status === "done" || node.status === "approved";
+  const failed = node.status === "failed";
+  const mdArts = node.artifacts.filter((a: Artifact) => a.kind === (outputKind === "json" ? "json" : "markdown"));
+  const latest = mdArts[mdArts.length - 1];
+
+  const footer = (
+    <>
+      <span className="text-xs text-muted-foreground">
+        {awaitingApproval
+          ? "Output is ready — approve it to activate the next steps."
+          : finished
+            ? "Output ready. Configure the node and re-run in a new flow for changes."
+            : pending
+              ? `Run this ${cfg.mode === "agent" ? "agent-mode" : "plan-mode"} step to produce the node's output.`
+              : failed
+                ? "The run failed — retry it once the issue is fixed."
+                : ""}
+      </span>
+      <div className="flex-1" />
+      {awaitingApproval && (
+        <Button onClick={() => action("approve_node", { nodeKey: node.node_key })}>
+          <CheckCheck size={14} /> Approve
+        </Button>
+      )}
+      {pending && !running && (
+        <Button onClick={() => action("run_node", { nodeKey: node.node_key, model: model || undefined })}>
+          <Play size={13} /> Run
+        </Button>
+      )}
+    </>
+  );
+
+  const headerEnd = (
+    <Button size="xs" variant="secondary" onClick={() => { setDraft(cfg.prompt ?? ""); setEditPrompt(true); }}>
+      <Pencil size={12} /> Configure
+    </Button>
+  );
+
+  return (
+    <>
+      <PanelShell node={node} action={action} headerEnd={headerEnd} runningLabel={`${node.label || node.template_name || node.node_key} is running…`} footer={footer}>
+        {/* prompt card — what the agent will be asked, after {{var}} rendering */}
+        {!running && !failed && (
+          <Card className="p-3.5 mb-3.5">
+            <div className="flex items-center gap-1.5 mb-1.5 text-[11.5px] font-medium text-muted-foreground uppercase tracking-[0.8px]">
+              <Sparkles size={12} /> Prompt
+            </div>
+            {cfg.prompt
+              ? <p className="text-[12.5px] whitespace-pre-wrap text-foreground/85 m-0">{cfg.prompt}</p>
+              : <p className="text-[12.5px] text-muted-foreground m-0">No prompt configured — click Configure.</p>}
+          </Card>
+        )}
+        {/* output — latest artifact version (wraps the artifact loader children) */}
+        {latest && (
+          <div>
+            <h3 className="text-sm font-semibold mb-2 flex items-center gap-1.5">
+              <Sparkles size={14} /> Output
+            </h3>
+            {mdArts.length > 1 && <VersionTabs arts={mdArts} sel={latest.id} onSel={() => {}} className="mb-3.5" />}
+            <ArtifactLoader id={latest.id} fetchArtifact={fetchArtifact}
+              render={(a: any) => outputKind === "json"
+                ? <pre className="overflow-y-auto whitespace-pre-wrap bg-background border border-border rounded-[10px] p-3.5 text-[12.5px] font-mono">{a.content}</pre>
+                : <Markdown className="text-[13px] [&>*:first-child]:mt-0">{a.content}</Markdown>} />
+          </div>
+        )}
+        {!latest && !running && !failed && (
+          <div className="text-center px-5 py-10">
+            <Sparkles size={32} className="text-muted-foreground mb-3 mx-auto" />
+            <p className="text-muted-foreground max-w-[380px] mx-auto">No output yet. {pending ? "Click Run to start." : ""}</p>
+          </div>
+        )}
+      </PanelShell>
+
+      {/* Configure — instance-local prompt override (nodes.config) */}
+      <Dialog open={editPrompt} onOpenChange={setEditPrompt}>
+        <DialogContent className="sm:max-w-[640px]">
+          <DialogHeader>
+            <DialogTitle>Configure {node.label || node.template_name || node.node_key}</DialogTitle>
+          </DialogHeader>
+          <div className="grid gap-2">
+            <label className="text-xs text-muted-foreground">
+              Prompt (saved to this flow instance — template instances stay untouched)
+            </label>
+            <Textarea value={draft} onChange={(e) => setDraft(e.target.value)} rows={10} className="font-mono text-[12px]" />
+            <p className="text-[11px] text-muted-foreground m-0">
+              Variables: <code className="font-mono">{"{{ticket.*}}"}</code>,{" "}
+              <code className="font-mono">{"{{flow.*}}"}</code>,{" "}
+              <code className="font-mono">{"{{repo.*}}"}</code>,{" "}
+              <code className="font-mono">{"{{nodes.<key>.output.*}}"}</code>
+            </p>
+          </div>
+          <DialogFooter>
+            <Button
+              onClick={async () => {
+                await action("set_node_config", { nodeKey: node.node_key, config: { prompt: draft } });
+                setEditPrompt(false);
+              }}
+            >
+              Save
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </>
+  );
+}

@@ -7,6 +7,7 @@ import PlanView from "./PlanView";
 import PlanSteps from "./PlanSteps";
 import DiffView from "./DiffView";
 import ReviewView from "./ReviewView";
+import AgentView from "./AgentNodePanel";
 import PromptModal from "./PromptModal";
 import { Alert } from "./ui/alert";
 import { Badge } from "./ui/badge";
@@ -24,8 +25,14 @@ export default function NodePanel({
   flow, node, action, events = [], model, planOptions = { decompose: false, complex: false },
 }: { flow: FlowData; node: Node; action: (a: string, b?: any) => Promise<void> | void; events?: any[]; model: string; planOptions?: { decompose: boolean; complex: boolean } }) {
   // The plan view owns its whole panel: sticky header, scrollable body, fixed footer.
-  if (node.node_key === "plan") {
+  if (node.node_key === "plan" && node.kind !== "agent") {
     return <PlanView flow={flow} node={node} action={action} fetchArtifact={fetchArtifact} model={model} planOptions={planOptions} />;
+  }
+
+  // declarative kinds get the generic runtime panel (Phase 2 built-ins keep
+  // their bespoke views)
+  if (node.kind === "agent") {
+    return <AgentView flow={flow} node={node} action={action} fetchArtifact={fetchArtifact} model={model} />;
   }
 
   const shared = { flow, node, action, fetchArtifact, events, model };
@@ -41,7 +48,9 @@ export default function NodePanel({
     default:
       return (
         <PanelShell node={node} action={action}>
-          <p className="text-muted-foreground">No panel for this node.</p>
+          {node.kind
+            ? <p className="text-muted-foreground text-[13px] m-0">The <strong>{node.kind}</strong> node kind ships with a later phase — configure it in the template editor, but it cannot run yet.</p>
+            : <p className="text-muted-foreground">No panel for this node.</p>}
         </PanelShell>
       );
   }

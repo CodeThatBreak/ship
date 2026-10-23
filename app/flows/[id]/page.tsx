@@ -14,6 +14,11 @@ export type Node = {
   id: string; node_key: string; type: string; status: string; agent_id?: string | null;
   /** template display name override; null = the node template's own label */
   label?: string | null;
+  /** the node template's own display name (when no instance label is set) */
+  template_name?: string | null;
+  /** catalog kind (builtin | agent | …) and icon name for the generic panel */
+  kind?: string | null;
+  icon?: string | null;
   /** effective config snapshot (class defaults ← app settings ← template) */
   config?: Record<string, unknown> | null;
   join_mode?: string | null;

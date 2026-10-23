@@ -4,6 +4,7 @@ import { BuildNode } from "./build";
 import { PipelineNode } from "./pipeline";
 import { ReviewNode } from "./review";
 import { ResolveNode } from "./resolve";
+import { declarativeDef } from "./declarative";
 
 /**
  * The single source of truth for the workflow graph.
@@ -46,6 +47,19 @@ export class NodeRegistry {
   /** Get a node definition by key, or undefined. */
   maybe(key: string): NodeDefinition<any, any> | undefined {
     return this.registry.get(key);
+  }
+
+  /**
+   * Resolve by def key — built-ins by registry key, declarative kinds (agent, …)
+   * by their `node_templates` row id, hydrating a runtime instance on demand.
+   * `inst` is the template instance key (node_key) for declarative defs.
+   */
+  resolve(key: string, inst?: string): NodeDefinition<any, any> {
+    const builtin = this.registry.get(key);
+    if (builtin) return builtin;
+    const def = declarativeDef(key, inst);
+    if (def) return def as NodeDefinition<any, any>;
+    throw new Error(`unknown node type: ${key}`);
   }
 
   has(key: string): boolean {
