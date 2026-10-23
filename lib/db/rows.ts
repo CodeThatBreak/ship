@@ -75,6 +75,10 @@ export const FlowRow = z.object({
   current_node: z.string().nullable(),
   execution_mode: z.string().nullable().default("cloud"),
   repo_id: z.string().nullable(),
+  /** flow template this flow instance snapshot came from (Phase 1) */
+  template_id: z.string().nullable(),
+  /** webhook/schedule trigger payload that started the flow (Phase 4) */
+  trigger_payload: jsonCol(z.record(z.string(), z.unknown())),
   created_at: z.string(),
   updated_at: z.string(),
 });
@@ -83,11 +87,15 @@ export type FlowRow = z.infer<typeof FlowRow>;
 // ── nodes ────────────────────────────────────────────────────────────────────
 export const NODE_STATUSES = [
   "pending",
+  /** eligible but a `wait_for` event is still pending (Phase 1: reserved) */
+  "waiting",
   "running",
   "awaiting_approval",
   "approved",
-  "failed",
   "done",
+  "failed",
+  /** on a non-taken branch (Phase 3: decision/edge conditions) */
+  "skipped",
 ] as const;
 export type NodeStatus = (typeof NODE_STATUSES)[number];
 
@@ -95,12 +103,19 @@ export const NodeRow = z.object({
   id: z.string(),
   flow_id: z.string(),
   node_key: z.string(),
+  /** node template key (def key for built-ins; Phase 2 adds declarative kinds) */
   type: z.string(),
   status: z.enum(NODE_STATUSES),
   agent_id: z.string().nullable(),
   cursor_agent_id: z.string().nullable(),
   session_id: z.string().nullable(),
   prompt_override: z.string().nullable(),
+  /** display name override from the template instance */
+  label: z.string().nullable(),
+  /** effective config snapshot (class defaults ← app settings ← template ← flow), merged at creation */
+  config: jsonCol(z.record(z.string(), z.unknown())),
+  /** join semantics for incoming edges: all | any */
+  join_mode: z.string().nullable(),
   input: jsonCol(z.record(z.string(), z.unknown())),
   output: jsonCol(z.record(z.string(), z.unknown())),
   created_at: z.string(),
@@ -241,6 +256,86 @@ export const GitLabInstanceRow = z.object({
   created_at: z.string().optional(),
 });
 export type GitLabInstanceRow = z.infer<typeof GitLabInstanceRow>;
+
+// ── flow templates (Phase 1: template layer) ─────────────────────────────────
+export const NodeTemplateRow = z.object({
+  id: z.string(),
+  key: z.string(),
+  name: z.string(),
+  kind: z.enum(["builtin", "agent", "http", "script", "decision"]),
+  version: z.number(),
+  description: z.string().nullable(),
+  icon: z.string().nullable(),
+  /** declarative kinds: full definition; builtin: knob overrides */
+  config: jsonCol(z.record(z.string(), z.unknown())),
+  is_builtin: z.number(),
+  created_at: z.string(),
+  updated_at: z.string(),
+});
+export type NodeTemplateRow = z.infer<typeof NodeTemplateRow>;
+
+export const FlowTemplateRow = z.object({
+  id: z.string(),
+  name: z.string(),
+  description: z.string().nullable(),
+  version: z.number(),
+  is_builtin: z.number(),
+  /** flow trigger: { type: manual | webhook | schedule, ... } */
+  trigger: jsonCol(z.record(z.string(), z.unknown())),
+  created_at: z.string(),
+  updated_at: z.string(),
+});
+export type FlowTemplateRow = z.infer<typeof FlowTemplateRow>;
+
+export interface TemplateNodeTrigger {
+  /** auto | manual | approval | debounced */
+  type: string;
+  /** debounced quiet-period minutes */
+  minutes?: number;
+  /** event source the node waits on before it can run: gitlab_pipeline | gitlab_comments | webhook | timer */
+  wait_for?: string;
+}
+
+export const FlowTemplateNodeRow = z.object({
+  id: z.string(),
+  template_id: z.string(),
+  node_key: z.string(),
+  node_template_id: z.string(),
+  label: z.string().nullable(),
+  trigger: jsonCol(z.record(z.string(), z.unknown())),
+  join_mode: z.string(),
+  config: jsonCol(z.record(z.string(), z.unknown())),
+  input_map: jsonCol(z.record(z.string(), z.unknown())),
+  x: z.number().nullable(),
+  y: z.number().nullable(),
+  created_at: z.string(),
+  updated_at: z.string(),
+});
+export type FlowTemplateNodeRow = z.infer<typeof FlowTemplateNodeRow>;
+
+export const FlowTemplateEdgeRow = z.object({
+  id: z.string(),
+  template_id: z.string(),
+  from_key: z.string(),
+  to_key: z.string(),
+  kind: z.enum(["next", "loop"]),
+  label: z.string().nullable(),
+  condition: z.string().nullable(),
+  created_at: z.string(),
+  updated_at: z.string(),
+});
+export type FlowTemplateEdgeRow = z.infer<typeof FlowTemplateEdgeRow>;
+
+export const HookRow = z.object({
+  id: z.string(),
+  template_id: z.string().nullable(),
+  flow_id: z.string().nullable(),
+  node_key: z.string().nullable(),
+  secret: z.string(),
+  filter: z.string().nullable(),
+  created_at: z.string(),
+});
+export type HookRow = z.infer<typeof HookRow>;
 
 // ── typed query helpers ──────────────────────────────────────────────────────
 /**

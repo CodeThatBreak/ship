@@ -12,6 +12,11 @@ export type Artifact = { id: string; kind: string; version: number; status: stri
 export type NodeCost = { totalCents: number; tokens: number; runs: any[] };
 export type Node = {
   id: string; node_key: string; type: string; status: string; agent_id?: string | null;
+  /** template display name override; null = the node template's own label */
+  label?: string | null;
+  /** effective config snapshot (class defaults ← app settings ← template) */
+  config?: Record<string, unknown> | null;
+  join_mode?: string | null;
   input?: any; output?: any; artifacts: Artifact[]; cost?: NodeCost;
 };
 export type BranchRow = {
@@ -139,7 +144,7 @@ export default function FlowScreen() {
 
       {/* workflow graph */}
       <div className="border-b border-border bg-background px-3 py-2.5 overflow-x-auto">
-        <WorkflowGraph nodes={flow.nodes} selected={node?.node_key ?? ""} onSelect={(k) => { userSelected.current = true; setSelected(k); }} currentNode={flow.current_node} />
+        <WorkflowGraph flowId={flow.id} nodes={flow.nodes} selected={node?.node_key ?? ""} onSelect={(k) => { userSelected.current = true; setSelected(k); }} currentNode={flow.current_node} />
       </div>
 
       {/* main split: node panel + right rail */}

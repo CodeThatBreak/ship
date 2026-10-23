@@ -114,6 +114,88 @@ export class Database {
     if (!ticketCols.has("parent_key")) {
       d.exec(`ALTER TABLE tickets ADD COLUMN parent_key TEXT`);
     }
+    // ── Phase 1: custom flows — template layer ─────────────────────────────
+    if (!nodeCols.has("label")) {
+      d.exec(`ALTER TABLE nodes ADD COLUMN label TEXT`);
+    }
+    if (!nodeCols.has("config")) {
+      d.exec(`ALTER TABLE nodes ADD COLUMN config TEXT`); // effective config snapshot (JSON)
+    }
+    if (!nodeCols.has("join_mode")) {
+      d.exec(`ALTER TABLE nodes ADD COLUMN join_mode TEXT`);
+    }
+    if (!flowsCols.has("template_id")) {
+      d.exec(`ALTER TABLE flows ADD COLUMN template_id TEXT REFERENCES flow_templates(id)`);
+    }
+    if (!flowsCols.has("trigger_payload")) {
+      d.exec(`ALTER TABLE flows ADD COLUMN trigger_payload TEXT`); // JSON
+    }
+    this.seedTemplates(d);
+    // Legacy flows predate templates — bind them to the seeded SDLC template so
+    // the engine's template-derived roles (gate chain, graph) apply unchanged.
+    d.exec(`UPDATE flows SET template_id='tpl_sdlc_loop' WHERE template_id IS NULL`);
+  }
+
+  /**
+   * Seed the built-in node templates and the SDLC flow template (§7 of the
+   * custom-flows plan). Idempotent: deterministic ids + INSERT OR IGNORE.
+   */
+  private seedTemplates(d: SqliteDatabase.Database): void {
+    const now = new Date().toISOString();
+    const nt: [string, string, string, string, string][] = [
+      // id, key, name, description, icon
+      ["nt_plan", "plan", "Plan", "Plan the implementation on a planning agent", "Compass"],
+      ["nt_build", "build", "Build", "Implement the approved plan on an agent", "Hammer"],
+      ["nt_pipeline", "pipeline", "Pipeline", "Wait for a green CI pipeline, fixing failures", "Gauge"],
+      ["nt_review", "review", "Review", "AI review of the MR diff", "ScanSearch"],
+      ["nt_resolve", "resolve", "Resolve", "Address open MR comments", "CheckCheck"],
+    ];
+    const ntStmt = d.prepare(
+      `INSERT OR IGNORE INTO node_templates (id,key,name,kind,version,description,icon,config,is_builtin,created_at,updated_at)
+       VALUES (?,?,?,'builtin',1,?,?,'{}',1,?,?)`
+    );
+    for (const [id, key, name, description, icon] of nt) {
+      ntStmt.run(id, key, name, description, icon, now, now);
+    }
+    const hasSdlc = d.prepare(`SELECT 1 FROM flow_templates WHERE id='tpl_sdlc_loop'`).get();
+    if (!hasSdlc) {
+      d.prepare(
+        `INSERT INTO flow_templates (id,name,description,version,is_builtin,trigger,created_at,updated_at)
+         VALUES ('tpl_sdlc_loop','SDLC loop','The built-in software development loop: plan → build → pipeline → review → resolve.',1,1,'{"type":"manual"}',?,?)`
+      ).run(now, now);
+      // (key, trigger JSON) — minutes mirrors the resolve quiet-period default
+      const nodes: [string, string][] = [
+        ["plan", '{"type":"manual"}'],
+        ["build", '{"type":"approval"}'],
+        ["pipeline", '{"type":"auto","wait_for":"gitlab_pipeline"}'],
+        ["review", '{"type":"auto"}'],
+        ["resolve", '{"type":"debounced","minutes":10,"wait_for":"gitlab_comments"}'],
+      ];
+      for (const [key, trigger] of nodes) {
+        const id = `ftn_${key}`;
+        const nodeTemplateId = `nt_${key}`;
+        d.prepare(
+          `INSERT INTO flow_template_nodes (id,template_id,node_key,node_template_id,label,trigger,join_mode,config,input_map,created_at,updated_at)
+           VALUES (?,?,?,?,NULL,?,'all','{}','{}',?,?)`
+        ).run(id, "tpl_sdlc_loop", key, nodeTemplateId, trigger, now, now);
+      }
+      const eStmt = d.prepare(
+        `INSERT OR IGNORE INTO flow_template_edges (id,template_id,from_key,to_key,kind,label,condition,created_at,updated_at)
+         VALUES (?,?,?,?,?,?,NULL,?,?)`
+      );
+      // (from, to, kind) — the resolve→review loop is display metadata for the
+      // engine's internal re-gate loop (unchanged runtime semantics)
+      const edges: [string, string, string][] = [
+        ["plan", "build", "next"],
+        ["build", "pipeline", "next"],
+        ["pipeline", "review", "next"],
+        ["review", "resolve", "next"],
+        ["resolve", "review", "loop"],
+      ];
+      edges.forEach(([from, to, kind]) => {
+        eStmt.run(`fte_${from}_${to}`, "tpl_sdlc_loop", from, to, kind, null, now, now);
+      });
+    }
   }
 
   // ── ids & timestamps ──────────────────────────────

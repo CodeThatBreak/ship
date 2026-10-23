@@ -1,17 +1,20 @@
 import { db } from "../../../db";
+import { z } from "zod";
 import type { NodeRow } from "../../../db/rows";
 import { gitLab } from "../../../integrations/gitlab";
 import { prompts } from "../../prompts";
 import { NodeDefinition, type FlowCtx, type RunOutcome } from "../base";
 import { NODE_KEYS } from "../keys";
+import type { ConfigField } from "../../node-config";
+import { configBool, configNumber, configString } from "../../node-config";
 import { PipelineInput, PipelineOutput } from "./schema";
 
 /** Poll interval while waiting for a pipeline to reach a terminal state. */
-const POLL_MS = 20_000;
+const POLL_MS_DEFAULT = 20_000;
 /** Give up waiting (node → failed, retryable) after this long. */
-const WAIT_TIMEOUT_MS = 45 * 60_000;
+const WAIT_TIMEOUT_MS_DEFAULT = 45 * 60_000;
 /** Max agent fix attempts before failing the node for manual intervention. */
-const MAX_FIX_ATTEMPTS = 3;
+const MAX_FIX_ATTEMPTS_DEFAULT = 3;
 /** Max times we press "play" on manual jobs for one pipeline. */
 const MAX_MANUAL_PLAYS = 20;
 /**
@@ -63,6 +66,27 @@ export class PipelineNode extends NodeDefinition<PipelineInput, PipelineOutput> 
 
   readonly inputSchema = PipelineInput;
   readonly outputSchema = PipelineOutput;
+
+  /** Typed config knobs (defaults = today's behavior). */
+  readonly configSchema = z.object({
+    /** user-editable body for fix runs (app-settings pipeline_fix template fallback) */
+    fix_prompt_body: z.string().optional(),
+    max_fix_attempts: z.number().int().min(1).default(MAX_FIX_ATTEMPTS_DEFAULT),
+    poll_interval_sec: z.number().min(1).default(POLL_MS_DEFAULT / 1000),
+    /** play a manual/blocked pipeline's manual jobs via the API */
+    play_manual_jobs: z.boolean().default(true),
+    /** trigger a pipeline via the API when none exists on the MR head */
+    auto_trigger_pipeline: z.boolean().default(true),
+    gate_timeout_min: z.number().min(1).default(WAIT_TIMEOUT_MS_DEFAULT / 60_000),
+  });
+  readonly configFields = [
+    { key: "fix_prompt_body", label: "Fix-run prompt body", type: "text", help: "User-editable body for CI fix runs; internal contracts re-appended automatically." },
+    { key: "max_fix_attempts", label: "Max fix attempts", type: "number", help: "Fix-agent runs per failing pipeline before manual intervention." },
+    { key: "poll_interval_sec", label: "Poll interval (s)", type: "number", help: "How often the gate re-reads the pipeline." },
+    { key: "play_manual_jobs", label: "Play manual jobs", type: "boolean", help: "Press 'play' on manual jobs via the GitLab API." },
+    { key: "auto_trigger_pipeline", label: "Auto-trigger pipeline", type: "boolean", help: "Trigger one via the API when none exists on the MR head." },
+    { key: "gate_timeout_min", label: "Gate timeout (min)", type: "number", help: "Give up waiting (retryable failure) after this long." },
+  ] as const satisfies readonly ConfigField[];
 
   /** Resolve the MR (iid + git branch) this gate watches — per-branch or flow-level. */
   private resolveMr(ctx: FlowCtx, branchName?: string | null): { mrIid: number; mrBranch: string | null } {
@@ -146,9 +170,20 @@ export class PipelineNode extends NodeDefinition<PipelineInput, PipelineOutput> 
     return played;
   }
 
-  async run(ctx: FlowCtx, input: PipelineInput): Promise<RunOutcome> {
-    const node = this.node(ctx);
+  async run(ctx: FlowCtx, input: PipelineInput, config: Record<string, unknown>): Promise<RunOutcome> {
+    const pollMs = configNumber(config, "poll_interval_sec", POLL_MS_DEFAULT / 1000) * 1000;
+    const maxFixAttempts = configNumber(config, "max_fix_attempts", MAX_FIX_ATTEMPTS_DEFAULT);
+    const gateTimeoutMin = configNumber(config, "gate_timeout_min", WAIT_TIMEOUT_MS_DEFAULT / 60_000);
+    const playManualJobs = configBool(config, "play_manual_jobs", true);
     const { mrIid, mrBranch } = this.resolveMr(ctx, input.branchName);
+
+    // the fix-run prompt-body knob folds into the per-run prompt override path
+    if (!input.prompt) {
+      const body = configString(config, "fix_prompt_body");
+      if (body) input = { ...input, prompt: body, promptIsBody: true } as PipelineInput;
+    }
+
+    const node = this.node(ctx);
     this.support.setNode(node.id, {
       status: "running",
       prompt_override: input.prompt ?? null,
@@ -163,7 +198,7 @@ export class PipelineNode extends NodeDefinition<PipelineInput, PipelineOutput> 
     let fixWaitStart: number | null = null; // when we started waiting for a fix's pipeline
     const manualPlays = new Map<number, { plays: number; warned: boolean }>(); // per-pipeline manual-job play state
     let fixes = 0;
-    const deadline = Date.now() + WAIT_TIMEOUT_MS;
+    const deadline = Date.now() + gateTimeoutMin * 60_000;
 
     for (;;) {
       // user cancelled / retry started while we were waiting — stop quietly
@@ -230,8 +265,8 @@ export class PipelineNode extends NodeDefinition<PipelineInput, PipelineOutput> 
         }
 
         if (pipe.status === "failed") {
-          if (fixes >= MAX_FIX_ATTEMPTS) {
-            const msg = `pipeline #${pipe.id} still failing after ${MAX_FIX_ATTEMPTS} fix run(s) — fix manually or retry`;
+          if (fixes >= maxFixAttempts) {
+            const msg = `pipeline #${pipe.id} still failing after ${maxFixAttempts} fix run(s) — fix manually or retry`;
             db.emitEvent(ctx.flow.id, node.id, "error", msg, { pipelineId: pipe.id });
             this.support.setNode(node.id, {
               status: "failed",
@@ -244,7 +279,7 @@ export class PipelineNode extends NodeDefinition<PipelineInput, PipelineOutput> 
           }
           fixes++;
           fixedIds.add(pipe.id);
-          await this.runFix(ctx, node, input, pipe.id, mrBranch, fixes, label);
+          await this.runFix(ctx, node, input, pipe.id, mrBranch, fixes, maxFixAttempts, label);
           watchedId = null; // the fix pushed new commits — re-read the head pipeline
           continue;
         }
@@ -260,7 +295,7 @@ export class PipelineNode extends NodeDefinition<PipelineInput, PipelineOutput> 
         // manual | blocked → drive it forward by playing manual jobs (bounded)
         if (pipe.status === "manual" || pipe.status === "blocked") {
           const state = manualPlays.get(pipe.id) ?? { plays: 0, warned: false };
-          if (state.plays < MAX_MANUAL_PLAYS) {
+          if (playManualJobs && state.plays < MAX_MANUAL_PLAYS) {
             const played = await this.playManualJobs(ctx, node.id, pipe.id);
             state.plays += played;
             if (played === 0 && !state.warned) {
@@ -272,7 +307,10 @@ export class PipelineNode extends NodeDefinition<PipelineInput, PipelineOutput> 
             manualPlays.set(pipe.id, state);
           }
         }
-      } else if (!watchedId && !triggerAttempted && !awaitingFixPipeline) {
+      } else if (
+        configBool(config, "auto_trigger_pipeline", true) &&
+        !watchedId && !triggerAttempted && !awaitingFixPipeline
+      ) {
         // no pipeline on the MR head (manual-CI projects don't start one on
         // push) — start it via the API, exactly once per episode. After a fix
         // push this only fires once the grace period elapsed without a new
@@ -299,7 +337,7 @@ export class PipelineNode extends NodeDefinition<PipelineInput, PipelineOutput> 
       // server-side wait liveness: the reconciler treats a fresh updated_at on a
       // running pipeline node as "alive" (it has no agent run row while waiting)
       this.support.setNode(node.id, { status: "running" });
-      await sleep(POLL_MS);
+      await sleep(pollMs);
     }
   }
 
@@ -311,6 +349,7 @@ export class PipelineNode extends NodeDefinition<PipelineInput, PipelineOutput> 
     pipelineId: number,
     mrBranch: string | null,
     attempt: number,
+    maxFixAttempts: number,
     label: string,
   ): Promise<void> {
     const jobs = await gitLab.listPipelineJobs(ctx.flow.repo_url ?? "", pipelineId);
@@ -338,7 +377,7 @@ export class PipelineNode extends NodeDefinition<PipelineInput, PipelineOutput> 
     ).split("\n").filter(Boolean).join("\n");
 
     db.emitEvent(ctx.flow.id, node.id, "lifecycle",
-      `pipeline #${pipelineId} failed — fix run ${attempt}/${MAX_FIX_ATTEMPTS}`,
+      `pipeline #${pipelineId} failed — fix run ${attempt}/${maxFixAttempts}`,
       { pipelineId, attempt });
 
     const result = await this.runner.executeRun(
@@ -368,7 +407,8 @@ export class PipelineNode extends NodeDefinition<PipelineInput, PipelineOutput> 
       ...prevInput,
       guidance: content,
       prompt: null,
-    }));
+      promptIsBody: false,
+    }), this.nodeConfig(ctx));
     return outcome.reply;
   }
 

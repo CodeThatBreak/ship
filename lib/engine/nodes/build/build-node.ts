@@ -1,13 +1,17 @@
 import { db } from "../../../db";
-import type { NodeRow } from "../../../db/rows";
+import { z } from "zod";
+import { rows, NodeRow } from "../../../db/rows";
 import type { CursorRunResult } from "../../../integrations/cursor";
 import { localGit } from "../../../git/local";
 import { prompts } from "../../prompts";
 import { planSteps } from "../../steps";
-import { NodeDefinition, type FlowCtx, type RunOutcome } from "../base";
+import { NodeDefinition, type FlowCtx, type RunOutcome, type NodeTriggerRun } from "../base";
 import { NODE_KEYS } from "../keys";
+import type { ConfigField } from "../../node-config";
+import { configString } from "../../node-config";
 import { branchStore } from "./branch-store";
 import { BuildInput, BuildOutput, type BuildBranchInfo } from "./schema";
+import { type PlanBranch } from "../plan/schema";
 
 export class BuildNode extends NodeDefinition<BuildInput, BuildOutput> {
   readonly key = NODE_KEYS.BUILD;
@@ -19,16 +23,118 @@ export class BuildNode extends NodeDefinition<BuildInput, BuildOutput> {
   readonly inputSchema = BuildInput;
   readonly outputSchema = BuildOutput;
 
-  async run(ctx: FlowCtx, input: BuildInput): Promise<RunOutcome> {
+  /** Typed config knobs (defaults = today's behavior). */
+  readonly configSchema = z.object({
+    prompt_body: z.string().optional(),
+    /** custom branch naming, e.g. "bugfix/{ticket}-{id}"; empty = built-in pattern */
+    branch_pattern: z.string().default(""),
+    /** commit-fix agent attempts when the push is rejected during MR creation (engine-consumed) */
+    max_commit_fix_attempts: z.number().int().min(1).default(2),
+  });
+  readonly configFields = [
+    { key: "prompt_body", label: "Prompt body", type: "text", help: "User-editable prompt body for build runs." },
+    { key: "branch_pattern", label: "Branch pattern", type: "string", help: "Tokens: {prefix} {slug} {ticket} {id} {suffix}. Empty = built-in bugfix/feature pattern." },
+    { key: "max_commit_fix_attempts", label: "Max commit-fix attempts", type: "number", help: "Commit-fix agent runs when the push is rejected while creating the MR." },
+  ] as const satisfies readonly ConfigField[];
+
+  /**
+   * Engine-triggered runs (the plan → build edge activation when the plan is
+   * approved): the approved plan artifact + branch decomposition from the plan
+   * meta + the model picked for the plan run. Plan-meta parsing is a built-in
+   * internal — it lives in the node class, never in the engine. Multi-branch
+   * plans come back as sequential runs.
+   */
+  override triggerRuns(ctx: FlowCtx): NodeTriggerRun[] {
+    const plan = db.get<{ id: string; content: string; meta: string | null }>(
+      `SELECT a.id, a.content, a.meta FROM artifacts a JOIN nodes n ON n.id=a.node_id
+       WHERE n.flow_id=? AND n.type=? AND a.kind='plan' ORDER BY a.version DESC LIMIT 1`,
+      ctx.flow.id, NODE_KEYS.PLAN
+    );
+    if (!plan) throw new Error("no plan to build — approve the plan first");
+
+    // carry the model selected for the plan run into the build
+    const planNode = rows.get(NodeRow, `SELECT * FROM nodes WHERE flow_id=? AND type=?`, ctx.flow.id, NODE_KEYS.PLAN);
+    const planModel = (planNode?.input as { model?: string } | null)?.model ?? undefined;
+
+    // structured branches from the plan-meta (validated by the plan node at save time)
+    let branches: PlanBranch[] | null = null;
+    try {
+      const meta = plan.meta ? JSON.parse(plan.meta) : null;
+      if (Array.isArray(meta?.branches) && meta.branches.length > 0) branches = meta.branches;
+    } catch { /* single-branch fallback */ }
+
+    if (branches && branches.length > 1) {
+      const sorted = BuildNode.topoSortBranches(branches);
+      // branch rows first (pending) — today's approvePlan behavior
+      sorted.forEach((b, i) => branchStore.upsert(ctx.flow.id, b.name, { title: b.title, order: i, status: "pending" }));
+      db.emitEvent(ctx.flow.id, null, "lifecycle", `plan approved with ${branches.length} branches — building sequentially`);
+      return sorted.map((b) => ({
+        input: {
+          plan: plan.content, prompt: null,
+          branchInfo: { name: b.name, title: b.title, scope: b.scope },
+          feedback: null, model: planModel ?? null,
+        },
+        before: () => branchStore.upsert(ctx.flow.id, b.name, { status: "building" }),
+        after: () => branchStore.upsert(ctx.flow.id, b.name, { status: "awaiting_approval" }),
+      }));
+    }
+
+    // single-branch fast path
+    return [{
+      input: { plan: plan.content, prompt: null, branchInfo: null, feedback: null, model: planModel ?? null },
+    }];
+  }
+
+  /** Topologically sort branches by dependsOn. Simple DFS — safe for small N. */
+  static topoSortBranches(branches: PlanBranch[]): PlanBranch[] {
+    const byName = new Map(branches.map((b) => [b.name, b]));
+    const visited = new Set<string>();
+    const result: PlanBranch[] = [];
+    const visit = (name: string) => {
+      if (visited.has(name)) return;
+      visited.add(name);
+      const b = byName.get(name);
+      if (!b) return;
+      for (const dep of b.dependsOn ?? []) visit(dep);
+      result.push(b);
+    };
+    for (const b of branches) visit(b.name);
+    return result;
+  }
+
+  /** Branch name from the `branch_pattern` knob (empty = built-in pattern). */
+  private branchName(ctx: FlowCtx, config: Record<string, unknown>, suffix?: string): string {
+    const pattern = configString(config, "branch_pattern");
+    if (!pattern?.trim()) return this.ctxHelper.buildBranch(ctx, suffix);
+    const slug = String(ctx.ticket.key ?? "ticket").toLowerCase().replace(/[^a-z0-9]+/g, "-");
+    const type = String(ctx.ticket.issueType ?? "").toLowerCase();
+    const prefix = /story|feature|task|epic/.test(type) ? "feature" : "bugfix";
+    return pattern
+      .trim()
+      .replace(/\{prefix\}/g, prefix)
+      .replace(/\{slug\}/g, slug)
+      .replace(/\{ticket\}/g, String(ctx.ticket.key ?? "ticket"))
+      .replace(/\{id\}/g, ctx.flow.id.slice(-6))
+      .replace(/\{suffix\}/g, suffix ?? "");
+  }
+
+  async run(ctx: FlowCtx, input: BuildInput, config: Record<string, unknown>): Promise<RunOutcome> {
     // Chat refine on an existing build agent is a different path
     if (input.feedback) return this.refine(ctx, input.feedback, input.prompt, input.model);
 
     const node = this.node(ctx);
     const plan = input.plan;
     if (!plan) throw new Error("plan is required for a build");
+
+    // the prompt-body knob folds into the per-run prompt override path
+    if (!input.prompt) {
+      const body = configString(config, "prompt_body");
+      if (body) input = { ...input, prompt: body } as BuildInput;
+    }
+
     const mode = this.ctxHelper.execMode(ctx);
     const branchSuffix = input.branchInfo?.name;
-    const branch = this.ctxHelper.buildBranch(ctx, branchSuffix);
+    const branch = this.branchName(ctx, config, branchSuffix);
     const label = input.branchInfo ? `build (${input.branchInfo.name})` : "build";
 
     // scope the prompt to this branch of the plan (multi-branch builds)
@@ -136,7 +242,7 @@ export class BuildNode extends NodeDefinition<BuildInput, BuildOutput> {
       return this.run(ctx, this.inputSchema.parse({
         plan: (plan?.content ?? "") + `\n\nDeveloper note: ${feedback}`,
         model: model ?? null,
-      }));
+      }), this.nodeConfig(ctx));
     }
 
     const prompt = promptOverride ?? prompts.resolve("build_refine", {}, { feedback });
@@ -176,7 +282,7 @@ export class BuildNode extends NodeDefinition<BuildInput, BuildOutput> {
   }
 
   override async chat(ctx: FlowCtx, content: string): Promise<string> {
-    const outcome = await this.run(ctx, this.inputSchema.parse({ feedback: content }));
+    const outcome = await this.run(ctx, this.inputSchema.parse({ feedback: content }), this.nodeConfig(ctx));
     return outcome.reply;
   }
 

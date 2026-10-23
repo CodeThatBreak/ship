@@ -37,7 +37,7 @@ CREATE TABLE IF NOT EXISTS nodes (
   flow_id       TEXT NOT NULL REFERENCES flows(id),
   node_key      TEXT NOT NULL,              -- plan | build | pipeline | review | resolve
   type          TEXT NOT NULL,
-  status        TEXT NOT NULL DEFAULT 'pending',  -- pending|running|awaiting_approval|approved|failed|done
+  status        TEXT NOT NULL DEFAULT 'pending',  -- pending|running|awaiting_approval|approved|failed|done|waiting|skipped
   agent_id      TEXT,                        -- cursor agent id
   cursor_agent_id TEXT,
   input         TEXT,                        -- JSON
@@ -178,4 +178,88 @@ CREATE TABLE IF NOT EXISTS gitlab_instances (
 CREATE TABLE IF NOT EXISTS settings (
   key           TEXT PRIMARY KEY,
   value         TEXT NOT NULL
+);
+
+-- ── custom flows & custom nodes (Phase 1: template layer) ────────────────────
+
+-- Node type catalog: built-ins (seeded rows) + user-defined declarative nodes.
+-- Built-in rows carry knob overrides only; declarative kinds carry their full
+-- definition (`config` = prompt/output schema for agent, url/method/config for
+-- http, runtime/script for script, source/choices for decision).
+CREATE TABLE IF NOT EXISTS node_templates (
+  id           TEXT PRIMARY KEY,
+  key          TEXT NOT NULL,              -- built-ins: the five node keys
+  name         TEXT NOT NULL,
+  kind         TEXT NOT NULL,              -- builtin | agent | http | script | decision
+  version      INTEGER NOT NULL DEFAULT 1,
+  description  TEXT,
+  icon         TEXT,                       -- lucide icon name for the graph
+  config       TEXT NOT NULL DEFAULT '{}', -- declarative kinds: definition; builtin: knob overrides
+  is_builtin   INTEGER NOT NULL DEFAULT 0,
+  created_at   TEXT NOT NULL,
+  updated_at   TEXT NOT NULL,
+  UNIQUE(key, version)
+);
+
+-- Flow templates: named flows (graph + per-node config). Flows instantiate from
+-- a template and snapshot their node set — running flows are never mutated by
+-- template edits.
+CREATE TABLE IF NOT EXISTS flow_templates (
+  id           TEXT PRIMARY KEY,
+  name         TEXT NOT NULL,
+  description  TEXT,
+  version      INTEGER NOT NULL DEFAULT 1,
+  is_builtin   INTEGER NOT NULL DEFAULT 0,
+  trigger      TEXT NOT NULL DEFAULT '{"type":"manual"}',  -- flow trigger JSON
+  created_at   TEXT NOT NULL,
+  updated_at   TEXT NOT NULL
+);
+
+-- Node instances within a template (wiring layer: trigger / join / config knob
+-- overrides / input mapping — never internals). `type` is the node_templates
+-- key for built-ins; `trigger` JSON is {type: auto|manual|approval|debounced,
+-- minutes?, wait_for?}.
+CREATE TABLE IF NOT EXISTS flow_template_nodes (
+  id               TEXT PRIMARY KEY,
+  template_id      TEXT NOT NULL REFERENCES flow_templates(id),
+  node_key         TEXT NOT NULL,          -- instance key, unique per template
+  node_template_id TEXT NOT NULL REFERENCES node_templates(id),
+  label            TEXT,                   -- display name override
+  trigger          TEXT NOT NULL DEFAULT '{"type":"auto"}',
+  join_mode        TEXT NOT NULL DEFAULT 'all',   -- all | any
+  config           TEXT NOT NULL DEFAULT '{}',    -- knob overrides
+  input_map        TEXT NOT NULL DEFAULT '{}',    -- {field: JSONata expr} (Phase 3)
+  x                REAL,
+  y                REAL,                          -- graph editor positions (Phase 5)
+  created_at       TEXT NOT NULL,
+  updated_at       TEXT NOT NULL,
+  UNIQUE(template_id, node_key)
+);
+
+-- Edges within a template. `kind: loop` edges are display metadata for the
+-- built-in runtime loops (Phase 1) — re-trigger edges become executable when
+-- decision/condition evaluation lands (Phase 3: conditions, skipped).
+CREATE TABLE IF NOT EXISTS flow_template_edges (
+  id           TEXT PRIMARY KEY,
+  template_id  TEXT NOT NULL REFERENCES flow_templates(id),
+  from_key     TEXT NOT NULL,
+  to_key       TEXT NOT NULL,
+  kind         TEXT NOT NULL DEFAULT 'next',  -- next | loop
+  label        TEXT,                          -- decision edge label (Phase 3)
+  condition    TEXT,                          -- optional JSONata expr (Phase 3)
+  created_at   TEXT NOT NULL,
+  updated_at   TEXT NOT NULL,
+  UNIQUE(template_id, from_key, to_key, label)
+);
+
+-- Generic inbound webhook endpoints (Phase 4 — table reserved now so flows can
+-- reference it the moment the trigger layer lands).
+CREATE TABLE IF NOT EXISTS hooks (
+  id           TEXT PRIMARY KEY,            -- /api/hooks/<id>
+  template_id  TEXT REFERENCES flow_templates(id),  -- set ⇒ starts a new flow
+  flow_id      TEXT REFERENCES flows(id),           -- set ⇒ feeds a waiting node
+  node_key     TEXT,
+  secret       TEXT NOT NULL,
+  filter       TEXT,                        -- optional JSONata boolean filter
+  created_at   TEXT NOT NULL
 );

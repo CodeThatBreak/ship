@@ -11,12 +11,12 @@ export async function GET() {
 
 export async function POST(req: Request) {
   flowPoller.start();
-  const { ticketId, repoUrl, repoId, executionMode, name } = await req.json();
+  const { ticketId, repoUrl, repoId, executionMode, name, templateId } = await req.json();
   if (!ticketId || (!repoUrl && !repoId)) {
     return NextResponse.json({ error: "ticketId and repoUrl (or repoId) required" }, { status: 400 });
   }
   try {
-    const id = flowEngine.create(ticketId, repoUrl ?? "", name, { executionMode, repoId });
+    const id = flowEngine.create(ticketId, repoUrl ?? "", name, { executionMode, repoId, templateId });
     return NextResponse.json({ id });
   } catch (e: any) {
     return NextResponse.json({ error: e?.message ?? String(e) }, { status: 400 });

@@ -1,10 +1,12 @@
 import { db } from "../../../db";
+import { z } from "zod";
 import type { CursorRunResult } from "../../../integrations/cursor";
 import { PlanStepRow, rows, type NodeRow } from "../../../db/rows";
 import { prompts } from "../../prompts";
 import { planSteps } from "../../steps";
 import { NodeDefinition, type FlowCtx, type RunOutcome } from "../base";
 import { NODE_KEYS } from "../keys";
+import type { ConfigField } from "../../node-config";
 import { PlanMetaParser, type PlanParseResult } from "./plan-meta-parser";
 import {
   PlanInput,
@@ -256,7 +258,27 @@ export class PlanNode extends NodeDefinition<PlanInput, PlanOutput> {
 
   private readonly parser = new PlanMetaParser();
 
-  async run(ctx: FlowCtx, input: PlanInput): Promise<RunOutcome> {
+  /** Typed config knobs (defaults = today's behavior). */
+  readonly configSchema = z.object({
+    /** user-editable prompt body (the app-settings prompt_templates mechanism, foldable per template/flow) */
+    prompt_body: z.string().optional(),
+    /** default for whole-flow starts that don't pass `complex` explicitly */
+    default_complex: z.boolean().default(false),
+    /** default for starts that don't pass `decompose` explicitly */
+    decompose_default: z.boolean().default(false),
+  });
+  readonly configFields = [
+    { key: "prompt_body", label: "Prompt body", type: "text", help: "User-editable prompt body; internal output contracts are appended automatically." },
+    { key: "default_complex", label: "Default to complex plans", type: "boolean", help: "Used when a start doesn't request a mode explicitly." },
+    { key: "decompose_default", label: "Decompose by default", type: "boolean", help: "Run repo-exploration sub-agents by default." },
+  ] as const satisfies readonly ConfigField[];
+
+  async run(ctx: FlowCtx, input: PlanInput, config: Record<string, unknown>): Promise<RunOutcome> {
+    // the template/flow-layer prompt body knob folds into the existing
+    // user-body path (per-run input.prompt still wins)
+    if (!input.prompt && typeof config.prompt_body === "string" && config.prompt_body.trim()) {
+      input = { ...input, prompt: config.prompt_body, promptIsBody: true };
+    }
     const node = this.node(ctx);
     this.support.setNode(node.id, { status: "running" });
 
@@ -873,6 +895,7 @@ export class PlanNode extends NodeDefinition<PlanInput, PlanOutput> {
     const outcome = await this.run(
       ctx,
       this.inputSchema.parse({ feedback: content, model: model ?? null }),
+      this.nodeConfig(ctx),
     );
     return outcome.reply;
   }

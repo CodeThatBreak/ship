@@ -55,10 +55,17 @@ const PANEL_TITLES: Record<string, string> = {
   resolve: "Comment resolution",
 };
 
+function panelTitle(nodeKey: string, label?: string | null): string {
+  // template label override wins (Phase 1: names stay the seeded defaults)
+  return PANEL_TITLES[nodeKey] ?? label ?? nodeKey;
+}
+
 function statusVariant(status: string) {
   return status === "done" || status === "approved" ? "bg-emerald-500/10 text-emerald-400"
     : status === "running" ? "bg-blue-500/10 text-blue-400"
       : status === "awaiting_approval" ? "bg-amber-500/10 text-amber-400"
+        // waiting / skipped / pending all render muted; these statuses are
+        // reserved for Phase 3 (event waits, non-taken branches)
         : status === "failed" ? undefined : undefined;
 }
 
@@ -83,7 +90,7 @@ export function PanelShell({
     <div className="flex flex-col h-full min-h-0">
       {/* sticky header */}
       <div className="flex items-center gap-2.5 px-5 py-3 border-b border-border shrink-0">
-        <h2 className="m-0 text-[15px]">{PANEL_TITLES[node.node_key] ?? node.node_key}</h2>
+        <h2 className="m-0 text-[15px]">{panelTitle(node.node_key, node.label)}</h2>
         <Badge className={statusVariant(node.status)} variant={node.status === "failed" ? "destructive" : undefined}>
           <span className="size-1.5 rounded-full bg-current" />
           {node.status.replace(/_/g, " ")}

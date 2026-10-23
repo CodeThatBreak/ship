@@ -15,16 +15,18 @@ import { localAgent } from "../integrations/localAgent";
 import { nodeSupport, type FlowCtx } from "./nodes/base";
 import { uncachedInputTokens } from "./nodes/base/usage-tracker";
 import { branchStore } from "./nodes/build";
-import { NODE_KEYS } from "./nodes/keys";
 import { isCommitError, mergeRequests } from "./nodes/merge-request";
-import type { PlanBranch } from "./nodes/plan";
 import { nodeRegistry } from "./nodes/registry";
 import { planSteps, type PlanStepInput } from "./steps";
+import { SDLC_TEMPLATE_ID, templateStore, type TemplateGraph } from "./templates";
+import { appLayerConfig, configNumber, mergeConfigLayers, parseConfigSnapshot } from "./node-config";
 import { processSingleton } from "../singleton";
 
 export interface CreateFlowOptions {
   executionMode?: "cloud" | "local";
   repoId?: string;
+  /** flow template to snapshot (default: the seeded SDLC loop) */
+  templateId?: string;
 }
 
 export interface MrCommentNote {
@@ -42,12 +44,19 @@ class MrCreationFailed extends Error {
 }
 
 /**
- * The flow orchestrator: flow creation and reads, node triggers (plan → build
- * → review → resolve, plus CI fix), chat routing, plan-step editing, retry /
- * cancel, restart recovery, and GitLab webhook/comment ingestion.
+ * The flow orchestrator: flow creation and reads, node triggers, chat routing,
+ * plan-step editing, retry / cancel, restart recovery, and GitLab
+ * webhook/comment ingestion.
  *
  * All node-type-specific behavior lives in the node classes (registry); this
  * class only sequences them and owns cross-node state transitions.
+ *
+ * Phase 1 (custom flows): every previously-hardcoded chain position
+ * ("pipeline", "review", "resolve") is derived from the flow's template graph
+ * (see `templateStore`) — no node-key constants here. Edge activation evaluates
+ * the template's `next` edges (join all/any) and starts satisfying targets per
+ * their trigger type; the built-in gate chain (gate → review → resolve-if-open
+ * → re-gate) keeps its faithful inline loop until edge conditions land (Phase 3).
  */
 export class FlowEngine {
   // ── flow creation / read ─────────────────────────────────────────────────
@@ -61,19 +70,31 @@ export class FlowEngine {
     if (executionMode === "local" && !repo?.local_path) {
       throw new Error("Local mode requires a repo registered on the Settings page with a local path.");
     }
+    // snapshot the flow's node set from the template — running flows are never
+    // mutated by later template edits
+    const templateId = opts.templateId ?? SDLC_TEMPLATE_ID;
+    const graph = templateStore.graph(templateId);
+    if (!graph) throw new Error(`unknown flow template: ${templateId}`);
+
     const id = db.uid("flow_");
     const ts = db.now();
     db.run(
-      `INSERT INTO flows (id,ticket_id,name,status,repo_url,repo_id,execution_mode,created_at,updated_at)
-       VALUES (?,?,?,?,?,?,?,?,?)`,
-      id, ticketId, name ?? `${ticket.key} flow`, "active", repoUrl, repo?.id ?? null, executionMode, ts, ts
+      `INSERT INTO flows (id,ticket_id,name,status,repo_url,repo_id,execution_mode,template_id,trigger_payload,created_at,updated_at)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?)`,
+      id, ticketId, name ?? `${ticket.key} flow`, "active", repoUrl, repo?.id ?? null, executionMode,
+      graph.templateId, null, ts, ts
     );
-    // one node row per registered node type, in graph order
-    for (const def of nodeRegistry.all()) {
+    // one node row per template instance spec (template order), config merged
+    // from class defaults ← app settings ← template node config
+    for (const spec of graph.nodes) {
+      const def = nodeRegistry.get(spec.defKey);
+      const config = mergeConfigLayers(def.defaultConfig(), appLayerConfig(def.key), spec.config);
       db.run(
-        `INSERT INTO nodes (id,flow_id,node_key,type,status,created_at,updated_at)
-         VALUES (?,?,?,?,'pending',?,?)`,
-        db.uid("node_"), id, def.key, def.key, ts, ts
+        `INSERT INTO nodes (id,flow_id,node_key,type,label,config,join_mode,status,created_at,updated_at)
+         VALUES (?,?,?,?,?,?,?,'pending',?,?)`,
+        db.uid("node_"), id, spec.key, spec.defKey,
+        spec.label === def.label ? null : spec.label,
+        JSON.stringify(config), spec.joinMode, ts, ts
       );
     }
     // no "flow created" announcement event — the chat feed starts with the
@@ -113,7 +134,9 @@ export class FlowEngine {
     const steps = rows.all(PlanStepRow, `SELECT * FROM plan_steps WHERE flow_id=? ORDER BY position, created_at`, id)
       .map((s) => ({ ...s, files: s.files ?? [] }));
 
-    const order = nodeRegistry.order();
+    // node order comes from the flow's own template (snapshot), not the global
+    // registry — templates may order and label nodes differently
+    const order = templateStore.graphForFlow(id)?.nodes.map((n) => n.key) ?? nodeRegistry.order();
     return {
       ...flow,
       cost: flowCost,
@@ -183,20 +206,41 @@ export class FlowEngine {
     })();
   }
 
-  /** Run a node with a validated input payload. */
+  /**
+   * Run a node with a validated input payload. The definition is resolved by
+   * the node's def key (registry key = node template key), and the effective
+   * config is layered the same way chat handlers see it: class defaults ←
+   * app-settings ← the per-flow config snapshot (nodes.config).
+   */
   private async runNode(flowId: string, nodeKey: string, rawInput: unknown): Promise<string> {
-    const def = nodeRegistry.get(nodeKey);
+    const defKey = this.defKeyOf(flowId, nodeKey);
+    const def = nodeRegistry.get(defKey);
     const c = this.ctx(flowId);
     const input = def.parseInput(rawInput);
-    const outcome = await def.run(c, input);
+    const config = this.nodeConfigFor(flowId, nodeKey, defKey);
+    const outcome = await def.run(c, input, config);
     return outcome.reply;
+  }
+
+  /** The per-flow instance config layer for one node (nodes.config snapshot). */
+  private flowNodeConfig(flowId: string, nodeKey: string): Record<string, unknown> {
+    return parseConfigSnapshot(db.get<{ config: string | null }>(
+      `SELECT config FROM nodes WHERE flow_id=? AND node_key=?`, flowId, nodeKey)?.config ?? null);
+  }
+
+  /** Full config layer stack for a node instance: class ← app ← flow snapshot. */
+  private nodeConfigFor(flowId: string, nodeKey: string, defKey: string): Record<string, unknown> {
+    const def = nodeRegistry.get(defKey);
+    return mergeConfigLayers(def.defaultConfig(), appLayerConfig(defKey), this.flowNodeConfig(flowId, nodeKey));
   }
 
   // ── public triggers ──────────────────────────────────────────────────────
 
   startPlan(flowId: string, prompt?: string, decompose?: boolean, model?: string, promptIsBody?: boolean, complex?: boolean): void {
-    this.setCurrentNode(flowId, NODE_KEYS.PLAN);
-    this.bg(flowId, NODE_KEYS.PLAN, () => this.runNode(flowId, NODE_KEYS.PLAN, {
+    const planKey = this.firstKeyOfType(flowId, "plan");
+    if (!planKey) throw new Error("this flow template has no plan node");
+    this.setCurrentNode(flowId, planKey);
+    this.bg(flowId, planKey, () => this.runNode(flowId, planKey, {
       feedback: null, prompt: prompt ?? null, promptIsBody: promptIsBody ?? false,
       decompose: decompose ?? false, model: model ?? null, complex: complex ?? false,
     }).then(() => {}));
@@ -213,8 +257,10 @@ export class FlowEngine {
     fresh?: boolean,
     contextBlocks?: string[],
   ): void {
-    this.setCurrentNode(flowId, NODE_KEYS.PLAN);
-    this.bg(flowId, NODE_KEYS.PLAN, () => this.runNode(flowId, NODE_KEYS.PLAN, {
+    const planKey = this.firstKeyOfType(flowId, "plan");
+    if (!planKey) throw new Error("this flow template has no plan node");
+    this.setCurrentNode(flowId, planKey);
+    this.bg(flowId, planKey, () => this.runNode(flowId, planKey, {
       feedback, prompt: prompt ?? null, promptIsBody: promptIsBody ?? false, decompose: false, model: model ?? null,
       complex: complex ?? false, branchRef: branchRef ?? null,
       fresh: fresh ?? null, contextBlocks: contextBlocks ?? [],
@@ -252,76 +298,148 @@ export class FlowEngine {
     this.touch(flowId);
   }
 
+  // ── template topology + edge-driven activation ───────────────────────────
+
+  /** The flow's template graph (the seeded SDLC loop for legacy rows). */
+  private graph(flowId: string): TemplateGraph | null {
+    return templateStore.graphForFlow(flowId);
+  }
+
+  /** Instance keys of the flow's template nodes with the given def key. */
+  private keysOfType(flowId: string, defKey: string): string[] {
+    const g = this.graph(flowId);
+    if (g) return g.nodes.filter((n) => n.defKey === defKey).map((n) => n.key);
+    return rows.all(NodeRow, `SELECT * FROM nodes WHERE flow_id=?`, flowId)
+      .filter((n) => n.type === defKey)
+      .map((n) => n.node_key);
+  }
+
+  private firstKeyOfType(flowId: string, defKey: string): string | null {
+    return this.keysOfType(flowId, defKey)[0] ?? null;
+  }
+
+  /**
+   * Role lookups (Phase 1): the CI gate node (waits on gitlab_pipeline), and
+   * the post-gate chain [gate, …] from the template graph.
+   */
+  private gateKey(flowId: string): string | null {
+    return templateStore.waitNodeKey(flowId, "gitlab_pipeline") ?? this.firstKeyOfType(flowId, "pipeline");
+  }
+
+  /** def key of a node instance (for def resolution). */
+  private defKeyOf(flowId: string, nodeKey: string): string {
+    const g = this.graph(flowId);
+    const spec = g?.byKey.get(nodeKey);
+    if (spec) return spec.defKey;
+    const n = rows.get(NodeRow, `SELECT * FROM nodes WHERE flow_id=? AND node_key=?`, flowId, nodeKey);
+    return n?.type ?? nodeKey;
+  }
+
+  private nodeStatus(flowId: string, nodeKey: string): string {
+    return db.get<{ status: string }>(
+      `SELECT status FROM nodes WHERE flow_id=? AND node_key=?`, flowId, nodeKey)?.status ?? "";
+  }
+
+  /** True when a node instance is a source of terminal node status (done | approved). */
+  private statusTerminalSuccess(s: string): boolean {
+    return s === "done" || s === "approved";
+  }
+
+  /**
+   * Edge activation: a node just reached a success terminal (`done`, or
+   * `approved` for approval-gated nodes, e.g. approvePlan) — resolve its
+   * outgoing `next` edges and start whatever becomes eligible. `loop` edges
+   * stay display metadata for the internal re-gate / commit-fix loops until
+   * edge conditions land (Phase 3).
+   */
+  private async advanceFrom(flowId: string, fromKey: string): Promise<void> {
+    const g = this.graph(flowId);
+    if (!g) return;
+    const outgoing = g.edges.filter((e) => e.kind === "next" && e.from === fromKey);
+    for (const e of outgoing) {
+      // Phase 1: no conditions / decision labels — every next edge is active
+      const target = g.byKey.get(e.to);
+      if (!target) continue;
+      if (!this.joinSatisfied(flowId, g, e.to)) continue;
+      // gate stages keep dedicated entries (MR creation order + the faithful
+      // gate chain loop) — see approveBuild / triggerPipelineGate / retryNode
+      const gate = this.gateKey(flowId);
+      if (target.key === gate) continue;
+      await this.startNodeStage(flowId, target.key);
+    }
+  }
+
+  /**
+   * Join evaluation for a target's incoming `next` edges: all-resolved with at
+   * least one active (skipped sources propagate inactive, Phase 3 status),
+   * or first-active for `any` targets.
+   */
+  private joinSatisfied(flowId: string, g: TemplateGraph, key: string): boolean {
+    const incoming = g.edges.filter((e) => e.kind === "next" && e.to === key);
+    if (!incoming.length) return true;
+    const spec = g.byKey.get(key);
+    let resolved = 0;
+    let active = 0;
+    for (const e of incoming) {
+      const src = g.byKey.get(e.from);
+      if (!src) continue;
+      const st = this.nodeStatus(flowId, e.from);
+      if (!this.statusTerminalSuccess(st) && st !== "skipped") continue;
+      resolved++;
+      if (st !== "skipped") active++; // skipped sources propagate inactive
+    }
+    if (spec?.joinMode === "any") return active > 0;
+    return resolved === incoming.length && active > 0;
+  }
+
+  /**
+   * Run one trigger's node stage inline (sequential `triggerRuns` bundle —
+   * e.g. the multi-branch build), then advance past it when it reached a
+   * success terminal. Trigger types manual / debounced / approval-holds are
+   * not started here.
+   */
+  private async startNodeStage(flowId: string, nodeKey: string): Promise<void> {
+    if (this.nodeStatus(flowId, nodeKey) !== "pending") return;
+    this.setCurrentNode(flowId, nodeKey);
+    const def = nodeRegistry.get(this.defKeyOf(flowId, nodeKey));
+    for (const run of def.triggerRuns(this.ctx(flowId))) {
+      run.before?.();
+      await this.runNode(flowId, nodeKey, run.input);
+      run.after?.();
+    }
+    const finalStatus = this.nodeStatus(flowId, nodeKey);
+    if (this.statusTerminalSuccess(finalStatus)) {
+      await this.advanceFrom(flowId, nodeKey);
+    }
+  }
+
   approvePlan(flowId: string): void {
+    const planKey = this.firstKeyOfType(flowId, "plan");
+    if (!planKey) throw new Error("this flow template has no plan node");
+    const buildKey = this.firstKeyOfType(flowId, "build");
+    if (!buildKey) throw new Error("this flow template has no build node");
     const plan = db.get<{ id: string; content: string; meta: string | null }>(
       `SELECT a.* FROM artifacts a JOIN nodes n ON n.id=a.node_id
        WHERE n.flow_id=? AND a.kind='plan' ORDER BY a.version DESC LIMIT 1`, flowId);
     if (!plan) throw new Error("no plan to approve");
     db.run(`UPDATE artifacts SET status='approved' WHERE id=?`, plan.id);
-    this.setNodeStatus(flowId, NODE_KEYS.PLAN, "approved");
-    this.setCurrentNode(flowId, NODE_KEYS.BUILD);
+    this.setNodeStatus(flowId, planKey, "approved");
+    this.setCurrentNode(flowId, buildKey);
 
-    // structured branches from the plan-meta (validated by the plan node at save time)
-    let branches: PlanBranch[] | null = null;
-    try {
-      const meta = plan.meta ? JSON.parse(plan.meta) : null;
-      if (Array.isArray(meta?.branches) && meta.branches.length > 0) branches = meta.branches;
-    } catch { /* single-branch fallback */ }
-
-    // carry the model selected for the plan run into the build
-    const planNode = rows.get(NodeRow, `SELECT * FROM nodes WHERE flow_id=? AND node_key='${NODE_KEYS.PLAN}'`, flowId);
-    const planModel = (planNode?.input as { model?: string } | null)?.model ?? undefined;
-
-    const buildDef = nodeRegistry.get(NODE_KEYS.BUILD);
-    if (branches && branches.length > 1) {
-      // Multi-branch: create branch rows and build sequentially in dependsOn order
-      db.emitEvent(flowId, null, "lifecycle", `plan approved with ${branches.length} branches — building sequentially`);
-      const sorted = this.topoSortBranches(branches);
-      for (let i = 0; i < sorted.length; i++) {
-        const b = sorted[i];
-        branchStore.upsert(flowId, b.name, { title: b.title, order: i, status: "pending" });
-      }
-      this.bg(flowId, NODE_KEYS.BUILD, async () => {
-        const c = this.ctx(flowId);
-        for (const b of sorted) {
-          branchStore.upsert(flowId, b.name, { status: "building" });
-          const input = buildDef.parseInput({
-            plan: plan.content, prompt: null,
-            branchInfo: { name: b.name, title: b.title, scope: b.scope },
-            feedback: null, model: planModel ?? null,
-          });
-          await buildDef.run(c, input);
-          branchStore.upsert(flowId, b.name, { status: "awaiting_approval" });
-        }
-      });
-    } else {
-      // Single-branch fast path
-      this.bg(flowId, NODE_KEYS.BUILD, () => this.runNode(flowId, NODE_KEYS.BUILD, {
-        plan: plan.content, prompt: null, branchInfo: null, feedback: null, model: planModel ?? null,
-      }).then(() => {}));
-    }
-  }
-
-  /** Topologically sort branches by dependsOn. Simple DFS — safe for small N. */
-  private topoSortBranches(branches: PlanBranch[]): PlanBranch[] {
-    const byName = new Map(branches.map((b) => [b.name, b]));
-    const visited = new Set<string>();
-    const result: PlanBranch[] = [];
-    const visit = (name: string) => {
-      if (visited.has(name)) return;
-      visited.add(name);
-      const b = byName.get(name);
-      if (!b) return;
-      for (const dep of b.dependsOn ?? []) visit(dep);
-      result.push(b);
-    };
-    for (const b of branches) visit(b.name);
-    return result;
+    // approvePlan originally inlined the plan→build handoff (plan-meta branch
+    // decomposition, sequential builds). It now lives in the build node's
+    // triggerRuns (a built-in internal) and is activated by the template edge
+    // evaluation here. Failures attribute to the build node, as before.
+    this.bg(flowId, buildKey, () => this.advanceFrom(flowId, planKey).then(() => {}));
   }
 
   approveBuild(flowId: string, branchName?: string): void {
-    this.setNodeStatus(flowId, NODE_KEYS.BUILD, "approved");
-    this.setCurrentNode(flowId, NODE_KEYS.PIPELINE);
+    const buildKey = this.firstKeyOfType(flowId, "build");
+    if (!buildKey) throw new Error("this flow template has no build node");
+    const gate = this.gateKey(flowId);
+    if (!gate) throw new Error("this flow template has no pipeline gate node");
+    this.setNodeStatus(flowId, buildKey, "approved");
+    this.setCurrentNode(flowId, gate);
     this.bg(flowId, null, async () => {
       try {
         if (branchName) {
@@ -344,7 +462,7 @@ export class FlowEngine {
           db.emitEvent(flowId, null, "mr_failed",
             `MR creation failed: ${msg} — fix the issue, then click "Approve & create MR" again to retry`,
             { branchName });
-          this.setNodeStatus(flowId, NODE_KEYS.BUILD, "awaiting_approval");
+          this.setNodeStatus(flowId, buildKey, "awaiting_approval");
         } else {
           // pipeline gate / review failures: those nodes already carry their own
           // failed status + Retry — just surface the error.
@@ -369,7 +487,7 @@ export class FlowEngine {
     } catch (e: unknown) {
       throw new MrCreationFailed(e instanceof Error ? e.message : String(e));
     }
-    await this.afterPipelineGate(flowId, branchName);
+    await this.runGateChain(flowId, branchName);
   }
 
   /**
@@ -386,8 +504,13 @@ export class FlowEngine {
    * always reflect the one run that's actually in flight, and resolve never
    * runs twice for the same batch of comments. Multi-branch flows stop after
    * the gate (review/resolve run per branch from their own triggers).
+   *
+   * The node keys come from the flow's template graph (roles: the CI gate,
+   * its auto-flowing successor, its debounced successor); the inline gate→
+   * review→resolve→re-gate loop carries the loop's conditions until edge
+   * conditions arrive with the Phase 3 decision/JSONata work.
    */
-  private async afterPipelineGate(
+  private async runGateChain(
     flowId: string,
     branchName: string | null,
     opts: {
@@ -398,11 +521,24 @@ export class FlowEngine {
       model?: string | null;
     } = {},
   ): Promise<void> {
+    const gate = this.gateKey(flowId);
+    const chain = templateStore.chainNodeKeys(flowId);
+    const reviewKey = chain[1] ?? this.firstKeyOfType(flowId, "review");
+    const resolveKey = chain[2] ?? this.firstKeyOfType(flowId, "resolve");
+    if (!gate) throw new Error("this flow template has no pipeline gate node");
+
+    // the resolve node's max_regate_loops knob bounds the re-gate loop
+    // (0/absent = unlimited, today's behavior)
+    const maxRegateLoops = resolveKey
+      ? configNumber(this.nodeConfigFor(flowId, resolveKey, "resolve"), "max_regate_loops", 0)
+      : 0;
+
     // first pass: resolve runs only when the scheduler had one due (comments
     // arrived mid-gate and the quiet period elapsed) — or immediately when the
     // caller just resolved code (resolveLoop). After a resolve run we re-gate,
     // and loop back into resolve whenever comments are still open.
     let inResolveLoop = opts.resolveLoop ?? false;
+    let regates = 0;
     // a specific watched pipeline / prompt / model applies to the chain's
     // first gate only — later gates re-read the MR head with defaults
     let gateInput: Record<string, unknown> | null = opts.pipelineId != null || opts.prompt != null || opts.model != null
@@ -414,8 +550,8 @@ export class FlowEngine {
         }
       : null;
     for (;;) {
-      this.setCurrentNode(flowId, NODE_KEYS.PIPELINE);
-      await this.runNode(flowId, NODE_KEYS.PIPELINE, {
+      this.setCurrentNode(flowId, gate);
+      await this.runNode(flowId, gate, {
         branchName, pipelineId: null, guidance: null, prompt: null, promptIsBody: false, model: null,
         ...(gateInput ?? {}),
       });
@@ -423,16 +559,16 @@ export class FlowEngine {
 
       // gate green → review (single-branch flows only; multi-branch reviews run
       // per-branch from the branch's own approval)
-      if (!branchName) {
-        this.setCurrentNode(flowId, NODE_KEYS.REVIEW);
-        await this.runNode(flowId, NODE_KEYS.REVIEW, {
+      if (!branchName && reviewKey) {
+        this.setCurrentNode(flowId, reviewKey);
+        await this.runNode(flowId, reviewKey, {
           instructions: null, prompt: null, promptIsBody: false, branchName: null, model: null,
         });
       }
 
       // the resolve loop is flow-level (single-MR); multi-branch flows resolve
       // per branch from their own triggers
-      if (branchName) return;
+      if (branchName || !resolveKey) return;
       const open = db.get<{ c: number }>(
         `SELECT COUNT(*) c FROM comments WHERE flow_id=? AND status='open'`, flowId)?.c ?? 0;
       const due = this.resolveDue.get(flowId);
@@ -440,14 +576,20 @@ export class FlowEngine {
       const scheduledDue = due != null && Date.now() >= due;
       if (open === 0 || (!inResolveLoop && !scheduledDue)) return;
 
-      this.setCurrentNode(flowId, NODE_KEYS.RESOLVE);
+      this.setCurrentNode(flowId, resolveKey);
       db.emitEvent(flowId, null, "lifecycle", `resolving ${open} open comment(s)`);
-      await this.runNode(flowId, NODE_KEYS.RESOLVE, {
+      await this.runNode(flowId, resolveKey, {
         instructions: null, prompt: null, promptIsBody: false, branchName: null, model: null,
       });
       // only loop when the resolve agent actually pushed code changes — a
       // fix run that touched nothing makes re-gate + re-review a no-op
-      if (!this.resolveChangedCode(flowId)) return;
+      if (!this.resolveChangedCode(flowId, resolveKey)) return;
+      if (maxRegateLoops > 0 && regates >= maxRegateLoops) {
+        db.emitEvent(flowId, null, "lifecycle",
+          `re-gate loop limit reached (${maxRegateLoops}) — the flow stays open for manual follow-up`);
+        return;
+      }
+      regates++;
       inResolveLoop = true; // code changed → loop: re-gate → review → resolve-if-open
     }
   }
@@ -456,9 +598,15 @@ export class FlowEngine {
    * Create the MR, running a commit-fix agent on the build node when the push
    * was rejected (pre-push/pre-receive hooks — e.g. type checks). Throws the
    * original error after MAX attempts, or immediately for infra failures.
+   * The attempt budget comes from the build node's `max_commit_fix_attempts`
+   * knob (default = today's constant, 2).
    */
   private async createMrWithFixes(flowId: string, branchName: string | null): Promise<void> {
-    const MAX_FIX_ATTEMPTS = 2;
+    const buildKey = this.firstKeyOfType(flowId, "build");
+    if (!buildKey) throw new Error("this flow template has no build node");
+    const gate = this.gateKey(flowId);
+    const MAX_FIX_ATTEMPTS = configNumber(
+      this.nodeConfigFor(flowId, buildKey, "build"), "max_commit_fix_attempts", 2);
     for (let attempt = 0; ; attempt++) {
       try {
         await mergeRequests.create(this.ctx(flowId), branchName ?? undefined);
@@ -467,10 +615,10 @@ export class FlowEngine {
         if (!isCommitError(e) || attempt >= MAX_FIX_ATTEMPTS) throw e;
         db.emitEvent(flowId, null, "lifecycle",
           `push rejected — running a commit-fix agent on the build step (attempt ${attempt + 1}/${MAX_FIX_ATTEMPTS})`);
-        this.setCurrentNode(flowId, NODE_KEYS.BUILD);
-        this.setNodeStatus(flowId, NODE_KEYS.BUILD, "running");
+        this.setCurrentNode(flowId, buildKey);
+        this.setNodeStatus(flowId, buildKey, "running");
         try {
-          await this.runNode(flowId, NODE_KEYS.BUILD, {
+          await this.runNode(flowId, buildKey, {
             plan: null, prompt: null, branchInfo: null, model: null,
             feedback:
               `Pushing branch was rejected with the error below — most likely a pre-push/pre-receive hook ` +
@@ -478,8 +626,9 @@ export class FlowEngine {
               `${e.detail}`,
           });
         } finally {
-          this.setNodeStatus(flowId, NODE_KEYS.BUILD, "approved");
-          this.setCurrentNode(flowId, NODE_KEYS.PIPELINE);
+          this.setNodeStatus(flowId, buildKey, "approved");
+          // hand the pointer back to the gate the chain will enter next
+          this.setCurrentNode(flowId, gate);
         }
       }
     }
@@ -506,9 +655,9 @@ export class FlowEngine {
   // branch — the review re-trigger is gated on this, not on the comment count
   // (a resolve agent that only explained why comments were wrong resolves them
   // but must not kick off another pipeline/review pass)
-  private resolveChangedCode(flowId: string): boolean {
+  private resolveChangedCode(flowId: string, resolveKey: string): boolean {
     const out = rows.get(NodeRow,
-      `SELECT * FROM nodes WHERE flow_id=? AND node_key=?`, flowId, NODE_KEYS.RESOLVE)?.output;
+      `SELECT * FROM nodes WHERE flow_id=? AND node_key=?`, flowId, resolveKey)?.output;
     return (out as { codeChanged?: boolean } | null)?.codeChanged === true;
   }
 
@@ -532,16 +681,18 @@ export class FlowEngine {
     return new Date(at).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit", hour12: false });
   }
 
-  /** How long after the last new open comment the resolve may start. */
-  resolveDelayMs(): number {
-    const stored = db.getSetting<number | null>("resolve.delay_ms", null);
-    if (typeof stored === "number" && Number.isFinite(stored) && stored >= 0) return stored;
-    const envRaw = (process.env.RESOLVE_DELAY_MINUTES ?? "").trim();
-    if (envRaw) {
-      const env = Number(envRaw);
-      if (Number.isFinite(env) && env >= 0) return env * 60_000;
-    }
-    return 10 * 60_000; // default: 10 minutes
+  /** How long after the last new open comment the resolve may start.
+   *  Per flow: the flow's resolve node `quiet_minutes` knob (class default 10,
+   *  app settings overlay the legacy `resolve.delay_ms` / RESOLVE_DELAY_MINUTES
+   *  aliases so existing setups behave exactly as before). Flows without a
+   *  resolve node instance fall back to the app-settings layer alone. */
+  resolveDelayMs(flowId?: string): number {
+    const resolveKey = flowId ? this.firstKeyOfType(flowId, "resolve") : null;
+    const cfg = mergeConfigLayers(
+      appLayerConfig("resolve"),
+      resolveKey ? this.flowNodeConfig(flowId!, resolveKey) : {},
+    );
+    return configNumber(cfg, "quiet_minutes", 10) * 60_000;
   }
 
   /**
@@ -550,12 +701,13 @@ export class FlowEngine {
    * poller tick fires the schedule — a no-op when the flow has no MR yet.
    */
   scheduleResolve(flowId: string): void {
-    this.resolveDue.set(flowId, Date.now() + this.resolveDelayMs());
+    this.resolveDue.set(flowId, Date.now() + this.resolveDelayMs(flowId));
   }
 
   private pipelineGateBusy(flowId: string): boolean {
-    const s = db.get<{ status: string }>(
-      `SELECT status FROM nodes WHERE flow_id=? AND node_key=?`, flowId, NODE_KEYS.PIPELINE)?.status;
+    const gate = this.gateKey(flowId);
+    if (!gate) return false;
+    const s = this.nodeStatus(flowId, gate);
     return s === "running" || s === "pending";
   }
 
@@ -567,10 +719,10 @@ export class FlowEngine {
    * alongside it.
    */
   private chainBusy(flowId: string): boolean {
-    const r = db.get<{ c: number }>(
-      `SELECT COUNT(*) c FROM nodes WHERE flow_id=? AND status='running' AND node_key IN (?,?,?)`,
-      flowId, NODE_KEYS.PIPELINE, NODE_KEYS.REVIEW, NODE_KEYS.RESOLVE);
-    return (r?.c ?? 0) > 0;
+    for (const key of templateStore.chainNodeKeys(flowId)) {
+      if (this.nodeStatus(flowId, key) === "running") return true;
+    }
+    return false;
   }
 
   /**
@@ -610,12 +762,14 @@ export class FlowEngine {
   /** (Re)run the pipeline gate — from the Pipeline panel, poller, or webhook. */
   triggerPipelineGate(flowId: string, pipelineId?: number, prompt?: string, model?: string, promptIsBody?: boolean): void {
     if (this.chainBusy(flowId)) return;
-    this.setCurrentNode(flowId, NODE_KEYS.PIPELINE);
-    this.bg(flowId, NODE_KEYS.PIPELINE, async () => {
+    const gate = this.gateKey(flowId);
+    if (!gate) throw new Error("this flow template has no pipeline gate node");
+    this.setCurrentNode(flowId, gate);
+    this.bg(flowId, gate, async () => {
       try {
         // always the full chain — a green gate flows on to review (and a
         // resolve when comments are waiting), never leaves the flow stranded
-        await this.afterPipelineGate(flowId, null, {
+        await this.runGateChain(flowId, null, {
           pipelineId: pipelineId ?? null, prompt: prompt ?? null,
           promptIsBody: promptIsBody ?? false, model: model ?? null,
         });
@@ -626,17 +780,19 @@ export class FlowEngine {
   }
 
   triggerResolve(flowId: string, prompt?: string, model?: string, promptIsBody?: boolean, opts: { scheduled?: boolean } = {}): void {
-    if (this.nodeRunning(flowId, NODE_KEYS.RESOLVE)) return;
+    const resolveKey = this.firstKeyOfType(flowId, "resolve");
+    if (!resolveKey) return;
+    if (this.nodeRunning(flowId, resolveKey)) return;
     // Direct triggers (Run button / API) respect the chain — resolve must not
     // run while the pipeline/review/resolve chain is in flight. `scheduled` is
     // the internal bypass for runs the scheduler already gated.
     if (!opts.scheduled && this.chainBusy(flowId)) {
       throw new Error("wait for the pipeline/review step to finish before running resolve");
     }
-    this.setCurrentNode(flowId, NODE_KEYS.RESOLVE);
-    this.bg(flowId, NODE_KEYS.RESOLVE, async () => {
+    this.setCurrentNode(flowId, resolveKey);
+    this.bg(flowId, resolveKey, async () => {
       try {
-        await this.runNode(flowId, NODE_KEYS.RESOLVE, {
+        await this.runNode(flowId, resolveKey, {
           instructions: null, prompt: prompt ?? null, promptIsBody: promptIsBody ?? false, branchName: null, model: model ?? null,
         });
         // re-enter the unified chain in resolve-loop mode (pipeline gate →
@@ -644,8 +800,8 @@ export class FlowEngine {
         // resolve agent actually pushed code changes; a run that touched
         // nothing makes re-gate + re-review a no-op. Everything runs inline in
         // this task, so resolve can never double-run for the same batch.
-        if (this.resolveChangedCode(flowId)) {
-          await this.afterPipelineGate(flowId, null, { resolveLoop: true });
+        if (this.resolveChangedCode(flowId, resolveKey)) {
+          await this.runGateChain(flowId, null, { resolveLoop: true });
         }
       } finally {
         this.setCurrentNode(flowId, null);
@@ -654,9 +810,11 @@ export class FlowEngine {
   }
 
   triggerReview(flowId: string, prompt?: string, model?: string, promptIsBody?: boolean): void {
+    const reviewKey = this.firstKeyOfType(flowId, "review");
+    if (!reviewKey) throw new Error("this flow template has no review node");
     if (this.chainBusy(flowId)) throw new Error("wait for the current pipeline/review/resolve run to finish first");
-    this.setCurrentNode(flowId, NODE_KEYS.REVIEW);
-    this.bg(flowId, NODE_KEYS.REVIEW, () => this.runNode(flowId, NODE_KEYS.REVIEW, {
+    this.setCurrentNode(flowId, reviewKey);
+    this.bg(flowId, reviewKey, () => this.runNode(flowId, reviewKey, {
       instructions: null, prompt: prompt ?? null, promptIsBody: promptIsBody ?? false, branchName: null, model: model ?? null,
     }).then(() => this.setCurrentNode(flowId, null)));
   }
@@ -665,14 +823,14 @@ export class FlowEngine {
   retryNode(flowId: string, nodeKey: string): void {
     const node = rows.get(NodeRow, `SELECT * FROM nodes WHERE flow_id=? AND node_key=?`, flowId, nodeKey);
     if (!node) throw new Error("unknown node");
-    const def = nodeRegistry.get(nodeKey);
+    const def = nodeRegistry.get(this.defKeyOf(flowId, nodeKey));
     if (!def.retryable) throw new Error(`cannot retry node ${nodeKey}`);
 
     // the recorded input is validated against the node's schema — retry fails
     // fast with a clear error rather than running with a corrupt payload
     const recorded = def.parseInput(node.input ?? {});
     if (node.status === "running") throw new Error(`${nodeKey} is already running`);
-    if ([NODE_KEYS.PIPELINE, NODE_KEYS.REVIEW, NODE_KEYS.RESOLVE].includes(nodeKey as never) && this.chainBusy(flowId)) {
+    if (templateStore.chainNodeKeys(flowId).includes(nodeKey) && this.chainBusy(flowId)) {
       throw new Error("wait for the current pipeline/review/resolve run to finish first");
     }
     db.emitEvent(flowId, node.id, "lifecycle", `retrying ${nodeKey}`);
@@ -681,11 +839,11 @@ export class FlowEngine {
       // retrying the pipeline gate continues the chain — a gate that timed out
       // self-heals (an already-green head finishes immediately) and the flow
       // then advances to review instead of staying stuck.
-      if (nodeKey === NODE_KEYS.PIPELINE) {
+      if (nodeKey === this.gateKey(flowId)) {
         const branch = (recorded as { branchName?: string | null }).branchName ?? null;
-        await this.afterPipelineGate(flowId, branch);
+        await this.runGateChain(flowId, branch);
       } else {
-        await def.run(this.ctx(flowId), recorded);
+        await def.run(this.ctx(flowId), recorded, this.nodeConfigFor(flowId, nodeKey, def.key));
       }
     });
   }

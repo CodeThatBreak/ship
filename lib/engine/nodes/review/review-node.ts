@@ -1,8 +1,11 @@
 import { db } from "../../../db";
+import { z } from "zod";
 import { gitLab } from "../../../integrations/gitlab";
 import { prompts } from "../../prompts";
 import { NodeDefinition, type FlowCtx, type RunOutcome } from "../base";
 import { NODE_KEYS } from "../keys";
+import type { ConfigField } from "../../node-config";
+import { configNumber, configString } from "../../node-config";
 import { ReviewInput, ReviewOutput } from "./schema";
 
 export class ReviewNode extends NodeDefinition<ReviewInput, ReviewOutput> {
@@ -14,6 +17,24 @@ export class ReviewNode extends NodeDefinition<ReviewInput, ReviewOutput> {
 
   readonly inputSchema = ReviewInput;
   readonly outputSchema = ReviewOutput;
+
+  /** Typed config knobs (defaults = today's behavior). */
+  readonly configSchema = z.object({
+    prompt_body: z.string().optional(),
+    /** cap the number of posted comments (0 = unlimited) */
+    max_comments: z.number().int().min(0).default(0),
+    /** inline per-file comments (today) or a single summary note */
+    comment_style: z.enum(["inline", "summary"]).default("inline"),
+  });
+  readonly configFields = [
+    { key: "prompt_body", label: "Prompt body", type: "text", help: "User-editable prompt body; internal contracts re-appended automatically." },
+    { key: "max_comments", label: "Max comments", type: "number", help: "Cap on posted comments (0 = unlimited)." },
+    {
+      key: "comment_style", label: "Comment style", type: "select",
+      options: [{ value: "inline", label: "Inline" }, { value: "summary", label: "Summary" }],
+      help: "Inline per-file comments or one summary note.",
+    },
+  ] as const satisfies readonly ConfigField[];
 
   /** Resolve the MR (iid + git branch) for this review — per-branch or flow-level. */
   resolveMr(ctx: FlowCtx, branchName?: string | null): { mrIid: number; mrBranch: string | null } {
@@ -27,7 +48,13 @@ export class ReviewNode extends NodeDefinition<ReviewInput, ReviewOutput> {
     return { mrIid: ctx.flow.mr_iid, mrBranch: ctx.flow.mr_branch };
   }
 
-  async run(ctx: FlowCtx, input: ReviewInput): Promise<RunOutcome> {
+  async run(ctx: FlowCtx, input: ReviewInput, config: Record<string, unknown>): Promise<RunOutcome> {
+    // the prompt-body knob folds into the per-run prompt override path
+    if (!input.prompt) {
+      const body = configString(config, "prompt_body");
+      if (body) input = { ...input, prompt: body, promptIsBody: true } as ReviewInput;
+    }
+
     const { mrIid, mrBranch } = this.resolveMr(ctx, input.branchName);
 
     const changes = await gitLab.getMRChanges(ctx.flow.repo_url ?? "", mrIid);
@@ -71,10 +98,23 @@ export class ReviewNode extends NodeDefinition<ReviewInput, ReviewOutput> {
         } catch { comments = []; }
 
         let posted = 0;
-        for (const c of comments) {
-          const body = c.file ? `**${c.file}${c.line ? `:${c.line}` : ""}** — ${c.body}` : c.body;
-          await gitLab.createMRNote(ctx.flow.repo_url ?? "", mrIid, `**AI Review**\n\n${body}`);
-          posted++;
+        const maxComments = configNumber(config, "max_comments", 0);
+        const effective = maxComments > 0 ? comments.slice(0, maxComments) : comments;
+        if (configString(config, "comment_style") === "summary") {
+          // single aggregated MR note instead of one comment per issue
+          if (effective.length > 0) {
+            const summary = effective
+              .map((c) => `- ${c.file ? `\`${c.file}${c.line ? `:${c.line}` : ""}\` — ` : ""}${c.body}`)
+              .join("\n");
+            await gitLab.createMRNote(ctx.flow.repo_url ?? "", mrIid, `**AI Review**\n\n${summary}`);
+          }
+          posted = effective.length;
+        } else {
+          for (const c of effective) {
+            const body = c.file ? `**${c.file}${c.line ? `:${c.line}` : ""}** — ${c.body}` : c.body;
+            await gitLab.createMRNote(ctx.flow.repo_url ?? "", mrIid, `**AI Review**\n\n${body}`);
+            posted++;
+          }
         }
         return {
           status: "done" as const,
@@ -88,7 +128,7 @@ export class ReviewNode extends NodeDefinition<ReviewInput, ReviewOutput> {
   }
 
   override async chat(ctx: FlowCtx, content: string): Promise<string> {
-    const outcome = await this.run(ctx, this.inputSchema.parse({ instructions: content }));
+    const outcome = await this.run(ctx, this.inputSchema.parse({ instructions: content }), this.nodeConfig(ctx));
     return outcome.reply;
   }
 

@@ -27,20 +27,26 @@ interface GraphDef {
   edges: [string, string, "next" | "loop"][];
 }
 
-// fetched once from /api/graph (the node registry is the single source of truth)
-let graphCache: GraphDef | null = null;
-function useGraphDef(): GraphDef | null {
-  const [def, setDef] = useState<GraphDef | null>(graphCache);
+// fetched once per flow from /api/graph — with flowId the graph reflects the
+// flow's own template snapshot (order/labels/edges), otherwise the built-in
+// registry graph
+const graphCaches = new Map<string, GraphDef>();
+function useGraphDef(flowId: string): GraphDef | null {
+  const [def, setDef] = useState<GraphDef | null>(graphCaches.get(flowId) ?? null);
   useEffect(() => {
-    if (graphCache) return;
-    fetch("/api/graph")
+    const cached = graphCaches.get(flowId);
+    if (cached) {
+      setDef(cached);
+      return;
+    }
+    fetch(`/api/graph${flowId ? `?flowId=${encodeURIComponent(flowId)}` : ""}`)
       .then((r) => r.json())
       .then((d: GraphDef) => {
-        graphCache = d;
+        graphCaches.set(flowId, d);
         setDef(d);
       })
       .catch(() => {});
-  }, []);
+  }, [flowId]);
   return def;
 }
 
@@ -50,6 +56,8 @@ const STATUS: Record<string, { border: string; text: string }> = {
   approved: { border: "border-emerald-500", text: "text-emerald-400" },
   done: { border: "border-emerald-500", text: "text-emerald-400" },
   failed: { border: "border-rose-500", text: "text-rose-400" },
+  waiting: { border: "border-border", text: "text-muted-foreground" },
+  skipped: { border: "border-border", text: "text-muted-foreground" },
   pending: { border: "border-border", text: "text-muted-foreground" },
 };
 
@@ -81,16 +89,18 @@ function statusLabel(s: string, running: boolean) {
 
 export default function WorkflowGraph({
   nodes,
+  flowId,
   selected,
   onSelect,
   currentNode,
 }: {
   nodes: Node[];
+  flowId?: string;
   selected: string;
   onSelect: (k: string) => void;
   currentNode?: string;
 }) {
-  const graphDef = useGraphDef();
+  const graphDef = useGraphDef(flowId ?? "");
   const keys = nodes.map((n) => n.node_key);
   const edges = graphDef?.edges ?? [];
   const meta = graphDef?.meta ?? {};
@@ -139,7 +149,9 @@ export default function WorkflowGraph({
       </svg>
       {nodes.map((n) => {
         const p = g.node(n.node_key);
-        const label = meta[n.node_key]?.label ?? n.node_key;
+        // the node row's own label (template snapshot) wins; the graph meta
+        // derives from the same template, so this only matters for fallbacks
+        const label = n.label ?? meta[n.node_key]?.label ?? n.node_key;
         const Icon = ICONS[n.node_key] ?? CircleDot;
         const isSel = selected === n.node_key;
         const isRunning = currentNode === n.node_key || n.status === "running";

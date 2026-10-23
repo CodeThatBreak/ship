@@ -1,6 +1,7 @@
 import { db } from "../db";
 import { gitLab } from "../integrations/gitlab";
 import { flowEngine } from "./flow";
+import { templateStore } from "./templates";
 import { processSingleton } from "../singleton";
 
 /**
@@ -64,10 +65,14 @@ export class FlowPoller {
     // While the gate node is running it owns pipeline reporting (it watches the
     // MR head and emits node-scoped status events) — the poller only steps in
     // to (re)trigger the gate on a fresh failure, so the two writers never
-    // fight over the displayed status.
-    const gateStatus = db.get<{ status: string }>(
-      `SELECT status FROM nodes WHERE flow_id=? AND node_key='pipeline'`, f.id
-    )?.status;
+    // fight over the displayed status. The gate node is the one that waits on
+    // the pipeline event (role lookup, not the "pipeline" key constant).
+    const gateKey = templateStore.waitNodeKey(f.id, "gitlab_pipeline");
+    const gateStatus = gateKey
+      ? db.get<{ status: string }>(
+          `SELECT status FROM nodes WHERE flow_id=? AND node_key=?`, f.id, gateKey
+        )?.status
+      : undefined;
     if (gateStatus !== "running") {
       db.emitEvent(f.id, null, "pipeline", `pipeline ${pipe.status}${branchName ? ` (${branchName})` : ""}`, { status: pipe.status, id: pipe.id, branchName: branchName ?? undefined });
     }
@@ -91,10 +96,10 @@ export class FlowPoller {
       flowEngine.scheduleResolve(f.id);
       if (this.lastCommentCount.get(f.id) !== openCount) {
         this.lastCommentCount.set(f.id, openCount);
-        const mins = Math.round(flowEngine.resolveDelayMs() / 60_000);
+        const mins = Math.round(flowEngine.resolveDelayMs(f.id) / 60_000);
         db.emitEvent(f.id, null, "lifecycle",
           `${openCount} open comment(s)${branchName ? ` (${branchName})` : ""} — resolve queued for ` +
-          `${flowEngine.resolveScheduleClock(f.id) ?? FlowPoller.clockIn(flowEngine.resolveDelayMs())} ` +
+          `${flowEngine.resolveScheduleClock(f.id) ?? FlowPoller.clockIn(flowEngine.resolveDelayMs(f.id))} ` +
           `(${mins} min quiet, then the pipeline gate)`);
       }
     }

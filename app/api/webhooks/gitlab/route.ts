@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { config } from "../../../../lib/config";
 import { flowEngine } from "../../../../lib/engine/flow";
 import { flowPoller } from "../../../../lib/engine/poller";
+import { templateStore } from "../../../../lib/engine/templates";
 import { db } from "../../../../lib/db";
 
 function flowScheduleFallback(delayMs: number): string {
@@ -44,11 +45,11 @@ export async function POST(req: Request) {
             position: n.position ?? null, created_at: n.created_at,
           }],
         }]);
-        const mins = Math.round(flowEngine.resolveDelayMs() / 60_000);
+        const mins = Math.round(flowEngine.resolveDelayMs(f.id) / 60_000);
         flowEngine.scheduleResolve(f.id);
         db.emitEvent(f.id, null, "lifecycle",
           `new MR comment from ${payload.user?.username} — resolve queued for ` +
-          `${flowEngine.resolveScheduleClock(f.id) ?? flowScheduleFallback(flowEngine.resolveDelayMs())} ` +
+          `${flowEngine.resolveScheduleClock(f.id) ?? flowScheduleFallback(flowEngine.resolveDelayMs(f.id))} ` +
           `(${mins} min quiet, then the pipeline gate)`);
         // debounce: the poller tick fires the resolve once the quiet period
         // has elapsed and the pipeline step is done — not immediately
@@ -64,9 +65,13 @@ export async function POST(req: Request) {
         // While the gate node is running it owns pipeline reporting; the
         // webhook only mirrors status when the gate is idle, then (re)triggers
         // the gate on a fresh failure (it guards against double-runs internally).
-        const gateStatus = db.get<{ status: string }>(
-          `SELECT status FROM nodes WHERE flow_id=? AND node_key='pipeline'`, f.id
-        )?.status;
+        // The gate is the node waiting on the pipeline event (role lookup).
+        const gateKey = templateStore.waitNodeKey(f.id, "gitlab_pipeline");
+        const gateStatus = gateKey
+          ? db.get<{ status: string }>(
+              `SELECT status FROM nodes WHERE flow_id=? AND node_key=?`, f.id, gateKey
+            )?.status
+          : undefined;
         if (gateStatus !== "running") {
           db.emitEvent(f.id, null, "pipeline", `pipeline ${attrs.status}`, { status: attrs.status, id: attrs.id });
         }

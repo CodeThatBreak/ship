@@ -5,6 +5,8 @@ import type { CursorRunResult } from "../../../integrations/cursor";
 import { agentRunner, type AgentRunner, type AgentStartInput } from "./agent-runner";
 import { flowCtxHelper, type FlowContextHelper, type FlowCtx } from "./flow-context";
 import { nodeSupport, type NodeSupport } from "./node-support";
+import type { ConfigField } from "../../node-config";
+import { appLayerConfig, mergeConfigLayers } from "../../node-config";
 
 /**
  * What a node stores in its `output` column when it finishes a run.
@@ -21,6 +23,19 @@ export interface RunOutcome {
   eventData?: Record<string, unknown>;
   /** text returned to chat callers */
   reply: string;
+}
+
+/**
+ * One run inside an engine-triggered bundle (a single trigger may start
+ * several runs — e.g. the sequential multi-branch build). Input is
+ * parseInput-validated by the engine; before/after own the surrounding wiring.
+ */
+export interface NodeTriggerRun {
+  input: unknown;
+  /** runs before the node run (e.g. branch row → building) */
+  before?: () => void;
+  /** runs after the node run succeeded (e.g. branch row → awaiting_approval) */
+  after?: () => void;
 }
 
 /**
@@ -48,6 +63,11 @@ export abstract class NodeDefinition<I = unknown, O extends Record<string, unkno
   /** strict schema for the node's persisted `output` column */
   abstract readonly outputSchema: z.ZodType<O>;
 
+  /** typed config knobs — `configFields` drives the auto-generated form (Phase 2) */
+  readonly configFields: readonly ConfigField[] = [];
+  /** typed config schema: `.parse({})` yields the class-layer defaults. Every knob's default equals today's behavior. */
+  readonly configSchema: z.ZodTypeAny = z.object({}).strict();
+
   /** Whether this node can be retried from its recorded input. */
   readonly retryable: boolean = true;
 
@@ -61,7 +81,48 @@ export abstract class NodeDefinition<I = unknown, O extends Record<string, unkno
    * webhook, retry). Must be validated against inputSchema by the caller or
    * here — the base provides `parseInput`.
    */
-  abstract run(ctx: FlowCtx, input: I): Promise<RunOutcome>;
+  abstract run(ctx: FlowCtx, input: I, config: Record<string, unknown>): Promise<RunOutcome>;
+
+  /** Class-layer config defaults (configSchema.parse({})). */
+  defaultConfig(): Record<string, unknown> {
+    try {
+      const parsed = this.configSchema.safeParse({});
+      return parsed.success ? (parsed.data as Record<string, unknown>) : {};
+    } catch {
+      return {};
+    }
+  }
+
+  /** The input used when the engine auto-starts a run (join satisfied / direct
+   * trigger without an explicit payload). Default: `{}` — the node's input
+   * schema fills in defaults. Nodes whose auto-run needs flow state (e.g. the
+   * build pulls the approved plan) override this; those internals stay in the
+   * node class, never in the engine. Nodes that start more than one run from a
+   * single trigger (the multi-branch build) override `triggerRuns` instead.
+   */
+  triggerInput(ctx: FlowCtx): unknown {
+    return {};
+  }
+
+  /**
+   * The runs the engine performs when this node is auto-started. Default:
+   * one run with `triggerInput`. Each run's input is `parseInput`-validated
+   * by the engine; `before`/`after` hooks own the surrounding wiring (e.g.
+   * branch-row status transitions).
+   */
+  triggerRuns(ctx: FlowCtx): NodeTriggerRun[] {
+    return [{ input: this.triggerInput(ctx) }];
+  }
+
+  /**
+   * Effective config knobs for this node's handlers that don't receive a
+   * config from the engine (chat follow-ups). Merges class defaults ←
+   * app-settings layer ← the config snapshot from the flow's node row.
+   */
+  protected nodeConfig(ctx: FlowCtx): Record<string, unknown> {
+    const node = this.node(ctx);
+    return mergeConfigLayers(this.defaultConfig(), appLayerConfig(this.key), node.config);
+  }
 
   /**
    * Chat follow-up on this node's agent. Default: not supported.
