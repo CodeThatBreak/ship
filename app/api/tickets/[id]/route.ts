@@ -12,7 +12,7 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
   res.headers.set("Deprecation", "true");
   res.headers.set(
     "Warning",
-    `299 - "endpoint moved to /api/tasks — /api/tickets will be dropped"`
+    `299 - "endpoint moved to /api/tasks — /api/tickets will be dropped"`.replace("—", "-"),
   );
   return res;
 }

@@ -58,8 +58,13 @@ export const Task = TaskRow.transform((t) => ({
   status: t.status,
   issueType: t.issue_type,
   priority: t.priority,
-  prdText: t.prd_text,
-  figmaUrls: t.figma_urls ?? [],
+  // jira-only payload lives in `fields` too (Phase 2) — prefer it when the
+  // provider populated it; the shared columns stay the fallback for rows
+  // synced before Phase 2 (shared-column deprecation is Phase 4)
+  prdText: typeof t.fields?.prd === "string" ? t.fields.prd : t.prd_text,
+  figmaUrls: Array.isArray(t.fields?.figma_urls)
+    ? (t.fields.figma_urls as string[])
+    : (t.figma_urls ?? []),
   repoUrl: t.repo_url,
   parentKey: t.parent_key,
   jiraUrl: t.jira_url,

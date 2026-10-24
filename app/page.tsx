@@ -3,7 +3,6 @@ import { useEffect, useState, useCallback, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import {
-  RefreshCw,
   Play,
   Frame,
   GitMerge,
@@ -23,12 +22,12 @@ import {
   CircleDashed,
   Inbox,
   LayoutTemplate,
+  Download,
 } from "lucide-react";
 import { Alert } from "../components/ui/alert";
 import { Badge } from "../components/ui/badge";
 import { Button } from "../components/ui/button";
 import { Card } from "../components/ui/card";
-import { Spinner } from "../components/ui/spinner";
 import { cn } from "cn";
 
 function hostOf(url: string): string {
@@ -48,8 +47,18 @@ type TaskT = {
   priority: string;
   figmaUrls: string[];
   jiraUrl: string;
-  repo_url?: string;
-  parent_key?: string | null;
+  /** task type discriminator (provider kind, e.g. "jira") */
+  type: string;
+  /** external deep link resolved by the task's provider */
+  externalUrl: string;
+  repoUrl?: string;
+  parentKey?: string | null;
+};
+type Provider = {
+  kind: string;
+  label: string;
+  configured: boolean;
+  contextFields: { key: string; label: string; type: string; required?: boolean }[];
 };
 type Flow = {
   id: string;
@@ -136,7 +145,7 @@ function TypeChip({
   const { icon, className: c } = typeStyle(task.issueType);
   return (
     <a
-      href={task.jiraUrl}
+      href={task.externalUrl || task.jiraUrl}
       target="_blank"
       className={cn(
         "inline-flex h-7 min-w-7 items-center justify-center gap-1 rounded-lg px-2 text-[12px] font-medium transition-colors hover:brightness-125",
@@ -240,9 +249,9 @@ export default function Home() {
   const [tasks, setTasks] = useState<TaskT[]>([]);
   const [flows, setFlows] = useState<Flow[]>([]);
   const [repos, setRepos] = useState<Repo[]>([]);
-  const [jiraConfigured, setJiraConfigured] = useState(true);
+  const [providers, setProviders] = useState<Provider[]>([]);
+  const [typeFilter, setTypeFilter] = useState<string>("all");
   const [defaultMode, setDefaultMode] = useState<"cloud" | "local">("cloud");
-  const [syncing, setSyncing] = useState(false);
   const [repoFor, setRepoFor] = useState<Record<string, string>>({}); // taskId -> repoId
   const [modeFor, setModeFor] = useState<Record<string, "cloud" | "local">>({});
   const [templates, setTemplates] = useState<{ id: string; name: string }[]>([]);
@@ -251,15 +260,16 @@ export default function Home() {
   const router = useRouter();
 
   const load = useCallback(async () => {
-    const [t, f, r, s, tpl] = await Promise.all([
+    const [t, f, r, s, tpl, p] = await Promise.all([
       fetch("/api/tasks").then((r) => r.json()),
       fetch("/api/flows").then((r) => r.json()),
       fetch("/api/repos").then((r) => r.json()),
       fetch("/api/settings").then((r) => r.json()),
       fetch("/api/templates").then((r) => r.json()).catch(() => null),
+      fetch("/api/tasks/providers").then((r) => r.json()).catch(() => null),
     ]);
     setTasks(t.tasks ?? []);
-    setJiraConfigured(t.jiraConfigured);
+    setProviders(p?.providers ?? []);
     setFlows(f.flows ?? []);
     const repoList: Repo[] = r.repos ?? [];
     setRepos(repoList);
@@ -277,7 +287,7 @@ export default function Home() {
       const match = repoList.find(
         (rp) =>
           rp.cloud_url.replace(/\.git$/, "") ===
-          (task.repo_url ?? "").replace(/\.git$/, ""),
+          (task.repoUrl ?? "").replace(/\.git$/, ""),
       );
       if (match) sel[task.id] = match.id;
     }
@@ -288,13 +298,6 @@ export default function Home() {
   useEffect(() => {
     load();
   }, [load]);
-
-  const sync = async () => {
-    setSyncing(true);
-    await fetch("/api/tasks", { method: "POST" });
-    await load();
-    setSyncing(false);
-  };
 
   const startFlow = async (task: TaskT) => {
     const repoId = repoFor[task.id];
@@ -331,6 +334,10 @@ export default function Home() {
     else if (res.error) alert(res.error);
   };
 
+  // ── task type filter (chips built from the registered providers) ─────────
+  const visible =
+    typeFilter === "all" ? tasks : tasks.filter((t) => t.type === typeFilter);
+
   // ── group sub-tasks under their parents ─────────────────────────────────
   type Group =
     | { type: "single"; t: TaskT }
@@ -340,15 +347,15 @@ export default function Home() {
         parentKey: string | null;
         children: TaskT[];
       };
-  const keys = new Set(tasks.map((t) => t.key));
+  const keys = new Set(visible.map((t) => t.key));
 
   // sub-tasks whose parent issue isn't synced get grouped by that parent key
   const orphanChildren = new Map<string, TaskT[]>();
-  for (const t of tasks) {
-    if (t.parent_key && !keys.has(t.parent_key)) {
-      const kids = orphanChildren.get(t.parent_key) ?? [];
+  for (const t of visible) {
+    if (t.parentKey && !keys.has(t.parentKey)) {
+      const kids = orphanChildren.get(t.parentKey) ?? [];
       kids.push(t);
-      orphanChildren.set(t.parent_key, kids);
+      orphanChildren.set(t.parentKey, kids);
     }
   }
 
@@ -361,8 +368,8 @@ export default function Home() {
       children: kids,
     });
   }
-  for (const t of tasks) {
-    if (t.parent_key) continue; // rendered inside its parent's card (or its orphan group)
+  for (const t of visible) {
+    if (t.parentKey) continue; // rendered inside its parent's card (or its orphan group)
     groups.push({ type: "single", t });
   }
   const mrsOpen = flows.filter((f) => f.mr_url).length;
@@ -406,29 +413,28 @@ export default function Home() {
         <Button variant="outline" render={<a href="/settings" />}>
           <SettingsIcon size={14} /> Settings
         </Button>
-        <Button onClick={sync} disabled={syncing || !jiraConfigured}>
-          {syncing ? (
-            <>
-              <Spinner /> Syncing…
-            </>
-          ) : (
-            <>
-              <RefreshCw size={14} /> Sync Jira
-            </>
-          )}
+        <Button variant="outline" render={<Link href="/tasks/import" />}>
+          <Download size={14} /> Import tasks
         </Button>
       </header>
 
-      {!jiraConfigured && (
-        <Alert className="bg-amber-500/10 text-amber-400 mb-6">
-          <AlertTriangle size={16} />
-          <span>
-            Jira is not configured. Fill in{" "}
-            <code className="font-mono">.env</code> (see{" "}
-            <code className="font-mono">.env.example</code>) and restart.
-          </span>
-        </Alert>
-      )}
+      {providers
+        .filter((p) => !p.configured)
+        .map((p) => (
+          <Alert key={p.kind} className="bg-amber-500/10 text-amber-400 mb-6">
+            <AlertTriangle size={16} />
+            <span>
+              {p.label} is not configured — fill in{" "}
+              <code className="font-mono">.env</code> (see{" "}
+              <code className="font-mono">.env.example</code>) and restart, then
+              import from the{" "}
+              <Link href="/tasks/import" className="underline">
+                Import tasks
+              </Link>{" "}
+              screen.
+            </span>
+          </Alert>
+        ))}
       {repos.length === 0 && (
         <Alert className="bg-amber-500/10 text-amber-400 mb-6">
           <AlertTriangle size={16} />
@@ -540,21 +546,50 @@ export default function Home() {
           <ListTree size={13} /> My tasks
           {tasks.length > 0 && (
             <span className="normal-case tracking-normal text-[11px] text-muted-foreground/60">
-              {tasks.length}
+              {visible.length === tasks.length
+                ? tasks.length
+                : `${visible.length} of ${tasks.length}`}
             </span>
           )}
         </h2>
 
-        {tasks.length === 0 && (
+        {/* task-type filter chips (from the provider registry) */}
+        {providers.length > 0 && tasks.length > 0 && (
+          <div className="flex gap-1.5 mb-3 flex-wrap">
+            {[
+              { kind: "all", label: "All" },
+              ...providers.map((p) => ({ kind: p.kind, label: p.label })),
+            ].map((chip) => (
+              <button
+                key={chip.kind}
+                onClick={() => setTypeFilter(chip.kind)}
+                className={cn(
+                  "inline-flex h-6 items-center gap-1 rounded-full px-2.5 text-[11.5px] font-medium transition-colors",
+                  typeFilter === chip.kind
+                    ? "bg-blue-500/15 text-blue-400"
+                    : "bg-muted text-muted-foreground hover:text-foreground",
+                )}
+              >
+                {chip.label}
+              </button>
+            ))}
+          </div>
+        )}
+
+        {visible.length === 0 && (
           <Card className="justify-center items-center gap-2 py-10 border-dashed! shadow-none! text-muted-foreground">
             <div className="size-10 grid place-items-center rounded-xl bg-muted">
               <Inbox size={18} />
             </div>
             <div className="text-sm font-medium text-foreground">
-              No tasks yet
+              {tasks.length === 0 ? "No tasks yet" : `No ${typeFilter} tasks`}
             </div>
             <div className="text-[12.5px]">
-              Click “Sync Jira” to pull in your open work.
+              Import tasks from your integrations on the{" "}
+              <Link href="/tasks/import" className="underline">
+                Import tasks
+              </Link>{" "}
+              screen.
             </div>
           </Card>
         )}

@@ -6,7 +6,7 @@ export async function GET() {
   return listTasks();
 }
 
-/** Sync tasks from Jira into the local DB. */
-export async function POST() {
-  return syncTasks();
+/** Sync tasks from a provider (body {kind}, default: the first provider). */
+export async function POST(req: Request) {
+  return syncTasks(req);
 }

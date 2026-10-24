@@ -1,44 +1,55 @@
 import { NextResponse } from "next/server";
-import { db } from "../../../lib/db";
-import { jiraClient } from "../../../lib/integrations/jira";
 import { config } from "../../../lib/config";
+import { db } from "../../../lib/db";
+import { Task, rows } from "../../../lib/db/rows";
+import { taskRegistry } from "../../../lib/engine/tasks/registry";
 
 /**
  * Shared handlers for the tasks API — consumed by /api/tasks and the
  * deprecated /api/tickets shim (dropped in the Phase 4 cleanup).
+ *
+ * Sync dispatches through the task provider registry: POST {kind:"jira"} →
+ * taskRegistry.get("jira").sync(). Without a kind, the single/first
+ * registered provider runs (the UI passes kind explicitly once several exist).
  */
 
 export function listTasks() {
-  const tasks = db.all<any>(`SELECT * FROM tasks ORDER BY synced_at DESC`).map((t) => ({
+  const tasks = rows.all(Task, `SELECT * FROM tasks ORDER BY synced_at DESC`).map((t) => ({
     ...t,
-    issueType: t.issue_type ?? "",
-    figmaUrls: JSON.parse(t.figma_urls ?? "[]"),
+    // external deep link resolved by the task's provider (falls back to the
+    // stored jira_url for rows whose provider kind is unknown)
+    externalUrl: taskRegistry.maybe(t.type)?.externalUrl(t) ?? t.jiraUrl ?? "",
   }));
   return NextResponse.json({ tasks, jiraConfigured: config.jira.configured() });
 }
 
-/** Sync tasks from Jira into the local DB. */
-export async function syncTasks() {
-  const remote = await jiraClient.fetchMyTickets();
-  const ts = db.now();
-  for (const t of remote) {
-    const existing = db.get<any>(`SELECT id, repo_url FROM tasks WHERE key=?`, t.key);
-    if (existing) {
-      db.run(
-        `UPDATE tasks SET summary=?,description=?,status=?,issue_type=?,priority=?,prd_text=?,figma_urls=?,jira_url=?,parent_key=?,raw=?,synced_at=? WHERE key=?`,
-        t.summary, t.description, t.status, t.issueType, t.priority, t.prdText,
-        JSON.stringify(t.figmaUrls), t.jiraUrl, t.parentKey || null, JSON.stringify(t.raw), ts, t.key
-      );
-    } else {
-      db.run(
-        `INSERT INTO tasks (id,key,summary,description,status,issue_type,priority,prd_text,figma_urls,repo_url,parent_key,jira_url,raw,synced_at)
-         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-        t.id, t.key, t.summary, t.description, t.status, t.issueType, t.priority,
-        t.prdText, JSON.stringify(t.figmaUrls), null, t.parentKey || null, t.jiraUrl, JSON.stringify(t.raw), ts
-      );
-    }
+/** Sync tasks from a provider (body {kind}, default: the first provider). */
+export async function syncTasks(req?: Request) {
+  let kind: string | undefined;
+  if (req) {
+    const body = await req.json().catch(() => null);
+    if (body && typeof body.kind === "string" && body.kind) kind = body.kind;
   }
-  return NextResponse.json({ synced: remote.length });
+  const provider = kind ? taskRegistry.maybe(kind) : taskRegistry.first();
+  if (!provider) {
+    return NextResponse.json(
+      { error: kind ? `unknown task provider kind: ${kind}` : "no task providers registered" },
+      { status: kind ? 404 : 500 }
+    );
+  }
+  try {
+    const ids = await provider.sync();
+    const tasks = ids
+      .map((id) => rows.get(Task, `SELECT * FROM tasks WHERE id=?`, id))
+      .filter((t): t is Task => Boolean(t))
+      .map((t) => ({ id: t.id, key: t.key, summary: t.summary }));
+    return NextResponse.json({ synced: tasks.length, kind: provider.kind, tasks });
+  } catch (err) {
+    return NextResponse.json(
+      { error: err instanceof Error ? err.message : String(err) },
+      { status: 502 }
+    );
+  }
 }
 
 /** Update task fields we manage locally (e.g. repo mapping). */
