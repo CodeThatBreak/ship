@@ -113,7 +113,8 @@ export function NodeConfiguratorBody({
   /** Incoming edges + sources (visual builder) — drives the variable chips
    *  (the connected upstream nodes' published outputs). */
   incoming?: IncomingLink[];
-  /** Node has no edges at all — configuration is gated on a connection. */
+  /** Node has no edges at all — shows a connect hint above the form; the
+   *  prompt/knobs stay editable (task context variables remain available). */
   locked?: boolean;
   /** The template's declared task type's contextFields (Phase 3) — the
    *  {{task.*}} chips offered on EVERY node (base context, no wiring). */
@@ -185,22 +186,6 @@ export function NodeConfiguratorBody({
     [taskFields],
   );
 
-  if (locked) {
-    return (
-      <Card className="grid gap-2 p-4 border-amber-500/30 bg-amber-500/[0.04]">
-        <div className="flex items-center gap-2 text-[13px] font-medium text-amber-400">
-          <Unplug size={14} /> Needs a connection
-        </div>
-        <p className="text-[12px] text-muted-foreground m-0">
-          This node has no edges yet. A <strong>start node</strong> (nothing
-          points at it) carries the trigger that begins its branch; every other
-          node must be reached by an edge. Connect it on the canvas — then the
-          connected upstream nodes&apos; run context flows in as variables.
-        </p>
-      </Card>
-    );
-  }
-
   // the start node has no config and no input mapping — its fields flow
   // straight to the next nodes, so it gets Trigger + Output Schema only
   const tabs = start
@@ -209,6 +194,19 @@ export function NodeConfiguratorBody({
 
   return (
     <div className="flex flex-col min-h-0 flex-1">
+      {/* isolation note — non-blocking: the node stays editable while it's
+          unconnected (the amber canvas dot keeps flagging it) */}
+      {locked && (
+        <div className="mb-3 flex items-start gap-2 rounded-lg border border-amber-500/30 bg-amber-500/[0.04] px-3 py-2">
+          <Unplug size={13} className="mt-0.5 shrink-0 text-amber-400" />
+          <p className="text-[12px] text-amber-400/90 m-0">
+            Not connected yet — drag from a node&apos;s handle on the canvas to
+            wire it in. You can edit it meanwhile: the task context is available
+            as variables, and connected upstream nodes&apos; outputs join them
+            once an edge arrives.
+          </p>
+        </div>
+      )}
       {/* tabs */}
       <div className="flex gap-1 border-b border-border -mx-2 px-2">
         {tabs.map((t) => (
@@ -504,10 +502,17 @@ function ConfigTab({
       })),
     ),
   ];
+  // no upstream yet (unconnected node or an entry): the inherit hint
+  const inheritHint = groups.length === 0 ? (
+    <p className="text-[11px] text-muted-foreground m-0">
+      Connect a node to inherit its outputs as variables.
+    </p>
+  ) : null;
   if (node.is_builtin) {
     const fields = contract?.config?.fields ?? [];
     return (
       <div className="grid gap-3">
+        {inheritHint}
         {fields.length === 0 && !contract && (
           <p className="text-muted-foreground text-[13px]">
             <Spinner /> Loading schema…
@@ -553,6 +558,7 @@ function ConfigTab({
   if (fields.length) {
     return (
       <div className="grid gap-3">
+        {inheritHint}
         {fields
           .filter(
             (f) =>

@@ -7,17 +7,27 @@
  * replaces the template graph wholesale on Save; node drags sync x/y
  * immediately through the positions-only PATCH. Built-in templates are
  * read-only — duplicate from the gallery to customize.
+ *
+ * Phase 1 canvas behavior: palette picks place an unconnected node at the
+ * viewport center (no auto-wiring, no auto-opened drawer — the user drags
+ * from a handle to connect); Backspace/Delete remove the selection; and
+ * structural changes are undoable (⌘Z / ⇧⌘Z over draft snapshots). Leaving
+ * with unsaved changes is guarded (beforeunload + a styled confirm on the
+ * back link).
  */
 import { useCallback, useEffect, useRef, useState } from "react";
 import dagre from "@dagrejs/dagre";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import {
   ArrowLeft,
   LayoutTemplate,
   Lock,
+  Redo2,
   Save,
   Settings2,
   Trash2,
+  Undo2,
   Webhook as WebhookIcon,
   Workflow,
 } from "lucide-react";
@@ -25,6 +35,14 @@ import { Alert } from "../../../components/ui/alert";
 import { Badge } from "../../../components/ui/badge";
 import { Button } from "../../../components/ui/button";
 import { Card } from "../../../components/ui/card";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "../../../components/ui/dialog";
 import { Input } from "../../../components/ui/input";
 import { Spinner } from "../../../components/ui/spinner";
 import {
@@ -85,19 +103,6 @@ function startNodeInstance(): EditorNode {
   };
 }
 
-/**
- * Auto-connect rule: a newly placed node gets one `next` edge from the flow's
- * entry — the node no edge points at (the Start node) — so a palette pick
- * never strands an isolated node. Rewire on the canvas for chains/branches.
- * `branchLabel` pre-labels the edge when the entry is a decision (branch wiring).
- */
-function connectNew(edges: EditorEdge[], nodes: EditorNode[], key: string, branchLabel?: string | null): EditorEdge[] {
-  const entryKey = nodes.find((n) => n.key !== key && !edges.some((e) => e.to === n.key))?.key ?? nodes[0]?.key;
-  if (!entryKey || entryKey === key) return edges;
-  if (edges.some((e) => e.from === entryKey && e.to === key)) return edges;
-  return [...edges, { from: entryKey, to: key, kind: "next", label: branchLabel ?? null, condition: null }];
-}
-
 /** Default node_templates icon per declarative kind (lucide names the graph resolves). */
 const KIND_ICONS: Record<string, string> = {
   agent: "bot",
@@ -133,7 +138,19 @@ function initialPositions(nodes: EditorNode[], edges: EditorEdge[], saved: Recor
 }
 
 export default function TemplateEditorPage() {
-  const [draft, setDraft] = useState<Draft | null>(null);
+  const router = useRouter();
+  const [draft, setDraftState] = useState<Draft | null>(null);
+  /** the draft mirrored in a ref — undo/redo and the keyboard handler read the
+   *  live value even from closures that outlive a render */
+  const draftRef = useRef<Draft | null>(null);
+  const setDraft = useCallback(
+    (next: Draft | null | ((cur: Draft | null) => Draft | null)) => {
+      const resolved = typeof next === "function" ? next(draftRef.current) : next;
+      draftRef.current = resolved;
+      setDraftState(resolved);
+    },
+    [],
+  );
   const [positions, setPositions] = useState<Record<string, Position>>({});
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
@@ -147,6 +164,10 @@ export default function TemplateEditorPage() {
   const [nodeDrawer, setNodeDrawer] = useState<string | null>(null);
   const [edgeDrawer, setEdgeDrawer] = useState<number | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  /** the just-placed node (canvas selection highlight while no drawer is open) */
+  const [placedKey, setPlacedKey] = useState<string | null>(null);
+  /** the styled "leave with unsaved changes?" confirm on the back link */
+  const [confirmLeave, setConfirmLeave] = useState(false);
   // flow-trigger side data: the inbound hook (webhook trigger) + the repo
   // binding pickers (webhook/schedule auto-create flows)
   const [hook, setHook] = useState<{ id: string; secret: string; filter: string | null } | null>(null);
@@ -167,6 +188,18 @@ export default function TemplateEditorPage() {
     const seg = typeof location !== "undefined" ? location.pathname.split("/").filter(Boolean) : [];
     return seg.length >= 2 && seg[0] === "templates" ? seg[1] : null;
   })();
+
+  // ── undo / redo: structural draft snapshots taken in apply() ───────────────
+  const undoStack = useRef<Draft[]>([]);
+  const redoStack = useRef<Draft[]>([]);
+  /** bursts of structural edits (typing in a field) coalesce into one snapshot */
+  const lastSnapAt = useRef(0);
+  const [canUndo, setCanUndo] = useState(false);
+  const [canRedo, setCanRedo] = useState(false);
+  const syncUndoFlags = useCallback(() => {
+    setCanUndo(undoStack.current.length > 0);
+    setCanRedo(redoStack.current.length > 0);
+  }, []);
 
   const load = useCallback(async () => {
     setError(null);
@@ -199,15 +232,23 @@ export default function TemplateEditorPage() {
       setDraft(d);
       setPositions(initialPositions(d.nodes, d.edges, saved));
       setHook(data.hook ?? null);
+      // a fresh template load resets the undo history — snapshots of a
+      // previous session's draft would rewind past what's on the server
+      undoStack.current = [];
+      redoStack.current = [];
+      lastSnapAt.current = 0;
+      syncUndoFlags();
       // templates created before the Start node existed stay empty: seed the
-      // entry node into the draft (marked dirty so a Save persists it)
+      // entry node into the draft (marked dirty so a Save persists it). New
+      // templates seed their Start node server-side at creation — silent, so
+      // this notice only ever surfaces for legacy-empty graphs.
       if (!data.template?.is_builtin && d.nodes.length === 0) {
         setDraft((cur) => (cur && cur.nodes.length === 0 ? { ...cur, nodes: [startNodeInstance()] } : cur));
         setDirty(true);
         setNotice("Start node added by default — Save to keep it.");
       }
     } else setError(data?.error ?? "failed to load template");
-  }, [templateId]);
+  }, [templateId, setDraft, syncUndoFlags]);
 
   useEffect(() => {
     if (templateId) void load();
@@ -265,11 +306,83 @@ export default function TemplateEditorPage() {
     fetch("/api/repos").then((r) => r.json()).then((d) => setRepos(d?.repos ?? [])).catch(() => {});
   }, []);
 
-  const apply = (next: Draft) => {
+  const undo = useCallback(() => {
+    const prev = undoStack.current.pop();
+    if (!prev) return;
+    const cur = draftRef.current;
+    if (cur) redoStack.current.push(cur);
+    setDraft(prev);
+    setDirty(true);
+    setNotice(null);
+    // the restored draft may have different nodes/edges — a drawer open on a
+    // now-different index would edit the wrong element
+    setNodeDrawer(null);
+    setEdgeDrawer(null);
+    setPlacedKey(null);
+    syncUndoFlags();
+  }, [setDraft, syncUndoFlags]);
+
+  const redo = useCallback(() => {
+    const next = redoStack.current.pop();
+    if (!next) return;
+    const cur = draftRef.current;
+    if (cur) undoStack.current.push(cur);
     setDraft(next);
     setDirty(true);
     setNotice(null);
-  };
+    setNodeDrawer(null);
+    setEdgeDrawer(null);
+    setPlacedKey(null);
+    syncUndoFlags();
+  }, [setDraft, syncUndoFlags]);
+
+  // ⌘Z / Ctrl+Z (and ⇧ for redo) — skipped while typing so text fields keep
+  // their native undo, and inert on read-only built-ins
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (!(e.metaKey || e.ctrlKey) || e.key.toLowerCase() !== "z") return;
+      const el = e.target as HTMLElement | null;
+      if (el && (el.tagName === "INPUT" || el.tagName === "TEXTAREA" || el.isContentEditable)) return;
+      e.preventDefault();
+      if (draft?.template.is_builtin) return;
+      if (e.shiftKey) redo();
+      else undo();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [undo, redo, draft]);
+
+  // unsaved-changes guard: reload / tab close asks before discarding the draft
+  useEffect(() => {
+    if (!dirty) return;
+    const onBeforeUnload = (e: BeforeUnloadEvent) => {
+      e.preventDefault();
+      e.returnValue = "";
+    };
+    window.addEventListener("beforeunload", onBeforeUnload);
+    return () => window.removeEventListener("beforeunload", onBeforeUnload);
+  }, [dirty]);
+
+  const apply = useCallback((next: Draft) => {
+    const cur = draftRef.current;
+    if (cur) {
+      // structural changes (nodes/edges replaced) snapshot for undo; meta-only
+      // edits and rapid bursts (each keystroke re-replaces the edges array)
+      // coalesce into the previous snapshot instead of flooding the stack
+      const structural = next.nodes !== cur.nodes || next.edges !== cur.edges;
+      const now = Date.now();
+      if (structural && (undoStack.current.length === 0 || now - lastSnapAt.current > 500)) {
+        undoStack.current.push(cur);
+        if (undoStack.current.length > 50) undoStack.current.shift();
+        redoStack.current = [];
+        lastSnapAt.current = now;
+      }
+    }
+    setDraft(next);
+    setDirty(true);
+    setNotice(null);
+    syncUndoFlags();
+  }, [setDraft, syncUndoFlags]);
 
   const patchNode = (key: string, patch: Partial<EditorNode>) => {
     setDraft((cur) => cur
@@ -279,21 +392,40 @@ export default function TemplateEditorPage() {
     setNotice(null);
   };
 
-  /** Removes the node and any edges touching it. */
+  /** Removes a node and any edges touching it (footer button + keyboard
+   *  deletes both land here). The Start node is protected — it's the flow's
+   *  entry; delete its outgoing edges instead to strand a branch. */
   const removeNode = (node: EditorNode) => {
     if (!draft) return;
+    if (node.nodeTemplateId === "nt_start") {
+      setNotice("The Start node can't be deleted — it's the flow's entry. Rewire its edges instead.");
+      return;
+    }
     apply({
       ...draft,
       nodes: draft.nodes.filter((n) => n.key !== node.key),
       edges: draft.edges.filter((e) => e.from !== node.key && e.to !== node.key),
     });
-    setNodeDrawer(null);
+    setNodeDrawer((cur) => (cur === node.key ? null : cur));
+    setPlacedKey((cur) => (cur === node.key ? null : cur));
+    // the removed node's edges shift the edge indexes — close a stale drawer
+    setEdgeDrawer(null);
   };
 
+  /** Keyboard-delete path from the canvas (BuilderCanvas resolves the id). */
+  const removeNodeKey = (key: string) => {
+    const node = draft?.nodes.find((n) => n.key === key);
+    if (node) removeNode(node);
+  };
+
+  /** Removes an edge by draft index (footer button + keyboard deletes —
+   *  BuilderCanvas resolves the flow edge id `edge<i>` to this index). */
   const removeEdge = (index: number) => {
     if (!draft) return;
     apply({ ...draft, edges: draft.edges.filter((_, i) => i !== index) });
-    setEdgeDrawer(null);
+    setEdgeDrawer((cur) =>
+      cur == null ? cur : cur === index ? null : cur > index ? cur - 1 : cur,
+    );
   };
 
   /** A new edge from the canvas. From a decision node's branch handle the
@@ -374,8 +506,13 @@ export default function TemplateEditorPage() {
     }, 700);
   }, [templateId, draft?.template.is_builtin]);
 
-  /** Build + place a new node instance (palette pick or authored catalog node):
-   *  auto-connected from the flow's entry node (connectNew), drawer opens. */
+  /**
+   * Build + place a new node instance (palette pick or authored catalog node):
+   * viewport center, selected, deliberately unconnected — nothing is wired or
+   * opened for the user (auto-connecting pre-wired branches the user then had
+   * to unwind was the top daily annoyance). The hint names the connect gesture:
+   * drag from a node's handle. Config happens when the user opens the drawer.
+   */
   const addInstance = (opts: {
     nodeTemplateId: string;
     name: string;
@@ -386,18 +523,6 @@ export default function TemplateEditorPage() {
     if (!draft) return null;
     const key = uniqueKey(opts.name || "node", draft.nodes);
     placeNewNode(key);
-    // auto-connect from the flow's entry; when the entry is a decision node
-    // the edge carries the next unused branch label (pre-wired branch)
-    const entryKey = draft.nodes.find(
-      (n) => n.key !== key && !draft.edges.some((e) => e.to === n.key),
-    )?.key ?? draft.nodes[0]?.key;
-    const entryChoices = entryKey ? branchChoices[entryKey] : undefined;
-    const entryBranch =
-      entryKey && draft.nodes.find((n) => n.key === entryKey)?.kind === "decision" && entryChoices?.length
-        ? (entryChoices.find(
-            (c) => !draft.edges.some((e) => e.from === entryKey && e.label === c.label),
-          )?.label ?? null)
-        : null;
     apply({
       ...draft,
       nodes: [...draft.nodes, {
@@ -414,13 +539,15 @@ export default function TemplateEditorPage() {
         catalog_name: opts.name,
         is_builtin: opts.isBuiltin,
       }],
-      edges: connectNew(draft.edges, draft.nodes, key, entryBranch),
     });
-    setNodeDrawer(key);
+    setNodeDrawer(null);
+    setPlacedKey(key);
+    setNotice("Node placed — drag from one of its handles to connect it.");
     return key;
   };
 
-  /** A palette pick: place an instance of the catalog row on the canvas. */
+  /** A palette pick: place an instance of the catalog row on the canvas
+   *  (unconnected, at the viewport center — addInstance does the placing). */
   const addCatalogNode = (nodeTemplateId: string, isBuiltin: boolean, catalogKey: string, name: string) => {
     if (!draft) return;
     // only one Start node per template (the server's singleton rule enforces
@@ -437,9 +564,9 @@ export default function TemplateEditorPage() {
   /**
    * One-click custom-node add (palette kind buttons): create the catalog row
    * server-side (auto-named, seeded defaults — a decision starts with two
-   * branch choices), then place the instance — addInstance auto-connects it
-   * from the flow's entry and opens its drawer. The prompt/knobs are authored
-   * there, after connecting, so the upstream run context is clickable.
+   * branch choices), then place the instance — unconnected at the viewport
+   * center; the user drags a handle to connect, then authors the prompt/knobs
+   * in the drawer (where the upstream run context is clickable).
    */
   const addKindNode = async (kind: "agent" | "decision" | "http" | "script") => {
     if (!draft) return;
@@ -514,7 +641,15 @@ export default function TemplateEditorPage() {
     <main className="fixed inset-0 flex flex-col bg-background">
       {/* ── header ── */}
       <header className="h-14 shrink-0 flex items-center gap-3 px-4 border-b border-border bg-card">
-        <Button variant="ghost" size="sm" render={<Link href="/templates" />} className="-ml-1.5 gap-1.5 text-muted-foreground">
+        <Button
+          variant="ghost"
+          size="sm"
+          className="-ml-1.5 gap-1.5 text-muted-foreground"
+          onClick={() => {
+            if (dirty) setConfirmLeave(true);
+            else router.push("/templates");
+          }}
+        >
           <ArrowLeft className="size-3.5" /> Templates
         </Button>
         <LayoutTemplate size={17} className="text-muted-foreground" />
@@ -536,16 +671,31 @@ export default function TemplateEditorPage() {
           </span>
         )}
         {!readonly && (
-          <>
-            <Button variant="outline" size="sm" onClick={() => setSettingsOpen(true)}>
-              <Settings2 size={13} /> Flow settings
-            </Button>
-          </>
-        )}
-        {readonly && (
           <Button variant="outline" size="sm" onClick={() => setSettingsOpen(true)}>
             <Settings2 size={13} /> Flow settings
           </Button>
+        )}
+        {!readonly && (
+          <>
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              disabled={!canUndo}
+              title="Undo (⌘Z)"
+              onClick={undo}
+            >
+              <Undo2 size={14} />
+            </Button>
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              disabled={!canRedo}
+              title="Redo (⇧⌘Z)"
+              onClick={redo}
+            >
+              <Redo2 size={14} />
+            </Button>
+          </>
         )}
         {!readonly && (
           <Button size="sm" disabled={!dirty || saving || creatingAgent} onClick={() => void save()}>
@@ -587,24 +737,29 @@ export default function TemplateEditorPage() {
             nodes={draft.nodes}
             edges={draft.edges}
             positions={positions}
-            selectedNodeKey={nodeDrawer}
+            selectedNodeKey={nodeDrawer ?? placedKey}
             selectedEdgeIndex={edgeDrawer}
             readonly={readonly}
             branchChoices={branchChoices}
             onNodeOpen={(key) => {
               setEdgeDrawer(null);
+              setPlacedKey(null);
               setNodeDrawer(key);
             }}
             onEdgeOpen={(index) => {
               setNodeDrawer(null);
+              setPlacedKey(null);
               setEdgeDrawer(index);
             }}
             onNodeMove={(key, x, y) => setPositions((p) => ({ ...p, [key]: { x, y } }))}
             onNodeDragStop={schedulePositionsSave}
             onConnect={addEdge}
+            onNodeRemove={removeNodeKey}
+            onEdgeRemove={removeEdge}
             onPaneClick={() => {
               setNodeDrawer(null);
               setEdgeDrawer(null);
+              setPlacedKey(null);
             }}
             onApi={(api) => { builderApi.current = api; }}
           />
@@ -724,6 +879,34 @@ export default function TemplateEditorPage() {
           </SheetBody>
         </SheetContent>
       </Sheet>
+
+      {/* ── leave-with-unsaved-changes confirm (back link, when dirty) ── */}
+      <Dialog open={confirmLeave} onOpenChange={setConfirmLeave}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Leave with unsaved changes?</DialogTitle>
+            <DialogDescription>
+              Nodes and connections you added are only kept when you Save. Your
+              last saved version stays as it is.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setConfirmLeave(false)}>
+              Keep editing
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={() => {
+                setConfirmLeave(false);
+                setDirty(false); // don't trip the beforeunload guard on the way out
+                router.push("/templates");
+              }}
+            >
+              Leave without saving
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <AddNodeDialog
         open={adding}

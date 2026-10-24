@@ -3,13 +3,12 @@
  * The builder's left panel (Phase 5B): a collapsible "Add node" palette. The
  * node_templates catalog is grouped by category — built-in SDLC nodes, then
  * your custom nodes by declarative kind — and clicking an entry places it on
- * the canvas (auto-connected from the flow's Start node). Declared nodes are
- * NOT listed here; those live on the canvas and open their configurator from
- * the canvas click. The custom-kind buttons add a node of that kind directly —
- * one click creates a ready-to-edit instance whose prompt/knobs are authored
- * in the drawer *after* connecting, so the upstream run context is available
- * as clickable variables; the old pre-placement authoring dialog stays one
- * click away for authors who want schema validation before placing.
+ * the canvas, unconnected at the viewport center (drag from a node's handle
+ * to connect it). Declared nodes are NOT listed here; those live on the
+ * canvas and open their configurator from the canvas click. The custom-kind
+ * buttons add a node of that kind directly — the prompt/knobs are authored in
+ * the drawer once it's wired in, so the upstream run context is available as
+ * clickable variables.
  */
 import { useEffect, useState } from "react";
 import { Lock, PanelLeftClose, PanelLeftOpen, Plus, Wand2 } from "lucide-react";
@@ -45,9 +44,9 @@ export interface NodePaletteProps {
   readonly: boolean;
   /** an authoring request is in flight (node creation busy state) */
   busy?: boolean;
-  /** placing a catalog node on the canvas (auto-connected by the host) */
+  /** placing a catalog node on the canvas (unconnected; the host places it) */
   onAddCatalogNode: (rowId: string, isBuiltin: boolean, catalogKey: string, name: string) => void;
-  /** one-click add: a blank node of the kind, created + placed + drawer opened */
+  /** one-click add: a blank node of the kind, placed unconnected */
   onAddKindNode: (kind: AuthorKind) => void;
   /** opens the pre-placement authoring dialog at a declarative kind */
   onOpenAuthoring: (kind: AuthorKind) => void;
@@ -173,7 +172,7 @@ export default function NodePalette({
               size="sm"
               disabled={readonly || busy}
               onClick={() => onAddKindNode(g.kind)}
-              title={`Add a blank ${g.kind} node — connect it, then author its prompt in the drawer (upstream variables clickable)`}
+              title={`Add a blank ${g.kind} node — drag from a handle to connect it, then author it in the drawer (upstream variables clickable)`}
               className="capitalize gap-1 text-[12px]"
             >
               <Plus size={11} /> {g.kind}

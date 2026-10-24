@@ -6,7 +6,8 @@
  * Clicking a node opens its configurator drawer; clicking an edge opens the
  * edge drawer. Structural edits (add/connect/delete) mutate the page's draft,
  * which PATCHes wholesale on save; position drags sync x/y immediately via the
- * positions-only PATCH.
+ * positions-only PATCH. Backspace/Delete remove the selected node/edge
+ * (deletability-aware — the Start node and read-only templates are exempt).
  */
 import { useEffect, useMemo } from "react";
 import {
@@ -64,10 +65,10 @@ function BuilderNodeView({ id, data }: NodeProps<Node<BuilderNodeData>>) {
   const branches = isDecision && choices?.length ? choices : null;
   return (
     <div
-      onClick={(e) => {
-        e.stopPropagation();
-        onOpen(id);
-      }}
+      // no stopPropagation: the click must reach React Flow's node wrapper so
+      // the node becomes RF-selected (Backspace/Delete keyboard delete relies
+      // on it); the pane's own click handler ignores node clicks already
+      onClick={() => onOpen(id)}
       className={cn(
         "group relative rounded-xl border-[1.5px] bg-card cursor-pointer px-3 py-2 min-w-[148px] max-w-[188px] flex items-center gap-2.5 transition-all duration-150",
         "hover:shadow-panel",
@@ -75,7 +76,7 @@ function BuilderNodeView({ id, data }: NodeProps<Node<BuilderNodeData>>) {
         readonly && "cursor-default",
         !readonly && unlinked && "ring-1 ring-amber-500/50",
       )}
-      title={readonly ? "Built-in template — read-only" : unlinked ? "Needs a connection before it can be configured" : "Click to configure"}
+      title={readonly ? "Built-in template — read-only" : unlinked ? "Not connected — drag from a handle to wire it in (click to configure meanwhile)" : "Click to configure"}
     >
       {!readonly && unlinked && (
         <span className="absolute -top-1.5 -right-1.5 z-10 flex h-4 w-4 items-center justify-center rounded-full bg-amber-500 text-[9px] font-bold text-background" title="Needs a connection">
@@ -248,6 +249,11 @@ export interface BuilderCanvasProps {
   onEdgeOpen: (index: number) => void;
   onNodeMove: (key: string, x: number, y: number) => void;
   onNodeDragStop?: (key: string, x: number, y: number) => void;
+  /** keyboard delete (Backspace/Delete) — the page removes the node + its
+   *  edges from the draft (the Start node is protected there) */
+  onNodeRemove?: (key: string) => void;
+  /** keyboard delete of a selected edge — the flow edge id is `edge<i>` */
+  onEdgeRemove?: (index: number) => void;
   /** sourceHandle is a decision branch label when the drag starts on one of
    *  its branch handles — the edge is created pre-labeled */
   onConnect: (from: string, to: string, branchLabel?: string | null) => void;
@@ -291,6 +297,9 @@ function BuilderFlow(props: BuilderCanvasProps) {
         },
         draggable: !props.readonly,
         connectable: !props.readonly,
+        // keyboard deletes respect editability; the Start node is never
+        // deletable (the page guards this too)
+        deletable: !props.readonly && n.nodeTemplateId !== "nt_start",
       })),
     [props.nodes, props.edges, props.positions, props.selectedNodeKey, props.readonly, props.onNodeOpen, props.branchChoices],
   );
@@ -310,6 +319,7 @@ function BuilderFlow(props: BuilderCanvasProps) {
             width: 16,
             height: 16,
           },
+          deletable: !props.readonly,
           data: { edge: e, selected, onOpen: props.onEdgeOpen },
         };
       }),
@@ -318,13 +328,25 @@ function BuilderFlow(props: BuilderCanvasProps) {
 
   const onNodesChange = (changes: NodeChange<FlowNode>[]) => {
     for (const c of changes) {
+      // Backspace/Delete on a selected node — the page applies it to the draft
+      // (removing the node and its edges); positions keep autosaving as before
+      if (c.type === "remove") {
+        props.onNodeRemove?.(c.id);
+        continue;
+      }
       if (c.type !== "position" || !c.position) continue;
       props.onNodeMove(c.id, c.position.x, c.position.y);
       if (c.dragging === false) props.onNodeDragStop?.(c.id, c.position.x, c.position.y);
     }
   };
-  const onEdgesChange = (_changes: EdgeChange<FlowEdge>[]) => {
-    // selection styling is derived — clicks open the edge drawer
+  const onEdgesChange = (changes: EdgeChange<FlowEdge>[]) => {
+    // selection styling is derived — clicks open the edge drawer; keyboard
+    // deletes route back to the page by draft-edge index
+    for (const c of changes) {
+      if (c.type !== "remove") continue;
+      const idx = Number(c.id.replace(/^edge/, ""));
+      if (Number.isFinite(idx)) props.onEdgeRemove?.(idx);
+    }
   };
 
   return (
@@ -349,7 +371,7 @@ function BuilderFlow(props: BuilderCanvasProps) {
       fitViewOptions={{ padding: 0.25, maxZoom: 1 }}
       minZoom={0.3}
       maxZoom={1.75}
-      deleteKeyCode={null}
+      deleteKeyCode={props.readonly ? null : ["Backspace", "Delete"]}
       defaultEdgeOptions={{ type: "template" }}
       colorMode="dark"
     >
