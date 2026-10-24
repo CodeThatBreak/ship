@@ -5,9 +5,10 @@ import { db } from "../db";
  * The flow context map (§3 input mapping): the single variable universe every
  * JSONata expression and `{{...}}` template evaluates against.
  *
- *   task    the starting task — common columns + the provider's `fields` JSON
- *           spread over them (fields keys override/augment; jira writes
- *           `fields.prd` / `fields.figma_urls`)
+ *   task    the starting task — generic keys (key, summary, description,
+ *           status, …, url, type) + the provider's `fields` JSON spread over
+ *           them (fields keys override/augment; jira writes `fields.prd` /
+ *           `fields.figma_urls`)
  *   repo    { cloud_url, local_path }
  *   flow    { mr_url, mr_branch }
  *   trigger { payload }            — the payload that started the flow
@@ -52,11 +53,11 @@ export function buildFlowContext(ctx: FlowCtx): FlowContextMap {
 }
 
 /**
- * The `{{task.*}}` universe for one flow: the shared common columns plus the
- * provider's `fields` JSON spread over them (fields keys win — a provider may
- * both augment and override). Provider-only payload (`prd`, `figma_urls`)
- * hydrates through the Task transform — `fields.prd` / `fields.figma_urls`
- * since Phase 2; the Phase-4 data fix carried legacy rows across too.
+ * The `{{task.*}}` universe for one flow: the generic keys every provider
+ * fills (including `url`, the external deep link, and `type`, the provider
+ * kind) plus the provider's `fields` JSON spread over them (fields keys win —
+ * a provider may both augment and override; e.g. jira's `prd` / `figma_urls`
+ * hydrate from its `fields` payload).
  */
 function taskContextOf(ctx: FlowCtx): Record<string, unknown> {
   const t = ctx.task;
@@ -70,8 +71,8 @@ function taskContextOf(ctx: FlowCtx): Record<string, unknown> {
     issue_type: t.issueType ?? "",
     repo_url: t.repoUrl ?? "",
     parent_key: t.parentKey ?? "",
-    prd: t.prdText ?? "",
-    figma_urls: t.figmaUrls ?? [],
+    url: t.externalUrl ?? "",
+    type: t.type ?? "",
     ...fields,
   };
 }

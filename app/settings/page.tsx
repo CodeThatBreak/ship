@@ -34,7 +34,7 @@ type Settings = {
   /** names of set secrets only (values never leave the server) */
   secrets?: string[];
   http_allowlist?: string[];
-  status: { cursorApiKeySet: boolean; cursorCliAvailable: boolean; gitHosts: Record<string, boolean>; jiraConfigured: boolean };
+  status: { cursorApiKeySet: boolean; cursorCliAvailable: boolean; gitHosts: Record<string, boolean>; taskProviders: Record<string, boolean> };
 };
 type PricingEntry = { input_per_mtok?: number; output_per_mtok?: number; cache_read_per_mtok?: number; cache_write_per_mtok?: number };
 type PricingRow = { key: string; input?: number; output?: number; cacheRead?: number; cacheWrite?: number };
@@ -114,7 +114,7 @@ function StatusBar({ settings }: { settings: Settings }) {
     { ok: settings.status.cursorApiKeySet, label: "Cursor API key (cloud)" },
     { ok: settings.status.cursorCliAvailable, label: "Local runtime (SDK + API key)" },
     { ok: settings.status.gitHosts?.gitlab ?? false, label: "GitLab" },
-    { ok: settings.status.jiraConfigured, label: "Jira" },
+    { ok: settings.status.taskProviders?.jira ?? false, label: "Jira" },
   ];
   return (
     <Card className="flex flex-wrap gap-2.5 items-center px-4 py-3 mb-7">

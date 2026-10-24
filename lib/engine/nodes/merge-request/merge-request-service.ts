@@ -88,7 +88,7 @@ export class MergeRequestService {
         sourceBranch: gitBranch,
         targetBranch: ctx.repo?.default_branch ?? "main",
         title: crTitle,
-        description: `Implements ${ctx.task.jiraUrl}\n\n${ctx.task.summary}${branchName ? `\n\nBranch: ${branchName}` : ""}`,
+        description: `Implements ${ctx.task.externalUrl}\n\n${ctx.task.summary}${branchName ? `\n\nBranch: ${branchName}` : ""}`,
       });
     }
     const project = await host.getProject(repoUrl);

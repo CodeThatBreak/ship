@@ -37,11 +37,11 @@ export const TaskRow = z.object({
   priority: z.string().nullable(),
   repo_url: z.string().nullable(),
   parent_key: z.string().nullable(),
-  jira_url: z.string().nullable(),
+  external_url: z.string().nullable(),
   raw: z.string().nullable(),
   synced_at: z.string().nullable(),
-  /** task type discriminator (provider kind; "jira" for synced Jira issues) */
-  type: z.string().default("jira"),
+  /** task type discriminator (provider kind; the provider/engine always sets it) */
+  type: z.string(),
   /** provider-specific payload (JSON object; jira keeps prd + figma_urls here) */
   fields: jsonCol(z.record(z.string(), z.unknown())),
 });
@@ -67,7 +67,7 @@ export const Task = TaskRow.transform((t) => ({
   figmaUrls: Array.isArray(t.fields?.figma_urls) ? (t.fields.figma_urls as string[]) : [],
   repoUrl: t.repo_url,
   parentKey: t.parent_key,
-  jiraUrl: t.jira_url,
+  externalUrl: t.external_url,
   syncedAt: t.synced_at,
   type: t.type,
   fields: t.fields ?? {},
@@ -307,7 +307,7 @@ export interface TemplateNodeTrigger {
   type: string;
   /** debounced quiet-period minutes */
   minutes?: number;
-  /** event source the node waits on before it can run: gitlab_pipeline | gitlab_comments | webhook | timer */
+  /** event source the node waits on before it can run: pipeline | comments | webhook | timer */
   wait_for?: string;
 }
 

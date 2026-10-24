@@ -71,6 +71,7 @@ export class ReviewNode extends NodeDefinition<ReviewInput, ReviewOutput> {
     // variables ({{ticket_key}} etc.) — legacy names, kept verbatim
     const reviewCtx = {
       ticket_key: ctx.task.key,
+      ticket_type: this.ctxHelper.taskLabel(ctx),
       ticket_summary: ctx.task.summary,
       ticket_prd: ctx.task.prdText?.slice(0, 4000) ?? "",
     };

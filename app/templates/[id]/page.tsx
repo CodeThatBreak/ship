@@ -497,7 +497,7 @@ export default function TemplateEditorPage() {
   // the template's declared task type (trigger.task_type — the Task context
   // panel edits it): the provider's contextFields become the {{task.*}} chips
   // every node configurator offers, and the start node's contract seeder
-  const taskType = String(draft.template.trigger?.task_type ?? "jira");
+  const taskType = String(draft.template.trigger?.task_type ?? providers[0]?.kind ?? "");
   const taskProvider = providers.find((p) => p.kind === taskType) ?? providers[0] ?? null;
   const taskFields = taskProvider?.contextFields ?? [];
   // connection info for the configured node: incoming edges resolve to the
@@ -945,8 +945,9 @@ function SettingsBody({
     onChange({ trigger: { ...trigger, ...patch } });
   // the declared task type (Phase 3): which task type the template's flows run
   // on — its provider's contextFields are the {{task.*}} variables every node
-  // maps against. Absent → the jira default (matching the store's parse rule).
-  const taskType = String(trigger.task_type ?? "jira");
+  // maps against. Absent → the first registered provider (matching the store's
+  // parse rule).
+  const taskType = String(trigger.task_type ?? providers[0]?.kind ?? "");
   const taskProvider = providers.find((p) => p.kind === taskType) ?? providers[0] ?? null;
   return (
     <div className="grid gap-3">

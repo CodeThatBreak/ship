@@ -3,6 +3,7 @@ import { db } from "../../../lib/db";
 import { agentPortRegistry } from "../../../lib/engine/ports/agent-runner";
 import { gitHostRegistry } from "../../../lib/engine/ports/git-host";
 import { config } from "../../../lib/config";
+import { taskRegistry } from "../../../lib/engine/tasks/registry";
 import { prompts, PromptLibrary } from "../../../lib/engine/prompts";
 import { flowEngine } from "../../../lib/engine/flow";
 import { DEFAULT_PRICING, usageTracker } from "../../../lib/engine/nodes/base/usage-tracker";
@@ -36,7 +37,8 @@ export async function GET() {
       // per-registered-host configured status — the generic shape the settings
       // page reads (new hosts register in gitHostRegistry and appear here)
       gitHosts: Object.fromEntries(gitHostRegistry.list().map((h) => [h.kind, h.configured()])),
-      jiraConfigured: config.jira.configured(),
+      // per-registered-task-provider configured status
+      taskProviders: Object.fromEntries(taskRegistry.list().map((p) => [p.kind, p.configured()])),
     },
   });
 }

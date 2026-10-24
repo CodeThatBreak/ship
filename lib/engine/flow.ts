@@ -17,7 +17,7 @@ import { branchStore } from "./nodes/build";
 import { isCommitError, mergeRequests } from "./nodes/merge-request";
 import { nodeRegistry } from "./nodes/registry";
 import { planSteps, type PlanStepInput } from "./steps";
-import { DEFAULT_TASK_TYPE, SDLC_TEMPLATE_ID, templateStore, type TemplateGraph, type TemplateEdgeSpec } from "./templates";
+import { NO_TASK_TYPE, SDLC_TEMPLATE_ID, templateStore, type TemplateGraph, type TemplateEdgeSpec } from "./templates";
 import { appLayerConfig, configNumber, mergeConfigLayers, parseConfigSnapshot } from "./node-config";
 import { buildFlowContext, type FlowContextMap } from "./flow-context";
 import { evalJsonata, jsonataTruthy } from "./jsonata-eval";
@@ -409,11 +409,11 @@ export class FlowEngine {
   }
 
   /**
-   * Role lookups (Phase 1): the CI gate node (waits on gitlab_pipeline), and
-   * the post-gate chain [gate, …] from the template graph.
+   * Role lookups: the CI gate node (waits on the pipeline source), and the
+   * post-gate chain [gate, …] from the template graph.
    */
   private gateKey(flowId: string): string | null {
-    return templateStore.waitNodeKey(flowId, "gitlab_pipeline") ?? this.firstKeyOfType(flowId, "pipeline");
+    return templateStore.waitNodeKey(flowId, "pipeline") ?? this.firstKeyOfType(flowId, "pipeline");
   }
 
   /** def key of a node instance (for def resolution). */
@@ -1350,9 +1350,9 @@ export class FlowEngine {
   startFromTemplate(templateId: string, payload: unknown, opts: { taskId?: string } = {}): string {
     const t = templateStore.flowTemplate(templateId);
     if (!t) throw new Error("template not found");
-    // the store normalizes trigger.task_type on read (absent → default)
+    // the store normalizes trigger.task_type on read (absent → first provider)
     const trigger = templateStore.graph(templateId)?.flowTrigger ?? {};
-    const taskType = typeof trigger.task_type === "string" ? trigger.task_type : DEFAULT_TASK_TYPE;
+    const taskType = typeof trigger.task_type === "string" ? trigger.task_type : NO_TASK_TYPE;
     const repoId = typeof trigger.repo_id === "string" ? trigger.repo_id : "";
     if (!repoId) {
       throw new Error(

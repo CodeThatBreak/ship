@@ -143,9 +143,10 @@ export class BuildNode extends NodeDefinition<BuildInput, BuildOutput> {
       scopedPlan = `Branch scope: ${input.branchInfo.scope}\n\n${plan}`;
     }
 
+    const ticketType = this.ctxHelper.taskLabel(ctx);
     const instructions = mode === "local"
-      ? `Implement the following approved plan for a Jira ticket. First create and check out a new git branch named "${branch}" (from the repo's default branch), then make the code changes, commit them, and push the branch to origin. Do NOT open a merge request.`
-      : `Implement the following approved plan for a Jira ticket. Make the code changes, commit them, and push to a feature branch. Do NOT open a merge request yet.`;
+      ? `Implement the following approved plan for a ${ticketType} ticket. First create and check out a new git branch named "${branch}" (from the repo's default branch), then make the code changes, commit them, and push the branch to origin. Do NOT open a merge request.`
+      : `Implement the following approved plan for a ${ticketType} ticket. Make the code changes, commit them, and push to a feature branch. Do NOT open a merge request yet.`;
 
     // pending checklist steps for this branch + the progress-report contract
     const checklistRows = planSteps.markdown(ctx.flow.id, input.branchInfo?.name ?? null);

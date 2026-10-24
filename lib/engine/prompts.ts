@@ -28,7 +28,7 @@ const DEFAULTS: Record<string, PromptTemplate> = {
     description:
       "Sent to the planning agent for a straightforward ticket — returns JSON with markdown + steps.",
     template: [
-      `You are planning the implementation of a Jira ticket. Read the repository to ground the plan in the actual code.`,
+      `You are planning the implementation of a {{ticket_type}} ticket. Read the repository to ground the plan in the actual code.`,
       ``,
       `{{ticket}}`,
       ``,
@@ -51,11 +51,11 @@ const DEFAULTS: Record<string, PromptTemplate> = {
       `- your entire response must be parseable as a single JSON object`,
     ].join("\n"),
     userTemplate: [
-      `You are planning the implementation of a Jira ticket. Read the repository to ground the plan in the actual code.`,
+      `You are planning the implementation of a {{ticket_type}} ticket. Read the repository to ground the plan in the actual code.`,
       ``,
       `{{ticket}}`,
     ].join("\n"),
-    variables: ["ticket", "feedback", "context"],
+    variables: ["ticket", "ticket_type", "feedback", "context"],
     mode: "plan",
   },
   plan_refine: {
@@ -78,7 +78,7 @@ const DEFAULTS: Record<string, PromptTemplate> = {
     description:
       "Sent to the planning agent for bigger tickets — returns JSON with markdown + steps + branches + sub-plans.",
     template: [
-      `You are planning the implementation of a Jira ticket. Read the repository to ground the plan in the actual code.`,
+      `You are planning the implementation of a {{ticket_type}} ticket. Read the repository to ground the plan in the actual code.`,
       ``,
       `{{ticket}}`,
       ``,
@@ -106,11 +106,11 @@ const DEFAULTS: Record<string, PromptTemplate> = {
       `- your entire response must be parseable as a single JSON object`,
     ].join("\n"),
     userTemplate: [
-      `You are planning the implementation of a Jira ticket. Read the repository to ground the plan in the actual code.`,
+      `You are planning the implementation of a {{ticket_type}} ticket. Read the repository to ground the plan in the actual code.`,
       ``,
       `{{ticket}}`,
     ].join("\n"),
-    variables: ["ticket", "feedback", "context"],
+    variables: ["ticket", "ticket_type", "feedback", "context"],
     mode: "plan",
   },
   plan_complex_refine: {
@@ -250,7 +250,7 @@ const DEFAULTS: Record<string, PromptTemplate> = {
     description:
       "Sent to the review agent to analyse the MR diff and post inline comments.",
     template: [
-      `You are a senior engineer reviewing a merge request for Jira {{ticket_key}}.`,
+      `You are a senior engineer reviewing a merge request for {{ticket_type}} {{ticket_key}}.`,
       `Review the diff below. Return a JSON array ONLY, no prose, of inline comments:`,
       `[{"file": "path", "line": <new-file line number>, "body": "comment"}]`,
       `Only flag genuine issues (bugs, correctness, security, meaningful maintainability). If none, return [].`,
@@ -261,7 +261,7 @@ const DEFAULTS: Record<string, PromptTemplate> = {
       `Diff:\n{{diff}}`,
     ].join("\n"),
     userTemplate: `{{instructions}}`,
-    variables: ["ticket_key", "ticket_summary", "ticket_prd", "diff", "instructions"],
+    variables: ["ticket_key", "ticket_type", "ticket_summary", "ticket_prd", "diff", "instructions"],
     mode: "agent",
   },
   resolve: {

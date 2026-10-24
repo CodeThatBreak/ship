@@ -32,11 +32,17 @@ export default function FlowHeader({ flow }: { flow: FlowData }) {
       </Button>
       <Separator orientation="vertical" className="h-4" />
 
-      <a href={task.jiraUrl} target="_blank" rel="noreferrer" className="shrink-0">
-        <Badge className="bg-blue-500/10 text-blue-400 hover:bg-blue-500/20">
+      {task.externalUrl ? (
+        <a href={task.externalUrl} target="_blank" rel="noreferrer" className="shrink-0">
+          <Badge className="bg-blue-500/10 text-blue-400 hover:bg-blue-500/20">
+            {task.key}
+          </Badge>
+        </a>
+      ) : (
+        <Badge className="bg-blue-500/10 text-blue-400 shrink-0">
           {task.key}
         </Badge>
-      </a>
+      )}
 
       <h1
         className="min-w-0 truncate text-sm font-semibold leading-none"

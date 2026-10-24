@@ -452,7 +452,7 @@ export class PlanNode extends NodeDefinition<PlanInput, PlanOutput> {
   /** Whole-plan prompt: verbatim override, refine template, or base + feedback. */
   private buildPlanPrompt(ctx: FlowCtx, node: NodeRow, input: PlanInput): string {
     const hasAgent = Boolean(node.agent_id);
-    const baseCtx = { ticket: this.ctxHelper.taskContext(ctx) };
+    const baseCtx = { ticket: this.ctxHelper.taskContext(ctx), ticket_type: this.ctxHelper.taskLabel(ctx) };
     const refining = Boolean(input.feedback) || Boolean(input.prompt);
     const contextBlock = this.assembleContext(ctx, input, null, {
       // the base template already renders {{ticket}} — a task context block
@@ -968,12 +968,13 @@ export class PlanNode extends NodeDefinition<PlanInput, PlanOutput> {
     if (feedback && hasAgent) {
       return prompts.resolve(
         "plan_refine",
-        { ticket: this.ctxHelper.taskContext(ctx) },
+        { ticket: this.ctxHelper.taskContext(ctx), ticket_type: this.ctxHelper.taskLabel(ctx) },
         { feedback, context: "" },
       );
     }
     const base = prompts.resolve("plan", {
       ticket: this.ctxHelper.taskContext(ctx),
+      ticket_type: this.ctxHelper.taskLabel(ctx),
     }, { context: "" });
     return (
       base +

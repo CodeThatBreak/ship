@@ -40,7 +40,7 @@ export class Database {
       "utf8"
     );
     this.conn.exec(schema);
-    this.migrate(this.conn);
+    this.migrate(this.conn, schema);
     return this.conn;
   }
 
@@ -60,7 +60,7 @@ export class Database {
   }
 
   /** Add columns introduced after the initial schema (idempotent). */
-  private migrate(d: SqliteDatabase.Database): void {
+  private migrate(d: SqliteDatabase.Database, schemaSql: string): void {
     const cols = (table: string) =>
       new Set(d.prepare(`PRAGMA table_info(${table})`).all().map((c: any) => c.name));
     // ── Tickets → Tasks (task-model rename, no behavior change) ─────────────
@@ -71,6 +71,7 @@ export class Database {
     // an engine leaves a dangling FK behind.
     this.migrateTicketsToTasks(d);
     this.migrateLegacyTicketRefs(d);
+    this.migrateTaskColumnShape(d, schemaSql);
     const flowsCols = cols("flows");
     if (!flowsCols.has("execution_mode")) {
       d.exec(`ALTER TABLE flows ADD COLUMN execution_mode TEXT NOT NULL DEFAULT 'cloud'`);
@@ -164,6 +165,14 @@ export class Database {
       d.exec(`ALTER TABLE flow_templates ADD COLUMN schedule_next_at TEXT`);
     }
     this.seedTemplates(d);
+    // Wait-source neutrality (Phase 1): node triggers persisted with the old
+    // GitLab-prefixed sources ("gitlab_pipeline"/"gitlab_comments") remap to
+    // the neutral ones ("pipeline"/"comments") — one-shot, idempotent.
+    d.exec(
+      `UPDATE flow_template_nodes
+       SET trigger=REPLACE(REPLACE(trigger,'gitlab_pipeline','pipeline'),'gitlab_comments','comments')
+       WHERE trigger LIKE '%gitlab%'`
+    );
     // Legacy flows predate templates — bind them to the seeded SDLC template so
     // the engine's template-derived roles (gate chain, graph) apply unchanged.
     d.exec(`UPDATE flows SET template_id='tpl_sdlc_loop' WHERE template_id IS NULL`);
@@ -297,10 +306,55 @@ export class Database {
   }
 
   /**
+   * Pristine Phase-1 task-shape migration (idempotent):
+   *  - `tasks.jira_url` → `tasks.external_url` (generic external deep link;
+   *    values copied across before the column drops)
+   *  - `tasks.type` loses its `'jira'` DEFAULT — the provider/engine always
+   *    sets the discriminator explicitly. SQLite needs a table rebuild to
+   *    change a column default; the fresh definition comes from schema.sql.
+   */
+  private migrateTaskColumnShape(d: SqliteDatabase.Database, schemaSql: string): void {
+    const info = d.prepare(`PRAGMA table_info(tasks)`).all() as any[];
+    const colNames = new Set(info.map((c) => c.name));
+    if (!info.length) return;
+    if (colNames.has("jira_url") && !colNames.has("external_url")) {
+      d.exec(`ALTER TABLE tasks ADD COLUMN external_url TEXT`);
+      d.exec(`UPDATE tasks SET external_url=jira_url`);
+      d.exec(`ALTER TABLE tasks DROP COLUMN jira_url`);
+      colNames.delete("jira_url");
+      colNames.add("external_url");
+    }
+    const typeCol = info.find((c) => c.name === "type");
+    if (typeCol && String(typeCol.dflt_value ?? "").includes("jira")) {
+      // recreate `tasks` from the canonical schema.sql definition (comment
+      // lines in the DDL are inert in exec())
+      const def = schemaSql.match(/CREATE TABLE IF NOT EXISTS tasks \([\s\S]*?\);/)?.[0];
+      if (!def) return;
+      d.exec(
+        def.replace("IF NOT EXISTS ", "").replace("CREATE TABLE tasks", "CREATE TABLE tasks_new")
+      );
+      const freshCols = new Set(
+        (d.prepare(`PRAGMA table_info(tasks_new)`).all() as any[]).map((c) => c.name)
+      );
+      const src = [...colNames].filter((n) => freshCols.has(n));
+      d.exec(`INSERT INTO tasks_new (${src.join(", ")}) SELECT ${src.join(", ")} FROM tasks`);
+      // flows REFERENCES tasks(id) — SQLite rewrites REFERENCES clauses on
+      // RENAME, but the interim DROP needs FKs suspended
+      const fkWasOn = d.pragma("foreign_keys", { simple: true });
+      d.pragma("foreign_keys = OFF");
+      try {
+        d.exec(`DROP TABLE tasks`);
+        d.exec(`ALTER TABLE tasks_new RENAME TO tasks`);
+      } finally {
+        if (fkWasOn) d.pragma("foreign_keys = ON");
+      }
+    }
+  }
+
+  /**
    * Seed the built-in node templates and the SDLC flow template (§7 of the
    * custom-flows plan). Idempotent: deterministic ids + INSERT OR IGNORE.
-   */
-  private seedTemplates(d: SqliteDatabase.Database): void {
+   */  private seedTemplates(d: SqliteDatabase.Database): void {
     const now = new Date().toISOString();
     const nt: [string, string, string, string, string][] = [
       // id, key, name, description, icon
@@ -328,9 +382,9 @@ export class Database {
       const nodes: [string, string][] = [
         ["plan", '{"type":"manual"}'],
         ["build", '{"type":"approval"}'],
-        ["pipeline", '{"type":"auto","wait_for":"gitlab_pipeline"}'],
+        ["pipeline", '{"type":"auto","wait_for":"pipeline"}'],
         ["review", '{"type":"auto"}'],
-        ["resolve", '{"type":"debounced","minutes":10,"wait_for":"gitlab_comments"}'],
+        ["resolve", '{"type":"debounced","minutes":10,"wait_for":"comments"}'],
       ];
       for (const [key, trigger] of nodes) {
         const id = `ftn_${key}`;

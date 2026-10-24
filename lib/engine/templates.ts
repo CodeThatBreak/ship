@@ -19,15 +19,15 @@ export const FLOW_TRIGGER_TYPES = ["manual", "webhook", "schedule"] as const;
  *  (docs/tasks-plan.md §2). A template declares WHICH task type its flows run
  *  on (trigger.task_type); flows receive the concrete task at start time. */
 export const TASK_TRIGGER_TYPES = taskRegistry.list().map((p) => p.kind) as string[];
-/** The task type assumed when a template's trigger declares none (Phase 3
- *  default; every existing trigger row parses back as jira). */
-export const DEFAULT_TASK_TYPE = "jira";
+/** The task type assumed when a template's trigger declares none — the first
+ *  registered provider kind ("none" when nothing registers). */
+export const NO_TASK_TYPE = "none";
 /** Per-node trigger types (debounced + wait_for wiring is engine-supported). */
 export const NODE_TRIGGER_TYPES = ["auto", "manual", "approval", "debounced"] as const;
-/** wait_for event sources supported by the engine. webhook + timer resume via
- * the generic hook route / poller timers (Phase 4B); the gitlab sources are
- * the built-in gate + comment waits. */
-export const WAIT_FOR_SOURCES = ["gitlab_pipeline", "gitlab_comments", "webhook", "timer"] as const;
+/** wait_for event sources supported by the engine, host-neutral: "pipeline"
+ * (the CI gate) and "comments" are the built-in gate + comment waits; webhook +
+ * timer resume via the generic hook route / poller timers (Phase 4B). */
+export const WAIT_FOR_SOURCES = ["pipeline", "comments", "webhook", "timer"] as const;
 
 const KINDED_NODE_TEMPLATE_KINDS = ["agent", "http", "script", "decision"] as const;
 export type DeclarativeNodeKind = (typeof KINDED_NODE_TEMPLATE_KINDS)[number];
@@ -135,8 +135,9 @@ export interface TemplateNodeMeta {
  * (meta + node instances + edges), plus declarative node-template CRUD
  * (kind=agent). Phase 3 adds the decision / http / script kinds, static
  * template linting (§5), decision-edge label validation at save time, and the
- * flow trigger's declared task type (`trigger.task_type`, default `jira` — a
- * legacy `ticket_id` pin in old trigger rows is ignored, not honored).
+ * flow trigger's declared task type (`trigger.task_type`, default = the first
+ * registered task provider — a legacy `ticket_id` pin in old trigger rows is
+ * ignored, not honored).
  */
 export class TemplateStore {
   /** Load a template's graph, or null when the template does not exist. */
@@ -229,7 +230,7 @@ export class TemplateStore {
   chainNodeKeys(flowId: string): string[] {
     const g = this.graphForFlow(flowId);
     if (!g) return [];
-    const head = g.nodes.find((n) => (n.trigger as TemplateNodeTrigger | undefined)?.wait_for === "gitlab_pipeline");
+    const head = g.nodes.find((n) => (n.trigger as TemplateNodeTrigger | undefined)?.wait_for === "pipeline");
     if (!head) return g.nodes.map((n) => n.key); // no gate — treat the graph as the chain
     const out = [head.key];
     const seen = new Set(out);
@@ -687,12 +688,11 @@ export class TemplateStore {
     return out;
   }
 
-  /** A registered provider kind, or the default ("jira") when absent/unknown. */
+  /** A registered provider kind, or the default (first registration) when absent/unknown. */
   private static validTaskType(v: unknown): string {
     const kind = typeof v === "string" ? v.trim() : "";
     if (kind && taskRegistry.has(kind)) return kind;
-    if (taskRegistry.has(DEFAULT_TASK_TYPE)) return DEFAULT_TASK_TYPE;
-    return taskRegistry.first()?.kind ?? DEFAULT_TASK_TYPE;
+    return taskRegistry.first()?.kind ?? NO_TASK_TYPE;
   }
 
   /**

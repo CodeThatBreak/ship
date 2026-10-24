@@ -1,5 +1,4 @@
 import { NextResponse } from "next/server";
-import { config } from "../../../lib/config";
 import { db } from "../../../lib/db";
 import { Task, rows } from "../../../lib/db/rows";
 import { taskRegistry } from "../../../lib/engine/tasks/registry";
@@ -15,11 +14,16 @@ import { taskRegistry } from "../../../lib/engine/tasks/registry";
 export function listTasks() {
   const tasks = rows.all(Task, `SELECT * FROM tasks ORDER BY synced_at DESC`).map((t) => ({
     ...t,
-    // external deep link resolved by the task's provider (falls back to the
-    // stored jira_url for rows whose provider kind is unknown)
-    externalUrl: taskRegistry.maybe(t.type)?.externalUrl(t) ?? t.jiraUrl ?? "",
+    // external deep link resolved by the task's provider (blank for rows whose
+    // provider kind is unknown)
+    externalUrl: taskRegistry.maybe(t.type)?.externalUrl(t) ?? t.externalUrl ?? "",
   }));
-  return NextResponse.json({ tasks, jiraConfigured: config.jira.configured() });
+  return NextResponse.json({
+    tasks,
+    // per-provider configured status (the import screen's connect state);
+    // the task-universe vocabulary lives on GET /api/tasks/providers
+    providers: Object.fromEntries(taskRegistry.list().map((p) => [p.kind, p.configured()])),
+  });
 }
 
 /** Sync tasks from a provider (body {kind}, default: the first provider). */

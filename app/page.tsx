@@ -46,7 +46,6 @@ type TaskT = {
   issueType: string;
   priority: string;
   figmaUrls: string[];
-  jiraUrl: string;
   /** task type discriminator (provider kind, e.g. "jira") */
   type: string;
   /** external deep link resolved by the task's provider */
@@ -145,7 +144,7 @@ function TypeChip({
   const { icon, className: c } = typeStyle(task.issueType);
   return (
     <a
-      href={task.externalUrl || task.jiraUrl}
+      href={task.externalUrl}
       target="_blank"
       className={cn(
         "inline-flex h-7 min-w-7 items-center justify-center gap-1 rounded-lg px-2 text-[12px] font-medium transition-colors hover:brightness-125",

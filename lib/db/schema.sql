@@ -2,7 +2,7 @@ PRAGMA journal_mode = WAL;
 
 CREATE TABLE IF NOT EXISTS tasks (
   id            TEXT PRIMARY KEY,           -- provider issue id
-  type          TEXT NOT NULL DEFAULT 'jira',  -- task type discriminator (provider kind)
+  type          TEXT NOT NULL,              -- task type discriminator (provider kind)
   fields        TEXT NOT NULL DEFAULT '{}', -- provider-specific payload (JSON; jira keeps prd/figma_urls here)
   key           TEXT UNIQUE NOT NULL,       -- e.g. PROJ-123
   summary       TEXT NOT NULL,
@@ -10,9 +10,9 @@ CREATE TABLE IF NOT EXISTS tasks (
   status        TEXT,
   issue_type    TEXT,
   priority      TEXT,
-  repo_url      TEXT,                       -- gitlab repo this task maps to
+  repo_url      TEXT,                       -- git repo this task maps to
   parent_key    TEXT,                       -- parent issue key (sub-task nesting)
-  jira_url      TEXT,                       -- external deep link (naming kept from the first provider)
+  external_url  TEXT,                       -- external deep link (host app's issue view)
   raw           TEXT,                       -- raw provider payload
   synced_at     TEXT
 );
@@ -63,7 +63,7 @@ CREATE TABLE IF NOT EXISTS artifacts (
 CREATE INDEX IF NOT EXISTS idx_artifacts_node ON artifacts(node_id, kind, version);
 
 CREATE TABLE IF NOT EXISTS comments (
-  id            TEXT PRIMARY KEY,          -- gitlab note id (prefixed)
+  id            TEXT PRIMARY KEY,          -- git-host note id (host-prefixed, globally unique)
   flow_id       TEXT NOT NULL REFERENCES flows(id),
   mr_iid        INTEGER,
   discussion_id TEXT,

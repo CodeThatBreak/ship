@@ -35,9 +35,9 @@ export class JiraTaskProvider extends TaskProvider {
     return config.jira.configured();
   }
 
-  /** The jira browse URL for a task (stored link wins; env baseUrl as fallback). */
+  /** The issue's external deep link (stored link wins; env baseUrl as fallback). */
   externalUrl(task: Task): string {
-    return task.jiraUrl || `${config.jira.baseUrl()}/browse/${task.key}`;
+    return task.externalUrl || `${config.jira.baseUrl()}/browse/${task.key}`;
   }
 
   /** Pull every issue matched by the configured JQL into the tasks table. */
@@ -78,7 +78,7 @@ export class JiraTaskProvider extends TaskProvider {
       priority: f.priority?.name ?? "",
       prdText: this.extractPrd(descText || f.summary || ""),
       figmaUrls: figma,
-      jiraUrl: `${config.jira.baseUrl()}/browse/${issue.key}`,
+      externalUrl: `${config.jira.baseUrl()}/browse/${issue.key}`,
       parentKey: f.parent?.key ?? "",
       raw: issue,
     };
@@ -102,19 +102,19 @@ export class JiraTaskProvider extends TaskProvider {
     const existing = db.get<{ id: string }>(`SELECT id FROM tasks WHERE key=?`, issue.key);
     if (existing) {
       db.run(
-        `UPDATE tasks SET summary=?,description=?,status=?,issue_type=?,priority=?,jira_url=?,parent_key=?,raw=?,fields=?,synced_at=? WHERE key=?`,
+        `UPDATE tasks SET summary=?,description=?,status=?,issue_type=?,priority=?,external_url=?,parent_key=?,raw=?,fields=?,synced_at=? WHERE key=?`,
         issue.summary, issue.description, issue.status, issue.issueType, issue.priority,
-        issue.jiraUrl, issue.parentKey || null,
+        issue.externalUrl, issue.parentKey || null,
         JSON.stringify(issue.raw), fields, ts, issue.key
       );
       return existing.id;
     }
     db.run(
-      `INSERT INTO tasks (id,key,summary,description,status,issue_type,priority,repo_url,parent_key,jira_url,raw,fields,type,synced_at)
+      `INSERT INTO tasks (id,key,summary,description,status,issue_type,priority,repo_url,parent_key,external_url,raw,fields,type,synced_at)
        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,'jira',?)`,
       issue.id, issue.key, issue.summary, issue.description, issue.status, issue.issueType,
       issue.priority, null,
-      issue.parentKey || null, issue.jiraUrl, JSON.stringify(issue.raw), fields, ts
+      issue.parentKey || null, issue.externalUrl, JSON.stringify(issue.raw), fields, ts
     );
     return issue.id;
   }
@@ -130,7 +130,7 @@ export interface JiraIssue {
   priority: string;
   prdText: string;
   figmaUrls: string[];
-  jiraUrl: string;
+  externalUrl: string;
   /** Parent issue key when this is a sub-task (e.g. a story's child). */
   parentKey: string;
   raw: any;

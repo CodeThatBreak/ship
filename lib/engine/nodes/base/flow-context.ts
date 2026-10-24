@@ -1,6 +1,7 @@
 import type { Repo } from "../../../db";
 import type { FlowRow, Task } from "../../../db/rows";
 import { localGit } from "../../../git/local";
+import { taskRegistry } from "../../tasks/registry";
 
 // ── context ──────────────────────────────────────────────────────────────────
 export type ExecMode = "cloud" | "local";
@@ -39,11 +40,16 @@ export class FlowContextHelper {
     const t = ctx.task;
     const figma = (t.figmaUrls ?? []).map((u: string) => `- ${u}`).join("\n");
     return [
-      `# Jira ${t.key}: ${t.summary}`,
+      `# ${this.taskLabel(ctx)} ${t.key}: ${t.summary}`,
       `Status: ${t.status} · Type: ${t.issueType} · Priority: ${t.priority}`,
       `\n## PRD / Description\n${t.prdText || t.description || "(none)"}`,
       figma ? `\n## Figma designs\n${figma}` : "",
     ].join("\n");
+  }
+
+  /** The task provider's UI label for the flow's task type ("task" when unregistered). */
+  taskLabel(ctx: FlowCtx): string {
+    return taskRegistry.maybe(ctx.task.type)?.label ?? "task";
   }
 
   /**

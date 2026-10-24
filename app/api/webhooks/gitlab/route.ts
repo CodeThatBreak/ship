@@ -56,7 +56,7 @@ export async function POST(req: Request) {
       // webhook only mirrors status when the gate is idle, then (re)triggers
       // the gate on a fresh failure (it guards against double-runs internally).
       // The gate is the node waiting on the pipeline event (role lookup).
-      const gateKey = templateStore.waitNodeKey(f.id, "gitlab_pipeline");
+      const gateKey = templateStore.waitNodeKey(f.id, "pipeline");
       const gateStatus = gateKey
         ? db.get<{ status: string }>(
             `SELECT status FROM nodes WHERE flow_id=? AND node_key=?`, f.id, gateKey

@@ -22,18 +22,18 @@ export interface WaitForSource {
 /** Wait-for sources, grouped for the picker (flat list kept for lookups). */
 export const WAIT_FOR_GROUPS: { label: string; sources: WaitForSource[] }[] = [
   {
-    label: "GitLab events",
+    label: "Pipeline & comments",
     sources: [
       {
-        value: "gitlab_pipeline",
-        label: "GitLab pipeline",
+        value: "pipeline",
+        label: "CI pipeline",
         description: "Waits for CI pipeline events",
         contextField: { key: "pipeline", type: "string" },
       },
       {
-        value: "gitlab_comments",
-        label: "GitLab MR comments",
-        description: "Waits for MR comment events",
+        value: "comments",
+        label: "Change-request comments",
+        description: "Waits for review comment events",
         contextField: { key: "mr", type: "string" },
       },
     ],

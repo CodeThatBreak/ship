@@ -82,9 +82,9 @@ reset();
 
 // ── task ───────────────────────────────────────────────────────────────────
 const repo = db.prepare(`SELECT id, cloud_url FROM repos ORDER BY created_at LIMIT 1`).get();
-db.prepare(`INSERT INTO tasks (id,key,summary,description,status,issue_type,priority,repo_url,jira_url,raw,fields,synced_at)
-  VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`)
-  .run(TASK_ID, "DEMO-201", "Custom-flow demo — webhook retry release notes",
+db.prepare(`INSERT INTO tasks (id,key,type,summary,description,status,issue_type,priority,repo_url,external_url,raw,fields,synced_at)
+  VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`)
+  .run(TASK_ID, "DEMO-201", "jira", "Custom-flow demo — webhook retry release notes",
     "Demo task for the custom-flow seed: release notes drafted, decided, notified.",
     "Done", "Story", "Medium",
     repo?.cloud_url ?? null, "https://jira.example.com/browse/DEMO-201", JSON.stringify({ demo: true }),

@@ -107,7 +107,7 @@ export class FlowPoller {
     // to (re)trigger the gate on a fresh failure, so the two writers never
     // fight over the displayed status. The gate node is the one that waits on
     // the pipeline event (role lookup, not the "pipeline" key constant).
-    const gateKey = templateStore.waitNodeKey(f.id, "gitlab_pipeline");
+    const gateKey = templateStore.waitNodeKey(f.id, "pipeline");
     const gateStatus = gateKey
       ? db.get<{ status: string }>(
           `SELECT status FROM nodes WHERE flow_id=? AND node_key=?`, f.id, gateKey
