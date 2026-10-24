@@ -13,7 +13,7 @@ import {
   SelectValue,
 } from "../ui/select";
 import { iconForIconName } from "./icons";
-import { SelectOption } from "./NodeConfigurator";
+import { SelectOption, VariableChips } from "./NodeConfigurator";
 import { Input } from "../ui/input";
 import { Spinner } from "../ui/spinner";
 import { Textarea } from "../ui/textarea";
@@ -42,7 +42,7 @@ export interface CreateNodeDef {
 }
 
 export default function AddNodeDialog({
-  open, onClose, creativeBusy, onAddCatalogNode, onCreateNode, initialMode,
+  open, onClose, creativeBusy, onAddCatalogNode, onCreateNode, initialMode, taskFields,
 }: {
   open: boolean;
   onClose: () => void;
@@ -51,6 +51,9 @@ export default function AddNodeDialog({
   onCreateNode: (def: CreateNodeDef) => Promise<{ err?: string; nodeTemplateId?: string }>;
   /** open directly on an authoring form (the palette's "Author new node" buttons) */
   initialMode?: "agent" | "decision" | "http" | "script";
+  /** the template's declared task type's contextFields (Phase 3) — the
+   *  {{task.*}} chips offered beside the upstream variables */
+  taskFields?: { key: string; label: string; type: string; required?: boolean }[];
 }) {
   const [catalog, setCatalog] = useState<{ id: string; key: string; name: string; kind: string; is_builtin: boolean; description: string | null }[] | null>(null);
   const [mode, setMode] = useState<"catalog" | "agent" | "decision" | "http" | "script">("catalog");
@@ -65,6 +68,11 @@ export default function AddNodeDialog({
     if (open && initialMode) setMode(initialMode);
   }, [open, initialMode]);
 
+  /** the {{task.*}} chips (the template's task type's contextFields) */
+  const taskVariables = useMemo(
+    () => (taskFields ?? []).map((f) => ({ label: `task · ${f.label}`, insert: `{{task.${f.key}}}` })),
+    [taskFields],
+  );
   const MODES = [
     { v: "catalog", label: "Node catalog" },
     { v: "agent", label: "New agent" },
@@ -119,7 +127,7 @@ export default function AddNodeDialog({
             </div>
           </div>
         ) : mode === "agent" ? (
-          <AgentNodeForm busy={busy || creativeBusy} disabled={busy || creativeBusy}
+          <AgentNodeForm busy={busy || creativeBusy} disabled={busy || creativeBusy} taskVariables={taskVariables}
             onSubmit={async (def) => {
               setBusy(true);
               const r = await onCreateNode({
@@ -147,7 +155,7 @@ export default function AddNodeDialog({
               return r;
             }} />
         ) : mode === "http" ? (
-          <HttpNodeForm busy={busy || creativeBusy} disabled={busy || creativeBusy}
+          <HttpNodeForm busy={busy || creativeBusy} disabled={busy || creativeBusy} taskVariables={taskVariables}
             onSubmit={async (def) => {
               setBusy(true);
               const r = await onCreateNode(def);
@@ -219,11 +227,13 @@ interface AgentFormDef {
  *     run-time-validated JSON Schema.
  */
 function AgentNodeForm({
-  busy, disabled, onSubmit,
+  busy, disabled, onSubmit, taskVariables,
 }: {
   busy: boolean;
   disabled: boolean;
   onSubmit: (def: AgentFormDef) => Promise<{ err?: string; nodeTemplateId?: string }>;
+  /** the template's {{task.*}} chips (Phase 3) */
+  taskVariables?: { label: string; insert: string }[];
 }) {
   const [name, setName] = useState("");
   const [prompt, setPrompt] = useState("");
@@ -312,13 +322,16 @@ function AgentNodeForm({
 
       <div className="grid gap-1">
         <label className="text-xs text-muted-foreground">Prompt</label>
+        {taskVariables && taskVariables.length > 0 && (
+          <VariableChips variables={taskVariables} onInsert={(ref) => setPrompt((cur) => (cur ? `${cur.trimEnd()} ` : "") + ref)} />
+        )}
         <Textarea
           value={prompt}
           onChange={(e) => setPrompt(e.target.value)}
           rows={6}
           className="font-mono text-[12px]"
           disabled={disabled}
-          placeholder={"Wrap up ticket {{ticket.key}} … output decision as JSON"}
+          placeholder={"Wrap up task {{task.key}} … output decision as JSON"}
         />
       </div>
 
@@ -513,9 +526,11 @@ function DecisionNodeForm({ busy, disabled, onSubmit }: {
   );
 }
 
-function HttpNodeForm({ busy, disabled, onSubmit }: {
+function HttpNodeForm({ busy, disabled, onSubmit, taskVariables }: {
   busy: boolean; disabled: boolean;
   onSubmit: (def: CreateNodeDef) => Promise<{ err?: string; nodeTemplateId?: string }>;
+  /** the template's {{task.*}} chips (Phase 3) */
+  taskVariables?: { label: string; insert: string }[];
 }) {
   const [name, setName] = useState("");
   const [url, setUrl] = useState("");
@@ -571,8 +586,11 @@ function HttpNodeForm({ busy, disabled, onSubmit }: {
         <Textarea value={headers} onChange={(e) => setHeaders(e.target.value)} rows={3} className="font-mono text-[12px]" disabled={disabled} />
       </Field>
       <Field label="Body (sent as-is; {{...}} interpolated)">
+        {taskVariables && taskVariables.length > 0 && (
+          <VariableChips variables={taskVariables} onInsert={(ref) => setBody((cur) => (cur ? `${cur.trimEnd()} ` : "") + ref)} />
+        )}
         <Textarea value={body} onChange={(e) => setBody(e.target.value)} rows={4} className="font-mono text-[12px]"
-          placeholder={'{ "text": "Triaged {{ticket.key}}: {{nodes.triage.output.summary}}" }'} disabled={disabled} />
+          placeholder={'{ "text": "Triaged {{task.key}}: {{nodes.triage.output.summary}}" }'} disabled={disabled} />
       </Field>
       <Field label="Response map (optional JSONata over {status, ok, body, headers} — must yield an object)">
         <Input value={responseMap} onChange={(e) => setResponseMap(e.target.value)} className="font-mono text-[12px]"

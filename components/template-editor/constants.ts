@@ -50,7 +50,7 @@ export const WAIT_FOR_GROUPS: { label: string; sources: WaitForSource[] }[] = [
 export const WAIT_FOR_SOURCES: WaitForSource[] = WAIT_FOR_GROUPS.flatMap((g) => g.sources);
 
 export const FLOW_TRIGGER_TYPE: Record<string, string> = {
-  manual: "manual — ticket picker",
+  manual: "manual — task picker",
   webhook: "webhook — inbound hook",
   schedule: "schedule — interval",
 };

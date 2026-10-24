@@ -116,7 +116,7 @@ export default function AgentView({
             </label>
             <Textarea value={draft} onChange={(e) => setDraft(e.target.value)} rows={10} className="font-mono text-[12px]" />
             <p className="text-[11px] text-muted-foreground m-0">
-              Variables: <code className="font-mono">{"{{ticket.*}}"}</code>,{" "}
+              Variables: <code className="font-mono">{"{{task.*}}"}</code>,{" "}
               <code className="font-mono">{"{{flow.*}}"}</code>,{" "}
               <code className="font-mono">{"{{repo.*}}"}</code>,{" "}
               <code className="font-mono">{"{{nodes.<key>.output.*}}"}</code>

@@ -44,6 +44,10 @@ import BuilderCanvas, { type BuilderApi } from "../../../components/template-edi
 import { FLOW_TRIGGER_TYPE } from "../../../components/template-editor/constants";
 import type { EditorEdge, EditorNode, NodeContract } from "../../../components/template-editor/types";
 import { describeTrigger, nodeRelationships } from "../../../components/template-editor/types";
+import type { TaskProviderInfo } from "../../../components/template-editor/types";
+
+/** A registered task provider's editor-facing slice (GET /api/tasks/providers). */
+type TaskProvider = TaskProviderInfo;
 
 type Position = { x: number; y: number };
 
@@ -143,11 +147,13 @@ export default function TemplateEditorPage() {
   const [nodeDrawer, setNodeDrawer] = useState<string | null>(null);
   const [edgeDrawer, setEdgeDrawer] = useState<number | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
-  // flow-trigger side data: the inbound hook (webhook trigger) + the binding
-  // pickers (webhook/schedule auto-create flows — task + repo)
+  // flow-trigger side data: the inbound hook (webhook trigger) + the repo
+  // binding pickers (webhook/schedule auto-create flows)
   const [hook, setHook] = useState<{ id: string; secret: string; filter: string | null } | null>(null);
-  const [tasks, setTasks] = useState<any[]>([]);
   const [repos, setRepos] = useState<any[]>([]);
+  /** registered task providers — the Task context panel's type picker +
+   *  {{task.*}} chips (contextFields) across every node configurator */
+  const [providers, setProviders] = useState<TaskProvider[]>([]);
   /** decision node key → branch choices (label / description / condition) —
    *  drives the canvas's labeled branch handles (attach-only wiring). The
    *  instance override wins; otherwise the catalog def is fetched once. */
@@ -253,8 +259,9 @@ export default function TemplateEditorPage() {
   }, [draft]);
 
   useEffect(() => {
-    // binding pickers: tasks come from Jira sync, repos from the Settings page
-    fetch("/api/tasks").then((r) => r.json()).then((d) => setTasks(d?.tasks ?? [])).catch(() => {});
+    // binding pickers: repos from the Settings page; task providers (the
+    // Task context panel's types + {{task.*}} chip vocabulary) from the registry
+    fetch("/api/tasks/providers").then((r) => r.json()).then((d) => setProviders(d?.providers ?? [])).catch(() => {});
     fetch("/api/repos").then((r) => r.json()).then((d) => setRepos(d?.repos ?? [])).catch(() => {});
   }, []);
 
@@ -487,6 +494,12 @@ export default function TemplateEditorPage() {
   const readonly = draft.template.is_builtin;
   const configuring = nodeDrawer != null ? draft.nodes.find((n) => n.key === nodeDrawer) ?? null : null;
   const editingEdge = edgeDrawer != null ? draft.edges[edgeDrawer] ?? null : null;
+  // the template's declared task type (trigger.task_type — the Task context
+  // panel edits it): the provider's contextFields become the {{task.*}} chips
+  // every node configurator offers, and the start node's contract seeder
+  const taskType = String(draft.template.trigger?.task_type ?? "jira");
+  const taskProvider = providers.find((p) => p.kind === taskType) ?? providers[0] ?? null;
+  const taskFields = taskProvider?.contextFields ?? [];
   // connection info for the configured node: incoming edges resolve to the
   // Inputs tab's upstream pickers; an isolated node can't be configured yet
   const relationships = nodeRelationships(draft.nodes, draft.edges);
@@ -628,6 +641,7 @@ export default function TemplateEditorPage() {
                 node={configuring}
                 incoming={configuringIncoming}
                 locked={configuringLocked}
+                taskFields={taskFields}
                 onChange={(patch) => {
                   const next = { ...configuring, ...patch };
                   setDraft((cur) => cur
@@ -703,7 +717,7 @@ export default function TemplateEditorPage() {
               draft={draft}
               readonly={readonly}
               hook={hook}
-              tasks={tasks}
+              providers={providers}
               repos={repos}
               onChange={(t) => apply({ ...draft, template: { ...draft.template, ...t } })}
             />
@@ -715,6 +729,7 @@ export default function TemplateEditorPage() {
         open={adding}
         initialMode={authorKind}
         creativeBusy={creatingAgent}
+        taskFields={taskFields}
         onClose={() => setAdding(false)}
         onAddCatalogNode={addCatalogNode}
         onCreateNode={async (def: CreateNodeDef) => {
@@ -915,18 +930,24 @@ function EdgeSelect({ value, nodes, disabled, onChange }: { value: string; nodes
 // ── flow settings body (shared manual/webhook/schedule wiring, Phase 4 pickers) ─
 
 function SettingsBody({
-  draft, readonly, hook, tasks, repos, onChange,
+  draft, readonly, hook, providers, repos, onChange,
 }: {
   draft: Draft;
   readonly: boolean;
   hook: { id: string; secret: string; filter: string | null } | null;
-  tasks: any[];
+  /** registered task providers (GET /api/tasks/providers) */
+  providers: { kind: string; label: string; configured: boolean; contextFields: { key: string; label: string; type: string; required?: boolean }[] }[];
   repos: any[];
   onChange: (t: Partial<Draft["template"]>) => void;
 }) {
   const trigger = draft.template.trigger ?? {};
   const setTrigger = (patch: Record<string, unknown>) =>
     onChange({ trigger: { ...trigger, ...patch } });
+  // the declared task type (Phase 3): which task type the template's flows run
+  // on — its provider's contextFields are the {{task.*}} variables every node
+  // maps against. Absent → the jira default (matching the store's parse rule).
+  const taskType = String(trigger.task_type ?? "jira");
+  const taskProvider = providers.find((p) => p.kind === taskType) ?? providers[0] ?? null;
   return (
     <div className="grid gap-3">
       <div className="grid gap-1">
@@ -943,6 +964,40 @@ function SettingsBody({
           className="bg-card text-foreground border border-border rounded-lg text-[13px] px-3 py-2"
         />
       </div>
+
+      {/* ── Task context (Phase 3): the declared task type + its fields ── */}
+      <div className="grid gap-1">
+        <label className="text-xs text-muted-foreground">Task context</label>
+        <select
+          value={taskType}
+          disabled={readonly || providers.length === 0}
+          onChange={(e) => setTrigger({ task_type: e.target.value || undefined })}
+          className="bg-card text-foreground border border-border rounded-lg text-[13px] px-3 py-2"
+        >
+          {providers.length === 0 && <option value="">no task providers registered</option>}
+          {providers.map((p) => (
+            <option key={p.kind} value={p.kind}>{p.label} ({p.kind}){p.configured ? "" : " — not configured"}</option>
+          ))}
+        </select>
+        {taskProvider && (
+          <div className="flex gap-1 flex-wrap pt-1">
+            {taskProvider.contextFields.map((f) => (
+              <span
+                key={f.key}
+                title={`${f.label} — type ${f.type}${f.required ? ", always present" : ""}`}
+                className="rounded-full border border-border bg-card px-2 py-0.5 text-[11px] font-mono text-muted-foreground"
+              >
+                {"{{task." + f.key + "}}"}
+              </span>
+            ))}
+          </div>
+        )}
+        <p className="text-[11px] text-muted-foreground m-0">
+          Flows started from this template run on a {taskProvider?.label ?? taskType} task — its fields
+          (above) are available to every node as {"{{task.*}}"} variables, no wiring needed.
+        </p>
+      </div>
+
       <div className="grid gap-1">
         <label className="text-xs text-muted-foreground">Flow trigger</label>
         <select
@@ -958,35 +1013,22 @@ function SettingsBody({
         <p className="text-[11px] text-muted-foreground m-0">
           {String(trigger.type ?? "manual") === "manual"
             ? "Started from the home page's task picker."
-            : "Auto-creates flows — the template must be bound to a task and a repo (below)."}
+            : `Auto-creates flows — bind a repo below; each flow attaches the most recent imported ${taskType} task.`}
         </p>
       </div>
 
       {["webhook", "schedule"].includes(String(trigger.type ?? "manual")) && (
         <div className="grid gap-3">
-          <div className="grid grid-cols-2 gap-3">
-            <div className="grid gap-1">
-              <label className="text-xs text-muted-foreground">Bound task</label>
-              <select
-                value={String(trigger.ticket_id ?? "")}
-                onChange={(e) => setTrigger({ ticket_id: e.target.value || undefined })}
-                className="bg-card text-foreground border border-border rounded-lg text-[13px] px-3 py-2"
-              >
-                <option value="">— pick a task —</option>
-                {tasks.map((t) => <option key={t.id} value={t.id}>{t.key} — {t.summary}</option>)}
-              </select>
-            </div>
-            <div className="grid gap-1">
-              <label className="text-xs text-muted-foreground">Bound repo</label>
-              <select
-                value={String(trigger.repo_id ?? "")}
-                onChange={(e) => setTrigger({ repo_id: e.target.value || undefined })}
-                className="bg-card text-foreground border border-border rounded-lg text-[13px] px-3 py-2"
-              >
-                <option value="">— pick a repo —</option>
-                {repos.map((r) => <option key={r.id} value={r.id}>{r.name}{r.local_path ? " (local)" : ""}</option>)}
-              </select>
-            </div>
+          <div className="grid gap-1">
+            <label className="text-xs text-muted-foreground">Bound repo</label>
+            <select
+              value={String(trigger.repo_id ?? "")}
+              onChange={(e) => setTrigger({ repo_id: e.target.value || undefined })}
+              className="bg-card text-foreground border border-border rounded-lg text-[13px] px-3 py-2"
+            >
+              <option value="">— pick a repo —</option>
+              {repos.map((r) => <option key={r.id} value={r.id}>{r.name}{r.local_path ? " (local)" : ""}</option>)}
+            </select>
           </div>
           {String(trigger.type) === "schedule" && (
             <div className="grid gap-1">
@@ -998,7 +1040,7 @@ function SettingsBody({
                 disabled={readonly}
                 onChange={(e) => setTrigger({ interval_min: Number(e.target.value) > 0 ? Number(e.target.value) : undefined })}
               />
-              <p className="text-[11px] text-muted-foreground m-0">One new flow per fire, started automatically from the binding above.</p>
+              <p className="text-[11px] text-muted-foreground m-0">One new flow per fire, started automatically from the repo binding above.</p>
             </div>
           )}
           {String(trigger.type) === "webhook" && (

@@ -6,14 +6,22 @@ import {
   type TemplateNodeTrigger,
 } from "../db/rows";
 import { parseDeclarativeConfig } from "./nodes/declarative-schemas";
-import { catalogForNodeTemplateIds, lintTemplate } from "./context-lint";
+import { catalogForNodeTemplateIds, lintTemplate, type TaskUniverse } from "./context-lint";
 import { hookStore } from "./hooks";
+import { taskRegistry } from "./tasks/registry";
 
 /** Seeded built-in template — the SDLC loop (plan → build → pipeline → review → resolve). */
 export const SDLC_TEMPLATE_ID = "tpl_sdlc_loop";
 
 /** Flow-level trigger types. */
 export const FLOW_TRIGGER_TYPES = ["manual", "webhook", "schedule"] as const;
+/** Task types a template's trigger may declare — the registered provider kinds
+ *  (docs/tasks-plan.md §2). A template declares WHICH task type its flows run
+ *  on (trigger.task_type); flows receive the concrete task at start time. */
+export const TASK_TRIGGER_TYPES = taskRegistry.list().map((p) => p.kind) as string[];
+/** The task type assumed when a template's trigger declares none (Phase 3
+ *  default; every existing trigger row parses back as jira). */
+export const DEFAULT_TASK_TYPE = "jira";
 /** Per-node trigger types (debounced + wait_for wiring is engine-supported). */
 export const NODE_TRIGGER_TYPES = ["auto", "manual", "approval", "debounced"] as const;
 /** wait_for event sources supported by the engine. webhook + timer resume via
@@ -126,7 +134,9 @@ export interface TemplateNodeMeta {
  * UI builder and YAML import/export drive — create/duplicate/update/delete
  * (meta + node instances + edges), plus declarative node-template CRUD
  * (kind=agent). Phase 3 adds the decision / http / script kinds, static
- * template linting (§5), and decision-edge label validation at save time.
+ * template linting (§5), decision-edge label validation at save time, and the
+ * flow trigger's declared task type (`trigger.task_type`, default `jira` — a
+ * legacy `ticket_id` pin in old trigger rows is ignored, not honored).
  */
 export class TemplateStore {
   /** Load a template's graph, or null when the template does not exist. */
@@ -178,7 +188,9 @@ export class TemplateStore {
     return {
       templateId,
       version: tpl.version,
-      flowTrigger: TemplateStore.parseJson<Record<string, unknown>>(tpl.trigger, { type: "manual" }),
+      // normalized on read: an absent task_type parses back as the default
+      // (idempotent backfill-on-read — old trigger rows need no migration)
+      flowTrigger: TemplateStore.flowTrigger(TemplateStore.parseJson<Record<string, unknown>>(tpl.trigger, { type: "manual" })),
       nodes,
       edges,
       byKey: new Map(nodes.map((n) => [n.key, n])),
@@ -571,8 +583,10 @@ export class TemplateStore {
       }
     }
     // build-time static checks (§5): {{refs}} resolve against upstream
-    // contracts, JSONata compiles in input_map / decision expressions /
+    // contracts AND the template's task context (trigger.task_type → provider
+    // fields), JSONata compiles in input_map / decision expressions /
     // response_map / edge conditions
+    const trigger = TemplateStore.flowTrigger(input.trigger);
     const lint = lintTemplate(
       input.nodes.map((n) => ({
         key: n.key.trim(),
@@ -585,9 +599,12 @@ export class TemplateStore {
         label: e.label ?? null, condition: e.condition ?? null,
       })),
       catalogForNodeTemplateIds(input.nodes.map((n) => n.nodeTemplateId)),
+      TemplateStore.taskUniverse(trigger),
     );
-    if (lint) throw new Error(lint);
-    return { trigger: TemplateStore.flowTrigger(input.trigger), nodes: input.nodes, edges };
+    if (lint.error) throw new Error(lint.error);
+    // deprecation notices (legacy {{ticket.*}} refs) — loud but not fatal
+    for (const w of lint.warnings) console.warn(`[template lint] ${w}`);
+    return { trigger, nodes: input.nodes, edges };
   }
 
   /** Write node instances and edges for a template id (optionally replacing). */
@@ -646,6 +663,13 @@ export class TemplateStore {
     }
   }
 
+  /**
+   * Normalize a flow trigger: the type + per-type knobs, plus the declared
+   * task type (`task_type` — which task type the template's flows run on,
+   * defaulting to jira when absent so existing rows parse back cleanly). A
+   * legacy `ticket_id` pin (pre-Phase-3 trigger rows) is dropped/ignored —
+   * task binding is now the declared type, not one mutable row.
+   */
   private static flowTrigger(o: unknown): Record<string, unknown> {
     const rec = (o && typeof o === "object" ? o : {}) as Record<string, unknown>;
     const type = typeof rec.type === "string" && (FLOW_TRIGGER_TYPES as readonly string[]).includes(rec.type)
@@ -655,14 +679,33 @@ export class TemplateStore {
       if (typeof rec.interval_min === "number" && rec.interval_min > 0) out.interval_min = rec.interval_min;
     }
     if (type === "webhook" && typeof rec.filter === "string") out.filter = rec.filter;
-    // webhook/schedule auto-create flows — the template binds which task and
-    // repo those flows attach to (flows require both). `ticket_id` is the
-    // stored trigger JSON key — Phase 3 re-shapes it into a declared task type.
+    // webhook/schedule auto-create flows — the template binds the repo those
+    // flows attach to (flows require one). The task comes from the declared
+    // task_type (auto-start picks the most recent task of that type).
     if (type === "webhook" || type === "schedule") {
-      if (typeof rec.ticket_id === "string" && rec.ticket_id.trim()) out.ticket_id = rec.ticket_id.trim();
       if (typeof rec.repo_id === "string" && rec.repo_id.trim()) out.repo_id = rec.repo_id.trim();
     }
+    out.task_type = TemplateStore.validTaskType(rec.task_type);
     return out;
+  }
+
+  /** A registered provider kind, or the default ("jira") when absent/unknown. */
+  private static validTaskType(v: unknown): string {
+    const kind = typeof v === "string" ? v.trim() : "";
+    if (kind && taskRegistry.has(kind)) return kind;
+    if (taskRegistry.has(DEFAULT_TASK_TYPE)) return DEFAULT_TASK_TYPE;
+    return taskRegistry.first()?.kind ?? DEFAULT_TASK_TYPE;
+  }
+
+  /**
+   * The {{task.*}} lint universe for a normalized trigger: the declared task
+   * type's provider contextFields (null when the kind isn't registered — the
+   * linter free-passes instead of guessing).
+   */
+  private static taskUniverse(trigger: Record<string, unknown>): TaskUniverse | null {
+    const provider = taskRegistry.maybe(String(trigger.task_type ?? ""));
+    if (!provider) return null;
+    return { kind: provider.kind, fields: provider.contextFields.map((f) => ({ key: f.key, label: f.label })) };
   }
 
   private static nodeTrigger(o: unknown): TemplateNodeTrigger {

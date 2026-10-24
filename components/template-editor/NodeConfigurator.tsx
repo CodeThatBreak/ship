@@ -106,6 +106,7 @@ export function NodeConfiguratorBody({
   onChange,
   incoming,
   locked,
+  taskFields,
 }: {
   node: EditorNode;
   onChange: (p: Partial<EditorNode>) => void;
@@ -114,6 +115,9 @@ export function NodeConfiguratorBody({
   incoming?: IncomingLink[];
   /** Node has no edges at all — configuration is gated on a connection. */
   locked?: boolean;
+  /** The template's declared task type's contextFields (Phase 3) — the
+   *  {{task.*}} chips offered on EVERY node (base context, no wiring). */
+  taskFields?: { key: string; label: string; type: string; required?: boolean }[];
 }) {
   const [tab, setTab] = useState<
     "trigger" | "config" | "output" | "contract"
@@ -171,6 +175,15 @@ export function NodeConfiguratorBody({
   // the upstream variables (friendly names, grouped by source node) — shared
   // by the Config tab (click-to-insert chips) and the Contract tab (inherited input)
   const groups = useUpstreamGroups(incoming);
+  // the task context chips: the template's declared task type's fields —
+  // available to every node (base context), no per-node wiring
+  const taskVariables = useMemo(
+    () => (taskFields ?? []).map((f) => ({
+      label: `task · ${f.label}`,
+      insert: `{{task.${f.key}}}`,
+    })),
+    [taskFields],
+  );
 
   if (locked) {
     return (
@@ -223,9 +236,10 @@ export function NodeConfiguratorBody({
             onChange={onChange}
             contract={contract}
             groups={groups}
+            taskVariables={taskVariables}
           />
         ) : tab === "output" ? (
-          <StartContractEditor node={node} onChange={onChange} />
+          <StartContractEditor node={node} onChange={onChange} taskFields={taskFields} />
         ) : (
           <ContractView contract={contract} node={node} groups={groups} />
         )}
@@ -471,19 +485,25 @@ function ConfigTab({
   onChange,
   contract,
   groups,
+  taskVariables,
 }: {
   node: EditorNode;
   onChange: (p: Partial<EditorNode>) => void;
   contract: NodeContract | null;
   groups: UpstreamGroup[];
+  /** the template's {{task.*}} chips (Phase 3) — offered beside the upstream ones */
+  taskVariables: { label: string; insert: string }[];
 }) {
   // the variables the connected upstream nodes publish — click to insert
-  const variables = groups.flatMap((g) =>
-    g.fields.map((f) => ({
-      label: `${g.label} · ${f.name}`,
-      insert: `{{nodes.${g.source.key}.output.${f.name}}}`,
-    })),
-  );
+  const variables = [
+    ...taskVariables,
+    ...groups.flatMap((g) =>
+      g.fields.map((f) => ({
+        label: `${g.label} · ${f.name}`,
+        insert: `{{nodes.${g.source.key}.output.${f.name}}}`,
+      })),
+    ),
+  ];
   if (node.is_builtin) {
     const fields = contract?.config?.fields ?? [];
     return (
@@ -1372,9 +1392,13 @@ export function VariableChips({
 export function StartContractEditor({
   node,
   onChange,
+  taskFields,
 }: {
   node: EditorNode;
   onChange: (p: Partial<EditorNode>) => void;
+  /** the template's declared task type's contextFields (Phase 3) — powers the
+   *  "seed from task context" convenience (fields the task already provides) */
+  taskFields?: { key: string; label: string; type: string; required?: boolean }[];
 }) {
   const config = node.config ?? {};
   const fields = Array.isArray(config.contract)
@@ -1458,6 +1482,29 @@ export function StartContractEditor({
 
   return (
     <div className="grid gap-3">
+      {taskFields && taskFields.length > 0 && (
+        <div className="flex items-center gap-2 flex-wrap">
+          <Button
+            variant="outline"
+            size="sm"
+            className="self-start"
+            title="Adds a contract field for every task context field the template's task type provides — convenience only: the contract and the task context stay composable"
+            onClick={() => {
+              const existing = new Set(fields.map((f) => f.key));
+              const members = taskFields
+                .filter((f) => !existing.has(f.key))
+                .map((f) => `${f.key}${f.required ? "" : "?"}: ${startFieldTypeTs(f.type)};`);
+              if (!members.length) return;
+              setTsText(tsText.trim() ? `${tsText.trimEnd()}\n${members.join("\n")}` : members.join("\n"));
+            }}
+          >
+            <Sparkles size={12} /> Seed from task context
+          </Button>
+          <span className="text-[11px] text-muted-foreground">
+            adds fields for the {taskFields.length} {`{{task.*}}`} values the template&apos;s task type provides
+          </span>
+        </div>
+      )}
       <div className="grid gap-1">
         <label className="text-xs text-muted-foreground">Run context</label>
         <Textarea
@@ -1465,7 +1512,7 @@ export function StartContractEditor({
           onChange={(e) => setTsText(e.target.value)}
           rows={8}
           className="font-mono text-[12px]"
-          placeholder={`{\n  ticket: string\n  priority?: number\n  labels: string[]\n  settings: Record<string, unknown>\n}`}
+          placeholder={`{\n  task: string\n  priority?: number\n  labels: string[]\n  settings: Record<string, unknown>\n}`}
         />
         {parsed.error && (
           <Card className="p-2.5 text-[12px] text-rose-400 border-rose-500/30">
@@ -1524,15 +1571,19 @@ export function StartContractEditor({
 function startFieldsToTs(fields: StartContractField[]): string {
   return fields
     .map((f) => {
-      const t =
-        f.type === "array"
-          ? "unknown[]"
-          : f.type === "object"
-            ? "Record<string, unknown>"
-            : f.type;
+      const t = startFieldTypeTs(f.type);
       return `${f.key}${f.required ? "" : "?"}: ${t};`;
     })
     .join("\n");
+}
+
+/** A field type → the TS-lite member type (`array`→unknown[], `object`→Record). */
+function startFieldTypeTs(type: string): string {
+  return type === "array"
+    ? "unknown[]"
+    : type === "object"
+      ? "Record<string, unknown>"
+      : type;
 }
 
 /** The compiled TS rows → contract fields; label/default carried over from

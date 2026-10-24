@@ -5,14 +5,16 @@ import { lintStartContract, parseStartContract } from "./nodes/start/contract";
 /**
  * Build-time checks for declarative templates (§5): every `{{nodes.X.output.Y}}`
  * reference and JSONata expression statically resolves against the template's
- * contracts before a template saves / imports. Three roots are always known
- * (ticket / repo / flow / trigger.payload), node outputs are known when the
- * upstream node's contract enumerates its fields (declarative kinds; built-in
+ * contracts before a template saves / imports. The base roots are always known
+ * (task / ticket / repo / flow / trigger.payload), node outputs are known when
+ * the upstream node's contract enumerates its fields (declarative kinds; built-in
  * outputs stay path-checked only).
  *
- * Pure data — no runtime class instantiation (keeps the store import-cycle
- * free): declarative output contracts are derived straight from the
- * node_templates config JSON.
+ * The `{{task.*}}` universe comes in per template — the caller (TemplateStore)
+ * resolves `trigger.task_type` → task provider → `contextFields` and passes it
+ * here, so this module stays pure data with no runtime class instantiation
+ * (keeps the store import-cycle free): declarative output contracts are derived
+ * straight from the node_templates config JSON.
  */
 
 interface LintNode {
@@ -29,7 +31,29 @@ interface CatalogEntry {
   isBuiltin: boolean;
 }
 
-const ROOTS = ["ticket", "repo", "flow", "trigger", "nodes", "input", "secrets"] as const;
+/** The task universe passed in by the store (registry-resolved, Phase 3). */
+export interface TaskUniverse {
+  /** the template's declared task type (trigger.task_type) */
+  kind: string;
+  /** the provider's contextFields — the {{task.*}} vocabulary */
+  fields: { key: string; label: string }[];
+}
+
+const ROOTS = ["task", "ticket", "repo", "flow", "trigger", "nodes", "input", "secrets"] as const;
+
+interface LintNode {
+  key: string;
+  nodeTemplateId: string;
+  inputMap: Record<string, unknown>;
+  config: Record<string, unknown>;
+}
+
+interface CatalogEntry {
+  kind: string;
+  config: unknown;
+  key: string;
+  isBuiltin: boolean;
+}
 
 /** Where {{...}} template refs may appear in a declarative definition. */
 function templateRefFields(nt: CatalogEntry): string[] {
@@ -96,14 +120,18 @@ export function outputFieldsFor(kind: string, config: unknown): string[] | null 
 
 /**
  * Validate a template draft. Collects every problem into one readable message
- * (the store throws it on save/import). Returns null when clean.
+ * (the store throws it on save/import); deprecation notices (legacy
+ * `{{ticket.*}}` refs) come back as warnings — save still succeeds. Returns
+ * `{ error: null, warnings: [] }` when clean.
  */
 export function lintTemplate(
   nodes: LintNode[],
   edges: { from: string; to: string; condition: string | null; label: string | null; kind: string }[],
   catalog: Record<string, CatalogEntry>, // nodeTemplateId → entry
-): string | null {
+  task: TaskUniverse | null = null, // trigger.task_type → provider fields (null = unknown provider — free pass)
+): { error: string | null; warnings: string[] } {
   const problems: string[] = [];
+  const warnings: string[] = [];
   const byKey = new Map(nodes.map((n) => [n.key, n]));
 
   // contract lookup for {{nodes.<key>.output.<field>}} references
@@ -164,12 +192,12 @@ export function lintTemplate(
 
       // {{...}} template refs in declarative definitions
       for (const ref of templateRefs(nt.config, n.config)) {
-        lintRef(`node "${n.key}"`, ref, { problems, byKey, contractOfKey, addressesOutput, inHttp: nt.kind === "http", inheritedFields });
+        lintRef(`node "${n.key}"`, ref, { problems, warnings, byKey, contractOfKey, addressesOutput, inHttp: nt.kind === "http", inheritedFields, task });
       }
       // instance-level config overrides (agent prompt override) may add refs
       if (nt.kind === "agent" && typeof n.config?.prompt === "string") {
         for (const ref of templateRefs(n.config.prompt, "")) {
-          lintRef(`node "${n.key}" config.prompt`, ref, { problems, byKey, contractOfKey, addressesOutput, inHttp: false, inheritedFields });
+          lintRef(`node "${n.key}" config.prompt`, ref, { problems, warnings, byKey, contractOfKey, addressesOutput, inHttp: false, inheritedFields, task });
         }
       }
       // decision definitions: the pass-down map compiles (any source); the
@@ -216,11 +244,13 @@ export function lintTemplate(
     }
   }
 
-  return problems.length ? problems.join("\n") : null;
+  return problems.length ? { error: problems.join("\n"), warnings } : { error: null, warnings };
 }
 
 interface LintCtx {
   problems: string[];
+  /** deprecation notices — reported but not fatal */
+  warnings: string[];
   byKey: Map<string, LintNode>;
   contractOfKey: Map<string, { fields: string[] | null; kind: string }>;
   addressesOutput: (expr: string, onUnknown: (field: string) => void) => boolean;
@@ -228,18 +258,24 @@ interface LintCtx {
   /** the checked node's inherited input fields (parents' merged contracts;
    *  null = free-form — any field passes) */
   inheritedFields: string[] | null;
+  /** the template's declared task type → provider fields (null = unknown) */
+  task: TaskUniverse | null;
 }
 
 function lintRef(where: string, ref: string, ctx: LintCtx): void {
   const segments = ref.split(".");
   const root = segments[0];
   if (!(ROOTS as readonly string[]).includes(root)) {
-    ctx.problems.push(`${where}: unknown reference {{${ref}}} — roots: ticket.* | repo.* | flow.* | trigger.payload.* | nodes.<key>.output.* | input.* (the upstream nodes' output)${root === "secrets" ? " | secrets.* (http nodes only)" : ""}`);
+    ctx.problems.push(`${where}: unknown reference {{${ref}}} — roots: task.* | repo.* | flow.* | trigger.payload.* | nodes.<key>.output.* | input.* (the upstream nodes' output)${root === "secrets" ? " | secrets.* (http nodes only)" : ""}`);
     return;
   }
   if (root === "secrets" && !ctx.inHttp) {
     ctx.problems.push(
       `${where}: {{secrets.*}} resolves only inside http node config (URL / headers / body) — secret values never persist`);
+    return;
+  }
+  if (root === "task" || root === "ticket") {
+    lintTaskRef(where, segments, ref, ctx, root === "ticket");
     return;
   }
   if (root === "input") {
@@ -265,6 +301,34 @@ function lintRef(where: string, ref: string, ctx: LintCtx): void {
     }
     ctx.addressesOutput(ref, (field) => ctx.problems.push(
       `${where}: node "${nodeKey}" publishes ${field === "markdown" ? '{"markdown"}' : "fields " + JSON.stringify(ctx.contractOfKey.get(nodeKey)?.fields) + " — not .${field}"}`));
+  }
+}
+
+/**
+ * The {{task.*}} / {{ticket.*}} universe: the template's declared task type's
+ * provider `contextFields`. An unknown field is a save error (same philosophy
+ * as the {{refs}} checks — it would render empty at run time); the legacy
+ * `ticket` root validates the same way but downgrades to a warning plus the
+ * deprecation notice (the alias resolves the same object until Phase 4).
+ */
+function lintTaskRef(where: string, segments: string[], ref: string, ctx: LintCtx, deprecated: boolean): void {
+  const alias = deprecated ? ` ({{ticket.*}} is deprecated — use {{task.*}}, the same context object)` : "";
+  const field = segments[1];
+  if (!field) {
+    // bare {{task}} / {{ticket}} renders the whole task object
+    if (deprecated) ctx.warnings.push(`${where}: {{ticket}} is deprecated — use {{task}} (the same context object)`);
+    return;
+  }
+  if (ctx.task && !ctx.task.fields.some((f) => f.key === field)) {
+    const published = ctx.task.fields.length
+      ? "fields " + JSON.stringify(ctx.task.fields.map((f) => f.key))
+      : "no declared fields";
+    ctx.problems.push(
+      `${where}: the template's task type ("${ctx.task.kind}") publishes ${published} — not "${field}"` + alias);
+    return;
+  }
+  if (deprecated) {
+    ctx.warnings.push(`${where}: {{ticket.${field}}} is deprecated — use {{task.${field}}} (the same context object)`);
   }
 }
 

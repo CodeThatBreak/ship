@@ -49,6 +49,15 @@ export interface NodeContract {
   };
 }
 
+/** A registered task provider (GET /api/tasks/providers) — the Task context
+ *  panel's type picker and the {{task.*}} chip vocabulary across the editor. */
+export interface TaskProviderInfo {
+  kind: string;
+  label: string;
+  configured: boolean;
+  contextFields: { key: string; label: string; type: string; required?: boolean }[];
+}
+
 /** Display label used everywhere: override wins, then catalog name, then key. */
 export function nodeLabel(n: Pick<EditorNode, "key" | "overrideLabel" | "catalog_name">): string {
   return n.overrideLabel || n.catalog_name || n.key;

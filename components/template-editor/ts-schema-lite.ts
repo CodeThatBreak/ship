@@ -168,7 +168,7 @@ function parseObjectBody(src: string): { schema?: LiteSchema; error?: string } {
   if (!bracesBalanced(clean)) return { error: "unclosed { — close your object" };
   const t = clean.trim();
   const schema = t.startsWith("{") && t.endsWith("}") ? objectSchema(t.slice(1, -1)) : objectSchema(t);
-  if (!schema.properties) return { error: "no field members found — declare e.g. `ticket: string`" };
+  if (!schema.properties) return { error: "no field members found — declare e.g. `task: string`" };
   return { schema };
 }
 

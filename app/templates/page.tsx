@@ -97,6 +97,8 @@ export default function TemplateGallery() {
   const [newDesc, setNewDesc] = useState("");
   const [importing, setImporting] = useState(false);
   const [yamlText, setYamlText] = useState("");
+  /** non-fatal import notices (legacy ticket_id / {{ticket.*}} compat) */
+  const [importWarnings, setImportWarnings] = useState<string[]>([]);
   const [busyId, setBusyId] = useState<string | null>(null);
 
   const load = useCallback(async () => {
@@ -158,6 +160,7 @@ export default function TemplateGallery() {
   const runImport = async () => {
     if (!yamlText.trim()) return;
     setBusyId("__import");
+    setImportWarnings([]);
     const r = await fetch("/api/templates/import", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -166,6 +169,13 @@ export default function TemplateGallery() {
     setBusyId(null);
     if (r.error) {
       setError(r.error);
+      return;
+    }
+    // legacy-YAML compat notices (ticket_id dropped, {{ticket.*}} remapped):
+    // keep the dialog open over the refreshed list so the user reads them
+    if (r.warnings?.length) {
+      setImportWarnings(r.warnings as string[]);
+      void load();
       return;
     }
     setImporting(false);
@@ -263,7 +273,7 @@ export default function TemplateGallery() {
       </Dialog>
 
       {/* import dialog */}
-      <Dialog open={importing} onOpenChange={setImporting}>
+      <Dialog open={importing} onOpenChange={(v) => { setImportWarnings([]); setImporting(v); }}>
         <DialogContent className="sm:max-w-[640px]">
           <DialogHeader>
             <DialogTitle>Import template YAML</DialogTitle>
@@ -272,6 +282,12 @@ export default function TemplateGallery() {
             <p className="text-[12px] text-muted-foreground m-0">
               The config-as-code shape: name / trigger / nodes (key, type, trigger, config) / edges.
             </p>
+            {importWarnings.length > 0 && (
+              <Card className="p-3 text-[12px] border-amber-500/40 bg-amber-500/[0.05] grid gap-1">
+                <span className="font-medium text-amber-400">Imported — legacy ticket references were migrated:</span>
+                {importWarnings.map((w, i) => <span key={i}>{w}</span>)}
+              </Card>
+            )}
             <Textarea value={yamlText} onChange={(e) => setYamlText(e.target.value)} rows={14} className="font-mono text-[12px]" placeholder={"name: My flow\ntype: manual\nnodes:\n  - key: plan\n    type: builtin/plan\n    trigger:\n      type: manual\nedges:\n  - [plan, build]"} />
           </div>
           <DialogFooter>

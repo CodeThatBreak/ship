@@ -13,7 +13,7 @@ export type { AgentDef, AgentInputField };
 /**
  * Prompt variables available to `{{expr}}` references in the agent prompt
  * (§3 input mapping context): the shared flow-context map —
- * `{{ticket.*}}`, `{{repo.*}}`, `{{flow.*}}`, `{{trigger.payload.*}}`, and
+ * `{{task.*}}`, `{{repo.*}}`, `{{flow.*}}`, `{{trigger.payload.*}}`, and
  * `{{nodes.<key>.output.*}}` (outputs of upstream nodes, small structured data
  * — large content stays in artifacts and reaches prompts as prompt variables,
  * §5 data-passing rule) — plus `{{input.*}}`: the inherited run input, i.e.
@@ -112,7 +112,7 @@ export class AgentTemplateNode extends NodeDefinition<Record<string, unknown>, R
     },
     {
       key: "prompt", label: "Prompt", type: "text" as const,
-      help: "{{...}} references — {{input.*}} (the previous node's output), {{nodes.<key>.output.*}}, {{ticket.*}}, {{repo.*}}, {{flow.*}}, {{trigger.payload.*}} and {{secrets.NAME}}",
+      help: "{{...}} references — {{input.*}} (the previous node's output), {{nodes.<key>.output.*}}, {{task.*}} (the starting task), {{repo.*}}, {{flow.*}}, {{trigger.payload.*}} and {{secrets.NAME}}",
     },
     { key: "model", label: "Model override", type: "string" as const, nullable: true, help: "text, or a {{...}} ref — e.g. {{nodes.<key>.output.model}} — empty = the flow's default model" },
     {

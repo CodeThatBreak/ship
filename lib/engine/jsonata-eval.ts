@@ -73,7 +73,7 @@ export function lintJsonata(expr: string): string | null {
 
 /**
  * Extract the list of `{{path}}` template references inside a string, written
- * in the PromptLibrary/agent-node style (`{{ticket.key}}`).
+ * in the PromptLibrary/agent-node style (`{{task.key}}`).
  */
 export function templateRefs(text: string): string[] {
   const out: string[] = [];

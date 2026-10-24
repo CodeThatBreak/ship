@@ -293,7 +293,7 @@ export class Database {
         "Plan-mode agent that summarizes shipped work into markdown",
         JSON.stringify({
           mode: "plan", output: "markdown",
-          prompt: "Summarize the shipped work on ticket {{ticket.key}} — {{ticket.summary}}.\n"
+          prompt: "Summarize the shipped work on task {{task.key}} — {{task.summary}}.\n"
             + "Read the repo at {{repo.local_path}} and cover: user-facing changes,\n"
             + "configuration surface, and gotchas. Write it as markdown.",
         })],
@@ -308,7 +308,7 @@ export class Database {
         "Plan-mode agent that drafts release notes from the ticket",
         JSON.stringify({
           mode: "plan", output: "markdown",
-          prompt: "Draft release notes for ticket {{ticket.key}} ({{ticket.summary}}).\n"
+          prompt: "Draft release notes for task {{task.key}} ({{task.summary}}).\n"
             + "Lead with user impact, then notable behavior changes and migrations. Under 200 words.",
         })],
       ["nt_st_ship_decision", "ship_decision", "decision", "Ship decision", "Split",
@@ -332,7 +332,7 @@ export class Database {
         JSON.stringify({
           mode: "plan", output: "json",
           prompt: "Triage this Sentry issue: {{trigger.payload.issue.title}}\n\nStacktrace:\n{{trigger.payload.issue.stacktrace}}\n"
-            + "Ticket context: {{ticket.key}} — {{ticket.summary}}\n\n"
+            + "Task context: {{task.key}} — {{task.summary}}\n\n"
             + "Scan the codebase for the likely cause, then output JSON: {severity, summary, suggested_fix}.",
           output_schema: {
             type: "object",
@@ -358,14 +358,14 @@ export class Database {
         "Agent-mode run with repo access that fixes the triaged issue",
         JSON.stringify({
           mode: "agent",
-          prompt: "Fix the issue: {{nodes.triage.output.suggested_fix}} — issue {{ticket.key}}.",
+          prompt: "Fix the issue: {{nodes.triage.output.suggested_fix}} — issue {{task.key}}.",
         })],
       ["nt_st_triage_notify", "triage_notify", "http", "Notify webhook", "Send",
         "Outbound notification with the triage summary (secrets resolve at run time)",
         JSON.stringify({
           url: "{{secrets.SLACK_WEBHOOK}}",
           method: "POST",
-          body: "{ \"text\": \"Triaged {{ticket.key}}: {{nodes.triage.output.summary}}\" }",
+          body: "{ \"text\": \"Triaged {{task.key}}: {{nodes.triage.output.summary}}\" }",
         })],
     ];
     const starterNodeStmt = d.prepare(
@@ -410,7 +410,7 @@ export class Database {
       {
         id: "tpl_sentry_triage",
         name: "Sentry triage",
-        description: "Inbound-webhook triage: agent triages a Sentry issue, an agent-proposes / approval-disposes decision branches fix/ignore, Slack gets notified. Duplicate to bind a ticket + repo.",
+        description: "Inbound-webhook triage: agent triages a Sentry issue, an agent-proposes / approval-disposes decision branches fix/ignore, Slack gets notified. Duplicate to bind a task type + repo.",
         trigger: '{"type":"webhook","filter":"payload.event = \'issue.created\'"}',
         nodes: [
           ["triage", "nt_st_triage", '{"type":"auto"}', null,

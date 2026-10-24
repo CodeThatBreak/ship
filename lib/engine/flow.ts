@@ -18,7 +18,7 @@ import { branchStore } from "./nodes/build";
 import { isCommitError, mergeRequests } from "./nodes/merge-request";
 import { nodeRegistry } from "./nodes/registry";
 import { planSteps, type PlanStepInput } from "./steps";
-import { SDLC_TEMPLATE_ID, templateStore, type TemplateGraph, type TemplateEdgeSpec } from "./templates";
+import { DEFAULT_TASK_TYPE, SDLC_TEMPLATE_ID, templateStore, type TemplateGraph, type TemplateEdgeSpec } from "./templates";
 import { appLayerConfig, configNumber, mergeConfigLayers, parseConfigSnapshot } from "./node-config";
 import { buildFlowContext, type FlowContextMap } from "./flow-context";
 import { evalJsonata, jsonataTruthy } from "./jsonata-eval";
@@ -82,6 +82,14 @@ export class FlowEngine {
     const templateId = opts.templateId ?? SDLC_TEMPLATE_ID;
     const graph = templateStore.graph(templateId);
     if (!graph) throw new Error(`unknown flow template: ${templateId}`);
+    // the template declares the task TYPE its flows run on (trigger.task_type,
+    // Phase 3) — a manual start passing the picked task must match it
+    const declaredType = typeof graph.flowTrigger.task_type === "string" ? graph.flowTrigger.task_type : null;
+    if (declaredType && task.type !== declaredType) {
+      throw new Error(
+        `task ${task.key} is a "${task.type}" task but template "${templateStore.flowTemplate(templateId)?.name ?? templateId}" ` +
+        `declares "${declaredType}" task context — pick a ${declaredType} task or change the template's task type`);
+    }
 
     const id = db.uid("flow_");
     const ts = db.now();
@@ -1340,26 +1348,48 @@ export class FlowEngine {
 
   /**
    * Create and start a flow from a template's flow trigger (webhook delivery
-   * / due schedule). The template binds which task and repo the auto-created
-   * flows attach to (flows require both — bound in the template editor's
-   * trigger section). Execution mode follows the repo: local when it has a
-   * local path, cloud otherwise.
+   * / due schedule). The template declares the task TYPE its flows run on
+   * (`trigger.task_type`, Phase 3) and binds the repo they attach to.
+   * Auto-start attaches the most recent imported task of the declared type —
+   * flows no longer depend on one pinned task row existing. Execution mode
+   * follows the repo: local when it has a local path, cloud otherwise.
    */
-  startFromTemplate(templateId: string, payload: unknown): string {
+  startFromTemplate(templateId: string, payload: unknown, opts: { taskId?: string } = {}): string {
     const t = templateStore.flowTemplate(templateId);
     if (!t) throw new Error("template not found");
-    const trigger = t.trigger as Record<string, unknown>;
-    // trigger.ticket_id is the stored flow-trigger JSON key (Phase 3 re-shapes
-    // it into a declared task type)
-    const taskId = typeof trigger.ticket_id === "string" ? trigger.ticket_id : "";
+    // the store normalizes trigger.task_type on read (absent → default)
+    const trigger = templateStore.graph(templateId)?.flowTrigger ?? {};
+    const taskType = typeof trigger.task_type === "string" ? trigger.task_type : DEFAULT_TASK_TYPE;
     const repoId = typeof trigger.repo_id === "string" ? trigger.repo_id : "";
-    if (!taskId || !repoId) {
+    if (!repoId) {
       throw new Error(
-        `template "${t.name}" has no task/repo binding — webhook and schedule triggers auto-create ` +
-        `flows, so bind them in the template editor's flow-trigger section first`);
+        `template "${t.name}" has no repo binding — webhook and schedule triggers auto-create ` +
+        `flows, so bind a repo in the template editor's flow-trigger section first`);
+    }
+    // The concrete task: a caller-provided taskId (manual/eager starts) wins
+    // and is type-checked against the declared task_type; auto-start falls
+    // back to the most recent imported task of that type. A legacy
+    // `trigger.ticket_id` pin (pre-Phase-3 rows) is ignored — no crash.
+    let taskId = typeof opts.taskId === "string" ? opts.taskId.trim() : "";
+    if (taskId) {
+      const existing = db.get<{ type: string }>(`SELECT type FROM tasks WHERE id=?`, taskId);
+      if (!existing) throw new Error("the provided task no longer exists — import tasks first");
+      if (existing.type !== taskType) {
+        throw new Error(
+          `task is a "${existing.type}" task but template "${t.name}" declares "${taskType}" task context — pick a ${taskType} task or change the template's task type`);
+      }
+    } else {
+      const latest = db.get<{ id: string }>(
+        `SELECT id FROM tasks WHERE type=? ORDER BY synced_at DESC, rowid DESC LIMIT 1`, taskType
+      );
+      if (!latest) {
+        throw new Error(
+          `template "${t.name}" runs on ${taskType} tasks but none are imported yet — import one on the task import screen first`);
+      }
+      taskId = latest.id;
     }
     const task = rows.get(Task, `SELECT * FROM tasks WHERE id=?`, taskId);
-    if (!task) throw new Error("the template's bound task no longer exists — rebind in the template editor");
+    if (!task) throw new Error("the template's task no longer exists — import tasks first");
     const repo = db.repoById(repoId);
     if (!repo) throw new Error("the template's bound repo no longer exists — rebind in the template editor");
     // the start node's contract defines what the trigger must provide (§5):
@@ -1379,7 +1409,7 @@ export class FlowEngine {
       templateId,
       triggerPayload: payload,
     });
-    db.emitEvent(id, null, "lifecycle", `flow auto-created from the "${t.name}" template by a trigger`);
+    db.emitEvent(id, null, "lifecycle", `flow auto-created from the "${t.name}" template by a trigger — ${taskType} task ${task.key}`);
     // create() auto-starts templates with webhook/schedule flow triggers
     return id;
   }

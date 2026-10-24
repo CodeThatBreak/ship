@@ -93,12 +93,17 @@ export function exportTemplateYaml(
   return out.trimEnd() + "\n";
 }
 
-/** Parse YAML into a seedable template graph (nodes already typed). */export function parseTemplateYaml(text: string): {
+/** Parse YAML into a seedable template graph (nodes already typed).
+ *  Legacy Phase-2 documents import cleanly: a `trigger.ticket_id` pin is
+ *  dropped (task binding is the declared task_type now) and `{{ticket.*}}`
+ *  refs auto-remap to `{{task.*}}` — every remap is reported as a warning. */
+export function parseTemplateYaml(text: string): {
   name: string;
   description: string | null;
   trigger: Record<string, unknown>;
   nodes: YamlNodeEntry[];
   edges: { from: string; to: string; kind?: "next" | "loop"; label?: string | null; condition?: string | null }[];
+  warnings: string[];
 } {
   let doc: unknown;
   try {
@@ -158,7 +163,53 @@ export function exportTemplateYaml(
     ? d.trigger : { type: "manual" }) as Record<string, unknown>;
   const description = typeof d.description === "string" && d.description.trim() ? d.description.trim() : null;
 
-  return { name: d.name.trim(), description, trigger, nodes, edges };
+  // ── legacy import compat (Phase 3): ticket pins + {{ticket.*}} refs ────────
+  const warnings: string[] = [];
+  if (typeof trigger.ticket_id === "string" && trigger.ticket_id.trim()) {
+    delete trigger.ticket_id;
+    warnings.push(
+      "trigger.ticket_id is no longer supported — dropped (a template declares its task type via trigger.task_type now; flows attach the most recent imported task of that type)");
+  }
+  for (const n of nodes) {
+    let remapped = remapTicketRefs(n.config);
+    if (remapped !== n.config) {
+      n.config = remapped as Record<string, unknown>;
+      warnings.push(`node "${n.key}" config: {{ticket.*}} refs remapped to {{task.*}} (the same context object)`);
+    }
+    if (n.input_map) {
+      remapped = remapTicketRefs(n.input_map);
+      if (remapped !== n.input_map) {
+        n.input_map = remapped as Record<string, unknown>;
+        warnings.push(`node "${n.key}" input_map: {{ticket.*}} refs remapped to {{task.*}} (the same context object)`);
+      }
+    }
+  }
+
+  return { name: d.name.trim(), description, trigger, nodes, edges, warnings };
+}
+
+/** Deep-rewrite `{{ticket.*}}` refs to `{{task.*}}` in a config value. Returns
+ *  the value only when something changed (same object otherwise). Safe: both
+ *  roots resolve the same task object at run time. */
+function remapTicketRefs(value: unknown): unknown {
+  let changed = false;
+  const walk = (v: unknown, depth: number): unknown => {
+    if (depth > 8 || v == null) return v;
+    if (typeof v === "string") {
+      const next = v.replace(/\{\{\s*ticket(?=[.}\s])/g, "{{task");
+      if (next !== v) changed = true;
+      return next;
+    }
+    if (Array.isArray(v)) return v.map((x) => walk(x, depth + 1));
+    if (typeof v === "object") {
+      const out: Record<string, unknown> = {};
+      for (const [k, x] of Object.entries(v as Record<string, unknown>)) out[k] = walk(x, depth + 1);
+      return out;
+    }
+    return v;
+  };
+  const next = walk(value, 0);
+  return changed ? next : value;
 }
 
 // ── store-bound helpers ──────────────────────────────────────────────────────
@@ -215,6 +266,8 @@ export interface ImportedTemplate {
   id: string;
   name: string;
   createdNodeTemplateIds: string[];
+  /** non-fatal import notices (legacy ticket_id dropped, {{ticket.*}} remapped) */
+  warnings: string[];
 }
 
 /**
@@ -222,6 +275,8 @@ export interface ImportedTemplate {
  * a bare declarative kind (`type: agent`) is authored inline — the definition
  * is stored as a new (or reused, when identical) agent node template; a bare
  * declarative key matching an existing catalog row references that row.
+ * Legacy documents (a `trigger.ticket_id` pin, `{{ticket.*}}` refs) import
+ * with their compat warnings surfaced back to the caller.
  */
 export function importTemplateYaml(
   store: {
@@ -287,5 +342,5 @@ export function importTemplateYaml(
 
   const name = `${opts.namePrefix ? `${opts.namePrefix} — ` : ""}${parsed.name}`;
   const id = store.create({ name, description: parsed.description, trigger: parsed.trigger, nodes, edges: parsed.edges });
-  return { id, name, createdNodeTemplateIds };
+  return { id, name, createdNodeTemplateIds, warnings: parsed.warnings };
 }
