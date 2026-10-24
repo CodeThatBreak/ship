@@ -118,6 +118,29 @@ export class MergeRequestService {
       { mrUrl: cr.webUrl, iid: cr.number, branchName: branchName ?? undefined });
     return cr;
   }
+
+  /**
+   * The service's own bounded retry (pristine plan §2.2): create the CR, and
+   * when the push was rejected (pre-push/pre-receive hooks — code rejections)
+   * hand the error to the provided fix callback and retry, up to `maxAttempts`
+   * fix callbacks. Infra failures (network/auth/API) throw immediately for
+   * manual retry. The caller owns what "fix" means (the SDLC chain runs a
+   * commit-fix agent on the build step); the service owns the bounded loop.
+   */
+  async createWithFixes(
+    ctx: FlowCtx,
+    branchName: string | undefined,
+    opts: { maxAttempts: number; runFix: (attempt: number, error: CommitError) => Promise<void> },
+  ): Promise<ChangeRequest> {
+    for (let attempt = 0; ; attempt++) {
+      try {
+        return await this.create(ctx, branchName);
+      } catch (e: unknown) {
+        if (!isCommitError(e) || attempt >= opts.maxAttempts) throw e;
+        await opts.runFix(attempt + 1, e);
+      }
+    }
+  }
 }
 
 export const mergeRequests = new MergeRequestService();

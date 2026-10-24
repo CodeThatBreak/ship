@@ -189,8 +189,8 @@ lib/                    strict OOP: every module is a class with one responsibil
     prompts.ts          PromptLibrary — prompt templates (customizable via settings)
     steps.ts            PlanStepStore — structured plan checklist: plan-meta sync, edits, build-progress
     poller.ts           FlowPoller — 30s poll: pipeline status + MR discussions → pipeline-gate triggers;
-                        new comments queue the resolve via FlowEngine.scheduleResolve (quiet-period
-                        debounce + pipeline gate — processResolveSchedules fires them from the tick)
+                        new comments restart the debounced resolve's quiet period (a generic
+                        wait-timer — processWaitTimers fires it when quiet + the gate is clear)
     reconcile.ts        Reconciler — re-sync stuck `running` nodes with real run state on flow open/poll
     tasks/              TaskProvider registry (lib/engine/tasks) — one class per task type
                         (providers/jira.ts: fetch, ADF→text, PRD/figma extraction, upsert sync);

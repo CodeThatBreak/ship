@@ -1,6 +1,6 @@
 # The built-in SDLC loop, as template data — the proof that the engine's
-# runtime loop is expressible as a flow template (plan §7). Seeded at
-# migration time; this file round-trips through /api/templates/<id>/export.
+# runtime loop is expressible as a flow template (plan §7, pristine plan §2.2).
+# Seeded at migration time; this file round-trips through /api/templates/<id>/export.
 name: SDLC loop
 description: The built-in software development loop — plan → build → pipeline → review → resolve.
 trigger:
@@ -18,7 +18,7 @@ nodes:
     type: builtin/pipeline
     trigger:
       type: auto
-      wait_for: gitlab_pipeline
+      wait_for: pipeline
   - key: review
     type: builtin/review
     trigger:
@@ -28,10 +28,13 @@ nodes:
     trigger:
       type: debounced
       minutes: 10
-      wait_for: gitlab_comments
+      wait_for: comments
 edges:
   - [plan, build]
   - [build, pipeline]
   - [pipeline, review]
   - [review, resolve]
-  - [resolve, review, {kind: loop}]
+  # the re-entry loop: resolve → CI gate only when the resolve agent actually
+  # pushed code (JSONata over the resolve output contract) — a no-code fix
+  # ends the cycle
+  - [resolve, pipeline, {kind: loop, condition: 'nodes.resolve.output.codeChanged = true'}]

@@ -6,10 +6,10 @@ import { processSingleton } from "../singleton";
 
 /**
  * Background poller for active flows: pipeline status + CR (MR/PR) comments.
- * Drives the pipeline-fix loop directly, and the comment-resolve loop via
- * the flow engine's quiet-period scheduler (new comments push the resolve
- * start out; it fires only once the pipeline gate is clear and the flow has
- * been quiet for the configured delay).
+ * Drives the pipeline-fix loop directly, and the comment-resolve loop via the
+ * flow engine's wait-timer tick (each new comment restarts the debounced
+ * resolve's quiet period; it fires only once the pipeline gate is clear and
+ * the flow has been quiet for the configured delay).
  *
  * Phase 4: the tick also drives the trigger layer — `wait_for: timer` node
  * resumes, and due `schedule` flow triggers (new flow per fire from the
@@ -28,9 +28,8 @@ export class FlowPoller {
   }
 
   private async tick(): Promise<void> {
-    // fire scheduled resolves whose quiet period elapsed (pipeline gate clear)
-    flowEngine.processResolveSchedules();
-    // resume `wait_for: timer` nodes whose delay elapsed
+    // resume wait-armed nodes: `wait_for: timer` and the debounced comment
+    // quiet-period waits (the resolve role is template data armed by edges)
     flowEngine.processWaitTimers();
     // fire due `schedule` flow triggers
     this.processTemplateSchedules();
@@ -135,9 +134,10 @@ export class FlowPoller {
       `SELECT COUNT(*) c FROM comments WHERE flow_id=? AND status='open'`, f.id
     )?.c ?? 0;
     if (newOpen > 0 && openCount > 0) {
-      // debounce: (re)start the quiet period — resolve fires from the tick once
-      // the flow has been quiet for the configured delay and the pipeline is clear
-      flowEngine.scheduleResolve(f.id);
+      // debounce: each new open comment restarts the quiet period on the
+      // debounced resolve wait — the wait-timer tick fires it once the flow
+      // has been quiet for the delay and the pipeline gate is clear
+      flowEngine.bounceCommentWaits(f.id);
       if (this.lastCommentCount.get(f.id) !== openCount) {
         this.lastCommentCount.set(f.id, openCount);
         const mins = Math.round(flowEngine.resolveDelayMs(f.id) / 60_000);

@@ -14,7 +14,7 @@ export class ResolveNode extends NodeDefinition<ResolveInput, ResolveOutput> {
   readonly label = "Resolve";
   readonly promptKeys = [NODE_KEYS.RESOLVE] as const;
   readonly order = 50;
-  readonly edges = [[NODE_KEYS.REVIEW, "loop"]] as const;
+  readonly edges = [[NODE_KEYS.PIPELINE, "loop"]] as const;
 
   readonly inputSchema = ResolveInput;
   readonly outputSchema = ResolveOutput;
@@ -22,15 +22,12 @@ export class ResolveNode extends NodeDefinition<ResolveInput, ResolveOutput> {
   /** Typed config knobs (defaults = today's behavior). */
   readonly configSchema = z.object({
     prompt_body: z.string().optional(),
-    /** quiet-period minutes before a scheduled resolve fires (legacy: resolve.delay_ms / RESOLVE_DELAY_MINUTES); null = legacy behavior (10 min) — engine-consumed */
+    /** quiet-period minutes before the debounced resolve fires (legacy: resolve.delay_ms / RESOLVE_DELAY_MINUTES); null = legacy behavior (10 min) — engine-consumed */
     quiet_minutes: z.number().min(0).optional(),
-    /** re-gate loops after a code-changing resolve (0 = unlimited, today's behavior) — engine-consumed */
-    max_regate_loops: z.number().int().min(0).default(0),
   });
   readonly configFields = [
     { key: "prompt_body", label: "Prompt body", type: "text", help: "User-editable prompt body; internal contracts re-appended automatically." },
-    { key: "quiet_minutes", label: "Quiet period (min)", type: "number", help: "Minutes of comment quiet before the scheduled resolve fires. Empty = 10 (or RESOLVE_DELAY_MINUTES)." },
-    { key: "max_regate_loops", label: "Max re-gate loops", type: "number", help: "Max pipeline re-gates after a code-changing resolve (0 = unlimited)." },
+    { key: "quiet_minutes", label: "Quiet period (min)", type: "number", help: "Minutes of comment quiet before the debounced resolve fires. Empty = 10 (or RESOLVE_DELAY_MINUTES)." },
   ] as const satisfies readonly ConfigField[];
 
   async run(ctx: FlowCtx, input: ResolveInput, config: Record<string, unknown>): Promise<RunOutcome> {

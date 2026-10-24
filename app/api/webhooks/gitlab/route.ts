@@ -39,7 +39,9 @@ export async function POST(req: Request) {
     if (f) {
       flowEngine.ingestComments(f.id, [event.comment]);
       const mins = Math.round(flowEngine.resolveDelayMs(f.id) / 60_000);
-      flowEngine.scheduleResolve(f.id);
+      // debounce: the comment restarts the debounced resolve's quiet period —
+      // the wait-timer tick fires the resolve once quiet + the gate is clear
+      flowEngine.bounceCommentWaits(f.id);
       db.emitEvent(f.id, null, "lifecycle",
         `new MR comment from ${event.comment.author || "a reviewer"} — resolve queued for ` +
         `${flowEngine.resolveScheduleClock(f.id) ?? flowScheduleFallback(flowEngine.resolveDelayMs(f.id))} ` +

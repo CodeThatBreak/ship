@@ -16,7 +16,7 @@ import { uncachedInputTokens } from "./nodes/base/usage-tracker";
 import { nodeRegistry } from "./nodes/registry";
 import { planSteps, type PlanStepInput } from "./steps";
 import { NO_TASK_TYPE, SDLC_TEMPLATE_ID, templateStore, type TemplateGraph, type TemplateEdgeSpec } from "./templates";
-import { appLayerConfig, mergeConfigLayers, parseConfigSnapshot } from "./node-config";
+import { appLayerConfig, configNumber, mergeConfigLayers, parseConfigSnapshot } from "./node-config";
 import { createSdlcChain } from "./nodes/sdlc/chain";
 import { buildFlowContext, type FlowContextMap } from "./flow-context";
 import { evalJsonata, jsonataTruthy } from "./jsonata-eval";
@@ -45,13 +45,14 @@ export interface CreateFlowOptions {
  * Phase 1 (custom flows): every previously-hardcoded chain position
  * ("pipeline", "review", "resolve") is derived from the flow's template graph
  * (see `templateStore`) — no node-key constants here. Edge activation evaluates
- * the template's `next` edges (join all/any) and starts satisfying targets per
- * their trigger type. The built-in SDLC gate chain (gate → review →
- * resolve-if-open → re-gate) lives in the `sdlc/chain.ts` builtin-chain module
- * (pristine plan §2.1) — this class owns the generic mechanics it drives.
+ * the template's edges (join all/any, decision labels, JSONata conditions, real
+ * re-entry loops) and starts satisfying targets per their trigger type;
+ * debounced targets hold at `waiting` until their event source's quiet period
+ * elapses. The built-in SDLC flow actions live in the `sdlc/chain.ts`
+ * builtin-chain module (pristine plan §2.1–2.2).
  */
 export class FlowEngine {
-  /** the SDLC builtin chain (approveBuild / gate chain / resolve scheduler) */
+  /** the SDLC builtin chain (approveBuild / panel stage entries) */
   private readonly chain = createSdlcChain(this);
 
   // ── flow creation / read ─────────────────────────────────────────────────
@@ -451,8 +452,10 @@ export class FlowEngine {
    *    `output.chosen` (labels are required on decision out-edges); every
    *    other out-edge resolves inactive
    *  - `condition` (JSONata over the flow context): absent or truthy ⇒ active
-   *  - `kind: loop` edges stay display metadata for the internal re-gate /
-   *    commit-fix loops (converted in a later pass)
+   *  - `kind: loop` edges are real re-entry edges: they activate only on an
+   *    explicit truthy condition (no condition ⇒ display metadata, never
+   *    activated), and entering a target resets it — and its downstream
+   *    success-terminal path — to `pending` so the cycle can run again
    *
    * Inactive edges resolve their target side: a target whose incoming edges
    * are all resolved with none active becomes `skipped`, and the skip
@@ -463,7 +466,8 @@ export class FlowEngine {
   async advanceFrom(flowId: string, fromKey: string): Promise<void> {
     const g = this.graph(flowId);
     if (!g) return;
-    const outgoing = g.edges.filter((e) => e.kind === "next" && e.from === fromKey);
+    const outgoing = g.edges.filter((e) => e.kind !== "loop" || e.condition?.trim())
+      .filter((e) => e.from === fromKey);
     if (!outgoing.length) return;
 
     const fromSpec = g.byKey.get(fromKey);
@@ -480,11 +484,39 @@ export class FlowEngine {
         continue;
       }
       if (!(await this.joinSatisfied(flowId, g, e.to))) continue;
-      // gate stages keep dedicated entries (MR creation order + the faithful
-      // gate chain loop) — see approveBuild / triggerPipelineGate / retryNode
-      const gate = this.gateKey(flowId);
-      if (target.key === gate) continue;
+      // loop-edge re-entry: the target (and its downstream success-terminal
+      // path) resets to pending so the cycle runs again — see edgeActive's
+      // loop rules
+      if (e.kind === "loop") await this.resetLoopEntry(flowId, g, e.to);
       await this.startNodeStage(flowId, target.key);
+    }
+  }
+
+  /**
+   * Loop-edge entry: reset the target to `pending`, then every downstream
+   * node along `next` edges that already holds a success terminal (done /
+   * approved) — the re-entry rerun path (e.g. resolve → gate → review →
+   * resolve). Nodes held elsewhere (pending/waiting/running/failed/
+   * awaiting_approval/skipped) are never touched.
+   */
+  private async resetLoopEntry(flowId: string, g: TemplateGraph, key: string): Promise<void> {
+    const queue = [key];
+    const seen = new Set(queue);
+    while (queue.length) {
+      const k = queue.shift()!;
+      const st = this.nodeStatus(flowId, k);
+      if (this.statusTerminalSuccess(st)) {
+        this.setNodeStatus(flowId, k, "pending");
+        db.emitEvent(flowId, db.get<{ id: string }>(
+          `SELECT id FROM nodes WHERE flow_id=? AND node_key=?`, flowId, k)?.id ?? null,
+          "lifecycle", `${k} re-enters via the loop edge — reset to pending`);
+        for (const e of g.edges.filter((e) => e.kind === "next" && e.from === k)) {
+          if (!seen.has(e.to)) {
+            seen.add(e.to);
+            queue.push(e.to);
+          }
+        }
+      }
     }
   }
 
@@ -516,6 +548,12 @@ export class FlowEngine {
       return e.label != null && (src.chosen ?? []).includes(e.label);
     }
     if (e.label != null) return false; // labels are only meaningful out of a decision
+    if (e.kind === "loop") {
+      // a loop edge is a re-entry edge: it activates only on an explicit truthy
+      // condition — condition-less loop edges stay display metadata, and the
+      // engine never picks an unconditional rerun (§4.3: no silent branches)
+      if (!e.condition?.trim()) return false;
+    }
     if (!e.condition?.trim()) return true;
     const r = await evalJsonata(e.condition, src.ctx ?? buildFlowContext(this.ctx(flowId)));
     if (!r.ok) {
@@ -603,14 +641,17 @@ export class FlowEngine {
   /**
    * Run one trigger's node stage inline (sequential `triggerRuns` bundle —
    * e.g. the multi-branch build), then advance past it when it reached a
-   * success terminal. Trigger types manual / debounced are not started here.
+   * success terminal. Manual triggers are never started here; debounced
+   * targets arm their event-source wait.
    *
    * Phase 4B: an auto/approval node whose `wait_for` is `webhook` or `timer`
    * does not run when it becomes eligible — it holds at `waiting` until the
    * event source delivers (a hook bound to this (flow, node) at flow creation
    * / a poller-driven timer), then `resumeNodeFromWebhook` /
-   * `processWaitTimers` re-enter this stage with `resumeWaiting`. The gitlab
-   * wait sources keep their built-in chains (gate, comment debounce).
+   * `processWaitTimers` re-enter this stage with `resumeWaiting`. A debounced
+   * node with `wait_for: comments` holds the same way — the comment debounce
+   * (reset-on-event while armed) fires it. The pipeline gate keeps its inline
+   * role (it runs its own wait loop when it runs).
    *
    * `rawInput` overrides the def's `triggerRuns` — the webhook-resume path
    * passes the delivery body as the trigger input.
@@ -629,15 +670,26 @@ export class FlowEngine {
     if (opts.resumeWaiting ? status !== "waiting" : status !== "pending") return;
     const spec = this.graph(flowId)?.byKey.get(nodeKey);
     const tt = spec?.trigger.type ?? "auto";
-    if (tt === "manual" || tt === "debounced") return;
+    const wait = spec?.trigger.wait_for;
+    if (tt === "manual") return;
+    if (tt === "debounced") {
+      // a debounced node holds at `waiting` until its event source's quiet
+      // period elapses (the generic wait-timer machinery fires it); without a
+      // source it never auto-starts (the SDLC scheduler drives it)
+      if (!opts.resumeWaiting) {
+        if (wait === "comments") {
+          this.armNodeWait(flowId, nodeKey, wait, this.debounceMinutes(flowId, nodeKey, spec));
+        }
+        return;
+      }
+    }
     // an approval-triggered start node holds for the user, not for an output
     // review: it publishes nothing until triggered, so the contract values are
     // provided when the user starts it (same entry as a manual start node)
     if (tt === "approval" && spec?.defKey === "start" && parseStartContract(spec.config).length) return;
     if (!opts.resumeWaiting && (tt === "auto" || tt === "approval")) {
-      // wait_for event sources gate eligibility (§6) — the gitlab sources are
-      // the built-in gate chain / comment debounce and don't arm here
-      const wait = spec?.trigger.wait_for;
+      // wait_for event sources gate eligibility (§6) — the pipeline source is
+      // the built-in gate (it runs its own wait loop when it runs)
       if (wait === "webhook" || wait === "timer") {
         this.armNodeWait(flowId, nodeKey, wait, spec?.trigger.minutes ?? null);
         return;
@@ -675,13 +727,14 @@ export class FlowEngine {
 
   /**
    * A node that reached eligibility but still waits on an event source: mark
-   * it `waiting` and (for a timer) arm the poller-driven resume. The webhook
-   * case announces the hook endpoint the sender POSTs to.
+   * it `waiting` and arm the resume. `timer` and the comment debounce arm a
+   * poller-driven deadline; the webhook case announces the hook endpoint the
+   * sender POSTs to.
    */
-  private armNodeWait(flowId: string, nodeKey: string, wait: "webhook" | "timer", minutes: number | null): void {
+  armNodeWait(flowId: string, nodeKey: string, wait: "webhook" | "timer" | "comments", minutes: number | null): void {
     if (this.nodeStatus(flowId, nodeKey) !== "pending") return;
-    if (wait === "timer") {
-      const mins = minutes ?? 1;
+    if (wait === "timer" || wait === "comments") {
+      const mins = minutes ?? (wait === "comments" ? 10 : 1);
       this.waitTimers.set(`${flowId}\n${nodeKey}`, Date.now() + mins * 60_000);
     }
     // the inbound hook is provisioned at flow creation — ensure it exists so
@@ -693,7 +746,35 @@ export class FlowEngine {
       "lifecycle",
       wait === "timer"
         ? `${nodeKey} waits for a timer (${minutes ?? 1} min — the poller resumes it)`
+        : wait === "comments"
+        ? `${nodeKey} waits for the comment quiet period (${minutes ?? 10} min — new comments restart it; the poller fires it when the gate is clear)`
         : `${nodeKey} waits for a webhook delivery — POST to /api/hooks/${hook?.id ?? "(hook unbound)"}`);
+  }
+
+  /**
+   * The declared quiet-period minutes for a debounced node: the template
+   * trigger's `minutes`, falling back to the node's `quiet_minutes` config
+   * knob (the flow's tuneable), then 10.
+   */
+  private debounceMinutes(flowId: string, nodeKey: string, spec?: { trigger: { minutes?: number } }): number {
+    if (typeof spec?.trigger.minutes === "number" && spec.trigger.minutes >= 0) return spec.trigger.minutes;
+    return configNumber(this.nodeConfigFor(flowId, nodeKey), "quiet_minutes", 10);
+  }
+
+  /**
+   * Reset every armed comment-debounce wait of a flow — each new open comment
+   * restarts the quiet period. The generic "reset-on-event while armed" timer
+   * feature lives here (a property of the wait source, not of any node);
+   * ingest paths (poller / git-host webhook) call it when open comments land.
+   */
+  bounceCommentWaits(flowId: string): void {
+    const g = this.graph(flowId);
+    if (!g) return;
+    for (const spec of g.nodes) {
+      if (spec.trigger.type !== "debounced" || spec.trigger.wait_for !== "comments") continue;
+      if (this.nodeStatus(flowId, spec.key) !== "waiting") continue;
+      this.waitTimers.set(`${flowId}\n${spec.key}`, Date.now() + this.debounceMinutes(flowId, spec.key, spec) * 60_000);
+    }
   }
 
   approvePlan(flowId: string): void {
@@ -741,35 +822,41 @@ export class FlowEngine {
     this.chain.triggerReview(flowId, prompt, model, promptIsBody);
   }
 
-  /** Queue/reset a resolve run (new open comments) — see the SDLC chain. */
-  scheduleResolve(flowId: string): void {
-    this.chain.scheduleResolve(flowId);
-  }
-
-  /** Fire queued resolves whose quiet period elapsed (poller tick). */
-  processResolveSchedules(): void {
-    this.chain.processResolveSchedules();
-  }
-
-  /** When the queued resolve run would start (epoch ms), or null. */
+  /**
+   * The armed wait-timer deadline of the flow's debounced resolve node (epoch
+   * ms), or null — the Resolve panel's scheduled start. The debounced resolve
+   * is template data now (the review → resolve edge arms it), so this reads
+   * the generic wait-timer state rather than a chain scheduler.
+   */
   resolveScheduleAt(flowId: string): number | null {
-    return this.chain.resolveScheduleAt(flowId);
+    const key = this.debounceKey(flowId);
+    return key ? this.waitTimers.get(`${flowId}\n${key}`) ?? null : null;
   }
 
-  /** The queued resolve's start time as wall-clock text ("14:32"), or null. */
+  /** The armed resolve wait as wall-clock text ("14:32"), or null. */
   resolveScheduleClock(flowId: string): string | null {
-    return this.chain.resolveScheduleClock(flowId);
+    const at = this.resolveScheduleAt(flowId);
+    if (at == null) return null;
+    return new Date(at).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit", hour12: false });
   }
 
-  /** The resolve quiet period per flow (ms) — resolve `quiet_minutes` knob. */
+  /** The resolve quiet period per flow (ms) — app layer + resolve `quiet_minutes` knob. */
   resolveDelayMs(flowId?: string): number {
-    return this.chain.resolveDelayMs(flowId);
+    const resolveKey = flowId ? this.firstKeyOfType(flowId, "resolve") : null;
+    const cfg = mergeConfigLayers(
+      appLayerConfig("resolve"),
+      resolveKey ? this.flowNodeConfig(flowId!, resolveKey) : {},
+    );
+    return configNumber(cfg, "quiet_minutes", 10) * 60_000;
   }
 
-  /** The armed wait-timer deadline for a (flow, node) — used by the chain. */
-  waitTimerDueAt(flowId: string, nodeKey: string): number | null {
-    return this.waitTimers.get(`${flowId}\n${nodeKey}`) ?? null;
+  /** The flow's debounced comment-wait node (the SDLC resolve role). */
+  private debounceKey(flowId: string): string | null {
+    return this.graph(flowId)?.nodes.find(
+      (n) => n.trigger.type === "debounced" && n.trigger.wait_for === "comments",
+    )?.key ?? null;
   }
+
   // true when the node already has an in-flight run — guards against the webhook
   // + poller + UI all triggering the same node concurrently.
   // Engine internals shared with the SDLC builtin-chain module — not a public API.
@@ -944,20 +1031,15 @@ export class FlowEngine {
     db.emitEvent(flowId, node.id, "lifecycle", `retrying ${nodeKey}`);
     this.setCurrentNode(flowId, nodeKey);
     this.bg(flowId, nodeKey, async () => {
-      // retrying the pipeline gate continues the chain — a gate that timed out
-      // self-heals (an already-green head finishes immediately) and the flow
-      // then advances to review instead of staying stuck.
-      if (nodeKey === this.gateKey(flowId)) {
-        const branch = (recorded as { branchName?: string | null }).branchName ?? null;
-        await this.chain.runGateChain(flowId, branch);
-      } else {
-        await def.run(this.ctx(flowId), recorded, this.nodeConfigFor(flowId, nodeKey));
-        // a retried generic node that now succeeded advances the template
-        // edges exactly like the engine's auto-start path
-        const finalStatus = this.nodeStatus(flowId, nodeKey);
-        if (this.statusTerminalSuccess(finalStatus)) {
-          await this.advanceFrom(flowId, nodeKey);
-        }
+      // a retried node re-runs on its recorded input; the pipeline gate
+      // self-heals (an already-green head finishes immediately) and a green
+      // gate then advances the template edges (review → debounced resolve)
+      await def.run(this.ctx(flowId), recorded, this.nodeConfigFor(flowId, nodeKey));
+      // a retried generic node that now succeeded advances the template
+      // edges exactly like the engine's auto-start path
+      const finalStatus = this.nodeStatus(flowId, nodeKey);
+      if (this.statusTerminalSuccess(finalStatus)) {
+        await this.advanceFrom(flowId, nodeKey);
       }
     });
   }
@@ -1112,29 +1194,44 @@ export class FlowEngine {
   }
 
   /**
-   * Per-(flow,node) in-memory timer state for `wait_for: timer` — armed when
-   * the node goes to `waiting`, fired from the poller tick. In-memory like the
-   * resolve debounce; a restart re-arms on the next join evaluation (the node
-   * is `waiting`, not `pending`, so it resumes only via a new delivery).
+   * Per-(flow,node) in-memory timer state for `wait_for: timer` and the
+   * debounced comment waits — armed when the node goes to `waiting`, fired
+   * from the poller tick. In-memory like the resolve debounce; a restart
+   * re-arms on the next join evaluation (the node is `waiting`, not `pending`,
+   * so it resumes only via a new delivery).
    */
   private waitTimers = new Map<string, number>();
 
-  /** Fire due `wait_for: timer` resumes. Called from the poller tick. */
+  /** Fire due wait-timer resumes (timer + debounced comment waits). Called from the poller tick. */
   processWaitTimers(): void {
     const now = Date.now();
     for (const [k, due] of [...this.waitTimers]) {
       if (now < due) continue;
-      this.waitTimers.delete(k);
       const i = k.indexOf("\n");
-      this.fireWaitTimer(k.slice(0, i), k.slice(i + 1));
+      const flowId = k.slice(0, i);
+      const nodeKey = k.slice(i + 1);
+      const spec = this.graph(flowId)?.byKey.get(nodeKey);
+      if (spec?.trigger.type === "debounced" && spec.trigger.wait_for === "comments") {
+        // debounced comment waits re-check their gates each tick instead of
+        // firing into a moving chain: no open comments (nothing to resolve)
+        // or a chain stage in flight → re-arm quietly, keep waiting
+        const open = db.get<{ c: number }>(
+          `SELECT COUNT(*) c FROM comments WHERE flow_id=? AND status='open'`, flowId)?.c ?? 0;
+        if (open === 0 || this.chainBusy(flowId)) {
+          this.waitTimers.set(k, now + this.debounceMinutes(flowId, nodeKey, spec) * 60_000);
+          continue;
+        }
+      }
+      this.waitTimers.delete(k);
+      this.fireWaitTimer(flowId, nodeKey, spec?.trigger.type === "debounced" ? "quiet period elapsed" : undefined);
     }
   }
 
-  private fireWaitTimer(flowId: string, nodeKey: string): void {
+  private fireWaitTimer(flowId: string, nodeKey: string, note?: string): void {
     if (this.nodeStatus(flowId, nodeKey) !== "waiting") return;
     db.emitEvent(flowId, db.get<{ id: string }>(
       `SELECT id FROM nodes WHERE flow_id=? AND node_key=?`, flowId, nodeKey)?.id ?? null,
-      "lifecycle", `${nodeKey} timer elapsed — resuming`);
+      "lifecycle", note ? `${nodeKey} ${note} — resuming` : `${nodeKey} timer elapsed — resuming`);
     this.bg(flowId, nodeKey, () =>
       this.startNodeStage(flowId, nodeKey, { resumeWaiting: true }).then(() => {})
     );

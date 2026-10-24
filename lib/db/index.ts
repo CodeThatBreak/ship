@@ -396,20 +396,36 @@ export class Database {
       }
       const eStmt = d.prepare(
         `INSERT OR IGNORE INTO flow_template_edges (id,template_id,from_key,to_key,kind,label,condition,created_at,updated_at)
-         VALUES (?,?,?,?,?,?,NULL,?,?)`
+         VALUES (?,?,?,?,?,?,?,?,?)`
       );
-      // (from, to, kind) — the resolve→review loop is display metadata for the
-      // engine's internal re-gate loop (unchanged runtime semantics)
-      const edges: [string, string, string][] = [
-        ["plan", "build", "next"],
-        ["build", "pipeline", "next"],
-        ["pipeline", "review", "next"],
-        ["review", "resolve", "next"],
-        ["resolve", "review", "loop"],
+      // (from, to, kind, condition) — the loop is template data now: resolve
+      // re-enters the CI gate only when the resolve agent actually pushed code
+      // (JSONata over the resolve output contract); a no-code fix ends the
+      // cycle. Condition-less loop edges stay display metadata.
+      const edges: [string, string, string, string | null][] = [
+        ["plan", "build", "next", null],
+        ["build", "pipeline", "next", null],
+        ["pipeline", "review", "next", null],
+        ["review", "resolve", "next", null],
+        ["resolve", "pipeline", "loop", "nodes.resolve.output.codeChanged = true"],
       ];
-      edges.forEach(([from, to, kind]) => {
-        eStmt.run(`fte_${from}_${to}`, "tpl_sdlc_loop", from, to, kind, null, now, now);
+      edges.forEach(([from, to, kind, condition]) => {
+        eStmt.run(`fte_${from}_${to}`, "tpl_sdlc_loop", from, to, kind, null, condition, now, now);
       });
+    } else {
+      // migrate older seedings: the display-only `resolve → review` loop edge
+      // becomes the real re-entry `resolve → pipeline` edge (conditioned on
+      // the resolve output contract). Idempotent: deterministic edge ids, and
+      // existing running flows keep their snapshotted graph semantics.
+      d.prepare(
+        `DELETE FROM flow_template_edges
+         WHERE template_id='tpl_sdlc_loop' AND id='fte_resolve_review'
+           AND from_key='resolve' AND kind='loop'`
+      ).run();
+      d.prepare(
+        `INSERT OR IGNORE INTO flow_template_edges (id,template_id,from_key,to_key,kind,label,condition,created_at,updated_at)
+         VALUES ('fte_resolve_pipeline','tpl_sdlc_loop','resolve','pipeline','loop',NULL,?, ?,?)`
+      ).run("nodes.resolve.output.codeChanged = true", now, now);
     }
 
     // ── Phase 5: starter templates ──────────────────────────────────────────
