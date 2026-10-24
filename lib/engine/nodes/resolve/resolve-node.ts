@@ -13,6 +13,7 @@ export class ResolveNode extends NodeDefinition<ResolveInput, ResolveOutput> {
   readonly key = NODE_KEYS.RESOLVE;
   readonly label = "Resolve";
   readonly promptKeys = [NODE_KEYS.RESOLVE] as const;
+  readonly promptSections = [NODE_KEYS.RESOLVE] as const;
   readonly order = 50;
   readonly edges = [[NODE_KEYS.PIPELINE, "loop"]] as const;
 

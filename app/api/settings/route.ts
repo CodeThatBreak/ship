@@ -97,7 +97,7 @@ export async function PATCH(req: Request) {
     const pt = body.prompt_templates;
     // Validate: only known top-level node keys
     for (const key of Object.keys(pt)) {
-      if (!PromptLibrary.TOP_LEVEL_KEYS.includes(key)) {
+      if (!PromptLibrary.topLevelKeys().includes(key)) {
         return NextResponse.json({ error: `unknown prompt template key: ${key}` }, { status: 400 });
       }
     }

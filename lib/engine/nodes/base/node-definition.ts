@@ -53,6 +53,12 @@ export abstract class NodeDefinition<I = unknown, O extends Record<string, unkno
   abstract readonly label: string;
   /** prompt template keys this node uses (main first) */
   abstract readonly promptKeys: readonly string[];
+  /**
+   * The top-level, user-editable prompt sections this def owns — shown on
+   * the settings page. Sub-keys consumed at run time (`plan_refine`, …)
+   * live in `promptKeys` only.
+   */
+  readonly promptSections: readonly string[] = [];
   /** position in the workflow graph (ascending) */
   abstract readonly order: number;
   /** graph edges originating at this node: [target, kind] */

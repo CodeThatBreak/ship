@@ -50,6 +50,7 @@ export class PipelineNode extends NodeDefinition<PipelineInput, PipelineOutput> 
   readonly key = NODE_KEYS.PIPELINE;
   readonly label = "Pipeline";
   readonly promptKeys = [FIX_PROMPT_KEY] as const;
+  readonly promptSections = [FIX_PROMPT_KEY] as const;
   readonly order = 25;
   readonly edges = [[NODE_KEYS.REVIEW, "next"]] as const;
 

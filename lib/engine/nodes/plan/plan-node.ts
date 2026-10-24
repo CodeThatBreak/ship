@@ -250,6 +250,8 @@ export class PlanNode extends NodeDefinition<PlanInput, PlanOutput> {
   readonly key = NODE_KEYS.PLAN;
   readonly label = "Plan";
   readonly promptKeys = ["plan", "plan_refine", "plan_complex", "plan_complex_refine", "plan_subplan_refine"] as const;
+  /** the settings page's editable plan section (the other keys are run-time sub-templates) */
+  readonly promptSections = ["plan"] as const;
   readonly order = 10;
   readonly edges = [[NODE_KEYS.BUILD, "next"]] as const;
 

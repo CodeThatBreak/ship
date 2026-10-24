@@ -17,6 +17,7 @@ export class BuildNode extends NodeDefinition<BuildInput, BuildOutput> {
   readonly key = NODE_KEYS.BUILD;
   readonly label = "Build";
   readonly promptKeys = [NODE_KEYS.BUILD, "build_refine"] as const;
+  readonly promptSections = [NODE_KEYS.BUILD] as const;
   readonly order = 20;
   readonly edges = [[NODE_KEYS.PIPELINE, "next"]] as const;
 

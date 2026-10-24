@@ -1,5 +1,5 @@
 import { db } from "../db";
-import { NODE_KEYS } from "./nodes/keys";
+import { nodeRegistry } from "./nodes/registry";
 
 export interface PromptTemplate {
   label: string;
@@ -287,23 +287,20 @@ const DEFAULTS: Record<string, PromptTemplate> = {
  * user-customized templates from settings, plus `{{var}}` rendering.
  */
 export class PromptLibrary {
-  /** All registered node keys (including sub-keys like plan_refine). */
-  static readonly NODE_KEYS = Object.keys(DEFAULTS);
-
-  /** Top-level template keys shown on the settings page (excludes _refine variants).
-   *  "pipeline_fix" is the fix-run template used by the pipeline gate node. */
-  static readonly TOP_LEVEL_KEYS: string[] = [
-    NODE_KEYS.PLAN,
-    NODE_KEYS.BUILD,
-    "pipeline_fix",
-    NODE_KEYS.REVIEW,
-    NODE_KEYS.RESOLVE,
-  ];
-
   /**
-   * Return the effective template for a node key. If the user has saved a
-   * custom template in settings, it wins; otherwise the hardcoded default.
+   * Top-level template keys shown on the settings page — the registered
+   * defs' user-editable prompt sections (sub-keys like `plan_refine`
+   * excluded). Derived from the registry at call time: the defs own their
+   * prompt sections, the library owns no node-key list.
    */
+  static topLevelKeys(): string[] {
+    const out: string[] = [];
+    for (const d of nodeRegistry.all()) out.push(...d.promptSections);
+    return out;
+  }
+
+  /** Return the effective template for a node key. If the user has saved a
+   * custom template in settings, it wins; otherwise the hardcoded default. */
   getTemplate(nodeKey: string): PromptTemplate {
     const custom = db.getSetting<Record<string, PromptTemplate>>(`prompt_templates`, {});
     if (custom[nodeKey]?.template) {
@@ -316,7 +313,7 @@ export class PromptLibrary {
   allTemplates(): Record<string, PromptTemplate> {
     const custom = db.getSetting<Record<string, PromptTemplate>>(`prompt_templates`, {});
     const out: Record<string, PromptTemplate> = {};
-    for (const key of PromptLibrary.TOP_LEVEL_KEYS) {
+    for (const key of PromptLibrary.topLevelKeys()) {
       out[key] = custom[key]?.template ? { ...DEFAULTS[key], ...custom[key] } : DEFAULTS[key];
     }
     return out;

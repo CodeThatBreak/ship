@@ -12,6 +12,7 @@ export class ReviewNode extends NodeDefinition<ReviewInput, ReviewOutput> {
   readonly key = NODE_KEYS.REVIEW;
   readonly label = "Review";
   readonly promptKeys = [NODE_KEYS.REVIEW] as const;
+  readonly promptSections = [NODE_KEYS.REVIEW] as const;
   readonly order = 40;
   readonly edges = [[NODE_KEYS.RESOLVE, "next"]] as const;
 
