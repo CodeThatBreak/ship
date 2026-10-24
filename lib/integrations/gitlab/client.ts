@@ -1,5 +1,5 @@
-import { config } from "../config";
-import { db } from "../db";
+import { config } from "../../config";
+import { db } from "../../db";
 
 export interface GitLabInstance {
   id: string;

@@ -1,7 +1,7 @@
 import { db } from "../../../db";
 import { z } from "zod";
 import { localGit } from "../../../git/local";
-import { gitLab } from "../../../integrations/gitlab";
+import { gitHostRegistry } from "../../ports/git-host";
 import { prompts } from "../../prompts";
 import { NodeDefinition, type FlowCtx, type RunOutcome } from "../base";
 import { NODE_KEYS } from "../keys";
@@ -113,7 +113,10 @@ export class ResolveNode extends NodeDefinition<ResolveInput, ResolveOutput> {
         if (open.length && mrIid) {
           for (const c of open) {
             if (c.discussion_id) {
-              await gitLab.resolveDiscussion(ctx.flow.repo_url ?? "", mrIid, c.discussion_id, true).catch(() => {});
+              await gitHostRegistry
+                .forRepo(ctx.flow.repo_url ?? "")
+                .resolveComment(ctx.flow.repo_url ?? "", mrIid, c.discussion_id, true)
+                .catch(() => {});
             }
             db.run(`UPDATE comments SET status='resolved', resolved_by='agent', updated_at=? WHERE id=?`, db.now(), c.id);
           }
@@ -139,7 +142,10 @@ export class ResolveNode extends NodeDefinition<ResolveInput, ResolveOutput> {
     mrBranch: string | null,
   ): Promise<{ mrSha: string | null; localRef: string | null }> {
     const mrSha = mrIid
-      ? ((await gitLab.getMR(ctx.flow.repo_url ?? "", mrIid).catch(() => null))?.sha ?? null)
+      ? ((await gitHostRegistry
+          .forRepo(ctx.flow.repo_url ?? "")
+          .getChangeRequest(ctx.flow.repo_url ?? "", mrIid)
+          .catch(() => null))?.sha ?? null)
       : null;
     const lp = this.ctxHelper.localPath(ctx);
     const localState = lp && mrBranch
@@ -165,7 +171,10 @@ export class ResolveNode extends NodeDefinition<ResolveInput, ResolveOutput> {
     for (const delay of [0, RECHECK_MS]) {
       if (delay) await new Promise((r) => setTimeout(r, delay));
       if (mrIid && before.mrSha) {
-        const afterSha = (await gitLab.getMR(ctx.flow.repo_url ?? "", mrIid).catch(() => null))?.sha;
+        const afterSha = (await gitHostRegistry
+          .forRepo(ctx.flow.repo_url ?? "")
+          .getChangeRequest(ctx.flow.repo_url ?? "", mrIid)
+          .catch(() => null))?.sha;
         if (afterSha && afterSha !== before.mrSha) return true;
       }
       const lp = this.ctxHelper.localPath(ctx);

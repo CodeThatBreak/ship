@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { db } from "../../../lib/db";
 import { localAgent } from "../../../lib/integrations/localAgent";
-import { gitLab } from "../../../lib/integrations/gitlab";
+import { gitHostRegistry } from "../../../lib/engine/ports/git-host";
 import { config } from "../../../lib/config";
 import { prompts, PromptLibrary } from "../../../lib/engine/prompts";
 import { flowEngine } from "../../../lib/engine/flow";
@@ -31,7 +31,9 @@ export async function GET() {
     status: {
       cursorApiKeySet: Boolean(config.cursor.apiKey()),
       cursorCliAvailable: cli,
-      gitlabConfigured: gitLab.configured(),
+      // per-registered-host configured status — the generic shape the settings
+      // page reads (new hosts register in gitHostRegistry and appear here)
+      gitHosts: Object.fromEntries(gitHostRegistry.list().map((h) => [h.kind, h.configured()])),
       jiraConfigured: config.jira.configured(),
     },
   });

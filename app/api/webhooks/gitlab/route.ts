@@ -38,12 +38,16 @@ export async function POST(req: Request) {
       if (f) {
         const n = payload.object_attributes;
         flowEngine.ingestComments(f.id, [{
-          id: n.discussion_id ?? `ind_${n.id}`,
-          notes: [{
-            id: n.id, body: n.note, author: payload.user,
-            resolvable: n.type === "DiffNote", resolved: false, system: false,
-            position: n.position ?? null, created_at: n.created_at,
-          }],
+          id: `gl_${n.id}`,
+          threadId: n.discussion_id ?? `ind_${n.id}`,
+          body: n.note,
+          author: payload.user?.username ?? payload.user?.name ?? "",
+          resolvable: n.type === "DiffNote",
+          resolved: false,
+          system: false,
+          path: n.position?.new_path ?? null,
+          line: n.position?.new_line ?? null,
+          createdAt: n.created_at,
         }]);
         const mins = Math.round(flowEngine.resolveDelayMs(f.id) / 60_000);
         flowEngine.scheduleResolve(f.id);

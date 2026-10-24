@@ -33,7 +33,7 @@ type Settings = {
   /** names of set secrets only (values never leave the server) */
   secrets?: string[];
   http_allowlist?: string[];
-  status: { cursorApiKeySet: boolean; cursorCliAvailable: boolean; gitlabConfigured: boolean; jiraConfigured: boolean };
+  status: { cursorApiKeySet: boolean; cursorCliAvailable: boolean; gitHosts: Record<string, boolean>; jiraConfigured: boolean };
 };
 type PricingEntry = { input_per_mtok?: number; output_per_mtok?: number; cache_read_per_mtok?: number; cache_write_per_mtok?: number };
 type PricingRow = { key: string; input?: number; output?: number; cacheRead?: number; cacheWrite?: number };
@@ -110,7 +110,7 @@ function StatusBar({ settings }: { settings: Settings }) {
   const items = [
     { ok: settings.status.cursorApiKeySet, label: "Cursor API key (cloud)" },
     { ok: settings.status.cursorCliAvailable, label: "Local runtime (SDK + API key)" },
-    { ok: settings.status.gitlabConfigured, label: "GitLab" },
+    { ok: settings.status.gitHosts?.gitlab ?? false, label: "GitLab" },
     { ok: settings.status.jiraConfigured, label: "Jira" },
   ];
   return (

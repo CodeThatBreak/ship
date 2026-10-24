@@ -3,7 +3,7 @@ import fs from "fs";
 import path from "path";
 import { promisify } from "util";
 import { config } from "../config";
-import { gitLab } from "../integrations/gitlab";
+import { gitHostRegistry } from "../engine/ports/git-host";
 
 const execFileAsync = promisify(execFile);
 
@@ -46,17 +46,13 @@ export class LocalGit {
   }
 
   private authedUrl(repoUrl: string): string {
-    let token = "";
+    // the token-embedding scheme (oauth2:<token>@) is the host adapter's —
+    // routing to the right instance lives in the git-host registry
     try {
-      token = gitLab.instanceForRepo(repoUrl).token;
+      return gitHostRegistry.forRepo(repoUrl).authedCloneUrl(repoUrl);
     } catch {
-      token = config.gitlab.token();
+      return repoUrl;
     }
-    if (!token) return repoUrl;
-    // https://oauth2:TOKEN@host/group/repo.git — the .git suffix matters: without
-    // it some GitLab fronts 301-redirect and git push fails on the redirect.
-    const withAuth = repoUrl.replace(/^https?:\/\//, (m) => `${m}oauth2:${token}@`);
-    return withAuth.endsWith(".git") ? withAuth : `${withAuth}.git`;
   }
 
   cloneDir(flowId: string): string {
@@ -155,7 +151,7 @@ export class LocalGit {
       }
     }
     throw new Error(
-      `could not push branch ${branch} — check VPN/network access to the GitLab host and your git credentials (${String(lastErr?.message ?? lastErr).slice(0, 300)})`
+      `could not push branch ${branch} — check VPN/network access to the git host and your git credentials (${String(lastErr?.message ?? lastErr).slice(0, 300)})`
     );
   }
 

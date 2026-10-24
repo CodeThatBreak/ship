@@ -9,7 +9,7 @@ import {
   Task,
   rows,
 } from "../db/rows";
-import { hostOf } from "../integrations/gitlab";
+import { hostOf, type HostComment } from "./ports/git-host";
 import type { CursorRunResult } from "../integrations/cursor";
 import { localAgent } from "../integrations/localAgent";
 import { nodeSupport, type FlowCtx } from "./nodes/base";
@@ -36,12 +36,6 @@ export interface CreateFlowOptions {
   triggerPayload?: unknown;
 }
 
-export interface MrCommentNote {
-  id: number; system?: boolean; resolved?: boolean; resolvable?: boolean; body: string;
-  author?: { username?: string }; position?: { new_path?: string; new_line?: number } | null;
-  created_at: string;
-}
-
 /** Distinguishes MR-creation failures from later pipeline/review failures. */
 class MrCreationFailed extends Error {
   constructor(message: string) {
@@ -52,7 +46,7 @@ class MrCreationFailed extends Error {
 
 /**
  * The flow orchestrator: flow creation and reads, node triggers, chat routing,
- * plan-step editing, retry / cancel, restart recovery, and GitLab
+ * plan-step editing, retry / cancel, restart recovery, and git-host
  * webhook/comment ingestion.
  *
  * All node-type-specific behavior lives in the node classes (registry); this
@@ -1497,7 +1491,7 @@ export class FlowEngine {
 
   // ── GitLab webhook / poll handling ───────────────────────────────────────
 
-  /** project ids are only unique per GitLab instance — match host too when given. */
+  /** project ids are only unique per git host — match host too when given. */
   findFlowByMR(projectId: number, mrIid: number, projectUrl?: string): FlowRow | undefined {
     // check branches table first (multi-branch MRs)
     const branchRow = rows.get(FlowRow,
@@ -1526,33 +1520,30 @@ export class FlowEngine {
     return candidates.find((f) => hostOf(f.repo_url ?? "") === h) ?? candidates[0];
   }
 
-  ingestComments(flowId: string, discussions: { id: string; notes?: MrCommentNote[] }[]): number {
+  ingestComments(flowId: string, incoming: HostComment[]): number {
     let newOpen = 0;
-    for (const d of discussions) {
-      for (const n of d.notes ?? []) {
-        if (n.system) continue;
-        const id = `gl_${n.id}`;
-        const existing = db.get<{ id: string; status: string; resolved_by: string | null }>(
-          `SELECT id,status,resolved_by FROM comments WHERE id=?`, id);
-        const status = n.resolved ? "resolved" : "open";
-        if (!existing) {
-          db.run(
-            `INSERT INTO comments (id,flow_id,mr_iid,discussion_id,author,body,file_path,line,status,raw,created_at,updated_at)
-             VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`,
-            id, flowId, null, d.id, n.author?.username, n.body,
-            n.position?.new_path ?? null, n.position?.new_line ?? null,
-            status, JSON.stringify(n), n.created_at, db.now()
-          );
-          if (status === "open") newOpen++;
-        } else if (existing.status !== status) {
-          // Never resurrect a comment the agent already resolved: plain MR notes
-          // (bot reports, summaries) aren't resolvable via the GitLab API, so the
-          // poll keeps reporting them as unresolved — without this guard they'd
-          // flip back to open and trigger a redundant resolve run.
-          if (existing.status === "resolved" && existing.resolved_by === "agent" && status === "open") continue;
-          db.run(`UPDATE comments SET status=?, updated_at=? WHERE id=?`, status, db.now(), id);
-          if (status === "open") newOpen++;
-        }
+    for (const c of incoming) {
+      if (c.system) continue;
+      const existing = db.get<{ id: string; status: string; resolved_by: string | null }>(
+        `SELECT id,status,resolved_by FROM comments WHERE id=?`, c.id);
+      const status = c.resolved ? "resolved" : "open";
+      if (!existing) {
+        db.run(
+          `INSERT INTO comments (id,flow_id,mr_iid,discussion_id,author,body,file_path,line,status,raw,created_at,updated_at)
+           VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`,
+          c.id, flowId, null, c.threadId, c.author, c.body,
+          c.path ?? null, c.line ?? null,
+          status, JSON.stringify(c), c.createdAt, db.now()
+        );
+        if (status === "open") newOpen++;
+      } else if (existing.status !== status) {
+        // Never resurrect a comment the agent already resolved: plain notes
+        // (bot reports, summaries) aren't resolvable via the git-host API, so
+        // the poll keeps reporting them as unresolved — without this guard
+        // they'd flip back to open and trigger a redundant resolve run.
+        if (existing.status === "resolved" && existing.resolved_by === "agent" && status === "open") continue;
+        db.run(`UPDATE comments SET status=?, updated_at=? WHERE id=?`, status, db.now(), c.id);
+        if (status === "open") newOpen++;
       }
     }
     return newOpen;

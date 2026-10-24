@@ -1,6 +1,6 @@
 import { db } from "../../../db";
 import { z } from "zod";
-import { gitLab } from "../../../integrations/gitlab";
+import { gitHostRegistry } from "../../ports/git-host";
 import { prompts } from "../../prompts";
 import { NodeDefinition, type FlowCtx, type RunOutcome } from "../base";
 import { NODE_KEYS } from "../keys";
@@ -56,10 +56,12 @@ export class ReviewNode extends NodeDefinition<ReviewInput, ReviewOutput> {
     }
 
     const { mrIid, mrBranch } = this.resolveMr(ctx, input.branchName);
+    const repoUrl = ctx.flow.repo_url ?? "";
+    const host = gitHostRegistry.forRepo(repoUrl);
 
-    const changes = await gitLab.getMRChanges(ctx.flow.repo_url ?? "", mrIid);
-    const diffText = ((changes.changes ?? []) as { old_path: string; new_path: string; diff: string }[])
-      .map((c) => `--- ${c.old_path}\n+++ ${c.new_path}\n${c.diff}`)
+    const changes = await host.getChanges(repoUrl, mrIid);
+    const diffText = changes.changes
+      .map((c) => `--- ${c.oldPath}\n+++ ${c.newPath}\n${c.diff}`)
       .join("\n")
       .slice(0, 60000);
 
@@ -103,18 +105,18 @@ export class ReviewNode extends NodeDefinition<ReviewInput, ReviewOutput> {
         const maxComments = configNumber(config, "max_comments", 0);
         const effective = maxComments > 0 ? comments.slice(0, maxComments) : comments;
         if (configString(config, "comment_style") === "summary") {
-          // single aggregated MR note instead of one comment per issue
+          // single aggregated CR note instead of one comment per issue
           if (effective.length > 0) {
             const summary = effective
               .map((c) => `- ${c.file ? `\`${c.file}${c.line ? `:${c.line}` : ""}\` — ` : ""}${c.body}`)
               .join("\n");
-            await gitLab.createMRNote(ctx.flow.repo_url ?? "", mrIid, `**AI Review**\n\n${summary}`);
+            await host.createComment(repoUrl, mrIid, `**AI Review**\n\n${summary}`);
           }
           posted = effective.length;
         } else {
           for (const c of effective) {
             const body = c.file ? `**${c.file}${c.line ? `:${c.line}` : ""}** — ${c.body}` : c.body;
-            await gitLab.createMRNote(ctx.flow.repo_url ?? "", mrIid, `**AI Review**\n\n${body}`);
+            await host.createComment(repoUrl, mrIid, `**AI Review**\n\n${body}`);
             posted++;
           }
         }

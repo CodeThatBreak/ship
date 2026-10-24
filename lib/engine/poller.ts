@@ -1,11 +1,11 @@
 import { db } from "../db";
-import { gitLab } from "../integrations/gitlab";
+import { gitHostRegistry } from "./ports/git-host";
 import { flowEngine } from "./flow";
 import { templateStore } from "./templates";
 import { processSingleton } from "../singleton";
 
 /**
- * Background poller for active flows: pipeline status + MR discussions.
+ * Background poller for active flows: pipeline status + CR (MR/PR) comments.
  * Drives the pipeline-fix loop directly, and the comment-resolve loop via
  * the flow engine's quiet-period scheduler (new comments push the resolve
  * start out; it fires only once the pipeline gate is clear and the flow has
@@ -90,8 +90,10 @@ export class FlowPoller {
   }
 
   private async checkPipeline(f: any, mrIid: number, branchName?: string): Promise<void> {
-    const mr = await gitLab.getMR(f.repo_url, mrIid).catch(() => null);
-    const pipe = mr?.head_pipeline;
+    const repoUrl = f.repo_url ?? "";
+    const host = gitHostRegistry.forRepo(repoUrl);
+    const cr = await host.getChangeRequest(repoUrl, mrIid).catch(() => null);
+    const pipe = cr?.headPipeline;
     if (!pipe) return;
     const prev = db.get<any>(
       `SELECT data FROM events WHERE flow_id=? AND type='pipeline' ORDER BY created_at DESC LIMIT 1`,
@@ -122,9 +124,13 @@ export class FlowPoller {
   }
 
   private async checkDiscussions(f: any, mrIid: number, branchName?: string): Promise<void> {
-    const discussions = await gitLab.listMRDiscussions(f.repo_url, mrIid).catch(() => null);
-    if (!discussions) return;
-    const newOpen = flowEngine.ingestComments(f.id, discussions);
+    const repoUrl = f.repo_url ?? "";
+    const comments = await gitHostRegistry
+      .forRepo(repoUrl)
+      .listComments(repoUrl, mrIid)
+      .catch(() => null);
+    if (!comments) return;
+    const newOpen = flowEngine.ingestComments(f.id, comments);
     const openCount = db.get<any>(
       `SELECT COUNT(*) c FROM comments WHERE flow_id=? AND status='open'`, f.id
     )?.c ?? 0;

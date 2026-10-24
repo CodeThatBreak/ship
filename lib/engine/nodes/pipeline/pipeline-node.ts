@@ -1,7 +1,7 @@
 import { db } from "../../../db";
 import { z } from "zod";
 import type { NodeRow } from "../../../db/rows";
-import { gitLab } from "../../../integrations/gitlab";
+import { gitHostRegistry, type HostJob } from "../../ports/git-host";
 import { prompts } from "../../prompts";
 import { NodeDefinition, type FlowCtx, type RunOutcome } from "../base";
 import { NODE_KEYS } from "../keys";
@@ -29,17 +29,6 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 /** Prompt template used for fix runs (kept as a customizable template in settings). */
 const FIX_PROMPT_KEY = "pipeline_fix";
-
-/** GitLab job shape we care about when driving manual jobs. */
-interface PipelineJob {
-  id: number;
-  name: string;
-  status: string;
-  /** true for jobs a human/agent must start manually */
-  manual?: boolean;
-  when?: string;
-  allow_failure?: boolean;
-}
 
 /**
  * The CI gate between code changes and review: ensure a pipeline exists for
@@ -83,7 +72,7 @@ export class PipelineNode extends NodeDefinition<PipelineInput, PipelineOutput> 
     { key: "fix_prompt_body", label: "Fix-run prompt body", type: "text", help: "User-editable body for CI fix runs; internal contracts re-appended automatically." },
     { key: "max_fix_attempts", label: "Max fix attempts", type: "number", help: "Fix-agent runs per failing pipeline before manual intervention." },
     { key: "poll_interval_sec", label: "Poll interval (s)", type: "number", help: "How often the gate re-reads the pipeline." },
-    { key: "play_manual_jobs", label: "Play manual jobs", type: "boolean", help: "Press 'play' on manual jobs via the GitLab API." },
+    { key: "play_manual_jobs", label: "Play manual jobs", type: "boolean", help: "Press 'play' on manual jobs via the git host API." },
     { key: "auto_trigger_pipeline", label: "Auto-trigger pipeline", type: "boolean", help: "Trigger one via the API when none exists on the MR head." },
     { key: "gate_timeout_min", label: "Gate timeout (min)", type: "number", help: "Give up waiting (retryable failure) after this long." },
   ] as const satisfies readonly ConfigField[];
@@ -107,11 +96,15 @@ export class PipelineNode extends NodeDefinition<PipelineInput, PipelineOutput> 
    * "no pipeline" so a fresh one gets triggered.
    */
   private async headPipeline(ctx: FlowCtx, mrIid: number) {
-    const mr = await gitLab.getMR(ctx.flow.repo_url ?? "", mrIid).catch(() => null);
-    const hp = mr?.head_pipeline;
-    if (!mr || !hp) return null;
-    const pipe = await gitLab.getPipeline(ctx.flow.repo_url ?? "", hp.id).catch(() => null);
-    if (!pipe || (mr.sha && pipe.sha && pipe.sha !== mr.sha)) return null;
+    const repoUrl = ctx.flow.repo_url ?? "";
+    const cr = await gitHostRegistry
+      .forRepo(repoUrl)
+      .getChangeRequest(repoUrl, mrIid)
+      .catch(() => null);
+    const hp = cr?.headPipeline;
+    if (!cr || !hp) return null;
+    const pipe = await gitHostRegistry.forRepo(repoUrl).getPipeline(repoUrl, hp.id).catch(() => null);
+    if (!pipe || (cr.sha && pipe.sha && pipe.sha !== cr.sha)) return null;
     return pipe;
   }
 
@@ -123,26 +116,27 @@ export class PipelineNode extends NodeDefinition<PipelineInput, PipelineOutput> 
    */
   private async triggerPipeline(ctx: FlowCtx, mrIid: number, mrBranch: string | null, nodeId: string): Promise<number | null> {
     const repoUrl = ctx.flow.repo_url ?? "";
+    const host = gitHostRegistry.forRepo(repoUrl);
     const errMsg = (e: unknown) => (e instanceof Error ? e.message : String(e)).slice(0, 300);
     db.emitEvent(ctx.flow.id, nodeId, "lifecycle",
-      `no pipeline found for ${mrBranch ?? "the MR"} — triggering one via the GitLab API…`);
+      `no pipeline found for ${mrBranch ?? "the MR"} — triggering one via the git host API…`);
     try {
-      const p = await gitLab.createMRPipeline(repoUrl, mrIid);
+      const p = await host.createCRPipeline(repoUrl, mrIid);
       db.emitEvent(ctx.flow.id, nodeId, "lifecycle", `pipeline #${p.id} triggered (merge-request pipeline)`);
       return p.id;
     } catch (e1) {
       if (!mrBranch) {
         db.emitEvent(ctx.flow.id, nodeId, "error",
-          `could not trigger a pipeline: ${errMsg(e1)} — start it manually from GitLab`);
+          `could not trigger a pipeline: ${errMsg(e1)} — start it manually from the git host`);
         return null;
       }
       try {
-        const p = await gitLab.createPipeline(repoUrl, mrBranch);
+        const p = await host.createPipeline(repoUrl, mrBranch);
         db.emitEvent(ctx.flow.id, nodeId, "lifecycle", `pipeline #${p.id} triggered (branch pipeline)`);
         return p.id;
       } catch (e2) {
         db.emitEvent(ctx.flow.id, nodeId, "error",
-          `could not trigger a pipeline via the GitLab API: ${errMsg(e2)} — start it manually from GitLab or check the project's CI rules`);
+          `could not trigger a pipeline via the git host API: ${errMsg(e2)} — start it manually from the git host or check the project's CI rules`);
         return null;
       }
     }
@@ -155,12 +149,12 @@ export class PipelineNode extends NodeDefinition<PipelineInput, PipelineOutput> 
    */
   private async playManualJobs(ctx: FlowCtx, nodeId: string, pipelineId: number): Promise<number> {
     const repoUrl = ctx.flow.repo_url ?? "";
-    const jobs = (await gitLab.listPipelineJobs(repoUrl, pipelineId).catch(() => [])) as PipelineJob[];
-    // playable = waiting for a human to press "play" (status manual, not when:never)
-    const playable = jobs.filter((j) => j.status === "manual" && j.when !== "never");
+    const host = gitHostRegistry.forRepo(repoUrl);
+    const jobs = (await host.listPipelineJobs(repoUrl, pipelineId).catch(() => [])) as HostJob[];
+    const playable = jobs.filter((j) => j.manual);
     let played = 0;
     for (const j of playable) {
-      const ok = await gitLab.playJob(repoUrl, j.id).then(() => true).catch(() => false);
+      const ok = await host.playJob(repoUrl, j.id).then(() => true).catch(() => false);
       if (ok) {
         played++;
         db.emitEvent(ctx.flow.id, nodeId, "lifecycle",
@@ -210,7 +204,7 @@ export class PipelineNode extends NodeDefinition<PipelineInput, PipelineOutput> 
       // the only status worth reporting.
       const head = await this.headPipeline(ctx, mrIid);
       let pipe = watchedId
-        ? await gitLab.getPipeline(ctx.flow.repo_url ?? "", watchedId).catch(() => null)
+        ? await gitHostRegistry.forRepo(ctx.flow.repo_url ?? "").getPipeline(ctx.flow.repo_url ?? "", watchedId).catch(() => null)
         : null;
       // switch to the head when it's newer/different — stops the watched id
       // from dragging the UI back to a stale/failed state
@@ -352,11 +346,11 @@ export class PipelineNode extends NodeDefinition<PipelineInput, PipelineOutput> 
     maxFixAttempts: number,
     label: string,
   ): Promise<void> {
-    const jobs = await gitLab.listPipelineJobs(ctx.flow.repo_url ?? "", pipelineId);
-    const failed = jobs.filter((j: { status: string }) => j.status === "failed");
+    const jobs = await gitHostRegistry.forRepo(ctx.flow.repo_url ?? "").listPipelineJobs(ctx.flow.repo_url ?? "", pipelineId);
+    const failed = jobs.filter((j: HostJob) => j.status === "failed");
     let logs = "";
     for (const j of failed.slice(0, 3)) {
-      const trace = await gitLab.getJobTrace(ctx.flow.repo_url ?? "", j.id).catch(() => "");
+      const trace = await gitHostRegistry.forRepo(ctx.flow.repo_url ?? "").getJobTrace(ctx.flow.repo_url ?? "", j.id).catch(() => "");
       logs += `\n\n===== job ${j.name} (#${j.id}) =====\n${trace.slice(-8000)}`;
     }
 
