@@ -94,18 +94,15 @@ export function exportTemplateYaml(
 }
 
 /** Parse YAML into a seedable template graph (nodes already typed).
- *  Legacy pre-task documents import cleanly: a `trigger.ticket_id` pin is
- *  dropped (task binding is the declared task_type now) and `{{ticket.*}}`
- *  refs are rewritten to `{{task.*}}` — the runtime context ships only the
- *  `task` root (the old alias retired in Phase 4), so import-time conversion
- *  is the bridge. Every rewrite is reported as a warning. */
+ *  No legacy aliases: a `trigger.ticket_id` pin or a `{{ticket.*}}` ref is
+ *  not rewritten — the store's validation rejects unknown refs with a clear
+ *  lint error (the runtime context ships only the `task` root). */
 export function parseTemplateYaml(text: string): {
   name: string;
   description: string | null;
   trigger: Record<string, unknown>;
   nodes: YamlNodeEntry[];
   edges: { from: string; to: string; kind?: "next" | "loop"; label?: string | null; condition?: string | null }[];
-  warnings: string[];
 } {
   let doc: unknown;
   try {
@@ -165,56 +162,7 @@ export function parseTemplateYaml(text: string): {
     ? d.trigger : { type: "manual" }) as Record<string, unknown>;
   const description = typeof d.description === "string" && d.description.trim() ? d.description.trim() : null;
 
-  // ── legacy import compat: ticket pins + {{ticket.*}} refs ──────────────────
-  // The runtime context only knows `task` now — these rewrites happen at
-  // import time so old YAML documents keep working; each one is reported.
-  const warnings: string[] = [];
-  if (typeof trigger.ticket_id === "string" && trigger.ticket_id.trim()) {
-    delete trigger.ticket_id;
-    warnings.push(
-      "trigger.ticket_id is no longer supported — dropped (a template declares its task type via trigger.task_type now; flows attach the most recent imported task of that type)");
-  }
-  for (const n of nodes) {
-    let remapped = remapTicketRefs(n.config);
-    if (remapped !== n.config) {
-      n.config = remapped as Record<string, unknown>;
-      warnings.push(`node "${n.key}" config: {{ticket.*}} refs remapped to {{task.*}} (the same context object)`);
-    }
-    if (n.input_map) {
-      remapped = remapTicketRefs(n.input_map);
-      if (remapped !== n.input_map) {
-        n.input_map = remapped as Record<string, unknown>;
-        warnings.push(`node "${n.key}" input_map: {{ticket.*}} refs remapped to {{task.*}} (the same context object)`);
-      }
-    }
-  }
-
-  return { name: d.name.trim(), description, trigger, nodes, edges, warnings };
-}
-
-/** Deep-rewrite `{{ticket.*}}` refs to `{{task.*}}` in a config value. Returns
- *  the value only when something changed (same object otherwise). The runtime
- *  context map no longer carries the old `ticket` alias — this is the
- *  import-time bridge that keeps legacy YAML documents working. */
-function remapTicketRefs(value: unknown): unknown {
-  let changed = false;
-  const walk = (v: unknown, depth: number): unknown => {
-    if (depth > 8 || v == null) return v;
-    if (typeof v === "string") {
-      const next = v.replace(/\{\{\s*ticket(?=[.}\s])/g, "{{task");
-      if (next !== v) changed = true;
-      return next;
-    }
-    if (Array.isArray(v)) return v.map((x) => walk(x, depth + 1));
-    if (typeof v === "object") {
-      const out: Record<string, unknown> = {};
-      for (const [k, x] of Object.entries(v as Record<string, unknown>)) out[k] = walk(x, depth + 1);
-      return out;
-    }
-    return v;
-  };
-  const next = walk(value, 0);
-  return changed ? next : value;
+  return { name: d.name.trim(), description, trigger, nodes, edges };
 }
 
 // ── store-bound helpers ──────────────────────────────────────────────────────
@@ -271,8 +219,6 @@ export interface ImportedTemplate {
   id: string;
   name: string;
   createdNodeTemplateIds: string[];
-/** non-fatal import notices (legacy ticket_id dropped, {{ticket.*}} rewritten) */
-  warnings: string[];
 }
 
 /**
@@ -280,8 +226,8 @@ export interface ImportedTemplate {
  * a bare declarative kind (`type: agent`) is authored inline — the definition
  * is stored as a new (or reused, when identical) agent node template; a bare
  * declarative key matching an existing catalog row references that row.
- * Legacy documents (a `trigger.ticket_id` pin, `{{ticket.*}}` refs) import
- * with their compat warnings surfaced back to the caller.
+ * Validation is the store's: unknown `{{refs}}` / task types / node types
+ * reject the import with a clear lint error.
  */
 export function importTemplateYaml(
   store: {
@@ -295,12 +241,33 @@ export function importTemplateYaml(
       }[];
       edges: { from: string; to: string; kind?: "next" | "loop"; label?: string | null; condition?: string | null }[];
     }): string;
+    deleteNodeTemplate(id: string): void;
   },
   text: string,
   opts: { namePrefix?: string } = {},
 ): ImportedTemplate {
-  const parsed = parseTemplateYaml(text);
   const createdNodeTemplateIds: string[] = [];
+  try {
+    return importTemplateYamlInner(store, text, opts, createdNodeTemplateIds);
+  } catch (e) {
+    // The import is atomic for the template graph: inline declarative node
+    // templates created along the way must not linger — a rejected import's
+    // definition would otherwise be reused (matched by key) by the next
+    // import and hijack it.
+    for (const id of createdNodeTemplateIds) {
+      try { store.deleteNodeTemplate(id); } catch { /* referenced elsewhere — leave it */ }
+    }
+    throw e;
+  }
+}
+
+function importTemplateYamlInner(
+  store: Parameters<typeof importTemplateYaml>[0],
+  text: string,
+  opts: { namePrefix?: string },
+  createdNodeTemplateIds: string[],
+): ImportedTemplate {
+  const parsed = parseTemplateYaml(text);
   const nodes = parsed.nodes.map((entry) => {
     let nodeTemplateId: string;
     let overrides: Record<string, unknown> | undefined = entry.config;
@@ -347,5 +314,5 @@ export function importTemplateYaml(
 
   const name = `${opts.namePrefix ? `${opts.namePrefix} — ` : ""}${parsed.name}`;
   const id = store.create({ name, description: parsed.description, trigger: parsed.trigger, nodes, edges: parsed.edges });
-  return { id, name, createdNodeTemplateIds, warnings: parsed.warnings };
+  return { id, name, createdNodeTemplateIds };
 }
