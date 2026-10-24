@@ -4,7 +4,7 @@ import path from "node:path";
 import { z } from "zod";
 import { db } from "../../../db";
 import type { NodeRow } from "../../../db/rows";
-import type { CursorRunResult } from "../../../integrations/cursor";
+import type { AgentRunResult } from "../../ports/agent-runner";
 import { NodeDefinition, type FlowCtx, type RunOutcome } from "../base";
 import { templateStore } from "../../templates";
 import { ScriptDefSchema, type ScriptDef } from "../declarative-schemas";
@@ -96,7 +96,7 @@ export class ScriptTemplateNode extends NodeDefinition<Record<string, unknown>, 
   }
 
   /** Restart recovery: a finished run's stdout is not persisted for scripts — retry re-runs it. */
-  async recover(ctx: FlowCtx, node: NodeRow, result: CursorRunResult, note: string): Promise<boolean> {
+  async recover(ctx: FlowCtx, node: NodeRow, result: AgentRunResult, note: string): Promise<boolean> {
     if (result.status !== "finished") return false;
     this.support.setNode(node.id, { status: "failed" });
     db.emitEvent(ctx.flow.id, node.id, "error",

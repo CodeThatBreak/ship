@@ -1,6 +1,6 @@
 import { db } from "../../../db";
 import { z } from "zod";
-import type { CursorRunResult } from "../../../integrations/cursor";
+import type { AgentRunResult } from "../../ports/agent-runner";
 import { PlanStepRow, rows, type NodeRow } from "../../../db/rows";
 import { prompts } from "../../prompts";
 import { planSteps } from "../../steps";
@@ -783,7 +783,7 @@ export class PlanNode extends NodeDefinition<PlanInput, PlanOutput> {
     node: NodeRow,
     opts: {
       prompt: string;
-      runOnce: (p: string, label: string, followUp: string | null) => Promise<CursorRunResult>;
+      runOnce: (p: string, label: string, followUp: string | null) => Promise<AgentRunResult>;
       mode: ParseModeConfig<T>;
       firstRunLabel: string;
       initialFollowUp: string | null;
@@ -903,7 +903,7 @@ export class PlanNode extends NodeDefinition<PlanInput, PlanOutput> {
   async recover(
     ctx: FlowCtx,
     node: NodeRow,
-    result: CursorRunResult,
+    result: AgentRunResult,
     note: string,
   ): Promise<boolean> {
     // Phase A: scoped recovery is skipped — recover() can't distinguish a

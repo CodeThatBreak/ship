@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { db } from "../../../lib/db";
-import { localAgent } from "../../../lib/integrations/localAgent";
+import { agentPortRegistry } from "../../../lib/engine/ports/agent-runner";
 import { gitHostRegistry } from "../../../lib/engine/ports/git-host";
 import { config } from "../../../lib/config";
 import { prompts, PromptLibrary } from "../../../lib/engine/prompts";
@@ -10,7 +10,9 @@ import { DEFAULT_PRICING, usageTracker } from "../../../lib/engine/nodes/base/us
 export const dynamic = "force-dynamic";
 
 export async function GET() {
-  const [cli] = await Promise.all([localAgent.cliAvailable()]);
+  const [localStatus] = await Promise.all([
+    agentPortRegistry.forMode("local").status(),
+  ]);
   return NextResponse.json({
     default_execution_mode: db.getSetting<string>("default_execution_mode", "cloud"),
     default_model: db.getSetting<string>("default_model", "") || config.cursor.defaultModel() || "",
@@ -30,7 +32,7 @@ export async function GET() {
     http_allowlist: db.getSetting<string[]>("http_allowlist", []),
     status: {
       cursorApiKeySet: Boolean(config.cursor.apiKey()),
-      cursorCliAvailable: cli,
+      cursorCliAvailable: localStatus.configured,
       // per-registered-host configured status — the generic shape the settings
       // page reads (new hosts register in gitHostRegistry and appear here)
       gitHosts: Object.fromEntries(gitHostRegistry.list().map((h) => [h.kind, h.configured()])),

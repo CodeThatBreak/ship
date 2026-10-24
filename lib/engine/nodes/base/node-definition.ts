@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { db } from "../../../db";
 import type { NodeRow } from "../../../db/rows";
-import type { CursorRunResult } from "../../../integrations/cursor";
+import type { AgentRunResult } from "../../ports/agent-runner";
 import { agentRunner, type AgentRunner, type AgentStartInput } from "./agent-runner";
 import { flowCtxHelper, type FlowContextHelper, type FlowCtx } from "./flow-context";
 import { nodeSupport, type NodeSupport } from "./node-support";
@@ -175,7 +175,7 @@ export abstract class NodeDefinition<I = unknown, O extends Record<string, unkno
    * Finish a run that completed while the server was down.
    * Return true when the node was recovered, false to have it failed for retry.
    */
-  abstract recover(ctx: FlowCtx, node: NodeRow, result: CursorRunResult, note: string): Promise<boolean>;
+  abstract recover(ctx: FlowCtx, node: NodeRow, result: AgentRunResult, note: string): Promise<boolean>;
 
   // ── shared helpers available to subclasses ──────────────────────────────
 
@@ -204,7 +204,7 @@ export abstract class NodeDefinition<I = unknown, O extends Record<string, unkno
       promptOverride?: string | null;
       agent: Omit<AgentStartInput, "prompt">;
       label: string;
-      finalize: (result: CursorRunResult) => Promise<RunOutcome>;
+      finalize: (result: AgentRunResult) => Promise<RunOutcome>;
     }
   ): Promise<RunOutcome> {
     const node = this.node(ctx);

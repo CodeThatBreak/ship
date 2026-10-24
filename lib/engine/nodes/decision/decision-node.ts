@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { db } from "../../../db";
 import type { NodeRow } from "../../../db/rows";
-import type { CursorRunResult } from "../../../integrations/cursor";
+import type { AgentRunResult } from "../../ports/agent-runner";
 import { NodeDefinition, type FlowCtx, type RunOutcome } from "../base";
 import { templateStore } from "../../templates";
 import { buildFlowContext } from "../../flow-context";
@@ -210,7 +210,7 @@ export class DecisionTemplateNode extends NodeDefinition<Record<string, unknown>
   }
 
   /** Restart recovery: re-apply the same result through the same contract. */
-  override async recover(ctx: FlowCtx, node: NodeRow, result: CursorRunResult, note: string): Promise<boolean> {
+  override async recover(ctx: FlowCtx, node: NodeRow, result: AgentRunResult, note: string): Promise<boolean> {
     if (result.status !== "finished") return false; // fail it — decision runs are re-runnable
     const cfg = this.runConfig(this.nodeConfig(ctx));
     let outcome: RunOutcome;

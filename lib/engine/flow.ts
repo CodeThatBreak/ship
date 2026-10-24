@@ -9,9 +9,8 @@ import {
   Task,
   rows,
 } from "../db/rows";
+import { agentPortRegistry, type AgentRunResult } from "./ports/agent-runner";
 import { hostOf, type HostComment } from "./ports/git-host";
-import type { CursorRunResult } from "../integrations/cursor";
-import { localAgent } from "../integrations/localAgent";
 import { nodeSupport, type FlowCtx } from "./nodes/base";
 import { uncachedInputTokens } from "./nodes/base/usage-tracker";
 import { branchStore } from "./nodes/build";
@@ -1292,7 +1291,7 @@ export class FlowEngine {
     const active = db.all<{ cursor_run_id: string }>(
       `SELECT cursor_run_id FROM runs WHERE node_id=? AND status='running'`, node.id);
     if (flow?.execution_mode === "local") {
-      for (const r of active) localAgent.cancelRun(r.cursor_run_id);
+      for (const r of active) agentPortRegistry.forMode("local").cancel({ runId: r.cursor_run_id });
     }
     db.run(`UPDATE runs SET status='error', updated_at=? WHERE node_id=? AND status='running'`, db.now(), node.id);
     this.setNodeStatus(flowId, nodeKey, "failed");
@@ -1468,7 +1467,7 @@ export class FlowEngine {
   async completeNodeFromResult(
     c: FlowCtx,
     node: NodeRow,
-    result: CursorRunResult,
+    result: AgentRunResult,
     note: string
   ): Promise<boolean> {
     db.run(`UPDATE runs SET status=?, updated_at=? WHERE node_id=? AND status='running'`,

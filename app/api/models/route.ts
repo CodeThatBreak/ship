@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { LocalAgentService, localAgent } from "../../../lib/integrations/localAgent";
+import { agentPortRegistry } from "../../../lib/engine/ports/agent-runner";
 import { db } from "../../../lib/db";
 import { config } from "../../../lib/config";
 import { parseModelSpec, type CatalogModel } from "../../../lib/modelSpec";
@@ -16,10 +16,14 @@ export const dynamic = "force-dynamic";
  * `models` stays a flat id list for older consumers.
  */
 export async function GET() {
+  // The model catalog comes from the local agent port (the runtimes share one
+  // SDK catalog); port metadata could serve per-port labels when multiple
+  // agent ports register.
+  const port = agentPortRegistry.forMode("local");
   const raw = new Map<string, CatalogModel>();
   const bracketed: { m: CatalogModel; id: string; params: Record<string, string> }[] = [];
 
-  const catalog = (await localAgent.listCatalog()) ?? [];
+  const catalog = (await port.listCatalog()) ?? [];
   for (const m of catalog) {
     const parsed = parseModelSpec(m.id);
     const id = parsed?.id ?? m.id;
@@ -53,7 +57,7 @@ export async function GET() {
   const source = catalogList.length ? "catalog" : "fallback";
   const models = catalogList.length
     ? catalogList.map((m) => m.id)
-    : [...LocalAgentService.FALLBACK_MODELS];
+    : [...port.fallbackModels];
   const currentDefault = db.getSetting<string>("default_model", "") || config.cursor.defaultModel() || "";
   // Resolve the configured default (may be a spec like "composer-2.5[fast=false]")
   // into structured data so consumers never touch bracket strings.

@@ -3,8 +3,8 @@ import {
   type AgentRunResult,
   type StreamCallbacks,
   type TokenUsage,
-} from "./cursorSdk";
-import { parseModelSpec } from "../modelSpec";
+} from "../cursorSdk";
+import { parseModelSpec } from "../../modelSpec";
 
 // ── cloud run result / usage shapes (SDK-native, re-exported) ───────────────
 // The cloud integration is now a thin adapter over the unified CursorAgentService

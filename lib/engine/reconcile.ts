@@ -1,7 +1,6 @@
 import { db } from "../db";
 import { FlowRow, NodeRow, RunRow, rows } from "../db/rows";
-import { cursorClient } from "../integrations/cursor";
-import { localAgent } from "../integrations/localAgent";
+import { agentPortRegistry } from "./ports/agent-runner";
 import { nodeSupport, type FlowCtx } from "./nodes/base";
 import { usageTracker } from "./nodes/base/usage-tracker";
 import { flowEngine } from "./flow";
@@ -93,8 +92,9 @@ export class Reconciler {
   // ── persisted run state is the ground truth ───────────────────────────────
   private async reconcileLocal(ctx: FlowCtx, node: NodeRow, runRow: RunRow | undefined): Promise<void> {
     const { flow } = ctx;
+    const port = agentPortRegistry.forMode("local");
     // run still owned by this process → genuinely running, nothing to do
-    if (runRow && localAgent.hasActiveRun(runRow.cursor_run_id)) return;
+    if (runRow && port.hasActiveRun(runRow.cursor_run_id)) return;
 
     if (!runRow) {
       nodeSupport.failOrphanedNode(flow.id, node.id, node.node_key, "node was left running without an active run");
@@ -107,7 +107,7 @@ export class Reconciler {
     const sessionId = runRow.cursor_agent_id;
     const probe =
       sessionId && localPath
-        ? await localAgent
+        ? await port
             .inspectSession(sessionId, runRow.cursor_run_id, localPath)
             .catch(() => null)
         : null;
@@ -138,33 +138,38 @@ export class Reconciler {
   // ── cloud mode: ask the Cursor API ────────────────────────────────────────
   private async reconcileCloud(ctx: FlowCtx, node: NodeRow, runRow: RunRow | undefined): Promise<void> {
     const { flow } = ctx;
+    const port = agentPortRegistry.forMode("cloud");
     if (!runRow) {
       nodeSupport.failOrphanedNode(flow.id, node.id, node.node_key, "node was left running without an active run");
       return;
     }
 
-    const result = await cursorClient.getRun(runRow.cursor_agent_id, runRow.cursor_run_id).catch(() => null);
+    const result = await port
+      .getRun({ agentId: runRow.cursor_agent_id, runId: runRow.cursor_run_id })
+      .catch(() => null);
     // null means either unreachable or still in flight — distinguish below.
     const TERMINAL = ["finished", "error", "cancelled"];
     if (result && TERMINAL.includes(result.status)) {
-      await flowEngine.completeNodeFromResult(ctx, node, result, "reconciled from Cursor API");
+      await flowEngine.completeNodeFromResult(ctx, node, result, "reconciled from the git/agent API");
       return;
     }
 
-    // still running on Cursor — re-attach once and stream it to completion
+    // still running — re-attach once and stream it to completion
     if (this.reattached.has(runRow.cursor_run_id)) return;
     this.reattached.add(runRow.cursor_run_id);
-    db.emitEvent(flow.id, node.id, "lifecycle", `re-attached to ${node.node_key} run on Cursor (server restarted)`);
+    db.emitEvent(flow.id, node.id, "lifecycle", `re-attached to ${node.node_key} run on the agent runtime (server restarted)`);
     (async () => {
       try {
-        const final = await cursorClient.streamRun(runRow.cursor_agent_id, runRow.cursor_run_id, {
+        const final = await port.stream(
+          { agentId: runRow.cursor_agent_id, runId: runRow.cursor_run_id },
+          {
           onStatus: (s) => db.emitEvent(flow.id, node.id, "status", `run ${s}`),
           onAssistant: (t) => db.emitEvent(flow.id, node.id, "assistant", t),
           onThinking: (t) => db.emitEvent(flow.id, node.id, "thinking", t.slice(0, 500)),
           onTool: (name, status, args) =>
             db.emitEvent(flow.id, node.id, "tool", `${name}: ${status}`, { args: JSON.stringify(args ?? {}).slice(0, 300) }),
         });
-        await flowEngine.completeNodeFromResult(ctx, node, final, "completed after re-attach");
+        await flowEngine.completeNodeFromResult(ctx, node, final.result, "completed after re-attach");
       } catch (e: unknown) {
         nodeSupport.failOrphanedNode(flow.id, node.id, node.node_key, `lost run stream: ${e instanceof Error ? e.message : e}`);
       } finally {

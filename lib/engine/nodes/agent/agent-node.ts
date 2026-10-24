@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { db } from "../../../db";
 import type { NodeRow } from "../../../db/rows";
-import type { CursorRunResult } from "../../../integrations/cursor";
+import type { AgentRunResult } from "../../ports/agent-runner";
 import { NodeDefinition, type FlowCtx, type RunOutcome } from "../base";
 import { templateStore } from "../../templates";
 import { extractJson, validateJsonSchema } from "./json-schema-lite";
@@ -200,7 +200,7 @@ export class AgentTemplateNode extends NodeDefinition<Record<string, unknown>, R
   }
 
   /** Restart recovery: re-apply the same output contract to a finished run. */
-  async recover(ctx: FlowCtx, node: NodeRow, result: CursorRunResult, note: string): Promise<boolean> {
+  async recover(ctx: FlowCtx, node: NodeRow, result: AgentRunResult, note: string): Promise<boolean> {
     if (result.status !== "finished") return false;
     const cfg = this.runConfig(this.nodeConfig(ctx));
     const outcome = this.applyOutput(ctx, result.result ?? "", cfg);

@@ -1,6 +1,6 @@
 import { db } from "../../../db";
 import { uncachedInputTokens } from "../../../usage";
-import { cursorClient, type CursorRunResult, type RunUsage } from "../../../integrations/cursor";
+import { type AgentPort, type AgentRunResult, type AgentRunUsage } from "../../ports/agent-runner";
 
 // ── cost & usage capture ─────────────────────────────────────────────────────
 
@@ -213,17 +213,22 @@ export class UsageTracker {
    */
   async captureRunUsage(opts: {
     runRowId: string;
-    result: CursorRunResult;
-    cloudAgentId?: string; // when set, fetch billed cost for this cloud run
+    result: AgentRunResult;
+    /** the port whose runtime executed the run (billed usage is a port concept) */
+    port: AgentPort;
+    /** when set (cloud runs), fetch billed cost for this run via the port */
+    cloudAgentId?: string;
     runId: string;
   }): Promise<RunCostSummary> {
-    const { runRowId, result, cloudAgentId, runId } = opts;
+    const { runRowId, result, port, cloudAgentId, runId } = opts;
 
     // cloud: try the billed-usage endpoint first (usually unavailable — falls
     // through to the estimate); local runs are account-gated, never billed here
-    const billed = cloudAgentId ? await cursorClient.getRunUsage(cloudAgentId, runId) : null;
-    // the SDK's TokenUsage maps 1:1 onto the loose RunUsage shape we persist
-    const u: RunUsage | undefined = billed ?? (result.usage as unknown as RunUsage | undefined);
+    const billed = cloudAgentId
+      ? await port.getUsage({ agentId: cloudAgentId, runId })
+      : null;
+    // the runtime's usage maps 1:1 onto the loose AgentRunUsage shape we persist
+    const u: AgentRunUsage | undefined = billed ?? (result.usage as unknown as AgentRunUsage | undefined);
     const model = u?.model ?? result.model?.id;
     if (!u) {
       this.persistUsage(runRowId, { durationMs: result.durationMs });

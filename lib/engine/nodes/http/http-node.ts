@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { db } from "../../../db";
 import type { NodeRow } from "../../../db/rows";
-import type { CursorRunResult } from "../../../integrations/cursor";
+import type { AgentRunResult } from "../../ports/agent-runner";
 import { NodeDefinition, type FlowCtx, type RunOutcome } from "../base";
 import { templateStore } from "../../templates";
 import { buildFlowContext } from "../../flow-context";
@@ -77,7 +77,7 @@ export class HttpTemplateNode extends NodeDefinition<Record<string, unknown>, Re
   }
 
   /** Restart recovery: a completed run's response cannot be re-materialized — fail for retry. */
-  async recover(_ctx: FlowCtx, node: NodeRow, result: CursorRunResult, note: string): Promise<boolean> {
+  async recover(_ctx: FlowCtx, node: NodeRow, result: AgentRunResult, note: string): Promise<boolean> {
     if (result.status !== "finished") return false;
     this.support.setNode(node.id, { status: "failed" });
     db.emitEvent(node.flow_id, node.id, "lifecycle",

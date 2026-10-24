@@ -5,10 +5,10 @@ import {
   type AgentRunResult,
   type StreamCallbacks,
   type TokenUsage,
-} from "./cursorSdk";
-import { parseModelSpec } from "../modelSpec";
-import { db } from "../db";
-import { processSingleton } from "../singleton";
+} from "../cursorSdk";
+import { parseModelSpec } from "../../modelSpec";
+import { db } from "../../db";
+import { processSingleton } from "../../singleton";
 // db is used for settings defaults (local_agent.*) below.
 
 const exec = promisify(execFile);
@@ -73,9 +73,6 @@ export interface LocalSessionInspection {
  * engine consumes.
  */
 export class LocalAgentService {
-  /** Known model ids, used when the model catalog isn't available. */
-  static readonly FALLBACK_MODELS = ["composer-2.5", "auto"];
-
   /** True if this server process still owns the given local run (false after restart). */
   hasActiveRun(runId: string): boolean {
     return cursorAgent.hasActiveRun(runId);

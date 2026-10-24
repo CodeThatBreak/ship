@@ -1,7 +1,7 @@
 import { db } from "../../../db";
 import { z } from "zod";
 import { rows, NodeRow } from "../../../db/rows";
-import type { CursorRunResult } from "../../../integrations/cursor";
+import type { AgentRunResult } from "../../ports/agent-runner";
 import { localGit } from "../../../git/local";
 import { prompts } from "../../prompts";
 import { planSteps } from "../../steps";
@@ -186,7 +186,7 @@ export class BuildNode extends NodeDefinition<BuildInput, BuildOutput> {
 
   private async finalizeBuild(
     ctx: FlowCtx,
-    result: CursorRunResult,
+    result: AgentRunResult,
     branch: string,
     branchInfo: BuildBranchInfo | null,
     nodeId: string,
@@ -290,7 +290,7 @@ export class BuildNode extends NodeDefinition<BuildInput, BuildOutput> {
    * Complete a build whose agent run was orphaned (server restarted mid-run)
    * but left commits on the build branch.
    */
-  async recover(ctx: FlowCtx, node: NodeRow, result: CursorRunResult, note: string): Promise<boolean> {
+  async recover(ctx: FlowCtx, node: NodeRow, result: AgentRunResult, note: string): Promise<boolean> {
     if (result.status !== "finished") return false;
     const branch = result.git?.branches?.[0]?.branch ?? ctx.flow.mr_branch ?? this.ctxHelper.buildBranch(ctx);
     await this.recoverBranch(ctx, node, branch, note);
