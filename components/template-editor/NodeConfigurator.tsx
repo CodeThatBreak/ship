@@ -84,7 +84,7 @@ const TAB_LABELS: Record<string, string> = {
 
 /** Dropdown option renderer — the label as the heading, the description
  *  below it in gray. */
-function SelectOption({
+export function SelectOption({
   label,
   description,
 }: {
@@ -523,6 +523,13 @@ function ConfigTab({
   const agentOutputJson =
     node.kind === "agent" &&
     (node.config?.output ?? defaults.output) === "json";
+  // the decision's source picks its fields: the prompt only matters for the
+  // agent source, and the single global expression field is superseded by the
+  // per-choice conditions edited inside the choices editor
+  const decisionSource =
+    node.kind === "decision"
+      ? String(node.config?.source ?? defaults.source ?? "manual")
+      : undefined;
   if (fields.length) {
     return (
       <div className="grid gap-3">
@@ -533,6 +540,12 @@ function ConfigTab({
               agentOutputJson ||
               node.config?.output_schema != null,
           )
+          .filter((f) => !(node.kind === "decision" && f.key === "expression"))
+          .filter(
+            (f) =>
+              !(node.kind === "decision" && f.key === "question") ||
+              decisionSource === "agent",
+          )
           .map((f) => (
           <ConfigFieldRow
             key={`${node.key}:${f.key}`}
@@ -540,7 +553,12 @@ function ConfigTab({
             value={node.config?.[f.key]}
             defaultValue={defaults[f.key]}
             companionText={companionTextOf(node, f.key, defaults[f.key])}
-            variables={freeTextFields.has(f.key) ? variables : undefined}
+            decisionSource={decisionSource}
+            variables={
+              freeTextFields.has(f.key) || f.type === "choices" || f.type === "map"
+                ? variables
+                : undefined
+            }
             onChange={(v, extra) =>
               onChange({ config: writeConfig(node, f.key, v, extra) })
             }
@@ -582,9 +600,7 @@ const freeTextFields = new Set([
   "url",
   "body",
   "question",
-]);
-
-/**
+]);/**
  * The companion key an editor writes alongside its compiled value — the
  * `ts_output` box stores the raw TypeScript members the author typed
  * (`<key>_ts`), so the box re-seeds to their source instead of the compiled
@@ -697,6 +713,7 @@ function ConfigFieldRow({
   value,
   defaultValue,
   companionText,
+  decisionSource,
   variables,
   onChange,
 }: {
@@ -714,6 +731,9 @@ function ConfigFieldRow({
   defaultValue?: unknown;
   /** the companion authoring text (`<key>_ts`) the ts_output box persister stores */
   companionText?: unknown;
+  /** a decision node's current source — the choices editor shows per-choice
+   *  conditions for the expression source */
+  decisionSource?: string;
   /** upstream variables — the rich prompt editor's @ popover / click-to-insert chips */
   variables?: { label: string; insert: string }[];
   onChange: (v: unknown, extra?: Record<string, unknown>) => void;
@@ -749,7 +769,27 @@ function ConfigFieldRow({
     );
   }
   if (field.type === "choices") {
-    return <ChoicesEditor field={field} value={value} defaultValue={defaultValue} onChange={onChange} />;
+    return (
+      <ChoicesEditor
+        field={field}
+        value={value}
+        defaultValue={defaultValue}
+        source={decisionSource}
+        variables={variables}
+        onChange={onChange}
+      />
+    );
+  }
+  if (field.type === "map") {
+    return (
+      <PassMapEditor
+        field={field}
+        value={value}
+        defaultValue={defaultValue}
+        variables={variables}
+        onChange={onChange}
+      />
+    );
   }
   if (field.type === "boolean") {
     return (
@@ -830,8 +870,9 @@ function ConfigFieldRow({
   );
 }
 
-/** config fields authored with the rich prompt editor ("@" variable popover) */
-const promptEditorKeys = new Set(["prompt", "prompt_body", "fix_prompt_body"]);
+/** config fields authored with the rich prompt editor ("@" variable popover)
+ *  — `question` is the decision agent's prompt */
+const promptEditorKeys = new Set(["prompt", "prompt_body", "fix_prompt_body", "question"]);
 
 /**
  * The field label. Prompt fields carry an info icon — hovering it shows the
@@ -1036,73 +1077,251 @@ function TsOutputEditor({
  * place (written as the instance override). At least one labeled choice is
  * required by the decision schema; an all-empty edit keeps the last good set
  * and warns instead.
+ *
+ * For the `expression` source each choice also carries a JSONata `condition`
+ * over the flow context — every truthy condition picks that branch. The
+ * condition boxes get the upstream variables as click-to-insert chips (raw
+ * JSONata paths — the `{{...}}` wrapper is prompt syntax, not JSONata); the
+ * chips insert into the focused row.
  */
 function ChoicesEditor({
   field,
   value,
   defaultValue,
+  source,
+  variables,
   onChange,
 }: {
   field: { key: string; label: string; type: string; help?: string; options?: { value: string; label: string }[] };
   value: unknown;
   defaultValue?: unknown;
+  /** the decision's current source — "expression" adds the condition boxes */
+  source?: string;
+  variables?: { label: string; insert: string }[];
   onChange: (v: unknown) => void;
 }) {
   const effective = (
     Array.isArray(value) ? value : Array.isArray(defaultValue) ? defaultValue : []
-  ) as { label: string; description?: string }[];
-  const [rows, setRows] = useState<{ label: string; description: string }[]>(() =>
-    effective.map((c) => ({ label: c.label, description: c.description ?? "" })),
+  ) as { label: string; description?: string; condition?: string }[];
+  const [rows, setRows] = useState(() =>
+    effective.map((c) => ({
+      label: c.label,
+      description: c.description ?? "",
+      condition: c.condition ?? "",
+    })),
   );
+  /** the choice whose condition box the chips insert into */
+  const [focusIdx, setFocusIdx] = useState(0);
+  const isExpression = source === "expression";
 
-  const write = (next: { label: string; description: string }[]) => {
+  const write = (next: { label: string; description: string; condition: string }[]) => {
     setRows(next);
     const labeled = next
-      .map((c) => ({ label: c.label.trim(), description: c.description.trim() || undefined }))
+      .map((c) => ({
+        label: c.label.trim(),
+        description: c.description.trim() || undefined,
+        condition: c.condition.trim() || undefined,
+      }))
       .filter((c) => c.label);
     if (labeled.length) onChange(labeled);
   };
 
+  // chips insert raw JSONata paths — strip the prompt-ref {{...}} wrapper
+  const condVars = (variables ?? []).map((v) => ({
+    label: v.label,
+    insert: v.insert.replace(/^\{\{/, "").replace(/\}\}$/, ""),
+  }));
+  const insertCond = (ref: string) => {
+    const i = Math.min(focusIdx, Math.max(rows.length - 1, 0));
+    const cur = rows[i]?.condition ?? "";
+    write(
+      rows.map((x, j) => (j === i ? { ...x, condition: cur ? `${cur} ${ref}` : ref } : x)),
+    );
+  };
+
   return (
     <div className="grid gap-1.5">
-      <label className="text-xs text-muted-foreground">Choices (branch labels)</label>
+      <div className="flex items-baseline justify-between gap-2 flex-wrap">
+        <label className="text-xs text-muted-foreground">Choices (branch labels)</label>
+        {isExpression && condVars.length > 0 && (
+          <span className="text-[10px] text-muted-foreground">
+            click a variable to insert it into the focused condition
+          </span>
+        )}
+      </div>
+      {isExpression && condVars.length > 0 && (
+        <VariableChips variables={condVars} onInsert={insertCond} />
+      )}
       {rows.map((c, i) => (
-        <div key={i} className="flex gap-1.5">
-          <Input
-            value={c.label}
-            placeholder="label"
-            className="max-w-[140px] font-mono text-[12px]"
-            onChange={(e) => write(rows.map((x, j) => (j === i ? { ...x, label: e.target.value } : x)))}
-          />
-          <Input
-            value={c.description}
-            placeholder="description (steers an agent classifier)"
-            className="text-[12px]"
-            onChange={(e) => write(rows.map((x, j) => (j === i ? { ...x, description: e.target.value } : x)))}
-          />
-          <Button
-            variant="ghost"
-            size="sm"
-            className="text-muted-foreground"
-            disabled={rows.length <= 1}
-            title="Remove choice"
-            onClick={() => write(rows.filter((_, j) => j !== i))}
-          >
-            <Trash2 size={12} />
-          </Button>
+        <div
+          key={i}
+          className={cn(
+            "grid gap-1.5 rounded-lg border border-border p-2",
+            isExpression && c.condition.trim() && "border-violet-500/40",
+          )}
+        >
+          <div className="flex gap-1.5">
+            <Input
+              value={c.label}
+              placeholder="label"
+              className="max-w-[140px] font-mono text-[12px]"
+              onChange={(e) => write(rows.map((x, j) => (j === i ? { ...x, label: e.target.value } : x)))}
+            />
+            <Input
+              value={c.description}
+              placeholder="description (steers an agent classifier)"
+              className="text-[12px]"
+              onChange={(e) => write(rows.map((x, j) => (j === i ? { ...x, description: e.target.value } : x)))}
+            />
+            <Button
+              variant="ghost"
+              size="sm"
+              className="text-muted-foreground"
+              disabled={rows.length <= 1}
+              title="Remove choice"
+              onClick={() => write(rows.filter((_, j) => j !== i))}
+            >
+              <Trash2 size={12} />
+            </Button>
+          </div>
+          {isExpression && (
+            <Textarea
+              value={c.condition}
+              rows={2}
+              className="font-mono text-[11.5px]"
+              placeholder="JSONata condition — truthy picks this branch, e.g. nodes.review.output.comment_count > 0"
+              onFocus={() => setFocusIdx(i)}
+              onChange={(e) => write(rows.map((x, j) => (j === i ? { ...x, condition: e.target.value } : x)))}
+            />
+          )}
         </div>
       ))}
       <Button
         variant="outline"
         size="sm"
         className="self-start"
-        onClick={() => write([...rows, { label: "", description: "" }])}
+        onClick={() => write([...rows, { label: "", description: "", condition: "" }])}
       >
         <Plus size={12} /> Add choice
       </Button>
       {!rows.some((c) => c.label.trim()) && (
         <p className="text-[11px] text-amber-400 m-0">At least one labeled choice is required.</p>
       )}
+      {isExpression && !rows.some((c) => c.condition.trim()) && (
+        <p className="text-[11px] text-amber-400 m-0">
+          No condition yet — give each choice a JSONata condition; every truthy condition picks its branch.
+        </p>
+      )}
+    </div>
+  );
+}
+
+/**
+ * The decision's pass-down variables — field → JSONata rows edited in place
+ * (the `pass` instance override). Every field is merged into the decision's
+ * output beside chosen / rationale, so nodes attached to a branch address
+ * them as `{{input.<field>}}` with no extra wiring. The chips insert raw
+ * JSONata paths (the `{{...}}` wrapper is prompt syntax) into the focused
+ * expression box; a row with a name but no expression writes nothing.
+ */
+function PassMapEditor({
+  field,
+  value,
+  defaultValue,
+  variables,
+  onChange,
+}: {
+  field: { key: string; label: string; type: string; help?: string };
+  value: unknown;
+  defaultValue?: unknown;
+  variables?: { label: string; insert: string }[];
+  onChange: (v: unknown) => void;
+}) {
+  const effective = (
+    value && typeof value === "object" && !Array.isArray(value)
+      ? value
+      : defaultValue && typeof defaultValue === "object" && !Array.isArray(defaultValue)
+        ? defaultValue
+        : {}
+  ) as Record<string, string>;
+  const [rows, setRows] = useState<{ field: string; expr: string }[]>(() =>
+    Object.entries(effective).map(([field, expr]) => ({ field, expr: typeof expr === "string" ? expr : "" })),
+  );
+  const [focusIdx, setFocusIdx] = useState(0);
+
+  const write = (next: { field: string; expr: string }[]) => {
+    setRows(next);
+    const mapped: Record<string, string> = {};
+    for (const r of next) {
+      if (r.field.trim() && r.expr.trim()) mapped[r.field.trim()] = r.expr.trim();
+    }
+    onChange(mapped);
+  };
+
+  // chips insert raw JSONata paths — strip the prompt-ref {{...}} wrapper
+  const condVars = (variables ?? []).map((v) => ({
+    label: v.label,
+    insert: v.insert.replace(/^\{\{/, "").replace(/\}\}$/, ""),
+  }));
+  const insertExpr = (ref: string) => {
+    const i = Math.min(focusIdx, Math.max(rows.length - 1, 0));
+    const cur = rows[i]?.expr ?? "";
+    write(rows.map((x, j) => (j === i ? { ...x, expr: cur ? `${cur} ${ref}` : ref } : x)));
+  };
+
+  return (
+    <div className="grid gap-1.5">
+      <div className="flex items-baseline justify-between gap-2 flex-wrap">
+        <label className="text-xs text-muted-foreground">
+          {field.label}
+          {variables?.length ? (
+            <span className="ml-2 text-[10px]">click a variable to insert it into the focused expression</span>
+          ) : null}
+        </label>
+      </div>
+      {condVars.length > 0 && <VariableChips variables={condVars} onInsert={insertExpr} />}
+      {rows.map((r, i) => (
+        <div key={i} className="grid grid-cols-[130px_1fr] gap-1.5 items-start">
+          <Input
+            value={r.field}
+            placeholder="field name"
+            className="font-mono text-[12px]"
+            onFocus={() => setFocusIdx(i)}
+            onChange={(e) => write(rows.map((x, j) => (j === i ? { ...x, field: e.target.value } : x)))}
+          />
+          <div className="flex gap-1.5 items-start">
+            <Textarea
+              value={r.expr}
+              rows={1}
+              className="font-mono text-[11.5px] min-h-[34px]"
+              placeholder="JSONata — e.g. nodes.review.output.summary"
+              onFocus={() => setFocusIdx(i)}
+              onChange={(e) => write(rows.map((x, j) => (j === i ? { ...x, expr: e.target.value } : x)))}
+            />
+            <Button
+              variant="ghost"
+              size="sm"
+              className="text-muted-foreground"
+              title="Remove variable"
+              onClick={() => write(rows.filter((_, j) => j !== i))}
+            >
+              <Trash2 size={12} />
+            </Button>
+          </div>
+        </div>
+      ))}
+      <Button
+        variant="outline"
+        size="sm"
+        className="self-start"
+        onClick={() => write([...rows, { field: "", expr: "" }])}
+      >
+        <Plus size={12} /> Add variable
+      </Button>
+      <p className="text-[11px] text-muted-foreground m-0">
+        Downstream nodes read these as <code className="font-mono">{`{{input.<field>}}`}</code> —
+        chosen / rationale are passed automatically.
+      </p>
     </div>
   );
 }

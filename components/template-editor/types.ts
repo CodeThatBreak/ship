@@ -33,7 +33,7 @@ export interface NodeContract {
   input: any;
   output: any;
   /** decision nodes: the branch labels out-edges must carry (§4.3) */
-  choices?: { label: string; description?: string }[];
+  choices?: { label: string; description?: string; condition?: string }[];
   config: {
     fields?: {
       key: string;

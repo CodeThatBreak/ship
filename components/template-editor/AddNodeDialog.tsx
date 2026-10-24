@@ -13,6 +13,7 @@ import {
   SelectValue,
 } from "../ui/select";
 import { iconForIconName } from "./icons";
+import { SelectOption } from "./NodeConfigurator";
 import { Input } from "../ui/input";
 import { Spinner } from "../ui/spinner";
 import { Textarea } from "../ui/textarea";
@@ -403,16 +404,21 @@ function Field({ label, children }: { label: React.ReactNode; children: React.Re
 
 const inputCls = "bg-card text-foreground border border-border rounded-lg text-[13px] px-3 py-2";
 
+const DECISION_SOURCE_OPTIONS = [
+  { value: "manual", label: "Manual", description: "You pick the branch at run time in the decision card" },
+  { value: "expression", label: "Expression", description: "Each choice carries a JSONata condition — the truthy conditions pick their branches" },
+  { value: "agent", label: "Agent", description: "With your input and prompt, an agent determines which branch to run" },
+] as const;
+
 function DecisionNodeForm({ busy, disabled, onSubmit }: {
   busy: boolean; disabled: boolean;
   onSubmit: (def: CreateNodeDef) => Promise<{ err?: string; nodeTemplateId?: string }>;
 }) {
   const [name, setName] = useState("");
   const [source, setSource] = useState<"expression" | "manual" | "agent">("manual");
-  const [expression, setExpression] = useState("");
   const [question, setQuestion] = useState("");
-  const [choices, setChoices] = useState<{ label: string; description: string }[]>([
-    { label: "", description: "" }, { label: "", description: "" },
+  const [choices, setChoices] = useState<{ label: string; description: string; condition: string }[]>([
+    { label: "", description: "", condition: "" }, { label: "", description: "", condition: "" },
   ]);
   const [err, setErr] = useState<string | null>(null);
 
@@ -421,16 +427,22 @@ function DecisionNodeForm({ busy, disabled, onSubmit }: {
     if (!name.trim()) { setErr("name is required"); return; }
     const cs = choices.filter((c) => c.label.trim());
     if (!cs.length) { setErr("at least one choice label is required"); return; }
-    if (source === "expression" && !expression.trim()) { setErr("an expression source needs the JSONata expression"); return; }
+    if (source === "expression" && !cs.some((c) => c.condition.trim())) {
+      setErr("an expression source needs at least one choice condition (JSONata)");
+      return;
+    }
     const r = await onSubmit({
       kind: "decision",
       name: name.trim(),
       description: `Decision (${source})`,
       config: {
         source,
-        expression: expression.trim(),
         question: question.trim(),
-        choices: cs.map((c) => ({ label: c.label.trim(), description: c.description.trim() || undefined })),
+        choices: cs.map((c) => ({
+          label: c.label.trim(),
+          description: c.description.trim() || undefined,
+          condition: c.condition.trim() || undefined,
+        })),
       },
     });
     if (r.err) setErr(r.err);
@@ -440,44 +452,58 @@ function DecisionNodeForm({ busy, disabled, onSubmit }: {
     <div className="grid gap-2.5">
       <Field label="Name"><Input value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Worth fixing?" disabled={disabled} /></Field>
       <Field label="Source">
-        <select value={source} onChange={(e) => setSource(e.target.value as typeof source)} className={inputCls} disabled={disabled}>
-          <option value="manual">manual — you pick the branch at run time</option>
-          <option value="expression">expression — JSONata over the flow context</option>
-          <option value="agent">agent — classify the flow state (plan-mode agent)</option>
-        </select>
+        <Select value={source} onValueChange={(v) => setSource((v ?? source) as typeof source)}>
+          <SelectTrigger className="w-full rounded-lg border-border bg-card" disabled={disabled}>
+            <SelectValue>
+              {DECISION_SOURCE_OPTIONS.find((o) => o.value === source)?.label ?? source}
+            </SelectValue>
+          </SelectTrigger>
+          <SelectContent>
+            {DECISION_SOURCE_OPTIONS.map((o) => (
+              <SelectItem key={o.value} value={o.value}>
+                <SelectOption label={o.label} description={o.description} />
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
       </Field>
-      {source === "expression" && (
-        <Field label="Expression (JSONata — must yield a choice label or list of labels)">
-          <Input value={expression} onChange={(e) => setExpression(e.target.value)} className="font-mono text-[12px]"
-            placeholder="nodes.review.output.comment_count > 0 ? ['fix'] : ['ship']" disabled={disabled} />
-        </Field>
-      )}
       {source === "agent" && (
-        <Field label="Question ({{vars}} allowed)">
+        <Field label="Prompt (how to make the decision — the branch list and the JSON return format are added automatically)">
           <Textarea value={question} onChange={(e) => setQuestion(e.target.value)} rows={3} className="font-mono text-[12px]"
-            placeholder="Given the triage result, is this issue worth an automated fix PR?" disabled={disabled} />
+            placeholder="Given the triage result, is this issue worth an automated fix PR? Compare severity and blast radius." disabled={disabled} />
         </Field>
       )}
-      <Field label="Choices (label + description — descriptions steer an agent classifier)">
+      <Field label={source === "expression"
+        ? "Choices (label + JSONata condition — every truthy condition picks its branch)"
+        : "Choices (label + description — descriptions steer an agent classifier)"}>
         <div className="grid gap-1.5">
           {choices.map((c, i) => (
-            <div key={i} className="flex gap-1.5">
-              <Input value={c.label} onChange={(e) => setChoices(choices.map((x, j) => (j === i ? { ...x, label: e.target.value } : x)))}
-                placeholder="label" className="max-w-[140px] font-mono" disabled={disabled} />
-              <Input value={c.description} onChange={(e) => setChoices(choices.map((x, j) => (j === i ? { ...x, description: e.target.value } : x)))}
-                placeholder="description" disabled={disabled} />
-              <Button variant="ghost" size="sm" onClick={() => setChoices(choices.filter((_, j) => j !== i))} disabled={disabled || choices.length <= 1}>
-                <Wrench size={12} />
-              </Button>
+            <div key={i} className="grid gap-1.5 rounded-lg border border-border p-2">
+              <div className="flex gap-1.5">
+                <Input value={c.label} onChange={(e) => setChoices(choices.map((x, j) => (j === i ? { ...x, label: e.target.value } : x)))}
+                  placeholder="label" className="max-w-[140px] font-mono" disabled={disabled} />
+                <Input value={c.description} onChange={(e) => setChoices(choices.map((x, j) => (j === i ? { ...x, description: e.target.value } : x)))}
+                  placeholder="description" disabled={disabled} />
+                <Button variant="ghost" size="sm" onClick={() => setChoices(choices.filter((_, j) => j !== i))} disabled={disabled || choices.length <= 1}>
+                  <Wrench size={12} />
+                </Button>
+              </div>
+              {source === "expression" && (
+                <Textarea value={c.condition}
+                  onChange={(e) => setChoices(choices.map((x, j) => (j === i ? { ...x, condition: e.target.value } : x)))}
+                  rows={2} className="font-mono text-[11.5px]" disabled={disabled}
+                  placeholder="JSONata condition — truthy picks this branch, e.g. nodes.review.output.comment_count > 0" />
+              )}
             </div>
           ))}
-          <Button variant="outline" size="sm" className="self-start" onClick={() => setChoices([...choices, { label: "", description: "" }])} disabled={disabled}>
+          <Button variant="outline" size="sm" className="self-start" onClick={() => setChoices([...choices, { label: "", description: "", condition: "" }])} disabled={disabled}>
             <Plus size={12} /> Add choice
           </Button>
         </div>
       </Field>
       <p className="text-[11px] text-muted-foreground m-0">
-        Wire outgoing edges with labels matching the choice labels — the decision activates exactly those edges.
+        Outgoing edges are wired per branch — the canvas gives each choice its own labeled connector;
+        drag from it to attach the next node (no per-edge editing), and the edge carries that branch label.
       </p>
       {err && <Card className="p-2.5 text-[12px] text-rose-400 border-rose-500/30">{err}</Card>}
       <Button onClick={() => void submit()} disabled={disabled || busy} className="self-start">

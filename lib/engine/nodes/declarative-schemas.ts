@@ -46,14 +46,27 @@ export const DECISION_SOURCES = ["expression", "manual", "agent"] as const;
 
 export const DecisionDefSchema = z.object({
   source: z.enum(DECISION_SOURCES).default("manual"),
-  /** source=expression: JSONata over the flow context → the chosen labels */
+  /** source=expression (legacy, single global condition): JSONata over the
+   *  flow context → the chosen labels. Superseded by per-choice `condition`s
+   *  — kept parsed for rows authored before the choice editor grew conditions. */
   expression: z.string().optional().default(""),
-  /** source=agent: the auto-built decision question ({{vars}} allowed) */
+  /** source=agent: the decision prompt (how to make the call; {{vars}}
+   *  allowed) — the branch list and the JSON return format are appended
+   *  automatically by the runtime, so the answer maps to a branch */
   question: z.string().default(""),
+  /** variables passed downstream with the pick: field → JSONata over the
+   *  flow context, evaluated at run time and merged into the node's output
+   *  beside chosen/rationale — every node attached to a branch inherits
+   *  them as {{input.<field>}} (source-independent) */
+  pass: z.record(z.string(), z.string()).default({}),
   choices: z.array(
     z.object({
       label: z.string().min(1),
       description: z.string().optional(),
+      /** source=expression: JSONata over the flow context — truthy picks
+       *  this branch (legacy global `expression` still honored when no
+       *  choice carries a condition) */
+      condition: z.string().optional().default(""),
     }),
   ).min(1, "a decision needs at least one choice"),
 });

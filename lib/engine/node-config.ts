@@ -9,7 +9,7 @@ export interface ConfigField {
    * kinds add their own — `ts_output` is the TS-lite schema box (agent node),
    * `choices` is the decision branch editor.
    */
-  type: "boolean" | "number" | "string" | "text" | "select" | "ts_output" | "choices";
+  type: "boolean" | "number" | "string" | "text" | "select" | "ts_output" | "choices" | "map";
   /** help text shown under the field */
   help?: string;
   /** for select fields — a description renders as gray text under the label

@@ -10,26 +10,38 @@ import { DecisionDefSchema, type DecisionDef } from "../declarative-schemas";
 import { extractJson } from "../agent/json-schema-lite";
 import { renderAgentPrompt } from "../agent/agent-node";
 
+// ── helpers ──────────────────────────────────────────────────────────────────
+
+/** JSONata truthiness: false / null / "" / 0 are falsy — everything else picks. */
+function jsonataTruthy(value: unknown): boolean {
+  return !(value === false || value == null || value === "" || value === 0);
+}
+
 /**
  * The declarative decision node (§4.3): picks the flow's branch among its
  * outgoing labeled edges. One runtime class per `node_templates` row, sources:
  *
- *  - `expression` — JSONata over the flow context; fully deterministic.
+ *  - `expression` — JSONata over the flow context; each choice carries its
+ *    own `condition`, every truthy condition picks its branch (legacy rows
+ *    may carry a single global `expression` instead).
  *  - `manual`     — the approval UI: the user picks a branch (choose action).
- *  - `agent`      — an agent classifies the flow state into one choice. The
- *    prompt is auto-built from the user's `question` + per-choice
- *    `description`s (not free-form); the agent runs in plan mode and must
- *    return {"choice": label, "rationale": …} — an invalid or ambiguous answer
- *    fails the node; the engine never silently picks a branch.
+ *  - `agent`      — the user's prompt (how to make the call) + the flow state
+ *    go to an agent in plan mode; the return format ({"choice","rationale"}
+ *    JSON) is appended automatically so the answer maps to a branch — an
+ *    invalid or ambiguous answer fails the node; the engine never silently
+ *    picks a branch.
  *
  * Oversight is the trigger type: with `trigger: approval` the (agent- or
  * expression-produced) pick is held at `awaiting_approval`, where the decision
  * card pre-selects it — one click to confirm (`approve_node`), or pick another
  * branch (`choose_node`). Pushback is the existing node chat.
  *
- * Output contract is fixed: `{chosen: string[], rationale?: string}`; each
- * outgoing edge activates exactly when its label ∈ chosen (engine behavior),
- * everything else resolves inactive → downstream skips.
+ * Output contract is `{chosen: string[], rationale?: string}` plus any
+ * `pass`-mapped variables; each outgoing edge activates exactly when its
+ * label ∈ chosen (engine behavior), everything else resolves inactive →
+ * downstream skips. Downstream nodes inherit the whole output as their run
+ * input (`{{input.<field>}}`), so pass mappings are how variables flow from
+ * the decision to further nodes.
  */
 export class DecisionTemplateNode extends NodeDefinition<Record<string, unknown>, Record<string, unknown>> {
   readonly key: string;
@@ -52,22 +64,22 @@ export class DecisionTemplateNode extends NodeDefinition<Record<string, unknown>
       key: "source", label: "Source", type: "select" as const,
       help: "How the branch is picked",
       options: [
-        { value: "expression", label: "expression — JSONata condition (deterministic)" },
-        { value: "manual", label: "manual — you pick a branch at run time" },
-        { value: "agent", label: "agent — classify the flow state (plan-mode agent)" },
+        { value: "manual", label: "Manual", description: "You pick the branch at run time in the decision card" },
+        { value: "expression", label: "Expression", description: "Each choice carries a JSONata condition — the truthy conditions pick their branches" },
+        { value: "agent", label: "Agent", description: "With your input and prompt, an agent determines which branch to run" },
       ],
     },
     {
-      key: "expression", label: "Expression (source=expression)", type: "text" as const,
-      help: "JSONata over the flow context; must evaluate to a choice label or a list of labels — e.g. nodes.review.output.comment_count > 0 ? ['fix'] : ['ship']",
-    },
-    {
-      key: "question", label: "Question (source=agent)", type: "text" as const,
-      help: "{{vars}} allowed — the agent prompt is auto-built from this plus the choice descriptions",
+      key: "question", label: "Prompt (how to make the decision)", type: "text" as const,
+      help: "Type @ to insert an upstream variable — the branch options and the JSON return format are appended automatically, so the agent's answer maps to a branch.",
     },
     {
       key: "choices", label: "Choices", type: "choices" as const,
-      help: "The branch labels — outgoing edges must carry a label that matches one of these; descriptions steer an agent classifier",
+      help: "The branch labels — outgoing edges must carry a label that matches one of these; descriptions steer an agent classifier, conditions pick branches for the expression source",
+    },
+    {
+      key: "pass", label: "Pass downstream (variables)", type: "map" as const,
+      help: "Variables every node attached to a branch receives as {{input.<field>}} — each row maps a field name to a JSONata expression over the flow context (chosen / rationale ride along automatically).",
     },
   ];
 
@@ -97,12 +109,14 @@ export class DecisionTemplateNode extends NodeDefinition<Record<string, unknown>
     return cfg.choices.map((c) => c.label);
   }
 
-  /** The engine's choose action validates + records a manual branch pick. */
-  applyChoice(node: NodeRow, flowId: string, chosen: string[], rationale?: string): void {
+  /** The engine's choose action validates + records a manual branch pick
+   *  (with the pass-down variables merged in when the flow ctx is given). */
+  async applyChoice(node: NodeRow, flowId: string, chosen: string[], rationale?: string, ctx?: FlowCtx): Promise<void> {
     this.validateChoice(chosen);
+    const passed = ctx ? await this.evalPass(this.def, buildFlowContext(ctx)) : {};
     this.support.setNode(node.id, {
       status: "approved",
-      output: JSON.stringify({ chosen, rationale: rationale ?? "chosen by the user" }),
+      output: JSON.stringify({ ...passed, chosen, rationale: rationale ?? "chosen by the user" }),
     });
     db.emitEvent(flowId, node.id, "lifecycle", `branch chosen: ${chosen.join(" + ")}`);
   }
@@ -126,23 +140,50 @@ export class DecisionTemplateNode extends NodeDefinition<Record<string, unknown>
     // the shared outcome path (status + output + event) like execute() does
     this.support.setNode(node.id, { status: "running", input: JSON.stringify(rawInput ?? {}) });
 
+    const flowCtx = buildFlowContext(ctx);
+    // the pass-down map is source-independent — evaluated once, merged into
+    // whichever outcome the pick produces
+    const passed = await this.evalPass(cfg, flowCtx);
+
     if (cfg.source === "manual") {
       // nothing to compute — hold and let the decision card collect the pick
-      return this.applyOutcome(ctx, this.awaiting("pick a branch in the decision card"));
+      return this.applyOutcome(ctx, this.awaiting("pick a branch in the decision card", passed));
     }
 
     if (cfg.source === "expression") {
-      if (!cfg.expression?.trim()) {
-        throw new Error(`${this.label}: no condition expression configured — set one in the template editor`);
+      // per-choice conditions: each choice's JSONata over the flow context —
+      // every truthy condition picks its branch (several may match)
+      const conditioned = cfg.choices.filter((c) => (c.condition ?? "").trim());
+      if (conditioned.length) {
+        const evaluated = await Promise.all(
+          conditioned.map(async (c) => ({
+            label: c.label,
+            r: await evalJsonata((c.condition ?? "").trim(), flowCtx),
+          })),
+        );
+        const failed = evaluated.find((e) => !e.r.ok);
+        if (failed) {
+          throw new Error(`${this.label}: the condition for "${failed.label}" failed — ${failed.r.error}`);
+        }
+        const chosen = evaluated.filter((e) => jsonataTruthy(e.r.value)).map((e) => e.label);
+        if (!chosen.length) {
+          throw new Error(
+            `${this.label}: no choice condition matched — every branch stayed inactive (${conditioned.map((c) => c.label).join(", ")})`);
+        }
+        return this.applyOutcome(ctx, this.applyPick(ctx, chosen, `conditions matched: ${chosen.join(", ")}`, passed));
       }
-      const r = await evalJsonata(cfg.expression, buildFlowContext(ctx));
+      // legacy rows: a single global expression instead of per-choice conditions
+      if (!cfg.expression?.trim()) {
+        throw new Error(`${this.label}: no condition configured — set a JSONata condition on the choices`);
+      }
+      const r = await evalJsonata(cfg.expression, flowCtx);
       if (!r.ok) throw new Error(`${this.label}: the condition failed — ${r.error}`);
       const chosen = this.normalizeChosen(r.value);
       if (!chosen.length) {
         throw new Error(
           `${this.label}: the condition selected no branch — return a valid choice label (${this.choiceLabels(cfg).join(", ")})`);
       }
-      return this.applyOutcome(ctx, this.applyPick(ctx, chosen, `expression match: ${JSON.stringify(r.value)}`));
+      return this.applyOutcome(ctx, this.applyPick(ctx, chosen, `expression match: ${JSON.stringify(r.value)}`, passed));
     }
 
     // agent classification — constrained structured output, plan mode (read-only).
@@ -152,7 +193,7 @@ export class DecisionTemplateNode extends NodeDefinition<Record<string, unknown>
     delete inherited.source;
     return this.execute(ctx, {
       input: { ...rawInput, source: "agent" },
-      prompt: this.buildAgentPrompt(cfg, { ...buildFlowContext(ctx), input: inherited }),
+      prompt: this.buildAgentPrompt(cfg, { ...flowCtx, input: inherited }),
       promptOverride: null,
       agent: {
         mode: "plan",
@@ -163,7 +204,7 @@ export class DecisionTemplateNode extends NodeDefinition<Record<string, unknown>
       label: `${this.label.toLowerCase()} decision`,
       finalize: async (runResult) => {
         const parsed = this.parseAgentChoice(cfg, runResult.result ?? "");
-        return this.applyPick(ctx, [parsed.choice], parsed.rationale);
+        return this.applyPick(ctx, [parsed.choice], parsed.rationale, passed);
       },
     });
   }
@@ -175,9 +216,9 @@ export class DecisionTemplateNode extends NodeDefinition<Record<string, unknown>
     let outcome: RunOutcome;
     if (cfg.source === "agent") {
       const parsed = this.parseAgentChoice(cfg, result.result ?? "");
-      outcome = this.applyPick(ctx, [parsed.choice], parsed.rationale);
+      outcome = this.applyPick(ctx, [parsed.choice], parsed.rationale, await this.evalPass(cfg, buildFlowContext(ctx)));
     } else if (cfg.source === "manual") {
-      outcome = this.awaiting("pick a branch in the decision card");
+      outcome = this.awaiting("pick a branch in the decision card", await this.evalPass(cfg, buildFlowContext(ctx)));
     } else {
       return false; // expression decisions run inline — nothing to recover from
     }
@@ -203,11 +244,11 @@ export class DecisionTemplateNode extends NodeDefinition<Record<string, unknown>
    * template instance's trigger is `approval` (agent proposes, user disposes)
    * — the same contract the agent node uses.
    */
-  private applyPick(ctx: FlowCtx, chosen: string[], rationale: string): RunOutcome {
+  private applyPick(ctx: FlowCtx, chosen: string[], rationale: string, passed: Record<string, unknown> = {}): RunOutcome {
     const hold = this.holdsForApproval(ctx);
     return {
       status: hold ? "awaiting_approval" : "done",
-      output: { chosen, rationale },
+      output: { ...passed, chosen, rationale },
       event: `${this.label} chose ${chosen.join(" + ")}${hold ? " — awaiting confirmation" : ""}`,
       eventData: { chosen, rationale },
       reply: `**${chosen.join(" + ")}**${rationale ? ` — ${rationale}` : ""}`,
@@ -215,10 +256,10 @@ export class DecisionTemplateNode extends NodeDefinition<Record<string, unknown>
   }
 
   /** The manual-source hold state: no pick until the user chooses. */
-  private awaiting(rationale: string): RunOutcome {
+  private awaiting(rationale: string, passed: Record<string, unknown> = {}): RunOutcome {
     return {
       status: "awaiting_approval",
-      output: { chosen: [], rationale },
+      output: { ...passed, chosen: [], rationale },
       event: `${this.label} is waiting for a branch choice`,
       eventData: { choices: this.choiceLabels() },
       reply: rationale,
@@ -226,24 +267,51 @@ export class DecisionTemplateNode extends NodeDefinition<Record<string, unknown>
   }
 
   /**
-   * Build the agent decision prompt: the user's question + per-choice
-   * descriptions (how the user steers the classifier) + the flow-state JSON +
-   * the strict response contract. `{{vars}}` in the question render via the
-   * agent node's variable interpolation.
+   * The pass-down map: field → JSONata over the flow context, evaluated at
+   * run time and merged into the node's output beside chosen / rationale —
+   * the inherited-input mechanism then hands every branch's downstream nodes
+   * the fields as `{{input.<field>}}`. A broken expression fails the node
+   * loudly (the engine never silently drops a mapping).
+   */
+  private async evalPass(cfg: DecisionDef, flowCtx: Record<string, unknown>): Promise<Record<string, unknown>> {
+    const entries = Object.entries(cfg.pass ?? {}).filter(
+      ([field, expr]) => field.trim() && typeof expr === "string" && expr.trim(),
+    );
+    if (!entries.length) return {};
+    const out: Record<string, unknown> = {};
+    for (const [field, expr] of entries) {
+      const r = await evalJsonata(expr.trim(), flowCtx);
+      if (!r.ok) {
+        throw new Error(`${this.label}: the pass variable "${field}" ("${expr.trim()}") failed — ${r.error}`);
+      }
+      if (r.value !== undefined) out[field.trim()] = r.value;
+    }
+    return out;
+  }
+
+  /**
+   * Build the agent decision prompt: the user's prompt (how to make the
+   * decision, `{{vars}}` interpolated via the agent node's interpolation) +
+   * the flow-state JSON + the branch list. The return format is appended
+   * automatically — the strict {"choice","rationale"} JSON is how the engine
+   * maps the answer back onto a branch (outgoing edge label).
    */
   private buildAgentPrompt(cfg: DecisionDef, vars: Record<string, unknown>): string {
     const choices = cfg.choices.map((c) => `- ${c.label}: ${c.description ?? ""}`.trim()).join("\n");
-    const question = renderAgentPrompt(cfg.question || "Choose the next step for this flow.", vars);
+    const prompt = renderAgentPrompt(cfg.question || "Choose the next step for this flow.", vars);
     return [
-      question,
+      `You are deciding the next branch for the "${this.label}" step of a workflow.`,
+      "",
+      "Decision instructions (how to choose):",
+      prompt,
       "",
       "Flow state (JSON):",
       JSON.stringify(vars, null, 2),
       "",
-      "Choose the next step. Options:",
+      "The branch you pick must be exactly one of these labels:",
       choices,
       "",
-      'Respond ONLY with a JSON object: {"choice": "<one of the labels above>", "rationale": "<1-2 sentences>"}.',
+      'Return format — respond ONLY with a JSON object: {"choice": "<one of the branch labels above>", "rationale": "<1-2 sentences explaining the pick>"}.',
       "Do not modify any files — this is a read-only judgment call.",
     ].join("\n");
   }

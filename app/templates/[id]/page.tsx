@@ -85,12 +85,13 @@ function startNodeInstance(): EditorNode {
  * Auto-connect rule: a newly placed node gets one `next` edge from the flow's
  * entry — the node no edge points at (the Start node) — so a palette pick
  * never strands an isolated node. Rewire on the canvas for chains/branches.
+ * `branchLabel` pre-labels the edge when the entry is a decision (branch wiring).
  */
-function connectNew(edges: EditorEdge[], nodes: EditorNode[], key: string): EditorEdge[] {
+function connectNew(edges: EditorEdge[], nodes: EditorNode[], key: string, branchLabel?: string | null): EditorEdge[] {
   const entryKey = nodes.find((n) => n.key !== key && !edges.some((e) => e.to === n.key))?.key ?? nodes[0]?.key;
   if (!entryKey || entryKey === key) return edges;
   if (edges.some((e) => e.from === entryKey && e.to === key)) return edges;
-  return [...edges, { from: entryKey, to: key, kind: "next", label: null, condition: null }];
+  return [...edges, { from: entryKey, to: key, kind: "next", label: branchLabel ?? null, condition: null }];
 }
 
 /** Default node_templates icon per declarative kind (lucide names the graph resolves). */
@@ -147,6 +148,13 @@ export default function TemplateEditorPage() {
   const [hook, setHook] = useState<{ id: string; secret: string; filter: string | null } | null>(null);
   const [tickets, setTickets] = useState<any[]>([]);
   const [repos, setRepos] = useState<any[]>([]);
+  /** decision node key → branch choices (label / description / condition) —
+   *  drives the canvas's labeled branch handles (attach-only wiring). The
+   *  instance override wins; otherwise the catalog def is fetched once. */
+  const [branchChoices, setBranchChoices] = useState<
+    Record<string, { label: string; description?: string; condition?: string }[]>
+  >({});
+  const choiceCache = useRef<Record<string, { label: string; description?: string; condition?: string }[] | null>>({});
   const builderApi = useRef<BuilderApi | null>(null);
 
   const templateId = (() => {
@@ -199,6 +207,51 @@ export default function TemplateEditorPage() {
     if (templateId) void load();
   }, [templateId, load]);
 
+  // decision branch choices per instance — the canvas's labeled branch handles.
+  // An instance override on config.choices wins; otherwise the catalog def is
+  // fetched once per (nodeTemplateId, config) pair.
+  useEffect(() => {
+    if (!draft) return;
+    let alive = true;
+    const next: Record<string, { label: string; description?: string; condition?: string }[]> = {};
+    const pending: { key: string; ck: string; url: string }[] = [];
+    for (const n of draft.nodes) {
+      if (n.kind !== "decision") continue;
+      const own = n.config?.choices;
+      if (Array.isArray(own) && own.some((c: any) => c?.label)) {
+        next[n.key] = own as { label: string; description?: string; condition?: string }[];
+        continue;
+      }
+      const cfgQ =
+        n.config && Object.keys(n.config).length ? JSON.stringify(n.config) : "";
+      const ck = `${n.nodeTemplateId}::${cfgQ}`;
+      const cached = choiceCache.current[ck];
+      if (cached) {
+        next[n.key] = cached;
+        continue;
+      }
+      pending.push({
+        key: n.key,
+        ck,
+        url: `/api/contracts?def=${encodeURIComponent(n.nodeTemplateId)}${cfgQ ? `&config=${encodeURIComponent(cfgQ)}` : ""}`,
+      });
+    }
+    setBranchChoices(next);
+    for (const p of pending) {
+      fetch(p.url)
+        .then((r) => r.json())
+        .then((c: NodeContract) => {
+          const choices = (c as any)?.choices ?? [];
+          choiceCache.current[p.ck] = choices;
+          if (alive) setBranchChoices((cur) => ({ ...cur, [p.key]: choices }));
+        })
+        .catch(() => {});
+    }
+    return () => {
+      alive = false;
+    };
+  }, [draft]);
+
   useEffect(() => {
     // binding pickers: tickets come from Jira sync, repos from the Settings page
     fetch("/api/tickets").then((r) => r.json()).then((d) => setTickets(d?.tickets ?? [])).catch(() => {});
@@ -236,17 +289,64 @@ export default function TemplateEditorPage() {
     setEdgeDrawer(null);
   };
 
-  /** A new edge from the canvas — defaults applied, drawer opens to finish it. */
-  const addEdge = (from: string, to: string) => {
+  /** A new edge from the canvas. From a decision node's branch handle the
+   *  edge arrives pre-labeled with that branch — attach-only wiring, no edge
+   *  editing (the drawer stays closed); any other connect opens the drawer to
+   *  finish it, and decision sources still auto-pick a free branch label. */
+  const addEdge = (from: string, to: string, branchLabel?: string | null) => {
     if (!draft) return;
-    const exists = draft.edges.some((e) => e.from === from && e.to === to && !e.label);
+    const exists = draft.edges.some(
+      (e) => e.from === from && e.to === to && (!e.label || e.label === branchLabel),
+    );
     if (exists) {
       setNotice(`Nodes are already connected (${from} → ${to}).`);
       return;
     }
-    const index = draft.edges.length;
-    apply({ ...draft, edges: [...draft.edges, { from, to, kind: "next", label: null, condition: null }] });
-    setEdgeDrawer(index);
+    const nextEdges: EditorEdge[] = [
+      ...draft.edges,
+      { from, to, kind: "next", label: branchLabel ?? null, condition: null },
+    ];
+    apply({ ...draft, edges: nextEdges });
+    if (!branchLabel) {
+      setEdgeDrawer(nextEdges.length - 1);
+      autoLabelDecisionEdge(from, to, nextEdges);
+    }
+  };
+
+  /** Decision branches: fetch the decision's choices and label the new edge
+   *  with the first choice no sibling edge uses yet — the outgoing edges then
+   *  read as the branches they carry. Silent on failure (label stays editable
+   *  in the edge drawer). */
+  const autoLabelDecisionEdge = (from: string, to: string, edges: EditorEdge[]) => {
+    const src = draft?.nodes.find((n) => n.key === from);
+    if (src?.kind !== "decision") return;
+    const cfg =
+      src.config && Object.keys(src.config).length
+        ? `&config=${encodeURIComponent(JSON.stringify(src.config))}`
+        : "";
+    fetch(`/api/contracts?def=${encodeURIComponent(src.nodeTemplateId)}${cfg}`)
+      .then((r) => r.json())
+      .then((c: NodeContract & { choices?: { label: string }[] }) => {
+        const choices = c?.choices ?? [];
+        if (!choices.length) return;
+        const used = new Set(
+          edges.filter((e) => e.from === from && e.label).map((e) => e.label as string),
+        );
+        const label = choices.find((ch) => !used.has(ch.label))?.label;
+        if (!label) return;
+        setDraft((cur) =>
+          cur
+            ? {
+                ...cur,
+                edges: cur.edges.map((e) =>
+                  e.from === from && e.to === to && !e.label ? { ...e, label } : e,
+                ),
+              }
+            : cur,
+        );
+        setDirty(true);
+      })
+      .catch(() => {});
   };
 
   // position drag sync: persist x/y via the positions-only PATCH (debounced),
@@ -279,6 +379,18 @@ export default function TemplateEditorPage() {
     if (!draft) return null;
     const key = uniqueKey(opts.name || "node", draft.nodes);
     placeNewNode(key);
+    // auto-connect from the flow's entry; when the entry is a decision node
+    // the edge carries the next unused branch label (pre-wired branch)
+    const entryKey = draft.nodes.find(
+      (n) => n.key !== key && !draft.edges.some((e) => e.to === n.key),
+    )?.key ?? draft.nodes[0]?.key;
+    const entryChoices = entryKey ? branchChoices[entryKey] : undefined;
+    const entryBranch =
+      entryKey && draft.nodes.find((n) => n.key === entryKey)?.kind === "decision" && entryChoices?.length
+        ? (entryChoices.find(
+            (c) => !draft.edges.some((e) => e.from === entryKey && e.label === c.label),
+          )?.label ?? null)
+        : null;
     apply({
       ...draft,
       nodes: [...draft.nodes, {
@@ -295,7 +407,7 @@ export default function TemplateEditorPage() {
         catalog_name: opts.name,
         is_builtin: opts.isBuiltin,
       }],
-      edges: connectNew(draft.edges, draft.nodes, key),
+      edges: connectNew(draft.edges, draft.nodes, key, entryBranch),
     });
     setNodeDrawer(key);
     return key;
@@ -465,6 +577,7 @@ export default function TemplateEditorPage() {
             selectedNodeKey={nodeDrawer}
             selectedEdgeIndex={edgeDrawer}
             readonly={readonly}
+            branchChoices={branchChoices}
             onNodeOpen={(key) => {
               setEdgeDrawer(null);
               setNodeDrawer(key);

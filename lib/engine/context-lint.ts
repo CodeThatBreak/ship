@@ -70,8 +70,13 @@ export function outputFieldsFor(kind: string, config: unknown): string[] | null 
         return schema.properties ? Object.keys(schema.properties) : null; // null = any field
       }
       return ["markdown"];
-    case "decision":
-      return ["chosen", "rationale"];
+    case "decision": {
+      const passFields =
+        cfg.pass && typeof cfg.pass === "object" && !Array.isArray(cfg.pass)
+          ? Object.keys(cfg.pass as Record<string, unknown>).filter((k) => k.trim())
+          : [];
+      return ["chosen", "rationale", ...passFields];
+    }
     case "http":
       return null; // response_map may reshape — any field passes statically
     case "script":
@@ -167,12 +172,29 @@ export function lintTemplate(
           lintRef(`node "${n.key}" config.prompt`, ref, { problems, byKey, contractOfKey, addressesOutput, inHttp: false, inheritedFields });
         }
       }
-      // decision expressions compile
+      // decision definitions: the pass-down map compiles (any source); the
+      // per-choice conditions and the legacy single expression when source=expression
       if (nt.kind === "decision") {
         const cfg = merge(n.config, nt.config);
-        if (typeof cfg.source === "string" && cfg.source === "expression" && typeof cfg.expression === "string" && cfg.expression.trim()) {
-          const err = lintJsonata(cfg.expression);
-          if (err) problems.push(`node "${n.key}" decision expression: ${err}`);
+        if (cfg.pass && typeof cfg.pass === "object" && !Array.isArray(cfg.pass)) {
+          for (const [field, expr] of Object.entries(cfg.pass as Record<string, unknown>)) {
+            if (typeof expr !== "string" || !expr.trim() || !field.trim()) continue;
+            const err = lintJsonata(expr);
+            if (err) problems.push(`node "${n.key}" pass variable "${field}": ${err}`);
+          }
+        }
+        if (typeof cfg.source === "string" && cfg.source === "expression") {
+          if (typeof cfg.expression === "string" && cfg.expression.trim()) {
+            const err = lintJsonata(cfg.expression);
+            if (err) problems.push(`node "${n.key}" decision expression: ${err}`);
+          }
+          if (Array.isArray(cfg.choices)) {
+            for (const c of cfg.choices as { label?: unknown; condition?: unknown }[]) {
+              if (!c || typeof c !== "object" || typeof c.condition !== "string" || !c.condition.trim()) continue;
+              const err = lintJsonata(c.condition);
+              if (err) problems.push(`node "${n.key}" choice "${String(c.label ?? "?")}" condition: ${err}`);
+            }
+          }
         }
       }
       // http response_map compiles
@@ -237,8 +259,8 @@ function lintRef(where: string, ref: string, ctx: LintCtx): void {
       return;
     }
     const contract = ctx.contractOfKey.get(nodeKey);
-    if (contract?.kind === "decision" && segments[2] === "output" && !["chosen", "rationale"].includes(segments[3])) {
-      ctx.problems.push(`${where}: node "${nodeKey}" (decision) publishes chosen / rationale, not "${segments[3] ?? ""}"`);
+    if (contract?.kind === "decision" && segments[2] === "output" && contract.fields != null && !contract.fields.includes(segments[3])) {
+      ctx.problems.push(`${where}: node "${nodeKey}" (decision) publishes ${contract.fields.join(" / ")}, not "${segments[3] ?? ""}"`);
       return;
     }
     ctx.addressesOutput(ref, (field) => ctx.problems.push(

@@ -1190,7 +1190,7 @@ export class FlowEngine {
    * choices, marks the node approved with `{chosen, rationale}` output, and
    * activates the chosen outgoing edges (everything else resolves inactive).
    */
-  chooseNode(flowId: string, nodeKey: string, chosen: string[], rationale?: string): void {
+  async chooseNode(flowId: string, nodeKey: string, chosen: string[], rationale?: string): Promise<void> {
     const node = rows.get(NodeRow, `SELECT * FROM nodes WHERE flow_id=? AND node_key=?`, flowId, nodeKey);
     if (!node) throw new Error("unknown node");
     if (node.status !== "awaiting_approval") {
@@ -1201,8 +1201,8 @@ export class FlowEngine {
       throw new Error(`${nodeKey} is not a decision node`);
     }
     if (!Array.isArray(chosen) || !chosen.length) throw new Error("pick at least one branch");
-    (def as { applyChoice: (n: NodeRow, f: string, c: string[], r?: string) => void })
-      .applyChoice(node, flowId, chosen.map((c) => String(c)), rationale?.trim() || undefined);
+    await (def as { applyChoice: (n: NodeRow, f: string, c: string[], r?: string, ctx?: FlowCtx) => Promise<void> })
+      .applyChoice(node, flowId, chosen.map((c) => String(c)), rationale?.trim() || undefined, this.ctx(flowId));
 
     // release downstream exactly like a generic approval does
     const g = this.graph(flowId);

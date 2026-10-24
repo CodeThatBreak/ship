@@ -117,10 +117,7 @@ function declarativeOutputContract(kind: string, def: Record<string, unknown>): 
     case "decision":
       return {
         type: "object",
-        properties: {
-          chosen: { type: "array", items: { type: "string" }, description: "The picked branch labels" },
-          rationale: { type: "string" },
-        },
+        properties: decisionOutputProperties(def),
         required: ["chosen"],
       };
     case "http":
@@ -144,11 +141,34 @@ function declarativeOutputContract(kind: string, def: Record<string, unknown>): 
 }
 
 /** A decision node's choices for the configurator / decision card. */
-function decisionChoices(def: Record<string, unknown>): { label: string; description?: string }[] {
+function decisionChoices(def: Record<string, unknown>): { label: string; description?: string; condition?: string }[] {
   const choices = def.choices;
   if (!Array.isArray(choices)) return [];
   return choices
-    .filter((c): c is { label: string; description?: string } =>
+    .filter((c): c is { label: string; description?: string; condition?: string } =>
       !!c && typeof c === "object" && typeof (c as { label?: unknown }).label === "string")
-    .map((c) => ({ label: c.label, description: typeof c.description === "string" ? c.description : undefined }));
+    .map((c) => ({
+      label: c.label,
+      description: typeof c.description === "string" ? c.description : undefined,
+      condition: typeof c.condition === "string" ? c.condition : undefined,
+    }));
+}
+
+/** The decision's published output fields: chosen / rationale + the pass-down
+ *  variables (each maps a field name → a JSONata expression over the flow
+ *  context). Downstream nodes' variable chips read from this. */
+function decisionOutputProperties(def: Record<string, unknown>): Record<string, unknown> {
+  const props: Record<string, unknown> = {
+    chosen: { type: "array", items: { type: "string" }, description: "The picked branch labels" },
+    rationale: { type: "string" },
+  };
+  const pass = def.pass;
+  if (pass && typeof pass === "object" && !Array.isArray(pass)) {
+    for (const [field, expr] of Object.entries(pass as Record<string, unknown>)) {
+      if (field.trim() && typeof expr === "string" && expr.trim()) {
+        props[field.trim()] = { description: `passed downstream — ${expr.trim()}` };
+      }
+    }
+  }
+  return props;
 }
