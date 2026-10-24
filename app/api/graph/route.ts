@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { nodeRegistry } from "../../../lib/engine/nodes/registry";
 import { FlowRow, rows, type NodeTemplateRow } from "../../../lib/db/rows";
 import { SDLC_TEMPLATE_ID, templateStore } from "../../../lib/engine/templates";
+import { outputFieldsFor } from "../../../lib/engine/context-lint";
 
 export const dynamic = "force-dynamic";
 
@@ -29,6 +30,7 @@ export async function GET(req: Request) {
       order: g.nodes.map((n) => n.key),
       meta: Object.fromEntries(g.nodes.map((n) => {
         const nt = nts.get(n.nodeTemplateId) as NodeTemplateRow | undefined;
+        const catalogConfig = (nt?.config ?? {}) as Record<string, unknown>;
         return [n.key, {
           label: n.label,
           kind: nt?.kind ?? null,
@@ -36,9 +38,14 @@ export async function GET(req: Request) {
           name: nt?.name ?? n.label,
           trigger: n.trigger,
           join_mode: n.joinMode,
+          // the variables this node publishes downstream (the friendly
+          // mapping universe for the next node's inputs)
+          outputs: outputFieldsFor(nt?.kind ?? "builtin", { ...catalogConfig, ...(n.config ?? {}) }),
         }];
       })),
       edges: g.edges.map((e) => [e.from, e.to, e.kind] as const),
+      // full edge specs (label/condition) for branch rendering in the graph
+      edgeSpecs: g.edges.map((e) => ({ from: e.from, to: e.to, kind: e.kind, label: e.label, condition: e.condition })),
     });
   }
   return NextResponse.json({

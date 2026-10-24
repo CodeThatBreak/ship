@@ -5,16 +5,21 @@ import {
   rows,
   type TemplateNodeTrigger,
 } from "../db/rows";
+import { parseDeclarativeConfig } from "./nodes/declarative-schemas";
+import { catalogForNodeTemplateIds, lintTemplate } from "./context-lint";
+import { hookStore } from "./hooks";
 
 /** Seeded built-in template — the SDLC loop (plan → build → pipeline → review → resolve). */
 export const SDLC_TEMPLATE_ID = "tpl_sdlc_loop";
 
-/** Flow-level trigger types (webhook/schedule wiring arrives with Phase 4). */
+/** Flow-level trigger types. */
 export const FLOW_TRIGGER_TYPES = ["manual", "webhook", "schedule"] as const;
 /** Per-node trigger types (debounced + wait_for wiring is engine-supported). */
 export const NODE_TRIGGER_TYPES = ["auto", "manual", "approval", "debounced"] as const;
-/** wait_for event sources supported by the engine today. */
-export const WAIT_FOR_SOURCES = ["gitlab_pipeline", "gitlab_comments"] as const;
+/** wait_for event sources supported by the engine. webhook + timer resume via
+ * the generic hook route / poller timers (Phase 4B); the gitlab sources are
+ * the built-in gate + comment waits. */
+export const WAIT_FOR_SOURCES = ["gitlab_pipeline", "gitlab_comments", "webhook", "timer"] as const;
 
 const KINDED_NODE_TEMPLATE_KINDS = ["agent", "http", "script", "decision"] as const;
 export type DeclarativeNodeKind = (typeof KINDED_NODE_TEMPLATE_KINDS)[number];
@@ -70,6 +75,9 @@ export interface TemplateNodeSpec {
   trigger: TemplateNodeTrigger;
   /** per-field JSONata expressions (Phase 3 — carried but unevaluated in Phase 1) */
   inputMap: Record<string, unknown>;
+  /** graph editor positions (Phase 5) — null = let the editor auto-layout */
+  x?: number | null;
+  y?: number | null;
 }
 
 export interface TemplateEdgeSpec {
@@ -114,10 +122,11 @@ export interface TemplateNodeMeta {
  * edges) and resolves the runtime roles the engine needs from that graph
  * instead of node-key constants.
  *
- * Phase 1: templates were seeded only. Phase 2 adds the full CRUD surface the
+ * Phase 1: templates were seeded only. Phase 2 added the full CRUD surface the
  * UI builder and YAML import/export drive — create/duplicate/update/delete
  * (meta + node instances + edges), plus declarative node-template CRUD
- * (kind=agent; http/script/decision arrive with Phase 3).
+ * (kind=agent). Phase 3 adds the decision / http / script kinds, static
+ * template linting (§5), and decision-edge label validation at save time.
  */
 export class TemplateStore {
   /** Load a template's graph, or null when the template does not exist. */
@@ -128,7 +137,7 @@ export class TemplateStore {
     if (!tpl) return null;
 
     const nodes = db.all<Record<string, unknown>>(
-      `SELECT n.id, n.node_key, n.node_template_id, n.label, n.trigger, n.join_mode, n.config, n.input_map,
+      `SELECT n.id, n.node_key, n.node_template_id, n.label, n.trigger, n.join_mode, n.config, n.input_map, n.x, n.y,
               nt.key AS def_key, nt.id AS nt_id, nt.kind AS nt_kind, nt.icon AS nt_icon,
               nt.name AS nt_name, nt.is_builtin AS nt_builtin
        FROM flow_template_nodes n JOIN node_templates nt ON nt.id = n.node_template_id
@@ -148,13 +157,15 @@ export class TemplateStore {
         config: TemplateStore.parseJson<Record<string, unknown>>(r.config as string, {}),
         trigger: TemplateStore.parseTrigger(TemplateStore.parseJson<Record<string, unknown>>(r.trigger as string, {})),
         inputMap: TemplateStore.parseJson<Record<string, unknown>>(r.input_map as string, {}),
+        x: typeof r.x === "number" ? r.x : null,
+        y: typeof r.y === "number" ? r.y : null,
       };
       return spec;
     });
 
     const edges = db.all<Record<string, unknown>>(
       `SELECT from_key, to_key, kind, label, condition
-       FROM flow_template_edges WHERE template_id=?`,
+       FROM flow_template_edges WHERE template_id=? ORDER BY rowid`,
       templateId
     ).map((r) => ({
       from: r.from_key as string,
@@ -263,6 +274,7 @@ export class TemplateStore {
       1, opts.isBuiltin ? 1 : 0, JSON.stringify(trigger), ts, ts
     );
     this.writeNodesAndEdges(id, nodes, edges);
+    TemplateStore.syncTriggers(id, trigger);
     return id;
   }
 
@@ -284,6 +296,8 @@ export class TemplateStore {
         join_mode: n.joinMode,
         config: n.config,
         input_map: n.inputMap,
+        x: n.x ?? null,
+        y: n.y ?? null,
       })),
       edges: graph.edges.map((e) => ({ from: e.from, to: e.to, kind: e.kind, label: e.label, condition: e.condition })),
     });
@@ -317,6 +331,11 @@ export class TemplateStore {
     } else if (patch.nodes !== undefined || patch.edges !== undefined) {
       throw new Error("nodes and edges must be replaced together");
     }
+    // webhook/schedule triggers: sync the inbound hook + the schedule timer
+    // whenever the flow trigger was touched
+    if (patch.trigger !== undefined) {
+      TemplateStore.syncTriggers(templateId, TemplateStore.flowTrigger(patch.trigger));
+    }
   }
 
   /** Delete a template (built-ins are protected; in-use templates are locked). */
@@ -327,6 +346,7 @@ export class TemplateStore {
     if (used > 0) {
       throw new Error(`this template is used by ${used} flow${used > 1 ? "s" : ""} — delete the flows first`);
     }
+    hookStore.removeTemplate(templateId);
     db.run(`DELETE FROM flow_template_nodes WHERE template_id=?`, templateId);
     db.run(`DELETE FROM flow_template_edges WHERE template_id=?`, templateId);
     db.run(`DELETE FROM flow_templates WHERE id=?`, templateId);
@@ -349,6 +369,31 @@ export class TemplateStore {
     }
   }
 
+  /**
+   * Position-only update (Phase 5 visual builder): drag re-layout syncs x/y
+   * without touching the graph. Positions are display metadata — no validated()
+   * walk, no assertNotRunning (a running flow snapshotted already); editing the
+   * arrangement while a flow runs cannot change what that flow does.
+   */
+  updatePositions(templateId: string, positions: Record<string, { x: number; y: number }>): void {
+    if (!this.flowTemplate(templateId)) throw new Error("template not found");
+    this.assertEditable(templateId);
+    const entries = Object.entries(positions).filter(
+      (kv) => kv[0] && Number.isFinite(kv[1]?.x) && Number.isFinite(kv[1]?.y),
+    );
+    if (!entries.length) return;
+    const known = db.all<{ node_key: string }>(
+      `SELECT node_key FROM flow_template_nodes WHERE template_id=?`, templateId);
+    const keys = new Set(known.map((k) => k.node_key));
+    const ts = db.now();
+    for (const [key, pos] of entries) {
+      if (!keys.has(key)) continue; // don't create rows for stray keys
+      db.run(`UPDATE flow_template_nodes SET x=?, y=?, updated_at=? WHERE template_id=? AND node_key=?`,
+        pos.x, pos.y, ts, templateId, key);
+    }
+    db.run(`UPDATE flow_templates SET updated_at=? WHERE id=?`, ts, templateId);
+  }
+
   // ── node-template (catalog) CRUD ──────────────────────────────────────────
 
   /** The node-type catalog, grouped for the configurator palette. */
@@ -364,10 +409,7 @@ export class TemplateStore {
     return rows.get(NodeTemplateRow, `SELECT * FROM node_templates WHERE key=?`, key);
   }
 
-  /**
-   * Create a declarative (user-defined) node template. Phase 2 supports the
-   * `agent` kind; `http`/`script`/`decision` arrive with Phase 3.
-   */
+  /** Create a declarative (user-defined) node template (agent / decision / http / script). */
   createNodeTemplate(input: {
     key?: string; name: string; kind: string; icon?: string | null;
     description?: string | null; config: Record<string, unknown>;
@@ -375,9 +417,6 @@ export class TemplateStore {
     const kind = (input.kind ?? "").trim();
     if (!(KINDED_NODE_TEMPLATE_KINDS as readonly string[]).includes(kind)) {
       throw new Error(`unsupported node kind "${kind}" — declarative kinds: ${KINDED_NODE_TEMPLATE_KINDS.join(", ")}`);
-    }
-    if (kind !== "agent") {
-      throw new Error(`the "${kind}" node kind ships with Phase 3 — not yet creatable`);
     }
     const name = input.name.trim();
     if (!name) throw new Error("name is required");
@@ -391,13 +430,15 @@ export class TemplateStore {
       `SELECT key FROM node_templates WHERE key=? AND is_builtin=1`, key
     );
     if (builtinKey) throw new Error(`"${key}" is a built-in node key — pick another name`);
+    // validate the declarative definition up front (same schema the runtime hydrates)
+    const config = parseDeclarativeConfig(kind, input.config ?? {}, name);
     const id = db.uid("nt_");
     const ts = db.now();
     db.run(
       `INSERT INTO node_templates (id,key,name,kind,version,description,icon,config,is_builtin,created_at,updated_at)
        VALUES (?,?,?,?,1,?,?,?,0,?,?)`,
       id, key, name, kind, input.description ?? null, input.icon ?? null,
-      JSON.stringify(input.config ?? {}), ts, ts
+      JSON.stringify(config), ts, ts
     );
     return this.nodeTemplate(id)!;
   }
@@ -409,12 +450,15 @@ export class TemplateStore {
     const row = this.nodeTemplate(id);
     if (!row) throw new Error("node template not found");
     if (row.is_builtin) throw new Error("built-in node templates are read-only");
+    const config = patch.config !== undefined
+      ? JSON.stringify(parseDeclarativeConfig(row.kind, patch.config, patch.name?.trim() || row.name))
+      : JSON.stringify(row.config);
     db.run(
       `UPDATE node_templates SET name=?, description=?, icon=?, config=?, updated_at=? WHERE id=?`,
       patch.name?.trim() || row.name,
       patch.description !== undefined ? patch.description : row.description,
       patch.icon !== undefined ? patch.icon : row.icon,
-      patch.config !== undefined ? JSON.stringify(patch.config) : JSON.stringify(row.config),
+      config,
       db.now(), id
     );
     return this.nodeTemplate(id)!;
@@ -432,19 +476,18 @@ export class TemplateStore {
     if (!(KINDED_NODE_TEMPLATE_KINDS as readonly string[]).includes(kind)) {
       throw new Error(`unsupported node kind "${kind}"`);
     }
-    if (kind !== "agent") {
-      throw new Error(`the "${kind}" node kind ships with Phase 3 — update the template before importing`);
-    }
     const name = input.name.trim();
     if (!name) throw new Error("name is required");
     const key = TemplateStore.slugify(input.key?.trim() || name);
     if (db.get<{ key: string }>(`SELECT key FROM node_templates WHERE key=? AND is_builtin=1`, key)) {
       throw new Error(`"${key}" is a built-in node key — pick another name`);
     }
+    // normalize the config once so "identical" comparisons compare parsed forms
+    const normalized = parseDeclarativeConfig(kind, input.config ?? {}, name);
     const candidates = rows.all(NodeTemplateRow,
       `SELECT * FROM node_templates WHERE key=? AND is_builtin=0`, key);
     const identical = candidates.find(
-      (r) => r.kind === kind && JSON.stringify(r.config ?? {}) === JSON.stringify(input.config ?? {})
+      (r) => r.kind === kind && JSON.stringify(r.config ?? {}) === JSON.stringify(normalized)
     );
     if (identical) return identical.id;
     const version = candidates.reduce((m, r) => Math.max(m, r.version), 0) + 1;
@@ -454,7 +497,7 @@ export class TemplateStore {
       `INSERT INTO node_templates (id,key,name,kind,version,description,icon,config,is_builtin,created_at,updated_at)
        VALUES (?,?,?,?,?,?,?,?,0,?,?)`,
       id, key, name, kind, version, null, input.icon ?? null,
-      JSON.stringify(input.config ?? {}), ts, ts
+      JSON.stringify(normalized), ts, ts
     );
     return id;
   }
@@ -509,6 +552,41 @@ export class TemplateStore {
       seen.add(dedupe);
       edges.push({ from: e.from, to: e.to, kind, label, condition: e.condition?.trim() || null });
     }
+    // decision-source edges: every out-edge of a decision needs a label, and
+    // every label must be one of the decision's choices (§4.3)
+    for (const n of input.nodes) {
+      const nt = this.nodeTemplate(n.nodeTemplateId)!;
+      if (nt.kind !== "decision") continue;
+      const cfg = parseDeclarativeConfig("decision", { ...(nt.config ?? {}), ...(n.config ?? {}) }, n.key) as {
+        choices?: { label: string }[];
+      };
+      const choices = new Set((cfg.choices ?? []).map((c) => c.label));
+      const outEdges = edges.filter((e) => e.from === n.key && e.kind === "next");
+      if (!outEdges.length) throw new Error(`decision node "${n.key}" needs at least one outgoing edge`);
+      for (const e of outEdges) {
+        if (!e.label) throw new Error(`edge ${e.from} → ${e.to} out of decision "${n.key}" needs a branch label`);
+        if (!choices.has(e.label)) {
+          throw new Error(`edge ${e.from} → ${e.to} label "${e.label}" is not one of decision "${n.key}"'s choices (${[...choices].join(", ")})`);
+        }
+      }
+    }
+    // build-time static checks (§5): {{refs}} resolve against upstream
+    // contracts, JSONata compiles in input_map / decision expressions /
+    // response_map / edge conditions
+    const lint = lintTemplate(
+      input.nodes.map((n) => ({
+        key: n.key.trim(),
+        nodeTemplateId: n.nodeTemplateId,
+        inputMap: (n.input_map ?? {}) as Record<string, unknown>,
+        config: (n.config ?? {}) as Record<string, unknown>,
+      })),
+      edges.map((e) => ({
+        from: e.from, to: e.to, kind: e.kind ?? "next",
+        label: e.label ?? null, condition: e.condition ?? null,
+      })),
+      catalogForNodeTemplateIds(input.nodes.map((n) => n.nodeTemplateId)),
+    );
+    if (lint) throw new Error(lint);
     return { trigger: TemplateStore.flowTrigger(input.trigger), nodes: input.nodes, edges };
   }
 
@@ -545,13 +623,44 @@ export class TemplateStore {
     db.run(`UPDATE flow_templates SET updated_at=? WHERE id=?`, ts, templateId);
   }
 
+  /**
+   * Flow-trigger side effects (Phase 4): the inbound hook endpoint for a
+   * `webhook` trigger (provision/filter-sync/remove) and the schedule timer
+   * for a `schedule` trigger (`schedule_next_at`, armed on first save and
+   * never reset while the trigger stays schedule — the poller bumps it after
+   * every fire). Callers pass the normalized trigger.
+   */
+  private static syncTriggers(templateId: string, trigger: Record<string, unknown>): void {
+    hookStore.syncTemplate(templateId);
+    if (trigger.type === "schedule") {
+      const intervalMin = typeof trigger.interval_min === "number" && trigger.interval_min > 0
+        ? trigger.interval_min : 60;
+      const cur = db.get<{ schedule_next_at: string | null }>(
+        `SELECT schedule_next_at FROM flow_templates WHERE id=?`, templateId);
+      if (cur && !cur.schedule_next_at) {
+        db.run(`UPDATE flow_templates SET schedule_next_at=? WHERE id=?`,
+          new Date(Date.now() + intervalMin * 60_000).toISOString(), templateId);
+      }
+    } else {
+      db.run(`UPDATE flow_templates SET schedule_next_at=NULL WHERE id=?`, templateId);
+    }
+  }
+
   private static flowTrigger(o: unknown): Record<string, unknown> {
     const rec = (o && typeof o === "object" ? o : {}) as Record<string, unknown>;
     const type = typeof rec.type === "string" && (FLOW_TRIGGER_TYPES as readonly string[]).includes(rec.type)
       ? rec.type : "manual";
     const out: Record<string, unknown> = { type };
-    if (type === "schedule" && typeof rec.interval_min === "number") out.interval_min = rec.interval_min;
+    if (type === "schedule") {
+      if (typeof rec.interval_min === "number" && rec.interval_min > 0) out.interval_min = rec.interval_min;
+    }
     if (type === "webhook" && typeof rec.filter === "string") out.filter = rec.filter;
+    // webhook/schedule auto-create flows — the template binds which ticket and
+    // repo those flows attach to (flows require both)
+    if (type === "webhook" || type === "schedule") {
+      if (typeof rec.ticket_id === "string" && rec.ticket_id.trim()) out.ticket_id = rec.ticket_id.trim();
+      if (typeof rec.repo_id === "string" && rec.repo_id.trim()) out.repo_id = rec.repo_id.trim();
+    }
     return out;
   }
 
@@ -560,7 +669,8 @@ export class TemplateStore {
     const type = typeof rec.type === "string" && (NODE_TRIGGER_TYPES as readonly string[]).includes(rec.type)
       ? rec.type : "auto";
     const out: TemplateNodeTrigger = { type };
-    if (type === "debounced" && typeof rec.minutes === "number" && rec.minutes >= 0) out.minutes = rec.minutes;
+    // minutes: the debounced quiet period, or the timer wait for wait_for: timer
+    if (typeof rec.minutes === "number" && rec.minutes >= 0) out.minutes = rec.minutes;
     if (typeof rec.wait_for === "string" && (WAIT_FOR_SOURCES as readonly string[]).includes(rec.wait_for)) {
       out.wait_for = rec.wait_for;
     }

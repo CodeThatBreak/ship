@@ -1,0 +1,33 @@
+# Release notes + notify — a Phase 5 starter (also seeded as a built-in template).
+# agent (markdown out) → decision (manual pick) → http ({{secrets.*}} at run time).
+# Set the secrets.SLACK_WEBHOOK settings key (Settings → Custom nodes) before
+# running the notify node. The "drop" choice resolves the notify branch inactive.
+name: Release notes + notify
+trigger:
+  type: manual
+nodes:
+  - key: release_notes
+    type: agent
+    trigger: {type: auto}
+    config:
+      mode: plan
+      output: markdown
+      prompt: "Draft release notes for ticket {{ticket.key}} ({{ticket.summary}}).\nLead with user impact, then notable behavior changes and migrations. Under 200 words."
+  - key: ship_decision
+    type: decision
+    trigger: {type: auto}
+    config:
+      source: manual
+      choices:
+        - {label: send, description: "Good enough — notify the webhook"}
+        - {label: drop, description: "Not ready — skip the notify"}
+  - key: notify
+    type: http
+    trigger: {type: auto}
+    config:
+      url: "{{secrets.SLACK_WEBHOOK}}"
+      method: POST
+      body: "Release notes:\n\n{{nodes.release_notes.output.markdown}}"
+edges:
+  - [release_notes, ship_decision]
+  - [ship_decision, notify, {label: send}]

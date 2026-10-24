@@ -1,0 +1,82 @@
+import jsonata from "jsonata";
+
+/**
+ * JSONata evaluation for the declarative surface (§5): edge `condition`s,
+ * decision `expression`s, per-field `input_map` expressions, and http
+ * `response_map`s. Expressions are compiled once and cached by text.
+ *
+ * jsonata v2's `evaluate()` is async (returns a Promise) even without async
+ * bindings — every evaluator here is therefore awaited by its caller.
+ */
+
+type CompiledOk = { ast: jsonata.Expression };
+type CompiledErr = { error: string };
+const cache = new Map<string, CompiledOk | CompiledErr>();
+
+function compiled(expr: string): CompiledOk | CompiledErr {
+  const cached = cache.get(expr);
+  if (cached) return cached;
+  let out: CompiledOk | CompiledErr;
+  try {
+    const ast = jsonata(expr) as jsonata.Expression;
+    out = { ast };
+  } catch (e: unknown) {
+    out = { error: e instanceof Error ? e.message : String(e) };
+  }
+  if (cache.size > 200) cache.clear();
+  cache.set(expr, out);
+  return out;
+}
+
+export interface EvalResult {
+  ok: boolean;
+  value?: unknown;
+  error?: string;
+}
+
+/**
+ * Evaluate `expr` against `context`. JSONata returns `undefined` for no match,
+ * which arrives as a missing `value` with `ok: true`.
+ */
+export async function evalJsonata(expr: string, context: unknown): Promise<EvalResult> {
+  const c = compiled(expr);
+  if ("error" in c) return { ok: false, error: `invalid expression: ${c.error}` };
+  try {
+    const value = await c.ast.evaluate(context);
+    return { ok: true, value };
+  } catch (e: unknown) {
+    return { ok: false, error: e instanceof Error ? e.message : String(e) };
+  }
+}
+
+/** JS-style truthiness (§3: an edge condition absent or truthy ⇒ edge active). */
+export function jsonataTruthy(value: unknown): boolean {
+  return Boolean(value);
+}
+
+/**
+ * Suggest human context for a failed evaluation — the flow context only ever
+ * exposes these roots.
+ */
+export function jsonataFail(expr: string, what: string, error: string): Error {
+  return new Error(`${what}: JSONata "${expr}" failed — ${error}`);
+}
+
+/**
+ * Static-check an expression without evaluating it (build-time validation, §5):
+ * returns the compile error, or null when the expression compiles.
+ */
+export function lintJsonata(expr: string): string | null {
+  const c = compiled(expr);
+  return "error" in c ? `invalid expression: ${c.error}` : null;
+}
+
+/**
+ * Extract the list of `{{path}}` template references inside a string, written
+ * in the PromptLibrary/agent-node style (`{{ticket.key}}`).
+ */
+export function templateRefs(text: string): string[] {
+  const out: string[] = [];
+  for (const m of (text ?? "").matchAll(/\{\{([^{}]+)\}\}/g)) out.push(m[1].trim());
+  return out;
+}

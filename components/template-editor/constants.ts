@@ -1,21 +1,56 @@
 /** Option catalogs and copy for the template editor. */
-export const TRIGGER_TYPES: Record<string, string> = {
-  auto: "auto — runs when joins are satisfied",
-  manual: "manual — user clicks run",
-  approval: "approval — runs when eligible, holds for approve",
-  debounced: "debounced — quiet period after events",
+
+import type { StartFieldType } from "../../lib/engine/nodes/start/contract";
+
+/** Node trigger types — rendered as heading + gray description in the picker. */
+export const TRIGGER_TYPES: Record<string, { label: string; description: string }> = {
+  auto: { label: "Auto", description: "Runs when joins are satisfied" },
+  manual: { label: "Manual", description: "Runs when you click run" },
+  approval: { label: "Approval", description: "Runs when eligible, holds for your approve" },
+  debounced: { label: "Debounced", description: "Runs after a quiet period following events" },
 };
 
-export const WAIT_FOR_SOURCES: { value: string; label: string }[] = [
-  { value: "gitlab_pipeline", label: "gitlab_pipeline — CI pipeline events" },
-  { value: "gitlab_comments", label: "gitlab_comments — MR comment events" },
+export interface WaitForSource {
+  value: string;
+  label: string;
+  description: string;
+  /** the variable this event publishes into the run context — enforced:
+   *  present and required while the source is selected, never authorable */
+  contextField?: { key: string; type: StartFieldType };
+}
+
+/** Wait-for sources, grouped for the picker (flat list kept for lookups). */
+export const WAIT_FOR_GROUPS: { label: string; sources: WaitForSource[] }[] = [
+  {
+    label: "GitLab events",
+    sources: [
+      {
+        value: "gitlab_pipeline",
+        label: "GitLab pipeline",
+        description: "Waits for CI pipeline events",
+        contextField: { key: "pipeline", type: "string" },
+      },
+      {
+        value: "gitlab_comments",
+        label: "GitLab MR comments",
+        description: "Waits for MR comment events",
+        contextField: { key: "mr", type: "string" },
+      },
+    ],
+  },
+  {
+    label: "Resumes",
+    sources: [
+      { value: "webhook", label: "Webhook", description: "An inbound hook delivery resumes the node" },
+      { value: "timer", label: "Timer", description: "Resumes after a delay (minutes below)" },
+    ],
+  },
 ];
+
+export const WAIT_FOR_SOURCES: WaitForSource[] = WAIT_FOR_GROUPS.flatMap((g) => g.sources);
 
 export const FLOW_TRIGGER_TYPE: Record<string, string> = {
   manual: "manual — ticket picker",
-  webhook: "webhook — inbound hook (Phase 4)",
-  schedule: "schedule — interval (Phase 4)",
+  webhook: "webhook — inbound hook",
+  schedule: "schedule — interval",
 };
-
-export const GENERIC_TRIGGER_HELP =
-  "Triggers decide how a node runs when the template says it's its turn. `approval` nodes run to await your approve action before edges activate; `debounced` nodes wait for a quiet period.";

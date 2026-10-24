@@ -92,6 +92,45 @@ Project → **Settings → Webhooks**:
 5. In **Build**: review the diff → **Approve & create MR** — the MR is created (push-hook rejections are fixed by an agent in-place), then the **Pipeline** gate waits for green CI, fixing failures itself.
 6. From there the loop is automatic: review/agent comments → Resolve → pipeline gate re-check → back to Review, until the MR is clean.
 
+## Custom flows — templates, the visual builder, and custom nodes
+
+The built-in SDLC loop is one template among many. **Templates** (`/templates`)
+compose the built-in nodes with your own — **agent** (prompt, plan or agent mode,
+markdown/JSON out), **decision** (expression / manual pick / agent classifier with
+branch edges), **http** (outbound call, `{{secrets.NAME}}` interpolated at run
+time, SSRF-guarded), and **script** (shell / node / python via execa) — into
+reusable flows, editable as UI *and* config-as-code (YAML import/export).
+
+- **Gallery** (`/templates`) — starters pinned on top (SDLC loop, docs generation,
+  release notes + notify, Sentry triage), duplicate to customize, delete, and
+  real YAML import/export. YAML fixtures live in `docs/flow-templates/`.
+- **Visual builder** (`/templates/<id>`) — a drag-drop canvas: drag nodes to
+  arrange, drag from a node's side handle onto another node to connect, click a
+  node to open its **configuration drawer** (display name + Trigger / Config /
+  Contract tabs), click an edge to edit kind/label/condition. The node palette
+  adds catalog and authored nodes; **Flow settings** (drawer) edits name,
+  description, and the flow trigger (manual / webhook + filter / schedule +
+  interval, with ticket/repo binding). Node positions persist as you drag;
+  structural changes save on **Save** (refused while flows are mid-run on the
+  template — positions-only sync always passes).
+- **Runtime** — flows snapshot their template at creation; running flows are
+  never affected by template edits. Decision cards, waiting-node hook endpoints,
+  and all engine semantics are unchanged (see `docs/custom-flows-plan.md` for
+  the full design + per-phase verification notes).
+
+### Custom-flow demo
+
+```bash
+npm run seed:custom          # two demo flows on the "Release notes + notify" starter
+npm run seed:custom:reset    # remove them
+```
+
+Seeds two complete flows on DEMO-201: one where the decision picked **send**
+(draw → decision card → notify), one where it picked **drop** (the notify branch
+ends **skipped**) — open them to see the template-derived graph, the decision
+outputs, and the taken-edge highlight without any agent runs.
+
+
 ## Architecture
 
 ```
@@ -99,9 +138,13 @@ app/                    Next.js App Router
   page.tsx              ticket list + start flow (repo + mode picker)
   settings/page.tsx     repos registry, GitLab instances, execution defaults
   flows/[id]/page.tsx   the single-screen cockpit
-  api/                  tickets, flows, actions, events, comments, webhook, repos, gitlab-instances,
-                        settings, models, graph (workflow graph metadata from the node registry)
+  templates/            template gallery + the visual builder (drag-drop canvas
+                        over the template graph, node/edge drawers)
+  api/                  tickets, flows, actions, events, comments, webhook, hooks, repos, gitlab-instances,
+                        settings, models, graph, templates (+import/export), node-templates, contracts
 components/             WorkflowGraph, PlanView, DiffView, ReviewView, NodePanel + ai-elements/ (AI Elements: Conversation, Message, Reasoning, Tool, PromptInput, Response, Loader)
+components/template-editor/  visual builder (BuilderCanvas on @xyflow/react), NodeConfigurator (Trigger/Config/Contract), AddNodeDialog
+
 lib/                    strict OOP: every module is a class with one responsibility, exported as a
                         shared singleton (db, flowEngine, nodeRegistry, gitLab, cursorClient, …)
   config.ts             AppConfig — env-sourced config grouped by integration (cursor/jira/gitlab/db/workspace)

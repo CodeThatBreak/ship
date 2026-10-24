@@ -379,6 +379,33 @@ Every node — built-in or custom — exposes its contract in the configurator U
   existing), persist time (`parseOutput`, existing — node fails loudly, downstream
   never consumes garbage).
 
+### 5.1 Start contract + the variable UX (implemented, 2026-10-24)
+
+**The Start node has a contract** — one field list (key / type / required /
+default, declared on the start instance's config) that serves as input AND
+output: whatever the trigger provides is validated against it and published as
+the start node's output, so every downstream node maps from those variables.
+Who provides the values follows the start node's trigger type:
+
+| Trigger | Who provides the values |
+|---|---|
+| `auto` | the authored field defaults (published when the flow starts) |
+| `manual` / `approval` | the user fills the form when triggering (the start node's runtime panel; an approval-trigger start holds for the user instead of running to a hold) |
+| webhook flow trigger | the delivery payload must match the contract — unknown fields are rejected, missing required fields fail; `startFromTemplate` validates before creating the flow, so the sender gets a 400 with the exact mismatch |
+
+Implementation: `lib/engine/nodes/start/contract.ts` (pure zod + coercion +
+validation, shared by the runtime class, `/api/contracts` (per-instance via
+`?config=`), `context-lint` (start contract fields are addressable
+`{{nodes.start.output.<field>}}` refs; the declaration itself is linted), and
+`/api/graph` (`meta[key].outputs` — the graph cards show the published
+variables). The start runtime panel renders the contract form (prefilled with
+the last run's values, then the authored defaults) + the published variables.
+
+**Friendly variable UX**: the pickers show just the variable names grouped by
+upstream node ("Review · comment_count") — the raw `{{nodes.X.output.Y}}` refs
+stay engine plumbing; free-text config fields (prompt / url / body / question)
+get click-to-insert variable chips built from the same upstream contracts.
+
 ---
 
 ## 6. Trigger system
@@ -603,6 +630,81 @@ Activepieces (MIT) is reference material for HTTP-node UX, not a dependency.
 
 ### Phase 3 — decision + http + script nodes
 
+> **Status (implemented, 2026-10-24).** All four bullets landed; verified by hand
+> against purpose-built templates (real runs — script nodes executing locally,
+> decision branch activation, live HTTP through the guard):
+>
+> - **3A input mapping** — `lib/engine/flow-context.ts` (`buildFlowContext`) is
+>   the single variable universe (`ticket` / `repo` / `flow` / `trigger.payload` /
+>   `nodes.<key>.output`; `secrets` deliberately excluded). `runNode` evaluates
+>   the template instance's `input_map` JSONata per field and overlays it on the
+>   trigger input. Build-time checks: `lintTemplate` (`lib/engine/context-lint.ts`)
+>   runs inside `TemplateStore.validated()` on every save/import — `{{refs}}`
+>   resolve against upstream contracts, JSONata compiles in input maps / decision
+>   expressions / response maps / edge conditions, and decision out-edges must
+>   carry labels matching the node's choices.
+> - **3B decision** — all three sources run (`expression` inline, `manual` holds
+>   for the card, `agent` plan-mode classifier with constrained output and
+>   case-insensitive label normalization). `FlowEngine.chooseNode` +
+>   `choose_node` action power the manual pick / approval override;
+>   approval-triggered decisions pre-select the agent's pick (confirm via
+>   `approve_node`). The engine activates exactly the out-edges whose label ∈
+>   `output.chosen`; everything else resolves inactive and **skipped propagates**
+>   (`resolveInactiveTarget` — all-resolved + none-active ⇒ skipped, recursively
+>   downstream). The decision card lives in `components/DeclarativeNodePanel.tsx`;
+>   branch labels + taken-edge highlight render in `WorkflowGraph.tsx` (the graph
+>   API now serializes `edgeSpecs` with labels/conditions).
+> - **3C http + SSRF** — `lib/net/ssrf-guard.ts` pins the IP it checked (custom
+>   `lookup`, Host/TLS-SNI keep the original name), re-validates every redirect
+>   hop, 5 MB response cap; classification covers loopback / private /
+>   link-local / CGNAT / multicast / ULA / reserved + IPv4-mapped IPv6.
+>   `secrets` + `http_allowlist` settings keys (merge-semantics PATCH — values
+>   write-only) with a Settings → Custom nodes section; `{{secrets.NAME}}`
+>   resolves only at execution time and `redactSecrets` scrubs events/errors.
+>   Guard checklist verified: allowlist empty/mismatch deny, scheme deny,
+>   127.0.0.1 / 192.168 / ::1 / 224.0.0.1 / 100.64 / 169.254.169.254 /
+>   localhost-resolves-private / hex-IP `0x7f000001` all blocked; public IP
+>   passes policy and fails only at connect.
+> - **3D script** — execa with `reject: false` + `SIGKILL` timeout; stdin +
+>   `$DEVFLOW_INPUT` carry the mapped input; output resolves from the
+>   `$DEVFLOW_OUTPUT` file or the last parseable stdout line; optional
+>   `output_schema` validation; env allowlist (PATH/HOME always);
+>   `cwd: repo` (repo local path) or `cwd: workspace` (per-flow clone via the
+>   new `workspaceForFlow`).
+>
+> **Fixes made beyond the plan while landing it:**
+>
+> - jsonata v2's `evaluate()` is Promise-based — `evalJsonata` and every caller
+>   (edge conditions, decision expressions, input maps, response maps) are
+>   async. (The plan's "sync evaluation" assumption doesn't hold with jsonata ^2.)
+> - `buildFlowContext` must parse the raw `nodes.output` TEXT column — raw
+>   strings made every `nodes.X.output.Y` expression miss (silent v1-branch
+>   selection — caught by the expression test).
+> - Declarative outcomes that don't go through an agent run (decision picks,
+>   http calls, script runs) now persist through a shared
+>   `NodeDefinition.applyOutcome` (artifact + validated output + status +
+>   event) — previously the run happened but the node never left `running`.
+> - A downstream node's failure no longer propagates up and fails the upstream
+>   node whose edge activation started it (`startNodeStage` contains the
+>   failure: marks the failing node, stops the advance). Retries of generic
+>   nodes now advance the template edges on success (`retryNode`).
+> - Template authoring gates lifted everywhere: `createNodeTemplate` /
+>   `ensureNodeTemplate` accept all four kinds and validate configs with
+>   `parseDeclarativeConfig`; YAML import authors decision/http/script inline;
+>   `/api/contracts` serves every declarative kind (incl. decision choices for
+>   the configurator); `AddNodeDialog` gained decision/http/script authoring
+>   forms; `NodeConfigurator`'s Config tab is schema-driven from each kind's
+>   `configFields`.
+>
+> **Acceptance evidence (manual runs on 2026-10-24):** manual-pick decision →
+> `choose_node` approved → non-taken script branch skipped, taken branch ran →
+> retry advanced downstream; expression decision (`nodes.probe.output.major >=
+> 2`) picked v2, v1 skipped, and `v2_path`'s input carried the input-mapped
+> `upstream_major: 2`; http node issued a live guarded request
+> (`api.github.com` 200) with a JSONata `response_map`-shaped output;
+> loopback-allowlisted `127.0.0.1` call blocked by the IP backstop. SDLC parity
+> confirmed: seeded template / snapshot / gate chain derive identically.
+
 - **3A.** Input-mapping engine: flow-context builder, JSONata evaluation at trigger
   time, static validation of references in the configurator (build-time checks, §5).
 - **3B.** `decision` node with all three sources (§4.3 — `expression`, `manual`,
@@ -616,6 +718,52 @@ Activepieces (MIT) is reference material for HTTP-node UX, not a dependency.
 
 ### Phase 4 — Triggers
 
+> **Status (implemented, 2026-10-24).** All three bullets landed; verified end-to-end via
+> real HTTP deliveries against purpose-built templates:
+>
+> - **4A hooks** — `app/api/hooks/[id]/route.ts` (raw-body read, 1 MB cap,
+>   `standardwebhooks` verify, constant-time `x-devflow-secret` fallback, JSONata
+>   delivery filter over `{payload, headers}`, `webhook-id` dedup TTL'd in the new
+>   `hook_deliveries` table) over the new `lib/engine/hooks.ts` store. Hooks
+>   auto-provision: `TemplateStore` create/update/delete syncs one per template with a
+>   webhook flow trigger (filter copied, hook removed when the trigger changes); flow
+>   creation binds one per `wait_for: webhook` node. The flow trigger JSON now also
+>   carries the template's ticket/repo binding (decision 2026-10-24: bind on template —
+>   editor pickers appear when webhook/schedule is chosen; `startFromTemplate` errors
+>   loudly when unbound). `scripts/send-hook.mjs` signs/sends deliveries (`--raw` =
+>   the header fallback). Shipped UI: the template editor's flow-trigger section
+>   (hook endpoint + secret + filter + send-hook copy) and a runtime waiting banner
+>   in `NodePanel.tsx` (endpoint + secret + copy command).
+> - **4B wait_for webhook|timer** — eligible nodes hold at `waiting` (first users of
+>   the reserved status). A delivery becomes the run's trigger input AND
+>   `{{trigger.payload}}` for the run's context — `runNode` threads it through a
+>   fresh `ctxWithDelivery` copy, so `input_map` fields and agent prompt variables
+>   read the delivery, not the payload that started the flow (verified; nothing
+>   persists from it beyond what the run records). `FlowEngine.resumeNodeFromWebhook`
+>   / `processWaitTimers` re-enter `startNodeStage` with `resumeWaiting`; timers arm
+>   in-memory (`waitTimers`) and fire from the poller tick. Retrying a `waiting` node
+>   is refused; cancel un-sticks it.
+> - **4C schedule** — `schedule_next_at` persisted on `flow_templates` (armed on
+>   first save, never reset while the trigger stays schedule); the poller tick fires
+>   due schedules — one new flow per fire (`{scheduled_at}` as trigger payload), next
+>   fire advanced immediately so a failing fire keeps the beat.
+>
+> **Fixes made beyond the plan while landing it:**
+>
+> - Webhook/schedule templates auto-start on flow creation (`create()` calls `start()`
+>   for those flow-trigger types) — a manually created flow on a webhook template also
+>   runs, and `startFromTemplate` doesn't start twice.
+>
+> **Acceptance evidence (real runs on 2026-10-24):** bad signature → 401 with the
+> library reason; fallback with a wrong secret → 401; falsy filter → delivery dropped;
+> signed delivery → flow auto-created from the bound template, `probe` script node ran
+> to `done`, `fed` (`wait_for: webhook`) held at `waiting` with its own hook bound at
+> flow creation → delivering to that hook resumed it with the delivery body as trigger
+> input and `input_map` reading the delivery → replay with the same `webhook-id` →
+> `{ok: true, dedup: true}`; `wait_for: timer` (1 min) resumed by the poller tick;
+> `schedule` (interval 1 min) created + started one flow per fire and advanced its
+> next-fire time.
+
 - **4A.** `/api/hooks/[id]` route: raw-body read, `standardwebhooks` verify + secret
   fallback, JSONata filter, dedup by `webhook-id`, flow creation with
   `{{trigger.payload}}`.
@@ -626,6 +774,62 @@ Activepieces (MIT) is reference material for HTTP-node UX, not a dependency.
   wait-for-webhook node pauses and resumes on delivery.
 
 ### Phase 5 — Visual builder + polish
+
+> **Status (implemented, 2026-10-25).** All of 5A + 5B landed. Verified against the
+> running app (real PATCH/import/deletion round-trips; the two demo flows seeded by
+> `npm run seed:custom` drive the graph, decision card, and skipped branch):
+>
+> - **5A visual builder** — the template editor (`app/templates/[id]/page.tsx`) is
+>   now a full-bleed **drag-drop canvas** on `@xyflow/react`
+>   (`components/template-editor/BuilderCanvas.tsx`): drag to arrange nodes, drag
+>   a handle to connect nodes (replaced by the drawer when the pair is already
+>   connected by an unlabeled edge), click a node → its **configuration drawer**
+>   (`components/ui/sheet.tsx`, side-anchored @base-ui panel) with the display
+>   name + the Phase-2 Trigger/Config/Contract tabs; click an edge → the edge
+>   drawer (from/to/kind/label/condition, with decision **choice quick-picks**
+>   fetched from `/api/contracts`). Layout = persisted x/y wins; dagre fills the
+>   gaps. Read-only built-ins show the same canvas minus editing affordances.
+>   **Position sync is piecewise**: drags autosave x/y via a new positions-only
+>   PATCH branch (`TemplateStore.updatePositions`) that touches no graph rows and
+>   deliberately skips `assertNotRunning` — re-layout while a flow runs cannot
+>   affect its snapshot. Structural changes remain a wholesale draft PATCH on
+>   **Save** (lint/validation/active-flow guard unchanged), now carrying x/y.
+>   `GET /api/templates/[id]` and `duplicate()` carry x/y; the edges query got a
+>   stable `ORDER BY rowid`.
+> - **5B starters + polish** — three new built-in starter templates seeded
+>   idempotently next to the SDLC loop (docs generation: agent→script with input
+>   mapping; release notes + notify: agent→decision(manual)→http with a `send`
+>   branch edge; Sentry triage: webhook trigger + §7 graph), backed by nine
+>   declarative catalog rows (`nt_st_*`), each with gallery fixtures in
+>   `docs/flow-templates/` (sentry-triage.yaml documented the import since
+>   Phase 2; docs-generation.yaml + release-notify.yaml are new). The gallery
+>   pins starters above the user's templates and now offers **duplicate** for
+>   built-ins too. `npm run seed:custom` (+`:reset`) seeds two complete flows on
+>   the release-notify starter (decision chose *send* vs *drop* → notify done vs
+>   **skipped**) — a demo that needs no agent runs or credentials. README and
+>   this plan updated.
+>
+> **Fixes made beyond the plan while landing it:**
+>
+> - **YAML export was broken for multi-line values** — the per-node
+>   re-indentation assembly (`"…".join("\n  ")`) destroyed the `yaml` lib's
+>   folded double-quoted output (unindented continuation lines → invalid YAML) and
+>   blank lines inside block-scalar prompts. `exportTemplateYaml` now stringifies
+>   one document object (name/description/trigger/nodes) in a single pass —
+>   the lib indents every fold for its true depth — keeping the handcrafted
+>   `[from, to, {label}]` edge lines. Caught by the Sentry-starter round-trip
+>   (export → import through full validation + lint).
+> - Seeded declarative starters must survive import: their configs mirror the
+>   fixtures exactly so `lintTemplate` / decision-edge validation passes on both
+>   paths.
+>
+> **Acceptance (run on 2026-10-25):** built a flow entirely in the UI — add node
+> from the palette (placed at viewport center), connect by handle drag, edit the
+> edge label in the drawer, save, export the YAML file, re-import → identical
+> graph; positions-only PATCH round-trips x/y and stays open while a flow runs;
+> built-in templates render the canvas read-only; both `seed:custom` flows render
+> the template-derived graph with a taken decision branch highlighted and the
+> inactive branch skipped.
 
 - **5A.** Drag-drop graph editor on `WorkflowGraph.tsx` (dagre already does layout):
   add node from palette, drag edges, edit labels/conditions inline; syncs `x/y`.
@@ -650,7 +854,8 @@ Automated test suites are deferred by decision. Per-phase verification is manual
 - **SSRF guard**: manual checklist — allowlist match, redirect re-validation,
   octal/hex IPv4, IPv6 loopback, multicast.
 - **Webhooks**: curl a signed payload (round-trip), stale timestamp, bad signature,
-  secret-header fallback, duplicate delivery.
+  secret-header fallback, duplicate delivery — `scripts/send-hook.mjs` does all of
+  these (`--raw` for the header fallback).
 - **Script node**: stdin/stdout contract, timeout kill, non-zero exit — all by hand.
 
 ---

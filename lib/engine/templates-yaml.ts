@@ -5,7 +5,8 @@ import YAML from "yaml";
  * `key / type / trigger / join_mode / (label) / config` with inline-config for
  * declarative kinds (the effective definition) and `builtin/<key>` references
  * for built-ins; import resolves `type` back to catalog rows, creating missing
- * declarative node templates (kind=agent in Phase 2).
+ * declarative node templates (agent in Phase 2; decision / http / script in
+ * Phase 3) via find-or-create on the effective definition.
  */
 export const DECLARATIVE_KINDS = ["agent", "http", "script", "decision"] as const;
 
@@ -46,11 +47,7 @@ export function exportTemplateYaml(
     catalog: Record<string, { key: string; name: string; kind: string; isBuiltin: boolean; config: Record<string, unknown> }>;
   },
 ): string {
-  let out = `name: ${YAML.stringify(data.name).trimEnd()}\n`;
-  if (data.description) out += `description: ${YAML.stringify(data.description).trimEnd()}\n`;
-  out += `trigger:\n${indent(YAML.stringify(data.trigger).trimEnd(), 2)}\n`;
-
-  out += "nodes:\n";
+  const nodeDocs: YamlNodeEntry[] = [];
   for (const n of data.nodes) {
     const nt = data.catalog[n.nodeTemplateId];
     if (!nt) throw new YamlTemplateError(`unknown node template ${n.nodeTemplateId}`);
@@ -69,9 +66,18 @@ export function exportTemplateYaml(
     if (trig && Object.keys(trig).length) doc.trigger = trig;
     if (n.joinMode && n.joinMode !== "all") doc.join_mode = n.joinMode;
     if (Object.keys(n.inputMap ?? {}).length) doc.input_map = n.inputMap;
-    const lines = YAML.stringify(doc).trimEnd().split("\n");
-    out += "- " + lines.join("\n  ") + "\n";
+    nodeDocs.push(doc);
   }
+
+  const doc: Record<string, unknown> = {
+    name: data.name,
+    ...(data.description ? { description: data.description } : {}),
+    trigger: data.trigger,
+    nodes: nodeDocs,
+  };
+  // one stringify pass — the lib then indents every folded/blank line for its
+  // actual nesting depth (manual per-node re-indent breaks multi-line prompts)
+  let out = YAML.stringify(doc).trimEnd() + "\n";
 
   // edges as [from, to, {(kind|label|condition)?}] — one inline-flow line each
   // (JSON-style flow maps are valid YAML, so round-trip parsing is exact)
@@ -85,10 +91,6 @@ export function exportTemplateYaml(
     out += `  - [${e.from}, ${e.to}${tail}]\n`;
   }
   return out.trimEnd() + "\n";
-}
-
-function indent(s: string, n: number): string {
-  return s.split("\n").map((l) => (l ? " ".repeat(n) + l : l)).join("\n");
 }
 
 /** Parse YAML into a seedable template graph (nodes already typed). */export function parseTemplateYaml(text: string): {
@@ -255,12 +257,8 @@ export function importTemplateYaml(
       } else {
         // inline declarative authoring: config IS the definition
         if ((DECLARATIVE_KINDS as readonly string[]).includes(entry.type)) {
-          if (entry.type !== "agent") {
-            throw new YamlTemplateError(
-              `the "${entry.type}" node kind ships with Phase 3 (http/script/decision) — update the template or import after Phase 3 lands`);
-          }
           if (!entry.config || typeof entry.config !== "object" || Object.keys(entry.config).length === 0) {
-            throw new YamlTemplateError(`agent node "${entry.key}" needs inline config (at minimum a prompt)`);
+            throw new YamlTemplateError(`${entry.type} node "${entry.key}" needs inline config (its declarative definition)`);
           }
           nodeTemplateId = store.ensureNodeTemplate({
             key: entry.key,

@@ -1,14 +1,23 @@
 "use client";
-import { useEffect, useState } from "react";
-import { Bot, Compass, Gauge, Hammer, Plus, ScanSearch, SquareCheck, Wrench } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
+import { Bot, Compass, Gauge, Hammer, Plus, ScanSearch, SquareCheck, Wand2, Wrench } from "lucide-react";
 import { Badge } from "../ui/badge";
 import { Button } from "../ui/button";
 import { Card } from "../ui/card";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "../ui/dialog";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "../ui/select";
+import { iconForIconName } from "./icons";
 import { Input } from "../ui/input";
 import { Spinner } from "../ui/spinner";
 import { Textarea } from "../ui/textarea";
 import type { EditorNode, EditorEdge } from "./types";
+import { parseOutputContract, schemaToInputRows, type InputFieldRow } from "./ts-schema-lite";
 
 const BUILTIN_ICONS: Record<string, any> = {
   plan: Compass,
@@ -20,35 +29,48 @@ const BUILTIN_ICONS: Record<string, any> = {
 
 /**
  * The add-node dialog (§8): pick a node from the catalog, or author a new
- * declarative agent node inline — name, prompt (with {{vars}}), mode, output
- * type (+ JSON Schema), and declared input fields. Creation stores the node
- * in `node_templates`; adding it to the template creates an instance.
+ * declarative node inline — agent (Phase 2) plus decision / http / script
+ * (Phase 3). Creation stores the node in `node_templates`; adding it to the
+ * template creates an instance.
  */
+export interface CreateNodeDef {
+  kind: "agent" | "decision" | "http" | "script";
+  name: string;
+  description?: string;
+  config: Record<string, unknown>;
+}
+
 export default function AddNodeDialog({
-  open, onClose, creativeBusy, onAddCatalogNode, onCreateAgentNode,
+  open, onClose, creativeBusy, onAddCatalogNode, onCreateNode, initialMode,
 }: {
   open: boolean;
   onClose: () => void;
   creativeBusy: boolean;
   onAddCatalogNode: (rowId: string, isBuiltin: boolean, catalogKey: string, name: string) => void;
-  onCreateAgentNode: (def: {
-    name: string;
-    prompt: string;
-    mode: string;
-    model: string | null;
-    output: "markdown" | "json";
-    output_schema: unknown;
-    inputs: { key: string; label?: string; type?: string; required?: boolean }[];
-  }) => Promise<{ err?: string; nodeTemplateId?: string }>;
+  onCreateNode: (def: CreateNodeDef) => Promise<{ err?: string; nodeTemplateId?: string }>;
+  /** open directly on an authoring form (the palette's "Author new node" buttons) */
+  initialMode?: "agent" | "decision" | "http" | "script";
 }) {
   const [catalog, setCatalog] = useState<{ id: string; key: string; name: string; kind: string; is_builtin: boolean; description: string | null }[] | null>(null);
-  const [mode, setMode] = useState<"catalog" | "agent">("catalog");
+  const [mode, setMode] = useState<"catalog" | "agent" | "decision" | "http" | "script">("catalog");
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
     if (!open || catalog) return;
     fetch("/api/node-templates").then((r) => r.json()).then((d) => setCatalog(d.nodeTemplates ?? [])).catch(() => setCatalog([]));
   }, [open, catalog]);
+
+  useEffect(() => {
+    if (open && initialMode) setMode(initialMode);
+  }, [open, initialMode]);
+
+  const MODES = [
+    { v: "catalog", label: "Node catalog" },
+    { v: "agent", label: "New agent" },
+    { v: "decision", label: "New decision" },
+    { v: "http", label: "New http" },
+    { v: "script", label: "New script" },
+  ] as const;
 
   return (
     <Dialog open={open} onOpenChange={(v) => { if (!v) onClose(); }}>
@@ -57,14 +79,14 @@ export default function AddNodeDialog({
           <DialogTitle>Add a node</DialogTitle>
         </DialogHeader>
 
-        <div className="flex gap-1">
-          {(["catalog", "agent"] as const).map((m) => (
+        <div className="flex gap-1 flex-wrap">
+          {MODES.map((m) => (
             <button
-              key={m}
-              onClick={() => setMode(m)}
-              className={`px-3 py-1.5 rounded-lg text-[12.5px] font-medium ${mode === m ? "bg-muted text-foreground" : "text-muted-foreground hover:text-foreground"}`}
+              key={m.v}
+              onClick={() => setMode(m.v)}
+              className={`px-3 py-1.5 rounded-lg text-[12.5px] font-medium ${mode === m.v ? "bg-muted text-foreground" : "text-muted-foreground hover:text-foreground"}`}
             >
-              {m === "catalog" ? "Node catalog" : "New agent node"}
+              {m.label}
             </button>
           ))}
         </div>
@@ -83,7 +105,7 @@ export default function AddNodeDialog({
               </div>
             )}
             <div>
-              <p className="text-[11px] text-muted-foreground uppercase tracking-[0.8px] mb-1.5">Your agent nodes</p>
+              <p className="text-[11px] text-muted-foreground uppercase tracking-[0.8px] mb-1.5">Your custom nodes</p>
               {catalog?.filter((n) => !n.is_builtin).length ? (
                 <div className="grid gap-1.5">
                   {catalog?.filter((n) => !n.is_builtin).map((n) => (
@@ -91,15 +113,51 @@ export default function AddNodeDialog({
                   ))}
                 </div>
               ) : (
-                <p className="text-[12px] text-muted-foreground m-0">None yet — author one below.</p>
+                <p className="text-[12px] text-muted-foreground m-0">None yet — author one from the tabs above.</p>
               )}
             </div>
           </div>
-        ) : (
+        ) : mode === "agent" ? (
           <AgentNodeForm busy={busy || creativeBusy} disabled={busy || creativeBusy}
             onSubmit={async (def) => {
               setBusy(true);
-              const r = await onCreateAgentNode(def);
+              const r = await onCreateNode({
+                kind: "agent",
+                name: def.name,
+                description: `Declarative agent node (${def.mode})`,
+                config: {
+                  prompt: def.prompt,
+                  mode: def.mode,
+                  model: def.model,
+                  output: def.output,
+                  output_schema: def.output_schema,
+                  output_schema_ts: def.output_schema_ts,
+                },
+              });
+              setBusy(false);
+              return r;
+            }} />
+        ) : mode === "decision" ? (
+          <DecisionNodeForm busy={busy || creativeBusy} disabled={busy || creativeBusy}
+            onSubmit={async (def) => {
+              setBusy(true);
+              const r = await onCreateNode(def);
+              setBusy(false);
+              return r;
+            }} />
+        ) : mode === "http" ? (
+          <HttpNodeForm busy={busy || creativeBusy} disabled={busy || creativeBusy}
+            onSubmit={async (def) => {
+              setBusy(true);
+              const r = await onCreateNode(def);
+              setBusy(false);
+              return r;
+            }} />
+        ) : (
+          <ScriptNodeForm busy={busy || creativeBusy} disabled={busy || creativeBusy}
+            onSubmit={async (def) => {
+              setBusy(true);
+              const r = await onCreateNode(def);
               setBusy(false);
               return r;
             }} />
@@ -144,9 +202,21 @@ interface AgentFormDef {
   model: string | null;
   output: "markdown" | "json";
   output_schema: unknown;
-  inputs: { key: string; label?: string; type?: string; required?: boolean }[];
+  /** the raw TypeScript members the schema was authored from — the drawer's
+   *  schema box re-seeds from this (kept on the config, unknown-safe) */
+  output_schema_ts?: string;
 }
 
+/**
+ * The agent authoring form. Output is authored as text or json (§8 — the easy
+ * path compiles down to the runtime's JSON-Schema output):
+ *   • The node declares no input contract — the run input is inherited from
+ *     the previous node's output ({{input.<field>}} addresses it directly;
+ *     upstream refs are {{nodes.<key>.output.<field>}}).
+ *   • Output mode comes after the prompt — `text` is the markdown artifact
+ *     output; `json` takes a schema box that becomes output=json with a
+ *     run-time-validated JSON Schema.
+ */
 function AgentNodeForm({
   busy, disabled, onSubmit,
 }: {
@@ -158,10 +228,15 @@ function AgentNodeForm({
   const [prompt, setPrompt] = useState("");
   const [agentMode, setAgentMode] = useState("plan");
   const [model, setModel] = useState("");
-  const [output, setOutput] = useState<"markdown" | "json">("markdown");
-  const [schemaText, setSchemaText] = useState("");
-  const [inputs, setInputs] = useState<AgentFormDef["inputs"]>([]);
+  const [outputMode, setOutputMode] = useState<"text" | "json">("text");
+  const [outputTsText, setOutputTsText] = useState("");
   const [err, setErr] = useState<string | null>(null);
+
+  // live previews of the compiled contract (errors surface before submit)
+  const outputPreview = useMemo(
+    () => (outputMode === "json" && outputTsText.trim()) ? parseOutputContract(outputTsText) : null,
+    [outputMode, outputTsText],
+  );
 
   const submit = async () => {
     setErr(null);
@@ -169,35 +244,32 @@ function AgentNodeForm({
       setErr("name is required");
       return;
     }
-    let output_schema: unknown = null;
-    if (output === "json") {
-      if (!schemaText.trim()) {
-        setErr("output=json needs a JSON Schema for the output contract");
+    let defOutput: AgentFormDef["output"] = outputMode === "json" ? "json" : "markdown";
+    let defSchema: unknown = null;
+    if (outputMode === "json") {
+      if (!outputTsText.trim()) {
+        setErr("output=json needs an output schema");
         return;
       }
-      try {
-        output_schema = JSON.parse(schemaText);
-      } catch (e) {
-        setErr(`output_schema is not valid JSON: ${e instanceof Error ? e.message : String(e)}`);
-        return;
-      }
+      const outR = outputPreview!;
+      if (outR.error || !outR.schema) { setErr(`output schema: ${outR.error ?? "declares no fields"}`); return; }
+      defSchema = outR.schema;
     }
     const r = await onSubmit({
       name: name.trim(),
       prompt: prompt.trim(),
       mode: agentMode,
       model: model.trim() || null,
-      output,
-      output_schema,
-      inputs: inputs.filter((i) => i.key.trim()),
+      output: defOutput,
+      output_schema: defSchema,
+      output_schema_ts: defOutput === "json" ? outputTsText : undefined,
     });
     if (r.err) setErr(r.err);
     else if (r.nodeTemplateId) {
       setName("");
       setPrompt("");
-      setOutput("markdown");
-      setSchemaText("");
-      setInputs([]);
+      setOutputMode("text");
+      setOutputTsText("");
     }
   };
 
@@ -210,16 +282,33 @@ function AgentNodeForm({
       <div className="grid grid-cols-2 gap-2.5">
         <div className="grid gap-1">
           <label className="text-xs text-muted-foreground">Mode</label>
-          <select value={agentMode} onChange={(e) => setAgentMode(e.target.value)} className="bg-card text-foreground border border-border rounded-lg text-[13px] px-3 py-2" disabled={disabled}>
-            <option value="plan">plan (read-only)</option>
-            <option value="agent">agent (repo workspace)</option>
-          </select>
+          <Select value={agentMode} onValueChange={(v) => setAgentMode(v ?? agentMode)}>
+            <SelectTrigger className="w-full rounded-lg border-border bg-card" disabled={disabled}>
+              <SelectValue>{agentMode === "plan" ? "Plan" : "Agent"}</SelectValue>
+            </SelectTrigger>
+            <SelectContent>
+              {[
+                { value: "plan", label: "Plan", Icon: iconForIconName("Compass") },
+                { value: "agent", label: "Agent", Icon: iconForIconName("Sparkles") },
+              ].map(({ value, label, Icon }) => (
+                <SelectItem key={value} value={value}>
+                  <Icon size={13} className="text-muted-foreground shrink-0" /> {label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
         </div>
         <div className="grid gap-1">
           <label className="text-xs text-muted-foreground">Model</label>
           <Input value={model} onChange={(e) => setModel(e.target.value)} placeholder="flow default" disabled={disabled} />
         </div>
       </div>
+      <p className="text-[11px] text-muted-foreground m-0">
+        No input contract — the node inherits the connected upstream nodes&apos;
+        run context: reference their outputs as <code className="font-mono">{`{{input.<field>}}`}</code>{" "}
+        (previous node) or <code className="font-mono">{`{{nodes.<key>.output.<field>}}`}</code>.
+      </p>
+
       <div className="grid gap-1">
         <label className="text-xs text-muted-foreground">Prompt</label>
         <Textarea
@@ -231,57 +320,314 @@ function AgentNodeForm({
           placeholder={"Wrap up ticket {{ticket.key}} … output decision as JSON"}
         />
       </div>
+
+      {/* ── output mode (text | json) — always after the prompt ── */}
       <div className="grid gap-1">
-        <label className="text-xs text-muted-foreground">Output</label>
-        <select value={output} onChange={(e) => setOutput(e.target.value as "markdown" | "json")} className="bg-card text-foreground border border-border rounded-lg text-[13px] px-3 py-2" disabled={disabled}>
-          <option value="markdown">markdown — saved as an artifact ({`{{nodes.<key>.output.markdown}}`})</option>
+        <label className="text-xs text-muted-foreground">Output mode</label>
+        <select
+          value={outputMode}
+          onChange={(e) => setOutputMode(e.target.value as "text" | "json")}
+          className="bg-card text-foreground border border-border rounded-lg text-[13px] px-3 py-2"
+          disabled={disabled}
+        >
+          <option value="text">text — saved as a markdown artifact ({`{{nodes.<key>.output.markdown}}`})</option>
           <option value="json">json — validated against a schema ({`{{nodes.<key>.output.<field>}}`})</option>
         </select>
       </div>
-      {output === "json" && (
+      {outputMode === "json" && (
         <div className="grid gap-1">
-          <label className="text-xs text-muted-foreground">Output schema (JSON Schema — required properties + types)</label>
+          <label className="text-xs text-muted-foreground">Output schema</label>
           <Textarea
-            value={schemaText}
-            onChange={(e) => setSchemaText(e.target.value)}
-            rows={7}
+            value={outputTsText}
+            onChange={(e) => setOutputTsText(e.target.value)}
+            rows={6}
             className="font-mono text-[12px]"
             disabled={disabled}
-            placeholder={`{\n  "type": "object",\n  "required": ["severity"],\n  "properties": { "severity": { "enum": ["low", "med", "high"] } }\n}`}
+            placeholder={`{\n  summary: string\n  severity: "low" | "high"\n  files: string[]\n}`}
           />
+          {outputPreview?.error && (
+            <Card className="p-2.5 text-[12px] text-rose-400 border-rose-500/30">{outputPreview.error}</Card>
+          )}
+          {outputPreview?.schema && (
+            <ContractPreview title="Output contract — validated at run time" fields={schemaToInputRows(outputPreview.schema)} />
+          )}
         </div>
       )}
-      <div className="grid gap-1">
-        <label className="text-xs text-muted-foreground">Declared inputs <span className="opacity-60">(contract display; mapping evaluates in Phase 3)</span></label>
-        {inputs.map((inp, i) => (
-          <div key={i} className="flex gap-1.5 items-center">
-            <Input value={inp.key} onChange={(e) => setInputs((prev) => prev.map((p, j) => (j === i ? { ...p, key: e.target.value } : p)))} placeholder="key" className="max-w-[140px]" disabled={disabled} />
-            <Input value={inp.label ?? ""} onChange={(e) => setInputs((prev) => prev.map((p, j) => (j === i ? { ...p, label: e.target.value || undefined } : p)))} placeholder="label" disabled={disabled} />
-            <select
-              value={inp.type ?? "string"}
-              onChange={(e) => setInputs((prev) => prev.map((p, j) => (j === i ? { ...p, type: e.target.value } : p)))}
-              className="bg-card text-foreground border border-border rounded-lg text-[13px] px-2 py-2"
-              disabled={disabled}
-            >
-              <option value="string">string</option>
-              <option value="number">number</option>
-              <option value="boolean">boolean</option>
-            </select>
-            <label className="flex items-center gap-1.5 text-[12px] text-muted-foreground">
-              <input type="checkbox" checked={Boolean(inp.required)} onChange={(e) => setInputs((prev) => prev.map((p, j) => (j === i ? { ...p, required: e.target.checked } : p)))} /> required
-            </label>
-            <Button variant="ghost" size="sm" onClick={() => setInputs((prev) => prev.filter((_, j) => j !== i))} disabled={disabled}>
-              <Wrench size={12} />
-            </Button>
-          </div>
-        ))}
-        <Button variant="outline" size="sm" onClick={() => setInputs((prev) => [...prev, { key: "", type: "string" }])} disabled={disabled} className="self-start">
-          <Plus size={12} /> Add input field
-        </Button>
-      </div>
+
       {err && <Card className="p-2.5 text-[12px] text-rose-400 border-rose-500/30">{err}</Card>}
       <Button onClick={() => void submit()} disabled={disabled || busy} className="self-start">
         {busy ? <Spinner /> : <Bot size={14} />} Create agent node
+      </Button>
+    </div>
+  );
+}
+
+/** The compiled contract preview (TypeScript mode) — the same table the node
+ *  configurator's Contract tab renders. */
+function ContractPreview({
+  title, fields,
+}: {
+  title: string;
+  fields: InputFieldRow[];
+}) {
+  // node-config contract-table style: name · type · required
+  return (
+    <div className="grid gap-1 text-[11.5px]">
+      <div className="flex items-center gap-1.5 text-muted-foreground">
+        <Wand2 size={11} /> {title}
+      </div>
+      <div className="border border-border rounded-lg overflow-hidden text-[12px] bg-card">
+        {fields.map((f) => (
+          <div key={f.key} className="flex items-center gap-2 px-2.5 py-1 border-b border-border last:border-0">
+            <code className="font-mono text-blue-400">{f.key}</code>
+            <Badge variant="outline" className="text-[9.5px]">{f.type ?? "any"}</Badge>
+            {f.required && <Badge className="bg-amber-500/10 text-amber-400 text-[9.5px]">required</Badge>}
+            {f.label && <span className="text-muted-foreground truncate">— {f.label}</span>}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// ── Phase 3 forms ────────────────────────────────────────────────────────────
+
+function Field({ label, children }: { label: React.ReactNode; children: React.ReactNode }) {
+  return (
+    <div className="grid gap-1">
+      <label className="text-xs text-muted-foreground">{label}</label>
+      {children}
+    </div>
+  );
+}
+
+const inputCls = "bg-card text-foreground border border-border rounded-lg text-[13px] px-3 py-2";
+
+function DecisionNodeForm({ busy, disabled, onSubmit }: {
+  busy: boolean; disabled: boolean;
+  onSubmit: (def: CreateNodeDef) => Promise<{ err?: string; nodeTemplateId?: string }>;
+}) {
+  const [name, setName] = useState("");
+  const [source, setSource] = useState<"expression" | "manual" | "agent">("manual");
+  const [expression, setExpression] = useState("");
+  const [question, setQuestion] = useState("");
+  const [choices, setChoices] = useState<{ label: string; description: string }[]>([
+    { label: "", description: "" }, { label: "", description: "" },
+  ]);
+  const [err, setErr] = useState<string | null>(null);
+
+  const submit = async () => {
+    setErr(null);
+    if (!name.trim()) { setErr("name is required"); return; }
+    const cs = choices.filter((c) => c.label.trim());
+    if (!cs.length) { setErr("at least one choice label is required"); return; }
+    if (source === "expression" && !expression.trim()) { setErr("an expression source needs the JSONata expression"); return; }
+    const r = await onSubmit({
+      kind: "decision",
+      name: name.trim(),
+      description: `Decision (${source})`,
+      config: {
+        source,
+        expression: expression.trim(),
+        question: question.trim(),
+        choices: cs.map((c) => ({ label: c.label.trim(), description: c.description.trim() || undefined })),
+      },
+    });
+    if (r.err) setErr(r.err);
+  };
+
+  return (
+    <div className="grid gap-2.5">
+      <Field label="Name"><Input value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Worth fixing?" disabled={disabled} /></Field>
+      <Field label="Source">
+        <select value={source} onChange={(e) => setSource(e.target.value as typeof source)} className={inputCls} disabled={disabled}>
+          <option value="manual">manual — you pick the branch at run time</option>
+          <option value="expression">expression — JSONata over the flow context</option>
+          <option value="agent">agent — classify the flow state (plan-mode agent)</option>
+        </select>
+      </Field>
+      {source === "expression" && (
+        <Field label="Expression (JSONata — must yield a choice label or list of labels)">
+          <Input value={expression} onChange={(e) => setExpression(e.target.value)} className="font-mono text-[12px]"
+            placeholder="nodes.review.output.comment_count > 0 ? ['fix'] : ['ship']" disabled={disabled} />
+        </Field>
+      )}
+      {source === "agent" && (
+        <Field label="Question ({{vars}} allowed)">
+          <Textarea value={question} onChange={(e) => setQuestion(e.target.value)} rows={3} className="font-mono text-[12px]"
+            placeholder="Given the triage result, is this issue worth an automated fix PR?" disabled={disabled} />
+        </Field>
+      )}
+      <Field label="Choices (label + description — descriptions steer an agent classifier)">
+        <div className="grid gap-1.5">
+          {choices.map((c, i) => (
+            <div key={i} className="flex gap-1.5">
+              <Input value={c.label} onChange={(e) => setChoices(choices.map((x, j) => (j === i ? { ...x, label: e.target.value } : x)))}
+                placeholder="label" className="max-w-[140px] font-mono" disabled={disabled} />
+              <Input value={c.description} onChange={(e) => setChoices(choices.map((x, j) => (j === i ? { ...x, description: e.target.value } : x)))}
+                placeholder="description" disabled={disabled} />
+              <Button variant="ghost" size="sm" onClick={() => setChoices(choices.filter((_, j) => j !== i))} disabled={disabled || choices.length <= 1}>
+                <Wrench size={12} />
+              </Button>
+            </div>
+          ))}
+          <Button variant="outline" size="sm" className="self-start" onClick={() => setChoices([...choices, { label: "", description: "" }])} disabled={disabled}>
+            <Plus size={12} /> Add choice
+          </Button>
+        </div>
+      </Field>
+      <p className="text-[11px] text-muted-foreground m-0">
+        Wire outgoing edges with labels matching the choice labels — the decision activates exactly those edges.
+      </p>
+      {err && <Card className="p-2.5 text-[12px] text-rose-400 border-rose-500/30">{err}</Card>}
+      <Button onClick={() => void submit()} disabled={disabled || busy} className="self-start">
+        {busy ? <Spinner /> : <Plus size={14} />} Create decision node
+      </Button>
+    </div>
+  );
+}
+
+function HttpNodeForm({ busy, disabled, onSubmit }: {
+  busy: boolean; disabled: boolean;
+  onSubmit: (def: CreateNodeDef) => Promise<{ err?: string; nodeTemplateId?: string }>;
+}) {
+  const [name, setName] = useState("");
+  const [url, setUrl] = useState("");
+  const [method, setMethod] = useState("POST");
+  const [headers, setHeaders] = useState('{\n  "Content-Type": "application/json"\n}');
+  const [body, setBody] = useState("");
+  const [responseMap, setResponseMap] = useState("");
+  const [err, setErr] = useState<string | null>(null);
+
+  const submit = async () => {
+    setErr(null);
+    if (!name.trim()) { setErr("name is required"); return; }
+    if (!url.trim()) { setErr("a URL is required"); return; }
+    let parsedHeaders: Record<string, string> = {};
+    try {
+      parsedHeaders = headers.trim() ? JSON.parse(headers) : {};
+      if (typeof parsedHeaders !== "object" || Array.isArray(parsedHeaders) || !parsedHeaders) throw new Error("must be an object");
+    } catch (e) {
+      setErr(`headers must be a JSON object: ${e instanceof Error ? e.message : String(e)}`);
+      return;
+    }
+    const r = await onSubmit({
+      kind: "http",
+      name: name.trim(),
+      description: `Outbound ${method} call`,
+      config: {
+        url: url.trim(),
+        method,
+        headers: parsedHeaders,
+        body: body.trim() || null,
+        timeout_ms: 30000,
+        response_map: responseMap.trim() || null,
+      },
+    });
+    if (r.err) setErr(r.err);
+  };
+
+  return (
+    <div className="grid gap-2.5">
+      <Field label="Name"><Input value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Notify Slack" disabled={disabled} /></Field>
+      <div className="grid grid-cols-[120px_1fr] gap-2.5">
+        <Field label="Method">
+          <select value={method} onChange={(e) => setMethod(e.target.value)} className={inputCls} disabled={disabled}>
+            {["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD"].map((m) => <option key={m} value={m}>{m}</option>)}
+          </select>
+        </Field>
+        <Field label="URL ({{vars}} and {{secrets.NAME}} allowed)">
+          <Input value={url} onChange={(e) => setUrl(e.target.value)} className="font-mono text-[12px]"
+            placeholder="{{secrets.SLACK_WEBHOOK}}" disabled={disabled} />
+        </Field>
+      </div>
+      <Field label="Headers (JSON object)">
+        <Textarea value={headers} onChange={(e) => setHeaders(e.target.value)} rows={3} className="font-mono text-[12px]" disabled={disabled} />
+      </Field>
+      <Field label="Body (sent as-is; {{...}} interpolated)">
+        <Textarea value={body} onChange={(e) => setBody(e.target.value)} rows={4} className="font-mono text-[12px]"
+          placeholder={'{ "text": "Triaged {{ticket.key}}: {{nodes.triage.output.summary}}" }'} disabled={disabled} />
+      </Field>
+      <Field label="Response map (optional JSONata over {status, ok, body, headers} — must yield an object)">
+        <Input value={responseMap} onChange={(e) => setResponseMap(e.target.value)} className="font-mono text-[12px]"
+          placeholder='{ "ok": status = 200, "body": body }' disabled={disabled} />
+      </Field>
+      <p className="text-[11px] text-muted-foreground m-0">
+        The host must be on the HTTP allowlist (Settings → Custom nodes); calls pass the SSRF guard.
+      </p>
+      {err && <Card className="p-2.5 text-[12px] text-rose-400 border-rose-500/30">{err}</Card>}
+      <Button onClick={() => void submit()} disabled={disabled || busy} className="self-start">
+        {busy ? <Spinner /> : <Plus size={14} />} Create http node
+      </Button>
+    </div>
+  );
+}
+
+function ScriptNodeForm({ busy, disabled, onSubmit }: {
+  busy: boolean; disabled: boolean;
+  onSubmit: (def: CreateNodeDef) => Promise<{ err?: string; nodeTemplateId?: string }>;
+}) {
+  const [name, setName] = useState("");
+  const [runtime, setRuntime] = useState<"shell" | "node" | "python">("shell");
+  const [script, setScript] = useState("");
+  const [cwd, setCwd] = useState<"repo" | "workspace">("repo");
+  const [schemaText, setSchemaText] = useState("");
+  const [err, setErr] = useState<string | null>(null);
+
+  const submit = async () => {
+    setErr(null);
+    if (!name.trim()) { setErr("name is required"); return; }
+    if (!script.trim()) { setErr("a script is required"); return; }
+    let output_schema: unknown = null;
+    if (schemaText.trim()) {
+      try {
+        output_schema = JSON.parse(schemaText);
+      } catch (e) {
+        setErr(`output_schema is not valid JSON: ${e instanceof Error ? e.message : String(e)}`);
+        return;
+      }
+    }
+    const r = await onSubmit({
+      kind: "script",
+      name: name.trim(),
+      description: `Local ${runtime} script`,
+      config: { runtime, script, cwd, timeout_ms: 120000, env: [], output_schema },
+    });
+    if (r.err) setErr(r.err);
+  };
+
+  return (
+    <div className="grid gap-2.5">
+      <Field label="Name"><Input value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Read package version" disabled={disabled} /></Field>
+      <div className="grid grid-cols-2 gap-2.5">
+        <Field label="Runtime">
+          <select value={runtime} onChange={(e) => setRuntime(e.target.value as typeof runtime)} className={inputCls} disabled={disabled}>
+            <option value="shell">shell — POSIX sh</option>
+            <option value="node">node — Node.js</option>
+            <option value="python">python — python3</option>
+          </select>
+        </Field>
+        <Field label="Working directory">
+          <select value={cwd} onChange={(e) => setCwd(e.target.value as typeof cwd)} className={inputCls} disabled={disabled}>
+            <option value="repo">repo — the repo's local checkout</option>
+            <option value="workspace">workspace — the per-flow workspace clone</option>
+          </select>
+        </Field>
+      </div>
+      <Field label="Script (stdin gets the mapped input JSON; the last stdout line — or the $DEVFLOW_OUTPUT file — is the output JSON)">
+        <Textarea value={script} onChange={(e) => setScript(e.target.value)} rows={6} className="font-mono text-[12px]"
+          placeholder={"jq '.version' package.json | awk '{print \"{\\\"version\\\": \" $0 \"}\"}'"} disabled={disabled} />
+      </Field>
+      <Field label="Output schema (optional JSON Schema the output JSON must satisfy)">
+        <Textarea value={schemaText} onChange={(e) => setSchemaText(e.target.value)} rows={4} className="font-mono text-[12px]"
+          placeholder={'{ "type": "object", "required": ["version"], "properties": { "version": { "type": "string" } } }'} disabled={disabled} />
+      </Field>
+      <p className="text-[11px] text-muted-foreground m-0">
+        Scripts run with your user permissions (same trust as npm run) — local/self-hosted audience.
+      </p>
+      {err && <Card className="p-2.5 text-[12px] text-rose-400 border-rose-500/30">{err}</Card>}
+      <Button onClick={() => void submit()} disabled={disabled || busy} className="self-start">
+        {busy ? <Spinner /> : <Plus size={14} />} Create script node
       </Button>
     </div>
   );

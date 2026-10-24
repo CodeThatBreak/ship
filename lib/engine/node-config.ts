@@ -4,11 +4,25 @@ import { db } from "../db";
 export interface ConfigField {
   key: string;
   label: string;
-  type: "boolean" | "number" | "string" | "text" | "select";
+  /**
+   * Renderers: the five basics are the generic form rows; the declarative
+   * kinds add their own — `ts_output` is the TS-lite schema box (agent node),
+   * `choices` is the decision branch editor.
+   */
+  type: "boolean" | "number" | "string" | "text" | "select" | "ts_output" | "choices";
   /** help text shown under the field */
   help?: string;
-  /** for select fields */
-  options?: { value: string; label: string }[];
+  /** for select fields — a description renders as gray text under the label
+   *  in the dropdown item (rich variant: no "(default)" option — the
+   *  effective value always resolves to one of the options) */
+  options?: { value: string; label: string; description?: string }[];
+  /** string fields: clearing the input writes an explicit `null` override
+   *  ("cleared") instead of dropping it to the catalog default — the runtime
+   *  schema must accept null for the field (e.g. the agent model override) */
+  nullable?: boolean;
+  /** for select fields: a lucide icon name per option value (icon variant —
+   *  no empty "(default)" option; the form renders icons next to the labels) */
+  optionIcons?: Record<string, string>;
 }
 
 /**

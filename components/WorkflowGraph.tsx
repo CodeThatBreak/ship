@@ -7,6 +7,7 @@ import {
   CheckCheck,
   CircleDot,
   Gauge,
+  Play,
   Rocket,
   Send,
   Sparkles,
@@ -20,8 +21,9 @@ import type { Node } from "../app/flows/[id]/page";
 import { cn } from "../lib/utils";
 
 // icons are a pure UI concern — resolved from the node_templates `icon` column
-// (lucide names, e.g. the seeded nodes) with a kind fallback, then CircleDot
-const ICONS: Record<string, any> = {
+// (lucide names, e.g. the seeded nodes) with a kind fallback, then CircleDot.
+// Exported so the template builder resolves the same set.
+export const ICONS: Record<string, any> = {
   plan: Compass,
   build: Hammer,
   pipeline: Gauge,
@@ -34,14 +36,17 @@ const ICONS: Record<string, any> = {
   // extra lucide names templates may reference in node_templates.icon
   Bot: Sparkles,
   BellRing: BellRing,
+  Play: Play,
   Rocket: Rocket,
   Tag: Tag,
 };
 
 interface GraphDef {
   order: string[];
-  meta: Record<string, { label: string; kind?: string | null; icon?: string | null }>;
+  meta: Record<string, { label: string; kind?: string | null; icon?: string | null; outputs?: string[] | null }>;
   edges: [string, string, "next" | "loop"][];
+  /** full edge specs (Phase 3: decision branch labels) */
+  edgeSpecs?: { from: string; to: string; kind: string; label: string | null; condition: string | null }[];
 }
 
 function iconFor(key: string, meta: GraphDef["meta"]): any {
@@ -86,8 +91,8 @@ const STATUS: Record<string, { border: string; text: string }> = {
   pending: { border: "border-border", text: "text-muted-foreground" },
 };
 
-const W = 148,
-  H = 56;
+const W = 156,
+  H = 66;
 
 function layout(keys: string[], edges: [string, string, string][]) {
   const g = new dagre.graphlib.Graph();
@@ -134,6 +139,23 @@ export default function WorkflowGraph({
   const width = Math.max(...keys.map((k) => g.node(k).x)) + W;
   const height = Math.max(...keys.map((k) => g.node(k).y)) + H + 10;
 
+  // decision branches (Phase 3): an edge out of a decision node highlights
+  // when its label was chosen; the label renders at the edge midpoint
+  const byKey = new Map(nodes.map((n) => [n.node_key, n]));
+  const decisionOut = new Map<string, Set<string>>(); // `${from}>${label}` → taken?
+  const takenEdges = new Set<string>();
+  for (const e of graphDef?.edgeSpecs ?? []) {
+    if (e.label == null) continue;
+    const src = byKey.get(e.from);
+    if (src?.kind !== "decision") continue;
+    const chosen = (src.output as { chosen?: string[] } | undefined)?.chosen ?? [];
+    const done = src.status === "done" || src.status === "approved";
+    if (done && chosen.includes(e.label)) takenEdges.add(`${e.from}>${e.to}:${e.label}`);
+    decisionOut.set(`${e.from}>${e.to}:${e.label}`, new Set([e.label]));
+  }
+  const specOf = (a: string, b: string) =>
+    (graphDef?.edgeSpecs ?? []).find((e) => e.from === a && e.to === b) ?? null;
+
   return (
     <div className="relative mx-auto" style={{ width, height }}>
       <svg width={width} height={height} className="absolute inset-0">
@@ -149,6 +171,17 @@ export default function WorkflowGraph({
           >
             <path d="M 0 0 L 10 5 L 0 10 z" className="fill-border" />
           </marker>
+          <marker
+            id="arr-taken"
+            viewBox="0 0 10 10"
+            refX="9"
+            refY="5"
+            markerWidth="7"
+            markerHeight="7"
+            orient="auto-start-reverse"
+          >
+            <path d="M 0 0 L 10 5 L 0 10 z" className="fill-emerald-500" />
+          </marker>
         </defs>
         {edges.map(([a, b]) => {
           if (!keys.includes(a) || !keys.includes(b)) return null;
@@ -160,15 +193,41 @@ export default function WorkflowGraph({
           const x2 = back ? nb.x : nb.x - W / 2,
             y2 = back ? nb.y + H / 2 : nb.y;
           const my = back ? height - 4 : (y1 + y2) / 2;
+          const spec = specOf(a, b);
+          const taken = spec?.label != null && takenEdges.has(`${a}>${b}:${spec.label}`);
           return (
             <path
               key={`${a}-${b}`}
               d={`M ${x1} ${y1} C ${(x1 + x2) / 2} ${back ? my : y1}, ${(x1 + x2) / 2} ${back ? my : y2}, ${x2} ${y2}`}
               fill="none"
-              className="stroke-border"
-              strokeWidth="1.5"
-              markerEnd="url(#arr)"
+              className={taken ? "stroke-emerald-500" : "stroke-border"}
+              strokeWidth={taken ? 2 : 1.5}
+              strokeDasharray={spec?.kind === "loop" ? "5 4" : undefined}
+              markerEnd={taken ? "url(#arr-taken)" : "url(#arr)"}
             />
+          );
+        })}
+        {/* decision branch labels at the edge midpoint */}
+        {edges.map(([a, b]) => {
+          const spec = specOf(a, b);
+          if (!spec?.label || !keys.includes(a) || !keys.includes(b)) return null;
+          const na = g.node(a), nb = g.node(b);
+          const back = nb.x < na.x;
+          const mx = (na.x + (back ? 0 : W / 2) + nb.x - (back ? 0 : W / 2)) / 2;
+          const my = back ? height - 4 : (na.y + nb.y) / 2;
+          const taken = takenEdges.has(`${a}>${b}:${spec.label}`);
+          return (
+            <text
+              key={`lbl-${a}-${b}`}
+              x={mx}
+              y={my - 6}
+              textAnchor="middle"
+              className={taken ? "fill-emerald-400" : "fill-muted-foreground"}
+              fontSize="10"
+              fontFamily="inherit"
+            >
+              {spec.label}
+            </text>
           );
         })}
       </svg>
@@ -178,6 +237,9 @@ export default function WorkflowGraph({
         // derives from the same template, so this only matters for fallbacks
         const label = n.label ?? meta[n.node_key]?.label ?? n.node_key;
         const Icon = iconFor(n.node_key, meta);
+        // the variables this node publishes downstream — what the next node's
+        // pickers offer (start nodes: their contract; agents: their schema)
+        const outputs = meta[n.node_key]?.outputs ?? [];
         const isSel = selected === n.node_key;
         const isRunning = currentNode === n.node_key || n.status === "running";
         const st = STATUS[isRunning ? "running" : n.status] ?? STATUS.pending;
@@ -185,6 +247,7 @@ export default function WorkflowGraph({
           <div
             key={n.node_key}
             onClick={() => onSelect(n.node_key)}
+            title={outputs.length ? `Publishes: ${outputs.join(", ")}` : undefined}
             className={cn(
               "absolute rounded-xl cursor-pointer flex items-center gap-[9px] px-3 border-[1.5px] transition-all duration-150",
               isSel ? "bg-popover shadow-panel" : "bg-card",
@@ -203,7 +266,7 @@ export default function WorkflowGraph({
               }
             />
             <div className="min-w-0">
-              <div className="text-[12.5px] font-semibold leading-[1.2]">
+              <div className="text-[12.5px] font-semibold leading-[1.2] truncate">
                 {label}
               </div>
               <div
@@ -220,6 +283,14 @@ export default function WorkflowGraph({
                 {n.artifacts.length > 0 &&
                   ` · v${Math.max(...n.artifacts.map((a) => a.version))}`}
               </div>
+              {outputs.length > 0 && (
+                <div
+                  className="text-[9.5px] text-muted-foreground leading-[1.3] truncate mt-0.5"
+                  title={`Publishes: ${outputs.join(", ")}`}
+                >
+                  → {outputs.join(", ")}
+                </div>
+              )}
             </div>
           </div>
         );

@@ -2,7 +2,7 @@
 import { useCallback, useEffect, useState } from "react";
 import {
   ArrowLeft, Cloud, Cpu, Database, FileText, GitBranch, FolderGit2, Globe,
-  Pencil, Plus, RefreshCw, Trash2, CheckCircle2, XCircle,
+  KeyRound, Pencil, Plus, RefreshCw, Trash2, CheckCircle2, XCircle,
 } from "lucide-react";
 import { useModels } from "../../components/ModelSelector";
 import { Alert } from "../../components/ui/alert";
@@ -30,6 +30,9 @@ type Settings = {
   prompt_templates?: Record<string, PromptTemplate>;
   pricing?: Record<string, PricingEntry>;
   pricing_suggested?: Record<string, PricingEntry>;
+  /** names of set secrets only (values never leave the server) */
+  secrets?: string[];
+  http_allowlist?: string[];
   status: { cursorApiKeySet: boolean; cursorCliAvailable: boolean; gitlabConfigured: boolean; jiraConfigured: boolean };
 };
 type PricingEntry = { input_per_mtok?: number; output_per_mtok?: number; cache_read_per_mtok?: number; cache_write_per_mtok?: number };
@@ -90,6 +93,10 @@ export default function SettingsPage() {
 
       {settings?.prompt_templates && (
         <PromptTemplatesSection templates={settings.prompt_templates} onSave={saveSettings} />
+      )}
+
+      {settings && (
+        <CustomNodesSection settings={settings} onSave={saveSettings} />
       )}
 
       <ReposSection repos={repos} onChanged={load} onError={setError} />
@@ -380,6 +387,109 @@ function PromptTemplatesSection({ templates, onSave }: { templates: Record<strin
           </Button>
         </div>
       )}
+    </section>
+  );
+}
+
+/**
+ * Custom-node settings (Phase 3): secrets for `{{secrets.NAME}}` interpolation
+ * in http nodes, and the outbound hostname allowlist the SSRF guard enforces
+ * (empty = deny-by-default). Secret values are write-only — the API returns
+ * names only; saving replaces the map wholesale.
+ */
+function CustomNodesSection({ settings, onSave }: { settings: Settings; onSave: (p: any) => void }) {
+  const [secretRows, setSecretRows] = useState<{ name: string; value: string }[]>([]);
+  const [hosts, setHosts] = useState<string[]>([]);
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    // values stay blank — set names render as rows so they can be replaced/deleted
+    setSecretRows((settings.secrets ?? []).map((name) => ({ name, value: "" })));
+    setHosts(settings.http_allowlist ?? []);
+  }, [settings.secrets, settings.http_allowlist]);
+
+  const save = async () => {
+    setSaving(true);
+    const current = new Set(settings.secrets ?? []);
+    const secrets: Record<string, string | null> = {};
+    const kept = new Set<string>();
+    for (const r of secretRows) {
+      const name = r.name.trim();
+      if (!name) continue;
+      kept.add(name);
+      if (r.value) secrets[name] = r.value; // new/replaced value
+    }
+    for (const name of current) {
+      if (!kept.has(name)) secrets[name] = null; // row removed → delete
+    }
+    await onSave({
+      secrets,
+      http_allowlist: hosts.map((h) => h.trim()).filter(Boolean),
+    });
+    setSaving(false);
+  };
+
+  return (
+    <section className="mb-8">
+      <h2 className="text-[13px] mb-3 text-muted-foreground uppercase tracking-[1px] flex items-center gap-[7px]">
+        <KeyRound size={14} /> Custom nodes
+      </h2>
+      <Card className="p-4 grid gap-4">
+        <div>
+          <div className="text-[13px] font-medium mb-2">Secrets</div>
+          <div className="grid gap-1.5">
+            {secretRows.map((r, i) => (
+              <div key={i} className="flex gap-2 items-center">
+                <Input
+                  placeholder="NAME (e.g. SLACK_WEBHOOK)"
+                  className="font-mono text-[12px] w-[260px]"
+                  value={r.name}
+                  onChange={(e) => setSecretRows(secretRows.map((x, j) => (j === i ? { ...x, name: e.target.value } : x)))}
+                />
+                <Input
+                  placeholder={(settings.secrets ?? []).includes(r.name) ? "•••• (set — leave blank to keep)" : "value"}
+                  type="password"
+                  className="font-mono text-[12px] flex-1"
+                  value={r.value}
+                  onChange={(e) => setSecretRows(secretRows.map((x, j) => (j === i ? { ...x, value: e.target.value } : x)))}
+                />
+                <Button size="sm" variant="ghost" onClick={() => setSecretRows(secretRows.filter((_, j) => j !== i))} aria-label="remove secret">
+                  <Trash2 size={13} />
+                </Button>
+              </div>
+            ))}
+          </div>
+          <div className="mt-2">
+            <Button size="sm" variant="outline" onClick={() => setSecretRows([...secretRows, { name: "", value: "" }])}>
+              <Plus size={13} /> Add secret
+            </Button>
+          </div>
+          <p className="text-muted-foreground text-[12px] mt-2">
+            Referenced as <code className="font-mono">{"{{secrets.NAME}}"}</code> in http node URLs / headers / bodies.
+            Values resolve at execution time only — they are never written into flow rows, run inputs, or events.
+          </p>
+        </div>
+        <div className="border-t border-border pt-4">
+          <div className="text-[13px] font-medium mb-2">HTTP allowlist</div>
+          <Textarea
+            rows={3}
+            placeholder={"hooks.slack.com\napi.github.com"}
+            className="font-mono text-[12px]"
+            value={hosts.join("\n")}
+            onChange={(e) => setHosts(e.target.value.split("\n"))}
+          />
+          <p className="text-muted-foreground text-[12px] mt-2">
+            One hostname per line (subdomains match). Template-authored http nodes may only call these hosts —
+            an empty list denies every outbound call. Requests also pass the SSRF guard: no internal networks,
+            redirects re-validated per hop.
+          </p>
+        </div>
+        <div>
+          <Button size="sm" onClick={save} disabled={saving}>
+            {saving ? <Spinner /> : <CheckCircle2 size={13} />} Save custom-node settings
+          </Button>
+        </div>
+      </Card>
     </section>
   );
 }

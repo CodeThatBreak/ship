@@ -23,6 +23,11 @@ export async function GET() {
     prompt_templates: prompts.allTemplates(),
     pricing: db.getSetting("pricing", {}),
     pricing_suggested: DEFAULT_PRICING,
+    // Phase 3: secrets ({{secrets.NAME}} in http nodes) + the outbound hostname
+    // allowlist (empty = deny-by-default). Secret VALUES are never returned —
+    // the settings page shows which names are set, writes replace wholesale.
+    secrets: Object.keys(db.getSetting<Record<string, unknown>>("secrets", {}) ?? {}),
+    http_allowlist: db.getSetting<string[]>("http_allowlist", []),
     status: {
       cursorApiKeySet: Boolean(config.cursor.apiKey()),
       cursorCliAvailable: cli,
@@ -91,6 +96,36 @@ export async function PATCH(req: Request) {
       }
     }
     db.setSetting("prompt_templates", pt);
+  }
+  if (body.secrets !== undefined) {
+    // merge semantics (values are write-only, so wholesale replace would drop
+    // everything the client can't see): present keys update, null/"" deletes,
+    // absent keys stay untouched
+    if (typeof body.secrets !== "object" || body.secrets === null || Array.isArray(body.secrets)) {
+      return NextResponse.json({ error: "secrets must be an object {NAME: value}" }, { status: 400 });
+    }
+    const current = db.getSetting<Record<string, string>>("secrets", {}) ?? {};
+    const next: Record<string, string> = { ...current };
+    for (const [k, v] of Object.entries(body.secrets as Record<string, unknown>)) {
+      const name = k.trim();
+      if (!name) continue;
+      if (v == null || v === "") {
+        delete next[name];
+        continue;
+      }
+      if (typeof v !== "string") {
+        return NextResponse.json({ error: `secret "${name}" must be a string` }, { status: 400 });
+      }
+      next[name] = v;
+    }
+    db.setSetting("secrets", next);
+  }
+  if (body.http_allowlist !== undefined) {
+    if (!Array.isArray(body.http_allowlist)) {
+      return NextResponse.json({ error: "http_allowlist must be an array of hostnames" }, { status: 400 });
+    }
+    const clean = body.http_allowlist.map((h: unknown) => String(h).trim().toLowerCase()).filter(Boolean);
+    db.setSetting("http_allowlist", clean);
   }
   return NextResponse.json({ ok: true });
 }

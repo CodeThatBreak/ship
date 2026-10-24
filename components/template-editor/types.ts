@@ -32,10 +32,53 @@ export interface NodeContract {
   kind: string;
   input: any;
   output: any;
+  /** decision nodes: the branch labels out-edges must carry (§4.3) */
+  choices?: { label: string; description?: string }[];
   config: {
-    fields?: { key: string; label: string; type: string; help?: string; options?: { value: string; label: string }[] }[];
+    fields?: {
+      key: string;
+      label: string;
+      type: string;
+      help?: string;
+      options?: { value: string; label: string; description?: string }[];
+      optionIcons?: Record<string, string>;
+      /** string fields: clearing writes an explicit null override */
+      nullable?: boolean;
+    }[];
     defaults?: Record<string, unknown>;
   };
+}
+
+/** Display label used everywhere: override wins, then catalog name, then key. */
+export function nodeLabel(n: Pick<EditorNode, "key" | "overrideLabel" | "catalog_name">): string {
+  return n.overrideLabel || n.catalog_name || n.key;
+}
+
+/** Connection-derived relationships for one node (sidebar + configurator Inputs tab). */
+export interface NodeRelationships {
+  incoming: EditorEdge[];
+  outgoing: EditorEdge[];
+  /** no edge points at this node — it starts its own branch and carries the trigger */
+  isStart: boolean;
+  /** no edges at all — needs a connection before it can be configured */
+  isolated: boolean;
+}
+
+/**
+ * Connection semantics of the builder:
+ *  - a node with no incoming edges is a **start node** — its trigger defines
+ *    when its branch begins;
+ *  - every other node must be reached by an edge; a node with no edges at all
+ *    is flagged isolated and can't be configured until it's wired in.
+ */
+export function nodeRelationships(nodes: EditorNode[], edges: EditorEdge[]): Record<string, NodeRelationships> {
+  const map: Record<string, NodeRelationships> = {};
+  for (const n of nodes) map[n.key] = { incoming: [], outgoing: [], isStart: true, isolated: true };
+  for (const e of edges) {
+    if (map[e.to]) { map[e.to].incoming.push(e); map[e.to].isolated = false; map[e.to].isStart = false; }
+    if (map[e.from]) { map[e.from].outgoing.push(e); map[e.from].isolated = false; }
+  }
+  return map;
 }
 
 export function describeTrigger(t: { type: string; minutes?: number; wait_for?: string }): string {

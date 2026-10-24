@@ -1,6 +1,6 @@
 "use client";
-import { useEffect, useState } from "react";
-import { AlertTriangle, CheckCheck, Clock, FileDiff, GitMerge, Pencil, RotateCcw, Square, Wrench } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
+import { AlertTriangle, Braces, CheckCheck, Clock, FileDiff, GitMerge, Pencil, Play, RotateCcw, Square, Wrench } from "lucide-react";
 import { Tooltip, TooltipContent, TooltipTrigger } from "./ui/tooltip";
 import type { FlowData, Node, Artifact } from "../app/flows/[id]/page";
 import PlanView from "./PlanView";
@@ -8,14 +8,18 @@ import PlanSteps from "./PlanSteps";
 import DiffView from "./DiffView";
 import ReviewView from "./ReviewView";
 import AgentView from "./AgentNodePanel";
+import DeclarativeView from "./DeclarativeNodePanel";
 import PromptModal from "./PromptModal";
 import { Alert } from "./ui/alert";
 import { Badge } from "./ui/badge";
 import { Button } from "./ui/button";
 import { Card } from "./ui/card";
+import { Input } from "./ui/input";
 import { Spinner } from "./ui/spinner";
+import { Textarea } from "./ui/textarea";
 import { cn } from "../lib/utils";
 import { uncachedInputTokens } from "../lib/usage";
+import { parseStartContract, type StartContractField } from "../lib/engine/nodes/start/contract";
 
 function fetchArtifact(id: string) {
   return fetch(`/api/artifacts/${id}`).then((r) => r.json());
@@ -34,6 +38,14 @@ export default function NodePanel({
   if (node.kind === "agent") {
     return <AgentView flow={flow} node={node} action={action} fetchArtifact={fetchArtifact} model={model} />;
   }
+  // the flow entry: contract values form + published variables
+  if (node.type === "start") {
+    return <StartView flow={flow} node={node} action={action} />;
+  }
+  // Phase 3 kinds: decision card, http response viewer, script output viewer
+  if (node.kind === "decision" || node.kind === "http" || node.kind === "script") {
+    return <DeclarativeView flow={flow} node={node} action={action} fetchArtifact={fetchArtifact} model={model} />;
+  }
 
   const shared = { flow, node, action, fetchArtifact, events, model };
   switch (node.node_key) {
@@ -47,7 +59,7 @@ export default function NodePanel({
       return <ResolveView {...shared} />;
     default:
       return (
-        <PanelShell node={node} action={action}>
+        <PanelShell node={node} action={action} flow={flow}>
           {node.kind
             ? <p className="text-muted-foreground text-[13px] m-0">The <strong>{node.kind}</strong> node kind ships with a later phase — configure it in the template editor, but it cannot run yet.</p>
             : <p className="text-muted-foreground">No panel for this node.</p>}
@@ -57,6 +69,7 @@ export default function NodePanel({
 }
 
 const PANEL_TITLES: Record<string, string> = {
+  start: "Flow start",
   plan: "Implementation plan",
   build: "Code changes",
   pipeline: "CI pipeline",
@@ -85,15 +98,19 @@ function statusVariant(status: string) {
  * feels like one consistent surface.
  */
 export function PanelShell({
-  node, action, headerEnd, runningLabel = "Agent is working…", footer, children,
+  node, action, headerEnd, runningLabel = "Agent is working…", footer, children, flow, hideFailed,
 }: {
   node: Node;
   action: (a: string, b?: any) => void;
+  /** when given, the waiting-state banner shows the node's hook endpoint (Phase 4B) */
+  flow?: FlowData;
   headerEnd?: React.ReactNode;
   /** headline shown while the node is running (PlanView-style centered state) */
   runningLabel?: string;
   footer?: React.ReactNode;
   children: React.ReactNode;
+  /** start nodes surface their own failed alert (the form doubles as the fix) */
+  hideFailed?: boolean;
 }) {
   return (
     <div className="flex flex-col h-full min-h-0">
@@ -111,7 +128,7 @@ export function PanelShell({
 
       {/* scrollable content */}
       <div className="overflow-y-auto flex-1 min-h-0 px-5 py-4">
-        {node.status === "failed" && (
+        {!hideFailed && node.status === "failed" && (
           <Alert variant="destructive" className="mb-3.5">
             <AlertTriangle size={16} className="shrink-0" />
             <span className="flex-1">This step failed — check the activity feed for details.</span>
@@ -120,6 +137,7 @@ export function PanelShell({
             </Button>
           </Alert>
         )}
+        {node.status === "waiting" && <WaitBanner flow={flow} node={node} />}
         {node.status === "running" && (
           <div className="flex flex-col items-center justify-center text-center px-5 py-8 gap-2">
             <Spinner className="size-[22px] border-[3px]" />
@@ -148,6 +166,40 @@ function fmtDur(ms?: number): string {
   const s = Math.round(ms / 1000);
   if (s < 60) return `${s}s`;
   return `${Math.floor(s / 60)}m ${s % 60}s`;
+}
+
+/**
+ * The waiting state (§6 node wait_for): the node is eligible but its event
+ * source hasn't delivered yet. When the flow carries the node's inbound hook
+ * (wait_for webhook), the banner shows the endpoint + secret and a copy-ready
+ * send-hook command — what was delivered and what resumes the node is never
+ * buried in run logs.
+ */
+function WaitBanner({ flow, node }: { flow?: FlowData; node: Node }) {
+  const hook = (flow?.hooks ?? []).find((h) => h.node_key === node.node_key);
+  const base = typeof window !== "undefined" ? window.location.origin : "";
+  return (
+    <Alert className="mb-3.5">
+      <Clock size={16} className="shrink-0" />
+      <span className="flex-1 text-[12.5px] text-muted-foreground">
+        Waiting for its event source — it resumes automatically on delivery.
+        {hook && (
+          <>
+            <br />
+            POST to <code className="font-mono text-foreground">{base}/api/hooks/{hook.id}</code>
+            {" "}· secret <code className="font-mono text-foreground">{hook.secret}</code>
+          </>
+        )}
+      </span>
+      {hook && (
+        <Button size="sm" variant="ghost" onClick={() => void navigator.clipboard?.writeText(
+          `node scripts/send-hook.mjs ${base}/api/hooks/${hook.id} ${hook.secret} '{"ping":true}'`
+        )}>
+          Copy send-hook command
+        </Button>
+      )}
+    </Alert>
+  );
 }
 function fmtTok(n?: number): string {
   if (!n) return "—";
@@ -247,6 +299,164 @@ export function CostChip({ node }: { node: Node }) {
   );
 }
 
+// ── the flow entry panel (start node) ────────────────────────────────────────
+
+/**
+ * The start node's runtime panel (§5): the contract fields the flow starts
+ * with, one form. Who provides the values follows the start node's trigger
+ * type — auto flows publish the authored defaults (no form needed, the node
+ * runs itself), manual/approval flows ask here when the user triggers, and a
+ * webhook flow receives a payload validated against the same contract. Once
+ * the node is done the published variables are listed — those are what the
+ * next nodes map from.
+ */
+function StartView({ flow, node, action }: { flow: FlowData; node: Node; action: (a: string, b?: any) => Promise<void> | void }) {
+  const fields = useMemo(() => parseStartContract(node.config ?? {}), [node.config]);
+  const [values, setValues] = useState<Record<string, unknown>>(() => prefillStartValues(node, fields));
+  const [submitting, setSubmitting] = useState(false);
+  const pending = node.status === "pending";
+  const failed = node.status === "failed";
+  const done = node.status === "done" || node.status === "approved";
+  const output = (node.output ?? {}) as Record<string, unknown>;
+
+  const start = () => {
+    setSubmitting(true);
+    const input: Record<string, unknown> = {};
+    for (const f of fields) {
+      const v = values[f.key];
+      if (v === undefined || v === null || v === "") continue;
+      input[f.key] = v;
+    }
+    Promise.resolve(action("run_node", {
+      nodeKey: node.node_key,
+      input: fields.length ? input : undefined,
+    })).finally(() => setSubmitting(false));
+  };
+
+  const setValue = (key: string, v: unknown) => setValues((cur) => ({ ...cur, [key]: v }));
+  const canStart = pending && !submitting;
+
+  const footer = (pending || failed) && (
+    <>
+      <span className="text-xs text-muted-foreground">
+        {fields.length
+          ? "Provide the contract values — the flow's nodes map from them."
+          : "No contract declared — starting publishes nothing."}
+      </span>
+      <div className="flex-1" />
+      <Button onClick={start} disabled={!canStart}>
+        <Play size={14} /> {failed ? "Start again" : pending ? (fields.length ? "Provide values & start" : "Start flow") : "Started"}
+      </Button>
+    </>
+  );
+
+  return (
+    <PanelShell node={node} action={action} flow={flow} hideFailed runningLabel="Starting the flow…" footer={footer}>
+      {failed && (
+        <Alert variant="destructive" className="mb-3.5">
+          <AlertTriangle size={16} className="shrink-0" />
+          <span className="flex-1">
+            The provided values didn&apos;t satisfy the start contract — fix them below and start again.
+          </span>
+        </Alert>
+      )}
+      {fields.length === 0 && (
+        <p className="text-muted-foreground text-[13px] m-0">
+          This flow&apos;s start node declares no contract — it finishes immediately and the branch
+          trigger on it decides when the rest begins.
+        </p>
+      )}
+      {fields.map((f) => (
+        <StartFieldInput key={f.key} field={f} value={values[f.key]} onChange={(v) => setValue(f.key, v)} />
+      ))}
+      {done && (
+        <section className="grid gap-2">
+          <h3 className="text-[13px] font-semibold m-0 flex items-center gap-1.5">
+            <Braces size={13} /> Published variables
+          </h3>
+          {Object.keys(output).length === 0 ? (
+            <p className="text-muted-foreground text-[12.5px] m-0">No values were published.</p>
+          ) : (
+            <div className="border border-border rounded-lg overflow-hidden text-[12.5px]">
+              {Object.entries(output).map(([k, v]) => (
+                <div key={k} className="flex items-start gap-2 px-3 py-1.5 border-b border-border last:border-0">
+                  <code className="font-mono text-blue-400 shrink-0">{k}</code>
+                  <span className="text-muted-foreground font-mono break-all">{fmtStartValue(v)}</span>
+                </div>
+              ))}
+            </div>
+          )}
+          <p className="text-[11px] text-muted-foreground m-0">
+            The next nodes map from these — each pick resolves {`{{nodes.${node.node_key}.output.<field>}}`} at run time.
+          </p>
+        </section>
+      )}
+      {node.status === "running" && (
+        <p className="text-muted-foreground text-[13px] m-0">Starting the flow…</p>
+      )}
+    </PanelShell>
+  );
+}
+
+/** The form row for one start contract field (the engine coerces/validates). */
+function StartFieldInput({
+  field, value, onChange,
+}: {
+  field: StartContractField;
+  value: unknown;
+  onChange: (v: unknown) => void;
+}) {
+  const text = value == null ? "" : typeof value === "string" ? value : JSON.stringify(value, null, 2);
+  return (
+    <div className="grid gap-1">
+      <div className="flex items-center gap-2">
+        <label className="text-[12.5px] font-medium">{field.label || field.key}</label>
+        {field.label && <code className="font-mono text-[11px] text-muted-foreground">{field.key}</code>}
+        <Badge variant="outline" className="text-[10px]">{field.type}</Badge>
+        {field.required && <Badge className="bg-amber-500/10 text-amber-400 text-[10px]">required</Badge>}
+      </div>
+      {field.type === "boolean" ? (
+        <label className="flex items-center gap-2 text-[13px] cursor-pointer">
+          <input type="checkbox" checked={value === true} onChange={(e) => onChange(e.target.checked)} />
+          <span className="text-muted-foreground text-[12px]">{field.label || field.key}</span>
+        </label>
+      ) : field.type === "object" || field.type === "array" ? (
+        <Textarea
+          value={text}
+          rows={3}
+          className="font-mono text-[12px]"
+          placeholder={field.type === "array" ? "[ … ]" : "{ … }"}
+          onChange={(e) => onChange(e.target.value)}
+        />
+      ) : (
+        <Input
+          type={field.type === "number" ? "number" : "text"}
+          value={text}
+          onChange={(e) => onChange(e.target.value)}
+        />
+      )}
+    </div>
+  );
+}
+
+/** Trigger form prefill: the last run's values win, then the authored defaults. */
+function prefillStartValues(node: Node, fields: StartContractField[]): Record<string, unknown> {
+  const recorded = (node.input && typeof node.input === "object" ? { ...(node.input as Record<string, unknown>) } : {});
+  delete recorded.prompt;
+  delete recorded.model;
+  const out: Record<string, unknown> = {};
+  for (const f of fields) {
+    const r = recorded[f.key];
+    out[f.key] = r !== undefined && r !== null ? r : (f.default !== undefined && f.default !== null ? f.default : "");
+  }
+  return out;
+}
+
+function fmtStartValue(v: unknown): string {
+  if (typeof v === "string") return `"${v}"`;
+  return JSON.stringify(v);
+}
+
 function BuildView({ flow, node, action, fetchArtifact, events = [] }: any) {
   const diffs = node.artifacts.filter((a: Artifact) => a.kind === "diff");
   const latest = diffs[diffs.length - 1];
@@ -314,7 +524,7 @@ function BuildView({ flow, node, action, fetchArtifact, events = [] }: any) {
   );
 
   return (
-    <PanelShell node={node} action={action} runningLabel="Agent is implementing the plan…" footer={footer}>
+    <PanelShell node={node} action={action} flow={flow} runningLabel="Agent is implementing the plan…" footer={footer}>
       {/* structured plan progress — the build agent checks steps off as it reports them */}
       {planSteps.length > 0 && (
         <PlanSteps flowId={flow.id} steps={planSteps} editable={false} highlight action={action} className="mb-4" />
@@ -426,7 +636,7 @@ function PipelineView({ flow, node, action, fetchArtifact, model }: any) {
 
   return (
     <>
-      <PanelShell node={node} action={action} headerEnd={headerEnd} runningLabel="Waiting for a green pipeline — failures are fixed automatically…" footer={footer}>
+      <PanelShell node={node} action={action} flow={flow} headerEnd={headerEnd} runningLabel="Waiting for a green pipeline — failures are fixed automatically…" footer={footer}>
         {node.status === "done" && output?.pipelineId && (
           <Alert className="bg-emerald-500/10 text-emerald-400 mb-3.5">
             <span className="flex-1">
@@ -483,7 +693,7 @@ function ResolveView({ flow, node, action, fetchArtifact, model }: any) {
 
   return (
     <>
-      <PanelShell node={node} action={action} headerEnd={headerEnd} runningLabel="Agent is fixing open comments…" footer={footer}>
+      <PanelShell node={node} action={action} flow={flow} headerEnd={headerEnd} runningLabel="Agent is fixing open comments…" footer={footer}>
         {clock && (
           <div className="mb-3 flex items-center gap-1.5 text-xs text-muted-foreground">
             <Clock size={12} />

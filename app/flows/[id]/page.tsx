@@ -41,6 +41,8 @@ export type FlowData = {
   resolveScheduleAt?: number | null;
   branches?: BranchRow[];
   planSteps?: PlanStepRow[];
+  /** inbound hooks feeding this flow's waiting nodes (wait_for webhook) */
+  hooks?: { id: string; flow_id: string; node_key: string | null; secret: string; filter: string | null }[];
   ticket: { key: string; summary: string; status: string; issueType: string; priority: string; prdText: string; figmaUrls: string[]; jiraUrl: string };
   nodes: Node[];
 };

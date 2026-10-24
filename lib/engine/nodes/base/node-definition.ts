@@ -65,6 +65,13 @@ export abstract class NodeDefinition<I = unknown, O extends Record<string, unkno
 
   /** typed config knobs — `configFields` drives the auto-generated form (Phase 2) */
   readonly configFields: readonly ConfigField[] = [];
+  /**
+   * Declarative nodes declare no input contract: the run input is inherited
+   * from the previous node's output (§3 — the flow's parent chain). The
+   * engine seeds the auto-start input with the upstream `next`-edge sources'
+   * merged outputs; `input_map` overlays explicit mappings on top.
+   */
+  readonly inheritsParentInput: boolean = false;
   /** typed config schema: `.parse({})` yields the class-layer defaults. Every knob's default equals today's behavior. */
   readonly configSchema: z.ZodTypeAny = z.object({}).strict();
 
@@ -226,6 +233,27 @@ export abstract class NodeDefinition<I = unknown, O extends Record<string, unkno
   /** Persist a prompt override + full input blob (audit / retry fidelity). */
   protected recordInput(nodeId: string, input: Record<string, unknown>, promptOverride?: string | null): void {
     this.support.setNode(nodeId, { prompt_override: promptOverride ?? null, input: JSON.stringify(input) });
+  }
+
+  /**
+   * Apply a run outcome the same way `execute()`'s tail does — artifact,
+   * validated output, status, lifecycle event. Nodes whose run() produces an
+   * outcome without an agent run (decision manual/expression picks, http
+   * calls, script runs) call this so every node kind finishes through the
+   * one persistence path.
+   */
+  protected applyOutcome(ctx: FlowCtx, outcome: RunOutcome): RunOutcome {
+    const node = this.node(ctx);
+    if (outcome.artifact) {
+      this.support.saveArtifact(node.id, ctx.flow.id, outcome.artifact.kind, outcome.artifact.content, outcome.artifact.meta);
+    }
+    const validatedOutput = this.outputSchema.parse(outcome.output);
+    this.support.setNode(node.id, {
+      status: outcome.status,
+      output: JSON.stringify(validatedOutput),
+    });
+    db.emitEvent(ctx.flow.id, node.id, "lifecycle", outcome.event, outcome.eventData);
+    return { ...outcome, output: validatedOutput as Record<string, unknown> };
   }
 
   async makeDiff(ctx: FlowCtx, branch: string) {

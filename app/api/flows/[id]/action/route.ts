@@ -16,9 +16,11 @@ const ACTIONS: Record<string, (flowId: string, body: any) => void | Promise<void
   retry: (id, b) => flowEngine.retryNode(id, b.nodeKey),
   cancel: (id, b) => flowEngine.cancelNode(id, b.nodeKey),
   // Phase 2: generic template-driven node actions (declarative nodes)
-  run_node: (id, b) => flowEngine.runNodeManual(id, b.nodeKey, { prompt: b.prompt, model: b.model }),
+  run_node: (id, b) => flowEngine.runNodeManual(id, b.nodeKey, { prompt: b.prompt, model: b.model, input: b.input }),
   approve_node: (id, b) => flowEngine.approveNode(id, b.nodeKey),
   set_node_config: (id, b) => flowEngine.setNodeConfig(id, b.nodeKey, b.config),
+  // Phase 3: decision branch picks (manual source / approval override)
+  choose_node: (id, b) => flowEngine.chooseNode(id, b.nodeKey, b.chosen ?? [], b.rationale),
 };
 
 export async function POST(req: Request, { params }: { params: Promise<{ id: string }> }) {

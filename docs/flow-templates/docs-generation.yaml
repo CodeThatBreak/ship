@@ -1,0 +1,27 @@
+# Docs generation — a Phase 5 starter (also seeded as a built-in template).
+# agent (markdown out) → script (repo write fed by input mapping).
+# Import standalone, or open the seeded "Docs generation" template and
+# duplicate it. Run: bind a ticket + repo in the flow settings, pick the
+# template on the home page, and start a flow.
+name: Docs generation
+trigger:
+  type: manual
+nodes:
+  - key: summarize
+    type: agent
+    trigger: {type: auto}
+    config:
+      mode: plan
+      output: markdown
+      prompt: "Summarize the shipped work on ticket {{ticket.key}} — {{ticket.summary}}.\nRead the repo at {{repo.local_path}} and cover: user-facing changes, configuration surface, and gotchas. Write it as markdown."
+  - key: write_doc
+    type: script
+    trigger: {type: auto}
+    config:
+      runtime: shell
+      script: "cat > docs/devflow-summary.md\necho '{\"written\": true}'"
+      cwd: repo
+    input_map:
+      doc: nodes.summarize.output.markdown
+edges:
+  - [summarize, write_doc]

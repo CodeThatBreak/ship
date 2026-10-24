@@ -5,83 +5,22 @@ import type { CursorRunResult } from "../../../integrations/cursor";
 import { NodeDefinition, type FlowCtx, type RunOutcome } from "../base";
 import { templateStore } from "../../templates";
 import { extractJson, validateJsonSchema } from "./json-schema-lite";
+import { AgentDefSchema, type AgentDef, type AgentInputField } from "../declarative-schemas";
+import { buildFlowContext } from "../../flow-context";
 
-// ── the declarative agent-node definition (node_templates.config) ────────────
-
-/** One declared input field of an agent node (drives the contract + input map). */
-export interface AgentInputField {
-  key: string;
-  label?: string;
-  /** string | number | boolean — for the contract display (Phase 3 wires input maps) */
-  type?: "string" | "number" | "boolean";
-  required?: boolean;
-}
+export type { AgentDef, AgentInputField };
 
 /**
- * The full definition stored on a `node_templates` row with kind='agent'
- * (§4.2 of the custom-flows plan). Class defaults ← app settings ← template
- * node config ← flow instance config all fold into `config` when a run starts.
- */
-const AgentDefSchema = z.object({
-  prompt: z.string().default(""),
-  /** plan = read-only judgment run; agent = repo workspace run */
-  mode: z.enum(["plan", "agent"]).default("plan"),
-  /** null = the flow/default model (settings.default_model) */
-  model: z.string().nullable().default(null),
-  /** markdown → {markdown} output + markdown artifact; json → validated payload */
-  output: z.enum(["markdown", "json"]).default("markdown"),
-  /** when output=json: JSON Schema the response must satisfy */
-  output_schema: z.unknown().optional().default(null),
-  /** declared inputs (contract display; input mapping evaluates in Phase 3) */
-  inputs: z.array(
-    z.object({
-      key: z.string().min(1),
-      label: z.string().optional(),
-      type: z.enum(["string", "number", "boolean"]).optional(),
-      required: z.boolean().optional(),
-    }),
-  ).default([]),
-});
-
-export type AgentDef = z.infer<typeof AgentDefSchema>;
-
-/**
- * Prompt variables available to `{{expr}}` references in the agent prompt:
+ * Prompt variables available to `{{expr}}` references in the agent prompt
+ * (§3 input mapping context): the shared flow-context map —
  * `{{ticket.*}}`, `{{repo.*}}`, `{{flow.*}}`, `{{trigger.payload.*}}`, and
  * `{{nodes.<key>.output.*}}` (outputs of upstream nodes, small structured data
  * — large content stays in artifacts and reaches prompts as prompt variables,
- * §5 data-passing rule).
+ * §5 data-passing rule) — plus `{{input.*}}`: the inherited run input, i.e.
+ * the previous node's output fields (the node declares no input contract).
  */
 export function agentPromptVars(ctx: FlowCtx): Record<string, unknown> {
-  const nodes: Record<string, unknown> = {};
-  const rowsOut = db.all<{ node_key: string; output: unknown }>(
-    `SELECT node_key, output FROM nodes WHERE flow_id=?`, ctx.flow.id
-  );
-  for (const r of rowsOut) {
-    nodes[r.node_key] = { output: (r.output ?? {}) as Record<string, unknown> };
-  }
-  let payload: unknown = null;
-  if ((ctx.flow as Record<string, unknown>).trigger_payload) {
-    payload = (ctx.flow as Record<string, unknown>).trigger_payload;
-  }
-  return {
-    ticket: {
-      key: ctx.ticket.key,
-      summary: ctx.ticket.summary,
-      description: ctx.ticket.description ?? "",
-      prd: ctx.ticket.prdText ?? "",
-    },
-    repo: {
-      cloud_url: ctx.repo?.cloud_url ?? ctx.flow.repo_url ?? "",
-      local_path: ctx.repo?.local_path ?? "",
-    },
-    flow: {
-      mr_url: ctx.flow.mr_url ?? "",
-      mr_branch: ctx.flow.mr_branch ?? "",
-    },
-    trigger: { payload },
-    nodes,
-  };
+  return buildFlowContext(ctx) as unknown as Record<string, unknown>;
 }
 
 /** `{{a.b.c}}` interpolation against the flow variable map. */
@@ -120,10 +59,11 @@ export class AgentTemplateNode extends NodeDefinition<Record<string, unknown>, R
   readonly inputSchema: z.ZodType<Record<string, unknown>>;
   readonly outputSchema: z.ZodType<Record<string, unknown>>;
 
+  /** no declared input contract — the input is the previous node's output */
+  override readonly inheritsParentInput = true;
+
   /** the parsed declarative definition (= the class-layer config) */
   readonly def: AgentDef;
-  /** declared input fields, for the configurator contract tab */
-  readonly declaredInputs: AgentInputField[];
 
   constructor(
     tmpl: { id: string; name: string; description: string | null; config: unknown },
@@ -136,20 +76,15 @@ export class AgentTemplateNode extends NodeDefinition<Record<string, unknown>, R
     this.key = instanceKey ?? tmpl.id;
     this.label = tmpl.name;
     this.def = AgentDefSchema.parse(tmpl.config ?? {});
-    this.declaredInputs = this.def.inputs;
 
-    const shape: Record<string, z.ZodTypeAny> = {
+    // No declared input contract (§3): the run input is inherited from the
+    // previous node's output — everything else reaches the prompt through the
+    // flow-context variables. Loose: extra context fields (prompt refs,
+    // retries) pass through unenforced.
+    this.inputSchema = z.looseObject({
       model: z.string().nullish(),
       prompt: z.string().nullish(),
-    };
-    for (const f of this.def.inputs) {
-      shape[f.key] =
-        f.type === "number" ? z.number().nullish() :
-        f.type === "boolean" ? z.boolean().nullish() :
-        z.string().nullish();
-    }
-    // loose: extra context fields from the engine (prompt refs, retries) pass through
-    this.inputSchema = z.looseObject(shape) as z.ZodType<Record<string, unknown>>;
+    }) as z.ZodType<Record<string, unknown>>;
 
     this.outputSchema = (
       this.def.output === "json"
@@ -159,6 +94,40 @@ export class AgentTemplateNode extends NodeDefinition<Record<string, unknown>, R
 
     this.description = tmpl.description ?? undefined;
   }
+
+  /**
+   * The full authoring form lives in the configurator drawer (not just the
+   * create dialog): the prompt is edited in place, after the node is
+   * connected, so the upstream run-context variables are clickable chips.
+   */
+  readonly configFields = [
+    {
+      key: "mode", label: "Mode", type: "select" as const,
+      help: "plan = read-only judgment run; agent = repo workspace run",
+      options: [
+        { value: "plan", label: "Plan" },
+        { value: "agent", label: "Agent" },
+      ],
+      optionIcons: { plan: "Compass", agent: "Sparkles" },
+    },
+    {
+      key: "prompt", label: "Prompt", type: "text" as const,
+      help: "{{...}} references — {{input.*}} (the previous node's output), {{nodes.<key>.output.*}}, {{ticket.*}}, {{repo.*}}, {{flow.*}}, {{trigger.payload.*}} and {{secrets.NAME}}",
+    },
+    { key: "model", label: "Model override", type: "string" as const, nullable: true, help: "text, or a {{...}} ref — e.g. {{nodes.<key>.output.model}} — empty = the flow's default model" },
+    {
+      key: "output", label: "Output", type: "select" as const,
+      help: "markdown → {{nodes.<key>.output.markdown}} artifact; json → validated payload fields",
+      options: [
+        { value: "markdown", label: "text", description: "saved as a markdown artifact" },
+        { value: "json", label: "json", description: "validated against the output schema" },
+      ],
+    },
+    {
+      key: "output_schema", label: "Output schema", type: "ts_output" as const,
+      help: "TypeScript-style members (or a JSON Schema) the json output must satisfy",
+    },
+  ];
 
   /** Display description from the node catalog entry. */
   description?: string;
@@ -179,9 +148,22 @@ export class AgentTemplateNode extends NodeDefinition<Record<string, unknown>, R
     if (!template.trim()) {
       throw new Error(`${this.label}: no prompt configured — set one in the template editor`);
     }
-    const rendered = renderAgentPrompt(template, agentPromptVars(ctx));
+    // The inherited run input is prompt-addressable: {{input.<field>}} refs the
+    // previous node's output fields directly (the node inherits the parent's
+    // contract); the engine-owned prompt/model keys are stripped from it.
+    const inherited = { ...(rawInput ?? {}) };
+    delete inherited.prompt;
+    delete inherited.model;
+    const rendered = renderAgentPrompt(template, { ...agentPromptVars(ctx), input: inherited });
     const runModel = typeof rawInput.model === "string" && rawInput.model.trim() ? rawInput.model.trim() : null;
-    const input: Record<string, unknown> = { ...rawInput, prompt: promptBody || null, model: runModel ?? cfg.model };
+    // the model override may itself be a {{...}} ref (an upstream node that
+    // picks the model) — rendered against the flow context at run time
+    const modelTemplate = runModel ?? cfg.model ?? null;
+    const model =
+      typeof modelTemplate === "string" && /\{\{[^{}]+\}\}/.test(modelTemplate)
+        ? renderAgentPrompt(modelTemplate, agentPromptVars(ctx)).trim() || null
+        : modelTemplate;
+    const input: Record<string, unknown> = { ...rawInput, prompt: promptBody || null, model };
 
     return this.execute(ctx, {
       input,
@@ -190,7 +172,7 @@ export class AgentTemplateNode extends NodeDefinition<Record<string, unknown>, R
       agent: {
         mode: cfg.mode,
         name: `${this.label} ${ctx.ticket.key}`,
-        model: runModel ?? cfg.model,
+        model,
         startingRef: ctx.flow.mr_branch ?? undefined,
       },
       label: this.label.toLowerCase(),

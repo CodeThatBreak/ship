@@ -71,7 +71,7 @@ export default function AgentView({
 
   return (
     <>
-      <PanelShell node={node} action={action} headerEnd={headerEnd} runningLabel={`${node.label || node.template_name || node.node_key} is running…`} footer={footer}>
+      <PanelShell node={node} action={action} flow={flow} headerEnd={headerEnd} runningLabel={`${node.label || node.template_name || node.node_key} is running…`} footer={footer}>
         {/* prompt card — what the agent will be asked, after {{var}} rendering */}
         {!running && !failed && (
           <Card className="p-3.5 mb-3.5">

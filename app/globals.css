@@ -5,6 +5,24 @@
    (spacing, borders, typography) so markdown renders correctly. */
 @source "../node_modules/streamdown/dist/*.js";
 
+/* Side drawer (Sheet) slide animation — Base-UI popup mounts fresh on open */
+@keyframes df-sheet-in-right {
+  from { transform: translateX(24px); opacity: 0; }
+}
+@keyframes df-sheet-in-left {
+  from { transform: translateX(-24px); opacity: 0; }
+}
+
+/* PromptEditor — inline highlight of the {{...}} variable refs */
+.prompt-var {
+  border-radius: 6px;
+  padding: 0 3px;
+  margin: 0 1px;
+  color: #93c5fd;
+  background: color-mix(in oklab, #3b82f6 12%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in oklab, #3b82f6 25%, transparent);
+}
+
 :root {
   --radius: 0.625rem;
   --font: "Inter", -apple-system, "SF Pro Text", "Segoe UI", Roboto, sans-serif;

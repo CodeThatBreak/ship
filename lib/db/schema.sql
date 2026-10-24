@@ -211,6 +211,9 @@ CREATE TABLE IF NOT EXISTS flow_templates (
   version      INTEGER NOT NULL DEFAULT 1,
   is_builtin   INTEGER NOT NULL DEFAULT 0,
   trigger      TEXT NOT NULL DEFAULT '{"type":"manual"}',  -- flow trigger JSON
+  -- next fire time for a `schedule` flow trigger (Phase 4C); NULL = not scheduled.
+  -- Persisted so the schedule survives restarts.
+  schedule_next_at TEXT,
   created_at   TEXT NOT NULL,
   updated_at   TEXT NOT NULL
 );
@@ -262,4 +265,12 @@ CREATE TABLE IF NOT EXISTS hooks (
   secret       TEXT NOT NULL,
   filter       TEXT,                        -- optional JSONata boolean filter
   created_at   TEXT NOT NULL
+);
+
+-- Delivery dedup: seen webhook-ids per hook (Phase 4A), TTL'd by the store.
+CREATE TABLE IF NOT EXISTS hook_deliveries (
+  hook_id      TEXT NOT NULL REFERENCES hooks(id),
+  webhook_id   TEXT NOT NULL,
+  created_at   TEXT NOT NULL,
+  UNIQUE(hook_id, webhook_id)
 );

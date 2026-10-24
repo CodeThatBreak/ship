@@ -1,89 +1,271 @@
 "use client";
-import { useEffect, useMemo, useState } from "react";
-import { ListChecks, Sparkles, Trash2 } from "lucide-react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { Info, ListChecks, Plus, Sparkles, Trash2, Unplug } from "lucide-react";
 import { Badge } from "../ui/badge";
 import { Button } from "../ui/button";
 import { Card } from "../ui/card";
-import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "../ui/dialog";
+import {
+  Dialog,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "../ui/dialog";
 import { Input } from "../ui/input";
 import { Spinner } from "../ui/spinner";
 import { Textarea } from "../ui/textarea";
 import { cn } from "../../lib/utils";
-import { GENERIC_TRIGGER_HELP, TRIGGER_TYPES, WAIT_FOR_SOURCES } from "./constants";
-import type { EditorNode, NodeContract } from "./types";
+import { TRIGGER_TYPES, WAIT_FOR_GROUPS, WAIT_FOR_SOURCES } from "./constants";
+import type { EditorEdge, EditorNode, NodeContract } from "./types";
+import { nodeLabel } from "./types";
+import type { StartContractField } from "../../lib/engine/nodes/start/contract";
+import {
+  Select,
+  SelectContent,
+  SelectGroup,
+  SelectItem,
+  SelectLabel,
+  SelectTrigger,
+  SelectValue,
+} from "../ui/select";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "../ui/tooltip";
+import { PromptEditor } from "./PromptEditor";
+import { iconForIconName } from "./icons";
+import {
+  CodeBlock,
+  CodeBlockActions,
+  CodeBlockContent,
+  CodeBlockCopyButton,
+  CodeBlockHeader,
+  CodeBlockTitle,
+} from "../ui/code-block";
+import { parseInputContract, parseOutputContract, type InputFieldRow } from "./ts-schema-lite";
 
 /**
- * The node configurator dialog (§8): Trigger / Config / Contract tabs.
+ * The node configurator (§8): Trigger / Config / Contract tabs.
  * Built-ins get the schema-driven config form from their `configFields`;
- * declarative (agent) nodes edit the instance overrides (prompt body, mode,
- * model) and show the declared contract read-only.
+ * declarative kinds (agent / decision / http / script) edit instance
+ * overrides through the same schema-driven form (their runtime classes
+ * declare `configFields`). There is no Inputs tab — nodes declare no input
+ * contract; the Contract tab shows the inherited upstream inputs and the
+ * node's own published outputs.
+ *
+ * The tabbed body is exported for any host surface — the visual builder
+ * (Phase 5) embeds it in a node drawer.
  */
+
+/** An edge arriving at the configured node, with the source node resolved. */
+export interface IncomingLink {
+  edge: EditorEdge;
+  /** index in the draft's edge list (stable — only used for display) */
+  edgeIndex: number;
+  source: EditorNode | null;
+}
+
+/** The seeded Start catalog row id; the start contract is edited per instance. */
+function isStartNode(node: EditorNode): boolean {
+  return (
+    node.nodeTemplateId === "nt_start" ||
+    (node.is_builtin && (node.catalog_name ?? "").toLowerCase() === "start")
+  );
+}
+
+/** Tab button labels (the start node shows only a subset of the tabs). */
+const TAB_LABELS: Record<string, string> = {
+  trigger: "Trigger",
+  config: "Config",
+  contract: "Contract",
+  output: "Run Context",
+};
+
+/** Dropdown option renderer — the label as the heading, the description
+ *  below it in gray. */
+function SelectOption({
+  label,
+  description,
+}: {
+  label: string;
+  description: string;
+}) {
+  return (
+    <div className="grid gap-0.5 whitespace-normal">
+      <span className="text-[13px] leading-tight">{label}</span>
+      <span className="text-[11px] text-muted-foreground leading-tight">
+        {description}
+      </span>
+    </div>
+  );
+}
+
+export function NodeConfiguratorBody({
+  node,
+  onChange,
+  incoming,
+  locked,
+}: {
+  node: EditorNode;
+  onChange: (p: Partial<EditorNode>) => void;
+  /** Incoming edges + sources (visual builder) — drives the variable chips
+   *  (the connected upstream nodes' published outputs). */
+  incoming?: IncomingLink[];
+  /** Node has no edges at all — configuration is gated on a connection. */
+  locked?: boolean;
+}) {
+  const [tab, setTab] = useState<
+    "trigger" | "config" | "output" | "contract"
+  >("trigger");
+  const [contract, setContract] = useState<NodeContract | null>(null);
+  const start = node ? isStartNode(node) : false;
+
+  // reset per node + load the contract from the registry / declarative def.
+  // A node with no config yet opens on Config — for a freshly placed node the
+  // work is the prompt/knobs (the trigger defaults to auto); anything already
+  // configured opens on Trigger as before.
+  useEffect(() => {
+    setTab(
+      node && !isStartNode(node) && Object.keys(node.config ?? {}).length === 0
+        ? "config"
+        : "trigger",
+    );
+    setContract(null);
+  }, [node?.nodeTemplateId, node?.key]);
+
+  useEffect(() => {
+    if (!node || contract != null) return;
+    let alive = true;
+    // the instance config rides along: the start node's contract is declared
+    // per instance, so its input/output schemas are derived from it
+    const cfg =
+      node.config && Object.keys(node.config).length
+        ? `&config=${encodeURIComponent(JSON.stringify(node.config))}`
+        : "";
+    fetch(`/api/contracts?def=${encodeURIComponent(node.nodeTemplateId)}${cfg}`)
+      .then((r) => r.json())
+      .then((c: any) => {
+        if (!alive) return;
+        if (c && c.input != null) setContract(c as NodeContract);
+        else {
+          // unknown kind (Phase 3) — an empty contract keeps the tabs usable
+          setContract({
+            key: node.nodeTemplateId,
+            label: node.catalog_name ?? node.key,
+            kind: node.kind ?? "",
+            input: null,
+            output: null,
+            config: { fields: [], defaults: {} },
+          });
+        }
+      })
+      .catch(() => {});
+    return () => {
+      alive = false;
+    };
+    // `contract` in deps: the reset effect clears it when the selected node
+    // changes (two instances can share a nodeTemplateId)
+  }, [node?.nodeTemplateId, node?.config, contract]);
+
+  // the upstream variables (friendly names, grouped by source node) — shared
+  // by the Config tab (click-to-insert chips) and the Contract tab (inherited input)
+  const groups = useUpstreamGroups(incoming);
+
+  if (locked) {
+    return (
+      <Card className="grid gap-2 p-4 border-amber-500/30 bg-amber-500/[0.04]">
+        <div className="flex items-center gap-2 text-[13px] font-medium text-amber-400">
+          <Unplug size={14} /> Needs a connection
+        </div>
+        <p className="text-[12px] text-muted-foreground m-0">
+          This node has no edges yet. A <strong>start node</strong> (nothing
+          points at it) carries the trigger that begins its branch; every other
+          node must be reached by an edge. Connect it on the canvas — then the
+          connected upstream nodes&apos; run context flows in as variables.
+        </p>
+      </Card>
+    );
+  }
+
+  // the start node has no config and no input mapping — its fields flow
+  // straight to the next nodes, so it gets Trigger + Output Schema only
+  const tabs = start
+    ? (["trigger", "output"] as const)
+    : (["trigger", "config", "contract"] as const);
+
+  return (
+    <div className="flex flex-col min-h-0 flex-1">
+      {/* tabs */}
+      <div className="flex gap-1 border-b border-border -mx-2 px-2">
+        {tabs.map((t) => (
+          <button
+            key={t}
+            onClick={() => setTab(t)}
+            className={cn(
+              "px-3 py-1.5 text-[12.5px] font-medium border-b-[1.5px] -mb-px",
+              tab === t
+                ? "text-foreground border-blue-500"
+                : "text-muted-foreground border-transparent hover:text-foreground",
+            )}
+          >
+            {TAB_LABELS[t] ?? t}
+          </button>
+        ))}
+      </div>
+
+      <div className="flex-1 overflow-y-auto pt-4 pr-1 min-h-0">
+        {tab === "trigger" ? (
+          <TriggerTab node={node} onChange={onChange} />
+        ) : tab === "config" ? (
+          <ConfigTab
+            node={node}
+            onChange={onChange}
+            contract={contract}
+            groups={groups}
+          />
+        ) : tab === "output" ? (
+          <StartContractEditor node={node} onChange={onChange} />
+        ) : (
+          <ContractView contract={contract} node={node} groups={groups} />
+        )}
+      </div>
+    </div>
+  );
+}
+
+/** The dialog surface for the drawer-less build (kept for the step-list build). */
 export default function NodeConfigurator({
-  open, node, onClose, onChange,
+  open,
+  node,
+  onClose,
+  onChange,
 }: {
   open: boolean;
   node: EditorNode | null;
   onClose: () => void;
   onChange: (patch: Partial<EditorNode>) => void;
 }) {
-  const [tab, setTab] = useState<"trigger" | "config" | "contract">("trigger");
-  const [contract, setContract] = useState<NodeContract | null>(null);
-
-  // reset per node + load the contract from the registry / declarative def
-  useEffect(() => {
-    setTab("trigger");
-    setContract(null);
-  }, [node?.nodeTemplateId, node?.key, open]);
-
-  useEffect(() => {
-    if (!open || !node || contract != null) return;
-    fetch(`/api/contracts?def=${encodeURIComponent(node.nodeTemplateId)}`)
-      .then((r) => r.json())
-      .then((c: any) => {
-        if (c && c.input != null) setContract(c as NodeContract);
-        else {
-          // unknown kind (Phase 3) — an empty contract keeps the tabs usable
-          setContract({ key: node.nodeTemplateId, label: node.catalog_name ?? node.key, kind: node.kind ?? "", input: null, output: null, config: { fields: [], defaults: {} } });
-        }
-      })
-      .catch(() => {});
-  }, [open, node, contract]);
-
   return (
-    <Dialog open={open} onOpenChange={(v) => { if (!v) onClose(); }}>
+    <Dialog
+      open={open}
+      onOpenChange={(v) => {
+        if (!v) onClose();
+      }}
+    >
       <DialogContent className="sm:max-w-[680px] max-h-[85vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <Sparkles size={14} className="text-muted-foreground" />
-            {node ? `${node.overrideLabel ?? node.catalog_name ?? node.key}` : "Node"}
+            {node
+              ? `${node.overrideLabel ?? node.catalog_name ?? node.key}`
+              : "Node"}
             <Badge variant="outline">{node?.kind ?? "builtin"}</Badge>
           </DialogTitle>
         </DialogHeader>
-
-        {/* tabs */}
-        <div className="flex gap-1 border-b border-border -mx-2 px-2">
-          {(["trigger", "config", "contract"] as const).map((t) => (
-            <button
-              key={t}
-              onClick={() => setTab(t)}
-              className={cn(
-                "px-3 py-1.5 text-[12.5px] font-medium border-b-[1.5px] -mb-px capitalize",
-                tab === t ? "text-foreground border-blue-500" : "text-muted-foreground border-transparent hover:text-foreground",
-              )}
-            >
-              {t}
-            </button>
-          ))}
-        </div>
-
-        {!node ? null : tab === "trigger" ? (
-          <TriggerTab node={node} onChange={onChange} />
-        ) : tab === "config" ? (
-          <ConfigTab node={node} onChange={onChange} contract={contract} />
-        ) : (
-          <ContractView contract={contract} node={node} />
+        {!node ? null : (
+          <NodeConfiguratorBody node={node} onChange={onChange} />
         )}
-
         <DialogFooter>
           <Button onClick={onClose}>Done</Button>
         </DialogFooter>
@@ -92,210 +274,1206 @@ export default function NodeConfigurator({
   );
 }
 
-function TriggerTab({ node, onChange }: { node: EditorNode; onChange: (p: Partial<EditorNode>) => void }) {
+function TriggerTab({
+  node,
+  onChange,
+}: {
+  node: EditorNode;
+  onChange: (p: Partial<EditorNode>) => void;
+}) {
   const t = node.trigger;
+  const source = WAIT_FOR_SOURCES.find((w) => w.value === t.wait_for);
+  const contractFields = Array.isArray(node.config?.contract)
+    ? (node.config.contract as StartContractField[])
+    : [];
   return (
     <div className="grid gap-3">
-      <p className="text-[12px] text-muted-foreground m-0">{GENERIC_TRIGGER_HELP}</p>
       <div className="grid gap-1">
         <label className="text-xs text-muted-foreground">Trigger type</label>
-        <select
+        <Select
           value={t.type}
-          onChange={(e) => onChange({ trigger: { ...t, type: e.target.value } })}
-          className="bg-card text-foreground border border-border rounded-lg text-[13px] px-3 py-2"
+          onValueChange={(v) => {
+            const next = v ?? t.type;
+            if (next === t.type) return;
+            const contractFields = Array.isArray(node.config?.contract)
+              ? (node.config.contract as StartContractField[])
+              : [];
+            // wait-for events only make sense for auto — leaving it drops the
+            // wait (and with it the event's enforced run-context field)
+            const wait = next === "auto" ? t.wait_for : undefined;
+            const droppingWait = wait === undefined && t.wait_for != null;
+            const ctxKey = contextFieldKeyOf(t.wait_for);
+            const stripped =
+              droppingWait && ctxKey
+                ? contractFields.filter((f) => f.key !== ctxKey)
+                : contractFields;
+            // defaults are an auto-trigger concern (auto publishes them) —
+            // switching the type clears them
+            const changed =
+              stripped.some((f) => f.default !== undefined) ||
+              stripped !== contractFields;
+            onChange({
+              trigger: { ...t, type: next, wait_for: wait },
+              ...(changed
+                ? {
+                    config: {
+                      ...(node.config ?? {}),
+                      contract: stripped.map((f) => ({
+                        ...f,
+                        default: undefined,
+                      })),
+                    },
+                  }
+                : {}),
+            });
+          }}
         >
-          {Object.entries(TRIGGER_TYPES).map(([v, label]) => (
-            <option key={v} value={v}>{label}</option>
-          ))}
-        </select>
+          <SelectTrigger className="w-full rounded-lg border-border bg-card">
+            <SelectValue>{TRIGGER_TYPES[t.type]?.label ?? t.type}</SelectValue>
+          </SelectTrigger>
+          <SelectContent>
+            {Object.entries(TRIGGER_TYPES).map(([v, opt]) => (
+              <SelectItem key={v} value={v}>
+                <SelectOption label={opt.label} description={opt.description} />
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
       </div>
       {t.type === "debounced" && (
         <div className="grid gap-1">
-          <label className="text-xs text-muted-foreground">Quiet period (minutes)</label>
+          <label className="text-xs text-muted-foreground">
+            Quiet period (minutes)
+          </label>
           <Input
             type="number"
             min={0}
             value={t.minutes ?? 10}
-            onChange={(e) => onChange({ trigger: { ...t, minutes: Number(e.target.value) || 0 } })}
+            onChange={(e) =>
+              onChange({
+                trigger: { ...t, minutes: Number(e.target.value) || 0 },
+              })
+            }
           />
         </div>
       )}
-      <div className="grid gap-1">
-        <label className="text-xs text-muted-foreground">Wait for event</label>
-        <select
-          value={t.wait_for ?? ""}
-          onChange={(e) => onChange({ trigger: { ...t, wait_for: e.target.value || undefined } })}
-          className="bg-card text-foreground border border-border rounded-lg text-[13px] px-3 py-2"
-        >
-          <option value="">— nothing (proceed when joins are met)</option>
-          {WAIT_FOR_SOURCES.map((w) => (
-            <option key={w.value} value={w.value}>{w.label}</option>
-          ))}
-          <option value="" disabled>webhook / timer — Phase 4</option>
-        </select>
-      </div>
+      {/* wait-for events only make sense for an auto trigger — the other
+          types decide their own start (user click / approve / quiet period) */}
+      {t.type === "auto" && (
+        <div className="grid gap-1">
+          <label className="text-xs text-muted-foreground">
+            Wait for event
+          </label>
+          <Select
+            value={t.wait_for ?? null}
+            onValueChange={(v) =>
+              onChange({
+                trigger: { ...t, wait_for: (v as string) || undefined },
+              })
+            }
+          >
+            <SelectTrigger className="w-full rounded-lg border-border bg-card">
+              <SelectValue placeholder="Starts when node is reached">
+                {source?.label ?? t.wait_for ?? undefined}
+              </SelectValue>
+            </SelectTrigger>
+            <SelectContent>
+              {WAIT_FOR_GROUPS.map((g) => (
+                <SelectGroup key={g.label}>
+                  <SelectLabel>{g.label}</SelectLabel>
+                  {g.sources.map((w) => (
+                    <SelectItem key={w.value} value={w.value}>
+                      <SelectOption
+                        label={w.label}
+                        description={w.description}
+                      />
+                    </SelectItem>
+                  ))}
+                </SelectGroup>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+      )}
+      {t.wait_for === "webhook" && (
+        <WebhookRequestExample fields={contractFields} />
+      )}
+      {t.wait_for === "timer" && (
+        <div className="grid gap-1">
+          <label className="text-xs text-muted-foreground">
+            Timer (minutes)
+          </label>
+          <Input
+            type="number"
+            min={0}
+            value={t.minutes ?? 1}
+            onChange={(e) =>
+              onChange({
+                trigger: { ...t, minutes: Number(e.target.value) || 0 },
+              })
+            }
+          />
+          <p className="text-[11px] text-muted-foreground m-0">
+            The node holds at <code className="font-mono">waiting</code> and the
+            poller resumes it after this many minutes.
+          </p>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/**
+ * The inbound delivery that resumes a `wait_for: webhook` node (§6): the hook
+ * is provisioned per flow instance, so the example carries `{hook_id}` /
+ * `{secret}` placeholders and a body shaped from the run context fields — the
+ * delivery becomes the node's `{{trigger.payload}}`.
+ */
+function WebhookRequestExample({ fields }: { fields: StartContractField[] }) {
+  const sampleValue = (type: StartContractField["type"]): unknown =>
+    type === "number"
+      ? 0
+      : type === "boolean"
+        ? true
+        : type === "object"
+          ? {}
+          : type === "array"
+            ? []
+            : "…";
+  const body = fields.length
+    ? JSON.stringify(
+        Object.fromEntries(fields.map((f) => [f.key, sampleValue(f.type)])),
+        null,
+        2,
+      )
+    : "{}";
+  const curl = `curl -X POST /api/hooks/{hook_id} \\
+  -H "x-devflow-secret: {secret}" \\
+  -H "content-type: application/json" \\
+  -d '${body}'`;
+  return (
+    <div className="grid gap-1">
+      <CodeBlock size="sm">
+        <CodeBlockHeader>
+          <CodeBlockTitle>Request example — resumes this node</CodeBlockTitle>
+          <CodeBlockActions>
+            <CodeBlockCopyButton value={curl} />
+          </CodeBlockActions>
+        </CodeBlockHeader>
+        <CodeBlockContent>{curl}</CodeBlockContent>
+      </CodeBlock>
     </div>
   );
 }
 
 function ConfigTab({
-  node, onChange, contract,
+  node,
+  onChange,
+  contract,
+  groups,
 }: {
   node: EditorNode;
   onChange: (p: Partial<EditorNode>) => void;
   contract: NodeContract | null;
+  groups: UpstreamGroup[];
 }) {
+  // the variables the connected upstream nodes publish — click to insert
+  const variables = groups.flatMap((g) =>
+    g.fields.map((f) => ({
+      label: `${g.label} · ${f.name}`,
+      insert: `{{nodes.${g.source.key}.output.${f.name}}}`,
+    })),
+  );
   if (node.is_builtin) {
     const fields = contract?.config?.fields ?? [];
     return (
       <div className="grid gap-3">
-        {fields.length === 0 && !contract && <p className="text-muted-foreground text-[13px]"><Spinner /> Loading schema…</p>}
-        {fields.length === 0 && contract && <p className="text-muted-foreground text-[13px]">This node has no configurability.</p>}
+        {fields.length === 0 && !contract && (
+          <p className="text-muted-foreground text-[13px]">
+            <Spinner /> Loading schema…
+          </p>
+        )}
+        {fields.length === 0 && contract && (
+          <p className="text-muted-foreground text-[13px]">
+            This node has no configurability.
+          </p>
+        )}
         {fields.map((f) => (
           <ConfigFieldRow
-            key={f.key}
+            key={`${node.key}:${f.key}`}
             field={f}
             value={node.config?.[f.key]}
-            onChange={(v) => onChange({ config: { ...node.config, [f.key]: v } })}
+            companionText={companionTextOf(node, f.key)}
+            variables={freeTextFields.has(f.key) ? variables : undefined}
+            onChange={(v, extra) =>
+              onChange({ config: writeConfig(node, f.key, v, extra) })
+            }
           />
         ))}
-        <p className="text-[11px] text-muted-foreground m-0">
-          Empty fields use the class defaults (zero-behavior-change guarantee); app settings overlay these.
-        </p>
       </div>
     );
   }
-  // declarative (agent) instance config — overrides on this template instance
+  // declarative kinds: the catalog definition IS the config — the form is
+  // schema-driven from the kind's configFields (same shape as built-ins);
+  // values set here override the catalog definition for this template instance
+  const fields = contract?.config?.fields ?? [];
+  const defaults = (contract?.config?.defaults ?? {}) as Record<string, unknown>;
+  // the agent's output schema only matters when the output format is json —
+  // an override output wins over the catalog default
+  const agentOutputJson =
+    node.kind === "agent" &&
+    (node.config?.output ?? defaults.output) === "json";
+  if (fields.length) {
+    return (
+      <div className="grid gap-3">
+        {fields
+          .filter(
+            (f) =>
+              !(f.key === "output_schema" && node.kind === "agent") ||
+              agentOutputJson ||
+              node.config?.output_schema != null,
+          )
+          .map((f) => (
+          <ConfigFieldRow
+            key={`${node.key}:${f.key}`}
+            field={f}
+            value={node.config?.[f.key]}
+            defaultValue={defaults[f.key]}
+            companionText={companionTextOf(node, f.key, defaults[f.key])}
+            variables={freeTextFields.has(f.key) ? variables : undefined}
+            onChange={(v, extra) =>
+              onChange({ config: writeConfig(node, f.key, v, extra) })
+            }
+          />
+        ))}
+      </div>
+    );
+  }
+  // fallback for kinds without configFields (shouldn't happen — every
+  // declarative class declares its fields)
   const cfg = node.config ?? {};
   return (
     <div className="grid gap-3">
-      <p className="text-[12px] text-muted-foreground m-0">
-        These override the node&apos;s catalog definition for <strong>this template instance</strong> only.
-      </p>
-      <div className="grid gap-1">
-        <label className="text-xs text-muted-foreground">Prompt body</label>
-        <Textarea
-          value={typeof cfg.prompt === "string" ? cfg.prompt : ""}
-          onChange={(e) => onChange({ config: { ...cfg, prompt: e.target.value } })}
-          rows={8}
-          className="font-mono text-[12px]"
-          placeholder="Leave empty to use the catalog definition's prompt. Variables: {{ticket.*}}, {{flow.*}}, {{repo.*}}, {{nodes.<key>.output.*}}"
-        />
-      </div>
-      <div className="grid grid-cols-2 gap-3">
-        <div className="grid gap-1">
-          <label className="text-xs text-muted-foreground">Mode</label>
-          <select
-            value={typeof cfg.mode === "string" ? cfg.mode : "plan"}
-            onChange={(e) => onChange({ config: { ...cfg, mode: e.target.value } })}
-            className="bg-card text-foreground border border-border rounded-lg text-[13px] px-3 py-2"
-          >
-            <option value="plan">plan (read-only)</option>
-            <option value="agent">agent (repo workspace)</option>
-          </select>
-        </div>
-        <div className="grid gap-1">
-          <label className="text-xs text-muted-foreground">Model</label>
-          <Input
-            value={typeof cfg.model === "string" ? cfg.model : ""}
-            onChange={(e) => onChange({ config: { ...cfg, model: e.target.value || null } })}
-            placeholder="flow default"
-          />
-        </div>
-      </div>
-      {typeof cfg.prompt !== "string" && <Card className="p-2.5 text-[11.5px] text-muted-foreground">Catalog definition prompt in effect</Card>}
+      <Textarea
+        value={Object.keys(cfg).length ? JSON.stringify(cfg, null, 2) : ""}
+        onChange={(e) => {
+          try {
+            onChange({
+              config: e.target.value.trim() ? JSON.parse(e.target.value) : {},
+            });
+          } catch {
+            /* keep typing */
+          }
+        }}
+        rows={8}
+        className="font-mono text-[12px]"
+        placeholder="{}"
+      />
     </div>
   );
 }
 
+/** config knobs that carry {{...}} template refs — they get the variable chips */
+const freeTextFields = new Set([
+  "prompt",
+  "prompt_body",
+  "fix_prompt_body",
+  "model",
+  "url",
+  "body",
+  "question",
+]);
+
+/**
+ * The companion key an editor writes alongside its compiled value — the
+ * `ts_output` box stores the raw TypeScript members the author typed
+ * (`<key>_ts`), so the box re-seeds to their source instead of the compiled
+ * JSON Schema after a remount (format switches, tab switches, node changes).
+ * An instance without an override falls back to the catalog def's companion
+ * (the create dialog persists its box text on the def).
+ */
+function companionTextOf(
+  node: EditorNode,
+  key: string,
+  defaultValue?: unknown,
+): unknown {
+  const cfg = node.config as Record<string, unknown> | undefined;
+  const own = cfg?.[`${key}_ts`];
+  if (own !== undefined) return own;
+  return (defaultValue as Record<string, unknown> | undefined)?.[`${key}_ts`];
+}
+
+/** The instance config after one field edit: the written value plus any
+ *  companion the editor carries along (undefined values drop out on
+ *  persist — removing the override lets the catalog default apply). */
+function writeConfig(
+  node: EditorNode,
+  key: string,
+  v: unknown,
+  extra?: Record<string, unknown>,
+): Record<string, unknown> {
+  return { ...(node.config as Record<string, unknown>), ...extra, [key]: v };
+}
+
+
+/** One upstream node's pickable variables (grouped by source in the pickers). */
+export interface UpstreamGroup {
+  source: EditorNode;
+  edge: EditorEdge;
+  label: string;
+  fields: { name: string; type: string; required: boolean }[];
+}
+
+/**
+ * Fetches each upstream node type's contract once and resolves the variable
+ * groups for the incoming edges. The cache key includes the instance config —
+ * the start node's contract is declared per instance, so its published
+ * variables differ between start instances.
+ */
+function useUpstreamGroups(incoming?: IncomingLink[]): UpstreamGroup[] {
+  const cache = useRef<Record<string, NodeContract | null>>({});
+  const [contracts, setContracts] = useState<
+    Record<string, NodeContract | null>
+  >(cache.current);
+  const defs = useMemo(
+    () =>
+      Array.from(
+        new Set(
+          (incoming ?? [])
+            .filter((l) => l.source)
+            .map((l) => cacheKeyOf(l.source!)),
+        ),
+      ),
+    [incoming],
+  );
+  useEffect(() => {
+    let alive = true;
+    setContracts((c) => ({ ...c, ...cache.current }));
+    for (const defKey of defs) {
+      if (cache.current[defKey] !== undefined) continue;
+      const [def, cfg] = defKey.split("::");
+      const q = cfg ? `&config=${encodeURIComponent(cfg)}` : "";
+      fetch(`/api/contracts?def=${encodeURIComponent(def)}${q}`)
+        .then((r) => r.json())
+        .then((c: any) => {
+          const value: NodeContract | null = c && c.input != null ? c : null;
+          cache.current[defKey] = value;
+          if (alive) setContracts((cur) => ({ ...cur, [defKey]: value }));
+        })
+        .catch(() => {
+          cache.current[defKey] = null;
+          if (alive) setContracts((cur) => ({ ...cur, [defKey]: null }));
+        });
+    }
+    return () => {
+      alive = false;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [defs.join("|")]);
+  return useMemo(
+    () =>
+      (incoming ?? [])
+        .filter((l) => l.source)
+        .map((l) => {
+          const src = l.source!;
+          const fields = schemaRows(contracts[cacheKeyOf(src)]?.output ?? null);
+          return { source: src, edge: l.edge, label: nodeLabel(src), fields };
+        }),
+    [incoming, contracts],
+  );
+}
+
+function cacheKeyOf(src: EditorNode): string {
+  const cfg =
+    src.config && Object.keys(src.config).length
+      ? JSON.stringify(src.config)
+      : "";
+  return `${src.nodeTemplateId}::${cfg}`;
+}
+
+
 function ConfigFieldRow({
-  field, value, onChange,
+  field,
+  value,
+  defaultValue,
+  companionText,
+  variables,
+  onChange,
 }: {
-  field: { key: string; label: string; type: string; help?: string; options?: { value: string; label: string }[] };
+  field: {
+    key: string;
+    label: string;
+    type: string;
+    help?: string;
+    options?: { value: string; label: string; description?: string }[];
+    optionIcons?: Record<string, string>;
+    nullable?: boolean;
+  };
   value: unknown;
-  onChange: (v: unknown) => void;
+  /** the catalog/class default (shown as placeholder when no override is set) */
+  defaultValue?: unknown;
+  /** the companion authoring text (`<key>_ts`) the ts_output box persister stores */
+  companionText?: unknown;
+  /** upstream variables — the rich prompt editor's @ popover / click-to-insert chips */
+  variables?: { label: string; insert: string }[];
+  onChange: (v: unknown, extra?: Record<string, unknown>) => void;
 }) {
+  const effective = value !== undefined ? value : defaultValue;
+  const insertRef = (ref: string) => {
+    const cur = typeof value === "string" ? value : "";
+    onChange(cur ? (cur.endsWith(" ") ? cur : `${cur} `) + ref : ref);
+  };
+  const fmtDefault = (v: unknown): string => {
+    if (v == null || v === "") return "(default)";
+    if (typeof v === "string")
+      return v.length > 60
+        ? `(default: ${v.slice(0, 60)}…)`
+        : `(default: ${v})`;
+    return `(default: ${JSON.stringify(v)})`;
+  };
+  const chips = variables?.length ? (
+    <VariableChips variables={variables} onInsert={insertRef} />
+  ) : null;
+  // the declarative kinds' bespoke editors (schema boxes, branch choices)
+  if (field.type === "ts_output") {
+    return (
+      <TsOutputEditor
+        field={field}
+        value={value}
+        defaultValue={defaultValue}
+        savedText={typeof companionText === "string" ? companionText : undefined}
+        onChange={(schema, saved) =>
+          onChange(schema, { [`${field.key}_ts`]: saved })
+        }
+      />
+    );
+  }
+  if (field.type === "choices") {
+    return <ChoicesEditor field={field} value={value} defaultValue={defaultValue} onChange={onChange} />;
+  }
   if (field.type === "boolean") {
     return (
       <label className="flex items-center gap-2 text-[13px] cursor-pointer">
-        <input type="checkbox" checked={value === true} onChange={(e) => onChange(e.target.checked)} />
+        <input
+          type="checkbox"
+          checked={effective === true}
+          onChange={(e) => onChange(e.target.checked)}
+        />
         <span>{field.label}</span>
-        {field.help && <span className="text-[11px] text-muted-foreground">— {field.help}</span>}
       </label>
+    );
+  }
+  // prompt fields: the rich text editor — "@" opens the variable popover
+  if (field.type === "text" && promptEditorKeys.has(field.key)) {
+    return (
+      <div className="grid gap-1.5">
+        <FieldLabel field={field} />
+        <PromptEditor
+          value={typeof effective === "string" ? effective : ""}
+          variables={variables ?? []}
+          onChange={(text) => onChange(text || undefined)}
+        />
+      </div>
     );
   }
   return (
     <div className="grid gap-1">
-      <label className="text-xs text-muted-foreground">{field.label}</label>
+      <FieldLabel field={field} />
+      {chips}
       {field.type === "select" ? (
-        <select
-          value={value != null && Object.keys(field.options ?? []).includes(String(value)) ? String(value) : ""}
-          onChange={(e) => onChange(e.target.value || undefined)}
-          className="bg-card text-foreground border border-border rounded-lg text-[13px] px-3 py-2"
-        >
-          <option value="">— default</option>
-          {field.options?.map((o) => (
-            <option key={o.value} value={o.value}>{o.label}</option>
-          ))}
-        </select>
-      ) : field.type === "text" || field.type === "string" ? (
+        <ConfigSelect
+          options={field.options ?? []}
+          optionIcons={field.optionIcons}
+          effective={effective}
+          defaultValue={defaultValue}
+          defaultLabel={fmtDefault(defaultValue)}
+          onChange={onChange}
+        />
+      ) : field.type === "text" ? (
         <Textarea
-          value={typeof value === "string" ? value : ""}
+          value={
+            typeof effective === "string"
+              ? effective
+              : effective != null
+                ? JSON.stringify(effective, null, 2)
+                : ""
+          }
           onChange={(e) => onChange(e.target.value || undefined)}
-          rows={field.type === "text" ? 5 : 1}
+          rows={5}
           className="font-mono text-[12px]"
-          placeholder="(default)"
+          placeholder={fmtDefault(defaultValue)}
+        />
+      ) : field.type === "string" ? (
+        <Input
+          value={typeof effective === "string" ? effective : ""}
+          onChange={(e) =>
+            onChange(
+              e.target.value === "" && field.nullable
+                ? null // "cleared" the override — don't snap back to the default
+                : e.target.value || undefined,
+            )
+          }
+          placeholder={fmtDefault(defaultValue)}
+          className="font-mono text-[12.5px]"
         />
       ) : (
-        <Input type="number" value={typeof value === "number" ? value : ""} onChange={(e) => onChange(e.target.value === "" ? undefined : Number(e.target.value))} placeholder="(default)" />
+        <Input
+          type="number"
+          value={typeof effective === "number" ? effective : ""}
+          onChange={(e) =>
+            onChange(e.target.value === "" ? undefined : Number(e.target.value))
+          }
+          placeholder={fmtDefault(defaultValue)}
+        />
       )}
-      {field.help && field.type !== "boolean" && <p className="text-[11px] text-muted-foreground m-0">{field.help}</p>}
     </div>
   );
 }
 
-function ContractView({ contract, node }: { contract: NodeContract | null; node: EditorNode }) {
-  if (!contract) return <p className="text-muted-foreground text-[13px]"><Spinner /> Loading contract…</p>;
+/** config fields authored with the rich prompt editor ("@" variable popover) */
+const promptEditorKeys = new Set(["prompt", "prompt_body", "fix_prompt_body"]);
+
+/**
+ * The field label. Prompt fields carry an info icon — hovering it shows the
+ * reference cheat-sheet (the help text lives in the tooltip, not the page).
+ */
+function FieldLabel({ field }: { field: { key: string; label: string; help?: string } }) {
+  if (promptEditorKeys.has(field.key)) {
+    return (
+      <div className="flex items-center gap-1.5">
+        <label className="text-xs text-muted-foreground">{field.label}</label>
+        <Tooltip>
+          <TooltipTrigger
+            render={
+              <span className="inline-flex cursor-help text-muted-foreground hover:text-foreground transition-colors">
+                <Info size={12} />
+              </span>
+            }
+          />
+          <TooltipContent className="max-w-[300px] whitespace-normal text-left leading-relaxed">
+            {field.help ?? "Type @ to insert an upstream variable — refs resolve at run time."}
+          </TooltipContent>
+        </Tooltip>
+      </div>
+    );
+  }
+  return <label className="text-xs text-muted-foreground">{field.label}</label>;
+}
+
+/** A select config knob on the shadcn select. Variants:
+ *  - rich (options carry descriptions): heading + gray description items, no
+ *    "(default)" option — the effective value always resolves to one of the
+ *    options (the catalog default shows as its own choice)
+ *  - icon: the effective value is always one of the options (no empty item)
+ *  - plain: a sentinel item resets to the default. */
+function ConfigSelect({
+  options,
+  optionIcons,
+  effective,
+  defaultValue,
+  defaultLabel,
+  onChange,
+}: {
+  options: { value: string; label: string; description?: string }[];
+  optionIcons?: Record<string, string>;
+  effective: unknown;
+  defaultValue?: unknown;
+  defaultLabel: string;
+  onChange: (v: unknown) => void;
+}) {
+  const current =
+    effective != null && options.some((o) => o.value === String(effective))
+      ? String(effective)
+      : "";
+  const selected = options.find((o) => o.value === current);
+  if (options.some((o) => o.description)) {
+    const value =
+      selected?.value ??
+      options.find((o) => o.value === String(defaultValue))?.value ??
+      options[0]?.value ??
+      "";
+    return (
+      <Select value={value} onValueChange={(v) => onChange(v ?? value)}>
+        <SelectTrigger className="w-full rounded-lg border-border bg-card">
+          <SelectValue>
+            {options.find((o) => o.value === value)?.label ?? value}
+          </SelectValue>
+        </SelectTrigger>
+        <SelectContent>
+          {options.map((o) => (
+            <SelectItem key={o.value} value={o.value}>
+              <SelectOption label={o.label} description={o.description ?? ""} />
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+    );
+  }
+  if (optionIcons) {
+    // icon variant (agent mode) — the effective value is always one of the options
+    const value = current || options[0]?.value || "";
+    return (
+      <Select value={value} onValueChange={(v) => onChange(v ?? value)}>
+        <SelectTrigger className="w-full rounded-lg border-border bg-card">
+          <SelectValue>{selected?.label ?? value}</SelectValue>
+        </SelectTrigger>
+        <SelectContent>
+          {options.map((o) => {
+            const Icon = optionIcons[o.value] ? iconForIconName(optionIcons[o.value]) : null;
+            return (
+              <SelectItem key={o.value} value={o.value}>
+                {Icon && <Icon size={13} className="text-muted-foreground shrink-0" />}
+                {o.label}
+              </SelectItem>
+            );
+          })}
+        </SelectContent>
+      </Select>
+    );
+  }
+  const UNSET = "__default__";
+  return (
+    <Select
+      value={current || UNSET}
+      onValueChange={(v) => onChange(v === UNSET ? undefined : v)}
+    >
+      <SelectTrigger className="w-full rounded-lg border-border bg-card">
+        <SelectValue>{selected?.label ?? defaultLabel}</SelectValue>
+      </SelectTrigger>
+      <SelectContent>
+        <SelectItem value={UNSET}>{defaultLabel}</SelectItem>
+        {options.map((o) => (
+          <SelectItem key={o.value} value={o.value}>
+            {o.label}
+          </SelectItem>
+        ))}
+      </SelectContent>
+    </Select>
+  );
+}
+
+/**
+ * The agent's output schema — TS-lite members (or a pasted JSON Schema) that
+ * compiles to the `output_schema` the json output is validated against.
+ * The raw authoring text rides along in the config (`<key>_ts`): the compiled
+ * schema is what the runtime uses, but the box re-seeds to what the author
+ * wrote — format/tab switches remount the field without the authoring source
+ * turning into JSON.
+ */
+function TsOutputEditor({
+  field,
+  value,
+  defaultValue,
+  savedText,
+  onChange,
+}: {
+  field: { key: string; label: string; type: string; help?: string; options?: { value: string; label: string }[] };
+  value: unknown;
+  defaultValue?: unknown;
+  /** the previously persisted authoring text — seed source on mount */
+  savedText?: string;
+  /** the compiled schema (undefined = cleared) + the raw authoring text */
+  onChange: (schema: unknown, saved: string | undefined) => void;
+}) {
+  const effective = value !== undefined ? value : (defaultValue ?? null);
+  const [text, setText] = useState<string>(() =>
+    typeof savedText === "string" && savedText.trim()
+      ? savedText
+      : effective
+        ? JSON.stringify(effective, null, 2)
+        : "",
+  );
+  const [err, setErr] = useState<string | null>(null);
+
+  // TS-lite parse wins (bare members); a valid JSON Schema object pasted in
+  // is accepted as-is; anything else keeps the last good schema
+  useEffect(() => {
+    const src = text.trim();
+    if (!src) {
+      setErr(null);
+      onChange(undefined, undefined);
+      return;
+    }
+    const lite = parseOutputContract(src);
+    if (!lite.error && lite.schema) {
+      setErr(null);
+      onChange(lite.schema, text);
+      return;
+    }
+    try {
+      const json = JSON.parse(src);
+      if (json && typeof json === "object" && !Array.isArray(json)) {
+        setErr(null);
+        onChange(json, text);
+        return;
+      }
+    } catch { /* fall through to the TS-lite error */ }
+    setErr(lite.error ?? "declares no fields");
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [text]);
+
+  return (
+    <div className="grid gap-1">
+      <label className="text-xs text-muted-foreground">{field.label}</label>
+      <Textarea
+        value={text}
+        onChange={(e) => setText(e.target.value)}
+        rows={5}
+        className="font-mono text-[12px]"
+        placeholder={`{\n  summary: string\n  severity: "low" | "high"\n  files: string[]\n}`}
+      />
+      {err && (
+        <Card className="p-2.5 text-[12px] text-rose-400 border-rose-500/30">
+          {err}
+        </Card>
+      )}
+    </div>
+  );
+}
+
+/**
+ * The decision node's branch choices — label + description rows edited in
+ * place (written as the instance override). At least one labeled choice is
+ * required by the decision schema; an all-empty edit keeps the last good set
+ * and warns instead.
+ */
+function ChoicesEditor({
+  field,
+  value,
+  defaultValue,
+  onChange,
+}: {
+  field: { key: string; label: string; type: string; help?: string; options?: { value: string; label: string }[] };
+  value: unknown;
+  defaultValue?: unknown;
+  onChange: (v: unknown) => void;
+}) {
+  const effective = (
+    Array.isArray(value) ? value : Array.isArray(defaultValue) ? defaultValue : []
+  ) as { label: string; description?: string }[];
+  const [rows, setRows] = useState<{ label: string; description: string }[]>(() =>
+    effective.map((c) => ({ label: c.label, description: c.description ?? "" })),
+  );
+
+  const write = (next: { label: string; description: string }[]) => {
+    setRows(next);
+    const labeled = next
+      .map((c) => ({ label: c.label.trim(), description: c.description.trim() || undefined }))
+      .filter((c) => c.label);
+    if (labeled.length) onChange(labeled);
+  };
+
+  return (
+    <div className="grid gap-1.5">
+      <label className="text-xs text-muted-foreground">Choices (branch labels)</label>
+      {rows.map((c, i) => (
+        <div key={i} className="flex gap-1.5">
+          <Input
+            value={c.label}
+            placeholder="label"
+            className="max-w-[140px] font-mono text-[12px]"
+            onChange={(e) => write(rows.map((x, j) => (j === i ? { ...x, label: e.target.value } : x)))}
+          />
+          <Input
+            value={c.description}
+            placeholder="description (steers an agent classifier)"
+            className="text-[12px]"
+            onChange={(e) => write(rows.map((x, j) => (j === i ? { ...x, description: e.target.value } : x)))}
+          />
+          <Button
+            variant="ghost"
+            size="sm"
+            className="text-muted-foreground"
+            disabled={rows.length <= 1}
+            title="Remove choice"
+            onClick={() => write(rows.filter((_, j) => j !== i))}
+          >
+            <Trash2 size={12} />
+          </Button>
+        </div>
+      ))}
+      <Button
+        variant="outline"
+        size="sm"
+        className="self-start"
+        onClick={() => write([...rows, { label: "", description: "" }])}
+      >
+        <Plus size={12} /> Add choice
+      </Button>
+      {!rows.some((c) => c.label.trim()) && (
+        <p className="text-[11px] text-amber-400 m-0">At least one labeled choice is required.</p>
+      )}
+    </div>
+  );
+}
+
+/**
+ * The upstream variables as friendly chips — pick "Review · comment_count",
+ * get `{{nodes.review.output.comment_count}}` inserted into the field. Only
+ * the variable the user cares about is shown; the raw ref it resolves to is
+ * engine plumbing.
+ */
+export function VariableChips({
+  variables,
+  onInsert,
+}: {
+  variables: { label: string; insert: string }[];
+  /** given → click reports the ref; otherwise chips render above the field */
+  onInsert?: (ref: string) => void;
+}) {
+  return (
+    <div className="flex gap-1 flex-wrap">
+      {variables.map((v) => (
+        <button
+          key={v.insert}
+          title={v.insert}
+          onClick={() => (onInsert ? onInsert(v.insert) : undefined)}
+          className="rounded-full border border-border bg-card px-2 py-0.5 text-[11px] text-muted-foreground hover:text-foreground hover:border-blue-500/50 transition-colors"
+        >
+          {v.label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+// ── start contract editor: the fields the flow starts with ──────────────────
+
+/**
+ * The Start node's run context — the fields the flow starts with, authored
+ * with the same TS-lite schema box the agent node uses: members `name[?]: type`
+ * compile to the contract rows. The start node validates the values the
+ * trigger provides and simply passes them to the next nodes (they map from
+ * those variables); who fills the values follows the start node's trigger
+ * type. The waited event's variable (MR / pipeline) is enforced on top:
+ * present and required while its source is selected — written by the
+ * enforcement below, never required of the author. Per-field extras — the
+ * friendly label and the auto-trigger default — are edited under the box.
+ */
+export function StartContractEditor({
+  node,
+  onChange,
+}: {
+  node: EditorNode;
+  onChange: (p: Partial<EditorNode>) => void;
+}) {
+  const config = node.config ?? {};
+  const fields = Array.isArray(config.contract)
+    ? (config.contract as StartContractField[])
+    : [];
+  const waitFor = node.trigger.wait_for;
+  const ctxKey = contextFieldKeyOf(waitFor);
+
+  // the TS-lite authoring text — re-seeded on mount (the body resets to the
+  // Trigger tab on node change, so a fresh visit re-seeds fresh)
+  const [tsText, setTsText] = useState<string>(() => startFieldsToTs(fields));
+
+  // live compile of the authoring text → contract rows (errors surface inline)
+  const parsed = useMemo(
+    () =>
+      tsText.trim()
+        ? parseInputContract(tsText)
+        : {
+            inputs: [] as InputFieldRow[],
+            error: undefined as string | undefined,
+          },
+    [tsText],
+  );
+
+  // the box is the source of truth for the authored fields; the waited event's
+  // variable is enforced on top (parse errors keep the last good contract)
+  useEffect(() => {
+    if (parsed.error) return;
+    const next = withContextFields(
+      buildStartContract(parsed.inputs, fields),
+      waitFor,
+    );
+    onChange({ config: { ...config, contract: next } });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tsText]);
+
+  // the enforced field must be on the config even when the box text hasn't
+  // changed (the wait-for source was just picked on the Trigger tab)
+  useEffect(() => {
+    const target = withContextFields(fields, waitFor);
+    if (JSON.stringify(target) === JSON.stringify(fields)) return;
+    onChange({ config: { ...config, contract: target } });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [waitFor]);
+
+  const patchField = (i: number, patch: Partial<StartContractField>) =>
+    onChange({
+      config: {
+        ...config,
+        contract: fields.map((f, j) => (j === i ? { ...f, ...patch } : f)),
+      },
+    });
+
+  const setDefault = (
+    i: number,
+    raw: string,
+    type: StartContractField["type"],
+  ) => {
+    const f = fields[i];
+    let v: unknown;
+    if (raw.trim() === "") v = undefined;
+    else if (type === "number")
+      v = Number.isNaN(Number(raw)) ? raw : Number(raw);
+    else if (type === "object" || type === "array") {
+      try {
+        v = JSON.parse(raw);
+      } catch {
+        v = raw; /* keep typing */
+      }
+    } else v = raw;
+    patchField(i, { default: v });
+  };
+
+  const defaultText = (f: StartContractField): string => {
+    if (f.default === undefined || f.default === null || f.default === "")
+      return "";
+    return typeof f.default === "string"
+      ? f.default
+      : JSON.stringify(f.default);
+  };
+
+  return (
+    <div className="grid gap-3">
+      <div className="grid gap-1">
+        <label className="text-xs text-muted-foreground">Run context</label>
+        <Textarea
+          value={tsText}
+          onChange={(e) => setTsText(e.target.value)}
+          rows={8}
+          className="font-mono text-[12px]"
+          placeholder={`{\n  ticket: string\n  priority?: number\n  labels: string[]\n  settings: Record<string, unknown>\n}`}
+        />
+        {parsed.error && (
+          <Card className="p-2.5 text-[12px] text-rose-400 border-rose-500/30">
+            {parsed.error}
+          </Card>
+        )}
+      </div>
+      {fields.map((f, i) => (
+        <Card key={i} className="p-2.5 grid gap-1.5">
+          <div className="flex items-center gap-2">
+            <code className="font-mono text-[12.5px] text-blue-400">
+              {f.key}
+            </code>
+            <Badge variant="outline" className="text-[10px]">
+              {f.type}
+            </Badge>
+            {f.required && (
+              <Badge className="bg-amber-500/10 text-amber-400 text-[10px]">
+                required
+              </Badge>
+            )}
+          </div>
+          <div className={cn("grid gap-2", f.key !== ctxKey && "grid-cols-2")}>
+            <Input
+              value={f.label ?? ""}
+              placeholder="Label (optional)"
+              className="text-[12px]"
+              onChange={(e) =>
+                patchField(i, { label: e.target.value || undefined })
+              }
+            />
+            {f.key !== ctxKey && (
+              <Input
+                value={defaultText(f)}
+                placeholder={
+                  f.type === "object" || f.type === "array"
+                    ? "default (JSON)"
+                    : "default"
+                }
+                type={f.type === "number" ? "number" : "text"}
+                className={cn(
+                  "text-[12px]",
+                  (f.type === "object" || f.type === "array") && "font-mono",
+                )}
+                onChange={(e) => setDefault(i, e.target.value, f.type)}
+              />
+            )}
+          </div>
+        </Card>
+      ))}
+    </div>
+  );
+}
+
+/** The contract rows → the TS-lite authoring text (`key[?]: type;` members). */
+function startFieldsToTs(fields: StartContractField[]): string {
+  return fields
+    .map((f) => {
+      const t =
+        f.type === "array"
+          ? "unknown[]"
+          : f.type === "object"
+            ? "Record<string, unknown>"
+            : f.type;
+      return `${f.key}${f.required ? "" : "?"}: ${t};`;
+    })
+    .join("\n");
+}
+
+/** The compiled TS rows → contract fields; label/default carried over from
+ *  the previous contract by key, so the per-field extras survive edits. */
+function buildStartContract(
+  rows: InputFieldRow[],
+  prev: StartContractField[],
+): StartContractField[] {
+  const prevByKey = new Map(prev.map((f) => [f.key, f]));
+  const seen = new Set<string>();
+  const out: StartContractField[] = [];
+  for (const r of rows) {
+    if (!r.key || seen.has(r.key)) continue;
+    seen.add(r.key);
+    const p = prevByKey.get(r.key);
+    out.push({
+      key: r.key,
+      label: p?.label,
+      type: r.type ?? "object",
+      required: Boolean(r.required),
+      default: p?.default,
+    });
+  }
+  return out;
+}
+
+/** The run-context field the waited event publishes (MR / pipeline), if any. */
+function contextFieldKeyOf(waitFor: string | undefined): string | null {
+  return waitFor
+    ? (WAIT_FOR_SOURCES.find((w) => w.value === waitFor)?.contextField?.key ??
+        null)
+    : null;
+}
+
+/**
+ * Enforce the waited event's variable on the run context: present and
+ * required while its source is selected (kept in place if the author
+ * declared it themselves; prepended when missing). The author never has to
+ * write it in the schema box.
+ */
+function withContextFields(
+  fields: StartContractField[],
+  waitFor: string | undefined,
+): StartContractField[] {
+  const cf = waitFor
+    ? WAIT_FOR_SOURCES.find((w) => w.value === waitFor)?.contextField
+    : undefined;
+  if (!cf) return fields;
+  const idx = fields.findIndex((f) => f.key === cf.key);
+  if (idx === -1)
+    return [{ key: cf.key, type: cf.type, required: true }, ...fields];
+  if (fields[idx].required) return fields;
+  const next = [...fields];
+  next[idx] = { ...fields[idx], required: true };
+  return next;
+}
+
+function ContractView({
+  contract,
+  node,
+  groups,
+}: {
+  contract: NodeContract | null;
+  node: EditorNode;
+  /** the connected upstream nodes' published outputs — this node's input */
+  groups: UpstreamGroup[];
+}) {
+  if (!contract)
+    return (
+      <p className="text-muted-foreground text-[13px]">
+        <Spinner /> Loading contract…
+      </p>
+    );
   const rows = schemaRows(contract.output);
-  const inputRows = schemaRows(contract.input);
   return (
     <div className="grid gap-4">
       <section>
-        <h4 className="text-[12.5px] font-medium mb-1.5 flex items-center gap-1.5"><ListChecks size={13} /> Inputs — what this node needs</h4>
-        <ContractTable rows={inputRows} empty="No declared inputs (input mapping evaluates in Phase 3)." />
+        <h4 className="text-[12.5px] font-medium mb-1.5 flex items-center gap-1.5">
+          <ListChecks size={13} /> Inputs — inherited from the upstream nodes
+        </h4>
+        {groups.length === 0 && (
+          <p className="text-[12px] text-muted-foreground m-0">
+            No upstream node — connect one on the canvas; whatever it publishes
+            becomes this node&apos;s input (addressed as{" "}
+            <code className="font-mono">{`{{input.<field>}}`}</code> in prompts).
+          </p>
+        )}
+        {groups.map((g) => (
+          <div key={g.source.key} className="grid gap-1 mb-1.5 last:mb-0">
+            <div className="flex items-center gap-2 min-w-0">
+              <span className="text-[12px] font-medium truncate">{g.label}</span>
+              <code className="font-mono text-[10.5px] text-muted-foreground">{g.source.key}</code>
+            </div>
+            <ContractTable rows={g.fields} empty="(no declared outputs)" />
+          </div>
+        ))}
       </section>
       <section>
-        <h4 className="text-[12.5px] font-medium mb-1.5 flex items-center gap-1.5"><ListChecks size={13} /> Outputs — published to the flow</h4>
+        <h4 className="text-[12.5px] font-medium mb-1.5 flex items-center gap-1.5">
+          <ListChecks size={13} /> Outputs — published to the flow
+        </h4>
         <ContractTable rows={rows} empty="No declared output fields." />
-        {contract.output && contract.output.type === "object" && contract.output.properties?.markdown === undefined && (
-          <p className="text-[11px] text-muted-foreground mt-1.5 m-0">Addressed downstream as <code className="font-mono">{"{{nodes." + node.key + ".output.<field>}}"}</code></p>
-        )}
+        {contract.output &&
+          contract.output.type === "object" &&
+          contract.output.properties?.markdown === undefined && (
+            <p className="text-[11px] text-muted-foreground mt-1.5 m-0">
+              Addressed downstream as{" "}
+              <code className="font-mono">
+                {"{{nodes." + node.key + ".output.<field>}}"}
+              </code>
+            </p>
+          )}
       </section>
     </div>
   );
 }
 
-function ContractTable({ rows, empty }: { rows: { name: string; type: string; required: boolean }[]; empty: string }) {
-  if (!rows.length) return <p className="text-[12px] text-muted-foreground m-0">{empty}</p>;
+function ContractTable({
+  rows,
+  empty,
+}: {
+  rows: { name: string; type: string; required: boolean }[];
+  empty: string;
+}) {
+  if (!rows.length)
+    return <p className="text-[12px] text-muted-foreground m-0">{empty}</p>;
   return (
     <div className="border border-border rounded-lg overflow-hidden text-[12.5px]">
       {rows.map((r) => (
-        <div key={r.name} className="flex items-center gap-2 px-3 py-1.5 border-b border-border last:border-0">
+        <div
+          key={r.name}
+          className="flex items-center gap-2 px-3 py-1.5 border-b border-border last:border-0"
+        >
           <code className="font-mono text-blue-400">{r.name}</code>
-          <Badge variant="outline" className="text-[10px]">{r.type}</Badge>
-          {r.required && <Badge className="bg-amber-500/10 text-amber-400 text-[10px]">required</Badge>}
+          <Badge variant="outline" className="text-[10px]">
+            {r.type}
+          </Badge>
+          {r.required && (
+            <Badge className="bg-amber-500/10 text-amber-400 text-[10px]">
+              required
+            </Badge>
+          )}
         </div>
       ))}
     </div>
   );
 }
 
-function schemaRows(schema: any): { name: string; type: string; required: boolean }[] {
+function schemaRows(
+  schema: any,
+): { name: string; type: string; required: boolean }[] {
   if (!schema || schema.type !== "object" || !schema.properties) return [];
   const required: string[] = schema.required ?? [];
-  return Object.entries(schema.properties as Record<string, any>).map(([name, s]) => ({
-    name,
-    type: Array.isArray(s?.type) ? s.type.join("|") : (s?.type ?? (s?.enum ? "enum" : "any")),
-    required: required.includes(name),
-  }));
+  return Object.entries(schema.properties as Record<string, any>).map(
+    ([name, s]) => ({
+      name,
+      type: Array.isArray(s?.type)
+        ? s.type.join("|")
+        : (s?.type ?? (s?.enum ? "enum" : "any")),
+      required: required.includes(name),
+    }),
+  );
 }

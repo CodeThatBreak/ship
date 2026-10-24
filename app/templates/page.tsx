@@ -7,6 +7,7 @@ import {
   Download,
   LayoutTemplate,
   Plus,
+  Sparkles,
   Trash2,
   Upload,
   Workflow,
@@ -31,6 +32,62 @@ type TemplateRow = {
   updated_at: string;
   nodeCount: number;
 };
+
+/** One gallery row card — shared between the starter and user-template lists. */
+function TemplateRowCard({
+  t, busyId, onOpen, onDuplicate, onDelete,
+}: {
+  t: TemplateRow;
+  busyId: string | null;
+  onOpen: () => void;
+  onDuplicate?: () => void;
+  onDelete?: () => void;
+}) {
+  return (
+    <Card className="p-0 gap-0 shadow-sm! overflow-hidden">
+      <div className="px-4 py-3.5 flex items-start gap-3">
+        <span className="size-9 shrink-0 grid place-items-center rounded-xl bg-muted">
+          <Workflow size={16} className="text-muted-foreground" />
+        </span>
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-2 flex-wrap">
+            <Link href={`/templates/${t.id}`} className="font-medium text-[13.5px] hover:underline">
+              {t.name}
+            </Link>
+            {Boolean(t.is_builtin) && (
+              <Badge className="bg-blue-500/10 text-blue-400">built-in</Badge>
+            )}
+            {Boolean(t.trigger?.type === "manual") || <Badge>{String(t.trigger?.type ?? "manual")}</Badge>}
+            <Badge variant="outline">{t.nodeCount} node{t.nodeCount === 1 ? "" : "s"}</Badge>
+          </div>
+          {t.description && (
+            <p className="text-[12.5px] text-muted-foreground mt-1 mb-0">{t.description}</p>
+          )}
+        </div>
+        <div className="flex gap-1.5 items-center">
+          <Button size="sm" variant="outline" onClick={onOpen}>
+            Open
+          </Button>
+          {onDuplicate && (
+            <Button size="sm" variant="ghost" onClick={onDuplicate} disabled={busyId === t.id} title="Duplicate">
+              {busyId === t.id ? <Spinner /> : <Copy size={13} />}
+            </Button>
+          )}
+          <a href={`/api/templates/${t.id}/export`} title="Export YAML">
+            <Button size="sm" variant="ghost">
+              <Download size={13} />
+            </Button>
+          </a>
+          {onDelete && (
+            <Button size="sm" variant="ghost" onClick={onDelete} disabled={busyId === t.id} title="Delete">
+              <Trash2 size={13} />
+            </Button>
+          )}
+        </div>
+      </div>
+    </Card>
+  );
+}
 
 export default function TemplateGallery() {
   const [templates, setTemplates] = useState<TemplateRow[] | null>(null);
@@ -125,6 +182,10 @@ export default function TemplateGallery() {
     );
   }
 
+  // starters (built-in seeds) pinned first, user templates below
+  const starters = templates.filter((t) => Boolean(t.is_builtin));
+  const mine = templates.filter((t) => !t.is_builtin);
+
   return (
     <main className="max-w-[900px] mx-auto px-6 py-10">
       <header className="flex items-center gap-3.5 mb-8">
@@ -148,54 +209,36 @@ export default function TemplateGallery() {
       {error && <Alert variant="destructive" className="mb-4">{error}</Alert>}
 
       <div className="grid gap-3">
-        {templates.length === 0 && (
+        {mine.length === 0 && starters.length === 0 && (
           <Card className="justify-center items-center gap-2 py-10 border-dashed! shadow-none! text-muted-foreground">
-            No templates yet — duplicate the built-in SDLC loop to get started.
+            No templates yet — duplicate a starter below or create a blank template.
           </Card>
         )}
-        {templates.map((t: TemplateRow) => (
-          <Card key={t.id} className="p-0 gap-0 shadow-sm! overflow-hidden">
-            <div className="px-4 py-3.5 flex items-start gap-3">
-              <span className="size-9 shrink-0 grid place-items-center rounded-xl bg-muted">
-                <Workflow size={16} className="text-muted-foreground" />
-              </span>
-              <div className="flex-1 min-w-0">
-                <div className="flex items-center gap-2 flex-wrap">
-                  <Link href={`/templates/${t.id}`} className="font-medium text-[13.5px] hover:underline">
-                    {t.name}
-                  </Link>
-                  {Boolean(t.is_builtin) && (
-                    <Badge className="bg-blue-500/10 text-blue-400">built-in</Badge>
-                  )}
-                  {Boolean(t.trigger?.type === "manual") || <Badge>{String(t.trigger?.type ?? "manual")}</Badge>}
-                  <Badge variant="outline">{t.nodeCount} node{t.nodeCount === 1 ? "" : "s"}</Badge>
-                </div>
-                {t.description && (
-                  <p className="text-[12.5px] text-muted-foreground mt-1 mb-0">{t.description}</p>
-                )}
-              </div>
-              <div className="flex gap-1.5 items-center">
-                <Button size="sm" variant="outline" onClick={() => { location.assign(`/templates/${t.id}`); }}>
-                  Open
-                </Button>
-                {!t.is_builtin && (
-                  <Button size="sm" variant="ghost" onClick={() => void duplicate(t)} disabled={busyId === t.id} title="Duplicate">
-                    {busyId === t.id ? <Spinner /> : <Copy size={13} />}
-                  </Button>
-                )}
-                <a href={`/api/templates/${t.id}/export`} title="Export YAML">
-                  <Button size="sm" variant="ghost">
-                    <Download size={13} />
-                  </Button>
-                </a>
-                {!t.is_builtin && (
-                  <Button size="sm" variant="ghost" onClick={() => void remove(t)} disabled={busyId === t.id} title="Delete">
-                    <Trash2 size={13} />
-                  </Button>
-                )}
-              </div>
+
+        {starters.length > 0 && (
+          <div className="mt-2">
+            <h2 className="text-[11.5px] font-medium text-muted-foreground uppercase tracking-[0.8px] mb-2 flex items-center gap-1.5">
+              <Sparkles size={12} /> Starters — duplicate to customize
+            </h2>
+            <div className="grid gap-3">
+              {starters.map((t: TemplateRow) => (
+                <TemplateRowCard key={t.id} t={t} busyId={busyId} onOpen={() => { location.assign(`/templates/${t.id}`); }}
+                  onDuplicate={() => void duplicate(t)} />
+              ))}
             </div>
-          </Card>
+          </div>
+        )}
+
+        {(mine.length > 0 || starters.length > 0) && (
+          <h2 className="text-[11.5px] font-medium text-muted-foreground uppercase tracking-[0.8px] mt-3 mb-1">
+            Your templates
+          </h2>
+        )}
+        {mine.map((t: TemplateRow) => (
+          <TemplateRowCard key={t.id} t={t} busyId={busyId}
+            onOpen={() => { location.assign(`/templates/${t.id}`); }}
+            onDuplicate={() => void duplicate(t)}
+            onDelete={() => void remove(t)} />
         ))}
       </div>
 

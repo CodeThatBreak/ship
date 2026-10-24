@@ -243,3 +243,13 @@ export class LocalGit {
 }
 
 export const localGit = new LocalGit();
+
+/** The per-flow workspace clone directory (`workspaces/<flowId>`), or null when absent. */
+export function workspaceForFlow(flowId: string): string | null {
+  const dir = path.join(config.workspace.dir(), flowId);
+  try {
+    return fs.existsSync(path.join(dir, ".git")) ? dir : null;
+  } catch {
+    return null;
+  }
+}

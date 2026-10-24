@@ -282,6 +282,8 @@ export const FlowTemplateRow = z.object({
   is_builtin: z.number(),
   /** flow trigger: { type: manual | webhook | schedule, ... } */
   trigger: jsonCol(z.record(z.string(), z.unknown())),
+  /** next fire time for a `schedule` flow trigger (Phase 4C); null = not scheduled */
+  schedule_next_at: z.string().nullable(),
   created_at: z.string(),
   updated_at: z.string(),
 });
@@ -336,6 +338,14 @@ export const HookRow = z.object({
   created_at: z.string(),
 });
 export type HookRow = z.infer<typeof HookRow>;
+
+/** Seen webhook-ids per hook (Phase 4A dedup; TTL'd by HookStore). */
+export const HookDeliveryRow = z.object({
+  hook_id: z.string(),
+  webhook_id: z.string(),
+  created_at: z.string(),
+});
+export type HookDeliveryRow = z.infer<typeof HookDeliveryRow>;
 
 // ── typed query helpers ──────────────────────────────────────────────────────
 /**

@@ -10,6 +10,10 @@ import { processSingleton } from "../singleton";
  * the flow engine's quiet-period scheduler (new comments push the resolve
  * start out; it fires only once the pipeline gate is clear and the flow has
  * been quiet for the configured delay).
+ *
+ * Phase 4: the tick also drives the trigger layer — `wait_for: timer` node
+ * resumes, and due `schedule` flow triggers (new flow per fire from the
+ * template's ticket/repo binding).
  */
 export class FlowPoller {
   private started = false;
@@ -26,6 +30,10 @@ export class FlowPoller {
   private async tick(): Promise<void> {
     // fire scheduled resolves whose quiet period elapsed (pipeline gate clear)
     flowEngine.processResolveSchedules();
+    // resume `wait_for: timer` nodes whose delay elapsed
+    flowEngine.processWaitTimers();
+    // fire due `schedule` flow triggers
+    this.processTemplateSchedules();
 
     const flows = db.all<any>(
       `SELECT * FROM flows WHERE status='active' AND (mr_iid IS NOT NULL OR id IN (SELECT DISTINCT flow_id FROM branches WHERE mr_iid IS NOT NULL))`
@@ -47,6 +55,36 @@ export class FlowPoller {
         }
       } catch (e: any) {
         db.emitEvent(f.id, null, "error", `poll: ${e?.message ?? e}`);
+      }
+    }
+  }
+
+  /**
+   * Fire due `schedule` flow triggers (Phase 4C): one new flow per fire,
+   * created + started by the engine from the template's ticket/repo binding.
+   * The next fire time (`schedule_next_at`, armed on first save by
+   * TemplateStore) advances by the interval immediately — a failing fire
+   * skips this round and the schedule keeps its beat instead of spinning.
+   */
+  private processTemplateSchedules(): void {
+    const templates = db.all<{ id: string; trigger: string | null; schedule_next_at: string | null }>(
+      `SELECT id, trigger, schedule_next_at FROM flow_templates WHERE schedule_next_at IS NOT NULL`
+    );
+    const now = Date.now();
+    for (const t of templates) {
+      const due = t.schedule_next_at ? Date.parse(t.schedule_next_at) : NaN;
+      if (Number.isNaN(due) || now < due) continue;
+      const trigger = (() => { try { return JSON.parse(t.trigger ?? "{}") as Record<string, unknown>; } catch { return {}; } })();
+      const intervalMin = typeof trigger.interval_min === "number" && trigger.interval_min > 0
+        ? trigger.interval_min : 60;
+      db.run(`UPDATE flow_templates SET schedule_next_at=? WHERE id=?`,
+        new Date(now + intervalMin * 60_000).toISOString(), t.id);
+      try {
+        flowEngine.startFromTemplate(t.id, { scheduled_at: db.now() });
+      } catch (e: unknown) {
+        // no flow instance exists to attach an event to — the dev server log
+        // and the template editor (which validates the binding) surface it
+        console.error(`schedule trigger for template ${t.id}: ${e instanceof Error ? e.message : e}`);
       }
     }
   }

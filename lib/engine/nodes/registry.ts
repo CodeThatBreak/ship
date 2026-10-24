@@ -5,6 +5,7 @@ import { PipelineNode } from "./pipeline";
 import { ReviewNode } from "./review";
 import { ResolveNode } from "./resolve";
 import { declarativeDef } from "./declarative";
+import { StartNode } from "./start";
 
 /**
  * The single source of truth for the workflow graph.
@@ -30,6 +31,7 @@ export class NodeRegistry {
 
   /** The built-in workflow. */
   private registerBuiltins(): void {
+    this.register(new StartNode());
     this.register(new PlanNode());
     this.register(new BuildNode());
     this.register(new PipelineNode());
