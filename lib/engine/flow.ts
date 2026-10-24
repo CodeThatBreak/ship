@@ -13,12 +13,11 @@ import { agentPortRegistry, type AgentRunResult } from "./ports/agent-runner";
 import { hostOf, type HostComment } from "./ports/git-host";
 import { nodeSupport, type FlowCtx } from "./nodes/base";
 import { uncachedInputTokens } from "./nodes/base/usage-tracker";
-import { branchStore } from "./nodes/build";
-import { isCommitError, mergeRequests } from "./nodes/merge-request";
 import { nodeRegistry } from "./nodes/registry";
 import { planSteps, type PlanStepInput } from "./steps";
 import { NO_TASK_TYPE, SDLC_TEMPLATE_ID, templateStore, type TemplateGraph, type TemplateEdgeSpec } from "./templates";
-import { appLayerConfig, configNumber, mergeConfigLayers, parseConfigSnapshot } from "./node-config";
+import { appLayerConfig, mergeConfigLayers, parseConfigSnapshot } from "./node-config";
+import { createSdlcChain } from "./nodes/sdlc/chain";
 import { buildFlowContext, type FlowContextMap } from "./flow-context";
 import { evalJsonata, jsonataTruthy } from "./jsonata-eval";
 import { hookStore } from "./hooks";
@@ -35,14 +34,6 @@ export interface CreateFlowOptions {
   triggerPayload?: unknown;
 }
 
-/** Distinguishes MR-creation failures from later pipeline/review failures. */
-class MrCreationFailed extends Error {
-  constructor(message: string) {
-    super(message);
-    this.name = "MrCreationFailed";
-  }
-}
-
 /**
  * The flow orchestrator: flow creation and reads, node triggers, chat routing,
  * plan-step editing, retry / cancel, restart recovery, and git-host
@@ -55,10 +46,14 @@ class MrCreationFailed extends Error {
  * ("pipeline", "review", "resolve") is derived from the flow's template graph
  * (see `templateStore`) — no node-key constants here. Edge activation evaluates
  * the template's `next` edges (join all/any) and starts satisfying targets per
- * their trigger type; the built-in gate chain (gate → review → resolve-if-open
- * → re-gate) keeps its faithful inline loop until edge conditions land (Phase 3).
+ * their trigger type. The built-in SDLC gate chain (gate → review →
+ * resolve-if-open → re-gate) lives in the `sdlc/chain.ts` builtin-chain module
+ * (pristine plan §2.1) — this class owns the generic mechanics it drives.
  */
 export class FlowEngine {
+  /** the SDLC builtin chain (approveBuild / gate chain / resolve scheduler) */
+  private readonly chain = createSdlcChain(this);
+
   // ── flow creation / read ─────────────────────────────────────────────────
 
   create(taskId: string, repoUrl: string, name?: string, opts: CreateFlowOptions = {}): string {
@@ -206,17 +201,20 @@ export class FlowEngine {
     db.run(`UPDATE flows SET updated_at=? WHERE id=?`, db.now(), flowId);
   }
 
-  private setCurrentNode(flowId: string, key: string | null): void {
+  /** Engine internals shared with the SDLC builtin-chain module — not a public API. */
+  setCurrentNode(flowId: string, key: string | null): void {
     db.run(`UPDATE flows SET current_node=?, updated_at=? WHERE id=?`, key, db.now(), flowId);
   }
 
-  private setNodeStatus(flowId: string, nodeKey: string, status: string): void {
+  /** Engine internals shared with the SDLC builtin-chain module — not a public API. */
+  setNodeStatus(flowId: string, nodeKey: string, status: string): void {
     db.run(`UPDATE nodes SET status=?, updated_at=? WHERE flow_id=? AND node_key=?`,
       status, db.now(), flowId, nodeKey);
   }
 
-  // fire-and-forget wrapper: runs async, marks node failed on error
-  private bg(flowId: string, nodeKey: string | null, fn: () => Promise<void>): void {
+  // fire-and-forget wrapper: runs async, marks node failed on error.
+  // Engine internals shared with the SDLC builtin-chain module — not a public API.
+  bg(flowId: string, nodeKey: string | null, fn: () => Promise<void>): void {
     (async () => {
       try {
         await fn();
@@ -251,8 +249,10 @@ export class FlowEngine {
    * the context (input maps + agent prompt variables) reads the delivery, not
    * the payload that started the flow. Nothing is persisted from it beyond
    * what the run records.
+   *
+   * Engine internals shared with the SDLC builtin-chain module — not a public API.
    */
-  private async runNode(flowId: string, nodeKey: string, rawInput: unknown, deliveryPayload?: unknown): Promise<string> {
+  async runNode(flowId: string, nodeKey: string, rawInput: unknown, deliveryPayload?: unknown): Promise<string> {
     const def = this.defOf(flowId, nodeKey);
     const c = this.ctx(flowId);
     const ctx = deliveryPayload !== undefined ? this.ctxWithDelivery(c, deliveryPayload) : c;
@@ -308,18 +308,19 @@ export class FlowEngine {
   }
 
   /** The def for a node instance: built-ins by registry key, declarative kinds hydrate from their node_templates row. */
-  private defOf(flowId: string, nodeKey: string) {
+  defOf(flowId: string, nodeKey: string) {
     return nodeRegistry.resolve(this.defKeyOf(flowId, nodeKey), nodeKey);
   }
 
-  /** The per-flow instance config layer for one node (nodes.config snapshot). */
-  private flowNodeConfig(flowId: string, nodeKey: string): Record<string, unknown> {
+  /** Engine internals shared with the SDLC builtin-chain module — not a public API. */
+  flowNodeConfig(flowId: string, nodeKey: string): Record<string, unknown> {
     return parseConfigSnapshot(db.get<{ config: string | null }>(
       `SELECT config FROM nodes WHERE flow_id=? AND node_key=?`, flowId, nodeKey)?.config ?? null);
   }
 
-  /** Full config layer stack for a node instance: class ← app ← flow snapshot. */
-  private nodeConfigFor(flowId: string, nodeKey: string): Record<string, unknown> {
+  /** Full config layer stack for a node instance: class ← app ← flow snapshot.
+   *  Engine internals shared with the SDLC builtin-chain module — not a public API. */
+  nodeConfigFor(flowId: string, nodeKey: string): Record<string, unknown> {
     const def = this.defOf(flowId, nodeKey);
     return mergeConfigLayers(def.defaultConfig(), appLayerConfig(def.key), this.flowNodeConfig(flowId, nodeKey));
   }
@@ -395,8 +396,9 @@ export class FlowEngine {
     return templateStore.graphForFlow(flowId);
   }
 
-  /** Instance keys of the flow's template nodes with the given def key. */
-  private keysOfType(flowId: string, defKey: string): string[] {
+  /** Instance keys of the flow's template nodes with the given def key.
+   *  Engine internals shared with the SDLC builtin-chain module — not a public API. */
+  keysOfType(flowId: string, defKey: string): string[] {
     const g = this.graph(flowId);
     if (g) return g.nodes.filter((n) => n.defKey === defKey).map((n) => n.key);
     return rows.all(NodeRow, `SELECT * FROM nodes WHERE flow_id=?`, flowId)
@@ -404,15 +406,18 @@ export class FlowEngine {
       .map((n) => n.node_key);
   }
 
-  private firstKeyOfType(flowId: string, defKey: string): string | null {
+  /** Instance keys → first instance of a def key.
+   *  Engine internals shared with the SDLC builtin-chain module — not a public API. */
+  firstKeyOfType(flowId: string, defKey: string): string | null {
     return this.keysOfType(flowId, defKey)[0] ?? null;
   }
 
   /**
    * Role lookups: the CI gate node (waits on the pipeline source), and the
    * post-gate chain [gate, …] from the template graph.
+   * Engine internals shared with the SDLC builtin-chain module — not a public API.
    */
-  private gateKey(flowId: string): string | null {
+  gateKey(flowId: string): string | null {
     return templateStore.waitNodeKey(flowId, "pipeline") ?? this.firstKeyOfType(flowId, "pipeline");
   }
 
@@ -425,7 +430,8 @@ export class FlowEngine {
     return n?.type ?? nodeKey;
   }
 
-  private nodeStatus(flowId: string, nodeKey: string): string {
+  /** Engine internals shared with the SDLC builtin-chain module — not a public API. */
+  nodeStatus(flowId: string, nodeKey: string): string {
     return db.get<{ status: string }>(
       `SELECT status FROM nodes WHERE flow_id=? AND node_key=?`, flowId, nodeKey)?.status ?? "";
   }
@@ -451,8 +457,10 @@ export class FlowEngine {
    * Inactive edges resolve their target side: a target whose incoming edges
    * are all resolved with none active becomes `skipped`, and the skip
    * propagates downstream (a skipped node's out-edges resolve inactive).
+   *
+   * Engine internals shared with the SDLC builtin-chain module — not a public API.
    */
-  private async advanceFrom(flowId: string, fromKey: string): Promise<void> {
+  async advanceFrom(flowId: string, fromKey: string): Promise<void> {
     const g = this.graph(flowId);
     if (!g) return;
     const outgoing = g.edges.filter((e) => e.kind === "next" && e.from === fromKey);
@@ -717,398 +725,71 @@ export class FlowEngine {
   }
 
   approveBuild(flowId: string, branchName?: string): void {
-    const buildKey = this.firstKeyOfType(flowId, "build");
-    if (!buildKey) throw new Error("this flow template has no build node");
-    const gate = this.gateKey(flowId);
-    if (!gate) throw new Error("this flow template has no pipeline gate node");
-    this.setNodeStatus(flowId, buildKey, "approved");
-    this.setCurrentNode(flowId, gate);
-    this.bg(flowId, null, async () => {
-      try {
-        if (branchName) {
-          await this.createMrAndGate(flowId, branchName);
-        } else {
-          const branches = branchStore.list(flowId).filter((b) => b.status === "awaiting_approval" || b.status === "approved");
-          if (branches.length > 1) {
-            for (const b of branches) await this.createMrAndGate(flowId, b.name);
-          } else {
-            await this.createMrAndGate(flowId, null);
-          }
-        }
-        this.setCurrentNode(flowId, null);
-      } catch (e: unknown) {
-        const msg = e instanceof Error ? e.message : String(e);
-        if (e instanceof MrCreationFailed) {
-          // MR creation failed (infra, or commit-fix attempts exhausted): hand the
-          // step back to the developer — the "Approve & create MR" button reappears
-          // and clicking it retries MR creation with the current branch state.
-          db.emitEvent(flowId, null, "mr_failed",
-            `MR creation failed: ${msg} — fix the issue, then click "Approve & create MR" again to retry`,
-            { branchName });
-          this.setNodeStatus(flowId, buildKey, "awaiting_approval");
-        } else {
-          // pipeline gate / review failures: those nodes already carry their own
-          // failed status + Retry — just surface the error.
-          db.emitEvent(flowId, null, "error", msg);
-        }
-        this.setCurrentNode(flowId, null);
-      }
-    });
+    this.chain.approveBuild(flowId, branchName);
   }
 
-  /**
-   * MR creation → pipeline gate → review, for one branch (or the single-branch
-   * flow). Each stage must succeed before the next starts:
-   *  - MR creation failures from rejected pushes (hooks/type checks) are fixed
-   *    by a commit-fix agent inside the build step and retried (bounded);
-   *    infra failures (network/auth) surface to the user for manual retry.
-   *  - the pipeline gate waits for a green pipeline, fixing failures itself.
-   */
-  private async createMrAndGate(flowId: string, branchName: string | null): Promise<void> {
-    try {
-      await this.createMrWithFixes(flowId, branchName);
-    } catch (e: unknown) {
-      throw new MrCreationFailed(e instanceof Error ? e.message : String(e));
-    }
-    await this.runGateChain(flowId, branchName);
+  /** (Re)run the pipeline gate — from the Pipeline panel, poller, or webhook. */
+  triggerPipelineGate(flowId: string, pipelineId?: number, prompt?: string, model?: string, promptIsBody?: boolean): void {
+    this.chain.triggerPipelineGate(flowId, pipelineId, prompt, model, promptIsBody);
   }
 
-  /**
-   * The single post-pipeline chain — the ONLY place the flow advances past the
-   * CI gate. Every path that waits on the pipeline (build approval, the
-   * Pipeline panel button, retry, and the resolve re-gate) funnels through
-   * here, so the sequence is always:
-   *
-   *   pipeline gate (green) → review → resolve (only while open comments
-   *   remain) → re-gate → review → …
-   *
-   * The whole chain runs inline in the caller's background task — no nested
-   * fire-and-forget spawns — so the current-node pointer and the node guards
-   * always reflect the one run that's actually in flight, and resolve never
-   * runs twice for the same batch of comments. Multi-branch flows stop after
-   * the gate (review/resolve run per branch from their own triggers).
-   *
-   * The node keys come from the flow's template graph (roles: the CI gate,
-   * its auto-flowing successor, its debounced successor); the inline gate→
-   * review→resolve→re-gate loop carries the loop's conditions until edge
-   * conditions arrive with the Phase 3 decision/JSONata work.
-   */
-  private async runGateChain(
-    flowId: string,
-    branchName: string | null,
-    opts: {
-      resolveLoop?: boolean;
-      pipelineId?: number | null;
-      prompt?: string | null;
-      promptIsBody?: boolean;
-      model?: string | null;
-    } = {},
-  ): Promise<void> {
-    const gate = this.gateKey(flowId);
-    const graph = this.graph(flowId);
-    const chain = templateStore.chainNodeKeys(flowId);
-    const reviewKey = chain[1] ?? this.firstKeyOfType(flowId, "review");
-    // the resolve role = the debounced successor of the gate chain (SDLC's
-    // resolve). Custom templates without a debounced node end the chain after
-    // review — their downstream auto nodes advance via the template edges.
-    const resolveKey = chain.find((k) => graph?.byKey.get(k)?.trigger.type === "debounced") ?? null;
-    if (!gate) throw new Error("this flow template has no pipeline gate node");
-
-    // the resolve node's max_regate_loops knob bounds the re-gate loop
-    // (0/absent = unlimited, today's behavior)
-    const maxRegateLoops = resolveKey
-      ? configNumber(this.nodeConfigFor(flowId, resolveKey), "max_regate_loops", 0)
-      : 0;
-
-    // first pass: resolve runs only when the scheduler had one due (comments
-    // arrived mid-gate and the quiet period elapsed) — or immediately when the
-    // caller just resolved code (resolveLoop). After a resolve run we re-gate,
-    // and loop back into resolve whenever comments are still open.
-    let inResolveLoop = opts.resolveLoop ?? false;
-    let regates = 0;
-    // a specific watched pipeline / prompt / model applies to the chain's
-    // first gate only — later gates re-read the MR head with defaults
-    let gateInput: Record<string, unknown> | null = opts.pipelineId != null || opts.prompt != null || opts.model != null
-      ? {
-          pipelineId: opts.pipelineId ?? null,
-          prompt: opts.prompt ?? null,
-          promptIsBody: opts.promptIsBody ?? false,
-          model: opts.model ?? null,
-        }
-      : null;
-    for (;;) {
-      this.setCurrentNode(flowId, gate);
-      await this.runNode(flowId, gate, {
-        branchName, pipelineId: null, guidance: null, prompt: null, promptIsBody: false, model: null,
-        ...(gateInput ?? {}),
-      });
-      gateInput = null;
-
-      // gate green → review (single-branch flows only; multi-branch reviews run
-      // per-branch from the branch's own approval). After review, its template
-      // `next` edges activate — the SDLC resolve (debounced) doesn't auto-start,
-      // custom auto successors do (Phase 2 templates).
-      if (!branchName && reviewKey) {
-        this.setCurrentNode(flowId, reviewKey);
-        await this.runNode(flowId, reviewKey, {
-          instructions: null, prompt: null, promptIsBody: false, branchName: null, model: null,
-        });
-        await this.advanceFrom(flowId, reviewKey);
-      }
-
-      // the resolve loop is flow-level (single-MR); multi-branch flows resolve
-      // per branch from their own triggers
-      if (branchName || !resolveKey) return;
-      const open = db.get<{ c: number }>(
-        `SELECT COUNT(*) c FROM comments WHERE flow_id=? AND status='open'`, flowId)?.c ?? 0;
-      const due = this.resolveDue.get(flowId);
-      this.resolveDue.delete(flowId);
-      const scheduledDue = due != null && Date.now() >= due;
-      if (open === 0 || (!inResolveLoop && !scheduledDue)) return;
-
-      this.setCurrentNode(flowId, resolveKey);
-      db.emitEvent(flowId, null, "lifecycle", `resolving ${open} open comment(s)`);
-      await this.runNode(flowId, resolveKey, {
-        instructions: null, prompt: null, promptIsBody: false, branchName: null, model: null,
-      });
-      // only loop when the resolve agent actually pushed code changes — a
-      // fix run that touched nothing makes re-gate + re-review a no-op
-      if (!this.resolveChangedCode(flowId, resolveKey)) return;
-      if (maxRegateLoops > 0 && regates >= maxRegateLoops) {
-        db.emitEvent(flowId, null, "lifecycle",
-          `re-gate loop limit reached (${maxRegateLoops}) — the flow stays open for manual follow-up`);
-        return;
-      }
-      regates++;
-      inResolveLoop = true; // code changed → loop: re-gate → review → resolve-if-open
-    }
+  triggerResolve(flowId: string, prompt?: string, model?: string, promptIsBody?: boolean): void {
+    this.chain.triggerResolve(flowId, prompt, model, promptIsBody);
   }
 
-  /**
-   * Create the MR, running a commit-fix agent on the build node when the push
-   * was rejected (pre-push/pre-receive hooks — e.g. type checks). Throws the
-   * original error after MAX attempts, or immediately for infra failures.
-   * The attempt budget comes from the build node's `max_commit_fix_attempts`
-   * knob (default = today's constant, 2).
-   */
-  private async createMrWithFixes(flowId: string, branchName: string | null): Promise<void> {
-    const buildKey = this.firstKeyOfType(flowId, "build");
-    if (!buildKey) throw new Error("this flow template has no build node");
-    const gate = this.gateKey(flowId);
-    const MAX_FIX_ATTEMPTS = configNumber(
-      this.nodeConfigFor(flowId, buildKey), "max_commit_fix_attempts", 2);
-    for (let attempt = 0; ; attempt++) {
-      try {
-        await mergeRequests.create(this.ctx(flowId), branchName ?? undefined);
-        return;
-      } catch (e: unknown) {
-        if (!isCommitError(e) || attempt >= MAX_FIX_ATTEMPTS) throw e;
-        db.emitEvent(flowId, null, "lifecycle",
-          `push rejected — running a commit-fix agent on the build step (attempt ${attempt + 1}/${MAX_FIX_ATTEMPTS})`);
-        this.setCurrentNode(flowId, buildKey);
-        this.setNodeStatus(flowId, buildKey, "running");
-        try {
-          await this.runNode(flowId, buildKey, {
-            plan: null, prompt: null, branchInfo: null, model: null,
-            feedback:
-              `Pushing branch was rejected with the error below — most likely a pre-push/pre-receive hook ` +
-              `(type check, lint, or test gate). Fix the code so the checks pass, commit, and push again to the same branch.\n\n` +
-              `${e.detail}`,
-          });
-        } finally {
-          this.setNodeStatus(flowId, buildKey, "approved");
-          // hand the pointer back to the gate the chain will enter next
-          this.setCurrentNode(flowId, gate);
-        }
-      }
-    }
+  triggerReview(flowId: string, prompt?: string, model?: string, promptIsBody?: boolean): void {
+    this.chain.triggerReview(flowId, prompt, model, promptIsBody);
   }
 
-  // true when the node already has an in-flight run — guards against the webhook
-  // + poller + UI all triggering the same node concurrently
-  private nodeRunning(flowId: string, nodeKey: string): boolean {
-    return db.get<{ status: string }>(`SELECT status FROM nodes WHERE flow_id=? AND node_key=?`, flowId, nodeKey)?.status === "running";
+  /** Queue/reset a resolve run (new open comments) — see the SDLC chain. */
+  scheduleResolve(flowId: string): void {
+    this.chain.scheduleResolve(flowId);
   }
 
-  // ── resolve scheduling (quiet-period debounce + pipeline gate) ───────────
-  //
-  // MR comments never start the resolve node directly: every ingest path
-  // (webhook / poller) schedules a run. The poller's tick fires the schedule
-  // once BOTH conditions hold:
-  //   1. the pipeline node is not running or pending — resolve must wait for
-  //      the pipeline step to pass first (a `failed` pipeline doesn't block:
-  //      it's terminal until retried, and the resolve → re-gate loop covers it)
-  //   2. no new open comment arrived within the quiet period — so reviewers
-  //      adding several comments in a row get one resolve run for all of them
-
-  // true when the latest resolve run actually pushed code changes to the MR
-  // branch — the review re-trigger is gated on this, not on the comment count
-  // (a resolve agent that only explained why comments were wrong resolves them
-  // but must not kick off another pipeline/review pass)
-  private resolveChangedCode(flowId: string, resolveKey: string): boolean {
-    const out = rows.get(NodeRow,
-      `SELECT * FROM nodes WHERE flow_id=? AND node_key=?`, flowId, resolveKey)?.output;
-    return (out as { codeChanged?: boolean } | null)?.codeChanged === true;
+  /** Fire queued resolves whose quiet period elapsed (poller tick). */
+  processResolveSchedules(): void {
+    this.chain.processResolveSchedules();
   }
 
-  /** Per-flow in-memory schedule state: "fire no earlier than". */
-  private resolveDue = new Map<string, number>();
-
-  /**
-   * When the currently queued resolve run would start (epoch ms) — the quiet
-   * period has to elapse first, then the pipeline gate must be clear. The
-   * Resolve panel shows this as the scheduled start time. Null when nothing
-   * is queued.
-   */
+  /** When the queued resolve run would start (epoch ms), or null. */
   resolveScheduleAt(flowId: string): number | null {
-    return this.resolveDue.get(flowId) ?? null;
+    return this.chain.resolveScheduleAt(flowId);
   }
 
   /** The queued resolve's start time as wall-clock text ("14:32"), or null. */
   resolveScheduleClock(flowId: string): string | null {
-    const at = this.resolveDue.get(flowId);
-    if (at == null) return null;
-    return new Date(at).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit", hour12: false });
+    return this.chain.resolveScheduleClock(flowId);
   }
 
-  /** How long after the last new open comment the resolve may start.
-   *  Per flow: the flow's resolve node `quiet_minutes` knob (class default 10,
-   *  app settings overlay the legacy `resolve.delay_ms` / RESOLVE_DELAY_MINUTES
-   *  aliases so existing setups behave exactly as before). Flows without a
-   *  resolve node instance fall back to the app-settings layer alone. */
+  /** The resolve quiet period per flow (ms) — resolve `quiet_minutes` knob. */
   resolveDelayMs(flowId?: string): number {
-    const resolveKey = flowId ? this.firstKeyOfType(flowId, "resolve") : null;
-    const cfg = mergeConfigLayers(
-      appLayerConfig("resolve"),
-      resolveKey ? this.flowNodeConfig(flowId!, resolveKey) : {},
-    );
-    return configNumber(cfg, "quiet_minutes", 10) * 60_000;
+    return this.chain.resolveDelayMs(flowId);
   }
 
-  /**
-   * Queue a resolve run for `flowId`, resetting the quiet period (each new
-   * comment pushes the earliest start out by resolveDelayMs()). The flow's
-   * poller tick fires the schedule — a no-op when the flow has no MR yet.
-   */
-  scheduleResolve(flowId: string): void {
-    this.resolveDue.set(flowId, Date.now() + this.resolveDelayMs(flowId));
+  /** The armed wait-timer deadline for a (flow, node) — used by the chain. */
+  waitTimerDueAt(flowId: string, nodeKey: string): number | null {
+    return this.waitTimers.get(`${flowId}\n${nodeKey}`) ?? null;
   }
-
-  private pipelineGateBusy(flowId: string): boolean {
-    const gate = this.gateKey(flowId);
-    if (!gate) return false;
-    const s = this.nodeStatus(flowId, gate);
-    return s === "running" || s === "pending";
+  // true when the node already has an in-flight run — guards against the webhook
+  // + poller + UI all triggering the same node concurrently.
+  // Engine internals shared with the SDLC builtin-chain module — not a public API.
+  nodeRunning(flowId: string, nodeKey: string): boolean {
+    return db.get<{ status: string }>(`SELECT status FROM nodes WHERE flow_id=? AND node_key=?`, flowId, nodeKey)?.status === "running";
   }
-
   /**
    * True while any stage of the post-MR chain (pipeline gate → review →
    * resolve) is running. The chain executes inline in one background task, so
    * between node statuses flipping there is always exactly one `running` stage
    * — this guard keeps the poller/webhook/UI from starting a second chain
    * alongside it.
+   * Engine internals shared with the SDLC builtin-chain module — not a public API.
    */
-  private chainBusy(flowId: string): boolean {
+  chainBusy(flowId: string): boolean {
     for (const key of templateStore.chainNodeKeys(flowId)) {
       if (this.nodeStatus(flowId, key) === "running") return true;
     }
     return false;
   }
-
-  /**
-   * Fire scheduled resolves whose quiet period elapsed and whose pipeline
-   * gate is clear. Called from the poller tick; emits one event per state
-   * change so the activity feed explains what resolve is waiting for.
-   */
-  processResolveSchedules(): void {
-    const now = Date.now();
-    for (const [flowId, due] of [...this.resolveDue]) {
-      if (now < due) continue; // quiet period still running
-      this.fireScheduledResolve(flowId);
-    }
-  }
-
-  /**
-   * Fire a flow's scheduled resolve now when it's due and nothing blocks it.
-   * Used both by the poller tick and by the post-pipeline chain — after a
-   * green gate + review, a resolve that was queued mid-gate fires immediately
-   * instead of waiting for the next poll.
-   */
-  private fireScheduledResolve(flowId: string): void {
-    const due = this.resolveDue.get(flowId);
-    if (due == null || Date.now() < due) return; // nothing scheduled / still quiet
-    // a chain is in flight → it ends with a resolve-if-open check, so the
-    // schedule stays queued and gets picked up by that chain (or the next tick)
-    if (this.chainBusy(flowId)) return;
-    if (this.pipelineGateBusy(flowId)) return; // re-checked on the next tick
-    const open = db.get<{ c: number }>(
-      `SELECT COUNT(*) c FROM comments WHERE flow_id=? AND status='open'`, flowId)?.c ?? 0;
-    this.resolveDue.delete(flowId);
-    if (open > 0) {
-      this.triggerResolve(flowId, undefined, undefined, undefined, { scheduled: true });
-    }
-  }
-
-  /** (Re)run the pipeline gate — from the Pipeline panel, poller, or webhook. */
-  triggerPipelineGate(flowId: string, pipelineId?: number, prompt?: string, model?: string, promptIsBody?: boolean): void {
-    if (this.chainBusy(flowId)) return;
-    const gate = this.gateKey(flowId);
-    if (!gate) throw new Error("this flow template has no pipeline gate node");
-    this.setCurrentNode(flowId, gate);
-    this.bg(flowId, gate, async () => {
-      try {
-        // always the full chain — a green gate flows on to review (and a
-        // resolve when comments are waiting), never leaves the flow stranded
-        await this.runGateChain(flowId, null, {
-          pipelineId: pipelineId ?? null, prompt: prompt ?? null,
-          promptIsBody: promptIsBody ?? false, model: model ?? null,
-        });
-      } finally {
-        this.setCurrentNode(flowId, null);
-      }
-    });
-  }
-
-  triggerResolve(flowId: string, prompt?: string, model?: string, promptIsBody?: boolean, opts: { scheduled?: boolean } = {}): void {
-    const resolveKey = this.firstKeyOfType(flowId, "resolve");
-    if (!resolveKey) return;
-    if (this.nodeRunning(flowId, resolveKey)) return;
-    // Direct triggers (Run button / API) respect the chain — resolve must not
-    // run while the pipeline/review/resolve chain is in flight. `scheduled` is
-    // the internal bypass for runs the scheduler already gated.
-    if (!opts.scheduled && this.chainBusy(flowId)) {
-      throw new Error("wait for the pipeline/review step to finish before running resolve");
-    }
-    this.setCurrentNode(flowId, resolveKey);
-    this.bg(flowId, resolveKey, async () => {
-      try {
-        await this.runNode(flowId, resolveKey, {
-          instructions: null, prompt: prompt ?? null, promptIsBody: promptIsBody ?? false, branchName: null, model: model ?? null,
-        });
-        // re-enter the unified chain in resolve-loop mode (pipeline gate →
-        // review → resolve while open comments remain) — but only when the
-        // resolve agent actually pushed code changes; a run that touched
-        // nothing makes re-gate + re-review a no-op. Everything runs inline in
-        // this task, so resolve can never double-run for the same batch.
-        if (this.resolveChangedCode(flowId, resolveKey)) {
-          await this.runGateChain(flowId, null, { resolveLoop: true });
-        }
-      } finally {
-        this.setCurrentNode(flowId, null);
-      }
-    });
-  }
-
-  triggerReview(flowId: string, prompt?: string, model?: string, promptIsBody?: boolean): void {
-    const reviewKey = this.firstKeyOfType(flowId, "review");
-    if (!reviewKey) throw new Error("this flow template has no review node");
-    if (this.chainBusy(flowId)) throw new Error("wait for the current pipeline/review/resolve run to finish first");
-    this.setCurrentNode(flowId, reviewKey);
-    this.bg(flowId, reviewKey, () => this.runNode(flowId, reviewKey, {
-      instructions: null, prompt: prompt ?? null, promptIsBody: promptIsBody ?? false, branchName: null, model: model ?? null,
-    }).then(() => this.setCurrentNode(flowId, null)));
-  }
-
   // ── Phase 2: generic (template-driven) node actions ──────────────────────
   // The five built-ins have their own refined entries above; these are the
   // counterparts declarative (agent, …) nodes drive from the runtime panel.
@@ -1238,8 +919,9 @@ export class FlowEngine {
     this.touch(flowId);
   }
 
-  /** Clear the current-node pointer when it still points at the given node. */
-  private clearCurrentIf(flowId: string, nodeKey: string): void {
+  /** Clear the current-node pointer when it still points at the given node.
+   *  Engine internals shared with the SDLC builtin-chain module — not a public API. */
+  clearCurrentIf(flowId: string, nodeKey: string): void {
     const flow = rows.get(FlowRow, `SELECT * FROM flows WHERE id=?`, flowId);
     if (flow?.current_node === nodeKey) this.setCurrentNode(flowId, null);
   }
@@ -1267,7 +949,7 @@ export class FlowEngine {
       // then advances to review instead of staying stuck.
       if (nodeKey === this.gateKey(flowId)) {
         const branch = (recorded as { branchName?: string | null }).branchName ?? null;
-        await this.runGateChain(flowId, branch);
+        await this.chain.runGateChain(flowId, branch);
       } else {
         await def.run(this.ctx(flowId), recorded, this.nodeConfigFor(flowId, nodeKey));
         // a retried generic node that now succeeded advances the template
