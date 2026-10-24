@@ -14,6 +14,7 @@ import { hostOf, type HostComment } from "./ports/git-host";
 import { nodeSupport, type FlowCtx } from "./nodes/base";
 import { uncachedInputTokens } from "./nodes/base/usage-tracker";
 import { nodeRegistry } from "./nodes/registry";
+import { declarativeDef } from "./nodes/declarative";
 import { planSteps, type PlanStepInput } from "./steps";
 import { NO_TASK_TYPE, SDLC_TEMPLATE_ID, templateStore, type TemplateGraph, type TemplateEdgeSpec } from "./templates";
 import { appLayerConfig, configNumber, mergeConfigLayers, parseConfigSnapshot } from "./node-config";
@@ -166,11 +167,18 @@ export class FlowEngine {
         .sort((a, b) => order.indexOf(a.node_key) - order.indexOf(b.node_key))
         .map((n) => {
           const nt = ntOf(n.type);
+          // the node's capabilities (refine/chat/panel affordances) come from
+          // its def — built-ins by registry key, declarative kinds by their
+          // node_templates row (cached hydration)
+          const def = nodeRegistry.maybe(n.type)
+            ?? (nt?.is_builtin ? nodeRegistry.maybe(nt.key) : undefined)
+            ?? declarativeDef(n.type, n.node_key);
           return {
             ...n,
             kind: nt?.kind ?? null,
             icon: nt?.icon ?? null,
             template_name: nt?.name ?? null,
+            capabilities: def?.capabilities ?? null,
             cost: nodeCosts.get(n.id) ?? { totalCents: 0, tokens: 0, runs: [] },
             artifacts: rows.all(ArtifactRow,
               `SELECT id, node_id, flow_id, kind, version, content, meta, status, feedback, created_at
@@ -379,7 +387,11 @@ export class FlowEngine {
       latestPlan?.id ?? null,
       input.map((s) => ({ title: s.title.trim(), detail: s.detail, files: s.files, branch: s.branch }))
     );
-    db.emitEvent(flowId, null, "lifecycle", `plan checklist edited (${updated.length} steps)`);
+    db.emitEvent(flowId, null, "lifecycle", `plan checklist edited (${updated.length} steps)`, {
+      // route the event to the tab that owns the checklist (§3.3 — stamped at
+      // emit time; the feed no longer guesses from message text)
+      nodeKey: this.firstKeyOfType(flowId, "plan") ?? undefined,
+    });
     this.touch(flowId);
   }
 
@@ -561,7 +573,8 @@ export class FlowEngine {
       // the engine never silently picks a branch (§4.3)
       if (src.loud !== false) {
         db.emitEvent(flowId, null, "error",
-          `edge ${e.from} → ${e.to}: the condition failed (${r.error}) — the branch resolves inactive`);
+          `edge ${e.from} → ${e.to}: the condition failed (${r.error}) — the branch resolves inactive`,
+          { nodeKey: e.from });
       }
       return false;
     }

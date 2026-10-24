@@ -7,6 +7,7 @@ import ChatPanel from "../../../components/ChatPanel";
 import FlowHeader from "../../../components/FlowHeader";
 import { Spinner } from "../../../components/ui/spinner";
 import { composeModelChoice, type ModelChoice } from "../../../lib/modelSpec";
+import type { NodeCapabilities } from "../../../lib/engine/nodes/base/capabilities";
 
 export type Artifact = { id: string; kind: string; version: number; status: string; feedback?: string; created_at: string; meta?: any };
 export type NodeCost = { totalCents: number; tokens: number; runs: any[] };
@@ -21,6 +22,8 @@ export type Node = {
   icon?: string | null;
   /** effective config snapshot (class defaults ← app settings ← template) */
   config?: Record<string, unknown> | null;
+  /** the node contract's UI capabilities (refine/chat/panel title, §3.2) */
+  capabilities?: NodeCapabilities | null;
   join_mode?: string | null;
   input?: any; output?: any; artifacts: Artifact[]; cost?: NodeCost;
 };
@@ -50,7 +53,9 @@ export type FlowData = {
 export default function FlowScreen() {
   const { id } = useParams<{ id: string }>();
   const [flow, setFlow] = useState<FlowData | null>(null);
-  const [selected, setSelected] = useState<string>("plan");
+  // default selection = the first node in graph order (the flow's entry) —
+  // nodes arrive pre-sorted; the user picks from there
+  const [selected, setSelected] = useState<string>("");
   const [events, setEvents] = useState<any[]>([]);
   const lastEventId = useRef("");
   // once the user clicks a node we stop auto-following current_node, so polling
@@ -99,8 +104,8 @@ export default function FlowScreen() {
   const [modelChoice, setModelChoice] = useState<ModelChoice | null>(null);
   const model = composeModelChoice(modelChoice);
 
-  // plan generation options — toggled via the icon buttons in the chat panel's
-  // prompt box / input row, shared by start_plan and refine runs
+  // plan-generation options — toggled via the icon buttons in the chat panel's
+  // prompt box / input row, part of the plan node's contract input
   const [planOptions, setPlanOptions] = useState({ decompose: false, complex: false });
 
   const node = useMemo(
@@ -108,24 +113,32 @@ export default function FlowScreen() {
     [flow, selected]
   );
 
-  const hasPlan = Boolean(node?.artifacts.some((a) => a.kind === "plan"));
-  // the prompt preview box sits over the chat: plan tab, before any plan exists
-  const planPending =
-    node?.node_key === "plan" && !hasPlan && node?.status === "pending";
+  // the prompt preview box sits over the chat: prompt-publishing nodes (the
+  // plan, §3.2 capabilities) before their first run — nothing to chat with yet
+  const promptPending =
+    Boolean(node?.capabilities?.promptNode) &&
+    (node?.artifacts.length ?? 0) === 0 &&
+    node?.status === "pending";
 
-  // start (or restart) the plan run — triggered from the prompt box over the
-  // chat or by running an edited prompt in the prompt modal
-  const startPlan = useCallback(
+  // start the node's first run from the chat's prompt box / prompt modal —
+  // the generic run_node action with the node's contract input (the plan
+  // node's contract carries prompt/promptIsBody/decompose/complex/model)
+  const nodeKey = node?.node_key;
+  const startNode = useCallback(
     (opts?: { prompt?: string; promptIsBody?: boolean }) => {
-      return action("start_plan", {
-        prompt: opts?.prompt,
-        promptIsBody: opts?.promptIsBody || undefined,
-        decompose: planOptions.decompose || undefined,
-        complex: planOptions.complex || undefined,
-        model: model || undefined,
+      if (!nodeKey) return;
+      return action("run_node", {
+        nodeKey,
+        input: {
+          prompt: opts?.prompt ?? null,
+          promptIsBody: opts?.promptIsBody ?? false,
+          decompose: planOptions.decompose,
+          complex: planOptions.complex,
+          model: model || null,
+        },
       });
     },
-    [action, planOptions.decompose, planOptions.complex, model]
+    [action, nodeKey, planOptions.decompose, planOptions.complex, model]
   );
 
   const nodeKeysByNodeId = useMemo(
@@ -142,7 +155,7 @@ export default function FlowScreen() {
   if (!flow) return <main className="p-6"><Spinner /> Loading…</main>;
 
   // busy for the chat panel = this node's agent is running (not just any node)
-  const busy = flow.current_node === (node?.node_key ?? "plan");
+  const busy = flow.current_node === node?.node_key;
 
   return (
     <main className="flex flex-col h-screen">
@@ -162,18 +175,20 @@ export default function FlowScreen() {
         <aside className="flex-1 flex flex-col bg-card min-w-[340px] p-3.5">
           <ChatPanel
             flowId={flow.id}
-            nodeKey={node?.node_key ?? "plan"}
+            nodeKey={node?.node_key ?? ""}
+            nodeLabel={node?.label ?? node?.template_name ?? node?.node_key ?? ""}
+            capabilities={node?.capabilities ?? null}
             busy={busy}
-            canRefine={Boolean(node?.artifacts.some((a) => a.kind === "plan"))}
+            canRefine={Boolean(node?.artifacts.length)}
             events={events}
             nodeKeysByNodeId={nodeKeysByNodeId}
             nodeStatusByNodeId={nodeStatusByNodeId}
             modelChoice={modelChoice}
             setModelChoice={setModelChoice}
-            showPromptBox={planPending}
+            showPromptBox={promptPending}
             planOptions={planOptions}
             setPlanOptions={setPlanOptions}
-            onStartPlan={startPlan}
+            onStartNode={startNode}
           />
         </aside>
       </div>

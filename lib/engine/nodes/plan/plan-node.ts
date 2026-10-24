@@ -5,6 +5,7 @@ import { PlanStepRow, rows, type NodeRow } from "../../../db/rows";
 import { prompts } from "../../prompts";
 import { planSteps } from "../../steps";
 import { NodeDefinition, type FlowCtx, type RunOutcome } from "../base";
+import type { NodeCapabilities } from "../base/capabilities";
 import { NODE_KEYS } from "../keys";
 import type { ConfigField } from "../../node-config";
 import { PlanMetaParser, type PlanParseResult } from "./plan-meta-parser";
@@ -254,6 +255,18 @@ export class PlanNode extends NodeDefinition<PlanInput, PlanOutput> {
   readonly promptSections = ["plan"] as const;
   readonly order = 10;
   readonly edges = [[NODE_KEYS.BUILD, "next"]] as const;
+
+  /**
+   * The plan is the chat's first-class node: refine mode, the prompt preview
+   * before the first run, and the panel title (the chat panel keys all of
+   * this off these capabilities — no node-key checks).
+   */
+  override readonly capabilities: NodeCapabilities = {
+    refinable: true,
+    chatOnlyMode: "refine",
+    promptNode: NODE_KEYS.PLAN,
+    panelTitle: "Implementation plan",
+  };
 
   readonly inputSchema = PlanInput;
   readonly outputSchema = PlanOutput;

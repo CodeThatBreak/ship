@@ -43,6 +43,7 @@ import {
 import { Spinner } from "@/components/ui/spinner";
 import ModelSelector from "@/components/ModelSelector";
 import { composeModelChoice, type ModelChoice } from "@/lib/modelSpec";
+import type { NodeCapabilities } from "@/lib/engine/nodes/base/capabilities";
 import {
   Message,
   MessageContent,
@@ -98,14 +99,6 @@ type Msg = {
   created_at: string;
 };
 
-const NODE_LABEL: Record<string, string> = {
-  plan: "Plan",
-  build: "Build",
-  pipeline: "Pipeline",
-  review: "Review",
-  resolve: "Resolve",
-};
-
 // ── tool icons ───────────────────────────────────────────────────────────────
 function ToolIcon({ name }: { name: string }) {
   const n = name.toLowerCase();
@@ -155,6 +148,8 @@ export type PlanStartOpts = { prompt?: string; promptIsBody?: boolean };
 export default function ChatPanel({
   flowId,
   nodeKey,
+  nodeLabel,
+  capabilities,
   busy,
   canRefine = true,
   events,
@@ -165,10 +160,14 @@ export default function ChatPanel({
   showPromptBox = false,
   planOptions,
   setPlanOptions,
-  onStartPlan,
+  onStartNode,
 }: {
   flowId: string;
   nodeKey: string;
+  /** the node's display name (label / template name) — for the agent-facing copy */
+  nodeLabel: string;
+  /** the node contract's UI capabilities (refine/chat/prompt, §3.2) */
+  capabilities?: NodeCapabilities | null;
   busy: boolean;
   canRefine?: boolean;
   events: FeedEvent[];
@@ -178,50 +177,53 @@ export default function ChatPanel({
   nodeStatusByNodeId?: Map<string, string>;
   modelChoice: ModelChoice | null;
   setModelChoice: (choice: ModelChoice | null) => void;
-  /** plan tab, before any plan exists: show the prompt preview box over the chat */
+  /** plan-style nodes, before any output exists: show the prompt preview box over the chat */
   showPromptBox?: boolean;
   planOptions?: PlanOptions;
   setPlanOptions?: (opts: PlanOptions) => void;
-  onStartPlan?: (opts?: PlanStartOpts) => void | Promise<void>;
+  /** start the node's first run (the prompt box's Generate / the prompt modal's Run) */
+  onStartNode?: (opts?: PlanStartOpts) => void | Promise<void>;
 }) {
   const [messages, setMessages] = React.useState<Msg[]>([]);
   const [draft, setDraft] = React.useState("");
   const [sending, setSending] = React.useState(false);
-  // plan node: does a message regenerate the plan ("refine"), or just talk?
-  // opt-in only — a plain chat message must never kick off a refinement run
+  // refine-capable node (§3.2 capabilities): does a message regenerate the
+  // node's output ("refine"), or just talk? opt-in only — a plain chat
+  // message must never kick off a refinement run
   const [refine, setRefine] = React.useState(false);
   const formRef = React.useRef<HTMLFormElement>(null);
 
-  // refinement only makes sense once a plan exists
-  const refineAvailable = nodeKey === "plan" && canRefine;
+  // refinement only makes sense once an output exists
+  const refineAvailable = Boolean(capabilities?.refinable) && canRefine;
   const refineOn = refineAvailable && refine;
 
-  // before a plan exists there is nothing to chat with yet — the input (and its
-  // send button) are locked with a hint until the plan run is generated
+  // before the first output exists there is nothing to chat with yet — the
+  // input (and its send button) are locked with a hint until the run is
+  // generated (prompt-publishing nodes only, §3.2)
   const inputLocked = Boolean(showPromptBox);
 
-  // prompt preview over the chat (plan tab, before a plan exists): the plan
-  // prompt is fetched so the box shows a partial preview — click to expand,
-  // edit icon moves it into the prompt modal
-  const [planPrompt, setPlanPrompt] = React.useState<string | null>(null);
+  // prompt preview over the chat (prompt-publishing nodes, before a first
+  // output exists): the node's prompt is fetched so the box shows a partial
+  // preview — click to expand, edit icon moves it into the prompt modal
+  const [nodePrompt, setNodePrompt] = React.useState<string | null>(null);
   const [promptOpen, setPromptOpen] = React.useState(false);
   const [promptEditing, setPromptEditing] = React.useState(false);
 
   React.useEffect(() => {
     if (!showPromptBox) return;
     let live = true;
-    fetch(`/api/flows/${flowId}/prompt?node=plan`)
+    fetch(`/api/flows/${flowId}/prompt?node=${encodeURIComponent(capabilities?.promptNode ?? nodeKey)}`)
       .then((r) => r.json())
       .then((d) => {
-        if (live) setPlanPrompt(d?.prompt ?? "");
+        if (live) setNodePrompt(d?.prompt ?? "");
       })
       .catch(() => {
-        if (live) setPlanPrompt("");
+        if (live) setNodePrompt("");
       });
     return () => {
       live = false;
     };
-  }, [flowId, showPromptBox]);
+  }, [flowId, showPromptBox, capabilities?.promptNode, nodeKey]);
 
   React.useEffect(() => {
     const load = () =>
@@ -291,7 +293,9 @@ export default function ChatPanel({
       body: JSON.stringify({
         nodeKey,
         content: body,
-        chatOnly: nodeKey === "plan" ? !refineOn : false,
+        // refine-capable nodes: an untoggled message is chat-only (never a
+        // silent refinement run); follow-up nodes just chat
+        chatOnly: capabilities?.chatOnlyMode === "refine" ? !refineOn : false,
         model: composeModelChoice(modelChoice) || undefined,
       }),
     });
@@ -314,21 +318,22 @@ export default function ChatPanel({
         <MessageCircleDashedIcon className="size-4 shrink-0 text-muted-foreground" />
         <h2 className="m-0 text-[13.5px] font-semibold leading-none">Chat</h2>
         <span className="truncate text-[11px] text-muted-foreground">
-          {NODE_LABEL[nodeKey] ?? nodeKey} agent
+          {nodeLabel} agent
         </span>
       </div>
 
       {showPromptBox && (
-        <PlanPromptBox
-          prompt={planPrompt}
+        <NodePromptBox
+          prompt={nodePrompt}
           open={promptOpen}
           onToggle={() => setPromptOpen((v) => !v)}
           onEdit={() => setPromptEditing(true)}
           onGenerate={() => {
             setPromptOpen(false);
-            void onStartPlan?.();
+            void onStartNode?.();
           }}
           generating={busy}
+          generateLabel={`Generate ${nodeLabel.toLowerCase()}`}
         />
       )}
 
@@ -340,7 +345,7 @@ export default function ChatPanel({
                 <MessageCircleDashedIcon />
               </EmptyMedia>
               <EmptyTitle>
-                Message the {NODE_LABEL[nodeKey] ?? nodeKey} agent
+                Message the {nodeLabel} agent
               </EmptyTitle>
               <EmptyDescription>
                 Ask for changes, refinements, or explain what to do differently.
@@ -385,7 +390,7 @@ export default function ChatPanel({
                 })}
                 {awaitingReply && (
                   <MessageScrollerItem messageId="pending" scrollAnchor>
-                    <PendingRow nodeKey={nodeKey} />
+                    <PendingRow nodeLabel={nodeLabel} />
                   </MessageScrollerItem>
                 )}
               </MessageScrollerContent>
@@ -410,10 +415,10 @@ export default function ChatPanel({
             onChange={(event) => setDraft(event.target.value)}
             placeholder={
               inputLocked
-                ? "Generate a plan first to interact with the agent"
+                ? "Generate the output first to interact with the agent"
                 : refineOn
-                  ? "Refine the plan… e.g. 'use the existing auth middleware'"
-                  : `Message the ${NODE_LABEL[nodeKey] ?? nodeKey} agent…`
+                  ? `Refine ${nodeLabel.toLowerCase()}… e.g. 'use the existing auth middleware'`
+                  : `Message the ${nodeLabel} agent…`
             }
             aria-label="Message"
             disabled={sending || inputLocked}
@@ -430,7 +435,7 @@ export default function ChatPanel({
           />
           <InputGroupAddon align="block-end">
             <ModelSelector value={modelChoice} onChange={setModelChoice} />
-            {nodeKey === "plan" && (
+            {capabilities?.chatOnlyMode === "refine" && (
               <Tooltip>
                 <TooltipTrigger
                   render={
@@ -439,15 +444,15 @@ export default function ChatPanel({
                       variant="outline"
                       aria-pressed={refineOn}
                       aria-label={
-                        refineOn ? "Mode: refine plan" : "Mode: chat only"
+                        refineOn ? `Mode: refine ${nodeLabel.toLowerCase()}` : "Mode: chat only"
                       }
                       disabled={!refineAvailable}
                       title={
                         refineAvailable
                           ? refineOn
-                            ? "Refine plan — your message regenerates the plan; click to switch to chat only"
-                            : "Chat only — just talk without touching the plan; click to switch to refine plan"
-                          : "No plan yet — generate one first"
+                            ? `Refine — your message regenerates the ${nodeLabel.toLowerCase()}; click to switch to chat only`
+                            : "Chat only — just talk without touching the output; click to switch to refine"
+                          : "Nothing generated yet — generate one first"
                       }
                       onClick={() => setRefine(!refineOn)}
                       className={cn(
@@ -467,10 +472,10 @@ export default function ChatPanel({
                 </TooltipTrigger>
                 <TooltipContent>
                   {refineOn
-                    ? "Refine plan: your message regenerates the plan with this feedback — click to switch to chat only"
+                    ? `Refine: your message regenerates the ${nodeLabel.toLowerCase()} with this feedback — click to switch to chat only`
                     : refineAvailable
-                      ? "Chat only: message the agent without touching the plan — click to enable refine mode"
-                      : "No plan yet — generate one first"}
+                      ? "Chat only: message the agent without touching the output — click to enable refine mode"
+                      : "Nothing generated yet — generate one first"}
                 </TooltipContent>
               </Tooltip>
             )}
@@ -563,12 +568,12 @@ export default function ChatPanel({
       {promptEditing && (
         <PromptModal
           flowId={flowId}
-          nodeKey="plan"
+          nodeKey={capabilities?.promptNode ?? nodeKey}
           open={promptEditing}
           onClose={() => setPromptEditing(false)}
           onRun={(prompt, promptIsBody) => {
             setPromptEditing(false);
-            void onStartPlan?.({ prompt, promptIsBody });
+            void onStartNode?.({ prompt, promptIsBody });
           }}
         />
       )}
@@ -576,17 +581,18 @@ export default function ChatPanel({
   );
 }
 
-// ── prompt preview box over the chat (plan tab, before any plan exists) ──────
-// Collapsed: a partial preview of the plan prompt with a fade-out. Clicking
+// ── prompt preview box over the chat (before the node's first run) ──────────
+// Collapsed: a partial preview of the node's prompt with a fade-out. Clicking
 // the preview expands it. The edit icon moves the prompt into the prompt
-// modal (editor); Generate plan kicks off the run with the current options.
-function PlanPromptBox({
+// modal (editor); Generate kicks off the run with the current options.
+function NodePromptBox({
   prompt,
   open,
   onToggle,
   onEdit,
   onGenerate,
   generating = false,
+  generateLabel = "Generate",
 }: {
   prompt: string | null; // null = still loading
   open: boolean;
@@ -594,6 +600,7 @@ function PlanPromptBox({
   onEdit: () => void;
   onGenerate: () => void;
   generating?: boolean;
+  generateLabel?: string;
 }) {
   const loaded = prompt != null;
 
@@ -688,7 +695,7 @@ function PlanPromptBox({
           disabled={generating}
           onClick={onGenerate}
         >
-          <CompassIcon /> Generate plan
+          <CompassIcon /> {generateLabel}
         </Button>
       </div>
     </div>
@@ -759,14 +766,14 @@ function MessageActionButton({
 }
 
 // ── pending indicator ────────────────────────────────────────────────────────
-function PendingRow({ nodeKey }: { nodeKey: string }) {
+function PendingRow({ nodeLabel }: { nodeLabel: string }) {
   return (
     <Trace>
       <TraceLine status="running">
         <TraceIcon>
           <LoaderCircleIcon className="animate-spin" />
         </TraceIcon>
-        <TraceTitle>{NODE_LABEL[nodeKey] ?? "Agent"} is working…</TraceTitle>
+        <TraceTitle>{nodeLabel || "Agent"} is working…</TraceTitle>
       </TraceLine>
     </Trace>
   );

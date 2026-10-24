@@ -3,7 +3,8 @@ import { useState } from "react";
 import { CheckCheck, Pencil, Play, Sparkles } from "lucide-react";
 import type { FlowData, Node, Artifact } from "../app/flows/[id]/page";
 import { Markdown } from "./markdown";
-import { PanelShell, ArtifactLoader, VersionTabs } from "./NodePanel";
+import { PanelShell, ArtifactLoader, VersionTabs } from "./panels/shared";
+import { registerPanel } from "./panels/registry";
 import { Button } from "./ui/button";
 import { Card } from "./ui/card";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "./ui/dialog";
@@ -137,3 +138,6 @@ export default function AgentView({
     </>
   );
 }
+
+// registered with the panel registry (§3.1) — served by the declarative agent kind
+registerPanel({ kind: "agent" }, AgentView);

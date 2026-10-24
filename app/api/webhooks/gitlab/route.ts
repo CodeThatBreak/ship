@@ -45,7 +45,8 @@ export async function POST(req: Request) {
       db.emitEvent(f.id, null, "lifecycle",
         `new MR comment from ${event.comment.author || "a reviewer"} — resolve queued for ` +
         `${flowEngine.resolveScheduleClock(f.id) ?? flowScheduleFallback(flowEngine.resolveDelayMs(f.id))} ` +
-        `(${mins} min quiet, then the pipeline gate)`);
+        `(${mins} min quiet, then the pipeline gate)`,
+        { nodeKey: templateStore.waitNodeKey(f.id, "comments") ?? undefined });
       // debounce: the poller tick fires the resolve once the quiet period
       // has elapsed and the pipeline step is done — not immediately
     }
@@ -65,7 +66,8 @@ export async function POST(req: Request) {
           )?.status
         : undefined;
       if (gateStatus !== "running") {
-        db.emitEvent(f.id, null, "pipeline", `pipeline ${event.pipeline.status}`, { status: event.pipeline.status, id: event.pipeline.id });
+        db.emitEvent(f.id, null, "pipeline", `pipeline ${event.pipeline.status}`,
+          { status: event.pipeline.status, id: event.pipeline.id, nodeKey: gateKey ?? undefined });
       }
       if (event.pipeline.status === "failed") flowEngine.triggerPipelineGate(f.id, event.pipeline.id);
     }

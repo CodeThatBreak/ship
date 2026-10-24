@@ -15,3 +15,4 @@ export {
   type Started,
 } from "./agent-runner";
 export { NodeDefinition, type RunOutcome, type NodeTriggerRun } from "./node-definition";
+export type { NodeCapabilities } from "./capabilities";

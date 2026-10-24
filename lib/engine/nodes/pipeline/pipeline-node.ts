@@ -4,6 +4,7 @@ import type { NodeRow } from "../../../db/rows";
 import { gitHostRegistry, type HostJob } from "../../ports/git-host";
 import { prompts } from "../../prompts";
 import { NodeDefinition, type FlowCtx, type RunOutcome } from "../base";
+import type { NodeCapabilities } from "../base/capabilities";
 import { NODE_KEYS } from "../keys";
 import type { ConfigField } from "../../node-config";
 import { configBool, configNumber, configString } from "../../node-config";
@@ -49,6 +50,7 @@ const FIX_PROMPT_KEY = "pipeline_fix";
 export class PipelineNode extends NodeDefinition<PipelineInput, PipelineOutput> {
   readonly key = NODE_KEYS.PIPELINE;
   readonly label = "Pipeline";
+  readonly capabilities: NodeCapabilities = { panelTitle: "CI pipeline" };
   readonly promptKeys = [FIX_PROMPT_KEY] as const;
   readonly promptSections = [FIX_PROMPT_KEY] as const;
   readonly order = 25;

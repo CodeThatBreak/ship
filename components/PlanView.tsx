@@ -19,7 +19,8 @@ import type { FlowData, Node, Artifact } from "../app/flows/[id]/page";
 import { Markdown } from "../components/markdown";
 import PlanSteps from "./PlanSteps";
 import PromptModal, { type PromptRunExtras } from "./PromptModal";
-import { VersionTabs, ArtifactLoader, CostChip } from "./NodePanel";
+import { VersionTabs, ArtifactLoader, CostChip } from "./panels/shared";
+import { registerPanel } from "./panels/registry";
 import { Alert } from "./ui/alert";
 import { Badge } from "./ui/badge";
 import { Button } from "./ui/button";
@@ -586,3 +587,6 @@ export default function PlanView({
     </div>
   );
 }
+
+// registered with the panel registry (§3.1) — served by the builtin plan key
+registerPanel({ type: "plan" }, PlanView);

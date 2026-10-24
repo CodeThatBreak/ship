@@ -2,7 +2,8 @@
 import { useState } from "react";
 import { CheckCheck, Globe, Play, Send, Split, Terminal } from "lucide-react";
 import type { FlowData, Node, Artifact } from "../app/flows/[id]/page";
-import { PanelShell, ArtifactLoader } from "./NodePanel";
+import { PanelShell, ArtifactLoader } from "./panels/shared";
+import { registerPanel } from "./panels/registry";
 import { Alert } from "./ui/alert";
 import { Badge } from "./ui/badge";
 import { Button } from "./ui/button";
@@ -276,3 +277,6 @@ function ScriptView({ flow, node, action, fetchArtifact }: PanelProps) {
     </PanelShell>
   );
 }
+
+// registered with the panel registry (§3.1) — served by the declarative kinds
+registerPanel({ kind: ["decision", "http", "script"] }, DeclarativeView);

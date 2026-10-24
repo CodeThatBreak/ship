@@ -4,6 +4,7 @@ import { localGit } from "../../../git/local";
 import { gitHostRegistry } from "../../ports/git-host";
 import { prompts } from "../../prompts";
 import { NodeDefinition, type FlowCtx, type RunOutcome } from "../base";
+import type { NodeCapabilities } from "../base/capabilities";
 import { NODE_KEYS } from "../keys";
 import type { ConfigField } from "../../node-config";
 import { configString } from "../../node-config";
@@ -12,6 +13,7 @@ import { ResolveInput, ResolveOutput } from "./schema";
 export class ResolveNode extends NodeDefinition<ResolveInput, ResolveOutput> {
   readonly key = NODE_KEYS.RESOLVE;
   readonly label = "Resolve";
+  readonly capabilities: NodeCapabilities = { panelTitle: "Comment resolution" };
   readonly promptKeys = [NODE_KEYS.RESOLVE] as const;
   readonly promptSections = [NODE_KEYS.RESOLVE] as const;
   readonly order = 50;

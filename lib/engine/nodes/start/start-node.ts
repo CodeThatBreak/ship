@@ -2,6 +2,7 @@
 import { db } from "../../../db";
 import { z } from "zod";
 import { NodeDefinition, type FlowCtx, type NodeTriggerRun, type RunOutcome } from "../base";
+import type { NodeCapabilities } from "../base/capabilities";
 import {
   parseStartContract,
   StartContractConfigSchema,
@@ -38,6 +39,7 @@ export class StartNode extends NodeDefinition<StartPayload, StartPayload> {
   readonly order = 5;
   readonly edges = [] as const;
   override readonly isEntry = true;
+  readonly capabilities: NodeCapabilities = { panelTitle: "Flow start" };
   /** nothing to recover — it just completes */
   readonly retryable = false;
 

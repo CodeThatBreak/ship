@@ -5,6 +5,7 @@ import type { AgentRunResult } from "../../ports/agent-runner";
 import { agentRunner, type AgentRunner, type AgentStartInput } from "./agent-runner";
 import { flowCtxHelper, type FlowContextHelper, type FlowCtx } from "./flow-context";
 import { nodeSupport, type NodeSupport } from "./node-support";
+import type { NodeCapabilities } from "./capabilities";
 import type { ConfigField } from "../../node-config";
 import { appLayerConfig, mergeConfigLayers } from "../../node-config";
 
@@ -69,6 +70,13 @@ export abstract class NodeDefinition<I = unknown, O extends Record<string, unkno
    * fields. Engine code keys off this metadata, never the literal key.
    */
   readonly isEntry: boolean = false;
+
+  /**
+   * What the UI may do with this node (§3.2): chat refine support, the prompt
+   * preview target, the panel title. Empty for nodes with no chat or
+   * bespoke-panel affordances.
+   */
+  readonly capabilities: NodeCapabilities = {};
 
   /**
    * The addressable output fields (the configurator's Contract tab). Built-ins

@@ -3,6 +3,7 @@ import { z } from "zod";
 import { gitHostRegistry } from "../../ports/git-host";
 import { prompts } from "../../prompts";
 import { NodeDefinition, type FlowCtx, type RunOutcome } from "../base";
+import type { NodeCapabilities } from "../base/capabilities";
 import { NODE_KEYS } from "../keys";
 import type { ConfigField } from "../../node-config";
 import { configNumber, configString } from "../../node-config";
@@ -11,6 +12,7 @@ import { ReviewInput, ReviewOutput } from "./schema";
 export class ReviewNode extends NodeDefinition<ReviewInput, ReviewOutput> {
   readonly key = NODE_KEYS.REVIEW;
   readonly label = "Review";
+  readonly capabilities: NodeCapabilities = { panelTitle: "AI review" };
   readonly promptKeys = [NODE_KEYS.REVIEW] as const;
   readonly promptSections = [NODE_KEYS.REVIEW] as const;
   readonly order = 40;

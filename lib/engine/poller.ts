@@ -113,7 +113,9 @@ export class FlowPoller {
         )?.status
       : undefined;
     if (gateStatus !== "running") {
-      db.emitEvent(f.id, null, "pipeline", `pipeline ${pipe.status}${branchName ? ` (${branchName})` : ""}`, { status: pipe.status, id: pipe.id, branchName: branchName ?? undefined });
+      // stamped with the owning gate node so the feed routes it (§3.3)
+      db.emitEvent(f.id, null, "pipeline", `pipeline ${pipe.status}${branchName ? ` (${branchName})` : ""}`,
+        { status: pipe.status, id: pipe.id, branchName: branchName ?? undefined, nodeKey: gateKey ?? undefined });
     }
 
     if (pipe.status === "failed") {
@@ -144,7 +146,8 @@ export class FlowPoller {
         db.emitEvent(f.id, null, "lifecycle",
           `${openCount} open comment(s)${branchName ? ` (${branchName})` : ""} — resolve queued for ` +
           `${flowEngine.resolveScheduleClock(f.id) ?? FlowPoller.clockIn(flowEngine.resolveDelayMs(f.id))} ` +
-          `(${mins} min quiet, then the pipeline gate)`);
+          `(${mins} min quiet, then the pipeline gate)`,
+          { nodeKey: templateStore.waitNodeKey(f.id, "comments") ?? undefined });
       }
     }
   }

@@ -47,7 +47,7 @@ const HOOK_PATTERNS = [
  * between build approval and the pipeline gate.
  */
 export class MergeRequestService {
-  async create(ctx: FlowCtx, branchName?: string): Promise<ChangeRequest> {
+  async create(ctx: FlowCtx, branchName?: string, opts: { emitNodeKey?: string } = {}): Promise<ChangeRequest> {
     const flow = ctx.flow;
     const gitBranch = branchName ? flowCtxHelper.buildBranch(ctx, branchName) : flow.mr_branch;
     if (!gitBranch) throw new Error("no build branch to create an MR from");
@@ -57,10 +57,12 @@ export class MergeRequestService {
     if (flowCtxHelper.execMode(ctx) === "local") {
       const lp = flowCtxHelper.localPath(ctx);
       if (lp) {
-        db.emitEvent(flow.id, null, "lifecycle", `pushing branch ${gitBranch} to origin…`);
+        db.emitEvent(flow.id, null, "lifecycle", `pushing branch ${gitBranch} to origin…`,
+          { nodeKey: opts.emitNodeKey });
         try {
           const how = await localGit.pushBranch(lp, gitBranch, flow.repo_url ?? "");
-          db.emitEvent(flow.id, null, "lifecycle", `branch ${gitBranch} pushed (via ${how === "https" ? "token-authed HTTPS" : "origin remote"})`);
+          db.emitEvent(flow.id, null, "lifecycle", `branch ${gitBranch} pushed (via ${how === "https" ? "token-authed HTTPS" : "origin remote"})`,
+            { nodeKey: opts.emitNodeKey });
         } catch (e: any) {
           const msg = String(e?.message ?? e);
           if (HOOK_PATTERNS.some((p) => p.test(msg))) {
@@ -115,7 +117,7 @@ export class MergeRequestService {
       if (n.status !== "pending") nodeSupport.setNode(n.id, { status: "pending" });
     }
     db.emitEvent(flow.id, null, "lifecycle", `Change request created: ${cr.webUrl}${branchName ? ` (${branchName})` : ""}`,
-      { mrUrl: cr.webUrl, iid: cr.number, branchName: branchName ?? undefined });
+      { mrUrl: cr.webUrl, iid: cr.number, branchName: branchName ?? undefined, nodeKey: opts.emitNodeKey });
     return cr;
   }
 
@@ -130,11 +132,11 @@ export class MergeRequestService {
   async createWithFixes(
     ctx: FlowCtx,
     branchName: string | undefined,
-    opts: { maxAttempts: number; runFix: (attempt: number, error: CommitError) => Promise<void> },
+    opts: { maxAttempts: number; runFix: (attempt: number, error: CommitError) => Promise<void>; emitNodeKey?: string },
   ): Promise<ChangeRequest> {
     for (let attempt = 0; ; attempt++) {
       try {
-        return await this.create(ctx, branchName);
+        return await this.create(ctx, branchName, { emitNodeKey: opts.emitNodeKey });
       } catch (e: unknown) {
         if (!isCommitError(e) || attempt >= opts.maxAttempts) throw e;
         await opts.runFix(attempt + 1, e);

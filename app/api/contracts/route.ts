@@ -6,6 +6,7 @@ import {
   parseStartContract,
   startContractJsonSchema,
 } from "../../../lib/engine/nodes/start/contract";
+import type { NodeCapabilities } from "../../../lib/engine/nodes/base/capabilities";
 
 export const dynamic = "force-dynamic";
 
@@ -46,6 +47,7 @@ export async function GET(req: Request) {
         kind: "builtin",
         input: schema,
         output: schema,
+        capabilities: builtin.capabilities,
         config: {
           fields: builtin.configFields,
           defaults: builtin.defaultConfig(),
@@ -59,6 +61,7 @@ export async function GET(req: Request) {
       kind: "builtin",
       input: z.toJSONSchema(builtin.inputSchema),
       output: z.toJSONSchema(builtin.outputSchema),
+      capabilities: builtin.capabilities,
       config: {
         fields: builtin.configFields,
         defaults: builtin.defaultConfig(),
@@ -84,6 +87,7 @@ export async function GET(req: Request) {
     configFields: unknown[];
     outputContract(def?: Record<string, unknown>): unknown;
     choices(def?: Record<string, unknown>): { label: string; description?: string; condition?: string }[] | null;
+    capabilities: NodeCapabilities;
   };
   // The instance config participates: the drawer authors output schemas /
   // choices as instance overrides, and downstream nodes must see the merged
@@ -101,6 +105,7 @@ export async function GET(req: Request) {
     input: z.toJSONSchema(inst.inputSchema),
     output: inst.outputContract(mergedDef),
     choices: inst.choices(mergedDef) ?? undefined,
+    capabilities: inst.capabilities,
     config: {
       fields: inst.configFields,
       defaults: mergedDef,

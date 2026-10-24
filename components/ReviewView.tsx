@@ -4,7 +4,8 @@ import { ScanSearch, CheckCheck, User, MessageSquare, CornerDownRight, Pencil, F
 import type { FlowData, Node } from "../app/flows/[id]/page";
 import { Markdown } from "../components/markdown";
 import PromptModal from "./PromptModal";
-import { PanelShell } from "./NodePanel";
+import { PanelShell } from "./panels/shared";
+import { registerPanel } from "./panels/registry";
 import { Badge } from "./ui/badge";
 import { Button } from "./ui/button";
 import { Card } from "./ui/card";
@@ -212,3 +213,6 @@ function NoteHeader({ note, isRoot, resolvable }: { note: ThreadNote; isRoot?: b
     </div>
   );
 }
+
+// registered with the panel registry (§3.1) — served by the builtin review key
+registerPanel({ type: "review" }, ReviewView);

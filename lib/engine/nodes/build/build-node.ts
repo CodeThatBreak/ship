@@ -6,6 +6,7 @@ import { localGit } from "../../../git/local";
 import { prompts } from "../../prompts";
 import { planSteps } from "../../steps";
 import { NodeDefinition, type FlowCtx, type RunOutcome, type NodeTriggerRun } from "../base";
+import type { NodeCapabilities } from "../base/capabilities";
 import { NODE_KEYS } from "../keys";
 import type { ConfigField } from "../../node-config";
 import { configString } from "../../node-config";
@@ -16,6 +17,7 @@ import { type PlanBranch } from "../plan/schema";
 export class BuildNode extends NodeDefinition<BuildInput, BuildOutput> {
   readonly key = NODE_KEYS.BUILD;
   readonly label = "Build";
+  readonly capabilities: NodeCapabilities = { panelTitle: "Code changes" };
   readonly promptKeys = [NODE_KEYS.BUILD, "build_refine"] as const;
   readonly promptSections = [NODE_KEYS.BUILD] as const;
   readonly order = 20;
@@ -68,7 +70,8 @@ export class BuildNode extends NodeDefinition<BuildInput, BuildOutput> {
       const sorted = BuildNode.topoSortBranches(branches);
       // branch rows first (pending) — today's approvePlan behavior
       sorted.forEach((b, i) => branchStore.upsert(ctx.flow.id, b.name, { title: b.title, order: i, status: "pending" }));
-      db.emitEvent(ctx.flow.id, null, "lifecycle", `plan approved with ${branches.length} branches — building sequentially`);
+      db.emitEvent(ctx.flow.id, null, "lifecycle", `plan approved with ${branches.length} branches — building sequentially`,
+        { nodeKey: planNode?.node_key ?? NODE_KEYS.PLAN });
       return sorted.map((b) => ({
         input: {
           plan: plan.content, prompt: null,

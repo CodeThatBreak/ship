@@ -277,40 +277,19 @@ export const eventGrouper = new EventGrouper();
 
 /**
  * Flow-level events (node_id = null) are emitted for the whole flow even though
- * most of them concern a single stage — a pipeline status belongs to the
- * pipeline tab, a plan checklist edit to the plan tab, etc. Map each one to the
- * node tab(s) it is relevant to, matched first by type then by message text.
- * Returns null for generic events (infra errors and the like) that every tab
- * should still see.
+ * most of them concern a single stage. Emitters that know the owning node
+ * stamp it into the event data at emit time (§3.3) — no message-text guessing
+ * here. Returns null for generic events (infra errors and the like) that every
+ * tab should still see.
  */
 export function flowEventNodeKeys(e: FeedEvent): string[] | null {
   if (e.node_id != null) return null; // node-scoped — already filtered by the caller
 
-  // explicit hint: emitters that know the owning node tag the event data
-  // (e.g. bg() failures) — beats any message-text guessing
   let data: any = {};
   try {
     data = e.data ? JSON.parse(e.data) : {};
   } catch {
     data = {};
   }
-  if (typeof data?.nodeKey === "string" && data.nodeKey) return [data.nodeKey];
-
-  switch (e.type) {
-    case "pipeline":
-      return ["pipeline"];
-    case "mr_failed": // MR creation failed → the build node goes awaiting_approval
-      return ["build"];
-    default:
-      break;
-  }
-
-  // lifecycle / error and anything else: match on the message text.
-  // Order matters — e.g. "plan approved … building sequentially" mentions build.
-  const msg = (e.message ?? "").toLowerCase();
-  if (msg.startsWith("plan ") || msg.includes("checklist")) return ["plan"];
-  if (/comment|resolving|resolve queued/.test(msg)) return ["resolve"];
-  if (msg.includes("pipeline")) return ["pipeline"];
-  if (/push|branch|merge request|mr\b|commit-fix|build/.test(msg)) return ["build"];
-  return null; // generic — show on every tab
+  return typeof data?.nodeKey === "string" && data.nodeKey ? [data.nodeKey] : null;
 }

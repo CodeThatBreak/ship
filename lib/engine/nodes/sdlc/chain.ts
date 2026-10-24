@@ -77,6 +77,8 @@ export class SdlcChain {
         for (const b of targets) {
           await mergeRequests.createWithFixes(this.host.ctx(flowId), b ?? undefined, {
             maxAttempts,
+            // the CR-creation events route to the owning build tab (§3.3)
+            emitNodeKey: buildKey,
             runFix: (attempt, error) => this.runBuildCommitFix(flowId, buildKey, gate, b, attempt, maxAttempts, error),
           });
         }
@@ -93,7 +95,7 @@ export class SdlcChain {
         const mrError = e instanceof MrCreationFailed ? e : new MrCreationFailed(msg);
         db.emitEvent(flowId, null, "mr_failed",
           `MR creation failed: ${mrError.message} — fix the issue, then click "Approve & create MR" again to retry`,
-          { branchName });
+          { branchName, nodeKey: buildKey });
         this.host.setNodeStatus(flowId, buildKey, "awaiting_approval");
         this.host.setCurrentNode(flowId, null);
       }
@@ -114,7 +116,8 @@ export class SdlcChain {
     error: CommitError,
   ): Promise<void> {
     db.emitEvent(flowId, null, "lifecycle",
-      `push rejected — running a commit-fix agent on the build step (attempt ${attempt}/${maxAttempts})`);
+      `push rejected — running a commit-fix agent on the build step (attempt ${attempt}/${maxAttempts})`,
+      { nodeKey: buildKey });
     this.host.setCurrentNode(flowId, buildKey);
     this.host.setNodeStatus(flowId, buildKey, "running");
     try {
