@@ -249,9 +249,11 @@ const SUB_BACKEND_V4 = {
 
 // ── helpers ──────────────────────────────────────────────────────────────────
 function reset() {
-  const flow = db.prepare(`SELECT id FROM flows WHERE name=?`).get(FLOW_NAME);
-  if (flow) {
-    const fid = flow.id;
+  // the seed owns its synthetic task: every flow bound to it goes too (not
+  // just the seeded-named one — earlier runs may have bound other flows)
+  const flows = db.prepare(`SELECT id FROM flows WHERE name=? OR task_id=?`).all(FLOW_NAME, TASK_ID);
+  for (const f of flows) {
+    const fid = f.id;
     for (const t of ["plan_steps", "events", "messages", "runs", "artifacts", "comments", "branches", "nodes"])
       db.prepare(`DELETE FROM ${t} WHERE flow_id=?`).run(fid);
     db.prepare(`DELETE FROM flows WHERE id=?`).run(fid);

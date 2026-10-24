@@ -62,7 +62,13 @@ function flowRowByName(name) {
 }
 
 function reset() {
-  for (const f of [flowRowByName(FLOW_NAME_DONE), flowRowByName(FLOW_NAME_SKIP)]) {
+  // the seed owns its synthetic task: every flow bound to it goes too (not
+  // just the seeded-named ones — earlier runs may have bound other flows)
+  const flows = [
+    flowRowByName(FLOW_NAME_DONE), flowRowByName(FLOW_NAME_SKIP),
+    ...db.prepare(`SELECT id FROM flows WHERE task_id=?`).all(TASK_ID),
+  ];
+  for (const f of flows) {
     if (!f) continue;
     for (const t of ["plan_steps", "events", "messages", "runs", "artifacts", "comments", "branches", "nodes"])
       db.prepare(`DELETE FROM ${t} WHERE flow_id=?`).run(f.id);

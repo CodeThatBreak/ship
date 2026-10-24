@@ -3,8 +3,9 @@ import { db } from "../../../../../lib/db";
 import { FlowRow, Task, rows } from "../../../../../lib/db/rows";
 import { prompts } from "../../../../../lib/engine/prompts";
 import { flowCtxHelper, nodeSupport, type FlowCtx } from "../../../../../lib/engine/nodes/base";
+import { nodeRegistry } from "../../../../../lib/engine/nodes/registry";
+import { PlanNode } from "../../../../../lib/engine/nodes/plan/plan-node";
 import { NODE_KEYS } from "../../../../../lib/engine/nodes/keys";
-import { previewSubPlanPrompt } from "../../../../../lib/engine/nodes/plan";
 
 export const dynamic = "force-dynamic";
 
@@ -29,7 +30,9 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
     if (!task) return NextResponse.json({ error: "task not found" }, { status: 404 });
     const repo = flow.repo_id ? db.repoById(flow.repo_id) ?? null : null;
     const ctx: FlowCtx = { flow, task, repo };
-    const preview = previewSubPlanPrompt(ctx, branchParam, contextBlocks);
+    // the branch-scoped preview is PlanNode-specific — resolve its def via the registry
+    const planDef = nodeRegistry.get(NODE_KEYS.PLAN) as PlanNode;
+    const preview = planDef.previewSubPlanPrompt(ctx, branchParam, contextBlocks);
     if (!preview) {
       return NextResponse.json(
         { error: `branch "${branchParam}" not found in the latest plan — sub-plan refine unavailable` },
@@ -105,8 +108,8 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
          WHERE n.flow_id=? AND a.kind='plan' ORDER BY a.version DESC LIMIT 1`, id)[0];
       const planContent = planRow?.content ?? "(no plan yet)";
       const instr = mode === "local"
-        ? `Implement the following approved plan for a Jira ticket. First create and check out a new git branch named "${branch}" (from the repo's default branch), then make the code changes, commit them, and push the branch to origin. Do NOT open a merge request.`
-        : `Implement the following approved plan for a Jira ticket. Make the code changes, commit them, and push to a feature branch. Do NOT open a merge request yet.`;
+        ? `Implement the following approved plan for a ${flowCtxHelper.taskLabel(ctx)} ticket. First create and check out a new git branch named "${branch}" (from the repo's default branch), then make the code changes, commit them, and push the branch to origin. Do NOT open a merge request.`
+        : `Implement the following approved plan for a ${flowCtxHelper.taskLabel(ctx)} ticket. Make the code changes, commit them, and push to a feature branch. Do NOT open a merge request yet.`;
       prompt = prompts.resolve(NODE_KEYS.BUILD,
         { ticket: taskCtx, branch, mode },
         { instructions: instr, plan: planContent },

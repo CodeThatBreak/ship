@@ -1,6 +1,8 @@
 # Repository Detail Page (Proposal)
 
-Date: 2026-10-23 · Status: **Proposal — no code changes yet**
+Date: 2026-10-23 · Status: **Archived — proposal only, no code changes; parked
+during the pristine-codebase plan (docs/pristine-plan.md). Revive if per-repo
+config becomes a priority.**
 
 Today a "repo" is five fields in a horizontal registry row on the Settings page
 (`name`, `cloud_url`, `local_path`, `default_branch`). Everything else — agent

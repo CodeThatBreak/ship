@@ -1,6 +1,7 @@
 # Pristine codebase plan — generic engine, pluggable integrations, end-to-end
 
-Status: **Proposal — for review, no code changes yet**
+Status: **Implemented — Phases 1–4 landed (see git history); the audit below is
+the original evidence base, kept for reference.**
 
 Goal: make the whole codebase pristine — no legacy dependencies, working end to end,
 and structurally generic: **integration contracts never leak into engine/UI code**;

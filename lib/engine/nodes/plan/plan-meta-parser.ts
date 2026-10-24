@@ -1,9 +1,7 @@
 import {
-  validatePlanMeta,
   validateSimplePlan,
   validateComplexPlan,
   validateSubPlan,
-  type PlanMeta,
   type PlanValidationError,
   type SimplePlanResponse,
   type ComplexPlanResponse,
@@ -20,7 +18,6 @@ export interface PlanParseResult<T> {
 
 /**
  * Parses and validates JSON-only plan responses (simple and complex).
- * Also handles legacy markdown + plan-meta code block format.
  */
 export class PlanMetaParser {
   /**
@@ -55,24 +52,6 @@ export class PlanMetaParser {
   /** Parse a branch-scoped sub-plan response (this branch's markdown + steps only). */
   parseSubPlan(text: string): PlanParseResult<SubPlanResponse> {
     return this.parseJson(text, validateSubPlan);
-  }
-
-  /** Legacy: parse the trailing ```json plan-meta``` block from markdown text. */
-  parse(text: string): PlanMeta | null {
-    return this.parseDetailed(text).data;
-  }
-
-  /** Legacy: parse with detailed errors. */
-  parseDetailed(text: string): PlanParseResult<PlanMeta> & { hasBlock: boolean } {
-    const m = text.match(/```json plan-meta\s*\n([\s\S]*?)```/);
-    if (!m) return { data: null, errors: [], hasBlock: false };
-    try {
-      const raw = JSON.parse(m[1]);
-      const result = validatePlanMeta(raw);
-      return { data: result.meta ?? null, errors: result.errors as PlanValidationError[], hasBlock: true };
-    } catch (e) {
-      return { data: null, errors: [{ path: "", message: `invalid JSON: ${e instanceof Error ? e.message : String(e)}` }], hasBlock: true };
-    }
   }
 }
 

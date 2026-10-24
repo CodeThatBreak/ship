@@ -935,7 +935,7 @@ export class PlanNode extends NodeDefinition<PlanInput, PlanOutput> {
     if (result.status !== "finished") return false;
     const text = result.result ?? "(no plan text)";
 
-    // Try complex parse first, then simple, then legacy
+    // Structured plan-meta parse is the only path: complex, then simple
     let planMeta: PlanMeta | null = null;
     let markdown = text;
     let isComplex = false;
@@ -975,29 +975,6 @@ export class PlanNode extends NodeDefinition<PlanInput, PlanOutput> {
   }
 
   // ── prompt previews (used by the prompt route) ────────────────────────────
-
-  /** Convenience for the prompt-preview route: the plan prompt as it would be sent. */
-  previewPrompt(ctx: FlowCtx, feedback?: string): string {
-    const node = this.support.nodeByKey(ctx.flow.id, NODE_KEYS.PLAN);
-    const hasAgent = Boolean(node.agent_id);
-    if (feedback && hasAgent) {
-      return prompts.resolve(
-        "plan_refine",
-        { ticket: this.ctxHelper.taskContext(ctx), ticket_type: this.ctxHelper.taskLabel(ctx) },
-        { feedback, context: "" },
-      );
-    }
-    const base = prompts.resolve("plan", {
-      ticket: this.ctxHelper.taskContext(ctx),
-      ticket_type: this.ctxHelper.taskLabel(ctx),
-    }, { context: "" });
-    return (
-      base +
-      (feedback
-        ? `\n\nAdditional instructions from the developer:\n${feedback}`
-        : "")
-    );
-  }
 
   /**
    * Branch-scoped prompt preview for the prompt route (§7.2): the

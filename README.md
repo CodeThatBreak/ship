@@ -1,6 +1,6 @@
 # DevFlow — Single-screen Developer SDLC Cockpit
 
-One screen for a developer's whole SDLC: **Jira task → Plan → Build → Merge Request → CI/CD → AI Review → Comment resolution** — powered by Cursor agents (**cloud** or **local CLI**, per flow), Jira, and self-hosted GitLab (multiple instances supported).
+One screen for a developer's whole SDLC: **Task (Jira, or any registered task provider) → Plan → Build → Merge Request → CI/CD → AI Review → Comment resolution** — powered by Cursor agents (**cloud** or **local CLI**, per flow) and self-hosted GitLab (multiple instances supported). Integrations are pluggable adapters behind engine-side ports — adding a git host, agent runner, or task provider is one adapter file + one `register()` line.
 
 ## Execution modes: cloud vs local
 
@@ -15,7 +15,7 @@ Set the default mode and local-agent options (auto-approve tools, sandbox, timeo
 
 - **Agent execution** — default cloud/local mode + local CLI options, plus the **default model** for agent runs (list comes from `cursor-agent models`, falling back to a built-in list when the CLI isn't installed; per-run overrides available on each node's run buttons and in the *Edit prompt & run* dialog). `DEFAULT_MODEL` env remains the final fallback. Also the **comment-resolution quiet period**: how long after the last new MR comment the Resolve node auto-starts (default 10 min; `RESOLVE_DELAY_MINUTES` env is the fallback when no value is saved). The resolve always waits for the pipeline step to pass first, regardless of this delay.
 - **Repositories** — registry of your repos: `name`, `cloud_url` (any GitLab domain), `local_path` (needed for local mode + local diffs), `default_branch`. Local paths are validated (must be a git repo).
-- **GitLab instances** — one entry per self-hosted GitLab domain (`base_url` + PAT with `api` scope). DevFlow picks the token whose domain matches each repo's cloud URL for API calls, MRs, CI polling, comments, and cloning. Repos on domains without an entry fall back to `GITLAB_BASE_URL`/`GITLAB_TOKEN` from `.env`, so existing single-instance setups keep working unchanged. Each instance has a **Test** button to verify auth.
+- **Git host instances** — one entry per self-hosted GitLab domain (`base_url` + PAT with `api` scope). DevFlow picks the token whose domain matches each repo's cloud URL for API calls, MRs, CI polling, comments, and cloning. Repos on domains without an entry fall back to `GITLAB_BASE_URL`/`GITLAB_TOKEN` from `.env`, so existing single-instance setups keep working unchanged. Each instance has a **Test** button to verify auth. (GitLab is the first registered git host; the settings UI reads host metadata from `GET /api/git-hosts`.)
 
 ## The loop
 
@@ -86,7 +86,7 @@ Project → **Settings → Webhooks**:
 ## Using it
 
 1. Register your repos (and extra GitLab domains) on the **Settings** page.
-2. **Import Jira tasks** on the task import screen (`/tasks/import`).
+2. **Import tasks** on the task import screen (`/tasks/import`) — the provider comes from the task registry (Jira first).
 3. Pick a repo + execution mode (☁ Cloud / 💻 Local) for the task on the home page, click **▶ Build** → a flow is created.
 4. In the **Plan** node: *Generate plan* → refine with feedback (each creates a new version) → **Approve plan & start build**.
 5. In **Build**: review the diff → **Approve & create MR** — the MR is created (push-hook rejections are fixed by an agent in-place), then the **Pipeline** gate waits for green CI, fixing failures itself.
@@ -136,43 +136,57 @@ outputs, and the taken-edge highlight without any agent runs.
 ```
 app/                    Next.js App Router
   page.tsx              task list + start flow (repo + mode picker)
-  settings/page.tsx     repos registry, GitLab instances, execution defaults
+  settings/page.tsx     repos registry, git-host instances, execution defaults
   flows/[id]/page.tsx   the single-screen cockpit
   templates/            template gallery + the visual builder (drag-drop canvas
                         over the template graph, node/edge drawers)
-  api/                  tasks, flows, actions, events, comments, webhook, hooks, repos, gitlab-instances,
-                        settings, models, graph, templates (+import/export), node-templates, contracts
-components/             WorkflowGraph, PlanView, DiffView, ReviewView, NodePanel + ai-elements/ (AI Elements: Conversation, Message, Reasoning, Tool, PromptInput, Response, Loader)
+  api/                  tasks, flows, actions, events, comments, webhooks, hooks, repos,
+                        git-hosts, host-instances, settings, models, graph,
+                        templates (+import/export), node-templates, contracts
+components/             WorkflowGraph, NodePanel + panels/ (self-registering panel
+                        registry keyed by node def/kind — no node_key switches),
+                        DiffView, ReviewView (normalized comments payload)
 components/template-editor/  visual builder (BuilderCanvas on @xyflow/react), NodeConfigurator (Trigger/Config/Contract), AddNodeDialog
 
 lib/                    strict OOP: every module is a class with one responsibility, exported as a
-                        shared singleton (db, flowEngine, nodeRegistry, gitLab, cursorClient, …)
+                        shared singleton (db, flowEngine, nodeRegistry, …)
   config.ts             AppConfig — env-sourced config grouped by integration (cursor/jira/gitlab/db/workspace)
   utils.ts              Styles — Tailwind-aware className merging (`cn` alias for components)
   groupEvents.ts        EventGrouper — folds the flat event list into run sections for the unified chat panel
-  integrations/         cursorSdk.ts CursorAgentService — unified agent runtime over @cursor/sdk,
-                        driving both cloud (Cursor-hosted VM) and local (in-process agent loop) runs
-                        behind one streaming/usage/result path; cursor.ts CursorClient (cloud adapter)
-                        and localAgent.ts LocalAgentService (local adapter: branch checkout, settings)
-                        are thin shims over it. gitlab.ts GitLabService + GitLabClient (multi-domain, per-repo token resolution)
+  engine/ports/         the integration boundary — neutral interfaces + normalized types the
+                        engine/UI code may import; nothing in lib/engine imports a concrete
+                        integration (adapters live in lib/integrations and register into registries)
+      git-host.ts       GitHostClient / GitHostService — change requests, pipelines, comments,
+                        authed clone URLs, normalized webhooks (HostInstance, NormalizedWebhookEvent)
+      agent-runner.ts   AgentPort — start/followUp/getRun/cancel/stream/getUsage/listModels/status
+                        over normalized RunResult / RunUsage / ModelInfo
+  integrations/         the adapters — one folder per integration, wrapping the vendor SDK/API:
+    gitlab/             GitLab git-host adapter (+ GitLabClient) — registered in gitHostRegistry;
+                        env fallback (GITLAB_BASE_URL/TOKEN) and webhook secrets stay inside here
+    cursor/             Cursor cloud adapter over cursorSdk.ts CursorAgentService (unified runtime
+                        shared by both modes); cursor.ts CursorClient is a thin shim over it
+    local-agent/        Local agent adapter (in-process agent loop: branch checkout, settings)
   engine/
-    flow.ts             FlowEngine — orchestration only: triggers, approvals (build approval runs
-                        MR creation with commit-fix retries → pipeline gate → review), retry/cancel,
-                        webhook ingest. Knows nothing about individual nodes; everything goes through
-                        the registry.
+    flow.ts             FlowEngine — generic graph mechanics only: registry-driven node runs,
+                        input maps, edge conditions (JSONata), joins, triggers, wait-arming,
+                        webhook/timer resume, approvals/retry/cancel. The SDLC gate→review→
+                        resolve loop is template data (sdlc chain helpers live in nodes/sdlc).
     nodes/
       keys.ts           NODE_KEYS — stable node-key constants (use these, not string literals).
       base/             shared node infrastructure, one class per file:
         node-definition.ts  NodeDefinition (abstract): key/label/order/edges + Zod inputSchema/
-                            outputSchema + run/chat/recover, with shared services injected.
-        agent-runner.ts     AgentRunner — startAgent/executeRun: agent start, streaming, cost capture.
-        flow-context.ts     FlowContextHelper — mode/branch/diff facts about a flow context.
+                            outputSchema + capabilities (refinable, chatOnlyMode, panelTitle)
+                            + run/chat/recover, with shared services injected.
+        agent-runner.ts     AgentRunner — startAgent/executeRun via the agent-runner port registry.
+        flow-context.ts     FlowContextHelper — mode/branch/diff facts + the {{task.*}} context
+                            universe (generic keys + the provider's contextFields).
         node-support.ts     NodeSupport — row/artifact/run persistence helpers.
         stream-buffer.ts    StreamBuffer — buffered thinking/assistant event flushing.
         tool-pairer.ts      ToolPairer — tool-call start/end pairing for local mode.
-        usage-tracker.ts    UsageTracker — token-usage and cost accounting.
-      plan/             PlanNode — plan prompt, plan-meta parse/validate (plan-meta-parser.ts),
-                        checklist sync, plan recovery; schema.ts holds the Zod schemas.
+        usage-tracker.ts    UsageTracker — token-usage and cost accounting (port usage types).
+      plan/             PlanNode — plan prompt, structured plan-meta parse/validate
+                        (plan-meta-parser.ts), checklist sync, plan recovery; schema.ts holds
+                        the Zod schemas.
       build/            BuildNode — build + chat-refine, build-progress application, diff artifact,
                         branch recovery; branch-store.ts (BranchStore) for multi-branch branch rows.
       merge-request/    MergeRequestService — MR creation between build approval and the
@@ -185,30 +199,48 @@ lib/                    strict OOP: every module is a class with one responsibil
                         by pipeline-failure webhooks/polls.
       review/           ReviewNode — MR diff review, inline comment posting.
       resolve/          ResolveNode — open-comment resolution + discussion closing.
+      sdlc/             chain.ts — the builtin SDLC chain module (gate→review→resolve
+                        re-gate loop) extracted from flow.ts as an advance interceptor.
       registry.ts       NodeRegistry — the single source of truth: node map, graph order, edges, labels.
     prompts.ts          PromptLibrary — prompt templates (customizable via settings)
     steps.ts            PlanStepStore — structured plan checklist: plan-meta sync, edits, build-progress
+    tasks/              TaskProvider registry — one class per task provider
+                        (providers/jira.ts: fetch, ADF→text, PRD/figma extraction, upsert sync);
+                        task providers are an extension point: subclass TaskProvider + register
+                        in the registry — the sync route, import screen, and {{task.*}} lint pick it up
     poller.ts           FlowPoller — 30s poll: pipeline status + MR discussions → pipeline-gate triggers;
                         new comments restart the debounced resolve's quiet period (a generic
                         wait-timer — processWaitTimers fires it when quiet + the gate is clear)
     reconcile.ts        Reconciler — re-sync stuck `running` nodes with real run state on flow open/poll
-    tasks/              TaskProvider registry (lib/engine/tasks) — one class per task type
-                        (providers/jira.ts: fetch, ADF→text, PRD/figma extraction, upsert sync);
-                        task types are an extension point: subclass TaskProvider + register
-                        in taskRegistry.ts, the sync route + import screen pick it up
     templates.ts        TemplateStore — flow templates (graph, nodes, edges, trigger) + static lint
-  git/local.ts          LocalGit — clone/diff/push/worktrees; uses the repo's local checkout when
-                        registered, per-domain tokens
+    templates-yaml.ts   YAML export/import (config-as-code §7 shape); validation is the store's
+  git/local.ts          LocalGit — clone/diff/push/worktrees; authed clone URLs come from the
+                        repo's git-host adapter (no integration imports here)
   db/
     schema.sql          tables (tasks, flows, nodes, artifacts, comments, events, runs, plan_steps,
                         branches, repos, gitlab_instances, settings)
-    index.ts            Database — better-sqlite3 connection + migrations, query helpers (get/all/run),
-                        settings, repos, events, messages
+    index.ts            Database — better-sqlite3 connection + idempotent migrations, query helpers
+                        (get/all/run), settings, repos, events, messages
     rows.ts             Zod schemas for every table row + RowGateway (get/all) — rows are validated
                         once at the DB boundary, so consumers never see `any` or raw JSON strings.
 data/devflow.db         local SQLite (server-ready: swap for Postgres later)
 workspaces/             local clones used for diffs (cloud mode; local mode diffs in the registered checkout)
 ```
+
+### Ports & adapters (the integration boundary)
+
+`lib/engine/ports/` defines what an integration *is* to the engine — neutral
+names (change request, pipeline, comment, agent run), no vendor types. Each
+integration ships an adapter under `lib/integrations/` and registers itself:
+
+| Port | Adapters | Registry | Consumed by |
+|---|---|---|---|
+| `GitHostClient` / `GitHostService` | `integrations/gitlab` | `gitHostRegistry` (per-repo client routing, webhook normalization) | pipeline/review/resolve nodes, poller, merge-request service, `/api/webhooks/*`, `/api/git-hosts` + `host-instances` |
+| `AgentPort` | `integrations/cursor`, `integrations/local-agent` | agent-runner registry (exec-mode key) | `agent-runner.ts`, `/api/models`, settings + model-selector metadata, usage tracker |
+| `TaskProvider` | `tasks/providers/jira` (+ `contextFields`, `externalUrl`) | `taskRegistry` | flow context (`{{task.*}}`), task sync/import, lint universe |
+
+Adding an integration = one adapter file + one `register()` line; engine, UI,
+and DB never learn the vendor's names.
 
 **Multi-user-ready:** all state is per-flow/per-task in the DB. To go multi-user, add auth, scope queries by user, and swap SQLite for Postgres — the engine is stateless across requests.
 
@@ -221,7 +253,8 @@ The workflow is a registry of `NodeDefinition` classes — one folder per node t
    - `<name>-node.ts` — the node class extending `NodeDefinition<I, O>` from `nodes/base`: declare `key` (from `NODE_KEYS` in `keys.ts`), `label`, `order` (graph position), `edges` (graph connections), and `promptKeys`; implement `run(ctx, input)` — usually via the base `execute()` helper, which handles status/input persistence, agent start (cloud/local), streaming, cost capture, artifact saving, output validation, and the lifecycle event; optionally override `chat()` (follow-up runs on the node's agent) and `recover()` (how to finish a run that completed while the server was down — return `false` to fail for manual retry, the right choice for nodes with non-idempotent side effects)
    - `index.ts` — re-exports
 2. **Register it** — one line in `lib/engine/nodes/registry.ts`.
-3. **(Optional) UI panel** — add a panel branch in `components/NodePanel.tsx` and an icon in `components/WorkflowGraph.tsx`.
+3. **(Optional) UI panel** — add a panel component under `components/panels/` and
+   register it (or the declarative kind's generic panel covers it automatically).
 
 Everything else is automatic: node rows are created per flow from the registry, the workflow graph's layout/edges/labels come from `/api/graph` (registry-derived), retry re-validates the recorded input against the node's schema, chat routes to the node's `chat()`, and reconcile delegates recovery to the node's `recover()`.
 

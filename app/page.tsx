@@ -397,7 +397,7 @@ export default function Home() {
         <div>
           <h1 className="text-xl font-semibold m-0 leading-tight">DevFlow</h1>
           <div className="text-muted-foreground text-[12.5px] mt-0.5 flex items-center gap-1.5">
-            {["Jira", "Plan", "Build", "MR", "CI", "Review"].map((step, i) => (
+            {["Task", "Plan", "Build", "MR", "CI", "Review"].map((step, i) => (
               <span key={step} className="flex items-center gap-1.5">
                 {i > 0 && <ChevronRight size={10} className="opacity-40" />}
                 {step}

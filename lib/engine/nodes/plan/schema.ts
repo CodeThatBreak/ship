@@ -225,20 +225,7 @@ export type PlanMeta = z.infer<typeof PlanMeta>;
 export const PlanMetaStep = PlanStep;
 export type PlanMetaStep = PlanStep;
 
-/** Backwards-compat: validate PlanMeta (used by PlanMetaParser for old format). */
-export function validatePlanMeta(raw: unknown): { meta: PlanMeta; errors: [] } | { meta: null; errors: PlanValidationError[] } {
-  const branchErr = validateBranchConstraints(raw, (e) => ({ errors: e }));
-  if (branchErr) return { meta: null, errors: branchErr };
-  const parsed = PlanMeta.safeParse(raw);
-  if (!parsed.success) {
-    return { meta: null, errors: parsed.error.issues.map((i) => ({ path: i.path.join("."), message: i.message })) };
-  }
-  const stepErr = normalizeStepIds(parsed.data.steps);
-  if (stepErr) return { meta: null, errors: stepErr };
-  return { meta: parsed.data, errors: [] };
-}
-
-/** Backwards-compat alias. */
+/** Backwards-compat aliases. */
 export type PlanMetaValidationError = PlanValidationError;
 
 // ── input / output schemas ───────────────────────────────────────────────────
