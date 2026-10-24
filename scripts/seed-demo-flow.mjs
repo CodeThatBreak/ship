@@ -213,11 +213,12 @@ reset();
 
 // ── task ───────────────────────────────────────────────────────────────────
 const repo = db.prepare(`SELECT id, cloud_url FROM repos ORDER BY created_at LIMIT 1`).get();
-db.prepare(`INSERT INTO tasks (id,key,summary,description,status,issue_type,priority,prd_text,figma_urls,repo_url,jira_url,raw,synced_at)
-  VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`)
+db.prepare(`INSERT INTO tasks (id,key,summary,description,status,issue_type,priority,repo_url,jira_url,raw,fields,synced_at)
+  VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`)
   .run(TASK_ID, "DEMO-142", "Webhook delivery retries with exponential backoff",
-    PRD, "In Progress", "Story", "High", PRD, JSON.stringify([]),
-    repo?.cloud_url ?? null, "https://jira.example.com/browse/DEMO-142", JSON.stringify({ demo: true }), now());
+    PRD, "In Progress", "Story", "High",
+    repo?.cloud_url ?? null, "https://jira.example.com/browse/DEMO-142", JSON.stringify({ demo: true }),
+    JSON.stringify({ prd: PRD, figma_urls: [] }), now());
 console.log("task DEMO-142 inserted");
 
 // ── flow (mirrors lib/engine/flow.createFlow) ────────────────────────────────

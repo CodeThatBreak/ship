@@ -10,10 +10,9 @@ import { TaskProvider, type TaskField } from "../task-provider";
  * one class so there is a single source of truth for jira task logic.
  *
  * Storage: common columns carry the shared task contract; jira-only payload
- * (PRD, figma links) also goes into the `fields` JSON column
- * (`fields.prd`, `fields.figma_urls`). The shared `prd_text` / `figma_urls`
- * columns keep being filled until the Phase-4 deprecation — they are still
- * the context-hydration source for rows synced before Phase 2.
+ * (PRD text, figma links) lives in the `fields` JSON column
+ * (`fields.prd`, `fields.figma_urls`) — the context hydration reads them
+ * through the `Task` transform.
  */
 export class JiraTaskProvider extends TaskProvider {
   readonly kind = "jira";
@@ -103,18 +102,18 @@ export class JiraTaskProvider extends TaskProvider {
     const existing = db.get<{ id: string }>(`SELECT id FROM tasks WHERE key=?`, issue.key);
     if (existing) {
       db.run(
-        `UPDATE tasks SET summary=?,description=?,status=?,issue_type=?,priority=?,prd_text=?,figma_urls=?,jira_url=?,parent_key=?,raw=?,fields=?,synced_at=? WHERE key=?`,
-        issue.summary, issue.description, issue.status, issue.issueType, issue.priority, issue.prdText,
-        JSON.stringify(issue.figmaUrls), issue.jiraUrl, issue.parentKey || null,
+        `UPDATE tasks SET summary=?,description=?,status=?,issue_type=?,priority=?,jira_url=?,parent_key=?,raw=?,fields=?,synced_at=? WHERE key=?`,
+        issue.summary, issue.description, issue.status, issue.issueType, issue.priority,
+        issue.jiraUrl, issue.parentKey || null,
         JSON.stringify(issue.raw), fields, ts, issue.key
       );
       return existing.id;
     }
     db.run(
-      `INSERT INTO tasks (id,key,summary,description,status,issue_type,priority,prd_text,figma_urls,repo_url,parent_key,jira_url,raw,fields,type,synced_at)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,'jira',?)`,
+      `INSERT INTO tasks (id,key,summary,description,status,issue_type,priority,repo_url,parent_key,jira_url,raw,fields,type,synced_at)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,'jira',?)`,
       issue.id, issue.key, issue.summary, issue.description, issue.status, issue.issueType,
-      issue.priority, issue.prdText, JSON.stringify(issue.figmaUrls), null,
+      issue.priority, null,
       issue.parentKey || null, issue.jiraUrl, JSON.stringify(issue.raw), fields, ts
     );
     return issue.id;

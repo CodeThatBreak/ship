@@ -5,8 +5,7 @@ import { Task, rows } from "../../../lib/db/rows";
 import { taskRegistry } from "../../../lib/engine/tasks/registry";
 
 /**
- * Shared handlers for the tasks API — consumed by /api/tasks and the
- * deprecated /api/tickets shim (dropped in the Phase 4 cleanup).
+ * Shared handlers for the tasks API — served at /api/tasks.
  *
  * Sync dispatches through the task provider registry: POST {kind:"jira"} →
  * taskRegistry.get("jira").sync(). Without a kind, the single/first

@@ -1,6 +1,6 @@
 # DevFlow — Single-screen Developer SDLC Cockpit
 
-One screen for a developer's whole SDLC: **Jira ticket → Plan → Build → Merge Request → CI/CD → AI Review → Comment resolution** — powered by Cursor agents (**cloud** or **local CLI**, per flow), Jira, and self-hosted GitLab (multiple instances supported).
+One screen for a developer's whole SDLC: **Jira task → Plan → Build → Merge Request → CI/CD → AI Review → Comment resolution** — powered by Cursor agents (**cloud** or **local CLI**, per flow), Jira, and self-hosted GitLab (multiple instances supported).
 
 ## Execution modes: cloud vs local
 
@@ -9,7 +9,7 @@ Every flow runs its agent nodes (plan, build, fix, review, resolve) in one of tw
 - **☁ Cloud** — [Cursor Cloud Agents](https://cursor.com/docs/cloud-agent/api) run on Cursor infrastructure against the repo's cloud URL. Needs `CURSOR_API_KEY`.
 - **💻 Local** — the locally installed `cursor-agent` CLI runs on this machine inside the repo's configured **local path**. Uses your `cursor-agent login` session (or `CURSOR_API_KEY`), your git credentials, and lets you watch/edit the agent's changes live in your own checkout. Follow-ups resume the same CLI session.
 
-Set the default mode and local-agent options (auto-approve tools, sandbox, timeout) on the **Settings** page; override per ticket on the home page.
+Set the default mode and local-agent options (auto-approve tools, sandbox, timeout) on the **Settings** page; override per task on the home page.
 
 ## Settings page (`/settings`)
 
@@ -31,7 +31,7 @@ Set the default mode and local-agent options (auto-approve tools, sandbox, timeo
                                                                ▲─────────────┘
 ```
 
-- **Plan node** — Cursor agent (plan mode) reads the repo + ticket PRD + Figma links and drafts an implementation plan. Refine it in a loop; every iteration is versioned (`v1, v2, …`) and you can view/diff each version. Every plan also ends with a structured `plan-meta` block — an ordered **step checklist** (`{id, title, detail, files, branch}`) plus optional multi-branch decomposition. The checklist is extracted into an **editable UI**: toggle steps done, retitle/reword, add/delete steps, reorder — manual edits survive across refinements, and done steps stay done when a refinement keeps their id.
+- **Plan node** — Cursor agent (plan mode) reads the repo + task PRD + Figma links and drafts an implementation plan. Refine it in a loop; every iteration is versioned (`v1, v2, …`) and you can view/diff each version. Every plan also ends with a structured `plan-meta` block — an ordered **step checklist** (`{id, title, detail, files, branch}`) plus optional multi-branch decomposition. The checklist is extracted into an **editable UI**: toggle steps done, retitle/reword, add/delete steps, reorder — manual edits survive across refinements, and done steps stay done when a refinement keeps their id.
 - **Build node** — Cursor agent (agent mode) implements the approved plan, pushes a branch. The pending checklist is injected into the build prompt; the agent reports progress back via a `build-progress` block and steps get **checked off automatically** (you can also toggle them by hand in the Build panel, which shows live checklist progress). You review the **diff in-screen**, then approve → creates the **GitLab MR** and waits for it. If the push is rejected (pre-push/pre-receive hooks — type checks, lint gates), a commit-fix agent repairs the code in the build step and retries automatically; infra errors (network/auth) hand the step back with the error so you can fix it and click **Approve & create MR** again.
 - **Pipeline node (CI gate)** — after the MR exists (and after every later code change — comment resolutions, build refines), the gate ensures a pipeline exists for the MR head — **triggering one via the GitLab API** (merged-results MR pipeline, falling back to a branch pipeline) when the project doesn't start one on push (manual-CI setups) — then waits for green. While waiting it re-reads the MR **head** pipeline every cycle (so a superseded/retried pipeline never leaves the UI stuck on a stale status) and **plays manual jobs via the API** (bounded) so manual-gated projects don't sit until the timeout; a failed pipeline triggers a fix agent that reads the failed job logs and pushes to the MR branch, then the gate re-waits (bounded attempts). Pipeline failures reported by the webhook/poller also (re)trigger the gate directly. Review only starts once the pipeline is green — and every gate path (approval, re-check, retry, resolve re-gate) runs through the single `afterPipelineGate` chain (gate → review → resolve-if-open), so a green pipeline can never leave review stranded and resolve never double-runs for the same batch.
 - **Review node** — an agent reviews the MR diff and posts inline comments.
@@ -55,7 +55,7 @@ npm run dev            # http://localhost:3000
 ### Demo flow (showcases the structured plan / editable checklist)
 
 ```bash
-npm run seed:demo          # insert a DEMO-142 ticket + flow, mid-review
+npm run seed:demo          # insert a DEMO-142 task + flow, mid-review
 npm run seed:demo:reset    # remove it
 ```
 
@@ -69,7 +69,7 @@ the refine. Open the flow and try toggling / editing steps — it's all live dat
 | Key | What |
 |---|---|
 | `CURSOR_API_KEY` | Cursor dashboard → API Keys. Powers every agent node. |
-| `JIRA_BASE_URL` / `JIRA_EMAIL` / `JIRA_API_TOKEN` | Jira (self-hosted or Cloud). `JIRA_JQL` controls which tickets load. |
+| `JIRA_BASE_URL` / `JIRA_EMAIL` / `JIRA_API_TOKEN` | Jira (self-hosted or Cloud). `JIRA_JQL` controls which issues import as tasks. |
 | `GITLAB_BASE_URL` / `GITLAB_TOKEN` | Self-hosted GitLab PAT with `api` scope. |
 | `GITLAB_WEBHOOK_SECRET` | Shared secret for the webhook endpoint. |
 | `RESOLVE_DELAY_MINUTES` | Minutes of comment quiet before the Resolve node auto-starts (default `10`). Overridden by the Settings page value. |
@@ -86,8 +86,8 @@ Project → **Settings → Webhooks**:
 ## Using it
 
 1. Register your repos (and extra GitLab domains) on the **Settings** page.
-2. **Sync Jira tickets** on the home page.
-3. Pick a repo + execution mode (☁ Cloud / 💻 Local) for the ticket, click **▶ Build ticket** → a flow is created.
+2. **Import Jira tasks** on the task import screen (`/tasks/import`).
+3. Pick a repo + execution mode (☁ Cloud / 💻 Local) for the task on the home page, click **▶ Build** → a flow is created.
 4. In the **Plan** node: *Generate plan* → refine with feedback (each creates a new version) → **Approve plan & start build**.
 5. In **Build**: review the diff → **Approve & create MR** — the MR is created (push-hook rejections are fixed by an agent in-place), then the **Pipeline** gate waits for green CI, fixing failures itself.
 6. From there the loop is automatic: review/agent comments → Resolve → pipeline gate re-check → back to Review, until the MR is clean.
@@ -110,7 +110,7 @@ reusable flows, editable as UI *and* config-as-code (YAML import/export).
   Contract tabs), click an edge to edit kind/label/condition. The node palette
   adds catalog and authored nodes; **Flow settings** (drawer) edits name,
   description, and the flow trigger (manual / webhook + filter / schedule +
-  interval, with ticket/repo binding). Node positions persist as you drag;
+  interval, with task/repo binding). Node positions persist as you drag;
   structural changes save on **Save** (refused while flows are mid-run on the
   template — positions-only sync always passes).
 - **Runtime** — flows snapshot their template at creation; running flows are
@@ -135,12 +135,12 @@ outputs, and the taken-edge highlight without any agent runs.
 
 ```
 app/                    Next.js App Router
-  page.tsx              ticket list + start flow (repo + mode picker)
+  page.tsx              task list + start flow (repo + mode picker)
   settings/page.tsx     repos registry, GitLab instances, execution defaults
   flows/[id]/page.tsx   the single-screen cockpit
   templates/            template gallery + the visual builder (drag-drop canvas
                         over the template graph, node/edge drawers)
-  api/                  tickets, flows, actions, events, comments, webhook, hooks, repos, gitlab-instances,
+  api/                  tasks, flows, actions, events, comments, webhook, hooks, repos, gitlab-instances,
                         settings, models, graph, templates (+import/export), node-templates, contracts
 components/             WorkflowGraph, PlanView, DiffView, ReviewView, NodePanel + ai-elements/ (AI Elements: Conversation, Message, Reasoning, Tool, PromptInput, Response, Loader)
 components/template-editor/  visual builder (BuilderCanvas on @xyflow/react), NodeConfigurator (Trigger/Config/Contract), AddNodeDialog
@@ -154,8 +154,7 @@ lib/                    strict OOP: every module is a class with one responsibil
                         driving both cloud (Cursor-hosted VM) and local (in-process agent loop) runs
                         behind one streaming/usage/result path; cursor.ts CursorClient (cloud adapter)
                         and localAgent.ts LocalAgentService (local adapter: branch checkout, settings)
-                        are thin shims over it. jira.ts JiraClient (ADF→text, Figma/PRD extraction),
-                        gitlab.ts GitLabService + GitLabClient (multi-domain, per-repo token resolution)
+                        are thin shims over it. gitlab.ts GitLabService + GitLabClient (multi-domain, per-repo token resolution)
   engine/
     flow.ts             FlowEngine — orchestration only: triggers, approvals (build approval runs
                         MR creation with commit-fix retries → pipeline gate → review), retry/cancel,
@@ -193,10 +192,15 @@ lib/                    strict OOP: every module is a class with one responsibil
                         new comments queue the resolve via FlowEngine.scheduleResolve (quiet-period
                         debounce + pipeline gate — processResolveSchedules fires them from the tick)
     reconcile.ts        Reconciler — re-sync stuck `running` nodes with real run state on flow open/poll
+    tasks/              TaskProvider registry (lib/engine/tasks) — one class per task type
+                        (providers/jira.ts: fetch, ADF→text, PRD/figma extraction, upsert sync);
+                        task types are an extension point: subclass TaskProvider + register
+                        in taskRegistry.ts, the sync route + import screen pick it up
+    templates.ts        TemplateStore — flow templates (graph, nodes, edges, trigger) + static lint
   git/local.ts          LocalGit — clone/diff/push/worktrees; uses the repo's local checkout when
                         registered, per-domain tokens
   db/
-    schema.sql          tables (tickets, flows, nodes, artifacts, comments, events, runs, plan_steps,
+    schema.sql          tables (tasks, flows, nodes, artifacts, comments, events, runs, plan_steps,
                         branches, repos, gitlab_instances, settings)
     index.ts            Database — better-sqlite3 connection + migrations, query helpers (get/all/run),
                         settings, repos, events, messages
@@ -206,7 +210,7 @@ data/devflow.db         local SQLite (server-ready: swap for Postgres later)
 workspaces/             local clones used for diffs (cloud mode; local mode diffs in the registered checkout)
 ```
 
-**Multi-user-ready:** all state is per-flow/per-ticket in the DB. To go multi-user, add auth, scope queries by user, and swap SQLite for Postgres — the engine is stateless across requests.
+**Multi-user-ready:** all state is per-flow/per-task in the DB. To go multi-user, add auth, scope queries by user, and swap SQLite for Postgres — the engine is stateless across requests.
 
 ## Adding a new node type
 

@@ -602,8 +602,6 @@ export class TemplateStore {
       TemplateStore.taskUniverse(trigger),
     );
     if (lint.error) throw new Error(lint.error);
-    // deprecation notices (legacy {{ticket.*}} refs) — loud but not fatal
-    for (const w of lint.warnings) console.warn(`[template lint] ${w}`);
     return { trigger, nodes: input.nodes, edges };
   }
 

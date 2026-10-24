@@ -94,9 +94,11 @@ export function exportTemplateYaml(
 }
 
 /** Parse YAML into a seedable template graph (nodes already typed).
- *  Legacy Phase-2 documents import cleanly: a `trigger.ticket_id` pin is
+ *  Legacy pre-task documents import cleanly: a `trigger.ticket_id` pin is
  *  dropped (task binding is the declared task_type now) and `{{ticket.*}}`
- *  refs auto-remap to `{{task.*}}` — every remap is reported as a warning. */
+ *  refs are rewritten to `{{task.*}}` — the runtime context ships only the
+ *  `task` root (the old alias retired in Phase 4), so import-time conversion
+ *  is the bridge. Every rewrite is reported as a warning. */
 export function parseTemplateYaml(text: string): {
   name: string;
   description: string | null;
@@ -163,7 +165,9 @@ export function parseTemplateYaml(text: string): {
     ? d.trigger : { type: "manual" }) as Record<string, unknown>;
   const description = typeof d.description === "string" && d.description.trim() ? d.description.trim() : null;
 
-  // ── legacy import compat (Phase 3): ticket pins + {{ticket.*}} refs ────────
+  // ── legacy import compat: ticket pins + {{ticket.*}} refs ──────────────────
+  // The runtime context only knows `task` now — these rewrites happen at
+  // import time so old YAML documents keep working; each one is reported.
   const warnings: string[] = [];
   if (typeof trigger.ticket_id === "string" && trigger.ticket_id.trim()) {
     delete trigger.ticket_id;
@@ -189,8 +193,9 @@ export function parseTemplateYaml(text: string): {
 }
 
 /** Deep-rewrite `{{ticket.*}}` refs to `{{task.*}}` in a config value. Returns
- *  the value only when something changed (same object otherwise). Safe: both
- *  roots resolve the same task object at run time. */
+ *  the value only when something changed (same object otherwise). The runtime
+ *  context map no longer carries the old `ticket` alias — this is the
+ *  import-time bridge that keeps legacy YAML documents working. */
 function remapTicketRefs(value: unknown): unknown {
   let changed = false;
   const walk = (v: unknown, depth: number): unknown => {
@@ -266,7 +271,7 @@ export interface ImportedTemplate {
   id: string;
   name: string;
   createdNodeTemplateIds: string[];
-  /** non-fatal import notices (legacy ticket_id dropped, {{ticket.*}} remapped) */
+/** non-fatal import notices (legacy ticket_id dropped, {{ticket.*}} rewritten) */
   warnings: string[];
 }
 

@@ -12,7 +12,7 @@ nodes:
     config:
       mode: plan
       output: markdown
-      prompt: "Draft release notes for ticket {{ticket.key}} ({{ticket.summary}}).\nLead with user impact, then notable behavior changes and migrations. Under 200 words."
+      prompt: "Draft release notes for task {{task.key}} ({{task.summary}}).\nLead with user impact, then notable behavior changes and migrations. Under 200 words."
   - key: ship_decision
     type: decision
     trigger: {type: auto}

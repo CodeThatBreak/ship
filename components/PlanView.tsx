@@ -301,7 +301,7 @@ export default function PlanView({
               <p className="text-muted-foreground max-w-[380px] mx-auto">
                 The plan prompt is ready as a preview box over the chat panel —
                 review or edit it there to generate an implementation plan from
-                the ticket PRD, Figma links, and the repository.
+                the task PRD, Figma links, and the repository.
               </p>
             </div>
           </div>

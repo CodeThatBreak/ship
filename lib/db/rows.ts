@@ -6,7 +6,7 @@ import { db } from "./index";
  *
  * Rows cross the DB boundary exactly once — here — so every consumer gets a
  * validated, fully-typed object instead of `any` + ad-hoc JSON.parse calls.
- * JSON-encoded columns (figma_urls, input, output, meta, files, data, raw)
+ * JSON-encoded columns (fields, input, output, meta, files, data, raw)
  * are decoded to their real types by the schema.
  */
 
@@ -35,8 +35,6 @@ export const TaskRow = z.object({
   status: z.string().nullable(),
   issue_type: z.string().nullable(),
   priority: z.string().nullable(),
-  prd_text: z.string().nullable(),
-  figma_urls: jsonCol(z.array(z.string())),
   repo_url: z.string().nullable(),
   parent_key: z.string().nullable(),
   jira_url: z.string().nullable(),
@@ -44,12 +42,19 @@ export const TaskRow = z.object({
   synced_at: z.string().nullable(),
   /** task type discriminator (provider kind; "jira" for synced Jira issues) */
   type: z.string().default("jira"),
-  /** provider-specific payload (JSON object) */
+  /** provider-specific payload (JSON object; jira keeps prd + figma_urls here) */
   fields: jsonCol(z.record(z.string(), z.unknown())),
 });
 export type TaskRow = z.infer<typeof TaskRow>;
 
-/** App-facing task shape (camelCase, parsed figma URLs + fields). */
+/**
+ * App-facing task shape (camelCase, parsed fields).
+ *
+ * Provider-only payload (PRD text, figma links) hydrates from `fields` — the
+ * jira provider writes `fields.prd` / `fields.figma_urls` (Phase 2+); the
+ * Phase-4 data-fix migration copied the same values across from the retired
+ * shared columns for rows synced before that.
+ */
 export const Task = TaskRow.transform((t) => ({
   id: t.id,
   key: t.key,
@@ -58,13 +63,8 @@ export const Task = TaskRow.transform((t) => ({
   status: t.status,
   issueType: t.issue_type,
   priority: t.priority,
-  // jira-only payload lives in `fields` too (Phase 2) — prefer it when the
-  // provider populated it; the shared columns stay the fallback for rows
-  // synced before Phase 2 (shared-column deprecation is Phase 4)
-  prdText: typeof t.fields?.prd === "string" ? t.fields.prd : t.prd_text,
-  figmaUrls: Array.isArray(t.fields?.figma_urls)
-    ? (t.fields.figma_urls as string[])
-    : (t.figma_urls ?? []),
+  prdText: typeof t.fields?.prd === "string" ? (t.fields.prd as string) : "",
+  figmaUrls: Array.isArray(t.fields?.figma_urls) ? (t.fields.figma_urls as string[]) : [],
   repoUrl: t.repo_url,
   parentKey: t.parent_key,
   jiraUrl: t.jira_url,

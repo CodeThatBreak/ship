@@ -70,6 +70,7 @@ export class Database {
     // rename — verified below, with a defensive flows-table recreation when
     // an engine leaves a dangling FK behind.
     this.migrateTicketsToTasks(d);
+    this.migrateLegacyTicketRefs(d);
     const flowsCols = cols("flows");
     if (!flowsCols.has("execution_mode")) {
       d.exec(`ALTER TABLE flows ADD COLUMN execution_mode TEXT NOT NULL DEFAULT 'cloud'`);
@@ -106,12 +107,29 @@ export class Database {
     if (!runCols.has("branch_id")) {
       d.exec(`ALTER TABLE runs ADD COLUMN branch_id TEXT REFERENCES branches(id)`);
     }
+    // ── Phase 1: custom flows — template layer ─────────────────────────────
+    if (!nodeCols.has("label")) {
+      d.exec(`ALTER TABLE nodes ADD COLUMN label TEXT`);
+    }
+    if (!nodeCols.has("config")) {
+      d.exec(`ALTER TABLE nodes ADD COLUMN config TEXT`); // effective config snapshot (JSON)
+    }
+    if (!nodeCols.has("join_mode")) {
+      d.exec(`ALTER TABLE nodes ADD COLUMN join_mode TEXT`);
+    }
+    if (!flowsCols.has("template_id")) {
+      d.exec(`ALTER TABLE flows ADD COLUMN template_id TEXT REFERENCES flow_templates(id)`);
+    }
+    if (!flowsCols.has("trigger_payload")) {
+      d.exec(`ALTER TABLE flows ADD COLUMN trigger_payload TEXT`); // JSON
+    }
     // Pipeline gate node (order 25, between build and review): backfill a node
     // row for pre-gate flows that were created before the node existed. Only
     // flows whose template's graph contains a pipeline node get one — Phase 2
     // custom templates without a gate must keep their snapshotted node set.
     // The standalone pipeline_fix node was folded into the gate — drop its
-    // rows (fix history stays in the events log).
+    // rows (fix history stays in the events log). Runs AFTER flows.template_id
+    // exists (the query matches templates; a fresh DB adds that column above).
     {
       const missing = d.prepare(
         `SELECT f.id FROM flows f
@@ -139,22 +157,6 @@ export class Database {
         }
       }
     }
-    // ── Phase 1: custom flows — template layer ─────────────────────────────
-    if (!nodeCols.has("label")) {
-      d.exec(`ALTER TABLE nodes ADD COLUMN label TEXT`);
-    }
-    if (!nodeCols.has("config")) {
-      d.exec(`ALTER TABLE nodes ADD COLUMN config TEXT`); // effective config snapshot (JSON)
-    }
-    if (!nodeCols.has("join_mode")) {
-      d.exec(`ALTER TABLE nodes ADD COLUMN join_mode TEXT`);
-    }
-    if (!flowsCols.has("template_id")) {
-      d.exec(`ALTER TABLE flows ADD COLUMN template_id TEXT REFERENCES flow_templates(id)`);
-    }
-    if (!flowsCols.has("trigger_payload")) {
-      d.exec(`ALTER TABLE flows ADD COLUMN trigger_payload TEXT`); // JSON
-    }
     // ── Phase 4: triggers ──────────────────────────────────────────────────
     // next fire time for a `schedule` flow trigger (hook_deliveries lives in
     // schema.sql — CREATE IF NOT EXISTS is idempotent)
@@ -168,9 +170,11 @@ export class Database {
   }
 
   /**
-   * Column part of the tickets→tasks migration (task model, Phase 1). Idempotent:
+   * Column part of the tickets→tasks migration (task model, Phase 1) plus the
+   * Phase-4 cleanup data fixes. Idempotent:
    *  - new `type` / `fields` columns on tasks (the table rename itself runs
-   *    pre-schema — see renameTicketsToTasks)
+   *    pre-schema — see renameTicketsToTasks); jira-only payload (`prd_text`,
+   *    `figma_urls`) is copied into `fields` and the shared columns dropped
    *  - `flows.ticket_id` → `flows.task_id`, FK verified to resolve to
    *    tasks(id) — the table is recreated (data copied) when the reference
    *    dangles on an old `tickets` name
@@ -187,6 +191,37 @@ export class Database {
       }
       if (!taskCols.has("fields")) {
         d.exec(`ALTER TABLE tasks ADD COLUMN fields TEXT NOT NULL DEFAULT '{}'`); // provider-specific JSON
+      }
+      // Phase 4: jira-only payload leaves the shared columns — rows synced
+      // before Phase 2 carry prd / figma_urls ONLY there (`fields` was still
+      // `{}` then), so copy them across before the columns go away.
+      if (taskCols.has("prd_text") || taskCols.has("figma_urls")) {
+        const copy = d.prepare(
+          `SELECT id, prd_text, figma_urls, fields FROM tasks WHERE prd_text IS NOT NULL OR figma_urls IS NOT NULL`
+        ).all() as { id: string; prd_text: string | null; figma_urls: string | null; fields: string | null }[];
+        const update = d.prepare(`UPDATE tasks SET fields=? WHERE id=?`);
+        for (const r of copy) {
+          const f = parseJsonObject(r.fields);
+          let changed = false;
+          if (typeof f.prd !== "string" && r.prd_text != null) {
+            f.prd = r.prd_text;
+            changed = true;
+          }
+          if (!Array.isArray(f.figma_urls) && typeof r.figma_urls === "string") {
+            try {
+              const urls = JSON.parse(r.figma_urls);
+              if (Array.isArray(urls)) {
+                f.figma_urls = urls;
+                changed = true;
+              }
+            } catch { /* unparseable figma column — fields wins */ }
+          }
+          if (changed) update.run(JSON.stringify(f), r.id);
+        }
+        // DROP COLUMN needs SQLite ≥3.35 (bundled better-sqlite3 ships ≥3.53);
+        // left in place on older builds — harmless leftover columns.
+        if (taskCols.has("prd_text")) d.exec(`ALTER TABLE tasks DROP COLUMN prd_text`);
+        if (taskCols.has("figma_urls")) d.exec(`ALTER TABLE tasks DROP COLUMN figma_urls`);
       }
     }
     // flows.ticket_id → flows.task_id
@@ -216,6 +251,48 @@ export class Database {
       d.exec(`INSERT INTO flows_new (${colNames}) SELECT ${colNames} FROM flows`);
       d.exec(`DROP TABLE flows`);
       d.exec(`ALTER TABLE flows_new RENAME TO flows`);
+    }
+  }
+
+  /**
+   * Phase-4 legacy-ref data fix: the `{{ticket.*}}` alias retired with the
+   * cleanup — but templates and flow snapshots saved before Phase 3 still
+   * hold such refs in their stored JSON. Rewrite them to `{{task.*}}` (they
+   * resolve the same context object) so nothing breaks once the alias leaves
+   * the runtime context map. Idempotent: only rows whose text changes are
+   * written back.
+   */
+  private migrateLegacyTicketRefs(d: SqliteDatabase.Database): void {
+    const remap = (raw: unknown): string | null => {
+      if (typeof raw !== "string" || !raw.includes("ticket")) return null;
+      const next = raw.replace(/\{\{\s*ticket(?=[.}\s])/g, "{{task");
+      return next !== raw ? next : null;
+    };
+    // (table, column) pairs holding template-authored text: template graphs,
+    // declarative node definitions, flow config snapshots, prompt overrides,
+    // flow triggers. Historical event/artifact content is left untouched.
+    const targets: [string, string][] = [
+      ["flow_templates", "trigger"],
+      ["flow_template_nodes", "config"],
+      ["flow_template_nodes", "input_map"],
+      ["node_templates", "config"],
+      ["nodes", "config"],
+      ["nodes", "prompt_override"],
+    ];
+    for (const [table, col] of targets) {
+      if (!d.prepare(`SELECT 1 FROM sqlite_master WHERE type='table' AND name=?`).get(table)) continue;
+      const columnNames = new Set(
+        (d.prepare(`PRAGMA table_info(${table})`).all() as any[]).map((c) => c.name)
+      );
+      if (!columnNames.has(col)) continue;
+      const rows = d.prepare(
+        `SELECT rowid AS id, ${col} AS v FROM ${table} WHERE ${col} LIKE '%ticket%'`
+      ).all() as unknown as { id: number | string; v: string | null }[];
+      const update = d.prepare(`UPDATE ${table} SET ${col}=? WHERE rowid=?`);
+      for (const r of rows) {
+        const next = remap(r.v);
+        if (next != null) update.run(next, r.id);
+      }
     }
   }
 
@@ -305,7 +382,7 @@ export class Database {
           cwd: "repo",
         })],
       ["nt_st_release_notes", "release_notes", "agent", "Release notes draft", "agent",
-        "Plan-mode agent that drafts release notes from the ticket",
+        "Plan-mode agent that drafts release notes from the task",
         JSON.stringify({
           mode: "plan", output: "markdown",
           prompt: "Draft release notes for task {{task.key}} ({{task.summary}}).\n"
@@ -384,7 +461,7 @@ export class Database {
       {
         id: "tpl_docs_generation",
         name: "Docs generation",
-        description: "Summarize shipped work on a ticket into a docs page in the repo — starter: agent → script with input mapping.",
+        description: "Summarize shipped work on a task into a docs page in the repo — starter: agent → script with input mapping.",
         trigger: '{"type":"manual"}',
         nodes: [
           ["summarize", "nt_st_summarize", '{"type":"auto"}', null, null],
@@ -395,7 +472,7 @@ export class Database {
       {
         id: "tpl_release_notify",
         name: "Release notes + notify",
-        description: "Draft release notes from a ticket, decide whether to ship them, and notify a webhook — starter: agent → decision (manual) → http.",
+        description: "Draft release notes from a task, decide whether to ship them, and notify a webhook — starter: agent → decision (manual) → http.",
         trigger: '{"type":"manual"}',
         nodes: [
           ["release_notes", "nt_st_release_notes", '{"type":"auto"}', null, null],
@@ -573,6 +650,19 @@ export class Database {
 
   deleteRepo(id: string): void {
     this.run(`DELETE FROM repos WHERE id=?`, id);
+  }
+}
+
+/** Defensive JSON-object parse for raw TEXT columns ({} when absent/invalid). */
+function parseJsonObject(raw: unknown): Record<string, unknown> {
+  if (raw == null) return {};
+  if (typeof raw === "object" && !Array.isArray(raw)) return raw as Record<string, unknown>;
+  if (typeof raw !== "string" || !raw.trim()) return {};
+  try {
+    const v = JSON.parse(raw);
+    return v && typeof v === "object" && !Array.isArray(v) ? v : {};
+  } catch {
+    return {};
   }
 }
 

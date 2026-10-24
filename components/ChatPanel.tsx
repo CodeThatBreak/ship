@@ -521,7 +521,7 @@ export default function ChatPanel({
                         title={
                           planOptions.complex
                             ? "Complex plan — on: plan + steps + branches + sub-plans; click to turn off"
-                            : "Complex plan — for multi-part tickets; click to turn on"
+                            : "Complex plan — for multi-part tasks; click to turn on"
                         }
                         onClick={() =>
                           setPlanOptions?.({
@@ -539,7 +539,7 @@ export default function ChatPanel({
                     <BracesIcon className="size-3" />
                   </TooltipTrigger>
                   <TooltipContent>
-                    Complex plan: for bigger tickets with multiple parts — the
+                    Complex plan: for bigger tasks with multiple parts — the
                     agent returns JSON with a markdown plan, steps, branches and
                     sub-plans; each branch can get its own planning run
                   </TooltipContent>

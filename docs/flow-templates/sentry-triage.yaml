@@ -1,7 +1,7 @@
 # Sentry triage — the plan §7 fixture exercising the full declarative surface.
 # Imports end-to-end: agent (json output + input_map), decision (agent source,
 # approval oversight), http (secrets + SSRF guard), webhook flow trigger with
-# its JSONata delivery filter. Import, then bind a ticket + repo in the
+# its JSONata delivery filter. Import, then bind a task + repo in the
 # template editor's flow-trigger section (shown when webhook is picked — the
 # inbound hook endpoint + secret appear there), and POST a signed delivery:
 #   node scripts/send-hook.mjs <url> <secret> '{"event":"issue.created","issue":{"title":"…","stacktrace":"…"}}'
@@ -15,7 +15,7 @@ nodes:
     type: agent
     trigger: {type: auto}
     config:
-      prompt: "Triage this Sentry issue: {{trigger.payload.issue.title}}\n\nStacktrace:\n{{trigger.payload.issue.stacktrace}}\nTicket context: {{ticket.key}} — {{ticket.summary}}\n\nScan the codebase for the likely cause, then output JSON: {severity, summary, suggested_fix}."
+      prompt: "Triage this Sentry issue: {{trigger.payload.issue.title}}\n\nStacktrace:\n{{trigger.payload.issue.stacktrace}}\nTask context: {{task.key}} — {{task.summary}}\n\nScan the codebase for the likely cause, then output JSON: {severity, summary, suggested_fix}."
       mode: plan
       output: json
       output_schema:
@@ -42,14 +42,14 @@ nodes:
     trigger: {type: auto}
     config:
       mode: agent
-      prompt: "Fix the issue: {{nodes.triage.output.suggested_fix}} — issue {{ticket.key}}."
+      prompt: "Fix the issue: {{nodes.triage.output.suggested_fix}} — issue {{task.key}}."
   - key: notify
     type: http
     trigger: {type: auto}
     config:
       url: "{{secrets.SLACK_WEBHOOK}}"
       method: POST
-      body: "{ \"text\": \"Triaged {{ticket.key}}: {{nodes.triage.output.summary}}\" }"
+      body: "{ \"text\": \"Triaged {{task.key}}: {{nodes.triage.output.summary}}\" }"
 edges:
   - [triage, worth_fixing]
   - [worth_fixing, open_pr, {label: fix}]
