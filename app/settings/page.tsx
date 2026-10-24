@@ -17,7 +17,8 @@ type Repo = {
   id: string; name: string; cloud_url: string; local_path: string | null;
   default_branch: string; local_path_exists?: boolean;
 };
-type Instance = { id: string; name: string | null; base_url: string; token: string; token_set: boolean };
+type HostInstanceRow = { id: string; name: string | null; baseUrl: string; tokenMasked: string };
+type GitHost = { kind: string; label: string; configured: boolean; instances: HostInstanceRow[] };
 type PromptTemplate = {
   label: string; description: string; template: string;
   variables: string[]; mode: string;
@@ -41,18 +42,18 @@ type PricingRow = { key: string; input?: number; output?: number; cacheRead?: nu
 export default function SettingsPage() {
   const [settings, setSettings] = useState<Settings | null>(null);
   const [repos, setRepos] = useState<Repo[]>([]);
-  const [instances, setInstances] = useState<Instance[]>([]);
+  const [hosts, setHosts] = useState<GitHost[]>([]);
   const [error, setError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     const [s, r, g] = await Promise.all([
       fetch("/api/settings").then((r) => r.json()),
       fetch("/api/repos").then((r) => r.json()),
-      fetch("/api/gitlab-instances").then((r) => r.json()),
+      fetch("/api/git-hosts").then((r) => r.json()),
     ]);
     setSettings(s);
     setRepos(r.repos ?? []);
-    setInstances(g.instances ?? []);
+    setHosts(g.hosts ?? []);
   }, []);
 
   useEffect(() => { load(); }, [load]);
@@ -101,7 +102,9 @@ export default function SettingsPage() {
 
       <ReposSection repos={repos} onChanged={load} onError={setError} />
 
-      <InstancesSection instances={instances} onChanged={load} onError={setError} />
+      {hosts.map((h) => (
+        <GitHostsSection key={h.kind} host={h} onChanged={load} onError={setError} />
+      ))}
     </main>
   );
 }
@@ -577,8 +580,8 @@ function ReposSection({ repos, onChanged, onError }: { repos: Repo[]; onChanged:
   );
 }
 
-function InstancesSection({ instances, onChanged, onError }: { instances: Instance[]; onChanged: () => void; onError: (e: string | null) => void }) {
-  const empty = { name: "", base_url: "", token: "" };
+function GitHostsSection({ host, onChanged, onError }: { host: GitHost; onChanged: () => void; onError: (e: string | null) => void }) {
+  const empty = { name: "", baseUrl: "", token: "" };
   const [form, setForm] = useState(empty);
   const [saving, setSaving] = useState(false);
   const [testResult, setTestResult] = useState<Record<string, { ok: boolean; detail: string }>>({});
@@ -587,7 +590,7 @@ function InstancesSection({ instances, onChanged, onError }: { instances: Instan
   const submit = async () => {
     setSaving(true);
     onError(null);
-    const res = await fetch("/api/gitlab-instances", {
+    const res = await fetch(`/api/host-instances/${host.kind}`, {
       method: "POST", headers: { "Content-Type": "application/json" },
       body: JSON.stringify(form),
     });
@@ -602,33 +605,33 @@ function InstancesSection({ instances, onChanged, onError }: { instances: Instan
   };
 
   const del = async (id: string) => {
-    await fetch(`/api/gitlab-instances/${id}`, { method: "DELETE" });
+    await fetch(`/api/host-instances/${host.kind}/${id}`, { method: "DELETE" });
     onChanged();
   };
 
   const test = async (id: string) => {
     setTesting(id);
-    const r = await fetch(`/api/gitlab-instances/${id}`, { method: "POST" }).then((r) => r.json());
+    const r = await fetch(`/api/host-instances/${host.kind}/${id}`, { method: "POST" }).then((r) => r.json());
     setTestResult((prev) => ({ ...prev, [id]: r }));
     setTesting(null);
   };
 
   return (
-    <section className="mb-8">
+    <section className="mb-8" data-host={host.kind}>
       <h2 className="text-[13px] mb-3 text-muted-foreground uppercase tracking-[1px] flex items-center gap-[7px]">
-        <Globe size={14} /> GitLab instances
+        <Globe size={14} /> {host.label} instances
       </h2>
       <p className="text-muted-foreground text-[12.5px] mb-3">
-        Add one entry per self-hosted GitLab domain. DevFlow picks the token whose domain matches each repo&apos;s cloud URL.
-        If no entry matches, it falls back to <code className="font-mono">GITLAB_BASE_URL</code>/<code className="font-mono">GITLAB_TOKEN</code> from <code className="font-mono">.env</code>.
+        Add one entry per self-hosted {host.label} domain. DevFlow picks the token whose domain matches each repo&apos;s cloud URL.
+        If no entry matches, it falls back to the {host.label} .env config.
       </p>
       <div className="grid gap-2.5 mb-3">
-        {instances.map((i) => (
+        {host.instances.map((i) => (
           <Card key={i.id} className="flex items-center gap-2.5 px-4 py-3 flex-wrap">
             <Globe size={15} className="text-muted-foreground shrink-0" />
             <div className="flex-1 min-w-[220px]">
-              <div className="font-medium text-[13.5px]">{i.name || i.base_url}</div>
-              <div className="text-muted-foreground text-[12px] font-mono">{i.base_url} · token {i.token}</div>
+              <div className="font-medium text-[13.5px]">{i.name || i.baseUrl}</div>
+              <div className="text-muted-foreground text-[12px] font-mono">{i.baseUrl} · token {i.tokenMasked}</div>
             </div>
             {testResult[i.id] && (
               <Badge variant={testResult[i.id].ok ? undefined : "destructive"} className={testResult[i.id].ok ? "bg-emerald-500/10 text-emerald-400" : undefined}>
@@ -642,19 +645,19 @@ function InstancesSection({ instances, onChanged, onError }: { instances: Instan
             <Button size="sm" variant="ghost" className="text-rose-400 hover:text-rose-300 hover:bg-rose-500/10" onClick={() => del(i.id)}><Trash2 size={12} /></Button>
           </Card>
         ))}
-        {instances.length === 0 && <p className="text-muted-foreground text-[13px]">No instances registered — using .env for all repos.</p>}
+        {host.instances.length === 0 && <p className="text-muted-foreground text-[13px]">No instances registered — using .env for all repos.</p>}
       </div>
 
       <Card className="p-4">
-        <div className="text-[13px] font-medium mb-3">Add GitLab instance</div>
+        <div className="text-[13px] font-medium mb-3">Add {host.label} instance</div>
         <div className="grid gap-2">
           <div className="flex gap-2 flex-wrap">
             <Input placeholder="Label (optional, e.g. Corp GitLab)" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} className="flex-1 min-w-[160px]" />
-            <Input placeholder="https://gitlab.company.com" value={form.base_url} onChange={(e) => setForm({ ...form, base_url: e.target.value })} className="flex-[2] min-w-[220px]" />
+            <Input placeholder={`https://${host.kind}.company.com`} value={form.baseUrl} onChange={(e) => setForm({ ...form, baseUrl: e.target.value })} className="flex-[2] min-w-[220px]" />
           </div>
           <Input placeholder="Personal access token (api scope)" type="password" value={form.token} onChange={(e) => setForm({ ...form, token: e.target.value })} />
           <div>
-            <Button variant="default" onClick={submit} disabled={saving || !form.base_url || !form.token}>
+            <Button variant="default" onClick={submit} disabled={saving || !form.baseUrl || !form.token}>
               {saving ? <Spinner /> : <Plus size={13} />} Add instance
             </Button>
           </div>

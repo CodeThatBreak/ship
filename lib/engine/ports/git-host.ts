@@ -99,6 +99,8 @@ export interface HostInstance {
   id: string;
   name: string | null;
   baseUrl: string;
+  /** masked token ("••••abcd") for the settings UI — never the real value */
+  tokenMasked: string;
 }
 
 /** Create-a-change-request input, normalized. */
@@ -177,10 +179,15 @@ export interface GitHostService {
   // ── instance registry (settings admin) ───────────────────────────────────
   instances(): HostInstance[];
   addInstance(input: { name?: string | null; baseUrl: string; token: string }): HostInstance;
-  updateInstance(id: string, input: { name?: string | null; baseUrl: string; token: string }): void;
+  /** Update by id; a blank/absent token keeps the stored one. */
+  updateInstance(id: string, input: { name?: string | null; baseUrl?: string; token?: string }): void;
   removeInstance(id: string): void;
-  /** Quick reachability/auth check used by the settings page. */
-  testInstance(baseUrl: string, token: string): Promise<{ ok: boolean; detail: string }>;
+  /**
+   * Quick reachability/auth check used by the settings page — tests the
+   * stored instance's credentials, with optional overrides (e.g. the form
+   * values before saving).
+   */
+  testInstance(id: string, input?: { baseUrl?: string; token?: string }): Promise<{ ok: boolean; detail: string }>;
 
   // ── webhook ingestion ────────────────────────────────────────────────────
   /** True when no secret is configured or the delivery's signature matches. */

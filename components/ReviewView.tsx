@@ -11,20 +11,13 @@ import { Card } from "./ui/card";
 import { Spinner } from "./ui/spinner";
 import { cn } from "../lib/utils";
 
-type RawNote = {
-  id: number;
-  resolvable?: boolean;
-  resolved?: boolean;
-  system?: boolean;
-  created_at?: string;
-};
-
 type Comment = {
-  id: string; author: string; body: string; file_path?: string; line?: number;
-  status: string; discussion_id?: string | null; raw?: string; created_at: string;
+  id: string; threadId?: string | null; author?: string | null; body: string;
+  path?: string | null; line?: number | null; status: string;
+  resolvable: boolean; resolved: boolean; createdAt: string;
 };
 
-type ThreadNote = Comment & { resolvable: boolean; resolved: boolean };
+type ThreadNote = Comment;
 
 type Thread = {
   id: string;
@@ -37,34 +30,19 @@ type Thread = {
   resolved: boolean;
 };
 
-/** Parse the stored GitLab note JSON for resolvable/resolved flags. */
-function flags(c: Comment): { resolvable: boolean; resolved: boolean } {
-  let resolvable = true;
-  let resolved = c.status === "resolved";
-  if (c.raw) {
-    try {
-      const n: RawNote = JSON.parse(c.raw);
-      if (typeof n.resolvable === "boolean") resolvable = n.resolvable;
-      if (typeof n.resolved === "boolean") resolved = n.resolved;
-    } catch { /* ignore malformed raw */ }
-  }
-  return { resolvable, resolved };
-}
-
 /** Group flat comments into discussion threads (root = earliest note). */
 function buildThreads(comments: Comment[]): Thread[] {
-  const byDiscussion = new Map<string, ThreadNote[]>();
+  const byThread = new Map<string, ThreadNote[]>();
   for (const c of comments) {
-    const key = c.discussion_id ?? `ind_${c.id}`;
-    const note: ThreadNote = { ...c, ...flags(c) };
-    const arr = byDiscussion.get(key);
-    if (arr) arr.push(note);
-    else byDiscussion.set(key, [note]);
+    const key = c.threadId ?? `ind_${c.id}`;
+    const arr = byThread.get(key);
+    if (arr) arr.push(c);
+    else byThread.set(key, [c]);
   }
   const threads: Thread[] = [];
-  for (const [id, notes] of byDiscussion) {
+  for (const [id, notes] of byThread) {
     // chronological within the thread — the first note is the root
-    notes.sort((a, b) => a.created_at.localeCompare(b.created_at));
+    notes.sort((a, b) => a.createdAt.localeCompare(b.createdAt));
     const root = notes[0];
     const replies = notes.slice(1);
     const open = root.status === "open";
@@ -78,7 +56,7 @@ function buildThreads(comments: Comment[]): Thread[] {
     });
   }
   // newest thread first (by root creation time)
-  threads.sort((a, b) => b.root.created_at.localeCompare(a.root.created_at));
+  threads.sort((a, b) => b.root.createdAt.localeCompare(a.root.createdAt));
   return threads;
 }
 
@@ -220,10 +198,10 @@ function NoteHeader({ note, isRoot, resolvable }: { note: ThreadNote; isRoot?: b
       <span className="inline-flex items-center gap-[5px] font-semibold">
         <User size={12} className="text-muted-foreground" /> {note.author}
       </span>
-      {note.file_path && (
+      {note.path && (
         <span className="inline-flex items-center gap-1 text-muted-foreground text-[11px] font-mono">
           <FileCode2 size={11} />
-          {note.file_path}{note.line ? `:${note.line}` : ""}
+          {note.path}{note.line ? `:${note.line}` : ""}
         </span>
       )}
       <div className="flex-1" />

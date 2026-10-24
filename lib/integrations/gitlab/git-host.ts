@@ -13,6 +13,13 @@ import type {
 } from "../../engine/ports/git-host";
 import { GitLabClient, gitLab, type Discussion, type MergeRequest, type Pipeline as GitLabPipeline } from "./client";
 
+/** Masked token for the settings UI (never the real value). */
+function maskToken(t: string): string {
+  if (!t) return "";
+  if (t.length <= 4) return "••••";
+  return `••••${t.slice(-4)}`;
+}
+
 // ── shape normalization (GitLab snake_case → port camelCase) ────────────────
 
 function mapChangeRequest(mr: MergeRequest): ChangeRequest {
@@ -196,19 +203,27 @@ export class GitLabHostService implements GitHostService {
   // ── instance registry (settings admin) ───────────────────────────────────
 
   instances(): HostInstance[] {
-    return gitLab.listInstances().map(({ id, name, base_url }) => ({ id, name, baseUrl: base_url }));
+    return gitLab.listInstances().map(({ id, name, base_url, token }) => ({
+      id,
+      name,
+      baseUrl: base_url,
+      tokenMasked: maskToken(token),
+    }));
   }
 
   addInstance(input: { name?: string | null; baseUrl: string; token: string }): HostInstance {
     const inst = gitLab.addInstance({ name: input.name ?? undefined, base_url: input.baseUrl, token: input.token });
-    return { id: inst.id, name: inst.name, baseUrl: inst.base_url };
+    return { id: inst.id, name: inst.name, baseUrl: inst.base_url, tokenMasked: maskToken(inst.token) };
   }
 
-  updateInstance(id: string, input: { name?: string | null; baseUrl: string; token: string }): void {
+  updateInstance(id: string, input: { name?: string | null; baseUrl?: string; token?: string }): void {
+    const existing = gitLab.listInstances().find((i) => i.id === id);
+    if (!existing) throw new Error(`host instance not found: ${id}`);
     gitLab.updateInstance(id, {
-      name: input.name ?? undefined,
-      base_url: input.baseUrl,
-      token: input.token,
+      name: input.name ?? existing.name ?? undefined,
+      base_url: input.baseUrl ?? existing.base_url,
+      // blank token = keep the stored one
+      token: input.token || existing.token,
     });
   }
 
@@ -216,8 +231,10 @@ export class GitLabHostService implements GitHostService {
     gitLab.deleteInstance(id);
   }
 
-  async testInstance(baseUrl: string, token: string): Promise<{ ok: boolean; detail: string }> {
-    return gitLab.testInstance(baseUrl, token);
+  async testInstance(id: string, input: { baseUrl?: string; token?: string } = {}): Promise<{ ok: boolean; detail: string }> {
+    const existing = gitLab.listInstances().find((i) => i.id === id);
+    if (!existing) throw new Error(`host instance not found: ${id}`);
+    return gitLab.testInstance(input.baseUrl ?? existing.base_url, input.token || existing.token);
   }
 
   // ── webhook ingestion ────────────────────────────────────────────────────
