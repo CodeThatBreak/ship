@@ -69,6 +69,20 @@ export class HttpTemplateNode extends NodeDefinition<Record<string, unknown>, Re
     return this.def as unknown as Record<string, unknown>;
   }
 
+  /** The default http contract — response_map may reshape it at run time. */
+  override outputContract(): unknown {
+    return {
+      type: "object",
+      description: "Default contract — response_map may reshape it",
+      properties: {
+        status: { type: "number" },
+        ok: { type: "boolean" },
+        body: {},
+        headers: { type: "object" },
+      },
+    };
+  }
+
   async run(ctx: FlowCtx, rawInput: Record<string, unknown>, config: Record<string, unknown>): Promise<RunOutcome> {
     const cfg = this.runConfig(config);
     const node = this.node(ctx);

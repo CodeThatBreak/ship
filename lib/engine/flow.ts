@@ -683,10 +683,10 @@ export class FlowEngine {
         return;
       }
     }
-    // an approval-triggered start node holds for the user, not for an output
+    // an approval-triggered entry node holds for the user, not for an output
     // review: it publishes nothing until triggered, so the contract values are
-    // provided when the user starts it (same entry as a manual start node)
-    if (tt === "approval" && spec?.defKey === "start" && parseStartContract(spec.config).length) return;
+    // provided when the user starts it (same entry as a manual entry node)
+    if (tt === "approval" && spec?.defKey === nodeRegistry.entryKey() && parseStartContract(spec.config).length) return;
     if (!opts.resumeWaiting && (tt === "auto" || tt === "approval")) {
       // wait_for event sources gate eligibility (§6) — the pipeline source is
       // the built-in gate (it runs its own wait loop when it runs)
@@ -889,9 +889,9 @@ export class FlowEngine {
   runNodeManual(flowId: string, nodeKey: string, opts: { prompt?: string; model?: string; input?: Record<string, unknown> } = {}): void {
     const node = rows.get(NodeRow, `SELECT * FROM nodes WHERE flow_id=? AND node_key=?`, flowId, nodeKey);
     if (!node) throw new Error("unknown node");
-    // a failed start node re-runs from the form — its recorded input never
+    // a failed entry node re-runs from the form — its recorded input never
     // satisfied the contract, so the retry path (recorded input) can't help
-    if (node.status !== "pending" && !(node.status === "failed" && this.defKeyOf(flowId, nodeKey) === "start")) {
+    if (node.status !== "pending" && !(node.status === "failed" && this.defOf(flowId, nodeKey).isEntry)) {
       throw new Error(`run is not available while the node is ${node.status}`);
     }
     this.setCurrentNode(flowId, nodeKey);
@@ -1152,7 +1152,7 @@ export class FlowEngine {
     // the start node's contract defines what the trigger must provide (§5):
     // a payload that doesn't match is rejected here — no flow is created, and
     // the hook route answers the sender with this exact message
-    const startSpec = templateStore.graph(templateId)?.nodes.find((n) => n.defKey === "start");
+    const startSpec = templateStore.graph(templateId)?.nodes.find((n) => n.defKey === nodeRegistry.entryKey());
     const contractFields = startSpec ? parseStartContract(startSpec.config) : [];
     if (contractFields.length) {
       const v = validateAgainstContract(contractFields, payload);

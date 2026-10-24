@@ -1,6 +1,7 @@
 import { db } from "../db";
 import { lintJsonata } from "./jsonata-eval";
 import { lintStartContract, parseStartContract } from "./nodes/start/contract";
+import { nodeRegistry } from "./nodes/registry";
 
 /**
  * Build-time checks for declarative templates (§5): every `{{nodes.X.output.Y}}`
@@ -129,8 +130,8 @@ export function lintTemplate(
       fields: outputFieldsFor(nt.kind, mergedConfig),
       kind: nt.kind,
     });
-    // the start contract declaration itself is validated here (loud, readable)
-    if (nt.isBuiltin && nt.key === "start") {
+    // the entry contract declaration itself is validated here (loud, readable)
+    if (nt.isBuiltin && nt.key === nodeRegistry.entryKey()) {
       problems.push(...lintStartContract(mergedConfig, `node "${n.key}"`));
     }
   }

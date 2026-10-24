@@ -100,6 +100,11 @@ export class NodeRegistry {
     }
     return out;
   }
+
+  /** The registry key of the node kind that opens a flow (the entry/start kind). */
+  entryKey(): string | null {
+    return this.all().find((d) => d.isEntry)?.key ?? null;
+  }
 }
 
 export const nodeRegistry = new NodeRegistry();

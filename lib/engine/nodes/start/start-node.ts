@@ -37,6 +37,7 @@ export class StartNode extends NodeDefinition<StartPayload, StartPayload> {
   /** ahead of the plan node (10) so graphs display flow entry first */
   readonly order = 5;
   readonly edges = [] as const;
+  override readonly isEntry = true;
   /** nothing to recover — it just completes */
   readonly retryable = false;
 

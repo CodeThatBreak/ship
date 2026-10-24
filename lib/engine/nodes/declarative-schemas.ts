@@ -8,15 +8,6 @@ import { z } from "zod";
  * import the runtime classes (which import the store).
  */
 
-/** One declared input field of an agent node (drives the contract + input map). */
-export interface AgentInputField {
-  key: string;
-  label?: string;
-  /** string | number | boolean | object | array — for the contract display */
-  type?: "string" | "number" | "boolean" | "object" | "array";
-  required?: boolean;
-}
-
 export const AgentDefSchema = z.looseObject({
   prompt: z.string().default(""),
   /** plan = read-only judgment run; agent = repo workspace run */
@@ -29,16 +20,6 @@ export const AgentDefSchema = z.looseObject({
    *  TypeScript members it was authored from ride along as `output_schema_ts`
    *  (the schema box's source — unknown keys tolerated on purpose). */
   output_schema: z.unknown().optional().default(null),
-  /** declared inputs (legacy — rows created before the parent-output
-   *  inheritance; parsed for backward compat, no longer enforced or mapped) */
-  inputs: z.array(
-    z.object({
-      key: z.string().min(1),
-      label: z.string().optional(),
-      type: z.enum(["string", "number", "boolean", "object", "array"]).optional(),
-      required: z.boolean().optional(),
-    }),
-  ).default([]),
 });
 export type AgentDef = z.infer<typeof AgentDefSchema>;
 

@@ -57,6 +57,30 @@ export abstract class NodeDefinition<I = unknown, O extends Record<string, unkno
   abstract readonly order: number;
   /** graph edges originating at this node: [target, kind] */
   readonly edges: readonly (readonly [string, "next" | "loop"])[] = [];
+  /**
+   * This kind opens a flow: it carries the template's start contract (what the
+   * trigger payload must provide) and holds for the user when its contract has
+   * fields. Engine code keys off this metadata, never the literal key.
+   */
+  readonly isEntry: boolean = false;
+
+  /**
+   * The addressable output fields (the configurator's Contract tab). Built-ins
+   * publish their typed output schema; declarative kinds override with their
+   * config-derived contract — the merged instance config participates, since
+   * instance overrides add fields the catalog def lacks (§5).
+   */
+  outputContract(_def?: Record<string, unknown>): unknown {
+    return z.toJSONSchema(this.outputSchema);
+  }
+
+  /**
+   * A decision kind's choices ({label, description?, condition?}) for the
+   * configurator / decision card — null for non-decision kinds.
+   */
+  choices(_def?: Record<string, unknown>): { label: string; description?: string; condition?: string }[] | null {
+    return null;
+  }
 
   /** strict schema for everything needed to execute a run */
   abstract readonly inputSchema: z.ZodType<I>;

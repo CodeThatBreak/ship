@@ -90,6 +90,13 @@ export class ScriptTemplateNode extends NodeDefinition<Record<string, unknown>, 
     return this.def as unknown as Record<string, unknown>;
   }
 
+  /** The script's output contract: its declared output schema, or free-form. */
+  override outputContract(def: Record<string, unknown> = this.def as unknown as Record<string, unknown>): unknown {
+    return def.output_schema && typeof def.output_schema === "object"
+      ? def.output_schema
+      : { type: "object", description: "Free-form JSON object (declare an output schema to constrain it)" };
+  }
+
   async run(ctx: FlowCtx, rawInput: Record<string, unknown>, config: Record<string, unknown>): Promise<RunOutcome> {
     const cfg = this.runConfig(config);
     return this.runScript(ctx, rawInput, cfg);

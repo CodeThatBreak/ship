@@ -4,6 +4,7 @@ import { agentPortRegistry } from "./ports/agent-runner";
 import { nodeSupport, type FlowCtx } from "./nodes/base";
 import { usageTracker } from "./nodes/base/usage-tracker";
 import { flowEngine } from "./flow";
+import { templateStore } from "./templates";
 import { processSingleton } from "../singleton";
 
 /**
@@ -50,14 +51,17 @@ export class Reconciler {
     if (!flow || flow.status !== "active") return;
 
     const running = rows.all(NodeRow, `SELECT * FROM nodes WHERE flow_id=? AND status='running'`, flowId);
+    // the node waiting on the pipeline event source (role lookup — the CI gate
+    // runs a server-side wait loop; no hardcoded node key)
+    const gateKey = templateStore.waitNodeKey(flowId, "pipeline");
     for (const node of running) {
       try {
         // skip nodes that just started — their run may not be visible yet
         const updatedMs = Date.parse(node.updated_at ?? "");
         if (Number.isFinite(updatedMs) && nowMs - updatedMs < Reconciler.START_GRACE_MS) continue;
-        // the pipeline node runs a server-side wait loop (no agent run row while
+        // the pipeline gate runs a server-side wait loop (no agent run row while
         // polling) and stamps updated_at each iteration — a fresh stamp means alive
-        if (node.node_key === "pipeline" && Number.isFinite(updatedMs) && nowMs - updatedMs < Reconciler.PIPELINE_STAMP_FRESH_MS) continue;
+        if (node.node_key === gateKey && Number.isFinite(updatedMs) && nowMs - updatedMs < Reconciler.PIPELINE_STAMP_FRESH_MS) continue;
         await this.reconcileNode(flow, node);
       } catch (e: unknown) {
         db.emitEvent(flowId, node.id, "error", `reconcile: ${e instanceof Error ? e.message : e}`);

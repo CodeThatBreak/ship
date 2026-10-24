@@ -5,10 +5,10 @@ import type { AgentRunResult } from "../../ports/agent-runner";
 import { NodeDefinition, type FlowCtx, type RunOutcome } from "../base";
 import { templateStore } from "../../templates";
 import { extractJson, validateJsonSchema } from "./json-schema-lite";
-import { AgentDefSchema, type AgentDef, type AgentInputField } from "../declarative-schemas";
+import { AgentDefSchema, type AgentDef } from "../declarative-schemas";
 import { buildFlowContext } from "../../flow-context";
 
-export type { AgentDef, AgentInputField };
+export type { AgentDef };
 
 /**
  * Prompt variables available to `{{expr}}` references in the agent prompt
@@ -93,6 +93,17 @@ export class AgentTemplateNode extends NodeDefinition<Record<string, unknown>, R
     ) as z.ZodType<Record<string, unknown>>;
 
     this.description = tmpl.description ?? undefined;
+  }
+
+  /**
+   * The addressable output fields for the configurator's Contract tab: a
+   * json-output agent publishes its declared output schema; markdown is the
+   * default artifact contract.
+   */
+  override outputContract(def: Record<string, unknown> = this.def): unknown {
+    return def.output === "json" && def.output_schema
+      ? def.output_schema
+      : { type: "object", properties: { markdown: { type: "string", description: "Agent output, saved as an artifact" } }, required: ["markdown"] };
   }
 
   /**
