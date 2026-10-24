@@ -6,11 +6,11 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "./ui/tooltip";
 import type { BranchRow, FlowData } from "../app/flows/[id]/page";
 import { fmtTokens } from "../lib/format";
 
-// top bar for the flow screen: breadcrumb back to the index, ticket identity
+// top bar for the flow screen: breadcrumb back to the index, task identity
 // (jira / summary / status), execution mode + figma links, then cost / MR /
 // run status pinned to the right
 export default function FlowHeader({ flow }: { flow: FlowData }) {
-  const { ticket } = flow;
+  const { task } = flow;
   const mrBranches = (flow.branches ?? []).filter(
     (b: BranchRow) => b.mr_url
   );
@@ -32,24 +32,24 @@ export default function FlowHeader({ flow }: { flow: FlowData }) {
       </Button>
       <Separator orientation="vertical" className="h-4" />
 
-      <a href={ticket.jiraUrl} target="_blank" rel="noreferrer" className="shrink-0">
+      <a href={task.jiraUrl} target="_blank" rel="noreferrer" className="shrink-0">
         <Badge className="bg-blue-500/10 text-blue-400 hover:bg-blue-500/20">
-          {ticket.key}
+          {task.key}
         </Badge>
       </a>
 
       <h1
         className="min-w-0 truncate text-sm font-semibold leading-none"
-        title={ticket.summary}
+        title={task.summary}
       >
-        {ticket.summary}
+        {task.summary}
       </h1>
       <Badge className="shrink-0 bg-amber-500/10 text-amber-400">
-        {ticket.status}
+        {task.status}
       </Badge>
 
-      {ticket.figmaUrls.length > 0 && (
-        <a href={ticket.figmaUrls[0]} target="_blank" rel="noreferrer" className="shrink-0">
+      {task.figmaUrls.length > 0 && (
+        <a href={task.figmaUrls[0]} target="_blank" rel="noreferrer" className="shrink-0">
           <Badge className="bg-violet-500/10 text-violet-400 hover:bg-violet-500/20">
             <Frame data-icon="inline-start" /> Figma
           </Badge>

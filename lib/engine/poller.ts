@@ -13,7 +13,7 @@ import { processSingleton } from "../singleton";
  *
  * Phase 4: the tick also drives the trigger layer — `wait_for: timer` node
  * resumes, and due `schedule` flow triggers (new flow per fire from the
- * template's ticket/repo binding).
+ * template's task/repo binding).
  */
 export class FlowPoller {
   private started = false;
@@ -61,7 +61,7 @@ export class FlowPoller {
 
   /**
    * Fire due `schedule` flow triggers (Phase 4C): one new flow per fire,
-   * created + started by the engine from the template's ticket/repo binding.
+   * created + started by the engine from the template's task/repo binding.
    * The next fire time (`schedule_next_at`, armed on first save by
    * TemplateStore) advances by the interval immediately — a failing fire
    * skips this round and the schedule keeps its beat instead of spinning.

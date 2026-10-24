@@ -144,9 +144,9 @@ export default function TemplateEditorPage() {
   const [edgeDrawer, setEdgeDrawer] = useState<number | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
   // flow-trigger side data: the inbound hook (webhook trigger) + the binding
-  // pickers (webhook/schedule auto-create flows — ticket + repo)
+  // pickers (webhook/schedule auto-create flows — task + repo)
   const [hook, setHook] = useState<{ id: string; secret: string; filter: string | null } | null>(null);
-  const [tickets, setTickets] = useState<any[]>([]);
+  const [tasks, setTasks] = useState<any[]>([]);
   const [repos, setRepos] = useState<any[]>([]);
   /** decision node key → branch choices (label / description / condition) —
    *  drives the canvas's labeled branch handles (attach-only wiring). The
@@ -253,8 +253,8 @@ export default function TemplateEditorPage() {
   }, [draft]);
 
   useEffect(() => {
-    // binding pickers: tickets come from Jira sync, repos from the Settings page
-    fetch("/api/tickets").then((r) => r.json()).then((d) => setTickets(d?.tickets ?? [])).catch(() => {});
+    // binding pickers: tasks come from Jira sync, repos from the Settings page
+    fetch("/api/tasks").then((r) => r.json()).then((d) => setTasks(d?.tasks ?? [])).catch(() => {});
     fetch("/api/repos").then((r) => r.json()).then((d) => setRepos(d?.repos ?? [])).catch(() => {});
   }, []);
 
@@ -703,7 +703,7 @@ export default function TemplateEditorPage() {
               draft={draft}
               readonly={readonly}
               hook={hook}
-              tickets={tickets}
+              tasks={tasks}
               repos={repos}
               onChange={(t) => apply({ ...draft, template: { ...draft.template, ...t } })}
             />
@@ -915,12 +915,12 @@ function EdgeSelect({ value, nodes, disabled, onChange }: { value: string; nodes
 // ── flow settings body (shared manual/webhook/schedule wiring, Phase 4 pickers) ─
 
 function SettingsBody({
-  draft, readonly, hook, tickets, repos, onChange,
+  draft, readonly, hook, tasks, repos, onChange,
 }: {
   draft: Draft;
   readonly: boolean;
   hook: { id: string; secret: string; filter: string | null } | null;
-  tickets: any[];
+  tasks: any[];
   repos: any[];
   onChange: (t: Partial<Draft["template"]>) => void;
 }) {
@@ -957,8 +957,8 @@ function SettingsBody({
         </select>
         <p className="text-[11px] text-muted-foreground m-0">
           {String(trigger.type ?? "manual") === "manual"
-            ? "Started from the home page's ticket picker."
-            : "Auto-creates flows — the template must be bound to a ticket and a repo (below)."}
+            ? "Started from the home page's task picker."
+            : "Auto-creates flows — the template must be bound to a task and a repo (below)."}
         </p>
       </div>
 
@@ -966,14 +966,14 @@ function SettingsBody({
         <div className="grid gap-3">
           <div className="grid grid-cols-2 gap-3">
             <div className="grid gap-1">
-              <label className="text-xs text-muted-foreground">Bound ticket</label>
+              <label className="text-xs text-muted-foreground">Bound task</label>
               <select
                 value={String(trigger.ticket_id ?? "")}
                 onChange={(e) => setTrigger({ ticket_id: e.target.value || undefined })}
                 className="bg-card text-foreground border border-border rounded-lg text-[13px] px-3 py-2"
               >
-                <option value="">— pick a ticket —</option>
-                {tickets.map((t) => <option key={t.id} value={t.id}>{t.key} — {t.summary}</option>)}
+                <option value="">— pick a task —</option>
+                {tasks.map((t) => <option key={t.id} value={t.id}>{t.key} — {t.summary}</option>)}
               </select>
             </div>
             <div className="grid gap-1">

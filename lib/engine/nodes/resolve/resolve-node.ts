@@ -104,7 +104,7 @@ export class ResolveNode extends NodeDefinition<ResolveInput, ResolveOutput> {
       promptOverride: input.prompt,
       agent: {
         mode: "agent",
-        name: `${label} ${ctx.ticket.key}`,
+        name: `${label} ${ctx.task.key}`,
         startingRef: mrBranch ?? undefined,
         model: input.model,
       },

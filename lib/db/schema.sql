@@ -1,7 +1,9 @@
 PRAGMA journal_mode = WAL;
 
-CREATE TABLE IF NOT EXISTS tickets (
-  id            TEXT PRIMARY KEY,           -- jira issue id
+CREATE TABLE IF NOT EXISTS tasks (
+  id            TEXT PRIMARY KEY,           -- provider issue id
+  type          TEXT NOT NULL DEFAULT 'jira',  -- task type discriminator (provider kind)
+  fields        TEXT NOT NULL DEFAULT '{}', -- provider-specific payload (JSON)
   key           TEXT UNIQUE NOT NULL,       -- e.g. PROJ-123
   summary       TEXT NOT NULL,
   description   TEXT,
@@ -10,16 +12,16 @@ CREATE TABLE IF NOT EXISTS tickets (
   priority      TEXT,
   prd_text      TEXT,                       -- extracted PRD body
   figma_urls    TEXT,                       -- JSON array of figma links
-  repo_url      TEXT,                       -- gitlab repo this ticket maps to
-  parent_key    TEXT,                       -- jira parent issue key (sub-task nesting)
+  repo_url      TEXT,                       -- gitlab repo this task maps to
+  parent_key    TEXT,                       -- parent issue key (sub-task nesting)
   jira_url      TEXT,
-  raw           TEXT,                       -- raw jira payload
+  raw           TEXT,                       -- raw provider payload
   synced_at     TEXT
 );
 
 CREATE TABLE IF NOT EXISTS flows (
   id            TEXT PRIMARY KEY,
-  ticket_id     TEXT NOT NULL REFERENCES tickets(id),
+  task_id       TEXT NOT NULL REFERENCES tasks(id),
   name          TEXT NOT NULL,
   status        TEXT NOT NULL DEFAULT 'active',  -- active | done | failed
   mr_url        TEXT,

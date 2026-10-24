@@ -387,7 +387,7 @@ export class PipelineNode extends NodeDefinition<PipelineInput, PipelineOutput> 
         this.runner.startAgent(ctx, {
           prompt,
           mode: "agent",
-          name: `${label} fix ${ctx.ticket.key}`,
+          name: `${label} fix ${ctx.task.key}`,
           startingRef: mrBranch ?? undefined,
           model: input.model,
         }),

@@ -31,6 +31,10 @@ export class Database {
     fs.mkdirSync(path.dirname(file), { recursive: true });
     this.conn = new SqliteDatabase(file);
     this.conn.pragma("journal_mode = WAL");
+    // The tickets→tasks table rename must run BEFORE schema.sql — its
+    // CREATE TABLE IF NOT EXISTS tasks would otherwise create a fresh empty
+    // `tasks` table on existing DBs and shadow the old `tickets` data.
+    this.renameTicketsToTasks(this.conn);
     const schema = fs.readFileSync(
       path.join(process.cwd(), "lib/db/schema.sql"),
       "utf8"
@@ -40,10 +44,32 @@ export class Database {
     return this.conn;
   }
 
+  /**
+   * Table rename part of the tickets→tasks migration (idempotent): renames
+   * `tickets` to `tasks` when only the old table exists (existing DBs). On a
+   * fresh DB neither exists and schema.sql creates `tasks` directly. SQLite
+   * rewrites REFERENCES clauses on RENAME, so flows' FK follows along — the
+   * column-level migration in migrate() verifies that below.
+   */
+  private renameTicketsToTasks(d: SqliteDatabase.Database): void {
+    const hasTable = (t: string) =>
+      !!d.prepare(`SELECT 1 FROM sqlite_master WHERE type='table' AND name=?`).get(t);
+    if (!hasTable("tasks") && hasTable("tickets")) {
+      d.exec(`ALTER TABLE tickets RENAME TO tasks`);
+    }
+  }
+
   /** Add columns introduced after the initial schema (idempotent). */
   private migrate(d: SqliteDatabase.Database): void {
     const cols = (table: string) =>
       new Set(d.prepare(`PRAGMA table_info(${table})`).all().map((c: any) => c.name));
+    // ── Tickets → Tasks (task-model rename, no behavior change) ─────────────
+    // `tickets` is now `tasks` (a `type` discriminator + provider-specific
+    // `fields` JSON are added; common columns stay as-is for now). SQLite
+    // rewrites REFERENCES clauses on RENAME, so flows' FK follows the table
+    // rename — verified below, with a defensive flows-table recreation when
+    // an engine leaves a dangling FK behind.
+    this.migrateTicketsToTasks(d);
     const flowsCols = cols("flows");
     if (!flowsCols.has("execution_mode")) {
       d.exec(`ALTER TABLE flows ADD COLUMN execution_mode TEXT NOT NULL DEFAULT 'cloud'`);
@@ -113,11 +139,6 @@ export class Database {
         }
       }
     }
-    // Tickets: parent issue key for sub-task hierarchy on the homepage
-    const ticketCols = cols("tickets");
-    if (!ticketCols.has("parent_key")) {
-      d.exec(`ALTER TABLE tickets ADD COLUMN parent_key TEXT`);
-    }
     // ── Phase 1: custom flows — template layer ─────────────────────────────
     if (!nodeCols.has("label")) {
       d.exec(`ALTER TABLE nodes ADD COLUMN label TEXT`);
@@ -144,6 +165,58 @@ export class Database {
     // Legacy flows predate templates — bind them to the seeded SDLC template so
     // the engine's template-derived roles (gate chain, graph) apply unchanged.
     d.exec(`UPDATE flows SET template_id='tpl_sdlc_loop' WHERE template_id IS NULL`);
+  }
+
+  /**
+   * Column part of the tickets→tasks migration (task model, Phase 1). Idempotent:
+   *  - new `type` / `fields` columns on tasks (the table rename itself runs
+   *    pre-schema — see renameTicketsToTasks)
+   *  - `flows.ticket_id` → `flows.task_id`, FK verified to resolve to
+   *    tasks(id) — the table is recreated (data copied) when the reference
+   *    dangles on an old `tickets` name
+   */
+  private migrateTicketsToTasks(d: SqliteDatabase.Database): void {
+    const hasTable = (t: string) =>
+      !!d.prepare(`SELECT 1 FROM sqlite_master WHERE type='table' AND name=?`).get(t);
+    if (hasTable("tasks")) {
+      const taskCols = new Set(
+        d.prepare(`PRAGMA table_info(tasks)`).all().map((c: any) => c.name)
+      );
+      if (!taskCols.has("type")) {
+        d.exec(`ALTER TABLE tasks ADD COLUMN type TEXT NOT NULL DEFAULT 'jira'`);
+      }
+      if (!taskCols.has("fields")) {
+        d.exec(`ALTER TABLE tasks ADD COLUMN fields TEXT NOT NULL DEFAULT '{}'`); // provider-specific JSON
+      }
+    }
+    // flows.ticket_id → flows.task_id
+    const flowCols = new Set(
+      d.prepare(`PRAGMA table_info(flows)`).all().map((c: any) => c.name)
+    );
+    if (!flowCols.has("task_id") && flowCols.has("ticket_id")) {
+      d.exec(`ALTER TABLE flows RENAME COLUMN ticket_id TO task_id`);
+    }
+    // FK integrity: flows.task_id must reference tasks(id). The rename rewrites
+    // the REFERENCES target; recreate flows (copying every column) if it dangles.
+    const fks = d.prepare(`PRAGMA foreign_key_list(flows)`).all() as
+      { from: string; table: string; to: string }[];
+    const taskFk = fks.find((f) => f.from === "task_id");
+    if (!taskFk || taskFk.table !== "tasks") {
+      const info = d.prepare(`PRAGMA table_info(flows)`).all() as any[];
+      const colDef = (c: any) =>
+        `${c.name} ${c.type}${c.notnull ? " NOT NULL" : ""}`
+        + (c.dflt_value != null ? ` DEFAULT ${c.dflt_value}` : "")
+        + (c.pk ? " PRIMARY KEY" : "");
+      const colNames = info.map((c) => c.name).join(", ");
+      const toCol = taskFk?.to ?? "id";
+      d.exec(
+        `CREATE TABLE flows_new (${info.map(colDef).join(", ")}, ` +
+        `FOREIGN KEY (task_id) REFERENCES tasks(${toCol}))`
+      );
+      d.exec(`INSERT INTO flows_new (${colNames}) SELECT ${colNames} FROM flows`);
+      d.exec(`DROP TABLE flows`);
+      d.exec(`ALTER TABLE flows_new RENAME TO flows`);
+    }
   }
 
   /**

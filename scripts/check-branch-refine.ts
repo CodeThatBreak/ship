@@ -90,7 +90,7 @@ const vars = {
   branch: "billing", scope: "invoices", files: "b.ts", dependsOn: "auth",
   dependsOnSummaries: "- `auth` (Auth): logins", subPlanPrompt: "do billing stuff",
   currentSteps: "- s2: Billing table (1 files)", feedback: "FEEDBACK",
-  context: "## Ticket context\nJira DEMO-142",
+  context: "## Task context\nJira DEMO-142",
 };
 const full = prompts.resolve("plan_subplan_refine", {}, vars);
 console.assert(!/\{\{(\w+)\}\}/.test(full), "no unresolved placeholders in full prompt");

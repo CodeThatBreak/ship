@@ -655,8 +655,9 @@ export class TemplateStore {
       if (typeof rec.interval_min === "number" && rec.interval_min > 0) out.interval_min = rec.interval_min;
     }
     if (type === "webhook" && typeof rec.filter === "string") out.filter = rec.filter;
-    // webhook/schedule auto-create flows — the template binds which ticket and
-    // repo those flows attach to (flows require both)
+    // webhook/schedule auto-create flows — the template binds which task and
+    // repo those flows attach to (flows require both). `ticket_id` is the
+    // stored trigger JSON key — Phase 3 re-shapes it into a declared task type.
     if (type === "webhook" || type === "schedule") {
       if (typeof rec.ticket_id === "string" && rec.ticket_id.trim()) out.ticket_id = rec.ticket_id.trim();
       if (typeof rec.repo_id === "string" && rec.repo_id.trim()) out.repo_id = rec.repo_id.trim();

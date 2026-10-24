@@ -65,10 +65,12 @@ export class ReviewNode extends NodeDefinition<ReviewInput, ReviewOutput> {
 
     const instructions = input.instructions ? `Extra review focus from the developer: ${input.instructions}` : "";
     const label = input.branchName ? `review (${input.branchName})` : "review";
+    // ticket_key/ticket_summary/ticket_prd are the PromptLibrary template
+    // variables ({{ticket_key}} etc.) — legacy names, kept verbatim
     const reviewCtx = {
-      ticket_key: ctx.ticket.key,
-      ticket_summary: ctx.ticket.summary,
-      ticket_prd: ctx.ticket.prdText?.slice(0, 4000) ?? "",
+      ticket_key: ctx.task.key,
+      ticket_summary: ctx.task.summary,
+      ticket_prd: ctx.task.prdText?.slice(0, 4000) ?? "",
     };
 
     const prompt = (input.prompt
@@ -85,7 +87,7 @@ export class ReviewNode extends NodeDefinition<ReviewInput, ReviewOutput> {
       promptOverride: input.prompt,
       agent: {
         mode: "agent",
-        name: `${label} ${ctx.ticket.key}`,
+        name: `${label} ${ctx.task.key}`,
         startingRef: mrBranch ?? undefined,
         model: input.model,
       },

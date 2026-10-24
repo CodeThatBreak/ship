@@ -5,7 +5,8 @@ import { db } from "../db";
  * The flow context map (§3 input mapping): the single variable universe every
  * JSONata expression and `{{...}}` template evaluates against.
  *
- *   ticket  { key, summary, description, prd }
+ *   task    { key, summary, description, prd }   — `ticket` is the same
+ *                                                  object (legacy alias, {{ticket.*}})
  *   repo    { cloud_url, local_path }
  *   flow    { mr_url, mr_branch }
  *   trigger { payload }            — the payload that started the flow (Phase 4 webhook / simulated)
@@ -16,6 +17,8 @@ import { db } from "../db";
  * into rows, inputs, or events.
  */
 export interface FlowContextMap extends Record<string, unknown> {
+  task: Record<string, unknown>;
+  /** deprecated alias of `task` (same object) — keeps old {{ticket.*}} templates working */
   ticket: Record<string, unknown>;
   repo: Record<string, unknown>;
   flow: Record<string, unknown>;
@@ -34,13 +37,15 @@ export function buildFlowContext(ctx: FlowCtx): FlowContextMap {
   }
   let payload: unknown = ctx.flow.trigger_payload ?? null;
   if (typeof payload === "string") payload = parseJsonObject(payload);
+  const task = {
+    key: ctx.task.key,
+    summary: ctx.task.summary,
+    description: ctx.task.description ?? "",
+    prd: ctx.task.prdText ?? "",
+  };
   return {
-    ticket: {
-      key: ctx.ticket.key,
-      summary: ctx.ticket.summary,
-      description: ctx.ticket.description ?? "",
-      prd: ctx.ticket.prdText ?? "",
-    },
+    task,
+    ticket: task, // legacy alias — same object, dropped when {{ticket.*}} retires
     repo: {
       cloud_url: ctx.repo?.cloud_url ?? ctx.flow.repo_url ?? "",
       local_path: ctx.repo?.local_path ?? "",

@@ -171,7 +171,7 @@ export class AgentTemplateNode extends NodeDefinition<Record<string, unknown>, R
       promptOverride: promptBody || null,
       agent: {
         mode: cfg.mode,
-        name: `${this.label} ${ctx.ticket.key}`,
+        name: `${this.label} ${ctx.task.key}`,
         model,
         startingRef: ctx.flow.mr_branch ?? undefined,
       },
@@ -189,7 +189,7 @@ export class AgentTemplateNode extends NodeDefinition<Record<string, unknown>, R
       prompt: rendered,
       agent: {
         mode: cfg.mode,
-        name: `${this.label} ${ctx.ticket.key}`,
+        name: `${this.label} ${ctx.task.key}`,
         model: model ?? cfg.model ?? null,
         startingRef: ctx.flow.mr_branch ?? undefined,
         followUpOn: this.support.lastAgentId(this.node(ctx).id),

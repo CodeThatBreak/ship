@@ -6,7 +6,7 @@
  *
  * Usage:
  *   node scripts/seed-custom-flow.mjs           # seed (idempotent: resets + recreates)
- *   node scripts/seed-custom-flow.mjs --reset   # remove the demo flows + ticket only
+ *   node scripts/seed-custom-flow.mjs --reset   # remove the demo flows + task only
  *
  * What you get (open http://localhost:3000 → the custom demo flows on DEMO-201):
  *   - flow #1: release_notes done (markdown artifact) → ship_decision chose
@@ -28,7 +28,7 @@ const DB_FILE = path.resolve(root, process.env.DATABASE_PATH ?? "./data/devflow.
 const TEMPLATE_ID = "tpl_release_notify";
 const FLOW_NAME_DONE = "DEMO custom: release notes shipped";
 const FLOW_NAME_SKIP = "DEMO custom: notes dropped";
-const TICKET_ID = "demo-201";
+const TASK_ID = "demo-201";
 const RESET = process.argv.includes("--reset");
 
 fs.mkdirSync(path.dirname(DB_FILE), { recursive: true });
@@ -69,7 +69,7 @@ function reset() {
     db.prepare(`DELETE FROM flows WHERE id=?`).run(f.id);
     console.log(`removed demo flow ${f.id}`);
   }
-  db.prepare(`DELETE FROM tickets WHERE id=?`).run(TICKET_ID);
+  db.prepare(`DELETE FROM tasks WHERE id=?`).run(TASK_ID);
 }
 
 if (RESET) {
@@ -80,25 +80,25 @@ if (RESET) {
 
 reset();
 
-// ── ticket ───────────────────────────────────────────────────────────────────
+// ── task ───────────────────────────────────────────────────────────────────
 const repo = db.prepare(`SELECT id, cloud_url FROM repos ORDER BY created_at LIMIT 1`).get();
-db.prepare(`INSERT INTO tickets (id,key,summary,description,status,issue_type,priority,prd_text,figma_urls,repo_url,jira_url,raw,synced_at)
+db.prepare(`INSERT INTO tasks (id,key,summary,description,status,issue_type,priority,prd_text,figma_urls,repo_url,jira_url,raw,synced_at)
   VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`)
-  .run(TICKET_ID, "DEMO-201", "Custom-flow demo — webhook retry release notes",
-    "Demo ticket for the custom-flow seed: release notes drafted, decided, notified.",
+  .run(TASK_ID, "DEMO-201", "Custom-flow demo — webhook retry release notes",
+    "Demo task for the custom-flow seed: release notes drafted, decided, notified.",
     "Done", "Story", "Medium",
     "See the release notes artifacts on the demo flows.", JSON.stringify([]),
     repo?.cloud_url ?? null, "https://jira.example.com/browse/DEMO-201", JSON.stringify({ demo: true }), now());
-console.log("ticket DEMO-201 inserted");
+console.log("task DEMO-201 inserted");
 
 // ── flow factory (mirrors FlowEngine.create()'s node snapshot; flows.status
 //    'done' — the demo flow is complete, so nothing blocks template edits) ────
 function makeFlow(name, min) {
   const flowId = uid("flow_");
   const ts = minsAgo(min);
-  db.prepare(`INSERT INTO flows (id,ticket_id,name,status,repo_url,repo_id,execution_mode,template_id,trigger_payload,created_at,updated_at)
+  db.prepare(`INSERT INTO flows (id,task_id,name,status,repo_url,repo_id,execution_mode,template_id,trigger_payload,created_at,updated_at)
     VALUES (?,?,?,?,?,?,?,?,?,?,?)`)
-    .run(flowId, TICKET_ID, name, "done",
+    .run(flowId, TASK_ID, name, "done",
       repo?.cloud_url ?? "https://gitlab.example.com/acme/webapp", repo?.id ?? null, "cloud",
       TEMPLATE_ID, JSON.stringify({}), ts, ts);
   const nodeIds = {};

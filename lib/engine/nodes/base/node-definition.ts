@@ -163,7 +163,7 @@ export abstract class NodeDefinition<I = unknown, O extends Record<string, unkno
         this.runner.startAgent(ctx, {
           prompt,
           mode: "plan",
-          name: `${this.label} chat ${ctx.ticket.key}`,
+          name: `${this.label} chat ${ctx.task.key}`,
           followUpOn: agentId,
         }),
       `${this.label} chat`,

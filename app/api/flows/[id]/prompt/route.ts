@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { db } from "../../../../../lib/db";
-import { FlowRow, Ticket, rows } from "../../../../../lib/db/rows";
+import { FlowRow, Task, rows } from "../../../../../lib/db/rows";
 import { prompts } from "../../../../../lib/engine/prompts";
 import { flowCtxHelper, nodeSupport, type FlowCtx } from "../../../../../lib/engine/nodes/base";
 import { NODE_KEYS } from "../../../../../lib/engine/nodes/keys";
@@ -25,10 +25,10 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
   if (branchParam && nodeKey === NODE_KEYS.PLAN) {
     const flow = rows.get(FlowRow, `SELECT * FROM flows WHERE id=?`, id);
     if (!flow) return NextResponse.json({ error: "flow not found" }, { status: 404 });
-    const ticket = rows.get(Ticket, `SELECT * FROM tickets WHERE id=?`, flow.ticket_id);
-    if (!ticket) return NextResponse.json({ error: "ticket not found" }, { status: 404 });
+    const task = rows.get(Task, `SELECT * FROM tasks WHERE id=?`, flow.task_id);
+    if (!task) return NextResponse.json({ error: "task not found" }, { status: 404 });
     const repo = flow.repo_id ? db.repoById(flow.repo_id) ?? null : null;
-    const ctx: FlowCtx = { flow, ticket, repo };
+    const ctx: FlowCtx = { flow, task, repo };
     const preview = previewSubPlanPrompt(ctx, branchParam, contextBlocks);
     if (!preview) {
       return NextResponse.json(
@@ -57,15 +57,15 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
 
   const flow = rows.get(FlowRow, `SELECT * FROM flows WHERE id=?`, id);
   if (!flow) return NextResponse.json({ error: "flow not found" }, { status: 404 });
-  const ticket = rows.get(Ticket, `SELECT * FROM tickets WHERE id=?`, flow.ticket_id);
-  if (!ticket) return NextResponse.json({ error: "ticket not found" }, { status: 404 });
+  const task = rows.get(Task, `SELECT * FROM tasks WHERE id=?`, flow.task_id);
+  if (!task) return NextResponse.json({ error: "task not found" }, { status: 404 });
   const repo = flow.repo_id ? db.repoById(flow.repo_id) ?? null : null;
   const node = nodeSupport.nodeByKey(id, nodeKey);
 
-  const ctx: FlowCtx = { flow, ticket, repo };
+  const ctx: FlowCtx = { flow, task, repo };
   const mode = flow.execution_mode === "local" ? "local" : "cloud";
   const branch = flow.mr_branch ?? flowCtxHelper.buildBranch(ctx);
-  const ticketCtx = flowCtxHelper.ticketContext(ctx);
+  const taskCtx = flowCtxHelper.taskContext(ctx);
 
   // per-node prompt override wins — shown verbatim (the user owns it entirely)
   if (node?.prompt_override) {
@@ -93,9 +93,9 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
       const hasAgent = Boolean(node?.agent_id);
       if (feedback && hasAgent) {
         templateKey = "plan_refine";
-        prompt = prompts.resolve("plan_refine", { ticket: ticketCtx }, { feedback });
+        prompt = prompts.resolve("plan_refine", { ticket: taskCtx }, { feedback });
       } else {
-        prompt = prompts.renderUserTemplate(NODE_KEYS.PLAN, { ticket: ticketCtx });
+        prompt = prompts.renderUserTemplate(NODE_KEYS.PLAN, { ticket: taskCtx });
       }
       break;
     }
@@ -108,7 +108,7 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
         ? `Implement the following approved plan for a Jira ticket. First create and check out a new git branch named "${branch}" (from the repo's default branch), then make the code changes, commit them, and push the branch to origin. Do NOT open a merge request.`
         : `Implement the following approved plan for a Jira ticket. Make the code changes, commit them, and push to a feature branch. Do NOT open a merge request yet.`;
       prompt = prompts.resolve(NODE_KEYS.BUILD,
-        { ticket: ticketCtx, branch, mode },
+        { ticket: taskCtx, branch, mode },
         { instructions: instr, plan: planContent },
       );
       break;

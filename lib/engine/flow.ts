@@ -6,7 +6,7 @@ import {
   NodeRow,
   PlanStepRow,
   RunRow,
-  Ticket,
+  Task,
   rows,
 } from "../db/rows";
 import { hostOf } from "../integrations/gitlab";
@@ -68,9 +68,9 @@ class MrCreationFailed extends Error {
 export class FlowEngine {
   // ── flow creation / read ─────────────────────────────────────────────────
 
-  create(ticketId: string, repoUrl: string, name?: string, opts: CreateFlowOptions = {}): string {
-    const ticket = rows.get(Ticket, `SELECT * FROM tickets WHERE id=?`, ticketId);
-    if (!ticket) throw new Error("ticket not found — sync Jira first");
+  create(taskId: string, repoUrl: string, name?: string, opts: CreateFlowOptions = {}): string {
+    const task = rows.get(Task, `SELECT * FROM tasks WHERE id=?`, taskId);
+    if (!task) throw new Error("task not found — import tasks first");
     const repo = opts.repoId ? db.repoById(opts.repoId) : undefined;
     if (repo) repoUrl = repo.cloud_url;
     const executionMode = opts.executionMode === "local" ? "local" : "cloud";
@@ -86,9 +86,9 @@ export class FlowEngine {
     const id = db.uid("flow_");
     const ts = db.now();
     db.run(
-      `INSERT INTO flows (id,ticket_id,name,status,repo_url,repo_id,execution_mode,template_id,trigger_payload,created_at,updated_at)
+      `INSERT INTO flows (id,task_id,name,status,repo_url,repo_id,execution_mode,template_id,trigger_payload,created_at,updated_at)
        VALUES (?,?,?,?,?,?,?,?,?,?,?)`,
-      id, ticketId, name ?? `${ticket.key} flow`, "active", repoUrl, repo?.id ?? null, executionMode,
+      id, taskId, name ?? `${task.key} flow`, "active", repoUrl, repo?.id ?? null, executionMode,
       graph.templateId, opts.triggerPayload != null ? JSON.stringify(opts.triggerPayload) : null, ts, ts
     );
     // one node row per template instance spec (template order), config merged
@@ -119,7 +119,7 @@ export class FlowEngine {
   get(id: string) {
     const flow = rows.get(FlowRow, `SELECT * FROM flows WHERE id=?`, id);
     if (!flow) return null;
-    const ticket = rows.get(Ticket, `SELECT * FROM tickets WHERE id=?`, flow.ticket_id);
+    const task = rows.get(Task, `SELECT * FROM tasks WHERE id=?`, flow.task_id);
 
     // per-run cost/usage rows, rolled up per node + flow total
     const runs = rows.all(RunRow,
@@ -163,7 +163,7 @@ export class FlowEngine {
       branches,
       planSteps: steps,
       resolveScheduleAt: this.resolveScheduleAt(id),
-      ticket: ticket ?? null,
+      task: task ?? null,
       hooks: hookStore.hooksForFlow(id),
       nodes: rows.all(NodeRow, `SELECT * FROM nodes WHERE flow_id=?`, id)
         .sort((a, b) => order.indexOf(a.node_key) - order.indexOf(b.node_key))
@@ -185,8 +185,8 @@ export class FlowEngine {
 
   list() {
     return db.all<Record<string, unknown>>(`
-      SELECT f.*, t.key AS ticket_key, t.summary AS ticket_summary
-      FROM flows f JOIN tickets t ON t.id=f.ticket_id
+      SELECT f.*, t.key AS task_key, t.summary AS task_summary
+      FROM flows f JOIN tasks t ON t.id=f.task_id
       ORDER BY f.updated_at DESC`);
   }
 
@@ -195,10 +195,10 @@ export class FlowEngine {
   ctx(flowId: string): FlowCtx {
     const flow = rows.get(FlowRow, `SELECT * FROM flows WHERE id=?`, flowId);
     if (!flow) throw new Error("flow not found");
-    const ticket = rows.get(Ticket, `SELECT * FROM tickets WHERE id=?`, flow.ticket_id);
-    if (!ticket) throw new Error("ticket not found");
+    const task = rows.get(Task, `SELECT * FROM tasks WHERE id=?`, flow.task_id);
+    if (!task) throw new Error("task not found");
     const repo = flow.repo_id ? db.repoById(flow.repo_id) ?? null : null;
-    return { flow, ticket, repo };
+    return { flow, task, repo };
   }
 
   private touch(flowId: string): void {
@@ -1340,7 +1340,7 @@ export class FlowEngine {
 
   /**
    * Create and start a flow from a template's flow trigger (webhook delivery
-   * / due schedule). The template binds which ticket and repo the auto-created
+   * / due schedule). The template binds which task and repo the auto-created
    * flows attach to (flows require both — bound in the template editor's
    * trigger section). Execution mode follows the repo: local when it has a
    * local path, cloud otherwise.
@@ -1349,15 +1349,17 @@ export class FlowEngine {
     const t = templateStore.flowTemplate(templateId);
     if (!t) throw new Error("template not found");
     const trigger = t.trigger as Record<string, unknown>;
-    const ticketId = typeof trigger.ticket_id === "string" ? trigger.ticket_id : "";
+    // trigger.ticket_id is the stored flow-trigger JSON key (Phase 3 re-shapes
+    // it into a declared task type)
+    const taskId = typeof trigger.ticket_id === "string" ? trigger.ticket_id : "";
     const repoId = typeof trigger.repo_id === "string" ? trigger.repo_id : "";
-    if (!ticketId || !repoId) {
+    if (!taskId || !repoId) {
       throw new Error(
-        `template "${t.name}" has no ticket/repo binding — webhook and schedule triggers auto-create ` +
+        `template "${t.name}" has no task/repo binding — webhook and schedule triggers auto-create ` +
         `flows, so bind them in the template editor's flow-trigger section first`);
     }
-    const ticket = rows.get(Ticket, `SELECT * FROM tickets WHERE id=?`, ticketId);
-    if (!ticket) throw new Error("the template's bound ticket no longer exists — rebind in the template editor");
+    const task = rows.get(Task, `SELECT * FROM tasks WHERE id=?`, taskId);
+    if (!task) throw new Error("the template's bound task no longer exists — rebind in the template editor");
     const repo = db.repoById(repoId);
     if (!repo) throw new Error("the template's bound repo no longer exists — rebind in the template editor");
     // the start node's contract defines what the trigger must provide (§5):
@@ -1371,7 +1373,7 @@ export class FlowEngine {
         throw new Error(`payload doesn't match the "${t.name}" start contract — ${v.error}`);
       }
     }
-    const id = this.create(ticketId, repo.cloud_url, `${t.name} · ${new Date().toISOString()}`, {
+    const id = this.create(taskId, repo.cloud_url, `${t.name} · ${new Date().toISOString()}`, {
       repoId,
       executionMode: repo.local_path ? "local" : "cloud",
       templateId,

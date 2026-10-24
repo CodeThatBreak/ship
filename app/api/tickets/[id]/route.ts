@@ -1,14 +1,18 @@
-import { NextResponse } from "next/server";
-import { db } from "../../../../lib/db";
+import { updateTask } from "../../tasks/handlers";
 
+/**
+ * DEPRECATED: moved to /api/tasks. Kept as a thin shim for external scripts —
+ * dropped in the Phase 4 cleanup.
+ */
 export const dynamic = "force-dynamic";
 
-/** Update ticket fields we manage locally (e.g. repo mapping). */
 export async function PATCH(req: Request, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  const body = await req.json();
-  if (body.repoUrl !== undefined) {
-    db.run(`UPDATE tickets SET repo_url=? WHERE id=?`, body.repoUrl, id);
-  }
-  return NextResponse.json({ ok: true, updated_at: db.now() });
+  const res = await updateTask(req, id);
+  res.headers.set("Deprecation", "true");
+  res.headers.set(
+    "Warning",
+    `299 - "endpoint moved to /api/tasks — /api/tickets will be dropped"`
+  );
+  return res;
 }

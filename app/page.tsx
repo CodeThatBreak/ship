@@ -39,7 +39,7 @@ function hostOf(url: string): string {
   }
 }
 
-type TicketT = {
+type TaskT = {
   id: string;
   key: string;
   summary: string;
@@ -53,11 +53,11 @@ type TicketT = {
 };
 type Flow = {
   id: string;
-  ticket_id: string;
+  task_id: string;
   name: string;
   status: string;
-  ticket_key: string;
-  ticket_summary: string;
+  task_key: string;
+  task_summary: string;
   mr_url?: string;
   execution_mode?: string;
 };
@@ -127,16 +127,16 @@ function priorityStyle(priority: string): string {
 // ── reusable bits ──────────────────────────────────────────────────────────
 
 function TypeChip({
-  ticket,
+  task,
   className,
 }: {
-  ticket: TicketT;
+  task: TaskT;
   className?: string;
 }) {
-  const { icon, className: c } = typeStyle(ticket.issueType);
+  const { icon, className: c } = typeStyle(task.issueType);
   return (
     <a
-      href={ticket.jiraUrl}
+      href={task.jiraUrl}
       target="_blank"
       className={cn(
         "inline-flex h-7 min-w-7 items-center justify-center gap-1 rounded-lg px-2 text-[12px] font-medium transition-colors hover:brightness-125",
@@ -145,7 +145,7 @@ function TypeChip({
       )}
     >
       {icon}
-      <span className="font-mono">{ticket.key}</span>
+      <span className="font-mono">{task.key}</span>
       <ExternalLink size={9} className="opacity-50" />
     </a>
   );
@@ -156,7 +156,7 @@ function StatusBadge({ status }: { status: string }) {
   return <Badge className={className}>{status || "—"}</Badge>;
 }
 
-/** Repo + execution-mode picks and the build action, for one ticket. */
+/** Repo + execution-mode picks and the build action, for one task. */
 function BuildControls({
   repos,
   templates,
@@ -230,35 +230,35 @@ function BuildControls({
         </option>
       </select>
       <Button size={compact ? "sm" : "default"} onClick={onBuild}>
-        <Play size={13} /> Build {compact ? "" : "ticket"}
+        <Play size={13} /> Build {compact ? "" : "task"}
       </Button>
     </div>
   );
 }
 
 export default function Home() {
-  const [tickets, setTickets] = useState<TicketT[]>([]);
+  const [tasks, setTasks] = useState<TaskT[]>([]);
   const [flows, setFlows] = useState<Flow[]>([]);
   const [repos, setRepos] = useState<Repo[]>([]);
   const [jiraConfigured, setJiraConfigured] = useState(true);
   const [defaultMode, setDefaultMode] = useState<"cloud" | "local">("cloud");
   const [syncing, setSyncing] = useState(false);
-  const [repoFor, setRepoFor] = useState<Record<string, string>>({}); // ticketId -> repoId
+  const [repoFor, setRepoFor] = useState<Record<string, string>>({}); // taskId -> repoId
   const [modeFor, setModeFor] = useState<Record<string, "cloud" | "local">>({});
   const [templates, setTemplates] = useState<{ id: string; name: string }[]>([]);
-  const [templateFor, setTemplateFor] = useState<Record<string, string>>({}); // ticketId -> templateId
+  const [templateFor, setTemplateFor] = useState<Record<string, string>>({}); // taskId -> templateId
   const [defaultTemplateId, setDefaultTemplateId] = useState("tpl_sdlc_loop");
   const router = useRouter();
 
   const load = useCallback(async () => {
     const [t, f, r, s, tpl] = await Promise.all([
-      fetch("/api/tickets").then((r) => r.json()),
+      fetch("/api/tasks").then((r) => r.json()),
       fetch("/api/flows").then((r) => r.json()),
       fetch("/api/repos").then((r) => r.json()),
       fetch("/api/settings").then((r) => r.json()),
       fetch("/api/templates").then((r) => r.json()).catch(() => null),
     ]);
-    setTickets(t.tickets ?? []);
+    setTasks(t.tasks ?? []);
     setJiraConfigured(t.jiraConfigured);
     setFlows(f.flows ?? []);
     const repoList: Repo[] = r.repos ?? [];
@@ -271,15 +271,15 @@ export default function Home() {
     if (!tplList.some((x) => x.id === defaultTemplateId) && tplList.length) {
       setDefaultTemplateId(tplList.find((x) => x.id === "tpl_sdlc_loop")?.id ?? tplList[0].id);
     }
-    // preselect repo matching each ticket's stored repo_url
+    // preselect repo matching each task's stored repo_url
     const sel: Record<string, string> = {};
-    for (const ticket of t.tickets ?? []) {
+    for (const task of t.tasks ?? []) {
       const match = repoList.find(
         (rp) =>
           rp.cloud_url.replace(/\.git$/, "") ===
-          (ticket.repo_url ?? "").replace(/\.git$/, ""),
+          (task.repo_url ?? "").replace(/\.git$/, ""),
       );
-      if (match) sel[ticket.id] = match.id;
+      if (match) sel[task.id] = match.id;
     }
     setRepoFor((prev) => ({ ...sel, ...prev }));
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -291,18 +291,18 @@ export default function Home() {
 
   const sync = async () => {
     setSyncing(true);
-    await fetch("/api/tickets", { method: "POST" });
+    await fetch("/api/tasks", { method: "POST" });
     await load();
     setSyncing(false);
   };
 
-  const startFlow = async (ticket: TicketT) => {
-    const repoId = repoFor[ticket.id];
+  const startFlow = async (task: TaskT) => {
+    const repoId = repoFor[task.id];
     const repo = repos.find((r) => r.id === repoId);
-    const executionMode = modeFor[ticket.id] ?? defaultMode;
+    const executionMode = modeFor[task.id] ?? defaultMode;
     if (!repo) {
       alert(
-        "Pick a repo for this ticket first (register repos on the Settings page).",
+        "Pick a repo for this task first (register repos on the Settings page).",
       );
       return;
     }
@@ -312,7 +312,7 @@ export default function Home() {
       );
       return;
     }
-    await fetch(`/api/tickets/${ticket.id}`, {
+    await fetch(`/api/tasks/${task.id}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ repoUrl: repo.cloud_url }),
@@ -321,10 +321,10 @@ export default function Home() {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        ticketId: ticket.id,
+        taskId: task.id,
         repoId: repo.id,
         executionMode,
-        templateId: templateFor[ticket.id] ?? defaultTemplateId,
+        templateId: templateFor[task.id] ?? defaultTemplateId,
       }),
     }).then((r) => r.json());
     if (res.id) router.push(`/flows/${res.id}`);
@@ -333,18 +333,18 @@ export default function Home() {
 
   // ── group sub-tasks under their parents ─────────────────────────────────
   type Group =
-    | { type: "single"; t: TicketT }
+    | { type: "single"; t: TaskT }
     | {
         type: "family";
-        parent: TicketT | null;
+        parent: TaskT | null;
         parentKey: string | null;
-        children: TicketT[];
+        children: TaskT[];
       };
-  const keys = new Set(tickets.map((t) => t.key));
+  const keys = new Set(tasks.map((t) => t.key));
 
   // sub-tasks whose parent issue isn't synced get grouped by that parent key
-  const orphanChildren = new Map<string, TicketT[]>();
-  for (const t of tickets) {
+  const orphanChildren = new Map<string, TaskT[]>();
+  for (const t of tasks) {
     if (t.parent_key && !keys.has(t.parent_key)) {
       const kids = orphanChildren.get(t.parent_key) ?? [];
       kids.push(t);
@@ -361,13 +361,13 @@ export default function Home() {
       children: kids,
     });
   }
-  for (const t of tickets) {
+  for (const t of tasks) {
     if (t.parent_key) continue; // rendered inside its parent's card (or its orphan group)
     groups.push({ type: "single", t });
   }
   const mrsOpen = flows.filter((f) => f.mr_url).length;
 
-  const buildProps = (t: TicketT) => ({
+  const buildProps = (t: TaskT) => ({
     repos,
     templates,
     templateId: templateFor[t.id] ?? defaultTemplateId,
@@ -443,12 +443,12 @@ export default function Home() {
       )}
 
       {/* ── stats strip ── */}
-      {tickets.length > 0 && (
+      {tasks.length > 0 && (
         <div className="flex gap-2 mb-6 flex-wrap">
           {[
             {
               icon: <ListTree size={12} />,
-              label: `${tickets.length} tickets`,
+              label: `${tasks.length} tasks`,
               cls: "",
             },
             {
@@ -503,10 +503,10 @@ export default function Home() {
                     )}
                   />
                   <span className="font-mono text-[12px] text-blue-400">
-                    {f.ticket_key}
+                    {f.task_key}
                   </span>
                   <span className="flex-1 font-medium text-[13.5px] truncate">
-                    {f.ticket_summary}
+                    {f.task_summary}
                   </span>
                   {f.execution_mode === "local" ? (
                     <Badge variant="outline">
@@ -534,24 +534,24 @@ export default function Home() {
         </section>
       )}
 
-      {/* ── tickets ── */}
+      {/* ── tasks ── */}
       <section>
         <h2 className="text-[12px] font-medium mb-3 text-muted-foreground uppercase tracking-[1.2px] flex items-center gap-2">
-          <ListTree size={13} /> My tickets
-          {tickets.length > 0 && (
+          <ListTree size={13} /> My tasks
+          {tasks.length > 0 && (
             <span className="normal-case tracking-normal text-[11px] text-muted-foreground/60">
-              {tickets.length}
+              {tasks.length}
             </span>
           )}
         </h2>
 
-        {tickets.length === 0 && (
+        {tasks.length === 0 && (
           <Card className="justify-center items-center gap-2 py-10 border-dashed! shadow-none! text-muted-foreground">
             <div className="size-10 grid place-items-center rounded-xl bg-muted">
               <Inbox size={18} />
             </div>
             <div className="text-sm font-medium text-foreground">
-              No tickets yet
+              No tasks yet
             </div>
             <div className="text-[12.5px]">
               Click “Sync Jira” to pull in your open work.
@@ -574,7 +574,7 @@ export default function Home() {
                   {t ? (
                     <>
                       <div className="flex gap-2.5 items-center flex-wrap">
-                        <TypeChip ticket={t} />
+                        <TypeChip task={t} />
                         {(t.priority || t.issueType) && (
                           <span className="flex gap-1.5 items-center">
                             <Badge variant="outline" className="text-[11px]">
@@ -624,7 +624,7 @@ export default function Home() {
                         </span>
                       </span>
                       <span className="flex-1 text-[13px] text-muted-foreground italic">
-                        Parent not in your ticket list
+                        Parent not in your task list
                       </span>
                       <span className="text-[12px] text-muted-foreground">
                         {children.length} sub-task{children.length !== 1 && "s"}
@@ -654,7 +654,7 @@ export default function Home() {
                           <div className="rounded-md px-1.5 py-1.5 hover:bg-card/80 transition-colors">
                             <div className="flex gap-2 items-center flex-wrap">
                               <TypeChip
-                                ticket={c}
+                                task={c}
                                 className="h-5 min-w-5 px-1.5 text-[11px]"
                               />
                               <span className="flex-1 min-w-[160px] text-[12.5px] text-foreground/90">

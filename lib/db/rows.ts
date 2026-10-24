@@ -26,8 +26,8 @@ const jsonCol = <S extends z.ZodTypeAny>(schema: S) =>
       }
     });
 
-// ── tickets ──────────────────────────────────────────────────────────────────
-export const TicketRow = z.object({
+// ── tasks ────────────────────────────────────────────────────────────────────
+export const TaskRow = z.object({
   id: z.string(),
   key: z.string(),
   summary: z.string(),
@@ -38,14 +38,19 @@ export const TicketRow = z.object({
   prd_text: z.string().nullable(),
   figma_urls: jsonCol(z.array(z.string())),
   repo_url: z.string().nullable(),
+  parent_key: z.string().nullable(),
   jira_url: z.string().nullable(),
   raw: z.string().nullable(),
   synced_at: z.string().nullable(),
+  /** task type discriminator (provider kind; "jira" for synced Jira issues) */
+  type: z.string().default("jira"),
+  /** provider-specific payload (JSON object) */
+  fields: jsonCol(z.record(z.string(), z.unknown())),
 });
-export type TicketRow = z.infer<typeof TicketRow>;
+export type TaskRow = z.infer<typeof TaskRow>;
 
-/** App-facing ticket shape (camelCase, parsed figma URLs). */
-export const Ticket = TicketRow.transform((t) => ({
+/** App-facing task shape (camelCase, parsed figma URLs + fields). */
+export const Task = TaskRow.transform((t) => ({
   id: t.id,
   key: t.key,
   summary: t.summary,
@@ -56,15 +61,18 @@ export const Ticket = TicketRow.transform((t) => ({
   prdText: t.prd_text,
   figmaUrls: t.figma_urls ?? [],
   repoUrl: t.repo_url,
+  parentKey: t.parent_key,
   jiraUrl: t.jira_url,
   syncedAt: t.synced_at,
+  type: t.type,
+  fields: t.fields ?? {},
 }));
-export type Ticket = z.infer<typeof Ticket>;
+export type Task = z.infer<typeof Task>;
 
 // ── flows ────────────────────────────────────────────────────────────────────
 export const FlowRow = z.object({
   id: z.string(),
-  ticket_id: z.string(),
+  task_id: z.string(),
   name: z.string(),
   status: z.string(),
   mr_url: z.string().nullable(),

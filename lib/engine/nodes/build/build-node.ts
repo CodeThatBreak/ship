@@ -106,14 +106,14 @@ export class BuildNode extends NodeDefinition<BuildInput, BuildOutput> {
   private branchName(ctx: FlowCtx, config: Record<string, unknown>, suffix?: string): string {
     const pattern = configString(config, "branch_pattern");
     if (!pattern?.trim()) return this.ctxHelper.buildBranch(ctx, suffix);
-    const slug = String(ctx.ticket.key ?? "ticket").toLowerCase().replace(/[^a-z0-9]+/g, "-");
-    const type = String(ctx.ticket.issueType ?? "").toLowerCase();
+    const slug = String(ctx.task.key ?? "task").toLowerCase().replace(/[^a-z0-9]+/g, "-");
+    const type = String(ctx.task.issueType ?? "").toLowerCase();
     const prefix = /story|feature|task|epic/.test(type) ? "feature" : "bugfix";
     return pattern
       .trim()
       .replace(/\{prefix\}/g, prefix)
       .replace(/\{slug\}/g, slug)
-      .replace(/\{ticket\}/g, String(ctx.ticket.key ?? "ticket"))
+      .replace(/\{ticket\}/g, String(ctx.task.key ?? "task"))
       .replace(/\{id\}/g, ctx.flow.id.slice(-6))
       .replace(/\{suffix\}/g, suffix ?? "");
   }
@@ -163,7 +163,7 @@ export class BuildNode extends NodeDefinition<BuildInput, BuildOutput> {
       : "";
 
     const prompt = prompts.resolve(NODE_KEYS.BUILD,
-      { ticket: this.ctxHelper.ticketContext(ctx), branch, mode },
+      { ticket: this.ctxHelper.taskContext(ctx), branch, mode },
       { instructions, plan: scopedPlan, checklist },
       input.prompt,
     );
@@ -174,7 +174,7 @@ export class BuildNode extends NodeDefinition<BuildInput, BuildOutput> {
       promptOverride: input.prompt,
       agent: {
         mode: "agent",
-        name: input.branchInfo ? `build ${ctx.ticket.key} (${input.branchInfo.name})` : `build ${ctx.ticket.key}`,
+        name: input.branchInfo ? `build ${ctx.task.key} (${input.branchInfo.name})` : `build ${ctx.task.key}`,
         autoCreatePR: false,
         startingRef: ctx.repo?.default_branch ?? "main",
         model: input.model,
@@ -252,7 +252,7 @@ export class BuildNode extends NodeDefinition<BuildInput, BuildOutput> {
       promptOverride,
       agent: {
         mode: "agent",
-        name: `build refine ${ctx.ticket.key}`,
+        name: `build refine ${ctx.task.key}`,
         followUpOn: node.agent_id,
         startingRef: ctx.flow.mr_branch ?? undefined,
         model,

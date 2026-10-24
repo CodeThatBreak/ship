@@ -78,8 +78,8 @@ export class MergeRequestService {
     const existing = await gitLab.listMRsByBranch(repoUrl, gitBranch);
     let mr: MergeRequest;
     const mrTitle = branchName
-      ? `${ctx.ticket.key}: ${ctx.ticket.summary} (${branchName})`
-      : `${ctx.ticket.key}: ${ctx.ticket.summary}`;
+      ? `${ctx.task.key}: ${ctx.task.summary} (${branchName})`
+      : `${ctx.task.key}: ${ctx.task.summary}`;
     if (existing.length) {
       mr = existing[0];
     } else {
@@ -87,7 +87,7 @@ export class MergeRequestService {
         source_branch: gitBranch,
         target_branch: ctx.repo?.default_branch ?? "main",
         title: mrTitle,
-        description: `Implements ${ctx.ticket.jiraUrl}\n\n${ctx.ticket.summary}${branchName ? `\n\nBranch: ${branchName}` : ""}`,
+        description: `Implements ${ctx.task.jiraUrl}\n\n${ctx.task.summary}${branchName ? `\n\nBranch: ${branchName}` : ""}`,
       });
     }
     const project = await gitLab.getProject(repoUrl);

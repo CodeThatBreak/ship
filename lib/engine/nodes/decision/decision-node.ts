@@ -197,7 +197,7 @@ export class DecisionTemplateNode extends NodeDefinition<Record<string, unknown>
       promptOverride: null,
       agent: {
         mode: "plan",
-        name: `${this.label} ${ctx.ticket.key}`,
+        name: `${this.label} ${ctx.task.key}`,
         model: null, // a decision is a judgment call — it uses the flow/default model
         startingRef: ctx.flow.mr_branch ?? undefined,
       },

@@ -22,7 +22,7 @@ import {
 
 // ── context block registry (§4) ──────────────────────────────────────────────
 
-export type ContextBlockId = "ticket" | "contract" | "current" | "branches" | "versions" | "edits";
+export type ContextBlockId = "task" | "contract" | "current" | "branches" | "versions" | "edits";
 
 export interface ContextBlockSpec {
   id: ContextBlockId;
@@ -44,8 +44,8 @@ export interface ContextBlockSpec {
  */
 export const CONTEXT_BLOCKS: ContextBlockSpec[] = [
   {
-    id: "ticket",
-    label: "Ticket context",
+    id: "task",
+    label: "Task context",
     description: "PRD, Figma links, acceptance criteria",
     scopedDefault: true,
     wholeDefault: true,
@@ -92,7 +92,7 @@ export const CONTEXT_BLOCKS: ContextBlockSpec[] = [
 ];
 
 /** Fixed assembly order so prompts stay comparable across runs (§4). */
-const CONTEXT_BLOCK_ORDER: ContextBlockId[] = ["ticket", "contract", "current", "branches", "versions", "edits"];
+const CONTEXT_BLOCK_ORDER: ContextBlockId[] = ["task", "contract", "current", "branches", "versions", "edits"];
 
 /** A resolved context block, as reported to the prompt route / picker. */
 export interface ContextBlockInfo {
@@ -452,12 +452,12 @@ export class PlanNode extends NodeDefinition<PlanInput, PlanOutput> {
   /** Whole-plan prompt: verbatim override, refine template, or base + feedback. */
   private buildPlanPrompt(ctx: FlowCtx, node: NodeRow, input: PlanInput): string {
     const hasAgent = Boolean(node.agent_id);
-    const baseCtx = { ticket: this.ctxHelper.ticketContext(ctx) };
+    const baseCtx = { ticket: this.ctxHelper.taskContext(ctx) };
     const refining = Boolean(input.feedback) || Boolean(input.prompt);
     const contextBlock = this.assembleContext(ctx, input, null, {
-      // the base template already renders {{ticket}} — a ticket context block
+      // the base template already renders {{ticket}} — a task context block
       // earns its place only on refinement prompts (+ branch refines)
-      skip: refining ? [] : ["ticket"],
+      skip: refining ? [] : ["task"],
     });
     const tplKey = input.complex ? "plan_complex" : "plan";
     const refineKey = input.complex ? "plan_complex_refine" : "plan_refine";
@@ -543,8 +543,8 @@ export class PlanNode extends NodeDefinition<PlanInput, PlanOutput> {
     return CONTEXT_BLOCKS.map((spec) => {
       let text = "";
       switch (spec.id) {
-        case "ticket":
-          text = this.ctxHelper.ticketContext(ctx);
+        case "task":
+          text = this.ctxHelper.taskContext(ctx);
           break;
         case "contract":
           text = scoped ? this.renderContract(scoped) : "";
@@ -763,7 +763,7 @@ export class PlanNode extends NodeDefinition<PlanInput, PlanOutput> {
         this.runner.startAgent(ctx, {
           prompt,
           mode: "plan",
-          name: `${label} ${ctx.ticket.key}`,
+          name: `${label} ${ctx.task.key}`,
           followUpOn: followUp,
           customSubagents,
           model: input.model,
@@ -968,12 +968,12 @@ export class PlanNode extends NodeDefinition<PlanInput, PlanOutput> {
     if (feedback && hasAgent) {
       return prompts.resolve(
         "plan_refine",
-        { ticket: this.ctxHelper.ticketContext(ctx) },
+        { ticket: this.ctxHelper.taskContext(ctx) },
         { feedback, context: "" },
       );
     }
     const base = prompts.resolve("plan", {
-      ticket: this.ctxHelper.ticketContext(ctx),
+      ticket: this.ctxHelper.taskContext(ctx),
     }, { context: "" });
     return (
       base +
