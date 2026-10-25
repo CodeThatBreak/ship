@@ -8,9 +8,11 @@ import { useUpdateCursorApiKey } from "./hooks/use-cursor-api-key";
 import { ConnectEmpty } from "./components/ConnectEmpty";
 import { ConnectModal } from "./components/ConnectModal";
 import { InstanceCard } from "./components/InstanceCard";
+import { LocalAgentOptions, LocalAgentOptionsSkeleton } from "./components/LocalAgentOptions";
 import { ProviderSelect } from "./components/ProviderSelect";
 import { Field } from "@/components/shared";
 import { Input } from "@/components/ui/input";
+import { useLocalAgentOptions } from "./hooks/use-local-agent-options";
 import type { TabProps } from "./types";
 
 // ── Harness tab (agent runners — Cursor for now) ────────────────────────────
@@ -27,6 +29,7 @@ const CURSOR_PROVIDER_OPTIONS = [
 export function HarnessTab({ open, onOpenChange, onError }: TabProps) {
   const { settings } = useSettings();
   const setCursorKey = useUpdateCursorApiKey();
+  const localAgent = useLocalAgentOptions();
   const { state, setProvider, setField, reset } = useConnectForm();
 
   const keySet = settings?.status.cursorApiKeySet ?? false;
@@ -71,7 +74,18 @@ export function HarnessTab({ open, onOpenChange, onError }: TabProps) {
               tokenMasked: "API key set",
             }}
             onDelete={() => updateKey("")}
-          />
+          >
+            {/* local-run execution settings live inside the harness card once connected */}
+            {localAgent.options ? (
+              <LocalAgentOptions
+                options={localAgent.options}
+                savingField={localAgent.savingField}
+                onToggle={localAgent.toggle}
+              />
+            ) : (
+              <LocalAgentOptionsSkeleton />
+            )}
+          </InstanceCard>
         </div>
       )}
 

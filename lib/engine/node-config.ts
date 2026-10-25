@@ -26,35 +26,23 @@ export interface ConfigField {
 }
 
 /**
- * The app-settings layer: `settings["node_config.<defKey>"]` wins, then legacy
- * aliases that must keep working after the settings mechanism folds into this
- * layer (`prompt_templates` = the prompt-body knob's storage; `resolve.delay_ms`
- * and `RESOLVE_DELAY_MINUTES` = the resolve quiet-period knob).
- *
- * Values set by the user on the settings page keep working unchanged; template
+ * The app-settings layer: `settings["node_config.<defKey>"]` wins. Template
  * and per-flow configs sit above this layer in the merge order.
+ *
+ * One env fallback remains: `RESOLVE_DELAY_MINUTES` feeds the resolve node's
+ * `quiet_minutes` knob when the template config doesn't set it (the global
+ * `resolve.delay_ms` setting was removed — the knob lives on the resolve
+ * template node config now).
  */
 export function appLayerConfig(defKey: string): Record<string, unknown> {
   const out: Record<string, unknown> = {};
   const stored = db.getSetting<Record<string, unknown> | null>(`node_config.${defKey}`, null);
   if (stored && typeof stored === "object") Object.assign(out, stored);
 
-  // legacy alias: prompt body knobs still read the prompt_templates overlay
-  const promptTemplates = db.getSetting<Record<string, { userTemplate?: string } | undefined>>(`prompt_templates`, {});
-  if (defKey === "pipeline") {
-    // the pipeline node's fix-run body lives under its own template key
-    if (promptTemplates["pipeline_fix"]?.userTemplate) out.fix_prompt_body = promptTemplates["pipeline_fix"]!.userTemplate;
-  }
-  if (promptTemplates[defKey]?.userTemplate) out.prompt_body = promptTemplates[defKey]!.userTemplate;
-
-  // legacy alias: resolve quiet minutes (settings value is milliseconds)
+  // env fallback: the resolve quiet-period knob (template node config wins above this layer)
   if (defKey === "resolve") {
-    const storedMs = db.getSetting<number | null>("resolve.delay_ms", null);
-    if (typeof storedMs === "number" && Number.isFinite(storedMs) && storedMs >= 0) {
-      out.quiet_minutes = storedMs / 60_000;
-    }
     const envRaw = (process.env.RESOLVE_DELAY_MINUTES ?? "").trim();
-    if (typeof storedMs !== "number" && envRaw) {
+    if (envRaw) {
       const env = Number(envRaw);
       if (Number.isFinite(env) && env >= 0) out.quiet_minutes = env;
     }

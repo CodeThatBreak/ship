@@ -9,7 +9,7 @@ import { CheckCircle2, PlugZap, Trash2, XCircle } from "lucide-react";
 import type { InstanceRow, TestResult } from "../types";
 
 export function InstanceCard({
-  icon, instance, onTest, onDelete, testing, testResult,
+  icon, instance, onTest, onDelete, testing, testResult, children,
 }: {
   icon: React.ReactNode;
   instance: InstanceRow;
@@ -17,9 +17,12 @@ export function InstanceCard({
   onDelete: () => void;
   testing?: boolean;
   testResult?: TestResult;
+  /** Optional detail section rendered under the header row, inside this card. */
+  children?: React.ReactNode;
 }) {
   return (
-    <Card className="flex-row items-center gap-3 px-4 py-3">
+    <Card className="flex flex-col px-4 py-3">
+      <div className="flex flex-row items-center gap-3">
       <span className="grid size-9 shrink-0 place-items-center rounded-lg bg-muted text-muted-foreground">
         {icon}
       </span>
@@ -81,6 +84,8 @@ export function InstanceCard({
           <TooltipContent>Remove instance</TooltipContent>
         </Tooltip>
       </div>
+      </div>
+      {children && <div className="border-t mt-0.5 pt-2.5">{children}</div>}
     </Card>
   );
 }

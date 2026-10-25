@@ -20,28 +20,23 @@ export type Repo = {
 };
 export type HostInstanceRow = { id: string; name: string | null; baseUrl: string; tokenMasked: string };
 export type GitHost = { kind: string; label: string; configured: boolean; instances: HostInstanceRow[] };
-export type PromptTemplate = {
-  label: string; description: string; template: string;
-  variables: string[]; mode: string;
-};
+/** One selectable execution mode a harness offers (e.g. cloud / local for Cursor). */
+export type HarnessMode = { value: string; label: string; configured: boolean };
+/** An agent harness (runner) and the execution modes it offers. */
+export type Harness = { key: string; label: string; modes: HarnessMode[] };
 export type Settings = {
+  /** selectable harnesses with their modes — the execution cascade is built from this */
+  harnesses?: Harness[];
+  default_harness: string;
   default_execution_mode: string;
+  /** normalized model id — never carries "[fast=false]"-style params */
   default_model: string;
-  resolve_delay_ms: number;
   local_agent: { force: boolean; sandbox: boolean; timeout_ms: number };
-  /** "enabled" | "disabled" — per-flow git worktrees for local runs */
-  worktree_mode?: string;
-  pnpm_virtual_store?: boolean;
-  prompt_templates?: Record<string, PromptTemplate>;
-  pricing?: Record<string, PricingEntry>;
-  pricing_suggested?: Record<string, PricingEntry>;
   /** names of set secrets only (values never leave the server) */
   secrets?: string[];
   http_allowlist?: string[];
   status: { cursorApiKeySet: boolean; cursorApiKeyFromEnv?: boolean; cursorCliAvailable: boolean; gitHosts: Record<string, boolean>; taskProviders: Record<string, boolean> };
 };
-export type PricingEntry = { input_per_mtok?: number; output_per_mtok?: number; cache_read_per_mtok?: number; cache_write_per_mtok?: number };
-export type PricingRow = { key: string; input?: number; output?: number; cacheRead?: number; cacheWrite?: number };
 
 // ── provider ───────────────────────────────────────────────────────────────
 

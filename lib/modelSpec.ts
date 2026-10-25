@@ -61,3 +61,16 @@ export function composeModelSpec(id: string, params?: ModelParamValue[]): string
   const body = (params ?? []).filter((p) => p.id).map((p) => `${p.id}=${p.value}`).join(",");
   return body ? `${id}[${body}]` : id;
 }
+
+/**
+ * Normalize a model spec: fast mode is ALWAYS false in DevFlow, so any
+ * `fast` param that isn't `fast=true` is noise and must never be stored or
+ * resolved — `composer-2.5[fast=false]` → `composer-2.5`. Every other param
+ * is kept verbatim (`composer-2.5[fast=true]` / `[effort=high]` stay).
+ */
+export function normalizeModelSpec(raw: string): string {
+  const parsed = parseModelSpec(raw);
+  if (!parsed) return raw;
+  const params = (parsed.params ?? []).filter((p) => !(p.id === "fast" && p.value !== "true"));
+  return composeModelSpec(parsed.id, params);
+}

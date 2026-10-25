@@ -98,8 +98,9 @@ startAgent(ctx, input):
    run proceeds in the hub — today's fallback semantics, now surfaced as an
    explicit `error` lifecycle event ("worktree setup failed — running in the
    registered checkout instead").
-5. **Kill switches unchanged.** `worktree_mode = "disabled"`, no registered
-   `local_path`, or `execution_mode = "cloud"` → `{ dir: null }` immediately.
+5. **Fallbacks.** No registered `local_path` or `execution_mode = "cloud"` →
+   `{ dir: null }` immediately. (Worktrees are always on — the
+   `worktree_mode = "disabled"` kill switch was removed.)
 
 ## 4. How each flow looks after this
 
@@ -162,7 +163,7 @@ build/resolve always pin.
 | Two flows on the same repo | distinct `workspaces/<flowId>` dirs; worktree registration is per-path |
 | Concurrent agent runs in one flow | nodes run sequentially through the pipeline; multi-branch builds are sequential — no concurrent branch switching on one tree |
 | Retry of a failed agent node | ensure is idempotent (`reused`), deps setup skipped |
-| `worktree_mode = "disabled"` | everything runs in the hub — today's behavior, the documented kill switch |
+| (kill switch removed — worktrees are always on) | the historical `worktree_mode = "disabled"` fallback is gone |
 | Cloud mode / no `local_path` | `{ dir: null }` — unchanged |
 
 ## 5. Implementation notes
@@ -179,8 +180,9 @@ build/resolve always pin.
 - `ensureFlowWorktree` itself is unchanged (it already handles reuse, base
   resolution, persistence, events, deps setup).
 - Tests: extend `scripts/check-worktrees.ts` with a standalone-agent-node
-  scenario (ensure fires without a build), a review-node scenario, and a
-  `worktree_mode = "disabled"` fallback assertion. The existing reuse/adoption
+  scenario (ensure fires without a build) and a review-node scenario. (The
+  historical `worktree_mode = "disabled"` fallback assertion was removed with
+  the kill switch.) The existing reuse/adoption
   scenarios keep passing unchanged.
 - Docs: update `docs/worktree-support.md` §"engine manager" to state that the
   ensure lives in the runner and per-node calls are pins, not the mechanism.

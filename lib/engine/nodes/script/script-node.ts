@@ -226,9 +226,6 @@ export class ScriptTemplateNode extends NodeDefinition<Record<string, unknown>, 
       // explicitly asked for the flow workspace but no agent step created it
       // yet — ensure it the same way an unpinned agent run does (script-only
       // flows are first-class); when worktrees can't apply, keep the old error
-      if (db.getSetting<string>("worktree_mode", "enabled") === "disabled") {
-        return this.legacyWorkspaceError();
-      }
       const branch = ctx.flow.mr_branch ?? flowCtxHelper.buildBranch(ctx);
       const binding = await worktreeManager.ensureFlowWorktree(ctx, branch, { nodeId });
       if (!binding.dir) return this.legacyWorkspaceError(); // creation failed (or can't apply)
@@ -242,7 +239,7 @@ export class ScriptTemplateNode extends NodeDefinition<Record<string, unknown>, 
     return lp;
   }
 
-  /** Today's pre-ensure behavior, kept for disabled mode and failed ensures. */
+  /** Today's pre-ensure behavior, kept for failed ensures (and modes where worktrees can't apply). */
   private legacyWorkspaceError(): never {
     throw new Error(
       `${this.label}: no workspace clone for this flow — set cwd=repo, or run/re-run an agent step first (the workspace exists once the flow clones locally)`);

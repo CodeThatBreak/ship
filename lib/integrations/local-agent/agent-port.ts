@@ -21,6 +21,7 @@ export class CursorLocalAgentPort implements AgentPort {
   readonly kind = "cursor-local";
   readonly label = "Cursor local";
   readonly execMode = "local" as const;
+  readonly harness = "cursor";
   readonly fallbackModels = ["composer-2.5", "auto"];
 
   async start(spec: AgentStartSpec): Promise<AgentStarted> {

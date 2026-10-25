@@ -2,16 +2,24 @@ import { NextResponse } from "next/server";
 import { agentPortRegistry } from "../../../lib/engine/ports/agent-runner";
 import { db } from "../../../lib/db";
 import { config } from "../../../lib/config";
-import { parseModelSpec, type CatalogModel } from "../../../lib/modelSpec";
+import { normalizeModelSpec, parseModelSpec, type CatalogModel } from "../../../lib/modelSpec";
 
 export const dynamic = "force-dynamic";
+
+/**
+ * Fast mode is always false in DevFlow — an explicit `fast=false` spec param
+ * is noise and must never surface to consumers (the picker, cost math, …).
+ */
+const isNoiseFastParam = (p: { id: string; value: string }): boolean =>
+  p.id === "fast" && p.value !== "true";
 
 /**
  * Models available for agent runs — from the account model catalog, with a
  * static fallback. The catalog is normalized here so consumers get structured
  * data directly and never see the SDK's variant-combo ids:
  * - one row per base model; the bare entry is authoritative, bracketed ids
- *   ("composer-2.5[fast=false]") only fill gaps;
+ *   ("composer-2.5[effort=high]") only fill gaps (a `fast=false` param is
+ *   dropped — fast mode is always off in DevFlow);
  * - "default"/"auto" is folded into `default` (the account default model).
  * `models` stays a flat id list for older consumers.
  */
@@ -28,12 +36,11 @@ export async function GET() {
     const parsed = parseModelSpec(m.id);
     const id = parsed?.id ?? m.id;
     if (id === "default" || id === "auto") continue; // covered by `default`
-    if (parsed?.params?.length) {
-      bracketed.push({
-        m,
-        id,
-        params: Object.fromEntries(parsed.params.map((p) => [p.id, p.value])),
-      });
+    const params = Object.fromEntries(
+      (parsed?.params ?? []).filter((p) => !isNoiseFastParam(p)).map((p) => [p.id, p.value]),
+    );
+    if (Object.keys(params).length) {
+      bracketed.push({ m, id, params });
     } else if (!raw.has(id)) {
       raw.set(id, { ...m, id });
     }
@@ -58,14 +65,19 @@ export async function GET() {
   const models = catalogList.length
     ? catalogList.map((m) => m.id)
     : [...port.fallbackModels];
-  const currentDefault = db.getSetting<string>("default_model", "") || config.cursor.defaultModel() || "";
-  // Resolve the configured default (may be a spec like "composer-2.5[fast=false]")
-  // into structured data so consumers never touch bracket strings.
+  const currentDefault = normalizeModelSpec(
+    db.getSetting<string>("default_model", "") || config.cursor.defaultModel() || "",
+  );
+  // Resolve the configured default into structured data so consumers never
+  // touch bracket strings (and never see a fast=false param — normalizeModelSpec
+  // already dropped it, this filter is belt-and-braces).
   const parsedDefault = parseModelSpec(currentDefault);
   const defaultChoice = parsedDefault
     ? {
         id: parsedDefault.id,
-        params: Object.fromEntries((parsedDefault.params ?? []).map((p) => [p.id, p.value])),
+        params: Object.fromEntries(
+          (parsedDefault.params ?? []).filter((p) => !isNoiseFastParam(p)).map((p) => [p.id, p.value]),
+        ),
       }
     : null;
   // Make sure the configured default is always selectable even if the catalog

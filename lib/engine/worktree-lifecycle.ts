@@ -67,13 +67,6 @@ export interface WorktreeBinding {
  * object database, refs and config, and is never mutated by agent runs).
  */
 export class WorktreeManager {
-  // ── mode switch ────────────────────────────────────────────────────────────
-
-  /** Worktrees are default-on; `worktree_mode: "disabled"` is the kill switch (UI: Phase 3). */
-  private worktreeModeEnabled(): boolean {
-    return db.getSetting<string>("worktree_mode", "enabled") !== "disabled";
-  }
-
   /** A flow's worktree dir: `workspaces/<flowId>` (unique per flow; sweep-joinable). */
   private worktreeDirForFlow(flowId: string): string {
     return path.join(config.workspace.dir(), flowId);
@@ -84,7 +77,7 @@ export class WorktreeManager {
   /**
    * Ensure the flow's worktree exists with `branch` checked out and return its
    * binding — `{ dir: null }` when worktrees don't apply (cloud mode, no
-   * registered local path, disabled by setting) or creation failed (non-fatal:
+   * registered local path) or creation failed (non-fatal:
    * callers fall back to the registered checkout, today's behavior). A fresh
    * worktree runs the repo's dependency-setup policy once (per flow, not per
    * run); a setup failure is non-fatal and surfaced as `setupNote` for the
@@ -100,7 +93,6 @@ export class WorktreeManager {
     if (flow.execution_mode !== "local") return { dir: null, setupNote: null };
     const hub = ctx.repo?.local_path ?? null;
     if (!hub) return { dir: null, setupNote: null };
-    if (!this.worktreeModeEnabled()) return { dir: null, setupNote: null };
 
     const dir = this.worktreeDirForFlow(flow.id);
     try {
@@ -210,7 +202,6 @@ export class WorktreeManager {
     const policy = depPolicies.resolve({
       hubPath: target.hub,
       overrides,
-      settings: { pnpmVirtualStore: db.getSetting<boolean>("pnpm_virtual_store", false) },
     });
     db.emitEvent(ctx.flow.id, target.nodeId, "lifecycle",
       `setting up worktree deps (${policy.source})…`,

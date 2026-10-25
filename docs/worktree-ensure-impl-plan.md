@@ -7,8 +7,8 @@ execution, no explicit `cwd`) are ensured into the flow's worktree by
 `AgentRunner.startAgent` — the one chokepoint every agent run (built-in or
 declarative) passes through. Per-node `ensureFlowWorktree` calls in
 build/resolve become *pins*, not the mechanism. No schema changes, no
-migrations; the existing `worktree_mode = "disabled"` setting remains the
-kill switch and rollback.
+migrations. (The `worktree_mode = "disabled"` kill switch mentioned at the
+time was later removed — worktrees are always on.)
 
 Total size: ~70 LOC in `lib/engine/worktree-lifecycle.ts`, ~20 in
 `lib/engine/nodes/base/agent-runner.ts`, ~15 in

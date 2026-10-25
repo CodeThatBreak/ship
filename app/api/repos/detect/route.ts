@@ -1,7 +1,6 @@
 import { NextResponse } from "next/server";
 import fs from "fs";
 import path from "path";
-import { db } from "../../../../lib/db";
 import { depPolicies } from "../../../../lib/git/dep-policy";
 
 export const dynamic = "force-dynamic";
@@ -23,10 +22,7 @@ export async function GET(req: Request) {
   const hubPath = expandLocalPath(raw);
   let policy: ReturnType<typeof depPolicies.resolve> | null = null;
   if (hubPath && fs.existsSync(hubPath)) {
-    policy = depPolicies.resolve({
-      hubPath,
-      settings: { pnpmVirtualStore: db.getSetting<boolean>("pnpm_virtual_store", false) },
-    });
+    policy = depPolicies.resolve({ hubPath });
   }
   return NextResponse.json({
     // clone strategies run no command (deps are copied from the hub) — the

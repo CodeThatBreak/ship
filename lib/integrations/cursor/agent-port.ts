@@ -20,6 +20,7 @@ export class CursorCloudAgentPort implements AgentPort {
   readonly kind = "cursor-cloud";
   readonly label = "Cursor cloud";
   readonly execMode = "cloud" as const;
+  readonly harness = "cursor";
   readonly fallbackModels: readonly string[] = [];
 
   async start(spec: AgentStartSpec): Promise<AgentStarted> {

@@ -276,7 +276,7 @@ export class PlanNode extends NodeDefinition<PlanInput, PlanOutput> {
 
   /** Typed config knobs (defaults = today's behavior). */
   readonly configSchema = z.object({
-    /** user-editable prompt body (the app-settings prompt_templates mechanism, foldable per template/flow) */
+    /** user-editable prompt body (foldable per template/flow; the global overlay was removed) */
     prompt_body: z.string().optional(),
     /** default for whole-flow starts that don't pass `complex` explicitly */
     default_complex: z.boolean().default(false),

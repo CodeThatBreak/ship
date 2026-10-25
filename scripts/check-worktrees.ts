@@ -131,8 +131,8 @@ assert.equal(sanitizeWorktreeName("x".repeat(60)).length, 48);
 assert.equal(sanitizeWorktreeName("Contract's flow"), "contracts-flow");
 
 // ── dep-policy resolution (Phase 2) ─────────────────────────────────────────
-const pol = (hubPath: string, overrides?: RepoDepOverrides, settings?: { pnpmVirtualStore?: boolean }) =>
-  depPolicies.resolve({ hubPath, overrides, settings });
+const pol = (hubPath: string, overrides?: RepoDepOverrides) =>
+  depPolicies.resolve({ hubPath, overrides });
 
 // nothing recognizable → none
 const policyEmpty = path.join(tmp, "policy", "empty");
@@ -163,14 +163,15 @@ const cmdPolicy = pol(policyNpm, { install_command: " pnpm install --filter web 
 assert.equal(cmdPolicy.strategy, "command");
 assert.equal(cmdPolicy.command, "pnpm install --filter web");
 
-// pnpm rows: global virtual store → store-install; without → clone
+// pnpm row: lockfile matched (clone; frozen-install fallback) — no global
+// virtual-store toggle anymore, pnpm behaves like every other manager here
 const policyPnpm = path.join(tmp, "policy", "pnpm");
 fs.mkdirSync(policyPnpm, { recursive: true });
 fs.writeFileSync(path.join(policyPnpm, "package.json"), "{}");
 fs.writeFileSync(path.join(policyPnpm, "pnpm-lock.yaml"), "{}");
 assert.equal(pol(policyPnpm).source, "node:pnpm:clone");
-assert.equal(pol(policyPnpm, undefined, { pnpmVirtualStore: true }).strategy, "store-install");
-assert.equal(pol(policyPnpm, undefined, { pnpmVirtualStore: true }).command, "pnpm install --frozen-lockfile");
+assert.equal(pol(policyPnpm).strategy, "clone");
+assert.equal(pol(policyPnpm).lockfile, "pnpm-lock.yaml");
 
 // manifest without a lockfile → none (no reproducible frozen install in v0)
 fs.rmSync(path.join(policyNpm, "package-lock.json"));
@@ -656,25 +657,6 @@ async function runnerEnsureSmoke() {
       git(["rev-parse", "--abbrev-ref", "HEAD"], second.cwd!), existingBranch,
       "worktree STAYS on its current branch X — mr_branch/defaultBranch Y must not force an implicit switch"
     );
-  }
-
-  // ── #6: worktree_mode disabled → hub fallback, nothing created ──────────────
-  {
-    const flow = seedFlow("flow_dis");
-    const ctx = { flow, task, repo: repo() };
-    db.setSetting("worktree_mode", "disabled");
-    const r6 = await worktreeManager.ensureForRun(ctx, {
-      mode: "agent", defaultBranch: flowCtxHelper.buildBranch(ctx),
-    });
-    assert.equal(r6.cwd, undefined, "disabled mode → no worktree cwd (hub fallback)");
-    assert.equal(r6.setupNote, null);
-    assert.ok(!fs.existsSync(path.join(wsDir, "flow_dis")), "nothing created with worktrees disabled");
-    assert.equal(totalEvents("flow_dis").length, 0, "no events with worktrees disabled");
-    assert.equal(
-      (rows.get(FlowRow, `SELECT * FROM flows WHERE id=?`, "flow_dis")!).worktree_dir, null,
-      "flows.worktree_dir untouched"
-    );
-    db.setSetting("worktree_mode", "enabled");
   }
 
   // ── #7: cloud execution mode → no worktree, nothing created ─────────────────

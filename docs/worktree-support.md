@@ -364,8 +364,8 @@ from the flow's repo column — no filesystem change needed.
 > the flow binding, removal records, and sweep; `flows.worktree_dir`
 > migration; build/refine/resolve pass the worktree as run cwd (branch
 > detection reads it too); startup sweep runs from `FlowPoller.start()`.
-> Kill switch: `worktree_mode` setting = `"disabled"` falls back to today's
-> hub behavior. Verified by `scripts/check-worktrees.ts`
+> Worktrees are always on (the `worktree_mode` kill switch was removed).
+> Verified by `scripts/check-worktrees.ts`
 > (`npx tsx scripts/check-worktrees.ts`) — porcelain parser, name hygiene,
 > real-git create/remove/branch-cleanup lifecycle, and an engine-adapter
 > smoke test against an isolated temp DB. Terminal-state/deletion hooks don't
@@ -427,8 +427,9 @@ from the flow's repo column — no filesystem change needed.
 > `{ dir, setupNote }` binding: setup runs once per flow on a fresh worktree
 > (reuse skips it), emits "setting up worktree deps…" like any other step, and
 > a failure puts one line — "worktree deps setup failed: <err>" — on the
-> build/refine/resolve run prompts for agent self-repair. Settings API exposes
-> `worktree_mode` and `pnpm_virtual_store`. Since the runner-ensure follow-up
+> build/refine/resolve run prompts for agent self-repair. No worktree settings
+> remain (worktrees are always on, pnpm virtual-store toggle removed). Since
+> the runner-ensure follow-up
 > (`docs/worktree-ensure-runner.md`, shipped 2026-10-25) the ensure lives in the
 > runner: `AgentRunner.startAgent` calls `WorktreeManager.ensureForRun` for
 > every unpinned mutating local run — the per-node `ensureFlowWorktree` calls
@@ -449,9 +450,9 @@ from the flow's repo column — no filesystem change needed.
 
 > **Shipped 2026-10-25.** Repositories page: the per-repo setup-policy fields
 > (`install_command`, `skip_install`, `sync_paths`, `shared_dirs`,
-> `setup_command`) as plain forms prefilled from the repo row, plus global
-> `worktree_mode` / `pnpm_virtual_store` toggles in the Agent-execution
-> section — all data, no logic in components. Flow cards: a worktree badge
+> `setup_command`) as plain forms prefilled from the repo row — all data, no
+> logic in components. (The global `worktree_mode` / `pnpm_virtual_store`
+> toggles shipped with this were removed later — worktrees are always on.) Flow cards: a worktree badge
 > (branch, dirty dot, ↑ahead / ↓behind, hover = full path + pushed state) fed
 > by the new batch endpoint `GET /api/flows/worktree-status` (listWorktrees +
 > `localBranchState`, now reporting `commitsBehind` too), refreshed every 5s

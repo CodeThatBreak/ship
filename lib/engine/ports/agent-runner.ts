@@ -115,6 +115,8 @@ export interface AgentPort {
   readonly label: string;
   /** the flow execution mode this port runs */
   readonly execMode: "cloud" | "local";
+  /** the product surface that owns this port, e.g. "cursor" */
+  readonly harness: string;
   /** model ids used when the catalog is unreachable (empty for cloud) */
   readonly fallbackModels: readonly string[];
 

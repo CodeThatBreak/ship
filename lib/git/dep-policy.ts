@@ -31,12 +31,6 @@ export interface DepPolicy {
   source: string;
 }
 
-/** Settings the policy layer may consult (data, never environment reads). */
-export interface DepPolicySettings {
-  /** pnpm global virtual store enabled at the user level */
-  pnpmVirtualStore?: boolean;
-}
-
 /** Per-repo overrides (columns on the repos table; all optional). */
 export interface RepoDepOverrides {
   install_command?: string | null;
@@ -95,7 +89,7 @@ abstract class EcosystemRule {
   /** Does this rule recognize the repo tree? */
   abstract applies(hubPath: string): boolean;
   /** The policy for a recognized repo. */
-  abstract policy(hubPath: string, settings: DepPolicySettings): DepPolicy;
+  abstract policy(hubPath: string): DepPolicy;
   protected exists(hubPath: string, file: string): boolean {
     return fs.existsSync(path.join(hubPath, file));
   }
@@ -128,26 +122,12 @@ class NodeRule extends EcosystemRule {
     return this.exists(hubPath, "package.json");
   }
 
-  policy(hubPath: string, settings: DepPolicySettings): DepPolicy {
+  policy(hubPath: string): DepPolicy {
     const row = NodeRule.LOCKFILES.find((r) => this.exists(hubPath, r.lockfile));
     if (!row) {
       // package.json without a lockfile: no reproducible frozen install —
       // v0 stays out (the agent self-repairs; add a row when a story needs it).
       return { strategy: "none", source: "node:manifest-without-lockfile" };
-    }
-    // pnpm's global virtual store: each worktree gets symlink-only dep trees
-    // into one content-addressable store — near-instant, near-zero disk, and
-    // the worktree still owns its per-branch dep state. Enabled by a
-    // user-level flag (never by editing the tracked pnpm-workspace.yaml —
-    // that would leak into the MR diff). One shared store assumes a single
-    // trust boundary (single-user DevFlow today).
-    if (row.pm === "pnpm" && settings.pnpmVirtualStore) {
-      return {
-        strategy: "store-install",
-        command: "pnpm install --frozen-lockfile",
-        timeoutMs: DEFAULT_SETUP_TIMEOUT_MS,
-        source: "node:pnpm-global-store",
-      };
     }
     return {
       strategy: "clone",
@@ -183,7 +163,6 @@ export class DepPolicyResolver {
   resolve(input: {
     hubPath: string;
     overrides?: RepoDepOverrides | null;
-    settings?: DepPolicySettings | null;
   }): DepPolicy {
     const overrides = input.overrides ?? {};
     // 1. per-repo overrides win over everything — odd repos are configuration
@@ -201,7 +180,7 @@ export class DepPolicyResolver {
     }
     // 2. recognized ecosystem rules
     for (const rule of this.rules) {
-      if (rule.applies(input.hubPath)) return rule.policy(input.hubPath, input.settings ?? {});
+      if (rule.applies(input.hubPath)) return rule.policy(input.hubPath);
     }
     // 3. nothing recognizable
     return { strategy: "none", source: "no recognized manifest+lockfile" };

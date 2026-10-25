@@ -1,4 +1,3 @@
-import { db } from "../db";
 import { nodeRegistry } from "./nodes/registry";
 
 export interface PromptTemplate {
@@ -324,8 +323,9 @@ const DEFAULTS: Record<string, PromptTemplate> = {
 };
 
 /**
- * The library of prompt templates: hardcoded defaults overlaid with
- * user-customized templates from settings, plus `{{var}}` rendering.
+ * The library of prompt templates: hardcoded defaults plus `{{var}}` rendering.
+ * Custom prompt bodies are a per-node config knob (`prompt_body`) now — the
+ * global `prompt_templates` settings overlay was removed.
  */
 export class PromptLibrary {
   /**
@@ -340,24 +340,9 @@ export class PromptLibrary {
     return out;
   }
 
-  /** Return the effective template for a node key. If the user has saved a
-   * custom template in settings, it wins; otherwise the hardcoded default. */
+  /** Return the template for a node key — the hardcoded default only. */
   getTemplate(nodeKey: string): PromptTemplate {
-    const custom = db.getSetting<Record<string, PromptTemplate>>(`prompt_templates`, {});
-    if (custom[nodeKey]?.template) {
-      return { ...DEFAULTS[nodeKey], ...custom[nodeKey] };
-    }
     return DEFAULTS[nodeKey];
-  }
-
-  /** Return all templates (custom-overlaid) for the settings page. */
-  allTemplates(): Record<string, PromptTemplate> {
-    const custom = db.getSetting<Record<string, PromptTemplate>>(`prompt_templates`, {});
-    const out: Record<string, PromptTemplate> = {};
-    for (const key of PromptLibrary.topLevelKeys()) {
-      out[key] = custom[key]?.template ? { ...DEFAULTS[key], ...custom[key] } : DEFAULTS[key];
-    }
-    return out;
   }
 
   /**

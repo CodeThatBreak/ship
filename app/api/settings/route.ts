@@ -4,44 +4,94 @@ import { agentPortRegistry } from "../../../lib/engine/ports/agent-runner";
 import { gitHostRegistry } from "../../../lib/engine/ports/git-host";
 import { config } from "../../../lib/config";
 import { taskRegistry } from "../../../lib/engine/tasks/registry";
-import { prompts, PromptLibrary } from "../../../lib/engine/prompts";
-import { flowEngine } from "../../../lib/engine/flow";
-import { DEFAULT_PRICING, usageTracker } from "../../../lib/engine/nodes/base/usage-tracker";
+import { normalizeModelSpec } from "../../../lib/modelSpec";
 import { cursorApiKeyStored, setCursorApiKey } from "../../../lib/integrations/cursor/credentials";
 
 export const dynamic = "force-dynamic";
 
+/** One mode entry of a harness: the exec mode it runs + probe result. */
+export interface SettingsPortMode {
+  value: "cloud" | "local";
+  label: string;
+  configured: boolean;
+}
+
+/** One harness group: the ports that share a product surface (e.g. Cursor). */
+export interface SettingsHarness {
+  key: string;
+  label: string;
+  modes: SettingsPortMode[];
+}
+
+/** The distinct harness surfaces the registered ports belong to. */
+function registeredHarnesses(): string[] {
+  return [...new Set(agentPortRegistry.list().map((p) => p.harness))];
+}
+
+/**
+ * Build the settings-page harness groups from the registered ports: one entry
+ * per harness key, cloud mode before local, `configured` from a single status
+ * probe per port. The harness label is the port label with the exec-mode
+ * suffix stripped ("Cursor cloud" → "Cursor").
+ */
+function harnessGroups(
+  statuses: Map<string, { configured: boolean }>,
+): SettingsHarness[] {
+  const out: SettingsHarness[] = [];
+  for (const key of registeredHarnesses()) {
+    const ports = agentPortRegistry.list().filter((p) => p.harness === key);
+    const modes: SettingsPortMode[] = [];
+    for (const mode of ["cloud", "local"] as const) {
+      const port = ports.find((p) => p.execMode === mode);
+      if (!port) continue;
+      modes.push({
+        value: mode,
+        label: mode === "cloud" ? "Cloud" : "Local (SDK)",
+        configured: statuses.get(port.kind)?.configured ?? false,
+      });
+    }
+    out.push({
+      key,
+      label: ports[0].label.replace(/\s+(cloud|local)$/i, ""),
+      modes,
+    });
+  }
+  return out;
+}
+
 export async function GET() {
-  const [localStatus] = await Promise.all([
-    agentPortRegistry.forMode("local").status(),
-  ]);
+  const ports = agentPortRegistry.list();
+  // one probe per port — the harness groups and the legacy cursorCliAvailable
+  // read the same status map (no duplicate probes)
+  const stateList = await Promise.all(
+    ports.map((p) => p.status().catch(() => ({ configured: false }))),
+  );
+  const statuses = new Map(ports.map((p, i) => [p.kind, stateList[i]]));
   return NextResponse.json({
+    // harness → mode picker: default_harness selects the product surface,
+    // default_execution_mode the mode under it
+    default_harness: db.getSetting<string>("default_harness", "cursor"),
+    harnesses: harnessGroups(statuses),
     default_execution_mode: db.getSetting<string>("default_execution_mode", "cloud"),
-    default_model: db.getSetting<string>("default_model", "") || config.cursor.defaultModel() || "",
-    resolve_delay_ms: flowEngine.resolveDelayMs(),
+    default_model: normalizeModelSpec(
+      db.getSetting<string>("default_model", "") || config.cursor.defaultModel() || "",
+    ),
     local_agent: {
       force: db.getSetting<boolean>("local_agent.force", true),
       sandbox: db.getSetting<boolean>("local_agent.sandbox", false),
       timeout_ms: db.getSetting<number>("local_agent.timeout_ms", 30 * 60 * 1000),
     },
-    prompt_templates: prompts.allTemplates(),
-    pricing: db.getSetting("pricing", {}),
-    pricing_suggested: DEFAULT_PRICING,
     // Phase 3: secrets ({{secrets.NAME}} in http nodes) + the outbound hostname
     // allowlist (empty = deny-by-default). Secret VALUES are never returned —
     // the settings page shows which names are set, writes replace wholesale.
     secrets: Object.keys(db.getSetting<Record<string, unknown>>("secrets", {}) ?? {}),
     http_allowlist: db.getSetting<string[]>("http_allowlist", []),
-    // worktree mode (Phase 1/2): "enabled"|"disabled" kill switch + the pnpm
-    // global-virtual-store toggle for worktree dep setup
-    worktree_mode: db.getSetting<string>("worktree_mode", "enabled"),
-    pnpm_virtual_store: db.getSetting<boolean>("pnpm_virtual_store", false),
     status: {
       // DB-stored key only — deleting it from the Harness tab must clear the
       // card even when a CURSOR_API_KEY env fallback exists (reported separately)
       cursorApiKeySet: cursorApiKeyStored(),
       cursorApiKeyFromEnv: Boolean(config.cursor.apiKey()),
-      cursorCliAvailable: localStatus.configured,
+      cursorCliAvailable: statuses.get(agentPortRegistry.forMode("local").kind)?.configured ?? false,
       // per-registered-host configured status — the generic shape the settings
       // page reads (new hosts register in gitHostRegistry and appear here)
       gitHosts: Object.fromEntries(gitHostRegistry.list().map((h) => [h.kind, h.configured()])),
@@ -62,6 +112,15 @@ export async function PATCH(req: Request) {
     }
     setCursorApiKey(body.cursor_api_key);
   }
+  if (body.default_harness !== undefined) {
+    if (typeof body.default_harness !== "string" || !registeredHarnesses().includes(body.default_harness)) {
+      return NextResponse.json(
+        { error: `default_harness must be one of: ${registeredHarnesses().join(", ")}` },
+        { status: 400 },
+      );
+    }
+    db.setSetting("default_harness", body.default_harness);
+  }
   if (body.default_execution_mode !== undefined) {
     if (!["cloud", "local"].includes(body.default_execution_mode)) {
       return NextResponse.json({ error: "default_execution_mode must be cloud|local" }, { status: 400 });
@@ -69,14 +128,9 @@ export async function PATCH(req: Request) {
     db.setSetting("default_execution_mode", body.default_execution_mode);
   }
   if (body.default_model !== undefined) {
-    db.setSetting("default_model", String(body.default_model ?? "").trim());
-  }
-  if (body.resolve_delay_ms !== undefined) {
-    const t = Number(body.resolve_delay_ms);
-    if (!Number.isFinite(t) || t < 0) {
-      return NextResponse.json({ error: "resolve_delay_ms must be >= 0" }, { status: 400 });
-    }
-    db.setSetting("resolve.delay_ms", Math.round(t));
+    // fast=false is never stored: DevFlow always runs with fast mode off, so
+    // the explicit "false" is noise (composer-2.5[fast=false] → composer-2.5)
+    db.setSetting("default_model", normalizeModelSpec(String(body.default_model ?? "").trim()));
   }
   if (body.local_agent) {
     const la = body.local_agent;
@@ -89,36 +143,6 @@ export async function PATCH(req: Request) {
       }
       db.setSetting("local_agent.timeout_ms", t);
     }
-  }
-  if (body.pricing !== undefined) {
-    // { [model|family|*]: { input_per_mtok, output_per_mtok, cache_read_per_mtok } } (USD / Mtok)
-    if (typeof body.pricing !== "object" || body.pricing === null || Array.isArray(body.pricing)) {
-      return NextResponse.json({ error: "pricing must be an object keyed by model id/family" }, { status: 400 });
-    }
-    const clean: Record<string, { input_per_mtok?: number; output_per_mtok?: number; cache_read_per_mtok?: number }> = {};
-    for (const [key, value] of Object.entries(body.pricing as Record<string, any>)) {
-      const id = String(key).trim();
-      if (!id) continue;
-      const entry: Record<string, number> = {};
-      for (const field of ["input_per_mtok", "output_per_mtok", "cache_read_per_mtok", "cache_write_per_mtok"]) {
-        const n = Number(value?.[field]);
-        if (Number.isFinite(n) && n >= 0) entry[field] = n;
-      }
-      if (Object.keys(entry).length) clean[id] = entry;
-    }
-    db.setSetting("pricing", clean);
-    // rates changed — re-price legacy/estimated rows with the new rate card
-    void usageTracker.backfillCosts(true).catch(() => {});
-  }
-  if (body.prompt_templates) {
-    const pt = body.prompt_templates;
-    // Validate: only known top-level node keys
-    for (const key of Object.keys(pt)) {
-      if (!PromptLibrary.topLevelKeys().includes(key)) {
-        return NextResponse.json({ error: `unknown prompt template key: ${key}` }, { status: 400 });
-      }
-    }
-    db.setSetting("prompt_templates", pt);
   }
   if (body.secrets !== undefined) {
     // merge semantics (values are write-only, so wholesale replace would drop
@@ -149,15 +173,6 @@ export async function PATCH(req: Request) {
     }
     const clean = body.http_allowlist.map((h: unknown) => String(h).trim().toLowerCase()).filter(Boolean);
     db.setSetting("http_allowlist", clean);
-  }
-  if (body.worktree_mode !== undefined) {
-    if (!["enabled", "disabled"].includes(body.worktree_mode)) {
-      return NextResponse.json({ error: "worktree_mode must be enabled|disabled" }, { status: 400 });
-    }
-    db.setSetting("worktree_mode", body.worktree_mode);
-  }
-  if (body.pnpm_virtual_store !== undefined) {
-    db.setSetting("pnpm_virtual_store", Boolean(body.pnpm_virtual_store));
   }
   return NextResponse.json({ ok: true });
 }
