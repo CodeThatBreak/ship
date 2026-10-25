@@ -5,6 +5,13 @@ import { db } from "../../../../lib/db";
 
 export const dynamic = "force-dynamic";
 
+/** Optional string fields: absent = keep, empty = clear. */
+function optString(v: unknown, fallback: string | null): string | null {
+  if (v === undefined) return fallback;
+  const s = typeof v === "string" ? v.trim() : "";
+  return s || null;
+}
+
 export async function PATCH(req: Request, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
   const existing = db.repoById(id);
@@ -26,6 +33,12 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
     cloud_url: body.cloud_url ?? existing.cloud_url,
     local_path: localPath || null,
     default_branch: body.default_branch ?? existing.default_branch,
+    // worktree setup policy (Phase 2)
+    install_command: optString(body.install_command, existing.install_command),
+    skip_install: body.skip_install !== undefined ? Boolean(body.skip_install) : Boolean(existing.skip_install),
+    sync_paths: optString(body.sync_paths, existing.sync_paths),
+    shared_dirs: optString(body.shared_dirs, existing.shared_dirs),
+    setup_command: optString(body.setup_command, existing.setup_command),
   });
   return NextResponse.json({ repo });
 }

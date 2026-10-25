@@ -10,6 +10,12 @@ export interface Repo {
   cloud_url: string;
   local_path: string | null;
   default_branch: string;
+  // worktree setup policy (Phase 2): per-repo overrides for the dep-policy table
+  install_command: string | null;
+  skip_install: number; // sqlite boolean 0/1
+  sync_paths: string | null;
+  shared_dirs: string | null;
+  setup_command: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -129,6 +135,20 @@ export class Database {
     // in schema.sql (CREATE IF NOT EXISTS is idempotent).
     if (!flowsCols.has("worktree_dir")) {
       d.exec(`ALTER TABLE flows ADD COLUMN worktree_dir TEXT`);
+    }
+    // Worktree setup policy (Phase 2): per-repo overrides for the dep-policy
+    // table (lib/git/dep-policy.ts) — shell-command fields are trust boundaries.
+    const repoCols = cols("repos");
+    for (const [name, type] of [
+      ["install_command", "TEXT"],
+      ["skip_install", "INTEGER NOT NULL DEFAULT 0"],
+      ["sync_paths", "TEXT"],
+      ["shared_dirs", "TEXT"],
+      ["setup_command", "TEXT"],
+    ] as const) {
+      if (!repoCols.has(name)) {
+        d.exec(`ALTER TABLE repos ADD COLUMN ${name} ${type}`);
+      }
     }
     // Pipeline gate node (order 25, between build and review): backfill a node
     // row for pre-gate flows that were created before the node existed. Only
@@ -705,21 +725,34 @@ export class Database {
     cloud_url: string;
     local_path?: string | null;
     default_branch?: string;
+    // worktree setup policy overrides (Phase 2)
+    install_command?: string | null;
+    skip_install?: boolean;
+    sync_paths?: string | null;
+    shared_dirs?: string | null;
+    setup_command?: string | null;
   }): Repo {
     const ts = this.now();
     const cloudUrl = this.normalizeRepoUrl(input.cloud_url);
     if (input.id) {
       this.run(
-        `UPDATE repos SET name=?, cloud_url=?, local_path=?, default_branch=?, updated_at=? WHERE id=?`,
-        input.name, cloudUrl, input.local_path ?? null, input.default_branch ?? "main", ts, input.id
+        `UPDATE repos SET name=?, cloud_url=?, local_path=?, default_branch=?,
+         install_command=?, skip_install=?, sync_paths=?, shared_dirs=?, setup_command=?, updated_at=? WHERE id=?`,
+        input.name, cloudUrl, input.local_path ?? null, input.default_branch ?? "main",
+        input.install_command ?? null, input.skip_install ? 1 : 0,
+        input.sync_paths ?? null, input.shared_dirs ?? null, input.setup_command ?? null,
+        ts, input.id
       );
       return this.repoById(input.id)!;
     }
     const id = this.uid("repo_");
     this.run(
-      `INSERT INTO repos (id,name,cloud_url,local_path,default_branch,created_at,updated_at)
-       VALUES (?,?,?,?,?,?,?)`,
-      id, input.name, cloudUrl, input.local_path ?? null, input.default_branch ?? "main", ts, ts
+      `INSERT INTO repos (id,name,cloud_url,local_path,default_branch,install_command,skip_install,sync_paths,shared_dirs,setup_command,created_at,updated_at)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`,
+      id, input.name, cloudUrl, input.local_path ?? null, input.default_branch ?? "main",
+      input.install_command ?? null, input.skip_install ? 1 : 0,
+      input.sync_paths ?? null, input.shared_dirs ?? null, input.setup_command ?? null,
+      ts, ts
     );
     return this.repoById(id)!;
   }

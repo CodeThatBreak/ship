@@ -257,6 +257,12 @@ export const RepoRow = z.object({
   cloud_url: z.string(),
   local_path: z.string().nullable(),
   default_branch: z.string(),
+  // worktree setup policy (Phase 2)
+  install_command: z.string().nullable(),
+  skip_install: z.number().int(),
+  sync_paths: z.string().nullable(),
+  shared_dirs: z.string().nullable(),
+  setup_command: z.string().nullable(),
   created_at: z.string(),
   updated_at: z.string(),
 });

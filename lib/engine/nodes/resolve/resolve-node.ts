@@ -82,7 +82,7 @@ export class ResolveNode extends NodeDefinition<ResolveInput, ResolveOutput> {
     const instructions = mode === "local" ? `Start by checking out branch ${mrBranch}.` : "";
     const dev_instructions = input.instructions ? `Developer instructions: ${input.instructions}` : "";
 
-    const prompt = (input.prompt
+    let prompt = (input.prompt
       ? input.promptIsBody
         // user edited the body only — re-attach the internal instructions + comments
         ? `${input.prompt}\n\n${prompts.internalSuffix(NODE_KEYS.RESOLVE,
@@ -101,9 +101,14 @@ export class ResolveNode extends NodeDefinition<ResolveInput, ResolveOutput> {
 
     // comment fixes run in the flow's worktree (same tree the build used;
     // ensure is a no-op/reuse when it already exists with mrBranch checked out)
-    const worktree = mode === "local" && mrBranch
-      ? await worktreeManager.ensureFlowWorktree(ctx, mrBranch, { nodeId: node.id })
-      : null;
+    let worktree: string | null = null;
+    if (mode === "local" && mrBranch) {
+      const binding = await worktreeManager.ensureFlowWorktree(ctx, mrBranch, { nodeId: node.id });
+      worktree = binding.dir;
+      // non-fatal deps setup: one line in the run prompt — the agent can
+      // self-repair by running the repo's dependency setup itself
+      if (binding.setupNote) prompt += `\n${binding.setupNote} If the fixes need dependencies, run the repo's dependency setup yourself before building/testing.`;
+    }
 
     return this.execute(ctx, {
       input: { ...input, prompt },

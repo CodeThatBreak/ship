@@ -162,6 +162,13 @@ CREATE TABLE IF NOT EXISTS repos (
   cloud_url     TEXT UNIQUE NOT NULL,      -- e.g. https://gitlab.company.com/group/repo
   local_path    TEXT,                      -- local checkout used for local agent runs + diffs
   default_branch TEXT NOT NULL DEFAULT 'main',
+  -- worktree setup policy (Phase 2): per-repo overrides for the pure dep-policy
+  -- table (lib/git/dep-policy.ts). Odd repos are configured, never special-cased.
+  install_command TEXT,                    -- wins over the auto-detected policy (run in worktree root)
+  skip_install  INTEGER NOT NULL DEFAULT 0, -- no dependency setup at all (vendored deps, terraform, …)
+  sync_paths    TEXT,                       -- glob list override for untracked config synced hub→worktree
+  shared_dirs   TEXT,                       -- dirs symlinked hub→worktree before setup (shared caches)
+  setup_command TEXT,                       -- extra escape valve, always runs after the dep strategy
   created_at    TEXT NOT NULL,
   updated_at    TEXT NOT NULL
 );

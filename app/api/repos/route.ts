@@ -13,6 +13,12 @@ function validateLocalPath(p: string | null | undefined): string | null {
   return expanded;
 }
 
+/** Optional string fields: absent/empty → null. */
+function optString(v: unknown): string | null {
+  const s = typeof v === "string" ? v.trim() : "";
+  return s || null;
+}
+
 export async function GET() {
   const repos = db.listRepos().map((r) => ({
     ...r,
@@ -38,6 +44,12 @@ export async function POST(req: Request) {
     cloud_url: body.cloud_url,
     local_path: localPath,
     default_branch: body.default_branch || "main",
+    // worktree setup policy (Phase 2)
+    install_command: optString(body.install_command),
+    skip_install: Boolean(body.skip_install),
+    sync_paths: optString(body.sync_paths),
+    shared_dirs: optString(body.shared_dirs),
+    setup_command: optString(body.setup_command),
   });
   return NextResponse.json({ repo });
 }

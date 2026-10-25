@@ -31,6 +31,10 @@ export async function GET() {
     // the settings page shows which names are set, writes replace wholesale.
     secrets: Object.keys(db.getSetting<Record<string, unknown>>("secrets", {}) ?? {}),
     http_allowlist: db.getSetting<string[]>("http_allowlist", []),
+    // worktree mode (Phase 1/2): "enabled"|"disabled" kill switch + the pnpm
+    // global-virtual-store toggle for worktree dep setup
+    worktree_mode: db.getSetting<string>("worktree_mode", "enabled"),
+    pnpm_virtual_store: db.getSetting<boolean>("pnpm_virtual_store", false),
     status: {
       cursorApiKeySet: Boolean(config.cursor.apiKey()),
       cursorCliAvailable: localStatus.configured,
@@ -132,6 +136,15 @@ export async function PATCH(req: Request) {
     }
     const clean = body.http_allowlist.map((h: unknown) => String(h).trim().toLowerCase()).filter(Boolean);
     db.setSetting("http_allowlist", clean);
+  }
+  if (body.worktree_mode !== undefined) {
+    if (!["enabled", "disabled"].includes(body.worktree_mode)) {
+      return NextResponse.json({ error: "worktree_mode must be enabled|disabled" }, { status: 400 });
+    }
+    db.setSetting("worktree_mode", body.worktree_mode);
+  }
+  if (body.pnpm_virtual_store !== undefined) {
+    db.setSetting("pnpm_virtual_store", Boolean(body.pnpm_virtual_store));
   }
   return NextResponse.json({ ok: true });
 }

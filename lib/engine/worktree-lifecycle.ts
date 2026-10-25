@@ -11,6 +11,8 @@ import {
   worktrees,
   worktreeBranchName,
 } from "../git/worktrees";
+import { depPolicies, type RepoDepOverrides } from "../git/dep-policy";
+import { worktreeSetup } from "../git/worktree-setup";
 import type { FlowCtx } from "./nodes/base/flow-context";
 
 /**
@@ -43,11 +45,22 @@ interface RemovalTarget {
 }
 
 /**
+ * The flow's worktree binding, returned by ensureFlowWorktree: the run cwd
+ * plus a one-line setup note when deps setup failed (non-fatal — the caller
+ * appends it to the agent's run prompt so the agent can self-repair).
+ */
+export interface WorktreeBinding {
+  dir: string | null;
+  setupNote: string | null;
+}
+
+/**
  * Engine-side manager for the pure worktree layer (lib/git/worktrees.ts).
- * Owns the flow ↔ worktree binding (`flows.worktree_dir`), crash-safe removal
- * records (persisted BEFORE git runs, resumed by the startup sweep), and the
- * sweep itself. All git mechanics live in the pure class — this class only
- * joins them to db/config state.
+ * Owns the flow ↔ worktree binding (`flows.worktree_dir`), the dependency-setup
+ * run (policy resolved from lib/git/dep-policy.ts, executed by
+ * lib/git/worktree-setup.ts), crash-safe removal records (persisted BEFORE git
+ * runs, resumed by the startup sweep), and the sweep itself. All git mechanics
+ * live in the pure class — this class only joins them to db/config state.
  *
  * Layout: each local-mode flow's worktree lives at `workspaces/<flowId>` —
  * outside the repo tree (the developer's checkout stays the hub: it owns the
@@ -70,21 +83,24 @@ export class WorktreeManager {
 
   /**
    * Ensure the flow's worktree exists with `branch` checked out and return its
-   * path — or null when worktrees don't apply (cloud mode, no registered local
-   * path, disabled by setting) or setup failed (non-fatal: callers fall back to
-   * the registered checkout, today's behavior). Non-null results are persisted
-   * on `flows.worktree_dir` before returning.
+   * binding — `{ dir: null }` when worktrees don't apply (cloud mode, no
+   * registered local path, disabled by setting) or creation failed (non-fatal:
+   * callers fall back to the registered checkout, today's behavior). A fresh
+   * worktree runs the repo's dependency-setup policy once (per flow, not per
+   * run); a setup failure is non-fatal and surfaced as `setupNote` for the
+   * agent's run prompt. Non-null `dir` results are persisted on
+   * `flows.worktree_dir` before returning.
    */
   async ensureFlowWorktree(
     ctx: FlowCtx,
     branch: string,
     opts: { nodeId?: string | null } = {}
-  ): Promise<string | null> {
+  ): Promise<WorktreeBinding> {
     const flow = ctx.flow;
-    if (flow.execution_mode !== "local") return null;
+    if (flow.execution_mode !== "local") return { dir: null, setupNote: null };
     const hub = ctx.repo?.local_path ?? null;
-    if (!hub) return null;
-    if (!this.worktreeModeEnabled()) return null;
+    if (!hub) return { dir: null, setupNote: null };
+    if (!this.worktreeModeEnabled()) return { dir: null, setupNote: null };
 
     const dir = this.worktreeDirForFlow(flow.id);
     try {
@@ -107,14 +123,79 @@ export class WorktreeManager {
           ? `worktree reused at ${canonical} (branch ${result.headBranch})`
           : `worktree created at ${canonical} (branch ${branch} off ${result.base})`,
         { nodeKey: opts.nodeId ?? undefined, worktree: canonical, branch, base: result.base ?? undefined });
-      return canonical;
+      // deps setup runs once per flow (the worktree persists build → fixes →
+      // re-gates → resolve, including session resumes); reuse skips it
+      const setupNote = result.reused
+        ? null
+        : await this.setupFlowWorktree(ctx, { dir: canonical, hub, nodeId: opts.nodeId ?? null });
+      return { dir: canonical, setupNote };
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : String(e);
       db.emitEvent(flow.id, opts.nodeId ?? null, "error",
         `worktree setup failed — running in the registered checkout instead (${msg})`,
         { nodeKey: opts.nodeId ?? undefined });
-      return null;
+      return { dir: null, setupNote: null };
     }
+  }
+
+  // ── dependency setup (Phase 2) ─────────────────────────────────────────────
+
+  /**
+   * Run the repo's dependency-setup policy in a freshly created worktree.
+   * Emits a lifecycle event like any other step ("setting up worktree deps…"),
+   * is time-bounded by the policy, and FAILS NON-FATALLY: the returned note
+   * ("worktree deps setup failed: <err>") goes on the agent's run prompt so
+   * the agent can self-repair by running the repo's setup itself.
+   */
+  private async setupFlowWorktree(
+    ctx: FlowCtx,
+    target: { dir: string; hub: string; nodeId: string | null }
+  ): Promise<string | null> {
+    const overrides = this.depOverrides(ctx.repo);
+    const policy = depPolicies.resolve({
+      hubPath: target.hub,
+      overrides,
+      settings: { pnpmVirtualStore: db.getSetting<boolean>("pnpm_virtual_store", false) },
+    });
+    db.emitEvent(ctx.flow.id, target.nodeId, "lifecycle",
+      `setting up worktree deps (${policy.source})…`,
+      { nodeKey: target.nodeId ?? undefined, policy: policy.source, strategy: policy.strategy });
+    const note = (err: string) => `worktree deps setup failed: ${err}`;
+    try {
+      const result = await worktreeSetup.run({
+        hubPath: target.hub,
+        worktreePath: target.dir,
+        policy,
+        syncGlobs: depPolicies.resolveSyncGlobs(overrides),
+        sharedDirs: depPolicies.parsePathList(overrides.shared_dirs),
+        setupCommand: overrides.setup_command ?? null,
+        onEvent: (message) => db.emitEvent(ctx.flow.id, target.nodeId, "log", message,
+          { nodeKey: target.nodeId ?? undefined }),
+      });
+      const message = result.ok
+        ? `worktree deps ready${result.actions.length ? `: ${result.actions.join("; ")}` : ""}`
+        : note(result.error ?? "unknown error");
+      db.emitEvent(ctx.flow.id, target.nodeId, result.ok ? "lifecycle" : "error", message,
+        { nodeKey: target.nodeId ?? undefined, actions: result.actions });
+      return result.ok ? null : message;
+    } catch (e: unknown) {
+      // the executor reports failures as results — a throw here is a bug
+      const msg = e instanceof Error ? e.message : String(e);
+      db.emitEvent(ctx.flow.id, target.nodeId, "error", note(msg), { nodeKey: target.nodeId ?? undefined });
+      return note(msg);
+    }
+  }
+
+  /** The repo row's policy overrides, normalized for the pure dep-policy layer. */
+  private depOverrides(repo: Repo | null | undefined): RepoDepOverrides {
+    if (!repo) return {};
+    return {
+      install_command: repo.install_command,
+      skip_install: Boolean(repo.skip_install),
+      setup_command: repo.setup_command,
+      sync_paths: repo.sync_paths,
+      shared_dirs: repo.shared_dirs,
+    };
   }
 
   // ── removal ────────────────────────────────────────────────────────────────

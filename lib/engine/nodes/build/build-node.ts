@@ -154,15 +154,21 @@ export class BuildNode extends NodeDefinition<BuildInput, BuildOutput> {
     // created once at build start — the registered checkout (hub) is never
     // checked out or mutated. Non-fatal: setup failure falls back to the hub.
     let worktree: string | null = null;
+    let setupNote: string | null = null;
     if (mode === "local") {
-      worktree = await worktreeManager.ensureFlowWorktree(ctx, branch, { nodeId: node.id });
+      const binding = await worktreeManager.ensureFlowWorktree(ctx, branch, { nodeId: node.id });
+      worktree = binding.dir;
+      setupNote = binding.setupNote;
     }
 
-    const instructions = mode === "local"
+    let instructions = mode === "local"
       ? (worktree
           ? `Implement the following approved plan for a ${ticketType} ticket. Your working directory is a git worktree already checked out on branch "${branch}" (fresh off the repo's default branch). Make the code changes, commit them to that branch, and push the branch to origin. Do NOT open a merge request, do not switch branches, and do not touch any checkout outside this directory.`
           : `Implement the following approved plan for a ${ticketType} ticket. First create and check out a new git branch named "${branch}" (from the repo's default branch), then make the code changes, commit them, and push the branch to origin. Do NOT open a merge request.`)
       : `Implement the following approved plan for a ${ticketType} ticket. Make the code changes, commit them, and push to a feature branch. Do NOT open a merge request yet.`;
+    // non-fatal worktree deps setup: one line in the run prompt — the agent
+    // can self-repair by running the repo's dependency setup itself
+    if (setupNote) instructions += `\n${setupNote} If the build needs dependencies, run the repo's dependency setup yourself before building/testing.`;
 
     // pending checklist steps for this branch + the progress-report contract
     const checklistRows = planSteps.markdown(ctx.flow.id, input.branchInfo?.name ?? null);
@@ -267,12 +273,18 @@ export class BuildNode extends NodeDefinition<BuildInput, BuildOutput> {
       }), this.nodeConfig(ctx));
     }
 
-    const prompt = promptOverride ?? prompts.resolve("build_refine", {}, { feedback });
+    let prompt = promptOverride ?? prompts.resolve("build_refine", {}, { feedback });
     // follow-ups run in the same worktree the build used (ensure creates it
     // when the flow predates worktrees or the tree was swept)
-    const worktree = this.ctxHelper.execMode(ctx) === "local"
-      ? await worktreeManager.ensureFlowWorktree(ctx, ctx.flow.mr_branch ?? this.ctxHelper.buildBranch(ctx), { nodeId: node.id })
-      : null;
+    let worktree: string | null = null;
+    let setupNote: string | null = null;
+    if (this.ctxHelper.execMode(ctx) === "local") {
+      const binding = await worktreeManager.ensureFlowWorktree(
+        ctx, ctx.flow.mr_branch ?? this.ctxHelper.buildBranch(ctx), { nodeId: node.id });
+      worktree = binding.dir;
+      setupNote = binding.setupNote;
+      if (setupNote) prompt += `\n${setupNote} If the changes need dependencies, run the repo's dependency setup yourself before building/testing.`;
+    }
     const outcome = await this.execute(ctx, {
       input: { feedback, prompt: promptOverride ?? null, model: model ?? null },
       prompt,

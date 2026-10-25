@@ -1,7 +1,9 @@
 /**
- * Sanity checks for Phase 1 worktree support: the porcelain parser, name
+ * Sanity checks for worktree support: Phase 1 — the porcelain parser, name
  * hygiene, path helpers, and the real-git create/remove lifecycle (preflight,
- * merged-only branch cleanup, crash-recovery reuse).
+ * merged-only branch cleanup, crash-recovery reuse). Phase 2 — the dep-policy
+ * resolution table and the setup executor (clone gate, fallback install,
+ * config sync, shared-dir symlinks, non-fatal failures).
  *
  * Run: npx tsx scripts/check-worktrees.ts
  */
@@ -17,6 +19,13 @@ import {
   worktreeBranchName,
   worktrees,
 } from "../lib/git/worktrees";
+import {
+  DEFAULT_SYNC_GLOBS,
+  depPolicies,
+  type DepPolicy,
+  type RepoDepOverrides,
+} from "../lib/git/dep-policy";
+import { worktreeSetup } from "../lib/git/worktree-setup";
 
 const git = (args: string[], cwd?: string) =>
   execFileSync("git", args, { cwd, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }).trim();
@@ -32,8 +41,16 @@ const gitFails = (args: string[], cwd?: string): boolean => {
 };
 
 // ── purity guard: lib/git/* must stay free of db/engine imports ─────────────
-const src = fs.readFileSync(new URL("../lib/git/worktrees.ts", import.meta.url), "utf8");
-assert.ok(!/from\s+["'].*(\.\.\/db|\.\.\/engine|@\/)/.test(src), "worktrees.ts must not import db/engine layers");
+for (const file of ["worktrees.ts", "dep-policy.ts", "worktree-setup.ts"]) {
+  const src = fs.readFileSync(new URL(`../lib/git/${file}`, import.meta.url), "utf8");
+  assert.ok(!/from\s+["'].*(\.\.\/db|\.\.\/engine|@\/)/.test(src), `${file} must not import db/engine layers`);
+}
+
+// ── isolated git fixture (used by the policy + lifecycle checks below) ──────
+const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "devflow-wt-"));
+const hub = path.join(tmp, "hub");
+const wsDir = path.join(tmp, "workspaces");
+const wtDir = path.join(wsDir, "flow_1");
 
 // ── porcelain parser: NUL-delimited (the -z format) ─────────────────────────
 const nulRaw = [
@@ -79,11 +96,73 @@ assert.equal(sanitizeWorktreeName("..weird-"), "weird");
 assert.equal(sanitizeWorktreeName("x".repeat(60)).length, 48);
 assert.equal(sanitizeWorktreeName("Contract's flow"), "contracts-flow");
 
+// ── dep-policy resolution (Phase 2) ─────────────────────────────────────────
+const pol = (hubPath: string, overrides?: RepoDepOverrides, settings?: { pnpmVirtualStore?: boolean }) =>
+  depPolicies.resolve({ hubPath, overrides, settings });
+
+// nothing recognizable → none
+const policyEmpty = path.join(tmp, "policy", "empty");
+fs.mkdirSync(policyEmpty, { recursive: true });
+assert.equal(pol(policyEmpty).strategy, "none");
+assert.equal(pol(policyEmpty).source, "no recognized manifest+lockfile");
+
+// non-JS ecosystems default to none in v0 (genericity guardrail — no rows yet)
+const policyGo = path.join(tmp, "policy", "go");
+fs.mkdirSync(policyGo, { recursive: true });
+fs.writeFileSync(path.join(policyGo, "go.mod"), "module x\n");
+assert.equal(pol(policyGo).strategy, "none");
+
+// npm repo: clone policy carrying the frozen-install fallback
+const policyNpm = path.join(tmp, "policy", "npm");
+fs.mkdirSync(policyNpm, { recursive: true });
+fs.writeFileSync(path.join(policyNpm, "package.json"), "{}");
+fs.writeFileSync(path.join(policyNpm, "package-lock.json"), "{}");
+const npmPolicy = pol(policyNpm);
+assert.equal(npmPolicy.strategy, "clone");
+assert.equal(npmPolicy.lockfile, "package-lock.json");
+assert.equal(npmPolicy.fallback?.strategy, "install");
+assert.equal(npmPolicy.fallback?.command, "npm ci");
+
+// overrides win over everything — odd repos are configuration, not code paths
+assert.equal(pol(policyNpm, { skip_install: true }).source, "override:skip_install");
+const cmdPolicy = pol(policyNpm, { install_command: " pnpm install --filter web " });
+assert.equal(cmdPolicy.strategy, "command");
+assert.equal(cmdPolicy.command, "pnpm install --filter web");
+
+// pnpm rows: global virtual store → store-install; without → clone
+const policyPnpm = path.join(tmp, "policy", "pnpm");
+fs.mkdirSync(policyPnpm, { recursive: true });
+fs.writeFileSync(path.join(policyPnpm, "package.json"), "{}");
+fs.writeFileSync(path.join(policyPnpm, "pnpm-lock.yaml"), "{}");
+assert.equal(pol(policyPnpm).source, "node:pnpm:clone");
+assert.equal(pol(policyPnpm, undefined, { pnpmVirtualStore: true }).strategy, "store-install");
+assert.equal(pol(policyPnpm, undefined, { pnpmVirtualStore: true }).command, "pnpm install --frozen-lockfile");
+
+// manifest without a lockfile → none (no reproducible frozen install in v0)
+fs.rmSync(path.join(policyNpm, "package-lock.json"));
+assert.equal(pol(policyNpm).source, "node:manifest-without-lockfile");
+
+// sync globs: defaults vs per-repo override
+assert.deepEqual(depPolicies.resolveSyncGlobs(), DEFAULT_SYNC_GLOBS);
+assert.deepEqual(depPolicies.resolveSyncGlobs({ sync_paths: "docs/*.md, .env*" }), ["docs/*.md", ".env*"]);
+
+// glob expansion: dot-inclusive, dir-aware, skips .git/node_modules
+const globHub = path.join(tmp, "policy", "globs");
+fs.mkdirSync(path.join(globHub, ".git"), { recursive: true });
+fs.mkdirSync(path.join(globHub, "node_modules"), { recursive: true });
+fs.mkdirSync(path.join(globHub, "config"), { recursive: true });
+fs.writeFileSync(path.join(globHub, ".env.local"), "A=1");
+fs.writeFileSync(path.join(globHub, ".myapp.rc"), "{}");
+fs.writeFileSync(path.join(globHub, "app.rc"), "{}");
+fs.writeFileSync(path.join(globHub, "config", "settings.ini"), "x");
+fs.writeFileSync(path.join(globHub, ".git", "ignored"), "");
+fs.writeFileSync(path.join(globHub, "node_modules", "ignored"), "");
+assert.deepEqual(
+  depPolicies.expandSyncPaths(globHub, [".env*", "*.rc", "config/*.ini"]).sort(),
+  [".env.local", ".myapp.rc", "app.rc", "config/settings.ini"].sort()
+);
+
 // ── real git lifecycle ──────────────────────────────────────────────────────
-const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "devflow-wt-"));
-const hub = path.join(tmp, "hub");
-const wsDir = path.join(tmp, "workspaces");
-const wtDir = path.join(wsDir, "flow_1");
 
 async function main() {
 fs.mkdirSync(hub, { recursive: true });
@@ -93,6 +172,9 @@ git(["init", "-q", "-b", "main"], hub);
 git(["config", "user.email", "test@devflow.local"], hub);
 git(["config", "user.name", "DevFlow Test"], hub);
 fs.writeFileSync(path.join(hub, "README.md"), "# test\n");
+// Phase 2 fixtures: a Node repo the dep-policy table recognizes
+fs.writeFileSync(path.join(hub, "package.json"), '{ "name": "test", "version": "0.0.0" }');
+fs.writeFileSync(path.join(hub, "package-lock.json"), "{}");
 git(["add", "."], hub);
 git(["commit", "-q", "-m", "init"], hub);
 
@@ -188,6 +270,100 @@ await worktrees.pruneWorktrees(hub);
 const afterPrune = await worktrees.listWorktrees(hub);
 assert.equal(afterPrune.filter((w) => !w.isMainWorktree).length, 0);
 
+// 10. worktree setup executor (Phase 2) ─────────────────────────────────────
+// hub dep state + untracked config fixtures (the hub is the source of deps,
+// config and caches; the worktree starts as a tracked-files-only checkout)
+fs.mkdirSync(path.join(hub, "node_modules"), { recursive: true });
+fs.writeFileSync(path.join(hub, "node_modules", "dep.txt"), "dep");
+fs.writeFileSync(path.join(hub, ".env.local"), "HUB_ENV=1");
+fs.writeFileSync(path.join(hub, ".myapp.rc"), "{}");
+fs.mkdirSync(path.join(hub, ".turbo"), { recursive: true });
+fs.writeFileSync(path.join(hub, ".turbo", "cache.txt"), "warm");
+fs.mkdirSync(path.join(hub, "docs"), { recursive: true });
+fs.writeFileSync(path.join(hub, "docs", "guide.md"), "guide");
+
+const setupEvents: string[] = [];
+// clone on lockfile match: node_modules copied, config + caches synced
+const hubPolicy = pol(hub); // package.json + package-lock.json → npm clone row
+assert.equal(hubPolicy.strategy, "clone");
+const createdSetup = await worktrees.createWorktree({ repoPath: hub, dir: wtDir, branch: "setup-branch-1", base: "main" });
+assert.equal(createdSetup.reused, false);
+const setup1 = await worktreeSetup.run({
+  hubPath: hub, worktreePath: wtDir, policy: hubPolicy,
+  syncGlobs: depPolicies.resolveSyncGlobs(),
+  onEvent: (m) => setupEvents.push(m),
+});
+assert.equal(setup1.ok, true);
+assert.ok(setup1.actions?.join("\n").includes("copied node_modules from the hub"));
+assert.ok(setupEvents.includes("copying node_modules from the hub"));
+assert.ok(fs.existsSync(path.join(wtDir, "node_modules", "dep.txt")));
+assert.equal(fs.readFileSync(path.join(wtDir, ".env.local"), "utf8"), "HUB_ENV=1");
+assert.ok(fs.existsSync(path.join(wtDir, ".myapp.rc")), "*.rc globs are dot-inclusive");
+assert.ok(fs.existsSync(path.join(wtDir, ".turbo", "cache.txt")), "warm caches copied when present");
+// the copy preserves relative workspace links semantics: dest files are real content
+assert.equal(fs.lstatSync(path.join(wtDir, "node_modules", "dep.txt")).isSymbolicLink(), false);
+
+// hub/worktree lockfile mismatch → the frozen-install fallback, no stale copy
+fs.writeFileSync(path.join(hub, "package-lock.json"), '{"changed":true}');
+const wtDir2 = path.join(wsDir, "flow_setup2");
+await worktrees.createWorktree({ repoPath: hub, dir: wtDir2, branch: "setup-branch-2", base: "main" });
+const fallbackPolicy: DepPolicy = {
+  strategy: "clone", depDirs: ["node_modules"], lockfile: "package-lock.json",
+  fallback: { strategy: "install", command: "echo fallback-ran > .fallback-marker", source: "test" },
+  source: "test",
+};
+const setup2 = await worktreeSetup.run({ hubPath: hub, worktreePath: wtDir2, policy: fallbackPolicy });
+assert.equal(setup2.ok, true);
+assert.ok(fs.existsSync(path.join(wtDir2, ".fallback-marker")));
+assert.ok(!fs.existsSync(path.join(wtDir2, "node_modules")), "mismatch → no stale dep copy");
+// restore the hub lockfile (working tree matches HEAD again)
+fs.writeFileSync(path.join(hub, "package-lock.json"), "{}");
+
+// command strategy + shared_dirs symlinks + setup_command override
+const wtDir3 = path.join(wsDir, "flow_setup3");
+await worktrees.createWorktree({ repoPath: hub, dir: wtDir3, branch: "setup-branch-3", base: "main" });
+fs.mkdirSync(path.join(hub, ".shared"), { recursive: true });
+fs.writeFileSync(path.join(hub, ".shared", "cfg.txt"), "cfg");
+const setup3 = await worktreeSetup.run({
+  hubPath: hub, worktreePath: wtDir3,
+  policy: { strategy: "command", command: "echo cmd-ran > cmd.txt", source: "test" },
+  sharedDirs: [".shared"],
+  setupCommand: "echo done > .setup-done",
+});
+assert.equal(setup3.ok, true);
+assert.ok(fs.existsSync(path.join(wtDir3, "cmd.txt")), "command strategy runs in the worktree");
+assert.ok(fs.existsSync(path.join(wtDir3, ".setup-done")), "setup_command runs after the strategy");
+assert.ok(fs.lstatSync(path.join(wtDir3, ".shared")).isSymbolicLink(), "shared dirs are symlinked");
+assert.equal(fs.readFileSync(path.join(wtDir3, ".shared", "cfg.txt"), "utf8"), "cfg");
+
+// failing commands are RESULTS (never thrown) — non-fatal agent self-repair
+const setup4 = await worktreeSetup.run({
+  hubPath: hub, worktreePath: wtDir3,
+  policy: { strategy: "command", command: "exit 3", source: "test" },
+  setupCommand: "echo should-not-run > .nope",
+});
+assert.equal(setup4.ok, false);
+assert.match(setup4.error ?? "", /exit 3/);
+assert.ok(!fs.existsSync(path.join(wtDir3, ".nope")), "steps stop at the first failure");
+
+// a declared shared dir missing from the hub is a config error (non-fatal)
+const setup5 = await worktreeSetup.run({
+  hubPath: hub, worktreePath: wtDir3,
+  policy: { strategy: "none", source: "test" },
+  sharedDirs: ["missing-dir"],
+});
+assert.equal(setup5.ok, false);
+assert.match(setup5.error ?? "", /shared dir missing-dir/);
+
+// dep trees are never symlinked (resolution must not reach into the hub)
+const setup6 = await worktreeSetup.run({
+  hubPath: hub, worktreePath: wtDir3,
+  policy: { strategy: "none", source: "test" },
+  sharedDirs: ["node_modules"],
+});
+assert.equal(setup6.ok, false);
+assert.match(setup6.error ?? "", /never/);
+
 console.log("\npure worktree layer checks passed ✓");
 }
 
@@ -217,7 +393,8 @@ async function lifecycleSmoke() {
   const repo = db.repoById("repo_1");
   const ctx = { flow, task, repo };
 
-  const wt = await worktreeManager.ensureFlowWorktree(ctx, "bugfix/dev-1-smoke", { nodeId: "node_x" });
+  const binding = await worktreeManager.ensureFlowWorktree(ctx, "bugfix/dev-1-smoke", { nodeId: "node_x" });
+  const wt = binding.dir;
   assert.equal(wt, fs.realpathSync(path.join(wsDir, "flow_smoke")), "canonical (realpath) dir stored/returned");
   assert.ok(fs.existsSync(path.join(wt!, ".git")));
   assert.equal(git(["rev-parse", "--abbrev-ref", "HEAD"], wt!), "bugfix/dev-1-smoke");
@@ -226,6 +403,34 @@ async function lifecycleSmoke() {
   assert.equal(ctx.flow.worktree_dir, wt);
   // lifecycle event emitted
   assert.ok(db.all<any>(`SELECT * FROM events WHERE flow_id='flow_smoke' AND type='lifecycle'`).some((e: any) => /worktree/.test(e.message)));
+
+  // ── Phase 2: the fresh worktree ran the repo's dep policy (npm clone row:
+  //    hub node_modules + matching lockfile → node_modules copied) + config sync
+  assert.equal(binding.setupNote, null);
+  assert.ok(fs.existsSync(path.join(wt!, "node_modules", "dep.txt")), "dep tree cloned from the hub");
+  assert.ok(fs.existsSync(path.join(wt!, ".env.local")), "untracked config synced (default globs)");
+  assert.ok(
+    db.all<any>(`SELECT * FROM events WHERE flow_id='flow_smoke' AND type='lifecycle'`)
+      .some((e: any) => /setting up worktree deps/.test(e.message)),
+    "setup emits a lifecycle event like any other step"
+  );
+
+  // a failing policy is NON-FATAL: the worktree is kept and the agent's run
+  // prompt gets one line ("worktree deps setup failed: <err>")
+  db.run(`UPDATE repos SET install_command='exit 3' WHERE id='repo_1'`);
+  ctx.repo = db.repoById("repo_1")!; // re-fetch: the ctx caches the repo row
+  await worktreeManager.removeFlowWorktree("flow_smoke", { reason: "recreate for the setup-failure test" });
+  ctx.flow.worktree_dir = null;
+  const failing = await worktreeManager.ensureFlowWorktree(ctx, "bugfix/dev-1-smoke3", { nodeId: "node_x" });
+  assert.ok(failing.dir, "worktree kept despite deps-setup failure");
+  assert.match(failing.setupNote ?? "", /worktree deps setup failed/);
+  db.run(`UPDATE repos SET install_command=NULL WHERE id='repo_1'`);
+  ctx.repo = db.repoById("repo_1")!;
+
+  // reuse skips setup (deps setup is per flow, not per run)
+  const reused = await worktreeManager.ensureFlowWorktree(ctx, "bugfix/dev-1-smoke3", { nodeId: "node_x" });
+  assert.equal(reused.dir, failing.dir);
+  assert.equal(reused.setupNote, null);
 
   // terminal flow → sweep removes the worktree and clears the column
   db.run(`UPDATE flows SET status='done' WHERE id='flow_smoke'`);
@@ -237,7 +442,7 @@ async function lifecycleSmoke() {
   const flow2 = { ...ctx.flow, id: "flow_gone", status: "active", worktree_dir: null };
   db.run(`INSERT INTO flows (id, task_id, name, status, execution_mode, repo_id, created_at, updated_at)
           VALUES ('flow_gone', 't1', 'Gone', 'active', 'local', 'repo_1', ?, ?)`, now, now);
-  const wt2 = await worktreeManager.ensureFlowWorktree({ ...ctx, flow: flow2 as typeof ctx.flow }, "bugfix/gone-1");
+  const wt2 = (await worktreeManager.ensureFlowWorktree({ ...ctx, flow: flow2 as typeof ctx.flow }, "bugfix/gone-1")).dir;
   assert.equal(wt2, fs.realpathSync(path.join(wsDir, "flow_gone")));
   // simulate flow deletion (events cleaned with it, as a real delete would)
   db.run(`DELETE FROM events WHERE flow_id='flow_gone'`);
@@ -248,7 +453,7 @@ async function lifecycleSmoke() {
 
   // explicit removal helper (future terminal-state hooks)
   ctx.flow.worktree_dir = null; // resync the in-memory ctx with the DB (sweep cleared it)
-  const wt3 = await worktreeManager.ensureFlowWorktree(ctx, "bugfix/dev-1-smoke2");
+  const wt3 = (await worktreeManager.ensureFlowWorktree(ctx, "bugfix/dev-1-smoke2")).dir;
   assert.ok(wt3);
   assert.equal((rows.get(FlowRow, `SELECT * FROM flows WHERE id=?`, "flow_smoke")!).worktree_dir, wt3);
   await worktreeManager.removeFlowWorktree("flow_smoke", { reason: "test removal" });
