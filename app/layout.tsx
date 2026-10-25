@@ -1,6 +1,7 @@
 import "./globals.css";
 import type { Metadata } from "next";
 
+import { AppProviders } from "./providers";
 import { TooltipProvider } from "@/components/ui/tooltip";
 
 export const metadata: Metadata = {
@@ -12,7 +13,9 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
   return (
     <html lang="en">
       <body>
-        <TooltipProvider>{children}</TooltipProvider>
+        <AppProviders>
+          <TooltipProvider>{children}</TooltipProvider>
+        </AppProviders>
       </body>
     </html>
   );

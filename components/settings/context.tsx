@@ -1,7 +1,10 @@
 "use client";
 import {
-  createContext, useCallback, useContext, useEffect, useState, type ReactNode,
+  createContext, useCallback, useContext, useState, type ReactNode,
 } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { queryKeys } from "@/constants/query-keys";
+import { fetchGitHosts, fetchRepos, fetchSettings } from "./queries";
 
 // ── types (shared by the settings sub-routes) ───────────────────────────────
 
@@ -51,42 +54,62 @@ type SettingsState = {
   error: string | null;
   setError: (e: string | null) => void;
   reload: () => Promise<void>;
-  saveSettings: (patch: any) => Promise<void>;
+  saveSettings: (patch: Record<string, unknown>) => Promise<void>;
 };
 
 const SettingsContext = createContext<SettingsState | null>(null);
 
+/**
+ * Server state (settings / repos / git hosts) is held by TanStack Query — one
+ * cache per endpoint, shared across the settings sub-routes. Mutations
+ * invalidate the affected key instead of manually resetting three useState
+ * buckets.
+ */
 export function SettingsProvider({ children }: { children: ReactNode }) {
-  const [settings, setSettings] = useState<Settings | null>(null);
-  const [repos, setRepos] = useState<Repo[]>([]);
-  const [hosts, setHosts] = useState<GitHost[]>([]);
-  const [loading, setLoading] = useState(true);
+  const queryClient = useQueryClient();
   const [error, setError] = useState<string | null>(null);
 
+  const settingsQuery = useQuery({ queryKey: queryKeys.settings, queryFn: fetchSettings });
+  const reposQuery = useQuery({ queryKey: queryKeys.repos, queryFn: fetchRepos });
+  const hostsQuery = useQuery({ queryKey: queryKeys.gitHosts, queryFn: fetchGitHosts });
+
+  /** refetch every shared settings query (same contract as the old manual fetches) */
   const reload = useCallback(async () => {
-    const [s, r, g] = await Promise.all([
-      fetch("/api/settings").then((r) => r.json()),
-      fetch("/api/repos").then((r) => r.json()),
-      fetch("/api/git-hosts").then((r) => r.json()),
-    ]);
-    setSettings(s);
-    setRepos(r.repos ?? []);
-    setHosts(g.hosts ?? []);
-    setLoading(false);
-  }, []);
+    await Promise.all(
+      [queryKeys.settings, queryKeys.repos, queryKeys.gitHosts].map(
+        (key) => queryClient.refetchQueries({ queryKey: key }),
+      ),
+    );
+  }, [queryClient]);
 
-  useEffect(() => { void reload(); }, [reload]);
+  const saveSettings = useCallback(
+    async (patch: Record<string, unknown>) => {
+      const res = await fetch("/api/settings", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(patch),
+      });
+      if (!res.ok) return;
+      await queryClient.invalidateQueries({ queryKey: queryKeys.settings });
+    },
+    [queryClient],
+  );
 
-  const saveSettings = useCallback(async (patch: any) => {
-    await fetch("/api/settings", {
-      method: "PATCH", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(patch),
-    });
-    await reload();
-  }, [reload]);
+  const loading = settingsQuery.isPending || reposQuery.isPending || hostsQuery.isPending;
 
   return (
-    <SettingsContext.Provider value={{ settings, repos, hosts, loading, error, setError, reload, saveSettings }}>
+    <SettingsContext.Provider
+      value={{
+        settings: settingsQuery.data ?? null,
+        repos: reposQuery.data ?? [],
+        hosts: hostsQuery.data ?? [],
+        loading,
+        error,
+        setError,
+        reload,
+        saveSettings,
+      }}
+    >
       {children}
     </SettingsContext.Provider>
   );
