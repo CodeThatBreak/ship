@@ -17,7 +17,7 @@
    by root (Phase 3): input.* blue (logical), nodes.* violet (physical),
    other roots neutral. */
 .prompt-var {
-  border-radius: 6px;
+  border-radius: var(--radius-lg);
   padding: 0 3px;
   margin: 0 1px;
   color: #93c5fd;

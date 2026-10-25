@@ -205,7 +205,7 @@ function HttpView({ flow, node, action, fetchArtifact }: PanelProps) {
             <Send size={14} /> Response
           </h3>
           <ArtifactLoader id={latest.id} fetchArtifact={fetchArtifact}
-            render={(a: any) => <pre className="overflow-y-auto whitespace-pre-wrap bg-background border border-border rounded-[10px] p-3.5 text-[12.5px] font-mono">{a.content}</pre>} />
+            render={(a: any) => <pre className="overflow-y-auto whitespace-pre-wrap bg-background border border-border rounded-lg p-3.5 text-[12.5px] font-mono">{a.content}</pre>} />
         </div>
       ) : (
         !running && (
@@ -264,7 +264,7 @@ function ScriptView({ flow, node, action, fetchArtifact }: PanelProps) {
             <Terminal size={14} /> Output
           </h3>
           <ArtifactLoader id={latest.id} fetchArtifact={fetchArtifact}
-            render={(a: any) => <pre className="overflow-y-auto whitespace-pre-wrap bg-background border border-border rounded-[10px] p-3.5 text-[12.5px] font-mono">{a.content}</pre>} />
+            render={(a: any) => <pre className="overflow-y-auto whitespace-pre-wrap bg-background border border-border rounded-lg p-3.5 text-[12.5px] font-mono">{a.content}</pre>} />
         </div>
       ) : (
         !running && (

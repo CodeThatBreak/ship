@@ -93,7 +93,7 @@ export default function AgentView({
             {mdArts.length > 1 && <VersionTabs arts={mdArts} sel={latest.id} onSel={() => {}} className="mb-3.5" />}
             <ArtifactLoader id={latest.id} fetchArtifact={fetchArtifact}
               render={(a: any) => outputKind === "json"
-                ? <pre className="overflow-y-auto whitespace-pre-wrap bg-background border border-border rounded-[10px] p-3.5 text-[12.5px] font-mono">{a.content}</pre>
+                ? <pre className="overflow-y-auto whitespace-pre-wrap bg-background border border-border rounded-lg p-3.5 text-[12.5px] font-mono">{a.content}</pre>
                 : <Markdown className="text-[13px] [&>*:first-child]:mt-0">{a.content}</Markdown>} />
           </div>
         )}

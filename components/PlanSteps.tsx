@@ -220,7 +220,7 @@ export default function PlanSteps({
                         {(s.files ?? []).map((f) => (
                           <code
                             key={f}
-                            className="text-[11px] text-muted-foreground bg-card border border-border rounded px-1 py-px"
+                            className="text-[11px] text-muted-foreground bg-card border border-border rounded-lg px-1 py-px"
                           >
                             {f}
                           </code>
@@ -244,7 +244,7 @@ export default function PlanSteps({
               {drafts.map((d, i) => (
                 <div
                   key={i}
-                  className="border border-border rounded-[10px] p-2.5 grid gap-1.5 bg-card/40"
+                  className="border border-border rounded-lg p-2.5 grid gap-1.5 bg-card/40"
                 >
                   <div className="flex gap-1.5 items-center">
                     <span className="text-xs text-muted-foreground w-5 text-center shrink-0">

@@ -123,9 +123,9 @@ export default function FlowsPage() {
     <a
       key={f.id}
       href={`/flows/${f.id}`}
-      className="block rounded-xl transition-colors hover:bg-muted/40"
+      className="block rounded-lg transition-colors hover:bg-muted/40"
     >
-      <div className="flex gap-3 items-center px-4 py-3 border border-border rounded-xl bg-card text-foreground hover:border-info/40 transition-colors group">
+      <div className="flex gap-3 items-center px-4 py-3 border border-border rounded-lg bg-card text-foreground hover:border-info/40 transition-colors group">
         <span
           className={cn(
             "size-2 shrink-0 rounded-full",
@@ -173,7 +173,7 @@ export default function FlowsPage() {
 
       {flows.length === 0 ? (
         <Card className="justify-center items-center gap-2 py-10 border-dashed! shadow-none! text-muted-foreground">
-          <div className="size-10 grid place-items-center rounded-xl bg-muted">
+          <div className="size-10 grid place-items-center rounded-lg bg-muted">
             <Inbox size={18} />
           </div>
           <div className="text-sm font-medium text-foreground">No flows yet</div>

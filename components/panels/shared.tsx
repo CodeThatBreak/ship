@@ -245,7 +245,7 @@ export function GenericArtifact({ node, kind, fetchArtifact, empty, icon: Icon }
       {arts.length > 1 && <VersionTabs arts={arts} sel={current?.id} onSel={setSel} className="mb-3.5" />}
       {current ? (
         <ArtifactLoader id={current.id} fetchArtifact={fetchArtifact}
-          render={(a: any) => <pre className="overflow-y-auto whitespace-pre-wrap bg-background border border-border rounded-[10px] p-3.5 text-[12.5px] font-mono">{a.content}</pre>} />
+          render={(a: any) => <pre className="overflow-y-auto whitespace-pre-wrap bg-background border border-border rounded-lg p-3.5 text-[12.5px] font-mono">{a.content}</pre>} />
       ) : (
         <div className="text-center px-5 py-16">
           {Icon && <Icon size={32} className="text-muted-foreground mb-3 mx-auto" />}

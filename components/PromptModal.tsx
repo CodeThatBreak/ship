@@ -185,7 +185,7 @@ export default function PromptModal({
             value={edited}
             onChange={(e) => setEdited(e.target.value)}
             className={cn(
-              "w-full bg-background border border-border rounded-[10px] px-3.5 py-3",
+              "w-full bg-background border border-border rounded-lg px-3.5 py-3",
               "text-[12.5px] font-mono leading-relaxed resize-y min-h-[280px]",
               "focus:outline-none focus:border-info focus:ring-[3px] focus:ring-accent-soft",
               "placeholder:text-muted-foreground"
@@ -207,7 +207,7 @@ export default function PromptModal({
           {/* context picker — what the model sees, per block char counts. For a
               fresh agent this controls EVERYTHING the model sees. */}
           {showContextPicker && blocks.length > 0 && (
-            <div className="border border-border rounded-[10px] px-3 py-2.5">
+            <div className="border border-border rounded-lg px-3 py-2.5">
               <div className="flex items-center gap-2 mb-2">
                 <span className="text-[11px] font-medium uppercase tracking-[0.5px] text-muted-foreground">Context blocks</span>
                 <span className="text-[11px] text-muted-foreground" title="total size of the selected context, assembled server-side">
@@ -227,7 +227,7 @@ export default function PromptModal({
                   <label
                     key={b.id}
                     className={cn(
-                      "flex items-start gap-2 text-[12.5px] rounded-[8px] px-2 py-1.5 transition-colors",
+                      "flex items-start gap-2 text-[12.5px] rounded-lg px-2 py-1.5 transition-colors",
                       b.locked ? "opacity-70 cursor-not-allowed" : "cursor-pointer hover:bg-background"
                     )}
                     title={b.text ? b.text : undefined}

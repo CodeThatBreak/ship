@@ -249,7 +249,7 @@ export default function WorkflowGraph({
             onClick={() => onSelect(n.node_key)}
             title={outputs.length ? `Publishes: ${outputs.join(", ")}` : undefined}
             className={cn(
-              "absolute rounded-xl cursor-pointer flex items-center gap-[9px] px-3 border-[1.5px] transition-all duration-150",
+              "absolute rounded-lg cursor-pointer flex items-center gap-[9px] px-3 border-[1.5px] transition-all duration-150",
               isSel ? "bg-popover shadow-panel" : "bg-card",
               st.border,
               isRunning && "animate-pulse",

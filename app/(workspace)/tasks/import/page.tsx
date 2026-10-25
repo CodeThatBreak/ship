@@ -76,7 +76,7 @@ export default function TaskImportPage() {
 
       {providers.length === 0 && (
         <Card className="justify-center items-center gap-2 py-10 border-dashed! shadow-none! text-muted-foreground">
-          <div className="size-10 grid place-items-center rounded-xl bg-muted">
+          <div className="size-10 grid place-items-center rounded-lg bg-muted">
             <Inbox size={18} />
           </div>
           <div className="text-sm font-medium text-foreground">No task providers</div>

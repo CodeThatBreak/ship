@@ -262,7 +262,7 @@ export function PromptEditor({
       <EditorContent editor={editor} />
       {popup && (
         <div
-          className="fixed z-[60] w-80 max-h-64 overflow-y-auto rounded-xl border border-border bg-popover p-1 shadow-lg"
+          className="fixed z-[60] w-80 max-h-64 overflow-y-auto rounded-lg border border-border bg-popover p-1 shadow-lg"
           style={{ top: popup.top + 4, left: popup.left }}
         >
           {query && (

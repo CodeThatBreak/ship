@@ -605,7 +605,7 @@ function NodePromptBox({
   const loaded = prompt != null;
 
   return (
-    <div className="shrink-0 mb-2.5 rounded-[10px] border border-border bg-background overflow-hidden">
+    <div className="shrink-0 mb-2.5 rounded-lg border border-border bg-background overflow-hidden">
       {/* header row: title + edit action */}
       <div className="flex items-center gap-2 px-2.5 py-1.5">
         <FileTextIcon className="size-3.5 shrink-0 text-muted-foreground" />

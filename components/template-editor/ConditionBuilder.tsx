@@ -210,7 +210,7 @@ function PathPopover({
   }, [count, highlight, shown, onPick, onDismiss]);
   if (!count) return null;
   return (
-    <div className="absolute left-0 top-full z-50 mt-1 w-80 max-h-56 overflow-y-auto rounded-xl border border-border bg-popover p-1 shadow-lg">
+    <div className="absolute left-0 top-full z-50 mt-1 w-80 max-h-56 overflow-y-auto rounded-lg border border-border bg-popover p-1 shadow-lg">
       {shown.map((o, i) => (
         <Fragment key={o.path + i}>
           {(i === 0 || shown[i - 1].group !== o.group) && (

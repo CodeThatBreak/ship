@@ -1516,7 +1516,7 @@ export function VariablesPicker({
         Variables <ChevronDown size={10} className={cn("transition-transform", open && "rotate-180")} />
       </button>
       {open && (
-        <div className="absolute right-0 top-full z-50 mt-1 w-72 max-h-64 overflow-y-auto rounded-xl border border-border bg-popover p-1 shadow-lg">
+        <div className="absolute right-0 top-full z-50 mt-1 w-72 max-h-64 overflow-y-auto rounded-lg border border-border bg-popover p-1 shadow-lg">
           <input
             autoFocus
             value={query}

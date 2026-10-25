@@ -92,7 +92,7 @@ export default function DiffView({ raw }: { raw: string }) {
         const { oldValue, newValue } = toOldNew(f.lines);
         return (
           <details key={f.name} open={files.length <= 5} className="group mt-3">
-            <summary className="cursor-pointer list-none flex items-center gap-2 font-sans font-semibold bg-card border border-border rounded-t-[9px] group-open:rounded-b-none group-not-open:rounded-[9px] px-3 py-2">
+            <summary className="cursor-pointer list-none flex items-center gap-2 font-sans font-semibold bg-card border border-border rounded-t-[9px] group-open:rounded-b-none group-not-open:rounded-lg px-3 py-2">
               <FileCode2 size={14} className="text-muted-foreground" />
               <span className="flex-1">{f.name}</span>
               <span className="text-success font-medium">+{count(f, "add")}</span>

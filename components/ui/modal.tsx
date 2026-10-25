@@ -35,7 +35,7 @@ export function Modal({
       <DialogContent
         className={cn(
           "flex flex-col gap-0 p-0 w-full max-w-[720px] max-h-[85vh] mx-4",
-          "bg-card border-border rounded-[14px] shadow-2xl sm:max-w-[720px]",
+          "bg-card border-border rounded-lg shadow-2xl sm:max-w-[720px]",
           className
         )}
       >

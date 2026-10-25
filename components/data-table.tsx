@@ -118,7 +118,7 @@ export function DataTable<TData, TValue>({
         </div>
       )}
 
-      <div className="rounded-xl border border-border bg-card overflow-hidden">
+      <div className="rounded-lg border border-border bg-card overflow-hidden">
         <Table>
           <TableHeader>
             {table.getHeaderGroups().map((headerGroup) => (
@@ -162,7 +162,7 @@ export function DataTable<TData, TValue>({
                     <TableCell key={col.id}>
                       <span
                         className={cn(
-                          "block h-4 animate-pulse rounded bg-muted",
+                          "block h-4 animate-pulse rounded-lg bg-muted",
                           j === 0 ? "w-3/4" : "w-1/2",
                         )}
                       />
@@ -200,7 +200,7 @@ export function DataTable<TData, TValue>({
                                   e.stopPropagation();
                                   row.toggleExpanded();
                                 }}
-                                className="mr-1 flex h-4 w-4 shrink-0 items-center justify-center rounded text-muted-foreground/70 hover:bg-muted hover:text-foreground"
+                                className="mr-1 flex h-4 w-4 shrink-0 items-center justify-center rounded-lg text-muted-foreground/70 hover:bg-muted hover:text-foreground"
                               >
                                 <ChevronRight
                                   size={12}

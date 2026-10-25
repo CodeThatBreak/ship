@@ -67,7 +67,7 @@ function TemplateRowCard({
   return (
     <Card className="p-0 gap-0 shadow-sm! overflow-hidden">
       <div className="px-4 py-3.5 flex items-start gap-3">
-        <span className="size-9 shrink-0 grid place-items-center rounded-xl bg-muted">
+        <span className="size-9 shrink-0 grid place-items-center rounded-lg bg-muted">
           <Workflow size={16} className="text-muted-foreground" />
         </span>
         <div className="flex-1 min-w-0">
@@ -298,7 +298,7 @@ export default function TemplateGallery() {
                 const file = e.dataTransfer.files?.[0];
                 if (file) readImportFile(file);
               }}
-              className="grid gap-2 rounded-xl border border-dashed border-border p-3"
+              className="grid gap-2 rounded-lg border border-dashed border-border p-3"
             >
               <div className="flex items-center gap-2">
                 <label

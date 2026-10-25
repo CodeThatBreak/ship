@@ -63,7 +63,7 @@ export function FilterPicker({
   return (
     <div
       className={cn(
-        "flex items-center gap-1.5 flex-wrap h-8 min-w-[280px] max-w-full rounded-2xl border border-border bg-input/50 px-1.5 py-0.5 transition-[color,box-shadow] duration-200 focus-within:border-ring focus-within:ring-3 focus-within:ring-ring/30",
+        "flex items-center gap-1.5 flex-wrap h-8 min-w-[280px] max-w-full rounded-lg border border-border bg-input/50 px-1.5 py-0.5 transition-[color,box-shadow] duration-200 focus-within:border-ring focus-within:ring-3 focus-within:ring-ring/30",
         className,
       )}
     >

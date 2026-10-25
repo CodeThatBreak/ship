@@ -77,7 +77,7 @@ function BuilderNodeView({ id, data }: NodeProps<Node<BuilderNodeData>>) {
       // on it); the pane's own click handler ignores node clicks already
       onClick={() => onOpen(id)}
       className={cn(
-        "group relative rounded-xl border-[1.5px] bg-card cursor-pointer px-3 py-2 min-w-[148px] max-w-[188px] flex items-center gap-2.5 transition-all duration-150",
+        "group relative rounded-lg border-[1.5px] bg-card cursor-pointer px-3 py-2 min-w-[148px] max-w-[188px] flex items-center gap-2.5 transition-all duration-150",
         "hover:shadow-panel",
         selected ? "border-info bg-popover shadow-panel" : "border-border",
         readonly && "cursor-default",
@@ -117,22 +117,22 @@ function BuilderNodeView({ id, data }: NodeProps<Node<BuilderNodeData>>) {
           <code className="font-mono text-[10px] text-muted-foreground truncate max-w-[100px]">{node.key}</code>
         </div>
         <div className="flex items-center gap-1 mt-1 flex-wrap">
-          <span className={cn("rounded px-1 py-px text-[9.5px] font-medium", TRIGGER_STYLE[node.trigger.type] ?? TRIGGER_STYLE.auto)}>
+          <span className={cn("rounded-lg px-1 py-px text-[9.5px] font-medium", TRIGGER_STYLE[node.trigger.type] ?? TRIGGER_STYLE.auto)}>
             {node.trigger.type}
           </span>
           {node.trigger.wait_for && (
             <span
-              className="rounded px-1 py-px text-[9.5px] font-medium bg-muted text-muted-foreground"
+              className="rounded-lg px-1 py-px text-[9.5px] font-medium bg-muted text-muted-foreground"
               title="wait_for event source"
             >
               ⧗ {(node.trigger.wait_for ?? "").slice(0, 14)}
             </span>
           )}
           {node.join_mode === "any" && (
-            <span className="rounded px-1 py-px text-[9.5px] font-medium bg-warning/10 text-warning">any-join</span>
+            <span className="rounded-lg px-1 py-px text-[9.5px] font-medium bg-warning/10 text-warning">any-join</span>
           )}
           {isDecision && (
-            <span className="rounded px-1 py-px text-[9.5px] font-medium bg-violet-500/10 text-violet-300">branch</span>
+            <span className="rounded-lg px-1 py-px text-[9.5px] font-medium bg-violet-500/10 text-violet-300">branch</span>
           )}
         </div>
       </div>

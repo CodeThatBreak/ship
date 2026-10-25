@@ -86,7 +86,7 @@ export function StatusBar() {
           <Link
             key={a.flowId}
             href={`/flows/${a.flowId}`}
-            className="hidden sm:inline-flex items-center gap-1 rounded bg-muted px-1.5 py-0.5 hover:text-foreground transition-colors max-w-[220px]"
+            className="hidden sm:inline-flex items-center gap-1 rounded-lg bg-muted px-1.5 py-0.5 hover:text-foreground transition-colors max-w-[220px]"
             title={`${a.taskKey} — ${a.summary}\n${NODE_LABELS[a.node ?? ""] ?? a.node ?? ""}`}
           >
             <span className="font-mono text-[10px] text-info">{a.taskKey}</span>
