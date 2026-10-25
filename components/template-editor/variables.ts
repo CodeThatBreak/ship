@@ -5,9 +5,10 @@
  *
  * A group is a titled cluster of insertable fields:
  *
- *   • inputs   — this node's inherited run input, `{{input.<field>}}`
- *                (logical: re-mapping a field's source never breaks a prompt
- *                that addresses it)
+ *   • inputs   — this node's effective run input, `{{input.<field>}}`
+ *                ("My inputs": the inherited parent merge overlaid with the
+ *                node's `input_map` mappings — logical: re-mapping a field's
+ *                source never breaks a prompt that addresses it)
  *   • task     — the template's task context, `{{task.<key>}}` (no wiring)
  *   • upstream — one group per connected upstream node's published outputs,
  *                `{{nodes.<key>.output.<field>}}` (physical: keyed on the
@@ -51,18 +52,14 @@ export interface UpstreamVarSource {
 }
 
 /**
- * Assembles the full popover vocabulary. Order follows the mental model:
- * inherited input → task context → upstream nodes → trigger payload.
+ * The connected parents' published fields merged by name — the same merge the
+ * engine's implicit inheritance does (`inheritedInput`: every `next`-edge
+ * parent's output merged, last wins). `from` lists every parent publishing
+ * the field; two entries is the silent-collision case the Inputs tab badges.
  */
-export function buildVarGroups(opts: {
-  taskFields?: { key: string; label?: string; type?: string }[];
-  triggerFields?: { key: string; label?: string; type?: string }[];
-  upstream?: UpstreamVarSource[];
-}): VarGroup[] {
-  const groups: VarGroup[] = [];
-
-  // inputs — the parents' merged published fields, addressed logically
-  const upstream = opts.upstream ?? [];
+export function mergeUpstreamFields(
+  upstream: UpstreamVarSource[],
+): { name: string; type?: string; from: string[] }[] {
   const byName = new Map<string, { type?: string; from: string[] }>();
   for (const src of upstream) {
     for (const f of src.fields) {
@@ -74,17 +71,134 @@ export function buildVarGroups(opts: {
       }
     }
   }
-  if (byName.size) {
+  return [...byName.entries()].map(([name, f]) => ({
+    name,
+    type: f.type,
+    from: f.from,
+  }));
+}
+
+/** The `flow.*` / `repo.*` context fields — the two fixed two-key roots of
+ *  the context universe that no contract declares. The Inputs tab's mapping
+ *  source picker offers them as their own group. */
+export const FLOW_REPO_FIELDS: { path: string; label: string; type: string }[] = [
+  { path: "flow.mr_url", label: "MR url", type: "string" },
+  { path: "flow.mr_branch", label: "MR branch", type: "string" },
+  { path: "repo.cloud_url", label: "Repo cloud url", type: "string" },
+  { path: "repo.local_path", label: "Repo local path", type: "string" },
+];
+
+/**
+ * Resolves a known-shape JSONata mapping expression to a friendly source
+ * description (`nodes.build.output.plan` → "Build · output.plan") and the
+ * source field's declared type. Known shapes: `nodes.<key>.output.<field>`,
+ * `task.<field>`, `trigger.payload.<field>`, `flow.*` / `repo.*`. Anything
+ * else (arbitrary JSONata) resolves to null — the caller shows the raw
+ * expression as a custom mapping.
+ */
+export function resolveMapExpr(
+  expr: string,
+  opts: {
+    upstream?: UpstreamVarSource[];
+    taskFields?: { key: string; label?: string; type?: string }[];
+    triggerFields?: { key: string; label?: string; type?: string }[];
+  } = {},
+): { source: string; type?: string } | null {
+  const s = expr.trim();
+  let m = /^nodes\.([A-Za-z0-9_]+)\.output\.(.+)$/.exec(s);
+  if (m) {
+    const src = opts.upstream?.find((u) => u.key === m![1]);
+    const field = m![2];
+    const f = src?.fields.find((x) => x.name === field);
+    return {
+      source: src ? `${src.label} · output.${field}` : s,
+      type: f?.type,
+    };
+  }
+  m = /^task\.([A-Za-z0-9_]+)$/.exec(s);
+  if (m) {
+    const f = opts.taskFields?.find((x) => x.key === m![1]);
+    return { source: `Task · ${m![1]}`, type: f?.type };
+  }
+  m = /^trigger\.payload\.([A-Za-z0-9_.]+)$/.exec(s);
+  if (m) {
+    const f = opts.triggerFields?.find((x) => x.key === m![1]);
+    return { source: `Trigger payload · ${m![1]}`, type: f?.type };
+  }
+  m = /^(flow|repo)\.([A-Za-z0-9_]+)$/.exec(s);
+  if (m) {
+    return { source: `${m[1] === "flow" ? "Flow" : "Repo"} · ${m![2]}` };
+  }
+  return null;
+}
+
+/**
+ * Assembles the full popover vocabulary. Order follows the mental model:
+ * my inputs → task context → upstream nodes → trigger payload.
+ */
+export function buildVarGroups(opts: {
+  taskFields?: { key: string; label?: string; type?: string }[];
+  triggerFields?: { key: string; label?: string; type?: string }[];
+  upstream?: UpstreamVarSource[];
+  /** this node's `input_map` (Phase 4): `{field: "<JSONata>"}` mappings the
+   *  engine overlays on the inherited merge at run time — "My inputs" shows
+   *  the effective input, each mapped field's origin annotated in its
+   *  description ("mapped: Build · output.plan"). */
+  inputMap?: Record<string, unknown>;
+}): VarGroup[] {
+  const groups: VarGroup[] = [];
+
+  // inputs — the parents' merged published fields, addressed logically, with
+  // the node's input_map mappings overlaid (mapped fields win at run time,
+  // so they win here too)
+  const upstream = opts.upstream ?? [];
+  const inherited = mergeUpstreamFields(upstream);
+  const mapEntries = Object.entries(opts.inputMap ?? {}).filter(
+    ([, v]) => typeof v === "string" && (v as string).trim(),
+  ) as [string, string][];
+  if (inherited.length || mapEntries.length) {
+    const originOf = new Map<string, string>();
+    for (const [field, expr] of mapEntries) {
+      const res = resolveMapExpr(expr, {
+        upstream,
+        taskFields: opts.taskFields,
+        triggerFields: opts.triggerFields,
+      });
+      originOf.set(field, res?.source ?? expr);
+    }
+    const fields: VarField[] = inherited
+      .filter((f) => !originOf.has(f.name))
+      .map((f) => ({
+        name: f.name,
+        type: f.type,
+        description:
+          f.from.length > 1 ? `inherited from ${f.from.join(" + ")}` : undefined,
+        insert: `{{input.${f.name}}}`,
+      }));
+    for (const [field, source] of originOf) {
+      fields.push({
+        name: field,
+        type: resolveMapExpr(
+          mapEntries.find(([k]) => k === field)?.[1] ?? "",
+          { upstream, taskFields: opts.taskFields, triggerFields: opts.triggerFields },
+        )?.type,
+        description: `mapped: ${source}`,
+        insert: `{{input.${field}}}`,
+      });
+    }
+    const origin = [
+      upstream.length
+        ? `merged from ${upstream.map((s) => s.label).join(" + ")}`
+        : null,
+      mapEntries.length ? `${mapEntries.length} mapped` : null,
+    ]
+      .filter(Boolean)
+      .join(" · ");
     groups.push({
       id: "inputs",
-      title: "Inherited",
-      origin: `merged from ${upstream.map((s) => s.label).join(" + ")}`,
-      fields: [...byName.entries()].map(([name, f]) => ({
-        name,
-        type: f.type,
-        description: f.from.length > 1 ? `inherited from ${f.from.join(" + ")}` : undefined,
-        insert: `{{input.${name}}}`,
-      })),
+      title: "My inputs",
+      origin: origin || undefined,
+      fields,
     });
   }
 

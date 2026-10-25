@@ -35,6 +35,7 @@ import {
 } from "../ui/tooltip";
 import { PromptEditor } from "./PromptEditor";
 import { iconForIconName } from "./icons";
+import { InputsTab } from "./InputsTab";
 import {
   asJsonataGroups,
   buildVarGroups,
@@ -55,13 +56,15 @@ import {
 import { parseInputContract, parseOutputContract, type InputFieldRow } from "./ts-schema-lite";
 
 /**
- * The node configurator (§8): Trigger / Config / Contract tabs.
+ * The node configurator (§8): Trigger / Inputs / Config / Contract tabs.
  * Built-ins get the schema-driven config form from their `configFields`;
  * declarative kinds (agent / decision / http / script) edit instance
  * overrides through the same schema-driven form (their runtime classes
- * declare `configFields`). There is no Inputs tab — nodes declare no input
- * contract; the Contract tab shows the inherited upstream inputs and the
- * node's own published outputs.
+ * declare `configFields`). The Inputs tab (Phase 4) makes the node's
+ * effective input visible and mappable: inherited rows from the connected
+ * parents' published outputs, plus `input_map` mappings (the engine's
+ * §3 overlay). The Contract tab shows the per-source upstream inputs and
+ * the node's own published outputs.
  *
  * The tabbed body is exported for any host surface — the visual builder
  * (Phase 5) embeds it in a node drawer.
@@ -86,6 +89,7 @@ function isStartNode(node: EditorNode): boolean {
 /** Tab button labels (the start node shows only a subset of the tabs). */
 const TAB_LABELS: Record<string, string> = {
   trigger: "Trigger",
+  inputs: "Inputs",
   config: "Config",
   contract: "Contract",
   output: "Run Context",
@@ -138,7 +142,7 @@ export function NodeConfiguratorBody({
   invalidRefs?: Record<string, string>;
 }) {
   const [tab, setTab] = useState<
-    "trigger" | "config" | "output" | "contract"
+    "trigger" | "inputs" | "config" | "output" | "contract"
   >("trigger");
   const [contract, setContract] = useState<NodeContract | null>(null);
   const start = node ? isStartNode(node) : false;
@@ -188,25 +192,34 @@ export function NodeConfiguratorBody({
   }, [node?.nodeTemplateId, node?.config, contract]);
 
   // the upstream variables (friendly names, grouped by source node) — shared
-  // by the Config tab (the per-field Variables picker) and the Contract tab
-  // (inherited input)
+  // by the Inputs tab (the mapping rows' source picker), the Config tab (the
+  // per-field Variables picker) and the Contract tab (inherited input)
   const groups = useUpstreamGroups(incoming);
-  // the full picker vocabulary (Phase 3): inherited inputs → task context →
-  // upstream nodes → trigger payload — one shape for every variable surface
+  // the next-edge parents' vocabulary as plain sources — only `next` edges
+  // inherit (loop edges re-trigger, they publish nothing into the input)
+  const upstreamSources = useMemo(
+    () =>
+      groups
+        .filter((g) => g.edge.kind === "next")
+        .map((g) => ({
+          key: g.source.key,
+          label: g.label,
+          fields: g.fields.map((f) => ({ name: f.name, type: f.type })),
+        })),
+    [groups],
+  );
+  // the full picker vocabulary (Phase 3 + 4): my inputs (the inherited merge
+  // overlaid with the node's input_map) → task context → upstream nodes →
+  // trigger payload — one shape for every variable surface
   const varGroups = useMemo(
     () =>
       buildVarGroups({
         taskFields: taskFields ?? [],
         triggerFields: triggerFields ?? [],
-        upstream: groups
-          .filter((g) => g.edge.kind === "next")
-          .map((g) => ({
-            key: g.source.key,
-            label: g.label,
-            fields: g.fields.map((f) => ({ name: f.name, type: f.type })),
-          })),
+        upstream: upstreamSources,
+        inputMap: (node?.input_map ?? {}) as Record<string, unknown>,
       }),
-    [groups, taskFields, triggerFields],
+    [upstreamSources, taskFields, triggerFields, node?.input_map],
   );
   // only `next` edges inherit — the isolation hint keys on them
   const hasUpstream = groups.some((g) => g.edge.kind === "next");
@@ -215,7 +228,7 @@ export function NodeConfiguratorBody({
   // straight to the next nodes, so it gets Trigger + Output Schema only
   const tabs = start
     ? (["trigger", "output"] as const)
-    : (["trigger", "config", "contract"] as const);
+    : (["trigger", "inputs", "config", "contract"] as const);
 
   return (
     <div className="flex flex-col min-h-0 flex-1">
@@ -253,6 +266,14 @@ export function NodeConfiguratorBody({
       <div className="flex-1 overflow-y-auto pt-4 pr-1 min-h-0">
         {tab === "trigger" ? (
           <TriggerTab node={node} onChange={onChange} />
+        ) : tab === "inputs" ? (
+          <InputsTab
+            node={node}
+            upstream={upstreamSources}
+            taskFields={taskFields}
+            triggerFields={triggerFields}
+            onChange={onChange}
+          />
         ) : tab === "config" ? (
           <ConfigTab
             node={node}
@@ -1768,6 +1789,12 @@ function ContractView({
             No upstream node — connect one on the canvas; whatever it publishes
             becomes this node&apos;s input (addressed as{" "}
             <code className="font-mono">{`{{input.<field>}}`}</code> in prompts).
+          </p>
+        )}
+        {groups.length > 0 && (
+          <p className="text-[11px] text-muted-foreground mt-1 mb-1.5 m-0 first:mt-0">
+            The merged view of what arrives (last-finished parent wins on
+            conflicts) — map individual fields on the Inputs tab.
           </p>
         )}
         {groups.map((g) => (

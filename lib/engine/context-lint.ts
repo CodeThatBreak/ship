@@ -189,11 +189,23 @@ export function lintTemplate(
       // published fields (null when any parent is free-form — any field passes)
       const parentKeys = edges.filter((e) => e.kind === "next" && e.to === n.key).map((e) => e.from);
       const parentContracts = parentKeys.map((k) => contractOfKey.get(k));
-      const inheritedFields: string[] | null = !parentContracts.length
+      let inheritedFields: string[] | null = !parentContracts.length
         ? null
         : parentContracts.some((c) => !c || c.fields == null)
           ? null
           : Array.from(new Set(parentContracts.flatMap((c) => c!.fields ?? [])));
+      // the node's input_map overlays the inherited merge at run time
+      // (evalInputMap) — its field names join the effective input contract,
+      // so `{{input.<mapped>}}` refs lint against them too. The same
+      // emptiness rule the runtime applies: only non-empty string mappings
+      // produce a field.
+      const mapped = Object.entries(n.inputMap ?? {})
+        .filter(([, v]) => typeof v === "string" && (v as string).trim())
+        .map(([k]) => k)
+        .filter((k) => k.trim());
+      if (inheritedFields != null && mapped.length) {
+        inheritedFields = Array.from(new Set([...inheritedFields, ...mapped]));
+      }
 
       // {{...}} template refs in declarative definitions
       for (const ref of templateRefs(nt.config, n.config)) {
