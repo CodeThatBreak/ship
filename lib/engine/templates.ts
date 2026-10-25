@@ -372,6 +372,21 @@ export class TemplateStore {
     if (t.is_builtin) throw new Error("the built-in template is read-only — duplicate it to make changes");
   }
 
+  /**
+   * Whether any node instance still references an unsaved draft node template
+   * (Phase 2's `draft:<n>` ids). `graph()` can't see these (its catalog JOIN
+   * drops them), so the export path asks directly: a template with draft nodes
+   * can't be exported — its YAML would reference rows that don't exist.
+   */
+  hasDraftNodes(templateId: string): boolean {
+    return (
+      (db.get<{ c: number }>(
+        `SELECT COUNT(*) c FROM flow_template_nodes WHERE template_id=? AND node_template_id LIKE 'draft:%'`,
+        templateId,
+      )?.c ?? 0) > 0
+    );
+  }
+
   /** Structural edits are refused while flows are running on a live snapshot —
    *  snapshots are safe, but refusing keeps the editor honest about run state. */
   private assertNotRunning(templateId: string): void {
@@ -454,6 +469,56 @@ export class TemplateStore {
       JSON.stringify(config), ts, ts
     );
     return this.nodeTemplate(id)!;
+  }
+
+  /**
+   * Persist a draft declarative node template at Save time (Phase 2): the
+   * editor's palette places `draft:` instances with nothing server-side until
+   * the user commits — this is where the rows are born. An identical persisted
+   * def (same key + kind + config) is reused, so identical custom nodes stay
+   * one Library row across templates; otherwise a new row is created, and a
+   * taken key versions the display name ("Agent node 2") instead of dead-ending
+   * the save. Returns the row id + whether this call created it (the API route
+   * rolls back rows it created when the surrounding save fails).
+   */
+  createOrReuseNodeTemplate(input: {
+    name: string; kind: string; icon?: string | null; description?: string | null;
+    config: Record<string, unknown>;
+  }): { id: string; created: boolean } {
+    const name = input.name.trim();
+    if (!name) throw new Error("name is required");
+    const kind = (input.kind ?? "").trim();
+    if (!(KINDED_NODE_TEMPLATE_KINDS as readonly string[]).includes(kind)) {
+      throw new Error(`unsupported node kind "${kind}" — declarative kinds: ${KINDED_NODE_TEMPLATE_KINDS.join(", ")}`);
+    }
+    // validate + normalize once (createNodeTemplate parses again — cheap, and
+    // it keeps the create path single-sourced)
+    const config = parseDeclarativeConfig(kind, input.config ?? {}, name);
+    const key = TemplateStore.slugify(name);
+    const identical = rows.all(NodeTemplateRow,
+      `SELECT * FROM node_templates WHERE key=? AND is_builtin=0`, key,
+    ).find((r) => r.kind === kind && JSON.stringify(r.config ?? {}) === JSON.stringify(config));
+    if (identical) return { id: identical.id, created: false };
+    try {
+      return {
+        id: this.createNodeTemplate({ name, kind, icon: input.icon, description: input.description, config }).id,
+        created: true,
+      };
+    } catch (e: unknown) {
+      // a persisted row already owns the slug — version the name instead of
+      // failing the whole save on a catalog collision
+      if (!/already exists/.test(e instanceof Error ? e.message : String(e))) throw e;
+      for (let n = 2; ; n++) {
+        try {
+          return {
+            id: this.createNodeTemplate({ name: `${name} ${n}`, kind, icon: input.icon, description: input.description, config }).id,
+            created: true,
+          };
+        } catch (e2: unknown) {
+          if (n >= 50 || !/already exists/.test(e2 instanceof Error ? e2.message : String(e2))) throw e2;
+        }
+      }
+    }
   }
 
   /** Update a declarative node template (never built-ins). */

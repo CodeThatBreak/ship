@@ -1,21 +1,29 @@
 "use client";
 /**
- * The builder's left panel (Phase 5B): a collapsible "Add node" palette. The
- * node_templates catalog is grouped by category — built-in SDLC nodes, then
- * your custom nodes by declarative kind — and clicking an entry places it on
- * the canvas, unconnected at the viewport center (drag from a node's handle
- * to connect it). Declared nodes are NOT listed here; those live on the
- * canvas and open their configurator from the canvas click. The custom-kind
- * buttons add a node of that kind directly — the prompt/knobs are authored in
- * the drawer once it's wired in, so the upstream run context is available as
- * clickable variables.
+ * The builder's left panel (Phase 5B, restructured in Phase 2): three sections.
+ *
+ *   Standard  — the built-in SDLC catalog rows (Start · Plan · Build · …);
+ *               picking places an instance of the persisted row.
+ *   New node  — Agent / Decision / HTTP / Script tiles: each places an
+ *               in-memory draft instance (`nodeTemplateId: "draft:<n>"` with
+ *               its def in the draft's pendingDefs). Nothing is created
+ *               server-side at click time — the row is born on Save.
+ *   Library   — collapsed by default: the persisted custom nodes (declarative
+ *               rows), reusable across templates. Picking places an instance
+ *               of the real row.
+ *
+ * Declared nodes are NOT listed here; those live on the canvas and open their
+ * configurator from the canvas click. Every placement puts an unconnected node
+ * at the viewport center — drag from a node's handle to connect it, then
+ * author it in the drawer (the single authoring surface).
  */
 import { useEffect, useState } from "react";
-import { Lock, PanelLeftClose, PanelLeftOpen, Plus, Wand2 } from "lucide-react";
+import { ChevronDown, ChevronRight, Library, Lock, PanelLeftClose, PanelLeftOpen, Plus } from "lucide-react";
 import { Badge } from "../ui/badge";
 import { Button } from "../ui/button";
 import { cn } from "../../lib/utils";
 import type { EditorNode } from "./types";
+import { isDraftNodeTemplateId } from "./types";
 import { iconForIconName } from "./icons";
 
 type CatalogEntry = {
@@ -23,6 +31,7 @@ type CatalogEntry = {
   key: string;
   name: string;
   kind: string;
+  version: number;
   is_builtin: boolean;
   description: string | null;
   icon: string | null;
@@ -32,43 +41,50 @@ type AuthorKind = "agent" | "decision" | "http" | "script";
 
 /** Custom kinds in a fixed display order + their palette group titles. */
 const KIND_GROUPS: { kind: AuthorKind; title: string }[] = [
-  { kind: "agent", title: "Agent nodes" },
-  { kind: "decision", title: "Decision nodes" },
-  { kind: "http", title: "HTTP nodes" },
-  { kind: "script", title: "Script nodes" },
+  { kind: "agent", title: "Agent" },
+  { kind: "decision", title: "Decision" },
+  { kind: "http", title: "HTTP" },
+  { kind: "script", title: "Script" },
 ];
 
 export interface NodePaletteProps {
   /** the template's nodes — used to disable the Start entry once one exists */
   nodes: EditorNode[];
   readonly: boolean;
-  /** an authoring request is in flight (node creation busy state) */
-  busy?: boolean;
-  /** placing a catalog node on the canvas (unconnected; the host places it) */
+  /** bumped after a Save that may have created catalog rows (Phase 2) —
+   *  the cached catalog is re-fetched so new Library rows show up */
+  catalogEpoch?: number;
+  /** placing a persisted catalog node on the canvas (unconnected; the host places it) */
   onAddCatalogNode: (rowId: string, isBuiltin: boolean, catalogKey: string, name: string) => void;
-  /** one-click add: a blank node of the kind, placed unconnected */
+  /** a New-node tile: place an in-memory draft instance of the kind */
   onAddKindNode: (kind: AuthorKind) => void;
-  /** opens the pre-placement authoring dialog at a declarative kind */
-  onOpenAuthoring: (kind: AuthorKind) => void;
 }
 
 export default function NodePalette({
   nodes,
   readonly,
-  busy,
+  catalogEpoch = 0,
   onAddCatalogNode,
   onAddKindNode,
-  onOpenAuthoring,
 }: NodePaletteProps) {
   const [open, setOpen] = useState(true);
+  const [libraryOpen, setLibraryOpen] = useState(false);
   const [catalog, setCatalog] = useState<CatalogEntry[] | null>(null);
   /** only one Start node per template — the palette entry locks when it exists */
   const hasStart = nodes.some((n) => n.nodeTemplateId === "nt_start");
 
+  // catalog fetch: on first open, and again whenever the epoch is bumped
+  // (a Save may have persisted Library rows — the cache must not outlive it)
   useEffect(() => {
-    if (!open || catalog) return;
-    fetch("/api/node-templates").then((r) => r.json()).then((d) => setCatalog(d.nodeTemplates ?? [])).catch(() => setCatalog([]));
-  }, [open, catalog]);
+    if (!open) return;
+    let alive = true;
+    fetch("/api/node-templates").then((r) => r.json()).then((d) => {
+      if (alive) setCatalog(d.nodeTemplates ?? []);
+    }).catch(() => alive && setCatalog([]));
+    return () => {
+      alive = false;
+    };
+  }, [open, catalogEpoch]);
 
   if (!open) {
     return (
@@ -83,22 +99,29 @@ export default function NodePalette({
           <PanelLeftOpen size={16} />
         </Button>
         <div className="text-[9.5px] font-medium text-muted-foreground mt-1.5 [writing-mode:vertical-rl] tracking-wider">
-          ADD NODE
+          NODES
         </div>
       </div>
     );
   }
 
-  // groups: built-ins first, then declarative kinds in fixed order
+  // built-ins first; Library = persisted declarative rows, deduped by key
+  // (a reused/updated row keeps older versions — only the newest is shown)
   const builtins = (catalog ?? []).filter((n) => n.is_builtin);
-  const byKind = KIND_GROUPS.map((g) => ({ ...g, entries: (catalog ?? []).filter((n) => !n.is_builtin && n.kind === g.kind) }));
-  const other = (catalog ?? []).filter((n) => !n.is_builtin && !KIND_GROUPS.some((g) => g.kind === n.kind));
+  const libByKind = KIND_GROUPS.map((g) => ({
+    ...g,
+    entries: newestByKey((catalog ?? []).filter((n) => !n.is_builtin && n.kind === g.kind)),
+  })).filter((g) => g.entries.length > 0);
+  const other = newestByKey(
+    (catalog ?? []).filter((n) => !n.is_builtin && !KIND_GROUPS.some((g) => g.kind === n.kind)),
+  );
+  const libraryCount = libByKind.reduce((m, g) => m + g.entries.length, 0) + other.length;
 
   return (
     <aside className="w-64 shrink-0 border-r border-border bg-card flex flex-col min-h-0">
       <div className="h-10 shrink-0 flex items-center gap-2 px-3 border-b border-border">
-        <span className="text-[12.5px] font-semibold">Add node</span>
-        <Badge variant="outline" className="text-[10px] py-0">{catalog?.length ?? "…"}</Badge>
+        <span className="text-[12.5px] font-semibold">Nodes</span>
+        {catalog != null && <Badge variant="outline" className="text-[10px] py-0">{builtins.length + libraryCount}</Badge>}
         <div className="flex-1" />
         <Button
           variant="ghost"
@@ -116,7 +139,7 @@ export default function NodePalette({
           <div className="px-3 py-4"><span className="text-[12px] text-muted-foreground">Loading catalog…</span></div>
         )}
         {catalog != null && builtins.length > 0 && (
-          <PaletteGroup title="Built-in SDLC nodes">
+          <PaletteGroup title="Standard">
             {builtins.map((n) => {
               const isStart = n.key === "start";
               const locked = isStart && hasStart;
@@ -124,7 +147,7 @@ export default function NodePalette({
                 <PaletteRow
                   key={n.id}
                   n={n}
-                  disabled={readonly || busy || locked}
+                  disabled={readonly || locked}
                   lockTitle={locked ? "Only one Start node per template" : undefined}
                   onPick={() => onAddCatalogNode(n.id, true, n.key, n.name)}
                 />
@@ -132,26 +155,74 @@ export default function NodePalette({
             })}
           </PaletteGroup>
         )}
-        {catalog != null && byKind.some((g) => g.entries.length > 0) && (
-          <PaletteGroup title="Your custom nodes">
-            {byKind.filter((g) => g.entries.length > 0).map((g) => (
-              <div key={g.kind} className="px-2.5 pb-1">
-                <div className="text-[10px] uppercase tracking-wider text-muted-foreground mb-1">{g.title}</div>
-                <div className="grid gap-1">
-                  {g.entries.map((n) => (
-                    <PaletteRow key={n.id} n={n} disabled={readonly || busy} onPick={() => onAddCatalogNode(n.id, false, n.key, n.name)} />
-                  ))}
-                </div>
-              </div>
-            ))}
-          </PaletteGroup>
+
+        {catalog != null && (
+          <div className="px-2 pb-2">
+            <div className="text-[10px] uppercase tracking-wider text-muted-foreground px-2.5 py-1">New node</div>
+            <div className="grid grid-cols-2 gap-1">
+              {KIND_GROUPS.map((g) => {
+                const Icon = iconForIconName(null, g.kind);
+                return (
+                  <Button
+                    key={g.kind}
+                    variant="outline"
+                    size="sm"
+                    disabled={readonly}
+                    onClick={() => onAddKindNode(g.kind)}
+                    title={`Place a blank ${g.kind} node — drag from a handle to connect it, then author it in the drawer. Nothing is saved until you Save the template.`}
+                    className="gap-1.5 text-[12px] capitalize"
+                  >
+                    <Icon size={13} className="text-muted-foreground" /> {g.title}
+                  </Button>
+                );
+              })}
+            </div>
+          </div>
         )}
-        {catalog != null && other.length > 0 && (
-          <PaletteGroup title="Other">
-            {other.map((n) => (
-              <PaletteRow key={n.id} n={n} disabled={readonly || busy} onPick={() => onAddCatalogNode(n.id, false, n.key, n.name)} />
-            ))}
-          </PaletteGroup>
+
+        {/* Library: persisted custom nodes (declarative rows), reusable across
+            templates — collapsed by default so the default path stays short */}
+        {catalog != null && (
+          <div className="px-2 pb-2">
+            <button
+              className="w-full flex items-center gap-1.5 text-[10px] uppercase tracking-wider text-muted-foreground hover:text-foreground px-2.5 py-1"
+              onClick={() => setLibraryOpen((v) => !v)}
+            >
+              {libraryOpen ? <ChevronDown size={11} /> : <ChevronRight size={11} />}
+              <Library size={11} />
+              Library
+              {libraryCount > 0 && <span className="normal-case tracking-normal text-[10px]">({libraryCount})</span>}
+            </button>
+            {libraryOpen && (
+              <div className="grid gap-1 pt-1">
+                {libraryCount === 0 && (
+                  <p className="text-[11px] text-muted-foreground px-2.5 m-0">
+                    Nodes you Save become reusable here, across all templates.
+                  </p>
+                )}
+                {libByKind.map((g) => (
+                  <div key={g.kind} className="px-2.5">
+                    <div className="text-[10px] text-muted-foreground/80 mb-1">{g.title} nodes</div>
+                    <div className="grid gap-1">
+                      {g.entries.map((n) => (
+                        <PaletteRow key={n.id} n={n} disabled={readonly} onPick={() => onAddCatalogNode(n.id, false, n.key, n.name)} />
+                      ))}
+                    </div>
+                  </div>
+                ))}
+                {other.length > 0 && (
+                  <div className="px-2.5">
+                    <div className="text-[10px] text-muted-foreground/80 mb-1">Other</div>
+                    <div className="grid gap-1">
+                      {other.map((n) => (
+                        <PaletteRow key={n.id} n={n} disabled={readonly} onPick={() => onAddCatalogNode(n.id, false, n.key, n.name)} />
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
         )}
         {readonly && (
           <p className="text-[11.5px] text-muted-foreground px-3 py-2 m-0">
@@ -159,36 +230,19 @@ export default function NodePalette({
           </p>
         )}
       </div>
-
-      {/* one-click custom-node add: a blank instance of the kind, configured
-          in the drawer after it's connected (upstream variables become chips) */}
-      <div className="shrink-0 border-t border-border p-2 grid gap-1">
-        <span className="text-[10px] uppercase tracking-wider text-muted-foreground px-1">Add custom node</span>
-        <div className="grid grid-cols-2 gap-1">
-          {KIND_GROUPS.map((g) => (
-            <Button
-              key={g.kind}
-              variant="outline"
-              size="sm"
-              disabled={readonly || busy}
-              onClick={() => onAddKindNode(g.kind)}
-              title={`Add a blank ${g.kind} node — drag from a handle to connect it, then author it in the drawer (upstream variables clickable)`}
-              className="capitalize gap-1 text-[12px]"
-            >
-              <Plus size={11} /> {g.kind}
-            </Button>
-          ))}
-        </div>
-        <button
-          className="text-[11px] text-muted-foreground hover:text-foreground px-1 pt-0.5 text-left flex items-center gap-1 disabled:opacity-50"
-          disabled={readonly || busy}
-          onClick={() => onOpenAuthoring("agent")}
-        >
-          <Wand2 size={11} /> Author with the full form…
-        </button>
-      </div>
     </aside>
   );
+}
+
+/** Collapse version rows of the same key to the newest one (the palette shows
+ *  one entry per reusable node, not its version history). */
+function newestByKey(entries: CatalogEntry[]): CatalogEntry[] {
+  const byKey = new Map<string, CatalogEntry>();
+  for (const n of entries) {
+    const cur = byKey.get(n.key);
+    if (!cur || n.version > cur.version) byKey.set(n.key, n);
+  }
+  return [...byKey.values()];
 }
 
 function PaletteGroup({ title, children }: { title: string; children: React.ReactNode }) {

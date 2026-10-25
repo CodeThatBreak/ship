@@ -17,7 +17,7 @@ import { Textarea } from "../ui/textarea";
 import { cn } from "../../lib/utils";
 import { TRIGGER_TYPES, WAIT_FOR_GROUPS, WAIT_FOR_SOURCES } from "./constants";
 import type { EditorEdge, EditorNode, NodeContract } from "./types";
-import { nodeLabel } from "./types";
+import { contractsUrl, nodeLabel } from "./types";
 import type { StartContractField } from "../../lib/engine/nodes/start/contract";
 import {
   Select,
@@ -143,12 +143,9 @@ export function NodeConfiguratorBody({
     if (!node || contract != null) return;
     let alive = true;
     // the instance config rides along: the start node's contract is declared
-    // per instance, so its input/output schemas are derived from it
-    const cfg =
-      node.config && Object.keys(node.config).length
-        ? `&config=${encodeURIComponent(JSON.stringify(node.config))}`
-        : "";
-    fetch(`/api/contracts?def=${encodeURIComponent(node.nodeTemplateId)}${cfg}`)
+    // per instance, so its input/output schemas are derived from it. Draft
+    // instances (Phase 2 — no catalog row yet) synthesize from their kind.
+    fetch(contractsUrl(node))
       .then((r) => r.json())
       .then((c: any) => {
         if (!alive) return;
@@ -680,22 +677,23 @@ function useUpstreamGroups(incoming?: IncomingLink[]): UpstreamGroup[] {
   const defs = useMemo(
     () =>
       Array.from(
-        new Set(
+        new Map(
           (incoming ?? [])
             .filter((l) => l.source)
-            .map((l) => cacheKeyOf(l.source!)),
-        ),
+            .map((l) => [cacheKeyOf(l.source!), l.source!] as const),
+        ).values(),
       ),
     [incoming],
   );
+  // the effect keys off the cache keys (stable strings), not the node objects
+  const defKeys = useMemo(() => defs.map(cacheKeyOf).join("|"), [defs]);
   useEffect(() => {
     let alive = true;
     setContracts((c) => ({ ...c, ...cache.current }));
-    for (const defKey of defs) {
+    for (const src of defs) {
+      const defKey = cacheKeyOf(src);
       if (cache.current[defKey] !== undefined) continue;
-      const [def, cfg] = defKey.split("::");
-      const q = cfg ? `&config=${encodeURIComponent(cfg)}` : "";
-      fetch(`/api/contracts?def=${encodeURIComponent(def)}${q}`)
+      fetch(contractsUrl(src))
         .then((r) => r.json())
         .then((c: any) => {
           const value: NodeContract | null = c && c.input != null ? c : null;
@@ -711,7 +709,7 @@ function useUpstreamGroups(incoming?: IncomingLink[]): UpstreamGroup[] {
       alive = false;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [defs.join("|")]);
+  }, [defKeys]);
   return useMemo(
     () =>
       (incoming ?? [])

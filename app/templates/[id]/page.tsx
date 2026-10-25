@@ -14,6 +14,13 @@
  * structural changes are undoable (⌘Z / ⇧⌘Z over draft snapshots). Leaving
  * with unsaved changes is guarded (beforeunload + a styled confirm on the
  * back link).
+ *
+ * Phase 2 deferred node creation: the palette's kind tiles place in-memory
+ * draft instances (`nodeTemplateId: "draft:<n>"`, def in draft.pendingDefs) —
+ * nothing is created server-side until Save, so abandoned placements never
+ * pollute the node catalog. Save PATCHes `new_node_templates`; the route
+ * creates the rows, remaps the ids, then saves the graph. The drawer is the
+ * single authoring surface (the old authoring dialog is gone).
  */
 import { useCallback, useEffect, useRef, useState } from "react";
 import dagre from "@dagrejs/dagre";
@@ -55,13 +62,12 @@ import {
   SheetTitle,
 } from "../../../components/ui/sheet";
 import { cn } from "../../../lib/utils";
-import AddNodeDialog, { type CreateNodeDef } from "../../../components/template-editor/AddNodeDialog";
 import { NodeConfiguratorBody, type IncomingLink } from "../../../components/template-editor/NodeConfigurator";
 import NodePalette from "../../../components/template-editor/NodePalette";
 import BuilderCanvas, { type BuilderApi } from "../../../components/template-editor/BuilderCanvas";
 import { FLOW_TRIGGER_TYPE } from "../../../components/template-editor/constants";
-import type { EditorEdge, EditorNode, NodeContract } from "../../../components/template-editor/types";
-import { describeTrigger, nodeRelationships } from "../../../components/template-editor/types";
+import type { DraftNodeDef, EditorEdge, EditorNode, NodeContract } from "../../../components/template-editor/types";
+import { contractsUrl, describeTrigger, nodeRelationships } from "../../../components/template-editor/types";
 import type { TaskProviderInfo } from "../../../components/template-editor/types";
 
 /** A registered task provider's editor-facing slice (GET /api/tasks/providers). */
@@ -80,9 +86,20 @@ type Draft = {
   };
   nodes: EditorNode[];
   edges: EditorEdge[];
+  /** unsaved declarative defs backing `draft:<n>` instances (Phase 2) —
+   *  persisted as node_templates rows only on Save */
+  pendingDefs?: Record<string, DraftNodeDef>;
 };
 
 const EDGE_KINDS = ["next", "loop"] as const;
+
+/** Display names for the palette's New-node tiles (also the saved row names). */
+const KIND_LABELS: Record<string, string> = {
+  agent: "Agent node",
+  decision: "Decision node",
+  http: "HTTP node",
+  script: "Script node",
+};
 
 /** The default Start node instance — the flow's entry: nothing points at it, it
  *  carries the branch trigger, and it finishes immediately (registry "start"). */
@@ -156,10 +173,11 @@ export default function TemplateEditorPage() {
   const [notice, setNotice] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [dirty, setDirty] = useState(false);
-  const [adding, setAdding] = useState(false);
-  const [creatingAgent, setCreatingAgent] = useState(false);
-  /** the authoring dialog opens at this declarative kind (palette buttons) */
-  const [authorKind, setAuthorKind] = useState<"agent" | "decision" | "http" | "script">("agent");
+  /** bumped after each Save — the palette's catalog cache keys off it so new
+   *  Library rows appear without a page reload (Phase 2) */
+  const [catalogEpoch, setCatalogEpoch] = useState(0);
+  /** monotonically growing — draft ids never collide within a session */
+  const draftSeq = useRef(1);
   // drawers: node configurator, edge editor, flow settings
   const [nodeDrawer, setNodeDrawer] = useState<string | null>(null);
   const [edgeDrawer, setEdgeDrawer] = useState<number | null>(null);
@@ -280,7 +298,7 @@ export default function TemplateEditorPage() {
       pending.push({
         key: n.key,
         ck,
-        url: `/api/contracts?def=${encodeURIComponent(n.nodeTemplateId)}${cfgQ ? `&config=${encodeURIComponent(cfgQ)}` : ""}`,
+        url: contractsUrl(n),
       });
     }
     setBranchChoices(next);
@@ -459,11 +477,7 @@ export default function TemplateEditorPage() {
   const autoLabelDecisionEdge = (from: string, to: string, edges: EditorEdge[]) => {
     const src = draft?.nodes.find((n) => n.key === from);
     if (src?.kind !== "decision") return;
-    const cfg =
-      src.config && Object.keys(src.config).length
-        ? `&config=${encodeURIComponent(JSON.stringify(src.config))}`
-        : "";
-    fetch(`/api/contracts?def=${encodeURIComponent(src.nodeTemplateId)}${cfg}`)
+    fetch(contractsUrl(src))
       .then((r) => r.json())
       .then((c: NodeContract & { choices?: { label: string }[] }) => {
         const choices = c?.choices ?? [];
@@ -507,11 +521,11 @@ export default function TemplateEditorPage() {
   }, [templateId, draft?.template.is_builtin]);
 
   /**
-   * Build + place a new node instance (palette pick or authored catalog node):
-   * viewport center, selected, deliberately unconnected — nothing is wired or
-   * opened for the user (auto-connecting pre-wired branches the user then had
-   * to unwind was the top daily annoyance). The hint names the connect gesture:
-   * drag from a node's handle. Config happens when the user opens the drawer.
+   * Build + place a new node instance (palette pick): viewport center,
+   * selected, deliberately unconnected — nothing is wired or opened for the
+   * user (auto-connecting pre-wired branches the user then had to unwind was
+   * the top daily annoyance). The hint names the connect gesture: drag from a
+   * node's handle. Config happens when the user opens the drawer.
    */
   const addInstance = (opts: {
     nodeTemplateId: string;
@@ -519,12 +533,17 @@ export default function TemplateEditorPage() {
     kind: string | null;
     icon: string | null;
     isBuiltin: boolean;
+    /** set for draft instances (Phase 2): the def rides in pendingDefs until Save */
+    draftDef?: DraftNodeDef;
   }): string | null => {
     if (!draft) return null;
     const key = uniqueKey(opts.name || "node", draft.nodes);
     placeNewNode(key);
     apply({
       ...draft,
+      pendingDefs: opts.draftDef
+        ? { ...draft.pendingDefs, [opts.draftDef.draftId]: opts.draftDef }
+        : draft.pendingDefs,
       nodes: [...draft.nodes, {
         key,
         nodeTemplateId: opts.nodeTemplateId,
@@ -547,51 +566,55 @@ export default function TemplateEditorPage() {
   };
 
   /** A palette pick: place an instance of the catalog row on the canvas
-   *  (unconnected, at the viewport center — addInstance does the placing). */
+   *  (unconnected, at the viewport center — addInstance does the placing).
+   *  Built-in rows and Library rows are persisted — the instance references
+   *  the real row; no draft def involved. */
   const addCatalogNode = (nodeTemplateId: string, isBuiltin: boolean, catalogKey: string, name: string) => {
     if (!draft) return;
     // only one Start node per template (the server's singleton rule enforces
     // the same at save time — fail friendly here instead)
     if (catalogKey === "start" && draft.nodes.some((n) => n.nodeTemplateId === "nt_start")) {
       setNotice("Only one Start node is allowed — this template already has one.");
-      setAdding(false);
       return;
     }
     addInstance({ nodeTemplateId, name, kind: null, icon: null, isBuiltin });
-    setAdding(false);
   };
 
   /**
-   * One-click custom-node add (palette kind buttons): create the catalog row
-   * server-side (auto-named, seeded defaults — a decision starts with two
-   * branch choices), then place the instance — unconnected at the viewport
-   * center; the user drags a handle to connect, then authors the prompt/knobs
-   * in the drawer (where the upstream run context is clickable).
+   * A New-node tile (Phase 2): place an in-memory draft instance of the kind —
+   * `nodeTemplateId: "draft:<n>"`, def in pendingDefs. No POST at click time:
+   * nothing server-side exists until Save (abandoned placements never pollute
+   * the catalog). The decision's seeded branches ride in the instance config,
+   * so the drawer/canvas see them immediately.
    */
-  const addKindNode = async (kind: "agent" | "decision" | "http" | "script") => {
+  const addDraftKindNode = (kind: "agent" | "decision" | "http" | "script") => {
     if (!draft) return;
-    setCreatingAgent(true);
-    try {
-      const seeded = kind === "decision" ? { choices: [{ label: "yes" }, { label: "no" }] } : {};
-      const r = await fetch("/api/node-templates", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ kind, config: seeded }),
-      }).then((r) => r.json());
-      if (r.error) {
-        setError(r.error);
-        return;
-      }
-      const nt = r.nodeTemplate;
-      addInstance({
-        nodeTemplateId: nt.id,
-        name: nt.name,
-        kind: nt.kind,
-        icon: nt.icon ?? KIND_ICONS[kind] ?? "bot",
-        isBuiltin: false,
-      });
-    } finally {
-      setCreatingAgent(false);
+    const draftId = `draft:${draftSeq.current++}`;
+    const name = nextDraftName(kind, draft);
+    addInstance({
+      nodeTemplateId: draftId,
+      name,
+      kind,
+      icon: KIND_ICONS[kind] ?? "bot",
+      isBuiltin: false,
+      draftDef: {
+        draftId,
+        kind,
+        name,
+        icon: KIND_ICONS[kind] ?? "bot",
+        description: `Custom ${kind} node — reusable from the Library once saved`,
+        config: {},
+      },
+    });
+    // the decision's seeded branches belong to the instance config (the
+    // drawer edits it; Save folds it into the persisted def)
+    if (kind === "decision") {
+      const config = { choices: [{ label: "yes" }, { label: "no" }] };
+      setDraft((cur) =>
+        cur
+          ? { ...cur, nodes: cur.nodes.map((n) => (n.nodeTemplateId === draftId ? { ...n, config } : n)) }
+          : cur,
+      );
     }
   };
 
@@ -698,7 +721,7 @@ export default function TemplateEditorPage() {
           </>
         )}
         {!readonly && (
-          <Button size="sm" disabled={!dirty || saving || creatingAgent} onClick={() => void save()}>
+          <Button size="sm" disabled={!dirty || saving} onClick={() => void save()}>
             {saving ? <Spinner /> : <Save size={13} />} Save{dirty ? "" : "d"}
           </Button>
         )}
@@ -727,10 +750,9 @@ export default function TemplateEditorPage() {
         <NodePalette
           nodes={draft.nodes}
           readonly={readonly}
-          busy={creatingAgent}
+          catalogEpoch={catalogEpoch}
           onAddCatalogNode={addCatalogNode}
-          onAddKindNode={(kind) => void addKindNode(kind)}
-          onOpenAuthoring={(kind) => { setAuthorKind(kind); setAdding(true); }}
+          onAddKindNode={addDraftKindNode}
         />
         <div className="flex-1 min-w-0">
           <BuilderCanvas
@@ -907,44 +929,6 @@ export default function TemplateEditorPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
-
-      <AddNodeDialog
-        open={adding}
-        initialMode={authorKind}
-        creativeBusy={creatingAgent}
-        taskFields={taskFields}
-        onClose={() => setAdding(false)}
-        onAddCatalogNode={addCatalogNode}
-        onCreateNode={async (def: CreateNodeDef) => {
-          setCreatingAgent(true);
-          try {
-            const r = await fetch("/api/node-templates", {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({
-                name: def.name,
-                kind: def.kind,
-                icon: KIND_ICONS[def.kind] ?? "bot",
-                description: def.description ?? `Declarative ${def.kind} node`,
-                config: def.config,
-              }),
-            }).then((r) => r.json());
-            if (r.error) return { err: r.error };
-            const nodeTemplateId: string = r.nodeTemplate.id;
-            addInstance({
-              nodeTemplateId,
-              name: def.name,
-              kind: def.kind,
-              icon: KIND_ICONS[def.kind] ?? "bot",
-              isBuiltin: false,
-            });
-            setAdding(false);
-            return { nodeTemplateId };
-          } finally {
-            setCreatingAgent(false);
-          }
-        }}
-      />
     </main>
   );
 
@@ -953,6 +937,10 @@ export default function TemplateEditorPage() {
     setSaving(true);
     setError(null);
     try {
+      // draft declarative defs (Phase 2): the tiles placed in-memory instances;
+      // only defs still referenced by a node are persisted, with the authored
+      // instance config folded in so the Library row reflects what was authored
+      const new_node_templates = collectPendingDefs(draft);
       const r = await fetch(`/api/templates/${draft.template.id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
@@ -960,6 +948,7 @@ export default function TemplateEditorPage() {
           name: draft.template.name,
           description: draft.template.description,
           trigger: draft.template.trigger,
+          ...(new_node_templates.length ? { new_node_templates } : {}),
           nodes: draft.nodes.map((n) => ({
             key: n.key,
             nodeTemplateId: n.nodeTemplateId,
@@ -978,6 +967,9 @@ export default function TemplateEditorPage() {
       else {
         setDirty(false);
         setNotice("Draft saved — new flows snapshot this version.");
+        // the catalog may have gained Library rows (draft defs persisted) —
+        // bump the epoch so the palette re-fetches (Phase 2)
+        if (new_node_templates.length) setCatalogEpoch((e) => e + 1);
         // the hook (webhook trigger) is provisioned/synced server-side — refresh it
         void load();
       }
@@ -1014,14 +1006,14 @@ function EdgeEditor({
       return;
     }
     let alive = true;
-    fetch(`/api/contracts?def=${encodeURIComponent(sourceNode.nodeTemplateId)}`)
+    fetch(contractsUrl(sourceNode))
       .then((r) => r.json())
       .then((c: NodeContract) => {
         if (alive) setChoices((c as any)?.choices ?? []);
       })
       .catch(() => alive && setChoices([]));
     return () => { alive = false; };
-  }, [isDecision, sourceNode?.nodeTemplateId]);
+  }, [isDecision, sourceNode?.nodeTemplateId, sourceNode?.config, sourceNode?.kind]);
 
   return (
     <div className="grid gap-3">
@@ -1269,4 +1261,46 @@ function uniqueKey(base: string, nodes: EditorNode[]): string {
   const slug = base.toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "") || "node";
   if (!nodes.some((n) => n.key === slug)) return slug;
   for (let i = 2; ; i++) if (!nodes.some((n) => n.key === `${slug}_${i}`)) return `${slug}_${i}`;
+}
+
+/** Display name for a placed draft def — "Agent node", then "Agent node 2", …
+ *  avoiding collisions with this draft's other pending defs (the server
+ *  versions the name further if a persisted row owns the key). */
+function nextDraftName(kind: string, draft: Draft): string {
+  const base = KIND_LABELS[kind] ?? "Custom node";
+  const taken = new Set(Object.values(draft.pendingDefs ?? {}).map((d) => d.name));
+  if (!taken.has(base)) return base;
+  for (let i = 2; ; i++) if (!taken.has(`${base} ${i}`)) return `${base} ${i}`;
+}
+
+/**
+ * The Save payload's `new_node_templates` (Phase 2): pending defs still
+ * referenced by a draft node. The referencing instances' authored config is
+ * folded into the def config (the persisted row then reflects what the drawer
+ * authored, so the Library entry is reusable as-is). Defs whose nodes were
+ * deleted/undone away are dropped — abandoned placements leave nothing behind.
+ */
+function collectPendingDefs(draft: Draft): {
+  draft_id: string; kind: string; name: string; icon: string | null;
+  description: string | null; config: Record<string, unknown>;
+}[] {
+  const out: {
+    draft_id: string; kind: string; name: string; icon: string | null;
+    description: string | null; config: Record<string, unknown>;
+  }[] = [];
+  for (const def of Object.values(draft.pendingDefs ?? {})) {
+    const users = draft.nodes.filter((n) => n.nodeTemplateId === def.draftId);
+    if (users.length === 0) continue;
+    let config = def.config;
+    for (const n of users) config = { ...config, ...n.config };
+    out.push({
+      draft_id: def.draftId,
+      kind: def.kind,
+      name: def.name,
+      icon: def.icon,
+      description: def.description,
+      config,
+    });
+  }
+  return out;
 }

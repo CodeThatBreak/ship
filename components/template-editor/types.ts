@@ -25,6 +25,52 @@ export interface EditorEdge {
   condition: string | null;
 }
 
+/**
+ * A draft declarative node template (Phase 2): the palette's kind tiles place
+ * in-memory instances backed by `nodeTemplateId: "draft:<n>"` — the def rides
+ * in the draft's `pendingDefs` and becomes a persisted `node_templates` row
+ * only when the template is Saved (PATCH `new_node_templates`).
+ */
+export interface DraftNodeDef {
+  /** `draft:<n>` — matches the referencing instances' nodeTemplateId */
+  draftId: string;
+  kind: string;
+  name: string;
+  icon: string | null;
+  description: string | null;
+  config: Record<string, unknown>;
+}
+
+/** Draft ids are reserved by the save contract — never a real row id. */
+export function isDraftNodeTemplateId(nodeTemplateId: string): boolean {
+  return nodeTemplateId.startsWith("draft:");
+}
+
+/**
+ * URL for /api/contracts for a node instance. Draft instances have no catalog
+ * row yet — their contract is synthesized from the declarative kind + the
+ * instance config (`?kind=agent&config={…}`). Everything else resolves the
+ * catalog row (`?def=nt_…`). The instance config always rides along: the
+ * contract merges it over the def (start fields, choice overrides, …).
+ */
+export function contractsUrl(node: {
+  nodeTemplateId: string;
+  kind: string | null;
+  catalog_name?: string | null;
+  config?: Record<string, unknown> | null;
+}): string {
+  const p = new URLSearchParams();
+  if (isDraftNodeTemplateId(node.nodeTemplateId)) {
+    p.set("kind", node.kind ?? "agent");
+    if (node.catalog_name) p.set("name", node.catalog_name);
+  } else {
+    p.set("def", node.nodeTemplateId);
+  }
+  const cfg = node.config && Object.keys(node.config).length ? node.config : null;
+  if (cfg) p.set("config", JSON.stringify(cfg));
+  return `/api/contracts?${p.toString()}`;
+}
+
 /** A /api/contracts response. */
 export interface NodeContract {
   key: string;
