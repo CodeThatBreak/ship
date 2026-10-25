@@ -6,25 +6,27 @@ import { localGit } from "../../../git/local";
 import { prompts } from "../../prompts";
 import { planSteps } from "../../steps";
 import { NodeDefinition, type FlowCtx, type RunOutcome, type NodeTriggerRun } from "../base";
-import type { NodeCapabilities } from "../base/capabilities";
+import { DEFAULT_FANOUT_OUTPUT, type NodeCapabilities } from "../base/capabilities";
 import { NODE_KEYS } from "../keys";
 import type { ConfigField } from "../../node-config";
-import { configString } from "../../node-config";
+import { configString, fanoutConfigFields } from "../../node-config";
 import { branchStore } from "./branch-store";
 import { BuildInput, BuildOutput, type BuildBranchInfo } from "./schema";
 import { type PlanBranch } from "../plan/schema";
 import { worktreeManager } from "../../worktree-lifecycle";
 
 export class BuildNode extends NodeDefinition<BuildInput, BuildOutput> {
-  readonly key = NODE_KEYS.BUILD;
-  readonly label = "Build";
-  readonly capabilities: NodeCapabilities = { panelTitle: "Code changes" };
-  readonly promptKeys = [NODE_KEYS.BUILD, "build_refine"] as const;
-  readonly promptSections = [NODE_KEYS.BUILD] as const;
+  // widened (string / readonly string[]): the step_build child def subclasses
+  // and re-labels itself — see step-build-node.ts
+  readonly key: string = NODE_KEYS.BUILD;
+  readonly label: string = "Build";
+  readonly capabilities: NodeCapabilities = { panelTitle: "Code changes", fanoutOutput: DEFAULT_FANOUT_OUTPUT };
+  readonly promptKeys: readonly string[] = [NODE_KEYS.BUILD, "build_refine"];
+  readonly promptSections: readonly string[] = [NODE_KEYS.BUILD];
   readonly order = 20;
   readonly edges = [[NODE_KEYS.PIPELINE, "next"]] as const;
 
-  readonly inputSchema = BuildInput;
+  readonly inputSchema = BuildInput; // includes the optional fan-out `step` (see schema.ts)
   readonly outputSchema = BuildOutput;
 
   /** Typed config knobs (defaults = today's behavior). */
@@ -34,11 +36,24 @@ export class BuildNode extends NodeDefinition<BuildInput, BuildOutput> {
     branch_pattern: z.string().default(""),
     /** commit-fix agent attempts when the push is rejected during MR creation (engine-consumed) */
     max_commit_fix_attempts: z.number().int().min(1).default(2),
+    /**
+     * merge-fix agent attempts when a fan-out step branch conflicts with (or
+     * is stale against) the integration branch at merge-back — Phase 2A, read
+     * from the PARENT fan-out node's config by the StepFlowManager
+     */
+    max_merge_fix_attempts: z.number().int().min(1).default(2),
+    // plan fan-out knob (flat keys — fanoutOf reads nested `fanout` objects too)
+    fanout_mode: z.enum(["whole", "steps", "from-plan"]).default("whole"),
+    fanout_child: z.string().nullable().default(null),
+    fanout_parallel_max: z.number().int().min(1).default(1),
   });
   readonly configFields = [
     { key: "prompt_body", label: "Prompt body", type: "text", help: "User-editable prompt body for build runs." },
     { key: "branch_pattern", label: "Branch pattern", type: "string", help: "Tokens: {prefix} {slug} {ticket} {id} {suffix}. Empty = built-in bugfix/feature pattern." },
     { key: "max_commit_fix_attempts", label: "Max commit-fix attempts", type: "number", help: "Commit-fix agent runs when the push is rejected while creating the MR." },
+    { key: "max_merge_fix_attempts", label: "Max merge-fix attempts", type: "number", help: "Merge-fix agent runs per step child when its branch conflicts with (or is stale against) the integration branch at merge-back. Exhaustion fails the step visibly." },
+    // the fan-out section: plan-downstream-capable built-ins carry one shared field set
+    ...fanoutConfigFields,
   ] as const satisfies readonly ConfigField[];
 
   /**

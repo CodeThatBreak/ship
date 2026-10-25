@@ -94,6 +94,10 @@ export const FlowRow = z.object({
   trigger_payload: jsonCol(z.record(z.string(), z.unknown())),
   /** git worktree dir for local runs (Phase 1 worktrees); null = runs in the registered checkout */
   worktree_dir: z.string().nullable(),
+  /** step sub-flows (plan fan-out): set on child flows — the parent's flow id */
+  parent_flow_id: z.string().nullable(),
+  /** sdlc | step (plan fan-out child) */
+  kind: z.string().nullable().default("sdlc"),
   created_at: z.string(),
   updated_at: z.string(),
 });
@@ -207,7 +211,10 @@ export const PlanStepRow = z.object({
   branch: z.string().nullable(),
   status: z.string(),
   origin: z.string(),
+  /** completed_by: manual | build | merge | skipped | null */
   completed_by: z.string().nullable(),
+  /** step ⇄ sub-flow linkage (plan fan-out): the child flow building this step */
+  sub_flow_id: z.string().nullable(),
   created_at: z.string(),
   updated_at: z.string(),
 });
@@ -305,6 +312,8 @@ export const FlowTemplateRow = z.object({
   trigger: jsonCol(z.record(z.string(), z.unknown())),
   /** next fire time for a `schedule` flow trigger (Phase 4C); null = not scheduled */
   schedule_next_at: z.string().nullable(),
+  /** auto-wrapped child templates (plan fan-out); excluded from the gallery */
+  hidden: z.number().int(),
   created_at: z.string(),
   updated_at: z.string(),
 });
@@ -367,6 +376,24 @@ export const HookDeliveryRow = z.object({
   created_at: z.string(),
 });
 export type HookDeliveryRow = z.infer<typeof HookDeliveryRow>;
+
+// ── step_merges (plan fan-out, Phase 1) ──────────────────────────────────────
+// Durable merge-back record per code child (a def with a `mergeBack` hook):
+// written BEFORE the git merge runs, updated after, so restarts/reconcile can
+// resume or flag. NULL `branch` ⇒ non-code children create no rows.
+export const StepMergeRow = z.object({
+  id: z.string(),
+  flow_id: z.string(),
+  parent_flow_id: z.string(),
+  parent_node: z.string(),
+  branch: z.string().nullable(),
+  status: z.string(),
+  attempts: z.number(),
+  error: z.string().nullable(),
+  created_at: z.string(),
+  updated_at: z.string(),
+});
+export type StepMergeRow = z.infer<typeof StepMergeRow>;
 
 // ── typed query helpers ──────────────────────────────────────────────────────
 /**

@@ -8,6 +8,7 @@ import { NodeDefinition, type FlowCtx, type RunOutcome } from "../base";
 import type { NodeCapabilities } from "../base/capabilities";
 import { NODE_KEYS } from "../keys";
 import type { ConfigField } from "../../node-config";
+import { appLayerConfig, mergeConfigLayers, parseConfigSnapshot } from "../../node-config";
 import { PlanMetaParser, type PlanParseResult } from "./plan-meta-parser";
 import {
   PlanInput,
@@ -281,11 +282,33 @@ export class PlanNode extends NodeDefinition<PlanInput, PlanOutput> {
     default_complex: z.boolean().default(false),
     /** default for starts that don't pass `decompose` explicitly */
     decompose_default: z.boolean().default(false),
+    /**
+     * Plan fan-out (§1 "who decides the mode"): the published execution
+     * resolution. `follow` = the PLANNER decides per plan version — the
+     * plan prompt gains the execution directive and the response's
+     * `execution` + `execution_rationale` are published in plan-meta
+     * (unknown/missing ⇒ whole, never a parse failure). An explicit
+     * whole/steps beats the follow value; the published value rides every
+     * plan version in `artifacts.meta.execution` (source: knob | planner |
+     * default | override), and the plan panel offers the override at approve.
+     */
+    execution_default: z.enum(["whole", "steps", "follow"]).default("whole"),
   });
   readonly configFields = [
     { key: "prompt_body", label: "Prompt body", type: "text", help: "User-editable prompt body; internal output contracts are appended automatically." },
     { key: "default_complex", label: "Default to complex plans", type: "boolean", help: "Used when a start doesn't request a mode explicitly." },
     { key: "decompose_default", label: "Decompose by default", type: "boolean", help: "Run repo-exploration sub-agents by default." },
+    {
+      key: "execution_default", label: "Execution resolution", type: "select",
+      help:
+        "How the checklist executes after this plan is approved: whole (one run — today), steps "
+        + "(one child sub-flow per plan step — downstream fan-out nodes honor it), follow (the planner decides per plan version and publishes the choice with a one-line rationale; you can override it at approve).",
+      options: [
+        { value: "whole", label: "whole", description: "Everything executes as one run (default)" },
+        { value: "steps", label: "steps", description: "Step-by-step: fan-out nodes spawn one child flow per step" },
+        { value: "follow", label: "follow", description: "The planner decides per plan version (published in plan-meta, overridable at approve)" },
+      ],
+    },
   ] as const satisfies readonly ConfigField[];
 
   async run(ctx: FlowCtx, input: PlanInput, config: Record<string, unknown>): Promise<RunOutcome> {
@@ -344,7 +367,8 @@ export class PlanNode extends NodeDefinition<PlanInput, PlanOutput> {
         : { steps: whole.steps, branches: [] }
       : null;
 
-    const { art, stepCount } = this.persistPlan(ctx, node, input, markdown, planMeta);
+    const { art, stepCount } = this.persistPlan(ctx, node, input, markdown, planMeta,
+      this.normalizePlannerExecution(whole));
     return this.finalizePlan(ctx, node, art, planMeta, stepCount, markdown, validationErrors, isComplex);
   }
 
@@ -476,14 +500,22 @@ export class PlanNode extends NodeDefinition<PlanInput, PlanOutput> {
     });
     const tplKey = input.complex ? "plan_complex" : "plan";
     const refineKey = input.complex ? "plan_complex_refine" : "plan_refine";
+    // Phase 3B (`execution_default: follow`): the planner decides how the
+    // checklist executes. The directive is an APPENDED block — the default
+    // templates (and every non-follow prompt) stay byte-for-byte; the block
+    // rides the base/refine/promptIsBody paths so an "Edit prompt" run keeps
+    // the output contract. The raw verbatim-prompt path is untouched
+    // (feedback-echo refines skip it by definition).
+    const execBlock = this.executionDirective(ctx.flow.id);
 
     if (input.prompt) {
       return input.promptIsBody
-        ? `${input.prompt}\n\n${prompts.internalSuffix(tplKey, baseCtx, { context: contextBlock })}`
+        ? `${input.prompt}\n\n${prompts.internalSuffix(tplKey, baseCtx, { context: contextBlock })}${execBlock ? `\n\n${execBlock}` : ""}`
         : input.prompt;
     }
     if (input.feedback && hasAgent) {
-      return prompts.resolve(refineKey, baseCtx, { feedback: input.feedback, context: contextBlock });
+      const refined = prompts.resolve(refineKey, baseCtx, { feedback: input.feedback, context: contextBlock });
+      return execBlock ? `${refined}\n\n${execBlock}` : refined;
     }
     const base = prompts.resolve(tplKey, baseCtx, { context: contextBlock });
     let prompt = base + (input.feedback ? `\n\nAdditional instructions from the developer:\n${input.feedback}` : "");
@@ -494,8 +526,31 @@ export class PlanNode extends NodeDefinition<PlanInput, PlanOutput> {
           ? "\n\nUse your built-in Task subagents to explore different areas of the repo in parallel, then merge the results into a single cohesive plan."
           : "\n\nDelegate exploration of different repo areas to sub-agents, then merge the results into a single cohesive plan.";
     }
+    if (execBlock) prompt += `\n\n${execBlock}`;
 
     return prompt;
+  }
+
+  /**
+   * The `follow`-mode planning directive (Phase 3B). Under every other knob
+   * this returns null — non-follow prompts are byte-identical to Phase 1.
+   * `auto_min_steps` does not exist as a knob: the ~N-steps consideration is
+   * planner HINT text here, never a runtime threshold.
+   */
+  private executionDirective(flowId: string): string | null {
+    if (this.executionDefault(flowId) !== "follow") return null;
+    return [
+      `## Execution resolution — add these two top-level fields to your JSON response`,
+      `This flow's plan node is configured so YOU decide how the checklist executes after approval. Add exactly two top-level fields (everything else in the schema is unchanged):`,
+      ``,
+      `  "execution": "whole" or "steps"`,
+      `  "execution_rationale": "<one line — why>"`,
+      ``,
+      `- "whole": the entire plan builds in ONE agent run (a tightly-coupled change, shared files, steps that depend on each other mid-task).`,
+      `- "steps": each checklist step runs as its own monitorable sub-flow on its own review unit (an approved plan of independent, file-disjoint work).`,
+      `- Consider "steps" when the plan decomposes into roughly 5+ fairly independent steps a reviewer would want to verify one at a time. Sibling step agents cannot see each other's code, so when you pick "steps" keep each step's "files" accurate and disjoint from other steps.`,
+      `- Prefer "whole" for anything entangled — a wrong call trades review granularity for stuck siblings.`,
+    ].join("\n");
   }
 
   /**
@@ -843,6 +898,28 @@ export class PlanNode extends NodeDefinition<PlanInput, PlanOutput> {
     };
   }
 
+  /**
+   * The planner's execution decision out of a parsed plan response (Phase 3B,
+   * `execution_default: follow`): `execution` + `execution_rationale` are
+   * OPTIONAL top-level response fields — unknown/missing values normalize to
+   * `whole` with no rationale, and nothing here can fail the plan (the parse
+   * pipeline is not extended with a requirement).
+   */
+  private normalizePlannerExecution(
+    whole: { execution?: unknown; execution_rationale?: unknown } | null | undefined,
+  ): { value: "whole" | "steps"; rationale: string | null } {
+    if (whole?.execution === "steps") {
+      const r = typeof whole.execution_rationale === "string" && whole.execution_rationale.trim()
+        ? whole.execution_rationale.trim().slice(0, 280)
+        : null;
+      return { value: "steps", rationale: r };
+    }
+    const r = typeof whole?.execution_rationale === "string" && whole.execution_rationale.trim()
+      ? whole.execution_rationale.trim().slice(0, 280)
+      : null;
+    return { value: "whole", rationale: r };
+  }
+
   /** Save the plan artifact and sync the editable step checklist from it. */
   private persistPlan(
     ctx: FlowCtx,
@@ -850,11 +927,35 @@ export class PlanNode extends NodeDefinition<PlanInput, PlanOutput> {
     input: PlanInput,
     text: string,
     planMeta: PlanMeta | null,
+    plannerExecution?: { value: "whole" | "steps"; rationale: string | null },
   ) {
+    // plan fan-out (§1 "who decides the mode"): the published execution
+    // resolution rides every plan version in artifacts.meta (`execution`) —
+    // precedence: the knob (whole/steps) > the planner's follow value > whole.
+    // Sources (auditable per version): "knob" (explicit planning knob),
+    // "planner" (follow + the planner decided this version), "default"
+    // (follow + the planner published nothing valid ⇒ whole). Re-refining
+    // re-publishes; the approve-time override (approve_plan action) writes
+    // executionSource "override" into the same meta afterwards.
+    const knob = this.executionDefault(ctx.flow.id);
+    let execution: "whole" | "steps" = "whole";
+    let source: "knob" | "planner" | "default" = "knob";
+    let rationale: string | undefined;
+    if (knob === "follow") {
+      execution = plannerExecution?.value ?? "whole";
+      source = plannerExecution ? "planner" : "default";
+      rationale = plannerExecution?.rationale ?? undefined;
+    } else {
+      execution = knob;
+      source = "knob";
+    }
     const art = this.support.saveArtifact(node.id, ctx.flow.id, "plan", text, {
       feedback: input.feedback,
       branches: planMeta?.branches ?? undefined,
       steps: planMeta?.steps ?? undefined,
+      execution,
+      executionSource: source,
+      ...(rationale ? { execution_rationale: rationale } : {}),
     });
 
     const stepCount = planMeta?.steps?.length
@@ -862,6 +963,18 @@ export class PlanNode extends NodeDefinition<PlanInput, PlanOutput> {
       : 0;
 
     return { art, stepCount };
+  }
+
+  /** The plan node's `execution_default` knob (class ← app ← flow snapshot). */
+  private executionDefault(flowId: string): "whole" | "steps" | "follow" {
+    const raw = mergeConfigLayers(
+      this.defaultConfig(),
+      appLayerConfig(this.key),
+      parseConfigSnapshot(db.get<{ config: string | null }>(
+        `SELECT config FROM nodes WHERE flow_id=? AND type=?`, flowId, NODE_KEYS.PLAN
+      )?.config ?? null),
+    )["execution_default"];
+    return raw === "steps" || raw === "follow" ? raw : "whole";
   }
 
   /** Persist output/status, emit the lifecycle event, and build the outcome. */
@@ -939,21 +1052,33 @@ export class PlanNode extends NodeDefinition<PlanInput, PlanOutput> {
     let planMeta: PlanMeta | null = null;
     let markdown = text;
     let isComplex = false;
+    let parsedExecution: { execution?: unknown; execution_rationale?: unknown } | null = null;
 
     const complexParsed = this.parser.parseComplex(text);
     if (complexParsed.data) {
       planMeta = { steps: complexParsed.data.steps, branches: complexParsed.data.branches ?? [] };
       markdown = complexParsed.data.markdown;
       isComplex = true;
+      parsedExecution = complexParsed.data;
     } else {
       const simpleParsed = this.parser.parseSimple(text);
       if (simpleParsed.data) {
         planMeta = { steps: simpleParsed.data.steps, branches: [] };
         markdown = simpleParsed.data.markdown;
+        parsedExecution = simpleParsed.data;
       }
     }
 
-    const art = this.support.saveArtifact(node.id, ctx.flow.id, "plan", markdown, { recovered: true });
+    // recovery keeps the plan version's published execution too (Phase 3B): a
+    // recovered response's planner decision rides the artifact meta so the
+    // plan panel/chips and from-plan fan-out gates see the same resolution
+    const recoveredExec = this.normalizePlannerExecution(parsedExecution);
+    const art = this.support.saveArtifact(node.id, ctx.flow.id, "plan", markdown, {
+      recovered: true,
+      execution: recoveredExec.value,
+      executionSource: recoveredExec.rationale ? "planner" : "default",
+      ...(recoveredExec.rationale ? { execution_rationale: recoveredExec.rationale } : {}),
+    });
     if (planMeta?.steps?.length) planSteps.syncFromPlan(ctx.flow.id, art.id, planMeta.steps);
 
     this.support.setNode(node.id, {

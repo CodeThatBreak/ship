@@ -215,6 +215,26 @@ const DEFAULTS: Record<string, PromptTemplate> = {
     variables: ["feedback"],
     mode: "agent",
   },
+  step_build: {
+    label: "Step build (fan-out child)",
+    description:
+      "Sent to the coding agent of a fan-out step child: implements exactly ONE plan step on its own branch, scoped by the context pack of sibling steps.",
+    template: [
+      `{{instructions}}`,
+      ``,
+      `{{ticket}}`,
+      ``,
+      `## Approved plan\n{{plan}}`,
+      ``,
+      `## Your step — implement exactly this step`,
+      `{{step_section}}`,
+      ``,
+      `## Sibling steps (other agents build them in parallel)`,
+      `{{context_pack}}`,
+    ].join("\n"),
+    variables: ["ticket", "plan", "branch", "mode", "instructions", "step_section", "context_pack"],
+    mode: "agent",
+  },
   commit_fix: {
     label: "Commit/push fix",
     description:
@@ -228,6 +248,27 @@ const DEFAULTS: Record<string, PromptTemplate> = {
       `Error:\n{{error}}`,
     ].join("\n"),
     variables: ["branch", "error", "instructions"],
+    mode: "agent",
+  },
+  merge_fix: {
+    label: "Merge-conflict fix (fan-out step child)",
+    description:
+      "Sent to a fan-out step child's agent when its step branch conflicts with (or is stale against) the integration branch, so it merges the integration branch into its own step branch and resolves the conflicts respecting both intents.",
+    template: [
+      `Your step branch {{branch}} has to be landed on the integration branch {{integration}}, but it is {{situation}}.`,
+      ``,
+      `Repair this ON YOUR OWN STEP BRANCH {{branch}} (never rebase, never push to {{integration}}, never force-push):`,
+      `1. \`git fetch origin\``,
+      `2. \`git merge origin/{{integration}}\` — conflicts (or a diverged history) are expected here`,
+      `3. Resolve every conflict respecting BOTH intents: your step's changes AND the sibling code already landed on {{integration}}. Keep the sibling code intact and working; re-apply your step's intent on top of it. Do NOT delete or weaken sibling changes to make your merge trivial.`,
+      `4. Sanity-check the combined result (compile/typecheck/tests where the repo supports it)`,
+      `5. Commit the merge and push your step branch: \`git push origin {{branch}}\``,
+      `Do NOT open a merge request.`,
+      `When done, briefly summarise how each conflict was resolved.`,
+      ``,
+      `Merge output / conflicts:\n{{error}}`,
+    ].join("\n"),
+    variables: ["branch", "integration", "situation", "error"],
     mode: "agent",
   },
   pipeline_fix: {

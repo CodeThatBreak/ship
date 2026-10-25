@@ -60,6 +60,15 @@ export const SimplePlanResponse = z.object({
   markdown: z.string().min(1),
   /** The ordered checklist of work. */
   steps: z.array(PlanStep).min(1),
+  /**
+   * Phase 3B (`execution_default: follow`): the planner's execution
+   * resolution for this plan version — a plain STRING on purpose: an
+   * unexpected value must never fail the plan (normalizePlannerExecution
+   * maps unknown/missing to `whole`).
+   */
+  execution: z.string().optional(),
+  /** One-line rationale published with the execution under `follow` (Phase 3B). */
+  execution_rationale: z.string().optional(),
 });
 export type SimplePlanResponse = z.infer<typeof SimplePlanResponse>;
 
@@ -88,6 +97,11 @@ export const ComplexPlanResponse = z.object({
   steps: z.array(PlanStep).min(1),
   /** Branch decomposition for multi-part work. */
   branches: z.array(PlanBranch).optional().default([]),
+  /** Phase 3B (`execution_default: follow`): see SimplePlanResponse — plain
+   *  string so an unexpected value never fails the plan. */
+  execution: z.string().optional(),
+  /** One-line rationale published with the execution under `follow` (Phase 3B). */
+  execution_rationale: z.string().optional(),
 });
 export type ComplexPlanResponse = z.infer<typeof ComplexPlanResponse>;
 

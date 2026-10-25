@@ -946,6 +946,20 @@ function ConfigFieldRow({
       </div>
     );
   }
+  // fan-out child: the gallery picker (Phase 3C) — flow templates EXCLUDING
+  // hidden auto-wrapped child templates, for both built-in and declarative
+  // (agent-kind) parents; empty = auto-select (built-in step build / self-wrap)
+  if (field.key === "fanout_child") {
+    return (
+      <div className="grid gap-1">
+        <FieldLabel field={field} />
+        <FanoutChildPicker
+          value={typeof effective === "string" ? effective : ""}
+          onChange={(v) => onChange(v || undefined)}
+        />
+      </div>
+    );
+  }
   const picker = varGroups?.length ? (
     <VariablesPicker groups={varGroups} onInsert={insertRef} />
   ) : null;
@@ -1053,6 +1067,96 @@ function SecretsChipGroup({
 /** config fields authored with the rich prompt editor ("@" variable popover)
  *  — `question` is the decision agent's prompt */
 const promptEditorKeys = new Set(["prompt", "prompt_body", "fix_prompt_body", "question"]);
+
+/** A flow template as the fan-out child picker needs it (GET /api/templates:
+ *  the gallery, hidden auto-wrapped child templates excluded, Phase 3C). */
+interface GalleryTemplate {
+  id: string;
+  name: string;
+  description?: string | null;
+  nodeCount?: number;
+}
+
+/**
+ * The fan-out child template picker (Phase 3C): a gallery select of flow
+ * templates the node's steps run as. Hidden templates (the auto-wrapped
+ * `"<label> · step"` children) never appear — a child template is referenced
+ * by id, never picked (§2 data model). Entries show the template name with
+ * its node count + description; a template value that no longer resolves
+ * still renders (the save-time lint reports it as a problem). Empty
+ * selection = auto-select: the built-in `step-build` child under build
+ * nodes, the node's own hidden auto-wrap copy otherwise.
+ */
+function FanoutChildPicker({
+  value,
+  onChange,
+}: {
+  value: string;
+  onChange: (v: string | undefined) => void;
+}) {
+  const [templates, setTemplates] = useState<GalleryTemplate[] | null>(null);
+  useEffect(() => {
+    let alive = true;
+    fetch("/api/templates")
+      .then((r) => r.json())
+      .then((d) => {
+        if (alive) setTemplates(Array.isArray(d?.templates) ? (d.templates as GalleryTemplate[]) : []);
+      })
+      .catch(() => {
+        if (alive) setTemplates([]);
+      });
+    return () => { alive = false; };
+  }, []);
+
+  const UNSET = "__auto__";
+  const known = value && templates?.some((t) => t.id === value);
+  return (
+    <>
+      <Select
+        value={value ? (known || templates == null ? value : UNSET) : UNSET}
+        onValueChange={(v) => onChange(v == null ? undefined : v === UNSET ? undefined : v)}
+      >
+        <SelectTrigger className="w-full rounded-lg border-border bg-card">
+          <SelectValue>
+            {value === ""
+              ? "auto-select"
+              : templates == null
+                ? "loading…"
+                : known
+                  ? templates.find((t) => t.id === value)?.name ?? value
+                  : `${value} (missing template)`}
+          </SelectValue>
+        </SelectTrigger>
+        <SelectContent>
+          <SelectItem value={UNSET}>
+            <SelectOption
+              label="auto-select"
+              description="Built-in step build under build nodes; every other node wraps itself as a hidden child template"
+            />
+          </SelectItem>
+          {value != null && value !== "" && !known && (
+            <SelectItem value={value!}>{value} (missing template)</SelectItem>
+          )}
+          {(templates ?? []).map((t) => (
+            <SelectItem key={t.id} value={t.id}>
+              <SelectOption
+                label={t.name}
+                description={
+                  `${t.nodeCount ?? 0} node${(t.nodeCount ?? 0) === 1 ? "" : "s"}${t.description ? ` · ${t.description}` : ""}`
+                }
+              />
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+      {templates?.length === 0 && (
+        <p className="text-[11px] text-muted-foreground m-0">
+          No flow templates in the gallery yet — create one in the template editor.
+        </p>
+      )}
+    </>
+  );
+}
 
 /**
  * The field label. Prompt fields carry an info icon — hovering it shows the

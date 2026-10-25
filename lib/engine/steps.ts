@@ -27,6 +27,7 @@ export interface PlanStepRow {
   status: string; // pending | done
   origin: string; // agent | user
   completed_by: string | null;
+  sub_flow_id: string | null; // step ⇄ sub-flow linkage (plan fan-out)
   created_at: string;
   updated_at: string;
 }
@@ -112,36 +113,85 @@ export class PlanStepStore {
       }
     }
 
-    // supersede agent steps that vanished from the new plan version
+    // supersede agent steps that vanished from the new plan version — with the
+    // fan-out guard: a step whose child has started/merged survives the refine
+    const guard = this.deletableGuard(flowId);
     for (const prev of existingAgent) {
       if (!seen.has(prev.id) && prev.artifact_id !== artifactId) {
+        if (guard.built.has(prev.id)) continue; // sub-flow running/merged — kept, not deleted
+        this.cancelChildFlow(guard.cancelable.get(prev.id) ?? null);
         db.run(`DELETE FROM plan_steps WHERE id=?`, prev.id);
       }
     }
     return steps.length;
   }
 
-  /** Replace the full step list from the Plan view's editor (bulk save). */
-  replace(flowId: string, artifactId: string | null, steps: PlanStepInput[]): PlanStepRow[] {
+  /** Replace the full step list from the Plan view's editor (bulk save).
+   *  Fan-out guard (Phase 3B): rows whose child sub-flow has started/merged
+   *  survive the wholesale replace (removal is refused in flowEngine.updatePlanSteps with
+   *  a loud error — this path keeps the rows with their done state intact, so
+   *  a bulk editor edit that still includes the step keeps it working).
+   *  `matchedRows` (input index → kept plan-step row id, Phase 3B softening):
+   *  a kept row whose child already started is carried by its survivor
+   *  re-insertion (skipped in the base loop — no duplicated rows); a kept row
+   *  with a PENDING child is re-linked in place — the harmless title/detail
+   *  edit keeps the child linkage + the agent step id. Rows without a
+   *  matchedRows entry behave exactly as before. */
+  replace(
+    flowId: string,
+    artifactId: string | null,
+    steps: PlanStepInput[],
+    opts: { matchedRows?: Map<number, string> } = {},
+  ): PlanStepRow[] {
     const ts = db.now();
+    const guard = this.deletableGuard(flowId);
+    const existing = this.list(flowId);
+    const survivors = existing.filter((s) => guard.built.has(s.id));
+    // matched kept rows: pending children stay linked, started ones dedupe via skip
+    const preserve = new Map<number, { subFlowId: string; metaId: string | null }>();
+    const skip = new Set<number>();
+    if (opts.matchedRows) {
+      const byId = new Map(existing.map((s) => [s.id, s]));
+      for (const [i, rowId] of opts.matchedRows.entries()) {
+        const prev = byId.get(rowId);
+        if (!prev) continue;
+        if (guard.built.has(prev.id)) { skip.add(i); continue; }
+        if (prev.status !== "pending" || !prev.sub_flow_id) continue;
+        preserve.set(i, { subFlowId: prev.sub_flow_id, metaId: prev.meta_id });
+      }
+    }
     db.run(`DELETE FROM plan_steps WHERE flow_id=?`, flowId);
     steps.forEach((s, i) => {
+      if (skip.has(i)) return;
+      const p = preserve.get(i);
       db.run(
-        `INSERT INTO plan_steps (id,flow_id,artifact_id,meta_id,position,title,detail,files,branch,status,origin,created_at,updated_at)
-         VALUES (?,?,?,?,?,?,?,?,?,'pending','user',?,?)`,
+        `INSERT INTO plan_steps (id,flow_id,artifact_id,meta_id,position,title,detail,files,branch,status,origin,sub_flow_id,created_at,updated_at)
+         VALUES (?,?,?,?,?,?,?,?,?,'pending','user',?,?,?)`,
         db.uid("step_"),
         flowId,
         artifactId,
-        null,
-        i,
+        p?.metaId ?? null,
+        i + survivors.length,
         s.title,
         s.detail ?? null,
         JSON.stringify(s.files ?? []),
         s.branch ?? null,
+        p?.subFlowId ?? null,
         ts,
         ts
       );
     });
+    for (const [i, survivor] of survivors.entries()) {
+      // keep guarded rows in place with their live linkage
+      db.run(
+        `INSERT INTO plan_steps (id,flow_id,artifact_id,meta_id,position,title,detail,files,branch,status,origin,completed_by,sub_flow_id,created_at,updated_at)
+         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+        survivor.id, flowId, survivor.artifact_id, survivor.meta_id, i,
+        survivor.title, survivor.detail, survivor.files, survivor.branch,
+        survivor.status, survivor.origin, survivor.completed_by, survivor.sub_flow_id,
+        survivor.created_at, db.now()
+      );
+    }
     return this.list(flowId);
   }
 
@@ -156,6 +206,9 @@ export class PlanStepStore {
     const ts = db.now();
     const existing = this.list(flowId).filter((s) => s.branch === branchName);
     if (!existing.length && !steps.length) return 0;
+    // fan-out guard: rows whose child sub-flow started/merged are rebuilt with
+    // their linkage intact (status/completed_by/sub_flow_id survive the refine)
+    const guard = this.deletableGuard(flowId);
     const stateByMetaId = new Map(existing.filter((s) => s.meta_id).map((s) => [s.meta_id!, s]));
     const firstPos = existing.length ? existing[0].position : 0;
     db.run(
@@ -167,8 +220,8 @@ export class PlanStepStore {
       const status = prev?.status ?? "pending";
       const completedBy = status === "done" ? prev?.completed_by ?? "manual" : null;
       db.run(
-        `INSERT INTO plan_steps (id,flow_id,artifact_id,meta_id,position,title,detail,files,branch,status,origin,completed_by,created_at,updated_at)
-         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+        `INSERT INTO plan_steps (id,flow_id,artifact_id,meta_id,position,title,detail,files,branch,status,origin,completed_by,sub_flow_id,created_at,updated_at)
+         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
         db.uid("step_"),
         flowId,
         artifactId,
@@ -181,11 +234,44 @@ export class PlanStepStore {
         status,
         "agent",
         completedBy,
+        prev?.sub_flow_id ?? null,
         ts,
         ts
       );
     });
     return steps.length;
+  }
+
+  /**
+   * Fan-out deletion guard: which linked steps are protected (a child that has
+   * started/merged) and which pending children a removal would cancel. No
+   * fan-out rows → a no-op; whole-mode checklists never touch these paths.
+   */
+  private deletableGuard(flowId: string): { built: Set<string>; cancelable: Map<string, string> } {
+    const linked = db.all<{ id: string; sub_flow_id: string | null }>(
+      `SELECT id, sub_flow_id FROM plan_steps WHERE flow_id=? AND sub_flow_id IS NOT NULL`, flowId
+    );
+    const built = new Set<string>();
+    const cancelable = new Map<string, string>();
+    for (const s of linked) {
+      if (!s.sub_flow_id) continue;
+      const started = db.all<{ status: string }>(
+        `SELECT status FROM nodes WHERE flow_id=?`, s.sub_flow_id
+      ).some((n) => ["running", "awaiting_approval", "failed", "done", "approved", "skipped"].includes(n.status));
+      if (started) built.add(s.id);
+      else cancelable.set(s.id, s.sub_flow_id);
+    }
+    return { built, cancelable };
+  }
+
+  /** Close a child flow on checklist removal (child with no run). */
+  private cancelChildFlow(childFlowId: string | null): void {
+    if (!childFlowId) return;
+    const started = db.all<{ status: string }>(
+      `SELECT status FROM nodes WHERE flow_id=?`, childFlowId
+    ).some((n) => n.status === "running" || n.status === "awaiting_approval");
+    if (started) return; // never closed silently
+    db.run(`UPDATE flows SET status='done', updated_at=? WHERE id=? AND status<>'done'`, db.now(), childFlowId);
   }
 
   setStatus(

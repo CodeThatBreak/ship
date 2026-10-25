@@ -129,3 +129,96 @@ export function configString(cfg: Record<string, unknown>, key: string): string 
   const v = cfg[key];
   return typeof v === "string" && v.trim() ? v : undefined;
 }
+
+// ── plan fan-out (step sub-flows, Phase 1) ────────────────────────────────────
+// The fan-out knob on any node instance downstream of a plan node:
+//   fanout: { mode: "whole"|"steps"|"from-plan", child: <template id>|null, parallel_max: 1 }
+//
+// Representation note: the auto-form (`ConfigField`s) and the knob layering
+// are flat-per-key, so the knob lives as flat keys (`fanout_mode`,
+// `fanout_child`, `fanout_parallel_max`) in every config layer. A nested
+// `fanout: {…}` object is honored when one was authored directly (template
+// editor / YAML import) — `fanoutOf` reads both. Absent/blank ⇒ `whole`,
+// today's byte-for-byte behavior.
+
+export const FANOUT_MODES = ["whole", "steps", "from-plan"] as const;
+export type FanoutMode = (typeof FANOUT_MODES)[number];
+
+export interface FanoutKnob {
+  mode: FanoutMode;
+  /** explicit child flow-template id; null = auto-select (builtin step template / auto-wrap) */
+  child: string | null;
+  parallelMax: number;
+}
+
+/** The zero-behavior default — every node fans out "whole" unless configured. */
+export const DEFAULT_FANOUT: FanoutKnob = { mode: "whole", child: null, parallelMax: 1 };
+
+/** Read the effective fan-out knob from a merged config (nested object or flat keys). */
+export function fanoutOf(cfg: Record<string, unknown> | null | undefined): FanoutKnob {
+  if (!cfg) return DEFAULT_FANOUT;
+  const nested = cfg.fanout;
+  let mode: string | undefined;
+  let child: unknown;
+  let parallelMax: unknown;
+  if (nested && typeof nested === "object" && !Array.isArray(nested)) {
+    mode = (nested as Record<string, unknown>).mode as string | undefined;
+    child = (nested as Record<string, unknown>).child;
+    parallelMax = (nested as Record<string, unknown>).parallel_max;
+  }
+  if (mode === undefined) mode = typeof cfg.fanout_mode === "string" ? cfg.fanout_mode : undefined;
+  if (child === undefined) child = cfg.fanout_child;
+  if (parallelMax === undefined) parallelMax = cfg.fanout_parallel_max;
+  const resolvedMode = (FANOUT_MODES as readonly string[]).includes(String(mode)) ? (mode as FanoutMode) : "whole";
+  return {
+    mode: resolvedMode,
+    child: typeof child === "string" && child.trim() ? child.trim() : null,
+    parallelMax: typeof parallelMax === "number" && Number.isFinite(parallelMax) && parallelMax >= 1
+      ? Math.floor(parallelMax)
+      : 1,
+  };
+}
+
+/** The `node-instance` knobs stripped from a config copy that becomes a child's own config (lint rule 3: no nesting). */
+export function stripFanoutKeys(cfg: Record<string, unknown>): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(cfg)) {
+    if (k === "fanout" || k.startsWith("fanout_")) continue;
+    out[k] = v;
+  }
+  return out;
+}
+
+/**
+ * The shared fan-out `ConfigField`s (the auto-form's Fanout section) — spread
+ * into plan-downstream-capable defs' `configFields`. `fanout_child` is a free
+ * string field in Phase 1 (explicit template id; empty = auto-select) — the
+ * gallery picker for both built-in and custom parents lands in Phase 3C.
+ */
+export const fanoutConfigFields: readonly ConfigField[] = [
+  {
+    key: "fanout_mode",
+    label: "Fan-out mode",
+    type: "select",
+    help:
+      "step sub-flows: run this node once per pending plan step as monitorable child flows. "
+      + "whole = single run (today); steps = one child per step; from-plan = the plan's published execution decides.",
+    options: [
+      { value: "whole", label: "whole", description: "One run for the whole plan (default)" },
+      { value: "steps", label: "steps", description: "One child flow per plan step" },
+      { value: "from-plan", label: "from-plan", description: "The plan node's execution resolution decides" },
+    ],
+  },
+  {
+    key: "fanout_child",
+    label: "Child template",
+    type: "select",
+    help: "Flow template each step child runs (gallery picker; hidden auto-wrapped child templates excluded, save-time lint applies to every pick). Empty: the built-in step build for build nodes; every other node auto-wraps itself as a hidden child template.",
+  },
+  {
+    key: "fanout_parallel_max",
+    label: "Parallel max",
+    type: "number",
+    help: "How many step children may run at once (1 = sequential). Raising it lets FILE-DISJOINT siblings build concurrently; merges still serialize per integration branch, in approval order.",
+  },
+] as const;

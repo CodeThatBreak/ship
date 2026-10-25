@@ -7,6 +7,7 @@ import { templateStore } from "../../templates";
 import { extractJson, validateJsonSchema } from "./json-schema-lite";
 import { AgentDefSchema, type AgentDef } from "../declarative-schemas";
 import { buildFlowContext } from "../../flow-context";
+import { fanoutConfigFields } from "../../node-config";
 
 export type { AgentDef };
 
@@ -126,6 +127,14 @@ export class AgentTemplateNode extends NodeDefinition<Record<string, unknown>, R
       help: "{{...}} references — {{input.*}} (the previous node's output), {{nodes.<key>.output.*}}, {{task.*}} (the starting task), {{repo.*}}, {{flow.*}}, {{trigger.payload.*}} and {{secrets.NAME}}",
     },
     { key: "model", label: "Model override", type: "string" as const, nullable: true, help: "text, or a {{...}} ref — e.g. {{nodes.<key>.output.model}} — empty = the flow's default model" },
+    // plan fan-out knobs (Phase 3C): any agent node downstream of a plan node
+    // may fan out into per-step child flows — the declarative agent kind is
+    // the established fan-out-capable custom parent (§5 "Fanout section on
+    // the config tab"). The child picker lists the gallery (hidden
+    // auto-wrapped templates excluded). decision / http / script keep
+    // JSON-level fan-out config (their strict def schemas would strip the
+    // flat knob keys).
+    ...fanoutConfigFields,
     {
       key: "output", label: "Output", type: "select" as const,
       help: "markdown → {{nodes.<key>.output.markdown}} artifact; json → validated payload fields",

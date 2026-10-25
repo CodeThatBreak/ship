@@ -1,5 +1,5 @@
 "use client";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   Compass,
   Check,
@@ -142,6 +142,32 @@ export default function PlanView({
   const planSteps = flow.planSteps ?? [];
   const showChecklist =
     planSteps.length > 0 || awaiting || node.status === "approved";
+
+  // plan fan-out (§1 who-decides-the-mode): the published execution
+  // resolution (plan-meta `execution` on the selected version) + the plan
+  // node's knob precedence. `follow` plans publish the PLANNER's decision
+  // (with a one-line rationale); the footer offers the override control at
+  // approve (Phase 3B) — forcing whole/steps writes executionSource
+  // "override" into the plan-meta on approve_plan.
+  const knobExecution = (node.config as Record<string, unknown> | null | undefined)?.execution_default;
+  const meta = current?.meta ?? {};
+  const published = meta.execution === "steps" ? "steps" : "whole";
+  const publishedSource = typeof meta.executionSource === "string" ? meta.executionSource : "unknown";
+  const plannerRationale = typeof meta.execution_rationale === "string" ? meta.execution_rationale : null;
+  const executionResolution =
+    knobExecution === "steps" ? "steps"
+      : knobExecution === "follow" ? published
+        : published;
+  const [execPick, setExecPick] = useState<"whole" | "steps">(executionResolution === "steps" ? "steps" : "whole");
+  // a refine re-publishes the resolution — the pick follows the new published value
+  useEffect(() => {
+    setExecPick(executionResolution === "steps" ? "steps" : "whole");
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [current?.id, executionResolution]);
+  const executionNote =
+    executionResolution === "steps"
+      ? `step-by-step (${planSteps.length} step${planSteps.length === 1 ? "" : "s"})`
+      : "one run";
 
   const statusVariant =
     node.status === "approved"
@@ -551,8 +577,55 @@ export default function PlanView({
       {/* fixed footer */}
       {awaiting && isCurrent ? (
         <div className="flex items-center gap-3 px-5 py-3 border-t border-border shrink-0">
+          {/* plan fan-out (§1): the published execution resolution at approve,
+              with the override control (Phase 3B) — forcing whole/steps at
+              approve records executionSource "override" in the plan version's
+              plan-meta and a downstream from-plan fan-out node honors it */}
+          <div className="flex items-center gap-2 min-w-0">
+            <span className="text-[12px] text-muted-foreground whitespace-nowrap">
+              will execute:
+            </span>
+            <div className="flex overflow-hidden rounded-lg border border-border text-[12px] shrink-0">
+              {(["whole", "steps"] as const).map((v) => (
+                <button
+                  key={v}
+                  type="button"
+                  className={
+                    execPick === v
+                      ? "px-2.5 py-1 bg-info/10 text-info"
+                      : "px-2.5 py-1 text-muted-foreground hover:text-foreground"
+                  }
+                  title={v === "whole"
+                    ? "Force the whole plan into one run"
+                    : `Force step-by-step execution (${planSteps.length} step${planSteps.length === 1 ? "" : "s"})`}
+                  onClick={() => setExecPick(v)}
+                >
+                  {v === execPick
+                    ? executionNote
+                    : v === "whole"
+                      ? "one run"
+                      : "step-by-step"}
+                </button>
+              ))}
+            </div>
+          </div>
+          {(plannerRationale && knobExecution === "follow") && (
+            <span className="text-[11.5px] text-muted-foreground truncate min-w-0" title={plannerRationale}>
+              planner: “{plannerRationale}”
+            </span>
+          )}
+          {publishedSource === "override" && (
+            <span className="text-[11.5px] text-muted-foreground shrink-0">
+              (overridden at the last approve)
+            </span>
+          )}
           <div className="flex-1" />
-          <Button variant="default" onClick={() => action("approve_plan")}>
+          <Button
+            variant="default"
+            onClick={() => action("approve_plan", {
+              ...(execPick !== published ? { executionOverride: execPick } : {}),
+            })}
+          >
             <Check size={15} /> Approve plan
           </Button>
         </div>

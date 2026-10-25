@@ -28,15 +28,17 @@ import {
 } from "./ui/trace";
 import { cn } from "../lib/utils";
 
-type Draft = { title: string; detail: string; files: string; branch: string };
+type Draft = { id?: string; title: string; detail: string; files: string; branch: string };
 
 const toDraft = (s: PlanStepRow): Draft => ({
+  id: s.id,
   title: s.title,
   detail: s.detail ?? "",
   files: (s.files ?? []).join(", "),
   branch: s.branch ?? "",
 });
 const emptyDraft = (): Draft => ({
+  id: undefined,
   title: "",
   detail: "",
   files: "",
@@ -94,6 +96,11 @@ export default function PlanSteps({
     const payload = drafts
       .filter((d) => d.title.trim())
       .map((d) => ({
+        // Phase 3B: the plan-step row id rides the payload so a harmless
+        // title/detail/files edit keeps the row (and a pending step child's
+        // linkage) instead of reading as remove + re-add — matching falls
+        // back to the exact title for legacy rows.
+        id: d.id,
         title: d.title.trim(),
         detail: d.detail.trim() || undefined,
         files: parseFiles(d.files),

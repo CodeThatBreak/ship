@@ -5,6 +5,7 @@ import type { FlowData, Node, Artifact } from "../app/flows/[id]/page";
 import { Markdown } from "./markdown";
 import { PanelShell, ArtifactLoader, VersionTabs } from "./panels/shared";
 import { registerPanel } from "./panels/registry";
+import FanoutStepList from "./panels/FanoutStepList";
 import { Button } from "./ui/button";
 import { Card } from "./ui/card";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "./ui/dialog";
@@ -15,6 +16,9 @@ import { Label } from "./ui/label";
  * The generic runtime panel for declarative nodes (§8 2C): prompt view/edit,
  * run button + model picker, markdown/JSON output viewer, approval button and
  * a Configure dialog that writes the flow instance config (nodes.config).
+ * Plan fan-out (Phase 1D): when the node fanned out, the prompt card is
+ * replaced by the step cards so the per-step monitoring surface exists for
+ * declarative parent nodes too.
  */
 export default function AgentView({
   flow, node, action, model, fetchArtifact,
@@ -37,6 +41,8 @@ export default function AgentView({
   const failed = node.status === "failed";
   const mdArts = node.artifacts.filter((a: Artifact) => a.kind === (outputKind === "json" ? "json" : "markdown"));
   const latest = mdArts[mdArts.length - 1];
+  // plan fan-out: the node's panel swaps the prompt card for the step cards
+  const fannedOut = (flow.planSteps ?? []).some((s: any) => s.sub_flow != null);
 
   const footer = (
     <>
@@ -74,8 +80,10 @@ export default function AgentView({
   return (
     <>
       <PanelShell node={node} action={action} flow={flow} headerEnd={headerEnd} runningLabel={`${node.label || node.template_name || node.node_key} is running…`} footer={footer}>
+        {/* fanned out: per-step monitoring surface instead of the single prompt card */}
+        {fannedOut && <FanoutStepList flow={flow} node={node} action={action} />}
         {/* prompt card — what the agent will be asked, after {{var}} rendering */}
-        {!running && !failed && (
+        {!fannedOut && !running && !failed && (
           <Card className="p-3.5 mb-3.5">
             <div className="flex items-center gap-1.5 mb-1.5 text-[11.5px] font-medium text-muted-foreground uppercase tracking-[0.8px]">
               <Sparkles size={12} /> Prompt

@@ -4,6 +4,8 @@ import { agentPortRegistry } from "./ports/agent-runner";
 import { flowCtxHelper, nodeSupport, type FlowCtx } from "./nodes/base";
 import { usageTracker } from "./nodes/base/usage-tracker";
 import { flowEngine } from "./flow";
+import { stepFlows } from "./step-flows";
+import { mergeArena } from "./merge-arena";
 import { templateStore } from "./templates";
 import { processSingleton } from "../singleton";
 
@@ -38,6 +40,8 @@ export class Reconciler {
   private readonly lastReconcile = new Map<string, number>();
   /** cloud runs we've re-attached to in this process (avoid double streaming) */
   private readonly reattached = new Set<string>();
+  /** step children already flagged orphaned in this process (event dedup) */
+  private readonly flaggedOrphans = new Set<string>();
 
   async reconcileFlow(flowId: string): Promise<void> {
     // legacy runs captured without cost (and stale estimates) get a cost from
@@ -50,6 +54,28 @@ export class Reconciler {
     const flow = rows.get(FlowRow, `SELECT * FROM flows WHERE id=?`, flowId);
     if (!flow || flow.status !== "active") return;
 
+    await this.reconcileRunningNodes(flow);
+
+    // clear a stale current_node pointer
+    if (flow.current_node) {
+      const cur = rows.get(NodeRow,
+        `SELECT * FROM nodes WHERE flow_id=? AND node_key=?`, flowId, flow.current_node);
+      if (!cur || cur.status !== "running") {
+        db.run(`UPDATE flows SET current_node=NULL, updated_at=? WHERE id=? AND current_node=?`,
+          db.now(), flowId, flow.current_node);
+      }
+    }
+
+    // plan fan-out (Phase 2B): stuck step_merges rows resume-or-flag; orphan
+    // children surface loud. Covers both directions — opening the parent page
+    // or any child's page reconciles the fan-out family.
+    await this.reconcileStepFanout(flow);
+  }
+
+  /** The stuck-`running` node recovery pass of one flow (page open / global sweep). */
+  private async reconcileRunningNodes(flow: FlowRow): Promise<void> {
+    const nowMs = Date.now();
+    const flowId = flow.id;
     const running = rows.all(NodeRow, `SELECT * FROM nodes WHERE flow_id=? AND status='running'`, flowId);
     // the node waiting on the pipeline event source (role lookup — the CI gate
     // runs a server-side wait loop; no hardcoded node key)
@@ -67,17 +93,9 @@ export class Reconciler {
         db.emitEvent(flowId, node.id, "error", `reconcile: ${e instanceof Error ? e.message : e}`);
       }
     }
-
-    // clear a stale current_node pointer
-    if (flow.current_node) {
-      const cur = rows.get(NodeRow,
-        `SELECT * FROM nodes WHERE flow_id=? AND node_key=?`, flowId, flow.current_node);
-      if (!cur || cur.status !== "running") {
-        db.run(`UPDATE flows SET current_node=NULL, updated_at=? WHERE id=? AND current_node=?`,
-          db.now(), flowId, flow.current_node);
-      }
-    }
   }
+
+  // ── plan fan-out (Phase 2B): stuck step_merges + orphan children ──────────
 
   private async reconcileNode(flow: FlowRow, node: NodeRow): Promise<void> {
     const runRow = rows.get(RunRow,
@@ -90,6 +108,133 @@ export class Reconciler {
       return this.reconcileLocal(ctx, node, runRow);
     }
     return this.reconcileCloud(ctx, node, runRow);
+  }
+
+  // ── plan fan-out (Phase 2B): stuck step_merges + orphan children ──────────
+
+  /**
+   * Phase 2B — stuck merge-backs and orphaned step children of one fan-out
+   * family. `step_merges` rows are durable (written before git), so after a
+   * restart:
+   *  - a row still `running`/`conflict`/`rejected` whose owning process is
+   *    dead resumes the merge arena (bounded by the merge-fix budget) when the
+   *    child is still approved/pending — or flags failed loudly (event on the
+   *    parent, failed-visible step card) when the child is red/dead.
+   *  - orphan children (the `plan_steps.sub_flow_id` linkage or the parent
+   *    fan-out node gone) are surfaced on the parent once; they are inert.
+   * In-flight merges of the live process are never double-booked
+   * (`mergeArena.isMerging`).
+   */
+  private async reconcileStepFanout(flow: FlowRow): Promise<void> {
+    const parentId = flow.parent_flow_id ?? flow.id;
+    const stuck = db.all<{ id: string; flow_id: string; parent_flow_id: string; parent_node: string; status: string; updated_at: string | null }>(
+      `SELECT * FROM step_merges WHERE parent_flow_id=? AND status IN ('running','conflict','rejected')`, parentId
+    );
+    for (const row of stuck) {
+      try {
+        await this.reconcileStepMerge(row);
+      } catch (e: unknown) {
+        db.emitEvent(parentId, null, "error",
+          `reconcile: step merge ${row.id}: ${e instanceof Error ? e.message : String(e)}`);
+      }
+    }
+    if (flow.parent_flow_id == null) await this.reconcileOrphanChildren(flow.id);
+  }
+
+  private async reconcileStepMerge(row: {
+    id: string; flow_id: string; parent_flow_id: string; parent_node: string; status: string; updated_at: string | null;
+  }): Promise<void> {
+    const failLoud = (reason: string): void => {
+      db.run(`UPDATE step_merges SET status='failed', error=?, updated_at=? WHERE id=? AND status IN ('running','conflict','rejected')`,
+        reason.slice(0, 2000), db.now(), row.id);
+      db.emitEvent(row.parent_flow_id, null, "error",
+        `step merge-back on "${row.parent_node}" was interrupted: ${reason}`,
+        { nodeKey: row.parent_node, childFlowId: row.flow_id, mergeId: row.id });
+    };
+    if (mergeArena.isMerging(row.flow_id)) return; // alive in this process — nothing to flag
+    // freshness guard: an attempt this process just re-booked stamps the row —
+    // give it the same start grace the node reconcile uses
+    const updatedMs = Date.parse(row.updated_at ?? "");
+    if (Number.isFinite(updatedMs) && Date.now() - updatedMs < Reconciler.START_GRACE_MS) return;
+
+    const parent = db.get<{ id: string; status: string }>(`SELECT id, status FROM flows WHERE id=?`, row.parent_flow_id);
+    const child = db.get<{ id: string; parent_flow_id: string; status: string }>(
+      `SELECT id, parent_flow_id, status FROM flows WHERE id=?`, row.flow_id);
+    if (!parent || !child || child.parent_flow_id !== row.parent_flow_id) {
+      failLoud("the step child or its parent flow row is gone (orphaned merge-back)");
+      return;
+    }
+    const step = db.get<{ id: string; title: string; status: string }>(
+      `SELECT id, title, status FROM plan_steps WHERE sub_flow_id=?`, row.flow_id);
+    if (!step) {
+      failLoud("the plan step ⇄ sub-flow linkage is gone (orphaned merge-back)");
+      return;
+    }
+    const parentNode = db.get<{ id: string }>(
+      `SELECT id FROM nodes WHERE flow_id=? AND node_key=?`, row.parent_flow_id, row.parent_node);
+    if (!parentNode) {
+      failLoud(`the parent fan-out node "${row.parent_node}" no longer exists (orphaned merge-back)`);
+      return;
+    }
+    if (child.status !== "active") {
+      failLoud(`the step child is ${child.status} but its merge never landed`);
+      return;
+    }
+    const childNode = db.get<{ status: string }>(`SELECT status FROM nodes WHERE flow_id=?`, row.flow_id);
+    if (!childNode) {
+      failLoud("the step child has no nodes (the fan-out linkage is broken)");
+      return;
+    }
+    if (childNode.status === "running") {
+      // a merge-fix agent run was mid-flight at the restart — the child's runs
+      // are durable, so the STANDARD node reconcile decides recovered vs failed
+      const childFlow = rows.get(FlowRow, `SELECT * FROM flows WHERE id=?`, row.flow_id);
+      if (childFlow) await this.reconcileRunningNodes(childFlow);
+      const after = db.get<{ status: string }>(`SELECT status FROM nodes WHERE flow_id=?`, row.flow_id)?.status;
+      if (after === "awaiting_approval") stepFlows.resumePendingMerge(row.flow_id);
+      return;
+    }
+    if (childNode.status !== "awaiting_approval") {
+      failLoud(`the step child node is ${childNode.status} (merge interrupted) — Retry the step to re-run the merge (+ fix agent)`);
+      return;
+    }
+    // safe resume: the child is approved and unmerged — re-enter the bounded loop
+    stepFlows.resumePendingMerge(row.flow_id);
+  }
+
+  /** Orphan step children: the linkage (or the whole parent node) is gone — flag once, leave inert. */
+  private async reconcileOrphanChildren(parentFlowId: string): Promise<void> {
+    const children = db.all<{ id: string; name: string; status: string }>(
+      `SELECT id, name, status FROM flows WHERE parent_flow_id=? AND kind='step'`, parentFlowId
+    );
+    for (const c of children) {
+      if (db.get(`SELECT 1 FROM plan_steps WHERE sub_flow_id=?`, c.id)) continue;
+      if (this.flaggedOrphans.has(c.id)) continue;
+      this.flaggedOrphans.add(c.id);
+      db.emitEvent(parentFlowId, null, "error",
+        `orphan step child "${c.name}" — its plan step no longer links to it (the step was removed or the flow re-planned); the child is inert and hidden from lists`,
+        { childFlowId: c.id });
+    }
+  }
+
+  /**
+   * Global pass (server start, called from the poller's lazy start next to the
+   * worktree sweep): every parent with a stuck step_merges row after a
+   * restart — resume or flag, including when nobody has opened a flow page.
+   */
+  async sweepStuckStepMerges(): Promise<void> {
+    const parents = db.all<{ p: string }>(
+      `SELECT DISTINCT parent_flow_id p FROM step_merges WHERE status IN ('running','conflict','rejected')`
+    );
+    for (const { p } of parents) {
+      const flow = rows.get(FlowRow, `SELECT * FROM flows WHERE id=?`, p);
+      if (!flow || flow.status !== "active") continue;
+      try {
+        await this.reconcileStepFanout(flow);
+      } catch (e: unknown) {
+        db.emitEvent(p, null, "error", `reconcile: ${e instanceof Error ? e.message : String(e)}`);
+      }
+    }
   }
 
   // ── local mode: the in-process handle means alive; otherwise the SDK's ────

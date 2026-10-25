@@ -22,6 +22,9 @@ type Flow = {
   task_summary: string;
   mr_url?: string;
   execution_mode?: string;
+  /** plan fan-out (Phase 4): step-progress summary when a checklist is linked
+   *  to step sub-flows (`active` = children still unresolved) */
+  fanout?: { steps: number; done: number; active: boolean };
 };
 
 type WorktreeStatus = {
@@ -147,6 +150,12 @@ export default function FlowsPage() {
         ) : (
           <Badge variant="outline">
             <Cloud size={11} /> cloud
+          </Badge>
+        )}
+        {f.fanout?.active && (
+          <Badge variant="outline" className="gap-1"
+            title="This flow is fanned out into step sub-flows — open it to monitor each step">
+            <GitMerge size={11} /> {f.fanout.steps} steps · {f.fanout.done} merged
           </Badge>
         )}
         {f.execution_mode === "local" && worktrees[f.id] && (

@@ -1,6 +1,7 @@
 import type { NodeDefinition } from "./base";
 import { PlanNode } from "./plan";
 import { BuildNode } from "./build";
+import { StepBuildNode } from "./build/step-build-node";
 import { PipelineNode } from "./pipeline";
 import { ReviewNode } from "./review";
 import { ResolveNode } from "./resolve";
@@ -34,6 +35,7 @@ export class NodeRegistry {
     this.register(new StartNode());
     this.register(new PlanNode());
     this.register(new BuildNode());
+    this.register(new StepBuildNode()); // plan fan-out step child (Phase 1C)
     this.register(new PipelineNode());
     this.register(new ReviewNode());
     this.register(new ResolveNode());

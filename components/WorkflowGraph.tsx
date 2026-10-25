@@ -26,6 +26,7 @@ import { cn } from "../lib/utils";
 export const ICONS: Record<string, any> = {
   plan: Compass,
   build: Hammer,
+  step_build: Hammer,
   pipeline: Gauge,
   review: ScanSearch,
   resolve: CheckCheck,
@@ -123,12 +124,18 @@ export default function WorkflowGraph({
   selected,
   onSelect,
   currentNode,
+  fanout,
 }: {
   nodes: Node[];
   flowId?: string;
   selected: string;
   onSelect: (k: string) => void;
   currentNode?: string;
+  /** plan fan-out progress per node key — rendered as the card subtitle; the
+   *  `state` field is the AGGREGATE child state driving the card colors while
+   *  the node orchestrates (its own row stays `running`): failed → red,
+   *  awaiting → warning, in-flight → info, resolved → success */
+  fanout?: Record<string, { total: number; done: number; running: string | null; costCents: number; state: string }>;
 }) {
   const graphDef = useGraphDef(flowId ?? "");
   const keys = nodes.map((n) => n.node_key);
@@ -243,6 +250,16 @@ export default function WorkflowGraph({
         const isSel = selected === n.node_key;
         const isRunning = currentNode === n.node_key || n.status === "running";
         const st = STATUS[isRunning ? "running" : n.status] ?? STATUS.pending;
+        const fan = fanout?.[n.node_key];
+        // aggregate child states override the card colors while the fan-out
+        // runs — the orchestrator row itself holds `running` until all children
+        // resolve, so red/warning/success must come from the children (Phase 4)
+        const cardColor = fan
+          ? (fan.state === "failed" ? STATUS.failed
+            : fan.state === "awaiting" ? STATUS.awaiting_approval
+            : fan.state === "in-flight" ? STATUS.running
+            : STATUS.approved)
+          : st;
         return (
           <div
             key={n.node_key}
@@ -251,7 +268,7 @@ export default function WorkflowGraph({
             className={cn(
               "absolute rounded-lg cursor-pointer flex items-center gap-[9px] px-3 border-[1.5px] transition-all duration-150",
               isSel ? "bg-popover shadow-panel" : "bg-card",
-              st.border,
+              cardColor.border,
               isRunning && "animate-pulse",
             )}
             style={{ left: p.x - W / 2, top: p.y - H / 2, width: W, height: H }}
@@ -261,7 +278,7 @@ export default function WorkflowGraph({
               strokeWidth={2}
               className={
                 isRunning || n.status !== "pending"
-                  ? st.text
+                  ? cardColor.text
                   : "text-muted-foreground"
               }
             />
@@ -276,10 +293,14 @@ export default function WorkflowGraph({
                     ? "text-info"
                     : n.status === "pending"
                       ? "text-muted-foreground"
-                      : st.text,
+                      : cardColor.text,
                 )}
               >
-                {statusLabel(n.status, isRunning)}
+                {/* plan fan-out: the per-node step rollup as the subtitle
+                    (`steps 3/8 · building`, `· $0.42` when the children cost) */}
+                {fan
+                  ? `steps ${fan.done}/${fan.total}${fan.running ? ` · ${fan.running}` : ""}${fan.costCents > 0 ? ` · $${(fan.costCents / 100).toFixed(2)}` : ""}`
+                  : statusLabel(n.status, isRunning)}
                 {n.artifacts.length > 0 &&
                   ` · v${Math.max(...n.artifacts.map((a) => a.version))}`}
               </div>

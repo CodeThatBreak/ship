@@ -10,6 +10,7 @@ import { Card } from "../ui/card";
 import { Spinner } from "../ui/spinner";
 import { PanelShell, ArtifactLoader } from "./shared";
 import { registerPanel } from "./registry";
+import FanoutStepList from "./FanoutStepList";
 
 /**
  * The build panel: the agent's diff per branch, the structured plan checklist
@@ -18,6 +19,11 @@ import { registerPanel } from "./registry";
  * pipeline gate — the build stage stays in this busy state until the MR
  * exists (the engine reverts to awaiting_approval with an mr_failed event if
  * MR creation fails).
+ *
+ * Plan fan-out (Phase 1D): when the node fanned out, the plan checklist is
+ * replaced by the step cards (per-step monitor/approve/link to the child
+ * flow screen) and the whole-plan diff only appears after the aggregate
+ * approval's merges.
  */
 function BuildView({ flow, node, action, fetchArtifact, events = [] }: {
   flow: FlowData; node: Node; action: (a: string, b?: any) => Promise<void> | void; fetchArtifact: (id: string) => Promise<any>; events?: any[];
@@ -28,6 +34,7 @@ function BuildView({ flow, node, action, fetchArtifact, events = [] }: {
   const branches = flow.branches ?? [];
   const hasBranches = branches.length > 1;
   const planSteps = flow.planSteps ?? [];
+  const fannedOut = planSteps.some((s: any) => s.sub_flow != null);
 
   const creatingMr = node.status === "approved" && !hasBranches && !flow.mr_url;
   const creatingMrBranches = new Set(
@@ -85,8 +92,11 @@ function BuildView({ flow, node, action, fetchArtifact, events = [] }: {
 
   return (
     <PanelShell node={node} action={action} flow={flow} runningLabel="Agent is implementing the plan…" footer={footer}>
-      {/* structured plan progress — the build agent checks steps off as it reports them */}
-      {planSteps.length > 0 && (
+      {/* structured plan progress — the build agent checks steps off as it reports them.
+          Fanned out: the step cards replace the checklist (per-step state chips / actions). */}
+      {fannedOut ? (
+        <FanoutStepList flow={flow} node={node} action={action} />
+      ) : planSteps.length > 0 && (
         <PlanSteps flowId={flow.id} steps={planSteps} editable={false} highlight action={action} className="mb-4" />
       )}
       {creatingMr && (
@@ -167,3 +177,6 @@ function BuildView({ flow, node, action, fetchArtifact, events = [] }: {
 }
 
 registerPanel({ type: "build" }, BuildView);
+// the step_build child def shares this panel on its own child flow screen
+// (per-step diff + the step-level approval that triggers merge-back)
+registerPanel({ type: "step_build" }, BuildView);

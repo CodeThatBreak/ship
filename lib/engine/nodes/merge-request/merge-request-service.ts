@@ -39,6 +39,16 @@ const HOOK_PATTERNS = [
 ];
 
 /**
+ * True when a push failure looks like a code/hook rejection rather than infra
+ * (merge-request-service owns the signatures; the merge arena's Phase-2
+ * classification reuses them verbatim so "repairable code state vs infra
+ * failure" is decided the same way in both paths).
+ */
+export function isHookRejection(text: string): boolean {
+  return HOOK_PATTERNS.some((p) => p.test(text));
+}
+
+/**
  * Create (or reuse) the git-host change request (MR/PR) for a built branch,
  * then reset the pipeline + review nodes to pending. Shared by single- and
  * multi-branch flows.

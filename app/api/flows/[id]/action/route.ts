@@ -6,7 +6,7 @@ export const dynamic = "force-dynamic";
 const ACTIONS: Record<string, (flowId: string, body: any) => void | Promise<void>> = {
   start_plan: (id, b) => flowEngine.startPlan(id, b.prompt, b.decompose, b.model, b.promptIsBody, b.complex),
   refine_plan: (id, b) => flowEngine.refinePlan(id, b.feedback ?? "", b.prompt, b.model, b.promptIsBody, b.complex, b.branchRef, b.fresh, b.contextBlocks),
-  approve_plan: (id) => flowEngine.approvePlan(id),
+  approve_plan: (id, b) => flowEngine.approvePlan(id, b?.executionOverride),
   update_plan_steps: (id, b) => flowEngine.updatePlanSteps(id, b.steps ?? []),
   set_plan_step: (id, b) => flowEngine.setPlanStepStatus(id, b.stepId, b.status),
   approve_build: (id, b) => flowEngine.approveBuild(id, b.branch),
@@ -21,6 +21,10 @@ const ACTIONS: Record<string, (flowId: string, body: any) => void | Promise<void
   set_node_config: (id, b) => flowEngine.setNodeConfig(id, b.nodeKey, b.config),
   // Phase 3: decision branch picks (manual source / approval override)
   choose_node: (id, b) => flowEngine.chooseNode(id, b.nodeKey, b.chosen ?? [], b.rationale),
+  // plan fan-out (Phase 1): parent-panel step-card actions (approve/retry/skip a child)
+  approve_fanout_step: (id, b) => flowEngine.approveFanoutStep(id, b.stepId),
+  retry_fanout_step: (id, b) => flowEngine.retryFanoutStep(id, b.stepId),
+  skip_fanout_step: (id, b) => flowEngine.skipFanoutStep(id, b.stepId),
 };
 
 export async function POST(req: Request, { params }: { params: Promise<{ id: string }> }) {

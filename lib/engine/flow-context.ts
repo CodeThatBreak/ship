@@ -24,6 +24,11 @@ export interface FlowContextMap extends Record<string, unknown> {
   flow: Record<string, unknown>;
   trigger: { payload: unknown };
   nodes: Record<string, { output: unknown }>;
+  /** plan fan-out step children (Phase 1): the plan context, the own step and
+   *  the sibling summaries — plain-empty on ordinary flows (no payload). */
+  plan?: Record<string, unknown>;
+  step?: Record<string, unknown>;
+  siblings?: Record<string, unknown>[];
 }
 
 export function buildFlowContext(ctx: FlowCtx): FlowContextMap {
@@ -37,6 +42,14 @@ export function buildFlowContext(ctx: FlowCtx): FlowContextMap {
   }
   let payload: unknown = ctx.flow.trigger_payload ?? null;
   if (typeof payload === "string") payload = parseJsonObject(payload);
+  // plan fan-out step children: the trigger payload carries {plan, step,
+  // siblings} — alias them at the top level so child templates render the
+  // documented step variables ({{plan}}, {{step.id}}, {{siblings}}) with the
+  // existing renderers. Ordinary flows (no step payload) resolve empty strings.
+  const p = (payload && typeof payload === "object" ? payload : {}) as Record<string, unknown>;
+  const step = (p.step && typeof p.step === "object" ? p.step : {}) as Record<string, unknown>;
+  const planPart = (p.plan && typeof p.plan === "object" ? p.plan : {}) as Record<string, unknown>;
+  const siblings = Array.isArray(p.siblings) ? (p.siblings as Record<string, unknown>[]) : [];
   return {
     task: taskContextOf(ctx),
     repo: {
@@ -49,6 +62,9 @@ export function buildFlowContext(ctx: FlowCtx): FlowContextMap {
     },
     trigger: { payload },
     nodes,
+    plan: planPart,
+    step,
+    siblings,
   };
 }
 

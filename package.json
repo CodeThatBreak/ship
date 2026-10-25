@@ -9,6 +9,8 @@
     "lint": "next lint",
     "seed:demo": "node scripts/seed-demo-flow.mjs",
     "seed:demo:reset": "node scripts/seed-demo-flow.mjs --reset",
+    "seed:demo:fanout": "node scripts/seed-demo-fanout.mjs",
+    "seed:demo:fanout:reset": "node scripts/seed-demo-fanout.mjs --reset",
     "seed:branch-refine": "node scripts/seed-branch-refine-demo.mjs",
     "seed:branch-refine:reset": "node scripts/seed-branch-refine-demo.mjs --reset",
     "seed:custom": "node scripts/seed-custom-flow.mjs",

@@ -29,6 +29,9 @@ CREATE TABLE IF NOT EXISTS flows (
   gitlab_project_id INTEGER,
   current_node  TEXT,                          -- node key currently running
   worktree_dir  TEXT,                          -- git worktree dir for local runs (created at build start; the hub checkout is never mutated)
+  -- step sub-flows (plan fan-out): set on child flows, kind distinguishes them
+  parent_flow_id TEXT REFERENCES flows(id),
+  kind          TEXT NOT NULL DEFAULT 'sdlc',  -- sdlc | step
   created_at    TEXT NOT NULL,
   updated_at    TEXT NOT NULL
 );
@@ -120,6 +123,7 @@ CREATE TABLE IF NOT EXISTS plan_steps (
   status        TEXT NOT NULL DEFAULT 'pending', -- pending | done
   origin        TEXT NOT NULL DEFAULT 'agent',   -- agent | user
   completed_by  TEXT,                            -- manual | build | NULL
+  sub_flow_id   TEXT REFERENCES flows(id),       -- step ⇄ sub-flow linkage (plan fan-out)
   created_at    TEXT NOT NULL,
   updated_at    TEXT NOT NULL
 );
@@ -222,6 +226,8 @@ CREATE TABLE IF NOT EXISTS flow_templates (
   -- next fire time for a `schedule` flow trigger (Phase 4C); NULL = not scheduled.
   -- Persisted so the schedule survives restarts.
   schedule_next_at TEXT,
+  -- auto-wrapped child templates (plan fan-out; excluded from the gallery)
+  hidden       INTEGER NOT NULL DEFAULT 0,
   created_at   TEXT NOT NULL,
   updated_at   TEXT NOT NULL
 );
@@ -297,3 +303,23 @@ CREATE TABLE IF NOT EXISTS worktree_removals (
   reason        TEXT,
   created_at    TEXT NOT NULL
 );
+
+-- Durable fan-out merge-back record (plan fan-out, Phase 1) so restarts and
+-- the reconcile sweep can resume or flag stuck merges. Code children (node def
+-- with a `mergeBack` hook) get one row per merge attempt; NULL `branch` ⇒
+-- non-code children create no rows (their output is aggregated, never merged).
+CREATE TABLE IF NOT EXISTS step_merges (
+  id             TEXT PRIMARY KEY,
+  flow_id        TEXT NOT NULL REFERENCES flows(id),   -- child flow
+  parent_flow_id TEXT NOT NULL REFERENCES flows(id),
+  parent_node    TEXT NOT NULL,              -- the fan-out node key (e.g. 'build')
+  branch         TEXT,                       -- step branch (code children only)
+  status         TEXT NOT NULL DEFAULT 'running',  -- running | conflict | rejected | merged | failed
+--                                                    (conflict/rejected = repairable, the bounded
+--                                                     merge-fix agent owns it; failed = infra/exhausted)
+  attempts       INTEGER NOT NULL DEFAULT 0,
+  error          TEXT,
+  created_at     TEXT NOT NULL,
+  updated_at     TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_step_merges_parent ON step_merges(parent_flow_id, parent_node, status);

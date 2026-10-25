@@ -23,6 +23,8 @@ import { buildFlowContext, type FlowContextMap } from "./flow-context";
 import { evalJsonata, jsonataTruthy } from "./jsonata-eval";
 import { hookStore } from "./hooks";
 import { parseStartContract, validateAgainstContract } from "./nodes/start/contract";
+import { DEFAULT_FANOUT_OUTPUT, type NodeCapabilities } from "./nodes/base/capabilities";
+import { stepFlows, StepFlowManager, type StepChildPayload } from "./step-flows";
 import { processSingleton } from "../singleton";
 
 export interface CreateFlowOptions {
@@ -114,6 +116,117 @@ export class FlowEngine {
     return id;
   }
 
+  // ── plan fan-out: step-child machinery (StepFlowManager internals) ────────
+
+  /**
+   * Create a step-child flow with the parent's snapshot machinery — the same
+   * shape as create() (snapshot + merged node configs), minus the standalone
+   * start validation a user start needs: no task-type check (the task is
+   * inherited), no entry-contract gate (the auto-wrapped/step child templates
+   * declare no start node), and the fan-out linkage columns set
+   * (`parent_flow_id`, `kind: 'step'`, the `{plan, step, siblings}` payload
+   * persisted as the trigger payload — which is exactly what makes
+   * `{{trigger.payload.step.*}}` work in child input maps / prompt vars, and
+   * what carries the rollup's `parentNodeKey`).
+   * StepFlowManager internal — not a public API.
+   */
+  createStepChild(
+    parentFlowId: string,
+    templateId: string,
+    name: string,
+    payload: StepChildPayload,
+    opts: { branch: string | null }
+  ): string {
+    const parent = rows.get(FlowRow, `SELECT * FROM flows WHERE id=?`, parentFlowId);
+    if (!parent) throw new Error(`parent flow ${parentFlowId} not found`);
+    const graph = templateStore.graph(templateId);
+    if (!graph) throw new Error(`unknown flow template: ${templateId}`);
+    // Phase 3C (§2): when the child template DECLARES a start contract, the
+    // `{plan, step, siblings}` payload is validated against it exactly like a
+    // webhook delivery (unknown fields rejected, missing required fields fail
+    // loudly). Auto-wrapped / step-build templates declare no start node, so
+    // the payload flows straight into input mapping and prompt variables.
+    const startSpec = graph.nodes.find((n) => n.defKey === nodeRegistry.entryKey());
+    const contractFields = startSpec ? parseStartContract(startSpec.config) : [];
+    if (contractFields.length) {
+      const v = validateAgainstContract(contractFields, payload);
+      if (!v.ok) {
+        throw new Error(
+          `payload doesn't match the step child's start contract (template "${templateStore.flowTemplate(templateId)?.name ?? templateId}") — ${v.error}`);
+      }
+    }
+    const id = db.uid("flow_");
+    const ts = db.now();
+    db.run(
+      `INSERT INTO flows (id,task_id,name,status,repo_url,repo_id,execution_mode,template_id,trigger_payload,mr_branch,parent_flow_id,kind,created_at,updated_at)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+      id, parent.task_id, name, "active", parent.repo_url, parent.repo_id, parent.execution_mode,
+      graph.templateId, JSON.stringify(payload), opts.branch, parentFlowId, "step", ts, ts
+    );
+    for (const spec of graph.nodes) {
+      const def = nodeRegistry.resolve(spec.defKey, spec.key);
+      const config = mergeConfigLayers(def.defaultConfig(), appLayerConfig(def.key), spec.config);
+      db.run(
+        `INSERT INTO nodes (id,flow_id,node_key,type,label,config,join_mode,status,created_at,updated_at)
+         VALUES (?,?,?,?,?,?,?,'pending',?,?)`,
+        db.uid("node_"), id, spec.key, spec.defKey,
+        spec.label === def.label ? null : spec.label,
+        JSON.stringify(config), spec.joinMode, ts, ts
+      );
+    }
+    db.emitEvent(id, null, "lifecycle",
+      `step child created from "${templateStore.flowTemplate(templateId)?.name ?? templateId}" — parent flow ${parentFlowId}`);
+    return id;
+  }
+
+  /**
+   * Start a step child's automatic nodes once (bg-wrapped start()). Safe to
+   * call again: startNodeStage refuses nodes that aren't `pending` anymore.
+   * StepFlowManager internal — not a public API.
+   */
+  startStepChild(childFlowId: string): void {
+    this.bg(childFlowId, null, async () => this.start(childFlowId));
+  }
+
+  /**
+   * Publish a fan-out node's terminal state (StepFlowManager internals — not a
+   * public API): persist the aggregate output, move the node to its
+   * trigger-type terminal (approval ⇒ `awaiting_approval` — the SDLC build's
+   * final aggregate approval flows through the untouched approveBuild chain →
+   * MR creation), then continue the normal edge evaluation on a success
+   * terminal.
+   */
+  async finishFanout(parentFlowId: string, nodeKey: string, output: Record<string, unknown>): Promise<void> {
+    const def = this.defOf(parentFlowId, nodeKey);
+    // the aggregate `steps` array validates against the def's fanoutOutput
+    // contract when one is published (default shape otherwise); the parent's
+    // native fields (branch / latestArtifact) ride alongside it
+    const fanoutContract = (def.capabilities as NodeCapabilities | undefined)?.fanoutOutput;
+    let steps: unknown = output.steps ?? [];
+    try {
+      steps = ((fanoutContract ?? DEFAULT_FANOUT_OUTPUT).parse({ steps }) as { steps?: unknown })?.steps ?? steps;
+    } catch (e: unknown) {
+      db.emitEvent(parentFlowId, null, "error",
+        `${nodeKey}: the fan-out aggregate failed its output contract — publishing it unvalidated (${e instanceof Error ? e.message : e})`,
+        { nodeKey });
+    }
+    const tt = this.graph(parentFlowId)?.byKey.get(nodeKey)?.trigger.type ?? "auto";
+    const status = tt === "approval" ? "awaiting_approval" : "done";
+    db.run(
+      `UPDATE nodes SET status=?, output=?, updated_at=? WHERE flow_id=? AND node_key=?`,
+      status, JSON.stringify({ ...output, steps }), db.now(), parentFlowId, nodeKey);
+    db.emitEvent(parentFlowId, db.get<{ id: string }>(
+      `SELECT id FROM nodes WHERE flow_id=? AND node_key=?`, parentFlowId, nodeKey)?.id ?? null,
+      "lifecycle",
+      `${nodeKey} fan-out resolved — aggregate published (${(steps as unknown[])?.length ?? 0} steps)${status === "awaiting_approval" ? " · awaiting the final approval" : ""}`,
+      { nodeKey });
+    this.touch(parentFlowId);
+    if (this.statusTerminalSuccess(status)) {
+      await this.advanceFrom(parentFlowId, nodeKey);
+    }
+    this.clearCurrentIf(parentFlowId, nodeKey);
+  }
+
   get(id: string) {
     const flow = rows.get(FlowRow, `SELECT * FROM flows WHERE id=?`, id);
     if (!flow) return null;
@@ -142,9 +255,83 @@ export class FlowEngine {
       tokens: [...nodeCosts.values()].reduce((s, c) => s + c.tokens, 0),
       runCount: runs.length,
     };
+    // plan fan-out (Phase 4): the step children's own runs ARE each step's
+    // cost/duration — one query over the whole checklist, keyed by child flow
+    // id, then folded into the flow total (a fanned-out parent node has no
+    // direct runs; the header cost would otherwise read ~0 while the work runs)
+    const stepRunStats = new Map<string, { costCents: number; tokens: number; durationMs: number; runCount: number }>();
     const branches = rows.all(BranchRow, `SELECT * FROM branches WHERE flow_id=? ORDER BY "order", created_at`, id);
+    // plan fan-out merge-back state — ONE pass for the whole checklist
+    // (Phase 3A: hoisted out of the per-step map, was O(k²) reads)
+    const mergeStateMap = stepFlows.mergeStates(id);
     const steps = rows.all(PlanStepRow, `SELECT * FROM plan_steps WHERE flow_id=? ORDER BY position, created_at`, id)
       .map((s) => ({ ...s, files: s.files ?? [] }));
+    // per-step cost/usage: group the children's runs (keyed by child flow id)
+    // and fold them into the flow total — Phase 4 monitoring (cards, rollup,
+    // graph subtitle, header run summary)
+    const childFlowIds = steps.map((s) => s.sub_flow_id).filter((v): v is string => Boolean(v));
+    if (childFlowIds.length) {
+      const childRuns = rows.all(RunRow,
+        `SELECT * FROM runs WHERE flow_id IN (${childFlowIds.map(() => "?").join(",")}) ORDER BY created_at, id`,
+        ...childFlowIds);
+      for (const r of childRuns) {
+        const c = stepRunStats.get(r.flow_id) ?? { costCents: 0, tokens: 0, durationMs: 0, runCount: 0 };
+        if (r.cost_cents != null) c.costCents += r.cost_cents;
+        if (r.duration_ms != null) c.durationMs += r.duration_ms;
+        c.tokens += uncachedInputTokens({
+          inputTokens: r.input_tokens,
+          cacheReadTokens: r.cache_read_tokens,
+          cacheWriteTokens: r.cache_write_tokens,
+        }) + (r.output_tokens ?? 0) +
+          (r.cache_read_tokens ?? 0) + (r.cache_write_tokens ?? 0);
+        c.runCount++;
+        stepRunStats.set(r.flow_id, c);
+      }
+      // the flow total includes the step sub-flows (a fanned-out parent node
+      // has no direct runs — the honest spend would otherwise read ~0)
+      for (const c of stepRunStats.values()) {
+        flowCost.totalCents += c.costCents;
+        flowCost.tokens += c.tokens;
+        flowCost.runCount += c.runCount;
+      }
+    }
+    const stepsEnriched = steps
+      // plan fan-out: attached per-step child state keeps the parent panels off
+      // N+1 side calls — the card links straight to the child flow screen
+      .map((s) => {
+        if (!s.sub_flow_id) return s;
+        const child = rows.get(FlowRow, `SELECT * FROM flows WHERE id=?`, s.sub_flow_id);
+        if (!child) return s;
+        const childNodes = rows.all(NodeRow, `SELECT * FROM nodes WHERE flow_id=? ORDER BY created_at`, s.sub_flow_id);
+        // the owning fan-out node key from the child's payload — what the
+        // graph subtitle / step card rollup keys on
+        let parentNodeKey: string | null = null;
+        try {
+          const p = child.trigger_payload ?? {};
+          parentNodeKey = typeof p.parentNodeKey === "string" ? p.parentNodeKey : null;
+        } catch { parentNodeKey = null; }
+        // Phase 2 merge-back state (conflict / fixing / stale base chips)
+        const ms = mergeStateMap[s.sub_flow_id] ?? null;
+        return {
+          ...s,
+          sub_flow: {
+            id: child.id,
+            name: child.name,
+            status: child.status,
+            branch: child.mr_branch,
+            nodeStatus: StepFlowManager.childRollup(childNodes.map((n) => n.status), child.status),
+            nodeKey: childNodes[0]?.node_key ?? null,
+            parentNodeKey,
+            // Phase 4 cost/duration rollup: the child flow's own run rows
+            // (cards show cost + duration per step; zeroed when it has no runs)
+            ...(stepRunStats.get(s.sub_flow_id!) ?? { costCents: 0, tokens: 0, durationMs: 0, runCount: 0 }),
+            mergeStatus: ms?.mergeStatus ?? null,
+            mergeAttempts: ms?.mergeAttempts ?? 0,
+            mergeError: ms?.mergeError ?? null,
+            staleBase: ms?.staleBase ?? false,
+          },
+        };
+      });
 
     // node order comes from the flow's own template (snapshot), not the global
     // registry — templates may order and label nodes differently
@@ -159,7 +346,7 @@ export class FlowEngine {
       ...flow,
       cost: flowCost,
       branches,
-      planSteps: steps,
+      planSteps: stepsEnriched,
       resolveScheduleAt: this.resolveScheduleAt(id),
       task: task ?? null,
       hooks: hookStore.hooksForFlow(id),
@@ -189,10 +376,39 @@ export class FlowEngine {
   }
 
   list() {
-    return db.all<Record<string, unknown>>(`
+    // step children (plan fan-out) are hidden from the home flow list — they
+    // are reachable from the parent's fan-out panel (§2 data model)
+    const flows = db.all<Record<string, unknown>>(`
       SELECT f.*, t.key AS task_key, t.summary AS task_summary
       FROM flows f JOIN tasks t ON t.id=f.task_id
+      WHERE (f.kind IS NULL OR f.kind <> 'step') AND f.parent_flow_id IS NULL
       ORDER BY f.updated_at DESC`);
+    // Phase 4: per-parent step-progress summary for the home rows — ONE
+    // grouped query over the linked checklist (children hidden, progress not)
+    const fanoutByFlow = new Map<string, { steps: number; done: number }>();
+    for (const r of db.all<{ flow_id: string; steps: number; done: number }>(`
+      SELECT ps.flow_id,
+        COUNT(*) AS steps,
+        SUM(CASE WHEN ps.status='done' THEN 1 ELSE 0 END) AS done
+      FROM plan_steps ps
+      WHERE ps.sub_flow_id IS NOT NULL
+      GROUP BY ps.flow_id`)) {
+      fanoutByFlow.set(r.flow_id, { steps: r.steps, done: r.done });
+    }
+    if (fanoutByFlow.size) {
+      for (const f of flows) {
+        const fo = fanoutByFlow.get(f.id as string);
+        if (fo) f.fanout = { ...fo, active: fo.done < fo.steps };
+      }
+    }
+    return flows;
+  }
+
+  /** True when the flow is a step child (plan fan-out). Engine internal helper. */
+  isStepChild(flowId: string): boolean {
+    const row = db.get<{ parent_flow_id: string | null }>(
+      `SELECT parent_flow_id FROM flows WHERE id=?`, flowId);
+    return row?.parent_flow_id != null;
   }
 
   // ── context ──────────────────────────────────────────────────────────────
@@ -376,16 +592,54 @@ export class FlowEngine {
        WHERE n.flow_id=? AND a.kind='plan' ORDER BY a.version DESC LIMIT 1`, flowId);
   }
 
-  /** Bulk-replace the checklist from the Plan view editor. */
+  /** Bulk-replace the checklist from the Plan view editor.
+   *  Phase 3B softened fan-out guards: the editor now sends each row's plan-step
+   *  row id (PlanSteps payload), so a harmless title/detail/files edit keeps the
+   *  row — and its pending child sub-flow's linkage — instead of being read as a
+   *  remove + re-add (the old title-match-only guard errored loudly on renames
+   *  and destroyed pending children). Matching: by the sent row id first, then
+   *  the old exact-title escape (legacy payloads without ids). Rows that are
+   *  actually removed still hit the guards: a pending child's flow closes
+   *  silently, a started/merged child's step refuses loudly. */
   updatePlanSteps(flowId: string, input: PlanStepInput[]): void {
     if (!Array.isArray(input) || input.some((s) => !s?.title?.trim?.())) {
       throw new Error("steps must be an array of {title, detail?, files?}");
     }
     const latestPlan = this.assertPlanEditable(flowId);
+    const guards = stepFlows.deletableStepIds(flowId);
+    const existing = planSteps.list(flowId);
+    const byId = new Map(existing.map((s) => [s.id, s]));
+    const byTitle = new Map(existing.map((s) => [s.title, s]));
+    const claimed = new Set<string>(); // existing rows matched to a kept input row
+    const matched = new Map<number, string>(); // input index → existing row id
+    for (const [i, row] of input.entries()) {
+      const sentId = typeof (row as { id?: string }).id === "string" ? (row as { id?: string }).id!.trim() : "";
+      let m = sentId ? byId.get(sentId) : undefined;
+      if (!m) m = byTitle.get(row.title.trim());
+      if (m && !claimed.has(m.id)) {
+        claimed.add(m.id);
+        matched.set(i, m.id);
+      }
+    }
+    // rows the user removed: a started/merged child's step cannot go (loud);
+    // rows matched above are by definition kept — never treated as removed
+    const removedIds = existing
+      .filter((s) => !claimed.has(s.id) && !guards.deletable.has(s.id));
+    if (removedIds.length) {
+      throw new Error(
+        `plan step "${removedIds[0].title}" has an active or merged sub-flow and can't be removed — skip the step instead`);
+    }
+    for (const [stepId, childId] of guards.toCancel) {
+      // a step the user REMOVED whose child never started — close the child so
+      // no half-scheduled sub-flow lingers (kept rows cancel nothing)
+      if (claimed.has(stepId)) continue;
+      stepFlows.cancelUnstartedChild(childId);
+    }
     const updated = planSteps.replace(
       flowId,
       latestPlan?.id ?? null,
-      input.map((s) => ({ title: s.title.trim(), detail: s.detail, files: s.files, branch: s.branch }))
+      input.map((s) => ({ title: s.title.trim(), detail: s.detail, files: s.files, branch: s.branch })),
+      { matchedRows: matched },
     );
     db.emitEvent(flowId, null, "lifecycle", `plan checklist edited (${updated.length} steps)`, {
       // route the event to the tab that owns the checklist (§3.3 — stamped at
@@ -711,6 +965,21 @@ export class FlowEngine {
     this.setCurrentNode(flowId, nodeKey);
     try {
       const def = this.defOf(flowId, nodeKey);
+      // ── fan-out check (plan fan-out, Phase 1): the only engine hook into the
+      // run path. When the node's effective config carries a fan-out knob that
+      // resolves to "steps" AND pending checklist steps exist, the
+      // StepFlowManager expands into child flows and owns this node (the
+      // aggregate + terminal transition happen on all-resolved, via
+      // finishFanout). `whole-wrap` runs the def's normal whole path and wraps
+      // the native output as a single-entry aggregate afterwards. Anything
+      // else (unchanged default, whole) falls through byte-for-byte. Built-ins
+      // and declarative nodes hit the same check — orchestration lives here,
+      // node internals stay in their classes.
+      const fanout = stepFlows.gate(flowId, nodeKey);
+      if (fanout === "fanout") {
+        await stepFlows.expand(flowId, nodeKey);
+        return;
+      }
       const runs =
         opts.rawInput !== undefined
           ? [{ input: opts.rawInput }]
@@ -724,15 +993,26 @@ export class FlowEngine {
         await this.runNode(flowId, nodeKey, run.input, opts.rawPayload);
         run.after?.();
       }
+      if (fanout === "whole-wrap") stepFlows.wrapWholeOutput(flowId, nodeKey);
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : String(e);
       db.emitEvent(flowId, null, "error", msg, { nodeKey });
       this.setNodeStatus(flowId, nodeKey, "failed");
+      if (this.isStepChild(flowId)) {
+        // notify hook: this failed stage runs on a step child — its parent's
+        // rollup/scheduling reacts (standard failed → retry/skip)
+        stepFlows.onChildFinished(flowId);
+      }
       return;
     } finally {
       this.clearCurrentIf(flowId, nodeKey);
     }
     const finalStatus = this.nodeStatus(flowId, nodeKey);
+    if (this.isStepChild(flowId)) {
+      // child-terminal notification hook (plan fan-out): the parent manager
+      // reschedules the next sibling / publishes the aggregate
+      stepFlows.onChildFinished(flowId);
+    }
     if (this.statusTerminalSuccess(finalStatus)) {
       await this.advanceFrom(flowId, nodeKey);
     }
@@ -790,9 +1070,39 @@ export class FlowEngine {
     }
   }
 
-  approvePlan(flowId: string): void {
+  approvePlan(flowId: string, executionOverride?: "whole" | "steps"): void {
     const planKey = this.firstKeyOfType(flowId, "plan");
     if (!planKey) throw new Error("this flow template has no plan node");
+    // Phase 3B: the plan panel's override chip — the user forced whole/steps
+    // at approve. Recorded in the plan version's plan-meta (execution +
+    // executionSource: "override") so a downstream from-plan fan-out node
+    // honors it; every plan-meta field rides the artifact, so the override is
+    // auditable per version. When the forced value equals the published one,
+    // the approve is a no-op for the meta.
+    if (executionOverride === "whole" || executionOverride === "steps") {
+      const plan = db.get<{ id: string; meta: string | null }>(
+        `SELECT a.* FROM artifacts a JOIN nodes n ON n.id=a.node_id
+         WHERE n.flow_id=? AND a.kind='plan' ORDER BY a.version DESC LIMIT 1`, flowId);
+      if (!plan) throw new Error("no plan to approve");
+      let meta: Record<string, unknown> = {};
+      try {
+        const m = plan.meta ? JSON.parse(plan.meta) : null;
+        if (m && typeof m === "object") meta = m;
+      } catch { meta = {}; }
+      const was = meta.execution === "steps" ? "steps" : "whole";
+      const wasSource = typeof meta.executionSource === "string" ? meta.executionSource : "unknown";
+      if (was !== executionOverride) {
+        meta.execution = executionOverride;
+        meta.executionSource = "override";
+        delete meta.execution_rationale; // the planner's rationale no longer applies
+        db.run(`UPDATE artifacts SET meta=?, updated_at=? WHERE id=?`, JSON.stringify(meta), db.now(), plan.id);
+        db.emitEvent(flowId, db.get<{ id: string }>(
+          `SELECT id FROM nodes WHERE flow_id=? AND node_key=?`, flowId, planKey)?.id ?? null,
+          "lifecycle",
+          `plan execution overridden at approve: will execute ${executionOverride} (was ${was}, ${wasSource})`,
+          { nodeKey: planKey });
+      }
+    }
     const plan = db.get<{ id: string; content: string; meta: string | null }>(
       `SELECT a.* FROM artifacts a JOIN nodes n ON n.id=a.node_id
        WHERE n.flow_id=? AND a.kind='plan' ORDER BY a.version DESC LIMIT 1`, flowId);
@@ -819,6 +1129,12 @@ export class FlowEngine {
   }
 
   approveBuild(flowId: string, branchName?: string): void {
+    // step children route to the fan-out approve (merge-back, approve ≠ MR);
+    // the parent's aggregate approval flows through the untouched chain below
+    if (this.isStepChild(flowId)) {
+      stepFlows.approveChildStep(flowId);
+      return;
+    }
     this.chain.approveBuild(flowId, branchName);
   }
 
@@ -923,6 +1239,9 @@ export class FlowEngine {
           : { prompt: opts.prompt ?? null, model: opts.model ?? null };
         await this.runNode(flowId, nodeKey, rawInput);
         const finalStatus = this.nodeStatus(flowId, nodeKey);
+        if (this.isStepChild(flowId)) {
+          stepFlows.onChildFinished(flowId);
+        }
         if (this.statusTerminalSuccess(finalStatus)) {
           await this.advanceFrom(flowId, nodeKey);
         }
@@ -940,6 +1259,11 @@ export class FlowEngine {
   approveNode(flowId: string, nodeKey: string): void {
     const node = rows.get(NodeRow, `SELECT * FROM nodes WHERE flow_id=? AND node_key=?`, flowId, nodeKey);
     if (!node) throw new Error("unknown node");
+    // step children route to the fan-out approve (merge-back vs plain approval)
+    if (this.isStepChild(flowId) && node.status === "awaiting_approval") {
+      stepFlows.approveChildStep(flowId);
+      return;
+    }
     if (node.status !== "awaiting_approval") {
       throw new Error(`${nodeKey} is not awaiting approval`);
     }
@@ -1019,6 +1343,42 @@ export class FlowEngine {
     this.touch(flowId);
   }
 
+  /**
+   * Skip one fan-out step (StepFlowManager internals): cancel the child, mark
+   * the step done with `completed_by: 'skipped'`, emit, advance the scheduler.
+   */
+  skipFanoutStep(parentFlowId: string, stepId: string): void {
+    stepFlows.skipStepFlow(parentFlowId, stepId);
+  }
+
+  /**
+   * Approve one fan-out step from the parent's step card: routes into the
+   * child flow's approve (merge-back for code children, plain close for
+   * non-code ones). The MR still comes only from the parent's final approval.
+   */
+  approveFanoutStep(parentFlowId: string, stepId: string): void {
+    const step = db.get<{ sub_flow_id: string | null }>(
+      `SELECT sub_flow_id FROM plan_steps WHERE id=? AND flow_id=?`, stepId, parentFlowId);
+    if (!step?.sub_flow_id) throw new Error("that step has no sub-flow yet");
+    this.approveBuild(step.sub_flow_id); // step children route to the fan-out approve
+  }
+
+  /** Retry one failed fan-out step's child run (its recorded step input).
+   *  A merge-back failure routes to the merge loop instead — the branch +
+   *  approval state survive, so re-running the build prompt would discard the
+   *  fix-agent work the conflict surfaced. */
+  retryFanoutStep(parentFlowId: string, stepId: string): void {
+    const step = db.get<{ sub_flow_id: string | null }>(
+      `SELECT sub_flow_id FROM plan_steps WHERE id=? AND flow_id=?`, stepId, parentFlowId);
+    if (!step?.sub_flow_id) throw new Error("that step has no sub-flow yet");
+    if (stepFlows.resumeMergeRetry(parentFlowId, step.sub_flow_id)) return;
+    const nodes = db.all<{ node_key: string; status: string }>(
+      `SELECT node_key, status FROM nodes WHERE flow_id=?`, step.sub_flow_id);
+    const n = nodes.find((x) => x.status === "failed");
+    if (!n) throw new Error("the step child has no failed node to retry");
+    this.retryNode(step.sub_flow_id, n.node_key);
+  }
+
   /** Clear the current-node pointer when it still points at the given node.
    *  Engine internals shared with the SDLC builtin-chain module — not a public API. */
   clearCurrentIf(flowId: string, nodeKey: string): void {
@@ -1051,6 +1411,11 @@ export class FlowEngine {
       // a retried generic node that now succeeded advances the template
       // edges exactly like the engine's auto-start path
       const finalStatus = this.nodeStatus(flowId, nodeKey);
+      if (this.isStepChild(flowId)) {
+        // child-terminal notification hook (plan fan-out): the parent's
+        // scheduler/rollup reacts to the retried child's terminal state
+        stepFlows.onChildFinished(flowId);
+      }
       if (this.statusTerminalSuccess(finalStatus)) {
         await this.advanceFrom(flowId, nodeKey);
       }
@@ -1075,6 +1440,11 @@ export class FlowEngine {
     if (flow?.current_node === nodeKey) this.setCurrentNode(flowId, null);
     db.emitEvent(flowId, node.id, "lifecycle", `${nodeKey} stopped by user — retry when ready`);
     this.touch(flowId);
+    if (this.isStepChild(flowId)) {
+      // child-terminal notification hook (plan fan-out): a stopped step child
+      // surfaces failed in its parent's rollup
+      stepFlows.onChildFinished(flowId);
+    }
   }
 
   /**
@@ -1342,3 +1712,8 @@ export class FlowEngine {
 }
 
 export const flowEngine = processSingleton("flowEngine", () => new FlowEngine());
+
+// plan fan-out: bind the StepFlowManager to the engine — resolves the
+// flow ↔ step-flows singleton cycle (step-flows is imported by flow.ts for the
+// fan-out hook and cannot import the flowEngine value at module scope)
+stepFlows.bind(flowEngine);

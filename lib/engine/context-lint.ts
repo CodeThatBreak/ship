@@ -2,6 +2,7 @@ import { db } from "../db";
 import { lintJsonata } from "./jsonata-eval";
 import { lintStartContract, parseStartContract } from "./nodes/start/contract";
 import { nodeRegistry } from "./nodes/registry";
+import { fanoutOf } from "./node-config";
 
 /**
  * Build-time checks for declarative templates (§5): every `{{nodes.X.output.Y}}`
@@ -52,6 +53,11 @@ function joinProblems(problems: LintProblem[]): string {
 }
 
 const ROOTS = ["task", "repo", "flow", "trigger", "nodes", "input", "secrets"] as const;
+// plan fan-out step children (Phase 1): {{plan}}, {{step.*}} and {{siblings}}
+// resolve in fan-out step child flows (the {plan, step, siblings} trigger
+// payload aliases — see flow-context.ts). They free-pass here like the other
+// late-bound roots; outside a step child they render empty strings.
+const FANOUT_ROOTS = new Set(["plan", "step", "siblings"]);
 
 interface LintNode {
   key: string;
@@ -152,15 +158,90 @@ export function lintTemplate(
     const nt = catalog[n.nodeTemplateId];
     if (!nt) continue; // validated() already reports unknown node templates
     const mergedConfig = merge(nt.config, n.config);
-    contractOfKey.set(n.key, {
-      // built-ins publish nothing addressable except a start node's contract
-      fields: outputFieldsFor(nt.kind, mergedConfig),
-      kind: nt.kind,
-    });
+    let fields = outputFieldsFor(nt.kind, mergedConfig);
+    // ── fan-out rule 4: upstream-contract statics use the EFFECTIVE fan-out
+    // contract of the referenced node — whole ⇒ the declared schema;
+    // steps/from-plan ⇒ the aggregate shape ({{...output.steps.*}} is the
+    // only addressable path, so downstream mappings are stable across plan
+    // revisions — rev 3 decision)
+    if (fanoutOf(mergedConfig).mode !== "whole") fields = ["steps"];
+    contractOfKey.set(n.key, { fields, kind: nt.kind });
     // the entry contract declaration itself is validated here (loud, readable)
     if (nt.isBuiltin && nt.key === nodeRegistry.entryKey()) {
       for (const message of lintStartContract(mergedConfig, `node "${n.key}"`)) {
         problems.push({ where: "", message, nodeKey: n.key });
+      }
+    }
+  }
+
+  // ── fan-out rule 1: a node with fanout.mode != whole must be downstream of
+  // a plan node — reachability from the template's plan-kind nodes via next
+  // edges (any kind of plan-tagged built-in: the registry entry key)
+  const fanoutNodes = nodes.filter((n) => {
+    const nt = catalog[n.nodeTemplateId];
+    return nt && fanoutOf(merge(nt.config, n.config)).mode !== "whole";
+  });
+  if (fanoutNodes.length) {
+    const seen = new Set<string>();
+    const queue = nodes
+      .filter((n) => {
+        const nt = catalog[n.nodeTemplateId];
+        return nt?.isBuiltin && nt.key === "plan";
+      })
+      .map((n) => n.key);
+    for (const k of queue) seen.add(k);
+    while (queue.length) {
+      const k = queue.shift()!;
+      for (const e of edges) {
+        if (e.kind !== "next" || e.from !== k || seen.has(e.to)) continue;
+        seen.add(e.to);
+        queue.push(e.to);
+      }
+    }
+    for (const n of fanoutNodes) {
+      if (!seen.has(n.key)) {
+        problems.push({
+          where: `node "${n.key}"`,
+          message: `fan-out mode "${fanoutOf(merge(catalog[n.nodeTemplateId]?.config, n.config)).mode}" requires a plan node upstream — this node is never downstream of a plan key`,
+          nodeKey: n.key,
+        });
+      }
+    }
+    // ── fan-out rule 2 + 3: an explicit child template must resolve, and the
+    // child must stay a ONE-NODE chain (no plan/pipeline/review/resolve, no
+    // fan-out nesting) — the "children never gain a full SDLC" and "no
+    // nesting" locked decisions are enforced here, not just declared
+    for (const n of fanoutNodes) {
+      const cfg = fanoutOf(merge(catalog[n.nodeTemplateId]?.config, n.config));
+      if (!cfg.child) continue;
+      const child = db.get<{ id: string }>(`SELECT id FROM flow_templates WHERE id=?`, cfg.child);
+      if (!child) {
+        problems.push({
+          where: `node "${n.key}"`,
+          message: `fan-out child template "${cfg.child}" does not exist (a gallery template id, or null for the auto-selected child)`,
+          nodeKey: n.key,
+        });
+        continue;
+      }
+      const childNodes = db.all<{ key: string; kind: string; nt_key: string; config: string | null; node_template_id: string }>(
+        `SELECT n.node_key AS key, nt.kind AS kind, nt.key AS nt_key, n.config AS config, n.node_template_id AS node_template_id
+         FROM flow_template_nodes n JOIN node_templates nt ON nt.id = n.node_template_id
+         WHERE n.template_id=?`, cfg.child);
+      for (const cn of childNodes) {
+        if (cn.kind === "builtin" && ["plan", "pipeline", "review", "resolve"].includes(cn.nt_key)) {
+          problems.push({
+            where: `node "${n.key}"`,
+            message: `fan-out child template "${cfg.child}" contains a "${cn.nt_key}" node — children are one-node chains, never a full SDLC`,
+            nodeKey: n.key,
+          });
+        }
+        if (fanoutOf(parseObject(cn.config)).mode !== "whole") {
+          problems.push({
+            where: `node "${n.key}"`,
+            message: `fan-out child template "${cfg.child}" carries its own fan-out knob — nesting is not allowed (single cap level)`,
+            nodeKey: n.key,
+          });
+        }
       }
     }
   }
@@ -292,6 +373,7 @@ function lintRef(where: string, ref: string, ctx: LintCtx): void {
   const stamp = ctx.nodeKey ? { nodeKey: ctx.nodeKey } : {};
   const segments = ref.split(".");
   const root = segments[0];
+  if (FANOUT_ROOTS.has(root)) return; // fan-out step-child variables — resolve at the child flow's runtime
   if (!(ROOTS as readonly string[]).includes(root)) {
     ctx.problems.push({
       where,
@@ -415,6 +497,17 @@ function merge(a: unknown, b: unknown): Record<string, unknown> {
     }
   }
   return out;
+}
+
+/** Defensive JSON-object parse for a raw TEXT config column. */
+function parseObject(raw: unknown): Record<string, unknown> {
+  if (typeof raw !== "string" || !raw.trim()) return {};
+  try {
+    const v = JSON.parse(raw);
+    return v && typeof v === "object" && !Array.isArray(v) ? v : {};
+  } catch {
+    return {};
+  }
 }
 
 /**

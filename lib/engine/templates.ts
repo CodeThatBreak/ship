@@ -259,10 +259,13 @@ export class TemplateStore {
 
   // ── flow-template CRUD (Phase 2) ─────────────────────────────────────────
 
-  /** All templates, newest first, with instance counts for the gallery. */
-  list(): (FlowTemplateRow & { nodeCount: number })[] {
-    const templates = rows.all(FlowTemplateRow,
-      `SELECT * FROM flow_templates ORDER BY rowid`);
+  /** All templates, newest first, with instance counts for the gallery.
+   *  `opts.includeHidden` brings back the auto-wrapped fan-out child templates
+   *  (hidden=1) — the gallery excludes them by default. */
+  list(opts: { includeHidden?: boolean } = {}): (FlowTemplateRow & { nodeCount: number })[] {
+    const templates = opts.includeHidden
+      ? rows.all(FlowTemplateRow, `SELECT * FROM flow_templates ORDER BY rowid`)
+      : rows.all(FlowTemplateRow, `SELECT * FROM flow_templates WHERE hidden=0 ORDER BY rowid`);
     return templates.map((t) => ({
       ...t,
       nodeCount: db.get<{ c: number }>(
@@ -275,9 +278,13 @@ export class TemplateStore {
     return rows.get(FlowTemplateRow, `SELECT * FROM flow_templates WHERE id=?`, id);
   }
 
-  /** Create a template (meta + node instances + edges). Validates the graph. */
-  create(input: TemplateInput, opts: { isBuiltin?: boolean; id?: string } = {}): string {
-    const { nodes, edges, trigger } = this.validated(input);
+  /** Create a template (meta + node instances + edges). Validates the graph.
+   *  `opts.skipLint`: the StepFlowManager's auto-wrap path only — it writes a
+   *  single-node template from an EXISTING catalog row with copied config
+   *  (cross-node refs etc. are meaningless in the child's context family;
+   *  the node's own refs resolve as fan-out step variables at child runtime). */
+  create(input: TemplateInput, opts: { isBuiltin?: boolean; id?: string; skipLint?: boolean } = {}): string {
+    const { nodes, edges, trigger } = this.validated(input, { skipLint: opts.skipLint === true });
     const id = opts.id ?? db.uid("tpl_");
     const ts = db.now();
     db.run(
@@ -594,7 +601,7 @@ export class TemplateStore {
   // ── write path helpers ────────────────────────────────────────────────────
 
   /** Validate name/trigger/graph invariants, returning normalized inputs. */
-  private validated(input: TemplateInput): {
+  private validated(input: TemplateInput, opts: { skipLint?: boolean } = {}): {
     trigger: Record<string, unknown>;
     nodes: TemplateNodeInput[];
     edges: TemplateEdgeInput[];
@@ -653,21 +660,23 @@ export class TemplateStore {
     // fields), JSONata compiles in input_map / decision expressions /
     // response_map / edge conditions
     const trigger = TemplateStore.flowTrigger(input.trigger);
-    const lint = lintTemplate(
-      input.nodes.map((n) => ({
-        key: n.key.trim(),
-        nodeTemplateId: n.nodeTemplateId,
-        inputMap: (n.input_map ?? {}) as Record<string, unknown>,
-        config: (n.config ?? {}) as Record<string, unknown>,
-      })),
-      edges.map((e) => ({
-        from: e.from, to: e.to, kind: e.kind ?? "next",
-        label: e.label ?? null, condition: e.condition ?? null,
-      })),
-      catalogForNodeTemplateIds(input.nodes.map((n) => n.nodeTemplateId)),
-      TemplateStore.taskUniverse(trigger),
-    );
-    if (lint.error) throw new Error(lint.error);
+    if (opts.skipLint !== true) {
+      const lint = lintTemplate(
+        input.nodes.map((n) => ({
+          key: n.key.trim(),
+          nodeTemplateId: n.nodeTemplateId,
+          inputMap: (n.input_map ?? {}) as Record<string, unknown>,
+          config: (n.config ?? {}) as Record<string, unknown>,
+        })),
+        edges.map((e) => ({
+          from: e.from, to: e.to, kind: e.kind ?? "next",
+          label: e.label ?? null, condition: e.condition ?? null,
+        })),
+        catalogForNodeTemplateIds(input.nodes.map((n) => n.nodeTemplateId)),
+        TemplateStore.taskUniverse(trigger),
+      );
+      if (lint.error) throw new Error(lint.error);
+    }
     return { trigger, nodes: input.nodes, edges };
   }
 

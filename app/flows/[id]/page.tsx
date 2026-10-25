@@ -35,6 +35,15 @@ export type PlanStepRow = {
   id: string; flow_id: string; artifact_id?: string | null; meta_id?: string | null;
   position: number; title: string; detail?: string | null; files: string[];
   branch?: string | null; status: string; origin: string; completed_by?: string | null;
+  /** plan fan-out: the child flow building this step (parent panel step cards) */
+  sub_flow?: {
+    id: string; name: string; status: string; branch: string | null;
+    nodeKey: string | null; nodeStatus: string | null; parentNodeKey: string | null;
+    /** Phase 2 merge-back state (durable step_merges row + stale-base derivation) */
+    mergeStatus?: string | null; mergeAttempts?: number; mergeError?: string | null; staleBase?: boolean;
+    /** Phase 4 cost/duration rollup — the child flow's own run rows (zeroed when none) */
+    costCents?: number; tokens?: number; durationMs?: number; runCount?: number;
+  } | null;
 };
 export type FlowData = {
   id: string; name: string; status: string; current_node?: string;
@@ -112,7 +121,6 @@ export default function FlowScreen() {
     () => flow?.nodes.find((n) => n.node_key === selected) ?? flow?.nodes[0],
     [flow, selected]
   );
-
   // the prompt preview box sits over the chat: prompt-publishing nodes (the
   // plan, §3.2 capabilities) before their first run — nothing to chat with yet
   const promptPending =
@@ -157,6 +165,10 @@ export default function FlowScreen() {
   // busy for the chat panel = this node's agent is running (not just any node)
   const busy = flow.current_node === node?.node_key;
 
+  // plan fan-out: per-node step rollup for the graph subtitle (plain compute —
+  // it derives straight from the attached plan-step state)
+  const fanout = fanoutProgressOf(flow);
+
   return (
     <main className="flex flex-col h-screen">
       {/* header */}
@@ -164,7 +176,7 @@ export default function FlowScreen() {
 
       {/* workflow graph */}
       <div className="border-b border-border bg-background px-3 py-2.5 overflow-x-auto">
-        <WorkflowGraph flowId={flow.id} nodes={flow.nodes} selected={node?.node_key ?? ""} onSelect={(k) => { userSelected.current = true; setSelected(k); }} currentNode={flow.current_node} />
+        <WorkflowGraph flowId={flow.id} nodes={flow.nodes} selected={node?.node_key ?? ""} onSelect={(k) => { userSelected.current = true; setSelected(k); }} currentNode={flow.current_node} fanout={fanout} />
       </div>
 
       {/* main split: node panel + right rail */}
@@ -194,4 +206,43 @@ export default function FlowScreen() {
       </div>
     </main>
   );
+}
+
+/**
+ * Plan fan-out (Phase 1D): the per-node step rollup for the graph subtitle —
+ * `steps 3/8 · building` style, keyed by the fan-out node instance key.
+ * Derived purely from the plan steps' attached child sub-flow state; nodes
+ * that never fanned out have no entry.
+ *
+ * Phase 4 additions (monitoring): `costCents` rolls the children's billed
+ * runs up for the subtitle (`· $0.42`) and `state` is the AGGREGATE child
+ * state driving the parent card's badge colors — the node's own status stays
+ * `running` while it orchestrates, so the red/failure and final-approval
+ * signals come from the children, not the orchestrator row:
+ * - `failed`     — any child failed (not yet resolved) → red
+ * - `awaiting`   — children pending per-step approval → warning
+ * - `in-flight`  — children still building → info
+ * - `resolved`   — every child terminal, final approval pending → success
+ */
+function fanoutProgressOf(
+  flow: FlowData | null,
+): Record<string, { total: number; done: number; running: string | null; costCents: number; state: string }> {
+  const out: Record<string, { total: number; done: number; running: string | null; costCents: number; state: string }> = {};
+  for (const s of flow?.planSteps ?? []) {
+    const sf = s.sub_flow;
+    if (!sf?.parentNodeKey) continue;
+    const e = (out[sf.parentNodeKey] ??= { total: 0, done: 0, running: null, costCents: 0, state: "resolved" });
+    e.total++;
+    e.costCents += sf.costCents ?? 0;
+    const failed = sf.nodeStatus === "failed" || (sf.mergeStatus && sf.mergeStatus !== "merged" && s.status !== "done");
+    const resolved = s.status === "done" || sf.status === "done" || s.completed_by === "skipped";
+    if (resolved) e.done++;
+    else if (failed) e.state = "failed";
+    else {
+      if (sf.nodeStatus === "awaiting_approval") { e.state = e.state === "failed" ? e.state : "awaiting"; e.running = e.running ?? "awaiting approval"; }
+      else if (sf.nodeStatus === "running") { if (e.state !== "failed" && e.state !== "awaiting") e.state = "in-flight"; e.running = e.running ?? "building"; }
+      else if (e.state === "resolved") e.state = "in-flight"; // pending / no run yet
+    }
+  }
+  return out;
 }

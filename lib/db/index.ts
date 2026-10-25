@@ -190,6 +190,27 @@ export class Database {
     if (!cols("flow_templates").has("schedule_next_at")) {
       d.exec(`ALTER TABLE flow_templates ADD COLUMN schedule_next_at TEXT`);
     }
+    // ── Plan fan-out: step sub-flows (Phase 1A) ─────────────────────────────
+    // Child flows reference their parent; `kind` distinguishes step children
+    // from SDLC flows so list/count queries can filter them; plan steps link
+    // to the child flow that builds them; auto-wrapped child templates are
+    // hidden from the gallery; step_merges makes merge-back resumable.
+    const stepFlowAdd: [string, string][] = [
+      ["parent_flow_id", "TEXT REFERENCES flows(id)"],
+      ["kind", "TEXT NOT NULL DEFAULT 'sdlc'"],
+    ];
+    for (const [name, type] of stepFlowAdd) {
+      if (!flowsCols.has(name)) {
+        d.exec(`ALTER TABLE flows ADD COLUMN ${name} ${type}`);
+      }
+    }
+    if (!cols("plan_steps").has("sub_flow_id")) {
+      d.exec(`ALTER TABLE plan_steps ADD COLUMN sub_flow_id TEXT REFERENCES flows(id)`);
+    }
+    if (!cols("flow_templates").has("hidden")) {
+      d.exec(`ALTER TABLE flow_templates ADD COLUMN hidden INTEGER NOT NULL DEFAULT 0`);
+    }
+    // step_merges lives in schema.sql (CREATE IF NOT EXISTS is idempotent).
     this.seedTemplates(d);
     // Wait-source neutrality (Phase 1): node triggers persisted with the old
     // GitLab-prefixed sources ("gitlab_pipeline"/"gitlab_comments") remap to
@@ -387,6 +408,7 @@ export class Database {
       ["nt_start", "start", "Start", "The template's entry node — carries the branch trigger, then finishes immediately", "Play"],
       ["nt_plan", "plan", "Plan", "Plan the implementation on a planning agent", "Compass"],
       ["nt_build", "build", "Build", "Implement the approved plan on an agent", "Hammer"],
+      ["nt_step_build", "step_build", "Step build", "One plan step built by its own child flow (plan fan-out) — per-step branch, diff and approval", "Hammer"],
       ["nt_pipeline", "pipeline", "Pipeline", "Wait for a green CI pipeline, fixing failures", "Gauge"],
       ["nt_review", "review", "Review", "AI review of the MR diff", "ScanSearch"],
       ["nt_resolve", "resolve", "Resolve", "Address open MR comments", "CheckCheck"],
@@ -452,6 +474,24 @@ export class Database {
         `INSERT OR IGNORE INTO flow_template_edges (id,template_id,from_key,to_key,kind,label,condition,created_at,updated_at)
          VALUES ('fte_resolve_pipeline','tpl_sdlc_loop','resolve','pipeline','loop',NULL,?, ?,?)`
       ).run("nodes.resolve.output.codeChanged = true", now, now);
+    }
+
+    // ── Plan fan-out: the built-in step template (Phase 1A) ─────────────────
+    // The child template a fan-out `build` node defaults to (`child` unset):
+    // one node instance of the step_build builtin def with an approval trigger
+    // — the per-step gate. The StepFlowManager snapshots it per child flow and
+    // feeds the {plan, step, siblings} trigger payload. `hidden` keeps it out
+    // of the gallery (it is a child template; the fan-out knob references it
+    // by id, never the picker).
+    if (!d.prepare(`SELECT 1 FROM flow_templates WHERE id='tpl_step_build'`).get()) {
+      d.prepare(
+        `INSERT INTO flow_templates (id,name,description,version,is_builtin,trigger,hidden,created_at,updated_at)
+         VALUES ('tpl_step_build','Step build','One plan step built by its own child flow — per-step branch, diff and approval gate (fan-out child of the build node).',1,1,'{"type":"manual"}',1,?,?)`
+      ).run(now, now);
+      d.prepare(
+        `INSERT INTO flow_template_nodes (id,template_id,node_key,node_template_id,label,trigger,join_mode,config,input_map,created_at,updated_at)
+         VALUES ('ftn_tpl_step_build_step_build','tpl_step_build','step_build','nt_step_build',NULL,'{"type":"approval"}','all','{}','{}',?,?)`
+      ).run(now, now);
     }
 
     // ── Phase 5: starter templates ──────────────────────────────────────────

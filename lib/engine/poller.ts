@@ -1,6 +1,7 @@
 import { db } from "../db";
 import { gitHostRegistry } from "./ports/git-host";
 import { flowEngine } from "./flow";
+import { reconciler } from "./reconcile";
 import { templateStore } from "./templates";
 import { processSingleton } from "../singleton";
 import { worktreeManager } from "./worktree-lifecycle";
@@ -29,6 +30,12 @@ export class FlowPoller {
     // prune, and reconcile workspaces/<flowId> dirs against the flows table
     void worktreeManager.sweepWorktrees().catch((e: unknown) =>
       console.warn(`worktree sweep failed: ${e instanceof Error ? e.message : e}`)
+    );
+    // one-time global pass over stuck step_merges (plan fan-out Phase 2B):
+    // resume or flag merge-backs a restart interrupted — even when nobody has
+    // opened a flow page yet
+    void reconciler.sweepStuckStepMerges().catch((e: unknown) =>
+      console.warn(`step-merge reconcile failed: ${e instanceof Error ? e.message : e}`)
     );
     setInterval(() => void this.tick(), intervalMs).unref?.();
   }
