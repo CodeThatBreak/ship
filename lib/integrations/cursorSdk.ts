@@ -11,8 +11,8 @@ import {
   type TokenUsage,
 } from "@cursor/sdk";
 import fs from "fs";
-import { config } from "../config";
 import { processSingleton } from "../singleton";
+import { cursorApiKey } from "./cursor/credentials";
 
 // ── shared vocabulary (SDK-native shapes, re-exported for the engine) ───────
 export type { TokenUsage };
@@ -81,8 +81,8 @@ export class CursorAgentService {
   private modelCache: { at: number; models: SDKModel[] } | null = null;
 
   private apiKey(): string {
-    const key = config.cursor.apiKey();
-    if (!key) throw new Error("CURSOR_API_KEY not set");
+    const key = cursorApiKey();
+    if (!key) throw new Error("Cursor API key not set — add it in Settings → Integrations → Harness");
     return key;
   }
 
@@ -92,7 +92,7 @@ export class CursorAgentService {
       .split(".")
       .map((n) => parseInt(n, 10));
     const nodeOk = maj > 22 || (maj === 22 && min >= 13);
-    return nodeOk && Boolean(config.cursor.apiKey());
+    return nodeOk && Boolean(cursorApiKey());
   }
 
   /** Models available to the authenticated account (null when unavailable). */

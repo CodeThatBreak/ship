@@ -3,14 +3,18 @@ import path from "path";
 /**
  * Application configuration, sourced from environment variables.
  *
- * Grouped by integration (cursor / jira / gitlab) plus infrastructure
- * (db / workspace). Values are read lazily via methods so tests and
- * long-running processes always see the current environment.
+ * Integration credentials (GitLab / Jira / Cursor) are managed from
+ * Settings → Integrations and stored in the DB — the environment only
+ * carries infrastructure config (db / workspace) plus optional back-compat
+ * values (GITLAB_WEBHOOK_SECRET, CURSOR_API_KEY). Values are read lazily
+ * via methods so tests and long-running processes always see the current
+ * environment.
  */
 
 class CursorConfig {
   readonly baseUrl = "https://api.cursor.com";
 
+  /** Legacy env fallback — the Harness tab stores the key in the DB instead. */
   apiKey(): string {
     return AppConfig.env("CURSOR_API_KEY");
   }
@@ -20,43 +24,10 @@ class CursorConfig {
   }
 }
 
-class JiraConfig {
-  baseUrl(): string {
-    return AppConfig.env("JIRA_BASE_URL").replace(/\/+$/, "");
-  }
-
-  email(): string {
-    return AppConfig.env("JIRA_EMAIL");
-  }
-
-  token(): string {
-    return AppConfig.env("JIRA_API_TOKEN");
-  }
-
-  configured(): boolean {
-    return Boolean(
-      AppConfig.env("JIRA_BASE_URL") &&
-        AppConfig.env("JIRA_EMAIL") &&
-        AppConfig.env("JIRA_API_TOKEN")
-    );
-  }
-}
-
 class GitLabConfig {
-  baseUrl(): string {
-    return AppConfig.env("GITLAB_BASE_URL").replace(/\/+$/, "");
-  }
-
-  token(): string {
-    return AppConfig.env("GITLAB_TOKEN");
-  }
-
+  /** Optional shared-secret check for /api/webhooks/gitlab (unset = accept all). */
   webhookSecret(): string {
     return AppConfig.env("GITLAB_WEBHOOK_SECRET");
-  }
-
-  configured(): boolean {
-    return Boolean(AppConfig.env("GITLAB_BASE_URL") && AppConfig.env("GITLAB_TOKEN"));
   }
 }
 
@@ -87,7 +58,6 @@ export class AppConfig {
   }
 
   readonly cursor = new CursorConfig();
-  readonly jira = new JiraConfig();
   readonly gitlab = new GitLabConfig();
   readonly db = new DatabaseConfig();
   readonly workspace = new WorkspaceConfig();

@@ -1,4 +1,3 @@
-import { config } from "../../config";
 import { db } from "../../db";
 
 export interface GitLabInstance {
@@ -199,31 +198,27 @@ export class GitLabService {
   }
 
   /**
-   * Resolve the GitLab credentials for a repo cloud URL.
-   * Priority: registered instance whose host matches → env config (back-compat).
+   * Resolve the GitLab credentials for a repo cloud URL: the registered
+   * instance whose host matches wins (longest base_url first — handles
+   * gitlab.company.com/group subpath setups); with exactly one instance
+   * registered it serves every host.
    */
   instanceForRepo(repoUrl: string): GitLabInstance {
     const h = GitLabService.host(repoUrl);
     const instances = this.listInstances();
-    // longest base_url match first (handles gitlab.company.com/group subpath setups)
     const match = instances
       .filter((i) => GitLabService.host(i.base_url) === h)
       .sort((a, b) => b.base_url.length - a.base_url.length)[0];
     if (match) return match;
-    const envBase = config.gitlab.baseUrl();
-    const envToken = config.gitlab.token();
-    if (envBase && envToken) {
-      return { id: "env", name: "env", base_url: envBase, token: envToken };
-    }
     if (instances.length === 1) return instances[0];
     throw new Error(
       `No GitLab instance configured for host "${h ?? repoUrl}". Add one on the Settings page.`
     );
   }
 
-  /** True when GitLab is usable at all (env or at least one instance). */
+  /** True when GitLab is usable at all (at least one registered instance). */
   configured(): boolean {
-    return config.gitlab.configured() || this.listInstances().length > 0;
+    return this.listInstances().length > 0;
   }
 
   /** API client bound to the instance that owns the given repo URL. */

@@ -7,6 +7,7 @@ import { taskRegistry } from "../../../lib/engine/tasks/registry";
 import { prompts, PromptLibrary } from "../../../lib/engine/prompts";
 import { flowEngine } from "../../../lib/engine/flow";
 import { DEFAULT_PRICING, usageTracker } from "../../../lib/engine/nodes/base/usage-tracker";
+import { cursorApiKeyStored, setCursorApiKey } from "../../../lib/integrations/cursor/credentials";
 
 export const dynamic = "force-dynamic";
 
@@ -36,7 +37,10 @@ export async function GET() {
     worktree_mode: db.getSetting<string>("worktree_mode", "enabled"),
     pnpm_virtual_store: db.getSetting<boolean>("pnpm_virtual_store", false),
     status: {
-      cursorApiKeySet: Boolean(config.cursor.apiKey()),
+      // DB-stored key only — deleting it from the Harness tab must clear the
+      // card even when a CURSOR_API_KEY env fallback exists (reported separately)
+      cursorApiKeySet: cursorApiKeyStored(),
+      cursorApiKeyFromEnv: Boolean(config.cursor.apiKey()),
       cursorCliAvailable: localStatus.configured,
       // per-registered-host configured status — the generic shape the settings
       // page reads (new hosts register in gitHostRegistry and appear here)
@@ -49,6 +53,15 @@ export async function GET() {
 
 export async function PATCH(req: Request) {
   const body = await req.json();
+  // Cursor API key (write-only, like the secrets map): a non-empty value
+  // replaces the stored key; an empty string deletes it (the env fallback
+  // applies again). The value is never returned by GET.
+  if (body.cursor_api_key !== undefined) {
+    if (typeof body.cursor_api_key !== "string") {
+      return NextResponse.json({ error: "cursor_api_key must be a string" }, { status: 400 });
+    }
+    setCursorApiKey(body.cursor_api_key);
+  }
   if (body.default_execution_mode !== undefined) {
     if (!["cloud", "local"].includes(body.default_execution_mode)) {
       return NextResponse.json({ error: "default_execution_mode must be cloud|local" }, { status: 400 });

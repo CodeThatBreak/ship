@@ -1,28 +1,32 @@
-import { config } from "../../../config";
 import { db } from "../../../db";
 import type { Task } from "../../../db/rows";
+import { jira, maskToken } from "../../../integrations/jira/service";
 import {
   TaskProvider,
   type LiveTask,
   type LiveTaskFilters,
+  type ProviderInstance,
   type TaskField,
+  type TaskInstanceStore,
 } from "../task-provider";
 
 /**
  * The Jira task provider — moved verbatim from lib/integrations/jira.ts
  * (Phase 2): the transport (Basic auth + REST calls), ADF→text, PRD
- * extraction, figma-link scan, and the upsert-into-`tasks` sync now live in
- * one class so there is a single source of truth for jira task logic.
+ * extraction, figma-link scan, and the upsert-into-`tasks` materialization
+ * live in one class so there is a single source of truth for jira task logic.
  *
- * Storage: tasks are NOT synced into the DB for browsing — the tasks table
- * fetches them live (`liveFetch`, cached by /api/tasks/live). A row is only
- * upserted via `upsertLive` when a build starts (the flow engine needs the
- * row for FK + context hydration). Common columns carry the shared task
- * contract; jira-only payload (PRD text, figma links) lives in the `fields`
- * JSON column (`fields.prd`, `fields.figma_urls`) — the context hydration
- * reads them through the `Task` transform.
+ * Credentials come from the registered Jira instances (Settings →
+ * Integrations → Task; DB-backed, no env fallback). Storage: tasks are NOT
+ * synced into the DB for browsing — the tasks table fetches them live
+ * (`liveFetch`, cached by /api/tasks/live). A row is only upserted via
+ * `upsertLive` when a build starts (the flow engine needs the row for FK +
+ * context hydration). Common columns carry the shared task contract;
+ * jira-only payload (PRD text, figma links) lives in the `fields` JSON
+ * column (`fields.prd`, `fields.figma_urls`) — the context hydration reads
+ * them through the `Task` transform.
  */
-export class JiraTaskProvider extends TaskProvider {
+export class JiraTaskProvider extends TaskProvider implements TaskInstanceStore {
   readonly kind = "jira";
   readonly label = "Jira";
 
@@ -40,18 +44,55 @@ export class JiraTaskProvider extends TaskProvider {
   ];
 
   override configured(): boolean {
-    return config.jira.configured();
+    return jira.configured();
   }
 
-  /** The issue's external deep link (stored link wins; env baseUrl as fallback). */
+  /** The issue's external deep link (stored link wins; instance baseUrl as fallback). */
   externalUrl(task: Task): string {
-    return task.externalUrl || `${config.jira.baseUrl()}/browse/${task.key}`;
+    return task.externalUrl || `${jira.active()?.base_url ?? ""}/browse/${task.key}`;
   }
 
-  /** Pull every issue matched by the configured JQL into the tasks table. */
-  async sync(): Promise<string[]> {
-    const tasks = await this.liveFetch();
-    return tasks.map((t) => this.upsertLive(t));
+  /** ── instance registry (Settings → Integrations → Task) ────────────────── */
+
+  override instanceStore(): TaskInstanceStore {
+    return this;
+  }
+
+  instances(): ProviderInstance[] {
+    return jira.listInstances().map(({ id, name, base_url, email, token }) => ({
+      id, name, baseUrl: base_url, email, tokenMasked: maskToken(token),
+    }));
+  }
+
+  addInstance(input: { name?: string | null; baseUrl: string; email?: string; token: string }): ProviderInstance {
+    const inst = jira.addInstance({
+      name: input.name ?? undefined,
+      base_url: input.baseUrl,
+      email: input.email ?? "",
+      token: input.token,
+    });
+    return { id: inst.id, name: inst.name, baseUrl: inst.base_url, email: inst.email, tokenMasked: maskToken(inst.token) };
+  }
+
+  updateInstance(id: string, input: { name?: string | null; baseUrl?: string; email?: string; token?: string }): void {
+    jira.updateInstance(id, input);
+  }
+
+  removeInstance(id: string): void {
+    jira.deleteInstance(id);
+  }
+
+  async testInstance(
+    id: string,
+    input: { baseUrl?: string; email?: string; token?: string } = {}
+  ): Promise<{ ok: boolean; detail: string }> {
+    const existing = jira.listInstances().find((i) => i.id === id);
+    if (!existing) throw new Error(`jira instance not found: ${id}`);
+    return jira.testInstance(
+      input.baseUrl ?? existing.base_url,
+      input.email ?? existing.email,
+      input.token || existing.token
+    );
   }
 
   /**
@@ -148,8 +189,9 @@ export class JiraTaskProvider extends TaskProvider {
   // ── transport + normalization (single source of truth for jira logic) ────
 
   private headers(): HeadersInit {
+    const inst = jira.active();
     return {
-      Authorization: `Basic ${Buffer.from(`${config.jira.email()}:${config.jira.token()}`).toString("base64")}`,
+      Authorization: `Basic ${Buffer.from(`${inst?.email ?? ""}:${inst?.token ?? ""}`).toString("base64")}`,
       Accept: "application/json",
     };
   }
@@ -176,16 +218,17 @@ export class JiraTaskProvider extends TaskProvider {
       priority: f.priority?.name ?? "",
       prdText: this.extractPrd(descText || f.summary || ""),
       figmaUrls: figma,
-      externalUrl: `${config.jira.baseUrl()}/browse/${issue.key}`,
+      externalUrl: `${jira.active()?.base_url ?? ""}/browse/${issue.key}`,
       parentKey: f.parent?.key ?? "",
       raw: issue,
     };
   }
 
   private async fetchByJql(jql: string): Promise<JiraIssue[]> {
-    if (!this.configured()) return [];
+    const inst = jira.active();
+    if (!inst) return [];
     // /rest/api/2/search was removed (Atlassian CHANGE-2046); use /rest/api/3/search/jql
-    const url = `${config.jira.baseUrl()}/rest/api/3/search/jql?jql=${encodeURIComponent(
+    const url = `${inst.base_url}/rest/api/3/search/jql?jql=${encodeURIComponent(
       jql,
     )}&maxResults=50&fields=summary,description,status,issuetype,priority,parent`;
     const res = await fetch(url, { headers: this.headers() });

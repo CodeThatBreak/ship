@@ -167,7 +167,7 @@ export interface GitHostService {
   /** UI label, e.g. "GitLab" */
   readonly label: string;
 
-  /** True when usable at all (env fallback or at least one registered instance). */
+  /** True when usable at all (at least one registered instance). */
   configured(): boolean;
   /** True when this host has credentials for the given repo URL. */
   ownsRepo(repoUrl: string): boolean;

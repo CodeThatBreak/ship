@@ -6,12 +6,13 @@ import { JiraTaskProvider } from "./providers/jira";
  *
  * Adding a new task type:
  *   1. Create `lib/engine/tasks/providers/<kind>.ts` — a `TaskProvider`
- *      subclass (fetch, normalize, upsert-on-key `sync()`).
+ *      subclass (liveFetch, upsert-on-key materialization; optionally an
+ *      instance registry for the Integrations → Task tab).
  *   2. Add one `this.register(new ...Provider())` line in `registerBuiltins()`.
  *
- * Everything else — sync dispatch (POST /api/tasks {kind}), the provider list
- * (GET /api/tasks/providers), the import screen's cards + homepage type
- * filters, and the {{task.*}} context-field vocabulary — derives from here.
+ * Everything else — the provider list (GET /api/tasks/providers), the
+ * homepage's task-type filters, and the {{task.*}} context-field vocabulary —
+ * derives from here.
  */
 export class TaskProviderRegistry {
   private readonly registry = new Map<string, TaskProvider>();

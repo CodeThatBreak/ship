@@ -4,11 +4,9 @@ import { Task, rows } from "../../../lib/db/rows";
 import { taskRegistry } from "../../../lib/engine/tasks/registry";
 
 /**
- * Shared handlers for the tasks API — served at /api/tasks.
- *
- * Sync dispatches through the task provider registry: POST {kind:"jira"} →
- * taskRegistry.get("jira").sync(). Without a kind, the single/first
- * registered provider runs (the UI passes kind explicitly once several exist).
+ * Shared handlers for the tasks API — served at /api/tasks. Tasks are read
+ * from the DB (materialized at build start) and resolved through the task
+ * provider registry for external links.
  */
 
 export function listTasks() {
@@ -20,39 +18,9 @@ export function listTasks() {
   }));
   return NextResponse.json({
     tasks,
-    // per-provider configured status (the import screen's connect state);
-    // the task-universe vocabulary lives on GET /api/tasks/providers
+    // per-provider configured status (the settings UI's connect state)
     providers: Object.fromEntries(taskRegistry.list().map((p) => [p.kind, p.configured()])),
   });
-}
-
-/** Sync tasks from a provider (body {kind}, default: the first provider). */
-export async function syncTasks(req?: Request) {
-  let kind: string | undefined;
-  if (req) {
-    const body = await req.json().catch(() => null);
-    if (body && typeof body.kind === "string" && body.kind) kind = body.kind;
-  }
-  const provider = kind ? taskRegistry.maybe(kind) : taskRegistry.first();
-  if (!provider) {
-    return NextResponse.json(
-      { error: kind ? `unknown task provider kind: ${kind}` : "no task providers registered" },
-      { status: kind ? 404 : 500 }
-    );
-  }
-  try {
-    const ids = await provider.sync();
-    const tasks = ids
-      .map((id) => rows.get(Task, `SELECT * FROM tasks WHERE id=?`, id))
-      .filter((t): t is Task => Boolean(t))
-      .map((t) => ({ id: t.id, key: t.key, summary: t.summary }));
-    return NextResponse.json({ synced: tasks.length, kind: provider.kind, tasks });
-  } catch (err) {
-    return NextResponse.json(
-      { error: err instanceof Error ? err.message : String(err) },
-      { status: 502 }
-    );
-  }
 }
 
 /** Update task fields we manage locally (e.g. repo mapping). */

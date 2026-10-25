@@ -74,7 +74,7 @@ export class CursorLocalAgentPort implements AgentPort {
     const ok = await localAgent.cliAvailable();
     return {
       configured: ok,
-      detail: ok ? undefined : "Local runs require Node 22.13+ and CURSOR_API_KEY",
+      detail: ok ? undefined : "Local runs require Node 22.13+ and the Cursor API key (Settings → Integrations → Harness)",
     };
   }
 }

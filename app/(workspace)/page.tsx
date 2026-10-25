@@ -410,9 +410,10 @@ export default function Home() {
       {booted && unconfigured.map((p) => (
         <Alert key={p.kind} className="bg-warning/10 text-warning mb-6">
           <span>
-            {p.label} is not configured — fill in{" "}
-            <code className="font-mono">.env</code> (see{" "}
-            <code className="font-mono">.env.example</code>) and restart.
+            {p.label} is not connected —{" "}
+            <a href="/settings/integrations" className="underline">
+              add an instance in Settings → Integrations
+            </a>.
           </span>
         </Alert>
       ))}

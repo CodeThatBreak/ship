@@ -1,6 +1,6 @@
-import { config } from "../../config";
 import { cursorAgent } from "../cursorSdk";
 import { cursorClient } from "./client";
+import { cursorApiKey } from "./credentials";
 import type {
   AgentPort,
   AgentRunHandle,
@@ -86,10 +86,10 @@ export class CursorCloudAgentPort implements AgentPort {
   }
 
   async status(): Promise<{ configured: boolean; detail?: string }> {
-    const configured = Boolean(config.cursor.apiKey());
+    const configured = Boolean(cursorApiKey());
     return {
       configured,
-      detail: configured ? undefined : "CURSOR_API_KEY is not set",
+      detail: configured ? undefined : "Cursor API key is not set — add it in Settings → Integrations → Harness",
     };
   }
 }

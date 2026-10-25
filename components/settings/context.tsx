@@ -35,7 +35,7 @@ export type Settings = {
   /** names of set secrets only (values never leave the server) */
   secrets?: string[];
   http_allowlist?: string[];
-  status: { cursorApiKeySet: boolean; cursorCliAvailable: boolean; gitHosts: Record<string, boolean>; taskProviders: Record<string, boolean> };
+  status: { cursorApiKeySet: boolean; cursorApiKeyFromEnv?: boolean; cursorCliAvailable: boolean; gitHosts: Record<string, boolean>; taskProviders: Record<string, boolean> };
 };
 export type PricingEntry = { input_per_mtok?: number; output_per_mtok?: number; cache_read_per_mtok?: number; cache_write_per_mtok?: number };
 export type PricingRow = { key: string; input?: number; output?: number; cacheRead?: number; cacheWrite?: number };

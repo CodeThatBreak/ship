@@ -186,6 +186,16 @@ CREATE TABLE IF NOT EXISTS gitlab_instances (
   created_at    TEXT NOT NULL
 );
 
+-- Jira instances (cloud sites + self-hosted): managed from Settings → Integrations → Task
+CREATE TABLE IF NOT EXISTS jira_instances (
+  id            TEXT PRIMARY KEY,
+  name          TEXT,
+  base_url      TEXT UNIQUE NOT NULL,      -- e.g. https://you.atlassian.net
+  email         TEXT NOT NULL,             -- login email / username (Basic auth)
+  token         TEXT NOT NULL,             -- API token (cloud) or PAT (self-hosted)
+  created_at    TEXT NOT NULL
+);
+
 -- app-level settings (execution defaults, local agent options)
 CREATE TABLE IF NOT EXISTS settings (
   key           TEXT PRIMARY KEY,

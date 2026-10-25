@@ -62,8 +62,8 @@ export interface TaskField {
  *
  * Mirrors `NodeDefinition` (lib/engine/nodes/base/node-definition.ts): the
  * class owns everything specific to the task type — fetching, normalizing,
- * the upsert-into-`tasks` sync, and the external deep link. The sync route
- * (POST /api/tasks) and the import screen only know the registry.
+ * the upsert-into-`tasks` materialization, and the external deep link. The
+ * tasks API and the settings UI only know the registry.
  *
  * Storage contract (locked decision in docs/tasks-plan.md): common columns
  * (`key`, `summary`, `description`, `status`, `priority`, `issue_type`,
@@ -79,12 +79,6 @@ export abstract class TaskProvider {
   abstract readonly label: string;
   /** What this task type contributes to the {{task.*}} universe. */
   abstract readonly contextFields: TaskField[];
-
-  /**
-   * Pull-based sync: fetch from the external source and upsert task rows
-   * (idempotent on `key`, `type` = this kind). Returns the upserted task ids.
-   */
-  abstract sync(): Promise<string[]>;
 
   /**
    * Runtime fetch — the source of truth for the tasks table. Reads straight
@@ -104,9 +98,43 @@ export abstract class TaskProvider {
 
   /**
    * Whether the provider's credentials/config are present — drives the
-   * "Connect" state on the import screen. Default true (no config needed).
+   * connect state in the settings UI. Default true (no config needed).
    */
   configured(): boolean {
     return true;
   }
+
+  /**
+   * Instance admin surface for the settings UI (Integrations → Task), or
+   * null when the provider has no instance registry. Providers that manage
+   * credentials override this and implement `TaskInstanceStore`.
+   */
+  instanceStore(): TaskInstanceStore | null {
+    return null;
+  }
+}
+
+/** Masked view of one provider instance — no secrets (settings UI shape). */
+export interface ProviderInstance {
+  id: string;
+  name: string | null;
+  baseUrl: string;
+  /** non-secret login identity (jira: the account email), empty when n/a */
+  email?: string;
+  /** masked token ("••••abcd") — never the real value */
+  tokenMasked: string;
+}
+
+/**
+ * Instance registry of one task provider — the CRUD + test surface the
+ * /api/task-instances routes expose (mirrors GitHostService's instance half).
+ */
+export interface TaskInstanceStore {
+  instances(): ProviderInstance[];
+  addInstance(input: { name?: string | null; baseUrl: string; email?: string; token: string }): ProviderInstance;
+  /** Update by id; a blank/absent token keeps the stored one. */
+  updateInstance(id: string, input: { name?: string | null; baseUrl?: string; email?: string; token?: string }): void;
+  removeInstance(id: string): void;
+  /** Quick reachability/auth check (settings UI "Test" button). */
+  testInstance(id: string, input?: { baseUrl?: string; email?: string; token?: string }): Promise<{ ok: boolean; detail: string }>;
 }

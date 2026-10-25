@@ -26,8 +26,8 @@ function SectionHeading({ icon, children }: { icon: React.ReactNode; children: R
 
 export function StatusBar({ settings }: { settings: Settings }) {
   const items = [
-    { ok: settings.status.cursorApiKeySet, label: "Cursor API key (cloud)" },
-    { ok: settings.status.cursorCliAvailable, label: "Local runtime (SDK + API key)" },
+    { ok: settings.status.cursorApiKeySet || settings.status.cursorApiKeyFromEnv, label: "Cursor (Harness)" },
+    { ok: settings.status.cursorCliAvailable, label: "Local runtime" },
     { ok: settings.status.gitHosts?.gitlab ?? false, label: "GitLab" },
     { ok: settings.status.taskProviders?.jira ?? false, label: "Jira" },
   ];
@@ -70,8 +70,8 @@ export function ExecutionSection({ settings, onSave }: { settings: Settings; onS
             ))}
           </div>
           <p className="text-muted-foreground text-[12px] mt-2">
-            Cloud: agents run on Cursor infrastructure against the repo&apos;s cloud URL (needs CURSOR_API_KEY).
-            Local: agents run in-process via the Cursor SDK on this machine in the repo&apos;s configured local path (Node 22.13+ and CURSOR_API_KEY).
+            Cloud: agents run on Cursor infrastructure against the repo&apos;s cloud URL (needs the Cursor API key from Settings → Integrations → Harness).
+            Local: agents run in-process via the Cursor SDK on this machine in the repo&apos;s configured local path (Node 22.13+ and the Cursor API key).
           </p>
         </div>
         <div className="border-t border-border pt-4">

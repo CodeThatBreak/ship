@@ -185,13 +185,13 @@ export class GitLabHostService implements GitHostService {
 
   authedCloneUrl(repoUrl: string): string {
     // Credential scheme is the host's: GitLab accepts `oauth2:<token>` as the
-    // HTTPS user. The resolved instance carries the token (env fallback inside
-    // the router); without one, pass the URL through untouched.
+    // HTTPS user. The resolved instance carries the token; without one, pass
+    // the URL through untouched.
     let token = "";
     try {
       token = gitLab.instanceForRepo(repoUrl).token;
     } catch {
-      token = config.gitlab.token();
+      token = "";
     }
     if (!token) return repoUrl;
     // https://oauth2:TOKEN@host/group/repo.git — the .git suffix matters: without

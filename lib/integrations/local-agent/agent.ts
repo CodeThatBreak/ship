@@ -156,7 +156,7 @@ export class LocalAgentService {
   ): Promise<{ agentId: string; runId: string }> {
     if (!cursorAgent.available()) {
       throw new Error(
-        "Local agent runs require Node 22.13+ and CURSOR_API_KEY. Set the key on the Settings page.",
+        "Local agent runs require Node 22.13+ and the Cursor API key. Set the key in Settings → Integrations → Harness.",
       );
     }
     const opts = this.defaults();
