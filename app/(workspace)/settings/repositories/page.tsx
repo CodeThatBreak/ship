@@ -3,10 +3,31 @@ import { XCircle } from "lucide-react";
 import { useSettings } from "@/components/settings/context";
 import { ReposSection } from "@/components/settings/repos";
 import { Alert } from "@/components/ui/alert";
-import { Spinner } from "@/components/ui/spinner";
+import { Skeleton } from "@/components/ui/skeleton";
 
+/** Loading placeholder mirroring the section header + repo-card rows. */
+function RepositoriesSkeleton() {
+  return (
+    <div aria-hidden>
+      <div className="flex items-center justify-between gap-3 mb-3">
+        <Skeleton className="h-5 w-32 rounded-lg" />
+        <Skeleton className="h-8 w-[104px] rounded-lg" />
+      </div>
+      <div className="grid gap-2.5">
+        <Skeleton className="h-[62px] w-full rounded-lg" />
+        <Skeleton className="h-[62px] w-full rounded-lg" />
+        <Skeleton className="h-[62px] w-2/3 rounded-lg" />
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Settings → Repositories: the repo registry — cloud URLs, local checkouts
+ * and worktree setup policies — mirroring the integrations page pattern.
+ */
 export default function SettingsRepositoriesPage() {
-  const { repos, loading, error, setError, reload } = useSettings();
+  const { repos, loading, error, setError } = useSettings();
 
   return (
     <div>
@@ -23,9 +44,7 @@ export default function SettingsRepositoriesPage() {
         </Alert>
       )}
 
-      {loading ? <Spinner /> : (
-        <ReposSection repos={repos} onChanged={() => void reload()} onError={setError} />
-      )}
+      {loading ? <RepositoriesSkeleton /> : <ReposSection repos={repos} onError={setError} />}
     </div>
   );
 }

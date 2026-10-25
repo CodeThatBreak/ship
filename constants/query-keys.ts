@@ -6,6 +6,8 @@
 export const queryKeys = {
   settings: ["settings"] as const,
   repos: ["repos"] as const,
+  /** detected worktree policy for one local checkout (form prefill) */
+  reposDetect: (localPath: string) => ["repos", "detect", localPath] as const,
   gitHosts: ["git-hosts"] as const,
   integrations: {
     /** instance list of one provider kind (host = git hosts, task = task providers) */

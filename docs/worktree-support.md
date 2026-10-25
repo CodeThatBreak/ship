@@ -249,7 +249,7 @@ Shared-ref/config surface is identical in risk to today's single-checkout model.
 
 ## Orca reference implementation review (2026-10-25)
 
-Orca (`/Users/aakash.kumar/orca`, Electron) ships the same idea at production
+Orca (`~/orca`, Electron) ships the same idea at production
 scale: every workspace in its UI *is* a git worktree. Studying its
 implementation validates this proposal's core decisions and adds concrete
 hardening patterns we should adopt. Orca's core lives in `src/main/`
