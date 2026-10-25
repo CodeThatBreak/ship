@@ -6,7 +6,9 @@ import { parseStartContract, type StartContractField } from "../../lib/engine/no
 import { Alert } from "../ui/alert";
 import { Badge } from "../ui/badge";
 import { Button } from "../ui/button";
+import { Checkbox } from "../ui/checkbox";
 import { Input } from "../ui/input";
+import { Label } from "../ui/label";
 import { Textarea } from "../ui/textarea";
 import { PanelShell } from "./shared";
 import { registerPanel } from "./registry";
@@ -120,14 +122,18 @@ function StartFieldInput({
   return (
     <div className="grid gap-1">
       <div className="flex items-center gap-2">
-        <label className="text-[12.5px] font-medium">{field.label || field.key}</label>
+        <Label>{field.label || field.key}</Label>
         {field.label && <code className="font-mono text-[11px] text-muted-foreground">{field.key}</code>}
         <Badge variant="outline" className="text-[10px]">{field.type}</Badge>
         {field.required && <Badge className="bg-warning/10 text-warning text-[10px]">required</Badge>}
       </div>
       {field.type === "boolean" ? (
         <label className="flex items-center gap-2 text-[13px] cursor-pointer">
-          <input type="checkbox" checked={value === true} onChange={(e) => onChange(e.target.checked)} />
+          <Checkbox
+            className="shrink-0"
+            checked={value === true}
+            onCheckedChange={(v) => onChange(v === true)}
+          />
           <span className="text-muted-foreground text-[12px]">{field.label || field.key}</span>
         </label>
       ) : field.type === "object" || field.type === "array" ? (

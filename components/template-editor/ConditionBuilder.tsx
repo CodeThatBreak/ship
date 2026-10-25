@@ -23,6 +23,7 @@ import { Plus, Table2, Trash2 } from "lucide-react";
 import { Input } from "../ui/input";
 import { Textarea } from "../ui/textarea";
 import { Button } from "../ui/button";
+import { ScrollArea } from "../ui/scroll-area";
 import {
   Select,
   SelectContent,
@@ -210,7 +211,8 @@ function PathPopover({
   }, [count, highlight, shown, onPick, onDismiss]);
   if (!count) return null;
   return (
-    <div className="absolute left-0 top-full z-50 mt-1 w-80 max-h-56 overflow-y-auto rounded-lg border border-border bg-popover p-1 shadow-lg">
+    <div className="absolute left-0 top-full z-50 mt-1 flex w-80 max-h-56 flex-col rounded-lg border border-border bg-popover p-1 shadow-lg">
+      <ScrollArea className="flex-1">
       {shown.map((o, i) => (
         <Fragment key={o.path + i}>
           {(i === 0 || shown[i - 1].group !== o.group) && (
@@ -236,6 +238,7 @@ function PathPopover({
           </button>
         </Fragment>
       ))}
+      </ScrollArea>
     </div>
   );
 }

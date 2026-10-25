@@ -7,6 +7,7 @@ import { Spinner } from "./ui/spinner";
 import { Badge } from "./ui/badge";
 import { Checkbox } from "./ui/checkbox";
 import { Tooltip, TooltipContent, TooltipTrigger } from "./ui/tooltip";
+import { Textarea } from "./ui/textarea";
 import { cn } from "../lib/utils";
 
 interface PromptData {
@@ -180,16 +181,11 @@ export default function PromptModal({
             </div>
           )}
 
-          <textarea
+          <Textarea
             ref={textareaRef}
             value={edited}
             onChange={(e) => setEdited(e.target.value)}
-            className={cn(
-              "w-full bg-background border border-border rounded-lg px-3.5 py-3",
-              "text-[12.5px] font-mono leading-relaxed resize-y min-h-[280px]",
-              "focus:outline-none focus:border-info focus:ring-[3px] focus:ring-accent-soft",
-              "placeholder:text-muted-foreground"
-            )}
+            className="w-full bg-background border-border rounded-lg px-3.5 py-3 text-[12.5px] font-mono leading-relaxed resize-y min-h-[280px]"
             rows={16}
           />
 

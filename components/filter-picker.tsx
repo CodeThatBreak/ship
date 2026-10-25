@@ -2,6 +2,7 @@
 
 import { Plus, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -78,22 +79,24 @@ export function FilterPicker({
             <span className="text-muted-foreground">{def.label}</span>
             <span className="text-foreground">·</span>
             <span>{valueLabel(def, filters[def.key])}</span>
-            <button
+            <Button
+              variant="ghost"
+              size="icon-xs"
               onClick={() => removeFilter(def.key)}
-              className="grid size-4 place-items-center rounded-full text-muted-foreground hover:bg-foreground/10 hover:text-foreground transition-colors"
               title={`Remove ${def.label} filter`}
+              className="size-4 rounded-full text-muted-foreground hover:bg-foreground/10 hover:text-foreground"
             >
               <X size={10} />
-            </button>
+            </Button>
           </span>
         ))}
 
       {/* free text */}
-      <input
+      <Input
         value={text}
         onChange={(e) => onTextChange(e.target.value)}
         placeholder="Search tasks…"
-        className="h-6 min-w-[90px] flex-1 bg-transparent text-[13px] outline-none placeholder:text-muted-foreground"
+        className="h-6 min-w-[90px] flex-1 border-0 bg-transparent px-0 text-[13px] focus-visible:border-transparent focus-visible:ring-0"
       />
 
       {/* add-filter menu */}

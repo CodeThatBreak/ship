@@ -5,6 +5,7 @@ import { Dialog as DialogPrimitive } from "@base-ui/react/dialog"
 import { cn } from "cn"
 
 import { Button } from "@/components/ui/button"
+import { ScrollArea } from "@/components/ui/scroll-area"
 import { XIcon } from "lucide-react"
 
 /**
@@ -103,13 +104,16 @@ function SheetHeader({ className, ...props }: React.ComponentProps<"div">) {
   )
 }
 
-function SheetBody({ className, ...props }: React.ComponentProps<"div">) {
+function SheetBody({ className, children, ...props }: React.ComponentProps<"div">) {
   return (
-    <div
+    <ScrollArea
       data-slot="sheet-body"
-      className={cn("flex-1 overflow-y-auto px-5 py-4", className)}
+      className={cn("flex-1", className)}
+      viewportClassName="[&>div]:px-5 [&>div]:py-4"
       {...props}
-    />
+    >
+      <div>{children}</div>
+    </ScrollArea>
   )
 }
 

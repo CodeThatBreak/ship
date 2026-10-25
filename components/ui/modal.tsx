@@ -1,5 +1,6 @@
 "use client";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle, DialogDescription } from "./dialog";
+import { ScrollArea } from "./scroll-area";
 import { cn } from "../../lib/utils";
 
 /**
@@ -47,7 +48,9 @@ export function Modal({
         ) : (
           <DialogTitle className="sr-only">Dialog</DialogTitle>
         )}
-        <div className="flex-1 overflow-y-auto px-5 py-4">{children}</div>
+        <ScrollArea className="flex-1">
+          <div className="px-5 py-4">{children}</div>
+        </ScrollArea>
         {footer ? (
           <DialogFooter className="px-5 py-3.5 border-t border-border bg-card rounded-b-[14px] shrink-0">
             {footer}

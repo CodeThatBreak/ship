@@ -4,7 +4,10 @@ import { ChevronDown, Info, ListChecks, Plus, Sparkles, Trash2, Unplug } from "l
 import { Badge } from "../ui/badge";
 import { Button } from "../ui/button";
 import { Card } from "../ui/card";
+import { Checkbox } from "../ui/checkbox";
 import { Input } from "../ui/input";
+import { Label } from "../ui/label";
+import { ScrollArea } from "../ui/scroll-area";
 import { Spinner } from "../ui/spinner";
 import { Textarea } from "../ui/textarea";
 import { cn } from "../../lib/utils";
@@ -281,7 +284,8 @@ export function NodeConfiguratorBody({
         ))}
       </div>
 
-      <div className="flex-1 overflow-y-auto pt-4 pr-1 min-h-0">
+      <ScrollArea className="flex-1">
+        <div className="pt-4 pr-1">
         {tab === "trigger" ? (
           <TriggerTab node={node} onChange={onChange} />
         ) : tab === "inputs" ? (
@@ -308,7 +312,8 @@ export function NodeConfiguratorBody({
         ) : (
           <ContractView contract={contract} node={node} groups={groups} />
         )}
-      </div>
+        </div>
+      </ScrollArea>
     </div>
   );
 }
@@ -328,7 +333,7 @@ function TriggerTab({
   return (
     <div className="grid gap-3">
       <div className="grid gap-1">
-        <label className="text-xs text-muted-foreground">Trigger type</label>
+        <Label>Trigger type</Label>
         <Select
           value={t.type}
           onValueChange={(v) => {
@@ -381,9 +386,9 @@ function TriggerTab({
       </div>
       {t.type === "debounced" && (
         <div className="grid gap-1">
-          <label className="text-xs text-muted-foreground">
+          <Label>
             Quiet period (minutes)
-          </label>
+          </Label>
           <Input
             type="number"
             min={0}
@@ -400,9 +405,9 @@ function TriggerTab({
           types decide their own start (user click / approve / quiet period) */}
       {t.type === "auto" && (
         <div className="grid gap-1">
-          <label className="text-xs text-muted-foreground">
+          <Label>
             Wait for event
-          </label>
+          </Label>
           <Select
             value={t.wait_for ?? null}
             onValueChange={(v) =>
@@ -439,9 +444,9 @@ function TriggerTab({
       )}
       {t.wait_for === "timer" && (
         <div className="grid gap-1">
-          <label className="text-xs text-muted-foreground">
+          <Label>
             Timer (minutes)
-          </label>
+          </Label>
           <Input
             type="number"
             min={0}
@@ -918,10 +923,9 @@ function ConfigFieldRow({
   if (field.type === "boolean") {
     return (
       <label className="flex items-center gap-2 text-[13px] cursor-pointer">
-        <input
-          type="checkbox"
+        <Checkbox
           checked={effective === true}
-          onChange={(e) => onChange(e.target.checked)}
+          onCheckedChange={(v) => onChange(v === true)}
         />
         <span>{field.label}</span>
       </label>
@@ -1058,7 +1062,7 @@ function FieldLabel({ field }: { field: { key: string; label: string; help?: str
   if (promptEditorKeys.has(field.key)) {
     return (
       <div className="flex items-center gap-1.5">
-        <label className="text-xs text-muted-foreground">{field.label}</label>
+        <Label>{field.label}</Label>
         <Tooltip>
           <TooltipTrigger
             render={
@@ -1074,7 +1078,7 @@ function FieldLabel({ field }: { field: { key: string; label: string; help?: str
       </div>
     );
   }
-  return <label className="text-xs text-muted-foreground">{field.label}</label>;
+  return <Label>{field.label}</Label>;
 }
 
 /** A select config knob on the shadcn select. Variants:
@@ -1231,7 +1235,7 @@ function TsOutputEditor({
 
   return (
     <div className="grid gap-1">
-      <label className="text-xs text-muted-foreground">{field.label}</label>
+      <Label>{field.label}</Label>
       <Textarea
         value={text}
         onChange={(e) => setText(e.target.value)}
@@ -1304,7 +1308,7 @@ function ChoicesEditor({
 
   return (
     <div className="grid gap-1.5">
-      <label className="text-xs text-muted-foreground">Choices (branch labels)</label>
+      <Label>Choices (branch labels)</Label>
       {rows.map((c, i) => (
         <div
           key={i}
@@ -1417,7 +1421,7 @@ function PassMapEditor({
 
   return (
     <div className="grid gap-1.5">
-      <label className="text-xs text-muted-foreground">{field.label}</label>
+      <Label>{field.label}</Label>
       {rows.map((r, i) => (
         <div key={i} className="grid grid-cols-[130px_1fr] gap-1.5 items-start">
           <Input
@@ -1508,22 +1512,25 @@ export function VariablesPicker({
 
   return (
     <div ref={rootRef} className="relative inline-block">
-      <button
+      <Button
         type="button"
+        variant="outline"
+        size="sm"
         onClick={() => setOpen((o) => !o)}
-        className="inline-flex items-center gap-1 rounded-full border border-border bg-card px-2 py-0.5 text-[11px] text-muted-foreground hover:text-foreground hover:border-info/50 transition-colors"
+        className="rounded-full text-[11px] text-muted-foreground hover:text-foreground"
       >
         Variables <ChevronDown size={10} className={cn("transition-transform", open && "rotate-180")} />
-      </button>
+      </Button>
       {open && (
-        <div className="absolute right-0 top-full z-50 mt-1 w-72 max-h-64 overflow-y-auto rounded-lg border border-border bg-popover p-1 shadow-lg">
-          <input
+        <div className="absolute right-0 top-full z-50 mt-1 flex w-72 max-h-64 flex-col rounded-lg border border-border bg-popover p-1 shadow-lg">
+          <Input
             autoFocus
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             placeholder="Search variables…"
-            className="w-full rounded-lg bg-muted/60 border border-border px-2 py-1 text-[12px] outline-none focus:border-info/60 mb-1"
+            className="mb-1 border-border bg-muted/60 px-2 py-1 text-[12px]"
           />
+          <ScrollArea className="flex-1">
           {shown.length === 0 && (
             <div className="px-2 py-1.5 text-[12px] text-muted-foreground">No matching variable</div>
           )}
@@ -1567,6 +1574,7 @@ export function VariablesPicker({
               ))}
             </Fragment>
           ))}
+          </ScrollArea>
         </div>
       )}
     </div>
@@ -1703,7 +1711,7 @@ export function StartContractEditor({
         </div>
       )}
       <div className="grid gap-1">
-        <label className="text-xs text-muted-foreground">Run context</label>
+        <Label>Run context</Label>
         <Textarea
           value={tsText}
           onChange={(e) => setTsText(e.target.value)}

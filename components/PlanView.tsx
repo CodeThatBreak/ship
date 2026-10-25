@@ -26,6 +26,7 @@ import { Badge } from "./ui/badge";
 import { Button } from "./ui/button";
 import { Card } from "./ui/card";
 import { Spinner } from "./ui/spinner";
+import { ScrollArea } from "./ui/scroll-area";
 import { Tooltip, TooltipContent, TooltipTrigger } from "./ui/tooltip";
 
 // ── branch step diff (client copy of the engine's id-based classifier) ──────
@@ -257,7 +258,8 @@ export default function PlanView({
       </div>
 
       {/* scrollable content */}
-      <div className="overflow-y-auto flex-1 min-h-0 px-5 py-4 flex flex-col gap-4">
+      <ScrollArea className="flex-1">
+        <div className="px-5 py-4 flex flex-col gap-4">
         {node.status === "failed" && (
           <Alert variant="destructive">
             <AlertTriangle size={16} className="shrink-0" />
@@ -498,7 +500,7 @@ export default function PlanView({
                     {expanded && (
                       <div className="mt-2 pt-1.5 border-t border-border">
                         {/* bounded scrollable doc — expanding doesn't stretch the card */}
-                        <div className="max-h-72 overflow-y-auto scrollbar-thin">
+                        <ScrollArea className="max-h-72">
                           {b.markdown ? (
                             <Markdown className="text-[13px]">
                               {b.markdown}
@@ -524,7 +526,7 @@ export default function PlanView({
                               )}
                             </div>
                           )}
-                        </div>
+                        </ScrollArea>
                       </div>
                     )}
                   </Card>
@@ -543,7 +545,8 @@ export default function PlanView({
             action={action}
           />
         )}
-      </div>
+        </div>
+      </ScrollArea>
 
       {/* fixed footer */}
       {awaiting && isCurrent ? (

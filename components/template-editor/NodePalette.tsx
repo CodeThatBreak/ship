@@ -21,6 +21,7 @@ import { useEffect, useState } from "react";
 import { ChevronDown, ChevronRight, Library, Lock, PanelLeftClose, PanelLeftOpen, Plus } from "lucide-react";
 import { Badge } from "../ui/badge";
 import { Button } from "../ui/button";
+import { ScrollArea } from "../ui/scroll-area";
 import { cn } from "../../lib/utils";
 import type { EditorNode } from "./types";
 import { isDraftNodeTemplateId } from "./types";
@@ -134,7 +135,8 @@ export default function NodePalette({
         </Button>
       </div>
 
-      <div className="flex-1 overflow-y-auto min-h-0 py-2">
+      <ScrollArea className="flex-1">
+        <div className="min-h-0 py-2">
         {catalog == null && (
           <div className="px-3 py-4"><span className="text-[12px] text-muted-foreground">Loading catalog…</span></div>
         )}
@@ -184,15 +186,17 @@ export default function NodePalette({
             templates — collapsed by default so the default path stays short */}
         {catalog != null && (
           <div className="px-2 pb-2">
-            <button
-              className="w-full flex items-center gap-1.5 text-[10px] uppercase tracking-wider text-muted-foreground hover:text-foreground px-2.5 py-1"
+            <Button
+              variant="ghost"
+              size="sm"
+              className="w-full justify-start gap-1.5 px-2.5 py-1 h-6 text-[10px] uppercase tracking-wider text-muted-foreground hover:text-foreground"
               onClick={() => setLibraryOpen((v) => !v)}
             >
               {libraryOpen ? <ChevronDown size={11} /> : <ChevronRight size={11} />}
               <Library size={11} />
               Library
               {libraryCount > 0 && <span className="normal-case tracking-normal text-[10px]">({libraryCount})</span>}
-            </button>
+            </Button>
             {libraryOpen && (
               <div className="grid gap-1 pt-1">
                 {libraryCount === 0 && (
@@ -229,7 +233,8 @@ export default function NodePalette({
             Built-in template is read-only — duplicate it from the gallery to edit.
           </p>
         )}
-      </div>
+        </div>
+      </ScrollArea>
     </aside>
   );
 }

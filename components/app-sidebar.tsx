@@ -13,6 +13,7 @@ import {
   type LucideIcon,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { ScrollArea } from "@/components/ui/scroll-area";
 
 type NavItem = {
   label: string;
@@ -72,7 +73,8 @@ export function AppSidebar() {
       </div>
 
       {/* sections */}
-      <nav className="flex-1 overflow-y-auto px-2 py-4">
+      <ScrollArea className="flex-1" viewportClassName="[&>nav]:px-2 [&>nav]:py-4">
+        <nav>
         {SECTIONS.map((section) => (
           <SidebarSection key={section.label} label={section.label}>
             {section.items.map((nav) => {
@@ -87,7 +89,8 @@ export function AppSidebar() {
             })}
           </SidebarSection>
         ))}
-      </nav>
+        </nav>
+      </ScrollArea>
 
       {/* environment context */}
       <div className="border-t border-sidebar-border px-4 py-3">

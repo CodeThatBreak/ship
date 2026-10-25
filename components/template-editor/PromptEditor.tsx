@@ -26,6 +26,7 @@ import Suggestion, { type SuggestionProps } from "@tiptap/suggestion";
 import { Plugin } from "@tiptap/pm/state";
 import { Decoration, DecorationSet } from "@tiptap/pm/view";
 import { cn } from "../../lib/utils";
+import { ScrollArea } from "../ui/scroll-area";
 import { filterVarGroups, refColorClass, varGroupAccent, type VarField, type VarGroup } from "./variables";
 
 /** One pickable item in the flat filtered list — the field plus its group. */
@@ -262,9 +263,10 @@ export function PromptEditor({
       <EditorContent editor={editor} />
       {popup && (
         <div
-          className="fixed z-[60] w-80 max-h-64 overflow-y-auto rounded-lg border border-border bg-popover p-1 shadow-lg"
+          className="fixed z-[60] flex w-80 max-h-64 flex-col rounded-lg border border-border bg-popover p-1 shadow-lg"
           style={{ top: popup.top + 4, left: popup.left }}
         >
+          <ScrollArea className="flex-1">
           {query && (
             <div className="px-2 py-1 text-[10px] uppercase tracking-wider text-muted-foreground">
               Variables <span className="normal-case tracking-normal">· &ldquo;{query}&rdquo;</span>
@@ -325,6 +327,7 @@ export function PromptEditor({
               </Fragment>
             );
           })}
+          </ScrollArea>
         </div>
       )}
     </div>

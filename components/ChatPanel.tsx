@@ -41,6 +41,7 @@ import {
   InputGroupTextarea,
 } from "@/components/ui/input-group";
 import { Spinner } from "@/components/ui/spinner";
+import { ScrollArea } from "@/components/ui/scroll-area";
 import ModelSelector from "@/components/ModelSelector";
 import { composeModelChoice, type ModelChoice } from "@/lib/modelSpec";
 import type { NodeCapabilities } from "@/lib/engine/nodes/base/capabilities";
@@ -662,16 +663,17 @@ function NodePromptBox({
         }}
       >
         {loaded ? (
-          <pre
-            className={cn(
-              "m-0 whitespace-pre-wrap break-words px-3 py-2 font-mono text-[11px] leading-relaxed text-muted-foreground",
-              open
-                ? "max-h-56 overflow-y-auto scrollbar-thin scroll-py-2"
-                : "max-h-16 overflow-hidden",
-            )}
-          >
-            {prompt}
-          </pre>
+          open ? (
+            <ScrollArea className="max-h-56" viewportClassName="scroll-py-2">
+              <pre className="m-0 whitespace-pre-wrap break-words px-3 py-2 font-mono text-[11px] leading-relaxed text-muted-foreground">
+                {prompt}
+              </pre>
+            </ScrollArea>
+          ) : (
+            <pre className="m-0 whitespace-pre-wrap break-words px-3 py-2 font-mono text-[11px] leading-relaxed text-muted-foreground max-h-16 overflow-hidden">
+              {prompt}
+            </pre>
+          )
         ) : (
           <div className="px-3 py-3 text-[11px] text-muted-foreground">
             <Spinner /> Loading prompt…

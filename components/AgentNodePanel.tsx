@@ -9,6 +9,7 @@ import { Button } from "./ui/button";
 import { Card } from "./ui/card";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "./ui/dialog";
 import { Textarea } from "./ui/textarea";
+import { Label } from "./ui/label";
 
 /**
  * The generic runtime panel for declarative nodes (§8 2C): prompt view/edit,
@@ -112,9 +113,9 @@ export default function AgentView({
             <DialogTitle>Configure {node.label || node.template_name || node.node_key}</DialogTitle>
           </DialogHeader>
           <div className="grid gap-2">
-            <label className="text-xs text-muted-foreground">
+            <Label>
               Prompt (saved to this flow instance — template instances stay untouched)
-            </label>
+            </Label>
             <Textarea value={draft} onChange={(e) => setDraft(e.target.value)} rows={10} className="font-mono text-[12px]" />
             <p className="text-[11px] text-muted-foreground m-0">
               Variables: <code className="font-mono">{"{{task.*}}"}</code>,{" "}

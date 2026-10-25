@@ -8,6 +8,7 @@ import { Alert } from "./ui/alert";
 import { Badge } from "./ui/badge";
 import { Button } from "./ui/button";
 import { Card } from "./ui/card";
+import { ScrollArea } from "./ui/scroll-area";
 import { Textarea } from "./ui/textarea";
 
 /**
@@ -256,7 +257,9 @@ function ScriptView({ flow, node, action, fetchArtifact }: PanelProps) {
         <div className="flex items-center gap-1.5 mb-1.5 text-[11.5px] font-medium text-muted-foreground uppercase tracking-[0.8px]">
           <Terminal size={12} /> Script {cfg.runtime ? `· ${cfg.runtime}` : ""} {cfg.cwd ? `· cwd: ${cfg.cwd}` : ""}
         </div>
-        <pre className="text-[12px] font-mono whitespace-pre-wrap text-foreground/85 m-0 max-h-[180px] overflow-y-auto">{cfg.script || "(no script configured)"}</pre>
+        <ScrollArea className="max-h-[180px]" viewportClassName="[&>div]:m-0">
+          <pre className="text-[12px] font-mono whitespace-pre-wrap text-foreground/85 m-0">{cfg.script || "(no script configured)"}</pre>
+        </ScrollArea>
       </Card>
       {latest ? (
         <div>

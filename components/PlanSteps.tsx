@@ -162,8 +162,10 @@ export default function PlanSteps({
                     key={s.id}
                     className="flex items-start gap-2.5 py-1.5 group"
                   >
-                    <button
+                    <Button
                       type="button"
+                      variant="ghost"
+                      size="icon-xs"
                       disabled={!editable && !highlight}
                       title={isDone ? "Mark as not done" : "Mark as done"}
                       onClick={() =>
@@ -173,9 +175,9 @@ export default function PlanSteps({
                         })
                       }
                       className={cn(
-                        "mt-[1px] shrink-0 transition-colors",
+                        "mt-[1px] shrink-0",
                         isDone
-                          ? "text-success"
+                          ? "text-success hover:text-success"
                           : "text-muted-foreground hover:text-info",
                         !editable && !highlight && "cursor-default",
                       )}
@@ -185,7 +187,7 @@ export default function PlanSteps({
                       ) : (
                         <Circle size={17} />
                       )}
-                    </button>
+                    </Button>
                     <div className="flex-1 min-w-0">
                       <span
                         className={cn(
