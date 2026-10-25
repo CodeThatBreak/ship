@@ -89,7 +89,7 @@ import BuilderCanvas, { type BuilderApi } from "../../../components/template-edi
 import { ConditionBuilder } from "../../../components/template-editor/ConditionBuilder";
 import { FLOW_TRIGGER_TYPE } from "../../../components/template-editor/constants";
 import type { DraftNodeDef, EditorEdge, EditorNode, NodeContract } from "../../../components/template-editor/types";
-import { contractsUrl, describeTrigger, nodeLabel, nodeRelationships } from "../../../components/template-editor/types";
+import { contractsUrl, describeTrigger, nodeLabel, nodeRelationships, isPlanDownstream } from "../../../components/template-editor/types";
 import type { TaskProviderInfo } from "../../../components/template-editor/types";
 import { asJsonataGroups, buildVarGroups, conditionVarGroups, schemaRows } from "../../../components/template-editor/variables";
 import type { LintProblem } from "../../../lib/engine/context-lint";
@@ -147,6 +147,7 @@ function startNodeInstance(): EditorNode {
     kind: null,
     icon: "Play",
     catalog_name: "Start",
+    catalogKey: "start",
     is_builtin: true,
   };
 }
@@ -287,6 +288,7 @@ export default function TemplateEditorPage() {
             kind: n.kind ?? null,
             icon: n.icon ?? null,
             catalog_name: n.catalog_name ?? null,
+            catalogKey: n.catalog_key ?? null,
             is_builtin: Boolean(n.is_builtin),
             isLocal: Boolean(n.is_local),
             description: n.description ?? null,
@@ -714,6 +716,9 @@ export default function TemplateEditorPage() {
     isBuiltin: boolean;
     /** set for draft instances (Phase 2): the def rides in pendingDefs until Save */
     draftDef?: DraftNodeDef;
+    /** the backing row's catalog key ("plan", "start", ...) - the fan-out
+     *  configurator's plan-downstream gate reads it (isPlanNode) */
+    catalogKey?: string | null;
   }): string | null => {
     if (!draft) return null;
     const key = uniqueKey(opts.name || "node", draft.nodes);
@@ -735,6 +740,7 @@ export default function TemplateEditorPage() {
         kind: opts.kind,
         icon: opts.icon,
         catalog_name: opts.name,
+        catalogKey: opts.catalogKey ?? null,
         is_builtin: opts.isBuiltin,
       }],
     });
@@ -756,7 +762,7 @@ export default function TemplateEditorPage() {
       setNotice("Only one Start node is allowed — this template already has one.");
       return;
     }
-    addInstance({ nodeTemplateId, name, kind: null, icon: null, isBuiltin });
+    addInstance({ nodeTemplateId, name, kind: null, icon: null, isBuiltin, catalogKey });
   };
 
   /**
@@ -838,6 +844,11 @@ export default function TemplateEditorPage() {
         .map((edge, edgeIndex) => ({ edge, edgeIndex, source: draft.nodes.find((n) => n.key === edge.from) ?? null }))
         .filter((l) => l.edge.to === configuring.key && l.source)
     : [];
+  // the fan-out gate (save-time lint rule 1, mirrored): the Fanout config
+  // section only applies to nodes a plan node reaches through next edges
+  const configuringPlanDownstream = configuring
+    ? isPlanDownstream(draft.nodes, draft.edges, configuring.key)
+    : true;
 
   return (
     <main className="fixed inset-0 flex flex-col bg-background">
@@ -1008,6 +1019,7 @@ export default function TemplateEditorPage() {
                 node={configuring}
                 incoming={configuringIncoming}
                 locked={configuringLocked}
+                planDownstream={configuringPlanDownstream}
                 taskFields={taskFields}
                 triggerFields={triggerFields}
                 invalidRefs={refProblems[configuring.key]}

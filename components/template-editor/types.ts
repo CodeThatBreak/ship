@@ -4,6 +4,9 @@ export interface EditorNode {
   key: string;
   /** the node_templates row backing this instance */
   nodeTemplateId: string;
+  /** the backing row's catalog key ("plan", "start", …) — builtin fan-out
+   *  gating checks it (isPlanNode) the same way the save-time lint does */
+  catalogKey?: string | null;
   label: string;
   overrideLabel?: string | null;
   trigger: { type: string; minutes?: number; wait_for?: string };
@@ -110,6 +113,50 @@ export interface TaskProviderInfo {
 /** Display label used everywhere: override wins, then catalog name, then key. */
 export function nodeLabel(n: Pick<EditorNode, "key" | "overrideLabel" | "catalog_name">): string {
   return n.overrideLabel || n.catalog_name || n.key;
+}
+
+/**
+ * A builtin plan node - the only kind that publishes plan-meta / the
+ * plan_steps checklist (the fanout expansion's source; the save-time lint's
+ * fan-out rule 1 requires exactly this shape). Mirrors isStartNode's
+ * id-or-name check: the seeded row plus any future builtin "plan" row.
+ */
+export function isPlanNode(n: EditorNode): boolean {
+  return (
+    Boolean(n.is_builtin) &&
+    (n.nodeTemplateId === "nt_plan" ||
+      n.catalogKey === "plan" ||
+      (n.catalog_name ?? "").toLowerCase() === "plan")
+  );
+}
+
+/**
+ * Fan-out gating (the save-time lint's rule 1, mirrored for the editor UI):
+ * is `key` reachable from any plan node through `next` edges - direct or
+ * transitively? Only `next` edges count (they carry execution flow; loop
+ * edges re-trigger and don't join the reachability graph, same as the lint).
+ */
+export function isPlanDownstream(
+  nodes: EditorNode[],
+  edges: EditorEdge[],
+  key: string,
+): boolean {
+  const upstream = new Map<string, string[]>();
+  for (const e of edges) {
+    if (e.kind !== "next") continue;
+    upstream.set(e.to, [...(upstream.get(e.to) ?? []), e.from]);
+  }
+  const seen = new Set([key]);
+  const queue = [key];
+  while (queue.length) {
+    const k = queue.shift()!;
+    for (const from of upstream.get(k) ?? []) {
+      if (seen.has(from)) continue;
+      seen.add(from);
+      queue.push(from);
+    }
+  }
+  return nodes.some((n) => isPlanNode(n) && n.key !== key && seen.has(n.key));
 }
 
 /** Connection-derived relationships for one node (sidebar + configurator Inputs tab). */

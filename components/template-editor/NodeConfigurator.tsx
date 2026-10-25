@@ -1,6 +1,6 @@
 "use client";
 import { Fragment, useEffect, useMemo, useRef, useState } from "react";
-import { ChevronDown, Info, ListChecks, Plus, Sparkles, Trash2, Unplug } from "lucide-react";
+import { ChevronDown, AlertTriangle, Info, ListChecks, Plus, Sparkles, Trash2, Unplug } from "lucide-react";
 import { Badge } from "../ui/badge";
 import { Button } from "../ui/button";
 import { Card } from "../ui/card";
@@ -120,6 +120,7 @@ export function NodeConfiguratorBody({
   onChange,
   incoming,
   locked,
+  planDownstream,
   taskFields,
   triggerFields,
   invalidRefs,
@@ -134,6 +135,11 @@ export function NodeConfiguratorBody({
   /** Node has no edges at all — shows a connect hint above the form; the
    *  prompt/knobs stay editable (task context variables remain available). */
   locked?: boolean;
+  /** The node is reachable from a plan node through next edges (the host
+   *  computes it over the whole template graph) — the Fanout config section
+   *  only applies here; an unplanned fan-out would fail save-time lint
+   *  rule 1 and silently runs whole at runtime. */
+  planDownstream?: boolean;
   /** The template's declared task type's contextFields (Phase 3) — the
    *  {{task.*}} vocabulary offered on EVERY node (base context, no wiring). */
   taskFields?: { key: string; label: string; type: string; required?: boolean }[];
@@ -304,6 +310,7 @@ export function NodeConfiguratorBody({
             contract={contract}
             varGroups={varGroups}
             hasUpstream={hasUpstream}
+            planDownstream={planDownstream}
             invalidRefs={invalidRefs}
             templateId={templateId}
           />
@@ -516,6 +523,7 @@ function ConfigTab({
   contract,
   varGroups,
   hasUpstream,
+  planDownstream,
   invalidRefs,
   templateId,
 }: {
@@ -526,6 +534,8 @@ function ConfigTab({
   varGroups: VarGroup[];
   /** any `next`-edge parent connected — false shows the inherit hint */
   hasUpstream: boolean;
+  /** reachable from a plan node through next edges — the Fanout section gate */
+  planDownstream?: boolean;
   /** live-linted refs → the linter's problem (underlined in prompt fields) */
   invalidRefs?: Record<string, string>;
   /** the owning template's id (Phase 5) — the expression editors' preview */
@@ -558,11 +568,19 @@ function ConfigTab({
       Connect a node to inherit its outputs as variables.
     </p>
   ) : null;
+  // the fan-out gate (save-time lint rule 1, mirrored for the editor): the
+  // shared Fanout fields render only for plan-downstream nodes. Gated off
+  // while unqualified — unless the instance already overrides one (the stale
+  // config must stay visible so the author can clear it) with a warning hint.
+  const fanoutConfigured = [...FANOUT_FIELD_KEYS].some((k) => node.config?.[k] != null);
+  const showFanout = planDownstream || fanoutConfigured;
+  const fanoutHint = !planDownstream && fanoutConfigured ? <FanoutUnplannedHint /> : null;
   if (node.is_builtin) {
     const fields = contract?.config?.fields ?? [];
     return (
       <div className="grid gap-3">
         {inheritHint}
+        {fanoutHint}
         {fields.length === 0 && !contract && (
           <p className="text-muted-foreground text-[13px]">
             <Spinner /> Loading schema…
@@ -573,7 +591,9 @@ function ConfigTab({
             This node has no configurability.
           </p>
         )}
-        {fields.map((f) => (
+        {fields
+          .filter((f) => !FANOUT_FIELD_KEYS.has(f.key) || showFanout)
+          .map((f) => (
           <ConfigFieldRow
             key={`${node.key}:${f.key}`}
             field={f}
@@ -611,6 +631,7 @@ function ConfigTab({
     return (
       <div className="grid gap-3">
         {inheritHint}
+        {fanoutHint}
         {fields
           .filter(
             (f) =>
@@ -624,6 +645,7 @@ function ConfigTab({
               !(node.kind === "decision" && f.key === "question") ||
               decisionSource === "agent",
           )
+          .filter((f) => !FANOUT_FIELD_KEYS.has(f.key) || showFanout)
           .map((f) => (
           <ConfigFieldRow
             key={`${node.key}:${f.key}`}
@@ -684,6 +706,30 @@ const freeTextFields = new Set([
   "body",
   "question",
 ]);
+
+/** The shared fan-out knob keys (the Fanout section — lib/engine/node-config.ts
+ *  `fanoutConfigFields`): the ConfigTab hides them unless the node is
+ *  plan-downstream (save-time lint rule 1, mirrored in the editor). */
+const FANOUT_FIELD_KEYS = new Set(["fanout_mode", "fanout_child", "fanout_parallel_max"]);
+
+/**
+ * The Fanout gate's warning (§): the instance already overrides a fan-out key
+ * but no plan node reaches it through next edges — the overrides are inert
+ * (runtime falls back to the whole path) and save-time lint will flag them.
+ * Shown above the gated fields so they stay visible to clear.
+ */
+function FanoutUnplannedHint() {
+  return (
+    <div className="flex items-start gap-2 rounded-lg border border-warning/30 bg-warning/[0.04] px-3 py-2">
+      <AlertTriangle size={13} className="mt-0.5 shrink-0 text-warning" />
+      <p className="text-[12px] text-warning/90 m-0">
+        Fan-out needs a plan node upstream — these settings won&apos;t apply
+        until a plan node flows into this node (save-time lint flags an
+        unplanned fan-out). Clear the overrides or wire a plan in.
+      </p>
+    </div>
+  );
+}
 
 /** The http fields where `{{secrets.NAME}}` resolves (Phase 6) — they get the
  *  configured-secrets chip group under the input. */

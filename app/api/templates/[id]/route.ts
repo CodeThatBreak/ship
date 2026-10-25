@@ -58,6 +58,9 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
         kind: nt?.kind ?? null,
         icon: nt?.icon ?? null,
         catalog_name: nt?.name ?? null,
+        /** node_templates row key ("plan"/"start"/...): the fan-out UI gates
+         *  on builtin plan nodes the same way the save-time lint does */
+        catalog_key: nt?.key ?? null,
         is_builtin: Boolean(nt?.is_builtin),
         is_local: Boolean(nt?.template_id),
         x: n.x ?? null,
