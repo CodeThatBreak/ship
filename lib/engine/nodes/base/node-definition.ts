@@ -252,7 +252,7 @@ export abstract class NodeDefinition<I = unknown, O extends Record<string, unkno
       input: JSON.stringify(opts.input),
     });
     const start = () =>
-      this.runner.startAgent(ctx, { ...opts.agent, prompt: opts.prompt });
+      this.runner.startAgent(ctx, { ...opts.agent, prompt: opts.prompt, nodeId: node.id });
     const result = await this.runner.executeRun(ctx, node.id, start, opts.label);
     const outcome = await opts.finalize(result);
     if (outcome.artifact) {

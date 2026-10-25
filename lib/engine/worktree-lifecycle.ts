@@ -138,6 +138,61 @@ export class WorktreeManager {
     }
   }
 
+  // ── runner ensure (Option B) ────────────────────────────────────────────────
+
+  /** One in-flight ensure per flow+branch — concurrent callers share the work. */
+  private ensureInFlight = new Map<string, Promise<WorktreeBinding>>();
+
+  /**
+   * Runner-facing ensure (Option B): resolve the run cwd for an agent run.
+   * Rules: an explicit pin always wins (returned untouched, no manager
+   * involvement); read-only runs (mode=plan) get no worktree; an unpinned
+   * mutating run is ensured into the flow's worktree with the tree's CURRENT
+   * branch when one exists (never an implicit switch), else the flow's
+   * canonical mr_branch, else the caller's default branch (the build naming
+   * convention). setupNote is the once-per-flow deps-setup failure line — the
+   * caller appends it to the run prompt so the agent can self-repair.
+   */
+  async ensureForRun(
+    ctx: FlowCtx,
+    opts: {
+      mode?: "agent" | "plan";
+      cwd?: string; // the node's pin, when it passed one
+      nodeId?: string | null;
+      defaultBranch: string; // buildBranch(ctx) from the runner
+    }
+  ): Promise<{ cwd: string | undefined; setupNote: string | null }> {
+    if (opts.cwd) return { cwd: opts.cwd, setupNote: null };
+    if (opts.mode !== "agent") return { cwd: undefined, setupNote: null };
+    const existing = await this.currentWorktreeBranch(ctx); // null when no tree
+    const branch = existing ?? ctx.flow.mr_branch ?? opts.defaultBranch;
+    const key = `${ctx.flow.id}:${branch}`;
+    const inflight = this.ensureInFlight.get(key);
+    // waiters drop setupNote — the first caller appends it to its own prompt
+    if (inflight) return { cwd: (await inflight).dir ?? undefined, setupNote: null };
+    const p = this.ensureFlowWorktree(ctx, branch, { nodeId: opts.nodeId ?? null })
+      .finally(() => this.ensureInFlight.delete(key));
+    this.ensureInFlight.set(key, p);
+    const binding = await p;
+    return { cwd: binding.dir ?? undefined, setupNote: binding.setupNote };
+  }
+
+  /**
+   * The head branch of the flow's existing worktree, or null when the flow
+   * has none on disk. Listing failure → null (the ensure itself re-lists
+   * strictly and fails non-fatally).
+   */
+  private async currentWorktreeBranch(ctx: FlowCtx): Promise<string | null> {
+    const dir = ctx.flow.worktree_dir;
+    if (!dir) return null;
+    try {
+      if (!fs.existsSync(path.join(dir, ".git"))) return null;
+      return await worktrees.headBranch(dir);
+    } catch {
+      return null;
+    }
+  }
+
   // ── dependency setup (Phase 2) ─────────────────────────────────────────────
 
   /**

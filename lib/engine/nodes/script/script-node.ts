@@ -10,6 +10,7 @@ import { templateStore } from "../../templates";
 import { ScriptDefSchema, type ScriptDef } from "../declarative-schemas";
 import { validateJsonSchema } from "../agent/json-schema-lite";
 import { flowCtxHelper } from "../base/flow-context";
+import { worktreeManager } from "../../worktree-lifecycle";
 import { workspaceForFlow } from "../../../git/local";
 
 /**
@@ -126,7 +127,7 @@ export class ScriptTemplateNode extends NodeDefinition<Record<string, unknown>, 
 
     let cwd: string;
     try {
-      cwd = this.workingDir(ctx, cfg);
+      cwd = await this.workingDir(ctx, cfg, node.id);
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : String(e);
       this.support.setNode(node.id, { status: "failed" });
@@ -218,14 +219,20 @@ export class ScriptTemplateNode extends NodeDefinition<Record<string, unknown>, 
   }
 
   /** The script's working directory: the repo checkout, or the flow workspace clone. */
-  private workingDir(ctx: FlowCtx, cfg: ScriptDef): string {
+  private async workingDir(ctx: FlowCtx, cfg: ScriptDef, nodeId: string | null = null): Promise<string> {
     if (cfg.cwd === "workspace") {
       const ws = workspaceForFlow(ctx.flow.id);
-      if (!ws || !existsSync(ws)) {
-        throw new Error(
-          `${this.label}: no workspace clone for this flow — set cwd=repo, or run/re-run an agent step first (the workspace exists once the flow clones locally)`);
+      if (ws && existsSync(ws)) return ws;
+      // explicitly asked for the flow workspace but no agent step created it
+      // yet — ensure it the same way an unpinned agent run does (script-only
+      // flows are first-class); when worktrees can't apply, keep the old error
+      if (db.getSetting<string>("worktree_mode", "enabled") === "disabled") {
+        return this.legacyWorkspaceError();
       }
-      return ws;
+      const branch = ctx.flow.mr_branch ?? flowCtxHelper.buildBranch(ctx);
+      const binding = await worktreeManager.ensureFlowWorktree(ctx, branch, { nodeId });
+      if (!binding.dir) return this.legacyWorkspaceError(); // creation failed (or can't apply)
+      return binding.dir;
     }
     const lp = flowCtxHelper.localPath(ctx);
     if (!lp) {
@@ -233,6 +240,12 @@ export class ScriptTemplateNode extends NodeDefinition<Record<string, unknown>, 
         `${this.label} runs with cwd=repo but its repo has no local path configured — register one on the Settings page, or set cwd=workspace`);
     }
     return lp;
+  }
+
+  /** Today's pre-ensure behavior, kept for disabled mode and failed ensures. */
+  private legacyWorkspaceError(): never {
+    throw new Error(
+      `${this.label}: no workspace clone for this flow — set cwd=repo, or run/re-run an agent step first (the workspace exists once the flow clones locally)`);
   }
 
   /**

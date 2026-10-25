@@ -428,7 +428,11 @@ from the flow's repo column — no filesystem change needed.
 > (reuse skips it), emits "setting up worktree deps…" like any other step, and
 > a failure puts one line — "worktree deps setup failed: <err>" — on the
 > build/refine/resolve run prompts for agent self-repair. Settings API exposes
-> `worktree_mode` and `pnpm_virtual_store`. Verified by the extended
+> `worktree_mode` and `pnpm_virtual_store`. Since the runner-ensure follow-up
+> (`docs/worktree-ensure-runner.md`, shipped 2026-10-25) the ensure lives in the
+> runner: `AgentRunner.startAgent` calls `WorktreeManager.ensureForRun` for
+> every unpinned mutating local run — the per-node `ensureFlowWorktree` calls
+> in build/resolve are *pins*, not the mechanism. Verified by the extended
 > `scripts/check-worktrees.ts` (policy table incl. overrides/pnpm-store rows,
 > glob expansion, clone gate + fallback, shared-dir rules, executor
 > non-fatalism, and engine-adapter setup lifecycle against an isolated DB).

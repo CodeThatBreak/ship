@@ -452,7 +452,7 @@ export class Worktrees {
    * creation; localAgent.ensureBranch is the second line of defense).
    */
   private async switchWorktreeBranch(dir: string, branch: string, base?: string): Promise<string | null> {
-    const cur = await this.shortHeadBranch(dir);
+    const cur = await this.headBranch(dir);
     if (cur === branch) return branch;
     try {
       if (await this.refExists(dir, `refs/heads/${branch}`)) {
@@ -464,11 +464,12 @@ export class Worktrees {
       return branch;
     } catch (e: unknown) {
       console.warn(`worktree branch switch to ${branch} failed in ${dir}: ${e instanceof Error ? e.message : e}`);
-      return await this.shortHeadBranch(dir);
+      return await this.headBranch(dir);
     }
   }
 
-  private async shortHeadBranch(dir: string): Promise<string | null> {
+  /** The checked-out branch of a worktree/repo dir, or null when detached (or git failed). */
+  async headBranch(dir: string): Promise<string | null> {
     try {
       const { stdout } = await this.git(["-C", dir, "rev-parse", "--abbrev-ref", "HEAD"]);
       const b = stdout.trim();

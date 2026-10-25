@@ -5,6 +5,9 @@
  * resolution table and the setup executor (clone gate, fallback install,
  * config sync, shared-dir symlinks, non-fatal failures). Phase 3 — the
  * flow-card worktree-status endpoint (registered/branch/dirty/ahead/behind).
+ * Phase 4 — the runner-facing ensure (Option B: pins win, plan runs stay on
+ * the hub, unpinned mutating runs ensure the flow worktree) plus a
+ * source-level tripwire keeping the agent-runner chokepoint wired.
  *
  * Run: npx tsx scripts/check-worktrees.ts
  */
@@ -45,6 +48,36 @@ const gitFails = (args: string[], cwd?: string): boolean => {
 for (const file of ["worktrees.ts", "dep-policy.ts", "worktree-setup.ts"]) {
   const src = fs.readFileSync(new URL(`../lib/git/${file}`, import.meta.url), "utf8");
   assert.ok(!/from\s+["'].*(\.\.\/db|\.\.\/engine|@\/)/.test(src), `${file} must not import db/engine layers`);
+}
+
+// ── source guard: the runner ensure chokepoint must stay wired (Option B) ────
+// The runner is the ONE place every unpinned mutating agent run passes through;
+// these textual assertions tripwire against the wiring being dropped later.
+{
+  const runnerSrc = fs.readFileSync(new URL("../lib/engine/nodes/base/agent-runner.ts", import.meta.url), "utf8");
+  assert.ok(
+    runnerSrc.includes("worktreeManager.ensureForRun("),
+    "agent-runner.ts must call worktreeManager.ensureForRun — the runner-side ensure chokepoint was unwired"
+  );
+  const localStart = runnerSrc.indexOf('if (port.execMode === "local") {');
+  assert.ok(localStart !== -1, 'agent-runner.ts lost its port.execMode === "local" branch');
+  const localEnd = runnerSrc.indexOf("} else {", localStart);
+  assert.ok(localEnd !== -1, "agent-runner.ts local branch lost its else (cloud spec assembly)");
+  const localBlock = runnerSrc.slice(localStart, localEnd);
+  assert.ok(
+    localBlock.includes("worktreeManager.ensureForRun("),
+    'worktreeManager.ensureForRun must sit inside the execMode === "local" branch (plan/cloud runs must not ensure)'
+  );
+  assert.ok(
+    localBlock.includes("spec.cwd = input.cwd ?? ensured.cwd"),
+    "the local branch must assign spec.cwd = input.cwd ?? ensured.cwd (the node pin wins, else the ensured worktree)"
+  );
+  // script-only flows are first-class: cwd:"workspace" curls through the same ensure
+  const scriptSrc = fs.readFileSync(new URL("../lib/engine/nodes/script/script-node.ts", import.meta.url), "utf8");
+  assert.ok(
+    scriptSrc.includes("worktreeManager.ensureFlowWorktree("),
+    'script-node.ts must route cwd:"workspace" through worktreeManager.ensureFlowWorktree'
+  );
 }
 
 // ── isolated git fixture (used by the policy + lifecycle checks below) ──────
@@ -486,13 +519,210 @@ async function lifecycleSmoke() {
   const stale = (await (await wtStatusGET()).json()).statuses.flow_status;
   assert.equal(stale.registered, false, "unregistered worktree reports registered=false");
   assert.match(stale.reason ?? "", /not a registered worktree/);
+  // NOTE: the db connection stays open — runnerEnsureSmoke (next section) uses it
+}
 
-  db.connection().close();
+// ── engine runner-ensure smoke (Option B, isolated flows in the same db/hub) ──
+// The runner-facing ensure: pins win, plan runs get no worktree, unpinned
+// mutating runs ensure the tree (current head branch, never an implicit
+// switch), disabled/cloud flows get the hub fallback, concurrent ensures
+// coalesce. Reuses lifecycleSmoke's db, git fixture and seeding style.
+async function runnerEnsureSmoke() {
+  process.env.DATABASE_PATH = path.join(tmp, "devflow.db");
+  process.env.WORKSPACE_DIR = wsDir;
+
+  const { db } = await import("../lib/db");
+  const { worktreeManager } = await import("../lib/engine/worktree-lifecycle");
+  const { FlowRow, Task, rows } = await import("../lib/db/rows");
+  const { flowCtxHelper } = await import("../lib/engine/nodes/base/flow-context");
+
+  // the task + repo rows are seeded by lifecycleSmoke ("t1" on "repo_1")
+  const task = rows.get(Task, `SELECT * FROM tasks WHERE id=?`, "t1")!;
+  const repo = () => db.repoById("repo_1")!;
+
+  const seedFlow = (id: string, opts: { executionMode?: string; mrBranch?: string } = {}) => {
+    const now = new Date().toISOString();
+    db.run(
+      `INSERT INTO flows (id, task_id, name, status, execution_mode, repo_id, mr_branch, created_at, updated_at)
+       VALUES (?, 't1', ?, 'active', ?, 'repo_1', ?, ?, ?)`,
+      id, id, opts.executionMode ?? "local", opts.mrBranch ?? null, now, now);
+    return rows.get(FlowRow, `SELECT * FROM flows WHERE id=?`, id)!;
+  };
+
+  const lifecycle = (flowId: string) =>
+    db.all<any>(`SELECT * FROM events WHERE flow_id=? AND type='lifecycle' ORDER BY id`, flowId);
+  const totalEvents = (flowId: string) =>
+    db.all<any>(`SELECT * FROM events WHERE flow_id=?`, flowId);
+  const countMatching = (events: any[], re: RegExp) => events.filter((e: any) => re.test(e.message)).length;
+
+  // ── #1: standalone flow, unpinned mutating run → ensured into the worktree ──
+  {
+    const flow = seedFlow("flow_run1");
+    const ctx = { flow, task, repo: repo() };
+    const expectedBranch = flowCtxHelper.buildBranch(ctx);
+    assert.match(
+      expectedBranch, /^bugfix\/dev-1-\w{6}$/,
+      "non-story task fallback uses the build naming convention (bugfix/<task-key>-<flowid6>)"
+    );
+    const r1 = await worktreeManager.ensureForRun(ctx, {
+      mode: "agent", nodeId: "node_ensure1", defaultBranch: expectedBranch,
+    });
+    assert.ok(r1.cwd, "unpinned agent run got a worktree cwd");
+    assert.equal(r1.cwd, fs.realpathSync(path.join(wsDir, "flow_run1")), "canonical workspaces/<flowId> dir returned");
+    assert.ok(fs.existsSync(path.join(r1.cwd!, ".git")), "worktree on disk at the canonical path");
+    assert.equal(r1.setupNote, null, "healthy deps setup → no advisory note");
+    assert.equal(
+      git(["rev-parse", "--abbrev-ref", "HEAD"], r1.cwd!), expectedBranch,
+      "fresh tree's head branch = the caller's defaultBranch (buildBranch shape)"
+    );
+    assert.ok(fs.existsSync(path.join(r1.cwd!, "node_modules", "dep.txt")), "deps policy ran once on ensure");
+    assert.equal(
+      (rows.get(FlowRow, `SELECT * FROM flows WHERE id=?`, "flow_run1")!).worktree_dir, r1.cwd,
+      "binding persisted to flows.worktree_dir"
+    );
+    const events1 = lifecycle("flow_run1");
+    assert.ok(countMatching(events1, /worktree created at/) === 1, "creation lifecycle event emitted");
+    assert.ok(countMatching(events1, /setting up worktree deps/) === 1, "deps-setup lifecycle event emitted");
+
+    // ── #2: identical call again → same dir, no re-setup, no duplicate creation ──
+    const created1 = countMatching(events1, /worktree created at/);
+    const setup1 = countMatching(events1, /setting up worktree deps/);
+    const r2 = await worktreeManager.ensureForRun(ctx, {
+      mode: "agent", nodeId: "node_ensure1", defaultBranch: expectedBranch,
+    });
+    assert.equal(r2.cwd, r1.cwd, "reuse returns the same dir");
+    assert.equal(r2.setupNote, null);
+    const events2 = lifecycle("flow_run1");
+    assert.equal(countMatching(events2, /worktree created at/), created1, "creation event not duplicated");
+    assert.equal(countMatching(events2, /setting up worktree deps/), setup1, "deps setup NOT re-run on reuse");
+  }
+
+  // ── #3: plan run (read-only) → no worktree, hub stays clean ─────────────────
+  {
+    const flow = seedFlow("flow_run3");
+    const ctx = { flow, task, repo: repo() };
+    const r3 = await worktreeManager.ensureForRun(ctx, {
+      mode: "plan", defaultBranch: flowCtxHelper.buildBranch(ctx),
+    });
+    assert.equal(r3.cwd, undefined, "plan run gets no worktree cwd");
+    assert.equal(r3.setupNote, null);
+    assert.ok(!fs.existsSync(path.join(wsDir, "flow_run3")), "no worktree created on disk");
+    assert.equal(totalEvents("flow_run3").length, 0, "no lifecycle events from a plan run");
+    assert.equal(
+      (rows.get(FlowRow, `SELECT * FROM flows WHERE id=?`, "flow_run3")!).worktree_dir, null,
+      "flows.worktree_dir untouched"
+    );
+  }
+
+  // ── #4: explicit cwd pin wins, manager fully uninvolved ──────────────────────
+  {
+    const flow = seedFlow("flow_run4");
+    const ctx = { flow, task, repo: repo() };
+    const r4 = await worktreeManager.ensureForRun(ctx, {
+      mode: "agent", cwd: "/explicit/pin", defaultBranch: flowCtxHelper.buildBranch(ctx),
+    });
+    assert.equal(r4.cwd, "/explicit/pin", "pinned cwd returned verbatim");
+    assert.equal(r4.setupNote, null);
+    assert.ok(!fs.existsSync(path.join(wsDir, "flow_run4")), "no ensure side effects — no worktree dir");
+    assert.equal(totalEvents("flow_run4").length, 0, "no ensure side effects — no events");
+    assert.equal(
+      (rows.get(FlowRow, `SELECT * FROM flows WHERE id=?`, "flow_run4")!).worktree_dir, null,
+      "no ensure side effects — flows.worktree_dir untouched"
+    );
+  }
+
+  // ── #5: existing tree on branch X stays on X even with mr_branch=Y ──────────
+  {
+    const flow = seedFlow("flow_stay");
+    const ctx = { flow, task, repo: repo() };
+    // seed the tree so its CURRENT head branch is X (the ensure's fallback naming)
+    const existingBranch = "bugfix/dev-1-stayx";
+    const first = await worktreeManager.ensureForRun(ctx, {
+      mode: "agent", defaultBranch: existingBranch,
+    });
+    assert.ok(first.cwd, "tree created for the stay-on-branch fixture");
+    assert.equal(git(["rev-parse", "--abbrev-ref", "HEAD"], first.cwd!), existingBranch, "tree head is X");
+    // simulate a later build/MR step having set the canonical mr_branch=Y
+    db.run(`UPDATE flows SET mr_branch=? WHERE id='flow_stay'`, "bugfix/dev-1-stayy");
+    const ctxStay = {
+      flow: rows.get(FlowRow, `SELECT * FROM flows WHERE id=?`, "flow_stay")!,
+      task, repo: repo(),
+    };
+    const second = await worktreeManager.ensureForRun(ctxStay, {
+      mode: "agent", nodeId: "node_ensure5", defaultBranch: "bugfix/dev-1-stayy",
+    });
+    assert.equal(second.cwd, first.cwd, "existing tree dir reused");
+    assert.equal(
+      git(["rev-parse", "--abbrev-ref", "HEAD"], second.cwd!), existingBranch,
+      "worktree STAYS on its current branch X — mr_branch/defaultBranch Y must not force an implicit switch"
+    );
+  }
+
+  // ── #6: worktree_mode disabled → hub fallback, nothing created ──────────────
+  {
+    const flow = seedFlow("flow_dis");
+    const ctx = { flow, task, repo: repo() };
+    db.setSetting("worktree_mode", "disabled");
+    const r6 = await worktreeManager.ensureForRun(ctx, {
+      mode: "agent", defaultBranch: flowCtxHelper.buildBranch(ctx),
+    });
+    assert.equal(r6.cwd, undefined, "disabled mode → no worktree cwd (hub fallback)");
+    assert.equal(r6.setupNote, null);
+    assert.ok(!fs.existsSync(path.join(wsDir, "flow_dis")), "nothing created with worktrees disabled");
+    assert.equal(totalEvents("flow_dis").length, 0, "no events with worktrees disabled");
+    assert.equal(
+      (rows.get(FlowRow, `SELECT * FROM flows WHERE id=?`, "flow_dis")!).worktree_dir, null,
+      "flows.worktree_dir untouched"
+    );
+    db.setSetting("worktree_mode", "enabled");
+  }
+
+  // ── #7: cloud execution mode → no worktree, nothing created ─────────────────
+  {
+    const flow = seedFlow("flow_cloud", { executionMode: "cloud" });
+    const ctx = { flow, task, repo: repo() };
+    const r7 = await worktreeManager.ensureForRun(ctx, {
+      mode: "agent", defaultBranch: flowCtxHelper.buildBranch(ctx),
+    });
+    assert.equal(r7.cwd, undefined, "cloud flow → no worktree cwd");
+    assert.equal(r7.setupNote, null);
+    assert.ok(!fs.existsSync(path.join(wsDir, "flow_cloud")), "nothing created for a cloud flow");
+    assert.equal(totalEvents("flow_cloud").length, 0, "no events for a cloud flow");
+    assert.equal(
+      (rows.get(FlowRow, `SELECT * FROM flows WHERE id=?`, "flow_cloud")!).worktree_dir, null,
+      "flows.worktree_dir untouched"
+    );
+  }
+
+  // ── #8: two concurrent ensures for the same flow+branch coalesce ────────────
+  {
+    const flow = seedFlow("flow_cons");
+    const ctx = { flow, task, repo: repo() };
+    const defaultBranch = flowCtxHelper.buildBranch(ctx);
+    const [c1, c2] = await Promise.all([
+      worktreeManager.ensureForRun(ctx, { mode: "agent", nodeId: "node_a", defaultBranch }),
+      worktreeManager.ensureForRun(ctx, { mode: "agent", nodeId: "node_b", defaultBranch }),
+    ]);
+    assert.ok(c1.cwd && c2.cwd, "both concurrent ensures resolved");
+    assert.equal(c1.cwd, c2.cwd, "both calls resolve to the same dir");
+    assert.equal(
+      lifecycle("flow_cons").filter((e: any) => /worktree created at/.test(e.message)).length, 1,
+      "coalescing worked — exactly ONE worktree created event"
+    );
+    assert.equal(
+      lifecycle("flow_cons").filter((e: any) => /setting up worktree deps/.test(e.message)).length, 1,
+      "deps setup ran once despite the concurrency"
+    );
+    assert.equal(git(["rev-parse", "--abbrev-ref", "HEAD"], c1.cwd!), defaultBranch, "coalesced tree on the default branch");
+  }
+
+  db.connection().close(); // last db-using section
 }
 
 async function all() {
   await main();
   await lifecycleSmoke();
+  await runnerEnsureSmoke();
   fs.rmSync(tmp, { recursive: true, force: true });
   console.log("\nall worktree checks passed ✓");
 }

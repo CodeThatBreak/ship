@@ -7,6 +7,7 @@ import {
   type AgentStartSpec,
 } from "../../ports/agent-runner";
 import { flowCtxHelper, type FlowContextHelper, type FlowCtx } from "./flow-context";
+import { worktreeManager } from "../../worktree-lifecycle";
 import { nodeSupport, type NodeSupport } from "./node-support";
 import { StreamBuffer } from "./stream-buffer";
 import { ToolPairer, type ToolEmitFn } from "./tool-pairer";
@@ -29,6 +30,7 @@ export interface AgentStartInput {
   customSubagents?: { name: string; instructions: string }[];
   cwd?: string; // local worktree override
   model?: string | null; // per-run model override
+  nodeId?: string | null; // lifecycle-event attribution for engine-side ensures
 }
 
 /**
@@ -69,7 +71,19 @@ export class AgentRunner {
       // registered checkout (the hub). Nodes pass input.cwd to pin a
       // freshly-created worktree before the flow row read would see it.
       spec.workspace = this.ctxHelper.requireRunCwd(ctx);
-      spec.cwd = input.cwd ?? undefined;
+      // Option B: an unpinned MUTATING run is ensured into the flow worktree —
+      // the node pin (input.cwd) always wins; plan runs stay on the hub.
+      const ensured = await worktreeManager.ensureForRun(ctx, {
+        mode: input.mode,
+        cwd: input.cwd,
+        nodeId: input.nodeId ?? null,
+        defaultBranch: this.ctxHelper.buildBranch(ctx),
+      });
+      spec.cwd = input.cwd ?? ensured.cwd;
+      if (!input.cwd && ensured.setupNote) {
+        // same contract as build/resolve: one advisory line, agent self-repairs
+        spec.prompt += `\n${ensured.setupNote} If the changes need dependencies, run the repo's dependency setup yourself before building/testing.`;
+      }
     } else {
       spec.repos = ctx.flow.repo_url
         ? [{ url: ctx.flow.repo_url, startingRef: input.startingRef ?? ctx.repo?.default_branch ?? "main" }]
