@@ -282,6 +282,83 @@ export function asJsonataGroups(groups: VarGroup[]): VarGroup[] {
   }));
 }
 
+/** One pickable path in the expression boxes' autocomplete (Phase 5 Tier 2). */
+export interface JsonataPathOption {
+  /** the raw path inserted — `nodes.build.output.plan` */
+  path: string;
+  /** the group it came from ("Upstream: Build" / "Task") */
+  group: string;
+  type?: string;
+  description?: string;
+}
+
+/**
+ * The grouped vocabulary → the flat autocomplete list the expression boxes
+ * (ConditionBuilder / ExpressionInput) offer as you type.
+ */
+export function jsonataPathOptions(groups: VarGroup[]): JsonataPathOption[] {
+  return asJsonataGroups(groups).flatMap((g) =>
+    g.fields.map((f) => ({
+      path: f.insert,
+      group: g.title,
+      type: f.type,
+      description: f.description,
+    })),
+  );
+}
+
+/**
+ * The http `response_map` vocabulary — that expression evaluates against the
+ * raw response object (`{status, ok, body, headers}`), not the flow context.
+ */
+export function httpResponseVarGroups(): VarGroup[] {
+  return [
+    {
+      id: "upstream",
+      title: "Response",
+      origin: "the raw HTTP response",
+      fields: [
+        { name: "status", type: "number", insert: "status" },
+        { name: "ok", type: "boolean", insert: "ok" },
+        { name: "body", type: "object", insert: "body" },
+        { name: "headers", type: "object", insert: "headers" },
+      ],
+    },
+  ];
+}
+
+/**
+ * The flow/repo roots as a vocabulary group — conditions and pass-map
+ * expressions evaluate against the whole flow context (not a node's input),
+ * so `flow.*` / `repo.*` are addressable and offered beside the task/upstream
+ * groups. Note the "My inputs" group does NOT apply there (the context map
+ * has no `input` root — that's a per-node runtime concept).
+ */
+export function flowRepoVarGroups(): VarGroup[] {
+  return [
+    {
+      id: "trigger",
+      title: "Flow & repo",
+      origin: "the run's flow context",
+      fields: FLOW_REPO_FIELDS.map((f) => ({
+        name: f.path,
+        type: f.type,
+        insert: `{{${f.path}}}`,
+      })),
+    },
+  ];
+}
+
+/**
+ * The condition/pass vocabulary for a node's expression editors (Phase 5):
+ * the node's groups minus "My inputs" (the flow context map has no `input`
+ * root — conditions see task / upstream / trigger / flow / repo), plus the
+ * flow & repo group.
+ */
+export function conditionVarGroups(groups: VarGroup[]): VarGroup[] {
+  return [...groups.filter((g) => g.id !== "inputs"), ...flowRepoVarGroups()];
+}
+
 export function stripBraces(ref: string): string {
   return ref.replace(/^\{\{/, "").replace(/\}\}$/, "");
 }

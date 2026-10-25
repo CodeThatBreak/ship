@@ -34,12 +34,15 @@ import {
   TooltipTrigger,
 } from "../ui/tooltip";
 import { PromptEditor } from "./PromptEditor";
+import { ConditionBuilder, ExpressionInput } from "./ConditionBuilder";
 import { iconForIconName } from "./icons";
 import { InputsTab } from "./InputsTab";
 import {
   asJsonataGroups,
   buildVarGroups,
+  conditionVarGroups,
   filterVarGroups,
+  httpResponseVarGroups,
   schemaRows,
   stripBraces,
   varGroupAccent,
@@ -122,6 +125,7 @@ export function NodeConfiguratorBody({
   taskFields,
   triggerFields,
   invalidRefs,
+  templateId,
 }: {
   node: EditorNode;
   onChange: (p: Partial<EditorNode>) => void;
@@ -140,6 +144,9 @@ export function NodeConfiguratorBody({
   /** Live-linted refs for THIS node (Phase 3): ref → the linter's problem.
    *  The prompt editor underlines the invalid ones where they're typed. */
   invalidRefs?: Record<string, string>;
+  /** The owning template's id (Phase 5) — powers the expression editors'
+   *  live preview (the value evaluated against the most recent run). */
+  templateId?: string;
 }) {
   const [tab, setTab] = useState<
     "trigger" | "inputs" | "config" | "output" | "contract"
@@ -282,6 +289,7 @@ export function NodeConfiguratorBody({
             varGroups={varGroups}
             hasUpstream={hasUpstream}
             invalidRefs={invalidRefs}
+            templateId={templateId}
           />
         ) : tab === "output" ? (
           <StartContractEditor node={node} onChange={onChange} taskFields={taskFields} />
@@ -532,6 +540,7 @@ function ConfigTab({
   varGroups,
   hasUpstream,
   invalidRefs,
+  templateId,
 }: {
   node: EditorNode;
   onChange: (p: Partial<EditorNode>) => void;
@@ -542,6 +551,8 @@ function ConfigTab({
   hasUpstream: boolean;
   /** live-linted refs → the linter's problem (underlined in prompt fields) */
   invalidRefs?: Record<string, string>;
+  /** the owning template's id (Phase 5) — the expression editors' preview */
+  templateId?: string;
 }) {
   // no upstream yet (unconnected node or an entry): the inherit hint
   const inheritHint = !hasUpstream ? (
@@ -572,6 +583,7 @@ function ConfigTab({
             companionText={companionTextOf(node, f.key)}
             varGroups={freeTextFields.has(f.key) ? varGroups : undefined}
             invalidRefs={invalidRefs}
+            templateId={templateId}
             onChange={(v, extra) =>
               onChange({ config: writeConfig(node, f.key, v, extra) })
             }
@@ -623,11 +635,14 @@ function ConfigTab({
             companionText={companionTextOf(node, f.key, defaults[f.key])}
             decisionSource={decisionSource}
             varGroups={
-              freeTextFields.has(f.key) || f.type === "choices" || f.type === "map"
-                ? varGroups
-                : undefined
+              f.key === "response_map"
+                ? httpResponseVarGroups()
+                : freeTextFields.has(f.key) || f.type === "choices" || f.type === "map"
+                  ? varGroups
+                  : undefined
             }
             invalidRefs={invalidRefs}
+            templateId={templateId}
             onChange={(v, extra) =>
               onChange({ config: writeConfig(node, f.key, v, extra) })
             }
@@ -669,7 +684,17 @@ const freeTextFields = new Set([
   "url",
   "body",
   "question",
-]);/**
+]);
+
+/**
+ * The node's vocabulary as the condition/expression editors' groups (Phase 5):
+ * brace-stripped, minus "My inputs" (the flow context map has no `input`
+ * root — conditions and pass maps see task / upstream / trigger / flow /
+ * repo), plus the flow & repo group.
+ */
+function condVarGroups(groups?: VarGroup[]): VarGroup[] {
+  return asJsonataGroups(conditionVarGroups(groups ?? []));
+}/**
  * The companion key an editor writes alongside its compiled value — the
  * `ts_output` box stores the raw TypeScript members the author typed
  * (`<key>_ts`), so the box re-seeds to their source instead of the compiled
@@ -786,6 +811,7 @@ function ConfigFieldRow({
   decisionSource,
   varGroups,
   invalidRefs,
+  templateId,
   onChange,
 }: {
   field: {
@@ -810,9 +836,30 @@ function ConfigFieldRow({
   varGroups?: VarGroup[];
   /** live-linted refs → the linter's problem (prompt fields underline them) */
   invalidRefs?: Record<string, string>;
+  /** the owning template's id (Phase 5) — the expression editors' preview */
+  templateId?: string;
   onChange: (v: unknown, extra?: Record<string, unknown>) => void;
 }) {
   const effective = value !== undefined ? value : defaultValue;
+  // raw-JSONata text fields get the live expression editor (Phase 5): the
+  // http response_map evaluates against the response object, not the flow
+  // context — its vocabulary + preview scope differ accordingly
+  if (field.type === "text" && field.key === "response_map") {
+    return (
+      <div className="grid gap-1">
+        <FieldLabel field={field} />
+        <ExpressionInput
+          value={typeof effective === "string" ? effective : ""}
+          varGroups={varGroups}
+          templateId={templateId}
+          scope="response"
+          rows={3}
+          placeholder={"body.result — must yield an object ({status, ok, body, headers} is the raw response)"}
+          onChange={(v) => onChange(v.trim() ? v : null)}
+        />
+      </div>
+    );
+  }
   const insertRef = (ref: string) => {
     const cur = typeof value === "string" ? value : "";
     onChange(cur ? (cur.endsWith(" ") ? cur : `${cur} `) + ref : ref);
@@ -847,6 +894,7 @@ function ConfigFieldRow({
         defaultValue={defaultValue}
         source={decisionSource}
         varGroups={varGroups}
+        templateId={templateId}
         onChange={onChange}
       />
     );
@@ -858,6 +906,7 @@ function ConfigFieldRow({
         value={value}
         defaultValue={defaultValue}
         varGroups={varGroups}
+        templateId={templateId}
         onChange={onChange}
       />
     );
@@ -1158,9 +1207,9 @@ function TsOutputEditor({
  *
  * For the `expression` source each choice also carries a JSONata `condition`
  * over the flow context — every truthy condition picks that branch. The
- * condition boxes get the upstream variables via a "Variables ▾" picker (raw
- * JSONata paths — the `{{...}}` wrapper is prompt syntax, not JSONata); the
- * picker inserts into the focused row.
+ * condition is authored with the structured ConditionBuilder (Phase 5): rows
+ * of `[variable][op][value]` compiled to JSONata, with the raw language one
+ * toggle away and the value previewed underneath.
  */
 function ChoicesEditor({
   field,
@@ -1168,14 +1217,16 @@ function ChoicesEditor({
   defaultValue,
   source,
   varGroups,
+  templateId,
   onChange,
 }: {
   field: { key: string; label: string; type: string; help?: string; options?: { value: string; label: string }[] };
   value: unknown;
   defaultValue?: unknown;
-  /** the decision's current source — "expression" adds the condition boxes */
+  /** the decision's current source — "expression" adds the condition builders */
   source?: string;
   varGroups?: VarGroup[];
+  templateId?: string;
   onChange: (v: unknown) => void;
 }) {
   const effective = (
@@ -1188,8 +1239,6 @@ function ChoicesEditor({
       condition: c.condition ?? "",
     })),
   );
-  /** the choice whose condition box the picker inserts into */
-  const [focusIdx, setFocusIdx] = useState(0);
   const isExpression = source === "expression";
 
   const write = (next: { label: string; description: string; condition: string }[]) => {
@@ -1204,23 +1253,9 @@ function ChoicesEditor({
     if (labeled.length) onChange(labeled);
   };
 
-  // the picker inserts raw JSONata paths into the focused row's condition
-  const insertCond = (ref: string) => {
-    const i = Math.min(focusIdx, Math.max(rows.length - 1, 0));
-    const cur = rows[i]?.condition ?? "";
-    write(
-      rows.map((x, j) => (j === i ? { ...x, condition: cur ? `${cur} ${ref}` : ref } : x)),
-    );
-  };
-
   return (
     <div className="grid gap-1.5">
-      <div className="flex items-center justify-between gap-2 flex-wrap">
-        <label className="text-xs text-muted-foreground">Choices (branch labels)</label>
-        {isExpression && varGroups?.length ? (
-          <VariablesPicker groups={asJsonataGroups(varGroups)} onInsert={insertCond} />
-        ) : null}
-      </div>
+      <label className="text-xs text-muted-foreground">Choices (branch labels)</label>
       {rows.map((c, i) => (
         <div
           key={i}
@@ -1254,13 +1289,15 @@ function ChoicesEditor({
             </Button>
           </div>
           {isExpression && (
-            <Textarea
+            <ConditionBuilder
               value={c.condition}
-              rows={2}
-              className="font-mono text-[11.5px]"
-              placeholder="JSONata condition — truthy picks this branch, e.g. nodes.review.output.comment_count > 0"
-              onFocus={() => setFocusIdx(i)}
-              onChange={(e) => write(rows.map((x, j) => (j === i ? { ...x, condition: e.target.value } : x)))}
+              varGroups={condVarGroups(varGroups)}
+              templateId={templateId}
+              scope="context"
+              placeholder="nodes.review.output.comment_count > 0"
+              onChange={(raw) =>
+                write(rows.map((x, j) => (j === i ? { ...x, condition: raw ?? "" } : x)))
+              }
             />
           )}
         </div>
@@ -1278,7 +1315,7 @@ function ChoicesEditor({
       )}
       {isExpression && !rows.some((c) => c.condition.trim()) && (
         <p className="text-[11px] text-amber-400 m-0">
-          No condition yet — give each choice a JSONata condition; every truthy condition picks its branch.
+          No condition yet — give each choice a condition; every truthy condition picks its branch.
         </p>
       )}
     </div>
@@ -1289,21 +1326,24 @@ function ChoicesEditor({
  * The decision's pass-down variables — field → JSONata rows edited in place
  * (the `pass` instance override). Every field is merged into the decision's
  * output beside chosen / rationale, so nodes attached to a branch address
- * them as `{{input.<field>}}` with no extra wiring. The picker inserts raw
- * JSONata paths (the `{{...}}` wrapper is prompt syntax) into the focused
- * expression box; a row with a name but no expression writes nothing.
+ * them as `{{input.<field>}}` with no extra wiring. Each expression box is
+ * the live ExpressionInput (Phase 5): paths autocomplete from the flow
+ * context vocabulary, compile errors surface inline, and the evaluated value
+ * renders underneath; a row with a name but no expression writes nothing.
  */
 function PassMapEditor({
   field,
   value,
   defaultValue,
   varGroups,
+  templateId,
   onChange,
 }: {
   field: { key: string; label: string; type: string; help?: string };
   value: unknown;
   defaultValue?: unknown;
   varGroups?: VarGroup[];
+  templateId?: string;
   onChange: (v: unknown) => void;
 }) {
   const effective = (
@@ -1316,8 +1356,6 @@ function PassMapEditor({
   const [rows, setRows] = useState<{ field: string; expr: string }[]>(() =>
     Object.entries(effective).map(([field, expr]) => ({ field, expr: typeof expr === "string" ? expr : "" })),
   );
-  /** the row whose expression box the picker inserts into */
-  const [focusIdx, setFocusIdx] = useState(0);
 
   const write = (next: { field: string; expr: string }[]) => {
     setRows(next);
@@ -1328,38 +1366,26 @@ function PassMapEditor({
     onChange(mapped);
   };
 
-  // the picker inserts raw JSONata paths into the focused row's expression
-  const insertExpr = (ref: string) => {
-    const i = Math.min(focusIdx, Math.max(rows.length - 1, 0));
-    const cur = rows[i]?.expr ?? "";
-    write(rows.map((x, j) => (j === i ? { ...x, expr: cur ? `${cur} ${ref}` : ref } : x)));
-  };
-
   return (
     <div className="grid gap-1.5">
-      <div className="flex items-center justify-between gap-2 flex-wrap">
-        <label className="text-xs text-muted-foreground">{field.label}</label>
-        {varGroups?.length ? (
-          <VariablesPicker groups={asJsonataGroups(varGroups)} onInsert={insertExpr} />
-        ) : null}
-      </div>
+      <label className="text-xs text-muted-foreground">{field.label}</label>
       {rows.map((r, i) => (
         <div key={i} className="grid grid-cols-[130px_1fr] gap-1.5 items-start">
           <Input
             value={r.field}
             placeholder="field name"
             className="font-mono text-[12px]"
-            onFocus={() => setFocusIdx(i)}
             onChange={(e) => write(rows.map((x, j) => (j === i ? { ...x, field: e.target.value } : x)))}
           />
           <div className="flex gap-1.5 items-start">
-            <Textarea
+            <ExpressionInput
               value={r.expr}
+              varGroups={condVarGroups(varGroups)}
+              templateId={templateId}
+              scope="context"
               rows={1}
-              className="font-mono text-[11.5px] min-h-[34px]"
               placeholder="JSONata — e.g. nodes.review.output.summary"
-              onFocus={() => setFocusIdx(i)}
-              onChange={(e) => write(rows.map((x, j) => (j === i ? { ...x, expr: e.target.value } : x)))}
+              onChange={(v) => write(rows.map((x, j) => (j === i ? { ...x, expr: v } : x)))}
             />
             <Button
               variant="ghost"

@@ -47,6 +47,9 @@ export type BuilderNodeData = {
   /** decision branch choices — one labeled source handle per choice, so
    *  attaching a node wires the pre-labeled branch edge (no edge editing) */
   choices?: { label: string; description?: string; condition?: string }[];
+  /** the static linter's problems for this node (Phase 5) — rendered as an
+   *  error badge; clicking the node opens the drawer at the problem */
+  problems?: string[];
   onOpen: (key: string) => void;
 };
 
@@ -58,11 +61,12 @@ const TRIGGER_STYLE: Record<string, string> = {
 };
 
 function BuilderNodeView({ id, data }: NodeProps<Node<BuilderNodeData>>) {
-  const { node, selected, readonly, unlinked, choices, onOpen } = data;
+  const { node, selected, readonly, unlinked, choices, problems, onOpen } = data;
   const label = node.overrideLabel || node.catalog_name || node.key;
   const Icon = iconForIconName(node.icon, node.kind ?? (node.is_builtin ? node.key : null), node.key);
   const isDecision = node.kind === "decision";
   const branches = isDecision && choices?.length ? choices : null;
+  const problemCount = problems?.length ?? 0;
   return (
     <div
       // no stopPropagation: the click must reach React Flow's node wrapper so
@@ -81,6 +85,17 @@ function BuilderNodeView({ id, data }: NodeProps<Node<BuilderNodeData>>) {
       {!readonly && unlinked && (
         <span className="absolute -top-1.5 -right-1.5 z-10 flex h-4 w-4 items-center justify-center rounded-full bg-amber-500 text-[9px] font-bold text-background" title="Needs a connection">
           !
+        </span>
+      )}
+      {problemCount > 0 && (
+        <span
+          className={cn(
+            "absolute z-10 flex h-4 min-w-4 items-center justify-center rounded-full bg-rose-500 px-1 text-[9px] font-bold text-background",
+            !readonly && unlinked ? "-top-3.5 -right-1.5" : "-top-1.5 -right-1.5",
+          )}
+          title={problems!.join("\n")}
+        >
+          {problemCount}
         </span>
       )}
       {!readonly ? (
@@ -188,6 +203,9 @@ function BranchHandles({
 export type BuilderEdgeData = {
   edge: EditorEdge;
   selected: boolean;
+  /** the static linter's problem for this edge's condition (Phase 5) — the
+   *  label chip renders rose with the message in its tooltip */
+  problem?: string;
   onOpen: (index: number) => void;
 };
 
@@ -198,16 +216,17 @@ function BuilderEdgeView({
   const [path, labelX, labelY] = getBezierPath({ sourceX, sourceY, targetX, targetY, sourcePosition, targetPosition });
   const selected = d?.selected;
   const isLoop = d?.edge.kind === "loop";
+  const chip = d?.edge.label ?? d?.edge.condition;
   return (
     <>
       <BaseEdge
         id={id}
         path={path}
         markerEnd={markerEnd}
-        className={cn("hover:stroke-muted-foreground", selected ? "stroke-blue-500" : "stroke-border")}
+        className={cn("hover:stroke-muted-foreground", selected ? "stroke-blue-500" : d?.problem ? "stroke-rose-400/70" : "stroke-border")}
         style={{ strokeWidth: selected ? 2 : 1.5, strokeDasharray: isLoop ? "5 4" : undefined }}
       />
-      {(d?.edge.label || d?.edge.condition) && (
+      {chip && (
         <EdgeLabelRenderer>
           <button
             style={{ transform: `translate(-50%, -50%) translate(${labelX}px, ${labelY}px)` }}
@@ -215,13 +234,15 @@ function BuilderEdgeView({
               "nodrag nopan absolute pointer-events-auto rounded-md border px-1.5 py-0.5 text-[10px] font-medium cursor-pointer transition-all max-w-[150px] truncate",
               selected
                 ? "border-blue-500 bg-blue-500/10 text-blue-300"
-                : "border-border bg-popover text-muted-foreground hover:text-foreground",
+                : d?.problem
+                  ? "border-rose-500 bg-rose-500/10 text-rose-300"
+                  : "border-border bg-popover text-muted-foreground hover:text-foreground",
             )}
             onClick={(e) => {
               e.stopPropagation();
               d?.onOpen?.(Number(id.replace(/[^0-9]/g, "")));
             }}
-            title={d?.edge.label ?? d?.edge.condition ?? ""}
+            title={d?.problem ?? d?.edge.label ?? d?.edge.condition ?? ""}
           >
             {d?.edge.label ?? <code className="font-mono text-[9.5px]">{d?.edge.condition}</code>}
           </button>
@@ -245,6 +266,10 @@ export interface BuilderCanvasProps {
   readonly: boolean;
   /** decision node key → branch choices — drives the labeled branch handles */
   branchChoices?: Record<string, { label: string; description?: string; condition?: string }[]>;
+  /** node key → the static linter's problems (Phase 5) — error badges */
+  nodeProblems?: Record<string, string[]>;
+  /** edge index → the condition's problem (Phase 5) — rose chips */
+  edgeProblems?: Record<number, string>;
   onNodeOpen: (key: string) => void;
   onEdgeOpen: (index: number) => void;
   onNodeMove: (key: string, x: number, y: number) => void;
@@ -293,6 +318,7 @@ function BuilderFlow(props: BuilderCanvasProps) {
           readonly: props.readonly,
           unlinked: props.edges.every((e) => e.from !== n.key && e.to !== n.key),
           choices: props.branchChoices?.[n.key],
+          problems: props.nodeProblems?.[n.key],
           onOpen: props.onNodeOpen,
         },
         draggable: !props.readonly,
@@ -301,7 +327,7 @@ function BuilderFlow(props: BuilderCanvasProps) {
         // deletable (the page guards this too)
         deletable: !props.readonly && n.nodeTemplateId !== "nt_start",
       })),
-    [props.nodes, props.edges, props.positions, props.selectedNodeKey, props.readonly, props.onNodeOpen, props.branchChoices],
+    [props.nodes, props.edges, props.positions, props.selectedNodeKey, props.readonly, props.onNodeOpen, props.branchChoices, props.nodeProblems],
   );
 
   const rfEdges: FlowEdge[] = useMemo(
@@ -320,10 +346,10 @@ function BuilderFlow(props: BuilderCanvasProps) {
             height: 16,
           },
           deletable: !props.readonly,
-          data: { edge: e, selected, onOpen: props.onEdgeOpen },
+          data: { edge: e, selected, problem: props.edgeProblems?.[i], onOpen: props.onEdgeOpen },
         };
       }),
-    [props.edges, props.selectedEdgeIndex, props.onEdgeOpen],
+    [props.edges, props.selectedEdgeIndex, props.onEdgeOpen, props.edgeProblems],
   );
 
   const onNodesChange = (changes: NodeChange<FlowNode>[]) => {

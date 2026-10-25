@@ -22,7 +22,7 @@
  * creates the rows, remaps the ids, then saves the graph. The drawer is the
  * single authoring surface (the old authoring dialog is gone).
  */
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import dagre from "@dagrejs/dagre";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -65,11 +65,13 @@ import { cn } from "../../../lib/utils";
 import { NodeConfiguratorBody, type IncomingLink } from "../../../components/template-editor/NodeConfigurator";
 import NodePalette from "../../../components/template-editor/NodePalette";
 import BuilderCanvas, { type BuilderApi } from "../../../components/template-editor/BuilderCanvas";
+import { ConditionBuilder } from "../../../components/template-editor/ConditionBuilder";
 import { FLOW_TRIGGER_TYPE } from "../../../components/template-editor/constants";
 import type { DraftNodeDef, EditorEdge, EditorNode, NodeContract } from "../../../components/template-editor/types";
-import { contractsUrl, describeTrigger, nodeRelationships } from "../../../components/template-editor/types";
+import { contractsUrl, describeTrigger, nodeLabel, nodeRelationships } from "../../../components/template-editor/types";
 import type { TaskProviderInfo } from "../../../components/template-editor/types";
-import { schemaRows } from "../../../components/template-editor/variables";
+import { asJsonataGroups, buildVarGroups, conditionVarGroups, schemaRows } from "../../../components/template-editor/variables";
+import type { LintProblem } from "../../../lib/engine/context-lint";
 
 /** A registered task provider's editor-facing slice (GET /api/tasks/providers). */
 type TaskProvider = TaskProviderInfo;
@@ -208,6 +210,10 @@ export default function TemplateEditorPage() {
   /** live-linted refs per node (Phase 3): node key → ref → the linter's
    *  problem — the prompt editor underlines them where they're typed */
   const [refProblems, setRefProblems] = useState<Record<string, Record<string, string>>>({});
+  /** structured lint problems (Phase 5): node key → messages (canvas badges)
+   *  and edge index → the condition's problem (the edge chip flags rose) */
+  const [nodeProblems, setNodeProblems] = useState<Record<string, string[]>>({});
+  const [edgeProblems, setEdgeProblems] = useState<Record<number, string>>({});
   const builderApi = useRef<BuilderApi | null>(null);
 
   const templateId = (() => {
@@ -364,48 +370,68 @@ export default function TemplateEditorPage() {
     };
   }, [draft]);
 
-  // live {{ref}} validation (Phase 3): the draft validates against the
-  // static linter (debounced) while a node drawer is open — problems keyed
-  // per node underline the offending refs where they're typed. Read-only
-  // built-ins never validate (nothing is editable).
+  // live validation (Phase 3 + 5): the draft validates against the static
+  // linter (debounced) while it's edited — problems land where they belong:
+  // per-node refs underline in the prompt editor, and the structured
+  // coordinates render as canvas badges on the offending node / edge chip.
+  // Read-only built-ins never validate (nothing is editable).
   useEffect(() => {
-    if (!draft || draft.template.is_builtin || nodeDrawer == null) return;
+    if (!draft || draft.template.is_builtin) return;
     let alive = true;
-    const timer = setTimeout(() => {
-      void fetch(`/api/templates/${draft.template.id}/validate`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          trigger: draft.template.trigger,
-          nodes: draft.nodes.map((n) => ({
-            key: n.key,
-            nodeTemplateId: n.nodeTemplateId,
-            config: n.config,
-            input_map: n.input_map,
-          })),
-          edges: draft.edges.map((e) => ({ from: e.from, to: e.to, kind: e.kind, label: e.label, condition: e.condition })),
-          new_node_templates: collectPendingDefs(draft),
-        }),
-      })
-        .then((r) => r.json())
-        .then((d: { problems?: { where: string; ref?: string; message: string }[] }) => {
-          if (!alive) return;
-          const map: Record<string, Record<string, string>> = {};
-          for (const p of d?.problems ?? []) {
-            if (!p.ref) continue;
-            const m = /^node "([^"]+)"/.exec(p.where ?? "");
-            if (!m) continue;
-            (map[m[1]] ??= {})[p.ref] = p.message;
-          }
-          setRefProblems(map);
-        })
-        .catch(() => {});
-    }, 600);
+    const timer = setTimeout(() => void validateDraft(draft, alive), 600);
     return () => {
       alive = false;
       clearTimeout(timer);
     };
-  }, [draft, nodeDrawer]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [draft]);
+
+  /** POST the draft to the validate endpoint (Phase 5) — the structured
+   *  problems land in the badge state; returns them for the save gate. */
+  const validateDraft = async (d: Draft, alive = true): Promise<LintProblem[]> => {
+    const problems = await fetch(`/api/templates/${d.template.id}/validate`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        trigger: d.template.trigger,
+        nodes: d.nodes.map((n) => ({
+          key: n.key,
+          nodeTemplateId: n.nodeTemplateId,
+          config: n.config,
+          input_map: n.input_map,
+        })),
+        edges: d.edges.map((e) => ({ from: e.from, to: e.to, kind: e.kind, label: e.label, condition: e.condition })),
+        new_node_templates: collectPendingDefs(d),
+      }),
+    })
+      .then((r) => r.json())
+      .then((d: { problems?: LintProblem[] }) => d?.problems ?? [])
+      .catch(() => [] as LintProblem[]);
+    if (!alive) return problems;
+    applyProblems(problems);
+    return problems;
+  };
+
+  /** The validate problems → where they're shown (refs underlined in prompts,
+   *  badges on the canvas nodes, rose edge chips). */
+  const applyProblems = (problems: LintProblem[]) => {
+    const refs: Record<string, Record<string, string>> = {};
+    const nodeMap: Record<string, string[]> = {};
+    const edgeMap: Record<number, string> = {};
+    for (const p of problems) {
+      if (p.nodeKey) (nodeMap[p.nodeKey] ??= []).push(p.message);
+      else if (typeof p.edgeIndex === "number") edgeMap[p.edgeIndex] = p.message;
+      if (p.ref && p.nodeKey) (refs[p.nodeKey] ??= {})[p.ref] = p.message;
+    }
+    setRefProblems(refs);
+    setNodeProblems(nodeMap);
+    setEdgeProblems(edgeMap);
+  };
+
+  /** The problems joined as the readable save-blocker message (the same
+   *  joined string the server throws with). */
+  const problemsMessage = (problems: LintProblem[]): string =>
+    problems.map((p) => (p.where ? `${p.where}: ${p.message}` : p.message)).join("\n");
 
   const undo = useCallback(() => {
     const prev = undoStack.current.pop();
@@ -846,6 +872,8 @@ export default function TemplateEditorPage() {
             selectedEdgeIndex={edgeDrawer}
             readonly={readonly}
             branchChoices={branchChoices}
+            nodeProblems={nodeProblems}
+            edgeProblems={edgeProblems}
             onNodeOpen={(key) => {
               setEdgeDrawer(null);
               setPlacedKey(null);
@@ -904,6 +932,7 @@ export default function TemplateEditorPage() {
                 taskFields={taskFields}
                 triggerFields={triggerFields}
                 invalidRefs={refProblems[configuring.key]}
+                templateId={draft.template.id}
                 onChange={(patch) => {
                   const next = { ...configuring, ...patch };
                   setDraft((cur) => cur
@@ -945,6 +974,9 @@ export default function TemplateEditorPage() {
                 index={edgeDrawer!}
                 draft={draft}
                 readonly={readonly}
+                templateId={draft.template.id}
+                taskFields={taskFields}
+                triggerFields={triggerFields}
                 onChange={(patch) => {
                   if (edgeDrawer == null || !draft) return;
                   const next = { ...draft, edges: draft.edges.map((e, i) => (i === edgeDrawer ? { ...e, ...patch } : e)) };
@@ -981,6 +1013,7 @@ export default function TemplateEditorPage() {
               hook={hook}
               providers={providers}
               repos={repos}
+              templateId={draft.template.id}
               onChange={(t) => apply({ ...draft, template: { ...draft.template, ...t } })}
             />
           </SheetBody>
@@ -1022,6 +1055,14 @@ export default function TemplateEditorPage() {
     setSaving(true);
     setError(null);
     try {
+      // validate before PATCH (Phase 5): the same structured lint the live
+      // validation runs — problems block the save and land on their node /
+      // edge as badges, instead of one concatenated wall of save errors
+      const problems = await validateDraft(draft);
+      if (problems.length) {
+        setError(problemsMessage(problems));
+        return;
+      }
       // draft declarative defs (Phase 2): the tiles placed in-memory instances;
       // only defs still referenced by a node are persisted, with the authored
       // instance config folded in so the Library row reflects what was authored
@@ -1052,6 +1093,8 @@ export default function TemplateEditorPage() {
       else {
         setDirty(false);
         setNotice("Draft saved — new flows snapshot this version.");
+        setNodeProblems({});
+        setEdgeProblems({});
         // the catalog may have gained Library rows (draft defs persisted) —
         // bump the epoch so the palette re-fetches (Phase 2)
         if (new_node_templates.length) setCatalogEpoch((e) => e + 1);
@@ -1072,7 +1115,7 @@ function SheetFooterHelper() {
 // ── edge editor ──────────────────────────────────────────────────────────────
 
 function EdgeEditor({
-  edge, draft, readonly, onChange, sourceNode,
+  edge, draft, readonly, onChange, sourceNode, templateId, taskFields, triggerFields,
 }: {
   edge: EditorEdge;
   index: number;
@@ -1080,25 +1123,53 @@ function EdgeEditor({
   readonly: boolean;
   onChange: (patch: Partial<EditorEdge>) => void;
   sourceNode: EditorNode | null;
+  /** the owning template's id (Phase 5) — the condition's live preview */
+  templateId: string;
+  /** the {{task.*}} / {{trigger.payload.*}} vocabulary (Phase 3) — the
+   *  condition builder's variable lists (an edge condition sees the whole
+   *  flow context, not just the source node's output) */
+  taskFields: { key: string; label?: string; type?: string }[];
+  triggerFields: { key: string; label?: string; type?: string }[];
 }) {
-  // decision sources: the edge label must be one of the decision's choices —
-  // offer quick-picks from the contract
-  const [choices, setChoices] = useState<{ label: string; description?: string }[] | null>(null);
   const isDecision = sourceNode?.kind === "decision";
+  // decision sources: the edge label must be one of the decision's choices —
+  // quick-picks from the contract. Non-decision sources: the contract still
+  // resolves — its published fields are the nodes.<key>.output.* paths the
+  // condition builder offers (the source node is finished when it's traversed).
+  const [contract, setContract] = useState<NodeContract | null>(null);
   useEffect(() => {
-    if (!isDecision || !sourceNode) {
-      setChoices(null);
+    if (!sourceNode) {
+      setContract(null);
       return;
     }
     let alive = true;
     fetch(contractsUrl(sourceNode))
       .then((r) => r.json())
       .then((c: NodeContract) => {
-        if (alive) setChoices((c as any)?.choices ?? []);
+        if (alive) setContract(c?.input != null ? c : null);
       })
-      .catch(() => alive && setChoices([]));
+      .catch(() => alive && setContract(null));
     return () => { alive = false; };
-  }, [isDecision, sourceNode?.nodeTemplateId, sourceNode?.config, sourceNode?.kind]);
+  }, [sourceNode?.key, sourceNode?.nodeTemplateId, sourceNode?.config, sourceNode?.kind]);
+
+  // the condition's vocabulary: task context → the source node's published
+  // outputs → trigger payload → flow & repo (no "my inputs" — the context map
+  // has no input root at edge-traversal time)
+  const condGroups = useMemo(() => {
+    const upstream = sourceNode
+      ? [{
+          key: sourceNode.key,
+          label: nodeLabel(sourceNode),
+          fields: schemaRows(contract?.output ?? null).map((f) => ({ name: f.name, type: f.type })),
+        }]
+      : [];
+    return asJsonataGroups(conditionVarGroups(
+      buildVarGroups({ taskFields, triggerFields, upstream }),
+    ));
+  }, [sourceNode, contract, taskFields, triggerFields]);
+  const choices = isDecision
+    ? (contract as (NodeContract & { choices?: { label: string; description?: string }[] }) | null)?.choices ?? []
+    : null;
 
   return (
     <div className="grid gap-3">
@@ -1157,17 +1228,20 @@ function EdgeEditor({
           onChange={(ev) => onChange({ label: ev.target.value || null })}
         />
       </div>
-      <div className="grid gap-1">
-        <label className="text-xs text-muted-foreground">Condition (JSONata over the flow context)</label>
-        <Input
-          value={edge.condition ?? ""}
-          placeholder={"nodes.build.output.mr_url != null"}
+      <div className="grid gap-1.5">
+        <label className="text-xs text-muted-foreground">Condition — when does this edge activate?</label>
+        <ConditionBuilder
+          value={edge.condition}
+          varGroups={condGroups}
+          templateId={templateId}
+          scope="context"
+          placeholder="nodes.build.output.mr_url"
           disabled={readonly}
-          className="font-mono text-[12.5px]"
-          onChange={(ev) => onChange({ condition: ev.target.value || null })}
+          onChange={(raw) => onChange({ condition: raw })}
         />
         <p className="text-[11px] text-muted-foreground m-0">
-          The edge activates only when the condition is truthy — the plan §3 build-time linter compiles it on save.
+          The edge activates only when the condition is truthy — empty means always. It&apos;s
+          checked against the flow&apos;s context as the source node finishes.
         </p>
       </div>
     </div>
@@ -1190,7 +1264,7 @@ function EdgeSelect({ value, nodes, disabled, onChange }: { value: string; nodes
 // ── flow settings body (shared manual/webhook/schedule wiring, Phase 4 pickers) ─
 
 function SettingsBody({
-  draft, readonly, hook, providers, repos, onChange,
+  draft, readonly, hook, providers, repos, templateId, onChange,
 }: {
   draft: Draft;
   readonly: boolean;
@@ -1198,6 +1272,8 @@ function SettingsBody({
   /** registered task providers (GET /api/tasks/providers) */
   providers: { kind: string; label: string; configured: boolean; contextFields: { key: string; label: string; type: string; required?: boolean }[] }[];
   repos: any[];
+  /** the owning template's id (Phase 5) — the filter's live preview */
+  templateId: string;
   onChange: (t: Partial<Draft["template"]>) => void;
 }) {
   const trigger = draft.template.trigger ?? {};
@@ -1306,14 +1382,19 @@ function SettingsBody({
           )}
           {String(trigger.type) === "webhook" && (
             <div className="grid gap-1">
-              <label className="text-xs text-muted-foreground">Filter (JSONata over the delivery)</label>
-              <Input
-                value={String(trigger.filter ?? "")}
-                placeholder={"payload.event = 'issue.created' (empty = every delivery starts a flow)"}
-                className="font-mono text-[12.5px]"
+              <label className="text-xs text-muted-foreground">Filter — which deliveries start a flow?</label>
+              <ConditionBuilder
+                value={typeof trigger.filter === "string" ? trigger.filter : null}
+                templateId={templateId}
+                scope="delivery"
+                placeholder={"payload.event"}
                 disabled={readonly}
-                onChange={(e) => setTrigger({ filter: e.target.value || undefined })}
+                onChange={(raw) => setTrigger({ filter: raw || undefined })}
               />
+              <p className="text-[11px] text-muted-foreground m-0">
+                The delivery starts a flow only when the filter is truthy — empty means every
+                delivery. It sees the delivery body (<code className="font-mono">payload.*</code>) and headers.
+              </p>
               {hook && (
                 <Card className="p-3 grid gap-1.5 mt-1">
                   <div className="flex items-center gap-1.5 text-[11.5px] font-medium text-muted-foreground uppercase tracking-[0.8px]">

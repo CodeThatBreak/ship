@@ -21,11 +21,24 @@ function compiled(expr: string): CompiledOk | CompiledErr {
     const ast = jsonata(expr) as jsonata.Expression;
     out = { ast };
   } catch (e: unknown) {
-    out = { error: e instanceof Error ? e.message : String(e) };
+    // jsonata v2 throws plain objects carrying {code, message, ...} — not
+    // Error instances, so String() degrades to "[object Object]"; pull the
+    // message (and code, when there is one) out properly
+    out = { error: jsonataErrorMessage(e) };
   }
   if (cache.size > 200) cache.clear();
   cache.set(expr, out);
   return out;
+}
+
+function jsonataErrorMessage(e: unknown): string {
+  const code = e && typeof e === "object" && "code" in e ? String((e as { code: unknown }).code) : null;
+  const msg = e instanceof Error
+    ? e.message
+    : e && typeof e === "object" && "message" in e
+      ? String((e as { message: unknown }).message)
+      : String(e);
+  return code ? `${code} — ${msg}` : msg;
 }
 
 export interface EvalResult {
@@ -45,7 +58,7 @@ export async function evalJsonata(expr: string, context: unknown): Promise<EvalR
     const value = await c.ast.evaluate(context);
     return { ok: true, value };
   } catch (e: unknown) {
-    return { ok: false, error: e instanceof Error ? e.message : String(e) };
+    return { ok: false, error: jsonataErrorMessage(e) };
   }
 }
 
