@@ -18,6 +18,8 @@ function serializeNodeTemplate(nt: NodeTemplateRow) {
     config: nt.config,
     template_id: nt.template_id,
     is_local: Boolean(nt.template_id),
+    created_at: nt.created_at,
+    updated_at: nt.updated_at,
   };
 }
 

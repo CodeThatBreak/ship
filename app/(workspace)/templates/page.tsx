@@ -15,6 +15,7 @@ import Link from "next/link";
 import type { ColumnDef } from "@tanstack/react-table";
 import { useRouter } from "next/navigation";
 import {
+  Blocks,
   Copy,
   Download,
   Plus,
@@ -289,6 +290,9 @@ export default function TemplateGallery() {
           <p className="text-muted-foreground text-[12.5px] mt-1 mb-0">Flow templates compose built-in and your own nodes. Edit here or ship YAML.</p>
         </div>
         <div className="flex gap-2">
+          <Link href="/templates/nodes" className={cn(buttonVariants({ variant: "outline" }))}>
+            <Blocks size={13} /> Template nodes
+          </Link>
           <Button variant="outline" onClick={() => { setImportError(null); setImporting(true); }}>
             <Upload size={13} /> Import YAML
           </Button>

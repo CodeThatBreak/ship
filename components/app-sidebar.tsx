@@ -3,6 +3,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import type { ReactNode } from "react";
 import {
+  Blocks,
   FolderGit2,
   LayoutTemplate,
   ListTree,
@@ -38,6 +39,7 @@ const SECTIONS: NavSection[] = [
       item("Tasks", "/", ListTree),
       item("Flows", "/flows", Workflow),
       item("Templates", "/templates", LayoutTemplate),
+      item("Template Nodes", "/templates/nodes", Blocks),
     ],
   },
   {

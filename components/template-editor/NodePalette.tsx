@@ -11,11 +11,12 @@
  *                   born scoped to THIS template.
  *   This template — the declarative rows created here (template-local:
  *                   node_templates rows owned by this template). Picking
- *                   places an instance of the real row; the side button
- *                   promotes a row to the shared Library (Add to Library).
- *   Library       — collapsed by default: the global declarative rows
- *                   (template_id NULL), reusable across templates. Picking
- *                   places an instance of the real row.
+ *                   places an instance of the real row. They never leave this
+ *                   template — shared reusable nodes are authored on the
+ *                   Template Nodes page instead.
+ *   Library       — the shared reusable custom nodes, managed on the
+ *                   Template Nodes page (/templates/nodes). Picking places
+ *                   an instance of the real row.
  *
  * Declared nodes are NOT listed here; those live on the canvas and open their
  * configurator from the canvas click. Every placement puts an unconnected node
@@ -23,6 +24,7 @@
  * author it in the drawer (the single authoring surface).
  */
 import { useEffect, useState } from "react";
+import Link from "next/link";
 import { ChevronDown, ChevronRight, Library, Lock, PanelLeftClose, PanelLeftOpen, Plus } from "lucide-react";
 import { Badge } from "../ui/badge";
 import { Button } from "../ui/button";
@@ -60,9 +62,6 @@ function kindNodeTitle(title: string): string {
   return `Place a blank ${title.toLowerCase()} node — drag from a handle to connect it, then author it in the drawer. Nothing is saved until you Save the template.`;
 }
 
-/** Title for the promotion button on "This template" rows. */
-const ADD_TO_LIBRARY_TITLE = "Add to Library — reusable in every template";
-
 export interface NodePaletteProps {
   /** the owning template — scopes the catalog fetch (which rows are local) */
   templateId: string;
@@ -76,9 +75,6 @@ export interface NodePaletteProps {
   onAddCatalogNode: (rowId: string, isBuiltin: boolean, catalogKey: string, name: string) => void;
   /** a New-node row: place an in-memory draft instance of the kind */
   onAddKindNode: (kind: AuthorKind) => void;
-  /** promote a template-local row to the shared Library (the host PATCHes
-   *  and bumps the epoch; the promoted row then lists under Library) */
-  onAddToLibrary: (rowId: string, name: string) => void;
 }
 
 export default function NodePalette({
@@ -88,7 +84,6 @@ export default function NodePalette({
   catalogEpoch = 0,
   onAddCatalogNode,
   onAddKindNode,
-  onAddToLibrary,
 }: NodePaletteProps) {
   const [open, setOpen] = useState(true);
   const [libraryOpen, setLibraryOpen] = useState(false);
@@ -211,29 +206,30 @@ export default function NodePalette({
         )}
 
         {/* This template: rows created here (template-local declarative rows).
-            The side button promotes a saved row to the shared Library. */}
+            They stay private to this template — shared reusable nodes are
+            authored on the Template Nodes page, not promoted from here. */}
         {catalog != null && (
           <PaletteGroup title="This template">
             {localCount === 0 ? (
               <p className="text-[11px] text-muted-foreground px-2.5 py-1 m-0">
-                Nodes you create here live in this template only. Save, then add them to the Library to reuse them across templates.
+                Nodes you create here live in this template only. Reusable nodes shared across templates are managed on the Template Nodes page.
               </p>
             ) : (
               localEntries.map((n) => (
-                <LocalPaletteRow
+                <PaletteRow
                   key={n.id}
                   n={n}
                   disabled={readonly}
                   onPick={() => onAddCatalogNode(n.id, false, n.key, n.name)}
-                  onAddToLibrary={onAddToLibrary}
                 />
               ))
             )}
           </PaletteGroup>
         )}
 
-        {/* Library: persisted custom nodes reusable across templates —
-            collapsed by default so the default path stays short */}
+        {/* Library: the shared reusable nodes, authored on the Template Nodes
+            page (/templates/nodes) — collapsed by default so the default path
+            stays short */}
         {catalog != null && (
           <div className="px-2 pb-2">
             <Button
@@ -251,7 +247,11 @@ export default function NodePalette({
               <div className="grid gap-1 pt-1">
                 {libraryCount === 0 && (
                   <p className="text-[11px] text-muted-foreground px-2.5 m-0">
-                    Nodes you Save become reusable here, across all templates.
+                    Reusable nodes are managed on the{" "}
+                    <Link href="/templates/nodes" className="underline hover:text-foreground">
+                      Template Nodes
+                    </Link>{" "}
+                    page.
                   </p>
                 )}
                 {libByKind.map((g) => (
@@ -358,49 +358,4 @@ function KindRow({ kind, title, disabled, onPick }: { kind: string; title: strin
   );
 }
 
-/** A "This template" row: the usual pick row plus the promotion button —
- *  nested buttons are invalid markup, so the row is a flex shell around two
- *  controls (the pick covers icon + label, the ghost button promotes). */
-function LocalPaletteRow({
-  n,
-  disabled,
-  onPick,
-  onAddToLibrary,
-}: {
-  n: CatalogEntry;
-  disabled?: boolean;
-  onPick: () => void;
-  onAddToLibrary: (rowId: string, name: string) => void;
-}) {
-  const Icon = iconForIconName(n.icon, n.is_builtin ? n.key : n.kind, n.key);
-  return (
-    <div className={cn(
-      "flex items-center gap-1 rounded-lg pr-1 min-w-0",
-      disabled ? "opacity-50" : "hover:bg-muted/60",
-    )}>
-      <button
-        onClick={onPick}
-        disabled={disabled}
-        className="flex flex-1 min-w-0 items-center gap-2 px-2.5 py-1.5 text-left"
-        title={disabled ? "Read-only template — duplicate from the gallery to edit" : `Add ${n.name}`}
-      >
-        <Icon size={14} className={cn("shrink-0", n.kind === "decision" ? "text-violet-300" : "text-muted-foreground")} />
-        <span className="flex-1 min-w-0">
-          <span className="block text-[12.5px] font-medium leading-tight truncate">{n.name}</span>
-          {n.description && <span className="block text-[10.5px] text-muted-foreground truncate">{n.description}</span>}
-        </span>
-        <Plus size={12} className="text-muted-foreground shrink-0" />
-      </button>
-      <Button
-        variant="ghost"
-        size="icon-xs"
-        disabled={disabled}
-        className="text-muted-foreground hover:text-foreground shrink-0"
-        title={ADD_TO_LIBRARY_TITLE}
-        onClick={() => onAddToLibrary(n.id, n.name)}
-      >
-        <Library size={12} />
-      </Button>
-    </div>
-  );
-}
+
