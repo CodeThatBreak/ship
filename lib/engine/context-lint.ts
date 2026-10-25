@@ -26,6 +26,23 @@ export interface TaskUniverse {
   fields: { key: string; label: string }[];
 }
 
+/**
+ * One lint problem, structured (Phase 3): where it came from — `node "x"` /
+ * `edge a → b` — the offending `{{ref}}` when one is, and the readable
+ * message (without the `where:` prefix; the joined string re-attaches it so
+ * save/import messages stay byte-identical). The validate endpoint returns
+ * these; the editor underlines the offending ref where it's typed.
+ */
+export interface LintProblem {
+  where: string;
+  ref?: string;
+  message: string;
+}
+
+function joinProblems(problems: LintProblem[]): string {
+  return problems.map((p) => (p.where ? `${p.where}: ${p.message}` : p.message)).join("\n");
+}
+
 const ROOTS = ["task", "repo", "flow", "trigger", "nodes", "input", "secrets"] as const;
 
 interface LintNode {
@@ -108,14 +125,16 @@ export function outputFieldsFor(kind: string, config: unknown): string[] | null 
 /**
  * Validate a template draft. Collects every problem into one readable message
  * (the store throws it on save/import); returns `error: null` when clean.
+ * The problems are also returned structured (where / ref / message) for the
+ * live validation endpoint.
  */
 export function lintTemplate(
   nodes: LintNode[],
   edges: { from: string; to: string; condition: string | null; label: string | null; kind: string }[],
   catalog: Record<string, CatalogEntry>, // nodeTemplateId → entry
   task: TaskUniverse | null = null, // trigger.task_type → provider fields (null = unknown provider — free pass)
-): { error: string | null } {
-  const problems: string[] = [];
+): { error: string | null; problems: LintProblem[] } {
+  const problems: LintProblem[] = [];
   const byKey = new Map(nodes.map((n) => [n.key, n]));
 
   // contract lookup for {{nodes.<key>.output.<field>}} references
@@ -132,7 +151,9 @@ export function lintTemplate(
     });
     // the entry contract declaration itself is validated here (loud, readable)
     if (nt.isBuiltin && nt.key === nodeRegistry.entryKey()) {
-      problems.push(...lintStartContract(mergedConfig, `node "${n.key}"`));
+      for (const message of lintStartContract(mergedConfig, `node "${n.key}"`)) {
+        problems.push({ where: "", message });
+      }
     }
   }
 
@@ -160,7 +181,7 @@ export function lintTemplate(
     for (const [field, expr] of Object.entries(n.inputMap ?? {})) {
       if (typeof expr !== "string") continue;
       const err = lintJsonata(expr);
-      if (err) problems.push(`node "${n.key}" input_map.${field}: ${err}`);
+      if (err) problems.push({ where: `node "${n.key}"`, message: `input_map.${field}: ${err}` });
     }
 
     if (nt) {
@@ -192,19 +213,19 @@ export function lintTemplate(
           for (const [field, expr] of Object.entries(cfg.pass as Record<string, unknown>)) {
             if (typeof expr !== "string" || !expr.trim() || !field.trim()) continue;
             const err = lintJsonata(expr);
-            if (err) problems.push(`node "${n.key}" pass variable "${field}": ${err}`);
+            if (err) problems.push({ where: `node "${n.key}"`, message: `pass variable "${field}": ${err}` });
           }
         }
         if (typeof cfg.source === "string" && cfg.source === "expression") {
           if (typeof cfg.expression === "string" && cfg.expression.trim()) {
             const err = lintJsonata(cfg.expression);
-            if (err) problems.push(`node "${n.key}" decision expression: ${err}`);
+            if (err) problems.push({ where: `node "${n.key}"`, message: `decision expression: ${err}` });
           }
           if (Array.isArray(cfg.choices)) {
             for (const c of cfg.choices as { label?: unknown; condition?: unknown }[]) {
               if (!c || typeof c !== "object" || typeof c.condition !== "string" || !c.condition.trim()) continue;
               const err = lintJsonata(c.condition);
-              if (err) problems.push(`node "${n.key}" choice "${String(c.label ?? "?")}" condition: ${err}`);
+              if (err) problems.push({ where: `node "${n.key}"`, message: `choice "${String(c.label ?? "?")}" condition: ${err}` });
             }
           }
         }
@@ -214,7 +235,7 @@ export function lintTemplate(
         const cfg = merge(n.config, nt.config);
         if (typeof cfg.response_map === "string" && cfg.response_map.trim()) {
           const err = lintJsonata(cfg.response_map);
-          if (err) problems.push(`node "${n.key}" response_map: ${err}`);
+          if (err) problems.push({ where: `node "${n.key}"`, message: `response_map: ${err}` });
         }
       }
     }
@@ -224,15 +245,15 @@ export function lintTemplate(
   for (const e of edges) {
     if (e.condition?.trim()) {
       const err = lintJsonata(e.condition);
-      if (err) problems.push(`edge ${e.from} → ${e.to}: ${err}`);
+      if (err) problems.push({ where: `edge ${e.from} → ${e.to}`, message: err });
     }
   }
 
-  return { error: problems.length ? problems.join("\n") : null };
+  return { error: problems.length ? joinProblems(problems) : null, problems };
 }
 
 interface LintCtx {
-  problems: string[];
+  problems: LintProblem[];
   byKey: Map<string, LintNode>;
   contractOfKey: Map<string, { fields: string[] | null; kind: string }>;
   addressesOutput: (expr: string, onUnknown: (field: string) => void) => boolean;
@@ -248,12 +269,19 @@ function lintRef(where: string, ref: string, ctx: LintCtx): void {
   const segments = ref.split(".");
   const root = segments[0];
   if (!(ROOTS as readonly string[]).includes(root)) {
-    ctx.problems.push(`${where}: unknown reference {{${ref}}} — roots: task.* | repo.* | flow.* | trigger.payload.* | nodes.<key>.output.* | input.* (the upstream nodes' output)${root === "secrets" ? " | secrets.* (http nodes only)" : ""}`);
+    ctx.problems.push({
+      where,
+      ref,
+      message: `unknown reference {{${ref}}} — roots: task.* | repo.* | flow.* | trigger.payload.* | nodes.<key>.output.* | input.* (the upstream nodes' output)${root === "secrets" ? " | secrets.* (http nodes only)" : ""}`,
+    });
     return;
   }
   if (root === "secrets" && !ctx.inHttp) {
-    ctx.problems.push(
-      `${where}: {{secrets.*}} resolves only inside http node config (URL / headers / body) — secret values never persist`);
+    ctx.problems.push({
+      where,
+      ref,
+      message: `{{secrets.*}} resolves only inside http node config (URL / headers / body) — secret values never persist`,
+    });
     return;
   }
   if (root === "task") {
@@ -266,23 +294,38 @@ function lintRef(where: string, ref: string, ctx: LintCtx): void {
     if (!field) return; // bare {{input}} renders the whole inherited object
     if (ctx.inheritedFields == null) return; // free-form — any field passes
     if (!ctx.inheritedFields.includes(field)) {
-      ctx.problems.push(`${where}: the node's upstream publishes ${ctx.inheritedFields.length ? JSON.stringify(ctx.inheritedFields) : "no declared fields"} — not "${field}"`);
+      ctx.problems.push({
+        where,
+        ref,
+        message: `the node's upstream publishes ${ctx.inheritedFields.length ? JSON.stringify(ctx.inheritedFields) : "no declared fields"} — not "${field}"`,
+      });
     }
     return;
   }
   if (root === "nodes") {
     const nodeKey = segments[1];
     if (!nodeKey || !ctx.byKey.has(nodeKey)) {
-      ctx.problems.push(`${where}: {{${ref}}} references unknown node "${nodeKey ?? ""}"`);
+      ctx.problems.push({
+        where,
+        ref,
+        message: `{{${ref}}} references unknown node "${nodeKey ?? ""}"`,
+      });
       return;
     }
     const contract = ctx.contractOfKey.get(nodeKey);
     if (contract?.kind === "decision" && segments[2] === "output" && contract.fields != null && !contract.fields.includes(segments[3])) {
-      ctx.problems.push(`${where}: node "${nodeKey}" (decision) publishes ${contract.fields.join(" / ")}, not "${segments[3] ?? ""}"`);
+      ctx.problems.push({
+        where,
+        ref,
+        message: `node "${nodeKey}" (decision) publishes ${contract.fields.join(" / ")}, not "${segments[3] ?? ""}"`,
+      });
       return;
     }
-    ctx.addressesOutput(ref, (field) => ctx.problems.push(
-      `${where}: node "${nodeKey}" publishes ${field === "markdown" ? '{"markdown"}' : "fields " + JSON.stringify(ctx.contractOfKey.get(nodeKey)?.fields) + " — not .${field}"}`));
+    ctx.addressesOutput(ref, (field) => ctx.problems.push({
+      where,
+      ref,
+      message: `node "${nodeKey}" publishes ${field === "markdown" ? '{"markdown"}' : "fields " + JSON.stringify(ctx.contractOfKey.get(nodeKey)?.fields) + " — not .${field}"}`,
+    }));
   }
 }
 
@@ -298,8 +341,11 @@ function lintTaskRef(where: string, segments: string[], ref: string, ctx: LintCt
     const published = ctx.task.fields.length
       ? "fields " + JSON.stringify(ctx.task.fields.map((f) => f.key))
       : "no declared fields";
-    ctx.problems.push(
-      `${where}: the template's task type ("${ctx.task.kind}") publishes ${published} — not "${field}"`);
+    ctx.problems.push({
+      where,
+      ref,
+      message: `the template's task type ("${ctx.task.kind}") publishes ${published} — not "${field}"`,
+    });
   }
 }
 

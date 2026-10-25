@@ -69,6 +69,7 @@ import { FLOW_TRIGGER_TYPE } from "../../../components/template-editor/constants
 import type { DraftNodeDef, EditorEdge, EditorNode, NodeContract } from "../../../components/template-editor/types";
 import { contractsUrl, describeTrigger, nodeRelationships } from "../../../components/template-editor/types";
 import type { TaskProviderInfo } from "../../../components/template-editor/types";
+import { schemaRows } from "../../../components/template-editor/variables";
 
 /** A registered task provider's editor-facing slice (GET /api/tasks/providers). */
 type TaskProvider = TaskProviderInfo;
@@ -200,6 +201,13 @@ export default function TemplateEditorPage() {
     Record<string, { label: string; description?: string; condition?: string }[]>
   >({});
   const choiceCache = useRef<Record<string, { label: string; description?: string; condition?: string }[] | null>>({});
+  /** the start node's contract fields (Phase 3) — the {{trigger.payload.*}}
+   *  vocabulary every node configurator offers */
+  const [triggerFields, setTriggerFields] = useState<{ key: string; label?: string; type?: string }[]>([]);
+  const startContractCache = useRef<Record<string, { key: string; label?: string; type?: string }[]>>({});
+  /** live-linted refs per node (Phase 3): node key → ref → the linter's
+   *  problem — the prompt editor underlines them where they're typed */
+  const [refProblems, setRefProblems] = useState<Record<string, Record<string, string>>>({});
   const builderApi = useRef<BuilderApi | null>(null);
 
   const templateId = (() => {
@@ -323,6 +331,81 @@ export default function TemplateEditorPage() {
     fetch("/api/tasks/providers").then((r) => r.json()).then((d) => setProviders(d?.providers ?? [])).catch(() => {});
     fetch("/api/repos").then((r) => r.json()).then((d) => setRepos(d?.repos ?? [])).catch(() => {});
   }, []);
+
+  // the start node's contract fields (Phase 3) — the {{trigger.payload.*}}
+  // vocabulary. Cached per (nodeTemplateId, config): the contract is declared
+  // per instance, so editing the start's run-context box changes it.
+  useEffect(() => {
+    if (!draft) return;
+    const st = draft.nodes.find((n) => n.nodeTemplateId === "nt_start");
+    if (!st) return;
+    const ck = `${st.nodeTemplateId}::${JSON.stringify(st.config ?? {})}`;
+    const cached = startContractCache.current[ck];
+    if (cached) {
+      // the same array reference → React bails out, no fetch/loop
+      setTriggerFields(cached);
+      return;
+    }
+    let alive = true;
+    fetch(contractsUrl(st))
+      .then((r) => r.json())
+      .then((c: NodeContract) => {
+        const fields = schemaRows(c?.output ?? null).map((r) => ({
+          key: r.name,
+          label: r.description ?? r.name,
+          type: r.type,
+        }));
+        startContractCache.current[ck] = fields;
+        if (alive) setTriggerFields(fields);
+      })
+      .catch(() => {});
+    return () => {
+      alive = false;
+    };
+  }, [draft]);
+
+  // live {{ref}} validation (Phase 3): the draft validates against the
+  // static linter (debounced) while a node drawer is open — problems keyed
+  // per node underline the offending refs where they're typed. Read-only
+  // built-ins never validate (nothing is editable).
+  useEffect(() => {
+    if (!draft || draft.template.is_builtin || nodeDrawer == null) return;
+    let alive = true;
+    const timer = setTimeout(() => {
+      void fetch(`/api/templates/${draft.template.id}/validate`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          trigger: draft.template.trigger,
+          nodes: draft.nodes.map((n) => ({
+            key: n.key,
+            nodeTemplateId: n.nodeTemplateId,
+            config: n.config,
+            input_map: n.input_map,
+          })),
+          edges: draft.edges.map((e) => ({ from: e.from, to: e.to, kind: e.kind, label: e.label, condition: e.condition })),
+          new_node_templates: collectPendingDefs(draft),
+        }),
+      })
+        .then((r) => r.json())
+        .then((d: { problems?: { where: string; ref?: string; message: string }[] }) => {
+          if (!alive) return;
+          const map: Record<string, Record<string, string>> = {};
+          for (const p of d?.problems ?? []) {
+            if (!p.ref) continue;
+            const m = /^node "([^"]+)"/.exec(p.where ?? "");
+            if (!m) continue;
+            (map[m[1]] ??= {})[p.ref] = p.message;
+          }
+          setRefProblems(map);
+        })
+        .catch(() => {});
+    }, 600);
+    return () => {
+      alive = false;
+      clearTimeout(timer);
+    };
+  }, [draft, nodeDrawer]);
 
   const undo = useCallback(() => {
     const prev = undoStack.current.pop();
@@ -819,6 +902,8 @@ export default function TemplateEditorPage() {
                 incoming={configuringIncoming}
                 locked={configuringLocked}
                 taskFields={taskFields}
+                triggerFields={triggerFields}
+                invalidRefs={refProblems[configuring.key]}
                 onChange={(patch) => {
                   const next = { ...configuring, ...patch };
                   setDraft((cur) => cur

@@ -1,6 +1,6 @@
 "use client";
-import { useEffect, useMemo, useRef, useState } from "react";
-import { Info, ListChecks, Plus, Sparkles, Trash2, Unplug } from "lucide-react";
+import { Fragment, useEffect, useMemo, useRef, useState } from "react";
+import { ChevronDown, Info, ListChecks, Plus, Sparkles, Trash2, Unplug } from "lucide-react";
 import { Badge } from "../ui/badge";
 import { Button } from "../ui/button";
 import { Card } from "../ui/card";
@@ -35,6 +35,15 @@ import {
 } from "../ui/tooltip";
 import { PromptEditor } from "./PromptEditor";
 import { iconForIconName } from "./icons";
+import {
+  asJsonataGroups,
+  buildVarGroups,
+  filterVarGroups,
+  schemaRows,
+  stripBraces,
+  varGroupAccent,
+  type VarGroup,
+} from "./variables";
 import {
   CodeBlock,
   CodeBlockActions,
@@ -107,18 +116,26 @@ export function NodeConfiguratorBody({
   incoming,
   locked,
   taskFields,
+  triggerFields,
+  invalidRefs,
 }: {
   node: EditorNode;
   onChange: (p: Partial<EditorNode>) => void;
-  /** Incoming edges + sources (visual builder) — drives the variable chips
+  /** Incoming edges + sources (visual builder) — drives the variable groups
    *  (the connected upstream nodes' published outputs). */
   incoming?: IncomingLink[];
   /** Node has no edges at all — shows a connect hint above the form; the
    *  prompt/knobs stay editable (task context variables remain available). */
   locked?: boolean;
   /** The template's declared task type's contextFields (Phase 3) — the
-   *  {{task.*}} chips offered on EVERY node (base context, no wiring). */
+   *  {{task.*}} vocabulary offered on EVERY node (base context, no wiring). */
   taskFields?: { key: string; label: string; type: string; required?: boolean }[];
+  /** The template's start node's contract fields (Phase 3) — the
+   *  {{trigger.payload.*}} vocabulary (what the flow starts with). */
+  triggerFields?: { key: string; label?: string; type?: string }[];
+  /** Live-linted refs for THIS node (Phase 3): ref → the linter's problem.
+   *  The prompt editor underlines the invalid ones where they're typed. */
+  invalidRefs?: Record<string, string>;
 }) {
   const [tab, setTab] = useState<
     "trigger" | "config" | "output" | "contract"
@@ -171,17 +188,28 @@ export function NodeConfiguratorBody({
   }, [node?.nodeTemplateId, node?.config, contract]);
 
   // the upstream variables (friendly names, grouped by source node) — shared
-  // by the Config tab (click-to-insert chips) and the Contract tab (inherited input)
+  // by the Config tab (the per-field Variables picker) and the Contract tab
+  // (inherited input)
   const groups = useUpstreamGroups(incoming);
-  // the task context chips: the template's declared task type's fields —
-  // available to every node (base context), no per-node wiring
-  const taskVariables = useMemo(
-    () => (taskFields ?? []).map((f) => ({
-      label: `task · ${f.label}`,
-      insert: `{{task.${f.key}}}`,
-    })),
-    [taskFields],
+  // the full picker vocabulary (Phase 3): inherited inputs → task context →
+  // upstream nodes → trigger payload — one shape for every variable surface
+  const varGroups = useMemo(
+    () =>
+      buildVarGroups({
+        taskFields: taskFields ?? [],
+        triggerFields: triggerFields ?? [],
+        upstream: groups
+          .filter((g) => g.edge.kind === "next")
+          .map((g) => ({
+            key: g.source.key,
+            label: g.label,
+            fields: g.fields.map((f) => ({ name: f.name, type: f.type })),
+          })),
+      }),
+    [groups, taskFields, triggerFields],
   );
+  // only `next` edges inherit — the isolation hint keys on them
+  const hasUpstream = groups.some((g) => g.edge.kind === "next");
 
   // the start node has no config and no input mapping — its fields flow
   // straight to the next nodes, so it gets Trigger + Output Schema only
@@ -230,8 +258,9 @@ export function NodeConfiguratorBody({
             node={node}
             onChange={onChange}
             contract={contract}
-            groups={groups}
-            taskVariables={taskVariables}
+            varGroups={varGroups}
+            hasUpstream={hasUpstream}
+            invalidRefs={invalidRefs}
           />
         ) : tab === "output" ? (
           <StartContractEditor node={node} onChange={onChange} taskFields={taskFields} />
@@ -479,28 +508,22 @@ function ConfigTab({
   node,
   onChange,
   contract,
-  groups,
-  taskVariables,
+  varGroups,
+  hasUpstream,
+  invalidRefs,
 }: {
   node: EditorNode;
   onChange: (p: Partial<EditorNode>) => void;
   contract: NodeContract | null;
-  groups: UpstreamGroup[];
-  /** the template's {{task.*}} chips (Phase 3) — offered beside the upstream ones */
-  taskVariables: { label: string; insert: string }[];
+  /** the grouped variable vocabulary — the pickers' single source (Phase 3) */
+  varGroups: VarGroup[];
+  /** any `next`-edge parent connected — false shows the inherit hint */
+  hasUpstream: boolean;
+  /** live-linted refs → the linter's problem (underlined in prompt fields) */
+  invalidRefs?: Record<string, string>;
 }) {
-  // the variables the connected upstream nodes publish — click to insert
-  const variables = [
-    ...taskVariables,
-    ...groups.flatMap((g) =>
-      g.fields.map((f) => ({
-        label: `${g.label} · ${f.name}`,
-        insert: `{{nodes.${g.source.key}.output.${f.name}}}`,
-      })),
-    ),
-  ];
   // no upstream yet (unconnected node or an entry): the inherit hint
-  const inheritHint = groups.length === 0 ? (
+  const inheritHint = !hasUpstream ? (
     <p className="text-[11px] text-muted-foreground m-0">
       Connect a node to inherit its outputs as variables.
     </p>
@@ -526,7 +549,8 @@ function ConfigTab({
             field={f}
             value={node.config?.[f.key]}
             companionText={companionTextOf(node, f.key)}
-            variables={freeTextFields.has(f.key) ? variables : undefined}
+            varGroups={freeTextFields.has(f.key) ? varGroups : undefined}
+            invalidRefs={invalidRefs}
             onChange={(v, extra) =>
               onChange({ config: writeConfig(node, f.key, v, extra) })
             }
@@ -577,11 +601,12 @@ function ConfigTab({
             defaultValue={defaults[f.key]}
             companionText={companionTextOf(node, f.key, defaults[f.key])}
             decisionSource={decisionSource}
-            variables={
+            varGroups={
               freeTextFields.has(f.key) || f.type === "choices" || f.type === "map"
-                ? variables
+                ? varGroups
                 : undefined
             }
+            invalidRefs={invalidRefs}
             onChange={(v, extra) =>
               onChange({ config: writeConfig(node, f.key, v, extra) })
             }
@@ -614,7 +639,7 @@ function ConfigTab({
   );
 }
 
-/** config knobs that carry {{...}} template refs — they get the variable chips */
+/** config knobs that carry {{...}} template refs — they get the "Variables ▾" picker */
 const freeTextFields = new Set([
   "prompt",
   "prompt_body",
@@ -738,7 +763,8 @@ function ConfigFieldRow({
   defaultValue,
   companionText,
   decisionSource,
-  variables,
+  varGroups,
+  invalidRefs,
   onChange,
 }: {
   field: {
@@ -758,8 +784,11 @@ function ConfigFieldRow({
   /** a decision node's current source — the choices editor shows per-choice
    *  conditions for the expression source */
   decisionSource?: string;
-  /** upstream variables — the rich prompt editor's @ popover / click-to-insert chips */
-  variables?: { label: string; insert: string }[];
+  /** the grouped variable vocabulary — the prompt editor's @ popover / the
+   *  field's "Variables ▾" picker (Phase 3) */
+  varGroups?: VarGroup[];
+  /** live-linted refs → the linter's problem (prompt fields underline them) */
+  invalidRefs?: Record<string, string>;
   onChange: (v: unknown, extra?: Record<string, unknown>) => void;
 }) {
   const effective = value !== undefined ? value : defaultValue;
@@ -775,9 +804,6 @@ function ConfigFieldRow({
         : `(default: ${v})`;
     return `(default: ${JSON.stringify(v)})`;
   };
-  const chips = variables?.length ? (
-    <VariableChips variables={variables} onInsert={insertRef} />
-  ) : null;
   // the declarative kinds' bespoke editors (schema boxes, branch choices)
   if (field.type === "ts_output") {
     return (
@@ -799,7 +825,7 @@ function ConfigFieldRow({
         value={value}
         defaultValue={defaultValue}
         source={decisionSource}
-        variables={variables}
+        varGroups={varGroups}
         onChange={onChange}
       />
     );
@@ -810,7 +836,7 @@ function ConfigFieldRow({
         field={field}
         value={value}
         defaultValue={defaultValue}
-        variables={variables}
+        varGroups={varGroups}
         onChange={onChange}
       />
     );
@@ -827,23 +853,30 @@ function ConfigFieldRow({
       </label>
     );
   }
-  // prompt fields: the rich text editor — "@" opens the variable popover
+  // prompt fields: the rich text editor — "@" opens the grouped variable
+  // popover, and unresolvable refs underline where they're typed
   if (field.type === "text" && promptEditorKeys.has(field.key)) {
     return (
       <div className="grid gap-1.5">
         <FieldLabel field={field} />
         <PromptEditor
           value={typeof effective === "string" ? effective : ""}
-          variables={variables ?? []}
+          groups={varGroups ?? []}
+          invalidRefs={invalidRefs}
           onChange={(text) => onChange(text || undefined)}
         />
       </div>
     );
   }
+  const picker = varGroups?.length ? (
+    <VariablesPicker groups={varGroups} onInsert={insertRef} />
+  ) : null;
   return (
     <div className="grid gap-1">
-      <FieldLabel field={field} />
-      {chips}
+      <div className="flex items-center justify-between gap-2">
+        <FieldLabel field={field} />
+        {picker}
+      </div>
       {field.type === "select" ? (
         <ConfigSelect
           options={field.options ?? []}
@@ -1104,16 +1137,16 @@ function TsOutputEditor({
  *
  * For the `expression` source each choice also carries a JSONata `condition`
  * over the flow context — every truthy condition picks that branch. The
- * condition boxes get the upstream variables as click-to-insert chips (raw
+ * condition boxes get the upstream variables via a "Variables ▾" picker (raw
  * JSONata paths — the `{{...}}` wrapper is prompt syntax, not JSONata); the
- * chips insert into the focused row.
+ * picker inserts into the focused row.
  */
 function ChoicesEditor({
   field,
   value,
   defaultValue,
   source,
-  variables,
+  varGroups,
   onChange,
 }: {
   field: { key: string; label: string; type: string; help?: string; options?: { value: string; label: string }[] };
@@ -1121,7 +1154,7 @@ function ChoicesEditor({
   defaultValue?: unknown;
   /** the decision's current source — "expression" adds the condition boxes */
   source?: string;
-  variables?: { label: string; insert: string }[];
+  varGroups?: VarGroup[];
   onChange: (v: unknown) => void;
 }) {
   const effective = (
@@ -1134,7 +1167,7 @@ function ChoicesEditor({
       condition: c.condition ?? "",
     })),
   );
-  /** the choice whose condition box the chips insert into */
+  /** the choice whose condition box the picker inserts into */
   const [focusIdx, setFocusIdx] = useState(0);
   const isExpression = source === "expression";
 
@@ -1150,11 +1183,7 @@ function ChoicesEditor({
     if (labeled.length) onChange(labeled);
   };
 
-  // chips insert raw JSONata paths — strip the prompt-ref {{...}} wrapper
-  const condVars = (variables ?? []).map((v) => ({
-    label: v.label,
-    insert: v.insert.replace(/^\{\{/, "").replace(/\}\}$/, ""),
-  }));
+  // the picker inserts raw JSONata paths into the focused row's condition
   const insertCond = (ref: string) => {
     const i = Math.min(focusIdx, Math.max(rows.length - 1, 0));
     const cur = rows[i]?.condition ?? "";
@@ -1165,17 +1194,12 @@ function ChoicesEditor({
 
   return (
     <div className="grid gap-1.5">
-      <div className="flex items-baseline justify-between gap-2 flex-wrap">
+      <div className="flex items-center justify-between gap-2 flex-wrap">
         <label className="text-xs text-muted-foreground">Choices (branch labels)</label>
-        {isExpression && condVars.length > 0 && (
-          <span className="text-[10px] text-muted-foreground">
-            click a variable to insert it into the focused condition
-          </span>
-        )}
+        {isExpression && varGroups?.length ? (
+          <VariablesPicker groups={asJsonataGroups(varGroups)} onInsert={insertCond} />
+        ) : null}
       </div>
-      {isExpression && condVars.length > 0 && (
-        <VariableChips variables={condVars} onInsert={insertCond} />
-      )}
       {rows.map((c, i) => (
         <div
           key={i}
@@ -1244,7 +1268,7 @@ function ChoicesEditor({
  * The decision's pass-down variables — field → JSONata rows edited in place
  * (the `pass` instance override). Every field is merged into the decision's
  * output beside chosen / rationale, so nodes attached to a branch address
- * them as `{{input.<field>}}` with no extra wiring. The chips insert raw
+ * them as `{{input.<field>}}` with no extra wiring. The picker inserts raw
  * JSONata paths (the `{{...}}` wrapper is prompt syntax) into the focused
  * expression box; a row with a name but no expression writes nothing.
  */
@@ -1252,13 +1276,13 @@ function PassMapEditor({
   field,
   value,
   defaultValue,
-  variables,
+  varGroups,
   onChange,
 }: {
   field: { key: string; label: string; type: string; help?: string };
   value: unknown;
   defaultValue?: unknown;
-  variables?: { label: string; insert: string }[];
+  varGroups?: VarGroup[];
   onChange: (v: unknown) => void;
 }) {
   const effective = (
@@ -1271,6 +1295,7 @@ function PassMapEditor({
   const [rows, setRows] = useState<{ field: string; expr: string }[]>(() =>
     Object.entries(effective).map(([field, expr]) => ({ field, expr: typeof expr === "string" ? expr : "" })),
   );
+  /** the row whose expression box the picker inserts into */
   const [focusIdx, setFocusIdx] = useState(0);
 
   const write = (next: { field: string; expr: string }[]) => {
@@ -1282,11 +1307,7 @@ function PassMapEditor({
     onChange(mapped);
   };
 
-  // chips insert raw JSONata paths — strip the prompt-ref {{...}} wrapper
-  const condVars = (variables ?? []).map((v) => ({
-    label: v.label,
-    insert: v.insert.replace(/^\{\{/, "").replace(/\}\}$/, ""),
-  }));
+  // the picker inserts raw JSONata paths into the focused row's expression
   const insertExpr = (ref: string) => {
     const i = Math.min(focusIdx, Math.max(rows.length - 1, 0));
     const cur = rows[i]?.expr ?? "";
@@ -1295,15 +1316,12 @@ function PassMapEditor({
 
   return (
     <div className="grid gap-1.5">
-      <div className="flex items-baseline justify-between gap-2 flex-wrap">
-        <label className="text-xs text-muted-foreground">
-          {field.label}
-          {variables?.length ? (
-            <span className="ml-2 text-[10px]">click a variable to insert it into the focused expression</span>
-          ) : null}
-        </label>
+      <div className="flex items-center justify-between gap-2 flex-wrap">
+        <label className="text-xs text-muted-foreground">{field.label}</label>
+        {varGroups?.length ? (
+          <VariablesPicker groups={asJsonataGroups(varGroups)} onInsert={insertExpr} />
+        ) : null}
       </div>
-      {condVars.length > 0 && <VariableChips variables={condVars} onInsert={insertExpr} />}
       {rows.map((r, i) => (
         <div key={i} className="grid grid-cols-[130px_1fr] gap-1.5 items-start">
           <Input
@@ -1351,31 +1369,108 @@ function PassMapEditor({
 }
 
 /**
- * The upstream variables as friendly chips — pick "Review · comment_count",
- * get `{{nodes.review.output.comment_count}}` inserted into the field. Only
- * the variable the user cares about is shown; the raw ref it resolves to is
- * engine plumbing.
+ * The per-field "Variables ▾" picker (Phase 3): one affordance for every
+ * ref-bearing field — the grouped vocabulary (inherited → task → upstream →
+ * trigger) in an anchored panel with a search box; picking a field inserts
+ * its ref (click-to-insert supersedes the old chip rows). `jsonata` callers
+ * pass pre-stripped groups (`asJsonataGroups`) — the `{{...}}` wrapper is
+ * prompt syntax, not JSONata.
  */
-export function VariableChips({
-  variables,
+export function VariablesPicker({
+  groups,
   onInsert,
 }: {
-  variables: { label: string; insert: string }[];
-  /** given → click reports the ref; otherwise chips render above the field */
-  onInsert?: (ref: string) => void;
+  groups: VarGroup[];
+  onInsert: (ref: string) => void;
 }) {
+  const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState("");
+  const rootRef = useRef<HTMLDivElement>(null);
+  const shown = filterVarGroups(groups, query);
+
+  // close on outside click / Escape
+  useEffect(() => {
+    if (!open) return;
+    const onDoc = (e: MouseEvent) => {
+      if (rootRef.current && !rootRef.current.contains(e.target as Node)) setOpen(false);
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        e.stopPropagation();
+        setOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", onDoc);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("mousedown", onDoc);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [open]);
+
   return (
-    <div className="flex gap-1 flex-wrap">
-      {variables.map((v) => (
-        <button
-          key={v.insert}
-          title={v.insert}
-          onClick={() => (onInsert ? onInsert(v.insert) : undefined)}
-          className="rounded-full border border-border bg-card px-2 py-0.5 text-[11px] text-muted-foreground hover:text-foreground hover:border-blue-500/50 transition-colors"
-        >
-          {v.label}
-        </button>
-      ))}
+    <div ref={rootRef} className="relative inline-block">
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        className="inline-flex items-center gap-1 rounded-full border border-border bg-card px-2 py-0.5 text-[11px] text-muted-foreground hover:text-foreground hover:border-blue-500/50 transition-colors"
+      >
+        Variables <ChevronDown size={10} className={cn("transition-transform", open && "rotate-180")} />
+      </button>
+      {open && (
+        <div className="absolute right-0 top-full z-50 mt-1 w-72 max-h-64 overflow-y-auto rounded-xl border border-border bg-popover p-1 shadow-lg">
+          <input
+            autoFocus
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="Search variables…"
+            className="w-full rounded-lg bg-muted/60 border border-border px-2 py-1 text-[12px] outline-none focus:border-blue-500/60 mb-1"
+          />
+          {shown.length === 0 && (
+            <div className="px-2 py-1.5 text-[12px] text-muted-foreground">No matching variable</div>
+          )}
+          {shown.map((g) => (
+            <Fragment key={g.id + g.title}>
+              <div className="flex items-baseline gap-1.5 px-2 pb-0.5 pt-1.5">
+                <span className="text-[10px] uppercase tracking-wider text-muted-foreground">
+                  {g.title}
+                </span>
+                {g.origin && (
+                  <span className="text-[9.5px] text-muted-foreground/70 truncate">
+                    {g.origin}
+                  </span>
+                )}
+              </div>
+              {g.fields.map((f) => (
+                <button
+                  key={f.insert}
+                  title={f.insert}
+                  onMouseDown={(e) => {
+                    e.preventDefault();
+                    onInsert(stripBraces(f.insert));
+                    setOpen(false);
+                  }}
+                  className="w-full flex items-center gap-2 rounded-lg px-2 py-1.5 text-left text-[12px] hover:bg-muted/60 transition-colors"
+                >
+                  <span className="truncate">{f.name}</span>
+                  {f.type && (
+                    <span className="shrink-0 text-[9.5px] text-muted-foreground/70">{f.type}</span>
+                  )}
+                  <span className="flex-1" />
+                  <code
+                    className={cn(
+                      "font-mono text-[9.5px] truncate max-w-[140px]",
+                      varGroupAccent(g.id),
+                    )}
+                  >
+                    {f.insert}
+                  </code>
+                </button>
+              ))}
+            </Fragment>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
@@ -1733,21 +1828,5 @@ function ContractTable({
         </div>
       ))}
     </div>
-  );
-}
-
-function schemaRows(
-  schema: any,
-): { name: string; type: string; required: boolean }[] {
-  if (!schema || schema.type !== "object" || !schema.properties) return [];
-  const required: string[] = schema.required ?? [];
-  return Object.entries(schema.properties as Record<string, any>).map(
-    ([name, s]) => ({
-      name,
-      type: Array.isArray(s?.type)
-        ? s.type.join("|")
-        : (s?.type ?? (s?.enum ? "enum" : "any")),
-      required: required.includes(name),
-    }),
   );
 }
