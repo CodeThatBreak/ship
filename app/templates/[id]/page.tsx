@@ -933,6 +933,7 @@ export default function TemplateEditorPage() {
                 triggerFields={triggerFields}
                 invalidRefs={refProblems[configuring.key]}
                 templateId={draft.template.id}
+                problems={nodeProblems[configuring.key]}
                 onChange={(patch) => {
                   const next = { ...configuring, ...patch };
                   setDraft((cur) => cur

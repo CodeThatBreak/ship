@@ -37,10 +37,14 @@ import { cn } from "../../lib/utils";
 import type { EditorNode } from "./types";
 import {
   FLOW_REPO_FIELDS,
+  asJsonataGroups,
+  buildVarGroups,
+  conditionVarGroups,
   mergeUpstreamFields,
   resolveMapExpr,
   type UpstreamVarSource,
 } from "./variables";
+import { ExpressionInput } from "./ConditionBuilder";
 
 /** A field name the persisted input_map can carry: lowercase slug. */
 function slugOk(s: string): boolean {
@@ -79,6 +83,7 @@ export function InputsTab({
   upstream,
   taskFields,
   triggerFields,
+  templateId,
   onChange,
 }: {
   node: EditorNode;
@@ -87,6 +92,8 @@ export function InputsTab({
   upstream: UpstreamVarSource[];
   taskFields?: { key: string; label?: string; type?: string }[];
   triggerFields?: { key: string; label?: string; type?: string }[];
+  /** the owning template's id (Phase 5) — the custom expression's preview */
+  templateId?: string;
 }) {
   const inherited = useMemo(() => mergeUpstreamFields(upstream), [upstream]);
   const map = useMemo(() => stringMapOf(node.input_map), [node.input_map]);
@@ -229,6 +236,7 @@ export function InputsTab({
               upstream={upstream}
               taskFields={taskFields}
               triggerFields={triggerFields}
+              templateId={templateId}
               onWrite={write}
               onCancel={cancelEdit}
               onRemove={discardable ? discardEdit : undefined}
@@ -349,6 +357,7 @@ function EditRow({
   upstream,
   taskFields,
   triggerFields,
+  templateId,
   onWrite,
   onCancel,
   onRemove,
@@ -357,6 +366,7 @@ function EditRow({
   upstream: UpstreamVarSource[];
   taskFields?: { key: string; label?: string; type?: string }[];
   triggerFields?: { key: string; label?: string; type?: string }[];
+  templateId?: string;
   onWrite: (next: EditState) => void;
   onCancel: () => void;
   onRemove?: () => void;
@@ -468,12 +478,17 @@ function EditRow({
             </SelectContent>
           </Select>
           {custom && (
-            <Input
+            <ExpressionInput
               value={editing.expr}
               autoFocus
+              varGroups={asJsonataGroups(conditionVarGroups(
+                buildVarGroups({ taskFields, triggerFields, upstream }),
+              ))}
+              templateId={templateId}
+              scope="context"
+              rows={1}
               placeholder="JSONata — e.g. nodes.build.output.plan.items[0]"
-              className="font-mono text-[11.5px]"
-              onChange={(e) => onWrite({ ...editing, expr: e.target.value })}
+              onChange={(v) => onWrite({ ...editing, expr: v })}
             />
           )}
         </div>

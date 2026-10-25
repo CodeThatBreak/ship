@@ -126,6 +126,7 @@ export function NodeConfiguratorBody({
   triggerFields,
   invalidRefs,
   templateId,
+  problems,
 }: {
   node: EditorNode;
   onChange: (p: Partial<EditorNode>) => void;
@@ -147,6 +148,9 @@ export function NodeConfiguratorBody({
   /** The owning template's id (Phase 5) — powers the expression editors'
    *  live preview (the value evaluated against the most recent run). */
   templateId?: string;
+  /** The static linter's problems for THIS node (Phase 5) — shown as a list
+   *  above the tabs (the prompt fields underline their refs inline too). */
+  problems?: string[];
 }) {
   const [tab, setTab] = useState<
     "trigger" | "inputs" | "config" | "output" | "contract"
@@ -252,6 +256,18 @@ export function NodeConfiguratorBody({
           </p>
         </div>
       )}
+      {/* this node's lint problems (Phase 5) — visible without hunting; the
+          prompt editor's underlines + the expression editors' preview lines
+          localize the same errors where they're typed */}
+      {problems && problems.length > 0 && (
+        <div className="mb-3 grid gap-1 rounded-lg border border-rose-500/30 bg-rose-500/[0.04] px-3 py-2">
+          {problems.map((p, i) => (
+            <p key={i} className="text-[12px] text-rose-400 m-0 first:pt-0.5">
+              {p}
+            </p>
+          ))}
+        </div>
+      )}
       {/* tabs */}
       <div className="flex gap-1 border-b border-border -mx-2 px-2">
         {tabs.map((t) => (
@@ -279,6 +295,7 @@ export function NodeConfiguratorBody({
             upstream={upstreamSources}
             taskFields={taskFields}
             triggerFields={triggerFields}
+            templateId={templateId}
             onChange={onChange}
           />
         ) : tab === "config" ? (
@@ -694,7 +711,9 @@ const freeTextFields = new Set([
  */
 function condVarGroups(groups?: VarGroup[]): VarGroup[] {
   return asJsonataGroups(conditionVarGroups(groups ?? []));
-}/**
+}
+
+/**
  * The companion key an editor writes alongside its compiled value — the
  * `ts_output` box stores the raw TypeScript members the author typed
  * (`<key>_ts`), so the box re-seeds to their source instead of the compiled

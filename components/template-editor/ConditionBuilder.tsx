@@ -318,6 +318,7 @@ export function ExpressionInput({
   placeholder,
   rows = 2,
   disabled,
+  autoFocus,
 }: {
   value: string;
   /** JSONata-stripped groups (asJsonataGroups) — the autocomplete vocabulary */
@@ -328,6 +329,8 @@ export function ExpressionInput({
   placeholder?: string;
   rows?: number;
   disabled?: boolean;
+  /** focus the box on mount (the Inputs tab's custom-expression field) */
+  autoFocus?: boolean;
   onChange: (v: string) => void;
 }) {
   const options = useMemo(() => jsonataPathOptions(varGroups ?? []), [varGroups]);
@@ -374,6 +377,7 @@ export function ExpressionInput({
           value={value}
           rows={rows}
           placeholder={placeholder}
+          autoFocus={autoFocus}
           className="font-mono text-[11.5px] min-h-[34px]"
           onFocus={(e) => {
             setCaret(e.target.selectionStart ?? value.length);
@@ -441,8 +445,9 @@ export function ConditionBuilder({
   const [rawDraft, setRawDraft] = useState<string | null>(null);
 
   // seed from the incoming value: decomposable → builder rows, else raw mode
+  // ("" and null are the same "no condition" — a clear doesn't re-seed)
   useEffect(() => {
-    if (value === lastEmitted.current) return;
+    if (value === lastEmitted.current || (!value && !lastEmitted.current)) return;
     lastEmitted.current = null;
     const dec = decomposeCondition(value);
     if (dec) {
@@ -460,13 +465,24 @@ export function ConditionBuilder({
     setRows(next);
     setCombinator(comb);
     const out = compileCondition(next, comb);
-    lastEmitted.current = out;
+    // store what the parent will hold ("" collapses to null) — the seed
+    // effect skips values that match, so a clear doesn't re-seed and wipe
+    // the rows mid-edit
+    lastEmitted.current = out || null;
     onChange(out || null);
   };
 
+  // the builder mode's preview — raw mode's ExpressionInput fetches its own
+  // (the outer hook is inert on null, no duplicate requests)
   const preview = useExpressionPreview(
-    mode === "raw" ? rawDraft : compileCondition(rows, combinator),
+    mode === "builder" ? compileCondition(rows, combinator) : null,
     { templateId, scope },
+  );
+  // client-side compile check on what the builder emits (instant — the
+  // preview's server round trip only carries the value)
+  const compiledLint = useMemo(
+    () => (mode === "builder" ? lintJsonata(compileCondition(rows, combinator) || "") : null),
+    [mode, rows, combinator],
   );
 
   if (disabled) {
@@ -486,7 +502,7 @@ export function ConditionBuilder({
           value={rawDraft ?? ""}
           onChange={(v) => {
             setRawDraft(v);
-            lastEmitted.current = v;
+            lastEmitted.current = v || null;
             onChange(v || null);
           }}
           varGroups={varGroups}
@@ -599,6 +615,9 @@ export function ConditionBuilder({
         <p className="text-[11px] text-muted-foreground m-0">
           No condition — the flow always takes this path. Add one to gate it on the data.
         </p>
+      )}
+      {compiledLint && (
+        <p className="text-[11px] text-rose-400 m-0">{compiledLint}</p>
       )}
       <PreviewLine state={preview} />
     </div>
