@@ -125,7 +125,7 @@ export function PreviewLine({ state, prefix = "=" }: { state: PreviewState; pref
   }
   if (state.error) {
     return (
-      <p className="text-[11px] text-rose-400 m-0">
+      <p className="text-[11px] text-destructive m-0">
         {prefix} error — {state.error}
       </p>
     );
@@ -138,7 +138,7 @@ export function PreviewLine({ state, prefix = "=" }: { state: PreviewState; pref
     : typeof v === "object" ? JSON.stringify(v)
     : String(v);
   return (
-    <p className="text-[11px] text-emerald-400 m-0" title={state.source === "sample" ? "Evaluated against sample data — no flow has run from this template yet" : "Evaluated against the template's most recent flow run"}>
+    <p className="text-[11px] text-success m-0" title={state.source === "sample" ? "Evaluated against sample data — no flow has run from this template yet" : "Evaluated against the template's most recent flow run"}>
       {prefix} {rendered}
       <span className="ml-1.5 text-[10px] text-muted-foreground">
         {state.source === "sample" ? "· sample data" : "· last run"}
@@ -400,7 +400,7 @@ export function ExpressionInput({
           />
         )}
       </div>
-      {compileErr && <p className="text-[11px] text-rose-400 m-0">{compileErr}</p>}
+      {compileErr && <p className="text-[11px] text-destructive m-0">{compileErr}</p>}
       {!compileErr && <PreviewLine state={preview} />}
     </div>
   );
@@ -617,7 +617,7 @@ export function ConditionBuilder({
         </p>
       )}
       {compiledLint && (
-        <p className="text-[11px] text-rose-400 m-0">{compiledLint}</p>
+        <p className="text-[11px] text-destructive m-0">{compiledLint}</p>
       )}
       <PreviewLine state={preview} />
     </div>

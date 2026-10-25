@@ -171,7 +171,7 @@ export default function PromptModal({
               {data.variables.map((v) => (
                 <Badge
                   key={v}
-                  className="cursor-pointer hover:border-blue-500 hover:text-blue-400 transition-colors"
+                  className="cursor-pointer hover:border-info hover:text-info transition-colors"
                   onClick={() => insertVariable(v)}
                 >
                   {`{{${v}}}`}
@@ -187,7 +187,7 @@ export default function PromptModal({
             className={cn(
               "w-full bg-background border border-border rounded-[10px] px-3.5 py-3",
               "text-[12.5px] font-mono leading-relaxed resize-y min-h-[280px]",
-              "focus:outline-none focus:border-blue-500 focus:ring-[3px] focus:ring-accent-soft",
+              "focus:outline-none focus:border-info focus:ring-[3px] focus:ring-accent-soft",
               "placeholder:text-muted-foreground"
             )}
             rows={16}
@@ -244,7 +244,7 @@ export default function PromptModal({
                         {b.locked && (
                           <Tooltip>
                             <TooltipTrigger>
-                              <span className="inline-flex items-center gap-1 text-[10.5px] text-amber-400"><Lock size={10} /> locked</span>
+                              <span className="inline-flex items-center gap-1 text-[10.5px] text-warning"><Lock size={10} /> locked</span>
                             </TooltipTrigger>
                             <TooltipContent>
                               Locked: the branch scope, files and dependencies are the contract a scoped refine works inside — the engine always includes it.
@@ -276,7 +276,7 @@ export default function PromptModal({
 
           <div className="flex items-center gap-2 text-[12px] text-muted-foreground">
             <span>{charCount.toLocaleString()} chars</span>
-            {data.source === "override" && <Badge className="bg-amber-500/10 text-amber-400">custom override</Badge>}
+            {data.source === "override" && <Badge className="bg-warning/10 text-warning">custom override</Badge>}
             <div className="flex-1" />
             <Button size="sm" onClick={resetToTemplate} disabled={edited === data.prompt}>
               <RotateCcw size={12} /> Reset to template

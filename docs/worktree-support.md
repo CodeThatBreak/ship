@@ -1,6 +1,6 @@
 # Worktree Support for Local Mode (Proposal)
 
-Date: 2026-10-23 · Status: **Proposal — no code changes yet**
+Date: 2026-10-23 · Reviewed against Orca reference implementation: 2026-10-25 · Status: **Phases 1–3 (core lifecycle + setup policy + UI) implemented**
 
 Companion to `docs/refinement-plan.md` (Phase 3C). Worktrees are the isolation
 layer local mode needs: today every local agent run happens in the repo's
@@ -222,7 +222,7 @@ Shared-ref/config surface is identical in risk to today's single-checkout model.
 | Path on flow | `flows.worktree_dir` (migration), set at build start |
 | Run cwd | build/fix/resolve nodes pass `AgentStartInput.cwd = ctx.worktree ?? localPath` (plumbing exists, no callers yet) |
 | Branch detection fix | `finalizeBuild`/refine currently read `currentBranch(requireLocalPath())` — must read the worktree (or rely on `flows.mr_branch`, which is already set) |
-| Settings | per-repo `install_command` / `skip_install` / `sync_paths`; global "worktree mode" default-on; pnpm global-virtual-store toggle (all data, no logic in UI) |
+| Settings | per-repo `install_command` / `skip_install` / `sync_paths` / `shared_dirs` / `setup_command`; global "worktree mode" default-on; pnpm global-virtual-store toggle (all data, no logic in UI) |
 | Cleanup | flow terminal/deletion hooks + startup sweep |
 
 ## Risks / open questions
@@ -244,3 +244,220 @@ Shared-ref/config surface is identical in risk to today's single-checkout model.
   defaults to `none` until its row is added. The core (worktree lifecycle +
   policy executor) must be testable with zero ecosystem rows — that's the
   proof the layer stayed generic.
+
+---
+
+## Orca reference implementation review (2026-10-25)
+
+Orca (`/Users/aakash.kumar/orca`, Electron) ships the same idea at production
+scale: every workspace in its UI *is* a git worktree. Studying its
+implementation validates this proposal's core decisions and adds concrete
+hardening patterns we should adopt. Orca's core lives in `src/main/`
+(`repo-worktrees.ts`, `ipc/worktree-remote.ts`, `ipc/worktree-logic.ts`,
+`git/worktree-add.ts`, `git/worktree-create-preparation.ts`,
+`worktree-removal-safety.ts`, `worktree-background-removal.ts`).
+
+### What matches (validation, no change needed)
+
+- **Worktrees outside the repo tree.** Orca puts every worktree in a central
+  workspace dir (`<workspaceRoot>/<repoName>/<slug>`), never inside the repo,
+  for exactly the dependency-resolution reason in "Resolution mechanics" above.
+- **The developer's checkout is a hub, never mutated.** Orca calls it the main
+  worktree and agent flows never touch it.
+- **Declarative, ecosystem-agnostic setup.** Orca never installs dependencies
+  itself. Repos declare `scripts.setup` in `orca.yaml`; Orca additionally
+  symlinks user-declared shared dirs and *copies* `.worktreeinclude` paths
+  (copy, never symlink — same anti-mutation rule as our `sync_paths`). This is
+  the same shape as our `dep-policy` table; it confirms the strategy-table
+  approach is the production-proven one.
+- **One branch per worktree.** Orca leans on git's branch-exclusivity
+  guarantee exactly as our design does.
+
+### What we should adopt (refinements to this plan)
+
+1. **Verify every create with a strict re-list.** After `git worktree add`,
+   Orca re-runs `git worktree list --porcelain` and, if the row is missing,
+   probes the created path directly (`rev-parse --verify HEAD`, checked-out
+   ref) so a create never abandons a checkout git already wrote. Our plan
+   treated a successful `worktree add` exit code as proof — it isn't always
+   (timing, maintenance locks). Adopt: list-after-create with a probe fallback.
+2. **Removal preflight is a separate, ordered gate.** Orca's removal does, in
+   order: fresh strict re-list → refuse dangerous paths (empty path, the repo
+   itself, filesystem root, anything inside the repo, the user's home) →
+   refuse removing a worktree that contains a *nested registered worktree* →
+   dirty check via `git status --porcelain --untracked-files=all` → only then
+   `git worktree remove`. Our plan said "remove at terminal state"; the
+   preflight list is the missing detail. Adopt verbatim.
+3. **Branch cleanup is separate from worktree removal and merged-only by
+   default.** Orca deletes the branch only if fully merged into its base
+   (unmerged commits survive — they're the work product); force-delete is an
+   explicit, user-visible action. Our plan implied branch deletion came with
+   the worktree. Adopt: `deleteBranchAfterWorktreeRemoval` semantics —
+   merged-only default, explicit force elsewhere.
+4. **Crash-safe removal records.** Git drops a worktree's registration even
+   when the directory delete fails, so a naive flow loses the leftover
+   forever. Orca persists a removal record to disk *before* running git, and
+   on startup resumes interrupted removals. This mirrors how `reconcile.ts`
+   already handles orphaned agent runs. Adopt: persisted removal record +
+   startup sweep resume (folds naturally into the sweep in "Lifecycle &
+   cleanup").
+5. **Post-create config side effects.** Orca sets, after every create:
+   - `git config --local branch.<branch>.base <effectiveBase>` — cheap,
+     durable provenance of what the branch was built from (better than
+     re-deriving base for later diffs/rebase).
+   - `git config --local push.autoSetupRemote true` — makes a first
+     `git push` from a fresh worktree branch just work.
+   Adopt both; each is one line in the create flow.
+6. **Listing via porcelain, parsed once, coalesced.** `git worktree list
+   --porcelain -z` parsed by a dedicated parser; one in-flight scan per repo
+   (coalesced); scan failure is *strict* — a failed listing must never be
+   published as an authoritative empty list (it would prune live worktrees).
+   For DevFlow's single server process, full mutation-generation fencing is
+   overkill, but in-flight coalescing + the strict-failure rule are cheap and
+   prevent real bugs.
+7. **Name hygiene.** Slug sanitization (unicode-safe, collapse `..`) with a
+   suffix collision loop (`name`, `name-2`, …) checking branch conflicts and
+   disk collisions before create; branch prefix strategy (`<user>/<slug>`).
+   Our flow-id-based paths already guarantee uniqueness, but adopted naming
+   rules matter for the branch name and for any user-visible slug.
+
+### What we deliberately skip (Electron/remote-host machinery)
+
+These solve problems DevFlow doesn't have; each is listed with why:
+
+- **Preparation pool / prefetch** (`.orca-preparing/` detached locked
+  checkouts, `worktree move` finalize): a UX optimization for interactive
+  create-composer bursts. Our creates happen server-side at build start; 1–2 s
+  of checkout latency is acceptable.
+- **WSL / SSH / remote execution hosts**: DevFlow runs where its server runs.
+- **Multi-host metadata ownership** (`hostId`-qualified rows, identity alias
+  tables): only needed when the same `repoId::path` can exist on several
+  hosts. DevFlow's unit of attachment is the flow, stored in SQLite.
+- **Worktree lineage (parent/child) + per-path `instanceId` rotation**: for
+  nested agent orchestration trees. Not needed for v1; the `instanceId`
+  pattern is worth remembering if flows ever spawn child flows on the same
+  path.
+- **PTY teardown / per-worktree `HISTFILE` / watcher removal gates**:
+  terminal-process concerns of the desktop app.
+- **Retired-name registries / generated-name tiers**: Orca auto-generates
+  names; ours are flow-derived, so no reuse hazard.
+- **Catalog versioning fan-out**: multi-window Electron clients need
+  stale-projection guards; one server process doesn't.
+
+### Path layout decision
+
+Orca nests per repo: `workspaces/<repoName>/<slug>`. Our proposal uses
+`workspaces/<flowId>` (continuity with the existing per-flow clone dir and
+seed scripts). Keep `workspaces/<flowId>`: the flow id is already unique,
+sweep/backfill can join against `flows.worktree_dir`, and renaming dirs would
+churn existing seed data. If a per-repo view is ever wanted in UI, derive it
+from the flow's repo column — no filesystem change needed.
+
+## Implementation plan (phased, post-review)
+
+### Phase 1 — core lifecycle (no settings, no deps policy)
+
+> **Shipped 2026-10-25.** `lib/git/worktrees.ts` — the pure `Worktrees` class
+> (create/list/preflight/remove, exported as the `worktrees` singleton like
+> `localGit`) + `lib/engine/worktree-lifecycle.ts` — the `WorktreeManager`
+> engine service (`processSingleton`, like the other engine services) owning
+> the flow binding, removal records, and sweep; `flows.worktree_dir`
+> migration; build/refine/resolve pass the worktree as run cwd (branch
+> detection reads it too); startup sweep runs from `FlowPoller.start()`.
+> Kill switch: `worktree_mode` setting = `"disabled"` falls back to today's
+> hub behavior. Verified by `scripts/check-worktrees.ts`
+> (`npx tsx scripts/check-worktrees.ts`) — porcelain parser, name hygiene,
+> real-git create/remove/branch-cleanup lifecycle, and an engine-adapter
+> smoke test against an isolated temp DB. Terminal-state/deletion hooks don't
+> exist yet (nothing sets `flows.status` to done/failed and no flow deletion
+> exists) — the sweep covers terminal + missing flows, and
+> `worktreeManager.removeFlowWorktree(flowId)` is ready for those hooks when
+> they land.
+
+1. New `lib/git/worktrees.ts` — **pure** (no db/engine imports), absorbing
+   and replacing the `localGit.addWorktree/removeWorktree` helpers:
+   - `parseWorktreeList(raw)` — porcelain `-z` parser (shared, unit-tested).
+   - `listWorktrees(repoPath)` — coalesced, strict (throws on git failure;
+     callers decide how to soften).
+   - `createWorktree({repoPath, dir, branch, base})` — base resolution
+     (requested → `origin/<default>` fallback chain as in
+     `localBranchState`), `worktree add --no-track -b`, post-config side
+     effects (refinement 5), strict re-list verification (refinement 1).
+   - `preflightRemoval({repoPath, wtPath, hubPath, home})` — dangerous-path
+     + dirty + nested-worktree checks (refinement 2).
+   - `removeWorktree({repoPath, wtPath, deleteBranch})` — preflight → remove
+     → merged-only branch delete (refinement 3) → fs fallback.
+   - `sanitizeWorktreeName(input)` — port of Orca's slug rules.
+2. Migration: `flows.worktree_dir TEXT` on the flows table.
+3. Build-start wiring: the build node (and fix/resolve follow-ups) ensures a
+   worktree exists (`flows.worktree_dir` set if missing) and passes
+   `AgentStartInput.cwd = worktreeDir ?? localPath` — plumbing already exists,
+   no callers yet. Branch detection in `finalizeBuild`/refine reads the
+   worktree (or `flows.mr_branch`) instead of the hub.
+4. Lifecycle hooks: remove on flow terminal state + flow deletion; record
+   persisted before git runs (refinement 4).
+5. Startup sweep: `git worktree prune` + resume recorded removals + remove
+   `workspaces/<flowId>` dirs whose flows are terminal or gone.
+
+### Phase 2 — setup policy
+
+> **Shipped 2026-10-25.** `lib/git/dep-policy.ts` — the `DepPolicyResolver`
+> class with ecosystem rules as polymorphic objects (`NodeRule` covers pnpm/
+> npm/yarn/bun; per the genericity guardrail every other ecosystem still
+> defaults to `none` until its rule is added) — overrides first, rules second,
+> `none` last; exported as the `depPolicies` singleton, pure (no db/engine
+> imports). `lib/git/worktree-setup.ts` — the `WorktreeSetup` executor as an
+> ordered step pipeline of `SetupStep` classes (symlink `shared_dirs` → copy
+> config globs → warm caches → dep strategy → `setup_command`), with the dep
+> strategy itself dispatched through a strategy table of `DepStrategyRunner`
+> classes (`NoneStrategy` / `CommandStrategy` / `CloneStrategy` — the clone
+> gate proves hub dep dirs + hub/worktree lockfile hashes at execution time
+> and falls back to the recorded frozen install). Everything time-bounded;
+> every failure is a non-fatal `{ ok:false, error }` result, never thrown past
+> the engine.
+>
+> Per-repo columns: `install_command`, `skip_install`, `sync_paths`,
+> `shared_dirs`, `setup_command` (migration + schema + API; forms are Phase 3).
+> The copy-vs-symlink tension between the design section and the Orca bullets
+> was resolved as: `sync_paths`/default globs are **always copied** (never
+> symlinked — agents must not mutate hub files through a link), while
+> `shared_dirs` is the one sanctioned symlink surface (relative links, created
+> before setup, never over an existing worktree path, `node_modules`/`.git`
+> denied). The engine manager (`ensureFlowWorktree`) now returns a
+> `{ dir, setupNote }` binding: setup runs once per flow on a fresh worktree
+> (reuse skips it), emits "setting up worktree deps…" like any other step, and
+> a failure puts one line — "worktree deps setup failed: <err>" — on the
+> build/refine/resolve run prompts for agent self-repair. Settings API exposes
+> `worktree_mode` and `pnpm_virtual_store`. Verified by the extended
+> `scripts/check-worktrees.ts` (policy table incl. overrides/pnpm-store rows,
+> glob expansion, clone gate + fallback, shared-dir rules, executor
+> non-fatalism, and engine-adapter setup lifecycle against an isolated DB).
+
+- `lib/git/dep-policy.ts` (pure strategy table) and `lib/git/worktree-setup.ts`
+  (executor) exactly as in "Dependencies in the worktree" above, plus the
+  Orca-confirmed extras: symlink user-declared shared dirs *before* setup,
+  copy untracked config globs, non-fatal failure surfaced to the agent prompt.
+- Per-repo settings fields: `install_command`, `skip_install`, `sync_paths`,
+  `setup_command` (Orca's `scripts.setup` analog — an explicit escape valve
+  alongside the auto-detected policy).
+
+### Phase 3 — UI
+
+> **Shipped 2026-10-25.** Repositories page: the per-repo setup-policy fields
+> (`install_command`, `skip_install`, `sync_paths`, `shared_dirs`,
+> `setup_command`) as plain forms prefilled from the repo row, plus global
+> `worktree_mode` / `pnpm_virtual_store` toggles in the Agent-execution
+> section — all data, no logic in components. Flow cards: a worktree badge
+> (branch, dirty dot, ↑ahead / ↓behind, hover = full path + pushed state) fed
+> by the new batch endpoint `GET /api/flows/worktree-status` (listWorktrees +
+> `localBranchState`, now reporting `commitsBehind` too), refreshed every 5s
+> while a local flow is active — the polling equivalent of "refreshed on flow
+> events" for the index page, which has no event stream. Unregistered/gone
+> worktrees render as an amber "wt?" badge with the reason instead of hiding.
+> Verified by the extended `scripts/check-worktrees.ts` (endpoint against the
+> isolated temp DB: registered/dirty/ahead/pushed fields, stale-pointer
+> reporting).
+
+- Repositories page: the three new fields (forms only, no logic).
+- Flow cards: worktree status (dirty, ahead/behind, path) via
+  `listWorktrees` + `localBranchState`, refreshed on flow events.

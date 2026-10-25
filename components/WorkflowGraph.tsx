@@ -81,11 +81,11 @@ function useGraphDef(flowId: string): GraphDef | null {
 }
 
 const STATUS: Record<string, { border: string; text: string }> = {
-  running: { border: "border-blue-500", text: "text-blue-400" },
-  awaiting_approval: { border: "border-amber-500", text: "text-amber-400" },
-  approved: { border: "border-emerald-500", text: "text-emerald-400" },
-  done: { border: "border-emerald-500", text: "text-emerald-400" },
-  failed: { border: "border-rose-500", text: "text-rose-400" },
+  running: { border: "border-info", text: "text-info" },
+  awaiting_approval: { border: "border-warning", text: "text-warning" },
+  approved: { border: "border-success", text: "text-success" },
+  done: { border: "border-success", text: "text-success" },
+  failed: { border: "border-destructive", text: "text-destructive" },
   waiting: { border: "border-border", text: "text-muted-foreground" },
   skipped: { border: "border-border", text: "text-muted-foreground" },
   pending: { border: "border-border", text: "text-muted-foreground" },
@@ -180,7 +180,7 @@ export default function WorkflowGraph({
             markerHeight="7"
             orient="auto-start-reverse"
           >
-            <path d="M 0 0 L 10 5 L 0 10 z" className="fill-emerald-500" />
+            <path d="M 0 0 L 10 5 L 0 10 z" className="fill-success" />
           </marker>
         </defs>
         {edges.map(([a, b]) => {
@@ -200,7 +200,7 @@ export default function WorkflowGraph({
               key={`${a}-${b}`}
               d={`M ${x1} ${y1} C ${(x1 + x2) / 2} ${back ? my : y1}, ${(x1 + x2) / 2} ${back ? my : y2}, ${x2} ${y2}`}
               fill="none"
-              className={taken ? "stroke-emerald-500" : "stroke-border"}
+              className={taken ? "stroke-success" : "stroke-border"}
               strokeWidth={taken ? 2 : 1.5}
               strokeDasharray={spec?.kind === "loop" ? "5 4" : undefined}
               markerEnd={taken ? "url(#arr-taken)" : "url(#arr)"}
@@ -222,7 +222,7 @@ export default function WorkflowGraph({
               x={mx}
               y={my - 6}
               textAnchor="middle"
-              className={taken ? "fill-emerald-400" : "fill-muted-foreground"}
+              className={taken ? "fill-success" : "fill-muted-foreground"}
               fontSize="10"
               fontFamily="inherit"
             >
@@ -273,7 +273,7 @@ export default function WorkflowGraph({
                 className={cn(
                   "text-[10.5px] mt-0.5",
                   isRunning
-                    ? "text-blue-400"
+                    ? "text-info"
                     : n.status === "pending"
                       ? "text-muted-foreground"
                       : st.text,

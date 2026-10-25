@@ -34,12 +34,12 @@ export default function FlowHeader({ flow }: { flow: FlowData }) {
 
       {task.externalUrl ? (
         <a href={task.externalUrl} target="_blank" rel="noreferrer" className="shrink-0">
-          <Badge className="bg-blue-500/10 text-blue-400 hover:bg-blue-500/20">
+          <Badge className="bg-info/10 text-info hover:bg-info/20">
             {task.key}
           </Badge>
         </a>
       ) : (
-        <Badge className="bg-blue-500/10 text-blue-400 shrink-0">
+        <Badge className="bg-info/10 text-info shrink-0">
           {task.key}
         </Badge>
       )}
@@ -50,7 +50,7 @@ export default function FlowHeader({ flow }: { flow: FlowData }) {
       >
         {task.summary}
       </h1>
-      <Badge className="shrink-0 bg-amber-500/10 text-amber-400">
+      <Badge className="shrink-0 bg-warning/10 text-warning">
         {task.status}
       </Badge>
 
@@ -121,7 +121,7 @@ export default function FlowHeader({ flow }: { flow: FlowData }) {
 
       <Badge
         className={
-          flow.status === "active" ? "bg-emerald-500/10 text-emerald-400" : undefined
+          flow.status === "active" ? "bg-success/10 text-success" : undefined
         }
       >
         <span

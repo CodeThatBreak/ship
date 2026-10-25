@@ -14,17 +14,15 @@ import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
-  ArrowLeft,
   Copy,
   Download,
-  LayoutTemplate,
   Plus,
   Sparkles,
   Trash2,
   Upload,
   Workflow,
 } from "lucide-react";
-import { Alert } from "../../components/ui/alert";
+import { Alert } from "@/components/ui/alert";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -34,14 +32,14 @@ import {
   AlertDialogFooter,
   AlertDialogHeader,
   AlertDialogTitle,
-} from "../../components/ui/alert-dialog";
-import { Badge } from "../../components/ui/badge";
-import { Button } from "../../components/ui/button";
-import { Card } from "../../components/ui/card";
-import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "../../components/ui/dialog";
-import { Spinner } from "../../components/ui/spinner";
-import { Textarea } from "../../components/ui/textarea";
-import { cn } from "../../lib/utils";
+} from "@/components/ui/alert-dialog";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Card } from "@/components/ui/card";
+import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Spinner } from "@/components/ui/spinner";
+import { Textarea } from "@/components/ui/textarea";
+import { cn } from "@/lib/utils";
 
 type TemplateRow = {
   id: string;
@@ -78,7 +76,7 @@ function TemplateRowCard({
               {t.name}
             </Link>
             {builtin && (
-              <Badge className="bg-blue-500/10 text-blue-400">built-in</Badge>
+              <Badge className="bg-info/10 text-info">built-in</Badge>
             )}
             {Boolean(t.trigger?.type === "manual") || <Badge>{String(t.trigger?.type ?? "manual")}</Badge>}
             <Badge variant="outline">{t.nodeCount} node{t.nodeCount === 1 ? "" : "s"}</Badge>
@@ -212,9 +210,9 @@ export default function TemplateGallery() {
 
   if (!templates) {
     return (
-      <main className="p-6">
+      <div className="p-6">
         {error ? <Alert variant="destructive">{error}</Alert> : <Spinner />} Loading…
-      </main>
+      </div>
     );
   }
 
@@ -223,23 +221,20 @@ export default function TemplateGallery() {
   const mine = templates.filter((t) => !t.is_builtin);
 
   return (
-    <main className="max-w-[900px] mx-auto px-6 py-10">
-      <header className="flex items-center gap-3.5 mb-8">
-        <Button variant="ghost" size="sm" render={<Link href="/" />} className="-ml-1.5 gap-1.5 text-muted-foreground">
-          <ArrowLeft className="size-3.5" /> DevFlow
-        </Button>
-        <LayoutTemplate size={18} className="text-muted-foreground" />
+    <div>
+      <header className="flex items-end justify-between gap-4 mb-7">
         <div>
-          <h1 className="text-lg font-semibold m-0 leading-tight">Templates</h1>
-          <p className="text-muted-foreground text-[12px] m-0">Flow templates compose built-in and your own nodes. Edit here or ship YAML.</p>
+          <h1 className="text-lg font-semibold tracking-tight m-0">Templates</h1>
+          <p className="text-muted-foreground text-[12.5px] mt-1 mb-0">Flow templates compose built-in and your own nodes. Edit here or ship YAML.</p>
         </div>
-        <div className="flex-1" />
-        <Button variant="outline" onClick={() => { setImportError(null); setImporting(true); }}>
-          <Upload size={13} /> Import YAML
-        </Button>
-        <Button onClick={() => void create()} disabled={busyId === "__new"}>
-          {busyId === "__new" ? <Spinner /> : <Plus size={13} />} New template
-        </Button>
+        <div className="flex gap-2">
+          <Button variant="outline" onClick={() => { setImportError(null); setImporting(true); }}>
+            <Upload size={13} /> Import YAML
+          </Button>
+          <Button onClick={() => void create()} disabled={busyId === "__new"}>
+            {busyId === "__new" ? <Spinner /> : <Plus size={13} />} New template
+          </Button>
+        </div>
       </header>
 
       {error && <Alert variant="destructive" className="mb-4">{error}</Alert>}
@@ -359,6 +354,6 @@ export default function TemplateGallery() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
-    </main>
+    </div>
   );
 }

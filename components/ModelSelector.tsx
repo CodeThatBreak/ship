@@ -241,7 +241,7 @@ export default function ModelSelector({
             <ZapIcon
               className={cn(
                 "size-3 shrink-0",
-                Object.keys(valueParams).length > 0 ? "text-amber-400" : "text-muted-foreground",
+                Object.keys(valueParams).length > 0 ? "text-warning" : "text-muted-foreground",
               )}
             />
             <span className="truncate text-[11px]">{optionsPreview || "Options"}</span>

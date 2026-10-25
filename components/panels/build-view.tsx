@@ -115,16 +115,16 @@ function BuildView({ flow, node, action, fetchArtifact, events = [] }: {
               const err = b.status === "awaiting_approval" ? mrErrorFor(b.name) : null;
               return (
                 <Card key={b.id} className="px-4 py-3 flex items-center gap-3 flex-wrap">
-                  <Badge className={b.status === "done" ? "bg-emerald-500/10 text-emerald-400" : b.status === "failed" ? undefined : b.status === "building" ? "bg-blue-500/10 text-blue-400" : b.status === "awaiting_approval" ? "bg-amber-500/10 text-amber-400" : undefined} variant={b.status === "failed" ? "destructive" : undefined}>
+                  <Badge className={b.status === "done" ? "bg-success/10 text-success" : b.status === "failed" ? undefined : b.status === "building" ? "bg-info/10 text-info" : b.status === "awaiting_approval" ? "bg-warning/10 text-warning" : undefined} variant={b.status === "failed" ? "destructive" : undefined}>
                     {b.status.replace(/_/g, " ")}
                   </Badge>
                   <div className="flex-1 min-w-0">
                     <span className="font-medium text-sm">{b.title ?? b.name}</span>
                     <code className="text-xs text-muted-foreground ml-2">{b.name}</code>
-                    {err && <div className="text-rose-400 text-xs mt-1">{err}</div>}
+                    {err && <div className="text-destructive text-xs mt-1">{err}</div>}
                   </div>
                   {b.mr_url && (
-                    <a href={b.mr_url} target="_blank" className="text-blue-400 hover:underline text-xs">MR !{b.mr_iid} ↗</a>
+                    <a href={b.mr_url} target="_blank" className="text-info hover:underline text-xs">MR !{b.mr_iid} ↗</a>
                   )}
                   {creatingMrBranches.has(b.name) && (
                     <span className="inline-flex items-center gap-1.5 text-muted-foreground text-xs">
@@ -144,7 +144,7 @@ function BuildView({ flow, node, action, fetchArtifact, events = [] }: {
       )}
       {!hasBranches && flow.mr_url && (
         <p className="text-[13px]">
-          <a href={flow.mr_url} target="_blank" className="text-blue-400 hover:underline">Open MR !{flow.mr_iid} ↗</a> on branch <code className="font-mono">{flow.mr_branch}</code>
+          <a href={flow.mr_url} target="_blank" className="text-info hover:underline">Open MR !{flow.mr_iid} ↗</a> on branch <code className="font-mono">{flow.mr_branch}</code>
         </p>
       )}
       {(latest || (!canApprove && node.status !== "running")) && (

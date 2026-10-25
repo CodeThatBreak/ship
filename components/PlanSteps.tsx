@@ -120,7 +120,7 @@ export default function PlanSteps({
               </TraceTitle>
               {steps.length > 0 && (
                 <TraceDescription
-                  className={allDone ? "text-emerald-400/80" : undefined}
+                  className={allDone ? "text-success/80" : undefined}
                 >
                   {done}/{steps.length} done
                 </TraceDescription>
@@ -175,8 +175,8 @@ export default function PlanSteps({
                       className={cn(
                         "mt-[1px] shrink-0 transition-colors",
                         isDone
-                          ? "text-emerald-400"
-                          : "text-muted-foreground hover:text-blue-400",
+                          ? "text-success"
+                          : "text-muted-foreground hover:text-info",
                         !editable && !highlight && "cursor-default",
                       )}
                     >
@@ -212,7 +212,7 @@ export default function PlanSteps({
                           </Badge>
                         )}
                         {s.completed_by === "build" && isDone && (
-                          <Badge className="bg-emerald-500/10 text-emerald-400">
+                          <Badge className="bg-success/10 text-success">
                             <Check size={10} /> by build
                           </Badge>
                         )}
@@ -259,7 +259,7 @@ export default function PlanSteps({
                     <Button
                       size="icon"
                       variant="ghost"
-                      className="text-rose-400 hover:text-rose-300 hover:bg-rose-500/10"
+                      className="text-destructive hover:text-destructive hover:bg-destructive/10"
                       title="Remove step"
                       onClick={() =>
                         setDrafts((ds) => ds.filter((_, j) => j !== i))

@@ -117,15 +117,15 @@ function DecisionView({ flow, node, action, fetchArtifact }: PanelProps) {
           return (
             <Card
               key={c.label}
-              className={`px-4 py-3 ${selectable ? "cursor-pointer" : ""} ${picked ? "border-blue-500/60 bg-blue-500/5" : ""} ${taken ? "border-emerald-500/60 bg-emerald-500/5" : ""}`}
+              className={`px-4 py-3 ${selectable ? "cursor-pointer" : ""} ${picked ? "border-info/60 bg-info/5" : ""} ${taken ? "border-success/60 bg-success/5" : ""}`}
               onClick={selectable ? () => toggle(c.label) : undefined}
             >
               <div className="flex items-center gap-2.5">
-                <Badge className={taken ? "bg-emerald-500/10 text-emerald-400" : picked ? "bg-blue-500/10 text-blue-400" : undefined}>
+                <Badge className={taken ? "bg-success/10 text-success" : picked ? "bg-info/10 text-info" : undefined}>
                   {c.label}
                 </Badge>
                 {c.description && <span className="text-[12.5px] text-muted-foreground flex-1">{c.description}</span>}
-                {taken && <CheckCheck size={14} className="text-emerald-400 shrink-0" />}
+                {taken && <CheckCheck size={14} className="text-success shrink-0" />}
               </div>
             </Card>
           );

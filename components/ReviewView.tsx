@@ -129,8 +129,8 @@ export default function ReviewView({ flow, node, action, model }:
               <MessageSquare size={14} /> Discussion threads
             </h3>
             <div className="flex gap-2 mb-3 flex-wrap">
-              <Badge className="bg-amber-500/10 text-amber-400">{openThreads.length} open</Badge>
-              <Badge className="bg-emerald-500/10 text-emerald-400">{resolvedThreads.length} resolved</Badge>
+              <Badge className="bg-warning/10 text-warning">{openThreads.length} open</Badge>
+              <Badge className="bg-success/10 text-success">{resolvedThreads.length} resolved</Badge>
               {threads.length !== openThreads.length + resolvedThreads.length && (
                 <Badge>{threads.length - openThreads.length - resolvedThreads.length} note{threads.length - openThreads.length - resolvedThreads.length > 1 ? "s" : ""}</Badge>
               )}
@@ -180,7 +180,7 @@ function ThreadCard({ thread }: { thread: Thread }) {
                 <span className="inline-flex items-center gap-[5px] font-semibold">
                   <User size={11} className="text-muted-foreground" /> {r.author}
                 </span>
-                {r.resolved && <Badge className="bg-emerald-500/10 text-emerald-400">resolved</Badge>}
+                {r.resolved && <Badge className="bg-success/10 text-success">resolved</Badge>}
               </div>
               <div className="text-[12.5px] [&_p]:my-1 text-muted-foreground">
                 <Markdown className="text-[12.5px]">{r.body}</Markdown>
@@ -208,7 +208,7 @@ function NoteHeader({ note, isRoot, resolvable }: { note: ThreadNote; isRoot?: b
       <div className="flex-1" />
       {resolvable === false && isRoot && <Badge>note</Badge>}
       {isRoot && resolvable !== false && (
-        <Badge className={note.status === "resolved" ? "bg-emerald-500/10 text-emerald-400" : "bg-amber-500/10 text-amber-400"}>{note.status}</Badge>
+        <Badge className={note.status === "resolved" ? "bg-success/10 text-success" : "bg-warning/10 text-warning"}>{note.status}</Badge>
       )}
     </div>
   );

@@ -33,13 +33,6 @@ class JiraConfig {
     return AppConfig.env("JIRA_API_TOKEN");
   }
 
-  jql(): string {
-    return AppConfig.env(
-      "JIRA_JQL",
-      "assignee = currentUser() AND statusCategory != Done ORDER BY updated DESC"
-    );
-  }
-
   configured(): boolean {
     return Boolean(
       AppConfig.env("JIRA_BASE_URL") &&

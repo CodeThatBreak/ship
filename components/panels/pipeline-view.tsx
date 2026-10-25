@@ -46,7 +46,7 @@ function PipelineView({ flow, node, action, fetchArtifact, model }: {
     <>
       <PanelShell node={node} action={action} flow={flow} headerEnd={headerEnd} runningLabel="Waiting for a green pipeline — failures are fixed automatically…" footer={footer}>
         {node.status === "done" && output?.pipelineId && (
-          <Alert className="bg-emerald-500/10 text-emerald-400 mb-3.5">
+          <Alert className="bg-success/10 text-success mb-3.5">
             <span className="flex-1">
               Pipeline #{output.pipelineId} is green{output.fixes ? ` after ${output.fixes} fix run${output.fixes > 1 ? "s" : ""}` : ""}.
             </span>

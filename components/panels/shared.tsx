@@ -17,9 +17,9 @@ export function panelTitle(node: Node): string {
 }
 
 export function statusVariant(status: string) {
-  return status === "done" || status === "approved" ? "bg-emerald-500/10 text-emerald-400"
-    : status === "running" ? "bg-blue-500/10 text-blue-400"
-      : status === "awaiting_approval" ? "bg-amber-500/10 text-amber-400"
+  return status === "done" || status === "approved" ? "bg-success/10 text-success"
+    : status === "running" ? "bg-info/10 text-info"
+      : status === "awaiting_approval" ? "bg-warning/10 text-warning"
         // waiting / skipped / pending all render muted; these statuses are
         // reserved for Phase 3 (event waits, non-taken branches)
         : status === "failed" ? undefined : undefined;

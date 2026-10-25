@@ -241,9 +241,9 @@ export function NodeConfiguratorBody({
       {/* isolation note — non-blocking: the node stays editable while it's
           unconnected (the amber canvas dot keeps flagging it) */}
       {locked && (
-        <div className="mb-3 flex items-start gap-2 rounded-lg border border-amber-500/30 bg-amber-500/[0.04] px-3 py-2">
-          <Unplug size={13} className="mt-0.5 shrink-0 text-amber-400" />
-          <p className="text-[12px] text-amber-400/90 m-0">
+        <div className="mb-3 flex items-start gap-2 rounded-lg border border-warning/30 bg-warning/[0.04] px-3 py-2">
+          <Unplug size={13} className="mt-0.5 shrink-0 text-warning" />
+          <p className="text-[12px] text-warning/90 m-0">
             Not connected yet — drag from a node&apos;s handle on the canvas to
             wire it in. You can edit it meanwhile: the task context is available
             as variables, and connected upstream nodes&apos; outputs join them
@@ -255,9 +255,9 @@ export function NodeConfiguratorBody({
           prompt editor's underlines + the expression editors' preview lines
           localize the same errors where they're typed */}
       {problems && problems.length > 0 && (
-        <div className="mb-3 grid gap-1 rounded-lg border border-rose-500/30 bg-rose-500/[0.04] px-3 py-2">
+        <div className="mb-3 grid gap-1 rounded-lg border border-destructive/30 bg-destructive/[0.04] px-3 py-2">
           {problems.map((p, i) => (
-            <p key={i} className="text-[12px] text-rose-400 m-0 first:pt-0.5">
+            <p key={i} className="text-[12px] text-destructive m-0 first:pt-0.5">
               {p}
             </p>
           ))}
@@ -272,7 +272,7 @@ export function NodeConfiguratorBody({
             className={cn(
               "px-3 py-1.5 text-[12.5px] font-medium border-b-[1.5px] -mb-px",
               tab === t
-                ? "text-foreground border-blue-500"
+                ? "text-foreground border-info"
                 : "text-muted-foreground border-transparent hover:text-foreground",
             )}
           >
@@ -1036,7 +1036,7 @@ function SecretsChipGroup({
             title={`Insert {{secrets.${n}}}`}
             onMouseDown={(e) => e.preventDefault()}
             onClick={() => onInsert(`{{secrets.${n}}}`)}
-            className="rounded-full border border-border bg-card px-2 py-0.5 text-[11px] font-mono text-muted-foreground transition-colors hover:border-blue-500/50 hover:text-foreground"
+            className="rounded-full border border-border bg-card px-2 py-0.5 text-[11px] font-mono text-muted-foreground transition-colors hover:border-info/50 hover:text-foreground"
           >
             {n}
           </button>
@@ -1240,7 +1240,7 @@ function TsOutputEditor({
         placeholder={`{\n  summary: string\n  severity: "low" | "high"\n  files: string[]\n}`}
       />
       {err && (
-        <Card className="p-2.5 text-[12px] text-rose-400 border-rose-500/30">
+        <Card className="p-2.5 text-[12px] text-destructive border-destructive/30">
           {err}
         </Card>
       )}
@@ -1360,10 +1360,10 @@ function ChoicesEditor({
         <Plus size={12} /> Add choice
       </Button>
       {!rows.some((c) => c.label.trim()) && (
-        <p className="text-[11px] text-amber-400 m-0">At least one labeled choice is required.</p>
+        <p className="text-[11px] text-warning m-0">At least one labeled choice is required.</p>
       )}
       {isExpression && !rows.some((c) => c.condition.trim()) && (
-        <p className="text-[11px] text-amber-400 m-0">
+        <p className="text-[11px] text-warning m-0">
           No condition yet — give each choice a condition; every truthy condition picks its branch.
         </p>
       )}
@@ -1511,7 +1511,7 @@ export function VariablesPicker({
       <button
         type="button"
         onClick={() => setOpen((o) => !o)}
-        className="inline-flex items-center gap-1 rounded-full border border-border bg-card px-2 py-0.5 text-[11px] text-muted-foreground hover:text-foreground hover:border-blue-500/50 transition-colors"
+        className="inline-flex items-center gap-1 rounded-full border border-border bg-card px-2 py-0.5 text-[11px] text-muted-foreground hover:text-foreground hover:border-info/50 transition-colors"
       >
         Variables <ChevronDown size={10} className={cn("transition-transform", open && "rotate-180")} />
       </button>
@@ -1522,7 +1522,7 @@ export function VariablesPicker({
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             placeholder="Search variables…"
-            className="w-full rounded-lg bg-muted/60 border border-border px-2 py-1 text-[12px] outline-none focus:border-blue-500/60 mb-1"
+            className="w-full rounded-lg bg-muted/60 border border-border px-2 py-1 text-[12px] outline-none focus:border-info/60 mb-1"
           />
           {shown.length === 0 && (
             <div className="px-2 py-1.5 text-[12px] text-muted-foreground">No matching variable</div>
@@ -1712,7 +1712,7 @@ export function StartContractEditor({
           placeholder={`{\n  task: string\n  priority?: number\n  labels: string[]\n  settings: Record<string, unknown>\n}`}
         />
         {parsed.error && (
-          <Card className="p-2.5 text-[12px] text-rose-400 border-rose-500/30">
+          <Card className="p-2.5 text-[12px] text-destructive border-destructive/30">
             {parsed.error}
           </Card>
         )}
@@ -1720,14 +1720,14 @@ export function StartContractEditor({
       {fields.map((f, i) => (
         <Card key={i} className="p-2.5 grid gap-1.5">
           <div className="flex items-center gap-2">
-            <code className="font-mono text-[12.5px] text-blue-400">
+            <code className="font-mono text-[12.5px] text-info">
               {f.key}
             </code>
             <Badge variant="outline" className="text-[10px]">
               {f.type}
             </Badge>
             {f.required && (
-              <Badge className="bg-amber-500/10 text-amber-400 text-[10px]">
+              <Badge className="bg-warning/10 text-warning text-[10px]">
                 required
               </Badge>
             )}
@@ -1920,12 +1920,12 @@ function ContractTable({
           key={r.name}
           className="flex items-center gap-2 px-3 py-1.5 border-b border-border last:border-0"
         >
-          <code className="font-mono text-blue-400">{r.name}</code>
+          <code className="font-mono text-info">{r.name}</code>
           <Badge variant="outline" className="text-[10px]">
             {r.type}
           </Badge>
           {r.required && (
-            <Badge className="bg-amber-500/10 text-amber-400 text-[10px]">
+            <Badge className="bg-warning/10 text-warning text-[10px]">
               required
             </Badge>
           )}

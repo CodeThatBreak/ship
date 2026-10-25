@@ -204,7 +204,7 @@ export function PromptEditor({
       attributes: {
         class: cn(
           "min-h-[120px] max-h-[320px] overflow-y-auto w-full rounded-lg border border-border bg-card px-3 py-2",
-          "text-[12.5px] leading-relaxed outline-none focus:border-blue-500/60",
+          "text-[12.5px] leading-relaxed outline-none focus:border-info/60",
           className,
         ),
       },

@@ -459,7 +459,7 @@ export default function ChatPanel({
                         !refineAvailable && "opacity-45",
                         refineAvailable &&
                           refineOn &&
-                          "border-blue-500/40 bg-blue-500/10 text-blue-400",
+                          "border-info/40 bg-info/10 text-info",
                       )}
                     />
                   }
@@ -502,7 +502,7 @@ export default function ChatPanel({
                         }
                         className={cn(
                           planOptions.decompose &&
-                            "border-blue-500/40 bg-blue-500/10 text-blue-400",
+                            "border-info/40 bg-info/10 text-info",
                         )}
                       />
                     }
@@ -536,7 +536,7 @@ export default function ChatPanel({
                         }
                         className={cn(
                           planOptions.complex &&
-                            "border-blue-500/40 bg-blue-500/10 text-blue-400",
+                            "border-info/40 bg-info/10 text-info",
                         )}
                       />
                     }

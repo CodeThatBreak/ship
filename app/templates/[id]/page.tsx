@@ -853,7 +853,7 @@ export default function TemplateEditorPage() {
         <div className="min-w-0">
           <h1 className="text-[14.5px] font-semibold m-0 leading-tight flex items-center gap-2 truncate">
             {draft.template.name}
-            {readonly && <Badge className="bg-blue-500/10 text-blue-400"><Lock size={9} className="mr-0.5" />built-in</Badge>}
+            {readonly && <Badge className="bg-info/10 text-info"><Lock size={9} className="mr-0.5" />built-in</Badge>}
             <Badge variant="outline" className="text-[10px]">v{draft.template.version}</Badge>
           </h1>
           <p className="text-muted-foreground text-[11px] m-0">
@@ -861,7 +861,7 @@ export default function TemplateEditorPage() {
             {(layoutSync === "pending" || layoutSync === "saved") && (
               <span> · {layoutSync === "pending" ? "saving layout…" : "layout autosaved"}</span>
             )}
-            {dirty && <span className="text-amber-400"> · graph has unsaved changes</span>}
+            {dirty && <span className="text-warning"> · graph has unsaved changes</span>}
           </p>
         </div>
         <div className="flex-1" />
@@ -982,7 +982,7 @@ export default function TemplateEditorPage() {
                 <code className="font-mono">{configuring.key}</code>
                 <span>·</span>
                 <span>{describeTrigger(configuring.trigger)}</span>
-                {configuring.join_mode === "any" && <Badge className="bg-amber-500/10 text-amber-400 text-[10px] py-0">any-join</Badge>}
+                {configuring.join_mode === "any" && <Badge className="bg-warning/10 text-warning text-[10px] py-0">any-join</Badge>}
               </SheetDescription>
             </SheetHeader>
             <SheetBody>
@@ -1016,7 +1016,7 @@ export default function TemplateEditorPage() {
             </SheetBody>
             <SheetFooter>
               {!readonly && (
-                <Button variant="ghost" className="text-rose-400 hover:text-rose-300 mr-auto" onClick={() => removeNode(configuring)}>
+                <Button variant="ghost" className="text-destructive hover:text-destructive mr-auto" onClick={() => removeNode(configuring)}>
                   <Trash2 size={13} /> Remove node
                 </Button>
               )}
@@ -1058,7 +1058,7 @@ export default function TemplateEditorPage() {
             </SheetBody>
             <SheetFooter>
               {!readonly && (
-                <Button variant="ghost" className="text-rose-400 hover:text-rose-300 mr-auto" onClick={() => removeEdge(edgeDrawer!)}>
+                <Button variant="ghost" className="text-destructive hover:text-destructive mr-auto" onClick={() => removeEdge(edgeDrawer!)}>
                   <Trash2 size={13} /> Remove edge
                 </Button>
               )}
@@ -1277,7 +1277,7 @@ function EdgeEditor({
       </div>
       <div className="grid gap-1">
         <label className="text-xs text-muted-foreground">
-          Label {isDecision && <span className="text-amber-400">— required for decision branches</span>}
+          Label {isDecision && <span className="text-warning">— required for decision branches</span>}
         </label>
         {isDecision && choices && choices.length > 0 && (
           <div className="flex gap-1 flex-wrap">
@@ -1589,7 +1589,7 @@ function MaskedSecret({ value }: { value: string }) {
         title="Copy secret"
         onClick={() => void copy()}
       >
-        {copied ? <Check size={11} className="text-emerald-400" /> : <Copy size={11} />}
+        {copied ? <Check size={11} className="text-success" /> : <Copy size={11} />}
       </button>
     </span>
   );

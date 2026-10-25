@@ -69,7 +69,7 @@ the refine. Open the flow and try toggling / editing steps — it's all live dat
 | Key | What |
 |---|---|
 | `CURSOR_API_KEY` | Cursor dashboard → API Keys. Powers every agent node. |
-| `JIRA_BASE_URL` / `JIRA_EMAIL` / `JIRA_API_TOKEN` | Jira (self-hosted or Cloud). `JIRA_JQL` controls which issues import as tasks. |
+| `JIRA_BASE_URL` / `JIRA_EMAIL` / `JIRA_API_TOKEN` | Jira (self-hosted or Cloud). The tasks table fetches your assigned issues live via the filter bar. |
 | `GITLAB_BASE_URL` / `GITLAB_TOKEN` | Self-hosted GitLab PAT with `api` scope. |
 | `GITLAB_WEBHOOK_SECRET` | Shared secret for the webhook endpoint. |
 | `RESOLVE_DELAY_MINUTES` | Minutes of comment quiet before the Resolve node auto-starts (default `10`). Overridden by the Settings page value. |

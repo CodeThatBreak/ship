@@ -1,13 +1,13 @@
 "use client";
 import { useCallback, useEffect, useState } from "react";
 import {
-  ArrowLeft, CheckCircle2, Download, Inbox, ListTree, RefreshCw, XCircle,
+  CheckCircle2, Download, Inbox, ListTree, RefreshCw, XCircle,
 } from "lucide-react";
-import { Alert } from "../../../components/ui/alert";
-import { Badge } from "../../../components/ui/badge";
-import { Button } from "../../../components/ui/button";
-import { Card } from "../../../components/ui/card";
-import { Spinner } from "../../../components/ui/spinner";
+import { Alert } from "@/components/ui/alert";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Card } from "@/components/ui/card";
+import { Spinner } from "@/components/ui/spinner";
 
 /**
  * Import screen (Phase 2 — "Task acquisition: import screen only"): lists the
@@ -58,20 +58,20 @@ export default function TaskImportPage() {
   };
 
   return (
-    <main className="max-w-[1000px] mx-auto px-6 py-8">
-      <header className="flex items-center gap-3.5 mb-7">
-        <a href="/" className="inline-flex items-center gap-1.5 text-muted-foreground hover:text-muted-foreground">
-          <ArrowLeft size={15} /> DevFlow
-        </a>
-        <span className="text-border">|</span>
-        <h1 className="text-2xl m-0">Import tasks</h1>
+    <>
+      <header className="flex items-end justify-between gap-4 mb-7">
+        <div>
+          <h1 className="text-lg font-semibold tracking-tight m-0">Import tasks</h1>
+          <p className="text-[13px] text-muted-foreground mt-1 mb-0">
+            Pull in issues from your connected providers — idempotent on the issue key.
+          </p>
+        </div>
       </header>
 
       <p className="text-muted-foreground text-[12.5px] mb-6">
         Tasks come exclusively from integrations — each provider below pulls its
-        external issues into DevFlow (idempotent on the issue key). Connect an
-        integration by filling in its credentials in{" "}
-        <code className="font-mono">.env</code>, then import.
+        external issues into DevFlow. Connect an integration by filling in its
+        credentials in <code className="font-mono">.env</code>, then import.
       </p>
 
       {providers.length === 0 && (
@@ -94,11 +94,11 @@ export default function TaskImportPage() {
                 <span className="font-medium text-[14px]">{p.label}</span>
                 <Badge variant="outline" className="font-mono text-[11px]">{p.kind}</Badge>
                 {p.configured ? (
-                  <Badge className="bg-emerald-500/10 text-emerald-400">
+                  <Badge className="bg-success/10 text-success">
                     <CheckCircle2 size={11} /> connected
                   </Badge>
                 ) : (
-                  <Badge className="bg-amber-500/10 text-amber-400">
+                  <Badge className="bg-warning/10 text-warning">
                     <XCircle size={11} /> not configured (.env)
                   </Badge>
                 )}
@@ -134,7 +134,7 @@ export default function TaskImportPage() {
 
               {s?.state === "done" && (
                 <div className="rounded-lg border border-border/60 bg-muted/40 px-3 py-2.5">
-                  <div className="flex items-center gap-1.5 text-[12px] font-medium text-emerald-400 mb-1.5">
+                  <div className="flex items-center gap-1.5 text-[12px] font-medium text-success mb-1.5">
                     <CheckCircle2 size={13} />
                     {s.synced === 0 ? "Nothing new to import" : `Imported ${s.synced} task${s.synced === 1 ? "" : "s"}`}
                   </div>
@@ -143,7 +143,7 @@ export default function TaskImportPage() {
                       {s.tasks.map((t) => (
                         <div key={t.id} className="flex gap-2 items-center px-1 py-0.5">
                           <ListTree size={11} className="text-muted-foreground shrink-0" />
-                          <span className="font-mono text-[11.5px] text-blue-400">{t.key}</span>
+                          <span className="font-mono text-[11.5px] text-info">{t.key}</span>
                           <span className="flex-1 min-w-0 text-[12.5px] truncate">{t.summary}</span>
                         </div>
                       ))}
@@ -155,6 +155,6 @@ export default function TaskImportPage() {
           );
         })}
       </div>
-    </main>
+    </>
   );
 }

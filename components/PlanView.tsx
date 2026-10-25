@@ -144,11 +144,11 @@ export default function PlanView({
 
   const statusVariant =
     node.status === "approved"
-      ? "bg-emerald-500/10 text-emerald-400"
+      ? "bg-success/10 text-success"
       : node.status === "running"
-        ? "bg-blue-500/10 text-blue-400"
+        ? "bg-info/10 text-info"
         : node.status === "awaiting_approval"
-          ? "bg-amber-500/10 text-amber-400"
+          ? "bg-warning/10 text-warning"
           : node.status === "failed"
             ? undefined
             : undefined;
@@ -269,7 +269,7 @@ export default function PlanView({
                     The agent generated a plan but the structured plan-meta
                     block failed validation.
                     {validationErrors.length > 0 && (
-                      <ul className="mt-1.5 ml-3 list-disc text-xs text-rose-400/80">
+                      <ul className="mt-1.5 ml-3 list-disc text-xs text-destructive/80">
                         {validationErrors.map((e, i) => (
                           <li key={i}>
                             {e.path ? `${e.path}: ` : ""}
@@ -403,7 +403,7 @@ export default function PlanView({
                           className="text-muted-foreground shrink-0"
                         />
                       )}
-                      <Badge className="bg-blue-500/10 text-blue-400 shrink-0">
+                      <Badge className="bg-info/10 text-info shrink-0">
                         {b.name}
                       </Badge>
                       <span className="font-medium text-[13px] truncate">
@@ -414,7 +414,7 @@ export default function PlanView({
                       {refined && (
                         <Tooltip>
                           <TooltipTrigger>
-                            <Badge className="bg-amber-500/10 text-amber-400 shrink-0">
+                            <Badge className="bg-warning/10 text-warning shrink-0">
                               <ArrowRightLeft size={10} /> refined v
                               {refined.from} → v{refined.to}
                             </Badge>
@@ -442,7 +442,7 @@ export default function PlanView({
                       {staleV && !refined && (
                         <Tooltip>
                           <TooltipTrigger>
-                            <Badge className="bg-amber-500/10 text-amber-400 shrink-0">
+                            <Badge className="bg-warning/10 text-warning shrink-0">
                               ● sub-plan refined v{staleV}
                             </Badge>
                           </TooltipTrigger>

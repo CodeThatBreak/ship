@@ -296,7 +296,7 @@ function InputRow({
       <code
         className={cn(
           "font-mono text-[12px] shrink-0",
-          mapped ? "text-blue-400" : "text-muted-foreground",
+          mapped ? "text-info" : "text-muted-foreground",
         )}
       >
         {name}
@@ -313,13 +313,13 @@ function InputRow({
         {sourceText}
       </span>
       {mapped ? (
-        <Badge className="bg-blue-500/10 text-blue-400 text-[10px] py-0 shrink-0">mapped</Badge>
+        <Badge className="bg-info/10 text-info text-[10px] py-0 shrink-0">mapped</Badge>
       ) : (
         <Badge variant="outline" className="text-[10px] py-0 shrink-0">inherited</Badge>
       )}
       {conflict && !mapped && (
         <Badge
-          className="bg-amber-500/10 text-amber-400 text-[10px] py-0 shrink-0"
+          className="bg-warning/10 text-warning text-[10px] py-0 shrink-0"
           title="Two parents publish this field — the last one to finish wins. Map it to pick a source explicitly."
         >
           {from!.length} sources
@@ -375,7 +375,7 @@ function EditRow({
   const custom = known == null;
   const nameBad = editing.name.trim() !== "" && !slugOk(editing.name.trim());
   return (
-    <div className="grid gap-1.5 px-3 py-2 border-b border-border bg-blue-500/[0.04]">
+    <div className="grid gap-1.5 px-3 py-2 border-b border-border bg-info/[0.04]">
       <div className="grid grid-cols-[minmax(0,150px)_1fr] gap-1.5 items-start">
         <div className="grid gap-1">
           <Input
@@ -390,7 +390,7 @@ function EditRow({
             onBlur={() => onWrite({ ...editing, nameSettled: true })}
           />
           {nameBad && (
-            <p className="text-[10.5px] text-amber-400 m-0">
+            <p className="text-[10.5px] text-warning m-0">
               lowercase letters, digits and _ — starts with a letter
             </p>
           )}

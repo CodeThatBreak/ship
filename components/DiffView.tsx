@@ -85,7 +85,7 @@ export default function DiffView({ raw }: { raw: string }) {
     <div className="font-mono text-xs leading-normal">
       <div className="flex items-center gap-2 mb-1 font-sans">
         <Badge>{files.length} file{files.length > 1 ? "s" : ""}</Badge>
-        <Badge className="bg-emerald-500/10 text-emerald-400">+{totalAdd}</Badge>
+        <Badge className="bg-success/10 text-success">+{totalAdd}</Badge>
         <Badge variant="destructive">−{totalDel}</Badge>
       </div>
       {files.map((f) => {
@@ -95,8 +95,8 @@ export default function DiffView({ raw }: { raw: string }) {
             <summary className="cursor-pointer list-none flex items-center gap-2 font-sans font-semibold bg-card border border-border rounded-t-[9px] group-open:rounded-b-none group-not-open:rounded-[9px] px-3 py-2">
               <FileCode2 size={14} className="text-muted-foreground" />
               <span className="flex-1">{f.name}</span>
-              <span className="text-emerald-400 font-medium">+{count(f, "add")}</span>
-              <span className="text-rose-400 font-medium">−{count(f, "del")}</span>
+              <span className="text-success font-medium">+{count(f, "add")}</span>
+              <span className="text-destructive font-medium">−{count(f, "del")}</span>
             </summary>
             <div className="border border-border border-t-0 rounded-b-[9px] overflow-x-auto bg-background group-not-open:hidden">
               <ReactDiffViewer

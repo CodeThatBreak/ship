@@ -57,8 +57,8 @@ export type BuilderNodeData = {
 };
 
 const TRIGGER_STYLE: Record<string, string> = {
-  approval: "bg-amber-500/10 text-amber-400",
-  manual: "bg-blue-500/10 text-blue-400",
+  approval: "bg-warning/10 text-warning",
+  manual: "bg-info/10 text-info",
   debounced: "bg-violet-500/10 text-violet-400",
   auto: "bg-muted text-muted-foreground",
 };
@@ -79,9 +79,9 @@ function BuilderNodeView({ id, data }: NodeProps<Node<BuilderNodeData>>) {
       className={cn(
         "group relative rounded-xl border-[1.5px] bg-card cursor-pointer px-3 py-2 min-w-[148px] max-w-[188px] flex items-center gap-2.5 transition-all duration-150",
         "hover:shadow-panel",
-        selected ? "border-blue-500 bg-popover shadow-panel" : "border-border",
+        selected ? "border-info bg-popover shadow-panel" : "border-border",
         readonly && "cursor-default",
-        !readonly && unlinked && "ring-1 ring-amber-500/50",
+        !readonly && unlinked && "ring-1 ring-warning/50",
       )}
       title={readonly
         ? "Built-in template — read-only"
@@ -90,14 +90,14 @@ function BuilderNodeView({ id, data }: NodeProps<Node<BuilderNodeData>>) {
           : "Click to configure · right-click to duplicate"}
     >
       {!readonly && unlinked && (
-        <span className="absolute -top-1.5 -right-1.5 z-10 flex h-4 w-4 items-center justify-center rounded-full bg-amber-500 text-[9px] font-bold text-background" title="Needs a connection">
+        <span className="absolute -top-1.5 -right-1.5 z-10 flex h-4 w-4 items-center justify-center rounded-full bg-warning text-[9px] font-bold text-background" title="Needs a connection">
           !
         </span>
       )}
       {problemCount > 0 && (
         <span
           className={cn(
-            "absolute z-10 flex h-4 min-w-4 items-center justify-center rounded-full bg-rose-500 px-1 text-[9px] font-bold text-background",
+            "absolute z-10 flex h-4 min-w-4 items-center justify-center rounded-full bg-destructive px-1 text-[9px] font-bold text-background",
             !readonly && unlinked ? "-top-3.5 -right-1.5" : "-top-1.5 -right-1.5",
           )}
           title={problems!.join("\n")}
@@ -129,7 +129,7 @@ function BuilderNodeView({ id, data }: NodeProps<Node<BuilderNodeData>>) {
             </span>
           )}
           {node.join_mode === "any" && (
-            <span className="rounded px-1 py-px text-[9.5px] font-medium bg-amber-500/10 text-amber-400">any-join</span>
+            <span className="rounded px-1 py-px text-[9.5px] font-medium bg-warning/10 text-warning">any-join</span>
           )}
           {isDecision && (
             <span className="rounded px-1 py-px text-[9.5px] font-medium bg-violet-500/10 text-violet-300">branch</span>
@@ -156,7 +156,7 @@ function HandleConnect({ type }: { type: "source" | "target" }) {
       type={type}
       position={type === "source" ? Position.Right : Position.Left}
       className={cn(
-        "!h-2.5 !w-2.5 !border-2 !border-background !bg-blue-400 transition-opacity",
+        "!h-2.5 !w-2.5 !border-2 !border-background !bg-info transition-opacity",
         type === "source"
           ? "opacity-70 hover:!opacity-100"
           : "opacity-0 group-hover:opacity-100",
@@ -237,7 +237,7 @@ function BuilderEdgeView({
         id={id}
         path={path}
         markerEnd={markerEnd}
-        className={cn("hover:stroke-muted-foreground", selected ? "stroke-blue-500" : d?.problem ? "stroke-rose-400/70" : "stroke-border")}
+        className={cn("hover:stroke-muted-foreground", selected ? "stroke-info" : d?.problem ? "stroke-destructive/70" : "stroke-border")}
         style={{ strokeWidth: selected ? 2 : 1.5, strokeDasharray: isLoop ? "5 4" : undefined }}
       />
       {chip && (
@@ -247,9 +247,9 @@ function BuilderEdgeView({
             className={cn(
               "nodrag nopan absolute pointer-events-auto rounded-md border px-1.5 py-0.5 text-[10px] font-medium cursor-pointer transition-all max-w-[150px] truncate",
               selected
-                ? "border-blue-500 bg-blue-500/10 text-blue-300"
+                ? "border-info bg-info/10 text-info"
                 : d?.problem
-                  ? "border-rose-500 bg-rose-500/10 text-rose-300"
+                  ? "border-destructive bg-destructive/10 text-destructive"
                   : "border-border bg-popover text-muted-foreground hover:text-foreground",
             )}
             onClick={(e) => {

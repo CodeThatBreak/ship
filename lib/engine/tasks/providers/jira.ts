@@ -1,7 +1,12 @@
 import { config } from "../../../config";
 import { db } from "../../../db";
 import type { Task } from "../../../db/rows";
-import { TaskProvider, type TaskField } from "../task-provider";
+import {
+  TaskProvider,
+  type LiveTask,
+  type LiveTaskFilters,
+  type TaskField,
+} from "../task-provider";
 
 /**
  * The Jira task provider — moved verbatim from lib/integrations/jira.ts
@@ -9,10 +14,13 @@ import { TaskProvider, type TaskField } from "../task-provider";
  * extraction, figma-link scan, and the upsert-into-`tasks` sync now live in
  * one class so there is a single source of truth for jira task logic.
  *
- * Storage: common columns carry the shared task contract; jira-only payload
- * (PRD text, figma links) lives in the `fields` JSON column
- * (`fields.prd`, `fields.figma_urls`) — the context hydration reads them
- * through the `Task` transform.
+ * Storage: tasks are NOT synced into the DB for browsing — the tasks table
+ * fetches them live (`liveFetch`, cached by /api/tasks/live). A row is only
+ * upserted via `upsertLive` when a build starts (the flow engine needs the
+ * row for FK + context hydration). Common columns carry the shared task
+ * contract; jira-only payload (PRD text, figma links) lives in the `fields`
+ * JSON column (`fields.prd`, `fields.figma_urls`) — the context hydration
+ * reads them through the `Task` transform.
  */
 export class JiraTaskProvider extends TaskProvider {
   readonly kind = "jira";
@@ -42,9 +50,99 @@ export class JiraTaskProvider extends TaskProvider {
 
   /** Pull every issue matched by the configured JQL into the tasks table. */
   async sync(): Promise<string[]> {
-    const issues = await this.fetchMyIssues();
-    const ts = db.now();
-    return issues.map((issue) => this.upsert(issue, ts));
+    const tasks = await this.liveFetch();
+    return tasks.map((t) => this.upsertLive(t));
+  }
+
+  /**
+   * Runtime fetch for the tasks table: composes the structured filters into
+   * JQL. With no filters set this is the configured default ("assigned to
+   * me, not done"). Nothing is written to the DB here.
+   */
+  async liveFetch(filters: LiveTaskFilters = {}): Promise<LiveTask[]> {
+    const jql = this.jqlFor(filters);
+    const issues = await this.fetchByJql(jql);
+    const withParents = await this.expandParents(issues);
+    return withParents.map((issue) => this.toLive(issue));
+  }
+
+  /**
+   * Sub-task hierarchy: parents (stories/epics) are usually not assigned to
+   * the current user, so they rarely match the filter themselves — without
+   * them the table can't nest sub-tasks and stays flat. Fetch any missing
+   * parents (and their ancestors, for sub-sub-task chains) by key and return
+   * them alongside the matched issues as top-level container rows.
+   */
+  private async expandParents(issues: JiraIssue[]): Promise<JiraIssue[]> {
+    const byKey = new Map(issues.map((i) => [i.key, i]));
+    let frontier = issues
+      .map((i) => i.parentKey)
+      .filter((k) => k && !byKey.has(k));
+    for (let depth = 0; depth < 5 && frontier.length; depth++) {
+      const batch = [...new Set(frontier)].filter((k) => !byKey.has(k)).slice(0, 50);
+      if (!batch.length) break;
+      const parents = await this.fetchByJql(
+        `key in (${batch.map((k) => JSON.stringify(k)).join(",")})`,
+      );
+      if (!parents.length) break;
+      for (const p of parents) byKey.set(p.key, p);
+      frontier = parents.map((p) => p.parentKey);
+    }
+    return [...byKey.values()];
+  }
+
+  /** Structured filters → JQL. No filters = your assigned, not-done issues. */
+  private jqlFor({ assignee, statusCategory, text }: LiveTaskFilters): string {
+    const parts: string[] = [
+      assignee === "any" ? "assignee IS NOT EMPTY" : "assignee = currentUser()",
+    ];
+    if (!statusCategory && !text?.trim()) {
+      // default view: only open work
+      parts.push("statusCategory != Done");
+    } else if (statusCategory) {
+      parts.push(`statusCategory = ${JSON.stringify(statusCategory)}`);
+    }
+    if (text?.trim()) parts.push(`text ~ ${JSON.stringify(text.trim())}`);
+    return `${parts.join(" AND ")} ORDER BY updated DESC`;
+  }
+
+  /** Store one live task in the `tasks` table (idempotent on key). */
+  override upsertLive(task: LiveTask): string {
+    const issue: JiraIssue = {
+      id: task.id,
+      key: task.key,
+      summary: task.summary,
+      description: task.description,
+      status: task.status,
+      issueType: task.issueType,
+      priority: task.priority,
+      prdText: typeof task.fields.prd === "string" ? task.fields.prd : "",
+      figmaUrls: Array.isArray(task.fields.figma_urls)
+        ? (task.fields.figma_urls as string[])
+        : [],
+      externalUrl: task.externalUrl,
+      parentKey: task.parentKey,
+      raw: task.raw,
+    };
+    return this.upsert(issue, db.now());
+  }
+
+  /** Provider-agnostic view of a normalized issue (no DB write). */
+  private toLive(issue: JiraIssue): LiveTask {
+    return {
+      type: this.kind,
+      id: issue.id,
+      key: issue.key,
+      summary: issue.summary,
+      description: issue.description,
+      status: issue.status,
+      issueType: issue.issueType,
+      priority: issue.priority,
+      externalUrl: issue.externalUrl,
+      parentKey: issue.parentKey,
+      fields: { prd: issue.prdText, figma_urls: issue.figmaUrls },
+      raw: issue.raw,
+    };
   }
 
   // ── transport + normalization (single source of truth for jira logic) ────
@@ -84,11 +182,11 @@ export class JiraTaskProvider extends TaskProvider {
     };
   }
 
-  private async fetchMyIssues(): Promise<JiraIssue[]> {
+  private async fetchByJql(jql: string): Promise<JiraIssue[]> {
     if (!this.configured()) return [];
     // /rest/api/2/search was removed (Atlassian CHANGE-2046); use /rest/api/3/search/jql
     const url = `${config.jira.baseUrl()}/rest/api/3/search/jql?jql=${encodeURIComponent(
-      config.jira.jql()
+      jql,
     )}&maxResults=50&fields=summary,description,status,issuetype,priority,parent`;
     const res = await fetch(url, { headers: this.headers() });
     if (!res.ok) throw new Error(`Jira search failed (${res.status}): ${await res.text()}`);

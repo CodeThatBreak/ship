@@ -90,7 +90,7 @@ function StartView({ flow, node, action }: { flow: FlowData; node: Node; action:
             <div className="border border-border rounded-lg overflow-hidden text-[12.5px]">
               {Object.entries(output).map(([k, v]) => (
                 <div key={k} className="flex items-start gap-2 px-3 py-1.5 border-b border-border last:border-0">
-                  <code className="font-mono text-blue-400 shrink-0">{k}</code>
+                  <code className="font-mono text-info shrink-0">{k}</code>
                   <span className="text-muted-foreground font-mono break-all">{fmtStartValue(v)}</span>
                 </div>
               ))}
@@ -123,7 +123,7 @@ function StartFieldInput({
         <label className="text-[12.5px] font-medium">{field.label || field.key}</label>
         {field.label && <code className="font-mono text-[11px] text-muted-foreground">{field.key}</code>}
         <Badge variant="outline" className="text-[10px]">{field.type}</Badge>
-        {field.required && <Badge className="bg-amber-500/10 text-amber-400 text-[10px]">required</Badge>}
+        {field.required && <Badge className="bg-warning/10 text-warning text-[10px]">required</Badge>}
       </div>
       {field.type === "boolean" ? (
         <label className="flex items-center gap-2 text-[13px] cursor-pointer">

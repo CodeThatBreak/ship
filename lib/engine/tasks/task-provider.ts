@@ -1,6 +1,46 @@
 import type { Task } from "../../db/rows";
 
 /**
+ * A task fetched live from the provider's source — never stored as-is. The
+ * tasks table shows these at runtime (filter → refetch); a row is only
+ * materialized in the DB (`upsertLive`) when a build actually starts, since
+ * the flow engine needs the row for FK + context hydration.
+ */
+export interface LiveTask {
+  /** provider kind discriminator (tasks.type when materialized) */
+  type: string;
+  id: string;
+  key: string;
+  summary: string;
+  description: string;
+  status: string;
+  issueType: string;
+  priority: string;
+  externalUrl: string;
+  /** parent issue key (sub-task nesting) */
+  parentKey: string;
+  /** provider-specific payload — jira keeps `prd` and `figma_urls` here */
+  fields: Record<string, unknown>;
+  /** raw provider payload, kept for faithful re-materialization */
+  raw: unknown;
+}
+
+/**
+ * Structured task filters for the tasks table's predefined filter bar.
+ * Omitted/empty values are ignored; a provider composes these into its own
+ * query language (jira → JQL). With no filters set, the provider falls back
+ * to its configured default query.
+ */
+export interface LiveTaskFilters {
+  /** "me" (default) = current user; "any" = everyone */
+  assignee?: "me" | "any";
+  /** workflow-agnostic status bucket: "To Do" | "In Progress" | "Done" */
+  statusCategory?: string;
+  /** free-text search across the task */
+  text?: string;
+}
+
+/**
  * One field a task type contributes to the `{{task.*}}` variable universe.
  *
  * Mirrors the start-contract field style (`nodes/start/contract.ts`): `key` is
@@ -45,6 +85,19 @@ export abstract class TaskProvider {
    * (idempotent on `key`, `type` = this kind). Returns the upserted task ids.
    */
   abstract sync(): Promise<string[]>;
+
+  /**
+   * Runtime fetch — the source of truth for the tasks table. Reads straight
+   * from the provider's API (never the DB, never stored). Results are cached
+   * by the /api/tasks/live route.
+   */
+  abstract liveFetch(filters?: LiveTaskFilters): Promise<LiveTask[]>;
+
+  /**
+   * Write one live task into the `tasks` table (idempotent on `key`). Only
+   * called when a build starts — the engine needs a row to attach the flow to.
+   */
+  abstract upsertLive(task: LiveTask): string;
 
   /** Where to view this task externally (UI deep link). */
   abstract externalUrl(task: Task): string;
