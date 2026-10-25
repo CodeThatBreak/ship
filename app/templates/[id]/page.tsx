@@ -42,6 +42,7 @@ import {
   Undo2,
   Webhook as WebhookIcon,
   Workflow,
+  X,
 } from "lucide-react";
 import { Alert } from "../../../components/ui/alert";
 import { Badge } from "../../../components/ui/badge";
@@ -56,6 +57,9 @@ import {
   DialogTitle,
 } from "../../../components/ui/dialog";
 import { Input } from "../../../components/ui/input";
+import { Label } from "../../../components/ui/label";
+import { ScrollArea } from "../../../components/ui/scroll-area";
+import { Textarea } from "../../../components/ui/textarea";
 import {
   Select,
   SelectContent,
@@ -912,12 +916,15 @@ export default function TemplateEditorPage() {
             className={cn("max-w-[640px] pointer-events-auto shadow-lg", error && "w-auto")}
           >
             <span>{error ?? notice}</span>
-            <button
-              className="ml-auto text-muted-foreground hover:text-foreground text-sm"
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              className="ml-auto text-muted-foreground hover:text-foreground"
+              title="Dismiss"
               onClick={() => { setError(null); setNotice(null); }}
             >
-              ✕
-            </button>
+              <X size={14} />
+            </Button>
           </Alert>
         </div>
       )}
@@ -987,7 +994,7 @@ export default function TemplateEditorPage() {
             </SheetHeader>
             <SheetBody>
               <div className="grid gap-1 mb-4">
-                <label className="text-xs text-muted-foreground">Display name</label>
+                <Label>Display name</Label>
                 <Input
                   value={configuring.overrideLabel ?? ""}
                   disabled={readonly}
@@ -1246,16 +1253,16 @@ function EdgeEditor({
     <div className="grid gap-3">
       <div className="grid grid-cols-2 gap-3">
         <div className="grid gap-1">
-          <label className="text-xs text-muted-foreground">From</label>
+          <Label>From</Label>
           <EdgeSelect value={edge.from} nodes={draft.nodes} disabled={readonly} onChange={(v) => onChange({ from: v })} />
         </div>
         <div className="grid gap-1">
-          <label className="text-xs text-muted-foreground">To</label>
+          <Label>To</Label>
           <EdgeSelect value={edge.to} nodes={draft.nodes} disabled={readonly} onChange={(v) => onChange({ to: v })} />
         </div>
       </div>
       <div className="grid gap-1">
-        <label className="text-xs text-muted-foreground">Kind</label>
+        <Label>Kind</Label>
         <Select value={edge.kind} disabled={readonly} onValueChange={(v) => { if (v != null) onChange({ kind: v }); }}>
           <SelectTrigger className="w-full rounded-lg border-border bg-card">
             <SelectValue>{EDGE_KIND_OPTIONS[edge.kind]?.label ?? edge.kind}</SelectValue>
@@ -1276,26 +1283,28 @@ function EdgeEditor({
         </p>
       </div>
       <div className="grid gap-1">
-        <label className="text-xs text-muted-foreground">
+        <Label>
           Label {isDecision && <span className="text-warning">— required for decision branches</span>}
-        </label>
+        </Label>
         {isDecision && choices && choices.length > 0 && (
           <div className="flex gap-1 flex-wrap">
             {choices.map((c) => (
-              <button
+              <Button
                 key={c.label}
                 disabled={readonly}
                 title={c.description}
                 onClick={() => onChange({ label: c.label })}
+                variant="outline"
+                size="xs"
                 className={cn(
-                  "rounded-md border px-2 py-1 text-[11.5px] font-medium transition-colors",
+                  "rounded-md text-[11.5px]",
                   edge.label === c.label
                     ? "border-violet-500 bg-violet-500/10 text-violet-300"
-                    : "border-border text-muted-foreground hover:text-foreground",
+                    : "text-muted-foreground hover:text-foreground",
                 )}
               >
                 {c.label}
-              </button>
+              </Button>
             ))}
           </div>
         )}
@@ -1383,24 +1392,24 @@ function SettingsBody({
     <div className="grid gap-4">
       <div className="grid gap-3">
         <div className="grid gap-1">
-          <label className="text-xs text-muted-foreground">Template name</label>
+          <Label>Template name</Label>
           <Input value={draft.template.name} disabled={readonly} onChange={(e) => onChange({ name: e.target.value })} />
         </div>
         <div className="grid gap-1">
-          <label className="text-xs text-muted-foreground">Description</label>
-          <textarea
+          <Label>Description</Label>
+          <Textarea
             value={draft.template.description ?? ""}
             rows={2}
             disabled={readonly}
             onChange={(e) => onChange({ description: e.target.value || null })}
-            className="bg-card text-foreground border border-border rounded-lg text-[13px] px-3 py-2"
+            className="bg-card text-foreground border-border text-[13px] px-3 py-2 resize-y"
           />
         </div>
       </div>
 
       {/* ── Task context (Phase 3): the declared task type + its fields ── */}
       <div className="grid gap-1">
-        <label className="text-xs text-muted-foreground">Task context</label>
+        <Label>Task context</Label>
         <Select
           value={taskType}
           disabled={readonly || providers.length === 0}
@@ -1446,7 +1455,7 @@ function SettingsBody({
           When flows start
         </div>
         <div className="grid gap-1">
-          <label className="text-xs text-muted-foreground">Flow trigger</label>
+          <Label>Flow trigger</Label>
           <Select value={triggerType} disabled={readonly} onValueChange={(v) => setTrigger({ type: v })}>
             <SelectTrigger className="w-full rounded-lg border-border bg-card">
               <SelectValue>
@@ -1467,7 +1476,7 @@ function SettingsBody({
         </div>
         {autoStarts && (
           <div className="grid gap-1">
-            <label className="text-xs text-muted-foreground">Bound repo</label>
+            <Label>Bound repo</Label>
             <Select
               value={String(trigger.repo_id ?? "")}
               disabled={readonly}
@@ -1489,7 +1498,7 @@ function SettingsBody({
         )}
         {triggerType === "schedule" && (
           <div className="grid gap-1">
-            <label className="text-xs text-muted-foreground">Interval (minutes)</label>
+            <Label>Interval (minutes)</Label>
             <Input
               type="number"
               min={1}
@@ -1515,7 +1524,7 @@ function SettingsBody({
           <CollapsibleContent>
             <div className="grid gap-3 pt-2">
               <div className="grid gap-1">
-                <label className="text-xs text-muted-foreground">Filter — which deliveries start a flow?</label>
+                <Label>Filter — which deliveries start a flow?</Label>
                 <ConditionBuilder
                   value={typeof trigger.filter === "string" ? trigger.filter : null}
                   templateId={templateId}
@@ -1575,22 +1584,26 @@ function MaskedSecret({ value }: { value: string }) {
     <span className="flex items-center gap-1 font-mono text-[12px] text-muted-foreground break-all">
       <span className="text-muted-foreground/70">secret</span>
       {revealed ? value : "•".repeat(Math.min(value.length || 8, 20))}
-      <button
+      <Button
         type="button"
-        className="text-muted-foreground hover:text-foreground transition-colors"
+        variant="ghost"
+        size="icon-xs"
+        className="text-muted-foreground hover:text-foreground"
         title={revealed ? "Hide secret" : "Reveal secret"}
         onClick={() => setRevealed((v) => !v)}
       >
         {revealed ? <EyeOff size={11} /> : <Eye size={11} />}
-      </button>
-      <button
+      </Button>
+      <Button
         type="button"
-        className="text-muted-foreground hover:text-foreground transition-colors"
+        variant="ghost"
+        size="icon-xs"
+        className="text-muted-foreground hover:text-foreground"
         title="Copy secret"
         onClick={() => void copy()}
       >
         {copied ? <Check size={11} className="text-success" /> : <Copy size={11} />}
-      </button>
+      </Button>
     </span>
   );
 }

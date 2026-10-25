@@ -534,7 +534,7 @@ export default function Home() {
             <div className="flex flex-col gap-1.5">
               <Label>Flow template</Label>
               <Select value={templateId} onValueChange={(v) => v && setTemplateId(v)}>
-                <SelectTrigger className="max-w-full">
+                <SelectTrigger className="w-full">
                   <SelectValue placeholder="Select template…" />
                 </SelectTrigger>
                 <SelectContent>
@@ -550,7 +550,7 @@ export default function Home() {
             <div className="flex flex-col gap-1.5">
               <Label>Repository</Label>
               <Select value={repoId || null} onValueChange={(v) => v && setRepoId(v)}>
-                <SelectTrigger className="max-w-full">
+                <SelectTrigger className="w-full">
                   <SelectValue placeholder="Select repo…" />
                 </SelectTrigger>
                 <SelectContent>
@@ -569,7 +569,7 @@ export default function Home() {
                 value={executionMode}
                 onValueChange={(v) => v && setExecutionMode(v as "cloud" | "local")}
               >
-                <SelectTrigger className="max-w-full">
+                <SelectTrigger className="w-full">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>

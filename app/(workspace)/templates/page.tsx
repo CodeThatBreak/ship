@@ -34,7 +34,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
+import { Button, buttonVariants } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Spinner } from "@/components/ui/spinner";
@@ -302,9 +302,7 @@ export default function TemplateGallery() {
             >
               <div className="flex items-center gap-2">
                 <label
-                  className={cn(
-                    "inline-flex items-center gap-1.5 rounded-lg border border-border bg-card px-2.5 py-1.5 text-[12.5px] cursor-pointer hover:bg-muted/60 transition-colors",
-                  )}
+                  className={cn(buttonVariants({ variant: "outline", size: "sm" }), "cursor-pointer")}
                   title="Load a YAML file into the box below"
                 >
                   <Upload size={12} /> Choose a file…
