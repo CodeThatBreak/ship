@@ -92,6 +92,7 @@ import type { DraftNodeDef, EditorEdge, EditorNode, NodeContract } from "../../.
 import { contractsUrl, describeTrigger, nodeLabel, nodeRelationships, isPlanDownstream } from "../../../components/template-editor/types";
 import type { TaskProviderInfo } from "../../../components/template-editor/types";
 import { asJsonataGroups, buildVarGroups, conditionVarGroups, schemaRows } from "../../../components/template-editor/variables";
+import { NODE_KIND_DESCRIPTIONS, boilerplateFor } from "../../../components/template-editor";
 import type { LintProblem } from "../../../lib/engine/context-lint";
 
 /** A registered task provider's editor-facing slice (GET /api/tasks/providers). */
@@ -716,6 +717,10 @@ export default function TemplateEditorPage() {
     isBuiltin: boolean;
     /** set for draft instances (Phase 2): the def rides in pendingDefs until Save */
     draftDef?: DraftNodeDef;
+    /** the instance's starting config override — the draft's boilerplate
+     *  mirrors the pending def so the drawer/canvas contract sees it now
+     *  (identical values: the def stays the source, edits are overrides) */
+    config?: Record<string, unknown>;
     /** the backing row's catalog key ("plan", "start", ...) - the fan-out
      *  configurator's plan-downstream gate reads it (isPlanNode) */
     catalogKey?: string | null;
@@ -735,7 +740,7 @@ export default function TemplateEditorPage() {
         overrideLabel: null,
         trigger: { type: "auto" },
         join_mode: "all",
-        config: {},
+        config: opts.config ?? {},
         input_map: {},
         kind: opts.kind,
         icon: opts.icon,
@@ -769,38 +774,34 @@ export default function TemplateEditorPage() {
    * A New-node tile (Phase 2): place an in-memory draft instance of the kind —
    * `nodeTemplateId: "draft:<n>"`, def in pendingDefs. No POST at click time:
    * nothing server-side exists until Save (abandoned placements never pollute
-   * the catalog). The decision's seeded branches ride in the instance config,
-   * so the drawer/canvas see them immediately.
+   * the catalog). The def carries the kind's boilerplate (§8 — the node is
+   * ready to run as-is; the drawer's knob edits and input remaps are the only
+   * work), so the drawer/canvas see a working node immediately.
    */
   const addDraftKindNode = (kind: "agent" | "decision" | "http" | "script") => {
     if (!draft) return;
     const draftId = `draft:${draftSeq.current++}`;
     const name = nextDraftName(kind, draft);
+    // the kind's boilerplate — the def carries it (the row born at Save) and
+    // the instance config mirrors it (the drawer/canvas contract reads the
+    // instance config; identical values keep the def the source of truth)
+    const config = boilerplateFor(kind);
     addInstance({
       nodeTemplateId: draftId,
       name,
       kind,
       icon: KIND_ICONS[kind] ?? "bot",
       isBuiltin: false,
+      config,
       draftDef: {
         draftId,
         kind,
         name,
         icon: KIND_ICONS[kind] ?? "bot",
-        description: `Custom ${kind} node — reusable from the Library once saved`,
-        config: {},
+        description: NODE_KIND_DESCRIPTIONS[kind],
+        config,
       },
     });
-    // the decision's seeded branches belong to the instance config (the
-    // drawer edits it; Save folds it into the persisted def)
-    if (kind === "decision") {
-      const config = { choices: [{ label: "yes" }, { label: "no" }] };
-      setDraft((cur) =>
-        cur
-          ? { ...cur, nodes: cur.nodes.map((n) => (n.nodeTemplateId === draftId ? { ...n, config } : n)) }
-          : cur,
-      );
-    }
   };
 
   // ── node placement for palette additions ──────────────────────────────────

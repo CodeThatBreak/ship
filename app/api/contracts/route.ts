@@ -101,8 +101,21 @@ export async function GET(req: Request) {
     row = { id: nt.id, name: nt.name, description: nt.description, kind: nt.kind, config: nt.config };
     catalogKey = nt.key;
   }
-  const inst = instantiateDeclarative(row);
-  if (!inst) return NextResponse.json({ error: "unknown node type" }, { status: 404 });
+  const inst = (() => {
+    try {
+      return instantiateDeclarative(row);
+    } catch (e) {
+      // unreadable definition (e.g. a decision without choices) — a readable
+      // 400, not an unhandled 500
+      return e instanceof Error ? e.message : String(e);
+    }
+  })();
+  if (!inst || typeof inst !== "object") {
+    return NextResponse.json(
+      { error: typeof inst === "string" ? `invalid node definition: ${inst}` : "unknown node type" },
+      { status: typeof inst === "string" ? 400 : 404 },
+    );
+  }
   const typed = inst as unknown as {
     def: Record<string, unknown>;
     configFields: unknown[];

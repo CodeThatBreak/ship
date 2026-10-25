@@ -5,14 +5,18 @@
  *   - built-in SDLC nodes pinned first, then the reusable custom nodes;
  *   - "New node" creates a global declarative node (agent / decision / http /
  *     script) that every template's builder lists under Library;
- *   - Configure edits name / description / the kind's definition (PATCH);
+ *   - Configure edits name / description / the kind's FULL definition
+ *     (PATCH) — every knob the runtime class declares, rendered by the same
+ *     schema-driven field machinery the builder drawer uses (the dialog is
+ *     boilerplate-seeded so a new node runs as-is; authors remap inputs and
+ *     tweak knobs instead of starting from a blank def);
  *   - Delete asks through the styled AlertDialog — the server refuses rows
  *     still referenced by template nodes, and that error is surfaced here;
  *   - built-ins are code-defined, so they carry no actions.
  * The editor palette's Library section renders exactly the custom rows
  * managed here — this page is their single authoring surface.
  */
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ColumnDef } from "@tanstack/react-table";
 import {
   Blocks,
@@ -48,9 +52,17 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Spinner } from "@/components/ui/spinner";
-import { Textarea } from "@/components/ui/textarea";
 import { DataTable } from "@/components/data-table";
 import { fmtDate } from "@/lib/format";
+import {
+  DeclarativeConfigFields,
+  NODE_KIND_DESCRIPTIONS,
+  NODE_TEMPLATE_KINDS,
+  boilerplateFor,
+  type NodeContract,
+  type NodeTemplateKind,
+} from "@/components/template-editor";
+import { kindContractUrl } from "@/components/template-editor/types";
 
 type NodeRow = {
   id: string;
@@ -68,25 +80,22 @@ type NodeRow = {
 };
 
 /** The declarative kinds a Template Node can have, in display order. */
-const NODE_KINDS = [
+const NODE_KINDS: { kind: NodeTemplateKind; title: string }[] = [
   { kind: "agent", title: "Agent" },
   { kind: "decision", title: "Decision" },
   { kind: "http", title: "HTTP" },
   { kind: "script", title: "Script" },
-] as const;
-type NodeKind = (typeof NODE_KINDS)[number]["kind"];
+];
 
-const isNodeKind = (k: string): k is NodeKind =>
+const isNodeKind = (k: string): k is NodeTemplateKind =>
   NODE_KINDS.some((n) => n.kind === k);
 
-const KIND_ICONS: Record<NodeKind, typeof Bot> = {
+const KIND_ICONS: Record<NodeTemplateKind, typeof Bot> = {
   agent: Bot,
   decision: GitBranch,
   http: Globe,
   script: FileCode2,
 };
-
-const HTTP_METHODS = ["GET", "POST", "PUT", "PATCH", "DELETE"] as const;
 
 /** A kind's scope badge: built-ins are code, library rows are shared,
  *  template-local rows belong to one template's builder. */
@@ -95,93 +104,25 @@ function scopeOf(n: NodeRow): "built-in" | "library" | "template-local" {
   return n.is_local ? "template-local" : "library";
 }
 
-// ── the create/edit form state (one flat shape across all kinds) ────────────
+// ── the create/edit form state (identity + the kind's whole definition) ─────
 
 type NodeFormState = {
   name: string;
   description: string;
-  kind: NodeKind;
-  // agent
-  prompt: string;
-  mode: "plan" | "agent";
-  output: "markdown" | "json";
-  // decision
-  question: string;
-  /** one branch label per line — parsed into `choices` on submit */
-  choicesText: string;
-  // http
-  url: string;
-  method: string;
-  body: string;
-  // script
-  runtime: "shell" | "node" | "python";
-  script: string;
+  kind: NodeTemplateKind;
+  /** the kind's full definition — edited field-by-field through
+   *  DeclarativeConfigFields (same machinery as the builder drawer) */
+  config: Record<string, unknown>;
 };
 
-const EMPTY_FORM: NodeFormState = {
-  name: "",
-  description: "",
-  kind: "agent",
-  prompt: "",
-  mode: "plan",
-  output: "markdown",
-  question: "",
-  choicesText: "",
-  url: "",
-  method: "GET",
-  body: "",
-  runtime: "shell",
-  script: "",
-};
-
-/** The stored definition for the form's kind (server re-validates per kind). */
-function buildConfig(f: NodeFormState): Record<string, unknown> {
-  switch (f.kind) {
-    case "agent":
-      return { prompt: f.prompt, mode: f.mode, output: f.output };
-    case "decision":
-      return {
-        question: f.question,
-        choices: f.choicesText
-          .split("\n")
-          .map((l) => l.trim())
-          .filter(Boolean)
-          .map((label) => ({ label })),
-      };
-    case "http":
-      return { url: f.url, method: f.method, body: f.body === "" ? null : f.body };
-    case "script":
-      return { runtime: f.runtime, script: f.script };
-  }
-}
-
-/** Prefill the form from a row's stored definition (Configure). */
-function formFromRow(n: NodeRow): NodeFormState {
-  const c = n.config ?? {};
-  const str = (k: string, fallback = "") =>
-    typeof c[k] === "string" ? (c[k] as string) : fallback;
-  const kind = isNodeKind(n.kind) ? n.kind : "agent";
-  const choices = Array.isArray(c.choices)
-    ? (c.choices as { label?: unknown }[])
-        .map((ch) => (typeof ch?.label === "string" ? ch.label : ""))
-        .filter(Boolean)
-        .join("\n")
-    : "";
+/** A fresh create form: boilerplate definition + boilerplate description,
+ *  so the node runs (and reads) as-is out of the box. */
+function emptyForm(): NodeFormState {
   return {
-    ...EMPTY_FORM,
-    name: n.name,
-    description: n.description ?? "",
-    kind,
-    prompt: str("prompt"),
-    mode: c.mode === "agent" ? "agent" : "plan",
-    output: c.output === "json" ? "json" : "markdown",
-    question: str("question"),
-    choicesText: choices,
-    url: str("url"),
-    method: (HTTP_METHODS as readonly string[]).includes(str("method")) ? str("method") : "GET",
-    body: typeof c.body === "string" ? c.body : "",
-    runtime: c.runtime === "node" || c.runtime === "python" ? c.runtime : "shell",
-    script: str("script"),
+    name: "",
+    description: NODE_KIND_DESCRIPTIONS.agent,
+    kind: "agent",
+    config: boilerplateFor("agent"),
   };
 }
 
@@ -193,10 +134,15 @@ export default function TemplateNodesPage() {
   const [busyId, setBusyId] = useState<string | null>(null);
   /** null = dialog closed; a row = Configure it; `{ id: null }` = create */
   const [editing, setEditing] = useState<{ id: string | null } | null>(null);
-  const [form, setForm] = useState<NodeFormState>(EMPTY_FORM);
+  const [form, setForm] = useState<NodeFormState>(() => emptyForm());
   const [formError, setFormError] = useState<string | null>(null);
   /** the node behind the styled delete confirm */
   const [pendingDelete, setPendingDelete] = useState<NodeRow | null>(null);
+  /** the form kind's full field list (runtime class via /api/contracts) —
+   *  refetched when the dialog opens on a different kind */
+  const [contract, setContract] = useState<NodeContract | null>(null);
+  /** configured secret names (http nodes' {{secrets.NAME}} chips) */
+  const [secretNames, setSecretNames] = useState<string[] | null>(null);
 
   const load = useCallback(async () => {
     const r = await fetch("/api/node-templates").then((r) => r.json()).catch(() => null);
@@ -216,26 +162,94 @@ export default function TemplateNodesPage() {
     [],
   );
 
+  // the contract rides the dialog's kind + current definition: fields + the
+  // parsed defaults for the schema-driven form. The config always rides along
+  // (the drawer's draft pattern) — a blank decision def is unparseable by
+  // design (choices min(1)), and the definition IS what the dialog edits.
+  // The last contract stays rendered while a refetch is in flight (typing
+  // must not unmount the fields); only a kind switch clears it.
+  const prevKind = useRef<NodeTemplateKind | null>(null);
+  useEffect(() => {
+    if (editing == null) {
+      prevKind.current = null;
+      return;
+    }
+    const kindSwitched = prevKind.current !== form.kind;
+    prevKind.current = form.kind;
+    if (kindSwitched) setContract(null);
+    let alive = true;
+    fetch(kindContractUrl(form.kind, form.config))
+      .then((r) => r.json())
+      .then((c: NodeContract | { error?: string }) => {
+        if (alive) setContract(c && "input" in c ? (c as NodeContract) : null);
+      })
+      .catch(() => {
+        if (alive && kindSwitched) setContract(null);
+      });
+    return () => {
+      alive = false;
+    };
+  }, [editing, form.kind, form.config]);
+
+  // http kinds only: the secret names for the {{secrets.NAME}} chips
+  useEffect(() => {
+    if (editing == null || form.kind !== "http") return;
+    let alive = true;
+    fetch("/api/settings")
+      .then((r) => r.json())
+      .then((d) => {
+        if (alive) setSecretNames(d?.secrets ?? []);
+      })
+      .catch(() => {
+        if (alive) setSecretNames([]);
+      });
+    return () => {
+      alive = false;
+    };
+  }, [editing, form.kind]);
+
+  /** A fresh create form — seeded with the kind's boilerplate so the node
+   *  is ready to run as-is; the author tweaks rather than writes. */
   const openCreate = useCallback(() => {
-    setForm(EMPTY_FORM);
+    setForm(emptyForm());
     setFormError(null);
     setEditing({ id: null });
   }, []);
 
+  /** Configure: the stored definition round-trips untouched (including the
+   *  `_ts` companions the schema boxes authored with). */
   const openConfigure = useCallback((n: NodeRow) => {
-    setForm(formFromRow(n));
+    setForm({
+      name: n.name,
+      description: n.description ?? "",
+      kind: isNodeKind(n.kind) ? n.kind : "agent",
+      config: structuredClone(n.config ?? {}) as Record<string, unknown>,
+    });
     setFormError(null);
     setEditing({ id: n.id });
   }, []);
 
-  /** Create or save, then refresh — validation problems stay in the dialog. */
+  /** A kind switch on create re-seeds the definition — boilerplate per kind,
+   *  never a mixed leftover of the previous kind's shape. The description
+   *  follows too, unless the author already customized it. */
+  const switchKind = useCallback((kind: NodeTemplateKind) => {
+    setForm((f) => ({
+      ...f,
+      kind,
+      config: boilerplateFor(kind),
+      description:
+        !f.description || Object.values(NODE_KIND_DESCRIPTIONS).includes(f.description)
+          ? NODE_KIND_DESCRIPTIONS[kind]
+          : f.description,
+    }));
+  }, []);
+
+  /** Create or save, then refresh — validation problems stay in the dialog
+   *  (the server re-validates the whole definition through the kind's zod
+   *  schema; every field of it was editable here). */
   const save = async () => {
     if (!form.name.trim()) {
       setFormError("name is required");
-      return;
-    }
-    if (form.kind === "decision" && !form.choicesText.split("\n").some((l) => l.trim())) {
-      setFormError("a decision needs at least one choice — one branch label per line");
       return;
     }
     setBusyId("__form");
@@ -246,7 +260,7 @@ export default function TemplateNodesPage() {
         name: form.name,
         description: form.description || null,
         kind: form.kind,
-        config: buildConfig(form),
+        config: form.config,
       }),
     })
       .then((r) => r.json())
@@ -451,7 +465,7 @@ export default function TemplateNodesPage() {
               <Label>Kind</Label>
               <Select
                 value={form.kind}
-                onValueChange={(v) => setFormField({ kind: v as NodeKind })}
+                onValueChange={(v) => switchKind(v as NodeTemplateKind)}
                 disabled={editing?.id != null}
               >
                 <SelectTrigger className="w-full">
@@ -463,10 +477,22 @@ export default function TemplateNodesPage() {
                   ))}
                 </SelectContent>
               </Select>
+              {editing?.id == null && (
+                <p className="text-[11px] text-muted-foreground m-0">
+                  Seeded with a working {form.kind} boilerplate — tweak it or
+                  remap the inputs in the builder; nothing to write from scratch.
+                </p>
+              )}
             </div>
 
-            <NodeKindFields form={form} set={setFormField} />
             {formError && <Alert variant="destructive">{formError}</Alert>}
+            <DeclarativeConfigFields
+              kind={form.kind}
+              config={form.config}
+              contract={contract}
+              secretNames={form.kind === "http" ? secretNames : null}
+              onConfigChange={(config) => setFormField({ config })}
+            />
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setEditing(null)}>
@@ -504,150 +530,4 @@ export default function TemplateNodesPage() {
       </AlertDialog>
     </div>
   );
-}
-
-// ── per-kind definition fields (create + configure share them) ──────────────
-
-function NodeKindFields({
-  form,
-  set,
-}: {
-  form: NodeFormState;
-  set: (patch: Partial<NodeFormState>) => void;
-}) {
-  switch (form.kind) {
-    case "agent":
-      return (
-        <>
-          <div className="grid gap-1.5">
-            <Label htmlFor="agent-prompt">Prompt</Label>
-            <Textarea
-              id="agent-prompt"
-              value={form.prompt}
-              onChange={(e) => set({ prompt: e.target.value })}
-              rows={4}
-              placeholder="What the agent should do… ({{vars}} allowed)"
-              className="text-[12px]"
-            />
-          </div>
-          <div className="grid grid-cols-2 gap-3">
-            <div className="grid gap-1.5">
-              <Label>Mode</Label>
-              <Select value={form.mode} onValueChange={(v) => set({ mode: v as NodeFormState["mode"] })}>
-                <SelectTrigger className="w-full"><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="plan">plan (read-only judgment)</SelectItem>
-                  <SelectItem value="agent">agent (repo workspace run)</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="grid gap-1.5">
-              <Label>Output</Label>
-              <Select value={form.output} onValueChange={(v) => set({ output: v as NodeFormState["output"] })}>
-                <SelectTrigger className="w-full"><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="markdown">markdown</SelectItem>
-                  <SelectItem value="json">json</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-          </div>
-        </>
-      );
-    case "decision":
-      return (
-        <>
-          <div className="grid gap-1.5">
-            <Label htmlFor="decision-question">Question</Label>
-            <Textarea
-              id="decision-question"
-              value={form.question}
-              onChange={(e) => set({ question: e.target.value })}
-              rows={3}
-              placeholder="How to make the call ({{vars}} allowed) — the answer maps to a branch"
-              className="text-[12px]"
-            />
-          </div>
-          <div className="grid gap-1.5">
-            <Label htmlFor="decision-choices">Choices</Label>
-            <Textarea
-              id="decision-choices"
-              value={form.choicesText}
-              onChange={(e) => set({ choicesText: e.target.value })}
-              rows={3}
-              placeholder={"One branch label per line, e.g.\nyes\nno"}
-              className="text-[12px]"
-            />
-            <p className="text-[11px] text-muted-foreground m-0">
-              One branch label per line — the branch list the node picks from.
-            </p>
-          </div>
-        </>
-      );
-    case "http":
-      return (
-        <>
-          <div className="grid grid-cols-[1fr_130px] gap-3">
-            <div className="grid gap-1.5">
-              <Label htmlFor="http-url">URL</Label>
-              <Input
-                id="http-url"
-                value={form.url}
-                onChange={(e) => set({ url: e.target.value })}
-                placeholder="https://… ({{vars}} and {{secrets.NAME}} allowed)"
-              />
-            </div>
-            <div className="grid gap-1.5">
-              <Label>Method</Label>
-              <Select value={form.method} onValueChange={(v) => set({ method: v ?? "GET" })}>
-                <SelectTrigger className="w-full"><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  {HTTP_METHODS.map((m) => (
-                    <SelectItem key={m} value={m}>{m}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-          </div>
-          <div className="grid gap-1.5">
-            <Label htmlFor="http-body">Body</Label>
-            <Textarea
-              id="http-body"
-              value={form.body}
-              onChange={(e) => set({ body: e.target.value })}
-              rows={3}
-              placeholder="Request body as text ({{…}} interpolated) — optional"
-              className="text-[12px]"
-            />
-          </div>
-        </>
-      );
-    case "script":
-      return (
-        <>
-          <div className="grid gap-1.5">
-            <Label>Runtime</Label>
-            <Select value={form.runtime} onValueChange={(v) => set({ runtime: v as NodeFormState["runtime"] })}>
-              <SelectTrigger className="w-full"><SelectValue /></SelectTrigger>
-              <SelectContent>
-                <SelectItem value="shell">shell</SelectItem>
-                <SelectItem value="node">node</SelectItem>
-                <SelectItem value="python">python</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
-          <div className="grid gap-1.5">
-            <Label htmlFor="script-source">Script</Label>
-            <Textarea
-              id="script-source"
-              value={form.script}
-              onChange={(e) => set({ script: e.target.value })}
-              rows={5}
-              className="font-mono text-[12px]"
-              placeholder="The script source ({{vars}} interpolated)"
-            />
-          </div>
-        </>
-      );
-  }
 }

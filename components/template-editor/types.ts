@@ -77,6 +77,25 @@ export function contractsUrl(node: {
   return `/api/contracts?${p.toString()}`;
 }
 
+/**
+ * URL for /api/contracts for a declarative kind with no row at all — the
+ * Template Nodes page's create dialog synthesizes the kind's full field
+ * list from the runtime class against the given config (same machinery the
+ * draft instances use, just without a placement behind it).
+ */
+export function kindContractUrl(kind: string, config?: unknown): string {
+  const p = new URLSearchParams({ kind });
+  if (
+    config &&
+    typeof config === "object" &&
+    !Array.isArray(config) &&
+    Object.keys(config).length
+  ) {
+    p.set("config", JSON.stringify(config));
+  }
+  return `/api/contracts?${p.toString()}`;
+}
+
 /** A /api/contracts response. */
 export interface NodeContract {
   key: string;

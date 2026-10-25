@@ -24,7 +24,8 @@ import { workspaceForFlow } from "../../../git/local";
  *
  *  - the node's mapped input JSON arrives on stdin AND as `DEVFLOW_INPUT`
  *  - the script writes `$DEVFLOW_OUTPUT` (a file path), or its LAST stdout
- *    line must be the output JSON
+ *    line must be the output JSON — for node scripts, a top-level `return`
+ *    value is emitted as the output JSON (when defined)
  *  - the output is validated against the declared `output_schema` (when set)
  *    and must be a JSON object (downstream maps address
  *    `nodes.<key>.output.<field>`)
@@ -54,7 +55,7 @@ export class ScriptTemplateNode extends NodeDefinition<Record<string, unknown>, 
       ],
     },
     { key: "script", label: "Script", type: "text" as const,
-      help: "stdin gets the mapped input JSON; $DEVFLOW_INPUT holds it too" },
+      help: "stdin gets the mapped input JSON; $DEVFLOW_INPUT holds it too — node scripts may `return` the output object" },
     {
       key: "cwd", label: "Working directory", type: "select" as const,
       help: "Where the script runs",
@@ -160,7 +161,10 @@ export class ScriptTemplateNode extends NodeDefinition<Record<string, unknown>, 
         throw new Error(`script exceeded the ${cfg.timeout_ms}ms timeout and was killed`);
       }
       if (result.exitCode !== 0) {
-        const tail = firstLines(result.stderr) || firstLines(result.stdout) || "(no output)";
+        // stderr: the diagnostic (syntax error message, thrown Error, …) sits at
+        // the TOP — the tail is framework stack + the Node version banner, which
+        // hides the real cause. stdout: keep the tail (output lives there).
+        const tail = headLines(result.stderr) || firstLines(result.stdout) || "(no output)";
         throw new Error(`script exited with code ${result.exitCode}\n${tail}`);
       }
       const parsed = this.extractOutput(cfg, result.stdout, outPath);
@@ -269,7 +273,11 @@ export class ScriptTemplateNode extends NodeDefinition<Record<string, unknown>, 
   private command(cfg: ScriptDef): [string, string[]] {
     switch (cfg.runtime) {
       case "node":
-        return ["node", ["-e", cfg.script]];
+        // Wrap in an async function so a top-level `return` is legal and its
+        // value is emitted as the output JSON (when defined). Scripts that
+        // print their output instead are unaffected — `v` is undefined.
+        return ["node", ["-e", `async function __devflowMain() {\n${cfg.script}\n}\n` +
+          "__devflowMain().then((v) => { if (v !== undefined) console.log(JSON.stringify(v)); })"]];
       case "python":
         return [process.platform === "win32" ? "python" : "python3", ["-c", cfg.script]];
       case "shell":
@@ -295,6 +303,12 @@ export class ScriptTemplateNode extends NodeDefinition<Record<string, unknown>, 
 function firstLines(text: string): string {
   const t = (text ?? "").trim();
   return t ? t.split("\n").slice(-4).join("\n") : "";
+}
+
+/** The FIRST few lines — for stderr, where the actual diagnostic lives. */
+function headLines(text: string): string {
+  const t = (text ?? "").trim();
+  return t ? t.split("\n").slice(0, 8).join("\n") : "";
 }
 
 // ── execa plumbing (dynamic import: execa is ESM-only) ───────────────────────
