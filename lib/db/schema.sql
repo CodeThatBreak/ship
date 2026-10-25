@@ -218,6 +218,8 @@ CREATE TABLE IF NOT EXISTS node_templates (
   icon         TEXT,                       -- lucide icon name for the graph
   config       TEXT NOT NULL DEFAULT '{}', -- declarative kinds: definition; builtin: knob overrides
   is_builtin   INTEGER NOT NULL DEFAULT 0,
+  -- NULL = global Library row shared across templates; set = private to that template
+  template_id  TEXT REFERENCES flow_templates(id),
   created_at   TEXT NOT NULL,
   updated_at   TEXT NOT NULL,
   UNIQUE(key, version)

@@ -1,11 +1,12 @@
 import { NextResponse } from "next/server";
 import { templateStore } from "../../../lib/engine/templates";
+import type { NodeTemplateRow } from "../../../lib/db/rows";
 
 export const dynamic = "force-dynamic";
 
-/** The node-type catalog (built-ins + declarative), for the configurator palette. */
-export async function GET() {
-  const nodeTemplates = templateStore.listNodeTemplates().map((nt) => ({
+/** The shared API response fields for one catalog entry (locality included). */
+function serializeNodeTemplate(nt: NodeTemplateRow) {
+  return {
     id: nt.id,
     key: nt.key,
     name: nt.name,
@@ -15,8 +16,30 @@ export async function GET() {
     icon: nt.icon,
     is_builtin: Boolean(nt.is_builtin),
     config: nt.config,
-  }));
-  return NextResponse.json({ nodeTemplates });
+    template_id: nt.template_id,
+    is_local: Boolean(nt.template_id),
+  };
+}
+
+/** The node-type catalog (built-ins + declarative), for the builder palette.
+ *  `?templateId=<id>` splits the declarative rows by locality: `nodeTemplates`
+ *  carries built-ins + the global Library rows, `templateNodeTemplates` the
+ *  rows private to that template (the palette's "This template" section).
+ *  Without the query the legacy shape (every row in `nodeTemplates`) holds. */
+export async function GET(req: Request) {
+  const templateId = new URL(req.url).searchParams.get("templateId") ?? undefined;
+  if (templateId === undefined) {
+    const nodeTemplates = templateStore.listNodeTemplates().map(serializeNodeTemplate);
+    return NextResponse.json({ nodeTemplates });
+  }
+  const { library, templateLocal } = templateStore.listNodeTemplatesForPalette(templateId);
+  return NextResponse.json({
+    nodeTemplates: [
+      ...templateStore.listNodeTemplates().filter((nt) => Boolean(nt.is_builtin)).map(serializeNodeTemplate),
+      ...library.map(serializeNodeTemplate),
+    ],
+    templateNodeTemplates: templateLocal.map(serializeNodeTemplate),
+  });
 }
 
 /** Create a declarative node template (Phase 2: kind=agent).

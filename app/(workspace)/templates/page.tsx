@@ -1,23 +1,23 @@
 "use client";
 /**
  * The template gallery (§8). Phase 6 convergence:
+ *  - renders as a single DataTable (same pattern as the Tasks page) with the
+ *    starters (built-ins) pinned first, then your templates by updated date;
  *  - "New template" creates an *Untitled flow* instantly and opens the editor —
  *    no name dialog speed bump (the name lives in the editor's Flow settings);
  *  - delete asks through the styled AlertDialog (no native confirm());
- *  - "Your templates" renders only when non-empty, with an inline hint when
- *    the list is empty but starters exist;
  *  - import takes a file (upload or drag-drop) or paste, shows validation
  *    problems inside the dialog, and has an explicit Cancel;
  *  - starters' open action is labeled "Preview" (they're read-only).
  */
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
+import type { ColumnDef } from "@tanstack/react-table";
 import { useRouter } from "next/navigation";
 import {
   Copy,
   Download,
   Plus,
-  Sparkles,
   Trash2,
   Upload,
   Workflow,
@@ -35,10 +35,11 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Badge } from "@/components/ui/badge";
 import { Button, buttonVariants } from "@/components/ui/button";
-import { Card } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Spinner } from "@/components/ui/spinner";
 import { Textarea } from "@/components/ui/textarea";
+import { DataTable } from "@/components/data-table";
+import { fmtDate } from "@/lib/format";
 import { cn } from "@/lib/utils";
 
 type TemplateRow = {
@@ -53,62 +54,8 @@ type TemplateRow = {
   nodeCount: number;
 };
 
-/** One gallery row card — shared between the starter and user-template lists. */
-function TemplateRowCard({
-  t, busyId, onOpen, onDuplicate, onDelete,
-}: {
-  t: TemplateRow;
-  busyId: string | null;
-  onOpen: () => void;
-  onDuplicate?: () => void;
-  onDelete?: () => void;
-}) {
-  const builtin = Boolean(t.is_builtin);
-  return (
-    <Card className="p-0 gap-0 shadow-sm! overflow-hidden">
-      <div className="px-4 py-3.5 flex items-start gap-3">
-        <span className="size-9 shrink-0 grid place-items-center rounded-lg bg-muted">
-          <Workflow size={16} className="text-muted-foreground" />
-        </span>
-        <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-2 flex-wrap">
-            <Link href={`/templates/${t.id}`} className="font-medium text-[13.5px] hover:underline">
-              {t.name}
-            </Link>
-            {builtin && (
-              <Badge className="bg-info/10 text-info">built-in</Badge>
-            )}
-            {Boolean(t.trigger?.type === "manual") || <Badge>{String(t.trigger?.type ?? "manual")}</Badge>}
-            <Badge variant="outline">{t.nodeCount} node{t.nodeCount === 1 ? "" : "s"}</Badge>
-          </div>
-          {t.description && (
-            <p className="text-[12.5px] text-muted-foreground mt-1 mb-0">{t.description}</p>
-          )}
-        </div>
-        <div className="flex gap-1.5 items-center">
-          <Button size="sm" variant="outline" onClick={onOpen}>
-            {builtin ? "Preview" : "Open"}
-          </Button>
-          {onDuplicate && (
-            <Button size="sm" variant="ghost" onClick={onDuplicate} disabled={busyId === t.id} title="Duplicate">
-              {busyId === t.id ? <Spinner /> : <Copy size={13} />}
-            </Button>
-          )}
-          <a href={`/api/templates/${t.id}/export`} title="Export YAML">
-            <Button size="sm" variant="ghost">
-              <Download size={13} />
-            </Button>
-          </a>
-          {onDelete && (
-            <Button size="sm" variant="ghost" onClick={onDelete} disabled={busyId === t.id} title="Delete">
-              <Trash2 size={13} />
-            </Button>
-          )}
-        </div>
-      </div>
-    </Card>
-  );
-}
+/** "3 nodes" / "1 node" — shared by the Nodes column. */
+const nodeCountLabel = (n: number): string => `${n} node${n === 1 ? "" : "s"}`;
 
 export default function TemplateGallery() {
   const router = useRouter();
@@ -124,12 +71,20 @@ export default function TemplateGallery() {
   const load = useCallback(async () => {
     const r = await fetch("/api/templates").then((r) => r.json()).catch(() => null);
     if (r?.templates) setTemplates(r.templates);
-    else setError("failed to load templates");
+    else {
+      setError("failed to load templates");
+      setTemplates([]); // end the skeleton even on failure (error alert explains why)
+    }
   }, []);
 
   useEffect(() => {
     void load();
   }, [load]);
+
+  const openTemplate = useCallback(
+    (t: TemplateRow) => router.push(`/templates/${t.id}`),
+    [router],
+  );
 
   /** A1: "New template" creates an *Untitled flow* instantly and opens the
    *  editor — the name is edited in the editor's Flow settings, not here. */
@@ -149,7 +104,7 @@ export default function TemplateGallery() {
   };
 
   /** Duplicate = export YAML + import (exercises the round-trip path). */
-  const duplicate = async (t: TemplateRow) => {
+  const duplicate = useCallback(async (t: TemplateRow) => {
     setBusyId(t.id);
     try {
       const yaml = await fetch(`/api/templates/${t.id}/export`).then((r) => r.text());
@@ -164,17 +119,17 @@ export default function TemplateGallery() {
       setBusyId(null);
       void load();
     }
-  };
+  }, [router, load]);
 
   /** The confirm's destructive action (A2): delete, then refresh. */
-  const remove = async (t: TemplateRow) => {
+  const remove = useCallback(async (t: TemplateRow) => {
     setBusyId(t.id);
     setPendingDelete(null);
     const r = await fetch(`/api/templates/${t.id}`, { method: "DELETE" }).then((r) => r.json());
     setBusyId(null);
     if (r.error) setError(r.error);
     void load();
-  };
+  }, [load]);
 
   const runImport = async () => {
     if (!yamlText.trim()) return;
@@ -208,17 +163,123 @@ export default function TemplateGallery() {
       .catch(() => setImportError(`Could not read ${file.name}.`));
   };
 
-  if (!templates) {
-    return (
-      <div className="p-6">
-        {error ? <Alert variant="destructive">{error}</Alert> : <Spinner />} Loading…
-      </div>
-    );
-  }
-
-  // starters (built-in seeds) pinned first, user templates below
-  const starters = templates.filter((t) => Boolean(t.is_builtin));
-  const mine = templates.filter((t) => !t.is_builtin);
+  // ── template table columns ────────────────────────────────────────────────
+  const columns = useMemo<ColumnDef<TemplateRow>[]>(
+    () => [
+      {
+        accessorKey: "name",
+        header: "Template",
+        cell: ({ row }) => {
+          const t = row.original;
+          return (
+            <div className="min-w-[220px] max-w-[420px]">
+              <Link href={`/templates/${t.id}`} className="group/name flex min-w-0 items-center gap-2">
+                <span className="inline-grid size-6 shrink-0 place-items-center rounded-lg bg-muted text-muted-foreground">
+                  <Workflow size={12} />
+                </span>
+                <span className="truncate text-[13px] font-medium group-hover/name:underline">
+                  {t.name}
+                </span>
+              </Link>
+              {t.description && (
+                <p className="mt-0.5 mb-0 truncate pl-8 text-[12px] text-muted-foreground">
+                  {t.description}
+                </p>
+              )}
+            </div>
+          );
+        },
+      },
+      {
+        id: "type",
+        accessorFn: (t) => (Boolean(t.is_builtin) ? "built-in" : "custom"),
+        header: "Type",
+        cell: ({ row }) =>
+          Boolean(row.original.is_builtin) ? (
+            <Badge className="bg-info/10 text-info">built-in</Badge>
+          ) : (
+            <Badge variant="outline">custom</Badge>
+          ),
+      },
+      {
+        id: "trigger",
+        accessorFn: (t) => String(t.trigger?.type ?? "manual"),
+        header: "Trigger",
+        cell: ({ row }) => (
+          <Badge variant="outline" className="text-[11px]">
+            {String(row.original.trigger?.type ?? "manual")}
+          </Badge>
+        ),
+      },
+      {
+        accessorKey: "nodeCount",
+        header: "Nodes",
+        cell: ({ row }) => (
+          <Badge variant="outline" className="text-[11px]">
+            {nodeCountLabel(row.original.nodeCount)}
+          </Badge>
+        ),
+      },
+      {
+        accessorKey: "updated_at",
+        header: "Updated",
+        cell: ({ row }) => (
+          <span className="text-[12px] text-muted-foreground">
+            {fmtDate(row.original.updated_at) || "—"}
+          </span>
+        ),
+        // default view: built-ins pinned first, newest within each group
+        sortingFn: (a, b) => {
+          const rank = (isBuiltin: number) => (Boolean(isBuiltin) ? 0 : 1);
+          if (rank(a.original.is_builtin) !== rank(b.original.is_builtin))
+            return rank(a.original.is_builtin) - rank(b.original.is_builtin);
+          return b.original.updated_at.localeCompare(a.original.updated_at);
+        },
+      },
+      {
+        id: "actions",
+        header: () => <span className="sr-only">Actions</span>,
+        enableSorting: false,
+        cell: ({ row }) => {
+          const t = row.original;
+          const builtin = Boolean(t.is_builtin);
+          return (
+            <div className="flex justify-end" onClick={(e) => e.stopPropagation()}>
+              <Button size="sm" variant="outline" onClick={() => openTemplate(t)}>
+                {builtin ? "Preview" : "Open"}
+              </Button>
+              <Button
+                size="sm"
+                variant="ghost"
+                title="Duplicate"
+                disabled={busyId === t.id}
+                onClick={() => void duplicate(t)}
+              >
+                {busyId === t.id ? <Spinner /> : <Copy size={13} />}
+              </Button>
+              <a href={`/api/templates/${t.id}/export`} title="Export YAML">
+                <Button size="sm" variant="ghost">
+                  <Download size={13} />
+                </Button>
+              </a>
+              {!builtin && (
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  title="Delete"
+                  disabled={busyId === t.id}
+                  onClick={() => setPendingDelete(t)}
+                >
+                  <Trash2 size={13} />
+                </Button>
+              )}
+            </div>
+          );
+        },
+      },
+    ],
+    [openTemplate, duplicate, busyId],
+  );
 
   return (
     <div>
@@ -239,46 +300,31 @@ export default function TemplateGallery() {
 
       {error && <Alert variant="destructive" className="mb-4">{error}</Alert>}
 
-      <div className="grid gap-3">
-        {mine.length === 0 && starters.length === 0 && (
-          <Card className="justify-center items-center gap-2 py-10 border-dashed! shadow-none! text-muted-foreground">
-            No templates yet — duplicate a starter below or create a blank template.
-          </Card>
-        )}
+      <section className="mb-6">
+        <h2 className="text-[12px] font-medium mb-3 text-muted-foreground uppercase tracking-[1.2px] flex items-center gap-2">
+          <Workflow size={13} /> Templates
+          {templates && templates.length > 0 && (
+            <span className="normal-case tracking-normal text-[11px] text-muted-foreground/60">
+              {templates.length}
+            </span>
+          )}
+        </h2>
 
-        {starters.length > 0 && (
-          <div className="mt-2">
-            <h2 className="text-[11.5px] font-medium text-muted-foreground uppercase tracking-[0.8px] mb-2 flex items-center gap-1.5">
-              <Sparkles size={12} /> Starters — duplicate to customize
-            </h2>
-            <div className="grid gap-3">
-              {starters.map((t: TemplateRow) => (
-                <TemplateRowCard key={t.id} t={t} busyId={busyId} onOpen={() => { router.push(`/templates/${t.id}`); }}
-                  onDuplicate={() => void duplicate(t)} />
-              ))}
-            </div>
-          </div>
-        )}
-
-        {/* A3: the heading only when the list is non-empty; an inline hint
-            otherwise (the starters section already anchors the page) */}
-        {mine.length > 0 && (
-          <h2 className="text-[11.5px] font-medium text-muted-foreground uppercase tracking-[0.8px] mt-3 mb-1">
-            Your templates
-          </h2>
-        )}
-        {mine.length === 0 && starters.length > 0 && (
-          <p className="text-[12px] text-muted-foreground mt-3 m-0">
-            No templates yet — duplicate a starter above or create a new one.
-          </p>
-        )}
-        {mine.map((t: TemplateRow) => (
-          <TemplateRowCard key={t.id} t={t} busyId={busyId}
-            onOpen={() => { router.push(`/templates/${t.id}`); }}
-            onDuplicate={() => void duplicate(t)}
-            onDelete={() => setPendingDelete(t)} />
-        ))}
-      </div>
+        <DataTable
+          columns={columns}
+          data={templates ?? []}
+          loading={templates == null}
+          searchable
+          searchPlaceholder="Search templates…"
+          pageSize={25}
+          initialSorting={[{ id: "updated_at", desc: false }]}
+          emptyMessage={
+            error
+              ? `Failed to load templates: ${error}`
+              : "No templates yet — duplicate a starter or create one."
+          }
+        />
+      </section>
 
       {/* import dialog: file upload / drag-drop + paste; validation problems
           render inside, next to the YAML (A4); explicit Cancel (A5) */}

@@ -297,6 +297,8 @@ export const NodeTemplateRow = z.object({
   /** declarative kinds: full definition; builtin: knob overrides */
   config: jsonCol(z.record(z.string(), z.unknown())),
   is_builtin: z.number(),
+  /** NULL = global Library row shared across templates; set = private to that template */
+  template_id: z.string().nullable(),
   created_at: z.string(),
   updated_at: z.string(),
 });

@@ -304,23 +304,68 @@ export class TemplateStore {
     if (!src) throw new Error("template not found");
     const graph = this.graph(templateId);
     if (!graph) throw new Error("template not found");
-    return this.create({
-      name: name?.trim() || `${src.name} copy`,
-      description: src.description,
-      trigger: graph.flowTrigger,
-      nodes: graph.nodes.map((n) => ({
-        key: n.key,
-        nodeTemplateId: n.nodeTemplateId,
-        label: n.label,
-        trigger: n.trigger as unknown as Record<string, unknown>,
-        join_mode: n.joinMode,
-        config: n.config,
-        input_map: n.inputMap,
-        x: n.x ?? null,
-        y: n.y ?? null,
-      })),
-      edges: graph.edges.map((e) => ({ from: e.from, to: e.to, kind: e.kind, label: e.label, condition: e.condition })),
-    });
+    // Source-local node templates (the canvas creator's rows, scoped to the
+    // source): the copy gets fresh local rows of its own — same name / kind /
+    // icon / description / config, new id — and the copied nodes remap to
+    // them, so the duplicate owns the defs its nodes reference instead of
+    // reaching into the source template's private rows. Order matters (the
+    // FKs are enforced): the flow_templates row must exist before local rows
+    // reference it, and the local rows must exist before the copied nodes
+    // reference them — so the copy is built as template meta → local rows →
+    // graph (the update path replaces nodes + edges wholesale).
+    const localRemap = new Map<string, string>();
+    let newId: string | null = null;
+    try {
+      newId = this.create({
+        name: name?.trim() || `${src.name} copy`,
+        description: src.description,
+        trigger: graph.flowTrigger,
+        nodes: [], edges: [],
+      });
+      for (const n of graph.nodes) {
+        if (localRemap.has(n.nodeTemplateId)) continue;
+        const nt = this.nodeTemplate(n.nodeTemplateId);
+        if (!nt || nt.is_builtin || nt.template_id !== templateId) continue;
+        const created = this.createNodeTemplate(
+          {
+            name: nt.name, kind: nt.kind, icon: nt.icon,
+            description: nt.description, config: nt.config ?? {},
+          },
+          { templateId: newId },
+        );
+        localRemap.set(nt.id, created.id);
+      }
+      this.update(newId, {
+        nodes: graph.nodes.map((n) => ({
+          key: n.key,
+          nodeTemplateId: localRemap.get(n.nodeTemplateId) ?? n.nodeTemplateId,
+          label: n.label,
+          trigger: n.trigger as unknown as Record<string, unknown>,
+          join_mode: n.joinMode,
+          config: n.config,
+          input_map: n.inputMap,
+          x: n.x ?? null,
+          y: n.y ?? null,
+        })),
+        edges: graph.edges.map((e) => ({ from: e.from, to: e.to, kind: e.kind, label: e.label, condition: e.condition })),
+      });
+      return newId;
+    } catch (e: unknown) {
+      // the copy failed midway — roll the partial duplicate back (its local
+      // rows, any nodes/edges already written, then the template row itself;
+      // child rows go first — the FKs are enforced)
+      if (newId) {
+        try {
+          db.run(`DELETE FROM flow_template_nodes WHERE template_id=?`, newId);
+          db.run(`DELETE FROM flow_template_edges WHERE template_id=?`, newId);
+          db.run(`DELETE FROM node_templates WHERE template_id=? AND is_builtin=0`, newId);
+          db.run(`DELETE FROM flow_templates WHERE id=?`, newId);
+        } catch (e2: unknown) {
+          console.error("template duplicate rollback failed", e2);
+        }
+      }
+      throw e;
+    }
   }
 
   /**
@@ -369,6 +414,23 @@ export class TemplateStore {
     hookStore.removeTemplate(templateId);
     db.run(`DELETE FROM flow_template_nodes WHERE template_id=?`, templateId);
     db.run(`DELETE FROM flow_template_edges WHERE template_id=?`, templateId);
+    // Template-local node templates (the canvas creator's rows): gone with
+    // their template — but only when no OTHER template's node still
+    // references one (belt-and-braces: Add to Library promotes without
+    // touching references, so a promoted row must survive here). Runs BEFORE
+    // the flow_templates delete (the FK is enforced); a stray external
+    // reference detaches the row to the shared Library instead of blocking
+    // the delete forever.
+    const locals = db.all<{ id: string }>(
+      `SELECT id FROM node_templates WHERE template_id=? AND is_builtin=0`, templateId
+    );
+    for (const l of locals) {
+      const used = db.get<{ c: number }>(
+        `SELECT COUNT(*) c FROM flow_template_nodes WHERE node_template_id=? AND template_id<>?`,
+        l.id, templateId)?.c ?? 0;
+      if (used === 0) db.run(`DELETE FROM node_templates WHERE id=?`, l.id);
+      else db.run(`UPDATE node_templates SET template_id=NULL WHERE id=?`, l.id);
+    }
     db.run(`DELETE FROM flow_templates WHERE id=?`, templateId);
   }
 
@@ -436,6 +498,27 @@ export class TemplateStore {
     return rows.all(NodeTemplateRow, `SELECT * FROM node_templates ORDER BY is_builtin DESC, rowid`);
   }
 
+  /**
+   * The palette's node-template slices, split by locality: `library` = global
+   * declarative rows (the shared Library, `template_id IS NULL`),
+   * `templateLocal` = rows owned by the given template (the canvas creator's
+   * rows) — an absent templateId means no local slice. Built-ins are excluded
+   * from both (the palette renders them from the full catalog listing).
+   */
+  listNodeTemplatesForPalette(templateId?: string): {
+    library: NodeTemplateRow[];
+    templateLocal: NodeTemplateRow[];
+  } {
+    return {
+      library: rows.all(NodeTemplateRow,
+        `SELECT * FROM node_templates WHERE is_builtin=0 AND template_id IS NULL ORDER BY rowid`),
+      templateLocal: templateId !== undefined
+        ? rows.all(NodeTemplateRow,
+            `SELECT * FROM node_templates WHERE is_builtin=0 AND template_id=? ORDER BY rowid`, templateId)
+        : [],
+    };
+  }
+
   nodeTemplate(id: string): NodeTemplateRow | undefined {
     return rows.get(NodeTemplateRow, `SELECT * FROM node_templates WHERE id=?`, id);
   }
@@ -444,18 +527,30 @@ export class TemplateStore {
     return rows.get(NodeTemplateRow, `SELECT * FROM node_templates WHERE key=?`, key);
   }
 
-  /** Create a declarative (user-defined) node template (agent / decision / http / script). */
+  /**
+   * Create a declarative (user-defined) node template (agent / decision /
+   * http / script). `opts.templateId` scopes the row to that template —
+   * the canvas creator's "This template" rows, invisible to other templates'
+   * palettes; without it the row lands in the global Library as before.
+   */
   createNodeTemplate(input: {
     key?: string; name: string; kind: string; icon?: string | null;
     description?: string | null; config: Record<string, unknown>;
-  }): NodeTemplateRow {
+  }, opts: { templateId?: string } = {}): NodeTemplateRow {
     const kind = (input.kind ?? "").trim();
     if (!(KINDED_NODE_TEMPLATE_KINDS as readonly string[]).includes(kind)) {
       throw new Error(`unsupported node kind "${kind}" — declarative kinds: ${KINDED_NODE_TEMPLATE_KINDS.join(", ")}`);
     }
     const name = input.name.trim();
     if (!name) throw new Error("name is required");
-    const key = TemplateStore.slugify(input.key?.trim() || name);
+    // key uniqueness: a template-local create suffixes the slug (…_local,
+    // …_local2, …) when any row already owns it — UNIQUE(key, version) is
+    // table-wide and global rows hold keys too; a global create keeps the
+    // strict single-owner rule.
+    const slug = TemplateStore.slugify(input.key?.trim() || name);
+    const key = opts.templateId !== undefined
+      ? TemplateStore.freeKeyVariant(slug)
+      : slug;
     if (this.nodeTemplateByKey(key)) {
       throw new Error(`node template key "${key}" already exists`);
     }
@@ -470,10 +565,10 @@ export class TemplateStore {
     const id = db.uid("nt_");
     const ts = db.now();
     db.run(
-      `INSERT INTO node_templates (id,key,name,kind,version,description,icon,config,is_builtin,created_at,updated_at)
-       VALUES (?,?,?,?,1,?,?,?,0,?,?)`,
+      `INSERT INTO node_templates (id,key,name,kind,version,description,icon,config,is_builtin,template_id,created_at,updated_at)
+       VALUES (?,?,?,?,1,?,?,?,0,?,?,?)`,
       id, key, name, kind, input.description ?? null, input.icon ?? null,
-      JSON.stringify(config), ts, ts
+      JSON.stringify(config), opts.templateId ?? null, ts, ts
     );
     return this.nodeTemplate(id)!;
   }
@@ -481,17 +576,19 @@ export class TemplateStore {
   /**
    * Persist a draft declarative node template at Save time (Phase 2): the
    * editor's palette places `draft:` instances with nothing server-side until
-   * the user commits — this is where the rows are born. An identical persisted
-   * def (same key + kind + config) is reused, so identical custom nodes stay
-   * one Library row across templates; otherwise a new row is created, and a
-   * taken key versions the display name ("Agent node 2") instead of dead-ending
-   * the save. Returns the row id + whether this call created it (the API route
+   * the user commits — this is where the rows are born. An identical
+   * persisted def (same key + kind + config) is reused, so identical custom
+   * nodes stay one row across templates (locality-aware — see the offset
+   * comment below); otherwise a new row is created scoped to the given
+   * template (template-local when `opts.templateId` is set), and a taken key
+   * versions the display name ("Agent node 2") instead of dead-ending the
+   * save. Returns the row id + whether this call created it (the API route
    * rolls back rows it created when the surrounding save fails).
    */
   createOrReuseNodeTemplate(input: {
     name: string; kind: string; icon?: string | null; description?: string | null;
     config: Record<string, unknown>;
-  }): { id: string; created: boolean } {
+  }, opts: { templateId?: string } = {}): { id: string; created: boolean } {
     const name = input.name.trim();
     if (!name) throw new Error("name is required");
     const kind = (input.kind ?? "").trim();
@@ -501,14 +598,29 @@ export class TemplateStore {
     // validate + normalize once (createNodeTemplate parses again — cheap, and
     // it keeps the create path single-sourced)
     const config = parseDeclarativeConfig(kind, input.config ?? {}, name);
-    const key = TemplateStore.slugify(name);
+    // identical-def reuse, locality-aware: a global Library row hosting the
+    // same definition is reused (an identical custom node stays one Library
+    // row across templates), as is an identical row already local to THIS
+    // template (suffixed keys included — the base slug may be taken by
+    // another def). Rows local to other templates always get a fresh copy
+    // scoped to this template. Without the scope option the legacy any-row
+    // reuse applies.
+    const slug = TemplateStore.slugify(name);
+    const scoped = opts.templateId !== undefined;
     const identical = rows.all(NodeTemplateRow,
-      `SELECT * FROM node_templates WHERE key=? AND is_builtin=0`, key,
+      `SELECT * FROM node_templates
+       WHERE is_builtin=0 AND (key=? OR key LIKE ? ESCAPE '\\')
+         AND (${scoped ? "template_id IS NULL OR template_id=?" : "1=1"})`,
+      slug, `${TemplateStore.likeEscape(slug)}\\_local%`,
+      ...(scoped ? [opts.templateId as string] : []),
     ).find((r) => r.kind === kind && JSON.stringify(r.config ?? {}) === JSON.stringify(config));
     if (identical) return { id: identical.id, created: false };
     try {
       return {
-        id: this.createNodeTemplate({ name, kind, icon: input.icon, description: input.description, config }).id,
+        id: this.createNodeTemplate(
+          { name, kind, icon: input.icon, description: input.description, config },
+          { templateId: opts.templateId },
+        ).id,
         created: true,
       };
     } catch (e: unknown) {
@@ -518,7 +630,10 @@ export class TemplateStore {
       for (let n = 2; ; n++) {
         try {
           return {
-            id: this.createNodeTemplate({ name: `${name} ${n}`, kind, icon: input.icon, description: input.description, config }).id,
+            id: this.createNodeTemplate(
+              { name: `${name} ${n}`, kind, icon: input.icon, description: input.description, config },
+              { templateId: opts.templateId },
+            ).id,
             created: true,
           };
         } catch (e2: unknown) {
@@ -526,6 +641,32 @@ export class TemplateStore {
         }
       }
     }
+  }
+
+  /**
+   * Add to Library — promote a template-local declarative row to a global
+   * one, so every template's builder lists it under "Library". Idempotent:
+   * an already-global row returns as-is. When another row already owns the
+   * key, this row's key is suffixed (…_local, …_local2, …) so
+   * UNIQUE(key, version) holds — references point at the row id, so promoted
+   * instances keep working untouched.
+   */
+  addToLibrary(id: string): NodeTemplateRow {
+    const row = this.nodeTemplate(id);
+    if (!row) throw new Error("node template not found");
+    if (row.is_builtin) throw new Error("built-in node templates are read-only");
+    if (row.template_id == null) return row; // already in the Library — no-op
+    // another row holding this key (a global Library row, or a sibling
+    // template's local row) blocks the promotion — make room via a variant
+    const owner = this.nodeTemplateByKey(row.key);
+    const key = owner && owner.id !== row.id
+      ? TemplateStore.freeKeyVariant(row.key)
+      : row.key;
+    db.run(
+      `UPDATE node_templates SET template_id=NULL, key=?, updated_at=? WHERE id=?`,
+      key, db.now(), id
+    );
+    return this.nodeTemplate(id)!;
   }
 
   /** Update a declarative node template (never built-ins). */
@@ -795,6 +936,26 @@ export class TemplateStore {
 
   private static slugify(name: string): string {
     return name.toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "") || "node";
+  }
+
+  /**
+   * A template-local create's key: the slug when no row owns it, else the
+   * first free `…_local` / `…_localN` variant (UNIQUE(key, version) is
+   * table-wide). Exhausted variants fall back to the slug — the caller's
+   * uniqueness check then reports the collision.
+   */
+  private static freeKeyVariant(slug: string): string {
+    if (!db.get<{ k: number }>(`SELECT 1 k FROM node_templates WHERE key=?`, slug)) return slug;
+    for (let n = 1; n < 500; n++) {
+      const variant = n === 1 ? `${slug}_local` : `${slug}_local${n}`;
+      if (!db.get<{ k: number }>(`SELECT 1 k FROM node_templates WHERE key=?`, variant)) return variant;
+    }
+    return slug;
+  }
+
+  /** Escape a slug for a `LIKE … ESCAPE '\'` pattern prefix (slugs carry `_`). */
+  private static likeEscape(value: string): string {
+    return value.replace(/[\\%_]/g, "\\$&");
   }
 
   private static parseJson<T>(raw: unknown, fallback: T): T {

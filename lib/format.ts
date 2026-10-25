@@ -22,6 +22,17 @@ export function fmtTokens(n?: number): string {
   return `${n} tok`;
 }
 
+/** Short date (e.g. "Oct 25") for table "Updated"-style columns; year is
+ *  included when the date isn't in the current year. Empty for bad input. */
+export function fmtDate(iso?: string | null): string {
+  if (!iso) return "";
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "";
+  const opts: Intl.DateTimeFormatOptions = { month: "short", day: "numeric" };
+  if (d.getFullYear() !== new Date().getFullYear()) opts.year = "numeric";
+  return d.toLocaleDateString("en-US", opts);
+}
+
 export function fmtCost(dollars?: number): string {
   if (dollars == null) return "";
   return `$${dollars.toFixed(2)}`;

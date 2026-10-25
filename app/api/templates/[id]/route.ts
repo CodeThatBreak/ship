@@ -59,6 +59,7 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
         icon: nt?.icon ?? null,
         catalog_name: nt?.name ?? null,
         is_builtin: Boolean(nt?.is_builtin),
+        is_local: Boolean(nt?.template_id),
         x: n.x ?? null,
         y: n.y ?? null,
       };
@@ -90,7 +91,7 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
     }
     const drafts = Array.isArray(body.new_node_templates) ? body.new_node_templates : [];
     if (drafts.length) {
-      createdRows.push(...applyDraftNodeTemplates(body, drafts));
+      createdRows.push(...applyDraftNodeTemplates(id, body, drafts));
     } else if (
       body.nodes?.some((n) => typeof n.nodeTemplateId === "string" && n.nodeTemplateId.startsWith("draft:"))
     ) {
@@ -112,11 +113,18 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
 
 /**
  * Create the pending defs' rows and remap every `draft:<n>` node template id
- * to the created row id. Returns the ids of rows created by this call (the
- * caller rolls them back if anything downstream fails). Any failure — a bad
- * config, an unknown draft reference — throws before the save runs.
+ * to the created row id. `templateId` scopes the created rows to the saving
+ * template — the canvas creator's defs stay private to it until the user
+ * explicitly adds them to the Library. Returns the ids of rows created by
+ * this call (the caller rolls them back if anything downstream fails). Any
+ * failure — a bad config, an unknown draft reference — throws before the save
+ * runs.
  */
-function applyDraftNodeTemplates(body: { nodes?: TemplateNodeInput[] }, drafts: NewNodeTemplateInput[]): string[] {
+function applyDraftNodeTemplates(
+  templateId: string,
+  body: { nodes?: TemplateNodeInput[] },
+  drafts: NewNodeTemplateInput[],
+): string[] {
   if (!body.nodes) {
     throw new Error("new_node_templates requires the nodes array (a full graph save)");
   }
@@ -134,7 +142,7 @@ function applyDraftNodeTemplates(body: { nodes?: TemplateNodeInput[] }, drafts: 
       icon: d.icon ?? null,
       description: d.description ?? null,
       config: d.config ?? {},
-    });
+    }, { templateId });
     if (isNew) created.push(rowId);
     byDraftId.set(draftId, rowId);
   }

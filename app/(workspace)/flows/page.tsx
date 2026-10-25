@@ -1,17 +1,27 @@
 "use client";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
+import type { ColumnDef } from "@tanstack/react-table";
 import {
   Cloud,
   FolderGit2,
   GitMerge,
   Inbox,
+  SquareCheckBig,
   Workflow,
 } from "lucide-react";
+import { Alert, AlertAction } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
+import { DataTable } from "@/components/data-table";
 import { cn } from "cn";
+
+/** Flow status buckets — §1.6: one named constant, compared in 2+ places. */
+const FLOW_STATUS_ACTIVE = "active";
+/** Execution modes rendered in the Mode/Worktree columns. */
+const EXECUTION_MODE_LOCAL = "local";
 
 type Flow = {
   id: string;
@@ -92,17 +102,29 @@ function WorktreeBadge({ status }: { status: WorktreeStatus }) {
   );
 }
 
+/** Empty-cell placeholder for columns whose feature may be absent. */
+const EMPTY_CELL = <span className="text-muted-foreground/50">—</span>;
+
 export default function FlowsPage() {
-  const [flows, setFlows] = useState<Flow[]>([]);
+  const router = useRouter();
+  // null = not loaded yet (DataTable shows skeleton rows until the first fetch)
+  const [flows, setFlows] = useState<Flow[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
   const [worktrees, setWorktrees] = useState<Record<string, WorktreeStatus>>({});
 
   const load = useCallback(async () => {
-    const f = await fetch("/api/flows").then((r) => r.json());
-    setFlows(f.flows ?? []);
+    setError(null);
+    try {
+      const f = await fetch("/api/flows").then((r) => r.json());
+      setFlows(f.flows ?? []);
+    } catch {
+      setError("Failed to load flows — check the dev server and retry.");
+      setFlows([]); // end the skeleton even on failure
+    }
   }, []);
 
   useEffect(() => {
-    load();
+    void load();
   }, [load]);
 
   // Worktree status (dirty / ahead / behind) for local flows: refreshed every
@@ -113,63 +135,126 @@ export default function FlowsPage() {
   }, []);
 
   useEffect(() => {
-    if (!flows.some((f) => f.execution_mode === "local")) return;
+    if (!flows?.some((f) => f.execution_mode === EXECUTION_MODE_LOCAL)) return;
     loadWorktrees();
     const t = setInterval(loadWorktrees, 5000);
     return () => clearInterval(t);
   }, [flows, loadWorktrees]);
 
-  const active = flows.filter((f) => f.status === "active");
-  const finished = flows.filter((f) => f.status !== "active");
-
-  const flowRow = (f: Flow) => (
-    <a
-      key={f.id}
-      href={`/flows/${f.id}`}
-      className="block rounded-lg transition-colors hover:bg-muted/40"
-    >
-      <div className="flex gap-3 items-center px-4 py-3 border border-border rounded-lg bg-card text-foreground hover:border-info/40 transition-colors group">
-        <span
-          className={cn(
-            "size-2 shrink-0 rounded-full",
-            f.status === "active"
-              ? "bg-success shadow-[0_0_8px] shadow-success/60 animate-pulse"
-              : "bg-zinc-600",
-          )}
-        />
-        <span className="font-mono text-[12px] text-info shrink-0">
-          {f.task_key}
-        </span>
-        <span className="flex-1 font-medium text-[13.5px] truncate">
-          {f.task_summary}
-        </span>
-        {f.execution_mode === "local" ? (
-          <Badge variant="outline">
-            <FolderGit2 size={11} /> local
-          </Badge>
-        ) : (
-          <Badge variant="outline">
-            <Cloud size={11} /> cloud
-          </Badge>
-        )}
-        {f.fanout?.active && (
-          <Badge variant="outline" className="gap-1"
-            title="This flow is fanned out into step sub-flows — open it to monitor each step">
-            <GitMerge size={11} /> {f.fanout.steps} steps · {f.fanout.done} merged
-          </Badge>
-        )}
-        {f.execution_mode === "local" && worktrees[f.id] && (
-          <WorktreeBadge status={worktrees[f.id]} />
-        )}
-        {f.mr_url && (
-          <Badge className="bg-violet-500/10 text-violet-400">
-            <GitMerge size={11} /> MR open
-          </Badge>
-        )}
-        <StatusBadge status={f.status} />
-      </div>
-    </a>
+  const openFlow = useCallback(
+    (f: Flow) => router.push(`/flows/${f.id}`),
+    [router],
   );
+
+  const columns = useMemo<ColumnDef<Flow>[]>(
+    () => [
+      {
+        accessorKey: "task_key",
+        header: "Flow",
+        cell: ({ row }) => {
+          const f = row.original;
+          return (
+            <div className="flex items-center gap-2.5 min-w-[240px] max-w-[560px]">
+              <span
+                className={cn(
+                  "size-2 shrink-0 rounded-full",
+                  f.status === FLOW_STATUS_ACTIVE
+                    ? "bg-success shadow-[0_0_8px] shadow-success/60 animate-pulse"
+                    : "bg-zinc-600",
+                )}
+              />
+              <span className="font-mono text-[12px] text-info shrink-0">{f.task_key}</span>
+              <span className="block truncate text-[13px] font-medium leading-tight">
+                {f.task_summary}
+              </span>
+            </div>
+          );
+        },
+      },
+      {
+        accessorKey: "status",
+        header: "Status",
+        cell: ({ row }) => <StatusBadge status={row.original.status} />,
+      },
+      {
+        id: "mode",
+        accessorFn: (f) => f.execution_mode ?? "",
+        header: "Mode",
+        cell: ({ row }) =>
+          row.original.execution_mode === EXECUTION_MODE_LOCAL ? (
+            <Badge variant="outline">
+              <FolderGit2 size={11} /> local
+            </Badge>
+          ) : (
+            <Badge variant="outline">
+              <Cloud size={11} /> cloud
+            </Badge>
+          ),
+      },
+      {
+        id: "worktree",
+        header: "Worktree",
+        enableSorting: false,
+        cell: ({ row }) => {
+          const f = row.original;
+          const wt = worktrees[f.id];
+          return f.execution_mode === EXECUTION_MODE_LOCAL && wt ? (
+            <WorktreeBadge status={wt} />
+          ) : (
+            EMPTY_CELL
+          );
+        },
+      },
+      {
+        id: "fanout",
+        header: "Fanout",
+        enableSorting: false,
+        cell: ({ row }) => {
+          const fanout = row.original.fanout;
+          return fanout?.active ? (
+            <Badge
+              variant="outline"
+              className="gap-1"
+              title="This flow is fanned out into step sub-flows — open it to monitor each step"
+            >
+              <GitMerge size={11} /> {fanout.steps} steps · {fanout.done} merged
+            </Badge>
+          ) : (
+            EMPTY_CELL
+          );
+        },
+      },
+      {
+        id: "mr",
+        header: "MR",
+        enableSorting: false,
+        cell: ({ row }) =>
+          row.original.mr_url ? (
+            <Badge className="bg-violet-500/10 text-violet-400">
+              <GitMerge size={11} /> MR open
+            </Badge>
+          ) : (
+            EMPTY_CELL
+          ),
+      },
+      {
+        id: "actions",
+        header: () => <span className="sr-only">Actions</span>,
+        enableSorting: false,
+        cell: ({ row }) => (
+          <div className="flex justify-end" onClick={(e) => e.stopPropagation()}>
+            <Button size="sm" variant="outline" onClick={() => openFlow(row.original)}>
+              Open
+            </Button>
+          </div>
+        ),
+      },
+    ],
+    [worktrees, openFlow],
+  );
+
+  const active = (flows ?? []).filter((f) => f.status === FLOW_STATUS_ACTIVE);
+  const finished = (flows ?? []).filter((f) => f.status !== FLOW_STATUS_ACTIVE);
 
   return (
     <div>
@@ -180,7 +265,16 @@ export default function FlowsPage() {
         </p>
       </header>
 
-      {flows.length === 0 ? (
+      {error ? (
+        <Alert variant="destructive" className="mb-4">
+          <span>{error}</span>
+          <AlertAction>
+            <Button variant="outline" size="sm" onClick={() => void load()}>
+              Retry
+            </Button>
+          </AlertAction>
+        </Alert>
+      ) : flows && flows.length === 0 ? (
         <Card className="justify-center items-center gap-2 py-10 border-dashed! shadow-none! text-muted-foreground">
           <div className="size-10 grid place-items-center rounded-lg bg-muted">
             <Inbox size={18} />
@@ -199,32 +293,42 @@ export default function FlowsPage() {
           <section>
             <h2 className="text-[12px] font-medium mb-3 text-muted-foreground uppercase tracking-[1.2px] flex items-center gap-2">
               <Workflow size={13} /> Running
-              <span className="normal-case tracking-normal text-[11px] text-muted-foreground/60">
-                {active.length}
-              </span>
-            </h2>
-            <div className="grid gap-2">
-              {active.map(flowRow)}
-              {active.length === 0 && (
-                <p className="text-[12.5px] text-muted-foreground px-1">
-                  Nothing running — agents show up here when a flow starts.
-                </p>
+              {active.length > 0 && (
+                <span className="normal-case tracking-normal text-[11px] text-muted-foreground/60">
+                  {active.length}
+                </span>
               )}
-            </div>
+            </h2>
+            <DataTable
+              columns={columns}
+              data={active}
+              loading={flows == null}
+              emptyMessage="Nothing running — agents show up here when a flow starts."
+              onRowClick={openFlow}
+            />
           </section>
-          {finished.length > 0 && (
+          {flows != null && finished.length > 0 && (
             <section>
-              <h2 className="text-[12px] font-medium mb-3 text-muted-foreground uppercase tracking-[1.2px]">
-                Finished
+              <h2 className="text-[12px] font-medium mb-3 text-muted-foreground uppercase tracking-[1.2px] flex items-center gap-2">
+                <SquareCheckBig size={13} /> Finished
+                <span className="normal-case tracking-normal text-[11px] text-muted-foreground/60">
+                  {finished.length}
+                </span>
               </h2>
-              <div className="grid gap-2 opacity-80">{finished.map(flowRow)}</div>
+              <DataTable
+                columns={columns}
+                data={finished}
+                className="opacity-80"
+                emptyMessage="Nothing finished yet."
+                onRowClick={openFlow}
+              />
             </section>
           )}
         </div>
       )}
 
       <div className="mt-6 flex justify-end">
-        <Button variant="ghost" size="sm" onClick={load}>
+        <Button variant="ghost" size="sm" onClick={() => void load()}>
           Refresh
         </Button>
       </div>

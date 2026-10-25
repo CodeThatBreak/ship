@@ -34,6 +34,7 @@ import {
   Eye,
   EyeOff,
   LayoutTemplate,
+  Library,
   Lock,
   Redo2,
   Save,
@@ -89,7 +90,7 @@ import BuilderCanvas, { type BuilderApi } from "../../../components/template-edi
 import { ConditionBuilder } from "../../../components/template-editor/ConditionBuilder";
 import { FLOW_TRIGGER_TYPE } from "../../../components/template-editor/constants";
 import type { DraftNodeDef, EditorEdge, EditorNode, NodeContract } from "../../../components/template-editor/types";
-import { contractsUrl, describeTrigger, nodeLabel, nodeRelationships } from "../../../components/template-editor/types";
+import { contractsUrl, describeTrigger, isDraftNodeTemplateId, nodeLabel, nodeRelationships } from "../../../components/template-editor/types";
 import type { TaskProviderInfo } from "../../../components/template-editor/types";
 import { asJsonataGroups, buildVarGroups, conditionVarGroups, schemaRows } from "../../../components/template-editor/variables";
 import type { LintProblem } from "../../../lib/engine/context-lint";
@@ -116,6 +117,9 @@ type Draft = {
 };
 
 const EDGE_KINDS = ["next", "loop"] as const;
+
+/** PATCH body flag for Add to Library (node-template promotion to global). */
+const ADD_TO_LIBRARY = "add_to_library";
 
 /** Edge kinds as labeled options (the kind select's friendly labels; the
  *  stored value stays the raw kind string). */
@@ -288,6 +292,7 @@ export default function TemplateEditorPage() {
             icon: n.icon ?? null,
             catalog_name: n.catalog_name ?? null,
             is_builtin: Boolean(n.is_builtin),
+            isLocal: Boolean(n.is_local),
             description: n.description ?? null,
           };
         }),
@@ -796,6 +801,34 @@ export default function TemplateEditorPage() {
     }
   };
 
+  /**
+   * Add to Library (both surfaces: the palette's "This template" row button
+   * and the node configurator footer): promotes the node's saving-time row
+   * to a global one. On success a notice confirms, the epoch bump re-fetches
+   * the palette (the row then lists under Library, no longer here), and the
+   * draft's nodes referencing the row stop flagging isLocal.
+   */
+  const addToLibrary = useCallback(async (rowId: string, name: string) => {
+    const res = await fetch(`/api/node-templates/${rowId}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ [ADD_TO_LIBRARY]: true }),
+    })
+      .then((r) => r.json())
+      .catch(() => null);
+    if (res?.nodeTemplate) {
+      setNotice(`"${name}" added to the Library — it's now available in every template's builder`);
+      setCatalogEpoch((e) => e + 1);
+      setDraft((cur) =>
+        cur
+          ? { ...cur, nodes: cur.nodes.map((n) => (n.nodeTemplateId === rowId ? { ...n, isLocal: false } : n)) }
+          : cur,
+      );
+    } else {
+      setError(res?.error ?? "failed to add the node to the Library");
+    }
+  }, [setDraft]);
+
   // ── node placement for palette additions ──────────────────────────────────
   const placeNewNode = (key: string): Position => {
     let pos: Position;
@@ -837,6 +870,13 @@ export default function TemplateEditorPage() {
         .map((edge, edgeIndex) => ({ edge, edgeIndex, source: draft.nodes.find((n) => n.key === edge.from) ?? null }))
         .filter((l) => l.edge.to === configuring.key && l.source)
     : [];
+  // the configurator's Add to Library: only for a SAVED declarative node whose
+  // row is still private to this template (draft ids have no row yet — the
+  // button appears after the node's first Save)
+  const canAddToLibrary =
+    !readonly && configuring != null &&
+    !configuring.is_builtin && configuring.isLocal === true &&
+    !isDraftNodeTemplateId(configuring.nodeTemplateId);
 
   return (
     <main className="fixed inset-0 flex flex-col bg-background">
@@ -932,11 +972,13 @@ export default function TemplateEditorPage() {
       {/* ── the canvas + node palette ── */}
       <div className="flex-1 min-h-0 flex">
         <NodePalette
+          templateId={draft.template.id}
           nodes={draft.nodes}
           readonly={readonly}
           catalogEpoch={catalogEpoch}
           onAddCatalogNode={addCatalogNode}
           onAddKindNode={addDraftKindNode}
+          onAddToLibrary={addToLibrary}
         />
         <div className="flex-1 min-w-0">
           <BuilderCanvas
@@ -1025,6 +1067,16 @@ export default function TemplateEditorPage() {
               {!readonly && (
                 <Button variant="ghost" className="text-destructive hover:text-destructive mr-auto" onClick={() => removeNode(configuring)}>
                   <Trash2 size={13} /> Remove node
+                </Button>
+              )}
+              {canAddToLibrary && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  title="Reusable in every template's builder"
+                  onClick={() => void addToLibrary(configuring.nodeTemplateId, nodeLabel(configuring))}
+                >
+                  <Library size={13} /> Add to Library
                 </Button>
               )}
               <SheetFooterHelper />

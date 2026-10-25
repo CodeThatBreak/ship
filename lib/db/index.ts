@@ -130,6 +130,12 @@ export class Database {
     if (!flowsCols.has("trigger_payload")) {
       d.exec(`ALTER TABLE flows ADD COLUMN trigger_payload TEXT`); // JSON
     }
+    // Node-template locality: the canvas creator persists declarative rows
+    // scoped to one template — NULL stays the global Library row shared
+    // across templates ("node_templates.template_id" added after launch).
+    if (!cols("node_templates").has("template_id")) {
+      d.exec(`ALTER TABLE node_templates ADD COLUMN template_id TEXT REFERENCES flow_templates(id)`);
+    }
     // Worktrees (Phase 1): the per-flow git worktree dir for local runs —
     // set at build start, cleared on removal. The removal-record table lives
     // in schema.sql (CREATE IF NOT EXISTS is idempotent).

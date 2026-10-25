@@ -15,6 +15,9 @@ export interface EditorNode {
   catalog_name: string | null;
   is_builtin: boolean;
   description?: string | null;
+  /** the backing node_templates row is private to this template (the canvas
+   *  creator's rows) — not yet promoted to the shared Library */
+  isLocal?: boolean;
 }
 
 export interface EditorEdge {
