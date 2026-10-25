@@ -4,13 +4,6 @@ import { ChevronDown, Info, ListChecks, Plus, Sparkles, Trash2, Unplug } from "l
 import { Badge } from "../ui/badge";
 import { Button } from "../ui/button";
 import { Card } from "../ui/card";
-import {
-  Dialog,
-  DialogContent,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "../ui/dialog";
 import { Input } from "../ui/input";
 import { Spinner } from "../ui/spinner";
 import { Textarea } from "../ui/textarea";
@@ -44,7 +37,6 @@ import {
   filterVarGroups,
   httpResponseVarGroups,
   schemaRows,
-  stripBraces,
   varGroupAccent,
   type VarGroup,
 } from "./variables";
@@ -59,15 +51,16 @@ import {
 import { parseInputContract, parseOutputContract, type InputFieldRow } from "./ts-schema-lite";
 
 /**
- * The node configurator (§8): Trigger / Inputs / Config / Contract tabs.
- * Built-ins get the schema-driven config form from their `configFields`;
- * declarative kinds (agent / decision / http / script) edit instance
- * overrides through the same schema-driven form (their runtime classes
- * declare `configFields`). The Inputs tab (Phase 4) makes the node's
+ * The node configurator (§8): Trigger / Inputs / Config / Inputs & outputs
+ * tabs ("Start fields" replaces the start node's Config/Contract tabs — its
+ * fields ARE the contract). Built-ins get the schema-driven config form from
+ * their `configFields`; declarative kinds (agent / decision / http / script)
+ * edit instance overrides through the same schema-driven form (their runtime
+ * classes declare `configFields`). The Inputs tab (Phase 4) makes the node's
  * effective input visible and mappable: inherited rows from the connected
  * parents' published outputs, plus `input_map` mappings (the engine's
- * §3 overlay). The Contract tab shows the per-source upstream inputs and
- * the node's own published outputs.
+ * §3 overlay). The Inputs & outputs tab shows the per-source upstream inputs
+ * and the node's own published outputs.
  *
  * The tabbed body is exported for any host surface — the visual builder
  * (Phase 5) embeds it in a node drawer.
@@ -89,13 +82,15 @@ function isStartNode(node: EditorNode): boolean {
   );
 }
 
-/** Tab button labels (the start node shows only a subset of the tabs). */
+/** Tab button labels (the start node shows only a subset of the tabs).
+ *  D4: the start editor's tab is "Start fields" and the contract view is
+ *  "Inputs & outputs" — one name per mental slot everywhere. */
 const TAB_LABELS: Record<string, string> = {
   trigger: "Trigger",
   inputs: "Inputs",
   config: "Config",
-  contract: "Contract",
-  output: "Run Context",
+  contract: "Inputs & outputs",
+  output: "Start fields",
 };
 
 /** Dropdown option renderer — the label as the heading, the description
@@ -318,46 +313,6 @@ export function NodeConfiguratorBody({
   );
 }
 
-/** The dialog surface for the drawer-less build (kept for the step-list build). */
-export default function NodeConfigurator({
-  open,
-  node,
-  onClose,
-  onChange,
-}: {
-  open: boolean;
-  node: EditorNode | null;
-  onClose: () => void;
-  onChange: (patch: Partial<EditorNode>) => void;
-}) {
-  return (
-    <Dialog
-      open={open}
-      onOpenChange={(v) => {
-        if (!v) onClose();
-      }}
-    >
-      <DialogContent className="sm:max-w-[680px] max-h-[85vh] overflow-y-auto">
-        <DialogHeader>
-          <DialogTitle className="flex items-center gap-2">
-            <Sparkles size={14} className="text-muted-foreground" />
-            {node
-              ? `${node.overrideLabel ?? node.catalog_name ?? node.key}`
-              : "Node"}
-            <Badge variant="outline">{node?.kind ?? "builtin"}</Badge>
-          </DialogTitle>
-        </DialogHeader>
-        {!node ? null : (
-          <NodeConfiguratorBody node={node} onChange={onChange} />
-        )}
-        <DialogFooter>
-          <Button onClick={onClose}>Done</Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
-  );
-}
-
 function TriggerTab({
   node,
   onChange,
@@ -571,6 +526,27 @@ function ConfigTab({
   /** the owning template's id (Phase 5) — the expression editors' preview */
   templateId?: string;
 }) {
+  // http nodes (Phase 6): the configured secret names — fetched once (names
+  // only; values never leave the server) and offered as {{secrets.NAME}}
+  // chips under the fields where secrets resolve
+  const isHttp = node.kind === "http";
+  const [secretNames, setSecretNames] = useState<string[] | null>(null);
+  useEffect(() => {
+    if (!isHttp) return;
+    let alive = true;
+    fetch("/api/settings")
+      .then((r) => r.json())
+      .then((d) => {
+        if (alive) setSecretNames(d?.secrets ?? []);
+      })
+      .catch(() => {
+        if (alive) setSecretNames([]);
+      });
+    return () => {
+      alive = false;
+    };
+  }, [isHttp]);
+
   // no upstream yet (unconnected node or an entry): the inherit hint
   const inheritHint = !hasUpstream ? (
     <p className="text-[11px] text-muted-foreground m-0">
@@ -651,6 +627,7 @@ function ConfigTab({
             defaultValue={defaults[f.key]}
             companionText={companionTextOf(node, f.key, defaults[f.key])}
             decisionSource={decisionSource}
+            secrets={isHttp && secretFields.has(f.key) ? secretNames ?? undefined : undefined}
             varGroups={
               f.key === "response_map"
                 ? httpResponseVarGroups()
@@ -702,6 +679,10 @@ const freeTextFields = new Set([
   "body",
   "question",
 ]);
+
+/** The http fields where `{{secrets.NAME}}` resolves (Phase 6) — they get the
+ *  configured-secrets chip group under the input. */
+const secretFields = new Set(["url", "headers", "body"]);
 
 /**
  * The node's vocabulary as the condition/expression editors' groups (Phase 5):
@@ -828,6 +809,7 @@ function ConfigFieldRow({
   defaultValue,
   companionText,
   decisionSource,
+  secrets,
   varGroups,
   invalidRefs,
   templateId,
@@ -850,6 +832,9 @@ function ConfigFieldRow({
   /** a decision node's current source — the choices editor shows per-choice
    *  conditions for the expression source */
   decisionSource?: string;
+  /** configured secret names (Phase 6, http nodes) — the {{secrets.NAME}}
+   *  chip group under the field */
+  secrets?: string[];
   /** the grouped variable vocabulary — the prompt editor's @ popover / the
    *  field's "Variables ▾" picker (Phase 3) */
   varGroups?: VarGroup[];
@@ -960,57 +945,102 @@ function ConfigFieldRow({
   const picker = varGroups?.length ? (
     <VariablesPicker groups={varGroups} onInsert={insertRef} />
   ) : null;
+  const control =
+    field.type === "select" ? (
+      <ConfigSelect
+        options={field.options ?? []}
+        optionIcons={field.optionIcons}
+        effective={effective}
+        defaultValue={defaultValue}
+        defaultLabel={fmtDefault(defaultValue)}
+        onChange={onChange}
+      />
+    ) : field.type === "text" ? (
+      <Textarea
+        value={
+          typeof effective === "string"
+            ? effective
+            : effective != null
+              ? JSON.stringify(effective, null, 2)
+              : ""
+        }
+        onChange={(e) => onChange(e.target.value || undefined)}
+        rows={5}
+        className="font-mono text-[12px]"
+        placeholder={fmtDefault(defaultValue)}
+      />
+    ) : field.type === "string" ? (
+      <Input
+        value={typeof effective === "string" ? effective : ""}
+        onChange={(e) =>
+          onChange(
+            e.target.value === "" && field.nullable
+              ? null // "cleared" the override — don't snap back to the default
+              : e.target.value || undefined,
+          )
+        }
+        placeholder={fmtDefault(defaultValue)}
+        className="font-mono text-[12.5px]"
+      />
+    ) : (
+      <Input
+        type="number"
+        value={typeof effective === "number" ? effective : ""}
+        onChange={(e) =>
+          onChange(e.target.value === "" ? undefined : Number(e.target.value))
+        }
+        placeholder={fmtDefault(defaultValue)}
+      />
+    );
   return (
     <div className="grid gap-1">
       <div className="flex items-center justify-between gap-2">
         <FieldLabel field={field} />
         {picker}
       </div>
-      {field.type === "select" ? (
-        <ConfigSelect
-          options={field.options ?? []}
-          optionIcons={field.optionIcons}
-          effective={effective}
-          defaultValue={defaultValue}
-          defaultLabel={fmtDefault(defaultValue)}
-          onChange={onChange}
-        />
-      ) : field.type === "text" ? (
-        <Textarea
-          value={
-            typeof effective === "string"
-              ? effective
-              : effective != null
-                ? JSON.stringify(effective, null, 2)
-                : ""
-          }
-          onChange={(e) => onChange(e.target.value || undefined)}
-          rows={5}
-          className="font-mono text-[12px]"
-          placeholder={fmtDefault(defaultValue)}
-        />
-      ) : field.type === "string" ? (
-        <Input
-          value={typeof effective === "string" ? effective : ""}
-          onChange={(e) =>
-            onChange(
-              e.target.value === "" && field.nullable
-                ? null // "cleared" the override — don't snap back to the default
-                : e.target.value || undefined,
-            )
-          }
-          placeholder={fmtDefault(defaultValue)}
-          className="font-mono text-[12.5px]"
-        />
+      {control}
+      {secrets != null && (
+        <SecretsChipGroup names={secrets} onInsert={insertRef} />
+      )}
+    </div>
+  );
+}
+
+/**
+ * The http node's secrets chip group (Phase 6): the configured secret names
+ * (GET /api/settings — names only, values never leave the server) as chips
+ * that insert `{{secrets.NAME}}` into the field. Empty state points to the
+ * Settings page where secrets are managed.
+ */
+function SecretsChipGroup({
+  names,
+  onInsert,
+}: {
+  names: string[];
+  onInsert: (ref: string) => void;
+}) {
+  return (
+    <div className="flex gap-1 flex-wrap items-center">
+      <span className="text-[10px] uppercase tracking-wider text-muted-foreground">
+        secrets
+      </span>
+      {names.length === 0 ? (
+        <span className="text-[11px] text-muted-foreground">
+          none configured — add secrets under Settings
+        </span>
       ) : (
-        <Input
-          type="number"
-          value={typeof effective === "number" ? effective : ""}
-          onChange={(e) =>
-            onChange(e.target.value === "" ? undefined : Number(e.target.value))
-          }
-          placeholder={fmtDefault(defaultValue)}
-        />
+        names.map((n) => (
+          <button
+            key={n}
+            type="button"
+            title={`Insert {{secrets.${n}}}`}
+            onMouseDown={(e) => e.preventDefault()}
+            onClick={() => onInsert(`{{secrets.${n}}}`)}
+            className="rounded-full border border-border bg-card px-2 py-0.5 text-[11px] font-mono text-muted-foreground transition-colors hover:border-blue-500/50 hover:text-foreground"
+          >
+            {n}
+          </button>
+        ))
       )}
     </div>
   );
@@ -1438,9 +1468,11 @@ function PassMapEditor({
  * The per-field "Variables ▾" picker (Phase 3): one affordance for every
  * ref-bearing field — the grouped vocabulary (inherited → task → upstream →
  * trigger) in an anchored panel with a search box; picking a field inserts
- * its ref (click-to-insert supersedes the old chip rows). `jsonata` callers
- * pass pre-stripped groups (`asJsonataGroups`) — the `{{...}}` wrapper is
- * prompt syntax, not JSONata.
+ * its `{{...}}` ref (click-to-insert supersedes the old chip rows). Every
+ * caller is a {{...}}-templated field (prompts use the @ popover's same
+ * vocabulary), so the braces ride along; the raw-JSONata surfaces compile
+ * their options separately (`jsonataPathOptions`). `jsonata` callers pass
+ * pre-stripped groups (`asJsonataGroups`) when they need bare paths.
  */
 export function VariablesPicker({
   groups,
@@ -1513,7 +1545,7 @@ export function VariablesPicker({
                   title={f.insert}
                   onMouseDown={(e) => {
                     e.preventDefault();
-                    onInsert(stripBraces(f.insert));
+                    onInsert(f.insert);
                     setOpen(false);
                   }}
                   className="w-full flex items-center gap-2 rounded-lg px-2 py-1.5 text-left text-[12px] hover:bg-muted/60 transition-colors"

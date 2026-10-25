@@ -113,24 +113,26 @@ export function nodeLabel(n: Pick<EditorNode, "key" | "overrideLabel" | "catalog
 export interface NodeRelationships {
   incoming: EditorEdge[];
   outgoing: EditorEdge[];
-  /** no edge points at this node — it starts its own branch and carries the trigger */
-  isStart: boolean;
+  /** no edge points at this node — it starts its own branch and carries the
+   *  trigger ("entry node" — a relationship, not the Start catalog instance,
+   *  which is the one `nt_start` row per template) */
+  isEntry: boolean;
   /** no edges at all — needs a connection before it can be configured */
   isolated: boolean;
 }
 
 /**
  * Connection semantics of the builder:
- *  - a node with no incoming edges is a **start node** — its trigger defines
- *    when its branch begins;
+ *  - a node with no incoming edges is an **entry node** — its trigger defines
+ *    when its branch begins ("triggered branch");
  *  - every other node must be reached by an edge; a node with no edges at all
  *    is flagged isolated and can't be configured until it's wired in.
  */
 export function nodeRelationships(nodes: EditorNode[], edges: EditorEdge[]): Record<string, NodeRelationships> {
   const map: Record<string, NodeRelationships> = {};
-  for (const n of nodes) map[n.key] = { incoming: [], outgoing: [], isStart: true, isolated: true };
+  for (const n of nodes) map[n.key] = { incoming: [], outgoing: [], isEntry: true, isolated: true };
   for (const e of edges) {
-    if (map[e.to]) { map[e.to].incoming.push(e); map[e.to].isolated = false; map[e.to].isStart = false; }
+    if (map[e.to]) { map[e.to].incoming.push(e); map[e.to].isolated = false; map[e.to].isEntry = false; }
     if (map[e.from]) { map[e.from].outgoing.push(e); map[e.from].isolated = false; }
   }
   return map;

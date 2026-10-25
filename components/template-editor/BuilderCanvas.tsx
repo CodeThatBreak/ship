@@ -18,6 +18,7 @@ import {
   Handle,
   MarkerType,
   MiniMap,
+  Panel,
   Position,
   ReactFlow,
   ReactFlowProvider,
@@ -32,7 +33,9 @@ import {
   type NodeProps,
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
+import { LayoutGrid } from "lucide-react";
 import { cn } from "../../lib/utils";
+import { Button } from "../ui/button";
 import type { EditorEdge, EditorNode } from "./types";
 import { iconForIconName } from "./icons";
 
@@ -80,7 +83,11 @@ function BuilderNodeView({ id, data }: NodeProps<Node<BuilderNodeData>>) {
         readonly && "cursor-default",
         !readonly && unlinked && "ring-1 ring-amber-500/50",
       )}
-      title={readonly ? "Built-in template — read-only" : unlinked ? "Not connected — drag from a handle to wire it in (click to configure meanwhile)" : "Click to configure"}
+      title={readonly
+        ? "Built-in template — read-only"
+        : unlinked
+          ? "Not connected — drag from a handle to wire it in (click to configure meanwhile)"
+          : "Click to configure · right-click to duplicate"}
     >
       {!readonly && unlinked && (
         <span className="absolute -top-1.5 -right-1.5 z-10 flex h-4 w-4 items-center justify-center rounded-full bg-amber-500 text-[9px] font-bold text-background" title="Needs a connection">
@@ -140,13 +147,20 @@ function BuilderNodeView({ id, data }: NodeProps<Node<BuilderNodeData>>) {
   );
 }
 
-/** Visible connect handles — hover reveals them on the node. */
+/** Visible connect handles (Phase 6, G1): the SOURCE handle is always
+ *  visible (slightly dimmed, full on hover) so new users see where a
+ *  connection starts; the target handle is hover-revealed as before. */
 function HandleConnect({ type }: { type: "source" | "target" }) {
   return (
     <Handle
       type={type}
       position={type === "source" ? Position.Right : Position.Left}
-      className="!h-2.5 !w-2.5 !border-2 !border-background !bg-blue-400 opacity-0 transition-opacity group-hover:opacity-100"
+      className={cn(
+        "!h-2.5 !w-2.5 !border-2 !border-background !bg-blue-400 transition-opacity",
+        type === "source"
+          ? "opacity-70 hover:!opacity-100"
+          : "opacity-0 group-hover:opacity-100",
+      )}
       isConnectable
     />
   );
@@ -283,6 +297,12 @@ export interface BuilderCanvasProps {
    *  its branch handles — the edge is created pre-labeled */
   onConnect: (from: string, to: string, branchLabel?: string | null) => void;
   onPaneClick: () => void;
+  /** right-click on a node → duplicate it (Phase 6, G3 — the host copies the
+   *  node with a fresh unique key; read-only canvases don't invoke it) */
+  onNodeDuplicate?: (key: string) => void;
+  /** "Tidy layout" (Phase 6, G2): auto-arrange the nodes (dagre over the
+   *  draft graph) — rendered as a control beside the zoom controls */
+  onTidyLayout?: () => void;
   /** registers the screen→flow helper + fitView for the page (palette placement) */
   onApi?: (api: BuilderApi) => void;
 }
@@ -384,6 +404,13 @@ function BuilderFlow(props: BuilderCanvasProps) {
       onNodesChange={onNodesChange}
       onEdgesChange={onEdgesChange}
       onEdgeClick={(_e, edge) => props.onEdgeOpen(Number(edge.id.replace(/[^0-9]/g, "")))}
+      onNodeContextMenu={(e, n) => {
+        // G3: right-click duplicates the node (the host copies it with a
+        // fresh key, config included, unconnected)
+        if (props.readonly) return;
+        e.preventDefault();
+        props.onNodeDuplicate?.(n.id);
+      }}
       onConnect={(c: Connection) => {
         if (c.source && c.target && c.source !== c.target) {
           props.onConnect(c.source, c.target, c.sourceHandle ?? null);
@@ -402,6 +429,19 @@ function BuilderFlow(props: BuilderCanvasProps) {
       colorMode="dark"
     >
       <Background gap={22} size={1.4} className="!bg-background" />
+      {!props.readonly && props.onTidyLayout && (
+        <Panel position="top-left">
+          <Button
+            variant="outline"
+            size="sm"
+            className="h-7 gap-1.5 rounded-lg bg-card/95 text-[11.5px] shadow-sm"
+            title="Auto-arrange the nodes left-to-right (positions autosave as a drag does)"
+            onClick={props.onTidyLayout}
+          >
+            <LayoutGrid size={12} className="text-muted-foreground" /> Tidy layout
+          </Button>
+        </Panel>
+      )}
       <Controls showInteractive={false} position="bottom-left" />
       <MiniMap
         pannable

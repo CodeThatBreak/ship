@@ -25,9 +25,14 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import dagre from "@dagrejs/dagre";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { useParams, useRouter } from "next/navigation";
 import {
   ArrowLeft,
+  Check,
+  ChevronRight,
+  Copy,
+  Eye,
+  EyeOff,
   LayoutTemplate,
   Lock,
   Redo2,
@@ -51,6 +56,13 @@ import {
   DialogTitle,
 } from "../../../components/ui/dialog";
 import { Input } from "../../../components/ui/input";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "../../../components/ui/select";
 import { Spinner } from "../../../components/ui/spinner";
 import {
   Sheet,
@@ -61,8 +73,13 @@ import {
   SheetHeader,
   SheetTitle,
 } from "../../../components/ui/sheet";
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from "../../../components/ui/collapsible";
 import { cn } from "../../../lib/utils";
-import { NodeConfiguratorBody, type IncomingLink } from "../../../components/template-editor/NodeConfigurator";
+import { NodeConfiguratorBody, SelectOption, type IncomingLink } from "../../../components/template-editor/NodeConfigurator";
 import NodePalette from "../../../components/template-editor/NodePalette";
 import BuilderCanvas, { type BuilderApi } from "../../../components/template-editor/BuilderCanvas";
 import { ConditionBuilder } from "../../../components/template-editor/ConditionBuilder";
@@ -95,6 +112,13 @@ type Draft = {
 };
 
 const EDGE_KINDS = ["next", "loop"] as const;
+
+/** Edge kinds as labeled options (the kind select's friendly labels; the
+ *  stored value stays the raw kind string). */
+const EDGE_KIND_OPTIONS: Record<string, { label: string; description: string }> = {
+  next: { label: "next — forward edge", description: "Runs the target after the source finishes; its output joins the target's input." },
+  loop: { label: "loop — re-run the target", description: "Re-triggers the target once it has finished (bounds come from the target's max-attempt knobs)." },
+};
 
 /** Display names for the palette's New-node tiles (also the saved row names). */
 const KIND_LABELS: Record<string, string> = {
@@ -176,6 +200,11 @@ export default function TemplateEditorPage() {
   const [notice, setNotice] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [dirty, setDirty] = useState(false);
+  /** the positions-only PATCH's honest state (Phase 6 save model): "pending"
+   *  while the debounced layout autosave is in flight, "saved" once it
+   *  lands — the header then reads "layout autosaved · graph has unsaved
+   *  changes" instead of one ambiguous "unsaved changes" */
+  const [layoutSync, setLayoutSync] = useState<"idle" | "pending" | "saved">("idle");
   /** bumped after each Save — the palette's catalog cache keys off it so new
    *  Library rows appear without a page reload (Phase 2) */
   const [catalogEpoch, setCatalogEpoch] = useState(0);
@@ -216,10 +245,9 @@ export default function TemplateEditorPage() {
   const [edgeProblems, setEdgeProblems] = useState<Record<number, string>>({});
   const builderApi = useRef<BuilderApi | null>(null);
 
-  const templateId = (() => {
-    const seg = typeof location !== "undefined" ? location.pathname.split("/").filter(Boolean) : [];
-    return seg.length >= 2 && seg[0] === "templates" ? seg[1] : null;
-  })();
+  /** B5: the route param, not location.pathname parsing. */
+  const params = useParams<{ id: string }>();
+  const templateId = params?.id ?? null;
 
   // ── undo / redo: structural draft snapshots taken in apply() ───────────────
   const undoStack = useRef<Draft[]>([]);
@@ -555,6 +583,40 @@ export default function TemplateEditorPage() {
     );
   };
 
+  /** Right-click → Duplicate node (Phase 6, G3): a fresh unique key, the
+   *  config copied, placed unconnected near the original. The Start node is
+   *  a singleton — duplicating it is refused (the palette enforces the same).
+   *  Draft instances share their pending def — nothing extra to carry. */
+  const duplicateNode = (key: string) => {
+    if (!draft) return;
+    const src = draft.nodes.find((n) => n.key === key);
+    if (!src) return;
+    if (src.nodeTemplateId === "nt_start") {
+      setNotice("Only one Start node is allowed — this template already has one.");
+      return;
+    }
+    const newKey = uniqueKey(`${src.overrideLabel || src.catalog_name || src.key} copy`, draft.nodes);
+    const pos = positions[key] ?? { x: 0, y: 0 };
+    apply({
+      ...draft,
+      nodes: [
+        ...draft.nodes,
+        { ...src, key: newKey, label: newKey, overrideLabel: `${nodeLabel(src)} copy` },
+      ],
+    });
+    setPositions((p) => ({ ...p, [newKey]: { x: pos.x + 44, y: pos.y + 44 } }));
+    schedulePositionsSave();
+    setNotice("Node duplicated — drag from one of its handles to connect it.");
+  };
+
+  /** "Tidy layout" (Phase 6, G2): dagre over the draft graph, then the usual
+   *  debounced positions autosave (a tidy is just many drags at once). */
+  const tidyLayout = () => {
+    if (!draft || draft.template.is_builtin) return;
+    setPositions((p) => ({ ...p, ...dagreLayout(draft.nodes, draft.edges) }));
+    schedulePositionsSave();
+  };
+
   /** A new edge from the canvas. From a decision node's branch handle the
    *  edge arrives pre-labeled with that branch — attach-only wiring, no edge
    *  editing (the drawer stays closed); any other connect opens the drawer to
@@ -617,13 +679,16 @@ export default function TemplateEditorPage() {
   const schedulePositionsSave = useCallback(() => {
     if (!templateId || draft?.template.is_builtin) return;
     if (saveTimer.current) clearTimeout(saveTimer.current);
+    setLayoutSync("pending");
     saveTimer.current = setTimeout(() => {
       setPositions((current) => {
         void fetch(`/api/templates/${templateId}`, {
           method: "PATCH",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ positions: current }),
-        }).catch(() => {});
+        })
+          .then(() => setLayoutSync("saved"))
+          .catch(() => setLayoutSync("idle"));
         return current;
       });
     }, 700);
@@ -793,7 +858,10 @@ export default function TemplateEditorPage() {
           </h1>
           <p className="text-muted-foreground text-[11px] m-0">
             {draft.nodes.length} node{draft.nodes.length === 1 ? "" : "s"} · {draft.edges.length} edge{draft.edges.length === 1 ? "" : "s"}
-            {dirty && <span className="text-amber-400"> · unsaved changes</span>}
+            {(layoutSync === "pending" || layoutSync === "saved") && (
+              <span> · {layoutSync === "pending" ? "saving layout…" : "layout autosaved"}</span>
+            )}
+            {dirty && <span className="text-amber-400"> · graph has unsaved changes</span>}
           </p>
         </div>
         <div className="flex-1" />
@@ -889,6 +957,8 @@ export default function TemplateEditorPage() {
             onConnect={addEdge}
             onNodeRemove={removeNodeKey}
             onEdgeRemove={removeEdge}
+            onNodeDuplicate={duplicateNode}
+            onTidyLayout={tidyLayout}
             onPaneClick={() => {
               setNodeDrawer(null);
               setEdgeDrawer(null);
@@ -1186,14 +1256,21 @@ function EdgeEditor({
       </div>
       <div className="grid gap-1">
         <label className="text-xs text-muted-foreground">Kind</label>
-        <select
-          value={edge.kind}
-          disabled={readonly}
-          onChange={(ev) => onChange({ kind: ev.target.value as EditorEdge["kind"] })}
-          className="bg-card text-foreground border border-border rounded-lg text-[13px] px-3 py-2"
-        >
-          {EDGE_KINDS.map((k) => <option key={k} value={k}>{k}</option>)}
-        </select>
+        <Select value={edge.kind} disabled={readonly} onValueChange={(v) => { if (v != null) onChange({ kind: v }); }}>
+          <SelectTrigger className="w-full rounded-lg border-border bg-card">
+            <SelectValue>{EDGE_KIND_OPTIONS[edge.kind]?.label ?? edge.kind}</SelectValue>
+          </SelectTrigger>
+          <SelectContent>
+            {EDGE_KINDS.map((k) => (
+              <SelectItem key={k} value={k}>
+                <SelectOption
+                  label={EDGE_KIND_OPTIONS[k]?.label ?? k}
+                  description={EDGE_KIND_OPTIONS[k]?.description ?? ""}
+                />
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
         <p className="text-[11px] text-muted-foreground m-0">
           {edge.kind === "loop" ? "Loop edges re-trigger the target once it has finished (bounds come from the target's max-attempt knobs)." : "A plain forward edge."}
         </p>
@@ -1251,19 +1328,33 @@ function EdgeEditor({
 
 function EdgeSelect({ value, nodes, disabled, onChange }: { value: string; nodes: EditorNode[]; disabled: boolean; onChange: (v: string) => void }) {
   return (
-    <select
-      value={value}
-      disabled={disabled}
-      onChange={(e) => onChange(e.target.value)}
-      className="bg-card text-foreground border border-border rounded-lg text-[12.5px] px-2 py-1.5 font-mono"
-    >
-      {nodes.map((n) => <option key={n.key} value={n.key}>{n.key}</option>)}
-    </select>
+    <Select value={value} disabled={disabled} onValueChange={(v) => { if (v != null) onChange(v); }}>
+      <SelectTrigger className="w-full rounded-lg border-border bg-card font-mono">
+        <SelectValue>{value}</SelectValue>
+      </SelectTrigger>
+      <SelectContent>
+        {nodes.map((n) => (
+          <SelectItem key={n.key} value={n.key} className="font-mono">
+            {nodeLabel(n)}
+            {n.key !== nodeLabel(n) && (
+              <span className="text-muted-foreground"> ({n.key})</span>
+            )}
+          </SelectItem>
+        ))}
+      </SelectContent>
+    </Select>
   );
 }
 
-// ── flow settings body (shared manual/webhook/schedule wiring, Phase 4 pickers) ─
+// ── flow settings body (grouped Phase 6: "When flows start" + Advanced) ──────
 
+/**
+ * Flow settings (Phase 6 grouping, F2): template meta, then the task context,
+ * then "When flows start" (the flow trigger type + its repo/interval bindings)
+ * — the webhook's JSONata filter and the inbound hook details live under
+ * "Advanced", and the hook secret is masked with reveal/copy instead of
+ * printed in plaintext.
+ */
 function SettingsBody({
   draft, readonly, hook, providers, repos, templateId, onChange,
 }: {
@@ -1278,6 +1369,7 @@ function SettingsBody({
   onChange: (t: Partial<Draft["template"]>) => void;
 }) {
   const trigger = draft.template.trigger ?? {};
+  const triggerType = String(trigger.type ?? "manual");
   const setTrigger = (patch: Record<string, unknown>) =>
     onChange({ trigger: { ...trigger, ...patch } });
   // the declared task type (Phase 3): which task type the template's flows run
@@ -1286,37 +1378,49 @@ function SettingsBody({
   // parse rule).
   const taskType = String(trigger.task_type ?? providers[0]?.kind ?? "");
   const taskProvider = providers.find((p) => p.kind === taskType) ?? providers[0] ?? null;
+  const autoStarts = ["webhook", "schedule"].includes(triggerType);
   return (
-    <div className="grid gap-3">
-      <div className="grid gap-1">
-        <label className="text-xs text-muted-foreground">Template name</label>
-        <Input value={draft.template.name} disabled={readonly} onChange={(e) => onChange({ name: e.target.value })} />
-      </div>
-      <div className="grid gap-1">
-        <label className="text-xs text-muted-foreground">Description</label>
-        <textarea
-          value={draft.template.description ?? ""}
-          rows={2}
-          disabled={readonly}
-          onChange={(e) => onChange({ description: e.target.value || null })}
-          className="bg-card text-foreground border border-border rounded-lg text-[13px] px-3 py-2"
-        />
+    <div className="grid gap-4">
+      <div className="grid gap-3">
+        <div className="grid gap-1">
+          <label className="text-xs text-muted-foreground">Template name</label>
+          <Input value={draft.template.name} disabled={readonly} onChange={(e) => onChange({ name: e.target.value })} />
+        </div>
+        <div className="grid gap-1">
+          <label className="text-xs text-muted-foreground">Description</label>
+          <textarea
+            value={draft.template.description ?? ""}
+            rows={2}
+            disabled={readonly}
+            onChange={(e) => onChange({ description: e.target.value || null })}
+            className="bg-card text-foreground border border-border rounded-lg text-[13px] px-3 py-2"
+          />
+        </div>
       </div>
 
       {/* ── Task context (Phase 3): the declared task type + its fields ── */}
       <div className="grid gap-1">
         <label className="text-xs text-muted-foreground">Task context</label>
-        <select
+        <Select
           value={taskType}
           disabled={readonly || providers.length === 0}
-          onChange={(e) => setTrigger({ task_type: e.target.value || undefined })}
-          className="bg-card text-foreground border border-border rounded-lg text-[13px] px-3 py-2"
+          onValueChange={(v) => setTrigger({ task_type: v || undefined })}
         >
-          {providers.length === 0 && <option value="">no task providers registered</option>}
-          {providers.map((p) => (
-            <option key={p.kind} value={p.kind}>{p.label} ({p.kind}){p.configured ? "" : " — not configured"}</option>
-          ))}
-        </select>
+          <SelectTrigger className="w-full rounded-lg border-border bg-card">
+            <SelectValue placeholder="no task providers registered">
+              {taskProvider
+                ? `${taskProvider.label} (${taskProvider.kind})${taskProvider.configured ? "" : " — not configured"}`
+                : "no task providers registered"}
+            </SelectValue>
+          </SelectTrigger>
+          <SelectContent>
+            {providers.map((p) => (
+              <SelectItem key={p.kind} value={p.kind}>
+                {p.label} ({p.kind}){p.configured ? "" : " — not configured"}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
         {taskProvider && (
           <div className="flex gap-1 flex-wrap pt-1">
             {taskProvider.contextFields.map((f) => (
@@ -1336,83 +1440,112 @@ function SettingsBody({
         </p>
       </div>
 
-      <div className="grid gap-1">
-        <label className="text-xs text-muted-foreground">Flow trigger</label>
-        <select
-          value={String(trigger.type ?? "manual")}
-          disabled={readonly}
-          onChange={(e) => setTrigger({ type: e.target.value })}
-          className="bg-card text-foreground border border-border rounded-lg text-[13px] px-3 py-2"
-        >
-          {Object.entries(FLOW_TRIGGER_TYPE).map(([v, label]) => (
-            <option key={v} value={v}>{label}</option>
-          ))}
-        </select>
-        <p className="text-[11px] text-muted-foreground m-0">
-          {String(trigger.type ?? "manual") === "manual"
-            ? "Started from the home page's task picker."
-            : `Auto-creates flows — bind a repo below; each flow attaches the most recent imported ${taskType} task.`}
-        </p>
-      </div>
-
-      {["webhook", "schedule"].includes(String(trigger.type ?? "manual")) && (
-        <div className="grid gap-3">
+      {/* ── When flows start (Phase 6 grouping): the flow trigger + bindings ── */}
+      <div className="grid gap-3">
+        <div className="text-[11.5px] font-medium text-muted-foreground uppercase tracking-[0.8px]">
+          When flows start
+        </div>
+        <div className="grid gap-1">
+          <label className="text-xs text-muted-foreground">Flow trigger</label>
+          <Select value={triggerType} disabled={readonly} onValueChange={(v) => setTrigger({ type: v })}>
+            <SelectTrigger className="w-full rounded-lg border-border bg-card">
+              <SelectValue>
+                {FLOW_TRIGGER_TYPE[triggerType] ?? triggerType}
+              </SelectValue>
+            </SelectTrigger>
+            <SelectContent>
+              {Object.entries(FLOW_TRIGGER_TYPE).map(([v, label]) => (
+                <SelectItem key={v} value={v}>{label}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <p className="text-[11px] text-muted-foreground m-0">
+            {triggerType === "manual"
+              ? "Started from the home page's task picker."
+              : `Auto-creates flows — bind a repo below; each flow attaches the most recent imported ${taskType} task.`}
+          </p>
+        </div>
+        {autoStarts && (
           <div className="grid gap-1">
             <label className="text-xs text-muted-foreground">Bound repo</label>
-            <select
+            <Select
               value={String(trigger.repo_id ?? "")}
-              onChange={(e) => setTrigger({ repo_id: e.target.value || undefined })}
-              className="bg-card text-foreground border border-border rounded-lg text-[13px] px-3 py-2"
+              disabled={readonly}
+              onValueChange={(v) => setTrigger({ repo_id: v || undefined })}
             >
-              <option value="">— pick a repo —</option>
-              {repos.map((r) => <option key={r.id} value={r.id}>{r.name}{r.local_path ? " (local)" : ""}</option>)}
-            </select>
+              <SelectTrigger className="w-full rounded-lg border-border bg-card">
+                <SelectValue>— pick a repo —</SelectValue>
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="">— pick a repo —</SelectItem>
+                {repos.map((r) => (
+                  <SelectItem key={r.id} value={r.id}>
+                    {r.name}{r.local_path ? " (local)" : ""}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </div>
-          {String(trigger.type) === "schedule" && (
-            <div className="grid gap-1">
-              <label className="text-xs text-muted-foreground">Interval (minutes)</label>
-              <Input
-                type="number"
-                min={1}
-                value={Number(trigger.interval_min ?? 60)}
-                disabled={readonly}
-                onChange={(e) => setTrigger({ interval_min: Number(e.target.value) > 0 ? Number(e.target.value) : undefined })}
-              />
-              <p className="text-[11px] text-muted-foreground m-0">One new flow per fire, started automatically from the repo binding above.</p>
+        )}
+        {triggerType === "schedule" && (
+          <div className="grid gap-1">
+            <label className="text-xs text-muted-foreground">Interval (minutes)</label>
+            <Input
+              type="number"
+              min={1}
+              value={Number(trigger.interval_min ?? 60)}
+              disabled={readonly}
+              onChange={(e) => setTrigger({ interval_min: Number(e.target.value) > 0 ? Number(e.target.value) : undefined })}
+            />
+            <p className="text-[11px] text-muted-foreground m-0">One new flow per fire, started automatically from the repo binding above.</p>
+          </div>
+        )}
+      </div>
+
+      {/* ── Advanced (Phase 6 grouping): webhook filter + hook details ── */}
+      {triggerType === "webhook" && (
+        <Collapsible>
+          <CollapsibleTrigger
+            render={
+              <button className="group flex items-center gap-1 text-[11.5px] font-medium text-muted-foreground uppercase tracking-[0.8px] hover:text-foreground transition-colors" />
+            }
+          >
+            <ChevronRight className="size-3 transition-transform group-data-panel-open:rotate-90" /> Advanced — delivery filter & hook details
+          </CollapsibleTrigger>
+          <CollapsibleContent>
+            <div className="grid gap-3 pt-2">
+              <div className="grid gap-1">
+                <label className="text-xs text-muted-foreground">Filter — which deliveries start a flow?</label>
+                <ConditionBuilder
+                  value={typeof trigger.filter === "string" ? trigger.filter : null}
+                  templateId={templateId}
+                  scope="delivery"
+                  placeholder={"payload.event"}
+                  disabled={readonly}
+                  onChange={(raw) => setTrigger({ filter: raw || undefined })}
+                />
+                <p className="text-[11px] text-muted-foreground m-0">
+                  The delivery starts a flow only when the filter is truthy — empty means every
+                  delivery. It sees the delivery body (<code className="font-mono">payload.*</code>) and headers.
+                </p>
+                {hook && (
+                  <Card className="p-3 grid gap-1.5 mt-1">
+                    <div className="flex items-center gap-1.5 text-[11.5px] font-medium text-muted-foreground uppercase tracking-[0.8px]">
+                      <WebhookIcon size={12} /> Inbound hook
+                    </div>
+                    <code className="font-mono text-[12px] break-all">POST /api/hooks/{hook.id}</code>
+                    <MaskedSecret value={hook.secret} />
+                    <code className="font-mono text-[12px] text-muted-foreground break-all">
+                      {"node scripts/send-hook.mjs <url> <secret> '{\"event\":\"issue.created\"}'"}
+                    </code>
+                    <p className="text-[11px] text-muted-foreground m-0">Delivery body becomes <code className="font-mono">{"{{trigger.payload}}"}</code> in the flow&apos;s context. Save to apply filter changes.</p>
+                  </Card>
+                )}
+                {!hook && <p className="text-[11px] text-muted-foreground m-0">The hook endpoint appears once the template is saved or duplicated.</p>}
+              </div>
             </div>
-          )}
-          {String(trigger.type) === "webhook" && (
-            <div className="grid gap-1">
-              <label className="text-xs text-muted-foreground">Filter — which deliveries start a flow?</label>
-              <ConditionBuilder
-                value={typeof trigger.filter === "string" ? trigger.filter : null}
-                templateId={templateId}
-                scope="delivery"
-                placeholder={"payload.event"}
-                disabled={readonly}
-                onChange={(raw) => setTrigger({ filter: raw || undefined })}
-              />
-              <p className="text-[11px] text-muted-foreground m-0">
-                The delivery starts a flow only when the filter is truthy — empty means every
-                delivery. It sees the delivery body (<code className="font-mono">payload.*</code>) and headers.
-              </p>
-              {hook && (
-                <Card className="p-3 grid gap-1.5 mt-1">
-                  <div className="flex items-center gap-1.5 text-[11.5px] font-medium text-muted-foreground uppercase tracking-[0.8px]">
-                    <WebhookIcon size={12} /> Inbound hook
-                  </div>
-                  <code className="font-mono text-[12px] break-all">POST /api/hooks/{hook.id}</code>
-                  <code className="font-mono text-[12px] text-muted-foreground break-all">secret {hook.secret}</code>
-                  <code className="font-mono text-[12px] text-muted-foreground break-all">
-                    {"node scripts/send-hook.mjs <url> <secret> '{\"event\":\"issue.created\"}'"}
-                  </code>
-                  <p className="text-[11px] text-muted-foreground m-0">Delivery body becomes <code className="font-mono">{"{{trigger.payload}}"}</code> in the flow&apos;s context. Save to apply filter changes.</p>
-                </Card>
-              )}
-              {!hook && <p className="text-[11px] text-muted-foreground m-0">The hook endpoint appears once the template is saved or duplicated.</p>}
-            </div>
-          )}
-        </div>
+          </CollapsibleContent>
+        </Collapsible>
       )}
       {readonly && (
         <p className="text-[11.5px] text-muted-foreground m-0 flex items-start gap-1.5">
@@ -1421,6 +1554,44 @@ function SettingsBody({
         </p>
       )}
     </div>
+  );
+}
+
+/**
+ * The inbound hook's secret — masked by default (Phase 6): dots until the eye
+ * is clicked, with a copy button that never needs the reveal.
+ */
+function MaskedSecret({ value }: { value: string }) {
+  const [revealed, setRevealed] = useState(false);
+  const [copied, setCopied] = useState(false);
+  const copy = async () => {
+    try {
+      await navigator.clipboard.writeText(value);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    } catch { /* clipboard unavailable — the reveal is the fallback */ }
+  };
+  return (
+    <span className="flex items-center gap-1 font-mono text-[12px] text-muted-foreground break-all">
+      <span className="text-muted-foreground/70">secret</span>
+      {revealed ? value : "•".repeat(Math.min(value.length || 8, 20))}
+      <button
+        type="button"
+        className="text-muted-foreground hover:text-foreground transition-colors"
+        title={revealed ? "Hide secret" : "Reveal secret"}
+        onClick={() => setRevealed((v) => !v)}
+      >
+        {revealed ? <EyeOff size={11} /> : <Eye size={11} />}
+      </button>
+      <button
+        type="button"
+        className="text-muted-foreground hover:text-foreground transition-colors"
+        title="Copy secret"
+        onClick={() => void copy()}
+      >
+        {copied ? <Check size={11} className="text-emerald-400" /> : <Copy size={11} />}
+      </button>
+    </span>
   );
 }
 

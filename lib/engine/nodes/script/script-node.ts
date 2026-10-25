@@ -65,8 +65,8 @@ export class ScriptTemplateNode extends NodeDefinition<Record<string, unknown>, 
     { key: "timeout_ms", label: "Timeout (ms)", type: "number" as const },
     { key: "env", label: "Env allowlist (JSON array)", type: "string" as const,
       help: `e.g. ["CI","NODE_ENV"] — always available: PATH, HOME` },
-    { key: "output_schema", label: "Output schema (JSON)", type: "text" as const,
-      help: "Optional JSON Schema the output JSON must satisfy" },
+    { key: "output_schema", label: "Output schema", type: "ts_output" as const,
+      help: "TS-lite members (same box as the agent node) or a pasted JSON Schema the output JSON must satisfy" },
   ];
 
   /** the parsed declarative definition (= the class-layer config) */

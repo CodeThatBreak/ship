@@ -283,7 +283,7 @@ export class TemplateStore {
     db.run(
       `INSERT INTO flow_templates (id,name,description,version,is_builtin,trigger,created_at,updated_at)
        VALUES (?,?,?,?,?,?,?,?)`,
-      id, input.name?.trim() || "Untitled template", input.description ?? null,
+      id, input.name?.trim() || "Untitled flow", input.description ?? null,
       1, opts.isBuiltin ? 1 : 0, JSON.stringify(trigger), ts, ts
     );
     this.writeNodesAndEdges(id, nodes, edges);

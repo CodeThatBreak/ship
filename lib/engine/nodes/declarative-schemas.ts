@@ -70,7 +70,7 @@ export type HttpDef = z.infer<typeof HttpDefSchema>;
 
 export const SCRIPT_RUNTIMES = ["shell", "node", "python"] as const;
 
-export const ScriptDefSchema = z.object({
+export const ScriptDefSchema = z.looseObject({
   runtime: z.enum(SCRIPT_RUNTIMES).default("shell"),
   script: z.string().default(""),
   /** where the script runs: the repo's local checkout, or the flow workspace */
@@ -78,7 +78,10 @@ export const ScriptDefSchema = z.object({
   timeout_ms: z.number().nonnegative().default(120_000),
   /** env vars passed through to the child process (PATH & HOME always) */
   env: z.array(z.string()).default([]),
-  /** optional JSON Schema the output JSON must satisfy */
+  /** optional JSON Schema the output JSON must satisfy. The raw TS-lite
+   *  members it was authored from ride along as `output_schema_ts` (the
+   *  schema box's source — unknown keys tolerated on purpose, same as the
+   *  agent node). */
   output_schema: z.unknown().optional().default(null),
 });
 export type ScriptDef = z.infer<typeof ScriptDefSchema>;
