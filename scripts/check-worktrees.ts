@@ -3,7 +3,8 @@
  * hygiene, path helpers, and the real-git create/remove lifecycle (preflight,
  * merged-only branch cleanup, crash-recovery reuse). Phase 2 — the dep-policy
  * resolution table and the setup executor (clone gate, fallback install,
- * config sync, shared-dir symlinks, non-fatal failures).
+ * config sync, shared-dir symlinks, non-fatal failures). Phase 3 — the
+ * flow-card worktree-status endpoint (registered/branch/dirty/ahead/behind).
  *
  * Run: npx tsx scripts/check-worktrees.ts
  */
@@ -459,6 +460,32 @@ async function lifecycleSmoke() {
   await worktreeManager.removeFlowWorktree("flow_smoke", { reason: "test removal" });
   assert.ok(!fs.existsSync(wt3!));
   assert.equal((rows.get(FlowRow, `SELECT * FROM flows WHERE id=?`, "flow_smoke")!).worktree_dir, null);
+
+  // ── Phase 3: the flow-card worktree-status endpoint (list + branchState) ──
+  const { GET: wtStatusGET } = await import("../app/api/flows/worktree-status/route");
+  db.run(`INSERT INTO flows (id, task_id, name, status, execution_mode, repo_id, created_at, updated_at)
+          VALUES ('flow_status', 't1', 'Status', 'active', 'local', 'repo_1', ?, ?)`, now, now);
+  const statusCtx = { ...ctx, flow: rows.get(FlowRow, `SELECT * FROM flows WHERE id=?`, "flow_status")! };
+  const wt4 = (await worktreeManager.ensureFlowWorktree(statusCtx, "bugfix/status-1")).dir;
+  assert.ok(wt4);
+  // a commit (ahead=1) + an untracked file (dirty)
+  fs.writeFileSync(path.join(wt4!, "change.txt"), "hello");
+  git(["add", "change.txt"], wt4!);
+  git(["commit", "-m", "wip"], wt4!);
+  fs.writeFileSync(path.join(wt4!, "scratch.tmp"), "untracked");
+  const { statuses } = await (await wtStatusGET()).json();
+  const st = statuses.flow_status;
+  assert.equal(st.registered, true, "worktree registered in git");
+  assert.equal(st.branch, "bugfix/status-1");
+  assert.equal(st.dirty, true, "untracked file counts as dirty");
+  assert.equal(st.ahead, 1);
+  assert.equal(st.pushed, false);
+  assert.ok(st.path.endsWith("flow_status"));
+  // a flow with a worktree_dir pointing nowhere reports unregistered, not a crash
+  db.run(`UPDATE flows SET worktree_dir=? WHERE id='flow_status'`, path.join(wsDir, "flow_nope"));
+  const stale = (await (await wtStatusGET()).json()).statuses.flow_status;
+  assert.equal(stale.registered, false, "unregistered worktree reports registered=false");
+  assert.match(stale.reason ?? "", /not a registered worktree/);
 
   db.connection().close();
 }

@@ -75,6 +75,18 @@ type Repo = {
   cloud_url: string;
   local_path: string | null;
 };
+type WorktreeStatus = {
+  path: string;
+  registered: boolean;
+  branch?: string | null;
+  dirty?: boolean;
+  ahead?: number;
+  behind?: number;
+  pushed?: boolean;
+  stat?: string;
+  mrBranch?: string | null;
+  reason?: string;
+};
 
 // ── color helpers ──────────────────────────────────────────────────────────
 
@@ -164,6 +176,42 @@ function StatusBadge({ status }: { status: string }) {
   return <Badge className={className}>{status || "—"}</Badge>;
 }
 
+/** Worktree state for one local flow card: branch, dirty dot, ahead/behind. */
+function WorktreeBadge({ status }: { status: WorktreeStatus }) {
+  if (!status.registered) {
+    return (
+      <Badge
+        variant="outline"
+        className="border-amber-500/30 text-amber-400"
+        title={`Worktree unavailable: ${status.reason ?? "unknown"} (${status.path})`}
+      >
+        <FolderGit2 size={11} /> wt?
+      </Badge>
+    );
+  }
+  const ahead = status.ahead ?? 0;
+  const behind = status.behind ?? 0;
+  const title =
+    `${status.branch ?? "(detached)"} @ ${status.path}` +
+    (status.dirty ? " · uncommitted changes" : " · clean") +
+    (ahead ? ` · ${ahead} commit${ahead === 1 ? "" : "s"} ahead` : "") +
+    (behind ? ` · ${behind} behind` : "") +
+    (status.pushed ? " · pushed" : " · not pushed");
+  return (
+    <Badge
+      variant="outline"
+      title={title}
+      className="max-w-[240px] gap-1 font-mono text-[11px]"
+    >
+      <FolderGit2 size={11} />
+      <span className="truncate">{status.branch ?? "detached"}</span>
+      {status.dirty && <span className="size-1.5 shrink-0 rounded-full bg-amber-400" />}
+      {ahead > 0 && <span className="text-emerald-400">↑{ahead}</span>}
+      {behind > 0 && <span className="text-amber-400">↓{behind}</span>}
+    </Badge>
+  );
+}
+
 /** Repo + execution-mode picks and the build action, for one task. */
 function BuildControls({
   repos,
@@ -249,6 +297,7 @@ export default function Home() {
   const [flows, setFlows] = useState<Flow[]>([]);
   const [repos, setRepos] = useState<Repo[]>([]);
   const [providers, setProviders] = useState<Provider[]>([]);
+  const [worktrees, setWorktrees] = useState<Record<string, WorktreeStatus>>({});
   const [typeFilter, setTypeFilter] = useState<string>("all");
   const [defaultMode, setDefaultMode] = useState<"cloud" | "local">("cloud");
   const [repoFor, setRepoFor] = useState<Record<string, string>>({}); // taskId -> repoId
@@ -297,6 +346,21 @@ export default function Home() {
   useEffect(() => {
     load();
   }, [load]);
+
+  // Worktree status (dirty / ahead / behind) for the flow cards: refreshed
+  // every 5s while any flow is active — flow events land in the DB and the
+  // cards pick the resulting git state up here.
+  const loadWorktrees = useCallback(async () => {
+    const r = await fetch("/api/flows/worktree-status").then((r) => r.json()).catch(() => null);
+    setWorktrees(r?.statuses ?? {});
+  }, []);
+
+  useEffect(() => {
+    if (!flows.some((f) => f.execution_mode === "local")) return;
+    loadWorktrees();
+    const t = setInterval(loadWorktrees, 5000);
+    return () => clearInterval(t);
+  }, [flows, loadWorktrees]);
 
   const startFlow = async (task: TaskT) => {
     const repoId = repoFor[task.id];
@@ -521,6 +585,9 @@ export default function Home() {
                     <Badge variant="outline">
                       <Cloud size={11} /> cloud
                     </Badge>
+                  )}
+                  {f.execution_mode === "local" && worktrees[f.id] && (
+                    <WorktreeBadge status={worktrees[f.id]} />
                   )}
                   {f.mr_url && (
                     <Badge className="bg-violet-500/10 text-violet-400">

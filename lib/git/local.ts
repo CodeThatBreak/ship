@@ -22,6 +22,8 @@ export interface DiffFile {
 export interface LocalBranchState {
   exists: boolean;
   commitsAhead: number;
+  /** commits on the base ref that the branch hasn't picked up yet (0 when current) */
+  commitsBehind: number;
   base: string;
   stat: string;
   raw: string;
@@ -165,7 +167,7 @@ export class LocalGit {
     branch: string,
     baseBranch = "main"
   ): Promise<LocalBranchState> {
-    const none: LocalBranchState = { exists: false, commitsAhead: 0, base: baseBranch, stat: "", raw: "", pushed: false };
+    const none: LocalBranchState = { exists: false, commitsAhead: 0, commitsBehind: 0, base: baseBranch, stat: "", raw: "", pushed: false };
     const base = ["-C", localPath];
     try {
       await this.git([...base, "rev-parse", "--verify", "--quiet", branch]);
@@ -183,12 +185,14 @@ export class LocalGit {
     }
     const { stdout: count } = await this.git([...base, "rev-list", "--count", `${baseRef}..${branch}`]);
     const commitsAhead = parseInt(count.trim(), 10) || 0;
+    const { stdout: behindCount } = await this.git([...base, "rev-list", "--count", `${branch}..${baseRef}`]);
+    const commitsBehind = parseInt(behindCount.trim(), 10) || 0;
     const { stdout: raw } = await this.git([...base, "diff", `${baseRef}...${branch}`]);
     const { stdout: stat } = await this.git([...base, "diff", "--stat", `${baseRef}...${branch}`]);
     const pushed = await this.git([...base, "rev-parse", "--verify", "--quiet", `origin/${branch}`])
       .then(() => true)
       .catch(() => false);
-    return { exists: true, commitsAhead, base: baseRef, stat, raw, pushed };
+    return { exists: true, commitsAhead, commitsBehind, base: baseRef, stat, raw, pushed };
   }
 
   // ── worktrees ────────────────────────────────────────────────────────────

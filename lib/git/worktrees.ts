@@ -548,7 +548,12 @@ export class Worktrees {
     }
   }
 
-  private async isWorktreeDirty(wtPath: string): Promise<boolean> {
+  /**
+   * Whether a worktree has any uncommitted/untracked change. Public so
+   * adapters (flow worktree status, UI) reuse the exact check removal
+   * preflight uses — including "unverifiable status counts as dirty".
+   */
+  async isWorktreeDirty(wtPath: string): Promise<boolean> {
     try {
       const { stdout } = await this.git(
         ["-C", wtPath, "status", "--porcelain", "-z", "--untracked-files=all", "--ignore-submodules=none"],

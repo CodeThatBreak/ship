@@ -16,6 +16,12 @@ import { Textarea } from "../../components/ui/textarea";
 type Repo = {
   id: string; name: string; cloud_url: string; local_path: string | null;
   default_branch: string; local_path_exists?: boolean;
+  // worktree setup policy (Phase 2 columns, Phase 3 forms)
+  install_command?: string | null;
+  skip_install?: number;
+  sync_paths?: string | null;
+  shared_dirs?: string | null;
+  setup_command?: string | null;
 };
 type HostInstanceRow = { id: string; name: string | null; baseUrl: string; tokenMasked: string };
 type GitHost = { kind: string; label: string; configured: boolean; instances: HostInstanceRow[] };
@@ -28,6 +34,9 @@ type Settings = {
   default_model: string;
   resolve_delay_ms: number;
   local_agent: { force: boolean; sandbox: boolean; timeout_ms: number };
+  /** "enabled" | "disabled" — per-flow git worktrees for local runs */
+  worktree_mode?: string;
+  pnpm_virtual_store?: boolean;
   prompt_templates?: Record<string, PromptTemplate>;
   pricing?: Record<string, PricingEntry>;
   pricing_suggested?: Record<string, PricingEntry>;
@@ -225,6 +234,31 @@ function ExecutionSection({ settings, onSave }: { settings: Settings; onSave: (p
               Note: local runs are unattended — without --force the agent may stall waiting for tool approval.
             </p>
           )}
+        </div>
+        <div className="border-t border-border pt-4">
+          <div className="text-[13px] font-medium mb-2">Worktree isolation (local mode)</div>
+          <div className="flex flex-wrap gap-2 items-center">
+            <Button
+              size="sm"
+              variant={(settings.worktree_mode ?? "enabled") === "disabled" ? "outline" : "default"}
+              onClick={() => onSave({ worktree_mode: (settings.worktree_mode ?? "enabled") === "disabled" ? "enabled" : "disabled" })}
+            >
+              Per-flow worktrees: {(settings.worktree_mode ?? "enabled") === "disabled" ? "off" : "on"}
+            </Button>
+            <Button
+              size="sm"
+              variant={settings.pnpm_virtual_store ? "default" : "outline"}
+              onClick={() => onSave({ pnpm_virtual_store: !settings.pnpm_virtual_store })}
+            >
+              pnpm global virtual store: {settings.pnpm_virtual_store ? "on" : "off"}
+            </Button>
+          </div>
+          <p className="text-muted-foreground text-[12px] mt-2">
+            Local agents run in an isolated git worktree per flow (under the DevFlow workspace
+            dir) instead of your checkout — your working tree is never touched and flows can run
+            concurrently. The pnpm store makes worktree installs near-instant for pnpm repos
+            (single-user machine only). Per-repo dependency setup is configured on each repo below.
+          </p>
         </div>
       </Card>
     </section>
@@ -498,7 +532,10 @@ function CustomNodesSection({ settings, onSave }: { settings: Settings; onSave: 
 }
 
 function ReposSection({ repos, onChanged, onError }: { repos: Repo[]; onChanged: () => void; onError: (e: string | null) => void }) {
-  const empty = { name: "", cloud_url: "", local_path: "", default_branch: "main" };
+  const empty = {
+    name: "", cloud_url: "", local_path: "", default_branch: "main",
+    install_command: "", skip_install: false, sync_paths: "", shared_dirs: "", setup_command: "",
+  };
   const [form, setForm] = useState(empty);
   const [editing, setEditing] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
@@ -550,7 +587,11 @@ function ReposSection({ repos, onChanged, onError }: { repos: Repo[]; onChanged:
             </div>
             <Badge><GitBranch size={11} /> {r.default_branch}</Badge>
             {r.local_path && <Badge className="bg-blue-500/10 text-blue-400">local-ready</Badge>}
-            <Button size="sm" onClick={() => { setEditing(r.id); setForm({ name: r.name, cloud_url: r.cloud_url, local_path: r.local_path ?? "", default_branch: r.default_branch }); }}>
+            <Button size="sm" onClick={() => { setEditing(r.id); setForm({
+              name: r.name, cloud_url: r.cloud_url, local_path: r.local_path ?? "", default_branch: r.default_branch,
+              install_command: r.install_command ?? "", skip_install: Boolean(r.skip_install),
+              sync_paths: r.sync_paths ?? "", shared_dirs: r.shared_dirs ?? "", setup_command: r.setup_command ?? "",
+            }); }}>
               <Pencil size={12} /> Edit
             </Button>
             <Button size="sm" variant="ghost" className="text-rose-400 hover:text-rose-300 hover:bg-rose-500/10" onClick={() => del(r.id)}><Trash2 size={12} /></Button>
@@ -568,6 +609,50 @@ function ReposSection({ repos, onChanged, onError }: { repos: Repo[]; onChanged:
           </div>
           <Input placeholder="Cloud URL (e.g. https://gitlab.company.com/group/repo)" value={form.cloud_url} onChange={(e) => setForm({ ...form, cloud_url: e.target.value })} />
           <Input placeholder="Local path (e.g. ~/work/repo — required for local mode)" value={form.local_path} onChange={(e) => setForm({ ...form, local_path: e.target.value })} />
+          <div className="border-t border-border pt-3 mt-1">
+            <div className="text-[13px] font-medium mb-1.5">Worktree setup policy</div>
+            <p className="text-muted-foreground text-[12px] mb-2">
+              How a flow&apos;s git worktree gets dependencies and untracked config. Leave everything
+              empty to let DevFlow auto-detect the ecosystem; explicit fields below win over detection.
+            </p>
+            <div className="grid gap-2">
+              <div className="flex gap-2 items-center flex-wrap">
+                <Input
+                  placeholder="Install command override (e.g. pnpm install --filter web)"
+                  className="font-mono text-[12px] flex-1 min-w-[240px]"
+                  value={form.install_command}
+                  onChange={(e) => setForm({ ...form, install_command: e.target.value })}
+                />
+                <Button
+                  size="sm"
+                  variant={form.skip_install ? "default" : "outline"}
+                  onClick={() => setForm({ ...form, skip_install: !form.skip_install })}
+                >
+                  Skip install: {form.skip_install ? "on" : "off"}
+                </Button>
+              </div>
+              <Input
+                placeholder="Setup command (run last in the worktree, e.g. make bootstrap)"
+                className="font-mono text-[12px]"
+                value={form.setup_command}
+                onChange={(e) => setForm({ ...form, setup_command: e.target.value })}
+              />
+              <div className="flex gap-2 flex-wrap">
+                <Input
+                  placeholder="Sync paths to copy from the checkout (.env*, *.rc — one glob per line)"
+                  className="font-mono text-[12px] flex-1 min-w-[240px]"
+                  value={form.sync_paths}
+                  onChange={(e) => setForm({ ...form, sync_paths: e.target.value })}
+                />
+                <Input
+                  placeholder="Shared dirs to symlink (caches)"
+                  className="font-mono text-[12px] flex-1 min-w-[200px]"
+                  value={form.shared_dirs}
+                  onChange={(e) => setForm({ ...form, shared_dirs: e.target.value })}
+                />
+              </div>
+            </div>
+          </div>
           <div className="flex gap-2">
             <Button variant="default" onClick={submit} disabled={saving || !form.name || !form.cloud_url}>
               {saving ? <Spinner /> : <Plus size={13} />} {editing ? "Save changes" : "Add repo"}
