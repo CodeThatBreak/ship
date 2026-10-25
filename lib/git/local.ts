@@ -191,33 +191,10 @@ export class LocalGit {
     return { exists: true, commitsAhead, base: baseRef, stat, raw, pushed };
   }
 
-  // ── Phase 3C: worktree helpers for parallel local builds ────────────────
-
-  /** Create a git worktree for a branch. Returns the worktree path. */
-  async addWorktree(repoPath: string, branch: string, baseBranch = "main"): Promise<string> {
-    const wtPath = path.join(repoPath, ".worktrees", branch.replace(/[^a-zA-Z0-9_-]/g, "_"));
-    // Ensure the branch exists (create from base if needed)
-    try {
-      await this.git(["-C", repoPath, "rev-parse", "--verify", branch]);
-    } catch {
-      await this.git(["-C", repoPath, "branch", branch, baseBranch]);
-    }
-    await this.git(["-C", repoPath, "worktree", "add", wtPath, branch], {
-      maxBuffer: 1024 * 1024 * 10,
-      timeout: GIT_TIMEOUT_MS * 3,
-    });
-    return wtPath;
-  }
-
-  /** Remove a git worktree. Best-effort cleanup. */
-  async removeWorktree(repoPath: string, wtPath: string): Promise<void> {
-    try {
-      await this.git(["-C", repoPath, "worktree", "remove", wtPath, "--force"]);
-    } catch {
-      // Also try to remove the directory if git worktree remove fails
-      try { fs.rmSync(wtPath, { recursive: true, force: true }); } catch { /* ignore */ }
-    }
-  }
+  // ── worktrees ────────────────────────────────────────────────────────────
+  // Moved to lib/git/worktrees.ts (Phase 1): the pure worktree layer
+  // (create/list/preflight/remove + porcelain parsing), consumed via the
+  // engine adapter in lib/engine/worktree-lifecycle.ts.
 
   private parseDiff(raw: string): DiffFile[] {
     const files: DiffFile[] = [];

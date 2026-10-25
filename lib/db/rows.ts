@@ -92,6 +92,8 @@ export const FlowRow = z.object({
   template_id: z.string().nullable(),
   /** webhook/schedule trigger payload that started the flow (Phase 4) */
   trigger_payload: jsonCol(z.record(z.string(), z.unknown())),
+  /** git worktree dir for local runs (Phase 1 worktrees); null = runs in the registered checkout */
+  worktree_dir: z.string().nullable(),
   created_at: z.string(),
   updated_at: z.string(),
 });

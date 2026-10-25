@@ -13,6 +13,7 @@ import { configString } from "../../node-config";
 import { branchStore } from "./branch-store";
 import { BuildInput, BuildOutput, type BuildBranchInfo } from "./schema";
 import { type PlanBranch } from "../plan/schema";
+import { worktreeManager } from "../../worktree-lifecycle";
 
 export class BuildNode extends NodeDefinition<BuildInput, BuildOutput> {
   readonly key = NODE_KEYS.BUILD;
@@ -148,8 +149,19 @@ export class BuildNode extends NodeDefinition<BuildInput, BuildOutput> {
     }
 
     const ticketType = this.ctxHelper.taskLabel(ctx);
+
+    // Worktree mode (Phase 1): local builds run in a per-flow git worktree
+    // created once at build start — the registered checkout (hub) is never
+    // checked out or mutated. Non-fatal: setup failure falls back to the hub.
+    let worktree: string | null = null;
+    if (mode === "local") {
+      worktree = await worktreeManager.ensureFlowWorktree(ctx, branch, { nodeId: node.id });
+    }
+
     const instructions = mode === "local"
-      ? `Implement the following approved plan for a ${ticketType} ticket. First create and check out a new git branch named "${branch}" (from the repo's default branch), then make the code changes, commit them, and push the branch to origin. Do NOT open a merge request.`
+      ? (worktree
+          ? `Implement the following approved plan for a ${ticketType} ticket. Your working directory is a git worktree already checked out on branch "${branch}" (fresh off the repo's default branch). Make the code changes, commit them to that branch, and push the branch to origin. Do NOT open a merge request, do not switch branches, and do not touch any checkout outside this directory.`
+          : `Implement the following approved plan for a ${ticketType} ticket. First create and check out a new git branch named "${branch}" (from the repo's default branch), then make the code changes, commit them, and push the branch to origin. Do NOT open a merge request.`)
       : `Implement the following approved plan for a ${ticketType} ticket. Make the code changes, commit them, and push to a feature branch. Do NOT open a merge request yet.`;
 
     // pending checklist steps for this branch + the progress-report contract
@@ -181,7 +193,10 @@ export class BuildNode extends NodeDefinition<BuildInput, BuildOutput> {
         mode: "agent",
         name: input.branchInfo ? `build ${ctx.task.key} (${input.branchInfo.name})` : `build ${ctx.task.key}`,
         autoCreatePR: false,
-        startingRef: ctx.repo?.default_branch ?? "main",
+        // worktree mode: the branch already exists (created with the worktree);
+        // hub fallback: the agent creates it from the default branch itself
+        startingRef: worktree ? branch : (ctx.repo?.default_branch ?? "main"),
+        cwd: worktree ?? undefined,
         model: input.model,
       },
       label,
@@ -201,7 +216,9 @@ export class BuildNode extends NodeDefinition<BuildInput, BuildOutput> {
 
     const resultBranch =
       this.ctxHelper.execMode(ctx) === "local"
-        ? (await localGit.currentBranch(this.ctxHelper.requireLocalPath(ctx))) ?? branch
+        // branch detection reads the worktree when the flow has one — the
+        // hub's HEAD is the developer's own checkout and must not be read
+        ? (await localGit.currentBranch(this.ctxHelper.requireRunCwd(ctx))) ?? branch
         : result.git?.branches?.[0]?.branch ?? branch;
     if (!resultBranch) throw new Error("build finished but no branch was pushed");
 
@@ -251,6 +268,11 @@ export class BuildNode extends NodeDefinition<BuildInput, BuildOutput> {
     }
 
     const prompt = promptOverride ?? prompts.resolve("build_refine", {}, { feedback });
+    // follow-ups run in the same worktree the build used (ensure creates it
+    // when the flow predates worktrees or the tree was swept)
+    const worktree = this.ctxHelper.execMode(ctx) === "local"
+      ? await worktreeManager.ensureFlowWorktree(ctx, ctx.flow.mr_branch ?? this.ctxHelper.buildBranch(ctx), { nodeId: node.id })
+      : null;
     const outcome = await this.execute(ctx, {
       input: { feedback, prompt: promptOverride ?? null, model: model ?? null },
       prompt,
@@ -260,6 +282,7 @@ export class BuildNode extends NodeDefinition<BuildInput, BuildOutput> {
         name: `build refine ${ctx.task.key}`,
         followUpOn: node.agent_id,
         startingRef: ctx.flow.mr_branch ?? undefined,
+        cwd: worktree ?? undefined,
         model,
       },
       label: "build refine",
@@ -267,7 +290,7 @@ export class BuildNode extends NodeDefinition<BuildInput, BuildOutput> {
         const branch =
           ctx.flow.mr_branch ??
           (this.ctxHelper.execMode(ctx) === "local"
-            ? (await localGit.currentBranch(this.ctxHelper.requireLocalPath(ctx)))
+            ? (await localGit.currentBranch(this.ctxHelper.requireRunCwd(ctx)))
             : result.git?.branches?.[0]?.branch);
         const diff = branch ? await this.makeDiff(ctx, branch) : null;
         const art = this.support.saveArtifact(

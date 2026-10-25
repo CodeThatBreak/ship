@@ -224,7 +224,9 @@ lib/                    strict OOP: every module is a class with one responsibil
     rows.ts             Zod schemas for every table row + RowGateway (get/all) — rows are validated
                         once at the DB boundary, so consumers never see `any` or raw JSON strings.
 data/devflow.db         local SQLite (server-ready: swap for Postgres later)
-workspaces/             local clones used for diffs (cloud mode; local mode diffs in the registered checkout)
+workspaces/             per-flow dirs: git worktrees for local agent runs (Phase 1 worktrees — the
+                        registered checkout stays the hub and is never mutated), plus clones used
+                        for diffs (cloud mode)
 ```
 
 ### Ports & adapters (the integration boundary)

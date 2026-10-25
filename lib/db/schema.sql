@@ -28,6 +28,7 @@ CREATE TABLE IF NOT EXISTS flows (
   repo_url      TEXT,
   gitlab_project_id INTEGER,
   current_node  TEXT,                          -- node key currently running
+  worktree_dir  TEXT,                          -- git worktree dir for local runs (created at build start; the hub checkout is never mutated)
   created_at    TEXT NOT NULL,
   updated_at    TEXT NOT NULL
 );
@@ -273,4 +274,19 @@ CREATE TABLE IF NOT EXISTS hook_deliveries (
   webhook_id   TEXT NOT NULL,
   created_at   TEXT NOT NULL,
   UNIQUE(hook_id, webhook_id)
+);
+
+-- Crash-safe worktree removal records: persisted BEFORE the git removal runs
+-- (git drops a worktree's registration even when the directory delete fails —
+-- without a record the leftover is lost forever). Rows are deleted on success;
+-- rows surviving a crash are resumed by the startup sweep.
+CREATE TABLE IF NOT EXISTS worktree_removals (
+  id            TEXT PRIMARY KEY,
+  flow_id       TEXT,                        -- owning flow (dangling when the flow is deleted first)
+  repo_path     TEXT,                        -- hub path at record time (may be gone later)
+  path          TEXT NOT NULL,               -- worktree dir to remove
+  branch        TEXT,                        -- branch to consider for merged-only cleanup
+  delete_branch INTEGER NOT NULL DEFAULT 0,
+  reason        TEXT,
+  created_at    TEXT NOT NULL
 );

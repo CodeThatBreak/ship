@@ -26,7 +26,10 @@ export class CursorLocalAgentPort implements AgentPort {
   async start(spec: AgentStartSpec): Promise<AgentStarted> {
     return localAgent.createRun({
       prompt: spec.prompt,
+      // worktree wins: branch checkout (ensureBranch) must run in the worktree,
+      // never in the hub — a hub checkout would steal the developer's branch
       workspace: spec.cwd ?? spec.workspace ?? "",
+      cwd: spec.cwd ?? undefined,
       mode: spec.mode,
       sessionId: spec.followUpOn ?? undefined,
       branch: spec.startingRef,

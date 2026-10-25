@@ -3,6 +3,7 @@ import { gitHostRegistry } from "./ports/git-host";
 import { flowEngine } from "./flow";
 import { templateStore } from "./templates";
 import { processSingleton } from "../singleton";
+import { worktreeManager } from "./worktree-lifecycle";
 
 /**
  * Background poller for active flows: pipeline status + CR (MR/PR) comments.
@@ -24,6 +25,11 @@ export class FlowPoller {
   start(intervalMs = 30_000): void {
     if (this.started) return;
     this.started = true;
+    // one-time worktree sweep (fire-and-forget): resume recorded removals,
+    // prune, and reconcile workspaces/<flowId> dirs against the flows table
+    void worktreeManager.sweepWorktrees().catch((e: unknown) =>
+      console.warn(`worktree sweep failed: ${e instanceof Error ? e.message : e}`)
+    );
     setInterval(() => void this.tick(), intervalMs).unref?.();
   }
 

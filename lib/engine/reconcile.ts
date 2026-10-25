@@ -1,7 +1,7 @@
 import { db } from "../db";
 import { FlowRow, NodeRow, RunRow, rows } from "../db/rows";
 import { agentPortRegistry } from "./ports/agent-runner";
-import { nodeSupport, type FlowCtx } from "./nodes/base";
+import { flowCtxHelper, nodeSupport, type FlowCtx } from "./nodes/base";
 import { usageTracker } from "./nodes/base/usage-tracker";
 import { flowEngine } from "./flow";
 import { templateStore } from "./templates";
@@ -107,12 +107,14 @@ export class Reconciler {
 
     // Not owned by this process: local agent loops run in-process, so the run
     // is no longer executing. Ask the SDK's persisted run state what happened.
-    const localPath = ctx.repo?.local_path ?? null;
+    // The probe must use the run's own cwd (the flow's worktree when it used
+    // one) — the SDK keys persisted sessions on it.
+    const runCwd = flowCtxHelper.runCwd(ctx);
     const sessionId = runRow.cursor_agent_id;
     const probe =
-      sessionId && localPath
+      sessionId && runCwd
         ? await port
-            .inspectSession(sessionId, runRow.cursor_run_id, localPath)
+            .inspectSession(sessionId, runRow.cursor_run_id, runCwd)
             .catch(() => null)
         : null;
 

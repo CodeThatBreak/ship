@@ -1,3 +1,5 @@
+import fs from "fs";
+import path from "path";
 import type { Repo } from "../../../db";
 import type { FlowRow, Task } from "../../../db/rows";
 import { localGit } from "../../../git/local";
@@ -28,6 +30,33 @@ export class FlowContextHelper {
 
   requireLocalPath(ctx: FlowCtx): string {
     const p = this.localPath(ctx);
+    if (!p) {
+      throw new Error(
+        "This flow runs in local mode but its repo has no local path configured. Set one on the Settings page."
+      );
+    }
+    return p;
+  }
+
+  /**
+   * The cwd local agent runs should use: the flow's git worktree when one is
+   * persisted and still on disk, else the registered checkout (the hub).
+   * Worktree mechanics stay in lib/git/worktrees.ts; this only reads the
+   * flow row's pointer.
+   */
+  runCwd(ctx: FlowCtx): string | null {
+    const wt = ctx.flow.worktree_dir;
+    if (wt) {
+      try {
+        if (fs.existsSync(path.join(wt, ".git"))) return wt;
+      } catch { /* fall through to the hub */ }
+    }
+    return this.localPath(ctx);
+  }
+
+  /** Like requireLocalPath, but prefers the flow's worktree. */
+  requireRunCwd(ctx: FlowCtx): string {
+    const p = this.runCwd(ctx);
     if (!p) {
       throw new Error(
         "This flow runs in local mode but its repo has no local path configured. Set one on the Settings page."

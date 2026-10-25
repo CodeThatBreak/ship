@@ -9,6 +9,7 @@ import { NODE_KEYS } from "../keys";
 import type { ConfigField } from "../../node-config";
 import { configString } from "../../node-config";
 import { ResolveInput, ResolveOutput } from "./schema";
+import { worktreeManager } from "../../worktree-lifecycle";
 
 export class ResolveNode extends NodeDefinition<ResolveInput, ResolveOutput> {
   readonly key = NODE_KEYS.RESOLVE;
@@ -98,6 +99,12 @@ export class ResolveNode extends NodeDefinition<ResolveInput, ResolveOutput> {
     // to decide whether the agent actually modified code (gates the re-review loop)
     const before = await this.captureState(ctx, mrIid, mrBranch);
 
+    // comment fixes run in the flow's worktree (same tree the build used;
+    // ensure is a no-op/reuse when it already exists with mrBranch checked out)
+    const worktree = mode === "local" && mrBranch
+      ? await worktreeManager.ensureFlowWorktree(ctx, mrBranch, { nodeId: node.id })
+      : null;
+
     return this.execute(ctx, {
       input: { ...input, prompt },
       prompt,
@@ -106,6 +113,7 @@ export class ResolveNode extends NodeDefinition<ResolveInput, ResolveOutput> {
         mode: "agent",
         name: `${label} ${ctx.task.key}`,
         startingRef: mrBranch ?? undefined,
+        cwd: worktree ?? undefined,
         model: input.model,
       },
       label,

@@ -65,7 +65,10 @@ export class AgentRunner {
       customSubagents: input.customSubagents,
     };
     if (port.execMode === "local") {
-      spec.workspace = this.ctxHelper.requireLocalPath(ctx);
+      // worktree-aware cwd: the flow's worktree when it has one, else the
+      // registered checkout (the hub). Nodes pass input.cwd to pin a
+      // freshly-created worktree before the flow row read would see it.
+      spec.workspace = this.ctxHelper.requireRunCwd(ctx);
       spec.cwd = input.cwd ?? undefined;
     } else {
       spec.repos = ctx.flow.repo_url

@@ -124,6 +124,12 @@ export class Database {
     if (!flowsCols.has("trigger_payload")) {
       d.exec(`ALTER TABLE flows ADD COLUMN trigger_payload TEXT`); // JSON
     }
+    // Worktrees (Phase 1): the per-flow git worktree dir for local runs —
+    // set at build start, cleared on removal. The removal-record table lives
+    // in schema.sql (CREATE IF NOT EXISTS is idempotent).
+    if (!flowsCols.has("worktree_dir")) {
+      d.exec(`ALTER TABLE flows ADD COLUMN worktree_dir TEXT`);
+    }
     // Pipeline gate node (order 25, between build and review): backfill a node
     // row for pre-gate flows that were created before the node existed. Only
     // flows whose template's graph contains a pipeline node get one — Phase 2
