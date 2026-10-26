@@ -396,8 +396,8 @@ export class TemplateStore {
     } else if (patch.nodes !== undefined || patch.edges !== undefined) {
       throw new Error("nodes and edges must be replaced together");
     }
-    // webhook/schedule triggers: sync the inbound hook + the schedule timer
-    // whenever the flow trigger was touched
+    // flow-trigger side data — the template's inbound hook (always) and the
+    // schedule timer (schedule trigger) — whenever the trigger was touched
     if (patch.trigger !== undefined) {
       TemplateStore.syncTriggers(templateId, TemplateStore.flowTrigger(patch.trigger));
     }
@@ -855,11 +855,12 @@ export class TemplateStore {
   }
 
   /**
-   * Flow-trigger side effects (Phase 4): the inbound hook endpoint for a
-   * `webhook` trigger (provision/filter-sync/remove) and the schedule timer
-   * for a `schedule` trigger (`schedule_next_at`, armed on first save and
-   * never reset while the trigger stays schedule — the poller bumps it after
-   * every fire). Callers pass the normalized trigger.
+   * Flow-trigger side effects (Phase 4): the template's inbound hook endpoint
+   * (always provisioned — webhook deliveries never depend on the trigger
+   * type) and the schedule timer for a `schedule` trigger (`schedule_next_at`,
+   * armed on first save and never reset while the trigger stays schedule —
+   * the poller bumps it after every fire). Callers pass the normalized
+   * trigger.
    */
   private static syncTriggers(templateId: string, trigger: Record<string, unknown>): void {
     hookStore.syncTemplate(templateId);
@@ -889,16 +890,16 @@ export class TemplateStore {
     const type = typeof rec.type === "string" && (FLOW_TRIGGER_TYPES as readonly string[]).includes(rec.type)
       ? rec.type : "manual";
     const out: Record<string, unknown> = { type };
-    if (type === "schedule") {
-      if (typeof rec.interval_min === "number" && rec.interval_min > 0) out.interval_min = rec.interval_min;
+    if (type === "schedule" && typeof rec.interval_min === "number" && rec.interval_min > 0) {
+      out.interval_min = rec.interval_min;
     }
-    if (type === "webhook" && typeof rec.filter === "string") out.filter = rec.filter;
-    // webhook/schedule auto-create flows — the template binds the repo those
-    // flows attach to (flows require one). The task comes from the declared
-    // task_type (auto-start picks the most recent task of that type).
-    if (type === "webhook" || type === "schedule") {
-      if (typeof rec.repo_id === "string" && rec.repo_id.trim()) out.repo_id = rec.repo_id.trim();
-    }
+    // the hook's JSONata filter applies on every trigger type — webhook
+    // deliveries are always an available start lever (never removed with the
+    // template's trigger type)
+    if (typeof rec.filter === "string") out.filter = rec.filter;
+    // the binding feeds auto-starts (schedule fires, webhook deliveries
+    // without a `repo` key in the payload): kept whenever a valid id is present
+    if (typeof rec.repo_id === "string" && rec.repo_id.trim()) out.repo_id = rec.repo_id.trim();
     out.task_type = TemplateStore.validTaskType(rec.task_type);
     return out;
   }

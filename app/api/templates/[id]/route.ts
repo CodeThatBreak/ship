@@ -32,8 +32,8 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
   if (!t) return notFound();
   const g = templateStore.graph(id);
   if (!g) return notFound();
-  // the flow-trigger hook (webhook trigger, §6) — url path + secret for the
-  // sender's curl example
+  // the flow-trigger hook (always provisioned, §6) — url path + secret for
+  // the sender's curl example
   const hook = hookStore.hookForTemplate(id);
   return NextResponse.json({
     template: {

@@ -92,7 +92,9 @@ export class FlowPoller {
       db.run(`UPDATE flow_templates SET schedule_next_at=? WHERE id=?`,
         new Date(now + intervalMin * 60_000).toISOString(), t.id);
       try {
-        flowEngine.startFromTemplate(t.id, { scheduled_at: db.now() });
+        // the fire provides nothing (the start contract's defaults apply) —
+        // an ad-hoc body would fail the start contract's strict shape check
+        flowEngine.startFromTemplate(t.id, {});
       } catch (e: unknown) {
         // no flow instance exists to attach an event to — the dev server log
         // and the template editor (which validates the binding) surface it

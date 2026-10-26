@@ -482,9 +482,15 @@ export function ConditionBuilder({
     { templateId, scope },
   );
   // client-side compile check on what the builder emits (instant — the
-  // preview's server round trip only carries the value)
+  // preview's server round trip only carries the value). An empty compile
+  // means no condition — linting "" would itself be a JSONata error (S0207,
+  // "unexpected end of expression"), so it emits nothing instead of noise.
   const compiledLint = useMemo(
-    () => (mode === "builder" ? lintJsonata(compileCondition(rows, combinator) || "") : null),
+    () => {
+      if (mode !== "builder") return null;
+      const out = compileCondition(rows, combinator);
+      return out ? lintJsonata(out) : null;
+    },
     [mode, rows, combinator],
   );
 

@@ -21,6 +21,7 @@ import {
   Plus,
   Trash2,
   Upload,
+  Webhook,
   Workflow,
 } from "lucide-react";
 import { Alert } from "@/components/ui/alert";
@@ -42,6 +43,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { DataTable } from "@/components/data-table";
 import { fmtDate } from "@/lib/format";
 import { cn } from "@/lib/utils";
+import { FLOW_TRIGGER_TYPE, WebhookPayloadDialog } from "@/components/template-editor";
 
 type TemplateRow = {
   id: string;
@@ -68,6 +70,8 @@ export default function TemplateGallery() {
   const [busyId, setBusyId] = useState<string | null>(null);
   /** the template behind the styled delete confirm (was the native confirm) */
   const [pendingDelete, setPendingDelete] = useState<TemplateRow | null>(null);
+  /** the template behind the copy-webhook-payload dialog (harness/repo pick) */
+  const [payloadTarget, setPayloadTarget] = useState<TemplateRow | null>(null);
 
   const load = useCallback(async () => {
     const r = await fetch("/api/templates").then((r) => r.json()).catch(() => null);
@@ -204,11 +208,11 @@ export default function TemplateGallery() {
       },
       {
         id: "trigger",
-        accessorFn: (t) => String(t.trigger?.type ?? "manual"),
+        accessorFn: (t) => FLOW_TRIGGER_TYPE[String(t.trigger?.type ?? "manual")] ?? "manual / webhook",
         header: "Trigger",
         cell: ({ row }) => (
           <Badge variant="outline" className="text-[11px]">
-            {String(row.original.trigger?.type ?? "manual")}
+            {FLOW_TRIGGER_TYPE[String(row.original.trigger?.type ?? "manual")] ?? "manual / webhook"}
           </Badge>
         ),
       },
@@ -257,6 +261,14 @@ export default function TemplateGallery() {
                 onClick={() => void duplicate(t)}
               >
                 {busyId === t.id ? <Spinner /> : <Copy size={13} />}
+              </Button>
+              <Button
+                size="sm"
+                variant="ghost"
+                title="Copy webhook payload — pick the repo + harness the delivery pins"
+                onClick={() => setPayloadTarget(t)}
+              >
+                <Webhook size={13} />
               </Button>
               <a href={`/api/templates/${t.id}/export`} title="Export YAML">
                 <Button size="sm" variant="ghost">
@@ -383,6 +395,20 @@ export default function TemplateGallery() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* copy webhook payload (gallery table action): pick repo + harness,
+          preview + copy the delivery body (the reserved repo/execution_mode
+          keys + the start contract's input params) */}
+      <WebhookPayloadDialog
+        key={payloadTarget?.id ?? "none"}
+        template={payloadTarget}
+        defaultRepoId={
+          typeof payloadTarget?.trigger?.repo_id === "string"
+            ? payloadTarget.trigger.repo_id
+            : null
+        }
+        onClose={() => setPayloadTarget(null)}
+      />
 
       {/* delete confirm (A2): styled AlertDialog, not the native confirm() */}
       <AlertDialog open={pendingDelete != null} onOpenChange={(v) => { if (!v) setPendingDelete(null); }}>

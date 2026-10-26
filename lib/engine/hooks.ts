@@ -59,10 +59,12 @@ export class HookStore {
   // ── provisioning (called from TemplateStore save paths + flow creation) ──
 
   /**
-   * Sync a template's flow-trigger hook: provision one when the template's
-   * flow trigger is `webhook` (copying its JSONata filter), update the filter
-   * when the trigger's filter changed, and remove the hook when the template
-   * switched to another trigger type. No-op for unknown templates.
+   * Sync a template's flow-trigger hook: every template gets one inbound
+   * endpoint (webhook deliveries are always an available start lever — manual
+   * task-picker starts and schedule fires are independent of it), copying the
+   * trigger's JSONata filter on provision and updating whenever it changed.
+   * The hook is removed only when the template is deleted (`removeTemplate`).
+   * No-op for unknown templates.
    */
   syncTemplate(templateId: string): void {
     const tpl = db.get<{ trigger: string | null }>(
@@ -72,18 +74,14 @@ export class HookStore {
     const filter = typeof trigger.filter === "string" && trigger.filter.trim()
       ? trigger.filter.trim() : null;
     const existing = this.hookForTemplate(templateId);
-    if (trigger.type === "webhook") {
-      if (!existing) {
-        db.run(
-          `INSERT INTO hooks (id,template_id,flow_id,node_key,secret,filter,created_at)
-           VALUES (?,?,NULL,NULL,?,?,?)`,
-          db.uid("hk_"), templateId, newSecret(), filter, db.now()
-        );
-      } else if (existing.filter !== filter) {
-        db.run(`UPDATE hooks SET filter=? WHERE id=?`, filter, existing.id);
-      }
-    } else if (existing) {
-      db.run(`DELETE FROM hooks WHERE id=?`, existing.id);
+    if (!existing) {
+      db.run(
+        `INSERT INTO hooks (id,template_id,flow_id,node_key,secret,filter,created_at)
+         VALUES (?,?,NULL,NULL,?,?,?)`,
+        db.uid("hk_"), templateId, newSecret(), filter, db.now()
+      );
+    } else if (existing.filter !== filter) {
+      db.run(`UPDATE hooks SET filter=? WHERE id=?`, filter, existing.id);
     }
   }
 

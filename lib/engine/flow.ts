@@ -35,7 +35,19 @@ export interface CreateFlowOptions {
   /** the trigger payload that started this flow (webhook / schedule, §6) —
    * persisted on the flow and available to input maps as {{trigger.payload}} */
   triggerPayload?: unknown;
+  /** the delivery asks for its auto nodes to run immediately (webhook /
+   *  schedule starts via startFromTemplate) — manual task-picker starts don't */
+  autoStart?: boolean;
 }
+
+/** Reserved delivery keys the engine consumes at flow start — never passed to
+ *  the start contract: `repo` (the id, cloud URL or registered name of the
+ *  repo this flow attaches to) and the execution mode, accepted as
+ *  `execution_mode` or its settings-page alias `harness` (local / cloud). */
+const REPO_DELIVERY_KEY = "repo";
+const EXEC_MODE_DELIVERY_KEY = "execution_mode";
+const EXEC_MODE_DELIVERY_ALIAS = "harness";
+const EXEC_MODE_VALUES = ["local", "cloud"] as const;
 
 /**
  * The flow orchestrator: flow creation and reads, node triggers, chat routing,
@@ -114,8 +126,7 @@ export class FlowEngine {
     // when the entry node itself declares an `auto` trigger: the user's pick
     // on the home page IS the manual step, and the auto trigger runs the
     // entry straight away with the contract's authored defaults (§5)
-    const triggerType = graph.flowTrigger.type;
-    if (triggerType === "webhook" || triggerType === "schedule") {
+    if (opts.autoStart) {
       this.start(id);
     } else {
       const entryKey = nodeRegistry.entryKey();
@@ -1496,12 +1507,15 @@ export class FlowEngine {
   }
 
   /**
-   * Create and start a flow from a template's flow trigger (webhook delivery
-   * / due schedule). The template declares the task TYPE its flows run on
-   * (`trigger.task_type`, Phase 3) and binds the repo they attach to.
-   * Auto-start attaches the most recent imported task of the declared type —
-   * flows no longer depend on one pinned task row existing. Execution mode
-   * follows the repo: local when it has a local path, cloud otherwise.
+   * Create and start a flow from a template's delivery — a webhook delivery
+   * or a due schedule fire (manual task-picker starts go through create()).
+   * The template declares the task TYPE its flows run on (`trigger.task_type`,
+   * Phase 3) and binds the repo its flows attach to; the delivery's reserved
+   * `repo` key can point at a different registered repo, and its
+   * `execution_mode` / `harness` key can pin the exec mode. Auto-start
+   * attaches the most recent imported task of the declared type — flows no
+   * longer depend on one pinned task row existing. Execution mode defaults
+   * to the repo: local when it has a local path, cloud otherwise.
    */
   startFromTemplate(templateId: string, payload: unknown, opts: { taskId?: string } = {}): string {
     const t = templateStore.flowTemplate(templateId);
@@ -1509,11 +1523,38 @@ export class FlowEngine {
     // the store normalizes trigger.task_type on read (absent → first provider)
     const trigger = templateStore.graph(templateId)?.flowTrigger ?? {};
     const taskType = typeof trigger.task_type === "string" ? trigger.task_type : NO_TASK_TYPE;
-    const repoId = typeof trigger.repo_id === "string" ? trigger.repo_id : "";
+    // Reserved delivery keys are consumed here before contract validation:
+    // `repo` picks which registered repo this flow attaches to (the template
+    // binding is the fallback), and the exec mode can be pinned per delivery.
+    const body = payload && typeof payload === "object" && !Array.isArray(payload)
+      ? (payload as Record<string, unknown>) : {};
+    const deliveryRepo =
+      typeof body[REPO_DELIVERY_KEY] === "string" ? body[REPO_DELIVERY_KEY].trim() : "";
+    const rawMode =
+      typeof body[EXEC_MODE_DELIVERY_KEY] === "string"
+        ? (body[EXEC_MODE_DELIVERY_KEY] as string).trim().toLowerCase()
+        : typeof body[EXEC_MODE_DELIVERY_ALIAS] === "string"
+          ? (body[EXEC_MODE_DELIVERY_ALIAS] as string).trim().toLowerCase()
+          : "";
+    const deliveryMode = (EXEC_MODE_VALUES as readonly string[]).includes(rawMode)
+      ? (rawMode as "local" | "cloud") : undefined;
+    let repoId = typeof trigger.repo_id === "string" ? trigger.repo_id : "";
+    if (deliveryRepo) {
+      const deliveryRepoRow = db.repoById(deliveryRepo)
+        ?? db.repoByCloudUrl(deliveryRepo)
+        ?? db.listRepos().find((r) => r.name === deliveryRepo);
+      if (!deliveryRepoRow) {
+        throw new Error(
+          `the delivery's "${REPO_DELIVERY_KEY}" doesn't match a registered repo — ` +
+          `use the repo's id, URL or name`);
+      }
+      repoId = deliveryRepoRow.id;
+    }
     if (!repoId) {
       throw new Error(
-        `template "${t.name}" has no repo binding — webhook and schedule triggers auto-create ` +
-        `flows, so bind a repo in the template editor's flow-trigger section first`);
+        `template "${t.name}" has no repo binding — schedule fires and webhook ` +
+        `deliveries auto-create flows, so either bind a repo in the template ` +
+        `editor's flow settings or pass "${REPO_DELIVERY_KEY}" in the payload`);
     }
     // The concrete task: a caller-provided taskId (manual/eager starts) wins
     // and is type-checked against the declared task_type; auto-start falls
@@ -1543,23 +1584,29 @@ export class FlowEngine {
     if (!repo) throw new Error("the template's bound repo no longer exists — rebind in the template editor");
     // the start node's contract defines what the trigger must provide (§5):
     // a payload that doesn't match is rejected here — no flow is created, and
-    // the hook route answers the sender with this exact message
+    // the hook route answers the sender with this exact message. The reserved
+    // delivery keys above were already consumed and never reach the contract.
     const startSpec = templateStore.graph(templateId)?.nodes.find((n) => n.defKey === nodeRegistry.entryKey());
     const contractFields = startSpec ? parseStartContract(startSpec.config) : [];
     if (contractFields.length) {
-      const v = validateAgainstContract(contractFields, payload);
+      const contractPayload: Record<string, unknown> = { ...body };
+      delete contractPayload[REPO_DELIVERY_KEY];
+      delete contractPayload[EXEC_MODE_DELIVERY_KEY];
+      delete contractPayload[EXEC_MODE_DELIVERY_ALIAS];
+      const v = validateAgainstContract(contractFields, contractPayload);
       if (!v.ok) {
         throw new Error(`payload doesn't match the "${t.name}" start contract — ${v.error}`);
       }
     }
     const id = this.create(taskId, repo.cloud_url, `${t.name} · ${new Date().toISOString()}`, {
       repoId,
-      executionMode: repo.local_path ? "local" : "cloud",
+      executionMode: deliveryMode ?? (repo.local_path ? "local" : "cloud"),
       templateId,
       triggerPayload: payload,
+      // the delivery starts the flow itself — run its auto nodes straight up
+      autoStart: true,
     });
     db.emitEvent(id, null, "lifecycle", `flow auto-created from the "${t.name}" template by a trigger — ${taskType} task ${task.key}`);
-    // create() auto-starts templates with webhook/schedule flow triggers
     return id;
   }
 

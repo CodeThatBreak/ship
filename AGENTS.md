@@ -283,17 +283,7 @@ When your task touches an existing function-based module in `lib/`:
 
 ---
 
-## 5. Testing
-
-- Runner: Vitest (confirm and update this line if the repo uses something else).
-- Tests live next to the code as `<name>.test.ts`, or in a `__tests__/` folder inside the same directory.
-- Required tests: service classes (behavior through public methods), row mappers in `lib/db/rows.ts`, and any non-trivial hook logic.
-- Use an in-memory SQLite database for service tests. Never point tests at the dev or demo DB.
-- Do not test implementation details or shadcn primitives.
-
----
-
-## 6. Automate With Lint
+## 5. Automate With Lint
 
 Prefer failing lint over prose. These should be enforced by ESLint where possible, so agents get immediate feedback:
 
