@@ -14,8 +14,6 @@ Where a rule here conflicts with an existing pattern in neighboring files, follo
 npm run dev          # dev server
 npm run build        # production build
 npm run lint         # eslint
-npm run typecheck    # tsc --noEmit (add this script if missing)
-npm run test         # test runner (see section 5)
 npm run seed:demo    # seed demo data (variants: :reset, fanout, branch-refine, custom)
 ```
 
