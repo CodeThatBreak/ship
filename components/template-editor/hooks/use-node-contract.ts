@@ -10,7 +10,7 @@
  * `use-node-schema-contract`) per-kind contract hook — both share the
  * `queryKeys.nodeContracts` cache keyed by request URL.
  */
-import { useQuery } from "@tanstack/react-query";
+import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { queryKeys } from "@/constants/query-keys";
 import { contractsUrl, type EditorNode, type NodeContract } from "../types";
 
@@ -38,5 +38,10 @@ export function useNodeContract(node: Pick<EditorNode, "nodeTemplateId" | "kind"
     queryKey: queryKeys.nodeContracts(url ?? "none"),
     queryFn: () => fetchNodeContract(url ?? "none"),
     enabled: url != null,
+    // the URL carries the instance's config, so prompt-typing re-keys the
+    // query — keep rendering the previous contract while the new one fetches
+    // instead of going pending (a pending re-key unmounted the configurator's
+    // whole Prompt tab on every keystroke)
+    placeholderData: keepPreviousData,
   });
 }

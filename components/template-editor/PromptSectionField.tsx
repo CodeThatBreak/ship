@@ -1,19 +1,22 @@
 "use client";
 /**
- * One prompt config field's full editor — the three-part prompt surface
- * (the Prompt tab in the builder drawer, inline on the Node Templates form):
+ * One prompt config field's full editor — the prompt surface (the Prompt tab
+ * in the builder drawer, inline on the Node Templates form):
  *
- *   • Your prompt — the rich PromptEditor ("@" variables, live ref linting)
+ *   • Your prompt — the rich PromptEditor ("@" variables, live ref linting).
+ *     For built-ins the built-in body fills the input itself (editing it
+ *     creates the override — no separate "built-in body" block), and the
+ *     engine's rules render under the body as locked, non-deletable rows
  *   • Your rules  — a LIST editor (one rule per row); rows join with newlines
  *     into the field's rules knob (`prompt_rules` / `fix_prompt_rules`), which
  *     the runtime assembles after the body, before the locked blocks
- *   • Built-in rules / Output contract — the engine's locked blocks, shown
- *     read-only from the contract's `prompt` sections (built-ins only)
- *   • Assembled preview — the four parts joined, `{{vars}}` intact
+ *   • Output contract — the engine's locked block, shown read-only from the
+ *     contract's `prompt` sections (built-ins only)
+ *   • Assembled preview — the parts joined, `{{vars}}` intact
  *
  * Values write straight through to the config object (the template instance
  * override in the drawer, the definition on the Node Templates page).
- * Decomposed per AGENTS.md §2.2: the locked reference block and the rules
+ * Decomposed per AGENTS.md §2.2: the output-contract block and the rules
  * list live in `components/`.
  */
 import { useState } from "react";
@@ -89,7 +92,11 @@ export function PromptSectionField({
   const hasOverride = bodyText.trim().length > 0;
   const rulesText = typeof rulesValue === "string" ? rulesValue : "";
   const hasRules = Boolean(rulesKey);
-  // assembled preview: the override (or the built-in body) + rules + locked blocks
+  // the input always shows the prompt as it'll run: the override when one is
+  // set, otherwise the built-in body fills the editor itself (editing it
+  // writes the whole thing back as the override); the engine's locked rules
+  // ride along as non-deletable rows of the same input
+  const editorValue = hasOverride ? bodyText : (section?.body ?? "");
   const preview = [
     hasOverride ? bodyText : section?.body ?? "",
     rulesText,
@@ -118,27 +125,14 @@ export function PromptSectionField({
         {section && <Badge variant="outline" className="text-[10px]">{section.label}</Badge>}
       </div>
 
-      {/* ── part 1: your prompt ─────────────────────────────────────────────── */}
+      {/* ── part 1: your prompt (built-in body prefilled, engine rules locked) ─ */}
       <PromptEditor
-        value={bodyText}
+        value={editorValue}
         groups={varGroups ?? []}
         invalidRefs={invalidRefs}
+        lockedText={section?.engineRules}
         onChange={(text) => onBodyChange(text || undefined)}
       />
-      {!hasOverride && section?.body && (
-        <p className="text-[11px] text-muted-foreground m-0">
-          No override yet — the built-in body runs (shown under &ldquo;Built-in body&rdquo; below).
-        </p>
-      )}
-      {section?.body && (
-        <LockedBlock
-          title="Built-in body"
-          open={openSections.has("default-body")}
-          onToggle={() => toggle("default-body")}
-          text={section.body}
-          muted
-        />
-      )}
 
       {/* ── part 2: your rules (list) ───────────────────────────────────────── */}
       {hasRules && (
@@ -153,16 +147,8 @@ export function PromptSectionField({
         </div>
       )}
 
-      {/* ── part 3: the engine's locked blocks ──────────────────────────────── */}
-      {section?.engineRules && (
-        <LockedBlock
-          title="Built-in rules"
-          badge={<><Lock size={10} /> locked</>}
-          open={openSections.has("engine-rules")}
-          onToggle={() => toggle("engine-rules")}
-          text={section.engineRules}
-        />
-      )}
+      {/* ── part 3: the locked output contract (the engine's rules now live in
+             the prompt input, above as non-deletable rows) ──────────────────── */}
       {section?.outputContract && (
         <LockedBlock
           title="Output contract"

@@ -1,18 +1,25 @@
 "use client";
 /**
  * The node configurator's Prompt tab: every prompt-carrying config field of
- * the node, edited as the full three-part surface (body / rules list / locked
- * built-in blocks / assembled preview) via PromptSectionField — instead of
- * one textarea buried in the Config tab. Built-ins get the template's locked
- * rules + output contract from the contract's `prompt` sections; declarative
- * kinds edit their free-standing prompt (no split yet).
+ * the node, edited as the full prompt surface (body / rules list / output
+ * contract / assembled preview) via PromptSectionField — instead of one
+ * textarea buried in the Config tab. Built-ins show the built-in body filled
+ * into the prompt input itself, with the engine's locked rules riding inline
+ * as non-deletable rows and the output contract from the contract's `prompt`
+ * sections; declarative kinds edit their free-standing prompt (no split yet).
  */
 import { Spinner } from "../ui/spinner";
 import type { NodeContract } from "./types";
 import { promptEditorKeys, rulesKeyFor, writeConfig } from "./ConfigFieldRow";
 import { PromptSectionField, type PromptTemplateSection } from "./PromptSectionField";
+import { useDebouncedCallback } from "./hooks/use-debounced-callback";
 import type { EditorNode } from "./types";
 import type { VarGroup } from "./variables";
+
+/** Typing in the prompt body writes the config this often post-quiet — the
+ *  draft change re-keys the node's /api/contracts fetch, so per-keystroke
+ *  writes would refetch the contract chaotically (and re-key the linter). */
+const PROMPT_WRITE_DEBOUNCE_MS = 500;
 
 export function PromptTab({
   node,
@@ -29,6 +36,13 @@ export function PromptTab({
   invalidRefs?: Record<string, string>;
   onChange: (p: Partial<EditorNode>) => void;
 }) {
+  // the prompt body's config write, trailing-debounced: the hook is stable
+  // and takes the field key per call, so one instance serves every field
+  const onBodyChange = useDebouncedCallback(
+    (fieldKey: string, v: unknown, extra?: Record<string, unknown>) =>
+      onChange({ config: writeConfig(node.config, fieldKey, v, extra) }),
+    PROMPT_WRITE_DEBOUNCE_MS,
+  );
   if (!contract) {
     return (
       <p className="text-muted-foreground text-[13px]">
@@ -74,7 +88,7 @@ export function PromptTab({
             section={section}
             varGroups={varGroups}
             invalidRefs={invalidRefs}
-            onBodyChange={(v, extra) => onChange({ config: writeConfig(node.config, f.key, v, extra) })}
+            onBodyChange={(v, extra) => onBodyChange(f.key, v, extra)}
             onRulesChange={(v) => onChange({ config: writeConfig(node.config, rulesKey ?? "", v) })}
           />
         );
