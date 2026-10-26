@@ -6,7 +6,7 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "next lint",
+    "lint": "eslint .",
     "seed:demo": "node scripts/seed-demo-flow.mjs",
     "seed:demo:reset": "node scripts/seed-demo-flow.mjs --reset",
     "seed:demo:fanout": "node scripts/seed-demo-fanout.mjs",
