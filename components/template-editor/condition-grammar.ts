@@ -61,7 +61,8 @@ export function compileCondition(
   const parts: string[] = [];
   for (const r of rows) {
     if (!r.path.trim()) continue;
-    parts.push(rowExpr(r)!);
+    const expr = rowExpr(r);
+    if (expr) parts.push(expr);
   }
   if (!parts.length) return "";
   if (parts.length === 1) return parts[0];
@@ -131,12 +132,14 @@ export function decomposeCondition(
   if (empty) return { rows: [{ path: empty[1].trim(), op: "empty", value: "" }], combinator: "and" };
   const notEmpty = /^\$exists\((.+)\) and \1 != null and \1 != ""$/.exec(s);
   if (notEmpty) return { rows: [{ path: notEmpty[1].trim(), op: "notEmpty", value: "" }], combinator: "and" };
-  const andParts = splitTop(s, "and");
-  const orParts = splitTop(s, "or");
+  const andParts = splitTop(s, "and") ?? [];
+  const orParts = splitTop(s, "or") ?? [];
   // both keywords present at top level (mixed precedence) → raw mode
-  if ((andParts?.length ?? 1) > 1 && (orParts?.length ?? 1) > 1) return null;
-  const combinator: "and" | "or" = (orParts?.length ?? 1) > 1 ? "or" : "and";
-  const parts = combinator === "or" ? orParts! : andParts!;
+  // (splitTop always returns at least [expr] in practice; ?? [] keeps the
+  // no-keyword fallthrough on the `and` side without asserting)
+  if (andParts.length > 1 && orParts.length > 1) return null;
+  const combinator: "and" | "or" = orParts.length > 1 ? "or" : "and";
+  const parts = combinator === "or" ? orParts : andParts;
   const rows: ConditionRow[] = [];
   for (const part of parts) {
     // one wrapping paren pair comes off (the builder's own compile adds them)

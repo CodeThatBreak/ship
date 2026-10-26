@@ -105,8 +105,9 @@ export function useRemoveInstance(surface: InstanceSurface, kind: string) {
     onSuccess: (_data, id) => {
       dropPersistedTestResult(kind, id);
       queryClient.setQueryData<TestStore>(queryKeys.integrations.testResults, (prev = {}) => {
-        const { [testResultKey(kind, id)]: _dropped, ...rest } = prev;
-        return rest;
+        const next = { ...prev };
+        delete next[testResultKey(kind, id)];
+        return next;
       });
       return queryClient.invalidateQueries({
         queryKey: queryKeys.integrations.instances(surface, kind),

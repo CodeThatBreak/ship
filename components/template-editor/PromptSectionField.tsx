@@ -13,16 +13,17 @@
  *
  * Values write straight through to the config object (the template instance
  * override in the drawer, the definition on the Node Templates page).
+ * Decomposed per AGENTS.md §2.2: the locked reference block and the rules
+ * list live in `components/`.
  */
 import { useState } from "react";
-import { ChevronDown, Info, Lock, Plus, Trash2 } from "lucide-react";
-import { Button } from "../ui/button";
-import { Input } from "../ui/input";
+import { Info, Lock } from "lucide-react";
 import { FieldTitle } from "../ui/field";
 import { Badge } from "../ui/badge";
 import { Tooltip, TooltipContent, TooltipTrigger } from "../ui/tooltip";
-import { cn } from "../../lib/utils";
 import { PromptEditor } from "./PromptEditor";
+import { LockedBlock } from "./components/LockedBlock";
+import { RulesListEditor } from "./components/RulesListEditor";
 import type { VarGroup } from "./variables";
 
 /** One contract `prompt` section (built-ins only — unrendered template parts). */
@@ -34,6 +35,24 @@ export interface PromptTemplateSection {
   body: string;
   engineRules: string;
   outputContract: string;
+}
+
+/** The rules list editor moved to `components/rules-list-editor.tsx` —
+ *  re-exported for the consumers that imported it from here. */
+export { RulesListEditor } from "./components/RulesListEditor";
+
+/** A local Set-toggle idiom for the collapsible sections (AGENTS.md §2.6:
+ *  derived during render, no effect-synced state). */
+function useOpenSections(): [Set<string>, (id: string) => void] {
+  const [openSections, setOpenSections] = useState<Set<string>>(new Set());
+  const toggle = (id: string) =>
+    setOpenSections((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  return [openSections, toggle];
 }
 
 export function PromptSectionField({
@@ -64,14 +83,7 @@ export function PromptSectionField({
   /** writes the rules knob (undefined = cleared) */
   onRulesChange: (v: unknown) => void;
 }) {
-  const [openSections, setOpenSections] = useState<Set<string>>(new Set());
-  const toggle = (id: string) =>
-    setOpenSections((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
-    });
+  const [openSections, toggle] = useOpenSections();
 
   const bodyText = typeof value === "string" ? value : "";
   const hasOverride = bodyText.trim().length > 0;
@@ -172,113 +184,6 @@ export function PromptSectionField({
           text={preview}
           note="Live run data (context, diffs, logs) fills in at run time."
         />
-      )}
-    </div>
-  );
-}
-
-/** One rule per row — rows join with newlines into the rules knob. */
-export function RulesListEditor({
-  value,
-  onChange,
-}: {
-  value: unknown;
-  onChange: (v: unknown) => void;
-}) {
-  const [rows, setRows] = useState<string[]>(() =>
-    typeof value === "string" && value.trim() ? value.split("\n") : [],
-  );
-
-  // empty rows stay editable in place; only non-empty rows write through
-  const write = (next: string[]) => {
-    setRows(next);
-    const joined = next.map((r) => r.trim()).filter(Boolean).join("\n");
-    onChange(joined || undefined);
-  };
-
-  return (
-    <div className="grid gap-1.5">
-      {rows.map((r, i) => (
-        <div key={i} className="flex gap-1.5 items-center">
-          <span className="text-[11px] text-muted-foreground w-4 text-right shrink-0">{i + 1}.</span>
-          <Input
-            value={r}
-            placeholder="e.g. always run the repo's typecheck before pushing"
-            className="font-mono text-[12px]"
-            onChange={(e) => write(rows.map((x, j) => (j === i ? e.target.value : x)))}
-          />
-          <Button
-            variant="ghost"
-            size="sm"
-            className="text-muted-foreground shrink-0"
-            title="Remove rule"
-            onClick={() => write(rows.filter((_, j) => j !== i))}
-          >
-            <Trash2 size={12} />
-          </Button>
-        </div>
-      ))}
-      <Button
-        variant="outline"
-        size="sm"
-        className="self-start"
-        onClick={() => setRows([...rows, ""])}
-      >
-        <Plus size={12} /> Add rule
-      </Button>
-      {rows.length === 0 && (
-        <p className="text-[11px] text-muted-foreground m-0">
-          No rules yet — the prompt runs with the engine&apos;s defaults only.
-        </p>
-      )}
-    </div>
-  );
-}
-
-/** One collapsible reference block (built-in body / locked rules / contract). */
-function LockedBlock({
-  title,
-  badge,
-  open,
-  onToggle,
-  text,
-  note,
-  muted,
-}: {
-  title: string;
-  badge?: React.ReactNode;
-  open: boolean;
-  onToggle: () => void;
-  text: string;
-  note?: string;
-  /** the built-in body — informational, not engine-locked */
-  muted?: boolean;
-}) {
-  return (
-    <div className="border border-border rounded-lg px-3 py-2 grid gap-1.5">
-      <button
-        type="button"
-        className="flex items-center gap-2 text-left cursor-pointer select-none"
-        onClick={onToggle}
-        aria-expanded={open}
-      >
-        <ChevronDown size={13} className={cn("text-muted-foreground transition-transform shrink-0", open && "rotate-180")} />
-        <span className="text-[11px] font-medium uppercase tracking-[0.5px] text-muted-foreground">{title}</span>
-        {badge && <span className="inline-flex items-center gap-1 text-[10.5px] text-muted-foreground">{badge}</span>}
-        <span className="text-[11px] text-muted-foreground">{text.length.toLocaleString()} chars</span>
-      </button>
-      {open && (
-        <div className="grid gap-1">
-          {note && <span className="text-[11px] text-muted-foreground">{note}</span>}
-          <pre
-            className={cn(
-              "text-[11.5px] font-mono leading-relaxed whitespace-pre-wrap m-0 max-h-56 overflow-y-auto rounded-lg px-2.5 py-2 bg-muted/40",
-              muted ? "text-foreground/80" : "text-muted-foreground",
-            )}
-          >
-            {text}
-          </pre>
-        </div>
       )}
     </div>
   );

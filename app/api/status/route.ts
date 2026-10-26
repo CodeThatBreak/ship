@@ -31,15 +31,11 @@ export async function GET() {
     db.get<{ c: number }>(`SELECT COUNT(*) AS c FROM repos`),
   ]);
 
-  const openMrs = agents
-    .filter((a) => a.mr_url)
-    .map((a) => ({
-      flowId: a.flow_id,
-      taskKey: a.task_key,
-      summary: a.task_summary,
-      mrUrl: a.mr_url!,
-      mrIid: a.mr_iid,
-    }));
+  const openMrs = agents.flatMap((a) =>
+    a.mr_url
+      ? [{ flowId: a.flow_id, taskKey: a.task_key, summary: a.task_summary, mrUrl: a.mr_url, mrIid: a.mr_iid }]
+      : [],
+  );
 
   return NextResponse.json({
     agents: agents.map((a) => ({

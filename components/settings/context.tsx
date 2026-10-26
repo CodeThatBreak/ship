@@ -1,6 +1,6 @@
 "use client";
 import {
-  createContext, useCallback, useContext, useState, type ReactNode,
+  createContext, useCallback, useContext, useMemo, useState, type ReactNode,
 } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { queryKeys } from "@/constants/query-keys";
@@ -93,19 +93,24 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
 
   const loading = settingsQuery.isPending || reposQuery.isPending || hostsQuery.isPending;
 
+  // stable when the state inside has not changed — consumers must not
+  // re-render on every provider render (§2.5 context values)
+  const value = useMemo<SettingsState>(
+    () => ({
+      settings: settingsQuery.data ?? null,
+      repos: reposQuery.data ?? [],
+      hosts: hostsQuery.data ?? [],
+      loading,
+      error,
+      setError,
+      reload,
+      saveSettings,
+    }),
+    [settingsQuery.data, reposQuery.data, hostsQuery.data, loading, error, reload, saveSettings],
+  );
+
   return (
-    <SettingsContext.Provider
-      value={{
-        settings: settingsQuery.data ?? null,
-        repos: reposQuery.data ?? [],
-        hosts: hostsQuery.data ?? [],
-        loading,
-        error,
-        setError,
-        reload,
-        saveSettings,
-      }}
-    >
+    <SettingsContext.Provider value={value}>
       {children}
     </SettingsContext.Provider>
   );

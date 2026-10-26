@@ -21,6 +21,35 @@ export {
   type NodeTemplateKind,
 } from "./boilerplate";
 export { kindContractUrl } from "./types";
-export type { NodeContract } from "./types";
+export { contractsUrl, describeTrigger, nodeLabel, nodeRelationships, isPlanDownstream } from "./types";
+export type { NodeContract, EditorNode, EditorEdge, DraftNodeDef, TaskProviderInfo } from "./types";
 export { FLOW_TRIGGER_TYPE } from "./constants";
 export { WebhookPayloadDialog } from "./WebhookPayloadDialog";
+
+// ── builder surfaces consumed across features (the editor route's page-local
+//    wrappers import these; other features may too) ─────────────────────────
+export { default as NodePalette, type NodePaletteProps } from "./NodePalette";
+export { default as BuilderCanvas, type BuilderApi, type BuilderCanvasProps } from "./BuilderCanvas";
+export { NodeConfiguratorBody, type IncomingLink, type UpstreamGroup } from "./NodeConfigurator";
+export { EdgeEditor } from "./EdgeEditor";
+export { FlowSettingsBody, type RepoOption, type FlowSettingsDraft, type FlowSettingsHook } from "./FlowSettings";
+export { schemaRows } from "./variables";
+// draft model + auto-layout (pages seed them with server-fetched payloads)
+export {
+  type Draft,
+  type CanvasPosition,
+  START_NODE_TEMPLATE_ID,
+  KIND_LABELS,
+  KIND_ICONS,
+  uniqueKey,
+  nextDraftName,
+  collectPendingDefs,
+} from "./draft";
+export { dagreLayout, initialPositions } from "./layout";
+export { useTemplateDraft, type TemplateDraftMachine } from "./hooks/use-template-draft";
+export { useNodePositions, type NodePositionsApi, type LayoutSync } from "./hooks/use-node-positions";
+export {
+  useTemplateValidation,
+  problemsMessage,
+  type TemplateValidationApi,
+} from "./hooks/use-template-validation";

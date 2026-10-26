@@ -159,7 +159,8 @@ export function WebhookPayloadDialog({
   const settings = settingsQuery.data ?? null;
   const loading =
     settingsQuery.isPending || reposQuery.isPending || (open && contextQuery.isPending);
-  const failed = (open && contextQuery.isError) || reposQuery.isError;
+  const failed =
+    (open && contextQuery.isError) || reposQuery.isError || settingsQuery.isError;
 
   // effective selections: the user's pick wins; otherwise the template's
   // binding, then the settings defaults, then the first valid option
@@ -239,7 +240,11 @@ export function WebhookPayloadDialog({
               <Button
                 variant="outline"
                 size="sm"
-                onClick={() => { reposQuery.refetch(); contextQuery.refetch(); }}
+                onClick={() => {
+                  void settingsQuery.refetch();
+                  void reposQuery.refetch();
+                  void contextQuery.refetch();
+                }}
               >
                 <RefreshCw size={12} /> Retry
               </Button>

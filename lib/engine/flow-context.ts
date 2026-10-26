@@ -1,3 +1,5 @@
+import "server-only";
+
 import type { FlowCtx } from "./nodes/base";
 import { db } from "../db";
 

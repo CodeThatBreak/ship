@@ -107,8 +107,8 @@ export function resolveMapExpr(
   const s = expr.trim();
   let m = /^nodes\.([A-Za-z0-9_]+)\.output\.(.+)$/.exec(s);
   if (m) {
-    const src = opts.upstream?.find((u) => u.key === m![1]);
-    const field = m![2];
+    const [nodeKey, field] = [m[1], m[2]];
+    const src = opts.upstream?.find((u) => u.key === nodeKey);
     const f = src?.fields.find((x) => x.name === field);
     return {
       source: src ? `${src.label} · output.${field}` : s,
@@ -117,17 +117,20 @@ export function resolveMapExpr(
   }
   m = /^task\.([A-Za-z0-9_]+)$/.exec(s);
   if (m) {
-    const f = opts.taskFields?.find((x) => x.key === m![1]);
-    return { source: `Task · ${m![1]}`, type: f?.type };
+    const key = m[1];
+    const f = opts.taskFields?.find((x) => x.key === key);
+    return { source: `Task · ${key}`, type: f?.type };
   }
   m = /^trigger\.payload\.([A-Za-z0-9_.]+)$/.exec(s);
   if (m) {
-    const f = opts.triggerFields?.find((x) => x.key === m![1]);
-    return { source: `Trigger payload · ${m![1]}`, type: f?.type };
+    const key = m[1];
+    const f = opts.triggerFields?.find((x) => x.key === key);
+    return { source: `Trigger payload · ${key}`, type: f?.type };
   }
   m = /^(flow|repo)\.([A-Za-z0-9_]+)$/.exec(s);
   if (m) {
-    return { source: `${m[1] === "flow" ? "Flow" : "Repo"} · ${m![2]}` };
+    const [kind, key] = [m[1], m[2]];
+    return { source: `${kind === "flow" ? "Flow" : "Repo"} · ${key}` };
   }
   return null;
 }
@@ -392,18 +395,23 @@ export function varGroupAccent(id: VarGroupId): string {
  * trigger-payload vocabulary). Non-object schemas list nothing.
  */
 export function schemaRows(
-  schema: any,
+  schema: unknown,
 ): { name: string; type: string; required: boolean; description?: string }[] {
-  if (!schema || schema.type !== "object" || !schema.properties) return [];
-  const required: string[] = schema.required ?? [];
-  return Object.entries(schema.properties as Record<string, any>).map(
-    ([name, s]) => ({
-      name,
-      type: Array.isArray(s?.type)
-        ? s.type.join("|")
-        : (s?.type ?? (s?.enum ? "enum" : "any")),
-      required: required.includes(name),
-      description: typeof s?.description === "string" ? s.description : undefined,
-    }),
+  if (!schema || typeof schema !== "object") return [];
+  const s = schema as Record<string, unknown>;
+  if (s.type !== "object" || !s.properties) return [];
+  const required = Array.isArray(s.required) ? s.required.filter((r): r is string => typeof r === "string") : [];
+  return Object.entries(s.properties as Record<string, unknown>).map(
+    ([name, prop]) => {
+      const p = prop as { type?: string | string[]; enum?: unknown[]; description?: unknown };
+      return {
+        name,
+        type: Array.isArray(p.type)
+          ? p.type.join("|")
+          : (p.type ?? (p.enum ? "enum" : "any")),
+        required: required.includes(name),
+        description: typeof p.description === "string" ? p.description : undefined,
+      };
+    },
   );
 }

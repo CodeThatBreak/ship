@@ -1,3 +1,5 @@
+import "server-only";
+
 import { db } from "../db";
 import { NODE_KEYS } from "./nodes/keys";
 

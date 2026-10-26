@@ -19,25 +19,28 @@ export function ExecutionSection({ settings, onError }: {
 }) {
   const mode = useDefaultMode(settings);
   const model = useDefaultModel(settings);
+  const { saveHarness: saveModeHook, saveMode: saveModeValue } = mode;
+  const { save: saveModelHook } = model;
+  const isModePending = mode.isPending;
 
   // stable bridge from the cascade's callbacks onto the page error alert
   const saveHarness = useCallback(
     (key: string) => {
-      mode.saveHarness(key, { onError: (e) => onError(e.message) });
+      saveModeHook(key, { onError: (e) => onError(e.message) });
     },
-    [mode.saveHarness, onError],
+    [saveModeHook, onError],
   );
   const saveMode = useCallback(
     (key: string, value: string) => {
-      mode.saveMode(key, value, { onError: (e) => onError(e.message) });
+      saveModeValue(key, value, { onError: (e) => onError(e.message) });
     },
-    [mode.saveMode, onError],
+    [saveModeValue, onError],
   );
   const saveModel = useCallback(
     (value: string | null) => {
-      model.save(value, { onError: (e) => onError(e.message) });
+      saveModelHook(value, { onError: (e) => onError(e.message) });
     },
-    [model.save, onError],
+    [saveModelHook, onError],
   );
 
   return (
@@ -48,7 +51,7 @@ export function ExecutionSection({ settings, onError }: {
           harnesses={mode.harnesses}
           selectedKey={settings.default_harness || null}
           savedMode={settings.default_execution_mode}
-          saving={mode.isPending}
+          saving={isModePending}
           onSaveHarness={saveHarness}
           onSaveMode={saveMode}
         />

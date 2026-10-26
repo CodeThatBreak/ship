@@ -1,5 +1,5 @@
-import { AppSidebar } from "@/components/app-sidebar";
-import { StatusBar } from "@/components/status-bar";
+import { AppSidebar } from "@/components/shared";
+import { StatusBar } from "@/components/flows";
 
 /**
  * Persistent shell for workspace pages (tasks, flows, templates, settings).

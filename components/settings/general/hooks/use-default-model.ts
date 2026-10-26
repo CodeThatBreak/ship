@@ -1,7 +1,7 @@
 "use client";
 import { useCallback, useMemo } from "react";
 import type { Settings } from "../../context";
-import { useModels } from "@/components/ModelSelector";
+import { useModels } from "@/components/chat";
 import { usePatchSettings } from "./use-patch-settings";
 
 /**

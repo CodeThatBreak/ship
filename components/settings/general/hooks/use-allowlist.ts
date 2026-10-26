@@ -10,20 +10,21 @@ import { usePatchSettings } from "./use-patch-settings";
  */
 export function useAllowlist(initial: string[]) {
   const patch = usePatchSettings();
+  const { mutate, isPending } = patch;
   const [text, setText] = useState(initial.join("\n"));
 
   /** PATCH `http_allowlist` — present keys update, the whole list replaces. */
   const save = useCallback(
     (handlers?: { onSuccess?: () => void; onError?: (e: Error) => void }) => {
-      patch.mutate(
+      mutate(
         { http_allowlist: text.split("\n").map((h) => h.trim()).filter(Boolean) },
         handlers,
       );
     },
-    [patch.mutate, text],
+    [mutate, text],
   );
 
   const dirty = text !== initial.join("\n");
 
-  return { text, setText, dirty, save, isPending: patch.isPending };
+  return { text, setText, dirty, save, isPending };
 }

@@ -18,7 +18,7 @@ export async function POST(req: Request) {
   try {
     const id = flowEngine.create(taskId, repoUrl ?? "", name, { executionMode, repoId, templateId });
     return NextResponse.json({ id });
-  } catch (e: any) {
-    return NextResponse.json({ error: e?.message ?? String(e) }, { status: 400 });
+  } catch (e: unknown) {
+    return NextResponse.json({ error: e instanceof Error ? e.message : String(e) }, { status: 400 });
   }
 }

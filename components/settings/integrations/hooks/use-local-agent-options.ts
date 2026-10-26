@@ -2,7 +2,7 @@
 import { useCallback, useState } from "react";
 import { useSettings } from "../../context";
 import { LOCAL_AGENT } from "../constants";
-import type { LocalAgentField, LocalAgentOptions } from "../types";
+import type { LocalAgentField } from "../types";
 
 /**
  * Local-run execution settings for the connected harness (moved from the

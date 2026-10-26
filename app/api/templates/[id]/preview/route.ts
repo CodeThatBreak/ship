@@ -135,7 +135,9 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
   }
   const body = await req.json().catch(() => null) as null | { expr?: unknown; scope?: unknown };
   const expr = typeof body?.expr === "string" ? body.expr : "";
-  const scope = body?.scope === "response" || body?.scope === "delivery" ? body.scope : "context";
+  // narrow the scope string to the union the branches below switch on
+  const scope: PreviewScope =
+    body?.scope === "response" || body?.scope === "delivery" ? body.scope : "context";
   if (!expr.trim()) return NextResponse.json({ ok: true, value: undefined, source: "sample" });
 
   let context: unknown;

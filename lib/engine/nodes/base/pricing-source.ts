@@ -1,3 +1,5 @@
+import "server-only";
+
 import { TtlCache } from "../../../cache";
 import type { PricingEntry } from "./usage-tracker";
 

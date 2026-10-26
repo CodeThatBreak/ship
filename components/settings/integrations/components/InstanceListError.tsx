@@ -9,7 +9,7 @@ export function InstanceListError({ onRetry }: { onRetry: () => void }) {
   return (
     <Alert variant="destructive" className="mb-5">
       <XCircle size={16} />
-      <span className="flex-1">Couldn't load instances — the provider may be unreachable.</span>
+      <span className="flex-1">Couldn&apos;t load instances — the provider may be unreachable.</span>
       <Button size="sm" variant="outline" onClick={onRetry}>Retry</Button>
     </Alert>
   );

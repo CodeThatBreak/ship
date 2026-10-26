@@ -7,7 +7,6 @@ import {
   DialogTitle,
   DialogDescription,
 } from "./dialog";
-import { ScrollArea } from "./scroll-area";
 import { cn } from "../../lib/utils";
 
 /**

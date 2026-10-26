@@ -12,7 +12,7 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
   const url = new URL(req.url);
   const after = url.searchParams.get("after") ?? "";
   const limit = Number(url.searchParams.get("limit") ?? 200);
-  const events = db.all<any>(
+  const events = db.all<Record<string, unknown>>(
     `SELECT * FROM events WHERE flow_id=? AND id > ? ORDER BY created_at, id LIMIT ?`,
     id, after, limit
   );

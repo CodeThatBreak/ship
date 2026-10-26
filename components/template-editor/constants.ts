@@ -1,6 +1,6 @@
 /** Option catalogs and copy for the template editor. */
 
-import type { StartFieldType } from "../../lib/engine/nodes/start/contract";
+import type { StartFieldType } from "@/types/start-contract";
 
 /** Node trigger types — rendered as heading + gray description in the picker. */
 export const TRIGGER_TYPES: Record<string, { label: string; description: string }> = {

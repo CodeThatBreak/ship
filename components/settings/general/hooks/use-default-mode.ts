@@ -1,5 +1,5 @@
 "use client";
-import { useCallback } from "react";
+import { useCallback, useMemo } from "react";
 import type { Harness, Settings } from "../../context";
 import { usePatchSettings } from "./use-patch-settings";
 
@@ -18,7 +18,9 @@ type MutationHandlers = {
 export function useDefaultMode(settings: Settings) {
   const patch = usePatchSettings();
   const { mutate } = patch;
-  const harnesses = settings.harnesses ?? [];
+  // memoized: `?? []` re-creates the fallback every render, which would churn
+  // `saveHarness`'s identity below (react-hooks/exhaustive-deps §2.5)
+  const harnesses = useMemo(() => settings.harnesses ?? [], [settings.harnesses]);
   const selectedHarness =
     harnesses.find((h) => h.key === settings.default_harness) ?? null;
 

@@ -1,3 +1,5 @@
+import "server-only";
+
 /**
  * Minimal in-memory TTL cache for runtime-fetched external data (e.g. live
  * Jira searches). Keyed, per-process, and intentionally tiny — the point is

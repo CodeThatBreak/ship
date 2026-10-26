@@ -48,6 +48,9 @@ async function statusFor(flow: {
       status: { ...missing, reason: "hub checkout missing or unregistered" },
     };
   }
+  // both narrows came from the guard above — capture them once so the
+  // callbacks below see plain non-null values (no `!` assertions)
+  const localPath: string = repo.local_path;
   try {
     const list = await worktrees.listWorktrees(repo.local_path);
     const wt = list.find((w) => samePath(w.path, flow.worktree_dir));
@@ -59,7 +62,7 @@ async function statusFor(flow: {
     const [dirty, branchState] = await Promise.all([
       worktrees.isWorktreeDirty(wt.path),
       branch
-        ? localGit.localBranchState(repo.local_path!, branch, baseBranch).catch(() => null)
+        ? localGit.localBranchState(localPath, branch, baseBranch).catch(() => null)
         : Promise.resolve(null),
     ]);
     return {

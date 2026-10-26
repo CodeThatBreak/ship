@@ -5,6 +5,12 @@ import {
   rows,
   type TemplateNodeTrigger,
 } from "../db/rows";
+import type {
+  EditorCatalogEntry,
+  EditorNodeRow,
+  TemplateCatalogDetail,
+  TemplateEditorDetail,
+} from "@/types/template-editor";
 import { parseDeclarativeConfig } from "./nodes/declarative-schemas";
 import { catalogForNodeTemplateIds, lintTemplate, type TaskUniverse } from "./context-lint";
 import { hookStore } from "./hooks";
@@ -33,6 +39,25 @@ export const WAIT_FOR_SOURCES = ["pipeline", "comments", "webhook", "timer"] as 
 
 const KINDED_NODE_TEMPLATE_KINDS = ["agent", "http", "script", "decision"] as const;
 export type DeclarativeNodeKind = (typeof KINDED_NODE_TEMPLATE_KINDS)[number];
+
+/** One node_templates row as the palette/editor API serializes it (locality included). */
+function serializeNodeTemplate(nt: NodeTemplateRow): EditorCatalogEntry {
+  return {
+    id: nt.id,
+    key: nt.key,
+    name: nt.name,
+    kind: nt.kind,
+    version: nt.version,
+    description: nt.description,
+    icon: nt.icon,
+    is_builtin: Boolean(nt.is_builtin),
+    config: nt.config,
+    template_id: nt.template_id,
+    is_local: Boolean(nt.template_id),
+    created_at: nt.created_at,
+    updated_at: nt.updated_at,
+  };
+}
 
 // ── input shapes for the CRUD surface (UI editor + YAML import) ──────────────
 
@@ -277,6 +302,73 @@ export class TemplateStore {
   /** One template row (or undefined). */
   flowTemplate(id: string): FlowTemplateRow | undefined {
     return rows.get(FlowTemplateRow, `SELECT * FROM flow_templates WHERE id=?`, id);
+  }
+
+  /**
+   * The template editor's full payload (the GET /api/templates/[id] body):
+   * template meta, the always-provisioned flow hook and the graph as
+   * snake_case row slices. Null when the template or its graph is missing.
+   * Shared by the route and the server page's SSR boot (single mapping).
+   */
+  editorPayload(id: string): TemplateEditorDetail | null {
+    const t = this.flowTemplate(id);
+    const g = this.graph(id);
+    if (!t || !g) return null;
+    // the flow-trigger hook (always provisioned, §6) — url path + secret for
+    // the sender's curl example
+    const hook = hookStore.hookForTemplate(id);
+    const nodes: EditorNodeRow[] = g.nodes.map((n) => {
+      const nt = this.nodeTemplate(n.nodeTemplateId);
+      return {
+        key: n.key,
+        node_template_id: n.nodeTemplateId,
+        label: n.label,
+        trigger: { ...n.trigger },
+        join_mode: n.joinMode,
+        config: n.config,
+        input_map: n.inputMap,
+        kind: nt?.kind ?? null,
+        icon: nt?.icon ?? null,
+        catalog_name: nt?.name ?? null,
+        /** node_templates row key ("plan"/"start"/...): the fan-out UI gates
+         *  on builtin plan nodes the same way the save-time lint does */
+        catalog_key: nt?.key ?? null,
+        is_builtin: Boolean(nt?.is_builtin),
+        is_local: Boolean(nt?.template_id),
+        x: n.x ?? null,
+        y: n.y ?? null,
+      };
+    });
+    return {
+      template: {
+        id: t.id,
+        name: t.name,
+        description: t.description,
+        version: t.version,
+        is_builtin: Boolean(t.is_builtin),
+        trigger: g.flowTrigger,
+      },
+      hook: hook ? { id: hook.id, secret: hook.secret, filter: hook.filter } : null,
+      nodes,
+      edges: g.edges,
+    };
+  }
+
+  /**
+   * The builder palette's catalog payload (GET /api/node-templates):
+   * `nodeTemplates` carries built-ins + the global Library rows,
+   * `templateNodeTemplates` the rows private to the template. Shared by the
+   * route and the server page's SSR boot (single mapping).
+   */
+  paletteCatalog(templateId?: string): TemplateCatalogDetail {
+    const { library, templateLocal } = this.listNodeTemplatesForPalette(templateId);
+    return {
+      nodeTemplates: [
+        ...this.listNodeTemplates().filter((nt) => Boolean(nt.is_builtin)),
+        ...library,
+      ].map(serializeNodeTemplate),
+      templateNodeTemplates: templateLocal.map(serializeNodeTemplate),
+    };
   }
 
   /** Create a template (meta + node instances + edges). Validates the graph.

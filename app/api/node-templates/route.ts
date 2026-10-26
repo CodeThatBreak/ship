@@ -1,27 +1,7 @@
 import { NextResponse } from "next/server";
 import { templateStore } from "../../../lib/engine/templates";
-import type { NodeTemplateRow } from "../../../lib/db/rows";
 
 export const dynamic = "force-dynamic";
-
-/** The shared API response fields for one catalog entry (locality included). */
-function serializeNodeTemplate(nt: NodeTemplateRow) {
-  return {
-    id: nt.id,
-    key: nt.key,
-    name: nt.name,
-    kind: nt.kind,
-    version: nt.version,
-    description: nt.description,
-    icon: nt.icon,
-    is_builtin: Boolean(nt.is_builtin),
-    config: nt.config,
-    template_id: nt.template_id,
-    is_local: Boolean(nt.template_id),
-    created_at: nt.created_at,
-    updated_at: nt.updated_at,
-  };
-}
 
 /** The node-type catalog (built-ins + declarative), for the builder palette.
  *  `?templateId=<id>` splits the declarative rows by locality: `nodeTemplates`
@@ -30,18 +10,10 @@ function serializeNodeTemplate(nt: NodeTemplateRow) {
  *  Without the query the unscoped shape (every row in `nodeTemplates`) holds. */
 export async function GET(req: Request) {
   const templateId = new URL(req.url).searchParams.get("templateId") ?? undefined;
-  if (templateId === undefined) {
-    const nodeTemplates = templateStore.listNodeTemplates().map(serializeNodeTemplate);
-    return NextResponse.json({ nodeTemplates });
-  }
-  const { library, templateLocal } = templateStore.listNodeTemplatesForPalette(templateId);
-  return NextResponse.json({
-    nodeTemplates: [
-      ...templateStore.listNodeTemplates().filter((nt) => Boolean(nt.is_builtin)).map(serializeNodeTemplate),
-      ...library.map(serializeNodeTemplate),
-    ],
-    templateNodeTemplates: templateLocal.map(serializeNodeTemplate),
-  });
+  // the single mapping source is TemplateStore.paletteCatalog (the SSR boot
+  // hydrates the same shape — loaders/templates)
+  const payload = templateStore.paletteCatalog(templateId);
+  return NextResponse.json(payload);
 }
 
 /** Create a declarative node template (Phase 2: kind=agent).

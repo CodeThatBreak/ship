@@ -1,3 +1,5 @@
+import "server-only";
+
 import SqliteDatabase from "better-sqlite3";
 import fs from "fs";
 import path from "path";

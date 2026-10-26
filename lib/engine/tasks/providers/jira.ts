@@ -1,3 +1,5 @@
+import "server-only";
+
 import { db } from "../../../db";
 import type { Task } from "../../../db/rows";
 import { jira, maskToken } from "../../../integrations/jira/service";

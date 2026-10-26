@@ -1,6 +1,5 @@
 import { NextResponse } from "next/server";
 import { templateStore, type TemplateInput, type TemplateNodeInput, type TemplateEdgeInput } from "../../../../lib/engine/templates";
-import { hookStore } from "../../../../lib/engine/hooks";
 
 export const dynamic = "force-dynamic";
 
@@ -28,47 +27,11 @@ interface NewNodeTemplateInput {
 /** The full editor payload: template meta + node instances + edges. */
 export async function GET(_req: Request, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  const t = templateStore.flowTemplate(id);
-  if (!t) return notFound();
-  const g = templateStore.graph(id);
-  if (!g) return notFound();
-  // the flow-trigger hook (always provisioned, §6) — url path + secret for
-  // the sender's curl example
-  const hook = hookStore.hookForTemplate(id);
-  return NextResponse.json({
-    template: {
-      id: t.id,
-      name: t.name,
-      description: t.description,
-      version: t.version,
-      is_builtin: t.is_builtin,
-      trigger: g.flowTrigger,
-    },
-    hook: hook ? { id: hook.id, secret: hook.secret, filter: hook.filter } : null,
-    nodes: g.nodes.map((n) => {
-      const nt = templateStore.nodeTemplate(n.nodeTemplateId);
-      return {
-        key: n.key,
-        node_template_id: n.nodeTemplateId,
-        label: n.label,
-        trigger: n.trigger,
-        join_mode: n.joinMode,
-        config: n.config,
-        input_map: n.inputMap,
-        kind: nt?.kind ?? null,
-        icon: nt?.icon ?? null,
-        catalog_name: nt?.name ?? null,
-        /** node_templates row key ("plan"/"start"/...): the fan-out UI gates
-         *  on builtin plan nodes the same way the save-time lint does */
-        catalog_key: nt?.key ?? null,
-        is_builtin: Boolean(nt?.is_builtin),
-        is_local: Boolean(nt?.template_id),
-        x: n.x ?? null,
-        y: n.y ?? null,
-      };
-    }),
-    edges: g.edges,
-  });
+  // the single mapping source is TemplateStore.editorPayload (the SSR boot
+  // hydrates the same shape — loaders/templates)
+  const payload = templateStore.editorPayload(id);
+  if (!payload) return notFound();
+  return NextResponse.json(payload);
 }
 
 /** Meta patch; node/edge arrays replace the whole graph (the editor draft). */

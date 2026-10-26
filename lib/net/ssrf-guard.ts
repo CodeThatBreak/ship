@@ -1,3 +1,5 @@
+import "server-only";
+
 import http from "node:http";
 import https from "node:https";
 import { lookupAll, validateIpLiteral, validateResolvedIps } from "./ssrf-helpers";

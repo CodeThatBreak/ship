@@ -1,3 +1,5 @@
+import "server-only";
+
 import { cursorAgent } from "../cursorSdk";
 import { cursorClient } from "./client";
 import { cursorApiKey } from "./credentials";

@@ -101,8 +101,9 @@ export interface NodeContract {
   key: string;
   label: string;
   kind: string;
-  input: any;
-  output: any;
+  /** the contract's JSON-Schema fragments (object/properties form when declared) */
+  input: unknown;
+  output: unknown;
   /** decision nodes: the branch labels out-edges must carry (§4.3) */
   choices?: { label: string; description?: string; condition?: string }[];
   /**
@@ -183,7 +184,8 @@ export function isPlanDownstream(
   const seen = new Set([key]);
   const queue = [key];
   while (queue.length) {
-    const k = queue.shift()!;
+    const k = queue.shift();
+    if (k === undefined) break;
     for (const from of upstream.get(k) ?? []) {
       if (seen.has(from)) continue;
       seen.add(from);

@@ -1,3 +1,5 @@
+import "server-only";
+
 import crypto from "crypto";
 import { Webhook } from "standardwebhooks";
 import { db } from "../db";

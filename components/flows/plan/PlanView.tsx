@@ -1,0 +1,216 @@
+"use client";
+import { useMemo, useState } from "react";
+import type { Artifact, FlowData, Node } from "@/types/flow";
+import PlanSteps from "./PlanSteps";
+import { registerPanel } from "../panels/registry";
+import { VersionTabs } from "../panels/shared";
+import { computeScopedDiff, computeStaleBranches } from "./branch-diff";
+import { PLAN_ACTION, type ExecutionMode } from "./constants";
+import { executionLabel, resolveExecution } from "./plan-execution";
+import { useExecutionPick } from "./hooks/use-execution-pick";
+import { PlanPanelHeader } from "./PlanPanelHeader";
+import { PlanFailureAlert } from "./PlanFailureAlert";
+import { PlanEmptyHint } from "./PlanEmptyHint";
+import { PlanRunningState } from "./PlanRunningState";
+import { MainPlanSection } from "./MainPlanSection";
+import { BranchPlanSection } from "./BranchPlanSection";
+import { PlanApproveFooter } from "./PlanApproveFooter";
+import { PlanPromptModals } from "./PlanPromptModals";
+import { ScrollArea } from "@/components/ui/scroll-area";
+import type { PromptRunExtras } from "@/components/chat";
+import type { BranchPlan, FlowAction } from "./types";
+import { FLOW_STATUS } from "@/constants/flow";
+
+/**
+ * The plan node's panel container: composes the extracted presentational
+ * subcomponents (components/flows/plan/*) with the execution-resolution state and
+ * the plan fan-out actions (§1, §7.1).
+ */
+export default function PlanView({
+  flow,
+  node,
+  action,
+  fetchArtifact,
+  model,
+  planOptions = { decompose: false, complex: false },
+}: {
+  flow: FlowData;
+  node: Node;
+  action: FlowAction;
+  fetchArtifact: (id: string) => Promise<unknown>;
+  model: string;
+  /** generation options toggled in the chat panel (complex affects refines as well) */
+  planOptions?: { decompose: boolean; complex: boolean };
+}) {
+  const plans = node.artifacts.filter((a: Artifact) => a.kind === "plan");
+  const [sel, setSel] = useState<string | null>(null);
+  const [showPrompt, setShowPrompt] = useState(false);
+  // branch-scoped refine state (§7.1): which branch is being refined + the open tab
+  const [refineBranch, setRefineBranch] = useState<string | null>(null);
+  const [openBranchTab, setOpenBranchTab] = useState<string | null>(null);
+  const current = plans.find((a) => a.id === sel) ?? plans[plans.length - 1];
+  const awaiting = node.status === FLOW_STATUS.AWAITING_APPROVAL;
+  const running = node.status === FLOW_STATUS.RUNNING;
+  const isCurrent = Boolean(current && current.id === plans[plans.length - 1]?.id);
+
+  // Phase 3A: extract branches from the plan output or artifact meta
+  const branches = (node.output?.branches ?? null) as BranchPlan[] | null;
+  // structured checklist (live rows; editable until the plan is approved)
+  const planSteps = flow.planSteps ?? [];
+  const showChecklist =
+    planSteps.length > 0 || awaiting || node.status === FLOW_STATUS.APPROVED;
+
+  const execution = resolveExecution(node, current?.meta);
+  const [execPick, setExecPick] = useExecutionPick(
+    execution.resolution,
+    `${current?.id ?? ""}:${execution.resolution}`,
+  );
+
+  // scoped-refine diff banner data (§6/§7.3), computed client-side from the
+  // two artifact versions' steps — no server diff endpoint needed.
+  const scopedDiff = useMemo(() => computeScopedDiff(plans), [plans]);
+  // staleness (§8): a scoped refine makes its branch doc newer than the overview
+  const staleBranches = useMemo(
+    () => computeStaleBranches(plans, branches, current?.version ?? 0),
+    [branches, plans, current?.version],
+  );
+
+  const startPlan = (prompt?: string, promptIsBody?: boolean) =>
+    action(PLAN_ACTION.START, {
+      prompt,
+      promptIsBody: promptIsBody || undefined,
+      model: model || undefined,
+      complex: planOptions.complex || undefined,
+    });
+
+  // Edit prompt runs a fresh plan when none exists yet; once a plan exists it
+  // reruns as a refinement of the current one.
+  const runWithPrompt = (prompt: string, promptIsBody: boolean) => {
+    if (plans.length > 0) {
+      action(PLAN_ACTION.REFINE, {
+        feedback: "",
+        prompt,
+        promptIsBody: promptIsBody || undefined,
+        model: model || undefined,
+        complex: planOptions.complex || undefined,
+      });
+    } else {
+      startPlan(prompt, promptIsBody);
+    }
+  };
+
+  // Branch-scoped sub-plan refine (§7.1): promptIsBody — the modal returns the
+  // developer-editable body; the engine appends the internal scoped rules.
+  const runBranchRefine = (
+    prompt: string,
+    promptIsBody: boolean,
+    extras: PromptRunExtras,
+  ) => {
+    if (!refineBranch) return;
+    action(PLAN_ACTION.REFINE, {
+      prompt,
+      promptIsBody: promptIsBody || undefined,
+      complex: true,
+      branchRef: refineBranch,
+      fresh: extras.fresh ?? true, // scoped refines default fresh (§3)
+      contextBlocks: extras.contextBlocks,
+    });
+  };
+
+  const toggleBranch = (name: string) =>
+    setOpenBranchTab((tab) => (tab === name ? null : name));
+  const refineBranchAt = (name: string) => {
+    setRefineBranch(name);
+    setOpenBranchTab(null);
+  };
+
+  return (
+    <div className="flex flex-col h-full min-h-0">
+      <PlanPanelHeader node={node} onEditPrompt={() => setShowPrompt(true)} />
+
+      {/* scrollable content */}
+      <ScrollArea className="flex-1">
+        <div className="px-5 py-4 flex flex-col gap-4">
+          {node.status === FLOW_STATUS.FAILED && (
+            <PlanFailureAlert
+              node={node}
+              onRetry={() => action(PLAN_ACTION.RETRY, { nodeKey: node.node_key })}
+            />
+          )}
+
+          {plans.length === 0 && node.status === FLOW_STATUS.PENDING && <PlanEmptyHint />}
+
+          {running && (
+            <PlanRunningState
+              hasPlans={plans.length > 0}
+              onStop={() => action(PLAN_ACTION.CANCEL, { nodeKey: node.node_key })}
+            />
+          )}
+
+          {plans.length > 1 && (
+            <VersionTabs arts={plans} sel={current?.id} onSel={setSel} />
+          )}
+
+          {/* ── main plan (level 1) — always on top, never hidden by an open sub-plan ── */}
+          {current && (
+            <MainPlanSection planId={current.id} fetchArtifact={fetchArtifact} />
+          )}
+
+          {/* ── sub-plans (level 2) — indented under the main plan to show hierarchy ── */}
+          {branches && branches.length > 0 && (
+            <BranchPlanSection
+              branches={branches}
+              staleBranches={staleBranches}
+              scopedDiff={scopedDiff}
+              expandedTab={openBranchTab}
+              canRefine={awaiting && isCurrent}
+              onToggle={toggleBranch}
+              onRefine={refineBranchAt}
+            />
+          )}
+
+          {/* structured editable checklist — the machine-readable plan steps, at the bottom */}
+          {showChecklist && (
+            <PlanSteps
+              steps={planSteps}
+              editable={awaiting}
+              action={action}
+            />
+          )}
+        </div>
+      </ScrollArea>
+
+      {/* fixed footer */}
+      {awaiting && isCurrent && (
+        <PlanApproveFooter
+          pick={execPick}
+          onPick={setExecPick}
+          note={executionLabel(execution.resolution, planSteps.length)}
+          publishedSource={execution.publishedSource}
+          plannerRationale={execution.plannerRationale}
+          knob={execution.knob}
+          stepCount={planSteps.length}
+          onApprove={(pick: ExecutionMode) =>
+            action(PLAN_ACTION.APPROVE, {
+              ...(pick !== execution.published ? { executionOverride: pick } : {}),
+            })
+          }
+        />
+      )}
+
+      <PlanPromptModals
+        flowId={flow.id}
+        showPrompt={showPrompt}
+        refineBranch={refineBranch}
+        hasAgent={Boolean(node.agent_id)}
+        onRunPrompt={runWithPrompt}
+        onRunBranchRefine={runBranchRefine}
+        onClosePrompt={() => setShowPrompt(false)}
+        onCloseRefine={() => setRefineBranch(null)}
+      />
+    </div>
+  );
+}
+
+// registered with the panel registry (§3.1) — served by the builtin plan key
+registerPanel({ type: "plan" }, PlanView);
