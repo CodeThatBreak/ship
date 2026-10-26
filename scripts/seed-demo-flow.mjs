@@ -17,13 +17,14 @@ import Database from "better-sqlite3";
 import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
+import { resolveSeedDb } from "./lib/seed-db.mjs";
 
 const root = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const TASK_ID = "demo-142";
 const FLOW_NAME = "DEMO-142 flow";
 const RESET = process.argv.includes("--reset");
 
-const dbFile = path.resolve(root, process.env.DATABASE_PATH ?? "./data/devflow.db");
+const dbFile = resolveSeedDb(root);
 fs.mkdirSync(path.dirname(dbFile), { recursive: true });
 const db = new Database(dbFile);
 db.pragma("journal_mode = WAL");

@@ -22,9 +22,10 @@ import Database from "better-sqlite3";
 import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
+import { resolveSeedDb } from "./lib/seed-db.mjs";
 
 const root = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
-const DB_FILE = path.resolve(root, process.env.DATABASE_PATH ?? "./data/devflow.db");
+const DB_FILE = resolveSeedDb(root);
 const TEMPLATE_ID = "tpl_release_notify";
 const FLOW_NAME_DONE = "DEMO custom: release notes shipped";
 const FLOW_NAME_SKIP = "DEMO custom: notes dropped";

@@ -26,11 +26,24 @@ class GitLabConfig {
 }
 
 class DatabaseConfig {
-  path(): string {
+  /** Demo/dev DB — the default (and only sanctioned) target for seed scripts. */
+  demoPath(): string {
     return path.resolve(
       AppConfig.root,
       AppConfig.env("DATABASE_PATH", "./data/devflow.db")
     );
+  }
+
+  /**
+   * Application DB path. In production (`next start`) this defaults to a
+   * dedicated file so seeded demo data can never leak into the production
+   * database; DATABASE_PATH overrides in every environment.
+   */
+  path(): string {
+    if (!AppConfig.env("DATABASE_PATH") && process.env.NODE_ENV === "production") {
+      return path.resolve(AppConfig.root, "./data/devflow.prod.db");
+    }
+    return this.demoPath();
   }
 }
 

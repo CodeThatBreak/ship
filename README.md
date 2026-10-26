@@ -223,7 +223,9 @@ lib/                    strict OOP: every module is a class with one responsibil
                         (get/all/run), settings, repos, events, messages
     rows.ts             Zod schemas for every table row + RowGateway (get/all) — rows are validated
                         once at the DB boundary, so consumers never see `any` or raw JSON strings.
-data/devflow.db         local SQLite (server-ready: swap for Postgres later)
+data/devflow.db         demo/dev SQLite — the default target of seed:* scripts (mock data)
+data/devflow.prod.db    production SQLite (default when NODE_ENV=production; schema only, no mock
+                        data — created via `npm run db:init:prod`; seed scripts refuse to touch it)
 workspaces/             per-flow dirs: git worktrees for local agent runs (Phase 1 worktrees —
                         ensured at the runner for every unpinned mutating run; the registered
                         checkout stays the hub and is never mutated), plus clones used for

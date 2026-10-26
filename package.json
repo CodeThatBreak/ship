@@ -14,7 +14,8 @@
     "seed:branch-refine": "node scripts/seed-branch-refine-demo.mjs",
     "seed:branch-refine:reset": "node scripts/seed-branch-refine-demo.mjs --reset",
     "seed:custom": "node scripts/seed-custom-flow.mjs",
-    "seed:custom:reset": "node scripts/seed-custom-flow.mjs --reset"
+    "seed:custom:reset": "node scripts/seed-custom-flow.mjs --reset",
+    "db:init:prod": "node scripts/init-prod-db.mjs"
   },
   "dependencies": {
     "@base-ui/react": "^1.9.0",
