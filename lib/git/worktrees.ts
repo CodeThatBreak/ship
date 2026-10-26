@@ -381,6 +381,10 @@ export class Worktrees {
       } catch (e: unknown) {
         throw new Error(`could not remove worktree dir ${wtPath}: ${e instanceof Error ? e.message : e}`);
       }
+      // a fs-only removal (timed-out or refused git remove) leaves the git
+      // registration behind as a prunable ghost — prune it so the branch
+      // delete below is judged against real registrations, not the ghost
+      await this.pruneWorktrees(repoPath);
     }
 
     const result: WorktreeRemovalResult = { removed: true, dirGone: !fs.existsSync(wtPath), dirty: preflight.dirty };
@@ -521,9 +525,10 @@ export class Worktrees {
       try {
         await this.git(["-C", repoPath, "config", "--get", "push.autoSetupRemote"]);
         return; // already set anywhere — don't override the user's choice
-      } catch (e: any) {
+      } catch (e: unknown) {
         // exit 1 = unset (expected); anything else is a real read failure
-        if (e?.code !== 1) throw e;
+        const code = typeof e === "object" && e !== null ? (e as { code?: unknown }).code : undefined;
+        if (code !== 1) throw e;
       }
       await this.git(["-C", repoPath, "config", "--local", "push.autoSetupRemote", "true"]);
     } catch (e: unknown) {

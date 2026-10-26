@@ -49,7 +49,12 @@ class DatabaseConfig {
 
 class WorkspaceConfig {
   dir(): string {
-    return path.resolve(AppConfig.root, AppConfig.env("WORKSPACE_DIR", "./workspaces"));
+    // expand a leading `~` — path.resolve would otherwise treat it as a
+    // literal directory name (e.g. `.env`'s `WORKSPACE_DIR=~/…` would put
+    // worktrees inside the repo tree, where setup correctly refuses them)
+    const raw = AppConfig.env("WORKSPACE_DIR", "./workspaces");
+    const expanded = raw.startsWith("~") ? path.join(process.env.HOME ?? "", raw.slice(1)) : raw;
+    return path.resolve(AppConfig.root, expanded);
   }
 }
 

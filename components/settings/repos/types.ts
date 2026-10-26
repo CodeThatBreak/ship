@@ -12,15 +12,15 @@ export type RepoFormState = {
   worktree_timeout_s: string;
 };
 
-/** One advisory check line of a setup dry-run (see /api/repos/test-setup). */
-export type SetupTestCheck = {
-  label: string;
-  ok: boolean;
-  detail: string;
-};
-
-/** The dry-run result: overall ok plus the per-check lines. */
+/** The end-to-end setup probe result (see /api/repos/test-setup). */
 export type SetupTestResult = {
   ok: boolean;
-  checks: SetupTestCheck[];
+  error?: string;
+  /** what the real setup did (lifecycle-action strings, in order) */
+  actions: string[];
+  worktree?: string;
+  branch?: string;
+  /** set when the post-run cleanup couldn't fully finish */
+  cleanup?: string;
+  durationMs: number;
 };

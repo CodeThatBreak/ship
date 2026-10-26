@@ -1,7 +1,9 @@
 import { exec, execFile } from "child_process";
 import fs from "fs";
+import os from "os";
 import path from "path";
 import { promisify } from "util";
+import { worktrees } from "./worktrees";
 import {
   COMMON_CACHE_DIRS,
   DEFAULT_SETUP_TIMEOUT_MS,
@@ -45,24 +47,33 @@ export interface WorktreeSetupResult {
   actions: string[];
 }
 
-/** One advisory check line of a setup dry-run (the repo form's "Test setup"). */
-export interface SetupDryRunCheck {
-  label: string;
+export interface WorktreeSetupProbeResult {
+  /** false = the worktree create or the setup failed (see `error`) */
   ok: boolean;
-  detail: string;
+  error?: string;
+  /** what the REAL setup did (lifecycle-action strings, in order) */
+  actions: string[];
+  /** the throwaway worktree (present whenever it got created, even on failure) */
+  worktree?: string;
+  branch?: string;
+  /** set when the post-run cleanup couldn't fully finish (surfaced, not swallowed) */
+  cleanup?: string;
+  durationMs: number;
 }
 
-export interface WorktreeSetupDryRunResult {
-  /** false = at least one check failed (the detail carries the reason) */
-  ok: boolean;
-  checks: SetupDryRunCheck[];
-}
-
-export interface WorktreeSetupDryRunInput {
-  /** the hub: the developer's real checkout the policy resolves against */
+export interface WorktreeSetupProbeInput {
+  /** the hub: the developer's real checkout the probe sets up from */
   hubPath: string;
   /** the same overrides shape the engine maps from the repo row */
   overrides?: RepoDepOverrides | null;
+  /** base ref the throwaway branch starts from (the form's default branch) */
+  base?: string;
+  /** the dir the throwaway worktree is created in (the DevFlow workspace — sweep-compatible) */
+  baseDir: string;
+  /** `git worktree add` timeout override (ms) for very large checkouts */
+  addTimeoutMs?: number;
+  /** live progress (each setup step, worktree create and cleanup) — streamed to the form */
+  onEvent?: (message: string) => void;
 }
 
 /** Ambient facts every step needs (resolved once by WorktreeSetup.run). */
@@ -370,104 +381,107 @@ export class WorktreeSetup {
   }
 
   /**
-   * Dry-run the setup policy exactly as a fresh worktree would experience it,
-   * WITHOUT creating a worktree or touching any state (the repo form's "Test
-   * setup" button). Resolution mirrors the engine's setupFlowWorktree: policy
-   * from the overrides, sync globs, shared dirs, setup command. Commands are
-   * REPORTED, never executed — the result is purely advisory.
+   * Probe the setup END-TO-END (the repo form's "Test setup" button): create a
+   * real throwaway worktree, run the FULL setup pipeline in it, then remove
+   * the worktree and its branch again. Unlike static checks this executes the
+   * actual strategy — installs really run, copies/symlinks really happen — so
+   * a green result proves the repo's worktree setup works before any flow
+   * relies on it. Cleanup runs even on failure and its shortfalls are
+   * surfaced, never swallowed; a leftover is picked up by the startup sweep
+   * (the probe dir lives in the DevFlow workspace, flow-named entries excepted).
    */
-  async dryRun(input: WorktreeSetupDryRunInput): Promise<WorktreeSetupDryRunResult> {
+  async probe(input: WorktreeSetupProbeInput): Promise<WorktreeSetupProbeResult> {
+    const startedAt = Date.now();
     const hub = path.resolve(input.hubPath);
+    const done = (r: Omit<WorktreeSetupProbeResult, "durationMs">): WorktreeSetupProbeResult =>
+      ({ ...r, durationMs: Date.now() - startedAt });
+
+    if (!fs.existsSync(path.join(hub, ".git"))) {
+      return done({ ok: false, error: `${hub} is not a git checkout (no .git)`, actions: [] });
+    }
+    const baseDir = input.baseDir ? path.resolve(input.baseDir) : null;
+    if (!baseDir) return done({ ok: false, error: "probe workspace dir is not configured", actions: [] });
+    // the workspace root may not exist yet on a fresh install — create it (the
+    // engine creates it on first flow; creating it here is sweep-compatible)
+    fs.mkdirSync(baseDir, { recursive: true });
+
     const overrides = input.overrides ?? {};
-    const checks: SetupDryRunCheck[] = [];
-
-    // the hub must be a real git checkout — the source of deps, config, caches
-    const hubUsable = fs.existsSync(path.join(hub, ".git"));
-    checks.push({
-      label: "hub checkout",
-      ok: hubUsable,
-      detail: hubUsable ? hub : `${hub} is not a git checkout (no .git)`,
-    });
-    if (!hubUsable) return { ok: false, checks };
-
-    // the dependency strategy: what would materialize deps in a worktree
     const policy = depPolicies.resolve({ hubPath: hub, overrides });
-    checks.push({
-      label: "dependency strategy",
-      ok: true,
-      detail:
-        `${policy.source} → ${policy.strategy}` +
-        (policy.command ? ` — would run: ${policy.command}` : "") +
-        (policy.depDirs?.length ? ` — would copy: ${policy.depDirs.join(", ")}` : ""),
-    });
-    if (policy.strategy === "clone") {
-      // the gate's hub-side half; the hub/worktree lockfile match itself can
-      // only be verified when a worktree exists, at flow start
-      for (const dir of policy.depDirs ?? []) {
-        const present = fs.existsSync(path.join(hub, dir));
-        checks.push({
-          label: `dep dir ${dir}`,
-          ok: present,
-          detail: present
-            ? "present in the hub — copied CoW at flow start"
-            : `missing in the hub — a fresh worktree would fall back to ${policy.fallback?.command ?? policy.fallback?.strategy ?? "nothing"}`,
-        });
+    const emit = input.onEvent ?? (() => {});
+    const id = `setup-probe-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
+    const dir = path.join(baseDir, id);
+    const branch = `devflow/${id}`;
+    const actions: string[] = [];
+
+    let created = false;
+    let setupError: string | undefined;
+    try {
+      emit(`creating throwaway worktree ${id} (branch ${branch})…`);
+      await worktrees.createWorktree({
+        repoPath: hub,
+        dir,
+        branch,
+        base: input.base,
+        addTimeoutMs: input.addTimeoutMs,
+      });
+      created = true;
+      actions.push(`created throwaway worktree ${id} (branch ${branch})`);
+      emit(actions[0]);
+      const setup = await this.run({
+        hubPath: hub,
+        worktreePath: dir,
+        policy,
+        syncGlobs: depPolicies.resolveSyncGlobs(overrides),
+        sharedDirs: depPolicies.parsePathList(overrides.shared_dirs),
+        setupCommand: overrides.setup_command ?? null,
+        onEvent: emit,
+      });
+      actions.push(...setup.actions);
+      if (!setup.ok) {
+        setupError = setup.error ?? "unknown setup failure";
+        emit(`setup failed: ${setupError}`);
       }
-      if (policy.lockfile) {
-        const readable = !!depPolicies.hashFile(path.join(hub, policy.lockfile));
-        checks.push({
-          label: `lockfile ${policy.lockfile}`,
-          ok: readable,
-          detail: readable
-            ? "readable — the hub/worktree hash match is re-verified at flow start"
-            : "unreadable — a fresh worktree would fall back to the frozen install",
-        });
-      }
+    } catch (e: unknown) {
+      setupError = created ? `setup threw: ${message(e)}` : `worktree create failed: ${message(e)}`;
+      emit(setupError);
     }
 
-    // shared_dirs: the one symlink surface (denied/missing entries are config errors)
-    const sharedDirs = depPolicies.parsePathList(overrides.shared_dirs);
-    if (sharedDirs.length) {
+    let cleanup: string | undefined;
+    if (created) {
+      emit("removing throwaway worktree…");
       try {
-        const specs = this.sharedDirSpecs(hub, sharedDirs);
-        checks.push({
-          label: "shared symlinks",
-          ok: true,
-          detail: specs.length ? `would symlink: ${listCap(specs)}` : "no shared dirs matched",
+        const removal = await worktrees.removeWorktree({
+          repoPath: hub,
+          wtPath: dir,
+          home: os.homedir(),
+          force: true, // the probe is throwaway; setup output is the report, not the work product
+          deleteBranch: true,
+          // the probe branch is seconds old and only the setup ran in it —
+          // nothing mergeable can live there, so the delete is forced
+          forceBranchDelete: true,
         });
+        if (!removal.dirGone) {
+          cleanup = `worktree ${dir} could not be fully removed — the sweep picks it up later`;
+        } else if (removal.branchDeleted === false) {
+          cleanup = `branch ${branch} kept (${removal.branchKeptReason ?? "unmerged"})`;
+        }
+        if (!cleanup) {
+          emit("throwaway worktree removed");
+        }
       } catch (e: unknown) {
-        checks.push({ label: "shared symlinks", ok: false, detail: message(e) });
+        cleanup = `cleanup failed: ${message(e)} — the sweep picks up ${dir} later`;
       }
+      if (cleanup) emit(cleanup);
     }
 
-    // untracked-config sync: what the globs would copy from the hub
-    const syncGlobs = depPolicies.resolveSyncGlobs(overrides);
-    const matched = depPolicies.expandSyncPaths(hub, syncGlobs);
-    checks.push({
-      label: "config sync",
-      ok: true,
-      detail: matched.length
-        ? `${matched.length} path(s) matched: ${listCap(matched)}`
-        : `no paths matched: ${syncGlobs.join(", ")}`,
+    return done({
+      ok: !setupError,
+      error: setupError,
+      actions,
+      worktree: created ? dir : undefined,
+      branch,
+      cleanup,
     });
-
-    // warm caches: which of the common cache dirs exist to copy
-    const warm = COMMON_CACHE_DIRS.filter((dir) => fs.existsSync(path.join(hub, dir)));
-    checks.push({
-      label: "warm caches",
-      ok: true,
-      detail: warm.length ? `would copy: ${warm.join(", ")}` : "none present (fine)",
-    });
-
-    // setup_command: reported, never executed here
-    const setupCommand = overrides.setup_command?.trim();
-    checks.push({
-      label: "setup command",
-      ok: true,
-      detail: setupCommand ? `would run after the strategy: ${setupCommand}` : "none configured",
-    });
-
-    return { ok: checks.every((c) => c.ok), checks };
   }
 
   /** Denylist: dep trees must NEVER be symlinked into the hub's dep state. */
@@ -500,11 +514,6 @@ export class WorktreeSetup {
 }
 
 // ── mechanics ───────────────────────────────────────────────────────────────
-
-/** Comma-join capped — dry-run details stay one line, never a dump. */
-function listCap(items: string[], max = 10): string {
-  return items.length <= max ? items.join(", ") : `${items.slice(0, max).join(", ")} … +${items.length - max} more`;
-}
 
 /** Directory copy: instant CoW clone when the fs supports it, plain copy fallback. */
 async function copyDirCoW(src: string, dst: string): Promise<void> {
