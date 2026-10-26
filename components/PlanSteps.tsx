@@ -98,8 +98,7 @@ export default function PlanSteps({
       .map((d) => ({
         // Phase 3B: the plan-step row id rides the payload so a harmless
         // title/detail/files edit keeps the row (and a pending step child's
-        // linkage) instead of reading as remove + re-add — matching falls
-        // back to the exact title for legacy rows.
+        // linkage) instead of reading as remove + re-add.
         id: d.id,
         title: d.title.trim(),
         detail: d.detail.trim() || undefined,

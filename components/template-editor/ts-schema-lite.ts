@@ -5,8 +5,9 @@
  * the lite validator at run time). The authoring box accepts plain
  * TypeScript-style object bodies — just the members between `{ }` (braces
  * optional, no `interface` wrapper) — and compiles down to that schema. The
- * flat `{key, label, type, required}` input-row helpers remain for legacy
- * templates that declared inputs before the parent-output inheritance.
+ * flat `{key, label, type, required}` input-row helpers keep authoring the
+ * input contract (old rows whose inputs predate parent-output inheritance
+ * just carry inert extra data the engine ignores).
  *
  * Deliberately a subset, not a TypeScript compiler:
  *   • members `name[?]: type`, separated by `;` / `,` / newlines

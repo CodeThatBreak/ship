@@ -28,25 +28,11 @@ export interface ConfigField {
 /**
  * The app-settings layer: `settings["node_config.<defKey>"]` wins. Template
  * and per-flow configs sit above this layer in the merge order.
- *
- * One env fallback remains: `RESOLVE_DELAY_MINUTES` feeds the resolve node's
- * `quiet_minutes` knob when the template config doesn't set it (the global
- * `resolve.delay_ms` setting was removed — the knob lives on the resolve
- * template node config now).
  */
 export function appLayerConfig(defKey: string): Record<string, unknown> {
   const out: Record<string, unknown> = {};
   const stored = db.getSetting<Record<string, unknown> | null>(`node_config.${defKey}`, null);
   if (stored && typeof stored === "object") Object.assign(out, stored);
-
-  // env fallback: the resolve quiet-period knob (template node config wins above this layer)
-  if (defKey === "resolve") {
-    const envRaw = (process.env.RESOLVE_DELAY_MINUTES ?? "").trim();
-    if (envRaw) {
-      const env = Number(envRaw);
-      if (Number.isFinite(env) && env >= 0) out.quiet_minutes = env;
-    }
-  }
   return out;
 }
 

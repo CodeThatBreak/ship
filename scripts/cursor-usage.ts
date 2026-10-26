@@ -15,13 +15,13 @@
  */
 process.env.DATABASE_PATH ??= "./data/devflow.db";
 import { Agent, type AgentUsage } from "@cursor/sdk";
-import { config } from "../lib/config";
 import { db } from "../lib/db";
+import { cursorApiKey } from "../lib/integrations/cursor/credentials";
 
-const apiKey = config.cursor.apiKey();
+const apiKey = cursorApiKey();
 if (!apiKey) {
   console.error(
-    "No CURSOR_API_KEY in env — run with: npx tsx --env-file=.env scripts/cursor-usage.ts ...",
+    "No Cursor API key stored — save one on Settings → Integrations → Harness.",
   );
   process.exit(1);
 }

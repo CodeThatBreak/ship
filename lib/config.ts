@@ -5,19 +5,13 @@ import path from "path";
  *
  * Integration credentials (GitLab / Jira / Cursor) are managed from
  * Settings → Integrations and stored in the DB — the environment only
- * carries infrastructure config (db / workspace) plus optional back-compat
- * values (GITLAB_WEBHOOK_SECRET, CURSOR_API_KEY). Values are read lazily
- * via methods so tests and long-running processes always see the current
- * environment.
+ * carries infrastructure config (db / workspace) plus the optional
+ * GITLAB_WEBHOOK_SECRET. Values are read lazily via methods so tests and
+ * long-running processes always see the current environment.
  */
 
 class CursorConfig {
   readonly baseUrl = "https://api.cursor.com";
-
-  /** Legacy env fallback — the Harness tab stores the key in the DB instead. */
-  apiKey(): string {
-    return AppConfig.env("CURSOR_API_KEY");
-  }
 
   defaultModel(): string {
     return AppConfig.env("DEFAULT_MODEL");

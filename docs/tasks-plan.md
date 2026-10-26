@@ -7,9 +7,10 @@ Date: 2026-10-24 · Status: shipped (Phases 1–4)
 > (cleanup) dropped the `{{ticket.*}}` runtime alias and lint root, removed the
 > `/api/tickets` shim, moved the jira-only payload (`prd`, `figma_urls`) fully
 > into `tasks.fields` (data-fix + column drop), and updated README / flow-template
-> fixtures to `{{task.*}}`. Legacy YAML documents still import: the import-time
-> `ticket_id` drop + `{{ticket.*}}` → `{{task.*}}` rewrite is the permanent
-> bridge (the runtime context no longer carries the alias).
+> fixtures to `{{task.*}}`. YAML import accepts only `{{task.*}}` — legacy YAML
+> documents referencing `{{ticket.*}}` or a `ticket_id` pin are rejected with a
+> lint error (the legacy-alias bridge was removed; existing DB rows are
+> rewritten by the `migrateLegacyTicketRefs` data fix at startup).
 
 ## Goal
 

@@ -3,9 +3,8 @@ export { PlanMetaParser } from "./plan-meta-parser";
 export {
   PlanBranch,
   PlanInput,
-  PlanMeta,
+  type PlanMeta,
   PlanStep,
-  PlanMetaStep,
   PlanOutput,
   SimplePlanResponse,
   ComplexPlanResponse,
@@ -14,5 +13,4 @@ export {
   validateComplexPlan,
   validateSubPlan,
   type PlanValidationError,
-  type PlanMetaValidationError,
 } from "./schema";

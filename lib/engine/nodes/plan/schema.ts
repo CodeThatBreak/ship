@@ -22,6 +22,17 @@ export const PlanStep: z.ZodType<PlanStep> = PlanStepBase.extend({
   subSteps: z.lazy(() => z.array(PlanStep)).optional(),
 }) as z.ZodType<PlanStep>;
 
+// ── plan meta (the steps store + artifact meta shape) ───────────────────────
+
+/**
+ * The plan runtime meta: the checklist plus the optional branch decomposition.
+ * Persisted in plan artifact meta and consumed by the steps store / fan-out.
+ */
+export type PlanMeta = {
+  steps: PlanStep[];
+  branches: PlanBranch[];
+};
+
 // ── branch schema (complex plans only) ───────────────────────────────────────
 
 export const PlanBranch = z.object({
@@ -225,22 +236,6 @@ export function validateComplexPlan(raw: unknown): { plan: ComplexPlanResponse; 
   if (stepErr) return { plan: null, errors: stepErr };
   return { plan: data, errors: [] };
 }
-
-// ── legacy compat (PlanMeta used by steps store, artifact meta) ──────────────
-
-/** Backwards-compat alias: PlanMeta is now just the steps+branches subset. */
-export const PlanMeta = z.object({
-  steps: z.array(PlanStep).min(1),
-  branches: z.array(PlanBranch).optional().default([]),
-});
-export type PlanMeta = z.infer<typeof PlanMeta>;
-
-/** Backwards-compat alias. */
-export const PlanMetaStep = PlanStep;
-export type PlanMetaStep = PlanStep;
-
-/** Backwards-compat aliases. */
-export type PlanMetaValidationError = PlanValidationError;
 
 // ── input / output schemas ───────────────────────────────────────────────────
 

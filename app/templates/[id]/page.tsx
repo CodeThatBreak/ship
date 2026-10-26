@@ -125,26 +125,6 @@ const KIND_LABELS: Record<string, string> = {
   script: "Script node",
 };
 
-/** The default Start node instance — the flow's entry: nothing points at it, it
- *  carries the branch trigger, and it finishes immediately (registry "start"). */
-function startNodeInstance(): EditorNode {
-  return {
-    key: "start",
-    nodeTemplateId: "nt_start",
-    label: "start",
-    overrideLabel: null,
-    trigger: { type: "auto" },
-    join_mode: "all",
-    config: {},
-    input_map: {},
-    kind: null,
-    icon: "Play",
-    catalog_name: "Start",
-    catalogKey: "start",
-    is_builtin: true,
-  };
-}
-
 /** Default node_templates icon per declarative kind (lucide names the graph resolves). */
 const KIND_ICONS: Record<string, string> = {
   agent: "bot",
@@ -349,19 +329,6 @@ export default function TemplateEditorPage() {
       redoStack.current = [];
       lastSnapAt.current = 0;
       syncUndoFlags();
-      // templates created before the Start node existed stay empty: seed the
-      // entry node into the draft (marked dirty so a Save persists it). New
-      // templates seed their Start node server-side at creation — silent, so
-      // this notice only ever surfaces for legacy-empty graphs.
-      if (!data.template?.is_builtin && d.nodes.length === 0) {
-        setDraft((cur) =>
-          cur && cur.nodes.length === 0
-            ? { ...cur, nodes: [startNodeInstance()] }
-            : cur,
-        );
-        setDirty(true);
-        setNotice("Start node added by default — Save to keep it.");
-      }
     } else setError(data?.error ?? "failed to load template");
   }, [templateId, setDraft, syncUndoFlags]);
 

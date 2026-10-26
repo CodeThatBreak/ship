@@ -51,10 +51,8 @@ export const WAIT_FOR_SOURCES: WaitForSource[] = WAIT_FOR_GROUPS.flatMap((g) => 
 
 /** Flow-trigger runtime labels — every template's flows can always be started
  *  manually (task picker) or by a webhook delivery; the declared trigger only
- *  carries the optional schedule. Legacy `webhook`-typed rows run the same
- *  manual/webhook pair (the hook is provisioned for every template). */
+ *  carries the optional schedule (unknown/absent types read as manual). */
 export const FLOW_TRIGGER_TYPE: Record<string, string> = {
   manual: "manual / webhook",
-  webhook: "manual / webhook",
   schedule: "schedule",
 };

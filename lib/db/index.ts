@@ -2,6 +2,7 @@ import SqliteDatabase from "better-sqlite3";
 import fs from "fs";
 import path from "path";
 import { config } from "../config";
+import { normalizeModelSpec } from "../modelSpec";
 import { processSingleton } from "../singleton";
 
 export interface Repo {
@@ -229,6 +230,130 @@ export class Database {
     // Legacy flows predate templates — bind them to the seeded SDLC template so
     // the engine's template-derived roles (gate chain, graph) apply unchanged.
     d.exec(`UPDATE flows SET template_id='tpl_sdlc_loop' WHERE template_id IS NULL`);
+    // ── legacy data normalization (retires the read-side compat paths) ─────
+    this.normalizeLegacyModelSpecs(d);
+    this.normalizeLegacyFlowTriggers(d);
+    this.normalizeLegacyComments(d);
+  }
+
+  /**
+   * Legacy data fix: model ids stored with bracket params before the
+   * write-path normalization (`runs.model`, plus `model` overrides in node /
+   * template-node configs). `fast=false`-style params are dropped, other
+   * params kept verbatim — identical semantics to `normalizeModelSpec`.
+   * Idempotent: only rows whose value changes are written back.
+   */
+  private normalizeLegacyModelSpecs(d: SqliteDatabase.Database): void {
+    for (const [table, column] of [
+      ["runs", "model"],
+      ["nodes", "config"],
+      ["flow_template_nodes", "config"],
+    ] as const) {
+      if (!this.hasTable(d, table)) continue;
+      const affected = d
+        .prepare(`SELECT rowid AS id, ${column} AS v FROM ${table} WHERE v LIKE '%[%'`)
+        .all() as { id: number | string; v: string }[];
+      const update = d.prepare(`UPDATE ${table} SET ${column}=? WHERE rowid=?`);
+      for (const r of affected) {
+        let next: string | null = null;
+        if (table === "runs") {
+          next = normalizeModelSpec(r.v);
+        } else {
+          try {
+            const cfg = JSON.parse(r.v) as Record<string, unknown>;
+            if (cfg && typeof cfg === "object" && typeof (cfg as Record<string, unknown>).model === "string") {
+              const nv = normalizeModelSpec((cfg as { model: string }).model);
+              if (nv !== (cfg as { model: string }).model) {
+                cfg.model = nv;
+                next = JSON.stringify(cfg);
+              }
+            }
+          } catch {
+            // not JSON / not a node config shape — leave untouched
+          }
+        }
+        if (next !== null && next !== r.v) update.run(next, r.id);
+      }
+    }
+  }
+
+  /**
+   * Legacy data fix: flow triggers persisted with the retired `webhook` type
+   * (the type carried no runtime behavior — every template's flows can always
+   * be started by manual pick or hook delivery) remap to `manual`, keeping the
+   * surrounding keys (filter / repo_id / task_type) verbatim. One-shot,
+   * idempotent.
+   */
+  private normalizeLegacyFlowTriggers(d: SqliteDatabase.Database): void {
+    if (!this.hasTable(d, "flow_templates")) return;
+    const affected = d
+      .prepare(`SELECT id, trigger FROM flow_templates WHERE trigger LIKE '%"type":"webhook"%'`)
+      .all() as { id: string; trigger: string }[];
+    const update = d.prepare(`UPDATE flow_templates SET trigger=? WHERE id=?`);
+    for (const t of affected) {
+      try {
+        const trig = JSON.parse(t.trigger) as Record<string, unknown>;
+        if (trig && trig.type === "webhook") {
+          trig.type = "manual";
+          update.run(JSON.stringify(trig), t.id);
+        }
+      } catch {
+        // unparseable trigger JSON — the read-side normalizer defaults it anyway
+      }
+    }
+  }
+
+  /**
+   * Legacy data fix: comments ingested before normalization carry the raw
+   * git-host note JSON in `comments.raw` (`position.new_path` / snake_case
+   * `created_at` / author object). Rewrite those rows to the normalized
+   * `HostComment` JSON shape every ingested row gets today, sourcing the
+   * column-backed fields verbatim. One-shot, idempotent — normalized rows
+   * carry a top-level `createdAt` and are skipped.
+   */
+  private normalizeLegacyComments(d: SqliteDatabase.Database): void {
+    if (!this.hasTable(d, "comments")) return;
+    const legacy = d
+      .prepare(`SELECT id, raw, discussion_id, author, body, status, created_at FROM comments`)
+      .all() as {
+      id: string; raw: string | null; discussion_id: string | null;
+      author: string | null; body: string; status: string; created_at: string;
+    }[];
+    for (const c of legacy) {
+      let parsed: Record<string, unknown> | null = null;
+      try { parsed = c.raw ? (JSON.parse(c.raw) as Record<string, unknown>) : null; } catch { parsed = null; }
+      const p = parsed && typeof parsed === "object" ? parsed : null;
+      // normalized rows carry createdAt (camelCase); anything else is a
+      // pre-normalization git-host note — GitLab shape: position.* + created_at
+      if (!p || typeof p.createdAt === "string") continue;
+      if (p.created_at === undefined && p.position === undefined) continue;
+      const position = (p.position ?? null) as { new_path?: string; new_line?: number } | null;
+      const rawAuthor = p.author;
+      const hostAuthor =
+        typeof rawAuthor === "string" ? rawAuthor
+        : rawAuthor && typeof rawAuthor === "object" && "username" in (rawAuthor as Record<string, unknown>)
+          ? String((rawAuthor as { username: unknown }).username)
+          : null;
+      const normalized = {
+        id: c.id,
+        threadId: c.discussion_id,
+        body: c.body,
+        author: c.author ?? hostAuthor,
+        resolvable: typeof p.resolvable === "boolean" ? p.resolvable : true,
+        resolved: typeof p.resolved === "boolean" ? p.resolved : c.status === "resolved",
+        system: false,
+        path: (typeof p.path === "string" ? p.path : null) ?? position?.new_path ?? null,
+        line: (typeof p.line === "number" ? p.line : null) ?? position?.new_line ?? null,
+        createdAt: typeof p.created_at === "string" ? p.created_at : c.created_at,
+      };
+      d.prepare(`UPDATE comments SET author=?, raw=? WHERE id=?`)
+        .run(normalized.author, JSON.stringify(normalized), c.id);
+    }
+  }
+
+  /** Table-existence guard for data fixes (mirrors the migrate() cols() pattern). */
+  private hasTable(d: SqliteDatabase.Database, table: string): boolean {
+    return !!d.prepare(`SELECT 1 FROM sqlite_master WHERE type='table' AND name=?`).get(table);
   }
 
   /**

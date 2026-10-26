@@ -613,14 +613,13 @@ export class FlowEngine {
   }
 
   /** Bulk-replace the checklist from the Plan view editor.
-   *  Phase 3B softened fan-out guards: the editor now sends each row's plan-step
-   *  row id (PlanSteps payload), so a harmless title/detail/files edit keeps the
-   *  row — and its pending child sub-flow's linkage — instead of being read as a
-   *  remove + re-add (the old title-match-only guard errored loudly on renames
-   *  and destroyed pending children). Matching: by the sent row id first, then
-   *  the old exact-title escape (legacy payloads without ids). Rows that are
-   *  actually removed still hit the guards: a pending child's flow closes
-   *  silently, a started/merged child's step refuses loudly. */
+   *  Phase 3B softened fan-out guards: the editor sends each row's plan-step
+   *  row id (PlanSteps payload), so a harmless title/detail/files edit keeps
+   *  the row — and its pending child sub-flow's linkage — instead of being
+   *  read as a remove + re-add (the old title-match-only guard errored loudly
+   *  on renames and destroyed pending children). Rows that are actually
+   *  removed still hit the guards: a pending child's flow closes silently, a
+   *  started/merged child's step refuses loudly. */
   updatePlanSteps(flowId: string, input: PlanStepInput[]): void {
     if (!Array.isArray(input) || input.some((s) => !s?.title?.trim?.())) {
       throw new Error("steps must be an array of {title, detail?, files?}");
@@ -629,13 +628,11 @@ export class FlowEngine {
     const guards = stepFlows.deletableStepIds(flowId);
     const existing = planSteps.list(flowId);
     const byId = new Map(existing.map((s) => [s.id, s]));
-    const byTitle = new Map(existing.map((s) => [s.title, s]));
     const claimed = new Set<string>(); // existing rows matched to a kept input row
     const matched = new Map<number, string>(); // input index → existing row id
     for (const [i, row] of input.entries()) {
-      const sentId = typeof (row as { id?: string }).id === "string" ? (row as { id?: string }).id!.trim() : "";
-      let m = sentId ? byId.get(sentId) : undefined;
-      if (!m) m = byTitle.get(row.title.trim());
+      const sentId = typeof row.id === "string" ? row.id.trim() : "";
+      const m = sentId ? byId.get(sentId) : undefined;
       if (m && !claimed.has(m.id)) {
         claimed.add(m.id);
         matched.set(i, m.id);
@@ -678,7 +675,7 @@ export class FlowEngine {
 
   // ── template topology + edge-driven activation ───────────────────────────
 
-  /** The flow's template graph (the seeded SDLC loop for legacy rows). */
+  /** The flow's template graph (the seeded SDLC loop as the fallback). */
   private graph(flowId: string): TemplateGraph | null {
     return templateStore.graphForFlow(flowId);
   }
@@ -1558,8 +1555,7 @@ export class FlowEngine {
     }
     // The concrete task: a caller-provided taskId (manual/eager starts) wins
     // and is type-checked against the declared task_type; auto-start falls
-    // back to the most recent imported task of that type. A legacy
-    // `trigger.ticket_id` pin (pre-Phase-3 rows) is ignored — no crash.
+    // back to the most recent imported task of that type.
     let taskId = typeof opts.taskId === "string" ? opts.taskId.trim() : "";
     if (taskId) {
       const existing = db.get<{ type: string }>(`SELECT type FROM tasks WHERE id=?`, taskId);

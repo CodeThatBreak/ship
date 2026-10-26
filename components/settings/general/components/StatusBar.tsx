@@ -13,8 +13,8 @@ const STATUS_ITEMS: ReadonlyArray<{
   icon: ComponentType<{ className?: string }>;
   isOk: (s: Settings) => boolean;
 }> = [
-  { label: "Cursor (Harness)", icon: CursorIcon, isOk: (s) => Boolean(s.status.cursorApiKeySet || s.status.cursorApiKeyFromEnv) },
-  { label: "Local runtime", icon: Cpu, isOk: (s) => s.status.cursorCliAvailable },
+  { label: "Cursor (Harness)", icon: CursorIcon, isOk: (s) => Boolean(s.status.cursorApiKeySet) },
+  { label: "Local runtime", icon: Cpu, isOk: (s) => s.status.localAgentConfigured },
   { label: "GitLab", icon: GitLabIcon, isOk: (s) => s.status.gitHosts?.gitlab ?? false },
   { label: "Jira", icon: JiraIcon, isOk: (s) => s.status.taskProviders?.jira ?? false },
 ];

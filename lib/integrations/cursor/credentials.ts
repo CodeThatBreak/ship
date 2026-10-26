@@ -1,16 +1,14 @@
 import { db } from "../../db";
-import { config } from "../../config";
 
 /**
- * The Cursor API key resolution order: the value saved on Settings →
- * Integrations → Harness (DB) wins over the legacy `CURSOR_API_KEY` env var.
+ * The Cursor API key resolution: stored on Settings → Integrations → Harness
+ * (DB). There is no env fallback — the key lives only in the settings store.
  */
 export function cursorApiKey(): string {
-  const stored = db.getSetting<string>("cursor.api_key", "");
-  return stored.trim() || config.cursor.apiKey();
+  return db.getSetting<string>("cursor.api_key", "").trim();
 }
 
-/** Whether a DB-stored key is set (env fallback excluded) — settings UI status. */
+/** Whether a DB-stored key is set — settings UI status. */
 export function cursorApiKeyStored(): boolean {
   return Boolean(db.getSetting<string>("cursor.api_key", "").trim());
 }
@@ -20,7 +18,7 @@ export function setCursorApiKey(key: string): void {
   db.setSetting("cursor.api_key", key.trim());
 }
 
-/** Remove the stored Cursor API key (the env fallback applies again). */
+/** Remove the stored Cursor API key. */
 export function clearCursorApiKey(): void {
   db.setSetting("cursor.api_key", "");
 }

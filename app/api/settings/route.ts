@@ -61,7 +61,7 @@ function harnessGroups(
 
 export async function GET() {
   const ports = agentPortRegistry.list();
-  // one probe per port — the harness groups and the legacy cursorCliAvailable
+  // one probe per port — the harness groups and the Local-runtime status card
   // read the same status map (no duplicate probes)
   const stateList = await Promise.all(
     ports.map((p) => p.status().catch(() => ({ configured: false }))),
@@ -87,11 +87,11 @@ export async function GET() {
     secrets: Object.keys(db.getSetting<Record<string, unknown>>("secrets", {}) ?? {}),
     http_allowlist: db.getSetting<string[]>("http_allowlist", []),
     status: {
-      // DB-stored key only — deleting it from the Harness tab must clear the
-      // card even when a CURSOR_API_KEY env fallback exists (reported separately)
+      // DB-stored key only — deleting it from the Harness tab clears the card
       cursorApiKeySet: cursorApiKeyStored(),
-      cursorApiKeyFromEnv: Boolean(config.cursor.apiKey()),
-      cursorCliAvailable: statuses.get(agentPortRegistry.forMode("local").kind)?.configured ?? false,
+      // the generic harness-mode status — the generic shape the settings page
+      // reads (new harnesses register in agentPortRegistry and appear there)
+      localAgentConfigured: statuses.get(agentPortRegistry.forMode("local").kind)?.configured ?? false,
       // per-registered-host configured status — the generic shape the settings
       // page reads (new hosts register in gitHostRegistry and appear here)
       gitHosts: Object.fromEntries(gitHostRegistry.list().map((h) => [h.kind, h.configured()])),
@@ -104,8 +104,8 @@ export async function GET() {
 export async function PATCH(req: Request) {
   const body = await req.json();
   // Cursor API key (write-only, like the secrets map): a non-empty value
-  // replaces the stored key; an empty string deletes it (the env fallback
-  // applies again). The value is never returned by GET.
+  // replaces the stored key; an empty string deletes it. The value is never
+  // returned by GET.
   if (body.cursor_api_key !== undefined) {
     if (typeof body.cursor_api_key !== "string") {
       return NextResponse.json({ error: "cursor_api_key must be a string" }, { status: 400 });

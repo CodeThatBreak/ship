@@ -26,12 +26,12 @@ export class ResolveNode extends NodeDefinition<ResolveInput, ResolveOutput> {
   /** Typed config knobs (defaults = today's behavior). */
   readonly configSchema = z.object({
     prompt_body: z.string().optional(),
-    /** quiet-period minutes before the debounced resolve fires (legacy: resolve.delay_ms / RESOLVE_DELAY_MINUTES); null = legacy behavior (10 min) — engine-consumed */
+    /** quiet-period minutes before the debounced resolve fires; unset = the 10-min default — engine-consumed */
     quiet_minutes: z.number().min(0).optional(),
   });
   readonly configFields = [
     { key: "prompt_body", label: "Prompt body", type: "text", help: "User-editable prompt body; internal contracts re-appended automatically." },
-    { key: "quiet_minutes", label: "Quiet period (min)", type: "number", help: "Minutes of comment quiet before the debounced resolve fires. Empty = 10 (or RESOLVE_DELAY_MINUTES)." },
+    { key: "quiet_minutes", label: "Quiet period (min)", type: "number", help: "Minutes of comment quiet before the debounced resolve fires. Empty = 10." },
   ] as const satisfies readonly ConfigField[];
 
   async run(ctx: FlowCtx, input: ResolveInput, config: Record<string, unknown>): Promise<RunOutcome> {

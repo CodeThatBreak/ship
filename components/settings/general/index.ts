@@ -5,7 +5,6 @@
  * - components/  presentational subcomponents, one per file
  * - hooks/       settings PATCH mutations + the section state hooks
  * - constants.ts feature constants (mode metadata, hints, placeholders)
- * - helpers.ts   model-id normalization helper
  * - types.ts     feature-local types
  */
 export { GeneralSection } from "./GeneralSection";

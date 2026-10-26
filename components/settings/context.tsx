@@ -35,7 +35,7 @@ export type Settings = {
   /** names of set secrets only (values never leave the server) */
   secrets?: string[];
   http_allowlist?: string[];
-  status: { cursorApiKeySet: boolean; cursorApiKeyFromEnv?: boolean; cursorCliAvailable: boolean; gitHosts: Record<string, boolean>; taskProviders: Record<string, boolean> };
+  status: { cursorApiKeySet: boolean; localAgentConfigured: boolean; gitHosts: Record<string, boolean>; taskProviders: Record<string, boolean> };
 };
 
 // ── provider ───────────────────────────────────────────────────────────────

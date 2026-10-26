@@ -7,7 +7,7 @@ import { NODE_KEYS } from "./nodes/keys";
 // reorder, add, delete, toggle) mutate these rows directly.
 
 export interface PlanStepInput {
-  id?: string; // meta_id for agent steps
+  id?: string; // agent-emitted steps: the planner's meta_id; editor payloads: the plan_steps row id
   title: string;
   detail?: string;
   files?: string[];

@@ -166,9 +166,10 @@ export class GitLabClient {
 }
 
 /**
- * GitLab integration: registry of configured instances (DB-backed, with the
- * env-based instance as back-compat fallback) and the repo-URL → instance
- * routing every API call goes through.
+ * GitLab integration: registry of configured instances (Settings →
+ * Integrations → Git, DB-backed) and the repo-URL → instance routing every
+ * API call goes through. There is no env fallback — credentials live only
+ * in the settings store.
  */
 export class GitLabService {
   private static host(url: string): string | null {

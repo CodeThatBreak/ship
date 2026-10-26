@@ -27,7 +27,7 @@ function serializeNodeTemplate(nt: NodeTemplateRow) {
  *  `?templateId=<id>` splits the declarative rows by locality: `nodeTemplates`
  *  carries built-ins + the global Library rows, `templateNodeTemplates` the
  *  rows private to that template (the palette's "This template" section).
- *  Without the query the legacy shape (every row in `nodeTemplates`) holds. */
+ *  Without the query the unscoped shape (every row in `nodeTemplates`) holds. */
 export async function GET(req: Request) {
   const templateId = new URL(req.url).searchParams.get("templateId") ?? undefined;
   if (templateId === undefined) {

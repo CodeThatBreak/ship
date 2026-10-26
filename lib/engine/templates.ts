@@ -13,8 +13,10 @@ import { taskRegistry } from "./tasks/registry";
 /** Seeded built-in template — the SDLC loop (plan → build → pipeline → review → resolve). */
 export const SDLC_TEMPLATE_ID = "tpl_sdlc_loop";
 
-/** Flow-level trigger types. */
-export const FLOW_TRIGGER_TYPES = ["manual", "webhook", "schedule"] as const;
+/** Flow-level trigger types (webhook startups are always available — the
+ *  inbound hook is provisioned for every template; the declared trigger only
+ *  selects manual/schedule behavior). */
+export const FLOW_TRIGGER_TYPES = ["manual", "schedule"] as const;
 /** Task types a template's trigger may declare — the registered provider kinds
  *  (docs/tasks-plan.md §2). A template declares WHICH task type its flows run
  *  on (trigger.task_type); flows receive the concrete task at start time. */
@@ -136,8 +138,7 @@ export interface TemplateNodeMeta {
  * (kind=agent). Phase 3 adds the decision / http / script kinds, static
  * template linting (§5), decision-edge label validation at save time, and the
  * flow trigger's declared task type (`trigger.task_type`, default = the first
- * registered task provider — a legacy `ticket_id` pin in old trigger rows is
- * ignored, not honored).
+ * registered task provider).
  */
 export class TemplateStore {
   /** Load a template's graph, or null when the template does not exist. */
@@ -190,7 +191,7 @@ export class TemplateStore {
       templateId,
       version: tpl.version,
       // normalized on read: an absent task_type parses back as the default
-      // (idempotent backfill-on-read — old trigger rows need no migration)
+      // (the first registered provider) — trigger rows need no migration
       flowTrigger: TemplateStore.flowTrigger(TemplateStore.parseJson<Record<string, unknown>>(tpl.trigger, { type: "manual" })),
       nodes,
       edges,
@@ -578,9 +579,8 @@ export class TemplateStore {
    * editor's palette places `draft:` instances with nothing server-side until
    * the user commits — this is where the rows are born. An identical
    * persisted def (same key + kind + config) is reused, so identical custom
-   * nodes stay one row across templates (locality-aware — see the offset
-   * comment below); otherwise a new row is created scoped to the given
-   * template (template-local when `opts.templateId` is set), and a taken key
+   * nodes stay one row across templates (locality-aware); otherwise a new row
+   * is created scoped to the given template, and a taken key
    * versions the display name ("Agent node 2") instead of dead-ending the
    * save. Returns the row id + whether this call created it (the API route
    * rolls back rows it created when the surrounding save fails).
@@ -588,7 +588,7 @@ export class TemplateStore {
   createOrReuseNodeTemplate(input: {
     name: string; kind: string; icon?: string | null; description?: string | null;
     config: Record<string, unknown>;
-  }, opts: { templateId?: string } = {}): { id: string; created: boolean } {
+  }, opts: { templateId: string }): { id: string; created: boolean } {
     const name = input.name.trim();
     if (!name) throw new Error("name is required");
     const kind = (input.kind ?? "").trim();
@@ -603,16 +603,13 @@ export class TemplateStore {
     // row across templates), as is an identical row already local to THIS
     // template (suffixed keys included — the base slug may be taken by
     // another def). Rows local to other templates always get a fresh copy
-    // scoped to this template. Without the scope option the legacy any-row
-    // reuse applies.
+    // scoped to this template.
     const slug = TemplateStore.slugify(name);
-    const scoped = opts.templateId !== undefined;
     const identical = rows.all(NodeTemplateRow,
       `SELECT * FROM node_templates
        WHERE is_builtin=0 AND (key=? OR key LIKE ? ESCAPE '\\')
-         AND (${scoped ? "template_id IS NULL OR template_id=?" : "1=1"})`,
-      slug, `${TemplateStore.likeEscape(slug)}\\_local%`,
-      ...(scoped ? [opts.templateId as string] : []),
+         AND (template_id IS NULL OR template_id=?)`,
+      slug, `${TemplateStore.likeEscape(slug)}\\_local%`, opts.templateId,
     ).find((r) => r.kind === kind && JSON.stringify(r.config ?? {}) === JSON.stringify(config));
     if (identical) return { id: identical.id, created: false };
     try {
@@ -881,9 +878,10 @@ export class TemplateStore {
   /**
    * Normalize a flow trigger: the type + per-type knobs, plus the declared
    * task type (`task_type` — which task type the template's flows run on,
-   * defaulting to jira when absent so existing rows parse back cleanly). A
-   * legacy `ticket_id` pin (pre-Phase-3 trigger rows) is dropped/ignored —
-   * task binding is now the declared type, not one mutable row.
+   * defaulting to the first registered provider when absent). The output is
+   * rebuilt from the known keys — stray keys on stored rows (an old
+   * `ticket_id` pin) simply don't survive; task binding is the declared
+   * type, not one mutable row.
    */
   private static flowTrigger(o: unknown): Record<string, unknown> {
     const rec = (o && typeof o === "object" ? o : {}) as Record<string, unknown>;

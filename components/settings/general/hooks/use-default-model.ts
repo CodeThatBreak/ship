@@ -3,12 +3,12 @@ import { useCallback, useMemo } from "react";
 import type { Settings } from "../../context";
 import { useModels } from "@/components/ModelSelector";
 import { usePatchSettings } from "./use-patch-settings";
-import { baseModelId } from "../helpers";
 
 /**
- * The default-model select. `default_model` arrives normalized (no bracket
- * params); when the catalog is unreachable the stored default is still kept
- * selectable by prepending it to the fallback list.
+ * The default-model select. `default_model` arrives from the API normalized —
+ * no bracket params — and matching rows are normalized by the DB migration;
+ * when the catalog is unreachable the stored default is still kept selectable
+ * by prepending it to the fallback list.
  */
 export function useDefaultModel(settings: Settings) {
   const models = useModels();
@@ -17,7 +17,7 @@ export function useDefaultModel(settings: Settings) {
 
   const { options, stored, source } = useMemo(() => {
     const list = models?.models ?? [];
-    const base = baseModelId(settings.default_model);
+    const base = (settings.default_model ?? "").trim();
     // catalog fallback (same semantics as before): keep the stored default
     // selectable even when the model list can't show it
     return {

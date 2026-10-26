@@ -13,9 +13,9 @@ Set the default mode and local-agent options (auto-approve tools, sandbox, timeo
 
 ## Settings page (`/settings`)
 
-- **Agent execution** — default cloud/local mode + local CLI options, plus the **default model** for agent runs (list comes from `cursor-agent models`, falling back to a built-in list when the CLI isn't installed; per-run overrides available on each node's run buttons and in the *Edit prompt & run* dialog). `DEFAULT_MODEL` env remains the final fallback. Also the **comment-resolution quiet period**: how long after the last new MR comment the Resolve node auto-starts (default 10 min; `RESOLVE_DELAY_MINUTES` env is the fallback when no value is saved). The resolve always waits for the pipeline step to pass first, regardless of this delay.
+- **Agent execution** — default cloud/local mode + local CLI options, plus the **default model** for agent runs (list comes from `cursor-agent models`, falling back to a built-in list when the CLI isn't installed; per-run overrides available on each node's run buttons and in the *Edit prompt & run* dialog). `DEFAULT_MODEL` env remains the final fallback. Also the **comment-resolution quiet period**: how long after the last new MR comment the Resolve node auto-starts (default 10 min; set the node's `quiet_minutes` config to change it). The resolve always waits for the pipeline step to pass first, regardless of this delay.
 - **Repositories** — registry of your repos: `name`, `cloud_url` (any GitLab domain), `local_path` (needed for local mode + local diffs), `default_branch`. Local paths are validated (must be a git repo).
-- **Git host instances** — one entry per self-hosted GitLab domain (`base_url` + PAT with `api` scope). DevFlow picks the token whose domain matches each repo's cloud URL for API calls, MRs, CI polling, comments, and cloning. Repos on domains without an entry fall back to `GITLAB_BASE_URL`/`GITLAB_TOKEN` from `.env`, so existing single-instance setups keep working unchanged. Each instance has a **Test** button to verify auth. (GitLab is the first registered git host; the settings UI reads host metadata from `GET /api/git-hosts`.)
+- **Git host instances** — one entry per self-hosted GitLab domain (`base_url` + PAT with `api` scope). DevFlow picks the token whose domain matches each repo's cloud URL for API calls, MRs, CI polling, comments, and cloning. Each instance has a **Test** button to verify auth. (GitLab is the first registered git host; the settings UI reads host metadata from `GET /api/git-hosts`.)
 
 ## The loop
 
@@ -72,9 +72,7 @@ the refine. Open the flow and try toggling / editing steps — it's all live dat
 |---|---|
 | `CURSOR_API_KEY` | Cursor dashboard → API Keys. Powers every agent node. |
 | `JIRA_BASE_URL` / `JIRA_EMAIL` / `JIRA_API_TOKEN` | Jira (self-hosted or Cloud). The tasks table fetches your assigned issues live via the filter bar. |
-| `GITLAB_BASE_URL` / `GITLAB_TOKEN` | Self-hosted GitLab PAT with `api` scope. |
 | `GITLAB_WEBHOOK_SECRET` | Shared secret for the webhook endpoint. |
-| `RESOLVE_DELAY_MINUTES` | Minutes of comment quiet before the Resolve node auto-starts (default `10`). Overridden by the Settings page value. |
 
 ### GitLab webhook (for live CI + comment triggers)
 
