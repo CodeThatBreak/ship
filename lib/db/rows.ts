@@ -270,6 +270,7 @@ export const RepoRow = z.object({
   sync_paths: z.string().nullable(),
   shared_dirs: z.string().nullable(),
   setup_command: z.string().nullable(),
+  worktree_timeout_ms: z.number().nullable(),
   created_at: z.string(),
   updated_at: z.string(),
 });

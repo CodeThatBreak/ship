@@ -9,6 +9,7 @@ import {
   depPolicies,
   type DepPolicy,
   type DepStrategy,
+  type RepoDepOverrides,
 } from "./dep-policy";
 import { containsPath, samePath } from "./worktrees";
 
@@ -42,6 +43,26 @@ export interface WorktreeSetupResult {
   error?: string;
   /** human-readable summary of what ran (lifecycle events) */
   actions: string[];
+}
+
+/** One advisory check line of a setup dry-run (the repo form's "Test setup"). */
+export interface SetupDryRunCheck {
+  label: string;
+  ok: boolean;
+  detail: string;
+}
+
+export interface WorktreeSetupDryRunResult {
+  /** false = at least one check failed (the detail carries the reason) */
+  ok: boolean;
+  checks: SetupDryRunCheck[];
+}
+
+export interface WorktreeSetupDryRunInput {
+  /** the hub: the developer's real checkout the policy resolves against */
+  hubPath: string;
+  /** the same overrides shape the engine maps from the repo row */
+  overrides?: RepoDepOverrides | null;
 }
 
 /** Ambient facts every step needs (resolved once by WorktreeSetup.run). */
@@ -348,6 +369,107 @@ export class WorktreeSetup {
     return { ok: true, actions };
   }
 
+  /**
+   * Dry-run the setup policy exactly as a fresh worktree would experience it,
+   * WITHOUT creating a worktree or touching any state (the repo form's "Test
+   * setup" button). Resolution mirrors the engine's setupFlowWorktree: policy
+   * from the overrides, sync globs, shared dirs, setup command. Commands are
+   * REPORTED, never executed — the result is purely advisory.
+   */
+  async dryRun(input: WorktreeSetupDryRunInput): Promise<WorktreeSetupDryRunResult> {
+    const hub = path.resolve(input.hubPath);
+    const overrides = input.overrides ?? {};
+    const checks: SetupDryRunCheck[] = [];
+
+    // the hub must be a real git checkout — the source of deps, config, caches
+    const hubUsable = fs.existsSync(path.join(hub, ".git"));
+    checks.push({
+      label: "hub checkout",
+      ok: hubUsable,
+      detail: hubUsable ? hub : `${hub} is not a git checkout (no .git)`,
+    });
+    if (!hubUsable) return { ok: false, checks };
+
+    // the dependency strategy: what would materialize deps in a worktree
+    const policy = depPolicies.resolve({ hubPath: hub, overrides });
+    checks.push({
+      label: "dependency strategy",
+      ok: true,
+      detail:
+        `${policy.source} → ${policy.strategy}` +
+        (policy.command ? ` — would run: ${policy.command}` : "") +
+        (policy.depDirs?.length ? ` — would copy: ${policy.depDirs.join(", ")}` : ""),
+    });
+    if (policy.strategy === "clone") {
+      // the gate's hub-side half; the hub/worktree lockfile match itself can
+      // only be verified when a worktree exists, at flow start
+      for (const dir of policy.depDirs ?? []) {
+        const present = fs.existsSync(path.join(hub, dir));
+        checks.push({
+          label: `dep dir ${dir}`,
+          ok: present,
+          detail: present
+            ? "present in the hub — copied CoW at flow start"
+            : `missing in the hub — a fresh worktree would fall back to ${policy.fallback?.command ?? policy.fallback?.strategy ?? "nothing"}`,
+        });
+      }
+      if (policy.lockfile) {
+        const readable = !!depPolicies.hashFile(path.join(hub, policy.lockfile));
+        checks.push({
+          label: `lockfile ${policy.lockfile}`,
+          ok: readable,
+          detail: readable
+            ? "readable — the hub/worktree hash match is re-verified at flow start"
+            : "unreadable — a fresh worktree would fall back to the frozen install",
+        });
+      }
+    }
+
+    // shared_dirs: the one symlink surface (denied/missing entries are config errors)
+    const sharedDirs = depPolicies.parsePathList(overrides.shared_dirs);
+    if (sharedDirs.length) {
+      try {
+        const specs = this.sharedDirSpecs(hub, sharedDirs);
+        checks.push({
+          label: "shared symlinks",
+          ok: true,
+          detail: specs.length ? `would symlink: ${listCap(specs)}` : "no shared dirs matched",
+        });
+      } catch (e: unknown) {
+        checks.push({ label: "shared symlinks", ok: false, detail: message(e) });
+      }
+    }
+
+    // untracked-config sync: what the globs would copy from the hub
+    const syncGlobs = depPolicies.resolveSyncGlobs(overrides);
+    const matched = depPolicies.expandSyncPaths(hub, syncGlobs);
+    checks.push({
+      label: "config sync",
+      ok: true,
+      detail: matched.length
+        ? `${matched.length} path(s) matched: ${listCap(matched)}`
+        : `no paths matched: ${syncGlobs.join(", ")}`,
+    });
+
+    // warm caches: which of the common cache dirs exist to copy
+    const warm = COMMON_CACHE_DIRS.filter((dir) => fs.existsSync(path.join(hub, dir)));
+    checks.push({
+      label: "warm caches",
+      ok: true,
+      detail: warm.length ? `would copy: ${warm.join(", ")}` : "none present (fine)",
+    });
+
+    // setup_command: reported, never executed here
+    const setupCommand = overrides.setup_command?.trim();
+    checks.push({
+      label: "setup command",
+      ok: true,
+      detail: setupCommand ? `would run after the strategy: ${setupCommand}` : "none configured",
+    });
+
+    return { ok: checks.every((c) => c.ok), checks };
+  }
+
   /** Denylist: dep trees must NEVER be symlinked into the hub's dep state. */
   private static readonly DENIED_SHARED_DIRS = new Set(["node_modules", ".git"]);
 
@@ -379,6 +501,11 @@ export class WorktreeSetup {
 
 // ── mechanics ───────────────────────────────────────────────────────────────
 
+/** Comma-join capped — dry-run details stay one line, never a dump. */
+function listCap(items: string[], max = 10): string {
+  return items.length <= max ? items.join(", ") : `${items.slice(0, max).join(", ")} … +${items.length - max} more`;
+}
+
 /** Directory copy: instant CoW clone when the fs supports it, plain copy fallback. */
 async function copyDirCoW(src: string, dst: string): Promise<void> {
   const flags =
@@ -401,9 +528,14 @@ async function runCommand(command: string, cwd: string, timeoutMs?: number): Pro
       maxBuffer: MAX_BUFFER,
       shell: process.platform === "win32" ? undefined : "/bin/bash",
     });
-  } catch (e: any) {
-    const tail = String(e?.stderr ?? e?.stdout ?? "").trim().slice(-500);
-    throw new Error(`${command} (${e?.message ?? e})${tail ? ` — ${tail}` : ""}`);
+  } catch (e: unknown) {
+    const err = (typeof e === "object" && e !== null ? e : {}) as {
+      stderr?: unknown;
+      stdout?: unknown;
+      message?: unknown;
+    };
+    const tail = String(err.stderr ?? err.stdout ?? "").trim().slice(-500);
+    throw new Error(`${command} (${String(err.message ?? e)})${tail ? ` — ${tail}` : ""}`);
   }
 }
 

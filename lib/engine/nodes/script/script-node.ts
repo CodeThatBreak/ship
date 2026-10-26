@@ -232,7 +232,7 @@ export class ScriptTemplateNode extends NodeDefinition<Record<string, unknown>, 
       // flows are first-class); when worktrees can't apply, keep the old error
       const branch = ctx.flow.mr_branch ?? flowCtxHelper.buildBranch(ctx);
       const binding = await worktreeManager.ensureFlowWorktree(ctx, branch, { nodeId });
-      if (!binding.dir) return this.legacyWorkspaceError(); // creation failed (or can't apply)
+      if (!binding.dir) return this.legacyWorkspaceError(); // worktrees can't apply (cloud mode)
       return binding.dir;
     }
     const lp = flowCtxHelper.localPath(ctx);
@@ -243,7 +243,7 @@ export class ScriptTemplateNode extends NodeDefinition<Record<string, unknown>, 
     return lp;
   }
 
-  /** Today's pre-ensure behavior, kept for failed ensures (and modes where worktrees can't apply). */
+  /** Today's pre-ensure behavior, kept for modes where worktrees can't apply (cloud). */
   private legacyWorkspaceError(): never {
     throw new Error(
       `${this.label}: no workspace clone for this flow — set cwd=repo, or run/re-run an agent step first (the workspace exists once the flow clones locally)`);

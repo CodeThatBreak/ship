@@ -16,6 +16,7 @@ import {
 import { InputGroupButton } from "@/components/ui/input-group";
 import { Switch } from "@/components/ui/switch";
 import { cn } from "@/lib/utils";
+import { FAST_OFF, FAST_ON, FAST_PARAM } from "@/constants/models";
 import type { CatalogModel, ModelChoice } from "@/lib/modelSpec";
 
 // ── catalog data (normalized server-side by /api/models) ─────────────────────
@@ -93,10 +94,14 @@ export type ModelParameterDefinition = {
 };
 
 function defaultParamsOf(model?: CatalogModel): Record<string, string> {
-  // seed from the default variant so the options menu shows sane values
+  // seed from the default variant so the options menu shows sane values —
+  // except fast mode: the account default variant is fast=true on composer
+  // models, but DevFlow runs non-fast by default (the run service pins
+  // fast=false the same way), so the switch reflects the effective default
   const v = model?.variants?.find((x) => x.isDefault);
   const out: Record<string, string> = {};
   if (v) for (const p of v.params) out[p.id] = p.value;
+  if (out[FAST_PARAM] === FAST_ON) out[FAST_PARAM] = FAST_OFF;
   return out;
 }
 

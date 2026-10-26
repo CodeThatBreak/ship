@@ -1,3 +1,5 @@
+import { FAST_OFF, FAST_ON, FAST_PARAM } from "../constants/models";
+
 /**
  * Model spec strings: "<model-id>" or "<model-id>[param=value,param=value]".
  * The ID carries variation parameters (fast mode, effort/thinking level, …)
@@ -63,14 +65,19 @@ export function composeModelSpec(id: string, params?: ModelParamValue[]): string
 }
 
 /**
- * Normalize a model spec: fast mode is ALWAYS false in DevFlow, so any
- * `fast` param that isn't `fast=true` is noise and must never be stored or
- * resolved — `composer-2.5[fast=false]` → `composer-2.5`. Every other param
- * is kept verbatim (`composer-2.5[fast=true]` / `[effort=high]` stay).
+ * Normalize a model spec. The SDK passes ModelSelection params verbatim, and
+ * an unstated `fast` parameter falls through to the account's default variant
+ * — fast=true for composer models. `fast[]` values are therefore NOT noise:
+ * `composer-2.5[fast=false]` is the meaningful default-off pick and is KEPT
+ * (dropping it re-enabled fast), and `[fast=true]` is an explicit opt-in.
+ * Only unusable fast values are stripped (`composer-2.5[fast]` — a valueless
+ * param the SDK can't resolve — or an unknown value); every other param is
+ * kept verbatim (`composer-2.5[effort=high]` stays).
  */
 export function normalizeModelSpec(raw: string): string {
   const parsed = parseModelSpec(raw);
   if (!parsed) return raw;
-  const params = (parsed.params ?? []).filter((p) => !(p.id === "fast" && p.value !== "true"));
-  return composeModelSpec(parsed.id, params);
+  const usable = (p: ModelParamValue): boolean =>
+    !(p.id === FAST_PARAM && p.value !== FAST_ON && p.value !== FAST_OFF);
+  return composeModelSpec(parsed.id, (parsed.params ?? []).filter(usable));
 }

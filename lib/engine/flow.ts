@@ -25,6 +25,7 @@ import { hookStore } from "./hooks";
 import { parseStartContract, validateAgainstContract } from "./nodes/start/contract";
 import { DEFAULT_FANOUT_OUTPUT, type NodeCapabilities } from "./nodes/base/capabilities";
 import { stepFlows, StepFlowManager, type StepChildPayload } from "./step-flows";
+import { worktreeManager } from "./worktree-lifecycle";
 import { processSingleton } from "../singleton";
 
 export interface CreateFlowOptions {
@@ -48,6 +49,20 @@ const REPO_DELIVERY_KEY = "repo";
 const EXEC_MODE_DELIVERY_KEY = "execution_mode";
 const EXEC_MODE_DELIVERY_ALIAS = "harness";
 const EXEC_MODE_VALUES = ["local", "cloud"] as const;
+
+/** Flow-owned tables, in FK-safe delete order (children before `flows`). */
+const FLOW_CHILD_TABLES = [
+  "step_merges", // parent_flow_id + flow_id — fan-out merge-back records
+  "plan_steps", // sub_flow_id → flows (fan-out checklist)
+  "events",
+  "messages",
+  "runs",
+  "artifacts",
+  "comments",
+  "branches",
+  "nodes",
+  "hooks", // flow-bound inbound webhooks (wait_for nodes)
+] as const;
 
 /**
  * The flow orchestrator: flow creation and reads, node triggers, chat routing,
@@ -429,6 +444,34 @@ export class FlowEngine {
     const row = db.get<{ parent_flow_id: string | null }>(
       `SELECT parent_flow_id FROM flows WHERE id=?`, flowId);
     return row?.parent_flow_id != null;
+  }
+
+  /**
+   * Delete a whole flow: its step children (plan fan-out), every flow-owned
+   * row, and the local worktree(s). Throws when the flow does not exist.
+   */
+  async delete(id: string): Promise<void> {
+    const flow = db.get<{ id: string }>(`SELECT id FROM flows WHERE id=?`, id);
+    if (!flow) throw new Error("flow not found");
+    // "the whole flow" includes the step children — they are hidden from the
+    // flow list and unreachable once the parent is gone. No deeper nesting
+    // exists (step children never fan out again).
+    const childIds = db
+      .all<{ id: string }>(`SELECT id FROM flows WHERE parent_flow_id=?`, id)
+      .map((r) => r.id);
+    const ids = [id, ...childIds];
+    // remove the local worktrees first (best-effort — the startup sweep also
+    // cleans up any removal that fails or is interrupted here)
+    await Promise.allSettled(
+      ids.map((fid) =>
+        worktreeManager.removeFlowWorktree(fid, { reason: "flow deleted" })),
+    );
+    for (const fid of ids) {
+      for (const table of FLOW_CHILD_TABLES) {
+        db.run(`DELETE FROM ${table} WHERE flow_id=?`, fid);
+      }
+    }
+    db.run(`DELETE FROM flows WHERE id IN (${ids.map(() => "?").join(",")})`, ...ids);
   }
 
   // ── context ──────────────────────────────────────────────────────────────

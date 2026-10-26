@@ -9,6 +9,7 @@ import type { DetectedPolicy } from "./use-detected-policy";
 export const EMPTY_REPO_FORM: RepoFormState = {
   name: "", cloud_url: "", local_path: "", default_branch: REPO_DEFAULT_BRANCH,
   install_command: "", skip_install: false, sync_paths: "", shared_dirs: "", setup_command: "",
+  worktree_timeout_s: "",
 };
 
 /** Map a stored repo row onto the editable form shape (paths shown as `~/…`). */
@@ -23,6 +24,8 @@ export function formFromRepo(repo: Repo): RepoFormState {
     sync_paths: repo.sync_paths ?? "",
     shared_dirs: repo.shared_dirs ?? "",
     setup_command: repo.setup_command ?? "",
+    // DB stores ms, the form edits whole seconds (empty = engine default)
+    worktree_timeout_s: repo.worktree_timeout_ms ? String(Math.round(repo.worktree_timeout_ms / 1000)) : "",
   };
 }
 

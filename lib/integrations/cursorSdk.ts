@@ -12,6 +12,7 @@ import {
   type TokenUsage,
 } from "@cursor/sdk";
 import fs from "fs";
+import { FAST_OFF, FAST_ON, FAST_PARAM } from "../../constants/models";
 import { processSingleton } from "../singleton";
 import { cursorApiKey } from "./cursor/credentials";
 
@@ -149,6 +150,39 @@ export class CursorAgentService {
   // ── run lifecycle ─────────────────────────────────────────────────────────
 
   /**
+   * Pin fast mode OFF on a model the catalog declares as fast-capable. The
+   * SDK passes ModelSelection params verbatim — an unstated `fast` falls
+   * through to the account's default variant, which is fast=true for composer
+   * models. An explicit fast value already on the selection wins (fast=true
+   * stays an opt-in, fast=false is already the pick); a malformed fast value
+   * (valueless `composer-2.5[fast]`, unknown value) is swept and replaced.
+   * The pin only applies when the catalog confirms the parameter — an unknown
+   * param fails the SDK's local model validation — and is skipped when the
+   * catalog is unreachable, passing the selection through rather than failing
+   * the run.
+   */
+  private async pinFastOff(model: ModelSelection): Promise<ModelSelection> {
+    const fastValue = model.params?.find((p) => p.id.trim() === FAST_PARAM)?.value.trim();
+    if (fastValue === FAST_ON || fastValue === FAST_OFF) return model;
+    const catalog = await this.listCatalog();
+    const entry = catalog?.find(
+      (m) => m.id === model.id || (m.aliases ?? []).includes(model.id),
+    );
+    const declaresFast = !!entry && (
+      Boolean(entry.parameters?.some((p) => p.id.trim() === FAST_PARAM)) ||
+      (entry.variants ?? []).some((v) => v.params.some((p) => p.id.trim() === FAST_PARAM))
+    );
+    if (!declaresFast) return model;
+    return {
+      ...model,
+      params: [
+        ...(model.params ?? []).filter((p) => p.id.trim() !== FAST_PARAM),
+        { id: FAST_PARAM, value: FAST_OFF },
+      ],
+    };
+  }
+
+  /**
    * Start (or resume) an agent run on the configured runtime. For local runs
    * the returned agentId is `agent-<uuid>`; for cloud runs `bc-<uuid>`.
    * The run's first `send()` is issued before returning, and the in-process
@@ -159,6 +193,9 @@ export class CursorAgentService {
   ): Promise<{ agentId: string; runId: string }> {
     const apiKey = this.apiKey();
     const isCloud = input.cloud === true;
+    // fast mode defaults OFF — pinned before the selection reaches either
+    // runtime (the SDK would otherwise fall through to the fast variant)
+    const model = input.model ? await this.pinFastOff(input.model) : undefined;
 
     if (!isCloud && input.cwd && !fs.existsSync(input.cwd)) {
       throw new Error(
@@ -178,13 +215,13 @@ export class CursorAgentService {
           ...(input.settingSources?.length ? { settingSources: input.settingSources } : {}),
         };
       }
-      if (input.model) resumeOpts.model = input.model;
+      if (model) resumeOpts.model = model;
       agent = await Agent.resume(input.resumeAgentId, resumeOpts);
     } else {
       const opts: AgentOptions = { apiKey };
       if (input.name) opts.name = input.name;
       if (input.mode) opts.mode = input.mode;
-      if (input.model) opts.model = input.model;
+      if (model) opts.model = model;
       if (isCloud) {
         opts.cloud = {
           repos: input.repos?.length ? input.repos : [],
@@ -215,7 +252,7 @@ export class CursorAgentService {
 
     const run = await agent.send(input.prompt, {
       ...(input.mode ? { mode: input.mode } : {}),
-      ...(input.model ? { model: input.model } : {}),
+      ...(model ? { model } : {}),
       ...(!isCloud && input.force ? { local: { force: true } } : {}),
     });
 

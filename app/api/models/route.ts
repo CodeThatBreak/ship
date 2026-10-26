@@ -2,24 +2,29 @@ import { NextResponse } from "next/server";
 import { agentPortRegistry } from "../../../lib/engine/ports/agent-runner";
 import { db } from "../../../lib/db";
 import { config } from "../../../lib/config";
+import { FAST_ON, FAST_PARAM } from "../../../constants/models";
 import { normalizeModelSpec, parseModelSpec, type CatalogModel } from "../../../lib/modelSpec";
 
 export const dynamic = "force-dynamic";
 
 /**
- * Fast mode is always false in DevFlow — an explicit `fast=false` spec param
- * is noise and must never surface to consumers (the picker, cost math, …).
+ * `fast` values are display noise on the picker-side catalog: DevFlow runs
+ * pin fast=false on the wire (CursorAgentService.pinFastOff — an unstated
+ * `fast` falls through to the account default variant, fast=true for composer
+ * models), and the picker's Fast switch defaults from the variant seed. Only
+ * an explicit fast opt-in survives, so consumers never see a fast=false param
+ * here.
  */
 const isNoiseFastParam = (p: { id: string; value: string }): boolean =>
-  p.id === "fast" && p.value !== "true";
+  p.id === FAST_PARAM && p.value !== FAST_ON;
 
 /**
  * Models available for agent runs — from the account model catalog, with a
  * static fallback. The catalog is normalized here so consumers get structured
  * data directly and never see the SDK's variant-combo ids:
  * - one row per base model; the bare entry is authoritative, bracketed ids
- *   ("composer-2.5[effort=high]") only fill gaps (a `fast=false` param is
- *   dropped — fast mode is always off in DevFlow);
+ *   ("composer-2.5[effort=high]") only fill gaps (non-opt-in `fast` params
+ *   are dropped — DevFlow runs fix fast off on the wire);
  * - "default"/"auto" is folded into `default` (the account default model).
  * `models` stays a flat id list for older consumers.
  */
@@ -69,8 +74,8 @@ export async function GET() {
     db.getSetting<string>("default_model", "") || config.cursor.defaultModel() || "",
   );
   // Resolve the configured default into structured data so consumers never
-  // touch bracket strings (and never see a fast=false param — normalizeModelSpec
-  // already dropped it, this filter is belt-and-braces).
+  // touch bracket strings; non-opt-in `fast` values are display noise here —
+  // the run path (CursorAgentService.pinFastOff) enforces fast=false.
   const parsedDefault = parseModelSpec(currentDefault);
   const defaultChoice = parsedDefault
     ? {

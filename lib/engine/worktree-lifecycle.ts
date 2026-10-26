@@ -48,6 +48,9 @@ interface RemovalTarget {
  * The flow's worktree binding, returned by ensureFlowWorktree: the run cwd
  * plus a one-line setup note when deps setup failed (non-fatal — the caller
  * appends it to the agent's run prompt so the agent can self-repair).
+ * `dir` is null ONLY when worktrees don't apply (cloud mode): local mode
+ * either binds a worktree or throws — agent runs never fall back to the
+ * registered checkout (the developer's checkout must not be mutated).
  */
 export interface WorktreeBinding {
   dir: string | null;
@@ -76,13 +79,15 @@ export class WorktreeManager {
 
   /**
    * Ensure the flow's worktree exists with `branch` checked out and return its
-   * binding — `{ dir: null }` when worktrees don't apply (cloud mode, no
-   * registered local path) or creation failed (non-fatal:
-   * callers fall back to the registered checkout, today's behavior). A fresh
-   * worktree runs the repo's dependency-setup policy once (per flow, not per
-   * run); a setup failure is non-fatal and surfaced as `setupNote` for the
-   * agent's run prompt. Non-null `dir` results are persisted on
-   * `flows.worktree_dir` before returning.
+   * binding — `{ dir: null }` only when worktrees don't apply (cloud mode).
+   * Creation failure THROWS (fatal to the node): agent runs mutating the
+   * developer's registered checkout cross-contaminated concurrent flows, so
+   * the old hub fallback was removed — the node fails loudly with the reason
+   * and can be retried once fixed. A fresh worktree runs the repo's
+   * dependency-setup policy once (per flow, not per run); a setup failure
+   * remains non-fatal, surfaced as `setupNote` for the agent's run prompt.
+   * Non-null `dir` results are persisted on `flows.worktree_dir` before
+   * returning.
    */
   async ensureFlowWorktree(
     ctx: FlowCtx,
@@ -92,15 +97,26 @@ export class WorktreeManager {
     const flow = ctx.flow;
     if (flow.execution_mode !== "local") return { dir: null, setupNote: null };
     const hub = ctx.repo?.local_path ?? null;
-    if (!hub) return { dir: null, setupNote: null };
+    if (!hub) {
+      throw new Error(
+        "This flow runs in local mode but its repo has no local path configured. Set one on the Settings page."
+      );
+    }
 
     const dir = this.worktreeDirForFlow(flow.id);
+    // visibility: the ensure can run for minutes on a first checkout — surface
+    // it in the node's activity feed immediately instead of leaving the node
+    // silent until the create/reuse outcome lands
+    db.emitEvent(flow.id, opts.nodeId ?? null, "lifecycle",
+      `setting up worktree (branch ${branch})…`,
+      { nodeKey: opts.nodeId ?? undefined, branch });
     try {
       const result = await worktrees.createWorktree({
         repoPath: hub,
         dir,
         branch,
         base: ctx.repo?.default_branch ?? "main",
+        addTimeoutMs: ctx.repo?.worktree_timeout_ms ?? undefined,
       });
       // store the canonical (realpath) spelling — git canonicalizes worktree
       // paths itself (e.g. /var → /private/var on macOS), and sweep/removal
@@ -124,9 +140,14 @@ export class WorktreeManager {
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : String(e);
       db.emitEvent(flow.id, opts.nodeId ?? null, "error",
-        `worktree setup failed — running in the registered checkout instead (${msg})`,
+        `worktree setup failed (${msg})`,
         { nodeKey: opts.nodeId ?? undefined });
-      return { dir: null, setupNote: null };
+      // fatal: agent runs must never fall back to the registered checkout —
+      // they would mutate the developer's real checkout and cross-contaminate
+      // concurrent flows. The node fails loudly; retry once fixed.
+      throw new Error(
+        `worktree setup failed: ${msg} — fix the worktree configuration and retry the node`
+      );
     }
   }
 
@@ -144,6 +165,7 @@ export class WorktreeManager {
    * canonical mr_branch, else the caller's default branch (the build naming
    * convention). setupNote is the once-per-flow deps-setup failure line — the
    * caller appends it to the run prompt so the agent can self-repair.
+   * Creation failure throws (the run fails — no fallback to the hub).
    */
   async ensureForRun(
     ctx: FlowCtx,
@@ -406,11 +428,12 @@ export class WorktreeManager {
     }
 
     let done = false;
-    const hubUsable = !!target.repoPath && fs.existsSync(path.join(target.repoPath, ".git"));
-    if (hubUsable) {
+    const repoPath = target.repoPath;
+    const hubUsable = !!repoPath && fs.existsSync(path.join(repoPath, ".git"));
+    if (hubUsable && repoPath) {
       try {
         await worktrees.removeWorktree({
-          repoPath: target.repoPath!,
+          repoPath,
           wtPath: target.wtPath,
           home: os.homedir(),
           force: true, // terminal-state cleanup; the work product lives on the pushed MR branch

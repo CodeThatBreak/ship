@@ -170,7 +170,8 @@ export class BuildNode extends NodeDefinition<BuildInput, BuildOutput> {
 
     // Worktree mode (Phase 1): local builds run in a per-flow git worktree
     // created once at build start — the registered checkout (hub) is never
-    // checked out or mutated. Non-fatal: setup failure falls back to the hub.
+    // checked out or mutated. Creation failure fails the node (no hub
+    // fallback); deps-setup failure is non-fatal (setupNote on the prompt).
     let worktree: string | null = null;
     let setupNote: string | null = null;
     if (mode === "local") {
@@ -180,9 +181,7 @@ export class BuildNode extends NodeDefinition<BuildInput, BuildOutput> {
     }
 
     let instructions = mode === "local"
-      ? (worktree
-          ? `Implement the following approved plan for a ${ticketType} ticket. Your working directory is a git worktree already checked out on branch "${branch}" (fresh off the repo's default branch). Make the code changes, commit them to that branch, and push the branch to origin. Do NOT open a merge request, do not switch branches, and do not touch any checkout outside this directory.`
-          : `Implement the following approved plan for a ${ticketType} ticket. First create and check out a new git branch named "${branch}" (from the repo's default branch), then make the code changes, commit them, and push the branch to origin. Do NOT open a merge request.`)
+      ? `Implement the following approved plan for a ${ticketType} ticket. Your working directory is a git worktree already checked out on branch "${branch}" (fresh off the repo's default branch). Make the code changes, commit them to that branch, and push the branch to origin. Do NOT open a merge request, do not switch branches, and do not touch any checkout outside this directory.`
       : `Implement the following approved plan for a ${ticketType} ticket. Make the code changes, commit them, and push to a feature branch. Do NOT open a merge request yet.`;
     // non-fatal worktree deps setup: one line in the run prompt — the agent
     // can self-repair by running the repo's dependency setup itself
@@ -218,8 +217,8 @@ export class BuildNode extends NodeDefinition<BuildInput, BuildOutput> {
         name: input.branchInfo ? `build ${ctx.task.key} (${input.branchInfo.name})` : `build ${ctx.task.key}`,
         autoCreatePR: false,
         // worktree mode: the branch already exists (created with the worktree);
-        // hub fallback: the agent creates it from the default branch itself
-        startingRef: worktree ? branch : (ctx.repo?.default_branch ?? "main"),
+        // cloud mode: the agent branches off the default ref itself
+        startingRef: mode === "local" ? branch : (ctx.repo?.default_branch ?? "main"),
         cwd: worktree ?? undefined,
         model: input.model,
         settingSources: mcpSourcesOf(config),

@@ -15,6 +15,7 @@ export const FAILED_ACTION = {
   LOAD: "load failed",
   SAVE: "save failed",
   REMOVE: "remove failed",
+  TEST: "test failed",
 } as const;
 
 export type FailedAction = (typeof FAILED_ACTION)[keyof typeof FAILED_ACTION];

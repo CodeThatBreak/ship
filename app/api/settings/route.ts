@@ -128,8 +128,9 @@ export async function PATCH(req: Request) {
     db.setSetting("default_execution_mode", body.default_execution_mode);
   }
   if (body.default_model !== undefined) {
-    // fast=false is never stored: DevFlow always runs with fast mode off, so
-    // the explicit "false" is noise (composer-2.5[fast=false] → composer-2.5)
+    // the spec is stored as normalized (usable values only): a valueless
+    // `composer-2.5[fast]` is swept, `fast=true`/`fast=false` are kept as the
+    // meaningful picks — the run path pins fast=false when nothing states one
     db.setSetting("default_model", normalizeModelSpec(String(body.default_model ?? "").trim()));
   }
   if (body.local_agent) {

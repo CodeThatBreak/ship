@@ -99,9 +99,7 @@ export class StepBuildNode extends BuildNode {
 
     const ticketType = this.ctxHelper.taskLabel(ctx);
     let instructions = mode === "local"
-      ? (worktree
-        ? `Implement ONE step of the approved plan below for a ${ticketType} ticket. Your working directory is a git worktree already checked out on your step branch "${branch}" (fresh off the repo's default branch). Make the code changes, commit them to that branch, and push the branch to origin. Do NOT open a merge request, do not switch branches, and do not touch any checkout outside this directory.`
-        : `Implement ONE step of the approved plan below for a ${ticketType} ticket. First create and check out a new git branch named "${branch}" (from the repo's default branch), then make the code changes, commit them, and push the branch to origin. Do NOT open a merge request.`)
+      ? `Implement ONE step of the approved plan below for a ${ticketType} ticket. Your working directory is a git worktree already checked out on your step branch "${branch}" (fresh off the repo's default branch). Make the code changes, commit them to that branch, and push the branch to origin. Do NOT open a merge request, do not switch branches, and do not touch any checkout outside this directory.`
       : `Implement ONE step of the approved plan below for a ${ticketType} ticket. Make the code changes for exactly that step, commit them, and push to your step branch "${branch}". Do NOT open a merge request.`;
     if (setupNote) instructions += `\n${setupNote} If the changes need dependencies, run the repo's dependency setup yourself before building/testing.`;
 
@@ -133,7 +131,7 @@ export class StepBuildNode extends BuildNode {
         autoCreatePR: false,
         // local worktree mode: the branch already exists (created with the
         // worktree) — the cloud side lets the agent branch off the default ref
-        startingRef: worktree ? branch : (ctx.repo?.default_branch ?? "main"),
+        startingRef: mode === "local" ? branch : (ctx.repo?.default_branch ?? "main"),
         cwd: worktree ?? undefined,
         model: input.model,
         settingSources,

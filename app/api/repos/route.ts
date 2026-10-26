@@ -19,6 +19,12 @@ function optString(v: unknown): string | null {
   return s || null;
 }
 
+/** Optional worktree timeout in SECONDS (form unit) → ms in the DB; invalid/absent → null. */
+function optTimeoutMs(v: unknown): number | null {
+  const n = typeof v === "string" ? Number.parseInt(v, 10) : typeof v === "number" ? Math.trunc(v) : NaN;
+  return Number.isFinite(n) && n > 0 ? n * 1000 : null;
+}
+
 export async function GET() {
   const repos = db.listRepos().map((r) => ({
     ...r,
@@ -50,6 +56,7 @@ export async function POST(req: Request) {
     sync_paths: optString(body.sync_paths),
     shared_dirs: optString(body.shared_dirs),
     setup_command: optString(body.setup_command),
+    worktree_timeout_ms: optTimeoutMs(body.worktree_timeout_s),
   });
   return NextResponse.json({ repo });
 }

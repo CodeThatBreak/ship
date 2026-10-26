@@ -3,6 +3,7 @@ import { Field, FieldContent, FieldDescription, FieldLabel } from "@/components/
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
+import { SetupTestPanel } from "./SetupTestPanel";
 import type { RepoFormState } from "../types";
 
 /**
@@ -148,6 +149,24 @@ export function RepoForm({
               onChange={(e) => setField("shared_dirs", e.target.value)}
             />
           </Field>
+
+          <Field>
+            <FieldLabel htmlFor="repo-worktree-timeout">Worktree timeout (seconds)</FieldLabel>
+            <FieldDescription>
+              Time allowed to create the worktree checkout. Raise this for very
+              large repos — the default is 120s and a timeout fails the node.
+            </FieldDescription>
+            <Input
+              id="repo-worktree-timeout"
+              type="number"
+              min={1}
+              placeholder="120"
+              value={form.worktree_timeout_s}
+              onChange={(e) => setField("worktree_timeout_s", e.target.value)}
+            />
+          </Field>
+
+          <SetupTestPanel form={form} />
         </div>
       </div>
     </>

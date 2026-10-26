@@ -9,12 +9,24 @@ import {
   GitMerge,
   Inbox,
   SquareCheckBig,
+  Trash2,
   Workflow,
 } from "lucide-react";
 import { Alert, AlertAction } from "@/components/ui/alert";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
+import { Spinner } from "@/components/ui/spinner";
 import { DataTable, type DataTableAction } from "@/components/data-table";
 import { cn } from "cn";
 
@@ -111,6 +123,9 @@ export default function FlowsPage() {
   const [flows, setFlows] = useState<Flow[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [worktrees, setWorktrees] = useState<Record<string, WorktreeStatus>>({});
+  /** the flow behind the styled delete confirm (same pattern as templates) */
+  const [pendingDelete, setPendingDelete] = useState<Flow | null>(null);
+  const [busyId, setBusyId] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setError(null);
@@ -145,6 +160,21 @@ export default function FlowsPage() {
     (f: Flow) => router.push(`/flows/${f.id}`),
     [router],
   );
+
+  /** The delete confirm's destructive action: remove flow + children + worktree, then refresh. */
+  const removeFlow = useCallback(async (f: Flow) => {
+    setBusyId(f.id);
+    setPendingDelete(null);
+    try {
+      const r = await fetch(`/api/flows/${f.id}`, { method: "DELETE" }).then((r) => r.json());
+      if (r.error) setError(r.error);
+    } catch {
+      setError("Failed to delete flow. Please try again.");
+    } finally {
+      setBusyId(null);
+      void load();
+    }
+  }, [load]);
 
   const columns = useMemo<ColumnDef<Flow>[]>(
     () => [
@@ -242,10 +272,20 @@ export default function FlowsPage() {
   );
 
   // row actions — the DataTable renders the first action as an upfront button
-  // and any further ones in a ⋯ menu (flows have a single action today)
+  // and any further ones in a ⋯ menu (delete collapses there, destructive)
   const getActions = useCallback(
-    (f: Flow): DataTableAction<Flow>[] => [{ label: "Open", onSelect: () => openFlow(f) }],
-    [openFlow],
+    (f: Flow): DataTableAction<Flow>[] => [
+      { label: "Open", onSelect: () => openFlow(f) },
+      {
+        label: "Delete",
+        icon: <Trash2 size={13} />,
+        title: "Delete the whole flow (nodes, runs, comments and local worktree)",
+        destructive: true,
+        disabled: busyId != null,
+        onSelect: () => setPendingDelete(f),
+      },
+    ],
+    [openFlow, busyId],
   );
 
   const active = (flows ?? []).filter((f) => f.status === FLOW_STATUS_ACTIVE);
@@ -329,6 +369,30 @@ export default function FlowsPage() {
           Refresh
         </Button>
       </div>
+
+      {/* delete confirm: styled AlertDialog, not the native confirm() */}
+      <AlertDialog open={pendingDelete != null} onOpenChange={(v) => { if (!v) setPendingDelete(null); }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete flow for “{pendingDelete?.task_key}”?</AlertDialogTitle>
+            <AlertDialogDescription>
+              The whole flow is removed: nodes, runs, comments, events and any
+              fanned-out step sub-flows. The local worktree (if any) is deleted
+              too. This cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel onClick={() => setPendingDelete(null)}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              variant="destructive"
+              onClick={() => pendingDelete && void removeFlow(pendingDelete)}
+              disabled={busyId != null && busyId === pendingDelete?.id}
+            >
+              {busyId === pendingDelete?.id ? <Spinner /> : <Trash2 size={13} />} Delete flow
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

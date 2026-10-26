@@ -17,6 +17,7 @@ export interface Repo {
   sync_paths: string | null;
   shared_dirs: string | null;
   setup_command: string | null;
+  worktree_timeout_ms: number | null;
   created_at: string;
   updated_at: string;
 }
@@ -152,6 +153,7 @@ export class Database {
       ["sync_paths", "TEXT"],
       ["shared_dirs", "TEXT"],
       ["setup_command", "TEXT"],
+      ["worktree_timeout_ms", "INTEGER"],
     ] as const) {
       if (!repoCols.has(name)) {
         d.exec(`ALTER TABLE repos ADD COLUMN ${name} ${type}`);
@@ -239,8 +241,9 @@ export class Database {
   /**
    * Legacy data fix: model ids stored with bracket params before the
    * write-path normalization (`runs.model`, plus `model` overrides in node /
-   * template-node configs). `fast=false`-style params are dropped, other
-   * params kept verbatim — identical semantics to `normalizeModelSpec`.
+   * template-node configs). Valueless `fast` params are dropped, the
+   * meaningful `fast=true`/`fast=false` picks and other params kept verbatim
+   * — identical semantics to `normalizeModelSpec`.
    * Idempotent: only rows whose value changes are written back.
    */
   private normalizeLegacyModelSpecs(d: SqliteDatabase.Database): void {
@@ -902,27 +905,30 @@ export class Database {
     sync_paths?: string | null;
     shared_dirs?: string | null;
     setup_command?: string | null;
+    worktree_timeout_ms?: number | null;
   }): Repo {
     const ts = this.now();
     const cloudUrl = this.normalizeRepoUrl(input.cloud_url);
     if (input.id) {
       this.run(
         `UPDATE repos SET name=?, cloud_url=?, local_path=?, default_branch=?,
-         install_command=?, skip_install=?, sync_paths=?, shared_dirs=?, setup_command=?, updated_at=? WHERE id=?`,
+         install_command=?, skip_install=?, sync_paths=?, shared_dirs=?, setup_command=?, worktree_timeout_ms=?, updated_at=? WHERE id=?`,
         input.name, cloudUrl, input.local_path ?? null, input.default_branch ?? "main",
         input.install_command ?? null, input.skip_install ? 1 : 0,
         input.sync_paths ?? null, input.shared_dirs ?? null, input.setup_command ?? null,
+        input.worktree_timeout_ms ?? null,
         ts, input.id
       );
       return this.repoById(input.id)!;
     }
     const id = this.uid("repo_");
     this.run(
-      `INSERT INTO repos (id,name,cloud_url,local_path,default_branch,install_command,skip_install,sync_paths,shared_dirs,setup_command,created_at,updated_at)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`,
+      `INSERT INTO repos (id,name,cloud_url,local_path,default_branch,install_command,skip_install,sync_paths,shared_dirs,setup_command,worktree_timeout_ms,created_at,updated_at)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`,
       id, input.name, cloudUrl, input.local_path ?? null, input.default_branch ?? "main",
       input.install_command ?? null, input.skip_install ? 1 : 0,
       input.sync_paths ?? null, input.shared_dirs ?? null, input.setup_command ?? null,
+      input.worktree_timeout_ms ?? null,
       ts, ts
     );
     return this.repoById(id)!;

@@ -173,6 +173,7 @@ CREATE TABLE IF NOT EXISTS repos (
   sync_paths    TEXT,                       -- glob list override for untracked config synced hub→worktree
   shared_dirs   TEXT,                       -- dirs symlinked hub→worktree before setup (shared caches)
   setup_command TEXT,                       -- extra escape valve, always runs after the dep strategy
+  worktree_timeout_ms INTEGER,              -- `git worktree add` timeout override (NULL = the 120s default; large checkouts need more)
   created_at    TEXT NOT NULL,
   updated_at    TEXT NOT NULL
 );

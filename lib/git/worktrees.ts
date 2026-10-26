@@ -174,6 +174,11 @@ export interface CreateWorktreeInput {
   branch: string;
   /** default branch name (or ref) to base on; resolved through a fallback chain */
   base?: string;
+  /**
+   * `git worktree add` timeout override (ms) for very large checkouts —
+   * absent = the default (GIT_WORKTREE_ADD_TIMEOUT_MS).
+   */
+  addTimeoutMs?: number;
 }
 
 export interface WorktreeCreateResult {
@@ -290,12 +295,12 @@ export class Worktrees {
     let base: string | null = null;
     if (await this.refExists(repoPath, `refs/heads/${branch}`)) {
       // branch already exists (e.g. a crashed run left it with commits) — check it out
-      await this.gitWorktreeAdd(repoPath, [dir, branch]);
+      await this.gitWorktreeAdd(repoPath, [dir, branch], input.addTimeoutMs);
     } else {
       base = await this.resolveBaseRef(repoPath, input.base);
       // --no-track: don't inherit the base's upstream (status would misreport
       // "behind by N" pre-push; the first push sets tracking via autoSetupRemote)
-      await this.gitWorktreeAdd(repoPath, ["--no-track", "-b", branch, dir, base]);
+      await this.gitWorktreeAdd(repoPath, ["--no-track", "-b", branch, dir, base], input.addTimeoutMs);
       await this.setBranchBaseConfig(repoPath, branch, base);
     }
     await this.setPushAutoSetupRemote(repoPath);
@@ -408,15 +413,30 @@ export class Worktrees {
     throw new Error(`refusing to create a worktree over non-empty dir ${dir}`);
   }
 
-  private async gitWorktreeAdd(repoPath: string, args: string[]): Promise<void> {
+  private async gitWorktreeAdd(
+    repoPath: string,
+    args: string[],
+    timeoutMs: number = GIT_WORKTREE_ADD_TIMEOUT_MS
+  ): Promise<void> {
     try {
       await this.git(["-C", repoPath, "worktree", "add", ...args], {
-        timeout: GIT_WORKTREE_ADD_TIMEOUT_MS,
+        timeout: timeoutMs,
         maxBuffer: MAX_BUFFER,
       });
-    } catch (e: any) {
-      const msg = String(e?.stderr ?? e?.message ?? e);
-      throw new Error(`git worktree add failed: ${msg.trim().slice(0, 500) || (e?.message ?? e)}`);
+    } catch (e: unknown) {
+      const err = e as (Error & { killed?: boolean; stderr?: unknown }) | null;
+      // a timeout kill surfaces as partial stderr (git's progress output) with
+      // no error text — name the real cause first so the event log is actionable
+      if (err?.killed) {
+        const last = String(err.stderr ?? err.message ?? "").trim().slice(-200);
+        throw new Error(
+          `git worktree add timed out after ${Math.round(timeoutMs / 1000)}s — ` +
+          `raise the repo's worktree timeout in Settings for very large checkouts` +
+          (last ? ` (last output: ${last})` : "")
+        );
+      }
+      const msg = String(err?.stderr ?? err?.message ?? e);
+      throw new Error(`git worktree add failed: ${msg.trim().slice(0, 500) || (err?.message ?? e)}`);
     }
   }
 

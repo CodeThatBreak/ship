@@ -77,7 +77,7 @@ startAgent(ctx, input):
             ?? worktreeManager.currentWorktreeBranch(ctx.flow.id)
             ?? worktreeManager.defaultBranchForFlow(ctx)  # devflow/<task-key>-<id6>
       binding = await worktreeManager.ensureFlowWorktree(ctx, branch)
-      spec.cwd = binding.dir ?? undefined                # null → hub fallback
+      spec.cwd = binding.dir ?? undefined                # null → worktrees can't apply
     spec.workspace = ctxHelper.requireRunCwd(ctx)
     spec.cwd = input.cwd ?? spec.cwd
 ```
@@ -94,13 +94,14 @@ startAgent(ctx, input):
    flow's canonical `mr_branch` → the existing worktree's current head branch
    (never switch branches implicitly) → a manager-derived default
    (`devflow/<task-key>-<flowId-short>`) for flows that never built.
-4. **Non-fatal, unchanged.** Creation failure returns `{ dir: null }` and the
-   run proceeds in the hub — today's fallback semantics, now surfaced as an
-   explicit `error` lifecycle event ("worktree setup failed — running in the
-   registered checkout instead").
-5. **Fallbacks.** No registered `local_path` or `execution_mode = "cloud"` →
-   `{ dir: null }` immediately. (Worktrees are always on — the
-   `worktree_mode = "disabled"` kill switch was removed.)
+4. **Fatal, no hub fallback.** Creation failure fails the node with a clear
+   error ("worktree setup failed …") instead of running in the registered
+   checkout — agent runs mutating the developer's real checkout
+   cross-contaminated concurrent flows, so the old fallback was removed.
+   Retry the node once the worktree configuration is fixed.
+5. **No-ops.** `execution_mode = "cloud"` → `{ dir: null }` immediately;
+   local mode with no registered `local_path` throws. (Worktrees are always
+   on — the `worktree_mode = "disabled"` kill switch was removed.)
 
 ## 4. How each flow looks after this
 

@@ -17,6 +17,7 @@ export type Repo = {
   sync_paths?: string | null;
   shared_dirs?: string | null;
   setup_command?: string | null;
+  worktree_timeout_ms?: number | null;
 };
 export type HostInstanceRow = { id: string; name: string | null; baseUrl: string; tokenMasked: string };
 export type GitHost = { kind: string; label: string; configured: boolean; instances: HostInstanceRow[] };
@@ -29,7 +30,7 @@ export type Settings = {
   harnesses?: Harness[];
   default_harness: string;
   default_execution_mode: string;
-  /** normalized model id — never carries "[fast=false]"-style params */
+  /** normalized model id — unusable `fast` params swept, usable picks kept */
   default_model: string;
   local_agent: { force: boolean; sandbox: boolean; timeout_ms: number };
   /** names of set secrets only (values never leave the server) */
