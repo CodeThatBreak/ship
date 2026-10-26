@@ -8,7 +8,7 @@ import { NodeDefinition, type FlowCtx, type RunOutcome } from "../base";
 import type { NodeCapabilities } from "../base/capabilities";
 import { NODE_KEYS } from "../keys";
 import type { ConfigField } from "../../node-config";
-import { appLayerConfig, mergeConfigLayers, parseConfigSnapshot } from "../../node-config";
+import { appLayerConfig, mergeConfigLayers, mcpSourcesOf, mcpSourcesSchema, mcpSourceConfigFields, parseConfigSnapshot, type SettingSource } from "../../node-config";
 import { PlanMetaParser, type PlanParseResult } from "./plan-meta-parser";
 import {
   PlanInput,
@@ -293,6 +293,8 @@ export class PlanNode extends NodeDefinition<PlanInput, PlanOutput> {
      * default | override), and the plan panel offers the override at approve.
      */
     execution_default: z.enum(["whole", "steps", "follow"]).default("whole"),
+    /** ambient MCP servers for plan agent runs (Cursor local.settingSources) */
+    mcp_sources: mcpSourcesSchema,
   });
   readonly configFields = [
     { key: "prompt_body", label: "Prompt body", type: "text", help: "User-editable prompt body; internal output contracts are appended automatically." },
@@ -309,6 +311,7 @@ export class PlanNode extends NodeDefinition<PlanInput, PlanOutput> {
         { value: "follow", label: "follow", description: "The planner decides per plan version (published in plan-meta, overridable at approve)" },
       ],
     },
+    ...mcpSourceConfigFields,
   ] as const satisfies readonly ConfigField[];
 
   async run(ctx: FlowCtx, input: PlanInput, config: Record<string, unknown>): Promise<RunOutcome> {
@@ -333,13 +336,14 @@ export class PlanNode extends NodeDefinition<PlanInput, PlanOutput> {
 
     const prompt = scoped ? this.buildScopedPrompt(ctx, scoped, input) : this.buildPlanPrompt(ctx, node, input);
     const customSubagents = this.decomposeSubagents(ctx, input);
+    const settingSources = mcpSourcesOf(config);
     this.recordInput(node.id, { ...input, prompt }, input.prompt);
 
-    if (scoped) return this.runScoped(ctx, node, input, scoped, prompt, customSubagents);
+    if (scoped) return this.runScoped(ctx, node, input, scoped, prompt, customSubagents, settingSources);
 
     // ── whole-plan path (prior behavior, context now registry-assembled) ────
     const runOnce = (p: string, label: string, followUp: string | null) =>
-      this.runAgent(ctx, node.id, input, customSubagents, p, label, followUp);
+      this.runAgent(ctx, node.id, input, customSubagents, settingSources, p, label, followUp);
 
     const isComplex = input.complex;
     const label = isComplex ? "complex plan" : "plan";
@@ -399,6 +403,7 @@ export class PlanNode extends NodeDefinition<PlanInput, PlanOutput> {
     scoped: NonNullable<ReturnType<PlanNode["prepareScopedRefine"]>>,
     prompt: string,
     customSubagents: ReturnType<PlanNode["decomposeSubagents"]>,
+    settingSources: SettingSource[],
   ): Promise<RunOutcome> {
     const branchName = scoped.branch.name;
     // Fresh by default (§3): the scoped template is self-contained; a follow-up
@@ -406,7 +411,7 @@ export class PlanNode extends NodeDefinition<PlanInput, PlanOutput> {
     // earlier decisions.
     const fresh = input.fresh ?? true;
     const runOnce = (p: string, label: string, followUp: string | null) =>
-      this.runAgent(ctx, node.id, input, customSubagents, p, label, followUp);
+      this.runAgent(ctx, node.id, input, customSubagents, settingSources, p, label, followUp);
     const initialFollowUp = fresh ? null : node.agent_id ?? null;
     const refineLabel = `sub-plan refine (${branchName}${fresh ? ", fresh" : ""})`;
 
@@ -822,6 +827,7 @@ export class PlanNode extends NodeDefinition<PlanInput, PlanOutput> {
     nodeId: string,
     input: PlanInput,
     customSubagents: ReturnType<PlanNode["decomposeSubagents"]>,
+    settingSources: SettingSource[],
     prompt: string,
     label: string,
     followUp: string | null,
@@ -837,6 +843,7 @@ export class PlanNode extends NodeDefinition<PlanInput, PlanOutput> {
           followUpOn: followUp,
           customSubagents,
           model: input.model,
+          settingSources,
         }),
       label,
     );

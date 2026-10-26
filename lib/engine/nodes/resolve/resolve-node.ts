@@ -7,7 +7,7 @@ import { NodeDefinition, type FlowCtx, type RunOutcome } from "../base";
 import type { NodeCapabilities } from "../base/capabilities";
 import { NODE_KEYS } from "../keys";
 import type { ConfigField } from "../../node-config";
-import { configString } from "../../node-config";
+import { configString, mcpSourcesOf, mcpSourcesSchema, mcpSourceConfigFields } from "../../node-config";
 import { ResolveInput, ResolveOutput } from "./schema";
 import { worktreeManager } from "../../worktree-lifecycle";
 
@@ -28,10 +28,13 @@ export class ResolveNode extends NodeDefinition<ResolveInput, ResolveOutput> {
     prompt_body: z.string().optional(),
     /** quiet-period minutes before the debounced resolve fires; unset = the 10-min default — engine-consumed */
     quiet_minutes: z.number().min(0).optional(),
+    /** ambient MCP servers for agent runs (Cursor local.settingSources) */
+    mcp_sources: mcpSourcesSchema,
   });
   readonly configFields = [
     { key: "prompt_body", label: "Prompt body", type: "text", help: "User-editable prompt body; internal contracts re-appended automatically." },
     { key: "quiet_minutes", label: "Quiet period (min)", type: "number", help: "Minutes of comment quiet before the debounced resolve fires. Empty = 10." },
+    ...mcpSourceConfigFields,
   ] as const satisfies readonly ConfigField[];
 
   async run(ctx: FlowCtx, input: ResolveInput, config: Record<string, unknown>): Promise<RunOutcome> {
@@ -120,6 +123,7 @@ export class ResolveNode extends NodeDefinition<ResolveInput, ResolveOutput> {
         startingRef: mrBranch ?? undefined,
         cwd: worktree ?? undefined,
         model: input.model,
+        settingSources: mcpSourcesOf(config),
       },
       label,
       finalize: async (result) => {

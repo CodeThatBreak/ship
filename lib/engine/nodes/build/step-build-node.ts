@@ -6,6 +6,7 @@ import { DEFAULT_FANOUT_OUTPUT } from "../base/capabilities";
 import type { MergeBackArgs, MergeBackResult, NodeCapabilities } from "../base/capabilities";
 import { NODE_KEYS } from "../keys";
 import { localGit } from "../../../git/local";
+import { mcpSourcesOf } from "../../node-config";
 import { worktreeManager } from "../../worktree-lifecycle";
 import { mergeArena } from "../../merge-arena";
 import { BuildNode } from "./build-node";
@@ -76,8 +77,7 @@ export class StepBuildNode extends BuildNode {
     const payload = this.payloadOf(ctx);
     const step = payload?.step;
     if (!step) throw new Error("this step child has no step payload to build");
-    const config0 = config;
-    void config0;
+    const settingSources = mcpSourcesOf(config);
 
     const node = this.node(ctx);
     const mode = this.ctxHelper.execMode(ctx);
@@ -136,6 +136,7 @@ export class StepBuildNode extends BuildNode {
         startingRef: worktree ? branch : (ctx.repo?.default_branch ?? "main"),
         cwd: worktree ?? undefined,
         model: input.model,
+        settingSources,
       },
       label: `step build (${step.id})`,
       finalize: (result) => this.finalizeStep(ctx, result, branch, node),
@@ -194,6 +195,7 @@ export class StepBuildNode extends BuildNode {
         startingRef: branch,
         cwd: worktree ?? undefined,
         model,
+        settingSources: mcpSourcesOf(this.nodeConfig(ctx)),
       },
       label: "step build refine",
       finalize: async (result) => {

@@ -1,4 +1,54 @@
+import { z } from "zod";
 import { db } from "../db";
+
+// ── MCP config sources (Cursor SDK `local.settingSources`) ───────────────────
+
+/**
+ * The setting layers an agent run may load ambient MCP servers from — the
+ * Cursor SDK's `SettingSource` union (`local.settingSources`), gated per run
+ * by the `mcp_sources` knob on agent-running nodes. Empty/absent = the SDK
+ * default: only inline servers load (byte-for-byte today's behavior).
+ * Cloud runs always load `project` / `team` / `plugins` plus the
+ * cursor.com/agents dashboard servers; this knob is a local-runtime knob.
+ */
+export const SETTING_SOURCES = ["project", "user", "team", "mdm", "plugins", "all"] as const;
+export type SettingSource = (typeof SETTING_SOURCES)[number];
+
+/** Zod fragment for the knob on a node's config/def schema (default = today's behavior). */
+export const mcpSourcesSchema = z.array(z.enum(SETTING_SOURCES)).default([]);
+
+/**
+ * The shared "MCP sources" `ConfigField` — spread into every agent-running
+ * def's `configFields` (one shared field set, same pattern as `fanoutConfigFields`).
+ */
+export const mcpSourceConfigFields: readonly ConfigField[] = [
+  {
+    key: "mcp_sources",
+    label: "MCP sources",
+    type: "multi",
+    help: "Which ambient settings layers supply MCP servers for this node's agent runs (Cursor's local.settingSources): project = .cursor/mcp.json in the checkout, user = ~/.cursor/mcp.json on this machine, plugins = servers shipped by Cursor plugins, team/mdm = managed layers, all = every source the runtime knows. Empty (default) = inline servers only. Local runtime only — cloud runs always load project/team/plugins plus the dashboard servers.",
+    options: [
+      { value: "project", label: "project", description: ".cursor/mcp.json in the agent's checkout" },
+      { value: "user", label: "user", description: "~/.cursor/mcp.json on this machine" },
+      { value: "plugins", label: "plugins", description: "Servers shipped by Cursor plugins" },
+      { value: "team", label: "team", description: "Team-managed settings layer" },
+      { value: "mdm", label: "mdm", description: "Enterprise/MDM-managed settings layer" },
+      { value: "all", label: "all", description: "Every source the runtime knows about" },
+    ],
+  },
+] as const;
+
+/**
+ * Defensive read of the `mcp_sources` knob from a merged config layer —
+ * snapshots ride raw into `run(config)` on the built-in kinds, and unknown or
+ * invalid values bow out (never throw a run down).
+ */
+export function mcpSourcesOf(cfg: Record<string, unknown> | null | undefined): SettingSource[] {
+  const v = cfg?.mcp_sources;
+  if (!Array.isArray(v)) return [];
+  const allowed = SETTING_SOURCES as readonly string[];
+  return [...new Set(v.filter((x): x is SettingSource => typeof x === "string" && allowed.includes(x)))];
+}
 
 /** Descriptor for one config knob — drives the auto-generated form (Phase 2). */
 export interface ConfigField {
@@ -7,9 +57,10 @@ export interface ConfigField {
   /**
    * Renderers: the five basics are the generic form rows; the declarative
    * kinds add their own — `ts_output` is the TS-lite schema box (agent node),
-   * `choices` is the decision branch editor.
+   * `choices` is the decision branch editor, `multi` renders the options as
+   * a checkbox group writing a string array (e.g. the MCP sources knob).
    */
-  type: "boolean" | "number" | "string" | "text" | "select" | "ts_output" | "choices" | "map";
+  type: "boolean" | "number" | "string" | "text" | "select" | "ts_output" | "choices" | "map" | "multi";
   /** help text shown under the field */
   help?: string;
   /** for select fields — a description renders as gray text under the label

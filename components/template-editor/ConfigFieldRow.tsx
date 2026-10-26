@@ -905,6 +905,46 @@ export function ConfigFieldRow({
       </label>
     );
   }
+  // multi-select knob (the MCP sources field): a checkbox group over the field's
+  // options, writing the picked values as a string array — clearing every box
+  // drops the override so the catalog/class default applies
+  if (field.type === "multi") {
+    const selected = Array.isArray(effective) ? (effective as string[]) : [];
+    return (
+      <div className="grid gap-1">
+        <FieldLabel field={field} />
+        <div className="grid gap-1.5 rounded-lg border border-border p-2">
+          {(field.options ?? []).map((o) => {
+            const checked = selected.includes(o.value);
+            return (
+              <label key={o.value} className="flex items-start gap-2 text-[12.5px] cursor-pointer">
+                <Checkbox
+                  checked={checked}
+                  onCheckedChange={(v) => {
+                    const next = v === true
+                      ? [...selected, o.value]
+                      : selected.filter((s) => s !== o.value);
+                    onChange(next.length ? next : undefined);
+                  }}
+                />
+                <span className="leading-tight">
+                  {o.label}
+                  {o.description && (
+                    <span className="block text-[11px] text-muted-foreground">{o.description}</span>
+                  )}
+                </span>
+              </label>
+            );
+          })}
+        </div>
+        {selected.length === 0 && (
+          <p className="text-[11px] text-muted-foreground m-0">
+            Nothing selected — the runtime default applies (inline servers only).
+          </p>
+        )}
+      </div>
+    );
+  }
   // prompt fields: the rich text editor — "@" opens the grouped variable
   // popover, and unresolvable refs underline where they're typed
   if (field.type === "text" && promptEditorKeys.has(field.key)) {

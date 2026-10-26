@@ -6,7 +6,7 @@ import { NodeDefinition, type FlowCtx, type RunOutcome } from "../base";
 import type { NodeCapabilities } from "../base/capabilities";
 import { NODE_KEYS } from "../keys";
 import type { ConfigField } from "../../node-config";
-import { configNumber, configString } from "../../node-config";
+import { configNumber, configString, mcpSourcesOf, mcpSourcesSchema, mcpSourceConfigFields } from "../../node-config";
 import { ReviewInput, ReviewOutput } from "./schema";
 
 export class ReviewNode extends NodeDefinition<ReviewInput, ReviewOutput> {
@@ -28,6 +28,8 @@ export class ReviewNode extends NodeDefinition<ReviewInput, ReviewOutput> {
     max_comments: z.number().int().min(0).default(0),
     /** inline per-file comments (today) or a single summary note */
     comment_style: z.enum(["inline", "summary"]).default("inline"),
+    /** ambient MCP servers for agent runs (Cursor local.settingSources) */
+    mcp_sources: mcpSourcesSchema,
   });
   readonly configFields = [
     { key: "prompt_body", label: "Prompt body", type: "text", help: "User-editable prompt body; internal contracts re-appended automatically." },
@@ -37,6 +39,7 @@ export class ReviewNode extends NodeDefinition<ReviewInput, ReviewOutput> {
       options: [{ value: "inline", label: "Inline" }, { value: "summary", label: "Summary" }],
       help: "Inline per-file comments or one summary note.",
     },
+    ...mcpSourceConfigFields,
   ] as const satisfies readonly ConfigField[];
 
   /** Resolve the MR (iid + git branch) for this review — per-branch or flow-level. */
@@ -96,6 +99,7 @@ export class ReviewNode extends NodeDefinition<ReviewInput, ReviewOutput> {
         name: `${label} ${ctx.task.key}`,
         startingRef: mrBranch ?? undefined,
         model: input.model,
+        settingSources: mcpSourcesOf(config),
       },
       label,
       finalize: async (result) => {

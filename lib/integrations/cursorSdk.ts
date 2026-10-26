@@ -8,6 +8,7 @@ import {
   type SDKAgent,
   type SDKMessage,
   type SDKModel,
+  type SettingSource as SdkSettingSource,
   type TokenUsage,
 } from "@cursor/sdk";
 import fs from "fs";
@@ -17,6 +18,14 @@ import { cursorApiKey } from "./cursor/credentials";
 // ── shared vocabulary (SDK-native shapes, re-exported for the engine) ───────
 export type { TokenUsage };
 export type { ModelSelection };
+/**
+ * The SDK's `SettingSource` (`local.settingSources`) — the ambient config
+ * layers (and their MCP servers) a local agent may load. The engine mirrors
+ * the same string union in `lib/engine/node-config.ts` (`SETTING_SOURCES`):
+ * both are compile-checked string literals, so adding a source means touching
+ * both. Kept SDK-shaped in this file, engine-shaped there.
+ */
+export type SDKSettingSource = SdkSettingSource;
 
 /** App-wide run result = the SDK's RunResult verbatim. */
 export type AgentRunResult = SdkRunResult;
@@ -50,6 +59,8 @@ export interface CreateRunInput {
   repos?: { url: string; startingRef?: string }[];
   autoCreatePR?: boolean;
   customSubagents?: { name: string; instructions: string }[];
+  // local runtime — ambient setting layers (their MCP servers) the agent loads
+  settingSources?: SdkSettingSource[];
   // resume an existing agent conversation (follow-up)
   resumeAgentId?: string;
 }
@@ -159,7 +170,14 @@ export class CursorAgentService {
     if (input.resumeAgentId) {
       // follow-up: resume the existing agent conversation, then send the prompt
       const resumeOpts: Partial<AgentOptions> = { apiKey };
-      if (!isCloud && input.cwd) resumeOpts.local = { cwd: input.cwd };
+      if (!isCloud && input.cwd) {
+        resumeOpts.local = {
+          cwd: input.cwd,
+          // settingSources must be re-passed on resume — inline/file-based MCP
+          // context isn't persisted on the agent (see the SDK's resume docs)
+          ...(input.settingSources?.length ? { settingSources: input.settingSources } : {}),
+        };
+      }
       if (input.model) resumeOpts.model = input.model;
       agent = await Agent.resume(input.resumeAgentId, resumeOpts);
     } else {
@@ -186,6 +204,10 @@ export class CursorAgentService {
         opts.local = {
           cwd: input.cwd ?? process.cwd(),
           sandboxOptions: { enabled: input.sandbox ?? false },
+          // ambient setting layers for MCP servers (local-settingSources) —
+          // omitted for cloud: cloud always loads project/team/plugins and
+          // dashboard servers and ignores the knob
+          ...(input.settingSources?.length ? { settingSources: input.settingSources } : {}),
         };
       }
       agent = await Agent.create(opts);

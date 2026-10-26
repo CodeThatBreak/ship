@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { mcpSourcesSchema } from "../node-config";
 
 /**
  * The declarative node definitions stored on `node_templates.config` (§4.3–4.5).
@@ -14,6 +15,12 @@ export const AgentDefSchema = z.looseObject({
   mode: z.enum(["plan", "agent"]).default("plan"),
   /** null = the flow/default model (settings.default_model) */
   model: z.string().nullable().default(null),
+  /**
+   * Ambient setting layers the local runtime loads MCP servers from
+   * (Cursor `local.settingSources`) — [] = SDK default, inline servers only.
+   * The node threads it into every run it starts.
+   */
+  mcp_sources: mcpSourcesSchema,
   /** markdown → {markdown} output + markdown artifact; json → validated payload */
   output: z.enum(["markdown", "json"]).default("markdown"),
   /** when output=json: JSON Schema the response must satisfy. The raw
@@ -27,6 +34,8 @@ export const DECISION_SOURCES = ["expression", "manual", "agent"] as const;
 
 export const DecisionDefSchema = z.object({
   source: z.enum(DECISION_SOURCES).default("manual"),
+  /** MCP sources for source=agent runs (see AgentDefSchema.mcp_sources) */
+  mcp_sources: mcpSourcesSchema,
   /** source=expression (legacy, single global condition): JSONata over the
    *  flow context → the chosen labels. Superseded by per-choice `condition`s
    *  — kept parsed for rows authored before the choice editor grew conditions. */

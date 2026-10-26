@@ -15,6 +15,9 @@
 import { CursorCloudAgentPort } from "../../integrations/cursor/agent-port";
 import { CursorLocalAgentPort } from "../../integrations/local-agent/agent-port";
 import type { CatalogModel } from "../../modelSpec";
+import type { SettingSource } from "../node-config";
+
+export type { SettingSource };
 
 export type { CatalogModel };
 
@@ -98,6 +101,13 @@ export interface AgentStartSpec {
   workspace?: string;
   /** local worktree/cwd override */
   cwd?: string;
+  /**
+   * MCP/setting layers the local runtime loads ambient MCP servers from
+   * (Cursor SDK `local.settingSources`). Empty/undefined = the SDK default
+   * (inline servers only). Local-run only — cloud runtimes always load
+   * project/team/plugins plus dashboard servers.
+   */
+  settingSources?: SettingSource[];
 }
 
 /** A streamed-to-completion run: result plus the local follow-up handle. */

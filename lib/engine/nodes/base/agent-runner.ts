@@ -5,6 +5,7 @@ import {
   type AgentPort,
   type AgentRunResult,
   type AgentStartSpec,
+  type SettingSource,
 } from "../../ports/agent-runner";
 import { flowCtxHelper, type FlowContextHelper, type FlowCtx } from "./flow-context";
 import { worktreeManager } from "../../worktree-lifecycle";
@@ -31,6 +32,8 @@ export interface AgentStartInput {
   cwd?: string; // local worktree override
   model?: string | null; // per-run model override
   nodeId?: string | null; // lifecycle-event attribution for engine-side ensures
+  /** MCP/setting layers the local runtime loads MCP servers from (see AgentStartSpec) */
+  settingSources?: SettingSource[];
 }
 
 /**
@@ -65,6 +68,7 @@ export class AgentRunner {
       startingRef: input.startingRef,
       autoCreatePR: input.autoCreatePR,
       customSubagents: input.customSubagents,
+      settingSources: input.settingSources?.length ? input.settingSources : undefined,
     };
     if (port.execMode === "local") {
       // worktree-aware cwd: the flow's worktree when it has one, else the

@@ -9,7 +9,7 @@ import { NodeDefinition, type FlowCtx, type RunOutcome, type NodeTriggerRun } fr
 import { DEFAULT_FANOUT_OUTPUT, type NodeCapabilities } from "../base/capabilities";
 import { NODE_KEYS } from "../keys";
 import type { ConfigField } from "../../node-config";
-import { configString, fanoutConfigFields } from "../../node-config";
+import { configString, fanoutConfigFields, mcpSourcesOf, mcpSourcesSchema, mcpSourceConfigFields } from "../../node-config";
 import { branchStore } from "./branch-store";
 import { BuildInput, BuildOutput, type BuildBranchInfo } from "./schema";
 import { type PlanBranch } from "../plan/schema";
@@ -46,6 +46,8 @@ export class BuildNode extends NodeDefinition<BuildInput, BuildOutput> {
     fanout_mode: z.enum(["whole", "steps", "from-plan"]).default("whole"),
     fanout_child: z.string().nullable().default(null),
     fanout_parallel_max: z.number().int().min(1).default(1),
+    /** ambient MCP servers for build/refine agent runs (Cursor local.settingSources) */
+    mcp_sources: mcpSourcesSchema,
   });
   readonly configFields = [
     { key: "prompt_body", label: "Prompt body", type: "text", help: "User-editable prompt body for build runs." },
@@ -54,6 +56,7 @@ export class BuildNode extends NodeDefinition<BuildInput, BuildOutput> {
     { key: "max_merge_fix_attempts", label: "Max merge-fix attempts", type: "number", help: "Merge-fix agent runs per step child when its branch conflicts with (or is stale against) the integration branch at merge-back. Exhaustion fails the step visibly." },
     // the fan-out section: plan-downstream-capable built-ins carry one shared field set
     ...fanoutConfigFields,
+    ...mcpSourceConfigFields,
   ] as const satisfies readonly ConfigField[];
 
   /**
@@ -219,6 +222,7 @@ export class BuildNode extends NodeDefinition<BuildInput, BuildOutput> {
         startingRef: worktree ? branch : (ctx.repo?.default_branch ?? "main"),
         cwd: worktree ?? undefined,
         model: input.model,
+        settingSources: mcpSourcesOf(config),
       },
       label,
       finalize: (result) => this.finalizeBuild(ctx, result, branch, input.branchInfo, node.id),
@@ -311,6 +315,7 @@ export class BuildNode extends NodeDefinition<BuildInput, BuildOutput> {
         startingRef: ctx.flow.mr_branch ?? undefined,
         cwd: worktree ?? undefined,
         model,
+        settingSources: mcpSourcesOf(this.nodeConfig(ctx)),
       },
       label: "build refine",
       finalize: async (result) => {

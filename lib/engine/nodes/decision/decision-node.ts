@@ -6,6 +6,7 @@ import { NodeDefinition, type FlowCtx, type RunOutcome } from "../base";
 import { templateStore } from "../../templates";
 import { buildFlowContext } from "../../flow-context";
 import { evalJsonata } from "../../jsonata-eval";
+import { mcpSourceConfigFields } from "../../node-config";
 import { DecisionDefSchema, type DecisionDef } from "../declarative-schemas";
 import { extractJson } from "../agent/json-schema-lite";
 import { renderAgentPrompt } from "../agent/agent-node";
@@ -81,6 +82,8 @@ export class DecisionTemplateNode extends NodeDefinition<Record<string, unknown>
       key: "pass", label: "Pass downstream (variables)", type: "map" as const,
       help: "Variables every node attached to a branch receives as {{input.<field>}} — each row maps a field name to a JSONata expression over the flow context (chosen / rationale ride along automatically).",
     },
+    // source=agent runs may load ambient MCP servers (Cursor local.settingSources)
+    ...mcpSourceConfigFields,
   ];
 
   /** the parsed declarative definition (= the class-layer config) */
@@ -235,6 +238,7 @@ export class DecisionTemplateNode extends NodeDefinition<Record<string, unknown>
         name: `${this.label} ${ctx.task.key}`,
         model: null, // a decision is a judgment call — it uses the flow/default model
         startingRef: ctx.flow.mr_branch ?? undefined,
+        settingSources: cfg.mcp_sources,
       },
       label: `${this.label.toLowerCase()} decision`,
       finalize: async (runResult) => {

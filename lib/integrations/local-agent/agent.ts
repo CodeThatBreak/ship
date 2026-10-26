@@ -3,6 +3,7 @@ import { promisify } from "util";
 import {
   cursorAgent,
   type AgentRunResult,
+  type SDKSettingSource,
   type StreamCallbacks,
   type TokenUsage,
 } from "../cursorSdk";
@@ -21,6 +22,8 @@ export interface LocalAgentInput {
   branch?: string; // best-effort checkout before starting
   sessionId?: string; // resume a previous local agent (follow-ups)
   cwd?: string; // worktree override (defaults to workspace)
+  /** ambient setting layers supplying MCP servers (Cursor local.settingSources) */
+  settingSources?: SDKSettingSource[];
 }
 
 export interface LocalEvent {
@@ -174,6 +177,7 @@ export class LocalAgentService {
       sandbox: opts.sandbox,
       force: opts.force,
       resumeAgentId: input.sessionId,
+      settingSources: input.settingSources,
     });
   }
 

@@ -35,6 +35,9 @@ export class CursorLocalAgentPort implements AgentPort {
       sessionId: spec.followUpOn ?? undefined,
       branch: spec.startingRef,
       model: spec.model ?? undefined,
+      // ambient MCP/setting layers — applied on create AND resume (the SDK
+      // requires settingSources to be re-passed on follow-up runs)
+      settingSources: spec.settingSources,
     });
   }
 

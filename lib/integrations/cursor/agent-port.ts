@@ -29,6 +29,9 @@ export class CursorCloudAgentPort implements AgentPort {
       const r = await cursorClient.followUp(spec.followUpOn, spec.prompt, spec.mode);
       return { agentId: spec.followUpOn, runId: r.run.id as string };
     }
+    // spec.settingSources is intentionally NOT forwarded: per the SDK, cloud
+    // agents always load project/team/plugins layers plus the MCP servers
+    // configured on cursor.com/agents — `settingSources` is local-runtime only.
     const created = await cursorClient.createAgent({
       prompt: spec.prompt,
       mode: spec.mode,
