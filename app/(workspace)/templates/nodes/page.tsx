@@ -52,7 +52,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Spinner } from "@/components/ui/spinner";
-import { DataTable } from "@/components/data-table";
+import { DataTable, type DataTableAction } from "@/components/data-table";
 import { fmtDate } from "@/lib/format";
 import {
   DeclarativeConfigFields,
@@ -358,32 +358,30 @@ export default function TemplateNodesPage() {
           return b.original.updated_at.localeCompare(a.original.updated_at);
         },
       },
-      {
-        id: "actions",
-        header: () => <span className="sr-only">Actions</span>,
-        enableSorting: false,
-        cell: ({ row }) => {
-          const n = row.original;
-          if (n.is_builtin) return null; // code-defined — nothing to manage here
-          return (
-            <div className="flex justify-end">
-              <Button size="sm" variant="outline" onClick={() => openConfigure(n)}>
-                <Pencil size={12} /> Configure
-              </Button>
-              <Button
-                size="sm"
-                variant="ghost"
-                title="Delete"
-                disabled={busyId === n.id}
-                onClick={() => setPendingDelete(n)}
-              >
-                <Trash2 size={13} />
-              </Button>
-            </div>
-          );
-        },
-      },
     ],
+    [],
+  );
+
+  // row actions — built-ins are code-defined and carry none; the DataTable
+  // renders "Configure" upfront and pushes Delete into the ⋯ overflow menu
+  const getActions = useCallback(
+    (n: NodeRow): DataTableAction<NodeRow>[] =>
+      n.is_builtin
+        ? []
+        : [
+            {
+              label: "Configure",
+              icon: <Pencil size={12} />,
+              onSelect: () => openConfigure(n),
+            },
+            {
+              label: "Delete",
+              icon: <Trash2 size={13} />,
+              destructive: true,
+              disabled: busyId === n.id,
+              onSelect: () => setPendingDelete(n),
+            },
+          ],
     [openConfigure, busyId],
   );
 
@@ -416,6 +414,7 @@ export default function TemplateNodesPage() {
 
         <DataTable
           columns={columns}
+          getActions={getActions}
           data={nodes ?? []}
           loading={nodes == null}
           searchable

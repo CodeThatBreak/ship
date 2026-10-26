@@ -29,7 +29,7 @@ import {
 } from "@/components/ui/select";
 import { Separator } from "@/components/ui/separator";
 import { Modal } from "@/components/ui/modal";
-import { DataTable } from "@/components/data-table";
+import { DataTable, type DataTableAction } from "@/components/data-table";
 import { FilterPicker, type FilterDef } from "@/components/filter-picker";
 import { cn } from "cn";
 
@@ -250,12 +250,15 @@ export default function Home() {
   }, []);
 
   // ── build modal ──────────────────────────────────────────────────────────
-  const openBuild = (task: LiveTask) => {
-    setBuildTarget(task);
-    setRepoId("");
-    setExecutionMode(defaultMode);
-    setTemplateId(defaultTemplateId);
-  };
+  const openBuild = useCallback(
+    (task: LiveTask) => {
+      setBuildTarget(task);
+      setRepoId("");
+      setExecutionMode(defaultMode);
+      setTemplateId(defaultTemplateId);
+    },
+    [defaultMode, defaultTemplateId],
+  );
 
   const startFlow = async () => {
     const task = buildTarget;
@@ -374,21 +377,18 @@ export default function Home() {
           );
         },
       },
-      {
-        id: "build",
-        header: () => <span className="sr-only">Actions</span>,
-        enableSorting: false,
-        cell: ({ row }) => (
-          <div className="flex justify-end" onClick={(e) => e.stopPropagation()}>
-            <Button size="sm" variant="outline" onClick={() => openBuild(row.original)}>
-              <Play size={13} /> Build
-            </Button>
-          </div>
-        ),
-      },
     ],
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [repos, templates, defaultMode, defaultTemplateId],
+  );
+
+  // row actions — the DataTable renders the first action as an upfront button
+  // and any further ones in a ⋯ menu (tasks have a single action today)
+  const getActions = useCallback(
+    (t: LiveTask): DataTableAction<LiveTask>[] => [
+      { label: "Build", icon: <Play size={13} />, onSelect: () => openBuild(t) },
+    ],
+    [openBuild],
   );
 
   const unconfigured = providers.filter((p) => !p.configured);
@@ -442,6 +442,7 @@ export default function Home() {
 
         <DataTable
           columns={columns}
+          getActions={getActions}
           data={tasks}
           loading={loading}
           pageSize={25}
@@ -474,7 +475,7 @@ export default function Home() {
                   meta.stale
                     ? "Stale — the last fetch failed; click to retry fresh"
                     : meta.cached
-                      ? `Served from cache (${meta.ageSeconds}s old, TTL ${meta.ttlSeconds}s) — click to force a fresh fetch`
+                      ? `Showing recent results, fetched ${meta.ageSeconds}s ago — click to refresh`
                       : "Force a fresh fetch"
                 }
               >

@@ -13,9 +13,23 @@ import {
   type ExpandedState,
   type SortingState,
 } from "@tanstack/react-table";
-import { ChevronDown, ChevronLeft, ChevronRight, ChevronUp, Search, SearchX } from "lucide-react";
+import {
+  ChevronDown,
+  ChevronLeft,
+  ChevronRight,
+  ChevronUp,
+  Ellipsis,
+  Search,
+  SearchX,
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import {
   Table,
   TableBody,
@@ -26,6 +40,37 @@ import {
 } from "@/components/ui/table";
 import { cn } from "cn";
 
+/** Full-grid look: vertical separators between every column (the horizontal
+ *  separators come from the table primitives' row borders). Tailwind v4
+ *  defaults border color to currentColor, so the theme border color is set
+ *  here explicitly to match the row separators. */
+const GRID_BORDERS_CLASS =
+  "[&_th]:border-r [&_th]:border-border [&_th]:last:border-r-0 " +
+  "[&_td]:border-r [&_td]:border-border [&_td]:last:border-r-0";
+
+/** id of the generated row-actions column (see `getActions`). */
+const ACTIONS_COLUMN_ID = "actions";
+
+/**
+ * One row action for the built-in actions column (see `getActions`).
+ * The first action renders as an upfront button; everything after it
+ * collapses into the ⋯ overflow menu.
+ */
+export type DataTableAction<TData> = {
+  label: string;
+  /** Icon rendered before the label (in the button and in the menu item). */
+  icon?: React.ReactNode;
+  /** Native tooltip explaining the action. */
+  title?: string;
+  disabled?: boolean;
+  /** Renders in the destructive color inside the overflow menu. */
+  destructive?: boolean;
+  /** Click handler — omit when the action is a plain navigation via `href`. */
+  onSelect?: (row: TData) => void;
+  /** Renders the action as a link to this href (e.g. a file export). */
+  href?: (row: TData) => string;
+};
+
 /**
  * Reusable data table on top of the shadcn table primitives.
  *
@@ -33,7 +78,8 @@ import { cn } from "cn";
  * search input (client-side global filter) and pagination — plus a `toolbar`
  * slot for custom controls next to the search box. Fully controlled data:
  * server-driven pages (e.g. runtime-fetched tasks) pass their own state and
- * keep the client filter off.
+ * keep the client filter off. Row actions go through `getActions`: the first
+ * action renders as an upfront button, the rest collapse into a ⋯ menu.
  */
 export function DataTable<TData, TValue>({
   columns,
@@ -49,6 +95,7 @@ export function DataTable<TData, TValue>({
   rowClassName,
   className,
   getSubrows,
+  getActions,
 }: {
   columns: ColumnDef<TData, TValue>[];
   data: TData[];
@@ -68,14 +115,37 @@ export function DataTable<TData, TValue>({
   className?: string;
   /** Return a row's children (e.g. sub-tasks) to render as an expandable tree. */
   getSubrows?: (row: TData) => TData[] | undefined;
+  /** Per-row actions in a trailing column: the first action renders as an
+   *  upfront button, the rest collapse into a ⋯ overflow menu. Rows whose
+   *  action list is empty render nothing. Memoize this callback so the
+   *  generated column stays referentially stable. */
+  getActions?: (row: TData) => DataTableAction<TData>[];
 }) {
   const [sorting, setSorting] = React.useState<SortingState>(initialSorting);
   const [globalFilter, setGlobalFilter] = React.useState("");
   const [expanded, setExpanded] = React.useState<ExpandedState>(true); // start fully expanded
 
+  // built-in actions column: first action upfront, the rest under ⋯
+  const actionsColumn = React.useMemo<ColumnDef<TData, TValue>>(
+    () => ({
+      id: ACTIONS_COLUMN_ID,
+      header: () => <span className="sr-only">Actions</span>,
+      enableSorting: false,
+      enableHiding: false,
+      cell: ({ row }) => (
+        <ActionsCell row={row.original} actions={getActions?.(row.original) ?? []} />
+      ),
+    }),
+    [getActions],
+  );
+  const allColumns = React.useMemo(
+    () => (getActions ? [...columns, actionsColumn] : columns),
+    [columns, actionsColumn, getActions],
+  );
+
   const table = useReactTable({
     data,
-    columns,
+    columns: allColumns,
     state: { sorting, globalFilter, ...(getSubrows ? { expanded } : {}) },
     onSortingChange: setSorting,
     onGlobalFilterChange: setGlobalFilter,
@@ -119,7 +189,7 @@ export function DataTable<TData, TValue>({
       )}
 
       <div className="rounded-lg border border-border bg-card overflow-hidden">
-        <Table>
+        <Table className={GRID_BORDERS_CLASS}>
           <TableHeader>
             {table.getHeaderGroups().map((headerGroup) => (
               <TableRow key={headerGroup.id} className="bg-muted/40 hover:bg-muted/40">
@@ -224,7 +294,7 @@ export function DataTable<TData, TValue>({
               ))
             ) : (
               <TableRow>
-                <TableCell colSpan={columns.length} className="h-28 text-center">
+                <TableCell colSpan={allColumns.length} className="h-28 text-center">
                   <span className="inline-flex flex-col items-center gap-1.5 text-muted-foreground">
                     <SearchX size={16} />
                     <span className="text-[13px]">{emptyMessage}</span>
@@ -259,6 +329,87 @@ export function DataTable<TData, TValue>({
             <ChevronRight size={13} />
           </Button>
         </div>
+      )}
+    </div>
+  );
+}
+
+/** Upfront button + ⋯ overflow menu for one row's actions (see `getActions`). */
+function ActionsCell<TData>({
+  row,
+  actions,
+}: {
+  row: TData;
+  actions: DataTableAction<TData>[];
+}) {
+  if (actions.length === 0) return null;
+  const [primary, ...overflow] = actions;
+  const href = primary.href;
+  const onSelect = primary.onSelect;
+  return (
+    <div
+      className="flex items-center justify-end gap-1"
+      // keep row-level click handlers (onRowClick) out of the action controls
+      onClick={(e) => e.stopPropagation()}
+    >
+      {href ? (
+        <a href={href(row)} title={primary.title}>
+          <Button size="sm" variant="outline" disabled={primary.disabled}>
+            {primary.icon}
+            {primary.label}
+          </Button>
+        </a>
+      ) : (
+        <Button
+          size="sm"
+          variant="outline"
+          title={primary.title}
+          disabled={primary.disabled}
+          onClick={() => onSelect?.(row)}
+        >
+          {primary.icon}
+          {primary.label}
+        </Button>
+      )}
+      {overflow.length > 0 && (
+        <DropdownMenu>
+          <DropdownMenuTrigger
+            render={
+              <Button
+                variant="ghost"
+                size="icon-sm"
+                aria-label="More actions"
+                title="More actions"
+              />
+            }
+          >
+            <Ellipsis size={13} />
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end" className="min-w-[150px]">
+            {overflow.map((action) => {
+              const href = action.href;
+              const onSelect = action.onSelect;
+              return (
+                <DropdownMenuItem
+                  key={action.label}
+                  variant={action.destructive ? "destructive" : "default"}
+                  disabled={action.disabled}
+                  title={action.title}
+                  onClick={
+                    href
+                      ? () => window.location.assign(href(row))
+                      : onSelect
+                        ? () => onSelect(row)
+                        : undefined
+                  }
+                >
+                  {action.icon}
+                  {action.label}
+                </DropdownMenuItem>
+              );
+            })}
+          </DropdownMenuContent>
+        </DropdownMenu>
       )}
     </div>
   );

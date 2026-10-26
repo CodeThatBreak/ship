@@ -15,12 +15,12 @@ import { Alert, AlertAction } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
-import { DataTable } from "@/components/data-table";
+import { DataTable, type DataTableAction } from "@/components/data-table";
 import { cn } from "cn";
 
 /** Flow status buckets — §1.6: one named constant, compared in 2+ places. */
 const FLOW_STATUS_ACTIVE = "active";
-/** Execution modes rendered in the Mode/Worktree columns. */
+/** Execution modes rendered in the Mode/Branch columns. */
 const EXECUTION_MODE_LOCAL = "local";
 
 type Flow = {
@@ -54,7 +54,7 @@ function statusStyle(status: string): { className: string; label: string } {
   const s = (status ?? "").toLowerCase();
   if (/done|closed|resolved|complete/.test(s))
     return { className: "bg-success/10 text-success", label: "done" };
-  if (/progress|review|testing/.test(s))
+  if (/active|progress|review|testing/.test(s))
     return { className: "bg-info/10 text-info", label: "active" };
   if (/block|hold/.test(s))
     return { className: "bg-destructive/10 text-destructive", label: "blocked" };
@@ -62,8 +62,8 @@ function statusStyle(status: string): { className: string; label: string } {
 }
 
 function StatusBadge({ status }: { status: string }) {
-  const { className } = statusStyle(status);
-  return <Badge className={className}>{status || "—"}</Badge>;
+  const { className, label } = statusStyle(status);
+  return <Badge className={className}>{status ? label : "—"}</Badge>;
 }
 
 /** Worktree state for one local flow row: branch, dirty dot, ahead/behind. */
@@ -73,16 +73,16 @@ function WorktreeBadge({ status }: { status: WorktreeStatus }) {
       <Badge
         variant="outline"
         className="border-warning/30 text-warning"
-        title={`Worktree unavailable: ${status.reason ?? "unknown"} (${status.path})`}
+        title={`Code workspace not ready yet${status.reason ? `: ${status.reason}` : ""}`}
       >
-        <FolderGit2 size={11} /> wt?
+        <FolderGit2 size={11} /> unavailable
       </Badge>
     );
   }
   const ahead = status.ahead ?? 0;
   const behind = status.behind ?? 0;
   const title =
-    `${status.branch ?? "(detached)"} @ ${status.path}` +
+    `${status.branch ?? "(detached)"}` +
     (status.dirty ? " · uncommitted changes" : " · clean") +
     (ahead ? ` · ${ahead} commit${ahead === 1 ? "" : "s"} ahead` : "") +
     (behind ? ` · ${behind} behind` : "") +
@@ -118,7 +118,7 @@ export default function FlowsPage() {
       const f = await fetch("/api/flows").then((r) => r.json());
       setFlows(f.flows ?? []);
     } catch {
-      setError("Failed to load flows — check the dev server and retry.");
+      setError("Failed to load flows. Please try again.");
       setFlows([]); // end the skeleton even on failure
     }
   }, []);
@@ -193,7 +193,7 @@ export default function FlowsPage() {
       },
       {
         id: "worktree",
-        header: "Worktree",
+        header: "Branch",
         enableSorting: false,
         cell: ({ row }) => {
           const f = row.original;
@@ -237,20 +237,15 @@ export default function FlowsPage() {
             EMPTY_CELL
           ),
       },
-      {
-        id: "actions",
-        header: () => <span className="sr-only">Actions</span>,
-        enableSorting: false,
-        cell: ({ row }) => (
-          <div className="flex justify-end" onClick={(e) => e.stopPropagation()}>
-            <Button size="sm" variant="outline" onClick={() => openFlow(row.original)}>
-              Open
-            </Button>
-          </div>
-        ),
-      },
     ],
-    [worktrees, openFlow],
+    [worktrees],
+  );
+
+  // row actions — the DataTable renders the first action as an upfront button
+  // and any further ones in a ⋯ menu (flows have a single action today)
+  const getActions = useCallback(
+    (f: Flow): DataTableAction<Flow>[] => [{ label: "Open", onSelect: () => openFlow(f) }],
+    [openFlow],
   );
 
   const active = (flows ?? []).filter((f) => f.status === FLOW_STATUS_ACTIVE);
@@ -261,7 +256,7 @@ export default function FlowsPage() {
       <header className="mb-7">
         <h1 className="text-lg font-semibold tracking-tight m-0">Flows</h1>
         <p className="text-[13px] text-muted-foreground mt-1 mb-0">
-          Agent runs across your tasks — live status, worktrees and merge requests.
+          Agent runs across your tasks — live status, branches and merge requests.
         </p>
       </header>
 
@@ -301,6 +296,7 @@ export default function FlowsPage() {
             </h2>
             <DataTable
               columns={columns}
+              getActions={getActions}
               data={active}
               loading={flows == null}
               emptyMessage="Nothing running — agents show up here when a flow starts."
@@ -317,6 +313,7 @@ export default function FlowsPage() {
               </h2>
               <DataTable
                 columns={columns}
+                getActions={getActions}
                 data={finished}
                 className="opacity-80"
                 emptyMessage="Nothing finished yet."

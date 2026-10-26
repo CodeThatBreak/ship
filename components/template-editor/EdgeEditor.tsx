@@ -41,14 +41,14 @@ const EDGE_KINDS = ["next", "loop"] as const;
 /** Edge kinds as labeled options (the kind select's friendly labels). */
 const EDGE_KIND_OPTIONS: Record<string, { label: string; description: string }> = {
   next: {
-    label: "next — forward edge",
+    label: "Next",
     description:
       "Runs the target after the source finishes; its output joins the target's input.",
   },
   loop: {
-    label: "loop — re-run the target",
+    label: "Loop",
     description:
-      "Re-triggers the target once it has finished (bounds come from the target's max-attempt knobs).",
+      "Runs the target again after it finishes, up to the target's retry limit.",
   },
 };
 
@@ -185,8 +185,8 @@ export function EdgeEditor({
         </Select>
         <p className="text-[11px] text-muted-foreground m-0">
           {edge.kind === "loop"
-            ? "Loop edges re-trigger the target once it has finished (bounds come from the target's max-attempt knobs)."
-            : "A plain forward edge."}
+            ? "A loop edge runs the target again after it finishes, up to the target's retry limit."
+            : "Runs the target when the source finishes."}
         </p>
       </div>
       <div className="grid gap-1">
@@ -245,8 +245,8 @@ export function EdgeEditor({
           onChange={(raw) => onChange({ condition: raw })}
         />
         <p className="text-[11px] text-muted-foreground m-0">
-          The edge activates only when the condition is truthy — empty means
-          always. It&apos;s checked against the flow&apos;s context as the
+          The edge runs only when its condition passes — leave it empty to
+          always run. It&apos;s checked against the flow&apos;s context as the
           source node finishes.
         </p>
       </div>
@@ -265,6 +265,7 @@ function EdgeSelect({
   disabled: boolean;
   onChange: (v: string) => void;
 }) {
+  const selected = nodes.find((n) => n.key === value);
   return (
     <Select
       value={value}
@@ -274,7 +275,7 @@ function EdgeSelect({
       }}
     >
       <SelectTrigger className="w-full rounded-lg border-border bg-card font-mono">
-        <SelectValue>{value}</SelectValue>
+        <SelectValue>{selected ? nodeLabel(selected) : value}</SelectValue>
       </SelectTrigger>
       <SelectContent>
         {nodes.map((n) => (

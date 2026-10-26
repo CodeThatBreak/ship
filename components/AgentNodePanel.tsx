@@ -122,7 +122,7 @@ export default function AgentView({
           </DialogHeader>
           <div className="grid gap-2">
             <Label>
-              Prompt (saved to this flow instance — template instances stay untouched)
+              Prompt (saved to this flow only)
             </Label>
             <Textarea value={draft} onChange={(e) => setDraft(e.target.value)} rows={10} className="font-mono text-[12px]" />
             <p className="text-[11px] text-muted-foreground m-0">

@@ -49,8 +49,8 @@ function ResolveView({ flow, node, action, fetchArtifact, model }: {
           <div className="mb-3 flex items-center gap-1.5 text-xs text-muted-foreground">
             <Clock size={12} />
             {clock === "pipeline-gated"
-              ? "Auto-resolve is queued — it starts once the quiet period has elapsed and the pipeline gate is clear."
-              : <>Auto-resolve of open comments starts at <span className="font-medium text-foreground">{clock}</span> (after the quiet period, once the pipeline gate is clear).</>}
+              ? "Auto-resolve is queued — it starts once the pipeline passes."
+              : <>Auto-resolve of open comments starts at <span className="font-medium text-foreground">{clock}</span> (after the waiting period, once the pipeline passes).</>}
           </div>
         )}
         <GenericArtifact node={node} kind="resolve" fetchArtifact={fetchArtifact} icon={CheckCheck} empty="Nothing resolved yet." />

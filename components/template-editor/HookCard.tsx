@@ -20,11 +20,6 @@ export function HookCard({ hook }: { hook: { id: string; secret: string } }) {
       </code>
       <MaskedSecret value={hook.secret} />
       <HookCurlExample hook={hook} />
-      <code className="font-mono text-[12px] text-muted-foreground break-all">
-        {
-          'node scripts/send-hook.mjs <url> <secret> \'{"event":"issue.created"}\''
-        }
-      </code>
       <p className="text-[11px] text-muted-foreground m-0">
         Delivery body becomes{" "}
         <code className="font-mono">{"{{trigger.payload}}"}</code> in the

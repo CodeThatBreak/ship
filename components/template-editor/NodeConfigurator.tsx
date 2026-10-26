@@ -445,8 +445,8 @@ function TriggerTab({
             }
           />
           <p className="text-[11px] text-muted-foreground m-0">
-            The node holds at <code className="font-mono">waiting</code> and the
-            poller resumes it after this many minutes.
+            Once the node is ready, it waits this many minutes and then starts
+            automatically.
           </p>
         </div>
       )}

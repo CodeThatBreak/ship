@@ -458,7 +458,7 @@ from the flow's repo column — no filesystem change needed.
 > `localBranchState`, now reporting `commitsBehind` too), refreshed every 5s
 > while a local flow is active — the polling equivalent of "refreshed on flow
 > events" for the index page, which has no event stream. Unregistered/gone
-> worktrees render as an amber "wt?" badge with the reason instead of hiding.
+> worktrees render as an amber "unavailable" badge with the reason instead of hiding.
 > Verified by the extended `scripts/check-worktrees.ts` (endpoint against the
 > isolated temp DB: registered/dirty/ahead/pushed fields, stale-pointer
 > reporting).

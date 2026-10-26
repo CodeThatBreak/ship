@@ -228,7 +228,7 @@ export function FanoutChildPicker({
           <SelectItem value={UNSET}>
             <SelectOption
               label="auto-select"
-              description="Built-in step build under build nodes; every other node wraps itself as a hidden child template"
+              description="Picks a suitable template for you — the built-in build step on build nodes, a matching template elsewhere"
             />
           </SelectItem>
           {value != null && value !== "" && !known && (

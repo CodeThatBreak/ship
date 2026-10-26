@@ -22,7 +22,7 @@ export default function NodePanel({
   return (
     <PanelShell node={node} action={action} flow={flow}>
       {node.kind
-        ? <p className="text-muted-foreground text-[13px] m-0">The <strong>{node.kind}</strong> node kind ships with a later phase — configure it in the template editor, but it cannot run yet.</p>
+        ? <p className="text-muted-foreground text-[13px] m-0">The <strong>{node.kind}</strong> node type isn&apos;t supported yet — it can&apos;t run, even though you can configure it in the template editor.</p>
         : <p className="text-muted-foreground">No panel for this node.</p>}
     </PanelShell>
   );

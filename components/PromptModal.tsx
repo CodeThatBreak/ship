@@ -193,9 +193,10 @@ export default function PromptModal({
             <p className="text-muted-foreground text-[12px] m-0 flex items-start gap-1.5">
               <Info size={13} className="shrink-0 mt-[1px]" />
               <span>
-                Only the editable part is shown — the internal instructions
-                (output format, branch/commit rules, and run-time data like logs,
-                diff or comments) are appended automatically when the prompt runs.
+                Only the editable part is shown — built-in rules (output
+                format, branch/commit conventions) and live run data such as
+                logs, diffs or comments are added automatically when the prompt
+                runs.
               </span>
             </p>
           )}
@@ -206,7 +207,7 @@ export default function PromptModal({
             <div className="border border-border rounded-lg px-3 py-2.5">
               <div className="flex items-center gap-2 mb-2">
                 <span className="text-[11px] font-medium uppercase tracking-[0.5px] text-muted-foreground">Context blocks</span>
-                <span className="text-[11px] text-muted-foreground" title="total size of the selected context, assembled server-side">
+                <span className="text-[11px] text-muted-foreground" title="Total size of the context the model will see">
                   {totalContextChars.toLocaleString()} chars
                 </span>
                 <Tooltip>
@@ -214,7 +215,7 @@ export default function PromptModal({
                     <Info size={12} className="text-muted-foreground hover:text-muted-foreground cursor-help" />
                   </TooltipTrigger>
                   <TooltipContent>
-                    What the model will receive. Context is always re-assembled on the server — this selection is a hint, never the spec. A fresh agent sees exactly these blocks, nothing else.
+                    What the model will receive. Context is finalized when the agent runs — this selection is a guide. A fresh agent sees exactly these blocks, nothing else.
                   </TooltipContent>
                 </Tooltip>
               </div>

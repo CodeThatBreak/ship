@@ -40,7 +40,7 @@ import { Button, buttonVariants } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Spinner } from "@/components/ui/spinner";
 import { Textarea } from "@/components/ui/textarea";
-import { DataTable } from "@/components/data-table";
+import { DataTable, type DataTableAction } from "@/components/data-table";
 import { fmtDate } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { FLOW_TRIGGER_TYPE, WebhookPayloadDialog } from "@/components/template-editor";
@@ -241,56 +241,47 @@ export default function TemplateGallery() {
           return b.original.updated_at.localeCompare(a.original.updated_at);
         },
       },
-      {
-        id: "actions",
-        header: () => <span className="sr-only">Actions</span>,
-        enableSorting: false,
-        cell: ({ row }) => {
-          const t = row.original;
-          const builtin = Boolean(t.is_builtin);
-          return (
-            <div className="flex justify-end" onClick={(e) => e.stopPropagation()}>
-              <Button size="sm" variant="outline" onClick={() => openTemplate(t)}>
-                {builtin ? "Preview" : "Open"}
-              </Button>
-              <Button
-                size="sm"
-                variant="ghost"
-                title="Duplicate"
-                disabled={busyId === t.id}
-                onClick={() => void duplicate(t)}
-              >
-                {busyId === t.id ? <Spinner /> : <Copy size={13} />}
-              </Button>
-              <Button
-                size="sm"
-                variant="ghost"
-                title="Copy webhook payload — pick the repo + harness the delivery pins"
-                onClick={() => setPayloadTarget(t)}
-              >
-                <Webhook size={13} />
-              </Button>
-              <a href={`/api/templates/${t.id}/export`} title="Export YAML">
-                <Button size="sm" variant="ghost">
-                  <Download size={13} />
-                </Button>
-              </a>
-              {!builtin && (
-                <Button
-                  size="sm"
-                  variant="ghost"
-                  title="Delete"
-                  disabled={busyId === t.id}
-                  onClick={() => setPendingDelete(t)}
-                >
-                  <Trash2 size={13} />
-                </Button>
-              )}
-            </div>
-          );
-        },
-      },
     ],
+    [],
+  );
+
+  // row actions — the DataTable renders "Open/Preview" upfront and pushes the
+  // rest into the ⋯ overflow menu (built-ins are read-only, so no Delete)
+  const getActions = useCallback(
+    (t: TemplateRow): DataTableAction<TemplateRow>[] => {
+      const builtin = Boolean(t.is_builtin);
+      return [
+        { label: builtin ? "Preview" : "Open", onSelect: () => openTemplate(t) },
+        {
+          label: "Duplicate",
+          icon: <Copy size={13} />,
+          disabled: busyId === t.id,
+          onSelect: () => void duplicate(t),
+        },
+        {
+          label: "Copy webhook payload",
+          icon: <Webhook size={13} />,
+          title: "Copy webhook payload — pick the repo + harness the delivery pins",
+          onSelect: () => setPayloadTarget(t),
+        },
+        {
+          label: "Export YAML",
+          icon: <Download size={13} />,
+          href: () => `/api/templates/${t.id}/export`,
+        },
+        ...(builtin
+          ? []
+          : [
+              {
+                label: "Delete",
+                icon: <Trash2 size={13} />,
+                destructive: true,
+                disabled: busyId === t.id,
+                onSelect: () => setPendingDelete(t),
+              },
+            ]),
+      ];
+    },
     [openTemplate, duplicate, busyId],
   );
 
@@ -328,6 +319,7 @@ export default function TemplateGallery() {
 
         <DataTable
           columns={columns}
+          getActions={getActions}
           data={templates ?? []}
           loading={templates == null}
           searchable

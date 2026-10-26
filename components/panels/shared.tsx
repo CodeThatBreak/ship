@@ -120,8 +120,8 @@ export function PanelShell({
 /**
  * The waiting state (§6 node wait_for): the node is eligible but its event
  * source hasn't delivered yet. When the flow carries the node's inbound hook
- * (wait_for webhook), the banner shows the endpoint + secret and a copy-ready
- * send-hook command — what was delivered and what resumes the node is never
+ * (wait_for webhook), the banner shows the endpoint + secret and a copyable
+ * curl example — what was delivered and what resumes the node is never
  * buried in run logs.
  */
 function WaitBanner({ flow, node }: { flow?: FlowData; node: Node }) {
@@ -142,9 +142,9 @@ function WaitBanner({ flow, node }: { flow?: FlowData; node: Node }) {
       </span>
       {hook && (
         <Button size="sm" variant="ghost" onClick={() => void navigator.clipboard?.writeText(
-          `node scripts/send-hook.mjs ${base}/api/hooks/${hook.id} ${hook.secret} '{"ping":true}'`
+          `curl -X POST ${base}/api/hooks/${hook.id} -H "content-type: application/json" -H "x-devflow-secret: ${hook.secret}" -d '{"ping":true}'`
         )}>
-          Copy send-hook command
+          Copy curl example
         </Button>
       )}
     </Alert>
