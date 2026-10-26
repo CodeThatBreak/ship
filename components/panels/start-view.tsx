@@ -8,7 +8,7 @@ import { Badge } from "../ui/badge";
 import { Button } from "../ui/button";
 import { Checkbox } from "../ui/checkbox";
 import { Input } from "../ui/input";
-import { Label } from "../ui/label";
+import { Field, FieldTitle } from "../ui/field";
 import { Textarea } from "../ui/textarea";
 import { PanelShell } from "./shared";
 import { registerPanel } from "./registry";
@@ -120,9 +120,9 @@ function StartFieldInput({
 }) {
   const text = value == null ? "" : typeof value === "string" ? value : JSON.stringify(value, null, 2);
   return (
-    <div className="grid gap-1">
+    <Field>
       <div className="flex items-center gap-2">
-        <Label>{field.label || field.key}</Label>
+        <FieldTitle>{field.label || field.key}</FieldTitle>
         {field.label && <code className="font-mono text-[11px] text-muted-foreground">{field.key}</code>}
         <Badge variant="outline" className="text-[10px]">{field.type}</Badge>
         {field.required && <Badge className="bg-warning/10 text-warning text-[10px]">required</Badge>}
@@ -138,6 +138,7 @@ function StartFieldInput({
         </label>
       ) : field.type === "object" || field.type === "array" ? (
         <Textarea
+          id={`start-${field.key}`}
           value={text}
           rows={3}
           className="font-mono text-[12px]"
@@ -146,12 +147,13 @@ function StartFieldInput({
         />
       ) : (
         <Input
+          id={`start-${field.key}`}
           type={field.type === "number" ? "number" : "text"}
           value={text}
           onChange={(e) => onChange(e.target.value)}
         />
       )}
-    </div>
+    </Field>
   );
 }
 

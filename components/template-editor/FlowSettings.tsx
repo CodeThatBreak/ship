@@ -7,8 +7,8 @@
  * sample payload and the hook details (the secret masked, reveal/copy).
  */
 import { ChevronRight, Lock } from "lucide-react";
+import { Field, FieldDescription, FieldLabel } from "../ui/field";
 import { Input } from "../ui/input";
-import { Label } from "../ui/label";
 import { Switch } from "../ui/switch";
 import { Textarea } from "../ui/textarea";
 import {
@@ -23,7 +23,7 @@ import {
   CollapsibleContent,
   CollapsibleTrigger,
 } from "../ui/collapsible";
-import { ConditionBuilder } from "./ConditionBuilder";
+import { ConditionBuilder } from "./condition-builder";
 import { HookCard } from "./HookCard";
 import { TaskContextSection } from "./TaskContextSection";
 import type { TaskProviderInfo } from "./types";
@@ -91,24 +91,26 @@ export function FlowSettingsBody({
   return (
     <div className="grid gap-4">
       <div className="grid gap-3">
-        <div className="grid gap-1">
-          <Label>Template name</Label>
+        <Field>
+          <FieldLabel htmlFor="flow-template-name">Template name</FieldLabel>
           <Input
+            id="flow-template-name"
             value={draft.template.name}
             disabled={readonly}
             onChange={(e) => onChange({ name: e.target.value })}
           />
-        </div>
-        <div className="grid gap-1">
-          <Label>Description</Label>
+        </Field>
+        <Field>
+          <FieldLabel htmlFor="flow-template-description">Description</FieldLabel>
           <Textarea
+            id="flow-template-description"
             value={draft.template.description ?? ""}
             rows={2}
             disabled={readonly}
             onChange={(e) => onChange({ description: e.target.value || null })}
             className="bg-card text-foreground border-border text-[13px] px-3 py-2 resize-y"
           />
-        </div>
+        </Field>
       </div>
 
       {/* ── Task context (Phase 3): the declared task type + its fields ── */}
@@ -129,9 +131,9 @@ export function FlowSettingsBody({
           picker or by a delivery to this template&apos;s webhook — no switch
           needed. Below: auto-create flows on an interval (optional).
         </p>
-        <div className="grid gap-1">
+        <Field>
           <div className="flex items-center justify-between gap-2">
-            <Label htmlFor="flow-schedule">Schedule</Label>
+            <FieldLabel htmlFor="flow-schedule">Schedule</FieldLabel>
             <Switch
               id="flow-schedule"
               size="sm"
@@ -140,17 +142,18 @@ export function FlowSettingsBody({
               onCheckedChange={scheduledOn}
             />
           </div>
-          <p className="text-[11px] text-muted-foreground m-0">
+          <FieldDescription>
             {scheduled
               ? "Each fire auto-creates one flow from the repo binding below, attaching the most recent imported task."
               : "Off — flows only start when you trigger them."}
-          </p>
-        </div>
+          </FieldDescription>
+        </Field>
         {scheduled && (
           <>
-            <div className="grid gap-1">
-              <Label>Interval (minutes)</Label>
+            <Field>
+              <FieldLabel htmlFor="flow-interval">Interval (minutes)</FieldLabel>
               <Input
+                id="flow-interval"
                 type="number"
                 min={1}
                 value={Number(trigger.interval_min ?? 60)}
@@ -165,9 +168,9 @@ export function FlowSettingsBody({
                   })
                 }
               />
-            </div>
-            <div className="grid gap-1">
-              <Label>Bound repo</Label>
+            </Field>
+            <Field>
+              <FieldLabel htmlFor="flow-bound-repo">Bound repo</FieldLabel>
               {repos.length === 0 ? (
                 <div
                   className="flex items-center h-9 rounded-lg border border-dashed border-border bg-muted/30 px-3 text-[12.5px] text-muted-foreground"
@@ -182,6 +185,7 @@ export function FlowSettingsBody({
                   onValueChange={(v) => setTrigger({ repo_id: v })}
                 >
                   <SelectTrigger
+                    id="flow-bound-repo"
                     className="w-full rounded-lg border-border bg-card"
                     aria-label="Bound repo"
                   >
@@ -206,11 +210,11 @@ export function FlowSettingsBody({
                   </SelectContent>
                 </Select>
               )}
-              <p className="text-[11px] text-muted-foreground m-0">
+              <FieldDescription>
                 Fires attach this repo. A webhook delivery can point at another
                 registered repo instead — pass <code className="font-mono">repo</code> in its payload.
-              </p>
-            </div>
+              </FieldDescription>
+            </Field>
           </>
         )}
       </div>
@@ -227,8 +231,8 @@ export function FlowSettingsBody({
         </CollapsibleTrigger>
         <CollapsibleContent>
           <div className="grid gap-3 pt-2">
-            <div className="grid gap-1">
-              <Label>Filter — which deliveries start a flow?</Label>
+            <Field>
+              <FieldLabel>Filter — which deliveries start a flow?</FieldLabel>
               <ConditionBuilder
                 value={
                   typeof trigger.filter === "string" ? trigger.filter : null
@@ -239,14 +243,14 @@ export function FlowSettingsBody({
                 disabled={readonly}
                 onChange={(raw) => setTrigger({ filter: raw || undefined })}
               />
-              <p className="text-[11px] text-muted-foreground m-0">
+              <FieldDescription>
                 The delivery starts a flow only when the filter is truthy —
                 empty means every delivery. It sees the delivery body (
                 <code className="font-mono">payload.*</code>) and headers. A
                 delivery can also pin the repo + harness: build the body from
                 the gallery&apos;s Copy-webhook-payload action.
-              </p>
-            </div>
+              </FieldDescription>
+            </Field>
             {hook && <HookCard hook={hook} />}
             {!hook && (
               <p className="text-[11px] text-muted-foreground m-0">

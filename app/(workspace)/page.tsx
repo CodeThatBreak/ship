@@ -19,7 +19,7 @@ import type { ColumnDef } from "@tanstack/react-table";
 import { Alert } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Label } from "@/components/ui/label";
+import { Field, FieldLabel } from "@/components/ui/field";
 import {
   Select,
   SelectContent,
@@ -533,10 +533,10 @@ export default function Home() {
 
             <Separator />
 
-            <div className="flex flex-col gap-1.5">
-              <Label>Flow template</Label>
+            <Field>
+              <FieldLabel htmlFor="flow-template">Flow template</FieldLabel>
               <Select value={templateId} onValueChange={(v) => v && setTemplateId(v)}>
-                <SelectTrigger className="w-full">
+                <SelectTrigger id="flow-template" className="w-full">
                   <SelectValue placeholder="Select template…" />
                 </SelectTrigger>
                 <SelectContent>
@@ -547,12 +547,12 @@ export default function Home() {
                   ))}
                 </SelectContent>
               </Select>
-            </div>
+            </Field>
 
-            <div className="flex flex-col gap-1.5">
-              <Label>Repository</Label>
+            <Field>
+              <FieldLabel htmlFor="flow-repo">Repository</FieldLabel>
               <Select value={repoId || null} onValueChange={(v) => v && setRepoId(v)}>
-                <SelectTrigger className="w-full">
+                <SelectTrigger id="flow-repo" className="w-full">
                   <SelectValue placeholder="Select repo…" />
                 </SelectTrigger>
                 <SelectContent>
@@ -563,15 +563,15 @@ export default function Home() {
                   ))}
                 </SelectContent>
               </Select>
-            </div>
+            </Field>
 
-            <div className="flex flex-col gap-1.5">
-              <Label>Execution mode</Label>
+            <Field>
+              <FieldLabel htmlFor="flow-execution-mode">Execution mode</FieldLabel>
               <Select
                 value={executionMode}
                 onValueChange={(v) => v && setExecutionMode(v as "cloud" | "local")}
               >
-                <SelectTrigger className="w-full">
+                <SelectTrigger id="flow-execution-mode" className="w-full">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
@@ -586,7 +586,7 @@ export default function Home() {
                   </SelectItem>
                 </SelectContent>
               </Select>
-            </div>
+            </Field>
           </div>
         )}
       </Modal>

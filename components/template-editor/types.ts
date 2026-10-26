@@ -105,6 +105,21 @@ export interface NodeContract {
   output: any;
   /** decision nodes: the branch labels out-edges must carry (§4.3) */
   choices?: { label: string; description?: string; condition?: string }[];
+  /**
+   * Built-ins only: the def's prompt templates as unrendered three-part
+   * sections (body / locked rules / locked output contract) — the Prompt
+   * tab's reference data. Absent for declarative kinds (their prompts are
+   * free-standing, no split).
+   */
+  prompt?: {
+    key: string;
+    label: string;
+    description: string;
+    variables: string[];
+    body: string;
+    engineRules: string;
+    outputContract: string;
+  }[];
   config: {
     fields?: {
       key: string;

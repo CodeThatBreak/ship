@@ -32,6 +32,8 @@ export class BuildNode extends NodeDefinition<BuildInput, BuildOutput> {
   /** Typed config knobs (defaults = today's behavior). */
   readonly configSchema = z.object({
     prompt_body: z.string().optional(),
+    /** user rules appended after the prompt body / override */
+    prompt_rules: z.string().optional(),
     /** custom branch naming, e.g. "bugfix/{ticket}-{id}"; empty = built-in pattern */
     branch_pattern: z.string().default(""),
     /** commit-fix agent attempts when the push is rejected during MR creation (engine-consumed) */
@@ -51,6 +53,7 @@ export class BuildNode extends NodeDefinition<BuildInput, BuildOutput> {
   });
   readonly configFields = [
     { key: "prompt_body", label: "Prompt body", type: "text", help: "User-editable prompt body for build runs." },
+    { key: "prompt_rules", label: "Your rules", type: "text", help: "Extra rules appended after the prompt body / override on every build or build-refine run. E.g. \"run npm run lint before pushing\"." },
     { key: "branch_pattern", label: "Branch pattern", type: "string", help: "Tokens: {prefix} {slug} {ticket} {id} {suffix}. Empty = built-in bugfix/feature pattern." },
     { key: "max_commit_fix_attempts", label: "Max commit-fix attempts", type: "number", help: "Commit-fix agent runs when the push is rejected while creating the MR." },
     { key: "max_merge_fix_attempts", label: "Max merge-fix attempts", type: "number", help: "Merge-fix agent runs per step child when its branch conflicts with (or is stale against) the integration branch at merge-back. Exhaustion fails the step visibly." },
@@ -142,8 +145,10 @@ export class BuildNode extends NodeDefinition<BuildInput, BuildOutput> {
   }
 
   async run(ctx: FlowCtx, input: BuildInput, config: Record<string, unknown>): Promise<RunOutcome> {
+    // the user's standing rules (prompt_rules knob) apply to every run
+    const userRules = configString(config, "prompt_rules") ?? "";
     // Chat refine on an existing build agent is a different path
-    if (input.feedback) return this.refine(ctx, input.feedback, input.prompt, input.model);
+    if (input.feedback) return this.refine(ctx, input.feedback, input.prompt, input.model, userRules);
 
     const node = this.node(ctx);
     const plan = input.plan;
@@ -206,6 +211,7 @@ export class BuildNode extends NodeDefinition<BuildInput, BuildOutput> {
       { ticket: this.ctxHelper.taskContext(ctx), branch, mode },
       { instructions, plan: scopedPlan, checklist },
       input.prompt,
+      { userRules },
     );
 
     return this.execute(ctx, {
@@ -278,7 +284,7 @@ export class BuildNode extends NodeDefinition<BuildInput, BuildOutput> {
   }
 
   /** Chat-driven changes: follow up on the build agent, regenerate the diff. */
-  private async refine(ctx: FlowCtx, feedback: string, promptOverride?: string | null, model?: string | null): Promise<RunOutcome> {
+  private async refine(ctx: FlowCtx, feedback: string, promptOverride?: string | null, model?: string | null, userRules?: string): Promise<RunOutcome> {
     const node = this.node(ctx);
     if (!node.agent_id) {
       // no build agent yet — treat as a full build with the latest plan + note
@@ -291,7 +297,7 @@ export class BuildNode extends NodeDefinition<BuildInput, BuildOutput> {
       }), this.nodeConfig(ctx));
     }
 
-    let prompt = promptOverride ?? prompts.resolve("build_refine", {}, { feedback });
+    let prompt = prompts.resolve("build_refine", {}, { feedback }, promptOverride, { userRules });
     // follow-ups run in the same worktree the build used (ensure creates it
     // when the flow predates worktrees or the tree was swept)
     let worktree: string | null = null;

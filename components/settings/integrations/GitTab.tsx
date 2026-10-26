@@ -13,7 +13,7 @@ import { HostingSelect } from "./components/HostingSelect";
 import { InstanceCard, InstanceCardSkeleton } from "./components/InstanceCard";
 import { ProviderSelect } from "./components/ProviderSelect";
 import { InstanceListError } from "./components/InstanceListError";
-import { Field } from "@/components/shared";
+import { Field, FieldLabel } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import type { TabProps } from "./types";
 
@@ -112,12 +112,14 @@ export function GitTab({ open, onOpenChange, onError }: TabProps) {
         submitting={connect.isPending}
         onSubmit={submit}
       >
-        <Field label="Provider">
+        <Field>
+          <FieldLabel>Provider</FieldLabel>
           <ProviderSelect value={provider} onChange={setProvider} options={GIT_PROVIDER_OPTIONS} />
         </Field>
 
         {provider === PROVIDER_KIND.GITLAB && (
-          <Field label="Type">
+          <Field>
+            <FieldLabel>Type</FieldLabel>
             <HostingSelect value={hosting} onChange={setHosting} options={GIT_HOSTING_OPTIONS} />
           </Field>
         )}
@@ -126,15 +128,19 @@ export function GitTab({ open, onOpenChange, onError }: TabProps) {
           <>
             {isCustom && (
               <div className="grid gap-3.5">
-                <Field label="Label">
+                <Field>
+                  <FieldLabel htmlFor="gitlab-name">Label</FieldLabel>
                   <Input
+                    id="gitlab-name"
                     placeholder="e.g. Corp GitLab"
                     value={fields.name ?? ""}
                     onChange={(e) => setField("name", e.target.value)}
                   />
                 </Field>
-                <Field label="URL">
+                <Field>
+                  <FieldLabel htmlFor="gitlab-url">URL</FieldLabel>
                   <Input
+                    id="gitlab-url"
                     placeholder="https://gitlab.company.com"
                     value={fields.baseUrl ?? ""}
                     onChange={(e) => setField("baseUrl", e.target.value)}
@@ -142,8 +148,10 @@ export function GitTab({ open, onOpenChange, onError }: TabProps) {
                 </Field>
               </div>
             )}
-            <Field label="Access token">
+            <Field>
+              <FieldLabel htmlFor="gitlab-token">Access token</FieldLabel>
               <Input
+                id="gitlab-token"
                 placeholder="Personal access token (api scope)"
                 type="password"
                 value={fields.token ?? ""}

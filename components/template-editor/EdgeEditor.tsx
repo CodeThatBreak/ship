@@ -7,8 +7,8 @@
  */
 import { useEffect, useMemo, useState } from "react";
 import { Button } from "../ui/button";
+import { Field, FieldDescription, FieldLabel } from "../ui/field";
 import { Input } from "../ui/input";
-import { Label } from "../ui/label";
 import {
   Select,
   SelectContent,
@@ -17,7 +17,7 @@ import {
   SelectValue,
 } from "../ui/select";
 import { cn } from "../../lib/utils";
-import { ConditionBuilder } from "./ConditionBuilder";
+import { ConditionBuilder } from "./condition-builder";
 import { SelectOption } from "./NodeConfigurator";
 import type {
   EditorEdge,
@@ -139,27 +139,27 @@ export function EdgeEditor({
   return (
     <div className="grid gap-3">
       <div className="grid grid-cols-2 gap-3">
-        <div className="grid gap-1">
-          <Label>From</Label>
+        <Field>
+          <FieldLabel>From</FieldLabel>
           <EdgeSelect
             value={edge.from}
             nodes={nodes}
             disabled={readonly}
             onChange={(v) => onChange({ from: v })}
           />
-        </div>
-        <div className="grid gap-1">
-          <Label>To</Label>
+        </Field>
+        <Field>
+          <FieldLabel>To</FieldLabel>
           <EdgeSelect
             value={edge.to}
             nodes={nodes}
             disabled={readonly}
             onChange={(v) => onChange({ to: v })}
           />
-        </div>
+        </Field>
       </div>
-      <div className="grid gap-1">
-        <Label>Kind</Label>
+      <Field>
+        <FieldLabel htmlFor="edge-kind">Kind</FieldLabel>
         <Select
           value={edge.kind}
           disabled={readonly}
@@ -167,7 +167,7 @@ export function EdgeEditor({
             if (v != null) onChange({ kind: v });
           }}
         >
-          <SelectTrigger className="w-full rounded-lg border-border bg-card">
+          <SelectTrigger id="edge-kind" className="w-full rounded-lg border-border bg-card">
             <SelectValue>
               {EDGE_KIND_OPTIONS[edge.kind]?.label ?? edge.kind}
             </SelectValue>
@@ -183,21 +183,21 @@ export function EdgeEditor({
             ))}
           </SelectContent>
         </Select>
-        <p className="text-[11px] text-muted-foreground m-0">
+        <FieldDescription>
           {edge.kind === "loop"
             ? "A loop edge runs the target again after it finishes, up to the target's retry limit."
             : "Runs the target when the source finishes."}
-        </p>
-      </div>
-      <div className="grid gap-1">
-        <Label>
+        </FieldDescription>
+      </Field>
+      <Field>
+        <FieldLabel htmlFor="edge-label">
           Label{" "}
           {isDecision && (
             <span className="text-warning">
               — required for decision branches
             </span>
           )}
-        </Label>
+        </FieldLabel>
         {isDecision && choices && choices.length > 0 && (
           <div className="flex gap-1 flex-wrap">
             {choices.map((c) => (
@@ -221,6 +221,7 @@ export function EdgeEditor({
           </div>
         )}
         <Input
+          id="edge-label"
           value={edge.label ?? ""}
           placeholder={
             isDecision
@@ -230,7 +231,7 @@ export function EdgeEditor({
           disabled={readonly}
           onChange={(ev) => onChange({ label: ev.target.value || null })}
         />
-      </div>
+      </Field>
       <div className="grid gap-1.5">
         <label className="text-xs text-muted-foreground">
           Condition — when does this edge activate?

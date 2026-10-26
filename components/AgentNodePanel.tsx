@@ -10,7 +10,7 @@ import { Button } from "./ui/button";
 import { Card } from "./ui/card";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "./ui/dialog";
 import { Textarea } from "./ui/textarea";
-import { Label } from "./ui/label";
+import { Field, FieldDescription, FieldLabel } from "./ui/field";
 
 /**
  * The generic runtime panel for declarative nodes (§8 2C): prompt view/edit,
@@ -120,18 +120,24 @@ export default function AgentView({
           <DialogHeader>
             <DialogTitle>Configure {node.label || node.template_name || node.node_key}</DialogTitle>
           </DialogHeader>
-          <div className="grid gap-2">
-            <Label>
+          <Field>
+            <FieldLabel htmlFor="agent-prompt-override">
               Prompt (saved to this flow only)
-            </Label>
-            <Textarea value={draft} onChange={(e) => setDraft(e.target.value)} rows={10} className="font-mono text-[12px]" />
-            <p className="text-[11px] text-muted-foreground m-0">
+            </FieldLabel>
+            <Textarea
+              id="agent-prompt-override"
+              value={draft}
+              onChange={(e) => setDraft(e.target.value)}
+              rows={10}
+              className="font-mono text-[12px]"
+            />
+            <FieldDescription className="m-0">
               Variables: <code className="font-mono">{"{{task.*}}"}</code>,{" "}
               <code className="font-mono">{"{{flow.*}}"}</code>,{" "}
               <code className="font-mono">{"{{repo.*}}"}</code>,{" "}
               <code className="font-mono">{"{{nodes.<key>.output.*}}"}</code>
-            </p>
-          </div>
+            </FieldDescription>
+          </Field>
           <DialogFooter>
             <Button
               onClick={async () => {

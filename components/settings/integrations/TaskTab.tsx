@@ -13,7 +13,7 @@ import { HostingSelect } from "./components/HostingSelect";
 import { InstanceCard, InstanceCardSkeleton } from "./components/InstanceCard";
 import { ProviderSelect } from "./components/ProviderSelect";
 import { InstanceListError } from "./components/InstanceListError";
-import { Field } from "@/components/shared";
+import { Field, FieldLabel } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import type { TabProps } from "./types";
 
@@ -111,44 +111,54 @@ export function TaskTab({ open, onOpenChange, onError }: TabProps) {
         submitting={connect.isPending}
         onSubmit={submit}
       >
-        <Field label="Provider">
+        <Field>
+          <FieldLabel>Provider</FieldLabel>
           <ProviderSelect value={provider} onChange={setProvider} options={JIRA_PROVIDER_OPTIONS} />
         </Field>
 
         {provider === PROVIDER_KIND.JIRA && (
-          <Field label="Type">
+          <Field>
+            <FieldLabel>Type</FieldLabel>
             <HostingSelect value={hosting} onChange={setHosting} options={JIRA_HOSTING_OPTIONS} />
           </Field>
         )}
 
         {provider === PROVIDER_KIND.JIRA && hosting !== "" && (
           <>
-            <Field label="URL">
+            <Field>
+              <FieldLabel htmlFor="jira-url">URL</FieldLabel>
               <Input
+                id="jira-url"
                 placeholder={isCustom ? "https://jira.company.com" : "https://your-site.atlassian.net"}
                 value={fields.baseUrl ?? ""}
                 onChange={(e) => setField("baseUrl", e.target.value)}
               />
             </Field>
             {isCustom && (
-              <Field label="Label">
+              <Field>
+                <FieldLabel htmlFor="jira-name">Label</FieldLabel>
                 <Input
+                  id="jira-name"
                   placeholder="e.g. Corp Jira"
                   value={fields.name ?? ""}
                   onChange={(e) => setField("name", e.target.value)}
                 />
               </Field>
             )}
-            <Field label="Email">
+            <Field>
+              <FieldLabel htmlFor="jira-email">Email</FieldLabel>
               <Input
+                id="jira-email"
                 placeholder="your Jira login email"
                 type="email"
                 value={fields.email ?? ""}
                 onChange={(e) => setField("email", e.target.value)}
               />
             </Field>
-            <Field label="API token">
+            <Field>
+              <FieldLabel htmlFor="jira-token">API token</FieldLabel>
               <Input
+                id="jira-token"
                 placeholder="API token (cloud) or PAT (self-hosted)"
                 type="password"
                 value={fields.token ?? ""}

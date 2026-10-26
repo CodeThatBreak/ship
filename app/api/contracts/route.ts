@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { nodeRegistry } from "../../../lib/engine/nodes/registry";
 import { templateStore } from "../../../lib/engine/templates";
+import { prompts } from "../../../lib/engine/prompts";
 import { instantiateDeclarative, type DeclarativeRow } from "../../../lib/engine/nodes/declarative";
 import {
   parseStartContract,
@@ -10,6 +11,20 @@ import {
 import type { NodeCapabilities } from "../../../lib/engine/nodes/base/capabilities";
 
 export const dynamic = "force-dynamic";
+
+/**
+ * The def's prompt templates as unrendered three-part sections (body / locked
+ * rules / locked output contract) — the configurator's Prompt tab. One entry
+ * per `promptSections` key; nulls dropped defensively.
+ */
+function promptSections(keys: readonly string[]) {
+  return keys
+    .map((key) => {
+      const parts = prompts.templateParts(key);
+      return parts ? { key, ...parts } : null;
+    })
+    .filter((s): s is NonNullable<typeof s> => s != null);
+}
 
 /**
  * A node's contract for the configurator (§5): declared input fields, output
@@ -56,6 +71,7 @@ export async function GET(req: Request) {
           input: schema,
           output: schema,
           capabilities: builtin.capabilities,
+          prompt: promptSections(builtin.promptSections),
           config: {
             fields: builtin.configFields,
             defaults: builtin.defaultConfig(),
@@ -70,6 +86,7 @@ export async function GET(req: Request) {
         input: z.toJSONSchema(builtin.inputSchema),
         output: z.toJSONSchema(builtin.outputSchema),
         capabilities: builtin.capabilities,
+        prompt: promptSections(builtin.promptSections),
         config: {
           fields: builtin.configFields,
           defaults: builtin.defaultConfig(),

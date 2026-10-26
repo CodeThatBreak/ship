@@ -43,7 +43,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
+import { Field, FieldDescription, FieldLabel } from "@/components/ui/field";
 import {
   Select,
   SelectContent,
@@ -442,32 +442,32 @@ export default function TemplateNodesPage() {
             <DialogTitle>{editing?.id ? "Configure node" : "New node"}</DialogTitle>
           </DialogHeader>
           <div className="grid gap-3">
-            <div className="grid gap-1.5">
-              <Label htmlFor="node-name">Name</Label>
+            <Field>
+              <FieldLabel htmlFor="node-name">Name</FieldLabel>
               <Input
                 id="node-name"
                 value={form.name}
                 onChange={(e) => setFormField({ name: e.target.value })}
                 placeholder="Summarize diff"
               />
-            </div>
-            <div className="grid gap-1.5">
-              <Label htmlFor="node-description">Description</Label>
+            </Field>
+            <Field>
+              <FieldLabel htmlFor="node-description">Description</FieldLabel>
               <Input
                 id="node-description"
                 value={form.description}
                 onChange={(e) => setFormField({ description: e.target.value })}
                 placeholder="Shows up under the node name in the builder"
               />
-            </div>
-            <div className="grid gap-1.5">
-              <Label>Kind</Label>
+            </Field>
+            <Field>
+              <FieldLabel htmlFor="node-kind">Kind</FieldLabel>
               <Select
                 value={form.kind}
                 onValueChange={(v) => switchKind(v as NodeTemplateKind)}
                 disabled={editing?.id != null}
               >
-                <SelectTrigger className="w-full">
+                <SelectTrigger id="node-kind" className="w-full">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
@@ -477,12 +477,12 @@ export default function TemplateNodesPage() {
                 </SelectContent>
               </Select>
               {editing?.id == null && (
-                <p className="text-[11px] text-muted-foreground m-0">
+                <FieldDescription className="m-0">
                   Seeded with a working {form.kind} boilerplate — tweak it or
                   remap the inputs in the builder; nothing to write from scratch.
-                </p>
+                </FieldDescription>
               )}
-            </div>
+            </Field>
 
             {formError && <Alert variant="destructive">{formError}</Alert>}
             <DeclarativeConfigFields

@@ -26,6 +26,8 @@ export class ResolveNode extends NodeDefinition<ResolveInput, ResolveOutput> {
   /** Typed config knobs (defaults = today's behavior). */
   readonly configSchema = z.object({
     prompt_body: z.string().optional(),
+    /** user rules appended after the prompt body, before the engine's locked blocks */
+    prompt_rules: z.string().optional(),
     /** quiet-period minutes before the debounced resolve fires; unset = the 10-min default — engine-consumed */
     quiet_minutes: z.number().min(0).optional(),
     /** ambient MCP servers for agent runs (Cursor local.settingSources) */
@@ -33,6 +35,7 @@ export class ResolveNode extends NodeDefinition<ResolveInput, ResolveOutput> {
   });
   readonly configFields = [
     { key: "prompt_body", label: "Prompt body", type: "text", help: "User-editable prompt body; internal contracts re-appended automatically." },
+    { key: "prompt_rules", label: "Your rules", type: "text", help: "Extra rules appended after the prompt body, before the engine's locked instructions and the open comments — on every run of this node." },
     { key: "quiet_minutes", label: "Quiet period (min)", type: "number", help: "Minutes of comment quiet before the debounced resolve fires. Empty = 10." },
     ...mcpSourceConfigFields,
   ] as const satisfies readonly ConfigField[];
@@ -43,6 +46,8 @@ export class ResolveNode extends NodeDefinition<ResolveInput, ResolveOutput> {
       const body = configString(config, "prompt_body");
       if (body) input = { ...input, prompt: body, promptIsBody: true } as ResolveInput;
     }
+    // the user's standing rules (prompt_rules knob) apply to every run
+    const userRules = typeof config.prompt_rules === "string" ? config.prompt_rules : "";
 
     const node = this.node(ctx);
 
@@ -88,13 +93,17 @@ export class ResolveNode extends NodeDefinition<ResolveInput, ResolveOutput> {
     let prompt = (input.prompt
       ? input.promptIsBody
         // user edited the body only — re-attach the internal instructions + comments
-        ? `${input.prompt}\n\n${prompts.internalSuffix(NODE_KEYS.RESOLVE,
+        ? prompts.assemblePrompt(NODE_KEYS.RESOLVE,
             { branch: mrBranch ?? undefined, mode },
-            { header, subheader, instructions, dev_instructions, comments: list })}`
+            { header, subheader, instructions, dev_instructions, comments: list },
+            { body: input.prompt, userRules },
+          ).final
         : input.prompt
       : prompts.resolve(NODE_KEYS.RESOLVE,
           { branch: mrBranch ?? undefined, mode },
           { header, subheader, instructions, dev_instructions, comments: list },
+          undefined,
+          { userRules },
         )
     ).split("\n").filter(Boolean).join("\n");
 

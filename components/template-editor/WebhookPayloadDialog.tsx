@@ -18,7 +18,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "../ui/dialog";
-import { Label } from "../ui/label";
+import { Field, FieldLabel, FieldTitle } from "../ui/field";
 import {
   Select,
   SelectContent,
@@ -206,7 +206,7 @@ export function WebhookPayloadDialog({
   /** one block's header: label + inline copy (masked text, full copy). */
   const blockLabel = (label: string, text: () => string) => (
     <div className="flex items-center justify-between gap-2">
-      <Label>{label}</Label>
+      <FieldTitle>{label}</FieldTitle>
       <Button
         type="button"
         variant="ghost"
@@ -247,8 +247,8 @@ export function WebhookPayloadDialog({
           )}
 
           {/* Repo — preselected from the template's binding when set */}
-          <div className="grid gap-1">
-            <Label>Repo</Label>
+          <Field>
+            <FieldLabel htmlFor="webhook-repo">Repo</FieldLabel>
             {reposQuery.isPending ? (
               <Skeleton className="h-9 rounded-lg" />
             ) : repos.length === 0 ? (
@@ -260,7 +260,11 @@ export function WebhookPayloadDialog({
               </div>
             ) : (
               <Select value={repo?.id ?? ""} onValueChange={(v) => setRepoId(v)}>
-                <SelectTrigger className="w-full rounded-lg border-border bg-card" aria-label="Repo">
+                <SelectTrigger
+                  id="webhook-repo"
+                  className="w-full rounded-lg border-border bg-card"
+                  aria-label="Repo"
+                >
                   <SelectValue>{repo ? repoLabel(repo) : ""}</SelectValue>
                 </SelectTrigger>
                 <SelectContent>
@@ -272,17 +276,21 @@ export function WebhookPayloadDialog({
                 </SelectContent>
               </Select>
             )}
-          </div>
+          </Field>
 
           {/* Harness → mode cascade (same shape as the settings General page) */}
           <div className="grid grid-cols-2 gap-2">
-            <div className="grid gap-1">
-              <Label>Harness</Label>
+            <Field>
+              <FieldLabel htmlFor="webhook-harness">Harness</FieldLabel>
               {settingsQuery.isPending ? (
                 <Skeleton className="h-9 rounded-lg" />
               ) : harness ? (
                 <Select value={harness.key} onValueChange={(v) => setHarnessKey(v)}>
-                  <SelectTrigger className="w-full rounded-lg border-border bg-card" aria-label="Harness">
+                  <SelectTrigger
+                    id="webhook-harness"
+                    className="w-full rounded-lg border-border bg-card"
+                    aria-label="Harness"
+                  >
                     <SelectValue>{harness.label}</SelectValue>
                   </SelectTrigger>
                   <SelectContent>
@@ -301,14 +309,18 @@ export function WebhookPayloadDialog({
                   no harness connected — Settings → Integrations
                 </div>
               )}
-            </div>
-            <div className="grid gap-1">
-              <Label>Mode</Label>
+            </Field>
+            <Field>
+              <FieldLabel htmlFor="webhook-mode">Mode</FieldLabel>
               {settingsQuery.isPending ? (
                 <Skeleton className="h-9 rounded-lg" />
               ) : harness?.modes.length ? (
                 <Select value={modeValue ?? ""} onValueChange={(v) => setMode(v)}>
-                  <SelectTrigger className="w-full rounded-lg border-border bg-card" aria-label="Execution mode">
+                  <SelectTrigger
+                    id="webhook-mode"
+                    className="w-full rounded-lg border-border bg-card"
+                    aria-label="Execution mode"
+                  >
                     <SelectValue>
                       {harness.modes.find((m) => m.value === modeValue)?.label ?? ""}
                     </SelectValue>
@@ -330,11 +342,11 @@ export function WebhookPayloadDialog({
                   —
                 </div>
               )}
-            </div>
+            </Field>
           </div>
 
           {/* The body itself — the delivery JSON the curl sends */}
-          <div className="grid gap-1">
+          <Field>
             {blockLabel(
               "Payload (request body)",
               () => payloadText,
@@ -346,10 +358,10 @@ export function WebhookPayloadDialog({
                 {payloadText}
               </pre>
             )}
-          </div>
+          </Field>
 
           {/* The whole curl — endpoint + secret + the body above */}
-          <div className="grid gap-1">
+          <Field>
             {blockLabel(
               "Curl — send this body to the hook",
               () => curlText ?? "",
@@ -366,7 +378,7 @@ export function WebhookPayloadDialog({
                 duplicated.
               </p>
             )}
-          </div>
+          </Field>
         </div>
         <DialogFooter>
           <Button variant="outline" onClick={onClose}>

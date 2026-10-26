@@ -19,9 +19,12 @@ import {
   ConfigFieldRow,
   companionTextOf,
   freeTextFields,
+  promptEditorKeys,
+  rulesKeyFor,
   secretFields,
   writeConfig,
 } from "./ConfigFieldRow";
+import { PromptSectionField } from "./PromptSectionField";
 import { httpResponseVarGroups, type VarGroup } from "./variables";
 
 export interface DeclarativeConfigFieldsProps {
@@ -41,6 +44,8 @@ export interface DeclarativeConfigFieldsProps {
   templateId?: string;
   /** reachable from a plan node through next edges — the Fanout gate */
   planDownstream?: boolean;
+  /** field keys rendered elsewhere (the builder drawer's Prompt tab) */
+  hideFields?: Set<string>;
   /** writes the whole next config object */
   onConfigChange: (config: Record<string, unknown>) => void;
 }
@@ -54,6 +59,7 @@ export function DeclarativeConfigFields({
   invalidRefs,
   templateId,
   planDownstream,
+  hideFields,
   onConfigChange,
 }: DeclarativeConfigFieldsProps) {
   const fields = contract?.config?.fields ?? [];
@@ -91,6 +97,9 @@ export function DeclarativeConfigFields({
   const fanoutConfigured = [...fanoutKeys].some((k) => config[k] != null);
   const showFanout = planDownstream || fanoutConfigured;
   const isHttp = kind === "http";
+  // the builder drawer's Config tab: prompt fields moved to the Prompt tab —
+  // the create/configure dialog (no tabs) still renders them inline below
+  const hidden = hideFields ?? new Set<string>();
   return (
     <div className="grid gap-3">
       {fields
@@ -107,7 +116,35 @@ export function DeclarativeConfigFields({
             decisionSource === "agent",
         )
         .filter((f) => !fanoutKeys.has(f.key) || showFanout)
-        .map((f) => (
+        .filter((f) => !hidden.has(f.key))
+        .map((f) => {
+          if (promptEditorKeys.has(f.key)) {
+            // the prompt surface: body + (free prompts) everything in one —
+            // declarative prompts have no rules knob or locked blocks yet
+            const rulesKey = rulesKeyFor(f.key);
+            return (
+              <PromptSectionField
+                key={f.key}
+                field={f}
+                value={config[f.key]}
+                rulesKey={rulesKey}
+                rulesValue={rulesKey ? config[rulesKey] : undefined}
+                varGroups={
+                  f.key === "response_map"
+                    ? httpResponseVarGroups()
+                    : varGroups
+                }
+                invalidRefs={invalidRefs}
+                onBodyChange={(v, extra) =>
+                  onConfigChange(writeConfig(config, f.key, v, extra))
+                }
+                onRulesChange={(v) =>
+                  onConfigChange(writeConfig(config, rulesKey ?? "", v))
+                }
+              />
+            );
+          }
+          return (
           <ConfigFieldRow
             key={f.key}
             field={f}
@@ -129,7 +166,8 @@ export function DeclarativeConfigFields({
               onConfigChange(writeConfig(config, f.key, v, extra))
             }
           />
-        ))}
+          );
+        })}
     </div>
   );
 }

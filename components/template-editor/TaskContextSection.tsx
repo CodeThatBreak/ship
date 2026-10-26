@@ -4,7 +4,7 @@
  * — the variable vocabulary every node's config offers. Presentational: the
  * picked type travels up through `onPick`.
  */
-import { Label } from "../ui/label";
+import { Field, FieldDescription, FieldLabel } from "../ui/field";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../ui/select";
 import type { TaskProviderInfo } from "./types";
 
@@ -27,8 +27,8 @@ export function TaskContextSection({
   const taskProvider =
     providers.find((p) => p.kind === taskType) ?? providers[0] ?? null;
   return (
-    <div className="grid gap-1">
-      <Label>Task context</Label>
+    <Field>
+      <FieldLabel htmlFor="task-context">Task context</FieldLabel>
       <Select
         value={taskType}
         disabled={readonly || providers.length === 0}
@@ -36,7 +36,10 @@ export function TaskContextSection({
         // persistence rule (: `|| undefined` → key absent) decide
         onValueChange={(v) => onPick(v ?? "")}
       >
-        <SelectTrigger className="w-full rounded-lg border-border bg-card">
+        <SelectTrigger
+          id="task-context"
+          className="w-full rounded-lg border-border bg-card"
+        >
           <SelectValue placeholder="no task providers registered">
             {taskProvider ? providerLabel(taskProvider) : "no task providers registered"}
           </SelectValue>
@@ -62,11 +65,11 @@ export function TaskContextSection({
           ))}
         </div>
       )}
-      <p className="text-[11px] text-muted-foreground m-0">
+      <FieldDescription>
         Flows started from this template run on a{" "}
         {taskProvider?.label ?? taskType} task — its fields (above) are
         available to every node as {"{{task.*}}"} variables, no wiring needed.
-      </p>
-    </div>
+      </FieldDescription>
+    </Field>
   );
 }

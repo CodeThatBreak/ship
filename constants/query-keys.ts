@@ -12,6 +12,10 @@ export const queryKeys = {
     /** one template's webhook context — start-contract fields + hook
      *  (the payload dialog's body/curl) */
     webhook: (id: string) => ["templates", "webhook", id] as const,
+    /** one expression's live preview value, evaluated against the template's
+     *  context (the debounced expression is part of the identity) */
+    preview: (id: string, scope: string, expr: string) =>
+      ["templates", "preview", id, scope, expr] as const,
   },
   /** detected worktree policy for one local checkout (form prefill) */
   reposDetect: (localPath: string) => ["repos", "detect", localPath] as const,

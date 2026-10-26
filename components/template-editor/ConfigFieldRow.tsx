@@ -18,7 +18,7 @@ import { Button } from "../ui/button";
 import { Card } from "../ui/card";
 import { Checkbox } from "../ui/checkbox";
 import { Input } from "../ui/input";
-import { Label } from "../ui/label";
+import { Field, FieldLabel, FieldTitle } from "../ui/field";
 import { ScrollArea } from "../ui/scroll-area";
 import { Textarea } from "../ui/textarea";
 import {
@@ -28,14 +28,10 @@ import {
   SelectTrigger,
   SelectValue,
 } from "../ui/select";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from "../ui/tooltip";
+import { Tooltip, TooltipContent, TooltipTrigger } from "../ui/tooltip";
 import { cn } from "../../lib/utils";
 import { PromptEditor } from "./PromptEditor";
-import { ConditionBuilder, ExpressionInput } from "./ConditionBuilder";
+import { ConditionBuilder, ExpressionInput } from "./condition-builder";
 import { iconForIconName } from "./icons";
 import {
   asJsonataGroups,
@@ -68,7 +64,20 @@ export function SelectOption({
 
 /** config fields authored with the rich prompt editor ("@" variable popover)
  *  — `question` is the decision agent's prompt */
-const promptEditorKeys = new Set(["prompt", "prompt_body", "fix_prompt_body", "question"]);
+export const promptEditorKeys = new Set([
+  "prompt",
+  "prompt_body",
+  "fix_prompt_body",
+  "question",
+]);
+
+/** The config knob a prompt field's standing rules ride (`prompt_rules`,
+ *  `fix_prompt_rules`) — undefined for prompts without a rules knob. */
+export function rulesKeyFor(promptKey: string): string | undefined {
+  if (promptKey === "fix_prompt_body") return "fix_prompt_rules";
+  if (promptKey === "prompt_body") return "prompt_rules";
+  return undefined;
+}
 
 /** config knobs that carry {{...}} template refs — they get the "Variables ▾" picker */
 export const freeTextFields = new Set([
@@ -197,12 +206,19 @@ export function FanoutChildPicker({
     fetch("/api/templates")
       .then((r) => r.json())
       .then((d) => {
-        if (alive) setTemplates(Array.isArray(d?.templates) ? (d.templates as GalleryTemplate[]) : []);
+        if (alive)
+          setTemplates(
+            Array.isArray(d?.templates)
+              ? (d.templates as GalleryTemplate[])
+              : [],
+          );
       })
       .catch(() => {
         if (alive) setTemplates([]);
       });
-    return () => { alive = false; };
+    return () => {
+      alive = false;
+    };
   }, []);
 
   const UNSET = "__auto__";
@@ -211,7 +227,9 @@ export function FanoutChildPicker({
     <>
       <Select
         value={value ? (known || templates == null ? value : UNSET) : UNSET}
-        onValueChange={(v) => onChange(v == null ? undefined : v === UNSET ? undefined : v)}
+        onValueChange={(v) =>
+          onChange(v == null ? undefined : v === UNSET ? undefined : v)
+        }
       >
         <SelectTrigger className="w-full rounded-lg border-border bg-card">
           <SelectValue>
@@ -220,7 +238,7 @@ export function FanoutChildPicker({
               : templates == null
                 ? "loading…"
                 : known
-                  ? templates.find((t) => t.id === value)?.name ?? value
+                  ? (templates.find((t) => t.id === value)?.name ?? value)
                   : `${value} (missing template)`}
           </SelectValue>
         </SelectTrigger>
@@ -238,9 +256,7 @@ export function FanoutChildPicker({
             <SelectItem key={t.id} value={t.id}>
               <SelectOption
                 label={t.name}
-                description={
-                  `${t.nodeCount ?? 0} node${(t.nodeCount ?? 0) === 1 ? "" : "s"}${t.description ? ` · ${t.description}` : ""}`
-                }
+                description={`${t.nodeCount ?? 0} node${(t.nodeCount ?? 0) === 1 ? "" : "s"}${t.description ? ` · ${t.description}` : ""}`}
               />
             </SelectItem>
           ))}
@@ -248,7 +264,8 @@ export function FanoutChildPicker({
       </Select>
       {templates?.length === 0 && (
         <p className="text-[11px] text-muted-foreground m-0">
-          No flow templates in the gallery yet — create one in the template editor.
+          No flow templates in the gallery yet — create one in the template
+          editor.
         </p>
       )}
     </>
@@ -257,13 +274,21 @@ export function FanoutChildPicker({
 
 /**
  * The field label. Prompt fields carry an info icon — hovering it shows the
- * reference cheat-sheet (the help text lives in the tooltip, not the page).
+ * reference cheat-sheet (the help text lives in the tooltip, not the page) —
+ * so those render as a heading; plain fields render as a real label bound to
+ * their control through `htmlFor`.
  */
-function FieldLabel({ field }: { field: { key: string; label: string; help?: string } }) {
+function FieldHeading({
+  field,
+  htmlFor,
+}: {
+  field: { key: string; label: string; help?: string };
+  htmlFor?: string;
+}) {
   if (promptEditorKeys.has(field.key)) {
     return (
       <div className="flex items-center gap-1.5">
-        <Label>{field.label}</Label>
+        <FieldTitle>{field.label}</FieldTitle>
         <Tooltip>
           <TooltipTrigger
             render={
@@ -273,13 +298,14 @@ function FieldLabel({ field }: { field: { key: string; label: string; help?: str
             }
           />
           <TooltipContent className="max-w-[300px] whitespace-normal text-left leading-relaxed">
-            {field.help ?? "Type @ to insert an upstream variable — refs resolve at run time."}
+            {field.help ??
+              "Type @ to insert an upstream variable — refs resolve at run time."}
           </TooltipContent>
         </Tooltip>
       </div>
     );
   }
-  return <Label>{field.label}</Label>;
+  return <FieldLabel htmlFor={htmlFor}>{field.label}</FieldLabel>;
 }
 
 /** A select config knob on the shadcn select. Variants:
@@ -294,6 +320,7 @@ function ConfigSelect({
   effective,
   defaultValue,
   defaultLabel,
+  id,
   onChange,
 }: {
   options: { value: string; label: string; description?: string }[];
@@ -301,6 +328,8 @@ function ConfigSelect({
   effective: unknown;
   defaultValue?: unknown;
   defaultLabel: string;
+  /** the trigger's DOM id — pairs with the field label's htmlFor */
+  id?: string;
   onChange: (v: unknown) => void;
 }) {
   const current =
@@ -316,7 +345,10 @@ function ConfigSelect({
       "";
     return (
       <Select value={value} onValueChange={(v) => onChange(v ?? value)}>
-        <SelectTrigger className="w-full rounded-lg border-border bg-card">
+        <SelectTrigger
+          id={id}
+          className="w-full rounded-lg border-border bg-card"
+        >
           <SelectValue>
             {options.find((o) => o.value === value)?.label ?? value}
           </SelectValue>
@@ -336,15 +368,22 @@ function ConfigSelect({
     const value = current || options[0]?.value || "";
     return (
       <Select value={value} onValueChange={(v) => onChange(v ?? value)}>
-        <SelectTrigger className="w-full rounded-lg border-border bg-card">
+        <SelectTrigger
+          id={id}
+          className="w-full rounded-lg border-border bg-card"
+        >
           <SelectValue>{selected?.label ?? value}</SelectValue>
         </SelectTrigger>
         <SelectContent>
           {options.map((o) => {
-            const Icon = optionIcons[o.value] ? iconForIconName(optionIcons[o.value]) : null;
+            const Icon = optionIcons[o.value]
+              ? iconForIconName(optionIcons[o.value])
+              : null;
             return (
               <SelectItem key={o.value} value={o.value}>
-                {Icon && <Icon size={13} className="text-muted-foreground shrink-0" />}
+                {Icon && (
+                  <Icon size={13} className="text-muted-foreground shrink-0" />
+                )}
                 {o.label}
               </SelectItem>
             );
@@ -359,7 +398,10 @@ function ConfigSelect({
       value={current || UNSET}
       onValueChange={(v) => onChange(v === UNSET ? undefined : v)}
     >
-      <SelectTrigger className="w-full rounded-lg border-border bg-card">
+      <SelectTrigger
+        id={id}
+        className="w-full rounded-lg border-border bg-card"
+      >
         <SelectValue>{selected?.label ?? defaultLabel}</SelectValue>
       </SelectTrigger>
       <SelectContent>
@@ -389,7 +431,13 @@ export function TsOutputEditor({
   savedText,
   onChange,
 }: {
-  field: { key: string; label: string; type: string; help?: string; options?: { value: string; label: string }[] };
+  field: {
+    key: string;
+    label: string;
+    type: string;
+    help?: string;
+    options?: { value: string; label: string }[];
+  };
   value: unknown;
   defaultValue?: unknown;
   /** the previously persisted authoring text — seed source on mount */
@@ -429,15 +477,18 @@ export function TsOutputEditor({
         onChange(json, text);
         return;
       }
-    } catch { /* fall through to the TS-lite error */ }
+    } catch {
+      /* fall through to the TS-lite error */
+    }
     setErr(lite.error ?? "declares no fields");
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [text]);
 
   return (
-    <div className="grid gap-1">
-      <Label>{field.label}</Label>
+    <Field>
+      <FieldLabel htmlFor={`config-${field.key}`}>{field.label}</FieldLabel>
       <Textarea
+        id={`config-${field.key}`}
         value={text}
         onChange={(e) => setText(e.target.value)}
         rows={5}
@@ -449,7 +500,7 @@ export function TsOutputEditor({
           {err}
         </Card>
       )}
-    </div>
+    </Field>
   );
 }
 
@@ -474,7 +525,13 @@ export function ChoicesEditor({
   templateId,
   onChange,
 }: {
-  field: { key: string; label: string; type: string; help?: string; options?: { value: string; label: string }[] };
+  field: {
+    key: string;
+    label: string;
+    type: string;
+    help?: string;
+    options?: { value: string; label: string }[];
+  };
   value: unknown;
   defaultValue?: unknown;
   /** the decision's current source — "expression" adds the condition builders */
@@ -484,7 +541,11 @@ export function ChoicesEditor({
   onChange: (v: unknown) => void;
 }) {
   const effective = (
-    Array.isArray(value) ? value : Array.isArray(defaultValue) ? defaultValue : []
+    Array.isArray(value)
+      ? value
+      : Array.isArray(defaultValue)
+        ? defaultValue
+        : []
   ) as { label: string; description?: string; condition?: string }[];
   const [rows, setRows] = useState(() =>
     effective.map((c) => ({
@@ -495,7 +556,9 @@ export function ChoicesEditor({
   );
   const isExpression = source === "expression";
 
-  const write = (next: { label: string; description: string; condition: string }[]) => {
+  const write = (
+    next: { label: string; description: string; condition: string }[],
+  ) => {
     setRows(next);
     const labeled = next
       .map((c) => ({
@@ -509,7 +572,7 @@ export function ChoicesEditor({
 
   return (
     <div className="grid gap-1.5">
-      <Label>Choices (branch labels)</Label>
+      <FieldTitle>Choices (branch labels)</FieldTitle>
       {rows.map((c, i) => (
         <div
           key={i}
@@ -523,13 +586,25 @@ export function ChoicesEditor({
               value={c.label}
               placeholder="label"
               className="max-w-[140px] font-mono text-[12px]"
-              onChange={(e) => write(rows.map((x, j) => (j === i ? { ...x, label: e.target.value } : x)))}
+              onChange={(e) =>
+                write(
+                  rows.map((x, j) =>
+                    j === i ? { ...x, label: e.target.value } : x,
+                  ),
+                )
+              }
             />
             <Input
               value={c.description}
               placeholder="description (steers an agent classifier)"
               className="text-[12px]"
-              onChange={(e) => write(rows.map((x, j) => (j === i ? { ...x, description: e.target.value } : x)))}
+              onChange={(e) =>
+                write(
+                  rows.map((x, j) =>
+                    j === i ? { ...x, description: e.target.value } : x,
+                  ),
+                )
+              }
             />
             <Button
               variant="ghost"
@@ -550,7 +625,11 @@ export function ChoicesEditor({
               scope="context"
               placeholder="nodes.review.output.comment_count > 0"
               onChange={(raw) =>
-                write(rows.map((x, j) => (j === i ? { ...x, condition: raw ?? "" } : x)))
+                write(
+                  rows.map((x, j) =>
+                    j === i ? { ...x, condition: raw ?? "" } : x,
+                  ),
+                )
               }
             />
           )}
@@ -560,16 +639,21 @@ export function ChoicesEditor({
         variant="outline"
         size="sm"
         className="self-start"
-        onClick={() => write([...rows, { label: "", description: "", condition: "" }])}
+        onClick={() =>
+          write([...rows, { label: "", description: "", condition: "" }])
+        }
       >
         <Plus size={12} /> Add choice
       </Button>
       {!rows.some((c) => c.label.trim()) && (
-        <p className="text-[11px] text-warning m-0">At least one labeled choice is required.</p>
+        <p className="text-[11px] text-warning m-0">
+          At least one labeled choice is required.
+        </p>
       )}
       {isExpression && !rows.some((c) => c.condition.trim()) && (
         <p className="text-[11px] text-warning m-0">
-          No condition yet — give each choice a condition; every truthy condition picks its branch.
+          No condition yet — give each choice a condition; every truthy
+          condition picks its branch.
         </p>
       )}
     </div>
@@ -603,33 +687,45 @@ export function PassMapEditor({
   const effective = (
     value && typeof value === "object" && !Array.isArray(value)
       ? value
-      : defaultValue && typeof defaultValue === "object" && !Array.isArray(defaultValue)
+      : defaultValue &&
+          typeof defaultValue === "object" &&
+          !Array.isArray(defaultValue)
         ? defaultValue
         : {}
   ) as Record<string, string>;
   const [rows, setRows] = useState<{ field: string; expr: string }[]>(() =>
-    Object.entries(effective).map(([field, expr]) => ({ field, expr: typeof expr === "string" ? expr : "" })),
+    Object.entries(effective).map(([field, expr]) => ({
+      field,
+      expr: typeof expr === "string" ? expr : "",
+    })),
   );
 
   const write = (next: { field: string; expr: string }[]) => {
     setRows(next);
     const mapped: Record<string, string> = {};
     for (const r of next) {
-      if (r.field.trim() && r.expr.trim()) mapped[r.field.trim()] = r.expr.trim();
+      if (r.field.trim() && r.expr.trim())
+        mapped[r.field.trim()] = r.expr.trim();
     }
     onChange(mapped);
   };
 
   return (
     <div className="grid gap-1.5">
-      <Label>{field.label}</Label>
+      <FieldTitle>{field.label}</FieldTitle>
       {rows.map((r, i) => (
         <div key={i} className="grid grid-cols-[130px_1fr] gap-1.5 items-start">
           <Input
             value={r.field}
             placeholder="field name"
             className="font-mono text-[12px]"
-            onChange={(e) => write(rows.map((x, j) => (j === i ? { ...x, field: e.target.value } : x)))}
+            onChange={(e) =>
+              write(
+                rows.map((x, j) =>
+                  j === i ? { ...x, field: e.target.value } : x,
+                ),
+              )
+            }
           />
           <div className="flex gap-1.5 items-start">
             <ExpressionInput
@@ -639,7 +735,9 @@ export function PassMapEditor({
               scope="context"
               rows={1}
               placeholder="JSONata — e.g. nodes.review.output.summary"
-              onChange={(v) => write(rows.map((x, j) => (j === i ? { ...x, expr: v } : x)))}
+              onChange={(v) =>
+                write(rows.map((x, j) => (j === i ? { ...x, expr: v } : x)))
+              }
             />
             <Button
               variant="ghost"
@@ -662,8 +760,9 @@ export function PassMapEditor({
         <Plus size={12} /> Add variable
       </Button>
       <p className="text-[11px] text-muted-foreground m-0">
-        Downstream nodes read these as <code className="font-mono">{`{{input.<field>}}`}</code> —
-        chosen / rationale are passed automatically.
+        Downstream nodes read these as{" "}
+        <code className="font-mono">{`{{input.<field>}}`}</code> — chosen /
+        rationale are passed automatically.
       </p>
     </div>
   );
@@ -695,7 +794,8 @@ export function VariablesPicker({
   useEffect(() => {
     if (!open) return;
     const onDoc = (e: MouseEvent) => {
-      if (rootRef.current && !rootRef.current.contains(e.target as Node)) setOpen(false);
+      if (rootRef.current && !rootRef.current.contains(e.target as Node))
+        setOpen(false);
     };
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") {
@@ -720,7 +820,11 @@ export function VariablesPicker({
         onClick={() => setOpen((o) => !o)}
         className="rounded-full text-[11px] text-muted-foreground hover:text-foreground"
       >
-        Variables <ChevronDown size={10} className={cn("transition-transform", open && "rotate-180")} />
+        Variables{" "}
+        <ChevronDown
+          size={10}
+          className={cn("transition-transform", open && "rotate-180")}
+        />
       </Button>
       {open && (
         <div className="absolute right-0 top-full z-50 mt-1 flex w-72 max-h-64 flex-col rounded-lg border border-border bg-popover p-1 shadow-lg">
@@ -732,49 +836,53 @@ export function VariablesPicker({
             className="mb-1 border-border bg-muted/60 px-2 py-1 text-[12px]"
           />
           <ScrollArea className="flex-1">
-          {shown.length === 0 && (
-            <div className="px-2 py-1.5 text-[12px] text-muted-foreground">No matching variable</div>
-          )}
-          {shown.map((g) => (
-            <Fragment key={g.id + g.title}>
-              <div className="flex items-baseline gap-1.5 px-2 pb-0.5 pt-1.5">
-                <span className="text-[10px] uppercase tracking-wider text-muted-foreground">
-                  {g.title}
-                </span>
-                {g.origin && (
-                  <span className="text-[9.5px] text-muted-foreground/70 truncate">
-                    {g.origin}
-                  </span>
-                )}
+            {shown.length === 0 && (
+              <div className="px-2 py-1.5 text-[12px] text-muted-foreground">
+                No matching variable
               </div>
-              {g.fields.map((f) => (
-                <button
-                  key={f.insert}
-                  title={f.insert}
-                  onMouseDown={(e) => {
-                    e.preventDefault();
-                    onInsert(f.insert);
-                    setOpen(false);
-                  }}
-                  className="w-full flex items-center gap-2 rounded-lg px-2 py-1.5 text-left text-[12px] hover:bg-muted/60 transition-colors"
-                >
-                  <span className="truncate">{f.name}</span>
-                  {f.type && (
-                    <span className="shrink-0 text-[9.5px] text-muted-foreground/70">{f.type}</span>
+            )}
+            {shown.map((g) => (
+              <Fragment key={g.id + g.title}>
+                <div className="flex items-baseline gap-1.5 px-2 pb-0.5 pt-1.5">
+                  <span className="text-[10px] uppercase tracking-wider text-muted-foreground">
+                    {g.title}
+                  </span>
+                  {g.origin && (
+                    <span className="text-[9.5px] text-muted-foreground/70 truncate">
+                      {g.origin}
+                    </span>
                   )}
-                  <span className="flex-1" />
-                  <code
-                    className={cn(
-                      "font-mono text-[9.5px] truncate max-w-[140px]",
-                      varGroupAccent(g.id),
-                    )}
+                </div>
+                {g.fields.map((f) => (
+                  <button
+                    key={f.insert}
+                    title={f.insert}
+                    onMouseDown={(e) => {
+                      e.preventDefault();
+                      onInsert(f.insert);
+                      setOpen(false);
+                    }}
+                    className="w-full flex items-center gap-2 rounded-lg px-2 py-1.5 text-left text-[12px] hover:bg-muted/60 transition-colors"
                   >
-                    {f.insert}
-                  </code>
-                </button>
-              ))}
-            </Fragment>
-          ))}
+                    <span className="truncate">{f.name}</span>
+                    {f.type && (
+                      <span className="shrink-0 text-[9.5px] text-muted-foreground/70">
+                        {f.type}
+                      </span>
+                    )}
+                    <span className="flex-1" />
+                    <code
+                      className={cn(
+                        "font-mono text-[9.5px] truncate max-w-[140px]",
+                        varGroupAccent(g.id),
+                      )}
+                    >
+                      {f.insert}
+                    </code>
+                  </button>
+                ))}
+              </Fragment>
+            ))}
           </ScrollArea>
         </div>
       )}
@@ -829,18 +937,20 @@ export function ConfigFieldRow({
   // context — its vocabulary + preview scope differ accordingly
   if (field.type === "text" && field.key === "response_map") {
     return (
-      <div className="grid gap-1">
-        <FieldLabel field={field} />
+      <Field>
+        <FieldHeading field={field} />
         <ExpressionInput
           value={typeof effective === "string" ? effective : ""}
           varGroups={varGroups}
           templateId={templateId}
           scope="response"
           rows={3}
-          placeholder={"body.result — must yield an object ({status, ok, body, headers} is the raw response)"}
+          placeholder={
+            "body.result — must yield an object ({status, ok, body, headers} is the raw response)"
+          }
           onChange={(v) => onChange(v.trim() ? v : null)}
         />
-      </div>
+      </Field>
     );
   }
   const insertRef = (ref: string) => {
@@ -862,7 +972,9 @@ export function ConfigFieldRow({
         field={field}
         value={value}
         defaultValue={defaultValue}
-        savedText={typeof companionText === "string" ? companionText : undefined}
+        savedText={
+          typeof companionText === "string" ? companionText : undefined
+        }
         onChange={(schema, saved) =>
           onChange(schema, { [`${field.key}_ts`]: saved })
         }
@@ -911,26 +1023,32 @@ export function ConfigFieldRow({
   if (field.type === "multi") {
     const selected = Array.isArray(effective) ? (effective as string[]) : [];
     return (
-      <div className="grid gap-1">
-        <FieldLabel field={field} />
+      <Field>
+        <FieldHeading field={field} />
         <div className="grid gap-1.5 rounded-lg border border-border p-2">
           {(field.options ?? []).map((o) => {
             const checked = selected.includes(o.value);
             return (
-              <label key={o.value} className="flex items-start gap-2 text-[12.5px] cursor-pointer">
+              <label
+                key={o.value}
+                className="flex items-start gap-2 text-[12.5px] cursor-pointer"
+              >
                 <Checkbox
                   checked={checked}
                   onCheckedChange={(v) => {
-                    const next = v === true
-                      ? [...selected, o.value]
-                      : selected.filter((s) => s !== o.value);
+                    const next =
+                      v === true
+                        ? [...selected, o.value]
+                        : selected.filter((s) => s !== o.value);
                     onChange(next.length ? next : undefined);
                   }}
                 />
                 <span className="leading-tight">
                   {o.label}
                   {o.description && (
-                    <span className="block text-[11px] text-muted-foreground">{o.description}</span>
+                    <span className="block text-[11px] text-muted-foreground">
+                      {o.description}
+                    </span>
                   )}
                 </span>
               </label>
@@ -939,25 +1057,26 @@ export function ConfigFieldRow({
         </div>
         {selected.length === 0 && (
           <p className="text-[11px] text-muted-foreground m-0">
-            Nothing selected — the runtime default applies (inline servers only).
+            Nothing selected — the runtime default applies (inline servers
+            only).
           </p>
         )}
-      </div>
+      </Field>
     );
   }
   // prompt fields: the rich text editor — "@" opens the grouped variable
   // popover, and unresolvable refs underline where they're typed
   if (field.type === "text" && promptEditorKeys.has(field.key)) {
     return (
-      <div className="grid gap-1.5">
-        <FieldLabel field={field} />
+      <Field>
+        <FieldHeading field={field} />
         <PromptEditor
           value={typeof effective === "string" ? effective : ""}
           groups={varGroups ?? []}
           invalidRefs={invalidRefs}
           onChange={(text) => onChange(text || undefined)}
         />
-      </div>
+      </Field>
     );
   }
   // fan-out child: the gallery picker (Phase 3C) — flow templates EXCLUDING
@@ -965,15 +1084,16 @@ export function ConfigFieldRow({
   // (agent-kind) parents; empty = auto-select (built-in step build / self-wrap)
   if (field.key === "fanout_child") {
     return (
-      <div className="grid gap-1">
-        <FieldLabel field={field} />
+      <Field>
+        <FieldHeading field={field} />
         <FanoutChildPicker
           value={typeof effective === "string" ? effective : ""}
           onChange={(v) => onChange(v || undefined)}
         />
-      </div>
+      </Field>
     );
   }
+  const CONFIG_CONTROL_ID = `config-${field.key}`;
   const picker = varGroups?.length ? (
     <VariablesPicker groups={varGroups} onInsert={insertRef} />
   ) : null;
@@ -985,10 +1105,12 @@ export function ConfigFieldRow({
         effective={effective}
         defaultValue={defaultValue}
         defaultLabel={fmtDefault(defaultValue)}
+        id={CONFIG_CONTROL_ID}
         onChange={onChange}
       />
     ) : field.type === "text" ? (
       <Textarea
+        id={CONFIG_CONTROL_ID}
         value={
           typeof effective === "string"
             ? effective
@@ -1003,6 +1125,7 @@ export function ConfigFieldRow({
       />
     ) : field.type === "string" ? (
       <Input
+        id={CONFIG_CONTROL_ID}
         value={typeof effective === "string" ? effective : ""}
         onChange={(e) =>
           onChange(
@@ -1016,6 +1139,7 @@ export function ConfigFieldRow({
       />
     ) : (
       <Input
+        id={CONFIG_CONTROL_ID}
         type="number"
         value={typeof effective === "number" ? effective : ""}
         onChange={(e) =>
@@ -1025,15 +1149,15 @@ export function ConfigFieldRow({
       />
     );
   return (
-    <div className="grid gap-1">
+    <Field>
       <div className="flex items-center justify-between gap-2">
-        <FieldLabel field={field} />
+        <FieldHeading field={field} htmlFor={CONFIG_CONTROL_ID} />
         {picker}
       </div>
       {control}
       {secrets != null && (
         <SecretsChipGroup names={secrets} onInsert={insertRef} />
       )}
-    </div>
+    </Field>
   );
 }

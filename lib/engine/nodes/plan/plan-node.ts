@@ -2,13 +2,13 @@ import { db } from "../../../db";
 import { z } from "zod";
 import type { AgentRunResult } from "../../ports/agent-runner";
 import { PlanStepRow, rows, type NodeRow } from "../../../db/rows";
-import { prompts } from "../../prompts";
+import { prompts, sectionsOf, type PromptSections as PromptSectionsLike } from "../../prompts";
 import { planSteps } from "../../steps";
 import { NodeDefinition, type FlowCtx, type RunOutcome } from "../base";
 import type { NodeCapabilities } from "../base/capabilities";
 import { NODE_KEYS } from "../keys";
 import type { ConfigField } from "../../node-config";
-import { appLayerConfig, mergeConfigLayers, mcpSourcesOf, mcpSourcesSchema, mcpSourceConfigFields, parseConfigSnapshot, type SettingSource } from "../../node-config";
+import { appLayerConfig, configString, mergeConfigLayers, mcpSourcesOf, mcpSourcesSchema, mcpSourceConfigFields, parseConfigSnapshot, type SettingSource } from "../../node-config";
 import { PlanMetaParser, type PlanParseResult } from "./plan-meta-parser";
 import {
   PlanInput,
@@ -278,6 +278,13 @@ export class PlanNode extends NodeDefinition<PlanInput, PlanOutput> {
   readonly configSchema = z.object({
     /** user-editable prompt body (foldable per template/flow; the global overlay was removed) */
     prompt_body: z.string().optional(),
+    /**
+     * User-added rules appended after the prompt body, before the engine's
+     * locked internal blocks (rules + output contract + run data) — for every
+     * run of this node (template runs, config-body runs and modal-edited runs
+     * alike). The prompt modal previews and edits it via set_node_config.
+     */
+    prompt_rules: z.string().optional(),
     /** default for whole-flow starts that don't pass `complex` explicitly */
     default_complex: z.boolean().default(false),
     /** default for starts that don't pass `decompose` explicitly */
@@ -298,6 +305,7 @@ export class PlanNode extends NodeDefinition<PlanInput, PlanOutput> {
   });
   readonly configFields = [
     { key: "prompt_body", label: "Prompt body", type: "text", help: "User-editable prompt body; internal output contracts are appended automatically." },
+    { key: "prompt_rules", label: "Your rules", type: "text", help: "Extra rules appended after the prompt body, before the engine's locked instructions (output contract, run data) — on every run of this node. E.g. \"always ask before assuming a framework\"." },
     { key: "default_complex", label: "Default to complex plans", type: "boolean", help: "Used when a start doesn't request a mode explicitly." },
     { key: "decompose_default", label: "Decompose by default", type: "boolean", help: "Run repo-exploration sub-agents by default." },
     {
@@ -320,6 +328,9 @@ export class PlanNode extends NodeDefinition<PlanInput, PlanOutput> {
     if (!input.prompt && typeof config.prompt_body === "string" && config.prompt_body.trim()) {
       input = { ...input, prompt: config.prompt_body, promptIsBody: true };
     }
+    // the user's standing rules (prompt_rules knob) apply to every run —
+    // template runs, config-body runs and modal-edited runs alike
+    const userRules = typeof config.prompt_rules === "string" ? config.prompt_rules : "";
     const node = this.node(ctx);
     this.support.setNode(node.id, { status: "running" });
 
@@ -334,7 +345,9 @@ export class PlanNode extends NodeDefinition<PlanInput, PlanOutput> {
       );
     }
 
-    const prompt = scoped ? this.buildScopedPrompt(ctx, scoped, input) : this.buildPlanPrompt(ctx, node, input);
+    const prompt = scoped
+      ? this.buildScopedPrompt(ctx, scoped, input, userRules)
+      : this.buildPlanPrompt(ctx, node, input, userRules);
     const customSubagents = this.decomposeSubagents(ctx, input);
     const settingSources = mcpSourcesOf(config);
     this.recordInput(node.id, { ...input, prompt }, input.prompt);
@@ -494,7 +507,7 @@ export class PlanNode extends NodeDefinition<PlanInput, PlanOutput> {
   // ── prompts ────────────────────────────────────────────────────────────────
 
   /** Whole-plan prompt: verbatim override, refine template, or base + feedback. */
-  private buildPlanPrompt(ctx: FlowCtx, node: NodeRow, input: PlanInput): string {
+  private buildPlanPrompt(ctx: FlowCtx, node: NodeRow, input: PlanInput, userRules: string): string {
     const hasAgent = Boolean(node.agent_id);
     const baseCtx = { ticket: this.ctxHelper.taskContext(ctx), ticket_type: this.ctxHelper.taskLabel(ctx) };
     const refining = Boolean(input.feedback) || Boolean(input.prompt);
@@ -515,14 +528,15 @@ export class PlanNode extends NodeDefinition<PlanInput, PlanOutput> {
 
     if (input.prompt) {
       return input.promptIsBody
-        ? `${input.prompt}\n\n${prompts.internalSuffix(tplKey, baseCtx, { context: contextBlock })}${execBlock ? `\n\n${execBlock}` : ""}`
+        ? prompts.assemblePrompt(tplKey, baseCtx, { context: contextBlock }, { body: input.prompt, userRules }).final
+            + (execBlock ? `\n\n${execBlock}` : "")
         : input.prompt;
     }
     if (input.feedback && hasAgent) {
-      const refined = prompts.resolve(refineKey, baseCtx, { feedback: input.feedback, context: contextBlock });
+      const refined = prompts.resolve(refineKey, baseCtx, { feedback: input.feedback, context: contextBlock }, undefined, { userRules });
       return execBlock ? `${refined}\n\n${execBlock}` : refined;
     }
-    const base = prompts.resolve(tplKey, baseCtx, { context: contextBlock });
+    const base = prompts.resolve(tplKey, baseCtx, { context: contextBlock }, undefined, { userRules });
     let prompt = base + (input.feedback ? `\n\nAdditional instructions from the developer:\n${input.feedback}` : "");
 
     if (input.decompose) {
@@ -560,22 +574,24 @@ export class PlanNode extends NodeDefinition<PlanInput, PlanOutput> {
 
   /**
    * Scoped prompt (§2). Verbatim-prompt path composes as
-   * `{{developerPromptBody}} + internalSuffix("plan_subplan_refine", …)` so the
-   * "Edit prompt" modal keeps working with `promptIsBody`.
+   * `{{developerPromptBody}}` + the template's internal blocks (via
+   * `assemblePrompt`) so the "Edit prompt" modal keeps working with
+   * `promptIsBody`.
    */
   private buildScopedPrompt(
     ctx: FlowCtx,
     scoped: NonNullable<ReturnType<PlanNode["prepareScopedRefine"]>>,
     input: PlanInput,
+    userRules: string,
   ): string {
     const vars = this.scopedVars(ctx, scoped, input);
     if (input.prompt) {
       if (!input.promptIsBody) return input.prompt;
       // feedback was typed into the modal body — keep the appended suffix's
       // feedback section blank so it isn't echoed twice
-      return `${input.prompt}\n\n${prompts.internalSuffix("plan_subplan_refine", vars, { feedback: "" })}`;
+      return prompts.assemblePrompt("plan_subplan_refine", vars, { feedback: "" }, { body: input.prompt, userRules }).final;
     }
-    return prompts.resolve("plan_subplan_refine", {}, vars);
+    return prompts.resolve("plan_subplan_refine", {}, vars, undefined, { userRules });
   }
 
   /** The scoped template's variables, built from the ref'd branch only (§2). */
@@ -1118,12 +1134,15 @@ export class PlanNode extends NodeDefinition<PlanInput, PlanOutput> {
     ctx: FlowCtx,
     branchName: string,
     contextBlocks?: string[],
-  ): { prompt: string; contextBlocks: ContextBlockInfo[]; appendsInternal: true } | null {
+  ): { prompt: string; contextBlocks: ContextBlockInfo[]; appendsInternal: true } & PromptSectionsLike | null {
     const scoped = this.prepareScopedRefine(ctx, { branchRef: branchName });
     if (!scoped) return null;
     const blocks = this.resolveContextBlocks(ctx, scoped);
     const vars = this.scopedVars(ctx, scoped, { feedback: "", contextBlocks: contextBlocks ?? [] });
-    const prompt = prompts.renderUserTemplate("plan_subplan_refine", vars, { feedback: "" });
-    return { prompt, contextBlocks: blocks, appendsInternal: true };
+    const asm = prompts.assemblePrompt(
+      "plan_subplan_refine", vars, { feedback: "" },
+      { userRules: configString(this.nodeConfig(ctx), "prompt_rules") },
+    );
+    return { prompt: asm.body, contextBlocks: blocks, appendsInternal: true, ...sectionsOf(asm) };
   }
 }

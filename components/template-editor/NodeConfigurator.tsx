@@ -5,7 +5,7 @@ import { Badge } from "../ui/badge";
 import { Button } from "../ui/button";
 import { Card } from "../ui/card";
 import { Input } from "../ui/input";
-import { Label } from "../ui/label";
+import { Field, FieldDescription, FieldLabel } from "../ui/field";
 import { ScrollArea } from "../ui/scroll-area";
 import { Spinner } from "../ui/spinner";
 import { Textarea } from "../ui/textarea";
@@ -25,11 +25,13 @@ import {
 } from "../ui/select";
 import { InputsTab } from "./InputsTab";
 import { DeclarativeConfigFields } from "./DeclarativeConfigFields";
+import { PromptTab } from "./PromptTab";
 import {
   ConfigFieldRow,
   SelectOption,
   companionTextOf,
   freeTextFields,
+  promptEditorKeys,
   writeConfig,
 } from "./ConfigFieldRow";
 export { SelectOption } from "./ConfigFieldRow";
@@ -86,6 +88,7 @@ function isStartNode(node: EditorNode): boolean {
 const TAB_LABELS: Record<string, string> = {
   trigger: "Trigger",
   inputs: "Inputs",
+  prompt: "Prompt",
   config: "Config",
   contract: "Inputs & outputs",
   output: "Start fields",
@@ -137,7 +140,7 @@ export function NodeConfiguratorBody({
   problems?: string[];
 }) {
   const [tab, setTab] = useState<
-    "trigger" | "inputs" | "config" | "output" | "contract"
+    "trigger" | "inputs" | "prompt" | "config" | "output" | "contract"
   >("trigger");
   const [contract, setContract] = useState<NodeContract | null>(null);
   const start = node ? isStartNode(node) : false;
@@ -168,15 +171,21 @@ export function NodeConfiguratorBody({
         if (c && c.input != null) setContract(c as NodeContract);
         else {
           // unknown kind (Phase 3) — an empty contract keeps the tabs usable
-          setContract({
+          const empty: NodeContract = {
             key: node.nodeTemplateId,
             label: node.catalog_name ?? node.key,
             kind: node.kind ?? "",
             input: null,
             output: null,
             config: { fields: [], defaults: {} },
-          });
+          };
+          setContract(empty);
         }
+        // a freshly placed node opens on the Prompt tab — the prompt is the
+        // work for prompt-carrying kinds (the Config tab no longer holds it)
+        const loaded = c && c.input != null ? (c as NodeContract) : null;
+        const hasPrompt = (loaded?.config?.fields ?? []).some((f) => promptEditorKeys.has(f.key));
+        if (hasPrompt && Object.keys(node.config ?? {}).length === 0) setTab("prompt");
       })
       .catch(() => {});
     return () => {
@@ -220,10 +229,17 @@ export function NodeConfiguratorBody({
   const hasUpstream = groups.some((g) => g.edge.kind === "next");
 
   // the start node has no config and no input mapping — its fields flow
-  // straight to the next nodes, so it gets Trigger + Output Schema only
+  // straight to the next nodes, so it gets Trigger + Output Schema only.
+  // Prompt-carrying nodes get a dedicated Prompt tab (the full three-part
+  // editor) — the prompt fields leave the Config tab for it.
+  const hasPromptFields = (contract?.config?.fields ?? []).some((f) =>
+    promptEditorKeys.has(f.key),
+  );
   const tabs = start
     ? (["trigger", "output"] as const)
-    : (["trigger", "inputs", "config", "contract"] as const);
+    : hasPromptFields
+      ? (["trigger", "inputs", "prompt", "config", "contract"] as const)
+      : (["trigger", "inputs", "config", "contract"] as const);
 
   return (
     <div className="flex flex-col min-h-0 flex-1">
@@ -283,6 +299,14 @@ export function NodeConfiguratorBody({
             templateId={templateId}
             onChange={onChange}
           />
+        ) : tab === "prompt" ? (
+          <PromptTab
+            node={node}
+            contract={contract}
+            varGroups={varGroups}
+            invalidRefs={invalidRefs}
+            onChange={onChange}
+          />
         ) : tab === "config" ? (
           <ConfigTab
             node={node}
@@ -319,8 +343,8 @@ function TriggerTab({
     : [];
   return (
     <div className="grid gap-3">
-      <div className="grid gap-1">
-        <Label>Trigger type</Label>
+      <Field>
+        <FieldLabel htmlFor="node-trigger-type">Trigger type</FieldLabel>
         <Select
           value={t.type}
           onValueChange={(v) => {
@@ -359,7 +383,7 @@ function TriggerTab({
             });
           }}
         >
-          <SelectTrigger className="w-full rounded-lg border-border bg-card">
+          <SelectTrigger id="node-trigger-type" className="w-full rounded-lg border-border bg-card">
             <SelectValue>{TRIGGER_TYPES[t.type]?.label ?? t.type}</SelectValue>
           </SelectTrigger>
           <SelectContent>
@@ -370,13 +394,14 @@ function TriggerTab({
             ))}
           </SelectContent>
         </Select>
-      </div>
+      </Field>
       {t.type === "debounced" && (
-        <div className="grid gap-1">
-          <Label>
+        <Field>
+          <FieldLabel htmlFor="node-trigger-quiet-period">
             Quiet period (minutes)
-          </Label>
+          </FieldLabel>
           <Input
+            id="node-trigger-quiet-period"
             type="number"
             min={0}
             value={t.minutes ?? 10}
@@ -386,15 +411,15 @@ function TriggerTab({
               })
             }
           />
-        </div>
+        </Field>
       )}
       {/* wait-for events only make sense for an auto trigger — the other
           types decide their own start (user click / approve / quiet period) */}
       {t.type === "auto" && (
-        <div className="grid gap-1">
-          <Label>
+        <Field>
+          <FieldLabel htmlFor="node-trigger-wait-for">
             Wait for event
-          </Label>
+          </FieldLabel>
           <Select
             value={t.wait_for ?? null}
             onValueChange={(v) =>
@@ -403,7 +428,7 @@ function TriggerTab({
               })
             }
           >
-            <SelectTrigger className="w-full rounded-lg border-border bg-card">
+            <SelectTrigger id="node-trigger-wait-for" className="w-full rounded-lg border-border bg-card">
               <SelectValue placeholder="Starts when node is reached">
                 {source?.label ?? t.wait_for ?? undefined}
               </SelectValue>
@@ -424,17 +449,18 @@ function TriggerTab({
               ))}
             </SelectContent>
           </Select>
-        </div>
+        </Field>
       )}
       {t.wait_for === "webhook" && (
         <WebhookRequestExample fields={contractFields} />
       )}
       {t.wait_for === "timer" && (
-        <div className="grid gap-1">
-          <Label>
+        <Field>
+          <FieldLabel htmlFor="node-trigger-timer">
             Timer (minutes)
-          </Label>
+          </FieldLabel>
           <Input
+            id="node-trigger-timer"
             type="number"
             min={0}
             value={t.minutes ?? 1}
@@ -444,11 +470,11 @@ function TriggerTab({
               })
             }
           />
-          <p className="text-[11px] text-muted-foreground m-0">
+          <FieldDescription>
             Once the node is ready, it waits this many minutes and then starts
             automatically.
-          </p>
-        </div>
+          </FieldDescription>
+        </Field>
       )}
     </div>
   );
@@ -574,27 +600,32 @@ function ConfigTab({
           invalidRefs={invalidRefs}
           templateId={templateId}
           planDownstream={planDownstream}
+          hideFields={promptEditorKeys}
           onConfigChange={(config) => onChange({ config })}
         />
       </div>
     );
   }
   const fields = contract?.config?.fields ?? [];
+  // the prompt fields moved to the dedicated Prompt tab
+  const nonPromptFields = fields.filter((f) => !promptEditorKeys.has(f.key));
   return (
     <div className="grid gap-3">
       {inheritHint}
       {fanoutHint}
-      {fields.length === 0 && !contract && (
+      {nonPromptFields.length === 0 && !contract && (
         <p className="text-muted-foreground text-[13px]">
           <Spinner /> Loading schema…
         </p>
       )}
-      {fields.length === 0 && contract && (
+      {nonPromptFields.length === 0 && contract && (
         <p className="text-muted-foreground text-[13px]">
-          This node has no configurability.
+          {fields.length > 0
+            ? "Everything configurable here lives on the Prompt tab."
+            : "This node has no configurability."}
         </p>
       )}
-      {fields
+      {nonPromptFields
         .filter((f) => !FANOUT_FIELD_KEYS.has(f.key) || showFanout)
         .map((f) => (
         <ConfigFieldRow
@@ -844,9 +875,10 @@ export function StartContractEditor({
           </span>
         </div>
       )}
-      <div className="grid gap-1">
-        <Label>Run context</Label>
+      <Field>
+        <FieldLabel htmlFor="node-run-context">Run context</FieldLabel>
         <Textarea
+          id="node-run-context"
           value={tsText}
           onChange={(e) => setTsText(e.target.value)}
           rows={8}
@@ -858,7 +890,7 @@ export function StartContractEditor({
             {parsed.error}
           </Card>
         )}
-      </div>
+      </Field>
       {fields.map((f, i) => (
         <Card key={i} className="p-2.5 grid gap-1.5">
           <div className="flex items-center gap-2">

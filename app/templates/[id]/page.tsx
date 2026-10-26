@@ -50,7 +50,6 @@ import {
   DialogTitle,
 } from "../../../components/ui/dialog";
 import { Input } from "../../../components/ui/input";
-import { Label } from "../../../components/ui/label";
 import { Spinner } from "../../../components/ui/spinner";
 import {
   Sheet,
@@ -1172,10 +1171,28 @@ export default function TemplateEditorPage() {
           <SheetContent className="w-[640px] max-w-[calc(100vw-18rem)]">
             <SheetHeader>
               <SheetTitle className="flex items-center gap-2">
-                {configuring.overrideLabel ||
-                  configuring.catalog_name ||
-                  configuring.key}
-                <Badge variant="outline">{configuring.kind ?? "builtin"}</Badge>
+                {readonly ? (
+                  <span className="truncate">
+                    {configuring.overrideLabel ||
+                      configuring.catalog_name ||
+                      configuring.key}
+                  </span>
+                ) : (
+                  <Input
+                    aria-label="Display name"
+                    value={configuring.overrideLabel ?? ""}
+                    placeholder={configuring.catalog_name ?? configuring.key}
+                    className="h-7 w-1/2 rounded-none border-x-0 border-t-0 px-1.5 text-[15px] font-semibold focus-visible:ring-0"
+                    onChange={(e) =>
+                      patchNode(configuring.key, {
+                        overrideLabel: e.target.value || null,
+                      })
+                    }
+                  />
+                )}
+                <Badge variant="outline" className="shrink-0">
+                  {configuring.kind ?? "builtin"}
+                </Badge>
               </SheetTitle>
               <SheetDescription className="flex items-center gap-2 flex-wrap">
                 <code className="font-mono">{configuring.key}</code>
@@ -1189,19 +1206,6 @@ export default function TemplateEditorPage() {
               </SheetDescription>
             </SheetHeader>
             <SheetBody>
-              <div className="grid gap-1 mb-4">
-                <Label>Display name</Label>
-                <Input
-                  value={configuring.overrideLabel ?? ""}
-                  disabled={readonly}
-                  placeholder={configuring.catalog_name ?? configuring.key}
-                  onChange={(e) =>
-                    patchNode(configuring.key, {
-                      overrideLabel: e.target.value || null,
-                    })
-                  }
-                />
-              </div>
               <NodeConfiguratorBody
                 node={configuring}
                 incoming={configuringIncoming}

@@ -10,7 +10,7 @@ import { ConnectModal } from "./components/ConnectModal";
 import { InstanceCard } from "./components/InstanceCard";
 import { LocalAgentOptions, LocalAgentOptionsSkeleton } from "./components/LocalAgentOptions";
 import { ProviderSelect } from "./components/ProviderSelect";
-import { Field } from "@/components/shared";
+import { Field, FieldLabel } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { useLocalAgentOptions } from "./hooks/use-local-agent-options";
 import type { TabProps } from "./types";
@@ -97,7 +97,8 @@ export function HarnessTab({ open, onOpenChange, onError }: TabProps) {
         submitting={setCursorKey.isPending}
         onSubmit={() => updateKey(fields.apiKey)}
       >
-        <Field label="Provider">
+        <Field>
+          <FieldLabel>Provider</FieldLabel>
           <ProviderSelect
             value={provider}
             onChange={setProvider}
@@ -106,8 +107,10 @@ export function HarnessTab({ open, onOpenChange, onError }: TabProps) {
         </Field>
 
         {provider === PROVIDER_KIND.CURSOR && (
-          <Field label="API key">
+          <Field>
+            <FieldLabel htmlFor="cursor-api-key">API key</FieldLabel>
             <Input
+              id="cursor-api-key"
               placeholder="Cursor API key"
               type="password"
               value={fields.apiKey ?? ""}

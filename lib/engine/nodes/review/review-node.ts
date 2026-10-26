@@ -24,6 +24,8 @@ export class ReviewNode extends NodeDefinition<ReviewInput, ReviewOutput> {
   /** Typed config knobs (defaults = today's behavior). */
   readonly configSchema = z.object({
     prompt_body: z.string().optional(),
+    /** user rules appended after the prompt body, before the engine's locked blocks */
+    prompt_rules: z.string().optional(),
     /** cap the number of posted comments (0 = unlimited) */
     max_comments: z.number().int().min(0).default(0),
     /** inline per-file comments (today) or a single summary note */
@@ -33,6 +35,7 @@ export class ReviewNode extends NodeDefinition<ReviewInput, ReviewOutput> {
   });
   readonly configFields = [
     { key: "prompt_body", label: "Prompt body", type: "text", help: "User-editable prompt body; internal contracts re-appended automatically." },
+    { key: "prompt_rules", label: "Your rules", type: "text", help: "Extra rules appended after the prompt body, before the engine's locked instructions (review contract, diff) — on every run of this node." },
     { key: "max_comments", label: "Max comments", type: "number", help: "Cap on posted comments (0 = unlimited)." },
     {
       key: "comment_style", label: "Comment style", type: "select",
@@ -60,6 +63,8 @@ export class ReviewNode extends NodeDefinition<ReviewInput, ReviewOutput> {
       const body = configString(config, "prompt_body");
       if (body) input = { ...input, prompt: body, promptIsBody: true } as ReviewInput;
     }
+    // the user's standing rules (prompt_rules knob) apply to every run
+    const userRules = typeof config.prompt_rules === "string" ? config.prompt_rules : "";
 
     const { mrIid, mrBranch } = this.resolveMr(ctx, input.branchName);
     const repoUrl = ctx.flow.repo_url ?? "";
@@ -85,9 +90,9 @@ export class ReviewNode extends NodeDefinition<ReviewInput, ReviewOutput> {
     const prompt = (input.prompt
       ? input.promptIsBody
         // user edited the body only — re-attach the internal instructions + diff
-        ? `${input.prompt}\n\n${prompts.internalSuffix(NODE_KEYS.REVIEW, reviewCtx, { instructions, diff: diffText })}`
+        ? prompts.assemblePrompt(NODE_KEYS.REVIEW, reviewCtx, { instructions, diff: diffText }, { body: input.prompt, userRules }).final
         : input.prompt
-      : prompts.resolve(NODE_KEYS.REVIEW, reviewCtx, { instructions, diff: diffText })
+      : prompts.resolve(NODE_KEYS.REVIEW, reviewCtx, { instructions, diff: diffText }, undefined, { userRules })
     ).split("\n").filter(Boolean).join("\n");
 
     return this.execute(ctx, {

@@ -63,6 +63,8 @@ export class PipelineNode extends NodeDefinition<PipelineInput, PipelineOutput> 
   readonly configSchema = z.object({
     /** user-editable body for fix runs (app-settings pipeline_fix template fallback) */
     fix_prompt_body: z.string().optional(),
+    /** user rules appended after the fix-run body, before the engine's locked blocks */
+    fix_prompt_rules: z.string().optional(),
     max_fix_attempts: z.number().int().min(1).default(MAX_FIX_ATTEMPTS_DEFAULT),
     poll_interval_sec: z.number().min(1).default(POLL_MS_DEFAULT / 1000),
     /** play a manual/blocked pipeline's manual jobs via the API */
@@ -73,6 +75,7 @@ export class PipelineNode extends NodeDefinition<PipelineInput, PipelineOutput> 
   });
   readonly configFields = [
     { key: "fix_prompt_body", label: "Fix-run prompt body", type: "text", help: "User-editable body for CI fix runs; internal contracts re-appended automatically." },
+    { key: "fix_prompt_rules", label: "Fix-run rules", type: "text", help: "Extra rules appended after the fix-run body, before the engine's locked instructions and the failed-job logs — on every fix run." },
     { key: "max_fix_attempts", label: "Max fix attempts", type: "number", help: "Fix-agent runs per failing pipeline before manual intervention." },
     { key: "poll_interval_sec", label: "Poll interval (s)", type: "number", help: "How often the gate re-reads the pipeline." },
     { key: "play_manual_jobs", label: "Play manual jobs", type: "boolean", help: "Press 'play' on manual jobs via the git host API." },
@@ -360,16 +363,22 @@ export class PipelineNode extends NodeDefinition<PipelineInput, PipelineOutput> 
     const mode = this.ctxHelper.execMode(ctx);
     const instructions = mode === "local" ? `Start by checking out branch ${mrBranch}.` : "";
     const guidance = input.guidance ? `Developer guidance: ${input.guidance}` : "";
+    // the user's standing rules (fix_prompt_rules knob) apply to every fix run
+    const userRules = configString(this.nodeConfig(ctx), "fix_prompt_rules") ?? "";
 
     const prompt = (input.prompt
       ? input.promptIsBody
-        ? `${input.prompt}\n\n${prompts.internalSuffix(FIX_PROMPT_KEY,
+        ? prompts.assemblePrompt(FIX_PROMPT_KEY,
             { branch: mrBranch ?? "", pipelineId: String(pipelineId) },
-            { instructions, guidance, logs: logs || "(logs unavailable)" })}`
+            { instructions, guidance, logs: logs || "(logs unavailable)" },
+            { body: input.prompt, userRules },
+          ).final
         : input.prompt
       : prompts.resolve(FIX_PROMPT_KEY,
           { branch: mrBranch ?? "", pipelineId: String(pipelineId) },
           { instructions, guidance, logs: logs || "(logs unavailable)" },
+          undefined,
+          { userRules },
         )
     ).split("\n").filter(Boolean).join("\n");
 

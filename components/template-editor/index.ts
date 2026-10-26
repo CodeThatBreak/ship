@@ -4,6 +4,8 @@
  * Deep paths across features are forbidden — import from here.
  */
 export { DeclarativeConfigFields, type DeclarativeConfigFieldsProps } from "./DeclarativeConfigFields";
+export { PromptTab } from "./PromptTab";
+export { PromptSectionField, type PromptTemplateSection } from "./PromptSectionField";
 export {
   ConfigFieldRow,
   SecretsChipGroup,
