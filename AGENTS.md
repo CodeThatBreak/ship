@@ -1,31 +1,72 @@
-# AGENTS.md — DevFlow
+# AGENTS.md: DevFlow
 
-Guidelines for AI agents and contributors working in this repository.
+Rules for AI agents and contributors working in this repository.
 
-**Stack:** Next.js 15 (App Router) · React 19 · TypeScript · Tailwind v4 · TanStack Query · better-sqlite3
+**Stack:** Next.js 15 (App Router), React 19, TypeScript (strict), Tailwind v4, TanStack Query, better-sqlite3
+
+Where a rule here conflicts with an existing pattern in neighboring files, follow the rule for new code and flag the mismatch in the PR description. Do not rewrite untouched code.
 
 ---
 
-## 1. Frontend — React Clean Code Principles
+## 0. Commands and Definition of Done
 
-### 1.1 Component Decomposition
+```bash
+npm run dev          # dev server
+npm run build        # production build
+npm run lint         # eslint
+npm run typecheck    # tsc --noEmit (add this script if missing)
+npm run test         # test runner (see section 5)
+npm run seed:demo    # seed demo data (variants: :reset, fanout, branch-refine, custom)
+```
 
-- One component per file. A file longer than ~200 lines or with more than one exported component is a refactor signal.
-- A component does **one thing**. If you can describe it with "and", split it.
-- Extract in this order of preference:
-  1. **Presentational subcomponents** — pure JSX+props, no data fetching.
-  2. **Custom hooks** — all stateful/data logic moves to `hooks/`.
-  3. **Container components** — compose hooks + presentational children.
+A task is done only when all of these are true:
+
+- [ ] `npm run build` pass
+- [ ] Diff is focused: no unrelated reformatting or renames
+- [ ] Every async UI has loading, error and empty states
+- [ ] New service classes and row mappers have tests
+- [ ] Violations found in touched code are fixed; anything else is flagged in the PR description
+
+---
+
+## 1. Safety Rules (read first)
+
+- Never run `seed:demo:reset` or any destructive script against a database that is not the demo DB. Check the DB path first.
+- Do not add new dependencies without asking.
+- No destructive git or file commands (`reset --hard`, `clean -fd`, `rm -rf`, force push) unless explicitly requested.
+- Ask before changing `lib/db/schema.sql`. Schema changes must be coordinated with row mappers in `lib/db/rows.ts`.
+- Secrets and env values come only from `lib/config.ts`. Never hardcode them and never commit `.env`.
+- Never edit `components/ui/` (shadcn primitives) unless the task explicitly requires it.
+
+---
+
+## 2. Frontend: React Clean Code
+
+### 2.1 Server vs Client
+
+- Server Components by default. Add `"use client"` only when you need state, effects, event handlers or browser APIs.
+- Fetch initial data on the server and pass it down or hydrate it into TanStack Query.
+- Client-side fetching, mutations and live data go through TanStack Query. Never use raw `useEffect` + `useState` + `fetch`.
+- Never import anything from `lib/` into a client component. Server-only modules start with `import "server-only"`.
+
+### 2.2 Component Decomposition
+
+- One component per file. A file over ~200 lines, or with more than one exported component, is a refactor signal.
+- A component does one thing. If you describe it with "and", split it.
+- Extract in this order:
+  1. Presentational subcomponents (pure JSX and props, no data fetching)
+  2. Custom hooks (all stateful and data logic)
+  3. Container components (compose hooks and presentational children)
 
 ```tsx
-// ❌ Bad: data fetching + layout + rendering in one blob
+// Bad: data fetching, layout and rendering in one blob
 export function NodePanel({ nodeId }: { nodeId: string }) {
   const [data, setData] = useState(null);
   useEffect(() => { fetch(`/api/nodes/${nodeId}`)... }, [nodeId]);
-  // ...200 lines of JSX
+  // 200 lines of JSX
 }
 
-// ✅ Good: container delegates to hook + small children
+// Good: container delegates to a hook and small children
 export function NodePanel({ nodeId }: { nodeId: string }) {
   const { node, isLoading } = useNode(nodeId);
   if (isLoading) return <NodePanelSkeleton />;
@@ -38,102 +79,71 @@ export function NodePanel({ nodeId }: { nodeId: string }) {
 }
 ```
 
-### 1.2 Directory Organization (by hierarchy)
+### 2.3 Directory Organization
 
 ```
 components/
-  <feature>/              # group by feature/domain, not by file type
-    index.ts              # public barrel — only what's consumed outside
+  <feature>/              # group by feature or domain, not by file type
+    index.ts              # small public barrel: only what other features consume
     <Feature>.tsx         # top-level component
     components/           # subcomponents used only by this feature
-      <SubA>.tsx
-      <SubB>.tsx
     hooks/                # feature-local hooks
-    constants.ts          # feature constants (never inline magic strings/numbers)
+    constants.ts          # feature constants
     types.ts              # feature-local types
-  ui/                     # generic primitives (shadcn) — no business logic
-hooks/                    # shared, cross-feature hooks (use-thing.ts, kebab-case)
+  ui/                     # shadcn primitives ONLY. Do not add custom components here.
+  shared/                 # generic custom components (see 2.4)
+hooks/                    # shared cross-feature hooks (use-thing.ts, kebab-case)
 constants/                # shared app-wide constants
 types/                    # shared app-wide types
-lib/                      # backend + shared utilities (see §2)
+lib/                      # backend and shared utilities (see section 3)
 ```
 
-**Rules:**
-- New shared hooks go in `hooks/use-<name>.ts`. New shared constants in `constants/<domain>.ts`. New shared types in `types/<domain>.ts`.
-- Feature-local helpers stay inside the feature folder — do not promote to `hooks/`/`constants/` until a second consumer exists.
-- Never import deep paths across features (`components/a/components/Foo.tsx`); go through the feature's `index.ts` barrel.
-- `components/ui/` must stay generic: no domain types, no API calls, no app constants.
+- New shared hooks: `hooks/use-<name>.ts`. Shared constants: `constants/<domain>.ts`. Shared types: `types/<domain>.ts`.
+- Feature-local helpers stay in the feature folder until a second consumer exists.
+- Never deep-import across features. Go through the feature's `index.ts`.
+- Keep barrels small. Export only the public surface, never everything.
 
-### 1.3 Stable Reference Props (referential stability)
+### 2.4 Generic Components Belong in `components/shared/`
 
-Every prop passed to a child must be referentially stable across renders unless it intentionally changes. This prevents unnecessary re-renders and effect re-runs.
+A component is generic if it takes only generic props (`label`, `children`, `title`, `variant`) and has no domain types, API calls, feature constants or feature hooks.
 
-**Mandatory:**
-- Event handlers passed to children/memoized components: wrap with `useCallback`.
-- Objects/arrays passed as props: `useMemo`, or hoist the literal **outside the component** if it never changes.
-- Values derived from props/state used in `useEffect` deps: memoize or compute inside the effect.
-- Context providers: split value into a `useMemo`'d object; keep `value` stable when state hasn't changed.
+- Litmus test: could it be dropped into another feature unchanged? If yes, it lives in `components/shared/`.
+- Before creating a component in a feature folder, search `components/ui/` and `components/shared/`. Reuse an equivalent, or extend a near-equivalent with an optional prop.
+- When a second feature needs a feature-local component, promote it to `components/shared/`, export it via a barrel, and update imports.
+- Use domain-neutral names in shared locations (`Field`, `SectionHeader`), never feature-flavored ones (`IntegrationField`).
+- Shared components follow the same standards: typed props, no hardcoded domain strings, stable-ref friendly.
+
+### 2.5 Referential Stability (apply where it matters)
+
+Memoize only when the value is passed to a `memo`'d child, used as a context value, or used as an effect dependency. Do not wrap everything by default.
+
+- Hoist static object, array and function literals outside the component. This is free and always allowed.
+- Wrap handlers in `useCallback` and objects in `useMemo` when they flow into one of the three cases above.
+- Context provider values are a `useMemo`'d object, stable when state has not changed.
+- Never create a callback or ref inside a `.map()` body. Extract a row component that takes primitives and stable callbacks.
+- A `memo` component is useless if it receives unstable props, so fix the props first.
+- If React Compiler is enabled in this repo, do not add manual memoization except where the compiler cannot reach.
 
 ```tsx
-// ❌ Bad: new function + new object identity every render
-<Child onSave={() => save(id)} config={{ retries: 3, timeout: 500 }} />
-
-// ✅ Good: stable references
-const onSave = useCallback(() => save(id), [id]);
-<Child onSave={onSave} config={DEFAULT_CONFIG} /> // hoisted module constant
-```
-
-```tsx
-// ✅ Hoist static literals — zero cost, guaranteed stable
-const STATUS_OPTIONS = ["idle", "running", "done"] as const;
+// Good: hoisted constants and stable handler passed to a memoized child
 const PANEL_DEFAULTS = { width: 420, collapsible: true } as const;
+const onSave = useCallback(() => save(id), [id]);
+<MemoChild onSave={onSave} config={PANEL_DEFAULTS} />;
 ```
 
-**Rules:**
-- Prefer deriving during render over syncing via `useEffect` (avoid "state mirroring").
-- `useEffect` is for synchronizing with **external systems** (network, DOM, subscriptions) — not for transforming props.
-- Never create a new ref/callback inside a `.map()` render body; extract a row component that takes primitives + stable callbacks.
-- Components that receive objects and render expensive trees must be wrapped in `memo` **and** only receive stable props — otherwise `memo` is useless.
+### 2.6 State and Effects
 
-### 1.4 Bad Practices — Fix on Encounter
+- Derive values during render instead of syncing them with `useEffect` (no state mirroring). Use a `key` reset if state must reset with a prop.
+- `useEffect` is for synchronizing with external systems (network, DOM, subscriptions), not for transforming props.
+- State that can be computed from other state must not exist.
+- All hooks run unconditionally, before any early return.
+- Never suppress `exhaustive-deps`. Fix the deps or restructure.
 
-When an agent encounters any of these in existing code, **fix it in the same change** (or flag it if the fix is too large for the current task):
+### 2.7 Constants Instead of Repeated Domain Strings
 
-| Bad practice | Fix |
-|---|---|
-| Inline object/array/function props to memoized children | `useCallback`/`useMemo` or hoist |
-| `useEffect` copying props into state | Derive during render, or `key`-reset |
-| Missing dependency arrays / suppressed deps (`// eslint-disable`) | Fix deps; restructure if it causes loops |
-| `any` types | Proper types; `unknown` + narrowing as last resort |
-| State that can be computed from other state | Remove it; derive |
-| Giant `switch`/`if` chains on string literals in JSX | Map to `constants/` lookup tables |
-| Magic strings/numbers | Named constants |
-| Mutating props/state directly | Immutable updates |
-| `index.ts` barrel exporting everything | Export only the public surface |
-| Data fetching inside leaf components | Lift to hook/container; use TanStack Query |
-| Non-`"use client"` file importing hooks/browser APIs | Add directive or split server/client |
-| Conditional hooks / hooks after early returns | Reorder so all hooks run unconditionally |
+Domain values must come from named constants. Domain values are: status values, node types, storage keys, query keys, event and subject names, API error codes.
 
-### 1.5 General React Conventions
-
-- Server Components by default; add `"use client"` only when needed (state, effects, event handlers, browser APIs).
-- Data fetching on the client goes through **TanStack Query**, never raw `useEffect` + `useState` + `fetch`.
-- Name components with PascalCase files matching the export; hooks as `use-<name>.ts`; constants/types files lowercase.
-- Tailwind: use existing utility patterns; extract repeated class strings into a constant or `cn()` helper — never a new CSS file.
-- Accessibility: interactive elements need keyboard handling and labels; don't use `div` with `onClick` where a `button` works.
-
-### 1.6 No Repeated String Literals — Use Constants
-
-Any string literal used **more than once** (or compared against in more than one place) must be a named constant, not free text typed inline in functions.
-
-**When a string appears 2+ times → constant. When it's part of a closed set of values → `as const` object or union type.**
-
-```tsx
-// ❌ Bad: "running" duplicated across functions — one typo silently breaks everything
-if (flow.status === "running") { ... }
-const active = flows.filter((f) => f.status === "running");
-
-// ✅ Good: single source of truth
+```ts
 // constants/flow.ts
 export const FLOW_STATUS = {
   IDLE: "idle",
@@ -144,106 +154,82 @@ export const FLOW_STATUS = {
 export type FlowStatus = (typeof FLOW_STATUS)[keyof typeof FLOW_STATUS];
 ```
 
-```ts
-// ❌ Bad: repeated free-text keys in multiple functions
-localStorage.setItem("devflow:activeFlow", id);
-const saved = localStorage.getItem("devflow:activeFlow");
+- Closed sets of values: `as const` object plus a derived union type. Use the object in code, never the raw value.
+- Repeated literals: `constants/<domain>.ts` on the frontend, a module-level `const` in a backend class or module.
+- TanStack Query keys live in one `queryKeys` object so invalidation matches fetching.
+- Grep before you type a domain string that likely exists elsewhere, and reuse its constant.
+- **Exempt:** Tailwind class strings, aria-labels, log messages, test fixtures and test data. Repeated class strings should still be extracted into a `cn()` helper or a constant when it improves readability.
 
-// ✅ Good: constant exported once, imported everywhere
-// constants/storage-keys.ts
-export const STORAGE_KEYS = { ACTIVE_FLOW: "devflow:activeFlow" } as const;
-```
+### 2.8 Loading, Error and Empty States
 
-**Rules:**
-- Repeated literals → `constants/<domain>.ts` (frontend) or a module-level `const` (backend class/module).
-- Sets of related strings → `as const` object + derived union type; use the object's keys in code, never the raw values.
-- Event/subject names, storage keys, status values, node types, API error codes, and query keys **always** come from constants.
-- Query keys for TanStack Query belong in a `queryKeys` constant object so invalidation matches fetching.
-- A literal may stay inline only if it appears exactly once and is self-explanatory (e.g. an aria-label).
-- Grep before you type: if you're about to write a string that likely exists elsewhere (`"running"`, `"agent"`, `"merge-request"`), find and reuse its constant instead of adding a duplicate.
+Every component that renders async data handles all three states.
 
-### 1.7 Generic Components Belong in a Shared, Discoverable Location
-
-If a component is **generic** — it takes only generic props (`label`, `children`, `title`, `variant`, no domain types, no API calls, no feature constants) — it must live where other features can find and reuse it, **not** buried inside one feature's folder.
-
-**Real example from this repo:** `components/settings/integrations/components/Field.tsx` is a perfectly reusable `<Field label children>` wrapper, but its location makes it invisible to every other feature. Components like this belong in `components/ui/` (if it's a form/primitive) or `components/shared/`.
-
-```
-components/
-  ui/                     # generic primitives — Field, Modal, Empty, …
-  shared/                 # generic app-level components that aren't shadcn primitives
-    Field.tsx             # ✅ moved here — reusable by any feature
-  settings/
-    integrations/
-      components/         # ❌ Field.tsx should NOT live here — it's not integration-specific
-```
-
-**Rules:**
-- **Litmus test:** could this component be dropped into any other feature without modification? If yes, it's shared. If it imports domain types, feature constants, or feature hooks, it stays feature-local.
-- Before creating a new component inside `components/<feature>/components/`, **search `components/ui/` and `components/shared/` first** — if an equivalent exists, use it; if a near-equivalent exists, extend it (add an optional prop) instead of duplicating.
-- When a feature-local component is needed by a second feature, **promote it**: move to `components/shared/` (or `components/ui/` for primitives), export via a barrel, and update all imports. Don't cross-import between feature folders.
-- Shared components must keep the same quality bar: typed props, no hardcoded domain strings (§1.6), stable-ref-friendly (§1.3).
-- Naming: shared components use domain-neutral names (`Field`, `SectionHeader`, `ConfirmButton`) — never feature-flavored names (`IntegrationField`) in shared locations.
-
-### 1.8 Always Handle Loading States — Skeletons, Not Generic Spinners
-
-Every component that renders async data **must** handle its loading state. Never render nothing, never leave stale content flashing, and never use a bare spinner where layout is known.
-
-**Use skeleton placeholders that mirror the final layout** — they preserve structure, prevent layout shift (CLS), and feel faster than a spinner:
+- **Loading:** a skeleton that mirrors the final layout (same paddings, same element count). Never render nothing, and never use a bare spinner where the layout is known.
+- **Error:** a message plus a retry action.
+- **Empty:** an explicit empty state.
+- With TanStack Query, check `isPending`/`isLoading`, `isError` and empty data explicitly.
+- Distinguish `isLoading` from `isFetching`. Background refetches keep showing current data (use `placeholderData` or `keepPreviousData`), not a skeleton.
+- Server Components use `loading.tsx` or Suspense boundaries with a skeleton fallback.
+- Do not render the real component with undefined data and survive with `node?.title`. That causes flicker and broken partial UI.
+- For lists and tables, render N skeleton rows matching the expected row shape.
+- Spinners are only for indeterminate inline actions (button submit state, small icon refresh).
+- Skeleton components live next to their real component. If reused across features, move them to `components/shared/`.
 
 ```tsx
-// ❌ Bad: no loading state at all → blank/jumpy UI
-export function NodePanel({ nodeId }: { nodeId: string }) {
-  const { node } = useNode(nodeId);
-  return <NodePanelHeader node={node} />; // node is undefined while loading!
-}
-
-// ❌ Bad: generic spinner where the layout is already known
-if (isLoading) return <Spinner />;
-
-// ✅ Good: skeleton matching the real layout
-if (isLoading) return <NodePanelSkeleton />;
-```
-
-```tsx
-// ✅ Skeleton mirrors the shape it replaces (use existing ui/ primitives)
 export function NodePanelSkeleton() {
   return (
     <Panel>
-      <Skeleton className="h-6 w-40" />          {/* header title */}
-      <Skeleton className="h-4 w-full" />         {/* body lines */}
+      <Skeleton className="h-6 w-40" /> {/* header title */}
+      <Skeleton className="h-4 w-full" /> {/* body lines */}
       <Skeleton className="h-4 w-2/3" />
     </Panel>
   );
 }
 ```
 
-**Rules:**
-- Every async component must cover all three states: **loading** (skeleton), **error** (message + retry), and **empty** (nothing to show). With TanStack Query, check `isLoading`/`isPending`, `isError`, and empty data explicitly.
-- Skeletons match the real component's dimensions and structure — same paddings, same element count. A skeleton that looks nothing like its content is worse than a spinner.
-- Skeleton components live next to their real component (`<Feature>Skeleton` in the same file or feature folder); if a skeleton is reused across features, it goes to `components/shared/` (§1.7).
-- Spinners are acceptable only for **indeterminate inline actions** (button submit state, small icon-level refresh) where no layout is known — never as a full-component placeholder.
-- Never render the real component with undefined data and rely on optional chaining (`node?.title`) to "survive" loading — that produces flicker and broken partial UI.
-- For lists/tables, render N skeleton rows matching the expected row shape instead of one blank block.
+### 2.9 Other Conventions
+
+- File naming: PascalCase components matching the export, `use-<name>.ts` hooks, lowercase constants and types files.
+- Tailwind: follow existing utility patterns. Extract repeated class strings into a constant or `cn()`. Never create a new CSS file.
+- Accessibility: interactive elements need labels and keyboard handling. Use `button`, not `div` with `onClick`.
+- No `any`. Use proper types, or `unknown` with narrowing as a last resort.
+- No direct mutation of props or state.
+- Replace large `switch` or `if` chains on string literals in JSX with lookup tables in `constants/`.
+
+### 2.10 Fix Bad Practices in Touched Code
+
+When your task touches a file, fix violations of this section in the lines you touch. For anything larger or outside your task, do not fix it silently: flag it in the PR description.
+
+| Bad practice                                                | Fix                                           |
+| ----------------------------------------------------------- | --------------------------------------------- |
+| Inline object, array or function props to memoized children | `useCallback`, `useMemo` or hoist             |
+| `useEffect` copying props into state                        | Derive during render, or `key` reset          |
+| Missing or suppressed deps                                  | Fix deps, restructure if it causes loops      |
+| `any` types                                                 | Proper types                                  |
+| Computable state stored as state                            | Derive it                                     |
+| Magic strings or numbers                                    | Named constants                               |
+| Data fetching in leaf components                            | Lift to hook or container, use TanStack Query |
+| Hooks or browser APIs in a non-`"use client"` file          | Add directive or split server and client      |
+| Conditional hooks or hooks after early returns              | Reorder                                       |
 
 ---
 
-## 2. Backend — Object-Oriented Programming (not functional style)
+## 3. Backend: Object-Oriented Services
 
-All server-side code (`app/api/**`, `lib/**`) uses **OOP with classes**. Do not introduce new module-level function-based modules for domain logic.
+Stateful and domain logic in `app/api/**` and `lib/**` uses classes. Pure, stateless helpers (`format.ts`, `utils.ts`) may stay as functions.
 
-### 2.1 Class-Based Services
+### 3.1 Class-Based Services
 
-- Each domain concept is a **class** with a single responsibility: `FlowEngine`, `FlowPoller`, `WorktreeManager`, `SecretStore`, etc.
-- Services hold their dependencies (db handle, config, clients) as **constructor-injected private fields** — no module-level mutable singletons except through a documented singleton factory (`lib/singleton.ts` pattern).
+- Each domain concept is a class with one responsibility: `FlowEngine`, `FlowPoller`, `WorktreeManager`, `SecretStore`.
+- Dependencies (db handle, config, clients) are constructor-injected private fields.
+- No module-level mutable singletons, except through the documented singleton factory in `lib/singleton.ts`.
 
 ```ts
-// ❌ Bad: loose functions + module-level mutable state
+// Bad: loose functions and module-level mutable state
 let cache = new Map();
 export function getFlow(id: string) { ... }
-export function createFlow(...) { ... }
 
-// ✅ Good: encapsulated class
+// Good: encapsulated class
 export class FlowService {
   constructor(
     private readonly db: Database,
@@ -255,43 +241,65 @@ export class FlowService {
 }
 ```
 
-### 2.2 Conventions
+### 3.2 Conventions
 
-- **Encapsulation:** private/readonly fields; expose behavior methods, not raw data. Getters only when a real consumer exists.
-- **Composition over inheritance.** Use small collaborator classes; `abstract` base classes only for genuine shared polymorphic behavior (see `lib/engine/nodes/base`).
-- **Interfaces for boundaries:** define an interface per external port (task providers, node registry, git host integrations) and depend on the interface, not the concrete class. Follow the existing `lib/engine/tasks/task-provider.ts` and `lib/engine/ports/` patterns.
-- **Factories/registries over `switch` on type strings:** new node/task kinds register into the existing registries (`lib/engine/nodes/registry.ts`, `lib/engine/tasks/registry.ts`) instead of adding branches.
-- **One class per file**, file named after the class in kebab-case (`flow-poller.ts` → `FlowPoller`).
-- **Errors:** throw typed error classes; API routes catch and map to HTTP responses.
-- **No logic in route handlers:** `app/api/**/route.ts` files only parse/validate input, call a service class method, and serialize the response. All business logic lives in `lib/` classes.
+- **Encapsulation:** private and readonly fields. Expose behavior methods, not raw data.
+- **Composition over inheritance.** Use `abstract` base classes only for genuine shared polymorphic behavior (see `lib/engine/nodes/base`).
+- **Interfaces for boundaries:** one interface per external port (task providers, node registry, git host integrations). Depend on the interface. Follow the patterns in `lib/engine/tasks/task-provider.ts` and `lib/engine/ports/`.
+- **Registries over type-string `switch`:** new node and task kinds register into `lib/engine/nodes/registry.ts` and `lib/engine/tasks/registry.ts` instead of adding branches.
+- **One class per file**, named after the class in kebab-case (`flow-poller.ts` exports `FlowPoller`).
+- **Errors:** throw typed error classes. Routes catch them and map to HTTP responses.
+- **Thin route handlers:** `app/api/**/route.ts` only parses and validates input, calls a service method, and serializes the response. No business logic.
+- Module-level string constants for repeated domain values (see 2.7).
 
-### 2.3 Migrating Legacy Functional Code
+### 3.3 Runtime and Server Boundaries
 
-When touching an existing function-based module in `lib/`:
-- If it has module-level mutable state → convert to a class with those as instance fields.
-- If it's a cohesive set of 3+ related functions → group them into a service class.
-- If it's a small pure utility (`format.ts`, `utils.ts`) → it may stay functional; pure helpers are fine.
-- Do not do a drive-by rewrite of untouched code; refactor what your task touches, incrementally.
+- better-sqlite3 is synchronous and Node-only. API routes that touch the DB must use the Node runtime, never Edge.
+- `lib/` is server-only. Never import it from client components.
+- Dev singletons must survive HMR. Use the `globalThis` pattern implemented in `lib/singleton.ts`, and reuse it instead of inventing a new one.
+
+### 3.4 Validation
+
+- Validate all external input (request bodies, query params, env) at the boundary with Zod.
+- Schemas live next to the service or route that owns them, or in `lib/schemas/` when shared.
+- Infer types from schemas (`z.infer`) instead of duplicating them.
+- No non-null `!` assertions on possibly-missing data. Validate instead.
+
+### 3.5 Migrating Legacy Functional Code
+
+When your task touches an existing function-based module in `lib/`:
+
+- Module-level mutable state: convert to a class with instance fields.
+- A cohesive set of 3 or more related functions: group into a service class.
+- Small pure utilities: may stay functional.
+- Refactor only what your task touches. No drive-by rewrites.
 
 ---
 
-## 3. Project Commands
+## 4. Workflow Rules
 
-```bash
-npm run dev          # dev server
-npm run build        # production build (must pass before finishing a task)
-npm run lint         # eslint
-npm run seed:demo    # seed demo data (variants: :reset, fanout, branch-refine, custom)
-```
+1. **Read before writing.** Check how neighboring files solve the same problem and follow existing patterns over generic preferences.
+2. **TypeScript strict.** No `any`, no `!` on possibly-missing data.
+3. **Keep diffs focused.** No unrelated reformatting or renames. Fix violations only in code your task touches (see 2.10), and flag the rest in the PR description.
+4. **Finish with the Definition of Done** in section 0.
 
 ---
 
-## 4. Workflow Rules for Agents
+## 5. Testing
 
-1. **Read before writing.** Check how neighboring files solve the same problem; follow existing patterns over generic preferences.
-2. **TypeScript strict.** No `any`, no non-null `!` assertions on possibly-missing data — validate at boundaries.
-3. **Never edit `components/ui/`** (shadcn primitives) unless the task explicitly requires it.
-4. **Run `npm run build` and `npm run lint`** after changes; both must pass.
-5. **DB changes:** schema lives in `lib/db/schema.sql`; coordinate row mappers in `lib/db/rows.ts`.
-6. **Secrets/env:** only via `lib/config.ts`; never hardcode, never commit `.env`.
-7. Keep diffs focused: no unrelated reformatting, no drive-by renames.
+- Runner: Vitest (confirm and update this line if the repo uses something else).
+- Tests live next to the code as `<name>.test.ts`, or in a `__tests__/` folder inside the same directory.
+- Required tests: service classes (behavior through public methods), row mappers in `lib/db/rows.ts`, and any non-trivial hook logic.
+- Use an in-memory SQLite database for service tests. Never point tests at the dev or demo DB.
+- Do not test implementation details or shadcn primitives.
+
+---
+
+## 6. Automate With Lint
+
+Prefer failing lint over prose. These should be enforced by ESLint where possible, so agents get immediate feedback:
+
+- `react-hooks/exhaustive-deps` as error
+- `@typescript-eslint/no-explicit-any` and `@typescript-eslint/no-non-null-assertion`
+- `import/no-restricted-paths` for cross-feature deep imports, `lib/` imports from client code, and custom code inside `components/ui/`
+- A restricted-syntax or duplicate-string rule scoped to the domain constants in `constants/`

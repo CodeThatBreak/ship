@@ -83,16 +83,41 @@ import {
   CollapsibleTrigger,
 } from "../../../components/ui/collapsible";
 import { cn } from "../../../lib/utils";
-import { NodeConfiguratorBody, SelectOption, type IncomingLink } from "../../../components/template-editor/NodeConfigurator";
+import {
+  NodeConfiguratorBody,
+  SelectOption,
+  type IncomingLink,
+} from "../../../components/template-editor/NodeConfigurator";
 import NodePalette from "../../../components/template-editor/NodePalette";
-import BuilderCanvas, { type BuilderApi } from "../../../components/template-editor/BuilderCanvas";
+import BuilderCanvas, {
+  type BuilderApi,
+} from "../../../components/template-editor/BuilderCanvas";
 import { ConditionBuilder } from "../../../components/template-editor/ConditionBuilder";
 import { FLOW_TRIGGER_TYPE } from "../../../components/template-editor/constants";
-import type { DraftNodeDef, EditorEdge, EditorNode, NodeContract } from "../../../components/template-editor/types";
-import { contractsUrl, describeTrigger, nodeLabel, nodeRelationships, isPlanDownstream } from "../../../components/template-editor/types";
+import type {
+  DraftNodeDef,
+  EditorEdge,
+  EditorNode,
+  NodeContract,
+} from "../../../components/template-editor/types";
+import {
+  contractsUrl,
+  describeTrigger,
+  nodeLabel,
+  nodeRelationships,
+  isPlanDownstream,
+} from "../../../components/template-editor/types";
 import type { TaskProviderInfo } from "../../../components/template-editor/types";
-import { asJsonataGroups, buildVarGroups, conditionVarGroups, schemaRows } from "../../../components/template-editor/variables";
-import { NODE_KIND_DESCRIPTIONS, boilerplateFor } from "../../../components/template-editor";
+import {
+  asJsonataGroups,
+  buildVarGroups,
+  conditionVarGroups,
+  schemaRows,
+} from "../../../components/template-editor/variables";
+import {
+  NODE_KIND_DESCRIPTIONS,
+  boilerplateFor,
+} from "../../../components/template-editor";
 import type { LintProblem } from "../../../lib/engine/context-lint";
 
 /** A registered task provider's editor-facing slice (GET /api/tasks/providers). */
@@ -120,9 +145,20 @@ const EDGE_KINDS = ["next", "loop"] as const;
 
 /** Edge kinds as labeled options (the kind select's friendly labels; the
  *  stored value stays the raw kind string). */
-const EDGE_KIND_OPTIONS: Record<string, { label: string; description: string }> = {
-  next: { label: "next — forward edge", description: "Runs the target after the source finishes; its output joins the target's input." },
-  loop: { label: "loop — re-run the target", description: "Re-triggers the target once it has finished (bounds come from the target's max-attempt knobs)." },
+const EDGE_KIND_OPTIONS: Record<
+  string,
+  { label: string; description: string }
+> = {
+  next: {
+    label: "next — forward edge",
+    description:
+      "Runs the target after the source finishes; its output joins the target's input.",
+  },
+  loop: {
+    label: "loop — re-run the target",
+    description:
+      "Re-triggers the target once it has finished (bounds come from the target's max-attempt knobs).",
+  },
 };
 
 /** Display names for the palette's New-node tiles (also the saved row names). */
@@ -166,11 +202,21 @@ const KIND_ICONS: Record<string, string> = {
 const LAYOUT_W = 190,
   LAYOUT_H = 68;
 
-function dagreLayout(nodes: EditorNode[], edges: EditorEdge[]): Record<string, Position> {
+function dagreLayout(
+  nodes: EditorNode[],
+  edges: EditorEdge[],
+): Record<string, Position> {
   const g = new dagre.graphlib.Graph();
-  g.setGraph({ rankdir: "LR", nodesep: 46, ranksep: 96, marginx: 40, marginy: 40 });
+  g.setGraph({
+    rankdir: "LR",
+    nodesep: 46,
+    ranksep: 96,
+    marginx: 40,
+    marginy: 40,
+  });
   g.setDefaultEdgeLabel(() => ({}));
-  for (const n of nodes) g.setNode(n.key, { width: LAYOUT_W, height: LAYOUT_H });
+  for (const n of nodes)
+    g.setNode(n.key, { width: LAYOUT_W, height: LAYOUT_H });
   for (const e of edges) g.setEdge(e.from, e.to);
   dagre.layout(g);
   const out: Record<string, Position> = {};
@@ -181,10 +227,16 @@ function dagreLayout(nodes: EditorNode[], edges: EditorEdge[]): Record<string, P
   return out;
 }
 
-function initialPositions(nodes: EditorNode[], edges: EditorEdge[], saved: Record<string, Position>) {
+function initialPositions(
+  nodes: EditorNode[],
+  edges: EditorEdge[],
+  saved: Record<string, Position>,
+) {
   const auto = dagreLayout(nodes, edges);
   // saved positions win; auto-layout only fills the gaps (and centers anything new)
-  return Object.fromEntries(nodes.map((n) => [n.key, saved[n.key] ?? auto[n.key]])) as Record<string, Position>;
+  return Object.fromEntries(
+    nodes.map((n) => [n.key, saved[n.key] ?? auto[n.key]]),
+  ) as Record<string, Position>;
 }
 
 export default function TemplateEditorPage() {
@@ -195,7 +247,8 @@ export default function TemplateEditorPage() {
   const draftRef = useRef<Draft | null>(null);
   const setDraft = useCallback(
     (next: Draft | null | ((cur: Draft | null) => Draft | null)) => {
-      const resolved = typeof next === "function" ? next(draftRef.current) : next;
+      const resolved =
+        typeof next === "function" ? next(draftRef.current) : next;
       draftRef.current = resolved;
       setDraftState(resolved);
     },
@@ -210,7 +263,9 @@ export default function TemplateEditorPage() {
    *  while the debounced layout autosave is in flight, "saved" once it
    *  lands — the header then reads "layout autosaved · graph has unsaved
    *  changes" instead of one ambiguous "unsaved changes" */
-  const [layoutSync, setLayoutSync] = useState<"idle" | "pending" | "saved">("idle");
+  const [layoutSync, setLayoutSync] = useState<"idle" | "pending" | "saved">(
+    "idle",
+  );
   /** bumped after each Save — the palette's catalog cache keys off it so new
    *  Library rows appear without a page reload (Phase 2) */
   const [catalogEpoch, setCatalogEpoch] = useState(0);
@@ -226,7 +281,11 @@ export default function TemplateEditorPage() {
   const [confirmLeave, setConfirmLeave] = useState(false);
   // flow-trigger side data: the inbound hook (webhook trigger) + the repo
   // binding pickers (webhook/schedule auto-create flows)
-  const [hook, setHook] = useState<{ id: string; secret: string; filter: string | null } | null>(null);
+  const [hook, setHook] = useState<{
+    id: string;
+    secret: string;
+    filter: string | null;
+  } | null>(null);
   const [repos, setRepos] = useState<any[]>([]);
   /** registered task providers — the Task context panel's type picker +
    *  {{task.*}} chips (contextFields) across every node configurator */
@@ -235,19 +294,35 @@ export default function TemplateEditorPage() {
    *  drives the canvas's labeled branch handles (attach-only wiring). The
    *  instance override wins; otherwise the catalog def is fetched once. */
   const [branchChoices, setBranchChoices] = useState<
-    Record<string, { label: string; description?: string; condition?: string }[]>
+    Record<
+      string,
+      { label: string; description?: string; condition?: string }[]
+    >
   >({});
-  const choiceCache = useRef<Record<string, { label: string; description?: string; condition?: string }[] | null>>({});
+  const choiceCache = useRef<
+    Record<
+      string,
+      { label: string; description?: string; condition?: string }[] | null
+    >
+  >({});
   /** the start node's contract fields (Phase 3) — the {{trigger.payload.*}}
    *  vocabulary every node configurator offers */
-  const [triggerFields, setTriggerFields] = useState<{ key: string; label?: string; type?: string }[]>([]);
-  const startContractCache = useRef<Record<string, { key: string; label?: string; type?: string }[]>>({});
+  const [triggerFields, setTriggerFields] = useState<
+    { key: string; label?: string; type?: string }[]
+  >([]);
+  const startContractCache = useRef<
+    Record<string, { key: string; label?: string; type?: string }[]>
+  >({});
   /** live-linted refs per node (Phase 3): node key → ref → the linter's
    *  problem — the prompt editor underlines them where they're typed */
-  const [refProblems, setRefProblems] = useState<Record<string, Record<string, string>>>({});
+  const [refProblems, setRefProblems] = useState<
+    Record<string, Record<string, string>>
+  >({});
   /** structured lint problems (Phase 5): node key → messages (canvas badges)
    *  and edge index → the condition's problem (the edge chip flags rose) */
-  const [nodeProblems, setNodeProblems] = useState<Record<string, string[]>>({});
+  const [nodeProblems, setNodeProblems] = useState<Record<string, string[]>>(
+    {},
+  );
   const [edgeProblems, setEdgeProblems] = useState<Record<number, string>>({});
   const builderApi = useRef<BuilderApi | null>(null);
 
@@ -269,19 +344,23 @@ export default function TemplateEditorPage() {
 
   const load = useCallback(async () => {
     setError(null);
-    const data = await fetch(`/api/templates/${templateId}`).then((r) => r.json()).catch(() => null);
+    const data = await fetch(`/api/templates/${templateId}`)
+      .then((r) => r.json())
+      .catch(() => null);
     if (data?.template) {
       // map the API's snake_case rows onto the EditorNode draft shape
       const saved: Record<string, Position> = {};
       const d: Draft = {
         template: data.template,
         nodes: (data.nodes ?? []).map((n: any) => {
-          if (typeof n.x === "number" && typeof n.y === "number") saved[n.key] = { x: n.x, y: n.y };
+          if (typeof n.x === "number" && typeof n.y === "number")
+            saved[n.key] = { x: n.x, y: n.y };
           return {
             key: n.key,
             nodeTemplateId: n.node_template_id,
             label: n.label,
-            overrideLabel: n.label && n.label !== n.catalog_name ? n.label : null,
+            overrideLabel:
+              n.label && n.label !== n.catalog_name ? n.label : null,
             trigger: n.trigger ?? { type: "auto" },
             join_mode: n.join_mode ?? "all",
             config: n.config ?? {},
@@ -295,7 +374,13 @@ export default function TemplateEditorPage() {
             description: n.description ?? null,
           };
         }),
-        edges: (data.edges ?? []).map((e: any) => ({ from: e.from, to: e.to, kind: e.kind, label: e.label ?? null, condition: e.condition ?? null })),
+        edges: (data.edges ?? []).map((e: any) => ({
+          from: e.from,
+          to: e.to,
+          kind: e.kind,
+          label: e.label ?? null,
+          condition: e.condition ?? null,
+        })),
       };
       setDraft(d);
       setPositions(initialPositions(d.nodes, d.edges, saved));
@@ -311,7 +396,11 @@ export default function TemplateEditorPage() {
       // templates seed their Start node server-side at creation — silent, so
       // this notice only ever surfaces for legacy-empty graphs.
       if (!data.template?.is_builtin && d.nodes.length === 0) {
-        setDraft((cur) => (cur && cur.nodes.length === 0 ? { ...cur, nodes: [startNodeInstance()] } : cur));
+        setDraft((cur) =>
+          cur && cur.nodes.length === 0
+            ? { ...cur, nodes: [startNodeInstance()] }
+            : cur,
+        );
         setDirty(true);
         setNotice("Start node added by default — Save to keep it.");
       }
@@ -328,17 +417,26 @@ export default function TemplateEditorPage() {
   useEffect(() => {
     if (!draft) return;
     let alive = true;
-    const next: Record<string, { label: string; description?: string; condition?: string }[]> = {};
+    const next: Record<
+      string,
+      { label: string; description?: string; condition?: string }[]
+    > = {};
     const pending: { key: string; ck: string; url: string }[] = [];
     for (const n of draft.nodes) {
       if (n.kind !== "decision") continue;
       const own = n.config?.choices;
       if (Array.isArray(own) && own.some((c: any) => c?.label)) {
-        next[n.key] = own as { label: string; description?: string; condition?: string }[];
+        next[n.key] = own as {
+          label: string;
+          description?: string;
+          condition?: string;
+        }[];
         continue;
       }
       const cfgQ =
-        n.config && Object.keys(n.config).length ? JSON.stringify(n.config) : "";
+        n.config && Object.keys(n.config).length
+          ? JSON.stringify(n.config)
+          : "";
       const ck = `${n.nodeTemplateId}::${cfgQ}`;
       const cached = choiceCache.current[ck];
       if (cached) {
@@ -370,8 +468,14 @@ export default function TemplateEditorPage() {
   useEffect(() => {
     // binding pickers: repos from the Settings page; task providers (the
     // Task context panel's types + {{task.*}} chip vocabulary) from the registry
-    fetch("/api/tasks/providers").then((r) => r.json()).then((d) => setProviders(d?.providers ?? [])).catch(() => {});
-    fetch("/api/repos").then((r) => r.json()).then((d) => setRepos(d?.repos ?? [])).catch(() => {});
+    fetch("/api/tasks/providers")
+      .then((r) => r.json())
+      .then((d) => setProviders(d?.providers ?? []))
+      .catch(() => {});
+    fetch("/api/repos")
+      .then((r) => r.json())
+      .then((d) => setRepos(d?.repos ?? []))
+      .catch(() => {});
   }, []);
 
   // the start node's contract fields (Phase 3) — the {{trigger.payload.*}}
@@ -424,7 +528,10 @@ export default function TemplateEditorPage() {
 
   /** POST the draft to the validate endpoint (Phase 5) — the structured
    *  problems land in the badge state; returns them for the save gate. */
-  const validateDraft = async (d: Draft, alive = true): Promise<LintProblem[]> => {
+  const validateDraft = async (
+    d: Draft,
+    alive = true,
+  ): Promise<LintProblem[]> => {
     const problems = await fetch(`/api/templates/${d.template.id}/validate`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -436,7 +543,13 @@ export default function TemplateEditorPage() {
           config: n.config,
           input_map: n.input_map,
         })),
-        edges: d.edges.map((e) => ({ from: e.from, to: e.to, kind: e.kind, label: e.label, condition: e.condition })),
+        edges: d.edges.map((e) => ({
+          from: e.from,
+          to: e.to,
+          kind: e.kind,
+          label: e.label,
+          condition: e.condition,
+        })),
         new_node_templates: collectPendingDefs(d),
       }),
     })
@@ -456,7 +569,8 @@ export default function TemplateEditorPage() {
     const edgeMap: Record<number, string> = {};
     for (const p of problems) {
       if (p.nodeKey) (nodeMap[p.nodeKey] ??= []).push(p.message);
-      else if (typeof p.edgeIndex === "number") edgeMap[p.edgeIndex] = p.message;
+      else if (typeof p.edgeIndex === "number")
+        edgeMap[p.edgeIndex] = p.message;
       if (p.ref && p.nodeKey) (refs[p.nodeKey] ??= {})[p.ref] = p.message;
     }
     setRefProblems(refs);
@@ -467,7 +581,9 @@ export default function TemplateEditorPage() {
   /** The problems joined as the readable save-blocker message (the same
    *  joined string the server throws with). */
   const problemsMessage = (problems: LintProblem[]): string =>
-    problems.map((p) => (p.where ? `${p.where}: ${p.message}` : p.message)).join("\n");
+    problems
+      .map((p) => (p.where ? `${p.where}: ${p.message}` : p.message))
+      .join("\n");
 
   const undo = useCallback(() => {
     const prev = undoStack.current.pop();
@@ -505,7 +621,13 @@ export default function TemplateEditorPage() {
     const onKey = (e: KeyboardEvent) => {
       if (!(e.metaKey || e.ctrlKey) || e.key.toLowerCase() !== "z") return;
       const el = e.target as HTMLElement | null;
-      if (el && (el.tagName === "INPUT" || el.tagName === "TEXTAREA" || el.isContentEditable)) return;
+      if (
+        el &&
+        (el.tagName === "INPUT" ||
+          el.tagName === "TEXTAREA" ||
+          el.isContentEditable)
+      )
+        return;
       e.preventDefault();
       if (draft?.template.is_builtin) return;
       if (e.shiftKey) redo();
@@ -526,31 +648,44 @@ export default function TemplateEditorPage() {
     return () => window.removeEventListener("beforeunload", onBeforeUnload);
   }, [dirty]);
 
-  const apply = useCallback((next: Draft) => {
-    const cur = draftRef.current;
-    if (cur) {
-      // structural changes (nodes/edges replaced) snapshot for undo; meta-only
-      // edits and rapid bursts (each keystroke re-replaces the edges array)
-      // coalesce into the previous snapshot instead of flooding the stack
-      const structural = next.nodes !== cur.nodes || next.edges !== cur.edges;
-      const now = Date.now();
-      if (structural && (undoStack.current.length === 0 || now - lastSnapAt.current > 500)) {
-        undoStack.current.push(cur);
-        if (undoStack.current.length > 50) undoStack.current.shift();
-        redoStack.current = [];
-        lastSnapAt.current = now;
+  const apply = useCallback(
+    (next: Draft) => {
+      const cur = draftRef.current;
+      if (cur) {
+        // structural changes (nodes/edges replaced) snapshot for undo; meta-only
+        // edits and rapid bursts (each keystroke re-replaces the edges array)
+        // coalesce into the previous snapshot instead of flooding the stack
+        const structural = next.nodes !== cur.nodes || next.edges !== cur.edges;
+        const now = Date.now();
+        if (
+          structural &&
+          (undoStack.current.length === 0 || now - lastSnapAt.current > 500)
+        ) {
+          undoStack.current.push(cur);
+          if (undoStack.current.length > 50) undoStack.current.shift();
+          redoStack.current = [];
+          lastSnapAt.current = now;
+        }
       }
-    }
-    setDraft(next);
-    setDirty(true);
-    setNotice(null);
-    syncUndoFlags();
-  }, [setDraft, syncUndoFlags]);
+      setDraft(next);
+      setDirty(true);
+      setNotice(null);
+      syncUndoFlags();
+    },
+    [setDraft, syncUndoFlags],
+  );
 
   const patchNode = (key: string, patch: Partial<EditorNode>) => {
-    setDraft((cur) => cur
-      ? { ...cur, nodes: cur.nodes.map((p) => (p.key === key ? { ...p, ...patch } : p)) }
-      : cur);
+    setDraft((cur) =>
+      cur
+        ? {
+            ...cur,
+            nodes: cur.nodes.map((p) =>
+              p.key === key ? { ...p, ...patch } : p,
+            ),
+          }
+        : cur,
+    );
     setDirty(true);
     setNotice(null);
   };
@@ -561,13 +696,17 @@ export default function TemplateEditorPage() {
   const removeNode = (node: EditorNode) => {
     if (!draft) return;
     if (node.nodeTemplateId === "nt_start") {
-      setNotice("The Start node can't be deleted — it's the flow's entry. Rewire its edges instead.");
+      setNotice(
+        "The Start node can't be deleted — it's the flow's entry. Rewire its edges instead.",
+      );
       return;
     }
     apply({
       ...draft,
       nodes: draft.nodes.filter((n) => n.key !== node.key),
-      edges: draft.edges.filter((e) => e.from !== node.key && e.to !== node.key),
+      edges: draft.edges.filter(
+        (e) => e.from !== node.key && e.to !== node.key,
+      ),
     });
     setNodeDrawer((cur) => (cur === node.key ? null : cur));
     setPlacedKey((cur) => (cur === node.key ? null : cur));
@@ -600,16 +739,26 @@ export default function TemplateEditorPage() {
     const src = draft.nodes.find((n) => n.key === key);
     if (!src) return;
     if (src.nodeTemplateId === "nt_start") {
-      setNotice("Only one Start node is allowed — this template already has one.");
+      setNotice(
+        "Only one Start node is allowed — this template already has one.",
+      );
       return;
     }
-    const newKey = uniqueKey(`${src.overrideLabel || src.catalog_name || src.key} copy`, draft.nodes);
+    const newKey = uniqueKey(
+      `${src.overrideLabel || src.catalog_name || src.key} copy`,
+      draft.nodes,
+    );
     const pos = positions[key] ?? { x: 0, y: 0 };
     apply({
       ...draft,
       nodes: [
         ...draft.nodes,
-        { ...src, key: newKey, label: newKey, overrideLabel: `${nodeLabel(src)} copy` },
+        {
+          ...src,
+          key: newKey,
+          label: newKey,
+          overrideLabel: `${nodeLabel(src)} copy`,
+        },
       ],
     });
     setPositions((p) => ({ ...p, [newKey]: { x: pos.x + 44, y: pos.y + 44 } }));
@@ -632,7 +781,8 @@ export default function TemplateEditorPage() {
   const addEdge = (from: string, to: string, branchLabel?: string | null) => {
     if (!draft) return;
     const exists = draft.edges.some(
-      (e) => e.from === from && e.to === to && (!e.label || e.label === branchLabel),
+      (e) =>
+        e.from === from && e.to === to && (!e.label || e.label === branchLabel),
     );
     if (exists) {
       setNotice(`Nodes are already connected (${from} → ${to}).`);
@@ -653,7 +803,11 @@ export default function TemplateEditorPage() {
    *  with the first choice no sibling edge uses yet — the outgoing edges then
    *  read as the branches they carry. Silent on failure (label stays editable
    *  in the edge drawer). */
-  const autoLabelDecisionEdge = (from: string, to: string, edges: EditorEdge[]) => {
+  const autoLabelDecisionEdge = (
+    from: string,
+    to: string,
+    edges: EditorEdge[],
+  ) => {
     const src = draft?.nodes.find((n) => n.key === from);
     if (src?.kind !== "decision") return;
     fetch(contractsUrl(src))
@@ -662,7 +816,9 @@ export default function TemplateEditorPage() {
         const choices = c?.choices ?? [];
         if (!choices.length) return;
         const used = new Set(
-          edges.filter((e) => e.from === from && e.label).map((e) => e.label as string),
+          edges
+            .filter((e) => e.from === from && e.label)
+            .map((e) => e.label as string),
         );
         const label = choices.find((ch) => !used.has(ch.label))?.label;
         if (!label) return;
@@ -671,7 +827,9 @@ export default function TemplateEditorPage() {
             ? {
                 ...cur,
                 edges: cur.edges.map((e) =>
-                  e.from === from && e.to === to && !e.label ? { ...e, label } : e,
+                  e.from === from && e.to === to && !e.label
+                    ? { ...e, label }
+                    : e,
                 ),
               }
             : cur,
@@ -733,21 +891,24 @@ export default function TemplateEditorPage() {
       pendingDefs: opts.draftDef
         ? { ...draft.pendingDefs, [opts.draftDef.draftId]: opts.draftDef }
         : draft.pendingDefs,
-      nodes: [...draft.nodes, {
-        key,
-        nodeTemplateId: opts.nodeTemplateId,
-        label: key,
-        overrideLabel: null,
-        trigger: { type: "auto" },
-        join_mode: "all",
-        config: opts.config ?? {},
-        input_map: {},
-        kind: opts.kind,
-        icon: opts.icon,
-        catalog_name: opts.name,
-        catalogKey: opts.catalogKey ?? null,
-        is_builtin: opts.isBuiltin,
-      }],
+      nodes: [
+        ...draft.nodes,
+        {
+          key,
+          nodeTemplateId: opts.nodeTemplateId,
+          label: key,
+          overrideLabel: null,
+          trigger: { type: "auto" },
+          join_mode: "all",
+          config: opts.config ?? {},
+          input_map: {},
+          kind: opts.kind,
+          icon: opts.icon,
+          catalog_name: opts.name,
+          catalogKey: opts.catalogKey ?? null,
+          is_builtin: opts.isBuiltin,
+        },
+      ],
     });
     setNodeDrawer(null);
     setPlacedKey(key);
@@ -759,15 +920,32 @@ export default function TemplateEditorPage() {
    *  (unconnected, at the viewport center — addInstance does the placing).
    *  Built-in rows and Library rows are persisted — the instance references
    *  the real row; no draft def involved. */
-  const addCatalogNode = (nodeTemplateId: string, isBuiltin: boolean, catalogKey: string, name: string) => {
+  const addCatalogNode = (
+    nodeTemplateId: string,
+    isBuiltin: boolean,
+    catalogKey: string,
+    name: string,
+  ) => {
     if (!draft) return;
     // only one Start node per template (the server's singleton rule enforces
     // the same at save time — fail friendly here instead)
-    if (catalogKey === "start" && draft.nodes.some((n) => n.nodeTemplateId === "nt_start")) {
-      setNotice("Only one Start node is allowed — this template already has one.");
+    if (
+      catalogKey === "start" &&
+      draft.nodes.some((n) => n.nodeTemplateId === "nt_start")
+    ) {
+      setNotice(
+        "Only one Start node is allowed — this template already has one.",
+      );
       return;
     }
-    addInstance({ nodeTemplateId, name, kind: null, icon: null, isBuiltin, catalogKey });
+    addInstance({
+      nodeTemplateId,
+      name,
+      kind: null,
+      icon: null,
+      isBuiltin,
+      catalogKey,
+    });
   };
 
   /**
@@ -809,8 +987,14 @@ export default function TemplateEditorPage() {
     let pos: Position;
     if (draft && draft.nodes.length === 0) {
       pos = { x: 320, y: 320 };
-    } else if (builderApi.current?.screenToFlowPosition && typeof window !== "undefined") {
-      const center = builderApi.current.screenToFlowPosition({ x: window.innerWidth / 2, y: window.innerHeight / 2 });
+    } else if (
+      builderApi.current?.screenToFlowPosition &&
+      typeof window !== "undefined"
+    ) {
+      const center = builderApi.current.screenToFlowPosition({
+        x: window.innerWidth / 2,
+        y: window.innerHeight / 2,
+      });
       pos = { x: Math.round(center.x - 90), y: Math.round(center.y - 40) };
     } else {
       pos = { x: 320, y: 320 };
@@ -822,27 +1006,51 @@ export default function TemplateEditorPage() {
   if (!draft) {
     return (
       <main className="p-6">
-        {error ? <Alert variant="destructive">{error} — <Link href="/templates" className="underline">back to gallery</Link></Alert> : <Spinner />} Loading…
+        {error ? (
+          <Alert variant="destructive">
+            {error} —{" "}
+            <Link href="/templates" className="underline">
+              back to gallery
+            </Link>
+          </Alert>
+        ) : (
+          <Spinner />
+        )}{" "}
+        Loading…
       </main>
     );
   }
 
   const readonly = draft.template.is_builtin;
-  const configuring = nodeDrawer != null ? draft.nodes.find((n) => n.key === nodeDrawer) ?? null : null;
-  const editingEdge = edgeDrawer != null ? draft.edges[edgeDrawer] ?? null : null;
+  const configuring =
+    nodeDrawer != null
+      ? (draft.nodes.find((n) => n.key === nodeDrawer) ?? null)
+      : null;
+  const editingEdge =
+    edgeDrawer != null ? (draft.edges[edgeDrawer] ?? null) : null;
   // the template's declared task type (trigger.task_type — the Task context
   // panel edits it): the provider's contextFields become the {{task.*}} chips
   // every node configurator offers, and the start node's contract seeder
-  const taskType = String(draft.template.trigger?.task_type ?? providers[0]?.kind ?? "");
-  const taskProvider = providers.find((p) => p.kind === taskType) ?? providers[0] ?? null;
+  const taskType = String(
+    draft.template.trigger?.task_type ?? providers[0]?.kind ?? "",
+  );
+  const taskProvider =
+    providers.find((p) => p.kind === taskType) ?? providers[0] ?? null;
   const taskFields = taskProvider?.contextFields ?? [];
   // connection info for the configured node: incoming edges resolve to the
   // Inputs tab's upstream pickers; an isolated node can't be configured yet
   const relationships = nodeRelationships(draft.nodes, draft.edges);
-  const configuringLocked = configuring != null ? relationships[configuring.key]?.isolated ?? false : false;
+  const configuringLocked =
+    configuring != null
+      ? (relationships[configuring.key]?.isolated ?? false)
+      : false;
   const configuringIncoming: IncomingLink[] = configuring
     ? draft.edges
-        .map((edge, edgeIndex) => ({ edge, edgeIndex, source: draft.nodes.find((n) => n.key === edge.from) ?? null }))
+        .map((edge, edgeIndex) => ({
+          edge,
+          edgeIndex,
+          source: draft.nodes.find((n) => n.key === edge.from) ?? null,
+        }))
         .filter((l) => l.edge.to === configuring.key && l.source)
     : [];
   // the fan-out gate (save-time lint rule 1, mirrored): the Fanout config
@@ -870,25 +1078,49 @@ export default function TemplateEditorPage() {
         <div className="min-w-0">
           <h1 className="text-[14.5px] font-semibold m-0 leading-tight flex items-center gap-2 truncate">
             {draft.template.name}
-            {readonly && <Badge className="bg-info/10 text-info"><Lock size={9} className="mr-0.5" />built-in</Badge>}
-            <Badge variant="outline" className="text-[10px]">v{draft.template.version}</Badge>
+            {readonly ? (
+              <Badge className="bg-info/10 text-info">
+                <Lock size={9} className="mr-0.5" />
+                built-in
+              </Badge>
+            ) : null}
+            <Badge variant="outline" className="text-[10px]">
+              v{draft.template.version}
+            </Badge>
           </h1>
           <p className="text-muted-foreground text-[11px] m-0">
-            {draft.nodes.length} node{draft.nodes.length === 1 ? "" : "s"} · {draft.edges.length} edge{draft.edges.length === 1 ? "" : "s"}
+            {draft.nodes.length} node{draft.nodes.length === 1 ? "" : "s"} ·{" "}
+            {draft.edges.length} edge{draft.edges.length === 1 ? "" : "s"}
             {(layoutSync === "pending" || layoutSync === "saved") && (
-              <span> · {layoutSync === "pending" ? "saving layout…" : "layout autosaved"}</span>
+              <span>
+                {" "}
+                ·{" "}
+                {layoutSync === "pending"
+                  ? "saving layout…"
+                  : "layout autosaved"}
+              </span>
             )}
-            {dirty && <span className="text-warning"> · graph has unsaved changes</span>}
+            {dirty && (
+              <span className="text-warning"> · graph has unsaved changes</span>
+            )}
           </p>
         </div>
         <div className="flex-1" />
-        {readonly && (
+        {readonly ? (
           <span className="text-[11.5px] text-muted-foreground flex items-center gap-1.5">
-            <Lock size={11} /> read-only — <Link href="/templates" className="underline">duplicate in the gallery</Link> to edit
+            <Lock size={11} /> read-only —{" "}
+            <Link href="/templates" className="underline">
+              duplicate in the gallery
+            </Link>{" "}
+            to edit
           </span>
-        )}
+        ) : null}
         {!readonly && (
-          <Button variant="outline" size="sm" onClick={() => setSettingsOpen(true)}>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setSettingsOpen(true)}
+          >
             <Settings2 size={13} /> Flow settings
           </Button>
         )}
@@ -915,7 +1147,11 @@ export default function TemplateEditorPage() {
           </>
         )}
         {!readonly && (
-          <Button size="sm" disabled={!dirty || saving} onClick={() => void save()}>
+          <Button
+            size="sm"
+            disabled={!dirty || saving}
+            onClick={() => void save()}
+          >
             {saving ? <Spinner /> : <Save size={13} />} Save{dirty ? "" : "d"}
           </Button>
         )}
@@ -926,7 +1162,10 @@ export default function TemplateEditorPage() {
         <div className="absolute top-16 inset-x-4 z-40 flex justify-center pointer-events-none">
           <Alert
             variant={error ? "destructive" : "default"}
-            className={cn("max-w-[640px] pointer-events-auto shadow-lg", error && "w-auto")}
+            className={cn(
+              "max-w-[640px] pointer-events-auto shadow-lg",
+              error && "w-auto",
+            )}
           >
             <span>{error ?? notice}</span>
             <Button
@@ -934,7 +1173,10 @@ export default function TemplateEditorPage() {
               size="icon-sm"
               className="ml-auto text-muted-foreground hover:text-foreground"
               title="Dismiss"
-              onClick={() => { setError(null); setNotice(null); }}
+              onClick={() => {
+                setError(null);
+                setNotice(null);
+              }}
             >
               <X size={14} />
             </Button>
@@ -973,7 +1215,9 @@ export default function TemplateEditorPage() {
               setPlacedKey(null);
               setEdgeDrawer(index);
             }}
-            onNodeMove={(key, x, y) => setPositions((p) => ({ ...p, [key]: { x, y } }))}
+            onNodeMove={(key, x, y) =>
+              setPositions((p) => ({ ...p, [key]: { x, y } }))
+            }
             onNodeDragStop={schedulePositionsSave}
             onConnect={addEdge}
             onNodeRemove={removeNodeKey}
@@ -985,25 +1229,38 @@ export default function TemplateEditorPage() {
               setEdgeDrawer(null);
               setPlacedKey(null);
             }}
-            onApi={(api) => { builderApi.current = api; }}
+            onApi={(api) => {
+              builderApi.current = api;
+            }}
           />
         </div>
       </div>
 
       {/* ── node drawer ── */}
-      <Sheet open={configuring != null} onOpenChange={(v) => { if (!v) setNodeDrawer(null); }}>
+      <Sheet
+        open={configuring != null}
+        onOpenChange={(v) => {
+          if (!v) setNodeDrawer(null);
+        }}
+      >
         {configuring && (
           <SheetContent className="w-[640px] max-w-[calc(100vw-18rem)]">
             <SheetHeader>
               <SheetTitle className="flex items-center gap-2">
-                {configuring.overrideLabel || configuring.catalog_name || configuring.key}
+                {configuring.overrideLabel ||
+                  configuring.catalog_name ||
+                  configuring.key}
                 <Badge variant="outline">{configuring.kind ?? "builtin"}</Badge>
               </SheetTitle>
               <SheetDescription className="flex items-center gap-2 flex-wrap">
                 <code className="font-mono">{configuring.key}</code>
                 <span>·</span>
                 <span>{describeTrigger(configuring.trigger)}</span>
-                {configuring.join_mode === "any" && <Badge className="bg-warning/10 text-warning text-[10px] py-0">any-join</Badge>}
+                {configuring.join_mode === "any" && (
+                  <Badge className="bg-warning/10 text-warning text-[10px] py-0">
+                    any-join
+                  </Badge>
+                )}
               </SheetDescription>
             </SheetHeader>
             <SheetBody>
@@ -1013,7 +1270,11 @@ export default function TemplateEditorPage() {
                   value={configuring.overrideLabel ?? ""}
                   disabled={readonly}
                   placeholder={configuring.catalog_name ?? configuring.key}
-                  onChange={(e) => patchNode(configuring.key, { overrideLabel: e.target.value || null })}
+                  onChange={(e) =>
+                    patchNode(configuring.key, {
+                      overrideLabel: e.target.value || null,
+                    })
+                  }
                 />
               </div>
               <NodeConfiguratorBody
@@ -1028,9 +1289,16 @@ export default function TemplateEditorPage() {
                 problems={nodeProblems[configuring.key]}
                 onChange={(patch) => {
                   const next = { ...configuring, ...patch };
-                  setDraft((cur) => cur
-                    ? { ...cur, nodes: cur.nodes.map((p) => (p.key === next.key ? next : p)) }
-                    : cur);
+                  setDraft((cur) =>
+                    cur
+                      ? {
+                          ...cur,
+                          nodes: cur.nodes.map((p) =>
+                            p.key === next.key ? next : p,
+                          ),
+                        }
+                      : cur,
+                  );
                   setDirty(true);
                   setNotice(null);
                 }}
@@ -1038,7 +1306,11 @@ export default function TemplateEditorPage() {
             </SheetBody>
             <SheetFooter>
               {!readonly && (
-                <Button variant="ghost" className="text-destructive hover:text-destructive mr-auto" onClick={() => removeNode(configuring)}>
+                <Button
+                  variant="ghost"
+                  className="text-destructive hover:text-destructive mr-auto"
+                  onClick={() => removeNode(configuring)}
+                >
                   <Trash2 size={13} /> Remove node
                 </Button>
               )}
@@ -1050,7 +1322,12 @@ export default function TemplateEditorPage() {
 
       {/* ── edge drawer ── */}
       {editingEdge && (
-        <Sheet open={editingEdge != null} onOpenChange={(v) => { if (!v) setEdgeDrawer(null); }}>
+        <Sheet
+          open={editingEdge != null}
+          onOpenChange={(v) => {
+            if (!v) setEdgeDrawer(null);
+          }}
+        >
           <SheetContent side="right">
             <SheetHeader>
               <SheetTitle className="flex items-center gap-2">
@@ -1072,15 +1349,26 @@ export default function TemplateEditorPage() {
                 triggerFields={triggerFields}
                 onChange={(patch) => {
                   if (edgeDrawer == null || !draft) return;
-                  const next = { ...draft, edges: draft.edges.map((e, i) => (i === edgeDrawer ? { ...e, ...patch } : e)) };
+                  const next = {
+                    ...draft,
+                    edges: draft.edges.map((e, i) =>
+                      i === edgeDrawer ? { ...e, ...patch } : e,
+                    ),
+                  };
                   apply(next);
                 }}
-                sourceNode={draft.nodes.find((n) => n.key === editingEdge.from) ?? null}
+                sourceNode={
+                  draft.nodes.find((n) => n.key === editingEdge.from) ?? null
+                }
               />
             </SheetBody>
             <SheetFooter>
               {!readonly && (
-                <Button variant="ghost" className="text-destructive hover:text-destructive mr-auto" onClick={() => removeEdge(edgeDrawer!)}>
+                <Button
+                  variant="ghost"
+                  className="text-destructive hover:text-destructive mr-auto"
+                  onClick={() => removeEdge(edgeDrawer!)}
+                >
                   <Trash2 size={13} /> Remove edge
                 </Button>
               )}
@@ -1095,9 +1383,12 @@ export default function TemplateEditorPage() {
         <SheetContent>
           <SheetHeader>
             <SheetTitle className="flex items-center gap-2">
-              <Settings2 size={14} className="text-muted-foreground" /> Flow settings
+              <Settings2 size={14} className="text-muted-foreground" /> Flow
+              settings
             </SheetTitle>
-            <SheetDescription>Template meta + how flows start from it.</SheetDescription>
+            <SheetDescription>
+              Template meta + how flows start from it.
+            </SheetDescription>
           </SheetHeader>
           <SheetBody>
             <SettingsBody
@@ -1107,7 +1398,9 @@ export default function TemplateEditorPage() {
               providers={providers}
               repos={repos}
               templateId={draft.template.id}
-              onChange={(t) => apply({ ...draft, template: { ...draft.template, ...t } })}
+              onChange={(t) =>
+                apply({ ...draft, template: { ...draft.template, ...t } })
+              }
             />
           </SheetBody>
         </SheetContent>
@@ -1179,7 +1472,13 @@ export default function TemplateEditorPage() {
             x: positions[n.key]?.x ?? null,
             y: positions[n.key]?.y ?? null,
           })),
-          edges: draft.edges.map((e) => ({ from: e.from, to: e.to, kind: e.kind, label: e.label, condition: e.condition })),
+          edges: draft.edges.map((e) => ({
+            from: e.from,
+            to: e.to,
+            kind: e.kind,
+            label: e.label,
+            condition: e.condition,
+          })),
         }),
       }).then((r) => r.json());
       if (r.error) setError(r.error);
@@ -1202,13 +1501,24 @@ export default function TemplateEditorPage() {
 
 /** Small helper text for drawer footers (kept declarative). */
 function SheetFooterHelper() {
-  return <span className="text-[11px] text-muted-foreground sm:mr-2">Esc closes · edits live on the canvas draft</span>;
+  return (
+    <span className="text-[11px] text-muted-foreground sm:mr-2">
+      Esc closes · edits live on the canvas draft
+    </span>
+  );
 }
 
 // ── edge editor ──────────────────────────────────────────────────────────────
 
 function EdgeEditor({
-  edge, draft, readonly, onChange, sourceNode, templateId, taskFields, triggerFields,
+  edge,
+  draft,
+  readonly,
+  onChange,
+  sourceNode,
+  templateId,
+  taskFields,
+  triggerFields,
 }: {
   edge: EditorEdge;
   index: number;
@@ -1242,26 +1552,46 @@ function EdgeEditor({
         if (alive) setContract(c?.input != null ? c : null);
       })
       .catch(() => alive && setContract(null));
-    return () => { alive = false; };
-  }, [sourceNode?.key, sourceNode?.nodeTemplateId, sourceNode?.config, sourceNode?.kind]);
+    return () => {
+      alive = false;
+    };
+  }, [
+    sourceNode?.key,
+    sourceNode?.nodeTemplateId,
+    sourceNode?.config,
+    sourceNode?.kind,
+  ]);
 
   // the condition's vocabulary: task context → the source node's published
   // outputs → trigger payload → flow & repo (no "my inputs" — the context map
   // has no input root at edge-traversal time)
   const condGroups = useMemo(() => {
     const upstream = sourceNode
-      ? [{
-          key: sourceNode.key,
-          label: nodeLabel(sourceNode),
-          fields: schemaRows(contract?.output ?? null).map((f) => ({ name: f.name, type: f.type })),
-        }]
+      ? [
+          {
+            key: sourceNode.key,
+            label: nodeLabel(sourceNode),
+            fields: schemaRows(contract?.output ?? null).map((f) => ({
+              name: f.name,
+              type: f.type,
+            })),
+          },
+        ]
       : [];
-    return asJsonataGroups(conditionVarGroups(
-      buildVarGroups({ taskFields, triggerFields, upstream }),
-    ));
+    return asJsonataGroups(
+      conditionVarGroups(
+        buildVarGroups({ taskFields, triggerFields, upstream }),
+      ),
+    );
   }, [sourceNode, contract, taskFields, triggerFields]);
   const choices = isDecision
-    ? (contract as (NodeContract & { choices?: { label: string; description?: string }[] }) | null)?.choices ?? []
+    ? ((
+        contract as
+          | (NodeContract & {
+              choices?: { label: string; description?: string }[];
+            })
+          | null
+      )?.choices ?? [])
     : null;
 
   return (
@@ -1269,18 +1599,36 @@ function EdgeEditor({
       <div className="grid grid-cols-2 gap-3">
         <div className="grid gap-1">
           <Label>From</Label>
-          <EdgeSelect value={edge.from} nodes={draft.nodes} disabled={readonly} onChange={(v) => onChange({ from: v })} />
+          <EdgeSelect
+            value={edge.from}
+            nodes={draft.nodes}
+            disabled={readonly}
+            onChange={(v) => onChange({ from: v })}
+          />
         </div>
         <div className="grid gap-1">
           <Label>To</Label>
-          <EdgeSelect value={edge.to} nodes={draft.nodes} disabled={readonly} onChange={(v) => onChange({ to: v })} />
+          <EdgeSelect
+            value={edge.to}
+            nodes={draft.nodes}
+            disabled={readonly}
+            onChange={(v) => onChange({ to: v })}
+          />
         </div>
       </div>
       <div className="grid gap-1">
         <Label>Kind</Label>
-        <Select value={edge.kind} disabled={readonly} onValueChange={(v) => { if (v != null) onChange({ kind: v }); }}>
+        <Select
+          value={edge.kind}
+          disabled={readonly}
+          onValueChange={(v) => {
+            if (v != null) onChange({ kind: v });
+          }}
+        >
           <SelectTrigger className="w-full rounded-lg border-border bg-card">
-            <SelectValue>{EDGE_KIND_OPTIONS[edge.kind]?.label ?? edge.kind}</SelectValue>
+            <SelectValue>
+              {EDGE_KIND_OPTIONS[edge.kind]?.label ?? edge.kind}
+            </SelectValue>
           </SelectTrigger>
           <SelectContent>
             {EDGE_KINDS.map((k) => (
@@ -1294,12 +1642,19 @@ function EdgeEditor({
           </SelectContent>
         </Select>
         <p className="text-[11px] text-muted-foreground m-0">
-          {edge.kind === "loop" ? "Loop edges re-trigger the target once it has finished (bounds come from the target's max-attempt knobs)." : "A plain forward edge."}
+          {edge.kind === "loop"
+            ? "Loop edges re-trigger the target once it has finished (bounds come from the target's max-attempt knobs)."
+            : "A plain forward edge."}
         </p>
       </div>
       <div className="grid gap-1">
         <Label>
-          Label {isDecision && <span className="text-warning">— required for decision branches</span>}
+          Label{" "}
+          {isDecision && (
+            <span className="text-warning">
+              — required for decision branches
+            </span>
+          )}
         </Label>
         {isDecision && choices && choices.length > 0 && (
           <div className="flex gap-1 flex-wrap">
@@ -1325,13 +1680,19 @@ function EdgeEditor({
         )}
         <Input
           value={edge.label ?? ""}
-          placeholder={isDecision ? "a choice of the decision node" : "label (decision branch)"}
+          placeholder={
+            isDecision
+              ? "a choice of the decision node"
+              : "label (decision branch)"
+          }
           disabled={readonly}
           onChange={(ev) => onChange({ label: ev.target.value || null })}
         />
       </div>
       <div className="grid gap-1.5">
-        <label className="text-xs text-muted-foreground">Condition — when does this edge activate?</label>
+        <label className="text-xs text-muted-foreground">
+          Condition — when does this edge activate?
+        </label>
         <ConditionBuilder
           value={edge.condition}
           varGroups={condGroups}
@@ -1342,17 +1703,34 @@ function EdgeEditor({
           onChange={(raw) => onChange({ condition: raw })}
         />
         <p className="text-[11px] text-muted-foreground m-0">
-          The edge activates only when the condition is truthy — empty means always. It&apos;s
-          checked against the flow&apos;s context as the source node finishes.
+          The edge activates only when the condition is truthy — empty means
+          always. It&apos;s checked against the flow&apos;s context as the
+          source node finishes.
         </p>
       </div>
     </div>
   );
 }
 
-function EdgeSelect({ value, nodes, disabled, onChange }: { value: string; nodes: EditorNode[]; disabled: boolean; onChange: (v: string) => void }) {
+function EdgeSelect({
+  value,
+  nodes,
+  disabled,
+  onChange,
+}: {
+  value: string;
+  nodes: EditorNode[];
+  disabled: boolean;
+  onChange: (v: string) => void;
+}) {
   return (
-    <Select value={value} disabled={disabled} onValueChange={(v) => { if (v != null) onChange(v); }}>
+    <Select
+      value={value}
+      disabled={disabled}
+      onValueChange={(v) => {
+        if (v != null) onChange(v);
+      }}
+    >
       <SelectTrigger className="w-full rounded-lg border-border bg-card font-mono">
         <SelectValue>{value}</SelectValue>
       </SelectTrigger>
@@ -1380,13 +1758,29 @@ function EdgeSelect({ value, nodes, disabled, onChange }: { value: string; nodes
  * printed in plaintext.
  */
 function SettingsBody({
-  draft, readonly, hook, providers, repos, templateId, onChange,
+  draft,
+  readonly,
+  hook,
+  providers,
+  repos,
+  templateId,
+  onChange,
 }: {
   draft: Draft;
   readonly: boolean;
   hook: { id: string; secret: string; filter: string | null } | null;
   /** registered task providers (GET /api/tasks/providers) */
-  providers: { kind: string; label: string; configured: boolean; contextFields: { key: string; label: string; type: string; required?: boolean }[] }[];
+  providers: {
+    kind: string;
+    label: string;
+    configured: boolean;
+    contextFields: {
+      key: string;
+      label: string;
+      type: string;
+      required?: boolean;
+    }[];
+  }[];
   repos: any[];
   /** the owning template's id (Phase 5) — the filter's live preview */
   templateId: string;
@@ -1401,14 +1795,19 @@ function SettingsBody({
   // maps against. Absent → the first registered provider (matching the store's
   // parse rule).
   const taskType = String(trigger.task_type ?? providers[0]?.kind ?? "");
-  const taskProvider = providers.find((p) => p.kind === taskType) ?? providers[0] ?? null;
+  const taskProvider =
+    providers.find((p) => p.kind === taskType) ?? providers[0] ?? null;
   const autoStarts = ["webhook", "schedule"].includes(triggerType);
   return (
     <div className="grid gap-4">
       <div className="grid gap-3">
         <div className="grid gap-1">
           <Label>Template name</Label>
-          <Input value={draft.template.name} disabled={readonly} onChange={(e) => onChange({ name: e.target.value })} />
+          <Input
+            value={draft.template.name}
+            disabled={readonly}
+            onChange={(e) => onChange({ name: e.target.value })}
+          />
         </div>
         <div className="grid gap-1">
           <Label>Description</Label>
@@ -1459,8 +1858,9 @@ function SettingsBody({
           </div>
         )}
         <p className="text-[11px] text-muted-foreground m-0">
-          Flows started from this template run on a {taskProvider?.label ?? taskType} task — its fields
-          (above) are available to every node as {"{{task.*}}"} variables, no wiring needed.
+          Flows started from this template run on a{" "}
+          {taskProvider?.label ?? taskType} task — its fields (above) are
+          available to every node as {"{{task.*}}"} variables, no wiring needed.
         </p>
       </div>
 
@@ -1471,7 +1871,11 @@ function SettingsBody({
         </div>
         <div className="grid gap-1">
           <Label>Flow trigger</Label>
-          <Select value={triggerType} disabled={readonly} onValueChange={(v) => setTrigger({ type: v })}>
+          <Select
+            value={triggerType}
+            disabled={readonly}
+            onValueChange={(v) => setTrigger({ type: v })}
+          >
             <SelectTrigger className="w-full rounded-lg border-border bg-card">
               <SelectValue>
                 {FLOW_TRIGGER_TYPE[triggerType] ?? triggerType}
@@ -1479,7 +1883,9 @@ function SettingsBody({
             </SelectTrigger>
             <SelectContent>
               {Object.entries(FLOW_TRIGGER_TYPE).map(([v, label]) => (
-                <SelectItem key={v} value={v}>{label}</SelectItem>
+                <SelectItem key={v} value={v}>
+                  {label}
+                </SelectItem>
               ))}
             </SelectContent>
           </Select>
@@ -1504,7 +1910,8 @@ function SettingsBody({
                 <SelectItem value="">— pick a repo —</SelectItem>
                 {repos.map((r) => (
                   <SelectItem key={r.id} value={r.id}>
-                    {r.name}{r.local_path ? " (local)" : ""}
+                    {r.name}
+                    {r.local_path ? " (local)" : ""}
                   </SelectItem>
                 ))}
               </SelectContent>
@@ -1519,9 +1926,19 @@ function SettingsBody({
               min={1}
               value={Number(trigger.interval_min ?? 60)}
               disabled={readonly}
-              onChange={(e) => setTrigger({ interval_min: Number(e.target.value) > 0 ? Number(e.target.value) : undefined })}
+              onChange={(e) =>
+                setTrigger({
+                  interval_min:
+                    Number(e.target.value) > 0
+                      ? Number(e.target.value)
+                      : undefined,
+                })
+              }
             />
-            <p className="text-[11px] text-muted-foreground m-0">One new flow per fire, started automatically from the repo binding above.</p>
+            <p className="text-[11px] text-muted-foreground m-0">
+              One new flow per fire, started automatically from the repo binding
+              above.
+            </p>
           </div>
         )}
       </div>
@@ -1534,14 +1951,17 @@ function SettingsBody({
               <button className="group flex items-center gap-1 text-[11.5px] font-medium text-muted-foreground uppercase tracking-[0.8px] hover:text-foreground transition-colors" />
             }
           >
-            <ChevronRight className="size-3 transition-transform group-data-panel-open:rotate-90" /> Advanced — delivery filter & hook details
+            <ChevronRight className="size-3 transition-transform group-data-panel-open:rotate-90" />{" "}
+            Advanced — delivery filter & hook details
           </CollapsibleTrigger>
           <CollapsibleContent>
             <div className="grid gap-3 pt-2">
               <div className="grid gap-1">
                 <Label>Filter — which deliveries start a flow?</Label>
                 <ConditionBuilder
-                  value={typeof trigger.filter === "string" ? trigger.filter : null}
+                  value={
+                    typeof trigger.filter === "string" ? trigger.filter : null
+                  }
                   templateId={templateId}
                   scope="delivery"
                   placeholder={"payload.event"}
@@ -1549,23 +1969,37 @@ function SettingsBody({
                   onChange={(raw) => setTrigger({ filter: raw || undefined })}
                 />
                 <p className="text-[11px] text-muted-foreground m-0">
-                  The delivery starts a flow only when the filter is truthy — empty means every
-                  delivery. It sees the delivery body (<code className="font-mono">payload.*</code>) and headers.
+                  The delivery starts a flow only when the filter is truthy —
+                  empty means every delivery. It sees the delivery body (
+                  <code className="font-mono">payload.*</code>) and headers.
                 </p>
                 {hook && (
                   <Card className="p-3 grid gap-1.5 mt-1">
                     <div className="flex items-center gap-1.5 text-[11.5px] font-medium text-muted-foreground uppercase tracking-[0.8px]">
                       <WebhookIcon size={12} /> Inbound hook
                     </div>
-                    <code className="font-mono text-[12px] break-all">POST /api/hooks/{hook.id}</code>
+                    <code className="font-mono text-[12px] break-all">
+                      POST /api/hooks/{hook.id}
+                    </code>
                     <MaskedSecret value={hook.secret} />
                     <code className="font-mono text-[12px] text-muted-foreground break-all">
-                      {"node scripts/send-hook.mjs <url> <secret> '{\"event\":\"issue.created\"}'"}
+                      {
+                        'node scripts/send-hook.mjs <url> <secret> \'{"event":"issue.created"}\''
+                      }
                     </code>
-                    <p className="text-[11px] text-muted-foreground m-0">Delivery body becomes <code className="font-mono">{"{{trigger.payload}}"}</code> in the flow&apos;s context. Save to apply filter changes.</p>
+                    <p className="text-[11px] text-muted-foreground m-0">
+                      Delivery body becomes{" "}
+                      <code className="font-mono">{"{{trigger.payload}}"}</code>{" "}
+                      in the flow&apos;s context. Save to apply filter changes.
+                    </p>
                   </Card>
                 )}
-                {!hook && <p className="text-[11px] text-muted-foreground m-0">The hook endpoint appears once the template is saved or duplicated.</p>}
+                {!hook && (
+                  <p className="text-[11px] text-muted-foreground m-0">
+                    The hook endpoint appears once the template is saved or
+                    duplicated.
+                  </p>
+                )}
               </div>
             </div>
           </CollapsibleContent>
@@ -1574,7 +2008,8 @@ function SettingsBody({
       {readonly && (
         <p className="text-[11.5px] text-muted-foreground m-0 flex items-start gap-1.5">
           <Lock size={12} className="mt-0.5 shrink-0" />
-          Built-in templates are read-only. Use the gallery&apos;s duplicate action to make an editable copy.
+          Built-in templates are read-only. Use the gallery&apos;s duplicate
+          action to make an editable copy.
         </p>
       )}
     </div>
@@ -1593,7 +2028,9 @@ function MaskedSecret({ value }: { value: string }) {
       await navigator.clipboard.writeText(value);
       setCopied(true);
       setTimeout(() => setCopied(false), 1500);
-    } catch { /* clipboard unavailable — the reveal is the fallback */ }
+    } catch {
+      /* clipboard unavailable — the reveal is the fallback */
+    }
   };
   return (
     <span className="flex items-center gap-1 font-mono text-[12px] text-muted-foreground break-all">
@@ -1617,16 +2054,25 @@ function MaskedSecret({ value }: { value: string }) {
         title="Copy secret"
         onClick={() => void copy()}
       >
-        {copied ? <Check size={11} className="text-success" /> : <Copy size={11} />}
+        {copied ? (
+          <Check size={11} className="text-success" />
+        ) : (
+          <Copy size={11} />
+        )}
       </Button>
     </span>
   );
 }
 
 function uniqueKey(base: string, nodes: EditorNode[]): string {
-  const slug = base.toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "") || "node";
+  const slug =
+    base
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "_")
+      .replace(/^_+|_+$/g, "") || "node";
   if (!nodes.some((n) => n.key === slug)) return slug;
-  for (let i = 2; ; i++) if (!nodes.some((n) => n.key === `${slug}_${i}`)) return `${slug}_${i}`;
+  for (let i = 2; ; i++)
+    if (!nodes.some((n) => n.key === `${slug}_${i}`)) return `${slug}_${i}`;
 }
 
 /** Display name for a placed draft def — "Agent node", then "Agent node 2", …
@@ -1634,7 +2080,9 @@ function uniqueKey(base: string, nodes: EditorNode[]): string {
  *  versions the name further if a persisted row owns the key). */
 function nextDraftName(kind: string, draft: Draft): string {
   const base = KIND_LABELS[kind] ?? "Custom node";
-  const taken = new Set(Object.values(draft.pendingDefs ?? {}).map((d) => d.name));
+  const taken = new Set(
+    Object.values(draft.pendingDefs ?? {}).map((d) => d.name),
+  );
   if (!taken.has(base)) return base;
   for (let i = 2; ; i++) if (!taken.has(`${base} ${i}`)) return `${base} ${i}`;
 }
@@ -1647,12 +2095,20 @@ function nextDraftName(kind: string, draft: Draft): string {
  * deleted/undone away are dropped — abandoned placements leave nothing behind.
  */
 function collectPendingDefs(draft: Draft): {
-  draft_id: string; kind: string; name: string; icon: string | null;
-  description: string | null; config: Record<string, unknown>;
+  draft_id: string;
+  kind: string;
+  name: string;
+  icon: string | null;
+  description: string | null;
+  config: Record<string, unknown>;
 }[] {
   const out: {
-    draft_id: string; kind: string; name: string; icon: string | null;
-    description: string | null; config: Record<string, unknown>;
+    draft_id: string;
+    kind: string;
+    name: string;
+    icon: string | null;
+    description: string | null;
+    config: Record<string, unknown>;
   }[] = [];
   for (const def of Object.values(draft.pendingDefs ?? {})) {
     const users = draft.nodes.filter((n) => n.nodeTemplateId === def.draftId);

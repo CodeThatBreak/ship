@@ -110,9 +110,18 @@ export class FlowEngine {
     // no "flow created" announcement event — the chat feed starts with the
     // user's first message instead of boilerplate
     // webhook/schedule flow triggers auto-start their auto nodes (§6) — a
-    // manual trigger template keeps today's explicit startPlan entry
+    // manual trigger template keeps today's explicit startPlan entry, except
+    // when the entry node itself declares an `auto` trigger: the user's pick
+    // on the home page IS the manual step, and the auto trigger runs the
+    // entry straight away with the contract's authored defaults (§5)
     const triggerType = graph.flowTrigger.type;
-    if (triggerType === "webhook" || triggerType === "schedule") this.start(id);
+    if (triggerType === "webhook" || triggerType === "schedule") {
+      this.start(id);
+    } else {
+      const entryKey = nodeRegistry.entryKey();
+      const entry = entryKey ? graph.nodes.find((n) => n.defKey === entryKey) : undefined;
+      if (entry?.trigger.type === "auto") this.start(id);
+    }
     return id;
   }
 
