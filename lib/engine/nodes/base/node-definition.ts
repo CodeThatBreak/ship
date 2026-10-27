@@ -7,7 +7,8 @@ import { flowCtxHelper, type FlowContextHelper, type FlowCtx } from "./flow-cont
 import { nodeSupport, type NodeSupport } from "./node-support";
 import type { NodeCapabilities } from "./capabilities";
 import type { ConfigField } from "../../node-config";
-import { appLayerConfig, mergeConfigLayers } from "../../node-config";
+import { appLayerConfig, configString, mergeConfigLayers } from "../../node-config";
+import { prompts, type PromptAssembly } from "../../prompts";
 
 /**
  * What a node stores in its `output` column when it finishes a run.
@@ -37,6 +38,34 @@ export interface NodeTriggerRun {
   before?: () => void;
   /** runs after the node run succeeded (e.g. branch row → awaiting_approval) */
   after?: () => void;
+}
+
+/** The prompt-route querystring parameters a def's preview may consume. */
+export interface PromptPreviewParams {
+  /** modal-typed feedback/refine text (plan feedback refinement) */
+  feedback?: string;
+  /** extra developer instructions (review focus, resolve instructions, pipeline guidance) */
+  instructions?: string;
+  /** branch-scoped sub-plan preview (plan node only) */
+  branch?: string;
+  /** context-block picker selection (plan sub-plan refine) */
+  contextBlocks?: string[];
+}
+
+/** Where a recorded run's prompt came from. */
+export type PromptSource = "modal" | "config" | "default";
+export const PROMPT_SOURCES: readonly PromptSource[] = ["modal", "config", "default"];
+
+/**
+ * A def-resolved prompt preview: the template key whose metadata the modal
+ * shows (plan may point at plan_refine), the configured body knob (null = the
+ * template default is used), and the three-part assembly whose `final` is the
+ * exact string the next run sends.
+ */
+export interface NodePromptPreview {
+  templateKey: string;
+  configBody: string | null;
+  assembly: PromptAssembly;
 }
 
 /**
@@ -230,7 +259,8 @@ export abstract class NodeDefinition<I = unknown, O extends Record<string, unkno
   }
 
   /**
-   * Full run lifecycle: mark running, persist input/prompt, execute, then
+   * Full run lifecycle: mark running, persist the input blob (whose recorded
+   * `prompt` field is the exact final prompt), execute, then
    * apply the outcome (artifact, output, status, event). Returns the outcome
    * so run() can hand it back to the orchestrator.
    */
@@ -239,7 +269,6 @@ export abstract class NodeDefinition<I = unknown, O extends Record<string, unkno
     opts: {
       input: Record<string, unknown>;
       prompt: string;
-      promptOverride?: string | null;
       agent: Omit<AgentStartInput, "prompt">;
       label: string;
       finalize: (result: AgentRunResult) => Promise<RunOutcome>;
@@ -248,7 +277,8 @@ export abstract class NodeDefinition<I = unknown, O extends Record<string, unkno
     const node = this.node(ctx);
     this.support.setNode(node.id, {
       status: "running",
-      prompt_override: opts.promptOverride ?? null,
+      // the run's input blob is the per-run record: `input.prompt` carries the
+      // exact final prompt the agent receives — the only truthful prompt state
       input: JSON.stringify(opts.input),
     });
     const start = () =>
@@ -268,9 +298,44 @@ export abstract class NodeDefinition<I = unknown, O extends Record<string, unkno
     return { ...outcome, output: validatedOutput as Record<string, unknown> };
   }
 
-  /** Persist a prompt override + full input blob (audit / retry fidelity). */
-  protected recordInput(nodeId: string, input: Record<string, unknown>, promptOverride?: string | null): void {
-    this.support.setNode(nodeId, { prompt_override: promptOverride ?? null, input: JSON.stringify(input) });
+  /**
+   * Persist a run's full input blob. Retry fidelity: `retryNode` re-runs
+   * `def.run()` from this record, and its recorded `prompt` field carries the
+   * exact final prompt the run sent.
+   */
+  protected recordInput(nodeId: string, input: Record<string, unknown>): void {
+    this.support.setNode(nodeId, { input: JSON.stringify(input) });
+  }
+
+  /**
+   * Live prompt preview for the prompt modal (the prompt route's PromptPreview
+   * service calls this). Default: null — node kinds without a previewable
+   * prompt leave it; serving defs override it and fill the template's
+   * variables the same way their run() does (run data that is finalized at
+   * run time — diffs, logs — stays blank in the preview).
+   */
+  previewPrompt(_ctx: FlowCtx, _node: NodeRow | null, _params: PromptPreviewParams): NodePromptPreview | null {
+    return null;
+  }
+
+  /**
+   * The effective config for prompt preview (class defaults ← app settings ←
+   * the flow creation snapshot) — the same layering nodeConfig() merges for
+   * chat follow-ups, taking the row explicitly so a missing node row (a node
+   * that never ran) still previews.
+   */
+  protected previewConfig(node: NodeRow | null): Record<string, unknown> {
+    return mergeConfigLayers(this.defaultConfig(), appLayerConfig(this.key), node?.config ?? null);
+  }
+
+  /** Convenience: the def's `prompt_rules` knob for preview assembly. */
+  protected previewRules(node: NodeRow | null, key = "prompt_rules"): string {
+    return configString(this.previewConfig(node), key) ?? "";
+  }
+
+  /** Convenience: the def's `prompt_body` knob for preview assembly. */
+  protected previewBody(node: NodeRow | null, key = "prompt_body"): string | null {
+    return configString(this.previewConfig(node), key) ?? null;
   }
 
   /**

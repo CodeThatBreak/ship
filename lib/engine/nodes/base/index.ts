@@ -14,5 +14,13 @@ export {
   type AgentStartInput,
   type Started,
 } from "./agent-runner";
-export { NodeDefinition, type RunOutcome, type NodeTriggerRun } from "./node-definition";
+export {
+  NodeDefinition,
+  PROMPT_SOURCES,
+  type NodePromptPreview,
+  type NodeTriggerRun,
+  type PromptPreviewParams,
+  type PromptSource,
+  type RunOutcome,
+} from "./node-definition";
 export type { NodeCapabilities } from "./capabilities";

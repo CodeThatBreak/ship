@@ -81,6 +81,17 @@ export class PromptLibrary {
   }
 
   /**
+   * Normalization applied to every rendered block: trim + collapse multi-blank
+   * runs (run data like diffs/comments can produce them). Applied on BOTH the
+   * preview and the run path, so the modal's `final` and run() stay
+   * byte-identical by construction — per-node `.split("\n").filter(Boolean)`
+   * collapses are what I7 was found by and are gone (see node defs).
+   */
+  private static normalizeBlock(text: string): string {
+    return text.trim().replace(/\n{3,}/g, "\n\n");
+  }
+
+  /**
    * Render a template string with the given context.
    * `{{var}}` placeholders are replaced by `ctx[var] ?? ""`.
    */
@@ -109,7 +120,10 @@ export class PromptLibrary {
     const def = DEFAULT_PROMPT_TEMPLATES[nodeKey];
     if (!def) return [];
     const vars = { ...ctx, ...extra };
-    return def.internalBlocks.map((b) => ({ kind: b.kind, text: this.render(b.text, vars).trim() }));
+    return def.internalBlocks.map((b) => ({
+      kind: b.kind,
+      text: PromptLibrary.normalizeBlock(this.render(b.text, vars)),
+    }));
   }
 
   /**
@@ -127,7 +141,11 @@ export class PromptLibrary {
   ): PromptAssembly {
     const tpl = this.getTemplate(nodeKey);
     const vars = { ...ctx, ...extra };
-    const body = (opts?.body != null && opts.body.trim() ? opts.body : this.render(tpl.userTemplate, vars)).trim();
+    // I7: the body gets the same normalization as the internal blocks — an
+    // empty rendered var ({{context}}, …) would otherwise leave multi-blank
+    // runs in the recorded run prompt. Applied to BOTH paths (user body knob
+    // and default render) so the modal's final and run() match by construction.
+    const body = PromptLibrary.normalizeBlock(opts?.body != null && opts.body.trim() ? opts.body : this.render(tpl.userTemplate, vars));
     const userRules = (opts?.userRules ?? "").trim();
     const blocks = this.internalBlocks(nodeKey, ctx, extra).filter((b) => b.text);
     return {

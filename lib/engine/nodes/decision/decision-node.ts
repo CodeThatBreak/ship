@@ -232,7 +232,6 @@ export class DecisionTemplateNode extends NodeDefinition<Record<string, unknown>
     return this.execute(ctx, {
       input: { ...rawInput, source: "agent" },
       prompt: this.buildAgentPrompt(cfg, { ...flowCtx, input: inherited }),
-      promptOverride: null,
       agent: {
         mode: "plan",
         name: `${this.label} ${ctx.task.key}`,

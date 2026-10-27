@@ -1,9 +1,10 @@
 import { db } from "../../../db";
+import type { NodeRow } from "../../../db/rows";
 import { z } from "zod";
 import { localGit } from "../../../git/local";
 import { gitHostRegistry } from "../../ports/git-host";
 import { prompts } from "../../prompts";
-import { NodeDefinition, type FlowCtx, type RunOutcome } from "../base";
+import { NodeDefinition, type FlowCtx, type NodePromptPreview, type PromptPreviewParams, type RunOutcome } from "../base";
 import type { NodeCapabilities } from "../base/capabilities";
 import { NODE_KEYS } from "../keys";
 import type { ConfigField } from "../../node-config";
@@ -39,6 +40,27 @@ export class ResolveNode extends NodeDefinition<ResolveInput, ResolveOutput> {
     { key: "quiet_minutes", label: "Quiet period (min)", type: "number", help: "Minutes of comment quiet before the debounced resolve fires. Empty = 10." },
     ...mcpSourceConfigFields,
   ] as const satisfies readonly ConfigField[];
+
+  /**
+   * Live prompt preview (verbatim from the route's former resolve case): the
+   * body knob or default with the developer instructions; the header/
+   * comment blocks are run data — computed at run time from open comments.
+   */
+  override previewPrompt(ctx: FlowCtx, node: NodeRow | null, params: PromptPreviewParams): NodePromptPreview | null {
+    const configBody = this.previewBody(node);
+    const branch = ctx.flow.mr_branch ?? this.ctxHelper.buildBranch(ctx);
+    const mode = this.ctxHelper.execMode(ctx);
+    const asm = prompts.assemblePrompt(
+      NODE_KEYS.RESOLVE,
+      { branch, mode },
+      {
+        dev_instructions: params.instructions ? `Developer instructions: ${params.instructions}` : "",
+        instructions: mode === "local" ? `Start by checking out branch ${branch}.` : "",
+      },
+      { body: configBody, userRules: this.previewRules(node) },
+    );
+    return { templateKey: NODE_KEYS.RESOLVE, configBody, assembly: asm };
+  }
 
   async run(ctx: FlowCtx, input: ResolveInput, config: Record<string, unknown>): Promise<RunOutcome> {
     // the prompt-body knob folds into the per-run prompt override path
@@ -90,7 +112,9 @@ export class ResolveNode extends NodeDefinition<ResolveInput, ResolveOutput> {
     const instructions = mode === "local" ? `Start by checking out branch ${mrBranch}.` : "";
     const dev_instructions = input.instructions ? `Developer instructions: ${input.instructions}` : "";
 
-    let prompt = (input.prompt
+    // byte-parity rule (I7): internal-block whitespace is normalized inside
+    // PromptLibrary — no per-node collapse, preview and run stay identical
+    let prompt = input.prompt
       ? input.promptIsBody
         // user edited the body only — re-attach the internal instructions + comments
         ? prompts.assemblePrompt(NODE_KEYS.RESOLVE,
@@ -104,8 +128,7 @@ export class ResolveNode extends NodeDefinition<ResolveInput, ResolveOutput> {
           { header, subheader, instructions, dev_instructions, comments: list },
           undefined,
           { userRules },
-        )
-    ).split("\n").filter(Boolean).join("\n");
+        );
 
     // capture the MR head + local branch state before the run — compared after
     // to decide whether the agent actually modified code (gates the re-review loop)
@@ -125,7 +148,6 @@ export class ResolveNode extends NodeDefinition<ResolveInput, ResolveOutput> {
     return this.execute(ctx, {
       input: { ...input, prompt },
       prompt,
-      promptOverride: input.prompt,
       agent: {
         mode: "agent",
         name: `${label} ${ctx.task.key}`,

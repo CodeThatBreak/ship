@@ -2,7 +2,7 @@ import { z } from "zod";
 import { db } from "../../../db";
 import type { NodeRow } from "../../../db/rows";
 import type { AgentRunResult } from "../../ports/agent-runner";
-import { NodeDefinition, type FlowCtx, type RunOutcome } from "../base";
+import { NodeDefinition, type FlowCtx, type PromptSource, type RunOutcome } from "../base";
 import { templateStore } from "../../templates";
 import { extractJson, validateJsonSchema } from "./json-schema-lite";
 import { AgentDefSchema, type AgentDef } from "../declarative-schemas";
@@ -186,12 +186,20 @@ export class AgentTemplateNode extends NodeDefinition<Record<string, unknown>, R
       typeof modelTemplate === "string" && /\{\{[^{}]+\}\}/.test(modelTemplate)
         ? renderAgentPrompt(modelTemplate, agentPromptVars(ctx)).trim() || null
         : modelTemplate;
-    const input: Record<string, unknown> = { ...rawInput, prompt: promptBody || null, model };
+    // the run record's input.prompt is the RENDERED final prompt — the exact
+    // text the agent receives (nodes.config.prompt stays the un-rendered source
+    // of truth) — plus where it came from, so the modal can annotate lastRun
+    const promptSource: PromptSource = promptBody ? "modal" : cfg.prompt ? "config" : "default";
+    const input: Record<string, unknown> = {
+      ...rawInput,
+      prompt: rendered,
+      prompt_source: promptSource,
+      model,
+    };
 
     return this.execute(ctx, {
       input,
       prompt: rendered,
-      promptOverride: promptBody || null,
       agent: {
         mode: cfg.mode,
         name: `${this.label} ${ctx.task.key}`,

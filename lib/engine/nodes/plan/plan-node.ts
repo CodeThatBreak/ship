@@ -4,7 +4,7 @@ import type { AgentRunResult } from "../../ports/agent-runner";
 import { PlanStepRow, rows, type NodeRow } from "../../../db/rows";
 import { prompts, sectionsOf, type PromptSections as PromptSectionsLike } from "../../prompts";
 import { planSteps } from "../../steps";
-import { NodeDefinition, type FlowCtx, type RunOutcome } from "../base";
+import { NodeDefinition, type FlowCtx, type NodePromptPreview, type PromptPreviewParams, type RunOutcome } from "../base";
 import type { NodeCapabilities } from "../base/capabilities";
 import { NODE_KEYS } from "../keys";
 import type { ConfigField } from "../../node-config";
@@ -350,7 +350,9 @@ export class PlanNode extends NodeDefinition<PlanInput, PlanOutput> {
       : this.buildPlanPrompt(ctx, node, input, userRules);
     const customSubagents = this.decomposeSubagents(ctx, input);
     const settingSources = mcpSourcesOf(config);
-    this.recordInput(node.id, { ...input, prompt }, input.prompt);
+    // the run record: `input.prompt` is the exact final prompt (retry fidelity
+    // + the modal's lastRun read from it)
+    this.recordInput(node.id, { ...input, prompt });
 
     if (scoped) return this.runScoped(ctx, node, input, scoped, prompt, customSubagents, settingSources);
 
@@ -1123,6 +1125,35 @@ export class PlanNode extends NodeDefinition<PlanInput, PlanOutput> {
   }
 
   // ── prompt previews (used by the prompt route) ────────────────────────────
+
+  /**
+   * Live prompt preview (verbatim from the route's former plan case): the
+   * feedback-refine preview renders the plan_refine template when a feedback
+   * text is given on a node with an agent to refine on; otherwise the plan
+   * body (config knob or default) with the ticket vars.
+   */
+  override previewPrompt(ctx: FlowCtx, node: NodeRow | null, params: PromptPreviewParams): NodePromptPreview | null {
+    if (params.feedback && node?.agent_id) {
+      // feedback refine preview (follow-up on the plan agent): the full
+      // body-only refine template with the feedback rendered in. The context
+      // block is run data — assembled at run time (assembleContext).
+      const asm = prompts.assemblePrompt(
+        "plan_refine",
+        { ticket: this.ctxHelper.taskContext(ctx) },
+        { feedback: params.feedback },
+        { userRules: this.previewRules(node) },
+      );
+      return { templateKey: "plan_refine", configBody: null, assembly: asm };
+    }
+    const configBody = this.previewBody(node);
+    const asm = prompts.assemblePrompt(
+      NODE_KEYS.PLAN,
+      { ticket: this.ctxHelper.taskContext(ctx), ticket_type: this.ctxHelper.taskLabel(ctx) },
+      undefined,
+      { body: configBody, userRules: this.previewRules(node) },
+    );
+    return { templateKey: NODE_KEYS.PLAN, configBody, assembly: asm };
+  }
 
   /**
    * Branch-scoped prompt preview for the prompt route (§7.2): the

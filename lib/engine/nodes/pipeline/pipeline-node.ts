@@ -3,7 +3,7 @@ import { z } from "zod";
 import type { NodeRow } from "../../../db/rows";
 import { gitHostRegistry, type HostJob } from "../../ports/git-host";
 import { prompts } from "../../prompts";
-import { NodeDefinition, type FlowCtx, type RunOutcome } from "../base";
+import { NodeDefinition, type FlowCtx, type NodePromptPreview, type PromptPreviewParams, type RunOutcome } from "../base";
 import type { NodeCapabilities } from "../base/capabilities";
 import { NODE_KEYS } from "../keys";
 import type { ConfigField } from "../../node-config";
@@ -273,6 +273,28 @@ export class PipelineNode extends NodeDefinition<
     return played;
   }
 
+  /**
+   * Live prompt preview (verbatim from the route's former pipeline case): the
+   * fix body knob or default with the run's guidance/instructions vars. The
+   * pipeline-id/branch/logs vars are run data (the failed pipeline is known
+   * only at run time) — filled at Phase-2 preview work (I5).
+   */
+  override previewPrompt(ctx: FlowCtx, node: NodeRow | null, params: PromptPreviewParams): NodePromptPreview | null {
+    const branch = ctx.flow.mr_branch ?? this.ctxHelper.buildBranch(ctx);
+    const mode = this.ctxHelper.execMode(ctx);
+    const configBody = configString(this.previewConfig(node), "fix_prompt_body") ?? null;
+    const asm = prompts.assemblePrompt(
+      FIX_PROMPT_KEY,
+      {},
+      {
+        guidance: params.instructions ? `Developer guidance: ${params.instructions}` : "",
+        instructions: mode === "local" ? `Start by checking out branch ${branch}.` : "",
+      },
+      { body: configBody, userRules: this.previewRules(node, "fix_prompt_rules") },
+    );
+    return { templateKey: FIX_PROMPT_KEY, configBody, assembly: asm };
+  }
+
   async run(
     ctx: FlowCtx,
     input: PipelineInput,
@@ -303,7 +325,8 @@ export class PipelineNode extends NodeDefinition<
     const node = this.node(ctx);
     this.support.setNode(node.id, {
       status: "running",
-      prompt_override: input.prompt ?? null,
+      // the run's input blob is the per-run record: `input.prompt` carries the
+      // exact prompt the gate was started with (fixed prompt or default flow)
       input: JSON.stringify(input),
     });
 
@@ -552,27 +575,24 @@ export class PipelineNode extends NodeDefinition<
     const userRules =
       configString(this.nodeConfig(ctx), "fix_prompt_rules") ?? "";
 
-    const prompt = (
-      input.prompt
-        ? input.promptIsBody
-          ? prompts.assemblePrompt(
-              FIX_PROMPT_KEY,
-              { branch: mrBranch ?? "", pipelineId: String(pipelineId) },
-              { instructions, guidance, logs: logs || "(logs unavailable)" },
-              { body: input.prompt, userRules },
-            ).final
-          : input.prompt
-        : prompts.resolve(
+    // byte-parity rule (I7): internal-block whitespace is normalized inside
+    // PromptLibrary — no per-node collapse, preview and run stay identical
+    const prompt = input.prompt
+      ? input.promptIsBody
+        ? prompts.assemblePrompt(
             FIX_PROMPT_KEY,
             { branch: mrBranch ?? "", pipelineId: String(pipelineId) },
             { instructions, guidance, logs: logs || "(logs unavailable)" },
-            undefined,
-            { userRules },
-          )
-    )
-      .split("\n")
-      .filter(Boolean)
-      .join("\n");
+            { body: input.prompt, userRules },
+          ).final
+        : input.prompt
+      : prompts.resolve(
+          FIX_PROMPT_KEY,
+          { branch: mrBranch ?? "", pipelineId: String(pipelineId) },
+          { instructions, guidance, logs: logs || "(logs unavailable)" },
+          undefined,
+          { userRules },
+        );
 
     db.emitEvent(
       ctx.flow.id,

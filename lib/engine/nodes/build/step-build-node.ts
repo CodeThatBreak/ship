@@ -124,7 +124,6 @@ export class StepBuildNode extends BuildNode {
     return this.execute(ctx, {
       input: { ...input, prompt, branch },
       prompt,
-      promptOverride: input.prompt,
       agent: {
         mode: "agent",
         name: `step build ${ctx.task.key} (${step.id})`,
@@ -185,7 +184,6 @@ export class StepBuildNode extends BuildNode {
     const outcome = await this.execute(ctx, {
       input: { feedback, prompt: null, model: model ?? null },
       prompt,
-      promptOverride: null,
       agent: {
         mode: "agent",
         name: `step build refine ${ctx.task.key}`,

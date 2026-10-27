@@ -1,8 +1,9 @@
 import { db } from "../../../db";
+import type { NodeRow } from "../../../db/rows";
 import { z } from "zod";
 import { gitHostRegistry } from "../../ports/git-host";
 import { prompts } from "../../prompts";
-import { NodeDefinition, type FlowCtx, type RunOutcome } from "../base";
+import { NodeDefinition, type FlowCtx, type NodePromptPreview, type PromptPreviewParams, type RunOutcome } from "../base";
 import type { NodeCapabilities } from "../base/capabilities";
 import { NODE_KEYS } from "../keys";
 import type { ConfigField } from "../../node-config";
@@ -46,8 +47,7 @@ export class ReviewNode extends NodeDefinition<ReviewInput, ReviewOutput> {
   ] as const satisfies readonly ConfigField[];
 
   /** Resolve the MR (iid + git branch) for this review — per-branch or flow-level. */
-  resolveMr(ctx: FlowCtx, branchName?: string | null): { mrIid: number; mrBranch: string | null } {
-    if (branchName) {
+  resolveMr(ctx: FlowCtx, branchName?: string | null): { mrIid: number; mrBranch: string | null } {    if (branchName) {
       const bRow = db.get<{ mr_iid: number | null }>(
         `SELECT mr_iid FROM branches WHERE flow_id=? AND name=?`, ctx.flow.id, branchName);
       if (!bRow?.mr_iid) throw new Error(`no merge request for branch ${branchName} — approve the build first`);
@@ -55,6 +55,31 @@ export class ReviewNode extends NodeDefinition<ReviewInput, ReviewOutput> {
     }
     if (!ctx.flow.mr_iid) throw new Error("no merge request yet — approve the build to create one first");
     return { mrIid: ctx.flow.mr_iid, mrBranch: ctx.flow.mr_branch };
+  }
+
+  /**
+   * Live prompt preview (verbatim from the route's former review case). The
+   * diff is run data — fetched at run time, so the preview shows the
+   * contract/rules + ticket context with an empty diff slot.
+   */
+  override previewPrompt(ctx: FlowCtx, node: NodeRow | null, params: PromptPreviewParams): NodePromptPreview | null {
+    const configBody = this.previewBody(node);
+    const asm = prompts.assemblePrompt(
+      NODE_KEYS.REVIEW,
+      {
+        ticket_key: ctx.task.key,
+        ticket_type: this.ctxHelper.taskLabel(ctx),
+        ticket_summary: ctx.task.summary ?? "",
+        ticket_prd: ctx.task.prdText?.slice(0, 4000) ?? "",
+      },
+      {
+        instructions: params.instructions
+          ? `Extra review focus from the developer: ${params.instructions}`
+          : "",
+      },
+      { body: configBody, userRules: this.previewRules(node) },
+    );
+    return { templateKey: NODE_KEYS.REVIEW, configBody, assembly: asm };
   }
 
   async run(ctx: FlowCtx, input: ReviewInput, config: Record<string, unknown>): Promise<RunOutcome> {
@@ -87,18 +112,18 @@ export class ReviewNode extends NodeDefinition<ReviewInput, ReviewOutput> {
       ticket_prd: ctx.task.prdText?.slice(0, 4000) ?? "",
     };
 
-    const prompt = (input.prompt
+    // byte-parity rule (I7): the internal-block whitespace is normalized inside
+    // PromptLibrary — no per-node collapse here, preview and run stay identical
+    const prompt = input.prompt
       ? input.promptIsBody
         // user edited the body only — re-attach the internal instructions + diff
         ? prompts.assemblePrompt(NODE_KEYS.REVIEW, reviewCtx, { instructions, diff: diffText }, { body: input.prompt, userRules }).final
         : input.prompt
-      : prompts.resolve(NODE_KEYS.REVIEW, reviewCtx, { instructions, diff: diffText }, undefined, { userRules })
-    ).split("\n").filter(Boolean).join("\n");
+      : prompts.resolve(NODE_KEYS.REVIEW, reviewCtx, { instructions, diff: diffText }, undefined, { userRules });
 
     return this.execute(ctx, {
       input: { ...input, prompt },
       prompt,
-      promptOverride: input.prompt,
       agent: {
         mode: "agent",
         name: `${label} ${ctx.task.key}`,

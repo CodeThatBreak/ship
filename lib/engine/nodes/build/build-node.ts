@@ -5,7 +5,7 @@ import type { AgentRunResult } from "../../ports/agent-runner";
 import { localGit } from "../../../git/local";
 import { prompts } from "../../prompts";
 import { planSteps } from "../../steps";
-import { NodeDefinition, type FlowCtx, type RunOutcome, type NodeTriggerRun } from "../base";
+import { NodeDefinition, type FlowCtx, type NodePromptPreview, type NodeTriggerRun, type PromptPreviewParams, type RunOutcome } from "../base";
 import { DEFAULT_FANOUT_OUTPUT, type NodeCapabilities } from "../base/capabilities";
 import { NODE_KEYS } from "../keys";
 import type { ConfigField } from "../../node-config";
@@ -217,7 +217,6 @@ export class BuildNode extends NodeDefinition<BuildInput, BuildOutput> {
     return this.execute(ctx, {
       input: { ...input, prompt, branch: input.branchInfo?.name ?? null },
       prompt,
-      promptOverride: input.prompt,
       agent: {
         mode: "agent",
         name: input.branchInfo ? `build ${ctx.task.key} (${input.branchInfo.name})` : `build ${ctx.task.key}`,
@@ -312,7 +311,6 @@ export class BuildNode extends NodeDefinition<BuildInput, BuildOutput> {
     const outcome = await this.execute(ctx, {
       input: { feedback, prompt: promptOverride ?? null, model: model ?? null },
       prompt,
-      promptOverride,
       agent: {
         mode: "agent",
         name: `build refine ${ctx.task.key}`,
@@ -349,6 +347,35 @@ export class BuildNode extends NodeDefinition<BuildInput, BuildOutput> {
   override async chat(ctx: FlowCtx, content: string): Promise<string> {
     const outcome = await this.run(ctx, this.inputSchema.parse({ feedback: content }), this.nodeConfig(ctx));
     return outcome.reply;
+  }
+
+  /**
+   * Live prompt preview (verbatim from the route's former build case): the
+   * body knob is a verbatim prompt override for build (I3 — unified in a later
+   * phase); the default preview resolves the full template (plan +
+   * instructions are the body). The checklist the run appends is Phase-2
+   * preview work (I6).
+   */
+  override previewPrompt(ctx: FlowCtx, node: NodeRow | null, _params: PromptPreviewParams): NodePromptPreview | null {
+    const config = this.previewConfig(node);
+    const branch = ctx.flow.mr_branch ?? this.ctxHelper.buildBranch(ctx);
+    const mode = this.ctxHelper.execMode(ctx);
+    const planRow = db.all<{ content: string }>(
+      `SELECT a.content FROM artifacts a JOIN nodes n ON n.id=a.node_id
+       WHERE n.flow_id=? AND a.kind='plan' ORDER BY a.version DESC LIMIT 1`, ctx.flow.id)[0];
+    const planContent = planRow?.content ?? "(no plan yet)";
+    const instr = mode === "local"
+      ? `Implement the following approved plan for a ${this.ctxHelper.taskLabel(ctx)} ticket. First create and check out a new git branch named "${branch}" (from the repo's default branch), then make the code changes, commit them, and push the branch to origin. Do NOT open a merge request.`
+      : `Implement the following approved plan for a ${this.ctxHelper.taskLabel(ctx)} ticket. Make the code changes, commit them, and push to a feature branch. Do NOT open a merge request yet.`;
+    const configBody = configString(config, "prompt_body") ?? null;
+    // build's body knob is a verbatim prompt override; the default preview
+    // resolves the full template (plan + checklist are the body here)
+    const body = configBody ??
+      prompts.resolve(NODE_KEYS.BUILD, { ticket: this.ctxHelper.taskContext(ctx), branch, mode }, { instructions: instr, plan: planContent });
+    const asm = prompts.assemblePrompt(
+      NODE_KEYS.BUILD, {}, undefined, { body, userRules: this.previewRules(node) },
+    );
+    return { templateKey: NODE_KEYS.BUILD, configBody, assembly: asm };
   }
 
   /**
