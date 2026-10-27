@@ -9,6 +9,14 @@ import { declarativeDef } from "./declarative";
 import { StartNode } from "./start";
 
 /**
+ * The registry-level def shape: generics erased *honestly* (unknown /
+ * Record<string, unknown>) instead of `any` (§T5/F10). `run()` implementations
+ * treat input loosely across this boundary — defs `parseInput()` internally —
+ * so the erasure is sound at every registry call site.
+ */
+type AnyNodeDef = NodeDefinition<unknown, Record<string, unknown>>;
+
+/**
  * The single source of truth for the workflow graph.
  *
  * Adding a new node type:
@@ -19,13 +27,13 @@ import { StartNode } from "./start";
  * chat routing, recovery, prompt templates, UI labels — derives from here.
  */
 export class NodeRegistry {
-  private readonly registry = new Map<string, NodeDefinition<any, any>>();
+  private readonly registry = new Map<string, AnyNodeDef>();
 
   constructor() {
     this.registerBuiltins();
   }
 
-  register(def: NodeDefinition<any, any>): void {
+  register(def: AnyNodeDef): void {
     if (this.registry.has(def.key)) throw new Error(`duplicate node key: ${def.key}`);
     this.registry.set(def.key, def);
   }
@@ -42,14 +50,14 @@ export class NodeRegistry {
   }
 
   /** Get a node definition by key, or throw. */
-  get(key: string): NodeDefinition<any, any> {
+  get(key: string): AnyNodeDef {
     const def = this.registry.get(key);
     if (!def) throw new Error(`unknown node key: ${key}`);
     return def;
   }
 
   /** Get a node definition by key, or undefined. */
-  maybe(key: string): NodeDefinition<any, any> | undefined {
+  maybe(key: string): AnyNodeDef | undefined {
     return this.registry.get(key);
   }
 
@@ -58,11 +66,11 @@ export class NodeRegistry {
    * by their `node_templates` row id, hydrating a runtime instance on demand.
    * `inst` is the template instance key (node_key) for declarative defs.
    */
-  resolve(key: string, inst?: string): NodeDefinition<any, any> {
+  resolve(key: string, inst?: string): AnyNodeDef {
     const builtin = this.registry.get(key);
     if (builtin) return builtin;
     const def = declarativeDef(key, inst);
-    if (def) return def as NodeDefinition<any, any>;
+    if (def) return def;
     throw new Error(`unknown node type: ${key}`);
   }
 
@@ -71,7 +79,7 @@ export class NodeRegistry {
   }
 
   /** All node definitions in graph order (ascending `order`). */
-  all(): NodeDefinition<any, any>[] {
+  all(): AnyNodeDef[] {
     return [...this.registry.values()].sort((a, b) => a.order - b.order);
   }
 

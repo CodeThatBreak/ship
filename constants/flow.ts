@@ -29,6 +29,20 @@ export const FLOW_STATUS = {
 
 export type FlowStatus = (typeof FLOW_STATUS)[keyof typeof FLOW_STATUS];
 
+/**
+ * The final statuses a finished node run can persist (the engine's
+ * `RunOutcome.status`, §T5/F11). Derived from `FLOW_STATUS` — the values have
+ * exactly one home; this is the closed vocabulary the engine's run outcomes
+ * are checked against at compile time.
+ */
+export const NODE_RUN_STATUS = {
+  AWAITING_APPROVAL: FLOW_STATUS.AWAITING_APPROVAL,
+  DONE: FLOW_STATUS.DONE,
+  FAILED: FLOW_STATUS.FAILED,
+} as const;
+
+export type NodeRunStatus = (typeof NODE_RUN_STATUS)[keyof typeof NODE_RUN_STATUS];
+
 /** Plan fan-out aggregate child state (Phase 4 monitoring, §5): the node's
  *  own status stays `running` while it orchestrates, so the per-step rollup
  *  is an AGGREGATE over the children — see `components/flows/cockpit/fanout-progress.ts`. */

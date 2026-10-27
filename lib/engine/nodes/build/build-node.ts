@@ -6,7 +6,7 @@ import { prompts } from "../../prompts";
 import { planSteps } from "../../steps";
 import { NodeDefinition, type FlowCtx, type NodePromptPreview, type NodeTriggerRun, type PromptPreviewParams, type RunOutcome } from "../base";
 import { DEFAULT_FANOUT_OUTPUT, type NodeCapabilities } from "../base/capabilities";
-import { NODE_KEYS } from "../keys";
+import { NODE_KEYS, STEP_BUILD_TEMPLATE_ID } from "../keys";
 import type { ConfigField } from "../../node-config";
 import { DEFAULT_MCP_SOURCES, configString, fanoutConfigFields, mcpSourcesOf, mcpSourcesSchema, mcpSourceConfigFields } from "../../node-config";
 import { branchStore } from "./branch-store";
@@ -20,6 +20,10 @@ export class BuildNode extends NodeDefinition<BuildInput, BuildOutput> {
   readonly key: string = NODE_KEYS.BUILD;
   readonly label: string = "Build";
   readonly capabilities: NodeCapabilities = { panelTitle: "Code changes", fanoutOutput: DEFAULT_FANOUT_OUTPUT };
+  /** Engine-dispatch metadata (§T3): build approval is a built-in flow action
+   *  (the CR-creation chain), and the build kind occupies the chain's build role. */
+  override readonly builtinApproval = true;
+  override readonly chainRole = NODE_KEYS.BUILD;
   readonly promptKeys: readonly string[] = [NODE_KEYS.BUILD, "build_refine"];
   readonly promptSections: readonly string[] = [NODE_KEYS.BUILD];
   readonly order = 20;
@@ -60,6 +64,15 @@ export class BuildNode extends NodeDefinition<BuildInput, BuildOutput> {
     ...fanoutConfigFields,
     ...mcpSourceConfigFields,
   ] as const satisfies readonly ConfigField[];
+
+  /**
+   * Fan-out (§T3/F5): the build def's fallback child is the seeded step build
+   * — the fan-out manager consults this def method instead of comparing the
+   * parent's def key to a literal.
+   */
+  override childTemplateId(): string | null {
+    return STEP_BUILD_TEMPLATE_ID;
+  }
 
   /**
    * Engine-triggered runs (the plan → build edge activation when the plan is

@@ -1,5 +1,6 @@
 import { db } from "../../../db";
-import type { FlowCtx } from "../base";
+import type { ChainRole, FlowCtx } from "../base";
+import { NODE_KEYS } from "../keys";
 import { configNumber } from "../../node-config";
 import { branchStore } from "../build";
 import { mergeRequests, type CommitError } from "../merge-request";
@@ -14,7 +15,9 @@ export interface ChainHost {
   nodeStatus(flowId: string, nodeKey: string): string;
   nodeRunning(flowId: string, nodeKey: string): boolean;
   nodeConfigFor(flowId: string, nodeKey: string): Record<string, unknown>;
-  firstKeyOfType(flowId: string, defKey: string): string | null;
+  /** the instance key of the flow's node holding a chain role (§T3 —
+   *  metadata-routed; the chain names roles, never literal def keys) */
+  keyOfRole(flowId: string, role: ChainRole): string | null;
   /** the CI gate node (waits on the pipeline source) */
   gateKey(flowId: string): string | null;
   /** resolve a node's outgoing edges and start what becomes eligible */
@@ -55,7 +58,7 @@ export class SdlcChain {
    * gate before a CR exists.
    */
   approveBuild(flowId: string, branchName?: string): void {
-    const buildKey = this.host.firstKeyOfType(flowId, "build");
+    const buildKey = this.host.keyOfRole(flowId, NODE_KEYS.BUILD);
     if (!buildKey) throw new Error("this flow template has no build node");
     const gate = this.host.gateKey(flowId);
     if (!gate) throw new Error("this flow template has no pipeline gate node");
@@ -158,7 +161,7 @@ export class SdlcChain {
 
   /** Manual resolve run (Run button / API): run the stage, then the edges. */
   triggerResolve(flowId: string, prompt?: string, model?: string, promptIsBody?: boolean): void {
-    const resolveKey = this.host.firstKeyOfType(flowId, "resolve");
+    const resolveKey = this.host.keyOfRole(flowId, NODE_KEYS.RESOLVE);
     if (!resolveKey) return;
     if (this.host.nodeRunning(flowId, resolveKey)) return;
     // Direct triggers respect the chain — resolve must not run while the
@@ -183,7 +186,7 @@ export class SdlcChain {
 
   /** Manual review run (Run button / API): run the stage, then the edges. */
   triggerReview(flowId: string, prompt?: string, model?: string, promptIsBody?: boolean): void {
-    const reviewKey = this.host.firstKeyOfType(flowId, "review");
+    const reviewKey = this.host.keyOfRole(flowId, NODE_KEYS.REVIEW);
     if (!reviewKey) throw new Error("this flow template has no review node");
     if (this.host.chainBusy(flowId)) throw new Error("wait for the current pipeline/review/resolve run to finish first");
     this.host.setCurrentNode(flowId, reviewKey);

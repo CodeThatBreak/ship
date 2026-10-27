@@ -13,6 +13,8 @@ export class ReviewNode extends NodeDefinition<ReviewInput, ReviewOutput> {
   readonly key = NODE_KEYS.REVIEW;
   readonly label = "Review";
   readonly capabilities: NodeCapabilities = { panelTitle: "AI review" };
+  /** Engine-dispatch metadata (§T3): the review kind occupies the chain's review role. */
+  override readonly chainRole = NODE_KEYS.REVIEW;
   readonly promptKeys = [NODE_KEYS.REVIEW] as const;
   readonly promptSections = [NODE_KEYS.REVIEW] as const;
   readonly order = 40;

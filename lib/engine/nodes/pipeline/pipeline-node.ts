@@ -53,6 +53,9 @@ export class PipelineNode extends NodeDefinition<
   readonly key = NODE_KEYS.PIPELINE;
   readonly label = "Pipeline";
   readonly capabilities: NodeCapabilities = { panelTitle: "CI pipeline" };
+  /** Engine-dispatch metadata (§T3): consumers (the CI gate) wait on the
+   *  pipeline event source — gate lookups route through this, not a literal. */
+  override readonly waitForKind = NODE_KEYS.PIPELINE;
   readonly promptKeys = [FIX_PROMPT_KEY] as const;
   readonly promptSections = [FIX_PROMPT_KEY] as const;
   readonly order = 25;

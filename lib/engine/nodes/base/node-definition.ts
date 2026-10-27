@@ -8,6 +8,10 @@ import type { NodeCapabilities } from "./capabilities";
 import type { ConfigField } from "../../node-config";
 import { appLayerConfig, configString, mergeConfigLayers } from "../../node-config";
 import { prompts, type PromptAssembly } from "../../prompts";
+import type { NodeRunStatus } from "../../../../constants/flow";
+
+/** A role in the SDLC builtin chain (plan → build → review → resolve). */
+export type ChainRole = "plan" | "build" | "review" | "resolve";
 
 /**
  * What a node stores in its `output` column when it finishes a run.
@@ -15,8 +19,8 @@ import { prompts, type PromptAssembly } from "../../prompts";
  */
 export interface RunOutcome {
   output: Record<string, unknown>;
-  /** final node status, e.g. awaiting_approval | done | failed */
-  status: "awaiting_approval" | "done" | "failed";
+  /** final node status — the closed set in `NODE_RUN_STATUS` (§2.7) */
+  status: NodeRunStatus;
   /** artifact to save (kind + content + meta); nodes may save more themselves */
   artifact?: { kind: string; content: string; meta?: unknown };
   /** lifecycle event message */
@@ -105,6 +109,39 @@ export abstract class NodeDefinition<I = unknown, O extends Record<string, unkno
    * bespoke-panel affordances.
    */
   readonly capabilities: NodeCapabilities = {};
+
+  // ── engine-dispatch metadata (§T3) — call sites key off these flags, never
+  //    a literal built-in def key ────────────────────────────────────────────
+
+  /**
+   * This def's approval is NOT a generic `approveNode` action: plan refine and
+   * build approval are built-in flow actions the UI routes to their own
+   * endpoints (§T3/F2). Default false — a declarative node's hold IS the
+   * generic approval.
+   */
+  readonly builtinApproval: boolean = false;
+
+  /**
+   * The role this def's kind occupies in the SDLC builtin chain (plan → build
+   * → review → resolve) — the catalog handle engine lookups route through
+   * instead of a literal def key (§T3/F1/F4). Null for defs with no chain role.
+   */
+  readonly chainRole: ChainRole | null = null;
+
+  /**
+   * Artifact kinds this def publishes that are first-class engine resources —
+   * the plan document the plan editor and approvals consume (§T3/F3). The
+   * engine scopes its resource queries through this instead of SQL-matching a
+   * literal kind.
+   */
+  readonly resourceArtifacts: readonly string[] = [];
+
+  /**
+   * The event source this def's consumers wait on — the CI gate node's
+   * trigger `wait_for` points at the pipeline source (§T3/F1). Null for defs
+   * nothing waits on.
+   */
+  readonly waitForKind: string | null = null;
 
   /**
    * The addressable output fields (the configurator's Contract tab). Built-ins
@@ -196,6 +233,17 @@ export abstract class NodeDefinition<I = unknown, O extends Record<string, unkno
    */
   triggerRuns(ctx: FlowCtx): NodeTriggerRun[] {
     return [{ input: this.triggerInput(ctx) }];
+  }
+
+  /**
+   * Fan-out (§5): the child template id this def fans out to by default, or
+   * null — the def auto-wraps itself ("a fallback default, not a hard
+   * binding — every other node auto-wraps itself", spec §1). The fan-out
+   * manager consults this instead of comparing the parent's def key to a
+   * literal (§T3/F5).
+   */
+  childTemplateId(): string | null {
+    return null;
   }
 
   /**

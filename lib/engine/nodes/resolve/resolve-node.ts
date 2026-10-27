@@ -15,6 +15,8 @@ export class ResolveNode extends NodeDefinition<ResolveInput, ResolveOutput> {
   readonly key = NODE_KEYS.RESOLVE;
   readonly label = "Resolve";
   readonly capabilities: NodeCapabilities = { panelTitle: "Comment resolution" };
+  /** Engine-dispatch metadata (§T3): the resolve kind occupies the chain's resolve role. */
+  override readonly chainRole = NODE_KEYS.RESOLVE;
   readonly promptKeys = [NODE_KEYS.RESOLVE] as const;
   readonly promptSections = [NODE_KEYS.RESOLVE] as const;
   readonly order = 50;

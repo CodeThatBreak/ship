@@ -2,6 +2,8 @@ import { db } from "../db";
 import type { FlowRow } from "../db/rows";
 import { templateStore, type TemplateGraph } from "./templates";
 import { nodeRegistry } from "./nodes/registry";
+import { NODE_KEYS } from "./nodes/keys";
+import type { ChainRole, NodeDefinition } from "./nodes/base";
 import {
   DEFAULT_FANOUT_OUTPUT,
   type NodeCapabilities,
@@ -123,7 +125,7 @@ export interface StepState {
 }
 
 /** The seeded child template id for build fan-out. */
-export const STEP_BUILD_TEMPLATE_ID = "tpl_step_build";
+export { STEP_BUILD_TEMPLATE_ID } from "./nodes/keys";
 
 export class StepFlowManager {
   /** Engine surface the manager drives (bound once by flow.ts at module load). */
@@ -147,6 +149,10 @@ export class StepFlowManager {
      *  the step child's runNode-with-feedback path, exactly like the SDLC
      *  chain's commit-fix reuses runNode for push rejections) */
     runNode(flowId: string, nodeKey: string, rawInput: unknown): Promise<string>;
+    /** the latest artifact version a chain role's def published as a
+     *  first-class resource (§T3/F3) — the plan version the mode resolution
+     *  reads, scoped through the plan def's metadata instead of a literal kind */
+    latestResourceArtifact<T>(flowId: string, role: ChainRole, columns?: string): T | undefined;
   } | null = null;
 
   /** Called once from flow.ts (module-load tail) — resolves the engine cycle. */
@@ -178,10 +184,8 @@ export class StepFlowManager {
 
   /** The plan node's published execution on the latest plan artifact (plan-meta `execution`). */
   publishedExecution(flowId: string): "whole" | "steps" | null {
-    const meta = db.get<{ meta: string | null }>(
-      `SELECT a.meta FROM artifacts a JOIN nodes n ON n.id=a.node_id
-       WHERE n.flow_id=? AND a.kind='plan' ORDER BY a.version DESC LIMIT 1`, flowId
-    )?.meta ?? null;
+    const meta = this.e.latestResourceArtifact<{ meta: string | null }>(flowId, NODE_KEYS.PLAN, "a.meta")
+      ?.meta ?? null;
     if (!meta) return null;
     try {
       const exec = JSON.parse(meta)?.execution;
@@ -231,10 +235,13 @@ export class StepFlowManager {
     const pending = planSteps.list(parentFlowId).filter((s) => s.status === "pending" && s.sub_flow_id == null);
     if (!pending.length) return false;
     const spec = templateStore.graphForFlow(parentFlowId)?.byKey.get(nodeKey);
+    // the parent def owns its fan-out fallback child (§T3/F5) — resolved like
+    // every def in the engine (built-in by key, declarative by row + instance)
+    const parentDef = spec ? nodeRegistry.resolve(spec.defKey ?? nodeKey, nodeKey) : undefined;
     // the child template resolves ONCE per expansion — a missing/unresolvable
     // child fails the node loudly before any child row exists
     const templateId = this.childTemplateId(
-      parentFlowId, nodeKey, spec?.defKey ?? nodeKey,
+      parentFlowId, nodeKey, parentDef,
       fanoutOf(this.e.nodeConfigFor(parentFlowId, nodeKey)));
     const childGraph = templateStore.graph(templateId);
     if (!childGraph?.nodes.length) {
@@ -408,17 +415,19 @@ export class StepFlowManager {
       .replace(/\{suffix\}/g, planBranch ?? "");
   }
 
-  /** Child template id: explicit `knob.child` | the seeded step build (build def) | auto-wrap. */
-  private childTemplateId(parentFlowId: string, nodeKey: string, parentDefKey: string, knob: FanoutKnob): string {
+  /** Child template id: explicit `knob.child` | the parent def's fallback child
+   *  (the build's seeded step build, §T3/F5) | auto-wrap. */
+  private childTemplateId(parentFlowId: string, nodeKey: string, parentDef: NodeDefinition | undefined, knob: FanoutKnob): string {
     if (knob.child) {
       if (!templateStore.flowTemplate(knob.child)) {
         throw new Error(`fan-out child template "${knob.child}" does not exist (the ${nodeKey} node's fan-out config)`);
       }
       return knob.child;
     }
-    // the build's fallback default (spec §1: "a fallback default, not a hard
+    // the def's fallback default (spec §1: "a fallback default, not a hard
     // binding — every other node auto-wraps itself")
-    if (parentDefKey === "build") return STEP_BUILD_TEMPLATE_ID;
+    const fallback = parentDef?.childTemplateId() ?? null;
+    if (fallback) return fallback;
     return this.autoWrap(parentFlowId, nodeKey);
   }
 

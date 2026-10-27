@@ -17,6 +17,7 @@ export {
 export {
   NodeDefinition,
   PROMPT_SOURCES,
+  type ChainRole,
   type NodePromptPreview,
   type NodeTriggerRun,
   type PromptPreviewParams,

@@ -11,9 +11,10 @@ import {
 } from "../db/rows";
 import { agentPortRegistry, type AgentRunResult } from "./ports/agent-runner";
 import { hostOf, type HostComment } from "./ports/git-host";
-import { nodeSupport, type FlowCtx } from "./nodes/base";
+import { nodeSupport, type ChainRole, type FlowCtx } from "./nodes/base";
 import { uncachedInputTokens } from "./nodes/base/usage-tracker";
 import { nodeRegistry } from "./nodes/registry";
+import { NODE_KEYS } from "./nodes/keys";
 import { declarativeDef } from "./nodes/declarative";
 import { planSteps, type PlanStepInput } from "./steps";
 import { NO_TASK_TYPE, SDLC_TEMPLATE_ID, templateStore, type TemplateGraph, type TemplateEdgeSpec } from "./templates";
@@ -600,14 +601,16 @@ export class FlowEngine {
     return nodeRegistry.resolve(this.defKeyOf(flowId, nodeKey), nodeKey);
   }
 
-  /** Engine internals shared with the SDLC builtin-chain module — not a public API. */
+  /** The ChainHost port the SDLC builtin-chain module drives (see
+   *  nodes/sdlc/chain.ts) — a deliberate narrow boundary, not a public API. */
   flowNodeConfig(flowId: string, nodeKey: string): Record<string, unknown> {
     return parseConfigSnapshot(db.get<{ config: string | null }>(
       `SELECT config FROM nodes WHERE flow_id=? AND node_key=?`, flowId, nodeKey)?.config ?? null);
   }
 
   /** Full config layer stack for a node instance: class ← app ← flow snapshot.
-   *  Engine internals shared with the SDLC builtin-chain module — not a public API. */
+   *  The ChainHost port the SDLC builtin-chain module drives (see
+   *  nodes/sdlc/chain.ts). */
   nodeConfigFor(flowId: string, nodeKey: string): Record<string, unknown> {
     const def = this.defOf(flowId, nodeKey);
     return mergeConfigLayers(def.defaultConfig(), appLayerConfig(def.key), this.flowNodeConfig(flowId, nodeKey));
@@ -616,7 +619,7 @@ export class FlowEngine {
   // ── public triggers ──────────────────────────────────────────────────────
 
   startPlan(flowId: string, prompt?: string, decompose?: boolean, model?: string, promptIsBody?: boolean, complex?: boolean): void {
-    const planKey = this.firstKeyOfType(flowId, "plan");
+    const planKey = this.keyOfRole(flowId, NODE_KEYS.PLAN);
     if (!planKey) throw new Error("this flow template has no plan node");
     this.setCurrentNode(flowId, planKey);
     this.bg(flowId, planKey, () => this.runNode(flowId, planKey, {
@@ -636,7 +639,7 @@ export class FlowEngine {
     fresh?: boolean,
     contextBlocks?: string[],
   ): void {
-    const planKey = this.firstKeyOfType(flowId, "plan");
+    const planKey = this.keyOfRole(flowId, NODE_KEYS.PLAN);
     if (!planKey) throw new Error("this flow template has no plan node");
     this.setCurrentNode(flowId, planKey);
     this.bg(flowId, planKey, () => this.runNode(flowId, planKey, {
@@ -650,9 +653,7 @@ export class FlowEngine {
   private assertPlanEditable(flowId: string) {
     const flow = rows.get(FlowRow, `SELECT * FROM flows WHERE id=?`, flowId);
     if (flow?.current_node) throw new Error(`wait for the ${flow.current_node} run to finish before editing steps`);
-    return db.get<{ id: string }>(
-      `SELECT a.id FROM artifacts a JOIN nodes n ON n.id=a.node_id
-       WHERE n.flow_id=? AND a.kind='plan' ORDER BY a.version DESC LIMIT 1`, flowId);
+    return this.latestResourceArtifact<{ id: string }>(flowId, NODE_KEYS.PLAN, "a.id");
   }
 
   /** Bulk-replace the checklist from the Plan view editor.
@@ -704,7 +705,7 @@ export class FlowEngine {
     db.emitEvent(flowId, null, "lifecycle", `plan checklist edited (${updated.length} steps)`, {
       // route the event to the tab that owns the checklist (§3.3 — stamped at
       // emit time; the feed no longer guesses from message text)
-      nodeKey: this.firstKeyOfType(flowId, "plan") ?? undefined,
+      nodeKey: this.keyOfRole(flowId, NODE_KEYS.PLAN) ?? undefined,
     });
     this.touch(flowId);
   }
@@ -723,8 +724,7 @@ export class FlowEngine {
     return templateStore.graphForFlow(flowId);
   }
 
-  /** Instance keys of the flow's template nodes with the given def key.
-   *  Engine internals shared with the SDLC builtin-chain module — not a public API. */
+  /** Instance keys of the flow's template nodes with the given def key. */
   keysOfType(flowId: string, defKey: string): string[] {
     const g = this.graph(flowId);
     if (g) return g.nodes.filter((n) => n.defKey === defKey).map((n) => n.key);
@@ -733,19 +733,58 @@ export class FlowEngine {
       .map((n) => n.node_key);
   }
 
-  /** Instance keys → first instance of a def key.
-   *  Engine internals shared with the SDLC builtin-chain module — not a public API. */
+  /** Instance keys → first instance of a def key. */
   firstKeyOfType(flowId: string, defKey: string): string | null {
     return this.keysOfType(flowId, defKey)[0] ?? null;
   }
 
+  // ── chain-role routing (§T3/F1, F4): the engine names chain roles, never
+  //    literal built-in def keys ─────────────────────────────────────────────
+
+  /** The catalog def holding a chain role (plan/build/review/resolve), or undefined. */
+  private roleDef(role: ChainRole) {
+    return nodeRegistry.all().find((d) => d.chainRole === role);
+  }
+
+  /** The instance key of the flow's node holding a chain role — the
+   *  metadata-routed lookup the SDLC chain module and panel entries consume. */
+  keyOfRole(flowId: string, role: ChainRole): string | null {
+    const def = this.roleDef(role);
+    return def ? this.firstKeyOfType(flowId, def.key) : null;
+  }
+
+  /** Artifact kinds a chain role's def publishes as first-class engine
+   *  resources (§T3/F3) — resource queries scope through this, not a literal kind. */
+  private resourceKinds(role: ChainRole): readonly string[] {
+    return this.roleDef(role)?.resourceArtifacts ?? [];
+  }
+
   /**
-   * Role lookups: the CI gate node (waits on the pipeline source), and the
+   * The latest artifact version a chain role's def published as a first-class
+   * resource (§T3/F3) — e.g. the plan document the plan editor and the
+   * approval flow consume. Also on the StepFlowManager's engine surface
+   * (publishedExecution reads the plan version through it).
+   */
+  latestResourceArtifact<T>(flowId: string, role: ChainRole, columns = "a.*"): T | undefined {
+    const kinds = this.resourceKinds(role);
+    if (!kinds.length) return undefined;
+    return db.get<T>(
+      `SELECT ${columns} FROM artifacts a JOIN nodes n ON n.id=a.node_id
+       WHERE n.flow_id=? AND a.kind IN (${kinds.map(() => "?").join(",")})
+       ORDER BY a.version DESC LIMIT 1`, flowId, ...kinds);
+  }
+
+  /**
+   * Role lookups: the CI gate node (waits on the wait-source def's event
+   * source — the pipeline kind declares `waitForKind`, §T3/F1), and the
    * post-gate chain [gate, …] from the template graph.
-   * Engine internals shared with the SDLC builtin-chain module — not a public API.
+   * The ChainHost port the SDLC builtin-chain module drives (see
+   * nodes/sdlc/chain.ts) — a deliberate narrow boundary.
    */
   gateKey(flowId: string): string | null {
-    return templateStore.waitNodeKey(flowId, "pipeline") ?? this.firstKeyOfType(flowId, "pipeline");
+    const source = nodeRegistry.all().find((d) => d.waitForKind);
+    if (!source?.waitForKind) return null;
+    return templateStore.waitNodeKey(flowId, source.waitForKind) ?? this.firstKeyOfType(flowId, source.key);
   }
 
   /** def key of a node instance (for def resolution). */
@@ -1131,7 +1170,7 @@ export class FlowEngine {
   }
 
   approvePlan(flowId: string, executionOverride?: "whole" | "steps"): void {
-    const planKey = this.firstKeyOfType(flowId, "plan");
+    const planKey = this.keyOfRole(flowId, NODE_KEYS.PLAN);
     if (!planKey) throw new Error("this flow template has no plan node");
     // Phase 3B: the plan panel's override chip — the user forced whole/steps
     // at approve. Recorded in the plan version's plan-meta (execution +
@@ -1140,9 +1179,7 @@ export class FlowEngine {
     // auditable per version. When the forced value equals the published one,
     // the approve is a no-op for the meta.
     if (executionOverride === "whole" || executionOverride === "steps") {
-      const plan = db.get<{ id: string; meta: string | null }>(
-        `SELECT a.* FROM artifacts a JOIN nodes n ON n.id=a.node_id
-         WHERE n.flow_id=? AND a.kind='plan' ORDER BY a.version DESC LIMIT 1`, flowId);
+      const plan = this.latestResourceArtifact<{ id: string; meta: string | null }>(flowId, NODE_KEYS.PLAN);
       if (!plan) throw new Error("no plan to approve");
       let meta: Record<string, unknown> = {};
       try {
@@ -1163,9 +1200,7 @@ export class FlowEngine {
           { nodeKey: planKey });
       }
     }
-    const plan = db.get<{ id: string; content: string; meta: string | null }>(
-      `SELECT a.* FROM artifacts a JOIN nodes n ON n.id=a.node_id
-       WHERE n.flow_id=? AND a.kind='plan' ORDER BY a.version DESC LIMIT 1`, flowId);
+    const plan = this.latestResourceArtifact<{ id: string; content: string; meta: string | null }>(flowId, NODE_KEYS.PLAN);
     if (!plan) throw new Error("no plan to approve");
     db.run(`UPDATE artifacts SET status='approved' WHERE id=?`, plan.id);
     this.setNodeStatus(flowId, planKey, "approved");
@@ -1231,10 +1266,15 @@ export class FlowEngine {
 
   /** The resolve quiet period per flow (ms) — app layer + resolve `quiet_minutes` knob. */
   resolveDelayMs(flowId?: string): number {
-    const resolveKey = flowId ? this.firstKeyOfType(flowId, "resolve") : null;
+    const resolveDef = this.roleDef(NODE_KEYS.RESOLVE);
+    const base = resolveDef ? appLayerConfig(resolveDef.key) : {};
+    if (!flowId || !resolveDef) {
+      return configNumber(mergeConfigLayers(base), "quiet_minutes", 10) * 60_000;
+    }
+    const resolveKey = this.firstKeyOfType(flowId, resolveDef.key);
     const cfg = mergeConfigLayers(
-      appLayerConfig("resolve"),
-      resolveKey ? this.flowNodeConfig(flowId!, resolveKey) : {},
+      base,
+      resolveKey ? this.flowNodeConfig(flowId, resolveKey) : {},
     );
     return configNumber(cfg, "quiet_minutes", 10) * 60_000;
   }
@@ -1327,8 +1367,8 @@ export class FlowEngine {
     if (node.status !== "awaiting_approval") {
       throw new Error(`${nodeKey} is not awaiting approval`);
     }
-    const defKey = this.defKeyOf(flowId, nodeKey);
-    if (defKey === "plan" || defKey === "build") throw new Error(`${nodeKey} approval belongs to its built-in flow actions`);
+    const def = this.defOf(flowId, nodeKey);
+    if (def.builtinApproval) throw new Error(`${nodeKey} approval belongs to its built-in flow actions`);
     db.emitEvent(flowId, node.id, "lifecycle", `${nodeKey} approved`);
     this.setNodeStatus(flowId, nodeKey, "approved");
 

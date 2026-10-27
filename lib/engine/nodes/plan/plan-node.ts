@@ -268,6 +268,13 @@ export class PlanNode extends NodeDefinition<PlanInput, PlanOutput> {
     panelTitle: "Implementation plan",
   };
 
+  /** Engine-dispatch metadata (§T3): the plan approval is a built-in flow
+   *  action (refine), the plan kind occupies the chain's plan role, and the
+   *  "plan" artifact is the first-class resource the editor/approvals consume. */
+  override readonly builtinApproval = true;
+  override readonly chainRole = NODE_KEYS.PLAN;
+  override readonly resourceArtifacts = [NODE_KEYS.PLAN] as const;
+
   readonly inputSchema = PlanInput;
   readonly outputSchema = PlanOutput;
 
