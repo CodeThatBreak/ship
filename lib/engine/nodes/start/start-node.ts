@@ -1,5 +1,4 @@
 // ── the flow entry node ──────────────────────────────────────────────────────
-import { db } from "../../../db";
 import { z } from "zod";
 import { NodeDefinition, type FlowCtx, type NodeTriggerRun, type RunOutcome } from "../base";
 import type { NodeCapabilities } from "../base/capabilities";
@@ -73,7 +72,7 @@ export class StartNode extends NodeDefinition<StartPayload, StartPayload> {
       event = `Flow started — publishing ${Object.keys(output).join(", ") || "no values"}`;
     }
     this.support.setNode(node.id, { status: "done", output: JSON.stringify(output) });
-    db.emitEvent(ctx.flow.id, node.id, "lifecycle", event);
+    this.support.emitLifecycle(ctx.flow.id, node.id, event);
     return {
       output,
       status: "done",

@@ -1,5 +1,4 @@
 import { z } from "zod";
-import { db } from "../../../db";
 import type { NodeRow } from "../../../db/rows";
 import type { AgentRunResult } from "../../ports/agent-runner";
 import { agentRunner, type AgentRunner, type AgentStartInput } from "./agent-runner";
@@ -74,7 +73,7 @@ export interface NodePromptPreview {
  * and restart recovery. The orchestrator (flow.ts) only knows the registry.
  *
  * Shared infrastructure (row persistence, run execution, context facts) is
- * injected as services — override them in tests by subclassing.
+ * injected as services — pass your own instances to the constructor in tests.
  */
 export abstract class NodeDefinition<I = unknown, O extends Record<string, unknown> = Record<string, unknown>> {
   /** stable node key, e.g. "plan" */
@@ -145,10 +144,21 @@ export abstract class NodeDefinition<I = unknown, O extends Record<string, unkno
   /** Whether this node can be retried from its recorded input. */
   readonly retryable: boolean = true;
 
-  /** Shared services (singletons by default). */
-  protected readonly support: NodeSupport = nodeSupport;
-  protected readonly runner: AgentRunner = agentRunner;
-  protected readonly ctxHelper: FlowContextHelper = flowCtxHelper;
+  /** Shared services (constructor-injected; the singletons are the defaults).
+   *  Tests override them by passing their own instances to the constructor. */
+  protected readonly support: NodeSupport;
+  protected readonly runner: AgentRunner;
+  protected readonly ctxHelper: FlowContextHelper;
+
+  constructor(
+    support: NodeSupport = nodeSupport,
+    runner: AgentRunner = agentRunner,
+    ctxHelper: FlowContextHelper = flowCtxHelper,
+  ) {
+    this.support = support;
+    this.runner = runner;
+    this.ctxHelper = ctxHelper;
+  }
 
   /**
    * Build the input for a run. `raw` comes from the orchestrator (UI action,
@@ -351,10 +361,9 @@ export abstract class NodeDefinition<I = unknown, O extends Record<string, unkno
       agent_id: this.support.lastAgentId(node.id),
       output: JSON.stringify(validatedOutput),
     });
-    db.emitEvent(
+    this.support.emitLifecycle(
       ctx.flow.id,
       node.id,
-      "lifecycle",
       opts?.note ? `${outcome.event} (${opts.note})` : outcome.event,
       outcome.eventData,
     );

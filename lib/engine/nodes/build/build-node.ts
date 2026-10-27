@@ -1,6 +1,5 @@
-import { db } from "../../../db";
 import { z } from "zod";
-import { rows, NodeRow } from "../../../db/rows";
+import type { NodeRow } from "../../../db/rows";
 import type { AgentRunResult } from "../../ports/agent-runner";
 import { localGit } from "../../../git/local";
 import { prompts } from "../../prompts";
@@ -70,15 +69,11 @@ export class BuildNode extends NodeDefinition<BuildInput, BuildOutput> {
    * plans come back as sequential runs.
    */
   override triggerRuns(ctx: FlowCtx): NodeTriggerRun[] {
-    const plan = db.get<{ id: string; content: string; meta: string | null }>(
-      `SELECT a.id, a.content, a.meta FROM artifacts a JOIN nodes n ON n.id=a.node_id
-       WHERE n.flow_id=? AND n.type=? AND a.kind='plan' ORDER BY a.version DESC LIMIT 1`,
-      ctx.flow.id, NODE_KEYS.PLAN
-    );
+    const plan = this.support.latestArtifact(ctx.flow.id, "plan", { nodeType: NODE_KEYS.PLAN });
     if (!plan) throw new Error("no plan to build — approve the plan first");
 
     // carry the model selected for the plan run into the build
-    const planNode = rows.get(NodeRow, `SELECT * FROM nodes WHERE flow_id=? AND type=?`, ctx.flow.id, NODE_KEYS.PLAN);
+    const planNode = this.support.nodeByType(ctx.flow.id, NODE_KEYS.PLAN);
     const planModel = (planNode?.input as { model?: string } | null)?.model ?? undefined;
 
     // structured branches from the plan-meta (validated by the plan node at save time)
@@ -92,7 +87,7 @@ export class BuildNode extends NodeDefinition<BuildInput, BuildOutput> {
       const sorted = BuildNode.topoSortBranches(branches);
       // branch rows first (pending) — today's approvePlan behavior
       sorted.forEach((b, i) => branchStore.upsert(ctx.flow.id, b.name, { title: b.title, order: i, status: "pending" }));
-      db.emitEvent(ctx.flow.id, null, "lifecycle", `plan approved with ${branches.length} branches — building sequentially`,
+      this.support.emitLifecycle(ctx.flow.id, null, `plan approved with ${branches.length} branches — building sequentially`,
         { nodeKey: planNode?.node_key ?? NODE_KEYS.PLAN });
       return sorted.map((b) => ({
         input: {
@@ -251,7 +246,7 @@ export class BuildNode extends NodeDefinition<BuildInput, BuildOutput> {
         : result.git?.branches?.[0]?.branch ?? branch;
     if (!resultBranch) throw new Error("build finished but no branch was pushed");
 
-    db.run(`UPDATE flows SET mr_branch=? WHERE id=?`, resultBranch, ctx.flow.id);
+    this.support.setFlowBranch(ctx.flow.id, resultBranch);
     ctx.flow.mr_branch = resultBranch;
 
     if (branchInfo) {
@@ -287,9 +282,7 @@ export class BuildNode extends NodeDefinition<BuildInput, BuildOutput> {
     const node = this.node(ctx);
     if (!node.agent_id) {
       // no build agent yet — treat as a full build with the latest plan + note
-      const plan = db.get<{ content: string }>(
-        `SELECT a.content FROM artifacts a JOIN nodes n ON n.id=a.node_id
-         WHERE n.flow_id=? AND a.kind='plan' ORDER BY a.version DESC LIMIT 1`, ctx.flow.id);
+      const plan = this.support.latestArtifact(ctx.flow.id, "plan");
       return this.run(ctx, this.inputSchema.parse({
         plan: (plan?.content ?? "") + `\n\nDeveloper note: ${feedback}`,
         model: model ?? null,
@@ -360,9 +353,7 @@ export class BuildNode extends NodeDefinition<BuildInput, BuildOutput> {
     const config = this.previewConfig(node);
     const branch = ctx.flow.mr_branch ?? this.ctxHelper.buildBranch(ctx);
     const mode = this.ctxHelper.execMode(ctx);
-    const planRow = db.all<{ content: string }>(
-      `SELECT a.content FROM artifacts a JOIN nodes n ON n.id=a.node_id
-       WHERE n.flow_id=? AND a.kind='plan' ORDER BY a.version DESC LIMIT 1`, ctx.flow.id)[0];
+    const planRow = this.support.latestArtifact(ctx.flow.id, "plan");
     const planContent = planRow?.content ?? "(no plan yet)";
     const instr = mode === "local"
       ? `Implement the following approved plan for a ${this.ctxHelper.taskLabel(ctx)} ticket. First create and check out a new git branch named "${branch}" (from the repo's default branch), then make the code changes, commit them, and push the branch to origin. Do NOT open a merge request.`
@@ -393,7 +384,7 @@ export class BuildNode extends NodeDefinition<BuildInput, BuildOutput> {
   async recoverBranch(ctx: FlowCtx, node: NodeRow, branch: string, note: string): Promise<void> {
     // idempotent: a concurrent reconcile may have already recovered this node
     if (node.status !== "running") return;
-    db.run(`UPDATE flows SET mr_branch=? WHERE id=?`, branch, ctx.flow.id);
+    this.support.setFlowBranch(ctx.flow.id, branch);
     ctx.flow.mr_branch = branch;
     const diff = await this.makeDiff(ctx, branch);
     const art = this.support.saveArtifact(
@@ -405,7 +396,7 @@ export class BuildNode extends NodeDefinition<BuildInput, BuildOutput> {
       status: "awaiting_approval",
       output: JSON.stringify(this.outputSchema.parse({ branch, latestArtifact: art.id })),
     });
-    db.emitEvent(ctx.flow.id, node.id, "lifecycle",
+    this.support.emitLifecycle(ctx.flow.id, node.id,
       `build recovered on branch ${branch}; diff ready for review (${note})`,
       { stat: diff?.stat, recovered: true });
   }

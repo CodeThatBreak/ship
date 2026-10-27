@@ -1,4 +1,3 @@
-import { db } from "../../../db";
 import { z } from "zod";
 import type { AgentRunResult } from "../../ports/agent-runner";
 import { PlanStepRow, rows, type NodeRow } from "../../../db/rows";
@@ -8,7 +7,7 @@ import { NodeDefinition, type FlowCtx, type NodePromptPreview, type PromptPrevie
 import type { NodeCapabilities } from "../base/capabilities";
 import { NODE_KEYS } from "../keys";
 import type { ConfigField } from "../../node-config";
-import { DEFAULT_MCP_SOURCES, appLayerConfig, configString, mergeConfigLayers, mcpSourcesOf, mcpSourcesSchema, mcpSourceConfigFields, parseConfigSnapshot, type SettingSource } from "../../node-config";
+import { DEFAULT_MCP_SOURCES, appLayerConfig, configString, mergeConfigLayers, mcpSourcesOf, mcpSourcesSchema, mcpSourceConfigFields, type SettingSource } from "../../node-config";
 import { PlanMetaParser, type PlanParseResult } from "./plan-meta-parser";
 import {
   PlanInput,
@@ -339,8 +338,8 @@ export class PlanNode extends NodeDefinition<PlanInput, PlanOutput> {
     if (input.branchRef && !scoped) {
       // Edge case (§9): branchRef on a simple plan or unknown branch name →
       // fall back to a whole-plan refine with a lifecycle note, never hard-fail.
-      db.emitEvent(
-        ctx.flow.id, node.id, "lifecycle",
+      this.support.emitLifecycle(
+        ctx.flow.id, node.id,
         `branch "${input.branchRef}" not found in the current plan — refining the whole plan instead`,
       );
     }
@@ -459,7 +458,7 @@ export class PlanNode extends NodeDefinition<PlanInput, PlanOutput> {
       });
       const event =
         `branch "${branchName}" sub-plan was malformed after retry — plan v${scoped.latest.art.version} kept, retry when ready`;
-      db.emitEvent(ctx.flow.id, node.id, "lifecycle", event);
+      this.support.emitLifecycle(ctx.flow.id, node.id, event);
       return { status: "failed", output, event, reply: markdown || "(malformed sub-plan response)" };
     }
 
@@ -501,7 +500,7 @@ export class PlanNode extends NodeDefinition<PlanInput, PlanOutput> {
 
     const event =
       `branch '${branchName}' sub-plan refined · ${stepCount} steps ${diffNote} — other branches untouched`;
-    db.emitEvent(ctx.flow.id, node.id, "lifecycle", event);
+    this.support.emitLifecycle(ctx.flow.id, node.id, event);
 
     return { status: "awaiting_approval", output, event, reply: data.markdown };
   }
@@ -745,11 +744,9 @@ export class PlanNode extends NodeDefinition<PlanInput, PlanOutput> {
 
   /** Previous plan versions — off by default for both modes (dead code kept reachable via the picker). */
   private renderVersions(flowId: string): string {
-    const artifacts = db.all<{ content: string; version: number }>(
-      `SELECT a.content, a.version FROM artifacts a JOIN nodes n ON n.id = a.node_id
-       WHERE n.flow_id = ? AND a.kind = 'plan' ORDER BY a.version DESC LIMIT 3`,
-      flowId,
-    );
+    const artifacts = this.support
+      .artifactsOfKind(flowId, "plan", { limit: 3 })
+      .map((a) => ({ content: a.content, version: a.version }));
     if (!artifacts.length) return "";
     return artifacts
       .map((a) => `--- plan v${a.version} ---\n${a.content.slice(0, 3000)}`)
@@ -785,11 +782,7 @@ export class PlanNode extends NodeDefinition<PlanInput, PlanOutput> {
     meta: PlanMeta;
     rawMeta: Record<string, unknown>;
   } | null {
-    const row = db.get<{ id: string; version: number; content: string; meta: string | null }>(
-      `SELECT a.id, a.version, a.content, a.meta FROM artifacts a JOIN nodes n ON n.id = a.node_id
-       WHERE n.flow_id = ? AND a.kind = 'plan' ORDER BY a.version DESC LIMIT 1`,
-      flowId,
-    );
+    const row = this.support.latestArtifact(flowId, "plan");
     if (!row) return null;
     let meta: PlanMeta = { steps: [], branches: [] };
     let rawMeta: Record<string, unknown> = {};
@@ -893,8 +886,8 @@ export class PlanNode extends NodeDefinition<PlanInput, PlanOutput> {
     if (!parsed.data) {
       // Retry once with error feedback
       const errorList = parsed.errors.map((e) => `  - ${e.path ? `${e.path}: ` : ""}${e.message}`).join("\n");
-      db.emitEvent(
-        ctx.flow.id, node.id, "lifecycle",
+      this.support.emitLifecycle(
+        ctx.flow.id, node.id,
         `${opts.label} validation failed — retrying with feedback (${parsed.errors.length} error${parsed.errors.length > 1 ? "s" : ""})`,
       );
 
@@ -992,12 +985,18 @@ export class PlanNode extends NodeDefinition<PlanInput, PlanOutput> {
 
   /** The plan node's `execution_default` knob (class ← app ← flow snapshot). */
   private executionDefault(flowId: string): "whole" | "steps" | "follow" {
+    // defensive (parseConfigSnapshot's old fallback): a malformed config
+    // column is treated as unset, never fails the whole plan run
+    let config: Record<string, unknown> | null = null;
+    try {
+      config = this.support.nodeByType(flowId, NODE_KEYS.PLAN)?.config ?? null;
+    } catch {
+      /* malformed config column — treat as unset */
+    }
     const raw = mergeConfigLayers(
       this.defaultConfig(),
       appLayerConfig(this.key),
-      parseConfigSnapshot(db.get<{ config: string | null }>(
-        `SELECT config FROM nodes WHERE flow_id=? AND type=?`, flowId, NODE_KEYS.PLAN
-      )?.config ?? null),
+      config,
     )["execution_default"];
     return raw === "steps" || raw === "follow" ? raw : "whole";
   }
@@ -1039,7 +1038,7 @@ export class PlanNode extends NodeDefinition<PlanInput, PlanOutput> {
     const event = malformed
       ? `${kind} generated but response is malformed — fix the format and retry`
       : `${kind} v${art.version} ready for review${branchNote}${stepNote}`;
-    db.emitEvent(ctx.flow.id, node.id, "lifecycle", event);
+    this.support.emitLifecycle(ctx.flow.id, node.id, event);
 
     return { status, output, event, reply: text };
   }
@@ -1117,8 +1116,8 @@ export class PlanNode extends NodeDefinition<PlanInput, PlanOutput> {
         }),
       ),
     });
-    db.emitEvent(
-      ctx.flow.id, node.id, "lifecycle",
+    this.support.emitLifecycle(
+      ctx.flow.id, node.id,
       `plan recovered (${note}) — ${planMeta ? "ready for review" : "malformed response, retry needed"}`,
     );
     return true;

@@ -1,5 +1,4 @@
 import { z } from "zod";
-import { db } from "../../../db";
 import type { NodeRow } from "../../../db/rows";
 import type { AgentRunResult } from "../../ports/agent-runner";
 import { NodeDefinition, type FlowCtx, type RunOutcome } from "../base";
@@ -121,7 +120,7 @@ export class DecisionTemplateNode extends NodeDefinition<Record<string, unknown>
       status: "approved",
       output: JSON.stringify({ ...passed, chosen, rationale: rationale ?? "chosen by the user" }),
     });
-    db.emitEvent(flowId, node.id, "lifecycle", `branch chosen: ${chosen.join(" + ")}`);
+    this.support.emitLifecycle(flowId, node.id, `branch chosen: ${chosen.join(" + ")}`);
   }
 
   validateChoice(chosen: string[]): void {

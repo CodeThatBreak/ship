@@ -1,4 +1,3 @@
-import { db } from "../../../db";
 import { z } from "zod";
 import type { NodeRow } from "../../../db/rows";
 import { gitHostRegistry, type HostJob } from "../../ports/git-host";
@@ -133,17 +132,13 @@ export class PipelineNode extends NodeDefinition<
     branchName?: string | null,
   ): { mrIid: number; mrBranch: string | null } {
     if (branchName) {
-      const bRow = db.get<{ mr_iid: number | null }>(
-        `SELECT mr_iid FROM branches WHERE flow_id=? AND name=?`,
-        ctx.flow.id,
-        branchName,
-      );
-      if (!bRow?.mr_iid)
+      const mrIid = this.support.branchMrIid(ctx.flow.id, branchName);
+      if (!mrIid)
         throw new Error(
           `no merge request for branch ${branchName} — create it first`,
         );
       return {
-        mrIid: bRow.mr_iid,
+        mrIid,
         mrBranch: this.ctxHelper.buildBranch(ctx, branchName),
       };
     }
@@ -192,24 +187,22 @@ export class PipelineNode extends NodeDefinition<
     const host = gitHostRegistry.forRepo(repoUrl);
     const errMsg = (e: unknown) =>
       (e instanceof Error ? e.message : String(e)).slice(0, 300);
-    db.emitEvent(
+    this.support.emitLifecycle(
       ctx.flow.id,
       nodeId,
-      "lifecycle",
       `no pipeline found for ${mrBranch ?? "the MR"} — triggering one via the git host API…`,
     );
     try {
       const p = await host.createCRPipeline(repoUrl, mrIid);
-      db.emitEvent(
+      this.support.emitLifecycle(
         ctx.flow.id,
         nodeId,
-        "lifecycle",
         `pipeline #${p.id} triggered (merge-request pipeline)`,
       );
       return p.id;
     } catch (e1) {
       if (!mrBranch) {
-        db.emitEvent(
+        this.support.emit(
           ctx.flow.id,
           nodeId,
           "error",
@@ -219,15 +212,14 @@ export class PipelineNode extends NodeDefinition<
       }
       try {
         const p = await host.createPipeline(repoUrl, mrBranch);
-        db.emitEvent(
+        this.support.emitLifecycle(
           ctx.flow.id,
           nodeId,
-          "lifecycle",
           `pipeline #${p.id} triggered (branch pipeline)`,
         );
         return p.id;
       } catch (e2) {
-        db.emitEvent(
+        this.support.emit(
           ctx.flow.id,
           nodeId,
           "error",
@@ -262,10 +254,9 @@ export class PipelineNode extends NodeDefinition<
         .catch(() => false);
       if (ok) {
         played++;
-        db.emitEvent(
+        this.support.emitLifecycle(
           ctx.flow.id,
           nodeId,
-          "lifecycle",
           `played manual job "${j.name}" (#${j.id}) on pipeline #${pipelineId}`,
         );
       }
@@ -344,10 +335,7 @@ export class PipelineNode extends NodeDefinition<
 
     for (;;) {
       // user cancelled / retry started while we were waiting — stop quietly
-      const statusNow = db.get<{ status: string }>(
-        `SELECT status FROM nodes WHERE id=?`,
-        node.id,
-      )?.status;
+      const statusNow = this.support.nodeStatus(node.id);
       if (statusNow !== "running") throw new Error("pipeline wait cancelled");
 
       // Always re-read the MR head: the watched pipeline can be superseded by a
@@ -364,10 +352,9 @@ export class PipelineNode extends NodeDefinition<
       // from dragging the UI back to a stale/failed state
       if (head && (!pipe || head.id !== pipe.id)) {
         if (pipe && pipe.id !== head.id && !fixedIds.has(pipe.id)) {
-          db.emitEvent(
+          this.support.emitLifecycle(
             ctx.flow.id,
             node.id,
-            "lifecycle",
             `pipeline #${pipe.id} superseded by head pipeline #${head.id} — watching the head`,
           );
         }
@@ -397,7 +384,7 @@ export class PipelineNode extends NodeDefinition<
         const seen = `${pipe.id}:${pipe.status}`;
         if (seen !== lastSeen) {
           lastSeen = seen;
-          db.emitEvent(
+          this.support.emit(
             ctx.flow.id,
             node.id,
             "pipeline",
@@ -421,10 +408,9 @@ export class PipelineNode extends NodeDefinition<
             status: "done",
             output: JSON.stringify(output),
           });
-          db.emitEvent(
+          this.support.emitLifecycle(
             ctx.flow.id,
             node.id,
-            "lifecycle",
             `pipeline #${pipe.id} green${fixes ? ` after ${fixes} fix run(s)` : ""} — ready for review`,
           );
           return {
@@ -438,7 +424,7 @@ export class PipelineNode extends NodeDefinition<
         if (pipe.status === "failed") {
           if (fixes >= maxFixAttempts) {
             const msg = `pipeline #${pipe.id} still failing after ${maxFixAttempts} fix run(s) — fix manually or retry`;
-            db.emitEvent(ctx.flow.id, node.id, "error", msg, {
+            this.support.emit(ctx.flow.id, node.id, "error", msg, {
               pipelineId: pipe.id,
             });
             this.support.setNode(node.id, {
@@ -472,7 +458,7 @@ export class PipelineNode extends NodeDefinition<
 
         if (pipe.status === "canceled" || pipe.status === "skipped") {
           const msg = `pipeline #${pipe.id} was ${pipe.status} — retry the pipeline node after starting a new pipeline`;
-          db.emitEvent(ctx.flow.id, node.id, "error", msg, {
+          this.support.emit(ctx.flow.id, node.id, "error", msg, {
             pipelineId: pipe.id,
           });
           this.support.setNode(node.id, { status: "failed" });
@@ -489,10 +475,9 @@ export class PipelineNode extends NodeDefinition<
             if (played === 0 && !state.warned) {
               // nothing playable — some manual jobs need a human in the GitLab UI
               state.warned = true;
-              db.emitEvent(
+              this.support.emitLifecycle(
                 ctx.flow.id,
                 node.id,
-                "lifecycle",
                 `pipeline #${pipe.id} is waiting on manual job(s) — playing them via the API; if none start, run them from GitLab`,
               );
             }
@@ -594,10 +579,9 @@ export class PipelineNode extends NodeDefinition<
           { userRules },
         );
 
-    db.emitEvent(
+    this.support.emitLifecycle(
       ctx.flow.id,
       node.id,
-      "lifecycle",
       `pipeline #${pipelineId} failed — fix run ${attempt}/${maxFixAttempts}`,
       { pipelineId, attempt },
     );
@@ -623,10 +607,9 @@ export class PipelineNode extends NodeDefinition<
       result.result ?? "",
       { pipelineId, attempt },
     );
-    db.emitEvent(
+    this.support.emitLifecycle(
       ctx.flow.id,
       node.id,
-      "lifecycle",
       `fix run ${attempt} pushed to ${mrBranch} — waiting for the new pipeline`,
       { pipelineId },
     );

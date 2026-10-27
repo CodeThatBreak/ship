@@ -2,14 +2,12 @@ import { existsSync, readFileSync, rmSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { z } from "zod";
-import { db } from "../../../db";
 import type { NodeRow } from "../../../db/rows";
 import type { AgentRunResult } from "../../ports/agent-runner";
 import { NodeDefinition, type FlowCtx, type RunOutcome } from "../base";
 import { templateStore } from "../../templates";
 import { ScriptDefSchema, type ScriptDef } from "../declarative-schemas";
 import { validateJsonSchema } from "../agent/json-schema-lite";
-import { flowCtxHelper } from "../base/flow-context";
 import { worktreeManager } from "../../worktree-lifecycle";
 import { workspaceForFlow } from "../../../git/local";
 
@@ -108,7 +106,7 @@ export class ScriptTemplateNode extends NodeDefinition<Record<string, unknown>, 
   async recover(ctx: FlowCtx, node: NodeRow, result: AgentRunResult, note: string): Promise<boolean> {
     if (result.status !== "finished") return false;
     this.support.setNode(node.id, { status: "failed" });
-    db.emitEvent(ctx.flow.id, node.id, "error",
+    this.support.emit(ctx.flow.id, node.id, "error",
       `${node.node_key} script finished while disconnected (${note}) — retrying re-runs the script; side effects may repeat`);
     return false;
   }
@@ -120,7 +118,7 @@ export class ScriptTemplateNode extends NodeDefinition<Record<string, unknown>, 
     if (!cfg.script?.trim()) {
       const msg = `${this.label}: no script configured — set one in the template editor`;
       this.support.setNode(node.id, { status: "failed" });
-      db.emitEvent(ctx.flow.id, node.id, "error", msg);
+      this.support.emit(ctx.flow.id, node.id, "error", msg);
       return { status: "failed", output: {}, event: msg, reply: msg };
     }
 
@@ -132,7 +130,7 @@ export class ScriptTemplateNode extends NodeDefinition<Record<string, unknown>, 
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : String(e);
       this.support.setNode(node.id, { status: "failed" });
-      db.emitEvent(ctx.flow.id, node.id, "error", msg);
+      this.support.emit(ctx.flow.id, node.id, "error", msg);
       return { status: "failed", output: {}, event: msg, reply: msg };
     }
 
@@ -148,7 +146,7 @@ export class ScriptTemplateNode extends NodeDefinition<Record<string, unknown>, 
       env,
     });
 
-    db.emitEvent(ctx.flow.id, node.id, "log",
+    this.support.emit(ctx.flow.id, node.id, "log",
       `${this.label}: ${bin} exited ${result.exitCode} (${((result.durationMs ?? 0) / 1000).toFixed(1)}s)${result.timedOut ? " — killed after timeout" : ""}`,
       {
         exitCode: result.exitCode,
@@ -179,7 +177,7 @@ export class ScriptTemplateNode extends NodeDefinition<Record<string, unknown>, 
     } catch (e: unknown) {
       const msg = `${this.label}: ${e instanceof Error ? e.message : String(e)}`;
       this.support.setNode(node.id, { status: "failed" });
-      db.emitEvent(ctx.flow.id, node.id, "error", msg);
+      this.support.emit(ctx.flow.id, node.id, "error", msg);
       return { status: "failed", output: {}, event: `${this.label} failed`, reply: msg };
     } finally {
       rmSync(outPath, { force: true });
@@ -230,12 +228,12 @@ export class ScriptTemplateNode extends NodeDefinition<Record<string, unknown>, 
       // explicitly asked for the flow workspace but no agent step created it
       // yet — ensure it the same way an unpinned agent run does (script-only
       // flows are first-class); when worktrees can't apply, keep the old error
-      const branch = ctx.flow.mr_branch ?? flowCtxHelper.buildBranch(ctx);
+      const branch = ctx.flow.mr_branch ?? this.ctxHelper.buildBranch(ctx);
       const binding = await worktreeManager.ensureFlowWorktree(ctx, branch, { nodeId });
       if (!binding.dir) return this.legacyWorkspaceError(); // worktrees can't apply (cloud mode)
       return binding.dir;
     }
-    const lp = flowCtxHelper.localPath(ctx);
+    const lp = this.ctxHelper.localPath(ctx);
     if (!lp) {
       throw new Error(
         `${this.label} runs with cwd=repo but its repo has no local path configured — register one on the Settings page, or set cwd=workspace`);

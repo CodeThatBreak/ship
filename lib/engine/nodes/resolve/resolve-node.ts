@@ -1,4 +1,3 @@
-import { db } from "../../../db";
 import type { NodeRow } from "../../../db/rows";
 import { z } from "zod";
 import { localGit } from "../../../git/local";
@@ -77,19 +76,16 @@ export class ResolveNode extends NodeDefinition<ResolveInput, ResolveOutput> {
     let mrIid: number | null;
     let mrBranch: string | null;
     if (input.branchName) {
-      const bRow = db.get<{ mr_iid: number | null }>(
-        `SELECT mr_iid FROM branches WHERE flow_id=? AND name=?`, ctx.flow.id, input.branchName);
-      if (!bRow?.mr_iid) throw new Error(`no merge request for branch ${input.branchName}`);
-      mrIid = bRow.mr_iid;
+      const branchMrIid = this.support.branchMrIid(ctx.flow.id, input.branchName);
+      if (!branchMrIid) throw new Error(`no merge request for branch ${input.branchName}`);
+      mrIid = branchMrIid;
       mrBranch = this.ctxHelper.buildBranch(ctx, input.branchName);
     } else {
       mrIid = ctx.flow.mr_iid;
       mrBranch = ctx.flow.mr_branch;
     }
 
-    const open = db.all<{ id: string; discussion_id: string | null; file_path: string | null; line: number | null; body: string }>(
-      `SELECT * FROM comments WHERE flow_id=? AND status IN ('open')`, ctx.flow.id
-    );
+    const open = this.support.openComments(ctx.flow.id);
     if (!open.length && !input.instructions) {
       this.support.setNode(node.id, { status: "done", output: JSON.stringify(this.outputSchema.parse({ resolved: 0 })) });
       return {
@@ -166,7 +162,7 @@ export class ResolveNode extends NodeDefinition<ResolveInput, ResolveOutput> {
                 .resolveComment(ctx.flow.repo_url ?? "", mrIid, c.discussion_id, true)
                 .catch(() => {});
             }
-            db.run(`UPDATE comments SET status='resolved', resolved_by='agent', updated_at=? WHERE id=?`, db.now(), c.id);
+            this.support.resolveComment(c.id);
           }
         }
         const codeChanged = await this.detectCodeChange(ctx, mrIid, mrBranch, before);

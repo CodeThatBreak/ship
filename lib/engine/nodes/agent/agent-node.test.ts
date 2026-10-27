@@ -89,13 +89,13 @@ function seedAgentNode(index: number): { flowId: string; nodeId: string; ctx: Fl
 
 /** A template instance whose config output is markdown — the default contract. */
 function agentNode(index: number, runner: AgentRunner): AgentTemplateNode {
-  const node = new AgentTemplateNode(
+  // T1 (phase 2): services are constructor-injected — the test stub rides the
+  // same seam production code uses, no field shadowing.
+  return new AgentTemplateNode(
     { id: `nt_${index}`, name: LABEL, description: null, config: {} },
     `agent_${index}`,
+    { runner },
   );
-  // F6: services are singleton field defaults until T1 — tests shadow them.
-  (node as unknown as { runner: AgentRunner }).runner = runner;
-  return node;
 }
 
 interface AppliedRows {

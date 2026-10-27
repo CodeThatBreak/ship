@@ -1,4 +1,3 @@
-import { db } from "../../../db";
 import type { FlowCtx, NodeTriggerRun, RunOutcome } from "../base";
 import type { FlowRow, NodeRow } from "../../../db/rows";
 import { prompts } from "../../prompts";
@@ -244,11 +243,7 @@ export class StepBuildNode extends BuildNode {
 
   /** The FULL parent plan markdown, so the child agent knows where its step sits. */
   private async parentPlanMarkdown(parentFlowId: string): Promise<string> {
-    const row = db.get<{ content: string }>(
-      `SELECT a.content FROM artifacts a JOIN nodes n ON n.id=a.node_id
-       WHERE n.flow_id=? AND a.kind='plan' ORDER BY a.version DESC LIMIT 1`,
-      parentFlowId
-    );
+    const row = this.support.latestArtifact(parentFlowId, "plan");
     return row?.content ?? "";
   }
 

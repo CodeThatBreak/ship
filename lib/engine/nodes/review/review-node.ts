@@ -1,4 +1,3 @@
-import { db } from "../../../db";
 import type { NodeRow } from "../../../db/rows";
 import { z } from "zod";
 import { gitHostRegistry } from "../../ports/git-host";
@@ -48,10 +47,9 @@ export class ReviewNode extends NodeDefinition<ReviewInput, ReviewOutput> {
 
   /** Resolve the MR (iid + git branch) for this review — per-branch or flow-level. */
   resolveMr(ctx: FlowCtx, branchName?: string | null): { mrIid: number; mrBranch: string | null } {    if (branchName) {
-      const bRow = db.get<{ mr_iid: number | null }>(
-        `SELECT mr_iid FROM branches WHERE flow_id=? AND name=?`, ctx.flow.id, branchName);
-      if (!bRow?.mr_iid) throw new Error(`no merge request for branch ${branchName} — approve the build first`);
-      return { mrIid: bRow.mr_iid, mrBranch: this.ctxHelper.buildBranch(ctx, branchName) };
+      const mrIid = this.support.branchMrIid(ctx.flow.id, branchName);
+      if (!mrIid) throw new Error(`no merge request for branch ${branchName} — approve the build first`);
+      return { mrIid, mrBranch: this.ctxHelper.buildBranch(ctx, branchName) };
     }
     if (!ctx.flow.mr_iid) throw new Error("no merge request yet — approve the build to create one first");
     return { mrIid: ctx.flow.mr_iid, mrBranch: ctx.flow.mr_branch };

@@ -1,5 +1,4 @@
 import { z } from "zod";
-import { db } from "../../../db";
 import type { NodeRow } from "../../../db/rows";
 import type { AgentRunResult } from "../../ports/agent-runner";
 import { NodeDefinition, type FlowCtx, type RunOutcome } from "../base";
@@ -94,7 +93,7 @@ export class HttpTemplateNode extends NodeDefinition<Record<string, unknown>, Re
   async recover(_ctx: FlowCtx, node: NodeRow, result: AgentRunResult, note: string): Promise<boolean> {
     if (result.status !== "finished") return false;
     this.support.setNode(node.id, { status: "failed" });
-    db.emitEvent(node.flow_id, node.id, "lifecycle",
+    this.support.emitLifecycle(node.flow_id, node.id,
       `${this.key} call finished while disconnected (${note}) — retry the node to re-issue it (calls are not re-run automatically)`);
     return true;
   }
@@ -142,7 +141,7 @@ export class HttpTemplateNode extends NodeDefinition<Record<string, unknown>, Re
       const defaultOutput = { status: res.status, ok: res.ok, body: parsedBody, headers: res.headers };
       const output = await this.mapResponse(cfg, defaultOutput);
 
-      db.emitEvent(ctx.flow.id, node.id, "lifecycle",
+      this.support.emitLifecycle(ctx.flow.id, node.id,
         `${this.label}: ${cfg.method} → ${res.status}${res.ok ? "" : " (not ok)"}`,
         { url: redactSecrets(url) });
 
@@ -152,7 +151,7 @@ export class HttpTemplateNode extends NodeDefinition<Record<string, unknown>, Re
       // immediate failure state — the engine's bg() wrapper would ALSO emit an
       // untagged error; mark + emit here so retries and the feed stay accurate
       this.support.setNode(node.id, { status: "failed" });
-      db.emitEvent(ctx.flow.id, node.id, "error", msg);
+      this.support.emit(ctx.flow.id, node.id, "error", msg);
       return { status: "failed", output: {}, event: `${this.label} failed`, eventData: { error: msg }, reply: msg };
     }
   }

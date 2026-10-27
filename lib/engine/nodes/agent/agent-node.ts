@@ -1,6 +1,7 @@
 import { z } from "zod";
 import type { NodeRow } from "../../../db/rows";
 import type { AgentRunResult } from "../../ports/agent-runner";
+import type { AgentRunner, FlowContextHelper, NodeSupport } from "../base";
 import { NodeDefinition, type FlowCtx, type PromptSource, type RunOutcome } from "../base";
 import { templateStore } from "../../templates";
 import { extractJson, validateJsonSchema } from "./json-schema-lite";
@@ -68,8 +69,9 @@ export class AgentTemplateNode extends NodeDefinition<Record<string, unknown>, R
   constructor(
     tmpl: { id: string; name: string; description: string | null; config: unknown },
     instanceKey?: string,
+    services: { support?: NodeSupport; runner?: AgentRunner; ctxHelper?: FlowContextHelper } = {},
   ) {
-    super();
+    super(services.support, services.runner, services.ctxHelper);
     // The def key (registry resolution) is the node_templates row id, but the
     // node row's node_key is the template instance key — every def ⇄ row
     // lookup (this.node(ctx)) keys on the instance key, so this.key carries it.
