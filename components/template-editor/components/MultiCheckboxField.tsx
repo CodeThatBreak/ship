@@ -53,8 +53,7 @@ export function MultiCheckboxField({
       </div>
       {selected.length === 0 && (
         <p className="text-[11px] text-muted-foreground m-0">
-          Nothing selected — the runtime default applies (inline servers
-          only).
+          Nothing selected — the node&apos;s runtime default applies.
         </p>
       )}
     </Field>

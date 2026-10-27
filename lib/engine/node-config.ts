@@ -19,6 +19,9 @@ export type SettingSource = (typeof SETTING_SOURCES)[number];
 /** Zod fragment for the knob on a node's config/def schema (default = today's behavior). */
 export const mcpSourcesSchema = z.array(z.enum(SETTING_SOURCES)).default([]);
 
+/** The "enable everything" knob value — SDLC plan + build default to it. */
+export const DEFAULT_MCP_SOURCES: SettingSource[] = ["all"];
+
 /**
  * The shared "MCP sources" `ConfigField` — spread into every agent-running
  * def's `configFields` (one shared field set, same pattern as `fanoutConfigFields`).
@@ -28,7 +31,7 @@ export const mcpSourceConfigFields: readonly ConfigField[] = [
     key: "mcp_sources",
     label: "MCP sources",
     type: "multi",
-    help: "Which ambient settings layers supply MCP servers for this node's agent runs (Cursor's local.settingSources): project = .cursor/mcp.json in the checkout, user = ~/.cursor/mcp.json on this machine, plugins = servers shipped by Cursor plugins, team/mdm = managed layers, all = every source the runtime knows. Empty (default) = inline servers only. Local runtime only — cloud runs always load project/team/plugins plus the dashboard servers.",
+    help: "Which ambient settings layers supply MCP servers for this node's agent runs (Cursor's local.settingSources): project = .cursor/mcp.json in the checkout, user = ~/.cursor/mcp.json on this machine, plugins = servers shipped by Cursor plugins, team/mdm = managed layers, all = every source the runtime knows. Empty = the node's class default (SDLC plan and build enable ALL sources; every other agent-running node loads inline servers only). Local runtime only — cloud runs always load project/team/plugins plus the dashboard servers.",
     options: [
       { value: "project", label: "project", description: ".cursor/mcp.json in the agent's checkout" },
       { value: "user", label: "user", description: "~/.cursor/mcp.json on this machine" },

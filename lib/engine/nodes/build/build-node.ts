@@ -9,7 +9,7 @@ import { NodeDefinition, type FlowCtx, type RunOutcome, type NodeTriggerRun } fr
 import { DEFAULT_FANOUT_OUTPUT, type NodeCapabilities } from "../base/capabilities";
 import { NODE_KEYS } from "../keys";
 import type { ConfigField } from "../../node-config";
-import { configString, fanoutConfigFields, mcpSourcesOf, mcpSourcesSchema, mcpSourceConfigFields } from "../../node-config";
+import { DEFAULT_MCP_SOURCES, configString, fanoutConfigFields, mcpSourcesOf, mcpSourcesSchema, mcpSourceConfigFields } from "../../node-config";
 import { branchStore } from "./branch-store";
 import { BuildInput, BuildOutput, type BuildBranchInfo } from "./schema";
 import { type PlanBranch } from "../plan/schema";
@@ -48,8 +48,8 @@ export class BuildNode extends NodeDefinition<BuildInput, BuildOutput> {
     fanout_mode: z.enum(["whole", "steps", "from-plan"]).default("whole"),
     fanout_child: z.string().nullable().default(null),
     fanout_parallel_max: z.number().int().min(1).default(1),
-    /** ambient MCP servers for build/refine agent runs (Cursor local.settingSources) */
-    mcp_sources: mcpSourcesSchema,
+    /** ambient MCP servers for build/refine agent runs — defaults to ALL sources enabled */
+    mcp_sources: mcpSourcesSchema.default(DEFAULT_MCP_SOURCES),
   });
   readonly configFields = [
     { key: "prompt_body", label: "Prompt body", type: "text", help: "User-editable prompt body for build runs." },

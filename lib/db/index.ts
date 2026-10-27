@@ -238,6 +238,7 @@ export class Database {
     this.normalizeLegacyModelSpecs(d);
     this.normalizeLegacyFlowTriggers(d);
     this.normalizeLegacyComments(d);
+    this.normalizeLegacyMcpSources(d);
   }
 
   /**
@@ -353,6 +354,36 @@ export class Database {
       };
       d.prepare(`UPDATE comments SET author=?, raw=? WHERE id=?`)
         .run(normalized.author, JSON.stringify(normalized), c.id);
+    }
+  }
+
+  /**
+   * Legacy data fix: SDLC plan/build/step_build nodes baked the `mcp_sources`
+   * knob's OLD empty default (`[]` = inline servers only) into their config
+   * snapshots — drop the stale empty value so the class default (ALL sources
+   * enabled) applies to existing flows too. Explicit non-empty picks are kept
+   * verbatim. Idempotent: after the drop nothing writes an empty array back
+   * (the config UI writes an absent key when every box is cleared), so the
+   * fix never clobbers a later explicit choice.
+   */
+  private normalizeLegacyMcpSources(d: SqliteDatabase.Database): void {
+    if (!this.hasTable(d, "nodes")) return;
+    const affected = d
+      .prepare(
+        `SELECT id, config FROM nodes
+         WHERE node_key IN ('plan','build','step_build') AND config LIKE '%mcp_sources%'`
+      )
+      .all() as { id: string; config: string }[];
+    const update = d.prepare(`UPDATE nodes SET config=? WHERE id=?`);
+    for (const n of affected) {
+      let cfg: Record<string, unknown> | null = null;
+      try { cfg = JSON.parse(n.config) as Record<string, unknown>; } catch { cfg = null; }
+      if (!cfg || typeof cfg !== "object") continue;
+      // empty (or invalid) = the old baked default — absent means the class
+      // default applies at run time (class ← app ← snapshot merge)
+      if (!Array.isArray(cfg.mcp_sources) || (cfg.mcp_sources as unknown[]).length > 0) continue;
+      delete cfg.mcp_sources;
+      update.run(JSON.stringify(cfg), n.id);
     }
   }
 

@@ -138,6 +138,10 @@ export function ConfigTab({
     );
   }
   const fields = contract?.config?.fields ?? [];
+  // the class/catalog defaults (from the contract) — shown in place when a
+  // knob has no override (e.g. the MCP sources field shows the node's
+  // all-sources default checked before anything was picked)
+  const defaults = (contract?.config?.defaults ?? {}) as Record<string, unknown>;
   // the prompt fields moved to the dedicated Prompt tab
   const nonPromptFields = fields.filter((f) => !promptEditorKeys.has(f.key));
   return (
@@ -160,6 +164,7 @@ export function ConfigTab({
           key={`${node.key}:${f.key}`}
           field={f}
           value={node.config?.[f.key]}
+          defaultValue={defaults[f.key]}
           companionText={companionTextOf(node.config, f.key)}
           varGroups={freeTextFields.has(f.key) ? varGroups : undefined}
           invalidRefs={invalidRefs}

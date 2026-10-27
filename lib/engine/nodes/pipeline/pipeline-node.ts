@@ -13,7 +13,7 @@ import { PipelineInput, PipelineOutput } from "./schema";
 /** Poll interval while waiting for a pipeline to reach a terminal state. */
 const POLL_MS_DEFAULT = 20_000;
 /** Give up waiting (node → failed, retryable) after this long. */
-const WAIT_TIMEOUT_MS_DEFAULT = 45 * 60_000;
+const WAIT_TIMEOUT_MS_DEFAULT = 80 * 60_000;
 /** Max agent fix attempts before failing the node for manual intervention. */
 const MAX_FIX_ATTEMPTS_DEFAULT = 3;
 /** Max times we press "play" on manual jobs for one pipeline. */
@@ -47,7 +47,10 @@ const FIX_PROMPT_KEY = "pipeline_fix";
  *  - an already-green head finishes immediately, so a retry after a timeout
  *    self-heals instead of re-waiting.
  */
-export class PipelineNode extends NodeDefinition<PipelineInput, PipelineOutput> {
+export class PipelineNode extends NodeDefinition<
+  PipelineInput,
+  PipelineOutput
+> {
   readonly key = NODE_KEYS.PIPELINE;
   readonly label = "Pipeline";
   readonly capabilities: NodeCapabilities = { panelTitle: "CI pipeline" };
@@ -66,32 +69,88 @@ export class PipelineNode extends NodeDefinition<PipelineInput, PipelineOutput> 
     /** user rules appended after the fix-run body, before the engine's locked blocks */
     fix_prompt_rules: z.string().optional(),
     max_fix_attempts: z.number().int().min(1).default(MAX_FIX_ATTEMPTS_DEFAULT),
-    poll_interval_sec: z.number().min(1).default(POLL_MS_DEFAULT / 1000),
+    poll_interval_sec: z
+      .number()
+      .min(1)
+      .default(POLL_MS_DEFAULT / 1000),
     /** play a manual/blocked pipeline's manual jobs via the API */
     play_manual_jobs: z.boolean().default(true),
     /** trigger a pipeline via the API when none exists on the MR head */
     auto_trigger_pipeline: z.boolean().default(true),
-    gate_timeout_min: z.number().min(1).default(WAIT_TIMEOUT_MS_DEFAULT / 60_000),
+    gate_timeout_min: z
+      .number()
+      .min(1)
+      .default(WAIT_TIMEOUT_MS_DEFAULT / 60_000),
   });
   readonly configFields = [
-    { key: "fix_prompt_body", label: "Fix-run prompt body", type: "text", help: "User-editable body for CI fix runs; internal contracts re-appended automatically." },
-    { key: "fix_prompt_rules", label: "Fix-run rules", type: "text", help: "Extra rules appended after the fix-run body, before the engine's locked instructions and the failed-job logs — on every fix run." },
-    { key: "max_fix_attempts", label: "Max fix attempts", type: "number", help: "Fix-agent runs per failing pipeline before manual intervention." },
-    { key: "poll_interval_sec", label: "Poll interval (s)", type: "number", help: "How often the gate re-reads the pipeline." },
-    { key: "play_manual_jobs", label: "Play manual jobs", type: "boolean", help: "Press 'play' on manual jobs via the git host API." },
-    { key: "auto_trigger_pipeline", label: "Auto-trigger pipeline", type: "boolean", help: "Trigger one via the API when none exists on the MR head." },
-    { key: "gate_timeout_min", label: "Gate timeout (min)", type: "number", help: "Give up waiting (retryable failure) after this long." },
+    {
+      key: "fix_prompt_body",
+      label: "Fix-run prompt body",
+      type: "text",
+      help: "User-editable body for CI fix runs; internal contracts re-appended automatically.",
+    },
+    {
+      key: "fix_prompt_rules",
+      label: "Fix-run rules",
+      type: "text",
+      help: "Extra rules appended after the fix-run body, before the engine's locked instructions and the failed-job logs — on every fix run.",
+    },
+    {
+      key: "max_fix_attempts",
+      label: "Max fix attempts",
+      type: "number",
+      help: "Fix-agent runs per failing pipeline before manual intervention.",
+    },
+    {
+      key: "poll_interval_sec",
+      label: "Poll interval (s)",
+      type: "number",
+      help: "How often the gate re-reads the pipeline.",
+    },
+    {
+      key: "play_manual_jobs",
+      label: "Play manual jobs",
+      type: "boolean",
+      help: "Press 'play' on manual jobs via the git host API.",
+    },
+    {
+      key: "auto_trigger_pipeline",
+      label: "Auto-trigger pipeline",
+      type: "boolean",
+      help: "Trigger one via the API when none exists on the MR head.",
+    },
+    {
+      key: "gate_timeout_min",
+      label: "Gate timeout (min)",
+      type: "number",
+      help: "Give up waiting (retryable failure) after this long.",
+    },
   ] as const satisfies readonly ConfigField[];
 
   /** Resolve the MR (iid + git branch) this gate watches — per-branch or flow-level. */
-  private resolveMr(ctx: FlowCtx, branchName?: string | null): { mrIid: number; mrBranch: string | null } {
+  private resolveMr(
+    ctx: FlowCtx,
+    branchName?: string | null,
+  ): { mrIid: number; mrBranch: string | null } {
     if (branchName) {
       const bRow = db.get<{ mr_iid: number | null }>(
-        `SELECT mr_iid FROM branches WHERE flow_id=? AND name=?`, ctx.flow.id, branchName);
-      if (!bRow?.mr_iid) throw new Error(`no merge request for branch ${branchName} — create it first`);
-      return { mrIid: bRow.mr_iid, mrBranch: this.ctxHelper.buildBranch(ctx, branchName) };
+        `SELECT mr_iid FROM branches WHERE flow_id=? AND name=?`,
+        ctx.flow.id,
+        branchName,
+      );
+      if (!bRow?.mr_iid)
+        throw new Error(
+          `no merge request for branch ${branchName} — create it first`,
+        );
+      return {
+        mrIid: bRow.mr_iid,
+        mrBranch: this.ctxHelper.buildBranch(ctx, branchName),
+      };
     }
-    if (!ctx.flow.mr_iid) throw new Error("no merge request yet — approve the build to create one first");
+    if (!ctx.flow.mr_iid)
+      throw new Error(
+        "no merge request yet — approve the build to create one first",
+      );
     return { mrIid: ctx.flow.mr_iid, mrBranch: ctx.flow.mr_branch };
   }
 
@@ -109,7 +168,10 @@ export class PipelineNode extends NodeDefinition<PipelineInput, PipelineOutput> 
       .catch(() => null);
     const hp = cr?.headPipeline;
     if (!cr || !hp) return null;
-    const pipe = await gitHostRegistry.forRepo(repoUrl).getPipeline(repoUrl, hp.id).catch(() => null);
+    const pipe = await gitHostRegistry
+      .forRepo(repoUrl)
+      .getPipeline(repoUrl, hp.id)
+      .catch(() => null);
     if (!pipe || (cr.sha && pipe.sha && pipe.sha !== cr.sha)) return null;
     return pipe;
   }
@@ -120,29 +182,57 @@ export class PipelineNode extends NodeDefinition<PipelineInput, PipelineOutput> 
    * pipeline id, or null when GitLab refuses (CI rules) — then we keep
    * waiting for a human-started pipeline until the deadline.
    */
-  private async triggerPipeline(ctx: FlowCtx, mrIid: number, mrBranch: string | null, nodeId: string): Promise<number | null> {
+  private async triggerPipeline(
+    ctx: FlowCtx,
+    mrIid: number,
+    mrBranch: string | null,
+    nodeId: string,
+  ): Promise<number | null> {
     const repoUrl = ctx.flow.repo_url ?? "";
     const host = gitHostRegistry.forRepo(repoUrl);
-    const errMsg = (e: unknown) => (e instanceof Error ? e.message : String(e)).slice(0, 300);
-    db.emitEvent(ctx.flow.id, nodeId, "lifecycle",
-      `no pipeline found for ${mrBranch ?? "the MR"} — triggering one via the git host API…`);
+    const errMsg = (e: unknown) =>
+      (e instanceof Error ? e.message : String(e)).slice(0, 300);
+    db.emitEvent(
+      ctx.flow.id,
+      nodeId,
+      "lifecycle",
+      `no pipeline found for ${mrBranch ?? "the MR"} — triggering one via the git host API…`,
+    );
     try {
       const p = await host.createCRPipeline(repoUrl, mrIid);
-      db.emitEvent(ctx.flow.id, nodeId, "lifecycle", `pipeline #${p.id} triggered (merge-request pipeline)`);
+      db.emitEvent(
+        ctx.flow.id,
+        nodeId,
+        "lifecycle",
+        `pipeline #${p.id} triggered (merge-request pipeline)`,
+      );
       return p.id;
     } catch (e1) {
       if (!mrBranch) {
-        db.emitEvent(ctx.flow.id, nodeId, "error",
-          `could not trigger a pipeline: ${errMsg(e1)} — start it manually from the git host`);
+        db.emitEvent(
+          ctx.flow.id,
+          nodeId,
+          "error",
+          `could not trigger a pipeline: ${errMsg(e1)} — start it manually from the git host`,
+        );
         return null;
       }
       try {
         const p = await host.createPipeline(repoUrl, mrBranch);
-        db.emitEvent(ctx.flow.id, nodeId, "lifecycle", `pipeline #${p.id} triggered (branch pipeline)`);
+        db.emitEvent(
+          ctx.flow.id,
+          nodeId,
+          "lifecycle",
+          `pipeline #${p.id} triggered (branch pipeline)`,
+        );
         return p.id;
       } catch (e2) {
-        db.emitEvent(ctx.flow.id, nodeId, "error",
-          `could not trigger a pipeline via the git host API: ${errMsg(e2)} — start it manually from the git host or check the project's CI rules`);
+        db.emitEvent(
+          ctx.flow.id,
+          nodeId,
+          "error",
+          `could not trigger a pipeline via the git host API: ${errMsg(e2)} — start it manually from the git host or check the project's CI rules`,
+        );
         return null;
       }
     }
@@ -153,34 +243,61 @@ export class PipelineNode extends NodeDefinition<PipelineInput, PipelineOutput> 
    * via the API. Returns how many jobs were played this cycle. Failures are
    * logged but non-fatal — the next cycle re-reads the pipeline anyway.
    */
-  private async playManualJobs(ctx: FlowCtx, nodeId: string, pipelineId: number): Promise<number> {
+  private async playManualJobs(
+    ctx: FlowCtx,
+    nodeId: string,
+    pipelineId: number,
+  ): Promise<number> {
     const repoUrl = ctx.flow.repo_url ?? "";
     const host = gitHostRegistry.forRepo(repoUrl);
-    const jobs = (await host.listPipelineJobs(repoUrl, pipelineId).catch(() => [])) as HostJob[];
+    const jobs = (await host
+      .listPipelineJobs(repoUrl, pipelineId)
+      .catch(() => [])) as HostJob[];
     const playable = jobs.filter((j) => j.manual);
     let played = 0;
     for (const j of playable) {
-      const ok = await host.playJob(repoUrl, j.id).then(() => true).catch(() => false);
+      const ok = await host
+        .playJob(repoUrl, j.id)
+        .then(() => true)
+        .catch(() => false);
       if (ok) {
         played++;
-        db.emitEvent(ctx.flow.id, nodeId, "lifecycle",
-          `played manual job "${j.name}" (#${j.id}) on pipeline #${pipelineId}`);
+        db.emitEvent(
+          ctx.flow.id,
+          nodeId,
+          "lifecycle",
+          `played manual job "${j.name}" (#${j.id}) on pipeline #${pipelineId}`,
+        );
       }
     }
     return played;
   }
 
-  async run(ctx: FlowCtx, input: PipelineInput, config: Record<string, unknown>): Promise<RunOutcome> {
-    const pollMs = configNumber(config, "poll_interval_sec", POLL_MS_DEFAULT / 1000) * 1000;
-    const maxFixAttempts = configNumber(config, "max_fix_attempts", MAX_FIX_ATTEMPTS_DEFAULT);
-    const gateTimeoutMin = configNumber(config, "gate_timeout_min", WAIT_TIMEOUT_MS_DEFAULT / 60_000);
+  async run(
+    ctx: FlowCtx,
+    input: PipelineInput,
+    config: Record<string, unknown>,
+  ): Promise<RunOutcome> {
+    const pollMs =
+      configNumber(config, "poll_interval_sec", POLL_MS_DEFAULT / 1000) * 1000;
+    const maxFixAttempts = configNumber(
+      config,
+      "max_fix_attempts",
+      MAX_FIX_ATTEMPTS_DEFAULT,
+    );
+    const gateTimeoutMin = configNumber(
+      config,
+      "gate_timeout_min",
+      WAIT_TIMEOUT_MS_DEFAULT / 60_000,
+    );
     const playManualJobs = configBool(config, "play_manual_jobs", true);
     const { mrIid, mrBranch } = this.resolveMr(ctx, input.branchName);
 
     // the fix-run prompt-body knob folds into the per-run prompt override path
     if (!input.prompt) {
       const body = configString(config, "fix_prompt_body");
-      if (body) input = { ...input, prompt: body, promptIsBody: true } as PipelineInput;
+      if (body)
+        input = { ...input, prompt: body, promptIsBody: true } as PipelineInput;
     }
 
     const node = this.node(ctx);
@@ -190,7 +307,9 @@ export class PipelineNode extends NodeDefinition<PipelineInput, PipelineOutput> 
       input: JSON.stringify(input),
     });
 
-    const label = input.branchName ? `pipeline (${input.branchName})` : "pipeline";
+    const label = input.branchName
+      ? `pipeline (${input.branchName})`
+      : "pipeline";
     let watchedId = input.pipelineId ?? null;
     let lastSeen: string | null = null; // "<id>:<status>" — emit only on change
     const fixedIds = new Set<number>(); // pipelines we already ran a fix for — superseded
@@ -202,7 +321,10 @@ export class PipelineNode extends NodeDefinition<PipelineInput, PipelineOutput> 
 
     for (;;) {
       // user cancelled / retry started while we were waiting — stop quietly
-      const statusNow = db.get<{ status: string }>(`SELECT status FROM nodes WHERE id=?`, node.id)?.status;
+      const statusNow = db.get<{ status: string }>(
+        `SELECT status FROM nodes WHERE id=?`,
+        node.id,
+      )?.status;
       if (statusNow !== "running") throw new Error("pipeline wait cancelled");
 
       // Always re-read the MR head: the watched pipeline can be superseded by a
@@ -210,14 +332,21 @@ export class PipelineNode extends NodeDefinition<PipelineInput, PipelineOutput> 
       // the only status worth reporting.
       const head = await this.headPipeline(ctx, mrIid);
       let pipe = watchedId
-        ? await gitHostRegistry.forRepo(ctx.flow.repo_url ?? "").getPipeline(ctx.flow.repo_url ?? "", watchedId).catch(() => null)
+        ? await gitHostRegistry
+            .forRepo(ctx.flow.repo_url ?? "")
+            .getPipeline(ctx.flow.repo_url ?? "", watchedId)
+            .catch(() => null)
         : null;
       // switch to the head when it's newer/different — stops the watched id
       // from dragging the UI back to a stale/failed state
       if (head && (!pipe || head.id !== pipe.id)) {
         if (pipe && pipe.id !== head.id && !fixedIds.has(pipe.id)) {
-          db.emitEvent(ctx.flow.id, node.id, "lifecycle",
-            `pipeline #${pipe.id} superseded by head pipeline #${head.id} — watching the head`);
+          db.emitEvent(
+            ctx.flow.id,
+            node.id,
+            "lifecycle",
+            `pipeline #${pipe.id} superseded by head pipeline #${head.id} — watching the head`,
+          );
         }
         pipe = head;
         watchedId = head.id;
@@ -232,7 +361,8 @@ export class PipelineNode extends NodeDefinition<PipelineInput, PipelineOutput> 
         if (fixWaitStart == null) fixWaitStart = Date.now();
         // grace over → treat the stale fixed head as "no pipeline" and trigger
         // below; either way the fixed pipeline itself is never acted on again
-        if (Date.now() - fixWaitStart >= FIX_PIPELINE_GRACE_MS) awaitingFixPipeline = false;
+        if (Date.now() - fixWaitStart >= FIX_PIPELINE_GRACE_MS)
+          awaitingFixPipeline = false;
         pipe = null;
         watchedId = null;
       }
@@ -244,18 +374,36 @@ export class PipelineNode extends NodeDefinition<PipelineInput, PipelineOutput> 
         const seen = `${pipe.id}:${pipe.status}`;
         if (seen !== lastSeen) {
           lastSeen = seen;
-          db.emitEvent(ctx.flow.id, node.id, "pipeline", `pipeline #${pipe.id}: ${pipe.status}`,
-            { status: pipe.status, id: pipe.id, branchName: input.branchName ?? undefined });
+          db.emitEvent(
+            ctx.flow.id,
+            node.id,
+            "pipeline",
+            `pipeline #${pipe.id}: ${pipe.status}`,
+            {
+              status: pipe.status,
+              id: pipe.id,
+              branchName: input.branchName ?? undefined,
+            },
+          );
         }
 
         if (pipe.status === "success") {
           const output = this.outputSchema.parse({
-            pipelineId: pipe.id, status: pipe.status, fixes,
+            pipelineId: pipe.id,
+            status: pipe.status,
+            fixes,
             branchName: input.branchName ?? undefined,
           });
-          this.support.setNode(node.id, { status: "done", output: JSON.stringify(output) });
-          db.emitEvent(ctx.flow.id, node.id, "lifecycle",
-            `pipeline #${pipe.id} green${fixes ? ` after ${fixes} fix run(s)` : ""} — ready for review`);
+          this.support.setNode(node.id, {
+            status: "done",
+            output: JSON.stringify(output),
+          });
+          db.emitEvent(
+            ctx.flow.id,
+            node.id,
+            "lifecycle",
+            `pipeline #${pipe.id} green${fixes ? ` after ${fixes} fix run(s)` : ""} — ready for review`,
+          );
           return {
             status: "done",
             output,
@@ -267,26 +415,43 @@ export class PipelineNode extends NodeDefinition<PipelineInput, PipelineOutput> 
         if (pipe.status === "failed") {
           if (fixes >= maxFixAttempts) {
             const msg = `pipeline #${pipe.id} still failing after ${maxFixAttempts} fix run(s) — fix manually or retry`;
-            db.emitEvent(ctx.flow.id, node.id, "error", msg, { pipelineId: pipe.id });
+            db.emitEvent(ctx.flow.id, node.id, "error", msg, {
+              pipelineId: pipe.id,
+            });
             this.support.setNode(node.id, {
               status: "failed",
-              output: JSON.stringify(this.outputSchema.parse({
-                pipelineId: pipe.id, status: pipe.status, fixes,
-                branchName: input.branchName ?? undefined,
-              })),
+              output: JSON.stringify(
+                this.outputSchema.parse({
+                  pipelineId: pipe.id,
+                  status: pipe.status,
+                  fixes,
+                  branchName: input.branchName ?? undefined,
+                }),
+              ),
             });
             throw new Error(msg);
           }
           fixes++;
           fixedIds.add(pipe.id);
-          await this.runFix(ctx, node, input, pipe.id, mrBranch, fixes, maxFixAttempts, label);
+          await this.runFix(
+            ctx,
+            node,
+            input,
+            pipe.id,
+            mrBranch,
+            fixes,
+            maxFixAttempts,
+            label,
+          );
           watchedId = null; // the fix pushed new commits — re-read the head pipeline
           continue;
         }
 
         if (pipe.status === "canceled" || pipe.status === "skipped") {
           const msg = `pipeline #${pipe.id} was ${pipe.status} — retry the pipeline node after starting a new pipeline`;
-          db.emitEvent(ctx.flow.id, node.id, "error", msg, { pipelineId: pipe.id });
+          db.emitEvent(ctx.flow.id, node.id, "error", msg, {
+            pipelineId: pipe.id,
+          });
           this.support.setNode(node.id, { status: "failed" });
           throw new Error(msg);
         }
@@ -301,15 +466,21 @@ export class PipelineNode extends NodeDefinition<PipelineInput, PipelineOutput> 
             if (played === 0 && !state.warned) {
               // nothing playable — some manual jobs need a human in the GitLab UI
               state.warned = true;
-              db.emitEvent(ctx.flow.id, node.id, "lifecycle",
-                `pipeline #${pipe.id} is waiting on manual job(s) — playing them via the API; if none start, run them from GitLab`);
+              db.emitEvent(
+                ctx.flow.id,
+                node.id,
+                "lifecycle",
+                `pipeline #${pipe.id} is waiting on manual job(s) — playing them via the API; if none start, run them from GitLab`,
+              );
             }
             manualPlays.set(pipe.id, state);
           }
         }
       } else if (
         configBool(config, "auto_trigger_pipeline", true) &&
-        !watchedId && !triggerAttempted && !awaitingFixPipeline
+        !watchedId &&
+        !triggerAttempted &&
+        !awaitingFixPipeline
       ) {
         // no pipeline on the MR head (manual-CI projects don't start one on
         // push) — start it via the API, exactly once per episode. After a fix
@@ -326,13 +497,19 @@ export class PipelineNode extends NodeDefinition<PipelineInput, PipelineOutput> 
         const last = lastSeen?.split(":");
         const patch: Record<string, unknown> = { status: "failed" };
         if (last) {
-          patch.output = JSON.stringify(this.outputSchema.parse({
-            pipelineId: Number(last[0]), status: last[1], fixes,
-            branchName: input.branchName ?? undefined,
-          }));
+          patch.output = JSON.stringify(
+            this.outputSchema.parse({
+              pipelineId: Number(last[0]),
+              status: last[1],
+              fixes,
+              branchName: input.branchName ?? undefined,
+            }),
+          );
         }
         this.support.setNode(node.id, patch);
-        throw new Error(`timed out waiting for the pipeline on ${mrBranch ?? "the MR"} — retry the pipeline node`);
+        throw new Error(
+          `timed out waiting for the pipeline on ${mrBranch ?? "the MR"} — retry the pipeline node`,
+        );
       }
       // server-side wait liveness: the reconciler treats a fresh updated_at on a
       // running pipeline node as "alive" (it has no agent run row while waiting)
@@ -352,39 +529,58 @@ export class PipelineNode extends NodeDefinition<PipelineInput, PipelineOutput> 
     maxFixAttempts: number,
     label: string,
   ): Promise<void> {
-    const jobs = await gitHostRegistry.forRepo(ctx.flow.repo_url ?? "").listPipelineJobs(ctx.flow.repo_url ?? "", pipelineId);
+    const jobs = await gitHostRegistry
+      .forRepo(ctx.flow.repo_url ?? "")
+      .listPipelineJobs(ctx.flow.repo_url ?? "", pipelineId);
     const failed = jobs.filter((j: HostJob) => j.status === "failed");
     let logs = "";
     for (const j of failed.slice(0, 3)) {
-      const trace = await gitHostRegistry.forRepo(ctx.flow.repo_url ?? "").getJobTrace(ctx.flow.repo_url ?? "", j.id).catch(() => "");
+      const trace = await gitHostRegistry
+        .forRepo(ctx.flow.repo_url ?? "")
+        .getJobTrace(ctx.flow.repo_url ?? "", j.id)
+        .catch(() => "");
       logs += `\n\n===== job ${j.name} (#${j.id}) =====\n${trace.slice(-8000)}`;
     }
 
     const mode = this.ctxHelper.execMode(ctx);
-    const instructions = mode === "local" ? `Start by checking out branch ${mrBranch}.` : "";
-    const guidance = input.guidance ? `Developer guidance: ${input.guidance}` : "";
+    const instructions =
+      mode === "local" ? `Start by checking out branch ${mrBranch}.` : "";
+    const guidance = input.guidance
+      ? `Developer guidance: ${input.guidance}`
+      : "";
     // the user's standing rules (fix_prompt_rules knob) apply to every fix run
-    const userRules = configString(this.nodeConfig(ctx), "fix_prompt_rules") ?? "";
+    const userRules =
+      configString(this.nodeConfig(ctx), "fix_prompt_rules") ?? "";
 
-    const prompt = (input.prompt
-      ? input.promptIsBody
-        ? prompts.assemblePrompt(FIX_PROMPT_KEY,
+    const prompt = (
+      input.prompt
+        ? input.promptIsBody
+          ? prompts.assemblePrompt(
+              FIX_PROMPT_KEY,
+              { branch: mrBranch ?? "", pipelineId: String(pipelineId) },
+              { instructions, guidance, logs: logs || "(logs unavailable)" },
+              { body: input.prompt, userRules },
+            ).final
+          : input.prompt
+        : prompts.resolve(
+            FIX_PROMPT_KEY,
             { branch: mrBranch ?? "", pipelineId: String(pipelineId) },
             { instructions, guidance, logs: logs || "(logs unavailable)" },
-            { body: input.prompt, userRules },
-          ).final
-        : input.prompt
-      : prompts.resolve(FIX_PROMPT_KEY,
-          { branch: mrBranch ?? "", pipelineId: String(pipelineId) },
-          { instructions, guidance, logs: logs || "(logs unavailable)" },
-          undefined,
-          { userRules },
-        )
-    ).split("\n").filter(Boolean).join("\n");
+            undefined,
+            { userRules },
+          )
+    )
+      .split("\n")
+      .filter(Boolean)
+      .join("\n");
 
-    db.emitEvent(ctx.flow.id, node.id, "lifecycle",
+    db.emitEvent(
+      ctx.flow.id,
+      node.id,
+      "lifecycle",
       `pipeline #${pipelineId} failed — fix run ${attempt}/${maxFixAttempts}`,
-      { pipelineId, attempt });
+      { pipelineId, attempt },
+    );
 
     const result = await this.runner.executeRun(
       ctx,
@@ -400,21 +596,37 @@ export class PipelineNode extends NodeDefinition<PipelineInput, PipelineOutput> 
       `${label} fix`,
     );
 
-    this.support.saveArtifact(node.id, ctx.flow.id, "fix", result.result ?? "", { pipelineId, attempt });
-    db.emitEvent(ctx.flow.id, node.id, "lifecycle",
-      `fix run ${attempt} pushed to ${mrBranch} — waiting for the new pipeline`, { pipelineId });
+    this.support.saveArtifact(
+      node.id,
+      ctx.flow.id,
+      "fix",
+      result.result ?? "",
+      { pipelineId, attempt },
+    );
+    db.emitEvent(
+      ctx.flow.id,
+      node.id,
+      "lifecycle",
+      `fix run ${attempt} pushed to ${mrBranch} — waiting for the new pipeline`,
+      { pipelineId },
+    );
   }
 
   override async chat(ctx: FlowCtx, content: string): Promise<string> {
-    if (!ctx.flow.mr_iid) return "No merge request yet — the pipeline gate runs automatically after the build is approved and the MR is created.";
+    if (!ctx.flow.mr_iid)
+      return "No merge request yet — the pipeline gate runs automatically after the build is approved and the MR is created.";
     const node = this.node(ctx);
     const prevInput = (node.input ?? {}) as PipelineInput;
-    const outcome = await this.run(ctx, this.inputSchema.parse({
-      ...prevInput,
-      guidance: content,
-      prompt: null,
-      promptIsBody: false,
-    }), this.nodeConfig(ctx));
+    const outcome = await this.run(
+      ctx,
+      this.inputSchema.parse({
+        ...prevInput,
+        guidance: content,
+        prompt: null,
+        promptIsBody: false,
+      }),
+      this.nodeConfig(ctx),
+    );
     return outcome.reply;
   }
 

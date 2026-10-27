@@ -8,7 +8,7 @@ import { NodeDefinition, type FlowCtx, type RunOutcome } from "../base";
 import type { NodeCapabilities } from "../base/capabilities";
 import { NODE_KEYS } from "../keys";
 import type { ConfigField } from "../../node-config";
-import { appLayerConfig, configString, mergeConfigLayers, mcpSourcesOf, mcpSourcesSchema, mcpSourceConfigFields, parseConfigSnapshot, type SettingSource } from "../../node-config";
+import { DEFAULT_MCP_SOURCES, appLayerConfig, configString, mergeConfigLayers, mcpSourcesOf, mcpSourcesSchema, mcpSourceConfigFields, parseConfigSnapshot, type SettingSource } from "../../node-config";
 import { PlanMetaParser, type PlanParseResult } from "./plan-meta-parser";
 import {
   PlanInput,
@@ -300,8 +300,8 @@ export class PlanNode extends NodeDefinition<PlanInput, PlanOutput> {
      * default | override), and the plan panel offers the override at approve.
      */
     execution_default: z.enum(["whole", "steps", "follow"]).default("whole"),
-    /** ambient MCP servers for plan agent runs (Cursor local.settingSources) */
-    mcp_sources: mcpSourcesSchema,
+    /** ambient MCP servers for plan agent runs — defaults to ALL sources enabled */
+    mcp_sources: mcpSourcesSchema.default(DEFAULT_MCP_SOURCES),
   });
   readonly configFields = [
     { key: "prompt_body", label: "Prompt body", type: "text", help: "User-editable prompt body; internal output contracts are appended automatically." },
