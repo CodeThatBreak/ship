@@ -5,7 +5,7 @@ import { CircleAlertIcon, MessageCircleDashedIcon } from "lucide-react";
 
 import PromptModal from "./prompt-modal/PromptModal";
 import type { ModelChoice } from "@/types/model-spec";
-import type { NodeCapabilities } from "@/types/node-capabilities";
+import type { NodeUiCapabilities } from "@/types/node-capabilities";
 import type { FeedEvent } from "./timeline";
 import { useNodePrompt } from "@/hooks/use-flow-chat";
 import { useChatComposer } from "./hooks/use-chat-composer";
@@ -41,7 +41,7 @@ export default function ChatPanel({
   /** the node's display name (label / template name) — for the agent-facing copy */
   nodeLabel: string;
   /** the node contract's UI capabilities (refine/chat/prompt, §3.2) */
-  capabilities?: NodeCapabilities | null;
+  capabilities?: NodeUiCapabilities | null;
   busy: boolean;
   canRefine?: boolean;
   events: FeedEvent[];

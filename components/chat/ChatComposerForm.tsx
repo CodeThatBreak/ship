@@ -17,7 +17,7 @@ import {
 } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 import type { ModelChoice } from "@/types/model-spec";
-import type { NodeCapabilities } from "@/types/node-capabilities";
+import type { NodeUiCapabilities } from "@/types/node-capabilities";
 import PlanOptionToggles from "./PlanOptionToggles";
 import type { PlanOptions } from "./types";
 
@@ -51,7 +51,7 @@ export default function ChatComposerForm({
   /** locked until the node's first run is generated (prompt-publishing nodes) */
   inputLocked: boolean;
   nodeLabel: string;
-  capabilities?: NodeCapabilities | null;
+  capabilities?: NodeUiCapabilities | null;
   refineAvailable: boolean;
   refineOn: boolean;
   onToggleRefine: () => void;

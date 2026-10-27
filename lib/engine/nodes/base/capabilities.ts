@@ -55,7 +55,14 @@ export interface MergeBackArgs {
   mergeRowId?: string;
 }
 
-export interface NodeCapabilities {
+/**
+ * The serializable UI capabilities — the subset that crosses the
+ * server→client boundary (the flow snapshot / RSC payload / API JSON). The
+ * engine-only members (a callback and a Zod contract) stay out: RSC
+ * serialization rejects class instances and functions, so the snapshot
+ * carries exactly this shape per node.
+ */
+export interface NodeUiCapabilities {
   /**
    * A chat message can regenerate this node's output (the chat panel's
    * refine toggle) — true only when the node's chat handler runs a full
@@ -75,6 +82,9 @@ export interface NodeCapabilities {
   promptNode?: string;
   /** The panel header title; falls back to the node's label. */
   panelTitle?: string;
+}
+
+export interface NodeCapabilities extends NodeUiCapabilities {
   /**
    * Code children only: invoked by the StepFlowManager on child approval —
    * branch lifecycle for fan-out children. Today only `step_build`
@@ -89,6 +99,23 @@ export interface NodeCapabilities {
    * aggregate applies unconditionally).
    */
   fanoutOutput?: z.ZodTypeAny;
+}
+
+/**
+ * Project a def's capabilities onto the serializable UI subset for the flow
+ * snapshot — a plain object the RSC boundary / `JSON.stringify` can carry.
+ * Pure helper (no state), so it stays a function (§3.1).
+ */
+export function uiCapabilities(
+  cap: NodeCapabilities | null | undefined,
+): NodeUiCapabilities | null {
+  if (!cap) return null;
+  return {
+    refinable: cap.refinable,
+    chatOnlyMode: cap.chatOnlyMode,
+    promptNode: cap.promptNode,
+    panelTitle: cap.panelTitle,
+  };
 }
 
 /** The default fan-out aggregate contract every fan-out-capable def publishes. */

@@ -4,7 +4,7 @@ import * as React from "react";
 import { useSendChatMessage } from "@/hooks/use-flow-chat";
 import { composeModelChoice } from "@/lib/modelSpec";
 import type { ModelChoice } from "@/types/model-spec";
-import type { NodeCapabilities } from "@/types/node-capabilities";
+import type { NodeUiCapabilities } from "@/types/node-capabilities";
 
 /**
  * The chat composer: draft state, the refine-vs-chat toggle, the send
@@ -23,7 +23,7 @@ export function useChatComposer({
   flowId: string;
   nodeKey: string;
   /** the node contract's UI capabilities (refine/chat/prompt, §3.2) */
-  capabilities?: NodeCapabilities | null;
+  capabilities?: NodeUiCapabilities | null;
   canRefine: boolean;
   modelChoice: ModelChoice | null;
   /** plan-style nodes, before any output exists: the input is locked */

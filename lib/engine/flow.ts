@@ -23,7 +23,7 @@ import { buildFlowContext, type FlowContextMap } from "./flow-context";
 import { evalJsonata, jsonataTruthy } from "./jsonata-eval";
 import { hookStore } from "./hooks";
 import { parseStartContract, validateAgainstContract } from "./nodes/start/contract";
-import { DEFAULT_FANOUT_OUTPUT, type NodeCapabilities } from "./nodes/base/capabilities";
+import { DEFAULT_FANOUT_OUTPUT, uiCapabilities, type NodeCapabilities } from "./nodes/base/capabilities";
 import { stepFlows, StepFlowManager, type StepChildPayload } from "./step-flows";
 import { worktreeManager } from "./worktree-lifecycle";
 import { processSingleton } from "../singleton";
@@ -400,7 +400,7 @@ export class FlowEngine {
             kind: nt?.kind ?? null,
             icon: nt?.icon ?? null,
             template_name: nt?.name ?? null,
-            capabilities: def?.capabilities ?? null,
+            capabilities: uiCapabilities(def?.capabilities),
             cost: nodeCosts.get(n.id) ?? { totalCents: 0, tokens: 0, runs: [] },
             artifacts: rows.all(ArtifactRow,
               `SELECT id, node_id, flow_id, kind, version, content, meta, status, feedback, created_at

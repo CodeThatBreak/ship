@@ -6,7 +6,7 @@
  * the Phase 0 guidance: shared client types live in `types/`, not on a route
  * file.
  */
-import type { NodeCapabilities } from "@/types/node-capabilities";
+import type { NodeUiCapabilities } from "@/types/node-capabilities";
 
 /** Config keys a plan/artifact meta blob uses in the panels. */
 export type ArtifactMeta = Record<string, unknown>;
@@ -42,8 +42,8 @@ export type Node = {
   icon?: string | null;
   /** effective config snapshot (class defaults ← app settings ← template) */
   config?: Record<string, unknown> | null;
-  /** the node contract's UI capabilities (refine/chat/panel title, §3.2) */
-  capabilities?: NodeCapabilities | null;
+  /** the node's serializable UI capabilities (refine/chat/panel title, §3.2) */
+  capabilities?: NodeUiCapabilities | null;
   join_mode?: string | null;
   /** the node's contract input (the run's effective payload) */
   input?: Record<string, unknown> | null;
