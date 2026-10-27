@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
-import { templateStore } from "../../../../lib/engine/templates";
-import { importTemplateYaml } from "../../../../lib/engine/templates-yaml";
+import { templateStore } from "../../../../lib/engine/templates/template-store";
+import { importTemplateYaml } from "../../../../lib/engine/templates/template-yaml";
 
 export const dynamic = "force-dynamic";
 

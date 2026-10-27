@@ -8,7 +8,7 @@
  * the body placeholder mid-template (the internalSuffix prefix-strip failed
  * because the body wasn't the first line); the composed version assembles the
  * body once, first. */
-import { DEFAULT_PROMPT_TEMPLATES, composeTemplate } from "../lib/engine/prompt-defaults";
+import { DEFAULT_PROMPT_TEMPLATES, composeTemplate } from "../lib/engine/prompts/prompt-defaults";
 
 const ORIGINALS: Record<string, string> = {
   plan: [

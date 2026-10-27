@@ -2,9 +2,9 @@ import "server-only";
 
 import crypto from "crypto";
 import { Webhook } from "standardwebhooks";
-import { db } from "../db";
-import { HookRow, rows } from "../db/rows";
-import { processSingleton } from "../singleton";
+import { db } from "../../db";
+import { HookRow, rows } from "../../db/rows";
+import { processSingleton } from "../../singleton";
 
 /**
  * Generic inbound webhook endpoints (Phase 4A, §6): the `hooks` table binds

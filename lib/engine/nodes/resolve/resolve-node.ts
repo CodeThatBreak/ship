@@ -2,14 +2,14 @@ import type { NodeRow } from "../../../db/rows";
 import { z } from "zod";
 import { localGit } from "../../../git/local";
 import { gitHostRegistry } from "../../ports/git-host";
-import { prompts } from "../../prompts";
+import { prompts } from "../../prompts/prompt-library";
 import { AgentRunNode, nodeRoles, type FlowCtx, type NodePromptPreview, type PromptPreviewParams, type RunOutcome } from "../base";
 import type { NodeCapabilities } from "../base/capabilities";
 import { NODE_KEYS } from "../keys";
-import type { ConfigField } from "../../node-config";
-import { configString, mcpSourcesOf, mcpSourcesSchema, mcpSourceConfigFields } from "../../node-config";
+import type { ConfigField } from "../../templates/node-config";
+import { configString, mcpSourcesOf, mcpSourcesSchema, mcpSourceConfigFields } from "../../templates/node-config";
 import { ResolveInput, ResolveOutput } from "./schema";
-import { worktreeManager } from "../../worktree-lifecycle";
+import { worktreeManager } from "../../runtime/worktree-lifecycle";
 
 export class ResolveNode extends AgentRunNode<ResolveInput, ResolveOutput> {
   readonly key = NODE_KEYS.RESOLVE;

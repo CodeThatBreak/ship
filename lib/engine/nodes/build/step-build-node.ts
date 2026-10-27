@@ -4,11 +4,11 @@ import type { FlowCtx, NodeTriggerRun, RunOutcome } from "../base";
 import { nodeSupport, type NodeSupport } from "../base/node-support";
 import type { FlowRow, NodeRow } from "../../../db/rows";
 import type { AgentRunResult } from "../../ports/agent-runner";
-import { prompts } from "../../prompts";
+import { prompts } from "../../prompts/prompt-library";
 import { DEFAULT_FANOUT_OUTPUT, type MergeBackArgs, type MergeBackResult, type NodeCapabilities } from "../base/capabilities";
 import { NODE_KEYS } from "../keys";
-import { DEFAULT_MCP_SOURCES, mcpSourceConfigFields, mcpSourcesOf, mcpSourcesSchema } from "../../node-config";
-import { mergeArena } from "../../merge-arena";
+import { DEFAULT_MCP_SOURCES, mcpSourceConfigFields, mcpSourcesOf, mcpSourcesSchema } from "../../templates/node-config";
+import { mergeArena } from "../../runtime/fanout/merge-arena";
 import { BuildRunSupport } from "./build-run-support";
 import { BuildInput, BuildOutput } from "./schema";
 

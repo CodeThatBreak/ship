@@ -1,8 +1,8 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { nodeRegistry } from "../../../lib/engine/nodes/registry";
-import { templateStore } from "../../../lib/engine/templates";
-import { prompts } from "../../../lib/engine/prompts";
+import { templateStore } from "../../../lib/engine/templates/template-store";
+import { prompts } from "../../../lib/engine/prompts/prompt-library";
 import { instantiateDeclarative, type DeclarativeRow } from "../../../lib/engine/nodes/declarative";
 import {
   parseStartContract,

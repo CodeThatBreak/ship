@@ -85,7 +85,7 @@ console.assert(wrongBranch.plan !== null, "foreign branch name tolerated by vali
 console.assert(wrongBranch.plan!.steps[0].branch === "other-branch", "validator leaves branch as-is");
 
 // ── scoped template mechanics: body + internalSuffix compose the full prompt ─
-import { prompts } from "../lib/engine/prompts";
+import { prompts } from "../lib/engine/prompts/prompt-library";
 const vars = {
   branch: "billing", scope: "invoices", files: "b.ts", dependsOn: "auth",
   dependsOnSummaries: "- `auth` (Auth): logins", subPlanPrompt: "do billing stuff",

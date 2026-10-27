@@ -1,8 +1,8 @@
 import { NextResponse } from "next/server";
 import { gitHostRegistry } from "../../../../lib/engine/ports/git-host";
-import { flowEngine } from "../../../../lib/engine/flow";
-import { flowPoller } from "../../../../lib/engine/poller";
-import { templateStore } from "../../../../lib/engine/templates";
+import { flowEngine } from "../../../../lib/engine/flow-engine";
+import { flowPoller } from "../../../../lib/engine/runtime/flow-poller";
+import { templateStore } from "../../../../lib/engine/templates/template-store";
 import { db } from "../../../../lib/db";
 
 function flowScheduleFallback(delayMs: number): string {

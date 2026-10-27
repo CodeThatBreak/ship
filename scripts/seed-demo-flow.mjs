@@ -148,7 +148,7 @@ delivery → worker → admin replay, with the test suite as a first-class step.
 ],"branches":[]}
 \`\`\``;
 
-// ── engine replicas (syncStepsFromPlan / markStepsDone from lib/engine/steps) ─
+// ── engine replicas (syncStepsFromPlan / markStepsDone from lib/engine/runtime/plan-step-store) ─
 function syncStepsFromPlan(flowId, artifactId, steps) {
   const existingAgent = db.prepare(`SELECT * FROM plan_steps WHERE flow_id=? AND origin='agent'`).all(flowId);
   const byMetaId = new Map(existingAgent.filter((s) => s.meta_id).map((s) => [s.meta_id, s]));
@@ -224,7 +224,7 @@ db.prepare(`INSERT INTO tasks (id,key,type,summary,description,status,issue_type
     JSON.stringify({ prd: PRD, figma_urls: [] }), now());
 console.log("task DEMO-142 inserted");
 
-// ── flow (mirrors lib/engine/flow.createFlow) ────────────────────────────────
+// ── flow (mirrors lib/engine/flow-engine.createFlow) ────────────────────────────────
 const flowId = uid("flow_");
 const ts0 = now();
 db.prepare(`INSERT INTO flows (id,task_id,name,status,repo_url,repo_id,execution_mode,created_at,updated_at)

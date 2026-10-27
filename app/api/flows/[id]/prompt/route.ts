@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { promptPreview } from "../../../../../lib/engine/prompt-preview";
+import { promptPreview } from "../../../../../lib/engine/prompts/prompt-preview";
 
 export const dynamic = "force-dynamic";
 

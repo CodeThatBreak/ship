@@ -1,13 +1,13 @@
 import { z } from "zod";
 import type { NodeRow } from "../../../db/rows";
 import type { AgentRunResult } from "../../ports/agent-runner";
-import { prompts } from "../../prompts";
-import { planSteps } from "../../steps";
+import { prompts } from "../../prompts/prompt-library";
+import { planSteps } from "../../runtime/plan-step-store";
 import { AgentRunNode, agentRunner, flowCtxHelper, nodeRoles, type AgentRunner, type FlowContextHelper, type FlowCtx, type NodePromptPreview, type NodeTriggerRun, type PromptPreviewParams, type RunOutcome } from "../base";
 import { DEFAULT_FANOUT_OUTPUT, type NodeCapabilities } from "../base/capabilities";
 import { NODE_KEYS, STEP_BUILD_TEMPLATE_ID } from "../keys";
-import type { ConfigField } from "../../node-config";
-import { DEFAULT_MCP_SOURCES, configString, fanoutConfigFields, mcpSourcesOf, mcpSourcesSchema, mcpSourceConfigFields } from "../../node-config";
+import type { ConfigField } from "../../templates/node-config";
+import { DEFAULT_MCP_SOURCES, configString, fanoutConfigFields, mcpSourcesOf, mcpSourcesSchema, mcpSourceConfigFields } from "../../templates/node-config";
 import { nodeSupport, type NodeSupport } from "../base/node-support";
 import { BuildRunSupport } from "./build-run-support";
 import { branchStore } from "./branch-store";

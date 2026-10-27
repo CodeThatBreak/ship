@@ -1,13 +1,13 @@
 import { z } from "zod";
 import type { AgentRunResult } from "../../ports/agent-runner";
 import { PlanStepRow, rows, type NodeRow } from "../../../db/rows";
-import { prompts, sectionsOf, type PromptSections as PromptSectionsLike } from "../../prompts";
-import { planSteps } from "../../steps";
+import { prompts, sectionsOf, type PromptSections as PromptSectionsLike } from "../../prompts/prompt-library";
+import { planSteps } from "../../runtime/plan-step-store";
 import { AgentRunNode, nodeRoles, type FlowCtx, type NodePromptPreview, type PromptPreviewParams, type RunOutcome } from "../base";
 import type { NodeCapabilities } from "../base/capabilities";
 import { NODE_KEYS } from "../keys";
-import type { ConfigField } from "../../node-config";
-import { DEFAULT_MCP_SOURCES, appLayerConfig, configString, mergeConfigLayers, mcpSourcesOf, mcpSourcesSchema, mcpSourceConfigFields, type SettingSource } from "../../node-config";
+import type { ConfigField } from "../../templates/node-config";
+import { DEFAULT_MCP_SOURCES, appLayerConfig, configString, mergeConfigLayers, mcpSourcesOf, mcpSourcesSchema, mcpSourceConfigFields, type SettingSource } from "../../templates/node-config";
 import { PlanMetaParser, type PlanParseResult } from "./plan-meta-parser";
 import {
   PlanInput,

@@ -26,10 +26,10 @@ process.env.DATABASE_PATH = path.join(
 );
 
 const { db } = await import("../db");
-const { FlowEngine } = await import("./flow");
+const { FlowEngine } = await import("./flow-engine");
 const { nodeRegistry } = await import("./nodes/registry");
 const { NODE_KEYS, STEP_BUILD_TEMPLATE_ID } = await import("./nodes/keys");
-const { templateStore } = await import("./templates");
+const { templateStore } = await import("./templates/template-store");
 
 const now = () => new Date().toISOString();
 

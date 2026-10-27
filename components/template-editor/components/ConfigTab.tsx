@@ -25,7 +25,7 @@ import {
 import { DeclarativeConfigFields } from "../DeclarativeConfigFields";
 import type { VarGroup } from "../variables";
 
-/** The shared fan-out knob keys (the Fanout section — lib/engine/node-config.ts
+/** The shared fan-out knob keys (the Fanout section — lib/engine/templates/node-config.ts
  *  `fanoutConfigFields`): the ConfigTab hides them unless the node is
  *  plan-downstream (save-time lint rule 1, mirrored in the editor). */
 const FANOUT_FIELD_KEYS = new Set(["fanout_mode", "fanout_child", "fanout_parallel_max"]);

@@ -1,23 +1,23 @@
-import { db } from "../db";
-import type { FlowRow } from "../db/rows";
-import { templateStore, type TemplateGraph } from "./templates";
-import { nodeRegistry } from "./nodes/registry";
-import { NODE_KEYS } from "./nodes/keys";
-import type { ChainRole, NodeDefinition } from "./nodes/base";
+import { db } from "../../../db";
+import type { FlowRow } from "../../../db/rows";
+import { templateStore, type TemplateGraph } from "../../templates/template-store";
+import { nodeRegistry } from "../../nodes/registry";
+import { NODE_KEYS } from "../../nodes/keys";
+import type { ChainRole, NodeDefinition } from "../../nodes/base";
 import {
   DEFAULT_FANOUT_OUTPUT,
   type NodeCapabilities,
-} from "./nodes/base/capabilities";
-import { parseStartContract, validateAgainstContract } from "./nodes/start/contract";
-import { prompts } from "./prompts";
-import { branchStore } from "./nodes/build/branch-store";
-import { flowCtxHelper, type FlowCtx } from "./nodes/base/flow-context";
-import { nodeSupport } from "./nodes/base/node-support";
-import { planSteps, type PlanStepRow } from "./steps";
-import { configNumber, configString, fanoutOf, parseConfigSnapshot, stripFanoutKeys, type FanoutKnob } from "./node-config";
+} from "../../nodes/base/capabilities";
+import { parseStartContract, validateAgainstContract } from "../../nodes/start/contract";
+import { prompts } from "../../prompts/prompt-library";
+import { branchStore } from "../../nodes/build/branch-store";
+import { flowCtxHelper, type FlowCtx } from "../../nodes/base/flow-context";
+import { nodeSupport } from "../../nodes/base/node-support";
+import { planSteps, type PlanStepRow } from "../plan-step-store";
+import { configNumber, configString, fanoutOf, parseConfigSnapshot, stripFanoutKeys, type FanoutKnob } from "../../templates/node-config";
 import { mergeArena } from "./merge-arena";
-import { worktreeManager } from "./worktree-lifecycle";
-import { processSingleton } from "../singleton";
+import { worktreeManager } from "../worktree-lifecycle";
+import { processSingleton } from "../../../singleton";
 
 // ── plan fan-out: the StepFlowManager (Phase 1) ──────────────────────────────
 // State authority for the fan-out knob (`fanout.mode != whole` on any node
@@ -125,7 +125,7 @@ export interface StepState {
 }
 
 /** The seeded child template id for build fan-out. */
-export { STEP_BUILD_TEMPLATE_ID } from "./nodes/keys";
+export { STEP_BUILD_TEMPLATE_ID } from "../../nodes/keys";
 
 export class StepFlowManager {
   /** Engine surface the manager drives (bound once by flow.ts at module load). */

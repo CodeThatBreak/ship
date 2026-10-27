@@ -9,7 +9,7 @@ import "server-only";
  * Server-only: never import from client code (the page passes the result
  * through dehydrate/HydrationBoundary instead).
  */
-import { templateStore } from "@/lib/engine/templates";
+import { templateStore } from "@/lib/engine/templates/template-store";
 import { taskRegistry } from "@/lib/engine/tasks/registry";
 import { db } from "@/lib/db";
 import type {

@@ -4,8 +4,8 @@ import type { AgentRunResult } from "../../ports/agent-runner";
 import { flowCtxHelper, type FlowContextHelper, type FlowCtx } from "./flow-context";
 import { nodeSupport, type NodeSupport } from "./node-support";
 import type { NodeCapabilities } from "./capabilities";
-import type { ConfigField } from "../../node-config";
-import { appLayerConfig, mergeConfigLayers } from "../../node-config";
+import type { ConfigField } from "../../templates/node-config";
+import { appLayerConfig, mergeConfigLayers } from "../../templates/node-config";
 import type { NodeRunStatus } from "../../../../constants/flow";
 
 /** A role in the SDLC builtin chain (plan → build → review → resolve). */

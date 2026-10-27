@@ -3,8 +3,8 @@ import type { FlowCtx } from "../base";
 import { flowCtxHelper, type FlowContextHelper } from "../base/flow-context";
 import { nodeSupport, type NodeSupport } from "../base/node-support";
 import type { AgentRunResult } from "../../ports/agent-runner";
-import { configString } from "../../node-config";
-import { worktreeManager } from "../../worktree-lifecycle";
+import { configString } from "../../templates/node-config";
+import { worktreeManager } from "../../runtime/worktree-lifecycle";
 
 /**
  * The run machinery the build defs share (§T6): branch assignment, the local

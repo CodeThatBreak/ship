@@ -2,12 +2,12 @@ import { execFile } from "child_process";
 import fs from "fs";
 import path from "path";
 import { promisify } from "util";
-import { config } from "../config";
-import { db } from "../db";
-import { localGit } from "../git/local";
-import { authedCloneUrlFor } from "./ports/git-host";
-import { isHookRejection } from "./nodes/merge-request";
-import type { MergeBackArgs, MergeBackResult } from "./nodes/base/capabilities";
+import { config } from "../../../config";
+import { db } from "../../../db";
+import { localGit } from "../../../git/local";
+import { authedCloneUrlFor } from "../../ports/git-host";
+import { isHookRejection } from "../../nodes/merge-request";
+import type { MergeBackArgs, MergeBackResult } from "../../nodes/base/capabilities";
 
 const execFileAsync = promisify(execFile);
 

@@ -3,11 +3,11 @@ import type { NodeRow } from "../../../db/rows";
 import type { AgentRunResult } from "../../ports/agent-runner";
 import type { AgentRunner, FlowContextHelper, NodeSupport } from "../base";
 import { AgentRunNode, type FlowCtx, type NodeCapabilities, type PromptSource, type RunOutcome } from "../base";
-import { templateStore } from "../../templates";
+import { templateStore } from "../../templates/template-store";
 import { extractJson, validateJsonSchema } from "./json-schema-lite";
 import { AgentDefSchema, type AgentDef } from "../declarative-schemas";
-import { buildFlowContext } from "../../flow-context";
-import { fanoutConfigFields, mcpSourceConfigFields } from "../../node-config";
+import { buildFlowContext } from "../../context/flow-variables";
+import { fanoutConfigFields, mcpSourceConfigFields } from "../../templates/node-config";
 
 export type { AgentDef };
 

@@ -408,7 +408,7 @@ async function lifecycleSmoke() {
   process.env.WORKSPACE_DIR = wsDir;
 
   const { db } = await import("../lib/db");
-  const { worktreeManager } = await import("../lib/engine/worktree-lifecycle");
+  const { worktreeManager } = await import("../lib/engine/runtime/worktree-lifecycle");
   const { FlowRow, Task, rows } = await import("../lib/db/rows");
 
   // seed repo / task / flow rows (local mode, worktree-capable)
@@ -533,7 +533,7 @@ async function runnerEnsureSmoke() {
   process.env.WORKSPACE_DIR = wsDir;
 
   const { db } = await import("../lib/db");
-  const { worktreeManager } = await import("../lib/engine/worktree-lifecycle");
+  const { worktreeManager } = await import("../lib/engine/runtime/worktree-lifecycle");
   const { FlowRow, Task, rows } = await import("../lib/db/rows");
   const { flowCtxHelper } = await import("../lib/engine/nodes/base/flow-context");
 

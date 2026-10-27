@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { templateStore } from "../../../../lib/engine/templates";
+import { templateStore } from "../../../../lib/engine/templates/template-store";
 import { invalidateDeclarativeDef } from "../../../../lib/engine/nodes/declarative";
 
 export const dynamic = "force-dynamic";

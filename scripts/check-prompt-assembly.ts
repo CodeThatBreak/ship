@@ -12,7 +12,7 @@
  *     --esModuleInterop --strict
  *   node node_modules/.cache/promptcheck/scripts/check-prompt-assembly.js
  */
-import { prompts } from "../lib/engine/prompts";
+import { prompts } from "../lib/engine/prompts/prompt-library";
 
 let failed = 0;
 const check = (name: string, ok: boolean, detail?: string) => {

@@ -8,9 +8,9 @@ import "server-only";
  * for server-only code; a loader module is the sanctioned importer (see the
  * pending lint-config note about server-zone exceptions).
  */
-import { flowEngine } from "../lib/engine/flow";
-import { flowPoller } from "../lib/engine/poller";
-import { reconciler } from "../lib/engine/reconcile";
+import { flowEngine } from "../lib/engine/flow-engine";
+import { flowPoller } from "../lib/engine/runtime/flow-poller";
+import { reconciler } from "../lib/engine/runtime/flow-reconciler";
 import type { FlowData } from "@/types/flow";
 import { flowSummaries, type FlowSummary } from "@/types/flows";
 

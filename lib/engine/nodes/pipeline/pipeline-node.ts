@@ -1,12 +1,12 @@
 import { z } from "zod";
 import type { NodeRow } from "../../../db/rows";
 import { gitHostRegistry, type HostJob } from "../../ports/git-host";
-import { prompts } from "../../prompts";
+import { prompts } from "../../prompts/prompt-library";
 import { AgentRunNode, nodeRoles, type FlowCtx, type NodePromptPreview, type PromptPreviewParams, type RunOutcome } from "../base";
 import type { NodeCapabilities } from "../base/capabilities";
 import { NODE_KEYS } from "../keys";
-import type { ConfigField } from "../../node-config";
-import { configBool, configNumber, configString } from "../../node-config";
+import type { ConfigField } from "../../templates/node-config";
+import { configBool, configNumber, configString } from "../../templates/node-config";
 import { PipelineInput, PipelineOutput } from "./schema";
 
 /** Poll interval while waiting for a pipeline to reach a terminal state. */

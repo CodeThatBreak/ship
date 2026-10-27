@@ -1,5 +1,5 @@
-import { templateStore } from "../../../../../lib/engine/templates";
-import { gatherTemplateYaml } from "../../../../../lib/engine/templates-yaml";
+import { templateStore } from "../../../../../lib/engine/templates/template-store";
+import { gatherTemplateYaml } from "../../../../../lib/engine/templates/template-yaml";
 
 export const dynamic = "force-dynamic";
 

@@ -17,17 +17,17 @@ import { uncachedInputTokens } from "./nodes/base/usage-tracker";
 import { nodeRegistry } from "./nodes/registry";
 import { NODE_KEYS } from "./nodes/keys";
 import { declarativeDef } from "./nodes/declarative";
-import { planSteps, type PlanStepInput } from "./steps";
-import { NO_TASK_TYPE, SDLC_TEMPLATE_ID, templateStore, type TemplateGraph, type TemplateEdgeSpec } from "./templates";
-import { appLayerConfig, configNumber, mergeConfigLayers, parseConfigSnapshot } from "./node-config";
+import { planSteps, type PlanStepInput } from "./runtime/plan-step-store";
+import { NO_TASK_TYPE, SDLC_TEMPLATE_ID, templateStore, type TemplateGraph, type TemplateEdgeSpec } from "./templates/template-store";
+import { appLayerConfig, configNumber, mergeConfigLayers, parseConfigSnapshot } from "./templates/node-config";
 import { createSdlcChain } from "./nodes/sdlc/chain";
-import { buildFlowContext, type FlowContextMap } from "./flow-context";
+import { buildFlowContext, type FlowContextMap } from "./context/flow-variables";
 import { evalJsonata, jsonataTruthy } from "@/lib/jsonata";
-import { hookStore } from "./hooks";
+import { hookStore } from "./runtime/hook-store";
 import { parseStartContract, validateAgainstContract } from "./nodes/start/contract";
 import { DEFAULT_FANOUT_OUTPUT, uiCapabilities, type NodeCapabilities } from "./nodes/base/capabilities";
-import { stepFlows, StepFlowManager, type StepChildPayload } from "./step-flows";
-import { worktreeManager } from "./worktree-lifecycle";
+import { stepFlows, StepFlowManager, type StepChildPayload } from "./runtime/fanout/step-flow-manager";
+import { worktreeManager } from "./runtime/worktree-lifecycle";
 import { processSingleton } from "../singleton";
 
 export interface CreateFlowOptions {

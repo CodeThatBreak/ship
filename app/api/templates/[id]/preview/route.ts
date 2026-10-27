@@ -1,9 +1,9 @@
 import { NextResponse } from "next/server";
 import { db } from "../../../../../lib/db";
-import { flowEngine } from "../../../../../lib/engine/flow";
-import { buildFlowContext, type FlowContextMap } from "../../../../../lib/engine/flow-context";
+import { flowEngine } from "../../../../../lib/engine/flow-engine";
+import { buildFlowContext, type FlowContextMap } from "../../../../../lib/engine/context/flow-variables";
 import { evalJsonata } from "@/lib/jsonata";
-import { outputFieldsFor } from "../../../../../lib/engine/context-lint";
+import { outputFieldsFor } from "../../../../../lib/engine/templates/template-lint";
 import { parseStartContract } from "../../../../../lib/engine/nodes/start/contract";
 import { nodeRegistry } from "../../../../../lib/engine/nodes/registry";
 import { taskRegistry } from "../../../../../lib/engine/tasks/registry";

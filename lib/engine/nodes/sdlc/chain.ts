@@ -1,7 +1,7 @@
 import { db } from "../../../db";
 import type { ChainRole, FlowCtx } from "../base";
 import { NODE_KEYS } from "../keys";
-import { configNumber } from "../../node-config";
+import { configNumber } from "../../templates/node-config";
 import { branchStore } from "../build";
 import { mergeRequests, type CommitError } from "../merge-request";
 

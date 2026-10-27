@@ -9,7 +9,7 @@ import {
   type SettingSource,
 } from "../../ports/agent-runner";
 import { flowCtxHelper, type FlowContextHelper, type FlowCtx } from "./flow-context";
-import { worktreeManager } from "../../worktree-lifecycle";
+import { worktreeManager } from "../../runtime/worktree-lifecycle";
 import { nodeSupport, type NodeSupport } from "./node-support";
 import { StreamBuffer } from "./stream-buffer";
 import { ToolPairer, type ToolEmitFn } from "./tool-pairer";

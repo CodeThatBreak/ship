@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { templateStore, type TemplateInput, type TemplateNodeInput, type TemplateEdgeInput } from "../../../../lib/engine/templates";
+import { templateStore, type TemplateInput, type TemplateNodeInput, type TemplateEdgeInput } from "../../../../lib/engine/templates/template-store";
 
 export const dynamic = "force-dynamic";
 

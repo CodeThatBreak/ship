@@ -10,7 +10,7 @@ import "server-only";
  * pattern as `loaders/flows.ts`).
  */
 import { db } from "../lib/db";
-import { SDLC_TEMPLATE_ID, templateStore } from "../lib/engine/templates";
+import { SDLC_TEMPLATE_ID, templateStore } from "../lib/engine/templates/template-store";
 import { taskRegistry } from "../lib/engine/tasks/registry";
 import type {
   ExecutionMode,

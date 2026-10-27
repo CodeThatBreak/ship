@@ -1,15 +1,15 @@
 import "server-only";
 
-import { db } from "../db";
-import { FlowRow, Task, rows, NodeRow } from "../db/rows";
-import { PROMPT_SOURCES } from "./nodes/base";
-import type { FlowCtx, NodeDefinition, NodePromptPreview, PromptPreviewParams, PromptSource } from "./nodes/base";
-import { nodeRoles } from "./nodes/base/node-roles";
-import { NODE_KEYS } from "./nodes/keys";
-import { nodeRegistry } from "./nodes/registry";
-import type { ContextBlockInfo } from "./nodes/plan/plan-node";
-import { prompts, sectionsOf, type PromptSections } from "./prompts";
-import { templateStore } from "./templates";
+import { db } from "../../db";
+import { FlowRow, Task, rows, NodeRow } from "../../db/rows";
+import { PROMPT_SOURCES } from "../nodes/base";
+import type { FlowCtx, NodeDefinition, NodePromptPreview, PromptPreviewParams, PromptSource } from "../nodes/base";
+import { nodeRoles } from "../nodes/base/node-roles";
+import { NODE_KEYS } from "../nodes/keys";
+import { nodeRegistry } from "../nodes/registry";
+import type { ContextBlockInfo } from "../nodes/plan/plan-node";
+import { prompts, sectionsOf, type PromptSections } from "./prompt-library";
+import { templateStore } from "../templates/template-store";
 
 /**
  * The prompt modal's truth layer (Phase 1): the live prompt resolution —

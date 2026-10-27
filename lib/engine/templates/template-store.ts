@@ -1,20 +1,20 @@
-import { db } from "../db";
+import { db } from "../../db";
 import {
   FlowTemplateRow,
   NodeTemplateRow,
   rows,
   type TemplateNodeTrigger,
-} from "../db/rows";
+} from "../../db/rows";
 import type {
   EditorCatalogEntry,
   EditorNodeRow,
   TemplateCatalogDetail,
   TemplateEditorDetail,
 } from "@/types/template-editor";
-import { parseDeclarativeConfig } from "./nodes/declarative-schemas";
-import { catalogForNodeTemplateIds, lintTemplate, type TaskUniverse } from "./context-lint";
-import { hookStore } from "./hooks";
-import { taskRegistry } from "./tasks/registry";
+import { parseDeclarativeConfig } from "../nodes/declarative-schemas";
+import { catalogForNodeTemplateIds, lintTemplate, type TaskUniverse } from "./template-lint";
+import { hookStore } from "../runtime/hook-store";
+import { taskRegistry } from "../tasks/registry";
 
 /** Seeded built-in template — the SDLC loop (plan → build → pipeline → review → resolve). */
 export const SDLC_TEMPLATE_ID = "tpl_sdlc_loop";

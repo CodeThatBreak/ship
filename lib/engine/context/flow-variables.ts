@@ -1,7 +1,7 @@
 import "server-only";
 
-import type { FlowCtx } from "./nodes/base";
-import { db } from "../db";
+import type { FlowCtx } from "../nodes/base";
+import { db } from "../../db";
 
 /**
  * The flow context map (§3 input mapping): the single variable universe every

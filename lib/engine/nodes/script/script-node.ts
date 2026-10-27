@@ -5,10 +5,10 @@ import { z } from "zod";
 import type { NodeRow } from "../../../db/rows";
 import type { AgentRunResult } from "../../ports/agent-runner";
 import { NodeDefinition, type FlowCtx, type RunOutcome } from "../base";
-import { templateStore } from "../../templates";
+import { templateStore } from "../../templates/template-store";
 import { ScriptDefSchema, type ScriptDef } from "../declarative-schemas";
 import { validateJsonSchema } from "../agent/json-schema-lite";
-import { worktreeManager } from "../../worktree-lifecycle";
+import { worktreeManager } from "../../runtime/worktree-lifecycle";
 import { workspaceForFlow } from "../../../git/local";
 
 /**

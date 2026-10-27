@@ -1,9 +1,9 @@
-import { db } from "../db";
-import { gitHostRegistry } from "./ports/git-host";
-import { flowEngine } from "./flow";
-import { reconciler } from "./reconcile";
-import { templateStore } from "./templates";
-import { processSingleton } from "../singleton";
+import { db } from "../../db";
+import { gitHostRegistry } from "../ports/git-host";
+import { flowEngine } from "../flow-engine";
+import { reconciler } from "./flow-reconciler";
+import { templateStore } from "../templates/template-store";
+import { processSingleton } from "../../singleton";
 import { worktreeManager } from "./worktree-lifecycle";
 
 /**

@@ -15,7 +15,7 @@
 import { CursorCloudAgentPort } from "../../integrations/cursor/agent-port";
 import { CursorLocalAgentPort } from "../../integrations/local-agent/agent-port";
 import type { CatalogModel } from "../../modelSpec";
-import type { SettingSource } from "../node-config";
+import type { SettingSource } from "../templates/node-config";
 
 export type { SettingSource };
 

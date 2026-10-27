@@ -1,6 +1,6 @@
 import type { NodeRow } from "../../../db/rows";
-import type { PromptAssembly } from "../../prompts";
-import { appLayerConfig, configString, mergeConfigLayers } from "../../node-config";
+import type { PromptAssembly } from "../../prompts/prompt-library";
+import { appLayerConfig, configString, mergeConfigLayers } from "../../templates/node-config";
 import type { FlowCtx } from "./flow-context";
 import type { NodeDefinition } from "./node-definition";
 

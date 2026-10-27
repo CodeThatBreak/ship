@@ -1,10 +1,10 @@
 import { NextResponse } from "next/server";
-import { templateStore } from "../../../../../lib/engine/templates";
+import { templateStore } from "../../../../../lib/engine/templates/template-store";
 import {
   catalogForNodeTemplateIds,
   lintTemplate,
   type LintProblem,
-} from "../../../../../lib/engine/context-lint";
+} from "../../../../../lib/engine/templates/template-lint";
 import { taskRegistry } from "../../../../../lib/engine/tasks/registry";
 
 export const dynamic = "force-dynamic";

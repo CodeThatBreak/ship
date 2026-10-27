@@ -1,7 +1,7 @@
-import { db } from "../db";
+import { db } from "../../db";
 import { lintJsonata } from "@/lib/jsonata";
-import { lintStartContract, parseStartContract } from "./nodes/start/contract";
-import { nodeRegistry } from "./nodes/registry";
+import { lintStartContract, parseStartContract } from "../nodes/start/contract";
+import { nodeRegistry } from "../nodes/registry";
 import { fanoutOf } from "./node-config";
 
 /**

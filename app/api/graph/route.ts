@@ -1,8 +1,8 @@
 import { NextResponse } from "next/server";
 import { nodeRegistry } from "../../../lib/engine/nodes/registry";
 import { FlowRow, rows, type NodeTemplateRow } from "../../../lib/db/rows";
-import { SDLC_TEMPLATE_ID, templateStore } from "../../../lib/engine/templates";
-import { outputFieldsFor } from "../../../lib/engine/context-lint";
+import { SDLC_TEMPLATE_ID, templateStore } from "../../../lib/engine/templates/template-store";
+import { outputFieldsFor } from "../../../lib/engine/templates/template-lint";
 
 export const dynamic = "force-dynamic";
 

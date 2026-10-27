@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { mcpSourcesSchema } from "../node-config";
+import { mcpSourcesSchema } from "../templates/node-config";
 
 /**
  * The declarative node definitions stored on `node_templates.config` (§4.3–4.5).

@@ -1,7 +1,7 @@
 import "server-only";
 
 import { z } from "zod";
-import { db } from "../db";
+import { db } from "../../db";
 
 // ── MCP config sources (Cursor SDK `local.settingSources`) ───────────────────
 

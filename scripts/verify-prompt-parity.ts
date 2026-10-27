@@ -41,7 +41,7 @@ import type { NodeDefinition } from "../lib/engine/nodes/base";
 import { nodeRoles } from "../lib/engine/nodes/base/node-roles";
 import { FlowRow, Task, NodeRow, rows } from "../lib/db/rows";
 import { nodeRegistry } from "../lib/engine/nodes/registry";
-import { promptPreview } from "../lib/engine/prompt-preview";
+import { promptPreview } from "../lib/engine/prompts/prompt-preview";
 import { NODE_KEYS } from "../lib/engine/nodes/keys";
 
 // ── runtime stubs ─────────────────────────────────────────────────────────────
