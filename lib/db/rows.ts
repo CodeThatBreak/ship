@@ -1,3 +1,5 @@
+import "server-only";
+
 import { z } from "zod";
 import { db } from "./index";
 
@@ -6,7 +8,7 @@ import { db } from "./index";
  *
  * Rows cross the DB boundary exactly once — here — so every consumer gets a
  * validated, fully-typed object instead of `any` + ad-hoc JSON.parse calls.
- * JSON-encoded columns (figma_urls, input, output, meta, files, data, raw)
+ * JSON-encoded columns (fields, input, output, meta, files, data, raw)
  * are decoded to their real types by the schema.
  */
 
@@ -26,8 +28,8 @@ const jsonCol = <S extends z.ZodTypeAny>(schema: S) =>
       }
     });
 
-// ── tickets ──────────────────────────────────────────────────────────────────
-export const TicketRow = z.object({
+// ── tasks ────────────────────────────────────────────────────────────────────
+export const TaskRow = z.object({
   id: z.string(),
   key: z.string(),
   summary: z.string(),
@@ -35,17 +37,27 @@ export const TicketRow = z.object({
   status: z.string().nullable(),
   issue_type: z.string().nullable(),
   priority: z.string().nullable(),
-  prd_text: z.string().nullable(),
-  figma_urls: jsonCol(z.array(z.string())),
   repo_url: z.string().nullable(),
-  jira_url: z.string().nullable(),
+  parent_key: z.string().nullable(),
+  external_url: z.string().nullable(),
   raw: z.string().nullable(),
   synced_at: z.string().nullable(),
+  /** task type discriminator (provider kind; the provider/engine always sets it) */
+  type: z.string(),
+  /** provider-specific payload (JSON object; jira keeps prd + figma_urls here) */
+  fields: jsonCol(z.record(z.string(), z.unknown())),
 });
-export type TicketRow = z.infer<typeof TicketRow>;
+export type TaskRow = z.infer<typeof TaskRow>;
 
-/** App-facing ticket shape (camelCase, parsed figma URLs). */
-export const Ticket = TicketRow.transform((t) => ({
+/**
+ * App-facing task shape (camelCase, parsed fields).
+ *
+ * Provider-only payload (PRD text, figma links) hydrates from `fields` — the
+ * jira provider writes `fields.prd` / `fields.figma_urls` (Phase 2+); the
+ * Phase-4 data-fix migration copied the same values across from the retired
+ * shared columns for rows synced before that.
+ */
+export const Task = TaskRow.transform((t) => ({
   id: t.id,
   key: t.key,
   summary: t.summary,
@@ -53,18 +65,21 @@ export const Ticket = TicketRow.transform((t) => ({
   status: t.status,
   issueType: t.issue_type,
   priority: t.priority,
-  prdText: t.prd_text,
-  figmaUrls: t.figma_urls ?? [],
+  prdText: typeof t.fields?.prd === "string" ? (t.fields.prd as string) : "",
+  figmaUrls: Array.isArray(t.fields?.figma_urls) ? (t.fields.figma_urls as string[]) : [],
   repoUrl: t.repo_url,
-  jiraUrl: t.jira_url,
+  parentKey: t.parent_key,
+  externalUrl: t.external_url,
   syncedAt: t.synced_at,
+  type: t.type,
+  fields: t.fields ?? {},
 }));
-export type Ticket = z.infer<typeof Ticket>;
+export type Task = z.infer<typeof Task>;
 
 // ── flows ────────────────────────────────────────────────────────────────────
 export const FlowRow = z.object({
   id: z.string(),
-  ticket_id: z.string(),
+  task_id: z.string(),
   name: z.string(),
   status: z.string(),
   mr_url: z.string().nullable(),
@@ -75,6 +90,16 @@ export const FlowRow = z.object({
   current_node: z.string().nullable(),
   execution_mode: z.string().nullable().default("cloud"),
   repo_id: z.string().nullable(),
+  /** flow template this flow instance snapshot came from (Phase 1) */
+  template_id: z.string().nullable(),
+  /** webhook/schedule trigger payload that started the flow (Phase 4) */
+  trigger_payload: jsonCol(z.record(z.string(), z.unknown())),
+  /** git worktree dir for local runs (Phase 1 worktrees); null = runs in the registered checkout */
+  worktree_dir: z.string().nullable(),
+  /** step sub-flows (plan fan-out): set on child flows — the parent's flow id */
+  parent_flow_id: z.string().nullable(),
+  /** sdlc | step (plan fan-out child) */
+  kind: z.string().nullable().default("sdlc"),
   created_at: z.string(),
   updated_at: z.string(),
 });
@@ -83,11 +108,15 @@ export type FlowRow = z.infer<typeof FlowRow>;
 // ── nodes ────────────────────────────────────────────────────────────────────
 export const NODE_STATUSES = [
   "pending",
+  /** eligible but a `wait_for` event is still pending (Phase 1: reserved) */
+  "waiting",
   "running",
   "awaiting_approval",
   "approved",
-  "failed",
   "done",
+  "failed",
+  /** on a non-taken branch (Phase 3: decision/edge conditions) */
+  "skipped",
 ] as const;
 export type NodeStatus = (typeof NODE_STATUSES)[number];
 
@@ -95,12 +124,19 @@ export const NodeRow = z.object({
   id: z.string(),
   flow_id: z.string(),
   node_key: z.string(),
+  /** node template key (def key for built-ins; Phase 2 adds declarative kinds) */
   type: z.string(),
   status: z.enum(NODE_STATUSES),
   agent_id: z.string().nullable(),
   cursor_agent_id: z.string().nullable(),
   session_id: z.string().nullable(),
   prompt_override: z.string().nullable(),
+  /** display name override from the template instance */
+  label: z.string().nullable(),
+  /** effective config snapshot (class defaults ← app settings ← template ← flow), merged at creation */
+  config: jsonCol(z.record(z.string(), z.unknown())),
+  /** join semantics for incoming edges: all | any */
+  join_mode: z.string().nullable(),
   input: jsonCol(z.record(z.string(), z.unknown())),
   output: jsonCol(z.record(z.string(), z.unknown())),
   created_at: z.string(),
@@ -177,7 +213,10 @@ export const PlanStepRow = z.object({
   branch: z.string().nullable(),
   status: z.string(),
   origin: z.string(),
+  /** completed_by: manual | build | merge | skipped | null */
   completed_by: z.string().nullable(),
+  /** step ⇄ sub-flow linkage (plan fan-out): the child flow building this step */
+  sub_flow_id: z.string().nullable(),
   created_at: z.string(),
   updated_at: z.string(),
 });
@@ -227,6 +266,13 @@ export const RepoRow = z.object({
   cloud_url: z.string(),
   local_path: z.string().nullable(),
   default_branch: z.string(),
+  // worktree setup policy (Phase 2)
+  install_command: z.string().nullable(),
+  skip_install: z.number().int(),
+  sync_paths: z.string().nullable(),
+  shared_dirs: z.string().nullable(),
+  setup_command: z.string().nullable(),
+  worktree_timeout_ms: z.number().nullable(),
   created_at: z.string(),
   updated_at: z.string(),
 });
@@ -241,6 +287,118 @@ export const GitLabInstanceRow = z.object({
   created_at: z.string().optional(),
 });
 export type GitLabInstanceRow = z.infer<typeof GitLabInstanceRow>;
+
+// ── flow templates (Phase 1: template layer) ─────────────────────────────────
+export const NodeTemplateRow = z.object({
+  id: z.string(),
+  key: z.string(),
+  name: z.string(),
+  kind: z.enum(["builtin", "agent", "http", "script", "decision"]),
+  version: z.number(),
+  description: z.string().nullable(),
+  icon: z.string().nullable(),
+  /** declarative kinds: full definition; builtin: knob overrides */
+  config: jsonCol(z.record(z.string(), z.unknown())),
+  is_builtin: z.number(),
+  /** NULL = global Library row shared across templates; set = private to that template */
+  template_id: z.string().nullable(),
+  created_at: z.string(),
+  updated_at: z.string(),
+});
+export type NodeTemplateRow = z.infer<typeof NodeTemplateRow>;
+
+export const FlowTemplateRow = z.object({
+  id: z.string(),
+  name: z.string(),
+  description: z.string().nullable(),
+  version: z.number(),
+  is_builtin: z.number(),
+  /** flow trigger: { type: manual | webhook | schedule, ... } */
+  trigger: jsonCol(z.record(z.string(), z.unknown())),
+  /** next fire time for a `schedule` flow trigger (Phase 4C); null = not scheduled */
+  schedule_next_at: z.string().nullable(),
+  /** auto-wrapped child templates (plan fan-out); excluded from the gallery */
+  hidden: z.number().int(),
+  created_at: z.string(),
+  updated_at: z.string(),
+});
+export type FlowTemplateRow = z.infer<typeof FlowTemplateRow>;
+
+export interface TemplateNodeTrigger {
+  /** auto | manual | approval | debounced */
+  type: string;
+  /** debounced quiet-period minutes */
+  minutes?: number;
+  /** event source the node waits on before it can run: pipeline | comments | webhook | timer */
+  wait_for?: string;
+}
+
+export const FlowTemplateNodeRow = z.object({
+  id: z.string(),
+  template_id: z.string(),
+  node_key: z.string(),
+  node_template_id: z.string(),
+  label: z.string().nullable(),
+  trigger: jsonCol(z.record(z.string(), z.unknown())),
+  join_mode: z.string(),
+  config: jsonCol(z.record(z.string(), z.unknown())),
+  input_map: jsonCol(z.record(z.string(), z.unknown())),
+  x: z.number().nullable(),
+  y: z.number().nullable(),
+  created_at: z.string(),
+  updated_at: z.string(),
+});
+export type FlowTemplateNodeRow = z.infer<typeof FlowTemplateNodeRow>;
+
+export const FlowTemplateEdgeRow = z.object({
+  id: z.string(),
+  template_id: z.string(),
+  from_key: z.string(),
+  to_key: z.string(),
+  kind: z.enum(["next", "loop"]),
+  label: z.string().nullable(),
+  condition: z.string().nullable(),
+  created_at: z.string(),
+  updated_at: z.string(),
+});
+export type FlowTemplateEdgeRow = z.infer<typeof FlowTemplateEdgeRow>;
+
+export const HookRow = z.object({
+  id: z.string(),
+  template_id: z.string().nullable(),
+  flow_id: z.string().nullable(),
+  node_key: z.string().nullable(),
+  secret: z.string(),
+  filter: z.string().nullable(),
+  created_at: z.string(),
+});
+export type HookRow = z.infer<typeof HookRow>;
+
+/** Seen webhook-ids per hook (Phase 4A dedup; TTL'd by HookStore). */
+export const HookDeliveryRow = z.object({
+  hook_id: z.string(),
+  webhook_id: z.string(),
+  created_at: z.string(),
+});
+export type HookDeliveryRow = z.infer<typeof HookDeliveryRow>;
+
+// ── step_merges (plan fan-out, Phase 1) ──────────────────────────────────────
+// Durable merge-back record per code child (a def with a `mergeBack` hook):
+// written BEFORE the git merge runs, updated after, so restarts/reconcile can
+// resume or flag. NULL `branch` ⇒ non-code children create no rows.
+export const StepMergeRow = z.object({
+  id: z.string(),
+  flow_id: z.string(),
+  parent_flow_id: z.string(),
+  parent_node: z.string(),
+  branch: z.string().nullable(),
+  status: z.string(),
+  attempts: z.number(),
+  error: z.string().nullable(),
+  created_at: z.string(),
+  updated_at: z.string(),
+});
+export type StepMergeRow = z.infer<typeof StepMergeRow>;
 
 // ── typed query helpers ──────────────────────────────────────────────────────
 /**

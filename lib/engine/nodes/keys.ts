@@ -5,6 +5,7 @@
 export const NODE_KEYS = {
   PLAN: "plan",
   BUILD: "build",
+  STEP_BUILD: "step_build",
   PIPELINE: "pipeline",
   REVIEW: "review",
   RESOLVE: "resolve",

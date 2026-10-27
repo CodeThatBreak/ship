@@ -11,12 +11,13 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
 
 export async function POST(req: Request, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  const { nodeKey, content, chatOnly } = await req.json();
+  const { nodeKey, content, chatOnly, model } = await req.json();
+  if (!nodeKey) return NextResponse.json({ error: "nodeKey required" }, { status: 400 });
   if (!content?.trim()) return NextResponse.json({ error: "content required" }, { status: 400 });
   try {
-    flowEngine.sendChat(id, nodeKey ?? "plan", content.trim(), chatOnly === true);
+    flowEngine.sendChat(id, nodeKey, content.trim(), chatOnly === true, typeof model === "string" && model ? model : undefined);
     return NextResponse.json({ ok: true });
-  } catch (e: any) {
-    return NextResponse.json({ error: e?.message ?? String(e) }, { status: 400 });
+  } catch (e: unknown) {
+    return NextResponse.json({ error: e instanceof Error ? e.message : String(e) }, { status: 400 });
   }
 }

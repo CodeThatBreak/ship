@@ -274,3 +274,22 @@ export class EventGrouper {
 }
 
 export const eventGrouper = new EventGrouper();
+
+/**
+ * Flow-level events (node_id = null) are emitted for the whole flow even though
+ * most of them concern a single stage. Emitters that know the owning node
+ * stamp it into the event data at emit time (§3.3) — no message-text guessing
+ * here. Returns null for generic events (infra errors and the like) that every
+ * tab should still see.
+ */
+export function flowEventNodeKeys(e: FeedEvent): string[] | null {
+  if (e.node_id != null) return null; // node-scoped — already filtered by the caller
+
+  let data: any = {};
+  try {
+    data = e.data ? JSON.parse(e.data) : {};
+  } catch {
+    data = {};
+  }
+  return typeof data?.nodeKey === "string" && data.nodeKey ? [data.nodeKey] : null;
+}

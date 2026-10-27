@@ -1,3 +1,5 @@
+import "server-only";
+
 import {
   Agent,
   Cursor,
@@ -7,15 +9,26 @@ import {
   type RunResult as SdkRunResult,
   type SDKAgent,
   type SDKMessage,
+  type SDKModel,
+  type SettingSource as SdkSettingSource,
   type TokenUsage,
 } from "@cursor/sdk";
 import fs from "fs";
-import { config } from "../config";
+import { FAST_OFF, FAST_ON, FAST_PARAM } from "../../constants/models";
 import { processSingleton } from "../singleton";
+import { cursorApiKey } from "./cursor/credentials";
 
 // ── shared vocabulary (SDK-native shapes, re-exported for the engine) ───────
 export type { TokenUsage };
 export type { ModelSelection };
+/**
+ * The SDK's `SettingSource` (`local.settingSources`) — the ambient config
+ * layers (and their MCP servers) a local agent may load. The engine mirrors
+ * the same string union in `lib/engine/node-config.ts` (`SETTING_SOURCES`):
+ * both are compile-checked string literals, so adding a source means touching
+ * both. Kept SDK-shaped in this file, engine-shaped there.
+ */
+export type SDKSettingSource = SdkSettingSource;
 
 /** App-wide run result = the SDK's RunResult verbatim. */
 export type AgentRunResult = SdkRunResult;
@@ -49,6 +62,8 @@ export interface CreateRunInput {
   repos?: { url: string; startingRef?: string }[];
   autoCreatePR?: boolean;
   customSubagents?: { name: string; instructions: string }[];
+  // local runtime — ambient setting layers (their MCP servers) the agent loads
+  settingSources?: SdkSettingSource[];
   // resume an existing agent conversation (follow-up)
   resumeAgentId?: string;
 }
@@ -75,28 +90,58 @@ const TERMINAL_STATUSES = new Set(["finished", "error", "cancelled"]);
 export class CursorAgentService {
   private runs = new Map<string, StartedRun>();
 
+  /** Catalog cache TTL — fresh enough for param changes, rare enough to be cheap. */
+  private static readonly MODEL_TTL_MS = 10 * 60 * 1000;
+  private modelCache: { at: number; models: SDKModel[] } | null = null;
+
   private apiKey(): string {
-    const key = config.cursor.apiKey();
-    if (!key) throw new Error("CURSOR_API_KEY not set");
+    const key = cursorApiKey();
+    if (!key) throw new Error("Cursor API key not set — add it in Settings → Integrations → Harness");
     return key;
   }
 
   /** True when the SDK can run at all (Node >= 22.13 and an API key is set). */
   available(): boolean {
-    const [maj, min] = process.versions.node.split(".").map((n) => parseInt(n, 10));
+    const [maj, min] = process.versions.node
+      .split(".")
+      .map((n) => parseInt(n, 10));
     const nodeOk = maj > 22 || (maj === 22 && min >= 13);
-    return nodeOk && Boolean(config.cursor.apiKey());
+    return nodeOk && Boolean(cursorApiKey());
   }
 
   /** Models available to the authenticated account (null when unavailable). */
   async listModels(): Promise<string[] | null> {
+    const catalog = await this.listCatalog();
+    if (!catalog) return null;
+    const ids = catalog.map((m) => m.id).filter(Boolean);
+    return ids.length ? ids : null;
+  }
+
+  /**
+   * Full model catalog (id, displayName, parameters, variants) with the raw
+   * names for UI grouping. Cached for MODEL_TTL_MS so hot paths (chat panel
+   * mount, settings page, polling loops) don't hit Cursor.models.list
+   * repeatedly; on errors the last known catalog is served until it expires.
+   */
+  async listCatalog(): Promise<SDKModel[] | null> {
+    const now = Date.now();
+    if (
+      this.modelCache &&
+      now - this.modelCache.at < CursorAgentService.MODEL_TTL_MS
+    ) {
+      return this.modelCache.models;
+    }
     try {
       const models = await Cursor.models.list({ apiKey: this.apiKey() });
-      const ids = models.map((m) => m.id).filter(Boolean);
-      return ids.length ? ids : null;
+      if (models?.length) {
+        this.modelCache = { at: now, models };
+        return models;
+      }
     } catch {
-      return null;
+      /* fall through to cache/fallback */
     }
+
+    return this.modelCache?.models ?? null;
   }
 
   /** True if this server process still owns the given run (false after restart). */
@@ -105,6 +150,39 @@ export class CursorAgentService {
   }
 
   // ── run lifecycle ─────────────────────────────────────────────────────────
+
+  /**
+   * Pin fast mode OFF on a model the catalog declares as fast-capable. The
+   * SDK passes ModelSelection params verbatim — an unstated `fast` falls
+   * through to the account's default variant, which is fast=true for composer
+   * models. An explicit fast value already on the selection wins (fast=true
+   * stays an opt-in, fast=false is already the pick); a malformed fast value
+   * (valueless `composer-2.5[fast]`, unknown value) is swept and replaced.
+   * The pin only applies when the catalog confirms the parameter — an unknown
+   * param fails the SDK's local model validation — and is skipped when the
+   * catalog is unreachable, passing the selection through rather than failing
+   * the run.
+   */
+  private async pinFastOff(model: ModelSelection): Promise<ModelSelection> {
+    const fastValue = model.params?.find((p) => p.id.trim() === FAST_PARAM)?.value.trim();
+    if (fastValue === FAST_ON || fastValue === FAST_OFF) return model;
+    const catalog = await this.listCatalog();
+    const entry = catalog?.find(
+      (m) => m.id === model.id || (m.aliases ?? []).includes(model.id),
+    );
+    const declaresFast = !!entry && (
+      Boolean(entry.parameters?.some((p) => p.id.trim() === FAST_PARAM)) ||
+      (entry.variants ?? []).some((v) => v.params.some((p) => p.id.trim() === FAST_PARAM))
+    );
+    if (!declaresFast) return model;
+    return {
+      ...model,
+      params: [
+        ...(model.params ?? []).filter((p) => p.id.trim() !== FAST_PARAM),
+        { id: FAST_PARAM, value: FAST_OFF },
+      ],
+    };
+  }
 
   /**
    * Start (or resume) an agent run on the configured runtime. For local runs
@@ -117,6 +195,9 @@ export class CursorAgentService {
   ): Promise<{ agentId: string; runId: string }> {
     const apiKey = this.apiKey();
     const isCloud = input.cloud === true;
+    // fast mode defaults OFF — pinned before the selection reaches either
+    // runtime (the SDK would otherwise fall through to the fast variant)
+    const model = input.model ? await this.pinFastOff(input.model) : undefined;
 
     if (!isCloud && input.cwd && !fs.existsSync(input.cwd)) {
       throw new Error(
@@ -128,14 +209,21 @@ export class CursorAgentService {
     if (input.resumeAgentId) {
       // follow-up: resume the existing agent conversation, then send the prompt
       const resumeOpts: Partial<AgentOptions> = { apiKey };
-      if (!isCloud && input.cwd) resumeOpts.local = { cwd: input.cwd };
-      if (input.model) resumeOpts.model = input.model;
+      if (!isCloud && input.cwd) {
+        resumeOpts.local = {
+          cwd: input.cwd,
+          // settingSources must be re-passed on resume — inline/file-based MCP
+          // context isn't persisted on the agent (see the SDK's resume docs)
+          ...(input.settingSources?.length ? { settingSources: input.settingSources } : {}),
+        };
+      }
+      if (model) resumeOpts.model = model;
       agent = await Agent.resume(input.resumeAgentId, resumeOpts);
     } else {
       const opts: AgentOptions = { apiKey };
       if (input.name) opts.name = input.name;
       if (input.mode) opts.mode = input.mode;
-      if (input.model) opts.model = input.model;
+      if (model) opts.model = model;
       if (isCloud) {
         opts.cloud = {
           repos: input.repos?.length ? input.repos : [],
@@ -145,13 +233,20 @@ export class CursorAgentService {
           opts.agents = Object.fromEntries(
             input.customSubagents
               .slice(0, 20)
-              .map((s) => [s.name, { description: s.instructions, prompt: s.instructions }]),
+              .map((s) => [
+                s.name,
+                { description: s.instructions, prompt: s.instructions },
+              ]),
           );
         }
       } else {
         opts.local = {
           cwd: input.cwd ?? process.cwd(),
           sandboxOptions: { enabled: input.sandbox ?? false },
+          // ambient setting layers for MCP servers (local-settingSources) —
+          // omitted for cloud: cloud always loads project/team/plugins and
+          // dashboard servers and ignores the knob
+          ...(input.settingSources?.length ? { settingSources: input.settingSources } : {}),
         };
       }
       agent = await Agent.create(opts);
@@ -159,11 +254,16 @@ export class CursorAgentService {
 
     const run = await agent.send(input.prompt, {
       ...(input.mode ? { mode: input.mode } : {}),
-      ...(input.model ? { model: input.model } : {}),
+      ...(model ? { model } : {}),
       ...(!isCloud && input.force ? { local: { force: true } } : {}),
     });
 
-    const started: StartedRun = { agentId: agent.agentId, runId: run.id, agent, run };
+    const started: StartedRun = {
+      agentId: agent.agentId,
+      runId: run.id,
+      agent,
+      run,
+    };
     this.runs.set(run.id, started);
     return { agentId: agent.agentId, runId: run.id };
   }
@@ -235,10 +335,18 @@ export class CursorAgentService {
   // ── inspection & recovery (reconcile) ─────────────────────────────────────
 
   /** Fetch a run's terminal result without streaming (cloud or local). */
-  async getRun(agentId: string, runId: string, cwd?: string): Promise<AgentRunResult | null> {
+  async getRun(
+    agentId: string,
+    runId: string,
+    cwd?: string,
+  ): Promise<AgentRunResult | null> {
     try {
       if (agentId.startsWith("bc-")) {
-        const run = await Agent.getRun(runId, { runtime: "cloud", agentId, apiKey: this.apiKey() });
+        const run = await Agent.getRun(runId, {
+          runtime: "cloud",
+          agentId,
+          apiKey: this.apiKey(),
+        });
         if (run.status === "running") return null; // still going
         return await run.wait();
       }
@@ -255,10 +363,18 @@ export class CursorAgentService {
    * or null when it already reached a terminal state. The returned handle can
    * be pumped via pumpRun.
    */
-  async reattachRun(agentId: string, runId: string, cwd?: string): Promise<Run | null> {
+  async reattachRun(
+    agentId: string,
+    runId: string,
+    cwd?: string,
+  ): Promise<Run | null> {
     try {
       if (agentId.startsWith("bc-")) {
-        const run = await Agent.getRun(runId, { runtime: "cloud", agentId, apiKey: this.apiKey() });
+        const run = await Agent.getRun(runId, {
+          runtime: "cloud",
+          agentId,
+          apiKey: this.apiKey(),
+        });
         return run.status === "running" ? run : null;
       }
       const run = await Agent.getRun(runId, { runtime: "local", cwd });
@@ -304,16 +420,24 @@ export class CursorAgentService {
   async getRunUsage(
     agentId: string,
     runId: string,
-  ): Promise<{ usage: TokenUsage; cost?: { rawCostCents: number; chargedCents: number } } | null> {
+  ): Promise<{
+    usage: TokenUsage;
+    cost?: { rawCostCents: number; chargedCents: number };
+  } | null> {
     try {
-      const res = await Agent.getUsage(agentId, { apiKey: this.apiKey(), runId });
+      const res = await Agent.getUsage(agentId, {
+        apiKey: this.apiKey(),
+        runId,
+      });
       const entry = res.runs.find((r) => r.runId === runId) ?? res.runs[0];
-      if (!entry) return res.usage ? { usage: res.usage, cost: res.cost } : null;
+      if (!entry)
+        return res.usage ? { usage: res.usage, cost: res.cost } : null;
       return { usage: entry.usage, cost: entry.cost ?? res.cost };
     } catch {
       return null;
     }
   }
+
 }
 
 export const cursorAgent = processSingleton(

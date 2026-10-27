@@ -13,6 +13,18 @@ function validateLocalPath(p: string | null | undefined): string | null {
   return expanded;
 }
 
+/** Optional string fields: absent/empty → null. */
+function optString(v: unknown): string | null {
+  const s = typeof v === "string" ? v.trim() : "";
+  return s || null;
+}
+
+/** Optional worktree timeout in SECONDS (form unit) → ms in the DB; invalid/absent → null. */
+function optTimeoutMs(v: unknown): number | null {
+  const n = typeof v === "string" ? Number.parseInt(v, 10) : typeof v === "number" ? Math.trunc(v) : NaN;
+  return Number.isFinite(n) && n > 0 ? n * 1000 : null;
+}
+
 export async function GET() {
   const repos = db.listRepos().map((r) => ({
     ...r,
@@ -38,6 +50,13 @@ export async function POST(req: Request) {
     cloud_url: body.cloud_url,
     local_path: localPath,
     default_branch: body.default_branch || "main",
+    // worktree setup policy (Phase 2)
+    install_command: optString(body.install_command),
+    skip_install: Boolean(body.skip_install),
+    sync_paths: optString(body.sync_paths),
+    shared_dirs: optString(body.shared_dirs),
+    setup_command: optString(body.setup_command),
+    worktree_timeout_ms: optTimeoutMs(body.worktree_timeout_s),
   });
   return NextResponse.json({ repo });
 }

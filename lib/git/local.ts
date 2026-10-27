@@ -1,9 +1,11 @@
+import "server-only";
+
 import { execFile } from "child_process";
 import fs from "fs";
 import path from "path";
 import { promisify } from "util";
 import { config } from "../config";
-import { gitLab } from "../integrations/gitlab";
+import { gitHostRegistry } from "../engine/ports/git-host";
 
 const execFileAsync = promisify(execFile);
 
@@ -22,6 +24,8 @@ export interface DiffFile {
 export interface LocalBranchState {
   exists: boolean;
   commitsAhead: number;
+  /** commits on the base ref that the branch hasn't picked up yet (0 when current) */
+  commitsBehind: number;
   base: string;
   stat: string;
   raw: string;
@@ -46,17 +50,13 @@ export class LocalGit {
   }
 
   private authedUrl(repoUrl: string): string {
-    let token = "";
+    // the token-embedding scheme (oauth2:<token>@) is the host adapter's —
+    // routing to the right instance lives in the git-host registry
     try {
-      token = gitLab.instanceForRepo(repoUrl).token;
+      return gitHostRegistry.forRepo(repoUrl).authedCloneUrl(repoUrl);
     } catch {
-      token = config.gitlab.token();
+      return repoUrl;
     }
-    if (!token) return repoUrl;
-    // https://oauth2:TOKEN@host/group/repo.git — the .git suffix matters: without
-    // it some GitLab fronts 301-redirect and git push fails on the redirect.
-    const withAuth = repoUrl.replace(/^https?:\/\//, (m) => `${m}oauth2:${token}@`);
-    return withAuth.endsWith(".git") ? withAuth : `${withAuth}.git`;
   }
 
   cloneDir(flowId: string): string {
@@ -155,7 +155,7 @@ export class LocalGit {
       }
     }
     throw new Error(
-      `could not push branch ${branch} — check VPN/network access to the GitLab host and your git credentials (${String(lastErr?.message ?? lastErr).slice(0, 300)})`
+      `could not push branch ${branch} — check VPN/network access to the git host and your git credentials (${String(lastErr?.message ?? lastErr).slice(0, 300)})`
     );
   }
 
@@ -169,7 +169,7 @@ export class LocalGit {
     branch: string,
     baseBranch = "main"
   ): Promise<LocalBranchState> {
-    const none: LocalBranchState = { exists: false, commitsAhead: 0, base: baseBranch, stat: "", raw: "", pushed: false };
+    const none: LocalBranchState = { exists: false, commitsAhead: 0, commitsBehind: 0, base: baseBranch, stat: "", raw: "", pushed: false };
     const base = ["-C", localPath];
     try {
       await this.git([...base, "rev-parse", "--verify", "--quiet", branch]);
@@ -187,41 +187,20 @@ export class LocalGit {
     }
     const { stdout: count } = await this.git([...base, "rev-list", "--count", `${baseRef}..${branch}`]);
     const commitsAhead = parseInt(count.trim(), 10) || 0;
+    const { stdout: behindCount } = await this.git([...base, "rev-list", "--count", `${branch}..${baseRef}`]);
+    const commitsBehind = parseInt(behindCount.trim(), 10) || 0;
     const { stdout: raw } = await this.git([...base, "diff", `${baseRef}...${branch}`]);
     const { stdout: stat } = await this.git([...base, "diff", "--stat", `${baseRef}...${branch}`]);
     const pushed = await this.git([...base, "rev-parse", "--verify", "--quiet", `origin/${branch}`])
       .then(() => true)
       .catch(() => false);
-    return { exists: true, commitsAhead, base: baseRef, stat, raw, pushed };
+    return { exists: true, commitsAhead, commitsBehind, base: baseRef, stat, raw, pushed };
   }
 
-  // ── Phase 3C: worktree helpers for parallel local builds ────────────────
-
-  /** Create a git worktree for a branch. Returns the worktree path. */
-  async addWorktree(repoPath: string, branch: string, baseBranch = "main"): Promise<string> {
-    const wtPath = path.join(repoPath, ".worktrees", branch.replace(/[^a-zA-Z0-9_-]/g, "_"));
-    // Ensure the branch exists (create from base if needed)
-    try {
-      await this.git(["-C", repoPath, "rev-parse", "--verify", branch]);
-    } catch {
-      await this.git(["-C", repoPath, "branch", branch, baseBranch]);
-    }
-    await this.git(["-C", repoPath, "worktree", "add", wtPath, branch], {
-      maxBuffer: 1024 * 1024 * 10,
-      timeout: GIT_TIMEOUT_MS * 3,
-    });
-    return wtPath;
-  }
-
-  /** Remove a git worktree. Best-effort cleanup. */
-  async removeWorktree(repoPath: string, wtPath: string): Promise<void> {
-    try {
-      await this.git(["-C", repoPath, "worktree", "remove", wtPath, "--force"]);
-    } catch {
-      // Also try to remove the directory if git worktree remove fails
-      try { fs.rmSync(wtPath, { recursive: true, force: true }); } catch { /* ignore */ }
-    }
-  }
+  // ── worktrees ────────────────────────────────────────────────────────────
+  // Moved to lib/git/worktrees.ts (Phase 1): the pure worktree layer
+  // (create/list/preflight/remove + porcelain parsing), consumed via the
+  // engine adapter in lib/engine/worktree-lifecycle.ts.
 
   private parseDiff(raw: string): DiffFile[] {
     const files: DiffFile[] = [];
@@ -243,3 +222,13 @@ export class LocalGit {
 }
 
 export const localGit = new LocalGit();
+
+/** The per-flow workspace clone directory (`workspaces/<flowId>`), or null when absent. */
+export function workspaceForFlow(flowId: string): string | null {
+  const dir = path.join(config.workspace.dir(), flowId);
+  try {
+    return fs.existsSync(path.join(dir, ".git")) ? dir : null;
+  } catch {
+    return null;
+  }
+}

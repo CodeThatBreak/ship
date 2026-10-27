@@ -17,5 +17,7 @@ export type ResolveInput = z.infer<typeof ResolveInput>;
 export const ResolveOutput = z.object({
   resolved: z.number(),
   branchName: z.string().optional(),
+  /** true when the agent actually pushed code changes to the MR branch */
+  codeChanged: z.boolean().default(false),
 });
 export type ResolveOutput = z.infer<typeof ResolveOutput>;

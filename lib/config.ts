@@ -1,84 +1,62 @@
+import "server-only";
+
 import path from "path";
 
 /**
  * Application configuration, sourced from environment variables.
  *
- * Grouped by integration (cursor / jira / gitlab) plus infrastructure
- * (db / workspace). Values are read lazily via methods so tests and
+ * Integration credentials (GitLab / Jira / Cursor) are managed from
+ * Settings → Integrations and stored in the DB — the environment only
+ * carries infrastructure config (db / workspace) plus the optional
+ * GITLAB_WEBHOOK_SECRET. Values are read lazily via methods so tests and
  * long-running processes always see the current environment.
  */
 
 class CursorConfig {
   readonly baseUrl = "https://api.cursor.com";
 
-  apiKey(): string {
-    return AppConfig.env("CURSOR_API_KEY");
-  }
-
   defaultModel(): string {
     return AppConfig.env("DEFAULT_MODEL");
   }
 }
 
-class JiraConfig {
-  baseUrl(): string {
-    return AppConfig.env("JIRA_BASE_URL").replace(/\/+$/, "");
-  }
-
-  email(): string {
-    return AppConfig.env("JIRA_EMAIL");
-  }
-
-  token(): string {
-    return AppConfig.env("JIRA_API_TOKEN");
-  }
-
-  jql(): string {
-    return AppConfig.env(
-      "JIRA_JQL",
-      "assignee = currentUser() AND statusCategory != Done ORDER BY updated DESC"
-    );
-  }
-
-  configured(): boolean {
-    return Boolean(
-      AppConfig.env("JIRA_BASE_URL") &&
-        AppConfig.env("JIRA_EMAIL") &&
-        AppConfig.env("JIRA_API_TOKEN")
-    );
-  }
-}
-
 class GitLabConfig {
-  baseUrl(): string {
-    return AppConfig.env("GITLAB_BASE_URL").replace(/\/+$/, "");
-  }
-
-  token(): string {
-    return AppConfig.env("GITLAB_TOKEN");
-  }
-
+  /** Optional shared-secret check for /api/webhooks/gitlab (unset = accept all). */
   webhookSecret(): string {
     return AppConfig.env("GITLAB_WEBHOOK_SECRET");
-  }
-
-  configured(): boolean {
-    return Boolean(AppConfig.env("GITLAB_BASE_URL") && AppConfig.env("GITLAB_TOKEN"));
   }
 }
 
 class DatabaseConfig {
-  path(): string {
+  /** Demo/dev DB — the default (and only sanctioned) target for seed scripts. */
+  demoPath(): string {
     return path.resolve(
       AppConfig.root,
       AppConfig.env("DATABASE_PATH", "./data/devflow.db")
     );
   }
+
+  /**
+   * Application DB path. In production (`next start`) this defaults to a
+   * dedicated file so seeded demo data can never leak into the production
+   * database; DATABASE_PATH overrides in every environment.
+   */
+  path(): string {
+    if (!AppConfig.env("DATABASE_PATH") && process.env.NODE_ENV === "production") {
+      return path.resolve(AppConfig.root, "./data/devflow.prod.db");
+    }
+    return this.demoPath();
+  }
 }
 
 class WorkspaceConfig {
   dir(): string {
-    return path.resolve(AppConfig.root, AppConfig.env("WORKSPACE_DIR", "./workspaces"));
+    // expand a leading `~` — path.resolve would otherwise treat it as a
+    // literal directory name (e.g. `.env`'s `WORKSPACE_DIR=~/…` would put
+    // worktrees inside the repo tree, where setup correctly refuses them)
+    const raw = AppConfig.env("WORKSPACE_DIR", "./workspaces");
+    const expanded = raw.startsWith("~") ? path.join(process.env.HOME ?? "", raw.slice(1)) : raw;
+    return path.resolve(AppConfig.root, expanded);
   }
 }
 
@@ -94,7 +72,6 @@ export class AppConfig {
   }
 
   readonly cursor = new CursorConfig();
-  readonly jira = new JiraConfig();
   readonly gitlab = new GitLabConfig();
   readonly db = new DatabaseConfig();
   readonly workspace = new WorkspaceConfig();

@@ -1,8 +1,14 @@
 import { config } from "../../../config";
 import { db } from "../../../db";
-import { cursorClient, type CursorRunResult } from "../../../integrations/cursor";
-import { localAgent } from "../../../integrations/localAgent";
+import {
+  agentPortRegistry,
+  type AgentPort,
+  type AgentRunResult,
+  type AgentStartSpec,
+  type SettingSource,
+} from "../../ports/agent-runner";
 import { flowCtxHelper, type FlowContextHelper, type FlowCtx } from "./flow-context";
+import { worktreeManager } from "../../worktree-lifecycle";
 import { nodeSupport, type NodeSupport } from "./node-support";
 import { StreamBuffer } from "./stream-buffer";
 import { ToolPairer, type ToolEmitFn } from "./tool-pairer";
@@ -25,6 +31,9 @@ export interface AgentStartInput {
   customSubagents?: { name: string; instructions: string }[];
   cwd?: string; // local worktree override
   model?: string | null; // per-run model override
+  nodeId?: string | null; // lifecycle-event attribution for engine-side ensures
+  /** MCP/setting layers the local runtime loads MCP servers from (see AgentStartSpec) */
+  settingSources?: SettingSource[];
 }
 
 /**
@@ -40,44 +49,51 @@ export class AgentRunner {
     private readonly usage: UsageTracker
   ) {}
 
-  /** Start an agent run on the configured runtime (cloud VM or local agent loop). */
+  /** Start an agent run on the flow's configured runtime (port by exec mode). */
   async startAgent(ctx: FlowCtx, input: AgentStartInput): Promise<Started> {
     const mode = this.ctxHelper.execMode(ctx);
+    const port = agentPortRegistry.forMode(mode);
     // Model resolution: per-run selection → Settings default → DEFAULT_MODEL env.
     const requested =
       input.model?.trim() ||
       db.getSetting<string>("default_model", "") ||
       config.cursor.defaultModel();
     const model = requested && requested !== "auto" ? requested : undefined;
-    if (mode === "local") {
-      const workspace = input.cwd ?? this.ctxHelper.requireLocalPath(ctx);
-      return localAgent.createRun({
-        prompt: input.prompt,
-        workspace,
-        mode: input.mode,
-        sessionId: input.followUpOn ?? undefined,
-        branch: input.startingRef,
-        model,
-      });
-    }
-    if (input.followUpOn) {
-      // Cloud follow-up runs inherit the agent's model.
-      const r = await cursorClient.followUp(input.followUpOn, input.prompt, input.mode);
-      return { agentId: input.followUpOn, runId: r.run.id as string };
-    }
-    const repos = ctx.flow.repo_url
-      ? [{ url: ctx.flow.repo_url, startingRef: input.startingRef ?? ctx.repo?.default_branch ?? "main" }]
-      : undefined;
-    const created = await cursorClient.createAgent({
+    const spec: AgentStartSpec = {
       prompt: input.prompt,
       mode: input.mode,
-      repos,
-      autoCreatePR: input.autoCreatePR ?? false,
       name: input.name,
+      model: model ?? null,
+      followUpOn: input.followUpOn ?? null,
+      startingRef: input.startingRef,
+      autoCreatePR: input.autoCreatePR,
       customSubagents: input.customSubagents,
-      model,
-    });
-    return { agentId: created.agent.id as string, runId: created.run.id as string };
+      settingSources: input.settingSources?.length ? input.settingSources : undefined,
+    };
+    if (port.execMode === "local") {
+      // worktree-aware cwd: the flow's worktree when it has one, else the
+      // registered checkout (the hub). Nodes pass input.cwd to pin a
+      // freshly-created worktree before the flow row read would see it.
+      spec.workspace = this.ctxHelper.requireRunCwd(ctx);
+      // Option B: an unpinned MUTATING run is ensured into the flow worktree —
+      // the node pin (input.cwd) always wins; plan runs stay on the hub.
+      const ensured = await worktreeManager.ensureForRun(ctx, {
+        mode: input.mode,
+        cwd: input.cwd,
+        nodeId: input.nodeId ?? null,
+        defaultBranch: this.ctxHelper.buildBranch(ctx),
+      });
+      spec.cwd = input.cwd ?? ensured.cwd;
+      if (!input.cwd && ensured.setupNote) {
+        // same contract as build/resolve: one advisory line, agent self-repairs
+        spec.prompt += `\n${ensured.setupNote} If the changes need dependencies, run the repo's dependency setup yourself before building/testing.`;
+      }
+    } else {
+      spec.repos = ctx.flow.repo_url
+        ? [{ url: ctx.flow.repo_url, startingRef: input.startingRef ?? ctx.repo?.default_branch ?? "main" }]
+        : undefined;
+    }
+    return port.start(spec);
   }
 
   /**
@@ -89,9 +105,10 @@ export class AgentRunner {
     nodeId: string,
     start: () => Promise<Started>,
     label: string
-  ): Promise<CursorRunResult> {
+  ): Promise<AgentRunResult> {
     const { flow } = ctx;
     const mode = this.ctxHelper.execMode(ctx);
+    const port: AgentPort = agentPortRegistry.forMode(mode);
     const startedAt = Date.now();
     const { agentId, runId } = await start();
     this.support.persistRun(flow.id, nodeId, agentId, runId);
@@ -108,35 +125,33 @@ export class AgentRunner {
       });
     const pairTool = new ToolPairer(emitTool);
 
-    let result: CursorRunResult;
+    let result: AgentRunResult;
     let costSummary: RunCostSummary = {};
-    // One streaming path for both runtimes: the SDK emits the same SDKMessage
-    // events whether the agent runs locally or in a Cursor VM. Tool events go
-    // through the pairer (local) so start/end are matched by callId; cloud tool
-    // events arrive already paired, so they emit directly.
+    // One streaming path for both runtimes (each port streams its own runtime
+    // to completion): the SDK emits the same SDKMessage events whether the
+    // agent runs locally or in a Cursor VM. Tool events go through the pairer
+    // (local) so start/end are matched by callId; cloud tool events arrive
+    // already paired, so they emit directly.
     const callbacks = {
       onStatus: (s: string) => db.emitEvent(flow.id, nodeId, "status", `run ${s}`, { run_id: runId }),
       onAssistant: (t: string) => stream.push("assistant", t),
       onThinking: (t: string) => stream.push("thinking", t),
       onTool: (name: string, status: string, args: unknown, callId: string | undefined, extra: { result?: unknown } | undefined) =>
-        mode === "local"
+        port.execMode === "local"
           ? pairTool.handle(name, status, args, callId, extra)
           : emitTool(name, status, callId ?? `${name}_${Date.now().toString(36)}`, args,
               extra?.result == null ? undefined : typeof extra.result === "string" ? extra.result : JSON.stringify(extra.result)),
     };
     try {
-      if (mode === "local") {
-        const out = await localAgent.streamRun(runId, callbacks);
-        result = out.result;
-        if (out.sessionId) this.support.setRunAgentId(runId, out.sessionId);
-      } else {
-        result = await cursorClient.streamRun(agentId, runId, callbacks);
-      }
+      const out = await port.stream({ agentId, runId }, callbacks);
+      result = out.result;
+      if (out.sessionId) this.support.setRunAgentId(runId, out.sessionId);
       costSummary = await this.usage.captureRunUsage({
         runRowId,
         result,
         runId,
-        cloudAgentId: mode === "cloud" ? agentId : undefined,
+        port,
+        cloudAgentId: port.execMode === "cloud" ? agentId : undefined,
       });
     } finally {
       stream.flushAll();

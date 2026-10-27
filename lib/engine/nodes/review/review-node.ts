@@ -1,19 +1,49 @@
 import { db } from "../../../db";
-import { gitLab } from "../../../integrations/gitlab";
+import { z } from "zod";
+import { gitHostRegistry } from "../../ports/git-host";
 import { prompts } from "../../prompts";
 import { NodeDefinition, type FlowCtx, type RunOutcome } from "../base";
+import type { NodeCapabilities } from "../base/capabilities";
 import { NODE_KEYS } from "../keys";
+import type { ConfigField } from "../../node-config";
+import { configNumber, configString, mcpSourcesOf, mcpSourcesSchema, mcpSourceConfigFields } from "../../node-config";
 import { ReviewInput, ReviewOutput } from "./schema";
 
 export class ReviewNode extends NodeDefinition<ReviewInput, ReviewOutput> {
   readonly key = NODE_KEYS.REVIEW;
   readonly label = "Review";
+  readonly capabilities: NodeCapabilities = { panelTitle: "AI review" };
   readonly promptKeys = [NODE_KEYS.REVIEW] as const;
+  readonly promptSections = [NODE_KEYS.REVIEW] as const;
   readonly order = 40;
   readonly edges = [[NODE_KEYS.RESOLVE, "next"]] as const;
 
   readonly inputSchema = ReviewInput;
   readonly outputSchema = ReviewOutput;
+
+  /** Typed config knobs (defaults = today's behavior). */
+  readonly configSchema = z.object({
+    prompt_body: z.string().optional(),
+    /** user rules appended after the prompt body, before the engine's locked blocks */
+    prompt_rules: z.string().optional(),
+    /** cap the number of posted comments (0 = unlimited) */
+    max_comments: z.number().int().min(0).default(0),
+    /** inline per-file comments (today) or a single summary note */
+    comment_style: z.enum(["inline", "summary"]).default("inline"),
+    /** ambient MCP servers for agent runs (Cursor local.settingSources) */
+    mcp_sources: mcpSourcesSchema,
+  });
+  readonly configFields = [
+    { key: "prompt_body", label: "Prompt body", type: "text", help: "User-editable prompt body; internal contracts re-appended automatically." },
+    { key: "prompt_rules", label: "Your rules", type: "text", help: "Extra rules appended after the prompt body, before the engine's locked instructions (review contract, diff) — on every run of this node." },
+    { key: "max_comments", label: "Max comments", type: "number", help: "Cap on posted comments (0 = unlimited)." },
+    {
+      key: "comment_style", label: "Comment style", type: "select",
+      options: [{ value: "inline", label: "Inline" }, { value: "summary", label: "Summary" }],
+      help: "Inline per-file comments or one summary note.",
+    },
+    ...mcpSourceConfigFields,
+  ] as const satisfies readonly ConfigField[];
 
   /** Resolve the MR (iid + git branch) for this review — per-branch or flow-level. */
   resolveMr(ctx: FlowCtx, branchName?: string | null): { mrIid: number; mrBranch: string | null } {
@@ -27,29 +57,42 @@ export class ReviewNode extends NodeDefinition<ReviewInput, ReviewOutput> {
     return { mrIid: ctx.flow.mr_iid, mrBranch: ctx.flow.mr_branch };
   }
 
-  async run(ctx: FlowCtx, input: ReviewInput): Promise<RunOutcome> {
-    const { mrIid, mrBranch } = this.resolveMr(ctx, input.branchName);
+  async run(ctx: FlowCtx, input: ReviewInput, config: Record<string, unknown>): Promise<RunOutcome> {
+    // the prompt-body knob folds into the per-run prompt override path
+    if (!input.prompt) {
+      const body = configString(config, "prompt_body");
+      if (body) input = { ...input, prompt: body, promptIsBody: true } as ReviewInput;
+    }
+    // the user's standing rules (prompt_rules knob) apply to every run
+    const userRules = typeof config.prompt_rules === "string" ? config.prompt_rules : "";
 
-    const changes = await gitLab.getMRChanges(ctx.flow.repo_url ?? "", mrIid);
-    const diffText = ((changes.changes ?? []) as { old_path: string; new_path: string; diff: string }[])
-      .map((c) => `--- ${c.old_path}\n+++ ${c.new_path}\n${c.diff}`)
+    const { mrIid, mrBranch } = this.resolveMr(ctx, input.branchName);
+    const repoUrl = ctx.flow.repo_url ?? "";
+    const host = gitHostRegistry.forRepo(repoUrl);
+
+    const changes = await host.getChanges(repoUrl, mrIid);
+    const diffText = changes.changes
+      .map((c) => `--- ${c.oldPath}\n+++ ${c.newPath}\n${c.diff}`)
       .join("\n")
       .slice(0, 60000);
 
     const instructions = input.instructions ? `Extra review focus from the developer: ${input.instructions}` : "";
     const label = input.branchName ? `review (${input.branchName})` : "review";
+    // ticket_key/ticket_summary/ticket_prd are the PromptLibrary template
+    // variables ({{ticket_key}} etc.) — legacy names, kept verbatim
     const reviewCtx = {
-      ticket_key: ctx.ticket.key,
-      ticket_summary: ctx.ticket.summary,
-      ticket_prd: ctx.ticket.prdText?.slice(0, 4000) ?? "",
+      ticket_key: ctx.task.key,
+      ticket_type: this.ctxHelper.taskLabel(ctx),
+      ticket_summary: ctx.task.summary,
+      ticket_prd: ctx.task.prdText?.slice(0, 4000) ?? "",
     };
 
     const prompt = (input.prompt
       ? input.promptIsBody
         // user edited the body only — re-attach the internal instructions + diff
-        ? `${input.prompt}\n\n${prompts.internalSuffix(NODE_KEYS.REVIEW, reviewCtx, { instructions, diff: diffText })}`
+        ? prompts.assemblePrompt(NODE_KEYS.REVIEW, reviewCtx, { instructions, diff: diffText }, { body: input.prompt, userRules }).final
         : input.prompt
-      : prompts.resolve(NODE_KEYS.REVIEW, reviewCtx, { instructions, diff: diffText })
+      : prompts.resolve(NODE_KEYS.REVIEW, reviewCtx, { instructions, diff: diffText }, undefined, { userRules })
     ).split("\n").filter(Boolean).join("\n");
 
     return this.execute(ctx, {
@@ -58,9 +101,10 @@ export class ReviewNode extends NodeDefinition<ReviewInput, ReviewOutput> {
       promptOverride: input.prompt,
       agent: {
         mode: "agent",
-        name: `${label} ${ctx.ticket.key}`,
+        name: `${label} ${ctx.task.key}`,
         startingRef: mrBranch ?? undefined,
         model: input.model,
+        settingSources: mcpSourcesOf(config),
       },
       label,
       finalize: async (result) => {
@@ -71,10 +115,23 @@ export class ReviewNode extends NodeDefinition<ReviewInput, ReviewOutput> {
         } catch { comments = []; }
 
         let posted = 0;
-        for (const c of comments) {
-          const body = c.file ? `**${c.file}${c.line ? `:${c.line}` : ""}** — ${c.body}` : c.body;
-          await gitLab.createMRNote(ctx.flow.repo_url ?? "", mrIid, `**AI Review**\n\n${body}`);
-          posted++;
+        const maxComments = configNumber(config, "max_comments", 0);
+        const effective = maxComments > 0 ? comments.slice(0, maxComments) : comments;
+        if (configString(config, "comment_style") === "summary") {
+          // single aggregated CR note instead of one comment per issue
+          if (effective.length > 0) {
+            const summary = effective
+              .map((c) => `- ${c.file ? `\`${c.file}${c.line ? `:${c.line}` : ""}\` — ` : ""}${c.body}`)
+              .join("\n");
+            await host.createComment(repoUrl, mrIid, `**AI Review**\n\n${summary}`);
+          }
+          posted = effective.length;
+        } else {
+          for (const c of effective) {
+            const body = c.file ? `**${c.file}${c.line ? `:${c.line}` : ""}** — ${c.body}` : c.body;
+            await host.createComment(repoUrl, mrIid, `**AI Review**\n\n${body}`);
+            posted++;
+          }
         }
         return {
           status: "done" as const,
@@ -88,7 +145,7 @@ export class ReviewNode extends NodeDefinition<ReviewInput, ReviewOutput> {
   }
 
   override async chat(ctx: FlowCtx, content: string): Promise<string> {
-    const outcome = await this.run(ctx, this.inputSchema.parse({ instructions: content }));
+    const outcome = await this.run(ctx, this.inputSchema.parse({ instructions: content }), this.nodeConfig(ctx));
     return outcome.reply;
   }
 

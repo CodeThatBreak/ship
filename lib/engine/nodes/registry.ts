@@ -1,9 +1,12 @@
 import type { NodeDefinition } from "./base";
 import { PlanNode } from "./plan";
 import { BuildNode } from "./build";
+import { StepBuildNode } from "./build/step-build-node";
 import { PipelineNode } from "./pipeline";
 import { ReviewNode } from "./review";
 import { ResolveNode } from "./resolve";
+import { declarativeDef } from "./declarative";
+import { StartNode } from "./start";
 
 /**
  * The single source of truth for the workflow graph.
@@ -29,8 +32,10 @@ export class NodeRegistry {
 
   /** The built-in workflow. */
   private registerBuiltins(): void {
+    this.register(new StartNode());
     this.register(new PlanNode());
     this.register(new BuildNode());
+    this.register(new StepBuildNode()); // plan fan-out step child (Phase 1C)
     this.register(new PipelineNode());
     this.register(new ReviewNode());
     this.register(new ResolveNode());
@@ -46,6 +51,19 @@ export class NodeRegistry {
   /** Get a node definition by key, or undefined. */
   maybe(key: string): NodeDefinition<any, any> | undefined {
     return this.registry.get(key);
+  }
+
+  /**
+   * Resolve by def key — built-ins by registry key, declarative kinds (agent, …)
+   * by their `node_templates` row id, hydrating a runtime instance on demand.
+   * `inst` is the template instance key (node_key) for declarative defs.
+   */
+  resolve(key: string, inst?: string): NodeDefinition<any, any> {
+    const builtin = this.registry.get(key);
+    if (builtin) return builtin;
+    const def = declarativeDef(key, inst);
+    if (def) return def as NodeDefinition<any, any>;
+    throw new Error(`unknown node type: ${key}`);
   }
 
   has(key: string): boolean {
@@ -83,6 +101,11 @@ export class NodeRegistry {
       out[def.key] = { label: def.label };
     }
     return out;
+  }
+
+  /** The registry key of the node kind that opens a flow (the entry/start kind). */
+  entryKey(): string | null {
+    return this.all().find((d) => d.isEntry)?.key ?? null;
   }
 }
 

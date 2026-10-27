@@ -1,6 +1,6 @@
 import { db } from "../../../db";
 import { localGit } from "../../../git/local";
-import { gitLab, type MergeRequest } from "../../../integrations/gitlab";
+import { gitHostRegistry, type ChangeRequest } from "../../ports/git-host";
 import { flowCtxHelper, nodeSupport, type FlowCtx } from "../base";
 import { branchStore } from "../build";
 import { NODE_KEYS } from "../keys";
@@ -39,15 +39,25 @@ const HOOK_PATTERNS = [
 ];
 
 /**
- * Create (or reuse) the GitLab merge request for a built branch, then reset
- * the pipeline + review nodes to pending. Shared by single- and multi-branch
- * flows.
+ * True when a push failure looks like a code/hook rejection rather than infra
+ * (merge-request-service owns the signatures; the merge arena's Phase-2
+ * classification reuses them verbatim so "repairable code state vs infra
+ * failure" is decided the same way in both paths).
+ */
+export function isHookRejection(text: string): boolean {
+  return HOOK_PATTERNS.some((p) => p.test(text));
+}
+
+/**
+ * Create (or reuse) the git-host change request (MR/PR) for a built branch,
+ * then reset the pipeline + review nodes to pending. Shared by single- and
+ * multi-branch flows.
  *
  * This is an operation on the graph rather than a node itself — it sits
  * between build approval and the pipeline gate.
  */
 export class MergeRequestService {
-  async create(ctx: FlowCtx, branchName?: string): Promise<MergeRequest> {
+  async create(ctx: FlowCtx, branchName?: string, opts: { emitNodeKey?: string } = {}): Promise<ChangeRequest> {
     const flow = ctx.flow;
     const gitBranch = branchName ? flowCtxHelper.buildBranch(ctx, branchName) : flow.mr_branch;
     if (!gitBranch) throw new Error("no build branch to create an MR from");
@@ -57,10 +67,12 @@ export class MergeRequestService {
     if (flowCtxHelper.execMode(ctx) === "local") {
       const lp = flowCtxHelper.localPath(ctx);
       if (lp) {
-        db.emitEvent(flow.id, null, "lifecycle", `pushing branch ${gitBranch} to origin…`);
+        db.emitEvent(flow.id, null, "lifecycle", `pushing branch ${gitBranch} to origin…`,
+          { nodeKey: opts.emitNodeKey });
         try {
           const how = await localGit.pushBranch(lp, gitBranch, flow.repo_url ?? "");
-          db.emitEvent(flow.id, null, "lifecycle", `branch ${gitBranch} pushed (via ${how === "https" ? "token-authed HTTPS" : "origin remote"})`);
+          db.emitEvent(flow.id, null, "lifecycle", `branch ${gitBranch} pushed (via ${how === "https" ? "token-authed HTTPS" : "origin remote"})`,
+            { nodeKey: opts.emitNodeKey });
         } catch (e: any) {
           const msg = String(e?.message ?? e);
           if (HOOK_PATTERNS.some((p) => p.test(msg))) {
@@ -75,47 +87,71 @@ export class MergeRequestService {
     }
 
     const repoUrl = flow.repo_url ?? "";
-    const existing = await gitLab.listMRsByBranch(repoUrl, gitBranch);
-    let mr: MergeRequest;
-    const mrTitle = branchName
-      ? `${ctx.ticket.key}: ${ctx.ticket.summary} (${branchName})`
-      : `${ctx.ticket.key}: ${ctx.ticket.summary}`;
+    const host = gitHostRegistry.forRepo(repoUrl);
+    const existing = await host.listChangeRequestsByBranch(repoUrl, gitBranch);
+    let cr: ChangeRequest;
+    const crTitle = branchName
+      ? `${ctx.task.key}: ${ctx.task.summary} (${branchName})`
+      : `${ctx.task.key}: ${ctx.task.summary}`;
     if (existing.length) {
-      mr = existing[0];
+      cr = existing[0];
     } else {
-      mr = await gitLab.createMR(repoUrl, {
-        source_branch: gitBranch,
-        target_branch: ctx.repo?.default_branch ?? "main",
-        title: mrTitle,
-        description: `Implements ${ctx.ticket.jiraUrl}\n\n${ctx.ticket.summary}${branchName ? `\n\nBranch: ${branchName}` : ""}`,
+      cr = await host.createChangeRequest(repoUrl, {
+        sourceBranch: gitBranch,
+        targetBranch: ctx.repo?.default_branch ?? "main",
+        title: crTitle,
+        description: `Implements ${ctx.task.externalUrl}\n\n${ctx.task.summary}${branchName ? `\n\nBranch: ${branchName}` : ""}`,
       });
     }
-    const project = await gitLab.getProject(repoUrl);
+    const project = await host.getProject(repoUrl);
 
     if (branchName) {
       // Multi-branch: update the branch row, not the flow row
       branchStore.upsert(flow.id, branchName, {
-        mrUrl: mr.web_url,
-        mrIid: mr.iid,
+        mrUrl: cr.webUrl,
+        mrIid: cr.number,
         status: "approved",
       });
-      // Ensure gitlab_project_id is set on the flow (needed by webhook/poller)
+      // Ensure the host project id is set on the flow (needed by webhook/poller)
       db.run(`UPDATE flows SET gitlab_project_id=COALESCE(gitlab_project_id, ?), updated_at=? WHERE id=?`,
         project.id, db.now(), flow.id);
     } else {
       db.run(
         `UPDATE flows SET mr_url=?, mr_iid=?, gitlab_project_id=?, updated_at=? WHERE id=?`,
-        mr.web_url, mr.iid, project.id, db.now(), flow.id
+        cr.webUrl, cr.number, project.id, db.now(), flow.id
       );
     }
-    // The pipeline gate + review re-run fresh for this MR
+    // The pipeline gate + review re-run fresh for this CR
     for (const key of [NODE_KEYS.PIPELINE, NODE_KEYS.REVIEW] as const) {
       const n = nodeSupport.nodeByKey(flow.id, key);
       if (n.status !== "pending") nodeSupport.setNode(n.id, { status: "pending" });
     }
-    db.emitEvent(flow.id, null, "lifecycle", `Merge request created: ${mr.web_url}${branchName ? ` (${branchName})` : ""}`,
-      { mrUrl: mr.web_url, iid: mr.iid, branchName: branchName ?? undefined });
-    return mr;
+    db.emitEvent(flow.id, null, "lifecycle", `Change request created: ${cr.webUrl}${branchName ? ` (${branchName})` : ""}`,
+      { mrUrl: cr.webUrl, iid: cr.number, branchName: branchName ?? undefined, nodeKey: opts.emitNodeKey });
+    return cr;
+  }
+
+  /**
+   * The service's own bounded retry (pristine plan §2.2): create the CR, and
+   * when the push was rejected (pre-push/pre-receive hooks — code rejections)
+   * hand the error to the provided fix callback and retry, up to `maxAttempts`
+   * fix callbacks. Infra failures (network/auth/API) throw immediately for
+   * manual retry. The caller owns what "fix" means (the SDLC chain runs a
+   * commit-fix agent on the build step); the service owns the bounded loop.
+   */
+  async createWithFixes(
+    ctx: FlowCtx,
+    branchName: string | undefined,
+    opts: { maxAttempts: number; runFix: (attempt: number, error: CommitError) => Promise<void>; emitNodeKey?: string },
+  ): Promise<ChangeRequest> {
+    for (let attempt = 0; ; attempt++) {
+      try {
+        return await this.create(ctx, branchName, { emitNodeKey: opts.emitNodeKey });
+      } catch (e: unknown) {
+        if (!isCommitError(e) || attempt >= opts.maxAttempts) throw e;
+        await opts.runFix(attempt + 1, e);
+      }
+    }
   }
 }
 

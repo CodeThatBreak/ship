@@ -4,10 +4,10 @@
  *
  * Usage:
  *   node scripts/seed-demo-flow.mjs           # seed (idempotent: resets + recreates)
- *   node scripts/seed-demo-flow.mjs --reset   # remove the demo flow + ticket only
+ *   node scripts/seed-demo-flow.mjs --reset   # remove the demo flow + task only
  *
  * What you get (open http://localhost:3000 → "DEMO-142 flow"):
- *   - a demo Jira ticket with a realistic PRD
+ *   - a demo Jira task with a realistic PRD
  *   - a flow with a 2-version plan history (v2 = refined), awaiting approval
  *   - the editable checklist mid-flight: steps done by hand, by build, pending,
  *     one manual step, one superseded-by-refine (gone)
@@ -17,13 +17,14 @@ import Database from "better-sqlite3";
 import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
+import { resolveSeedDb } from "./lib/seed-db.mjs";
 
 const root = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
-const TICKET_ID = "demo-142";
+const TASK_ID = "demo-142";
 const FLOW_NAME = "DEMO-142 flow";
 const RESET = process.argv.includes("--reset");
 
-const dbFile = path.resolve(root, process.env.DATABASE_PATH ?? "./data/devflow.db");
+const dbFile = resolveSeedDb(root);
 fs.mkdirSync(path.dirname(dbFile), { recursive: true });
 const db = new Database(dbFile);
 db.pragma("journal_mode = WAL");
@@ -33,13 +34,13 @@ const now = () => new Date().toISOString();
 const minsAgo = (m) => new Date(Date.now() - m * 60_000).toISOString();
 const uid = (p = "") => p + Date.now().toString(36) + Math.random().toString(36).slice(2, 9);
 
-// ── demo ticket: a webhook-retry PRD with enough surface for a real plan ────
+// ── demo task: a webhook-retry PRD with enough surface for a real plan ────
 const PRD = `# PRD: Webhook delivery retries with exponential backoff
 
 ## Problem
-Outbound webhooks (ticket.updated, mr.opened) are fire-and-forget. When a
+Outbound webhooks (task.updated, mr.opened) are fire-and-forget. When a
 subscriber endpoint is down or slow, the event is lost and downstream systems
-drift out of sync. Support handles ~15 "missing event" tickets a week.
+drift out of sync. Support handles ~15 "missing event" tasks a week.
 
 ## Requirements
 1. Persist every outbound webhook event before delivery (durable outbox).
@@ -192,15 +193,17 @@ function markStepsDone(flowId, refs) {
 const metaOf = (plan) => JSON.parse(plan.match(/```json plan-meta\s*\n([\s\S]*?)```/)[1]);
 
 function reset() {
-  const flow = db.prepare(`SELECT id FROM flows WHERE name=?`).get(FLOW_NAME);
-  if (flow) {
-    const fid = flow.id;
+  // the seed owns its synthetic task: every flow bound to it goes too (not
+  // just the seeded-named one — earlier runs may have bound other flows)
+  const flows = db.prepare(`SELECT id FROM flows WHERE name=? OR task_id=?`).all(FLOW_NAME, TASK_ID);
+  for (const f of flows) {
+    const fid = f.id;
     for (const t of ["plan_steps", "events", "messages", "runs", "artifacts", "comments", "branches", "nodes"])
       db.prepare(`DELETE FROM ${t} WHERE flow_id=?`).run(fid);
     db.prepare(`DELETE FROM flows WHERE id=?`).run(fid);
     console.log(`removed demo flow ${fid}`);
   }
-  db.prepare(`DELETE FROM tickets WHERE id=?`).run(TICKET_ID);
+  db.prepare(`DELETE FROM tasks WHERE id=?`).run(TASK_ID);
 }
 
 if (RESET) {
@@ -211,21 +214,22 @@ if (RESET) {
 
 reset();
 
-// ── ticket ───────────────────────────────────────────────────────────────────
+// ── task ───────────────────────────────────────────────────────────────────
 const repo = db.prepare(`SELECT id, cloud_url FROM repos ORDER BY created_at LIMIT 1`).get();
-db.prepare(`INSERT INTO tickets (id,key,summary,description,status,issue_type,priority,prd_text,figma_urls,repo_url,jira_url,raw,synced_at)
+db.prepare(`INSERT INTO tasks (id,key,type,summary,description,status,issue_type,priority,repo_url,external_url,raw,fields,synced_at)
   VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`)
-  .run(TICKET_ID, "DEMO-142", "Webhook delivery retries with exponential backoff",
-    PRD, "In Progress", "Story", "High", PRD, JSON.stringify([]),
-    repo?.cloud_url ?? null, "https://jira.example.com/browse/DEMO-142", JSON.stringify({ demo: true }), now());
-console.log("ticket DEMO-142 inserted");
+  .run(TASK_ID, "DEMO-142", "jira", "Webhook delivery retries with exponential backoff",
+    PRD, "In Progress", "Story", "High",
+    repo?.cloud_url ?? null, "https://jira.example.com/browse/DEMO-142", JSON.stringify({ demo: true }),
+    JSON.stringify({ prd: PRD, figma_urls: [] }), now());
+console.log("task DEMO-142 inserted");
 
 // ── flow (mirrors lib/engine/flow.createFlow) ────────────────────────────────
 const flowId = uid("flow_");
 const ts0 = now();
-db.prepare(`INSERT INTO flows (id,ticket_id,name,status,repo_url,repo_id,execution_mode,created_at,updated_at)
+db.prepare(`INSERT INTO flows (id,task_id,name,status,repo_url,repo_id,execution_mode,created_at,updated_at)
   VALUES (?,?,?,?,?,?,?,?,?)`)
-  .run(flowId, TICKET_ID, FLOW_NAME, "active",
+  .run(flowId, TASK_ID, FLOW_NAME, "active",
     repo?.cloud_url ?? "https://gitlab.example.com/acme/webapp", repo?.id ?? null, "cloud", ts0, ts0);
 const nodeIds = {};
 for (const key of ["plan", "build", "pipeline", "review", "resolve"]) {

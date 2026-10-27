@@ -1,0 +1,56 @@
+# Sentry triage — the plan §7 fixture exercising the full declarative surface.
+# Imports end-to-end: agent (json output + input_map), decision (agent source,
+# approval oversight), http (secrets + SSRF guard), webhook flow trigger with
+# its JSONata delivery filter. Import, then bind a task + repo in the
+# template editor's flow-trigger section (shown when webhook is picked — the
+# inbound hook endpoint + secret appear there), and POST a signed delivery:
+#   node scripts/send-hook.mjs <url> <secret> '{"event":"issue.created","issue":{"title":"…","stacktrace":"…"}}'
+# A wait_for-webhook node variant: add a node with `trigger: {type: auto, wait_for: webhook}`.
+name: Sentry triage
+trigger:
+  type: webhook
+  filter: "payload.event = 'issue.created'"
+nodes:
+  - key: triage
+    type: agent
+    trigger: {type: auto}
+    config:
+      prompt: "Triage this Sentry issue: {{trigger.payload.issue.title}}\n\nStacktrace:\n{{trigger.payload.issue.stacktrace}}\nTask context: {{task.key}} — {{task.summary}}\n\nScan the codebase for the likely cause, then output JSON: {severity, summary, suggested_fix}."
+      mode: plan
+      output: json
+      output_schema:
+        type: object
+        required: [severity, summary]
+        properties:
+          severity: {type: string, enum: [low, med, high]}
+          summary: {type: string}
+          suggested_fix: {type: string}
+    input_map:
+      summary: "trigger.payload.issue.title"
+      stack: "trigger.payload.issue.stacktrace"
+  - key: worth_fixing
+    type: decision
+    trigger: {type: approval}
+    config:
+      source: agent
+      question: "Given the triage result, is this issue worth an automated fix PR?"
+      choices:
+        - {label: fix, description: "Real user-facing bug with a plausible localized fix"}
+        - {label: ignore, description: "Noise, duplicate, or too risky to auto-fix"}
+  - key: open_pr
+    type: agent
+    trigger: {type: auto}
+    config:
+      mode: agent
+      prompt: "Fix the issue: {{nodes.triage.output.suggested_fix}} — issue {{task.key}}."
+  - key: notify
+    type: http
+    trigger: {type: auto}
+    config:
+      url: "{{secrets.SLACK_WEBHOOK}}"
+      method: POST
+      body: "{ \"text\": \"Triaged {{task.key}}: {{nodes.triage.output.summary}}\" }"
+edges:
+  - [triage, worth_fixing]
+  - [worth_fixing, open_pr, {label: fix}]
+  - [triage, notify]

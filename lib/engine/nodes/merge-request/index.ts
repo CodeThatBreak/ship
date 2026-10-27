@@ -1,1 +1,1 @@
-export { CommitError, isCommitError, MergeRequestService, mergeRequests } from "./merge-request-service";
+export { CommitError, isCommitError, isHookRejection, MergeRequestService, mergeRequests } from "./merge-request-service";

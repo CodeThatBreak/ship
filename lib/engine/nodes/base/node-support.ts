@@ -1,3 +1,5 @@
+import "server-only";
+
 import { db } from "../../../db";
 import type { NodeRow } from "../../../db/rows";
 
