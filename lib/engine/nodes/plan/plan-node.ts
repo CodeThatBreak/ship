@@ -3,7 +3,7 @@ import type { AgentRunResult } from "../../ports/agent-runner";
 import { PlanStepRow, rows, type NodeRow } from "../../../db/rows";
 import { prompts, sectionsOf, type PromptSections as PromptSectionsLike } from "../../prompts";
 import { planSteps } from "../../steps";
-import { NodeDefinition, type FlowCtx, type NodePromptPreview, type PromptPreviewParams, type RunOutcome } from "../base";
+import { AgentRunNode, nodeRoles, type FlowCtx, type NodePromptPreview, type PromptPreviewParams, type RunOutcome } from "../base";
 import type { NodeCapabilities } from "../base/capabilities";
 import { NODE_KEYS } from "../keys";
 import type { ConfigField } from "../../node-config";
@@ -247,7 +247,7 @@ export function diffBranchSteps(
 
 // ── the node ─────────────────────────────────────────────────────────────────
 
-export class PlanNode extends NodeDefinition<PlanInput, PlanOutput> {
+export class PlanNode extends AgentRunNode<PlanInput, PlanOutput> {
   readonly key = NODE_KEYS.PLAN;
   readonly label = "Plan";
   readonly promptKeys = ["plan", "plan_refine", "plan_complex", "plan_complex_refine", "plan_subplan_refine"] as const;
@@ -1050,15 +1050,6 @@ export class PlanNode extends NodeDefinition<PlanInput, PlanOutput> {
     return { status, output, event, reply: text };
   }
 
-  override async chat(ctx: FlowCtx, content: string, model?: string): Promise<string> {
-    const outcome = await this.run(
-      ctx,
-      this.inputSchema.parse({ feedback: content, model: model ?? null }),
-      this.nodeConfig(ctx),
-    );
-    return outcome.reply;
-  }
-
   async recover(
     ctx: FlowCtx,
     node: NodeRow,
@@ -1138,7 +1129,7 @@ export class PlanNode extends NodeDefinition<PlanInput, PlanOutput> {
    * text is given on a node with an agent to refine on; otherwise the plan
    * body (config knob or default) with the ticket vars.
    */
-  override previewPrompt(ctx: FlowCtx, node: NodeRow | null, params: PromptPreviewParams): NodePromptPreview | null {
+  previewPrompt(ctx: FlowCtx, node: NodeRow | null, params: PromptPreviewParams): NodePromptPreview | null {
     if (params.feedback && node?.agent_id) {
       // feedback refine preview (follow-up on the plan agent): the full
       // body-only refine template with the feedback rendered in. The context
@@ -1147,16 +1138,16 @@ export class PlanNode extends NodeDefinition<PlanInput, PlanOutput> {
         "plan_refine",
         { ticket: this.ctxHelper.taskContext(ctx) },
         { feedback: params.feedback },
-        { userRules: this.previewRules(node) },
+        { userRules: nodeRoles.previewRules(this, node) },
       );
       return { templateKey: "plan_refine", configBody: null, assembly: asm };
     }
-    const configBody = this.previewBody(node);
+    const configBody = nodeRoles.previewBody(this, node);
     const asm = prompts.assemblePrompt(
       NODE_KEYS.PLAN,
       { ticket: this.ctxHelper.taskContext(ctx), ticket_type: this.ctxHelper.taskLabel(ctx) },
       undefined,
-      { body: configBody, userRules: this.previewRules(node) },
+      { body: configBody, userRules: nodeRoles.previewRules(this, node) },
     );
     return { templateKey: NODE_KEYS.PLAN, configBody, assembly: asm };
   }

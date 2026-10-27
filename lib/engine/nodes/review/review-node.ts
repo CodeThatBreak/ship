@@ -2,17 +2,18 @@ import type { NodeRow } from "../../../db/rows";
 import { z } from "zod";
 import { gitHostRegistry } from "../../ports/git-host";
 import { prompts } from "../../prompts";
-import { NodeDefinition, type FlowCtx, type NodePromptPreview, type PromptPreviewParams, type RunOutcome } from "../base";
+import { AgentRunNode, nodeRoles, type FlowCtx, type NodePromptPreview, type PromptPreviewParams, type RunOutcome } from "../base";
 import type { NodeCapabilities } from "../base/capabilities";
 import { NODE_KEYS } from "../keys";
 import type { ConfigField } from "../../node-config";
 import { configNumber, configString, mcpSourcesOf, mcpSourcesSchema, mcpSourceConfigFields } from "../../node-config";
 import { ReviewInput, ReviewOutput } from "./schema";
 
-export class ReviewNode extends NodeDefinition<ReviewInput, ReviewOutput> {
+export class ReviewNode extends AgentRunNode<ReviewInput, ReviewOutput> {
   readonly key = NODE_KEYS.REVIEW;
   readonly label = "Review";
-  readonly capabilities: NodeCapabilities = { panelTitle: "AI review" };
+  /** §T4: chat messages refine the review — re-run with them as extra focus. */
+  override readonly capabilities: NodeCapabilities = { panelTitle: "AI review", refinable: true };
   /** Engine-dispatch metadata (§T3): the review kind occupies the chain's review role. */
   override readonly chainRole = NODE_KEYS.REVIEW;
   readonly promptKeys = [NODE_KEYS.REVIEW] as const;
@@ -62,8 +63,8 @@ export class ReviewNode extends NodeDefinition<ReviewInput, ReviewOutput> {
    * diff is run data — fetched at run time, so the preview shows the
    * contract/rules + ticket context with an empty diff slot.
    */
-  override previewPrompt(ctx: FlowCtx, node: NodeRow | null, params: PromptPreviewParams): NodePromptPreview | null {
-    const configBody = this.previewBody(node);
+  previewPrompt(ctx: FlowCtx, node: NodeRow | null, params: PromptPreviewParams): NodePromptPreview | null {
+    const configBody = nodeRoles.previewBody(this, node);
     const asm = prompts.assemblePrompt(
       NODE_KEYS.REVIEW,
       {
@@ -77,7 +78,7 @@ export class ReviewNode extends NodeDefinition<ReviewInput, ReviewOutput> {
           ? `Extra review focus from the developer: ${params.instructions}`
           : "",
       },
-      { body: configBody, userRules: this.previewRules(node) },
+      { body: configBody, userRules: nodeRoles.previewRules(this, node) },
     );
     return { templateKey: NODE_KEYS.REVIEW, configBody, assembly: asm };
   }
@@ -169,9 +170,9 @@ export class ReviewNode extends NodeDefinition<ReviewInput, ReviewOutput> {
     });
   }
 
-  override async chat(ctx: FlowCtx, content: string): Promise<string> {
-    const outcome = await this.run(ctx, this.inputSchema.parse({ instructions: content }), this.nodeConfig(ctx));
-    return outcome.reply;
+  /** Chat maps the message onto the node's guidance field (§T4b recipe). */
+  protected override chatInput(content: string, model?: string): Record<string, unknown> {
+    return { instructions: content, model: model ?? null };
   }
 
   // Review posts MR notes — don't replay after a restart; let the user retry.

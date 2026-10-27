@@ -1,7 +1,7 @@
 import { z } from "zod";
 import type { NodeRow } from "../../../db/rows";
 import type { AgentRunResult } from "../../ports/agent-runner";
-import { NodeDefinition, type FlowCtx, type RunOutcome } from "../base";
+import { AgentRunNode, type FlowCtx, type RunOutcome } from "../base";
 import { templateStore } from "../../templates";
 import { buildFlowContext } from "../../flow-context";
 import { evalJsonata } from "../../jsonata-eval";
@@ -34,7 +34,9 @@ function jsonataTruthy(value: unknown): boolean {
  * Oversight is the trigger type: with `trigger: approval` the (agent- or
  * expression-produced) pick is held at `awaiting_approval`, where the decision
  * card pre-selects it — one click to confirm (`approve_node`), or pick another
- * branch (`choose_node`). Pushback is the existing node chat.
+ * choose another branch (`choose_node`). Chat is declined (§T4: no `refinable`
+ * capability — pushing back happens through the decision card, not a rerun);
+ * conversational follow-ups ride the agent-run tier's `converse`.
  *
  * Output contract is `{chosen: string[], rationale?: string}` plus any
  * `pass`-mapped variables; each outgoing edge activates exactly when its
@@ -43,7 +45,7 @@ function jsonataTruthy(value: unknown): boolean {
  * input (`{{input.<field>}}`), so pass mappings are how variables flow from
  * the decision to further nodes.
  */
-export class DecisionTemplateNode extends NodeDefinition<Record<string, unknown>, Record<string, unknown>> {
+export class DecisionTemplateNode extends AgentRunNode<Record<string, unknown>, Record<string, unknown>> {
   readonly key: string;
   readonly label: string;
   readonly promptKeys = [] as const;

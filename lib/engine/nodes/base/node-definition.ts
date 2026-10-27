@@ -1,13 +1,11 @@
 import { z } from "zod";
 import type { NodeRow } from "../../../db/rows";
 import type { AgentRunResult } from "../../ports/agent-runner";
-import { agentRunner, type AgentRunner, type AgentStartInput } from "./agent-runner";
 import { flowCtxHelper, type FlowContextHelper, type FlowCtx } from "./flow-context";
 import { nodeSupport, type NodeSupport } from "./node-support";
 import type { NodeCapabilities } from "./capabilities";
 import type { ConfigField } from "../../node-config";
-import { appLayerConfig, configString, mergeConfigLayers } from "../../node-config";
-import { prompts, type PromptAssembly } from "../../prompts";
+import { appLayerConfig, mergeConfigLayers } from "../../node-config";
 import type { NodeRunStatus } from "../../../../constants/flow";
 
 /** A role in the SDLC builtin chain (plan → build → review → resolve). */
@@ -43,41 +41,16 @@ export interface NodeTriggerRun {
   after?: () => void;
 }
 
-/** The prompt-route querystring parameters a def's preview may consume. */
-export interface PromptPreviewParams {
-  /** modal-typed feedback/refine text (plan feedback refinement) */
-  feedback?: string;
-  /** extra developer instructions (review focus, resolve instructions, pipeline guidance) */
-  instructions?: string;
-  /** branch-scoped sub-plan preview (plan node only) */
-  branch?: string;
-  /** context-block picker selection (plan sub-plan refine) */
-  contextBlocks?: string[];
-}
-
-/** Where a recorded run's prompt came from. */
-export type PromptSource = "modal" | "config" | "default";
-export const PROMPT_SOURCES: readonly PromptSource[] = ["modal", "config", "default"];
-
-/**
- * A def-resolved prompt preview: the template key whose metadata the modal
- * shows (plan may point at plan_refine), the configured body knob (null = the
- * template default is used), and the three-part assembly whose `final` is the
- * exact string the next run sends.
- */
-export interface NodePromptPreview {
-  templateKey: string;
-  configBody: string | null;
-  assembly: PromptAssembly;
-}
-
 /**
  * A workflow node type. The class owns everything specific to the node:
- * input/output schemas, prompt building, the run itself, chat follow-ups,
- * and restart recovery. The orchestrator (flow.ts) only knows the registry.
+ * input/output schemas, prompt building, the run itself, and restart
+ * recovery. The orchestrator (flow.ts) only knows the registry.
  *
- * Shared infrastructure (row persistence, run execution, context facts) is
- * injected as services — pass your own instances to the constructor in tests.
+ * Shared infrastructure (row persistence, context facts) is injected as
+ * services — pass your own instances to the constructor in tests. The agent
+ * runner and the chat/preview affordances live on the roles/tier (§T4/T4b):
+ * `AgentRunNode` for the run lifecycle, `base/node-roles.ts` for the role
+ * interfaces they dispatch through.
  */
 export abstract class NodeDefinition<I = unknown, O extends Record<string, unknown> = Record<string, unknown>> {
   /** stable node key, e.g. "plan" */
@@ -182,18 +155,17 @@ export abstract class NodeDefinition<I = unknown, O extends Record<string, unkno
   readonly retryable: boolean = true;
 
   /** Shared services (constructor-injected; the singletons are the defaults).
-   *  Tests override them by passing their own instances to the constructor. */
+   *  Tests override them by passing their own instances to the constructor.
+   *  The agent runner is NOT here (§T4b): kinds whose runs go through it
+   *  extend `AgentRunNode`, which owns the runner. */
   protected readonly support: NodeSupport;
-  protected readonly runner: AgentRunner;
   protected readonly ctxHelper: FlowContextHelper;
 
   constructor(
     support: NodeSupport = nodeSupport,
-    runner: AgentRunner = agentRunner,
     ctxHelper: FlowContextHelper = flowCtxHelper,
   ) {
     this.support = support;
-    this.runner = runner;
     this.ctxHelper = ctxHelper;
   }
 
@@ -257,46 +229,6 @@ export abstract class NodeDefinition<I = unknown, O extends Record<string, unkno
   }
 
   /**
-   * Chat follow-up on this node's agent. Default: not supported.
-   * `model` is the per-run model override the developer picked in the chat panel.
-   */
-  async chat(ctx: FlowCtx, content: string, _model?: string): Promise<string> {
-    return "This node doesn't accept chat input.";
-  }
-
-  /**
-   * Lightweight conversational follow-up ("just chat" mode): a question to the
-   * node's existing agent that must NOT change node status, artifacts, or
-   * checklists — it only answers. Never starts a node run: without an agent
-   * there is nothing to converse with.
-   */
-  async converse(ctx: FlowCtx, content: string): Promise<string> {
-    const node = this.node(ctx);
-    const agentId = this.support.lastAgentId(node.id);
-    if (!agentId) {
-      return `There's no ${this.label} agent to chat with yet — run the step first (or switch on refine mode), then ask me anything.`;
-    }
-    const prompt =
-      `${content}\n\n` +
-      `— Respond conversationally and concisely. This is a question about your work, ` +
-      `not a request to redo it: do not produce a new plan, diff, or plan-meta block, ` +
-      `and do not modify any files.`;
-    const result = await this.runner.executeRun(
-      ctx,
-      node.id,
-      () =>
-        this.runner.startAgent(ctx, {
-          prompt,
-          mode: "plan",
-          name: `${this.label} chat ${ctx.task.key}`,
-          followUpOn: agentId,
-        }),
-      `${this.label} chat`,
-    );
-    return result.result ?? "Done.";
-  }
-
-  /**
    * Finish a run that completed while the server was down.
    * Return true when the node was recovered, false to have it failed for retry.
    */
@@ -317,73 +249,12 @@ export abstract class NodeDefinition<I = unknown, O extends Record<string, unkno
   }
 
   /**
-   * Full run lifecycle: mark running, persist the input blob (whose recorded
-   * `prompt` field is the exact final prompt), execute, then
-   * apply the outcome (artifact, output, status, event). Returns the outcome
-   * so run() can hand it back to the orchestrator.
-   */
-  protected async execute(
-    ctx: FlowCtx,
-    opts: {
-      input: Record<string, unknown>;
-      prompt: string;
-      agent: Omit<AgentStartInput, "prompt">;
-      label: string;
-      finalize: (result: AgentRunResult) => Promise<RunOutcome>;
-    }
-  ): Promise<RunOutcome> {
-    const node = this.node(ctx);
-    this.support.setNode(node.id, {
-      status: "running",
-      // the run's input blob is the per-run record: `input.prompt` carries the
-      // exact final prompt the agent receives — the only truthful prompt state
-      input: JSON.stringify(opts.input),
-    });
-    const start = () =>
-      this.runner.startAgent(ctx, { ...opts.agent, prompt: opts.prompt, nodeId: node.id });
-    const result = await this.runner.executeRun(ctx, node.id, start, opts.label);
-    const outcome = await opts.finalize(result);
-    return this.applyOutcome(ctx, outcome);
-  }
-
-  /**
    * Persist a run's full input blob. Retry fidelity: `retryNode` re-runs
    * `def.run()` from this record, and its recorded `prompt` field carries the
    * exact final prompt the run sent.
    */
   protected recordInput(nodeId: string, input: Record<string, unknown>): void {
     this.support.setNode(nodeId, { input: JSON.stringify(input) });
-  }
-
-  /**
-   * Live prompt preview for the prompt modal (the prompt route's PromptPreview
-   * service calls this). Default: null — node kinds without a previewable
-   * prompt leave it; serving defs override it and fill the template's
-   * variables the same way their run() does (run data that is finalized at
-   * run time — diffs, logs — stays blank in the preview).
-   */
-  previewPrompt(_ctx: FlowCtx, _node: NodeRow | null, _params: PromptPreviewParams): NodePromptPreview | null {
-    return null;
-  }
-
-  /**
-   * The effective config for prompt preview (class defaults ← app settings ←
-   * the flow creation snapshot) — the same layering nodeConfig() merges for
-   * chat follow-ups, taking the row explicitly so a missing node row (a node
-   * that never ran) still previews.
-   */
-  protected previewConfig(node: NodeRow | null): Record<string, unknown> {
-    return mergeConfigLayers(this.defaultConfig(), appLayerConfig(this.key), node?.config ?? null);
-  }
-
-  /** Convenience: the def's `prompt_rules` knob for preview assembly. */
-  protected previewRules(node: NodeRow | null, key = "prompt_rules"): string {
-    return configString(this.previewConfig(node), key) ?? "";
-  }
-
-  /** Convenience: the def's `prompt_body` knob for preview assembly. */
-  protected previewBody(node: NodeRow | null, key = "prompt_body"): string | null {
-    return configString(this.previewConfig(node), key) ?? null;
   }
 
   /**

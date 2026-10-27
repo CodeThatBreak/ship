@@ -14,14 +14,23 @@ export {
   type AgentStartInput,
   type Started,
 } from "./agent-runner";
+export { AgentRunNode } from "./agent-run-node";
 export {
   NodeDefinition,
-  PROMPT_SOURCES,
   type ChainRole,
-  type NodePromptPreview,
   type NodeTriggerRun,
-  type PromptPreviewParams,
-  type PromptSource,
   type RunOutcome,
 } from "./node-definition";
+export {
+  CHAT_DECLINED,
+  nodeRoles,
+  NodeRoleRouter,
+  PROMPT_SOURCES,
+  type ChatRefiner,
+  type Converser,
+  type NodePromptPreview,
+  type PromptPreviewParams,
+  type PromptPreviewer,
+  type PromptSource,
+} from "./node-roles";
 export type { NodeCapabilities } from "./capabilities";

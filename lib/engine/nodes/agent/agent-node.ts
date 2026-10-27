@@ -2,12 +2,12 @@ import { z } from "zod";
 import type { NodeRow } from "../../../db/rows";
 import type { AgentRunResult } from "../../ports/agent-runner";
 import type { AgentRunner, FlowContextHelper, NodeSupport } from "../base";
-import { NodeDefinition, type FlowCtx, type PromptSource, type RunOutcome } from "../base";
+import { AgentRunNode, type FlowCtx, type NodeCapabilities, type PromptSource, type RunOutcome } from "../base";
 import { templateStore } from "../../templates";
 import { extractJson, validateJsonSchema } from "./json-schema-lite";
 import { AgentDefSchema, type AgentDef } from "../declarative-schemas";
 import { buildFlowContext } from "../../flow-context";
-import { fanoutConfigFields, mcpSourcesSchema, mcpSourceConfigFields } from "../../node-config";
+import { fanoutConfigFields, mcpSourceConfigFields } from "../../node-config";
 
 export type { AgentDef };
 
@@ -50,12 +50,15 @@ export function renderAgentPrompt(prompt: string, vars: Record<string, unknown>)
  * PromptLibrary-style variables, and reuses the standard agent run lifecycle —
  * status, streaming, cost, artifacts, output validation. No new infrastructure.
  */
-export class AgentTemplateNode extends NodeDefinition<Record<string, unknown>, Record<string, unknown>> {
+export class AgentTemplateNode extends AgentRunNode<Record<string, unknown>, Record<string, unknown>> {
   readonly key: string;
   readonly label: string;
   readonly promptKeys = [] as const;
   readonly order = 1000;
   readonly retryable = true;
+
+  /** §T4: chat messages re-run the agent with the rendered feedback. */
+  override readonly capabilities: NodeCapabilities = { refinable: true };
 
   readonly inputSchema: z.ZodType<Record<string, unknown>>;
   readonly outputSchema: z.ZodType<Record<string, unknown>>;

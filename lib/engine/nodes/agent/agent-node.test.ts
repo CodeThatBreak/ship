@@ -88,7 +88,7 @@ function seedAgentNode(index: number): { flowId: string; nodeId: string; ctx: Fl
 }
 
 /** A template instance whose config output is markdown — the default contract. */
-function agentNode(index: number, runner: AgentRunner): AgentTemplateNode {
+function agentNode(index: number, runner: InstanceType<typeof AgentRunner>): InstanceType<typeof AgentTemplateNode> {
   // T1 (phase 2): services are constructor-injected — the test stub rides the
   // same seam production code uses, no field shadowing.
   return new AgentTemplateNode(

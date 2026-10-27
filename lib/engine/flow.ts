@@ -12,6 +12,7 @@ import {
 import { agentPortRegistry, type AgentRunResult } from "./ports/agent-runner";
 import { hostOf, type HostComment } from "./ports/git-host";
 import { nodeSupport, type ChainRole, type FlowCtx } from "./nodes/base";
+import { CHAT_DECLINED, nodeRoles } from "./nodes/base/node-roles";
 import { uncachedInputTokens } from "./nodes/base/usage-tracker";
 import { nodeRegistry } from "./nodes/registry";
 import { NODE_KEYS } from "./nodes/keys";
@@ -1548,9 +1549,10 @@ export class FlowEngine {
   }
 
   /**
-   * Chat with a node's agent. Default routes to the node's own chat handler
-   * (usually a full refinement run); `chatOnly` asks for a lightweight
-   * conversational reply that leaves node state and artifacts untouched.
+   * Chat with a node's agent — routed through the §T4 role interfaces
+   * (`nodeRoles`): `chatOnly` asks a Converser for a lightweight conversational
+   * reply (node state untouched); everything else goes to the node's ChatRefiner
+   * when its capabilities opt in, and declines otherwise.
    */
   sendChat(flowId: string, nodeKey: string, content: string, chatOnly = false, model?: string): void {
     const def = this.defOf(flowId, nodeKey);
@@ -1558,8 +1560,8 @@ export class FlowEngine {
     this.setCurrentNode(flowId, nodeKey);
     this.bg(flowId, nodeKey, async () => {
       const reply = chatOnly
-        ? await def.converse(this.ctx(flowId), content)
-        : await def.chat(this.ctx(flowId), content, model);
+        ? (await nodeRoles.converserOf(def)?.converse(this.ctx(flowId), content)) ?? nodeRoles.noAgentReply(def.label)
+        : (await nodeRoles.chatRefinerOf(def)?.chat(this.ctx(flowId), content, model)) ?? CHAT_DECLINED;
       db.addMessage(flowId, nodeKey, "assistant", reply || "Done.");
       this.setCurrentNode(flowId, null);
     });

@@ -1,25 +1,28 @@
 import { z } from "zod";
 import type { NodeRow } from "../../../db/rows";
 import type { AgentRunResult } from "../../ports/agent-runner";
-import { localGit } from "../../../git/local";
 import { prompts } from "../../prompts";
 import { planSteps } from "../../steps";
-import { NodeDefinition, type FlowCtx, type NodePromptPreview, type NodeTriggerRun, type PromptPreviewParams, type RunOutcome } from "../base";
+import { AgentRunNode, agentRunner, flowCtxHelper, nodeRoles, type AgentRunner, type FlowContextHelper, type FlowCtx, type NodePromptPreview, type NodeTriggerRun, type PromptPreviewParams, type RunOutcome } from "../base";
 import { DEFAULT_FANOUT_OUTPUT, type NodeCapabilities } from "../base/capabilities";
 import { NODE_KEYS, STEP_BUILD_TEMPLATE_ID } from "../keys";
 import type { ConfigField } from "../../node-config";
 import { DEFAULT_MCP_SOURCES, configString, fanoutConfigFields, mcpSourcesOf, mcpSourcesSchema, mcpSourceConfigFields } from "../../node-config";
+import { nodeSupport, type NodeSupport } from "../base/node-support";
+import { BuildRunSupport } from "./build-run-support";
 import { branchStore } from "./branch-store";
 import { BuildInput, BuildOutput, type BuildBranchInfo } from "./schema";
 import { type PlanBranch } from "../plan/schema";
-import { worktreeManager } from "../../worktree-lifecycle";
 
-export class BuildNode extends NodeDefinition<BuildInput, BuildOutput> {
-  // widened (string / readonly string[]): the step_build child def subclasses
-  // and re-labels itself — see step-build-node.ts
-  readonly key: string = NODE_KEYS.BUILD;
-  readonly label: string = "Build";
-  readonly capabilities: NodeCapabilities = { panelTitle: "Code changes", fanoutOutput: DEFAULT_FANOUT_OUTPUT };
+export class BuildNode extends AgentRunNode<BuildInput, BuildOutput> {
+  readonly key = NODE_KEYS.BUILD;
+  readonly label = "Build";
+  /** §T4: chat messages refine the build — the node rerun-with-feedback recipe. */
+  override readonly capabilities: NodeCapabilities = {
+    panelTitle: "Code changes",
+    fanoutOutput: DEFAULT_FANOUT_OUTPUT,
+    refinable: true,
+  };
   /** Engine-dispatch metadata (§T3): build approval is a built-in flow action
    *  (the CR-creation chain), and the build kind occupies the chain's build role. */
   override readonly builtinApproval = true;
@@ -28,6 +31,19 @@ export class BuildNode extends NodeDefinition<BuildInput, BuildOutput> {
   readonly promptSections: readonly string[] = [NODE_KEYS.BUILD];
   readonly order = 20;
   readonly edges = [[NODE_KEYS.PIPELINE, "next"]] as const;
+
+  /** Composed run machinery shared with the step child (§T6) — built from
+   *  this def's own injected services so a test stub rides the same seam. */
+  protected readonly buildRun: BuildRunSupport;
+
+  constructor(
+    support: NodeSupport = nodeSupport,
+    runner: AgentRunner = agentRunner,
+    ctxHelper: FlowContextHelper = flowCtxHelper,
+  ) {
+    super(support, runner, ctxHelper);
+    this.buildRun = new BuildRunSupport(support, ctxHelper);
+  }
 
   readonly inputSchema = BuildInput; // includes the optional fan-out `step` (see schema.ts)
   readonly outputSchema = BuildOutput;
@@ -136,22 +152,6 @@ export class BuildNode extends NodeDefinition<BuildInput, BuildOutput> {
     return result;
   }
 
-  /** Branch name from the `branch_pattern` knob (empty = built-in pattern). */
-  private branchName(ctx: FlowCtx, config: Record<string, unknown>, suffix?: string): string {
-    const pattern = configString(config, "branch_pattern");
-    if (!pattern?.trim()) return this.ctxHelper.buildBranch(ctx, suffix);
-    const slug = String(ctx.task.key ?? "task").toLowerCase().replace(/[^a-z0-9]+/g, "-");
-    const type = String(ctx.task.issueType ?? "").toLowerCase();
-    const prefix = /story|feature|task|epic/.test(type) ? "feature" : "bugfix";
-    return pattern
-      .trim()
-      .replace(/\{prefix\}/g, prefix)
-      .replace(/\{slug\}/g, slug)
-      .replace(/\{ticket\}/g, String(ctx.task.key ?? "task"))
-      .replace(/\{id\}/g, ctx.flow.id.slice(-6))
-      .replace(/\{suffix\}/g, suffix ?? "");
-  }
-
   async run(ctx: FlowCtx, input: BuildInput, config: Record<string, unknown>): Promise<RunOutcome> {
     // the user's standing rules (prompt_rules knob) apply to every run
     const userRules = configString(config, "prompt_rules") ?? "";
@@ -170,7 +170,7 @@ export class BuildNode extends NodeDefinition<BuildInput, BuildOutput> {
 
     const mode = this.ctxHelper.execMode(ctx);
     const branchSuffix = input.branchInfo?.name;
-    const branch = this.branchName(ctx, config, branchSuffix);
+    const branch = this.buildRun.branchName(ctx, config, branchSuffix);
     const label = input.branchInfo ? `build (${input.branchInfo.name})` : "build";
 
     // scope the prompt to this branch of the plan (multi-branch builds)
@@ -185,20 +185,14 @@ export class BuildNode extends NodeDefinition<BuildInput, BuildOutput> {
     // created once at build start — the registered checkout (hub) is never
     // checked out or mutated. Creation failure fails the node (no hub
     // fallback); deps-setup failure is non-fatal (setupNote on the prompt).
-    let worktree: string | null = null;
-    let setupNote: string | null = null;
-    if (mode === "local") {
-      const binding = await worktreeManager.ensureFlowWorktree(ctx, branch, { nodeId: node.id });
-      worktree = binding.dir;
-      setupNote = binding.setupNote;
-    }
+    const { worktree, setupNote } = await this.buildRun.worktree(ctx, branch, node.id);
 
     let instructions = mode === "local"
       ? `Implement the following approved plan for a ${ticketType} ticket. Your working directory is a git worktree already checked out on branch "${branch}" (fresh off the repo's default branch). Make the code changes, commit them to that branch, and push the branch to origin. Do NOT open a merge request, do not switch branches, and do not touch any checkout outside this directory.`
       : `Implement the following approved plan for a ${ticketType} ticket. Make the code changes, commit them, and push to a feature branch. Do NOT open a merge request yet.`;
     // non-fatal worktree deps setup: one line in the run prompt — the agent
     // can self-repair by running the repo's dependency setup itself
-    if (setupNote) instructions += `\n${setupNote} If the build needs dependencies, run the repo's dependency setup yourself before building/testing.`;
+    instructions += this.buildRun.setupAdvisory(setupNote);
 
     // pending checklist steps for this branch + the progress-report contract
     const checklistRows = planSteps.markdown(ctx.flow.id, input.branchInfo?.name ?? null);
@@ -251,13 +245,7 @@ export class BuildNode extends NodeDefinition<BuildInput, BuildOutput> {
     // apply the build agent's structured progress report to the plan checklist
     planSteps.markDone(ctx.flow.id, nodeId, planSteps.parseBuildProgress(result.result ?? ""));
 
-    const resultBranch =
-      this.ctxHelper.execMode(ctx) === "local"
-        // branch detection reads the worktree when the flow has one — the
-        // hub's HEAD is the developer's own checkout and must not be read
-        ? (await localGit.currentBranch(this.ctxHelper.requireRunCwd(ctx))) ?? branch
-        : result.git?.branches?.[0]?.branch ?? branch;
-    if (!resultBranch) throw new Error("build finished but no branch was pushed");
+    const resultBranch = await this.buildRun.resultBranch(ctx, result, branch);
 
     this.support.setFlowBranch(ctx.flow.id, resultBranch);
     ctx.flow.mr_branch = resultBranch;
@@ -270,12 +258,10 @@ export class BuildNode extends NodeDefinition<BuildInput, BuildOutput> {
       branchStore.tagLatestRun(nodeId, branchRowId);
     }
 
-    const diff = await this.makeDiff(ctx, resultBranch);
-    const art = this.support.saveArtifact(
-      nodeId, ctx.flow.id, "diff",
-      diff ? diff.raw : "(diff unavailable — fetch from GitLab)",
-      { branch: resultBranch, stat: diff?.stat ?? "", branchName: branchInfo?.name ?? undefined }
-    );
+    const art = await this.buildRun.diffArtifact(ctx, nodeId, resultBranch, {
+      noDiffContent: "(diff unavailable — fetch from GitLab)",
+      extraMeta: { branchName: branchInfo?.name ?? undefined },
+    });
 
     return {
       status: "awaiting_approval",
@@ -285,7 +271,7 @@ export class BuildNode extends NodeDefinition<BuildInput, BuildOutput> {
         branchName: branchInfo?.name ?? undefined,
       }),
       event: `build pushed branch ${resultBranch}; diff ready for review`,
-      eventData: { stat: diff?.stat },
+      eventData: { stat: art.stat },
       reply: result.result ?? "",
     };
   }
@@ -305,15 +291,9 @@ export class BuildNode extends NodeDefinition<BuildInput, BuildOutput> {
     let prompt = prompts.resolve("build_refine", {}, { feedback }, promptOverride, { userRules });
     // follow-ups run in the same worktree the build used (ensure creates it
     // when the flow predates worktrees or the tree was swept)
-    let worktree: string | null = null;
-    let setupNote: string | null = null;
-    if (this.ctxHelper.execMode(ctx) === "local") {
-      const binding = await worktreeManager.ensureFlowWorktree(
-        ctx, ctx.flow.mr_branch ?? this.ctxHelper.buildBranch(ctx), { nodeId: node.id });
-      worktree = binding.dir;
-      setupNote = binding.setupNote;
-      if (setupNote) prompt += `\n${setupNote} If the changes need dependencies, run the repo's dependency setup yourself before building/testing.`;
-    }
+    const { worktree, setupNote } = await this.buildRun.worktree(
+      ctx, this.buildRun.flowBranch(ctx), node.id);
+    prompt += this.buildRun.setupAdvisory(setupNote);
     const outcome = await this.execute(ctx, {
       input: { feedback, prompt: promptOverride ?? null, model: model ?? null },
       prompt,
@@ -328,17 +308,11 @@ export class BuildNode extends NodeDefinition<BuildInput, BuildOutput> {
       },
       label: "build refine",
       finalize: async (result) => {
-        const branch =
-          ctx.flow.mr_branch ??
-          (this.ctxHelper.execMode(ctx) === "local"
-            ? (await localGit.currentBranch(this.ctxHelper.requireRunCwd(ctx)))
-            : result.git?.branches?.[0]?.branch);
-        const diff = branch ? await this.makeDiff(ctx, branch) : null;
-        const art = this.support.saveArtifact(
-          node.id, ctx.flow.id, "diff",
-          diff ? diff.raw : (result.result ?? ""),
-          { branch, stat: diff?.stat ?? "", feedback }
-        );
+        const branch = await this.buildRun.refineBranch(ctx, result);
+        const art = await this.buildRun.diffArtifact(ctx, node.id, branch ?? "", {
+          noDiffContent: result.result ?? "",
+          extraMeta: { feedback },
+        });
         return {
           status: "awaiting_approval" as const,
           output: this.outputSchema.parse({ branch: branch ?? "", latestArtifact: art.id }),
@@ -350,11 +324,6 @@ export class BuildNode extends NodeDefinition<BuildInput, BuildOutput> {
     return outcome;
   }
 
-  override async chat(ctx: FlowCtx, content: string): Promise<string> {
-    const outcome = await this.run(ctx, this.inputSchema.parse({ feedback: content }), this.nodeConfig(ctx));
-    return outcome.reply;
-  }
-
   /**
    * Live prompt preview (verbatim from the route's former build case): the
    * body knob is a verbatim prompt override for build (I3 — unified in a later
@@ -362,8 +331,8 @@ export class BuildNode extends NodeDefinition<BuildInput, BuildOutput> {
    * instructions are the body). The checklist the run appends is Phase-2
    * preview work (I6).
    */
-  override previewPrompt(ctx: FlowCtx, node: NodeRow | null, _params: PromptPreviewParams): NodePromptPreview | null {
-    const config = this.previewConfig(node);
+  previewPrompt(ctx: FlowCtx, node: NodeRow | null, _params: PromptPreviewParams): NodePromptPreview | null {
+    const config = nodeRoles.previewConfig(this, node);
     const branch = ctx.flow.mr_branch ?? this.ctxHelper.buildBranch(ctx);
     const mode = this.ctxHelper.execMode(ctx);
     const planRow = this.support.latestArtifact(ctx.flow.id, "plan");
@@ -377,7 +346,7 @@ export class BuildNode extends NodeDefinition<BuildInput, BuildOutput> {
     const body = configBody ??
       prompts.resolve(NODE_KEYS.BUILD, { ticket: this.ctxHelper.taskContext(ctx), branch, mode }, { instructions: instr, plan: planContent });
     const asm = prompts.assemblePrompt(
-      NODE_KEYS.BUILD, {}, undefined, { body, userRules: this.previewRules(node) },
+      NODE_KEYS.BUILD, {}, undefined, { body, userRules: nodeRoles.previewRules(this, node) },
     );
     return { templateKey: NODE_KEYS.BUILD, configBody, assembly: asm };
   }
@@ -388,7 +357,7 @@ export class BuildNode extends NodeDefinition<BuildInput, BuildOutput> {
    */
   async recover(ctx: FlowCtx, node: NodeRow, result: AgentRunResult, note: string): Promise<boolean> {
     if (result.status !== "finished") return false;
-    const branch = result.git?.branches?.[0]?.branch ?? ctx.flow.mr_branch ?? this.ctxHelper.buildBranch(ctx);
+    const branch = this.buildRun.reportedBranch(result) ?? this.buildRun.flowBranch(ctx);
     await this.recoverBranch(ctx, node, branch, note);
     return true;
   }
@@ -399,18 +368,16 @@ export class BuildNode extends NodeDefinition<BuildInput, BuildOutput> {
     if (node.status !== "running") return;
     this.support.setFlowBranch(ctx.flow.id, branch);
     ctx.flow.mr_branch = branch;
-    const diff = await this.makeDiff(ctx, branch);
-    const art = this.support.saveArtifact(
-      node.id, ctx.flow.id, "diff",
-      diff ? diff.raw : "(diff unavailable — fetch from GitLab)",
-      { branch, stat: diff?.stat ?? "", recovered: true }
-    );
+    const art = await this.buildRun.diffArtifact(ctx, node.id, branch, {
+      noDiffContent: "(diff unavailable — fetch from GitLab)",
+      extraMeta: { recovered: true },
+    });
     this.support.setNode(node.id, {
       status: "awaiting_approval",
       output: JSON.stringify(this.outputSchema.parse({ branch, latestArtifact: art.id })),
     });
     this.support.emitLifecycle(ctx.flow.id, node.id,
       `build recovered on branch ${branch}; diff ready for review (${note})`,
-      { stat: diff?.stat, recovered: true });
+      { stat: art.stat, recovered: true });
   }
 }

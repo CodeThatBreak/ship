@@ -38,6 +38,7 @@ import { agentPortRegistry, type AgentPort, type AgentStarted, type AgentStartSp
 import { gitHostRegistry, type ChangeRequest, type GitHostService } from "../lib/engine/ports/git-host";
 import { usageTracker, type RunCostSummary } from "../lib/engine/nodes/base/usage-tracker";
 import type { NodeDefinition } from "../lib/engine/nodes/base";
+import { nodeRoles } from "../lib/engine/nodes/base/node-roles";
 import { FlowRow, Task, NodeRow, rows } from "../lib/db/rows";
 import { nodeRegistry } from "../lib/engine/nodes/registry";
 import { promptPreview } from "../lib/engine/prompt-preview";
@@ -199,7 +200,7 @@ async function main(): Promise<void> {
     const ctx = { flow: flowRow, task: taskRow, repo: null };
     let previewFinal: string | null = null;
     try {
-      previewFinal = def.previewPrompt(
+      previewFinal = nodeRoles.promptPreviewerOf(def)?.previewPrompt(
         ctx,
         rows.get(NodeRow, `SELECT * FROM nodes WHERE flow_id=? AND node_key=?`, flow, nodeKey) ?? null,
         {},
@@ -321,7 +322,7 @@ async function main(): Promise<void> {
     } else {
     const ctx = { flow: flowRow, task: taskRow, repo: null };
     const pipeDef = nodeRegistry.get(NODE_KEYS.PIPELINE);
-    const previewChars = pipeDef.previewPrompt(ctx, null, {})?.assembly.final.length ?? null;
+    const previewChars = nodeRoles.promptPreviewerOf(pipeDef)?.previewPrompt(ctx, null, {})?.assembly.final.length ?? null;
     results.push({
       kind: "pipeline",
       status: "SKIP",

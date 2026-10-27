@@ -2,7 +2,7 @@ import { z } from "zod";
 import type { NodeRow } from "../../../db/rows";
 import { gitHostRegistry, type HostJob } from "../../ports/git-host";
 import { prompts } from "../../prompts";
-import { NodeDefinition, type FlowCtx, type NodePromptPreview, type PromptPreviewParams, type RunOutcome } from "../base";
+import { AgentRunNode, nodeRoles, type FlowCtx, type NodePromptPreview, type PromptPreviewParams, type RunOutcome } from "../base";
 import type { NodeCapabilities } from "../base/capabilities";
 import { NODE_KEYS } from "../keys";
 import type { ConfigField } from "../../node-config";
@@ -46,13 +46,14 @@ const FIX_PROMPT_KEY = "pipeline_fix";
  *  - an already-green head finishes immediately, so a retry after a timeout
  *    self-heals instead of re-waiting.
  */
-export class PipelineNode extends NodeDefinition<
+export class PipelineNode extends AgentRunNode<
   PipelineInput,
   PipelineOutput
 > {
   readonly key = NODE_KEYS.PIPELINE;
   readonly label = "Pipeline";
-  readonly capabilities: NodeCapabilities = { panelTitle: "CI pipeline" };
+  /** §T4: chat messages ride the gate rerun as developer guidance. */
+  override readonly capabilities: NodeCapabilities = { panelTitle: "CI pipeline", refinable: true };
   /** Engine-dispatch metadata (§T3): consumers (the CI gate) wait on the
    *  pipeline event source — gate lookups route through this, not a literal. */
   override readonly waitForKind = NODE_KEYS.PIPELINE;
@@ -273,10 +274,10 @@ export class PipelineNode extends NodeDefinition<
    * pipeline-id/branch/logs vars are run data (the failed pipeline is known
    * only at run time) — filled at Phase-2 preview work (I5).
    */
-  override previewPrompt(ctx: FlowCtx, node: NodeRow | null, params: PromptPreviewParams): NodePromptPreview | null {
+  previewPrompt(ctx: FlowCtx, node: NodeRow | null, params: PromptPreviewParams): NodePromptPreview | null {
     const branch = ctx.flow.mr_branch ?? this.ctxHelper.buildBranch(ctx);
     const mode = this.ctxHelper.execMode(ctx);
-    const configBody = configString(this.previewConfig(node), "fix_prompt_body") ?? null;
+    const configBody = configString(nodeRoles.previewConfig(this, node), "fix_prompt_body") ?? null;
     const asm = prompts.assemblePrompt(
       FIX_PROMPT_KEY,
       {},
@@ -284,7 +285,7 @@ export class PipelineNode extends NodeDefinition<
         guidance: params.instructions ? `Developer guidance: ${params.instructions}` : "",
         instructions: mode === "local" ? `Start by checking out branch ${branch}.` : "",
       },
-      { body: configBody, userRules: this.previewRules(node, "fix_prompt_rules") },
+      { body: configBody, userRules: nodeRoles.previewRules(this, node, "fix_prompt_rules") },
     );
     return { templateKey: FIX_PROMPT_KEY, configBody, assembly: asm };
   }

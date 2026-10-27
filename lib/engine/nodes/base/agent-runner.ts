@@ -46,7 +46,7 @@ export interface AgentStartInput {
 export class AgentRunner {
   constructor(
     private readonly ctxHelper: FlowContextHelper,
-    private readonly support: NodeSupport,
+    protected readonly support: NodeSupport,
     private readonly usage: UsageTracker
   ) {}
 

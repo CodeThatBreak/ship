@@ -1,14 +1,15 @@
+import { z } from "zod";
+import { AgentRunNode, agentRunner, flowCtxHelper, type AgentRunner, type FlowContextHelper } from "../base";
 import type { FlowCtx, NodeTriggerRun, RunOutcome } from "../base";
+import { nodeSupport, type NodeSupport } from "../base/node-support";
 import type { FlowRow, NodeRow } from "../../../db/rows";
+import type { AgentRunResult } from "../../ports/agent-runner";
 import { prompts } from "../../prompts";
-import { DEFAULT_FANOUT_OUTPUT } from "../base/capabilities";
-import type { MergeBackArgs, MergeBackResult, NodeCapabilities } from "../base/capabilities";
+import { DEFAULT_FANOUT_OUTPUT, type MergeBackArgs, type MergeBackResult, type NodeCapabilities } from "../base/capabilities";
 import { NODE_KEYS } from "../keys";
-import { localGit } from "../../../git/local";
-import { mcpSourcesOf } from "../../node-config";
-import { worktreeManager } from "../../worktree-lifecycle";
+import { DEFAULT_MCP_SOURCES, mcpSourceConfigFields, mcpSourcesOf, mcpSourcesSchema } from "../../node-config";
 import { mergeArena } from "../../merge-arena";
-import { BuildNode } from "./build-node";
+import { BuildRunSupport } from "./build-run-support";
 import { BuildInput, BuildOutput } from "./schema";
 
 // ── the fan-out step child of build (`step_build`, Phase 1C) ─────────────────
@@ -42,11 +43,26 @@ interface StepPayload {
   branch?: string;
 }
 
-export class StepBuildNode extends BuildNode {
+/**
+ * §T6: the step child is a SIBLING def, not a subclass — it extends the
+ * AgentRunNode tier directly and composes the shared machinery over
+ * `BuildRunSupport` instead of inheriting the parent build's run/refine
+ * methods (the fan-out child never used the parent's triggerRuns, branch
+ * checklist or prompt body anyway).
+ */
+export class StepBuildNode extends AgentRunNode<BuildInput, BuildOutput> {
   readonly key = NODE_KEYS.STEP_BUILD;
   readonly label = "Step build";
-  override readonly promptKeys: readonly string[] = [NODE_KEYS.STEP_BUILD, "build_refine"];
-  override readonly promptSections: readonly string[] = [NODE_KEYS.STEP_BUILD];
+  readonly promptKeys: readonly string[] = [NODE_KEYS.STEP_BUILD, "build_refine"];
+  readonly promptSections: readonly string[] = [NODE_KEYS.STEP_BUILD];
+  /** Fan-out children ride the parent build's graph slot (no template row of
+   *  their own in the built-in graph; edges default to none — the child's
+   *  flow runs the seeded step-build template, not the build → pipeline edge). */
+  readonly order = 20;
+
+  /** The shared run machinery (§T6) — composed, from this def's own injected
+   *  services so a test stub rides the same seam. */
+  private readonly buildRun: BuildRunSupport;
 
   /**
    * The fan-out capabilities: `mergeBack` (the ONLY def with it in Phase 1)
@@ -55,12 +71,38 @@ export class StepBuildNode extends BuildNode {
    * data "Built-in" (parallel key run naming, nodes need max_commit_fix...
    * cross) — see class doc above for the lineage decision.
    */
-  override readonly capabilities: NodeCapabilities = {
+  readonly capabilities: NodeCapabilities = {
     panelTitle: "Step changes",
     fanoutOutput: DEFAULT_FANOUT_OUTPUT,
+    refinable: true,
     mergeBack: async (args: MergeBackArgs): Promise<MergeBackResult> =>
       mergeArena.mergeStepBranch(args),
   };
+
+  /**
+   * The knobs the step child actually consumes: ambient MCP servers for its
+   * build/refine runs (default = ALL sources, the plan/build default the
+   * child inherited when it subclassed BuildNode). The fan-out knobs
+   * (`branch_pattern`, `max_commit_fix_attempts`, fan-out mode/child) belong
+   * to the PARENT fan-out node's config — the StepFlowManager reads them
+   * from the parent flow's node row, never from the child.
+   */
+  readonly configSchema = z.object({
+    mcp_sources: mcpSourcesSchema.default(DEFAULT_MCP_SOURCES),
+  });
+  readonly configFields = mcpSourceConfigFields;
+
+  readonly inputSchema = BuildInput;
+  readonly outputSchema = BuildOutput;
+
+  constructor(
+    support: NodeSupport = nodeSupport,
+    runner: AgentRunner = agentRunner,
+    ctxHelper: FlowContextHelper = flowCtxHelper,
+  ) {
+    super(support, runner, ctxHelper);
+    this.buildRun = new BuildRunSupport(support, ctxHelper);
+  }
 
   override triggerRuns(ctx: FlowCtx): NodeTriggerRun[] {
     const step = this.payloadOf(ctx)?.step;
@@ -82,25 +124,19 @@ export class StepBuildNode extends BuildNode {
     const mode = this.ctxHelper.execMode(ctx);
     // the step branch was assigned by the StepFlowManager (flows.mr_branch on
     // the child row); the built-in naming is the fallback
-    const branch = ctx.flow.mr_branch ?? this.ctxHelper.buildBranch(ctx);
+    const branch = this.buildRun.flowBranch(ctx);
     const parentFlowId = ctx.flow.parent_flow_id;
     if (!parentFlowId) throw new Error("the step child has no parent flow — not a fan-out child");
 
     // local mode builds run in the child's own worktree keyed by the child
     // flow id (one step branch each; the existing sweep covers the children)
-    let worktree: string | null = null;
-    let setupNote: string | null = null;
-    if (mode === "local") {
-      const binding = await worktreeManager.ensureFlowWorktree(ctx, branch, { nodeId: node.id });
-      worktree = binding.dir;
-      setupNote = binding.setupNote;
-    }
+    const { worktree, setupNote } = await this.buildRun.worktree(ctx, branch, node.id);
 
     const ticketType = this.ctxHelper.taskLabel(ctx);
     let instructions = mode === "local"
       ? `Implement ONE step of the approved plan below for a ${ticketType} ticket. Your working directory is a git worktree already checked out on your step branch "${branch}" (fresh off the repo's default branch). Make the code changes, commit them to that branch, and push the branch to origin. Do NOT open a merge request, do not switch branches, and do not touch any checkout outside this directory.`
       : `Implement ONE step of the approved plan below for a ${ticketType} ticket. Make the code changes for exactly that step, commit them, and push to your step branch "${branch}". Do NOT open a merge request.`;
-    if (setupNote) instructions += `\n${setupNote} If the changes need dependencies, run the repo's dependency setup yourself before building/testing.`;
+    instructions += this.buildRun.setupAdvisory(setupNote);
 
     const planMarkdown = await this.parentPlanMarkdown(parentFlowId);
     const stepSection = [
@@ -142,27 +178,19 @@ export class StepBuildNode extends BuildNode {
   /** Per-step build terminal: diff artifact + awaiting_approval… with NO build-progress self-reporting (steps go green on merge). */
   private async finalizeStep(
     ctx: FlowCtx,
-    result: import("../../ports/agent-runner").AgentRunResult,
+    result: AgentRunResult,
     branch: string,
     node: NodeRow,
   ): Promise<RunOutcome> {
-    const resultBranch =
-      this.ctxHelper.execMode(ctx) === "local"
-        ? (await localGit.currentBranch(this.ctxHelper.requireRunCwd(ctx))) ?? branch
-        : result.git?.branches?.[0]?.branch ?? branch;
-    if (!resultBranch) throw new Error("step build finished but no branch was pushed");
-
-    const diff = await this.makeDiff(ctx, resultBranch);
-    const art = this.support.saveArtifact(
-      node.id, ctx.flow.id, "diff",
-      diff ? diff.raw : "(diff unavailable)",
-      { branch: resultBranch, stat: diff?.stat ?? "" }
-    );
+    const resultBranch = await this.buildRun.resultBranch(ctx, result, branch);
+    const art = await this.buildRun.diffArtifact(ctx, node.id, resultBranch, {
+      noDiffContent: "(diff unavailable)",
+    });
     return {
       status: "awaiting_approval",
       output: this.outputSchema.parse({ branch: resultBranch, latestArtifact: art.id }),
       event: `step build pushed ${resultBranch}; per-step diff ready for review`,
-      eventData: { stat: diff?.stat },
+      eventData: { stat: art.stat },
       reply: result.result ?? "",
     };
   }
@@ -170,16 +198,10 @@ export class StepBuildNode extends BuildNode {
   /** Chat refinement inside the child: follow-up fix on the same step branch. */
   private async refineStep(ctx: FlowCtx, feedback: string, model?: string | null): Promise<RunOutcome> {
     const node = this.node(ctx);
-    const branch = ctx.flow.mr_branch ?? this.ctxHelper.buildBranch(ctx);
-    let worktree: string | null = null;
-    let setupNote: string | null = null;
-    if (this.ctxHelper.execMode(ctx) === "local") {
-      const binding = await worktreeManager.ensureFlowWorktree(ctx, branch, { nodeId: node.id });
-      worktree = binding.dir;
-      setupNote = binding.setupNote;
-    }
+    const branch = this.buildRun.flowBranch(ctx);
+    const { worktree, setupNote } = await this.buildRun.worktree(ctx, branch, node.id);
     let prompt = prompts.resolve("build_refine", {}, { feedback });
-    if (setupNote) prompt += `\n${setupNote}`;
+    prompt += this.buildRun.setupAdvisory(setupNote);
     const outcome = await this.execute(ctx, {
       input: { feedback, prompt: null, model: model ?? null },
       prompt,
@@ -194,16 +216,11 @@ export class StepBuildNode extends BuildNode {
       },
       label: "step build refine",
       finalize: async (result) => {
-        const resultBranch =
-          this.ctxHelper.execMode(ctx) === "local"
-            ? (await localGit.currentBranch(this.ctxHelper.requireRunCwd(ctx))) ?? branch
-            : result.git?.branches?.[0]?.branch ?? branch;
-        const diff = await this.makeDiff(ctx, resultBranch);
-        const art = this.support.saveArtifact(
-          node.id, ctx.flow.id, "diff",
-          diff ? diff.raw : (result.result ?? ""),
-          { branch: resultBranch, stat: diff?.stat ?? "", feedback }
-        );
+        const resultBranch = await this.buildRun.resultBranch(ctx, result, branch);
+        const art = await this.buildRun.diffArtifact(ctx, node.id, resultBranch, {
+          noDiffContent: result.result ?? "",
+          extraMeta: { feedback },
+        });
         return {
           status: "awaiting_approval" as const,
           output: this.outputSchema.parse({ branch: resultBranch, latestArtifact: art.id }),
@@ -213,6 +230,33 @@ export class StepBuildNode extends BuildNode {
       },
     });
     return outcome;
+  }
+
+  /**
+   * Complete a step child whose agent run was orphaned (server restarted
+   * mid-run) but left commits on the step branch — the shape the child
+   * inherited from the parent build's recovery before the composition split
+   * (§T6), now persisted through the ONE outcome path (§T2).
+   */
+  async recover(ctx: FlowCtx, node: NodeRow, result: AgentRunResult, note: string): Promise<boolean> {
+    if (result.status !== "finished") return false;
+    // idempotent: a concurrent reconcile may have already recovered this node
+    if (node.status !== "running") return true;
+    const branch = this.buildRun.reportedBranch(result) ?? this.buildRun.flowBranch(ctx);
+    this.support.setFlowBranch(ctx.flow.id, branch);
+    ctx.flow.mr_branch = branch;
+    const art = await this.buildRun.diffArtifact(ctx, node.id, branch, {
+      noDiffContent: "(diff unavailable — fetch from GitLab)",
+      extraMeta: { recovered: true },
+    });
+    this.applyOutcome(ctx, {
+      status: "awaiting_approval",
+      output: this.outputSchema.parse({ branch, latestArtifact: art.id }),
+      event: `step build recovered on branch ${branch}; diff ready for review`,
+      eventData: { stat: art.stat, recovered: true },
+      reply: "",
+    }, { note });
+    return true;
   }
 
   // ── helpers ─────────────────────────────────────────────────────────────────

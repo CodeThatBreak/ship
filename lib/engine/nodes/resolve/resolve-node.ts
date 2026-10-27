@@ -3,7 +3,7 @@ import { z } from "zod";
 import { localGit } from "../../../git/local";
 import { gitHostRegistry } from "../../ports/git-host";
 import { prompts } from "../../prompts";
-import { NodeDefinition, type FlowCtx, type NodePromptPreview, type PromptPreviewParams, type RunOutcome } from "../base";
+import { AgentRunNode, nodeRoles, type FlowCtx, type NodePromptPreview, type PromptPreviewParams, type RunOutcome } from "../base";
 import type { NodeCapabilities } from "../base/capabilities";
 import { NODE_KEYS } from "../keys";
 import type { ConfigField } from "../../node-config";
@@ -11,10 +11,11 @@ import { configString, mcpSourcesOf, mcpSourcesSchema, mcpSourceConfigFields } f
 import { ResolveInput, ResolveOutput } from "./schema";
 import { worktreeManager } from "../../worktree-lifecycle";
 
-export class ResolveNode extends NodeDefinition<ResolveInput, ResolveOutput> {
+export class ResolveNode extends AgentRunNode<ResolveInput, ResolveOutput> {
   readonly key = NODE_KEYS.RESOLVE;
   readonly label = "Resolve";
-  readonly capabilities: NodeCapabilities = { panelTitle: "Comment resolution" };
+  /** §T4: chat messages refine the resolve — re-run with them as instructions. */
+  override readonly capabilities: NodeCapabilities = { panelTitle: "Comment resolution", refinable: true };
   /** Engine-dispatch metadata (§T3): the resolve kind occupies the chain's resolve role. */
   override readonly chainRole = NODE_KEYS.RESOLVE;
   readonly promptKeys = [NODE_KEYS.RESOLVE] as const;
@@ -47,8 +48,8 @@ export class ResolveNode extends NodeDefinition<ResolveInput, ResolveOutput> {
    * body knob or default with the developer instructions; the header/
    * comment blocks are run data — computed at run time from open comments.
    */
-  override previewPrompt(ctx: FlowCtx, node: NodeRow | null, params: PromptPreviewParams): NodePromptPreview | null {
-    const configBody = this.previewBody(node);
+  previewPrompt(ctx: FlowCtx, node: NodeRow | null, params: PromptPreviewParams): NodePromptPreview | null {
+    const configBody = nodeRoles.previewBody(this, node);
     const branch = ctx.flow.mr_branch ?? this.ctxHelper.buildBranch(ctx);
     const mode = this.ctxHelper.execMode(ctx);
     const asm = prompts.assemblePrompt(
@@ -58,7 +59,7 @@ export class ResolveNode extends NodeDefinition<ResolveInput, ResolveOutput> {
         dev_instructions: params.instructions ? `Developer instructions: ${params.instructions}` : "",
         instructions: mode === "local" ? `Start by checking out branch ${branch}.` : "",
       },
-      { body: configBody, userRules: this.previewRules(node) },
+      { body: configBody, userRules: nodeRoles.previewRules(this, node) },
     );
     return { templateKey: NODE_KEYS.RESOLVE, configBody, assembly: asm };
   }
@@ -232,9 +233,9 @@ export class ResolveNode extends NodeDefinition<ResolveInput, ResolveOutput> {
     return false;
   }
 
-  override async chat(ctx: FlowCtx, content: string): Promise<string> {
-    const outcome = await this.run(ctx, this.inputSchema.parse({ instructions: content }), this.nodeConfig(ctx));
-    return outcome.reply;
+  /** Chat maps the message onto the node's guidance field (§T4b recipe). */
+  protected override chatInput(content: string, model?: string): Record<string, unknown> {
+    return { instructions: content, model: model ?? null };
   }
 
   // Resolve commits fixes and closes discussions — don't replay after a restart.

@@ -4,6 +4,7 @@ import { db } from "../db";
 import { FlowRow, Task, rows, NodeRow } from "../db/rows";
 import { PROMPT_SOURCES } from "./nodes/base";
 import type { FlowCtx, NodeDefinition, NodePromptPreview, PromptPreviewParams, PromptSource } from "./nodes/base";
+import { nodeRoles } from "./nodes/base/node-roles";
 import { NODE_KEYS } from "./nodes/keys";
 import { nodeRegistry } from "./nodes/registry";
 import type { ContextBlockInfo } from "./nodes/plan/plan-node";
@@ -107,7 +108,10 @@ export class PromptPreview {
 
     const node = rows.get(NodeRow, `SELECT * FROM nodes WHERE flow_id=? AND node_key=?`, flowId, nodeKey) ?? null;
     const def = this.defFor(flowId, nodeKey, node);
-    const preview: NodePromptPreview | null = def.previewPrompt(ctx, node, params);
+    // §T4: the preview role is routed through the role router — defs without
+    // a previewable prompt (agent kinds leave it to the phase-2 work) decline.
+    const previewer = nodeRoles.promptPreviewerOf(def);
+    const preview: NodePromptPreview | null = previewer ? previewer.previewPrompt(ctx, node, params) : null;
     if (!preview) {
       return this.bad(`unsupported node: ${nodeKey}`);
     }
