@@ -17,6 +17,7 @@ import type { ModelChoice } from "@/types/model-spec";
 import { queryKeys } from "@/constants/query-keys";
 import { FLOW_STATUS } from "@/constants/flow";
 import type { FlowData, Node } from "@/types/flow";
+import { EXECUTION_MODE_LOCAL, LOCAL_MODE_MODEL } from "../constants";
 import { useFlowData } from "./hooks/use-flow-data";
 import { useFlowEvents } from "./hooks/use-flow-events";
 import { fanoutProgressOf } from "./fanout-progress";
@@ -76,8 +77,14 @@ export default function FlowCockpit({
     node?.status === FLOW_STATUS.PENDING;
 
   // one model override for this flow's runs — picked in the chat panel's
-  // model selector, consumed by every run-start action below
-  const [modelChoice, setModelChoice] = useState<ModelChoice | null>(null);
+  // model selector, consumed by every run-start action below. Local flows
+  // (mode picked at start) prefill the local runtime's model; cloud stays on
+  // the account default (null).
+  const [modelChoice, setModelChoice] = useState<ModelChoice | null>(
+    initialFlow.execution_mode === EXECUTION_MODE_LOCAL
+      ? { id: LOCAL_MODE_MODEL }
+      : null,
+  );
   const model = composeModelChoice(modelChoice);
 
   // plan-generation options — toggled via the icon buttons in the chat panel's
