@@ -65,6 +65,7 @@ export default function PromptModal({
     rulesError,
     setRulesSaved,
     data,
+    finalPrompt,
     seedPending,
     seedError,
     refetch,
@@ -241,7 +242,7 @@ export default function PromptModal({
             onToggleFinal={() => setFinalOpen((s) => !s)}
             canReset={edited === data.prompt}
             onReset={() => setEdited(data.prompt)}
-            final={data.final}
+            final={finalPrompt}
           />
         </div>
       )}

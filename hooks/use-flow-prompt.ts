@@ -53,7 +53,9 @@ export interface PromptData {
   outputContract?: string;
   /** live run-data blocks (context, diffs, logs, comments) — finalized at run time */
   runData?: RunDataBlock[];
-  /** exactly what the agent will receive */
+  /** everything after the editable body in `final` (rules + ordered locked blocks) */
+  finalTail?: string;
+  /** what the agent receives for the SAVED body — the modal overlays live edits on it */
   final?: string;
   /** the node config key the rules box saves into (`prompt_rules` / `fix_prompt_rules`) */
   rulesKey?: string;
@@ -179,11 +181,28 @@ export function useFlowPrompt({
     return {
       ...base,
       final: preview.final,
+      finalTail: preview.finalTail,
       runData: preview.runData,
       outputContract: preview.outputContract,
       engineRules: preview.engineRules,
     };
   }, [baseQuery.data, previewQuery.data, showContextPicker]);
+
+  // The server's `final` is assembled from the SAVED body; the modal runs the
+  // body the user is editing. Rebuild it from the live body + the server's
+  // tail (rules and ordered locked blocks) so the preview matches the run.
+  const finalPrompt = useMemo(() => {
+    if (!data) return undefined;
+    if (data.source === "override") return data.final;
+    // fall back to stripping the saved body when an older payload has no tail
+    const tail =
+      data.finalTail ??
+      (data.final?.startsWith(data.prompt)
+        ? data.final.slice(data.prompt.length).replace(/^\n\n/, "")
+        : undefined);
+    if (tail == null) return data.final;
+    return [edited.trim(), tail].filter(Boolean).join("\n\n");
+  }, [data, edited]);
 
   // ── rules save (a network mutation): persists the node's config knob so
   //    every later run assembles the same prompt ──────────────────────────
@@ -228,6 +247,7 @@ export function useFlowPrompt({
     setRulesSaved,
     // reads
     data,
+    finalPrompt,
     // the UI's "unsaved" check + reset initialize off the base body
     baseData: baseQuery.data ?? null,
     seedPending: baseQuery.isPending,
