@@ -1,6 +1,6 @@
 import { db } from "../../../db";
 import { localGit } from "../../../git/local";
-import { gitHostRegistry, type ChangeRequest } from "../../ports/git-host";
+import { authedCloneUrlFor, gitHostRegistry, type ChangeRequest } from "../../ports/git-host";
 import { flowCtxHelper, nodeSupport, type FlowCtx } from "../base";
 import { branchStore } from "../build";
 import { NODE_KEYS } from "../keys";
@@ -70,7 +70,7 @@ export class MergeRequestService {
         db.emitEvent(flow.id, null, "lifecycle", `pushing branch ${gitBranch} to origin…`,
           { nodeKey: opts.emitNodeKey });
         try {
-          const how = await localGit.pushBranch(lp, gitBranch, flow.repo_url ?? "");
+          const how = await localGit.pushBranch(lp, gitBranch, flow.repo_url ?? "", authedCloneUrlFor);
           db.emitEvent(flow.id, null, "lifecycle", `branch ${gitBranch} pushed (via ${how === "https" ? "token-authed HTTPS" : "origin remote"})`,
             { nodeKey: opts.emitNodeKey });
         } catch (e: any) {

@@ -5,7 +5,6 @@ import fs from "fs";
 import path from "path";
 import { promisify } from "util";
 import { config } from "../config";
-import { gitHostRegistry } from "../engine/ports/git-host";
 
 const execFileAsync = promisify(execFile);
 
@@ -33,6 +32,12 @@ export interface LocalBranchState {
 }
 
 /**
+ * Resolves the token-authed clone/push URL for a repo. The engine supplies it
+ * (via the git-host registry) so this module stays free of engine imports.
+ */
+export type AuthedUrlResolver = (repoUrl: string) => string;
+
+/**
  * Local git operations: per-flow clones, branch diffs, pushes and worktrees.
  * Prefers the repo's registered local checkout when available, falling back
  * to a per-flow clone under workspaces/.
@@ -49,11 +54,12 @@ export class LocalGit {
     });
   }
 
-  private authedUrl(repoUrl: string): string {
+  private authedUrl(repoUrl: string, resolve?: AuthedUrlResolver): string {
     // the token-embedding scheme (oauth2:<token>@) is the host adapter's —
-    // routing to the right instance lives in the git-host registry
+    // resolved by the engine (git-host registry) and passed in; without a
+    // resolver (or on resolution failure) fall back to the raw repo URL
     try {
-      return gitHostRegistry.forRepo(repoUrl).authedCloneUrl(repoUrl);
+      return resolve ? resolve(repoUrl) : repoUrl;
     } catch {
       return repoUrl;
     }
@@ -64,11 +70,11 @@ export class LocalGit {
   }
 
   /** Clone (or reuse) a repo for a flow and fetch a branch. */
-  async ensureClone(flowId: string, repoUrl: string): Promise<string> {
+  async ensureClone(flowId: string, repoUrl: string, resolveAuthedUrl?: AuthedUrlResolver): Promise<string> {
     const dir = this.cloneDir(flowId);
     fs.mkdirSync(path.dirname(dir), { recursive: true });
     if (!fs.existsSync(path.join(dir, ".git"))) {
-      await this.git(["clone", "--no-checkout", this.authedUrl(repoUrl), dir], {
+      await this.git(["clone", "--no-checkout", this.authedUrl(repoUrl, resolveAuthedUrl), dir], {
         timeout: GIT_FETCH_TIMEOUT_MS * 8,
       });
     }
@@ -76,8 +82,8 @@ export class LocalGit {
     return dir;
   }
 
-  async fetchBranch(flowId: string, repoUrl: string, branch: string): Promise<string> {
-    const dir = await this.ensureClone(flowId, repoUrl);
+  async fetchBranch(flowId: string, repoUrl: string, branch: string, resolveAuthedUrl?: AuthedUrlResolver): Promise<string> {
+    const dir = await this.ensureClone(flowId, repoUrl, resolveAuthedUrl);
     await this.git(["-C", dir, "fetch", "origin", branch], { timeout: GIT_FETCH_TIMEOUT_MS }).catch(() => {});
     return dir;
   }
@@ -92,7 +98,8 @@ export class LocalGit {
     repoUrl: string,
     branch: string,
     baseRef?: string,
-    localPath?: string | null
+    localPath?: string | null,
+    resolveAuthedUrl?: AuthedUrlResolver
   ): Promise<{ files: DiffFile[]; stat: string; raw: string }> {
     let dir: string;
     if (localPath && fs.existsSync(path.join(localPath, ".git"))) {
@@ -100,7 +107,7 @@ export class LocalGit {
       await this.git(["-C", dir, "fetch", "origin", "--prune"], { timeout: GIT_FETCH_TIMEOUT_MS }).catch(() => {});
       await this.git(["-C", dir, "fetch", "origin", branch], { timeout: GIT_FETCH_TIMEOUT_MS }).catch(() => {});
     } else {
-      dir = await this.fetchBranch(flowId, repoUrl, branch);
+      dir = await this.fetchBranch(flowId, repoUrl, branch, resolveAuthedUrl);
     }
     const target = `origin/${branch}`;
     // make sure base exists; fall back to master
@@ -131,7 +138,12 @@ export class LocalGit {
    * credentials — local-mode philosophy), then falls back to the token-authed
    * HTTPS URL, which often works when SSH is blocked. Throws with a clear error.
    */
-  async pushBranch(localPath: string, branch: string, repoUrl?: string): Promise<"origin" | "https"> {
+  async pushBranch(
+    localPath: string,
+    branch: string,
+    repoUrl?: string,
+    resolveAuthedUrl?: AuthedUrlResolver
+  ): Promise<"origin" | "https"> {
     const base = ["-C", localPath];
     const opts = { timeout: GIT_FETCH_TIMEOUT_MS };
     try {
@@ -146,7 +158,7 @@ export class LocalGit {
     // succeeds on the retry
     for (let attempt = 0; attempt < 2; attempt++) {
       try {
-        await this.git([...base, "push", this.authedUrl(repoUrl), `${branch}:${branch}`], opts);
+        await this.git([...base, "push", this.authedUrl(repoUrl, resolveAuthedUrl), `${branch}:${branch}`], opts);
         // keep origin/<branch> in sync for later diffs
         await this.git([...base, "fetch", "origin", branch], opts).catch(() => {});
         return "https";

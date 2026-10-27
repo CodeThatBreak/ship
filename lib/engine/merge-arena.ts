@@ -5,7 +5,7 @@ import { promisify } from "util";
 import { config } from "../config";
 import { db } from "../db";
 import { localGit } from "../git/local";
-import { gitHostRegistry } from "./ports/git-host";
+import { authedCloneUrlFor } from "./ports/git-host";
 import { isHookRejection } from "./nodes/merge-request";
 import type { MergeBackArgs, MergeBackResult } from "./nodes/base/capabilities";
 
@@ -88,11 +88,9 @@ class MergeArena {
   private async ensureWorkspace(parentFlowId: string, repoUrl: string): Promise<string> {
     const dir = path.join(config.workspace.dir(), `${parentFlowId}-arena`);
     fs.mkdirSync(path.dirname(dir), { recursive: true });
-    await localGit.ensureClone(parentFlowId, repoUrl).catch(() => null); // keeps the main flow clone alive for local-mode diffs
+    await localGit.ensureClone(parentFlowId, repoUrl, authedCloneUrlFor).catch(() => null); // keeps the main flow clone alive for local-mode diffs
     if (!fs.existsSync(path.join(dir, ".git"))) {
-      const authed = (() => {
-        try { return gitHostRegistry.forRepo(repoUrl).authedCloneUrl(repoUrl); } catch { return repoUrl; }
-      })();
+      const authed = authedCloneUrlFor(repoUrl);
       await this.git(["clone", "--no-checkout", authed, dir], { timeout: 300_000 });
     }
     await this.git(["-C", dir, "fetch", "origin", "--prune"], { timeout: 30_000 });
