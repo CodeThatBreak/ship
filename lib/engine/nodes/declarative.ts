@@ -1,9 +1,9 @@
 import { db } from "../../db";
-import { NodeDefinition } from "./base";
-import { AgentTemplateNode } from "./agent/agent-node";
-import { DecisionTemplateNode } from "./decision/decision-node";
-import { HttpTemplateNode } from "./http/http-node";
-import { ScriptTemplateNode } from "./script/script-node";
+import { NodeDefinition } from "./shared";
+import { AgentTemplateNode } from "./kinds/agent/agent-node";
+import { DecisionTemplateNode } from "./kinds/decision/decision-node";
+import { HttpTemplateNode } from "./kinds/http/http-node";
+import { ScriptTemplateNode } from "./kinds/script/script-node";
 
 /**
  * Resolves `node_templates` rows of declarative kinds (agent / decision /

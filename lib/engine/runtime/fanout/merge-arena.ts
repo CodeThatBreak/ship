@@ -6,8 +6,8 @@ import { config } from "../../../config";
 import { db } from "../../../db";
 import { localGit } from "../../../git/local";
 import { authedCloneUrlFor } from "../../ports/git-host";
-import { isHookRejection } from "../../nodes/merge-request";
-import type { MergeBackArgs, MergeBackResult } from "../../nodes/base/capabilities";
+import { isHookRejection } from "../../nodes/kinds/merge-request";
+import type { MergeBackArgs, MergeBackResult } from "../../nodes/shared/capabilities";
 
 const execFileAsync = promisify(execFile);
 

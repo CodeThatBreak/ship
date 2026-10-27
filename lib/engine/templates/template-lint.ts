@@ -1,6 +1,6 @@
 import { db } from "../../db";
 import { lintJsonata } from "@/lib/jsonata";
-import { lintStartContract, parseStartContract } from "../nodes/start/contract";
+import { lintStartContract, parseStartContract } from "../nodes/kinds/start/contract";
 import { nodeRegistry } from "../nodes/registry";
 import { fanoutOf } from "./node-config";
 
@@ -55,7 +55,7 @@ function joinProblems(problems: LintProblem[]): string {
 const ROOTS = ["task", "repo", "flow", "trigger", "nodes", "input", "secrets"] as const;
 // plan fan-out step children (Phase 1): {{plan}}, {{step.*}} and {{siblings}}
 // resolve in fan-out step child flows (the {plan, step, siblings} trigger
-// payload aliases — see flow-context.ts). They free-pass here like the other
+// payload aliases — see run-context.ts). They free-pass here like the other
 // late-bound roots; outside a step child they render empty strings.
 const FANOUT_ROOTS = new Set(["plan", "step", "siblings"]);
 

@@ -54,7 +54,7 @@ for (const file of ["worktrees.ts", "dep-policy.ts", "worktree-setup.ts"]) {
 // The runner is the ONE place every unpinned mutating agent run passes through;
 // these textual assertions tripwire against the wiring being dropped later.
 {
-  const runnerSrc = fs.readFileSync(new URL("../lib/engine/nodes/base/agent-runner.ts", import.meta.url), "utf8");
+  const runnerSrc = fs.readFileSync(new URL("../lib/engine/nodes/shared/agent-runner.ts", import.meta.url), "utf8");
   assert.ok(
     runnerSrc.includes("worktreeManager.ensureForRun("),
     "agent-runner.ts must call worktreeManager.ensureForRun — the runner-side ensure chokepoint was unwired"
@@ -73,7 +73,7 @@ for (const file of ["worktrees.ts", "dep-policy.ts", "worktree-setup.ts"]) {
     "the local branch must assign spec.cwd = input.cwd ?? ensured.cwd (the node pin wins, else the ensured worktree)"
   );
   // script-only flows are first-class: cwd:"workspace" curls through the same ensure
-  const scriptSrc = fs.readFileSync(new URL("../lib/engine/nodes/script/script-node.ts", import.meta.url), "utf8");
+  const scriptSrc = fs.readFileSync(new URL("../lib/engine/nodes/kinds/script/script-node.ts", import.meta.url), "utf8");
   assert.ok(
     scriptSrc.includes("worktreeManager.ensureFlowWorktree("),
     'script-node.ts must route cwd:"workspace" through worktreeManager.ensureFlowWorktree'
@@ -535,7 +535,7 @@ async function runnerEnsureSmoke() {
   const { db } = await import("../lib/db");
   const { worktreeManager } = await import("../lib/engine/runtime/worktree-lifecycle");
   const { FlowRow, Task, rows } = await import("../lib/db/rows");
-  const { flowCtxHelper } = await import("../lib/engine/nodes/base/flow-context");
+  const { flowCtxHelper } = await import("../lib/engine/nodes/shared/run-context");
 
   // the task + repo rows are seeded by lifecycleSmoke ("t1" on "repo_1")
   const task = rows.get(Task, `SELECT * FROM tasks WHERE id=?`, "t1")!;

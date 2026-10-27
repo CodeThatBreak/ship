@@ -3,8 +3,8 @@
  * mergeBranchRefine (id preservation, in-place splicing, branch record update)
  * + validateSubPlan. Run: node --experimental-strip-types scripts/check-branch-refine.ts
  */
-import { mergeBranchRefine, diffBranchSteps } from "../lib/engine/nodes/plan/plan-node";
-import { validateSubPlan } from "../lib/engine/nodes/plan/schema";
+import { mergeBranchRefine, diffBranchSteps } from "../lib/engine/nodes/kinds/plan/plan-node";
+import { validateSubPlan } from "../lib/engine/nodes/kinds/plan/schema";
 
 // ── fixture: meta with two branches interleaved ─────────────────────────────
 const meta = {

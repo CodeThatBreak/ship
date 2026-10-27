@@ -1,7 +1,7 @@
 /**
  * Client-safe node capability types.
  *
- * Type-only re-exports from `@/lib/engine/nodes/base/capabilities` (erased by
+ * Type-only re-exports from `@/lib/engine/nodes/shared/capabilities` (erased by
  * the bundler, see the Phase 0 baseline). Client components import from here
  * instead of reaching into lib/engine.
  *
@@ -14,4 +14,4 @@
 export type {
   NodeCapabilities,
   NodeUiCapabilities,
-} from "@/lib/engine/nodes/base/capabilities";
+} from "@/lib/engine/nodes/shared/capabilities";

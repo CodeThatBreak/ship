@@ -7,8 +7,8 @@ import { instantiateDeclarative, type DeclarativeRow } from "../../../lib/engine
 import {
   parseStartContract,
   startContractJsonSchema,
-} from "../../../lib/engine/nodes/start/contract";
-import type { NodeCapabilities } from "../../../lib/engine/nodes/base/capabilities";
+} from "../../../lib/engine/nodes/kinds/start/contract";
+import type { NodeCapabilities } from "../../../lib/engine/nodes/shared/capabilities";
 
 export const dynamic = "force-dynamic";
 

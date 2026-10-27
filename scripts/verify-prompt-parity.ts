@@ -36,13 +36,13 @@ import "./parity-env";
 import { db } from "../lib/db";
 import { agentPortRegistry, type AgentPort, type AgentStarted, type AgentStartSpec, type AgentStreamOutcome } from "../lib/engine/ports/agent-runner";
 import { gitHostRegistry, type ChangeRequest, type GitHostService } from "../lib/engine/ports/git-host";
-import { usageTracker, type RunCostSummary } from "../lib/engine/nodes/base/usage-tracker";
-import type { NodeDefinition } from "../lib/engine/nodes/base";
-import { nodeRoles } from "../lib/engine/nodes/base/node-roles";
+import { usageTracker, type RunCostSummary } from "../lib/engine/nodes/shared/usage-tracker";
+import type { NodeDefinition } from "../lib/engine/nodes/shared";
+import { nodeRoles } from "../lib/engine/nodes/shared/node-roles";
 import { FlowRow, Task, NodeRow, rows } from "../lib/db/rows";
 import { nodeRegistry } from "../lib/engine/nodes/registry";
 import { promptPreview } from "../lib/engine/prompts/prompt-preview";
-import { NODE_KEYS } from "../lib/engine/nodes/keys";
+import { NODE_KEYS } from "../lib/engine/constants/node-keys";
 
 // ── runtime stubs ─────────────────────────────────────────────────────────────
 const capturedSpecs: string[] = [];

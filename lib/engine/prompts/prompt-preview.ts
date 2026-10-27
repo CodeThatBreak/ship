@@ -2,12 +2,12 @@ import "server-only";
 
 import { db } from "../../db";
 import { FlowRow, Task, rows, NodeRow } from "../../db/rows";
-import { PROMPT_SOURCES } from "../nodes/base";
-import type { FlowCtx, NodeDefinition, NodePromptPreview, PromptPreviewParams, PromptSource } from "../nodes/base";
-import { nodeRoles } from "../nodes/base/node-roles";
-import { NODE_KEYS } from "../nodes/keys";
+import { PROMPT_SOURCES } from "../nodes/shared";
+import type { FlowCtx, NodeDefinition, NodePromptPreview, PromptPreviewParams, PromptSource } from "../nodes/shared";
+import { nodeRoles } from "../nodes/shared/node-roles";
+import { NODE_KEYS } from "../constants/node-keys";
 import { nodeRegistry } from "../nodes/registry";
-import type { ContextBlockInfo } from "../nodes/plan/plan-node";
+import type { ContextBlockInfo } from "../nodes/kinds/plan/plan-node";
 import { prompts, sectionsOf, type PromptSections } from "./prompt-library";
 import { templateStore } from "../templates/template-store";
 

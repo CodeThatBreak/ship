@@ -158,20 +158,20 @@ const eslintConfig = [
     },
   },
 
-  // Node implementations go through NodeSupport (lib/engine/nodes/base) —
+  // Node implementations go through NodeSupport (lib/engine/nodes/shared) —
   // the seam that owns every node/artifact/run/event write (T1). Def files
   // never import the db module directly. Exempted: the base/seam sidecars
-  // themselves (base/** — NodeSupport, AgentRunner…), the declarative
+  // themselves (shared/** — NodeSupport, AgentRunner…), the declarative
   // instantiation factory, the collision-free branch-store and
   // merge-request services, and tests (they isolate the DB singleton).
   {
     files: ["lib/engine/nodes/**/*.ts"],
     ignores: [
-      "lib/engine/nodes/base/**",
+      "lib/engine/nodes/shared/**",
       "lib/engine/nodes/declarative.ts",
-      "lib/engine/nodes/build/branch-store.ts",
-      "lib/engine/nodes/sdlc/chain.ts",
-      "lib/engine/nodes/merge-request/**",
+      "lib/engine/nodes/kinds/build/branch-store.ts",
+      "lib/engine/nodes/chains/sdlc-chain.ts",
+      "lib/engine/nodes/kinds/merge-request/**",
       "**/*.test.ts",
     ],
     rules: {
@@ -184,7 +184,7 @@ const eslintConfig = [
             {
               regex: "^(\\.\\./)+db$",
               message:
-                "Node implementations go through NodeSupport (this.support) — every node/artifact/run/event write has a named method there. Import db only from the seam (base/node-support.ts).",
+                "Node implementations go through NodeSupport (this.support) — every node/artifact/run/event write has a named method there. Import db only from the seam (shared/node-support.ts).",
             },
           ],
         },

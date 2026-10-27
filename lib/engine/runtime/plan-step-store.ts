@@ -1,7 +1,7 @@
 import "server-only";
 
 import { db } from "../../db";
-import { NODE_KEYS } from "../nodes/keys";
+import { NODE_KEYS } from "../constants/node-keys";
 
 // ── Structured plan steps ────────────────────────────────────────────────────
 // The live, editable checklist behind the Plan view. Agent-emitted steps are

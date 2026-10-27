@@ -15,27 +15,28 @@ import { parseDeclarativeConfig } from "../nodes/declarative-schemas";
 import { catalogForNodeTemplateIds, lintTemplate, type TaskUniverse } from "./template-lint";
 import { hookStore } from "../runtime/hook-store";
 import { taskRegistry } from "../tasks/registry";
+import {
+  FLOW_TRIGGER_TYPES,
+  NO_TASK_TYPE,
+  NODE_TRIGGER_TYPES,
+  WAIT_FOR_SOURCES,
+} from "../constants/triggers";
 
 /** Seeded built-in template — the SDLC loop (plan → build → pipeline → review → resolve). */
 export const SDLC_TEMPLATE_ID = "tpl_sdlc_loop";
 
-/** Flow-level trigger types (webhook startups are always available — the
- *  inbound hook is provisioned for every template; the declared trigger only
- *  selects manual/schedule behavior). */
-export const FLOW_TRIGGER_TYPES = ["manual", "schedule"] as const;
+/** Trigger vocabularies live in `constants/triggers.ts`; re-exported here so
+ *  the TemplateStore module's public surface is unchanged. */
+export {
+  FLOW_TRIGGER_TYPES,
+  NO_TASK_TYPE,
+  NODE_TRIGGER_TYPES,
+  WAIT_FOR_SOURCES,
+} from "../constants/triggers";
 /** Task types a template's trigger may declare — the registered provider kinds
  *  (docs/tasks-plan.md §2). A template declares WHICH task type its flows run
  *  on (trigger.task_type); flows receive the concrete task at start time. */
 export const TASK_TRIGGER_TYPES = taskRegistry.list().map((p) => p.kind) as string[];
-/** The task type assumed when a template's trigger declares none — the first
- *  registered provider kind ("none" when nothing registers). */
-export const NO_TASK_TYPE = "none";
-/** Per-node trigger types (debounced + wait_for wiring is engine-supported). */
-export const NODE_TRIGGER_TYPES = ["auto", "manual", "approval", "debounced"] as const;
-/** wait_for event sources supported by the engine, host-neutral: "pipeline"
- * (the CI gate) and "comments" are the built-in gate + comment waits; webhook +
- * timer resume via the generic hook route / poller timers (Phase 4B). */
-export const WAIT_FOR_SOURCES = ["pipeline", "comments", "webhook", "timer"] as const;
 
 const KINDED_NODE_TEMPLATE_KINDS = ["agent", "http", "script", "decision"] as const;
 export type DeclarativeNodeKind = (typeof KINDED_NODE_TEMPLATE_KINDS)[number];

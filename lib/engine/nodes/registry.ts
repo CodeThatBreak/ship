@@ -1,12 +1,12 @@
-import type { NodeDefinition } from "./base";
-import { PlanNode } from "./plan";
-import { BuildNode } from "./build";
-import { StepBuildNode } from "./build/step-build-node";
-import { PipelineNode } from "./pipeline";
-import { ReviewNode } from "./review";
-import { ResolveNode } from "./resolve";
+import type { NodeDefinition } from "./shared";
+import { PlanNode } from "./kinds/plan";
+import { BuildNode } from "./kinds/build";
+import { StepBuildNode } from "./kinds/build/step-build-node";
+import { PipelineNode } from "./kinds/pipeline";
+import { ReviewNode } from "./kinds/review";
+import { ResolveNode } from "./kinds/resolve";
 import { declarativeDef } from "./declarative";
-import { StartNode } from "./start";
+import { StartNode } from "./kinds/start";
 
 /**
  * The registry-level def shape: generics erased *honestly* (unknown /

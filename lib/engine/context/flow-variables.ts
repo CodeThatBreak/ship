@@ -1,6 +1,6 @@
 import "server-only";
 
-import type { FlowCtx } from "../nodes/base";
+import type { FlowCtx } from "../nodes/shared";
 import { db } from "../../db";
 
 /**

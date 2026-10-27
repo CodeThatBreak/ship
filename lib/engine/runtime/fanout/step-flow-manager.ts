@@ -2,17 +2,17 @@ import { db } from "../../../db";
 import type { FlowRow } from "../../../db/rows";
 import { templateStore, type TemplateGraph } from "../../templates/template-store";
 import { nodeRegistry } from "../../nodes/registry";
-import { NODE_KEYS } from "../../nodes/keys";
-import type { ChainRole, NodeDefinition } from "../../nodes/base";
+import { NODE_KEYS } from "../../constants/node-keys";
+import type { ChainRole, NodeDefinition } from "../../nodes/shared";
 import {
   DEFAULT_FANOUT_OUTPUT,
   type NodeCapabilities,
-} from "../../nodes/base/capabilities";
-import { parseStartContract, validateAgainstContract } from "../../nodes/start/contract";
+} from "../../nodes/shared/capabilities";
+import { parseStartContract, validateAgainstContract } from "../../nodes/kinds/start/contract";
 import { prompts } from "../../prompts/prompt-library";
-import { branchStore } from "../../nodes/build/branch-store";
-import { flowCtxHelper, type FlowCtx } from "../../nodes/base/flow-context";
-import { nodeSupport } from "../../nodes/base/node-support";
+import { branchStore } from "../../nodes/kinds/build/branch-store";
+import { flowCtxHelper, type FlowCtx } from "../../nodes/shared/run-context";
+import { nodeSupport } from "../../nodes/shared/node-support";
 import { planSteps, type PlanStepRow } from "../plan-step-store";
 import { configNumber, configString, fanoutOf, parseConfigSnapshot, stripFanoutKeys, type FanoutKnob } from "../../templates/node-config";
 import { mergeArena } from "./merge-arena";
@@ -125,7 +125,7 @@ export interface StepState {
 }
 
 /** The seeded child template id for build fan-out. */
-export { STEP_BUILD_TEMPLATE_ID } from "../../nodes/keys";
+export { STEP_BUILD_TEMPLATE_ID } from "../../constants/node-keys";
 
 export class StepFlowManager {
   /** Engine surface the manager drives (bound once by flow.ts at module load). */

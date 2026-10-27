@@ -15,7 +15,7 @@ import {
 } from "../../git/worktrees";
 import { depPolicies, type RepoDepOverrides } from "../../git/dep-policy";
 import { worktreeSetup } from "../../git/worktree-setup";
-import type { FlowCtx } from "../nodes/base/flow-context";
+import type { FlowCtx } from "../nodes/shared/run-context";
 
 /**
  * A crash-safe removal record, persisted BEFORE any git command runs: git

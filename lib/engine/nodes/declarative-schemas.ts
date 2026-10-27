@@ -1,5 +1,10 @@
 import { z } from "zod";
 import { mcpSourcesSchema } from "../templates/node-config";
+import { DECISION_SOURCES, HTTP_METHODS, SCRIPT_RUNTIMES } from "../constants/declarative";
+
+/** Closed value sets live in `constants/declarative.ts`; re-exported here so
+ *  this module's public surface is unchanged. */
+export { DECISION_SOURCES, HTTP_METHODS, SCRIPT_RUNTIMES } from "../constants/declarative";
 
 /**
  * The declarative node definitions stored on `node_templates.config` (§4.3–4.5).
@@ -29,8 +34,6 @@ export const AgentDefSchema = z.looseObject({
   output_schema: z.unknown().optional().default(null),
 });
 export type AgentDef = z.infer<typeof AgentDefSchema>;
-
-export const DECISION_SOURCES = ["expression", "manual", "agent"] as const;
 
 export const DecisionDefSchema = z.object({
   source: z.enum(DECISION_SOURCES).default("manual"),
@@ -62,8 +65,6 @@ export const DecisionDefSchema = z.object({
 });
 export type DecisionDef = z.infer<typeof DecisionDefSchema>;
 
-export const HTTP_METHODS = ["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD"] as const;
-
 export const HttpDefSchema = z.object({
   /** target URL — {{vars}} and {{secrets.NAME}} allowed, interpolated at run time */
   url: z.string().default(""),
@@ -76,8 +77,6 @@ export const HttpDefSchema = z.object({
   response_map: z.string().nullable().default(null),
 });
 export type HttpDef = z.infer<typeof HttpDefSchema>;
-
-export const SCRIPT_RUNTIMES = ["shell", "node", "python"] as const;
 
 export const ScriptDefSchema = z.looseObject({
   runtime: z.enum(SCRIPT_RUNTIMES).default("shell"),

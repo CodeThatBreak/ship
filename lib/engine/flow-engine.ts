@@ -11,21 +11,21 @@ import {
 } from "../db/rows";
 import { agentPortRegistry, type AgentRunResult } from "./ports/agent-runner";
 import { hostOf, type HostComment } from "./ports/git-host";
-import { nodeSupport, type ChainRole, type FlowCtx } from "./nodes/base";
-import { CHAT_DECLINED, nodeRoles } from "./nodes/base/node-roles";
-import { uncachedInputTokens } from "./nodes/base/usage-tracker";
+import { nodeSupport, type ChainRole, type FlowCtx } from "./nodes/shared";
+import { CHAT_DECLINED, nodeRoles } from "./nodes/shared/node-roles";
+import { uncachedInputTokens } from "./nodes/shared/usage-tracker";
 import { nodeRegistry } from "./nodes/registry";
-import { NODE_KEYS } from "./nodes/keys";
+import { NODE_KEYS } from "./constants/node-keys";
 import { declarativeDef } from "./nodes/declarative";
 import { planSteps, type PlanStepInput } from "./runtime/plan-step-store";
 import { NO_TASK_TYPE, SDLC_TEMPLATE_ID, templateStore, type TemplateGraph, type TemplateEdgeSpec } from "./templates/template-store";
 import { appLayerConfig, configNumber, mergeConfigLayers, parseConfigSnapshot } from "./templates/node-config";
-import { createSdlcChain } from "./nodes/sdlc/chain";
+import { createSdlcChain } from "./nodes/chains/sdlc-chain";
 import { buildFlowContext, type FlowContextMap } from "./context/flow-variables";
 import { evalJsonata, jsonataTruthy } from "@/lib/jsonata";
 import { hookStore } from "./runtime/hook-store";
-import { parseStartContract, validateAgainstContract } from "./nodes/start/contract";
-import { DEFAULT_FANOUT_OUTPUT, uiCapabilities, type NodeCapabilities } from "./nodes/base/capabilities";
+import { parseStartContract, validateAgainstContract } from "./nodes/kinds/start/contract";
+import { DEFAULT_FANOUT_OUTPUT, uiCapabilities, type NodeCapabilities } from "./nodes/shared/capabilities";
 import { stepFlows, StepFlowManager, type StepChildPayload } from "./runtime/fanout/step-flow-manager";
 import { worktreeManager } from "./runtime/worktree-lifecycle";
 import { processSingleton } from "../singleton";
@@ -80,7 +80,7 @@ const FLOW_CHILD_TABLES = [
  * the template's edges (join all/any, decision labels, JSONata conditions, real
  * re-entry loops) and starts satisfying targets per their trigger type;
  * debounced targets hold at `waiting` until their event source's quiet period
- * elapses. The built-in SDLC flow actions live in the `sdlc/chain.ts`
+ * elapses. The built-in SDLC flow actions live in the `chains/sdlc-chain.ts`
  * builtin-chain module (pristine plan §2.1–2.2).
  */
 export class FlowEngine {
@@ -603,7 +603,7 @@ export class FlowEngine {
   }
 
   /** The ChainHost port the SDLC builtin-chain module drives (see
-   *  nodes/sdlc/chain.ts) — a deliberate narrow boundary, not a public API. */
+   *  nodes/chains/sdlc-chain.ts) — a deliberate narrow boundary, not a public API. */
   flowNodeConfig(flowId: string, nodeKey: string): Record<string, unknown> {
     return parseConfigSnapshot(db.get<{ config: string | null }>(
       `SELECT config FROM nodes WHERE flow_id=? AND node_key=?`, flowId, nodeKey)?.config ?? null);
@@ -611,7 +611,7 @@ export class FlowEngine {
 
   /** Full config layer stack for a node instance: class ← app ← flow snapshot.
    *  The ChainHost port the SDLC builtin-chain module drives (see
-   *  nodes/sdlc/chain.ts). */
+   *  nodes/chains/sdlc-chain.ts). */
   nodeConfigFor(flowId: string, nodeKey: string): Record<string, unknown> {
     const def = this.defOf(flowId, nodeKey);
     return mergeConfigLayers(def.defaultConfig(), appLayerConfig(def.key), this.flowNodeConfig(flowId, nodeKey));
@@ -780,7 +780,7 @@ export class FlowEngine {
    * source — the pipeline kind declares `waitForKind`, §T3/F1), and the
    * post-gate chain [gate, …] from the template graph.
    * The ChainHost port the SDLC builtin-chain module drives (see
-   * nodes/sdlc/chain.ts) — a deliberate narrow boundary.
+   * nodes/chains/sdlc-chain.ts) — a deliberate narrow boundary.
    */
   gateKey(flowId: string): string | null {
     const source = nodeRegistry.all().find((d) => d.waitForKind);
