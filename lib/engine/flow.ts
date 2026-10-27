@@ -22,7 +22,7 @@ import { NO_TASK_TYPE, SDLC_TEMPLATE_ID, templateStore, type TemplateGraph, type
 import { appLayerConfig, configNumber, mergeConfigLayers, parseConfigSnapshot } from "./node-config";
 import { createSdlcChain } from "./nodes/sdlc/chain";
 import { buildFlowContext, type FlowContextMap } from "./flow-context";
-import { evalJsonata, jsonataTruthy } from "./jsonata-eval";
+import { evalJsonata, jsonataTruthy } from "@/lib/jsonata";
 import { hookStore } from "./hooks";
 import { parseStartContract, validateAgainstContract } from "./nodes/start/contract";
 import { DEFAULT_FANOUT_OUTPUT, uiCapabilities, type NodeCapabilities } from "./nodes/base/capabilities";

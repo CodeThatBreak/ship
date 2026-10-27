@@ -17,7 +17,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "../../ui/select";
-import { lintJsonata } from "./jsonata-eval";
+import { lintJsonata } from "@/lib/jsonata";
 import { compileCondition } from "../condition-grammar";
 import { jsonataPathOptions, type VarGroup } from "../variables";
 import { COMBINATOR_LABELS, PATH_FIELD_PLACEHOLDER } from "./constants";

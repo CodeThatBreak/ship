@@ -95,6 +95,8 @@ const eslintConfig = [
   // - lib/format (run/tool meta formatters — no server deps; grep-verified)
   // - lib/usage (token-usage semantics — deliberately dependency-free)
   // - lib/groupEvents (activity-feed grouping — client-side by design)
+  // - lib/jsonata (pure JSONata evaluator — no store/engine/server imports;
+  //   used by both the engine runtime and the template editor's compile checks)
   // The lib patterns match both "@/" alias specifiers and relative
   // ("../lib/…") specifiers at any depth. engine/ modules are NOT allowlisted
   // — their client-needed pieces live in types/ and feature-local modules
@@ -122,9 +124,10 @@ const eslintConfig = [
                 "!**/lib/format",
                 "!**/lib/usage",
                 "!**/lib/groupEvents",
+                "!**/lib/jsonata",
               ],
               message:
-                "lib/ is server-only. Only lib/utils, lib/modelSpec, lib/format, lib/usage and lib/groupEvents (all pure) may be imported by client code; fetch data through API routes and move shared client types to types/.",
+                "lib/ is server-only. Only lib/utils, lib/modelSpec, lib/format, lib/usage, lib/groupEvents and lib/jsonata (all pure) may be imported by client code; fetch data through API routes and move shared client types to types/.",
             },
             // Single-file features with an index barrel
             {

@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { hookStore } from "../../../../lib/engine/hooks";
 import { flowEngine } from "../../../../lib/engine/flow";
 import { flowPoller } from "../../../../lib/engine/poller";
-import { evalJsonata, jsonataTruthy } from "../../../../lib/engine/jsonata-eval";
+import { evalJsonata, jsonataTruthy } from "@/lib/jsonata";
 
 export const dynamic = "force-dynamic";
 

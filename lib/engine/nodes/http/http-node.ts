@@ -5,7 +5,7 @@ import { NodeDefinition, type FlowCtx, type RunOutcome } from "../base";
 import { templateStore } from "../../templates";
 import { buildFlowContext } from "../../flow-context";
 import { renderAgentPrompt } from "../agent/agent-node";
-import { evalJsonata } from "../../jsonata-eval";
+import { evalJsonata } from "@/lib/jsonata";
 import { HttpDefSchema, type HttpDef } from "../declarative-schemas";
 import { getSecrets, redactSecrets, httpAllowlist } from "../../secrets";
 import { guardedRequest } from "../../../net/ssrf-guard";

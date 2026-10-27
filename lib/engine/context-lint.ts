@@ -1,5 +1,5 @@
 import { db } from "../db";
-import { lintJsonata } from "./jsonata-eval";
+import { lintJsonata } from "@/lib/jsonata";
 import { lintStartContract, parseStartContract } from "./nodes/start/contract";
 import { nodeRegistry } from "./nodes/registry";
 import { fanoutOf } from "./node-config";

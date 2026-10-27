@@ -4,7 +4,7 @@ import type { AgentRunResult } from "../../ports/agent-runner";
 import { AgentRunNode, type FlowCtx, type RunOutcome } from "../base";
 import { templateStore } from "../../templates";
 import { buildFlowContext } from "../../flow-context";
-import { evalJsonata } from "../../jsonata-eval";
+import { evalJsonata } from "@/lib/jsonata";
 import { mcpSourceConfigFields } from "../../node-config";
 import { DecisionDefSchema, type DecisionDef } from "../declarative-schemas";
 import { extractJson } from "../agent/json-schema-lite";

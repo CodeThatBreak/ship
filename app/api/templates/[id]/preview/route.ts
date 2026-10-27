@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { db } from "../../../../../lib/db";
 import { flowEngine } from "../../../../../lib/engine/flow";
 import { buildFlowContext, type FlowContextMap } from "../../../../../lib/engine/flow-context";
-import { evalJsonata } from "../../../../../lib/engine/jsonata-eval";
+import { evalJsonata } from "@/lib/jsonata";
 import { outputFieldsFor } from "../../../../../lib/engine/context-lint";
 import { parseStartContract } from "../../../../../lib/engine/nodes/start/contract";
 import { nodeRegistry } from "../../../../../lib/engine/nodes/registry";

@@ -10,9 +10,8 @@ import jsonata from "jsonata";
  *
  * Pure evaluator — no store / engine imports — so it serves both the engine
  * runtime and the template editor's client-side compile checks without
- * dragging server code into the browser bundle. `lib/engine/jsonata-eval.ts`
- * re-exports this module (single server import path); see the baseline's
- * conflict notes (docs/phase0-baseline.md).
+ * dragging server code into the browser bundle. Engine code imports this
+ * module via `@/lib/jsonata` (single shared import path).
  */
 
 type CompiledOk = { ast: jsonata.Expression };

@@ -6,7 +6,7 @@
  */
 import { useMemo, useRef, useState } from "react";
 import { Textarea } from "../../ui/textarea";
-import { lintJsonata } from "./jsonata-eval";
+import { lintJsonata } from "@/lib/jsonata";
 import {
   jsonataPathOptions,
   type VarGroup,
