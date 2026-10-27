@@ -1,5 +1,4 @@
 import { z } from "zod";
-import { db } from "../../../db";
 import type { NodeRow } from "../../../db/rows";
 import type { AgentRunResult } from "../../ports/agent-runner";
 import { NodeDefinition, type FlowCtx, type PromptSource, type RunOutcome } from "../base";
@@ -232,21 +231,13 @@ export class AgentTemplateNode extends NodeDefinition<Record<string, unknown>, R
     }).then((o) => o.reply);
   }
 
-  /** Restart recovery: re-apply the same output contract to a finished run. */
+  /** Restart recovery: re-apply the same output contract through the shared
+   * persistence path (applyOutcome) — a recovered finish persists the same
+   * node/artifact rows as a normal finish, with the note on the event. */
   async recover(ctx: FlowCtx, node: NodeRow, result: AgentRunResult, note: string): Promise<boolean> {
     if (result.status !== "finished") return false;
-    const cfg = this.runConfig(this.nodeConfig(ctx));
-    const outcome = this.applyOutput(ctx, result.result ?? "", cfg);
-    const output = this.outputSchema.parse(outcome.output);
-    this.support.setNode(node.id, {
-      status: outcome.status,
-      agent_id: this.support.lastAgentId(node.id),
-      output: JSON.stringify(output),
-    });
-    if (outcome.artifact) {
-      this.support.saveArtifact(node.id, ctx.flow.id, outcome.artifact.kind, outcome.artifact.content, outcome.artifact.meta);
-    }
-    db.emitEvent(ctx.flow.id, node.id, "lifecycle", `${outcome.event} (${note})`);
+    const outcome = this.applyOutput(ctx, result.result ?? "", this.runConfig(this.nodeConfig(ctx)));
+    this.applyOutcome(ctx, outcome, { note });
     return true;
   }
 

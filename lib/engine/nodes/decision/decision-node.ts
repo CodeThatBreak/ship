@@ -247,7 +247,9 @@ export class DecisionTemplateNode extends NodeDefinition<Record<string, unknown>
     });
   }
 
-  /** Restart recovery: re-apply the same result through the same contract. */
+  /** Restart recovery: re-apply the same result through the shared
+   * persistence path (applyOutcome) — byte-identical rows to a normal finish,
+   * with the note on the event. */
   override async recover(ctx: FlowCtx, node: NodeRow, result: AgentRunResult, note: string): Promise<boolean> {
     if (result.status !== "finished") return false; // fail it — decision runs are re-runnable
     const cfg = this.runConfig(this.nodeConfig(ctx));
@@ -260,12 +262,7 @@ export class DecisionTemplateNode extends NodeDefinition<Record<string, unknown>
     } else {
       return false; // expression decisions run inline — nothing to recover from
     }
-    const output = this.outputSchema.parse(outcome.output);
-    this.support.setNode(node.id, {
-      status: outcome.status,
-      output: JSON.stringify(output),
-    });
-    db.emitEvent(ctx.flow.id, node.id, "lifecycle", `${outcome.event} (${note})`);
+    this.applyOutcome(ctx, outcome, { note });
     return true;
   }
 

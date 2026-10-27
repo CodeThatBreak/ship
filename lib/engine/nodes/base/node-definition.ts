@@ -285,17 +285,7 @@ export abstract class NodeDefinition<I = unknown, O extends Record<string, unkno
       this.runner.startAgent(ctx, { ...opts.agent, prompt: opts.prompt, nodeId: node.id });
     const result = await this.runner.executeRun(ctx, node.id, start, opts.label);
     const outcome = await opts.finalize(result);
-    if (outcome.artifact) {
-      this.support.saveArtifact(node.id, ctx.flow.id, outcome.artifact.kind, outcome.artifact.content, outcome.artifact.meta);
-    }
-    const validatedOutput = this.outputSchema.parse(outcome.output);
-    this.support.setNode(node.id, {
-      status: outcome.status,
-      agent_id: this.support.lastAgentId(node.id),
-      output: JSON.stringify(validatedOutput),
-    });
-    db.emitEvent(ctx.flow.id, node.id, "lifecycle", outcome.event, outcome.eventData);
-    return { ...outcome, output: validatedOutput as Record<string, unknown> };
+    return this.applyOutcome(ctx, outcome);
   }
 
   /**
@@ -339,13 +329,18 @@ export abstract class NodeDefinition<I = unknown, O extends Record<string, unkno
   }
 
   /**
-   * Apply a run outcome the same way `execute()`'s tail does — artifact,
-   * validated output, status, lifecycle event. Nodes whose run() produces an
-   * outcome without an agent run (decision manual/expression picks, http
-   * calls, script runs) call this so every node kind finishes through the
-   * one persistence path.
+   * THE one persistence path for a finished run: artifact, validated output,
+   * final status + agent cursor, lifecycle event. Three callers finish through
+   * this door so a node kind can never drift between them (§F8):
+   *   - execute()'s tail (a normal in-process run),
+   *   - no-run outcomes (decision manual/expression picks, http calls, script
+   *     runs — they call this directly),
+   *   - restart recover() impls (via the optional `note`, appended to the
+   *     event so the trail explains the recovery).
+   * A recovered finish therefore persists byte-identical node/artifact rows
+   * to a normal finish — only the event message carries the recovery note.
    */
-  protected applyOutcome(ctx: FlowCtx, outcome: RunOutcome): RunOutcome {
+  protected applyOutcome(ctx: FlowCtx, outcome: RunOutcome, opts?: { note?: string }): RunOutcome {
     const node = this.node(ctx);
     if (outcome.artifact) {
       this.support.saveArtifact(node.id, ctx.flow.id, outcome.artifact.kind, outcome.artifact.content, outcome.artifact.meta);
@@ -353,9 +348,16 @@ export abstract class NodeDefinition<I = unknown, O extends Record<string, unkno
     const validatedOutput = this.outputSchema.parse(outcome.output);
     this.support.setNode(node.id, {
       status: outcome.status,
+      agent_id: this.support.lastAgentId(node.id),
       output: JSON.stringify(validatedOutput),
     });
-    db.emitEvent(ctx.flow.id, node.id, "lifecycle", outcome.event, outcome.eventData);
+    db.emitEvent(
+      ctx.flow.id,
+      node.id,
+      "lifecycle",
+      opts?.note ? `${outcome.event} (${opts.note})` : outcome.event,
+      outcome.eventData,
+    );
     return { ...outcome, output: validatedOutput as Record<string, unknown> };
   }
 
