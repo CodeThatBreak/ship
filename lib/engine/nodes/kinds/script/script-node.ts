@@ -3,7 +3,7 @@ import os from "node:os";
 import path from "node:path";
 import { z } from "zod";
 import type { NodeRow } from "../../../../db/rows";
-import type { AgentRunResult } from "../../../ports/agent-runner";
+import type { AgentRunResult } from "../../../ports/agent-port";
 import { NodeDefinition, type FlowCtx, type RunOutcome } from "../../shared";
 import { templateStore } from "../../../templates/template-store";
 import { ScriptDefSchema, type ScriptDef } from "../../declarative-schemas";

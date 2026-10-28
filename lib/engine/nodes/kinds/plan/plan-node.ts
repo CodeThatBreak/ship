@@ -1,5 +1,5 @@
 import { z } from "zod";
-import type { AgentRunResult } from "../../../ports/agent-runner";
+import type { AgentRunResult } from "../../../ports/agent-port";
 import { PlanStepRow, rows, type NodeRow } from "../../../../db/rows";
 import { prompts, sectionsOf, type PromptSections as PromptSectionsLike } from "../../../prompts/prompt-library";
 import { planSteps } from "../../../runtime/plan-step-store";

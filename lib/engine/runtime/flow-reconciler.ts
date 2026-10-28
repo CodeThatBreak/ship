@@ -1,6 +1,6 @@
 import { db } from "../../db";
 import { FlowRow, NodeRow, RunRow, rows } from "../../db/rows";
-import { agentPortRegistry } from "../ports/agent-runner";
+import { agentPortRegistry } from "../ports/agent-port";
 import { flowCtxHelper, nodeSupport, type FlowCtx } from "../nodes/shared";
 import { usageTracker } from "../nodes/shared/usage-tracker";
 import { flowEngine } from "../flow-engine";

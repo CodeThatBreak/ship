@@ -2,7 +2,7 @@ import { localGit } from "../../../../git/local";
 import type { FlowCtx } from "../../shared";
 import { flowCtxHelper, type FlowContextHelper } from "../../shared/run-context";
 import { nodeSupport, type NodeSupport } from "../../shared/node-support";
-import type { AgentRunResult } from "../../../ports/agent-runner";
+import type { AgentRunResult } from "../../../ports/agent-port";
 import { configString } from "../../../templates/node-config";
 import { worktreeManager } from "../../../runtime/worktree-lifecycle";
 

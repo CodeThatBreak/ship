@@ -9,7 +9,7 @@ import {
   Task,
   rows,
 } from "../db/rows";
-import { agentPortRegistry, type AgentRunResult } from "./ports/agent-runner";
+import { agentPortRegistry, type AgentRunResult } from "./ports/agent-port";
 import { hostOf, type HostComment } from "./ports/git-host";
 import { nodeSupport, type ChainRole, type FlowCtx } from "./nodes/shared";
 import { CHAT_DECLINED, nodeRoles } from "./nodes/shared/node-roles";
@@ -1851,6 +1851,7 @@ export class FlowEngine {
 export const flowEngine = processSingleton("flowEngine", () => new FlowEngine());
 
 // plan fan-out: bind the StepFlowManager to the engine — resolves the
-// flow ↔ step-flows singleton cycle (step-flows is imported by flow.ts for the
-// fan-out hook and cannot import the flowEngine value at module scope)
+// flow ↔ step-flow-manager singleton cycle (step-flow-manager is imported by
+// flow-engine.ts for the fan-out hook and cannot import the flowEngine value
+// at module scope)
 stepFlows.bind(flowEngine);

@@ -63,8 +63,9 @@ import { processSingleton } from "../../../singleton";
 // expand-time snapshot.
 //
 // `FlowEngine.bindStepFlows()` supplies the engine reference: this module
-// cannot import the flowEngine value directly (flow.ts imports step-flows for
-// the fan-out hook; the singleton cycle resolves at bind time).
+// cannot import the flowEngine value directly (flow-engine.ts imports
+// step-flow-manager for the fan-out hook; the singleton cycle resolves at
+// bind time).
 
 /** The child trigger payload (spec §child shape). `parentNodeKey` is an extra
  *  field beside the spec'd shape — the rollup needs to know which parent node

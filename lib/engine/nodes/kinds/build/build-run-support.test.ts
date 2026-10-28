@@ -41,7 +41,7 @@ const { BuildRunSupport } = await import("./build-run-support");
 const { nodeRegistry } = await import("../../registry");
 const { StepBuildNode } = await import("./step-build-node");
 const { BuildNode } = await import("./build-node");
-import type { AgentRunResult } from "../../../ports/agent-runner";
+import type { AgentRunResult } from "../../../ports/agent-port";
 import type { DiffFile } from "../../../../git/local";
 import type { FlowCtx } from "../../shared";
 import type { NodeRow } from "../../../../db/rows";

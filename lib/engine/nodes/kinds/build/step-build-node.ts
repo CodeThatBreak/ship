@@ -3,7 +3,7 @@ import { AgentRunNode, agentRunner, flowCtxHelper, type AgentRunner, type FlowCo
 import type { FlowCtx, NodeTriggerRun, RunOutcome } from "../../shared";
 import { nodeSupport, type NodeSupport } from "../../shared/node-support";
 import type { FlowRow, NodeRow } from "../../../../db/rows";
-import type { AgentRunResult } from "../../../ports/agent-runner";
+import type { AgentRunResult } from "../../../ports/agent-port";
 import { prompts } from "../../../prompts/prompt-library";
 import { DEFAULT_FANOUT_OUTPUT, type MergeBackArgs, type MergeBackResult, type NodeCapabilities } from "../../shared/capabilities";
 import { NODE_KEYS } from "../../../constants/node-keys";

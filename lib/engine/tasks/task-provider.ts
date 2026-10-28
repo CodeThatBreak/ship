@@ -43,7 +43,7 @@ export interface LiveTaskFilters {
 /**
  * One field a task type contributes to the `{{task.*}}` variable universe.
  *
- * Mirrors the start-contract field style (`nodes/start/contract.ts`): `key` is
+ * Mirrors the start-contract field style (`nodes/kinds/start/contract.ts`): `key` is
  * the template-facing name, `type` is the JSON type the value evaluates to.
  * The list a provider declares becomes the lint vocabulary for `{{task.*}}`
  * refs (Phase 3 context-lint).
@@ -60,7 +60,7 @@ export interface TaskField {
 /**
  * A task type — the integration that acquires tasks (Jira, Linear, …).
  *
- * Mirrors `NodeDefinition` (lib/engine/nodes/base/node-definition.ts): the
+ * Mirrors `NodeDefinition` (lib/engine/nodes/shared/node-definition.ts): the
  * class owns everything specific to the task type — fetching, normalizing,
  * the upsert-into-`tasks` materialization, and the external deep link. The
  * tasks API and the settings UI only know the registry.

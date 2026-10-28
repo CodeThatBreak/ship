@@ -13,7 +13,7 @@ import type {
   AgentStreamCallbacks,
   AgentStreamOutcome,
   CatalogModel,
-} from "../../engine/ports/agent-runner";
+} from "../../engine/ports/agent-port";
 /**
  * Cloud agent port: wraps the Cursor cloud client (durable run handles —
  * agent id + run id survive restarts, so runs re-attach and bill usage).

@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { db } from "../../../lib/db";
-import { agentPortRegistry } from "../../../lib/engine/ports/agent-runner";
+import { agentPortRegistry } from "../../../lib/engine/ports/agent-port";
 import { gitHostRegistry } from "../../../lib/engine/ports/git-host";
 import { config } from "../../../lib/config";
 import { taskRegistry } from "../../../lib/engine/tasks/registry";

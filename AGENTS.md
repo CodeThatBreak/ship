@@ -242,7 +242,7 @@ export class FlowService {
 ### 3.2 Conventions
 
 - **Encapsulation:** private and readonly fields. Expose behavior methods, not raw data.
-- **Composition over inheritance.** Use `abstract` base classes only for genuine shared polymorphic behavior (see `lib/engine/nodes/base`).
+- **Composition over inheritance.** Use `abstract` base classes only for genuine shared polymorphic behavior (see `lib/engine/nodes/shared`).
 - **Interfaces for boundaries:** one interface per external port (task providers, node registry, git host integrations). Depend on the interface. Follow the patterns in `lib/engine/tasks/task-provider.ts` and `lib/engine/ports/`.
 - **Registries over type-string `switch`:** new node and task kinds register into `lib/engine/nodes/registry.ts` and `lib/engine/tasks/registry.ts` instead of adding branches.
 - **One class per file**, named after the class in kebab-case (`flow-poller.ts` exports `FlowPoller`).

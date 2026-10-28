@@ -24,7 +24,7 @@ export type { ModelSelection };
 /**
  * The SDK's `SettingSource` (`local.settingSources`) — the ambient config
  * layers (and their MCP servers) a local agent may load. The engine mirrors
- * the same string union in `lib/engine/node-config.ts` (`SETTING_SOURCES`):
+ * the same string union in `lib/engine/templates/node-config.ts` (`SETTING_SOURCES`):
  * both are compile-checked string literals, so adding a source means touching
  * both. Kept SDK-shaped in this file, engine-shaped there.
  */

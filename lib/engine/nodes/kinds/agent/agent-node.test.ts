@@ -27,7 +27,7 @@ const { usageTracker } = await import("../../shared/usage-tracker");
 const { AgentRunner } = await import("../../shared/agent-runner");
 const { AgentTemplateNode } = await import("./agent-node");
 import type { Started } from "../../shared/agent-runner";
-import type { AgentRunResult } from "../../../ports/agent-runner";
+import type { AgentRunResult } from "../../../ports/agent-port";
 import type { FlowCtx } from "../../shared";
 import type { NodeRow } from "../../../../db/rows";
 

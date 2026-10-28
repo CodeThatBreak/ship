@@ -1,6 +1,6 @@
 import { z } from "zod";
 import type { NodeRow } from "../../../../db/rows";
-import type { AgentRunResult } from "../../../ports/agent-runner";
+import type { AgentRunResult } from "../../../ports/agent-port";
 import { AgentRunNode, type FlowCtx, type RunOutcome } from "../../shared";
 import { templateStore } from "../../../templates/template-store";
 import { buildFlowContext } from "../../../context/flow-variables";

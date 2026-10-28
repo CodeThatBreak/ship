@@ -1,6 +1,6 @@
 import { z } from "zod";
 import type { NodeRow } from "../../../db/rows";
-import type { AgentRunResult } from "../../ports/agent-runner";
+import type { AgentRunResult } from "../../ports/agent-port";
 import { flowCtxHelper, type FlowContextHelper, type FlowCtx } from "./run-context";
 import { nodeSupport, type NodeSupport } from "./node-support";
 import type { NodeCapabilities } from "./capabilities";

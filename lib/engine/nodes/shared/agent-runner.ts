@@ -7,7 +7,7 @@ import {
   type AgentRunResult,
   type AgentStartSpec,
   type SettingSource,
-} from "../../ports/agent-runner";
+} from "../../ports/agent-port";
 import { flowCtxHelper, type FlowContextHelper, type FlowCtx } from "./run-context";
 import { worktreeManager } from "../../runtime/worktree-lifecycle";
 import { nodeSupport, type NodeSupport } from "./node-support";

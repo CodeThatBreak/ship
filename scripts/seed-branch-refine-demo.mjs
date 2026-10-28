@@ -149,7 +149,7 @@ const BACKEND_DOC_V4 = `# Outbox & delivery core — sub-plan (refined)
   including illegal ones.`;
 
 // ── engine replicas ──────────────────────────────────────────────────────────
-/** mergeBranchRefine — mirrors lib/engine/nodes/plan/plan-node.ts (§5). */
+/** mergeBranchRefine — mirrors lib/engine/nodes/kinds/plan/plan-node.ts (§5). */
 function mergeBranchRefine(meta, branchName, sub) {
   const taken = new Set(meta.steps.filter((s) => s.branch !== branchName).map((s) => s.id));
   const reId = (s, i) => {

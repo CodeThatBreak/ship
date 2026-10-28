@@ -10,7 +10,7 @@ import type {
   AgentStreamCallbacks,
   AgentStreamOutcome,
   CatalogModel,
-} from "../../engine/ports/agent-runner";
+} from "../../engine/ports/agent-port";
 import { localAgent } from "./agent";
 
 /**

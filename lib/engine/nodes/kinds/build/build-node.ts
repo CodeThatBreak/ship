@@ -1,6 +1,6 @@
 import { z } from "zod";
 import type { NodeRow } from "../../../../db/rows";
-import type { AgentRunResult } from "../../../ports/agent-runner";
+import type { AgentRunResult } from "../../../ports/agent-port";
 import { prompts } from "../../../prompts/prompt-library";
 import { planSteps } from "../../../runtime/plan-step-store";
 import { AgentRunNode, agentRunner, flowCtxHelper, nodeRoles, type AgentRunner, type FlowContextHelper, type FlowCtx, type NodePromptPreview, type NodeTriggerRun, type PromptPreviewParams, type RunOutcome } from "../../shared";
