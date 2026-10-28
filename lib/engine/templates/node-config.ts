@@ -252,3 +252,41 @@ export const fanoutConfigFields: readonly ConfigField[] = [
     help: "How many step children may run at once (1 = sequential). Raising it lets FILE-DISJOINT siblings build concurrently; merges still serialize per integration branch, in approval order.",
   },
 ] as const;
+
+// ── split consumption knobs (agent-node split plan §2.4, Phase 4) ─────────────
+// The consumer knob on any node downstream of a split source — the next node
+// decides (§1): whole = one run with the full upstream output (today's edge
+// semantics, the default); per-unit = the split runtime expands one child run
+// per unit and joins; source = the source def's `splitResolution()` decides.
+// Flat keys, same layering as every knob (class defaults ← app settings ←
+// flow snapshot); `splitConsumeOf`/`splitParallelMaxOf` in
+// nodes/shared/split.ts are the defensive readers.
+
+export const SPLIT_CONSUME_CONFIG_FIELD = {
+  key: "split_consume",
+  label: "Split consumption",
+  type: "select",
+  help:
+    "How this node runs when an upstream split source publishes units: "
+    + "whole = one run receiving everything (today's edge semantics); per-unit = one child run per unit, joined into an aggregate; "
+    + "source = the source's published recommendation decides.",
+  options: [
+    { value: "whole", label: "whole", description: "One run for the whole output (default)" },
+    { value: "per-unit", label: "per-unit", description: "One child flow per unit, then join" },
+    { value: "source", label: "source", description: "The source's splitResolution decides" },
+  ],
+} as const satisfies ConfigField;
+
+export const SPLIT_PARALLEL_MAX_CONFIG_FIELD = {
+  key: "split_parallel_max",
+  label: "Split parallel max",
+  type: "number",
+  help: "How many per-unit split children may run at once (1 = sequential). Scheduling still honors the units' declared dependencies.",
+} as const satisfies ConfigField;
+
+/** The shared split-consumer field set — spread into every def whose node can
+ *  sit after a split source (the `fanoutConfigFields` pattern). */
+export const splitConsumerConfigFields: readonly ConfigField[] = [
+  SPLIT_CONSUME_CONFIG_FIELD,
+  SPLIT_PARALLEL_MAX_CONFIG_FIELD,
+];

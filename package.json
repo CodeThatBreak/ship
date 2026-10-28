@@ -14,6 +14,8 @@
     "seed:demo:fanout:reset": "node scripts/seed-demo-fanout.mjs --reset",
     "seed:branch-refine": "node scripts/seed-branch-refine-demo.mjs",
     "seed:branch-refine:reset": "node scripts/seed-branch-refine-demo.mjs --reset",
+    "seed:split": "node scripts/seed-split-smoke.mjs",
+    "seed:split:reset": "node scripts/seed-split-smoke.mjs --reset",
     "seed:custom": "node scripts/seed-custom-flow.mjs",
     "seed:custom:reset": "node scripts/seed-custom-flow.mjs --reset",
     "db:init:prod": "node scripts/init-prod-db.mjs"

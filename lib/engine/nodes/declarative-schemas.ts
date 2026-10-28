@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { mcpSourcesSchema } from "../templates/node-config";
+import { splitConsumeSchema, splitParallelMaxSchema } from "./shared/split";
 import {
   AGENT_MODE,
   AGENT_MODES,
@@ -49,6 +50,38 @@ export const AgentDefSchema = z.looseObject({
    *  TypeScript members it was authored from ride along as `output_schema_ts`
    *  (the schema box's source — unknown keys tolerated on purpose). */
   output_schema: z.unknown().optional().default(null),
+  /**
+   * The declarative split (agent-node split plan §2.2) — what makes this
+   * agent node a split SOURCE. Absent ⇒ the node is not a source (no
+   * behavior change). `field` is the output_schema array field to iterate
+   * (already schema-enforced by the output contract, so units are validated
+   * data by construction); the *_field members are per-item paths. Nothing
+   * reads this yet — Phase 3 wires `splitUnits()` on top of it.
+   */
+  split: z.object({
+    /** the output_schema array field to iterate — REQUIRED, never blank */
+    field: z.string().min(1, "split.field is required when split is declared"),
+    /** per-unit key: the item path holding the stable unit id */
+    key_field: z.string().min(1).default("key"),
+    /** where units go by default: a node key or a template id */
+    target: z.string().min(1).optional(),
+    /** per-item target override path (optional heterogeneous routing) */
+    target_field: z.string().min(1).optional(),
+    /** per-item dependencies path (string[] of unit keys) */
+    depends_on_field: z.string().min(1).default("dependsOn"),
+  }).optional(),
+  /**
+   * How this agent node CONSUMES an upstream split source's output
+   * (agent-node split plan §2.4 — Phase 4). The consumer decides (§1):
+   * whole = one run with the full upstream output (today's edge semantics,
+   * the default); per-unit = the split runtime expands one child run per
+   * unit and joins; source = the source def's `splitResolution()` decides.
+   * Reads at the engine's split gate via `splitConsumeOf` — a declarative
+   * run itself never branches on this.
+   */
+  split_consume: splitConsumeSchema,
+  /** per-unit slot budget for the split scheduler (§3), default 1 = sequential */
+  split_parallel_max: splitParallelMaxSchema,
 });
 export type AgentDef = z.infer<typeof AgentDefSchema>;
 

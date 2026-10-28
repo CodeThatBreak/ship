@@ -99,6 +99,13 @@ export interface NodeCapabilities extends NodeUiCapabilities {
    * aggregate applies unconditionally).
    */
   fanoutOutput?: z.ZodTypeAny;
+  /**
+   * The aggregate output contract this def publishes when its node consumes a
+   * split `per-unit` (agent-node split plan §3, decision 4) — the
+   * `{units: [{key, title, status, output}]}` shape the join validates
+   * against. The split runtime's default covers the generic shape.
+   */
+  splitOutput?: z.ZodTypeAny;
 }
 
 /**

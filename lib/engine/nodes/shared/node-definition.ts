@@ -3,9 +3,10 @@ import type { NodeRow } from "../../../db/rows";
 import type { AgentRunResult } from "../../ports/agent-port";
 import { flowCtxHelper, type FlowContextHelper, type FlowCtx } from "./run-context";
 import { nodeSupport, type NodeSupport } from "./node-support";
+import type { SplitUnit } from "./split";
 import type { NodeCapabilities } from "./capabilities";
 import type { ConfigField } from "../../templates/node-config";
-import { appLayerConfig, mergeConfigLayers } from "../../templates/node-config";
+import { appLayerConfig, mergeConfigLayers, parseConfigSnapshot } from "../../templates/node-config";
 import type { NodeRunStatus } from "../../../../constants/flow";
 
 /** A role in the SDLC builtin chain (plan → build → review → resolve). */
@@ -207,6 +208,28 @@ export abstract class NodeDefinition<I = unknown, O extends Record<string, unkno
     return [{ input: this.triggerInput(ctx) }];
   }
 
+  // ── split source port (agent-node split plan §2.1) — default null = the
+  //    node is not a split source; zero behavior change until a def overrides ──
+
+  /**
+   * The units this node's run publishes from its output, or null when the
+   * node is not a split source. The producer only answers "here are my
+   * units" — it never spawns anything (§2.1); the split runtime (Phase 2)
+   * owns expansion/scheduling/join.
+   */
+  splitUnits(_ctx: FlowCtx): SplitUnit[] | null {
+    return null;
+  }
+
+  /**
+   * The source's published resolution recommendation, honored only by
+   * consumers whose `split_consume` knob is `source` (§2.4). Null = no
+   * recommendation (a `source` consumer then falls back to `whole`).
+   */
+  splitResolution(_ctx: FlowCtx): "whole" | "per-unit" | null {
+    return null;
+  }
+
   /**
    * Fan-out (§5): the child template id this def fans out to by default, or
    * null — the def auto-wraps itself ("a fallback default, not a hard
@@ -225,7 +248,15 @@ export abstract class NodeDefinition<I = unknown, O extends Record<string, unkno
    */
   protected nodeConfig(ctx: FlowCtx): Record<string, unknown> {
     const node = this.node(ctx);
-    return mergeConfigLayers(this.defaultConfig(), appLayerConfig(this.key), node.config);
+    // `nodeByKey` returns the RAW row (db.get does not map): the `config`
+    // column is the JSON TEXT blob here, not the mapped NodeRow shape —
+    // parse the snapshot before merging (merging it raw spread char-index
+    // keys over the config and silently lost every snapshot knob).
+    const raw: unknown = node.config;
+    const snapshot = typeof raw === "string"
+      ? parseConfigSnapshot(raw)
+      : parseConfigSnapshot(JSON.stringify(raw ?? null));
+    return mergeConfigLayers(this.defaultConfig(), appLayerConfig(this.key), snapshot);
   }
 
   /**

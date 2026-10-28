@@ -20,6 +20,23 @@ export {
   type PromptPreviewer,
   type PromptSource,
 } from "./node-roles";
+export {
+  DEFAULT_SPLIT_CONSUME,
+  SPLIT_CONSUME_MODES,
+  SplitTargetError,
+  UnitCycleError,
+  assertSplitTargetCompatible,
+  detectUnitCycle,
+  resolveSplitTarget,
+  splitConsumeOf,
+  splitConsumeSchema,
+  splitParallelMaxOf,
+  splitParallelMaxSchema,
+  type SplitConsumeMode,
+  type SplitTarget,
+  type SplitTargetLookup,
+  type SplitUnit,
+} from "./split";
 export type { NodeCapabilities } from "./capabilities";
 export { TemplateRenderer } from "./template-renderer";
 export { TemplateComposer } from "./template-composer";

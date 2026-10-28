@@ -2,6 +2,7 @@ import { db } from "../../db";
 import { lintJsonata } from "@/lib/jsonata";
 import { lintStartContract, parseStartContract } from "../nodes/kinds/start/contract";
 import { nodeRegistry } from "../nodes/registry";
+import { resolveSplitTarget, type SplitTargetLookup } from "../nodes/shared/split";
 import { fanoutOf } from "./node-config";
 
 /**
@@ -339,6 +340,12 @@ export function lintTemplate(
           if (err) problems.push({ where: `node "${n.key}"`, message: `response_map: ${err}`, nodeKey: n.key });
         }
       }
+      // the agent split knobs (agent-node split plan Phase 3): the authoring
+      // checks the configurator only hints at — loud at save, like every
+      // static rule here
+      if (nt.kind === "agent") {
+        lintAgentSplit(merge(nt.config, n.config), `node "${n.key}"`, n.key, problems);
+      }
     }
   }
 
@@ -400,6 +407,11 @@ function lintRef(where: string, ref: string, ctx: LintCtx): void {
     // the inherited run input — the upstream parents' merged output contract
     const field = segments[1];
     if (!field) return; // bare {{input}} renders the whole inherited object
+    // split unit children (agent-node split plan §2.1): the unit's own
+    // {{input.unit.*}} rides the child run's trigger payload (flow-engine
+    // inheritedInput), not the parent's output contract — late-bound here
+    // like the fan-out step roots above
+    if (field === "unit") return;
     if (ctx.inheritedFields == null) return; // free-form — any field passes
     if (!ctx.inheritedFields.includes(field)) {
       ctx.problems.push({
@@ -463,6 +475,130 @@ function lintTaskRef(where: string, segments: string[], ref: string, ctx: LintCt
 }
 
 // ── small helpers ────────────────────────────────────────────────────────────
+
+/**
+ * The split-target lookup for the authoring checks — the same resolution the
+ * runtime's `flowSplitTargetLookup` does (registry keys + node_templates rows
+ * by id, then by catalog key with builtin rows excluded), inlined on raw SQL
+ * so template-lint stays import-cycle free with the template store.
+ */
+const lintSplitTargetLookup: SplitTargetLookup = {
+  isNodeKey: (key) => nodeRegistry.has(key),
+  template: (idOrKey) => {
+    const byId = db.get<{ id: string; is_builtin: number }>(
+      `SELECT id, is_builtin FROM node_templates WHERE id=?`, idOrKey,
+    );
+    if (byId) return { id: byId.id };
+    const byKey = db.get<{ id: string; is_builtin: number }>(
+      `SELECT id, is_builtin FROM node_templates WHERE key=?`, idOrKey,
+    );
+    return byKey && byKey.is_builtin === 0 ? { id: byKey.id } : null;
+  },
+};
+
+/**
+ * The agent def's split authoring checks (agent-node split plan §2.2/§2.3):
+ * `field` must be a top-level ARRAY in the def's output_schema (a unit source
+ * iterates an array), the per-item paths must resolve in the array's element
+ * shape, and the default target must resolve as a node key or a node template
+ * whose start contract accepts the item's declared shape (strictly — the same
+ * key-set semantics the runtime's `assertSplitTargetCompatible` enforces on
+ * the concrete item). Every check free-passes when it can't know (no output
+ * schema, permissive element shape) — the runtime re-checks with real data.
+ */
+function lintAgentSplit(
+  cfg: Record<string, unknown>,
+  where: string,
+  nodeKey: string,
+  problems: LintProblem[],
+): void {
+  const split = cfg.split;
+  if (!split || typeof split !== "object" || Array.isArray(split)) return;
+  const s = split as Record<string, unknown>;
+  const stamp = { nodeKey };
+  const problem = (message: string) => problems.push({ where, message, ...stamp });
+
+  if (cfg.output !== "json") {
+    problem("split publishes units from the json output — set output to json (a markdown agent has no array to iterate)");
+    return;
+  }
+  const schema = cfg.output_schema && typeof cfg.output_schema === "object" && !Array.isArray(cfg.output_schema)
+    ? (cfg.output_schema as { properties?: Record<string, unknown> })
+    : null;
+
+  // the element-shape keys of split.field (null = unknown → the path checks
+  // and the target compat check free-pass)
+  let elementKeys: string[] | null = null;
+  if (schema?.properties) {
+    const field = typeof s.field === "string" ? s.field : "";
+    if (!field) {
+      problem("split.field is required when split is declared");
+    } else {
+      const item = schema.properties[field];
+      if (item == null) {
+        problem(`split.field "${field}" is not declared in the output schema`);
+      } else if (schemaTypeOf(item) !== "array") {
+        problem(`split.field "${field}" must be an array in the output schema — a unit source iterates an array`);
+      } else {
+        const elementProps = item && typeof item === "object"
+          ? (item as { items?: { properties?: Record<string, unknown> } }).items?.properties
+          : undefined;
+        if (elementProps && Object.keys(elementProps).length) {
+          elementKeys = Object.keys(elementProps);
+          // the per-item paths (defaults = the schema's, per AgentDefSchema)
+          for (const [key, fallback, what] of [
+            ["key_field", "key", "the stable unit id"],
+            ["depends_on_field", "dependsOn", "the unit keys units wait for"],
+            ["target_field", "", "the per-item target override"],
+          ] as const) {
+            const v = s[key];
+            const effective = typeof v === "string" && v.trim() ? v : fallback;
+            if (effective && !elementKeys.includes(effective)) {
+              problem(
+                `split.${key} "${effective}" (${what}) is not a field of the "${field}" items — element fields: ${elementKeys.join(", ")}`,
+              );
+            }
+          }
+        }
+      }
+    }
+  }
+
+  // the default target: resolution (node key / template id) + compatibility
+  const target = typeof s.target === "string" && s.target.trim() ? s.target.trim() : null;
+  if (target) {
+    try {
+      const resolved = resolveSplitTarget(target, lintSplitTargetLookup);
+      if (resolved.kind === "template" && elementKeys != null) {
+        const row = db.get<{ config: string | null }>(
+          `SELECT config FROM node_templates WHERE id=?`, resolved.id,
+        );
+        const fields = parseStartContract(parseObject(row?.config));
+        if (fields.length) {
+          const missing = fields.filter((f) => f.required && !elementKeys.includes(f.key)).map((f) => f.key);
+          if (missing.length) {
+            problem(`the unit items don't declare ${JSON.stringify(missing)} — required by the target template "${resolved.id}" start contract`);
+          }
+          const extra = elementKeys.filter((k) => !fields.some((f) => f.key === k));
+          if (extra.length) {
+            problem(`the unit items declare fields outside the target template "${resolved.id}" start contract (strict shape): ${extra.join(", ")}`);
+          }
+        }
+      }
+    } catch (e: unknown) {
+      problem(e instanceof Error ? e.message : String(e));
+    }
+  }
+}
+
+/** A JSON Schema node's primary type ("array" / "string" / …) — null when undeclared. */
+function schemaTypeOf(s: unknown): string | null {
+  if (!s || typeof s !== "object") return null;
+  const t = (s as { type?: unknown }).type;
+  if (typeof t === "string") return t;
+  if (Array.isArray(t) && typeof t[0] === "string") return t[0];
+  return null;
+}
 
 function templateRefs(config: unknown, instanceConfig: unknown): string[] {
   const out = new Set<string>();

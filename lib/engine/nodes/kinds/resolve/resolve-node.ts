@@ -7,7 +7,8 @@ import { AgentRunNode, nodeRoles, type FlowCtx, type NodePromptPreview, type Pro
 import type { NodeCapabilities } from "../../shared/capabilities";
 import { NODE_KEYS } from "../../../constants/node-keys";
 import type { ConfigField } from "../../../templates/node-config";
-import { configString, mcpSourcesOf, mcpSourcesSchema, mcpSourceConfigFields } from "../../../templates/node-config";
+import { configString, mcpSourcesOf, mcpSourcesSchema, mcpSourceConfigFields, splitConsumerConfigFields } from "../../../templates/node-config";
+import { splitConsumeSchema, splitParallelMaxSchema } from "../../shared/split";
 import { ResolveInput, ResolveOutput } from "./schema";
 import { worktreeManager } from "../../../runtime/worktree-lifecycle";
 
@@ -35,12 +36,17 @@ export class ResolveNode extends AgentRunNode<ResolveInput, ResolveOutput> {
     quiet_minutes: z.number().min(0).optional(),
     /** ambient MCP servers for agent runs (Cursor local.settingSources) */
     mcp_sources: mcpSourcesSchema,
+    // split-consumption knob (agent-node split plan §2.4 — Phase 4): default whole = today
+    split_consume: splitConsumeSchema,
+    split_parallel_max: splitParallelMaxSchema,
   });
   readonly configFields = [
     { key: "prompt_body", label: "Prompt body", type: "text", help: "User-editable prompt body; internal contracts re-appended automatically." },
     { key: "prompt_rules", label: "Your rules", type: "text", help: "Extra rules appended after the prompt body, before the engine's locked instructions and the open comments — on every run of this node." },
     { key: "quiet_minutes", label: "Quiet period (min)", type: "number", help: "Minutes of comment quiet before the debounced resolve fires. Empty = 10." },
     ...mcpSourceConfigFields,
+    // the split-consumption section (agent-node split plan §2.4 — Phase 4)
+    ...splitConsumerConfigFields,
   ] as const satisfies readonly ConfigField[];
 
   /**

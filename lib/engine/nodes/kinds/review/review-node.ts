@@ -6,7 +6,8 @@ import { AgentRunNode, nodeRoles, type FlowCtx, type NodePromptPreview, type Pro
 import type { NodeCapabilities } from "../../shared/capabilities";
 import { NODE_KEYS } from "../../../constants/node-keys";
 import type { ConfigField } from "../../../templates/node-config";
-import { configNumber, configString, mcpSourcesOf, mcpSourcesSchema, mcpSourceConfigFields } from "../../../templates/node-config";
+import { configNumber, configString, mcpSourcesOf, mcpSourcesSchema, mcpSourceConfigFields, splitConsumerConfigFields } from "../../../templates/node-config";
+import { splitConsumeSchema, splitParallelMaxSchema } from "../../shared/split";
 import { ReviewInput, ReviewOutput } from "./schema";
 
 export class ReviewNode extends AgentRunNode<ReviewInput, ReviewOutput> {
@@ -35,6 +36,9 @@ export class ReviewNode extends AgentRunNode<ReviewInput, ReviewOutput> {
     comment_style: z.enum(["inline", "summary"]).default("inline"),
     /** ambient MCP servers for agent runs (Cursor local.settingSources) */
     mcp_sources: mcpSourcesSchema,
+    // split-consumption knob (agent-node split plan §2.4 — Phase 4): default whole = today
+    split_consume: splitConsumeSchema,
+    split_parallel_max: splitParallelMaxSchema,
   });
   readonly configFields = [
     { key: "prompt_body", label: "Prompt body", type: "text", help: "User-editable prompt body; internal contracts re-appended automatically." },
@@ -46,6 +50,7 @@ export class ReviewNode extends AgentRunNode<ReviewInput, ReviewOutput> {
       help: "Inline per-file comments or one summary note.",
     },
     ...mcpSourceConfigFields,
+    ...splitConsumerConfigFields,
   ] as const satisfies readonly ConfigField[];
 
   /** Resolve the MR (iid + git branch) for this review — per-branch or flow-level. */

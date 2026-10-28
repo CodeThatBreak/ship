@@ -6,7 +6,8 @@ import { AgentRunNode, nodeRoles, type FlowCtx, type NodePromptPreview, type Pro
 import type { NodeCapabilities } from "../../shared/capabilities";
 import { NODE_KEYS } from "../../../constants/node-keys";
 import type { ConfigField } from "../../../templates/node-config";
-import { configBool, configNumber, configString } from "../../../templates/node-config";
+import { configBool, configNumber, configString, splitConsumerConfigFields } from "../../../templates/node-config";
+import { splitConsumeSchema, splitParallelMaxSchema } from "../../shared/split";
 import { PipelineInput, PipelineOutput } from "./schema";
 
 /** Poll interval while waiting for a pipeline to reach a terminal state. */
@@ -84,6 +85,10 @@ export class PipelineNode extends AgentRunNode<
       .number()
       .min(1)
       .default(WAIT_TIMEOUT_MS_DEFAULT / 60_000),
+    // split-consumption knobs (agent-node split plan §2.4 — Phase 4): how this
+    // gate consumes an upstream split source's units (default whole = today)
+    split_consume: splitConsumeSchema,
+    split_parallel_max: splitParallelMaxSchema,
   });
   readonly configFields = [
     {
@@ -128,6 +133,7 @@ export class PipelineNode extends AgentRunNode<
       type: "number",
       help: "Give up waiting (retryable failure) after this long.",
     },
+    ...splitConsumerConfigFields,
   ] as const satisfies readonly ConfigField[];
 
   /** Resolve the MR (iid + git branch) this gate watches — per-branch or flow-level. */

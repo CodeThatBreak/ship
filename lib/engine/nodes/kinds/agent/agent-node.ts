@@ -16,9 +16,12 @@ import {
   type RunOutcome,
 } from '../../shared';
 import { templateStore } from '../../../templates/template-store';
+import { parseConfigSnapshot } from '../../../templates/node-config';
 import { extractJson, jsonSchemaIssues } from './json-schema-lite';
 import { AGENT_OUTPUT_ERROR, AgentOutputError, type AgentOutputErrorCode } from '../../shared/agent/output-error';
 import { AgentDefSchema, type AgentDef } from '../../declarative-schemas';
+import type { SplitUnit } from '../../shared';
+import { splitDirective } from './split-directive';
 import { AGENT_CONFIG_FIELDS } from './constants';
 
 export type { AgentDef };
@@ -136,6 +139,112 @@ export class AgentTemplateNode extends AgentRunNode<Record<string, unknown>, Rec
     return this.def as unknown as Record<string, unknown>;
   }
 
+  /**
+   * The split source port (agent-node split plan §2.1, Phase 3): map the
+   * validated output's array at `split.field` into units. The items are
+   * schema-validated data by construction (`applyOutput` already enforced the
+   * output contract) — NO second validation pass. The node never spawns
+   * anything; it only answers "here are my units".
+   *
+   * - No `split` declared, no run output yet, no array at `split.field`, or an
+   *   empty array → null (the node is not a source for this run — no expansion).
+   * - Mapping: `key` ← `item[key_field]`; `title` ← the item's string `title`
+   *   field when present, else the key (deliberately simple and deterministic —
+   *   no fallback chain, §2.9); `dependsOn` ← `item[depends_on_field]`
+   *   (default []); `target` ← the split default, overridden per item by
+   *   `item[target_field]` when set; `item` rides verbatim.
+   * - A malformed array (non-array at the field, non-object item, missing or
+   *   non-string key, non-string[] dependencies) is a producer error — loud,
+   *   like a contract failure: the same {@link AgentOutputError} payload
+   *   applyOutput throws (code `schema_mismatch`), since these shapes all
+   *   violate the unit contract the split directive declared.
+   */
+  override splitUnits(ctx: FlowCtx): SplitUnit[] | null {
+    const cfg = this.runConfig(this.nodeConfig(ctx));
+    const split = cfg.split;
+    if (!split) return null;
+
+    // nodeByKey returns the RAW row (db.get does not map): the `output`
+    // column is the JSON TEXT blob here, not the decoded shape — parse it
+    // before reading the split field (parseConfigSnapshot yields {} for a
+    // missing/unreadable blob → no array → null, no expansion; an
+    // already-decoded record is tolerated too)
+    const rawOutput: unknown = this.node(ctx).output;
+    const output = parseConfigSnapshot(
+      typeof rawOutput === "string" || rawOutput == null ? rawOutput : JSON.stringify(rawOutput),
+    );
+    const raw = output[split.field];
+    if (raw == null) return null;
+    if (!Array.isArray(raw)) {
+      throw this.splitUnitsError(
+        `split field "${split.field}" must be an array of unit items (got ${typeof raw})`,
+        raw,
+      );
+    }
+    if (!raw.length) return null;
+    return raw.map((item, index) => this.unitOf(split, item, index));
+  }
+
+  /** One validated output item → a SplitUnit (see splitUnits for the rules). */
+  private unitOf(split: NonNullable<AgentDef["split"]>, item: unknown, index: number): SplitUnit {
+    if (item == null || typeof item !== "object" || Array.isArray(item)) {
+      throw this.splitUnitsError(
+        `split field "${split.field}" item ${index} is not an object`,
+        item,
+      );
+    }
+    const record = item as Record<string, unknown>;
+    const key = record[split.key_field];
+    if (typeof key !== "string" || !key.trim()) {
+      throw this.splitUnitsError(
+        `item ${index} has no usable "${split.key_field}" — every unit needs a stable, non-empty key`,
+        item,
+      );
+    }
+    const rawDeps = record[split.depends_on_field];
+    const dependsOn: string[] = [];
+    if (rawDeps != null) {
+      if (!Array.isArray(rawDeps)) {
+        throw this.splitUnitsError(
+          `item ${index}'s "${split.depends_on_field}" must be an array of unit keys`,
+          item,
+        );
+      }
+      for (const dep of rawDeps) {
+        if (typeof dep !== "string" || !dep.trim()) {
+          throw this.splitUnitsError(
+            `item ${index}'s "${split.depends_on_field}" must be an array of unit keys`,
+            item,
+          );
+        }
+        dependsOn.push(dep);
+      }
+    }
+    const override = split.target_field != null ? record[split.target_field] : undefined;
+    const target =
+      typeof override === "string" && override.trim() ? override : split.target;
+    return {
+      key,
+      // title: the item's string `title` when it declares one, else the key
+      title: typeof record.title === "string" && record.title.trim() ? record.title : key,
+      dependsOn,
+      ...(target != null ? { target } : {}),
+      item,
+    };
+  }
+
+  /** The loud producer failure, shaped exactly like an output-contract miss
+   *  (the engine serializes the standard payload into the trail). */
+  private splitUnitsError(message: string, offending: unknown): AgentOutputError {
+    return new AgentOutputError({
+      code: AGENT_OUTPUT_ERROR.SCHEMA_MISMATCH,
+      label: this.label,
+      message: `${this.label}: ${message}`,
+      issues: [],
+      response: JSON.stringify(offending ?? null),
+    });
+  }
+
   private getPrompt(
     ctx: FlowCtx,
     rawInput: Record<string, unknown>,
@@ -171,16 +280,27 @@ export class AgentTemplateNode extends AgentRunNode<Record<string, unknown>, Rec
         ? PROMPT_SOURCE.CONFIG
         : PROMPT_SOURCE.DEFAULT;
 
-    const prompt =
-      cfg.output === AGENT_OUTPUT_FORMAT.JSON
-        ? TemplateRenderer.compose(promptWithoutContract)
-            .addBlankLine()
-            .addBlankLine()
-            .addLine(AgentOutputError.directive(cfg.output_schema))
-            .build()
-        : promptWithoutContract;
+    return { prompt: this.composePrompt(promptWithoutContract, cfg), source };
+  }
 
-    return { prompt, source };
+  /**
+   * The prompt body + the contract directives, composed in ONE place so every
+   * surface (fresh run, chat follow-up, the bounded retry) appends the same
+   * blocks in the same order: the output-contract directive first (json
+   * output), then the split directive when the def declares `split` — units
+   * are contract-shaped output, so the two belong together. A body with
+   * nothing to append comes back byte-identical (no compose round-trip).
+   */
+  private composePrompt(body: string, cfg: AgentDef): string {
+    if (cfg.output !== AGENT_OUTPUT_FORMAT.JSON) return body;
+    const composed = TemplateRenderer.compose(body)
+      .addBlankLine()
+      .addBlankLine()
+      .addLine(AgentOutputError.directive(cfg.output_schema));
+    if (cfg.split) {
+      composed.addBlankLine().addBlankLine().addLine(splitDirective(cfg.split));
+    }
+    return composed.build();
   }
 
   private getModel(ctx: FlowCtx, rawInput: Record<string, unknown>, config: Record<string, unknown>): string | null {
@@ -258,21 +378,15 @@ export class AgentTemplateNode extends AgentRunNode<Record<string, unknown>, Rec
   }
 
   /** Chat refinement: a follow-up run on the node's agent. The rendered
-   * feedback rides the same contract directive a fresh run's prompt does —
+   * feedback rides the same contract directives a fresh run's prompt does —
    * the follow-up output goes through the same applyOutput validation. */
   override async chat(ctx: FlowCtx, content: string, model?: string): Promise<string> {
     const cfg = this.runConfig(this.nodeConfig(ctx));
 
-    const promptWithoutContract = TemplateRenderer.render(content, TemplateRenderer.vars(ctx));
-
-    const prompt =
-      cfg.output === AGENT_OUTPUT_FORMAT.JSON
-        ? TemplateRenderer.compose(promptWithoutContract)
-            .addBlankLine()
-            .addBlankLine()
-            .addLine(AgentOutputError.directive(cfg.output_schema))
-            .build()
-        : promptWithoutContract;
+    const prompt = this.composePrompt(
+      TemplateRenderer.render(content, TemplateRenderer.vars(ctx)),
+      cfg,
+    );
 
     return this.execute(ctx, {
       input: { model: model ?? null, feedback: content },
@@ -363,11 +477,7 @@ export class AgentTemplateNode extends AgentRunNode<Record<string, unknown>, Rec
 
     // the retry prompt re-states the full contract (one JSON object, the
     // schema, the error-envelope escape hatch) on top of the feedback
-    const retryPrompt = feedbackTemplate
-      .addBlankLine()
-      .addBlankLine()
-      .addLine(AgentOutputError.directive(cfg.output_schema))
-      .build();
+    const retryPrompt = this.composePrompt(feedbackTemplate.build(), cfg);
 
     const retry = await this.runner.executeRun(
       ctx,

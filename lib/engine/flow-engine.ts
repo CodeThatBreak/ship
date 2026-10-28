@@ -11,7 +11,7 @@ import {
 } from "../db/rows";
 import { agentPortRegistry, type AgentRunResult } from "./ports/agent-port";
 import { hostOf, type HostComment } from "./ports/git-host";
-import { nodeSupport, type ChainRole, type FlowCtx } from "./nodes/shared";
+import { NodeDefinition, nodeSupport, splitConsumeOf, type ChainRole, type FlowCtx, type SplitConsumeMode } from "./nodes/shared";
 import { CHAT_DECLINED, nodeRoles } from "./nodes/shared/node-roles";
 import { uncachedInputTokens } from "../usage";
 import { nodeRegistry } from "./nodes/registry";
@@ -27,6 +27,7 @@ import { hookStore } from "./runtime/hook-store";
 import { parseStartContract, validateAgainstContract } from "./nodes/kinds/start/contract";
 import { DEFAULT_FANOUT_OUTPUT, uiCapabilities, type NodeCapabilities } from "./nodes/shared/capabilities";
 import { stepFlows, StepFlowManager, type StepChildPayload } from "./runtime/fanout/step-flow-manager";
+import { DEFAULT_SPLIT_OUTPUT, splitManager, type SplitChildPayload } from "./runtime/split/split-manager";
 import { worktreeManager } from "./runtime/worktree-lifecycle";
 import { processSingleton } from "../singleton";
 
@@ -226,6 +227,53 @@ export class FlowEngine {
   }
 
   /**
+   * Create a split-unit child flow (the split runtime's counterpart of
+   * createStepChild, agent-node split plan §3): the same snapshot machinery —
+   * node rows with merged configs — with `parent_flow_id`, `kind: 'split'`
+   * and the `{parentNodeKey, unit}` payload persisted as the trigger payload
+   * (which is what makes `{{input.unit.*}}` work in child input maps / prompt
+   * variables, and what carries the split manager's linkage, decision 1).
+   * No start-contract validation here: the split manager validated the unit's
+   * item against the target's contract before any row exists
+   * (assertSplitTargetCompatible), and the payload's linkage fields are
+   * engine bookkeeping, not contract surface.
+   * SplitManager internal — not a public API.
+   */
+  createSplitChild(
+    parentFlowId: string,
+    templateId: string,
+    name: string,
+    payload: SplitChildPayload,
+  ): string {
+    const parent = rows.get(FlowRow, `SELECT * FROM flows WHERE id=?`, parentFlowId);
+    if (!parent) throw new Error(`parent flow ${parentFlowId} not found`);
+    const graph = templateStore.graph(templateId);
+    if (!graph) throw new Error(`unknown flow template: ${templateId}`);
+    const id = db.uid("flow_");
+    const ts = db.now();
+    db.run(
+      `INSERT INTO flows (id,task_id,name,status,repo_url,repo_id,execution_mode,template_id,trigger_payload,parent_flow_id,kind,created_at,updated_at)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+      id, parent.task_id, name, "active", parent.repo_url, parent.repo_id, parent.execution_mode,
+      graph.templateId, JSON.stringify(payload), parentFlowId, "split", ts, ts
+    );
+    for (const spec of graph.nodes) {
+      const def = nodeRegistry.resolve(spec.defKey, spec.key);
+      const config = mergeConfigLayers(def.defaultConfig(), appLayerConfig(def.key), spec.config);
+      db.run(
+        `INSERT INTO nodes (id,flow_id,node_key,type,label,config,join_mode,status,created_at,updated_at)
+         VALUES (?,?,?,?,?,?,?,'pending',?,?)`,
+        db.uid("node_"), id, spec.key, spec.defKey,
+        spec.label === def.label ? null : spec.label,
+        JSON.stringify(config), spec.joinMode, ts, ts
+      );
+    }
+    db.emitEvent(id, null, "lifecycle",
+      `split child created from "${templateStore.flowTemplate(templateId)?.name ?? templateId}" — parent flow ${parentFlowId}`);
+    return id;
+  }
+
+  /**
    * Publish a fan-out node's terminal state (StepFlowManager internals — not a
    * public API): persist the aggregate output, move the node to its
    * trigger-type terminal (approval ⇒ `awaiting_approval` — the SDLC build's
@@ -256,6 +304,47 @@ export class FlowEngine {
       `SELECT id FROM nodes WHERE flow_id=? AND node_key=?`, parentFlowId, nodeKey)?.id ?? null,
       "lifecycle",
       `${nodeKey} fan-out resolved — aggregate published (${(steps as unknown[])?.length ?? 0} steps)${status === "awaiting_approval" ? " · awaiting the final approval" : ""}`,
+      { nodeKey });
+    this.touch(parentFlowId);
+    if (this.statusTerminalSuccess(status)) {
+      await this.advanceFrom(parentFlowId, nodeKey);
+    }
+    this.clearCurrentIf(parentFlowId, nodeKey);
+  }
+
+  /**
+   * Publish a split consumer's terminal state (SplitManager internals — not a
+   * public API): the aggregate `{units: [{key, title, status, output}]}` is
+   * validated against the def's `splitOutput` capability when one is
+   * published (the default split shape otherwise), the node takes the
+   * worst-of status of its unit entries (decision 4: failed >
+   * awaiting_approval > done), and the parent continues via the normal edge
+   * evaluation on a success terminal. A failed aggregate holds for the
+   * per-unit actions (Retry the failed unit).
+   */
+  async finishSplit(parentFlowId: string, nodeKey: string, output: Record<string, unknown>): Promise<void> {
+    const def = this.defOf(parentFlowId, nodeKey);
+    const splitContract = (def.capabilities as NodeCapabilities | undefined)?.splitOutput;
+    let units: unknown = output.units ?? [];
+    try {
+      units = ((splitContract ?? DEFAULT_SPLIT_OUTPUT).parse({ units }) as { units?: unknown })?.units ?? units;
+    } catch (e: unknown) {
+      db.emitEvent(parentFlowId, null, "error",
+        `${nodeKey}: the split aggregate failed its output contract — publishing it unvalidated (${e instanceof Error ? e.message : e})`,
+        { nodeKey });
+    }
+    // worst-of the unit entries (decision 4): failed > awaiting_approval > done
+    const entries = Array.isArray(units) ? (units as { status?: unknown }[]) : [];
+    const status = entries.some((u) => u?.status === "failed") ? "failed"
+      : entries.some((u) => u?.status === "awaiting_approval") ? "awaiting_approval"
+      : "done";
+    db.run(
+      `UPDATE nodes SET status=?, output=?, updated_at=? WHERE flow_id=? AND node_key=?`,
+      status, JSON.stringify({ ...output, units }), db.now(), parentFlowId, nodeKey);
+    db.emitEvent(parentFlowId, db.get<{ id: string }>(
+      `SELECT id FROM nodes WHERE flow_id=? AND node_key=?`, parentFlowId, nodeKey)?.id ?? null,
+      "lifecycle",
+      `${nodeKey} split resolved — aggregate published (${entries.length} units)${status === "awaiting_approval" ? " · a unit awaits approval" : status === "failed" ? " · a unit failed" : ""}`,
       { nodeKey });
     this.touch(parentFlowId);
     if (this.statusTerminalSuccess(status)) {
@@ -594,6 +683,11 @@ export class FlowEngine {
     const nodesMap = buildFlowContext(ctx).nodes;
     const out: Record<string, unknown> = {};
     for (const p of parents) Object.assign(out, nodesMap[p]?.output ?? {});
+    // split children (agent-node split plan §2.1): the own unit rides the run
+    // input — `{{input.unit.*}}` — alongside any inherited parent outputs
+    // (only split children carry a unit on their trigger payload)
+    const payload = ctx.flow.trigger_payload as { unit?: unknown } | null;
+    if (payload?.unit != null) out.unit = payload.unit;
     return out;
   }
 
@@ -615,6 +709,75 @@ export class FlowEngine {
   nodeConfigFor(flowId: string, nodeKey: string): Record<string, unknown> {
     const def = this.defOf(flowId, nodeKey);
     return mergeConfigLayers(def.defaultConfig(), appLayerConfig(def.key), this.flowNodeConfig(flowId, nodeKey));
+  }
+
+  // ── split gate (agent-node split plan §2.4, Phase 4) ──────────────────────
+
+  /**
+   * The split gate's source + mode resolution: which upstream node feeds this
+   * consumer's split, and whether the consumer should expand at all. Returns
+   * the source node key to expand against, or null (consume whole — the
+   * normal path runs).
+   *
+   * Mode resolution (§2.4): `whole`/absent → null; explicit `per-unit` wins
+   * over whatever the source recommends; `source` defers to the source def's
+   * `splitResolution()` (absent ⇒ whole — `source` is the only deferring
+   * mode). Source discovery walks the incoming `next` edges for a def that
+   * OVERRIDES the `splitUnits` port (method identity against the base class —
+   * no probe runs, so a producer error stays a producer-error at expand
+   * time). One upstream split source is the Phase-4-supported shape: several
+   * are a loud error, never a silent pick. Nested children never split (the
+   * same guard the split manager enforces).
+   */
+  private splitGateSource(flowId: string, nodeKey: string): string | null {
+    const mode = splitConsumeOf(this.nodeConfigFor(flowId, nodeKey));
+    if (mode === "whole") return null;
+    if (this.isStepChild(flowId)) return null; // nesting guard (§3)
+    const g = this.graph(flowId);
+    if (!g) return null;
+    const sources = g.edges
+      .filter((e) => e.kind === "next" && e.to === nodeKey)
+      .map((e) => e.from)
+      .filter((k) => {
+        const def = this.defOf(flowId, k);
+        return def.splitUnits !== NodeDefinition.prototype.splitUnits;
+      });
+    if (!sources.length) return null; // no upstream def publishes units — whole path
+    if (sources.length > 1) {
+      throw new Error(
+        `${nodeKey} consumes split units but several upstream nodes publish them (${sources.join(", ")}) — route through one split source per consumer, or consume whole`);
+    }
+    const sourceKey = sources[0];
+    const effective: SplitConsumeMode = mode === "per-unit"
+      ? "per-unit" // explicit consumer choice wins over the recommendation (§2.4)
+      : this.defOf(flowId, sourceKey).splitResolution(this.ctx(flowId)) ?? "whole"; // absent ⇒ whole
+    return effective === "per-unit" ? sourceKey : null;
+  }
+
+  // ── per-unit split actions (plan §3): the unit cards' engine entries ──────
+
+  /** The consumer node owning a unit key (the actions' optional addressing). */
+  private splitConsumerFor(flowId: string, unitKey: string, consumerNodeKey?: string): string {
+    if (consumerNodeKey) return consumerNodeKey;
+    const owner = splitManager.consumerOfUnit(flowId, unitKey);
+    if (!owner) throw new Error(`no split unit "${unitKey}" on any consumer of flow ${flowId}`);
+    return owner;
+  }
+
+  skipSplitUnit(flowId: string, unitKey: string, consumerNodeKey?: string): Promise<void> {
+    return splitManager.skipUnit(flowId, this.splitConsumerFor(flowId, unitKey, consumerNodeKey), unitKey);
+  }
+
+  retrySplitUnit(flowId: string, unitKey: string, consumerNodeKey?: string): void {
+    splitManager.retryUnit(flowId, this.splitConsumerFor(flowId, unitKey, consumerNodeKey), unitKey);
+  }
+
+  approveSplitUnit(flowId: string, unitKey: string, consumerNodeKey?: string): void {
+    splitManager.approveUnit(flowId, this.splitConsumerFor(flowId, unitKey, consumerNodeKey), unitKey);
+  }
+
+  cancelSplitUnit(flowId: string, unitKey: string, consumerNodeKey?: string): Promise<void> {
+    return splitManager.cancelUnit(flowId, this.splitConsumerFor(flowId, unitKey, consumerNodeKey), unitKey);
   }
 
   // ── public triggers ──────────────────────────────────────────────────────
@@ -1080,6 +1243,33 @@ export class FlowEngine {
         await stepFlows.expand(flowId, nodeKey);
         return;
       }
+      // ── split gate (agent-node split plan §2.4, Phase 4): the consumer's
+      // `split_consume` knob decides how it takes an upstream split source's
+      // units. `whole` (or absent — every def's default) never reaches the
+      // split runtime: the whole path below is byte-identical. The check sits
+      // after the fan-out gate on purpose — a node whose fan-out knob engaged
+      // keeps the existing fan-out behavior (documented conflict rule: the
+      // plan-step fan-out predates the split runtime and is not migrated).
+      // When expand() engages it parks the node `running`, advances the
+      // scheduler, and the join publishes through finishSplit; a `false`
+      // return (no units published / nested) falls through to the whole path.
+      if (fanout != null) {
+        // documented conflict rule (split plan §2.4, Phase 4): a node whose
+        // fan-out knob engaged keeps the fan-out behavior — record a split
+        // knob it shadows so the trail explains the run's shape
+        const shadowed = splitConsumeOf(this.nodeConfigFor(flowId, nodeKey));
+        if (shadowed !== "whole") {
+          db.emitEvent(flowId, null, "lifecycle",
+            `${nodeKey} ignores split_consume "${shadowed}" — the fan-out knob owns this run`,
+            { nodeKey });
+        }
+      } else {
+        const sourceKey = this.splitGateSource(flowId, nodeKey);
+        if (sourceKey != null
+          && splitManager.expand(flowId, nodeKey, sourceKey, { consume: "per-unit" })) {
+          return;
+        }
+      }
       const runs =
         opts.rawInput !== undefined
           ? [{ input: opts.rawInput }]
@@ -1102,6 +1292,7 @@ export class FlowEngine {
         // notify hook: this failed stage runs on a step child — its parent's
         // rollup/scheduling reacts (standard failed → retry/skip)
         stepFlows.onChildFinished(flowId);
+        splitManager.onChildFinished(flowId); // split runtime (§3) — no-op without split linkage
       }
       return;
     } finally {
@@ -1112,6 +1303,7 @@ export class FlowEngine {
       // child-terminal notification hook (plan fan-out): the parent manager
       // reschedules the next sibling / publishes the aggregate
       stepFlows.onChildFinished(flowId);
+      splitManager.onChildFinished(flowId); // split runtime (§3) — no-op without split linkage
     }
     if (this.statusTerminalSuccess(finalStatus)) {
       await this.advanceFrom(flowId, nodeKey);
@@ -1516,6 +1708,7 @@ export class FlowEngine {
         // child-terminal notification hook (plan fan-out): the parent's
         // scheduler/rollup reacts to the retried child's terminal state
         stepFlows.onChildFinished(flowId);
+        splitManager.onChildFinished(flowId); // split runtime (§3) — no-op without split linkage
       }
       if (this.statusTerminalSuccess(finalStatus)) {
         await this.advanceFrom(flowId, nodeKey);
@@ -1545,6 +1738,7 @@ export class FlowEngine {
       // child-terminal notification hook (plan fan-out): a stopped step child
       // surfaces failed in its parent's rollup
       stepFlows.onChildFinished(flowId);
+      splitManager.onChildFinished(flowId); // split runtime (§3) — no-op without split linkage
     }
   }
 
@@ -1855,3 +2049,7 @@ export const flowEngine = processSingleton("flowEngine", () => new FlowEngine())
 // flow-engine.ts for the fan-out hook and cannot import the flowEngine value
 // at module scope)
 stepFlows.bind(flowEngine);
+
+// split runtime (agent-node split plan §3): same cycle resolution for the
+// SplitManager — flow-engine.ts imports it for the child-terminal hooks
+splitManager.bind(flowEngine);

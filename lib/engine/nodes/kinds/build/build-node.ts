@@ -8,7 +8,8 @@ import { AgentRunNode, flowCtxHelper, nodeRoles, type FlowContextHelper, type Fl
 import { DEFAULT_FANOUT_OUTPUT, type NodeCapabilities } from "../../shared/capabilities";
 import { NODE_KEYS, STEP_BUILD_TEMPLATE_ID } from "../../../constants/node-keys";
 import type { ConfigField } from "../../../templates/node-config";
-import { DEFAULT_MCP_SOURCES, configString, fanoutConfigFields, mcpSourcesOf, mcpSourcesSchema, mcpSourceConfigFields } from "../../../templates/node-config";
+import { DEFAULT_MCP_SOURCES, configString, fanoutConfigFields, mcpSourcesOf, mcpSourcesSchema, mcpSourceConfigFields, splitConsumerConfigFields } from "../../../templates/node-config";
+import { splitConsumeSchema, splitParallelMaxSchema } from "../../shared/split";
 import { nodeSupport, type NodeSupport } from "../../shared/node-support";
 import { BuildRunSupport } from "./build-run-support";
 import { branchStore } from "./branch-store";
@@ -70,6 +71,10 @@ export class BuildNode extends AgentRunNode<BuildInput, BuildOutput> {
     fanout_parallel_max: z.number().int().min(1).default(1),
     /** ambient MCP servers for build/refine agent runs — defaults to ALL sources enabled */
     mcp_sources: mcpSourcesSchema.default(DEFAULT_MCP_SOURCES),
+    // split-consumption knob (agent-node split plan §2.4 — Phase 4): how this
+    // node consumes an upstream split source's units. Default whole = today.
+    split_consume: splitConsumeSchema,
+    split_parallel_max: splitParallelMaxSchema,
   });
   readonly configFields = [
     { key: "prompt_body", label: "Prompt body", type: "text", help: "User-editable prompt body for build runs." },
@@ -80,6 +85,8 @@ export class BuildNode extends AgentRunNode<BuildInput, BuildOutput> {
     // the fan-out section: plan-downstream-capable built-ins carry one shared field set
     ...fanoutConfigFields,
     ...mcpSourceConfigFields,
+    // the split-consumption section (agent-node split plan §2.4 — Phase 4)
+    ...splitConsumerConfigFields,
   ] as const satisfies readonly ConfigField[];
 
   /**

@@ -15,6 +15,8 @@ import { db } from "../../db";
  *   flow    { mr_url, mr_branch }
  *   trigger { payload }            — the payload that started the flow
  *   nodes   { <node_key>: { output } }
+   input   { unit }               — split children (agent-node split plan §2.1):
+                                    the own unit rides {{input.unit.*}}
  *
  * `secrets` is deliberately NOT part of the map: secret values only resolve
  * inside http node config interpolation, at execution time, and never persist
@@ -31,6 +33,10 @@ export interface FlowContextMap extends Record<string, unknown> {
   plan?: Record<string, unknown>;
   step?: Record<string, unknown>;
   siblings?: Record<string, unknown>[];
+  /** split runtime children (agent-node split plan §2.1): the own unit —
+   *  `{{input.unit.*}}` renders the item data; plain-empty on ordinary
+   *  flows (no split payload). */
+  input?: { unit: Record<string, unknown> };
 }
 
 export function buildFlowContext(ctx: FlowCtx): FlowContextMap {
@@ -52,6 +58,11 @@ export function buildFlowContext(ctx: FlowCtx): FlowContextMap {
   const step = (p.step && typeof p.step === "object" ? p.step : {}) as Record<string, unknown>;
   const planPart = (p.plan && typeof p.plan === "object" ? p.plan : {}) as Record<string, unknown>;
   const siblings = Array.isArray(p.siblings) ? (p.siblings as Record<string, unknown>[]) : [];
+  // split runtime children: the trigger payload carries {parentNodeKey, unit} —
+  // the unit is aliased at the top level so child templates render the
+  // documented split variables ({{input.unit.key}}, {{input.unit.item.*}}).
+  // Ordinary flows (no split payload) resolve an empty unit.
+  const unit = (p.unit && typeof p.unit === "object" ? p.unit : {}) as Record<string, unknown>;
   return {
     task: taskContextOf(ctx),
     repo: {
@@ -67,6 +78,7 @@ export function buildFlowContext(ctx: FlowCtx): FlowContextMap {
     plan: planPart,
     step,
     siblings,
+    input: { unit },
   };
 }
 

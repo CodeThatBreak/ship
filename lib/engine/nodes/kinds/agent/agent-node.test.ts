@@ -300,3 +300,191 @@ describe("AgentTemplateNode — one persistence path (T2)", () => {
     expect(rows.finishEvent?.message).toBe(`${LABEL} output ready`);
   });
 });
+
+// ── Phase 3: the agent node as a split SOURCE (agent-node split plan §7.3) ───
+
+/** A json contract whose `services` array is the unit source, with the split
+ *  selectors on non-default item paths (defaults are key / dependsOn). */
+const SPLIT_CONFIG = {
+  output: "json",
+  output_schema: {
+    type: "object",
+    properties: {
+      services: { type: "array", items: { type: "object" } },
+    },
+    required: ["services"],
+  },
+  split: {
+    field: "services",
+    key_field: "id",
+    target: "build",
+    target_field: "route",
+    depends_on_field: "after",
+  },
+};
+
+const SPLIT_OUTPUT = JSON.stringify({
+  services: [
+    { id: "api", title: "API service", after: ["db"], route: "nt_docs" },
+    { id: "db" },
+  ],
+});
+
+/** The malformed-units cases run against an UNCONSTRAINED output schema —
+ *  the run persists the bad shape (nothing rejects it) and splitUnits owns
+ *  the loud failure. */
+const PERMISSIVE_SPLIT_CONFIG = {
+  output: "json",
+  output_schema: { type: "object" },
+  split: SPLIT_CONFIG.split,
+};
+
+function splitAgentNode(
+  index: number,
+  runner: InstanceType<typeof AgentRunner>,
+  config: Record<string, unknown> = SPLIT_CONFIG,
+): InstanceType<typeof AgentTemplateNode> {
+  return new AgentTemplateNode(
+    { id: `nt_${index}`, name: LABEL, description: null, config },
+    `agent_${index}`,
+    { runner },
+  );
+}
+
+describe("AgentTemplateNode — split units (the source port)", () => {
+  it("no split declared → null units, and the prompt path is byte-identical (no directive)", async () => {
+    // markdown: the whole path unchanged — the recorded prompt is the body, verbatim
+    const a = seedAgentNode(31);
+    const nodeA = agentNode(31, new StubRunner({ status: "finished", result: FINISHED_TEXT }));
+    await nodeA.run(a.ctx, { prompt: "Do the work" }, {});
+    expect(nodeA.splitUnits(a.ctx)).toBeNull();
+    const mdPrompt = db.get<{ input: string }>(`SELECT input FROM nodes WHERE id=?`, a.nodeId)?.input;
+    expect(JSON.parse(mdPrompt ?? "{}").prompt).toBe("Do the work");
+
+    // json: the contract directive rides, the split directive does not
+    const b = seedAgentNode(32);
+    const nodeB = jsonAgentNode(32, new StubRunner({ status: "finished", result: '{"cost":42}' }));
+    await nodeB.run(b.ctx, { prompt: "Estimate the cost" }, JSON_CONFIG);
+    expect(nodeB.splitUnits(b.ctx)).toBeNull();
+    const jsonPrompt = db.get<{ input: string }>(`SELECT input FROM nodes WHERE id=?`, b.nodeId)?.input;
+    expect(JSON.parse(jsonPrompt ?? "{}").prompt).toContain("RESPONSE FORMAT");
+    expect(JSON.parse(jsonPrompt ?? "{}").prompt).not.toContain("UNIT OUTPUT");
+  });
+
+  it("no run output yet → null (nothing to iterate)", () => {
+    const seeded = seedAgentNode(33);
+    const node = splitAgentNode(33, new StubRunner({ status: "finished", result: SPLIT_OUTPUT }));
+    expect(node.splitUnits(seeded.ctx)).toBeNull();
+  });
+
+  it("an empty units array → null (no expansion)", async () => {
+    const seeded = seedAgentNode(34);
+    const node = splitAgentNode(34, new StubRunner({ status: "finished", result: '{"services":[]}' }));
+    await node.run(seeded.ctx, { prompt: "List the services" }, SPLIT_CONFIG);
+    expect(node.splitUnits(seeded.ctx)).toBeNull();
+  });
+
+  it("the split field absent from the output → null (no expansion)", async () => {
+    const seeded = seedAgentNode(35);
+    const node = splitAgentNode(35, new StubRunner({ status: "finished", result: '{"cost":1}' }), PERMISSIVE_SPLIT_CONFIG);
+    await node.run(seeded.ctx, { prompt: "List the services" }, PERMISSIVE_SPLIT_CONFIG);
+    expect(node.splitUnits(seeded.ctx)).toBeNull();
+  });
+
+  it("maps key/title/dependsOn/target selectors, with the per-item target override", async () => {
+    const seeded = seedAgentNode(36);
+    const node = splitAgentNode(36, new StubRunner({ status: "finished", result: SPLIT_OUTPUT }));
+    await node.run(seeded.ctx, { prompt: "List the services" }, SPLIT_CONFIG);
+
+    const units = node.splitUnits(seeded.ctx);
+    if (units == null) throw new Error("splitUnits returned null for a non-empty array");
+    expect(units).toHaveLength(2);
+    // selectors on non-default paths; the item rides verbatim
+    expect(units[0]).toEqual({
+      key: "api",
+      title: "API service",
+      dependsOn: ["db"],
+      target: "nt_docs", // per-item override beats the split default target
+      item: { id: "api", title: "API service", after: ["db"], route: "nt_docs" },
+    });
+    // no title field → the key is the title; no deps → []; no override → the default target
+    expect(units[1]).toEqual({
+      key: "db",
+      title: "db",
+      dependsOn: [],
+      target: "build",
+      item: { id: "db" },
+    });
+  });
+
+  it("the directive is appended after the output-contract directive, only when split is set", async () => {
+    const seeded = seedAgentNode(37);
+    const node = splitAgentNode(37, new StubRunner({ status: "finished", result: SPLIT_OUTPUT }));
+    await node.run(seeded.ctx, { prompt: "List the services" }, SPLIT_CONFIG);
+    const recorded = db.get<{ input: string }>(`SELECT input FROM nodes WHERE id=?`, seeded.nodeId)?.input;
+    if (recorded == null) throw new Error("the node run recorded no input");
+    const prompt = JSON.parse(recorded).prompt as string;
+    const contractAt = prompt.indexOf("RESPONSE FORMAT");
+    const splitAt = prompt.indexOf("UNIT OUTPUT");
+    expect(contractAt).toBeGreaterThanOrEqual(0);
+    expect(splitAt).toBeGreaterThan(contractAt);
+    // the static block names the configured selectors
+    expect(prompt).toContain('"services" array are units of work');
+    expect(prompt).toContain('"id"');
+    expect(prompt).toContain('"after"');
+  });
+
+  it("a malformed units array fails loudly — the producer-error policy", async () => {
+    // units not an array
+    const a = seedAgentNode(38);
+    const nodeA = splitAgentNode(38, new StubRunner({ status: "finished", result: '{"services":"oops"}' }), PERMISSIVE_SPLIT_CONFIG);
+    await nodeA.run(a.ctx, { prompt: "List the services" }, PERMISSIVE_SPLIT_CONFIG);
+    expect(splitUnitsErrorOf(nodeA, a.ctx)).toMatchObject({
+      name: "AgentOutputError",
+      code: "schema_mismatch",
+      message: `${LABEL}: split field "services" must be an array of unit items (got string)`,
+    });
+
+    // an item that is not an object
+    const b = seedAgentNode(39);
+    const nodeB = splitAgentNode(39, new StubRunner({ status: "finished", result: '{"services":[1]}' }), PERMISSIVE_SPLIT_CONFIG);
+    await nodeB.run(b.ctx, { prompt: "List the services" }, PERMISSIVE_SPLIT_CONFIG);
+    expect(splitUnitsErrorOf(nodeB, b.ctx)).toMatchObject({
+      code: "schema_mismatch",
+      message: `${LABEL}: split field "services" item 0 is not an object`,
+    });
+
+    // a missing unit key — the loud contract failure, never a silent skip
+    const c = seedAgentNode(40);
+    const nodeC = splitAgentNode(40, new StubRunner({ status: "finished", result: '{"services":[{"title":"no id"}]}' }), PERMISSIVE_SPLIT_CONFIG);
+    await nodeC.run(c.ctx, { prompt: "List the services" }, PERMISSIVE_SPLIT_CONFIG);
+    expect(splitUnitsErrorOf(nodeC, c.ctx)).toMatchObject({
+      code: "schema_mismatch",
+      message: `${LABEL}: item 0 has no usable "id" — every unit needs a stable, non-empty key`,
+    });
+
+    // non-string[] dependencies
+    const d = seedAgentNode(41);
+    const nodeD = splitAgentNode(
+      41,
+      new StubRunner({ status: "finished", result: '{"services":[{"id":"api","after":"db"}]}' }),
+      PERMISSIVE_SPLIT_CONFIG,
+    );
+    await nodeD.run(d.ctx, { prompt: "List the services" }, PERMISSIVE_SPLIT_CONFIG);
+    expect(splitUnitsErrorOf(nodeD, d.ctx)).toMatchObject({
+      code: "schema_mismatch",
+      message: `${LABEL}: item 0's "after" must be an array of unit keys`,
+    });
+  });
+});
+
+/** splitUnits fails synchronously (the port is sync) — capture the thrown
+ *  producer error; a clean return is itself the failure. */
+function splitUnitsErrorOf(node: InstanceType<typeof AgentTemplateNode>, ctx: FlowCtx): unknown {
+  try {
+    node.splitUnits(ctx);
+  } catch (e: unknown) {
+    return e;
+  }
+  throw new Error("expected splitUnits to fail loudly");
+}

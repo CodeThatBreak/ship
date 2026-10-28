@@ -25,6 +25,7 @@ import {
   writeConfig,
 } from "./ConfigFieldRow";
 import { PromptSectionField } from "./PromptSectionField";
+import { SplitConfigFields } from "./components/SplitConfigFields";
 import { httpResponseVarGroups, type VarGroup } from "./variables";
 
 export interface DeclarativeConfigFieldsProps {
@@ -109,6 +110,15 @@ export function DeclarativeConfigFields({
             agentOutputJson ||
             config.output_schema != null,
         )
+        // the split block only matters for a json-output agent (units are
+        // schema-validated output items) — an override split stays visible so
+        // the author can clear it
+        .filter(
+          (f) =>
+            !(f.key === "split" && kind === "agent") ||
+            agentOutputJson ||
+            config.split != null,
+        )
         .filter((f) => !(kind === "decision" && f.key === "expression"))
         .filter(
           (f) =>
@@ -118,6 +128,22 @@ export function DeclarativeConfigFields({
         .filter((f) => !fanoutKeys.has(f.key) || showFanout)
         .filter((f) => !hidden.has(f.key))
         .map((f) => {
+          // the split block: a bespoke nested-object editor driven by the
+          // node's compiled output schema (the array-field picker + the
+          // per-item path checks) — a plain ConfigField can't express it
+          if (f.key === "split" && kind === "agent") {
+            return (
+              <SplitConfigFields
+                key={f.key}
+                field={f}
+                split={config[f.key]}
+                output={contract.output}
+                onSplitChange={(next) =>
+                  onConfigChange(writeConfig(config, f.key, next))
+                }
+              />
+            );
+          }
           if (promptEditorKeys.has(f.key)) {
             // the prompt surface: body + (free prompts) everything in one —
             // declarative prompts have no rules knob or locked blocks yet

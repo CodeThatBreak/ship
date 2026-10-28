@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { z } from "zod";
 import { flowEngine } from "../../../../../lib/engine/flow-engine";
 import type { PlanStepInput } from "../../../../../lib/engine/runtime/plan-step-store";
 
@@ -32,6 +33,9 @@ type ActionBody = {
   config?: Record<string, unknown>;
   chosen?: string[];
   rationale?: string;
+  // split per-unit actions (agent-node split plan §3)
+  unitKey?: string;
+  consumerNodeKey?: string;
 };
 
 const ACTIONS: Record<string, (flowId: string, body: ActionBody) => void | Promise<void>> = {
@@ -61,6 +65,25 @@ const ACTIONS: Record<string, (flowId: string, body: ActionBody) => void | Promi
   approve_fanout_step: (id, b) => flowEngine.approveFanoutStep(id, requireString(b.stepId, "stepId")),
   retry_fanout_step: (id, b) => flowEngine.retryFanoutStep(id, requireString(b.stepId, "stepId")),
   skip_fanout_step: (id, b) => flowEngine.skipFanoutStep(id, requireString(b.stepId, "stepId")),
+  // split runtime (agent-node split plan §3): per-unit actions, addressed by
+  // unit key (+ optional consumer node key), Zod-validated at this boundary
+  // (§3.4 — the legacy actions above predate the rule and stay as they are)
+  skip_split_unit: async (id, b) => {
+    const body = parseSplitUnitBody(b);
+    await flowEngine.skipSplitUnit(id, body.unitKey, body.consumerNodeKey);
+  },
+  retry_split_unit: (id, b) => {
+    const body = parseSplitUnitBody(b);
+    flowEngine.retrySplitUnit(id, body.unitKey, body.consumerNodeKey);
+  },
+  approve_split_unit: (id, b) => {
+    const body = parseSplitUnitBody(b);
+    flowEngine.approveSplitUnit(id, body.unitKey, body.consumerNodeKey);
+  },
+  cancel_split_unit: async (id, b) => {
+    const body = parseSplitUnitBody(b);
+    await flowEngine.cancelSplitUnit(id, body.unitKey, body.consumerNodeKey);
+  },
 };
 
 /**
@@ -69,6 +92,26 @@ const ACTIONS: Record<string, (flowId: string, body: ActionBody) => void | Promi
 function requireString(value: unknown, field: string): string {
   if (typeof value !== "string" || !value) throw new Error(`${field} required`);
   return value;
+}
+
+/**
+ * The split per-unit actions' body — Zod-validated at this boundary (§3.4;
+ * new actions validate, the legacy ones above predate the rule). Addressed
+ * by `unitKey`, with the consumer node key optional (it resolves through the
+ * split linkage when omitted).
+ */
+const splitUnitBody = z.object({
+  unitKey: z.string().min(1, "unitKey required"),
+  consumerNodeKey: z.string().min(1).optional(),
+});
+
+function parseSplitUnitBody(b: ActionBody): z.infer<typeof splitUnitBody> {
+  const r = splitUnitBody.safeParse(b);
+  if (!r.success) {
+    const issue = r.error.issues[0];
+    throw new Error(`invalid split unit body${issue ? ` — ${issue.path.join(".") || "body"}: ${issue.message}` : ""}`);
+  }
+  return r.data;
 }
 
 export async function POST(req: Request, { params }: { params: Promise<{ id: string }> }) {
