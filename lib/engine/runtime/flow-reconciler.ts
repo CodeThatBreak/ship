@@ -243,7 +243,7 @@ export class Reconciler {
     const { flow } = ctx;
     const port = agentPortRegistry.forMode("local");
     // run still owned by this process → genuinely running, nothing to do
-    if (runRow && port.hasActiveRun(runRow.cursor_run_id)) return;
+    if (runRow && port.hasActiveRun(runRow.run_ref)) return;
 
     if (!runRow) {
       nodeSupport.failOrphanedNode(flow.id, node.id, node.node_key, "node was left running without an active run");
@@ -255,11 +255,11 @@ export class Reconciler {
     // The probe must use the run's own cwd (the flow's worktree when it used
     // one) — the SDK keys persisted sessions on it.
     const runCwd = flowCtxHelper.runCwd(ctx);
-    const sessionId = runRow.cursor_agent_id;
+    const sessionId = runRow.agent_ref;
     const probe =
       sessionId && runCwd
         ? await port
-            .inspectSession(sessionId, runRow.cursor_run_id, runCwd)
+            .inspectSession(sessionId, runRow.run_ref, runCwd)
             .catch(() => null)
         : null;
 
@@ -281,12 +281,12 @@ export class Reconciler {
     await flowEngine.completeNodeFromResult(
       ctx,
       node,
-      { id: runRow.cursor_run_id, status: "finished", result: probe.text },
+      { id: runRow.run_ref, status: "finished", result: probe.text },
       "recovered from the persisted agent session after server restart"
     );
   }
 
-  // ── cloud mode: ask the Cursor API ────────────────────────────────────────
+  // ── cloud mode: ask the runtime's API ─────────────────────────────────────
   private async reconcileCloud(ctx: FlowCtx, node: NodeRow, runRow: RunRow | undefined): Promise<void> {
     const { flow } = ctx;
     const port = agentPortRegistry.forMode("cloud");
@@ -296,7 +296,7 @@ export class Reconciler {
     }
 
     const result = await port
-      .getRun({ agentId: runRow.cursor_agent_id, runId: runRow.cursor_run_id })
+      .getRun({ agentId: runRow.agent_ref, runId: runRow.run_ref })
       .catch(() => null);
     // null means either unreachable or still in flight — distinguish below.
     const TERMINAL = ["finished", "error", "cancelled"];
@@ -306,13 +306,13 @@ export class Reconciler {
     }
 
     // still running — re-attach once and stream it to completion
-    if (this.reattached.has(runRow.cursor_run_id)) return;
-    this.reattached.add(runRow.cursor_run_id);
+    if (this.reattached.has(runRow.run_ref)) return;
+    this.reattached.add(runRow.run_ref);
     db.emitEvent(flow.id, node.id, "lifecycle", `re-attached to ${node.node_key} run on the agent runtime (server restarted)`);
     (async () => {
       try {
         const final = await port.stream(
-          { agentId: runRow.cursor_agent_id, runId: runRow.cursor_run_id },
+          { agentId: runRow.agent_ref, runId: runRow.run_ref },
           {
           onStatus: (s) => db.emitEvent(flow.id, node.id, "status", `run ${s}`),
           onAssistant: (t) => db.emitEvent(flow.id, node.id, "assistant", t),
@@ -324,7 +324,7 @@ export class Reconciler {
       } catch (e: unknown) {
         nodeSupport.failOrphanedNode(flow.id, node.id, node.node_key, `lost run stream: ${e instanceof Error ? e.message : e}`);
       } finally {
-        this.reattached.delete(runRow.cursor_run_id);
+        this.reattached.delete(runRow.run_ref);
       }
     })();
   }

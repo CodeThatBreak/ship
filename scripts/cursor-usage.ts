@@ -90,24 +90,24 @@ async function main() {
   if (dbMode) {
     const limit = Math.max(1, Number(args[1]) || 5);
     const agents = db.all<{
-      cursor_agent_id: string;
-      cursor_run_id: string;
+      agent_ref: string;
+      run_ref: string;
       status: string;
     }>(
-      `SELECT DISTINCT cursor_agent_id, cursor_run_id, status FROM runs
-       WHERE cursor_agent_id IS NOT NULL ORDER BY created_at DESC LIMIT ?`,
+      `SELECT DISTINCT agent_ref, run_ref, status FROM runs
+       WHERE agent_ref IS NOT NULL ORDER BY created_at DESC LIMIT ?`,
       limit,
     );
     if (!agents.length) {
       console.log("no runs with agent ids in the db");
       return;
     }
-    for (const { cursor_agent_id, cursor_run_id, status } of agents) {
-      const id = normalizeAgentId(cursor_agent_id);
+    for (const { agent_ref, run_ref, status } of agents) {
+      const id = normalizeAgentId(agent_ref);
       console.log(
-        `\n── agent ${id} (row id ${cursor_agent_id}, run ${cursor_run_id}, ${status})`,
+        `\n── agent ${id} (row id ${agent_ref}, run ${run_ref}, ${status})`,
       );
-      await probeInstance(id, cursor_run_id);
+      await probeInstance(id, run_ref);
       await probeStatic(id);
     }
     return;

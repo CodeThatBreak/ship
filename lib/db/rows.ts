@@ -128,7 +128,8 @@ export const NodeRow = z.object({
   type: z.string(),
   status: z.enum(NODE_STATUSES),
   agent_id: z.string().nullable(),
-  cursor_agent_id: z.string().nullable(),
+  /** runtime agent handle (cloud agent id / local session id) */
+  agent_ref: z.string().nullable(),
   session_id: z.string().nullable(),
   prompt_override: z.string().nullable(),
   /** display name override from the template instance */
@@ -242,8 +243,10 @@ export const RunRow = z.object({
   id: z.string(),
   flow_id: z.string(),
   node_id: z.string(),
-  cursor_agent_id: z.string(),
-  cursor_run_id: z.string(),
+  /** runtime agent handle (cloud agent id / local session id) */
+  agent_ref: z.string(),
+  /** the runtime's run id */
+  run_ref: z.string(),
   branch_id: z.string().nullable(),
   status: z.string(),
   model: z.string().nullable(),

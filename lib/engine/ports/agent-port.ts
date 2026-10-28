@@ -5,13 +5,16 @@
  * Concrete runtimes implement `AgentPort` in `lib/integrations/<vendor>/` and
  * register themselves in `agentPortRegistry` (composition point — the one
  * place concrete integrations are named on the engine side). The engine
- * selects the port by the flow's execution mode ("cloud" | "local").
+ * selects the port by the flow's execution mode ("cloud" | "local"),
+ * preferring the port of the configured default harness when several ports
+ * share that mode.
  *
  * Both today's runtimes share one SDK runtime (lib/integrations/cursorSdk.ts),
  * so the normalized shapes below mirror what the SDK already emits:
  * statuses are "finished" | "error" | "cancelled"; usage carries token counts
  * and the billed cost when the runtime reports one.
  */
+import { db } from "../../db";
 import { CursorCloudAgentPort } from "../../integrations/cursor/agent-port";
 import { CursorLocalAgentPort } from "../../integrations/local-agent/agent-port";
 import type { CatalogModel } from "../../modelSpec";
@@ -117,6 +120,14 @@ export interface AgentStreamOutcome {
   sessionId?: string | null;
 }
 
+/** A single rate-card entry: USD per million tokens (token-cost estimates). */
+export interface PricingEntry {
+  input_per_mtok?: number;
+  output_per_mtok?: number;
+  cache_read_per_mtok?: number;
+  cache_write_per_mtok?: number;
+}
+
 /** One agent runtime. */
 export interface AgentPort {
   /** stable registry key, e.g. "cursor-cloud" */
@@ -125,10 +136,26 @@ export interface AgentPort {
   readonly label: string;
   /** the flow execution mode this port runs */
   readonly execMode: "cloud" | "local";
-  /** the product surface that owns this port, e.g. "cursor" */
+  /**
+   * the product surface that owns this port, e.g. "cursor" — the key
+   * `forMode` matches against the `default_harness` selection within a mode
+   */
   readonly harness: string;
   /** model ids used when the catalog is unreachable (empty for cloud) */
   readonly fallbackModels: readonly string[];
+  /**
+   * Fraction off the rate card's list prices that this vendor's billing
+   * agreement applies (e.g. an enterprise-plan discount) — the engine's
+   * token-based cost estimate multiplies by (1 - this). 0 = list price.
+   * Billed charges from getUsage are used as-is, never discounted.
+   */
+  readonly listDiscount: number;
+  /**
+   * This vendor's rate-card corrections that the public pricing source
+   * (PricingSource) doesn't track — keyed by model id. Undefined = none.
+   * The cost estimator merges them over the fetched table (overrides win).
+   */
+  readonly rateOverrides?: Record<string, PricingEntry>;
 
   start(spec: AgentStartSpec): Promise<AgentStarted>;
   /** Stream a run to completion (re-attaching after a restart when durable). */
@@ -152,16 +179,36 @@ export interface AgentPort {
   status(): Promise<{ configured: boolean; detail?: string }>;
 }
 
+/** The user-selected default harness (the `default_harness` setting), or
+ *  null — unset/empty means "no preference" and {@link AgentPortRegistry.forMode}
+ *  falls back to the first port registered for the mode. Read per selection so
+ *  a settings change takes effect without a restart. */
+function defaultHarnessSetting(): string | null {
+  return db.getSetting<string>("default_harness", "") || null;
+}
+
 /**
  * The agent-port registry — mirrors `GitHostRegistry` (lib/engine/ports/
  * git-host.ts): adding a runtime = one adapter file + one `register()` line.
+ * Several ports may share an execution mode (one per harness): selection
+ * prefers the port of the harness chosen on the Settings page
+ * (`default_harness`), so a later-integrated harness takes over a mode
+ * without touching the engine.
  */
 export class AgentPortRegistry {
   private readonly registry = new Map<string, AgentPort>();
 
-  constructor() {
+  constructor(
+    /**
+     * Resolves the configured default harness key, or null for "no
+     * preference". Tests inject their own (and disable the builtins) to keep
+     * the DB isolated.
+     */
+    private readonly resolveDefaultHarness: () => string | null = defaultHarnessSetting,
+    builtins = true,
+  ) {
     // Composition point: built-in adapters register here.
-    this.registerBuiltins();
+    if (builtins) this.registerBuiltins();
   }
 
   private registerBuiltins(): void {
@@ -193,11 +240,22 @@ export class AgentPortRegistry {
     return [...this.registry.values()];
   }
 
-  /** The port backing a flow execution mode, or throw. */
+  /**
+   * The port backing a flow execution mode. When the configured default
+   * harness (`default_harness`) registers a port for the mode, that port
+   * wins; otherwise the first registered port for the mode (today's
+   * single-harness installs see no change). Unknown/unregistered keys fall
+   * back too, so a stale setting can never hard-fail a run.
+   */
   forMode(mode: "cloud" | "local"): AgentPort {
-    const p = this.list().find((x) => x.execMode === mode);
-    if (!p) throw new Error(`no agent runner configured for execution mode "${mode}"`);
-    return p;
+    const harness = this.resolveDefaultHarness();
+    const chosen = (harness
+      ? this.list().find((x) => x.harness === harness && x.execMode === mode)
+      : undefined) ?? this.list().find((x) => x.execMode === mode);
+    if (!chosen) {
+      throw new Error(`no agent runner configured for execution mode "${mode}"`);
+    }
+    return chosen;
   }
 }
 

@@ -115,7 +115,7 @@ export class AgentRunner {
     const startedAt = Date.now();
     const { agentId, runId } = await start();
     this.support.persistRun(flow.id, nodeId, agentId, runId);
-    const runRowId = db.get<{ id: string }>(`SELECT id FROM runs WHERE cursor_run_id=?`, runId)?.id as string;
+    const runRowId = db.get<{ id: string }>(`SELECT id FROM runs WHERE run_ref=?`, runId)?.id as string;
     db.emitEvent(flow.id, nodeId, "lifecycle", `${label} started (${mode})`, { agentId, runId, run_id: runId, mode });
 
     const stream = new StreamBuffer(flow.id, nodeId, runId);
@@ -165,7 +165,7 @@ export class AgentRunner {
       this.usage.persistUsage(runRowId, { durationMs });
     }
 
-    db.run(`UPDATE runs SET status=?, updated_at=? WHERE cursor_run_id=?`,
+    db.run(`UPDATE runs SET status=?, updated_at=? WHERE run_ref=?`,
       result.status === "finished" ? "finished" : "error", db.now(), runId);
 
     // Late-write guard: if the node was already moved out of `running` while

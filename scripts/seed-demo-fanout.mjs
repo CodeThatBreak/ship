@@ -235,7 +235,7 @@ function seedStep(step, opts) {
       minsAgo(44), opts.stepUpdatedAt ?? minsAgo(opts.minsAgo ?? 20));
   // billed runs (sample charging — the cost rollup reads these)
   for (const [i, r] of (opts.runs ?? []).entries()) {
-    db.prepare(`INSERT INTO runs (id,flow_id,node_id,cursor_agent_id,cursor_run_id,status,model,input_tokens,output_tokens,cache_read_tokens,cache_write_tokens,duration_ms,cost_cents,created_at,updated_at)
+    db.prepare(`INSERT INTO runs (id,flow_id,node_id,agent_ref,run_ref,status,model,input_tokens,output_tokens,cache_read_tokens,cache_write_tokens,duration_ms,cost_cents,created_at,updated_at)
       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`)
       .run(uid("run_"), childId, childNodeId, `demo-agent-${step.id}-${i + 1}`, `demo-run-${step.id}-${i + 1}`,
         r.status, r.model, r.input_tokens, r.output_tokens, r.cache_read_tokens, r.cache_write_tokens, r.duration_ms, r.cost_cents,

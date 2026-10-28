@@ -72,21 +72,21 @@ export class NodeSupport {
     // as the "latest running run" by reconcile, clobbering this fresh run
     db.run(`UPDATE runs SET status='error', updated_at=? WHERE node_id=? AND status='running'`, db.now(), nodeId);
     db.run(
-      `INSERT INTO runs (id,flow_id,node_id,cursor_agent_id,cursor_run_id,status,created_at,updated_at)
+      `INSERT INTO runs (id,flow_id,node_id,agent_ref,run_ref,status,created_at,updated_at)
        VALUES (?,?,?,?,?,'running',?,?)`,
       db.uid("run_"), flowId, nodeId, agentId, runId, db.now(), db.now()
     );
   }
 
   lastAgentId(nodeId: string): string | null {
-    return db.get<{ cursor_agent_id: string }>(
-      `SELECT cursor_agent_id FROM runs WHERE node_id=? ORDER BY created_at DESC LIMIT 1`, nodeId
-    )?.cursor_agent_id ?? null;
+    return db.get<{ agent_ref: string }>(
+      `SELECT agent_ref FROM runs WHERE node_id=? ORDER BY created_at DESC LIMIT 1`, nodeId
+    )?.agent_ref ?? null;
   }
 
   /** Update the run row with the real agent/session id once known (local mode). */
   setRunAgentId(runId: string, agentId: string): void {
-    db.run(`UPDATE runs SET cursor_agent_id=?, updated_at=? WHERE cursor_run_id=?`, agentId, db.now(), runId);
+    db.run(`UPDATE runs SET agent_ref=?, updated_at=? WHERE run_ref=?`, agentId, db.now(), runId);
   }
 
   /** Mark a node's orphaned run as failed after a server restart (nothing recoverable). */

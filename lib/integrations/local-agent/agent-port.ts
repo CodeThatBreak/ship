@@ -12,6 +12,7 @@ import type {
   CatalogModel,
 } from "../../engine/ports/agent-port";
 import { localAgent } from "./agent";
+import { CURSOR_LIST_DISCOUNT, CURSOR_RATE_OVERRIDES } from "../cursor/pricing";
 
 /**
  * Local agent port: wraps the local agent service (in-process agent loop over
@@ -25,6 +26,8 @@ export class CursorLocalAgentPort implements AgentPort {
   readonly execMode = "local" as const;
   readonly harness = "cursor";
   readonly fallbackModels = ["composer-2.5", "auto"];
+  readonly listDiscount = CURSOR_LIST_DISCOUNT;
+  readonly rateOverrides = CURSOR_RATE_OVERRIDES;
 
   async start(spec: AgentStartSpec): Promise<AgentStarted> {
     return localAgent.createRun({

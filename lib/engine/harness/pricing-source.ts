@@ -1,7 +1,7 @@
 import "server-only";
 
 import { TtlCache } from "../../cache";
-import type { PricingEntry } from "./usage-tracker";
+import type { PricingEntry } from "../ports/agent-port";
 
 /** LiteLLM pricing entry — the fields DevFlow maps onto a rate card. */
 interface LiteLLMEntry {
@@ -34,7 +34,9 @@ function toPricingEntry(value: unknown): PricingEntry | null {
  * Source of the model rate card (USD per million tokens) for cost estimates.
  * The table is fetched from LiteLLM's community pricing JSON and cached in
  * memory (TTL); a fetch failure NEVER breaks cost tracking — callers get a
- * minimal static wildcard table instead.
+ * minimal static wildcard table instead. Vendor-specific rates and discounts
+ * are port facts (`AgentPort.rateOverrides` / `AgentPort.listDiscount`), not
+ * part of this source.
  */
 export class PricingSource {
   /** LiteLLM's community-maintained model pricing table (per-token costs). */
@@ -49,21 +51,11 @@ export class PricingSource {
     "*": { input_per_mtok: 2, output_per_mtok: 10, cache_read_per_mtok: 0.2 },
   };
 
-  /**
-   * Cursor-specific pricing LiteLLM's table doesn't track (Cursor's own models
-   * and its internal Grok reporting keys), USD per Mtok — source:
-   * https://cursor.com/docs/models-and-pricing. Fast-mode surcharges are not
-   * modeled — the base rates apply (see `estimateCostCents`).
-   */
-  private static readonly CURSOR_OVERRIDES: Record<string, PricingEntry> = {
-    "composer-2.5": { input_per_mtok: 0.5, output_per_mtok: 2.5, cache_read_per_mtok: 0.2 },
-    "grok-4": { input_per_mtok: 2, output_per_mtok: 6, cache_read_per_mtok: 0.5 },
-  };
-
   private readonly table = new TtlCache<Record<string, PricingEntry>>(PricingSource.TTL_MS);
   private failureUntil = 0;
 
-  /** The rate card: the cached remote table merged over the Cursor overrides. */
+  /** The rate card: the cached remote table (vendor overrides merge on top
+   *  at the estimator — `UsageTracker.rateTable`). */
   async entries(): Promise<Record<string, PricingEntry>> {
     const cached = this.table.get("table");
     if (cached) return cached;
@@ -89,8 +81,8 @@ export class PricingSource {
   }
 
   /**
-   * Fetch + map the remote table. Cursor-specific entries win over mapped
-   * ones; anything unparseable is skipped. null = unreachable/unusable.
+   * Fetch + map the remote table. LiteLLM's community table is used as-is;
+   * anything unparseable is skipped. null = unreachable/unusable.
    */
   private async fetchTable(): Promise<Record<string, PricingEntry> | null> {
     let json: unknown;
@@ -113,6 +105,6 @@ export class PricingSource {
       if (!entry) continue;
       if (!mapped[key]) mapped[key] = entry; // first occurrence wins
     }
-    return { ...mapped, ...PricingSource.CURSOR_OVERRIDES };
+    return mapped;
   }
 }

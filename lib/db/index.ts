@@ -118,6 +118,18 @@ export class Database {
     if (!runCols.has("branch_id")) {
       d.exec(`ALTER TABLE runs ADD COLUMN branch_id TEXT REFERENCES branches(id)`);
     }
+    // ── Run handles vendor-neutralized: cursor_agent_id/cursor_run_id were the
+    //    runtime-assigned handles (cloud agent id / run id, local agent
+    //    session/run ids) and no longer name a specific vendor.
+    if (runCols.has("cursor_agent_id") && !runCols.has("agent_ref")) {
+      d.exec(`ALTER TABLE runs RENAME COLUMN cursor_agent_id TO agent_ref`);
+    }
+    if (runCols.has("cursor_run_id") && !runCols.has("run_ref")) {
+      d.exec(`ALTER TABLE runs RENAME COLUMN cursor_run_id TO run_ref`);
+    }
+    if (nodeCols.has("cursor_agent_id") && !nodeCols.has("agent_ref")) {
+      d.exec(`ALTER TABLE nodes RENAME COLUMN cursor_agent_id TO agent_ref`);
+    }
     // ── Phase 1: custom flows — template layer ─────────────────────────────
     if (!nodeCols.has("label")) {
       d.exec(`ALTER TABLE nodes ADD COLUMN label TEXT`);

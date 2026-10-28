@@ -3,6 +3,7 @@ import "server-only";
 import { cursorAgent } from "../cursorSdk";
 import { cursorClient } from "./client";
 import { cursorApiKey } from "./credentials";
+import { CURSOR_LIST_DISCOUNT, CURSOR_RATE_OVERRIDES } from "./pricing";
 import type {
   AgentPort,
   AgentRunHandle,
@@ -24,6 +25,8 @@ export class CursorCloudAgentPort implements AgentPort {
   readonly execMode = "cloud" as const;
   readonly harness = "cursor";
   readonly fallbackModels: readonly string[] = [];
+  readonly listDiscount = CURSOR_LIST_DISCOUNT;
+  readonly rateOverrides = CURSOR_RATE_OVERRIDES;
 
   async start(spec: AgentStartSpec): Promise<AgentStarted> {
     // Follow-up runs inherit the agent's model.

@@ -1531,10 +1531,10 @@ export class FlowEngine {
     const node = rows.get(NodeRow, `SELECT * FROM nodes WHERE flow_id=? AND node_key=?`, flowId, nodeKey);
     if (!node) throw new Error("unknown node");
     const flow = rows.get(FlowRow, `SELECT * FROM flows WHERE id=?`, flowId);
-    const active = db.all<{ cursor_run_id: string }>(
-      `SELECT cursor_run_id FROM runs WHERE node_id=? AND status='running'`, node.id);
+    const active = db.all<{ run_ref: string }>(
+      `SELECT run_ref FROM runs WHERE node_id=? AND status='running'`, node.id);
     if (flow?.execution_mode === "local") {
-      for (const r of active) agentPortRegistry.forMode("local").cancel({ runId: r.cursor_run_id });
+      for (const r of active) agentPortRegistry.forMode("local").cancel({ runId: r.run_ref });
     }
     db.run(`UPDATE runs SET status='error', updated_at=? WHERE node_id=? AND status='running'`, db.now(), node.id);
     this.setNodeStatus(flowId, nodeKey, "failed");

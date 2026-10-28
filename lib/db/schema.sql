@@ -42,8 +42,8 @@ CREATE TABLE IF NOT EXISTS nodes (
   node_key      TEXT NOT NULL,              -- plan | build | pipeline | review | resolve
   type          TEXT NOT NULL,
   status        TEXT NOT NULL DEFAULT 'pending',  -- pending|running|awaiting_approval|approved|failed|done|waiting|skipped
-  agent_id      TEXT,                        -- cursor agent id
-  cursor_agent_id TEXT,
+  agent_id      TEXT,                        -- runtime agent handle captured from the last run
+  agent_ref     TEXT,
   input         TEXT,                        -- JSON
   output        TEXT,                        -- JSON
   created_at    TEXT NOT NULL,
@@ -59,7 +59,7 @@ CREATE TABLE IF NOT EXISTS artifacts (
   kind          TEXT NOT NULL,             -- plan | diff | review | fix | resolve
   version       INTEGER NOT NULL,          -- 1-based per (node_id, kind)
   content       TEXT NOT NULL,             -- markdown / diff / json
-  meta          TEXT,                      -- JSON (cursor run id, branch, etc.)
+  meta          TEXT,                      -- JSON (run ref, branch, etc.)
   status        TEXT NOT NULL DEFAULT 'draft', -- draft | approved | superseded
   feedback      TEXT,                      -- human feedback that produced next version
   created_at    TEXT NOT NULL
@@ -151,8 +151,8 @@ CREATE TABLE IF NOT EXISTS runs (
   id            TEXT PRIMARY KEY,          -- our id
   flow_id       TEXT NOT NULL REFERENCES flows(id),
   node_id       TEXT NOT NULL REFERENCES nodes(id),
-  cursor_agent_id TEXT NOT NULL,
-  cursor_run_id TEXT NOT NULL,
+  agent_ref     TEXT NOT NULL,             -- runtime agent handle (cloud agent id / local session id)
+  run_ref       TEXT NOT NULL,             -- the runtime's run id
   branch_id     TEXT REFERENCES branches(id),  -- Phase 3C: per-branch attribution
   status        TEXT NOT NULL DEFAULT 'running',  -- running|finished|error|cancelled
   created_at    TEXT NOT NULL,

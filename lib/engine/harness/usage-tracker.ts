@@ -1,28 +1,24 @@
 import { db } from "../../db";
 import { uncachedInputTokens } from "../../usage";
-import { type AgentPort, type AgentRunResult, type AgentRunUsage } from "../ports/agent-port";
+import {
+  agentPortRegistry,
+  type AgentPort,
+  type AgentRunResult,
+  type AgentRunUsage,
+  type PricingEntry,
+} from "../ports/agent-port";
 import { PricingSource } from "./pricing-source";
 
 // ── cost & usage capture ─────────────────────────────────────────────────────
 
-export interface PricingEntry {
-  input_per_mtok?: number;
-  output_per_mtok?: number;
-  cache_read_per_mtok?: number;
-  cache_write_per_mtok?: number;
-}
+export type { PricingEntry };
 
 /**
- * Fraction off Cursor's list prices that our Enterprise plan is billed at
- * (7%). Applied to our own token-based cost calculation. When the usage API
- * does report a real billed charge, that figure is used as-is — Cursor
- * discounts it at billing time already.
+ * The effective rate card for a model: the remote source table with the
+ * running vendor's `rateOverrides` merged on top, and the `pricing` setting
+ * winning over it (exact model id, then the setting's own `"*"`/`"default"`
+ * wildcard, then the merged table's longest-prefix entry).
  */
-export const ENTERPRISE_DISCOUNT = 0.07;
-
-/** Effective rate card for a model: configured `pricing` setting (exact id,
- *  then the setting's own `"*"` / `"default"` wildcard) over the fetched
- *  source table (LiteLLM + the Cursor-specific static keys). */
 function resolveRates(
   model: string | undefined,
   pricing: Record<string, PricingEntry>,
@@ -34,14 +30,16 @@ function resolveRates(
 }
 
 /**
- * Cost of a token payload at list price minus {@link ENTERPRISE_DISCOUNT},
- * in cents.
+ * Cost of a token payload at list price minus the given discount fraction
+ * (the running port's `listDiscount` — a vendor billing-agreement fact), in
+ * cents.
  */
 /** See lib/usage.ts — uncached portion of a prompt-total input count. */
 
 export function estimateCostCents(
   usage: { model?: string; inputTokens?: number; outputTokens?: number; cacheReadTokens?: number; cacheWriteTokens?: number },
   rates: PricingEntry,
+  discount = 0,
 ): { cents: number; model?: string } {
   const per = (v?: number, rate?: number) => ((v ?? 0) * (rate ?? 0)) / 1_000_000 * 100;
   const cents =
@@ -49,8 +47,18 @@ export function estimateCostCents(
       per(usage.outputTokens, rates.output_per_mtok) +
       per(usage.cacheReadTokens, rates.cache_read_per_mtok) +
       per(usage.cacheWriteTokens, rates.cache_write_per_mtok)) *
-    (1 - ENTERPRISE_DISCOUNT);
+    (1 - discount);
   return { cents: Math.round(cents * 100) / 100, model: usage.model };
+}
+
+/** The effective source table: the fetched remote table with the vendor's
+ *  `rateOverrides` merged on top (overrides win). */
+async function rateTable(
+  source: PricingSource,
+  overrides: Record<string, PricingEntry> | undefined,
+): Promise<Record<string, PricingEntry>> {
+  const remote = await source.entries();
+  return overrides ? { ...remote, ...overrides } : remote;
 }
 
 /** Best billed figure for an entry: only > $0 counts. All-zero billed data
@@ -107,10 +115,11 @@ export class UsageTracker {
    * Unified usage capture for a finished run, regardless of runtime.
    *
    * Cost comes from one of two sources, in order:
-   *  1. a real > $0 billed charge from the cloud usage API (`Agent.getUsage`
+   *  1. a real > $0 billed charge from the vendor's usage API (`getUsage`
    *     is on a limited rollout — when it does report, that figure wins)
-   *  2. our own calculation: the run's token counts × the rate card, with the
-   *     Enterprise discount applied
+   *  2. our own calculation: the run's token counts × the rate card (the
+   *     vendor's `rateOverrides` merged over the remote table), priced at
+   *     the vendor's `listDiscount`
    *
    * Token counts come from whichever source served usage. See
    * {@link backfillCosts} for already-stored runs.
@@ -145,7 +154,8 @@ export class UsageTracker {
       ? null
       : estimateCostCents(
           { model, inputTokens: u.inputTokens, outputTokens: u.outputTokens, cacheReadTokens: u.cacheReadTokens, cacheWriteTokens: u.cacheWriteTokens },
-          resolveRates(model, pricing, this.pricingSource, await this.pricingSource.entries()),
+          resolveRates(model, pricing, this.pricingSource, await rateTable(this.pricingSource, port.rateOverrides)),
+          port.listDiscount,
         );
     const costCents = realCost ?? est?.cents;
     const estimated = realCost == null && est?.cents != null;
@@ -171,9 +181,15 @@ export class UsageTracker {
    * runs a cost from our own calculation. Rows with tokens but no/0 cost —
    * legacy captures — and rows still marked as an estimate are re-priced with
    * the current rate card, always from the run's own stored token counts.
-   * No usage API involved: `Agent.getUsage` isn't broadly rolled out, so our
-   * calculation is the only dependable source — stored cost = same estimate a
-   * fresh run would get, Enterprise discount included.
+   * No usage API involved: the vendors' `getUsage` isn't broadly rolled out,
+   * so our calculation is the only dependable source — stored cost = same
+   * estimate a fresh run would get (vendor `rateOverrides` and discount
+   * included).
+   *
+   * Stored rows don't record which runtime priced them, so the table merges
+   * every registered port's `rateOverrides` and the discount comes from the
+   * first cloud port (identical figures under a single registered harness;
+   * diverging multi-harness discounts would need a per-run port column).
    */
   async backfillCosts(force = false): Promise<void> {
     if (this.backfilled && !force) return;
@@ -191,7 +207,11 @@ export class UsageTracker {
     if (!pending.length) return;
 
     const pricing = db.getSetting<Record<string, PricingEntry>>("pricing", {});
-    const source = await this.pricingSource.entries();
+    const ports = agentPortRegistry.list();
+    const overrides: Record<string, PricingEntry> = {};
+    for (const p of ports) Object.assign(overrides, p.rateOverrides ?? {});
+    const discount = (ports.find((p) => p.execMode === "cloud") ?? ports[0])?.listDiscount ?? 0;
+    const table = await rateTable(this.pricingSource, overrides);
     for (const r of pending) {
       const est = estimateCostCents({
         model: r.model ?? undefined,
@@ -199,7 +219,7 @@ export class UsageTracker {
         outputTokens: r.output_tokens ?? 0,
         cacheReadTokens: r.cache_read_tokens ?? 0,
         cacheWriteTokens: r.cache_write_tokens ?? 0,
-      }, resolveRates(r.model ?? undefined, pricing, this.pricingSource, source));
+      }, resolveRates(r.model ?? undefined, pricing, this.pricingSource, table), discount);
       // zero-token rows price to exactly 0 — leave them uncosted rather than
       // pretend a free run happened
       if (est?.cents == null || est.cents <= 0) continue;
