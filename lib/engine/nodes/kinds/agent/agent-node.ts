@@ -17,11 +17,20 @@ import {
 } from '../../shared';
 import { templateStore } from '../../../templates/template-store';
 import { extractJson, jsonSchemaIssues } from './json-schema-lite';
-import { AGENT_OUTPUT_ERROR, AgentOutputError } from '../../shared/agent/output-error';
+import { AGENT_OUTPUT_ERROR, AgentOutputError, type AgentOutputErrorCode } from '../../shared/agent/output-error';
 import { AgentDefSchema, type AgentDef } from '../../declarative-schemas';
 import { AGENT_CONFIG_FIELDS } from './constants';
 
 export type { AgentDef };
+
+/** Output-contract failures a feedback turn can fix: missing or schema-
+ *  violating JSON. `agent_reported` never retries — the agent explicitly said
+ *  it cannot comply, and its reason goes to the user (chat refinement), not
+ *  back to the agent. */
+const RETRYABLE_OUTPUT_ERRORS: ReadonlySet<AgentOutputErrorCode> = new Set([
+  AGENT_OUTPUT_ERROR.NO_JSON,
+  AGENT_OUTPUT_ERROR.SCHEMA_MISMATCH,
+]);
 
 /**
  * The runtime class behind every `node_templates` row with kind='agent'
@@ -199,10 +208,12 @@ export class AgentTemplateNode extends AgentRunNode<Record<string, unknown>, Rec
    * - **Model resolution** — input `model` overrides config, and either may
    *   be a `{{...}}` ref, rendered against the flow context at run time.
    * - **Output contract** — `output: json` rides the standard contract
-   *   directive and is schema-validated in `applyOutput` (bad responses fail
-   *   the node loudly); `output: markdown` publishes `{{nodes.<key>.output.markdown}}`
-   *   and saves the text as an artifact. Approval-triggered instances hold at
-   *   `awaiting_approval` instead of `done`.
+   *   directive and is schema-validated in `applyOutput`; a missing or
+   *   schema-violating response gets ONE bounded feedback retry on the same
+   *   agent session before the node fails loudly. `output: markdown`
+   *   publishes `{{nodes.<key>.output.markdown}}` and saves the text as an
+   *   artifact. Approval-triggered instances hold at `awaiting_approval`
+   *   instead of `done`.
    * - **Recorded input** — the run record persists the RENDERED final prompt
    *   plus its `prompt_source` (modal | config | default), not the raw template.
    *
@@ -214,14 +225,15 @@ export class AgentTemplateNode extends AgentRunNode<Record<string, unknown>, Rec
    * @returns The lifecycle outcome from `execute`: `done` or
    *   `awaiting_approval`, with the contract-shaped output, artifact and reply.
    * @throws If neither input nor config supplies a non-empty prompt, or when
-   *   `applyOutput` rejects the agent's response (no JSON, schema mismatch, or
-   *   the agent's self-reported error envelope).
+   *   the response still misses the output contract after the one feedback
+   *   retry (no JSON, schema mismatch, or the agent's self-reported error
+   *   envelope — the envelope never retries).
    */
   async run(ctx: FlowCtx, rawInput: Record<string, unknown>, config: Record<string, unknown>): Promise<RunOutcome> {
     const cfg = this.runConfig(config);
 
-    const model = this.getModel(ctx, cfg, rawInput);
-    const { prompt, source } = this.getPrompt(ctx, cfg, rawInput);
+    const model = this.getModel(ctx, rawInput, cfg);
+    const { prompt, source } = this.getPrompt(ctx, rawInput, cfg);
 
     const input: Record<string, unknown> = {
       ...rawInput,
@@ -241,7 +253,7 @@ export class AgentTemplateNode extends AgentRunNode<Record<string, unknown>, Rec
         settingSources: cfg.mcp_sources,
       },
       label: this.label.toLowerCase(),
-      finalize: async result => this.applyOutput(ctx, result.result ?? '', cfg),
+      finalize: async result => this.applyOutputWithRetry(ctx, result, cfg, model),
     });
   }
 
@@ -274,7 +286,7 @@ export class AgentTemplateNode extends AgentRunNode<Record<string, unknown>, Rec
         settingSources: cfg.mcp_sources,
       },
       label: `${this.label.toLowerCase()} follow-up`,
-      finalize: async result => this.applyOutput(ctx, result.result ?? '', cfg),
+      finalize: async result => this.applyOutputWithRetry(ctx, result, cfg, model ?? cfg.model ?? null),
     }).then(o => o.reply);
   }
 
@@ -297,14 +309,95 @@ export class AgentTemplateNode extends AgentRunNode<Record<string, unknown>, Rec
   }
 
   /**
+   * Apply the output contract with one bounded self-heal: when the response
+   * misses the contract (`no_json` / `schema_mismatch`), re-prompt the SAME
+   * agent once with the specific violations as feedback (the plan node's
+   * validation-retry pattern) and re-apply the contract to the retry response.
+   * `agent_reported` propagates immediately — the agent self-reported that it
+   * cannot comply, so its reason goes to the user, not back to the agent. A
+   * second miss throws {@link AgentOutputError} and fails the node loudly
+   * (manual Retry).
+   */
+  private async applyOutputWithRetry(
+    ctx: FlowCtx,
+    result: AgentRunResult,
+    cfg: AgentDef,
+    model: string | null
+  ): Promise<RunOutcome> {
+    try {
+      return this.applyOutput(ctx, result.result ?? '', cfg);
+    } catch (e: unknown) {
+      if (!(e instanceof AgentOutputError) || !RETRYABLE_OUTPUT_ERRORS.has(e.code)) throw e;
+      return this.retryOutput(ctx, e, cfg, model);
+    }
+  }
+
+  /** One feedback turn on the same agent session (`followUpOn` = the run the
+   *  contract just failed), then re-apply the contract to its response. */
+  private async retryOutput(
+    ctx: FlowCtx,
+    failure: AgentOutputError,
+    cfg: AgentDef,
+    model: string | null
+  ): Promise<RunOutcome> {
+    const node = this.node(ctx);
+    // the specific failure is the feedback: what the agent got wrong, in its
+    // own response's terms — the same human messages the trail shows
+
+    const feedbackTemplate =
+      failure.code === AGENT_OUTPUT_ERROR.NO_JSON
+        ? TemplateRenderer.compose('Your previous response could not be used: no JSON object could be parsed from it.')
+            .addBlankLine()
+            .addLine('Re-emit your ENTIRE response as a single JSON object.')
+        : TemplateRenderer.compose('Your previous response was valid JSON but violated the output contract:')
+            .addBlankLine()
+            .addLines(failure.detail.issues.map(i => `  - ${i.path ? `${i.path}: ` : ''}${i.message}`))
+            .addBlankLine()
+            .addLine('Re-emit the corrected JSON object.');
+
+    this.support.emitLifecycle(
+      ctx.flow.id,
+      node.id,
+      `${this.label} output contract failed — retrying with feedback (${failure.code})`
+    );
+
+    // the retry prompt re-states the full contract (one JSON object, the
+    // schema, the error-envelope escape hatch) on top of the feedback
+    const retryPrompt = feedbackTemplate
+      .addBlankLine()
+      .addBlankLine()
+      .addLine(AgentOutputError.directive(cfg.output_schema))
+      .build();
+
+    const retry = await this.runner.executeRun(
+      ctx,
+      node.id,
+      () =>
+        this.runner.startAgent(ctx, {
+          prompt: retryPrompt,
+          mode: cfg.mode,
+          name: `${this.label} ${ctx.task.key}`,
+          model,
+          followUpOn: this.support.lastAgentId(node.id),
+          settingSources: cfg.mcp_sources,
+        }),
+      `${this.label.toLowerCase()} retry`
+    );
+    return this.applyOutput(ctx, retry.result ?? '', cfg);
+  }
+
+  /**
    * Shape the agent's text into the declared output contract. `output: json`
-   * validates against the declared JSON Schema and fails the node loudly on a
-   * bad response — with the standard {@link AgentOutputError} payload: the
+   * validates against the declared JSON Schema and fails loudly on a bad
+   * response — with the standard {@link AgentOutputError} payload: the
    * machine-readable code, every schema violation (path + message), and the
    * head of the raw response so the trail shows what actually came back.
    * The agent may also self-report that it cannot comply by answering with
    * the standard error envelope — its reason then is the failure message,
-   * verbatim. `output: markdown` saves the text as an artifact and publishes
+   * verbatim. (`applyOutputWithRetry` wraps this with one feedback retry for
+   * `no_json` / `schema_mismatch`; `recover` re-applies it as-is — recovery
+   * is persistence-only, a bad recorded result fails for manual retry.)
+   * `output: markdown` saves the text as an artifact and publishes
    * `{{nodes.<key>.output.markdown}}`.
    */
   private applyOutput(ctx: FlowCtx, text: string, cfg: AgentDef): RunOutcome {

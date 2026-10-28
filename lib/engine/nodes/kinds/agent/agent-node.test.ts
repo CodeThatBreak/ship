@@ -26,7 +26,7 @@ const { flowCtxHelper } = await import("../../shared/run-context");
 const { usageTracker } = await import("../../../harness/usage-tracker");
 const { AgentRunner } = await import("../../../harness/agent-runner");
 const { AgentTemplateNode } = await import("./agent-node");
-import type { Started } from "../../../harness/agent-runner";
+import type { Started, AgentStartInput } from "../../../harness/agent-runner";
 import type { AgentRunResult } from "../../../ports/agent-port";
 import type { FlowCtx } from "../../shared";
 import type { NodeRow } from "../../../../db/rows";
@@ -34,24 +34,41 @@ import type { NodeRow } from "../../../../db/rows";
 const LABEL = "Test Agent";
 
 /** executeRun stand-in with the real runner's persistence contract:
- * run row first, started/finished events, result back to the def. */
+ * run row first, started/finished events, result back to the def. Accepts a
+ * queue of results (one per executeRun) so contract-retry tests can stub the
+ * first miss and the retry response, and records every start input so tests
+ * can assert the feedback prompt. */
 class StubRunner extends AgentRunner {
-  constructor(private readonly result: AgentRunResult) {
+  private readonly queue: AgentRunResult[];
+  /** The start inputs in call order. */
+  readonly starts: AgentStartInput[] = [];
+
+  constructor(...results: AgentRunResult[]) {
     super(flowCtxHelper, nodeSupport, usageTracker);
+    this.queue = [...results];
   }
+
+  override async startAgent(_ctx: FlowCtx, input: AgentStartInput): Promise<Started> {
+    this.starts.push(input);
+    return { agentId: "agt_test", runId: `run_${this.starts.length}` };
+  }
+
   override async executeRun(
     ctx: FlowCtx,
     nodeId: string,
-    _start: () => Promise<Started>,
+    start: () => Promise<Started>,
     label: string,
   ): Promise<AgentRunResult> {
-    this.support.persistRun(ctx.flow.id, nodeId, "agt_test", "run_test");
+    const result = this.queue.shift();
+    if (result == null) throw new Error(`${label}: no stubbed run result left`);
+    const { agentId, runId } = await start();
+    this.support.persistRun(ctx.flow.id, nodeId, agentId, runId);
     db.emitEvent(ctx.flow.id, nodeId, "lifecycle", `${label} started (cloud)`);
-    if (this.result.status !== "finished") {
-      throw new Error(`${label} ended with status ${this.result.status}`);
+    if (result.status !== "finished") {
+      throw new Error(`${label} ended with status ${result.status}`);
     }
     db.emitEvent(ctx.flow.id, nodeId, "lifecycle", `${label} finished`);
-    return this.result;
+    return result;
   }
 }
 
@@ -158,24 +175,69 @@ describe("AgentTemplateNode — the agent's self-report channel (json output)", 
 
   it("an agent-self-reported envelope fails with the agent's own reason, not a validator message", async () => {
     const seeded = seedAgentNode(22);
-    const node = jsonAgentNode(
-      22,
-      new StubRunner({
-        status: "finished",
-        result: JSON.stringify({
-          output_error: { code: "missing_input", reason: "I was not given the invoice totals to validate" },
-        }),
+    const runner = new StubRunner({
+      status: "finished",
+      result: JSON.stringify({
+        output_error: { code: "missing_input", reason: "I was not given the invoice totals to validate" },
       }),
-    );
+    });
+    const node = jsonAgentNode(22, runner);
     await expect(node.run(seeded.ctx, { prompt: "Check the costs" }, JSON_CONFIG)).rejects.toMatchObject({
       code: "agent_reported",
       message: `${LABEL}: I was not given the invoice totals to validate`,
     });
+    // a self-report never retries — the agent said it cannot comply; its
+    // reason goes to the user (chat refinement), not back to the agent
+    expect(runner.starts).toHaveLength(1);
   });
 
-  it("a real json output that violates the schema still reports every violation", async () => {
+  it("a schema-violating response retries once with the violations as feedback, then succeeds", async () => {
+    const seeded = seedAgentNode(24);
+    const runner = new StubRunner(
+      { status: "finished", result: '{"cost":"free"}' },
+      { status: "finished", result: '{"cost":42}' },
+    );
+    const node = jsonAgentNode(24, runner);
+    const outcome = await node.run(seeded.ctx, { prompt: "Check the costs" }, JSON_CONFIG);
+    expect(outcome.output).toEqual({ cost: 42 });
+
+    // exactly one feedback turn, on the SAME agent session
+    expect(runner.starts).toHaveLength(2);
+    const feedback = runner.starts[1]?.prompt;
+    if (feedback == null) throw new Error("the retry never started an agent");
+    expect(feedback).toContain("violated the output contract");
+    expect(feedback).toContain(`cost: ${LABEL} at cost must be of type integer (got string)`);
+    expect(feedback).toContain('"output_error"'); // the full contract is re-stated
+    expect(runner.starts[1]?.followUpOn).toBe("agt_test");
+
+    // the trail shows the contract failure and the bounded retry
+    const events = db.all<{ message: string }>(
+      `SELECT message FROM events WHERE node_id=? AND type='lifecycle'`, seeded.nodeId,
+    );
+    expect(events.some((e) => e.message.includes("retrying with feedback"))).toBe(true);
+  });
+
+  it("a no-json response retries once too", async () => {
+    const seeded = seedAgentNode(25);
+    const runner = new StubRunner(
+      { status: "finished", result: "I cannot answer in JSON, sorry" },
+      { status: "finished", result: '{"cost":42}' },
+    );
+    const node = jsonAgentNode(25, runner);
+    const outcome = await node.run(seeded.ctx, { prompt: "Check the costs" }, JSON_CONFIG);
+    expect(outcome.output).toEqual({ cost: 42 });
+    expect(runner.starts[1]?.prompt).toContain("no JSON object could be parsed");
+  });
+
+  it("a second contract miss fails the node loudly — the retry is bounded", async () => {
     const seeded = seedAgentNode(23);
-    const node = jsonAgentNode(23, new StubRunner({ status: "finished", result: '{"cost":"free"}' }));
+    const node = jsonAgentNode(
+      23,
+      new StubRunner(
+        { status: "finished", result: '{"cost":"free"}' },
+        { status: "finished", result: '{"cost":"still free"}' },
+      ),
+    );
     await expect(node.run(seeded.ctx, { prompt: "Check the costs" }, JSON_CONFIG)).rejects.toMatchObject({
       code: "schema_mismatch",
       message: `${LABEL} at cost must be of type integer (got string)`,
