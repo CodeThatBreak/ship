@@ -1,14 +1,13 @@
 import { z } from "zod";
 import type { NodeRow } from "../../../../db/rows";
 import type { AgentRunResult } from "../../../ports/agent-port";
-import { AgentRunNode, type FlowCtx, type RunOutcome } from "../../shared";
+import { AgentRunNode, TemplateRenderer, type FlowCtx, type RunOutcome } from "../../shared";
 import { templateStore } from "../../../templates/template-store";
 import { buildFlowContext } from "../../../context/flow-variables";
 import { evalJsonata } from "@/lib/jsonata";
 import { mcpSourceConfigFields } from "../../../templates/node-config";
 import { DecisionDefSchema, type DecisionDef } from "../../declarative-schemas";
 import { extractJson } from "../agent/json-schema-lite";
-import { renderAgentPrompt } from "../agent/agent-node";
 
 // ── helpers ──────────────────────────────────────────────────────────────────
 
@@ -334,7 +333,7 @@ export class DecisionTemplateNode extends AgentRunNode<Record<string, unknown>, 
    */
   private buildAgentPrompt(cfg: DecisionDef, vars: Record<string, unknown>): string {
     const choices = cfg.choices.map((c) => `- ${c.label}: ${c.description ?? ""}`.trim()).join("\n");
-    const prompt = renderAgentPrompt(cfg.question || "Choose the next step for this flow.", vars);
+    const prompt = TemplateRenderer.render(cfg.question || "Choose the next step for this flow.", vars);
     return [
       `You are deciding the next branch for the "${this.label}" step of a workflow.`,
       "",

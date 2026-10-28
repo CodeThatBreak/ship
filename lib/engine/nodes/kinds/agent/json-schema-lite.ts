@@ -5,11 +5,28 @@
  * agent outputs are small structured payloads, and anything richer should sit
  * behind an artifact, not inline node output.
  *
- * Throws an Error carrying the offending path — node runs fail loudly
- * (§5: "persist time" validation) and the failure surfaces to the user.
+ * `jsonSchemaIssues` returns every violation as structured issues (empty =
+ * valid) so the standard output-error payload can carry them all; the
+ * throwing `validateJsonSchema` is a thin wrapper over it for callers that
+ * only want the loud failure.
  */
+import type { AgentOutputIssue } from "../../shared/agent/output-error";
+
 export function validateJsonSchema(schema: unknown, value: unknown, label: string): void {
-  check(schema, value, label, [], false);
+  const issues = jsonSchemaIssues(schema, value, label);
+  if (issues.length) throw new Error(issues[0].message);
+}
+
+/**
+ * Validate a value against a JSON Schema, collecting every violation (not
+ * just the first) as `{path, message}` issues — [] means valid. A missing or
+ * non-object schema still throws: that is an authoring error in the node's
+ * config, not an agent-response failure.
+ */
+export function jsonSchemaIssues(schema: unknown, value: unknown, label: string): AgentOutputIssue[] {
+  const issues: AgentOutputIssue[] = [];
+  check(schema, value, label, [], false, issues);
+  return issues;
 }
 
 function typeOf(v: unknown): string {
@@ -23,7 +40,8 @@ function typeMatches(expected: string, actual: string): boolean {
   return expected === actual || (expected === "number" && actual === "integer");
 }
 
-function check(schema: unknown, value: unknown, label: string, path: string[], strict: boolean): void {
+function check(schema: unknown, value: unknown, label: string, path: string[], strict: boolean, issues: AgentOutputIssue[]): void {
+  const add = (message: string) => issues.push({ path: path.join("."), message });
   const at = path.length ? `${label} at ${path.join(".")}` : label;
   if (schema === true) return;
   if (schema == null || schema === false) {
@@ -49,7 +67,8 @@ function check(schema: unknown, value: unknown, label: string, path: string[], s
 
   if (Array.isArray(s.enum)) {
     if (!s.enum.some((v) => JSON.stringify(v) === JSON.stringify(value))) {
-      throw new Error(`${at} must be one of: ${s.enum.map((v) => JSON.stringify(v)).join(", ")}`);
+      add(`${at} must be one of: ${s.enum.map((v) => JSON.stringify(v)).join(", ")}`);
+      return;
     }
   }
 
@@ -57,38 +76,40 @@ function check(schema: unknown, value: unknown, label: string, path: string[], s
     const types = Array.isArray(s.type) ? s.type : [s.type];
     const actual = typeOf(value);
     if (!types.some((t) => typeMatches(t, actual))) {
-      throw new Error(`${at} must be of type ${types.join("|")} (got ${actual})`);
+      // return: deeper checks against a mismatched type only cascade
+      add(`${at} must be of type ${types.join("|")} (got ${actual})`);
+      return;
     }
   }
 
   if (typeof value === "string") {
-    if (s.minLength != null && value.length < s.minLength) throw new Error(`${at} is shorter than ${s.minLength} characters`);
-    if (s.maxLength != null && value.length > s.maxLength) throw new Error(`${at} is longer than ${s.maxLength} characters`);
+    if (s.minLength != null && value.length < s.minLength) add(`${at} is shorter than ${s.minLength} characters`);
+    if (s.maxLength != null && value.length > s.maxLength) add(`${at} is longer than ${s.maxLength} characters`);
   }
   if (typeof value === "number") {
-    if (s.minimum != null && value < s.minimum) throw new Error(`${at} must be >= ${s.minimum}`);
-    if (s.maximum != null && value > s.maximum) throw new Error(`${at} must be <= ${s.maximum}`);
+    if (s.minimum != null && value < s.minimum) add(`${at} must be >= ${s.minimum}`);
+    if (s.maximum != null && value > s.maximum) add(`${at} must be <= ${s.maximum}`);
   }
   if (Array.isArray(value)) {
-    if (s.minItems != null && value.length < s.minItems) throw new Error(`${at} must have at least ${s.minItems} items`);
-    if (s.maxItems != null && value.length > s.maxItems) throw new Error(`${at} must have at most ${s.maxItems} items`);
+    if (s.minItems != null && value.length < s.minItems) add(`${at} must have at least ${s.minItems} items`);
+    if (s.maxItems != null && value.length > s.maxItems) add(`${at} must have at most ${s.maxItems} items`);
     if (s.items != null) {
-      value.forEach((item, i) => check(s.items, item, label, [...path, String(i)], strict));
+      value.forEach((item, i) => check(s.items, item, label, [...path, String(i)], strict, issues));
     }
   }
   if (value != null && typeof value === "object" && !Array.isArray(value)) {
     const obj = value as Record<string, unknown>;
     for (const key of s.required ?? []) {
-      if (!(key in obj)) throw new Error(`${at} is missing required property "${key}"`);
+      if (!(key in obj)) add(`${at} is missing required property "${key}"`);
     }
     if (s.properties) {
       for (const [key, sub] of Object.entries(s.properties)) {
-        if (key in obj) check(sub, obj[key], label, [...path, key], strict);
+        if (key in obj) check(sub, obj[key], label, [...path, key], strict, issues);
       }
       const extras = Object.keys(obj).filter((k) => !(k in (s.properties ?? {})));
       // unknown fields are tolerated (agents add context) unless the schema forbids them
       if (extras.length && s.additionalProperties === false) {
-        throw new Error(`${at} has unexpected properties: ${extras.join(", ")}`);
+        add(`${at} has unexpected properties: ${extras.join(", ")}`);
       }
     }
   }

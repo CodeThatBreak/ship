@@ -12,6 +12,7 @@ export {
   nodeRoles,
   NodeRoleRouter,
   PROMPT_SOURCES,
+  PROMPT_SOURCE,
   type ChatRefiner,
   type Converser,
   type NodePromptPreview,
@@ -20,3 +21,5 @@ export {
   type PromptSource,
 } from "./node-roles";
 export type { NodeCapabilities } from "./capabilities";
+export { TemplateRenderer } from "./template-renderer";
+export { TemplateComposer } from "./template-composer";

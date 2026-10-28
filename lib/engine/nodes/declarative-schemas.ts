@@ -1,10 +1,27 @@
 import { z } from "zod";
 import { mcpSourcesSchema } from "../templates/node-config";
-import { DECISION_SOURCES, HTTP_METHODS, SCRIPT_RUNTIMES } from "../constants/declarative";
+import {
+  AGENT_MODE,
+  AGENT_MODES,
+  AGENT_OUTPUT_FORMAT,
+  AGENT_OUTPUT_FORMATS,
+  DECISION_SOURCES,
+  HTTP_METHODS,
+  SCRIPT_RUNTIMES,
+} from "../constants/declarative";
 
 /** Closed value sets live in `constants/declarative.ts`; re-exported here so
  *  this module's public surface is unchanged. */
-export { DECISION_SOURCES, HTTP_METHODS, SCRIPT_RUNTIMES } from "../constants/declarative";
+export {
+  AGENT_MODE,
+  AGENT_MODES,
+  AGENT_OUTPUT_FORMAT,
+  AGENT_OUTPUT_FORMATS,
+  DECISION_SOURCES,
+  HTTP_METHODS,
+  SCRIPT_RUNTIMES,
+} from "../constants/declarative";
+export type { AgentMode, AgentOutputFormat } from "../constants/declarative";
 
 /**
  * The declarative node definitions stored on `node_templates.config` (§4.3–4.5).
@@ -17,7 +34,7 @@ export { DECISION_SOURCES, HTTP_METHODS, SCRIPT_RUNTIMES } from "../constants/de
 export const AgentDefSchema = z.looseObject({
   prompt: z.string().default(""),
   /** plan = read-only judgment run; agent = repo workspace run */
-  mode: z.enum(["plan", "agent"]).default("plan"),
+  mode: z.enum(AGENT_MODES).default(AGENT_MODE.PLAN),
   /** null = the flow/default model (settings.default_model) */
   model: z.string().nullable().default(null),
   /**
@@ -27,7 +44,7 @@ export const AgentDefSchema = z.looseObject({
    */
   mcp_sources: mcpSourcesSchema,
   /** markdown → {markdown} output + markdown artifact; json → validated payload */
-  output: z.enum(["markdown", "json"]).default("markdown"),
+  output: z.enum(AGENT_OUTPUT_FORMATS).default(AGENT_OUTPUT_FORMAT.MARKDOWN),
   /** when output=json: JSON Schema the response must satisfy. The raw
    *  TypeScript members it was authored from ride along as `output_schema_ts`
    *  (the schema box's source — unknown keys tolerated on purpose). */

@@ -4,7 +4,6 @@ import type { AgentRunResult } from "../../../ports/agent-port";
 import { NodeDefinition, type FlowCtx, type RunOutcome } from "../../shared";
 import { templateStore } from "../../../templates/template-store";
 import { buildFlowContext } from "../../../context/flow-variables";
-import { renderAgentPrompt } from "../agent/agent-node";
 import { evalJsonata } from "@/lib/jsonata";
 import { HttpDefSchema, type HttpDef } from "../../declarative-schemas";
 import { getSecrets, redactSecrets, httpAllowlist } from "../../../secrets";

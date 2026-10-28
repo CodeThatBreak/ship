@@ -12,8 +12,13 @@ import type { NodeDefinition } from "./node-definition";
 // the server already serializes to the UI.
 
 /** Where a recorded run's prompt came from. */
-export type PromptSource = "modal" | "config" | "default";
-export const PROMPT_SOURCES: readonly PromptSource[] = ["modal", "config", "default"];
+export const PROMPT_SOURCE = {
+  MODAL: "modal",
+  CONFIG: "config",
+  DEFAULT: "default",
+} as const;
+export type PromptSource = (typeof PROMPT_SOURCE)[keyof typeof PROMPT_SOURCE];
+export const PROMPT_SOURCES: readonly PromptSource[] = Object.values(PROMPT_SOURCE);
 
 /** The prompt-route querystring parameters a def's preview may consume. */
 export interface PromptPreviewParams {

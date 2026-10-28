@@ -128,6 +128,61 @@ function appliedRows(flowId: string, nodeKey: string): AppliedRows {
 
 const FINISHED_TEXT = "# Done\n\nThe work is complete.";
 
+/** A template instance with a json output contract (schema on `cost`). */
+const JSON_CONFIG = {
+  output: "json",
+  output_schema: { type: "object", properties: { cost: { type: "integer" } }, required: ["cost"] },
+};
+
+function jsonAgentNode(index: number, runner: InstanceType<typeof AgentRunner>): InstanceType<typeof AgentTemplateNode> {
+  return new AgentTemplateNode(
+    { id: `nt_${index}`, name: LABEL, description: null, config: JSON_CONFIG },
+    `agent_${index}`,
+    { runner },
+  );
+}
+
+describe("AgentTemplateNode — the agent's self-report channel (json output)", () => {
+  it("the json prompt rides the contract directive: schema + error envelope", async () => {
+    const seeded = seedAgentNode(21);
+    const node = jsonAgentNode(21, new StubRunner({ status: "finished", result: '{"cost":42}' }));
+    const outcome = await node.run(seeded.ctx, { prompt: "Estimate the cost" }, JSON_CONFIG);
+    expect(outcome.output).toEqual({ cost: 42 });
+
+    const recorded = db.get<{ input: string }>(`SELECT input FROM nodes WHERE id=?`, seeded.nodeId)?.input;
+    if (recorded == null) throw new Error("the node run recorded no input");
+    expect(JSON.parse(recorded).prompt).toContain("exactly one JSON object");
+    expect(JSON.parse(recorded).prompt).toContain('"type": "integer"');
+    expect(JSON.parse(recorded).prompt).toContain('"output_error"');
+  });
+
+  it("an agent-self-reported envelope fails with the agent's own reason, not a validator message", async () => {
+    const seeded = seedAgentNode(22);
+    const node = jsonAgentNode(
+      22,
+      new StubRunner({
+        status: "finished",
+        result: JSON.stringify({
+          output_error: { code: "missing_input", reason: "I was not given the invoice totals to validate" },
+        }),
+      }),
+    );
+    await expect(node.run(seeded.ctx, { prompt: "Check the costs" }, JSON_CONFIG)).rejects.toMatchObject({
+      code: "agent_reported",
+      message: `${LABEL}: I was not given the invoice totals to validate`,
+    });
+  });
+
+  it("a real json output that violates the schema still reports every violation", async () => {
+    const seeded = seedAgentNode(23);
+    const node = jsonAgentNode(23, new StubRunner({ status: "finished", result: '{"cost":"free"}' }));
+    await expect(node.run(seeded.ctx, { prompt: "Check the costs" }, JSON_CONFIG)).rejects.toMatchObject({
+      code: "schema_mismatch",
+      message: `${LABEL} at cost must be of type integer (got string)`,
+    });
+  });
+});
+
 describe("AgentTemplateNode — one persistence path (T2)", () => {
   it("recover() persists byte-identical node/artifact rows as execute()'s finish", async () => {
     const result: AgentRunResult = { status: "finished", result: FINISHED_TEXT };

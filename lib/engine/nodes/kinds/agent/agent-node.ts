@@ -1,48 +1,27 @@
-import { z } from "zod";
-import type { NodeRow } from "../../../../db/rows";
-import type { AgentRunResult } from "../../../ports/agent-port";
-import type { AgentRunner } from "../../../harness";
-import type { FlowContextHelper, NodeSupport } from "../../shared";
-import { AgentRunNode, type FlowCtx, type NodeCapabilities, type PromptSource, type RunOutcome } from "../../shared";
-import { templateStore } from "../../../templates/template-store";
-import { extractJson, validateJsonSchema } from "./json-schema-lite";
-import { AgentDefSchema, type AgentDef } from "../../declarative-schemas";
-import { buildFlowContext } from "../../../context/flow-variables";
-import { fanoutConfigFields, mcpSourceConfigFields } from "../../../templates/node-config";
+import { z } from 'zod';
+import type { NodeRow } from '../../../../db/rows';
+import type { AgentRunResult } from '../../../ports/agent-port';
+import type { AgentRunner } from '../../../harness';
+import { NODE_RUN_STATUS } from '../../../../../constants/flow';
+import { AGENT_OUTPUT_FORMAT } from '../../../constants/declarative';
+import { NODE_TRIGGER_TYPE } from '../../../constants/triggers';
+import type { FlowContextHelper, NodeSupport } from '../../shared';
+import {
+  AgentRunNode,
+  PROMPT_SOURCE,
+  TemplateRenderer,
+  type FlowCtx,
+  type NodeCapabilities,
+  type PromptSource,
+  type RunOutcome,
+} from '../../shared';
+import { templateStore } from '../../../templates/template-store';
+import { extractJson, jsonSchemaIssues } from './json-schema-lite';
+import { AGENT_OUTPUT_ERROR, AgentOutputError } from '../../shared/agent/output-error';
+import { AgentDefSchema, type AgentDef } from '../../declarative-schemas';
+import { AGENT_CONFIG_FIELDS } from './constants';
 
 export type { AgentDef };
-
-/**
- * Prompt variables available to `{{expr}}` references in the agent prompt
- * (§3 input mapping context): the shared flow-context map —
- * `{{task.*}}`, `{{repo.*}}`, `{{flow.*}}`, `{{trigger.payload.*}}`, and
- * `{{nodes.<key>.output.*}}` (outputs of upstream nodes, small structured data
- * — large content stays in artifacts and reaches prompts as prompt variables,
- * §5 data-passing rule) — plus `{{input.*}}`: the inherited run input, i.e.
- * the previous node's output fields (the node declares no input contract).
- */
-export function agentPromptVars(ctx: FlowCtx): Record<string, unknown> {
-  return buildFlowContext(ctx) as unknown as Record<string, unknown>;
-}
-
-/** `{{a.b.c}}` interpolation against the flow variable map. */
-export function renderAgentPrompt(prompt: string, vars: Record<string, unknown>): string {
-  return (prompt ?? "").replace(/\{\{([^{}]+)\}\}/g, (_, raw: string) => {
-    const segments = raw.trim().split(".");
-    let v: unknown = vars;
-    for (const seg of segments) {
-      if (v == null || typeof v !== "object") {
-        v = undefined;
-        break;
-      }
-      v = (v as Record<string, unknown>)[seg];
-    }
-    if (v == null) return "";
-    if (typeof v === "string") return v;
-    if (typeof v === "number" || typeof v === "boolean") return String(v);
-    return JSON.stringify(v);
-  });
-}
 
 /**
  * The runtime class behind every `node_templates` row with kind='agent'
@@ -71,9 +50,18 @@ export class AgentTemplateNode extends AgentRunNode<Record<string, unknown>, Rec
   readonly def: AgentDef;
 
   constructor(
-    tmpl: { id: string; name: string; description: string | null; config: unknown },
+    tmpl: {
+      id: string;
+      name: string;
+      description: string | null;
+      config: unknown;
+    },
     instanceKey?: string,
-    services: { support?: NodeSupport; runner?: AgentRunner; ctxHelper?: FlowContextHelper } = {},
+    services: {
+      support?: NodeSupport;
+      runner?: AgentRunner;
+      ctxHelper?: FlowContextHelper;
+    } = {}
   ) {
     super(services.support, services.runner, services.ctxHelper);
     // The def key (registry resolution) is the node_templates row id, but the
@@ -93,9 +81,9 @@ export class AgentTemplateNode extends AgentRunNode<Record<string, unknown>, Rec
     }) as z.ZodType<Record<string, unknown>>;
 
     this.outputSchema = (
-      this.def.output === "json"
+      this.def.output === AGENT_OUTPUT_FORMAT.JSON
         ? z.looseObject({})
-        : z.looseObject({ markdown: z.string() })
+        : z.looseObject({ [AGENT_OUTPUT_FORMAT.MARKDOWN]: z.string() })
     ) as z.ZodType<Record<string, unknown>>;
 
     this.description = tmpl.description ?? undefined;
@@ -107,55 +95,29 @@ export class AgentTemplateNode extends AgentRunNode<Record<string, unknown>, Rec
    * default artifact contract.
    */
   override outputContract(def: Record<string, unknown> = this.def): unknown {
-    return def.output === "json" && def.output_schema
-      ? def.output_schema
-      : { type: "object", properties: { markdown: { type: "string", description: "Agent output, saved as an artifact" } }, required: ["markdown"] };
+    if (def.output === AGENT_OUTPUT_FORMAT.JSON && def.output_schema) {
+      return def.output_schema;
+    }
+
+    return {
+      type: 'object',
+      properties: {
+        [AGENT_OUTPUT_FORMAT.MARKDOWN]: {
+          type: 'string',
+          description: 'Agent output, saved as an artifact',
+        },
+      },
+      required: [AGENT_OUTPUT_FORMAT.MARKDOWN],
+    };
   }
 
   /**
-   * The full authoring form lives in the configurator drawer (not just the
-   * create dialog): the prompt is edited in place, after the node is
-   * connected, so the upstream run-context variables are clickable chips.
+   * The full authoring form (see `./constants/index.ts`): one entry per knob,
+   * assembled in the drawer's order — the prompt is edited in place, after
+   * the node is connected, so the upstream run-context variables are
+   * clickable chips.
    */
-  readonly configFields = [
-    {
-      key: "mode", label: "Mode", type: "select" as const,
-      help: "plan = read-only judgment run; agent = repo workspace run",
-      options: [
-        { value: "plan", label: "Plan" },
-        { value: "agent", label: "Agent" },
-      ],
-      optionIcons: { plan: "Compass", agent: "Sparkles" },
-    },
-    {
-      key: "prompt", label: "Prompt", type: "text" as const,
-      help: "{{...}} references — {{input.*}} (the previous node's output), {{nodes.<key>.output.*}}, {{task.*}} (the starting task), {{repo.*}}, {{flow.*}}, {{trigger.payload.*}} and {{secrets.NAME}}",
-    },
-    { key: "model", label: "Model override", type: "string" as const, nullable: true, help: "text, or a {{...}} ref — e.g. {{nodes.<key>.output.model}} — empty = the flow's default model" },
-    // the MCP-sources knob (Cursor local.settingSources): the shared agent-run
-    // field set — empty = runtime default (inline servers only)
-    ...mcpSourceConfigFields,
-    // plan fan-out knobs (Phase 3C): any agent node downstream of a plan node
-    // may fan out into per-step child flows — the declarative agent kind is
-    // the established fan-out-capable custom parent (§5 "Fanout section on
-    // the config tab"). The child picker lists the gallery (hidden
-    // auto-wrapped templates excluded). decision / http / script keep
-    // JSON-level fan-out config (their strict def schemas would strip the
-    // flat knob keys).
-    ...fanoutConfigFields,
-    {
-      key: "output", label: "Output", type: "select" as const,
-      help: "markdown → {{nodes.<key>.output.markdown}} artifact; json → validated payload fields",
-      options: [
-        { value: "markdown", label: "text", description: "saved as a markdown artifact" },
-        { value: "json", label: "json", description: "validated against the output schema" },
-      ],
-    },
-    {
-      key: "output_schema", label: "Output schema", type: "ts_output" as const,
-      help: "TypeScript-style members (or a JSON Schema) the json output must satisfy",
-    },
-  ];
+  readonly configFields = AGENT_CONFIG_FIELDS;
 
   /** Display description from the node catalog entry. */
   description?: string;
@@ -165,46 +127,112 @@ export class AgentTemplateNode extends AgentRunNode<Record<string, unknown>, Rec
     return this.def as unknown as Record<string, unknown>;
   }
 
-  /**
-   * Run the agent: render the prompt against flow variables, execute through
-   * the shared run lifecycle, then validate/shape the output contract.
-   */
-  async run(ctx: FlowCtx, rawInput: Record<string, unknown>, config: Record<string, unknown>): Promise<RunOutcome> {
+  private getPrompt(
+    ctx: FlowCtx,
+    rawInput: Record<string, unknown>,
+    config: Record<string, unknown>
+  ): { prompt: string; source: PromptSource } {
     const cfg = this.runConfig(config);
-    const promptBody = typeof rawInput.prompt === "string" ? rawInput.prompt.trim() : "";
+    const { prompt: inputPrompt, model: _, ...inheritedInput } = rawInput;
+
+    const promptBody = typeof inputPrompt === 'string' ? inputPrompt.trim() : '';
     const template = promptBody || cfg.prompt;
+
     if (!template.trim()) {
       throw new Error(`${this.label}: no prompt configured — set one in the template editor`);
     }
     // The inherited run input is prompt-addressable: {{input.<field>}} refs the
     // previous node's output fields directly (the node inherits the parent's
     // contract); the engine-owned prompt/model keys are stripped from it.
-    const inherited = { ...(rawInput ?? {}) };
-    delete inherited.prompt;
-    delete inherited.model;
-    const rendered = renderAgentPrompt(template, { ...agentPromptVars(ctx), input: inherited });
-    const runModel = typeof rawInput.model === "string" && rawInput.model.trim() ? rawInput.model.trim() : null;
-    // the model override may itself be a {{...}} ref (an upstream node that
-    // picks the model) — rendered against the flow context at run time
-    const modelTemplate = runModel ?? cfg.model ?? null;
-    const model =
-      typeof modelTemplate === "string" && /\{\{[^{}]+\}\}/.test(modelTemplate)
-        ? renderAgentPrompt(modelTemplate, agentPromptVars(ctx)).trim() || null
-        : modelTemplate;
+
+    // json output rides the standard contract directive: the schema the
+    // response must satisfy and the agent's error-envelope escape hatch (it
+    // self-reports when it cannot comply — applyOutput recognizes the envelope)
+    const promptWithoutContract = TemplateRenderer.render(template, {
+      ...TemplateRenderer.vars(ctx),
+      input: inheritedInput,
+    });
+
     // the run record's input.prompt is the RENDERED final prompt — the exact
     // text the agent receives (nodes.config.prompt stays the un-rendered source
     // of truth) — plus where it came from, so the modal can annotate lastRun
-    const promptSource: PromptSource = promptBody ? "modal" : cfg.prompt ? "config" : "default";
+    const source: PromptSource = promptBody
+      ? PROMPT_SOURCE.MODAL
+      : cfg.prompt
+        ? PROMPT_SOURCE.CONFIG
+        : PROMPT_SOURCE.DEFAULT;
+
+    const prompt =
+      cfg.output === AGENT_OUTPUT_FORMAT.JSON
+        ? TemplateRenderer.compose(promptWithoutContract)
+            .addBlankLine()
+            .addBlankLine()
+            .addLine(AgentOutputError.directive(cfg.output_schema))
+            .build()
+        : promptWithoutContract;
+
+    return { prompt, source };
+  }
+
+  private getModel(ctx: FlowCtx, rawInput: Record<string, unknown>, config: Record<string, unknown>): string | null {
+    const cfg = this.runConfig(config);
+
+    const { model: inputModel } = rawInput;
+
+    const runModel = typeof inputModel === 'string' && inputModel.trim() ? inputModel.trim() : null;
+    // the model override may itself be a {{...}} ref (an upstream node that
+    // picks the model) — rendered against the flow context at run time
+    const modelTemplate = runModel ?? cfg.model ?? null;
+    return modelTemplate ? TemplateRenderer.render(modelTemplate, TemplateRenderer.vars(ctx)).trim() : null;
+  }
+
+  /**
+   * Run the agent: render the prompt against flow variables, execute through
+   * the shared run lifecycle, then validate/shape the output contract.
+   *
+   * Contract:
+   * - **Prompt resolution** — the run input's `prompt` (chat-modal re-run)
+   *   wins over the template config's `prompt`; at least one must be present.
+   * - **Input inheritance** — the node declares no input contract, so
+   *   `rawInput` is the previous node's output. It is exposed to the template
+   *   as `{{input.<field>}}`, minus the engine-owned `prompt`/`model` keys.
+   * - **Model resolution** — input `model` overrides config, and either may
+   *   be a `{{...}}` ref, rendered against the flow context at run time.
+   * - **Output contract** — `output: json` rides the standard contract
+   *   directive and is schema-validated in `applyOutput` (bad responses fail
+   *   the node loudly); `output: markdown` publishes `{{nodes.<key>.output.markdown}}`
+   *   and saves the text as an artifact. Approval-triggered instances hold at
+   *   `awaiting_approval` instead of `done`.
+   * - **Recorded input** — the run record persists the RENDERED final prompt
+   *   plus its `prompt_source` (modal | config | default), not the raw template.
+   *
+   * @param ctx - Flow execution context (task, flow, mr_branch, run services).
+   * @param rawInput - The inherited run input; may carry a `prompt` override
+   *   and a `model` override (plain string or `{{...}}` ref).
+   * @param config - The engine-merged node config, parsed as an `AgentDef`;
+   *   falls back to the constructor-parsed `this.def` if it does not parse.
+   * @returns The lifecycle outcome from `execute`: `done` or
+   *   `awaiting_approval`, with the contract-shaped output, artifact and reply.
+   * @throws If neither input nor config supplies a non-empty prompt, or when
+   *   `applyOutput` rejects the agent's response (no JSON, schema mismatch, or
+   *   the agent's self-reported error envelope).
+   */
+  async run(ctx: FlowCtx, rawInput: Record<string, unknown>, config: Record<string, unknown>): Promise<RunOutcome> {
+    const cfg = this.runConfig(config);
+
+    const model = this.getModel(ctx, cfg, rawInput);
+    const { prompt, source } = this.getPrompt(ctx, cfg, rawInput);
+
     const input: Record<string, unknown> = {
       ...rawInput,
-      prompt: rendered,
-      prompt_source: promptSource,
+      prompt: prompt,
+      prompt_source: source,
       model,
     };
 
     return this.execute(ctx, {
       input,
-      prompt: rendered,
+      prompt: prompt,
       agent: {
         mode: cfg.mode,
         name: `${this.label} ${ctx.task.key}`,
@@ -213,17 +241,30 @@ export class AgentTemplateNode extends AgentRunNode<Record<string, unknown>, Rec
         settingSources: cfg.mcp_sources,
       },
       label: this.label.toLowerCase(),
-      finalize: async (result) => this.applyOutput(ctx, result.result ?? "", cfg),
+      finalize: async result => this.applyOutput(ctx, result.result ?? '', cfg),
     });
   }
 
-  /** Chat refinement: a follow-up run on the node's existing agent. */
+  /** Chat refinement: a follow-up run on the node's agent. The rendered
+   * feedback rides the same contract directive a fresh run's prompt does —
+   * the follow-up output goes through the same applyOutput validation. */
   override async chat(ctx: FlowCtx, content: string, model?: string): Promise<string> {
     const cfg = this.runConfig(this.nodeConfig(ctx));
-    const rendered = renderAgentPrompt(content, agentPromptVars(ctx));
+
+    const promptWithoutContract = TemplateRenderer.render(content, TemplateRenderer.vars(ctx));
+
+    const prompt =
+      cfg.output === AGENT_OUTPUT_FORMAT.JSON
+        ? TemplateRenderer.compose(promptWithoutContract)
+            .addBlankLine()
+            .addBlankLine()
+            .addLine(AgentOutputError.directive(cfg.output_schema))
+            .build()
+        : promptWithoutContract;
+
     return this.execute(ctx, {
       input: { model: model ?? null, feedback: content },
-      prompt: rendered,
+      prompt,
       agent: {
         mode: cfg.mode,
         name: `${this.label} ${ctx.task.key}`,
@@ -233,16 +274,16 @@ export class AgentTemplateNode extends AgentRunNode<Record<string, unknown>, Rec
         settingSources: cfg.mcp_sources,
       },
       label: `${this.label.toLowerCase()} follow-up`,
-      finalize: async (result) => this.applyOutput(ctx, result.result ?? "", cfg),
-    }).then((o) => o.reply);
+      finalize: async result => this.applyOutput(ctx, result.result ?? '', cfg),
+    }).then(o => o.reply);
   }
 
   /** Restart recovery: re-apply the same output contract through the shared
    * persistence path (applyOutcome) — a recovered finish persists the same
    * node/artifact rows as a normal finish, with the note on the event. */
   async recover(ctx: FlowCtx, node: NodeRow, result: AgentRunResult, note: string): Promise<boolean> {
-    if (result.status !== "finished") return false;
-    const outcome = this.applyOutput(ctx, result.result ?? "", this.runConfig(this.nodeConfig(ctx)));
+    if (result.status !== 'finished') return false;
+    const outcome = this.applyOutput(ctx, result.result ?? '', this.runConfig(this.nodeConfig(ctx)));
     this.applyOutcome(ctx, outcome, { note });
     return true;
   }
@@ -258,34 +299,74 @@ export class AgentTemplateNode extends AgentRunNode<Record<string, unknown>, Rec
   /**
    * Shape the agent's text into the declared output contract. `output: json`
    * validates against the declared JSON Schema and fails the node loudly on a
-   * bad response; `output: markdown` saves the text as an artifact and publishes
+   * bad response — with the standard {@link AgentOutputError} payload: the
+   * machine-readable code, every schema violation (path + message), and the
+   * head of the raw response so the trail shows what actually came back.
+   * The agent may also self-report that it cannot comply by answering with
+   * the standard error envelope — its reason then is the failure message,
+   * verbatim. `output: markdown` saves the text as an artifact and publishes
    * `{{nodes.<key>.output.markdown}}`.
    */
   private applyOutput(ctx: FlowCtx, text: string, cfg: AgentDef): RunOutcome {
     const hold = this.holdsForApproval(ctx);
-    if (cfg.output === "json") {
+    if (cfg.output === AGENT_OUTPUT_FORMAT.JSON) {
       const parsed = extractJson(text);
+
       if (parsed == null) {
-        throw new Error(`${this.label}: the agent response contained no JSON — the node's output format is configured as json`);
+        throw new AgentOutputError({
+          code: AGENT_OUTPUT_ERROR.NO_JSON,
+          label: this.label,
+          message: `${this.label}: the agent response contained no JSON — the node's output format is configured as json`,
+          issues: [],
+          response: text,
+        });
       }
-      validateJsonSchema(cfg.output_schema, parsed, this.label);
+      // the agent's escape hatch: it answered with the standard error
+      // envelope instead of contract-conforming output — convey its reason
+      const reported = AgentOutputError.reported(parsed);
+      if (reported != null) {
+        throw new AgentOutputError({
+          code: AGENT_OUTPUT_ERROR.AGENT_REPORTED,
+          label: this.label,
+          // the agent's reason is the headline — its words, conveyed to the user
+          message: `${this.label}: ${reported.reason}`,
+          issues: [],
+          reported,
+          response: text,
+        });
+      }
+      const issues = jsonSchemaIssues(cfg.output_schema, parsed, this.label);
+      if (issues.length) {
+        throw new AgentOutputError({
+          code: AGENT_OUTPUT_ERROR.SCHEMA_MISMATCH,
+          label: this.label,
+          // the first violation stays the headline text — the same human message
+          // a bare `validateJsonSchema` throw produced, unchanged for existing UI
+          message: issues[0]?.message ?? `${this.label}: the agent response violated its output schema`,
+          issues,
+          response: text,
+        });
+      }
       const output = parsed as Record<string, unknown>;
       return {
-        status: hold ? "awaiting_approval" : "done",
+        status: hold ? NODE_RUN_STATUS.AWAITING_APPROVAL : NODE_RUN_STATUS.DONE,
         output,
-        artifact: { kind: "json", content: JSON.stringify(output, null, 2) },
-        event: `${this.label} output ready${hold ? " — awaiting approval" : ""}`,
-        eventData: { output_format: "json" },
-        reply: "```json\n" + JSON.stringify(output, null, 2) + "\n```",
+        artifact: {
+          kind: AGENT_OUTPUT_FORMAT.JSON,
+          content: JSON.stringify(output, null, 2),
+        },
+        event: `${this.label} output ready${hold ? ' — awaiting approval' : ''}`,
+        eventData: { output_format: AGENT_OUTPUT_FORMAT.JSON },
+        reply: '```json\n' + JSON.stringify(output, null, 2) + '\n```',
       };
     }
-    const body = (text ?? "").trim() || "(empty response)";
+    const body = text.trim() || '(empty response)';
     return {
-      status: hold ? "awaiting_approval" : "done",
-      output: { markdown: body },
-      artifact: { kind: "markdown", content: body },
-      event: `${this.label} output ready${hold ? " — awaiting approval" : ""}`,
-      eventData: { output_format: "markdown" },
+      status: hold ? NODE_RUN_STATUS.AWAITING_APPROVAL : NODE_RUN_STATUS.DONE,
+      output: { [AGENT_OUTPUT_FORMAT.MARKDOWN]: body },
+      artifact: { kind: AGENT_OUTPUT_FORMAT.MARKDOWN, content: body },
+      event: `${this.label} output ready${hold ? ' — awaiting approval' : ''}`,
+      eventData: { output_format: AGENT_OUTPUT_FORMAT.MARKDOWN },
       reply: body,
     };
   }
@@ -296,8 +377,10 @@ export class AgentTemplateNode extends AgentRunNode<Record<string, unknown>, Rec
    * The trigger type lives on the template instance (looked up by node_key).
    */
   private holdsForApproval(ctx: FlowCtx): boolean {
-    const g = templateStore.graphForFlow(ctx.flow.id);
-    const spec = g?.byKey.get(this.key);
-    return spec?.trigger.type === "approval";
+    const graph = templateStore.graphForFlow(ctx.flow.id);
+    if (!graph) return false;
+
+    const spec = graph.byKey.get(this.key);
+    return spec?.trigger.type === NODE_TRIGGER_TYPE.APPROVAL;
   }
 }
