@@ -34,7 +34,7 @@ export function PlanApproveFooter({
   plannerRationale: string | null;
   /** the plan node's raw `execution_default` knob */
   knob: string | undefined;
-  /** number of checklist steps a step-by-step execution would run */
+  /** branch (or step-fallback) count a per-branch execution would run */
   stepCount: number;
   onApprove: (pick: ExecutionMode) => void;
 }) {
@@ -56,14 +56,14 @@ export function PlanApproveFooter({
               }
               title={v === EXECUTION_MODE.WHOLE
                 ? "Force the whole plan into one run"
-                : `Force step-by-step execution (${stepCount} step${stepCount === 1 ? "" : "s"})`}
+                : `Force per-branch execution (${stepCount} child flow${stepCount === 1 ? "" : "s"})`}
               onClick={() => onPick(v)}
             >
               {v === pick
                 ? note
                 : v === EXECUTION_MODE.WHOLE
                   ? "one run"
-                  : "step-by-step"}
+                  : "per-branch"}
             </button>
           ))}
         </div>

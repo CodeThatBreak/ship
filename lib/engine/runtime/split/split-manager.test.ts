@@ -742,7 +742,9 @@ describe("Phase 4 knob placement — every def config still parses to today's de
       const def = nodeRegistry.all().find((d) => d.key === defKey);
       if (!def) throw new Error(`builtin def ${defKey} is not registered`);
       const parsed = def.configSchema.parse({}) as Record<string, unknown>;
-      expect(parsed.split_consume).toBe("whole"); // the default IS today's behavior
+      // build defers to its plan source's published resolution (Phase 6);
+      // the other built-in consumers keep today's whole default
+      expect(parsed.split_consume).toBe(defKey === NODE_KEYS.BUILD ? "source" : "whole");
       expect(parsed.split_parallel_max).toBe(1);
     }
     // spot-check that pre-existing defaults survived the new keys

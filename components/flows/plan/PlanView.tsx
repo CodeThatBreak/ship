@@ -183,11 +183,14 @@ export default function PlanView({
         <PlanApproveFooter
           pick={execPick}
           onPick={setExecPick}
-          note={executionLabel(execution.resolution, planSteps.length)}
+          note={executionLabel(
+            execution.resolution,
+            branches && branches.length ? branches.length : planSteps.length,
+          )}
           publishedSource={execution.publishedSource}
           plannerRationale={execution.plannerRationale}
           knob={execution.knob}
-          stepCount={planSteps.length}
+          stepCount={branches && branches.length ? branches.length : planSteps.length}
           onApprove={(pick: ExecutionMode) =>
             action(PLAN_ACTION.APPROVE, {
               ...(pick !== execution.published ? { executionOverride: pick } : {}),

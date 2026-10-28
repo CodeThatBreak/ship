@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { detectUnitCycle } from "../../shared";
 
 // ── step schema (shared by every plan response) ──────────────────────────────
 
@@ -118,6 +119,19 @@ export const PlanResponse = z
             });
           }
         }
+      }
+      // branch DAG: a dependency cycle would deadlock the per-branch
+      // scheduler — the split runtime fails expansion on one (§3), so the
+      // plan contract rejects it here, where the retry feedback can fix it
+      const cycle = detectUnitCycle(
+        (val.branches ?? []).map((b) => ({ key: b.name, title: b.title, dependsOn: b.dependsOn, item: b })),
+      );
+      if (cycle) {
+        ctx.addIssue({
+          code: "custom",
+          path: ["branches"],
+          message: `branch dependency cycle: ${cycle.join(" → ")}`,
+        });
       }
       for (const s of val.steps) {
         if (s.branch != null && !branchNames.has(s.branch)) {

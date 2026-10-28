@@ -32,11 +32,17 @@ const {
   SubPlanResponse,
   withStepIds,
 } = await import("./schema");
-import type { PlanMeta, PlanStep } from "./schema";
+const { PlanNode } = await import("./plan-node");
+type PlanNodeInstance = InstanceType<typeof PlanNode>;
+import type { PlanBranch, PlanMeta, PlanStep } from "./schema";
+import type { FlowCtx, FlowContextHelper } from "../../shared";
+import type { NodeSupport } from "../../shared/node-support";
+import type { AgentRunner } from "../../../harness";
+import type { NodeRow } from "../../../../db/rows";
 
 /** Messages of a schema's violations for one payload. */
 const messagesOf = (result: { success: boolean; error?: { issues: { message: string }[] } }) =>
-  result.success ? [] : result.error!.issues.map((i) => i.message);
+  result.success ? [] : (result.error?.issues ?? []).map((i) => i.message);
 
 const step = (id: string, title: string, branch: string | null = null): PlanStep => ({
   id, title, detail: "d", files: ["f.ts"], branch,
@@ -166,10 +172,11 @@ describe("mergeBranchRefine — deterministic scoped merge (§5)", () => {
 
   it("updates the branch record and preserves the sub-plan prompt", () => {
     const merged = mergeBranchRefine(metaWithTwoBranches(), "billing", billingRefine);
-    const billing = merged.branches.find((b) => b.name === "billing")!;
-    expect(billing.markdown).toBe(billingRefine.markdown);
-    expect(billing.subPlan?.prompt).toBe("do billing stuff");
-    expect(billing.subPlan?.steps).toHaveLength(4);
+    const billing = merged.branches.find((b) => b.name === "billing");
+    expect(billing).toBeDefined();
+    expect(billing?.markdown).toBe(billingRefine.markdown);
+    expect(billing?.subPlan?.prompt).toBe("do billing stuff");
+    expect(billing?.subPlan?.steps).toHaveLength(4);
     // every merged billing step carries the forced branch name
     expect(merged.steps.filter((s) => s.branch === "billing")).toHaveLength(4);
   });
@@ -222,5 +229,139 @@ describe("the generated output-contract schemas", () => {
     expect(PLAN_RESPONSE_JSON_SCHEMA).toBeTypeOf("object");
     expect(SUB_PLAN_RESPONSE_JSON_SCHEMA).toBeTypeOf("object");
     expect(JSON.stringify(SUB_PLAN_RESPONSE_JSON_SCHEMA)).toContain('"markdown"');
+  });
+});
+
+describe("PlanResponse — branch dependency DAG (Phase 6)", () => {
+  const base = {
+    markdown: "# Plan",
+    steps: [step("s1", "First"), step("s2", "Second")],
+  };
+  const branch = (name: string, dependsOn: string[]) => ({
+    name, title: name, files: [], steps: [], dependsOn,
+  });
+
+  it("rejects a branch dependency cycle (auth → billing → auth) — the retry feedback message", () => {
+    const msgs = messagesOf(PlanResponse.safeParse({
+      ...base,
+      branches: [branch("auth", ["billing"]), branch("billing", ["auth"])],
+    }));
+    expect(msgs).toContain("branch dependency cycle: auth → billing → auth");
+  });
+
+  it("accepts a diamond branch DAG (a→b, a→c, b→d, c→d)", () => {
+    expect(PlanResponse.safeParse({
+      ...base,
+      branches: [
+        branch("a", []),
+        branch("b", ["a"]),
+        branch("c", ["a"]),
+        branch("d", ["b", "c"]),
+      ],
+    }).success).toBe(true);
+  });
+});
+
+describe("PlanNode — the split source port (Phase 6: branches are the units)", () => {
+  /** A stub support whose latest plan artifact is `row` and whose plan node
+   *  config snapshot carries `knob` — everything else these paths touch is
+   *  never called. */
+  const planNodeWith = (
+    knob: string,
+    row: { id: string; version: number; content: string; meta: string | null } | null,
+  ): PlanNodeInstance =>
+    new PlanNode(
+      {
+        latestArtifact: () => row,
+        nodeByKey: (flowId: string, key: string) =>
+          ({
+            id: "node-1",
+            flow_id: flowId,
+            node_key: key,
+            config: JSON.stringify({ execution_default: knob }),
+          }) as unknown as NodeRow,
+      } as unknown as NodeSupport,
+      {} as unknown as AgentRunner,
+      {} as unknown as FlowContextHelper,
+    );
+
+  const ctx = { flow: { id: "flow-1" } } as unknown as FlowCtx;
+
+  const branches: PlanBranch[] = [
+    { name: "auth", title: "Auth", scope: "logins", files: ["a.ts"], steps: [], dependsOn: [] },
+    {
+      name: "billing", title: "Billing", scope: "invoices", files: ["b.ts"], steps: [],
+      dependsOn: ["auth"], subPlan: { prompt: "do billing" }, markdown: "## billing",
+    },
+  ];
+  const planRow = (meta: Record<string, unknown>) => ({
+    id: "art_1", version: 3, content: "# Plan document",
+    meta: JSON.stringify({
+      steps: [step("s1", "Auth service", "auth")],
+      ...meta,
+    }),
+  });
+  const directiveOf = (node: PlanNodeInstance) =>
+    (node as unknown as { executionDirective(c: FlowCtx): string | null }).executionDirective(ctx);
+
+  it("splitUnits: one unit per branch — key/title/dependsOn, target build, item carries name + plan", () => {
+    const units = planNodeWith("whole", planRow({ branches })).splitUnits(ctx);
+    if (!units) throw new Error("expected split units");
+    expect(units.map((u) => u.key)).toEqual(["auth", "billing"]);
+    expect(units.map((u) => u.title)).toEqual(["Auth", "Billing"]);
+    expect(units[0].dependsOn).toEqual([]);
+    expect(units[1].dependsOn).toEqual(["auth"]);
+    expect(units.every((u) => u.target === "build")).toBe(true);
+    const item = units[1].item as {
+      name: string; title: string; scope: string; files: string[];
+      subPlan: { prompt: string } | null; markdown: string | null; plan: string;
+    };
+    expect(item.name).toBe("billing");
+    expect(item.plan).toBe("# Plan document");
+    expect(item.subPlan?.prompt).toBe("do billing");
+    expect(item.markdown).toBe("## billing");
+  });
+
+  it("splitUnits: null for a branch-less plan", () => {
+    expect(planNodeWith("whole", planRow({ branches: [] })).splitUnits(ctx)).toBeNull();
+  });
+
+  it("splitUnits: null with no plan artifact", () => {
+    expect(planNodeWith("whole", null).splitUnits(ctx)).toBeNull();
+  });
+
+  it("splitResolution: knob whole → whole", () => {
+    expect(planNodeWith("whole", planRow({ branches, execution: "whole" })).splitResolution(ctx)).toBe("whole");
+  });
+
+  it("splitResolution: legacy steps knob → per-unit", () => {
+    expect(planNodeWith("steps", planRow({ branches, execution: "whole" })).splitResolution(ctx)).toBe("per-unit");
+  });
+
+  it("splitResolution: follow + published steps → per-unit", () => {
+    expect(planNodeWith("follow", planRow({ branches, execution: "steps" })).splitResolution(ctx)).toBe("per-unit");
+  });
+
+  it("splitResolution: follow + published whole → whole", () => {
+    expect(planNodeWith("follow", planRow({ branches, execution: "whole" })).splitResolution(ctx)).toBe("whole");
+  });
+
+  it("splitResolution: follow with nothing published / no artifact → whole", () => {
+    expect(planNodeWith("follow", planRow({ branches })).splitResolution(ctx)).toBe("whole");
+    expect(planNodeWith("follow", null).splitResolution(ctx)).toBe("whole");
+  });
+
+  it("executionDirective: follow renders the branch child-flow contract", () => {
+    const directive = directiveOf(planNodeWith("follow", null));
+    if (!directive) throw new Error("expected a directive under follow");
+    expect(directive).toContain('"execution": "whole" or "steps"');
+    expect(directive).toContain('"execution_rationale"');
+    expect(directive).toContain("each declared BRANCH becomes its own monitorable child flow");
+    expect(directive).toContain("declare \"dependsOn\"");
+    expect(directive).toContain("one at a time");
+  });
+
+  it("executionDirective: knob whole → null", () => {
+    expect(directiveOf(planNodeWith("whole", null))).toBeNull();
   });
 });

@@ -11,6 +11,7 @@ import {
   type NodePromptPreview,
   type PromptPreviewParams,
   type RunOutcome,
+  type SplitUnit,
 } from "../../shared";
 import type { NodeCapabilities } from "../../shared/capabilities";
 import { NODE_KEYS } from "../../../constants/node-keys";
@@ -284,16 +285,21 @@ export class PlanNode extends AgentRunNode<PlanInput, PlanOutput> {
     /** default for starts that don't pass `decompose` explicitly */
     decompose_default: z.boolean().default(false),
     /**
+    /**
      * Plan fan-out (§1 "who decides the mode"): the published execution
      * resolution. `follow` = the PLANNER decides per plan version — the
      * plan prompt gains the execution directive and the response's
      * `execution` + `execution_rationale` are published in plan-meta
-     * (unknown/missing ⇒ whole, never a parse failure). An explicit
-     * whole/steps beats the follow value; the published value rides every
-     * plan version in `artifacts.meta.execution` (source: knob | planner |
-     * default | override), and the plan panel offers the override at approve.
+     * (unknown/missing ⇒ whole, never a parse failure). Its "steps" choice
+     * fans the plan's branches out as one child flow per branch via the
+     * split runtime (overridable at approve). The legacy knob value
+     * "steps" (per-step child flows) is retired — old configs still
+     * carrying it surface through executionDefault and now mean the same
+     * per-branch fan-out. The published value rides every plan version in
+     * `artifacts.meta.execution` (source: knob | planner | default |
+     * override), and the plan panel offers the override at approve.
      */
-    execution_default: z.enum(["whole", "steps", "follow"]).default("whole"),
+    execution_default: z.enum(["whole", "follow"]).default("whole"),
     /** ambient MCP servers for plan agent runs — defaults to ALL sources enabled */
     mcp_sources: mcpSourcesSchema.default(DEFAULT_MCP_SOURCES),
   });
@@ -304,12 +310,11 @@ export class PlanNode extends AgentRunNode<PlanInput, PlanOutput> {
     {
       key: "execution_default", label: "Execution resolution", type: "select",
       help:
-        "How the checklist executes after this plan is approved: whole (one run — today), steps "
-        + "(one child sub-flow per plan step — downstream fan-out nodes honor it), follow (the planner decides per plan version and publishes the choice with a one-line rationale; you can override it at approve).",
+        "How the work after this plan executes once approved: whole (one run — the default), follow "
+        + "(the planner decides per plan version — its \"steps\" choice fans the plan's branches out as one child flow per branch via the split runtime, overridable at approve).",
       options: [
         { value: "whole", label: "whole", description: "Everything executes as one run (default)" },
-        { value: "steps", label: "steps", description: "Step-by-step: fan-out nodes spawn one child flow per step" },
-        { value: "follow", label: "follow", description: "The planner decides per plan version (published in plan-meta, overridable at approve)" },
+        { value: "follow", label: "follow", description: "The planner decides per plan version — \"steps\" fans the branches out as one child flow per branch (overridable at approve)" },
       ],
     },
     ...mcpSourceConfigFields,
@@ -678,25 +683,29 @@ export class PlanNode extends AgentRunNode<PlanInput, PlanOutput> {
   }
 
   /**
-   * The `follow`-mode planning directive (Phase 3B). Under every other knob
-   * this returns null — non-follow prompts are byte-identical to Phase 1.
-   * `auto_min_steps` does not exist as a knob: the ~N-steps consideration is
-   * planner HINT text here, never a runtime threshold.
+   * The `follow`-mode planning directive (Phase 6's intended prompt delta —
+   * the branch child-flow contract). Under every other knob this returns
+   * null — non-follow prompts are byte-identical to the pre-Phase-6 text.
+   * `auto_min_steps` does not exist as a knob: the ~N-branches consideration
+   * is planner HINT text here, never a runtime threshold. Composed on the
+   * TemplateComposer (Phase 5): skip-empty part semantics, no `join` array.
    */
   private executionDirective(ctx: FlowCtx): string | null {
     if (this.executionDefault(ctx) !== "follow") return null;
-    return [
-      `## Execution resolution — add these two top-level fields to your JSON response`,
-      `This flow's plan node is configured so YOU decide how the checklist executes after approval. Add exactly two top-level fields (everything else in the schema is unchanged):`,
-      ``,
-      `  "execution": "whole" or "steps"`,
-      `  "execution_rationale": "<one line — why>"`,
-      ``,
-      `- "whole": the entire plan builds in ONE agent run (a tightly-coupled change, shared files, steps that depend on each other mid-task).`,
-      `- "steps": each checklist step runs as its own monitorable sub-flow on its own review unit (an approved plan of independent, file-disjoint work).`,
-      `- Consider "steps" when the plan decomposes into roughly 5+ fairly independent steps a reviewer would want to verify one at a time. Sibling step agents cannot see each other's code, so when you pick "steps" keep each step's "files" accurate and disjoint from other steps.`,
-      `- Prefer "whole" for anything entangled — a wrong call trades review granularity for stuck siblings.`,
-    ].join("\n");
+    return TemplateRenderer
+      .compose("## Execution resolution — add these two top-level fields to your JSON response")
+      .addLine("This flow's plan node is configured so YOU decide how the work executes after approval. Add exactly two top-level fields (everything else in the schema is unchanged):")
+      .addBlankLine()
+      .addLine('  "execution": "whole" or "steps"')
+      .addLine('  "execution_rationale": "<one line — why>"')
+      .addBlankLine()
+      .addLines([
+        `- "whole": the entire plan builds in ONE agent run (a tightly-coupled change, shared files, branches that depend on each other mid-task).`,
+        `- "steps": each declared BRANCH becomes its own monitorable child flow on its own review unit (an approved plan of independent branches). A branch-less plan executes whole either way.`,
+        `- Consider "steps" when the plan decomposes into roughly 5+ fairly independent branches a reviewer would want to verify one at a time. Sibling branch agents cannot see each other's code, so when you pick "steps" declare "dependsOn" between branches that share files — the scheduler starts a branch only after its dependencies resolve — and keep each branch's "files" accurate.`,
+        `- Prefer "whole" for anything entangled — a wrong call trades review granularity for stuck siblings.`,
+      ])
+      .build();
   }
 
   /**
@@ -998,10 +1007,65 @@ export class PlanNode extends AgentRunNode<PlanInput, PlanOutput> {
     return { art, stepCount };
   }
 
-  /** The plan node's `execution_default` knob (class ← app ← flow snapshot). */
+  /**
+   * The plan node's `execution_default` knob (class ← app ← flow snapshot).
+   * The knob domain is whole|follow now, but LEGACY configs may still carry
+   * "steps" (the retired per-step child flows): old per-step intent maps to
+   * the per-branch fan-out, so it surfaces as "steps" here and
+   * splitResolution resolves it per-unit. Anything else → "whole".
+   */
   private executionDefault(ctx: FlowCtx): "whole" | "steps" | "follow" {
     const raw = this.nodeConfig(ctx)["execution_default"];
     return raw === "steps" || raw === "follow" ? raw : "whole";
+  }
+
+  // ── split source port (agent-node split plan §2.1) — the plan's branches ──
+
+  /**
+   * The plan's branches as split units (Phase 6): one unit per declared
+   * branch, scheduled purely by the branch DAG. The unit's item carries the
+   * branch contract plus the full plan document (`plan`) so the child build
+   * run gets its complete context — the same input build's own multi-branch
+   * triggerRuns decomposition passes. Null when there is no plan artifact
+   * or no branches (the consumer then runs whole).
+   */
+  override splitUnits(ctx: FlowCtx): SplitUnit[] | null {
+    const latest = this.latestPlan(ctx.flow.id);
+    if (!latest || !latest.meta.branches.length) return null;
+    return latest.meta.branches.map((b) => ({
+      key: b.name,
+      title: b.title,
+      dependsOn: [...b.dependsOn],
+      target: "build",
+      item: {
+        name: b.name,
+        title: b.title,
+        scope: b.scope,
+        files: b.files,
+        dependsOn: b.dependsOn,
+        subPlan: b.subPlan ?? null,
+        markdown: b.markdown ?? null,
+        plan: latest.art.content,
+      },
+    }));
+  }
+
+  /**
+   * The published resolution recommendation (§2.4), honored by consumers
+   * whose `split_consume` knob is "source": knob whole → whole; the legacy
+   * knob "steps" → per-unit (old per-step intent = per-branch fan-out);
+   * follow → the published plan-version meta decides (execution "steps" ⇒
+   * per-unit, anything else whole). Total: a missing/unparseable plan
+   * artifact resolves whole — never throws.
+   */
+  override splitResolution(ctx: FlowCtx): "whole" | "per-unit" | null {
+    const knob = this.executionDefault(ctx);
+    if (knob === "steps") return "per-unit"; // legacy per-step config
+    if (knob === "follow") {
+      const published = this.latestPlan(ctx.flow.id)?.rawMeta.execution;
+      return published === "steps" ? "per-unit" : "whole";
+    }
+    return "whole";
   }
 
   /** Custom sub-agents for decompose mode (cloud runs only). */

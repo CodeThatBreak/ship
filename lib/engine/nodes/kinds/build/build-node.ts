@@ -16,6 +16,46 @@ import { branchStore } from "./branch-store";
 import { BuildInput, BuildOutput, type BuildBranchInfo } from "./schema";
 import { type PlanBranch } from "../plan/schema";
 
+/** Narrow an unknown value to a plain object (no null / arrays). */
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+/**
+ * The split-child trigger payload's unit item, narrowed (null otherwise):
+ * a split child's `trigger_payload` is `{ parentNodeKey, unit: { key,
+ * title, dependsOn, item, position } }` (the split runtime's linkage,
+ * aliased through `ctx.flow.trigger_payload`), and the plan node's branch
+ * units carry `item.name/title/scope/plan`.
+ */
+function splitUnitItemOf(payload: unknown): {
+  name: string;
+  title: string;
+  scope: string;
+  plan: string | null;
+} | null {
+  if (typeof payload === "string") {
+    try {
+      payload = JSON.parse(payload);
+    } catch {
+      return null;
+    }
+  }
+  if (!isRecord(payload)) return null;
+  const unit = payload.unit;
+  if (!isRecord(unit)) return null;
+  const item = unit.item;
+  if (!isRecord(item)) return null;
+  const { name, title, scope, plan } = item;
+  if (typeof name !== "string" || !name) return null;
+  return {
+    name,
+    title: typeof title === "string" && title ? title : name,
+    scope: typeof scope === "string" ? scope : "",
+    plan: typeof plan === "string" ? plan : null,
+  };
+}
+
 export class BuildNode extends AgentRunNode<BuildInput, BuildOutput> {
   readonly key = NODE_KEYS.BUILD;
   readonly label = "Build";
@@ -71,9 +111,11 @@ export class BuildNode extends AgentRunNode<BuildInput, BuildOutput> {
     fanout_parallel_max: z.number().int().min(1).default(1),
     /** ambient MCP servers for build/refine agent runs — defaults to ALL sources enabled */
     mcp_sources: mcpSourcesSchema.default(DEFAULT_MCP_SOURCES),
-    // split-consumption knob (agent-node split plan §2.4 — Phase 4): how this
-    // node consumes an upstream split source's units. Default whole = today.
-    split_consume: splitConsumeSchema,
+    // split-consumption knob (agent-node split plan §2.4 — Phase 4; the
+    // Phase 6 default is "source"): the consumer defers to the plan source's
+    // published resolution (`splitResolution`) — the plan node recommends
+    // whole, or per-unit branch fan-out under `follow`/legacy `steps`.
+    split_consume: splitConsumeSchema.default("source"),
     split_parallel_max: splitParallelMaxSchema,
   });
   readonly configFields = [
@@ -105,7 +147,31 @@ export class BuildNode extends AgentRunNode<BuildInput, BuildOutput> {
    * internal — it lives in the node class, never in the engine. Multi-branch
    * plans come back as sequential runs.
    */
+  /**
+   * Split-child consumption (agent-node split plan §2.4 — Phase 6): when
+   * this build instance is a split child (the auto-wrapped build), the unit
+   * rides the child flow's trigger payload — consume it as the run input:
+   * the branch's plan document + branch contract, the exact input shape this
+   * def's own multi-branch triggerRuns decomposition passes. Null on an
+   * ordinary parent-flow build — the plan-based behavior below is unchanged.
+   */
+  override triggerInput(ctx: FlowCtx): BuildInput | null {
+    const unit = splitUnitItemOf(ctx.flow.trigger_payload);
+    if (!unit) return null;
+    return {
+      plan: unit.plan,
+      prompt: null,
+      branchInfo: { name: unit.name, title: unit.title, scope: unit.scope },
+      feedback: null,
+      model: null,
+    };
+  }
+
   override triggerRuns(ctx: FlowCtx): NodeTriggerRun[] {
+    // split child (Phase 6): the unit payload IS the run input — the plan
+    // artifact reads below are parent-flow behavior only
+    const unitInput = this.triggerInput(ctx);
+    if (unitInput) return [{ input: unitInput }];
     const plan = this.support.latestArtifact(ctx.flow.id, "plan", { nodeType: NODE_KEYS.PLAN });
     if (!plan) throw new Error("no plan to build — approve the plan first");
 

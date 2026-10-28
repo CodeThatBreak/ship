@@ -11,7 +11,9 @@ export interface ResolvedExecution {
   publishedSource: string;
   /** the planner's one-line rationale for the published decision */
   plannerRationale: string | null;
-  /** effective resolution: the knob wins unless it defers to the planner */
+  /** effective resolution: an explicit whole knob wins; follow (and a LEGACY
+   *  "steps" knob — it now means the same per-branch fan-out) defer to the
+   *  published value */
   resolution: ExecutionMode;
 }
 
@@ -31,13 +33,16 @@ export function resolveExecution(
   const published = meta?.execution === EXECUTION_MODE.STEPS ? EXECUTION_MODE.STEPS : EXECUTION_MODE.WHOLE;
   const publishedSource = typeof meta?.executionSource === "string" ? meta.executionSource : "unknown";
   const plannerRationale = typeof meta?.execution_rationale === "string" ? meta.execution_rationale : null;
-  const resolution = knob === EXECUTION_MODE.STEPS ? EXECUTION_MODE.STEPS : published;
+  // the raw knob domain is whole|follow now; a LEGACY raw knob "steps" (the
+  // retired per-step child flows) means what "follow" means — the published
+  // value wins, so old configs surface their published (per-branch) resolution
+  const resolution = knob === EXECUTION_MODE.WHOLE ? EXECUTION_MODE.WHOLE : published;
   return { knob, published, publishedSource, plannerRationale, resolution };
 }
 
-/** Label of what a resolution will execute as ("one run" / "step-by-step (n steps)"). */
-export function executionLabel(mode: ExecutionMode, stepCount: number): string {
+/** Label of what a resolution will execute as ("one run" / "one child flow per branch (n branches)"). */
+export function executionLabel(mode: ExecutionMode, branchCount: number): string {
   return mode === EXECUTION_MODE.STEPS
-    ? `step-by-step (${stepCount} step${stepCount === 1 ? "" : "s"})`
+    ? `one child flow per branch (${branchCount} branch${branchCount === 1 ? "" : "es"})`
     : "one run";
 }
