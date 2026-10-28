@@ -8,7 +8,7 @@
  *   node scripts/seed-branch-refine-demo.mjs --serve    # + start `next dev` on :3000
  *
  * The story it seeds (open http://localhost:3000 → "DEMO-207 sub-plan refine demo"):
- *   v1  complex plan, 2 branches (backend, worker), 7 steps
+ *   v1  plan, 2 branches (backend, worker), 7 steps
  *   v2  branch-scoped refine of `worker`  → ONLY that branch's steps change,
  *       the plan markdown stays byte-identical, worker gets its own branch doc,
  *       diffs via id preservation (s5 changed, s9 added, s7 untouched)
@@ -65,7 +65,7 @@ drift out of sync. Support handles ~15 "missing event" tasks a week.
 - Dead events are replayable via POST /admin/webhooks/:id/replay.
 - Unit tests cover backoff schedule calculation and the outbox state machine.`;
 
-// ── plan v1: complex draft, 2 branches, 7 steps (byte-identical across v1/v2) ─
+// ── plan v1: branched draft, 2 branches, 7 steps (byte-identical across v1/v2) ─
 const PLAN_V1 = `# Webhook retry pipeline — implementation plan
 
 ## Approach
@@ -301,7 +301,7 @@ const ev = (msg, m, nodeId = nodeIds.plan) => {
     .run(uid("ev_"), flowId, nodeId, msg, minsAgo(m));
 };
 
-let nodeInput = { feedback: null, prompt: null, promptIsBody: false, decompose: false, model: null, complex: true, branchRef: null, fresh: null, contextBlocks: [] };
+let nodeInput = { feedback: null, prompt: null, promptIsBody: false, decompose: false, model: null, branchRef: null, fresh: null, contextBlocks: [] };
 const setNodeInput = (i) => {
   nodeInput = { ...nodeInput, ...i };
   db.prepare(`UPDATE nodes SET input=?, updated_at=? WHERE id=?`).run(JSON.stringify(nodeInput), now(), nodeIds.plan);
@@ -316,15 +316,14 @@ function savePlanArtifact(content, meta, version, m, feedback = null) {
   return { id, version };
 }
 
-// ── act 1 (t-52m): complex plan v1, 2 branches ───────────────────────────────
-setNodeInput({ complex: true });
+// ── act 1 (t-52m): plan v1, 2 branches ────────────────────────────────────────
 const artV1 = savePlanArtifact(PLAN_V1, { feedback: null, steps: metaV1.steps, branches: metaV1.branches }, 1, 52);
 const insStep = (s, pos) =>
   db.prepare(`INSERT INTO plan_steps (id,flow_id,artifact_id,meta_id,position,title,detail,files,branch,status,origin,created_at,updated_at)
     VALUES (?,?,?,?,?,?,?,?,?,'pending','agent',?,?)`)
     .run(uid("step_"), flowId, artV1.id, s.id, pos, s.title, s.detail ?? null, JSON.stringify(s.files ?? []), s.branch ?? null, minsAgo(52), minsAgo(52));
 metaV1.steps.forEach(insStep);
-ev("complex plan v1 ready for review (2 branches · 7 steps)", 52);
+ev("plan v1 ready for review (2 branches · 7 steps)", 52);
 
 // dev checked off the two "obvious" backend steps by hand while reading v1
 for (const mid of ["s1", "s2"]) {
@@ -355,7 +354,7 @@ ev(`branch 'worker' sub-plan refined · 3 steps (+${workerDiff.added} / −${wor
 
 // dev reads the branch tab, then hands off a whole-plan nudge
 db.prepare(`UPDATE nodes SET status='awaiting_approval', output=?, updated_at=? WHERE id=?`)
-  .run(JSON.stringify({ latestArtifact: artV2.id, version: 2, branches: mergedV2.branches, steps: mergedV2.steps, complex: true, scopedRefine: { branch: "worker", from: 1 } }),
+  .run(JSON.stringify({ latestArtifact: artV2.id, version: 2, branches: mergedV2.branches, steps: mergedV2.steps, scopedRefine: { branch: "worker", from: 1 } }),
     minsAgo(31), nodeIds.plan);
 
 // ── act 3 (t-14m): whole-plan refine → v3 (overview prose refreshed) ─────────
@@ -364,9 +363,9 @@ const metaV3 = { steps: mergedV2.steps, branches: mergedV2.branches }; // steps 
 const artV3 = savePlanArtifact(PLAN_V3, { feedback: "tighten the overview prose after the worker refine", steps: metaV3.steps, branches: metaV3.branches }, 3, 14,
   "tighten the overview prose after the worker refine");
 db.prepare(`UPDATE plan_steps SET artifact_id=? WHERE flow_id=?`).run(artV3.id, flowId);
-ev(`complex plan v3 ready for review (2 branches · 8 steps)`, 14);
+ev(`plan v3 ready for review (2 branches · 8 steps)`, 14);
 db.prepare(`UPDATE nodes SET status='awaiting_approval', output=?, updated_at=? WHERE id=?`)
-  .run(JSON.stringify({ latestArtifact: artV3.id, version: 3, branches: metaV3.branches, steps: metaV3.steps, complex: true }),
+  .run(JSON.stringify({ latestArtifact: artV3.id, version: 3, branches: metaV3.branches, steps: metaV3.steps}),
     minsAgo(14), nodeIds.plan);
 
 // ── act 4 (t-2m): branch-scoped refine of `backend` → v4 ─────────────────────
@@ -378,7 +377,7 @@ const artV4 = savePlanArtifact(PLAN_V3,
 replaceBranch(flowId, artV4.id, "backend", mergedV4.steps.filter((s) => s.branch === "backend"));
 // backend diff vs v3: s4 detail reworded (changed), s9 note pulled into s1 (changed), nothing else
 db.prepare(`UPDATE nodes SET status='awaiting_approval', output=?, updated_at=? WHERE id=?`)
-  .run(JSON.stringify({ latestArtifact: artV4.id, version: 4, branches: mergedV4.branches, steps: mergedV4.steps, complex: true, scopedRefine: { branch: "backend", from: 3 } }),
+  .run(JSON.stringify({ latestArtifact: artV4.id, version: 4, branches: mergedV4.branches, steps: mergedV4.steps, scopedRefine: { branch: "backend", from: 3 } }),
     minsAgo(2), nodeIds.plan);
 db.prepare(`UPDATE flows SET current_node=NULL, updated_at=? WHERE id=?`).run(minsAgo(2), flowId);
 ev("branch 'backend' sub-plan refined · 5 steps (+0 / −0, 2 changed) — other branches untouched", 2);

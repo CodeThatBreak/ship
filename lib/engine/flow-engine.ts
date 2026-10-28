@@ -782,13 +782,13 @@ export class FlowEngine {
 
   // ── public triggers ──────────────────────────────────────────────────────
 
-  startPlan(flowId: string, prompt?: string, decompose?: boolean, model?: string, promptIsBody?: boolean, complex?: boolean): void {
+  startPlan(flowId: string, prompt?: string, decompose?: boolean, model?: string, promptIsBody?: boolean): void {
     const planKey = this.keyOfRole(flowId, NODE_KEYS.PLAN);
     if (!planKey) throw new Error("this flow template has no plan node");
     this.setCurrentNode(flowId, planKey);
     this.bg(flowId, planKey, () => this.runNode(flowId, planKey, {
       feedback: null, prompt: prompt ?? null, promptIsBody: promptIsBody ?? false,
-      decompose: decompose ?? false, model: model ?? null, complex: complex ?? false,
+      decompose: decompose ?? false, model: model ?? null,
     }).then(() => {}));
   }
 
@@ -798,7 +798,6 @@ export class FlowEngine {
     prompt?: string,
     model?: string,
     promptIsBody?: boolean,
-    complex?: boolean,
     branchRef?: string,
     fresh?: boolean,
     contextBlocks?: string[],
@@ -808,7 +807,7 @@ export class FlowEngine {
     this.setCurrentNode(flowId, planKey);
     this.bg(flowId, planKey, () => this.runNode(flowId, planKey, {
       feedback, prompt: prompt ?? null, promptIsBody: promptIsBody ?? false, decompose: false, model: model ?? null,
-      complex: complex ?? false, branchRef: branchRef ?? null,
+      branchRef: branchRef ?? null,
       fresh: fresh ?? null, contextBlocks: contextBlocks ?? [],
     }).then(() => {}));
   }

@@ -104,66 +104,6 @@ export const DEFAULT_PROMPT_TEMPLATES: Record<string, PromptTemplate> = {
     variables: ["feedback", "context"],
     mode: "plan",
   },
-  plan_complex: {
-    label: "Complex plan",
-    description:
-      "Sent to the planning agent for bigger tickets — returns JSON with markdown + steps + branches + sub-plans.",
-    userTemplate: [
-      `You are planning the implementation of a {{ticket_type}} ticket. Read the repository to ground the plan in the actual code.`,
-      ``,
-      `{{ticket}}`,
-    ].join("\n"),
-    internalBlocks: [
-      { kind: "data", text: `{{context}}` },
-      {
-        kind: "contract",
-        text: [
-          `Return a JSON object ONLY — no prose before or after, no code fences. The JSON must match this exact schema:`,
-          `{`,
-          `  "markdown": "<the full implementation plan in Markdown — this is what the user sees>",`,
-          `  "steps": [{"id":"s1","title":"Short imperative title","detail":"What to change and why","files":["path/to/file.ts"],"branch":null}],`,
-          `  "branches": [{"name":"slug-safe-name","title":"Short title","scope":"What this branch covers","files":["path/to/file1.ts"],"steps":["step 1","step 2"],"dependsOn":[],"subPlan":{"prompt":"Detailed sub-plan prompt","steps":[...]}}]`,
-          `}`,
-        ].join("\n"),
-      },
-      {
-        kind: "rules",
-        text: [
-          `Rules:`,
-          `- "markdown" is the full plan document rendered to the user — be thorough and well-structured`,
-          `- list the exact files to create/change and why, call out risks and edge cases, keep it scoped to the ticket`,
-          `- "steps" is REQUIRED — a non-empty ordered array; each "id" must be a unique short string (s1, s2, …)`,
-          `- each step "title" is a non-empty imperative sentence; "detail" is 1-2 sentences`,
-          `- each step "files" lists the exact paths it touches; use [] when no files`,
-          `- each step "branch" must be null (single-branch) or match a declared branch "name" exactly`,
-          `- "branches" is optional — use it when the work decomposes into independent parts (e.g. backend + frontend, per-module)`,
-          `- branch "name" must be lowercase alphanumeric + hyphens, unique; "dependsOn" lists branches that must build first`,
-          `- "subPlan" is optional per branch: when present, this branch gets its own dedicated planning agent run with the given "prompt"`,
-          `- for a single cohesive change, omit "branches" (or use []) and leave every step's "branch" null`,
-          `- do NOT add any fields not listed above`,
-          `- your entire response must be parseable as a single JSON object`,
-        ].join("\n"),
-      },
-    ],
-    variables: ["ticket", "ticket_type", "feedback", "context"],
-    mode: "plan",
-  },
-  plan_complex_refine: {
-    label: "Complex plan refinement",
-    description:
-      "Sent when the developer refines a complex plan or a specific sub-plan (follow-up on the same agent).",
-    userTemplate: [
-      `Refine the implementation plan based on this feedback:`,
-      `"""\n{{feedback}}\n"""`,
-      `{{context}}`,
-      ``,
-      `Keep it grounded in the repo. Return the FULL revised plan as a single JSON object (same schema as before).`,
-      `Your entire response must be parseable as a single JSON object with "markdown", "steps", and optional "branches".`,
-    ].join("\n"),
-    internalBlocks: [],
-    variables: ["feedback", "context"],
-    mode: "plan",
-  },
   plan_subplan_refine: {
     label: "Sub-plan refinement (per branch)",
     description:

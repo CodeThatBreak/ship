@@ -10,7 +10,7 @@ import { resolvePanel, type PanelProps } from ".";
  * supplied here (through the query cache) so panels stay transport-free.
  */
 export default function NodePanel({
-  flow, node, action, events = [], model, planOptions = { decompose: false, complex: false },
+  flow, node, action, events = [], model, planOptions = { decompose: false },
 }: { flow: PanelProps["flow"]; node: PanelProps["node"]; action: PanelProps["action"]; events?: PanelProps["events"]; model: string; planOptions?: PanelProps["planOptions"] }) {
   const fetchArtifact = useArtifactFetcher();
   const Panel = resolvePanel(node);

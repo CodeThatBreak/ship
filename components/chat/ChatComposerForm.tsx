@@ -22,8 +22,8 @@ import PlanOptionToggles from "./PlanOptionToggles";
 import type { PlanOptions } from "./types";
 
 /** The chat input form: message textarea, model selector, refine toggle and
- *  (for plan-style nodes) the decompose / complex-plan toggles. Purely
- *  presentational — all state and sending live in the panel and its hooks. */
+ *  (for plan-style nodes) the decompose toggle. Purely presentational — all
+ *  state and sending live in the panel and its hooks. */
 export default function ChatComposerForm({
   formRef,
   draft,

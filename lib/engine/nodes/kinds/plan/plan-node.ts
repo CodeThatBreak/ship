@@ -3,22 +3,31 @@ import type { AgentRunResult } from "../../../ports/agent-port";
 import { PlanStepRow, rows, type NodeRow } from "../../../../db/rows";
 import { prompts, sectionsOf, type PromptSections as PromptSectionsLike } from "../../../prompts/prompt-library";
 import { planSteps } from "../../../runtime/plan-step-store";
-import { AgentRunNode, nodeRoles, type FlowCtx, type NodePromptPreview, type PromptPreviewParams, type RunOutcome } from "../../shared";
+import {
+  AgentRunNode,
+  TemplateRenderer,
+  nodeRoles,
+  type FlowCtx,
+  type NodePromptPreview,
+  type PromptPreviewParams,
+  type RunOutcome,
+} from "../../shared";
 import type { NodeCapabilities } from "../../shared/capabilities";
 import { NODE_KEYS } from "../../../constants/node-keys";
 import type { ConfigField } from "../../../templates/node-config";
-import { DEFAULT_MCP_SOURCES, appLayerConfig, configString, mergeConfigLayers, mcpSourcesOf, mcpSourcesSchema, mcpSourceConfigFields, type SettingSource } from "../../../templates/node-config";
-import { PlanMetaParser, type PlanParseResult } from "./plan-meta-parser";
+import { DEFAULT_MCP_SOURCES, configString, mcpSourcesOf, mcpSourcesSchema, mcpSourceConfigFields, type SettingSource } from "../../../templates/node-config";
+import { AGENT_OUTPUT_ERROR, AgentOutputError, type AgentOutputErrorCode } from "../../shared/agent/output-error";
+import { extractJson } from "../agent/json-schema-lite";
 import {
+  PLAN_RESPONSE_JSON_SCHEMA,
+  SUB_PLAN_RESPONSE_JSON_SCHEMA,
+  PlanResponse,
+  SubPlanResponse,
+  withStepIds,
   PlanInput,
   PlanOutput,
-  type PlanBranch,
   type PlanMeta,
   type PlanStep,
-  type PlanValidationError,
-  type SimplePlanResponse,
-  type ComplexPlanResponse,
-  type SubPlanResponse,
 } from "./schema";
 
 // ── context block registry (§4) ──────────────────────────────────────────────
@@ -107,41 +116,6 @@ export interface ContextBlockInfo {
   locked: boolean;
 }
 
-// ── per-mode parse config for generatePlan (§3) ──────────────────────────────
-
-interface ParseModeConfig<T> {
-  /** how to parse + validate the agent's JSON response */
-  parse: (text: string) => PlanParseResult<T>;
-  /** the schema hint included in the retry prompt */
-  schemaHint: string;
-  /** requirement lines for the retry prompt */
-  requirements: string[];
-  /** what the retry asks the agent to re-emit */
-  retrySubject: string;
-}
-
-const WHOLE_PLAN_SCHEMA_HINT =
-  `{"markdown":"<plan markdown>","steps":[{"id","title","detail","files","branch"}],"branches":[{"name","title","scope","files","steps","dependsOn","subPlan"}]}`;
-const SUB_PLAN_SCHEMA_HINT =
-  `{"markdown":"<this branch's sub-plan>","steps":[{"id","title","detail","files"}]}`;
-
-const WHOLE_PLAN_REQUIREMENTS = [
-  `- "markdown" (string, non-empty): the full plan in Markdown`,
-  `- "steps" (array, min 1): each with unique short "id" (s1, s2, …), non-empty "title", "detail", "files" array, "branch" (null or valid branch name)`,
-  `- "branches" (optional array): each with unique lowercase-hyphen "name", "title", "scope", "files", "steps", "dependsOn" (valid branch names), optional "subPlan"`,
-  `- step "branch" must be null or match a declared branch "name"`,
-];
-
-/**
- * Scoped requirement lines mirror the scoped template: replace ONLY this
- * branch — never re-emit the full plan or other branches' steps.
- */
-const SUB_PLAN_REQUIREMENTS = [
-  `- replace ONLY this branch's sub-plan — never re-emit the full plan or other branches' steps`,
-  `- "markdown" (string, non-empty): this branch's implementation detail in Markdown`,
-  `- "steps" (array, min 1): each with unique short "id" (s1, s2, …), non-empty "title", "detail", "files" array`,
-];
-
 // ── merge logic (§5) — pure, deterministic ───────────────────────────────────
 
 /**
@@ -217,7 +191,8 @@ export function diffBranchSteps(
   removed: PlanStep[];
   changed: { id: string; before: PlanStep; after: PlanStep }[];
 } {
-  const byId = (arr: PlanStep[]) => new Map(arr.filter((s) => s.id).map((s) => [s.id!, s]));
+  const byId = (arr: PlanStep[]) =>
+    new Map(arr.filter((s): s is PlanStep & { id: string } => Boolean(s.id)).map((s) => [s.id, s]));
   const oldById = byId(oldSteps);
   const newById = byId(newSteps);
 
@@ -230,7 +205,7 @@ export function diffBranchSteps(
   }
 
   // leftovers: old ids absent from the new version
-  const leftoversOld = [...oldById.values()].filter((s) => !newById.has(s.id!));
+  const leftoversOld = [...oldById.values()].filter((s) => !newById.has(s.id));
   const removed: PlanStep[] = [];
   for (const o of leftoversOld) {
     // title fallback: an id was renamed but the step itself is unchanged
@@ -247,10 +222,27 @@ export function diffBranchSteps(
 
 // ── the node ─────────────────────────────────────────────────────────────────
 
+/** Output-contract failures a feedback turn can fix: missing or schema-
+ *  violating JSON. `agent_reported` never retries — the agent explicitly said
+ *  it cannot comply, and its reason goes to the user (chat refinement), not
+ *  back to the agent. (The agent-node standard.) */
+const RETRYABLE_OUTPUT_ERRORS: ReadonlySet<AgentOutputErrorCode> = new Set([
+  AGENT_OUTPUT_ERROR.NO_JSON,
+  AGENT_OUTPUT_ERROR.SCHEMA_MISMATCH,
+]);
+
+/** What a plan-mode agent run (initial or retry) needs beyond its prompt. */
+interface PlanRunArgs {
+  label: string;
+  model: string | null;
+  customSubagents: { name: string; instructions: string }[] | undefined;
+  settingSources: SettingSource[];
+}
+
 export class PlanNode extends AgentRunNode<PlanInput, PlanOutput> {
   readonly key = NODE_KEYS.PLAN;
   readonly label = "Plan";
-  readonly promptKeys = ["plan", "plan_refine", "plan_complex", "plan_complex_refine", "plan_subplan_refine"] as const;
+  readonly promptKeys = ["plan", "plan_refine", "plan_subplan_refine"] as const;
   /** the settings page's editable plan section (the other keys are run-time sub-templates) */
   readonly promptSections = ["plan"] as const;
   readonly order = 10;
@@ -278,8 +270,6 @@ export class PlanNode extends AgentRunNode<PlanInput, PlanOutput> {
   readonly inputSchema = PlanInput;
   readonly outputSchema = PlanOutput;
 
-  private readonly parser = new PlanMetaParser();
-
   /** Typed config knobs (defaults = today's behavior). */
   readonly configSchema = z.object({
     /** user-editable prompt body (foldable per template/flow; the global overlay was removed) */
@@ -291,8 +281,6 @@ export class PlanNode extends AgentRunNode<PlanInput, PlanOutput> {
      * alike). The prompt modal previews and edits it via set_node_config.
      */
     prompt_rules: z.string().optional(),
-    /** default for whole-flow starts that don't pass `complex` explicitly */
-    default_complex: z.boolean().default(false),
     /** default for starts that don't pass `decompose` explicitly */
     decompose_default: z.boolean().default(false),
     /**
@@ -312,7 +300,6 @@ export class PlanNode extends AgentRunNode<PlanInput, PlanOutput> {
   readonly configFields = [
     { key: "prompt_body", label: "Prompt body", type: "text", help: "User-editable prompt body; internal output contracts are appended automatically." },
     { key: "prompt_rules", label: "Your rules", type: "text", help: "Extra rules appended after the prompt body, before the engine's locked instructions (output contract, run data) — on every run of this node. E.g. \"always ask before assuming a framework\"." },
-    { key: "default_complex", label: "Default to complex plans", type: "boolean", help: "Used when a start doesn't request a mode explicitly." },
     { key: "decompose_default", label: "Decompose by default", type: "boolean", help: "Run repo-exploration sub-agents by default." },
     {
       key: "execution_default", label: "Execution resolution", type: "select",
@@ -338,13 +325,13 @@ export class PlanNode extends AgentRunNode<PlanInput, PlanOutput> {
     // template runs, config-body runs and modal-edited runs alike
     const userRules = typeof config.prompt_rules === "string" ? config.prompt_rules : "";
     const node = this.node(ctx);
-    this.support.setNode(node.id, { status: "running" });
 
     // Branch-scoped path (§2/§3): refine ONE branch's sub-plan.
     const scoped = input.branchRef ? this.prepareScopedRefine(ctx, input) : null;
     if (input.branchRef && !scoped) {
-      // Edge case (§9): branchRef on a simple plan or unknown branch name →
-      // fall back to a whole-plan refine with a lifecycle note, never hard-fail.
+      // Edge case (§9): branchRef on a plan without branches or an unknown
+      // branch name → fall back to a whole-plan refine with a lifecycle note,
+      // never hard-fail.
       this.support.emitLifecycle(
         ctx.flow.id, node.id,
         `branch "${input.branchRef}" not found in the current plan — refining the whole plan instead`,
@@ -354,50 +341,52 @@ export class PlanNode extends AgentRunNode<PlanInput, PlanOutput> {
     const prompt = scoped
       ? this.buildScopedPrompt(ctx, scoped, input, userRules)
       : this.buildPlanPrompt(ctx, node, input, userRules);
-    const customSubagents = this.decomposeSubagents(ctx, input);
-    const settingSources = mcpSourcesOf(config);
-    // the run record: `input.prompt` is the exact final prompt (retry fidelity
-    // + the modal's lastRun read from it)
-    this.recordInput(node.id, { ...input, prompt });
-
-    if (scoped) return this.runScoped(ctx, node, input, scoped, prompt, customSubagents, settingSources);
-
-    // ── whole-plan path (prior behavior, context now registry-assembled) ────
-    const runOnce = (p: string, label: string, followUp: string | null) =>
-      this.runAgent(ctx, node.id, input, customSubagents, settingSources, p, label, followUp);
-
-    const isComplex = input.complex;
-    const label = isComplex ? "complex plan" : "plan";
-    const refineLabel = isComplex ? "complex plan refine" : "plan refine";
     const hasAgent = Boolean(node.agent_id);
 
     // Whole-plan refine follows up by default (the conversation holds the
     // decomposition rationale); `fresh` is the quality escape hatch (§3).
-    const initialFollowUp =
-      input.fresh === true ? null : input.feedback && hasAgent ? node.agent_id : null;
+    // Scoped refines are fresh by default: their template is self-contained,
+    // and a follow-up biases the model toward its earlier decisions.
+    const scopedFresh = input.fresh ?? true;
+    const followUpOn = scoped
+      ? scopedFresh
+        ? null
+        : node.agent_id ?? null
+      : input.fresh === true
+        ? null
+        : input.feedback && hasAgent
+          ? node.agent_id
+          : null;
+    const args: PlanRunArgs = {
+      label: scoped
+        ? `sub-plan refine (${scoped.branch.name}${scopedFresh ? ", fresh" : ""})`
+        : input.feedback && hasAgent
+          ? "plan refine"
+          : "plan",
+      model: input.model,
+      customSubagents: this.decomposeSubagents(ctx, input),
+      settingSources: mcpSourcesOf(config),
+    };
 
-    const { data, markdown, validationErrors } = await this.generatePlan(ctx, node, {
+    return this.execute(ctx, {
+      // the run record: `input.prompt` is the exact final prompt (retry
+      // fidelity + the modal's lastRun read from it)
+      input: { ...input, prompt },
       prompt,
-      runOnce,
-      mode: this.planMode(isComplex),
-      firstRunLabel: input.feedback && hasAgent ? refineLabel : label,
-      initialFollowUp,
-      label,
+      agent: {
+        mode: "plan",
+        name: `${args.label} ${ctx.task.key}`,
+        followUpOn,
+        model: args.model,
+        customSubagents: args.customSubagents,
+        settingSources: args.settingSources,
+      },
+      label: args.label,
+      finalize: (result) => this.applyPlanOutputWithRetry(ctx, node, input, scoped, result, args),
     });
-
-    const whole = data as ComplexPlanResponse | SimplePlanResponse | null;
-    const planMeta: PlanMeta | null = whole
-      ? isComplex
-        ? { steps: whole.steps, branches: (whole as ComplexPlanResponse).branches ?? [] }
-        : { steps: whole.steps, branches: [] }
-      : null;
-
-    const { art, stepCount } = this.persistPlan(ctx, node, input, markdown, planMeta,
-      this.normalizePlannerExecution(whole));
-    return this.finalizePlan(ctx, node, art, planMeta, stepCount, markdown, validationErrors, isComplex);
   }
 
-  // ── scoped refine run (Phase A) ───────────────────────────────────────────
+  // ── scoped refine preparation (Phase A) ───────────────────────────────────
 
   /** Everything the scoped refine needs, or null when it must fall back. */
   private prepareScopedRefine(ctx: FlowCtx, input: Pick<PlanInput, "branchRef">) {
@@ -412,65 +401,123 @@ export class PlanNode extends AgentRunNode<PlanInput, PlanOutput> {
     return { latest, branch, liveRows };
   }
 
+  // ── output contract: apply with one bounded retry (the agent-node pattern) ─
+
   /**
-   * The scoped run: prompt → parse SubPlanResponse → deterministic merge →
-   * new artifact version (plan markdown unchanged) → scoped checklist sync.
-   * Validation retries once, scoped.
+   * Apply the plan output contract with one bounded self-heal: when the
+   * response misses the contract (`no_json` / `schema_mismatch`), re-prompt
+   * the SAME agent once with the violations as feedback and re-apply the
+   * contract. A second miss throws the standard {@link AgentOutputError} and
+   * fails the node loudly — the previous artifact version stays the latest
+   * plan, and the developer retries.
    */
-  private async runScoped(
+  private async applyPlanOutputWithRetry(
     ctx: FlowCtx,
     node: NodeRow,
     input: PlanInput,
-    scoped: NonNullable<ReturnType<PlanNode["prepareScopedRefine"]>>,
-    prompt: string,
-    customSubagents: ReturnType<PlanNode["decomposeSubagents"]>,
-    settingSources: SettingSource[],
+    scoped: ScopedRefine | null,
+    result: AgentRunResult,
+    args: PlanRunArgs,
   ): Promise<RunOutcome> {
-    const branchName = scoped.branch.name;
-    // Fresh by default (§3): the scoped template is self-contained; a follow-up
-    // saves only bounded repo re-exploration but biases the model toward its
-    // earlier decisions.
-    const fresh = input.fresh ?? true;
-    const runOnce = (p: string, label: string, followUp: string | null) =>
-      this.runAgent(ctx, node.id, input, customSubagents, settingSources, p, label, followUp);
-    const initialFollowUp = fresh ? null : node.agent_id ?? null;
-    const refineLabel = `sub-plan refine (${branchName}${fresh ? ", fresh" : ""})`;
-
-    const { data, markdown, validationErrors } = await this.generatePlan(ctx, node, {
-      prompt,
-      runOnce,
-      mode: this.subPlanMode(),
-      firstRunLabel: refineLabel,
-      initialFollowUp,
-      label: refineLabel,
-    });
-
-    if (!data) {
-      // Scoped validation failure (§9): keep the previous artifact version;
-      // node failed with validationErrors. Recovery for scoped runs is skipped
-      // (§3) — the developer retries, and the retry stays scoped.
-      const output = this.outputSchema.parse({
-        latestArtifact: scoped.latest.art.id,
-        version: scoped.latest.art.version,
-        branches: scoped.latest.meta.branches,
-        steps: scoped.latest.meta.steps,
-        complex: true,
-        malformed: true,
-        validationErrors,
-      });
-      this.support.setNode(node.id, {
-        status: "failed",
-        agent_id: this.support.lastAgentId(node.id),
-        output: JSON.stringify(output),
-      });
-      const event =
-        `branch "${branchName}" sub-plan was malformed after retry — plan v${scoped.latest.art.version} kept, retry when ready`;
-      this.support.emitLifecycle(ctx.flow.id, node.id, event);
-      return { status: "failed", output, event, reply: markdown || "(malformed sub-plan response)" };
+    try {
+      return this.applyPlanResponse(ctx, node, input, result.result ?? "", scoped);
+    } catch (e: unknown) {
+      if (!(e instanceof AgentOutputError) || !RETRYABLE_OUTPUT_ERRORS.has(e.code)) throw e;
+      return this.retryPlanOutput(ctx, node, input, scoped, e, args);
     }
+  }
+
+  /**
+   * One feedback turn on the same agent session (`followUpOn` = the run the
+   * contract just failed), then re-apply the contract to its response. The
+   * scoped retry re-appends the scoped directive — a scoped retry never
+   * re-emits the full plan.
+   */
+  private async retryPlanOutput(
+    ctx: FlowCtx,
+    node: NodeRow,
+    input: PlanInput,
+    scoped: ScopedRefine | null,
+    failure: AgentOutputError,
+    args: PlanRunArgs,
+  ): Promise<RunOutcome> {
+    // the specific failure is the feedback: what the agent got wrong, in its
+    // own response's terms — the same human messages the trail shows
+    const feedback =
+      failure.code === AGENT_OUTPUT_ERROR.NO_JSON
+        ? TemplateRenderer
+            .compose("Your previous response could not be used: no JSON object could be parsed from it.")
+            .addBlankLine()
+            .addLine("Re-emit your ENTIRE response as a single JSON object.")
+        : TemplateRenderer
+            .compose("Your previous response was valid JSON but violated the output contract:")
+            .addBlankLine()
+            .addLines(failure.detail.issues.map((i) => `  - ${i.path ? `${i.path}: ` : ""}${i.message}`))
+            .addBlankLine()
+            .addLine(scoped ? "Re-emit ONLY your sub-plan response as a single JSON object." : "Re-emit the corrected JSON object.");
+
+    this.support.emitLifecycle(
+      ctx.flow.id, node.id,
+      `${args.label} output contract failed — retrying with feedback (${failure.code})`,
+    );
+
+    const retryPrompt = this.composePlanPrompt(feedback.build(), scoped != null);
+    const retry = await this.runner.executeRun(
+      ctx,
+      node.id,
+      () =>
+        this.runner.startAgent(ctx, {
+          prompt: retryPrompt,
+          mode: "plan",
+          name: `${args.label} ${ctx.task.key}`,
+          followUpOn: this.support.lastAgentId(node.id),
+          model: args.model,
+          customSubagents: args.customSubagents,
+          settingSources: args.settingSources,
+        }),
+      `${args.label} retry`,
+    );
+    return this.applyPlanResponse(ctx, node, input, retry.result ?? "", scoped);
+  }
+
+  /**
+   * Validate the agent's text against the plan response contract, then do the
+   * plan-domain work and build the outcome. Throws the standard
+   * {@link AgentOutputError} on no JSON, the agent's error envelope, or schema
+   * violations. The artifact is saved HERE, not via `outcome.artifact`: the
+   * output blob derives from the just-saved artifact row (id, version,
+   * execution/scopedRefine provenance) — `applyOutcome` persists the rest.
+   */
+  private applyPlanResponse(
+    ctx: FlowCtx,
+    node: NodeRow,
+    input: PlanInput,
+    text: string,
+    scoped: ScopedRefine | null,
+  ): RunOutcome {
+    if (scoped) return this.applyScopedPlanResponse(ctx, node, text, scoped);
+
+    const plan = this.parsePlanResponse(text, PlanResponse);
+    const planMeta: PlanMeta = { steps: withStepIds(plan.steps), branches: plan.branches ?? [] };
+    const { art, stepCount } = this.persistPlan(
+      ctx, node, input, plan.markdown, planMeta, this.normalizePlannerExecution(plan),
+    );
+    return this.planOutcome(art, planMeta, stepCount, plan.markdown);
+  }
+
+  /** The scoped refine's tail: deterministic merge → new artifact version
+   *  (plan markdown unchanged) → scoped checklist sync → awaiting approval. */
+  private applyScopedPlanResponse(
+    ctx: FlowCtx,
+    node: NodeRow,
+    text: string,
+    scoped: ScopedRefine,
+  ): RunOutcome {
+    const sub = this.parsePlanResponse(text, SubPlanResponse);
+    const branchName = scoped.branch.name;
 
     // Deterministic merge: everything outside this branch stays byte-identical.
-    const merged = mergeBranchRefine(scoped.latest.meta, branchName, data);
+    const merged = mergeBranchRefine(scoped.latest.meta, branchName, sub);
     const art = this.support.saveArtifact(node.id, ctx.flow.id, "plan", scoped.latest.art.content, {
       ...scoped.latest.rawMeta,
       steps: merged.steps,
@@ -488,28 +535,102 @@ export class PlanNode extends AgentRunNode<PlanInput, PlanOutput> {
     );
 
     const oldSteps = scoped.latest.meta.steps.filter((s) => s.branch === branchName);
-    const { added, removed, changed } = diffBranchSteps(oldSteps, data.steps);
+    const { added, removed, changed } = diffBranchSteps(oldSteps, sub.steps);
     const diffNote = `(+${added.length} / −${removed.length}${changed.length ? `, ${changed.length} changed` : ""})`;
 
-    const output = this.outputSchema.parse({
-      latestArtifact: art.id,
-      version: art.version,
-      branches: merged.branches,
-      steps: merged.steps,
-      complex: true,
-      scopedRefine: { branch: branchName, from: scoped.latest.art.version },
-    });
-    this.support.setNode(node.id, {
+    return {
       status: "awaiting_approval",
-      agent_id: this.support.lastAgentId(node.id),
-      output: JSON.stringify(output),
-    });
+      output: {
+        latestArtifact: art.id,
+        version: art.version,
+        branches: merged.branches,
+        steps: merged.steps,
+        scopedRefine: { branch: branchName, from: scoped.latest.art.version },
+      },
+      event: `branch '${branchName}' sub-plan refined · ${stepCount} steps ${diffNote} — other branches untouched`,
+      reply: sub.markdown,
+    };
+  }
 
-    const event =
-      `branch '${branchName}' sub-plan refined · ${stepCount} steps ${diffNote} — other branches untouched`;
-    this.support.emitLifecycle(ctx.flow.id, node.id, event);
+  /** Validate one plan-mode response against its schema. Throws the standard
+   *  {@link AgentOutputError}: `no_json`, the agent's error envelope
+   *  (`agent_reported`), or `schema_mismatch` carrying every violation — the
+   *  run trail shows what actually came back. */
+  private parsePlanResponse<T>(text: string, schema: z.ZodType<T>): T {
+    const parsed = extractJson(text);
+    if (parsed == null) {
+      throw new AgentOutputError({
+        code: AGENT_OUTPUT_ERROR.NO_JSON,
+        label: this.label,
+        message: `${this.label}: the agent response contained no JSON — the plan response must be a single JSON object`,
+        issues: [],
+        response: text,
+      });
+    }
+    // the agent's escape hatch: it answered with the standard error envelope
+    // instead of contract-conforming output — convey its reason
+    const reported = AgentOutputError.reported(parsed);
+    if (reported != null) {
+      throw new AgentOutputError({
+        code: AGENT_OUTPUT_ERROR.AGENT_REPORTED,
+        label: this.label,
+        // the agent's reason is the headline — its words, conveyed to the user
+        message: `${this.label}: ${reported.reason}`,
+        issues: [],
+        reported,
+        response: text,
+      });
+    }
+    const result = schema.safeParse(parsed);
+    if (!result.success) {
+      const issues = result.error.issues.map((i) => ({ path: i.path.join("."), message: i.message }));
+      throw new AgentOutputError({
+        code: AGENT_OUTPUT_ERROR.SCHEMA_MISMATCH,
+        label: this.label,
+        // the first violation stays the headline — the same human message the
+        // old validator produced, now with every issue in the structured payload
+        message: issues[0]?.message ?? `${this.label}: the plan response violated its schema`,
+        issues,
+        response: text,
+      });
+    }
+    return result.data;
+  }
 
-    return { status: "awaiting_approval", output, event, reply: data.markdown };
+  /** The plan output contract appended to a retry prompt: the schema the
+   *  response must satisfy + the agent's error-envelope escape hatch (the
+   *  same directive json-output agent nodes ride). */
+  private composePlanPrompt(body: string, scoped: boolean): string {
+    return TemplateRenderer.compose(body)
+      .addBlankLine()
+      .addBlankLine()
+      .addLine(AgentOutputError.directive(scoped ? SUB_PLAN_RESPONSE_JSON_SCHEMA : PLAN_RESPONSE_JSON_SCHEMA))
+      .build();
+  }
+
+  /** The whole-plan outcome: awaiting approval, the output blob pointing at
+   *  the fresh artifact version, the lifecycle event. */
+  private planOutcome(
+    art: { id: string; version: number },
+    planMeta: PlanMeta,
+    stepCount: number,
+    text: string,
+  ): RunOutcome {
+    const branchNote = planMeta.branches.length
+      ? ` (${planMeta.branches.length} branch${planMeta.branches.length > 1 ? "es" : ""})`
+      : "";
+    const stepNote = stepCount ? ` · ${stepCount} steps` : "";
+    return {
+      status: "awaiting_approval",
+      output: {
+        latestArtifact: art.id,
+        version: art.version,
+        ...(planMeta.branches.length ? { branches: planMeta.branches } : {}),
+        ...(planMeta.steps.length ? { steps: planMeta.steps } : {}),
+      },
+      event: `plan v${art.version} ready for review${branchNote}${stepNote}`,
+      reply: text,
+    };
   }
 
   // ── prompts ────────────────────────────────────────────────────────────────
@@ -524,27 +645,25 @@ export class PlanNode extends AgentRunNode<PlanInput, PlanOutput> {
       // earns its place only on refinement prompts (+ branch refines)
       skip: refining ? [] : ["task"],
     });
-    const tplKey = input.complex ? "plan_complex" : "plan";
-    const refineKey = input.complex ? "plan_complex_refine" : "plan_refine";
     // Phase 3B (`execution_default: follow`): the planner decides how the
     // checklist executes. The directive is an APPENDED block — the default
     // templates (and every non-follow prompt) stay byte-for-byte; the block
     // rides the base/refine/promptIsBody paths so an "Edit prompt" run keeps
     // the output contract. The raw verbatim-prompt path is untouched
     // (feedback-echo refines skip it by definition).
-    const execBlock = this.executionDirective(ctx.flow.id);
+    const execBlock = this.executionDirective(ctx);
 
     if (input.prompt) {
       return input.promptIsBody
-        ? prompts.assemblePrompt(tplKey, baseCtx, { context: contextBlock }, { body: input.prompt, userRules }).final
+        ? prompts.assemblePrompt("plan", baseCtx, { context: contextBlock }, { body: input.prompt, userRules }).final
             + (execBlock ? `\n\n${execBlock}` : "")
         : input.prompt;
     }
     if (input.feedback && hasAgent) {
-      const refined = prompts.resolve(refineKey, baseCtx, { feedback: input.feedback, context: contextBlock }, undefined, { userRules });
+      const refined = prompts.resolve("plan_refine", baseCtx, { feedback: input.feedback, context: contextBlock }, undefined, { userRules });
       return execBlock ? `${refined}\n\n${execBlock}` : refined;
     }
-    const base = prompts.resolve(tplKey, baseCtx, { context: contextBlock }, undefined, { userRules });
+    const base = prompts.resolve("plan", baseCtx, { context: contextBlock }, undefined, { userRules });
     let prompt = base + (input.feedback ? `\n\nAdditional instructions from the developer:\n${input.feedback}` : "");
 
     if (input.decompose) {
@@ -564,8 +683,8 @@ export class PlanNode extends AgentRunNode<PlanInput, PlanOutput> {
    * `auto_min_steps` does not exist as a knob: the ~N-steps consideration is
    * planner HINT text here, never a runtime threshold.
    */
-  private executionDirective(flowId: string): string | null {
-    if (this.executionDefault(flowId) !== "follow") return null;
+  private executionDirective(ctx: FlowCtx): string | null {
+    if (this.executionDefault(ctx) !== "follow") return null;
     return [
       `## Execution resolution — add these two top-level fields to your JSON response`,
       `This flow's plan node is configured so YOU decide how the checklist executes after approval. Add exactly two top-level fields (everything else in the schema is unchanged):`,
@@ -588,7 +707,7 @@ export class PlanNode extends AgentRunNode<PlanInput, PlanOutput> {
    */
   private buildScopedPrompt(
     ctx: FlowCtx,
-    scoped: NonNullable<ReturnType<PlanNode["prepareScopedRefine"]>>,
+    scoped: ScopedRefine,
     input: PlanInput,
     userRules: string,
   ): string {
@@ -605,7 +724,7 @@ export class PlanNode extends AgentRunNode<PlanInput, PlanOutput> {
   /** The scoped template's variables, built from the ref'd branch only (§2). */
   private scopedVars(
     ctx: FlowCtx,
-    scoped: NonNullable<ReturnType<PlanNode["prepareScopedRefine"]>>,
+    scoped: ScopedRefine,
     input: Pick<PlanInput, "feedback" | "contextBlocks">,
   ): Record<string, string> {
     const b = scoped.branch;
@@ -637,7 +756,7 @@ export class PlanNode extends AgentRunNode<PlanInput, PlanOutput> {
   // ── context block registry (§4) ───────────────────────────────────────────
 
   /** Resolve every block's rendered text (picker data + assembly source). */
-  resolveContextBlocks(ctx: FlowCtx, scoped: ReturnType<PlanNode["prepareScopedRefine"]>): ContextBlockInfo[] {
+  resolveContextBlocks(ctx: FlowCtx, scoped: ScopedRefine | null): ContextBlockInfo[] {
     const isScoped = Boolean(scoped);
     return CONTEXT_BLOCKS.map((spec) => {
       let text = "";
@@ -684,7 +803,7 @@ export class PlanNode extends AgentRunNode<PlanInput, PlanOutput> {
   private assembleContext(
     ctx: FlowCtx,
     input: Pick<PlanInput, "contextBlocks">,
-    scoped: ReturnType<PlanNode["prepareScopedRefine"]>,
+    scoped: ScopedRefine | null,
     opts: { skipContract?: boolean; skip?: ContextBlockId[] } = {},
   ): string {
     const blocks = this.resolveContextBlocks(ctx, scoped);
@@ -711,16 +830,16 @@ export class PlanNode extends AgentRunNode<PlanInput, PlanOutput> {
       include.delete("contract");
     }
 
-    return CONTEXT_BLOCK_ORDER.filter((id) => include.has(id) && (byId.get(id)?.text.length ?? 0) > 0)
-      .map((id) => {
-        const b = byId.get(id)!;
-        return `## ${b.label}\n${b.text}`;
-      })
+    return CONTEXT_BLOCK_ORDER.flatMap((id) => {
+      if (!include.has(id)) return [];
+      const b = byId.get(id);
+      return b && b.text.length > 0 ? [`## ${b.label}\n${b.text}`] : [];
+    })
       .join("\n\n");
   }
 
   /** Branch contract text — scope, files, and what the sub-plan may assume exists. */
-  private renderContract(scoped: NonNullable<ReturnType<PlanNode["prepareScopedRefine"]>>): string {
+  private renderContract(scoped: ScopedRefine): string {
     const b = scoped.branch;
     const deps = scoped.latest.meta.branches.filter((d) => b.dependsOn.includes(d.name));
     return [
@@ -734,7 +853,7 @@ export class PlanNode extends AgentRunNode<PlanInput, PlanOutput> {
   }
 
   /** Current sub-plan block: prompt + live checklist rows (hand edits included). */
-  private renderCurrent(scoped: NonNullable<ReturnType<PlanNode["prepareScopedRefine"]>>): string {
+  private renderCurrent(scoped: ScopedRefine): string {
     const prompt = scoped.branch.subPlan?.prompt
       ? `"""\n${scoped.branch.subPlan.prompt}\n"""`
       : "(none yet)";
@@ -742,7 +861,7 @@ export class PlanNode extends AgentRunNode<PlanInput, PlanOutput> {
   }
 
   /** Sibling branches as title + scope summaries only. */
-  private renderBranches(ctx: FlowCtx, scoped: ReturnType<PlanNode["prepareScopedRefine"]>): string {
+  private renderBranches(ctx: FlowCtx, scoped: ScopedRefine | null): string {
     const branches = this.latestPlan(ctx.flow.id)?.meta.branches ?? [];
     const others = scoped ? branches.filter((b) => b.name !== scoped.branch.name) : branches;
     if (!others.length) return "";
@@ -800,128 +919,17 @@ export class PlanNode extends AgentRunNode<PlanInput, PlanOutput> {
         if (Array.isArray(m.steps) && m.steps.length) {
           meta = {
             steps: m.steps as PlanStep[],
-            branches: Array.isArray(m.branches) ? (m.branches as PlanBranch[]) : [],
+            branches: Array.isArray(m.branches) ? (m.branches as PlanMeta["branches"]) : [],
           };
         }
       }
     } catch {
-      /* unparseable meta → treated as a simple plan; scoped refine falls back */
+      /* unparseable meta → treated as a branchless plan; scoped refine falls back */
     }
     return { art: { id: row.id, version: row.version, content: row.content }, meta, rawMeta };
   }
 
-  // ── whole-plan machinery (prior behavior) ─────────────────────────────────
-
-  /** Parse mode for whole plan runs: simple vs complex JSON response. */
-  private planMode(isComplex: boolean): ParseModeConfig<ComplexPlanResponse | SimplePlanResponse> {
-    return {
-      parse: (text) => (isComplex ? this.parser.parseComplex(text) : this.parser.parseSimple(text)),
-      schemaHint: WHOLE_PLAN_SCHEMA_HINT,
-      requirements: WHOLE_PLAN_REQUIREMENTS,
-      retrySubject: "Re-emit the FULL plan",
-    };
-  }
-
-  /** Scoped parse mode — a scoped retry must stay scoped. */
-  private subPlanMode(): ParseModeConfig<SubPlanResponse> {
-    return {
-      parse: (text) => this.parser.parseSubPlan(text),
-      schemaHint: SUB_PLAN_SCHEMA_HINT,
-      requirements: SUB_PLAN_REQUIREMENTS,
-      retrySubject: "Re-emit ONLY your sub-plan response",
-    };
-  }
-
-  /** Custom sub-agents for decompose mode (cloud runs only). */
-  private decomposeSubagents(ctx: FlowCtx, input: PlanInput) {
-    return input.decompose && this.ctxHelper.execMode(ctx) === "cloud"
-      ? [{ name: "repo-explorer", instructions: "Explore the repository structure, identify key modules, and report back on architecture and dependencies." }]
-      : undefined;
-  }
-
-  /** Execute a single plan-mode agent run. */
-  private runAgent(
-    ctx: FlowCtx,
-    nodeId: string,
-    input: PlanInput,
-    customSubagents: ReturnType<PlanNode["decomposeSubagents"]>,
-    settingSources: SettingSource[],
-    prompt: string,
-    label: string,
-    followUp: string | null,
-  ) {
-    return this.runner.executeRun(
-      ctx,
-      nodeId,
-      () =>
-        this.runner.startAgent(ctx, {
-          prompt,
-          mode: "plan",
-          name: `${label} ${ctx.task.key}`,
-          followUpOn: followUp,
-          customSubagents,
-          model: input.model,
-          settingSources,
-        }),
-      label,
-    );
-  }
-
-  /**
-   * Run the plan agent and parse the JSON response (per-mode parse config).
-   * Retries once on validation failure with specific error feedback. The retry
-   * stays on the same agent (lastAgentId) and stays in the same mode — a
-   * scoped retry never re-emits the full plan.
-   */
-  private async generatePlan<T>(
-    ctx: FlowCtx,
-    node: NodeRow,
-    opts: {
-      prompt: string;
-      runOnce: (p: string, label: string, followUp: string | null) => Promise<AgentRunResult>;
-      mode: ParseModeConfig<T>;
-      firstRunLabel: string;
-      initialFollowUp: string | null;
-      label: string;
-    },
-  ): Promise<{ data: T | null; markdown: string; validationErrors: PlanValidationError[] }> {
-    const { runOnce, mode } = opts;
-    let result = await runOnce(opts.prompt, opts.firstRunLabel, opts.initialFollowUp);
-    let text = result.result ?? "";
-    let parsed = mode.parse(text);
-
-    if (!parsed.data) {
-      // Retry once with error feedback
-      const errorList = parsed.errors.map((e) => `  - ${e.path ? `${e.path}: ` : ""}${e.message}`).join("\n");
-      this.support.emitLifecycle(
-        ctx.flow.id, node.id,
-        `${opts.label} validation failed — retrying with feedback (${parsed.errors.length} error${parsed.errors.length > 1 ? "s" : ""})`,
-      );
-
-      const retryPrompt = [
-        `Your previous response was not valid JSON or failed schema validation:`,
-        ``,
-        errorList,
-        ``,
-        `${mode.retrySubject} as a single JSON object matching this schema:`,
-        mode.schemaHint,
-        ``,
-        `Requirements:`,
-        `- your entire response must be parseable as a single JSON object — no prose, no code fences`,
-        ...mode.requirements,
-      ].join("\n");
-
-      result = await runOnce(retryPrompt, `${opts.label} retry`, this.support.lastAgentId(node.id));
-      text = result.result ?? "";
-      parsed = mode.parse(text);
-    }
-
-    return {
-      data: parsed.data,
-      markdown: parsed.data ? (parsed.data as unknown as { markdown: string }).markdown : text,
-      validationErrors: parsed.errors,
-    };
-  }
+  // ── plan-domain persistence ────────────────────────────────────────────────
 
   /**
    * The planner's execution decision out of a parsed plan response (Phase 3B,
@@ -962,7 +970,7 @@ export class PlanNode extends AgentRunNode<PlanInput, PlanOutput> {
     // (follow + the planner published nothing valid ⇒ whole). Re-refining
     // re-publishes; the approve-time override (approve_plan action) writes
     // executionSource "override" into the same meta afterwards.
-    const knob = this.executionDefault(ctx.flow.id);
+    const knob = this.executionDefault(ctx);
     let execution: "whole" | "steps" = "whole";
     let source: "knob" | "planner" | "default" = "knob";
     let rationale: string | undefined;
@@ -991,63 +999,16 @@ export class PlanNode extends AgentRunNode<PlanInput, PlanOutput> {
   }
 
   /** The plan node's `execution_default` knob (class ← app ← flow snapshot). */
-  private executionDefault(flowId: string): "whole" | "steps" | "follow" {
-    // defensive (parseConfigSnapshot's old fallback): a malformed config
-    // column is treated as unset, never fails the whole plan run
-    let config: Record<string, unknown> | null = null;
-    try {
-      config = this.support.nodeByType(flowId, NODE_KEYS.PLAN)?.config ?? null;
-    } catch {
-      /* malformed config column — treat as unset */
-    }
-    const raw = mergeConfigLayers(
-      this.defaultConfig(),
-      appLayerConfig(this.key),
-      config,
-    )["execution_default"];
+  private executionDefault(ctx: FlowCtx): "whole" | "steps" | "follow" {
+    const raw = this.nodeConfig(ctx)["execution_default"];
     return raw === "steps" || raw === "follow" ? raw : "whole";
   }
 
-  /** Persist output/status, emit the lifecycle event, and build the outcome. */
-  private finalizePlan(
-    ctx: FlowCtx,
-    node: NodeRow,
-    art: { id: string; version: number },
-    planMeta: PlanMeta | null,
-    stepCount: number,
-    text: string,
-    validationErrors: PlanValidationError[] = [],
-    isComplex = false,
-  ): RunOutcome {
-    const branchNote = planMeta?.branches?.length
-      ? ` (${planMeta.branches.length} branch${planMeta.branches.length > 1 ? "es" : ""})`
-      : "";
-    const stepNote = stepCount ? ` · ${stepCount} steps` : "";
-    const malformed = validationErrors.length > 0;
-
-    const output = this.outputSchema.parse({
-      latestArtifact: art.id,
-      version: art.version,
-      branches: planMeta?.branches ?? undefined,
-      steps: planMeta?.steps ?? undefined,
-      ...(isComplex ? { complex: true } : {}),
-      ...(malformed ? { malformed: true, validationErrors } : {}),
-    });
-
-    const status = malformed ? "failed" : "awaiting_approval";
-    this.support.setNode(node.id, {
-      status,
-      agent_id: this.support.lastAgentId(node.id),
-      output: JSON.stringify(output),
-    });
-
-    const kind = isComplex ? "complex plan" : "plan";
-    const event = malformed
-      ? `${kind} generated but response is malformed — fix the format and retry`
-      : `${kind} v${art.version} ready for review${branchNote}${stepNote}`;
-    this.support.emitLifecycle(ctx.flow.id, node.id, event);
-
-    return { status, output, event, reply: text };
+  /** Custom sub-agents for decompose mode (cloud runs only). */
+  private decomposeSubagents(ctx: FlowCtx, input: PlanInput) {
+    return input.decompose && this.ctxHelper.execMode(ctx) === "cloud"
+      ? [{ name: "repo-explorer", instructions: "Explore the repository structure, identify key modules, and report back on architecture and dependencies." }]
+      : undefined;
   }
 
   async recover(
@@ -1056,10 +1017,10 @@ export class PlanNode extends AgentRunNode<PlanInput, PlanOutput> {
     result: AgentRunResult,
     note: string,
   ): Promise<boolean> {
-    // Phase A: scoped recovery is skipped — recover() can't distinguish a
-    // scoped response from a whole-plan one, and a replayed scoped run must
-    // not be silently merged. Decline so the node fails → the developer
-    // retries (the retry stays scoped and re-enters the normal flow).
+    // Scoped recovery is skipped: recover() can't distinguish a scoped
+    // response from a whole-plan one, and a replayed scoped run must not be
+    // silently merged. Decline so the node fails → the developer retries (the
+    // retry stays scoped and re-enters the normal flow).
     try {
       const recorded = this.inputSchema.parse(node.input ?? {});
       if (recorded.branchRef) return false;
@@ -1068,56 +1029,36 @@ export class PlanNode extends AgentRunNode<PlanInput, PlanOutput> {
     }
 
     if (result.status !== "finished") return false;
-    const text = result.result ?? "(no plan text)";
 
-    // Structured plan-meta parse is the only path: complex, then simple
-    let planMeta: PlanMeta | null = null;
-    let markdown = text;
-    let isComplex = false;
-    let parsedExecution: { execution?: unknown; execution_rationale?: unknown } | null = null;
-
-    const complexParsed = this.parser.parseComplex(text);
-    if (complexParsed.data) {
-      planMeta = { steps: complexParsed.data.steps, branches: complexParsed.data.branches ?? [] };
-      markdown = complexParsed.data.markdown;
-      isComplex = true;
-      parsedExecution = complexParsed.data;
-    } else {
-      const simpleParsed = this.parser.parseSimple(text);
-      if (simpleParsed.data) {
-        planMeta = { steps: simpleParsed.data.steps, branches: [] };
-        markdown = simpleParsed.data.markdown;
-        parsedExecution = simpleParsed.data;
-      }
+    // The same contract a live finish passes: an unparseable or contract-
+    // violating recorded result is not recoverable — the node fails for a
+    // manual retry (the standard agent-node recovery posture).
+    let plan: PlanResponse;
+    try {
+      plan = this.parsePlanResponse(result.result ?? "", PlanResponse);
+    } catch {
+      return false;
     }
+
+    const planMeta: PlanMeta = { steps: withStepIds(plan.steps), branches: plan.branches ?? [] };
 
     // recovery keeps the plan version's published execution too (Phase 3B): a
     // recovered response's planner decision rides the artifact meta so the
     // plan panel/chips and from-plan fan-out gates see the same resolution
-    const recoveredExec = this.normalizePlannerExecution(parsedExecution);
-    const art = this.support.saveArtifact(node.id, ctx.flow.id, "plan", markdown, {
+    const recoveredExec = this.normalizePlannerExecution(plan);
+    const art = this.support.saveArtifact(node.id, ctx.flow.id, "plan", plan.markdown, {
       recovered: true,
       execution: recoveredExec.value,
       executionSource: recoveredExec.rationale ? "planner" : "default",
       ...(recoveredExec.rationale ? { execution_rationale: recoveredExec.rationale } : {}),
     });
-    if (planMeta?.steps?.length) planSteps.syncFromPlan(ctx.flow.id, art.id, planMeta.steps);
+    const stepCount = planMeta.steps.length
+      ? planSteps.syncFromPlan(ctx.flow.id, art.id, planMeta.steps)
+      : 0;
 
-    this.support.setNode(node.id, {
-      status: planMeta ? "awaiting_approval" : "failed",
-      output: JSON.stringify(
-        this.outputSchema.parse({
-          latestArtifact: art.id, version: art.version,
-          steps: planMeta?.steps ?? undefined, branches: planMeta?.branches ?? undefined,
-          ...(isComplex ? { complex: true } : {}),
-          ...(planMeta ? {} : { malformed: true }),
-        }),
-      ),
+    this.applyOutcome(ctx, this.planOutcome(art, planMeta, stepCount, plan.markdown), {
+      note: `recovered: ${note}`,
     });
-    this.support.emitLifecycle(
-      ctx.flow.id, node.id,
-      `plan recovered (${note}) — ${planMeta ? "ready for review" : "malformed response, retry needed"}`,
-    );
     return true;
   }
 
@@ -1174,3 +1115,7 @@ export class PlanNode extends AgentRunNode<PlanInput, PlanOutput> {
     return { prompt: asm.body, contextBlocks: blocks, appendsInternal: true, ...sectionsOf(asm) };
   }
 }
+
+/** Everything {@link PlanNode.prepareScopedRefine} resolved, or null for the
+ *  whole-plan path. Declared after the class (type position only). */
+type ScopedRefine = NonNullable<ReturnType<PlanNode["prepareScopedRefine"]>>;

@@ -17,7 +17,6 @@ type ActionBody = {
   decompose?: boolean;
   model?: string;
   promptIsBody?: boolean;
-  complex?: boolean;
   feedback?: string;
   branchRef?: string;
   fresh?: boolean;
@@ -39,8 +38,8 @@ type ActionBody = {
 };
 
 const ACTIONS: Record<string, (flowId: string, body: ActionBody) => void | Promise<void>> = {
-  start_plan: (id, b) => flowEngine.startPlan(id, b.prompt, b.decompose, b.model, b.promptIsBody, b.complex),
-  refine_plan: (id, b) => flowEngine.refinePlan(id, b.feedback ?? "", b.prompt, b.model, b.promptIsBody, b.complex, b.branchRef, b.fresh, b.contextBlocks),
+  start_plan: (id, b) => flowEngine.startPlan(id, b.prompt, b.decompose, b.model, b.promptIsBody),
+  refine_plan: (id, b) => flowEngine.refinePlan(id, b.feedback ?? "", b.prompt, b.model, b.promptIsBody, b.branchRef, b.fresh, b.contextBlocks),
   approve_plan: (id, b) => flowEngine.approvePlan(id, b?.executionOverride),
   update_plan_steps: (id, b) => flowEngine.updatePlanSteps(id, b.steps ?? []),
   set_plan_step: (id, b) => {

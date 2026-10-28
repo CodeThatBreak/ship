@@ -24,7 +24,7 @@ export interface PanelProps {
   events?: FeedEvent[];
   model: string;
   /** generation options shared by start and refine runs (plan-style toggles) */
-  planOptions?: { decompose: boolean; complex: boolean };
+  planOptions?: { decompose: boolean };
   fetchArtifact: (id: string) => Promise<unknown>;
 }
 

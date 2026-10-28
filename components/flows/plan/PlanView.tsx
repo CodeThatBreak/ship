@@ -32,15 +32,15 @@ export default function PlanView({
   action,
   fetchArtifact,
   model,
-  planOptions = { decompose: false, complex: false },
+  planOptions = { decompose: false },
 }: {
   flow: FlowData;
   node: Node;
   action: FlowAction;
   fetchArtifact: (id: string) => Promise<unknown>;
   model: string;
-  /** generation options toggled in the chat panel (complex affects refines as well) */
-  planOptions?: { decompose: boolean; complex: boolean };
+  /** generation options toggled in the chat panel (decompose affects refines too) */
+  planOptions?: { decompose: boolean };
 }) {
   const plans = node.artifacts.filter((a: Artifact) => a.kind === "plan");
   const [sel, setSel] = useState<string | null>(null);
@@ -80,7 +80,7 @@ export default function PlanView({
       prompt,
       promptIsBody: promptIsBody || undefined,
       model: model || undefined,
-      complex: planOptions.complex || undefined,
+      decompose: planOptions.decompose || undefined,
     });
 
   // Edit prompt runs a fresh plan when none exists yet; once a plan exists it
@@ -92,7 +92,6 @@ export default function PlanView({
         prompt,
         promptIsBody: promptIsBody || undefined,
         model: model || undefined,
-        complex: planOptions.complex || undefined,
       });
     } else {
       startPlan(prompt, promptIsBody);
@@ -111,7 +110,6 @@ export default function PlanView({
       prompt,
       promptIsBody: promptIsBody || undefined,
       model: model || undefined,
-      complex: true,
       branchRef: refineBranch,
       fresh: extras.fresh ?? true, // scoped refines default fresh (§3)
       contextBlocks: extras.contextBlocks,
@@ -134,7 +132,6 @@ export default function PlanView({
         <div className="px-5 py-4 flex flex-col gap-4">
           {node.status === FLOW_STATUS.FAILED && (
             <PlanFailureAlert
-              node={node}
               onRetry={() => action(PLAN_ACTION.RETRY, { nodeKey: node.node_key })}
             />
           )}

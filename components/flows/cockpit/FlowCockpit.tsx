@@ -89,7 +89,7 @@ export default function FlowCockpit({
 
   // plan-generation options — toggled via the icon buttons in the chat panel's
   // prompt box / input row, part of the plan node's contract input
-  const [planOptions, setPlanOptions] = useState<PlanOptions>({ decompose: false, complex: false });
+  const [planOptions, setPlanOptions] = useState<PlanOptions>({ decompose: false });
 
   const action = useCallback(
     async (act: string, body?: Record<string, unknown>) => {
@@ -106,7 +106,7 @@ export default function FlowCockpit({
 
   // start the node's first run from the chat's prompt box / prompt modal —
   // the generic run_node action with the node's contract input (the plan
-  // node's contract carries prompt/promptIsBody/decompose/complex/model)
+  // node's contract carries prompt/promptIsBody/decompose/model)
   const startNode = useCallback(
     (opts?: PlanStartOpts) => {
       const nodeKey = node?.node_key;
@@ -117,12 +117,11 @@ export default function FlowCockpit({
           prompt: opts?.prompt ?? null,
           promptIsBody: opts?.promptIsBody ?? false,
           decompose: planOptions.decompose,
-          complex: planOptions.complex,
           model: model || null,
         },
       });
     },
-    [action, node, planOptions.decompose, planOptions.complex, model],
+    [action, node, planOptions.decompose, model],
   );
 
   // node id → node key, for the chat feed's run-section grouping

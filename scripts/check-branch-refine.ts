@@ -4,7 +4,7 @@
  * + validateSubPlan. Run: node --experimental-strip-types scripts/check-branch-refine.ts
  */
 import { mergeBranchRefine, diffBranchSteps } from "../lib/engine/nodes/kinds/plan/plan-node";
-import { validateSubPlan } from "../lib/engine/nodes/kinds/plan/schema";
+import { SubPlanResponse } from "../lib/engine/nodes/kinds/plan/schema";
 
 // ── fixture: meta with two branches interleaved ─────────────────────────────
 const meta = {
@@ -76,13 +76,15 @@ const renamed = diffBranchSteps(
 );
 console.assert(renamed.changed.length === 1 && renamed.changed[0].id.startsWith("w1"), "title fallback promotes rename to changed");
 
-// ── validateSubPlan ──────────────────────────────────────────────────────────
-const bad = validateSubPlan({ steps: [] });
-console.assert(bad.plan === null && bad.errors.length > 0, "empty steps rejected");
-const wrongBranch = validateSubPlan({ markdown: "m", steps: [{ title: "t", detail: "d", files: [], branch: "other-branch" }] });
+// ── SubPlanResponse (the scoped refine's response contract) ──────────────────
+// safeParse + the schema's unique-step-id refinement; branch echo is NOT
+// validated here (merge forces it) — same rules the scoped run path enforces.
+const bad = SubPlanResponse.safeParse({ steps: [] });
+console.assert(!bad.success && bad.error.issues.length > 0, "empty steps rejected");
+const wrongBranch = SubPlanResponse.safeParse({ markdown: "m", steps: [{ title: "t", detail: "d", files: [], branch: "other-branch" }] });
 // an agent echoing a foreign branch name doesn't fail validation — merge forces it
-console.assert(wrongBranch.plan !== null, "foreign branch name tolerated by validator (merge forces)");
-console.assert(wrongBranch.plan!.steps[0].branch === "other-branch", "validator leaves branch as-is");
+console.assert(wrongBranch.success, "foreign branch name tolerated by validator (merge forces)");
+console.assert(wrongBranch.success && wrongBranch.data.steps[0].branch === "other-branch", "validator leaves branch as-is");
 
 // ── scoped template mechanics: body + internalSuffix compose the full prompt ─
 import { prompts } from "../lib/engine/prompts/prompt-library";

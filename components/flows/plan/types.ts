@@ -16,8 +16,3 @@ export interface BranchPlan {
   subPlan?: { prompt?: string; steps?: unknown[] } | null;
 }
 
-/** A plan-meta validation error surfaced when the structured block is malformed. */
-export interface PlanValidationIssue {
-  path: string;
-  message: string;
-}

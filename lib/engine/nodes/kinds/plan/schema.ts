@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-// ── step schema (shared by simple and complex plans) ─────────────────────────
+// ── step schema (shared by every plan response) ──────────────────────────────
 
 /**
  * Recursive step schema — defined with explicit type annotation to avoid
@@ -22,7 +22,16 @@ export const PlanStep: z.ZodType<PlanStep> = PlanStepBase.extend({
   subSteps: z.lazy(() => z.array(PlanStep)).optional(),
 }) as z.ZodType<PlanStep>;
 
-// ── plan meta (the steps store + artifact meta shape) ───────────────────────
+/**
+ * Fill missing step ids (s1, s2, …) — pure (returns new objects). The plan
+ * contract allows the agent to omit ids; the id-based scoped-refine diff and
+ * the checklist's cross-version identity need them filled.
+ */
+export function withStepIds(steps: PlanStep[]): PlanStep[] {
+  return steps.map((s, i) => ({ ...s, id: s.id?.trim() || `s${i + 1}` }));
+}
+
+// ── plan meta (the steps store + artifact meta shape) ─────────────────────────
 
 /**
  * The plan runtime meta: the checklist plus the optional branch decomposition.
@@ -33,7 +42,7 @@ export type PlanMeta = {
   branches: PlanBranch[];
 };
 
-// ── branch schema (complex plans only) ───────────────────────────────────────
+// ── branch schema ─────────────────────────────────────────────────────────────
 
 export const PlanBranch = z.object({
   name: z
@@ -63,25 +72,76 @@ export const PlanBranch = z.object({
 });
 export type PlanBranch = z.infer<typeof PlanBranch>;
 
-// ── simple plan response (JSON-only) ─────────────────────────────────────────
+// ── the whole-plan response (JSON-only) ──────────────────────────────────────
 
-/** Simple plan: JSON with markdown + steps only. No branches. */
-export const SimplePlanResponse = z.object({
-  /** The plan in Markdown — rendered to the user as the plan document. */
-  markdown: z.string().min(1),
-  /** The ordered checklist of work. */
-  steps: z.array(PlanStep).min(1),
-  /**
-   * Phase 3B (`execution_default: follow`): the planner's execution
-   * resolution for this plan version — a plain STRING on purpose: an
-   * unexpected value must never fail the plan (normalizePlannerExecution
-   * maps unknown/missing to `whole`).
-   */
-  execution: z.string().optional(),
-  /** One-line rationale published with the execution under `follow` (Phase 3B). */
-  execution_rationale: z.string().optional(),
-});
-export type SimplePlanResponse = z.infer<typeof SimplePlanResponse>;
+/**
+ * The ONE plan response schema (§F1): markdown + steps + optional branches.
+ * The plan-domain cross-checks (unique branch names, dependsOn resolution,
+ * step.branch membership, duplicate step ids) are schema refinements so they
+ * ride the same issues payload — and the same retry feedback — as every other
+ * violation. A `branch`-less plan is just every step's `branch` left null.
+ */
+export const PlanResponse = z
+  .object({
+    /** The plan in Markdown — rendered to the user as the plan document. */
+    markdown: z.string().min(1),
+    /** The ordered checklist of work. */
+    steps: z.array(PlanStep).min(1),
+    /** Branch decomposition for multi-part work. */
+    branches: z.array(PlanBranch).optional(),
+    /**
+     * Phase 3B (`execution_default: follow`): the planner's execution
+     * resolution for this plan version — a plain STRING on purpose: an
+     * unexpected value must never fail the plan (normalizePlannerExecution
+     * maps unknown/missing to `whole`).
+     */
+    execution: z.string().optional(),
+    /** One-line rationale published with the execution under `follow` (Phase 3B). */
+    execution_rationale: z.string().optional(),
+  })
+  .superRefine((val, ctx) => {
+    const branchNames = new Set<string>();
+    for (const b of val.branches ?? []) {
+      if (branchNames.has(b.name)) {
+        ctx.addIssue({ code: "custom", path: ["branches"], message: `duplicate branch name "${b.name}"` });
+      }
+      branchNames.add(b.name);
+    }
+    if (branchNames.size > 0) {
+      for (const b of val.branches ?? []) {
+        for (const dep of b.dependsOn) {
+          if (!branchNames.has(dep)) {
+            ctx.addIssue({
+              code: "custom",
+              path: ["branches"],
+              message: `dependsOn references unknown branch "${dep}"`,
+            });
+          }
+        }
+      }
+      for (const s of val.steps) {
+        if (s.branch != null && !branchNames.has(s.branch)) {
+          // the id as the agent would have filled it (withStepIds) — the same
+          // identity the checklist publishes
+          const id = s.id?.trim() || `s${val.steps.indexOf(s) + 1}`;
+          ctx.addIssue({
+            code: "custom",
+            path: ["steps"],
+            message: `step "${id}" references unknown branch "${s.branch}"`,
+          });
+        }
+      }
+    }
+    const seen = new Set<string>();
+    val.steps.forEach((s, i) => {
+      const id = s.id?.trim() || `s${i + 1}`;
+      if (seen.has(id)) {
+        ctx.addIssue({ code: "custom", path: ["steps"], message: `duplicate step id "${id}"` });
+      }
+      seen.add(id);
+    });
+  });
+export type PlanResponse = z.infer<typeof PlanResponse>;
 
 // ── branch-scoped sub-plan response (JSON-only) ──────────────────────────────
 
@@ -90,152 +150,37 @@ export type SimplePlanResponse = z.infer<typeof SimplePlanResponse>;
  * The agent re-emits ONE branch, not the whole plan — merge is deterministic
  * code (`mergeBranchRefine`), never a full-plan regeneration.
  */
-export const SubPlanResponse = z.object({
-  /** This branch's implementation detail in Markdown (rendered in the branch tab). */
-  markdown: z.string().min(1),
-  /** Refined steps for THIS branch; "branch" is forced to the ref'd branch on merge. */
-  steps: z.array(PlanStep).min(1),
-});
+export const SubPlanResponse = z
+  .object({
+    /** This branch's implementation detail in Markdown (rendered in the branch tab). */
+    markdown: z.string().min(1),
+    /** Refined steps for THIS branch; "branch" is forced to the ref'd branch on merge. */
+    steps: z.array(PlanStep).min(1),
+  })
+  .superRefine((val, ctx) => {
+    // the only plan-domain rule in scope: unique filled step ids (a scoped
+    // retry stays scoped — no branch cross-checks exist here)
+    const seen = new Set<string>();
+    val.steps.forEach((s, i) => {
+      const id = s.id?.trim() || `s${i + 1}`;
+      if (seen.has(id)) {
+        ctx.addIssue({ code: "custom", path: ["steps"], message: `duplicate step id "${id}"` });
+      }
+      seen.add(id);
+    });
+  });
 export type SubPlanResponse = z.infer<typeof SubPlanResponse>;
 
-// ── complex plan response (JSON-only) ────────────────────────────────────────
-
-/** Complex plan: JSON with markdown + steps + branches + sub-plans. */
-export const ComplexPlanResponse = z.object({
-  /** The plan in Markdown — rendered to the user as the plan document. */
-  markdown: z.string().min(1),
-  /** The ordered checklist of work. */
-  steps: z.array(PlanStep).min(1),
-  /** Branch decomposition for multi-part work. */
-  branches: z.array(PlanBranch).optional().default([]),
-  /** Phase 3B (`execution_default: follow`): see SimplePlanResponse — plain
-   *  string so an unexpected value never fails the plan. */
-  execution: z.string().optional(),
-  /** One-line rationale published with the execution under `follow` (Phase 3B). */
-  execution_rationale: z.string().optional(),
-});
-export type ComplexPlanResponse = z.infer<typeof ComplexPlanResponse>;
-
-// ── validation errors ────────────────────────────────────────────────────────
-
-export interface PlanValidationError {
-  path: string;
-  message: string;
-}
-
-const PlanValidationErrorSchema = z.object({
-  path: z.string(),
-  message: z.string(),
-});
-
-// ── validators ───────────────────────────────────────────────────────────────
-
-/** Shared branch pre-check: unique names, dependsOn references resolve. */
-function validateBranchConstraints(
-  raw: unknown,
-  errCtor: (errs: PlanValidationError[]) => { errors: PlanValidationError[] },
-): PlanValidationError[] | null {
-  if (typeof raw !== "object" || raw == null) return null;
-  const r = raw as Record<string, unknown>;
-  if (!Array.isArray(r.branches) || !r.branches.length) return null;
-
-  const names = new Set<string>();
-  for (const b of r.branches) {
-    const name = (b as Record<string, unknown>)?.name;
-    if (typeof name !== "string" || !name) {
-      return [{ path: "branches[].name", message: "each branch must have a name" }];
-    }
-    if (names.has(name)) {
-      return [{ path: "branches[].name", message: `duplicate branch name "${name}"` }];
-    }
-    names.add(name);
-  }
-  for (const b of r.branches) {
-    const deps = (b as Record<string, unknown>)?.dependsOn;
-    if (Array.isArray(deps)) {
-      for (const dep of deps) {
-        if (typeof dep === "string" && !names.has(dep)) {
-          return [{ path: `branches[name=${(b as Record<string, unknown>).name}].dependsOn`, message: `dependsOn references unknown branch "${dep}"` }];
-        }
-      }
-    }
-  }
-  return null;
-}
-
-/** Normalize step ids: fill in missing, ensure unique. Returns errors on duplicates. */
-function normalizeStepIds(steps: PlanStep[]): PlanValidationError[] | null {
-  if (!steps.length) return null;
-  const ids = new Set<string>();
-  const normalized = steps.map((s, i) => {
-    const id = s.id?.trim() || `s${i + 1}`;
-    return { ...s, id };
-  });
-  for (const s of normalized) {
-    if (ids.has(s.id!)) {
-      return [{ path: "steps[].id", message: `duplicate step id "${s.id}"` }];
-    }
-    ids.add(s.id!);
-  }
-  // mutate in place
-  for (let i = 0; i < steps.length; i++) Object.assign(steps[i], normalized[i]);
-  return null;
-}
-
-/** Validate raw JSON as a SimplePlanResponse. */
-export function validateSimplePlan(raw: unknown): { plan: SimplePlanResponse; errors: [] } | { plan: null; errors: PlanValidationError[] } {
-  const parsed = SimplePlanResponse.safeParse(raw);
-  if (!parsed.success) {
-    return { plan: null, errors: parsed.error.issues.map((i) => ({ path: i.path.join("."), message: i.message })) };
-  }
-  const stepErr = normalizeStepIds(parsed.data.steps);
-  if (stepErr) return { plan: null, errors: stepErr };
-  return { plan: parsed.data, errors: [] };
-}
+// ── the response contracts the output-contract directive advertises ──────────
 
 /**
- * Validate raw JSON as a SubPlanResponse (branch-scoped refine).
- * Mirrors `validateSimplePlan`: safeParse + normalizeStepIds only — no
- * branch-name/dependsOn cross-checks, since there are no branches in scope.
- * A step's "branch" may be null OR the ref'd branch name — an agent echoing
- * the branch name must not fail validation (merge forces it either way).
- * A failure costs one small retry, not a full plan regeneration.
+ * JSON Schemas generated from the response schemas — carried into
+ * `AgentOutputError.directive()` on the run and retry prompts. The schema
+ * refinements above (uniqueness, cross-references) are enforced server-side;
+ * the advertised schema is the structural contract only.
  */
-export function validateSubPlan(raw: unknown): { plan: SubPlanResponse; errors: [] } | { plan: null; errors: PlanValidationError[] } {
-  const parsed = SubPlanResponse.safeParse(raw);
-  if (!parsed.success) {
-    return { plan: null, errors: parsed.error.issues.map((i) => ({ path: i.path.join("."), message: i.message })) };
-  }
-  const stepErr = normalizeStepIds(parsed.data.steps);
-  if (stepErr) return { plan: null, errors: stepErr };
-  return { plan: parsed.data, errors: [] };
-}
-
-/** Validate raw JSON as a ComplexPlanResponse. */
-export function validateComplexPlan(raw: unknown): { plan: ComplexPlanResponse; errors: [] } | { plan: null; errors: PlanValidationError[] } {
-  const branchErr = validateBranchConstraints(raw, (e) => ({ errors: e }));
-  if (branchErr) return { plan: null, errors: branchErr };
-
-  const parsed = ComplexPlanResponse.safeParse(raw);
-  if (!parsed.success) {
-    return { plan: null, errors: parsed.error.issues.map((i) => ({ path: i.path.join("."), message: i.message })) };
-  }
-
-  // steps must reference valid branches
-  const data = parsed.data;
-  if (data.branches.length > 0) {
-    const branchNames = new Set(data.branches.map((b) => b.name));
-    for (const s of data.steps) {
-      if (s.branch != null && !branchNames.has(s.branch)) {
-        return { plan: null, errors: [{ path: `steps[${s.id}].branch`, message: `step "${s.id}" references unknown branch "${s.branch}"` }] };
-      }
-    }
-  }
-
-  const stepErr = normalizeStepIds(data.steps);
-  if (stepErr) return { plan: null, errors: stepErr };
-  return { plan: data, errors: [] };
-}
+export const PLAN_RESPONSE_JSON_SCHEMA: unknown = z.toJSONSchema(PlanResponse);
+export const SUB_PLAN_RESPONSE_JSON_SCHEMA: unknown = z.toJSONSchema(SubPlanResponse);
 
 // ── input / output schemas ───────────────────────────────────────────────────
 
@@ -250,8 +195,6 @@ export const PlanInput = z.object({
   decompose: z.boolean().default(false),
   /** per-run model override */
   model: z.string().nullable().default(null),
-  /** complex plan mode — JSON with branches + sub-plans (false = simple plan) */
-  complex: z.boolean().default(false),
   /** when refining a specific branch's sub-plan: the branch name */
   branchRef: z.string().nullable().default(null),
   /**
@@ -275,12 +218,6 @@ export const PlanOutput = z.object({
   version: z.number(),
   branches: z.array(PlanBranch).optional(),
   steps: z.array(PlanStep).optional(),
-  /** true when the response failed validation even after retry */
-  malformed: z.boolean().optional(),
-  /** validation errors from the failed parse */
-  validationErrors: z.array(PlanValidationErrorSchema).optional(),
-  /** true when this plan was generated in complex mode */
-  complex: z.boolean().optional(),
   /** set on the artifact version a branch-scoped refine produced */
   scopedRefine: z
     .object({

@@ -261,7 +261,7 @@ async function main(): Promise<void> {
     return recordedPrompt;
   };
 
-  await verifyRun({ kind: "plan", def: nodeRegistry.get(NODE_KEYS.PLAN), flowId, nodeKey: NODE_KEYS.PLAN, input: { complex: false, decompose: false } });
+  await verifyRun({ kind: "plan", def: nodeRegistry.get(NODE_KEYS.PLAN), flowId, nodeKey: NODE_KEYS.PLAN, input: { decompose: false } });
   await verifyRun({ kind: "build", def: nodeRegistry.get(NODE_KEYS.BUILD), flowId, nodeKey: NODE_KEYS.BUILD, input: { plan: "PARITY PLAN CONTENT\n\nstep s1" } });
   await verifyRun({
     kind: "step_build",
