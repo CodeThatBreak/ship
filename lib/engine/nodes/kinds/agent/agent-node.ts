@@ -1,7 +1,8 @@
 import { z } from "zod";
 import type { NodeRow } from "../../../../db/rows";
 import type { AgentRunResult } from "../../../ports/agent-port";
-import type { AgentRunner, FlowContextHelper, NodeSupport } from "../../shared";
+import type { AgentRunner } from "../../../harness";
+import type { FlowContextHelper, NodeSupport } from "../../shared";
 import { AgentRunNode, type FlowCtx, type NodeCapabilities, type PromptSource, type RunOutcome } from "../../shared";
 import { templateStore } from "../../../templates/template-store";
 import { extractJson, validateJsonSchema } from "./json-schema-lite";

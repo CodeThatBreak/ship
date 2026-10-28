@@ -54,7 +54,7 @@ for (const file of ["worktrees.ts", "dep-policy.ts", "worktree-setup.ts"]) {
 // The runner is the ONE place every unpinned mutating agent run passes through;
 // these textual assertions tripwire against the wiring being dropped later.
 {
-  const runnerSrc = fs.readFileSync(new URL("../lib/engine/nodes/shared/agent-runner.ts", import.meta.url), "utf8");
+  const runnerSrc = fs.readFileSync(new URL("../lib/engine/harness/agent-runner.ts", import.meta.url), "utf8");
   assert.ok(
     runnerSrc.includes("worktreeManager.ensureForRun("),
     "agent-runner.ts must call worktreeManager.ensureForRun — the runner-side ensure chokepoint was unwired"

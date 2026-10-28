@@ -31,8 +31,8 @@ process.env.DATABASE_PATH = path.join(
 const { db } = await import("../../../../db");
 const { nodeSupport } = await import("../../shared/node-support");
 const { flowCtxHelper, FlowContextHelper } = await import("../../shared/run-context");
-const { usageTracker } = await import("../../shared/usage-tracker");
-const { AgentRunner } = await import("../../shared/agent-runner");
+const { usageTracker } = await import("../../../harness/usage-tracker");
+const { AgentRunner } = await import("../../../harness/agent-runner");
 const { AgentRunNode } = await import("../../shared");
 const { BuildRunSupport } = await import("./build-run-support");
 // the registry singleton first — entering the prompts → registry → build

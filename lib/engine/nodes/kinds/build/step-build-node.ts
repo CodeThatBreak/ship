@@ -1,5 +1,6 @@
 import { z } from "zod";
-import { AgentRunNode, agentRunner, flowCtxHelper, type AgentRunner, type FlowContextHelper } from "../../shared";
+import { agentRunner, type AgentRunner } from "../../../harness";
+import { AgentRunNode, flowCtxHelper, type FlowContextHelper } from "../../shared";
 import type { FlowCtx, NodeTriggerRun, RunOutcome } from "../../shared";
 import { nodeSupport, type NodeSupport } from "../../shared/node-support";
 import type { FlowRow, NodeRow } from "../../../../db/rows";

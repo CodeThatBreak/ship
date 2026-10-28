@@ -1,6 +1,6 @@
-import { db } from "../../../db";
-import { uncachedInputTokens } from "../../../usage";
-import { type AgentPort, type AgentRunResult, type AgentRunUsage } from "../../ports/agent-port";
+import { db } from "../../db";
+import { uncachedInputTokens } from "../../usage";
+import { type AgentPort, type AgentRunResult, type AgentRunUsage } from "../ports/agent-port";
 import { PricingSource } from "./pricing-source";
 
 // ── cost & usage capture ─────────────────────────────────────────────────────
@@ -38,7 +38,6 @@ function resolveRates(
  * in cents.
  */
 /** See lib/usage.ts — uncached portion of a prompt-total input count. */
-export { uncachedInputTokens };
 
 export function estimateCostCents(
   usage: { model?: string; inputTokens?: number; outputTokens?: number; cacheReadTokens?: number; cacheWriteTokens?: number },

@@ -1,6 +1,6 @@
 import "server-only";
 
-import { db } from "../../../db";
+import { db } from "../../db";
 
 /**
  * Buffers thinking/assistant deltas and flushes them to the event feed at a

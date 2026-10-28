@@ -1,6 +1,6 @@
 import "server-only";
 
-import { TtlCache } from "../../../cache";
+import { TtlCache } from "../../cache";
 import type { PricingEntry } from "./usage-tracker";
 
 /** LiteLLM pricing entry — the fields DevFlow maps onto a rate card. */
@@ -106,7 +106,7 @@ export class PricingSource {
     for (const [rawKey, value] of Object.entries(json as Record<string, unknown>)) {
       // litellm keys may carry provider/deployment prefixes ("openai/gpt-…") —
       // keep the bare model id so prefix matching works on runtime model ids
-      const key = rawKey.includes("/") ? rawKey.split("/").pop()! : rawKey;
+      const key = rawKey.includes("/") ? rawKey.split("/").pop() ?? "" : rawKey;
       // wildcard-ish collections ("provider/*") would poison the wildcard slot
       if (!key || key.includes("*")) continue;
       const entry = toPricingEntry(value);

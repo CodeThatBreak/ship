@@ -36,7 +36,7 @@ import "./parity-env";
 import { db } from "../lib/db";
 import { agentPortRegistry, type AgentPort, type AgentStarted, type AgentStartSpec, type AgentStreamOutcome } from "../lib/engine/ports/agent-port";
 import { gitHostRegistry, type ChangeRequest, type GitHostService } from "../lib/engine/ports/git-host";
-import { usageTracker, type RunCostSummary } from "../lib/engine/nodes/shared/usage-tracker";
+import { usageTracker, type RunCostSummary } from "../lib/engine/harness/usage-tracker";
 import type { NodeDefinition } from "../lib/engine/nodes/shared";
 import { nodeRoles } from "../lib/engine/nodes/shared/node-roles";
 import { FlowRow, Task, NodeRow, rows } from "../lib/db/rows";

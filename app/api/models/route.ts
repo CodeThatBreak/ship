@@ -71,7 +71,7 @@ export async function GET() {
     ? catalogList.map((m) => m.id)
     : [...port.fallbackModels];
   const currentDefault = normalizeModelSpec(
-    db.getSetting<string>("default_model", "") || config.cursor.defaultModel() || "",
+    db.getSetting<string>("default_model", "") || config.defaultModel() || "",
   );
   // Resolve the configured default into structured data so consumers never
   // touch bracket strings; non-opt-in `fast` values are display noise here —

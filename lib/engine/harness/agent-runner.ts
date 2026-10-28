@@ -1,16 +1,16 @@
-import { config } from "../../../config";
-import { db } from "../../../db";
-import { resolveAgentRunModel } from "../../../modelSpec";
+import { config } from "../../config";
+import { db } from "../../db";
+import { resolveAgentRunModel } from "../../modelSpec";
 import {
   agentPortRegistry,
   type AgentPort,
   type AgentRunResult,
   type AgentStartSpec,
   type SettingSource,
-} from "../../ports/agent-port";
-import { flowCtxHelper, type FlowContextHelper, type FlowCtx } from "./run-context";
-import { worktreeManager } from "../../runtime/worktree-lifecycle";
-import { nodeSupport, type NodeSupport } from "./node-support";
+} from "../ports/agent-port";
+import { flowCtxHelper, type FlowContextHelper, type FlowCtx } from "../nodes/shared/run-context";
+import { worktreeManager } from "../runtime/worktree-lifecycle";
+import { nodeSupport, type NodeSupport } from "../nodes/shared/node-support";
 import { StreamBuffer } from "./stream-buffer";
 import { ToolPairer, type ToolEmitFn } from "./tool-pairer";
 import { usageTracker, type RunCostSummary, type UsageTracker } from "./usage-tracker";
@@ -38,10 +38,10 @@ export interface AgentStartInput {
 }
 
 /**
- * Starts and supervises agent runs on the configured runtime (Cursor cloud VM
- * or local in-process agent loop, both via the unified CursorAgentService over
- * @cursor/sdk): model resolution, run-row persistence, event streaming
- * (buffered), and usage/cost capture.
+ * Starts and supervises agent runs on the flow's configured runtime (a vendor
+ * `AgentPort` resolved from the {@link agentPortRegistry} registry): model
+ * resolution, run-row persistence, event streaming (buffered), and usage/cost
+ * capture.
  */
 export class AgentRunner {
   constructor(
@@ -58,7 +58,7 @@ export class AgentRunner {
     const model = resolveAgentRunModel(
       input.model,
       db.getSetting<string>("default_model", ""),
-      config.cursor.defaultModel(),
+      config.defaultModel(),
       mode,
       port.fallbackModels,
     );
@@ -131,10 +131,10 @@ export class AgentRunner {
     let result: AgentRunResult;
     let costSummary: RunCostSummary = {};
     // One streaming path for both runtimes (each port streams its own runtime
-    // to completion): the SDK emits the same SDKMessage events whether the
-    // agent runs locally or in a Cursor VM. Tool events go through the pairer
-    // (local) so start/end are matched by callId; cloud tool events arrive
-    // already paired, so they emit directly.
+    // to completion): the runtime emits the same normalized SDKMessage events
+    // whether the agent runs locally or in a cloud VM. Tool events go through
+    // the pairer (local) so start/end are matched by callId; cloud tool events
+    // arrive already paired, so they emit directly.
     const callbacks = {
       onStatus: (s: string) => db.emitEvent(flow.id, nodeId, "status", `run ${s}`, { run_id: runId }),
       onAssistant: (t: string) => stream.push("assistant", t),

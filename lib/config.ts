@@ -7,17 +7,14 @@ import path from "path";
  *
  * Integration credentials (GitLab / Jira / Cursor) are managed from
  * Settings → Integrations and stored in the DB — the environment only
- * carries infrastructure config (db / workspace) plus the optional
- * GITLAB_WEBHOOK_SECRET. Values are read lazily via methods so tests and
+ * carries infrastructure config (db / workspace), the optional
+ * GITLAB_WEBHOOK_SECRET, and the optional DEFAULT_MODEL fallback.
+ * Values are read lazily via methods so tests and
  * long-running processes always see the current environment.
  */
 
 class CursorConfig {
   readonly baseUrl = "https://api.cursor.com";
-
-  defaultModel(): string {
-    return AppConfig.env("DEFAULT_MODEL");
-  }
 }
 
 class GitLabConfig {
@@ -75,6 +72,15 @@ export class AppConfig {
   readonly gitlab = new GitLabConfig();
   readonly db = new DatabaseConfig();
   readonly workspace = new WorkspaceConfig();
+
+  /**
+   * Last-resort default agent model (the `DEFAULT_MODEL` env var).
+   * Vendor-neutral: applies to whichever harness executes the run; per-run
+   * selection and the `default_model` setting override it.
+   */
+  defaultModel(): string {
+    return AppConfig.env("DEFAULT_MODEL");
+  }
 }
 
 /** Shared application configuration. */

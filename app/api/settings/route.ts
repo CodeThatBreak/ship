@@ -74,7 +74,7 @@ export async function GET() {
     harnesses: harnessGroups(statuses),
     default_execution_mode: db.getSetting<string>("default_execution_mode", "cloud"),
     default_model: normalizeModelSpec(
-      db.getSetting<string>("default_model", "") || config.cursor.defaultModel() || "",
+      db.getSetting<string>("default_model", "") || config.defaultModel() || "",
     ),
     local_agent: {
       force: db.getSetting<boolean>("local_agent.force", true),

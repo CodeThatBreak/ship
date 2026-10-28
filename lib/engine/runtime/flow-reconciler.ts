@@ -2,7 +2,7 @@ import { db } from "../../db";
 import { FlowRow, NodeRow, RunRow, rows } from "../../db/rows";
 import { agentPortRegistry } from "../ports/agent-port";
 import { flowCtxHelper, nodeSupport, type FlowCtx } from "../nodes/shared";
-import { usageTracker } from "../nodes/shared/usage-tracker";
+import { usageTracker } from "../harness/usage-tracker";
 import { flowEngine } from "../flow-engine";
 import { stepFlows } from "./fanout/step-flow-manager";
 import { mergeArena } from "./fanout/merge-arena";

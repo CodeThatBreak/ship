@@ -13,7 +13,7 @@ import { agentPortRegistry, type AgentRunResult } from "./ports/agent-port";
 import { hostOf, type HostComment } from "./ports/git-host";
 import { nodeSupport, type ChainRole, type FlowCtx } from "./nodes/shared";
 import { CHAT_DECLINED, nodeRoles } from "./nodes/shared/node-roles";
-import { uncachedInputTokens } from "./nodes/shared/usage-tracker";
+import { uncachedInputTokens } from "../usage";
 import { nodeRegistry } from "./nodes/registry";
 import { NODE_KEYS } from "./constants/node-keys";
 import { declarativeDef } from "./nodes/declarative";

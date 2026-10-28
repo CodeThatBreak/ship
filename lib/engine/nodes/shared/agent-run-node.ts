@@ -1,5 +1,5 @@
 import type { AgentRunResult } from "../../ports/agent-port";
-import { agentRunner, type AgentRunner, type AgentStartInput } from "./agent-runner";
+import { agentRunner, type AgentRunner, type AgentStartInput } from "../../harness";
 import { flowCtxHelper, type FlowContextHelper, type FlowCtx } from "./run-context";
 import { nodeSupport, type NodeSupport } from "./node-support";
 import { NodeDefinition, type RunOutcome } from "./node-definition";

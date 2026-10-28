@@ -39,7 +39,8 @@ export class ToolPairer {
         return;
       }
       if (q?.length) {
-        const start = q.shift()!;
+        const start = q.shift();
+        if (!start) return;
         if (!q.length) this.unmatched.delete(name);
         this.emit(name, status, start.callId, args, resultText, start.startedAt);
         return;

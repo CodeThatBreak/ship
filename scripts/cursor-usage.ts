@@ -1,7 +1,7 @@
 /**
  * Probe the Cursor SDK getUsage() API. It is on a limited rollout — when it
  * doesn't answer, run costs fall back to our own list-price × tokens
- * calculation in lib/engine/nodes/shared/usage-tracker.ts (Enterprise discount
+ * calculation in lib/engine/harness/usage-tracker.ts (Enterprise discount
  * applied). This script just shows what the API currently returns.
  *
  *   npx tsx --env-file=.env scripts/cursor-usage.ts <agentId> [runId]
