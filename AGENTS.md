@@ -193,6 +193,24 @@ export function NodePanelSkeleton() {
 - No `any`. Use proper types, or `unknown` with narrowing as a last resort.
 - No direct mutation of props or state.
 - Replace large `switch` or `if` chains on string literals in JSX with lookup tables in `constants/`.
+- **Early checks over nullish coalescing.** Do not hide missing data behind `??` fallbacks or `?.` chains. Validate with an explicit early return (guard clause) so the happy path stays flat and missing data fails loudly at the top of the function.
+
+```ts
+// Bad: fallback chain buries the missing-data case in the middle of the logic
+export function getFlowTitle(flow: Flow | undefined) {
+  return flow?.title ?? flow?.metadata?.label ?? UNTITLED_FLOW;
+}
+
+// Good: guard early, then work with a value you know exists
+export function getFlowTitle(flow: Flow): string {
+  if (!flow.title) {
+    throw new FlowError(`Flow ${flow.id} has no title`);
+  }
+  return flow.title;
+}
+```
+
+- Legitimate uses of `??` remain: default UI config values, module-level constants, and places where an empty value is genuinely expected and valid — not as a catch-all for data that should exist.
 
 ### 2.10 Fix Bad Practices in Touched Code
 
@@ -209,6 +227,7 @@ When your task touches a file, fix violations of this section in the lines you t
 | Data fetching in leaf components                            | Lift to hook or container, use TanStack Query |
 | Hooks or browser APIs in a non-`"use client"` file          | Add directive or split server and client      |
 | Conditional hooks or hooks after early returns              | Reorder                                       |
+| `??` / `?.` fallbacks hiding missing data                   | Early guard clause, fail loudly (see 2.9)     |
 
 ---
 
