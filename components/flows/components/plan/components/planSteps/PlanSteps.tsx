@@ -1,7 +1,8 @@
 "use client";
 import { ListChecks, Pencil, Plus, Save, X } from "lucide-react";
 import type { PlanStepRow } from "@/types/flow";
-import { PLAN_STEP_ACTION, PLAN_STEP_STATUS } from "../../constants";
+import { PLAN_STEP_STATUS } from "../../constants";
+import { ACTION_TYPES } from "../../constants/action";
 import { PlanStepItem } from "./PlanStepItem";
 import { PlanStepDraftRow } from "./PlanStepDraftRow";
 import { usePlanStepDrafts } from "../../hooks/usePlanStepDrafts";
@@ -42,7 +43,7 @@ export default function PlanSteps({
   highlight?: boolean; // build node: shown as progress tracker
   className?: string;
 }) {
-  const onAction = usePlanAction(flowId);
+  const { onAction } = usePlanAction(flowId);
   const { editing, drafts, startEdit, cancel, save, patch, addDraft, removeAt } =
     usePlanStepDrafts(steps, onAction);
 
@@ -53,7 +54,7 @@ export default function PlanSteps({
   const canToggle = Boolean(editable || highlight);
   const toggleStep = (s: PlanStepRow) =>
     onAction({
-      type: PLAN_STEP_ACTION.SET,
+      type: ACTION_TYPES.SET_PLAN_STEP,
       payload: {
         stepId: s.id,
         status:

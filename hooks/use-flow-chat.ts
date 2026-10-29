@@ -51,7 +51,9 @@ export function useNodePrompt(
         `/api/flows/${flowId}/prompt?node=${encodeURIComponent(nodeKey)}`,
       ),
     enabled: options.enabled ?? true,
-    select: (d) => d.prompt ?? "",
+    // null (not "") so a missing template fails loudly in the composer
+    // instead of seeding an empty, sendable body
+    select: (d) => d.prompt ?? null,
   });
 }
 
@@ -74,7 +76,8 @@ export function useNodeBranchPrompt(
         )}&branch=${encodeURIComponent(branch ?? "")}`,
       ),
     enabled: branch != null,
-    select: (d) => d.prompt ?? "",
+    // null (not "") so a missing branch body fails loudly in the composer
+    select: (d) => d.prompt ?? null,
   });
 }
 

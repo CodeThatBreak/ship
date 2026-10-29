@@ -11,13 +11,14 @@ import { Button } from '@/components/ui/button';
 import { composeModelChoice } from '@/lib/modelSpec';
 import type { ModelChoice } from '@/types/model-spec';
 import { queryKeys } from '@/constants/query-keys';
+import { postJson } from '@/hooks/fetch-json';
 import type { FlowData, Node } from '@/types/flow';
 import type { BranchPlan } from '../components/plan/types';
 import { EXECUTION_MODE_LOCAL, LOCAL_MODE_MODEL } from '../constants';
 import { useFlowData } from './hooks/use-flow-data';
 import { useFlowEvents } from './hooks/use-flow-events';
 import { fanoutProgressOf } from './fanout-progress';
-import { usePlanComposer } from '../components/plan/hooks/usePlanComposer';
+import { usePlanComposer } from '../components/plan/hooks/usePlanComposer/usePlanComposer';
 
 /**
  * The flow cockpit's client island (§2.1 server/client split): the server page
@@ -102,11 +103,7 @@ export default function FlowCockpit({
 
   const action = useCallback(
     async (act: string, body?: Record<string, unknown>) => {
-      await fetch(`/api/flows/${flowId}/action`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: act, ...body }),
-      });
+      await postJson(`/api/flows/${flowId}/action`, JSON.stringify({ action: act, ...body }));
       // the action changed flow state — refresh the cockpit's snapshot
       await queryClient.invalidateQueries({ queryKey: queryKeys.flows.detail(flowId) });
     },

@@ -43,6 +43,14 @@ export const NODE_RUN_STATUS = {
 
 export type NodeRunStatus = (typeof NODE_RUN_STATUS)[keyof typeof NODE_RUN_STATUS];
 
+/**
+ * Flow-node action names (§2.7): the client's wire vocabulary for the flow
+ * action route's dispatch (`app/api/flows/[id]/action/route.ts`).
+ */
+export const FLOW_ACTION = {
+  RUN_NODE: "run_node",
+} as const;
+
 /** Plan fan-out aggregate child state (Phase 4 monitoring, §5): the node's
  *  own status stays `running` while it orchestrates, so the per-step rollup
  *  is an AGGREGATE over the children — see `components/flows/cockpit/fanout-progress.ts`. */

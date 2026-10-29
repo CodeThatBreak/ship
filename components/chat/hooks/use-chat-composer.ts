@@ -4,6 +4,7 @@ import * as React from "react";
 import { useSendChatMessage } from "@/hooks/use-flow-chat";
 import { composeModelChoice } from "@/lib/modelSpec";
 import type { ModelChoice } from "@/types/model-spec";
+import { errorMessageOf } from "@/hooks/fetch-json";
 
 /**
  * The standard chat composer's mechanics: draft state, the send mutation and
@@ -33,12 +34,8 @@ export function useChatComposer({
   });
 
   const sending = sendChat.isPending;
-  const sendError =
-    sendChat.error instanceof Error
-      ? sendChat.error
-      : sendChat.error != null
-        ? new Error(String(sendChat.error))
-        : null;
+  // the config's error slot wants a message string; keep a single level here
+  const sendError = errorMessageOf(sendChat.error);
   const canSend = draft.trim().length > 0 && !sending;
 
   const send = (content: string) => {

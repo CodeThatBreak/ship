@@ -1,15 +1,18 @@
 import { useState } from "react";
 import type { PlanStepRow } from "@/types/flow";
-import { PLAN_STEP_ACTION } from "../constants";
+import { ACTION_TYPES } from "../constants/action";
 import { buildPayload, emptyDraft, toDraft, type PlanStepDraft } from "../utils/stepDraft";
-import type { FlowAction } from "../types";
+import type { Action } from "../types/action";
 
 /**
  * Edit-mode state for the plan checklist. Drafts are initialized in
  * `startEdit` rather than an effect (§2.6): editing is only ever entered
  * through it, and every row edit is a draft patch committed with `save`.
  */
-export function usePlanStepDrafts(steps: PlanStepRow[], onAction: FlowAction) {
+export function usePlanStepDrafts(
+  steps: PlanStepRow[],
+  onAction: (action: Action) => void,
+) {
   const [editing, setEditing] = useState(false);
   const [drafts, setDrafts] = useState<PlanStepDraft[]>([]);
 
@@ -19,7 +22,7 @@ export function usePlanStepDrafts(steps: PlanStepRow[], onAction: FlowAction) {
   };
   const cancel = () => setEditing(false);
   const save = () => {
-    onAction({ type: PLAN_STEP_ACTION.UPDATE, payload: { steps: buildPayload(drafts) } });
+    onAction({ type: ACTION_TYPES.UPDATE_PLAN_STEPS, payload: { steps: buildPayload(drafts) } });
     setEditing(false);
   };
   const patch = (i: number, p: Partial<PlanStepDraft>) =>

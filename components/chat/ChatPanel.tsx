@@ -88,8 +88,7 @@ export default function ChatPanel({
     loading: false,
     error: null,
     sending: standard.sending,
-    sendError:
-      standard.sendError instanceof Error ? standard.sendError.message : null,
+    sendError: standard.sendError,
     sendLabel: "Send",
     growing: false,
     onSend: (draft) => standard.send(draft),

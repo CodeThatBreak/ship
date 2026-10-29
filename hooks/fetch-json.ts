@@ -23,6 +23,14 @@ export async function postJson<T>(url: string, body: string): Promise<T> {
   return (await res.json()) as T;
 }
 
+/** A mutation/query failure's message for an `error`-slot UI prop — null when
+ *  there is no failure at all. Guard clauses, so callers stay single-level. */
+export function errorMessageOf(error: unknown): string | null {
+  if (error instanceof Error) return error.message;
+  if (error != null) return String(error);
+  return null;
+}
+
 /** Build an Error carrying the server's `error` message (or the status). */
 async function errorOf(res: Response): Promise<Error> {
   const body = (await res.json().catch(() => ({}))) as JsonErrorBody;
