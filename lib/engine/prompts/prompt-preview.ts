@@ -7,7 +7,7 @@ import type { FlowCtx, NodeDefinition, NodePromptPreview, PromptPreviewParams, P
 import { nodeRoles } from "../nodes/shared/node-roles";
 import { NODE_KEYS } from "../constants/node-keys";
 import { nodeRegistry } from "../nodes/registry";
-import type { ContextBlockInfo } from "../nodes/kinds/plan/plan-node";
+import type { ContextBlockInfo } from "../nodes/kinds/plan/types/contextBlocks";
 import { prompts, sectionsOf, type PromptSections } from "./prompt-library";
 import { templateStore } from "../templates/template-store";
 

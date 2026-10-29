@@ -8,7 +8,7 @@
  * Loaded before the parity script:
  *   NODE_OPTIONS="--require=$PWD/scripts/parity-alias-hook.cjs"
  */
-/* eslint-disable @typescript-eslint/no-require-imports, @typescript-eslint/no-explicit-any, no-param-reassign */
+/* eslint-disable @typescript-eslint/no-require-imports */
 // CJS is mandatory here: a --require hook runs before any module system
 // loads, so ESM/import syntax is not available to it.
 const Module = require("module");

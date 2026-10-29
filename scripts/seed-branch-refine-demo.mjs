@@ -16,6 +16,13 @@
  *   v4  branch-scoped refine of `backend` → diff banner (backend, v3→v4) +
  *       staleness signals (backend doc v4 > overview v3), checklist rows of
  *       other branches untouched, manual row never clobbered
+ *
+ * The plan node also publishes the split-units state (plan fan-out §1): the
+ * knob is `execution_default: follow` and every plan version's meta carries
+ * the planner's decision `execution: "steps"` (one child flow per branch on
+ * approval), so the approve footer shows the published resolution, its
+ * rationale and the Force-whole override — exactly what PlanStore.persistPlan
+ * publishes at run time.
  */
 import Database from "better-sqlite3";
 import fs from "fs";
@@ -223,6 +230,17 @@ const metaV1 = {
   ],
 };
 
+// What PlanStore.persistPlan publishes in `follow` mode (plan fan-out §1):
+// the planner's per-branch fan-out decision rides EVERY plan version in
+// artifacts.meta, so the plan panel/approve footer show the published
+// resolution ("steps" — one child flow per branch) with its rationale.
+const PLANNER_EXECUTION = {
+  execution: "steps",
+  executionSource: "planner",
+  execution_rationale:
+    "Two independent branches (schema/delivery core vs worker loop) a reviewer can verify one at a time",
+};
+
 // ── v2 scoped refine input: the "agent response" for worker ──────────────────
 const SUB_WORKER_V2 = {
   markdown: WORKER_DOC_V2,
@@ -296,6 +314,9 @@ for (const key of ["plan", "build", "pipeline", "review", "resolve"]) {
 }
 console.log(`flow created: ${flowId}`);
 
+// the plan node's knob: `follow` — the PLANNER decides per plan version
+db.prepare(`UPDATE nodes SET config=? WHERE id=?`).run(JSON.stringify({ execution_default: "follow" }), nodeIds.plan);
+
 const ev = (msg, m, nodeId = nodeIds.plan) => {
   db.prepare(`INSERT INTO events (id,flow_id,node_id,type,message,created_at) VALUES (?,?,?,'lifecycle',?,?)`)
     .run(uid("ev_"), flowId, nodeId, msg, minsAgo(m));
@@ -317,13 +338,14 @@ function savePlanArtifact(content, meta, version, m, feedback = null) {
 }
 
 // ── act 1 (t-52m): plan v1, 2 branches ────────────────────────────────────────
-const artV1 = savePlanArtifact(PLAN_V1, { feedback: null, steps: metaV1.steps, branches: metaV1.branches }, 1, 52);
+const artV1 = savePlanArtifact(PLAN_V1, { feedback: null, steps: metaV1.steps, branches: metaV1.branches, ...PLANNER_EXECUTION }, 1, 52);
 const insStep = (s, pos) =>
   db.prepare(`INSERT INTO plan_steps (id,flow_id,artifact_id,meta_id,position,title,detail,files,branch,status,origin,created_at,updated_at)
     VALUES (?,?,?,?,?,?,?,?,?,'pending','agent',?,?)`)
     .run(uid("step_"), flowId, artV1.id, s.id, pos, s.title, s.detail ?? null, JSON.stringify(s.files ?? []), s.branch ?? null, minsAgo(52), minsAgo(52));
 metaV1.steps.forEach(insStep);
 ev("plan v1 ready for review (2 branches · 7 steps)", 52);
+ev('planner decided execution "steps" — one child flow per branch on approval ("Two independent branches a reviewer can verify one at a time")', 52.5);
 
 // dev checked off the two "obvious" backend steps by hand while reading v1
 for (const mid of ["s1", "s2"]) {
@@ -346,7 +368,7 @@ setNodeInput({ branchRef: "worker", fresh: true, contextBlocks: ["task", "contra
 ev('sub-plan refine (worker, fresh) validation failed — retrying with feedback (1 error)', 36);
 const mergedV2 = mergeBranchRefine(metaV1, "worker", SUB_WORKER_V2);
 const artV2 = savePlanArtifact(PLAN_V1, // ← plan markdown byte-identical: only the branch doc carries the change
-  { feedback: null, steps: mergedV2.steps, branches: mergedV2.branches, scopedRefine: { branch: "worker", from: 1 } },
+  { feedback: null, steps: mergedV2.steps, branches: mergedV2.branches, scopedRefine: { branch: "worker", from: 1 }, ...PLANNER_EXECUTION },
   2, 31);
 replaceBranch(flowId, artV2.id, "worker", mergedV2.steps.filter((s) => s.branch === "worker"));
 const workerDiff = { added: 1, removed: 0, changed: 1 };
@@ -360,7 +382,7 @@ db.prepare(`UPDATE nodes SET status='awaiting_approval', output=?, updated_at=? 
 // ── act 3 (t-14m): whole-plan refine → v3 (overview prose refreshed) ─────────
 setNodeInput({ branchRef: null, fresh: true, contextBlocks: ["task", "branches", "edits"] });
 const metaV3 = { steps: mergedV2.steps, branches: mergedV2.branches }; // steps untouched — prose only
-const artV3 = savePlanArtifact(PLAN_V3, { feedback: "tighten the overview prose after the worker refine", steps: metaV3.steps, branches: metaV3.branches }, 3, 14,
+const artV3 = savePlanArtifact(PLAN_V3, { feedback: "tighten the overview prose after the worker refine", steps: metaV3.steps, branches: metaV3.branches, ...PLANNER_EXECUTION }, 3, 14,
   "tighten the overview prose after the worker refine");
 db.prepare(`UPDATE plan_steps SET artifact_id=? WHERE flow_id=?`).run(artV3.id, flowId);
 ev(`plan v3 ready for review (2 branches · 8 steps)`, 14);
@@ -372,7 +394,7 @@ db.prepare(`UPDATE nodes SET status='awaiting_approval', output=?, updated_at=? 
 setNodeInput({ branchRef: "backend", fresh: true, contextBlocks: ["task", "contract", "current"] });
 const mergedV4 = mergeBranchRefine(metaV3, "backend", SUB_BACKEND_V4);
 const artV4 = savePlanArtifact(PLAN_V3,
-  { feedback: null, steps: mergedV4.steps, branches: mergedV4.branches, scopedRefine: { branch: "backend", from: 3 } },
+  { feedback: null, steps: mergedV4.steps, branches: mergedV4.branches, scopedRefine: { branch: "backend", from: 3 }, ...PLANNER_EXECUTION },
   4, 2);
 replaceBranch(flowId, artV4.id, "backend", mergedV4.steps.filter((s) => s.branch === "backend"));
 // backend diff vs v3: s4 detail reworded (changed), s9 note pulled into s1 (changed), nothing else

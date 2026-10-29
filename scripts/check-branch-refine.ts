@@ -3,8 +3,11 @@
  * mergeBranchRefine (id preservation, in-place splicing, branch record update)
  * + validateSubPlan. Run: node --experimental-strip-types scripts/check-branch-refine.ts
  */
-import { mergeBranchRefine, diffBranchSteps } from "../lib/engine/nodes/kinds/plan/plan-node";
-import { SubPlanResponse } from "../lib/engine/nodes/kinds/plan/schema";
+import { BranchRefinement } from "../lib/engine/nodes/kinds/plan/branch-refinement";
+import {
+  SubPlanResponse,
+  type PlanMeta,
+} from "../lib/engine/nodes/kinds/plan/schema";
 
 // ── fixture: meta with two branches interleaved ─────────────────────────────
 const meta = {
@@ -19,7 +22,7 @@ const meta = {
     { name: "billing", title: "Billing", scope: "invoices", files: ["b.ts"], steps: ["s2", "s4"], dependsOn: ["auth"],
       subPlan: { prompt: "do billing stuff", steps: [] } },
   ],
-};
+} satisfies PlanMeta;
 
 // ── refine billing: s2 unchanged, s4 reworded, s5 added, s6 removed ─────────
 const sub = {
@@ -31,9 +34,9 @@ const sub = {
     // "s3" collides with an auth branch step kept by the merge → must be re-id'd
     { id: "s3", title: "Echo collision", detail: "d6", files: [], branch: null },
   ],
-};
+} satisfies SubPlanResponse;
 
-const merged = mergeBranchRefine(meta as any, "billing", sub as any);
+const merged = BranchRefinement.merge(meta, "billing", sub);
 
 // global order preserved; billing steps moved in place
 const ids = merged.steps.map((s) => s.id);
@@ -43,15 +46,17 @@ console.assert(new Set(ids).size === ids.length, "no duplicate ids after merge")
 console.assert(ids[4] !== "s3", "collision id re-id'd");
 
 // billing branch record updated: titles + scoped markdown + subPlan steps kept
-const billing = merged.branches.find((b) => b.name === "billing")!;
-console.log("billing branch steps:", billing.steps.join(" | "));
-console.assert(billing.markdown === sub.markdown, "scoped markdown recorded on branch");
-console.assert(billing.subPlan?.prompt === "do billing stuff", "sub-plan prompt preserved");
-console.assert((billing.subPlan?.steps?.length ?? 0) === 4, "subPlan steps replaced");
+const billing = merged.branches.find((b) => b.name === "billing");
+if (billing) {
+  console.log("billing branch steps:", billing.steps.join(" | "));
+  console.assert(billing.markdown === sub.markdown, "scoped markdown recorded on branch");
+  console.assert(billing.subPlan?.prompt === "do billing stuff", "sub-plan prompt preserved");
+  console.assert((billing.subPlan?.steps?.length ?? 0) === 4, "subPlan steps replaced");
+}
 
 // auth branch byte-identical
-const auth = merged.branches.find((b) => b.name === "auth")!;
-console.assert(JSON.stringify(auth) === JSON.stringify(meta.branches[0]), "auth branch untouched");
+const auth = merged.branches.find((b) => b.name === "auth");
+console.assert(auth && JSON.stringify(auth) === JSON.stringify(meta.branches[0]), "auth branch untouched");
 
 // billing steps carry the forced branch name
 console.assert(merged.steps.filter((s) => s.branch !== "billing").every((s) => s.branch === "auth"), "branch forcing");
@@ -59,7 +64,7 @@ console.assert(merged.steps.filter((s) => s.branch !== "billing").every((s) => s
 // ── diff: id-based + title fallback ─────────────────────────────────────────
 const oldSteps = meta.steps.filter((s) => s.branch === "billing");
 const newSteps = merged.steps.filter((s) => s.branch === "billing");
-const diff = diffBranchSteps(oldSteps as any, newSteps as any);
+const diff = BranchRefinement.diffSteps(oldSteps, newSteps);
 console.log("diff:", JSON.stringify({
   added: diff.added.map((s) => s.id),
   removed: diff.removed.map((s) => s.id),
@@ -70,9 +75,9 @@ console.assert(diff.removed.length === 0, "removed (collision re-id'd → it's a
 console.assert(diff.changed.length === 1 && diff.changed[0].id === "s4", "changed");
 
 // id renames fall back to title matching
-const renamed = diffBranchSteps(
-  [{ id: "w1", title: "Same work", detail: "x", files: [] }, { id: "w2", title: "Other", detail: "y", files: [] }] as any,
-  [{ id: "zz9", title: "Same work", detail: "x", files: [] }, { id: "w2", title: "Other", detail: "y", files: [] }] as any,
+const renamed = BranchRefinement.diffSteps(
+  [{ id: "w1", title: "Same work", detail: "x", files: [], branch: null }, { id: "w2", title: "Other", detail: "y", files: [], branch: null }],
+  [{ id: "zz9", title: "Same work", detail: "x", files: [], branch: null }, { id: "w2", title: "Other", detail: "y", files: [], branch: null }],
 );
 console.assert(renamed.changed.length === 1 && renamed.changed[0].id.startsWith("w1"), "title fallback promotes rename to changed");
 
