@@ -18,9 +18,25 @@ import { DEFAULT_MCP_SOURCES, configString, mcpSourcesOf, mcpSourcesSchema } fro
 import { agentRunner, type AgentRunner } from '../../../harness';
 import { flowCtxHelper, nodeSupport, type FlowContextHelper, type NodeSupport } from '../../shared';
 import { PlanInput, PlanOutput } from './schema';
+import { AgentOutputError, type AgentOutputError as AgentOutputErrorT } from '../../shared/agent/output-error';
+import { parseFollowUp } from './plan-followup';
 
 import { PROMPT_KEYS } from './constants/promptKeys';
 import { AGENT_CONFIG_FIELDS } from './constants/config';
+import { RETRYABLE_OUTPUT_ERRORS } from './constants/retryableErrors';
+import {
+  PLAN_APPLY_ALLOWED,
+  PLAN_CHAT_LABEL,
+  PLAN_CHAT_RETRY_LABEL,
+  PLAN_RETRY_NO_PLAN,
+  REFINED_FROM_SOURCE,
+  planRefusalReason,
+  planRefusedReply,
+  planUpdateIgnoredEvent,
+  planValidationFailedEvent,
+  planValidationRefusalReply,
+  type RefinedFrom,
+} from './constants/refine';
 
 import { PlanStore } from './plan-store';
 import { PlanContextBlocks } from './plan-context';
@@ -40,6 +56,9 @@ import type { ContextBlockInfo } from './types/contextBlocks';
  * source port). The class owns the declarative surface (identity, config
  * knobs, capabilities, previews) and the run/recover wiring; all plan-domain
  * behavior lives in the collaborators.
+ *
+ * The conversation surface is the plan kind's own (§3a): `chat()` is the
+ * follow-up contract — never the base rerun-with-feedback recipe.
  */
 export class PlanNode extends AgentRunNode<PlanInput, PlanOutput> {
   readonly key = NODE_KEYS.PLAN;
@@ -175,6 +194,160 @@ export class PlanNode extends AgentRunNode<PlanInput, PlanOutput> {
       label: args.label,
       finalize: result => this.contract.applyWithRetry(ctx, node, input, scoped, result, args),
     });
+  }
+
+  // ── the plan conversation (docs/plan-conversation-refine.md §3a–c) ────────
+
+  /**
+   * The conversation surface (§3a): a chat message becomes ONE agent turn on
+   * the SAME session whose RESPONSE SCHEMA decides what it did — the follow-up
+   * contract (`{ reply, plan? }`), never prose classification. This replaces
+   * the inherited rerun-with-feedback recipe (the base `chat()` re-running
+   * `run({ feedback })` unchanged is wrong for the plan: a question must not
+   * re-emit the plan) — every OTHER agent-run node keeps the base recipe.
+   *
+   * - reply-only turn: just the reply. Node status, artifacts, the checklist
+   *   and `current_node` are untouched (the same contract `converse()` keeps).
+   * - plan-bearing turn: `applyPlanVersion` — the same whole-plan persist path
+   *   as a refine, state-guarded (§3b) — then the reply.
+   * - a contract-violating plan payload: ONE bounded feedback retry on the
+   *   same session (§3c) and, if still invalid, a plain-language refusal —
+   *   the turn NEVER fails the node or leaves a partial version.
+   *
+   * The agent is the node's latest (`followUpOn`); with none yet, a fresh agent
+   * starts — the same fallback `run()`/`converse()` document (§8).
+   */
+  override async chat(ctx: FlowCtx, content: string, model?: string): Promise<string> {
+    const config = this.nodeConfig(ctx);
+    const node = this.node(ctx);
+    const userRules = typeof config.prompt_rules === 'string' ? config.prompt_rules : '';
+    const args: PlanRunArgs = {
+      label: PLAN_CHAT_LABEL,
+      model: model ?? null,
+      settingSources: mcpSourcesOf(config),
+    };
+    const prompt = this.prompt.refineTurn(ctx, content, userRules);
+    const result = await this.runner.executeRun(
+      ctx,
+      node.id,
+      () =>
+        this.runner.startAgent(ctx, {
+          prompt,
+          mode: 'plan',
+          name: `${this.label} chat ${ctx.task.key}`,
+          followUpOn: this.support.lastAgentId(node.id),
+          model: args.model,
+          settingSources: args.settingSources,
+        }),
+      args.label
+    );
+
+    const turn = parseFollowUp(result.result ?? '');
+    if (turn.plan == null) return turn.reply;
+    return this.applyFollowUpPlan(ctx, node, content, turn, args);
+  }
+
+  /**
+   * The plan-bearing half with the §3c failure semantics: after ONE bounded
+   * feedback retry on the same session, an invalid plan ends the turn as a
+   * conversational refusal (with ONE lifecycle event) — no `failed` status,
+   * no partial version. Guard refusals (§3b) come back as the reply here.
+   */
+  private async applyFollowUpPlan(
+    ctx: FlowCtx,
+    node: NodeRow,
+    message: string,
+    turn: { reply: string; plan: unknown },
+    args: PlanRunArgs
+  ): Promise<string> {
+    let failure: AgentOutputErrorT;
+    try {
+      return await this.applyPlanVersion(ctx, node, message, turn);
+    } catch (e) {
+      if (!(e instanceof AgentOutputError) || !RETRYABLE_OUTPUT_ERRORS.has(e.code)) throw e;
+      failure = e;
+    }
+
+    // §3c: the SAME retry machine the scoped refines ride — violations as the
+    // feedback, the follow-up contract re-stated, one more turn on the session.
+    this.support.emitLifecycle(
+      ctx.flow.id,
+      node.id,
+      `${args.label} output contract failed — retrying with feedback (${failure.code})`
+    );
+    const retry = await this.runner.executeRun(
+      ctx,
+      node.id,
+      () =>
+        this.runner.startAgent(ctx, {
+          prompt: this.contract.followUpRetryPrompt(failure),
+          mode: 'plan',
+          name: `${this.label} chat ${ctx.task.key}`,
+          followUpOn: this.support.lastAgentId(node.id),
+          model: args.model,
+          settingSources: args.settingSources,
+        }),
+      PLAN_CHAT_RETRY_LABEL
+    );
+    const retryTurn = parseFollowUp(retry.result ?? '');
+    if (retryTurn.plan == null) {
+      return this.validationRefusal(ctx, node, PLAN_RETRY_NO_PLAN);
+    }
+    try {
+      return await this.applyPlanVersion(ctx, node, message, retryTurn);
+    } catch (e) {
+      if (!(e instanceof AgentOutputError) || !RETRYABLE_OUTPUT_ERRORS.has(e.code)) throw e;
+      return this.validationRefusal(ctx, node, this.firstViolation(e));
+    }
+  }
+
+  /**
+   * The §3b apply: validate the turn's plan against the follow-up contract
+   * (identical messages to a normal refine's parse), guard the node state
+   * BEFORE persisting, then the exact whole-plan persist path a refine runs —
+   * `persistPlan` (checklist sync) + `applyOutcome` (agent cursor, output,
+   * event). Validation throws the standard {@link AgentOutputError} for the
+   * §3c bounded retry; a state-guard refusal returns its plain reason (the
+   * reply still flows — §8 never a silent dead end), with ONE lifecycle event.
+   */
+  private async applyPlanVersion(
+    ctx: FlowCtx,
+    node: NodeRow,
+    message: string,
+    turn: { reply: string; plan: unknown }
+  ): Promise<string> {
+    const plan = this.contract.parseFollowUpPlan(turn); // throws → §3c bounded retry
+    const nodeNow = this.node(ctx);
+    const status = nodeNow.status ?? '';
+    if (!PLAN_APPLY_ALLOWED.has(status)) {
+      this.support.emitLifecycle(ctx.flow.id, nodeNow.id, planUpdateIgnoredEvent(status));
+      return planRefusedReply(turn.reply, planRefusalReason(status));
+    }
+    const refined: RefinedFrom = {
+      version: this.store.latestPlan(ctx.flow.id)?.art.version ?? 0,
+      source: REFINED_FROM_SOURCE.CHAT,
+    };
+    const outcome = this.contract.applyChatPlan(ctx, nodeNow, plan, {
+      feedback: message,
+      refined,
+    });
+    this.applyOutcome(ctx, outcome);
+    return turn.reply;
+  }
+
+  /** §3c: the turn's attempt ends as a conversational refusal + ONE lifecycle
+   *  event — the developer can immediately reply on the same session. */
+  private validationRefusal(ctx: FlowCtx, node: NodeRow, violation: string): string {
+    this.support.emitLifecycle(ctx.flow.id, node.id, planValidationFailedEvent);
+    return planValidationRefusalReply(violation);
+  }
+
+  /** The FIRST violation in plain words — the same headline a schema_mismatch
+   *  run event shows (the empty case is genuinely possible: `agent_reported`). */
+  private firstViolation(failure: AgentOutputErrorT): string {
+    const issue = failure.detail.issues[0];
+    if (issue == null || issue.message === '') return failure.detail.message;
+    return issue.message;
   }
 
   async recover(ctx: FlowCtx, node: NodeRow, result: AgentRunResult, note: string): Promise<boolean> {

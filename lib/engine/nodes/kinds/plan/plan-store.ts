@@ -3,6 +3,7 @@ import type { NodeSupport } from '../../shared/node-support';
 import { planSteps } from '../../../runtime/plan-step-store';
 import { PlanStepRow, rows, type NodeRow } from '../../../../db/rows';
 import { type PlanInput, type PlanMeta, type PlanStep, type PlanBranch } from './schema';
+import type { RefinedFrom } from './constants/refine';
 import type { LatestPlan, ScopedRefine } from './types';
 
 /** The planner's execution decision out of a parsed plan response. */
@@ -102,6 +103,13 @@ export class PlanStore {
     planMeta: PlanMeta | null;
     plannerExecution?: PlannerExecution | null;
     knob: 'whole' | 'follow';
+    /**
+     * §6c refine provenance: when present, meta gains
+     * `refinedFrom: { version, source }` — "a version with refinedFrom" IS
+     * "a produced refine" (reply-only turns never persist, so nothing rides
+     * them). Never written on a template-faithful first run.
+     */
+    refined?: RefinedFrom;
   }): { art: { id: string; version: number }; stepCount: number } {
     // plan fan-out (§1 "who decides the mode"): the published execution
     // resolution rides every plan version in artifacts.meta (`execution`) —
@@ -129,6 +137,7 @@ export class PlanStore {
       execution,
       executionSource: source,
       ...(rationale ? { execution_rationale: rationale } : {}),
+      ...(args.refined ? { refinedFrom: args.refined } : {}),
     });
     return { art, stepCount: this.syncSteps(args.ctx.flow.id, art, args.planMeta) };
   }

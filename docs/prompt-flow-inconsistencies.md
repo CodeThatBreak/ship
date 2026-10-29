@@ -121,7 +121,7 @@ Severity: 🔴 user-visible/wrong text reaches agent or preview lies badly ·
 
 | Node | Body knob | Rules honored | Where the body comes from at run time | Flow window pre-run | Flow window while running | Preview route filled vars |
 |------|-----------|---------------|----------------------------------------|---------------------|---------------------------|---------------------------|
-| plan | `prompt_body` | ✅ | input.prompt (body mode) → knob → default template | prompt box ✅ (only node) | spinner only | ticket, ticket_type (+feedback refine), context pkg |
+| plan | `prompt_body` | ✅ | input.prompt (body mode) → knob → default template | prompt box ✅ (only node) | spinner only | ticket, ticket_type (+feedback refine), context pkg. NOTE: plan chat no longer blindly reruns with the message as feedback — it is the follow-up contract (`{reply, plan?}`, provenance per docs/plan-conversation-refine.md §3b/§6c: chat refines mark `refinedFrom.source: "chat"`, prompt-body reruns diverging from the template mark `"start"`). |
 | build | `prompt_body` **(verbatim override!)** | ✅ | input.prompt (verbatim) → knob → default template | ❌ no box or button | spinner only | ticket, branch, mode; instructions **paraphrased**, no checklist |
 | review | `prompt_body` | ✅ | input.prompt (body mode) → knob → default | "Edit prompt" button (modal) | spinner only | ticket_*, instructions; diff stub |
 | resolve | `prompt_body` | ✅ | input.prompt (body mode) → knob → default | "Edit prompt" button | spinner only | dev/instructions; comments/header/subheader stub |

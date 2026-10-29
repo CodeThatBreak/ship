@@ -42,6 +42,8 @@ const makeContract = () => {
     },
   } as unknown as NodeSupport;
   const store = {
+    // no previous version in this stubbed world — provenance records version 0
+    latestPlan: () => null,
     normalizePlannerExecution: (w: unknown) =>
       (w as { execution?: string })?.execution === 'steps'
         ? { value: 'steps', rationale: null }

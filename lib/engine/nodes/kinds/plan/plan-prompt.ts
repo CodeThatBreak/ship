@@ -1,4 +1,5 @@
 import { prompts } from '../../../prompts/prompt-library';
+import { DEFAULT_PROMPT_TEMPLATES } from '../../../prompts/prompt-defaults';
 import { TemplateRenderer, type FlowCtx, type FlowContextHelper } from '../../shared';
 import type { NodeRow } from '../../../../db/rows';
 import type { PlanInput } from './schema';
@@ -13,6 +14,18 @@ export type ExecutionKnob = 'whole' | 'follow';
 export interface RunIntent {
   label: string;
   followUpOn: string | null;
+}
+
+/**
+ * Whether a `promptIsBody` run body DIVERGES from the plan template's body
+ * (§8 / §6c 'start' provenance): only a CLEARLY different body counts — the
+ * comparison is the same normalization the assembly applies (trim + collapse
+ * blank-line runs), so when in doubt the default is NO provenance (§6c).
+ */
+export function planBodyDiverged(prompt: string | null | undefined): boolean {
+  if (!prompt?.trim()) return false;
+  const norm = (s: string): string => s.trim().replace(/\n{3,}/g, "\n\n");
+  return norm(prompt) !== norm(DEFAULT_PROMPT_TEMPLATES.plan.userTemplate);
 }
 
 /**
@@ -54,6 +67,29 @@ export class PlanPromptBuilder {
             ? node.agent_id
             : null,
     };
+  }
+
+  /**
+   * The conversation follow-up's prompt (docs/plan-conversation-refine.md §2):
+   * the plan_refine conversation contract over the SAME context assembly a
+   * whole refine uses — live state by default (the `edits` block carries the
+   * developer's hand edits, and the template's rules require preserving them).
+   * The `follow`-mode execution directive rides exactly like whole()'s refine
+   * arm so a plan-bearing response's meta stays coherent with a refine's.
+   */
+  refineTurn(ctx: FlowCtx, content: string, userRules: string): string {
+    // a conversation turn carries no context-picker selection — the whole-mode
+    // defaults (task, branches, edits) are the recommendation (§4 "no mode state")
+    const contextBlock = this.context.assemble(ctx, { contextBlocks: [] }, null);
+    const refined = prompts.resolve(
+      "plan_refine",
+      {},
+      { feedback: content, context: contextBlock },
+      undefined,
+      { userRules }
+    );
+    const execBlock = this.executionDirective(ctx);
+    return execBlock ? `${refined}\n\n${execBlock}` : refined;
   }
 
   /** Whole-plan prompt: verbatim override, refine template, or base + feedback. */

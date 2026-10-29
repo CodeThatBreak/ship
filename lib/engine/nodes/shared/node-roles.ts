@@ -44,7 +44,17 @@ export interface NodePromptPreview {
   assembly: PromptAssembly;
 }
 
-/** A def that can regenerate its output from a chat message (§T4 ChatRefiner). */
+/**
+ * A def that can regenerate its output from a chat message (§T4 ChatRefiner).
+ *
+ * The plan node's safeness model changed with docs/plan-conversation-refine.md
+ * §3b — the OLD guarantee was "a plain chat message must never kick off a
+ * refinement run"; the NEW model: a plan chat message changes the plan iff the
+ * response carries a plan payload (`{ reply, plan? }` — docs/plan-conversation-
+ * refine.md), bounded by the explicit apply policy (§3b). Enforcement is in
+ * the response schema, not in the message router — a decision kind still never
+ * refines from a chat message (its pick is confirmed on the card).
+ */
 export interface ChatRefiner {
   chat(ctx: FlowCtx, content: string, model?: string): Promise<string>;
 }

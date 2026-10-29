@@ -283,16 +283,23 @@ interface SplitChildPayload {
   };
 }
 
-/** The parent flow's split children, in expansion order, with parsed payloads. */
+/**
+ * The parent flow's split children, ordered by their unit position. The row
+ * order itself is unstable: sibling child flows are inserted within the same
+ * millisecond (db.now()) and the SQL tiebreak falls to a random id — so the
+ * assertions ride the splitter's own deterministic `position`, not row order.
+ */
 function splitChildren(flowId: string): { id: string; name: string; payload: SplitChildPayload }[] {
   return db.all<{ id: string; name: string; trigger_payload: string | null }>(
     `SELECT id, name, trigger_payload FROM flows WHERE parent_flow_id=? AND kind='split' ORDER BY created_at, id`,
     flowId,
-  ).map((r) => ({
-    id: r.id,
-    name: r.name,
-    payload: JSON.parse(must(r.trigger_payload, `trigger payload of ${r.id}`)) as SplitChildPayload,
-  }));
+  )
+    .map((r) => ({
+      id: r.id,
+      name: r.name,
+      payload: JSON.parse(must(r.trigger_payload, `trigger payload of ${r.id}`)) as SplitChildPayload,
+    }))
+    .sort((a, b) => a.payload.unit.position - b.payload.unit.position);
 }
 
 interface AggregateEntry { key: string; title: string; status: string; output?: Record<string, unknown> }

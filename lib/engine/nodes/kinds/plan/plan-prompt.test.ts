@@ -13,6 +13,8 @@ process.env.DATABASE_PATH = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'dev
 
 await import('../../registry');
 const { PlanPromptBuilder } = await import('./plan-prompt');
+const { planBodyDiverged } = await import('./plan-prompt');
+const { DEFAULT_PROMPT_TEMPLATES } = await import('../../../prompts/prompt-defaults');
 import type { PlanBranch, PlanStep, PlanInput } from './schema';
 import type { NodeRow } from '../../../../db/rows';
 import type { FlowCtx, FlowContextHelper } from '../../shared';
@@ -135,5 +137,54 @@ describe('PlanPromptBuilder.whole — the verbatim-prompt shortcut', () => {
       promptIsBody: false,
     } as PlanInput, '');
     expect(out).toBe('EXACT TEXT');
+  });
+});
+
+describe('PlanPromptBuilder.refineTurn — the conversation contract template (§2)', () => {
+  it('the developer message interpolates into the plan_refine conversation contract with the context block and user rules', () => {
+    const out = makeBuilder('whole').refineTurn(ctx, 'why is step 2 blocked?', 'RULES');
+    expect(out).toContain('why is step 2 blocked?');
+    // the template body assembles ({{feedback}}/{{context}} resolved) in the
+    // conversation shape: reply + optional plan, with the hand-edit rule
+    expect(out).toContain('The conversation continues');
+    expect(out).toContain('omit "plan" for questions, critiques, status requests');
+    // the whole-mode context assembly feeds {{context}} (the `edits` default-on
+    // block that preserves hand edits)
+    expect(out).toContain('CTX');
+    // the user's standing rules land right after the body
+    expect(out).toContain('RULES');
+    expect(out.startsWith('The conversation continues')).toBe(true);
+  });
+
+  it('the follow-mode execution directive is appended (mirroring whole()), skipped under whole', () => {
+    expect(makeBuilder('whole').refineTurn(ctx, 'msg', '')).not.toContain('Execution resolution');
+    expect(makeBuilder('follow').refineTurn(ctx, 'msg', '')).toContain('"execution": "whole" or "steps"');
+  });
+
+  it('the plan_refine template is a body-only conversation contract — variables stay feedback + context', () => {
+    const tpl = DEFAULT_PROMPT_TEMPLATES.plan_refine;
+    expect(tpl.variables).toEqual(['feedback', 'context']);
+    expect(tpl.internalBlocks).toEqual([]);
+    expect(tpl.userTemplate).toContain('The conversation continues');
+    // the base `plan` template body is untouched by this phase
+    expect(DEFAULT_PROMPT_TEMPLATES.plan.userTemplate.startsWith('You are planning the implementation of a {{ticket_type}}')).toBe(true);
+  });
+});
+
+describe('planBodyDiverged — the §8/§6c "start" divergence check', () => {
+  it('an identical (or blank-run-normalized) body is NOT a divergence — first/template runs record nothing', () => {
+    expect(planBodyDiverged(DEFAULT_PROMPT_TEMPLATES.plan.userTemplate)).toBe(false);
+    // blank-line runs collapse the same way the assembly normalizes them
+    expect(planBodyDiverged(DEFAULT_PROMPT_TEMPLATES.plan.userTemplate.replace('\n\n', '\n\n\n\n'))).toBe(false);
+  });
+
+  it('a clearly edited body diverges', () => {
+    expect(planBodyDiverged(`${DEFAULT_PROMPT_TEMPLATES.plan.userTemplate}\nExtra step: check the migrations.`)).toBe(true);
+  });
+
+  it('null/blank bodies never count as a divergence (default when in doubt: NO provenance)', () => {
+    expect(planBodyDiverged(null)).toBe(false);
+    expect(planBodyDiverged('')).toBe(false);
+    expect(planBodyDiverged('   ')).toBe(false);
   });
 });

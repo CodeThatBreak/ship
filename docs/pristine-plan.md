@@ -291,6 +291,10 @@ Add `capabilities` to node definitions (engine-side, surfaced via `/api/contract
 and the flow detail payload): `refinable?: boolean`, `chatOnlyMode?: "refine" |
 "followup"`, `promptNode?: string`. ChatPanel replaces `nodeKey === "plan"` /
 `chatOnly` ternaries (:196, :213, :294, :433, :566) with capability lookups.
+NOTE (docs/plan-conversation-refine.md §3b, superseding the old guarantee that
+"a plain chat message must never kick off a refinement run"): a plan chat
+message changes the plan iff the response carries a plan payload, bounded by
+the follow-up contract's apply policy.
 
 ## 3.3 Selection & events
 - `app/flows/[id]/page.tsx:53` — default selection = first node in graph order

@@ -157,6 +157,30 @@ export const PlanResponse = z
   });
 export type PlanResponse = z.infer<typeof PlanResponse>;
 
+// ── the conversation follow-up response (JSON-only, §1) ─────────────────────
+
+/**
+ * A plan conversation turn's response (docs/plan-conversation-refine.md §1):
+ * always a reply, optionally a plan. `plan` present ⇒ the engine applies it as
+ * a new version (§3 — the same whole-plan persist path as a refine, state-
+ * guarded); absent (or an explicit `null`) ⇒ reply only — node status,
+ * artifacts and checklist untouched.
+ *
+ * NOTE — parse-time strictness (§1): the pipeline ({@link ./plan-followup})
+ * does NOT `safeParse` whole turns against this schema, because it couples the
+ * envelope shape to the plan payload's schema refinements — a turn whose plan
+ * carries a refinement violation would degrade silently to reply-only. The
+ * turn kind is decided envelope-shape-only; `PlanNode.applyPlanVersion`
+ * validates the plan payload itself and drives the §3c bounded retry.
+ * This schema stays the canonical contract: the retry directive advertises it.
+ */
+export const PlanFollowUp = z.object({
+  reply: z.string().min(1),
+  // .nullish(): an explicit "plan": null and an omitted "plan" mean the same (reply only)
+  plan: PlanResponse.nullish(),
+});
+export type PlanFollowUp = z.infer<typeof PlanFollowUp>;
+
 // ── branch-scoped sub-plan response (JSON-only) ──────────────────────────────
 
 /**
@@ -195,6 +219,8 @@ export type SubPlanResponse = z.infer<typeof SubPlanResponse>;
  */
 export const PLAN_RESPONSE_JSON_SCHEMA: unknown = z.toJSONSchema(PlanResponse);
 export const SUB_PLAN_RESPONSE_JSON_SCHEMA: unknown = z.toJSONSchema(SubPlanResponse);
+/** The conversation follow-up contract (§1) — the chat retry's directive schema. */
+export const PLAN_FOLLOWUP_JSON_SCHEMA: unknown = z.toJSONSchema(PlanFollowUp);
 
 // ── input / output schemas ───────────────────────────────────────────────────
 

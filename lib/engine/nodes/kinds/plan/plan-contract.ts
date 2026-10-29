@@ -8,10 +8,14 @@ import type { NodeSupport } from '../../shared/node-support';
 import type { NodeRow } from '../../../../db/rows';
 import { extractJson } from '../agent/json-schema-lite';
 import { BranchRefinement } from './branch-refinement';
+import { planBodyDiverged } from './plan-prompt';
 import { RETRYABLE_OUTPUT_ERRORS } from './constants/retryableErrors';
+import { REFINED_FROM_SOURCE, type RefinedFrom } from './constants/refine';
 import {
+  PLAN_FOLLOWUP_JSON_SCHEMA,
   PLAN_RESPONSE_JSON_SCHEMA,
   SUB_PLAN_RESPONSE_JSON_SCHEMA,
+  PlanFollowUp,
   PlanResponse,
   SubPlanResponse,
   withStepIds,
@@ -122,17 +126,130 @@ export class PlanOutputContract {
     if (scoped) return this.scopedOutcome(ctx, node, text, scoped);
 
     const plan = this.parse(text, PlanResponse);
+    return this.applyValidatedPlan(ctx, node, plan, {
+      feedback: input.feedback ?? '',
+      refined: this.wholeRefineMeta(ctx, input),
+    });
+  }
+
+  /**
+   * The conversational apply (§3a/§3b/§6c): a VALIDATED follow-up plan payload
+   * becomes a new version through the exact whole-plan persist path (the same
+   * persist + outcome a normal refine produces, with the conversation meta:
+   * `feedback` + §6c `refinedFrom`). Call only after parseFollowUpPlan.
+   */
+  applyChatPlan(
+    ctx: FlowCtx,
+    node: NodeRow,
+    plan: PlanResponse,
+    opts: { feedback: string; refined?: RefinedFrom }
+  ): RunOutcome {
+    return this.applyValidatedPlan(ctx, node, plan, opts);
+  }
+
+  /**
+   * The one whole-plan persist + outcome path: version publish with the
+   * conversation/execution meta, checklist sync (`persistPlan` →
+   * `syncFromPlan`), then awaiting approval. Shared by the run outcome and
+   * the conversational apply so they can never drift.
+   */
+  private applyValidatedPlan(
+    ctx: FlowCtx,
+    node: NodeRow,
+    plan: PlanResponse,
+    opts: { feedback: string; refined?: RefinedFrom }
+  ): RunOutcome {
     const planMeta: PlanMeta = { steps: withStepIds(plan.steps), branches: plan.branches ?? [] };
     const { art, stepCount } = this.store.persistPlan({
       ctx,
       node,
-      input,
+      input: { feedback: opts.feedback },
       text: plan.markdown,
       planMeta,
       plannerExecution: this.store.normalizePlannerExecution(plan),
       knob: this.knobOf(ctx),
+      refined: opts.refined,
     });
     return this.planOutcome(art, planMeta, stepCount, plan.markdown);
+  }
+
+  /**
+   * §6c provenance for the run-node whole-plan paths: a run with `feedback` is
+   * a produced refine (`chat` — both the legacy feedback-rerun and whole-plan
+   * refine actions); a `promptIsBody` run whose body DIVERGED from the plan
+   * template is `start` (a template-faithful body — including the first run —
+   * records nothing; when in doubt: NO provenance).
+   */
+  private wholeRefineMeta(ctx: FlowCtx, input: PlanInput): RefinedFrom | undefined {
+    const prev = this.store.latestPlan(ctx.flow.id)?.art.version ?? 0;
+    if (input.feedback) return { version: prev, source: REFINED_FROM_SOURCE.CHAT };
+    if (input.promptIsBody && planBodyDiverged(input.prompt)) {
+      return { version: prev, source: REFINED_FROM_SOURCE.START };
+    }
+    return undefined;
+  }
+
+  /**
+   * The chat follow-up's plan validation (§3b): the whole turn — `reply` +
+   * `plan` — parses against the follow-up contract, so the plan child rides the
+   * exact same issue set a normal refine parse produces (identical messages →
+   * the §3c retry feedback and the raw-issue event payload stay truthful).
+   * Thrown as the standard {@link AgentOutputError} (`schema_mismatch`).
+   */
+  parseFollowUpPlan(turn: { reply: string; plan: unknown }): PlanResponse {
+    const missingPlan = (): AgentOutputError =>
+      new AgentOutputError({
+        code: AGENT_OUTPUT_ERROR.SCHEMA_MISMATCH,
+        label: this.label,
+        message: `${this.label}: the response carried no plan payload`,
+        issues: [{ path: 'plan', message: 'the response carried no plan payload' }],
+        response: JSON.stringify(turn),
+      });
+    if (turn.plan == null) throw missingPlan();
+    const result = PlanFollowUp.safeParse(turn);
+    if (!result.success) {
+      const issues = result.error.issues.map(i => ({ path: i.path.join('.'), message: i.message }));
+      throw new AgentOutputError({
+        code: AGENT_OUTPUT_ERROR.SCHEMA_MISMATCH,
+        label: this.label,
+        message: issues[0]?.message ?? `${this.label}: the plan response violated its schema`,
+        issues,
+        response: JSON.stringify(turn),
+      });
+    }
+    const plan = result.data.plan;
+    // the pre-checked turn validated: an absent/null plan is exactly the
+    // reply-only turn this method refuses to treat (caller bug — fails loudly)
+    if (plan == null) throw missingPlan();
+    return plan;
+  }
+
+  /**
+   * The chat follow-up's ONE bounded retry (§3c — the same machine as the
+   * scoped refine's): an AgentOutputError-grade feedback that re-states the
+   * follow-up contract (reply + optional plan envelope) on the same agent
+   * session, with the follow-up response schema as the directive.
+   */
+  followUpRetryPrompt(failure: AgentOutputError): string {
+    const body =
+      failure.code === AGENT_OUTPUT_ERROR.NO_JSON
+        ? TemplateRenderer.compose('Your previous response could not be used: no JSON object could be parsed from it.')
+            .addBlankLine()
+            .addLine('Re-emit your ENTIRE response as a single JSON object.')
+            .build()
+        : TemplateRenderer.compose('Your previous response was valid JSON but violated the plan follow-up contract:')
+            .addBlankLine()
+            .addLines(failure.detail.issues.map(i => `  - ${i.path ? `${i.path}: ` : ''}${i.message}`))
+            .addBlankLine()
+            .addLine(
+              'Re-emit the follow-up response as a single JSON object: "reply" always, and "plan" (the full plan response, contract below) when you are changing the plan.'
+            )
+            .build();
+    return TemplateRenderer.compose(body)
+      .addBlankLine()
+      .addBlankLine()
+      .addLine(AgentOutputError.directive(PLAN_FOLLOWUP_JSON_SCHEMA))
+      .build();
   }
 
   /**
@@ -166,11 +283,14 @@ export class PlanOutputContract {
 
     // Deterministic merge: everything outside this branch stays byte-identical.
     const merged = BranchRefinement.merge(scoped.latest.meta, branchName, sub);
+    // §6c provenance rides BESIDE the scoped record: "a version with refinedFrom"
+    // is "a produced refine" — branch-scoped refines produce one (diff banner).
     const art = this.support.saveArtifact(node.id, ctx.flow.id, 'plan', scoped.latest.art.content, {
       ...scoped.latest.rawMeta,
       steps: merged.steps,
       branches: merged.branches,
       scopedRefine: { branch: branchName, from: scoped.latest.art.version }, // provenance for the diff banner
+      refinedFrom: { version: scoped.latest.art.version, source: REFINED_FROM_SOURCE.BRANCH },
     });
 
     // Sync the live checklist scoped, not wholesale (§5): rows of other
@@ -203,8 +323,10 @@ export class PlanOutputContract {
   }
 
   /** The whole-plan outcome: awaiting approval, the output blob pointing at
-   *  the fresh artifact version, the lifecycle event. */
-  private planOutcome(
+   *  the fresh artifact version, the lifecycle event. Public because the
+   *  conversational apply (PlanNode.applyPlanVersion) reuses this exact
+   *  outcome so a chat-produced version persists like a normal refine. */
+  planOutcome(
     art: { id: string; version: number },
     planMeta: PlanMeta,
     stepCount: number,
