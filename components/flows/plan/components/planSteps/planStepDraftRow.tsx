@@ -1,6 +1,6 @@
 "use client";
 import { Trash2 } from "lucide-react";
-import type { PlanStepDraft } from "./step-draft";
+import type { PlanStepDraft } from "../../utils/stepDraft";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";

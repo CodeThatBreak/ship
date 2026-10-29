@@ -1,11 +1,11 @@
 import type { Artifact } from "@/types/flow";
-import type { BranchPlan } from "./types";
+import type { BranchPlan } from "../types";
 import {
   PLAN_TAB_CAPTION_BRANCH_PREFIX,
   PLAN_TAB_CAPTION_MAX,
   PLAN_TAB_CAPTION_REFINED_IN_CHAT,
   PLAN_REFINED_SOURCE_CHAT,
-} from "./constants";
+} from "../constants";
 
 /** A step as recorded in plan-meta `steps` (structural view for diffing). */
 export interface DiffStep {

@@ -1,7 +1,7 @@
 "use client";
 import { AlertTriangle, FileDiff, GitMerge } from "lucide-react";
 import type { BranchRow, Artifact, PlanStepRow } from "@/types/flow";
-import PlanSteps from "../plan/PlanSteps";
+import PlanSteps from "../plan/components/planSteps/PlanSteps";
 import DiffView from "./DiffView";
 import { Alert } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
@@ -98,7 +98,13 @@ function BuildView({ flow, node, action, fetchArtifact, events = [] }: PanelProp
       {fannedOut ? (
         <FanoutStepList flow={flow} node={node} action={action} />
       ) : planSteps.length > 0 && (
-        <PlanSteps steps={planSteps} editable={false} highlight action={action} className="mb-4" />
+        <PlanSteps
+          steps={planSteps}
+          editable={false}
+          highlight
+          flowId={flow.id}
+          className="mb-4"
+        />
       )}
       {creatingMr && (
         <Alert variant="default" className="mb-3.5">

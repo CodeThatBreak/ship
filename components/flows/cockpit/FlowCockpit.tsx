@@ -20,7 +20,7 @@ import { EXECUTION_MODE_LOCAL, LOCAL_MODE_MODEL } from "../constants";
 import { useFlowData } from "./hooks/use-flow-data";
 import { useFlowEvents } from "./hooks/use-flow-events";
 import { fanoutProgressOf } from "./fanout-progress";
-import { usePlanComposer } from "../plan/hooks/use-plan-composer";
+import { usePlanComposer } from "../plan/hooks/usePlanComposer";
 
 /**
  * The flow cockpit's client island (§2.1 server/client split): the server page

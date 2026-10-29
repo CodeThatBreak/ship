@@ -1,7 +1,7 @@
 import { useState } from "react";
 import type { PlanStepRow } from "@/types/flow";
 import { PLAN_STEP_ACTION } from "../constants";
-import { buildPayload, emptyDraft, toDraft, type PlanStepDraft } from "../step-draft";
+import { buildPayload, emptyDraft, toDraft, type PlanStepDraft } from "../utils/stepDraft";
 import type { FlowAction } from "../types";
 
 /**
@@ -9,7 +9,7 @@ import type { FlowAction } from "../types";
  * `startEdit` rather than an effect (§2.6): editing is only ever entered
  * through it, and every row edit is a draft patch committed with `save`.
  */
-export function usePlanStepDrafts(steps: PlanStepRow[], action: FlowAction) {
+export function usePlanStepDrafts(steps: PlanStepRow[], onAction: FlowAction) {
   const [editing, setEditing] = useState(false);
   const [drafts, setDrafts] = useState<PlanStepDraft[]>([]);
 
@@ -19,7 +19,7 @@ export function usePlanStepDrafts(steps: PlanStepRow[], action: FlowAction) {
   };
   const cancel = () => setEditing(false);
   const save = () => {
-    action(PLAN_STEP_ACTION.UPDATE, { steps: buildPayload(drafts) });
+    onAction({ type: PLAN_STEP_ACTION.UPDATE, payload: { steps: buildPayload(drafts) } });
     setEditing(false);
   };
   const patch = (i: number, p: Partial<PlanStepDraft>) =>

@@ -1,6 +1,6 @@
 /**
  * The plan review layer (docs/plan-conversation-refine.md §6a/§6b): the
- * whole-plan diff machinery in components/flows/plan/branch-diff.ts —
+ * whole-plan diff machinery in components/flows/plan/utils/branchDiff.ts —
  * `pickWholeSteps`, `computeWholePlanDiff`, and the version-tab caption
  * builder `planTabCaption`, plus a smoke pass over the untouched
  * `diffBranchSteps` comparator the whole layer rides on.
@@ -15,7 +15,7 @@ import {
   pickWholeSteps,
   computeWholePlanDiff,
   planTabCaption,
-} from "@/components/flows/plan/branch-diff";
+} from "@/components/flows/plan/utils/branchDiff";
 import { PLAN_TAB_CAPTION_MAX } from "@/components/flows/plan/constants";
 
 // ── fixtures ─────────────────────────────────────────────────────────────────

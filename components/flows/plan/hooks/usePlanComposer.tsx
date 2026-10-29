@@ -15,7 +15,7 @@ import { queryKeys } from "@/constants/query-keys";
 import { FLOW_STATUS } from "@/constants/flow";
 import { Button } from "@/components/ui/button";
 import { PLAN_ACTION } from "../constants";
-import { usePlanComposerCommand } from "./composer-bus";
+import { usePlanComposerCommand } from "./composerBus";
 
 /** The chat panel's main plan tab — the unthreaded whole-plan conversation. */
 const MAIN_PLAN_TAB = "Main plan";

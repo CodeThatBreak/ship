@@ -5,7 +5,7 @@ import {
   EXECUTION_MODE,
   EXECUTION_SOURCE,
   type ExecutionMode,
-} from "./constants";
+} from "../constants";
 import { Button } from "@/components/ui/button";
 
 /**

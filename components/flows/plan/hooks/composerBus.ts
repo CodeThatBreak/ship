@@ -3,7 +3,7 @@ import { useEffect, useRef } from "react";
 
 /**
  * The plan panel ↔ chat composer channel (docs/plan-conversation-refine.md
- * §4d): PlanView/PlanPanelHeader/BranchPlanCard live in the LEFT subtree and
+ * §4d): PlanView/PlanPanelHeader/SubPlanCard live in the LEFT subtree and
  * usePlanComposer (the composer config builder) in the RIGHT aside — a tiny
  * typed pub-sub replaces threading a `focusChat` prop through NodePanel's
  * shared PanelProps.

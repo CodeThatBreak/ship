@@ -86,17 +86,18 @@ components/
     <Feature>.tsx         # top-level component
     components/           # subcomponents used only by this feature
     hooks/                # feature-local hooks
-    constants.ts          # feature constants
-    types.ts              # feature-local types
+    utils/                # feature-local pure helpers (no React, no fetching)
+    constants/            # feature constants — barrel the values the feature exports
+    types/                # feature-local types — barrel the domain types it exports
   ui/                     # shadcn primitives ONLY. Do not add custom components here.
   shared/                 # generic custom components (see 2.4)
-hooks/                    # shared cross-feature hooks (use-thing.ts, kebab-case)
+hooks/                    # shared cross-feature hooks (useThing.ts, camelCase)
 constants/                # shared app-wide constants
 types/                    # shared app-wide types
 lib/                      # backend and shared utilities (see section 3)
 ```
 
-- New shared hooks: `hooks/use-<name>.ts`. Shared constants: `constants/<domain>.ts`. Shared types: `types/<domain>.ts`.
+- Feature folders are uniform: `components/` for subcomponents, `hooks/` for hooks (the `use` prefix, `hooks/useThing.ts`), `utils/` for pure helpers and utilities (plain TS only — no React, no fetching, no domain constants), `constants/` and `types/` for domain values and shared types. The constants and types directories barrel through `constants/index.ts` and `types/index.ts`, so feature code imports `../constants` / `../types`; a single-domain feature keeps one file per directory. Shared constants: `constants/<domain>.ts`. Shared types: `types/<domain>.ts`.
 - Feature-local helpers stay in the feature folder until a second consumer exists.
 - Never deep-import across features. Go through the feature's `index.ts`.
 - Keep barrels small. Export only the public surface, never everything.
@@ -187,7 +188,12 @@ export function NodePanelSkeleton() {
 
 ### 2.9 Other Conventions
 
-- File naming: PascalCase components matching the export, `use-<name>.ts` hooks, lowercase constants and types files.
+- File naming — component files match their export in PascalCase; everything else is lowercase:
+  - Folders start lowercase: `components/flows/plan/masterPlanSection/`, never `plan-section/` or `PlanSection/`.
+  - A component file is named after its export in PascalCase — `PlanView.tsx` exports `PlanView`, `MasterPlanSection.tsx` exports `MasterPlanSection`.
+  - Component names (the exports) always start with a capital letter in PascalCase: `PlanView`, `SubPlanCard`.
+  - Hook files are camelCase with the `use` prefix mirroring the hook name: `useExecutionPick.ts` exports `useExecutionPick`. Never `use-execution-pick.ts`.
+  - Constants/types/utils files are camelCase lowercase (`constants/<domain>.ts`, `utils/<name>.ts`).
 - Tailwind: follow existing utility patterns. Extract repeated class strings into a constant or `cn()`. Never create a new CSS file.
 - Accessibility: interactive elements need labels and keyboard handling. Use `button`, not `div` with `onClick`.
 - No `any`. Use proper types, or `unknown` with narrowing as a last resort.

@@ -1,7 +1,7 @@
 "use client";
 import { useState } from "react";
 import { ArrowRightLeft, ChevronDown, ChevronRight } from "lucide-react";
-import type { WholePlanDiff, WholeStep } from "./branch-diff";
+import type { WholePlanDiff, WholeStep } from "../utils/branchDiff";
 import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
 

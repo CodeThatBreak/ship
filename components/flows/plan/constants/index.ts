@@ -29,6 +29,13 @@ export const PLAN_ACTION = {
   CANCEL: "cancel",
 } as const;
 
+/** Plan-view UI-reducer actions (the panel's local state, hooks/usePlanUi.ts). */
+export const PLAN_UI_ACTION = {
+  SELECT_VERSION: "select_version",
+  TOGGLE_BRANCH: "toggle_branch",
+  COLLAPSE_BRANCH: "collapse_branch",
+} as const;
+
 /** Plan-checklist row actions. */
 export const PLAN_STEP_ACTION = {
   SET: "set_plan_step",

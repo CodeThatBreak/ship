@@ -1,11 +1,11 @@
 "use client";
 import { ListChecks, Pencil, Plus, Save, X } from "lucide-react";
 import type { PlanStepRow } from "@/types/flow";
-import { PLAN_STEP_ACTION, PLAN_STEP_STATUS } from "./constants";
+import { PLAN_STEP_ACTION, PLAN_STEP_STATUS } from "../../constants";
 import { PlanStepItem } from "./PlanStepItem";
 import { PlanStepDraftRow } from "./PlanStepDraftRow";
-import { usePlanStepDrafts } from "./hooks/use-plan-step-drafts";
-import type { FlowAction } from "./types";
+import { usePlanStepDrafts } from "../../hooks/usePlanStepDrafts";
+import { usePlanAction } from "../../hooks/usePlanAction";
 import { Button } from "@/components/ui/button";
 import {
   Trace,
@@ -22,26 +22,29 @@ import { cn } from "@/lib/utils";
 /**
  * The editable structured-plan checklist, laid out per the shadcn ai-elements
  * Plan pattern: a Trace Collapsible whose trigger line shows the progress count
- * and whose content holds the progress bar + steps. Steps are persisted
- * immediately on toggle; title/detail/files edits happen in a draft mode
- * committed with Save. Header action buttons sit *beside* the trigger, never
- * inside it.
+ * and whose content holds the progress bar + steps. The checklist owns its
+ * step actions — a `usePlanAction` mutation against the flow's action route.
+ * Steps are persisted immediately on toggle; title/detail/files edits happen
+ * in a draft mode committed with Save. Header action buttons sit *beside* the
+ * trigger, never inside it.
  */
 export default function PlanSteps({
   steps,
   editable,
-  action,
+  flowId,
   highlight,
   className,
 }: {
   steps: PlanStepRow[];
   editable: boolean;
-  action: FlowAction;
+  /** the owning flow — the route the step actions POST to */
+  flowId: string;
   highlight?: boolean; // build node: shown as progress tracker
   className?: string;
 }) {
+  const onAction = usePlanAction(flowId);
   const { editing, drafts, startEdit, cancel, save, patch, addDraft, removeAt } =
-    usePlanStepDrafts(steps, action);
+    usePlanStepDrafts(steps, onAction);
 
   if (!steps.length && !editable) return null;
 
@@ -49,12 +52,15 @@ export default function PlanSteps({
   const allDone = steps.length > 0 && done === steps.length;
   const canToggle = Boolean(editable || highlight);
   const toggleStep = (s: PlanStepRow) =>
-    action(PLAN_STEP_ACTION.SET, {
-      stepId: s.id,
-      status:
-        s.status === PLAN_STEP_STATUS.DONE
-          ? PLAN_STEP_STATUS.PENDING
-          : PLAN_STEP_STATUS.DONE,
+    onAction({
+      type: PLAN_STEP_ACTION.SET,
+      payload: {
+        stepId: s.id,
+        status:
+          s.status === PLAN_STEP_STATUS.DONE
+            ? PLAN_STEP_STATUS.PENDING
+            : PLAN_STEP_STATUS.DONE,
+      },
     });
 
   return (

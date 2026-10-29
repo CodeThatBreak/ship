@@ -1,4 +1,5 @@
 import type { PlanStepRow } from "@/types/flow";
+import type { PlanStepPayload } from "../types";
 
 /** A plan-step row serialized as an editable draft form. */
 export interface PlanStepDraft {
@@ -7,15 +8,6 @@ export interface PlanStepDraft {
   detail: string;
   files: string;
   branch: string;
-}
-
-/** A plan-step row payload sent on save (row id kept so unchanged rows persist). */
-export interface PlanStepPayload {
-  id?: string;
-  title: string;
-  detail?: string;
-  files: string[];
-  branch: string | null;
 }
 
 const toDraft = (s: PlanStepRow): PlanStepDraft => ({
