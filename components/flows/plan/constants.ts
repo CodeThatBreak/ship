@@ -51,5 +51,15 @@ export const PLAN_STEP_COMPLETED_BY = {
   BUILD: "build",
 } as const;
 
+/** Version tab caption copy (§6b): the truncation length and the provenance
+ *  strings `planTabCaption` (branch-diff.ts) emits — one home, not inline JSX. */
+export const PLAN_TAB_CAPTION_MAX = 40;
+export const PLAN_TAB_CAPTION_REFINED_IN_CHAT = "refined in chat";
+export const PLAN_TAB_CAPTION_BRANCH_PREFIX = "branch refine: ";
+/** Provenance source of a conversational refine — mirrors the engine's
+ *  `REFINED_FROM_SOURCE` value (lib/ is server-only; the UI keeps the same
+ *  strings per the constants/flow.ts pattern). */
+export const PLAN_REFINED_SOURCE_CHAT = "chat";
+
 /** The plan node key as referenced by the prompt modals. */
 export const PLAN_NODE_KEY = "plan" as const;

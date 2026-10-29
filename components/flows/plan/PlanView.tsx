@@ -4,7 +4,7 @@ import type { Artifact, FlowData, Node } from "@/types/flow";
 import PlanSteps from "./PlanSteps";
 import { registerPanel } from "../panels/registry";
 import { VersionTabs } from "../panels/shared";
-import { computeScopedDiff, computeStaleBranches } from "./branch-diff";
+import { computeScopedDiff, computeStaleBranches, computeWholePlanDiff, planTabCaption } from "./branch-diff";
 import { PLAN_ACTION, type ExecutionMode } from "./constants";
 import { executionLabel, resolveExecution } from "./plan-execution";
 import { useExecutionPick } from "./hooks/use-execution-pick";
@@ -14,6 +14,7 @@ import { PlanEmptyHint } from "./PlanEmptyHint";
 import { PlanRunningState } from "./PlanRunningState";
 import { MainPlanSection } from "./MainPlanSection";
 import { BranchPlanSection } from "./BranchPlanSection";
+import { DiffBanner } from "./DiffBanner";
 import { PlanApproveFooter } from "./PlanApproveFooter";
 import { planComposerBus } from "./hooks/composer-bus";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -63,6 +64,19 @@ export default function PlanView({
   // scoped-refine diff banner data (§6/§7.3), computed client-side from the
   // two artifact versions' steps — no server diff endpoint needed.
   const scopedDiff = useMemo(() => computeScopedDiff(plans), [plans]);
+  // whole-plan refine diff banner data (§6a) — fires only on the newest
+  // version when it carries a refine provenance mark; the banner is gated on
+  // `isCurrent` so old versions never show a stale banner
+  const wholeDiff = useMemo(() => computeWholePlanDiff(plans), [plans]);
+  // version tab captions (§6b): each artifact's provenance echo, per its meta
+  const captions = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const a of plans) {
+      const caption = planTabCaption(a.meta);
+      if (caption) map.set(a.id, caption);
+    }
+    return map;
+  }, [plans]);
   // staleness (§8): a scoped refine makes its branch doc newer than the overview
   const staleBranches = useMemo(
     () => computeStaleBranches(plans, branches, current?.version ?? 0),
@@ -101,8 +115,17 @@ export default function PlanView({
           )}
 
           {plans.length > 1 && (
-            <VersionTabs arts={plans} sel={current?.id} onSel={setSel} />
+            <VersionTabs
+              arts={plans}
+              sel={current?.id}
+              onSel={setSel}
+              captions={captions}
+            />
           )}
+
+          {/* whole-plan refine diff banner (§6a): above the newest version's
+              content, only while that newest version is being viewed */}
+          {wholeDiff && isCurrent && <DiffBanner info={wholeDiff} />}
 
           {/* ── main plan (level 1) — always on top, never hidden by an open sub-plan ── */}
           {current && (
