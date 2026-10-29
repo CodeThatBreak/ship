@@ -1,7 +1,7 @@
 'use client';
 import { useMemo } from 'react';
 import type { Artifact } from '@/types/flow';
-import { registerPanel } from '../../panels/registry';
+import { useNodePanel } from '../../panels';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { FLOW_STATUS } from '@/constants/flow';
 
@@ -18,7 +18,6 @@ import { executionLabel, resolveExecution } from './utils/planExecution';
 import { useExecutionPick } from './hooks/useExecutionPick';
 import { usePlanAction } from './hooks/usePlanAction';
 import { planComposerBus } from './hooks/composerBus';
-import type { PanelProps } from '../../panels/registry';
 import type { BranchPlan } from './types';
 
 /**
@@ -34,7 +33,8 @@ import type { BranchPlan } from './types';
  * the conversation composer and a branch card's Refine prefills the scoped
  * body, both dispatched through the plan composer bus (hooks/composerBus.ts).
  */
-export default function PlanView({ flow, node }: Pick<PanelProps, 'flow' | 'node'>) {
+export default function PlanView() {
+  const { flow, node } = useNodePanel();
   const plans = useMemo(() => node.artifacts.filter((a: Artifact) => a.kind === 'plan'), [node.artifacts]);
   const { state, onAction } = usePlanAction(flow.id);
 
@@ -110,5 +110,3 @@ export default function PlanView({ flow, node }: Pick<PanelProps, 'flow' | 'node
     </div>
   );
 }
-
-registerPanel({ type: 'plan' }, PlanView);

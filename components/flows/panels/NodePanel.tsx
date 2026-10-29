@@ -1,27 +1,71 @@
 "use client";
+import { useMemo, useState } from "react";
+// value from lib/modelSpec (pure helpers, Phase 0 allowlist); the types flow
+// through types/model-spec per the Phase 0 guidance
+import { composeModelChoice } from "@/lib/modelSpec";
+import type { ModelChoice } from "@/types/model-spec";
+import type { FeedEvent } from "@/components/chat";
+import type { FlowData, Node } from "@/types/flow";
 import { useArtifactFetcher } from "@/hooks/use-artifact-fetcher";
+import { EXECUTION_MODE_LOCAL, LOCAL_MODE_MODEL } from "../constants";
+import { NodePanelContext, type ActionPayload, type NodePanelContextValue } from "./context";
+import { resolveNodePanel } from "./panel-factory";
 import { PanelShell } from "./shared";
-import { resolvePanel, type PanelProps } from ".";
 
 /**
- * The node panel dispatcher (§3.1): the registry resolves the panel from the
- * node's def key / declarative kind — no node-key switches here. Every panel
- * receives the same props (the registry's PanelProps); the artifact fetcher is
- * supplied here (through the query cache) so panels stay transport-free.
+ * The node workspace dispatcher: the factory resolves the node's panel and its
+ * chat rail (capability-driven), the context supplies every panel with the
+ * shared surface — panels take no props and read it through `useNodePanel`.
+ * The artifact fetcher is supplied here (through the query cache) so panels
+ * stay transport-free.
  */
 export default function NodePanel({
-  flow, node, action, events = [], model,
-}: { flow: PanelProps["flow"]; node: PanelProps["node"]; action: PanelProps["action"]; events?: PanelProps["events"]; model: string }) {
+  flow, node, action, events = [],
+}: {
+  flow: FlowData;
+  node: Node;
+  action: (a: string, b?: ActionPayload) => Promise<void> | void;
+  events?: FeedEvent[];
+}) {
   const fetchArtifact = useArtifactFetcher();
-  const Panel = resolvePanel(node);
-  if (Panel) {
-    return <Panel flow={flow} node={node} action={action} events={events} model={model} fetchArtifact={fetchArtifact} />;
-  }
+
+  // the flow-wide model override for this flow's runs — picked in the chat
+  // panel's model selector, consumed by run-start action payloads in the
+  // panels and by the plan composer. Local flows (mode picked at start)
+  // prefill the local runtime's model; cloud stays on the account default (null).
+  const [modelChoice, setModelChoice] = useState<ModelChoice | null>(
+    flow.execution_mode === EXECUTION_MODE_LOCAL ? { id: LOCAL_MODE_MODEL } : null
+  );
+  const model = composeModelChoice(modelChoice);
+
+  const context = useMemo<NodePanelContextValue>(
+    () => ({ flow, node, action, events, model, fetchArtifact, modelChoice, setModelChoice }),
+    [flow, node, action, events, model, fetchArtifact, modelChoice],
+  );
+
+  const { panel: Panel, chat: Chat } = resolveNodePanel(node);
+
   return (
-    <PanelShell node={node} action={action} flow={flow}>
-      {node.kind
-        ? <p className="text-muted-foreground text-[13px] m-0">The <strong>{node.kind}</strong> node type isn&apos;t supported yet — it can&apos;t run, even though you can configure it in the template editor.</p>
-        : <p className="text-muted-foreground">No panel for this node.</p>}
-    </PanelShell>
+    <NodePanelContext.Provider value={context}>
+      <div className="flex flex-1 min-h-0 min-w-0">
+        {/* the node's panel column */}
+        <div className="flex-[1.6] min-w-0 min-h-0 flex flex-col">
+          {Panel ? <Panel /> : (
+            <PanelShell node={node} action={action} flow={flow}>
+              {node.kind
+                ? <p className="text-muted-foreground text-[13px] m-0">The <strong>{node.kind}</strong> node type isn&apos;t supported yet — it can&apos;t run, even though you can configure it in the template editor.</p>
+                : <p className="text-muted-foreground">No panel for this node.</p>}
+            </PanelShell>
+          )}
+        </div>
+        {/* the node's chat rail — agent-backed nodes only, the plan node
+            through the plan feature's composer config */}
+        {Chat && (
+          <aside className="flex-1 flex flex-col bg-card min-w-[340px] p-3.5 min-h-0">
+            <Chat />
+          </aside>
+        )}
+      </div>
+    </NodePanelContext.Provider>
   );
 }

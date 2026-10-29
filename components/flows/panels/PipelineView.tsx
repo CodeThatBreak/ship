@@ -2,19 +2,19 @@
 import { useState } from "react";
 import { Pencil, Wrench } from "lucide-react";
 import type { BranchRow } from "@/types/flow";
-import type { PanelProps } from "./registry";
 import { FLOW_STATUS } from "@/constants/flow";
 import { PromptModal } from "@/components/chat";
 import { Alert } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { PanelShell, GenericArtifact } from "./shared";
-import { registerPanel } from "./registry";
+import { useNodePanel } from "./context";
 
 /**
  * The CI-gate panel: the pipeline status, the fix runs the gate performed, and
  * the manual re-check action.
  */
-function PipelineView({ flow, node, action, fetchArtifact, model }: PanelProps) {
+export default function PipelineView() {
+  const { flow, node, action, model } = useNodePanel();
   const [showPrompt, setShowPrompt] = useState(false);
   const output = node.output as { pipelineId?: number; status?: string; fixes?: number } | undefined;
   const hasMr = Boolean(flow.mr_url) || (flow.branches ?? []).some((b: BranchRow) => b.mr_url);
@@ -52,7 +52,7 @@ function PipelineView({ flow, node, action, fetchArtifact, model }: PanelProps) 
             </span>
           </Alert>
         )}
-        <GenericArtifact node={node} kind="fix" fetchArtifact={fetchArtifact} icon={Wrench} empty="No pipeline fix runs yet." />
+        <GenericArtifact node={node} kind="fix" icon={Wrench} empty="No pipeline fix runs yet." />
       </PanelShell>
       {showPrompt && (
         <PromptModal
@@ -69,5 +69,3 @@ function PipelineView({ flow, node, action, fetchArtifact, model }: PanelProps) 
     </>
   );
 }
-
-registerPanel({ type: "pipeline" }, PipelineView);

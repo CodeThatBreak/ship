@@ -1,23 +1,24 @@
 "use client";
 import { useState } from "react";
 import { CheckCheck, Clock, Pencil } from "lucide-react";
-import type { PanelProps } from "./registry";
 import { PromptModal } from "@/components/chat";
 import { Button } from "@/components/ui/button";
 import { PanelShell, GenericArtifact } from "./shared";
-import { registerPanel } from "./registry";
+import { useNodePanel } from "./context";
 import { FLOW_STATUS } from "@/constants/flow";
 
 /**
  * The comment-resolution panel: the queued auto-resolve clock (the debounced
  * comment wait), the resolve runs, and the manual resolve action.
  */
-function ResolveView({ flow, node, action, fetchArtifact, model }: PanelProps) {  const [showPrompt, setShowPrompt] = useState(false);
+export default function ResolveView() {
+  const { flow, node, action, model } = useNodePanel();
+  const [showPrompt, setShowPrompt] = useState(false);
   const running = node.status === FLOW_STATUS.RUNNING;
 
   // the queue's actual start time — "resolve queued for 14:32"; while the
   // quiet period has already elapsed it flips to a "waiting on the gate" line
-  const scheduledAt: number | null = flow?.resolveScheduleAt ?? null;
+  const scheduledAt: number | null = flow.resolveScheduleAt ?? null;
   const clock = running ? null
     : scheduledAt == null ? null
       : scheduledAt > Date.now()
@@ -51,7 +52,7 @@ function ResolveView({ flow, node, action, fetchArtifact, model }: PanelProps) {
               : <>Auto-resolve of open comments starts at <span className="font-medium text-foreground">{clock}</span> (after the waiting period, once the pipeline passes).</>}
           </div>
         )}
-        <GenericArtifact node={node} kind="resolve" fetchArtifact={fetchArtifact} icon={CheckCheck} empty="Nothing resolved yet." />
+        <GenericArtifact node={node} kind="resolve" icon={CheckCheck} empty="Nothing resolved yet." />
       </PanelShell>
       {showPrompt && (
         <PromptModal
@@ -68,5 +69,3 @@ function ResolveView({ flow, node, action, fetchArtifact, model }: PanelProps) {
     </>
   );
 }
-
-registerPanel({ type: "resolve" }, ResolveView);

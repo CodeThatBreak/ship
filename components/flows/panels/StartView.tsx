@@ -11,8 +11,7 @@ import { Input } from "@/components/ui/input";
 import { Field, FieldTitle } from "@/components/ui/field";
 import { Textarea } from "@/components/ui/textarea";
 import { PanelShell } from "./shared";
-import { registerPanel } from "./registry";
-import type { PanelProps } from "./registry";
+import { useNodePanel } from "./context";
 import {
   FLOW_STATUS,
   isTerminalFlowStatus,
@@ -27,7 +26,8 @@ import {
  * the node is done the published variables are listed — those are what the
  * next nodes map from.
  */
-function StartView({ flow, node, action }: PanelProps) {
+export default function StartView() {
+  const { flow, node, action } = useNodePanel();
   const fields = useMemo(() => parseStartContract(node.config ?? {}), [node.config]);
   const [values, setValues] = useState<Record<string, unknown>>(() => prefillStartValues(node, fields));
   const [submitting, setSubmitting] = useState(false);
@@ -179,5 +179,3 @@ function fmtStartValue(v: unknown): string {
   if (typeof v === "string") return `"${v}"`;
   return JSON.stringify(v);
 }
-
-registerPanel({ type: "start" }, StartView);

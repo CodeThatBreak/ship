@@ -1,7 +1,7 @@
 "use client";
 import { Check, CheckCircle2, CircleDashed, Clock, Coins, ExternalLink, GitMerge, Loader2, OctagonAlert, SkipForward, Undo2, X } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
-import type { ActionPayload } from "./registry";
+import type { ActionPayload } from "./context";
 import type { FlowData, Node, PlanStepRow } from "@/types/flow";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";

@@ -5,8 +5,7 @@ import type { Artifact, PlanStepRow } from "@/types/flow";
 import { Markdown } from "@/components/shared";
 import { PanelShell, ArtifactLoader, VersionTabs } from "./shared";
 import type { ArtifactPayload } from "./shared";
-import { registerPanel } from "./registry";
-import type { PanelProps } from "./registry";
+import { useNodePanel } from "./context";
 import FanoutStepList from "./FanoutStepList";
 import { FLOW_STATUS, isFailedStatus } from "@/constants/flow";
 import { Button } from "@/components/ui/button";
@@ -23,9 +22,8 @@ import { Field, FieldDescription, FieldLabel } from "@/components/ui/field";
  * replaced by the step cards so the per-step monitoring surface exists for
  * declarative parent nodes too.
  */
-export default function AgentView({
-  flow, node, action, model, fetchArtifact,
-}: PanelProps) {
+export default function AgentView() {
+  const { flow, node, action, model } = useNodePanel();
   const cfg = (node.config ?? {}) as { prompt?: string; mode?: string; output?: string };
   const outputKind = cfg.output === "json" ? "json" : "markdown";
   const [editPrompt, setEditPrompt] = useState(false);
@@ -97,7 +95,7 @@ export default function AgentView({
               <Sparkles size={14} /> Output
             </h3>
             {mdArts.length > 1 && <VersionTabs arts={mdArts} sel={latest.id} onSel={() => {}} className="mb-3.5" />}
-            <ArtifactLoader id={latest.id} fetchArtifact={fetchArtifact}
+            <ArtifactLoader id={latest.id}
               render={(loaded: ArtifactPayload) => outputKind === "json"
                 ? <pre className="overflow-y-auto whitespace-pre-wrap bg-background border border-border rounded-lg p-3.5 text-[12.5px] font-mono">{loaded.content}</pre>
                 : <Markdown className="text-[13px] [&>*:first-child]:mt-0">{loaded.content}</Markdown>} />
@@ -150,6 +148,3 @@ export default function AgentView({
     </>
   );
 }
-
-// registered with the panel registry (§3.1) — served by the declarative agent kind
-registerPanel({ kind: "agent" }, AgentView);

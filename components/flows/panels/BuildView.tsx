@@ -10,8 +10,7 @@ import { Card } from '@/components/ui/card';
 import { Spinner } from '@/components/ui/spinner';
 import { PanelShell, ArtifactLoader } from './shared';
 import type { ArtifactPayload } from './shared';
-import type { PanelProps } from './registry';
-import { registerPanel } from './registry';
+import { useNodePanel } from './context';
 import FanoutStepList from './FanoutStepList';
 import { FLOW_STATUS, isFailedStatus, statusVariantOf } from '@/constants/flow';
 
@@ -28,7 +27,8 @@ import { FLOW_STATUS, isFailedStatus, statusVariantOf } from '@/constants/flow';
  * flow screen) and the whole-plan diff only appears after the aggregate
  * approval's merges.
  */
-function BuildView({ flow, node, action, fetchArtifact, events = [] }: PanelProps) {
+export default function BuildView() {
+  const { flow, node, action, events } = useNodePanel();
   const diffs = node.artifacts.filter((a: Artifact) => a.kind === 'diff');
   const latest = diffs[diffs.length - 1];
   const canApprove = node.status === FLOW_STATUS.AWAITING_APPROVAL;
@@ -188,7 +188,6 @@ function BuildView({ flow, node, action, fetchArtifact, events = [] }: PanelProp
           {latest ? (
             <ArtifactLoader
               id={latest.id}
-              fetchArtifact={fetchArtifact}
               render={(loaded: ArtifactPayload) => <DiffView raw={loaded.content} />}
             />
           ) : (
@@ -202,8 +201,3 @@ function BuildView({ flow, node, action, fetchArtifact, events = [] }: PanelProp
     </PanelShell>
   );
 }
-
-registerPanel({ type: 'build' }, BuildView);
-// the step_build child def shares this panel on its own child flow screen
-// (per-step diff + the step-level approval that triggers merge-back)
-registerPanel({ type: 'step_build' }, BuildView);

@@ -12,7 +12,7 @@ import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Spinner } from "@/components/ui/spinner";
 import { CostChip } from "./CostChip";
-import type { ActionPayload } from "./registry";
+import type { ActionPayload } from "./context";
 
 /** The panel header title: the node contract's panel title wins, then the
  *  template label override, the template's own display name, the instance key. */

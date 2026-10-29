@@ -2,7 +2,7 @@
 import { useState } from "react";
 import { CheckCheck, Split } from "lucide-react";
 import { PanelShell } from "./shared";
-import type { PanelProps } from "./registry";
+import { useNodePanel } from "./context";
 import { PanelEmptyState } from "./PanelEmptyState";
 import {
   FLOW_STATUS,
@@ -20,7 +20,8 @@ interface DecisionChoice { label: string; description?: string }
  *  logs. Manual source: the user picks a branch (choose_node). Approval
  *  trigger with an agent/expression pick: the pick is pre-selected with its
  *  rationale — confirm (approve_node) or override (choose_node). */
-export function DecisionView({ flow, node, action }: PanelProps) {
+export function DecisionView() {
+  const { flow, node, action } = useNodePanel();
   const cfg = (node.config ?? {}) as { source?: string; question?: string; choices?: DecisionChoice[] };
   const choices = cfg.choices ?? [];
   const out = (node.output ?? {}) as { chosen?: string[]; rationale?: string };

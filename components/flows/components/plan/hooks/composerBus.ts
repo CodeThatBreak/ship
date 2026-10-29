@@ -4,9 +4,10 @@ import { useEffect, useRef } from "react";
 /**
  * The plan panel ↔ chat composer channel (docs/plan-conversation-refine.md
  * §4d): PlanView/PlanPanelHeader/SubPlanCard live in the LEFT subtree and
- * usePlanComposer (the composer config builder) in the RIGHT aside — a tiny
- * typed pub-sub replaces threading a `focusChat` prop through NodePanel's
- * shared PanelProps.
+ * usePlanComposer (the composer config builder) in the RIGHT chat rail — a
+ * tiny typed pub-sub replaces threading a `focusChat` prop through the
+ * panel surface (the panels read the NodePanelContext; the composer config
+ * stays plan-feature-local in PlanNodeChat).
  *
  * Bound consumers: the producers in PlanView (header button → focus,
  * branch card → prefill) and usePlanComposer (the only subscriber).

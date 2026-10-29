@@ -4,8 +4,7 @@ import { ScanSearch, CheckCheck, User, MessageSquare, CornerDownRight, Pencil, F
 import { Markdown } from "@/components/shared";
 import { PromptModal } from "@/components/chat";
 import { PanelShell } from "./shared";
-import { registerPanel } from "./registry";
-import type { PanelProps } from "./registry";
+import { useNodePanel } from "./context";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -64,7 +63,8 @@ function buildThreads(comments: Comment[]): Thread[] {
   return threads;
 }
 
-export default function ReviewView({ flow, node, action, model }: PanelProps) {
+export default function ReviewView() {
+  const { flow, node, action, model } = useNodePanel();
   const [showPrompt, setShowPrompt] = useState(false);
 
   // the query is gated on the MR existing — no MR means no fetch (and no poll)
@@ -246,6 +246,3 @@ function NoteHeader({ note, isRoot, resolvable }: { note: ThreadNote; isRoot?: b
     </div>
   );
 }
-
-// registered with the panel registry (§3.1) — served by the builtin review key
-registerPanel({ type: "review" }, ReviewView);

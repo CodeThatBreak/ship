@@ -1,7 +1,7 @@
 "use client";
 import { CheckCheck, Globe, Send } from "lucide-react";
 import { PanelShell, ArtifactLoader } from "./shared";
-import type { PanelProps } from "./registry";
+import { useNodePanel } from "./context";
 import { PanelEmptyState } from "./PanelEmptyState";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -13,7 +13,8 @@ import {
 } from "@/constants/flow";
 
 /** The http panel: URL/method summary + response artifact viewer. */
-export function HttpView({ flow, node, action, fetchArtifact }: PanelProps) {
+export function HttpView() {
+  const { flow, node, action } = useNodePanel();
   const cfg = (node.config ?? {}) as { url?: string; method?: string };
   const jsonArts = node.artifacts.filter((a: Artifact) => a.kind === "json");
   const latest = jsonArts[jsonArts.length - 1];
@@ -56,7 +57,7 @@ export function HttpView({ flow, node, action, fetchArtifact }: PanelProps) {
           <h3 className="text-sm font-semibold mb-2 flex items-center gap-1.5">
             <Send size={14} /> Response
           </h3>
-          <ArtifactLoader id={latest.id} fetchArtifact={fetchArtifact}
+          <ArtifactLoader id={latest.id}
             render={(loaded) => <pre className="overflow-y-auto whitespace-pre-wrap bg-background border border-border rounded-lg p-3.5 text-[12.5px] font-mono">{loaded.content}</pre>} />
         </div>
       ) : (

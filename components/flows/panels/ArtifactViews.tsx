@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Spinner } from "@/components/ui/spinner";
 import { cn } from "@/lib/utils";
 import { FLOW_STATUS } from "@/constants/flow";
+import { useNodePanel } from "./context";
 
 /** The artifact payload as returned by /api/artifacts — panels read `.content`
  *  (and `.meta`); the fetcher's shape "varies by kind, so the reader narrows". */
@@ -18,13 +19,11 @@ export interface ArtifactPayload {
 export function GenericArtifact({
   node,
   kind,
-  fetchArtifact,
   empty,
   icon: Icon,
 }: {
   node: Node;
   kind: string;
-  fetchArtifact: (id: string) => Promise<unknown>;
   empty: string;
   icon?: LucideIcon;
 }) {
@@ -35,7 +34,7 @@ export function GenericArtifact({
     <div>
       {arts.length > 1 && <VersionTabs arts={arts} sel={current?.id} onSel={setSel} className="mb-3.5" />}
       {current ? (
-        <ArtifactLoader id={current.id} fetchArtifact={fetchArtifact}
+        <ArtifactLoader id={current.id}
           render={(loaded) => <pre className="overflow-y-auto whitespace-pre-wrap bg-background border border-border rounded-lg p-3.5 text-[12.5px] font-mono">{loaded.content}</pre>} />
       ) : (
         <div className="text-center px-5 py-16">
@@ -102,14 +101,13 @@ export function VersionTabs({
 /** One fetched artifact rendered by the caller (loading state §2.8). */
 export function ArtifactLoader({
   id,
-  fetchArtifact,
   render,
 }: {
   id: string;
-  /** the artifact fetcher passed to every panel (returns the raw payload) */
-  fetchArtifact: (id: string) => Promise<unknown>;
   render: (artifact: ArtifactPayload) => React.ReactNode;
 }) {
+  // the fetcher comes from the node panel context (the panels stay transport-free)
+  const { fetchArtifact } = useNodePanel();
   const [art, setArt] = useState<ArtifactPayload | null>(null);
   useEffect(() => {
     let live = true;

@@ -4,7 +4,7 @@ import {
   Terminal,
 } from "lucide-react";
 import { PanelShell, ArtifactLoader } from "./shared";
-import type { PanelProps } from "./registry";
+import { useNodePanel } from "./context";
 import { PanelEmptyState } from "./PanelEmptyState";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -16,7 +16,8 @@ import {
 } from "@/constants/flow";
 
 /** The script panel: script summary + output artifact viewer. */
-export function ScriptView({ flow, node, action, fetchArtifact }: PanelProps) {
+export function ScriptView() {
+  const { flow, node, action } = useNodePanel();
   const cfg = (node.config ?? {}) as { runtime?: string; script?: string; cwd?: string };
   const jsonArts = node.artifacts.filter((a: Artifact) => a.kind === "json");
   const latest = jsonArts[jsonArts.length - 1];
@@ -59,7 +60,7 @@ export function ScriptView({ flow, node, action, fetchArtifact }: PanelProps) {
           <h3 className="text-sm font-semibold mb-2 flex items-center gap-1.5">
             <Terminal size={14} /> Output
           </h3>
-          <ArtifactLoader id={latest.id} fetchArtifact={fetchArtifact}
+          <ArtifactLoader id={latest.id}
             render={(loaded) => <pre className="overflow-y-auto whitespace-pre-wrap bg-background border border-border rounded-lg p-3.5 text-[12.5px] font-mono">{loaded.content}</pre>} />
         </div>
       ) : (
