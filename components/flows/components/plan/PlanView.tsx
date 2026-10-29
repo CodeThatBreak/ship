@@ -1,7 +1,7 @@
 'use client';
 import { useMemo } from 'react';
 import type { Artifact } from '@/types/flow';
-import { registerPanel } from '../panels/registry';
+import { registerPanel } from '../../panels/registry';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { FLOW_STATUS } from '@/constants/flow';
 
@@ -12,13 +12,12 @@ import { WholeDiffBanner } from './components/WholeDiffBanner';
 import { PlanSection } from './components/PlanSection';
 import { PlanApproveFooter } from './components/PlanApproveFooter';
 import PlanSteps from './components/planSteps/PlanSteps';
-import { PLAN_ACTION, type ExecutionMode } from './constants';
+import { ACTION_TYPES, type ExecutionMode } from './constants/action';
 import { executionLabel, resolveExecution } from './utils/planExecution';
 import { useExecutionPick } from './hooks/useExecutionPick';
 import { usePlanAction } from './hooks/usePlanAction';
-import { usePlanUi } from './hooks/usePlanUi';
 import { planComposerBus } from './hooks/composerBus';
-import type { PanelProps } from '../panels/registry';
+import type { PanelProps } from '../../panels/registry';
 import type { BranchPlan } from './types';
 
 /**
@@ -36,8 +35,14 @@ import type { BranchPlan } from './types';
  */
 export default function PlanView({ flow, node }: Pick<PanelProps, 'flow' | 'node'>) {
   const plans = useMemo(() => node.artifacts.filter((a: Artifact) => a.kind === 'plan'), [node.artifacts]);
-  const { current, expandedBranch, selectVersion, toggleBranch, collapseBranch } = usePlanUi(plans);
-  const onAction = usePlanAction(flow.id);
+  const { state, onAction } = usePlanAction(flow.id);
+
+  const { selectedId, expandedBranch } = state;
+
+  const current = useMemo(
+    () => plans.find(a => a.id === selectedId) ?? plans[plans.length - 1] ?? null,
+    [plans, selectedId]
+  );
 
   // diff banners and approve only apply to the newest version being viewed
   const isCurrent = Boolean(current?.id === plans[plans.length - 1]?.id);
@@ -55,35 +60,27 @@ export default function PlanView({ flow, node }: Pick<PanelProps, 'flow' | 'node
     `${current?.id ?? ''}:${execution.resolution}`
   );
 
-  // ── named events ─────────────────────────────────────────────────────────
-  const onRetry = () => onAction({ type: PLAN_ACTION.RETRY, payload: { nodeKey: node.node_key } });
-  const onStopAgent = () => onAction({ type: PLAN_ACTION.CANCEL, payload: { nodeKey: node.node_key } });
-  // branch-scoped sub-plan refine (§7.1, now §4c): prefill the composer with
-  // the scoped body — the collapse of the branch card happens with it
-  const onBranchRefine = (name: string) => {
-    collapseBranch();
-    planComposerBus.prefillBranch(name);
-  };
+  const onRetry = () => onAction({ type: ACTION_TYPES.RETRY_AGENT, payload: { nodeKey: node.node_key } });
+  const onStopAgent = () => onAction({ type: ACTION_TYPES.CANCEL_AGENT, payload: { nodeKey: node.node_key } });
+
   const onRefine = () => planComposerBus.focusComposer();
   const onApprove = (pick: ExecutionMode) =>
     onAction({
-      type: PLAN_ACTION.APPROVE,
+      type: ACTION_TYPES.APPROVE,
       payload: { executionOverride: pick !== execution.published ? pick : undefined },
     });
+
+  const onTabSelection = (id: string) => onAction({ type: ACTION_TYPES.SELECT_VERSION, payload: { id } });
 
   return (
     <div className="flex flex-col h-full min-h-0">
       <PlanPanelHeader node={node} onRefine={onRefine} />
 
-      {/* scrollable content */}
       <ScrollArea className="flex-1">
         <div className="px-5 py-4 flex flex-col gap-4 h-full">
-          <PlanStatusPanel node={node} plans={plans} onRetry={onRetry} onStop={onStopAgent} />
-
-          <PlanVersionTabs plans={plans} selectedId={current?.id ?? null} onSel={selectVersion} />
-
+          <PlanStatusPanel node={node} plans={plans} onAction={onAction} />
+          <PlanVersionTabs plans={plans} selectedId={current?.id ?? null} onSelection={onTabSelection} />
           <WholeDiffBanner plans={plans} isCurrent={isCurrent} />
-
           <PlanSection
             node={node}
             plans={plans}
@@ -91,16 +88,12 @@ export default function PlanView({ flow, node }: Pick<PanelProps, 'flow' | 'node
             viewedVersion={current?.version ?? 0}
             expandedBranch={expandedBranch}
             canRefine={showApprove}
-            onToggle={toggleBranch}
-            onRefine={onBranchRefine}
+            onAction={onAction}
           />
-
-          {/* structured editable checklist — the machine-readable plan steps, at the bottom */}
           <PlanSteps steps={flow.planSteps ?? []} editable={awaiting} flowId={flow.id} />
         </div>
       </ScrollArea>
 
-      {/* fixed footer */}
       {showApprove && (
         <PlanApproveFooter
           pick={execPick}

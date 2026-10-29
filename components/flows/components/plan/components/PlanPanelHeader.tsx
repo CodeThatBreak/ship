@@ -1,7 +1,7 @@
 'use client';
 import { MessageSquareQuoteIcon } from 'lucide-react';
 import type { Node } from '@/types/flow';
-import { CostChip } from '../../panels/shared';
+import { CostChip } from '../../../panels/shared';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { isFailedStatus, statusVariantOf } from '@/constants/flow';

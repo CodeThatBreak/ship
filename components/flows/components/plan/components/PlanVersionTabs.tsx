@@ -1,7 +1,7 @@
 'use client';
 import { useMemo } from 'react';
 import type { Artifact } from '@/types/flow';
-import { VersionTabs } from '../../panels/shared';
+import { VersionTabs } from '../../../panels/shared';
 import { planTabCaption } from '../utils/branchDiff';
 
 /**
@@ -12,11 +12,11 @@ import { planTabCaption } from '../utils/branchDiff';
 export function PlanVersionTabs({
   plans,
   selectedId,
-  onSel,
+  onSelection,
 }: {
   plans: Artifact[];
   selectedId: string | null;
-  onSel: (id: string) => void;
+  onSelection: (id: string) => void;
 }) {
   // version tab captions: each artifact's provenance echo, per its meta
   const captions = useMemo(() => {
@@ -30,5 +30,5 @@ export function PlanVersionTabs({
 
   if (plans.length <= 1) return null;
 
-  return <VersionTabs arts={plans} sel={selectedId ?? undefined} onSel={onSel} captions={captions} />;
+  return <VersionTabs arts={plans} sel={selectedId ?? undefined} onSel={onSelection} captions={captions} />;
 }

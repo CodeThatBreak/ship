@@ -1,26 +1,23 @@
-"use client";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useQueryClient } from "@tanstack/react-query";
-import WorkflowGraph from "../workflow-graph/WorkflowGraph";
-import NodePanel from "../panels/NodePanel";
-import {
-  ChatPanel,
-  type PlanOptions,
-} from "@/components/chat";
-import FlowHeader from "../FlowHeader";
-import { Button } from "@/components/ui/button";
+'use client';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
+import WorkflowGraph from '../workflow-graph/WorkflowGraph';
+import NodePanel from '../panels/NodePanel';
+import { ChatPanel, type PlanOptions } from '@/components/chat';
+import FlowHeader from '../FlowHeader';
+import { Button } from '@/components/ui/button';
 // value from lib/modelSpec (pure helpers, Phase 0 allowlist); the types flow
 // through types/model-spec per the Phase 0 guidance
-import { composeModelChoice } from "@/lib/modelSpec";
-import type { ModelChoice } from "@/types/model-spec";
-import { queryKeys } from "@/constants/query-keys";
-import type { FlowData, Node } from "@/types/flow";
-import type { BranchPlan } from "../plan/types";
-import { EXECUTION_MODE_LOCAL, LOCAL_MODE_MODEL } from "../constants";
-import { useFlowData } from "./hooks/use-flow-data";
-import { useFlowEvents } from "./hooks/use-flow-events";
-import { fanoutProgressOf } from "./fanout-progress";
-import { usePlanComposer } from "../plan/hooks/usePlanComposer";
+import { composeModelChoice } from '@/lib/modelSpec';
+import type { ModelChoice } from '@/types/model-spec';
+import { queryKeys } from '@/constants/query-keys';
+import type { FlowData, Node } from '@/types/flow';
+import type { BranchPlan } from '../components/plan/types';
+import { EXECUTION_MODE_LOCAL, LOCAL_MODE_MODEL } from '../constants';
+import { useFlowData } from './hooks/use-flow-data';
+import { useFlowEvents } from './hooks/use-flow-events';
+import { fanoutProgressOf } from './fanout-progress';
+import { usePlanComposer } from '../components/plan/hooks/usePlanComposer';
 
 /**
  * The flow cockpit's client island (§2.1 server/client split): the server page
@@ -58,8 +55,8 @@ export default function FlowCockpit({
   // once the user clicks a node we stop auto-following current_node, so polling
   // doesn't yank the view back to whatever happens to be running
   const userSelected = useRef(false);
-  const [selected, setSelected] = useState("");
-  const resolvedSelectedKey = userSelected.current ? selected : flow.current_node ?? "";
+  const [selected, setSelected] = useState('');
+  const resolvedSelectedKey = userSelected.current ? selected : (flow.current_node ?? '');
   const onSelect = useCallback((key: string) => {
     userSelected.current = true;
     setSelected(key);
@@ -67,7 +64,7 @@ export default function FlowCockpit({
 
   const node = useMemo(
     () => flow.nodes.find((n: Node) => n.node_key === resolvedSelectedKey) ?? flow.nodes[0],
-    [flow.nodes, resolvedSelectedKey],
+    [flow.nodes, resolvedSelectedKey]
   );
 
   // one model override for this flow's runs — picked in the chat panel's
@@ -75,9 +72,7 @@ export default function FlowCockpit({
   // (mode picked at start) prefill the local runtime's model; cloud stays on
   // the account default (null).
   const [modelChoice, setModelChoice] = useState<ModelChoice | null>(
-    initialFlow.execution_mode === EXECUTION_MODE_LOCAL
-      ? { id: LOCAL_MODE_MODEL }
-      : null,
+    initialFlow.execution_mode === EXECUTION_MODE_LOCAL ? { id: LOCAL_MODE_MODEL } : null
   );
   const model = composeModelChoice(modelChoice);
 
@@ -90,12 +85,12 @@ export default function FlowCockpit({
   // config and keeps the standard chat composer. The hook also owns the
   // chat panel's refinement tabs — one conversation thread per branch.
   const planBranchNames = useMemo(
-    () => ((node?.output?.branches as BranchPlan[] | null)?.map((b) => b.name) ?? []),
-    [node?.output?.branches],
+    () => (node?.output?.branches as BranchPlan[] | null)?.map(b => b.name) ?? [],
+    [node?.output?.branches]
   );
   const planComposer = usePlanComposer({
     flowId: flow.id,
-    nodeKey: node?.node_key ?? "",
+    nodeKey: node?.node_key ?? '',
     nodeStatus: node?.status ?? null,
     artifactCount: node?.artifacts.length ?? 0,
     capabilities: node?.capabilities ?? null,
@@ -108,26 +103,20 @@ export default function FlowCockpit({
   const action = useCallback(
     async (act: string, body?: Record<string, unknown>) => {
       await fetch(`/api/flows/${flowId}/action`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ action: act, ...body }),
       });
       // the action changed flow state — refresh the cockpit's snapshot
       await queryClient.invalidateQueries({ queryKey: queryKeys.flows.detail(flowId) });
     },
-    [flowId, queryClient],
+    [flowId, queryClient]
   );
 
   // node id → node key, for the chat feed's run-section grouping
-  const nodeKeysByNodeId = useMemo(
-    () => new Map(flow.nodes.map((n) => [n.id, n.node_key])),
-    [flow.nodes],
-  );
+  const nodeKeysByNodeId = useMemo(() => new Map(flow.nodes.map(n => [n.id, n.node_key])), [flow.nodes]);
   // node id → status, for the chat panel to close stale "running" sections
-  const nodeStatusByNodeId = useMemo(
-    () => new Map(flow.nodes.map((n) => [n.id, n.status])),
-    [flow.nodes],
-  );
+  const nodeStatusByNodeId = useMemo(() => new Map(flow.nodes.map(n => [n.id, n.status])), [flow.nodes]);
 
   // busy for the chat panel = this node's agent is running (not just any node)
   const busy = flow.current_node === node?.node_key;
@@ -160,7 +149,7 @@ export default function FlowCockpit({
         <WorkflowGraph
           flowId={flow.id}
           nodes={flow.nodes}
-          selected={node?.node_key ?? ""}
+          selected={node?.node_key ?? ''}
           onSelect={onSelect}
           currentNode={flow.current_node}
           fanout={fanout}
@@ -170,21 +159,13 @@ export default function FlowCockpit({
       {/* main split: node panel + right rail */}
       <div className="flex flex-1 min-h-0">
         <section className="flex-[1.6] border-r border-border flex flex-col min-h-0 min-w-0">
-          {node && (
-            <NodePanel
-              flow={flow}
-              node={node}
-              action={action}
-              events={events}
-              model={model}
-            />
-          )}
+          {node && <NodePanel flow={flow} node={node} action={action} events={events} model={model} />}
         </section>
         <aside className="flex-1 flex flex-col bg-card min-w-[340px] p-3.5">
           <ChatPanel
             flowId={flow.id}
-            nodeKey={node?.node_key ?? ""}
-            nodeLabel={node?.label ?? node?.template_name ?? node?.node_key ?? ""}
+            nodeKey={node?.node_key ?? ''}
+            nodeLabel={node?.label ?? node?.template_name ?? node?.node_key ?? ''}
             capabilities={node?.capabilities ?? null}
             busy={busy}
             events={events}

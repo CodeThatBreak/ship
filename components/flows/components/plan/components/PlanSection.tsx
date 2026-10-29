@@ -1,7 +1,10 @@
 'use client';
 import type { Artifact, Node } from '@/types/flow';
+import type { Action } from '../types/action';
+
 import { MasterPlanSection } from './masterPlanSection/MasterPlanSection';
 import { SubPlanSection } from './subPlanSection/SubPlanSection';
+import { ACTION_TYPES } from '../constants/action';
 
 /**
  * The plan document section (levels 1–2): the master plan on top, with the
@@ -16,8 +19,7 @@ export function PlanSection({
   viewedVersion,
   expandedBranch,
   canRefine,
-  onToggle,
-  onRefine,
+  onAction,
 }: {
   node: Node;
   /** the plan version artifacts — flowed down for the sub-plan provenance reads */
@@ -28,16 +30,23 @@ export function PlanSection({
   viewedVersion: number;
   expandedBranch: string | null;
   canRefine: boolean;
-  onToggle: (name: string) => void;
-  onRefine: (name: string) => void;
+
+  onAction: (action: Action) => void;
 }) {
+  const onToggle = (name: string) => {
+    onAction({ type: ACTION_TYPES.TOGGLE_BRANCH, payload: { name } });
+  };
+
+  const onRefine = (name: string) => {
+    onAction({ type: ACTION_TYPES.COLLAPSE_BRANCH });
+  };
+
   if (!planId) return null;
 
   return (
     <div>
       <MasterPlanSection planId={planId} />
 
-      {/* level 2 — nested under the master plan to show hierarchy */}
       <div className="ml-4 pl-4 border-l border-border">
         <SubPlanSection
           node={node}

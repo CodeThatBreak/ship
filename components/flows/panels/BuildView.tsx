@@ -1,19 +1,19 @@
-"use client";
-import { AlertTriangle, FileDiff, GitMerge } from "lucide-react";
-import type { BranchRow, Artifact, PlanStepRow } from "@/types/flow";
-import PlanSteps from "../plan/components/planSteps/PlanSteps";
-import DiffView from "./DiffView";
-import { Alert } from "@/components/ui/alert";
-import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
-import { Card } from "@/components/ui/card";
-import { Spinner } from "@/components/ui/spinner";
-import { PanelShell, ArtifactLoader } from "./shared";
-import type { ArtifactPayload } from "./shared";
-import type { PanelProps } from "./registry";
-import { registerPanel } from "./registry";
-import FanoutStepList from "./FanoutStepList";
-import { FLOW_STATUS, isFailedStatus, statusVariantOf } from "@/constants/flow";
+'use client';
+import { AlertTriangle, FileDiff, GitMerge } from 'lucide-react';
+import type { BranchRow, Artifact, PlanStepRow } from '@/types/flow';
+import PlanSteps from '../components/plan/components/planSteps/PlanSteps';
+import DiffView from './DiffView';
+import { Alert } from '@/components/ui/alert';
+import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
+import { Card } from '@/components/ui/card';
+import { Spinner } from '@/components/ui/spinner';
+import { PanelShell, ArtifactLoader } from './shared';
+import type { ArtifactPayload } from './shared';
+import type { PanelProps } from './registry';
+import { registerPanel } from './registry';
+import FanoutStepList from './FanoutStepList';
+import { FLOW_STATUS, isFailedStatus, statusVariantOf } from '@/constants/flow';
 
 /**
  * The build panel: the agent's diff per branch, the structured plan checklist
@@ -29,7 +29,7 @@ import { FLOW_STATUS, isFailedStatus, statusVariantOf } from "@/constants/flow";
  * approval's merges.
  */
 function BuildView({ flow, node, action, fetchArtifact, events = [] }: PanelProps) {
-  const diffs = node.artifacts.filter((a: Artifact) => a.kind === "diff");
+  const diffs = node.artifacts.filter((a: Artifact) => a.kind === 'diff');
   const latest = diffs[diffs.length - 1];
   const canApprove = node.status === FLOW_STATUS.AWAITING_APPROVAL;
   const branches = flow.branches ?? [];
@@ -40,7 +40,9 @@ function BuildView({ flow, node, action, fetchArtifact, events = [] }: PanelProp
   const creatingMr = node.status === FLOW_STATUS.APPROVED && !hasBranches && !flow.mr_url;
   const creatingMrBranches = new Set(
     hasBranches
-      ? branches.filter((b: BranchRow) => (b.status === FLOW_STATUS.APPROVED || b.status === FLOW_STATUS.DONE) && !b.mr_url).map((b: BranchRow) => b.name)
+      ? branches
+          .filter((b: BranchRow) => (b.status === FLOW_STATUS.APPROVED || b.status === FLOW_STATUS.DONE) && !b.mr_url)
+          .map((b: BranchRow) => b.name)
       : []
   );
   // latest MR-creation failure per branch — cleared as soon as a newer
@@ -49,38 +51,46 @@ function BuildView({ flow, node, action, fetchArtifact, events = [] }: PanelProp
   const mrErrorFor = (branch?: string) => {
     for (let i = events.length - 1; i >= 0; i--) {
       const e = events[i];
-      if (e.type === "mr_failed") {
+      if (e.type === 'mr_failed') {
         let b: string | undefined;
-        try { b = e.data ? JSON.parse(e.data).branchName ?? undefined : undefined; } catch { /* ignore */ }
+        try {
+          b = e.data ? (JSON.parse(e.data).branchName ?? undefined) : undefined;
+        } catch {
+          /* ignore */
+        }
         if (b === branch) return e.message as string;
         continue;
       }
-      if (e.type === "lifecycle" || e.type === "error") return null;
+      if (e.type === 'lifecycle' || e.type === 'error') return null;
     }
     return null;
   };
 
-  const approveAll = () => action("approve_build");
-  const approveBranch = (name: string) => action("approve_build", { branch: name });
+  const approveAll = () => action('approve_build');
+  const approveBranch = (name: string) => action('approve_build', { branch: name });
 
   const singleErr = canApprove && !hasBranches ? mrErrorFor(undefined) : null;
-  const allAwaiting = canApprove && hasBranches && branches.every((b: BranchRow) => b.status === FLOW_STATUS.AWAITING_APPROVAL);
+  const allAwaiting =
+    canApprove && hasBranches && branches.every((b: BranchRow) => b.status === FLOW_STATUS.AWAITING_APPROVAL);
 
   const footer = (
     <>
       <span className="text-xs text-muted-foreground">
         {canApprove
-          ? singleErr ?? (hasBranches ? "Review each diff, then create the merge requests." : "Review the diff, then create the merge request.")
+          ? (singleErr ??
+            (hasBranches
+              ? 'Review each diff, then create the merge requests.'
+              : 'Review the diff, then create the merge request.'))
           : creatingMr || creatingMrBranches.size > 0
-            ? "Creating the merge request — the pipeline stage starts once the MR exists."
+            ? 'Creating the merge request — the pipeline stage starts once the MR exists.'
             : flow.mr_url || hasBranches
-              ? "Merge request created."
-              : "The diff appears here once the build finishes."}
+              ? 'Merge request created.'
+              : 'The diff appears here once the build finishes.'}
       </span>
       <div className="flex-1" />
       {canApprove && !hasBranches && (
         <Button onClick={approveAll}>
-          <GitMerge size={14} /> {singleErr ? "Retry: accept & create MR" : "Accept & create MR"}
+          <GitMerge size={14} /> {singleErr ? 'Retry: accept & create MR' : 'Accept & create MR'}
         </Button>
       )}
       {allAwaiting && (
@@ -97,19 +107,17 @@ function BuildView({ flow, node, action, fetchArtifact, events = [] }: PanelProp
           Fanned out: the step cards replace the checklist (per-step state chips / actions). */}
       {fannedOut ? (
         <FanoutStepList flow={flow} node={node} action={action} />
-      ) : planSteps.length > 0 && (
-        <PlanSteps
-          steps={planSteps}
-          editable={false}
-          highlight
-          flowId={flow.id}
-          className="mb-4"
-        />
+      ) : (
+        planSteps.length > 0 && (
+          <PlanSteps steps={planSteps} editable={false} highlight flowId={flow.id} className="mb-4" />
+        )
       )}
       {creatingMr && (
         <Alert variant="default" className="mb-3.5">
           <Spinner />
-          <span className="flex-1 text-muted-foreground">Creating the merge request — the pipeline stage starts once the MR exists.</span>
+          <span className="flex-1 text-muted-foreground">
+            Creating the merge request — the pipeline stage starts once the MR exists.
+          </span>
         </Alert>
       )}
       {canApprove && !hasBranches && singleErr && (
@@ -132,8 +140,11 @@ function BuildView({ flow, node, action, fetchArtifact, events = [] }: PanelProp
               const err = b.status === FLOW_STATUS.AWAITING_APPROVAL ? mrErrorFor(b.name) : null;
               return (
                 <Card key={b.id} className="px-4 py-3 flex items-center gap-3 flex-wrap">
-                  <Badge className={statusVariantOf(b.status)} variant={isFailedStatus(b.status) ? "destructive" : undefined}>
-                    {b.status.replace(/_/g, " ")}
+                  <Badge
+                    className={statusVariantOf(b.status)}
+                    variant={isFailedStatus(b.status) ? 'destructive' : undefined}
+                  >
+                    {b.status.replace(/_/g, ' ')}
                   </Badge>
                   <div className="flex-1 min-w-0">
                     <span className="font-medium text-sm">{b.title ?? b.name}</span>
@@ -141,7 +152,9 @@ function BuildView({ flow, node, action, fetchArtifact, events = [] }: PanelProp
                     {err && <div className="text-destructive text-xs mt-1">{err}</div>}
                   </div>
                   {b.mr_url && (
-                    <a href={b.mr_url} target="_blank" className="text-info hover:underline text-xs">MR !{b.mr_iid} ↗</a>
+                    <a href={b.mr_url} target="_blank" className="text-info hover:underline text-xs">
+                      MR !{b.mr_iid} ↗
+                    </a>
                   )}
                   {creatingMrBranches.has(b.name) && (
                     <span className="inline-flex items-center gap-1.5 text-muted-foreground text-xs">
@@ -150,7 +163,7 @@ function BuildView({ flow, node, action, fetchArtifact, events = [] }: PanelProp
                   )}
                   {b.status === FLOW_STATUS.AWAITING_APPROVAL && (
                     <Button size="sm" onClick={() => approveBranch(b.name)}>
-                      <GitMerge size={13} /> {err ? "Retry: accept & create MR" : "Accept & create MR"}
+                      <GitMerge size={13} /> {err ? 'Retry: accept & create MR' : 'Accept & create MR'}
                     </Button>
                   )}
                 </Card>
@@ -161,7 +174,10 @@ function BuildView({ flow, node, action, fetchArtifact, events = [] }: PanelProp
       )}
       {!hasBranches && flow.mr_url && (
         <p className="text-[13px]">
-          <a href={flow.mr_url} target="_blank" className="text-info hover:underline">Open MR !{flow.mr_iid} ↗</a> on branch <code className="font-mono">{flow.mr_branch}</code>
+          <a href={flow.mr_url} target="_blank" className="text-info hover:underline">
+            Open MR !{flow.mr_iid} ↗
+          </a>{' '}
+          on branch <code className="font-mono">{flow.mr_branch}</code>
         </p>
       )}
       {(latest || (!canApprove && node.status !== FLOW_STATUS.RUNNING)) && (
@@ -170,7 +186,11 @@ function BuildView({ flow, node, action, fetchArtifact, events = [] }: PanelProp
             <FileDiff size={14} /> Changes
           </h3>
           {latest ? (
-            <ArtifactLoader id={latest.id} fetchArtifact={fetchArtifact} render={(loaded: ArtifactPayload) => <DiffView raw={loaded.content} />} />
+            <ArtifactLoader
+              id={latest.id}
+              fetchArtifact={fetchArtifact}
+              render={(loaded: ArtifactPayload) => <DiffView raw={loaded.content} />}
+            />
           ) : (
             <div className="text-center px-5 py-10">
               <GitMerge size={32} className="text-muted-foreground mb-3 mx-auto" />
@@ -183,7 +203,7 @@ function BuildView({ flow, node, action, fetchArtifact, events = [] }: PanelProp
   );
 }
 
-registerPanel({ type: "build" }, BuildView);
+registerPanel({ type: 'build' }, BuildView);
 // the step_build child def shares this panel on its own child flow screen
 // (per-step diff + the step-level approval that triggers merge-back)
-registerPanel({ type: "step_build" }, BuildView);
+registerPanel({ type: 'step_build' }, BuildView);
