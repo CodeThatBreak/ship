@@ -23,8 +23,6 @@ export interface PanelProps {
   action: (a: string, b?: ActionPayload) => Promise<void> | void;
   events?: FeedEvent[];
   model: string;
-  /** generation options shared by start and refine runs (plan-style toggles) */
-  planOptions?: { decompose: boolean };
   fetchArtifact: (id: string) => Promise<unknown>;
 }
 

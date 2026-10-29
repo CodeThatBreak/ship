@@ -15,38 +15,32 @@ import { PlanRunningState } from "./PlanRunningState";
 import { MainPlanSection } from "./MainPlanSection";
 import { BranchPlanSection } from "./BranchPlanSection";
 import { PlanApproveFooter } from "./PlanApproveFooter";
-import { PlanPromptModals } from "./PlanPromptModals";
+import { planComposerBus } from "./hooks/composer-bus";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import type { PromptRunExtras } from "@/components/chat";
 import type { BranchPlan, FlowAction } from "./types";
 import { FLOW_STATUS } from "@/constants/flow";
 
 /**
  * The plan node's panel container: composes the extracted presentational
- * subcomponents (components/flows/plan/*) with the execution-resolution state and
- * the plan fan-out actions (§1, §7.1).
+ * subcomponents (components/flows/plan/*) with the execution-resolution state
+ * and the plan fan-out actions (§1, §7.1). The plan's runs and refinements
+ * are composer-driven (docs/plan-conversation-refine.md §4) — the header's
+ * refine button focuses the conversation composer and a branch card's Refine
+ * prefills the scoped body, both dispatched through the plan composer bus.
  */
 export default function PlanView({
   flow,
   node,
   action,
   fetchArtifact,
-  model,
-  planOptions = { decompose: false },
 }: {
   flow: FlowData;
   node: Node;
   action: FlowAction;
   fetchArtifact: (id: string) => Promise<unknown>;
-  model: string;
-  /** generation options toggled in the chat panel (decompose affects refines too) */
-  planOptions?: { decompose: boolean };
 }) {
   const plans = node.artifacts.filter((a: Artifact) => a.kind === "plan");
   const [sel, setSel] = useState<string | null>(null);
-  const [showPrompt, setShowPrompt] = useState(false);
-  // branch-scoped refine state (§7.1): which branch is being refined + the open tab
-  const [refineBranch, setRefineBranch] = useState<string | null>(null);
   const [openBranchTab, setOpenBranchTab] = useState<string | null>(null);
   const current = plans.find((a) => a.id === sel) ?? plans[plans.length - 1];
   const awaiting = node.status === FLOW_STATUS.AWAITING_APPROVAL;
@@ -75,57 +69,18 @@ export default function PlanView({
     [branches, plans, current?.version],
   );
 
-  const startPlan = (prompt?: string, promptIsBody?: boolean) =>
-    action(PLAN_ACTION.START, {
-      prompt,
-      promptIsBody: promptIsBody || undefined,
-      model: model || undefined,
-      decompose: planOptions.decompose || undefined,
-    });
-
-  // Edit prompt runs a fresh plan when none exists yet; once a plan exists it
-  // reruns as a refinement of the current one.
-  const runWithPrompt = (prompt: string, promptIsBody: boolean) => {
-    if (plans.length > 0) {
-      action(PLAN_ACTION.REFINE, {
-        feedback: "",
-        prompt,
-        promptIsBody: promptIsBody || undefined,
-        model: model || undefined,
-      });
-    } else {
-      startPlan(prompt, promptIsBody);
-    }
-  };
-
-  // Branch-scoped sub-plan refine (§7.1): promptIsBody — the modal returns the
-  // developer-editable body; the engine appends the internal scoped rules.
-  const runBranchRefine = (
-    prompt: string,
-    promptIsBody: boolean,
-    extras: PromptRunExtras,
-  ) => {
-    if (!refineBranch) return;
-    action(PLAN_ACTION.REFINE, {
-      prompt,
-      promptIsBody: promptIsBody || undefined,
-      model: model || undefined,
-      branchRef: refineBranch,
-      fresh: extras.fresh ?? true, // scoped refines default fresh (§3)
-      contextBlocks: extras.contextBlocks,
-    });
-  };
-
   const toggleBranch = (name: string) =>
     setOpenBranchTab((tab) => (tab === name ? null : name));
+  // branch-scoped sub-plan refine (§7.1, now §4c): prefill the composer with
+  // the scoped body — the collapse of the branch tab happens with it
   const refineBranchAt = (name: string) => {
-    setRefineBranch(name);
     setOpenBranchTab(null);
+    planComposerBus.prefillBranch(name);
   };
 
   return (
     <div className="flex flex-col h-full min-h-0">
-      <PlanPanelHeader node={node} onEditPrompt={() => setShowPrompt(true)} />
+      <PlanPanelHeader node={node} onRefine={() => planComposerBus.focusComposer()} />
 
       {/* scrollable content */}
       <ScrollArea className="flex-1">
@@ -198,17 +153,6 @@ export default function PlanView({
           }
         />
       )}
-
-      <PlanPromptModals
-        flowId={flow.id}
-        showPrompt={showPrompt}
-        refineBranch={refineBranch}
-        hasAgent={Boolean(node.agent_id)}
-        onRunPrompt={runWithPrompt}
-        onRunBranchRefine={runBranchRefine}
-        onClosePrompt={() => setShowPrompt(false)}
-        onCloseRefine={() => setRefineBranch(null)}
-      />
     </div>
   );
 }

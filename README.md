@@ -175,7 +175,7 @@ lib/                    strict OOP: every module is a class with one responsibil
       keys.ts           NODE_KEYS — stable node-key constants (use these, not string literals).
       base/             shared node infrastructure, one class per file:
         node-definition.ts  NodeDefinition (abstract): key/label/order/edges + Zod inputSchema/
-                            outputSchema + capabilities (refinable, chatOnlyMode, panelTitle)
+                            outputSchema + capabilities (refinable, chatMode, panelTitle)
                             + run/chat/recover, with shared services injected.
         agent-runner.ts     AgentRunner — startAgent/executeRun via the agent-runner port registry.
         flow-context.ts     FlowContextHelper — mode/branch/diff facts + the {{task.*}} context

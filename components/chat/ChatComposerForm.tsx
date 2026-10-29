@@ -1,65 +1,101 @@
 "use client";
 
-import type * as React from "react";
-import { ArrowUpIcon, PencilIcon, WrenchIcon } from "lucide-react";
+import * as React from "react";
+import { ArrowUpIcon, RotateCcwIcon } from "lucide-react";
 
 import ModelSelector from "./ModelSelector";
+import type { ComposerConfig } from "./composer-config";
 import {
   InputGroup,
   InputGroupAddon,
   InputGroupButton,
   InputGroupTextarea,
 } from "@/components/ui/input-group";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from "@/components/ui/tooltip";
+import { ScrollArea } from "@/components/ui/scroll-area";
+import { Skeleton } from "@/components/ui/skeleton";
+import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import type { ModelChoice } from "@/types/model-spec";
-import type { NodeUiCapabilities } from "@/types/node-capabilities";
-import PlanOptionToggles from "./PlanOptionToggles";
-import type { PlanOptions } from "./types";
 
-/** The chat input form: message textarea, model selector, refine toggle and
- *  (for plan-style nodes) the decompose toggle. Purely presentational — all
- *  state and sending live in the panel and its hooks. */
+/**
+ * The chat composer — the config-driven input form (docs/plan-conversation-
+ * refine.md §4d): message textarea, model selector, and the optional slots
+ * a `ComposerConfig` feature fills (caption/reset/aside, label, growing,
+ * loading + error states). Purely presentational — the draft, sends and
+ * their errors live in the config builder (the standard mechanics come from
+ * the chat panel's `useChatComposer`, plan states from `usePlanComposer`).
+ *
+ * The controlled draft (`config.draft`) vs composer-managed draft
+ * (`config.draft === null`) both end here: a managed draft clears itself
+ * once the send promise resolves, so the owner never needs a change-noop.
+ */
 export default function ChatComposerForm({
-  formRef,
-  draft,
-  onChangeDraft,
-  onSend,
-  canSend,
-  sending,
-  inputLocked,
-  nodeLabel,
-  capabilities,
-  refineAvailable,
-  refineOn,
-  onToggleRefine,
+  config,
   modelChoice,
   onChangeModelChoice,
-  planOptions,
-  onChangePlanOptions,
 }: {
-  formRef: React.RefObject<HTMLFormElement | null>;
-  draft: string;
-  onChangeDraft: (draft: string) => void;
-  onSend: (draft: string) => void;
-  canSend: boolean;
-  sending: boolean;
-  /** locked until the node's first run is generated (prompt-publishing nodes) */
-  inputLocked: boolean;
-  nodeLabel: string;
-  capabilities?: NodeUiCapabilities | null;
-  refineAvailable: boolean;
-  refineOn: boolean;
-  onToggleRefine: () => void;
+  config: ComposerConfig;
   modelChoice: ModelChoice | null;
   onChangeModelChoice: (choice: ModelChoice | null) => void;
-  planOptions?: PlanOptions;
-  onChangePlanOptions?: (opts: PlanOptions) => void;
 }) {
+  const formRef = React.useRef<HTMLFormElement>(null);
+  const textareaRef = React.useRef<HTMLTextAreaElement>(null);
+
+  // a managed draft (conversation state): local, cleared after an accepted send
+  const [managedDraft, setManagedDraft] = React.useState("");
+  const [managedPending, setManagedPending] = React.useState(false);
+  const managed = config.draft === null;
+  const draft = config.draft ?? managedDraft;
+
+  const sending = config.sending ?? managedPending;
+  const canSend = config.canSend ?? (draft.trim().length > 0 && !sending);
+
+  const onDraftChange = (next: string) => {
+    if (managed) setManagedDraft(next);
+    else config.onDraftChange?.(next);
+  };
+
+  // the growing textarea (prompt/scoped states) previews hundreds of lines;
+  // keep its height in step with the content, capped by the ScrollArea
+  React.useEffect(() => {
+    const textarea = textareaRef.current;
+    if (!textarea || !config.growing) return;
+    textarea.style.height = "auto";
+    textarea.style.height = `${textarea.scrollHeight}px`;
+  }, [draft, config.growing]);
+
+  // the panel bumped focus into the composer ("Refine plan", §4d)
+  React.useEffect(() => {
+    if (!config.focus) return;
+    const textarea = textareaRef.current;
+    if (!textarea) return;
+    textarea.focus();
+    const end = textarea.value.length;
+    textarea.setSelectionRange?.(end, end);
+  }, [config.focus]);
+
+  const onDraftEdit = (event: React.ChangeEvent<HTMLTextAreaElement>) =>
+    onDraftChange(event.target.value);
+
+  // the shared textarea (identical in both the plain and the growing layout)
+  const textarea = (
+    <InputGroupTextarea
+      ref={textareaRef}
+      value={draft}
+      onChange={onDraftEdit}
+      placeholder={config.placeholder}
+      aria-label="Message"
+      disabled={sending}
+      className={cn("min-h-16", config.growing ? "py-3" : "py-2")}
+      onKeyDown={(event) => {
+        if (event.key === "Enter" && !event.shiftKey) {
+          event.preventDefault();
+          formRef.current?.requestSubmit();
+        }
+      }}
+    />
+  );
+
   return (
     <form
       ref={formRef}
@@ -67,97 +103,78 @@ export default function ChatComposerForm({
       onSubmit={(event) => {
         event.preventDefault();
         if (!canSend) return;
-        onSend(draft);
+        const send = config.onSend(draft);
+        if (!managed) return;
+        // a managed draft only clears once the server accepted the message
+        setManagedPending(true);
+        Promise.resolve(send)
+          .then(() => setManagedDraft(""))
+          .catch(() => {})
+          .finally(() => setManagedPending(false));
       }}
     >
-      <InputGroup>
-        <InputGroupTextarea
-          value={draft}
-          onChange={(event) => onChangeDraft(event.target.value)}
-          placeholder={
-            inputLocked
-              ? "Generate the output first to interact with the agent"
-              : refineOn
-                ? `Refine ${nodeLabel.toLowerCase()}… e.g. 'use the existing auth middleware'`
-                : `Message the ${nodeLabel} agent…`
-          }
-          aria-label="Message"
-          disabled={sending || inputLocked}
-          className={cn(
-            "min-h-16 p-3",
-            inputLocked && "cursor-not-allowed opacity-70",
+      {(config.caption != null || config.reset?.canReset) && (
+        <div className="flex items-center gap-2 px-1 pb-1.5 text-[11px] text-muted-foreground">
+          {config.caption}
+          <span className="flex-1" />
+          {config.reset?.canReset && (
+            <Button
+              type="button"
+              size="xs"
+              variant="ghost"
+              className="h-5 px-1.5 text-[11px] text-muted-foreground"
+              onClick={config.reset.onReset}
+            >
+              <RotateCcwIcon className="size-3" /> Reset to template
+            </Button>
           )}
-          onKeyDown={(event) => {
-            if (event.key === "Enter" && !event.shiftKey) {
-              event.preventDefault();
-              formRef.current?.requestSubmit();
-            }
-          }}
-        />
-        <InputGroupAddon align="block-end">
-          <ModelSelector value={modelChoice} onChange={onChangeModelChoice} />
-          {capabilities?.chatOnlyMode === "refine" && (
-            <Tooltip>
-              <TooltipTrigger
-                render={
-                  <InputGroupButton
-                    size="icon-xs"
-                    variant="outline"
-                    aria-pressed={refineOn}
-                    aria-label={
-                      refineOn ? `Mode: refine ${nodeLabel.toLowerCase()}` : "Mode: chat only"
-                    }
-                    disabled={!refineAvailable}
-                    title={
-                      refineAvailable
-                        ? refineOn
-                          ? `Refine — your message regenerates the ${nodeLabel.toLowerCase()}; click to switch to chat only`
-                          : "Chat only — just talk without touching the output; click to switch to refine"
-                        : "Nothing generated yet — generate one first"
-                    }
-                    onClick={onToggleRefine}
-                    className={cn(
-                      !refineAvailable && "opacity-45",
-                      refineAvailable &&
-                        refineOn &&
-                        "border-info/40 bg-info/10 text-info",
-                    )}
-                  />
-                }
-              >
-                {refineOn ? (
-                  <PencilIcon className="size-3" />
-                ) : (
-                  <WrenchIcon className="size-3" />
-                )}
-              </TooltipTrigger>
-              <TooltipContent>
-                {refineOn
-                  ? `Refine: your message regenerates the ${nodeLabel.toLowerCase()} with this feedback — click to switch to chat only`
-                  : refineAvailable
-                    ? "Chat only: message the agent without touching the output — click to enable refine mode"
-                    : "Nothing generated yet — generate one first"}
-              </TooltipContent>
-            </Tooltip>
-          )}
-          {planOptions && (
-            <PlanOptionToggles
-              planOptions={planOptions}
-              onChange={onChangePlanOptions}
-            />
-          )}
-          <InputGroupButton
-            type="submit"
-            size="icon-sm"
-            className="ml-auto rounded-full"
-            disabled={!canSend}
-            aria-label="Send"
+        </div>
+      )}
+
+      {config.loading ? (
+        <InputGroup>
+          <div
+            role="status"
+            aria-label="Loading the prompt template"
+            className="flex-1 py-3 px-0.5"
           >
-            <ArrowUpIcon />
-            <span className="sr-only">Send</span>
-          </InputGroupButton>
-        </InputGroupAddon>
-      </InputGroup>
+            <Skeleton className="h-4 w-11/12 mb-1.5" />
+            <Skeleton className="h-4 w-2/3" />
+          </div>
+        </InputGroup>
+      ) : config.error ? (
+        <div
+          className="flex items-center gap-2 rounded-lg border border-border bg-background px-3 py-3 text-[11.5px]"
+        >
+          {config.error}
+        </div>
+      ) : (
+        <InputGroup>
+          {config.growing ? (
+            <ScrollArea className="max-h-[40vh] flex-1 w-full">{textarea}</ScrollArea>
+          ) : (
+            textarea
+          )}
+          <InputGroupAddon align="block-end">
+            <ModelSelector value={modelChoice} onChange={onChangeModelChoice} />
+            {config.aside}
+            <InputGroupButton
+              type="submit"
+              size="icon-sm"
+              className={cn("ml-auto rounded-full", config.sendLabel !== "Send" && "!w-auto px-3")}
+              disabled={!canSend}
+              aria-label={config.sendLabel}
+            >
+              <ArrowUpIcon />
+              {config.sendLabel === "Send" ? (
+                <span className="sr-only">Send</span>
+              ) : (
+                <span className="text-xs font-medium">{config.sendLabel}</span>
+              )}
+            </InputGroupButton>
+          </InputGroupAddon>
+        </InputGroup>
+      )}
     </form>
   );
 }

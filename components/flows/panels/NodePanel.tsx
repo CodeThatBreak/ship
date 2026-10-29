@@ -10,12 +10,12 @@ import { resolvePanel, type PanelProps } from ".";
  * supplied here (through the query cache) so panels stay transport-free.
  */
 export default function NodePanel({
-  flow, node, action, events = [], model, planOptions = { decompose: false },
-}: { flow: PanelProps["flow"]; node: PanelProps["node"]; action: PanelProps["action"]; events?: PanelProps["events"]; model: string; planOptions?: PanelProps["planOptions"] }) {
+  flow, node, action, events = [], model,
+}: { flow: PanelProps["flow"]; node: PanelProps["node"]; action: PanelProps["action"]; events?: PanelProps["events"]; model: string }) {
   const fetchArtifact = useArtifactFetcher();
   const Panel = resolvePanel(node);
   if (Panel) {
-    return <Panel flow={flow} node={node} action={action} events={events} model={model} planOptions={planOptions} fetchArtifact={fetchArtifact} />;
+    return <Panel flow={flow} node={node} action={action} events={events} model={model} fetchArtifact={fetchArtifact} />;
   }
   return (
     <PanelShell node={node} action={action} flow={flow}>

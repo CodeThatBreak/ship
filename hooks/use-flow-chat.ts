@@ -1,5 +1,4 @@
 import {
-  keepPreviousData,
   useMutation,
   useQuery,
   useQueryClient,
@@ -33,8 +32,9 @@ export function useFlowChatMessages(flowId: string) {
 }
 
 /**
- * A node's prompt preview (prompt-publishing nodes, before the first output).
- * `enabled: false` skips the fetch entirely — pass the prompt-box visibility.
+ * A node's prompt preview (the plan composer's prompt state — the prefilled
+ * plan body before the first run, §4a). `enabled: false` skips the fetch
+ * entirely; a failed read leaves the send gated and the retry inline.
  */
 export function useNodePrompt(
   flowId: string,
@@ -48,14 +48,36 @@ export function useNodePrompt(
         `/api/flows/${flowId}/prompt?node=${encodeURIComponent(nodeKey)}`,
       ),
     enabled: options.enabled ?? true,
-    placeholderData: keepPreviousData,
     select: (d) => d.prompt ?? "",
   });
 }
 
 /**
- * Send a chat message to the flow's agent (the config passed as one object so
- * the refine toggle and model pick are always current) and refresh the
+ * A node's branch-scoped prompt body (the plan composer's scoped-refine
+ * prefill, §4c). The route answers 400 when the ref'd branch is no longer in
+ * the latest plan — the read stays failed and the chip shows invalidated.
+ */
+export function useNodeBranchPrompt(
+  flowId: string,
+  nodeKey: string,
+  branch: string | null,
+) {
+  return useQuery({
+    queryKey: queryKeys.flows.nodeBranchPrompt(flowId, nodeKey, branch ?? ""),
+    queryFn: () =>
+      fetchJson<PromptPayload>(
+        `/api/flows/${flowId}/prompt?node=${encodeURIComponent(
+          nodeKey,
+        )}&branch=${encodeURIComponent(branch ?? "")}`,
+      ),
+    enabled: branch != null,
+    select: (d) => d.prompt ?? "",
+  });
+}
+
+/**
+ * Send a chat message to the flow's agent (the options passed as one object
+ * so the gating and model pick are always current) and refresh the
  * transcript on success.
  */
 export function useSendChatMessage(

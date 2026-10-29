@@ -140,9 +140,9 @@ export function BranchPlanCard({
               </Button>
             </TooltipTrigger>
             <TooltipContent>
-              Refine ONLY this branch&apos;s sub-plan — the agent
-              rewrites one branch, not the whole plan; everything
-              else stays untouched
+              Prefill the chat composer with this branch&apos;s scoped
+              refine prompt — the agent rewrites ONE branch, not the
+              whole plan; everything else stays untouched
             </TooltipContent>
           </Tooltip>
         )}

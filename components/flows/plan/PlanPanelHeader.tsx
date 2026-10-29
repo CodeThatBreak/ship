@@ -1,18 +1,22 @@
 "use client";
-import { Pencil } from "lucide-react";
+import { MessageSquareQuoteIcon } from "lucide-react";
 import type { Node } from "@/types/flow";
 import { CostChip } from "../panels/shared";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { isFailedStatus, statusVariantOf } from "@/constants/flow";
 
-/** Sticky plan panel header: title, status badge, cost chip, edit-prompt action. */
+/**
+ * Sticky plan panel header: title, status badge, cost chip and the refine
+ * action — it focuses the chat composer (docs/plan-conversation-refine.md
+ * §4b; before the first plan the composer IS the plan input and starts focused).
+ */
 export function PlanPanelHeader({
   node,
-  onEditPrompt,
+  onRefine,
 }: {
   node: Node;
-  onEditPrompt: () => void;
+  onRefine: () => void;
 }) {
   return (
     <div className="flex items-center gap-2.5 px-5 py-3 border-b border-border shrink-0">
@@ -26,8 +30,13 @@ export function PlanPanelHeader({
       </Badge>
       <CostChip node={node} />
       <div className="flex-1" />
-      <Button size="xs" variant="secondary" onClick={onEditPrompt}>
-        <Pencil size={12} /> Edit prompt
+      <Button
+        size="xs"
+        variant="secondary"
+        onClick={onRefine}
+        title="Focus the plan conversation — refine the plan in the chat composer"
+      >
+        <MessageSquareQuoteIcon size={12} /> Refine plan
       </Button>
     </div>
   );

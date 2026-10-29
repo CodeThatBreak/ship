@@ -70,11 +70,13 @@ export interface NodeUiCapabilities {
    */
   refinable?: boolean;
   /**
-   * How plain chat messages are treated: "refine" = the message regenerates
-   * the output when the toggle is on, chat-only otherwise; "followup" =
-   * every message is a follow-up on the node's agent.
+   * The node's custom conversation mode (docs/plan-conversation-refine.md §4):
+   * "plan" = the chat composer IS the node's one input — prefirst-run it
+   * carries the prefilled plan body, afterwards it is a conversation whose
+   * response contract `{ reply, plan? }` decides whether a message updates
+   * the plan. No UI toggle involved; the plan def is the first consumer.
    */
-  chatOnlyMode?: "refine" | "followup";
+  chatMode?: "plan";
   /**
    * The prompt-route node key the chat's prompt preview / editor targets
    * (set for nodes that publish a user-editable prompt before their first run).
@@ -119,7 +121,7 @@ export function uiCapabilities(
   if (!cap) return null;
   return {
     refinable: cap.refinable,
-    chatOnlyMode: cap.chatOnlyMode,
+    chatMode: cap.chatMode,
     promptNode: cap.promptNode,
     panelTitle: cap.panelTitle,
   };

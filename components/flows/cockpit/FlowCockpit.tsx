@@ -6,7 +6,6 @@ import NodePanel from "../panels/NodePanel";
 import {
   ChatPanel,
   type PlanOptions,
-  type PlanStartOpts,
 } from "@/components/chat";
 import FlowHeader from "../FlowHeader";
 import { Button } from "@/components/ui/button";
@@ -15,12 +14,12 @@ import { Button } from "@/components/ui/button";
 import { composeModelChoice } from "@/lib/modelSpec";
 import type { ModelChoice } from "@/types/model-spec";
 import { queryKeys } from "@/constants/query-keys";
-import { FLOW_STATUS } from "@/constants/flow";
 import type { FlowData, Node } from "@/types/flow";
 import { EXECUTION_MODE_LOCAL, LOCAL_MODE_MODEL } from "../constants";
 import { useFlowData } from "./hooks/use-flow-data";
 import { useFlowEvents } from "./hooks/use-flow-events";
 import { fanoutProgressOf } from "./fanout-progress";
+import { usePlanComposer } from "../plan/hooks/use-plan-composer";
 
 /**
  * The flow cockpit's client island (§2.1 server/client split): the server page
@@ -69,12 +68,6 @@ export default function FlowCockpit({
     () => flow.nodes.find((n: Node) => n.node_key === resolvedSelectedKey) ?? flow.nodes[0],
     [flow.nodes, resolvedSelectedKey],
   );
-  // the prompt preview box sits over the chat: prompt-publishing nodes (the
-  // plan, §3.2 capabilities) before their first run — nothing to chat with yet
-  const promptPending =
-    Boolean(node?.capabilities?.promptNode) &&
-    (node?.artifacts.length ?? 0) === 0 &&
-    node?.status === FLOW_STATUS.PENDING;
 
   // one model override for this flow's runs — picked in the chat panel's
   // model selector, consumed by every run-start action below. Local flows
@@ -87,9 +80,23 @@ export default function FlowCockpit({
   );
   const model = composeModelChoice(modelChoice);
 
-  // plan-generation options — toggled via the icon buttons in the chat panel's
-  // prompt box / input row, part of the plan node's contract input
+  // plan-generation options — toggled in the plan composer's prompt-state
+  // aside, part of the plan node's contract input
   const [planOptions, setPlanOptions] = useState<PlanOptions>({ decompose: false });
+
+  // the plan node's composer config (§4d): the three composer states and
+  // their send targets, built by the plan feature. Any other node gets no
+  // config and keeps the standard chat composer.
+  const planComposer = usePlanComposer({
+    flowId: flow.id,
+    nodeKey: node?.node_key ?? "",
+    nodeStatus: node?.status ?? null,
+    artifactCount: node?.artifacts.length ?? 0,
+    capabilities: node?.capabilities ?? null,
+    planOptions,
+    setPlanOptions,
+    model,
+  });
 
   const action = useCallback(
     async (act: string, body?: Record<string, unknown>) => {
@@ -102,26 +109,6 @@ export default function FlowCockpit({
       await queryClient.invalidateQueries({ queryKey: queryKeys.flows.detail(flowId) });
     },
     [flowId, queryClient],
-  );
-
-  // start the node's first run from the chat's prompt box / prompt modal —
-  // the generic run_node action with the node's contract input (the plan
-  // node's contract carries prompt/promptIsBody/decompose/model)
-  const startNode = useCallback(
-    (opts?: PlanStartOpts) => {
-      const nodeKey = node?.node_key;
-      if (!nodeKey) return;
-      return action("run_node", {
-        nodeKey,
-        input: {
-          prompt: opts?.prompt ?? null,
-          promptIsBody: opts?.promptIsBody ?? false,
-          decompose: planOptions.decompose,
-          model: model || null,
-        },
-      });
-    },
-    [action, node, planOptions.decompose, model],
   );
 
   // node id → node key, for the chat feed's run-section grouping
@@ -183,7 +170,6 @@ export default function FlowCockpit({
               action={action}
               events={events}
               model={model}
-              planOptions={planOptions}
             />
           )}
         </section>
@@ -194,16 +180,12 @@ export default function FlowCockpit({
             nodeLabel={node?.label ?? node?.template_name ?? node?.node_key ?? ""}
             capabilities={node?.capabilities ?? null}
             busy={busy}
-            canRefine={Boolean(node?.artifacts.length)}
             events={events}
             nodeKeysByNodeId={nodeKeysByNodeId}
             nodeStatusByNodeId={nodeStatusByNodeId}
             modelChoice={modelChoice}
             setModelChoice={setModelChoice}
-            showPromptBox={promptPending}
-            planOptions={planOptions}
-            setPlanOptions={setPlanOptions}
-            onStartNode={startNode}
+            composer={planComposer}
           />
         </aside>
       </div>

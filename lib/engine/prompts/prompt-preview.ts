@@ -7,7 +7,6 @@ import type { FlowCtx, NodeDefinition, NodePromptPreview, PromptPreviewParams, P
 import { nodeRoles } from "../nodes/shared/node-roles";
 import { NODE_KEYS } from "../constants/node-keys";
 import { nodeRegistry } from "../nodes/registry";
-import type { ContextBlockInfo } from "../nodes/kinds/plan/types/contextBlocks";
 import { prompts, sectionsOf, type PromptSections } from "./prompt-library";
 import { templateStore } from "../templates/template-store";
 
@@ -48,31 +47,26 @@ export interface PromptPreviewPayload {
   diverges: boolean;
   /** where the last run's prompt came from (recorded for agent kinds, inferred from the config knob for built-ins) */
   promptSource: PromptSource;
-  // sub-plan refine picker (branch-scoped plan previews)
-  contextBlocks?: ContextBlockInfo[];
 }
 
 export type PromptPreviewResult =
   | { ok: true; payload: PromptPreviewPayload }
   | { ok: false; status: number; error: string };
 
-/** The plan node's branch-scoped preview (§7.2) — structurally typed. */
+/** The plan node's branch-scoped preview (§7.2 / composer prefill §4c) — structurally typed. */
 interface SubPlanPreviewer {
   previewSubPlanPrompt(
     ctx: FlowCtx,
     branchName: string,
-    contextBlocks?: string[],
-  ): { prompt: string; contextBlocks: ContextBlockInfo[]; appendsInternal: true } & PromptSections | null;
+  ): { prompt: string; appendsInternal: true } & PromptSections | null;
 }
 
 export class PromptPreview {
   previewFor(flowId: string, url: URL): Promise<PromptPreviewResult> {
     const nodeKey = url.searchParams.get("node") ?? "";
     const params: PromptPreviewParams = {
-      feedback: url.searchParams.get("feedback") ?? undefined,
       instructions: url.searchParams.get("instructions") ?? undefined,
       branch: url.searchParams.get("branch") ?? undefined,
-      contextBlocks: url.searchParams.get("contextBlocks")?.split(",").filter(Boolean) ?? undefined,
     };
 
     const flow = rows.get(FlowRow, `SELECT * FROM flows WHERE id=?`, flowId);
@@ -82,13 +76,13 @@ export class PromptPreview {
     const repo = flow.repo_id ? db.repoById(flow.repo_id) ?? null : null;
     const ctx: FlowCtx = { flow, task, repo };
 
-    // ── branch-scoped sub-plan refine prompt (§7.2) ──────────────────────────
+    // ── branch-scoped sub-plan refine prompt (§7.2 / §4c) ─────────────────────
     // Resolves `plan_subplan_refine` (editable body + the three-part sections)
-    // and the context block list so the PromptModal can render the picker.
+    // — the chat composer's scoped-prefill state fetches this body.
     if (params.branch && nodeKey === NODE_KEYS.PLAN) {
       // the branch-scoped preview is the plan def's own special method
       const planDef = nodeRegistry.get(NODE_KEYS.PLAN) as unknown as SubPlanPreviewer;
-      const preview = planDef.previewSubPlanPrompt(ctx, params.branch, params.contextBlocks);
+      const preview = planDef.previewSubPlanPrompt(ctx, params.branch);
       if (!preview) {
         return this.bad(`branch "${params.branch}" not found in the latest plan — sub-plan refine unavailable`);
       }
@@ -101,7 +95,6 @@ export class PromptPreview {
         appendsInternal: true,
         ctx,
         nodeKey,
-        contextBlocks: preview.contextBlocks,
       });
       return Promise.resolve({ ok: true, payload });
     }
@@ -154,7 +147,6 @@ export class PromptPreview {
     appendsInternal: boolean;
     ctx: FlowCtx;
     nodeKey: string;
-    contextBlocks?: ContextBlockInfo[];
   }): PromptPreviewPayload {
     const tpl = prompts.getTemplate(input.templateKey);
     const node = rows.get(NodeRow, `SELECT * FROM nodes WHERE flow_id=? AND node_key=?`, input.ctx.flow.id, input.nodeKey);
@@ -196,7 +188,6 @@ export class PromptPreview {
       lastRun,
       diverges: lastRun != null && lastRun !== input.sections.final,
       promptSource,
-      ...(input.contextBlocks !== undefined ? { contextBlocks: input.contextBlocks } : {}),
     };
   }
 }

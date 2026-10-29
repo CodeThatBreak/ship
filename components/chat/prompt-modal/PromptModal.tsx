@@ -1,12 +1,10 @@
 "use client";
 import { useState } from "react";
-import { Lock, X, Play, Info, Bot } from "lucide-react";
+import { Lock, X, Play, Info } from "lucide-react";
 import { Modal } from "@/components/ui/modal";
 import { Button } from "@/components/ui/button";
-import { Checkbox } from "@/components/ui/checkbox";
 import { useFlowPrompt } from "@/hooks/use-flow-prompt";
 import { useToggledSections } from "./hooks/use-toggled-sections";
-import { ContextPicker } from "./ContextPicker";
 import { FinalPromptFooter } from "./FinalPromptFooter";
 import { LockedSection } from "./LockedSection";
 import { PromptEditorSection } from "./PromptEditorSection";
@@ -15,43 +13,29 @@ import { RulesSection } from "./RulesSection";
 
 // the prompt-modal types moved to the data hook (hooks/use-flow-prompt.ts) —
 // re-exported here for the consumers that imported them from this file
-export type { ContextBlockInfo, PromptData, RunDataBlock } from "@/hooks/use-flow-prompt";
+export type { PromptData, RunDataBlock } from "@/hooks/use-flow-prompt";
 
-export interface PromptRunExtras {
-  /** start a clean agent instead of following up on the node's existing one */
-  fresh?: boolean;
-  /** ids of the context blocks to assemble server-side into {{context}} */
-  contextBlocks?: string[];
-}
-
+/**
+ * The prompt editor modal (review/resolve/pipeline, docs/plan-conversation-
+ * refine.md §4d scope guard): the three-part prompt view + the rules editor.
+ * The plan node no longer uses a modal — its inputs live in the chat
+ * composer's states; the branch-scoped prefill / context picker machinery
+ * was deleted with them.
+ */
 export default function PromptModal({
   flowId,
   nodeKey,
   open,
   onClose,
   onRun,
-  feedback,
   instructions,
-  branch,
-  showContextPicker,
-  defaultFresh,
-  hasAgent,
 }: {
   flowId: string;
   nodeKey: string;
   open: boolean;
   onClose: () => void;
-  onRun: (prompt: string, promptIsBody: boolean, extras: PromptRunExtras) => void;
-  feedback?: string;
+  onRun: (prompt: string, promptIsBody: boolean) => void;
   instructions?: string;
-  /** seed a branch-scoped sub-plan refine prompt (?branch=) */
-  branch?: string;
-  /** show the context block picker (scoped refines — the picker controls everything a fresh agent sees) */
-  showContextPicker?: boolean;
-  /** initial state of the "New agent" checkbox (scoped refines default fresh) */
-  defaultFresh?: boolean;
-  /** hide the fresh toggle when no agent exists yet — the first run is always fresh */
-  hasAgent?: boolean;
 }) {
   const {
     edited,
@@ -59,8 +43,6 @@ export default function PromptModal({
     rules,
     setRules,
     promptTextareaRef,
-    selectedBlocks,
-    setSelectedBlocks,
     rulesSaved,
     rulesError,
     setRulesSaved,
@@ -75,22 +57,12 @@ export default function PromptModal({
     open,
     flowId,
     nodeKey,
-    feedback,
     instructions,
-    branch,
-    showContextPicker,
   });
   const [finalOpen, setFinalOpen] = useState(false);
-  const [fresh, setFresh] = useState(defaultFresh ?? false);
   const [openSections, toggleSection] = useToggledSections();
 
   const charCount = edited.length;
-  const blocks = data?.contextBlocks ?? [];
-  // locked blocks are always included — count them in the total
-  const totalContextChars = blocks
-    .filter((b) => selectedBlocks.has(b.id) || b.locked)
-    .reduce((sum, b) => sum + b.chars, 0);
-  const selectedIds = blocks.filter((b) => selectedBlocks.has(b.id) || b.locked).map((b) => b.id);
   const isOverride = data?.source === "override";
   const rulesDirty = data != null && rules !== (data.userRules ?? "");
   // the rules editor shows for every template-owned prompt (user rules apply
@@ -113,10 +85,7 @@ export default function PromptModal({
           </Button>
           <Button
             onClick={() =>
-              onRun(edited, Boolean(data?.appendsInternal), {
-                fresh: hasAgent ? fresh : undefined,
-                contextBlocks: showContextPicker ? selectedIds : undefined,
-              })
+              onRun(edited, Boolean(data?.appendsInternal))
             }
             disabled={!edited.trim()}
           >
@@ -201,37 +170,6 @@ export default function PromptModal({
                 &ldquo;Show final prompt&rdquo; to see the exact text.
               </span>
             </p>
-          )}
-
-          {/* context picker — what the model sees, per block char counts. For a
-              fresh agent this controls EVERYTHING the model sees. */}
-          {showContextPicker && blocks.length > 0 && (
-            <ContextPicker
-              blocks={blocks}
-              selectedBlocks={selectedBlocks}
-              totalContextChars={totalContextChars}
-              onToggleBlock={(id) =>
-                setSelectedBlocks((prev) => {
-                  const next = new Set(prev);
-                  if (next.has(id)) next.delete(id);
-                  else next.add(id);
-                  return next;
-                })
-              }
-            />
-          )}
-
-          {hasAgent && (
-            <label className="flex items-start gap-2 text-[12.5px] cursor-pointer select-none">
-              <Checkbox className="shrink-0 mt-[1px]" checked={fresh} onCheckedChange={(v) => setFresh(v === true)} />
-              <span className="flex flex-col">
-                <span className="flex items-center gap-1.5 font-medium"><Bot size={12} /> New agent</span>
-                <span className="text-[11.5px] text-muted-foreground">
-                  start a clean agent instead of continuing the current one — lower hallucination risk from
-                  accumulated context; it only re-reads this branch&apos;s files
-                </span>
-              </span>
-            </label>
           )}
 
           <FinalPromptFooter

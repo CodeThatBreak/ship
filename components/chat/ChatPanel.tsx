@@ -3,47 +3,41 @@
 import * as React from "react";
 import { CircleAlertIcon, MessageCircleDashedIcon } from "lucide-react";
 
-import PromptModal from "./prompt-modal/PromptModal";
 import type { ModelChoice } from "@/types/model-spec";
 import type { NodeUiCapabilities } from "@/types/node-capabilities";
 import type { FeedEvent } from "./timeline";
-import { useNodePrompt } from "@/hooks/use-flow-chat";
+import type { ComposerConfig } from "./composer-config";
 import { useChatComposer } from "./hooks/use-chat-composer";
 import { useChatFeed } from "./hooks/use-chat-feed";
-import NodePromptBox from "./NodePromptBox";
 import ChatFeed from "./ChatFeed";
 import ChatComposerForm from "./ChatComposerForm";
-import type { PlanOptions, PlanStartOpts } from "./types";
 
-// Re-exported for backwards compatibility: these previously lived on
-// ChatPanel itself; they are now defined in ./chat/types.
-export type { PlanOptions, PlanStartOpts };
-
+/**
+ * The flow's chat rail: heading, transcript feed and the composer.
+ * Generic by contract (AGENTS §2.4): a feature drives the composer through
+ * the `composer` config seam (docs/plan-conversation-refine.md §4d) —
+ * without it the standard draft/send mechanics apply, unchanged.
+ */
 export default function ChatPanel({
   flowId,
   nodeKey,
   nodeLabel,
   capabilities,
   busy,
-  canRefine = true,
   events,
   nodeKeysByNodeId,
   nodeStatusByNodeId,
   modelChoice,
   setModelChoice,
-  showPromptBox = false,
-  planOptions,
-  setPlanOptions,
-  onStartNode,
+  composer,
 }: {
   flowId: string;
   nodeKey: string;
   /** the node's display name (label / template name) — for the agent-facing copy */
   nodeLabel: string;
-  /** the node contract's UI capabilities (refine/chat/prompt, §3.2) */
+  /** the node contract's UI capabilities (chat/panel title, §3.2) */
   capabilities?: NodeUiCapabilities | null;
   busy: boolean;
-  canRefine?: boolean;
   events: FeedEvent[];
   nodeKeysByNodeId?: Map<string, string>;
   /** node id → status; used as the authority on whether a run is really running,
@@ -51,21 +45,18 @@ export default function ChatPanel({
   nodeStatusByNodeId?: Map<string, string>;
   modelChoice: ModelChoice | null;
   setModelChoice: (choice: ModelChoice | null) => void;
-  /** plan-style nodes, before any output exists: show the prompt preview box over the chat */
-  showPromptBox?: boolean;
-  planOptions?: PlanOptions;
-  setPlanOptions?: (opts: PlanOptions) => void;
-  /** start the node's first run (the prompt box's Generate / the prompt modal's Run) */
-  onStartNode?: (opts?: PlanStartOpts) => void | Promise<void>;
+  /** the config-driven composer (the plan node, §4d); absent = the standard composer */
+  composer?: ComposerConfig | null;
 }) {
-  const composer = useChatComposer({
+  const standard = useChatComposer({
     flowId,
     nodeKey,
-    capabilities,
-    canRefine,
     modelChoice,
-    showPromptBox,
   });
+
+  // sending state for the feed's awaiting-reply marker: the active composer's
+  // send (the plan node routes through the config seam)
+  const sending = composer?.sending ?? standard.sending;
 
   const feed = useChatFeed({
     flowId,
@@ -73,48 +64,36 @@ export default function ChatPanel({
     events,
     nodeKeysByNodeId,
     nodeStatusByNodeId,
-    sending: composer.sending,
+    sending,
     busy,
   });
 
-  // prompt preview over the chat (prompt-publishing nodes, before a first
-  // output exists): the node's prompt is fetched so the box shows a partial
-  // preview — click to expand, edit icon moves it into the prompt modal
-  const [promptOpen, setPromptOpen] = React.useState(false);
-  const [promptEditing, setPromptEditing] = React.useState(false);
-  const promptQuery = useNodePrompt(flowId, capabilities?.promptNode ?? nodeKey, {
-    enabled: showPromptBox,
-  });
-  // null = still loading; "" (or the fetched body) = rendered in the box
-  const nodePrompt = promptQuery.data ?? null;
+  // The composer that renders: feature-built config when provided, else the
+  // standard chat mechanics wrapped in the same zero-cost config shape.
+  const active: ComposerConfig = composer ?? {
+    draft: standard.draft,
+    onDraftChange: standard.setDraft,
+    loading: false,
+    error: null,
+    sending: standard.sending,
+    sendError:
+      standard.sendError instanceof Error ? standard.sendError.message : null,
+    sendLabel: "Send",
+    growing: false,
+    onSend: (draft) => standard.send(draft),
+    placeholder: `Message the ${nodeLabel} agent…`,
+  };
 
   return (
     <div className="flex h-full min-h-0 flex-col">
-      {/* panel heading */}
+      {/* panel heading — a configured panel title replaces the generic agent label */}
       <div className="shrink-0 flex items-center gap-2 px-1 pb-2.5">
         <MessageCircleDashedIcon className="size-4 shrink-0 text-muted-foreground" />
         <h2 className="m-0 text-[13.5px] font-semibold leading-none">Chat</h2>
         <span className="truncate text-[11px] text-muted-foreground">
-          {nodeLabel} agent
+          {capabilities?.panelTitle ?? `${nodeLabel} agent`}
         </span>
       </div>
-
-      {showPromptBox && (
-        <NodePromptBox
-          prompt={nodePrompt}
-          error={promptQuery.isError}
-          onRetry={() => void promptQuery.refetch()}
-          open={promptOpen}
-          onToggle={() => setPromptOpen((v) => !v)}
-          onEdit={() => setPromptEditing(true)}
-          onGenerate={() => {
-            setPromptOpen(false);
-            void onStartNode?.();
-          }}
-          generating={busy}
-          generateLabel={`Generate ${nodeLabel.toLowerCase()}`}
-        />
-      )}
 
       <ChatFeed
         loading={feed.messagesQuery.isLoading}
@@ -131,49 +110,21 @@ export default function ChatPanel({
         nodeLabel={nodeLabel}
       />
 
-      {composer.sendError && (
+      {active.sendError && (
         <p
           role="alert"
           className="shrink-0 flex items-center gap-1.5 px-4 pb-1 text-[11px] text-destructive"
         >
           <CircleAlertIcon className="size-3 shrink-0" />
-          {composer.sendError.message}
+          {active.sendError}
         </p>
       )}
 
       <ChatComposerForm
-        formRef={composer.formRef}
-        draft={composer.draft}
-        onChangeDraft={composer.setDraft}
-        onSend={(draft) => void composer.send(draft)}
-        canSend={composer.canSend}
-        sending={composer.sending}
-        inputLocked={composer.inputLocked}
-        nodeLabel={nodeLabel}
-        capabilities={capabilities}
-        refineAvailable={composer.refineAvailable}
-        refineOn={composer.refineOn}
-        onToggleRefine={composer.toggleRefine}
+        config={active}
         modelChoice={modelChoice}
         onChangeModelChoice={setModelChoice}
-        // the plan toggles belong to the "before the first run" prompt box
-        // state — without it they were hidden (the original gating)
-        planOptions={showPromptBox ? planOptions : undefined}
-        onChangePlanOptions={setPlanOptions}
       />
-
-      {promptEditing && (
-        <PromptModal
-          flowId={flowId}
-          nodeKey={capabilities?.promptNode ?? nodeKey}
-          open={promptEditing}
-          onClose={() => setPromptEditing(false)}
-          onRun={(prompt, promptIsBody) => {
-            setPromptEditing(false);
-            void onStartNode?.({ prompt, promptIsBody });
-          }}
-        />
-      )}
     </div>
   );
 }

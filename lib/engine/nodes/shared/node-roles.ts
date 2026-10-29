@@ -22,14 +22,10 @@ export const PROMPT_SOURCES: readonly PromptSource[] = Object.values(PROMPT_SOUR
 
 /** The prompt-route querystring parameters a def's preview may consume. */
 export interface PromptPreviewParams {
-  /** modal-typed feedback/refine text (plan feedback refinement) */
-  feedback?: string;
   /** extra developer instructions (review focus, resolve instructions, pipeline guidance) */
   instructions?: string;
-  /** branch-scoped sub-plan preview (plan node only) */
+  /** branch-scoped sub-plan preview (plan node only — feeds the composer prefill) */
   branch?: string;
-  /** context-block picker selection (plan sub-plan refine) */
-  contextBlocks?: string[];
 }
 
 /**

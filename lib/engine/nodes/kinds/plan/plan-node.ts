@@ -7,7 +7,6 @@ import {
   nodeRoles,
   type FlowCtx,
   type NodePromptPreview,
-  type PromptPreviewParams,
   type RunOutcome,
   type SplitUnit,
 } from '../../shared';
@@ -45,7 +44,6 @@ import { PlanOutputContract } from './plan-contract';
 import { PlanSplitter } from './plan-split';
 
 import type { PlanRunArgs } from './types';
-import type { ContextBlockInfo } from './types/contextBlocks';
 
 /**
  * The Plan node (the chat's first-class node): a thin orchestrator over its
@@ -70,13 +68,14 @@ export class PlanNode extends AgentRunNode<PlanInput, PlanOutput> {
   readonly edges = [[NODE_KEYS.BUILD, 'next']] as const;
 
   /**
-   * The plan is the chat's first-class node: refine mode, the prompt preview
-   * before the first run, and the panel title (the chat panel keys all of
-   * this off these capabilities — no node-key checks).
+   * The plan is the chat's first-class node: the composer-as-prompt
+   * conversation mode, the prompt prefill before the first run, and the
+   * panel title (the chat panel keys all of this off these capabilities —
+   * no node-key checks).
    */
   override readonly capabilities: NodeCapabilities = {
     refinable: true,
-    chatOnlyMode: 'refine',
+    chatMode: 'plan',
     promptNode: NODE_KEYS.PLAN,
     panelTitle: 'Implementation plan',
   };
@@ -392,23 +391,12 @@ export class PlanNode extends AgentRunNode<PlanInput, PlanOutput> {
 
   /**
    * Live prompt preview (verbatim from the route's former plan case): the
-   * feedback-refine preview renders the plan_refine template when a feedback
-   * text is given on a node with an agent to refine on; otherwise the plan
-   * body (config knob or default) with the ticket vars.
+   * plan body (config knob or default) with the ticket vars. Without the
+   * feedback-refine branch (docs/plan-conversation-refine.md §5 #7) this now
+   * ALWAYS serves the `plan` template — refinements are conversation turns
+   * (`chat()`), and branch refines prefill the composer via the branch route.
    */
-  previewPrompt(ctx: FlowCtx, node: NodeRow | null, params: PromptPreviewParams): NodePromptPreview | null {
-    if (params.feedback && node?.agent_id) {
-      // feedback refine preview (follow-up on the plan agent): the full
-      // body-only refine template with the feedback rendered in. The context
-      // block is run data — assembled at run time (PlanContextBlocks).
-      const asm = prompts.assemblePrompt(
-        'plan_refine',
-        { ticket: this.ctxHelper.taskContext(ctx) },
-        { feedback: params.feedback },
-        { userRules: nodeRoles.previewRules(this, node) }
-      );
-      return { templateKey: 'plan_refine', configBody: null, assembly: asm };
-    }
+  previewPrompt(ctx: FlowCtx, node: NodeRow | null): NodePromptPreview | null {
     const configBody = nodeRoles.previewBody(this, node);
     const asm = prompts.assemblePrompt(
       NODE_KEYS.PLAN,
@@ -420,27 +408,25 @@ export class PlanNode extends AgentRunNode<PlanInput, PlanOutput> {
   }
 
   /**
-   * Branch-scoped prompt preview for the prompt route (§7.2): the
-   * developer-editable body ({{feedback}} blank — the developer types it) plus
-   * the context block list so the PromptModal can render the picker.
-   * Returns null when the branch is unknown (the route surfaces a 400).
+   * Branch-scoped prompt preview for the prompt route (§7.2, now the §4c
+   * composer prefill): the developer-editable body ({{feedback}} blank — the
+   * developer edits it in the composer). Returns null when the branch is
+   * unknown (the route surfaces a 400 → the invalidated chip).
    */
   previewSubPlanPrompt(
     ctx: FlowCtx,
-    branchName: string,
-    contextBlocks?: string[]
-  ): ({ prompt: string; contextBlocks: ContextBlockInfo[]; appendsInternal: true } & PromptSectionsLike) | null {
+    branchName: string
+  ): { prompt: string; appendsInternal: true } & PromptSectionsLike | null {
     const scoped = this.store.scopedRefine(ctx.flow.id, branchName);
     if (!scoped) return null;
-    const blocks = this.context.resolve(ctx, scoped);
-    const vars = this.prompt.scopedVars(ctx, scoped, { feedback: '', contextBlocks: contextBlocks ?? [] });
+    const vars = this.prompt.scopedVars(ctx, scoped, { feedback: '', contextBlocks: [] });
     const asm = prompts.assemblePrompt(
       'plan_subplan_refine',
       vars,
       { feedback: '' },
       { userRules: configString(this.nodeConfig(ctx), 'prompt_rules') }
     );
-    return { prompt: asm.body, contextBlocks: blocks, appendsInternal: true, ...sectionsOf(asm) };
+    return { prompt: asm.body, appendsInternal: true, ...sectionsOf(asm) };
   }
 
   /**
