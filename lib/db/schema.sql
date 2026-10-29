@@ -89,6 +89,7 @@ CREATE TABLE IF NOT EXISTS messages (
   id            TEXT PRIMARY KEY,
   flow_id       TEXT NOT NULL REFERENCES flows(id),
   node_key      TEXT,                        -- which node the message targets
+  thread        TEXT,                        -- the per-refinement thread (branch name); NULL = the main conversation
   role          TEXT NOT NULL,               -- user | assistant
   content       TEXT NOT NULL,
   created_at    TEXT NOT NULL

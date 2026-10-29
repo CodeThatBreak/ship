@@ -35,6 +35,8 @@ export default function ChatFeed({
   rows,
   awaitingReply,
   nodeLabel,
+  emptyTitle,
+  emptyDescription,
 }: {
   /** the transcript's first fetch (background refetches keep the current rows) */
   loading: boolean;
@@ -44,6 +46,9 @@ export default function ChatFeed({
   rows: TimelineRow[];
   awaitingReply: boolean;
   nodeLabel: string;
+  /** empty-state copy overrides (the refinement tabs thread theirs) */
+  emptyTitle?: string;
+  emptyDescription?: string;
 }) {
   const itemCount = rows.length + (awaitingReply ? 1 : 0);
 
@@ -60,10 +65,10 @@ export default function ChatFeed({
               <MessageCircleDashedIcon />
             </EmptyMedia>
             <EmptyTitle>
-              Message the {nodeLabel} agent
+              {emptyTitle ?? `Message the ${nodeLabel} agent`}
             </EmptyTitle>
             <EmptyDescription>
-              Ask for changes, refinements, or explain what to do differently.
+              {emptyDescription ?? "Ask for changes, refinements, or explain what to do differently."}
             </EmptyDescription>
           </EmptyHeader>
         </Empty>

@@ -178,7 +178,23 @@ export class PlanNode extends AgentRunNode<PlanInput, PlanOutput> {
       settingSources: mcpSourcesOf(config),
     };
 
-    return this.execute(ctx, {
+    // The refinement thread's transcript: a scoped refine logs its turn — the
+    // user's instruction and the agent's reply — into that branch's chat
+    // thread tab. Whole-plan runs and the branch-not-found fallback stay
+    // unthreaded (they belong to the main conversation). A failed refine
+    // leaves no reply; its retry runs from the branch card again.
+    const thread = scoped?.branch.name ?? null;
+    if (thread) {
+      this.support.addMessage(
+        ctx.flow.id,
+        node.node_key,
+        'user',
+        input.feedback?.trim() || input.prompt?.trim() || '(empty instruction)',
+        thread,
+      );
+    }
+
+    const outcome = await this.execute(ctx, {
       // the run record: `input.prompt` is the exact final prompt (retry
       // fidelity + the modal's lastRun read from it)
       input: { ...input, prompt },
@@ -193,6 +209,10 @@ export class PlanNode extends AgentRunNode<PlanInput, PlanOutput> {
       label: args.label,
       finalize: result => this.contract.applyWithRetry(ctx, node, input, scoped, result, args),
     });
+    if (thread) {
+      this.support.addMessage(ctx.flow.id, node.node_key, 'assistant', outcome.reply || '(no reply)', thread);
+    }
+    return outcome;
   }
 
   // ── the plan conversation (docs/plan-conversation-refine.md §3a–c) ────────

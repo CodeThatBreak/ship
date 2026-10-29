@@ -12,13 +12,15 @@ import {
 
 /**
  * The node's chat feed data: the polled transcript query scoped to the node's
- * messages, the node's run sections and the interleaved timeline rows, plus
- * the "agent is working" state (shown only while this node's agent owes us a
- * chat reply — not for the whole lifetime of an unrelated run).
+ * messages (and, when set, to one refinement thread), the node's run sections
+ * and the interleaved timeline rows, plus the "agent is working" state (shown
+ * only while this node's agent owes us a chat reply — not for the whole
+ * lifetime of an unrelated run).
  */
 export function useChatFeed({
   flowId,
   nodeKey,
+  thread = null,
   events,
   nodeKeysByNodeId,
   nodeStatusByNodeId,
@@ -27,6 +29,8 @@ export function useChatFeed({
 }: {
   flowId: string;
   nodeKey: string;
+  /** the active refinement thread (the plan's sub-plan refines); null = main */
+  thread?: string | null;
   events: FeedEvent[];
   nodeKeysByNodeId?: Map<string, string>;
   nodeStatusByNodeId?: Map<string, string>;
@@ -39,8 +43,8 @@ export function useChatFeed({
   const messages = messagesQuery.data;
 
   const nodeMsgs = React.useMemo(
-    () => selectNodeMessages(messages, nodeKey),
-    [messages, nodeKey],
+    () => selectNodeMessages(messages, nodeKey, thread),
+    [messages, nodeKey, thread],
   );
 
   const sections = React.useMemo(
@@ -50,8 +54,12 @@ export function useChatFeed({
   );
 
   const rows = React.useMemo<TimelineRow[]>(
-    () => buildTimelineRows(nodeMsgs, sections, events, nodeKey),
-    [nodeMsgs, sections, events, nodeKey],
+    () =>
+      // a refinement tab isolates its conversation: the chronological run /
+      // event trail (not attributable to a branch without an events-thread
+      // dimension) stays in the main tab
+      buildTimelineRows(nodeMsgs, thread ? [] : sections, thread ? [] : events, nodeKey),
+    [nodeMsgs, sections, events, nodeKey, thread],
   );
 
   const last = nodeMsgs[nodeMsgs.length - 1];

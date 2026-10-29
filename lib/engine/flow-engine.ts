@@ -1747,15 +1747,15 @@ export class FlowEngine {
    * reply (node state untouched); everything else goes to the node's ChatRefiner
    * when its capabilities opt in, and declines otherwise.
    */
-  sendChat(flowId: string, nodeKey: string, content: string, chatOnly = false, model?: string): void {
+  sendChat(flowId: string, nodeKey: string, content: string, chatOnly = false, model?: string, thread?: string | null): void {
     const def = this.defOf(flowId, nodeKey);
-    db.addMessage(flowId, nodeKey, "user", content);
+    db.addMessage(flowId, nodeKey, "user", content, thread ?? null);
     this.setCurrentNode(flowId, nodeKey);
     this.bg(flowId, nodeKey, async () => {
       const reply = chatOnly
         ? (await nodeRoles.converserOf(def)?.converse(this.ctx(flowId), content)) ?? nodeRoles.noAgentReply(def.label)
         : (await nodeRoles.chatRefinerOf(def)?.chat(this.ctx(flowId), content, model)) ?? CHAT_DECLINED;
-      db.addMessage(flowId, nodeKey, "assistant", reply || "Done.");
+      db.addMessage(flowId, nodeKey, "assistant", reply || "Done.", thread ?? null);
       this.setCurrentNode(flowId, null);
     });
   }

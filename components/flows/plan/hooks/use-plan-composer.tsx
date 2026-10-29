@@ -3,7 +3,7 @@ import * as React from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { RefreshCcwIcon, XIcon } from "lucide-react";
 
-import type { ComposerConfig, PlanOptions } from "@/components/chat";
+import type { ComposerConfig, PlanOptions, ChatTabs } from "@/components/chat";
 import { PlanOptionToggles } from "@/components/chat";
 import {
   useNodeBranchPrompt,
@@ -37,6 +37,7 @@ export function usePlanComposer({
   planOptions,
   setPlanOptions,
   model,
+  branchNames,
 }: {
   flowId: string;
   nodeKey: string;
@@ -46,7 +47,9 @@ export function usePlanComposer({
   planOptions: PlanOptions;
   setPlanOptions: (opts: PlanOptions) => void;
   model: string;
-}): ComposerConfig | null {
+  /** the latest plan's branch names — one conversation tab per branch */
+  branchNames: string[];
+}): { composer: ComposerConfig | null; threads: ChatTabs | null } {
   const queryClient = useQueryClient();
   // the plan node's prompt-route key (the plan def's promptNode)
   const planKey = capabilities?.promptNode ?? nodeKey;
@@ -61,6 +64,14 @@ export function usePlanComposer({
   const promptQuery = useNodePrompt(flowId, planKey, { enabled: planPending });
   const [branchRef, setBranchRef] = React.useState<string | null>(null);
   const branchQuery = useNodeBranchPrompt(flowId, planKey, branchRef);
+
+  // the active chat tab (the chat panel's threads seam): a scoped prefill
+  // (§4c) arms its branch's tab; conversation sends from a tab ride its
+  // thread. The node picked in the graph has no tabs → reset to the main tab.
+  const [thread, setThread] = React.useState<string | null>(null);
+  React.useEffect(() => {
+    setThread(null);
+  }, [nodeKey]);
 
   // the draft state (prompt + scoped states; the conversation draft lives in
   // the composer itself — the config passes null there)
@@ -128,10 +139,12 @@ export function usePlanComposer({
     },
   });
 
-  // the conversation send (the follow-up contract surface, §4b)
+  // the conversation send (the follow-up contract surface, §4b): a send from
+  // the active thread's tab rides that thread (`null` = the main conversation)
   const sendChat = useSendChatMessage(flowId, nodeKey, {
     chatOnly: false,
     model: model || undefined,
+    thread,
   });
 
   const sending = actionSend.isPending || sendChat.isPending;
@@ -157,12 +170,15 @@ export function usePlanComposer({
     lastSendRef.current = null;
     branchSeedRef.current = null;
     setBranchRef(command.branch);
+    // the chat panel follows: the armed branch's tab becomes the active thread
+    setThread(command.branch);
   });
   const exitScoped = React.useCallback(() => {
     actionSend.reset();
     lastSendRef.current = null;
     branchSeedRef.current = null;
     setBranchRef(null);
+    setThread(null);
     setDraft(null);
   }, [actionSend]);
   const sendBranchRefine = (prompt: string, branch: string) => {
@@ -172,14 +188,26 @@ export function usePlanComposer({
       .catch(() => {/* surfaced in the invalidated chip */});
   };
 
-  if (capabilities?.chatMode !== "plan") return null;
+  // ── the chat panel's refinement tabs (the threads seam) — built before the
+  // returns so hooks stay unconditional: the "Main" tab is the strip's own
+  // (threads.active = null); a scoped prefill arms its branch's tab
+  const threads: ChatTabs = React.useMemo(
+    () => ({
+      items: branchNames.map((name) => ({ thread: name, label: name })),
+      active: thread,
+      onActive: setThread,
+    }),
+    [branchNames, thread],
+  );
+
+  if (capabilities?.chatMode !== "plan") return { composer: null, threads: null };
 
   // ── scoped-prefill state (§4c) — a branch card armed the composer ─────────
   if (branchRef != null) {
     const invalidated = branchQuery.isError || (actionSend.isError && lastSendRef.current != null);
     const isPrefillLoading = branchQuery.isPending && draft == null;
     const canSend = (draft ?? "").trim().length > 0 && !sending && !invalidated;
-    return {
+    return { composer: {
       draft: isPrefillLoading ? null : draft,
       onDraftChange: setDraft,
       loading: branchQuery.isPending && draft == null,
@@ -225,13 +253,13 @@ export function usePlanComposer({
           </span>,
       onSend: (next) => sendBranchRefine(next, branchRef),
       focus: bumpFocus,
-    };
+    }, threads };
   }
 
   // ── prompt state (§4a) — no plan yet: the composer IS the plan prompt ─────
   if (planPending) {
     const templateBody = promptQuery.data ?? "";
-    return {
+    return { composer: {
       draft,
       onDraftChange: setDraft,
       loading: promptQuery.isPending && draft == null,
@@ -256,11 +284,11 @@ export function usePlanComposer({
         void actionSend.mutateAsync({ kind: "runNode", prompt: d }).catch(() => {});
       },
       focus: bumpFocus,
-    };
+    }, threads };
   }
 
   // ── conversation state (§4b) — plans exist: empty draft, the agent decides ─
-  return {
+  return { composer: {
     draft: null,
     loading: false,
     error: null,
@@ -268,7 +296,9 @@ export function usePlanComposer({
     sendError,
     sendLabel: "Send",
     growing: false,
-    placeholder: "Refine the plan or ask anything — the agent decides what to update",
+    placeholder: thread
+      ? `Refine the “${thread}” sub-plan or ask anything — the agent decides what to update`
+      : "Refine the plan or ask anything — the agent decides what to update",
     onSend: (content) => {
       const body = content.trim();
       if (!body || sending) return;
@@ -277,7 +307,7 @@ export function usePlanComposer({
       return sendChat.mutateAsync(body);
     },
     focus: bumpFocus,
-  };
+  }, threads };
 }
 
 /** The composer's inline failure rows (prefill error + the invalidated chip). */

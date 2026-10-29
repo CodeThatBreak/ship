@@ -7,16 +7,20 @@ import type { ModelChoice } from "@/types/model-spec";
 import type { NodeUiCapabilities } from "@/types/node-capabilities";
 import type { FeedEvent } from "./timeline";
 import type { ComposerConfig } from "./composer-config";
+import type { ChatTabs } from "./types";
 import { useChatComposer } from "./hooks/use-chat-composer";
 import { useChatFeed } from "./hooks/use-chat-feed";
 import ChatFeed from "./ChatFeed";
 import ChatComposerForm from "./ChatComposerForm";
+import ChatThreadTabs from "./ChatThreadTabs";
 
 /**
  * The flow's chat rail: heading, transcript feed and the composer.
  * Generic by contract (AGENTS §2.4): a feature drives the composer through
  * the `composer` config seam (docs/plan-conversation-refine.md §4d) —
- * without it the standard draft/send mechanics apply, unchanged.
+ * without it the standard draft/send mechanics apply, unchanged. The
+ * `tabs` seam (its sibling) splits the feed into the feature's conversation
+ * threads — the plan node's per-sub-plan-refinement tabs.
  */
 export default function ChatPanel({
   flowId,
@@ -30,6 +34,7 @@ export default function ChatPanel({
   modelChoice,
   setModelChoice,
   composer,
+  tabs,
 }: {
   flowId: string;
   nodeKey: string;
@@ -47,7 +52,12 @@ export default function ChatPanel({
   setModelChoice: (choice: ModelChoice | null) => void;
   /** the config-driven composer (the plan node, §4d); absent = the standard composer */
   composer?: ComposerConfig | null;
+  /** the feed's thread tabs (the plan node's per-refinement chats); absent = one transcript */
+  tabs?: ChatTabs | null;
 }) {
+  // the active thread's display label (for the tab's empty state + scoped copy)
+  const activeTab = tabs?.items.find((t) => t.thread === tabs.active) ?? null;
+
   const standard = useChatComposer({
     flowId,
     nodeKey,
@@ -61,6 +71,7 @@ export default function ChatPanel({
   const feed = useChatFeed({
     flowId,
     nodeKey,
+    thread: tabs?.active ?? null,
     events,
     nodeKeysByNodeId,
     nodeStatusByNodeId,
@@ -91,9 +102,11 @@ export default function ChatPanel({
         <MessageCircleDashedIcon className="size-4 shrink-0 text-muted-foreground" />
         <h2 className="m-0 text-[13.5px] font-semibold leading-none">Chat</h2>
         <span className="truncate text-[11px] text-muted-foreground">
-          {capabilities?.panelTitle ?? `${nodeLabel} agent`}
+          {tabs && activeTab ? activeTab.label : capabilities?.panelTitle ?? `${nodeLabel} agent`}
         </span>
       </div>
+
+      {tabs && <ChatThreadTabs tabs={tabs} />}
 
       <ChatFeed
         loading={feed.messagesQuery.isLoading}
@@ -108,6 +121,14 @@ export default function ChatPanel({
         rows={feed.rows}
         awaitingReply={feed.awaitingReply}
         nodeLabel={nodeLabel}
+        emptyTitle={
+          activeTab ? `Refine the “${activeTab.label}” sub-plan` : undefined
+        }
+        emptyDescription={
+          activeTab
+            ? "This sub-plan's refinement conversation — refine it further or ask about its steps."
+            : undefined
+        }
       />
 
       {active.sendError && (

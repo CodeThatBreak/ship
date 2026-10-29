@@ -183,6 +183,7 @@ export const MessageRow = z.object({
   id: z.string(),
   flow_id: z.string(),
   node_key: z.string().nullable(),
+  thread: z.string().nullable(),
   role: z.enum(["user", "assistant"]),
   content: z.string(),
   created_at: z.string(),

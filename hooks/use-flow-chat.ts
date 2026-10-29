@@ -8,10 +8,13 @@ import { fetchJson, postJson } from "./fetch-json";
 
 const CHAT_REFETCH_MS = 4000;
 
-/** One chat turn, scoped to a node (or flow-level when node_key is unset). */
+/** One chat turn, scoped to a node (or flow-level when node_key is unset).
+ *  `thread` (the plan node's branch names) puts the turn in a refinement tab
+ *  instead of the main conversation. */
 export type ChatMessage = {
   id: string;
   node_key?: string;
+  thread?: string | null;
   role: "user" | "assistant";
   content: string;
   created_at: string;
@@ -19,7 +22,7 @@ export type ChatMessage = {
 
 type ChatPayload = { messages?: ChatMessage[] };
 type PromptPayload = { prompt?: string };
-type ChatSendOptions = { chatOnly: boolean; model?: string };
+type ChatSendOptions = { chatOnly: boolean; model?: string; thread?: string | null };
 
 /** The flow's chat transcript, polled for the node's agent replies. */
 export function useFlowChatMessages(flowId: string) {
@@ -78,7 +81,8 @@ export function useNodeBranchPrompt(
 /**
  * Send a chat message to the flow's agent (the options passed as one object
  * so the gating and model pick are always current) and refresh the
- * transcript on success.
+ * transcript on success. `thread` tags the turn with the active refinement
+ * tab (the plan's sub-plan refines) instead of the main conversation.
  */
 export function useSendChatMessage(
   flowId: string,
@@ -95,6 +99,7 @@ export function useSendChatMessage(
           content,
           chatOnly: options.chatOnly,
           model: options.model,
+          thread: options.thread ?? null,
         }),
       ),
     onSuccess: () => {

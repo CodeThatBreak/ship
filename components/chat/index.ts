@@ -7,6 +7,8 @@ export { default as PromptModal } from "./prompt-modal/PromptModal";
 export { default as PlanOptionToggles } from "./PlanOptionToggles";
 /** The composer's config seam (docs/plan-conversation-refine.md §4d). */
 export type { ComposerConfig } from "./composer-config";
+/** The feed's threads seam (the plan's per-refinement chat tabs). */
+export type { ChatTab, ChatTabs } from "./types";
 /** Shared event/option types consumed across features. */
 export type { PlanOptions } from "./types";
 export type { FeedEvent } from "./timeline";

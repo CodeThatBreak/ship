@@ -99,3 +99,22 @@ describe("run-handle column migration (cursor_* → *_ref)", () => {
     expect(cols).not.toContain("cursor_run_id");
   });
 });
+
+describe("refinement threads (messages.thread)", () => {
+  it("migrates the thread column onto the legacy DB", () => {
+    const cols = db
+      .all<{ name: string }>(`PRAGMA table_info(messages)`)
+      .map((c) => c.name);
+    expect(cols).toContain("thread");
+  });
+
+  it("addMessage stores the thread (null = the main conversation)", () => {
+    db.addMessage("flw_1", "plan", "user", "refine auth", "auth");
+    db.addMessage("flw_1", "plan", "assistant", "sub-plan refined", "auth");
+    db.addMessage("flw_1", "plan", "user", "plain message");
+    // order-independent: same-millisecond inserts sort nondeterministically
+    const threads = (db.listMessages("flw_1") as { thread: string | null }[]).map((r) => r.thread);
+    expect(threads.filter((t) => t === "auth")).toHaveLength(2);
+    expect(threads.filter((t) => t === null)).toHaveLength(1);
+  });
+});

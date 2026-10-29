@@ -233,6 +233,11 @@ export class Database {
     if (!cols("flow_templates").has("hidden")) {
       d.exec(`ALTER TABLE flow_templates ADD COLUMN hidden INTEGER NOT NULL DEFAULT 0`);
     }
+    // per-refinement threads (plan sub-plan refines): messages.tagged with a
+    // branch name render in that branch's chat tab (NULL = main conversation).
+    if (!cols("messages").has("thread")) {
+      d.exec(`ALTER TABLE messages ADD COLUMN thread TEXT`);
+    }
     // step_merges lives in schema.sql (CREATE IF NOT EXISTS is idempotent).
     this.seedTemplates(d);
     // Wait-source neutrality (Phase 1): node triggers persisted with the old
@@ -867,12 +872,13 @@ export class Database {
     flowId: string,
     nodeKey: string | null,
     role: "user" | "assistant",
-    content: string
+    content: string,
+    thread?: string | null
   ): void {
     this.run(
-      `INSERT INTO messages (id, flow_id, node_key, role, content, created_at)
-       VALUES (?,?,?,?,?,?)`,
-      this.uid("msg_"), flowId, nodeKey, role, content, this.now()
+      `INSERT INTO messages (id, flow_id, node_key, thread, role, content, created_at)
+       VALUES (?,?,?,?,?,?,?)`,
+      this.uid("msg_"), flowId, nodeKey, thread ?? null, role, content, this.now()
     );
   }
 

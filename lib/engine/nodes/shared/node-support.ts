@@ -38,6 +38,17 @@ export class NodeSupport {
     );
   }
 
+  /** A chat row scoped to a refinement thread (the plan's sub-plan refines). */
+  addMessage(
+    flowId: string,
+    nodeKey: string | null,
+    role: "user" | "assistant",
+    content: string,
+    thread?: string | null
+  ): void {
+    db.addMessage(flowId, nodeKey, role, content, thread ?? null);
+  }
+
   saveArtifact(
     nodeId: string,
     flowId: string,

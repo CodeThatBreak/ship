@@ -15,6 +15,7 @@ import { composeModelChoice } from "@/lib/modelSpec";
 import type { ModelChoice } from "@/types/model-spec";
 import { queryKeys } from "@/constants/query-keys";
 import type { FlowData, Node } from "@/types/flow";
+import type { BranchPlan } from "../plan/types";
 import { EXECUTION_MODE_LOCAL, LOCAL_MODE_MODEL } from "../constants";
 import { useFlowData } from "./hooks/use-flow-data";
 import { useFlowEvents } from "./hooks/use-flow-events";
@@ -86,7 +87,12 @@ export default function FlowCockpit({
 
   // the plan node's composer config (§4d): the three composer states and
   // their send targets, built by the plan feature. Any other node gets no
-  // config and keeps the standard chat composer.
+  // config and keeps the standard chat composer. The hook also owns the
+  // chat panel's refinement tabs — one conversation thread per branch.
+  const planBranchNames = useMemo(
+    () => ((node?.output?.branches as BranchPlan[] | null)?.map((b) => b.name) ?? []),
+    [node?.output?.branches],
+  );
   const planComposer = usePlanComposer({
     flowId: flow.id,
     nodeKey: node?.node_key ?? "",
@@ -96,6 +102,7 @@ export default function FlowCockpit({
     planOptions,
     setPlanOptions,
     model,
+    branchNames: planBranchNames,
   });
 
   const action = useCallback(
@@ -185,7 +192,8 @@ export default function FlowCockpit({
             nodeStatusByNodeId={nodeStatusByNodeId}
             modelChoice={modelChoice}
             setModelChoice={setModelChoice}
-            composer={planComposer}
+            composer={planComposer.composer}
+            tabs={planComposer.threads}
           />
         </aside>
       </div>
