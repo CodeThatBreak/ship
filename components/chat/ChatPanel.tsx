@@ -10,9 +10,9 @@ import type { ComposerConfig } from "./composer-config";
 import type { ChatTabs } from "./types";
 import { useChatComposer } from "./hooks/use-chat-composer";
 import { useChatFeed } from "./hooks/use-chat-feed";
+import { TabStrip } from "@/components/shared";
 import ChatFeed from "./ChatFeed";
 import ChatComposerForm from "./ChatComposerForm";
-import ChatThreadTabs from "./ChatThreadTabs";
 
 /**
  * The flow's chat rail: heading, transcript feed and the composer.
@@ -20,7 +20,8 @@ import ChatThreadTabs from "./ChatThreadTabs";
  * the `composer` config seam (docs/plan-conversation-refine.md §4d) —
  * without it the standard draft/send mechanics apply, unchanged. The
  * `tabs` seam (its sibling) splits the feed into the feature's conversation
- * threads — the plan node's per-sub-plan-refinement tabs.
+ * tabs — the plan node's main plan + per-sub-plan-refinement threads —
+ * rendered as the generic shared TabStrip.
  */
 export default function ChatPanel({
   flowId,
@@ -55,8 +56,8 @@ export default function ChatPanel({
   /** the feed's thread tabs (the plan node's per-refinement chats); absent = one transcript */
   tabs?: ChatTabs | null;
 }) {
-  // the active thread's display label (for the tab's empty state + scoped copy)
-  const activeTab = tabs?.items.find((t) => t.thread === tabs.active) ?? null;
+  // the active tab (for the heading's context label + the tab's empty state)
+  const activeTab = tabs?.items.find((t) => t.id === tabs.active) ?? null;
 
   const standard = useChatComposer({
     flowId,
@@ -106,7 +107,15 @@ export default function ChatPanel({
         </span>
       </div>
 
-      {tabs && <ChatThreadTabs tabs={tabs} />}
+      {tabs && (
+        <TabStrip
+          items={tabs.items}
+          active={tabs.active}
+          onSelect={tabs.onActive}
+          label="Conversation tabs"
+          className="shrink-0 px-1 pb-2"
+        />
+      )}
 
       <ChatFeed
         loading={feed.messagesQuery.isLoading}

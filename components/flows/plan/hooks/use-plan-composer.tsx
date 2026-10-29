@@ -17,6 +17,9 @@ import { Button } from "@/components/ui/button";
 import { PLAN_ACTION } from "../constants";
 import { usePlanComposerCommand } from "./composer-bus";
 
+/** The chat panel's main plan tab — the unthreaded whole-plan conversation. */
+const MAIN_PLAN_TAB = "Main plan";
+
 /**
  * The plan feature's composer state machine (docs/plan-conversation-
  * refine.md §4a–d): the three composer states — the prefilled plan-template
@@ -27,6 +30,12 @@ import { usePlanComposerCommand } from "./composer-bus";
  *
  * There is no mode state: where you are (planPending / the scoped ref) plus
  * whether a plan exists decides what a send does.
+ *
+ * The hook also owns the chat panel's conversation tabs (the `tabs` seam):
+ * the feature supplies the full list — the main plan tab plus one tab per
+ * sub plan branch — and the active tab id; ChatPanel renders them as the
+ * generic shared TabStrip. A scoped prefill (§4c) switches the chat to that
+ * sub plan's tab and a send from a tab rides its thread.
  */
 export function usePlanComposer({
   flowId,
@@ -47,9 +56,9 @@ export function usePlanComposer({
   planOptions: PlanOptions;
   setPlanOptions: (opts: PlanOptions) => void;
   model: string;
-  /** the latest plan's branch names — one conversation tab per branch */
+  /** the latest plan's branch names — one conversation tab per sub plan */
   branchNames: string[];
-}): { composer: ComposerConfig | null; threads: ChatTabs | null } {
+}): { composer: ComposerConfig | null; tabs: ChatTabs | null } {
   const queryClient = useQueryClient();
   // the plan node's prompt-route key (the plan def's promptNode)
   const planKey = capabilities?.promptNode ?? nodeKey;
@@ -65,9 +74,10 @@ export function usePlanComposer({
   const [branchRef, setBranchRef] = React.useState<string | null>(null);
   const branchQuery = useNodeBranchPrompt(flowId, planKey, branchRef);
 
-  // the active chat tab (the chat panel's threads seam): a scoped prefill
-  // (§4c) arms its branch's tab; conversation sends from a tab ride its
-  // thread. The node picked in the graph has no tabs → reset to the main tab.
+  // the active chat tab (the chat panel's tabs seam): the main plan tab
+  // (id null) is the default; a scoped prefill (§4c) arms its branch's tab;
+  // conversation sends from a tab ride its thread. The node picked in the
+  // graph has no tabs → reset to the main plan tab.
   const [thread, setThread] = React.useState<string | null>(null);
   React.useEffect(() => {
     setThread(null);
@@ -170,7 +180,7 @@ export function usePlanComposer({
     lastSendRef.current = null;
     branchSeedRef.current = null;
     setBranchRef(command.branch);
-    // the chat panel follows: the armed branch's tab becomes the active thread
+    // the chat panel follows: the armed branch's tab becomes the active tab
     setThread(command.branch);
   });
   const exitScoped = React.useCallback(() => {
@@ -188,19 +198,23 @@ export function usePlanComposer({
       .catch(() => {/* surfaced in the invalidated chip */});
   };
 
-  // ── the chat panel's refinement tabs (the threads seam) — built before the
-  // returns so hooks stay unconditional: the "Main" tab is the strip's own
-  // (threads.active = null); a scoped prefill arms its branch's tab
-  const threads: ChatTabs = React.useMemo(
+  // ── the chat panel's refinement tabs (the tabs seam) — built before the
+  // returns so hooks stay unconditional: the feature supplies the full list —
+  // the MAIN PLAN TAB (the unthreaded main conversation, id null) plus one
+  // tab per sub plan branch
+  const tabs: ChatTabs = React.useMemo(
     () => ({
-      items: branchNames.map((name) => ({ thread: name, label: name })),
+      items: [
+        { id: null, label: MAIN_PLAN_TAB },
+        ...branchNames.map((name) => ({ id: name, label: name })),
+      ],
       active: thread,
       onActive: setThread,
     }),
     [branchNames, thread],
   );
 
-  if (capabilities?.chatMode !== "plan") return { composer: null, threads: null };
+  if (capabilities?.chatMode !== "plan") return { composer: null, tabs: null };
 
   // ── scoped-prefill state (§4c) — a branch card armed the composer ─────────
   if (branchRef != null) {
@@ -253,7 +267,7 @@ export function usePlanComposer({
           </span>,
       onSend: (next) => sendBranchRefine(next, branchRef),
       focus: bumpFocus,
-    }, threads };
+    }, tabs };
   }
 
   // ── prompt state (§4a) — no plan yet: the composer IS the plan prompt ─────
@@ -284,7 +298,7 @@ export function usePlanComposer({
         void actionSend.mutateAsync({ kind: "runNode", prompt: d }).catch(() => {});
       },
       focus: bumpFocus,
-    }, threads };
+    }, tabs };
   }
 
   // ── conversation state (§4b) — plans exist: empty draft, the agent decides ─
@@ -307,7 +321,7 @@ export function usePlanComposer({
       return sendChat.mutateAsync(body);
     },
     focus: bumpFocus,
-  }, threads };
+  }, tabs };
 }
 
 /** The composer's inline failure rows (prefill error + the invalidated chip). */

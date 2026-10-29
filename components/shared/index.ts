@@ -8,3 +8,4 @@ export { DataTable, type DataTableAction } from "./DataTable";
 export { FilterPicker, type FilterDef } from "./FilterPicker";
 export { Markdown } from "./Markdown";
 export { AppSidebar } from "./AppSidebar";
+export { TabStrip } from "./TabStrip";

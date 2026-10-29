@@ -193,7 +193,7 @@ export default function FlowCockpit({
             modelChoice={modelChoice}
             setModelChoice={setModelChoice}
             composer={planComposer.composer}
-            tabs={planComposer.threads}
+            tabs={planComposer.tabs}
           />
         </aside>
       </div>
