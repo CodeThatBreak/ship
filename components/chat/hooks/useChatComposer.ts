@@ -5,11 +5,17 @@ import { useSendChatMessage } from '@/hooks/use-flow-chat';
 import { composeModelChoice } from '@/lib/modelSpec';
 import type { ModelChoice } from '@/types/model-spec';
 
-type Params = {
+type SendMutationVariables = {
   flowId: string;
   nodeKey: string;
   modelChoice: ModelChoice | null;
-  sendMutationFn?: (p: { flowId: string; nodeKey: string; modelChoice: ModelChoice | null }) => Promise<void>;
+  thread?: string;
+};
+
+export type SendMutationFn = (p: SendMutationVariables) => Promise<void>;
+
+type Params = SendMutationVariables & {
+  sendMutationFn?: SendMutationFn;
 };
 
 /**
@@ -19,10 +25,11 @@ type Params = {
  * `usePlanComposer` (docs/plan-conversation-refine.md §4d), so this hook
  * never grows plan logic.
  */
-export function useChatComposer({ flowId, nodeKey, modelChoice, sendMutationFn }: Params) {
+export function useChatComposer({ flowId, nodeKey, modelChoice, sendMutationFn, thread }: Params) {
   const sendChat = useSendChatMessage(flowId, nodeKey, {
     chatOnly: false,
     model: composeModelChoice(modelChoice) || undefined,
+    thread,
   });
 
   const [loading, setLoading] = useState(false);
@@ -30,7 +37,7 @@ export function useChatComposer({ flowId, nodeKey, modelChoice, sendMutationFn }
   const sendMessageMutation = useCallback((content: string) => {
     if (sendMutationFn) {
       setLoading(true);
-      return sendMutationFn({ flowId, nodeKey, modelChoice }).finally(() => setLoading(false));
+      return sendMutationFn({ flowId, nodeKey, modelChoice, thread }).finally(() => setLoading(false));
     }
 
     const body = content.trim();

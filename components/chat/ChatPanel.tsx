@@ -6,10 +6,8 @@ import { CircleAlertIcon, MessageCircleDashedIcon } from 'lucide-react';
 import type { ModelChoice } from '@/types/model-spec';
 import type { NodeUiCapabilities } from '@/types/node-capabilities';
 import type { FeedEvent } from './timeline';
-import type { ComposerConfig } from './composer-config';
 import type { ChatTab } from './types';
-import { useChatComposer } from './hooks/useChatComposer';
-import { useStandardComposerConfig } from './hooks/useStandardComposerConfig';
+import { useChatComposer, type SendMutationFn } from './hooks/useChatComposer';
 import { useChatFeed } from './hooks/useChatFeed';
 import { TabStrip } from '@/components/shared';
 import ChatFeed from './ChatFeed';
@@ -37,8 +35,8 @@ export default function ChatPanel({
   nodeStatusByNodeId,
   modelChoice,
 
-  tabs = [],
-  activeTabId,
+  threads = [],
+  activeThreadId,
 
   onAction,
 
@@ -70,8 +68,8 @@ export default function ChatPanel({
   nodeStatusByNodeId?: Map<string, string>;
   modelChoice: ModelChoice | null;
 
-  tabs?: ChatTab[];
-  activeTabId?: string;
+  threads?: ChatTab[];
+  activeThreadId?: string;
 
   onAction: (action: ChatAction) => void;
 
@@ -87,18 +85,19 @@ export default function ChatPanel({
   aside?: ReactNode;
   error?: ReactNode;
 
-  sendMutationFn: any;
+  sendMutationFn?: SendMutationFn;
 }) {
-  const activeTab = useMemo(() => {
-    if (!activeTabId || !tabs) return null;
+  const activeThread = useMemo(() => {
+    if (!activeThreadId || !threads) return null;
 
-    return tabs.find(t => t.id === activeTabId);
-  }, [tabs, activeTabId]);
+    return threads.find(t => t.id === activeThreadId);
+  }, [threads, activeThreadId]);
 
   const { isPending: isSendingMessage } = useChatComposer({
     flowId,
     nodeKey,
     modelChoice,
+    thread: activeThreadId,
     sendMutationFn,
   });
 
@@ -109,7 +108,7 @@ export default function ChatPanel({
   } = useChatFeed({
     flowId,
     nodeKey,
-    thread: activeTabId,
+    thread: activeThreadId,
     events,
     nodeKeysByNodeId,
     nodeStatusByNodeId,
@@ -134,13 +133,13 @@ export default function ChatPanel({
         <MessageCircleDashedIcon className="size-4 shrink-0 text-muted-foreground" />
         <h2 className="m-0 text-[13.5px] font-semibold leading-none">Chat</h2>
         <span className="truncate text-[11px] text-muted-foreground">
-          {tabs && activeTab ? activeTab.label : (capabilities?.panelTitle ?? `${nodeLabel} agent`)}
+          {threads && activeThread ? activeThread.label : (capabilities?.panelTitle ?? `${nodeLabel} agent`)}
         </span>
       </div>
 
       <TabStrip
-        items={tabs}
-        active={activeTabId}
+        items={threads}
+        active={activeThreadId}
         onSelect={onTabChange}
         label="Conversation tabs"
         className="shrink-0 px-1 pb-2"
@@ -153,8 +152,8 @@ export default function ChatPanel({
         onRetry={refetchMessage}
         awaitingReply={awaitingReply}
         nodeLabel={nodeLabel}
-        emptyTitle={activeTab?.emptyTitle}
-        emptyDescription={activeTab?.emptyDescription}
+        emptyTitle={activeThread?.emptyTitle}
+        emptyDescription={activeThread?.emptyDescription}
       />
 
       {sendError && (
