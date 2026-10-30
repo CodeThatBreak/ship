@@ -1,20 +1,27 @@
 'use client';
 
-import { useImperativeHandle, useRef, useCallback, useEffect, type RefObject, useState, type ChangeEvent } from 'react';
+import {
+  useRef,
+  useState,
+  useCallback,
+  useImperativeHandle,
+  type RefObject,
+  type ChangeEvent,
+  type ReactNode,
+} from 'react';
 import { cn } from '@/lib/utils';
 
 import ModelSelector from '../../ModelSelector';
-import { SendButton } from './components/SendButton';
-import type { ComposerConfig } from '../../composer-config';
-import { InputGroup, InputGroupAddon, InputGroupButton, InputGroupTextarea } from '@/components/ui/input-group';
 import { ScrollArea } from '@/components/ui/scroll-area';
+import { SendButton } from './components/SendButton';
+import { ResetButton } from './components/ResetButton';
+import { ChatSkeleton } from './components/ChatSkeleton';
+import { InputGroup, InputGroupAddon, InputGroupTextarea } from '@/components/ui/input-group';
 
 import type { ModelChoice } from '@/types/model-spec';
 import type { ChatAction } from '../../types/action';
 
 import { ACTION_TYPES } from '../../constants/action';
-import { ResetButton } from './components/ResetButton';
-import { ChatSkeleton } from './components/ChatSkeleton';
 
 /**
  * The chat composer — the config-driven input form (docs/plan-conversation-
@@ -29,26 +36,42 @@ import { ChatSkeleton } from './components/ChatSkeleton';
  * once the send promise resolves, so the owner never needs a change-noop.
  */
 export default function ChatComposerForm({
-  config,
   modelChoice,
+  draft: initialDraft = '',
+  loading,
+  caption,
+  sendLabel,
+  canReset,
+  canSend,
+  chatInputRef,
+  aside,
+  error,
 
   onAction,
-  chatInputRef,
 }: {
-  config: ComposerConfig;
   modelChoice: ModelChoice | null;
+  draft?: string;
+  loading: boolean;
+  caption?: string;
+  sendLabel: string;
+
+  canReset: boolean;
+  canSend: boolean;
 
   chatInputRef?: RefObject<any>;
+
+  aside: ReactNode;
+  error?: ReactNode;
 
   onAction: (action: ChatAction) => void;
 }) {
   const formRef = useRef<HTMLFormElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
-  const [draftState, setDraftState] = useState(config.draft ?? '');
+  const [draftState, setDraftState] = useState(initialDraft);
   const [pending, setPending] = useState(false);
 
-  const canSend = config.canSend ?? (draftState.trim().length > 0 && !pending);
+  const disableSendButton = canSend && draftState.trim().length > 0 && !pending;
 
   const onModelChange = useCallback(
     (choice: ModelChoice | null) => {
@@ -68,15 +91,6 @@ export default function ChatComposerForm({
   const onReset = useCallback(() => {
     onAction({ type: ACTION_TYPES.RESET });
   }, [onAction]);
-
-  // the growing textarea (prompt/scoped states) previews hundreds of lines;
-  // keep its height in step with the content, capped by the ScrollArea
-  useEffect(() => {
-    const textarea = textareaRef.current;
-    if (!textarea || !config.growing) return;
-    textarea.style.height = 'auto';
-    textarea.style.height = `${textarea.scrollHeight}px`;
-  }, [draftState, config.growing]);
 
   useImperativeHandle(chatInputRef, () => ({
     focus: (position?: number) => {
@@ -127,33 +141,31 @@ export default function ChatComposerForm({
     />
   );
 
-  const canReset = config.reset?.canReset;
-
-  if (config.loading) {
+  if (loading) {
     return <ChatSkeleton />;
   }
 
   return (
     <form ref={formRef} className="shrink-0 px-3 pb-4 pt-2" onSubmit={onFormSubmit}>
-      {(config.caption != null || canReset) && (
+      {(caption != null || canReset) && (
         <div className="flex items-center gap-2 px-1 pb-1.5 text-[11px] text-muted-foreground">
-          {config.caption}
+          {caption}
           <span className="flex-1" />
           {canReset ? <ResetButton onReset={onReset} /> : null}
         </div>
       )}
 
-      {config.error ? (
+      {error ? (
         <div className="flex items-center gap-2 rounded-lg border border-border bg-background px-3 py-3 text-[11.5px]">
-          {config.error}
+          {error}
         </div>
       ) : (
         <InputGroup>
           <ScrollArea className="max-h-[40vh] flex-1 w-full">{textarea}</ScrollArea>
           <InputGroupAddon align="block-end">
             <ModelSelector value={modelChoice} onChange={onModelChange} />
-            {config.aside}
-            <SendButton sendLabel={config.sendLabel} canSend={canSend} />
+            {aside}
+            <SendButton sendLabel={sendLabel} canSend={disableSendButton} />
           </InputGroupAddon>
         </InputGroup>
       )}

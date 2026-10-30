@@ -148,7 +148,18 @@ export default function ChatPanel({
         </p>
       )}
 
-      <ChatComposerForm config={active} modelChoice={modelChoice} onAction={onAction} />
+      <ChatComposerForm
+        draft={active.draft}
+        loading={active.loading}
+        caption={active.caption}
+        sendLabel={active.sendLabel}
+        canReset={!!active.reset?.canReset}
+        canSend={!!active.canSend}
+        aside={active.aside}
+        error={active.error}
+        modelChoice={modelChoice}
+        onAction={onAction}
+      />
     </div>
   );
 }
