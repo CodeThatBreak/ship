@@ -1,6 +1,6 @@
 'use client';
 import { useMemo } from 'react';
-import { ChatPanel } from '@/components/chat';
+import { ChatPanel, ChatPanelSkeleton } from '@/components/chat';
 import { useNodePanel, useNodeChatBindings } from '../../panels';
 import { usePlanComposer } from './hooks/usePlanComposer';
 import type { BranchPlan } from './types';
@@ -35,22 +35,22 @@ export default function PlanNodeChat() {
     ];
   }, [branches]);
 
-  const {
-    activeThreadId,
-    chatInputRef,
-    onAction,
-    loading,
-    onSendChatMutationFn,
-  } = usePlanComposer({
-    flowId: flow.id,
-    nodeKey: node.node_key,
-    nodeStatus: node.status,
-    artifactCount: node.artifacts.length,
-    model,
-  });
+  const { activeThreadId, prompts, is, chatInputRef, onAction, loading, onSendChatMutationFn, isPromptsLoading } =
+    usePlanComposer({
+      flowId: flow.id,
+      nodeKey: node.node_key,
+      nodeStatus: node.status,
+      artifactCount: node.artifacts.length,
+      model,
+    });
+
+  if (isPromptsLoading) {
+    return <ChatPanelSkeleton />;
+  }
 
   return (
     <ChatPanel
+      initialDraft={prompts[node.node_key]}
       flowId={flow.id}
       nodeKey={node.node_key}
       nodeLabel={node.label ?? node.template_name ?? node.node_key}

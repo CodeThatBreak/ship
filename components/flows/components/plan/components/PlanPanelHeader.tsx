@@ -11,14 +11,7 @@ import { isFailedStatus, statusVariantOf } from '@/constants/flow';
  * action — it focuses the chat composer (docs/plan-conversation-refine.md
  * §4b; before the first plan the composer IS the plan input and starts focused).
  */
-export function PlanPanelHeader({
-  node,
-  onRefine,
-}: {
-  node: Node;
-  /** focus the chat composer (container wires this to the plan composer bus) */
-  onRefine: () => void;
-}) {
+export function PlanPanelHeader({ node }: { node: Node }) {
   return (
     <div className="flex items-center gap-2.5 px-5 py-3 border-b border-border shrink-0">
       <h2 className="m-0 text-[15px]">Implementation plan</h2>
@@ -27,15 +20,6 @@ export function PlanPanelHeader({
         {node.status.replace(/_/g, ' ')}
       </Badge>
       <CostChip node={node} />
-      <div className="flex-1" />
-      <Button
-        size="xs"
-        variant="secondary"
-        onClick={onRefine}
-        title="Focus the plan conversation — refine the plan in the chat composer"
-      >
-        <MessageSquareQuoteIcon size={12} /> Refine plan
-      </Button>
     </div>
   );
 }

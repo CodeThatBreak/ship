@@ -1,13 +1,14 @@
-"use client";
-import type { Node } from "@/types/flow";
-import { useGraphDef } from "@/hooks/use-graph-def";
-import { GraphEdges, type NodePosition } from "./GraphEdges";
-import { GraphStatusChips } from "./GraphStatusChips";
-import { layout, H, W } from "./graph-layout";
-import { WorkflowNodeCard, type FanoutProgress } from "./NodeCard";
+'use client';
+import type { Node } from '@/types/flow';
+import { useGraphDef } from '@/hooks/use-graph-def';
+import { GraphEdges, type NodePosition } from './GraphEdges';
+import { GraphStatusChips } from './GraphStatusChips';
+import WorkflowGraphSkeleton, { GRAPH_SKELETON_HEIGHT } from './WorkflowGraphSkeleton';
+import { layout, H, W } from './graph-layout';
+import { WorkflowNodeCard, type FanoutProgress } from './NodeCard';
 
 // icon resolution lives here (the template builder reuses the same set)
-export { ICONS } from "./icons";
+export { ICONS } from './icons';
 
 /**
  * The flow's execution graph (§2.2 container): dagre layout + the presentational
@@ -33,15 +34,28 @@ export default function WorkflowGraph({
    *  awaiting → warning, in-flight → info, resolved → success */
   fanout?: Record<string, FanoutProgress>;
 }) {
-  const graphQuery = useGraphDef(flowId ?? "");
+  const graphQuery = useGraphDef(flowId ?? '');
   const graphDef = graphQuery.data;
-  const keys = nodes.map((n) => n.node_key);
-  const edges = graphDef?.edges ?? [];
+  const keys = nodes.map(n => n.node_key);
   if (!keys.length) return null;
+  // the graph def's initial load (`placeholderData: keepPreviousData` keeps
+  // refetches off this path): the interim state is the fixed-height shimmer
+  // band, instead of the edgeless node row that would jump when the dagre
+  // layout resolves in (§2.8)
+  if (graphQuery.isPending) return <WorkflowGraphSkeleton />;
+
+  const edges = graphDef?.edges ?? [];
   const g = layout(keys, edges);
-  const width = Math.max(...keys.map((k) => g.node(k).x)) + W;
-  const height = Math.max(...keys.map((k) => g.node(k).y)) + H + 10;
-  const positions = new Map(keys.map((k) => [k, { x: g.node(k).x, y: g.node(k).y } satisfies NodePosition]));
+  const width = Math.max(...keys.map(k => g.node(k).x)) + W;
+  // the band never shrinks below the height the skeleton reserved while
+  // pending — a smaller dagre layout (single-row graphs come out under the
+  // fixed skeleton height) would otherwise collapse the band on resolve and
+  // shift the content below it up (§2.8)
+  const height = Math.max(
+    Math.max(...keys.map(k => g.node(k).y)) + H + 10,
+    GRAPH_SKELETON_HEIGHT,
+  );
+  const positions = new Map(keys.map(k => [k, { x: g.node(k).x, y: g.node(k).y } satisfies NodePosition]));
   const meta = graphDef?.meta ?? {};
 
   return (
@@ -54,7 +68,7 @@ export default function WorkflowGraph({
         width={width}
         height={height}
       />
-      {nodes.map((n) => (
+      {nodes.map(n => (
         <WorkflowNodeCard
           key={n.node_key}
           node={n}
@@ -67,7 +81,6 @@ export default function WorkflowGraph({
         />
       ))}
       <GraphStatusChips
-        isLoading={graphQuery.isLoading}
         isError={graphQuery.isError}
         onRetry={() => void graphQuery.refetch()}
       />

@@ -28,13 +28,7 @@ type Params = {
 const usePlanComposer = ({ flowId, artifactCount, nodeStatus, model, nodeKey }: Params) => {
   const flowMutationFn = useFlowMutation({ flowId });
 
-  const {
-    activeThreadId,
-    chatInputRef,
-    onAction,
-    prompts,
-    isPromptsLoading,
-  } = usePlanChatAction({ flowId });
+  const { activeThreadId, chatInputRef, onAction, prompts, isPromptsLoading } = usePlanChatAction({ flowId });
 
   // No plan yet (no artifacts, node still pending) — the first send must run
   // the node itself before any chat conversation exists.
@@ -59,7 +53,7 @@ const usePlanComposer = ({ flowId, artifactCount, nodeStatus, model, nodeKey }: 
     chatInputRef,
     /** every promptable node's prompt body (the prefill source), null while loading */
     prompts,
-    loading: isPromptsLoading,
+    isPromptsLoading,
     /**
      * If plan is generated, chat conversation can handle the state
      */

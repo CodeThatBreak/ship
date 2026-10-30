@@ -61,7 +61,6 @@ export default function PlanView() {
     `${current?.id ?? ''}:${execution.resolution}`
   );
 
-  const onRefine = () => null;
   const onApprove = (pick: ExecutionMode) =>
     onAction({
       type: ACTION_TYPES.APPROVE,
@@ -72,7 +71,7 @@ export default function PlanView() {
 
   return (
     <div className="flex flex-col h-full min-h-0">
-      <PlanPanelHeader node={node} onRefine={onRefine} />
+      <PlanPanelHeader node={node} />
 
       <ScrollArea className="flex-1">
         <div className="px-5 py-4 flex flex-col gap-4 h-full">

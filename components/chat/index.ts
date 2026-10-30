@@ -1,5 +1,7 @@
 /** Public surface of the chat feature — other features go through this barrel. */
 export { default as ChatPanel } from "./ChatPanel";
+/** The rail's loading skeleton (§2.8) — mirrors the loaded ChatPanel layout. */
+export { default as ChatPanelSkeleton } from "./ChatPanelSkeleton";
 /** The composer's model picker; consumed by the flow cockpit and settings. */
 export { default as ModelSelector, useModels } from "./ModelSelector";
 export { default as PromptModal } from "./prompt-modal/PromptModal";
