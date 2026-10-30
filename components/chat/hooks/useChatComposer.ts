@@ -1,6 +1,6 @@
 'use client';
 
-import * as React from 'react';
+import { useState, useCallback } from 'react';
 import { useSendChatMessage } from '@/hooks/use-flow-chat';
 import { composeModelChoice } from '@/lib/modelSpec';
 import type { ModelChoice } from '@/types/model-spec';
@@ -9,7 +9,7 @@ type Params = {
   flowId: string;
   nodeKey: string;
   modelChoice: ModelChoice | null;
-  thread?: string;
+  sendMutationFn?: (p: { flowId: string; nodeKey: string; modelChoice: ModelChoice | null }) => Promise<void>;
 };
 
 /**
@@ -19,14 +19,20 @@ type Params = {
  * `usePlanComposer` (docs/plan-conversation-refine.md §4d), so this hook
  * never grows plan logic.
  */
-export function useChatComposer({ flowId, nodeKey, modelChoice, thread }: Params) {
+export function useChatComposer({ flowId, nodeKey, modelChoice, sendMutationFn }: Params) {
   const sendChat = useSendChatMessage(flowId, nodeKey, {
     chatOnly: false,
     model: composeModelChoice(modelChoice) || undefined,
-    thread,
   });
 
-  const sendMessageMutation = React.useCallback((content: string) => {
+  const [loading, setLoading] = useState(false);
+
+  const sendMessageMutation = useCallback((content: string) => {
+    if (sendMutationFn) {
+      setLoading(true);
+      return sendMutationFn({ flowId, nodeKey, modelChoice }).finally(() => setLoading(false));
+    }
+
     const body = content.trim();
     if (!body || sendChat.isPending) return;
     return sendChat.mutateAsync(body);
@@ -34,7 +40,7 @@ export function useChatComposer({ flowId, nodeKey, modelChoice, thread }: Params
 
   return {
     sendMessageMutation,
-    isPending: sendChat.isPending,
+    isPending: sendChat.isPending || loading,
     error: sendChat.error,
   };
 }

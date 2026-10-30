@@ -53,6 +53,8 @@ export default function ChatPanel({
 
   aside,
   error,
+
+  sendMutationFn,
 }: {
   flowId: string;
   nodeKey: string;
@@ -84,6 +86,8 @@ export default function ChatPanel({
 
   aside?: ReactNode;
   error?: ReactNode;
+
+  sendMutationFn: any;
 }) {
   const activeTab = useMemo(() => {
     if (!activeTabId || !tabs) return null;
@@ -95,6 +99,7 @@ export default function ChatPanel({
     flowId,
     nodeKey,
     modelChoice,
+    sendMutationFn,
   });
 
   const {

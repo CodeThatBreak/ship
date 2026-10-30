@@ -6,6 +6,12 @@ import { useNodePanel, useNodeChatBindings } from '../../panels';
 import { usePlanComposer } from './hooks/usePlanComposer';
 import type { BranchPlan } from './types';
 
+/** The chat panel's main plan tab — the unthreaded whole-plan conversation. */
+const MAIN_PLAN_TAB = 'Main plan';
+
+/** A plan tab's feed empty state — one refinement conversation per tab (§4b). */
+const REFINE_HINT = "This sub-plan's refinement conversation — refine it further or ask about its steps.";
+
 /**
  * The plan node's chat rail (docs/plan-conversation-refine.md §4d): the plan
  * feature builds its own composer config here — the three composer states and
@@ -28,7 +34,28 @@ export default function PlanNodeChat() {
     [node.output?.branches]
   );
 
-  const { composer, tabs } = usePlanComposer({
+  const tabs = useMemo(
+    () => [
+      // the main plan tab carries the same refine copy as the branch tabs —
+      // the panel's active-tab lookup matches the null-id item, so the main
+      // tab's empty feed already rendered this copy before the seam carried it
+      {
+        id: 'MAIN_PLAN_TAB',
+        label: MAIN_PLAN_TAB,
+        emptyTitle: `Refine the “${MAIN_PLAN_TAB}” sub-plan`,
+        emptyDescription: REFINE_HINT,
+      },
+      ...branchNames.map(name => ({
+        id: name,
+        label: name,
+        emptyTitle: `Refine the “${name}” sub-plan`,
+        emptyDescription: REFINE_HINT,
+      })),
+    ],
+    [branchNames]
+  );
+
+  const { composer } = usePlanComposer({
     flowId: flow.id,
     nodeKey: node.node_key,
     nodeStatus: node.status,
@@ -51,7 +78,6 @@ export default function PlanNodeChat() {
       nodeKeysByNodeId={nodeKeysByNodeId}
       nodeStatusByNodeId={nodeStatusByNodeId}
       modelChoice={modelChoice}
-      composer={composer}
       tabs={tabs}
       onAction={() => {}}
     />

@@ -13,12 +13,6 @@ import { FLOW_ACTION, FLOW_STATUS } from '@/constants/flow';
 import { ACTION_TYPES } from '../../constants/action';
 import { PlanComposerErrorBlock } from '../../components/PlanComposerErrorBlock';
 
-/** The chat panel's main plan tab — the unthreaded whole-plan conversation. */
-const MAIN_PLAN_TAB = 'Main plan';
-
-/** A plan tab's feed empty state — one refinement conversation per tab (§4b). */
-const REFINE_HINT = "This sub-plan's refinement conversation — refine it further or ask about its steps.";
-
 /** A composer send against the flow's action route (run_node / refine_plan). */
 type PlanActionTarget =
   | { kind: 'runNode'; prompt: string }
@@ -180,26 +174,6 @@ export function usePlanComposer({
   // returns so hooks stay unconditional: the feature supplies the full list —
   // the MAIN PLAN TAB (the unthreaded main conversation, id null) plus one
   // tab per sub plan branch
-  const tabs: ChatTabs = useMemo(
-    () => [
-      // the main plan tab carries the same refine copy as the branch tabs —
-      // the panel's active-tab lookup matches the null-id item, so the main
-      // tab's empty feed already rendered this copy before the seam carried it
-      {
-        id: null,
-        label: MAIN_PLAN_TAB,
-        emptyTitle: `Refine the “${MAIN_PLAN_TAB}” sub-plan`,
-        emptyDescription: REFINE_HINT,
-      },
-      ...branchNames.map(name => ({
-        id: name,
-        label: name,
-        emptyTitle: `Refine the “${name}” sub-plan`,
-        emptyDescription: REFINE_HINT,
-      })),
-    ],
-    [branchNames, thread]
-  );
 
   if (capabilities?.chatMode !== 'plan') return { composer: null, tabs: null };
 
@@ -323,6 +297,5 @@ export function usePlanComposer({
       },
       focus: bumpFocus,
     },
-    tabs,
   };
 }
