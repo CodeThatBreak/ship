@@ -181,27 +181,23 @@ export function usePlanComposer({
   // the MAIN PLAN TAB (the unthreaded main conversation, id null) plus one
   // tab per sub plan branch
   const tabs: ChatTabs = useMemo(
-    () => ({
-      items: [
-        // the main plan tab carries the same refine copy as the branch tabs —
-        // the panel's active-tab lookup matches the null-id item, so the main
-        // tab's empty feed already rendered this copy before the seam carried it
-        {
-          id: null,
-          label: MAIN_PLAN_TAB,
-          emptyTitle: `Refine the “${MAIN_PLAN_TAB}” sub-plan`,
-          emptyDescription: REFINE_HINT,
-        },
-        ...branchNames.map(name => ({
-          id: name,
-          label: name,
-          emptyTitle: `Refine the “${name}” sub-plan`,
-          emptyDescription: REFINE_HINT,
-        })),
-      ],
-      active: thread,
-      onActive: setThread,
-    }),
+    () => [
+      // the main plan tab carries the same refine copy as the branch tabs —
+      // the panel's active-tab lookup matches the null-id item, so the main
+      // tab's empty feed already rendered this copy before the seam carried it
+      {
+        id: null,
+        label: MAIN_PLAN_TAB,
+        emptyTitle: `Refine the “${MAIN_PLAN_TAB}” sub-plan`,
+        emptyDescription: REFINE_HINT,
+      },
+      ...branchNames.map(name => ({
+        id: name,
+        label: name,
+        emptyTitle: `Refine the “${name}” sub-plan`,
+        emptyDescription: REFINE_HINT,
+      })),
+    ],
     [branchNames, thread]
   );
 

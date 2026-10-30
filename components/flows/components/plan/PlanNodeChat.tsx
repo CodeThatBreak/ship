@@ -51,9 +51,9 @@ export default function PlanNodeChat() {
       nodeKeysByNodeId={nodeKeysByNodeId}
       nodeStatusByNodeId={nodeStatusByNodeId}
       modelChoice={modelChoice}
-      setModelChoice={setModelChoice}
       composer={composer}
       tabs={tabs}
+      onAction={() => {}}
     />
   );
 }

@@ -16,4 +16,15 @@ type TabChangedAction = {
   };
 };
 
-export type ChatAction = SetModelAction | TabChangedAction;
+type DraftChangedAction = {
+  type: typeof ACTION_TYPES.DRAFT_CHANGED;
+  payload: {
+    draft: string;
+  };
+};
+
+type ResetAction = {
+  type: typeof ACTION_TYPES.RESET;
+};
+
+export type ChatAction = SetModelAction | TabChangedAction | DraftChangedAction | ResetAction;

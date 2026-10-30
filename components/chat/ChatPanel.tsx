@@ -13,7 +13,7 @@ import { useStandardComposerConfig } from './hooks/useStandardComposerConfig';
 import { useChatFeed } from './hooks/useChatFeed';
 import { TabStrip } from '@/components/shared';
 import ChatFeed from './ChatFeed';
-import ChatComposerForm from './ChatComposerForm';
+import ChatComposerForm from './components/chatComposerForm/ChatComposerForm';
 import { ChatAction } from './types/action';
 import { ta } from 'zod/v4/locales';
 import { ACTION_TYPES } from './constants/action';
