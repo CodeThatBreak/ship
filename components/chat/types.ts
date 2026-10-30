@@ -11,8 +11,7 @@ export type PlanOptions = { decompose: boolean };
  * (`messages.thread`). Absent (null) = single-transcript behavior, unchanged.
  */
 export type ChatTab = {
-  /** the tab's thread id on `messages.thread` — null = the main conversation */
-  id: string | null;
+  id: string;
   label: string;
   /**
    * The tab's feed empty state — feature-owned copy (the defining feature
@@ -21,11 +20,4 @@ export type ChatTab = {
    */
   emptyTitle?: string;
   emptyDescription?: string;
-};
-
-export type ChatTabs = {
-  items: ChatTab[];
-  /** the active tab's id (`null` selects a null-id item) */
-  active: string | null;
-  onActive: (id: string | null) => void;
 };

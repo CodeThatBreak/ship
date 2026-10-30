@@ -1,19 +1,22 @@
 'use client';
 
-import * as React from 'react';
+import { useMemo, useCallback } from 'react';
 import { CircleAlertIcon, MessageCircleDashedIcon } from 'lucide-react';
 
 import type { ModelChoice } from '@/types/model-spec';
 import type { NodeUiCapabilities } from '@/types/node-capabilities';
 import type { FeedEvent } from './timeline';
 import type { ComposerConfig } from './composer-config';
-import type { ChatTabs } from './types';
+import type { ChatTab, ChatTabs } from './types';
 import { useChatComposer } from './hooks/useChatComposer';
 import { useStandardComposerConfig } from './hooks/useStandardComposerConfig';
 import { useChatFeed } from './hooks/useChatFeed';
 import { TabStrip } from '@/components/shared';
 import ChatFeed from './ChatFeed';
 import ChatComposerForm from './ChatComposerForm';
+import { ChatAction } from './types/action';
+import { ta } from 'zod/v4/locales';
+import { ACTION_TYPES } from './constants/action';
 
 /**
  * The flow's chat rail: heading, transcript feed and the composer.
@@ -34,9 +37,12 @@ export default function ChatPanel({
   nodeKeysByNodeId,
   nodeStatusByNodeId,
   modelChoice,
-  setModelChoice,
+
   composer,
-  tabs,
+  tabs = [],
+  activeTabId,
+
+  onAction,
 }: {
   flowId: string;
   nodeKey: string;
@@ -51,17 +57,20 @@ export default function ChatPanel({
    *  since a run's "finished" event can fall outside the fetched event window */
   nodeStatusByNodeId?: Map<string, string>;
   modelChoice: ModelChoice | null;
-  setModelChoice: (choice: ModelChoice | null) => void;
-  /** the config-driven composer (the plan node, §4d); absent = the standard composer */
-  composer?: ComposerConfig | null;
-  /** the feed's feature-built conversation tabs; absent = one transcript */
-  tabs?: ChatTabs | null;
-}) {
-  // the active tab (for the heading's context label + the tab's empty state)
-  const activeTab = tabs?.items.find(t => t.id === tabs.active) ?? null;
 
-  // the standard chat mechanics — the zero-cost default behind the seam
-  // (see useStandardComposerConfig)
+  composer?: ComposerConfig | null;
+
+  tabs?: ChatTab[];
+  activeTabId?: string;
+
+  onAction: (action: ChatAction) => void;
+}) {
+  const activeTab = useMemo(() => {
+    if (!activeTabId || !tabs) return null;
+
+    return tabs.find(t => t.id === activeTabId);
+  }, [tabs, activeTabId]);
+
   const standard = useChatComposer({
     flowId,
     nodeKey,
@@ -76,7 +85,7 @@ export default function ChatPanel({
   const feed = useChatFeed({
     flowId,
     nodeKey,
-    thread: tabs?.active ?? null,
+    thread: activeTabId,
     events,
     nodeKeysByNodeId,
     nodeStatusByNodeId,
@@ -84,9 +93,17 @@ export default function ChatPanel({
     busy,
   });
 
-  // The composer that renders: feature-built config when provided, else the
-  // standard chat mechanics already wrapped in the zero-cost config shape.
   const active: ComposerConfig = composer ?? standardConfig;
+
+  const onTabChange = useCallback(
+    (id: string) => {
+      onAction({
+        type: ACTION_TYPES.TAB_CHANGED,
+        payload: { tabId: id },
+      });
+    },
+    [onAction]
+  );
 
   return (
     <div className="flex h-full min-h-0 flex-col">
@@ -99,15 +116,13 @@ export default function ChatPanel({
         </span>
       </div>
 
-      {tabs && (
-        <TabStrip
-          items={tabs.items}
-          active={tabs.active}
-          onSelect={tabs.onActive}
-          label="Conversation tabs"
-          className="shrink-0 px-1 pb-2"
-        />
-      )}
+      <TabStrip
+        items={tabs}
+        active={activeTabId}
+        onSelect={onTabChange}
+        label="Conversation tabs"
+        className="shrink-0 px-1 pb-2"
+      />
 
       <ChatFeed
         loading={feed.messagesQuery.isLoading}
@@ -133,7 +148,7 @@ export default function ChatPanel({
         </p>
       )}
 
-      <ChatComposerForm config={active} modelChoice={modelChoice} onChangeModelChoice={setModelChoice} />
+      <ChatComposerForm config={active} modelChoice={modelChoice} onAction={onAction} />
     </div>
   );
 }

@@ -2,6 +2,16 @@
 
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 
+type Props = {
+  items: { id: string; label: string }[];
+  /** the selected item's id (matching an item's `id`); null selects a null-id item */
+  active?: string;
+  onSelect: (id: string) => void;
+  /** accessible description of what the strip selects (aria-label) */
+  label: string;
+  className?: string;
+};
+
 /**
  * A generic tab strip: domain-neutral pills for switching between the
  * feature's selectable views — the chat feed's conversation tabs (the plan
@@ -11,21 +21,9 @@ import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
  * `id` is `null` is a legal entry (the feature's default view, e.g. the
  * chat's main conversation).
  */
-export function TabStrip({
-  items,
-  active,
-  onSelect,
-  label,
-  className,
-}: {
-  items: { id: string | null; label: string }[];
-  /** the selected item's id (matching an item's `id`); null selects a null-id item */
-  active: string | null;
-  onSelect: (id: string | null) => void;
-  /** accessible description of what the strip selects (aria-label) */
-  label: string;
-  className?: string;
-}) {
+export function TabStrip({ items, active, onSelect, label, className }: Props) {
+  if (items.length === 0) return null;
+
   return (
     <div className="flex shrink-0 gap-1.5 flex-wrap px-1 pb-2">
       <Tabs aria-label={label} defaultValue={active} className={className} onValueChange={onSelect}>

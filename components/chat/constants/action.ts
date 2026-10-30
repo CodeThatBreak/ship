@@ -1,0 +1,6 @@
+const ACTION_TYPES = {
+  SET_MODEL: 'SET_MODEL',
+  TAB_CHANGED: 'TAB_CHANGED',
+};
+
+export { ACTION_TYPES };

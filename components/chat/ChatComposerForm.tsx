@@ -1,21 +1,19 @@
-"use client";
+'use client';
 
-import * as React from "react";
-import { ArrowUpIcon, RotateCcwIcon } from "lucide-react";
+import { useImperativeHandle, useRef, useEffect, type RefObject, useState, type ChangeEvent } from 'react';
+import { ArrowUpIcon, RotateCcwIcon } from 'lucide-react';
 
-import ModelSelector from "./ModelSelector";
-import type { ComposerConfig } from "./composer-config";
-import {
-  InputGroup,
-  InputGroupAddon,
-  InputGroupButton,
-  InputGroupTextarea,
-} from "@/components/ui/input-group";
-import { ScrollArea } from "@/components/ui/scroll-area";
-import { Skeleton } from "@/components/ui/skeleton";
-import { Button } from "@/components/ui/button";
-import { cn } from "@/lib/utils";
-import type { ModelChoice } from "@/types/model-spec";
+import ModelSelector from './ModelSelector';
+import type { ComposerConfig } from './composer-config';
+import { InputGroup, InputGroupAddon, InputGroupButton, InputGroupTextarea } from '@/components/ui/input-group';
+import { ScrollArea } from '@/components/ui/scroll-area';
+import { Skeleton } from '@/components/ui/skeleton';
+import { Button } from '@/components/ui/button';
+import { cn } from '@/lib/utils';
+import type { ModelChoice } from '@/types/model-spec';
+import { ChatAction } from './types/action';
+
+import { ACTION_TYPES } from './constants/action';
 
 /**
  * The chat composer — the config-driven input form (docs/plan-conversation-
@@ -32,23 +30,32 @@ import type { ModelChoice } from "@/types/model-spec";
 export default function ChatComposerForm({
   config,
   modelChoice,
-  onChangeModelChoice,
+
+  onAction,
+  chatInputRef,
 }: {
   config: ComposerConfig;
   modelChoice: ModelChoice | null;
-  onChangeModelChoice: (choice: ModelChoice | null) => void;
+
+  chatInputRef?: RefObject<any>;
+
+  onAction: (action: ChatAction) => void;
 }) {
-  const formRef = React.useRef<HTMLFormElement>(null);
-  const textareaRef = React.useRef<HTMLTextAreaElement>(null);
+  const formRef = useRef<HTMLFormElement>(null);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   // a managed draft (conversation state): local, cleared after an accepted send
-  const [managedDraft, setManagedDraft] = React.useState("");
-  const [managedPending, setManagedPending] = React.useState(false);
+  const [managedDraft, setManagedDraft] = useState('');
+  const [managedPending, setManagedPending] = useState(false);
   const managed = config.draft === null;
   const draft = config.draft ?? managedDraft;
 
   const sending = config.sending ?? managedPending;
   const canSend = config.canSend ?? (draft.trim().length > 0 && !sending);
+
+  const onModelChange = (choice: ModelChoice | null) => {
+    onAction({ type: ACTION_TYPES.SET_MODEL, payload: { model: choice } });
+  };
 
   const onDraftChange = (next: string) => {
     if (managed) setManagedDraft(next);
@@ -57,25 +64,24 @@ export default function ChatComposerForm({
 
   // the growing textarea (prompt/scoped states) previews hundreds of lines;
   // keep its height in step with the content, capped by the ScrollArea
-  React.useEffect(() => {
+  useEffect(() => {
     const textarea = textareaRef.current;
     if (!textarea || !config.growing) return;
-    textarea.style.height = "auto";
+    textarea.style.height = 'auto';
     textarea.style.height = `${textarea.scrollHeight}px`;
   }, [draft, config.growing]);
 
-  // the panel bumped focus into the composer ("Refine plan", §4d)
-  React.useEffect(() => {
-    if (!config.focus) return;
-    const textarea = textareaRef.current;
-    if (!textarea) return;
-    textarea.focus();
-    const end = textarea.value.length;
-    textarea.setSelectionRange?.(end, end);
-  }, [config.focus]);
+  useImperativeHandle(chatInputRef, () => ({
+    focus: (position?: number) => {
+      textareaRef.current?.focus();
+    },
 
-  const onDraftEdit = (event: React.ChangeEvent<HTMLTextAreaElement>) =>
-    onDraftChange(event.target.value);
+    setSelectionRange: (start: number, end: number) => {
+      textareaRef.current?.setSelectionRange(start, end);
+    },
+  }));
+
+  const onDraftEdit = (event: ChangeEvent<HTMLTextAreaElement>) => onDraftChange(event.target.value);
 
   // the shared textarea (identical in both the plain and the growing layout)
   const textarea = (
@@ -86,9 +92,9 @@ export default function ChatComposerForm({
       placeholder={config.placeholder}
       aria-label="Message"
       disabled={sending}
-      className={cn("min-h-16", config.growing ? "py-3" : "py-2")}
-      onKeyDown={(event) => {
-        if (event.key === "Enter" && !event.shiftKey) {
+      className={cn('min-h-16', config.growing ? 'py-3' : 'py-2')}
+      onKeyDown={event => {
+        if (event.key === 'Enter' && !event.shiftKey) {
           event.preventDefault();
           formRef.current?.requestSubmit();
         }
@@ -100,7 +106,7 @@ export default function ChatComposerForm({
     <form
       ref={formRef}
       className="shrink-0 px-3 pb-4 pt-2"
-      onSubmit={(event) => {
+      onSubmit={event => {
         event.preventDefault();
         if (!canSend) return;
         const send = config.onSend(draft);
@@ -108,7 +114,7 @@ export default function ChatComposerForm({
         // a managed draft only clears once the server accepted the message
         setManagedPending(true);
         Promise.resolve(send)
-          .then(() => setManagedDraft(""))
+          .then(() => setManagedDraft(''))
           .catch(() => {})
           .finally(() => setManagedPending(false));
       }}
@@ -133,40 +139,30 @@ export default function ChatComposerForm({
 
       {config.loading ? (
         <InputGroup>
-          <div
-            role="status"
-            aria-label="Loading the prompt template"
-            className="flex-1 py-3 px-0.5"
-          >
+          <div role="status" aria-label="Loading the prompt template" className="flex-1 py-3 px-0.5">
             <Skeleton className="h-4 w-11/12 mb-1.5" />
             <Skeleton className="h-4 w-2/3" />
           </div>
         </InputGroup>
       ) : config.error ? (
-        <div
-          className="flex items-center gap-2 rounded-lg border border-border bg-background px-3 py-3 text-[11.5px]"
-        >
+        <div className="flex items-center gap-2 rounded-lg border border-border bg-background px-3 py-3 text-[11.5px]">
           {config.error}
         </div>
       ) : (
         <InputGroup>
-          {config.growing ? (
-            <ScrollArea className="max-h-[40vh] flex-1 w-full">{textarea}</ScrollArea>
-          ) : (
-            textarea
-          )}
+          {config.growing ? <ScrollArea className="max-h-[40vh] flex-1 w-full">{textarea}</ScrollArea> : textarea}
           <InputGroupAddon align="block-end">
-            <ModelSelector value={modelChoice} onChange={onChangeModelChoice} />
+            <ModelSelector value={modelChoice} onChange={onModelChange} />
             {config.aside}
             <InputGroupButton
               type="submit"
               size="icon-sm"
-              className={cn("ml-auto rounded-full", config.sendLabel !== "Send" && "!w-auto px-3")}
+              className={cn('ml-auto rounded-full', config.sendLabel !== 'Send' && '!w-auto px-3')}
               disabled={!canSend}
               aria-label={config.sendLabel}
             >
               <ArrowUpIcon />
-              {config.sendLabel === "Send" ? (
+              {config.sendLabel === 'Send' ? (
                 <span className="sr-only">Send</span>
               ) : (
                 <span className="text-xs font-medium">{config.sendLabel}</span>
