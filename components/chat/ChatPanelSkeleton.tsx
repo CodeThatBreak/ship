@@ -13,14 +13,14 @@ export default function ChatPanelSkeleton() {
   return (
     <div className="flex h-full min-h-0 flex-col">
       {/* heading — icon + title + truncated caption */}
-      <div className="shrink-0 flex items-center gap-2 px-1 pb-2.5">
+      <div className="shrink-0 flex items-center gap-2 pl-1 pr-4.5 pb-2.5">
         <Skeleton className="size-4 shrink-0 rounded-full" />
         <Skeleton className="h-3.5 w-10" />
         <Skeleton className="h-3 w-32" />
       </div>
 
       {/* conversation tabs — a row of pill shapes */}
-      <div className="shrink-0 flex items-center gap-1.5 px-1 pb-2">
+      <div className="shrink-0 flex items-center gap-1.5 pl-1 pr-4.5 pb-2">
         <Skeleton className="h-6 w-20 rounded-full" />
         <Skeleton className="h-6 w-16 rounded-full" />
         <Skeleton className="h-6 w-24 rounded-full" />
@@ -29,7 +29,7 @@ export default function ChatPanelSkeleton() {
       <ChatFeedSkeleton />
 
       {/* composer — textarea block + the footer with the model pick and send */}
-      <div className="shrink-0 px-3 pb-4 pt-2">
+      <div className="shrink-0 pl-3 pr-6.5 pb-4 pt-2">
         <InputGroup>
           <div className="flex-1 py-3 px-0.5">
             <Skeleton className="h-4 w-2/3 mb-1.5" />

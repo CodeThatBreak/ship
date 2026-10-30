@@ -35,7 +35,7 @@ export default function PlanNodeChat() {
     ];
   }, [branches]);
 
-  const { activeThreadId, prompts, is, chatInputRef, onAction, loading, onSendChatMutationFn, isPromptsLoading } =
+  const { activeThreadId, prompts, chatInputRef, onAction, onSendChatMutationFn, isPromptsLoading } =
     usePlanComposer({
       flowId: flow.id,
       nodeKey: node.node_key,
@@ -50,7 +50,7 @@ export default function PlanNodeChat() {
 
   return (
     <ChatPanel
-      initialDraft={prompts[node.node_key]}
+      initialDraft={prompts?.[node.node_key]}
       flowId={flow.id}
       nodeKey={node.node_key}
       nodeLabel={node.label ?? node.template_name ?? node.node_key}
@@ -65,7 +65,6 @@ export default function PlanNodeChat() {
       activeThreadId={activeThreadId ?? undefined}
       onAction={onAction}
       chatInputRef={chatInputRef}
-      loading={loading}
       sendMutationFn={onSendChatMutationFn}
     />
   );

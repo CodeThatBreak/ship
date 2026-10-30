@@ -2,6 +2,7 @@
 
 import { MessageCircleDashedIcon } from 'lucide-react';
 
+import { cn } from '@/lib/utils';
 import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from '@/components/ui/empty';
 import {
   MessageScroller,
@@ -67,7 +68,7 @@ export default function ChatFeed({
       ) : (
         <MessageScroller className="min-h-0">
           <MessageScrollerViewport className="scroll-fade-b">
-            <MessageScrollerContent aria-busy={awaitingReply} className="gap-6 px-4 py-4 text-sm">
+            <MessageScrollerContent aria-busy={awaitingReply} className="gap-6 pl-4 pr-7.5 py-4 text-sm">
               {rows.map((row, i) => {
                 const key =
                   row.kind === 'msg'

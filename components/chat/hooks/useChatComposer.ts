@@ -10,7 +10,7 @@ type SendMutationVariables = {
   flowId: string;
   nodeKey: string;
   modelChoice: ModelChoice | null;
-  thread?: string;
+  thread?: string | null;
   /** the composer's draft at send time (the run-node send IS the prompt body) */
   content: string;
 };

@@ -47,6 +47,9 @@
 }
 
 :root {
+  /* the app is dark throughout — keep UA-drawn UI (scrollbar tracks, native
+     inputs, autofill highlights) in Chromium's dark scheme, not light */
+  color-scheme: dark;
   --radius: 0.625rem;
   --font: "Inter", -apple-system, "SF Pro Text", "Segoe UI", Roboto, sans-serif;
   --mono: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, monospace;

@@ -171,7 +171,7 @@ export default function ChatComposerForm({
   }
 
   return (
-    <form ref={formRef} className="shrink-0 px-3 pb-4 pt-2" onSubmit={onFormSubmit}>
+    <form ref={formRef} className="shrink-0 pl-3 pr-6.5 pb-4 pt-2" onSubmit={onFormSubmit}>
       {(caption != null || canReset) && (
         <div className="flex items-center gap-2 px-1 pb-1.5 text-[11px] text-muted-foreground">
           {caption}

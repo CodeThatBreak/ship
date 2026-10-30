@@ -8,7 +8,7 @@ export default function ChatFeedSkeleton() {
     <div
       role="status"
       aria-label="Loading chat"
-      className="flex-1 flex flex-col gap-6 px-4 py-4"
+      className="flex-1 flex flex-col gap-6 pl-4 pr-7.5 py-4"
     >
       <div className="flex justify-end">
         <Skeleton className="h-9 w-36 rounded-2xl" />

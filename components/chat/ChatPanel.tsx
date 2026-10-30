@@ -105,11 +105,20 @@ export default function ChatPanel({
     return threads.find(t => t.id === activeThreadId);
   }, [threads, activeThreadId]);
 
+  // the feed's thread filter (`messages.thread`): the marked-main tab is the
+  // unthreaded main conversation — that's ChatTab's contract ("absent (null)
+  // = single-transcript behavior", the run/event trail included); every other
+  // tab's id IS the thread key that isolates its refinement conversation. An
+  // active id with NO matching tab (the branch-less plan rail renders no tab
+  // strip at all) must fall back to the main conversation — filtering under a
+  // phantom thread id would hide both the messages and the run/event trail.
+  const feedThread = activeThread ? ((activeThread.main ? null : activeThreadId) ?? null) : null;
+
   const { sendMessageMutation, isPending: isSendingMessage } = useChatComposer({
     flowId,
     nodeKey,
     modelChoice,
-    thread: activeThreadId,
+    thread: feedThread,
     sendMutationFn,
   });
   const {
@@ -119,7 +128,7 @@ export default function ChatPanel({
   } = useChatFeed({
     flowId,
     nodeKey,
-    thread: activeThreadId,
+    thread: feedThread,
     events,
     nodeKeysByNodeId,
     nodeStatusByNodeId,
@@ -156,7 +165,7 @@ export default function ChatPanel({
   return (
     <div className="flex h-full min-h-0 flex-col">
       {/* panel heading — a configured panel title replaces the generic agent label */}
-      <div className="shrink-0 flex items-center gap-2 px-1 pb-2.5">
+      <div className="shrink-0 flex items-center gap-2 pl-1 pr-4.5 pb-2.5">
         <MessageCircleDashedIcon className="size-4 shrink-0 text-muted-foreground" />
         <h2 className="m-0 text-[13.5px] font-semibold leading-none">Chat</h2>
         <span className="truncate text-[11px] text-muted-foreground">
@@ -169,7 +178,7 @@ export default function ChatPanel({
         active={activeThreadId}
         onSelect={onThreadChange}
         label="Conversation tabs"
-        className="shrink-0 px-1 pb-2"
+        className="shrink-0 pl-1 pr-4.5 pb-2"
       />
 
       <ChatFeed
@@ -184,7 +193,7 @@ export default function ChatPanel({
       />
 
       {sendError && (
-        <p role="alert" className="shrink-0 flex items-center gap-1.5 px-4 pb-1 text-[11px] text-destructive">
+        <p role="alert" className="shrink-0 flex items-center gap-1.5 pl-4 pr-4 pb-1 text-[11px] text-destructive">
           <CircleAlertIcon className="size-3 shrink-0" />
           {sendError}
         </p>

@@ -59,9 +59,13 @@ export default function NodePanel({
           )}
         </div>
         {/* the node's chat rail — agent-backed nodes only, the plan node
-            through the plan feature's composer config */}
+            through the plan feature's composer config. The top/left/bottom
+            insets stay here; the right edge stays open so the chat feed's
+            scrollbar can run flush with the container's edge (like the app's
+            ScrollArea) — the rail's children re-add their own right inset to
+            keep the copy where it was. */}
         {Chat && (
-          <aside className="flex-1 flex flex-col bg-card min-w-[340px] p-3.5 min-h-0">
+          <aside className="flex-1 flex flex-col bg-card min-w-[340px] py-3.5 pl-3.5 pr-0 min-h-0">
             <Chat />
           </aside>
         )}

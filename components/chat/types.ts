@@ -14,6 +14,13 @@ export type ChatTab = {
   id: string;
   label: string;
   /**
+   * The main-conversation tab (e.g. the plan's "Main plan"): the feed filters
+   * by no thread (null) — the unthreaded conversation that keeps the
+   * chronological run/event trail. Absent = a refinement tab (its id IS the
+   * `messages.thread` key that isolates its conversation).
+   */
+  main?: boolean;
+  /**
    * The tab's feed empty state — feature-owned copy (the defining feature
    * knows what its conversation is for); absent = the generic agent default
    * in `ChatFeed`.
