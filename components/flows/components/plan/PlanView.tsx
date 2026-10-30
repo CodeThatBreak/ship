@@ -17,7 +17,7 @@ import type { ExecutionMode } from './constants';
 import { executionLabel, resolveExecution } from './utils/planExecution';
 import { useExecutionPick } from './hooks/useExecutionPick';
 import { usePlanAction } from './hooks/usePlanAction';
-import { planComposerBus } from './hooks/composerBus';
+
 import type { BranchPlan } from './types';
 
 /**
@@ -61,10 +61,7 @@ export default function PlanView() {
     `${current?.id ?? ''}:${execution.resolution}`
   );
 
-  const onRetry = () => onAction({ type: ACTION_TYPES.RETRY_AGENT, payload: { nodeKey: node.node_key } });
-  const onStopAgent = () => onAction({ type: ACTION_TYPES.CANCEL_AGENT, payload: { nodeKey: node.node_key } });
-
-  const onRefine = () => planComposerBus.focusComposer();
+  const onRefine = () => null;
   const onApprove = (pick: ExecutionMode) =>
     onAction({
       type: ACTION_TYPES.APPROVE,

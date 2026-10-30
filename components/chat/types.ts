@@ -14,6 +14,13 @@ export type ChatTab = {
   /** the tab's thread id on `messages.thread` — null = the main conversation */
   id: string | null;
   label: string;
+  /**
+   * The tab's feed empty state — feature-owned copy (the defining feature
+   * knows what its conversation is for); absent = the generic agent default
+   * in `ChatFeed`.
+   */
+  emptyTitle?: string;
+  emptyDescription?: string;
 };
 
 export type ChatTabs = {

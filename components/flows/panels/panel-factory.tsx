@@ -1,15 +1,15 @@
-"use client";
-import type { ComponentType } from "react";
-import type { Node } from "@/types/flow";
-import { PlanNodeChat, PlanView } from "../components/plan";
-import AgentView from "./AgentView";
-import BuildView from "./BuildView";
-import DeclarativeView from "./DeclarativeView";
-import NodeChat from "./NodeChat";
-import PipelineView from "./PipelineView";
-import ResolveView from "./ResolveView";
-import ReviewView from "./ReviewView";
-import StartView from "./StartView";
+'use client';
+import type { ComponentType } from 'react';
+import type { Node } from '@/types/flow';
+import { PlanNodeChat, PlanView } from '../components/plan';
+import AgentView from './AgentView';
+import BuildView from './BuildView';
+import DeclarativeView from './DeclarativeView';
+import NodeChat from './NodeChat';
+import PipelineView from './PipelineView';
+import ResolveView from './ResolveView';
+import ReviewView from './ReviewView';
+import StartView from './StartView';
 
 /**
  * The node workspace factory (§3.1's registry, resolved explicitly): a
@@ -52,7 +52,7 @@ const PANEL_BY_KIND: Record<string, ComponentType> = {
 const resolveChat = (node: Node): ComponentType | null => {
   const capabilities = node.capabilities;
   if (!capabilities?.refinable) return null;
-  return capabilities.chatMode === "plan" ? PlanNodeChat : NodeChat;
+  return capabilities.chatMode === 'plan' ? PlanNodeChat : NodeChat;
 };
 
 /** The workspace serving this node — `panel: null` means the caller renders the fallback. */

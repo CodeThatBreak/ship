@@ -12,10 +12,12 @@ import { queryKeys } from '@/constants/query-keys';
 import { FLOW_ACTION, FLOW_STATUS } from '@/constants/flow';
 import { ACTION_TYPES } from '../../constants/action';
 import { PlanComposerErrorBlock } from '../../components/PlanComposerErrorBlock';
-import { usePlanComposerCommand } from '../composerBus';
 
 /** The chat panel's main plan tab — the unthreaded whole-plan conversation. */
 const MAIN_PLAN_TAB = 'Main plan';
+
+/** A plan tab's feed empty state — one refinement conversation per tab (§4b). */
+const REFINE_HINT = "This sub-plan's refinement conversation — refine it further or ask about its steps.";
 
 /** A composer send against the flow's action route (run_node / refine_plan). */
 type PlanActionTarget =
@@ -159,26 +161,6 @@ export function usePlanComposer({
   const sending = actionSend.isPending || sendChat.isPending;
   const sendError: string | null = errorMessageOf(actionSend.error) ?? errorMessageOf(sendChat.error);
 
-  // ── the plan panel's commands (focus / scoped prefill) ───────────────────
-  // the handler stays fresh across renders (composerBus's listener pattern),
-  // so it reads the latest planPending directly.
-  usePlanComposerCommand(command => {
-    if (command.kind === 'focusComposer') {
-      setBumpFocus(command.at);
-      return;
-    }
-    // the branch refine only exists once plans exist — skip while pending
-    if (planPending) return;
-    actionSend.reset();
-    lastSendRef.current = null;
-    branchSeedRef.current = null;
-    setBranchRef(command.branch);
-    // a fresh scoped prefill always starts from the fetched branch body —
-    // never a leftover draft from the previous state
-    setDraft(null);
-    // the chat panel follows: the armed branch's tab becomes the active tab
-    setThread(command.branch);
-  });
   const exitScoped = useCallback(() => {
     actionSend.reset();
     lastSendRef.current = null;
@@ -200,7 +182,23 @@ export function usePlanComposer({
   // tab per sub plan branch
   const tabs: ChatTabs = useMemo(
     () => ({
-      items: [{ id: null, label: MAIN_PLAN_TAB }, ...branchNames.map(name => ({ id: name, label: name }))],
+      items: [
+        // the main plan tab carries the same refine copy as the branch tabs —
+        // the panel's active-tab lookup matches the null-id item, so the main
+        // tab's empty feed already rendered this copy before the seam carried it
+        {
+          id: null,
+          label: MAIN_PLAN_TAB,
+          emptyTitle: `Refine the “${MAIN_PLAN_TAB}” sub-plan`,
+          emptyDescription: REFINE_HINT,
+        },
+        ...branchNames.map(name => ({
+          id: name,
+          label: name,
+          emptyTitle: `Refine the “${name}” sub-plan`,
+          emptyDescription: REFINE_HINT,
+        })),
+      ],
       active: thread,
       onActive: setThread,
     }),

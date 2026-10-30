@@ -1,18 +1,19 @@
-"use client";
+'use client';
 
-import * as React from "react";
-import { CircleAlertIcon, MessageCircleDashedIcon } from "lucide-react";
+import * as React from 'react';
+import { CircleAlertIcon, MessageCircleDashedIcon } from 'lucide-react';
 
-import type { ModelChoice } from "@/types/model-spec";
-import type { NodeUiCapabilities } from "@/types/node-capabilities";
-import type { FeedEvent } from "./timeline";
-import type { ComposerConfig } from "./composer-config";
-import type { ChatTabs } from "./types";
-import { useChatComposer } from "./hooks/use-chat-composer";
-import { useChatFeed } from "./hooks/use-chat-feed";
-import { TabStrip } from "@/components/shared";
-import ChatFeed from "./ChatFeed";
-import ChatComposerForm from "./ChatComposerForm";
+import type { ModelChoice } from '@/types/model-spec';
+import type { NodeUiCapabilities } from '@/types/node-capabilities';
+import type { FeedEvent } from './timeline';
+import type { ComposerConfig } from './composer-config';
+import type { ChatTabs } from './types';
+import { useChatComposer } from './hooks/useChatComposer';
+import { useStandardComposerConfig } from './hooks/useStandardComposerConfig';
+import { useChatFeed } from './hooks/useChatFeed';
+import { TabStrip } from '@/components/shared';
+import ChatFeed from './ChatFeed';
+import ChatComposerForm from './ChatComposerForm';
 
 /**
  * The flow's chat rail: heading, transcript feed and the composer.
@@ -20,8 +21,8 @@ import ChatComposerForm from "./ChatComposerForm";
  * the `composer` config seam (docs/plan-conversation-refine.md §4d) —
  * without it the standard draft/send mechanics apply, unchanged. The
  * `tabs` seam (its sibling) splits the feed into the feature's conversation
- * tabs — the plan node's main plan + per-sub-plan-refinement threads —
- * rendered as the generic shared TabStrip.
+ * threads — each tab carrying its own empty-state copy — rendered as the
+ * generic shared TabStrip.
  */
 export default function ChatPanel({
   flowId,
@@ -53,17 +54,20 @@ export default function ChatPanel({
   setModelChoice: (choice: ModelChoice | null) => void;
   /** the config-driven composer (the plan node, §4d); absent = the standard composer */
   composer?: ComposerConfig | null;
-  /** the feed's thread tabs (the plan node's per-refinement chats); absent = one transcript */
+  /** the feed's feature-built conversation tabs; absent = one transcript */
   tabs?: ChatTabs | null;
 }) {
   // the active tab (for the heading's context label + the tab's empty state)
-  const activeTab = tabs?.items.find((t) => t.id === tabs.active) ?? null;
+  const activeTab = tabs?.items.find(t => t.id === tabs.active) ?? null;
 
+  // the standard chat mechanics — the zero-cost default behind the seam
+  // (see useStandardComposerConfig)
   const standard = useChatComposer({
     flowId,
     nodeKey,
     modelChoice,
   });
+  const standardConfig = useStandardComposerConfig(standard, nodeLabel);
 
   // sending state for the feed's awaiting-reply marker: the active composer's
   // send (the plan node routes through the config seam)
@@ -81,19 +85,8 @@ export default function ChatPanel({
   });
 
   // The composer that renders: feature-built config when provided, else the
-  // standard chat mechanics wrapped in the same zero-cost config shape.
-  const active: ComposerConfig = composer ?? {
-    draft: standard.draft,
-    onDraftChange: standard.setDraft,
-    loading: false,
-    error: null,
-    sending: standard.sending,
-    sendError: standard.sendError,
-    sendLabel: "Send",
-    growing: false,
-    onSend: (draft) => standard.send(draft),
-    placeholder: `Message the ${nodeLabel} agent…`,
-  };
+  // standard chat mechanics already wrapped in the zero-cost config shape.
+  const active: ComposerConfig = composer ?? standardConfig;
 
   return (
     <div className="flex h-full min-h-0 flex-col">
@@ -102,7 +95,7 @@ export default function ChatPanel({
         <MessageCircleDashedIcon className="size-4 shrink-0 text-muted-foreground" />
         <h2 className="m-0 text-[13.5px] font-semibold leading-none">Chat</h2>
         <span className="truncate text-[11px] text-muted-foreground">
-          {tabs && activeTab ? activeTab.label : capabilities?.panelTitle ?? `${nodeLabel} agent`}
+          {tabs && activeTab ? activeTab.label : (capabilities?.panelTitle ?? `${nodeLabel} agent`)}
         </span>
       </div>
 
@@ -129,31 +122,18 @@ export default function ChatPanel({
         rows={feed.rows}
         awaitingReply={feed.awaitingReply}
         nodeLabel={nodeLabel}
-        emptyTitle={
-          activeTab ? `Refine the “${activeTab.label}” sub-plan` : undefined
-        }
-        emptyDescription={
-          activeTab
-            ? "This sub-plan's refinement conversation — refine it further or ask about its steps."
-            : undefined
-        }
+        emptyTitle={activeTab?.emptyTitle}
+        emptyDescription={activeTab?.emptyDescription}
       />
 
       {active.sendError && (
-        <p
-          role="alert"
-          className="shrink-0 flex items-center gap-1.5 px-4 pb-1 text-[11px] text-destructive"
-        >
+        <p role="alert" className="shrink-0 flex items-center gap-1.5 px-4 pb-1 text-[11px] text-destructive">
           <CircleAlertIcon className="size-3 shrink-0" />
           {active.sendError}
         </p>
       )}
 
-      <ChatComposerForm
-        config={active}
-        modelChoice={modelChoice}
-        onChangeModelChoice={setModelChoice}
-      />
+      <ChatComposerForm config={active} modelChoice={modelChoice} onChangeModelChoice={setModelChoice} />
     </div>
   );
 }

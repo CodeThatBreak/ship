@@ -8,6 +8,12 @@ import type * as React from "react";
  * scoped-prefill) all express as this config, built by the plan feature's
  * `usePlanComposer`. Other nodes render the standard composer (the chat
  * panel builds a zero-cost config from its own draft/send mechanics).
+ *
+ * Referential stability (AGENTS §2.5): no current consumer memoizes on a
+ * `ComposerConfig` — `ChatComposerForm` is not a `memo` child — so builders
+ * may return a fresh object each render (`usePlanComposer` does). If a
+ * config consumer ever becomes a `memo` child, the builders own wrapping
+ * their configs in `useMemo`; the consumer never stabilizes them.
  */
 export interface ComposerConfig {
   /**

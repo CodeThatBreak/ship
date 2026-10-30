@@ -7,7 +7,6 @@ import { useFlowMutation } from '@/components/flows/mutations/useFlowMutation';
 import type { Action } from '../types/action';
 
 import { reducer, INITIAL_PLAN_UI } from '../reducer';
-import { planComposerBus } from './composerBus';
 
 export function usePlanAction(flowId: string) {
   const flowMutation = useFlowMutation({ flowId });
@@ -33,11 +32,6 @@ export function usePlanAction(flowId: string) {
       case ACTION_TYPES.COLLAPSE_BRANCH: {
         dispatch(action);
         break;
-      }
-
-      case ACTION_TYPES.BRANCH_REFINE: {
-        dispatch({ type: ACTION_TYPES.COLLAPSE_BRANCH });
-        planComposerBus.prefillBranch(action.payload.name);
       }
 
       default:
