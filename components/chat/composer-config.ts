@@ -1,4 +1,4 @@
-import type * as React from "react";
+import type * as React from 'react';
 
 /**
  * The composer's config seam (docs/plan-conversation-refine.md §4d): the
@@ -22,7 +22,7 @@ export interface ComposerConfig {
    * controlled draft (the prefilled prompt / scoped branch body), whose
    * edits flow back through `onDraftChange`.
    */
-  draft: string | null;
+  draft?: string;
   /** Forward the controlled draft's edits to the config builder. */
   onDraftChange?: (draft: string) => void;
   /** The prefill fetch is in flight → the composer renders a skeleton. */
@@ -43,7 +43,7 @@ export interface ComposerConfig {
   /** Auto-grow tall gated textarea (prompt / scoped states). */
   growing: boolean;
   /** Caption row above the input: char count, scoped chip slot. */
-  caption?: React.ReactNode | null;
+  caption?: React.ReactNode;
   /** The ghost "Reset to template" affordance (prefill diverges from the template). */
   reset?: { canReset: boolean; onReset: () => void };
   /** Extra trailing controls beside the model selector (the decompose toggle in the prompt state). */

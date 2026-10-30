@@ -1,10 +1,6 @@
-import {
-  useMutation,
-  useQuery,
-  useQueryClient,
-} from "@tanstack/react-query";
-import { queryKeys } from "@/constants/query-keys";
-import { fetchJson, postJson } from "./fetch-json";
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { queryKeys } from '@/constants/query-keys';
+import { fetchJson, postJson } from './fetch-json';
 
 const CHAT_REFETCH_MS = 4000;
 
@@ -15,7 +11,7 @@ export type ChatMessage = {
   id: string;
   node_key?: string;
   thread?: string | null;
-  role: "user" | "assistant";
+  role: 'user' | 'assistant';
   content: string;
   created_at: string;
 };
@@ -30,7 +26,7 @@ export function useFlowChatMessages(flowId: string) {
     queryKey: queryKeys.flows.chat(flowId),
     queryFn: () => fetchJson<ChatPayload>(`/api/flows/${flowId}/chat`),
     refetchInterval: CHAT_REFETCH_MS,
-    select: (d) => d.messages ?? [],
+    select: d => d.messages ?? [],
   });
 }
 
@@ -39,21 +35,14 @@ export function useFlowChatMessages(flowId: string) {
  * plan body before the first run, §4a). `enabled: false` skips the fetch
  * entirely; a failed read leaves the send gated and the retry inline.
  */
-export function useNodePrompt(
-  flowId: string,
-  nodeKey: string,
-  options: { enabled?: boolean } = {},
-) {
+export function useNodePrompt(flowId: string, nodeKey: string, options: { enabled?: boolean } = {}) {
   return useQuery({
     queryKey: queryKeys.flows.nodePrompt(flowId, nodeKey),
-    queryFn: () =>
-      fetchJson<PromptPayload>(
-        `/api/flows/${flowId}/prompt?node=${encodeURIComponent(nodeKey)}`,
-      ),
+    queryFn: () => fetchJson<PromptPayload>(`/api/flows/${flowId}/prompt?node=${encodeURIComponent(nodeKey)}`),
     enabled: options.enabled ?? true,
     // null (not "") so a missing template fails loudly in the composer
     // instead of seeding an empty, sendable body
-    select: (d) => d.prompt ?? null,
+    select: d => d.prompt ?? null,
   });
 }
 
@@ -62,22 +51,16 @@ export function useNodePrompt(
  * prefill, §4c). The route answers 400 when the ref'd branch is no longer in
  * the latest plan — the read stays failed and the chip shows invalidated.
  */
-export function useNodeBranchPrompt(
-  flowId: string,
-  nodeKey: string,
-  branch: string | null,
-) {
+export function useNodeBranchPrompt(flowId: string, nodeKey: string, branch: string | null) {
   return useQuery({
-    queryKey: queryKeys.flows.nodeBranchPrompt(flowId, nodeKey, branch ?? ""),
+    queryKey: queryKeys.flows.nodeBranchPrompt(flowId, nodeKey, branch ?? ''),
     queryFn: () =>
       fetchJson<PromptPayload>(
-        `/api/flows/${flowId}/prompt?node=${encodeURIComponent(
-          nodeKey,
-        )}&branch=${encodeURIComponent(branch ?? "")}`,
+        `/api/flows/${flowId}/prompt?node=${encodeURIComponent(nodeKey)}&branch=${encodeURIComponent(branch ?? '')}`
       ),
     enabled: branch != null,
     // null (not "") so a missing branch body fails loudly in the composer
-    select: (d) => d.prompt ?? null,
+    select: d => d.prompt ?? null,
   });
 }
 
@@ -87,11 +70,7 @@ export function useNodeBranchPrompt(
  * transcript on success. `thread` tags the turn with the active refinement
  * tab (the plan's sub-plan refines) instead of the main conversation.
  */
-export function useSendChatMessage(
-  flowId: string,
-  nodeKey: string,
-  options: ChatSendOptions,
-) {
+export function useSendChatMessage(flowId: string, nodeKey: string, options: ChatSendOptions) {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (content: string) =>
@@ -103,7 +82,7 @@ export function useSendChatMessage(
           chatOnly: options.chatOnly,
           model: options.model,
           thread: options.thread ?? null,
-        }),
+        })
       ),
     onSuccess: () => {
       void queryClient.invalidateQueries({

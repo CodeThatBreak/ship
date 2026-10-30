@@ -40,6 +40,7 @@ export default function ChatComposerForm({
   draft: initialDraft = '',
   loading,
   caption,
+  placeholder,
   sendLabel,
   canReset,
   canSend,
@@ -52,7 +53,8 @@ export default function ChatComposerForm({
   modelChoice: ModelChoice | null;
   draft?: string;
   loading: boolean;
-  caption?: string;
+  caption?: ReactNode;
+  placeholder?: string;
   sendLabel: string;
 
   canReset: boolean;
@@ -133,10 +135,10 @@ export default function ChatComposerForm({
       ref={textareaRef}
       value={draftState}
       onChange={onDraftEdit}
-      placeholder={config.placeholder}
+      placeholder={placeholder}
       aria-label="Message"
       disabled={pending}
-      className={cn('min-h-16', config.growing ? 'py-3' : 'py-2')}
+      className="min-h-16 py-2"
       onKeyDown={onInputKeyDown}
     />
   );

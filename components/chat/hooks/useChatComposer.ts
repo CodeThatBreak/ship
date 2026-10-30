@@ -1,10 +1,16 @@
-"use client";
+'use client';
 
-import * as React from "react";
-import { useSendChatMessage } from "@/hooks/use-flow-chat";
-import { composeModelChoice } from "@/lib/modelSpec";
-import type { ModelChoice } from "@/types/model-spec";
-import { errorMessageOf } from "@/hooks/fetch-json";
+import * as React from 'react';
+import { useSendChatMessage } from '@/hooks/use-flow-chat';
+import { composeModelChoice } from '@/lib/modelSpec';
+import type { ModelChoice } from '@/types/model-spec';
+
+type Params = {
+  flowId: string;
+  nodeKey: string;
+  modelChoice: ModelChoice | null;
+  thread?: string;
+};
 
 /**
  * The standard chat composer's mechanics: draft state, the send mutation and
@@ -13,46 +19,22 @@ import { errorMessageOf } from "@/hooks/fetch-json";
  * `usePlanComposer` (docs/plan-conversation-refine.md §4d), so this hook
  * never grows plan logic.
  */
-export function useChatComposer({
-  flowId,
-  nodeKey,
-  modelChoice,
-}: {
-  flowId: string;
-  nodeKey: string;
-  modelChoice: ModelChoice | null;
-}) {
-  const [draft, setDraft] = React.useState("");
-
-  // send + refresh: invalidates the transcript key on success (in the hook),
-  // surfaces transport/HTTP errors inline; the draft only clears once the
-  // server accepted the message. A plain chat message's effect is decided by
-  // the node's response contract — the UI never declares intent.
+export function useChatComposer({ flowId, nodeKey, modelChoice, thread }: Params) {
   const sendChat = useSendChatMessage(flowId, nodeKey, {
     chatOnly: false,
     model: composeModelChoice(modelChoice) || undefined,
+    thread,
   });
 
-  const sending = sendChat.isPending;
-  // the config's error slot wants a message string; keep a single level here
-  const sendError = errorMessageOf(sendChat.error);
-  const canSend = draft.trim().length > 0 && !sending;
-
-  const send = (content: string) => {
+  const sendMessageMutation = React.useCallback((content: string) => {
     const body = content.trim();
     if (!body || sendChat.isPending) return;
-    sendChat
-      .mutateAsync(body)
-      .then(() => setDraft(""))
-      .catch(() => {});
-  };
+    return sendChat.mutateAsync(body);
+  }, []);
 
   return {
-    draft,
-    setDraft,
-    send,
-    sending,
-    sendError,
-    canSend,
+    sendMessageMutation,
+    isPending: sendChat.isPending,
+    error: sendChat.error,
   };
 }

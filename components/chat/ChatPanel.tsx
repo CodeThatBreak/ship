@@ -1,13 +1,13 @@
 'use client';
 
-import { useMemo, useCallback } from 'react';
+import { useMemo, useCallback, type ReactNode } from 'react';
 import { CircleAlertIcon, MessageCircleDashedIcon } from 'lucide-react';
 
 import type { ModelChoice } from '@/types/model-spec';
 import type { NodeUiCapabilities } from '@/types/node-capabilities';
 import type { FeedEvent } from './timeline';
 import type { ComposerConfig } from './composer-config';
-import type { ChatTab, ChatTabs } from './types';
+import type { ChatTab } from './types';
 import { useChatComposer } from './hooks/useChatComposer';
 import { useStandardComposerConfig } from './hooks/useStandardComposerConfig';
 import { useChatFeed } from './hooks/useChatFeed';
@@ -15,7 +15,6 @@ import { TabStrip } from '@/components/shared';
 import ChatFeed from './ChatFeed';
 import ChatComposerForm from './components/chatComposerForm/ChatComposerForm';
 import { ChatAction } from './types/action';
-import { ta } from 'zod/v4/locales';
 import { ACTION_TYPES } from './constants/action';
 
 /**
@@ -38,11 +37,22 @@ export default function ChatPanel({
   nodeStatusByNodeId,
   modelChoice,
 
-  composer,
   tabs = [],
   activeTabId,
 
   onAction,
+
+  initialDraft,
+  loading = false,
+  caption,
+  placeholder,
+  sendLabel = 'Send',
+  sendError,
+  canReset = false,
+  canSend = false,
+
+  aside,
+  error,
 }: {
   flowId: string;
   nodeKey: string;
@@ -58,12 +68,22 @@ export default function ChatPanel({
   nodeStatusByNodeId?: Map<string, string>;
   modelChoice: ModelChoice | null;
 
-  composer?: ComposerConfig | null;
-
   tabs?: ChatTab[];
   activeTabId?: string;
 
   onAction: (action: ChatAction) => void;
+
+  initialDraft?: string;
+  loading?: boolean;
+  caption?: ReactNode;
+  placeholder?: string;
+  sendLabel?: string;
+  sendError?: ReactNode;
+  canReset?: boolean;
+  canSend?: boolean;
+
+  aside?: ReactNode;
+  error?: ReactNode;
 }) {
   const activeTab = useMemo(() => {
     if (!activeTabId || !tabs) return null;
@@ -71,29 +91,26 @@ export default function ChatPanel({
     return tabs.find(t => t.id === activeTabId);
   }, [tabs, activeTabId]);
 
-  const standard = useChatComposer({
+  const { isPending: isSendingMessage } = useChatComposer({
     flowId,
     nodeKey,
     modelChoice,
   });
-  const standardConfig = useStandardComposerConfig(standard, nodeLabel);
 
-  // sending state for the feed's awaiting-reply marker: the active composer's
-  // send (the plan node routes through the config seam)
-  const sending = composer?.sending ?? standard.sending;
-
-  const feed = useChatFeed({
+  const {
+    rows,
+    awaitingReply,
+    messagesQuery: { isLoading: messagesLoading, error: messagesError, refetch: refetchMessage },
+  } = useChatFeed({
     flowId,
     nodeKey,
     thread: activeTabId,
     events,
     nodeKeysByNodeId,
     nodeStatusByNodeId,
-    sending,
+    sending: isSendingMessage,
     busy,
   });
-
-  const active: ComposerConfig = composer ?? standardConfig;
 
   const onTabChange = useCallback(
     (id: string) => {
@@ -125,39 +142,34 @@ export default function ChatPanel({
       />
 
       <ChatFeed
-        loading={feed.messagesQuery.isLoading}
-        errorText={
-          feed.messagesQuery.isError
-            ? feed.messagesQuery.error instanceof Error
-              ? feed.messagesQuery.error.message
-              : null
-            : null
-        }
-        onRetry={() => void feed.messagesQuery.refetch()}
-        rows={feed.rows}
-        awaitingReply={feed.awaitingReply}
+        rows={rows}
+        loading={messagesLoading}
+        errorText={messagesError?.message}
+        onRetry={refetchMessage}
+        awaitingReply={awaitingReply}
         nodeLabel={nodeLabel}
         emptyTitle={activeTab?.emptyTitle}
         emptyDescription={activeTab?.emptyDescription}
       />
 
-      {active.sendError && (
+      {sendError && (
         <p role="alert" className="shrink-0 flex items-center gap-1.5 px-4 pb-1 text-[11px] text-destructive">
           <CircleAlertIcon className="size-3 shrink-0" />
-          {active.sendError}
+          {sendError}
         </p>
       )}
 
       <ChatComposerForm
-        draft={active.draft}
-        loading={active.loading}
-        caption={active.caption}
-        sendLabel={active.sendLabel}
-        canReset={!!active.reset?.canReset}
-        canSend={!!active.canSend}
-        aside={active.aside}
-        error={active.error}
+        aside={aside}
+        error={error}
+        caption={caption}
+        loading={loading}
+        canSend={canSend}
+        canReset={canReset}
+        draft={initialDraft}
+        sendLabel={sendLabel}
         modelChoice={modelChoice}
+        placeholder={placeholder}
         onAction={onAction}
       />
     </div>
