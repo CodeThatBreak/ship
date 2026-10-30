@@ -99,7 +99,7 @@ No plan-specific branching inside generic `ChatPanel` beyond props the plan feat
 ### Panel (`PlanView`)
 
 - **`usePlanAction`** — mutations: approve, retry, cancel, checklist updates; **`useReducer`** for selected version and expanded branch.
-- **`useExecutionPick`** — approve-time execution override vs published meta.
+- Approve with branches: footer **`ButtonGroup`** — each option calls **`approve_plan`** directly (no local execution pick state).
 - Sections: header, status, version tabs, whole-plan diff banner, master + sub-plan sections, editable steps, approve footer.
 
 Send targets for plan changes **do not** go through the panel; they go through the chat rail or (branch) `refine_plan`.

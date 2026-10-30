@@ -1,5 +1,5 @@
-import type { Node } from "@/types/flow";
-import { EXECUTION_MODE, type ExecutionMode } from "../constants";
+import type { Node } from '@/types/flow';
+import { EXECUTION_MODE, type ExecutionMode } from '../constants';
 
 /** The effective resolution of the plan fan-out (§1 who-decides-the-mode). */
 export interface ResolvedExecution {
@@ -25,14 +25,11 @@ export interface ResolvedExecution {
  * forcing whole/steps writes executionSource "override" into the plan-meta on
  * approve_plan.
  */
-export function resolveExecution(
-  node: Node,
-  meta: Record<string, unknown> | undefined,
-): ResolvedExecution {
-  const knob = typeof node.config?.execution_default === "string" ? node.config.execution_default : undefined;
+export function resolveExecution(node: Node, meta: Record<string, unknown> | undefined): ResolvedExecution {
+  const knob = typeof node.config?.execution_default === 'string' ? node.config.execution_default : undefined;
   const published = meta?.execution === EXECUTION_MODE.STEPS ? EXECUTION_MODE.STEPS : EXECUTION_MODE.WHOLE;
-  const publishedSource = typeof meta?.executionSource === "string" ? meta.executionSource : "unknown";
-  const plannerRationale = typeof meta?.execution_rationale === "string" ? meta.execution_rationale : null;
+  const publishedSource = typeof meta?.executionSource === 'string' ? meta.executionSource : 'unknown';
+  const plannerRationale = typeof meta?.execution_rationale === 'string' ? meta.execution_rationale : null;
   // the raw knob domain is whole|follow now; a LEGACY raw knob "steps" (the
   // retired per-step child flows) means what "follow" means — the published
   // value wins, so old configs surface their published (per-branch) resolution
@@ -43,6 +40,6 @@ export function resolveExecution(
 /** Label of what a resolution will execute as ("one run" / "one child flow per branch (n branches)"). */
 export function executionLabel(mode: ExecutionMode, branchCount: number): string {
   return mode === EXECUTION_MODE.STEPS
-    ? `one child flow per branch (${branchCount} branch${branchCount === 1 ? "" : "es"})`
-    : "one run";
+    ? `Each sub-flow will be implemented in a separate run (${branchCount} branch${branchCount === 1 ? '' : 'es'})`
+    : 'Whole plan will be implemented in a single run';
 }

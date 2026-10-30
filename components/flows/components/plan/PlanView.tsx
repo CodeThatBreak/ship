@@ -14,16 +14,14 @@ import { PlanApproveFooter } from './components/PlanApproveFooter';
 import PlanSteps from './components/planSteps/PlanSteps';
 import { ACTION_TYPES } from './constants/action';
 import type { ExecutionMode } from './constants';
-import { executionLabel, resolveExecution } from './utils/planExecution';
-import { useExecutionPick } from './hooks/useExecutionPick';
+import { resolveExecution } from './utils/planExecution';
 import { usePlanAction } from './hooks/usePlanAction';
 
 import type { BranchPlan } from './types';
 
 /**
  * The plan panel's container: only what the panel owns — the selection
- * reducer (`usePlanUi`), the execution pick (`useExecutionPick`), and the
- * plan actions (`usePlanAction`) — composed with the pieces in
+ * reducer (`usePlanUi`) and the plan actions (`usePlanAction`) — composed with the pieces in
  * `components/`. Every piece derives its own view of the node and decides by
  * itself whether it renders; the raw panel `action` callback is gone — all
  * plan actions go through the `usePlanAction` mutation.
@@ -50,22 +48,18 @@ export default function PlanView() {
   const awaiting = node.status === FLOW_STATUS.AWAITING_APPROVAL;
   const showApprove = awaiting && isCurrent;
 
-  // what the approve footer counts: fan-out branches when the plan fanned
-  // out, its plan steps otherwise
   const branches = (node.output?.branches ?? null) as BranchPlan[] | null;
-  const stepCount = branches ? branches.length : (flow.planSteps ?? []).length;
+  const branchCount = branches?.length ?? 0;
+  const showExecutionChoice = branchCount > 0;
 
   const execution = resolveExecution(node, current?.meta);
-  const [execPick, setExecPick] = useExecutionPick(
-    execution.resolution,
-    `${current?.id ?? ''}:${execution.resolution}`
-  );
 
-  const onApprove = (pick: ExecutionMode) =>
+  const onApprove = (mode: ExecutionMode) => {
     onAction({
       type: ACTION_TYPES.APPROVE,
-      payload: { executionOverride: pick !== execution.published ? pick : undefined },
+      payload: showExecutionChoice && mode !== execution.published ? { executionOverride: mode } : undefined,
     });
+  };
 
   const onTabSelection = (id: string) => onAction({ type: ACTION_TYPES.SELECT_VERSION, payload: { id } });
 
@@ -93,13 +87,12 @@ export default function PlanView() {
 
       {showApprove && (
         <PlanApproveFooter
-          pick={execPick}
-          onPick={setExecPick}
-          note={executionLabel(execution.resolution, stepCount)}
+          publishedResolution={execution.resolution}
           publishedSource={execution.publishedSource}
           plannerRationale={execution.plannerRationale}
           knob={execution.knob}
-          stepCount={stepCount}
+          branchCount={branchCount}
+          showExecutionChoice={showExecutionChoice}
           onApprove={onApprove}
         />
       )}
