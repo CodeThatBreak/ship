@@ -38,8 +38,18 @@ type ActionBody = {
 };
 
 const ACTIONS: Record<string, (flowId: string, body: ActionBody) => void | Promise<void>> = {
-  start_plan: (id, b) => flowEngine.startPlan(id, b.prompt, b.decompose, b.model, b.promptIsBody),
-  refine_plan: (id, b) => flowEngine.refinePlan(id, b.feedback ?? "", b.prompt, b.model, b.promptIsBody, b.branchRef, b.fresh, b.contextBlocks),
+  /** Branch-scoped sub-plan refine only — whole-plan changes use POST /chat (PlanNode.chat). */
+  refine_plan: (id, b) =>
+    flowEngine.refineBranchPlan(
+      id,
+      requireString(b.branchRef, "branchRef"),
+      b.feedback ?? "",
+      b.prompt,
+      b.model,
+      b.promptIsBody,
+      b.fresh,
+      b.contextBlocks,
+    ),
   approve_plan: (id, b) => flowEngine.approvePlan(id, b?.executionOverride),
   update_plan_steps: (id, b) => flowEngine.updatePlanSteps(id, b.steps ?? []),
   set_plan_step: (id, b) => {

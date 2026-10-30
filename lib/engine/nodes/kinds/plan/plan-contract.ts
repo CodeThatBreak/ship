@@ -174,15 +174,13 @@ export class PlanOutputContract {
   }
 
   /**
-   * §6c provenance for the run-node whole-plan paths: a run with `feedback` is
-   * a produced refine (`chat` — both the legacy feedback-rerun and whole-plan
-   * refine actions); a `promptIsBody` run whose body DIVERGED from the plan
-   * template is `start` (a template-faithful body — including the first run —
-   * records nothing; when in doubt: NO provenance).
+   * §6c provenance for run-node whole-plan paths: a `promptIsBody` run whose
+   * body DIVERGED from the plan template is `start` (a template-faithful body
+   * — including the first run — records nothing; when in doubt: NO provenance).
+   * Chat provenance is written in `applyChatPlan` only.
    */
   private wholeRefineMeta(ctx: FlowCtx, input: PlanInput): RefinedFrom | undefined {
     const prev = this.store.latestPlan(ctx.flow.id)?.art.version ?? 0;
-    if (input.feedback) return { version: prev, source: REFINED_FROM_SOURCE.CHAT };
     if (input.promptIsBody && planBodyDiverged(input.prompt)) {
       return { version: prev, source: REFINED_FROM_SOURCE.START };
     }

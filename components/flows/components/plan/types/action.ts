@@ -41,10 +41,6 @@ type ToggleBranchAction = {
 type CollapseBranchAction = {
   type: typeof ACTION_TYPES.COLLAPSE_BRANCH;
 };
-type BranchRefineAction = {
-  type: typeof ACTION_TYPES.BRANCH_REFINE;
-  payload: { name: string };
-};
 
 export type Action =
   | RetryAction
@@ -54,5 +50,4 @@ export type Action =
   | UpdatePlanStepsAction
   | SelectVersionAction
   | ToggleBranchAction
-  | CollapseBranchAction
-  | BranchRefineAction;
+  | CollapseBranchAction;

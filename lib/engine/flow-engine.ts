@@ -140,7 +140,7 @@ export class FlowEngine {
     // no "flow created" announcement event — the chat feed starts with the
     // user's first message instead of boilerplate
     // webhook/schedule flow triggers auto-start their auto nodes (§6) — a
-    // manual trigger template keeps today's explicit startPlan entry, except
+    // manual trigger template waits for run_node on the entry node, except
     // when the entry node itself declares an `auto` trigger: the user's pick
     // on the home page IS the manual step, and the auto trigger runs the
     // entry straight away with the contract's authored defaults (§5)
@@ -782,23 +782,17 @@ export class FlowEngine {
 
   // ── public triggers ──────────────────────────────────────────────────────
 
-  startPlan(flowId: string, prompt?: string, decompose?: boolean, model?: string, promptIsBody?: boolean): void {
-    const planKey = this.keyOfRole(flowId, NODE_KEYS.PLAN);
-    if (!planKey) throw new Error("this flow template has no plan node");
-    this.setCurrentNode(flowId, planKey);
-    this.bg(flowId, planKey, () => this.runNode(flowId, planKey, {
-      feedback: null, prompt: prompt ?? null, promptIsBody: promptIsBody ?? false,
-      decompose: decompose ?? false, model: model ?? null,
-    }).then(() => {}));
-  }
-
-  refinePlan(
+  /**
+   * Branch-scoped sub-plan refine (plan_subplan_refine). Whole-plan refinement
+   * is conversational — `sendChat` → `PlanNode.chat()` — not this action.
+   */
+  refineBranchPlan(
     flowId: string,
+    branchRef: string,
     feedback: string,
     prompt?: string,
     model?: string,
     promptIsBody?: boolean,
-    branchRef?: string,
     fresh?: boolean,
     contextBlocks?: string[],
   ): void {
@@ -806,9 +800,14 @@ export class FlowEngine {
     if (!planKey) throw new Error("this flow template has no plan node");
     this.setCurrentNode(flowId, planKey);
     this.bg(flowId, planKey, () => this.runNode(flowId, planKey, {
-      feedback, prompt: prompt ?? null, promptIsBody: promptIsBody ?? false, decompose: false, model: model ?? null,
-      branchRef: branchRef ?? null,
-      fresh: fresh ?? null, contextBlocks: contextBlocks ?? [],
+      feedback,
+      prompt: prompt ?? null,
+      promptIsBody: promptIsBody ?? false,
+      decompose: false,
+      model: model ?? null,
+      branchRef,
+      fresh: fresh ?? null,
+      contextBlocks: contextBlocks ?? [],
     }).then(() => {}));
   }
 

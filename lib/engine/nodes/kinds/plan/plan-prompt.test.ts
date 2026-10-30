@@ -60,16 +60,15 @@ describe('PlanPromptBuilder.runIntent — label + follow-up resolution', () => {
   const intent = (input: Partial<PlanInput>, agentId = 'agent-1', scopedInput: ScopedRefine | null = null) =>
     makeBuilder('whole').runIntent(nodeWith(agentId), input as PlanInput, scopedInput);
 
-  it('a plain first plan: label "plan", fresh (no follow-up)', () => {
+  it('a plain first plan: label "plan", no follow-up', () => {
     expect(intent({})).toEqual({ label: 'plan', followUpOn: null });
   });
 
-  it('whole-plan refine with an agent: follow-up by default, "plan refine"', () => {
-    expect(intent({ feedback: 'tighten' })).toEqual({ label: 'plan refine', followUpOn: 'agent-1' });
-  });
-
-  it('`fresh: true` beats a follow-up even when an agent exists', () => {
-    expect(intent({ feedback: 'tighten', fresh: true })).toEqual({ label: 'plan refine', followUpOn: null });
+  it('a custom prompt body run labels distinctly', () => {
+    expect(intent({ prompt: 'custom', promptIsBody: true })).toEqual({
+      label: 'plan (custom prompt)',
+      followUpOn: null,
+    });
   });
 
   it('scoped refines are fresh by default and label with the branch name', () => {

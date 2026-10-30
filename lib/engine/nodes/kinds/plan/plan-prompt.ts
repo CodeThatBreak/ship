@@ -29,10 +29,10 @@ export function planBodyDiverged(prompt: string | null | undefined): boolean {
 }
 
 /**
- * The plan node's prompts: the whole-plan prompt (verbatim override, refine
- * template, or base + feedback), the branch-scoped sub-plan prompt and its
- * template variables, the `follow`-mode execution directive, and the run
- * intent (mode label + follow-up) the run orchestrator records.
+ * The plan node's prompts: the whole-plan prompt (verbatim override or base
+ * template), the branch-scoped sub-plan prompt and its template variables, the
+ * `follow`-mode execution directive, and the run intent (mode label + follow-up)
+ * the run orchestrator records.
  */
 export class PlanPromptBuilder {
   constructor(
@@ -43,29 +43,21 @@ export class PlanPromptBuilder {
   ) {}
 
   /**
-   * Whole-plan refines follow up by default (the conversation holds the
-   * decomposition rationale); `fresh` is the quality escape hatch (§3).
    * Scoped refines are fresh by default: their template is self-contained,
-   * and a follow-up biases the model toward its earlier decisions.
+   * and a follow-up biases the model toward its earlier decisions. Whole-plan
+   * updates after the first run go through `PlanNode.chat()`, not `run()`.
    */
   runIntent(node: NodeRow, input: PlanInput, scoped: ScopedRefine | null): RunIntent {
-    const hasAgent = Boolean(node.agent_id);
     const scopedFresh = input.fresh ?? true;
+    if (scoped) {
+      return {
+        label: `sub-plan refine (${scoped.branch.name}${scopedFresh ? ', fresh' : ''})`,
+        followUpOn: scopedFresh ? null : (node.agent_id ?? null),
+      };
+    }
     return {
-      label: scoped
-        ? `sub-plan refine (${scoped.branch.name}${scopedFresh ? ', fresh' : ''})`
-        : input.feedback && hasAgent
-          ? 'plan refine'
-          : 'plan',
-      followUpOn: scoped
-        ? scopedFresh
-          ? null
-          : (node.agent_id ?? null)
-        : input.fresh === true
-          ? null
-          : input.feedback && hasAgent
-            ? node.agent_id
-            : null,
+      label: input.prompt ? 'plan (custom prompt)' : 'plan',
+      followUpOn: null,
     };
   }
 
@@ -92,11 +84,10 @@ export class PlanPromptBuilder {
     return execBlock ? `${refined}\n\n${execBlock}` : refined;
   }
 
-  /** Whole-plan prompt: verbatim override, refine template, or base + feedback. */
+  /** Whole-plan prompt: verbatim override or base plan template (first run). */
   whole(ctx: FlowCtx, node: NodeRow, input: PlanInput, userRules: string): string {
-    const hasAgent = Boolean(node.agent_id);
     const baseCtx = { ticket: this.ctxHelper.taskContext(ctx), ticket_type: this.ctxHelper.taskLabel(ctx) };
-    const refining = Boolean(input.feedback) || Boolean(input.prompt);
+    const refining = Boolean(input.prompt);
     const contextBlock = this.context.assemble(ctx, input, null, {
       // the base template already renders {{ticket}} — a task context block
       // earns its place only on refinement prompts (+ branch refines)
@@ -116,18 +107,8 @@ export class PlanPromptBuilder {
             (execBlock ? `\n\n${execBlock}` : '')
         : input.prompt;
     }
-    if (input.feedback && hasAgent) {
-      const refined = prompts.resolve(
-        'plan_refine',
-        baseCtx,
-        { feedback: input.feedback, context: contextBlock },
-        undefined,
-        { userRules }
-      );
-      return execBlock ? `${refined}\n\n${execBlock}` : refined;
-    }
     const base = prompts.resolve('plan', baseCtx, { context: contextBlock }, undefined, { userRules });
-    let prompt = base + (input.feedback ? `\n\nAdditional instructions from the developer:\n${input.feedback}` : '');
+    let prompt = base;
 
     if (input.decompose) {
       prompt +=

@@ -225,7 +225,7 @@ export const PLAN_FOLLOWUP_JSON_SCHEMA: unknown = z.toJSONSchema(PlanFollowUp);
 // ── input / output schemas ───────────────────────────────────────────────────
 
 export const PlanInput = z.object({
-  /** developer feedback when refining an existing plan */
+  /** developer instruction for a branch-scoped sub-plan refine (not whole-plan chat) */
   feedback: z.string().nullable().default(null),
   /** verbatim prompt override (bypasses the template) */
   prompt: z.string().nullable().default(null),
@@ -240,8 +240,7 @@ export const PlanInput = z.object({
   /**
    * Start a clean agent instead of following up on the node's existing one.
    * Null = per-mode default: scoped refines default to fresh (their template
-   * is self-contained, §3); whole-plan refines default to follow-up. Explicit
-   * true always wins — `fresh` beats a follow-up even if an agent exists.
+   * is self-contained, §3). Explicit true always wins.
    */
   fresh: z.boolean().nullable().default(null),
   /**

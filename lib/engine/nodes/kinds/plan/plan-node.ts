@@ -145,6 +145,11 @@ export class PlanNode extends AgentRunNode<PlanInput, PlanOutput> {
   }
 
   async run(ctx: FlowCtx, input: PlanInput, config: Record<string, unknown>): Promise<RunOutcome> {
+    if (!input.branchRef && input.feedback?.trim()) {
+      throw new Error(
+        'whole-plan refinement uses the plan conversation (POST /chat), not run feedback — use branchRef for scoped sub-plan refines',
+      );
+    }
     // the template/flow-layer prompt body knob folds into the existing
     // user-body path (per-run input.prompt still wins)
     if (!input.prompt && typeof config.prompt_body === 'string' && config.prompt_body.trim()) {
