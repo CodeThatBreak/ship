@@ -20,10 +20,9 @@ export function usePlanAction(flowId: string) {
       case ACTION_TYPES.RETRY_AGENT:
       case ACTION_TYPES.CANCEL_AGENT:
       case ACTION_TYPES.APPROVE:
-      case ACTION_TYPES.APPROVE:
       case ACTION_TYPES.SET_PLAN_STEP:
       case ACTION_TYPES.UPDATE_PLAN_STEPS: {
-        flowMutation({ action: type, ...action.payload });
+        void flowMutation({ action: type, ...action.payload }).catch(() => {});
         break;
       }
 

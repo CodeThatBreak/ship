@@ -7,8 +7,13 @@ export { default as PromptModal } from "./prompt-modal/PromptModal";
 export { default as PlanOptionToggles } from "./PlanOptionToggles";
 /** The composer's config seam (docs/plan-conversation-refine.md §4d). */
 export type { ComposerConfig } from "./composer-config";
-/** The feed's tabs seam (the plan's main plan + per-refinement chat tabs). */
-export type { ChatTab, ChatTabs } from "./types";
+/** The feed's threads seam (the plan's main plan + per-sub-plan refinement threads). */
+export type { ChatTab, ChatInputHandle } from "./types";
+/** The composer's action union — SET_MODEL is rail-owned, THREAD_CHANGED feature-owned. */
+export type { ChatAction } from './types/action';
+export { ACTION_TYPES } from './constants/action';
+/** The send seam: feature-owned send targets ride it as one variables object. */
+export type { SendMutationFn } from './hooks/useChatComposer';
 /** Shared event/option types consumed across features. */
 export type { PlanOptions } from "./types";
 export type { FeedEvent } from "./timeline";

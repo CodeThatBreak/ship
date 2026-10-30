@@ -65,6 +65,8 @@ export const queryKeys = {
     /** a node's prompt preview, before its first output (prompt-publishing nodes) */
     nodePrompt: (flowId: string, nodeKey: string) =>
       ["flows", "node-prompt", flowId, nodeKey] as const,
+    /** every promptable node's prompt body in one read (the plan composer's prefill) */
+    prompts: (flowId: string) => ["flows", "prompts", flowId] as const,
     /** a node's branch-scoped prompt body (the plan composer's scoped prefill, §4c) */
     nodeBranchPrompt: (flowId: string, nodeKey: string, branch: string) =>
       ["flows", "node-branch-prompt", flowId, nodeKey, branch] as const,

@@ -49,9 +49,17 @@ export interface PromptPreviewPayload {
   promptSource: PromptSource;
 }
 
+/** The failure member both reads share (the routes map it to an HTTP status). */
+export type PromptFailure = { ok: false; status: number; error: string };
+
 export type PromptPreviewResult =
   | { ok: true; payload: PromptPreviewPayload }
-  | { ok: false; status: number; error: string };
+  | PromptFailure;
+
+/** The composer's bulk prompt read — every promptable node body, keyed by node key. */
+export type AllPromptsResult =
+  | { ok: true; prompts: Record<string, string> }
+  | PromptFailure;
 
 /** The plan node's branch-scoped preview (§7.2 / composer prefill §4c) — structurally typed. */
 interface SubPlanPreviewer {
@@ -123,11 +131,37 @@ export class PromptPreview {
     return Promise.resolve({ ok: true, payload });
   }
 
-  private async notFound(error: string): Promise<PromptPreviewResult> {
+  /**
+   * The composer's bulk prompt read: every promptable node's editable body
+   * (the same live resolution one node's preview does) keyed by node key —
+   * one bounded fetch instead of one per node. Nodes whose def declines a
+   * preview (agent kinds without a prompt surface) are skipped, matching
+   * the single-node route's rejection of unsupported nodes.
+   */
+  async allFor(flowId: string): Promise<AllPromptsResult> {
+    const flow = rows.get(FlowRow, `SELECT * FROM flows WHERE id=?`, flowId);
+    if (!flow) return this.notFound("flow not found");
+    const task = rows.get(Task, `SELECT * FROM tasks WHERE id=?`, flow.task_id);
+    if (!task) return this.notFound("task not found");
+    const repo = flow.repo_id ? db.repoById(flow.repo_id) ?? null : null;
+    const ctx: FlowCtx = { flow, task, repo };
+
+    const prompts: Record<string, string> = {};
+    for (const node of rows.all(NodeRow, `SELECT * FROM nodes WHERE flow_id=?`, flowId)) {
+      const def = this.defFor(flowId, node.node_key, node);
+      const previewer = nodeRoles.promptPreviewerOf(def);
+      const preview = previewer ? previewer.previewPrompt(ctx, node, {}) : null;
+      if (!preview) continue;
+      prompts[node.node_key] = sectionsOf(preview.assembly).body;
+    }
+    return { ok: true, prompts };
+  }
+
+  private async notFound(error: string): Promise<PromptFailure> {
     return { ok: false, status: 404, error };
   }
 
-  private async bad(error: string): Promise<PromptPreviewResult> {
+  private async bad(error: string): Promise<PromptFailure> {
     return { ok: false, status: 400, error };
   }
 

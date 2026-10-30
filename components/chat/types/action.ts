@@ -9,10 +9,10 @@ type SetModelAction = {
   };
 };
 
-type TabChangedAction = {
-  type: typeof ACTION_TYPES.TAB_CHANGED;
+type ThreadChangedAction = {
+  type: typeof ACTION_TYPES.THREAD_CHANGED;
   payload: {
-    tabId: string;
+    threadId: string;
   };
 };
 
@@ -27,4 +27,8 @@ type ResetAction = {
   type: typeof ACTION_TYPES.RESET;
 };
 
-export type ChatAction = SetModelAction | TabChangedAction | DraftChangedAction | ResetAction;
+export type ChatAction =
+  | SetModelAction
+  | ThreadChangedAction
+  | DraftChangedAction
+  | ResetAction;

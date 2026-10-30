@@ -5,6 +5,11 @@ import { postJson } from '@/hooks/fetch-json';
 
 type Variables = Record<string, unknown>;
 
+/**
+ * The flow's action route (run_node / refine_plan …) as one mutation.
+ * Returns `mutateAsync` so a caller awaiting the send gets the
+ * accepted-draft semantics (the composer clears only on success).
+ */
 export function useFlowMutation({ flowId }: { flowId: string }) {
   const queryClient = useQueryClient();
   const actionSend = useMutation({
@@ -15,5 +20,5 @@ export function useFlowMutation({ flowId }: { flowId: string }) {
       void queryClient.invalidateQueries({ queryKey: queryKeys.flows.detail(flowId) });
     },
   });
-  return actionSend.mutate;
+  return actionSend.mutateAsync;
 }

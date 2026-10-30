@@ -1,12 +1,12 @@
 'use client';
 
-import { useMemo, useCallback, type ReactNode } from 'react';
+import { useMemo, useCallback, type ReactNode, type RefObject } from 'react';
 import { CircleAlertIcon, MessageCircleDashedIcon } from 'lucide-react';
 
 import type { ModelChoice } from '@/types/model-spec';
 import type { NodeUiCapabilities } from '@/types/node-capabilities';
 import type { FeedEvent } from './timeline';
-import type { ChatTab } from './types';
+import type { ChatTab, ChatInputHandle } from './types';
 import { useChatComposer, type SendMutationFn } from './hooks/useChatComposer';
 import { useChatFeed } from './hooks/useChatFeed';
 import { TabStrip } from '@/components/shared';
@@ -35,10 +35,13 @@ export default function ChatPanel({
   nodeStatusByNodeId,
   modelChoice,
 
-  threads = [],
+  threads,
   activeThreadId,
 
   onAction,
+  setModelChoice,
+
+  chatInputRef,
 
   initialDraft,
   loading = false,
@@ -47,7 +50,7 @@ export default function ChatPanel({
   sendLabel = 'Send',
   sendError,
   canReset = false,
-  canSend = false,
+  canSend,
 
   aside,
   error,
@@ -71,7 +74,16 @@ export default function ChatPanel({
   threads?: ChatTab[];
   activeThreadId?: string;
 
-  onAction: (action: ChatAction) => void;
+  /**
+   * The feature-owned action seam (e.g. the plan's thread switch): the
+   * THREAD_CHANGED actions flow up; the rail owns the model pick below.
+   */
+  onAction?: (action: ChatAction) => void;
+  /** the rail-owned model pick (SET_MODEL resolves here) */
+  setModelChoice?: (choice: ModelChoice | null) => void;
+
+  /** the composer input's imperative handle (the plan's thread draft swaps) */
+  chatInputRef?: RefObject<ChatInputHandle | null>;
 
   initialDraft?: string;
   loading?: boolean;
@@ -93,14 +105,13 @@ export default function ChatPanel({
     return threads.find(t => t.id === activeThreadId);
   }, [threads, activeThreadId]);
 
-  const { isPending: isSendingMessage } = useChatComposer({
+  const { sendMessageMutation, isPending: isSendingMessage } = useChatComposer({
     flowId,
     nodeKey,
     modelChoice,
     thread: activeThreadId,
     sendMutationFn,
   });
-
   const {
     rows,
     awaitingReply,
@@ -116,15 +127,31 @@ export default function ChatPanel({
     busy,
   });
 
-  const onTabChange = useCallback(
-    (id: string) => {
-      onAction({
-        type: ACTION_TYPES.TAB_CHANGED,
-        payload: { tabId: id },
-      });
+  // the rail-owned action routing (AGENTS §2.4: no feature forks inside the
+  // composer): SET_MODEL is the generic rail's model pick; feature-owned
+  // actions (the plan's THREAD_CHANGED) flow to the panel's `onAction` seam
+  const handleAction = useCallback(
+    (action: ChatAction) => {
+      if (action.type === ACTION_TYPES.SET_MODEL) {
+        setModelChoice?.(action.payload.model);
+        return;
+      }
+      onAction?.(action);
     },
-    [onAction]
+    [onAction, setModelChoice]
   );
+
+  const onThreadChange = useCallback(
+    (threadId: string) => {
+      handleAction({ type: ACTION_TYPES.THREAD_CHANGED, payload: { threadId } });
+    },
+    [handleAction]
+  );
+
+  // the composer's send target: the feature's `sendMutationFn` when given
+  // (it receives the draft text with the current model pick and thread),
+  // else the rail's standard chat send
+  const onSend = useCallback((draft: string) => sendMessageMutation(draft), [sendMessageMutation]);
 
   return (
     <div className="flex h-full min-h-0 flex-col">
@@ -138,9 +165,9 @@ export default function ChatPanel({
       </div>
 
       <TabStrip
-        items={threads}
+        items={threads ?? []}
         active={activeThreadId}
-        onSelect={onTabChange}
+        onSelect={onThreadChange}
         label="Conversation tabs"
         className="shrink-0 px-1 pb-2"
       />
@@ -174,7 +201,9 @@ export default function ChatPanel({
         sendLabel={sendLabel}
         modelChoice={modelChoice}
         placeholder={placeholder}
-        onAction={onAction}
+        onSend={onSend}
+        onAction={handleAction}
+        chatInputRef={chatInputRef}
       />
     </div>
   );

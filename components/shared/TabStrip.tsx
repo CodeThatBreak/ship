@@ -29,7 +29,7 @@ export function TabStrip({ items, active, onSelect, label, className }: Props) {
       <Tabs aria-label={label} defaultValue={active} className={className} onValueChange={onSelect}>
         <TabsList>
           {items.map(item => (
-            <TabsTrigger value={item.id}>{item.label}</TabsTrigger>
+            <TabsTrigger key={item.id} value={item.id}>{item.label}</TabsTrigger>
           ))}
         </TabsList>
       </Tabs>

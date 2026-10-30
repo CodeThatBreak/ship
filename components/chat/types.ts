@@ -21,3 +21,14 @@ export type ChatTab = {
   emptyTitle?: string;
   emptyDescription?: string;
 };
+
+/**
+ * The chat composer's imperative handle: the input's focus/selection plus
+ * `setDraft` — a feature-owned draft change (the plan's thread switch restores
+ * that thread's kept draft) via the exposed ref, without a prop round trip.
+ */
+export type ChatInputHandle = {
+  focus: (position?: number) => void;
+  setSelectionRange: (start: number, end: number) => void;
+  setDraft: (draft: string) => void;
+};

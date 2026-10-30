@@ -1,5 +1,7 @@
 'use client';
 
+'use client';
+
 import {
   useRef,
   useState,
@@ -9,8 +11,6 @@ import {
   type ChangeEvent,
   type ReactNode,
 } from 'react';
-import { cn } from '@/lib/utils';
-
 import ModelSelector from '../../ModelSelector';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { SendButton } from './components/SendButton';
@@ -19,6 +19,7 @@ import { ChatSkeleton } from './components/ChatSkeleton';
 import { InputGroup, InputGroupAddon, InputGroupTextarea } from '@/components/ui/input-group';
 
 import type { ModelChoice } from '@/types/model-spec';
+import type { ChatInputHandle } from '../../types';
 import type { ChatAction } from '../../types/action';
 
 import { ACTION_TYPES } from '../../constants/action';
@@ -47,7 +48,7 @@ export default function ChatComposerForm({
   chatInputRef,
   aside,
   error,
-
+  onSend,
   onAction,
 }: {
   modelChoice: ModelChoice | null;
@@ -58,12 +59,18 @@ export default function ChatComposerForm({
   sendLabel: string;
 
   canReset: boolean;
-  canSend: boolean;
+  /** explicit send-gating override (e.g. the invalidated scoped chip) */
+  canSend?: boolean;
 
-  chatInputRef?: RefObject<any>;
+  chatInputRef?: RefObject<ChatInputHandle | null>;
 
   aside: ReactNode;
   error?: ReactNode;
+
+  /** The send target — a returned promise is the "accepted" signal: the
+   *  managed draft clears on its resolution (and keeps the draft while
+   *  pending/rejected). */
+  onSend?: (draft: string) => void | Promise<unknown>;
 
   onAction: (action: ChatAction) => void;
 }) {
@@ -73,7 +80,9 @@ export default function ChatComposerForm({
   const [draftState, setDraftState] = useState(initialDraft);
   const [pending, setPending] = useState(false);
 
-  const disableSendButton = canSend && draftState.trim().length > 0 && !pending;
+  // the send gate: an explicit override stays authoritative; the default gate
+  // is a non-empty draft (and no pending send)
+  const disableSendButton = (canSend ?? true) && draftState.trim().length > 0 && !pending;
 
   const onModelChange = useCallback(
     (choice: ModelChoice | null) => {
@@ -87,22 +96,28 @@ export default function ChatComposerForm({
       setDraftState(next);
       onAction({ type: ACTION_TYPES.DRAFT_CHANGED, payload: { draft: next } });
     },
-    [draftState]
+    [onAction]
   );
 
   const onReset = useCallback(() => {
     onAction({ type: ACTION_TYPES.RESET });
   }, [onAction]);
 
-  useImperativeHandle(chatInputRef, () => ({
-    focus: (position?: number) => {
-      textareaRef.current?.focus();
-    },
+  useImperativeHandle(
+    chatInputRef,
+    () => ({
+      focus: (position?: number) => {
+        textareaRef.current?.focus();
+      },
 
-    setSelectionRange: (start: number, end: number) => {
-      textareaRef.current?.setSelectionRange(start, end);
-    },
-  }));
+      setSelectionRange: (start: number, end: number) => {
+        textareaRef.current?.setSelectionRange(start, end);
+      },
+
+      setDraft: (draft: string) => setDraftState(draft),
+    }),
+    []
+  );
 
   const onInputKeyDown = useCallback((event: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (event.key === 'Enter' && !event.shiftKey) {
@@ -116,19 +131,27 @@ export default function ChatComposerForm({
     [onDraftChange]
   );
 
-  const onFormSubmit = useCallback((event: React.FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
-    if (!canSend) return;
+  const onFormSubmit = useCallback(
+    (event: React.FormEvent<HTMLFormElement>) => {
+      event.preventDefault();
+      if (!onSend || !disableSendButton) return;
 
-    const send = config.onSend(draftState);
+      const send = onSend(draftState);
 
-    setPending(true);
+      setPending(true);
 
-    Promise.resolve(send)
-      .then(() => setDraftState(''))
-      .catch(() => {})
-      .finally(() => setPending(false));
-  }, []);
+      Promise.resolve(send)
+        .then(() => {
+          // the accepted send clears the draft; the dispatched change keeps
+          // the owner's per-thread draft map truthful (the sent draft is gone)
+          setDraftState('');
+          onAction({ type: ACTION_TYPES.DRAFT_CHANGED, payload: { draft: '' } });
+        })
+        .catch(() => {})
+        .finally(() => setPending(false));
+    },
+    [onSend, draftState, disableSendButton, onAction]
+  );
 
   const textarea = (
     <InputGroupTextarea

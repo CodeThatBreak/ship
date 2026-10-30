@@ -18,6 +18,7 @@ export type ChatMessage = {
 
 type ChatPayload = { messages?: ChatMessage[] };
 type PromptPayload = { prompt?: string };
+type AllPromptsPayload = { prompts?: Record<string, string> };
 type ChatSendOptions = { chatOnly: boolean; model?: string; thread?: string | null };
 
 /** The flow's chat transcript, polled for the node's agent replies. */
@@ -44,6 +45,24 @@ export function useNodePrompt(flowId: string, nodeKey: string, options: { enable
     // instead of seeding an empty, sendable body
     select: d => d.prompt ?? null,
   });
+}
+
+/**
+ * Every promptable node's prompt body in one read (the plan composer's
+ * prefill source, §4a): one bounded fetch instead of one per node. `prompts`
+ * is keyed by node key; nodes without a previewable prompt (agent kinds)
+ * never appear. null while loading — a missing body fails loudly instead of
+ * seeding an empty, sendable draft.
+ */
+export function useFetchAllNodePrompt(flowId: string) {
+  const promptsQuery = useQuery({
+    queryKey: queryKeys.flows.prompts(flowId),
+    queryFn: () => fetchJson<AllPromptsPayload>(`/api/flows/${flowId}/prompts`),
+  });
+  return {
+    prompts: promptsQuery.data?.prompts ?? null,
+    isLoading: promptsQuery.isPending,
+  };
 }
 
 /**
