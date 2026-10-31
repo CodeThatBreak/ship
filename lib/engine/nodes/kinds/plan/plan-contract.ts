@@ -364,8 +364,9 @@ export class PlanOutputContract {
       merged.steps.filter(s => s.branch === branchName)
     );
 
+    const branchSteps = merged.steps.filter(s => s.branch === branchName);
     const oldSteps = scoped.latest.meta.steps.filter(s => s.branch === branchName);
-    const { added, removed, changed } = BranchRefinement.diffSteps(oldSteps, sub.steps);
+    const { added, removed, changed } = BranchRefinement.diffSteps(oldSteps, branchSteps);
     const diffNote = `(+${added.length} / −${removed.length}${changed.length ? `, ${changed.length} changed` : ''})`;
 
     return {

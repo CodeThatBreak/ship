@@ -4,7 +4,7 @@ import type { FlowCtx } from '../../shared';
 import type { NodeSupport } from '../../shared/node-support';
 import { planSteps } from '../../../runtime/plan-step-store';
 import { PlanStepRow, rows, type NodeRow } from '../../../../db/rows';
-import { type PlanInput, type PlanMeta, type PlanStep, type PlanBranch } from './schema';
+import { type PlanInput, type PlanMeta, type PlanBranch, parsePlanArtifactMeta } from './schema';
 import type { RefinedFrom } from './constants/refine';
 import type { LatestPlan, ScopedRefine } from './types';
 
@@ -39,12 +39,8 @@ export class PlanStore {
       const m = row.meta ? JSON.parse(row.meta) : null;
       if (m && typeof m === 'object') {
         rawMeta = m;
-        if (Array.isArray(m.steps) && m.steps.length) {
-          meta = {
-            steps: m.steps as PlanStep[],
-            branches: Array.isArray(m.branches) ? (m.branches as PlanMeta['branches']) : [],
-          };
-        }
+        const parsed = parsePlanArtifactMeta(m);
+        if (parsed) meta = parsed;
       }
     } catch {
       /* unparseable meta → treated as a branchless plan; scoped refine falls back */

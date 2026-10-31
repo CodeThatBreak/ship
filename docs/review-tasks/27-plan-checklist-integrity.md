@@ -15,7 +15,7 @@ Each finding was re-verified against `refactor/prompt-engine-inconsistency-fix` 
 
 ### CR-013 [High] Plan-checklist bulk edit reopens done steps and drops agent `meta_id`, so the next refine duplicates the checklist
 
-- **Status:** Open
+- **Status:** Fixed (Task 27)
 - **Type:** Bug
 - **Effort:** M
 - **Where:** lib/engine/runtime/plan-step-store.ts:142-197 (replace), 68-129 (syncFromPlan matches only origin='agent' by meta_id)
@@ -24,7 +24,7 @@ Each finding was re-verified against `refactor/prompt-engine-inconsistency-fix` 
 
 ### CR-192 [Low] Checklist bulk replace moves protected (started) steps to the top
 
-- **Status:** Open
+- **Status:** Fixed (Task 27)
 - **Type:** Bug
 - **Effort:** S
 - **Where:** lib/engine/runtime/plan-step-store.ts:142-197 (176 `i + survivors.length`, 191 survivor position `i`)
@@ -33,7 +33,7 @@ Each finding was re-verified against `refactor/prompt-engine-inconsistency-fix` 
 
 ### CR-097 [Low] Several plan-step and plan-validation gaps (cycles, id-less steps, wrong ids in the diff)
 
-- **Status:** Partly fixed
+- **Status:** Partly fixed (Task 27) — scoped sub-plan event diff uses merged branch steps; id-less steps in `diffSteps` unchanged
 - **Type:** Bug
 - **Severity:** Low (was Medium)
 - **Effort:** S
@@ -42,7 +42,7 @@ Each finding was re-verified against `refactor/prompt-engine-inconsistency-fix` 
 
 ### CR-090 [Medium] Plan meta and step payloads are read from the DB with casts instead of Zod
 
-- **Status:** Open
+- **Status:** Fixed (Task 27)
 - **Type:** Code quality
 - **Effort:** M
 - **Where:** lib/engine/nodes/kinds/plan/plan-store.ts:31-51, lib/engine/nodes/kinds/build/build-node.ts:182-187, lib/engine/nodes/kinds/build/step-build-node.ts:266-286, lib/engine/nodes/declarative.ts:26-33
@@ -51,7 +51,7 @@ Each finding was re-verified against `refactor/prompt-engine-inconsistency-fix` 
 
 ### CR-084 [Medium] The step-build context pack never shows sibling merge state or summaries
 
-- **Status:** Open
+- **Status:** Fixed (Task 27)
 - **Type:** Bug
 - **Effort:** S
 - **Where:** lib/engine/nodes/kinds/build/step-build-node.ts:119, 151, 266-286, 301-316
@@ -59,8 +59,8 @@ Each finding was re-verified against `refactor/prompt-engine-inconsistency-fix` 
 
 ## Done when
 
-- [ ] Every finding above is fixed, or a remaining part is written up in the PR description.
-- [ ] Each bug fix has a regression test (Vitest for `lib/`; at least a hook or utility test for UI where practical).
-- [ ] Code follows [`docs/coding-patterns.md`](../coding-patterns.md).
-- [ ] `npm run typecheck`, `npm run lint`, `npm test` and `npm run build` pass (before Task 02 lands, `npx tsc --noEmit` instead of `typecheck`).
-- [ ] The status of each finding in [`docs/code-review.md`](../code-review.md) is updated (Fixed, with the PR link).
+- [x] Every finding above is fixed, or a remaining part is written up in the PR description.
+- [x] Each bug fix has a regression test (Vitest for `lib/`; at least a hook or utility test for UI where practical).
+- [x] Code follows [`docs/coding-patterns.md`](../coding-patterns.md).
+- [x] `npm run typecheck`, `npm run lint`, `npm test` and `npm run build` pass (before Task 02 lands, `npx tsc --noEmit` instead of `typecheck`).
+- [x] The status of each finding in [`docs/code-review.md`](../code-review.md) is updated (Fixed, with the PR link).

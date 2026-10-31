@@ -16,7 +16,7 @@ import { nodeSupport, type NodeSupport } from "../../shared/node-support";
 import { BuildRunSupport } from "./build-run-support";
 import { branchStore } from "./branch-store";
 import { BuildInput, BuildOutput, type BuildBranchInfo } from "./schema";
-import { type PlanBranch } from "../plan/schema";
+import { type PlanBranch, parsePlanArtifactMeta } from "../plan/schema";
 
 /** Narrow an unknown value to a plain object (no null / arrays). */
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -185,7 +185,8 @@ export class BuildNode extends AgentRunNode<BuildInput, BuildOutput> {
     let branches: PlanBranch[] | null = null;
     try {
       const meta = plan.meta ? JSON.parse(plan.meta) : null;
-      if (Array.isArray(meta?.branches) && meta.branches.length > 0) branches = meta.branches;
+      const parsed = parsePlanArtifactMeta(meta);
+      if (parsed && parsed.branches.length > 0) branches = parsed.branches;
     } catch { /* single-branch fallback */ }
 
     if (branches && branches.length > 1) {

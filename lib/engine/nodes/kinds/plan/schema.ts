@@ -75,6 +75,20 @@ export const PlanBranch = z.object({
 });
 export type PlanBranch = z.infer<typeof PlanBranch>;
 
+/** Parsed plan artifact meta (`artifacts.meta` for kind=plan) — extra keys are ignored. */
+export const PlanArtifactMetaSchema = z.object({
+  steps: z.array(PlanStep).default([]),
+  branches: z.array(PlanBranch).default([]),
+});
+
+/** Safe-parse persisted plan artifact meta; corrupt or legacy shapes → null. */
+export const parsePlanArtifactMeta = (raw: unknown): PlanMeta | null => {
+  if (!raw || typeof raw !== "object") return null;
+  const parsed = PlanArtifactMetaSchema.safeParse(raw);
+  if (!parsed.success) return null;
+  return { steps: parsed.data.steps, branches: parsed.data.branches };
+};
+
 // ── the whole-plan response (JSON-only) ──────────────────────────────────────
 
 /**

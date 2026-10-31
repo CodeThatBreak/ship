@@ -129,16 +129,10 @@ export class PlanStepStore {
   }
 
   /** Replace the full step list from the Plan view's editor (bulk save).
-   *  Fan-out guard (Phase 3B): rows whose child sub-flow has started/merged
-   *  survive the wholesale replace (removal is refused in flowEngine.updatePlanSteps with
-   *  a loud error — this path keeps the rows with their done state intact, so
-   *  a bulk editor edit that still includes the step keeps it working).
-   *  `matchedRows` (input index → kept plan-step row id, Phase 3B softening):
-   *  a kept row whose child already started is carried by its survivor
-   *  re-insertion (skipped in the base loop — no duplicated rows); a kept row
-   *  with a PENDING child is re-linked in place — the harmless title/detail
-   *  edit keeps the child linkage + the agent step id. Rows without a
-   *  matchedRows entry behave exactly as before. */
+   *  Matched rows update in place (status, origin, meta_id, sub_flow_id preserved).
+   *  Started/merged fan-out steps keep their editor index; unmatched survivors
+   *  append at the tail. Rows removed from the editor are deleted (pending
+   *  children cancelled via flowEngine guards). */
   replace(
     flowId: string,
     artifactId: string | null,
@@ -148,52 +142,69 @@ export class PlanStepStore {
     const ts = db.now();
     const guard = this.deletableGuard(flowId);
     const existing = this.list(flowId);
+    const existingById = new Map(existing.map((s) => [s.id, s]));
     const survivors = existing.filter((s) => guard.built.has(s.id));
-    // matched kept rows: pending children stay linked, started ones dedupe via skip
-    const preserve = new Map<number, { subFlowId: string; metaId: string | null }>();
-    const skip = new Set<number>();
-    if (opts.matchedRows) {
-      const byId = new Map(existing.map((s) => [s.id, s]));
-      for (const [i, rowId] of opts.matchedRows.entries()) {
-        const prev = byId.get(rowId);
-        if (!prev) continue;
-        if (guard.built.has(prev.id)) { skip.add(i); continue; }
-        if (prev.status !== "pending" || !prev.sub_flow_id) continue;
-        preserve.set(i, { subFlowId: prev.sub_flow_id, metaId: prev.meta_id });
-      }
-    }
+    const matchedRows = opts.matchedRows ?? new Map<number, string>();
+
     db.transaction(() => {
-      db.run(`DELETE FROM plan_steps WHERE flow_id=?`, flowId);
-      steps.forEach((s, i) => {
-        if (skip.has(i)) return;
-        const p = preserve.get(i);
+      const kept = new Set<string>();
+
+      for (const [i, s] of steps.entries()) {
+        const rowId = matchedRows.get(i);
+        const prev = rowId ? existingById.get(rowId) : undefined;
+        if (prev) {
+          kept.add(prev.id);
+          db.run(
+            `UPDATE plan_steps SET artifact_id=?, position=?, title=?, detail=?, files=?, branch=?, updated_at=? WHERE id=? AND flow_id=?`,
+            artifactId,
+            i,
+            s.title,
+            s.detail ?? null,
+            JSON.stringify(s.files ?? []),
+            s.branch ?? null,
+            ts,
+            prev.id,
+            flowId
+          );
+        } else {
+          const newId = db.uid("step_");
+          kept.add(newId);
+          db.run(
+            `INSERT INTO plan_steps (id,flow_id,artifact_id,meta_id,position,title,detail,files,branch,status,origin,sub_flow_id,created_at,updated_at)
+             VALUES (?,?,?,?,?,?,?,?,?,'pending','user',?,?,?)`,
+            newId,
+            flowId,
+            artifactId,
+            null,
+            i,
+            s.title,
+            s.detail ?? null,
+            JSON.stringify(s.files ?? []),
+            s.branch ?? null,
+            null,
+            ts,
+            ts
+          );
+        }
+      }
+
+      let tail = steps.length;
+      for (const survivor of survivors) {
+        if (kept.has(survivor.id)) continue;
+        kept.add(survivor.id);
         db.run(
-          `INSERT INTO plan_steps (id,flow_id,artifact_id,meta_id,position,title,detail,files,branch,status,origin,sub_flow_id,created_at,updated_at)
-           VALUES (?,?,?,?,?,?,?,?,?,'pending','user',?,?,?)`,
-          db.uid("step_"),
-          flowId,
-          artifactId,
-          p?.metaId ?? null,
-          i + survivors.length,
-          s.title,
-          s.detail ?? null,
-          JSON.stringify(s.files ?? []),
-          s.branch ?? null,
-          p?.subFlowId ?? null,
+          `UPDATE plan_steps SET position=?, updated_at=? WHERE id=? AND flow_id=?`,
+          tail++,
           ts,
-          ts
+          survivor.id,
+          flowId
         );
-      });
-      for (const [i, survivor] of survivors.entries()) {
-        // keep guarded rows in place with their live linkage
-        db.run(
-          `INSERT INTO plan_steps (id,flow_id,artifact_id,meta_id,position,title,detail,files,branch,status,origin,completed_by,sub_flow_id,created_at,updated_at)
-           VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-          survivor.id, flowId, survivor.artifact_id, survivor.meta_id, i,
-          survivor.title, survivor.detail, survivor.files, survivor.branch,
-          survivor.status, survivor.origin, survivor.completed_by, survivor.sub_flow_id,
-          survivor.created_at, db.now()
-        );
+      }
+
+      for (const row of existing) {
+        if (kept.has(row.id)) continue;
+        this.cancelChildFlow(guard.cancelable.get(row.id) ?? null);
+        db.run(`DELETE FROM plan_steps WHERE id=?`, row.id);
       }
     });
     return this.list(flowId);

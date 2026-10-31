@@ -13,7 +13,7 @@ import { NODE_KEYS } from "../../../constants/node-keys";
 import { DEFAULT_MCP_SOURCES, mcpSourceConfigFields, mcpSourcesOf, mcpSourcesSchema } from "../../../templates/node-config";
 import { mergeArena } from "../../../runtime/fanout/merge-arena";
 import { BuildRunSupport } from "./build-run-support";
-import { BuildInput, BuildOutput } from "./schema";
+import { BuildInput, BuildOutput, StepBuildTriggerPayload, formatStepBuildContextPack } from "./schema";
 
 // ── the fan-out step child of build (`step_build`, Phase 1C) ─────────────────
 // ONE plan step built by its own child flow on its own branch.
@@ -37,14 +37,8 @@ import { BuildInput, BuildOutput } from "./schema";
 // only the PARENT's final aggregate approval creates the MR through the
 // existing approveBuild chain.
 
-/** The payload step as the child reads it (from the persisted trigger payload). */
-interface StepPayload {
-  id: string;
-  title: string;
-  detail: string | null;
-  files: string[];
-  branch?: string;
-}
+/** Parsed fan-out trigger payload for this step child. */
+type StepChildPayload = StepBuildTriggerPayload;
 
 /**
  * §T6: the step child is a SIBLING def, not a subclass — it extends the
@@ -150,7 +144,7 @@ export class StepBuildNode extends AgentRunNode<BuildInput, BuildOutput> {
       ``,
       `Implement exactly this step — nothing more. Other steps of the plan are being built by separate sibling agents; your branch merge is the only thing the reviewer sees for this step.`,
     ].filter(Boolean).join("\n");
-    const contextPack = this.contextPack(payload);
+    const contextPack = formatStepBuildContextPack(payload.siblings);
 
     const prompt = prompts.resolve(
       NODE_KEYS.STEP_BUILD,
@@ -265,55 +259,18 @@ export class StepBuildNode extends AgentRunNode<BuildInput, BuildOutput> {
   // ── helpers ─────────────────────────────────────────────────────────────────
 
   /** The child flow's persisted `{plan, step, siblings, parentNodeKey}` payload. */
-  private payloadOf(ctx: FlowCtx): { step: StepPayload; siblings: { id: string; title: string; files: string[]; status: string }[] } | null {
+  private payloadOf(ctx: FlowCtx): StepChildPayload | null {
     const raw: unknown = (ctx.flow as FlowRow).trigger_payload ?? null;
-    const p = raw && typeof raw === "object" ? (raw as Record<string, unknown>) : {};
-    const step = p.step && typeof p.step === "object" ? (p.step as Record<string, unknown>) : null;
-    if (!step) return null;
-    const sp: StepPayload = {
-      id: String(step.id ?? ""),
-      title: String(step.title ?? ""),
-      detail: typeof step.detail === "string" ? step.detail : null,
-      files: Array.isArray(step.files) ? (step.files as unknown[]).filter((f): f is string => typeof f === "string") : [],
-      ...(typeof step.branch === "string" ? { branch: step.branch } : {}),
-    };
-    const siblings = Array.isArray(p.siblings)
-      ? (p.siblings as Record<string, unknown>[]).map((s) => ({
-        id: String(s?.id ?? ""),
-        title: String(s?.title ?? ""),
-        files: Array.isArray(s?.files) ? (s?.files as unknown[]).filter((f): f is string => typeof f === "string") : [],
-        status: String(s?.status ?? "pending"),
-      }))
-      : [];
-    return { step: sp, siblings };
+    const p = raw && typeof raw === "object" ? raw : null;
+    if (!p) return null;
+    const parsed = StepBuildTriggerPayload.safeParse(p);
+    if (!parsed.success) return null;
+    return parsed.data;
   }
 
   /** The FULL parent plan markdown, so the child agent knows where its step sits. */
   private parentPlanMarkdown(parentFlowId: string): string {
     const row = this.support.latestArtifact(parentFlowId, "plan");
     return row?.content ?? "";
-  }
-
-  /** The sibling context pack (advisory: don't touch other steps' files).
-   *  Phase 3A: payload siblings are refreshed at start time — the pack shows
-   *  live states (building / awaiting approval / merged / failed / skipped),
-   *  a non-code sibling's output summary and a code sibling's merge state,
-   *  so parallel siblings read the current picture rather than the
-   *  expand-time snapshot. */
-  private contextPack(payload: unknown): string {
-    const siblings = (payload as { siblings?: unknown })?.siblings;
-    if (!Array.isArray(siblings) || !siblings.length) return "(no sibling steps)";
-    const lines = siblings.map((raw) => {
-      const s = (raw && typeof raw === "object" ? raw : {}) as Record<string, unknown>;
-      const files = Array.isArray(s.files) ? (s.files as unknown[]).filter((f): f is string => typeof f === "string") : [];
-      const merge = typeof s.mergeStatus === "string" && s.mergeStatus ? ` · merge: ${s.mergeStatus}` : "";
-      const summary = typeof s.summary === "string" && s.summary ? ` — summary: ${s.summary}` : "";
-      return `- ${String(s.id ?? "")}: ${String(s.title ?? "")}${files.length ? ` (files: ${files.join(", ")})` : ""} — currently ${String(s.status ?? "pending")}${merge}${summary}`;
-    });
-    return [
-      ...lines,
-      ``,
-      `Do NOT modify files owned by other pending steps; if your step genuinely requires one, keep the change minimal and call it out in your summary.`,
-    ].join("\n");
   }
 }

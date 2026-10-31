@@ -80,9 +80,9 @@ describe('PlanStore.latestPlan — parse + degrade', () => {
     expect(latest?.meta).toEqual({ steps: [], branches: [] });
   });
 
-  it('degrades steps-less / missing-branches meta to a branchless plan', () => {
+  it('parses branches-only meta with empty steps (Zod defaults)', () => {
     const stores = new PlanStore(supportWith(artRow({ branches: [branch('b')] })));
-    expect(stores.latestPlan('flow-1')?.meta).toEqual({ steps: [], branches: [] });
+    expect(stores.latestPlan('flow-1')?.meta).toEqual({ steps: [], branches: [branch('b')] });
     const branchless = new PlanStore(supportWith(artRow({ steps: [step('s1', 'A')] })));
     expect(branchless.latestPlan('flow-1')?.meta.branches).toEqual([]);
   });

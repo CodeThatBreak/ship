@@ -480,9 +480,7 @@ Original findings, verbatim:
 
 ### CR-013 [High] Plan-checklist bulk edit reopens done steps and drops agent `meta_id`, so the next refine duplicates the checklist
 
-- **Status at `abaa007`:** **Open**, fix in [Task 27](review-tasks/27-plan-checklist-integrity.md)
-- **Current location:** lib/engine/runtime/plan-step-store.ts:142-197 (replace), 68-129 (syncFromPlan matches only origin='agent' by meta_id)
-- **Re-verification note:** `replace()` still deletes every row and re-inserts matched rows as `status='pending'`, `origin='user'`, keeping `meta_id` only for pending rows with a `sub_flow_id`. A Plan-editor retitle therefore reopens done steps and turns agent steps into user steps, which the next refine's `syncFromPlan` then duplicates. Update matched rows in place, carrying status, completed_by, origin, meta_id and sub_flow_id, and add a store test for edit followed by `syncFromPlan`.
+- **Status at `abaa007`:** **Fixed (Task 27)**
 
 - **Severity:** High
 - **Category:** Correctness
@@ -2402,9 +2400,7 @@ Original findings, verbatim:
 
 ### CR-084 [Medium] The step-build context pack never shows sibling merge state or summaries
 
-- **Status at `abaa007`:** **Open**, fix in [Task 27](review-tasks/27-plan-checklist-integrity.md)
-- **Current location:** lib/engine/nodes/kinds/build/step-build-node.ts:119, 151, 266-286, 301-316
-- **Re-verification note:** Unchanged. `payloadOf()` rebuilds siblings as `{id,title,files,status}`, and `contextPack()` then reads the stripped `mergeStatus`/`summary`, so live merge state and summaries never reach the prompt. Fix: one Zod `StepPayloadSchema` (siblings with optional mergeStatus/summary), parsed once and passed typed to `contextPack`.
+- **Status at `abaa007`:** **Fixed (Task 27)**
 
 - **Severity:** Medium
 - **Category:** Correctness
@@ -2529,9 +2525,7 @@ Original findings, verbatim:
 
 ### CR-090 [Medium] Plan meta and step payloads are read from the DB with casts instead of Zod
 
-- **Status at `abaa007`:** **Open**, fix in [Task 27](review-tasks/27-plan-checklist-integrity.md)
-- **Current location:** lib/engine/nodes/kinds/plan/plan-store.ts:31-51, lib/engine/nodes/kinds/build/build-node.ts:182-187, lib/engine/nodes/kinds/build/step-build-node.ts:266-286, lib/engine/nodes/declarative.ts:26-33
-- **Re-verification note:** `PlanStore.latestPlan` still casts `m.steps as PlanStep[]` and `m.branches`, bypassing the `PlanBranch` dependsOn defaults (`dependencySummaries` calls `branch.dependsOn.includes`). Build `triggerRuns` assigns `meta.branches` unchecked, step payloads are hand-coerced with `String(...)`, and `loadRow` silently turns corrupt config into `{}`. Fix: add a `PlanArtifactMeta` Zod schema (`z.array(PlanStep)`, `z.array(PlanBranch)`) safeParsed in `PlanStore.latestPlan` and reused by build/step-build. Ignore legacy artifact shapes.
+- **Status at `abaa007`:** **Fixed (Task 27)**
 
 - **Severity:** Medium
 - **Category:** Correctness
@@ -2702,10 +2696,7 @@ Original findings, verbatim:
 
 ### CR-097 [Medium] Several plan-step and plan-validation gaps (cycles, id-less steps, wrong ids in the diff)
 
-- **Status at `abaa007`:** **Partly fixed**, fix in [Task 27](review-tasks/27-plan-checklist-integrity.md)
-- **Current severity:** Low (was Medium)
-- **Current location:** lib/engine/nodes/kinds/plan/plan-contract.ts:356-357, lib/engine/nodes/kinds/plan/branch-refinement.ts:154-165, lib/engine/nodes/kinds/build/build-node.ts:213-227
-- **Re-verification note:** Branch `dependsOn` cycles are now rejected in `PlanResponse` (lib/engine/nodes/kinds/plan/schema.ts:123-135), and the patch path diffs against the merged steps. The full scoped sub-plan path still diffs `oldSteps` against the agent's raw `sub.steps` rather than the re-id'd `merged` branch steps, and `diffSteps` still drops id-less steps. Fix: diff against `merged.steps.filter(s => s.branch === branchName)`, the way `scopedPatchOutcome` does.
+- **Status at `abaa007`:** **Partly fixed (Task 27)** — scoped sub-plan diff uses merged branch steps; `diffSteps` still ignores id-less steps
 
 - **Severity:** Medium
 - **Category:** Correctness
@@ -5127,9 +5118,7 @@ Original findings, verbatim:
 
 ### CR-192 [Low] Checklist bulk replace moves protected (started) steps to the top
 
-- **Status at `abaa007`:** **Open**, fix in [Task 27](review-tasks/27-plan-checklist-integrity.md)
-- **Current location:** lib/engine/runtime/plan-step-store.ts:142-197 (176 `i + survivors.length`, 191 survivor position `i`)
-- **Re-verification note:** A bulk replace still re-inserts started (survivor) steps at positions 0..k-1 and shifts every edited row by `survivors.length`. Matched started rows are skipped in the main loop, so their input index is lost, and every bulk edit reorders the checklist with started steps first. Use the editor input index as the position for every matched row, survivors included, and append only unmatched survivors at the end.
+- **Status at `abaa007`:** **Fixed (Task 27)**
 
 - **Severity:** Low
 - **Category:** Correctness
@@ -7297,7 +7286,7 @@ One row per finding, at `abaa007`.
 | CR-010 | High | Bug | Open | [Task 19](review-tasks/19-fanout-rollup-and-promises.md) |
 | CR-011 | High | Bug | Fixed | [Task 21](review-tasks/21-multi-branch-correctness.md) |
 | CR-012 | High | Bug | Fixed | [Task 12](review-tasks/12-db-transactions.md) |
-| CR-013 | High | Bug | Open | [Task 27](review-tasks/27-plan-checklist-integrity.md) |
+| CR-013 | High | Bug | Fixed (Task 27) | [Task 27](review-tasks/27-plan-checklist-integrity.md) |
 | CR-014 | High | Bug | Open | [Task 16](review-tasks/16-run-lifecycle-late-writes.md) |
 | CR-015 | High | Bug | Fixed | [Task 17](review-tasks/17-node-claim-and-attempts.md) |
 | CR-016 | High | Security | Open | [Task 60](review-tasks/60-security-process-and-network-isolation.md) |
@@ -7368,20 +7357,20 @@ One row per finding, at `abaa007`.
 | CR-081 | Medium | Bug | Open | [Task 16](review-tasks/16-run-lifecycle-late-writes.md) |
 | CR-082 | Medium | Bug | Open | [Task 16](review-tasks/16-run-lifecycle-late-writes.md) |
 | CR-083 | Medium | Bug | Fixed | [Task 21](review-tasks/21-multi-branch-correctness.md) |
-| CR-084 | Medium | Bug | Open | [Task 27](review-tasks/27-plan-checklist-integrity.md) |
+| CR-084 | Medium | Bug | Fixed (Task 27) | [Task 27](review-tasks/27-plan-checklist-integrity.md) |
 | CR-085 | Medium | Bug | Fixed (Task 22) | [Task 22](review-tasks/22-pipeline-review-resolve.md) |
 | CR-086 | Medium | Bug | Fixed (Task 22) | [Task 22](review-tasks/22-pipeline-review-resolve.md) |
 | CR-087 | Medium | Bug | Fixed | — |
 | CR-088 | Medium | Bug | Fixed | [Task 18](review-tasks/18-terminal-outcome-writer.md) |
 | CR-089 | Low | Code quality | Fixed | [Task 26](review-tasks/26-node-config-validation.md) |
-| CR-090 | Medium | Code quality | Open | [Task 27](review-tasks/27-plan-checklist-integrity.md) |
+| CR-090 | Medium | Code quality | Fixed (Task 27) | [Task 27](review-tasks/27-plan-checklist-integrity.md) |
 | CR-091 | Medium | Code quality | Fixed | — |
 | CR-092 | Medium | Code quality | Fixed | [Task 18](review-tasks/18-terminal-outcome-writer.md) |
 | CR-093 | Medium | Code quality | Partly fixed | [Task 49](review-tasks/49-node-kind-structure.md) |
 | CR-094 | Medium | Code quality | Fixed | [Task 21](review-tasks/21-multi-branch-correctness.md) |
 | CR-095 | Medium | Code quality | Partly fixed | [Task 48](review-tasks/48-backend-dependency-injection.md) |
 | CR-096 | Medium | Code quality | Open | [Task 49](review-tasks/49-node-kind-structure.md) |
-| CR-097 | Low | Bug | Partly fixed | [Task 27](review-tasks/27-plan-checklist-integrity.md) |
+| CR-097 | Low | Bug | Partly fixed (Task 27) | [Task 27](review-tasks/27-plan-checklist-integrity.md) |
 | CR-098 | Medium | Bug | Open | [Task 31](review-tasks/31-git-host-clients.md) |
 | CR-099 | Medium | Gap | Open | [Task 31](review-tasks/31-git-host-clients.md) |
 | CR-100 | Medium | Security | Open | [Task 60](review-tasks/60-security-process-and-network-isolation.md) |
@@ -7476,7 +7465,7 @@ One row per finding, at `abaa007`.
 | CR-189 | Low | Bug | Open | [Task 60](review-tasks/60-security-process-and-network-isolation.md) |
 | CR-190 | Low | Bug | Open | [Task 60](review-tasks/60-security-process-and-network-isolation.md) |
 | CR-191 | Low | Bug | Fixed | [Task 24](review-tasks/24-template-snapshot-and-yaml.md) |
-| CR-192 | Low | Bug | Open | [Task 27](review-tasks/27-plan-checklist-integrity.md) |
+| CR-192 | Low | Bug | Fixed (Task 27) | [Task 27](review-tasks/27-plan-checklist-integrity.md) |
 | CR-193 | Low | Bug | Fixed (Task 25) | [Task 25](review-tasks/25-wait-timers-and-poller.md) |
 | CR-194 | Low | Performance | Fixed (Task 25) | [Task 25](review-tasks/25-wait-timers-and-poller.md) |
 | CR-195 | Low | Code quality | Partly fixed | [Task 50](review-tasks/50-small-module-cleanups.md) |

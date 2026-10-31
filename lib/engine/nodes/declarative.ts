@@ -1,5 +1,6 @@
 import "server-only";
 
+import { z } from "zod";
 import { db } from "../../db";
 import { NodeDefinition } from "./shared";
 import { AgentTemplateNode } from "./kinds/agent/agent-node";
@@ -25,13 +26,27 @@ export interface DeclarativeRow {
   config: unknown;
 }
 
+const DeclarativeRowSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  description: z.string().nullable(),
+  kind: z.string(),
+  config: z.unknown(),
+});
+
 function loadRow(defKey: string): DeclarativeRow | undefined {
-  const decode = (r: Record<string, unknown> | undefined) => {
+  const decode = (r: Record<string, unknown> | undefined): DeclarativeRow | undefined => {
     if (!r) return undefined;
-    if (typeof r.config === "string") {
-      try { r.config = JSON.parse(r.config); } catch { r.config = {}; }
+    let row = r;
+    if (typeof row.config === "string") {
+      try {
+        row = { ...row, config: JSON.parse(row.config) };
+      } catch {
+        return undefined;
+      }
     }
-    return r as never;
+    const parsed = DeclarativeRowSchema.safeParse(row);
+    return parsed.success ? parsed.data : undefined;
   };
   // db.get returns raw rows — the config column is a TEXT JSON blob here
   const byId = db.get<Record<string, unknown>>(

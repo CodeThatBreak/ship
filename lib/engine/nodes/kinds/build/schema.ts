@@ -40,3 +40,46 @@ export const BuildOutput = z.object({
   branchName: z.string().optional(),
 });
 export type BuildOutput = z.infer<typeof BuildOutput>;
+
+// ── step-build child trigger payload (fan-out) ───────────────────────────────
+
+export const StepBuildSibling = z.object({
+  id: z.string(),
+  title: z.string(),
+  files: z.array(z.string()).default([]),
+  status: z.string().default("pending"),
+  mergeStatus: z.string().optional(),
+  summary: z.string().optional(),
+});
+export type StepBuildSibling = z.infer<typeof StepBuildSibling>;
+
+export const StepBuildStepPayload = z.object({
+  id: z.string(),
+  title: z.string(),
+  detail: z.string().nullable(),
+  files: z.array(z.string()).default([]),
+  branch: z.string().optional(),
+});
+export type StepBuildStepPayload = z.infer<typeof StepBuildStepPayload>;
+
+export const StepBuildTriggerPayload = z.object({
+  step: StepBuildStepPayload,
+  siblings: z.array(StepBuildSibling).default([]),
+});
+export type StepBuildTriggerPayload = z.infer<typeof StepBuildTriggerPayload>;
+
+/** Render sibling steps for the step-build context pack prompt section. */
+export const formatStepBuildContextPack = (siblings: StepBuildSibling[]): string => {
+  if (!siblings.length) return "(no sibling steps)";
+  const lines = siblings.map((s) => {
+    const files = s.files ?? [];
+    const merge = s.mergeStatus ? ` · merge: ${s.mergeStatus}` : "";
+    const summary = s.summary ? ` — summary: ${s.summary}` : "";
+    return `- ${s.id}: ${s.title}${files.length ? ` (files: ${files.join(", ")})` : ""} — currently ${s.status}${merge}${summary}`;
+  });
+  return [
+    ...lines,
+    ``,
+    `Do NOT modify files owned by other pending steps; if your step genuinely requires one, keep the change minimal and call it out in your summary.`,
+  ].join("\n");
+};
