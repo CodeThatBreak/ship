@@ -2148,7 +2148,7 @@ Original findings, verbatim:
 
 ### CR-073 [Medium] Worktree lifecycle events stamp the node row id as `nodeKey`, misrouting them in the feed
 
-- **Status at `abaa007`:** **Open**, fix in [Task 33](review-tasks/33-git-and-worktree-process-safety.md)
+- **Status:** Fixed (Task 33)
 - **Current location:** lib/engine/runtime/worktree-lifecycle.ts:112-114, 131-135, 144-146, 230-232, 242-243, 248-249, 254
 - **Re-verification note:** Unchanged. `opts.nodeId`/`target.nodeId` is a `nodes.id` (callers pass `node.id`), but it is also written into `data.nodeKey`, so feed routing by nodeKey gets a row id. Fix: thread the real node key through opts (or resolve it from the id), or drop `nodeKey` from data when a node id is passed.
 
@@ -2832,7 +2832,7 @@ Original findings, verbatim:
 
 ### CR-103 [Medium] Cache/dep copy falls back to synchronous `fs.cpSync` after a timeout, blocking the Node event loop
 
-- **Status at `abaa007`:** **Open**, fix in [Task 33](review-tasks/33-git-and-worktree-process-safety.md)
+- **Status:** Fixed (Task 33)
 - **Current location:** lib/git/worktree-setup.ts:521-531, lib/git/worktree-setup.ts:23
 - **Re-verification note:** `copyDirCoW` still catches every `cp` failure, including the 120s timeout, and then runs a synchronous `fs.cpSync` over the partial copy, which blocks the whole server. Fix: use `await fs.promises.cp`; on timeout (`err.killed`), remove the partial `dst` and report failure; fall back only when the clone is unsupported.
 
@@ -2855,7 +2855,7 @@ Original findings, verbatim:
 
 ### CR-104 [Medium] Setup/install commands: the timeout kills only the shell, and there is no cancellation path
 
-- **Status at `abaa007`:** **Open**, fix in [Task 33](review-tasks/33-git-and-worktree-process-safety.md)
+- **Status:** Fixed (Task 33)
 - **Current location:** lib/git/worktree-setup.ts:534-551
 - **Re-verification note:** `runCommand` still uses `exec(..., { shell: "/bin/bash", timeout })`. The timeout kills only the bash process, so grandchildren of compound install/setup commands keep running, and there is no `AbortSignal` to cancel setup when a flow is cancelled or deleted. Fix: `spawn` with `detached: true`, kill the process group on timeout or abort, and thread an `AbortSignal` through `WorktreeSetupInput`.
 
@@ -5645,7 +5645,7 @@ Original findings, verbatim:
 
 ### CR-214 [Low] Duplicated git exec wrappers, timeouts and helpers across three modules
 
-- **Status at `abaa007`:** **Open**, fix in [Task 33](review-tasks/33-git-and-worktree-process-safety.md)
+- **Status:** Fixed (Task 33)
 - **Current location:** lib/git/worktrees.ts:8-13,498-504,645-653; lib/git/local.ts:9-14,46-55,126-132,193; lib/integrations/local-agent/agent.ts:17,121-142; lib/integrations/gitlab/git-host.ts:19; lib/integrations/jira/service.ts:14
 - **Re-verification note:** There are still three independent `execFile("git")` wrappers. `MAX_BUFFER` differs (10 MB in worktrees, 50 MB in local) and local-agent sets no default timeout. `headBranch` and `currentBranch` are identical, the base-ref fallback chain is duplicated (worktrees 450-463, local 193), and `maskToken` is duplicated in GitLab and Jira. Fix: add a shared `GitRunner` class with timeouts, redaction and typed errors injected into all three, and move `maskToken` to a shared util.
 
@@ -5674,7 +5674,7 @@ Original findings, verbatim:
 
 ### CR-215 [Low] Module-level singletons created outside `processSingleton`, one with mutable state
 
-- **Status at `abaa007`:** **Open**, fix in [Task 33](review-tasks/33-git-and-worktree-process-safety.md)
+- **Status:** Fixed (Task 33)
 - **Current location:** lib/git/worktrees.ts:246,656-657; lib/git/local.ts:236; lib/git/dep-policy.ts:255; lib/git/worktree-setup.ts:294,562; lib/integrations/gitlab/client.ts:325; lib/integrations/jira/service.ts:97; lib/integrations/cursor/client.ts:120; lib/db/rows.ts:433
 - **Re-verification note:** These are still plain module-level `new X()` singletons outside `processSingleton`. `worktrees` holds the mutable `inflight` Map, so the "one scan per repo" coalescing splits across `next dev` module graphs, and the comment still calls it "stateless enough". Fix: wrap them with `processSingleton(...)` and correct the comment.
 
@@ -5738,7 +5738,7 @@ Original findings, verbatim:
 
 ### CR-218 [Low] `listWorktrees` coalescing can serve a pre-mutation scan to callers that require a "fresh" listing
 
-- **Status at `abaa007`:** **Open**, fix in [Task 33](review-tasks/33-git-and-worktree-process-safety.md)
+- **Status:** Fixed (Task 33)
 - **Current location:** lib/git/worktrees.ts:253-266,320-331,549,611-614
 - **Re-verification note:** `listWorktrees` still lets any caller join an in-flight scan. `preflightRemoval`'s "fresh strict re-list", the verify path and the branch-delete guard can therefore act on a scan that started before a concurrent add or remove. Fix: add a `{ fresh: true }` option that bypasses coalescing (or a per-repo generation counter) and use it on those paths.
 
@@ -5826,7 +5826,7 @@ Original findings, verbatim:
 
 ### CR-222 [Low] `lib/git/local.ts` depends on the engine layer
 
-- **Status at `abaa007`:** **Partly fixed**, fix in [Task 33](review-tasks/33-git-and-worktree-process-safety.md)
+- **Status:** Fixed (Task 33)
 - **Current location:** lib/git/local.ts:35-38,57-65; lib/engine/ports/git-host.ts:278-284
 - **Re-verification note:** Fixed: the layering inversion. `lib/git/local.ts` no longer imports the engine, and callers pass an `AuthedUrlResolver`. Remaining: routing and credential errors are still swallowed twice (`authedCloneUrlFor` and `LocalGit.authedUrl` both catch and fall back to the raw repo URL), so a missing token silently becomes an unauthenticated push. Fix: let the resolver throw a typed error and surface it.
 
@@ -5870,7 +5870,7 @@ Original findings, verbatim:
 
 ### CR-224 [Low] Worktree base resolution silently falls back to the hub's current `HEAD`
 
-- **Status at `abaa007`:** **Open**, fix in [Task 33](review-tasks/33-git-and-worktree-process-safety.md)
+- **Status:** Fixed (Task 33)
 - **Current location:** lib/git/worktrees.ts:449-463
 - **Re-verification note:** `resolveBaseRef` still ends its candidate chain with `"HEAD"`, so a missing default branch silently cuts the flow branch from whatever the hub has checked out. Fix: drop `HEAD` and throw a typed `BaseRefNotFoundError` naming the configured branch, or fetch `origin <base>` once first.
 
@@ -7344,7 +7344,7 @@ One row per finding, at `abaa007`.
 | CR-070 | Medium | Code quality | Open | [Task 45](review-tasks/45-flow-engine-decomposition.md) |
 | CR-071 | Medium | Code quality | Partly fixed | [Task 44](review-tasks/44-engine-stores-and-constants.md) |
 | CR-072 | Medium | Bug | Fixed | [Task 17](review-tasks/17-node-claim-and-attempts.md) |
-| CR-073 | Medium | Bug | Open | [Task 33](review-tasks/33-git-and-worktree-process-safety.md) |
+| CR-073 | Medium | Bug | Fixed (Task 33) | [Task 33](review-tasks/33-git-and-worktree-process-safety.md) |
 | CR-074 | Medium | Bug | Fixed | [Task 18](review-tasks/18-terminal-outcome-writer.md) |
 | CR-075 | Medium | Bug | Fixed (Task 22) | [Task 22](review-tasks/22-pipeline-review-resolve.md) |
 | CR-076 | Medium | Gap | Fixed | [Task 26](review-tasks/26-node-config-validation.md) |
@@ -7374,8 +7374,8 @@ One row per finding, at `abaa007`.
 | CR-100 | Medium | Security | Open | [Task 60](review-tasks/60-security-process-and-network-isolation.md) |
 | CR-101 | Medium | Bug | Open | [Task 32](review-tasks/32-agent-ports.md) |
 | CR-102 | Medium | Gap | Open | [Task 32](review-tasks/32-agent-ports.md) |
-| CR-103 | Medium | Bug | Open | [Task 33](review-tasks/33-git-and-worktree-process-safety.md) |
-| CR-104 | Medium | Bug | Open | [Task 33](review-tasks/33-git-and-worktree-process-safety.md) |
+| CR-103 | Medium | Bug | Fixed (Task 33) | [Task 33](review-tasks/33-git-and-worktree-process-safety.md) |
+| CR-104 | Medium | Bug | Fixed (Task 33) | [Task 33](review-tasks/33-git-and-worktree-process-safety.md) |
 | CR-105 | Medium | Security | Open | [Task 60](review-tasks/60-security-process-and-network-isolation.md) |
 | CR-106 | Medium | Bug | Fixed | [Task 20](review-tasks/20-merge-arena-and-workspaces.md) |
 | CR-107 | Medium | Bug | Fixed | [Task 20](review-tasks/20-merge-arena-and-workspaces.md) |
@@ -7485,17 +7485,17 @@ One row per finding, at `abaa007`.
 | CR-211 | Low | Bug | Fixed (Task 08) | [Task 08](review-tasks/08-db-bootstrap-and-schema.md) |
 | CR-212 | Low | Performance | Fixed (Task 08) | [Task 08](review-tasks/08-db-bootstrap-and-schema.md) |
 | CR-213 | Low | Code quality | Open | [Task 46](review-tasks/46-backend-types-cleanup.md) |
-| CR-214 | Low | Code quality | Open | [Task 33](review-tasks/33-git-and-worktree-process-safety.md) |
-| CR-215 | Low | Code quality | Open | [Task 33](review-tasks/33-git-and-worktree-process-safety.md) |
+| CR-214 | Low | Code quality | Fixed (Task 33) | [Task 33](review-tasks/33-git-and-worktree-process-safety.md) |
+| CR-215 | Low | Code quality | Fixed (Task 33) | [Task 33](review-tasks/33-git-and-worktree-process-safety.md) |
 | CR-216 | Low | Code quality | Open | [Task 50](review-tasks/50-small-module-cleanups.md) |
 | CR-217 | Low | Code quality | Open | [Task 44](review-tasks/44-engine-stores-and-constants.md) |
-| CR-218 | Low | Bug | Open | [Task 33](review-tasks/33-git-and-worktree-process-safety.md) |
+| CR-218 | Low | Bug | Fixed (Task 33) | [Task 33](review-tasks/33-git-and-worktree-process-safety.md) |
 | CR-219 | Low | Bug | Open | [Task 31](review-tasks/31-git-host-clients.md) |
 | CR-220 | Low | Bug | Open | [Task 31](review-tasks/31-git-host-clients.md) |
 | CR-221 | Low | Infra | Fixed (Task 08) | [Task 08](review-tasks/08-db-bootstrap-and-schema.md) |
-| CR-222 | Low | Code quality | Partly fixed | [Task 33](review-tasks/33-git-and-worktree-process-safety.md) |
+| CR-222 | Low | Code quality | Fixed (Task 33) | [Task 33](review-tasks/33-git-and-worktree-process-safety.md) |
 | CR-223 | Low | Bug | Open | [Task 32](review-tasks/32-agent-ports.md) |
-| CR-224 | Low | Bug | Open | [Task 33](review-tasks/33-git-and-worktree-process-safety.md) |
+| CR-224 | Low | Bug | Fixed (Task 33) | [Task 33](review-tasks/33-git-and-worktree-process-safety.md) |
 | CR-225 | Low | Bug | Open | [Task 31](review-tasks/31-git-host-clients.md) |
 | CR-226 | Low | Bug | Fixed | — |
 | CR-227 | Low | Bug | Open | [Task 36](review-tasks/36-cockpit-a11y-and-rendering.md) |

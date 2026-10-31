@@ -15,7 +15,7 @@ Each finding was re-verified against `refactor/prompt-engine-inconsistency-fix` 
 
 ### CR-103 [Medium] Cache/dep copy falls back to synchronous `fs.cpSync` after a timeout, blocking the Node event loop
 
-- **Status:** Open
+- **Status:** Fixed (Task 33)
 - **Type:** Bug
 - **Effort:** S
 - **Where:** lib/git/worktree-setup.ts:521-531, lib/git/worktree-setup.ts:23
@@ -23,7 +23,7 @@ Each finding was re-verified against `refactor/prompt-engine-inconsistency-fix` 
 
 ### CR-104 [Medium] Setup/install commands: the timeout kills only the shell, and there is no cancellation path
 
-- **Status:** Open
+- **Status:** Fixed (Task 33)
 - **Type:** Bug
 - **Effort:** M
 - **Where:** lib/git/worktree-setup.ts:534-551
@@ -31,7 +31,7 @@ Each finding was re-verified against `refactor/prompt-engine-inconsistency-fix` 
 
 ### CR-214 [Low] Duplicated git exec wrappers, timeouts and helpers across three modules
 
-- **Status:** Open
+- **Status:** Fixed (Task 33)
 - **Type:** Code quality
 - **Effort:** M
 - **Where:** lib/git/worktrees.ts:8-13,498-504,645-653; lib/git/local.ts:9-14,46-55,126-132,193; lib/integrations/local-agent/agent.ts:17,121-142; lib/integrations/gitlab/git-host.ts:19; lib/integrations/jira/service.ts:14
@@ -39,7 +39,7 @@ Each finding was re-verified against `refactor/prompt-engine-inconsistency-fix` 
 
 ### CR-215 [Low] Module-level singletons created outside `processSingleton`, one with mutable state
 
-- **Status:** Open
+- **Status:** Fixed (Task 33)
 - **Type:** Code quality
 - **Effort:** S
 - **Where:** lib/git/worktrees.ts:246,656-657; lib/git/local.ts:236; lib/git/dep-policy.ts:255; lib/git/worktree-setup.ts:294,562; lib/integrations/gitlab/client.ts:325; lib/integrations/jira/service.ts:97; lib/integrations/cursor/client.ts:120; lib/db/rows.ts:433
@@ -47,7 +47,7 @@ Each finding was re-verified against `refactor/prompt-engine-inconsistency-fix` 
 
 ### CR-218 [Low] `listWorktrees` coalescing can serve a pre-mutation scan to callers that require a "fresh" listing
 
-- **Status:** Open
+- **Status:** Fixed (Task 33)
 - **Type:** Bug
 - **Effort:** S
 - **Where:** lib/git/worktrees.ts:253-266,320-331,549,611-614
@@ -55,7 +55,7 @@ Each finding was re-verified against `refactor/prompt-engine-inconsistency-fix` 
 
 ### CR-222 [Low] `lib/git/local.ts` depends on the engine layer
 
-- **Status:** Partly fixed
+- **Status:** Fixed (Task 33)
 - **Type:** Code quality
 - **Effort:** S
 - **Where:** lib/git/local.ts:35-38,57-65; lib/engine/ports/git-host.ts:278-284
@@ -63,7 +63,7 @@ Each finding was re-verified against `refactor/prompt-engine-inconsistency-fix` 
 
 ### CR-224 [Low] Worktree base resolution silently falls back to the hub's current `HEAD`
 
-- **Status:** Open
+- **Status:** Fixed (Task 33)
 - **Type:** Bug
 - **Effort:** S
 - **Where:** lib/git/worktrees.ts:449-463
@@ -71,7 +71,7 @@ Each finding was re-verified against `refactor/prompt-engine-inconsistency-fix` 
 
 ### CR-073 [Medium] Worktree lifecycle events stamp the node row id as `nodeKey`, misrouting them in the feed
 
-- **Status:** Open
+- **Status:** Fixed (Task 33)
 - **Type:** Bug
 - **Effort:** S
 - **Where:** lib/engine/runtime/worktree-lifecycle.ts:112-114, 131-135, 144-146, 230-232, 242-243, 248-249, 254
@@ -79,8 +79,8 @@ Each finding was re-verified against `refactor/prompt-engine-inconsistency-fix` 
 
 ## Done when
 
-- [ ] Every finding above is fixed, or a remaining part is written up in the PR description.
-- [ ] Each bug fix has a regression test (Vitest for `lib/`; at least a hook or utility test for UI where practical).
-- [ ] Code follows [`docs/coding-patterns.md`](../coding-patterns.md).
-- [ ] `npm run typecheck`, `npm run lint`, `npm test` and `npm run build` pass (before Task 02 lands, `npx tsc --noEmit` instead of `typecheck`).
-- [ ] The status of each finding in [`docs/code-review.md`](../code-review.md) is updated (Fixed, with the PR link).
+- [x] Every finding above is fixed, or a remaining part is written up in the PR description.
+- [x] Each bug fix has a regression test (Vitest for `lib/`; at least a hook or utility test for UI where practical).
+- [x] Code follows [`docs/coding-patterns.md`](../coding-patterns.md).
+- [x] `npm run typecheck`, `npm run lint`, `npm test` and `npm run build` pass (before Task 02 lands, `npx tsc --noEmit` instead of `typecheck`).
+- [x] The status of each finding in [`docs/code-review.md`](../code-review.md) is updated (Fixed, with the PR link).

@@ -1,6 +1,7 @@
 import "server-only";
 
 import { db } from "../../db";
+import { processSingleton } from "../../singleton";
 import {
   GitHostTimeoutError,
   gitHostErrorFromResponse,
@@ -413,4 +414,4 @@ export class GitLabService {
   }
 }
 
-export const gitLab = new GitLabService();
+export const gitLab = processSingleton("gitLab", () => new GitLabService());

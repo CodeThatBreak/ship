@@ -72,6 +72,27 @@ export interface WorktreeBinding {
  * object database, refs and config, and is never mutated by agent runs).
  */
 export class WorktreeManager {
+  /** Resolve feed routing key from a node row id (never use the row id as nodeKey). */
+  private nodeKeyFor(flowId: string, nodeId: string | null | undefined): string | undefined {
+    if (!nodeId) return undefined;
+    const row = db.get<{ node_key: string }>(
+      `SELECT node_key FROM nodes WHERE id=? AND flow_id=?`,
+      nodeId,
+      flowId,
+    );
+    return row?.node_key;
+  }
+
+  private lifecycleData(
+    flowId: string,
+    nodeId: string | null | undefined,
+    extra?: Record<string, unknown>,
+  ): Record<string, unknown> | undefined {
+    const nodeKey = this.nodeKeyFor(flowId, nodeId);
+    if (!nodeKey && !extra) return undefined;
+    return { ...(extra ?? {}), ...(nodeKey ? { nodeKey } : {}) };
+  }
+
   /** A flow's worktree dir: `workspaces/worktrees/<flowId>` (unique per flow; sweep-joinable). */
   private worktreeDirForFlow(flowId: string): string {
     return workspacePaths.worktreeDir(flowId);
@@ -111,7 +132,7 @@ export class WorktreeManager {
     // silent until the create/reuse outcome lands
     db.emitEvent(flow.id, opts.nodeId ?? null, "lifecycle",
       `setting up worktree (branch ${branch})…`,
-      { nodeKey: opts.nodeId ?? undefined, branch });
+      this.lifecycleData(flow.id, opts.nodeId, { branch }));
     try {
       const result = await worktrees.createWorktree({
         repoPath: hub,
@@ -132,7 +153,11 @@ export class WorktreeManager {
         result.reused
           ? `worktree reused at ${canonical} (branch ${result.headBranch})`
           : `worktree created at ${canonical} (branch ${branch} off ${result.base})`,
-        { nodeKey: opts.nodeId ?? undefined, worktree: canonical, branch, base: result.base ?? undefined });
+        this.lifecycleData(flow.id, opts.nodeId, {
+          worktree: canonical,
+          branch,
+          base: result.base ?? undefined,
+        }));
       // deps setup runs once per flow (the worktree persists build → fixes →
       // re-gates → resolve, including session resumes); reuse skips it
       const setupNote = result.reused
@@ -143,7 +168,7 @@ export class WorktreeManager {
       const msg = e instanceof Error ? e.message : String(e);
       db.emitEvent(flow.id, opts.nodeId ?? null, "error",
         `worktree setup failed (${msg})`,
-        { nodeKey: opts.nodeId ?? undefined });
+        this.lifecycleData(flow.id, opts.nodeId));
       // fatal: agent runs must never fall back to the registered checkout —
       // they would mutate the developer's real checkout and cross-contaminate
       // concurrent flows. The node fails loudly; retry once fixed.
@@ -245,7 +270,10 @@ export class WorktreeManager {
     });
     db.emitEvent(ctx.flow.id, target.nodeId, "lifecycle",
       `setting up worktree deps (${policy.source})…`,
-      { nodeKey: target.nodeId ?? undefined, policy: policy.source, strategy: policy.strategy });
+      this.lifecycleData(ctx.flow.id, target.nodeId, {
+        policy: policy.source,
+        strategy: policy.strategy,
+      }));
     const note = (err: string) => `worktree deps setup failed: ${err}`;
     try {
       const result = await worktreeSetup.run({
@@ -256,18 +284,18 @@ export class WorktreeManager {
         sharedDirs: depPolicies.parsePathList(overrides.shared_dirs),
         setupCommand: overrides.setup_command ?? null,
         onEvent: (message) => db.emitEvent(ctx.flow.id, target.nodeId, "log", message,
-          { nodeKey: target.nodeId ?? undefined }),
+          this.lifecycleData(ctx.flow.id, target.nodeId)),
       });
       const message = result.ok
         ? `worktree deps ready${result.actions.length ? `: ${result.actions.join("; ")}` : ""}`
         : note(result.error ?? "unknown error");
       db.emitEvent(ctx.flow.id, target.nodeId, result.ok ? "lifecycle" : "error", message,
-        { nodeKey: target.nodeId ?? undefined, actions: result.actions });
+        this.lifecycleData(ctx.flow.id, target.nodeId, { actions: result.actions }));
       return result.ok ? null : message;
     } catch (e: unknown) {
       // the executor reports failures as results — a throw here is a bug
       const msg = e instanceof Error ? e.message : String(e);
-      db.emitEvent(ctx.flow.id, target.nodeId, "error", note(msg), { nodeKey: target.nodeId ?? undefined });
+      db.emitEvent(ctx.flow.id, target.nodeId, "error", note(msg), this.lifecycleData(ctx.flow.id, target.nodeId));
       return note(msg);
     }
   }

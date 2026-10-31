@@ -7,6 +7,7 @@ import {
   type TokenUsage,
 } from "../cursorSdk";
 import { parseModelSpec } from "../../modelSpec";
+import { processSingleton } from "../../singleton";
 import type { AgentRunQuery } from "../../engine/ports/agent-port";
 
 // ── cloud run result / usage shapes (SDK-native, re-exported) ───────────────
@@ -118,4 +119,4 @@ export class CursorClient {
   }
 }
 
-export const cursorClient = new CursorClient();
+export const cursorClient = processSingleton("cursorClient", () => new CursorClient());

@@ -17,12 +17,7 @@ import type {
 } from "../../engine/ports/git-host";
 import { GitLabClient, gitLab, type Discussion, type MergeRequest, type Pipeline as GitLabPipeline } from "./client";
 
-/** Masked token for the settings UI (never the real value). */
-function maskToken(t: string): string {
-  if (!t) return "";
-  if (t.length <= 4) return "••••";
-  return `••••${t.slice(-4)}`;
-}
+import { maskToken } from "../../mask-token";
 
 // ── shape normalization (GitLab snake_case → port camelCase) ────────────────
 

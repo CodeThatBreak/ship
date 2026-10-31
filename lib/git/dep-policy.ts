@@ -3,6 +3,7 @@ import "server-only";
 import crypto from "crypto";
 import fs from "fs";
 import path from "path";
+import { processSingleton } from "../singleton";
 
 /**
  * The dependency-setup policy layer (pure — no db/engine imports; repo tree
@@ -251,5 +252,5 @@ export class DepPolicyResolver {
   }
 }
 
-/** Shared dep-policy resolver (stateless enough for a module-scoped singleton). */
-export const depPolicies = new DepPolicyResolver();
+/** Shared dep-policy resolver (stateless — one instance per process). */
+export const depPolicies = processSingleton("depPolicies", () => new DepPolicyResolver());

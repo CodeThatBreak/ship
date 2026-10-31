@@ -2,6 +2,7 @@ import "server-only";
 
 import { z } from "zod";
 import { db } from "./index";
+import { processSingleton } from "../singleton";
 
 /**
  * Zod schemas for every DB row + typed query helpers.
@@ -433,4 +434,4 @@ export class RowGateway {
   }
 }
 
-export const rows = new RowGateway();
+export const rows = processSingleton("rows", () => new RowGateway());

@@ -1,17 +1,16 @@
 import "server-only";
 
-import { execFile } from "child_process";
 import fs from "fs";
 import path from "path";
-import { promisify } from "util";
+import { processSingleton } from "../singleton";
+import { localBranchBaseCandidates } from "./base-ref";
+import { AuthedUrlResolutionError } from "./git-errors";
+import {
+  GitRunner,
+  GIT_FETCH_TIMEOUT_MS,
+  gitRunner,
+} from "./git-runner";
 import { workspacePaths } from "./workspace-paths";
-
-const execFileAsync = promisify(execFile);
-
-// never let a git command hang the engine (SSH connect can stall ~75s on a dead remote)
-const GIT_TIMEOUT_MS = 20_000;
-const GIT_FETCH_TIMEOUT_MS = 15_000;
-const MAX_BUFFER = 1024 * 1024 * 50;
 
 export interface DiffFile {
   file: string;
@@ -43,25 +42,22 @@ export type AuthedUrlResolver = (repoUrl: string) => string;
  * to a per-flow clone under workspaces/.
  */
 export class LocalGit {
+  constructor(private readonly gitExec: GitRunner = gitRunner) {}
+
   /** Run a git command (never hangs the engine: bounded timeouts). */
   private async git(
     args: string[],
-    opts: { timeout?: number; maxBuffer?: number } = {}
+    opts: { timeout?: number; maxBuffer?: number } = {},
   ): Promise<{ stdout: string; stderr: string }> {
-    return execFileAsync("git", args, {
-      maxBuffer: opts.maxBuffer ?? MAX_BUFFER,
-      timeout: opts.timeout ?? GIT_TIMEOUT_MS,
-    });
+    return this.gitExec.run(args, opts);
   }
 
   private authedUrl(repoUrl: string, resolve?: AuthedUrlResolver): string {
-    // the token-embedding scheme (oauth2:<token>@) is the host adapter's —
-    // resolved by the engine (git-host registry) and passed in; without a
-    // resolver (or on resolution failure) fall back to the raw repo URL
+    if (!resolve) return repoUrl;
     try {
-      return resolve ? resolve(repoUrl) : repoUrl;
-    } catch {
-      return repoUrl;
+      return resolve(repoUrl);
+    } catch (e: unknown) {
+      throw new AuthedUrlResolutionError(repoUrl, e);
     }
   }
 
@@ -190,7 +186,7 @@ export class LocalGit {
     }
     // best available base ref: fetched origin/<base> first, then local <base>/master
     let baseRef = `origin/${baseBranch}`;
-    for (const cand of [baseRef, baseBranch, "origin/master", "master"]) {
+    for (const cand of localBranchBaseCandidates(baseBranch)) {
       try {
         await this.git([...base, "rev-parse", "--verify", cand]);
         baseRef = cand;
@@ -233,7 +229,7 @@ export class LocalGit {
   }
 }
 
-export const localGit = new LocalGit();
+export const localGit = processSingleton("localGit", () => new LocalGit());
 
 /** The per-flow workspace clone directory (`workspaces/clones/<flowId>`), or null when absent. */
 export function workspaceForFlow(flowId: string): string | null {

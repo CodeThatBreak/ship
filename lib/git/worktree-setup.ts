@@ -1,10 +1,12 @@
 import "server-only";
 
-import { exec, execFile } from "child_process";
+import { execFile, spawn, type ChildProcess } from "child_process";
 import fs from "fs";
 import os from "os";
 import path from "path";
 import { promisify } from "util";
+import { processSingleton } from "../singleton";
+import { MAX_GIT_BUFFER } from "./git-runner";
 import { worktrees } from "./worktrees";
 import {
   COMMON_CACHE_DIRS,
@@ -17,9 +19,8 @@ import {
 } from "./dep-policy";
 import { containsPath, samePath } from "./worktrees";
 
-const execAsync = promisify(exec);
 const execFileAsync = promisify(execFile);
-const MAX_BUFFER = 1024 * 1024 * 10;
+const MAX_BUFFER = MAX_GIT_BUFFER;
 const COPY_TIMEOUT_MS = 120_000;
 
 export interface WorktreeSetupInput {
@@ -39,6 +40,8 @@ export interface WorktreeSetupInput {
   setupCommand?: string | null;
   /** progress callback (the engine maps it to lifecycle events) */
   onEvent?: (message: string) => void;
+  /** when aborted, setup commands are killed as a process group */
+  signal?: AbortSignal;
 }
 
 export interface WorktreeSetupResult {
@@ -83,6 +86,7 @@ interface SetupContext {
   hub: string;
   wt: string;
   emit: (message: string) => void;
+  signal?: AbortSignal;
 }
 
 /**
@@ -203,7 +207,12 @@ class CacheCopyStep extends SetupStep {
  */
 abstract class DepStrategyRunner {
   constructor(protected readonly policy: DepPolicy) {}
-  abstract run(hub: string, wt: string, emit: (m: string) => void): Promise<string[]>;
+  abstract run(
+    hub: string,
+    wt: string,
+    emit: (m: string) => void,
+    signal?: AbortSignal,
+  ): Promise<string[]>;
 }
 
 /** `none`: nothing to materialize. */
@@ -217,10 +226,10 @@ class NoneStrategy extends DepStrategyRunner {
 
 /** `command` / `install` / `store-install`: one shell command in the worktree. */
 class CommandStrategy extends DepStrategyRunner {
-  async run(_hub: string, wt: string, emit: (m: string) => void): Promise<string[]> {
+  async run(_hub: string, wt: string, emit: (m: string) => void, signal?: AbortSignal): Promise<string[]> {
     if (!this.policy.command) throw new Error(`${this.policy.strategy} policy without a command`);
     emit(`running: ${this.policy.command}`);
-    await runCommand(this.policy.command, wt, this.policy.timeoutMs);
+    await runCommand(this.policy.command, wt, this.policy.timeoutMs, signal);
     return [`ran: ${this.policy.command}`];
   }
 }
@@ -232,14 +241,14 @@ class CommandStrategy extends DepStrategyRunner {
  * so the recorded frozen-install fallback is the honest path.
  */
 class CloneStrategy extends DepStrategyRunner {
-  async run(hub: string, wt: string, emit: (m: string) => void): Promise<string[]> {
+  async run(hub: string, wt: string, emit: (m: string) => void, signal?: AbortSignal): Promise<string[]> {
     const gate = this.gate(hub, wt);
     if (!gate.usable) {
       if (!this.policy.fallback) {
         throw new Error(`${gate.reason} and no fallback configured`);
       }
       emit(`${gate.reason} — falling back to: ${this.policy.fallback.command ?? this.policy.fallback.strategy}`);
-      return await depStrategyRunners.run(this.policy.fallback, hub, wt, emit);
+      return await depStrategyRunners.run(this.policy.fallback, hub, wt, emit, signal);
     }
     const actions: string[] = [];
     for (const dir of this.policy.depDirs ?? []) {
@@ -284,10 +293,16 @@ class DepStrategyTable {
   };
 
   /** Execute a policy through its runner (clone fallbacks recurse through here). */
-  async run(policy: DepPolicy, hub: string, wt: string, emit: (m: string) => void): Promise<string[]> {
+  async run(
+    policy: DepPolicy,
+    hub: string,
+    wt: string,
+    emit: (m: string) => void,
+    signal?: AbortSignal,
+  ): Promise<string[]> {
     const Runner = this.runners[policy.strategy];
     if (!Runner) throw new Error(`no runner for dep strategy ${policy.strategy}`);
-    return await new Runner(policy).run(hub, wt, emit);
+    return await new Runner(policy).run(hub, wt, emit, signal);
   }
 }
 
@@ -304,7 +319,7 @@ class DepPolicyStep extends SetupStep {
   }
 
   async run(): Promise<string[]> {
-    return await depStrategyRunners.run(this.policy, this.ctx.hub, this.ctx.wt, this.ctx.emit);
+    return await depStrategyRunners.run(this.policy, this.ctx.hub, this.ctx.wt, this.ctx.emit, this.ctx.signal);
   }
 }
 
@@ -323,7 +338,7 @@ class SetupCommandStep extends SetupStep {
 
   async run(): Promise<string[]> {
     this.ctx.emit(`running setup command: ${this.command}`);
-    await runCommand(this.command, this.ctx.wt, DEFAULT_SETUP_TIMEOUT_MS);
+    await runCommand(this.command, this.ctx.wt, DEFAULT_SETUP_TIMEOUT_MS, this.ctx.signal);
     return [`ran setup: ${this.command}`];
   }
 }
@@ -356,7 +371,7 @@ export class WorktreeSetup {
     if (containsPath(wt, hub) || containsPath(hub, wt)) {
       return fail(actions, "hub and worktree must live in separate trees");
     }
-    const ctx: SetupContext = { hub, wt, emit };
+    const ctx: SetupContext = { hub, wt, emit, signal: input.signal };
 
     let steps: SetupStep[];
     try {
@@ -517,37 +532,103 @@ export class WorktreeSetup {
 
 // ── mechanics ───────────────────────────────────────────────────────────────
 
-/** Directory copy: instant CoW clone when the fs supports it, plain copy fallback. */
-async function copyDirCoW(src: string, dst: string): Promise<void> {
+/** Directory copy: instant CoW clone when the fs supports it, async copy fallback. */
+export async function copyDirCoW(src: string, dst: string): Promise<void> {
   const flags =
     process.platform === "darwin" ? ["-cR"] : process.platform === "linux" ? ["-aR", "--reflink=auto"] : null;
   if (flags) {
     try {
       await execFileAsync("cp", [...flags, src, dst], { timeout: COPY_TIMEOUT_MS, maxBuffer: MAX_BUFFER });
       return;
-    } catch { /* non-clone fs or cp failure — plain copy below */ }
+    } catch (e: unknown) {
+      const killed = typeof e === "object" && e !== null && (e as { killed?: boolean }).killed;
+      if (killed) {
+        await fs.promises.rm(dst, { recursive: true, force: true }).catch(() => undefined);
+        throw new Error(`directory copy timed out after ${COPY_TIMEOUT_MS}ms`);
+      }
+      // non-reflink fs or other cp failure — async plain copy below
+    }
   }
-  fs.cpSync(src, dst, { recursive: true, dereference: false });
+  await fs.promises.cp(src, dst, { recursive: true, dereference: false });
 }
 
-/** Run a shell command in the worktree (time-bounded; never hangs the engine). */
-async function runCommand(command: string, cwd: string, timeoutMs?: number): Promise<void> {
-  try {
-    await execAsync(command, {
-      cwd,
-      timeout: timeoutMs ?? DEFAULT_SETUP_TIMEOUT_MS,
-      maxBuffer: MAX_BUFFER,
-      shell: process.platform === "win32" ? undefined : "/bin/bash",
-    });
-  } catch (e: unknown) {
-    const err = (typeof e === "object" && e !== null ? e : {}) as {
-      stderr?: unknown;
-      stdout?: unknown;
-      message?: unknown;
-    };
-    const tail = String(err.stderr ?? err.stdout ?? "").trim().slice(-500);
-    throw new Error(`${command} (${String(err.message ?? e)})${tail ? ` — ${tail}` : ""}`);
+const killProcessGroup = (child: ChildProcess): void => {
+  const pid = child.pid;
+  if (pid == null) {
+    child.kill("SIGTERM");
+    return;
   }
+  if (process.platform === "win32") {
+    child.kill("SIGTERM");
+    return;
+  }
+  try {
+    process.kill(-pid, "SIGTERM");
+  } catch {
+    child.kill("SIGTERM");
+  }
+};
+
+/** Run a shell command in the worktree (time-bounded; kills the process group). */
+export async function runCommand(
+  command: string,
+  cwd: string,
+  timeoutMs?: number,
+  signal?: AbortSignal,
+): Promise<void> {
+  if (signal?.aborted) {
+    throw new Error("worktree setup cancelled");
+  }
+
+  const timeout = timeoutMs ?? DEFAULT_SETUP_TIMEOUT_MS;
+
+  await new Promise<void>((resolve, reject) => {
+    const child = spawn(command, {
+      cwd,
+      shell: process.platform === "win32" ? true : "/bin/bash",
+      detached: process.platform !== "win32",
+      env: process.env,
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+
+    let stderr = "";
+    let stdout = "";
+    child.stderr?.on("data", (chunk: Buffer | string) => {
+      stderr += String(chunk);
+    });
+    child.stdout?.on("data", (chunk: Buffer | string) => {
+      stdout += String(chunk);
+    });
+
+    const fail = (message: string) => {
+      cleanup();
+      const tail = (stderr || stdout).trim().slice(-500);
+      reject(new Error(tail ? `${message} — ${tail}` : message));
+    };
+
+    const timer = setTimeout(() => {
+      killProcessGroup(child);
+      fail(`${command} timed out after ${timeout}ms`);
+    }, timeout);
+
+    const onAbort = () => {
+      killProcessGroup(child);
+      fail("worktree setup cancelled");
+    };
+    signal?.addEventListener("abort", onAbort, { once: true });
+
+    const cleanup = () => {
+      clearTimeout(timer);
+      signal?.removeEventListener("abort", onAbort);
+    };
+
+    child.on("error", (err) => fail(`${command} (${err.message})`));
+    child.on("close", (code) => {
+      cleanup();
+      if (code === 0) resolve();
+      else fail(`${command} exited with code ${code ?? "unknown"}`);
+    });
+  });
 }
 
 function message(e: unknown): string {
@@ -558,5 +639,5 @@ function fail(actions: string[], error: string): WorktreeSetupResult {
   return { ok: false, error, actions };
 }
 
-/** Shared worktree-setup executor (stateless — same pattern as localGit). */
-export const worktreeSetup = new WorktreeSetup();
+/** Shared worktree-setup executor (stateless — one instance per process). */
+export const worktreeSetup = processSingleton("worktreeSetup", () => new WorktreeSetup());

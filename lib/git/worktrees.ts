@@ -1,16 +1,20 @@
 import "server-only";
 
-import { execFile } from "child_process";
 import fs from "fs";
 import path from "path";
-import { promisify } from "util";
+import { processSingleton } from "../singleton";
+import { resolveWorktreeBaseRef } from "./base-ref";
+import { GitCommandError } from "./git-errors";
+import {
+  GitRunner,
+  GIT_COMMAND_TIMEOUT_MS,
+  GIT_WORKTREE_ADD_TIMEOUT_MS,
+  MAX_GIT_BUFFER,
+  gitRunner,
+} from "./git-runner";
 
-const execFileAsync = promisify(execFile);
-
-// never let a git command hang the engine (a big first checkout can take a while)
-const GIT_TIMEOUT_MS = 20_000;
-const GIT_WORKTREE_ADD_TIMEOUT_MS = 120_000;
-const MAX_BUFFER = 1024 * 1024 * 10;
+const GIT_TIMEOUT_MS = GIT_COMMAND_TIMEOUT_MS;
+const MAX_BUFFER = MAX_GIT_BUFFER;
 
 /**
  * Git worktree info as git reports it from `git worktree list --porcelain`.
@@ -242,6 +246,8 @@ export interface WorktreeRemovalResult {
  *    separate and merged-only by default
  */
 export class Worktrees {
+  constructor(private readonly gitExec: GitRunner = gitRunner) {}
+
   /** One in-flight scan per repo — concurrent callers share the same git exec. */
   private readonly inflight = new Map<string, Promise<GitWorktreeInfo[]>>();
   /** Serialize create/switch/remove for one worktree directory. */
@@ -266,10 +272,15 @@ export class Worktrees {
    * never be published as an empty list (it would make sweepers prune live
    * worktrees). Callers decide how to soften.
    */
-  async listWorktrees(repoPath: string): Promise<GitWorktreeInfo[]> {
+  async listWorktrees(
+    repoPath: string,
+    opts?: { fresh?: boolean },
+  ): Promise<GitWorktreeInfo[]> {
     const key = path.resolve(repoPath);
-    const existing = this.inflight.get(key);
-    if (existing) return existing;
+    if (!opts?.fresh) {
+      const existing = this.inflight.get(key);
+      if (existing) return existing;
+    }
     const scan = (async () => {
       const { stdout } = await this.git(
         ["-C", repoPath, "worktree", "list", "--porcelain", "-z"],
@@ -353,7 +364,7 @@ export class Worktrees {
   }): Promise<PreflightResult> {
     const { repoPath, wtPath, home } = input;
     // 1. fresh strict re-list; refuse unregistered paths outright
-    const worktrees = await this.listWorktrees(repoPath);
+    const worktrees = await this.listWorktrees(repoPath, { fresh: true });
     const wt = worktrees.find((w) => samePath(w.path, wtPath));
     if (!wt) {
       return { ok: false, dirty: false, reason: `worktree is no longer registered with git: ${wtPath}` };
@@ -459,36 +470,22 @@ export class Worktrees {
         maxBuffer: MAX_BUFFER,
       });
     } catch (e: unknown) {
-      const err = e as (Error & { killed?: boolean; stderr?: unknown }) | null;
-      // a timeout kill surfaces as partial stderr (git's progress output) with
-      // no error text — name the real cause first so the event log is actionable
-      if (err?.killed) {
-        const last = String(err.stderr ?? err.message ?? "").trim().slice(-200);
+      if (e instanceof GitCommandError && e.killed) {
+        const last = e.stderr.trim().slice(-200);
         throw new Error(
           `git worktree add timed out after ${Math.round(timeoutMs / 1000)}s — ` +
           `raise the repo's worktree timeout in Settings for very large checkouts` +
           (last ? ` (last output: ${last})` : "")
         );
       }
-      const msg = String(err?.stderr ?? err?.message ?? e);
-      throw new Error(`git worktree add failed: ${msg.trim().slice(0, 500) || (err?.message ?? e)}`);
+      const msg = e instanceof GitCommandError ? e.message : String(e);
+      throw new Error(`git worktree add failed: ${msg.trim().slice(0, 500)}`);
     }
   }
 
-  /** Resolve the base ref through the same fallback chain as localBranchState. */
+  /** Resolve the base ref through the shared candidate chain (never the hub HEAD). */
   private async resolveBaseRef(repoPath: string, base?: string): Promise<string> {
-    const b = base?.trim() || "main";
-    const candidates = [
-      b.startsWith("refs/") || b.startsWith("origin/") ? b : `origin/${b}`,
-      b,
-      "origin/master",
-      "master",
-      "HEAD",
-    ];
-    for (const cand of candidates) {
-      if (await this.refExists(repoPath, cand)) return cand;
-    }
-    throw new Error(`could not resolve a base ref for the worktree (tried: ${candidates.join(", ")})`);
+    return resolveWorktreeBaseRef((ref) => this.refExists(repoPath, ref), base);
   }
 
   private async refExists(repoPath: string, ref: string): Promise<boolean> {
@@ -587,7 +584,7 @@ export class Worktrees {
    */
   private async verifyCreated(repoPath: string, dir: string, branch: string): Promise<boolean> {
     try {
-      const worktrees = await this.listWorktrees(repoPath);
+      const worktrees = await this.listWorktrees(repoPath, { fresh: true });
       if (worktrees.some((w) => samePath(w.path, dir))) return true;
     } catch { /* fall through to the probe */ }
     try {
@@ -651,7 +648,7 @@ export class Worktrees {
 
       // fresh worktree registrations can still hold the branch → cannot delete
       try {
-        const worktrees = await this.listWorktrees(repoPath);
+        const worktrees = await this.listWorktrees(repoPath, { fresh: true });
         if (worktrees.some((w) => worktreeBranchName(w) === branch)) {
           return { deleted: false, reason: "checked-out" };
         }
@@ -685,14 +682,11 @@ export class Worktrees {
   /** Run a git command (never hangs the engine: bounded timeouts). */
   private async git(
     args: string[],
-    opts: { timeout?: number; maxBuffer?: number } = {}
+    opts: { timeout?: number; maxBuffer?: number } = {},
   ): Promise<{ stdout: string; stderr: string }> {
-    return execFileAsync("git", args, {
-      maxBuffer: opts.maxBuffer ?? MAX_BUFFER,
-      timeout: opts.timeout ?? GIT_TIMEOUT_MS,
-    });
+    return this.gitExec.run(args, opts);
   }
 }
 
-/** Shared worktree mechanics (stateless enough that a module-scoped singleton is safe — same as localGit). */
-export const worktrees = new Worktrees();
+/** Shared worktree mechanics (one instance per process — coalesces in-flight listings). */
+export const worktrees = processSingleton("worktrees", () => new Worktrees());

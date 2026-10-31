@@ -1,20 +1,11 @@
 import "server-only";
 
-import { execFile } from "child_process";
-import { promisify } from "util";
+import { gitRunner, GIT_COMMAND_TIMEOUT_MS, GIT_FETCH_TIMEOUT_MS } from "./git-runner";
 
-const execFileAsync = promisify(execFile);
-
-export const GIT_COMMAND_TIMEOUT_MS = 20_000;
-export const GIT_FETCH_TIMEOUT_MS = 15_000;
-const MAX_BUFFER = 1024 * 1024 * 50;
+export { GIT_COMMAND_TIMEOUT_MS, GIT_FETCH_TIMEOUT_MS };
 
 /** Run git with bounded time and buffer (never block the engine on a stalled remote). */
 export const runGit = (
   args: string[],
   opts: { timeout?: number; maxBuffer?: number } = {},
-): Promise<{ stdout: string; stderr: string }> =>
-  execFileAsync("git", args, {
-    maxBuffer: opts.maxBuffer ?? MAX_BUFFER,
-    timeout: opts.timeout ?? GIT_COMMAND_TIMEOUT_MS,
-  });
+): Promise<{ stdout: string; stderr: string }> => gitRunner.run(args, opts);

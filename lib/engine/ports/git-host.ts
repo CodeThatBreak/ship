@@ -1,5 +1,7 @@
 import "server-only";
 
+import { AuthedUrlResolutionError } from "../../git/git-errors";
+
 /**
  * Git-host integration port — the neutral language engine + API code speaks.
  *
@@ -283,15 +285,14 @@ export class GitHostRegistry {
 export const gitHostRegistry = new GitHostRegistry();
 
 /**
- * Token-authed clone/push URL for a repo, falling back to the raw URL when no
- * host is configured for it. Engine-side resolution handed to `lib/git` local
- * operations (ensureClone / pushBranch) — keeps `lib/git` free of engine
- * imports while the registry stays the only instance router.
+ * Token-authed clone/push URL for a repo. Engine-side resolution handed to
+ * `lib/git` local operations (ensureClone / pushBranch) — keeps `lib/git` free
+ * of engine imports while the registry stays the only instance router.
  */
 export function authedCloneUrlFor(repoUrl: string): string {
   try {
     return gitHostRegistry.forRepo(repoUrl).authedCloneUrl(repoUrl);
-  } catch {
-    return repoUrl;
+  } catch (e: unknown) {
+    throw new AuthedUrlResolutionError(repoUrl, e);
   }
 }

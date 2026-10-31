@@ -3,6 +3,7 @@ import "server-only";
 import { ConflictError } from "../../errors";
 import { truncateUpstreamBody } from "../../engine/ports/git-host-errors";
 import { db } from "../../db";
+import { processSingleton } from "../../singleton";
 import { jiraAuthHeaders, jiraAuthModeForInstance, jiraMyselfPath, type JiraAuthMode } from "./api-profile";
 import { JIRA_HTTP_TIMEOUT_MS } from "./constants";
 
@@ -14,12 +15,7 @@ export interface JiraInstance {
   token: string;
 }
 
-/** Masked token for the settings UI (never the real value). */
-export const maskToken = (t: string): string => {
-  if (!t) return "";
-  if (t.length <= 4) return "••••";
-  return `••••${t.slice(-4)}`;
-};
+export { maskToken } from "../../mask-token";
 
 const tryMyself = async (
   baseUrl: string,
@@ -134,4 +130,4 @@ export class JiraService {
 }
 
 /** Shared Jira integration instance. */
-export const jira = new JiraService();
+export const jira = processSingleton("jira", () => new JiraService());
