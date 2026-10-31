@@ -3,6 +3,8 @@ import "server-only";
 import { db } from "../../../db";
 import { CommentRow, NodeRow, rows, type NodeStatus } from "../../../db/rows";
 import { ConflictError } from "../../../errors";
+import { NODE_STATUS } from "../../constants/node-status";
+import { ARTIFACT_STATUS, COMMENT_STATUS, EVENT_KIND, RUN_STATUS } from "../../constants/vocabulary";
 import { RunSupersededError } from "../../errors/run-superseded-error";
 
 /**
@@ -55,7 +57,7 @@ export class NodeSupport {
     const { changes } = db.run(
       `UPDATE nodes SET status = ?, attempt_id = ?, updated_at = ?
        WHERE flow_id = ? AND node_key = ? AND status IN (${marks})`,
-      "running",
+      NODE_STATUS.RUNNING,
       attempt,
       db.now(),
       flowId,
@@ -79,7 +81,7 @@ export class NodeSupport {
     to: NodeStatus,
   ): void {
     const marks = from.map(() => "?").join(",");
-    const clearAttempt = to !== "running";
+    const clearAttempt = to !== NODE_STATUS.RUNNING;
     const { changes } = db.run(
       `UPDATE nodes SET status = ?, attempt_id = ?, updated_at = ?
        WHERE flow_id = ? AND node_key = ? AND status IN (${marks})`,
@@ -99,7 +101,7 @@ export class NodeSupport {
   patchIfAttempt(nodeId: string, attemptId: string, patch: Record<string, unknown>): void {
     const status = patch.status;
     const merged: Record<string, unknown> =
-      typeof status === "string" && status !== "running"
+      typeof status === "string" && status !== NODE_STATUS.RUNNING
         ? { ...patch, attempt_id: null }
         : { ...patch };
     const mergedKeys = Object.keys(merged);
@@ -138,7 +140,7 @@ export class NodeSupport {
     kind: string,
     content: string,
     meta?: unknown,
-    status = "draft"
+    status = ARTIFACT_STATUS.DRAFT
   ): { id: string; version: number } {
     const prev = db.get<{ v: number | null }>(
       `SELECT MAX(version) v FROM artifacts WHERE node_id=? AND kind=?`,
@@ -147,9 +149,11 @@ export class NodeSupport {
     );
     const version = (prev?.v ?? 0) + 1;
     db.run(
-      `UPDATE artifacts SET status='superseded' WHERE node_id=? AND kind=? AND status='draft'`,
+      `UPDATE artifacts SET status=? WHERE node_id=? AND kind=? AND status=?`,
+      ARTIFACT_STATUS.SUPERSEDED,
       nodeId,
-      kind
+      kind,
+      ARTIFACT_STATUS.DRAFT,
     );
     const id = db.uid("art_");
     db.run(
@@ -164,11 +168,11 @@ export class NodeSupport {
     // close out any prior `running` rows for this node — they're stale (their
     // process died with a previous server/run) and would otherwise be picked up
     // as the "latest running run" by reconcile, clobbering this fresh run
-    db.run(`UPDATE runs SET status='error', updated_at=? WHERE node_id=? AND status='running'`, db.now(), nodeId);
+    db.run(`UPDATE runs SET status=?, updated_at=? WHERE node_id=? AND status=?`, RUN_STATUS.ERROR, db.now(), nodeId, RUN_STATUS.RUNNING);
     db.run(
       `INSERT INTO runs (id,flow_id,node_id,agent_ref,run_ref,status,created_at,updated_at)
-       VALUES (?,?,?,?,?,'running',?,?)`,
-      db.uid("run_"), flowId, nodeId, agentId, runId, db.now(), db.now()
+       VALUES (?,?,?,?,?,?,?,?)`,
+      db.uid("run_"), flowId, nodeId, agentId, runId, RUN_STATUS.RUNNING, db.now(), db.now()
     );
   }
 
@@ -186,10 +190,16 @@ export class NodeSupport {
   /** Mark a node's orphaned run as failed after a server restart (nothing recoverable). */
   failOrphanedNode(flowId: string, nodeId: string, nodeKey: string, reason: string): void {
     const node = db.get<{ status: string }>(`SELECT status FROM nodes WHERE id=?`, nodeId);
-    if (node?.status !== "running") return; // already reconciled
-    db.run(`UPDATE runs SET status='error', updated_at=? WHERE node_id=? AND status='running'`, db.now(), nodeId);
-    this.setNode(nodeId, { status: "failed" });
-    db.emitEvent(flowId, nodeId, "error", `${nodeKey}: ${reason} — retry the node to continue`);
+    if (node?.status !== NODE_STATUS.RUNNING) return; // already reconciled
+    db.run(
+      `UPDATE runs SET status=?, updated_at=? WHERE node_id=? AND status=?`,
+      RUN_STATUS.ERROR,
+      db.now(),
+      nodeId,
+      RUN_STATUS.RUNNING,
+    );
+    this.setNode(nodeId, { status: NODE_STATUS.FAILED });
+    db.emitEvent(flowId, nodeId, EVENT_KIND.ERROR, `${nodeKey}: ${reason} — retry the node to continue`);
   }
 
   // ── artifacts ────────────────────────────────────────────────────────────────
@@ -239,17 +249,23 @@ export class NodeSupport {
     if (mrIid != null) {
       return rows.all(
         CommentRow,
-        `SELECT * FROM comments WHERE flow_id=? AND status IN ('open') AND mr_iid=?`,
+        `SELECT * FROM comments WHERE flow_id=? AND status IN (?) AND mr_iid=?`,
         flowId,
+        COMMENT_STATUS.OPEN,
         mrIid,
       );
     }
-    return rows.all(CommentRow, `SELECT * FROM comments WHERE flow_id=? AND status IN ('open')`, flowId);
+    return rows.all(CommentRow, `SELECT * FROM comments WHERE flow_id=? AND status IN (?)`, flowId, COMMENT_STATUS.OPEN);
   }
 
   /** Record an agent resolution for a comment row. */
   resolveComment(id: string): void {
-    db.run(`UPDATE comments SET status='resolved', resolved_by='agent', updated_at=? WHERE id=?`, db.now(), id);
+    db.run(
+      `UPDATE comments SET status=?, resolved_by='agent', updated_at=? WHERE id=?`,
+      COMMENT_STATUS.RESOLVED,
+      db.now(),
+      id,
+    );
   }
 
   // ── flows ───────────────────────────────────────────────────────────────────
@@ -269,7 +285,7 @@ export class NodeSupport {
 
   /** The lifecycle event: run transitions and state changes the UI trail is built from. */
   emitLifecycle(flowId: string, nodeId: string | null, message: string, data?: Record<string, unknown>): void {
-    db.emitEvent(flowId, nodeId, "lifecycle", message, data);
+    db.emitEvent(flowId, nodeId, EVENT_KIND.LIFECYCLE, message, data);
   }
 }
 

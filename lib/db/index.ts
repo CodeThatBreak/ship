@@ -10,6 +10,8 @@ import { DatabaseMigrationError } from "./database-migration-error";
 import { getRowGateway } from "./row-gateway-access";
 import { EventRow, MessageRow, RepoRow, type Repo } from "./rows";
 import { SCHEMA_USER_VERSION } from "./schema-version";
+import { SDLC_TEMPLATE_ID } from "../engine/templates/template-store";
+import { NODE_KEYS, STEP_BUILD_TEMPLATE_ID } from "../engine/constants/node-keys";
 
 export type { Repo } from "./rows";
 
@@ -140,19 +142,28 @@ export class Database {
     for (const [id, key, name, description, icon] of nt) {
       ntStmt.run(id, key, name, description, icon, now, now);
     }
-    const hasSdlc = d.prepare(`SELECT 1 FROM flow_templates WHERE id='tpl_sdlc_loop'`).get();
+    const hasSdlc = d.prepare(`SELECT 1 FROM flow_templates WHERE id=?`).get(SDLC_TEMPLATE_ID);
     if (!hasSdlc) {
       d.prepare(
         `INSERT INTO flow_templates (id,name,description,version,is_builtin,trigger,created_at,updated_at)
-         VALUES ('tpl_sdlc_loop','SDLC loop','The built-in software development loop: plan → build → pipeline → review → resolve.',1,1,'{"type":"manual"}',?,?)`
-      ).run(now, now);
+         VALUES (?,?,?,?,?,?,?,?)`
+      ).run(
+        SDLC_TEMPLATE_ID,
+        "SDLC loop",
+        "The built-in software development loop: plan → build → pipeline → review → resolve.",
+        1,
+        1,
+        '{"type":"manual"}',
+        now,
+        now,
+      );
       // (key, trigger JSON) — minutes mirrors the resolve quiet-period default
       const nodes: [string, string][] = [
-        ["plan", '{"type":"manual"}'],
-        ["build", '{"type":"approval"}'],
-        ["pipeline", '{"type":"auto","wait_for":"pipeline"}'],
-        ["review", '{"type":"auto"}'],
-        ["resolve", '{"type":"debounced","minutes":10,"wait_for":"comments"}'],
+        [NODE_KEYS.PLAN, '{"type":"manual"}'],
+        [NODE_KEYS.BUILD, '{"type":"approval"}'],
+        [NODE_KEYS.PIPELINE, '{"type":"auto","wait_for":"pipeline"}'],
+        [NODE_KEYS.REVIEW, '{"type":"auto"}'],
+        [NODE_KEYS.RESOLVE, '{"type":"debounced","minutes":10,"wait_for":"comments"}'],
       ];
       for (const [key, trigger] of nodes) {
         const id = `ftn_${key}`;
@@ -160,7 +171,7 @@ export class Database {
         d.prepare(
           `INSERT INTO flow_template_nodes (id,template_id,node_key,node_template_id,label,trigger,join_mode,config,input_map,created_at,updated_at)
            VALUES (?,?,?,?,NULL,?,'all','{}','{}',?,?)`
-        ).run(id, "tpl_sdlc_loop", key, nodeTemplateId, trigger, now, now);
+        ).run(id, SDLC_TEMPLATE_ID, key, nodeTemplateId, trigger, now, now);
       }
       const eStmt = d.prepare(
         `INSERT OR IGNORE INTO flow_template_edges (id,template_id,from_key,to_key,kind,label,condition,created_at,updated_at)
@@ -171,14 +182,14 @@ export class Database {
       // (JSONata over the resolve output contract); a no-code fix ends the
       // cycle. Condition-less loop edges stay display metadata.
       const edges: [string, string, string, string | null][] = [
-        ["plan", "build", "next", null],
-        ["build", "pipeline", "next", null],
-        ["pipeline", "review", "next", null],
-        ["review", "resolve", "next", null],
-        ["resolve", "pipeline", "loop", "nodes.resolve.output.codeChanged = true"],
+        [NODE_KEYS.PLAN, NODE_KEYS.BUILD, "next", null],
+        [NODE_KEYS.BUILD, NODE_KEYS.PIPELINE, "next", null],
+        [NODE_KEYS.PIPELINE, NODE_KEYS.REVIEW, "next", null],
+        [NODE_KEYS.REVIEW, NODE_KEYS.RESOLVE, "next", null],
+        [NODE_KEYS.RESOLVE, NODE_KEYS.PIPELINE, "loop", "nodes.resolve.output.codeChanged = true"],
       ];
       edges.forEach(([from, to, kind, condition]) => {
-        eStmt.run(`fte_${from}_${to}`, "tpl_sdlc_loop", from, to, kind, null, condition, now, now);
+        eStmt.run(`fte_${from}_${to}`, SDLC_TEMPLATE_ID, from, to, kind, null, condition, now, now);
       });
     } else {
       // migrate older seedings: the display-only `resolve → review` loop edge
@@ -187,13 +198,21 @@ export class Database {
       // existing running flows keep their snapshotted graph semantics.
       d.prepare(
         `DELETE FROM flow_template_edges
-         WHERE template_id='tpl_sdlc_loop' AND id='fte_resolve_review'
-           AND from_key='resolve' AND kind='loop'`
-      ).run();
+         WHERE template_id=? AND id='fte_resolve_review'
+           AND from_key=? AND kind='loop'`
+      ).run(SDLC_TEMPLATE_ID, NODE_KEYS.RESOLVE);
       d.prepare(
         `INSERT OR IGNORE INTO flow_template_edges (id,template_id,from_key,to_key,kind,label,condition,created_at,updated_at)
-         VALUES ('fte_resolve_pipeline','tpl_sdlc_loop','resolve','pipeline','loop',NULL,?, ?,?)`
-      ).run("nodes.resolve.output.codeChanged = true", now, now);
+         VALUES ('fte_resolve_pipeline',?,?,?,?,?,NULL,?,?)`
+      ).run(
+        SDLC_TEMPLATE_ID,
+        NODE_KEYS.RESOLVE,
+        NODE_KEYS.PIPELINE,
+        "loop",
+        "nodes.resolve.output.codeChanged = true",
+        now,
+        now,
+      );
     }
 
     // ── Plan fan-out: the built-in step template (Phase 1A) ─────────────────
@@ -203,15 +222,32 @@ export class Database {
     // feeds the {plan, step, siblings} trigger payload. `hidden` keeps it out
     // of the gallery (it is a child template; the fan-out knob references it
     // by id, never the picker).
-    if (!d.prepare(`SELECT 1 FROM flow_templates WHERE id='tpl_step_build'`).get()) {
+    if (!d.prepare(`SELECT 1 FROM flow_templates WHERE id=?`).get(STEP_BUILD_TEMPLATE_ID)) {
       d.prepare(
         `INSERT INTO flow_templates (id,name,description,version,is_builtin,trigger,hidden,created_at,updated_at)
-         VALUES ('tpl_step_build','Step build','One plan step built by its own child flow — per-step branch, diff and approval gate (fan-out child of the build node).',1,1,'{"type":"manual"}',1,?,?)`
-      ).run(now, now);
+         VALUES (?,?,?,?,?,?,?,?,?)`
+      ).run(
+        STEP_BUILD_TEMPLATE_ID,
+        "Step build",
+        "One plan step built by its own child flow — per-step branch, diff and approval gate (fan-out child of the build node).",
+        1,
+        1,
+        '{"type":"manual"}',
+        1,
+        now,
+        now,
+      );
       d.prepare(
         `INSERT INTO flow_template_nodes (id,template_id,node_key,node_template_id,label,trigger,join_mode,config,input_map,created_at,updated_at)
-         VALUES ('ftn_tpl_step_build_step_build','tpl_step_build','step_build','nt_step_build',NULL,'{"type":"approval"}','all','{}','{}',?,?)`
-      ).run(now, now);
+         VALUES (?,?,?,?,NULL,'{"type":"approval"}','all','{}','{}',?,?)`
+      ).run(
+        "ftn_tpl_step_build_step_build",
+        STEP_BUILD_TEMPLATE_ID,
+        NODE_KEYS.STEP_BUILD,
+        "nt_step_build",
+        now,
+        now,
+      );
     }
 
     // ── Phase 5: starter templates ──────────────────────────────────────────

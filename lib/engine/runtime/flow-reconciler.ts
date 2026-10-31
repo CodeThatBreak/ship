@@ -10,6 +10,7 @@ import { stepFlows } from "./fanout/step-flow-manager";
 import { mergeArena } from "./fanout/merge-arena";
 import { templateStore } from "../templates/template-store";
 import { processSingleton } from "../../singleton";
+import { nodeStore } from "./node-store";
 
 /**
  * Re-sync nodes stuck in `running` with the real state of their agent run.
@@ -183,9 +184,8 @@ export class Reconciler {
       failLoud("the plan step ⇄ sub-flow linkage is gone (orphaned merge-back)");
       return;
     }
-    const parentNode = db.get<{ id: string }>(
-      `SELECT id FROM nodes WHERE flow_id=? AND node_key=?`, row.parent_flow_id, row.parent_node);
-    if (!parentNode) {
+    const parentNodeId = nodeStore.idOf(row.parent_flow_id, row.parent_node);
+    if (!parentNodeId) {
       failLoud(`the parent fan-out node "${row.parent_node}" no longer exists (orphaned merge-back)`);
       return;
     }

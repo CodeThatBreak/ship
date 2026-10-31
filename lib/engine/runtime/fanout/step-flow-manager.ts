@@ -6,6 +6,14 @@ import type { FlowRow } from "../../../db/rows";
 import { templateStore, type TemplateGraph } from "../../templates/template-store";
 import { nodeRegistry } from "../../nodes/registry";
 import { NODE_KEYS } from "../../constants/node-keys";
+import {
+  childFlowHasStarted,
+  isNodeStarted,
+  NODE_CANCELABLE_STATUSES,
+  NODE_STATUS,
+  NODE_TERMINAL_STATUSES,
+} from "../../constants/node-status";
+import { nodeStore } from "../node-store";
 import type { ChainRole, NodeDefinition } from "../../nodes/shared";
 import {
   DEFAULT_FANOUT_OUTPUT,
@@ -598,9 +606,9 @@ export class StepFlowManager {
     const payload = this.childPayload(childFlowId);
     const parentNodeKey = payload?.parentNodeKey;
     if (!parentNodeKey) return; // no fan-out linkage — nothing this manager scheduled
-    const nodes = db.all<{ status: string }>(`SELECT status FROM nodes WHERE flow_id=?`, childFlowId);
+    const nodes = nodeStore.statusesOfFlow(childFlowId);
     const flowStatus = this.childFlowStatus(childFlowId);
-    const allTerminal = nodes.length > 0 && nodes.every((n) => ["done", "approved", "failed", "skipped"].includes(n.status));
+    const allTerminal = nodes.length > 0 && nodes.every((n) => NODE_TERMINAL_STATUSES.includes(n));
     if (!allTerminal && flowStatus !== "done") return;
     db.emitEvent(link.flow_id, null, "lifecycle",
       `step child resolved ("${payload.step.title}")`,
@@ -635,9 +643,8 @@ export class StepFlowManager {
    * evaluation continues downstream.
    */
   async onAllResolved(parentFlowId: string, nodeKey: string): Promise<void> {
-    const parentRunning = db.get<{ status: string }>(
-      `SELECT status FROM nodes WHERE flow_id=? AND node_key=?`, parentFlowId, nodeKey)?.status;
-    if (parentRunning !== "running") return;
+    const parentRunning = nodeStore.statusOf(parentFlowId, nodeKey);
+    if (parentRunning !== NODE_STATUS.RUNNING) return;
 
     const ctx = this.e.ctx(parentFlowId);
     const states = this.statesOf(parentFlowId, nodeKey);
@@ -666,8 +673,7 @@ export class StepFlowManager {
     const perBranch: Record<string, string> = {};
     let latestArtifact: string | null = null;
     if (isCode) {
-      const nodeId = db.get<{ id: string }>(
-        `SELECT id FROM nodes WHERE flow_id=? AND node_key=?`, parentFlowId, nodeKey)?.id ?? null;
+      const nodeId = nodeStore.idOf(parentFlowId, nodeKey);
       for (const branch of integrationBranches) {
         const group = states.filter((s) => s.integrationBranch === branch);
         if (!group.some((s) => s.step.status === "done" && s.step.completed_by === "merge")) continue;
@@ -793,7 +799,8 @@ export class StepFlowManager {
     resumeNote?: string,
   ): Promise<void> {
     const nodeOwnerKey = payload.parentNodeKey;
-    const nodeRef = db.get<{ id: string }>(`SELECT id FROM nodes WHERE flow_id=? AND node_key=?`, childFlowId, childNodeKey);
+    const nodeRefId = nodeStore.idOf(childFlowId, childNodeKey);
+    const nodeRef = nodeRefId ? { id: nodeRefId } : undefined;
     const maxAttempts = Math.max(1, configNumber(
       this.e.nodeConfigFor(parentFlowId, nodeOwnerKey), "max_merge_fix_attempts", 2));
     if (resumeNote) {
@@ -810,10 +817,9 @@ export class StepFlowManager {
         // abandoned approvals hand-back: the step may have been skipped (or
         // closed by a checklist edit) while this loop awaited — never land it
         const live = this.stepRowOf(childFlowId);
-        const nodeStatus = db.get<{ status: string }>(
-          `SELECT status FROM nodes WHERE flow_id=? AND node_key=?`, childFlowId, childNodeKey)?.status;
+        const nodeStatus = nodeStore.statusOf(childFlowId, childNodeKey);
         if (!live || live.completed_by === "skipped" || !nodeStatus ||
-            (nodeStatus !== "awaiting_approval" && nodeStatus !== "running")) {
+            (nodeStatus !== NODE_STATUS.AWAITING_APPROVAL && nodeStatus !== NODE_STATUS.RUNNING)) {
           db.emitEvent(parentFlowId, null, "lifecycle",
             `step "${stepRow.title}" merge-back abandoned (the step is no longer approved/pending)`,
             { nodeKey: nodeOwnerKey, childFlowId });
@@ -1025,7 +1031,7 @@ export class StepFlowManager {
         db.now(), childId);
       const codeChild = typeof this.engineCapabilitiesOfMergeBack(childId) === "function";
       for (const n of db.all<{ node_key: string; status: string }>(`SELECT node_key, status FROM nodes WHERE flow_id=?`, childId)) {
-        if (["running", "awaiting_approval", "waiting", "pending"].includes(n.status)) {
+        if (NODE_CANCELABLE_STATUSES.includes(n.status)) {
           await this.e.cancelNode(childId, n.node_key); // marks failed + stops in-flight local runs (standard stop)
         }
       }
@@ -1056,8 +1062,8 @@ export class StepFlowManager {
 
   /** Internal helper for the checklist-edit guard: close a child that never started. */
   cancelUnstartedChild(childFlowId: string): void {
-    const statuses = db.all<{ status: string }>(`SELECT status FROM nodes WHERE flow_id=?`, childFlowId).map((n) => n.status);
-    if (statuses.some((s) => s === "running" || s === "awaiting_approval")) return; // started — never closed silently
+    const statuses = nodeStore.statusesOfFlow(childFlowId);
+    if (statuses.some((s) => isNodeStarted(s))) return; // started — never closed silently
     this.closeChild(childFlowId);
   }
 
@@ -1074,8 +1080,7 @@ export class StepFlowManager {
         deletable.add(s.id);
         continue;
       }
-      const started = db.all<{ status: string }>(`SELECT status FROM nodes WHERE flow_id=?`, s.sub_flow_id)
-        .some((n) => n.status === "running" || n.status === "awaiting_approval" || n.status === "failed" || n.status === "done" || n.status === "approved");
+      const started = childFlowHasStarted(nodeStore.statusesOfFlow(s.sub_flow_id));
       if (started) continue; // building/done child — not deletable
       deletable.add(s.id);
       toCancel.set(s.id, s.sub_flow_id); // pending child with no run → removed + cancelled

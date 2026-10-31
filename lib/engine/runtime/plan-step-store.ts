@@ -2,6 +2,8 @@ import "server-only";
 
 import { db } from "../../db";
 import { NODE_KEYS } from "../constants/node-keys";
+import { childFlowHasStarted, isNodeStarted } from "../constants/node-status";
+import { nodeStore } from "./node-store";
 
 // ── Structured plan steps ────────────────────────────────────────────────────
 // The live, editable checklist behind the Plan view. Agent-emitted steps are
@@ -272,9 +274,7 @@ export class PlanStepStore {
     const cancelable = new Map<string, string>();
     for (const s of linked) {
       if (!s.sub_flow_id) continue;
-      const started = db.all<{ status: string }>(
-        `SELECT status FROM nodes WHERE flow_id=?`, s.sub_flow_id
-      ).some((n) => ["running", "awaiting_approval", "failed", "done", "approved", "skipped"].includes(n.status));
+      const started = childFlowHasStarted(nodeStore.statusesOfFlow(s.sub_flow_id));
       if (started) built.add(s.id);
       else cancelable.set(s.id, s.sub_flow_id);
     }
@@ -286,7 +286,7 @@ export class PlanStepStore {
     if (!childFlowId) return;
     const started = db.all<{ status: string }>(
       `SELECT status FROM nodes WHERE flow_id=?`, childFlowId
-    ).some((n) => n.status === "running" || n.status === "awaiting_approval");
+    ).some((n) => isNodeStarted(n.status));
     if (started) return; // never closed silently
     db.run(`UPDATE flows SET status='done', updated_at=? WHERE id=? AND status<>'done'`, db.now(), childFlowId);
   }

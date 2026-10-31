@@ -16,7 +16,6 @@ import { agentPortRegistry, type AgentRunResult } from "./ports/agent-port";
 import { hostOf, type HostComment, type HostWebhookEvent } from "./ports/git-host";
 import { NodeDefinition, nodeSupport, splitConsumeOf, type ChainRole, type FlowCtx, type SplitConsumeMode } from "./nodes/shared";
 import { CHAT_DECLINED, nodeRoles } from "./nodes/shared/node-roles";
-import { uncachedInputTokens } from "../usage";
 import { nodeRegistry } from "./nodes/registry";
 import { NODE_KEYS } from "./constants/node-keys";
 import { declarativeDef } from "./nodes/declarative";
@@ -27,6 +26,11 @@ import { createSdlcChain } from "./nodes/chains/sdlc-chain";
 import { buildFlowContext, type FlowContextMap } from "./context/flow-variables";
 import { evalJsonata, jsonataTruthy } from "@/lib/jsonata";
 import { hookStore } from "./runtime/hook-store";
+import { nodeStore } from "./runtime/node-store";
+import { commentStore } from "./runtime/comment-store";
+import { FLOW_KIND } from "./constants/flow-kind";
+import { isNodeTerminalSuccess, NODE_STATUS } from "./constants/node-status";
+import { accumulateRunRow, emptyRunTokenBucket } from "./utils/run-token-rollup";
 import { parseStartContract, validateAgainstContract } from "./nodes/kinds/start/contract";
 import { DEFAULT_FANOUT_OUTPUT, uiCapabilities, type NodeCapabilities } from "./nodes/shared/capabilities";
 import { stepFlows, StepFlowManager, type StepChildPayload } from "./runtime/fanout/step-flow-manager";
@@ -136,20 +140,7 @@ export class FlowEngine {
       );
       // one node row per template instance spec (template order), config merged
       // from class defaults ← app settings ← template node config
-      for (const spec of graph.nodes) {
-        const def = nodeRegistry.resolve(spec.defKey, spec.key);
-        const config = mergeConfigLayers(def.defaultConfig(), appLayerConfig(def.key), spec.config);
-        db.run(
-          `INSERT INTO nodes (id,flow_id,node_key,type,label,config,join_mode,status,created_at,updated_at)
-           VALUES (?,?,?,?,?,?,?,'pending',?,?)`,
-          db.uid("node_"), id, spec.key, spec.defKey,
-          spec.label === def.label ? null : spec.label,
-          JSON.stringify(config), spec.joinMode, ts, ts
-        );
-        // wait_for webhook nodes get their own inbound hook bound to the flow
-        // instance (Phase 4B) — the delivery resumes the node
-        if (spec.trigger.wait_for === "webhook") hookStore.ensureForNode(id, spec.key);
-      }
+      nodeStore.insertSnapshots(id, graph, { provisionWebhookHooks: true, ts });
       templateStore.persistFlowGraphSnapshot(id, graph);
     });
     // no "flow created" announcement event — the chat feed starts with the
@@ -215,19 +206,9 @@ export class FlowEngine {
         `INSERT INTO flows (id,task_id,name,status,repo_url,repo_id,execution_mode,template_id,trigger_payload,mr_branch,parent_flow_id,kind,created_at,updated_at)
          VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
         id, parent.task_id, name, "active", parent.repo_url, parent.repo_id, parent.execution_mode,
-        graph.templateId, JSON.stringify(payload), opts.branch, parentFlowId, "step", ts, ts
+        graph.templateId, JSON.stringify(payload), opts.branch, parentFlowId, FLOW_KIND.STEP, ts, ts
       );
-      for (const spec of graph.nodes) {
-        const def = nodeRegistry.resolve(spec.defKey, spec.key);
-        const config = mergeConfigLayers(def.defaultConfig(), appLayerConfig(def.key), spec.config);
-        db.run(
-          `INSERT INTO nodes (id,flow_id,node_key,type,label,config,join_mode,status,created_at,updated_at)
-           VALUES (?,?,?,?,?,?,?,'pending',?,?)`,
-          db.uid("node_"), id, spec.key, spec.defKey,
-          spec.label === def.label ? null : spec.label,
-          JSON.stringify(config), spec.joinMode, ts, ts
-        );
-      }
+      nodeStore.insertSnapshots(id, graph, { ts });
       templateStore.persistFlowGraphSnapshot(id, graph);
       db.emitEvent(id, null, "lifecycle",
         `step child created from "${templateStore.flowTemplate(templateId)?.name ?? templateId}" — parent flow ${parentFlowId}`);
@@ -274,19 +255,9 @@ export class FlowEngine {
         `INSERT INTO flows (id,task_id,name,status,repo_url,repo_id,execution_mode,template_id,trigger_payload,parent_flow_id,kind,created_at,updated_at)
          VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`,
         id, parent.task_id, name, "active", parent.repo_url, parent.repo_id, parent.execution_mode,
-        graph.templateId, JSON.stringify(payload), parentFlowId, "split", ts, ts
+        graph.templateId, JSON.stringify(payload), parentFlowId, FLOW_KIND.SPLIT, ts, ts
       );
-      for (const spec of graph.nodes) {
-        const def = nodeRegistry.resolve(spec.defKey, spec.key);
-        const config = mergeConfigLayers(def.defaultConfig(), appLayerConfig(def.key), spec.config);
-        db.run(
-          `INSERT INTO nodes (id,flow_id,node_key,type,label,config,join_mode,status,created_at,updated_at)
-           VALUES (?,?,?,?,?,?,?,'pending',?,?)`,
-          db.uid("node_"), id, spec.key, spec.defKey,
-          spec.label === def.label ? null : spec.label,
-          JSON.stringify(config), spec.joinMode, ts, ts
-        );
-      }
+      nodeStore.insertSnapshots(id, graph, { ts });
       templateStore.persistFlowGraphSnapshot(id, graph);
       db.emitEvent(id, null, "lifecycle",
         `split child created from "${templateStore.flowTemplate(templateId)?.name ?? templateId}" — parent flow ${parentFlowId}`);
@@ -322,13 +293,15 @@ export class FlowEngine {
       `UPDATE nodes SET status=?, output=?, updated_at=? WHERE flow_id=? AND node_key=? AND status='running'`,
       status, JSON.stringify({ ...output, steps }), db.now(), parentFlowId, nodeKey);
     if (published.changes === 0) return;
-    db.emitEvent(parentFlowId, db.get<{ id: string }>(
-      `SELECT id FROM nodes WHERE flow_id=? AND node_key=?`, parentFlowId, nodeKey)?.id ?? null,
+    nodeStore.emitEvent(
+      parentFlowId,
+      nodeKey,
       "lifecycle",
       `${nodeKey} fan-out resolved — aggregate published (${(steps as unknown[])?.length ?? 0} steps)${status === "awaiting_approval" ? " · awaiting the final approval" : ""}`,
-      { nodeKey });
+      { nodeKey },
+    );
     this.touch(parentFlowId);
-    if (this.statusTerminalSuccess(status)) {
+    if (isNodeTerminalSuccess(status)) {
       await this.advanceFrom(parentFlowId, nodeKey);
     }
     this.clearCurrentIf(parentFlowId, nodeKey);
@@ -363,13 +336,15 @@ export class FlowEngine {
     db.run(
       `UPDATE nodes SET status=?, output=?, updated_at=? WHERE flow_id=? AND node_key=?`,
       status, JSON.stringify({ ...output, units }), db.now(), parentFlowId, nodeKey);
-    db.emitEvent(parentFlowId, db.get<{ id: string }>(
-      `SELECT id FROM nodes WHERE flow_id=? AND node_key=?`, parentFlowId, nodeKey)?.id ?? null,
+    nodeStore.emitEvent(
+      parentFlowId,
+      nodeKey,
       "lifecycle",
       `${nodeKey} split resolved — aggregate published (${entries.length} units)${status === "awaiting_approval" ? " · a unit awaits approval" : status === "failed" ? " · a unit failed" : ""}`,
-      { nodeKey });
+      { nodeKey },
+    );
     this.touch(parentFlowId);
-    if (this.statusTerminalSuccess(status)) {
+    if (isNodeTerminalSuccess(status)) {
       await this.advanceFrom(parentFlowId, nodeKey);
     }
     this.clearCurrentIf(parentFlowId, nodeKey);
@@ -383,19 +358,10 @@ export class FlowEngine {
     // per-run cost/usage rows, rolled up per node + flow total
     const runs = rows.all(RunRow,
       `SELECT * FROM runs WHERE flow_id=? ORDER BY created_at, id`, id);
-    const nodeCosts = new Map<string, { totalCents: number; tokens: number; runs: RunRow[] }>();
+    const nodeCosts = new Map<string, ReturnType<typeof emptyRunTokenBucket>>();
     for (const r of runs) {
-      const c = nodeCosts.get(r.node_id) ?? { totalCents: 0, tokens: 0, runs: [] };
-      if (r.cost_cents != null) c.totalCents += r.cost_cents;
-      // stored input_tokens is the full prompt for local runs (cache reads are
-      // a subset of it) — roll up the overlap the same way the cost estimator does
-      c.tokens += uncachedInputTokens({
-        inputTokens: r.input_tokens,
-        cacheReadTokens: r.cache_read_tokens,
-        cacheWriteTokens: r.cache_write_tokens,
-      }) + (r.output_tokens ?? 0) +
-        (r.cache_read_tokens ?? 0) + (r.cache_write_tokens ?? 0);
-      c.runs.push(r);
+      const c = nodeCosts.get(r.node_id) ?? emptyRunTokenBucket();
+      accumulateRunRow(c, r);
       nodeCosts.set(r.node_id, c);
     }
     const flowCost = {
@@ -426,12 +392,9 @@ export class FlowEngine {
         const c = stepRunStats.get(r.flow_id) ?? { costCents: 0, tokens: 0, durationMs: 0, runCount: 0 };
         if (r.cost_cents != null) c.costCents += r.cost_cents;
         if (r.duration_ms != null) c.durationMs += r.duration_ms;
-        c.tokens += uncachedInputTokens({
-          inputTokens: r.input_tokens,
-          cacheReadTokens: r.cache_read_tokens,
-          cacheWriteTokens: r.cache_write_tokens,
-        }) + (r.output_tokens ?? 0) +
-          (r.cache_read_tokens ?? 0) + (r.cache_write_tokens ?? 0);
+        const bucket = emptyRunTokenBucket();
+        accumulateRunRow(bucket, r);
+        c.tokens += bucket.tokens;
         c.runCount++;
         stepRunStats.set(r.flow_id, c);
       }
@@ -621,13 +584,12 @@ export class FlowEngine {
 
   /** Engine internals shared with the SDLC builtin-chain module — not a public API. */
   setNodeStatus(flowId: string, nodeKey: string, status: string): void {
-    db.run(`UPDATE nodes SET status=?, updated_at=? WHERE flow_id=? AND node_key=?`,
-      status, db.now(), flowId, nodeKey);
+    nodeStore.setStatus(flowId, nodeKey, status as NodeStatus);
   }
 
   /** Atomically claim a node for a background run (see docs/coding-patterns.md §3.6). */
   claimNode(flowId: string, nodeKey: string, from: readonly NodeStatus[]): string {
-    return nodeSupport.claim(flowId, nodeKey, from);
+    return nodeStore.claim(flowId, nodeKey, from);
   }
 
   // fire-and-forget wrapper: runs async, marks node failed on error.
@@ -643,13 +605,14 @@ export class FlowEngine {
         db.emitEvent(flowId, null, "error", msg, { nodeKey });
         if (nodeKey) {
           db.run(
-            `UPDATE nodes SET status='failed', attempt_id=NULL, updated_at=? WHERE flow_id=? AND node_key=? AND status='running'`,
+            `UPDATE nodes SET status=?, attempt_id=NULL, updated_at=? WHERE flow_id=? AND node_key=? AND status=?`,
+            NODE_STATUS.FAILED,
             db.now(),
             flowId,
             nodeKey,
+            NODE_STATUS.RUNNING,
           );
         }
-        db.run(`UPDATE flows SET updated_at=? WHERE id=?`, db.now(), flowId);
       } finally {
         if (clearKey) this.clearCurrentIf(flowId, clearKey);
         this.touch(flowId);
@@ -978,13 +941,7 @@ export class FlowEngine {
 
   /** Engine internals shared with the SDLC builtin-chain module — not a public API. */
   nodeStatus(flowId: string, nodeKey: string): string {
-    return db.get<{ status: string }>(
-      `SELECT status FROM nodes WHERE flow_id=? AND node_key=?`, flowId, nodeKey)?.status ?? "";
-  }
-
-  /** True when a node instance is a source of terminal node status (done | approved). */
-  private statusTerminalSuccess(s: string): boolean {
-    return s === "done" || s === "approved";
+    return nodeStore.statusOf(flowId, nodeKey) ?? "";
   }
 
   /**
@@ -1053,9 +1010,7 @@ export class FlowEngine {
       const st = this.nodeStatus(flowId, k);
       if (this.statusLoopResettable(st)) {
         this.setNodeStatus(flowId, k, "pending");
-        db.emitEvent(flowId, db.get<{ id: string }>(
-          `SELECT id FROM nodes WHERE flow_id=? AND node_key=?`, flowId, k)?.id ?? null,
-          "lifecycle", `${k} re-enters via the loop edge — reset to pending`);
+        nodeStore.emitEvent(flowId, k, "lifecycle", `${k} re-enters via the loop edge — reset to pending`);
         for (const e of g.edges.filter((e) => e.kind === "next" && e.from === k)) {
           if (!seen.has(e.to)) {
             seen.add(e.to);
@@ -1068,7 +1023,7 @@ export class FlowEngine {
 
   /** Loop re-entry clears success terminals and previously skipped branches. */
   private statusLoopResettable(s: string): boolean {
-    return this.statusTerminalSuccess(s) || s === "skipped";
+    return isNodeTerminalSuccess(s) || s === NODE_STATUS.SKIPPED;
   }
 
   /** The node_templates kind behind a template node spec (decision/agent/…/builtin). */
@@ -1140,7 +1095,7 @@ export class FlowEngine {
       if (!src) continue;
       const st = this.nodeStatus(flowId, e.from);
       const srcSkipped = st === "skipped";
-      if (!this.statusTerminalSuccess(st) && !srcSkipped) continue;
+      if (!isNodeTerminalSuccess(st) && !srcSkipped) continue;
       resolved++;
       if (srcSkipped) continue; // skipped sources propagate inactive
       const srcKind = this.nodeKind(g, src);
@@ -1169,9 +1124,7 @@ export class FlowEngine {
     const r = await this.incomingResolution(flowId, g, key);
     if (r.total === 0 || r.resolved !== r.total || r.active > 0) return;
     this.setNodeStatus(flowId, key, "skipped");
-    db.emitEvent(flowId, db.get<{ id: string }>(
-      `SELECT id FROM nodes WHERE flow_id=? AND node_key=?`, flowId, key)?.id ?? null,
-      "lifecycle", `${key} skipped — no active branch leads to it`);
+    nodeStore.emitEvent(flowId, key, "lifecycle", `${key} skipped — no active branch leads to it`);
     // skipped sources propagate inactive downstream
     for (const e of g.edges.filter((e) => e.kind === "next" && e.from === key)) {
       await this.resolveInactiveTarget(flowId, g, e.to);
@@ -1340,7 +1293,7 @@ export class FlowEngine {
       stepFlows.onChildFinished(flowId);
       splitManager.onChildFinished(flowId); // split runtime (§3) — no-op without split linkage
     }
-    if (this.statusTerminalSuccess(finalStatus)) {
+    if (isNodeTerminalSuccess(finalStatus)) {
       await this.advanceFrom(flowId, nodeKey);
     }
   }
@@ -1361,14 +1314,16 @@ export class FlowEngine {
     // the announcement and the sender's curl example always have an endpoint
     const hook = wait === "webhook" ? hookStore.ensureForNode(flowId, nodeKey) : undefined;
     this.setNodeStatus(flowId, nodeKey, "waiting");
-    db.emitEvent(flowId, db.get<{ id: string }>(
-      `SELECT id FROM nodes WHERE flow_id=? AND node_key=?`, flowId, nodeKey)?.id ?? null,
+    nodeStore.emitEvent(
+      flowId,
+      nodeKey,
       "lifecycle",
       wait === "timer"
         ? `${nodeKey} waits for a timer (${minutes ?? 1} min — the poller resumes it)`
         : wait === "comments"
         ? `${nodeKey} waits for the comment quiet period (${minutes ?? 10} min — new comments restart it; the poller fires it when the gate is clear)`
-        : `${nodeKey} waits for a webhook delivery — POST to /api/hooks/${hook?.id ?? "(hook unbound)"}`);
+        : `${nodeKey} waits for a webhook delivery — POST to /api/hooks/${hook?.id ?? "(hook unbound)"}`,
+    );
   }
 
   /**
@@ -1425,11 +1380,13 @@ export class FlowEngine {
         meta.executionSource = "override";
         delete meta.execution_rationale; // the planner's rationale no longer applies
         db.run(`UPDATE artifacts SET meta=?, updated_at=? WHERE id=?`, JSON.stringify(meta), db.now(), plan.id);
-        db.emitEvent(flowId, db.get<{ id: string }>(
-          `SELECT id FROM nodes WHERE flow_id=? AND node_key=?`, flowId, planKey)?.id ?? null,
+        nodeStore.emitEvent(
+          flowId,
+          planKey,
           "lifecycle",
           `plan execution overridden at approve: will execute ${executionOverride} (was ${was}, ${wasSource})`,
-          { nodeKey: planKey });
+          { nodeKey: planKey },
+        );
       }
     }
     const plan = this.latestResourceArtifact<{ id: string; content: string; meta: string | null }>(flowId, NODE_KEYS.PLAN);
@@ -1587,7 +1544,7 @@ export class FlowEngine {
         if (this.isStepChild(flowId)) {
           stepFlows.onChildFinished(flowId);
         }
-        if (this.statusTerminalSuccess(finalStatus)) {
+        if (isNodeTerminalSuccess(finalStatus)) {
           await this.advanceFrom(flowId, nodeKey);
         }
       });
@@ -1770,7 +1727,7 @@ export class FlowEngine {
         stepFlows.onChildFinished(flowId);
         splitManager.onChildFinished(flowId); // split runtime (§3) — no-op without split linkage
       }
-      if (this.statusTerminalSuccess(finalStatus)) {
+      if (isNodeTerminalSuccess(finalStatus)) {
         await this.advanceFrom(flowId, nodeKey);
       }
     });
@@ -2062,9 +2019,12 @@ export class FlowEngine {
       if (e instanceof ConflictError) return;
       throw e;
     }
-    db.emitEvent(flowId, db.get<{ id: string }>(
-      `SELECT id FROM nodes WHERE flow_id=? AND node_key=?`, flowId, nodeKey)?.id ?? null,
-      "lifecycle", note ? `${nodeKey} ${note} — resuming` : `${nodeKey} timer elapsed — resuming`);
+    nodeStore.emitEvent(
+      flowId,
+      nodeKey,
+      "lifecycle",
+      note ? `${nodeKey} ${note} — resuming` : `${nodeKey} timer elapsed — resuming`,
+    );
     this.bg(flowId, nodeKey, () =>
       this.startNodeStage(flowId, nodeKey, { resumeWaiting: true }).then(() => {})
     );
@@ -2177,32 +2137,7 @@ export class FlowEngine {
   }
 
   ingestComments(flowId: string, incoming: HostComment[], mrIid?: number): number {
-    let newOpen = 0;
-    for (const c of incoming) {
-      if (c.system) continue;
-      const existing = db.get<{ id: string; status: string; resolved_by: string | null }>(
-        `SELECT id,status,resolved_by FROM comments WHERE id=?`, c.id);
-      const status = c.resolved ? "resolved" : "open";
-      if (!existing) {
-        db.run(
-          `INSERT INTO comments (id,flow_id,mr_iid,discussion_id,author,body,file_path,line,status,raw,created_at,updated_at)
-           VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`,
-          c.id, flowId, mrIid ?? null, c.threadId, c.author, c.body,
-          c.path ?? null, c.line ?? null,
-          status, JSON.stringify(c), c.createdAt, db.now()
-        );
-        if (status === "open") newOpen++;
-      } else if (existing.status !== status) {
-        // Never resurrect a comment the agent already resolved: plain notes
-        // (bot reports, summaries) aren't resolvable via the git-host API, so
-        // the poll keeps reporting them as unresolved — without this guard
-        // they'd flip back to open and trigger a redundant resolve run.
-        if (existing.status === "resolved" && existing.resolved_by === "agent" && status === "open") continue;
-        db.run(`UPDATE comments SET status=?, updated_at=? WHERE id=?`, status, db.now(), c.id);
-        if (status === "open") newOpen++;
-      }
-    }
-    return newOpen;
+    return commentStore.ingest(flowId, incoming, mrIid);
   }
 }
 

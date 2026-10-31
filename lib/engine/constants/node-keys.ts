@@ -5,6 +5,7 @@ import "server-only";
  * Use these constants instead of string literals so renames stay type-safe.
  */
 export const NODE_KEYS = {
+  START: "start",
   PLAN: "plan",
   BUILD: "build",
   STEP_BUILD: "step_build",

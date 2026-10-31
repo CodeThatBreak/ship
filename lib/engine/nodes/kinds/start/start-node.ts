@@ -4,6 +4,7 @@ import "server-only";
 import { z } from "zod";
 import { NodeDefinition, type FlowCtx, type NodeTriggerRun, type RunOutcome } from "../../shared";
 import type { NodeCapabilities } from "../../shared/capabilities";
+import { NODE_KEYS } from "../../../constants/node-keys";
 import {
   parseStartContract,
   StartContractConfigSchema,
@@ -33,7 +34,7 @@ const StartPayload = z.record(z.string(), z.unknown());
 type StartPayload = z.infer<typeof StartPayload>;
 
 export class StartNode extends NodeDefinition<StartPayload, StartPayload> {
-  readonly key = "start";
+  readonly key = NODE_KEYS.START;
   readonly label = "Start";
   readonly promptKeys = [] as const;
   /** ahead of the plan node (10) so graphs display flow entry first */

@@ -97,11 +97,17 @@ export const Task = TaskRow.transform((t) => ({
 export type Task = z.infer<typeof Task>;
 
 // ── flows ────────────────────────────────────────────────────────────────────
+export const FLOW_STATUSES = ["active", "done", "failed"] as const;
+export type FlowRowStatus = (typeof FLOW_STATUSES)[number];
+
+export const FLOW_KINDS = ["sdlc", "step", "split"] as const;
+export type FlowKindRow = (typeof FLOW_KINDS)[number];
+
 export const FlowRow = z.object({
   id: z.string(),
   task_id: z.string(),
   name: z.string(),
-  status: z.string(),
+  status: z.enum(FLOW_STATUSES),
   mr_url: z.string().nullable(),
   mr_iid: z.number().nullable(),
   mr_branch: z.string().nullable(),
@@ -118,8 +124,8 @@ export const FlowRow = z.object({
   worktree_dir: z.string().nullable(),
   /** step sub-flows (plan fan-out): set on child flows — the parent's flow id */
   parent_flow_id: z.string().nullable(),
-  /** sdlc | step (plan fan-out child) */
-  kind: z.string().nullable().default("sdlc"),
+  /** sdlc | step (plan fan-out child) | split */
+  kind: z.enum(FLOW_KINDS).nullable().default("sdlc"),
   created_at: z.string(),
   updated_at: z.string(),
 });
@@ -139,6 +145,31 @@ export const NODE_STATUSES = [
   "skipped",
 ] as const;
 export type NodeStatus = (typeof NODE_STATUSES)[number];
+
+export const ARTIFACT_STATUSES = ["draft", "approved", "superseded"] as const;
+export type ArtifactStatus = (typeof ARTIFACT_STATUSES)[number];
+
+export const COMMENT_STATUSES = ["open", "resolving", "resolved", "wontfix"] as const;
+export type CommentStatus = (typeof COMMENT_STATUSES)[number];
+
+export const PLAN_STEP_STATUSES = ["pending", "done"] as const;
+export type PlanStepStatus = (typeof PLAN_STEP_STATUSES)[number];
+
+export const BRANCH_STATUSES = [
+  "pending",
+  "building",
+  "awaiting_approval",
+  "approved",
+  "failed",
+  "done",
+] as const;
+export type BranchStatus = (typeof BRANCH_STATUSES)[number];
+
+export const RUN_STATUSES = ["running", "finished", "error", "cancelled"] as const;
+export type RunRowStatus = (typeof RUN_STATUSES)[number];
+
+export const STEP_MERGE_STATUSES = ["running", "conflict", "rejected", "merged", "failed"] as const;
+export type StepMergeStatus = (typeof STEP_MERGE_STATUSES)[number];
 
 export const NodeRow = z.object({
   id: z.string(),
@@ -176,7 +207,7 @@ export const ArtifactRow = z.object({
   version: z.number(),
   content: z.string(),
   meta: jsonCol(z.record(z.string(), z.unknown())),
-  status: z.string(),
+  status: z.enum(ARTIFACT_STATUSES),
   feedback: z.string().nullable(),
   created_at: z.string(),
 });
@@ -192,7 +223,7 @@ export const CommentRow = z.object({
   body: z.string().nullable(),
   file_path: z.string().nullable(),
   line: z.number().nullable(),
-  status: z.string(),
+  status: z.enum(COMMENT_STATUSES),
   resolved_by: z.string().nullable(),
   raw: z.string().nullable(),
   created_at: z.string(),
@@ -235,7 +266,7 @@ export const PlanStepRow = z.object({
   detail: z.string().nullable(),
   files: jsonCol(z.array(z.string())),
   branch: z.string().nullable(),
-  status: z.string(),
+  status: z.enum(PLAN_STEP_STATUSES),
   origin: z.string(),
   /** completed_by: manual | build | merge | skipped | null */
   completed_by: z.string().nullable(),
@@ -253,7 +284,7 @@ export const BranchRow = z.object({
   name: z.string(),
   git_branch: z.string().nullable(),
   title: z.string().nullable(),
-  status: z.string(),
+  status: z.enum(BRANCH_STATUSES),
   mr_url: z.string().nullable(),
   mr_iid: z.number().nullable(),
   order: z.number(),
@@ -271,9 +302,7 @@ export const RunRow = z.object({
   agent_ref: z.string(),
   /** the runtime's run id */
   run_ref: z.string(),
-  branch_id: z.string().nullable(),
-  status: z.string(),
-  model: z.string().nullable(),
+  status: z.enum(RUN_STATUSES),
   input_tokens: z.number().nullable(),
   output_tokens: z.number().nullable(),
   cache_read_tokens: z.number().nullable(),
@@ -454,7 +483,7 @@ export const StepMergeRow = z.object({
   parent_flow_id: z.string(),
   parent_node: z.string(),
   branch: z.string().nullable(),
-  status: z.string(),
+  status: z.enum(STEP_MERGE_STATUSES),
   attempts: z.number(),
   error: z.string().nullable(),
   created_at: z.string(),

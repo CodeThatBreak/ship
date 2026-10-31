@@ -18,6 +18,7 @@ import { StreamBuffer } from "./stream-buffer";
 import { ToolPairer, type ToolEmitFn } from "./tool-pairer";
 import { usageTracker, type RunCostSummary, type UsageTracker } from "./usage-tracker";
 import { RunSupersededError } from "../errors/run-superseded-error";
+import { EVENT_KIND, RUN_STATUS, SETTING_KEY } from "../constants/vocabulary";
 
 export interface ExecuteRunOptions {
   /** When false, skip the late-write guard (chat-only turns that do not own node status). */
@@ -74,7 +75,7 @@ export class AgentRunner {
     // Model resolution: per-run → settings → env; local runs always pin a concrete id.
     const model = resolveAgentRunModel(
       input.model,
-      db.getSetting("default_model", settingString, ""),
+      db.getSetting(SETTING_KEY.DEFAULT_MODEL, settingString, ""),
       config.defaultModel(),
       mode,
       port.fallbackModels,
@@ -139,11 +140,11 @@ export class AgentRunner {
       options?.attemptId
       ?? db.get<{ attempt_id: string | null }>(`SELECT attempt_id FROM nodes WHERE id=?`, nodeId)?.attempt_id;
     const startedWhileRunning = attemptAtStart != null;
-    db.emitEvent(flow.id, nodeId, "lifecycle", `${label} started (${mode})`, { agentId, runId, run_id: runId, mode });
+    db.emitEvent(flow.id, nodeId, EVENT_KIND.LIFECYCLE, `${label} started (${mode})`, { agentId, runId, run_id: runId, mode });
 
     const stream = new StreamBuffer(flow.id, nodeId, runId);
     const emitTool: ToolEmitFn = (name, status, callId, args, result, startedAtMs) =>
-      db.emitEvent(flow.id, nodeId, "tool", `${name}: ${status}`, {
+      db.emitEvent(flow.id, nodeId, EVENT_KIND.TOOL, `${name}: ${status}`, {
         run_id: runId, callId, name, status,
         args: args != null ? JSON.stringify(args) : undefined,
         result,
@@ -160,7 +161,7 @@ export class AgentRunner {
     // the pairer (local) so start/end are matched by callId; cloud tool events
     // arrive already paired, so they emit directly.
     const callbacks = {
-      onStatus: (s: string) => db.emitEvent(flow.id, nodeId, "status", `run ${s}`, { run_id: runId }),
+      onStatus: (s: string) => db.emitEvent(flow.id, nodeId, EVENT_KIND.STATUS, `run ${s}`, { run_id: runId }),
       onAssistant: (t: string) => stream.push("assistant", t),
       onThinking: (t: string) => stream.push("thinking", t),
       onTool: (name: string, status: string, args: unknown, callId: string | undefined, extra: { result?: unknown } | undefined) => {
@@ -193,7 +194,7 @@ export class AgentRunner {
         stream.flushAll();
       }
     } finally {
-      const runRowStatus = result?.status === "finished" ? "finished" : "error";
+      const runRowStatus = result?.status === RUN_STATUS.FINISHED ? RUN_STATUS.FINISHED : RUN_STATUS.ERROR;
       db.run(
         `UPDATE runs SET status=?, updated_at=? WHERE run_ref=?`,
         runRowStatus,
@@ -212,8 +213,8 @@ export class AgentRunner {
       this.usage.persistUsage(runRowId, { durationMs });
     }
 
-    if (result.status !== "finished") {
-      db.emitEvent(flow.id, nodeId, "error", `${label} ended with ${result.status}`, { run_id: runId });
+    if (result.status !== RUN_STATUS.FINISHED) {
+      db.emitEvent(flow.id, nodeId, EVENT_KIND.ERROR, `${label} ended with ${result.status}`, { run_id: runId });
       throw new Error(`${label} ended with status ${result.status}`);
     }
 
@@ -227,7 +228,7 @@ export class AgentRunner {
         db.emitEvent(
           flow.id,
           nodeId,
-          "lifecycle",
+          EVENT_KIND.LIFECYCLE,
           `${label} result arrived after the node was already ${nodeNow?.status ?? "unknown"} — ignoring`,
           { run_id: runId },
         );
@@ -235,7 +236,7 @@ export class AgentRunner {
       }
     }
 
-    db.emitEvent(flow.id, nodeId, "lifecycle", `${label} finished`, {
+    db.emitEvent(flow.id, nodeId, EVENT_KIND.LIFECYCLE, `${label} finished`, {
       run_id: runId,
       durationMs,
       tokens: costSummary.tokens,

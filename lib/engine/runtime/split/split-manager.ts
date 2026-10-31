@@ -3,6 +3,12 @@ import "server-only";
 import { z } from "zod";
 import { db } from "../../../db";
 import { FLOW_STATUS } from "../../../../constants/flow";
+import {
+  NODE_ACTIVE_STATUSES,
+  NODE_IN_FLIGHT_STATUSES,
+  NODE_SUCCESS_STATUSES,
+  NODE_TERMINAL_STATUSES,
+} from "../../constants/node-status";
 import { processSingleton } from "../../../singleton";
 import type { FlowCtx, NodeDefinition } from "../../nodes/shared";
 import {
@@ -222,13 +228,6 @@ interface SplitEngineSurface {
 /** Split knobs a node-target child's copied config strips (a child never
  *  splits — the nesting guard is the runtime rule, the strip is hygiene). */
 const SPLIT_CONFIG_KEYS = ["split_consume", "split_parallel_max"] as const;
-
-/** Node-status sets the unit rollup and the actions read (§2.7 — named, not
- *  sprinkled literals). */
-const SUCCESS_NODE_STATUSES: readonly string[] = [FLOW_STATUS.DONE, FLOW_STATUS.APPROVED, FLOW_STATUS.SKIPPED];
-const TERMINAL_NODE_STATUSES: readonly string[] = [FLOW_STATUS.DONE, FLOW_STATUS.APPROVED, FLOW_STATUS.FAILED, FLOW_STATUS.SKIPPED];
-const ACTIVE_NODE_STATUSES: readonly string[] = [FLOW_STATUS.PENDING, FLOW_STATUS.RUNNING, FLOW_STATUS.WAITING, FLOW_STATUS.AWAITING_APPROVAL];
-const IN_FLIGHT_NODE_STATUSES: readonly string[] = [FLOW_STATUS.RUNNING, FLOW_STATUS.WAITING, FLOW_STATUS.AWAITING_APPROVAL];
 
 function stripSplitKeys(cfg: Record<string, unknown>): Record<string, unknown> {
   const out = { ...cfg };
@@ -515,7 +514,7 @@ export class SplitManager {
     if (statuses.some((s) => s === FLOW_STATUS.FAILED)) return "failed";
     if (statuses.some((s) => s === FLOW_STATUS.AWAITING_APPROVAL)) return "awaiting_approval";
     if (statuses.some((s) => s === FLOW_STATUS.RUNNING)) return "running";
-    if (statuses.length && statuses.every((s) => SUCCESS_NODE_STATUSES.includes(s))) {
+    if (statuses.length && statuses.every((s) => NODE_SUCCESS_STATUSES.includes(s))) {
       return "done";
     }
     if (flowStatus === FLOW_STATUS.DONE) return "done";
@@ -591,7 +590,7 @@ export class SplitManager {
       .map((n) => n.status);
     const flowClosed = flow.status === FLOW_STATUS.DONE || flow.status === FLOW_STATUS.SKIPPED;
     const allTerminal = statuses.length > 0
-      && statuses.every((s) => TERMINAL_NODE_STATUSES.includes(s));
+      && statuses.every((s) => NODE_TERMINAL_STATUSES.includes(s));
     const holding = statuses.some((s) => s === FLOW_STATUS.AWAITING_APPROVAL);
     if (!allTerminal && !holding && !flowClosed) return;
     db.emitEvent(flow.parent_flow_id, null, "lifecycle",
@@ -660,7 +659,7 @@ export class SplitManager {
     if (!state.childFlowId) throw new Error(`unit "${unitKey}" has no child flow to cancel`);
     const active = db.all<{ node_key: string; status: string }>(
       `SELECT node_key, status FROM nodes WHERE flow_id=?`, state.childFlowId)
-      .filter((n) => ACTIVE_NODE_STATUSES.includes(n.status));
+      .filter((n) => NODE_ACTIVE_STATUSES.includes(n.status));
     for (const n of active) {
       await this.e.cancelNode(state.childFlowId, n.node_key); // marks failed + stops in-flight runs
     }
@@ -673,7 +672,7 @@ export class SplitManager {
   private async stopActiveChildNodes(childFlowId: string): Promise<void> {
     const active = db.all<{ node_key: string; status: string }>(
       `SELECT node_key, status FROM nodes WHERE flow_id=?`, childFlowId)
-      .filter((n) => IN_FLIGHT_NODE_STATUSES.includes(n.status));
+      .filter((n) => NODE_IN_FLIGHT_STATUSES.includes(n.status));
     for (const n of active) {
       await this.e.cancelNode(childFlowId, n.node_key);
     }

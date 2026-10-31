@@ -8,6 +8,7 @@ import type { LintProblem } from "@/types/template-lint";
 import { nodeRegistry } from "../nodes/registry";
 import { resolveSplitTarget, type SplitTargetLookup } from "../nodes/shared/split";
 import { fanoutOf } from "./node-config";
+import { NODE_KEYS } from "../constants/node-keys";
 
 /**
  * Build-time checks for declarative templates (§5): every `{{nodes.X.output.Y}}`
@@ -219,7 +220,7 @@ export function lintTemplate(
     const queue = nodes
       .filter((n) => {
         const nt = catalog[n.nodeTemplateId];
-        return nt?.isBuiltin && nt.key === "plan";
+        return nt?.isBuiltin && nt.key === NODE_KEYS.PLAN;
       })
       .map((n) => n.key);
     for (const k of queue) seen.add(k);
@@ -268,7 +269,10 @@ export function lintTemplate(
         });
       }
       for (const cn of childNodes) {
-        if (cn.kind === "builtin" && ["plan", "pipeline", "review", "resolve"].includes(cn.nt_key)) {
+        if (
+          cn.kind === "builtin"
+          && ([NODE_KEYS.PLAN, NODE_KEYS.PIPELINE, NODE_KEYS.REVIEW, NODE_KEYS.RESOLVE] as readonly string[]).includes(cn.nt_key)
+        ) {
           problems.push({
             where: `node "${n.key}"`,
             message: `fan-out child template "${cfg.child}" contains a "${cn.nt_key}" node — children are one-node chains, never a full SDLC`,

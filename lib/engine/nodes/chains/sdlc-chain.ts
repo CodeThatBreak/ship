@@ -3,6 +3,7 @@ import "server-only";
 import { db } from "../../../db";
 import type { ChainRole, FlowCtx } from "../shared";
 import { NODE_KEYS } from "../../constants/node-keys";
+import { EVENT_KIND } from "../../constants/vocabulary";
 import { configNumber } from "../../templates/node-config";
 import { branchStore } from "../kinds/build";
 import { mergeRequests, type CommitError } from "../kinds/merge-request";
@@ -106,7 +107,7 @@ export class SdlcChain {
         // — those nodes carry their own failed status + Retry.)
         const msg = e instanceof Error ? e.message : String(e);
         const mrError = e instanceof MrCreationFailed ? e : new MrCreationFailed(msg);
-        db.emitEvent(flowId, null, "mr_failed",
+        db.emitEvent(flowId, null, EVENT_KIND.MR_FAILED,
           `MR creation failed: ${mrError.message} — fix the issue, then click "Approve & create MR" again to retry`,
           { branchName, nodeKey: buildKey });
         this.host.setNodeStatus(flowId, buildKey, "awaiting_approval");
@@ -128,7 +129,7 @@ export class SdlcChain {
     maxAttempts: number,
     error: CommitError,
   ): Promise<void> {
-    db.emitEvent(flowId, null, "lifecycle",
+    db.emitEvent(flowId, null, EVENT_KIND.LIFECYCLE,
       `push rejected — running a commit-fix agent on the build step (attempt ${attempt}/${maxAttempts})`,
       { nodeKey: buildKey });
     this.host.setCurrentNode(flowId, buildKey);
