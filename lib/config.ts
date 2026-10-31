@@ -1,7 +1,7 @@
 import "server-only";
 
 import crypto from "node:crypto";
-import path from "path";
+import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 /** Repository root (parent of `lib/`), stable regardless of `process.cwd()`. */
