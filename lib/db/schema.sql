@@ -40,6 +40,11 @@ CREATE TABLE IF NOT EXISTS flows (
   created_at    TEXT NOT NULL,
   updated_at    TEXT NOT NULL
 );
+CREATE INDEX IF NOT EXISTS idx_flows_parent ON flows(parent_flow_id) WHERE parent_flow_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_flows_gitlab_project ON flows(gitlab_project_id) WHERE gitlab_project_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_flows_status ON flows(status);
+CREATE INDEX IF NOT EXISTS idx_flows_template ON flows(template_id) WHERE template_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_flows_repo ON flows(repo_id) WHERE repo_id IS NOT NULL;
 
 CREATE TABLE IF NOT EXISTS nodes (
   id            TEXT PRIMARY KEY,
@@ -140,6 +145,7 @@ CREATE TABLE IF NOT EXISTS plan_steps (
   updated_at    TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_plan_steps_flow ON plan_steps(flow_id, position);
+CREATE INDEX IF NOT EXISTS idx_plan_steps_sub_flow ON plan_steps(sub_flow_id) WHERE sub_flow_id IS NOT NULL;
 
 -- Per-branch tracking for multi-branch builds (Phase 3C)
 CREATE TABLE IF NOT EXISTS branches (
@@ -178,6 +184,10 @@ CREATE TABLE IF NOT EXISTS runs (
   created_at    TEXT NOT NULL,
   updated_at    TEXT NOT NULL
 );
+CREATE INDEX IF NOT EXISTS idx_runs_node ON runs(node_id);
+CREATE INDEX IF NOT EXISTS idx_runs_flow ON runs(flow_id);
+CREATE INDEX IF NOT EXISTS idx_runs_run_ref ON runs(run_ref);
+CREATE INDEX IF NOT EXISTS idx_runs_status ON runs(status);
 
 -- repo registry: local path ↔ cloud URL (per-domain GitLab) for each repo
 CREATE TABLE IF NOT EXISTS repos (
@@ -321,6 +331,7 @@ CREATE TABLE IF NOT EXISTS hook_deliveries (
   created_at   TEXT NOT NULL,
   UNIQUE(hook_id, webhook_id)
 );
+CREATE INDEX IF NOT EXISTS idx_hook_deliveries_created ON hook_deliveries(created_at);
 
 -- Crash-safe worktree removal records: persisted BEFORE the git removal runs
 -- (git drops a worktree's registration even when the directory delete fails —
@@ -356,3 +367,4 @@ CREATE TABLE IF NOT EXISTS step_merges (
   updated_at     TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_step_merges_parent ON step_merges(parent_flow_id, parent_node, status);
+CREATE INDEX IF NOT EXISTS idx_step_merges_flow ON step_merges(flow_id);

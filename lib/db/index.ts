@@ -3,27 +3,15 @@ import "server-only";
 import SqliteDatabase from "better-sqlite3";
 import fs from "fs";
 import path from "path";
+import { z } from "zod";
 import { config } from "../config";
 import { processSingleton } from "../singleton";
 import { DatabaseMigrationError } from "./database-migration-error";
+import { getRowGateway } from "./row-gateway-access";
+import { EventRow, MessageRow, RepoRow, type Repo } from "./rows";
 import { SCHEMA_USER_VERSION } from "./schema-version";
 
-export interface Repo {
-  id: string;
-  name: string;
-  cloud_url: string;
-  local_path: string | null;
-  default_branch: string;
-  // worktree setup policy (Phase 2): per-repo overrides for the dep-policy table
-  install_command: string | null;
-  skip_install: number; // sqlite boolean 0/1
-  sync_paths: string | null;
-  shared_dirs: string | null;
-  setup_command: string | null;
-  worktree_timeout_ms: number | null;
-  created_at: string;
-  updated_at: string;
-}
+export type { Repo } from "./rows";
 
 /**
  * The application database (better-sqlite3, WAL mode).
@@ -101,6 +89,21 @@ export class Database {
             if (!cols.some((c) => c.name === "template_graph")) {
               d.exec(`ALTER TABLE flows ADD COLUMN template_graph TEXT`);
             }
+          } else if (next === 5) {
+            d.exec(`
+              CREATE INDEX IF NOT EXISTS idx_runs_node ON runs(node_id);
+              CREATE INDEX IF NOT EXISTS idx_runs_flow ON runs(flow_id);
+              CREATE INDEX IF NOT EXISTS idx_runs_run_ref ON runs(run_ref);
+              CREATE INDEX IF NOT EXISTS idx_runs_status ON runs(status);
+              CREATE INDEX IF NOT EXISTS idx_flows_parent ON flows(parent_flow_id) WHERE parent_flow_id IS NOT NULL;
+              CREATE INDEX IF NOT EXISTS idx_flows_gitlab_project ON flows(gitlab_project_id) WHERE gitlab_project_id IS NOT NULL;
+              CREATE INDEX IF NOT EXISTS idx_flows_status ON flows(status);
+              CREATE INDEX IF NOT EXISTS idx_flows_template ON flows(template_id) WHERE template_id IS NOT NULL;
+              CREATE INDEX IF NOT EXISTS idx_flows_repo ON flows(repo_id) WHERE repo_id IS NOT NULL;
+              CREATE INDEX IF NOT EXISTS idx_plan_steps_sub_flow ON plan_steps(sub_flow_id) WHERE sub_flow_id IS NOT NULL;
+              CREATE INDEX IF NOT EXISTS idx_step_merges_flow ON step_merges(flow_id);
+              CREATE INDEX IF NOT EXISTS idx_hook_deliveries_created ON hook_deliveries(created_at);
+            `);
           } else {
             throw new Error(`No migration defined for user_version ${next}`);
           }
@@ -424,14 +427,17 @@ export class Database {
   }
 
   listMessages(flowId: string) {
-    return this.all<any>(
-      `SELECT * FROM messages WHERE flow_id=? ORDER BY created_at, id`, flowId
+    return getRowGateway().all(
+      MessageRow,
+      `SELECT * FROM messages WHERE flow_id=? ORDER BY created_at, id`,
+      flowId,
     );
   }
 
   // ── events ───────────────────────────────────────────────────────────────
   listEvents(flowId: string, after: string, limit: number) {
-    return this.all<Record<string, unknown>>(
+    return getRowGateway().all(
+      EventRow,
       `SELECT * FROM events WHERE flow_id=? AND id > ? ORDER BY created_at, id LIMIT ?`,
       flowId,
       after,
@@ -441,7 +447,8 @@ export class Database {
 
   /** Newest `limit` events for a flow, returned oldest-first for the feed. */
   listEventsTail(flowId: string, limit: number) {
-    const rows = this.all<Record<string, unknown>>(
+    const rows = getRowGateway().all(
+      EventRow,
       `SELECT * FROM events WHERE flow_id=? ORDER BY created_at DESC, id DESC LIMIT ?`,
       flowId,
       limit,
@@ -470,10 +477,17 @@ export class Database {
   }
 
   // ── settings (key/value, JSON-encoded values) ────────────────────────────
-  getSetting<T = any>(key: string, fallback: T): T {
+  getSetting<S extends z.ZodTypeAny>(key: string, schema: S, fallback: z.infer<S>): z.infer<S> {
     const row = this.get<{ value: string }>(`SELECT value FROM settings WHERE key=?`, key);
     if (!row) return fallback;
-    try { return JSON.parse(row.value) as T; } catch { return fallback; }
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(row.value);
+    } catch {
+      return fallback;
+    }
+    const result = schema.safeParse(parsed);
+    return result.success ? result.data : fallback;
   }
 
   setSetting(key: string, value: any): void {
@@ -487,11 +501,11 @@ export class Database {
 
   // ── repo registry ────────────────────────────────────────────────────────
   listRepos(): Repo[] {
-    return this.all<Repo>(`SELECT * FROM repos ORDER BY name`);
+    return getRowGateway().all(RepoRow, `SELECT * FROM repos ORDER BY name`);
   }
 
   repoById(id: string): Repo | undefined {
-    return this.get<Repo>(`SELECT * FROM repos WHERE id=?`, id);
+    return getRowGateway().get(RepoRow, `SELECT * FROM repos WHERE id=?`, id);
   }
 
   /** Find a registered repo by its cloud URL (normalizes trailing slashes/.git). */
@@ -547,6 +561,15 @@ export class Database {
 
   deleteRepo(id: string): void {
     this.run(`DELETE FROM repos WHERE id=?`, id);
+  }
+
+  /** Flows that still point at this repo (`flows.repo_id`). */
+  countFlowsByRepoId(repoId: string): number {
+    const row = this.get<{ n: number }>(
+      `SELECT COUNT(*) AS n FROM flows WHERE repo_id=?`,
+      repoId,
+    );
+    return row?.n ?? 0;
   }
 }
 

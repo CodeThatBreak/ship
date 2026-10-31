@@ -3,17 +3,12 @@ import "server-only";
 import { ConflictError } from "../../errors";
 import { truncateUpstreamBody } from "../../engine/ports/git-host-errors";
 import { db } from "../../db";
+import { rows, JiraInstanceRow, type JiraInstance } from "../../db/rows";
 import { processSingleton } from "../../singleton";
 import { jiraAuthHeaders, jiraAuthModeForInstance, jiraMyselfPath, type JiraAuthMode } from "./api-profile";
 import { JIRA_HTTP_TIMEOUT_MS } from "./constants";
 
-export interface JiraInstance {
-  id: string;
-  name: string | null;
-  base_url: string;
-  email: string;
-  token: string;
-}
+export type { JiraInstance } from "../../db/rows";
 
 export { maskToken } from "../../mask-token";
 
@@ -48,7 +43,7 @@ const tryMyself = async (
 export class JiraService {
   // ── instance registry ────────────────────────────────────────────────────
   listInstances(): JiraInstance[] {
-    return db.all<JiraInstance>(`SELECT * FROM jira_instances ORDER BY base_url`);
+    return rows.all(JiraInstanceRow, `SELECT * FROM jira_instances ORDER BY base_url`);
   }
 
   addInstance(input: { name?: string | null; base_url: string; email: string; token: string }): JiraInstance {
@@ -59,11 +54,19 @@ export class JiraService {
     }
     const baseUrl = input.base_url.trim().replace(/\/+$/, "");
     const id = db.uid("jri_");
+    const createdAt = db.now();
     db.run(
       `INSERT INTO jira_instances (id,name,base_url,email,token,created_at) VALUES (?,?,?,?,?,?)`,
-      id, input.name ?? null, baseUrl, input.email.trim(), input.token, db.now()
+      id, input.name ?? null, baseUrl, input.email.trim(), input.token, createdAt
     );
-    return { id, name: input.name ?? null, base_url: baseUrl, email: input.email.trim(), token: input.token };
+    return {
+      id,
+      name: input.name ?? null,
+      base_url: baseUrl,
+      email: input.email.trim(),
+      token: input.token,
+      created_at: createdAt,
+    };
   }
 
   /** Update by id; a blank/absent token or email keeps the stored one. */

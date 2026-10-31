@@ -9,9 +9,12 @@ import { processSingleton } from "../singleton";
  *
  * Rows cross the DB boundary exactly once — here — so every consumer gets a
  * validated, fully-typed object instead of `any` + ad-hoc JSON.parse calls.
- * JSON-encoded columns (fields, input, output, meta, files, data, raw)
- * are decoded to their real types by the schema.
+ * JSON-encoded columns (fields, input, output, meta, files, data, trigger, …)
+ * are decoded to their real types by the schema. Opaque provider blobs (`raw`)
+ * stay as TEXT strings.
  */
+
+import { RowDecodeError, rowIdFromRaw } from "./row-decode-error";
 
 // ── helpers ──────────────────────────────────────────────────────────────────
 /** A TEXT column holding a JSON value of shape S. */
@@ -26,6 +29,22 @@ const jsonCol = <S extends z.ZodTypeAny>(schema: S) =>
       } catch {
         ctx.addIssue({ code: z.ZodIssueCode.custom, message: "invalid JSON column" });
         return z.NEVER;
+      }
+    });
+
+/** JSON column that decodes to null when the cell is corrupt or the wrong shape (feed-safe reads). */
+const jsonColTolerant = <S extends z.ZodTypeAny>(schema: S) =>
+  z
+    .string()
+    .nullable()
+    .transform((s): z.infer<S> | null => {
+      if (s == null) return null;
+      try {
+        const parsed = JSON.parse(s);
+        const result = schema.safeParse(parsed);
+        return result.success ? result.data : null;
+      } catch {
+        return null;
       }
     });
 
@@ -200,7 +219,7 @@ export const EventRow = z.object({
   node_id: z.string().nullable(),
   type: z.string(),
   message: z.string().nullable(),
-  data: jsonCol(z.record(z.string(), z.unknown())),
+  data: jsonColTolerant(z.record(z.string(), z.unknown())),
   created_at: z.string(),
 });
 export type EventRow = z.infer<typeof EventRow>;
@@ -285,6 +304,7 @@ export const RepoRow = z.object({
   updated_at: z.string(),
 });
 export type RepoRow = z.infer<typeof RepoRow>;
+export type Repo = RepoRow;
 
 // ── gitlab_instances ─────────────────────────────────────────────────────────
 export const GitLabInstanceRow = z.object({
@@ -292,9 +312,43 @@ export const GitLabInstanceRow = z.object({
   name: z.string().nullable(),
   base_url: z.string(),
   token: z.string(),
-  created_at: z.string().optional(),
+  created_at: z.string(),
 });
 export type GitLabInstanceRow = z.infer<typeof GitLabInstanceRow>;
+export type GitLabInstance = GitLabInstanceRow;
+
+// ── jira_instances ───────────────────────────────────────────────────────────
+export const JiraInstanceRow = z.object({
+  id: z.string(),
+  name: z.string().nullable(),
+  base_url: z.string(),
+  email: z.string(),
+  token: z.string(),
+  created_at: z.string(),
+});
+export type JiraInstanceRow = z.infer<typeof JiraInstanceRow>;
+export type JiraInstance = JiraInstanceRow;
+
+// ── settings ─────────────────────────────────────────────────────────────────
+export const SettingRow = z.object({
+  key: z.string(),
+  value: z.string(),
+});
+export type SettingRow = z.infer<typeof SettingRow>;
+
+// ── worktree_removals ────────────────────────────────────────────────────────
+export const WorktreeRemovalRow = z.object({
+  id: z.string(),
+  flow_id: z.string().nullable(),
+  repo_path: z.string().nullable(),
+  path: z.string(),
+  branch: z.string().nullable(),
+  delete_branch: z.number().int(),
+  reason: z.string().nullable(),
+  created_at: z.string(),
+});
+export type WorktreeRemovalRow = z.infer<typeof WorktreeRemovalRow>;
+export type WorktreeRemovalRecord = WorktreeRemovalRow;
 
 // ── flow templates (Phase 1: template layer) ─────────────────────────────────
 export const NodeTemplateRow = z.object({
@@ -415,6 +469,26 @@ export type StepMergeRow = z.infer<typeof StepMergeRow>;
  * stripped (zod default) — SELECT * is fine.
  */
 export class RowGateway {
+  private parseRow<S extends z.ZodTypeAny>(
+    schema: S,
+    raw: unknown,
+    sql: string,
+    mode: "get" | "all",
+  ): z.infer<S> | undefined {
+    const result = schema.safeParse(raw);
+    if (result.success) return result.data;
+    const rowId = rowIdFromRaw(raw);
+    if (mode === "get") {
+      throw new RowDecodeError(sql, rowId, result.error);
+    }
+    console.error("[rows] skipping undecodable row", {
+      sql,
+      rowId,
+      issues: result.error.issues,
+    });
+    return undefined;
+  }
+
   get<S extends z.ZodTypeAny>(
     schema: S,
     sql: string,
@@ -422,7 +496,7 @@ export class RowGateway {
   ): z.infer<S> | undefined {
     const row = db.get<unknown>(sql, ...(args as never[]));
     if (row == null) return undefined;
-    return schema.parse(row);
+    return this.parseRow(schema, row, sql, "get");
   }
 
   all<S extends z.ZodTypeAny>(
@@ -430,7 +504,12 @@ export class RowGateway {
     sql: string,
     ...args: unknown[]
   ): z.infer<S>[] {
-    return db.all<unknown>(sql, ...(args as never[])).map((r) => schema.parse(r));
+    const decoded: z.infer<S>[] = [];
+    for (const raw of db.all<unknown>(sql, ...(args as never[]))) {
+      const row = this.parseRow(schema, raw, sql, "all");
+      if (row !== undefined) decoded.push(row);
+    }
+    return decoded;
   }
 }
 

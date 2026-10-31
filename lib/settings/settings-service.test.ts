@@ -3,6 +3,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { settingsPatchBodySchema } from "../schemas/settings-patch";
+import { settingString, settingStringArray } from "../schemas/setting-values";
 import { SettingsService } from "./settings-service";
 
 const mkDbPath = () =>
@@ -54,8 +55,8 @@ describe("SettingsService.update", () => {
         default_execution_mode: "local",
       }),
     ).toThrow("simulated failure");
-    expect(db.getSetting("default_harness", "")).toBe("initial");
-    expect(db.getSetting("default_execution_mode", "")).not.toBe("local");
+    expect(db.getSetting("default_harness", settingString, "")).toBe("initial");
+    expect(db.getSetting("default_execution_mode", settingString, "")).not.toBe("local");
   });
 
   it("applies a valid patch atomically", async () => {
@@ -70,7 +71,7 @@ describe("SettingsService.update", () => {
       http_allowlist: ["Example.COM", ""],
     });
 
-    expect(db.getSetting("default_execution_mode", "")).toBe("local");
-    expect(db.getSetting<string[]>("http_allowlist", [])).toEqual(["example.com"]);
+    expect(db.getSetting("default_execution_mode", settingString, "")).toBe("local");
+    expect(db.getSetting("http_allowlist", settingStringArray, [])).toEqual(["example.com"]);
   });
 });

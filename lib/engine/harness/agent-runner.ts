@@ -3,6 +3,7 @@ import "server-only";
 import { config } from "../../config";
 import { db } from "../../db";
 import { resolveAgentRunModel } from "../../modelSpec";
+import { settingString } from "../../schemas/setting-values";
 import {
   agentPortRegistry,
   type AgentPort,
@@ -73,7 +74,7 @@ export class AgentRunner {
     // Model resolution: per-run → settings → env; local runs always pin a concrete id.
     const model = resolveAgentRunModel(
       input.model,
-      db.getSetting<string>("default_model", ""),
+      db.getSetting("default_model", settingString, ""),
       config.defaultModel(),
       mode,
       port.fallbackModels,

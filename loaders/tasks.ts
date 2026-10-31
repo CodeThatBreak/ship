@@ -10,6 +10,7 @@ import "server-only";
  * pattern as `loaders/flows.ts`).
  */
 import { db } from "../lib/db";
+import { settingString } from "../lib/schemas/setting-values";
 import { SDLC_TEMPLATE_ID, templateStore } from "../lib/engine/templates/template-store";
 import { taskRegistry } from "../lib/engine/tasks/registry";
 import type {
@@ -47,7 +48,7 @@ export function loadTasksBoot(): TasksBoot {
   }));
 
   const defaultMode: ExecutionMode =
-    db.getSetting<string>("default_execution_mode", "cloud") === "local"
+    db.getSetting("default_execution_mode", settingString, "cloud") === "local"
       ? "local"
       : "cloud";
 

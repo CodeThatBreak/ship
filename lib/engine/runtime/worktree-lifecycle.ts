@@ -5,6 +5,7 @@ import os from "os";
 import path from "path";
 import { workspacePaths } from "../../git/workspace-paths";
 import { db, type Repo } from "../../db";
+import { rows, WorktreeRemovalRow } from "../../db/rows";
 import { processSingleton } from "../../singleton";
 import {
   containsPath,
@@ -16,22 +17,6 @@ import {
 import { depPolicies, type RepoDepOverrides } from "../../git/dep-policy";
 import { worktreeSetup } from "../../git/worktree-setup";
 import type { FlowCtx } from "../nodes/shared/run-context";
-
-/**
- * A crash-safe removal record, persisted BEFORE any git command runs: git
- * drops a worktree's registration even when the directory delete fails, so a
- * naive flow would lose the leftover forever. The startup sweep resumes these.
- */
-interface WorktreeRemovalRecord {
-  id: string;
-  flow_id: string | null;
-  repo_path: string | null;
-  path: string;
-  branch: string | null;
-  delete_branch: number;
-  reason: string | null;
-  created_at: string;
-}
 
 interface RemovalTarget {
   flowId: string | null;
@@ -354,8 +339,9 @@ export class WorktreeManager {
    */
   async sweepWorktrees(): Promise<void> {
     // 1. resume recorded removals
-    for (const rec of db.all<WorktreeRemovalRecord>(
-      `SELECT * FROM worktree_removals ORDER BY created_at`
+    for (const rec of rows.all(
+      WorktreeRemovalRow,
+      `SELECT * FROM worktree_removals ORDER BY created_at`,
     )) {
       try {
         await this.removeWorktreeDir({

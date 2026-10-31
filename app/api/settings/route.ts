@@ -10,6 +10,13 @@ import { taskRegistry } from "../../../lib/engine/tasks/registry";
 import { normalizeModelSpec } from "../../../lib/modelSpec";
 import { cursorApiKeyStored } from "../../../lib/integrations/cursor/credentials";
 import { db } from "../../../lib/db";
+import {
+  settingBoolean,
+  settingNumber,
+  settingString,
+  settingStringArray,
+  settingUnknownRecord,
+} from "../../../lib/schemas/setting-values";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -70,19 +77,19 @@ export const GET = async () => {
   );
   const statuses = new Map(ports.map((p, i) => [p.kind, stateList[i]]));
   return NextResponse.json({
-    default_harness: db.getSetting<string>("default_harness", "cursor"),
+    default_harness: db.getSetting("default_harness", settingString, "cursor"),
     harnesses: harnessGroups(statuses),
-    default_execution_mode: db.getSetting<string>("default_execution_mode", "cloud"),
+    default_execution_mode: db.getSetting("default_execution_mode", settingString, "cloud"),
     default_model: normalizeModelSpec(
-      db.getSetting<string>("default_model", "") || config.defaultModel() || "",
+      db.getSetting("default_model", settingString, "") || config.defaultModel() || "",
     ),
     local_agent: {
-      force: db.getSetting<boolean>("local_agent.force", true),
-      sandbox: db.getSetting<boolean>("local_agent.sandbox", false),
-      timeout_ms: db.getSetting<number>("local_agent.timeout_ms", 30 * 60 * 1000),
+      force: db.getSetting("local_agent.force", settingBoolean, true),
+      sandbox: db.getSetting("local_agent.sandbox", settingBoolean, false),
+      timeout_ms: db.getSetting("local_agent.timeout_ms", settingNumber, 30 * 60 * 1000),
     },
-    secrets: Object.keys(db.getSetting<Record<string, unknown>>("secrets", {}) ?? {}),
-    http_allowlist: db.getSetting<string[]>("http_allowlist", []),
+    secrets: Object.keys(db.getSetting("secrets", settingUnknownRecord, {})),
+    http_allowlist: db.getSetting("http_allowlist", settingStringArray, []),
     status: {
       cursorApiKeySet: cursorApiKeyStored(),
       localAgentConfigured: statuses.get(agentPortRegistry.forMode("local").kind)?.configured ?? false,

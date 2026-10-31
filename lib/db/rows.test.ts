@@ -4,7 +4,8 @@ import { assignDatabasePath, createIsolatedDatabasePath } from "../../tests/help
 assignDatabasePath(createIsolatedDatabasePath("devflow-rows-"));
 
 const { db } = await import("./index");
-const { rows, TaskRow, Task, NodeRow } = await import("./rows");
+const { rows, TaskRow, Task, NodeRow, EventRow } = await import("./rows");
+const { RowDecodeError } = await import("./row-decode-error");
 
 const now = () => new Date().toISOString();
 
@@ -39,7 +40,60 @@ describe("RowGateway", () => {
       "x",
       "{not-json",
     );
-    expect(() => rows.get(TaskRow, `SELECT * FROM tasks WHERE id=?`, "task_bad")).toThrow();
+    expect(() => rows.get(TaskRow, `SELECT * FROM tasks WHERE id=?`, "task_bad")).toThrow(RowDecodeError);
+  });
+
+  it("skips undecodable rows in all() without failing the whole query", () => {
+    db.run(
+      `INSERT INTO tasks (id, type, key, summary, fields) VALUES (?,?,?,?,?)`,
+      "task_skip",
+      "generic",
+      "TST-SKIP-OK",
+      "ok",
+      JSON.stringify({}),
+    );
+    db.run(
+      `INSERT INTO tasks (id, type, key, summary, fields) VALUES (?,?,?,?,?)`,
+      "task_skip_bad",
+      "generic",
+      "TST-SKIP-BAD",
+      "bad",
+      "{not-json",
+    );
+    const keys = rows
+      .all(TaskRow, `SELECT * FROM tasks WHERE key LIKE 'TST-SKIP-%' ORDER BY key`)
+      .map((t) => t.key);
+    expect(keys).toEqual(["TST-SKIP-OK"]);
+  });
+
+  it("tolerates corrupt events.data in the feed", () => {
+    db.run(
+      `INSERT INTO tasks (id, type, key, summary) VALUES (?,?,?,?)`,
+      "task_ev",
+      "generic",
+      "TST-E",
+      "e",
+    );
+    db.run(
+      `INSERT INTO flows (id, task_id, name, status, created_at, updated_at) VALUES (?,?,?,?,?,?)`,
+      "flw_ev",
+      "task_ev",
+      "flow",
+      "active",
+      now(),
+      now(),
+    );
+    db.run(
+      `INSERT INTO events (id, flow_id, type, message, data, created_at) VALUES (?,?,?,?,?,?)`,
+      "ev_bad",
+      "flw_ev",
+      "log",
+      "x",
+      JSON.stringify(["not", "an", "object"]),
+      now(),
+    );
+    const event = rows.get(EventRow, `SELECT * FROM events WHERE id=?`, "ev_bad");
+    expect(event?.data).toBeNull();
   });
 
   it("parses node JSON input and output", () => {

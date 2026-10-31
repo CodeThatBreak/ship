@@ -1,6 +1,7 @@
 import "server-only";
 
 import { db } from "../db";
+import { settingStringArray, settingUnknownRecord } from "../schemas/setting-values";
 
 /**
  * Secrets (§4.4): stored under the `secrets` settings key as a {NAME: value}
@@ -9,7 +10,7 @@ import { db } from "../db";
  */
 
 export function getSecrets(): Record<string, string> {
-  const stored = db.getSetting<Record<string, unknown> | null>("secrets", null);
+  const stored = db.getSetting("secrets", settingUnknownRecord.nullable(), null);
   if (!stored || typeof stored !== "object" || Array.isArray(stored)) return {};
   const out: Record<string, string> = {};
   for (const [k, v] of Object.entries(stored)) {
@@ -33,7 +34,7 @@ export function redactSecrets(text: string, secrets?: Record<string, string>): s
  * Empty = deny-by-default, per plan §4.4.
  */
 export function httpAllowlist(): string[] {
-  const raw = db.getSetting<unknown>("http_allowlist", []);
+  const raw = db.getSetting("http_allowlist", settingStringArray, []);
   if (Array.isArray(raw)) return raw.map((s) => String(s).trim()).filter(Boolean);
   return [];
 }

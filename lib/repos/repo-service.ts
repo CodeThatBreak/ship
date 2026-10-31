@@ -3,7 +3,7 @@ import "server-only";
 import fs from "fs";
 import path from "path";
 import type { Database, Repo } from "../db";
-import { NotFoundError, ValidationError } from "../errors";
+import { ConflictError, NotFoundError, ValidationError } from "../errors";
 import {
   expandRepoLocalPath,
   type RepoCreateBody,
@@ -81,6 +81,16 @@ export class RepoService {
   }
 
   delete(id: string): void {
+    const existing = this.database.repoById(id);
+    if (!existing) {
+      throw new NotFoundError("repo", id);
+    }
+    const inUse = this.database.countFlowsByRepoId(id);
+    if (inUse > 0) {
+      throw new ConflictError(
+        `Cannot delete repo: ${inUse} flow${inUse === 1 ? "" : "s"} still reference it`,
+      );
+    }
     this.database.deleteRepo(id);
   }
 }

@@ -17,6 +17,7 @@ import "server-only";
  * and the billed cost when the runtime reports one.
  */
 import { db } from "../../db";
+import { settingString } from "../../schemas/setting-values";
 import { CursorCloudAgentPort } from "../../integrations/cursor/agent-port";
 import { CursorLocalAgentPort } from "../../integrations/local-agent/agent-port";
 import type { AgentRunLookupError } from "./agent-errors";
@@ -196,7 +197,7 @@ export interface AgentPort {
  *  falls back to the first port registered for the mode. Read per selection so
  *  a settings change takes effect without a restart. */
 function defaultHarnessSetting(): string | null {
-  return db.getSetting<string>("default_harness", "") || null;
+  return db.getSetting("default_harness", settingString, "") || null;
 }
 
 /**

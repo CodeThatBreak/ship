@@ -4,6 +4,7 @@ import { db } from "../../../lib/db";
 import { config } from "../../../lib/config";
 import { FAST_ON, FAST_PARAM } from "../../../constants/models";
 import { normalizeModelSpec, parseModelSpec, type CatalogModel } from "../../../lib/modelSpec";
+import { settingString } from "../../../lib/schemas/setting-values";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -72,7 +73,7 @@ export async function GET() {
     ? catalogList.map((m) => m.id)
     : [...port.fallbackModels];
   const currentDefault = normalizeModelSpec(
-    db.getSetting<string>("default_model", "") || config.defaultModel() || "",
+    db.getSetting("default_model", settingString, "") || config.defaultModel() || "",
   );
   // Resolve the configured default into structured data so consumers never
   // touch bracket strings; non-opt-in `fast` values are display noise here —

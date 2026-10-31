@@ -1,6 +1,7 @@
 import "server-only";
 
 import { db } from "../../db";
+import { pricingTableSchema } from "../../schemas/setting-values";
 import { uncachedInputTokens } from "../../usage";
 import {
   agentPortRegistry,
@@ -151,7 +152,7 @@ export class UsageTracker {
     }
 
     const realCost = billedCents(u.cost);
-    const pricing = db.getSetting<Record<string, PricingEntry>>("pricing", {});
+    const pricing = db.getSetting("pricing", pricingTableSchema, {});
     const est = realCost != null
       ? null
       : estimateCostCents(
@@ -208,7 +209,7 @@ export class UsageTracker {
               OR (usage IS NOT NULL AND usage LIKE '%"costSource":"estimate"%'))`);
     if (!pending.length) return;
 
-    const pricing = db.getSetting<Record<string, PricingEntry>>("pricing", {});
+    const pricing = db.getSetting("pricing", pricingTableSchema, {});
     const ports = agentPortRegistry.list();
     const overrides: Record<string, PricingEntry> = {};
     for (const p of ports) Object.assign(overrides, p.rateOverrides ?? {});

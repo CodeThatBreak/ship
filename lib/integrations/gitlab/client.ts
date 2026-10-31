@@ -1,6 +1,7 @@
 import "server-only";
 
 import { db } from "../../db";
+import { rows, GitLabInstanceRow, type GitLabInstance } from "../../db/rows";
 import { processSingleton } from "../../singleton";
 import {
   GitHostTimeoutError,
@@ -17,12 +18,7 @@ import {
 } from "./constants";
 import { encodedProjectPathFromRepoUrl, hostOfRepoUrl, projectPathFromRepoUrl } from "./repo-url";
 
-export interface GitLabInstance {
-  id: string;
-  name: string | null;
-  base_url: string;
-  token: string;
-}
+export type { GitLabInstance } from "../../db/rows";
 
 export interface MergeRequest {
   iid: number;
@@ -269,15 +265,16 @@ export class GitLabService {
 
   // ── instance registry ────────────────────────────────────────────────────
   listInstances(): GitLabInstance[] {
-    return db.all<GitLabInstance>(`SELECT * FROM gitlab_instances ORDER BY base_url`);
+    return rows.all(GitLabInstanceRow, `SELECT * FROM gitlab_instances ORDER BY base_url`);
   }
 
   addInstance(input: { name?: string; base_url: string; token: string }): GitLabInstance {
     const baseUrl = input.base_url.trim().replace(/\/+$/, "");
     const id = db.uid("gli_");
+    const createdAt = db.now();
     db.run(`INSERT INTO gitlab_instances (id,name,base_url,token,created_at) VALUES (?,?,?,?,?)`,
-      id, input.name ?? null, baseUrl, input.token, db.now());
-    return { id, name: input.name ?? null, base_url: baseUrl, token: input.token };
+      id, input.name ?? null, baseUrl, input.token, createdAt);
+    return { id, name: input.name ?? null, base_url: baseUrl, token: input.token, created_at: createdAt };
   }
 
   updateInstance(id: string, input: { name?: string; base_url: string; token: string }): void {

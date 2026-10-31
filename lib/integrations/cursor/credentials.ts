@@ -1,18 +1,19 @@
 import "server-only";
 
 import { db } from "../../db";
+import { settingString } from "../../schemas/setting-values";
 
 /**
  * The Cursor API key resolution: stored on Settings → Integrations → Harness
  * (DB). There is no env fallback — the key lives only in the settings store.
  */
 export function cursorApiKey(): string {
-  return db.getSetting<string>("cursor.api_key", "").trim();
+  return db.getSetting("cursor.api_key", settingString, "").trim();
 }
 
 /** Whether a DB-stored key is set — settings UI status. */
 export function cursorApiKeyStored(): boolean {
-  return Boolean(db.getSetting<string>("cursor.api_key", "").trim());
+  return Boolean(db.getSetting("cursor.api_key", settingString, "").trim());
 }
 
 /** Store the Cursor API key (write-only; empty string deletes). */

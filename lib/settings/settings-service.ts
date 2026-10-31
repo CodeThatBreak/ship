@@ -3,6 +3,7 @@ import "server-only";
 import type { Database } from "../db";
 import { normalizeModelSpec } from "../modelSpec";
 import type { SettingsPatchBody } from "../schemas/settings-patch";
+import { settingStringRecord } from "../schemas/setting-values";
 
 export class SettingsService {
   constructor(private readonly database: Database) {}
@@ -39,7 +40,7 @@ export class SettingsService {
         }
       }
       if (patch.secrets !== undefined) {
-        const current = this.database.getSetting<Record<string, string>>("secrets", {}) ?? {};
+        const current = this.database.getSetting("secrets", settingStringRecord, {});
         const next: Record<string, string> = { ...current };
         for (const [k, v] of Object.entries(patch.secrets)) {
           const name = k.trim();

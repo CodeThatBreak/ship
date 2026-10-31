@@ -2,6 +2,7 @@ import "server-only";
 
 import { z } from "zod";
 import { db } from "../../db";
+import { settingUnknownRecord } from "../../schemas/setting-values";
 
 // ── MCP config sources (Cursor SDK `local.settingSources`) ───────────────────
 
@@ -87,7 +88,7 @@ export interface ConfigField {
  */
 export function appLayerConfig(defKey: string): Record<string, unknown> {
   const out: Record<string, unknown> = {};
-  const stored = db.getSetting<Record<string, unknown> | null>(`node_config.${defKey}`, null);
+  const stored = db.getSetting(`node_config.${defKey}`, settingUnknownRecord.nullable(), null);
   if (stored && typeof stored === "object") Object.assign(out, stored);
   return out;
 }

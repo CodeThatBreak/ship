@@ -19,7 +19,14 @@ describe("JiraService", () => {
 
   it("rejects registering a second instance", () => {
     vi.mocked(db.all).mockReturnValue([
-      { id: "jri_1", name: null, base_url: "https://a.atlassian.net", email: "a@b.c", token: "t" },
+      {
+        id: "jri_1",
+        name: null,
+        base_url: "https://a.atlassian.net",
+        email: "a@b.c",
+        token: "t",
+        created_at: "2026-01-01T00:00:00.000Z",
+      },
     ]);
     const svc = new JiraService();
     expect(() =>
