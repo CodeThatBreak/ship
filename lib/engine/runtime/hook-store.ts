@@ -148,27 +148,28 @@ export class HookStore {
 
   private lastDeliveryCleanup = 0;
 
-  /**
-   * Whether a delivery with this `webhook-id` was already seen for the hook —
-   * records the id on first sight (the delivery is processed, so a replay
-   * with the same id must not dispatch again).
-   */
-  deliverySeen(hookId: string, webhookId: string): boolean {
-    if (Date.now() - this.lastDeliveryCleanup > CLEANUP_INTERVAL_MS) {
-      this.lastDeliveryCleanup = Date.now();
-      db.run(`DELETE FROM hook_deliveries WHERE created_at < ?`,
-        new Date(Date.now() - DELIVERY_TTL_MS).toISOString());
-    }
-    const seen = Boolean(db.get(
+  private maybeCleanupDeliveries(): void {
+    if (Date.now() - this.lastDeliveryCleanup <= CLEANUP_INTERVAL_MS) return;
+    this.lastDeliveryCleanup = Date.now();
+    db.run(`DELETE FROM hook_deliveries WHERE created_at < ?`,
+      new Date(Date.now() - DELIVERY_TTL_MS).toISOString());
+  }
+
+  /** Whether this `webhook-id` was already processed for the hook (replay dedup). */
+  isDeliverySeen(hookId: string, webhookId: string): boolean {
+    this.maybeCleanupDeliveries();
+    return Boolean(db.get(
       `SELECT 1 FROM hook_deliveries WHERE hook_id=? AND webhook_id=?`,
       hookId, webhookId));
-    if (!seen) {
-      db.run(
-        `INSERT OR IGNORE INTO hook_deliveries (hook_id,webhook_id,created_at) VALUES (?,?,?)`,
-        hookId, webhookId, db.now()
-      );
-    }
-    return seen;
+  }
+
+  /** Record a processed delivery id so retries with the same `webhook-id` dedup. */
+  markDeliverySeen(hookId: string, webhookId: string): void {
+    this.maybeCleanupDeliveries();
+    db.run(
+      `INSERT OR IGNORE INTO hook_deliveries (hook_id,webhook_id,created_at) VALUES (?,?,?)`,
+      hookId, webhookId, db.now()
+    );
   }
 }
 

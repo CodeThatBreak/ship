@@ -13,7 +13,7 @@ import {
   type NodeStatus,
 } from "../db/rows";
 import { agentPortRegistry, type AgentRunResult } from "./ports/agent-port";
-import { hostOf, type HostComment } from "./ports/git-host";
+import { hostOf, type HostComment, type HostWebhookEvent } from "./ports/git-host";
 import { NodeDefinition, nodeSupport, splitConsumeOf, type ChainRole, type FlowCtx, type SplitConsumeMode } from "./nodes/shared";
 import { CHAT_DECLINED, nodeRoles } from "./nodes/shared/node-roles";
 import { uncachedInputTokens } from "../usage";
@@ -36,7 +36,7 @@ import { worktreeManager } from "./runtime/worktree-lifecycle";
 import { processSingleton } from "../singleton";
 import { normalizePlanThread } from "./nodes/kinds/plan/constants/planThread";
 import { PlanStore } from "./nodes/kinds/plan/plan-store";
-import { ConflictError, NotFoundError, ValidationError } from "../errors";
+import { ConflictError, DomainError, NotFoundError, ValidationError } from "../errors";
 import { RunSupersededError } from "./errors/run-superseded-error";
 
 export interface CreateFlowOptions {
@@ -1496,6 +1496,14 @@ export class FlowEngine {
     return new Date(at).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit", hour12: false });
   }
 
+  /** Resolve schedule for lifecycle copy — armed clock or estimated fire time. */
+  resolveScheduleLabel(flowId: string): string {
+    return this.resolveScheduleClock(flowId)
+      ?? new Date(Date.now() + this.resolveDelayMs(flowId)).toLocaleTimeString("en-GB", {
+        hour: "2-digit", minute: "2-digit", hour12: false,
+      });
+  }
+
   /** The resolve quiet period per flow (ms) — app layer + resolve `quiet_minutes` knob. */
   resolveDelayMs(flowId?: string): number {
     const resolveDef = this.roleDef(NODE_KEYS.RESOLVE);
@@ -2095,6 +2103,51 @@ export class FlowEngine {
   // ── GitLab webhook / poll handling ───────────────────────────────────────
 
   /** project ids are only unique per git host — match host too when given. */
+  /**
+   * React to a normalized git-host webhook delivery. Errors are logged and
+   * swallowed so the HTTP route can always ack (GitLab disables hooks on 5xx).
+   */
+  handleHostEvent(event: HostWebhookEvent): void {
+    try {
+      if (event.kind === "cr_comment") {
+        const f = this.findFlowByMR(event.projectId, event.crNumber, event.projectUrl);
+        if (!f) return;
+        this.ingestComments(f.id, [event.comment], event.crNumber);
+        const mins = Math.round(this.resolveDelayMs(f.id) / 60_000);
+        this.bounceCommentWaits(f.id);
+        db.emitEvent(f.id, null, "lifecycle",
+          `new MR comment from ${event.comment.author || "a reviewer"} — resolve queued for ` +
+          `${this.resolveScheduleLabel(f.id)} ` +
+          `(${mins} min quiet, then the pipeline gate)`,
+          { nodeKey: templateStore.waitNodeKey(f.id, "comments") ?? undefined });
+        return;
+      }
+      const f = event.crNumber
+        ? this.findFlowByMR(event.projectId, event.crNumber, event.projectUrl)
+        : undefined;
+      if (!f) return;
+      const gateKey = templateStore.waitNodeKey(f.id, "pipeline");
+      const gateStatus = gateKey
+        ? db.get<{ status: string }>(
+            `SELECT status FROM nodes WHERE flow_id=? AND node_key=?`, f.id, gateKey
+          )?.status
+        : undefined;
+      if (gateStatus !== "running") {
+        db.emitEvent(f.id, null, "pipeline", `pipeline ${event.pipeline.status}`,
+          { status: event.pipeline.status, id: event.pipeline.id, nodeKey: gateKey ?? undefined });
+      }
+      if (event.pipeline.status === "failed") {
+        this.triggerPipelineGate(f.id, event.pipeline.id);
+      }
+    } catch (e: unknown) {
+      if (e instanceof DomainError) {
+        console.error("[gitlab-webhook] domain error", e);
+      } else {
+        console.error("[gitlab-webhook] handler error", e);
+      }
+    }
+  }
+
   findFlowByMR(projectId: number, mrIid: number, projectUrl?: string): FlowRow | undefined {
     // check branches table first (multi-branch MRs)
     const branchRow = rows.get(FlowRow,

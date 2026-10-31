@@ -42,7 +42,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
   if (!v.ok) return NextResponse.json({ error: v.reason }, { status: 401 });
 
   const webhookId = req.headers.get("webhook-id") ?? "";
-  if (webhookId && hookStore.deliverySeen(hook.id, webhookId)) {
+  if (webhookId && hookStore.isDeliverySeen(hook.id, webhookId)) {
     return NextResponse.json({ ok: true, dedup: true });
   }
 
@@ -56,16 +56,21 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
     req.headers.forEach((val, key) => { headers[key] = val; });
     const r = await evalJsonata(hook.filter, { payload, headers });
     if (!r.ok) return NextResponse.json({ error: `hook filter failed — ${r.error}` }, { status: 400 });
-    if (!jsonataTruthy(r.value)) return NextResponse.json({ ok: true, filtered: true });
+    if (!jsonataTruthy(r.value)) {
+      if (webhookId) hookStore.markDeliverySeen(hook.id, webhookId);
+      return NextResponse.json({ ok: true, filtered: true });
+    }
   }
 
   try {
     if (hook.template_id) {
       const flowId = flowEngine.startFromTemplate(hook.template_id, payload);
+      if (webhookId) hookStore.markDeliverySeen(hook.id, webhookId);
       return NextResponse.json({ ok: true, flow_id: flowId });
     }
     if (hook.flow_id && hook.node_key) {
       flowEngine.resumeNodeFromWebhook(hook.flow_id, hook.node_key, payload);
+      if (webhookId) hookStore.markDeliverySeen(hook.id, webhookId);
       return NextResponse.json({ ok: true, resumed: hook.node_key });
     }
     return NextResponse.json(

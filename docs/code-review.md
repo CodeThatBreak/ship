@@ -1356,7 +1356,7 @@ Original findings, verbatim:
 
 ### CR-043 [Medium] The generic webhook records a delivery as seen before dispatching it, so failed deliveries are lost on retry
 
-- **Status at `abaa007`:** **Open**, fix in [Task 29](review-tasks/29-webhook-reliability.md)
+- **Status at `abaa007`:** **Fixed** ([Task 29](review-tasks/29-webhook-reliability.md))
 - **Current location:** app/api/hooks/[id]/route.ts:43-46,53-79, lib/engine/runtime/hook-store.ts:150-171
 - **Re-verification note:** `deliverySeen` still inserts the `webhook-id` before the JSONata filter and dispatch, so a delivery whose filter evaluation or `startFromTemplate`/`resumeNodeFromWebhook` fails is answered `{dedup:true}` on retry and never processed. Split into `isSeen`/`markSeen` and mark only after successful dispatch or a deliberate filter drop.
 
@@ -1378,7 +1378,7 @@ Original findings, verbatim:
 
 ### CR-044 [Medium] The GitLab webhook parses the body before auth and has no error handling around engine calls
 
-- **Status at `abaa007`:** **Open**, fix in [Task 29](review-tasks/29-webhook-reliability.md)
+- **Status at `abaa007`:** **Fixed** ([Task 29](review-tasks/29-webhook-reliability.md))
 - **Current location:** app/api/webhooks/gitlab/route.ts:8-10,27-30,37-74, lib/engine/nodes/chains/sdlc-chain.ts:142-145
 - **Re-verification note:** The route still does `await req.json()` before `verifyWebhook`, has no try/catch around `ingestComments`/`emitEvent`/`triggerPipelineGate` (which throws "no pipeline gate node" for gate-less templates → 500 → GitLab retries/disables the hook), and keeps the duplicate `flowScheduleFallback`. Verify first, parse with `.catch(() => null)` → 400, move handling into a `flowEngine.handleHostEvent(event)` and log domain errors while returning 200.
 
