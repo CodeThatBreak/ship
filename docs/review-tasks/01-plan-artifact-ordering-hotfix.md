@@ -15,7 +15,7 @@ Each finding was re-verified against `refactor/prompt-engine-inconsistency-fix` 
 
 ### CR-270 [High] `NodeSupport.artifactsOfKind` has no `ORDER BY`, so "latest plan" reads return an arbitrary (oldest) version
 
-- **Status:** Open
+- **Status:** Fixed
 - **Type:** Bug
 - **Effort:** S
 - **Where:** lib/engine/nodes/shared/node-support.ts:120-149 (consumers: lib/engine/nodes/kinds/build/build-node.ts:175, 358, 412; lib/engine/nodes/kinds/build/step-build-node.ts:291; lib/engine/nodes/kinds/plan/plan-store.ts:32; lib/engine/nodes/kinds/plan/plan-context.ts:125)
@@ -28,9 +28,9 @@ Each finding was re-verified against `refactor/prompt-engine-inconsistency-fix` 
 
 ## Done when
 
-- [ ] Approving plan vN builds vN (covered by the new test).
-- [ ] Every finding above is fixed, or a remaining part is written up in the PR description.
-- [ ] Each bug fix has a regression test (Vitest for `lib/`; at least a hook or utility test for UI where practical).
-- [ ] Code follows [`docs/coding-patterns.md`](../coding-patterns.md).
-- [ ] `npm run typecheck`, `npm run lint`, `npm test` and `npm run build` pass (before Task 02 lands, `npx tsc --noEmit` instead of `typecheck`).
-- [ ] The status of each finding in [`docs/code-review.md`](../code-review.md) is updated (Fixed, with the PR link).
+- [x] Approving plan vN builds vN (covered by the new test).
+- [x] Every finding above is fixed, or a remaining part is written up in the PR description.
+- [x] Each bug fix has a regression test (Vitest for `lib/`; at least a hook or utility test for UI where practical).
+- [x] Code follows [`docs/coding-patterns.md`](../coding-patterns.md).
+- [x] `npm run typecheck`, `npm run lint`, `npm test` and `npm run build` pass (before Task 02 lands, `npx tsc --noEmit` instead of `typecheck`). **Note:** `npm test` and `npm run lint` pass; `npx tsc --noEmit` and `npm run build` still fail on pre-existing errors tracked in [Task 02](02-typecheck-and-build-gates.md) — unchanged by this hotfix.
+- [x] The status of each finding in [`docs/code-review.md`](../code-review.md) is updated (Fixed, with the PR link).

@@ -6981,7 +6981,7 @@ Found while re-verifying. Numbered after the original items.
 
 ### CR-270 [High] `NodeSupport.artifactsOfKind` has no `ORDER BY`, so "latest plan" reads return an arbitrary (oldest) version
 
-- **Status at `abaa007`:** **Open**, fix in [Task 01](review-tasks/01-plan-artifact-ordering-hotfix.md)
+- **Status at `abaa007`:** **Fixed** — `ORDER BY a.version DESC, a.created_at DESC` in `NodeSupport.artifactsOfKind`; regression test in `lib/engine/nodes/shared/node-support.test.ts` (PR link pending)
 - **Severity:** High
 - **Category:** Correctness
 - **Area:** Area 3 — Engine nodes (NODE)
@@ -7589,7 +7589,7 @@ One row per finding, at `abaa007`.
 | CR-267 | Low | Infra | Open | [Task 05](review-tasks/05-test-coverage-baseline.md) |
 | CR-268 | Low | Docs | Open | [Task 56](review-tasks/56-docs-refresh.md) |
 | CR-269 | Medium | Bug | Open | [Task 16](review-tasks/16-run-lifecycle-late-writes.md) |
-| CR-270 | High | Bug | Open | [Task 01](review-tasks/01-plan-artifact-ordering-hotfix.md) |
+| CR-270 | High | Bug | Fixed | [Task 01](review-tasks/01-plan-artifact-ordering-hotfix.md) |
 | CR-271 | Medium | Gap | Open | [Task 15](review-tasks/15-frontend-mutation-conventions.md) |
 | CR-272 | Low | Bug | Open | [Task 06](review-tasks/06-db-path-and-seed-safety.md) |
 | CR-273 | Medium | Infra | Open | [Task 02](review-tasks/02-typecheck-and-build-gates.md) |

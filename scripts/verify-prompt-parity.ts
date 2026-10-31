@@ -211,7 +211,7 @@ async function main(): Promise<void> {
     let runError: string | null = null;
     try {
       if (kind === 'plan') {
-        const planDef = def as { turn: (c: typeof ctx, body: string, o: object) => Promise<string> };
+        const planDef = def as unknown as { turn: (c: typeof ctx, body: string, o: object) => Promise<string> };
         const bootstrap = previewFinal?.trim() || 'parity bootstrap prompt';
         await planDef.turn(ctx, bootstrap, {});
       } else {

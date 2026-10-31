@@ -134,18 +134,10 @@ export class NodeSupport {
     const type = opts.nodeType;
     const scope = type ? ` AND n.type=?` : "";
     const cap = opts.limit ? ` LIMIT ${Math.trunc(opts.limit)}` : "";
-    if (type) {
-      return db.all(
-        `SELECT a.id, a.version, a.content, a.meta FROM artifacts a JOIN nodes n ON n.id=a.node_id
-         WHERE n.flow_id=? AND a.kind=?${scope}${cap}`,
-        flowId, kind, type,
-      );
-    }
-    return db.all(
-      `SELECT a.id, a.version, a.content, a.meta FROM artifacts a JOIN nodes n ON n.id=a.node_id
-       WHERE n.flow_id=? AND a.kind=?${scope}${cap}`,
-      flowId, kind,
-    );
+    const sql = `SELECT a.id, a.version, a.content, a.meta FROM artifacts a JOIN nodes n ON n.id=a.node_id
+       WHERE n.flow_id=? AND a.kind=?${scope}
+       ORDER BY a.version DESC, a.created_at DESC${cap}`;
+    return type ? db.all(sql, flowId, kind, type) : db.all(sql, flowId, kind);
   }
 
   // ── branches ────────────────────────────────────────────────────────────────
