@@ -48,8 +48,29 @@ export type NodeRunStatus = (typeof NODE_RUN_STATUS)[keyof typeof NODE_RUN_STATU
  * action route's dispatch (`app/api/flows/[id]/action/route.ts`).
  */
 export const FLOW_ACTION = {
+  APPROVE_PLAN: "approve_plan",
+  UPDATE_PLAN_STEPS: "update_plan_steps",
+  SET_PLAN_STEP: "set_plan_step",
+  APPROVE_BUILD: "approve_build",
+  PIPELINE: "pipeline",
+  RESOLVE: "resolve",
+  REVIEW: "review",
+  RETRY: "retry",
+  CANCEL: "cancel",
   RUN_NODE: "run_node",
+  APPROVE_NODE: "approve_node",
+  SET_NODE_CONFIG: "set_node_config",
+  CHOOSE_NODE: "choose_node",
+  APPROVE_FANOUT_STEP: "approve_fanout_step",
+  RETRY_FANOUT_STEP: "retry_fanout_step",
+  SKIP_FANOUT_STEP: "skip_fanout_step",
+  SKIP_SPLIT_UNIT: "skip_split_unit",
+  RETRY_SPLIT_UNIT: "retry_split_unit",
+  APPROVE_SPLIT_UNIT: "approve_split_unit",
+  CANCEL_SPLIT_UNIT: "cancel_split_unit",
 } as const;
+
+export type FlowActionName = (typeof FLOW_ACTION)[keyof typeof FLOW_ACTION];
 
 /** Plan fan-out aggregate child state (Phase 4 monitoring, §5): the node's
  *  own status stays `running` while it orchestrates, so the per-step rollup

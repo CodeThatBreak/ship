@@ -399,6 +399,15 @@ export class Database {
   }
 
   // ── events ───────────────────────────────────────────────────────────────
+  listEvents(flowId: string, after: string, limit: number) {
+    return this.all<Record<string, unknown>>(
+      `SELECT * FROM events WHERE flow_id=? AND id > ? ORDER BY created_at, id LIMIT ?`,
+      flowId,
+      after,
+      limit,
+    );
+  }
+
   emitEvent(
     flowId: string,
     nodeId: string | null,

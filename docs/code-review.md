@@ -205,7 +205,7 @@ Each item below can be fixed independently. Severity headings group the items; w
 
 ### CR-003 [High] No Zod validation at any API boundary, so bad bodies cause 500s or get saved
 
-- **Status at `abaa007`:** **Open**, fix in [Task 10](review-tasks/10-api-input-validation-flows.md)
+- **Status at `abaa007`:** **Partly fixed** (Task 10 — `parseJson` / `parseQuery` in `lib/http/parse.ts`; flow create, action, chat, and events routes validated; remaining CR-003 routes in Task 11)
 - **Current location:** raw `await req.json()` at app/api/flows/route.ts:14, app/api/flows/[id]/action/route.ts:117, app/api/flows/[id]/chat/route.ts:14, app/api/host-instances/[host]/route.ts:18, app/api/host-instances/[host]/[id]/route.ts:10, app/api/repos/route.ts:37, app/api/repos/[id]/route.ts:26-28, app/api/repos/test-setup/route.ts:39, app/api/settings/route.ts:105,134,175, app/api/task-instances/[kind]/route.ts:25, app/api/task-instances/[kind]/[id]/route.ts:11, app/api/tasks/handlers.ts:28, app/api/webhooks/gitlab/route.ts:27; cast-only bodies at app/api/flows/[id]/action/route.ts:9-34, app/api/node-templates/route.ts:30, app/api/node-templates/[id]/route.ts:15, app/api/templates/[id]/route.ts:40, app/api/templates/[id]/validate/route.ts:27, app/api/tasks/materialize/route.ts:14; lib/integrations/jira/service.ts:36
 - **Re-verification note:** Only the new split-unit actions (`parseSplitUnitBody`, action/route.ts:101-113) are Zod-validated; every listed failure still reproduces (`local_path.startsWith` 500, `String(h)` allowlist entries, `String(body.default_model)`, `input.email.trim()` on a missing email, unchecked node-template kind). Add a shared `parseJson(req, schema)` helper that returns 400, one schema per route, and a `z.discriminatedUnion("action", …)` for the action route that replaces the hand-written `ActionBody`.
 
@@ -1351,7 +1351,7 @@ Original findings, verbatim:
 
 ### CR-042 [Medium] `update_plan_steps` with no `steps` field deletes the whole plan checklist
 
-- **Status at `abaa007`:** **Open**, fix in [Task 10](review-tasks/10-api-input-validation-flows.md)
+- **Status at `abaa007`:** **Fixed** (Task 10 — `flowActionBodySchema` requires `steps`; route no longer coerces with `?? []`)
 - **Current location:** app/api/flows/[id]/action/route.ts:38, lib/engine/flow-engine.ts:802-834
 - **Re-verification note:** `update_plan_steps` still maps a missing `steps` to `[]`; `updatePlanSteps` now refuses removing steps with active/merged children, but every other (deletable) step is silently wiped. Validate `steps` as a required array at the route boundary (Zod, like `splitUnitBody`) and drop the `?? []`; review `config ?? {}` / `chosen ?? []` too.
 
@@ -1500,7 +1500,7 @@ Original findings, verbatim:
 
 ### CR-047 [Medium] The events endpoint does not validate `limit`
 
-- **Status at `abaa007`:** **Open**, fix in [Task 10](review-tasks/10-api-input-validation-flows.md)
+- **Status at `abaa007`:** **Fixed** (Task 10 — `parseQuery` + `db.listEvents`)
 - **Current location:** app/api/flows/[id]/events/route.ts:14-18
 - **Re-verification note:** `limit` is still `Number(searchParams.get("limit") ?? 200)` passed straight to SQLite: `?limit=abc` → NaN → 500, `?limit=-1` → unbounded event dump. Parse with `z.coerce.number().int().min(1).max(500).default(200)` and move the query into a `db.listEvents(flowId, after, limit)` method.
 

@@ -1,129 +1,98 @@
-import { toErrorResponse } from '@/lib/errors';
-import { NextResponse } from 'next/server';
-import { z } from 'zod';
-import { flowEngine } from '../../../../../lib/engine/flow-engine';
-import type { PlanStepInput } from '../../../../../lib/engine/runtime/plan-step-store';
+import { toErrorResponse } from "@/lib/errors";
+import { parseJson } from "@/lib/http/parse";
+import { flowActionBodySchema, type FlowActionBody } from "@/lib/schemas/flow-action-body";
+import { NextResponse } from "next/server";
+import { flowEngine } from "../../../../../lib/engine/flow-engine";
 
-export const dynamic = 'force-dynamic';
+export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
-/**
- * The parsed action-route request body, typed to the engine's action
- * signatures. Request JSON is trusted-but-typed here (one boundary cast, no
- * per-field validation) — the thin-route/format work and real Zod validation
- * at this seam is a documented backend follow-up (docs/phase0-baseline.md).
- */
-type ActionBody = {
-  action?: string;
-  prompt?: string;
-  decompose?: boolean;
-  model?: string;
-  promptIsBody?: boolean;
-  executionOverride?: 'whole' | 'steps';
-  steps?: PlanStepInput[];
-  stepId?: string;
-  status?: 'pending' | 'done';
-  branch?: string;
-  pipelineId?: number;
-  nodeKey?: string;
-  input?: Record<string, unknown>;
-  config?: Record<string, unknown>;
-  chosen?: string[];
-  rationale?: string;
-  // split per-unit actions (agent-node split plan §3)
-  unitKey?: string;
-  consumerNodeKey?: string;
-};
-
-const ACTIONS: Record<string, (flowId: string, body: ActionBody) => void | Promise<void>> = {
-  approve_plan: (id, b) => flowEngine.approvePlan(id, b?.executionOverride),
-  update_plan_steps: (id, b) => flowEngine.updatePlanSteps(id, b.steps ?? []),
-  set_plan_step: (id, b) => {
-    const stepId = requireString(b.stepId, 'stepId');
-    const status = requireString(b.status, 'status');
-    if (status !== 'pending' && status !== 'done') throw new Error('status is pending|done');
-    flowEngine.setPlanStepStatus(id, stepId, status);
-  },
-  approve_build: (id, b) => flowEngine.approveBuild(id, b.branch),
-  pipeline: (id, b) => flowEngine.triggerPipelineGate(id, b.pipelineId, b.prompt, b.model, b.promptIsBody),
-  resolve: (id, b) => flowEngine.triggerResolve(id, b.prompt, b.model, b.promptIsBody),
-  review: (id, b) => flowEngine.triggerReview(id, b.prompt, b.model, b.promptIsBody),
-  retry: (id, b) => flowEngine.retryNode(id, requireString(b.nodeKey, 'nodeKey')),
-  cancel: (id, b) => flowEngine.cancelNode(id, requireString(b.nodeKey, 'nodeKey')),
-  // Phase 2: generic template-driven node actions (declarative nodes)
-  run_node: (id, b) =>
-    flowEngine.runNodeManual(id, requireString(b.nodeKey, 'nodeKey'), {
-      prompt: b.prompt,
-      model: b.model,
-      input: b.input,
-    }),
-  approve_node: (id, b) => flowEngine.approveNode(id, requireString(b.nodeKey, 'nodeKey')),
-  set_node_config: (id, b) => flowEngine.setNodeConfig(id, requireString(b.nodeKey, 'nodeKey'), b.config ?? {}),
-  // Phase 3: decision branch picks (manual source / approval override)
-  choose_node: (id, b) => flowEngine.chooseNode(id, requireString(b.nodeKey, 'nodeKey'), b.chosen ?? [], b.rationale),
-  // plan fan-out (Phase 1): parent-panel step-card actions (approve/retry/skip a child)
-  approve_fanout_step: (id, b) => flowEngine.approveFanoutStep(id, requireString(b.stepId, 'stepId')),
-  retry_fanout_step: (id, b) => flowEngine.retryFanoutStep(id, requireString(b.stepId, 'stepId')),
-  skip_fanout_step: (id, b) => flowEngine.skipFanoutStep(id, requireString(b.stepId, 'stepId')),
-  // split runtime (agent-node split plan §3): per-unit actions, addressed by
-  // unit key (+ optional consumer node key), Zod-validated at this boundary
-  // (§3.4 — the legacy actions above predate the rule and stay as they are)
-  skip_split_unit: async (id, b) => {
-    const body = parseSplitUnitBody(b);
-    await flowEngine.skipSplitUnit(id, body.unitKey, body.consumerNodeKey);
-  },
-  retry_split_unit: (id, b) => {
-    const body = parseSplitUnitBody(b);
-    flowEngine.retrySplitUnit(id, body.unitKey, body.consumerNodeKey);
-  },
-  approve_split_unit: (id, b) => {
-    const body = parseSplitUnitBody(b);
-    flowEngine.approveSplitUnit(id, body.unitKey, body.consumerNodeKey);
-  },
-  cancel_split_unit: async (id, b) => {
-    const body = parseSplitUnitBody(b);
-    await flowEngine.cancelSplitUnit(id, body.unitKey, body.consumerNodeKey);
-  },
-};
-
-/**
- * Required body field — the action queue's ids are the engine's keys.
- */
-function requireString(value: unknown, field: string): string {
-  if (typeof value !== 'string' || !value) throw new Error(`${field} required`);
-  return value;
-}
-
-/**
- * The split per-unit actions' body — Zod-validated at this boundary (§3.4;
- * new actions validate, the legacy ones above predate the rule). Addressed
- * by `unitKey`, with the consumer node key optional (it resolves through the
- * split linkage when omitted).
- */
-const splitUnitBody = z.object({
-  unitKey: z.string().min(1, 'unitKey required'),
-  consumerNodeKey: z.string().min(1).optional(),
-});
-
-function parseSplitUnitBody(b: ActionBody): z.infer<typeof splitUnitBody> {
-  const r = splitUnitBody.safeParse(b);
-  if (!r.success) {
-    const issue = r.error.issues[0];
-    throw new Error(`invalid split unit body${issue ? ` — ${issue.path.join('.') || 'body'}: ${issue.message}` : ''}`);
+const dispatchAction = async (flowId: string, body: FlowActionBody): Promise<void> => {
+  switch (body.action) {
+    case "approve_plan":
+      flowEngine.approvePlan(flowId, body.executionOverride);
+      break;
+    case "update_plan_steps":
+      flowEngine.updatePlanSteps(flowId, body.steps);
+      break;
+    case "set_plan_step":
+      flowEngine.setPlanStepStatus(flowId, body.stepId, body.status);
+      break;
+    case "approve_build":
+      flowEngine.approveBuild(flowId, body.branch);
+      break;
+    case "pipeline":
+      flowEngine.triggerPipelineGate(
+        flowId,
+        body.pipelineId,
+        body.prompt,
+        body.model,
+        body.promptIsBody,
+      );
+      break;
+    case "resolve":
+      flowEngine.triggerResolve(flowId, body.prompt, body.model, body.promptIsBody);
+      break;
+    case "review":
+      flowEngine.triggerReview(flowId, body.prompt, body.model, body.promptIsBody);
+      break;
+    case "retry":
+      flowEngine.retryNode(flowId, body.nodeKey);
+      break;
+    case "cancel":
+      flowEngine.cancelNode(flowId, body.nodeKey);
+      break;
+    case "run_node":
+      flowEngine.runNodeManual(flowId, body.nodeKey, {
+        prompt: body.prompt,
+        model: body.model,
+        input: body.input,
+      });
+      break;
+    case "approve_node":
+      flowEngine.approveNode(flowId, body.nodeKey);
+      break;
+    case "set_node_config":
+      flowEngine.setNodeConfig(flowId, body.nodeKey, body.config);
+      break;
+    case "choose_node":
+      flowEngine.chooseNode(flowId, body.nodeKey, body.chosen, body.rationale);
+      break;
+    case "approve_fanout_step":
+      flowEngine.approveFanoutStep(flowId, body.stepId);
+      break;
+    case "retry_fanout_step":
+      flowEngine.retryFanoutStep(flowId, body.stepId);
+      break;
+    case "skip_fanout_step":
+      flowEngine.skipFanoutStep(flowId, body.stepId);
+      break;
+    case "skip_split_unit":
+      await flowEngine.skipSplitUnit(flowId, body.unitKey, body.consumerNodeKey);
+      break;
+    case "retry_split_unit":
+      flowEngine.retrySplitUnit(flowId, body.unitKey, body.consumerNodeKey);
+      break;
+    case "approve_split_unit":
+      flowEngine.approveSplitUnit(flowId, body.unitKey, body.consumerNodeKey);
+      break;
+    case "cancel_split_unit":
+      await flowEngine.cancelSplitUnit(flowId, body.unitKey, body.consumerNodeKey);
+      break;
+    default: {
+      const _exhaustive: never = body;
+      throw _exhaustive;
+    }
   }
-  return r.data;
-}
+};
 
-export async function POST(req: Request, { params }: { params: Promise<{ id: string }> }) {
-  const { id } = await params;
-  const body = (await req.json()) as ActionBody;
-  const actionName = typeof body.action === 'string' ? body.action : '';
-  const fn = actionName ? ACTIONS[actionName] : undefined;
-  if (!fn) return NextResponse.json({ error: 'unknown action' }, { status: 400 });
+export const POST = async (req: Request, { params }: { params: Promise<{ id: string }> }) => {
   try {
-    await fn(id, body);
+    const { id } = await params;
+    const body = await parseJson(req, flowActionBodySchema);
+    await dispatchAction(id, body);
     return NextResponse.json({ ok: true });
   } catch (e: unknown) {
     return toErrorResponse(e);
   }
-}
+};
