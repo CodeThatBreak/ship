@@ -91,10 +91,6 @@ export const DecisionDefSchema = z.object({
   source: z.enum(DECISION_SOURCES).default("manual"),
   /** MCP sources for source=agent runs (see AgentDefSchema.mcp_sources) */
   mcp_sources: mcpSourcesSchema,
-  /** source=expression (legacy, single global condition): JSONata over the
-   *  flow context → the chosen labels. Superseded by per-choice `condition`s
-   *  — kept parsed for rows authored before the choice editor grew conditions. */
-  expression: z.string().optional().default(""),
   /** source=agent: the decision prompt (how to make the call; {{vars}}
    *  allowed) — the branch list and the JSON return format are appended
    *  automatically by the runtime, so the answer maps to a branch */
@@ -108,9 +104,7 @@ export const DecisionDefSchema = z.object({
     z.object({
       label: z.string().min(1),
       description: z.string().optional(),
-      /** source=expression: JSONata over the flow context — truthy picks
-       *  this branch (legacy global `expression` still honored when no
-       *  choice carries a condition) */
+      /** source=expression: JSONata over the flow context — truthy picks this branch */
       condition: z.string().optional().default(""),
     }),
   ).min(1, "a decision needs at least one choice"),

@@ -437,10 +437,8 @@ export class FlowEngine {
         // the owning fan-out node key from the child's payload — what the
         // graph subtitle / step card rollup keys on
         let parentNodeKey: string | null = null;
-        try {
-          const p = child.trigger_payload ?? {};
-          parentNodeKey = typeof p.parentNodeKey === "string" ? p.parentNodeKey : null;
-        } catch { parentNodeKey = null; }
+        const p = child.trigger_payload ?? {};
+        parentNodeKey = typeof p.parentNodeKey === "string" ? p.parentNodeKey : null;
         // Phase 2 merge-back state (conflict / fixing / stale base chips)
         const ms = mergeStateMap[s.sub_flow_id] ?? null;
         return {

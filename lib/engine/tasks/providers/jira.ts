@@ -290,7 +290,7 @@ class AdfRenderer {
     if (node.text) out += node.text;
     if (Array.isArray(node.content)) {
       const parts = node.content.map(AdfRenderer.toText);
-      const joined = parts.join(node.type === "paragraph" || node.type === "heading" ? "" : "");
+      const joined = parts.join("");
       out += joined;
       if (["paragraph", "heading", "listItem", "codeBlock", "blockquote"].includes(node.type)) out += "\n";
       if (node.type === "listItem") out = "• " + out;

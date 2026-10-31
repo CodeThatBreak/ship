@@ -15,7 +15,7 @@ Each finding was re-verified against `refactor/prompt-engine-inconsistency-fix` 
 
 ### CR-187 [Low] Dead code and no-ops
 
-- **Status:** Open
+- **Status:** Fixed
 - **Type:** Code quality
 - **Effort:** S
 - **Where:** lib/engine/runtime/fanout/step-flow-manager.ts:1167-1170 (`latestMergeStatus` unused), 921-926 (node fetched only for presence); lib/engine/runtime/fanout/merge-arena.ts:67-71 (`dropLocks` never called), 245 (`void pushed`); lib/groupEvents.ts:92,273 (`finalizeSection` no-op); lib/engine/flow-engine.ts:437-440 (try/catch that cannot throw); lib/format.ts:51 (unused `n`); lib/engine/tasks/providers/jira.ts:293 (`join(cond ? "" : "")`); lib/net/ssrf-helpers.ts:22 (`RESOLVE_TIMEOUT_MS` unused)
@@ -23,7 +23,7 @@ Each finding was re-verified against `refactor/prompt-engine-inconsistency-fix` 
 
 ### CR-207 [Low] Dead code and dead parameters
 
-- **Status:** Partly fixed
+- **Status:** Fixed
 - **Type:** Code quality
 - **Effort:** S
 - **Where:** lib/engine/nodes/kinds/start/contract.ts:87-102; lib/engine/nodes/kinds/script/script-node.ts:168,200-208; lib/engine/nodes/kinds/build/step-build-node.ts:142,290-293; lib/engine/nodes/kinds/plan/plan-context.ts:29,122-123; lib/engine/nodes/shared/node-definition.ts:197
@@ -33,7 +33,7 @@ Each finding was re-verified against `refactor/prompt-engine-inconsistency-fix` 
 
 These findings are obsolete because they only affect legacy or deprecated flows, which are no longer supported. Don't fix them. Delete the leftover code instead.
 
-- **CR-263** `sentry-triage.yaml` declares `trigger.type: webhook`, which import silently coerces to `manual`: This only concerns a fixture written in a legacy data shape (flow `trigger.type: webhook`, removed from `FLOW_TRIGGER_TYPES` in lib/engine/constants/triggers.ts:8) and the silent legacy coercion to "manual" in lib/engine/templates/template-store.ts:922-923. Both still exist. Possible delete-legacy cleanup: switch docs/flow-templates/sentry-triage.yaml:4-11 to `type: manual` and make unknown trigger types an import error instead of coercing them.
+- **CR-263** `sentry-triage.yaml` declares `trigger.type: webhook`, which import silently coerces to `manual`: Fixed — fixture uses `manual`; unknown flow trigger types fail import.
 
 ## Additional steps
 
@@ -45,9 +45,9 @@ These findings are obsolete because they only affect legacy or deprecated flows,
 
 ## Done when
 
-- [ ] `rg -i legacy lib components app` returns only comments you have checked and kept on purpose.
-- [ ] Every finding above is fixed, or a remaining part is written up in the PR description.
-- [ ] Each bug fix has a regression test (Vitest for `lib/`; at least a hook or utility test for UI where practical).
-- [ ] Code follows [`docs/coding-patterns.md`](../coding-patterns.md).
-- [ ] `npm run typecheck`, `npm run lint`, `npm test` and `npm run build` pass (before Task 02 lands, `npx tsc --noEmit` instead of `typecheck`).
-- [ ] The status of each finding in [`docs/code-review.md`](../code-review.md) is updated (Fixed, with the PR link).
+- [x] `rg -i legacy lib components app` returns only comments you have checked and kept on purpose.
+- [x] Every finding above is fixed, or a remaining part is written up in the PR description.
+- [x] Each bug fix has a regression test (Vitest for `lib/`; at least a hook or utility test for UI where practical).
+- [x] Code follows [`docs/coding-patterns.md`](../coding-patterns.md).
+- [x] `npm run typecheck`, `npm run lint`, `npm test` and `npm run build` pass (before Task 02 lands, `npx tsc --noEmit` instead of `typecheck`).
+- [x] The status of each finding in [`docs/code-review.md`](../code-review.md) is updated (Fixed, with the PR link).

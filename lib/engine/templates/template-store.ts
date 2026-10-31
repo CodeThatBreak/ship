@@ -922,8 +922,19 @@ export class TemplateStore {
    */
   private static flowTrigger(o: unknown): Record<string, unknown> {
     const rec = (o && typeof o === "object" ? o : {}) as Record<string, unknown>;
-    const type = typeof rec.type === "string" && (FLOW_TRIGGER_TYPES as readonly string[]).includes(rec.type)
-      ? rec.type : "manual";
+    const rawType = rec.type;
+    let type: (typeof FLOW_TRIGGER_TYPES)[number];
+    if (rawType === undefined || rawType === null || rawType === "") {
+      type = "manual";
+    } else if (typeof rawType !== "string") {
+      throw new Error(`flow trigger type must be a string (got ${typeof rawType})`);
+    } else if (!(FLOW_TRIGGER_TYPES as readonly string[]).includes(rawType)) {
+      throw new Error(
+        `unknown flow trigger type "${rawType}" — allowed: ${FLOW_TRIGGER_TYPES.join(", ")}`,
+      );
+    } else {
+      type = rawType as (typeof FLOW_TRIGGER_TYPES)[number];
+    }
     const out: Record<string, unknown> = { type };
     if (type === "schedule" && typeof rec.interval_min === "number" && rec.interval_min > 0) {
       out.interval_min = rec.interval_min;

@@ -28,7 +28,16 @@ export function validateIpLiteral(hostname: string): Pinned | null {
 }
 
 export function lookupAll(hostname: string): Promise<{ address: string; family: number }[]> {
-  return lookup(hostname, { all: true, verbatim: true }) as Promise<{ address: string; family: number }[]>;
+  const lookupPromise = lookup(hostname, { all: true, verbatim: true }) as Promise<
+    { address: string; family: number }[]
+  >;
+  const timeout = new Promise<never>((_, reject) => {
+    setTimeout(
+      () => reject(new SsrfReason(`dns lookup timed out after ${RESOLVE_TIMEOUT_MS}ms for "${hostname}"`)),
+      RESOLVE_TIMEOUT_MS,
+    );
+  });
+  return Promise.race([lookupPromise, timeout]);
 }
 
 export function validateResolvedIps(

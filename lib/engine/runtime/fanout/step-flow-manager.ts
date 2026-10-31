@@ -745,11 +745,10 @@ export class StepFlowManager {
       db.emitEvent(parentFlowId, null, "lifecycle", resumeNote,
         { nodeKey: nodeOwnerKey, childFlowId });
     }
-    // NOTE: no mergeArena.dropLocks here — the per-branch lock is FIFO and its
-    // chained promises always settle, so dropping it would let a concurrently
-    // queued sibling merge run beside the in-flight one (Phase 3A parallel
-    // approvals queue instead). Resume-after-restart starts with an empty
-    // lock map — reconcile never needs to drop either.
+    // NOTE: per-branch merge locks are FIFO — dropping them would let a
+    // concurrently queued sibling merge run beside the in-flight one (Phase 3A
+    // parallel approvals queue instead). Resume-after-restart starts with an
+    // empty lock map — reconcile never needs to drop either.
     let mergeRowId = resumeRowId ?? undefined;
     try {
       for (;;) {
@@ -922,9 +921,9 @@ export class StepFlowManager {
 
   /** The child's def mergeBack hook presence — internal. */
   private engineCapabilitiesOfMergeBack(childFlowId: string): unknown {
-    const node = db.get<{ node_key: string }>(`SELECT node_key FROM nodes WHERE flow_id=?`, childFlowId);
-    if (!node) return null;
-    const def = nodeRegistry.maybe(this.childTypeOf(childFlowId)) ?? undefined;
+    const type = this.childTypeOf(childFlowId);
+    if (!type) return null;
+    const def = nodeRegistry.maybe(type) ?? undefined;
     return (def?.capabilities as NodeCapabilities | undefined)?.mergeBack ?? null;
   }
 
@@ -1164,11 +1163,6 @@ export class StepFlowManager {
     if (statuses.length && statuses.every((s) => s === "done" || s === "approved" || s === "skipped")) return "done";
     if (flowStatus === "done") return "done";
     return null;
-  }
-
-  /** The latest step_merges row status for a child (null = none — non-code/no approval yet). */
-  private latestMergeStatus(childFlowId: string): string | null {
-    return this.latestMergeRow(childFlowId)?.status ?? null;
   }
 
   /** The latest step_merges row for a child (null = never merged/attempts). */

@@ -84,23 +84,6 @@ export function startContractJsonSchema(fields: StartContractField[]): unknown {
   return { type: "object", properties, ...(required.length ? { required } : {}) };
 }
 
-/** A zod schema validating a provided payload against the declared fields. */
-export function startContractZod(fields: StartContractField[]): z.ZodType<Record<string, unknown>> {
-  const shape: Record<string, z.ZodTypeAny> = {};
-  for (const f of fields) {
-    let inner: z.ZodTypeAny;
-    switch (f.type) {
-      case "number": inner = z.number(); break;
-      case "boolean": inner = z.boolean(); break;
-      case "object": inner = z.record(z.string(), z.unknown()); break;
-      case "array": inner = z.array(z.unknown()); break;
-      default: inner = z.string();
-    }
-    shape[f.key] = inner;
-  }
-  return z.object(shape);
-}
-
 /**
  * Validate a provided payload against the contract. Light coercion applies to
  * string values (the trigger form sends text): numeric strings become numbers,

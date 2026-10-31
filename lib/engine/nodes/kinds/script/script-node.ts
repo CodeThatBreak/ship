@@ -167,7 +167,7 @@ export class ScriptTemplateNode extends NodeDefinition<Record<string, unknown>, 
         const tail = headLines(result.stderr) || firstLines(result.stdout) || "(no output)";
         throw new Error(`script exited with code ${result.exitCode}\n${tail}`);
       }
-      const parsed = this.extractOutput(cfg, result.stdout, outPath);
+      const parsed = this.extractOutput(result.stdout, outPath);
       if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
         throw new Error(
           "the script's output must be a JSON object — the last stdout line is the output JSON, or write it to the $DEVFLOW_OUTPUT file");
@@ -199,7 +199,7 @@ export class ScriptTemplateNode extends NodeDefinition<Record<string, unknown>, 
   }
 
   /** Output resolution: the $DEVFLOW_OUTPUT file first, then the last parseable stdout line. */
-  private extractOutput(cfg: ScriptDef, stdout: string, outPath: string): unknown {
+  private extractOutput(stdout: string, outPath: string): unknown {
     if (existsSync(outPath)) {
       try {
         return JSON.parse(readFileSync(outPath, "utf8"));
@@ -207,7 +207,6 @@ export class ScriptTemplateNode extends NodeDefinition<Record<string, unknown>, 
         /* fall through to stdout */
       }
     }
-    void cfg;
     const lines = stdout.split("\n").map((l) => l.trim()).filter(Boolean);
     if (!lines.length) {
       throw new Error("the script produced no output — the last stdout line must be the output JSON (or write the $DEVFLOW_OUTPUT file)");

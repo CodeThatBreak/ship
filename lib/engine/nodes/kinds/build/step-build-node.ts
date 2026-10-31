@@ -141,7 +141,7 @@ export class StepBuildNode extends AgentRunNode<BuildInput, BuildOutput> {
       : `Implement ONE step of the approved plan below for a ${ticketType} ticket. Make the code changes for exactly that step, commit them, and push to your step branch "${branch}". Do NOT open a merge request.`;
     instructions += this.buildRun.setupAdvisory(setupNote);
 
-    const planMarkdown = await this.parentPlanMarkdown(parentFlowId);
+    const planMarkdown = this.parentPlanMarkdown(parentFlowId);
     const stepSection = [
       `- id: ${step.id}`,
       `- title: ${step.title}`,
@@ -289,7 +289,7 @@ export class StepBuildNode extends AgentRunNode<BuildInput, BuildOutput> {
   }
 
   /** The FULL parent plan markdown, so the child agent knows where its step sits. */
-  private async parentPlanMarkdown(parentFlowId: string): Promise<string> {
+  private parentPlanMarkdown(parentFlowId: string): string {
     const row = this.support.latestArtifact(parentFlowId, "plan");
     return row?.content ?? "";
   }

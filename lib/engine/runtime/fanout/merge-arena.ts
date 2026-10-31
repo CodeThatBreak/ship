@@ -60,17 +60,10 @@ class MergeArena {
   }
 
   /**
-   * Drop this parent flow's in-memory locks. Currently NOT called by the
-   * StepFlowManager: the lock chain's promises always settle, and dropping
-   * under a live queue would let a concurrently queued sibling merge run
-   * beside the in-flight one (Phase 3A parallel approvals). Restart hygiene
-   * needs nothing here — the map starts empty after a restart.
+   * Per-parent-flow merge locks serialize integration-branch pushes. The lock
+   * chain's promises always settle; dropping entries under a live queue would
+   * let a concurrently queued sibling merge run beside the in-flight one.
    */
-  dropLocks(parentFlowId: string): void {
-    for (const key of [...this.locks.keys()]) {
-      if (key.startsWith(`${parentFlowId}:`)) this.locks.delete(key);
-    }
-  }
 
   /** Serialize one integration branch's merges: second approval queues behind the first. */
   private async withLock<T>(key: string, fn: () => Promise<T>): Promise<T> {
@@ -216,9 +209,8 @@ class MergeArena {
         // must not spawn CI; the plain push retries once without the option on
         // hosts that reject push options — agent-initiated pushes can't carry
         // push options at all, see the class doc caveat)
-        let pushed: { stdout: string; stderr: string };
         try {
-          pushed = await this.git(["-C", arena, "push", "-o", "ci.skip", "origin", args.integrationBranch]);
+          await this.git(["-C", arena, "push", "-o", "ci.skip", "origin", args.integrationBranch]);
         } catch (e: unknown) {
           const text = this.errorText(e);
           if (isHookRejection(text)) {
@@ -233,7 +225,7 @@ class MergeArena {
           }
           // one plain retry for hosts that don't support push options at all
           try {
-            pushed = await this.git(["-C", arena, "push", "origin", args.integrationBranch]);
+            await this.git(["-C", arena, "push", "origin", args.integrationBranch]);
           } catch (e2: unknown) {
             const text2 = this.errorText(e2);
             if (isHookRejection(text2)) {
@@ -244,7 +236,6 @@ class MergeArena {
             throw e2; // network / auth — infra, fails visible for manual retry
           }
         }
-        void pushed;
         // success: the step branch was a scoping unit, not an MR unit — delete
         // it from origin too (best effort; ci.skip + plain fallback)
         await this.deleteStepBranch(args.parentFlowId, args.branch).catch(() => null);

@@ -28,7 +28,6 @@ export class PlanContextBlocks {
     contract: (_ctx, scoped) => (scoped ? this.renderContract(scoped) : ''),
     current: (_ctx, scoped) => (scoped ? this.renderCurrent(scoped) : ''),
     branches: (ctx, scoped) => this.renderBranches(ctx.flow.id, scoped),
-    versions: (ctx) => this.renderVersions(ctx.flow.id),
     edits: (ctx, scoped) => (scoped ? '' : this.renderEdits(ctx.flow.id)),
   };
 
@@ -119,15 +118,6 @@ export class PlanContextBlocks {
     const others = scoped ? branches.filter(b => b.name !== scoped.branch.name) : branches;
     if (!others.length) return '';
     return others.map(b => `- \`${b.name}\` (${b.title}): ${b.scope || '(no scope)'}`).join('\n');
-  }
-
-  /** Previous plan versions — off by default for both modes (dead code kept reachable via the picker). */
-  private renderVersions(flowId: string): string {
-    const artifacts = this.support
-      .artifactsOfKind(flowId, 'plan', { limit: 3 })
-      .map(a => ({ content: a.content, version: a.version }));
-    if (!artifacts.length) return '';
-    return artifacts.map(a => `--- plan v${a.version} ---\n${a.content.slice(0, 3000)}`).join('\n\n');
   }
 
   /** The developer's live hand edits — whole-plan refines only (§4). */

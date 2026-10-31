@@ -89,7 +89,7 @@ export class EventGrouper {
     let current: RunSection | null = null;
 
     const closeCurrent = () => {
-      if (current) this.finalizeSection(current);
+      current = null;
     };
 
     for (const raw of events) {
@@ -268,9 +268,6 @@ export class EventGrouper {
     }
     s.items.push({ kind: "event", event: e });
   }
-
-  /** No-op pass kept for symmetry/future cleanup (sections are finalized eagerly). */
-  private finalizeSection(_s: RunSection): void {}
 }
 
 export const eventGrouper = new EventGrouper();

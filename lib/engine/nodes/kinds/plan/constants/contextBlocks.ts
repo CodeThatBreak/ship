@@ -41,13 +41,6 @@ export const CONTEXT_BLOCKS: ContextBlockSpec[] = [
     wholeDefault: true,
   },
   {
-    id: 'versions',
-    label: 'Plan versions',
-    description: 'Earlier full plan versions (~3k chars each — large; watch the char count)',
-    scopedDefault: false,
-    wholeDefault: false,
-  },
-  {
     id: 'edits',
     label: 'Hand edits',
     description:
@@ -58,4 +51,4 @@ export const CONTEXT_BLOCKS: ContextBlockSpec[] = [
 ];
 
 /** Fixed assembly order so prompts stay comparable across runs (§4). */
-export const CONTEXT_BLOCK_ORDER: ContextBlockId[] = ['task', 'contract', 'current', 'branches', 'versions', 'edits'];
+export const CONTEXT_BLOCK_ORDER: ContextBlockId[] = ['task', 'contract', 'current', 'branches', 'edits'];

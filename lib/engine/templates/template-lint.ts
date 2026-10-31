@@ -339,8 +339,8 @@ export function lintTemplate(
           lintRef(`node "${n.key}" config.prompt`, ref, { problems, byKey, contractOfKey, addressesOutput, inHttp: false, inheritedFields, task, nodeKey: n.key });
         }
       }
-      // decision definitions: the pass-down map compiles (any source); the
-      // per-choice conditions and the legacy single expression when source=expression
+      // decision definitions: the pass-down map compiles (any source); per-choice
+      // conditions when source=expression
       if (nt.kind === "decision") {
         const cfg = merge(n.config, nt.config);
         if (cfg.pass && typeof cfg.pass === "object" && !Array.isArray(cfg.pass)) {
@@ -351,10 +351,6 @@ export function lintTemplate(
           }
         }
         if (typeof cfg.source === "string" && cfg.source === "expression") {
-          if (typeof cfg.expression === "string" && cfg.expression.trim()) {
-            const err = lintJsonata(cfg.expression);
-            if (err) problems.push({ where: `node "${n.key}"`, message: `decision expression: ${err}`, nodeKey: n.key });
-          }
           if (Array.isArray(cfg.choices)) {
             for (const c of cfg.choices as { label?: unknown; condition?: unknown }[]) {
               if (!c || typeof c !== "object" || typeof c.condition !== "string" || !c.condition.trim()) continue;

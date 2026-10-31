@@ -48,7 +48,6 @@ export function summarizeArgs(name: string, args?: string): string {
   if (!args) return "";
   try {
     const a = JSON.parse(args);
-    const n = name.toLowerCase();
     const cand = a.path ?? a.file ?? a.file_path ?? a.filename ?? a.command ?? a.cmd ?? a.query ?? a.url ?? a.pattern;
     if (typeof cand === "string") return cand.length > 60 ? cand.slice(0, 57) + "…" : cand;
     const keys = Object.keys(a).slice(0, 3).join(", ");

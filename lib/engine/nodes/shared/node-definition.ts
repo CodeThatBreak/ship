@@ -196,7 +196,7 @@ export abstract class NodeDefinition<I = unknown, O extends Record<string, unkno
    * node class, never in the engine. Nodes that start more than one run from a
    * single trigger (the multi-branch build) override `triggerRuns` instead.
    */
-  triggerInput(ctx: FlowCtx): unknown {
+  triggerInput(_ctx: FlowCtx): unknown {
     return {};
   }
 

@@ -23,8 +23,7 @@ function jsonataTruthy(value: unknown): boolean {
  * outgoing labeled edges. One runtime class per `node_templates` row, sources:
  *
  *  - `expression` — JSONata over the flow context; each choice carries its
- *    own `condition`, every truthy condition picks its branch (legacy rows
- *    may carry a single global `expression` instead).
+ *    own `condition`, every truthy condition picks its branch.
  *  - `manual`     — the approval UI: the user picks a branch (choose action).
  *  - `agent`      — the user's prompt (how to make the call) + the flow state
  *    go to an agent in plan mode; the return format ({"choice","rationale"}
@@ -212,18 +211,7 @@ export class DecisionTemplateNode extends AgentRunNode<Record<string, unknown>, 
         }
         return this.applyOutcome(ctx, this.applyPick(ctx, chosen, `conditions matched: ${chosen.join(", ")}`, passed));
       }
-      // legacy rows: a single global expression instead of per-choice conditions
-      if (!cfg.expression?.trim()) {
-        throw new Error(`${this.label}: no condition configured — set a JSONata condition on the choices`);
-      }
-      const r = await evalJsonata(cfg.expression, flowCtx);
-      if (!r.ok) throw new Error(`${this.label}: the condition failed — ${r.error}`);
-      const chosen = this.normalizeChosen(r.value);
-      if (!chosen.length) {
-        throw new Error(
-          `${this.label}: the condition selected no branch — return a valid choice label (${this.choiceLabels(cfg).join(", ")})`);
-      }
-      return this.applyOutcome(ctx, this.applyPick(ctx, chosen, `expression match: ${JSON.stringify(r.value)}`, passed));
+      throw new Error(`${this.label}: no condition configured — set a JSONata condition on the choices`);
     }
 
     // agent classification — constrained structured output, plan mode (read-only).
@@ -374,24 +362,6 @@ export class DecisionTemplateNode extends AgentRunNode<Record<string, unknown>, 
         `${label}: the agent returned "${choice}", which is not one of the choice labels (${labels.join(", ")}) — retry to ask again`);
     }
     return { choice: exact, rationale };
-  }
-
-  /** JSONata value → validated choice list (§4.3: no silent picks). */
-  private normalizeChosen(value: unknown): string[] {
-    const labels = this.choiceLabels();
-    const items: unknown[] =
-      typeof value === "string" ? [value] :
-      Array.isArray(value) ? value : [];
-    const chosen: string[] = [];
-    for (const item of items) {
-      const s = String(item);
-      if (!labels.includes(s)) {
-        throw new Error(
-          `${this.label}: the condition produced "${s}", which is not one of the choice labels (${labels.join(", ")})`);
-      }
-      if (!chosen.includes(s)) chosen.push(s);
-    }
-    return chosen;
   }
 
   holdsForApproval(ctx: FlowCtx): boolean {

@@ -5050,7 +5050,7 @@ Original findings, verbatim:
 
 ### CR-187 [Low] Dead code and no-ops
 
-- **Status at `abaa007`:** **Open**, fix in [Task 07](review-tasks/07-remove-dead-and-legacy-code.md)
+- **Status at `abaa007`:** **Fixed** (Task 07 — dead code removed; `RESOLVE_TIMEOUT_MS` wired into DNS lookup)
 - **Current location:** lib/engine/runtime/fanout/step-flow-manager.ts:1167-1170 (`latestMergeStatus` unused), 921-926 (node fetched only for presence); lib/engine/runtime/fanout/merge-arena.ts:67-71 (`dropLocks` never called), 245 (`void pushed`); lib/groupEvents.ts:92,273 (`finalizeSection` no-op); lib/engine/flow-engine.ts:437-440 (try/catch that cannot throw); lib/format.ts:51 (unused `n`); lib/engine/tasks/providers/jira.ts:293 (`join(cond ? "" : "")`); lib/net/ssrf-helpers.ts:22 (`RESOLVE_TIMEOUT_MS` unused)
 - **Re-verification note:** All cited dead code and no-ops still exist at the moved paths. Delete them, or wire `RESOLVE_TIMEOUT_MS` into the DNS lookup (see CR-189).
 
@@ -5511,7 +5511,7 @@ Original findings, verbatim:
 
 ### CR-207 [Low] Dead code and dead parameters
 
-- **Status at `abaa007`:** **Partly fixed**, fix in [Task 07](review-tasks/07-remove-dead-and-legacy-code.md)
+- **Status at `abaa007`:** **Fixed** (Task 07)
 - **Current location:** lib/engine/nodes/kinds/start/contract.ts:87-102; lib/engine/nodes/kinds/script/script-node.ts:168,200-208; lib/engine/nodes/kinds/build/step-build-node.ts:142,290-293; lib/engine/nodes/kinds/plan/plan-context.ts:29,122-123; lib/engine/nodes/shared/node-definition.ts:197
 - **Re-verification note:** The unused `renderAgentPrompt` import in the HTTP node is gone. Still open: `startContractZod` is exported but never imported (and still ignores `required`), `extractOutput(cfg, …)` still exists only to `void cfg`, `parentPlanMarkdown` is `async` with no await, `renderVersions` is still "dead code kept reachable", and the base `triggerInput(ctx)` has an unused parameter. Fix: delete or underscore them as the original suggests.
 
@@ -6831,7 +6831,7 @@ Original findings, verbatim:
 
 ### CR-263 [Low] `sentry-triage.yaml` declares `trigger.type: webhook`, which import silently coerces to `manual`
 
-- **Status at `abaa007`:** **Obsolete (legacy, no fix)**, leftover code deleted in [Task 07](review-tasks/07-remove-dead-and-legacy-code.md)
+- **Status at `abaa007`:** **Fixed** (Task 07 — fixture uses `manual`; unknown flow trigger types fail import)
 - **Re-verification note:** This only concerns a fixture written in a legacy data shape (flow `trigger.type: webhook`, removed from `FLOW_TRIGGER_TYPES` in lib/engine/constants/triggers.ts:8) and the silent legacy coercion to "manual" in lib/engine/templates/template-store.ts:922-923. Both still exist. Possible delete-legacy cleanup: switch docs/flow-templates/sentry-triage.yaml:4-11 to `type: manual` and make unknown trigger types an import error instead of coercing them.
 
 - **Severity:** Low
@@ -7496,7 +7496,7 @@ One row per finding, at `abaa007`.
 | CR-184 | Low | Code quality | Open | [Task 44](review-tasks/44-engine-stores-and-constants.md) |
 | CR-185 | Low | Performance | Open | [Task 45](review-tasks/45-flow-engine-decomposition.md) |
 | CR-186 | Low | Code quality | Open | [Task 50](review-tasks/50-small-module-cleanups.md) |
-| CR-187 | Low | Code quality | Open | [Task 07](review-tasks/07-remove-dead-and-legacy-code.md) |
+| CR-187 | Low | Code quality | Fixed | Task 07 |
 | CR-188 | Low | Code quality | Open | [Task 60](review-tasks/60-security-process-and-network-isolation.md) |
 | CR-189 | Low | Bug | Open | [Task 60](review-tasks/60-security-process-and-network-isolation.md) |
 | CR-190 | Low | Bug | Open | [Task 60](review-tasks/60-security-process-and-network-isolation.md) |
@@ -7516,7 +7516,7 @@ One row per finding, at `abaa007`.
 | CR-204 | Low | Code quality | Fixed | — |
 | CR-205 | Low | Bug | Open | [Task 16](review-tasks/16-run-lifecycle-late-writes.md) |
 | CR-206 | Low | Code quality | Open | [Task 18](review-tasks/18-terminal-outcome-writer.md) |
-| CR-207 | Low | Code quality | Partly fixed | [Task 07](review-tasks/07-remove-dead-and-legacy-code.md) |
+| CR-207 | Low | Code quality | Fixed | Task 07 |
 | CR-208 | Low | Code quality | Open | [Task 49](review-tasks/49-node-kind-structure.md) |
 | CR-209 | Low | Bug | Open | [Task 22](review-tasks/22-pipeline-review-resolve.md) |
 | CR-210 | Low | Infra | Open | [Task 08](review-tasks/08-db-bootstrap-and-schema.md) |
@@ -7572,7 +7572,7 @@ One row per finding, at `abaa007`.
 | CR-260 | Low | Docs | Open | [Task 56](review-tasks/56-docs-refresh.md) |
 | CR-261 | Low | Docs | Open | [Task 56](review-tasks/56-docs-refresh.md) |
 | CR-262 | Low | Infra | Partly fixed | [Task 06](review-tasks/06-db-path-and-seed-safety.md) |
-| CR-263 | Low | Docs | Obsolete (legacy, no fix) | [Task 07](review-tasks/07-remove-dead-and-legacy-code.md) |
+| CR-263 | Low | Docs | Fixed | Task 07 |
 | CR-264 | Low | Security | Open | [Task 59](review-tasks/59-security-credential-hygiene.md) |
 | CR-265 | Low | Security | Open | [Task 59](review-tasks/59-security-credential-hygiene.md) |
 | CR-266 | Low | Infra | Fixed | [Task 02](review-tasks/02-typecheck-and-build-gates.md) |

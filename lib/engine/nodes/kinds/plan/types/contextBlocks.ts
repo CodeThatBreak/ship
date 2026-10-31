@@ -2,7 +2,7 @@ import "server-only";
 
 // ── context block registry (§4) ──────────────────────────────────────────────
 
-export type ContextBlockId = 'task' | 'contract' | 'current' | 'branches' | 'versions' | 'edits';
+export type ContextBlockId = 'task' | 'contract' | 'current' | 'branches' | 'edits';
 
 export interface ContextBlockSpec {
   id: ContextBlockId;
