@@ -57,8 +57,9 @@ const EXEC_MODE_DELIVERY_KEY = "execution_mode";
 const EXEC_MODE_DELIVERY_ALIAS = "harness";
 const EXEC_MODE_VALUES = ["local", "cloud"] as const;
 
-/** Flow-owned tables, in FK-safe delete order (children before `flows`). */
-const FLOW_CHILD_TABLES = [
+/** Flow-owned tables, in FK-safe delete order (children before `flows`).
+ *  Keep in sync with `FLOW_CHILD_TABLES` in scripts/lib/seed-db.mjs. */
+export const FLOW_CHILD_TABLES = [
   "step_merges", // parent_flow_id + flow_id — fan-out merge-back records
   "plan_steps", // sub_flow_id → flows (fan-out checklist)
   "events",

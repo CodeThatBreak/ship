@@ -18,28 +18,24 @@
  * Requires the starter templates to exist — open the app once first (they seed
  * at migration time), or `npm run seed:demo` for the built-in loop demo.
  */
-import Database from "better-sqlite3";
-import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
-import { resolveSeedDb } from "./lib/seed-db.mjs";
+import {
+  deleteFlowCascade,
+  minsAgo,
+  now,
+  openSeedDb,
+  uid,
+} from "./lib/seed-db.mjs";
 
 const root = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
-const DB_FILE = resolveSeedDb(root);
 const TEMPLATE_ID = "tpl_release_notify";
 const FLOW_NAME_DONE = "DEMO custom: release notes shipped";
 const FLOW_NAME_SKIP = "DEMO custom: notes dropped";
 const TASK_ID = "demo-201";
 const RESET = process.argv.includes("--reset");
 
-fs.mkdirSync(path.dirname(DB_FILE), { recursive: true });
-const db = new Database(DB_FILE);
-db.pragma("journal_mode = WAL");
-db.exec(fs.readFileSync(path.join(root, "lib/db/schema.sql"), "utf8"));
-
-const now = () => new Date().toISOString();
-const minsAgo = (m) => new Date(Date.now() - m * 60_000).toISOString();
-const uid = (p = "") => p + Date.now().toString(36) + Math.random().toString(36).slice(2, 9);
+const { db } = openSeedDb(root);
 
 const NOTES = `# Release notes — DEMO-201 webhook delivery retries
 
@@ -63,18 +59,17 @@ function flowRowByName(name) {
 }
 
 function reset() {
-  // the seed owns its synthetic task: every flow bound to it goes too (not
-  // just the seeded-named ones — earlier runs may have bound other flows)
-  const flows = [
-    flowRowByName(FLOW_NAME_DONE), flowRowByName(FLOW_NAME_SKIP),
+  const ids = new Set();
+  for (const row of [
+    flowRowByName(FLOW_NAME_DONE),
+    flowRowByName(FLOW_NAME_SKIP),
     ...db.prepare(`SELECT id FROM flows WHERE task_id=?`).all(TASK_ID),
-  ];
-  for (const f of flows) {
-    if (!f) continue;
-    for (const t of ["plan_steps", "events", "messages", "runs", "artifacts", "comments", "branches", "nodes"])
-      db.prepare(`DELETE FROM ${t} WHERE flow_id=?`).run(f.id);
-    db.prepare(`DELETE FROM flows WHERE id=?`).run(f.id);
-    console.log(`removed demo flow ${f.id}`);
+  ]) {
+    if (row?.id) ids.add(row.id);
+  }
+  for (const id of ids) {
+    deleteFlowCascade(db, id);
+    console.log(`removed demo flow ${id}`);
   }
   db.prepare(`DELETE FROM tasks WHERE id=?`).run(TASK_ID);
 }

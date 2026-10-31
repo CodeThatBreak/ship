@@ -1258,7 +1258,7 @@ Original findings, verbatim:
 
 ### CR-040 [High] `.env.example` sets `DATABASE_PATH`, which defeats the production-DB separation, so `next start` uses the demo/seed DB
 
-- **Status at `abaa007`:** **Open**, fix in [Task 06](review-tasks/06-db-path-and-seed-safety.md)
+- **Status at `abaa007`:** **Fixed** (Task 06 — commented `DATABASE_PATH` in `.env.example`, README setup note, `init-prod-db` warning)
 - **Current location:** .env.example:2, lib/config.ts:28-46, scripts/init-prod-db.mjs:16, README.md:50, README.md:227-228
 - **Re-verification note:** `.env.example` still sets `DATABASE_PATH=./data/devflow.db` and README still says `cp .env.example .env`, so `DatabaseConfig.path()` never takes the `devflow.prod.db` branch under `next start` and production shares the seed/demo DB; `db:init:prod` creates a file the server then ignores. Comment out `DATABASE_PATH` in `.env.example` (or split `DEMO_DATABASE_PATH`/`DATABASE_PATH`) and have `init-prod-db.mjs` warn when `DATABASE_PATH` is set.
 
@@ -4279,7 +4279,7 @@ Original findings, verbatim:
 
 ### CR-157 [Medium] Seed DB guard is a single exact-path blacklist with no allowlist, no realpath and no echo of the target
 
-- **Status at `abaa007`:** **Open**, fix in [Task 06](review-tasks/06-db-path-and-seed-safety.md)
+- **Status at `abaa007`:** **Fixed** (Task 06 — demo DB allowlist + `realpath`, `--allow-non-demo-db`, logs target)
 - **Current location:** scripts/lib/seed-db.mjs:18-29, scripts/seed-demo-flow.mjs:27, scripts/seed-demo-fanout.mjs:38, scripts/seed-branch-refine-demo.mjs:39, scripts/seed-custom-flow.mjs:28, scripts/seed-split-smoke.mjs:47
 - **Re-verification note:** `resolveSeedDb` is still an exact-path blacklist of `data/devflow.prod.db` with no realpath and no allowlist, and no seed script prints the resolved target before writing. Any other path, symlink or prod copy is accepted (now five callers, including the new `seed-split-smoke`). Fix: allowlist `<root>/data/devflow.db` after `fs.realpathSync`, require an explicit flag for anything else, and always log the target path.
 
@@ -4324,7 +4324,7 @@ Original findings, verbatim:
 
 ### CR-159 [Medium] Seed `reset()` table lists drifted from the engine's `FLOW_CHILD_TABLES` (missing `hooks`, and `step_merges` in 3 of 4 scripts)
 
-- **Status at `abaa007`:** **Open**, fix in [Task 06](review-tasks/06-db-path-and-seed-safety.md)
+- **Status at `abaa007`:** **Fixed** (Task 06 — `deleteFlowCascade` in `scripts/lib/seed-db.mjs`, `tests/seed-db.test.ts`)
 - **Current location:** scripts/seed-demo-flow.mjs:195-206, scripts/seed-branch-refine-demo.mjs:270-281, scripts/seed-custom-flow.mjs:65-80, scripts/seed-demo-fanout.mjs:128-147, lib/engine/flow-engine.ts:59-70
 - **Re-verification note:** The canonical `FLOW_CHILD_TABLES` (now in `flow-engine.ts`) includes `step_merges` and `hooks`. All four reset loops still omit `hooks`, and three still omit `step_merges` and child flows (`parent_flow_id`). With better-sqlite3's default `foreign_keys=1`, `DELETE FROM flows` can then fail, or leave orphans. Fix: add one shared `deleteFlowCascade(db, flowId)` to `scripts/lib/seed-db.mjs` that mirrors `FLOW_CHILD_TABLES` (children first, plus `parent_flow_id` children), and add a vitest that asserts the lists match.
 
@@ -6809,7 +6809,7 @@ Original findings, verbatim:
 
 ### CR-262 [Low] Seed scripts duplicate boilerplate and hand-replicate engine logic
 
-- **Status at `abaa007`:** **Open**, fix in [Task 06](review-tasks/06-db-path-and-seed-safety.md)
+- **Status at `abaa007`:** **Partly fixed** (Task 06 — shared `openSeedDb`, time/id helpers, cascade reset; engine replicas remain — finish in Task 56 / CR-261)
 - **Current location:** scripts/seed-demo-flow.mjs:30-35,151-195,227, scripts/seed-demo-fanout.mjs:41,64-66,128, scripts/seed-branch-refine-demo.mjs:42-47,158-159,270, scripts/seed-custom-flow.mjs:37-42,65, scripts/seed-split-smoke.mjs:50,68, scripts/lib/seed-db.mjs
 - **Re-verification note:** All seed scripts now share only `resolveSeedDb` from scripts/lib/seed-db.mjs. Each still re-declares the WAL/schema bootstrap, `now` / `minsAgo` / `uid` and `reset()`. seed-demo-flow still carries engine replicas of `syncStepsFromPlan` / `markStepsDone` and a hand-copied `createFlow` INSERT, and seed-branch-refine-demo replicates `mergeBranchRefine` from plan-node. Move the shared helpers into scripts/lib/seed-db.mjs, and long term seed through the real `PlanStepStore` / `FlowEngine` APIs (for example as TS scripts or vitest fixtures) instead of replicas.
 
@@ -6993,7 +6993,7 @@ Found while re-verifying. Numbered after the original items.
 
 ### CR-272 [Low] `seed-split-smoke --reset` throws a foreign-key error when smoke flows exist
 
-- **Status at `abaa007`:** **Open**, fix in [Task 06](review-tasks/06-db-path-and-seed-safety.md)
+- **Status at `abaa007`:** **Fixed** (Task 06 — reset cascades task flows before deleting the task)
 - **Severity:** Low
 - **Category:** Correctness
 - **Area:** Area 7b — Tooling & config (TOOL)
@@ -7349,7 +7349,7 @@ One row per finding, at `abaa007`.
 | CR-037 | High | Gap | Open | [Task 43](review-tasks/43-tasks-feature.md) |
 | CR-038 | High | Bug | Open | [Task 41](review-tasks/41-settings-data-and-errors.md) |
 | CR-039 | High | Infra | Fixed | — |
-| CR-040 | High | Bug | Open | [Task 06](review-tasks/06-db-path-and-seed-safety.md) |
+| CR-040 | High | Bug | Fixed | [Task 06](review-tasks/06-db-path-and-seed-safety.md) |
 | CR-041 | Medium | Infra | Partly fixed | [Task 05](review-tasks/05-test-coverage-baseline.md) |
 | CR-042 | Medium | Bug | Open | [Task 10](review-tasks/10-api-input-validation-flows.md) |
 | CR-043 | Medium | Bug | Open | [Task 29](review-tasks/29-webhook-reliability.md) |
@@ -7466,9 +7466,9 @@ One row per finding, at `abaa007`.
 | CR-154 | Medium | Security | Open | [Task 61](review-tasks/61-security-secrets-at-rest-and-rendering.md) |
 | CR-155 | Medium | Code quality | Open | [Task 55](review-tasks/55-frontend-constants-and-types.md) |
 | CR-156 | Medium | Accessibility | Open | [Task 52](review-tasks/52-shared-ui-components.md) |
-| CR-157 | Medium | Infra | Open | [Task 06](review-tasks/06-db-path-and-seed-safety.md) |
+| CR-157 | Medium | Infra | Fixed | [Task 06](review-tasks/06-db-path-and-seed-safety.md) |
 | CR-158 | Medium | Infra | Obsolete (legacy, no fix) | [Task 08](review-tasks/08-db-bootstrap-and-schema.md) |
-| CR-159 | Medium | Infra | Open | [Task 06](review-tasks/06-db-path-and-seed-safety.md) |
+| CR-159 | Medium | Infra | Fixed | [Task 06](review-tasks/06-db-path-and-seed-safety.md) |
 | CR-160 | Medium | Infra | Partly fixed | [Task 05](review-tasks/05-test-coverage-baseline.md) |
 | CR-161 | Medium | Infra | Open | [Task 04](review-tasks/04-client-server-boundaries.md) |
 | CR-162 | Medium | Infra | Open | [Task 03](review-tasks/03-lint-rule-hardening.md) |
@@ -7571,7 +7571,7 @@ One row per finding, at `abaa007`.
 | CR-259 | Low | Code quality | Open | [Task 52](review-tasks/52-shared-ui-components.md) |
 | CR-260 | Low | Docs | Open | [Task 56](review-tasks/56-docs-refresh.md) |
 | CR-261 | Low | Docs | Open | [Task 56](review-tasks/56-docs-refresh.md) |
-| CR-262 | Low | Infra | Open | [Task 06](review-tasks/06-db-path-and-seed-safety.md) |
+| CR-262 | Low | Infra | Partly fixed | [Task 06](review-tasks/06-db-path-and-seed-safety.md) |
 | CR-263 | Low | Docs | Obsolete (legacy, no fix) | [Task 07](review-tasks/07-remove-dead-and-legacy-code.md) |
 | CR-264 | Low | Security | Open | [Task 59](review-tasks/59-security-credential-hygiene.md) |
 | CR-265 | Low | Security | Open | [Task 59](review-tasks/59-security-credential-hygiene.md) |
@@ -7581,5 +7581,5 @@ One row per finding, at `abaa007`.
 | CR-269 | Medium | Bug | Open | [Task 16](review-tasks/16-run-lifecycle-late-writes.md) |
 | CR-270 | High | Bug | Fixed | [Task 01](review-tasks/01-plan-artifact-ordering-hotfix.md) |
 | CR-271 | Medium | Gap | Open | [Task 15](review-tasks/15-frontend-mutation-conventions.md) |
-| CR-272 | Low | Bug | Open | [Task 06](review-tasks/06-db-path-and-seed-safety.md) |
+| CR-272 | Low | Bug | Fixed | [Task 06](review-tasks/06-db-path-and-seed-safety.md) |
 | CR-273 | Medium | Infra | Fixed | [Task 02](review-tasks/02-typecheck-and-build-gates.md) |

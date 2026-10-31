@@ -47,7 +47,7 @@ Everything runs from the single flow screen — workflow graph on top, selected 
 ## Setup
 
 ```bash
-cp .env.example .env   # fill in your keys
+cp .env.example .env   # fill in workspace path; leave DATABASE_PATH unset for production
 npm install
 npm run dev            # http://localhost:3000
 ```

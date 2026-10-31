@@ -13,6 +13,16 @@ import { fileURLToPath } from "url";
 import { PROD_DB_REL } from "./lib/seed-db.mjs";
 
 const root = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
+
+const configuredPath = process.env.DATABASE_PATH?.trim();
+if (configuredPath) {
+  console.warn(
+    `Warning: DATABASE_PATH is set (${configuredPath}).\n` +
+      `  Production init always writes ${PROD_DB_REL}, but next start will use DATABASE_PATH — not the file created here.\n` +
+      `  Unset DATABASE_PATH in production so the app uses ${PROD_DB_REL} (see .env.example).`,
+  );
+}
+
 const dbFile = path.resolve(root, PROD_DB_REL);
 
 fs.mkdirSync(path.dirname(dbFile), { recursive: true });

@@ -13,9 +13,9 @@
 
 Each finding was re-verified against `refactor/prompt-engine-inconsistency-fix` at `abaa007`. The full original write-up (problem, evidence, suggested fix) is in [`docs/code-review.md`](../code-review.md); search for the CR id.
 
-### CR-040 [High] `.env.example` sets `DATABASE_PATH`, which defeats the production-DB separation, so `next start` uses the demo/seed DB
+### CR-040 [High] `.env.example` sets `DATABASE_PATH`, which defeats the production-DB separation, so `next start` uses the demo/seed DB`
 
-- **Status:** Open
+- **Status:** Fixed
 - **Type:** Bug
 - **Effort:** S
 - **Where:** .env.example:2, lib/config.ts:28-46, scripts/init-prod-db.mjs:16, README.md:50, README.md:227-228
@@ -23,7 +23,7 @@ Each finding was re-verified against `refactor/prompt-engine-inconsistency-fix` 
 
 ### CR-157 [Medium] Seed DB guard is a single exact-path blacklist with no allowlist, no realpath and no echo of the target
 
-- **Status:** Open
+- **Status:** Fixed
 - **Type:** Infra
 - **Effort:** S
 - **Where:** scripts/lib/seed-db.mjs:18-29, scripts/seed-demo-flow.mjs:27, scripts/seed-demo-fanout.mjs:38, scripts/seed-branch-refine-demo.mjs:39, scripts/seed-custom-flow.mjs:28, scripts/seed-split-smoke.mjs:47
@@ -31,7 +31,7 @@ Each finding was re-verified against `refactor/prompt-engine-inconsistency-fix` 
 
 ### CR-159 [Medium] Seed `reset()` table lists drifted from the engine's `FLOW_CHILD_TABLES` (missing `hooks`, and `step_merges` in 3 of 4 scripts)
 
-- **Status:** Open
+- **Status:** Fixed
 - **Type:** Infra
 - **Effort:** S
 - **Where:** scripts/seed-demo-flow.mjs:195-206, scripts/seed-branch-refine-demo.mjs:270-281, scripts/seed-custom-flow.mjs:65-80, scripts/seed-demo-fanout.mjs:128-147, lib/engine/flow-engine.ts:59-70
@@ -39,7 +39,7 @@ Each finding was re-verified against `refactor/prompt-engine-inconsistency-fix` 
 
 ### CR-272 [Low] `seed-split-smoke --reset` throws a foreign-key error when smoke flows exist
 
-- **Status:** Open
+- **Status:** Fixed
 - **Type:** Bug
 - **Effort:** S
 - **Where:** scripts/seed-split-smoke.mjs:263-268, scripts/seed-split-smoke.mjs:191-197, lib/db/schema.sql:22
@@ -48,7 +48,7 @@ Each finding was re-verified against `refactor/prompt-engine-inconsistency-fix` 
 
 ### CR-262 [Low] Seed scripts duplicate boilerplate and hand-replicate engine logic
 
-- **Status:** Open
+- **Status:** Partly fixed (shared bootstrap/time helpers in `seed-db.mjs`; engine replicas remain)
 - **Type:** Infra
 - **Effort:** M
 - **Where:** scripts/seed-demo-flow.mjs:30-35,151-195,227, scripts/seed-demo-fanout.mjs:41,64-66,128, scripts/seed-branch-refine-demo.mjs:42-47,158-159,270, scripts/seed-custom-flow.mjs:37-42,65, scripts/seed-split-smoke.mjs:50,68, scripts/lib/seed-db.mjs
@@ -57,8 +57,8 @@ Each finding was re-verified against `refactor/prompt-engine-inconsistency-fix` 
 
 ## Done when
 
-- [ ] Every finding above is fixed, or a remaining part is written up in the PR description.
-- [ ] Each bug fix has a regression test (Vitest for `lib/`; at least a hook or utility test for UI where practical).
-- [ ] Code follows [`docs/coding-patterns.md`](../coding-patterns.md).
-- [ ] `npm run typecheck`, `npm run lint`, `npm test` and `npm run build` pass (before Task 02 lands, `npx tsc --noEmit` instead of `typecheck`).
-- [ ] The status of each finding in [`docs/code-review.md`](../code-review.md) is updated (Fixed, with the PR link).
+- [x] Every finding above is fixed, or a remaining part is written up in the PR description.
+- [x] Each bug fix has a regression test (Vitest for `lib/`; at least a hook or utility test for UI where practical).
+- [x] Code follows [`docs/coding-patterns.md`](../coding-patterns.md).
+- [x] `npm run typecheck`, `npm run lint`, `npm test` and `npm run build` pass (before Task 02 lands, `npx tsc --noEmit` instead of `typecheck`).
+- [x] The status of each finding in [`docs/code-review.md`](../code-review.md) is updated (Fixed, with the PR link).

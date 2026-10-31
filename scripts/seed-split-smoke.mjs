@@ -28,12 +28,15 @@
  * Non-destructive by default: only the smoke template's own rows are touched
  * (production DB refused via scripts/lib/seed-db.mjs — AGENTS.md §1).
  */
-import Database from "better-sqlite3";
 import crypto from "crypto";
-import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
-import { resolveSeedDb } from "./lib/seed-db.mjs";
+import {
+  deleteFlowCascade,
+  deleteTaskDemoFlows,
+  now,
+  openSeedDb,
+} from "./lib/seed-db.mjs";
 
 const root = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const TASK_ID = "demo-313";
@@ -44,11 +47,7 @@ const WORKER_ID = "nt_smoke_unit_worker";
 const ROLLUP_ID = "nt_smoke_rollup";
 const RESET = process.argv.includes("--reset");
 
-const dbFile = resolveSeedDb(root);
-fs.mkdirSync(path.dirname(dbFile), { recursive: true });
-const db = new Database(dbFile);
-db.pragma("journal_mode = WAL");
-db.exec(fs.readFileSync(path.join(root, "lib/db/schema.sql"), "utf8"));
+const { db } = openSeedDb(root);
 
 // the runtime migrations (lib/db/index.ts) add the columns this script reads —
 // guard them here too so the script works against a freshly created DB
@@ -262,7 +261,12 @@ function seedTemplate() {
 
 if (RESET) {
   const removed = removeTemplateRows();
-  db.prepare(`DELETE FROM tasks WHERE id=?`).run(TASK_ID);
+  const flowIds = db.prepare(`SELECT id FROM flows WHERE task_id=?`).all(TASK_ID).map((r) => r.id);
+  if (flowIds.length) {
+    for (const id of flowIds) deleteFlowCascade(db, id);
+    console.log(`removed ${flowIds.length} smoke flow(s) for ${TASK_KEY}`);
+  }
+  deleteTaskDemoFlows(db, TASK_ID, []);
   console.log(removed ? "split smoke template + demo task reset done" : "split smoke demo task reset (template kept — flows reference it)");
   process.exit(0);
 }
