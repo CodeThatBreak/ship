@@ -255,6 +255,8 @@ export function TemplateEditor({ templateId }: TemplateEditorProps) {
       {editingEdge != null && actions.edgeDrawer != null && (
         <EditorEdgeDrawer
           edge={editingEdge}
+          edgeIndex={actions.edgeDrawer}
+          edges={draft.edges}
           nodes={draft.nodes}
           sourceNode={
             draft.nodes.find((n) => n.key === editingEdge.from) ?? null

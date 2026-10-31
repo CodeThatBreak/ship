@@ -26,6 +26,7 @@ import type { EditorEdge, EditorNode } from "../types";
 import { BuilderNodeView, type BuilderNodeData } from "./BuilderNodeView";
 import { BuilderEdgeView, edgeIndexOf, type BuilderEdgeData } from "./BuilderEdgeView";
 import { ApiBridge } from "./BuilderApiBridge";
+import { canConnectTemplateEdge } from "../utils/graph-edges";
 
 /** The catalog id of the one Start node instance — never deletable (the
  *  page guards this too; the canvas marks it RF-non-deletable). */
@@ -172,7 +173,12 @@ export function BuilderFlow(props: BuilderCanvasProps) {
       onPaneClick={props.onPaneClick}
       nodesDraggable={!props.readonly}
       nodesConnectable={!props.readonly}
-      isValidConnection={(c) => c.source !== c.target}
+      isValidConnection={(c) => {
+        if (!c.source || !c.target || c.source === c.target) return false;
+        const branchLabel =
+          typeof c.sourceHandle === "string" && c.sourceHandle.length ? c.sourceHandle : null;
+        return canConnectTemplateEdge(props.edges, c.source, c.target, branchLabel);
+      }}
       fitView
       fitViewOptions={{ padding: 0.25, maxZoom: 1 }}
       minZoom={0.3}

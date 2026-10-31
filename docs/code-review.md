@@ -304,7 +304,7 @@ Each item below can be fixed independently. Severity headings group the items; w
 
 ### CR-007 [High] Loop re-entry never resets `skipped` nodes, so the second iteration deadlocks on a previously skipped branch
 
-- **Status at `abaa007`:** **Open**, fix in [Task 23](review-tasks/23-graph-semantics-and-validation.md)
+- **Status at `abaa007`:** **Fixed** ([Task 23](review-tasks/23-graph-semantics-and-validation.md))
 - **Current location:** lib/engine/flow-engine.ts:1002-1022 (resetLoopEntry), 941-943 (statusTerminalSuccess), 1171 (startNodeStage pending guard)
 - **Re-verification note:** `resetLoopEntry` still resets and walks only `done`/`approved` nodes, so a branch that was `skipped` in iteration 1 stays `skipped`, and `startNodeStage` silently returns on the second pass. Treat `skipped` as resettable in the loop walk and add a two-iteration decision-in-loop engine test.
 
@@ -1007,7 +1007,7 @@ Original findings, verbatim:
 
 ### CR-032 [High] Client lets authors build graphs that save rejects; live validation never catches them
 
-- **Status at `abaa007`:** **Open**, fix in [Task 23](review-tasks/23-graph-semantics-and-validation.md)
+- **Status at `abaa007`:** **Fixed** ([Task 23](review-tasks/23-graph-semantics-and-validation.md))
 - **Current location:** components/builder/hooks/use-editor-actions.ts:173 (duplicateNode), 261 (addEdge dedupe), 336-355 (addCatalogNode: only Start is singleton); components/template-editor/draft.ts:51-60 (uniqueKey); components/template-editor/EdgeEditor.tsx:85-102; components/template-editor/components/BuilderFlow.tsx:167-175; components/template-editor/hooks/use-template-validation.ts:85-100; app/api/templates/[id]/validate/route.ts:62 (lintTemplate only); lib/engine/templates/template-store.ts:776-800 (validated)
 - **Re-verification note:** Unchanged: `/validate` still runs only `lintTemplate`, while save's `TemplateStore.validated()` also enforces built-in keys, the key regex, edge dedupe and trigger normalization, so the client can build graphs (`plan_copy`, `plan_2`, digit-leading keys, EdgeEditor self or duplicate edges, stale decision labels) that pass live validation and then fail on save. Extract the structural rules into a shared pure validator run by both `/validate` and save, and tighten the client actions (no Duplicate for built-ins, built-ins as singletons, filtered EdgeEditor targets).
 
@@ -1854,7 +1854,7 @@ Original findings, verbatim:
 
 ### CR-062 [Medium] Template validation has no cycle detection on `next` edges
 
-- **Status at `abaa007`:** **Open**, fix in [Task 23](review-tasks/23-graph-semantics-and-validation.md)
+- **Status at `abaa007`:** **Fixed** ([Task 23](review-tasks/23-graph-semantics-and-validation.md))
 - **Current location:** lib/engine/templates/template-store.ts:799-811, lib/engine/templates/template-lint.ts:352-358
 - **Re-verification note:** `validated()` still rejects only unknown endpoints, self-edges and duplicates; a `next`-edge cycle (A→B→A) saves fine and then idles silently (join `all`) or becomes an unconditional re-entry (join `any`). Add a DFS/Kahn check over `kind==="next"` edges that rejects with "use a loop edge for re-entry", plus a template-store test.
 
@@ -1875,7 +1875,7 @@ Original findings, verbatim:
 
 ### CR-063 [Medium] Validator accepts edge shapes the runtime silently ignores (labels on non-decision edges, conditions on decision edges)
 
-- **Status at `abaa007`:** **Open**, fix in [Task 23](review-tasks/23-graph-semantics-and-validation.md)
+- **Status at `abaa007`:** **Fixed** ([Task 23](review-tasks/23-graph-semantics-and-validation.md))
 - **Current location:** lib/engine/flow-engine.ts:1041-1057, lib/engine/templates/template-store.ts:812-829, lib/engine/templates/template-lint.ts:352-358
 - **Re-verification note:** `edgeActive` still returns false for any labeled edge out of a non-decision node and ignores `condition` on decision edges, yet `validated()` only checks decision out-edges and lint still compiles decision-edge conditions. Reject labels on non-decision-source edges and conditions on decision out-edges in `validated()`, mirrored as lint problems with `edgeIndex`.
 
@@ -7291,7 +7291,7 @@ One row per finding, at `abaa007`.
 | CR-004 | High | Bug | Partly fixed | [Task 28](review-tasks/28-prompt-preview-parity.md) |
 | CR-005 | High | Bug | Fixed | [Task 13](review-tasks/13-frontend-query-ownership.md) |
 | CR-006 | High | Bug | Open | [Task 25](review-tasks/25-wait-timers-and-poller.md) |
-| CR-007 | High | Bug | Open | [Task 23](review-tasks/23-graph-semantics-and-validation.md) |
+| CR-007 | High | Bug | Fixed | [Task 23](review-tasks/23-graph-semantics-and-validation.md) |
 | CR-008 | High | Bug | Fixed | [Task 20](review-tasks/20-merge-arena-and-workspaces.md) |
 | CR-009 | High | Bug | Open | [Task 19](review-tasks/19-fanout-rollup-and-promises.md) |
 | CR-010 | High | Bug | Open | [Task 19](review-tasks/19-fanout-rollup-and-promises.md) |
@@ -7316,7 +7316,7 @@ One row per finding, at `abaa007`.
 | CR-029 | High | Bug | Open | [Task 37](review-tasks/37-editor-save-integrity.md) |
 | CR-030 | High | Bug | Open | [Task 37](review-tasks/37-editor-save-integrity.md) |
 | CR-031 | High | Bug | Open | [Task 39](review-tasks/39-editor-fields-and-effects.md) |
-| CR-032 | High | Gap | Open | [Task 23](review-tasks/23-graph-semantics-and-validation.md) |
+| CR-032 | High | Gap | Fixed | [Task 23](review-tasks/23-graph-semantics-and-validation.md) |
 | CR-033 | High | Bug | Open | [Task 39](review-tasks/39-editor-fields-and-effects.md) |
 | CR-034 | High | Accessibility | Open | [Task 39](review-tasks/39-editor-fields-and-effects.md) |
 | CR-035 | High | Bug | Open | [Task 42](review-tasks/42-settings-forms.md) |
@@ -7346,8 +7346,8 @@ One row per finding, at `abaa007`.
 | CR-059 | Medium | Bug | Fixed | [Task 20](review-tasks/20-merge-arena-and-workspaces.md) |
 | CR-060 | Medium | Bug | Open | [Task 25](review-tasks/25-wait-timers-and-poller.md) |
 | CR-061 | Medium | Bug | Open | [Task 19](review-tasks/19-fanout-rollup-and-promises.md) |
-| CR-062 | Medium | Gap | Open | [Task 23](review-tasks/23-graph-semantics-and-validation.md) |
-| CR-063 | Medium | Gap | Open | [Task 23](review-tasks/23-graph-semantics-and-validation.md) |
+| CR-062 | Medium | Gap | Fixed | [Task 23](review-tasks/23-graph-semantics-and-validation.md) |
+| CR-063 | Medium | Gap | Fixed | [Task 23](review-tasks/23-graph-semantics-and-validation.md) |
 | CR-064 | Medium | Bug | Open | [Task 19](review-tasks/19-fanout-rollup-and-promises.md) |
 | CR-065 | Medium | Bug | Open | [Task 24](review-tasks/24-template-snapshot-and-yaml.md) |
 | CR-066 | Medium | Bug | Fixed | [Task 17](review-tasks/17-node-claim-and-attempts.md) |

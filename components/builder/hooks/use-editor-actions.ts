@@ -29,6 +29,7 @@ import {
   type TemplateDraftMachine,
   type CanvasPosition,
 } from "@/components/template-editor";
+import { edgeDedupeKey } from "@/constants/template-graph";
 
 /** Draft instance ids never collide within a session (monotonic). */
 export type DraftKind = "agent" | "decision" | "http" | "script";
@@ -174,9 +175,11 @@ export function useEditorActions(deps: EditorActionsDeps): EditorActionsApi {
       if (!draft) return;
       const src = draft.nodes.find((n) => n.key === key);
       if (!src) return;
-      if (src.nodeTemplateId === START_NODE_TEMPLATE_ID) {
+      if (src.nodeTemplateId === START_NODE_TEMPLATE_ID || src.is_builtin) {
         setNotice(
-          "Only one Start node is allowed — this template already has one.",
+          src.is_builtin
+            ? "Built-in nodes can't be duplicated — add at most one from the palette."
+            : "Only one Start node is allowed — this template already has one.",
         );
         return;
       }
@@ -258,8 +261,7 @@ export function useEditorActions(deps: EditorActionsDeps): EditorActionsApi {
     (from: string, to: string, branchLabel?: string | null) => {
       if (!draft) return;
       const exists = draft.edges.some(
-        (e) =>
-          e.from === from && e.to === to && (!e.label || e.label === branchLabel),
+        (e) => edgeDedupeKey(e.from, e.to, e.label) === edgeDedupeKey(from, to, branchLabel ?? null),
       );
       if (exists) {
         setNotice(`Nodes are already connected (${from} → ${to}).`);
@@ -337,6 +339,13 @@ export function useEditorActions(deps: EditorActionsDeps): EditorActionsApi {
       name: string,
     ) => {
       if (!draft) return;
+      if (
+        isBuiltin &&
+        draft.nodes.some((n) => n.nodeTemplateId === nodeTemplateId)
+      ) {
+        setNotice(`Only one "${name}" node is allowed — this template already has one.`);
+        return;
+      }
       // only one Start node per template (the server's singleton rule enforces
       // the same at save time — fail friendly here instead)
       if (

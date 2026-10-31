@@ -15,6 +15,7 @@ import type {
 } from "@/types/template-editor";
 import { parseDeclarativeConfig } from "../nodes/declarative-schemas";
 import { catalogForNodeTemplateIds, lintTemplate, type TaskUniverse } from "./template-lint";
+import { graphStructureError, lintGraphStructure } from "./graph-structure";
 import { hookStore } from "../runtime/hook-store";
 import { taskRegistry } from "../tasks/registry";
 import {
@@ -845,60 +846,50 @@ export class TemplateStore {
   // ── write path helpers ────────────────────────────────────────────────────
 
   /** Validate name/trigger/graph invariants, returning normalized inputs. */
+  /** Normalized flow trigger — same rules as save (for /validate). */
+  static normalizeFlowTrigger(o: unknown): Record<string, unknown> {
+    return TemplateStore.flowTrigger(o);
+  }
+
+  /** {{task.*}} lint universe for a normalized trigger. */
+  static lintTaskUniverse(trigger: Record<string, unknown>): TaskUniverse | null {
+    return TemplateStore.taskUniverse(trigger);
+  }
+
   private validated(input: TemplateInput, opts: { skipLint?: boolean } = {}): {
     trigger: Record<string, unknown>;
     nodes: TemplateNodeInput[];
     edges: TemplateEdgeInput[];
   } {
-    if (!Array.isArray(input.nodes)) {
-      throw new Error("a template needs a nodes array");
-    }
-    const keys = new Set<string>();
-    for (const n of input.nodes) {
-      const key = (n.key ?? "").trim();
-      if (!/^[a-z][a-z0-9_]*$/i.test(key)) throw new Error(`invalid node key "${key}" (letters, digits, underscores)`);
-      if (keys.has(key)) throw new Error(`duplicate node key "${key}"`);
-      if (!n.nodeTemplateId?.trim()) throw new Error(`node "${key}" is missing its node template`);
-      if (!this.nodeTemplate(n.nodeTemplateId)) throw new Error(`unknown node template for "${key}"`);
-      // built-in components are singletons per template (their class-owned
-      // internals key lookups on the builtin key) — instance key must match
-      const nt = this.nodeTemplate(n.nodeTemplateId)!;
-      if (nt.is_builtin && key !== nt.key) {
-        throw new Error(`built-in "${nt.name}" instances must use the key "${nt.key}"`);
+    const resolveNodeTemplate = (node: TemplateNodeInput) => {
+      const row = this.nodeTemplate(node.nodeTemplateId);
+      if (!row) return null;
+      let decisionChoices: string[] | undefined;
+      if (row.kind === "decision") {
+        const cfg = parseDeclarativeConfig("decision", { ...(row.config ?? {}), ...(node.config ?? {}) }, node.key) as {
+          choices?: { label: string }[];
+        };
+        decisionChoices = (cfg.choices ?? []).map((c) => c.label);
       }
-      keys.add(key);
-    }
-    const edges: TemplateEdgeInput[] = [];
-    const seen = new Set<string>();
-    for (const e of input.edges ?? []) {
-      if (!keys.has(e.from)) throw new Error(`edge from unknown node "${e.from}"`);
-      if (!keys.has(e.to)) throw new Error(`edge to unknown node "${e.to}"`);
-      if (e.from === e.to) throw new Error(`self-edge on "${e.from}"`);
-      const kind = e.kind === "loop" ? "loop" : "next";
-      const label = e.label?.trim() || null;
-      const dedupe = `${e.from}>${e.to}:${label ?? ""}`;
-      if (seen.has(dedupe)) throw new Error(`duplicate edge ${e.from} → ${e.to}${label ? ` (${label})` : ""}`);
-      seen.add(dedupe);
-      edges.push({ from: e.from, to: e.to, kind, label, condition: e.condition?.trim() || null });
-    }
-    // decision-source edges: every out-edge of a decision needs a label, and
-    // every label must be one of the decision's choices (§4.3)
-    for (const n of input.nodes) {
-      const nt = this.nodeTemplate(n.nodeTemplateId)!;
-      if (nt.kind !== "decision") continue;
-      const cfg = parseDeclarativeConfig("decision", { ...(nt.config ?? {}), ...(n.config ?? {}) }, n.key) as {
-        choices?: { label: string }[];
+      return {
+        kind: row.kind,
+        key: row.key,
+        isBuiltin: Boolean(row.is_builtin),
+        decisionChoices,
       };
-      const choices = new Set((cfg.choices ?? []).map((c) => c.label));
-      const outEdges = edges.filter((e) => e.from === n.key && e.kind === "next");
-      if (!outEdges.length) throw new Error(`decision node "${n.key}" needs at least one outgoing edge`);
-      for (const e of outEdges) {
-        if (!e.label) throw new Error(`edge ${e.from} → ${e.to} out of decision "${n.key}" needs a branch label`);
-        if (!choices.has(e.label)) {
-          throw new Error(`edge ${e.from} → ${e.to} label "${e.label}" is not one of decision "${n.key}"'s choices (${[...choices].join(", ")})`);
-        }
-      }
-    }
+    };
+
+    const structureProblems = lintGraphStructure(input.nodes, input.edges ?? [], resolveNodeTemplate);
+    const structureErr = graphStructureError(structureProblems);
+    if (structureErr) throw new Error(structureErr);
+
+    const edges: TemplateEdgeInput[] = (input.edges ?? []).map((e) => ({
+      from: e.from,
+      to: e.to,
+      kind: e.kind === "loop" ? "loop" : "next",
+      label: e.label?.trim() || null,
+      condition: e.condition?.trim() || null,
+    }));
     // build-time static checks (§5): {{refs}} resolve against upstream
     // contracts AND the template's task context (trigger.task_type → provider
     // fields), JSONata compiles in input_map / decision expressions /

@@ -5,6 +5,7 @@
  * Client-safe (pure types and functions).
  */
 import type { EditorNode, EditorEdge, DraftNodeDef } from "./types";
+import { normalizeTemplateNodeKeySlug } from "@/constants/template-graph";
 
 /** A node's canvas position (graph coordinates). */
 export type CanvasPosition = { x: number; y: number };
@@ -48,16 +49,19 @@ export const KIND_ICONS: Record<string, string> = {
 };
 
 /** The keys a new node instance may take: slug of the base, then _2, _3, … */
-export function uniqueKey(base: string, nodes: EditorNode[]): string {
+export const uniqueKey = (base: string, nodes: EditorNode[]): string => {
   const slug =
     base
       .toLowerCase()
       .replace(/[^a-z0-9]+/g, "_")
       .replace(/^_+|_+$/g, "") || "node";
-  if (!nodes.some((n) => n.key === slug)) return slug;
-  for (let i = 2; ; i++)
-    if (!nodes.some((n) => n.key === `${slug}_${i}`)) return `${slug}_${i}`;
-}
+  const key = normalizeTemplateNodeKeySlug(slug);
+  if (!nodes.some((n) => n.key === key)) return key;
+  for (let i = 2; ; i++) {
+    const candidate = normalizeTemplateNodeKeySlug(`${slug}_${i}`);
+    if (!nodes.some((n) => n.key === candidate)) return candidate;
+  }
+};
 
 /** Display name for a placed draft def — "Agent node", then "Agent node 2", …
  *  avoiding collisions with this draft's other pending defs (the server

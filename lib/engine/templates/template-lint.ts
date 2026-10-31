@@ -384,12 +384,13 @@ export function lintTemplate(
     }
   }
 
-  // edge + loop conditions compile
+  // edge + loop conditions compile (not on decision branches — those gate on labels)
   for (const [i, e] of edges.entries()) {
-    if (e.condition?.trim()) {
-      const err = lintJsonata(e.condition);
-      if (err) problems.push({ where: `edge ${e.from} → ${e.to}`, message: err, edgeIndex: i });
-    }
+    if (!e.condition?.trim()) continue;
+    const src = catalog[nodes.find((n) => n.key === e.from)?.nodeTemplateId ?? ""];
+    if (src?.kind === "decision") continue;
+    const err = lintJsonata(e.condition);
+    if (err) problems.push({ where: `edge ${e.from} → ${e.to}`, message: err, edgeIndex: i });
   }
 
   return { error: problems.length ? joinProblems(problems) : null, problems };

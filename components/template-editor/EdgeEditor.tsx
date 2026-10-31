@@ -17,6 +17,7 @@ import { EdgeLabelField } from "./components/EdgeLabelField";
 import { EdgeConditionField } from "./components/EdgeConditionField";
 import type { EditorEdge, EditorNode } from "./types";
 import { nodeLabel } from "./types";
+import { isDuplicateTemplateEdge } from "./utils/graph-edges";
 import {
   asJsonataGroups,
   buildVarGroups,
@@ -26,6 +27,8 @@ import {
 
 export function EdgeEditor({
   edge,
+  edges,
+  edgeIndex,
   nodes,
   readonly,
   onChange,
@@ -35,7 +38,9 @@ export function EdgeEditor({
   triggerFields,
 }: {
   edge: EditorEdge;
-  /** the draft graph's instances — the From/To pickers' options */
+  /** the draft edge list — dedupe/self-edge filtering for From/To pickers */
+  edges: EditorEdge[];
+  edgeIndex: number;
   nodes: EditorNode[];
   readonly: boolean;
   onChange: (patch: Partial<EditorEdge>) => void;
@@ -79,6 +84,35 @@ export function EdgeEditor({
     );
   }, [sourceNode, contract, taskFields, triggerFields]);
 
+  const fromOptions = useMemo(
+    () =>
+      nodes.filter(
+        (n) =>
+          n.key !== edge.to &&
+          !isDuplicateTemplateEdge(edges, n.key, edge.to, edge.label, edgeIndex),
+      ),
+    [nodes, edges, edge.to, edge.label, edgeIndex],
+  );
+
+  const toOptions = useMemo(
+    () =>
+      nodes.filter(
+        (n) =>
+          n.key !== edge.from &&
+          !isDuplicateTemplateEdge(edges, edge.from, n.key, edge.label, edgeIndex),
+      ),
+    [nodes, edges, edge.from, edge.label, edgeIndex],
+  );
+
+  const patchFrom = (from: string) => {
+    const patch: Partial<EditorEdge> = { from };
+    if (from !== edge.from) {
+      patch.label = null;
+      patch.condition = null;
+    }
+    onChange(patch);
+  };
+
   return (
     <div className="grid gap-3">
       <div className="grid grid-cols-2 gap-3">
@@ -86,16 +120,16 @@ export function EdgeEditor({
           <FieldLabel>From</FieldLabel>
           <EdgeSelect
             value={edge.from}
-            nodes={nodes}
+            nodes={fromOptions}
             disabled={readonly}
-            onChange={(v) => onChange({ from: v })}
+            onChange={patchFrom}
           />
         </Field>
         <Field>
           <FieldLabel>To</FieldLabel>
           <EdgeSelect
             value={edge.to}
-            nodes={nodes}
+            nodes={toOptions}
             disabled={readonly}
             onChange={(v) => onChange({ to: v })}
           />

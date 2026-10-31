@@ -26,6 +26,8 @@ import { SheetFooterHelper } from "./EditorNodeDrawer";
 
 export interface EditorEdgeDrawerProps {
   edge: EditorEdge;
+  edgeIndex: number;
+  edges: EditorEdge[];
   /** the draft graph's instances — the From/To pickers' options */
   nodes: EditorNode[];
   /** the source node (the condition vocabulary's contract root) */
@@ -42,6 +44,8 @@ export interface EditorEdgeDrawerProps {
 
 export function EditorEdgeDrawer({
   edge,
+  edgeIndex,
+  edges,
   nodes,
   sourceNode,
   templateId,
@@ -67,6 +71,8 @@ export function EditorEdgeDrawer({
         <SheetBody>
           <EdgeEditor
             edge={edge}
+            edges={edges}
+            edgeIndex={edgeIndex}
             nodes={nodes}
             readonly={readonly}
             templateId={templateId}

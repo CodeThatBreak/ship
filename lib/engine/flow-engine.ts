@@ -1036,7 +1036,8 @@ export class FlowEngine {
    * node along `next` edges that already holds a success terminal (done /
    * approved) — the re-entry rerun path (e.g. resolve → gate → review →
    * resolve). Nodes held elsewhere (pending/waiting/running/failed/
-   * awaiting_approval/skipped) are never touched.
+   * awaiting_approval) are never touched. Skipped branches from a prior
+   * decision iteration reset too (CR-007).
    */
   private async resetLoopEntry(flowId: string, g: TemplateGraph, key: string): Promise<void> {
     const queue = [key];
@@ -1044,7 +1045,7 @@ export class FlowEngine {
     while (queue.length) {
       const k = queue.shift()!;
       const st = this.nodeStatus(flowId, k);
-      if (this.statusTerminalSuccess(st)) {
+      if (this.statusLoopResettable(st)) {
         this.setNodeStatus(flowId, k, "pending");
         db.emitEvent(flowId, db.get<{ id: string }>(
           `SELECT id FROM nodes WHERE flow_id=? AND node_key=?`, flowId, k)?.id ?? null,
@@ -1057,6 +1058,11 @@ export class FlowEngine {
         }
       }
     }
+  }
+
+  /** Loop re-entry clears success terminals and previously skipped branches. */
+  private statusLoopResettable(s: string): boolean {
+    return this.statusTerminalSuccess(s) || s === "skipped";
   }
 
   /** The node_templates kind behind a template node spec (decision/agent/…/builtin). */

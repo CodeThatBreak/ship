@@ -1,11 +1,12 @@
 import { NextResponse } from "next/server";
-import { templateStore } from "../../../../../lib/engine/templates/template-store";
+import { templateStore, TemplateStore } from "../../../../../lib/engine/templates/template-store";
 import {
   catalogForNodeTemplateIds,
   lintTemplate,
   type LintProblem,
 } from "../../../../../lib/engine/templates/template-lint";
-import { taskRegistry } from "../../../../../lib/engine/tasks/registry";
+import { lintGraphStructure } from "../../../../../lib/engine/templates/graph-structure";
+import { parseDeclarativeConfig } from "../../../../../lib/engine/nodes/declarative-schemas";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -35,10 +36,26 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
       };
   if (!body) return NextResponse.json({ error: "invalid body" }, { status: 400 });
 
+  const lintNodes = (body.nodes ?? []).map((n) => ({
+    key: (typeof n.key === "string" ? n.key : "").trim(),
+    nodeTemplateId: typeof n.nodeTemplateId === "string" ? n.nodeTemplateId : "",
+    inputMap: (n.input_map ?? {}) as Record<string, unknown>,
+    config: (n.config ?? {}) as Record<string, unknown>,
+    trigger: n.trigger,
+  }));
+
+  const lintEdges = (body.edges ?? []).map((e) => ({
+    from: e.from ?? "",
+    to: e.to ?? "",
+    kind: e.kind === "loop" ? "loop" : "next",
+    label: e.label ?? null,
+    condition: e.condition ?? null,
+  }));
+
   // the catalog behind the draft: persisted rows resolved from the db, plus
   // the pending defs (key "" — never the start singleton)
-  const realIds = (body.nodes ?? [])
-    .map((n) => (typeof n.nodeTemplateId === "string" ? n.nodeTemplateId : ""))
+  const realIds = lintNodes
+    .map((n) => n.nodeTemplateId)
     .filter((id) => id && !id.startsWith("draft:"));
   const catalog = catalogForNodeTemplateIds(realIds);
   for (const d of body.new_node_templates ?? []) {
@@ -52,32 +69,30 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
     }
   }
 
-  // the {{task.*}} universe (mirrors TemplateStore.taskUniverse — the
-  // declared task type's provider contextFields; unknown → null free pass)
-  const taskType = String(body.trigger?.task_type ?? "");
-  const provider = taskRegistry.maybe(taskType);
-  const task = provider
-    ? { kind: provider.kind, fields: provider.contextFields.map((f) => ({ key: f.key, label: f.label })) }
-    : null;
+  const structureProblems = lintGraphStructure(lintNodes, lintEdges, (node) => {
+    const entry = catalog[node.nodeTemplateId];
+    if (!entry) return null;
+    let decisionChoices: string[] | undefined;
+    if (entry.kind === "decision") {
+      const cfg = parseDeclarativeConfig("decision", { ...(entry.config ?? {}), ...(node.config ?? {}) }, node.key) as {
+        choices?: { label: string }[];
+      };
+      decisionChoices = (cfg.choices ?? []).map((c) => c.label);
+    }
+    return {
+      kind: entry.kind,
+      key: entry.key,
+      isBuiltin: entry.isBuiltin,
+      decisionChoices,
+    };
+  });
 
-  const problems: LintProblem[] = lintTemplate(
-    (body.nodes ?? []).map((n) => ({
-      key: (typeof n.key === "string" ? n.key : "").trim(),
-      nodeTemplateId: typeof n.nodeTemplateId === "string" ? n.nodeTemplateId : "",
-      inputMap: (n.input_map ?? {}) as Record<string, unknown>,
-      config: (n.config ?? {}) as Record<string, unknown>,
-      trigger: n.trigger,
-    })),
-    (body.edges ?? []).map((e) => ({
-      from: e.from ?? "",
-      to: e.to ?? "",
-      kind: e.kind === "loop" ? "loop" : "next",
-      label: e.label ?? null,
-      condition: e.condition ?? null,
-    })),
-    catalog,
-    task,
-  ).problems;
+  const trigger = TemplateStore.normalizeFlowTrigger(body.trigger);
+  const task = TemplateStore.lintTaskUniverse(trigger);
+
+  const lint = lintTemplate(lintNodes, lintEdges, catalog, task);
+
+  const problems: LintProblem[] = [...structureProblems, ...lint.problems];
 
   return NextResponse.json({ problems });
 }
