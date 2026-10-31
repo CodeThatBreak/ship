@@ -4,7 +4,7 @@ import { resolveCockpitSelectedKey } from './utils/resolveCockpitSelection';
 import { useQueryClient } from '@tanstack/react-query';
 import WorkflowGraph from '../workflowGraph/WorkflowGraph';
 import NodePanel from '../panels/NodePanel';
-import FlowHeader from '../FlowHeader';
+import FlowHeader from '../components/FlowHeader';
 import { Button } from '@/components/ui/button';
 import { queryKeys } from '@/constants/queryKeys';
 import type { FlowData, Node } from '@/types/flow';

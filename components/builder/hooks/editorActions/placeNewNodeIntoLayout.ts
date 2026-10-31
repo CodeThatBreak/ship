@@ -1,5 +1,5 @@
 import type { RefObject } from "react";
-import type { BuilderApi } from "@/components/templateEditor/BuilderCanvas";
+import type { BuilderApi } from '@/components/templateEditor/components/builder/BuilderCanvas';
 import type { CanvasPosition, Draft } from "@/components/templateEditor/draft";
 
 /** A new node lands at the viewport center when the canvas reports its

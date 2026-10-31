@@ -9,7 +9,7 @@ process.env.DATABASE_PATH = path.join(
 );
 
 const { db } = await import("../../db/app");
-const { nodeStore } = await import("../runtime/nodeStore");
+const { nodeStore } = await import('./nodeStore');
 const { NODE_STATUS } = await import("../constants/nodeStatus");
 const { isNodeStarted, childFlowHasStarted } = await import("../constants/nodeStatus");
 const { ConflictError } = await import("../../errors");

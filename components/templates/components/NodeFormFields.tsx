@@ -9,7 +9,7 @@ import {
 } from "@/components/ui/select";
 import type { NodeContract } from "@/components/templateEditor/types";
 import type { NodeTemplateKind } from "@/components/templateEditor/boilerplate";
-import { DeclarativeConfigFields } from "@/components/templateEditor/DeclarativeConfigFields";
+import { DeclarativeConfigFields } from '@/components/templateEditor/components/configurator/fields/DeclarativeConfigFields';
 import { NODE_KINDS } from "../constants";
 import type { NodeFormState } from "../types";
 

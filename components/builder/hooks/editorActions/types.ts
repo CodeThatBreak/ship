@@ -1,5 +1,5 @@
 import type { Dispatch, MutableRefObject, RefObject, SetStateAction } from "react";
-import type { BuilderApi } from "@/components/templateEditor/BuilderCanvas";
+import type { BuilderApi } from '@/components/templateEditor/components/builder/BuilderCanvas';
 import type { Draft } from "@/components/templateEditor/draft";
 import type { DraftNodeDef, EditorNode } from "@/components/templateEditor/types";
 import type { NodePositionsApi } from "@/components/templateEditor/hooks/useNodePositions";

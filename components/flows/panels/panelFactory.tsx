@@ -3,14 +3,14 @@ import type { ComponentType } from 'react';
 import type { Node } from '@/types/flow';
 import PlanNodeChat from '../components/plan/PlanNodeChat';
 import PlanView from '../components/plan/PlanView';
-import AgentView from './AgentView';
-import BuildView from './BuildView';
-import DeclarativeView from './DeclarativeView';
+import AgentView from './views/AgentView';
+import BuildView from './views/BuildView';
+import DeclarativeView from './views/DeclarativeView';
 import NodeChat from './NodeChat';
-import PipelineView from './PipelineView';
-import ResolveView from './ResolveView';
-import ReviewView from './ReviewView';
-import StartView from './StartView';
+import PipelineView from './views/PipelineView';
+import ResolveView from './views/ResolveView';
+import ReviewView from './views/ReviewView';
+import StartView from './views/StartView';
 
 /**
  * The node workspace factory (§3.1's registry, resolved explicitly): a

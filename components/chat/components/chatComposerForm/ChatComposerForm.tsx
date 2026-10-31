@@ -11,7 +11,7 @@ import {
   type ChangeEvent,
   type ReactNode,
 } from 'react';
-import ModelSelector from '../../ModelSelector';
+import ModelSelector from '../../modelSelector/ModelSelector';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { SendButton } from './components/SendButton';
 import { ResetButton } from './components/ResetButton';

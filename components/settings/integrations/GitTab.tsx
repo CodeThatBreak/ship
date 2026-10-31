@@ -8,12 +8,12 @@ import { useRecordTestResult, testResultKey, useTestResults } from "./hooks/useT
 import {
   useConnectInstance, useInstances, useRemoveInstance, useTestInstance,
 } from "./hooks/useInstances";
-import { ConnectEmpty } from "./components/ConnectEmpty";
-import { ConnectModal } from "./components/ConnectModal";
+import { ConnectEmpty } from './components/connect/ConnectEmpty';
+import { ConnectModal } from './components/connect/ConnectModal';
 import { HostingSelect } from "./components/HostingSelect";
-import { InstanceCard } from "./components/InstanceCard";
+import { InstanceCard } from './components/instances/InstanceCard';
 import { ProviderSelect } from "./components/ProviderSelect";
-import { InstanceList } from "./components/InstanceList";
+import { InstanceList } from './components/instances/InstanceList';
 import { Field, FieldLabel } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import type { TabProps } from "./types";

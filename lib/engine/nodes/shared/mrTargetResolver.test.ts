@@ -13,8 +13,8 @@ process.env.DATABASE_PATH = path.join(
 
 const { db } = await import("../../../db/app");
 const { branchStore } = await import("../kinds/build/branchStore");
-const { MrTargetResolver } = await import("../shared/mrTargetResolver");
-const { NodeSupport } = await import("../shared/nodeSupport");
+const { MrTargetResolver } = await import('./mrTargetResolver');
+const { NodeSupport } = await import('./nodeSupport');
 
 const now = () => new Date().toISOString();
 

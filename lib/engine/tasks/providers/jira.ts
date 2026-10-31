@@ -4,7 +4,7 @@ import { db } from "../../../db/app";
 import type { Task } from "../../../db/rows";
 import { UpstreamError, ValidationError } from "../../../errors";
 import { baseUrlOverrideRequiresToken } from "../../../integrations/instanceCredentialPolicy";
-import { truncateUpstreamBody } from "../../../engine/ports/gitHostErrors";
+import { truncateUpstreamBody } from '../../ports/gitHostErrors';
 import { AdfRenderer } from "../../../integrations/jira/adfRenderer";
 import { jiraAuthHeaders, jiraSearchPath } from "../../../integrations/jira/apiProfile";
 import { JIRA_HTTP_TIMEOUT_MS } from "../../../integrations/jira/constants";

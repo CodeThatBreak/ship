@@ -1,7 +1,7 @@
 'use client';
 import { useMemo } from 'react';
-import ChatPanel from "@/components/chat/ChatPanel";
-import ChatPanelSkeleton from "@/components/chat/ChatPanelSkeleton";
+import ChatPanel from '@/components/chat/feed/ChatPanel';
+import ChatPanelSkeleton from '@/components/chat/feed/ChatPanelSkeleton';
 import { useNodePanel, useNodeChatBindings } from '../../panels';
 import { usePlanComposer } from './hooks/usePlanComposer/planComposerExports';
 import type { BranchPlan } from './types/planTypes';

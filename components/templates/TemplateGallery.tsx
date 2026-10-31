@@ -23,7 +23,7 @@ import { Spinner } from "@/components/ui/spinner";
 import { ConfirmDeleteDialog } from "@/components/shared/ConfirmDeleteDialog";
 import { ListSection } from "@/components/shared/ListSection";
 import { DataTable, type DataTableAction } from "@/components/shared/dataTable/DataTable";
-import { WebhookPayloadDialog } from "@/components/templateEditor/WebhookPayloadDialog";
+import { WebhookPayloadDialog } from '@/components/templateEditor/components/webhook/WebhookPayloadDialog';
 import { queryKeys } from "@/constants/queryKeys";
 import { postJson } from "@/hooks/fetchJson";
 import { apiFetch } from "@/hooks/localApiToken";

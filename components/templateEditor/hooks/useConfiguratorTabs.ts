@@ -1,7 +1,7 @@
 "use client";
 import { useEffect, useState } from "react";
 import type { EditorNode, NodeContract } from "../types";
-import { promptEditorKeys } from "../ConfigFieldRow";
+import { promptEditorKeys } from '../components/configurator/fields/ConfigFieldRow';
 
 export const TAB_LABELS: Record<string, string> = {
   trigger: "Trigger",
