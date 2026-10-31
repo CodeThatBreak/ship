@@ -4,9 +4,10 @@ import { execFile } from "child_process";
 import fs from "fs";
 import path from "path";
 import { promisify } from "util";
-import { config } from "../../../config";
 import { db } from "../../../db";
 import { localGit } from "../../../git/local";
+import { workspacePaths } from "../../../git/workspace-paths";
+import { processSingleton } from "../../../singleton";
 import { authedCloneUrlFor } from "../../ports/git-host";
 import { isHookRejection } from "../../nodes/kinds/merge-request";
 import type { MergeBackArgs, MergeBackResult } from "../../nodes/shared/capabilities";
@@ -21,7 +22,7 @@ const MAX_BUFFER = 1024 * 1024 * 50;
  * the one engine op that lands an approved step child's branch onto the
  * parent's integration branch.
  *
- * Arena choice: a dedicated per-parent clone (`workspaces/<parentFlowId>-arena`)
+ * Arena choice: a dedicated per-parent clone (`workspaces/arenas/<parentFlowId>`)
  * — created lazily, never the developer's hub checkout (which is never touched,
  * even in local mode) and never the parent flow's own worktree (a worktree
  * checked out on the agent's branch cannot legally `git checkout` the
@@ -31,8 +32,8 @@ const MAX_BUFFER = 1024 * 1024 * 50;
  * keeps both modes on one code path (recorded as an implementation note —
  * revisit if arena clone cost becomes a concern).
  *
- * Serialization: an in-memory lock per integration branch (approvals from
- * qualified-parallel siblings can arrive concurrently). Durable `step_merges`
+ * Serialization: an in-memory lock per parent flow (all integration branches
+ * share one arena checkout). Durable `step_merges`
  * rows are written BEFORE any git command and updated after, so Phase 2's
  * reconcile can resume/flag a merge that a server restart interrupted.
  *
@@ -44,7 +45,7 @@ const MAX_BUFFER = 1024 * 1024 * 50;
  * repo-side CI rules scoped to the step-branch pattern are the mitigation.
  */
 class MergeArena {
-  /** chained in-flight merges per `${parentFlowId}:${integrationBranch}` */
+  /** chained in-flight merges per parent flow (one arena dir per parent) */
   private locks = new Map<string, Promise<void>>();
 
   /**
@@ -79,17 +80,9 @@ class MergeArena {
     return run;
   }
 
-  /** The arena dir for a parent flow: reused clone under workspaces/ (lazy create). */
+  /** The arena dir for a parent flow: reused clone under workspaces/arenas/ (lazy create). */
   private async ensureWorkspace(parentFlowId: string, repoUrl: string): Promise<string> {
-    const dir = path.join(config.workspace.dir(), `${parentFlowId}-arena`);
-    fs.mkdirSync(path.dirname(dir), { recursive: true });
-    await localGit.ensureClone(parentFlowId, repoUrl, authedCloneUrlFor).catch(() => null); // keeps the main flow clone alive for local-mode diffs
-    if (!fs.existsSync(path.join(dir, ".git"))) {
-      const authed = authedCloneUrlFor(repoUrl);
-      await this.git(["clone", "--no-checkout", authed, dir], { timeout: 300_000 });
-    }
-    await this.git(["-C", dir, "fetch", "origin", "--prune"], { timeout: 30_000 });
-    return dir;
+    return this.ensureWorkspaceUnlocked(parentFlowId, repoUrl);
   }
 
   private async git(
@@ -114,7 +107,7 @@ class MergeArena {
    * restart resumes or flags.
    */
   async mergeStepBranch(args: MergeBackArgs): Promise<MergeBackResult> {
-    const key = `${args.parentFlowId}:${args.integrationBranch}`;
+    const key = args.parentFlowId;
     const ts = () => db.now();
     // one durable row per attempt SERIES — a re-attempt (merge-fix / reconcile
     // resume) updates the same row and increments `attempts`
@@ -263,20 +256,35 @@ class MergeArena {
    * pipeline on hosts that accept push options, so failures here are swallowed.
    */
   async deleteStepBranch(parentFlowId: string, branch: string, parentNodeKey?: string): Promise<void> {
-    const parent = db.get<{ repo_url: string | null }>(`SELECT repo_url FROM flows WHERE id=?`, parentFlowId);
-    const repoUrl = parent?.repo_url;
-    if (!repoUrl) return;
-    const arena = await this.ensureWorkspace(parentFlowId, repoUrl);
-    try {
-      await this.git(["-C", arena, "push", "-o", "ci.skip", "origin", `:${branch}`]);
-    } catch {
-      await this.git(["-C", arena, "push", "origin", `:${branch}`]);
+    await this.withLock(parentFlowId, async () => {
+      const parent = db.get<{ repo_url: string | null }>(`SELECT repo_url FROM flows WHERE id=?`, parentFlowId);
+      const repoUrl = parent?.repo_url;
+      if (!repoUrl) return;
+      const arena = await this.ensureWorkspaceUnlocked(parentFlowId, repoUrl);
+      try {
+        await this.git(["-C", arena, "push", "-o", "ci.skip", "origin", `:${branch}`]);
+      } catch {
+        await this.git(["-C", arena, "push", "origin", `:${branch}`]);
+      }
+      if (parentNodeKey) {
+        db.emitEvent(parentFlowId, null, "lifecycle",
+          `step branch ${branch} deleted from origin (merge/skip hygiene)`,
+          { nodeKey: parentNodeKey, branch });
+      }
+    });
+  }
+
+  /** Lazy arena setup — call only while holding the parent-flow merge lock. */
+  private async ensureWorkspaceUnlocked(parentFlowId: string, repoUrl: string): Promise<string> {
+    const dir = workspacePaths.mergeArenaDir(parentFlowId);
+    fs.mkdirSync(path.dirname(dir), { recursive: true });
+    await localGit.ensureClone(parentFlowId, repoUrl, authedCloneUrlFor).catch(() => null);
+    if (!fs.existsSync(path.join(dir, ".git"))) {
+      const authed = authedCloneUrlFor(repoUrl);
+      await this.git(["clone", "--no-checkout", authed, dir], { timeout: 300_000 });
     }
-    if (parentNodeKey) {
-      db.emitEvent(parentFlowId, null, "lifecycle",
-        `step branch ${branch} deleted from origin (merge/skip hygiene)`,
-        { nodeKey: parentNodeKey, branch });
-    }
+    await this.git(["-C", dir, "fetch", "origin", "--prune"], { timeout: 30_000 });
+    return dir;
   }
 
   private errorText(e: unknown): string {
@@ -286,4 +294,4 @@ class MergeArena {
   }
 }
 
-export const mergeArena = new MergeArena();
+export const mergeArena = processSingleton("mergeArena", () => new MergeArena());

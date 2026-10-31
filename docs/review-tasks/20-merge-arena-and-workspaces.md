@@ -15,7 +15,7 @@ Each finding was re-verified against `refactor/prompt-engine-inconsistency-fix` 
 
 ### CR-008 [High] Merge-arena lock is per integration branch, but all branches of a parent share one working directory
 
-- **Status:** Open
+- **Status:** Fixed
 - **Type:** Bug
 - **Effort:** S
 - **Where:** lib/engine/runtime/fanout/merge-arena.ts:74-85 (withLock), 88-98 (ensureWorkspace), 132 (lock key), 144-155 (merge under lock), 272-281 (deleteStepBranch runs outside any lock)
@@ -23,7 +23,7 @@ Each finding was re-verified against `refactor/prompt-engine-inconsistency-fix` 
 
 ### CR-059 [Medium] `mergeArena` is a plain module singleton even though it holds process state that reconcile relies on
 
-- **Status:** Open
+- **Status:** Fixed
 - **Type:** Bug
 - **Effort:** S
 - **Where:** lib/engine/runtime/fanout/merge-arena.ts:296, lib/engine/runtime/flow-reconciler.ts:154
@@ -31,7 +31,7 @@ Each finding was re-verified against `refactor/prompt-engine-inconsistency-fix` 
 
 ### CR-106 [Medium] Per-flow clone dir and per-flow worktree dir are the same path (`workspaces/<flowId>`)
 
-- **Status:** Open
+- **Status:** Fixed
 - **Type:** Bug
 - **Effort:** M
 - **Where:** lib/git/local.ts:68-82, lib/git/local.ts:238-246, lib/engine/runtime/worktree-lifecycle.ts:76-78, lib/engine/runtime/fanout/merge-arena.ts:91, lib/engine/nodes/shared/run-context.ts:107
@@ -39,7 +39,7 @@ Each finding was re-verified against `refactor/prompt-engine-inconsistency-fix` 
 
 ### CR-107 [Medium] Worktree ensure is de-duplicated per `flow:branch` while the directory is per flow, so concurrent runs can switch branches under a live agent
 
-- **Status:** Open
+- **Status:** Fixed
 - **Type:** Bug
 - **Effort:** M
 - **Where:** lib/engine/runtime/worktree-lifecycle.ts:183-193, lib/engine/runtime/worktree-lifecycle.ts:76-78, lib/git/worktrees.ts:288-291, lib/git/worktrees.ts:480-495
@@ -48,8 +48,8 @@ Each finding was re-verified against `refactor/prompt-engine-inconsistency-fix` 
 
 ## Done when
 
-- [ ] Every finding above is fixed, or a remaining part is written up in the PR description.
-- [ ] Each bug fix has a regression test (Vitest for `lib/`; at least a hook or utility test for UI where practical).
-- [ ] Code follows [`docs/coding-patterns.md`](../coding-patterns.md).
-- [ ] `npm run typecheck`, `npm run lint`, `npm test` and `npm run build` pass (before Task 02 lands, `npx tsc --noEmit` instead of `typecheck`).
-- [ ] The status of each finding in [`docs/code-review.md`](../code-review.md) is updated (Fixed, with the PR link).
+- [x] Every finding above is fixed, or a remaining part is written up in the PR description.
+- [x] Each bug fix has a regression test (Vitest for `lib/`; at least a hook or utility test for UI where practical).
+- [x] Code follows [`docs/coding-patterns.md`](../coding-patterns.md).
+- [x] `npm run typecheck`, `npm run lint`, `npm test` and `npm run build` pass (before Task 02 lands, `npx tsc --noEmit` instead of `typecheck`).
+- [x] The status of each finding in [`docs/code-review.md`](../code-review.md) is updated (Fixed, with the PR link).

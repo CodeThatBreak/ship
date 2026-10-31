@@ -328,8 +328,8 @@ Each item below can be fixed independently. Severity headings group the items; w
 
 ### CR-008 [High] Merge-arena lock is per integration branch, but all branches of a parent share one working directory
 
-- **Status at `abaa007`:** **Open**, fix in [Task 20](review-tasks/20-merge-arena-and-workspaces.md)
-- **Current location:** lib/engine/runtime/fanout/merge-arena.ts:74-85 (withLock), 88-98 (ensureWorkspace), 132 (lock key), 144-155 (merge under lock), 272-281 (deleteStepBranch runs outside any lock)
+- **Status at `abaa007`:** **Fixed** ([Task 20](review-tasks/20-merge-arena-and-workspaces.md))
+- **Current location:** lib/engine/runtime/fanout/merge-arena.ts (withLock, ensureWorkspace, mergeStepBranch lock key, deleteStepBranch)
 - **Re-verification note:** The lock key is still `${parentFlowId}:${integrationBranch}`, while the arena directory is one `${parentFlowId}-arena` per parent, and multi-branch plans still produce several integration branches (`integrationBranchFor(…, stepRow.branch)`). Concurrent approvals in different branch groups can therefore abort, reset or check out over each other, and the lazy clone races too. Lock on `parentFlowId` (including the lazy clone and `deleteStepBranch`), or use one arena or worktree per integration branch.
 
 - **Severity:** High
@@ -1785,8 +1785,8 @@ Original findings, verbatim:
 
 ### CR-059 [Medium] `mergeArena` is a plain module singleton even though it holds process state that reconcile relies on
 
-- **Status at `abaa007`:** **Open**, fix in [Task 20](review-tasks/20-merge-arena-and-workspaces.md)
-- **Current location:** lib/engine/runtime/fanout/merge-arena.ts:296, lib/engine/runtime/flow-reconciler.ts:154
+- **Status at `abaa007`:** **Fixed** ([Task 20](review-tasks/20-merge-arena-and-workspaces.md))
+- **Current location:** lib/engine/runtime/fanout/merge-arena.ts (processSingleton export)
 - **Re-verification note:** `export const mergeArena = new MergeArena()` is still a plain module singleton holding `locks` and `inFlight`, while the reconciler (itself a `processSingleton`) relies on `isMerging()`; under `next dev` duplicated bundles can double-run merges. Wrap with `processSingleton("mergeArena", () => new MergeArena())`.
 
 - **Severity:** Medium
@@ -2929,8 +2929,8 @@ Original findings, verbatim:
 
 ### CR-106 [Medium] Per-flow clone dir and per-flow worktree dir are the same path (`workspaces/<flowId>`)
 
-- **Status at `abaa007`:** **Open**, fix in [Task 20](review-tasks/20-merge-arena-and-workspaces.md)
-- **Current location:** lib/git/local.ts:68-82, lib/git/local.ts:238-246, lib/engine/runtime/worktree-lifecycle.ts:76-78, lib/engine/runtime/fanout/merge-arena.ts:91, lib/engine/nodes/shared/run-context.ts:107
+- **Status at `abaa007`:** **Fixed** ([Task 20](review-tasks/20-merge-arena-and-workspaces.md))
+- **Current location:** lib/git/workspace-paths.ts, lib/git/local.ts, lib/engine/runtime/worktree-lifecycle.ts, lib/engine/runtime/fanout/merge-arena.ts
 - **Re-verification note:** `LocalGit.cloneDir(flowId)`, `workspaceForFlow(flowId)` and `WorktreeManager.worktreeDirForFlow(flowId)` all still resolve to `workspaces/<flowId>`. `MergeArena.ensureWorkspace` now calls `localGit.ensureClone(parentFlowId)` on every arena use, which clones into, or runs `fetch --prune` against, the same directory the parent's local worktree occupies. Fix: namespace the two roots (`workspaces/clones/<id>` and `workspaces/worktrees/<id>`) through one path-builder; no legacy-dir migration is needed.
 
 - **Severity:** Medium
@@ -2953,8 +2953,8 @@ Original findings, verbatim:
 
 ### CR-107 [Medium] Worktree ensure is de-duplicated per `flow:branch` while the directory is per flow, so concurrent runs can switch branches under a live agent
 
-- **Status at `abaa007`:** **Open**, fix in [Task 20](review-tasks/20-merge-arena-and-workspaces.md)
-- **Current location:** lib/engine/runtime/worktree-lifecycle.ts:183-193, lib/engine/runtime/worktree-lifecycle.ts:76-78, lib/git/worktrees.ts:288-291, lib/git/worktrees.ts:480-495
+- **Status at `abaa007`:** **Fixed** ([Task 20](review-tasks/20-merge-arena-and-workspaces.md))
+- **Current location:** lib/engine/runtime/worktree-lifecycle.ts (ensureForRun), lib/git/worktrees.ts (dir mutex, dirty-aware switch)
 - **Re-verification note:** `ensureInFlight` is still keyed on `${flowId}:${branch}` while the directory is per flow. `createWorktree` on an existing worktree still calls `switchWorktreeBranch`, which checks out another branch with no dirty check and no lock, and only warns on failure. Fix: key on `flowId` and re-check the branch once the in-flight ensure settles; refuse to switch when `isWorktreeDirty`, returning `{ switched: false, reason }`; add a per-directory async mutex around create, switch and remove.
 
 - **Severity:** Medium
@@ -7309,7 +7309,7 @@ One row per finding, at `abaa007`.
 | CR-005 | High | Bug | Fixed | [Task 13](review-tasks/13-frontend-query-ownership.md) |
 | CR-006 | High | Bug | Open | [Task 25](review-tasks/25-wait-timers-and-poller.md) |
 | CR-007 | High | Bug | Open | [Task 23](review-tasks/23-graph-semantics-and-validation.md) |
-| CR-008 | High | Bug | Open | [Task 20](review-tasks/20-merge-arena-and-workspaces.md) |
+| CR-008 | High | Bug | Fixed | [Task 20](review-tasks/20-merge-arena-and-workspaces.md) |
 | CR-009 | High | Bug | Open | [Task 19](review-tasks/19-fanout-rollup-and-promises.md) |
 | CR-010 | High | Bug | Open | [Task 19](review-tasks/19-fanout-rollup-and-promises.md) |
 | CR-011 | High | Bug | Open | [Task 21](review-tasks/21-multi-branch-correctness.md) |
@@ -7360,7 +7360,7 @@ One row per finding, at `abaa007`.
 | CR-056 | Medium | Bug | Fixed | [Task 17](review-tasks/17-node-claim-and-attempts.md) |
 | CR-057 | Medium | Bug | Open | [Task 19](review-tasks/19-fanout-rollup-and-promises.md) |
 | CR-058 | Medium | Bug | Open | [Task 19](review-tasks/19-fanout-rollup-and-promises.md) |
-| CR-059 | Medium | Bug | Open | [Task 20](review-tasks/20-merge-arena-and-workspaces.md) |
+| CR-059 | Medium | Bug | Fixed | [Task 20](review-tasks/20-merge-arena-and-workspaces.md) |
 | CR-060 | Medium | Bug | Open | [Task 25](review-tasks/25-wait-timers-and-poller.md) |
 | CR-061 | Medium | Bug | Open | [Task 19](review-tasks/19-fanout-rollup-and-promises.md) |
 | CR-062 | Medium | Gap | Open | [Task 23](review-tasks/23-graph-semantics-and-validation.md) |
@@ -7407,8 +7407,8 @@ One row per finding, at `abaa007`.
 | CR-103 | Medium | Bug | Open | [Task 33](review-tasks/33-git-and-worktree-process-safety.md) |
 | CR-104 | Medium | Bug | Open | [Task 33](review-tasks/33-git-and-worktree-process-safety.md) |
 | CR-105 | Medium | Security | Open | [Task 60](review-tasks/60-security-process-and-network-isolation.md) |
-| CR-106 | Medium | Bug | Open | [Task 20](review-tasks/20-merge-arena-and-workspaces.md) |
-| CR-107 | Medium | Bug | Open | [Task 20](review-tasks/20-merge-arena-and-workspaces.md) |
+| CR-106 | Medium | Bug | Fixed | [Task 20](review-tasks/20-merge-arena-and-workspaces.md) |
+| CR-107 | Medium | Bug | Fixed | [Task 20](review-tasks/20-merge-arena-and-workspaces.md) |
 | CR-108 | Medium | Bug | Open | [Task 30](review-tasks/30-events-feed.md) |
 | CR-109 | Medium | Bug | Open | [Task 32](review-tasks/32-agent-ports.md) |
 | CR-110 | Medium | Bug | Open | [Task 32](review-tasks/32-agent-ports.md) |

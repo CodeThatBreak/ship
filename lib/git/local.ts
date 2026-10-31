@@ -4,7 +4,7 @@ import { execFile } from "child_process";
 import fs from "fs";
 import path from "path";
 import { promisify } from "util";
-import { config } from "../config";
+import { workspacePaths } from "./workspace-paths";
 
 const execFileAsync = promisify(execFile);
 
@@ -66,7 +66,7 @@ export class LocalGit {
   }
 
   cloneDir(flowId: string): string {
-    return path.join(config.workspace.dir(), flowId);
+    return workspacePaths.cloneDir(flowId);
   }
 
   /** Clone (or reuse) a repo for a flow and fetch a branch. */
@@ -235,11 +235,13 @@ export class LocalGit {
 
 export const localGit = new LocalGit();
 
-/** The per-flow workspace clone directory (`workspaces/<flowId>`), or null when absent. */
+/** The per-flow workspace clone directory (`workspaces/clones/<flowId>`), or null when absent. */
 export function workspaceForFlow(flowId: string): string | null {
-  const dir = path.join(config.workspace.dir(), flowId);
+  const dir = workspacePaths.cloneDir(flowId);
   try {
-    return fs.existsSync(path.join(dir, ".git")) ? dir : null;
+    const dotGit = path.join(dir, ".git");
+    if (!fs.existsSync(dotGit)) return null;
+    return fs.lstatSync(dotGit).isDirectory() ? dir : null;
   } catch {
     return null;
   }

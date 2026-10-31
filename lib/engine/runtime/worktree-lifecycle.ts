@@ -3,7 +3,7 @@ import "server-only";
 import fs from "fs";
 import os from "os";
 import path from "path";
-import { config } from "../../config";
+import { workspacePaths } from "../../git/workspace-paths";
 import { db, type Repo } from "../../db";
 import { processSingleton } from "../../singleton";
 import {
@@ -67,14 +67,14 @@ export interface WorktreeBinding {
  * runs, resumed by the startup sweep), and the sweep itself. All git mechanics
  * live in the pure class — this class only joins them to db/config state.
  *
- * Layout: each local-mode flow's worktree lives at `workspaces/<flowId>` —
+ * Layout: each local-mode flow's worktree lives at `workspaces/worktrees/<flowId>` —
  * outside the repo tree (the developer's checkout stays the hub: it owns the
  * object database, refs and config, and is never mutated by agent runs).
  */
 export class WorktreeManager {
-  /** A flow's worktree dir: `workspaces/<flowId>` (unique per flow; sweep-joinable). */
+  /** A flow's worktree dir: `workspaces/worktrees/<flowId>` (unique per flow; sweep-joinable). */
   private worktreeDirForFlow(flowId: string): string {
-    return path.join(config.workspace.dir(), flowId);
+    return workspacePaths.worktreeDir(flowId);
   }
 
   // ── create / ensure ────────────────────────────────────────────────────────
@@ -155,7 +155,7 @@ export class WorktreeManager {
 
   // ── runner ensure (Option B) ────────────────────────────────────────────────
 
-  /** One in-flight ensure per flow+branch — concurrent callers share the work. */
+  /** One in-flight ensure per flow — concurrent callers share the work. */
   private ensureInFlight = new Map<string, Promise<WorktreeBinding>>();
 
   /**
@@ -180,17 +180,33 @@ export class WorktreeManager {
   ): Promise<{ cwd: string | undefined; setupNote: string | null }> {
     if (opts.cwd) return { cwd: opts.cwd, setupNote: null };
     if (opts.mode !== "agent") return { cwd: undefined, setupNote: null };
-    const existing = await this.currentWorktreeBranch(ctx); // null when no tree
-    const branch = existing ?? ctx.flow.mr_branch ?? opts.defaultBranch;
-    const key = `${ctx.flow.id}:${branch}`;
-    const inflight = this.ensureInFlight.get(key);
-    // waiters drop setupNote — the first caller appends it to its own prompt
-    if (inflight) return { cwd: (await inflight).dir ?? undefined, setupNote: null };
-    const p = this.ensureFlowWorktree(ctx, branch, { nodeId: opts.nodeId ?? null })
-      .finally(() => this.ensureInFlight.delete(key));
-    this.ensureInFlight.set(key, p);
-    const binding = await p;
-    return { cwd: binding.dir ?? undefined, setupNote: binding.setupNote };
+    const desiredBranch =
+      (await this.currentWorktreeBranch(ctx)) ?? ctx.flow.mr_branch ?? opts.defaultBranch;
+
+    while (true) {
+      const inflight = this.ensureInFlight.get(ctx.flow.id);
+      if (inflight) {
+        await inflight.catch(() => undefined);
+        const head = await this.currentWorktreeBranch(ctx);
+        if (head === desiredBranch && ctx.flow.worktree_dir) {
+          const dir = this.tryRealpath(ctx.flow.worktree_dir);
+          if (fs.existsSync(path.join(dir, ".git"))) {
+            return { cwd: dir, setupNote: null };
+          }
+        }
+        if (this.ensureInFlight.has(ctx.flow.id)) continue;
+      }
+
+      const p = this.ensureFlowWorktree(ctx, desiredBranch, { nodeId: opts.nodeId ?? null })
+        .finally(() => {
+          if (this.ensureInFlight.get(ctx.flow.id) === p) {
+            this.ensureInFlight.delete(ctx.flow.id);
+          }
+        });
+      this.ensureInFlight.set(ctx.flow.id, p);
+      const binding = await p;
+      return { cwd: binding.dir ?? undefined, setupNote: binding.setupNote };
+    }
   }
 
   /**
@@ -328,7 +344,7 @@ export class WorktreeManager {
       }
     }
 
-    const wsDir = config.workspace.dir();
+    const wsDir = this.tryRealpath(workspacePaths.worktreesRoot());
     const handled = new Set<string>();
     const repos = db.all<Repo>(`SELECT * FROM repos WHERE local_path IS NOT NULL`);
 
@@ -340,7 +356,7 @@ export class WorktreeManager {
         const registered = await worktrees.listWorktrees(repo.local_path);
         for (const wt of registered) {
           if (wt.isMainWorktree || wt.isBare) continue;
-          if (!containsPath(this.tryRealpath(wsDir), wt.path)) continue; // DevFlow-owned worktrees only
+          if (!containsPath(this.tryRealpath(workspacePaths.worktreesRoot()), wt.path)) continue; // DevFlow-owned worktrees only
           handled.add(this.tryRealpath(wt.path));
           const flowId = path.basename(wt.path);
           const flow = db.get<{ id: string; status: string; worktree_dir: string | null }>(
@@ -407,7 +423,7 @@ export class WorktreeManager {
    * the flows.worktree_dir clear + record cleanup on success.
    */
   private async removeWorktreeDir(target: RemovalTarget): Promise<boolean> {
-    const wsDir = this.tryRealpath(config.workspace.dir());
+    const wsDir = this.tryRealpath(workspacePaths.worktreesRoot());
     // Safety net — only ever touch dirs inside the DevFlow workspace root, and
     // never the workspace root itself, the hub, or the user's home.
     if (!containsPath(wsDir, target.wtPath) || samePath(wsDir, target.wtPath)) {

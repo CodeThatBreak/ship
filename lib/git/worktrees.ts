@@ -244,6 +244,22 @@ export interface WorktreeRemovalResult {
 export class Worktrees {
   /** One in-flight scan per repo — concurrent callers share the same git exec. */
   private readonly inflight = new Map<string, Promise<GitWorktreeInfo[]>>();
+  /** Serialize create/switch/remove for one worktree directory. */
+  private readonly dirChains = new Map<string, Promise<void>>();
+
+  private async withDirLock<T>(dir: string, fn: () => Promise<T>): Promise<T> {
+    const key = path.resolve(dir);
+    const prev = this.dirChains.get(key) ?? Promise.resolve();
+    const run = prev.then(fn, fn);
+    this.dirChains.set(
+      key,
+      run.then(
+        () => undefined,
+        () => undefined,
+      ),
+    );
+    return run;
+  }
 
   /**
    * List a repo's worktrees. STRICT: throws on git failure — a failed scan must
@@ -282,13 +298,22 @@ export class Worktrees {
    * from a fresh worktree branch just works.
    */
   async createWorktree(input: CreateWorktreeInput): Promise<WorktreeCreateResult> {
+    return this.withDirLock(input.dir, () => this.createWorktreeUnlocked(input));
+  }
+
+  private async createWorktreeUnlocked(input: CreateWorktreeInput): Promise<WorktreeCreateResult> {
     const { repoPath, dir, branch } = input;
     const worktrees = await this.listWorktrees(repoPath);
     const existing = worktrees.find((w) => !w.isMainWorktree && samePath(w.path, dir));
 
     if (existing) {
-      const headBranch = await this.switchWorktreeBranch(dir, branch, input.base);
-      return { dir, branch, headBranch: headBranch ?? branch, base: null, reused: true };
+      const sw = await this.switchWorktreeBranch(dir, branch, input.base);
+      if (!sw.switched && sw.headBranch !== branch) {
+        throw new Error(
+          `cannot switch worktree to ${branch}: ${sw.reason ?? "branch switch refused"}`,
+        );
+      }
+      return { dir, branch, headBranch: sw.headBranch, base: null, reused: true };
     }
 
     // the dir must not exist for `worktree add` — clear orphaned leftovers
@@ -359,6 +384,10 @@ export class Worktrees {
    * crash-safety records (the engine manager persists one before calling).
    */
   async removeWorktree(input: RemoveWorktreeInput): Promise<WorktreeRemovalResult> {
+    return this.withDirLock(input.wtPath, () => this.removeWorktreeUnlocked(input));
+  }
+
+  private async removeWorktreeUnlocked(input: RemoveWorktreeInput): Promise<WorktreeRemovalResult> {
     const { repoPath, wtPath, force } = input;
     const preflight = await this.preflightRemoval({ repoPath, wtPath, home: input.home });
     if (!preflight.ok) throw new Error(preflight.reason ?? "worktree removal refused by preflight");
@@ -477,20 +506,32 @@ export class Worktrees {
    * leaves the worktree on its current branch (the agent's prompt covers branch
    * creation; localAgent.ensureBranch is the second line of defense).
    */
-  private async switchWorktreeBranch(dir: string, branch: string, base?: string): Promise<string | null> {
+  private async switchWorktreeBranch(
+    dir: string,
+    branch: string,
+    base?: string,
+  ): Promise<{ headBranch: string; switched: boolean; reason?: string }> {
     const cur = await this.headBranch(dir);
-    if (cur === branch) return branch;
+    if (cur === branch) return { headBranch: branch, switched: true };
+    if (await this.isWorktreeDirty(dir)) {
+      return {
+        headBranch: cur ?? branch,
+        switched: false,
+        reason: "worktree has uncommitted changes",
+      };
+    }
     try {
       if (await this.refExists(dir, `refs/heads/${branch}`)) {
         await this.git(["-C", dir, "checkout", branch], { timeout: GIT_TIMEOUT_MS });
-        return branch;
+        return { headBranch: branch, switched: true };
       }
       const baseRef = await this.resolveBaseRef(dir, base);
       await this.git(["-C", dir, "checkout", "-b", branch, baseRef], { timeout: GIT_TIMEOUT_MS });
-      return branch;
+      return { headBranch: branch, switched: true };
     } catch (e: unknown) {
-      console.warn(`worktree branch switch to ${branch} failed in ${dir}: ${e instanceof Error ? e.message : e}`);
-      return await this.headBranch(dir);
+      const reason = e instanceof Error ? e.message : String(e);
+      const head = (await this.headBranch(dir)) ?? cur ?? branch;
+      return { headBranch: head, switched: false, reason };
     }
   }
 
