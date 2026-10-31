@@ -50,7 +50,7 @@ export default async function TemplateEditorRoute({
       queryFn: () => boot.providers,
     }),
     queryClient.prefetchQuery({
-      queryKey: queryKeys.repos,
+      queryKey: queryKeys.repoChoices,
       queryFn: () => boot.repos,
     }),
   ]);

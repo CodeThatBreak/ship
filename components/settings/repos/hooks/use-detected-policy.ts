@@ -1,7 +1,7 @@
 "use client";
 import { useQuery } from "@tanstack/react-query";
 import { queryKeys } from "@/constants/query-keys";
-import { fetchJson } from "../../queries";
+import { fetchJsonOr } from "../../queries";
 
 /** What DevFlow would apply with no per-repo overrides (see /api/repos/detect). */
 export type DetectedPolicy = {
@@ -20,7 +20,7 @@ export function useDetectedPolicy(localPath: string, enabled: boolean) {
   const query = useQuery({
     queryKey: queryKeys.reposDetect(localPath),
     queryFn: () =>
-      fetchJson<DetectedPolicy | null>(
+      fetchJsonOr<DetectedPolicy | null>(
         `/api/repos/detect${localPath ? `?local_path=${encodeURIComponent(localPath)}` : ""}`,
         null,
       ),

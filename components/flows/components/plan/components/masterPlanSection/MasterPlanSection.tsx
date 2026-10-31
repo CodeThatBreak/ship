@@ -1,18 +1,11 @@
 'use client';
 import { Info, Layers, RotateCcw } from 'lucide-react';
-import { useQuery } from '@tanstack/react-query';
-import { queryKeys } from '@/constants/query-keys';
 import { Markdown } from '@/components/shared';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
+import { useArtifact } from '../../../../hooks/useArtifact';
 import { MasterPlanLoader } from './MasterPlanLoader';
-
-/** The fetched plan document as /api/artifacts serves it (lenient reader). */
-interface LoadedArtifact {
-  content?: string;
-  meta?: { feedback?: string } | null;
-}
 
 /** The section's heading — hoisted, shared by the loading/error/success rows. */
 const MASTER_PLAN_HEADING = (
@@ -28,14 +21,7 @@ const MASTER_PLAN_HEADING = (
  * retry, and an empty document is called out explicitly.
  */
 export function MasterPlanSection({ planId }: { planId: string }) {
-  const { data: artifact, isPending, isError, refetch } = useQuery({
-    queryKey: queryKeys.artifacts.detail(planId),
-    queryFn: async (): Promise<LoadedArtifact> => {
-      const res = await fetch(`/api/artifacts/${planId}`);
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      return (await res.json()) as LoadedArtifact;
-    },
-  });
+  const { data: artifact, isPending, isError, refetch } = useArtifact(planId);
 
   // loading: a skeleton that mirrors the final layout (§2.8)
   if (isPending) return <MasterPlanLoader />;
@@ -61,7 +47,8 @@ export function MasterPlanSection({ planId }: { planId: string }) {
     );
   }
 
-  const feedback = artifact.meta?.feedback;
+  const feedback =
+    typeof artifact.meta?.feedback === "string" ? artifact.meta.feedback : null;
 
   return (
     <div>

@@ -11,7 +11,7 @@
  * `queryKeys.nodeContracts` cache keyed by request URL.
  */
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
-import { queryKeys } from "@/constants/query-keys";
+import { nodeContractQueryOptions } from "../queries";
 import { contractsUrl, type EditorNode, type NodeContract } from "../types";
 
 /**
@@ -19,29 +19,26 @@ import { contractsUrl, type EditorNode, type NodeContract } from "../types";
  * (an unknown instance): callers render their empty/absent contract shape
  * instead of throwing the read away.
  */
-export async function fetchNodeContract(url: string): Promise<NodeContract | null> {
-  const res = await fetch(url);
-  if (!res.ok) throw new Error(`HTTP ${res.status}`);
-  const c = (await res.json()) as NodeContract;
-  return c?.input != null ? c : null;
-}
+export const contractWithInput = (
+  contract: NodeContract | undefined,
+): NodeContract | null => (contract?.input != null ? contract : null);
 
 /**
  * One node instance's contract. `null` node = disabled (the draft graph is
  * the caller's concern); a resolved-but-input-less contract arrives as
- * `undefined` data — see `fetchNodeContract`.
+ * `null` data — see `contractWithInput`.
  */
-export function useNodeContract(node: Pick<EditorNode, "nodeTemplateId" | "kind" | "catalog_name" | "config"> | null) {
-  // null node = disabled — the fetch never runs without an instance
+export const useNodeContract = (
+  node: Pick<
+    EditorNode,
+    "nodeTemplateId" | "kind" | "catalog_name" | "config"
+  > | null,
+) => {
   const url = node ? contractsUrl(node) : null;
   return useQuery({
-    queryKey: queryKeys.nodeContracts(url ?? "none"),
-    queryFn: () => fetchNodeContract(url ?? "none"),
+    ...nodeContractQueryOptions(url ?? "none"),
     enabled: url != null,
-    // the URL carries the instance's config, so prompt-typing re-keys the
-    // query — keep rendering the previous contract while the new one fetches
-    // instead of going pending (a pending re-key unmounted the configurator's
-    // whole Prompt tab on every keystroke)
+    select: contractWithInput,
     placeholderData: keepPreviousData,
   });
-}
+};

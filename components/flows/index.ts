@@ -6,3 +6,5 @@ export { StatusBar } from "./StatusBar";
 /** Icon resolution lives with the graph (the template builder reuses it). */
 export { ICONS } from "./workflow-graph/WorkflowGraph";
 export type { FlowSummary, WorktreeStatus } from "@/types/flows";
+export { artifactQueryOptions, type ArtifactDetail } from "./queries";
+export { useArtifact } from "./hooks/useArtifact";

@@ -20,7 +20,7 @@ import {
   boilerplateFor,
 } from "@/components/template-editor";
 import { queryKeys } from "@/constants/query-keys";
-import { fetchJson } from "@/hooks/fetch-json";
+import { settingsQueryOptions } from "@/components/settings";
 import { isNodeKind } from "../constants";
 import { useNodeSchemaContract } from "../hooks/use-node-schema-contract";
 import type { NodeFormState, NodeRow } from "../types";
@@ -68,8 +68,7 @@ export function NodeConfigureDialog({
   // names
   const contract = useNodeSchemaContract(form.kind, form.config);
   const { data: settingsData } = useQuery({
-    queryKey: queryKeys.settings,
-    queryFn: () => fetchJson<{ secrets?: string[] }>("/api/settings"),
+    ...settingsQueryOptions(),
     enabled: form.kind === "http",
   });
   const secretNames = form.kind === "http" ? (settingsData?.secrets ?? null) : null;

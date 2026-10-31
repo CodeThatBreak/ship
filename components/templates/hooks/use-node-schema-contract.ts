@@ -5,11 +5,8 @@ import {
   type NodeContract,
   type NodeTemplateKind,
   kindContractUrl,
+  nodeContractQueryOptions,
 } from "@/components/template-editor";
-import { queryKeys } from "@/constants/query-keys";
-import { fetchJson } from "@/hooks/fetch-json";
-
-type ContractResponse = NodeContract | { error?: string };
 
 /**
  * The kind's field contract (fields + parsed defaults from the runtime class,
@@ -31,8 +28,7 @@ export function useNodeSchemaContract(
 ): NodeContract | null {
   const url = kindContractUrl(kind, config);
   const { data } = useQuery({
-    queryKey: queryKeys.nodeContracts(url),
-    queryFn: () => fetchJson<ContractResponse>(url),
+    ...nodeContractQueryOptions(url),
     retry: false,
   });
 

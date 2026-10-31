@@ -256,7 +256,7 @@ Each item below can be fixed independently. Severity headings group the items; w
 
 ### CR-005 [High] The template editor SSR seeds the shared `queryKeys.repos` cache with a different data shape
 
-- **Status at `abaa007`:** **Open**, fix in [Task 13](review-tasks/13-frontend-query-ownership.md)
+- **Status at `abaa007`:** **Fixed** ([Task 13](review-tasks/13-frontend-query-ownership.md))
 - **Current location:** app/templates/[id]/page.tsx:52-55; loaders/templates.ts:35-40; components/builder/hooks/use-editor-queries.ts:74; components/settings/context.tsx:69; components/template-editor/WebhookPayloadDialog.tsx:148
 - **Re-verification note:** The editor SSR still seeds `queryKeys.repos` with the slim `EditorRepoChoice[]` (`{id,name,local_path}`), and Settings and WebhookPayloadDialog read the same key expecting full `Repo[]`. Give the editor slice its own key (for example `queryKeys.repoChoices`) in both the page and `use-editor-queries.ts`, or seed full `Repo[]` and narrow it with `select`.
 
@@ -3374,7 +3374,7 @@ Original findings, verbatim:
 
 ### CR-120 [Medium] `ArtifactLoader` fetches in a raw `useEffect` with no error path: rejections hang on "Loading…" and stale content shows on id change
 
-- **Status at `abaa007`:** **Open**, fix in [Task 13](review-tasks/13-frontend-query-ownership.md)
+- **Status at `abaa007`:** **Fixed** ([Task 13](review-tasks/13-frontend-query-ownership.md))
 - **Current location:** components/flows/panels/ArtifactViews.tsx:102-123 (consumers: ArtifactViews.tsx:37, AgentView.tsx:98, HttpView.tsx:60, ScriptView.tsx:63, BuildView.tsx:189), components/flows/panels/context.ts:25
 - **Re-verification note:** `ArtifactLoader` is still a raw `useEffect` + `useState` fetch with no `.catch`, so a failure hangs on "Loading…" forever, the previous artifact stays on screen when `id` changes, and loading is a bare spinner. The plan panel no longer uses it (`MasterPlanSection` has its own `useQuery` with skeleton, error and retry), but every other panel does. Fix: add a `useArtifact(id)` `useQuery` hook (`staleTime: Infinity`) with skeleton, error-with-retry and content states, then drop `fetchArtifact` from the panel context.
 
@@ -3407,7 +3407,7 @@ Original findings, verbatim:
 
 ### CR-121 [Medium] `useArtifactFetcher` caches HTTP error bodies as artifacts and its "cache" never hits
 
-- **Status at `abaa007`:** **Open**, fix in [Task 13](review-tasks/13-frontend-query-ownership.md)
+- **Status at `abaa007`:** **Fixed** ([Task 13](review-tasks/13-frontend-query-ownership.md))
 - **Current location:** hooks/use-artifact-fetcher.ts:14-28, components/flows/components/plan/components/masterPlanSection/MasterPlanSection.tsx:31-38
 - **Re-verification note:** `useArtifactFetcher` still returns `res.json()` regardless of status, so error bodies are cached as artifacts, and it uses `fetchQuery` with the default `staleTime: 0`, so the cache never hits. `MasterPlanSection` now writes the same `queryKeys.artifacts.detail(id)` key with a throwing `queryFn`, so two different semantics share one key. Fix: one shared `artifactQueryOptions(id)` using `fetchJson` with `staleTime: Infinity`, used by both, ideally inside the CR-120 hook.
 
@@ -3750,7 +3750,7 @@ Original findings, verbatim:
 
 ### CR-135 [Medium] `queryKeys.nodeContracts(url)` (and `queryKeys.settings`) are shared by fetchers with different semantics
 
-- **Status at `abaa007`:** **Open**, fix in [Task 13](review-tasks/13-frontend-query-ownership.md)
+- **Status at `abaa007`:** **Fixed** ([Task 13](review-tasks/13-frontend-query-ownership.md))
 - **Current location:** components/builder/hooks/use-instance-contracts.ts:39-60, components/builder/hooks/use-instance-contracts.ts:85-86, components/builder/hooks/use-instance-contracts.ts:145-146, components/template-editor/hooks/use-node-contract.ts:22-27, components/template-editor/hooks/use-node-contract.ts:38-39, components/templates/hooks/use-node-schema-contract.ts:33-35, components/template-editor/components/ConfigTab.tsx:80-82, components/templates/components/NodeConfigureDialog.tsx:70-72
 - **Re-verification note:** `queryKeys.nodeContracts(url)` is still written by three different `queryFn`s: `fetchContract` caches `null` on failure, `fetchNodeContract` throws, and `use-node-schema-contract` uses `fetchJson`. `queryKeys.settings` is likewise fetched by both `fetchSettings` and `fetchJson("/api/settings")`. Fix: export one `queryOptions` per key next to `queryKeys`, throw on failure, and handle `isError` in callers.
 
@@ -7310,7 +7310,7 @@ One row per finding, at `abaa007`.
 | CR-002 | High | Security | Open | [Task 57](review-tasks/57-security-local-api-hardening.md) |
 | CR-003 | High | Gap | Partly fixed | [Task 10](review-tasks/10-api-input-validation-flows.md), [Task 11](review-tasks/11-api-input-validation-settings.md) |
 | CR-004 | High | Bug | Partly fixed | [Task 28](review-tasks/28-prompt-preview-parity.md) |
-| CR-005 | High | Bug | Open | [Task 13](review-tasks/13-frontend-query-ownership.md) |
+| CR-005 | High | Bug | Fixed | [Task 13](review-tasks/13-frontend-query-ownership.md) |
 | CR-006 | High | Bug | Open | [Task 25](review-tasks/25-wait-timers-and-poller.md) |
 | CR-007 | High | Bug | Open | [Task 23](review-tasks/23-graph-semantics-and-validation.md) |
 | CR-008 | High | Bug | Open | [Task 20](review-tasks/20-merge-arena-and-workspaces.md) |
@@ -7425,8 +7425,8 @@ One row per finding, at `abaa007`.
 | CR-117 | Medium | Security | Open | [Task 61](review-tasks/61-security-secrets-at-rest-and-rendering.md) |
 | CR-118 | Medium | Code quality | Open | [Task 48](review-tasks/48-backend-dependency-injection.md) |
 | CR-119 | Medium | Bug | Open | [Task 30](review-tasks/30-events-feed.md) |
-| CR-120 | Medium | Gap | Open | [Task 13](review-tasks/13-frontend-query-ownership.md) |
-| CR-121 | Medium | Bug | Open | [Task 13](review-tasks/13-frontend-query-ownership.md) |
+| CR-120 | Medium | Gap | Fixed | [Task 13](review-tasks/13-frontend-query-ownership.md) |
+| CR-121 | Medium | Bug | Fixed | [Task 13](review-tasks/13-frontend-query-ownership.md) |
 | CR-122 | Medium | Bug | Open | [Task 35](review-tasks/35-cockpit-panel-state.md) |
 | CR-123 | Medium | Bug | Open | [Task 35](review-tasks/35-cockpit-panel-state.md) |
 | CR-124 | Medium | Bug | Partly fixed | [Task 35](review-tasks/35-cockpit-panel-state.md) |
@@ -7440,7 +7440,7 @@ One row per finding, at `abaa007`.
 | CR-132 | Medium | Bug | Open | [Task 38](review-tasks/38-editor-draft-machine.md) |
 | CR-133 | Medium | Bug | Open | [Task 38](review-tasks/38-editor-draft-machine.md) |
 | CR-134 | Medium | Bug | Open | [Task 38](review-tasks/38-editor-draft-machine.md) |
-| CR-135 | Medium | Bug | Open | [Task 13](review-tasks/13-frontend-query-ownership.md) |
+| CR-135 | Medium | Bug | Fixed | [Task 13](review-tasks/13-frontend-query-ownership.md) |
 | CR-136 | Medium | Bug | Open | [Task 37](review-tasks/37-editor-save-integrity.md) |
 | CR-137 | Medium | Bug | Open | [Task 39](review-tasks/39-editor-fields-and-effects.md) |
 | CR-138 | Medium | Bug | Open | [Task 39](review-tasks/39-editor-fields-and-effects.md) |

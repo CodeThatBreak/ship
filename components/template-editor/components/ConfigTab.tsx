@@ -12,8 +12,7 @@ import { AlertTriangle, RefreshCw } from "lucide-react";
 import { Button } from "../../ui/button";
 import { Skeleton } from "../../ui/skeleton";
 import { cn } from "../../../lib/utils";
-import { queryKeys } from "@/constants/query-keys";
-import { fetchSettings } from "../../settings";
+import { settingsQueryOptions } from "../../settings/queries";
 import type { EditorNode, NodeContract } from "../types";
 import {
   ConfigFieldRow,
@@ -78,8 +77,7 @@ export function ConfigTab({
   // offered as {{secrets.NAME}} chips under the fields where secrets resolve
   const isHttp = node.kind === "http";
   const secretsQuery = useQuery({
-    queryKey: queryKeys.settings,
-    queryFn: fetchSettings,
+    ...settingsQueryOptions(),
     enabled: isHttp,
   });
   const secretNames = secretsQuery.data?.secrets ?? null;

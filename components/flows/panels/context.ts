@@ -21,8 +21,6 @@ export interface NodePanelContextValue {
   events: FeedEvent[];
   /** the composed model override consumed by run-start action payloads */
   model: string;
-  /** imperative artifact lookup through the query cache (panels stay transport-free) */
-  fetchArtifact: (id: string) => Promise<unknown>;
   /** the model picker's choice (the chat composer's selector writes it) */
   modelChoice: ModelChoice | null;
   setModelChoice: (choice: ModelChoice | null) => void;

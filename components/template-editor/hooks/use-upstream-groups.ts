@@ -8,10 +8,9 @@
  */
 import { useMemo } from "react";
 import { useQueries } from "@tanstack/react-query";
-import { queryKeys } from "@/constants/query-keys";
 import type { EditorEdge, EditorNode, NodeContract } from "../types";
 import { contractsUrl, nodeLabel } from "../types";
-import { fetchNodeContract } from "./use-node-contract";
+import { nodeContractQueryOptions } from "../queries";
 import { schemaRows } from "../variables";
 
 /** The edge kind that carries execution flow — the only kind whose source
@@ -57,10 +56,7 @@ export function useUpstreamGroups(incoming?: IncomingLink[]): UpstreamGroup[] {
   }, [incoming]);
 
   const contracts = useQueries({
-    queries: sources.map((src) => ({
-      queryKey: queryKeys.nodeContracts(contractsUrl(src)),
-      queryFn: () => fetchNodeContract(contractsUrl(src)),
-    })),
+    queries: sources.map((src) => nodeContractQueryOptions(contractsUrl(src))),
     combine: (results) => {
       const byKey: Record<string, NodeContract | null> = {};
       sources.forEach((src, i) => {

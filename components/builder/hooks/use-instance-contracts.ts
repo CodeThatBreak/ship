@@ -10,13 +10,12 @@
  */
 import { useMemo, useRef } from "react";
 import { keepPreviousData, useQueries, useQuery } from "@tanstack/react-query";
-import { queryKeys } from "@/constants/query-keys";
 import {
   START_NODE_TEMPLATE_ID,
   contractsUrl,
+  nodeContractQueryOptions,
   schemaRows,
   type Draft,
-  type NodeContract,
 } from "@/components/template-editor";
 
 /** A decision node's branch choice (its labeled out-edge + description). */
@@ -31,15 +30,6 @@ export interface TriggerField {
   key: string;
   label?: string;
   type?: string;
-}
-
-/** GET /api/contracts parsed — null when the request fails. */
-export async function fetchContract(
-  url: string,
-): Promise<NodeContract | null> {
-  const res = await fetch(url).catch(() => null);
-  if (!res || !res.ok) return null;
-  return (await res.json()) as NodeContract;
 }
 
 function choiceHasLabel(c: unknown): boolean {
@@ -82,10 +72,8 @@ export function useInstanceContracts(draft: Draft | null): InstanceContracts {
     queries: pendingDecisions.map((n) => {
       const url = contractsUrl(n);
       return {
-        queryKey: queryKeys.nodeContracts(url),
-        queryFn: () => fetchContract(url),
+        ...nodeContractQueryOptions(url),
         enabled: draft != null,
-        staleTime: 30_000,
         placeholderData: keepPreviousData,
       };
     }),
@@ -142,10 +130,8 @@ export function useInstanceContracts(draft: Draft | null): InstanceContracts {
   );
   const startUrl = startNode ? contractsUrl(startNode) : null;
   const { data: startContract } = useQuery({
-    queryKey: queryKeys.nodeContracts(startUrl ?? "none"),
-    queryFn: () => fetchContract(startUrl ?? "none"),
+    ...nodeContractQueryOptions(startUrl ?? "none"),
     enabled: startUrl != null,
-    staleTime: 30_000,
     placeholderData: keepPreviousData,
   });
   const triggerFields = useMemo<TriggerField[]>(

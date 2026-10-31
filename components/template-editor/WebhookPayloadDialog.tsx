@@ -29,7 +29,8 @@ import {
 import { Skeleton } from "../ui/skeleton";
 import { useCopy } from "../../hooks/use-copy";
 import { queryKeys } from "@/constants/query-keys";
-import { fetchRepos, fetchSettings, type Harness, type Repo } from "../settings";
+import { settingsQueryOptions, reposQueryOptions } from "../settings/queries";
+import { type Harness, type Repo } from "../settings";
 import { schemaRows } from "./variables";
 
 /** The saved template's start-node row (same catalog id the editor looks
@@ -140,13 +141,11 @@ export function WebhookPayloadDialog({
   useEffect(() => setOrigin(window.location.origin), []);
 
   const settingsQuery = useQuery({
-    queryKey: queryKeys.settings,
-    queryFn: fetchSettings,
+    ...settingsQueryOptions(),
     enabled: open,
   });
   const reposQuery = useQuery({
-    queryKey: queryKeys.repos,
-    queryFn: fetchRepos,
+    ...reposQueryOptions(),
     enabled: open,
   });
   const contextQuery = useQuery({

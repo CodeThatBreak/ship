@@ -21,6 +21,7 @@ export {
   type NodeTemplateKind,
 } from "./boilerplate";
 export { kindContractUrl } from "./types";
+export { nodeContractQueryOptions } from "./queries";
 export { contractsUrl, describeTrigger, nodeLabel, nodeRelationships, isPlanDownstream } from "./types";
 export type { NodeContract, EditorNode, EditorEdge, DraftNodeDef, TaskProviderInfo } from "./types";
 export { FLOW_TRIGGER_TYPE } from "./constants";

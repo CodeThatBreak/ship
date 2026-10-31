@@ -9,6 +9,7 @@
  */
 import { useQuery, type UseQueryResult } from "@tanstack/react-query";
 import { queryKeys } from "@/constants/query-keys";
+import { repoChoicesQueryOptions } from "../queries";
 import {
   initialPositions,
   type CanvasPosition,
@@ -50,17 +51,7 @@ export async function fetchTaskProviders(): Promise<EditorTaskProvider[]> {
   return d?.providers ?? [];
 }
 
-/** GET /api/repos — the Bound-repo picker's options (narrow slice). */
-export async function fetchRepoChoices(): Promise<EditorRepoChoice[]> {
-  const d = (await fetch("/api/repos")
-    .then((r) => r.json() as Promise<{ repos?: EditorRepoChoice[] }>)
-    .catch(() => null)) ?? null;
-  return (d?.repos ?? []).map((r) => ({
-    id: r.id,
-    name: r.name,
-    local_path: r.local_path ?? null,
-  }));
-}
+export { fetchRepoChoices } from "../queries";
 
 export function useTaskProviders(): UseQueryResult<EditorTaskProvider[], Error> {
   return useQuery({
@@ -70,10 +61,7 @@ export function useTaskProviders(): UseQueryResult<EditorTaskProvider[], Error> 
 }
 
 export function useRepoChoices(): UseQueryResult<EditorRepoChoice[], Error> {
-  return useQuery({
-    queryKey: queryKeys.repos,
-    queryFn: fetchRepoChoices,
-  });
+  return useQuery(repoChoicesQueryOptions());
 }
 
 // ── the detail payload → editing draft ──────────────────────────────────────

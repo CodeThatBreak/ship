@@ -6,3 +6,7 @@
  */
 export { TemplateEditor, type TemplateEditorProps } from "./EditorPage";
 export { EditorLoading } from "./EditorLoading";
+export {
+  repoChoicesQueryOptions,
+  fetchRepoChoices,
+} from "./queries";

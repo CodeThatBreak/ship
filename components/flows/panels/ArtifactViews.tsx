@@ -1,22 +1,21 @@
 "use client";
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import type { LucideIcon } from "lucide-react";
+import { RotateCcw } from "lucide-react";
 import type { Node } from "@/types/flow";
 import { Button } from "@/components/ui/button";
-import { Spinner } from "@/components/ui/spinner";
+import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
 import { FLOW_STATUS } from "@/constants/flow";
-import { useNodePanel } from "./context";
+import { errorMessageOf } from "@/hooks/fetch-json";
+import { useArtifact } from "../hooks/useArtifact";
+import type { ArtifactDetail } from "../queries";
 
-/** The artifact payload as returned by /api/artifacts — panels read `.content`
- *  (and `.meta`); the fetcher's shape "varies by kind, so the reader narrows". */
-export interface ArtifactPayload {
-  content: string;
-  meta?: Record<string, unknown>;
-}
+/** The artifact payload panels read — `.content` and optional `.meta`. */
+export type ArtifactPayload = ArtifactDetail;
 
 /** Versioned artifact tabs + a single fetched artifact rendered by the caller. */
-export function GenericArtifact({
+export const GenericArtifact = ({
   node,
   kind,
   empty,
@@ -26,7 +25,7 @@ export function GenericArtifact({
   kind: string;
   empty: string;
   icon?: LucideIcon;
-}) {
+}) => {
   const arts = node.artifacts.filter((a) => a.kind === kind);
   const [sel, setSel] = useState<string | null>(null);
   const current = arts.find((a) => a.id === sel) ?? arts[arts.length - 1];
@@ -34,8 +33,14 @@ export function GenericArtifact({
     <div>
       {arts.length > 1 && <VersionTabs arts={arts} sel={current?.id} onSel={setSel} className="mb-3.5" />}
       {current ? (
-        <ArtifactLoader id={current.id}
-          render={(loaded) => <pre className="overflow-y-auto whitespace-pre-wrap bg-background border border-border rounded-lg p-3.5 text-[12.5px] font-mono">{loaded.content}</pre>} />
+        <ArtifactLoader
+          id={current.id}
+          render={(loaded) => (
+            <pre className="overflow-y-auto whitespace-pre-wrap bg-background border border-border rounded-lg p-3.5 text-[12.5px] font-mono">
+              {loaded.content}
+            </pre>
+          )}
+        />
       ) : (
         <div className="text-center px-5 py-16">
           {Icon && <Icon size={32} className="text-muted-foreground mb-3 mx-auto" />}
@@ -44,9 +49,9 @@ export function GenericArtifact({
       )}
     </div>
   );
-}
+};
 
-export function VersionTabs({
+export const VersionTabs = ({
   arts,
   sel,
   onSel,
@@ -59,7 +64,7 @@ export function VersionTabs({
   className?: string;
   /** caption copy per artifact id (§6b) — rendered under the v{n} label */
   captions?: Map<string, string>;
-}) {
+}) => {
   return (
     <div className={cn("flex gap-1.5 flex-wrap", className)}>
       {arts.map((a) => {
@@ -96,28 +101,48 @@ export function VersionTabs({
       })}
     </div>
   );
-}
+};
 
-/** One fetched artifact rendered by the caller (loading state §2.8). */
-export function ArtifactLoader({
+const ArtifactLoaderSkeleton = () => (
+  <div
+    aria-busy="true"
+    aria-label="Loading artifact"
+    className="space-y-2 rounded-lg border border-border bg-background p-3.5"
+  >
+    <Skeleton className="h-3 w-full" />
+    <Skeleton className="h-3 w-11/12" />
+    <Skeleton className="h-3 w-4/5" />
+  </div>
+);
+
+/** One fetched artifact rendered by the caller (loading / error / content §2.8). */
+export const ArtifactLoader = ({
   id,
   render,
 }: {
   id: string;
   render: (artifact: ArtifactPayload) => React.ReactNode;
-}) {
-  // the fetcher comes from the node panel context (the panels stay transport-free)
-  const { fetchArtifact } = useNodePanel();
-  const [art, setArt] = useState<ArtifactPayload | null>(null);
-  useEffect(() => {
-    let live = true;
-    fetchArtifact(id).then((value) => {
-      // the fetcher is intentionally lenient (it returns whatever the API
-      // served) — the reader narrows, and ArtifactPayload is what render reads
-      if (live) setArt(value as ArtifactPayload);
-    });
-    return () => { live = false; };
-  }, [id, fetchArtifact]);
-  if (!art) return <p className="text-muted-foreground"><Spinner /> Loading…</p>;
+}) => {
+  const { data: art, isPending, isError, error, refetch } = useArtifact(id);
+
+  if (isPending) return <ArtifactLoaderSkeleton />;
+
+  if (isError) {
+    return (
+      <div role="alert" className="flex items-center gap-2 text-[13px] text-muted-foreground">
+        <span className="flex-1 min-w-0">
+          {errorMessageOf(error) ?? "The artifact could not be loaded."}
+        </span>
+        <Button size="xs" variant="outline" onClick={() => void refetch()}>
+          <RotateCcw size={12} /> Retry
+        </Button>
+      </div>
+    );
+  }
+
+  if (!art) {
+    return <p className="text-muted-foreground text-[13px]">The artifact is empty.</p>;
+  }
+
   return <>{render(art)}</>;
-}
+};

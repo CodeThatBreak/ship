@@ -4,7 +4,12 @@ import {
 } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { queryKeys } from "@/constants/query-keys";
-import { fetchGitHosts, fetchRepos, fetchSettings } from "./queries";
+import { errorMessageOf } from "@/hooks/fetch-json";
+import {
+  gitHostsQueryOptions,
+  reposQueryOptions,
+  settingsQueryOptions,
+} from "./queries";
 
 // ── types (shared by the settings sub-routes) ───────────────────────────────
 
@@ -65,9 +70,14 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
   const queryClient = useQueryClient();
   const [error, setError] = useState<string | null>(null);
 
-  const settingsQuery = useQuery({ queryKey: queryKeys.settings, queryFn: fetchSettings });
-  const reposQuery = useQuery({ queryKey: queryKeys.repos, queryFn: fetchRepos });
-  const hostsQuery = useQuery({ queryKey: queryKeys.gitHosts, queryFn: fetchGitHosts });
+  const settingsQuery = useQuery(settingsQueryOptions());
+  const reposQuery = useQuery(reposQueryOptions());
+  const hostsQuery = useQuery(gitHostsQueryOptions());
+
+  const queryLoadError =
+    errorMessageOf(settingsQuery.error) ??
+    errorMessageOf(reposQuery.error) ??
+    errorMessageOf(hostsQuery.error);
 
   /** refetch every shared settings query (same contract as the old manual fetches) */
   const reload = useCallback(async () => {
@@ -101,12 +111,12 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
       repos: reposQuery.data ?? [],
       hosts: hostsQuery.data ?? [],
       loading,
-      error,
+      error: error ?? queryLoadError,
       setError,
       reload,
       saveSettings,
     }),
-    [settingsQuery.data, reposQuery.data, hostsQuery.data, loading, error, reload, saveSettings],
+    [settingsQuery.data, reposQuery.data, hostsQuery.data, loading, error, queryLoadError, reload, saveSettings],
   );
 
   return (

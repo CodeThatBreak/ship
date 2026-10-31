@@ -6,7 +6,6 @@ import { composeModelChoice } from "@/lib/modelSpec";
 import type { ModelChoice } from "@/types/model-spec";
 import type { FeedEvent } from "@/components/chat";
 import type { FlowData, Node } from "@/types/flow";
-import { useArtifactFetcher } from "@/hooks/use-artifact-fetcher";
 import { EXECUTION_MODE_LOCAL, LOCAL_MODE_MODEL } from "../constants";
 import { NodePanelContext, type ActionPayload, type NodePanelContextValue } from "./context";
 import { resolveNodePanel } from "./panel-factory";
@@ -16,8 +15,8 @@ import { PanelShell } from "./shared";
  * The node workspace dispatcher: the factory resolves the node's panel and its
  * chat rail (capability-driven), the context supplies every panel with the
  * shared surface — panels take no props and read it through `useNodePanel`.
- * The artifact fetcher is supplied here (through the query cache) so panels
- * stay transport-free.
+ * The workspace pieces (panel + chat) resolve from `./panel-factory`; this
+ * context is only the shared surface they run on.
  */
 export default function NodePanel({
   flow, node, action, events = [],
@@ -27,8 +26,6 @@ export default function NodePanel({
   action: (a: string, b?: ActionPayload) => Promise<void> | void;
   events?: FeedEvent[];
 }) {
-  const fetchArtifact = useArtifactFetcher();
-
   // the flow-wide model override for this flow's runs — picked in the chat
   // panel's model selector, consumed by run-start action payloads in the
   // panels and by the plan composer. Local flows (mode picked at start)
@@ -39,8 +36,8 @@ export default function NodePanel({
   const model = composeModelChoice(modelChoice);
 
   const context = useMemo<NodePanelContextValue>(
-    () => ({ flow, node, action, events, model, fetchArtifact, modelChoice, setModelChoice }),
-    [flow, node, action, events, model, fetchArtifact, modelChoice],
+    () => ({ flow, node, action, events, model, modelChoice, setModelChoice }),
+    [flow, node, action, events, model, modelChoice],
   );
 
   const { panel: Panel, chat: Chat } = resolveNodePanel(node);

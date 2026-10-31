@@ -6,6 +6,8 @@
 export const queryKeys = {
   settings: ["settings"] as const,
   repos: ["repos"] as const,
+  /** editor Bound-repo picker slice (id/name/local_path only — not full Repo[]) */
+  repoChoices: ["repos", "editor-choices"] as const,
   templates: {
     /** one template's detail row (nodes/edges included) */
     detail: (id: string) => ["templates", "detail", id] as const,

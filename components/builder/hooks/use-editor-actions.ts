@@ -10,7 +10,6 @@
  */
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
-import { queryKeys } from "@/constants/query-keys";
 import {
   boilerplateFor,
   dagreLayout,
@@ -19,6 +18,7 @@ import {
   nextDraftName,
   nodeLabel,
   contractsUrl,
+  nodeContractQueryOptions,
   uniqueKey,
   START_NODE_TEMPLATE_ID,
   type BuilderApi,
@@ -29,7 +29,6 @@ import {
   type TemplateDraftMachine,
   type CanvasPosition,
 } from "@/components/template-editor";
-import { fetchContract } from "./use-instance-contracts";
 
 /** Draft instance ids never collide within a session (monotonic). */
 export type DraftKind = "agent" | "decision" | "http" | "script";
@@ -223,10 +222,7 @@ export function useEditorActions(deps: EditorActionsDeps): EditorActionsApi {
       if (src?.kind !== "decision") return;
       const url = contractsUrl(src);
       const contract = await queryClient
-        .fetchQuery({
-          queryKey: queryKeys.nodeContracts(url),
-          queryFn: () => fetchContract(url),
-        })
+        .fetchQuery(nodeContractQueryOptions(url))
         .catch(() => null);
       const choices = contract?.choices ?? [];
       if (!choices.length) return;

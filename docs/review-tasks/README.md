@@ -47,7 +47,7 @@ Open and partly fixed findings: 262, spread over 61 tasks.
 | [ ] | 10 | [Zod at the API boundary: helper and flow routes](10-api-input-validation-flows.md) | CR-003, CR-042, CR-047 | L | 09 |
 | [ ] | 11 | [Zod at the API boundary: settings, repos, instances, templates](11-api-input-validation-settings.md) | CR-048, CR-167 | S | 10 |
 | [x] | 12 | [Transaction API and atomic multi-writes](12-db-transactions.md) | CR-012, CR-050, CR-067 | M | 08 |
-| [ ] | 13 | [One queryFn per query key](13-frontend-query-ownership.md) | CR-005, CR-135, CR-121, CR-120 | M | 02 |
+| [x] | 13 | [One queryFn per query key](13-frontend-query-ownership.md) | CR-005, CR-135, CR-121, CR-120 | M | 02 |
 | [ ] | 14 | [Remove error-swallowing fetchers](14-frontend-throwing-fetchers.md) | CR-036, CR-143 | M | 13 |
 | [ ] | 15 | [Every mutation reports pending and error](15-frontend-mutation-conventions.md) | CR-027, CR-126, CR-129, CR-271, CR-237 | M | 13 |
 
