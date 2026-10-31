@@ -7,6 +7,7 @@ import type { ModelChoice } from '@/types/model-spec';
 import type { NodeUiCapabilities } from '@/types/node-capabilities';
 import type { FeedEvent } from './timeline';
 import type { ChatTab, ChatInputHandle } from './types';
+import { errorMessageOf } from '@/hooks/fetch-json';
 import { useChatComposer, type SendMutationFn } from './hooks/useChatComposer';
 import { useChatFeed } from './hooks/useChatFeed';
 import { TabStrip } from '@/components/shared';
@@ -48,7 +49,6 @@ export default function ChatPanel({
   caption,
   placeholder,
   sendLabel = 'Send',
-  sendError,
   canReset = false,
   canSend,
 
@@ -90,7 +90,6 @@ export default function ChatPanel({
   caption?: ReactNode;
   placeholder?: string;
   sendLabel?: string;
-  sendError?: ReactNode;
   canReset?: boolean;
   canSend?: boolean;
 
@@ -114,7 +113,12 @@ export default function ChatPanel({
   // phantom thread id would hide both the messages and the run/event trail.
   const feedThread = activeThread ? ((activeThread.main ? null : activeThreadId) ?? null) : null;
 
-  const { sendMessageMutation, isPending: isSendingMessage } = useChatComposer({
+  const {
+    sendMessageMutation,
+    isPending: isSendingMessage,
+    error: sendMutationError,
+    resetSendError,
+  } = useChatComposer({
     flowId,
     nodeKey,
     modelChoice,
@@ -145,9 +149,12 @@ export default function ChatPanel({
         setModelChoice?.(action.payload.model);
         return;
       }
+      if (action.type === ACTION_TYPES.DRAFT_CHANGED) {
+        resetSendError();
+      }
       onAction?.(action);
     },
-    [onAction, setModelChoice]
+    [onAction, setModelChoice, resetSendError]
   );
 
   const onThreadChange = useCallback(
@@ -161,6 +168,8 @@ export default function ChatPanel({
   // (it receives the draft text with the current model pick and thread),
   // else the rail's standard chat send
   const onSend = useCallback((draft: string) => sendMessageMutation(draft), [sendMessageMutation]);
+
+  const sendFailureMessage = errorMessageOf(sendMutationError);
 
   return (
     <div className="flex h-full min-h-0 flex-col">
@@ -192,10 +201,10 @@ export default function ChatPanel({
         emptyDescription={activeThread?.emptyDescription}
       />
 
-      {sendError && (
+      {sendFailureMessage && (
         <p role="alert" className="shrink-0 flex items-center gap-1.5 pl-4 pr-4 pb-1 text-[11px] text-destructive">
           <CircleAlertIcon className="size-3 shrink-0" />
-          {sendError}
+          {sendFailureMessage}
         </p>
       )}
 

@@ -9,6 +9,7 @@
  * path's context picker) are gone — the plan node's inputs live in the chat
  * composer now (docs/plan-conversation-refine.md §5 #6/#9).
  */
+import { invalidateFlowPrompts } from "@/hooks/invalidate-flow-queries";
 import { useEffect, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { queryKeys } from "@/constants/query-keys";
@@ -77,14 +78,6 @@ export function useFlowPrompt({
 }: UseFlowPromptInput) {
   const queryClient = useQueryClient();
 
-  // ── editor state (seeded, then user-owned) ──────────────────────────────
-  const [edited, setEdited] = useState("");
-  const [rules, setRules] = useState("");
-  const [rulesSaved, setRulesSaved] = useState(false);
-  const [rulesError, setRulesError] = useState<string | null>(null);
-  const promptTextareaRef = useRef<HTMLTextAreaElement>(null);
-
-  // ── base read: the assembled prompt for THIS node + seed params ────────
   const seedParams = new URLSearchParams({ node: nodeKey });
   if (instructions) seedParams.set("instructions", instructions);
 
@@ -94,26 +87,32 @@ export function useFlowPrompt({
     enabled: open,
   });
 
-  // ── seed the editor once per OPEN session (not per refetch — a focus
-  //    refetch must not clobber the user's in-progress edits; only re-open
-  //    the modal, i.e. a deliberate re-seed, does) ────────────────────────
-  const [openSession, setOpenSession] = useState(0);
+  // ── editor overrides (null = follow the base query through refetches) ───
+  const [editedOverride, setEditedOverride] = useState<string | null>(null);
+  const [rulesOverride, setRulesOverride] = useState<string | null>(null);
+  const [rulesSaved, setRulesSaved] = useState(false);
+  const [rulesError, setRulesError] = useState<string | null>(null);
+  const promptTextareaRef = useRef<HTMLTextAreaElement>(null);
+
+  const baseBody = baseQuery.data?.prompt ?? "";
+  const baseRules = baseQuery.data?.userRules ?? "";
+  const edited = editedOverride ?? baseBody;
+  const rules = rulesOverride ?? baseRules;
+
+  const setEdited = (next: string) => setEditedOverride(next);
+  const setRules = (next: string) => setRulesOverride(next);
+
+  // ── reset overrides when the modal is opened anew ───────────────────────
   const wasOpenRef = useRef(false);
   useEffect(() => {
-    if (open && !wasOpenRef.current) setOpenSession((s) => s + 1);
+    if (open && !wasOpenRef.current) {
+      setEditedOverride(null);
+      setRulesOverride(null);
+      setRulesSaved(false);
+      setRulesError(null);
+    }
     wasOpenRef.current = open;
   }, [open]);
-  const seedIdentity = `${openSession}:${seedParams.toString()}`;
-  const seededRef = useRef<string | null>(null);
-  useEffect(() => {
-    if (!open || !baseQuery.data) return;
-    if (seededRef.current === seedIdentity) return;
-    seededRef.current = seedIdentity;
-    setEdited(baseQuery.data.prompt ?? "");
-    setRules(baseQuery.data.userRules ?? "");
-    setRulesSaved(false);
-    setRulesError(null);
-  }, [open, baseQuery.data, seedIdentity]);
 
   // The server's `final` is assembled from the SAVED body; the modal runs the
   // body the user is editing. Rebuild it from the live body + the server's
@@ -153,10 +152,8 @@ export function useFlowPrompt({
     onSuccess: () => {
       setRulesSaved(true);
       setRulesError(null);
-      // refetch so the final preview reflects the saved rules
-      void queryClient.invalidateQueries({
-        queryKey: queryKeys.flows.promptScope(flowId),
-      });
+      setRulesOverride(null);
+      void invalidateFlowPrompts(queryClient, flowId);
     },
     onError: (e: unknown) => setRulesError(e instanceof Error ? e.message : String(e)),
   });

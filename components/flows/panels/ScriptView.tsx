@@ -46,7 +46,7 @@ export function ScriptView() {
   );
 
   return (
-    <PanelShell node={node} action={action} flow={flow} runningLabel="Running the script…" footer={footer}>
+    <PanelShell node={node} flow={flow} runningLabel="Running the script…" footer={footer}>
       <Card className="p-3.5 mb-3.5">
         <div className="flex items-center gap-1.5 mb-1.5 text-[11.5px] font-medium text-muted-foreground uppercase tracking-[0.8px]">
           <Terminal size={12} /> Script {cfg.runtime ? `· ${cfg.runtime}` : ""} {cfg.cwd ? `· cwd: ${cfg.cwd}` : ""}

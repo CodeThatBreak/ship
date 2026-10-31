@@ -40,15 +40,21 @@ export function useChatComposer({ flowId, nodeKey, modelChoice, sendMutationFn, 
   const latestSendMutationFn = useLatest(sendMutationFn);
   const latestSendChat = useLatest(sendChat);
 
-  const [loading, setLoading] = useState(false);
+  const [customSendPending, setCustomSendPending] = useState(false);
+  const [customSendError, setCustomSendError] = useState<unknown>(null);
 
   const sendMessageMutation = useCallback(
     (content: string) => {
       if (latestSendMutationFn.current) {
-        setLoading(true);
+        setCustomSendError(null);
+        setCustomSendPending(true);
         return latestSendMutationFn
           .current({ flowId, nodeKey, modelChoice, thread, content })
-          .finally(() => setLoading(false));
+          .catch((error: unknown) => {
+            setCustomSendError(error);
+            throw error;
+          })
+          .finally(() => setCustomSendPending(false));
       }
 
       const body = content.trim();
@@ -58,9 +64,17 @@ export function useChatComposer({ flowId, nodeKey, modelChoice, sendMutationFn, 
     [flowId, nodeKey, modelChoice, thread, latestSendMutationFn, latestSendChat]
   );
 
+  const resetSendError = useCallback(() => {
+    setCustomSendError(null);
+    latestSendChat.current.reset();
+  }, [latestSendChat]);
+
+  const sendError = customSendError ?? sendChat.error;
+
   return {
     sendMessageMutation,
-    isPending: latestSendChat.current.isPending || loading,
-    error: latestSendChat.current.error,
+    isPending: sendChat.isPending || customSendPending,
+    error: sendError,
+    resetSendError,
   };
 }

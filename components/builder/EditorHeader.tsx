@@ -77,13 +77,17 @@ export function EditorHeader({
         <p className="text-muted-foreground text-[11px] m-0">
           {nodeCount} node{nodeCount === 1 ? "" : "s"} · {edgeCount} edge
           {edgeCount === 1 ? "" : "s"}
-          {(layoutSync === "pending" || layoutSync === "saved") && (
+          {(layoutSync === "pending" || layoutSync === "saved" || layoutSync === "error") && (
             <span>
               {" "}
               ·{" "}
               {layoutSync === "pending"
                 ? "saving layout…"
-                : "layout autosaved"}
+                : layoutSync === "saved"
+                  ? "layout autosaved"
+                  : (
+                    <span className="text-destructive">layout save failed</span>
+                  )}
             </span>
           )}
           {dirty && (

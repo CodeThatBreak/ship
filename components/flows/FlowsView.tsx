@@ -83,20 +83,26 @@ export function FlowsView({ initialFlows }: { initialFlows: FlowSummary[] }) {
     [openFlow, removeFlow.isPending],
   );
 
-  const retry = useCallback(() => {
-    removeFlow.reset();
+  const retryList = useCallback(() => {
     void flows.refetch();
-  }, [removeFlow, flows]);
+  }, [flows]);
 
-  const error = flows.error?.message ?? removeFlow.error?.message ?? null;
+  const listError = flows.error?.message ?? null;
+  const deleteError =
+    pendingDelete && removeFlow.error ? removeFlow.error.message : null;
+
+  const closeDeleteDialog = useCallback(() => {
+    removeFlow.reset();
+    setPendingDelete(null);
+  }, [removeFlow]);
 
   return (
     <div>
-      {error && (
+      {listError && (
         <Alert variant="destructive" className="mb-4">
-          <span>{error}</span>
+          <span>{listError}</span>
           <AlertAction>
-            <Button variant="outline" size="sm" onClick={retry}>
+            <Button variant="outline" size="sm" onClick={retryList}>
               Retry
             </Button>
           </AlertAction>
@@ -166,8 +172,9 @@ export function FlowsView({ initialFlows }: { initialFlows: FlowSummary[] }) {
       <DeleteFlowDialog
         flow={pendingDelete}
         busy={removeFlow.isPending && removeFlow.variables?.id === pendingDelete?.id}
+        errorMessage={deleteError}
         onConfirm={(f) => removeFlow.mutate(f)}
-        onClose={() => setPendingDelete(null)}
+        onClose={closeDeleteDialog}
       />
     </div>
   );

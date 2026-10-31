@@ -1,24 +1,27 @@
-import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 
-import { queryKeys } from '@/constants/query-keys';
-import { postJson } from '@/hooks/fetch-json';
+import { postJson } from "@/hooks/fetch-json";
 
-type Variables = Record<string, unknown>;
+import { invalidateFlowDetail, invalidateFlowPrompts } from "@/hooks/invalidate-flow-queries";
+
+type FlowActionBody = { action: string } & Record<string, unknown>;
 
 /**
  * The flow's action route (run_node, approve_plan, checklist updates, …) as one mutation.
- * Returns `mutateAsync` so a caller awaiting the send gets the
- * accepted-draft semantics (the composer clears only on success).
+ * Returns the mutation object so panels can show pending/error and retry.
  */
-export function useFlowMutation({ flowId }: { flowId: string }) {
+export const useFlowMutation = ({ flowId }: { flowId: string }) => {
   const queryClient = useQueryClient();
-  const actionSend = useMutation({
-    mutationFn: (variables: Variables) =>
-      postJson(`/api/flows/${flowId}/action`, JSON.stringify(variables)),
-    onSuccess: () => {
-      // the action changed flow state — refresh the cockpit's snapshot
-      void queryClient.invalidateQueries({ queryKey: queryKeys.flows.detail(flowId) });
+  return useMutation({
+    mutationFn: (variables: FlowActionBody) => {
+      const { action, ...body } = variables;
+      return postJson(`/api/flows/${flowId}/action`, JSON.stringify({ action, ...body }));
+    },
+    onSuccess: (_data, variables) => {
+      void invalidateFlowDetail(queryClient, flowId);
+      if (variables.action === "set_node_config") {
+        void invalidateFlowPrompts(queryClient, flowId);
+      }
     },
   });
-  return actionSend.mutateAsync;
-}
+};

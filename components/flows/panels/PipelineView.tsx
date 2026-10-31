@@ -44,7 +44,7 @@ export default function PipelineView() {
 
   return (
     <>
-      <PanelShell node={node} action={action} flow={flow} headerEnd={headerEnd} runningLabel="Waiting for a green pipeline — failures are fixed automatically…" footer={footer}>
+      <PanelShell node={node} flow={flow} headerEnd={headerEnd} runningLabel="Waiting for a green pipeline — failures are fixed automatically…" footer={footer}>
         {node.status === FLOW_STATUS.DONE && output?.pipelineId && (
           <Alert className="bg-success/10 text-success mb-3.5">
             <span className="flex-1">

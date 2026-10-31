@@ -6,8 +6,8 @@ import NodePanel from '../panels/NodePanel';
 import FlowHeader from '../FlowHeader';
 import { Button } from '@/components/ui/button';
 import { queryKeys } from '@/constants/query-keys';
-import { postJson } from '@/hooks/fetch-json';
 import type { FlowData, Node } from '@/types/flow';
+import { useFlowMutation } from '../mutations/useFlowMutation';
 import { useFlowData } from './hooks/use-flow-data';
 import { useFlowEvents } from './hooks/use-flow-events';
 import { fanoutProgressOf } from './fanout-progress';
@@ -62,14 +62,28 @@ export default function FlowCockpit({
     [flow.nodes, resolvedSelectedKey]
   );
 
+  const flowAction = useFlowMutation({ flowId });
   const action = useCallback(
-    async (act: string, body?: Record<string, unknown>) => {
-      await postJson(`/api/flows/${flowId}/action`, JSON.stringify({ action: act, ...body }));
-      // the action changed flow state — refresh the cockpit's snapshot
-      await queryClient.invalidateQueries({ queryKey: queryKeys.flows.detail(flowId) });
+    (act: string, body?: Record<string, unknown>) => {
+      flowAction.mutate({ action: act, ...body });
     },
-    [flowId, queryClient]
+    [flowAction],
   );
+  const actionAsync = useCallback(
+    (act: string, body?: Record<string, unknown>) =>
+      flowAction.mutateAsync({ action: act, ...body }),
+    [flowAction],
+  );
+  const resetAction = useCallback(() => {
+    flowAction.reset();
+  }, [flowAction]);
+  const retryAction = useCallback(() => {
+    if (flowAction.variables) {
+      flowAction.mutate(flowAction.variables);
+      return;
+    }
+    flowAction.reset();
+  }, [flowAction]);
 
   // plan fan-out: per-node step rollup for the graph subtitle (plain compute —
   // it derives straight from the attached plan-step state)
@@ -108,7 +122,19 @@ export default function FlowCockpit({
 
       {/* the selected node's workspace: its panel + capability-driven chat rail */}
       <section className="flex-1 flex flex-col min-h-0">
-        {node && <NodePanel flow={flow} node={node} action={action} events={events} />}
+        {node && (
+          <NodePanel
+            flow={flow}
+            node={node}
+            action={action}
+            actionAsync={actionAsync}
+            actionPending={flowAction.isPending}
+            actionError={flowAction.error}
+            resetAction={resetAction}
+            retryAction={retryAction}
+            events={events}
+          />
+        )}
       </section>
     </main>
   );

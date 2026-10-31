@@ -71,7 +71,7 @@ export function DecisionView() {
   );
 
   return (
-    <PanelShell node={node} action={action} flow={flow} runningLabel="Deciding the next branch…" footer={footer}>
+    <PanelShell node={node} flow={flow} runningLabel="Deciding the next branch…" footer={footer}>
       {cfg.question && (
         <Card className="p-3.5 mb-3.5">
           <div className="flex items-center gap-1.5 mb-1.5 text-[11.5px] font-medium text-muted-foreground uppercase tracking-[0.8px]">

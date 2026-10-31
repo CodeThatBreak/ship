@@ -23,7 +23,7 @@ import { Field, FieldDescription, FieldLabel } from "@/components/ui/field";
  * declarative parent nodes too.
  */
 export default function AgentView() {
-  const { flow, node, action, model } = useNodePanel();
+  const { flow, node, action, actionAsync, model } = useNodePanel();
   const cfg = (node.config ?? {}) as { prompt?: string; mode?: string; output?: string };
   const outputKind = cfg.output === "json" ? "json" : "markdown";
   const [editPrompt, setEditPrompt] = useState(false);
@@ -74,9 +74,9 @@ export default function AgentView() {
 
   return (
     <>
-      <PanelShell node={node} action={action} flow={flow} headerEnd={headerEnd} runningLabel={`${node.label || node.template_name || node.node_key} is running…`} footer={footer}>
+      <PanelShell node={node} flow={flow} headerEnd={headerEnd} runningLabel={`${node.label || node.template_name || node.node_key} is running…`} footer={footer}>
         {/* fanned out: per-step monitoring surface instead of the single prompt card */}
-        {fannedOut && <FanoutStepList flow={flow} node={node} action={action} />}
+        {fannedOut && <FanoutStepList flow={flow} node={node} />}
         {/* prompt card — what the agent will be asked, after {{var}} rendering */}
         {!fannedOut && !running && !failed && (
           <Card className="p-3.5 mb-3.5">
@@ -135,9 +135,11 @@ export default function AgentView() {
           </Field>
           <DialogFooter>
             <Button
-              onClick={async () => {
-                await action("set_node_config", { nodeKey: node.node_key, config: { prompt: draft } });
-                setEditPrompt(false);
+              onClick={() => {
+                void actionAsync("set_node_config", {
+                  nodeKey: node.node_key,
+                  config: { prompt: draft },
+                }).then(() => setEditPrompt(false));
               }}
             >
               Save

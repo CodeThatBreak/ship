@@ -16,7 +16,14 @@ export type ActionPayload = Record<string, unknown>;
 export interface NodePanelContextValue {
   flow: FlowData;
   node: Node;
-  action: (a: string, b?: ActionPayload) => Promise<void> | void;
+  /** POST /api/flows/:id/action — uses mutate (errors surface on `actionError`). */
+  action: (a: string, b?: ActionPayload) => void;
+  /** await when the caller must run logic only after the action succeeds */
+  actionAsync: (a: string, b?: ActionPayload) => Promise<unknown>;
+  actionPending: boolean;
+  actionError: unknown;
+  resetAction: () => void;
+  retryAction: () => void;
   /** the flow's live event stream (BuildView's step-status rollup, the chat feed) */
   events: FeedEvent[];
   /** the composed model override consumed by run-start action payloads */

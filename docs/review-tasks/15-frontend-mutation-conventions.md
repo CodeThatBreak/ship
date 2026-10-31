@@ -15,7 +15,7 @@ Each finding was re-verified against `refactor/prompt-engine-inconsistency-fix` 
 
 ### CR-027 [High] Cockpit `action()` swallows HTTP errors, gives no feedback, and has no pending/double-submit guard
 
-- **Status:** Partly fixed
+- **Status:** Fixed
 - **Type:** Gap
 - **Effort:** M
 - **Where:** components/flows/cockpit/FlowCockpit.tsx:65-72; components/flows/mutations/useFlowMutation.ts:13-24; callers: components/flows/panels/PanelShell.tsx:69,80, AgentView.tsx:57,62,139, DecisionView.tsx:61,66, BuildView.tsx:69-70, FanoutStepList.tsx:143,149,157, ReviewView.tsx:101,105,167, ResolveView.tsx:38,64, PipelineView.tsx:37,64, ScriptView.tsx:41, HttpView.tsx:38, StartView.tsx:47
@@ -23,7 +23,7 @@ Each finding was re-verified against `refactor/prompt-engine-inconsistency-fix` 
 
 ### CR-126 [Medium] Prompt previews go stale after a node-config save, and the modal never re-seeds from a fresh refetch
 
-- **Status:** Open
+- **Status:** Fixed
 - **Type:** Bug
 - **Effort:** M
 - **Where:** components/flows/panels/AgentView.tsx:136-141, components/flows/cockpit/FlowCockpit.tsx:65-72, hooks/use-flow-prompt.ts:100-116, hooks/use-flow-prompt.ts:153-160
@@ -32,7 +32,7 @@ Each finding was re-verified against `refactor/prompt-engine-inconsistency-fix` 
 
 ### CR-129 [Medium] Flow delete failure is hidden behind the still-open dialog, and "Retry" doesn't retry the delete
 
-- **Status:** Open
+- **Status:** Fixed
 - **Type:** Gap
 - **Effort:** S
 - **Where:** components/flows/FlowsView.tsx:41-54, components/flows/FlowsView.tsx:86-104, components/flows/FlowsView.tsx:166-171, components/flows/DeleteFlowDialog.tsx:44-51
@@ -40,7 +40,7 @@ Each finding was re-verified against `refactor/prompt-engine-inconsistency-fix` 
 
 ### CR-271 [Medium] Chat send failures are never shown to the user
 
-- **Status:** Open
+- **Status:** Fixed
 - **Type:** Gap
 - **Effort:** S
 - **Where:** components/chat/ChatPanel.tsx:117-123, components/chat/ChatPanel.tsx:195-200, components/chat/hooks/useChatComposer.ts:61-65, components/chat/components/chatComposerForm/ChatComposerForm.tsx:143-151, components/flows/panels/NodeChat.tsx:17-29, components/flows/components/plan/PlanNodeChat.tsx:46-62
@@ -48,7 +48,7 @@ Each finding was re-verified against `refactor/prompt-engine-inconsistency-fix` 
 
 ### CR-237 [Low] Layout autosave shows "saved" on HTTP errors
 
-- **Status:** Open
+- **Status:** Fixed
 - **Type:** Bug
 - **Effort:** S
 - **Where:** components/template-editor/hooks/use-node-positions.ts:17,61-67
@@ -56,8 +56,8 @@ Each finding was re-verified against `refactor/prompt-engine-inconsistency-fix` 
 
 ## Done when
 
-- [ ] Every finding above is fixed, or a remaining part is written up in the PR description.
-- [ ] Each bug fix has a regression test (Vitest for `lib/`; at least a hook or utility test for UI where practical).
-- [ ] Code follows [`docs/coding-patterns.md`](../coding-patterns.md).
-- [ ] `npm run typecheck`, `npm run lint`, `npm test` and `npm run build` pass (before Task 02 lands, `npx tsc --noEmit` instead of `typecheck`).
-- [ ] The status of each finding in [`docs/code-review.md`](../code-review.md) is updated (Fixed, with the PR link).
+- [x] Every finding above is fixed, or a remaining part is written up in the PR description.
+- [x] Each bug fix has a regression test (Vitest for `lib/`; at least a hook or utility test for UI where practical).
+- [x] Code follows [`docs/coding-patterns.md`](../coding-patterns.md).
+- [x] `npm run typecheck`, `npm run lint`, `npm test` and `npm run build` pass (before Task 02 lands, `npx tsc --noEmit` instead of `typecheck`).
+- [x] The status of each finding in [`docs/code-review.md`](../code-review.md) is updated (Fixed, with the PR link).

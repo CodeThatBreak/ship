@@ -112,7 +112,7 @@ export default function ReviewView() {
 
   return (
     <>
-      <PanelShell node={node} action={action} headerEnd={headerEnd} runningLabel="Agent is reviewing the merge request…" footer={footer}>
+      <PanelShell node={node} headerEnd={headerEnd} runningLabel="Agent is reviewing the merge request…" footer={footer}>
         {!flow.mr_iid && <p className="text-muted-foreground">Review runs after the merge request is created.</p>}
 
         {flow.mr_iid && commentsQuery.isLoading && <ThreadListSkeleton />}

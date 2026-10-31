@@ -1,8 +1,8 @@
 "use client";
 import { Check, CheckCircle2, CircleDashed, Clock, Coins, ExternalLink, GitMerge, Loader2, OctagonAlert, SkipForward, Undo2, X } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
-import type { ActionPayload } from "./context";
 import type { FlowData, Node, PlanStepRow } from "@/types/flow";
+import { useNodePanel } from "./context";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -73,11 +73,8 @@ function StepCostChip({ s }: { s: PlanStepRow }) {
  * diff, approval) applies unchanged. Rendered inside a panel (build / agent
  * declarative) whenever the node fanned out — a no-op otherwise.
  */
-export default function FanoutStepList({ flow, action }: {
-  flow: FlowData;
-  node?: Node;
-  action: (a: string, b?: ActionPayload) => Promise<void> | void;
-}) {
+export default function FanoutStepList({ flow }: { flow: FlowData; node?: Node }) {
+  const { action, actionPending } = useNodePanel();
   const steps = (flow.planSteps ?? []).filter((s: PlanStepRow) => s.sub_flow != null);
   if (!steps.length) return null;
 
@@ -139,13 +136,13 @@ export default function FanoutStepList({ flow, action }: {
                 )}
               </span>
               {s.sub_flow?.nodeStatus === FLOW_STATUS.AWAITING_APPROVAL && s.status !== FLOW_STATUS.DONE && !approveBlocked && (
-                <Button size="sm" className="gap-1"
+                <Button size="sm" className="gap-1" disabled={actionPending}
                   onClick={() => action("approve_fanout_step", { stepId: s.id })}>
                   <Check size={12} /> Approve
                 </Button>
               )}
               {s.sub_flow?.nodeStatus === FLOW_STATUS.FAILED && s.status !== FLOW_STATUS.DONE && (
-                <Button size="sm" variant="outline" className="gap-1"
+                <Button size="sm" variant="outline" className="gap-1" disabled={actionPending}
                   onClick={() => action("retry_fanout_step", { stepId: s.id })}
                   title="Failed merge-backs re-run the merge (+ bounded fix agent); failed builds re-run the step build">
                   <Undo2 size={12} /> Retry
@@ -153,7 +150,7 @@ export default function FanoutStepList({ flow, action }: {
               )}
               {s.sub_flow && s.status !== FLOW_STATUS.DONE &&
                 s.sub_flow.nodeStatus !== FLOW_STATUS.RUNNING && s.sub_flow.nodeStatus !== FLOW_STATUS.AWAITING_APPROVAL && (
-                <Button size="sm" variant="outline" className="gap-1"
+                <Button size="sm" variant="outline" className="gap-1" disabled={actionPending}
                   onClick={() => action("skip_fanout_step", { stepId: s.id })}>
                   <X size={12} /> Skip
                 </Button>

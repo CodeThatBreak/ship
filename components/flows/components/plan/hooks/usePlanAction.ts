@@ -22,7 +22,7 @@ export function usePlanAction(flowId: string) {
       case ACTION_TYPES.APPROVE:
       case ACTION_TYPES.SET_PLAN_STEP:
       case ACTION_TYPES.UPDATE_PLAN_STEPS: {
-        void flowMutation({ action: type, ...action.payload }).catch(() => {});
+        flowMutation.mutate({ action: type, ...action.payload });
         break;
       }
 
@@ -38,5 +38,5 @@ export function usePlanAction(flowId: string) {
     }
   };
 
-  return { state, onAction };
+  return { state, onAction, flowAction: flowMutation };
 }

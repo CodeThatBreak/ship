@@ -882,7 +882,7 @@ Original findings, verbatim:
 
 ### CR-027 [High] Cockpit `action()` swallows HTTP errors, gives no feedback, and has no pending/double-submit guard
 
-- **Status at `abaa007`:** **Partly fixed**, fix in [Task 15](review-tasks/15-frontend-mutation-conventions.md)
+- **Status at `abaa007`:** **Fixed** ([Task 15](review-tasks/15-frontend-mutation-conventions.md))
 - **Current location:** components/flows/cockpit/FlowCockpit.tsx:65-72; components/flows/mutations/useFlowMutation.ts:13-24; callers: components/flows/panels/PanelShell.tsx:69,80, AgentView.tsx:57,62,139, DecisionView.tsx:61,66, BuildView.tsx:69-70, FanoutStepList.tsx:143,149,157, ReviewView.tsx:101,105,167, ResolveView.tsx:38,64, PipelineView.tsx:37,64, ScriptView.tsx:41, HttpView.tsx:38, StartView.tsx:47
 - **Re-verification note:** Fixed part: `action()` now goes through `postJson`, which throws on `!res.ok`, so failures are no longer treated as success, and the plan panel uses a `useMutation` wrapper (`useFlowMutation`). Remaining: cockpit panels still call the raw callback with no `useMutation`, no pending/disabled state and no visible error, and most callers don't await or catch, so a 400 becomes an unhandled rejection with no feedback. Route every panel through `useFlowMutation`, expose `isPending`/`error` from it, render an alert with retry in `PanelShell`, and disable action buttons while pending.
 
@@ -3524,7 +3524,7 @@ Original findings, verbatim:
 
 ### CR-126 [Medium] Prompt previews go stale after a node-config save, and the modal never re-seeds from a fresh refetch
 
-- **Status at `abaa007`:** **Open**, fix in [Task 15](review-tasks/15-frontend-mutation-conventions.md)
+- **Status at `abaa007`:** **Fixed** ([Task 15](review-tasks/15-frontend-mutation-conventions.md))
 - **Current location:** components/flows/panels/AgentView.tsx:136-141, components/flows/cockpit/FlowCockpit.tsx:65-72, hooks/use-flow-prompt.ts:100-116, hooks/use-flow-prompt.ts:153-160
 - **Re-verification note:** AgentView's Configure save still goes through the cockpit `action`, which only invalidates `flows.detail`, not `promptScope`, `prompts` or `nodePrompt`. `useFlowPrompt` still seeds once per open session from cached data through an effect, so a fresher refetch is ignored. Even the rules save only invalidates `promptScope`, not `prompts` or `nodePrompt`. Fix: invalidate all three prompt key families after `set_node_config`, and derive `edited ?? baseQuery.data.prompt` during render instead of seeding from an effect.
 
@@ -3610,7 +3610,7 @@ Original findings, verbatim:
 
 ### CR-129 [Medium] Flow delete failure is hidden behind the still-open dialog, and "Retry" doesn't retry the delete
 
-- **Status at `abaa007`:** **Open**, fix in [Task 15](review-tasks/15-frontend-mutation-conventions.md)
+- **Status at `abaa007`:** **Fixed** ([Task 15](review-tasks/15-frontend-mutation-conventions.md))
 - **Current location:** components/flows/FlowsView.tsx:41-54, components/flows/FlowsView.tsx:86-104, components/flows/FlowsView.tsx:166-171, components/flows/DeleteFlowDialog.tsx:44-51
 - **Re-verification note:** A failed delete still leaves the dialog open with no message; the error renders in the page `<Alert>` behind the overlay, and that Alert's "Retry" resets the mutation and refetches the list instead of retrying the delete. Fix: pass `removeFlow.error?.message` into `DeleteFlowDialog` and render it there; keep the page Alert for list errors only; call `removeFlow.reset()` on dialog close.
 
@@ -6191,7 +6191,7 @@ Original findings, verbatim:
 
 ### CR-237 [Low] Layout autosave shows "saved" on HTTP errors
 
-- **Status at `abaa007`:** **Open**, fix in [Task 15](review-tasks/15-frontend-mutation-conventions.md)
+- **Status at `abaa007`:** **Fixed** ([Task 15](review-tasks/15-frontend-mutation-conventions.md))
 - **Current location:** components/template-editor/hooks/use-node-positions.ts:17,61-67
 - **Re-verification note:** The positions PATCH still does `.then(() => setLayoutSync("saved"))` regardless of `res.ok`, and network errors fall back silently to "idle". Add an "error" `LayoutSync` state set when `!r.ok` or on catch, render it in `EditorHeader`, and preferably move the PATCH to a `useMutation`.
 
@@ -6974,7 +6974,7 @@ Found while re-verifying. Numbered after the original items.
 
 ### CR-271 [Medium] Chat send failures are never shown to the user
 
-- **Status at `abaa007`:** **Open**, fix in [Task 15](review-tasks/15-frontend-mutation-conventions.md)
+- **Status at `abaa007`:** **Fixed** ([Task 15](review-tasks/15-frontend-mutation-conventions.md))
 - **Severity:** Medium
 - **Category:** Correctness
 - **Area:** Area 5 — Flow runtime UI (FLOWUI)
@@ -7328,7 +7328,7 @@ One row per finding, at `abaa007`.
 | CR-024 | High | Security | Open | [Task 59](review-tasks/59-security-credential-hygiene.md) |
 | CR-025 | High | Gap | Open | [Task 31](review-tasks/31-git-host-clients.md) |
 | CR-026 | High | Bug | Open | [Task 30](review-tasks/30-events-feed.md) |
-| CR-027 | High | Gap | Partly fixed | [Task 15](review-tasks/15-frontend-mutation-conventions.md) |
+| CR-027 | High | Gap | Fixed | [Task 15](review-tasks/15-frontend-mutation-conventions.md) |
 | CR-028 | High | Bug | Open | [Task 35](review-tasks/35-cockpit-panel-state.md) |
 | CR-029 | High | Bug | Open | [Task 37](review-tasks/37-editor-save-integrity.md) |
 | CR-030 | High | Bug | Open | [Task 37](review-tasks/37-editor-save-integrity.md) |
@@ -7427,10 +7427,10 @@ One row per finding, at `abaa007`.
 | CR-123 | Medium | Bug | Open | [Task 35](review-tasks/35-cockpit-panel-state.md) |
 | CR-124 | Medium | Bug | Partly fixed | [Task 35](review-tasks/35-cockpit-panel-state.md) |
 | CR-125 | Medium | Bug | Fixed | — |
-| CR-126 | Medium | Bug | Open | [Task 15](review-tasks/15-frontend-mutation-conventions.md) |
+| CR-126 | Medium | Bug | Fixed | [Task 15](review-tasks/15-frontend-mutation-conventions.md) |
 | CR-127 | Medium | Bug | Open | [Task 35](review-tasks/35-cockpit-panel-state.md) |
 | CR-128 | Medium | Bug | Partly fixed | [Task 36](review-tasks/36-cockpit-a11y-and-rendering.md) |
-| CR-129 | Medium | Gap | Open | [Task 15](review-tasks/15-frontend-mutation-conventions.md) |
+| CR-129 | Medium | Gap | Fixed | [Task 15](review-tasks/15-frontend-mutation-conventions.md) |
 | CR-130 | Medium | Bug | Open | [Task 35](review-tasks/35-cockpit-panel-state.md) |
 | CR-131 | Medium | Accessibility | Open | [Task 36](review-tasks/36-cockpit-a11y-and-rendering.md) |
 | CR-132 | Medium | Bug | Open | [Task 38](review-tasks/38-editor-draft-machine.md) |
@@ -7538,7 +7538,7 @@ One row per finding, at `abaa007`.
 | CR-234 | Low | Performance | Open | [Task 36](review-tasks/36-cockpit-a11y-and-rendering.md) |
 | CR-235 | Low | Code quality | Open | [Task 35](review-tasks/35-cockpit-panel-state.md) |
 | CR-236 | Low | Code quality | Open | [Task 36](review-tasks/36-cockpit-a11y-and-rendering.md) |
-| CR-237 | Low | Bug | Open | [Task 15](review-tasks/15-frontend-mutation-conventions.md) |
+| CR-237 | Low | Bug | Fixed | [Task 15](review-tasks/15-frontend-mutation-conventions.md) |
 | CR-238 | Low | Code quality | Open | [Task 55](review-tasks/55-frontend-constants-and-types.md) |
 | CR-239 | Low | Code quality | Open | [Task 54](review-tasks/54-feature-layout-and-naming.md) |
 | CR-240 | Low | Accessibility | Open | [Task 38](review-tasks/38-editor-draft-machine.md) |
@@ -7572,6 +7572,6 @@ One row per finding, at `abaa007`.
 | CR-268 | Low | Docs | Open | [Task 56](review-tasks/56-docs-refresh.md) |
 | CR-269 | Medium | Bug | Open | [Task 16](review-tasks/16-run-lifecycle-late-writes.md) |
 | CR-270 | High | Bug | Fixed | [Task 01](review-tasks/01-plan-artifact-ordering-hotfix.md) |
-| CR-271 | Medium | Gap | Open | [Task 15](review-tasks/15-frontend-mutation-conventions.md) |
+| CR-271 | Medium | Gap | Fixed | [Task 15](review-tasks/15-frontend-mutation-conventions.md) |
 | CR-272 | Low | Bug | Fixed | [Task 06](review-tasks/06-db-path-and-seed-safety.md) |
 | CR-273 | Medium | Infra | Fixed | [Task 02](review-tasks/02-typecheck-and-build-gates.md) |

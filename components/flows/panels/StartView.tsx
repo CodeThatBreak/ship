@@ -68,7 +68,7 @@ export default function StartView() {
   );
 
   return (
-    <PanelShell node={node} action={action} flow={flow} hideFailed runningLabel="Starting the flow…" footer={footer}>
+    <PanelShell node={node} flow={flow} hideFailed runningLabel="Starting the flow…" footer={footer}>
       {failed && (
         <Alert variant="destructive" className="mb-3.5">
           <AlertTriangle size={16} className="shrink-0" />

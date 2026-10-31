@@ -102,11 +102,11 @@ export default function BuildView() {
   );
 
   return (
-    <PanelShell node={node} action={action} flow={flow} runningLabel="Agent is implementing the plan…" footer={footer}>
+    <PanelShell node={node} flow={flow} runningLabel="Agent is implementing the plan…" footer={footer}>
       {/* structured plan progress — the build agent checks steps off as it reports them.
           Fanned out: the step cards replace the checklist (per-step state chips / actions). */}
       {fannedOut ? (
-        <FanoutStepList flow={flow} node={node} action={action} />
+        <FanoutStepList flow={flow} node={node} />
       ) : (
         planSteps.length > 0 && (
           <PlanSteps steps={planSteps} editable={false} highlight flowId={flow.id} className="mb-4" />

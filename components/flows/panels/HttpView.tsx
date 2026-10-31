@@ -43,7 +43,7 @@ export function HttpView() {
   );
 
   return (
-    <PanelShell node={node} action={action} flow={flow} runningLabel="Issuing the request…" footer={footer}>
+    <PanelShell node={node} flow={flow} runningLabel="Issuing the request…" footer={footer}>
       <Card className="p-3.5 mb-3.5">
         <div className="flex items-center gap-1.5 mb-1.5 text-[11.5px] font-medium text-muted-foreground uppercase tracking-[0.8px]">
           <Globe size={12} /> Request

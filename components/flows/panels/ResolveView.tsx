@@ -43,7 +43,7 @@ export default function ResolveView() {
 
   return (
     <>
-      <PanelShell node={node} action={action} flow={flow} headerEnd={headerEnd} runningLabel="Agent is fixing open comments…" footer={footer}>
+      <PanelShell node={node} flow={flow} headerEnd={headerEnd} runningLabel="Agent is fixing open comments…" footer={footer}>
         {clock && (
           <div className="mb-3 flex items-center gap-1.5 text-xs text-muted-foreground">
             <Clock size={12} />

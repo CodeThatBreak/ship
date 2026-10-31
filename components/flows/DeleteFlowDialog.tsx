@@ -20,12 +20,14 @@ import type { FlowSummary } from "@/types/flows";
 export function DeleteFlowDialog({
   flow,
   busy,
+  errorMessage,
   onConfirm,
   onClose,
 }: {
   flow: FlowSummary | null;
   /** the delete mutation is in flight for this very flow */
   busy: boolean;
+  errorMessage?: string | null;
   onConfirm: (flow: FlowSummary) => void;
   onClose: () => void;
 }) {
@@ -40,6 +42,11 @@ export function DeleteFlowDialog({
             too. This cannot be undone.
           </AlertDialogDescription>
         </AlertDialogHeader>
+        {errorMessage ? (
+          <p role="alert" className="text-sm text-destructive m-0">
+            {errorMessage}
+          </p>
+        ) : null}
         <AlertDialogFooter>
           <AlertDialogCancel onClick={onClose}>Cancel</AlertDialogCancel>
           <AlertDialogAction

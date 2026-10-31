@@ -11,8 +11,9 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Spinner } from "@/components/ui/spinner";
+import { errorMessageOf } from "@/hooks/fetch-json";
 import { CostChip } from "./CostChip";
-import type { ActionPayload } from "./context";
+import { useNodePanel } from "./context";
 
 /** The panel header title: the node contract's panel title wins, then the
  *  template label override, the template's own display name, the instance key. */
@@ -31,10 +32,9 @@ export const statusVariant = statusVariantOf;
  * feels like one consistent surface.
  */
 export function PanelShell({
-  node, action, headerEnd, runningLabel = "Agent is working…", footer, children, flow, hideFailed,
+  node, headerEnd, runningLabel = "Agent is working…", footer, children, flow, hideFailed,
 }: {
   node: Node;
-  action: (a: string, b?: ActionPayload) => void;
   /** when given, the waiting-state banner shows the node's hook endpoint (Phase 4B) */
   flow?: FlowData;
   headerEnd?: React.ReactNode;
@@ -45,6 +45,17 @@ export function PanelShell({
   /** start nodes surface their own failed alert (the form doubles as the fix) */
   hideFailed?: boolean;
 }) {
+  const {
+    action,
+    actionPending,
+    actionError,
+    retryAction,
+    resetAction,
+    flow: contextFlow,
+  } = useNodePanel();
+  const cockpitFlow = flow ?? contextFlow;
+  const actionMessage = errorMessageOf(actionError);
+
   return (
     <div className="flex flex-col h-full min-h-0">
       {/* sticky header */}
@@ -62,22 +73,44 @@ export function PanelShell({
       {/* scrollable content */}
       <ScrollArea className="flex-1">
         <div className="px-5 py-4">
+        {actionMessage && (
+          <Alert variant="destructive" className="mb-3.5">
+            <AlertTriangle size={16} className="shrink-0" />
+            <span className="flex-1">{actionMessage}</span>
+            <Button size="sm" variant="outline" onClick={() => retryAction()}>
+              <RotateCcw size={13} /> Retry
+            </Button>
+            <Button size="sm" variant="ghost" onClick={() => resetAction()}>
+              Dismiss
+            </Button>
+          </Alert>
+        )}
         {!hideFailed && node.status === FLOW_STATUS.FAILED && (
           <Alert variant="destructive" className="mb-3.5">
             <AlertTriangle size={16} className="shrink-0" />
             <span className="flex-1">This step failed — check the activity feed for details.</span>
-            <Button size="sm" onClick={() => action("retry", { nodeKey: node.node_key })}>
+            <Button
+              size="sm"
+              disabled={actionPending}
+              onClick={() => action("retry", { nodeKey: node.node_key })}
+            >
               <RotateCcw size={13} /> Retry
             </Button>
           </Alert>
         )}
-        {node.status === FLOW_STATUS.WAITING && <WaitBanner flow={flow} node={node} />}
+        {node.status === FLOW_STATUS.WAITING && <WaitBanner flow={cockpitFlow} node={node} />}
         {node.status === FLOW_STATUS.RUNNING && (
           <div className="flex flex-col items-center justify-center text-center px-5 py-8 gap-2">
             <Spinner className="size-[22px] border-[3px]" />
             <p className="text-muted-foreground text-sm font-medium m-0">{runningLabel}</p>
             <p className="text-muted-foreground text-xs m-0">Watch the activity feed →</p>
-            <Button size="sm" variant="ghost" className="mt-1" onClick={() => action("cancel", { nodeKey: node.node_key })}>
+            <Button
+              size="sm"
+              variant="ghost"
+              className="mt-1"
+              disabled={actionPending}
+              onClick={() => action("cancel", { nodeKey: node.node_key })}
+            >
               <Square size={12} /> Stop agent
             </Button>
           </div>
@@ -88,7 +121,10 @@ export function PanelShell({
 
       {/* fixed footer */}
       {footer && (
-        <div className="flex items-center gap-3 px-5 py-3 border-t border-border shrink-0 flex-wrap">
+        <div
+          className={`flex items-center gap-3 px-5 py-3 border-t border-border shrink-0 flex-wrap${actionPending ? " opacity-60 pointer-events-none" : ""}`}
+          aria-busy={actionPending}
+        >
           {footer}
         </div>
       )}

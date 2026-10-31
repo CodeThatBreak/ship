@@ -15,14 +15,14 @@ import { useNodePanel } from "./context";
  * output artifact viewer).
  */
 export default function DeclarativeView() {
-  const { flow, node, action } = useNodePanel();
+  const { flow, node } = useNodePanel();
   switch (node.kind) {
     case "decision": return <DecisionView />;
     case "http": return <HttpView />;
     case "script": return <ScriptView />;
     default:
       return (
-        <PanelShell node={node} action={action} flow={flow}>
+        <PanelShell node={node} flow={flow}>
           <p className="text-muted-foreground text-[13px] m-0">No panel for the <strong>{node.kind}</strong> node kind.</p>
         </PanelShell>
       );

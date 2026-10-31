@@ -19,11 +19,24 @@ import { PanelShell } from "./shared";
  * context is only the shared surface they run on.
  */
 export default function NodePanel({
-  flow, node, action, events = [],
+  flow,
+  node,
+  action,
+  actionAsync,
+  actionPending,
+  actionError,
+  resetAction,
+  retryAction,
+  events = [],
 }: {
   flow: FlowData;
   node: Node;
-  action: (a: string, b?: ActionPayload) => Promise<void> | void;
+  action: (a: string, b?: ActionPayload) => void;
+  actionAsync: (a: string, b?: ActionPayload) => Promise<unknown>;
+  actionPending: boolean;
+  actionError: unknown;
+  resetAction: () => void;
+  retryAction: () => void;
   events?: FeedEvent[];
 }) {
   // the flow-wide model override for this flow's runs — picked in the chat
@@ -36,8 +49,33 @@ export default function NodePanel({
   const model = composeModelChoice(modelChoice);
 
   const context = useMemo<NodePanelContextValue>(
-    () => ({ flow, node, action, events, model, modelChoice, setModelChoice }),
-    [flow, node, action, events, model, modelChoice],
+    () => ({
+      flow,
+      node,
+      action,
+      actionAsync,
+      actionPending,
+      actionError,
+      resetAction,
+      retryAction,
+      events,
+      model,
+      modelChoice,
+      setModelChoice,
+    }),
+    [
+      flow,
+      node,
+      action,
+      actionAsync,
+      actionPending,
+      actionError,
+      resetAction,
+      retryAction,
+      events,
+      model,
+      modelChoice,
+    ],
   );
 
   const { panel: Panel, chat: Chat } = resolveNodePanel(node);
@@ -48,7 +86,7 @@ export default function NodePanel({
         {/* the node's panel column */}
         <div className="flex-[1.6] min-w-0 min-h-0 flex flex-col">
           {Panel ? <Panel /> : (
-            <PanelShell node={node} action={action} flow={flow}>
+            <PanelShell node={node} flow={flow}>
               {node.kind
                 ? <p className="text-muted-foreground text-[13px] m-0">The <strong>{node.kind}</strong> node type isn&apos;t supported yet — it can&apos;t run, even though you can configure it in the template editor.</p>
                 : <p className="text-muted-foreground">No panel for this node.</p>}
