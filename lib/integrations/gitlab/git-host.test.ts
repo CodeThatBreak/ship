@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import { ValidationError } from "../../errors";
 import type { GitLabService } from "./client";
 import { GitLabHostService } from "./git-host";
 
@@ -14,7 +15,7 @@ describe("GitLabHostService", () => {
     })),
     clientFor: vi.fn(),
     projectPathFromUrl: () => "group/repo",
-    listInstances: () => [],
+    listInstances: vi.fn<GitLabService["listInstances"]>(() => []),
     addInstance: vi.fn(),
     updateInstance: vi.fn(),
     deleteInstance: vi.fn(),
@@ -42,6 +43,21 @@ describe("GitLabHostService", () => {
     expect(service.authedCloneUrl("https://gitlab.example.com/group/repo.git")).toBe(
       "https://gitlab.example.com/group/repo.git",
     );
+  });
+
+  it("rejects testInstance when baseUrl changes without a new token (CR-002)", async () => {
+    vi.mocked(gitlab.listInstances).mockReturnValue([
+      {
+        id: "gli_1",
+        name: null,
+        base_url: "https://gitlab.example.com",
+        token: "secret-token",
+        created_at: "2026-01-01T00:00:00.000Z",
+      },
+    ]);
+    await expect(
+      service.testInstance("gli_1", { baseUrl: "https://evil.test" }),
+    ).rejects.toBeInstanceOf(ValidationError);
   });
 
   it("parseWebhook maps a GitLab note payload to a CR comment event", () => {

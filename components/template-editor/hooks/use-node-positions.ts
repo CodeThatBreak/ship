@@ -3,6 +3,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 
 import type { JsonErrorBody } from "@/hooks/fetch-json";
+import { apiFetch } from "@/hooks/local-api-token";
 import { queryKeys } from "@/constants/query-keys";
 import type { TemplateEditorDetail } from "@/types/template-editor";
 
@@ -40,7 +41,7 @@ async function patchTemplatePositions(
   templateId: string,
   positions: PositionsMap,
 ): Promise<void> {
-  const res = await fetch(`/api/templates/${templateId}`, {
+  const res = await apiFetch(`/api/templates/${templateId}`, {
     method: "PATCH",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ positions }),
@@ -95,7 +96,7 @@ export const useNodePositions = (
     }
     if (readOnlyRef.current) return;
     const snapshot = latest.current;
-    void fetch(`/api/templates/${templateId}`, {
+    void apiFetch(`/api/templates/${templateId}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ positions: snapshot }),

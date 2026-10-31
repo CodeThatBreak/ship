@@ -3,7 +3,11 @@
  * a single { error } HTTP-error contract so hook files stay fetch-free.
  * (Naming exception: a module, not a hook, so it isn't `use-<name>.ts`.)
  */
+import { apiFetch, withLocalApiAuth } from "@/hooks/local-api-token";
+
 export type JsonErrorBody = { error?: string };
+
+export { apiFetch, withLocalApiAuth };
 
 /** fetch + parse JSON, throwing on transport or HTTP errors. */
 export async function fetchJson<T>(url: string): Promise<T> {
@@ -14,7 +18,7 @@ export async function fetchJson<T>(url: string): Promise<T> {
 
 /** POST JSON, parse and return the payload, throwing on transport or HTTP errors. */
 export async function postJson<T>(url: string, body: string): Promise<T> {
-  const res = await fetch(url, {
+  const res = await apiFetch(url, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body,
@@ -25,7 +29,7 @@ export async function postJson<T>(url: string, body: string): Promise<T> {
 
 /** PATCH JSON, parse and return the payload, throwing on transport or HTTP errors. */
 export async function patchJson<T>(url: string, body: string): Promise<T> {
-  const res = await fetch(url, {
+  const res = await apiFetch(url, {
     method: "PATCH",
     headers: { "Content-Type": "application/json" },
     body,

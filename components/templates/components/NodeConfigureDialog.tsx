@@ -20,6 +20,7 @@ import {
   boilerplateFor,
 } from "@/components/template-editor";
 import { queryKeys } from "@/constants/query-keys";
+import { apiFetch } from "@/hooks/local-api-token";
 import { settingsQueryOptions } from "@/components/settings";
 import { isNodeKind } from "../constants";
 import { useNodeSchemaContract } from "../hooks/use-node-schema-contract";
@@ -99,7 +100,7 @@ export function NodeConfigureDialog({
         kind: form.kind,
         config: form.config,
       });
-      return fetch(node ? `/api/node-templates/${node.id}` : "/api/node-templates", {
+      return apiFetch(node ? `/api/node-templates/${node.id}` : "/api/node-templates", {
         method: node ? "PATCH" : "POST",
         headers: { "Content-Type": "application/json" },
         body,

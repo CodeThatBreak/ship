@@ -5,6 +5,7 @@
 import { queryOptions } from "@tanstack/react-query";
 import { queryKeys } from "@/constants/query-keys";
 import { fetchJson } from "@/hooks/fetch-json";
+import { apiFetch } from "@/hooks/local-api-token";
 import { FAILED_ACTION, type FailedAction } from "@/constants/api";
 import type { GitHost, Settings } from "@/types/settings";
 import type { Repo } from "@/types/repos";
@@ -87,7 +88,7 @@ export const readError = async (
 export const patchSettings = async (
   patch: Record<string, unknown>,
 ): Promise<void> => {
-  const res = await fetch("/api/settings", {
+  const res = await apiFetch("/api/settings", {
     method: "PATCH",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(patch),

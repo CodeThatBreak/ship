@@ -21,6 +21,7 @@ import { ConfirmDeleteDialog } from "@/components/shared";
 import { ListSection } from "@/components/shared";
 import { DataTable, type DataTableAction } from "@/components/shared";
 import { queryKeys } from "@/constants/query-keys";
+import { apiFetch } from "@/hooks/local-api-token";
 import { useNodeList } from "./hooks/use-node-list";
 import { nodeColumns } from "./components/NodeColumns";
 import { NodeConfigureDialog } from "./components/NodeConfigureDialog";
@@ -47,7 +48,7 @@ export function TemplateNodesCatalog() {
    *  refuses rows still referenced by template nodes — surface that). */
   const removeMutation = useMutation({
     mutationFn: async (n: NodeRow) => {
-      const res = await fetch(`/api/node-templates/${n.id}`, { method: "DELETE" });
+      const res = await apiFetch(`/api/node-templates/${n.id}`, { method: "DELETE" });
       const payload = (await res.json().catch(() => null)) as { error?: string } | null;
       if (!res.ok || payload?.error) {
         throw new Error(payload?.error ?? `Request failed (${res.status})`);

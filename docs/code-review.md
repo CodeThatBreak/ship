@@ -158,7 +158,7 @@ Each item below can be fixed independently. Severity headings group the items; w
 
 ### CR-001 [Critical] State-changing API has no auth, CSRF or Origin check, so any website can make DevFlow run shell commands
 
-- **Status at `abaa007`:** **Open**, fix in [Task 57](review-tasks/57-security-local-api-hardening.md)
+- **Status at `abaa007`:** **Fixed** ([Task 57](review-tasks/57-security-local-api-hardening.md))
 - **Current location:** (no middleware.ts at repo root); app/api/repos/test-setup/route.ts:38-75; app/api/settings/route.ts:104-178; app/api/repos/route.ts:36-62; app/api/host-instances/[host]/route.ts:14-25; app/api/task-instances/[kind]/route.ts:19-39; package.json:6,8 (`next dev` / `next start` with no `-H 127.0.0.1`)
 - **Re-verification note:** Still no session/token, Origin, Sec-Fetch-Site or Content-Type check on any state-changing route, and `/api/repos/test-setup` still passes a caller-supplied `setup_command` straight to `worktreeSetup.probe`. Add a root `middleware.ts` for `/api/:path*` that rejects non-GET requests unless the Origin matches and the body is `application/json`, plus a startup-generated local token (exempt `/api/hooks/*` and `/api/webhooks/*`), and bind dev/start to 127.0.0.1.
 
@@ -184,7 +184,7 @@ Each item below can be fixed independently. Severity headings group the items; w
 
 ### CR-002 [High] The instance "test" endpoints send the stored token to a caller-supplied `baseUrl`
 
-- **Status at `abaa007`:** **Open**, fix in [Task 57](review-tasks/57-security-local-api-hardening.md)
+- **Status at `abaa007`:** **Fixed** ([Task 57](review-tasks/57-security-local-api-hardening.md))
 - **Current location:** app/api/host-instances/[host]/[id]/route.ts:29-36 (test), 6-17 (PATCH); app/api/task-instances/[kind]/[id]/route.ts:39-58 (test), 6-26 (PATCH); app/api/host-instances/[host]/route.ts:14-25; app/api/task-instances/[kind]/route.ts:19-39; lib/integrations/gitlab/git-host.ts:236-240; lib/engine/tasks/providers/jira.ts:87-98; lib/integrations/gitlab/client.ts:311-322; lib/integrations/jira/service.ts:76-93
 - **Re-verification note:** `testInstance` still pairs a caller-supplied `baseUrl` with the stored token (`input.baseUrl ?? existing.base_url`, `input.token || existing.token`) for both GitLab and Jira, so a request that sends only `{baseUrl}` ships the stored PAT or Basic credentials to any host. Reject a `baseUrl` override unless `token` is also supplied, and validate `baseUrl` with Zod (https URL) plus the SSRF guard in the add/update/test routes.
 
@@ -7261,8 +7261,8 @@ One row per finding, at `abaa007`.
 
 | CR | Severity | Type | Status | Task |
 | --- | --- | --- | --- | --- |
-| CR-001 | Critical | Security | Open | [Task 57](review-tasks/57-security-local-api-hardening.md) |
-| CR-002 | High | Security | Open | [Task 57](review-tasks/57-security-local-api-hardening.md) |
+| CR-001 | Critical | Security | Fixed | [Task 57](review-tasks/57-security-local-api-hardening.md) |
+| CR-002 | High | Security | Fixed | [Task 57](review-tasks/57-security-local-api-hardening.md) |
 | CR-003 | High | Gap | Partly fixed | [Task 10](review-tasks/10-api-input-validation-flows.md), [Task 11](review-tasks/11-api-input-validation-settings.md) |
 | CR-004 | High | Bug | Fixed | [Task 28](review-tasks/28-prompt-preview-parity.md) |
 | CR-005 | High | Bug | Fixed | [Task 13](review-tasks/13-frontend-query-ownership.md) |

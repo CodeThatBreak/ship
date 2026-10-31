@@ -1,6 +1,10 @@
 import { toErrorResponse } from "@/lib/errors";
 import { parseJson } from "@/lib/http/parse";
 import {
+  resolveInstanceTestBaseUrl,
+  validateTaskInstanceBaseUrl,
+} from "@/lib/integrations/instance-route-validation";
+import {
   taskInstancePatchBodySchema,
   taskInstanceTestBodySchema,
 } from "@/lib/schemas/integration-instance";
@@ -17,6 +21,10 @@ export const PATCH = async (req: Request, { params }: { params: Promise<{ kind: 
   if (!provider || !store) return NextResponse.json({ error: `unknown task provider: ${kind}` }, { status: 404 });
   try {
     const body = await parseJson(req, taskInstancePatchBodySchema);
+    const nextBase = body.baseUrl ?? body.base_url;
+    if (nextBase) {
+      await validateTaskInstanceBaseUrl(() => store.instances(), id, nextBase);
+    }
     store.updateInstance(id, {
       name: body.name,
       baseUrl: body.baseUrl ?? body.base_url,
@@ -50,8 +58,11 @@ export const POST = async (req: Request, { params }: { params: Promise<{ kind: s
   if (!provider || !store) return NextResponse.json({ error: `unknown task provider: ${kind}` }, { status: 404 });
   try {
     const body = await parseJson(req, taskInstanceTestBodySchema);
+    const existing = store.instances().find((i) => i.id === id);
+    if (!existing) return NextResponse.json({ error: `task instance not found: ${id}` }, { status: 404 });
+    const baseUrl = await resolveInstanceTestBaseUrl(existing.baseUrl, body.baseUrl ?? body.base_url);
     const result = await store.testInstance(id, {
-      baseUrl: body.baseUrl ?? body.base_url,
+      baseUrl,
       email: body.email,
       token: body.token,
     });

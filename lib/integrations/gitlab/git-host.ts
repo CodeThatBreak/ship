@@ -1,7 +1,8 @@
 import "server-only";
 
 import { config } from "../../config";
-import { NotFoundError } from "../../errors";
+import { NotFoundError, ValidationError } from "../../errors";
+import { baseUrlOverrideRequiresToken } from "../instance-credential-policy";
 import { z } from "zod";
 import type {
   ChangeRequest,
@@ -254,6 +255,9 @@ export class GitLabHostService implements GitHostService {
   updateInstance(id: string, input: { name?: string | null; baseUrl?: string; token?: string }): void {
     const existing = this.gitlab.listInstances().find((i) => i.id === id);
     if (!existing) throw new NotFoundError("host instance", id);
+    if (baseUrlOverrideRequiresToken(existing.base_url, input.baseUrl, input.token)) {
+      throw new ValidationError("token is required when overriding baseUrl");
+    }
     this.gitlab.updateInstance(id, {
       name: input.name ?? existing.name ?? undefined,
       base_url: input.baseUrl ?? existing.base_url,
@@ -269,7 +273,12 @@ export class GitLabHostService implements GitHostService {
   async testInstance(id: string, input: { baseUrl?: string; token?: string } = {}): Promise<{ ok: boolean; detail: string }> {
     const existing = this.gitlab.listInstances().find((i) => i.id === id);
     if (!existing) throw new NotFoundError("host instance", id);
-    return this.gitlab.testInstance(input.baseUrl ?? existing.base_url, input.token || existing.token);
+    if (baseUrlOverrideRequiresToken(existing.base_url, input.baseUrl, input.token)) {
+      throw new ValidationError("token is required when overriding baseUrl");
+    }
+    const baseUrl = input.baseUrl ?? existing.base_url;
+    const token = input.token?.trim() || existing.token;
+    return this.gitlab.testInstance(baseUrl, token);
   }
 
   // ── webhook ingestion ────────────────────────────────────────────────────

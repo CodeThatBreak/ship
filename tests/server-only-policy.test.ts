@@ -12,6 +12,7 @@ const CLIENT_SAFE_LIB = new Set([
   "lib/usage.ts",
   "lib/groupEvents.ts",
   "lib/eslint-policy-probe.ts",
+  "lib/local-api/middleware-policy.ts",
 ]);
 
 const walk = (dir: string, out: string[] = []): string[] => {

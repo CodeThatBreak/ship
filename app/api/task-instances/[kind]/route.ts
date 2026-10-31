@@ -1,5 +1,6 @@
 import { toErrorResponse } from "@/lib/errors";
 import { parseJson } from "@/lib/http/parse";
+import { validateNewTaskInstanceBaseUrl } from "@/lib/integrations/instance-route-validation";
 import { taskInstanceCreateBodySchema } from "@/lib/schemas/integration-instance";
 import { NextResponse } from "next/server";
 import { taskRegistry } from "../../../../lib/engine/tasks/registry";
@@ -28,7 +29,8 @@ export const POST = async (req: Request, { params }: { params: Promise<{ kind: s
     const store = provider.instanceStore();
     if (!store) return NextResponse.json({ error: `${provider.label} does not manage instances` }, { status: 400 });
     const body = await parseJson(req, taskInstanceCreateBodySchema);
-    const inst = store.addInstance(body);
+    const baseUrl = await validateNewTaskInstanceBaseUrl(body.baseUrl);
+    const inst = store.addInstance({ ...body, baseUrl });
     return NextResponse.json({ instance: inst });
   } catch (err: unknown) {
     return toErrorResponse(err);

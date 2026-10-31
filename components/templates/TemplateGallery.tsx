@@ -26,6 +26,7 @@ import { DataTable, type DataTableAction } from "@/components/shared";
 import { WebhookPayloadDialog } from "@/components/template-editor";
 import { queryKeys } from "@/constants/query-keys";
 import { postJson } from "@/hooks/fetch-json";
+import { apiFetch } from "@/hooks/local-api-token";
 import { useTemplateList } from "./hooks/use-template-list";
 import { templateColumns } from "./components/TemplateColumns";
 import { GalleryHeader } from "./components/GalleryHeader";
@@ -132,7 +133,7 @@ export function TemplateGallery() {
   /** The confirm's destructive action (A2): delete, then refresh. */
   const removeMutation = useMutation({
     mutationFn: async (t: TemplateRow) => {
-      const res = await fetch(`/api/templates/${t.id}`, { method: "DELETE" });
+      const res = await apiFetch(`/api/templates/${t.id}`, { method: "DELETE" });
       const payload = (await res.json().catch(() => null)) as { error?: string } | null;
       if (!res.ok || payload?.error) {
         throw new Error(payload?.error ?? `Request failed (${res.status})`);

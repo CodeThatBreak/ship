@@ -11,6 +11,7 @@
  */
 import { useQuery, keepPreviousData } from "@tanstack/react-query";
 import { queryKeys } from "@/constants/query-keys";
+import { apiFetch } from "@/hooks/local-api-token";
 import { PREVIEW_DEBOUNCE_MS } from "./constants";
 import { useDebouncedValue } from "./use-debounced-value";
 import type { PreviewScope, PreviewState } from "./types";
@@ -29,7 +30,7 @@ async function requestPreview(
   scope: PreviewScope,
   expr: string,
 ): Promise<PreviewState> {
-  const res = await fetch(`/api/templates/${templateId}/preview`, {
+  const res = await apiFetch(`/api/templates/${templateId}/preview`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ expr, scope }),

@@ -7,6 +7,9 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const nextConfig = {
   serverExternalPackages: ["better-sqlite3", "@cursor/sdk"],
   outputFileTracingRoot: __dirname,
+  env: {
+    DEVFLOW_LOCAL_API_TOKEN: process.env.DEVFLOW_LOCAL_API_TOKEN ?? "",
+  },
 };
 
 export default nextConfig;

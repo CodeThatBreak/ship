@@ -19,6 +19,7 @@ import {
 import type { TemplateEditorDetail } from "@/types/template-editor";
 import { queryKeys } from "@/constants/query-keys";
 import { errorMessageOf } from "@/hooks/fetch-json";
+import { apiFetch } from "@/hooks/local-api-token";
 import { detailToDraft, positionsOf } from "./use-editor-queries";
 import {
   editorSaveErrorFromResponse,
@@ -75,7 +76,7 @@ export function useEditorSave(deps: EditorSaveDeps): EditorSaveApi {
         return;
       }
       const new_node_templates = collectPendingDefs(d);
-      const res = await fetch(`/api/templates/${d.template.id}`, {
+      const res = await apiFetch(`/api/templates/${d.template.id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({

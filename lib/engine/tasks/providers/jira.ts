@@ -2,7 +2,8 @@ import "server-only";
 
 import { db } from "../../../db";
 import type { Task } from "../../../db/rows";
-import { UpstreamError } from "../../../errors";
+import { UpstreamError, ValidationError } from "../../../errors";
+import { baseUrlOverrideRequiresToken } from "../../../integrations/instance-credential-policy";
 import { truncateUpstreamBody } from "../../../engine/ports/git-host-errors";
 import { AdfRenderer } from "../../../integrations/jira/adf-renderer";
 import { jiraAuthHeaders, jiraSearchPath } from "../../../integrations/jira/api-profile";
@@ -83,7 +84,17 @@ export class JiraTaskProvider extends TaskProvider implements TaskInstanceStore 
   }
 
   updateInstance(id: string, input: { name?: string | null; baseUrl?: string; email?: string; token?: string }): void {
-    jira.updateInstance(id, input);
+    const existing = jira.listInstances().find((i) => i.id === id);
+    if (!existing) throw new Error(`jira instance not found: ${id}`);
+    if (baseUrlOverrideRequiresToken(existing.base_url, input.baseUrl, input.token)) {
+      throw new ValidationError("token is required when overriding baseUrl");
+    }
+    jira.updateInstance(id, {
+      name: input.name,
+      base_url: input.baseUrl,
+      email: input.email,
+      token: input.token,
+    });
   }
 
   removeInstance(id: string): void {
@@ -96,10 +107,13 @@ export class JiraTaskProvider extends TaskProvider implements TaskInstanceStore 
   ): Promise<{ ok: boolean; detail: string }> {
     const existing = jira.listInstances().find((i) => i.id === id);
     if (!existing) throw new Error(`jira instance not found: ${id}`);
+    if (baseUrlOverrideRequiresToken(existing.base_url, input.baseUrl, input.token)) {
+      throw new ValidationError("token is required when overriding baseUrl");
+    }
     return jira.testInstance(
       input.baseUrl ?? existing.base_url,
       input.email ?? existing.email,
-      input.token || existing.token
+      input.token?.trim() || existing.token
     );
   }
 

@@ -1,6 +1,7 @@
 "use client";
 import { useMutation } from "@tanstack/react-query";
 import { FAILED_ACTION } from "@/constants/api";
+import { apiFetch } from "@/hooks/local-api-token";
 import { readError } from "../../queries";
 import type { RepoFormState, SetupTestResult } from "../types";
 
@@ -44,7 +45,7 @@ function parseProbeLine(line: string): ProbeLine | null {
  * happens; the final `{"type":"result"}` resolves the mutation.
  */
 async function testSetup(form: TestPayload, onStep: (message: string) => void): Promise<SetupTestResult> {
-  const res = await fetch("/api/repos/test-setup", {
+  const res = await apiFetch("/api/repos/test-setup", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(form),

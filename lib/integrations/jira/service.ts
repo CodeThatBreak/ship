@@ -1,6 +1,7 @@
 import "server-only";
 
-import { ConflictError } from "../../errors";
+import { ConflictError, ValidationError } from "../../errors";
+import { baseUrlOverrideRequiresToken } from "../instance-credential-policy";
 import { truncateUpstreamBody } from "../../engine/ports/git-host-errors";
 import type { JiraInstanceStore } from "../../db/stores";
 import { type JiraInstance } from "../../db/rows";
@@ -63,6 +64,9 @@ export class JiraService {
   ): void {
     const existing = this.listInstances().find((i) => i.id === id);
     if (!existing) throw new Error(`jira instance not found: ${id}`);
+    if (baseUrlOverrideRequiresToken(existing.base_url, input.base_url, input.token)) {
+      throw new ValidationError("token is required when overriding baseUrl");
+    }
     this.instances.update(id, input, existing);
   }
 

@@ -6,9 +6,9 @@
     "node": ">=22.13"
   },
   "scripts": {
-    "dev": "next dev",
+    "dev": "node scripts/run-next-local.mjs dev",
     "build": "next build",
-    "start": "next start",
+    "start": "node scripts/run-next-local.mjs start",
     "typecheck": "tsc --noEmit",
     "lint": "eslint . --max-warnings=53",
     "test": "vitest run",

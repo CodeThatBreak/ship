@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { DataTable, type DataTableAction } from "@/components/shared";
 import { queryKeys } from "@/constants/query-keys";
+import { apiFetch } from "@/hooks/local-api-token";
 import { FLOW_STATUS } from "@/constants/flow";
 import type { FlowSummary } from "@/types/flows";
 import { EXECUTION_MODE_LOCAL } from "./constants";
@@ -40,7 +41,7 @@ export function FlowsView({ initialFlows }: { initialFlows: FlowSummary[] }) {
   /** The delete confirm's destructive action: remove flow+children+worktree. */
   const removeFlow = useMutation({
     mutationFn: async (flow: FlowSummary) => {
-      const res = await fetch(`/api/flows/${flow.id}`, { method: "DELETE" });
+      const res = await apiFetch(`/api/flows/${flow.id}`, { method: "DELETE" });
       const body = (await res.json().catch(() => ({}))) as DeleteErrorBody;
       if (!res.ok || body.error) {
         throw new Error(body.error ?? `Request failed (${res.status})`);

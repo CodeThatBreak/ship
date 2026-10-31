@@ -63,6 +63,34 @@ function hostAllowed(hostname: string, allowlist: string[]): boolean {
   });
 }
 
+/**
+ * GitLab/Jira instance base URL: https only, hostname allowlisted to itself,
+ * DNS must not resolve to private/internal addresses.
+ */
+export async function assertIntegrationBaseUrl(raw: string): Promise<string> {
+  const trimmed = raw.trim().replace(/\/+$/, "");
+  let url: URL;
+  try {
+    url = new URL(trimmed.includes("://") ? trimmed : `https://${trimmed}`);
+  } catch {
+    throw new SsrfError(`invalid URL: ${raw}`);
+  }
+  if (url.protocol !== "https:") {
+    throw new SsrfError('protocol "http:" is not allowed — https only for integration base URLs');
+  }
+  assertUrlPolicy(url.toString(), [url.hostname]);
+  try {
+    await resolveAndCheck(url);
+  } catch (e: unknown) {
+    if (e instanceof SsrfError) throw e;
+    const msg = e instanceof Error ? e.message : String(e);
+    throw new SsrfError(msg);
+  }
+  return url.pathname === "/" || url.pathname === ""
+    ? url.origin
+    : `${url.origin}${url.pathname.replace(/\/+$/, "")}`;
+}
+
 /** Validate scheme + hostname allowlist; throw a readable SsrfError otherwise. */
 export function assertUrlPolicy(raw: string, allowlist: string[]): URL {
   let url: URL;

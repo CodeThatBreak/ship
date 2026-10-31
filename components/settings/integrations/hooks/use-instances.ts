@@ -5,6 +5,7 @@ import type { InstanceSurface } from "../constants";
 import { readError } from "../../queries";
 import { FAILED_ACTION } from "@/constants/api";
 import { queryKeys } from "@/constants/query-keys";
+import { apiFetch } from "@/hooks/local-api-token";
 import { integrationStatusInvalidations } from "../utils/integration-status-invalidation";
 import { requireCreatedInstance } from "../utils/require-created-instance";
 import {
@@ -39,7 +40,7 @@ async function createInstance(
   kind: string,
   payload: Record<string, unknown>,
 ): Promise<InstanceRow> {
-  const res = await fetch(instancesUrl(surface, kind), {
+  const res = await apiFetch(instancesUrl(surface, kind), {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload),
@@ -50,7 +51,7 @@ async function createInstance(
 }
 
 async function deleteInstance(surface: InstanceSurface, kind: string, id: string): Promise<void> {
-  const res = await fetch(instancesUrl(surface, kind, id), { method: "DELETE" });
+  const res = await apiFetch(instancesUrl(surface, kind, id), { method: "DELETE" });
   if (!res.ok) throw await readError(res, FAILED_ACTION.REMOVE);
 }
 
@@ -65,7 +66,7 @@ async function callTestInstance(
   id: string,
 ): Promise<TestResult> {
   try {
-    const res = await fetch(instancesUrl(surface, kind, id), { method: "POST" });
+    const res = await apiFetch(instancesUrl(surface, kind, id), { method: "POST" });
     const body = (await res.json().catch(() => ({}))) as Partial<TestResult> & { error?: string };
     if (!res.ok || typeof body.ok !== "boolean") {
       return { ok: false, detail: body.error ?? `connection test failed (${res.status})` };

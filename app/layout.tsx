@@ -1,6 +1,7 @@
 import "./globals.css";
 import type { Metadata } from "next";
 
+import { LocalApiShell } from "@/loaders/local-api-shell";
 import { AppProviders } from "./providers";
 import { TooltipProvider } from "@/components/ui/tooltip";
 
@@ -9,13 +10,15 @@ export const metadata: Metadata = {
   description: "Single-screen developer SDLC: Jira → Plan → Build → MR → CI → Review",
 };
 
-export default function RootLayout({ children }: { children: React.ReactNode }) {
+export default async function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="en">
       <body>
-        <AppProviders>
-          <TooltipProvider>{children}</TooltipProvider>
-        </AppProviders>
+        <LocalApiShell>
+          <AppProviders>
+            <TooltipProvider>{children}</TooltipProvider>
+          </AppProviders>
+        </LocalApiShell>
       </body>
     </html>
   );

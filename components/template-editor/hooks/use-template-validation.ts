@@ -8,6 +8,7 @@
  */
 import { useCallback, useRef, useState, useEffect } from "react";
 import type { LintProblem } from "@/types/template-lint";
+import { apiFetch } from "@/hooks/local-api-token";
 import { collectPendingDefs, type Draft } from "../draft";
 import { shouldApplyValidationSeq } from "../utils/validation-seq";
 
@@ -95,7 +96,7 @@ export function useTemplateValidation(
 
       let res: Response;
       try {
-        res = await fetch(`/api/templates/${d.template.id}/validate`, {
+        res = await apiFetch(`/api/templates/${d.template.id}/validate`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           signal: controller.signal,

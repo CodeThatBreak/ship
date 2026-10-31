@@ -2,6 +2,7 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { FAILED_ACTION } from "@/constants/api";
 import { queryKeys } from "@/constants/query-keys";
+import { apiFetch } from "@/hooks/local-api-token";
 import { readError } from "../../queries";
 import type { RepoSavePayload } from "../utils/repo-save-payload";
 
@@ -13,7 +14,7 @@ import type { RepoSavePayload } from "../utils/repo-save-payload";
 
 /** POST a new repo, or PATCH the existing one when `id` is present. */
 async function saveRepo({ id, ...form }: RepoSavePayload): Promise<void> {
-  const res = await fetch(id ? `/api/repos/${id}` : "/api/repos", {
+  const res = await apiFetch(id ? `/api/repos/${id}` : "/api/repos", {
     method: id ? "PATCH" : "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(form),
@@ -22,7 +23,7 @@ async function saveRepo({ id, ...form }: RepoSavePayload): Promise<void> {
 }
 
 async function deleteRepo(id: string): Promise<void> {
-  const res = await fetch(`/api/repos/${id}`, { method: "DELETE" });
+  const res = await apiFetch(`/api/repos/${id}`, { method: "DELETE" });
   if (!res.ok) throw await readError(res, FAILED_ACTION.REMOVE);
 }
 
