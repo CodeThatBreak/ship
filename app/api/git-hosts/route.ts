@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { gitHostRegistry } from "../../../lib/engine/ports/git-host";
 
 export const dynamic = "force-dynamic";
+export const runtime = "nodejs";
 
 /**
  * Registered git hosts (metadata for the settings UI): kinds, labels,

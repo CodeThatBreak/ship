@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { gitHostRegistry } from "../../../../../lib/engine/ports/git-host";
 
 export const dynamic = "force-dynamic";
+export const runtime = "nodejs";
 
 export async function PATCH(req: Request, { params }: { params: Promise<{ host: string; id: string }> }) {
   const { host, id } = await params;

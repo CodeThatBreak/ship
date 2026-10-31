@@ -3,6 +3,7 @@ import { db } from "../../../../../lib/db";
 import { flowEngine } from "../../../../../lib/engine/flow-engine";
 
 export const dynamic = "force-dynamic";
+export const runtime = "nodejs";
 
 export async function GET(_req: Request, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;

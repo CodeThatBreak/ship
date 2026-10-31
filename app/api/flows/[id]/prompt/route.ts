@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { promptPreview } from "../../../../../lib/engine/prompts/prompt-preview";
 
 export const dynamic = "force-dynamic";
+export const runtime = "nodejs";
 
 /**
  * The prompt modal's read endpoint (thin, per AGENTS 3.2): all resolution

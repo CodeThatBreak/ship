@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { promptPreview } from "../../../../../lib/engine/prompts/prompt-preview";
 
 export const dynamic = "force-dynamic";
+export const runtime = "nodejs";
 
 /**
  * The plan composer's bulk prompt read (thin, per AGENTS 3.2): one response

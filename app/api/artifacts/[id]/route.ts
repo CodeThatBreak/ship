@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { db } from "../../../../lib/db";
 
 export const dynamic = "force-dynamic";
+export const runtime = "nodejs";
 
 /** The artifacts row's read shape: everything spread through, plus the
  *  JSON-string `meta` column the route parses. */

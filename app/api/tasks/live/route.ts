@@ -7,6 +7,7 @@ import type {
 } from "../../../../lib/engine/tasks/task-provider";
 
 export const dynamic = "force-dynamic";
+export const runtime = "nodejs";
 
 /**
  * Runtime task feed for the tasks table — fetched straight from the provider

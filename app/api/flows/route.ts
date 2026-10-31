@@ -3,6 +3,7 @@ import { flowEngine } from "../../../lib/engine/flow-engine";
 import { flowPoller } from "../../../lib/engine/runtime/flow-poller";
 
 export const dynamic = "force-dynamic";
+export const runtime = "nodejs";
 
 export async function GET() {
   flowPoller.start();

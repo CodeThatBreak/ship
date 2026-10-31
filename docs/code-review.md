@@ -15,7 +15,7 @@ At `abaa007`:
 | Check | Result |
 | --- | --- |
 | `npx tsc --noEmit` | **Fails: 11 errors in 5 files**, all in tests and scripts (`tests/plan-diff.test.ts`, `split-manager.test.ts`, `split-smoke-template.test.ts`, `plan-split-units-demo.test.ts`, `scripts/verify-prompt-parity.ts`). Vitest does not type-check, so `npm test` stays green. See CR-273. |
-| `npm run lint` | Runs: 0 errors, 143 warnings (61 `no-non-null-assertion`, 56 `no-explicit-any`, 26 `no-unused-vars`). Every warning is in `lib/` or `scripts/`, because those trees are downgraded to `warn` (CR-162). The install problem from CR-039 is fixed. |
+| `npm run lint` | Runs: 0 errors, 147 warnings (cap enforced with `--max-warnings=147`). Phase-0 `any`/`!`/`exhaustive-deps` violations are frozen per-file in `eslint/frozen-phase0-offenders.mjs` (CR-162 fixed in Task 03); new `lib/` files lint at error. Typed `@typescript-eslint/no-floating-promises` warns on `lib/**`. API routes require `export const runtime = "nodejs"` (CR-170). |
 | `npm test` | Pass: 23 files, 252 tests (Vitest, added after the review). |
 | `npm run build` | Not re-run (the dev server was using `.next`). It still skips lint (`eslint.ignoreDuringBuilds: true`, CR-257), and its type-check covers the same files as `tsc`, so expect it to fail until CR-273 is fixed. |
 
@@ -4443,9 +4443,7 @@ Original findings, verbatim:
 
 ### CR-162 [Medium] AGENTS.md §5 rules are downgraded to `warn` for `lib/**` and `scripts/**`, which hides 56 `any` and about 30 `!`
 
-- **Status at `abaa007`:** **Open**, fix in [Task 03](review-tasks/03-lint-rule-hardening.md)
-- **Current location:** eslint.config.mjs:35-55
-- **Re-verification note:** The override still downgrades `exhaustive-deps`, `no-explicit-any` and `no-non-null-assertion` to `warn` for the whole `lib/**/*.ts` and `scripts/**` trees; lint currently reports 0 errors and 143 warnings there. The comment still cites the nonexistent "AGENTS.md section 6", and the `lib/**/*.ts` glob still misses `lib/highlighter.tsx`. Fix: keep `warn` only for a frozen per-file offender list so new lib files get `error`, then add `--max-warnings` and burn the list down, and fix the stale reference.
+- **Status at `abaa007`:** **Fixed** (Task 03 — frozen offender list, `--max-warnings`, `reportUnusedDisableDirectives`, typed `no-floating-promises` on `lib/**`)
 
 - **Severity:** Medium
 - **Category:** Boundaries
@@ -4688,9 +4686,9 @@ Original findings, verbatim:
 
 ### CR-170 [Low] No DB-touching route declares `runtime = "nodejs"`
 
-- **Status at `abaa007`:** **Open**, fix in [Task 03](review-tasks/03-lint-rule-hardening.md)
-- **Current location:** all 39 app/api/**/route.ts files (none export `runtime`; e.g. app/api/flows/route.ts, app/api/repos/route.ts:6)
-- **Re-verification note:** No route declares `export const runtime = "nodejs"`; they only export `dynamic = "force-dynamic"`. Add the declaration to every DB-touching route. Lint now runs, so also add an ESLint rule (restricted-syntax or a custom rule) that requires it under `app/api/**`.
+- **Status at `abaa007`:** **Fixed** (Task 03 — `export const runtime = "nodejs"` on all 39 routes; `devflow/require-nodejs-runtime` ESLint rule)
+- **Current location:** all 39 app/api/**/route.ts files
+- **Re-verification note:** Every route now exports `runtime = "nodejs"` alongside `dynamic = "force-dynamic"`. ESLint enforces the export under `app/api/**/route.ts`.
 
 - **Severity:** Low
 - **Category:** Boundaries

@@ -10,6 +10,7 @@ function flowScheduleFallback(delayMs: number): string {
 }
 
 export const dynamic = "force-dynamic";
+export const runtime = "nodejs";
 
 /**
  * GitLab webhook: Merge Request events (comments) + Pipeline events.

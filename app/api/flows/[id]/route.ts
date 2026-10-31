@@ -4,6 +4,7 @@ import { flowPoller } from "../../../../lib/engine/runtime/flow-poller";
 import { reconciler } from "../../../../lib/engine/runtime/flow-reconciler";
 
 export const dynamic = "force-dynamic";
+export const runtime = "nodejs";
 
 export async function GET(_req: Request, { params }: { params: Promise<{ id: string }> }) {
   flowPoller.start();

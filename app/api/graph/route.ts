@@ -5,6 +5,7 @@ import { SDLC_TEMPLATE_ID, templateStore } from "../../../lib/engine/templates/t
 import { outputFieldsFor } from "../../../lib/engine/templates/template-lint";
 
 export const dynamic = "force-dynamic";
+export const runtime = "nodejs";
 
 /**
  * The workflow graph definition. Without `?flowId=` this is the built-in

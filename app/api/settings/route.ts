@@ -8,6 +8,7 @@ import { normalizeModelSpec } from "../../../lib/modelSpec";
 import { cursorApiKeyStored, setCursorApiKey } from "../../../lib/integrations/cursor/credentials";
 
 export const dynamic = "force-dynamic";
+export const runtime = "nodejs";
 
 /** One mode entry of a harness: the exec mode it runs + probe result. */
 export interface SettingsPortMode {

@@ -4,6 +4,7 @@ import { flowEngine } from '../../../../../lib/engine/flow-engine';
 import type { PlanStepInput } from '../../../../../lib/engine/runtime/plan-step-store';
 
 export const dynamic = 'force-dynamic';
+export const runtime = "nodejs";
 
 /**
  * The parsed action-route request body, typed to the engine's action

@@ -9,6 +9,7 @@ import { nodeRegistry } from "../../../../../lib/engine/nodes/registry";
 import { taskRegistry } from "../../../../../lib/engine/tasks/registry";
 
 export const dynamic = "force-dynamic";
+export const runtime = "nodejs";
 
 /**
  * Expression preview (Phase 5, Tier 3): `{ expr, scope? }` in — the value the

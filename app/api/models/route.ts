@@ -6,6 +6,7 @@ import { FAST_ON, FAST_PARAM } from "../../../constants/models";
 import { normalizeModelSpec, parseModelSpec, type CatalogModel } from "../../../lib/modelSpec";
 
 export const dynamic = "force-dynamic";
+export const runtime = "nodejs";
 
 /**
  * `fast` values are display noise on the picker-side catalog: DevFlow runs

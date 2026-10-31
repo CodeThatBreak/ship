@@ -3,6 +3,7 @@ import { taskRegistry } from "../../../../lib/engine/tasks/registry";
 import type { LiveTask } from "../../../../lib/engine/tasks/task-provider";
 
 export const dynamic = "force-dynamic";
+export const runtime = "nodejs";
 
 /**
  * Write a single live task into the `tasks` table — the write-through step

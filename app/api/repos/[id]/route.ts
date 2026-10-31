@@ -4,6 +4,7 @@ import path from "path";
 import { db } from "../../../../lib/db";
 
 export const dynamic = "force-dynamic";
+export const runtime = "nodejs";
 
 /** Optional string fields: absent = keep, empty = clear. */
 function optString(v: unknown, fallback: string | null): string | null {

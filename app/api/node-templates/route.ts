@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { templateStore } from "../../../lib/engine/templates/template-store";
 
 export const dynamic = "force-dynamic";
+export const runtime = "nodejs";
 
 /** The node-type catalog (built-ins + declarative), for the builder palette.
  *  `?templateId=<id>` splits the declarative rows by locality: `nodeTemplates`

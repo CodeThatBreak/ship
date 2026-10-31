@@ -3,6 +3,7 @@ import { db } from "../../../../../lib/db";
 import { type HostComment } from "../../../../../lib/engine/ports/git-host";
 
 export const dynamic = "force-dynamic";
+export const runtime = "nodejs";
 
 /** One comment row as the route reads it from the DB. */
 interface CommentRow {

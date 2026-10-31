@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { taskRegistry } from "../../../../../lib/engine/tasks/registry";
 
 export const dynamic = "force-dynamic";
+export const runtime = "nodejs";
 
 export async function PATCH(req: Request, { params }: { params: Promise<{ kind: string; id: string }> }) {
   const { kind, id } = await params;

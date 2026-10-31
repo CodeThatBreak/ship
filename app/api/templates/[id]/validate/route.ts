@@ -8,6 +8,7 @@ import {
 import { taskRegistry } from "../../../../../lib/engine/tasks/registry";
 
 export const dynamic = "force-dynamic";
+export const runtime = "nodejs";
 
 /**
  * Live validation (Phase 3): the editor's draft in — `{ trigger, nodes,

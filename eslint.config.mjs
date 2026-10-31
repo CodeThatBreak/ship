@@ -1,6 +1,8 @@
 import { dirname } from "path";
 import { fileURLToPath } from "url";
 import { FlatCompat } from "@eslint/eslintrc";
+import { FROZEN_PHASE0_OFFENDERS } from "./eslint/frozen-phase0-offenders.mjs";
+import { devflowPlugin } from "./eslint/rules/devflow-plugin.mjs";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -15,6 +17,12 @@ const UI_PRIMITIVES_MESSAGE =
 const FEATURE_BARREL_MESSAGE =
   "Import feature code through the feature's index barrel, not through deep paths.";
 
+const PHASE0_DOWNGRADED_RULES = {
+  "react-hooks/exhaustive-deps": "warn",
+  "@typescript-eslint/no-explicit-any": "warn",
+  "@typescript-eslint/no-non-null-assertion": "warn",
+};
+
 const eslintConfig = [
   {
     ignores: [
@@ -24,6 +32,7 @@ const eslintConfig = [
       "tsconfig.tsbuildinfo",
       "workspaces/**",
       "data/**",
+      "lib/eslint-policy-probe.ts",
     ],
   },
 
@@ -31,27 +40,44 @@ const eslintConfig = [
   ...compat.extends("next/core-web-vitals", "next/typescript"),
 
   {
+    linterOptions: {
+      reportUnusedDisableDirectives: "error",
+    },
     rules: {
-      // AGENTS.md section 6 (Phase 6 final state): these run at error level in
-      // the app tree. lib/** and scripts/** stay at warn — their pre-existing
-      // violations (row mappers, check scripts) are backend/cleanup work
-      // outside this UI refactor; see docs/phase0-baseline.md Phase 6 report.
+      // AGENTS.md §5: error in app/components/hooks; legacy lib/ offenders stay
+      // on the frozen list below until burn-down (Task 03).
       "react-hooks/exhaustive-deps": "error",
       "@typescript-eslint/no-explicit-any": "error",
       "@typescript-eslint/no-non-null-assertion": "error",
     },
   },
 
-  // lib/** + scripts/** backend & maintenance scripts: the flipped Phase-0
-  // rules stay "warn" here (documented pre-existing violations — no `any` or
-  // `!` rewrites were in this refactor's scope; fixing a row mapper's types or
-  // check-worktrees.ts assertions needs its own backend task).
   {
-    files: ["lib/**/*.ts", "scripts/**/*.{ts,mjs}"],
+    files: FROZEN_PHASE0_OFFENDERS,
+    rules: PHASE0_DOWNGRADED_RULES,
+  },
+
+  {
+    files: ["lib/**/*.ts", "lib/**/*.tsx"],
+    ignores: ["lib/eslint-policy-probe.ts"],
+    languageOptions: {
+      parserOptions: {
+        projectService: true,
+        tsconfigRootDir: __dirname,
+      },
+    },
     rules: {
-      "react-hooks/exhaustive-deps": "warn",
-      "@typescript-eslint/no-explicit-any": "warn",
-      "@typescript-eslint/no-non-null-assertion": "warn",
+      "@typescript-eslint/no-floating-promises": "warn",
+    },
+  },
+
+  {
+    files: ["app/api/**/route.ts"],
+    plugins: {
+      devflow: devflowPlugin,
+    },
+    rules: {
+      "devflow/require-nodejs-runtime": "error",
     },
   },
 
@@ -88,8 +114,8 @@ const eslintConfig = [
   //
   // lib/ is server-only: better-sqlite3, node APIs and env access must never
   // be pulled into client bundles via app/ or components/.
-  // Allowlist (the only client-safe lib modules, all pure — no server
-  // imports, verified in docs/phase0-baseline.md):
+  // Allowlist (client-safe lib modules — pure, no server imports; see AGENTS.md
+  // §2.3 and docs/architecture/):
   // - lib/utils (cn() helper)
   // - lib/modelSpec (model-spec helpers/types)
   // - lib/format (run/tool meta formatters — no server deps; grep-verified)
@@ -99,8 +125,7 @@ const eslintConfig = [
   //   used by both the engine runtime and the template editor's compile checks)
   // The lib patterns match both "@/" alias specifiers and relative
   // ("../lib/…") specifiers at any depth. engine/ modules are NOT allowlisted
-  // — their client-needed pieces live in types/ and feature-local modules
-  // instead (see the baseline's conflict notes).
+  // — their client-needed pieces live in types/ and feature-local modules.
   //
   // app/api/** route files are EXEMPT: routes are server-side (Node runtime,
   // better-sqlite3 lives there) — same disposition the server pages got via

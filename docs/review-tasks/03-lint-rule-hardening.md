@@ -15,7 +15,7 @@ Each finding was re-verified against `refactor/prompt-engine-inconsistency-fix` 
 
 ### CR-162 [Medium] AGENTS.md §5 rules are downgraded to `warn` for `lib/**` and `scripts/**`, which hides 56 `any` and about 30 `!`
 
-- **Status:** Open
+- **Status:** Fixed (Task 03)
 - **Type:** Infra
 - **Effort:** M
 - **Where:** eslint.config.mjs:35-55
@@ -23,7 +23,7 @@ Each finding was re-verified against `refactor/prompt-engine-inconsistency-fix` 
 
 ### CR-170 [Low] No DB-touching route declares `runtime = "nodejs"`
 
-- **Status:** Open
+- **Status:** Fixed (Task 03)
 - **Type:** Infra
 - **Effort:** S
 - **Where:** all 39 app/api/**/route.ts files (none export `runtime`; e.g. app/api/flows/route.ts, app/api/repos/route.ts:6)
@@ -40,8 +40,8 @@ Each finding was re-verified against `refactor/prompt-engine-inconsistency-fix` 
 
 ## Done when
 
-- [ ] Every finding above is fixed, or a remaining part is written up in the PR description.
-- [ ] Each bug fix has a regression test (Vitest for `lib/`; at least a hook or utility test for UI where practical).
-- [ ] Code follows [`docs/coding-patterns.md`](../coding-patterns.md).
-- [ ] `npm run typecheck`, `npm run lint`, `npm test` and `npm run build` pass (before Task 02 lands, `npx tsc --noEmit` instead of `typecheck`).
-- [ ] The status of each finding in [`docs/code-review.md`](../code-review.md) is updated (Fixed, with the PR link).
+- [x] Every finding above is fixed, or a remaining part is written up in the PR description.
+- [x] Each bug fix has a regression test (Vitest for `lib/`; at least a hook or utility test for UI where practical).
+- [x] Code follows [`docs/coding-patterns.md`](../coding-patterns.md).
+- [x] `npm run typecheck`, `npm run lint`, `npm test` and `npm run build` pass (before Task 02 lands, `npx tsc --noEmit` instead of `typecheck`).
+- [x] The status of each finding in [`docs/code-review.md`](../code-review.md) is updated (Fixed, with the PR link).

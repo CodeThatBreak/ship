@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { taskRegistry } from "../../../../lib/engine/tasks/registry";
 
 export const dynamic = "force-dynamic";
+export const runtime = "nodejs";
 
 /**
  * Instance registry of one task provider (Settings → Integrations → Task):

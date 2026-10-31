@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { db } from "../../../lib/db";
 
 export const dynamic = "force-dynamic";
+export const runtime = "nodejs";
 
 /**
  * Workspace status snapshot for the IDE-style footer: running agents (active

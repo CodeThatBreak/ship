@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { templateStore } from "../../../lib/engine/templates/template-store";
 
 export const dynamic = "force-dynamic";
+export const runtime = "nodejs";
 
 /** The template gallery. */
 export async function GET() {

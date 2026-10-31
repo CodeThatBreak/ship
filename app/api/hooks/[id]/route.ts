@@ -5,6 +5,7 @@ import { flowPoller } from "../../../../lib/engine/runtime/flow-poller";
 import { evalJsonata, jsonataTruthy } from "@/lib/jsonata";
 
 export const dynamic = "force-dynamic";
+export const runtime = "nodejs";
 
 /** §6: 1 MB payload cap. */
 const MAX_PAYLOAD_BYTES = 1_000_000;

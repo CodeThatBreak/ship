@@ -3,6 +3,7 @@ import { templateStore } from "../../../../lib/engine/templates/template-store";
 import { invalidateDeclarativeDef } from "../../../../lib/engine/nodes/declarative";
 
 export const dynamic = "force-dynamic";
+export const runtime = "nodejs";
 
 /** PATCH body flag marking a promotion (a meta patch carries it unset). */
 const ADD_TO_LIBRARY = "add_to_library";

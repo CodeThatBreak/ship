@@ -3,6 +3,7 @@ import { templateStore } from "../../../../lib/engine/templates/template-store";
 import { importTemplateYaml } from "../../../../lib/engine/templates/template-yaml";
 
 export const dynamic = "force-dynamic";
+export const runtime = "nodejs";
 
 /**
  * Import a flow template from YAML (the `name/nodes/edges` §7 shape).

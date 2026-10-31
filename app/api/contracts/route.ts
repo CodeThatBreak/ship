@@ -11,6 +11,7 @@ import {
 import type { NodeCapabilities } from "../../../lib/engine/nodes/shared/capabilities";
 
 export const dynamic = "force-dynamic";
+export const runtime = "nodejs";
 
 /**
  * The def's prompt templates as unrendered three-part sections (body / locked

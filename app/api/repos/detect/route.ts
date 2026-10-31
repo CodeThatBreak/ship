@@ -4,6 +4,7 @@ import path from "path";
 import { depPolicies } from "../../../../lib/git/dep-policy";
 
 export const dynamic = "force-dynamic";
+export const runtime = "nodejs";
 
 /** Expand `~` the same way the repo save routes do. */
 function expandLocalPath(p: string | null): string | null {

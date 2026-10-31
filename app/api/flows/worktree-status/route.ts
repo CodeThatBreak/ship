@@ -8,6 +8,7 @@ import {
 import { localGit } from "../../../../lib/git/local";
 
 export const dynamic = "force-dynamic";
+export const runtime = "nodejs";
 
 /**
  * Per-flow worktree status for the flow cards (Phase 3 UI): registered-in-git?,

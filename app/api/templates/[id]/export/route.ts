@@ -2,6 +2,7 @@ import { templateStore } from "../../../../../lib/engine/templates/template-stor
 import { gatherTemplateYaml } from "../../../../../lib/engine/templates/template-yaml";
 
 export const dynamic = "force-dynamic";
+export const runtime = "nodejs";
 
 /** Export the template as YAML (config-as-code, §7 shape). */
 export async function GET(_req: Request, { params }: { params: Promise<{ id: string }> }) {

@@ -4,6 +4,7 @@ import path from "path";
 import { db } from "../../../lib/db";
 
 export const dynamic = "force-dynamic";
+export const runtime = "nodejs";
 
 function validateLocalPath(p: string | null | undefined): string | null {
   if (!p) return null;

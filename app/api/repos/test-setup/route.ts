@@ -6,6 +6,7 @@ import { worktreeSetup } from "../../../../lib/git/worktree-setup";
 import type { WorktreeSetupProbeResult } from "../../../../lib/git/worktree-setup";
 
 export const dynamic = "force-dynamic";
+export const runtime = "nodejs";
 
 /** Expand `~` the same way the repo save routes do. */
 function expandLocalPath(p: string): string {
