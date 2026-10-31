@@ -9,7 +9,11 @@
  */
 import { useQuery, type UseQueryResult } from "@tanstack/react-query";
 import { queryKeys } from "@/constants/query-keys";
-import { repoChoicesQueryOptions } from "../queries";
+import { fetchJson } from "@/hooks/fetch-json";
+import {
+  repoChoicesQueryOptions,
+  taskProvidersQueryOptions,
+} from "../queries";
 import {
   initialPositions,
   type CanvasPosition,
@@ -26,10 +30,8 @@ import type {
 export async function fetchTemplateDetail(
   templateId: string,
 ): Promise<TemplateEditorDetail> {
-  const res = await fetch(`/api/templates/${templateId}`).catch(() => null);
-  if (!res || !res.ok) throw new Error(`template ${templateId} failed to load`);
-  const d = (await res.json()) as TemplateEditorDetail | null;
-  if (!d?.template) throw new Error("template not found");
+  const d = await fetchJson<TemplateEditorDetail>(`/api/templates/${templateId}`);
+  if (!d.template) throw new Error("template not found");
   return d;
 }
 
@@ -43,21 +45,13 @@ export function useTemplateDetail(
   });
 }
 
-/** GET /api/tasks/providers — the Task-context picker + {{task.*}} chips. */
-export async function fetchTaskProviders(): Promise<EditorTaskProvider[]> {
-  const d = (await fetch("/api/tasks/providers")
-    .then((r) => r.json() as Promise<{ providers?: EditorTaskProvider[] }>)
-    .catch(() => null)) ?? null;
-  return d?.providers ?? [];
-}
-
-export { fetchRepoChoices } from "../queries";
+export {
+  fetchRepoChoices,
+  fetchTaskProviders,
+} from "../queries";
 
 export function useTaskProviders(): UseQueryResult<EditorTaskProvider[], Error> {
-  return useQuery({
-    queryKey: queryKeys.taskProviders,
-    queryFn: fetchTaskProviders,
-  });
+  return useQuery(taskProvidersQueryOptions());
 }
 
 export function useRepoChoices(): UseQueryResult<EditorRepoChoice[], Error> {

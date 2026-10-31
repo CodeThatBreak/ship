@@ -1,7 +1,7 @@
 import { queryOptions } from "@tanstack/react-query";
 import { queryKeys } from "@/constants/query-keys";
 import { fetchJson } from "@/hooks/fetch-json";
-import type { EditorRepoChoice } from "@/types/template-editor";
+import type { EditorRepoChoice, EditorTaskProvider } from "@/types/template-editor";
 
 type ReposPayload = { repos?: EditorRepoChoice[] };
 
@@ -21,3 +21,18 @@ export const repoChoicesQueryOptions = () =>
   });
 
 export const fetchRepoChoices = loadRepoChoices;
+
+type TaskProvidersPayload = { providers?: EditorTaskProvider[] };
+
+const loadTaskProviders = async (): Promise<EditorTaskProvider[]> => {
+  const payload = await fetchJson<TaskProvidersPayload>("/api/tasks/providers");
+  return payload.providers ?? [];
+};
+
+export const taskProvidersQueryOptions = () =>
+  queryOptions({
+    queryKey: queryKeys.taskProviders,
+    queryFn: loadTaskProviders,
+  });
+
+export const fetchTaskProviders = loadTaskProviders;

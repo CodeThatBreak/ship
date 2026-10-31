@@ -1,5 +1,6 @@
 "use client";
 import { useCallback } from "react";
+import { RefreshCw } from "lucide-react";
 import { CursorIcon } from "../integration-icons";
 import { useSettings } from "../context";
 import { PROVIDER_KIND } from "./constants";
@@ -12,6 +13,7 @@ import { LocalAgentOptions, LocalAgentOptionsSkeleton } from "./components/Local
 import { ProviderSelect } from "./components/ProviderSelect";
 import { Field, FieldLabel } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
+import { Button } from "@/components/ui/button";
 import { useLocalAgentOptions } from "./hooks/use-local-agent-options";
 import type { TabProps } from "./types";
 
@@ -27,7 +29,7 @@ const CURSOR_PROVIDER_OPTIONS = [
 ] as const;
 
 export function HarnessTab({ open, onOpenChange, onError }: TabProps) {
-  const { settings } = useSettings();
+  const { settings, settingsLoadFailed, reload } = useSettings();
   const setCursorKey = useUpdateCursorApiKey();
   const localAgent = useLocalAgentOptions();
   const { state, setProvider, setField, reset } = useConnectForm();
@@ -56,7 +58,14 @@ export function HarnessTab({ open, onOpenChange, onError }: TabProps) {
       data-harness={PROVIDER_KIND.CURSOR}
       className="flex flex-1 flex-col"
     >
-      {!keySet ? (
+      {settingsLoadFailed ? (
+        <p className="text-[13px] text-destructive m-0 flex items-center gap-2">
+          Couldn&apos;t load harness settings.
+          <Button variant="outline" size="xs" onClick={() => void reload()}>
+            <RefreshCw size={12} /> Retry
+          </Button>
+        </p>
+      ) : !keySet ? (
         <ConnectEmpty
           icon={<CursorIcon />}
           title="No harness connected"

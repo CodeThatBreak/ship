@@ -1,6 +1,6 @@
 "use client";
 import { useState } from "react";
-import { Cpu, GitBranch, ListTree, Link2, XCircle } from "lucide-react";
+import { Cpu, GitBranch, ListTree, Link2, RefreshCw, XCircle } from "lucide-react";
 import { useSettings } from "@/components/settings";
 import { GitTab, HarnessTab, TaskTab } from "@/components/settings/integrations";
 import { Alert } from "@/components/ui/alert";
@@ -31,7 +31,7 @@ function IntegrationsSkeleton() {
  * The Connect button (next to the tabs) opens the active tab's connect modal.
  */
 export default function SettingsIntegrationsPage() {
-  const { loading, error, setError } = useSettings();
+  const { loading, error, setError, reload } = useSettings();
   const [tab, setTab] = useState("git");
   const [connectOpen, setConnectOpen] = useState(false);
 
@@ -45,8 +45,12 @@ export default function SettingsIntegrationsPage() {
       </header>
 
       {error && (
-        <Alert variant="destructive" className="mb-5">
-          <XCircle size={16} /><span className="flex-1">{error}</span>
+        <Alert variant="destructive" className="mb-5 flex items-center gap-2">
+          <XCircle size={16} />
+          <span className="flex-1">{error}</span>
+          <Button variant="outline" size="sm" onClick={() => void reload()}>
+            <RefreshCw size={12} /> Retry
+          </Button>
         </Alert>
       )}
 

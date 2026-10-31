@@ -1,8 +1,9 @@
 "use client";
-import { XCircle } from "lucide-react";
+import { RefreshCw, XCircle } from "lucide-react";
 import { useSettings } from "@/components/settings";
 import { ReposSection } from "@/components/settings/repos";
 import { Alert } from "@/components/ui/alert";
+import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 
 /** Loading placeholder mirroring the section header + repo-card rows. */
@@ -27,7 +28,7 @@ function RepositoriesSkeleton() {
  * and worktree setup policies — mirroring the integrations page pattern.
  */
 export default function SettingsRepositoriesPage() {
-  const { repos, loading, error, setError } = useSettings();
+  const { repos, loading, error, reposLoadFailed, setError, reload } = useSettings();
 
   return (
     <div>
@@ -39,12 +40,22 @@ export default function SettingsRepositoriesPage() {
       </header>
 
       {error && (
-        <Alert variant="destructive" className="mb-5">
-          <XCircle size={16} /><span className="flex-1">{error}</span>
+        <Alert variant="destructive" className="mb-5 flex items-center gap-2">
+          <XCircle size={16} />
+          <span className="flex-1">{error}</span>
+          {reposLoadFailed && (
+            <Button variant="outline" size="sm" onClick={() => void reload()}>
+              <RefreshCw size={12} /> Retry
+            </Button>
+          )}
         </Alert>
       )}
 
-      {loading ? <RepositoriesSkeleton /> : <ReposSection repos={repos} onError={setError} />}
+      {loading ? (
+        <RepositoriesSkeleton />
+      ) : reposLoadFailed ? null : (
+        <ReposSection repos={repos} onError={setError} />
+      )}
     </div>
   );
 }

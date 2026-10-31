@@ -29,6 +29,7 @@ import {
 import { Skeleton } from "../ui/skeleton";
 import { useCopy } from "../../hooks/use-copy";
 import { queryKeys } from "@/constants/query-keys";
+import { fetchJson } from "@/hooks/fetch-json";
 import { settingsQueryOptions, reposQueryOptions } from "../settings/queries";
 import { type Harness, type Repo } from "../settings";
 import { schemaRows } from "./variables";
@@ -50,18 +51,6 @@ type TemplateDetailPayload = {
   }[];
 };
 
-/** fetch + parse JSON, falling back on transport/HTTP errors (same posture as
- *  the settings area's fetchJson — dialogs never throw on a bad read). */
-async function fetchJson<T>(url: string, fallback: T): Promise<T> {
-  try {
-    const res = await fetch(url);
-    if (!res.ok) return fallback;
-    return (await res.json()) as T;
-  } catch {
-    return fallback;
-  }
-}
-
 /** The start node's contract as typed rows: `/api/contracts` resolves it the
  *  same way the editor does (`def` + the instance `config` — the contract is
  *  per instance). */
@@ -71,7 +60,7 @@ async function fetchContractFields(
   const p = new URLSearchParams();
   p.set("def", START_NODE_TEMPLATE_ID);
   if (config && Object.keys(config).length) p.set("config", JSON.stringify(config));
-  const contract = await fetchJson<{ output?: unknown }>(`/api/contracts?${p.toString()}`, {});
+  const contract = await fetchJson<{ output?: unknown }>(`/api/contracts?${p.toString()}`);
   return schemaRows(contract.output).map((r) => ({
     key: r.name,
     label: r.description,
@@ -85,10 +74,7 @@ async function fetchContractFields(
 async function fetchWebhookContext(
   templateId: string,
 ): Promise<{ fields: ContractField[]; hook: HookInfo | null }> {
-  const detail = await fetchJson<TemplateDetailPayload>(
-    `/api/templates/${templateId}`,
-    {},
-  );
+  const detail = await fetchJson<TemplateDetailPayload>(`/api/templates/${templateId}`);
   const start = detail.nodes?.find((n) => n.node_template_id === START_NODE_TEMPLATE_ID);
   const fields = start ? await fetchContractFields(start.config ?? null) : [];
   return { fields, hook: detail.hook ?? null };
@@ -255,6 +241,8 @@ export function WebhookPayloadDialog({
             <FieldLabel htmlFor="webhook-repo">Repo</FieldLabel>
             {reposQuery.isPending ? (
               <Skeleton className="h-9 rounded-lg" />
+            ) : reposQuery.isError ? (
+              <p className="text-[12px] text-destructive m-0">Couldn&apos;t load repos.</p>
             ) : repos.length === 0 ? (
               <div
                 className="flex h-9 items-center rounded-lg border border-dashed border-border bg-muted/30 px-3 text-[12.5px] text-muted-foreground"
@@ -370,12 +358,16 @@ export function WebhookPayloadDialog({
               "Curl — send this body to the hook",
               () => curlText ?? "",
             )}
-            {hook && contextQuery.data ? (
+            {hook && contextQuery.data && !contextQuery.isError ? (
               <pre className="max-h-44 overflow-auto rounded-lg bg-muted p-2 font-mono text-[12px] m-0 whitespace-pre-wrap break-all">
                 {curlBefore}
                 <span className="text-muted-foreground/70">••••</span>
                 {curlAfter}
               </pre>
+            ) : contextQuery.isError ? (
+              <p className="text-[11px] text-destructive m-0">
+                Couldn&apos;t load the hook endpoint — use Retry above.
+              </p>
             ) : (
               <p className="text-[11px] text-muted-foreground m-0">
                 The hook endpoint appears once the template is saved or

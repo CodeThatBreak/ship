@@ -1,8 +1,9 @@
 "use client";
-import { XCircle } from "lucide-react";
+import { RefreshCw, XCircle } from "lucide-react";
 import { useSettings } from "@/components/settings";
 import { GeneralSection } from "@/components/settings/general";
 import { Alert } from "@/components/ui/alert";
+import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 
 /** Loading placeholder mirroring the final layout: status strip, the
@@ -56,7 +57,7 @@ function GeneralSkeleton() {
  * template node /Repositories/Integrations or are managed server-side.
  */
 export default function SettingsGeneralPage() {
-  const { settings, loading, error, setError } = useSettings();
+  const { settings, loading, error, settingsLoadFailed, setError, reload } = useSettings();
 
   return (
     <div>
@@ -68,14 +69,20 @@ export default function SettingsGeneralPage() {
       </header>
 
       {error && (
-        <Alert variant="destructive" className="mb-5">
-          <XCircle size={16} /><span className="flex-1">{error}</span>
+        <Alert variant="destructive" className="mb-5 flex items-center gap-2">
+          <XCircle size={16} />
+          <span className="flex-1">{error}</span>
+          {settingsLoadFailed && (
+            <Button variant="outline" size="sm" onClick={() => void reload()}>
+              <RefreshCw size={12} /> Retry
+            </Button>
+          )}
         </Alert>
       )}
 
       {loading ? (
         <GeneralSkeleton />
-      ) : settings ? (
+      ) : settingsLoadFailed ? null : settings ? (
         <GeneralSection settings={settings} onError={setError} />
       ) : (
         <p className="text-muted-foreground text-[13px]">

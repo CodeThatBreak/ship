@@ -1133,9 +1133,7 @@ Original findings, verbatim:
 
 ### CR-036 [High] Settings fetchers swallow every error, so error states can't render and the UI shows false empty states
 
-- **Status at `abaa007`:** **Open**, fix in [Task 14](review-tasks/14-frontend-throwing-fetchers.md)
-- **Current location:** components/settings/queries.ts:9-31, components/settings/context.tsx:68-70,94-110, app/(workspace)/settings/page.tsx:76-84, components/settings/integrations/HarnessTab.tsx:35,59-65, components/settings/repos/ReposSection.tsx:78
-- **Re-verification note:** The settings-local `fetchJson(url, fallback)` still swallows HTTP/network errors, so the three provider queries never enter `isError`; a failed `/api/repos` shows "No repos registered yet", a failed `/api/settings` shows "No harness connected" or "Settings are unavailable" with no retry. Switch the three queries to the throwing `@/hooks/fetch-json`, expose `isError`/`refetch` per query from `SettingsProvider`, render error+Retry before empty states, and rename the resilient helper (only `useDetectedPolicy` needs it).
+- **Status at `abaa007`:** **Fixed** ([Task 14](review-tasks/14-frontend-throwing-fetchers.md))
 
 - **Severity:** High
 - **Category:** Correctness
@@ -3943,9 +3941,7 @@ Original findings, verbatim:
 
 ### CR-143 [Medium] Fetchers swallow errors, so error states can never render
 
-- **Status at `abaa007`:** **Open**, fix in [Task 14](review-tasks/14-frontend-throwing-fetchers.md)
-- **Current location:** components/builder/hooks/use-editor-queries.ts:46-63, components/builder/EditorPage.tsx:116-124, components/template-editor/WebhookPayloadDialog.tsx:52-62, components/template-editor/WebhookPayloadDialog.tsx:84-94, components/template-editor/WebhookPayloadDialog.tsx:380-383, components/settings/queries.ts:10-31, components/template-editor/components/ConfigTab.tsx:80-95
-- **Re-verification note:** `fetchTaskProviders` and `fetchRepoChoices` still `.catch(() => null)` with no `res.ok` check. The webhook dialog's local `fetchJson` and the settings `fetchJson`/`fetchSettings`/`fetchRepos`/`fetchGitHosts` still return fallbacks, so the dialog's `failed` alert and ConfigTab's `secretsQuery.isError` branch can never render. EditorPage still treats pending providers and repos as `[]`, with no skeleton. Fix: use the throwing `@/hooks/fetch-json` `fetchJson`, then render `isPending` skeletons and `isError` retry in the trigger/repo pickers.
+- **Status at `abaa007`:** **Fixed** ([Task 14](review-tasks/14-frontend-throwing-fetchers.md))
 
 - **Severity:** Medium
 - **Category:** Correctness

@@ -18,6 +18,7 @@
  */
 import { useCallback, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
+import { errorMessageOf } from "@/hooks/fetch-json";
 import {
   isPlanDownstream,
   nodeRelationships,
@@ -115,6 +116,12 @@ export function TemplateEditor({ templateId }: TemplateEditorProps) {
   const readonly = Boolean(draft.template.is_builtin);
   const providers = providersQuery.data ?? [];
   const repos = reposQuery.data ?? [];
+  const providersError = providersQuery.isError
+    ? (errorMessageOf(providersQuery.error) ?? "Couldn't load task providers.")
+    : null;
+  const reposError = reposQuery.isError
+    ? (errorMessageOf(reposQuery.error) ?? "Couldn't load repos.")
+    : null;
   const hook = detailQuery.data?.hook ?? null;
   // the template's declared task type (trigger.task_type — the Task context
   // panel edits it): the provider's contextFields become the {{task.*}} chips
@@ -281,6 +288,12 @@ export function TemplateEditor({ templateId }: TemplateEditorProps) {
         hook={hook}
         providers={providers}
         repos={repos}
+        providersPending={providersQuery.isPending}
+        providersError={providersError}
+        onRetryProviders={() => void providersQuery.refetch()}
+        reposPending={reposQuery.isPending}
+        reposError={reposError}
+        onRetryRepos={() => void reposQuery.refetch()}
         templateId={draft.template.id}
         onTemplateChange={(t) =>
           machine.apply({ ...draft, template: { ...draft.template, ...t } })

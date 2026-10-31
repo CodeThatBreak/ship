@@ -29,6 +29,12 @@ export interface EditorSettingsDrawerProps {
   hook: FlowSettingsHook;
   providers: TaskProviderInfo[];
   repos: RepoOption[];
+  providersPending?: boolean;
+  providersError?: string | null;
+  onRetryProviders?: () => void;
+  reposPending?: boolean;
+  reposError?: string | null;
+  onRetryRepos?: () => void;
   templateId: string;
   onTemplateChange: (patch: Partial<Draft["template"]>) => void;
 }
@@ -41,6 +47,12 @@ export function EditorSettingsDrawer({
   hook,
   providers,
   repos,
+  providersPending,
+  providersError,
+  onRetryProviders,
+  reposPending,
+  reposError,
+  onRetryRepos,
   templateId,
   onTemplateChange,
 }: EditorSettingsDrawerProps) {
@@ -63,6 +75,12 @@ export function EditorSettingsDrawer({
             hook={hook}
             providers={providers}
             repos={repos}
+            providersPending={providersPending}
+            providersError={providersError}
+            onRetryProviders={onRetryProviders}
+            reposPending={reposPending}
+            reposError={reposError}
+            onRetryRepos={onRetryRepos}
             templateId={templateId}
             onChange={onTemplateChange}
           />

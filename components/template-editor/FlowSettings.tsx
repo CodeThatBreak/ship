@@ -45,6 +45,12 @@ export function FlowSettingsBody({
   hook,
   providers,
   repos,
+  providersPending = false,
+  providersError = null,
+  onRetryProviders,
+  reposPending = false,
+  reposError = null,
+  onRetryRepos,
   templateId,
   onChange,
 }: {
@@ -53,6 +59,12 @@ export function FlowSettingsBody({
   hook: FlowSettingsHook;
   providers: TaskProviderInfo[];
   repos: RepoOption[];
+  providersPending?: boolean;
+  providersError?: string | null;
+  onRetryProviders?: () => void;
+  reposPending?: boolean;
+  reposError?: string | null;
+  onRetryRepos?: () => void;
   /** the owning template's id (Phase 5) — the filter's live preview */
   templateId: string;
   onChange: (t: Partial<FlowSettingsDraft["template"]>) => void;
@@ -104,6 +116,9 @@ export function FlowSettingsBody({
         providers={providers}
         taskType={taskType}
         readonly={readonly}
+        pending={providersPending}
+        error={providersError}
+        onRetry={onRetryProviders}
         onPick={(v) => setTrigger({ task_type: v || undefined })}
       />
 
@@ -114,6 +129,9 @@ export function FlowSettingsBody({
         repos={repos}
         boundRepo={boundRepo}
         readonly={readonly}
+        reposPending={reposPending}
+        reposError={reposError}
+        onRetryRepos={onRetryRepos}
         onToggleScheduled={scheduledOn}
         onIntervalChange={(interval_min) => setTrigger({ interval_min })}
         onRepoChange={(repo_id) => setTrigger({ repo_id })}

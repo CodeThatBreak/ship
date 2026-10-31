@@ -52,6 +52,9 @@ type SettingsState = {
   hosts: GitHost[];
   /** first paint not resolved yet */
   loading: boolean;
+  settingsLoadFailed: boolean;
+  reposLoadFailed: boolean;
+  hostsLoadFailed: boolean;
   error: string | null;
   setError: (e: string | null) => void;
   reload: () => Promise<void>;
@@ -102,6 +105,9 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
   );
 
   const loading = settingsQuery.isPending || reposQuery.isPending || hostsQuery.isPending;
+  const settingsLoadFailed = settingsQuery.isError;
+  const reposLoadFailed = reposQuery.isError;
+  const hostsLoadFailed = hostsQuery.isError;
 
   // stable when the state inside has not changed — consumers must not
   // re-render on every provider render (§2.5 context values)
@@ -111,12 +117,27 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
       repos: reposQuery.data ?? [],
       hosts: hostsQuery.data ?? [],
       loading,
+      settingsLoadFailed,
+      reposLoadFailed,
+      hostsLoadFailed,
       error: error ?? queryLoadError,
       setError,
       reload,
       saveSettings,
     }),
-    [settingsQuery.data, reposQuery.data, hostsQuery.data, loading, error, queryLoadError, reload, saveSettings],
+    [
+      settingsQuery.data,
+      reposQuery.data,
+      hostsQuery.data,
+      loading,
+      settingsLoadFailed,
+      reposLoadFailed,
+      hostsLoadFailed,
+      error,
+      queryLoadError,
+      reload,
+      saveSettings,
+    ],
   );
 
   return (

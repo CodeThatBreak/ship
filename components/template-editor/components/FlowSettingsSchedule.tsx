@@ -1,6 +1,9 @@
 "use client";
+import { RefreshCw } from "lucide-react";
 import { Field, FieldDescription, FieldLabel } from "../../ui/field";
 import { Input } from "../../ui/input";
+import { Button } from "../../ui/button";
+import { Skeleton } from "../../ui/skeleton";
 import { Switch } from "../../ui/switch";
 import {
   Select,
@@ -27,6 +30,9 @@ export function FlowSettingsSchedule({
   repos,
   boundRepo,
   readonly,
+  reposPending = false,
+  reposError = null,
+  onRetryRepos,
   onToggleScheduled,
   onIntervalChange,
   onRepoChange,
@@ -39,6 +45,9 @@ export function FlowSettingsSchedule({
   /** the repo currently bound to the trigger */
   boundRepo: RepoOption | null;
   readonly: boolean;
+  reposPending?: boolean;
+  reposError?: string | null;
+  onRetryRepos?: () => void;
   onToggleScheduled: () => void;
   onIntervalChange: (minutes: number | undefined) => void;
   onRepoChange: (repoId: string) => void;
@@ -90,7 +99,18 @@ export function FlowSettingsSchedule({
           </Field>
           <Field>
             <FieldLabel htmlFor="flow-bound-repo">Bound repo</FieldLabel>
-            {repos.length === 0 ? (
+            {reposPending ? (
+              <Skeleton className="h-9 w-full rounded-lg" />
+            ) : reposError ? (
+              <p className="text-[12px] text-destructive m-0 flex items-center gap-2">
+                {reposError}
+                {onRetryRepos && (
+                  <Button variant="outline" size="xs" onClick={() => void onRetryRepos()}>
+                    <RefreshCw size={12} /> Retry
+                  </Button>
+                )}
+              </p>
+            ) : repos.length === 0 ? (
               <div
                 className="flex items-center h-9 rounded-lg border border-dashed border-border bg-muted/30 px-3 text-[12.5px] text-muted-foreground"
                 aria-disabled
