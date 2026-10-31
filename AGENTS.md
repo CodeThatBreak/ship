@@ -305,6 +305,8 @@ When your task touches an existing function-based module in `lib/`:
 2. **TypeScript strict.** No `any`, no `!` on possibly-missing data.
 3. **Keep diffs focused.** No unrelated reformatting or renames. Fix violations only in code your task touches (see 2.10), and flag the rest in the PR description.
 4. **Finish with the Definition of Done** in section 0.
+5. **Follow the recipes in [`docs/coding-patterns.md`](docs/coding-patterns.md)** (route handlers, typed errors, transactions, node claims, query options, mutations). Open review work is tracked as ordered tasks in [`docs/review-tasks/`](docs/review-tasks/README.md).
+6. **Current flow only.** Do not add shims, normalizers or fallbacks for legacy or deprecated flows or data shapes. Delete them instead.
 
 ---
 
