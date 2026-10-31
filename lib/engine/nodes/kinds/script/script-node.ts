@@ -9,6 +9,7 @@ import type { AgentRunResult } from "../../../ports/agent-port";
 import { NodeDefinition, type FlowCtx, type RunOutcome } from "../../shared";
 import { templateStore } from "../../../templates/template-store";
 import { ScriptDefSchema, type ScriptDef } from "../../declarative-schemas";
+import { parseDeclarativeRunConfig } from "../../shared/declarative-run-config";
 import { validateJsonSchema } from "../agent/json-schema-lite";
 import { worktreeManager } from "../../../runtime/worktree-lifecycle";
 import { workspaceForFlow } from "../../../../git/local";
@@ -284,8 +285,11 @@ export class ScriptTemplateNode extends NodeDefinition<Record<string, unknown>, 
   }
 
   private runConfig(config: Record<string, unknown>): ScriptDef {
-    const parsed = ScriptDefSchema.safeParse(config);
-    return parsed.success ? parsed.data : this.def;
+    return this.parseRunConfig(config) as unknown as ScriptDef;
+  }
+
+  override parseRunConfig(config: Record<string, unknown>): Record<string, unknown> {
+    return parseDeclarativeRunConfig("script", config, this.label);
   }
 
   private holdsForApproval(ctx: FlowCtx): boolean {

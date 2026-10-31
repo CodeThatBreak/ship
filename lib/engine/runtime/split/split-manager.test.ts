@@ -192,6 +192,13 @@ class FixtureSourceDef extends NodeDefinition<Record<string, unknown>, Record<st
   readonly order: number = 901;
   readonly inputSchema = z.record(z.string(), z.unknown());
   readonly outputSchema = z.record(z.string(), z.unknown());
+  readonly configSchema = z
+    .object({
+      units: z.array(z.unknown()).optional(),
+      resolution: z.enum(["whole", "per-unit"]).optional(),
+      split_target: z.string().optional(),
+    })
+    .passthrough();
   /** the units and the §2.4 resolution recommendation, both from the node row */
   protected knobs(ctx: FlowCtx): { units: unknown; resolution: unknown } {
     const cfg = this.nodeConfig(ctx);
@@ -256,6 +263,14 @@ class FixtureConsumerDef extends NodeDefinition<Record<string, unknown>, Record<
   readonly capabilities = { splitOutput: CONSUMER_AGGREGATE };
   readonly inputSchema = z.record(z.string(), z.unknown());
   readonly outputSchema = z.record(z.string(), z.unknown());
+  readonly configSchema = z
+    .object({
+      split_consume: z.enum(["whole", "per-unit", "source"]).optional(),
+      split_parallel_max: z.number().optional(),
+      fanout_mode: z.enum(["whole", "steps", "from-plan"]).optional(),
+      fanout_parallel_max: z.number().optional(),
+    })
+    .passthrough();
 
   /** whole-path run count — the gate tests assert the def did (or didn't) run */
   static wholeRuns = 0;

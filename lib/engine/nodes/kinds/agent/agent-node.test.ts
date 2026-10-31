@@ -162,6 +162,18 @@ function jsonAgentNode(index: number, runner: InstanceType<typeof AgentRunner>):
 }
 
 describe("AgentTemplateNode — the agent's self-report channel (json output)", () => {
+  it("json output without an output_schema accepts any JSON object", async () => {
+    const seeded = seedAgentNode(26);
+    const cfg = { output: "json" as const, output_schema: null };
+    const node = new AgentTemplateNode(
+      { id: "nt_26", name: LABEL, description: null, config: cfg },
+      "agent_26",
+      { runner: new StubRunner({ status: "finished", result: '{"ok":true}' }) },
+    );
+    const outcome = await node.run(seeded.ctx, { prompt: "Go" }, cfg);
+    expect(outcome.output).toEqual({ ok: true });
+  });
+
   it("the json prompt rides the contract directive: schema + error envelope", async () => {
     const seeded = seedAgentNode(21);
     const node = jsonAgentNode(21, new StubRunner({ status: "finished", result: '{"cost":42}' }));

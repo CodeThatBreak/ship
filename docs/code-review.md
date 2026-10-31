@@ -2219,7 +2219,7 @@ Original findings, verbatim:
 
 ### CR-076 [Medium] Built-in nodes never validate their config against `configSchema` at run time
 
-- **Status at `abaa007`:** **Open**, fix in [Task 26](review-tasks/26-node-config-validation.md)
+- **Status at `abaa007`:** **Fixed** in [Task 26](review-tasks/26-node-config-validation.md) (`parseRunConfig` on `NodeDefinition`, validated in `runNode` and `setNodeConfig`)
 - **Current location:** lib/engine/templates/node-config.ts:146-150, lib/engine/nodes/kinds/pipeline/pipeline-node.ts:304-316, lib/engine/nodes/kinds/review/review-node.ts:149, lib/engine/nodes/chains/sdlc-chain.ts:69, lib/engine/flow-engine.ts:711-714 and 1601-1612 (setNodeConfig merges unvalidated)
 - **Re-verification note:** Built-ins still read merged config through `configNumber`/`configString`, which accept 0, so `poll_interval_sec: 0` tight-loops the git host. `setNodeConfig` persists instance config without checking it against `configSchema`. Fix: add a base `parseConfig()` that runs `configSchema.parse` at the top of every `run()`/`turn()` and fails the node with a readable error. Validate in `setNodeConfig` too.
 
@@ -2240,7 +2240,7 @@ Original findings, verbatim:
 
 ### CR-077 [Medium] Declarative nodes silently drop *all* instance config when any field is invalid
 
-- **Status at `abaa007`:** **Open**, fix in [Task 26](review-tasks/26-node-config-validation.md)
+- **Status at `abaa007`:** **Fixed** in [Task 26](review-tasks/26-node-config-validation.md) (`parseRunConfig` on `NodeDefinition`, validated in `runNode` and `setNodeConfig`)
 - **Current location:** lib/engine/nodes/kinds/agent/agent-node.ts:420-423, lib/engine/nodes/kinds/http/http-node.ts:227-230, lib/engine/nodes/kinds/decision/decision-node.ts:272-275, lib/engine/nodes/kinds/script/script-node.ts:289-292
 - **Re-verification note:** All four `runConfig()` copies still `safeParse` and silently fall back to `this.def` (the catalog row), discarding every instance override when one field is invalid. Fix: use `parseDeclarativeConfig(kind, config, label)` (lib/engine/nodes/declarative-schemas.ts:148) so the node fails loudly, written once in a shared declarative base.
 
@@ -2263,7 +2263,7 @@ Original findings, verbatim:
 
 ### CR-078 [Medium] Decision manual picks and legacy expression picks are checked against the catalog choices, not the instance's
 
-- **Status at `abaa007`:** **Open**, fix in [Task 26](review-tasks/26-node-config-validation.md)
+- **Status at `abaa007`:** **Fixed** in [Task 26](review-tasks/26-node-config-validation.md) (`parseRunConfig` on `NodeDefinition`, validated in `runNode` and `setNodeConfig`)
 - **Current location:** lib/engine/nodes/kinds/decision/decision-node.ts:111-137 (applyChoice/validateChoice/choiceLabels default to this.def), 293-302 (awaiting uses this.def labels); caller lib/engine/flow-engine.ts:1578-1579
 - **Re-verification note:** Manual picks are still validated against the catalog row's choices, and `applyChoice` evaluates `pass` from `this.def`. Instance-edited choices are rejected and pass-down variables come from the wrong map. Fix: resolve `cfg = runConfig(nodeConfig(ctx))` in `applyChoice` (make ctx required) and thread cfg through `validateChoice`/`awaiting`. Drop the legacy-expression half of this finding. The legacy single global `expression` path still exists (decision-node.ts:213-224, `normalizeChosen` 377-393, `expression` field in declarative-schemas.ts:95) and is a delete-legacy-code candidate.
 
@@ -2284,7 +2284,7 @@ Original findings, verbatim:
 
 ### CR-079 [Medium] Decision `jsonataTruthy` doesn't follow JSONata truthiness, so empty arrays and objects pick a branch
 
-- **Status at `abaa007`:** **Open**, fix in [Task 26](review-tasks/26-node-config-validation.md)
+- **Status at `abaa007`:** **Fixed** in [Task 26](review-tasks/26-node-config-validation.md) (`parseRunConfig` on `NodeDefinition`, validated in `runNode` and `setNodeConfig`)
 - **Current location:** lib/engine/nodes/kinds/decision/decision-node.ts:15-17, 206
 - **Re-verification note:** Unchanged. `jsonataTruthy` still treats `[]`, `{}`, `NaN` and all-falsy arrays as truthy, so an empty filter result picks a branch. Fix: port JSONata's `$boolean` cast (empty array or object, all-falsy arrays and NaN are false) and unit-test the edge cases.
 
@@ -2306,7 +2306,7 @@ Original findings, verbatim:
 
 ### CR-080 [Medium] Agent node with `output: json` and no schema always fails
 
-- **Status at `abaa007`:** **Open**, fix in [Task 26](review-tasks/26-node-config-validation.md)
+- **Status at `abaa007`:** **Fixed** in [Task 26](review-tasks/26-node-config-validation.md) (`parseRunConfig` on `NodeDefinition`, validated in `runNode` and `setNodeConfig`)
 - **Current location:** lib/engine/nodes/kinds/agent/agent-node.ts:513-553 (541), lib/engine/nodes/kinds/agent/json-schema-lite.ts:43-49, lib/engine/nodes/declarative-schemas.ts:52
 - **Re-verification note:** `applyOutput` still calls `jsonSchemaIssues(cfg.output_schema, …)` unconditionally. With the default `output_schema: null`, `check()` throws a plain "invalid output schema (missing)" Error. That Error bypasses the AgentOutputError retry, so every json-output agent without a schema fails. Top-level arrays or primitives are still cast to a record. Fix: guard on `cfg.output_schema && typeof … === "object"` (as script-node.ts:173 does) and reject non-object JSON with a SCHEMA_MISMATCH AgentOutputError.
 
@@ -2508,7 +2508,7 @@ Original findings, verbatim:
 
 ### CR-089 [Medium] The plan knobs `default_complex` and `decompose_default` are shown in the UI but never read
 
-- **Status at `abaa007`:** **Partly fixed**, fix in [Task 26](review-tasks/26-node-config-validation.md)
+- **Status at `abaa007`:** **Fixed** in [Task 26](review-tasks/26-node-config-validation.md) (`decompose_default` applied on pre-publish plan turns; `default_complex` removed earlier)
 - **Current severity:** Low (was Medium)
 - **Current location:** lib/engine/nodes/kinds/plan/plan-node.ts:97-98, lib/engine/nodes/kinds/plan/constants/config/decompose.ts:3-8, lib/engine/nodes/kinds/plan/constants/config/index.ts:12, lib/engine/nodes/kinds/plan/plan-node.ts:183, lib/engine/nodes/kinds/plan/plan-prompt.ts:87
 - **Re-verification note:** `default_complex` was removed. `decompose_default` is still declared and shown in the config form, but nothing reads it. `turn()` builds `PlanInput.parse({prompt, promptIsBody})`, so `decompose` is always false and the decompose prompt branch is unreachable. Fix: apply `cfg.decompose_default` when building the pre-publish input, or remove the knob, its field and the dead branch.
@@ -5326,7 +5326,7 @@ Original findings, verbatim:
 
 ### CR-200 [Low] HTTP output and the decision agent prompt carry unbounded payloads
 
-- **Status at `abaa007`:** **Open**, fix in [Task 26](review-tasks/26-node-config-validation.md)
+- **Status at `abaa007`:** **Fixed** in [Task 26](review-tasks/26-node-config-validation.md) (`parseRunConfig` on `NodeDefinition`, validated in `runNode` and `setNodeConfig`)
 - **Current location:** lib/engine/nodes/kinds/http/http-node.ts:140-147,182-191,240-245; lib/engine/nodes/kinds/decision/decision-node.ts:234,343-344
 - **Re-verification note:** `nodes.output` still stores the full parsed body (up to the 5 MB guard cap) plus all response headers. `safeDigest` truncates string bodies only, so for JSON responses the artifact and the chat `reply` are uncapped too. The decision agent prompt still serializes the entire flow context with `JSON.stringify(vars, null, 2)`. Cap the body in the output and in `safeDigest` for non-string bodies (for example by measuring the serialized size), drop or allowlist response headers, and give the decision prompt a size-capped digest of the context.
 
@@ -7360,11 +7360,11 @@ One row per finding, at `abaa007`.
 | CR-073 | Medium | Bug | Open | [Task 33](review-tasks/33-git-and-worktree-process-safety.md) |
 | CR-074 | Medium | Bug | Fixed | [Task 18](review-tasks/18-terminal-outcome-writer.md) |
 | CR-075 | Medium | Bug | Fixed (Task 22) | [Task 22](review-tasks/22-pipeline-review-resolve.md) |
-| CR-076 | Medium | Gap | Open | [Task 26](review-tasks/26-node-config-validation.md) |
-| CR-077 | Medium | Bug | Open | [Task 26](review-tasks/26-node-config-validation.md) |
-| CR-078 | Medium | Bug | Open | [Task 26](review-tasks/26-node-config-validation.md) |
-| CR-079 | Medium | Bug | Open | [Task 26](review-tasks/26-node-config-validation.md) |
-| CR-080 | Medium | Bug | Open | [Task 26](review-tasks/26-node-config-validation.md) |
+| CR-076 | Medium | Gap | Fixed | [Task 26](review-tasks/26-node-config-validation.md) |
+| CR-077 | Medium | Bug | Fixed | [Task 26](review-tasks/26-node-config-validation.md) |
+| CR-078 | Medium | Bug | Fixed | [Task 26](review-tasks/26-node-config-validation.md) |
+| CR-079 | Medium | Bug | Fixed | [Task 26](review-tasks/26-node-config-validation.md) |
+| CR-080 | Medium | Bug | Fixed | [Task 26](review-tasks/26-node-config-validation.md) |
 | CR-081 | Medium | Bug | Open | [Task 16](review-tasks/16-run-lifecycle-late-writes.md) |
 | CR-082 | Medium | Bug | Open | [Task 16](review-tasks/16-run-lifecycle-late-writes.md) |
 | CR-083 | Medium | Bug | Fixed | [Task 21](review-tasks/21-multi-branch-correctness.md) |
@@ -7373,7 +7373,7 @@ One row per finding, at `abaa007`.
 | CR-086 | Medium | Bug | Fixed (Task 22) | [Task 22](review-tasks/22-pipeline-review-resolve.md) |
 | CR-087 | Medium | Bug | Fixed | — |
 | CR-088 | Medium | Bug | Fixed | [Task 18](review-tasks/18-terminal-outcome-writer.md) |
-| CR-089 | Low | Code quality | Partly fixed | [Task 26](review-tasks/26-node-config-validation.md) |
+| CR-089 | Low | Code quality | Fixed | [Task 26](review-tasks/26-node-config-validation.md) |
 | CR-090 | Medium | Code quality | Open | [Task 27](review-tasks/27-plan-checklist-integrity.md) |
 | CR-091 | Medium | Code quality | Fixed | — |
 | CR-092 | Medium | Code quality | Fixed | [Task 18](review-tasks/18-terminal-outcome-writer.md) |
@@ -7484,7 +7484,7 @@ One row per finding, at `abaa007`.
 | CR-197 | Low | Code quality | Open | [Task 50](review-tasks/50-small-module-cleanups.md) |
 | CR-198 | Low | Bug | Open | [Task 31](review-tasks/31-git-host-clients.md) |
 | CR-199 | Low | Security | Open | [Task 60](review-tasks/60-security-process-and-network-isolation.md) |
-| CR-200 | Low | Bug | Open | [Task 26](review-tasks/26-node-config-validation.md) |
+| CR-200 | Low | Bug | Fixed | [Task 26](review-tasks/26-node-config-validation.md) |
 | CR-201 | Low | Code quality | Partly fixed | [Task 44](review-tasks/44-engine-stores-and-constants.md) |
 | CR-202 | Low | Code quality | Partly fixed | [Task 46](review-tasks/46-backend-types-cleanup.md) |
 | CR-203 | Low | Bug | Fixed | [Task 18](review-tasks/18-terminal-outcome-writer.md) |

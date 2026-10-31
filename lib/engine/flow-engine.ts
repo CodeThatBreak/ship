@@ -685,7 +685,7 @@ export class FlowEngine {
     // override when a webhook resumed the run
     const mapped = await this.evalInputMap(flowId, nodeKey, rawInput, buildFlowContext(ctx));
     const input = def.parseInput(mapped);
-    const config = this.nodeConfigFor(flowId, nodeKey);
+    const config = def.parseRunConfig(this.nodeConfigFor(flowId, nodeKey));
     const outcome = await def.run(ctx, input, config);
     return outcome.reply;
   }
@@ -754,7 +754,8 @@ export class FlowEngine {
    *  nodes/chains/sdlc-chain.ts). */
   nodeConfigFor(flowId: string, nodeKey: string): Record<string, unknown> {
     const def = this.defOf(flowId, nodeKey);
-    return mergeConfigLayers(def.defaultConfig(), appLayerConfig(def.key), this.flowNodeConfig(flowId, nodeKey));
+    const appKey = this.defKeyOf(flowId, nodeKey);
+    return mergeConfigLayers(def.defaultConfig(), appLayerConfig(appKey), this.flowNodeConfig(flowId, nodeKey));
   }
 
   // ── split gate (agent-node split plan §2.4, Phase 4) ──────────────────────
@@ -1662,8 +1663,20 @@ export class FlowEngine {
     if (!config || typeof config !== "object" || Array.isArray(config)) {
       throw new ValidationError("config must be an object");
     }
-    const merged = { ...(node.config ?? {}), ...config };
-    nodeSupport.setNode(node.id, { config: JSON.stringify(merged) });
+    const def = this.defOf(flowId, nodeKey);
+    const snapshot = mergeConfigLayers(this.flowNodeConfig(flowId, nodeKey), config);
+    const effective = mergeConfigLayers(
+      def.defaultConfig(),
+      appLayerConfig(this.defKeyOf(flowId, nodeKey)),
+      snapshot,
+    );
+    try {
+      def.parseRunConfig(effective);
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : String(e);
+      throw new ValidationError(msg);
+    }
+    nodeSupport.setNode(node.id, { config: JSON.stringify(snapshot) });
     db.emitEvent(flowId, node.id, "lifecycle", `${nodeKey} config updated`);
     this.touch(flowId);
   }

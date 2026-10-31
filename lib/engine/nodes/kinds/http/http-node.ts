@@ -8,6 +8,8 @@ import { templateStore } from "../../../templates/template-store";
 import { buildFlowContext } from "../../../context/flow-variables";
 import { evalJsonata } from "@/lib/jsonata";
 import { HttpDefSchema, type HttpDef } from "../../declarative-schemas";
+import { parseDeclarativeRunConfig } from "../../shared/declarative-run-config";
+import { allowlistResponseHeaders, capSerializedPayload } from "../../shared/payload-digest";
 import { getSecrets, redactSecrets, httpAllowlist } from "../../../secrets";
 import { guardedRequest } from "../../../../net/ssrf-guard";
 
@@ -136,7 +138,12 @@ export class HttpTemplateNode extends NodeDefinition<Record<string, unknown>, Re
           /* keep as text */
         }
       }
-      const defaultOutput = { status: res.status, ok: res.ok, body: parsedBody, headers: res.headers };
+      const defaultOutput = {
+        status: res.status,
+        ok: res.ok,
+        body: capSerializedPayload(parsedBody),
+        headers: allowlistResponseHeaders(res.headers),
+      };
       const output = await this.mapResponse(cfg, defaultOutput);
 
       this.support.emitLifecycle(ctx.flow.id, node.id,
@@ -226,8 +233,11 @@ export class HttpTemplateNode extends NodeDefinition<Record<string, unknown>, Re
   }
 
   private runConfig(config: Record<string, unknown>): HttpDef {
-    const parsed = HttpDefSchema.safeParse(config);
-    return parsed.success ? parsed.data : this.def;
+    return this.parseRunConfig(config) as unknown as HttpDef;
+  }
+
+  override parseRunConfig(config: Record<string, unknown>): Record<string, unknown> {
+    return parseDeclarativeRunConfig("http", config, this.label);
   }
 
   private holdsForApproval(ctx: FlowCtx): boolean {
@@ -239,8 +249,10 @@ export class HttpTemplateNode extends NodeDefinition<Record<string, unknown>, Re
 
 /** Artifact digest capping oversized bodies (headers + a body summary). */
 function safeDigest(o: Record<string, unknown>): Record<string, unknown> {
-  const body = o.body;
-  let bodyOut: unknown = body;
-  if (typeof body === "string" && body.length > 20_000) bodyOut = `${body.slice(0, 20_000)}… (truncated)`;
-  return { ...o, body: bodyOut };
+  return {
+    status: o.status,
+    ok: o.ok,
+    body: capSerializedPayload(o.body),
+    headers: allowlistResponseHeaders(o.headers as Record<string, string> | undefined),
+  };
 }

@@ -22,6 +22,7 @@ import { parseConfigSnapshot } from '../../../templates/node-config';
 import { extractJson, jsonSchemaIssues } from './json-schema-lite';
 import { AGENT_OUTPUT_ERROR, AgentOutputError, type AgentOutputErrorCode } from '../../shared/agent/output-error';
 import { AgentDefSchema, type AgentDef } from '../../declarative-schemas';
+import { parseDeclarativeRunConfig } from '../../shared/declarative-run-config';
 import type { SplitUnit } from '../../shared';
 import { splitDirective } from './split-directive';
 import { AGENT_CONFIG_FIELDS } from './constants';
@@ -422,12 +423,15 @@ export class AgentTemplateNode extends AgentRunNode<Record<string, unknown>, Rec
     return true;
   }
 
+  override parseRunConfig(config: Record<string, unknown>): Record<string, unknown> {
+    return parseDeclarativeRunConfig('agent', config, this.label);
+  }
+
   // ── internals ─────────────────────────────────────────────────────────────
 
   /** The effective definition for this run (already merged by the engine). */
   private runConfig(config: Record<string, unknown>): AgentDef {
-    const parsed = AgentDefSchema.safeParse(config);
-    return parsed.success ? parsed.data : this.def;
+    return this.parseRunConfig(config) as unknown as AgentDef;
   }
 
   /**
@@ -532,6 +536,15 @@ export class AgentTemplateNode extends AgentRunNode<Record<string, unknown>, Rec
           response: text,
         });
       }
+      if (typeof parsed !== 'object' || Array.isArray(parsed)) {
+        throw new AgentOutputError({
+          code: AGENT_OUTPUT_ERROR.SCHEMA_MISMATCH,
+          label: this.label,
+          message: `${this.label}: json output must be a JSON object (got ${Array.isArray(parsed) ? 'array' : typeof parsed})`,
+          issues: [],
+          response: text,
+        });
+      }
       // the agent's escape hatch: it answered with the standard error
       // envelope instead of contract-conforming output — convey its reason
       const reported = AgentOutputError.reported(parsed);
@@ -546,17 +559,19 @@ export class AgentTemplateNode extends AgentRunNode<Record<string, unknown>, Rec
           response: text,
         });
       }
-      const issues = jsonSchemaIssues(cfg.output_schema, parsed, this.label);
-      if (issues.length) {
-        throw new AgentOutputError({
-          code: AGENT_OUTPUT_ERROR.SCHEMA_MISMATCH,
-          label: this.label,
-          // the first violation stays the headline text — the same human message
-          // a bare `validateJsonSchema` throw produced, unchanged for existing UI
-          message: issues[0]?.message ?? `${this.label}: the agent response violated its output schema`,
-          issues,
-          response: text,
-        });
+      if (cfg.output_schema && typeof cfg.output_schema === 'object') {
+        const issues = jsonSchemaIssues(cfg.output_schema, parsed, this.label);
+        if (issues.length) {
+          throw new AgentOutputError({
+            code: AGENT_OUTPUT_ERROR.SCHEMA_MISMATCH,
+            label: this.label,
+            // the first violation stays the headline text — the same human message
+            // a bare `validateJsonSchema` throw produced, unchanged for existing UI
+            message: issues[0]?.message ?? `${this.label}: the agent response violated its output schema`,
+            issues,
+            response: text,
+          });
+        }
       }
       const output = parsed as Record<string, unknown>;
       return {

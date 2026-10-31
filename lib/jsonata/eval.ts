@@ -67,9 +67,18 @@ export async function evalJsonata(expr: string, context: unknown): Promise<EvalR
   }
 }
 
-/** JS-style truthiness (§3: an edge condition absent or truthy ⇒ edge active). */
+/** JSONata `$boolean` semantics for edge/decision conditions (§3). */
 export function jsonataTruthy(value: unknown): boolean {
-  return Boolean(value);
+  if (value === false || value == null || value === "" || value === 0) return false;
+  if (typeof value === "number" && Number.isNaN(value)) return false;
+  if (Array.isArray(value)) {
+    if (value.length === 0) return false;
+    return value.some((item) => jsonataTruthy(item));
+  }
+  if (typeof value === "object") {
+    if (Object.keys(value as object).length === 0) return false;
+  }
+  return true;
 }
 
 /**

@@ -160,7 +160,7 @@ export class PlanNode extends AgentRunNode<PlanInput, PlanOutput> {
     opts?: { model?: string; thread?: string | null },
   ): Promise<string> {
     const branch = normalizePlanThread(opts?.thread);
-    const config = this.nodeConfig(ctx);
+    const config = this.parseRunConfig(this.nodeConfig(ctx));
     const node = this.node(ctx);
     const userRules = typeof config.prompt_rules === 'string' ? config.prompt_rules : '';
     const model = opts?.model ?? null;
@@ -184,7 +184,11 @@ export class PlanNode extends AgentRunNode<PlanInput, PlanOutput> {
 
     const latest = this.store.latestPlan(ctx.flow.id);
     if (!latest) {
-      const bootstrapInput = PlanInput.parse({ prompt: content, promptIsBody: true });
+      const bootstrapInput = PlanInput.parse({
+        prompt: content,
+        promptIsBody: true,
+        decompose: config.decompose_default === true,
+      });
       return this.runPlanTurn(ctx, content, {
         turnKind: 'pre-publish',
         label: PLAN_CHAT_LABEL,

@@ -6,17 +6,14 @@ import type { AgentRunResult } from "../../../ports/agent-port";
 import { AgentRunNode, TemplateRenderer, type FlowCtx, type RunOutcome } from "../../shared";
 import { templateStore } from "../../../templates/template-store";
 import { buildFlowContext } from "../../../context/flow-variables";
-import { evalJsonata } from "@/lib/jsonata";
+import { evalJsonata, jsonataTruthy } from "@/lib/jsonata";
 import { mcpSourceConfigFields } from "../../../templates/node-config";
 import { DecisionDefSchema, type DecisionDef } from "../../declarative-schemas";
+import { parseDeclarativeRunConfig } from "../../shared/declarative-run-config";
+import { digestJsonText } from "../../shared/payload-digest";
 import { extractJson } from "../agent/json-schema-lite";
 
 // ── helpers ──────────────────────────────────────────────────────────────────
-
-/** JSONata truthiness: false / null / "" / 0 are falsy — everything else picks. */
-function jsonataTruthy(value: unknown): boolean {
-  return !(value === false || value == null || value === "" || value === 0);
-}
 
 /**
  * The declarative decision node (§4.3): picks the flow's branch among its
@@ -115,9 +112,10 @@ export class DecisionTemplateNode extends AgentRunNode<Record<string, unknown>, 
 
   /** The engine's choose action validates + records a manual branch pick
    *  (with the pass-down variables merged in when the flow ctx is given). */
-  async applyChoice(node: NodeRow, flowId: string, chosen: string[], rationale?: string, ctx?: FlowCtx): Promise<void> {
-    this.validateChoice(chosen);
-    const passed = ctx ? await this.evalPass(this.def, buildFlowContext(ctx)) : {};
+  async applyChoice(node: NodeRow, flowId: string, chosen: string[], rationale: string | undefined, ctx: FlowCtx): Promise<void> {
+    const cfg = this.runConfig(this.nodeConfig(ctx));
+    this.validateChoice(chosen, cfg);
+    const passed = await this.evalPass(cfg, buildFlowContext(ctx));
     this.support.setNode(node.id, {
       status: "approved",
       output: JSON.stringify({ ...passed, chosen, rationale: rationale ?? "chosen by the user" }),
@@ -125,8 +123,8 @@ export class DecisionTemplateNode extends AgentRunNode<Record<string, unknown>, 
     this.support.emitLifecycle(flowId, node.id, `branch chosen: ${chosen.join(" + ")}`);
   }
 
-  validateChoice(chosen: string[]): void {
-    const labels = this.choiceLabels();
+  validateChoice(chosen: string[], cfg: DecisionDef = this.def): void {
+    const labels = this.choiceLabels(cfg);
     for (const c of chosen) {
       if (!labels.includes(c)) {
         throw new Error(`"${c}" is not one of this decision's choices: ${labels.join(", ")}`);
@@ -186,7 +184,7 @@ export class DecisionTemplateNode extends AgentRunNode<Record<string, unknown>, 
 
     if (cfg.source === "manual") {
       // nothing to compute — hold and let the decision card collect the pick
-      return this.applyOutcome(ctx, this.awaiting("pick a branch in the decision card", passed));
+      return this.applyOutcome(ctx, this.awaiting("pick a branch in the decision card", passed, cfg));
     }
 
     if (cfg.source === "expression") {
@@ -248,7 +246,7 @@ export class DecisionTemplateNode extends AgentRunNode<Record<string, unknown>, 
       const parsed = this.parseAgentChoice(cfg, result.result ?? "");
       outcome = this.applyPick(ctx, [parsed.choice], parsed.rationale, await this.evalPass(cfg, buildFlowContext(ctx)));
     } else if (cfg.source === "manual") {
-      outcome = this.awaiting("pick a branch in the decision card", await this.evalPass(cfg, buildFlowContext(ctx)));
+      outcome = this.awaiting("pick a branch in the decision card", await this.evalPass(cfg, buildFlowContext(ctx)), cfg);
     } else {
       return false; // expression decisions run inline — nothing to recover from
     }
@@ -258,10 +256,13 @@ export class DecisionTemplateNode extends AgentRunNode<Record<string, unknown>, 
 
   // ── internals ─────────────────────────────────────────────────────────────
 
+  override parseRunConfig(config: Record<string, unknown>): Record<string, unknown> {
+    return parseDeclarativeRunConfig("decision", config, this.label);
+  }
+
   /** The effective definition for this run (already merged by the engine). */
   private runConfig(config: Record<string, unknown>): DecisionDef {
-    const parsed = DecisionDefSchema.safeParse(config);
-    return parsed.success ? parsed.data : this.def;
+    return this.parseRunConfig(config) as unknown as DecisionDef;
   }
 
   /**
@@ -281,12 +282,12 @@ export class DecisionTemplateNode extends AgentRunNode<Record<string, unknown>, 
   }
 
   /** The manual-source hold state: no pick until the user chooses. */
-  private awaiting(rationale: string, passed: Record<string, unknown> = {}): RunOutcome {
+  private awaiting(rationale: string, passed: Record<string, unknown> = {}, cfg: DecisionDef = this.def): RunOutcome {
     return {
       status: "awaiting_approval",
       output: { ...passed, chosen: [], rationale },
       event: `${this.label} is waiting for a branch choice`,
-      eventData: { choices: this.choiceLabels() },
+      eventData: { choices: this.choiceLabels(cfg) },
       reply: rationale,
     };
   }
@@ -331,7 +332,7 @@ export class DecisionTemplateNode extends AgentRunNode<Record<string, unknown>, 
       prompt,
       "",
       "Flow state (JSON):",
-      JSON.stringify(vars, null, 2),
+      digestJsonText(vars),
       "",
       "The branch you pick must be exactly one of these labels:",
       choices,

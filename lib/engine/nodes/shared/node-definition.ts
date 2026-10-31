@@ -282,6 +282,19 @@ export abstract class NodeDefinition<I = unknown, O extends Record<string, unkno
     return this.outputSchema.parse(raw);
   }
 
+  /**
+   * Validate the engine's merged config (class ← app ← flow snapshot) before a
+   * run or after a set_node_config patch. Declarative kinds override to use
+   * their declarative schema instead of `configSchema`.
+   */
+  parseRunConfig(config: Record<string, unknown>): Record<string, unknown> {
+    const parsed = this.configSchema.safeParse(config);
+    if (!parsed.success) {
+      throw formatZodConfigError(this.key, parsed.error);
+    }
+    return parsed.data as Record<string, unknown>;
+  }
+
   node(ctx: FlowCtx): NodeRow {
     return this.support.nodeByKey(ctx.flow.id, this.key);
   }
@@ -356,4 +369,11 @@ export abstract class NodeDefinition<I = unknown, O extends Record<string, unkno
   async makeDiff(ctx: FlowCtx, branch: string) {
     return this.ctxHelper.makeDiff(ctx, branch);
   }
+}
+
+function formatZodConfigError(nodeKey: string, error: z.ZodError): Error {
+  const first = error.issues[0];
+  if (!first) return new Error(`invalid config for ${nodeKey}`);
+  const at = first.path.length ? `${nodeKey}.${first.path.join(".")}` : nodeKey;
+  return new Error(`invalid config for ${at}: ${first.message}`);
 }
