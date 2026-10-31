@@ -28,18 +28,18 @@ describe("Database bootstrap", () => {
     try {
       const { db } = await import("./index");
       db.connection();
-      expect(db.get<{ user_version: number }>(`PRAGMA user_version`)?.user_version).toBe(3);
+      expect(db.get<{ user_version: number }>(`PRAGMA user_version`)?.user_version).toBe(4);
     } finally {
       process.chdir(prevCwd);
     }
   });
 
-  it("sets user_version 3 and seeds built-in templates on a fresh DB", async () => {
+  it("sets user_version 4 and seeds built-in templates on a fresh DB", async () => {
     const dbPath = mkDbPath();
     process.env.DATABASE_PATH = dbPath;
     const { db } = await import("./index");
     db.connection();
-    expect(db.get<{ user_version: number }>(`PRAGMA user_version`)?.user_version).toBe(3);
+    expect(db.get<{ user_version: number }>(`PRAGMA user_version`)?.user_version).toBe(4);
     expect(db.get(`SELECT 1 AS ok FROM flow_templates WHERE id='tpl_sdlc_loop'`)).toEqual({ ok: 1 });
   });
 
@@ -49,7 +49,7 @@ describe("Database bootstrap", () => {
     const { db } = await import("./index");
     db.connection();
     const flowCols = db.all<{ name: string }>(`PRAGMA table_info(flows)`).map((c) => c.name);
-    for (const col of ["execution_mode", "repo_id", "template_id", "trigger_payload"]) {
+    for (const col of ["execution_mode", "repo_id", "template_id", "template_graph", "trigger_payload"]) {
       expect(flowCols).toContain(col);
     }
     const nodeCols = db.all<{ name: string }>(`PRAGMA table_info(nodes)`).map((c) => c.name);

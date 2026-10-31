@@ -50,6 +50,8 @@ export interface TemplateNodeSpec {
   /** node template key used for def resolution (e.g. "plan") */
   defKey: string;
   nodeTemplateId: string;
+  /** node_templates.kind at snapshot time (decision edges, runtime routing) */
+  catalogKind: string;
   /** display label (template override or the node template's own name) */
   label: string;
   joinMode: "all" | "any";

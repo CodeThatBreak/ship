@@ -93,6 +93,11 @@ export class Database {
             if (!cols.some((c) => c.name === "git_branch")) {
               d.exec(`ALTER TABLE branches ADD COLUMN git_branch TEXT`);
             }
+          } else if (next === 4) {
+            const cols = d.prepare(`PRAGMA table_info(flows)`).all() as { name: string }[];
+            if (!cols.some((c) => c.name === "template_graph")) {
+              d.exec(`ALTER TABLE flows ADD COLUMN template_graph TEXT`);
+            }
           } else {
             throw new Error(`No migration defined for user_version ${next}`);
           }

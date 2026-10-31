@@ -91,7 +91,7 @@ export function exportTemplateYaml(
     if (e.label) opts.label = e.label;
     if (e.condition) opts.condition = e.condition;
     const tail = Object.keys(opts).length ? `, ${JSON.stringify(opts)}` : "";
-    out += `  - [${e.from}, ${e.to}${tail}]\n`;
+    out += `  - [${JSON.stringify(e.from)}, ${JSON.stringify(e.to)}${tail}]\n`;
   }
   return out.trimEnd() + "\n";
 }

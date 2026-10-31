@@ -1922,7 +1922,7 @@ Original findings, verbatim:
 
 ### CR-065 [Medium] Flows read the live template graph, so the "snapshot" guarantee is only partly true
 
-- **Status at `abaa007`:** **Open**, fix in [Task 24](review-tasks/24-template-snapshot-and-yaml.md)
+- **Status:** Fixed (Task 24)
 - **Current location:** lib/engine/templates/template-store.ts:169-179,405-410,494-503,704-722, lib/engine/flow-engine.ts:858-860
 - **Re-verification note:** Only `nodes.config` is snapshotted; `graphForFlow` still re-reads the live template (edges, triggers, wait_for, input_map, joins) on every call, `updateNodeTemplate` has no active-flow guard, and the comments still claim "running flows snapshot at creation and are never affected by template edits". Either snapshot the graph onto the flow at create time, or correct the comments and extend `assertNotRunning` to `updateNodeTemplate`/`deleteNodeTemplate` for referenced definitions; memoize the graph per `advanceFrom`.
 
@@ -5108,7 +5108,7 @@ Original findings, verbatim:
 
 ### CR-191 [Low] YAML export emits edge endpoints unquoted, so node keys `true`/`false`/`null` break the round-trip
 
-- **Status at `abaa007`:** **Open**, fix in [Task 24](review-tasks/24-template-snapshot-and-yaml.md)
+- **Status at `abaa007`:** **Fixed**, [Task 24](review-tasks/24-template-snapshot-and-yaml.md)
 - **Current location:** lib/engine/templates/template-yaml.ts:93,143-148; lib/engine/templates/template-store.ts:787
 - **Re-verification note:** Edges are still emitted as unquoted `- [${e.from}, ${e.to}]`, and the key regex still allows `true`/`false`/`null`, so export, then import, of such a template fails with "edge endpoints must be node keys". Emit `JSON.stringify(e.from)`/`JSON.stringify(e.to)`, or reserve those keys in validation.
 
@@ -7349,7 +7349,7 @@ One row per finding, at `abaa007`.
 | CR-062 | Medium | Gap | Fixed | [Task 23](review-tasks/23-graph-semantics-and-validation.md) |
 | CR-063 | Medium | Gap | Fixed | [Task 23](review-tasks/23-graph-semantics-and-validation.md) |
 | CR-064 | Medium | Bug | Open | [Task 19](review-tasks/19-fanout-rollup-and-promises.md) |
-| CR-065 | Medium | Bug | Open | [Task 24](review-tasks/24-template-snapshot-and-yaml.md) |
+| CR-065 | Medium | Bug | Fixed | [Task 24](review-tasks/24-template-snapshot-and-yaml.md) |
 | CR-066 | Medium | Bug | Fixed | [Task 17](review-tasks/17-node-claim-and-attempts.md) |
 | CR-067 | Medium | Bug | Fixed | [Task 12](review-tasks/12-db-transactions.md) |
 | CR-068 | Medium | Security | Open | [Task 60](review-tasks/60-security-process-and-network-isolation.md) |
@@ -7475,7 +7475,7 @@ One row per finding, at `abaa007`.
 | CR-188 | Low | Code quality | Open | [Task 60](review-tasks/60-security-process-and-network-isolation.md) |
 | CR-189 | Low | Bug | Open | [Task 60](review-tasks/60-security-process-and-network-isolation.md) |
 | CR-190 | Low | Bug | Open | [Task 60](review-tasks/60-security-process-and-network-isolation.md) |
-| CR-191 | Low | Bug | Open | [Task 24](review-tasks/24-template-snapshot-and-yaml.md) |
+| CR-191 | Low | Bug | Fixed | [Task 24](review-tasks/24-template-snapshot-and-yaml.md) |
 | CR-192 | Low | Bug | Open | [Task 27](review-tasks/27-plan-checklist-integrity.md) |
 | CR-193 | Low | Bug | Open | [Task 25](review-tasks/25-wait-timers-and-poller.md) |
 | CR-194 | Low | Performance | Open | [Task 25](review-tasks/25-wait-timers-and-poller.md) |

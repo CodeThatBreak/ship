@@ -31,6 +31,7 @@ CREATE TABLE IF NOT EXISTS flows (
   execution_mode TEXT NOT NULL DEFAULT 'cloud',
   repo_id       TEXT REFERENCES repos(id),
   template_id   TEXT REFERENCES flow_templates(id),
+  template_graph TEXT,                         -- JSON: graph snapshot at flow creation (edges, triggers, input maps)
   trigger_payload TEXT,                        -- JSON: webhook/schedule payload that started the flow
   worktree_dir  TEXT,                          -- git worktree dir for local runs (created at build start; the hub checkout is never mutated)
   -- step sub-flows (plan fan-out): set on child flows, kind distinguishes them

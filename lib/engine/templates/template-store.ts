@@ -16,6 +16,7 @@ import type {
 import { parseDeclarativeConfig } from "../nodes/declarative-schemas";
 import { catalogForNodeTemplateIds, lintTemplate, type TaskUniverse } from "./template-lint";
 import { graphStructureError, lintGraphStructure } from "./graph-structure";
+import { hydrateFlowTemplateGraph, serializeFlowTemplateGraph } from "./flow-graph-snapshot";
 import { hookStore } from "../runtime/hook-store";
 import { taskRegistry } from "../tasks/registry";
 import {
@@ -145,6 +146,7 @@ export class TemplateStore {
         key: r.node_key as string,
         defKey,
         nodeTemplateId: r.node_template_id as string,
+        catalogKind: r.nt_kind as string,
         label: (r.label as string | null) ?? (r.nt_name as string),
         joinMode: (r.join_mode as "all" | "any") === "any" ? "any" : "all",
         config: TemplateStore.parseJson<Record<string, unknown>>(r.config as string, {}),
@@ -181,15 +183,29 @@ export class TemplateStore {
   }
 
   /**
-   * The graph a flow instance was snapshotted from. Flows always carry their
-   * template id (legacy rows are backfilled at migration time; scripts that
-   * create rows directly fall back to the seeded SDLC loop).
+   * The graph a flow instance runs against. New flows persist a JSON snapshot
+   * at creation (`flows.template_graph`); legacy rows without one fall back to
+   * the live template (same as pre-snapshot behavior).
    */
   graphForFlow(flowId: string): TemplateGraph | null {
-    const tid = db.get<{ template_id: string | null }>(
-      `SELECT template_id FROM flows WHERE id=?`, flowId
-    )?.template_id ?? null;
-    return this.graph(tid ?? SDLC_TEMPLATE_ID);
+    const row = db.get<{ template_id: string | null; template_graph: string | null }>(
+      `SELECT template_id, template_graph FROM flows WHERE id=?`,
+      flowId,
+    );
+    if (!row) return null;
+    const snapshotted = hydrateFlowTemplateGraph(row.template_graph);
+    if (snapshotted) return snapshotted;
+    const tid = row.template_id ?? SDLC_TEMPLATE_ID;
+    return this.graph(tid);
+  }
+
+  /** Persist the template graph snapshot taken when a flow is created. */
+  persistFlowGraphSnapshot(flowId: string, graph: TemplateGraph): void {
+    db.run(
+      `UPDATE flows SET template_graph=? WHERE id=?`,
+      serializeFlowTemplateGraph(graph),
+      flowId,
+    );
   }
 
   /**
@@ -406,8 +422,9 @@ export class TemplateStore {
   /**
    * Update a template. Node/edge arrays, when present, replace the existing
    * ones wholesale (the editor sends its full draft); otherwise only the
-   * meta fields are touched. Running flows snapshot at creation and are never
-   * affected by template edits.
+   * meta fields are touched. Running flows keep the graph snapshot taken at
+   * creation; only node config/join_mode on their node rows were frozen then
+   * (structural template edits are blocked while flows are active).
    */
   update(templateId: string, patch: Partial<TemplateInput>): void {
     if (!this.flowTemplate(templateId)) throw new NotFoundError("template", templateId);
@@ -562,8 +579,7 @@ export class TemplateStore {
     );
   }
 
-  /** Structural edits are refused while flows are running on a live snapshot —
-   *  snapshots are safe, but refusing keeps the editor honest about run state. */
+  /** Structural edits are refused while flows are active on this template. */
   private assertNotRunning(templateId: string): void {
     const active = db.get<{ c: number }>(
       `SELECT COUNT(*) c FROM flows WHERE template_id=? AND status='active'`, templateId)?.c ?? 0;
@@ -577,8 +593,7 @@ export class TemplateStore {
   /**
    * Position-only update (Phase 5 visual builder): drag re-layout syncs x/y
    * without touching the graph. Positions are display metadata — no validated()
-   * walk, no assertNotRunning (a running flow snapshotted already); editing the
-   * arrangement while a flow runs cannot change what that flow does.
+   * walk, no assertNotRunning (the flow's graph snapshot is fixed at creation).
    */
   updatePositions(templateId: string, positions: Record<string, { x: number; y: number }>): void {
     if (!this.flowTemplate(templateId)) throw new NotFoundError("template", templateId);

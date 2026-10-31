@@ -110,8 +110,8 @@ export class FlowEngine {
         "Local mode requires a repo registered on the Settings page with a local path.",
       );
     }
-    // snapshot the flow's node set from the template — running flows are never
-    // mutated by later template edits
+    // snapshot the flow's node set and template graph — running flows keep that
+    // snapshot; later template edits do not change edges/triggers/input maps
     const templateId = opts.templateId ?? SDLC_TEMPLATE_ID;
     const graph = templateStore.graph(templateId);
     if (!graph) throw new NotFoundError("flow template", templateId);
@@ -150,6 +150,7 @@ export class FlowEngine {
         // instance (Phase 4B) — the delivery resumes the node
         if (spec.trigger.wait_for === "webhook") hookStore.ensureForNode(id, spec.key);
       }
+      templateStore.persistFlowGraphSnapshot(id, graph);
     });
     // no "flow created" announcement event — the chat feed starts with the
     // user's first message instead of boilerplate
@@ -227,6 +228,7 @@ export class FlowEngine {
           JSON.stringify(config), spec.joinMode, ts, ts
         );
       }
+      templateStore.persistFlowGraphSnapshot(id, graph);
       db.emitEvent(id, null, "lifecycle",
         `step child created from "${templateStore.flowTemplate(templateId)?.name ?? templateId}" — parent flow ${parentFlowId}`);
     });
@@ -267,25 +269,28 @@ export class FlowEngine {
     if (!graph) throw new NotFoundError("flow template", templateId);
     const id = db.uid("flow_");
     const ts = db.now();
-    db.run(
-      `INSERT INTO flows (id,task_id,name,status,repo_url,repo_id,execution_mode,template_id,trigger_payload,parent_flow_id,kind,created_at,updated_at)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-      id, parent.task_id, name, "active", parent.repo_url, parent.repo_id, parent.execution_mode,
-      graph.templateId, JSON.stringify(payload), parentFlowId, "split", ts, ts
-    );
-    for (const spec of graph.nodes) {
-      const def = nodeRegistry.resolve(spec.defKey, spec.key);
-      const config = mergeConfigLayers(def.defaultConfig(), appLayerConfig(def.key), spec.config);
+    db.transaction(() => {
       db.run(
-        `INSERT INTO nodes (id,flow_id,node_key,type,label,config,join_mode,status,created_at,updated_at)
-         VALUES (?,?,?,?,?,?,?,'pending',?,?)`,
-        db.uid("node_"), id, spec.key, spec.defKey,
-        spec.label === def.label ? null : spec.label,
-        JSON.stringify(config), spec.joinMode, ts, ts
+        `INSERT INTO flows (id,task_id,name,status,repo_url,repo_id,execution_mode,template_id,trigger_payload,parent_flow_id,kind,created_at,updated_at)
+         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+        id, parent.task_id, name, "active", parent.repo_url, parent.repo_id, parent.execution_mode,
+        graph.templateId, JSON.stringify(payload), parentFlowId, "split", ts, ts
       );
-    }
-    db.emitEvent(id, null, "lifecycle",
-      `split child created from "${templateStore.flowTemplate(templateId)?.name ?? templateId}" — parent flow ${parentFlowId}`);
+      for (const spec of graph.nodes) {
+        const def = nodeRegistry.resolve(spec.defKey, spec.key);
+        const config = mergeConfigLayers(def.defaultConfig(), appLayerConfig(def.key), spec.config);
+        db.run(
+          `INSERT INTO nodes (id,flow_id,node_key,type,label,config,join_mode,status,created_at,updated_at)
+           VALUES (?,?,?,?,?,?,?,'pending',?,?)`,
+          db.uid("node_"), id, spec.key, spec.defKey,
+          spec.label === def.label ? null : spec.label,
+          JSON.stringify(config), spec.joinMode, ts, ts
+        );
+      }
+      templateStore.persistFlowGraphSnapshot(id, graph);
+      db.emitEvent(id, null, "lifecycle",
+        `split child created from "${templateStore.flowTemplate(templateId)?.name ?? templateId}" — parent flow ${parentFlowId}`);
+    });
     return id;
   }
 
@@ -1066,7 +1071,8 @@ export class FlowEngine {
   }
 
   /** The node_templates kind behind a template node spec (decision/agent/…/builtin). */
-  private nodeKind(g: TemplateGraph, spec: { nodeTemplateId: string; defKey: string }): string | null {
+  private nodeKind(g: TemplateGraph, spec: { nodeTemplateId: string; defKey: string; catalogKind?: string }): string | null {
+    if (spec.catalogKind) return spec.catalogKind;
     return db.get<{ kind: string }>(`SELECT kind FROM node_templates WHERE id=?`, spec.nodeTemplateId)?.kind ?? null;
   }
 
