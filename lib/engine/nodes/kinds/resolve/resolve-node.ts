@@ -98,13 +98,12 @@ export class ResolveNode extends AgentRunNode<ResolveInput, ResolveOutput> {
 
     const open = this.support.openComments(ctx.flow.id);
     if (!open.length && !input.instructions) {
-      this.support.setNode(node.id, { status: "done", output: JSON.stringify(this.outputSchema.parse({ resolved: 0 })) });
-      return {
+      return this.applyOutcome(ctx, {
         status: "done",
         output: this.outputSchema.parse({ resolved: 0 }),
         event: "no open comments",
         reply: "No open comments.",
-      };
+      });
     }
     const list = open
       .map((c) => `- ${c.file_path ? `${c.file_path}${c.line ? `:${c.line}` : ""} — ` : ""}${c.body}`)

@@ -26,7 +26,7 @@ const { flowCtxHelper } = await import("../../shared/run-context");
 const { usageTracker } = await import("../../../harness/usage-tracker");
 const { AgentRunner } = await import("../../../harness/agent-runner");
 const { AgentTemplateNode } = await import("./agent-node");
-import type { Started, AgentStartInput } from "../../../harness/agent-runner";
+import type { Started, AgentStartInput, ExecuteRunResult } from "../../../harness/agent-runner";
 import type { AgentRunResult } from "../../../ports/agent-port";
 import type { FlowCtx } from "../../shared";
 import type { NodeRow } from "../../../../db/rows";
@@ -58,17 +58,19 @@ class StubRunner extends AgentRunner {
     nodeId: string,
     start: () => Promise<Started>,
     label: string,
-  ): Promise<AgentRunResult> {
+  ): Promise<ExecuteRunResult> {
     const result = this.queue.shift();
     if (result == null) throw new Error(`${label}: no stubbed run result left`);
     const { agentId, runId } = await start();
     this.support.persistRun(ctx.flow.id, nodeId, agentId, runId);
+    const runRowId = db.get<{ id: string }>(`SELECT id FROM runs WHERE run_ref=?`, runId)?.id;
+    if (!runRowId) throw new Error(`${label}: missing run row`);
     db.emitEvent(ctx.flow.id, nodeId, "lifecycle", `${label} started (cloud)`);
     if (result.status !== "finished") {
       throw new Error(`${label} ended with status ${result.status}`);
     }
     db.emitEvent(ctx.flow.id, nodeId, "lifecycle", `${label} finished`);
-    return result;
+    return { result, runRowId };
   }
 }
 
@@ -298,6 +300,20 @@ describe("AgentTemplateNode — one persistence path (T2)", () => {
     await nodeA.run(a.ctx, { prompt: "Do the work" }, {});
     const rows = appliedRows(a.flowId, "agent_4");
     expect(rows.finishEvent?.message).toBe(`${LABEL} output ready`);
+  });
+
+  it("chat follow-up merges feedback into the recorded input without dropping inherited fields", async () => {
+    const seeded = seedAgentNode(990);
+    const inherited = { upstreamField: "from-parent", prompt: "initial" };
+    db.run(`UPDATE nodes SET input=? WHERE id=?`, JSON.stringify(inherited), seeded.nodeId);
+    const runner = new StubRunner({ status: "finished", result: FINISHED_TEXT });
+    const node = agentNode(990, runner);
+    await node.chat(seeded.ctx, "tweak this", "model-x");
+    const row = must(db.get<{ input: string }>(`SELECT input FROM nodes WHERE id=?`, seeded.nodeId), "node");
+    const recorded = JSON.parse(row.input) as Record<string, unknown>;
+    expect(recorded.upstreamField).toBe("from-parent");
+    expect(recorded.feedback).toBe("tweak this");
+    expect(recorded.model).toBe("model-x");
   });
 });
 

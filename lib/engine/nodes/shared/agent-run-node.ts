@@ -8,6 +8,11 @@ import { NodeDefinition, type RunOutcome } from "./node-definition";
 import type { NodeRunStatus } from "../../../../constants/flow";
 import { RunSupersededError } from "../../errors/run-superseded-error";
 
+/** Metadata from {@link AgentRunner.executeRun} passed into finalize hooks. */
+export interface ExecuteRunMeta {
+  runRowId: string;
+}
+
 /**
  * The middle tier of the node family (§T4b): a run here goes through the
  * agent runner. The membership test is behavioral, not a name list — "does
@@ -93,7 +98,7 @@ export abstract class AgentRunNode<
       `— Respond conversationally and concisely. This is a question about your work, ` +
       `not a request to redo it: do not produce a new plan, diff, or plan-meta block, ` +
       `and do not modify any files.`;
-    const result = await this.runner.executeRun(
+    const run = await this.runner.executeRun(
       ctx,
       node.id,
       () =>
@@ -106,7 +111,7 @@ export abstract class AgentRunNode<
       `${this.label} chat`,
       { ownsNodeStatus: false },
     );
-    return result.result ?? "Done.";
+    return run.result.result ?? "Done.";
   }
 
   /**
@@ -122,7 +127,7 @@ export abstract class AgentRunNode<
       prompt: string;
       agent: Omit<AgentStartInput, "prompt">;
       label: string;
-      finalize: (result: AgentRunResult) => Promise<RunOutcome>;
+      finalize: (result: AgentRunResult, _meta: ExecuteRunMeta) => Promise<RunOutcome>;
     }
   ): Promise<RunOutcome> {
     const node = this.node(ctx);
@@ -133,10 +138,10 @@ export abstract class AgentRunNode<
     const start = () =>
       this.runner.startAgent(ctx, { ...opts.agent, prompt: opts.prompt, nodeId: node.id });
     try {
-      const result = await this.runner.executeRun(ctx, node.id, start, opts.label, {
+      const { result, runRowId } = await this.runner.executeRun(ctx, node.id, start, opts.label, {
         attemptId: attemptId ?? undefined,
       });
-      const outcome = await opts.finalize(result);
+      const outcome = await opts.finalize(result, { runRowId });
       return this.applyOutcome(ctx, outcome, {
         fenceSuperseded: Boolean(attemptId),
         attemptId,

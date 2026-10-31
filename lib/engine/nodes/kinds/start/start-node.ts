@@ -59,7 +59,6 @@ export class StartNode extends NodeDefinition<StartPayload, StartPayload> {
   }
 
   async run(ctx: FlowCtx, input: StartPayload, config: Record<string, unknown>): Promise<RunOutcome> {
-    const node = this.node(ctx);
     const fields = parseStartContract(config);
     let output: Record<string, unknown> = {};
     let event = "Flow started";
@@ -73,16 +72,14 @@ export class StartNode extends NodeDefinition<StartPayload, StartPayload> {
       output = v.values;
       event = `Flow started — publishing ${Object.keys(output).join(", ") || "no values"}`;
     }
-    this.support.setNode(node.id, { status: "done", output: JSON.stringify(output) });
-    this.support.emitLifecycle(ctx.flow.id, node.id, event);
-    return {
+    return this.applyOutcome(ctx, {
       output,
       status: "done",
-      event: "flow started",
+      event,
       reply: fields.length
         ? `Flow started with ${Object.keys(output).length} input value(s).`
         : "Flow started.",
-    };
+    });
   }
 
   /** Nothing to recover — a start run finishing while the server was down is

@@ -7,6 +7,7 @@ export {
   AgentRunner,
   agentRunner,
   type AgentStartInput,
+  type ExecuteRunResult,
   type Started,
 } from "./agent-runner";
 export {

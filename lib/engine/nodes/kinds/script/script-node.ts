@@ -105,11 +105,8 @@ export class ScriptTemplateNode extends NodeDefinition<Record<string, unknown>, 
   }
 
   /** Restart recovery: a finished run's stdout is not persisted for scripts — retry re-runs it. */
-  async recover(ctx: FlowCtx, node: NodeRow, result: AgentRunResult, note: string): Promise<boolean> {
+  async recover(_ctx: FlowCtx, _node: NodeRow, result: AgentRunResult, _note: string): Promise<boolean> {
     if (result.status !== "finished") return false;
-    this.support.setNode(node.id, { status: "failed" });
-    this.support.emit(ctx.flow.id, node.id, "error",
-      `${node.node_key} script finished while disconnected (${note}) — retrying re-runs the script; side effects may repeat`);
     return false;
   }
 
@@ -119,21 +116,17 @@ export class ScriptTemplateNode extends NodeDefinition<Record<string, unknown>, 
     const node = this.node(ctx);
     if (!cfg.script?.trim()) {
       const msg = `${this.label}: no script configured — set one in the template editor`;
-      this.support.setNode(node.id, { status: "failed" });
-      this.support.emit(ctx.flow.id, node.id, "error", msg);
-      return { status: "failed", output: {}, event: msg, reply: msg };
+      return this.applyOutcome(ctx, { status: "failed", output: {}, event: msg, reply: msg });
     }
 
-    this.support.setNode(node.id, { status: "running", input: JSON.stringify({ ...rawInput, mapped: true }) });
+    this.markRunning(ctx, { ...rawInput, mapped: true });
 
     let cwd: string;
     try {
       cwd = await this.workingDir(ctx, cfg, node.id);
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : String(e);
-      this.support.setNode(node.id, { status: "failed" });
-      this.support.emit(ctx.flow.id, node.id, "error", msg);
-      return { status: "failed", output: {}, event: msg, reply: msg };
+      return this.applyOutcome(ctx, { status: "failed", output: {}, event: msg, reply: msg });
     }
 
     const outPath = path.join(os.tmpdir(), `devflow-out-${node.id}-${Date.now()}.json`);
@@ -178,9 +171,12 @@ export class ScriptTemplateNode extends NodeDefinition<Record<string, unknown>, 
       return this.applyOutcome(ctx, this.finish(ctx, parsed as Record<string, unknown>, result.stdout));
     } catch (e: unknown) {
       const msg = `${this.label}: ${e instanceof Error ? e.message : String(e)}`;
-      this.support.setNode(node.id, { status: "failed" });
-      this.support.emit(ctx.flow.id, node.id, "error", msg);
-      return { status: "failed", output: {}, event: `${this.label} failed`, reply: msg };
+      return this.applyOutcome(ctx, {
+        status: "failed",
+        output: {},
+        event: `${this.label} failed`,
+        reply: msg,
+      });
     } finally {
       rmSync(outPath, { force: true });
     }

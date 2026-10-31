@@ -5,7 +5,7 @@ import type { AgentRunResult } from '../../../ports/agent-port';
 import { planSteps } from '../../../runtime/plan-step-store';
 import { TemplateRenderer, type FlowCtx, type RunOutcome } from '../../shared';
 import { AGENT_OUTPUT_ERROR, AgentOutputError } from '../../shared/agent/output-error';
-import type { AgentRunner } from '../../../harness';
+import type { AgentRunner, ExecuteRunResult } from '../../../harness';
 import { RunSupersededError } from '../../../errors/run-superseded-error';
 import type { NodeSupport } from '../../shared/node-support';
 import type { NodeRow } from '../../../../db/rows';
@@ -250,7 +250,7 @@ export class PlanOutputContract {
       node.id,
       `${args.label} output contract failed — retrying with feedback (${failure.code})`
     );
-    let retry: AgentRunResult;
+    let retry: ExecuteRunResult;
     try {
       retry = await this.runner.executeRun(
         ctx,
@@ -273,7 +273,7 @@ export class PlanOutputContract {
       throw e;
     }
     try {
-      return this.applyTurnResult(ctx, node, turnKind, userMessage, retry.result ?? '', scoped);
+      return this.applyTurnResult(ctx, node, turnKind, userMessage, retry.result.result ?? '', scoped);
     } catch (e: unknown) {
       if (e instanceof PlanApplyRefusedError) {
         return { reply: e.reply, outcome: null };

@@ -38,11 +38,11 @@ export class BranchStore {
     return id;
   }
 
-  /** Tag the latest run row for a node with a branch_id. */
-  tagLatestRun(nodeId: string, branchRowId: string): void {
+  /** Tag a specific run row with a branch_id (per-branch cost attribution). */
+  tagRun(runRowId: string, branchRowId: string): void {
     db.run(
-      `UPDATE runs SET branch_id=?, updated_at=? WHERE node_id=? AND status='running'`,
-      branchRowId, db.now(), nodeId
+      `UPDATE runs SET branch_id=?, updated_at=? WHERE id=?`,
+      branchRowId, db.now(), runRowId,
     );
   }
 

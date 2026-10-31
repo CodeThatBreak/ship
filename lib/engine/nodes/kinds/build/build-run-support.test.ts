@@ -42,6 +42,7 @@ const { nodeRegistry } = await import("../../registry");
 const { StepBuildNode } = await import("./step-build-node");
 const { BuildNode } = await import("./build-node");
 import type { AgentRunResult } from "../../../ports/agent-port";
+import type { ExecuteRunResult } from "../../../harness/agent-runner";
 import type { DiffFile } from "../../../../git/local";
 import type { FlowCtx } from "../../shared";
 import type { NodeRow } from "../../../../db/rows";
@@ -100,11 +101,13 @@ class StubRunner extends AgentRunner {
     nodeId: string,
     _start: () => Promise<never>,
     label: string,
-  ): Promise<AgentRunResult> {
+  ): Promise<ExecuteRunResult> {
     this.support.persistRun(ctx.flow.id, nodeId, "agt_test", "run_test");
+    const runRowId = db.get<{ id: string }>(`SELECT id FROM runs WHERE run_ref=?`, "run_test")?.id;
+    if (!runRowId) throw new Error("missing run row");
     db.emitEvent(ctx.flow.id, nodeId, "lifecycle", `${label} started (cloud)`);
     db.emitEvent(ctx.flow.id, nodeId, "lifecycle", `${label} finished`);
-    return this.result;
+    return { result: this.result, runRowId };
   }
 }
 

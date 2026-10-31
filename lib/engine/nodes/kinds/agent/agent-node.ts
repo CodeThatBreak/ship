@@ -384,21 +384,27 @@ export class AgentTemplateNode extends AgentRunNode<Record<string, unknown>, Rec
    * the follow-up output goes through the same applyOutput validation. */
   override async chat(ctx: FlowCtx, content: string, model?: string): Promise<string> {
     const cfg = this.runConfig(this.nodeConfig(ctx));
+    const node = this.node(ctx);
 
     const prompt = this.composePrompt(
       TemplateRenderer.render(content, TemplateRenderer.vars(ctx)),
       cfg,
     );
 
+    const priorInput =
+      node.input != null && typeof node.input === "object" && !Array.isArray(node.input)
+        ? (node.input as Record<string, unknown>)
+        : {};
+
     return this.execute(ctx, {
-      input: { model: model ?? null, feedback: content },
+      input: { ...priorInput, model: model ?? null, feedback: content },
       prompt,
       agent: {
         mode: cfg.mode,
         name: `${this.label} ${ctx.task.key}`,
         model: model ?? cfg.model ?? null,
         startingRef: ctx.flow.mr_branch ?? undefined,
-        followUpOn: this.support.lastAgentId(this.node(ctx).id),
+        followUpOn: this.support.lastAgentId(node.id),
         settingSources: cfg.mcp_sources,
       },
       label: `${this.label.toLowerCase()} follow-up`,
@@ -495,7 +501,7 @@ export class AgentTemplateNode extends AgentRunNode<Record<string, unknown>, Rec
         }),
       `${this.label.toLowerCase()} retry`
     );
-    return this.applyOutput(ctx, retry.result ?? '', cfg);
+    return this.applyOutput(ctx, retry.result.result ?? '', cfg);
   }
 
   /**

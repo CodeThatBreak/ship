@@ -7375,7 +7375,7 @@ One row per finding, at `abaa007`.
 | CR-071 | Medium | Code quality | Partly fixed | [Task 44](review-tasks/44-engine-stores-and-constants.md) |
 | CR-072 | Medium | Bug | Fixed | [Task 17](review-tasks/17-node-claim-and-attempts.md) |
 | CR-073 | Medium | Bug | Open | [Task 33](review-tasks/33-git-and-worktree-process-safety.md) |
-| CR-074 | Medium | Bug | Open | [Task 18](review-tasks/18-terminal-outcome-writer.md) |
+| CR-074 | Medium | Bug | Fixed | [Task 18](review-tasks/18-terminal-outcome-writer.md) |
 | CR-075 | Medium | Bug | Open | [Task 22](review-tasks/22-pipeline-review-resolve.md) |
 | CR-076 | Medium | Gap | Open | [Task 26](review-tasks/26-node-config-validation.md) |
 | CR-077 | Medium | Bug | Open | [Task 26](review-tasks/26-node-config-validation.md) |
@@ -7389,11 +7389,11 @@ One row per finding, at `abaa007`.
 | CR-085 | Medium | Bug | Open | [Task 22](review-tasks/22-pipeline-review-resolve.md) |
 | CR-086 | Medium | Bug | Open | [Task 22](review-tasks/22-pipeline-review-resolve.md) |
 | CR-087 | Medium | Bug | Fixed | — |
-| CR-088 | Medium | Bug | Open | [Task 18](review-tasks/18-terminal-outcome-writer.md) |
+| CR-088 | Medium | Bug | Fixed | [Task 18](review-tasks/18-terminal-outcome-writer.md) |
 | CR-089 | Low | Code quality | Partly fixed | [Task 26](review-tasks/26-node-config-validation.md) |
 | CR-090 | Medium | Code quality | Open | [Task 27](review-tasks/27-plan-checklist-integrity.md) |
 | CR-091 | Medium | Code quality | Fixed | — |
-| CR-092 | Medium | Code quality | Partly fixed | [Task 18](review-tasks/18-terminal-outcome-writer.md) |
+| CR-092 | Medium | Code quality | Fixed | [Task 18](review-tasks/18-terminal-outcome-writer.md) |
 | CR-093 | Medium | Code quality | Partly fixed | [Task 49](review-tasks/49-node-kind-structure.md) |
 | CR-094 | Medium | Code quality | Partly fixed | [Task 21](review-tasks/21-multi-branch-correctness.md) |
 | CR-095 | Medium | Code quality | Partly fixed | [Task 48](review-tasks/48-backend-dependency-injection.md) |
@@ -7504,10 +7504,10 @@ One row per finding, at `abaa007`.
 | CR-200 | Low | Bug | Open | [Task 26](review-tasks/26-node-config-validation.md) |
 | CR-201 | Low | Code quality | Partly fixed | [Task 44](review-tasks/44-engine-stores-and-constants.md) |
 | CR-202 | Low | Code quality | Partly fixed | [Task 46](review-tasks/46-backend-types-cleanup.md) |
-| CR-203 | Low | Bug | Partly fixed | [Task 18](review-tasks/18-terminal-outcome-writer.md) |
+| CR-203 | Low | Bug | Fixed | [Task 18](review-tasks/18-terminal-outcome-writer.md) |
 | CR-204 | Low | Code quality | Fixed | — |
 | CR-205 | Low | Bug | Open | [Task 16](review-tasks/16-run-lifecycle-late-writes.md) |
-| CR-206 | Low | Code quality | Open | [Task 18](review-tasks/18-terminal-outcome-writer.md) |
+| CR-206 | Low | Code quality | Fixed | [Task 18](review-tasks/18-terminal-outcome-writer.md) |
 | CR-207 | Low | Code quality | Fixed | Task 07 |
 | CR-208 | Low | Code quality | Open | [Task 49](review-tasks/49-node-kind-structure.md) |
 | CR-209 | Low | Bug | Open | [Task 22](review-tasks/22-pipeline-review-resolve.md) |

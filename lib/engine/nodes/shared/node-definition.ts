@@ -264,7 +264,11 @@ export abstract class NodeDefinition<I = unknown, O extends Record<string, unkno
 
   /**
    * Finish a run that completed while the server was down.
-   * Return true when the node was recovered, false to have it failed for retry.
+   * Return true when recovery produced a terminal outcome (the impl returns a
+   * {@link RunOutcome} and the base applies it via {@link applyOutcome}), false
+   * when recovery is impossible — {@link completeNodeFromResult} then fails the
+   * node for manual retry. Must not mutate node status or emit terminal events
+   * when returning false.
    */
   abstract recover(ctx: FlowCtx, node: NodeRow, result: AgentRunResult, note: string): Promise<boolean>;
 
@@ -289,6 +293,19 @@ export abstract class NodeDefinition<I = unknown, O extends Record<string, unkno
    */
   protected recordInput(nodeId: string, input: Record<string, unknown>): void {
     this.support.setNode(nodeId, { input: JSON.stringify(input) });
+  }
+
+  /**
+   * Mark the node running and persist the run input blob. The engine claims
+   * the node before `run()`; this records input (and refreshes running for
+   * long-lived waits that touch liveness separately).
+   */
+  protected markRunning(ctx: FlowCtx, input: Record<string, unknown>): void {
+    const node = this.node(ctx);
+    this.support.setNode(node.id, {
+      status: "running",
+      input: JSON.stringify(input),
+    });
   }
 
   /**

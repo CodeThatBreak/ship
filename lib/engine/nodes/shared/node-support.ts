@@ -13,7 +13,7 @@ import { RunSupersededError } from "../../errors/run-superseded-error";
  */
 export class NodeSupport {
   nodeByKey(flowId: string, key: string): NodeRow {
-    const n = db.get<NodeRow>(`SELECT * FROM nodes WHERE flow_id=? AND node_key=?`, flowId, key);
+    const n = rows.get(NodeRow, `SELECT * FROM nodes WHERE flow_id=? AND node_key=?`, flowId, key);
     if (!n) throw new Error(`node ${key} not found for flow ${flowId}`);
     return n;
   }

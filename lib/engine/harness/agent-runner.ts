@@ -25,6 +25,12 @@ export interface ExecuteRunOptions {
   attemptId?: string;
 }
 
+/** Agent result plus the persisted runs-row id (for post-run attribution such as branch_id). */
+export interface ExecuteRunResult {
+  result: AgentRunResult;
+  runRowId: string;
+}
+
 // ── agent run machinery ──────────────────────────────────────────────────────
 export interface Started {
   agentId: string;
@@ -119,7 +125,7 @@ export class AgentRunner {
     start: () => Promise<Started>,
     label: string,
     options?: ExecuteRunOptions,
-  ): Promise<AgentRunResult> {
+  ): Promise<ExecuteRunResult> {
     const { flow } = ctx;
     const mode = this.ctxHelper.execMode(ctx);
     const port: AgentPort = agentPortRegistry.forMode(mode);
@@ -236,7 +242,7 @@ export class AgentRunner {
       estimated: costSummary.estimated || undefined,
       model: costSummary.model,
     });
-    return result;
+    return { result, runRowId };
   }
 }
 

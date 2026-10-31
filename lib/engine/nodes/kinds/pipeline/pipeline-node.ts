@@ -327,12 +327,7 @@ export class PipelineNode extends AgentRunNode<
     }
 
     const node = this.node(ctx);
-    this.support.setNode(node.id, {
-      status: "running",
-      // the run's input blob is the per-run record: `input.prompt` carries the
-      // exact prompt the gate was started with (fixed prompt or default flow)
-      input: JSON.stringify(input),
-    });
+    this.markRunning(ctx, input as unknown as Record<string, unknown>);
 
     const label = input.branchName
       ? `pipeline (${input.branchName})`
@@ -417,41 +412,30 @@ export class PipelineNode extends AgentRunNode<
             fixes,
             branchName: input.branchName ?? undefined,
           });
-          this.support.setNode(node.id, {
-            status: "done",
-            output: JSON.stringify(output),
-          });
-          this.support.emitLifecycle(
-            ctx.flow.id,
-            node.id,
-            `pipeline #${pipe.id} green${fixes ? ` after ${fixes} fix run(s)` : ""} — ready for review`,
-          );
-          return {
+          return this.applyOutcome(ctx, {
             status: "done",
             output,
-            event: `pipeline green (#${pipe.id})`,
+            event: `pipeline #${pipe.id} green${fixes ? ` after ${fixes} fix run(s)` : ""} — ready for review`,
             reply: `Pipeline #${pipe.id} succeeded${fixes ? ` after ${fixes} fix run(s)` : ""}.`,
-          };
+          });
         }
 
         if (pipe.status === "failed") {
           if (fixes >= maxFixAttempts) {
             const msg = `pipeline #${pipe.id} still failing after ${maxFixAttempts} fix run(s) — fix manually or retry`;
-            this.support.emit(ctx.flow.id, node.id, "error", msg, {
+            const output = this.outputSchema.parse({
               pipelineId: pipe.id,
+              status: pipe.status,
+              fixes,
+              branchName: input.branchName ?? undefined,
             });
-            this.support.setNode(node.id, {
+            return this.applyOutcome(ctx, {
               status: "failed",
-              output: JSON.stringify(
-                this.outputSchema.parse({
-                  pipelineId: pipe.id,
-                  status: pipe.status,
-                  fixes,
-                  branchName: input.branchName ?? undefined,
-                }),
-              ),
+              output,
+              event: msg,
+              eventData: { pipelineId: pipe.id, error: msg },
+              reply: msg,
             });
-            throw new Error(msg);
           }
           fixes++;
           fixedIds.add(pipe.id);
@@ -471,11 +455,18 @@ export class PipelineNode extends AgentRunNode<
 
         if (pipe.status === "canceled" || pipe.status === "skipped") {
           const msg = `pipeline #${pipe.id} was ${pipe.status} — retry the pipeline node after starting a new pipeline`;
-          this.support.emit(ctx.flow.id, node.id, "error", msg, {
-            pipelineId: pipe.id,
+          return this.applyOutcome(ctx, {
+            status: "failed",
+            output: this.outputSchema.parse({
+              pipelineId: pipe.id,
+              status: pipe.status,
+              fixes,
+              branchName: input.branchName ?? undefined,
+            }),
+            event: msg,
+            eventData: { pipelineId: pipe.id, error: msg },
+            reply: msg,
           });
-          this.support.setNode(node.id, { status: "failed" });
-          throw new Error(msg);
         }
 
         // created | waiting_for_resource | preparing | pending | running → keep waiting
@@ -512,25 +503,23 @@ export class PipelineNode extends AgentRunNode<
       }
 
       if (Date.now() > deadline) {
-        // Persist the last known pipeline id/status in the output so the UI and
-        // a retry start from the truth — a retry re-reads the head and finishes
-        // immediately when it has since gone green.
         const last = lastSeen?.split(":");
-        const patch: Record<string, unknown> = { status: "failed" };
+        let output: Record<string, unknown> | undefined;
         if (last) {
-          patch.output = JSON.stringify(
-            this.outputSchema.parse({
-              pipelineId: Number(last[0]),
-              status: last[1],
-              fixes,
-              branchName: input.branchName ?? undefined,
-            }),
-          );
+          output = this.outputSchema.parse({
+            pipelineId: Number(last[0]),
+            status: last[1],
+            fixes,
+            branchName: input.branchName ?? undefined,
+          });
         }
-        this.support.setNode(node.id, patch);
-        throw new Error(
-          `timed out waiting for the pipeline on ${mrBranch ?? "the MR"} — retry the pipeline node`,
-        );
+        const msg = `timed out waiting for the pipeline on ${mrBranch ?? "the MR"} — retry the pipeline node`;
+        return this.applyOutcome(ctx, {
+          status: "failed",
+          output: output ?? {},
+          event: msg,
+          reply: msg,
+        });
       }
       // server-side wait liveness: the reconciler treats a fresh updated_at on a
       // running pipeline node as "alive" (it has no agent run row while waiting)
@@ -623,7 +612,7 @@ export class PipelineNode extends AgentRunNode<
       node.id,
       ctx.flow.id,
       "fix",
-      result.result ?? "",
+      result.result.result ?? "",
       { pipelineId, attempt },
     );
     this.support.emitLifecycle(
@@ -634,7 +623,7 @@ export class PipelineNode extends AgentRunNode<
     );
   }
 
-  override async chat(ctx: FlowCtx, content: string): Promise<string> {
+  override async chat(ctx: FlowCtx, content: string, model?: string): Promise<string> {
     if (!ctx.flow.mr_iid)
       return "No merge request yet — the pipeline gate runs automatically after the build is approved and the MR is created.";
     const node = this.node(ctx);
@@ -646,6 +635,7 @@ export class PipelineNode extends AgentRunNode<
         guidance: content,
         prompt: null,
         promptIsBody: false,
+        model: model ?? null,
       }),
       this.nodeConfig(ctx),
     );

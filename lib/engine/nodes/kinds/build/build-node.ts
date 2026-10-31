@@ -307,7 +307,7 @@ export class BuildNode extends AgentRunNode<BuildInput, BuildOutput> {
         settingSources: mcpSourcesOf(config),
       },
       label,
-      finalize: (result) => this.finalizeBuild(ctx, result, branch, input.branchInfo, node.id),
+      finalize: (result, meta) => this.finalizeBuild(ctx, result, branch, input.branchInfo, node.id, meta.runRowId),
     });
   }
 
@@ -317,6 +317,7 @@ export class BuildNode extends AgentRunNode<BuildInput, BuildOutput> {
     branch: string,
     branchInfo: BuildBranchInfo | null,
     nodeId: string,
+    runRowId: string,
   ): Promise<RunOutcome> {
     // apply the build agent's structured progress report to the plan checklist
     planSteps.markDone(ctx.flow.id, nodeId, planSteps.parseBuildProgress(result.result ?? ""));
@@ -331,7 +332,7 @@ export class BuildNode extends AgentRunNode<BuildInput, BuildOutput> {
         title: branchInfo.title,
         status: "building",
       });
-      branchStore.tagLatestRun(nodeId, branchRowId);
+      branchStore.tagRun(runRowId, branchRowId);
     }
 
     const art = await this.buildRun.diffArtifact(ctx, nodeId, resultBranch, {
@@ -440,7 +441,6 @@ export class BuildNode extends AgentRunNode<BuildInput, BuildOutput> {
 
   /** Recover an orphaned build from a known branch (reconcile calls this too). */
   async recoverBranch(ctx: FlowCtx, node: NodeRow, branch: string, note: string): Promise<void> {
-    // idempotent: a concurrent reconcile may have already recovered this node
     if (node.status !== "running") return;
     this.support.setFlowBranch(ctx.flow.id, branch);
     ctx.flow.mr_branch = branch;
@@ -448,12 +448,12 @@ export class BuildNode extends AgentRunNode<BuildInput, BuildOutput> {
       noDiffContent: "(diff unavailable — fetch from GitLab)",
       extraMeta: { recovered: true },
     });
-    this.support.setNode(node.id, {
+    this.applyOutcome(ctx, {
       status: "awaiting_approval",
-      output: JSON.stringify(this.outputSchema.parse({ branch, latestArtifact: art.id })),
-    });
-    this.support.emitLifecycle(ctx.flow.id, node.id,
-      `build recovered on branch ${branch}; diff ready for review (${note})`,
-      { stat: art.stat, recovered: true });
+      output: this.outputSchema.parse({ branch, latestArtifact: art.id }),
+      event: `build recovered on branch ${branch}; diff ready for review`,
+      eventData: { stat: art.stat, recovered: true },
+      reply: "",
+    }, { note });
   }
 }

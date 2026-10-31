@@ -187,7 +187,7 @@ describe("AgentRunner.executeRun", () => {
       "chat",
       { ownsNodeStatus: false },
     );
-    expect(result.result).toBe("ok");
+    expect(result.result.result).toBe("ok");
   });
 
   it("closes the run row as error when usage capture fails", async () => {
@@ -208,7 +208,7 @@ describe("AgentRunner.executeRun", () => {
       },
       "test run",
     );
-    expect(result.result).toBe("ok");
+    expect(result.result.result).toBe("ok");
     expect(runRowStatus(runRef)).toBe("finished");
   });
 });

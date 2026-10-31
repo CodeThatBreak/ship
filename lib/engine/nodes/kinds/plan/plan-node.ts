@@ -243,7 +243,7 @@ export class PlanNode extends AgentRunNode<PlanInput, PlanOutput> {
       ),
     });
 
-    const result = await this.runner.executeRun(
+    const { result } = await this.runner.executeRun(
       ctx,
       node.id,
       () =>

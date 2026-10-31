@@ -86,17 +86,14 @@ export class HttpTemplateNode extends NodeDefinition<Record<string, unknown>, Re
   async run(ctx: FlowCtx, rawInput: Record<string, unknown>, config: Record<string, unknown>): Promise<RunOutcome> {
     const cfg = this.runConfig(config);
     const node = this.node(ctx);
-    this.support.setNode(node.id, { status: "running", input: JSON.stringify({ ...rawInput, mapped: true }) });
+    this.markRunning(ctx, { ...rawInput, mapped: true });
     return this.executeStep(ctx, rawInput, cfg);
   }
 
   /** Restart recovery: a completed run's response cannot be re-materialized — fail for retry. */
-  async recover(_ctx: FlowCtx, node: NodeRow, result: AgentRunResult, note: string): Promise<boolean> {
+  async recover(_ctx: FlowCtx, _node: NodeRow, result: AgentRunResult, _note: string): Promise<boolean> {
     if (result.status !== "finished") return false;
-    this.support.setNode(node.id, { status: "failed" });
-    this.support.emitLifecycle(node.flow_id, node.id,
-      `${this.key} call finished while disconnected (${note}) — retry the node to re-issue it (calls are not re-run automatically)`);
-    return true;
+    return false;
   }
 
   // ── internals ─────────────────────────────────────────────────────────────
@@ -149,11 +146,13 @@ export class HttpTemplateNode extends NodeDefinition<Record<string, unknown>, Re
       return this.applyOutcome(ctx, this.finish(ctx, rawInput, output, res, defaultOutput));
     } catch (e: unknown) {
       const msg = this.renderErr(e instanceof Error ? e.message : String(e));
-      // immediate failure state — the engine's bg() wrapper would ALSO emit an
-      // untagged error; mark + emit here so retries and the feed stay accurate
-      this.support.setNode(node.id, { status: "failed" });
-      this.support.emit(ctx.flow.id, node.id, "error", msg);
-      return { status: "failed", output: {}, event: `${this.label} failed`, eventData: { error: msg }, reply: msg };
+      return this.applyOutcome(ctx, {
+        status: "failed",
+        output: {},
+        event: `${this.label} failed`,
+        eventData: { error: msg },
+        reply: msg,
+      });
     }
   }
 

@@ -512,11 +512,14 @@ describe('PlanNode — chat via the follow-up contract (docs/plan-conversation-r
       executeRun: (_ctx: FlowCtx, _nodeId: string, start: () => Promise<unknown>, label: string) => {
         observ.labels.push(label);
         return start().then(() => ({
-          status: 'finished',
-          result: responses.shift(),
-          sessionId: 'session_1',
-          durationMs: 1,
-          usage: null,
+          result: {
+            status: 'finished',
+            result: responses.shift(),
+            sessionId: 'session_1',
+            durationMs: 1,
+            usage: null,
+          },
+          runRowId: 'run_row_test',
         }));
       },
     } as unknown as AgentRunner;
@@ -745,11 +748,14 @@ describe('PlanNode.turn — unified send routing', () => {
       },
       executeRun: (_ctx: FlowCtx, _nodeId: string, start: () => Promise<unknown>) =>
         start().then(() => ({
-          status: 'finished',
-          result: responses.shift(),
-          sessionId: 's',
-          durationMs: 1,
-          usage: null,
+          result: {
+            status: 'finished',
+            result: responses.shift(),
+            sessionId: 's',
+            durationMs: 1,
+            usage: null,
+          },
+          runRowId: 'run_row_test',
         })),
     } as unknown as AgentRunner;
     const node = new PlanNode(
