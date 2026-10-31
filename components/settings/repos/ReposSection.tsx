@@ -59,7 +59,7 @@ export function ReposSection({ repos, onError }: {
   const submit = () => {
     save.mutate(
       { ...state, id: editingId },
-      { onSuccess: close, onError: (e) => onError(e.message) },
+      { onSuccess: () => { close(); onError(null); }, onError: (e) => onError(e.message) },
     );
   };
 
@@ -84,7 +84,10 @@ export function ReposSection({ repos, onError }: {
               repo={r}
               onEdit={() => openEdit(r)}
               onDelete={() =>
-                remove.mutate(r.id, { onError: (e) => onError(e.message) })}
+                remove.mutate(r.id, {
+                  onSuccess: () => onError(null),
+                  onError: (e) => onError(e.message),
+                })}
             />
           ))
         )}

@@ -60,7 +60,7 @@ export function GitTab({ open, onOpenChange, onError }: TabProps) {
         baseUrl: isCustom ? fields.baseUrl : "https://gitlab.com",
         token: fields.token,
       },
-      { onSuccess: close, onError: (e) => onError(e.message) },
+      { onSuccess: () => { close(); onError(null); }, onError: (e) => onError(e.message) },
     );
   };
 

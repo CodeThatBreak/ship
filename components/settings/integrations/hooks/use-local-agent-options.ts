@@ -1,35 +1,41 @@
 "use client";
-import { useCallback, useState } from "react";
-import { useSettings } from "../../context";
+import { useCallback, useMemo } from "react";
+import { useSettingsQuery } from "../../hooks/use-settings-query";
+import { usePatchSettings } from "../../general/hooks/use-patch-settings";
 import { LOCAL_AGENT } from "../constants";
 import type { LocalAgentField } from "../types";
 
 /**
- * Local-run execution settings for the connected harness (moved from the
- * General page). Reads `settings.local_agent`, saves through the shared
- * `saveSettings` (PATCH /api/settings + invalidate) and only ever sends a
- * single-field partial patch (`{ local_agent: { force } }` …).
- *
- * `savingField` doubles as the optimistic disabled signal: while a toggle is
- * in flight, every control is disabled so the next click can't be computed
- * from a stale snapshot that the pending invalidate would overwrite.
+ * Local-run execution settings for the connected harness. Saves through
+ * `usePatchSettings` so failures surface through the tab's `onError`.
  */
-export function useLocalAgentOptions() {
-  const { settings, saveSettings } = useSettings();
+export const useLocalAgentOptions = (onError: (message: string | null) => void) => {
+  const { settings } = useSettingsQuery();
+  const patch = usePatchSettings();
   const options = settings?.local_agent ?? null;
-  const [savingField, setSavingField] = useState<LocalAgentField | null>(null);
 
-  /** Flip one boolean field and PATCH it as a partial local_agent update. */
+  const savingField = useMemo((): LocalAgentField | null => {
+    if (!patch.isPending || !patch.variables) return null;
+    const partial = patch.variables[LOCAL_AGENT.KEY] as Partial<Record<LocalAgentField, boolean>> | undefined;
+    if (!partial) return null;
+    if (LOCAL_AGENT.FIELD.FORCE in partial) return LOCAL_AGENT.FIELD.FORCE;
+    if (LOCAL_AGENT.FIELD.SANDBOX in partial) return LOCAL_AGENT.FIELD.SANDBOX;
+    return null;
+  }, [patch.isPending, patch.variables]);
+
   const toggle = useCallback(
     (field: LocalAgentField) => {
-      if (!options || savingField !== null) return;
-      setSavingField(field);
-      void saveSettings({
-        [LOCAL_AGENT.KEY]: { [field]: !options[field] },
-      }).finally(() => setSavingField(null));
+      if (!options || patch.isPending) return;
+      patch.mutate(
+        { [LOCAL_AGENT.KEY]: { [field]: !options[field] } },
+        {
+          onSuccess: () => onError(null),
+          onError: (e) => onError(e.message),
+        },
+      );
     },
-    [options, saveSettings, savingField],
+    [options, patch, onError],
   );
 
   return { options, savingField, toggle };
-}
+};

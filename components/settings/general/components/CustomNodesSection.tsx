@@ -63,12 +63,12 @@ export function CustomNodesSection({ settings, onError }: {
     if (editing !== null && name !== editing) {
       patchSecrets(
         { [name]: state.value, [editing]: null },
-        { onSuccess: close, onError: (e) => onError(e.message) },
+        { onSuccess: () => { close(); onError(null); }, onError: (e) => onError(e.message) },
       );
     } else if (state.value) {
       patchSecrets(
         { [name]: state.value },
-        { onSuccess: close, onError: (e) => onError(e.message) },
+        { onSuccess: () => { close(); onError(null); }, onError: (e) => onError(e.message) },
       );
     } else if (editing !== null) {
       // empty value on an edit keeps the stored value — close quietly
@@ -78,7 +78,10 @@ export function CustomNodesSection({ settings, onError }: {
 
   const deleteSecret = useCallback(
     (secretName: string) => {
-      patchSecrets({ [secretName]: null }, { onError: (e) => onError(e.message) });
+      patchSecrets({ [secretName]: null }, {
+        onSuccess: () => onError(null),
+        onError: (e) => onError(e.message),
+      });
     },
     [patchSecrets, onError],
   );

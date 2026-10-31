@@ -9,3 +9,4 @@
  * - types.ts     feature-local types
  */
 export { ReposSection } from "./ReposSection";
+export { RepositoriesSettingsPage } from "./RepositoriesSettingsPage";

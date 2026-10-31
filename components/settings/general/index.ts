@@ -8,3 +8,4 @@
  * - types.ts     feature-local types
  */
 export { GeneralSection } from "./GeneralSection";
+export { GeneralSettingsPage } from "./GeneralSettingsPage";

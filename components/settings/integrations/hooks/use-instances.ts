@@ -5,6 +5,8 @@ import type { InstanceSurface } from "../constants";
 import { readError } from "../../queries";
 import { FAILED_ACTION } from "@/constants/api";
 import { queryKeys } from "@/constants/query-keys";
+import { integrationStatusInvalidations } from "../utils/integration-status-invalidation";
+import { requireCreatedInstance } from "../utils/require-created-instance";
 import {
   dropPersistedTestResult, testResultKey, type TestStore,
 } from "./use-test-results";
@@ -44,7 +46,7 @@ async function createInstance(
   });
   if (!res.ok) throw await readError(res, FAILED_ACTION.SAVE);
   const body = (await res.json().catch(() => ({}))) as { instance?: InstanceRow };
-  return body.instance ?? (null as unknown as InstanceRow);
+  return requireCreatedInstance(body);
 }
 
 async function deleteInstance(surface: InstanceSurface, kind: string, id: string): Promise<void> {
@@ -92,8 +94,16 @@ export function useConnectInstance(surface: InstanceSurface, kind: string) {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (payload: Record<string, unknown>) => createInstance(surface, kind, payload),
-    onSuccess: () =>
-      queryClient.invalidateQueries({ queryKey: queryKeys.integrations.instances(surface, kind) }),
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({
+        queryKey: queryKeys.integrations.instances(surface, kind),
+      });
+      await Promise.all(
+        integrationStatusInvalidations(surface).map((queryKey) =>
+          queryClient.invalidateQueries({ queryKey }),
+        ),
+      );
+    },
   });
 }
 
@@ -102,16 +112,21 @@ export function useRemoveInstance(surface: InstanceSurface, kind: string) {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (id: string) => deleteInstance(surface, kind, id),
-    onSuccess: (_data, id) => {
+    onSuccess: async (_data, id) => {
       dropPersistedTestResult(kind, id);
       queryClient.setQueryData<TestStore>(queryKeys.integrations.testResults, (prev = {}) => {
         const next = { ...prev };
         delete next[testResultKey(kind, id)];
         return next;
       });
-      return queryClient.invalidateQueries({
+      await queryClient.invalidateQueries({
         queryKey: queryKeys.integrations.instances(surface, kind),
       });
+      await Promise.all(
+        integrationStatusInvalidations(surface).map((queryKey) =>
+          queryClient.invalidateQueries({ queryKey }),
+        ),
+      );
     },
   });
 }

@@ -34,7 +34,10 @@ export function HttpAllowlist({ initial, onError }: {
       </p>
       {dirty && (
         <div className="mt-2.5">
-          <Button size="sm" disabled={isPending} onClick={() => save({ onError: (e) => onError(e.message) })}>
+          <Button size="sm" disabled={isPending} onClick={() => save({
+            onSuccess: () => onError(null),
+            onError: (e) => onError(e.message),
+          })}>
             {isPending ? <Spinner /> : <CheckCircle2 size={13} />} Save allowlist
           </Button>
         </div>

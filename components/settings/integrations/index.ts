@@ -10,3 +10,4 @@
 export { GitTab } from "./GitTab";
 export { TaskTab } from "./TaskTab";
 export { HarnessTab } from "./HarnessTab";
+export { IntegrationsSettingsPage } from "./IntegrationsSettingsPage";

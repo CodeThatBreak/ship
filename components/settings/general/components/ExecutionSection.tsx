@@ -26,19 +26,28 @@ export function ExecutionSection({ settings, onError }: {
   // stable bridge from the cascade's callbacks onto the page error alert
   const saveHarness = useCallback(
     (key: string) => {
-      saveModeHook(key, { onError: (e) => onError(e.message) });
+      saveModeHook(key, {
+        onSuccess: () => onError(null),
+        onError: (e) => onError(e.message),
+      });
     },
     [saveModeHook, onError],
   );
   const saveMode = useCallback(
     (key: string, value: string) => {
-      saveModeValue(key, value, { onError: (e) => onError(e.message) });
+      saveModeValue(key, value, {
+        onSuccess: () => onError(null),
+        onError: (e) => onError(e.message),
+      });
     },
     [saveModeValue, onError],
   );
   const saveModel = useCallback(
     (value: string | null) => {
-      saveModelHook(value, { onError: (e) => onError(e.message) });
+      saveModelHook(value, {
+        onSuccess: () => onError(null),
+        onError: (e) => onError(e.message),
+      });
     },
     [saveModelHook, onError],
   );

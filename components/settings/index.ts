@@ -1,8 +1,6 @@
 /**
- * The settings feature's public surface (barrel): the small server-state
- * fetchers and their types — consumed outside the settings area (e.g. the
- * template gallery's webhook payload dialog reads repos + harnesses).
- * Deep imports across features are forbidden — import from here.
+ * The settings feature's public surface (barrel): query options, types, and
+ * page islands consumed outside the settings area.
  */
 export {
   settingsQueryOptions,
@@ -11,5 +9,11 @@ export {
   fetchSettings,
   fetchRepos,
 } from "./queries";
-export { SettingsProvider, useSettings } from "./context";
-export type { Repo, Harness, HarnessMode } from "./context";
+export { useSettingsQuery } from "./hooks/use-settings-query";
+export { useReposQuery } from "./hooks/use-repos-query";
+export { useSettingsPageError } from "./hooks/use-settings-page-error";
+export { GeneralSettingsSkeleton } from "./components/GeneralSettingsSkeleton";
+export { GeneralSettingsPage } from "./general/GeneralSettingsPage";
+export { RepositoriesSettingsPage } from "./repos/RepositoriesSettingsPage";
+export { IntegrationsSettingsPage } from "./integrations/IntegrationsSettingsPage";
+export type { Repo, Harness, HarnessMode, Settings } from "./context";

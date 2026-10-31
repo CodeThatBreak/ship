@@ -1176,7 +1176,7 @@ Original findings, verbatim:
 
 ### CR-038 [High] `saveSettings` silently drops failed PATCHes; local-agent toggles (sandbox / --force) fail without feedback
 
-- **Status at `abaa007`:** **Open**, fix in [Task 41](review-tasks/41-settings-data-and-errors.md)
+- **Status at `abaa007`:** **Fixed** (Task 41)
 - **Current location:** components/settings/context.tsx:81-92, components/settings/integrations/hooks/use-local-agent-options.ts:17-32
 - **Re-verification note:** `saveSettings` still returns silently on `!res.ok`, and `useLocalAgentOptions` fires it with `void ….finally()`, so a failed Sandbox/--force toggle gives no feedback (network errors become unhandled rejections). Delete `saveSettings` from the context, use `usePatchSettings()` in the hook (derive in-flight field from `mutation.variables`/`isPending`), and thread the tab's `onError` into the mutation.
 
@@ -1612,7 +1612,7 @@ Original findings, verbatim:
 
 ### CR-052 [Medium] The Settings pages are client components that fetch their data on the client
 
-- **Status at `abaa007`:** **Open**, fix in [Task 41](review-tasks/41-settings-data-and-errors.md)
+- **Status at `abaa007`:** **Fixed** (Task 41)
 - **Current location:** app/(workspace)/settings/page.tsx:1,11-50, app/(workspace)/settings/integrations/page.tsx:1, app/(workspace)/settings/repositories/page.tsx:1, app/(workspace)/settings/layout.tsx:1-6, app/(workspace)/settings/loading.tsx
 - **Re-verification note:** All three settings pages are still `"use client"` and get their data client-side via `SettingsProvider`; there is no `loaders/settings.ts`, and `GeneralSkeleton` duplicates `settings/loading.tsx`. Add a settings loader, make pages Server Components that prefetch into `HydrationBoundary`, and move the interactive bodies into client islands that reuse the `loading.tsx` skeleton.
 
@@ -4099,7 +4099,7 @@ Original findings, verbatim:
 
 ### CR-151 [Medium] Connecting or removing an integration doesn't invalidate settings status, so General's status strip goes stale
 
-- **Status at `abaa007`:** **Open**, fix in [Task 41](review-tasks/41-settings-data-and-errors.md)
+- **Status at `abaa007`:** **Fixed** (Task 41)
 - **Current location:** components/settings/integrations/hooks/use-instances.ts:91-117, components/settings/context.tsx:68-70
 - **Re-verification note:** `useConnectInstance` and `useRemoveInstance` still invalidate only `queryKeys.integrations.instances(...)`. The layout-level `SettingsProvider`'s `settings` and `gitHosts` queries (the `status.gitHosts`/`status.taskProviders` flags in General's status strip) stay stale until a focus refetch. Fix: in both `onSuccess` handlers also invalidate `queryKeys.settings`, plus `queryKeys.gitHosts` (HOST surface) or `queryKeys.taskProviders` (TASK surface).
 
@@ -4119,7 +4119,7 @@ Original findings, verbatim:
 
 ### CR-152 [Medium] One global settings error string leaks across sub-routes and is never cleared
 
-- **Status at `abaa007`:** **Open**, fix in [Task 41](review-tasks/41-settings-data-and-errors.md)
+- **Status at `abaa007`:** **Fixed** (Task 41)
 - **Current location:** components/settings/context.tsx:66, components/settings/context.tsx:104-105, components/settings/repos/ReposSection.tsx:59-63, components/settings/general/components/CustomNodesSection.tsx:66-81, components/settings/integrations/HarnessTab.tsx:48-51
 - **Re-verification note:** `error` is still a single layout-level `useState`. Every section reports through `onError(e.message)`, and no code path calls `setError(null)`, so one failure sticks across sub-routes and survives later successful saves. Fix: scope errors per page or per modal (use `mutation.error`), or at minimum clear them in each `onSuccess` and on pathname change.
 
@@ -6593,7 +6593,7 @@ Original findings, verbatim:
 
 ### CR-255 [Low] SettingsProvider fetches unused git-hosts data and gates every sub-route on all three queries
 
-- **Status at `abaa007`:** **Open**, fix in [Task 41](review-tasks/41-settings-data-and-errors.md)
+- **Status at `abaa007`:** **Fixed** (Task 41)
 - **Current location:** components/settings/context.tsx:7,47,52,70-79,94,102,106, components/settings/queries.ts:21,30
 - **Re-verification note:** `/api/git-hosts` is still fetched on every settings visit, though nothing outside context.tsx reads `hosts` or `reload` (grep-verified). `loading` still ORs all three `isPending`s, so every page waits for the slow `/api/settings` probe. Remove `hosts`, `reload` and `fetchGitHosts`, and replace the context with per-resource query hooks so each page waits only on its own data.
 
@@ -6613,7 +6613,7 @@ Original findings, verbatim:
 
 ### CR-256 [Low] `createInstance` returns `null` cast as `InstanceRow`
 
-- **Status at `abaa007`:** **Open**, fix in [Task 41](review-tasks/41-settings-data-and-errors.md)
+- **Status at `abaa007`:** **Fixed** (Task 41)
 - **Current location:** components/settings/integrations/hooks/use-instances.ts:46-47
 - **Re-verification note:** `return body.instance ?? (null as unknown as InstanceRow)` is unchanged. Throw a typed error when `instance` is missing (per the §2.9 early-guard rule), or type the return as `InstanceRow | null`.
 

@@ -2,7 +2,7 @@
 import { useCallback } from "react";
 import { RefreshCw } from "lucide-react";
 import { CursorIcon } from "../integration-icons";
-import { useSettings } from "../context";
+import { useSettingsQuery } from "../hooks/use-settings-query";
 import { PROVIDER_KIND } from "./constants";
 import { useConnectForm } from "./hooks/use-connect-form";
 import { useUpdateCursorApiKey } from "./hooks/use-cursor-api-key";
@@ -29,9 +29,9 @@ const CURSOR_PROVIDER_OPTIONS = [
 ] as const;
 
 export function HarnessTab({ open, onOpenChange, onError }: TabProps) {
-  const { settings, settingsLoadFailed, reload } = useSettings();
+  const { settings, isError: settingsLoadFailed, refetch } = useSettingsQuery();
   const setCursorKey = useUpdateCursorApiKey();
-  const localAgent = useLocalAgentOptions();
+  const localAgent = useLocalAgentOptions(onError);
   const { state, setProvider, setField, reset } = useConnectForm();
 
   const keySet = settings?.status.cursorApiKeySet ?? false;
@@ -48,7 +48,10 @@ export function HarnessTab({ open, onOpenChange, onError }: TabProps) {
 
   const updateKey = (apiKey: string) => {
     setCursorKey.mutate(apiKey, {
-      onSuccess: close,
+      onSuccess: () => {
+        close();
+        onError(null);
+      },
       onError: (e) => onError(e.message),
     });
   };
@@ -61,7 +64,7 @@ export function HarnessTab({ open, onOpenChange, onError }: TabProps) {
       {settingsLoadFailed ? (
         <p className="text-[13px] text-destructive m-0 flex items-center gap-2">
           Couldn&apos;t load harness settings.
-          <Button variant="outline" size="xs" onClick={() => void reload()}>
+          <Button variant="outline" size="xs" onClick={() => void refetch()}>
             <RefreshCw size={12} /> Retry
           </Button>
         </p>

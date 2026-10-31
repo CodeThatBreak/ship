@@ -60,7 +60,7 @@ export function TaskTab({ open, onOpenChange, onError }: TabProps) {
         email: fields.email,
         token: fields.token,
       },
-      { onSuccess: close, onError: (e) => onError(e.message) },
+      { onSuccess: () => { close(); onError(null); }, onError: (e) => onError(e.message) },
     );
   };
 

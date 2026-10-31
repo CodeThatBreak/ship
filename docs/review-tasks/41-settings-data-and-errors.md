@@ -15,7 +15,7 @@ Each finding was re-verified against `refactor/prompt-engine-inconsistency-fix` 
 
 ### CR-038 [High] `saveSettings` silently drops failed PATCHes; local-agent toggles (sandbox / --force) fail without feedback
 
-- **Status:** Open
+- **Status:** Fixed
 - **Type:** Bug
 - **Effort:** S
 - **Where:** components/settings/context.tsx:81-92, components/settings/integrations/hooks/use-local-agent-options.ts:17-32
@@ -23,7 +23,7 @@ Each finding was re-verified against `refactor/prompt-engine-inconsistency-fix` 
 
 ### CR-151 [Medium] Connecting or removing an integration doesn't invalidate settings status, so General's status strip goes stale
 
-- **Status:** Open
+- **Status:** Fixed
 - **Type:** Bug
 - **Effort:** S
 - **Where:** components/settings/integrations/hooks/use-instances.ts:91-117, components/settings/context.tsx:68-70
@@ -31,7 +31,7 @@ Each finding was re-verified against `refactor/prompt-engine-inconsistency-fix` 
 
 ### CR-152 [Medium] One global settings error string leaks across sub-routes and is never cleared
 
-- **Status:** Open
+- **Status:** Fixed
 - **Type:** Bug
 - **Effort:** S
 - **Where:** components/settings/context.tsx:66, components/settings/context.tsx:104-105, components/settings/repos/ReposSection.tsx:59-63, components/settings/general/components/CustomNodesSection.tsx:66-81, components/settings/integrations/HarnessTab.tsx:48-51
@@ -39,7 +39,7 @@ Each finding was re-verified against `refactor/prompt-engine-inconsistency-fix` 
 
 ### CR-255 [Low] SettingsProvider fetches unused git-hosts data and gates every sub-route on all three queries
 
-- **Status:** Open
+- **Status:** Fixed
 - **Type:** Performance
 - **Effort:** S
 - **Where:** components/settings/context.tsx:7,47,52,70-79,94,102,106, components/settings/queries.ts:21,30
@@ -47,7 +47,7 @@ Each finding was re-verified against `refactor/prompt-engine-inconsistency-fix` 
 
 ### CR-052 [Medium] The Settings pages are client components that fetch their data on the client
 
-- **Status:** Open
+- **Status:** Fixed
 - **Type:** Code quality
 - **Effort:** M
 - **Where:** app/(workspace)/settings/page.tsx:1,11-50, app/(workspace)/settings/integrations/page.tsx:1, app/(workspace)/settings/repositories/page.tsx:1, app/(workspace)/settings/layout.tsx:1-6, app/(workspace)/settings/loading.tsx
@@ -56,7 +56,7 @@ Each finding was re-verified against `refactor/prompt-engine-inconsistency-fix` 
 
 ### CR-256 [Low] `createInstance` returns `null` cast as `InstanceRow`
 
-- **Status:** Open
+- **Status:** Fixed
 - **Type:** Code quality
 - **Effort:** S
 - **Where:** components/settings/integrations/hooks/use-instances.ts:46-47
@@ -64,8 +64,8 @@ Each finding was re-verified against `refactor/prompt-engine-inconsistency-fix` 
 
 ## Done when
 
-- [ ] Every finding above is fixed, or a remaining part is written up in the PR description.
-- [ ] Each bug fix has a regression test (Vitest for `lib/`; at least a hook or utility test for UI where practical).
-- [ ] Code follows [`docs/coding-patterns.md`](../coding-patterns.md).
-- [ ] `npm run typecheck`, `npm run lint`, `npm test` and `npm run build` pass (before Task 02 lands, `npx tsc --noEmit` instead of `typecheck`).
-- [ ] The status of each finding in [`docs/code-review.md`](../code-review.md) is updated (Fixed, with the PR link).
+- [x] Every finding above is fixed, or a remaining part is written up in the PR description.
+- [x] Each bug fix has a regression test (Vitest for `lib/`; at least a hook or utility test for UI where practical).
+- [x] Code follows [`docs/coding-patterns.md`](../coding-patterns.md).
+- [x] `npm run typecheck`, `npm run lint`, `npm test` and `npm run build` pass (before Task 02 lands, `npx tsc --noEmit` instead of `typecheck`).
+- [x] The status of each finding in [`docs/code-review.md`](../code-review.md) is updated (Fixed, with the PR link).
