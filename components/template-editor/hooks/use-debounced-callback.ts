@@ -14,25 +14,39 @@
  */
 import { useCallback, useEffect, useRef } from "react";
 
+export type DebouncedCallback<Args extends unknown[]> = {
+  invoke: (...args: Args) => void;
+  /** Run the pending trailing call immediately (or no-op if none). */
+  flush: () => void;
+};
+
 export function useDebouncedCallback<Args extends unknown[]>(
   fn: (...args: Args) => void,
   delay: number,
-): (...args: Args) => void {
+): DebouncedCallback<Args> {
   const fnRef = useRef(fn);
   fnRef.current = fn;
 
   const pending = useRef<Args | null>(null);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  useEffect(() => {
-    return () => {
-      if (timer.current) clearTimeout(timer.current);
-      // flush the tail: a debounced-but-never-fired write would be lost
-      if (pending.current) fnRef.current(...pending.current);
-    };
+  const flush = useCallback(() => {
+    if (timer.current) {
+      clearTimeout(timer.current);
+      timer.current = null;
+    }
+    const args = pending.current;
+    pending.current = null;
+    if (args) fnRef.current(...args);
   }, []);
 
-  return useCallback(
+  useEffect(() => {
+    return () => {
+      flush();
+    };
+  }, [flush]);
+
+  const invoke = useCallback(
     (...args: Args) => {
       pending.current = args;
       if (timer.current) clearTimeout(timer.current);
@@ -44,4 +58,6 @@ export function useDebouncedCallback<Args extends unknown[]>(
     },
     [delay],
   );
+
+  return { invoke, flush };
 }

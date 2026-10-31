@@ -22,6 +22,7 @@ import {
   type EditorNode,
   type IncomingLink,
   type TaskProviderInfo,
+  type EditorNodePatch,
 } from "@/components/template-editor";
 import type { TriggerField } from "./hooks/use-instance-contracts";
 
@@ -46,8 +47,9 @@ export interface EditorNodeDrawerProps {
   /** close the drawer (a click on the sheet's outside / Esc) */
   onClose: () => void;
   /** a node-field patch (name, config knobs, trigger, input remaps…) */
-  onPatch: (patch: Partial<EditorNode>) => void;
+  onPatch: (patch: EditorNodePatch) => void;
   onRemove: (node: EditorNode) => void;
+  registerPendingFlush?: (flush: () => void) => () => void;
 }
 
 export function EditorNodeDrawer({
@@ -65,6 +67,7 @@ export function EditorNodeDrawer({
   onClose,
   onPatch,
   onRemove,
+  registerPendingFlush,
 }: EditorNodeDrawerProps) {
   return (
     <Sheet open={open} onOpenChange={(v) => { if (!v) onClose(); }}>
@@ -114,6 +117,7 @@ export function EditorNodeDrawer({
               templateId={templateId}
               problems={problems}
               onChange={onPatch}
+              registerPendingFlush={registerPendingFlush}
             />
           </SheetBody>
           <SheetFooter>

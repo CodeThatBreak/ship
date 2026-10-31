@@ -11,19 +11,14 @@ async function fetchTemplates(): Promise<TemplateRow[]> {
 }
 
 /**
- * The gallery's template list, hydrated server-side: the Server Component
- * page fetches the first paint's rows through the templateStore service (the
- * exact call /api/templates GET wraps) and passes them as props — they feed
- * `initialData`, so hydration carries data and no client fetch or skeleton
- * runs on first show. Later refetches (mutations invalidate
- * `queryKeys.templatesGallery`) go through the route; `isFetching` reports
- * them without clearing the table (§2.8: background refetch keeps data).
+ * The gallery's template list — hydrated by the server page through
+ * prefetch + HydrationBoundary (same keys as this hook). Mutations
+ * invalidate `queryKeys.templatesGallery`; background refetches keep
+ * the table visible (§2.8).
  */
-export function useTemplateList(initialTemplates: TemplateRow[]) {
+export function useTemplateList() {
   return useQuery({
     queryKey: queryKeys.templatesGallery,
     queryFn: fetchTemplates,
-    initialData: initialTemplates,
-    initialDataUpdatedAt: Date.now(),
   });
 }

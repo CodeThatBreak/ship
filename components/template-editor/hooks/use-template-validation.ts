@@ -6,9 +6,10 @@
  * structured coordinates render as canvas badges on the offending node /
  * edge chip. Read-only built-ins never validate (nothing is editable).
  */
-import { useCallback, useState, useEffect } from "react";
+import { useCallback, useRef, useState, useEffect } from "react";
 import type { LintProblem } from "@/types/template-lint";
 import { collectPendingDefs, type Draft } from "../draft";
+import { shouldApplyValidationSeq } from "../utils/validation-seq";
 
 /** Debounce window for live validation while editing. */
 const VALIDATE_DEBOUNCE_MS = 600;
@@ -68,6 +69,8 @@ export function useTemplateValidation(
   draft: Draft | null,
 ): TemplateValidationApi {
   const [problems, setProblems] = useState<ValidationProblems>(EMPTY);
+  const seqRef = useRef(0);
+  const abortRef = useRef<AbortController | null>(null);
 
   /** The validate problems → where they're shown. */
   const applyProblems = useCallback((next: LintProblem[]) => {
@@ -85,24 +88,46 @@ export function useTemplateValidation(
 
   const validate = useCallback(
     async (d: Draft): Promise<LintProblem[]> => {
-      const parsed = await fetch(
-        `/api/templates/${d.template.id}/validate`,
-        {
+      abortRef.current?.abort();
+      const controller = new AbortController();
+      abortRef.current = controller;
+      const seq = ++seqRef.current;
+
+      let res: Response;
+      try {
+        res = await fetch(`/api/templates/${d.template.id}/validate`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
+          signal: controller.signal,
           body: JSON.stringify({
             trigger: d.template.trigger,
             nodes: d.nodes.map(lintNode),
             edges: d.edges.map(lintEdge),
             new_node_templates: collectPendingDefs(d),
           }),
-        },
-      )
-        .then((r) => r.json() as Promise<{ problems?: LintProblem[] } | null>)
-        .catch(() => null);
-      const next = parsed?.problems ?? [];
-      applyProblems(next);
-      return next;
+        });
+      } catch (e) {
+        if (controller.signal.aborted) return [];
+        throw new Error(
+          e instanceof Error ? e.message : "Unable to validate the draft.",
+        );
+      }
+
+      if (!res.ok) {
+        throw new Error(`Unable to validate the draft (${res.status}).`);
+      }
+
+      const parsed = (await res.json().catch(() => null)) as {
+        problems?: LintProblem[];
+      } | null;
+      if (!parsed || !Array.isArray(parsed.problems)) {
+        throw new Error("Unable to validate the draft — invalid response.");
+      }
+
+      if (!shouldApplyValidationSeq(seq, seqRef.current)) return parsed.problems;
+
+      applyProblems(parsed.problems);
+      return parsed.problems;
     },
     [applyProblems],
   );
@@ -110,11 +135,20 @@ export function useTemplateValidation(
   // debounced while edited
   useEffect(() => {
     if (!draft || draft.template.is_builtin) return;
-    const timer = setTimeout(() => void validate(draft), VALIDATE_DEBOUNCE_MS);
+    const timer = setTimeout(() => {
+      void validate(draft).catch(() => {
+        /* live lint: keep the last known problems on transient failures */
+      });
+    }, VALIDATE_DEBOUNCE_MS);
     return () => clearTimeout(timer);
   }, [draft, validate]);
 
-  const clear = useCallback(() => setProblems(EMPTY), []);
+  const clear = useCallback(() => {
+    abortRef.current?.abort();
+    abortRef.current = null;
+    seqRef.current += 1;
+    setProblems(EMPTY);
+  }, []);
 
   return {
     nodeProblems: problems.nodeMap,

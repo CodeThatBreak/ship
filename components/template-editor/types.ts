@@ -23,6 +23,19 @@ export interface EditorNode {
   isLocal?: boolean;
 }
 
+/** Partial node patch, or a functional patch from the current node row. */
+export type EditorNodePatch =
+  | Partial<EditorNode>
+  | ((node: EditorNode) => Partial<EditorNode>);
+
+export const resolveEditorNodePatch = (
+  node: EditorNode,
+  patch: EditorNodePatch,
+): EditorNode => {
+  const partial = typeof patch === "function" ? patch(node) : patch;
+  return { ...node, ...partial };
+};
+
 export interface EditorEdge {
   from: string;
   to: string;

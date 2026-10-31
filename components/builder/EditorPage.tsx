@@ -16,7 +16,7 @@
  * reads); the header, notices, drawers and canvas are presentational
  * children. All editor interactivity stays client-side.
  */
-import { useCallback, useMemo, useRef, useState } from "react";
+import { useCallback, useMemo, useRef, useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { errorMessageOf } from "@/hooks/fetch-json";
 import {
@@ -47,6 +47,7 @@ import {
 import { useInstanceContracts } from "./hooks/use-instance-contracts";
 import { useEditorActions } from "./hooks/use-editor-actions";
 import { useEditorSave } from "./hooks/use-editor-save";
+import { usePendingWriteFlushes } from "./hooks/use-pending-write-flushes";
 
 export interface TemplateEditorProps {
   /** the owning template's route param — validated server-side (page.tsx) */
@@ -81,6 +82,26 @@ export function TemplateEditor({ templateId }: TemplateEditorProps) {
   );
   const validation = useTemplateValidation(machine.draft);
   const contracts = useInstanceContracts(machine.draft);
+  const { register: registerPendingFlush, flushAll: flushPendingWrites } =
+    usePendingWriteFlushes();
+  const adoptedDetailAt = useRef<number | undefined>(detailQuery.dataUpdatedAt);
+  const { dirty, replaceDraft } = machine;
+  const { resetPositions } = layout;
+
+  useEffect(() => {
+    if (!detailQuery.data || dirty) return;
+    const updatedAt = detailQuery.dataUpdatedAt;
+    if (adoptedDetailAt.current === updatedAt) return;
+    adoptedDetailAt.current = updatedAt;
+    replaceDraft(detailToDraft(detailQuery.data).draft);
+    resetPositions(positionsOf(detailQuery.data));
+  }, [
+    detailQuery.data,
+    detailQuery.dataUpdatedAt,
+    dirty,
+    replaceDraft,
+    resetPositions,
+  ]);
   const [settingsOpen, setSettingsOpen] = useState(false);
   /** the styled "leave with unsaved changes?" confirm on the back link */
   const [confirmLeave, setConfirmLeave] = useState(false);
@@ -96,7 +117,13 @@ export function TemplateEditor({ templateId }: TemplateEditorProps) {
 
   // structural Save (validate → PATCH → clear badges → refresh hook/version):
   // the whole flow lives in the hook — the container only surfaces its states
-  const saveApi = useEditorSave({ machine, layout, validation, detailQuery });
+  const saveApi = useEditorSave({
+    machine,
+    layout,
+    validation,
+    detailQuery,
+    flushPendingWrites,
+  });
 
   if (!machine.draft) {
     // the island renders with server-hydrated data; without it (a failed
@@ -249,6 +276,7 @@ export function TemplateEditor({ templateId }: TemplateEditorProps) {
         onPatch={(patch) => {
           if (configuring) machine.patchNode(configuring.key, patch);
         }}
+        registerPendingFlush={registerPendingFlush}
         onRemove={actions.removeNode}
       />
 

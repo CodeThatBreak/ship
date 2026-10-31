@@ -8,12 +8,13 @@
  * as non-deletable rows and the output contract from the contract's `prompt`
  * sections; declarative kinds edit their free-standing prompt (no split yet).
  */
+import { useEffect } from "react";
 import { Spinner } from "../ui/spinner";
 import type { NodeContract } from "./types";
 import { promptEditorKeys, rulesKeyFor, writeConfig } from "./ConfigFieldRow";
 import { PromptSectionField, type PromptTemplateSection } from "./PromptSectionField";
 import { useDebouncedCallback } from "./hooks/use-debounced-callback";
-import type { EditorNode } from "./types";
+import type { EditorNode, EditorNodePatch } from "./types";
 import type { VarGroup } from "./variables";
 
 /** Typing in the prompt body writes the config this often post-quiet — the
@@ -27,6 +28,7 @@ export function PromptTab({
   varGroups,
   invalidRefs,
   onChange,
+  registerPendingFlush,
 }: {
   node: EditorNode;
   contract: NodeContract | null;
@@ -34,15 +36,23 @@ export function PromptTab({
   varGroups: VarGroup[];
   /** live-linted refs → the linter's problem (underlined where typed) */
   invalidRefs?: Record<string, string>;
-  onChange: (p: Partial<EditorNode>) => void;
+  onChange: (patch: EditorNodePatch) => void;
+  /** structural Save flushes trailing prompt writes before snapshotting */
+  registerPendingFlush?: (flush: () => void) => () => void;
 }) {
-  // the prompt body's config write, trailing-debounced: the hook is stable
-  // and takes the field key per call, so one instance serves every field
-  const onBodyChange = useDebouncedCallback(
+  const { invoke: onBodyChange, flush } = useDebouncedCallback(
     (fieldKey: string, v: unknown, extra?: Record<string, unknown>) =>
-      onChange({ config: writeConfig(node.config, fieldKey, v, extra) }),
+      onChange((n) => ({
+        config: writeConfig(n.config, fieldKey, v, extra),
+      })),
     PROMPT_WRITE_DEBOUNCE_MS,
   );
+
+  useEffect(() => {
+    if (!registerPendingFlush) return;
+    return registerPendingFlush(flush);
+  }, [flush, registerPendingFlush]);
+
   if (!contract) {
     return (
       <p className="text-muted-foreground text-[13px]">
@@ -55,13 +65,9 @@ export function PromptTab({
   if (!fields.length) {
     return <p className="text-muted-foreground text-[13px]">This node has no prompt.</p>;
   }
-  // built-ins carry one prompt template per prompt field today — the contract
-  // lists the def's promptSections in order
   const section: PromptTemplateSection | undefined = node.is_builtin
     ? contract.prompt?.[0]
     : undefined;
-  // the decision's prompt only applies to the agent source (mirrors the
-  // Config tab's field gating)
   const decisionSource = String(node.config?.source ?? defaults.source ?? "");
   const gatedOff = (key: string) =>
     contract.kind === "decision" && key === "question" && decisionSource !== "agent";
@@ -89,7 +95,11 @@ export function PromptTab({
             varGroups={varGroups}
             invalidRefs={invalidRefs}
             onBodyChange={(v, extra) => onBodyChange(f.key, v, extra)}
-            onRulesChange={(v) => onChange({ config: writeConfig(node.config, rulesKey ?? "", v) })}
+            onRulesChange={(v) =>
+              onChange((n) => ({
+                config: writeConfig(n.config, rulesKey ?? "", v),
+              }))
+            }
           />
         );
       })}

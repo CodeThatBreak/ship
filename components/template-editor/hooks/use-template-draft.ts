@@ -7,8 +7,8 @@
  * meta (dirty flag + transient notice) that travel with every edit.
  */
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { EditorNode } from "../types";
 import type { Draft } from "../draft";
+import { resolveEditorNodePatch, type EditorNodePatch } from "../types";
 
 /** How many structural snapshots undo/redo keeps. */
 const UNDO_STACK_LIMIT = 50;
@@ -31,7 +31,7 @@ export interface TemplateDraftMachine {
   /** a structural edit: snapshots for undo when nodes/edges changed */
   apply: (next: Draft) => void;
   /** one node's meta/config patch — meta-only, no snapshot */
-  patchNode: (key: string, patch: Partial<EditorNode>) => void;
+  patchNode: (key: string, patch: EditorNodePatch) => void;
   /** adopt server state wholesale (initial load, post-save reload): history resets */
   replaceDraft: (next: Draft) => void;
   undo: () => void;
@@ -42,6 +42,8 @@ export interface TemplateDraftMachine {
   setDirty: (next: boolean) => void;
   notice: string | null;
   setNotice: (next: string | null) => void;
+  /** bumped on every local edit — Save compares before adopting server state */
+  editGenerationRef: React.RefObject<number>;
 }
 
 export function useTemplateDraft(
@@ -52,6 +54,10 @@ export function useTemplateDraft(
   /** the draft mirrored in a ref — undo/redo and the keyboard handler read the
    *  live value even from closures that outlive a render */
   const draftRef = useRef<Draft | null>(initial);
+  const editGenerationRef = useRef(0);
+  const bumpEditGeneration = useCallback(() => {
+    editGenerationRef.current += 1;
+  }, []);
   const setDraft = useCallback(
     (next: Draft | null | ((cur: Draft | null) => Draft | null)) => {
       const resolved =
@@ -85,10 +91,11 @@ export function useTemplateDraft(
       setDraft(next);
       setDirty(true);
       setNotice(null);
+      bumpEditGeneration();
       onHistoryJump.current?.();
       syncUndoFlags();
     },
-    [setDraft, syncUndoFlags],
+    [setDraft, syncUndoFlags, bumpEditGeneration],
   );
 
   const undo = useCallback(() => {
@@ -117,6 +124,7 @@ export function useTemplateDraft(
       lastSnapAt.current = 0;
       syncUndoFlags();
       setDraft(next);
+      editGenerationRef.current = 0;
       setDirty(false);
     },
     [setDraft, syncUndoFlags],
@@ -146,27 +154,29 @@ export function useTemplateDraft(
       setDraft(next);
       setDirty(true);
       setNotice(null);
+      bumpEditGeneration();
       syncUndoFlags();
     },
-    [setDraft, syncUndoFlags],
+    [setDraft, syncUndoFlags, bumpEditGeneration],
   );
 
   const patchNode = useCallback(
-    (key: string, patch: Partial<EditorNode>) => {
+    (key: string, patch: EditorNodePatch) => {
       setDraft((cur) =>
         cur
           ? {
               ...cur,
               nodes: cur.nodes.map((p) =>
-                p.key === key ? { ...p, ...patch } : p,
+                p.key === key ? resolveEditorNodePatch(p, patch) : p,
               ),
             }
           : cur,
       );
       setDirty(true);
       setNotice(null);
+      bumpEditGeneration();
     },
-    [setDraft],
+    [setDraft, bumpEditGeneration],
   );
 
   // ⌘Z / Ctrl+Z (and ⇧ for redo) — skipped while typing so text fields keep
@@ -217,5 +227,6 @@ export function useTemplateDraft(
     setDirty,
     notice,
     setNotice,
+    editGenerationRef,
   };
 }

@@ -926,6 +926,7 @@ Original findings, verbatim:
 
 ### CR-029 [High] Edits made while a save is in flight (and pending debounced prompt writes) are silently discarded
 
+- **Status:** Fixed (Task 37)
 - **Status at `abaa007`:** **Open**, fix in [Task 37](review-tasks/37-editor-save-integrity.md)
 - **Current location:** components/builder/hooks/use-editor-save.ts:46-115; components/template-editor/PromptTab.tsx:41-45; components/template-editor/hooks/use-debounced-callback.ts:17-47
 - **Re-verification note:** `runSave` still snapshots `machine.draft`, awaits validate, PATCH and refetch, then unconditionally `setDirty(false)` and `replaceDraft(…)`, discarding edits typed in the meantime. The debounced prompt write still captures a stale `node.config` and exposes no `flush()` (it flushes only on unmount). Flush pending debounced writes before snapshotting, compare a draft revision counter before `replaceDraft`/clearing dirty, and make debounced writers use a functional node patch.
@@ -953,6 +954,7 @@ Original findings, verbatim:
 
 ### CR-030 [High] Save reports success for 5xx, 413 and other non-400 failures; network errors are unhandled
 
+- **Status:** Fixed (Task 37)
 - **Status at `abaa007`:** **Open**, fix in [Task 37](review-tasks/37-editor-save-integrity.md)
 - **Current location:** components/builder/hooks/use-editor-save.ts:92-114
 - **Re-verification note:** Success is still judged by `res.status !== 400 && !r?.error`, so 5xx or 413 responses with a non-JSON body show "Draft saved" and clear dirty. The block is still `try/finally` with no `catch`, so network or validate rejections are unhandled. Check `!res.ok`, add a `catch` that sets the error, ideally by moving the save into a TanStack `useMutation`.
@@ -3747,6 +3749,7 @@ Original findings, verbatim:
 
 ### CR-136 [Medium] Live validation results can arrive out of order and re-apply after save
 
+- **Status:** Fixed (Task 37)
 - **Status at `abaa007`:** **Open**, fix in [Task 37](review-tasks/37-editor-save-integrity.md)
 - **Current location:** components/template-editor/hooks/use-template-validation.ts:86-117
 - **Re-verification note:** In-flight validate requests still have no abort or sequence guard, so a slow older response can overwrite newer results or `clear()`. Fetch and parse failures still become `[]`, so the pre-save gate in `use-editor-save` passes silently. Fix: keep a `seq` ref and abort the previous controller (with `clear()` cancelling both), or move to a `useQuery` on a debounced draft hash; surface a failure as an "unable to validate" state.
@@ -3845,6 +3848,7 @@ Original findings, verbatim:
 
 ### CR-140 [Medium] Revisiting the editor seeds the draft and positions from stale cache; layout autosave can overwrite newer positions
 
+- **Status:** Fixed (Task 37)
 - **Status at `abaa007`:** **Open**, fix in [Task 37](review-tasks/37-editor-save-integrity.md)
 - **Current location:** components/template-editor/hooks/use-node-positions.ts:35, components/template-editor/hooks/use-node-positions.ts:48-53, components/template-editor/hooks/use-node-positions.ts:55-69, components/template-editor/hooks/use-template-draft.ts:51, components/builder/EditorPage.tsx:70-80
 - **Re-verification note:** Draft and positions still seed from `useState(initial)` at mount only, and are re-adopted only after a structural Save (`use-editor-save.ts:102-107`). The positions PATCH never writes `queryKeys.templates.detail`, so revisiting within gcTime shows stale cached positions, and the next drag PATCHes them over the server copy. Unmount still `clearTimeout`s the pending 700 ms save, which drops the last drag. Fix: `setQueryData` the detail after the PATCH, flush the save with `keepalive` on unmount, and key the editor or reset when a newer `dataUpdatedAt` arrives while the draft isn't dirty.
@@ -3890,6 +3894,7 @@ Original findings, verbatim:
 
 ### CR-142 [Medium] Gallery cache is not invalidated after create or save, and fresh server props are ignored
 
+- **Status:** Fixed (Task 37)
 - **Status at `abaa007`:** **Open**, fix in [Task 37](review-tasks/37-editor-save-integrity.md)
 - **Current location:** components/templates/TemplateGallery.tsx:105-109, components/templates/TemplateGallery.tsx:165, components/templates/hooks/use-template-list.ts:22-29, components/templates/hooks/use-node-list.ts:22-29, components/builder/hooks/use-editor-save.ts:100-108
 - **Re-verification note:** `createMutation` still navigates without invalidating `queryKeys.templatesGallery`, and an editor save or rename refetches only the detail. Both list hooks still use `initialData` plus `initialDataUpdatedAt: Date.now()`, which is ignored when a cache entry exists, so the gallery shows stale rows. `pageError` is never cleared. Fix: invalidate `templatesGallery` on create and editor save, hydrate the gallery with prefetch plus `HydrationBoundary`, and clear `pageError` when each mutation starts.
@@ -7300,8 +7305,8 @@ One row per finding, at `abaa007`.
 | CR-026 | High | Bug | Open | [Task 30](review-tasks/30-events-feed.md) |
 | CR-027 | High | Gap | Fixed | [Task 15](review-tasks/15-frontend-mutation-conventions.md) |
 | CR-028 | High | Bug | Fixed (Task 35) | [Task 35](review-tasks/35-cockpit-panel-state.md) |
-| CR-029 | High | Bug | Open | [Task 37](review-tasks/37-editor-save-integrity.md) |
-| CR-030 | High | Bug | Open | [Task 37](review-tasks/37-editor-save-integrity.md) |
+| CR-029 | High | Bug | Fixed (Task 37) | [Task 37](review-tasks/37-editor-save-integrity.md) |
+| CR-030 | High | Bug | Fixed (Task 37) | [Task 37](review-tasks/37-editor-save-integrity.md) |
 | CR-031 | High | Bug | Open | [Task 39](review-tasks/39-editor-fields-and-effects.md) |
 | CR-032 | High | Gap | Fixed | [Task 23](review-tasks/23-graph-semantics-and-validation.md) |
 | CR-033 | High | Bug | Open | [Task 39](review-tasks/39-editor-fields-and-effects.md) |
@@ -7407,13 +7412,13 @@ One row per finding, at `abaa007`.
 | CR-133 | Medium | Bug | Open | [Task 38](review-tasks/38-editor-draft-machine.md) |
 | CR-134 | Medium | Bug | Open | [Task 38](review-tasks/38-editor-draft-machine.md) |
 | CR-135 | Medium | Bug | Fixed | [Task 13](review-tasks/13-frontend-query-ownership.md) |
-| CR-136 | Medium | Bug | Open | [Task 37](review-tasks/37-editor-save-integrity.md) |
+| CR-136 | Medium | Bug | Fixed (Task 37) | [Task 37](review-tasks/37-editor-save-integrity.md) |
 | CR-137 | Medium | Bug | Open | [Task 39](review-tasks/39-editor-fields-and-effects.md) |
 | CR-138 | Medium | Bug | Open | [Task 39](review-tasks/39-editor-fields-and-effects.md) |
 | CR-139 | Medium | Bug | Open | [Task 38](review-tasks/38-editor-draft-machine.md) |
-| CR-140 | Medium | Bug | Open | [Task 37](review-tasks/37-editor-save-integrity.md) |
+| CR-140 | Medium | Bug | Fixed (Task 37) | [Task 37](review-tasks/37-editor-save-integrity.md) |
 | CR-141 | Medium | Gap | Open | [Task 38](review-tasks/38-editor-draft-machine.md) |
-| CR-142 | Medium | Bug | Open | [Task 37](review-tasks/37-editor-save-integrity.md) |
+| CR-142 | Medium | Bug | Fixed (Task 37) | [Task 37](review-tasks/37-editor-save-integrity.md) |
 | CR-143 | Medium | Gap | Open | [Task 14](review-tasks/14-frontend-throwing-fetchers.md) |
 | CR-144 | Medium | Bug | Open | [Task 40](review-tasks/40-editor-performance.md) |
 | CR-145 | Medium | Performance | Open | [Task 40](review-tasks/40-editor-performance.md) |

@@ -11,19 +11,12 @@ async function fetchNodeTemplates(): Promise<NodeRow[]> {
 }
 
 /**
- * The catalog's node-template list, hydrated server-side: the Server
- * Component page fetches the first paint's rows through the templateStore
- * service (the exact call /api/node-templates GET wraps) and passes them as
- * props — they feed `initialData`, so hydration carries data and no client
- * fetch or skeleton runs on first show. Later refetches (mutations
- * invalidate `queryKeys.nodeTemplates`) go through the route; `isFetching`
- * reports them without clearing the table (§2.8 — keep showing data).
+ * The catalog's node-template list — hydrated by the server page through
+ * prefetch + HydrationBoundary. Mutations invalidate `queryKeys.nodeTemplates`.
  */
-export function useNodeList(initialNodes: NodeRow[]) {
+export function useNodeList() {
   return useQuery({
     queryKey: queryKeys.nodeTemplates,
     queryFn: fetchNodeTemplates,
-    initialData: initialNodes,
-    initialDataUpdatedAt: Date.now(),
   });
 }

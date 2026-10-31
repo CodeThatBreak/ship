@@ -29,7 +29,7 @@ import type { NodeRow } from "./types";
 /** null = dialog closed; a row = configure it; `{ node: null }` = create */
 type Editing = { node: NodeRow | null } | null;
 
-export function TemplateNodesCatalog({ initialNodes }: { initialNodes: NodeRow[] }) {
+export function TemplateNodesCatalog() {
   const queryClient = useQueryClient();
   const invalidate = () => void queryClient.invalidateQueries({ queryKey: queryKeys.nodeTemplates });
 
@@ -40,8 +40,8 @@ export function TemplateNodesCatalog({ initialNodes }: { initialNodes: NodeRow[]
 
   // the server-hydrated list — every mutation invalidates this key and the
   // refetch runs through /api/node-templates
-  const nodesQuery = useNodeList(initialNodes);
-  const nodes = nodesQuery.data;
+  const nodesQuery = useNodeList();
+  const nodes = nodesQuery.data ?? [];
 
   /** The confirm's destructive action: delete, then refresh (the server
    *  refuses rows still referenced by template nodes — surface that). */
@@ -53,6 +53,7 @@ export function TemplateNodesCatalog({ initialNodes }: { initialNodes: NodeRow[]
         throw new Error(payload?.error ?? `Request failed (${res.status})`);
       }
     },
+    onMutate: () => setPageError(null),
     onError: (e) => setPageError(e.message),
     onSettled: invalidate,
   });

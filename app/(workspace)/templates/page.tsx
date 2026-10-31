@@ -1,18 +1,35 @@
+import { QueryClient, dehydrate, HydrationBoundary } from "@tanstack/react-query";
 import { loadTemplateGallery } from "@/loaders/templates";
 import { TemplateGallery } from "@/components/templates";
-import type { TemplateRow } from "@/components/templates";
+import { queryKeys } from "@/constants/query-keys";
 
 export const dynamic = "force-dynamic";
+
+const galleryQueryDefaults = {
+  staleTime: 30_000,
+  refetchOnWindowFocus: false,
+  retry: false,
+} as const;
 
 /**
  * The template gallery (§8) — a Server Component. The first paint's rows
  * come from the loader (the exact templateStore call the thin /api/templates
- * GET wraps — no HTTP hop), then hydrate into the gallery island's TanStack
- * Query as `initialData`. Search, sorting, forms and every mutation stay
- * client-side inside the island; route-level loading.tsx/error.tsx mirror
- * the final layout while the server renders.
+ * GET wraps — no HTTP hop), prefetched into TanStack Query and dehydrated
+ * for the gallery island.
  */
-export default function TemplatesPage() {
-  const templates: TemplateRow[] = loadTemplateGallery();
-  return <TemplateGallery initialTemplates={templates} />;
+export default async function TemplatesPage() {
+  const templates = loadTemplateGallery();
+  const queryClient = new QueryClient({
+    defaultOptions: { queries: galleryQueryDefaults },
+  });
+  await queryClient.prefetchQuery({
+    queryKey: queryKeys.templatesGallery,
+    queryFn: () => templates,
+  });
+
+  return (
+    <HydrationBoundary state={dehydrate(queryClient)}>
+      <TemplateGallery />
+    </HydrationBoundary>
+  );
 }

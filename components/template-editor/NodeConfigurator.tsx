@@ -4,7 +4,7 @@ import { AlertTriangle, RefreshCw, Unplug } from "lucide-react";
 import { Button } from "../ui/button";
 import { ScrollArea } from "../ui/scroll-area";
 import { cn } from "../../lib/utils";
-import type { EditorNode } from "./types";
+import type { EditorNode, EditorNodePatch } from "./types";
 import {
   NEXT_EDGE_KIND,
   useUpstreamGroups,
@@ -54,9 +54,10 @@ export function NodeConfiguratorBody({
   invalidRefs,
   templateId,
   problems,
+  registerPendingFlush,
 }: {
   node: EditorNode;
-  onChange: (p: Partial<EditorNode>) => void;
+  onChange: (patch: EditorNodePatch) => void;
   /** Incoming edges + sources (visual builder) — drives the variable groups
    *  (the connected upstream nodes' published outputs). */
   incoming?: IncomingLink[];
@@ -83,6 +84,7 @@ export function NodeConfiguratorBody({
   /** The static linter's problems for THIS node (Phase 5) — shown as a list
    *  above the tabs (the prompt fields underline their refs inline too). */
   problems?: string[];
+  registerPendingFlush?: (flush: () => void) => () => void;
 }) {
   const { contractQuery, contract } = useNodeContractView(node);
 
@@ -205,6 +207,7 @@ export function NodeConfiguratorBody({
             varGroups={varGroups}
             invalidRefs={invalidRefs}
             onChange={onChange}
+            registerPendingFlush={registerPendingFlush}
           />
         ) : tab === "config" ? (
           <ConfigTab

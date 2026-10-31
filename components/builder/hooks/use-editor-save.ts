@@ -8,6 +8,7 @@
  */
 import { useCallback, useState } from "react";
 import type { UseQueryResult } from "@tanstack/react-query";
+import { useQueryClient } from "@tanstack/react-query";
 import {
   collectPendingDefs,
   problemsMessage,
@@ -16,7 +17,13 @@ import {
   type TemplateValidationApi,
 } from "@/components/template-editor";
 import type { TemplateEditorDetail } from "@/types/template-editor";
+import { queryKeys } from "@/constants/query-keys";
+import { errorMessageOf } from "@/hooks/fetch-json";
 import { detailToDraft, positionsOf } from "./use-editor-queries";
+import {
+  editorSaveErrorFromResponse,
+  shouldAdoptServerDraftAfterSave,
+} from "../utils/editor-save-response";
 
 export interface EditorSaveDeps {
   machine: TemplateDraftMachine;
@@ -24,6 +31,8 @@ export interface EditorSaveDeps {
   validation: TemplateValidationApi;
   /** the hydrated detail query — refetched after Save (hook/version sync) */
   detailQuery: UseQueryResult<TemplateEditorDetail, Error>;
+  /** flush trailing debounced prompt/config writes before snapshotting */
+  flushPendingWrites: () => void;
 }
 
 export interface EditorSaveApi {
@@ -38,28 +47,25 @@ export interface EditorSaveApi {
 }
 
 export function useEditorSave(deps: EditorSaveDeps): EditorSaveApi {
-  const { machine, layout, validation, detailQuery } = deps;
+  const { machine, layout, validation, detailQuery, flushPendingWrites } = deps;
+  const queryClient = useQueryClient();
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [catalogEpoch, setCatalogEpoch] = useState(0);
 
   const runSave = useCallback(async () => {
-    const d = machine.draft;
+    flushPendingWrites();
+    const generationAtStart = machine.editGenerationRef.current;
+    const d = machine.draftRef.current;
     if (!d) return;
     setSaving(true);
     setError(null);
     try {
-      // validate before PATCH (Phase 5): the same structured lint the live
-      // validation runs — problems block the save and land on their node /
-      // edge as badges, instead of one concatenated wall of save errors
       const problems = await validation.validate(d);
       if (problems.length) {
         setError(problemsMessage(problems));
         return;
       }
-      // draft declarative defs (Phase 2): the tiles placed in-memory instances;
-      // only defs still referenced by a node are persisted, with the authored
-      // instance config folded in so the Library row reflects what was authored
       const new_node_templates = collectPendingDefs(d);
       const res = await fetch(`/api/templates/${d.template.id}`, {
         method: "PATCH",
@@ -90,29 +96,47 @@ export function useEditorSave(deps: EditorSaveDeps): EditorSaveApi {
         }),
       });
       const r = (await res.json().catch(() => null)) as { error?: string } | null;
-      if (res.status !== 400 && !r?.error) {
+      const saveError = editorSaveErrorFromResponse(res.ok, res.status, r);
+      if (saveError) {
+        setError(saveError);
+        return;
+      }
+
+      if (
+        shouldAdoptServerDraftAfterSave(
+          generationAtStart,
+          machine.editGenerationRef.current,
+        )
+      ) {
         machine.setNotice("Draft saved — new flows snapshot this version.");
         machine.setDirty(false);
         validation.clear();
-        // the catalog may have gained Library rows (draft defs persisted) —
-        // bump the epoch so the palette re-fetches (Phase 2)
         if (new_node_templates.length) setCatalogEpoch((e) => e + 1);
-        // the hook (always provisioned) is provisioned/synced server-side —
-        // refresh it (and the template version) from the query cache
         const refreshed = await detailQuery.refetch();
         if (refreshed.data) {
-          // adopt the saved server state: the history resets and the canvas
-          // layout re-seeds from the persisted positions
           machine.replaceDraft(detailToDraft(refreshed.data).draft);
           layout.resetPositions(positionsOf(refreshed.data));
         }
       } else {
-        setError(r?.error ?? "Failed to save the draft — try again.");
+        machine.setNotice(
+          "Draft saved — newer local edits were kept on the canvas.",
+        );
       }
+
+      await queryClient.invalidateQueries({ queryKey: queryKeys.templatesGallery });
+    } catch (e) {
+      setError(errorMessageOf(e) ?? "Failed to save the draft — try again.");
     } finally {
       setSaving(false);
     }
-  }, [machine, layout, validation, detailQuery]);
+  }, [
+    machine,
+    layout,
+    validation,
+    detailQuery,
+    flushPendingWrites,
+    queryClient,
+  ]);
 
   return {
     saving,

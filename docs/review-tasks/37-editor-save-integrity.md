@@ -15,7 +15,7 @@ Each finding was re-verified against `refactor/prompt-engine-inconsistency-fix` 
 
 ### CR-029 [High] Edits made while a save is in flight (and pending debounced prompt writes) are silently discarded
 
-- **Status:** Open
+- **Status:** Fixed (Task 37)
 - **Type:** Bug
 - **Effort:** M
 - **Where:** components/builder/hooks/use-editor-save.ts:46-115; components/template-editor/PromptTab.tsx:41-45; components/template-editor/hooks/use-debounced-callback.ts:17-47
@@ -24,7 +24,7 @@ Each finding was re-verified against `refactor/prompt-engine-inconsistency-fix` 
 
 ### CR-030 [High] Save reports success for 5xx, 413 and other non-400 failures; network errors are unhandled
 
-- **Status:** Open
+- **Status:** Fixed (Task 37)
 - **Type:** Bug
 - **Effort:** S
 - **Where:** components/builder/hooks/use-editor-save.ts:92-114
@@ -32,7 +32,7 @@ Each finding was re-verified against `refactor/prompt-engine-inconsistency-fix` 
 
 ### CR-136 [Medium] Live validation results can arrive out of order and re-apply after save
 
-- **Status:** Open
+- **Status:** Fixed (Task 37)
 - **Type:** Bug
 - **Effort:** S
 - **Where:** components/template-editor/hooks/use-template-validation.ts:86-117
@@ -40,7 +40,7 @@ Each finding was re-verified against `refactor/prompt-engine-inconsistency-fix` 
 
 ### CR-140 [Medium] Revisiting the editor seeds the draft and positions from stale cache; layout autosave can overwrite newer positions
 
-- **Status:** Open
+- **Status:** Fixed (Task 37)
 - **Type:** Bug
 - **Effort:** M
 - **Where:** components/template-editor/hooks/use-node-positions.ts:35, components/template-editor/hooks/use-node-positions.ts:48-53, components/template-editor/hooks/use-node-positions.ts:55-69, components/template-editor/hooks/use-template-draft.ts:51, components/builder/EditorPage.tsx:70-80
@@ -48,7 +48,7 @@ Each finding was re-verified against `refactor/prompt-engine-inconsistency-fix` 
 
 ### CR-142 [Medium] Gallery cache is not invalidated after create or save, and fresh server props are ignored
 
-- **Status:** Open
+- **Status:** Fixed (Task 37)
 - **Type:** Bug
 - **Effort:** S
 - **Where:** components/templates/TemplateGallery.tsx:105-109, components/templates/TemplateGallery.tsx:165, components/templates/hooks/use-template-list.ts:22-29, components/templates/hooks/use-node-list.ts:22-29, components/builder/hooks/use-editor-save.ts:100-108
@@ -56,8 +56,8 @@ Each finding was re-verified against `refactor/prompt-engine-inconsistency-fix` 
 
 ## Done when
 
-- [ ] Every finding above is fixed, or a remaining part is written up in the PR description.
-- [ ] Each bug fix has a regression test (Vitest for `lib/`; at least a hook or utility test for UI where practical).
-- [ ] Code follows [`docs/coding-patterns.md`](../coding-patterns.md).
-- [ ] `npm run typecheck`, `npm run lint`, `npm test` and `npm run build` pass (before Task 02 lands, `npx tsc --noEmit` instead of `typecheck`).
-- [ ] The status of each finding in [`docs/code-review.md`](../code-review.md) is updated (Fixed, with the PR link).
+- [x] Every finding above is fixed, or a remaining part is written up in the PR description.
+- [x] Each bug fix has a regression test (Vitest for `lib/`; at least a hook or utility test for UI where practical).
+- [x] Code follows [`docs/coding-patterns.md`](../coding-patterns.md).
+- [x] `npm run typecheck`, `npm run lint`, `npm test` and `npm run build` pass (before Task 02 lands, `npx tsc --noEmit` instead of `typecheck`).
+- [x] The status of each finding in [`docs/code-review.md`](../code-review.md) is updated (Fixed, with the PR link).

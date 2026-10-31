@@ -23,7 +23,7 @@ export {
 export { kindContractUrl } from "./types";
 export { nodeContractQueryOptions } from "./queries";
 export { contractsUrl, describeTrigger, nodeLabel, nodeRelationships, isPlanDownstream } from "./types";
-export type { NodeContract, EditorNode, EditorEdge, DraftNodeDef, TaskProviderInfo } from "./types";
+export type { NodeContract, EditorNode, EditorEdge, DraftNodeDef, TaskProviderInfo, EditorNodePatch } from "./types";
 export { FLOW_TRIGGER_TYPE } from "./constants";
 export { WebhookPayloadDialog } from "./WebhookPayloadDialog";
 

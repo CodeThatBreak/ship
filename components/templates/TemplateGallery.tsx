@@ -80,7 +80,7 @@ function getTemplateActions(
   ];
 }
 
-export function TemplateGallery({ initialTemplates }: { initialTemplates: TemplateRow[] }) {
+export function TemplateGallery() {
   const router = useRouter();
   const queryClient = useQueryClient();
   const invalidate = () => void queryClient.invalidateQueries({ queryKey: queryKeys.templatesGallery });
@@ -97,14 +97,18 @@ export function TemplateGallery({ initialTemplates }: { initialTemplates: Templa
 
   // the server-hydrated list — every mutation invalidates this key and the
   // refetch runs through /api/templates
-  const templatesQuery = useTemplateList(initialTemplates);
-  const templates = templatesQuery.data;
+  const templatesQuery = useTemplateList();
+  const templates = templatesQuery.data ?? [];
 
   /** A1: "New template" creates an *Untitled flow* instantly and opens the
    *  editor — the name is edited in the editor's Flow settings, not here. */
   const createMutation = useMutation({
     mutationFn: () => postJson<{ id: string }>("/api/templates", JSON.stringify({})),
-    onSuccess: ({ id }) => router.push(`/templates/${id}`),
+    onMutate: () => setPageError(null),
+    onSuccess: ({ id }) => {
+      invalidate();
+      router.push(`/templates/${id}`);
+    },
     onError: (e) => setPageError(e.message),
   });
 
@@ -120,6 +124,7 @@ export function TemplateGallery({ initialTemplates }: { initialTemplates: Templa
       );
     },
     onSuccess: ({ id }) => router.push(`/templates/${id}`),
+    onMutate: () => setPageError(null),
     onError: (e) => setPageError(e.message),
     onSettled: invalidate,
   });
@@ -133,6 +138,7 @@ export function TemplateGallery({ initialTemplates }: { initialTemplates: Templa
         throw new Error(payload?.error ?? `Request failed (${res.status})`);
       }
     },
+    onMutate: () => setPageError(null),
     onError: (e) => setPageError(e.message),
     onSettled: invalidate,
   });
