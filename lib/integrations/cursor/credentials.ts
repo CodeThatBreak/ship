@@ -1,21 +1,18 @@
 import "server-only";
 
-import { SETTINGS_KEYS } from "@/constants/settings";
-import { db, type Database } from "../../db";
+import type { IntegrationSecretStore } from "../../db/integration-secret-store";
 import { processSingleton } from "../../singleton";
-import { settingString } from "../../schemas/setting-values";
+import { db } from "../../db";
 
 /**
  * The Cursor API key resolution: stored on Settings → Integrations → Harness
  * (DB). There is no env fallback — the key lives only in the settings store.
- *
- * Plaintext at rest today; encryption is tracked in Task 61.
  */
 export class CursorCredentials {
-  constructor(private readonly database: Database) {}
+  constructor(private readonly secrets: IntegrationSecretStore) {}
 
   apiKey(): string {
-    return this.database.getSetting(SETTINGS_KEYS.CURSOR_API_KEY, settingString, "").trim();
+    return this.secrets.readCursorApiKey();
   }
 
   /** Whether a DB-stored key is set — settings UI status. */
@@ -30,15 +27,15 @@ export class CursorCredentials {
       this.clear();
       return;
     }
-    this.database.setSetting(SETTINGS_KEYS.CURSOR_API_KEY, trimmed);
+    this.secrets.writeCursorApiKey(trimmed);
   }
 
   clear(): void {
-    this.database.setSetting(SETTINGS_KEYS.CURSOR_API_KEY, "");
+    this.secrets.writeCursorApiKey("");
   }
 }
 
 export const cursorCredentials = processSingleton(
   "cursorCredentials",
-  () => new CursorCredentials(db),
+  () => new CursorCredentials(db.integrationSecrets),
 );

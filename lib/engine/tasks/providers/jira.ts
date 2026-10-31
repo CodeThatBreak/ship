@@ -68,8 +68,8 @@ export class JiraTaskProvider extends TaskProvider implements TaskInstanceStore 
   }
 
   instances(): ProviderInstance[] {
-    return jira.listInstances().map(({ id, name, base_url, email, token }) => ({
-      id, name, baseUrl: base_url, email, tokenMasked: maskToken(token),
+    return jira.listInstances().map(({ id, name, base_url, email }) => ({
+      id, name, baseUrl: base_url, email, tokenMasked: "••••",
     }));
   }
 
@@ -84,7 +84,7 @@ export class JiraTaskProvider extends TaskProvider implements TaskInstanceStore 
   }
 
   updateInstance(id: string, input: { name?: string | null; baseUrl?: string; email?: string; token?: string }): void {
-    const existing = jira.listInstances().find((i) => i.id === id);
+    const existing = jira.getInstance(id);
     if (!existing) throw new Error(`jira instance not found: ${id}`);
     if (baseUrlOverrideRequiresToken(existing.base_url, input.baseUrl, input.token)) {
       throw new ValidationError("token is required when overriding baseUrl");
@@ -105,7 +105,7 @@ export class JiraTaskProvider extends TaskProvider implements TaskInstanceStore 
     id: string,
     input: { baseUrl?: string; email?: string; token?: string } = {}
   ): Promise<{ ok: boolean; detail: string }> {
-    const existing = jira.listInstances().find((i) => i.id === id);
+    const existing = jira.getInstance(id);
     if (!existing) throw new Error(`jira instance not found: ${id}`);
     if (baseUrlOverrideRequiresToken(existing.base_url, input.baseUrl, input.token)) {
       throw new ValidationError("token is required when overriding baseUrl");

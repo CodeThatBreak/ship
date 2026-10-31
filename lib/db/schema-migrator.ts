@@ -1,7 +1,9 @@
 import "server-only";
 
 import type SqliteDatabase from "better-sqlite3";
+import { AtRestCipher } from "./at-rest-cipher";
 import { DatabaseMigrationError } from "./database-migration-error";
+import { sealIntegrationSecretsAtRest } from "./migrations/seal-integration-secrets";
 import { SCHEMA_USER_VERSION } from "./schema-version";
 import { TemplateSeeder } from "./template-seeder";
 
@@ -47,6 +49,8 @@ export class SchemaMigrator {
               CREATE INDEX IF NOT EXISTS idx_step_merges_flow ON step_merges(flow_id);
               CREATE INDEX IF NOT EXISTS idx_hook_deliveries_created ON hook_deliveries(created_at);
             `);
+          } else if (next === 6) {
+            sealIntegrationSecretsAtRest(d, AtRestCipher.fromConfig());
           } else {
             throw new Error(`No migration defined for user_version ${next}`);
           }

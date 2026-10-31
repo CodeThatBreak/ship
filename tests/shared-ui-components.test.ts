@@ -24,6 +24,15 @@ describe("DataTable accessibility", () => {
   });
 });
 
+describe("Markdown rehype hardening (CR-154)", () => {
+  it("blocks remote images in the hardened rehype pipeline", () => {
+    const source = readFileSync("components/shared/markdownRehypePlugins.ts", "utf8");
+    expect(source).toContain("allowedImagePrefixes: []");
+    expect(source).toContain('allowedProtocols: ["https", "mailto"]');
+    expect(source).toContain("allowDataImages: false");
+  });
+});
+
 describe("Markdown memo", () => {
   it("does not use a custom props comparator", () => {
     const source = readFileSync("components/shared/Markdown.tsx", "utf8");

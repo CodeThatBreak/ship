@@ -1,9 +1,10 @@
 import { describe, expect, it, vi } from "vitest";
+import type { JiraInstanceMeta } from "../../db/stores/jira-instance-store";
 import type { JiraInstanceStore } from "../../db/stores";
 
 vi.mock("../../db", () => ({
   jiraInstanceStore: {
-    list: vi.fn(() => []),
+    listMeta: vi.fn(() => []),
     add: vi.fn(),
     update: vi.fn(),
     delete: vi.fn(),
@@ -13,8 +14,10 @@ vi.mock("../../db", () => ({
 const { JiraService } = await import("./service");
 
 describe("JiraService", () => {
-  const makeStore = (list: ReturnType<JiraInstanceStore["list"]>) => ({
-    list: vi.fn(() => list),
+  const makeStore = (listMeta: JiraInstanceMeta[]) => ({
+    listMeta: vi.fn(() => listMeta),
+    get: vi.fn(),
+    readToken: vi.fn(),
     add: vi.fn(),
     update: vi.fn(),
     delete: vi.fn(),
@@ -28,7 +31,6 @@ describe("JiraService", () => {
           name: null,
           base_url: "https://a.atlassian.net",
           email: "a@b.c",
-          token: "t",
           created_at: "2026-01-01T00:00:00.000Z",
         },
       ]) as unknown as JiraInstanceStore,

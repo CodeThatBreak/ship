@@ -31,7 +31,10 @@ describe("script child process env", () => {
     });
 
     expect(execaMock).toHaveBeenCalledTimes(1);
-    const opts = execaMock.mock.calls[0][2] as { env: Record<string, string>; extendEnv?: boolean };
+    const opts = (execaMock.mock.calls[0] as unknown[])[2] as {
+      env: Record<string, string>;
+      extendEnv?: boolean;
+    };
     expect(opts.extendEnv).toBe(false);
     expect(opts.env.DEVFLOW_SCRIPT_ENV_PROBE).toBeUndefined();
   });

@@ -14,6 +14,7 @@ import {
 } from "@/components/ui/code-block";
 import { useHighlightedCode } from "@/hooks/use-highlighted-code";
 import { cn } from "@/lib/utils";
+import { markdownRehypePlugins } from "./markdownRehypePlugins";
 
 /**
  * Markdown renderer per the shadcn AI-elements "Markdown" pattern:
@@ -138,6 +139,7 @@ export const Markdown = React.memo(({ children, className, ...props }: MarkdownP
     <Streamdown
       shikiTheme={shikiTheme as never}
       plugins={{ mermaid: mermaidPlugin }}
+      rehypePlugins={markdownRehypePlugins}
       components={markdownProps.components}
       mode="static"
     >

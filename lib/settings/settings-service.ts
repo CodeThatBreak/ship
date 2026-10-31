@@ -43,8 +43,7 @@ export class SettingsService {
   update(patch: SettingsPatchBody): void {
     this.database.transaction(() => {
       if (patch.cursor_api_key !== undefined) {
-        const key = patch.cursor_api_key.trim();
-        this.database.setSetting(SETTINGS_KEYS.CURSOR_API_KEY, key);
+        this.database.integrationSecrets.writeCursorApiKey(patch.cursor_api_key);
       }
       if (patch.default_harness !== undefined) {
         this.database.setSetting(SETTINGS_KEYS.DEFAULT_HARNESS, patch.default_harness);
@@ -71,7 +70,9 @@ export class SettingsService {
         }
       }
       if (patch.secrets !== undefined) {
-        const current = this.database.getSetting(SETTINGS_KEYS.SECRETS, settingStringRecord, {});
+        const current = this.database.integrationSecrets.openSecretsMap(
+          this.database.getSetting(SETTINGS_KEYS.SECRETS, settingStringRecord, {}),
+        );
         const next: Record<string, string> = { ...current };
         for (const [k, v] of Object.entries(patch.secrets)) {
           const name = k.trim();
@@ -82,7 +83,10 @@ export class SettingsService {
           }
           next[name] = v;
         }
-        this.database.setSetting(SETTINGS_KEYS.SECRETS, next);
+        this.database.setSetting(
+          SETTINGS_KEYS.SECRETS,
+          this.database.integrationSecrets.sealSecretsMap(next),
+        );
       }
       if (patch.http_allowlist !== undefined) {
         const clean = patch.http_allowlist

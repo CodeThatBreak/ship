@@ -1,7 +1,7 @@
 import "server-only";
 
 import type { Database } from "../../db/database";
-import type { GitLabInstanceStore } from "../../db/stores";
+import type { GitLabInstanceStore, GitLabInstanceMeta } from "../../db/stores/gitlab-instance-store";
 import { type GitLabInstance } from "../../db/rows";
 import {
   GitHostTimeoutError,
@@ -269,8 +269,12 @@ export class GitLabService {
   }
 
   // ── instance registry ────────────────────────────────────────────────────
-  listInstances(): GitLabInstance[] {
-    return this.instances.list();
+  listInstances(): GitLabInstanceMeta[] {
+    return this.instances.listMeta();
+  }
+
+  getInstance(id: string): GitLabInstance | undefined {
+    return this.instances.get(id);
   }
 
   addInstance(input: { name?: string; base_url: string; token: string }): GitLabInstance {
@@ -297,8 +301,13 @@ export class GitLabService {
     const match = instances
       .filter((i) => GitLabService.host(i.base_url) === h)
       .sort((a, b) => b.base_url.length - a.base_url.length)[0];
-    if (match) return match;
-    if (instances.length === 1 && h === null) return instances[0];
+    if (match) {
+      return { ...match, token: this.instances.readToken(match.id) };
+    }
+    if (instances.length === 1 && h === null) {
+      const only = instances[0];
+      return { ...only, token: this.instances.readToken(only.id) };
+    }
     throw new Error(
       `No GitLab instance configured for host "${h ?? repoUrl}". Add one on the Settings page.`
     );

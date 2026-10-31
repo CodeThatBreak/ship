@@ -22,6 +22,14 @@ describe("GitLabInstanceStore", () => {
       token: "secret",
     });
     expect(inst.id).toMatch(/^gli_/);
-    expect(db.gitlabInstances.list()).toEqual([inst]);
+    expect(db.gitlabInstances.listMeta()).toEqual([
+      {
+        id: inst.id,
+        name: inst.name,
+        base_url: inst.base_url,
+        created_at: inst.created_at,
+      },
+    ]);
+    expect(db.gitlabInstances.readToken(inst.id)).toBe("secret");
   });
 });

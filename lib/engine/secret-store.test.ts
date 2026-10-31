@@ -21,7 +21,7 @@ describe("SecretStore", () => {
     db.connection();
     db.setSetting(SETTINGS_KEYS.SECRETS, { API_TOKEN: "super-secret-token" });
 
-    const store = new SecretStore(db);
+    const store = new SecretStore(db, db.integrationSecrets);
     expect(store.all()).toEqual({ API_TOKEN: "super-secret-token" });
     expect(store.redact("failed: super-secret-token leaked")).toBe("failed: •••• leaked");
   });
@@ -32,7 +32,7 @@ describe("SecretStore", () => {
     const { db } = await import("../db");
     db.connection();
 
-    const store = new SecretStore(db);
+    const store = new SecretStore(db, db.integrationSecrets);
     expect(store.redact("x secret-y z", { ONE: "secret-y" })).toBe("x •••• z");
   });
 });

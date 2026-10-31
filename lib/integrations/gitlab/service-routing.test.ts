@@ -4,11 +4,10 @@ import type { GitLabInstanceStore } from "../../db/stores";
 import { GitLabService } from "./client";
 
 describe("GitLabService.instanceForRepo (CR-024)", () => {
-  const instance = {
+  const meta = {
     id: "gli_1",
     name: null,
     base_url: "https://gitlab.example.com",
-    token: "secret-token",
     created_at: "2026-01-01T00:00:00.000Z",
   };
 
@@ -19,8 +18,10 @@ describe("GitLabService.instanceForRepo (CR-024)", () => {
   };
 
   const store = {
-    list: () => [instance],
-    add: () => instance,
+    listMeta: () => [meta],
+    readToken: () => "secret-token",
+    get: () => ({ ...meta, token: "secret-token" }),
+    add: () => ({ ...meta, token: "secret-token" }),
     update: () => undefined,
     delete: () => undefined,
   } as unknown as GitLabInstanceStore;

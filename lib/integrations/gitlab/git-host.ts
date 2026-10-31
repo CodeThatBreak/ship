@@ -257,11 +257,11 @@ export class GitLabHostService implements GitHostService {
   // ── instance registry (settings admin) ───────────────────────────────────
 
   instances(): HostInstance[] {
-    return this.gitlab.listInstances().map(({ id, name, base_url, token }) => ({
+    return this.gitlab.listInstances().map(({ id, name, base_url }) => ({
       id,
       name,
       baseUrl: base_url,
-      tokenMasked: maskToken(token),
+      tokenMasked: "••••",
     }));
   }
 
@@ -271,7 +271,7 @@ export class GitLabHostService implements GitHostService {
   }
 
   updateInstance(id: string, input: { name?: string | null; baseUrl?: string; token?: string }): void {
-    const existing = this.gitlab.listInstances().find((i) => i.id === id);
+    const existing = this.gitlab.getInstance(id);
     if (!existing) throw new NotFoundError("host instance", id);
     if (baseUrlOverrideRequiresToken(existing.base_url, input.baseUrl, input.token)) {
       throw new ValidationError("token is required when overriding baseUrl");
@@ -289,7 +289,7 @@ export class GitLabHostService implements GitHostService {
   }
 
   async testInstance(id: string, input: { baseUrl?: string; token?: string } = {}): Promise<{ ok: boolean; detail: string }> {
-    const existing = this.gitlab.listInstances().find((i) => i.id === id);
+    const existing = this.gitlab.getInstance(id);
     if (!existing) throw new NotFoundError("host instance", id);
     if (baseUrlOverrideRequiresToken(existing.base_url, input.baseUrl, input.token)) {
       throw new ValidationError("token is required when overriding baseUrl");

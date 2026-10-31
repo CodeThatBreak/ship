@@ -3,7 +3,7 @@ import "server-only";
 import { ConflictError, ValidationError } from "../../errors";
 import { baseUrlOverrideRequiresToken } from "../instance-credential-policy";
 import { truncateUpstreamBody } from "../../engine/ports/git-host-errors";
-import type { JiraInstanceStore } from "../../db/stores";
+import type { JiraInstanceStore, JiraInstanceMeta } from "../../db/stores/jira-instance-store";
 import { type JiraInstance } from "../../db/rows";
 import { jiraAuthHeaders, jiraAuthModeForInstance, jiraMyselfPath, type JiraAuthMode } from "./api-profile";
 import { JIRA_HTTP_TIMEOUT_MS } from "./constants";
@@ -44,8 +44,12 @@ export class JiraService {
   constructor(private readonly instances: JiraInstanceStore) {}
 
   // ── instance registry ────────────────────────────────────────────────────
-  listInstances(): JiraInstance[] {
-    return this.instances.list();
+  listInstances(): JiraInstanceMeta[] {
+    return this.instances.listMeta();
+  }
+
+  getInstance(id: string): JiraInstance | undefined {
+    return this.instances.get(id);
   }
 
   addInstance(input: { name?: string | null; base_url: string; email: string; token: string }): JiraInstance {
@@ -62,7 +66,7 @@ export class JiraService {
     id: string,
     input: { name?: string | null; base_url?: string; email?: string; token?: string }
   ): void {
-    const existing = this.listInstances().find((i) => i.id === id);
+    const existing = this.getInstance(id);
     if (!existing) throw new Error(`jira instance not found: ${id}`);
     if (baseUrlOverrideRequiresToken(existing.base_url, input.base_url, input.token)) {
       throw new ValidationError("token is required when overriding baseUrl");
@@ -78,7 +82,9 @@ export class JiraService {
    * The instance the task provider talks to. Only one instance may be registered.
    */
   active(): JiraInstance | undefined {
-    return this.listInstances()[0];
+    const meta = this.listInstances()[0];
+    if (!meta) return undefined;
+    return this.getInstance(meta.id);
   }
 
   authMode(inst?: JiraInstance): JiraAuthMode {

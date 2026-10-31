@@ -2,8 +2,6 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { SETTINGS_KEYS } from "@/constants/settings";
-import { settingString } from "@/lib/schemas/setting-values";
 import { CursorCredentials } from "./credentials";
 
 const mkDbPath = () =>
@@ -21,14 +19,14 @@ describe("CursorCredentials", () => {
     const { db } = await import("../../db");
     db.connection();
 
-    const creds = new CursorCredentials(db);
+    const creds = new CursorCredentials(db.integrationSecrets);
     expect(creds.isStored()).toBe(false);
     creds.setApiKey("  sk-test  ");
     expect(creds.apiKey()).toBe("sk-test");
     expect(creds.isStored()).toBe(true);
     creds.setApiKey("");
     expect(creds.apiKey()).toBe("");
-    expect(db.getSetting(SETTINGS_KEYS.CURSOR_API_KEY, settingString, "unset")).toBe("");
+    expect(creds.isStored()).toBe(false);
   });
 
   it("clear removes the stored key", async () => {
@@ -37,7 +35,7 @@ describe("CursorCredentials", () => {
     const { db } = await import("../../db");
     db.connection();
 
-    const creds = new CursorCredentials(db);
+    const creds = new CursorCredentials(db.integrationSecrets);
     creds.setApiKey("keep-me");
     creds.clear();
     expect(creds.isStored()).toBe(false);

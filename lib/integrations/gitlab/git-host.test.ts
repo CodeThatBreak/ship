@@ -16,6 +16,7 @@ describe("GitLabHostService", () => {
     clientFor: vi.fn(),
     projectPathFromUrl: () => "group/repo",
     listInstances: vi.fn<GitLabService["listInstances"]>(() => []),
+    getInstance: vi.fn<GitLabService["getInstance"]>(),
     addInstance: vi.fn(),
     updateInstance: vi.fn(),
     deleteInstance: vi.fn(),
@@ -63,15 +64,13 @@ describe("GitLabHostService", () => {
   });
 
   it("rejects testInstance when baseUrl changes without a new token (CR-002)", async () => {
-    vi.mocked(gitlab.listInstances).mockReturnValue([
-      {
-        id: "gli_1",
-        name: null,
-        base_url: "https://gitlab.example.com",
-        token: "secret-token",
-        created_at: "2026-01-01T00:00:00.000Z",
-      },
-    ]);
+    vi.mocked(gitlab.getInstance).mockReturnValue({
+      id: "gli_1",
+      name: null,
+      base_url: "https://gitlab.example.com",
+      token: "secret-token",
+      created_at: "2026-01-01T00:00:00.000Z",
+    });
     await expect(
       service.testInstance("gli_1", { baseUrl: "https://evil.test" }),
     ).rejects.toBeInstanceOf(ValidationError);

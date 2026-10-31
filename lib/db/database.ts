@@ -10,6 +10,8 @@ import { bindDatabase } from "./db-access";
 import { bindRowGateway } from "./row-gateway-access";
 import { wireGitHostBuiltins } from "./wire-git-host-builtins";
 import { RowGateway, type Repo } from "./rows";
+import { AtRestCipher } from "./at-rest-cipher";
+import { IntegrationSecretStore } from "./integration-secret-store";
 import { SchemaMigrator } from "./schema-migrator";
 import {
   EventStore,
@@ -35,6 +37,7 @@ export class Database {
   private uidSeqInMs = 0;
 
   readonly rows: RowGateway;
+  readonly integrationSecrets: IntegrationSecretStore;
   readonly gitlabInstances: GitLabInstanceStore;
   readonly jiraInstances: JiraInstanceStore;
 
@@ -52,8 +55,10 @@ export class Database {
     this.eventStore = new EventStore(this, this.rows);
     this.settingsStore = new SettingsStore(this);
     this.repoStore = new RepoStore(this, this.rows);
-    this.gitlabInstances = new GitLabInstanceStore(this, this.rows);
-    this.jiraInstances = new JiraInstanceStore(this, this.rows);
+    const atRestCipher = AtRestCipher.fromConfig();
+    this.integrationSecrets = new IntegrationSecretStore(this, atRestCipher);
+    this.gitlabInstances = new GitLabInstanceStore(this, this.rows, this.integrationSecrets);
+    this.jiraInstances = new JiraInstanceStore(this, this.rows, this.integrationSecrets);
     wireGitHostBuiltins();
   }
 
