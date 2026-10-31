@@ -145,10 +145,13 @@ export class LocalGit {
     try {
       await this.git([...base, "push", "-u", "origin", branch], opts);
       return "origin";
-    } catch (e: any) {
-      if (!repoUrl) throw new Error(`git push failed: ${e?.message ?? e}`);
+    } catch (e: unknown) {
+      if (!repoUrl) {
+        const msg = e instanceof Error ? e.message : String(e);
+        throw new Error(`git push failed: ${msg}`);
+      }
     }
-    let lastErr: any = null;
+    let lastErr: unknown = null;
     // retry once: local pre-push hooks (type checks) can flake, and a push that
     // got killed mid-hook may have actually landed — "Everything up-to-date" then
     // succeeds on the retry
@@ -158,12 +161,14 @@ export class LocalGit {
         // keep origin/<branch> in sync for later diffs
         await this.git([...base, "fetch", "origin", branch], opts).catch(() => {});
         return "https";
-      } catch (e: any) {
+      } catch (e: unknown) {
         lastErr = e;
       }
     }
+    const lastMsg =
+      lastErr instanceof Error ? lastErr.message : lastErr != null ? String(lastErr) : "unknown error";
     throw new Error(
-      `could not push branch ${branch} — check VPN/network access to the git host and your git credentials (${String(lastErr?.message ?? lastErr).slice(0, 300)})`
+      `could not push branch ${branch} — check VPN/network access to the git host and your git credentials (${lastMsg.slice(0, 300)})`
     );
   }
 

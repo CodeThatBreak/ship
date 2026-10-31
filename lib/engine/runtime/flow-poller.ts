@@ -1,6 +1,7 @@
 import "server-only";
 
 import { db } from "../../db";
+import { BranchRow, FlowRow, rows } from "../../db/rows";
 import { gitHostRegistry } from "../ports/git-host";
 import { flowEngine } from "../flow-engine";
 import { reconciler } from "./flow-reconciler";
@@ -87,17 +88,21 @@ export class FlowPoller {
     const activeFlowIds = new Set(
       db.all<{ id: string }>(`SELECT id FROM flows WHERE status='active'`).map((r) => r.id),
     );
-    const flows = db.all<any>(
-      `SELECT * FROM flows WHERE status='active' AND (mr_iid IS NOT NULL OR id IN (SELECT DISTINCT flow_id FROM branches WHERE mr_iid IS NOT NULL))`
+    const flows = rows.all(
+      FlowRow,
+      `SELECT * FROM flows WHERE status='active' AND (mr_iid IS NOT NULL OR id IN (SELECT DISTINCT flow_id FROM branches WHERE mr_iid IS NOT NULL))`,
     );
     for (const f of flows) {
       try {
         // Phase 3C: iterate over branches with MRs, then the flow-level MR
-        const branchMRs = db.all<any>(
-          `SELECT * FROM branches WHERE flow_id=? AND mr_iid IS NOT NULL`, f.id
+        const branchMRs = rows.all(
+          BranchRow,
+          `SELECT * FROM branches WHERE flow_id=? AND mr_iid IS NOT NULL`,
+          f.id,
         );
         if (branchMRs.length > 0) {
           for (const b of branchMRs) {
+            if (b.mr_iid == null) continue;
             await this.checkPipeline(f, b.mr_iid, b.name);
             await this.checkDiscussions(f, b.mr_iid, b.name);
           }
@@ -105,8 +110,9 @@ export class FlowPoller {
           await this.checkPipeline(f, f.mr_iid);
           await this.checkDiscussions(f, f.mr_iid);
         }
-      } catch (e: any) {
-        db.emitEvent(f.id, null, "error", `poll: ${e?.message ?? e}`);
+      } catch (e: unknown) {
+        const msg = e instanceof Error ? e.message : String(e);
+        db.emitEvent(f.id, null, "error", `poll: ${msg}`);
       }
     }
     this.pruneCommentCounts(activeFlowIds);
@@ -166,19 +172,19 @@ export class FlowPoller {
     }
   }
 
-  private async checkPipeline(f: any, mrIid: number, branchName?: string): Promise<void> {
+  private async checkPipeline(f: FlowRow, mrIid: number, branchName?: string): Promise<void> {
     const repoUrl = f.repo_url ?? "";
     const host = gitHostRegistry.forRepo(repoUrl);
     const cr = await host.getChangeRequest(repoUrl, mrIid).catch(() => null);
     const pipe = cr?.headPipeline;
     if (!pipe) return;
     const prev = branchName
-      ? db.get<any>(
+      ? db.get<{ data: string | null }>(
           `SELECT data FROM events WHERE flow_id=? AND type='pipeline' AND json_extract(data,'$.branchName')=? ORDER BY created_at DESC LIMIT 1`,
           f.id,
           branchName,
         )
-      : db.get<any>(
+      : db.get<{ data: string | null }>(
           `SELECT data FROM events WHERE flow_id=? AND type='pipeline' AND (json_extract(data,'$.branchName') IS NULL OR json_extract(data,'$.branchName')='') ORDER BY created_at DESC LIMIT 1`,
           f.id,
         );
@@ -208,7 +214,7 @@ export class FlowPoller {
     }
   }
 
-  private async checkDiscussions(f: any, mrIid: number, branchName?: string): Promise<void> {
+  private async checkDiscussions(f: FlowRow, mrIid: number, branchName?: string): Promise<void> {
     const repoUrl = f.repo_url ?? "";
     const comments = await gitHostRegistry
       .forRepo(repoUrl)
@@ -216,7 +222,7 @@ export class FlowPoller {
       .catch(() => null);
     if (!comments) return;
     const newOpen = flowEngine.ingestComments(f.id, comments, mrIid);
-    const openCount = db.get<any>(
+    const openCount = db.get<{ c: number }>(
       `SELECT COUNT(*) c FROM comments WHERE flow_id=? AND status='open' AND mr_iid=?`, f.id, mrIid
     )?.c ?? 0;
     if (newOpen > 0 && openCount > 0) {

@@ -530,21 +530,25 @@ export class StepFlowManager {
     const inFlight = states.filter((s) => s.isRunning || s.isAwaiting);
     let slots = maxParallel - inFlight.length;
     if (slots > 0) {
-      const unresolved = new Set(states.filter((o) => !o.isResolved).map((o) => o.childFlowId));
+      const unresolved = new Set(
+        states.flatMap((o) => (o.childFlowId != null && !o.isResolved ? [o.childFlowId] : [])),
+      );
       const queue = states
-        .filter((s) =>
-          s.childFlowId != null && // spawned…
-          s.childNodeStatus === null && // …but never run yet
+        .filter((s): s is typeof s & { childFlowId: string } =>
+          s.childFlowId != null &&
+          s.childNodeStatus === null &&
           s.step.status === "pending" &&
-          !this.claimedStarts.has(s.childFlowId!))
+          !this.claimedStarts.has(s.childFlowId))
         .sort((a, b) => a.step.position - b.step.position);
       for (const s of queue) {
         if (slots <= 0) break;
+        const childFlowId = s.childFlowId;
         // an earlier overlapping sibling still in flight ⇒ sequential
         const blocked =
           states.some((o) =>
-            o.childFlowId !== s.childFlowId &&
-            unresolved.has(o.childFlowId!) &&
+            o.childFlowId !== childFlowId &&
+            o.childFlowId != null &&
+            unresolved.has(o.childFlowId) &&
             o.step.position < s.step.position &&
             this.overlaps(o, s)) ||
           // a failed CODE child stalls its overlapping later neighbours;
@@ -556,9 +560,9 @@ export class StepFlowManager {
             o.step.position < s.step.position &&
             this.overlaps(o, s));
         if (blocked) continue;
-        this.claimedStarts.set(s.childFlowId!, now);
-        this.refreshSiblings(parentFlowId, nodeKey, s.childFlowId!, states);
-        this.e.startStepChild(s.childFlowId!); // fire-and-forget (engine bg) — keep filling free slots
+        this.claimedStarts.set(childFlowId, now);
+        this.refreshSiblings(parentFlowId, nodeKey, childFlowId, states);
+        this.e.startStepChild(childFlowId); // fire-and-forget (engine bg) — keep filling free slots
         slots--;
       }
     }
@@ -1177,7 +1181,9 @@ export class StepFlowManager {
     const all = planSteps.list(parentFlowId).filter((s) => s.sub_flow_id != null);
     const states: StepState[] = [];
     for (const step of all) {
-      const payload = this.childPayload(step.sub_flow_id!);
+      const childFlowId = step.sub_flow_id;
+      if (!childFlowId) continue;
+      const payload = this.childPayload(childFlowId);
       if (!payload || payload.parentNodeKey !== nodeKey) continue;
       states.push(this.stateOf(parentFlowId, step, payload));
     }    // cross-sibling pass: a code child awaiting its merge whose integration
@@ -1197,7 +1203,8 @@ export class StepFlowManager {
   }
 
   private stateOf(parentFlowId: string, step: PlanStepRow, payload: StepChildPayload): StepState {
-    const childFlowId = step.sub_flow_id!;
+    const childFlowId = step.sub_flow_id;
+    if (!childFlowId) throw new Error("stateOf requires a linked sub-flow");
     const childFlow = this.childFlowOf(childFlowId) ?? null;
     const workNodeKey = payload.workNodeKey ?? this.childWorkNodeKey(childFlowId);
     const nodes = db.all<{ node_key: string; type: string; status: string }>(

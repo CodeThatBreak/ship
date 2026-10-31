@@ -95,11 +95,12 @@ class BranchRefinement {
         return { ...s, id, branch: branchName };
       };
       const normalized = patch.upsertSteps.map(reId);
-      const pending = new Map(normalized.map(s => [s.id!, s] as const));
+      const pending = new Map(normalized.map((s) => [s.id, s] as const));
 
-      steps = steps.map(s => {
+      steps = steps.map((s) => {
         if (s.branch !== branchName || s.id == null || !pending.has(s.id)) return s;
-        const next = pending.get(s.id)!;
+        const next = pending.get(s.id);
+        if (!next) return s;
         pending.delete(s.id);
         return next;
       });

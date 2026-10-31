@@ -1,5 +1,6 @@
 import "server-only";
 
+import type { FlowData } from "@/types/flow";
 import { db } from "../db";
 import {
   ArtifactRow,
@@ -119,7 +120,7 @@ export class FlowEngine {
     this.bg(childFlowId, null, async () => this.start(childFlowId));
   }
 
-  get(id: string) {
+  get(id: string): FlowData | null {
     return this.readModel.get(id);
   }
 

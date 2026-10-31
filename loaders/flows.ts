@@ -18,7 +18,7 @@ import { flowSummaries, type FlowSummary } from "@/types/flows";
  * exist — the caller maps that to 404.
  */
 export const getFlowCockpitData = (id: string): FlowData | null => {
-  return flowEngine.get(id) as unknown as FlowData | null;
+  return flowEngine.get(id);
 };
 
 /**

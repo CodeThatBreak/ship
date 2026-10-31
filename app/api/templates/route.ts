@@ -1,9 +1,15 @@
-import { toErrorResponse } from "@/lib/errors";
 import { NextResponse } from "next/server";
+import { z } from "zod";
 import { templateStore } from "../../../lib/engine/templates/template-store";
+import { toErrorResponse } from "@/lib/errors";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
+
+const createTemplateBody = z.object({
+  name: z.string().optional(),
+  description: z.string().nullable().optional(),
+});
 
 /** The template gallery. */
 export async function GET() {
@@ -14,11 +20,13 @@ export async function GET() {
  *  entry: it carries the branch trigger and finishes immediately); nodes and
  *  edges are shaped in the editor. */
 export async function POST(req: Request) {
-  const { name, description } = await req.json().catch(() => ({}) as never);
+  const raw: unknown = await req.json().catch(() => null);
+  const parsed = createTemplateBody.safeParse(raw ?? {});
+  const body = parsed.success ? parsed.data : {};
   try {
     const id = templateStore.create({
-      name: typeof name === "string" && name.trim() ? name : undefined,
-      description: typeof description === "string" ? description : null,
+      name: typeof body.name === "string" && body.name.trim() ? body.name : undefined,
+      description: typeof body.description === "string" ? body.description : null,
       nodes: [{
         key: "start",
         nodeTemplateId: "nt_start",

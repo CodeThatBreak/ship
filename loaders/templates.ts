@@ -18,7 +18,7 @@ import type {
   TemplateCatalogDetail,
   TemplateEditorDetail,
 } from "@/types/template-editor";
-import type { NodeRow, TemplateRow } from "@/components/templates";
+import type { NodeRow, TemplateRow } from "@/types/templates";
 
 /** Registered task providers — the same serialization GET /api/tasks/providers does. */
 function registeredProviders(): EditorTaskProvider[] {

@@ -15,7 +15,7 @@ Each finding was re-verified against `refactor/prompt-engine-inconsistency-fix` 
 
 ### CR-182 [Low] `any` types in poller, groupEvents, steps, the Jira provider and the SSRF guard
 
-- **Status:** Open
+- **Status:** Fixed
 - **Type:** Code quality
 - **Effort:** M
 - **Where:** lib/engine/runtime/flow-poller.ts:50,56,68,106,112,142,150; lib/groupEvents.ts:22,67,288; lib/engine/runtime/plan-step-store.ts:303; lib/engine/tasks/providers/jira.ts:207,239,279,286; lib/net/ssrf-guard.ts:149
@@ -23,7 +23,7 @@ Each finding was re-verified against `refactor/prompt-engine-inconsistency-fix` 
 
 ### CR-183 [Low] Non-null `!` assertions on data that may be missing
 
-- **Status:** Open
+- **Status:** Fixed
 - **Type:** Code quality
 - **Effort:** S
 - **Where:** lib/engine/flow-engine.ts:455,1006; lib/engine/runtime/fanout/step-flow-manager.ts:518,526,538-540,1104,1124; lib/engine/templates/template-store.ts:416,608,700,721,793,815; lib/engine/runtime/hook-store.ts:104; lib/engine/runtime/plan-step-store.ts:73,214; lib/engine/templates/template-lint.ts:195,286
@@ -31,7 +31,7 @@ Each finding was re-verified against `refactor/prompt-engine-inconsistency-fix` 
 
 ### CR-202 [Low] `any`, non-null `!` and unsafe casts in the nodes area
 
-- **Status:** Partly fixed
+- **Status:** Fixed
 - **Type:** Code quality
 - **Effort:** S
 - **Where:** lib/engine/harness/agent-runner.ts:118; lib/engine/nodes/kinds/merge-request/merge-request-service.ts:76-77; lib/engine/nodes/kinds/plan/plan-contract.ts:141,144,172; lib/engine/nodes/kinds/plan/branch-refinement.ts:96
@@ -40,7 +40,7 @@ Each finding was re-verified against `refactor/prompt-engine-inconsistency-fix` 
 
 ### CR-213 [Low] `any` and non-null `!` in area code
 
-- **Status:** Open
+- **Status:** Fixed
 - **Type:** Code quality
 - **Effort:** M
 - **Where:** lib/db/index.ts:75,480-481,525,548,568,858,862,866,897,913,919,973,985; lib/git/local.ts:152,155,165; lib/integrations/gitlab/client.ts:75,317,319; lib/integrations/gitlab/git-host.ts:103,155,251; lib/integrations/jira/service.ts:88,90
@@ -49,7 +49,7 @@ Each finding was re-verified against `refactor/prompt-engine-inconsistency-fix` 
 
 ### CR-173 [Low] Type escape hatches: double casts, an unchecked downcast, and type imports from a component barrel
 
-- **Status:** Open
+- **Status:** Fixed
 - **Type:** Code quality
 - **Effort:** S
 - **Where:** loaders/flows.ts:31; app/api/contracts/route.ts:136-142,156; lib/engine/prompts/prompt-preview.ts:92; app/api/templates/route.ts:15; loaders/templates.ts:21; app/api/tasks/live/route.ts:23
@@ -58,8 +58,8 @@ Each finding was re-verified against `refactor/prompt-engine-inconsistency-fix` 
 
 ## Done when
 
-- [ ] Every finding above is fixed, or a remaining part is written up in the PR description.
-- [ ] Each bug fix has a regression test (Vitest for `lib/`; at least a hook or utility test for UI where practical).
-- [ ] Code follows [`docs/coding-patterns.md`](../coding-patterns.md).
-- [ ] `npm run typecheck`, `npm run lint`, `npm test` and `npm run build` pass (before Task 02 lands, `npx tsc --noEmit` instead of `typecheck`).
-- [ ] The status of each finding in [`docs/code-review.md`](../code-review.md) is updated (Fixed, with the PR link).
+- [x] Every finding above is fixed, or a remaining part is written up in the PR description.
+- [x] Each bug fix has a regression test (Vitest for `lib/`; at least a hook or utility test for UI where practical).
+- [x] Code follows [`docs/coding-patterns.md`](../coding-patterns.md).
+- [x] `npm run typecheck`, `npm run lint`, `npm test` and `npm run build` pass (before Task 02 lands, `npx tsc --noEmit` instead of `typecheck`).
+- [x] The status of each finding in [`docs/code-review.md`](../code-review.md) is updated (Fixed, with the PR link).

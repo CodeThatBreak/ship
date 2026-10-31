@@ -30,4 +30,26 @@ describe("GitLabHostService", () => {
       "https://gitlab.example.com/group/repo.git",
     );
   });
+
+  it("parseWebhook maps a GitLab note payload to a CR comment event", () => {
+    const event = service.parseWebhook({
+      object_kind: "note",
+      project: { id: 42, web_url: "https://gitlab.example.com/group/repo" },
+      merge_request: { iid: 7 },
+      object_attributes: {
+        id: 99,
+        note: "please fix",
+        type: "DiffNote",
+        discussion_id: "disc_1",
+        created_at: "2026-01-01T00:00:00.000Z",
+        position: { new_path: "a.ts", new_line: 10 },
+      },
+      user: { username: "dev" },
+    });
+    expect(event?.kind).toBe("cr_comment");
+    if (event?.kind === "cr_comment") {
+      expect(event.crNumber).toBe(7);
+      expect(event.comment.body).toBe("please fix");
+    }
+  });
 });

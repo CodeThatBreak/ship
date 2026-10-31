@@ -11,6 +11,7 @@ import {
   Task,
   rows,
 } from "../../db/rows";
+import type { Artifact, FlowData, Node as FlowNode } from "@/types/flow";
 import { declarativeDef } from "../nodes/declarative";
 import { nodeRegistry } from "../nodes/registry";
 import { uiCapabilities } from "../nodes/shared/capabilities";
@@ -42,14 +43,36 @@ const buildNodeTemplateIndex = (ntRows: NodeTemplateRow[]) => {
   return (type: string) => byId.get(type) ?? byBuiltinKey.get(type) ?? null;
 };
 
+const toFlowTask = (task: Task): FlowData["task"] => ({
+  key: task.key,
+  summary: task.summary,
+  status: task.status ?? "",
+  issueType: task.issueType ?? "",
+  priority: task.priority ?? "",
+  prdText: task.prdText,
+  figmaUrls: task.figmaUrls,
+  externalUrl: task.externalUrl ?? "",
+});
+
+const toFlowArtifact = (art: ArtifactRow): Artifact => ({
+  id: art.id,
+  kind: art.kind,
+  version: art.version,
+  status: art.status,
+  created_at: art.created_at,
+  feedback: art.feedback ?? undefined,
+  meta: art.meta ?? undefined,
+});
+
 /** Flow list/detail read model — batched SQL, artifact bodies lazy-loaded via GET /api/artifacts/:id. */
 export class FlowReadModel {
   constructor(private readonly schedule: FlowReadScheduleHost) {}
 
-  get(id: string) {
+  get(id: string): FlowData | null {
     const flow = rows.get(FlowRow, `SELECT * FROM flows WHERE id=?`, id);
     if (!flow) return null;
     const task = rows.get(Task, `SELECT * FROM tasks WHERE id=?`, flow.task_id);
+    if (!task) return null;
 
     const runs = rows.all(RunRow,
       `SELECT * FROM runs WHERE flow_id=? ORDER BY created_at, id`, id);
@@ -157,26 +180,57 @@ export class FlowReadModel {
     }
 
     return {
-      ...flow,
+      id: flow.id,
+      name: flow.name,
+      status: flow.status,
+      current_node: flow.current_node ?? undefined,
+      mr_url: flow.mr_url ?? undefined,
+      mr_iid: flow.mr_iid ?? undefined,
+      mr_branch: flow.mr_branch ?? undefined,
+      repo_url: flow.repo_url ?? undefined,
+      execution_mode: flow.execution_mode ?? undefined,
       cost: flowCost,
-      branches,
+      branches: branches.map((b) => ({
+        id: b.id,
+        flow_id: b.flow_id,
+        name: b.name,
+        title: b.title ?? undefined,
+        status: b.status,
+        mr_url: b.mr_url ?? undefined,
+        mr_iid: b.mr_iid ?? undefined,
+        order: b.order,
+      })),
       planSteps: stepsEnriched,
       resolveScheduleAt: this.schedule.resolveScheduleAt(id),
-      task: task ?? null,
-      hooks: hookStore.hooksForFlow(id),
-      nodes: nodeRows.map((n) => {
+      task: toFlowTask(task),
+      hooks: hookStore.hooksForFlow(id).flatMap((h) =>
+        h.flow_id == null
+          ? []
+          : [{ id: h.id, flow_id: h.flow_id, node_key: h.node_key, secret: h.secret, filter: h.filter }],
+      ),
+      nodes: nodeRows.map((n): FlowNode => {
         const nt = ntOf(n.type);
         const def = nodeRegistry.maybe(n.type)
           ?? (nt?.is_builtin ? nodeRegistry.maybe(nt.key) : undefined)
           ?? declarativeDef(n.type, n.node_key);
+        const cost = nodeCosts.get(n.id) ?? { totalCents: 0, tokens: 0, runs: [] };
         return {
-          ...n,
+          id: n.id,
+          node_key: n.node_key,
+          type: n.type,
+          status: n.status,
+          agent_id: n.agent_id,
+          label: n.label,
+          template_name: nt?.name ?? null,
           kind: nt?.kind ?? null,
           icon: nt?.icon ?? null,
-          template_name: nt?.name ?? null,
+          config: n.config,
           capabilities: uiCapabilities(def?.capabilities),
-          cost: nodeCosts.get(n.id) ?? { totalCents: 0, tokens: 0, runs: [] },
-          artifacts: artifactsByNodeId.get(n.id) ?? [],
+          join_mode: n.join_mode,
+          input: n.input,
+          output: n.output,
+          artifacts: (artifactsByNodeId.get(n.id) ?? []).map(toFlowArtifact),
+          cost,
         };
       }),
     };

@@ -4,6 +4,7 @@ import { taskRegistry } from "../../../../lib/engine/tasks/registry";
 import type {
   LiveTask,
   LiveTaskFilters,
+  ResolvedLiveTaskFilters,
 } from "../../../../lib/engine/tasks/task-provider";
 
 export const dynamic = "force-dynamic";
@@ -21,7 +22,7 @@ export const runtime = "nodejs";
 const CACHE_TTL_MS = 60_000;
 const cache = new TtlCache<LiveTask[]>(CACHE_TTL_MS);
 
-function cacheKey(kind: string, f: Required<Omit<LiveTaskFilters, never>>): string {
+function cacheKey(kind: string, f: ResolvedLiveTaskFilters): string {
   return [kind, f.assignee, f.statusCategory, f.text.toLowerCase()].join("|");
 }
 

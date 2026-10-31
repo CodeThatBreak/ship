@@ -427,17 +427,17 @@ export class TemplateStore {
    * (structural template edits are blocked while flows are active).
    */
   update(templateId: string, patch: Partial<TemplateInput>): void {
-    if (!this.flowTemplate(templateId)) throw new NotFoundError("template", templateId);
+    const tpl = this.flowTemplate(templateId);
+    if (!tpl) throw new NotFoundError("template", templateId);
     this.assertEditable(templateId);
     if (patch.name !== undefined || patch.description !== undefined || patch.trigger !== undefined) {
-      const cur = this.flowTemplate(templateId)!;
       db.run(
         `UPDATE flow_templates SET name=?, description=?, trigger=?, updated_at=? WHERE id=?`,
-        patch.name?.trim() || cur.name,
-        patch.description !== undefined ? patch.description : cur.description,
+        patch.name?.trim() || tpl.name,
+        patch.description !== undefined ? patch.description : tpl.description,
         patch.trigger !== undefined
           ? JSON.stringify(TemplateStore.flowTrigger(patch.trigger))
-          : cur.trigger,
+          : tpl.trigger,
         db.now(), templateId
       );
     }
@@ -693,7 +693,13 @@ export class TemplateStore {
       id, key, name, kind, input.description ?? null, input.icon ?? null,
       JSON.stringify(config), opts.templateId ?? null, ts, ts
     );
-    return this.nodeTemplate(id)!;
+    return this.requireNodeTemplate(id);
+  }
+
+  private requireNodeTemplate(id: string): NodeTemplateRow {
+    const row = this.nodeTemplate(id);
+    if (!row) throw new NotFoundError("node template", id);
+    return row;
   }
 
   /**
@@ -785,7 +791,7 @@ export class TemplateStore {
       `UPDATE node_templates SET template_id=NULL, key=?, updated_at=? WHERE id=?`,
       key, db.now(), id
     );
-    return this.nodeTemplate(id)!;
+    return this.requireNodeTemplate(id);
   }
 
   /** Update a declarative node template (never built-ins). */
@@ -806,7 +812,7 @@ export class TemplateStore {
       config,
       db.now(), id
     );
-    return this.nodeTemplate(id)!;
+    return this.requireNodeTemplate(id);
   }
 
   /**

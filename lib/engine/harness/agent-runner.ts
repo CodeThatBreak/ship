@@ -135,7 +135,8 @@ export class AgentRunner {
     const { agentId, runId } = await start();
     try {
       this.support.persistRun(flow.id, nodeId, agentId, runId);
-      const runRowId = db.get<{ id: string }>(`SELECT id FROM runs WHERE run_ref=?`, runId)?.id as string;
+      const runRowId = db.get<{ id: string }>(`SELECT id FROM runs WHERE run_ref=?`, runId)?.id;
+      if (!runRowId) throw new Error(`run row missing after persist for ${runId}`);
     const attemptAtStart =
       options?.attemptId
       ?? db.get<{ attempt_id: string | null }>(`SELECT attempt_id FROM nodes WHERE id=?`, nodeId)?.attempt_id;

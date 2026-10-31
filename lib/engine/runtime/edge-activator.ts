@@ -106,7 +106,8 @@ export class EdgeActivator {
     const queue = [key];
     const seen = new Set(queue);
     while (queue.length) {
-      const k = queue.shift()!;
+      const k = queue.shift();
+      if (k === undefined) break;
       const st = this.host.nodeStatus(flowId, k);
       if (this.statusLoopResettable(st)) {
         this.host.setNodeStatus(flowId, k, "pending");

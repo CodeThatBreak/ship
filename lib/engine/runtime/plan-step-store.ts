@@ -72,7 +72,11 @@ export class PlanStepStore {
       `SELECT * FROM plan_steps WHERE flow_id=? AND origin='agent'`,
       flowId
     );
-    const byMetaId = new Map(existingAgent.filter((s) => s.meta_id).map((s) => [s.meta_id!, s]));
+    const byMetaId = new Map(
+      existingAgent
+        .filter((s): s is PlanStepRow & { meta_id: string } => s.meta_id != null)
+        .map((s) => [s.meta_id, s]),
+    );
     const seen = new Set<string>();
     const ts = db.now();
     let maxPos =
@@ -226,7 +230,11 @@ export class PlanStepStore {
     // fan-out guard: rows whose child sub-flow started/merged are rebuilt with
     // their linkage intact (status/completed_by/sub_flow_id survive the refine)
     const guard = this.deletableGuard(flowId);
-    const stateByMetaId = new Map(existing.filter((s) => s.meta_id).map((s) => [s.meta_id!, s]));
+    const stateByMetaId = new Map(
+      existing
+        .filter((s): s is PlanStepRow & { meta_id: string } => s.meta_id != null)
+        .map((s) => [s.meta_id, s]),
+    );
     const firstPos = existing.length ? existing[0].position : 0;
     db.transaction(() => {
       db.run(
@@ -315,7 +323,7 @@ export class PlanStepStore {
     try {
       const parsed = JSON.parse(m[1]);
       if (!Array.isArray(parsed?.completed)) return [];
-      return parsed.completed.filter((x: any) => typeof x === "string");
+      return parsed.completed.filter((x: unknown) => typeof x === "string");
     } catch {
       return [];
     }

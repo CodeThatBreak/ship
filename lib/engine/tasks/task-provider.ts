@@ -42,6 +42,13 @@ export interface LiveTaskFilters {
   text?: string;
 }
 
+/** Normalized filter tuple used as the live-fetch cache key. */
+export type ResolvedLiveTaskFilters = {
+  assignee: NonNullable<LiveTaskFilters["assignee"]>;
+  statusCategory: string;
+  text: string;
+};
+
 /**
  * One field a task type contributes to the `{{task.*}}` variable universe.
  *

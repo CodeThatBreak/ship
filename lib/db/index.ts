@@ -6,6 +6,7 @@ import path from "path";
 import { z } from "zod";
 import { config } from "../config";
 import { processSingleton } from "../singleton";
+import { NotFoundError } from "../errors";
 import { DatabaseMigrationError } from "./database-migration-error";
 import { getRowGateway } from "./row-gateway-access";
 import { EventRow, MessageRow, RepoRow, type Repo } from "./rows";
@@ -435,15 +436,15 @@ export class Database {
   }
 
   // ── typed row helpers ────────────────────────────────────────────────────
-  get<T = any>(sql: string, ...args: any[]): T | undefined {
+  get<T = unknown>(sql: string, ...args: unknown[]): T | undefined {
     return this.connection().prepare(sql).get(...args) as T | undefined;
   }
 
-  all<T = any>(sql: string, ...args: any[]): T[] {
+  all<T = unknown>(sql: string, ...args: unknown[]): T[] {
     return this.connection().prepare(sql).all(...args) as T[];
   }
 
-  run(sql: string, ...args: any[]) {
+  run(sql: string, ...args: unknown[]) {
     return this.connection().prepare(sql).run(...args);
   }
 
@@ -497,7 +498,7 @@ export class Database {
     nodeId: string | null,
     type: string,
     message: string,
-    data?: any
+    data?: Record<string, unknown>
   ): void {
     this.run(
       `INSERT INTO events (id, flow_id, node_id, type, message, data, created_at)
@@ -526,7 +527,7 @@ export class Database {
     return result.success ? result.data : fallback;
   }
 
-  setSetting(key: string, value: any): void {
+  setSetting(key: string, value: unknown): void {
     this.run(
       `INSERT INTO settings (key,value) VALUES (?,?)
        ON CONFLICT(key) DO UPDATE SET value=excluded.value`,
@@ -571,7 +572,7 @@ export class Database {
     const ts = this.now();
     const cloudUrl = this.normalizeRepoUrl(input.cloud_url);
     if (input.id) {
-      this.run(
+      const changes = this.run(
         `UPDATE repos SET name=?, cloud_url=?, local_path=?, default_branch=?,
          install_command=?, skip_install=?, sync_paths=?, shared_dirs=?, setup_command=?, worktree_timeout_ms=?, updated_at=? WHERE id=?`,
         input.name, cloudUrl, input.local_path ?? null, input.default_branch ?? "main",
@@ -579,8 +580,11 @@ export class Database {
         input.sync_paths ?? null, input.shared_dirs ?? null, input.setup_command ?? null,
         input.worktree_timeout_ms ?? null,
         ts, input.id
-      );
-      return this.repoById(input.id)!;
+      ).changes;
+      if (changes === 0) throw new NotFoundError("repo", input.id);
+      const repo = this.repoById(input.id);
+      if (!repo) throw new NotFoundError("repo", input.id);
+      return repo;
     }
     const id = this.uid("repo_");
     this.run(
@@ -592,7 +596,9 @@ export class Database {
       input.worktree_timeout_ms ?? null,
       ts, ts
     );
-    return this.repoById(id)!;
+    const repo = this.repoById(id);
+    if (!repo) throw new NotFoundError("repo", id);
+    return repo;
   }
 
   deleteRepo(id: string): void {

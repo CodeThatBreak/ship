@@ -164,16 +164,18 @@ export class NodeSupport {
     return { id, version };
   }
 
-  persistRun(flowId: string, nodeId: string, agentId: string, runId: string): void {
+  persistRun(flowId: string, nodeId: string, agentId: string, runId: string): string {
     // close out any prior `running` rows for this node — they're stale (their
     // process died with a previous server/run) and would otherwise be picked up
     // as the "latest running run" by reconcile, clobbering this fresh run
     db.run(`UPDATE runs SET status=?, updated_at=? WHERE node_id=? AND status=?`, RUN_STATUS.ERROR, db.now(), nodeId, RUN_STATUS.RUNNING);
+    const id = db.uid("run_");
     db.run(
       `INSERT INTO runs (id,flow_id,node_id,agent_ref,run_ref,status,created_at,updated_at)
        VALUES (?,?,?,?,?,?,?,?)`,
-      db.uid("run_"), flowId, nodeId, agentId, runId, RUN_STATUS.RUNNING, db.now(), db.now()
+      id, flowId, nodeId, agentId, runId, RUN_STATUS.RUNNING, db.now(), db.now()
     );
+    return id;
   }
 
   lastAgentId(nodeId: string): string | null {

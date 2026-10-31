@@ -146,7 +146,7 @@ function request(
         },
         servername: url.protocol === "https:" ? url.hostname : undefined,
         lookup: (_host: unknown, _opts: unknown,
-          cb: (err: NodeJS.ErrnoException | null, addr: any, family: number) => void) =>
+          cb: (err: NodeJS.ErrnoException | null, address: string, family: number) => void) =>
           cb(null, pinned.address, pinned.family),
       },
       (res) => {

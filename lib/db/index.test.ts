@@ -116,6 +116,33 @@ describe("Database bootstrap", () => {
     expect(db.listEventsTail("flw_ev", 1).map((r) => r.id)).toEqual(["ev_b"]);
   });
 
+  it("upsertRepo throws NotFoundError when updating a missing repo id", async () => {
+    const dbPath = mkDbPath();
+    process.env.DATABASE_PATH = dbPath;
+    const { db } = await import("./index");
+    db.connection();
+    expect(() =>
+      db.upsertRepo({
+        id: "repo_missing",
+        name: "n",
+        cloud_url: "https://gitlab.example.com/group/repo",
+      }),
+    ).toThrow(/repo repo_missing not found/);
+  });
+
+  it("upsertRepo returns the inserted repo row", async () => {
+    const dbPath = mkDbPath();
+    process.env.DATABASE_PATH = dbPath;
+    const { db } = await import("./index");
+    db.connection();
+    const repo = db.upsertRepo({
+      name: "demo",
+      cloud_url: "https://gitlab.example.com/group/demo",
+    });
+    expect(repo.id).toMatch(/^repo_/);
+    expect(repo.name).toBe("demo");
+  });
+
   it("addMessage stores messages.thread from the canonical schema", async () => {
     const dbPath = mkDbPath();
     process.env.DATABASE_PATH = dbPath;

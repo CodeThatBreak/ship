@@ -225,7 +225,8 @@ export function lintTemplate(
       .map((n) => n.key);
     for (const k of queue) seen.add(k);
     while (queue.length) {
-      const k = queue.shift()!;
+      const k = queue.shift();
+      if (k === undefined) break;
       for (const e of edges) {
         if (e.kind !== "next" || e.from !== k || seen.has(e.to)) continue;
         seen.add(e.to);
@@ -326,7 +327,11 @@ export function lintTemplate(
         ? null
         : parentContracts.some((c) => !c || c.fields == null)
           ? null
-          : Array.from(new Set(parentContracts.flatMap((c) => c!.fields ?? [])));
+          : Array.from(
+              new Set(
+                parentContracts.flatMap((c) => (c?.fields != null ? c.fields : [])),
+              ),
+            );
       // the node's input_map overlays the inherited merge at run time
       // (evalInputMap) — its field names join the effective input contract,
       // so `{{input.<mapped>}}` refs lint against them too. The same

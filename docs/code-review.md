@@ -4702,9 +4702,7 @@ Original findings, verbatim:
 
 ### CR-173 [Low] Type escape hatches: double casts, an unchecked downcast, and type imports from a component barrel
 
-- **Status at `abaa007`:** **Open**, fix in [Task 46](review-tasks/46-backend-types-cleanup.md)
-- **Current location:** loaders/flows.ts:31; app/api/contracts/route.ts:136-142,156; lib/engine/prompts/prompt-preview.ts:92; app/api/templates/route.ts:15; loaders/templates.ts:21; app/api/tasks/live/route.ts:23
-- **Re-verification note:** Every escape hatch is still there. The `as unknown as FlowData` cast and the double structural cast in contracts are unchanged. The unchecked plan-def downcast moved from the prompt route into `PromptPreview` (`as unknown as SubPlanPreviewer`). The `({}) as never` catch, the loader's `NodeRow`/`TemplateRow` import from `@/components/templates`, and the no-op `Omit<…, never>` are all unchanged. Fixes: give `flowEngine.get` a declared return type, expose a typed `DeclarativeNode` interface, replace the downcast with a capability or `instanceof` guard, parse request bodies with Zod, and move the row types to `types/`.
+- **Status at `abaa007`:** **Fixed** in [Task 46](review-tasks/46-backend-types-cleanup.md) — typed `flowEngine.get`, contracts use `instanceof NodeDefinition`, template POST uses Zod, gallery row types live in `types/templates.ts`, live-task cache key uses `ResolvedLiveTaskFilters`.
 
 - **Severity:** Low
 - **Category:** Code quality
@@ -4901,9 +4899,7 @@ Original findings, verbatim:
 
 ### CR-182 [Low] `any` types in poller, groupEvents, steps, the Jira provider and the SSRF guard
 
-- **Status at `abaa007`:** **Open**, fix in [Task 46](review-tasks/46-backend-types-cleanup.md)
-- **Current location:** lib/engine/runtime/flow-poller.ts:50,56,68,106,112,142,150; lib/groupEvents.ts:22,67,288; lib/engine/runtime/plan-step-store.ts:303; lib/engine/tasks/providers/jira.ts:207,239,279,286; lib/net/ssrf-guard.ts:149
-- **Re-verification note:** Every cited `any` is still present at the moved paths. They currently show up only as lint warnings, because `lib/` is downgraded to warn. Use the `rows.all(FlowRow/BranchRow, …)` mappers in the poller, a Zod schema for Jira responses, `unknown` plus narrowing in groupEvents and plan-step-store, and the `dns.LookupAddress` callback type in the SSRF lookup.
+- **Status at `abaa007`:** **Fixed** in [Task 46](review-tasks/46-backend-types-cleanup.md) — poller uses `rows`/`FlowRow`/`BranchRow`; `groupEvents` and plan-step-store use `unknown` narrowing; SSRF lookup is typed.
 
 - **Severity:** Low
 - **Category:** Code quality
@@ -4922,9 +4918,7 @@ Original findings, verbatim:
 
 ### CR-183 [Low] Non-null `!` assertions on data that may be missing
 
-- **Status at `abaa007`:** **Open**, fix in [Task 46](review-tasks/46-backend-types-cleanup.md)
-- **Current location:** lib/engine/flow-engine.ts:455,1006; lib/engine/runtime/fanout/step-flow-manager.ts:518,526,538-540,1104,1124; lib/engine/templates/template-store.ts:416,608,700,721,793,815; lib/engine/runtime/hook-store.ts:104; lib/engine/runtime/plan-step-store.ts:73,214; lib/engine/templates/template-lint.ts:195,286
-- **Re-verification note:** Non-null assertions after DB reads and filters are still there (`this.nodeTemplate(id)!`, `this.flowTemplate(templateId)!`, `hookForNode(...)!`, `s.childFlowId!`, and others). Narrow with type-guard filters, reuse values already read (the loop at template-store.ts:793/815 re-reads `nt`), and throw a typed `NotFoundError` after DB reads.
+- **Status at `abaa007`:** **Fixed** in [Task 46](review-tasks/46-backend-types-cleanup.md) — `NotFoundError`/`requireNodeTemplate` after reads; type-guard filters for fan-out and plan steps; no `queue.shift()!`.
 
 - **Severity:** Low
 - **Category:** Code quality
@@ -5370,9 +5364,7 @@ Original findings, verbatim:
 
 ### CR-202 [Low] `any`, non-null `!` and unsafe casts in the nodes area
 
-- **Status at `abaa007`:** **Partly fixed**, fix in [Task 46](review-tasks/46-backend-types-cleanup.md)
-- **Current location:** lib/engine/harness/agent-runner.ts:118; lib/engine/nodes/kinds/merge-request/merge-request-service.ts:76-77; lib/engine/nodes/kinds/plan/plan-contract.ts:141,144,172; lib/engine/nodes/kinds/plan/branch-refinement.ts:96
-- **Re-verification note:** Fixed: the registry no longer uses `NodeDefinition<any, any>`, and the unconstrained `generatePlan` cast is gone. Still open: `runRowId … ?.id as string` still hides a missing run row (have `persistRun` return the id), `catch (e: any)` remains in merge-request-service, and new `!` assertions (`envelope.subPlan!`, `envelope.plan!`, `s.id!`) need explicit guards.
+- **Status at `abaa007`:** **Fixed** in [Task 46](review-tasks/46-backend-types-cleanup.md) — `persistRun` returns the row id; merge-request push uses `unknown`; plan apply paths guard envelope fields.
 
 - **Severity:** Low
 - **Category:** Code quality
@@ -5619,9 +5611,7 @@ Original findings, verbatim:
 
 ### CR-213 [Low] `any` and non-null `!` in area code
 
-- **Status at `abaa007`:** **Open**, fix in [Task 46](review-tasks/46-backend-types-cleanup.md)
-- **Current location:** lib/db/index.ts:75,480-481,525,548,568,858,862,866,897,913,919,973,985; lib/git/local.ts:152,155,165; lib/integrations/gitlab/client.ts:75,317,319; lib/integrations/gitlab/git-host.ts:103,155,251; lib/integrations/jira/service.ts:88,90
-- **Re-verification note:** The `get<T = any>`/`all<T = any>`/`run(...args: any[])`/`emitEvent(data?: any)`/`getSetting<T = any>`/`setSetting(value: any)` defaults remain. `upsertRepo` still returns `this.repoById(...)!`, and `parseWebhook` still treats the body as `any` with no Zod validation. Fix: default the generics to `unknown`, throw a typed `RepoNotFoundError`, add Zod schemas for the webhook payloads, and use `catch (e: unknown)`.
+- **Status at `abaa007`:** **Fixed** in [Task 46](review-tasks/46-backend-types-cleanup.md) — `db.get`/`all`/`run` default to `unknown`; `upsertRepo` throws `NotFoundError`; GitLab webhooks validated with Zod; git push errors use `unknown`.
 
 - **Severity:** Low
 - **Category:** Code quality
@@ -7448,7 +7438,7 @@ One row per finding, at `abaa007`.
 | CR-170 | Low | Infra | Open | [Task 03](review-tasks/03-lint-rule-hardening.md) |
 | CR-171 | Low | Bug | Open | [Task 34](review-tasks/34-db-row-safety.md) |
 | CR-172 | Low | Bug | Open | [Task 47](review-tasks/47-thin-routes-and-services.md) |
-| CR-173 | Low | Code quality | Open | [Task 46](review-tasks/46-backend-types-cleanup.md) |
+| CR-173 | Low | Code quality | Fixed | [Task 46](review-tasks/46-backend-types-cleanup.md) |
 | CR-174 | Low | Code quality | Open | [Task 52](review-tasks/52-shared-ui-components.md) |
 | CR-175 | Low | Code quality | Open | [Task 47](review-tasks/47-thin-routes-and-services.md) |
 | CR-176 | Low | Bug | Open | [Task 58](review-tasks/58-security-webhook-auth.md) |
@@ -7457,8 +7447,8 @@ One row per finding, at `abaa007`.
 | CR-179 | Low | Code quality | Open | [Task 47](review-tasks/47-thin-routes-and-services.md) |
 | CR-180 | Low | Code quality | Open | [Task 44](review-tasks/44-engine-stores-and-constants.md) |
 | CR-181 | Low | Code quality | Partly fixed | [Task 44](review-tasks/44-engine-stores-and-constants.md) |
-| CR-182 | Low | Code quality | Open | [Task 46](review-tasks/46-backend-types-cleanup.md) |
-| CR-183 | Low | Code quality | Open | [Task 46](review-tasks/46-backend-types-cleanup.md) |
+| CR-182 | Low | Code quality | Fixed | [Task 46](review-tasks/46-backend-types-cleanup.md) |
+| CR-183 | Low | Code quality | Fixed | [Task 46](review-tasks/46-backend-types-cleanup.md) |
 | CR-184 | Low | Code quality | Open | [Task 44](review-tasks/44-engine-stores-and-constants.md) |
 | CR-185 | Low | Performance | Fixed | [Task 45](review-tasks/45-flow-engine-decomposition.md) |
 | CR-186 | Low | Code quality | Open | [Task 50](review-tasks/50-small-module-cleanups.md) |
@@ -7477,7 +7467,7 @@ One row per finding, at `abaa007`.
 | CR-199 | Low | Security | Open | [Task 60](review-tasks/60-security-process-and-network-isolation.md) |
 | CR-200 | Low | Bug | Fixed | [Task 26](review-tasks/26-node-config-validation.md) |
 | CR-201 | Low | Code quality | Partly fixed | [Task 44](review-tasks/44-engine-stores-and-constants.md) |
-| CR-202 | Low | Code quality | Partly fixed | [Task 46](review-tasks/46-backend-types-cleanup.md) |
+| CR-202 | Low | Code quality | Fixed | [Task 46](review-tasks/46-backend-types-cleanup.md) |
 | CR-203 | Low | Bug | Fixed | [Task 18](review-tasks/18-terminal-outcome-writer.md) |
 | CR-204 | Low | Code quality | Fixed | — |
 | CR-205 | Low | Bug | Open | [Task 16](review-tasks/16-run-lifecycle-late-writes.md) |
@@ -7488,7 +7478,7 @@ One row per finding, at `abaa007`.
 | CR-210 | Low | Infra | Fixed (Task 08) | [Task 08](review-tasks/08-db-bootstrap-and-schema.md) |
 | CR-211 | Low | Bug | Fixed (Task 08) | [Task 08](review-tasks/08-db-bootstrap-and-schema.md) |
 | CR-212 | Low | Performance | Fixed (Task 08) | [Task 08](review-tasks/08-db-bootstrap-and-schema.md) |
-| CR-213 | Low | Code quality | Open | [Task 46](review-tasks/46-backend-types-cleanup.md) |
+| CR-213 | Low | Code quality | Fixed | [Task 46](review-tasks/46-backend-types-cleanup.md) |
 | CR-214 | Low | Code quality | Fixed (Task 33) | [Task 33](review-tasks/33-git-and-worktree-process-safety.md) |
 | CR-215 | Low | Code quality | Fixed (Task 33) | [Task 33](review-tasks/33-git-and-worktree-process-safety.md) |
 | CR-216 | Low | Code quality | Open | [Task 50](review-tasks/50-small-module-cleanups.md) |

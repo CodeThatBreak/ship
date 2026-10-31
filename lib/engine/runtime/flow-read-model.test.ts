@@ -77,7 +77,7 @@ describe("FlowReadModel.get", () => {
 
     const planNode = snapshot?.nodes.find((n) => n.node_key === "plan");
     expect(planNode?.artifacts[0]?.id).toBe("art_1");
-    expect(planNode?.artifacts[0]?.content).toBe("");
+    expect(planNode?.artifacts[0]).not.toHaveProperty("content");
 
     const batchedChildFlow = allSpy.mock.calls.some(
       (c) => typeof c[0] === "string" && c[0].includes("FROM flows WHERE id IN"),

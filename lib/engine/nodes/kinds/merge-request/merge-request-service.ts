@@ -100,15 +100,15 @@ export class MergeRequestService {
           const how = await localGit.pushBranch(lp, gitBranch, flow.repo_url ?? "", authedCloneUrlFor);
           db.emitEvent(flow.id, null, "lifecycle", `branch ${gitBranch} pushed (via ${how === "https" ? "token-authed HTTPS" : "origin remote"})`,
             { nodeKey: opts.emitNodeKey });
-        } catch (e: any) {
-          const msg = String(e?.message ?? e);
+        } catch (e: unknown) {
+          const msg = e instanceof Error ? e.message : String(e);
           if (HOOK_PATTERNS.some((p) => p.test(msg))) {
             throw new CommitError(
               `push rejected for branch ${gitBranch}`,
               msg.slice(0, 2000),
             );
           }
-          throw e; // network / auth / VPN — manual retry
+          throw e instanceof Error ? e : new Error(msg); // network / auth / VPN — manual retry
         }
       }
     }

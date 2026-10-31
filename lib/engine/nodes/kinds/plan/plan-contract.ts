@@ -141,10 +141,30 @@ export class PlanOutputContract {
         throw new Error('branch turn apply requires scoped refine context');
       }
       if (hasSub) {
-        return { reply, outcome: this.scopedSubPlanOutcome(ctx, node, scoped, envelope.subPlan!) };
+        const subPlan = envelope.subPlan;
+        if (subPlan == null) {
+          throw new AgentOutputError({
+            code: AGENT_OUTPUT_ERROR.SCHEMA_MISMATCH,
+            label: this.label,
+            message: `${this.label}: branch turn missing subPlan payload`,
+            issues: [{ path: "subPlan", message: "required on branch turns" }],
+            response: text,
+          });
+        }
+        return { reply, outcome: this.scopedSubPlanOutcome(ctx, node, scoped, subPlan) };
       }
       if (hasPatch) {
-        return { reply, outcome: this.scopedPatchOutcome(ctx, node, scoped, envelope.subPlanPatch!) };
+        const subPlanPatch = envelope.subPlanPatch;
+        if (subPlanPatch == null) {
+          throw new AgentOutputError({
+            code: AGENT_OUTPUT_ERROR.SCHEMA_MISMATCH,
+            label: this.label,
+            message: `${this.label}: branch turn missing subPlanPatch payload`,
+            issues: [{ path: "subPlanPatch", message: "required on branch turns" }],
+            response: text,
+          });
+        }
+        return { reply, outcome: this.scopedPatchOutcome(ctx, node, scoped, subPlanPatch) };
       }
     }
 
@@ -172,7 +192,17 @@ export class PlanOutputContract {
             ? { version: prevVersion, source: REFINED_FROM_SOURCE.START }
             : undefined
           : { version: prevVersion, source: REFINED_FROM_SOURCE.CHAT };
-      const outcome = this.applyValidatedPlan(ctx, nodeNow, envelope.plan!, {
+      const plan = envelope.plan;
+      if (plan == null) {
+        throw new AgentOutputError({
+          code: AGENT_OUTPUT_ERROR.SCHEMA_MISMATCH,
+          label: this.label,
+          message: `${this.label}: whole-plan turn missing plan payload`,
+          issues: [{ path: "plan", message: "required on whole/pre-publish turns" }],
+          response: text,
+        });
+      }
+      const outcome = this.applyValidatedPlan(ctx, nodeNow, plan, {
         userMessage,
         refined,
       });

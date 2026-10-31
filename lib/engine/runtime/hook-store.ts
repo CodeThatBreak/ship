@@ -102,7 +102,9 @@ export class HookStore {
        VALUES (?,NULL,?,?,?,NULL,?)`,
       db.uid("hk_"), flowId, nodeKey, newSecret(), db.now()
     );
-    return this.hookForNode(flowId, nodeKey)!;
+    const hook = this.hookForNode(flowId, nodeKey);
+    if (!hook) throw new Error(`hook insert failed for flow ${flowId} node ${nodeKey}`);
+    return hook;
   }
 
   /** The inbound hooks feeding this flow's waiting nodes (Phase 4B). */

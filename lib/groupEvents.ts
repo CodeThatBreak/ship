@@ -19,9 +19,28 @@ export interface FeedEvent {
   data: string | null;
   created_at: string;
   // enriched client-side
-  _data?: any;
+  _data?: Record<string, unknown>;
   _nodeKey?: string;
 }
+
+const eventString = (value: unknown): string | undefined =>
+  typeof value === "string" ? value : undefined;
+
+const eventNumber = (value: unknown): number | undefined =>
+  typeof value === "number" ? value : undefined;
+
+const eventBoolean = (value: unknown): boolean | undefined =>
+  typeof value === "boolean" ? value : undefined;
+
+const eventPayloadString = (value: unknown): string | undefined => {
+  if (value == null) return undefined;
+  if (typeof value === "string") return value;
+  try {
+    return JSON.stringify(value);
+  } catch {
+    return undefined;
+  }
+};
 
 export interface ToolCall {
   key: string; // callId or synthesized
@@ -64,10 +83,14 @@ export class EventGrouper {
   /** Consecutive events further apart than this start a new group/section. */
   static readonly GAP_MS = 30_000;
 
-  private parseData(e: FeedEvent): any {
+  private parseData(e: FeedEvent): Record<string, unknown> {
     if (e._data !== undefined) return e._data;
     try {
-      e._data = e.data ? JSON.parse(e.data) : {};
+      const parsed: unknown = e.data ? JSON.parse(e.data) : {};
+      e._data =
+        parsed && typeof parsed === "object" && !Array.isArray(parsed)
+          ? (parsed as Record<string, unknown>)
+          : {};
     } catch {
       e._data = {};
     }
@@ -80,7 +103,9 @@ export class EventGrouper {
 
   /** Best-effort run identity for an event row. */
   private runIdOf(e: FeedEvent): string | undefined {
-    return this.parseData(e).run_id ?? this.parseData(e).runId;
+    const d = this.parseData(e);
+    const runId = d.run_id ?? d.runId;
+    return typeof runId === "string" ? runId : undefined;
   }
 
   /** Group ordered events into run sections. */
@@ -102,18 +127,19 @@ export class EventGrouper {
       const startsRun = e.type === "lifecycle" && /started/.test(e.message ?? "") && runId;
       if (startsRun) {
         closeCurrent();
-        current = {
+        const section: RunSection = {
           key: runId,
           runId,
           nodeId: e.node_id,
           nodeKey: e._nodeKey,
           label: (e.message ?? "").replace(/\s*started.*$/, ""),
-          mode: d.mode,
+          mode: eventString(d.mode),
           startedAt: e.created_at,
           active: true,
           items: [],
         };
-        sections.push(current);
+        current = section;
+        sections.push(section);
         continue;
       }
 
@@ -123,11 +149,11 @@ export class EventGrouper {
         if (e.type === "lifecycle" && /finished/.test(e.message ?? "")) {
           current.active = false;
           current.finished = {
-            durationMs: d.durationMs,
-            tokens: d.tokens,
-            cost: d.cost,
-            estimated: d.estimated,
-            model: d.model,
+            durationMs: eventNumber(d.durationMs),
+            tokens: eventNumber(d.tokens),
+            cost: eventNumber(d.cost),
+            estimated: eventBoolean(d.estimated),
+            model: eventString(d.model),
           };
           closeCurrent();
           current = null;
@@ -225,17 +251,21 @@ export class EventGrouper {
       return;
     }
     if (e.type === "tool") {
-      const callId = d.callId ?? d.call_id;
+      const callIdRaw = d.callId ?? d.call_id;
+      const callId = eventString(callIdRaw);
       if (callId) {
         // pair with an existing invocation row (same callId) in this section
         for (let i = s.items.length - 1; i >= 0; i--) {
           const it = s.items[i];
           if (it.kind === "tool" && it.tool.key === callId) {
             it.tool.events.push(e);
-            it.tool.status = d.status ?? it.tool.status;
-            if (d.args != null) it.tool.args = d.args;
-            if (d.result != null) it.tool.result = d.result;
-            if (d.durationMs != null) it.tool.durationMs = d.durationMs;
+            it.tool.status = eventString(d.status) ?? it.tool.status;
+            const args = eventPayloadString(d.args);
+            if (args != null) it.tool.args = args;
+            const result = eventPayloadString(d.result);
+            if (result != null) it.tool.result = result;
+            const durationMs = eventNumber(d.durationMs);
+            if (durationMs != null) it.tool.durationMs = durationMs;
             return;
           }
         }
@@ -243,11 +273,11 @@ export class EventGrouper {
           kind: "tool",
           tool: {
             key: callId,
-            name: d.name ?? (e.message ?? "tool").split(":")[0],
-            status: d.status ?? "started",
-            args: d.args,
-            result: d.result,
-            durationMs: d.durationMs,
+            name: eventString(d.name) ?? (e.message ?? "tool").split(":")[0],
+            status: eventString(d.status) ?? "started",
+            args: eventPayloadString(d.args),
+            result: eventPayloadString(d.result),
+            durationMs: eventNumber(d.durationMs),
             events: [e],
           },
         });
@@ -260,7 +290,7 @@ export class EventGrouper {
           key: e.id,
           name: (e.message ?? "tool").split(":")[0],
           status: (e.message ?? "").split(":")[1]?.trim() || "started",
-          args: d.args,
+          args: eventPayloadString(d.args),
           events: [e],
         },
       });
@@ -282,11 +312,16 @@ export const eventGrouper = new EventGrouper();
 export function flowEventNodeKeys(e: FeedEvent): string[] | null {
   if (e.node_id != null) return null; // node-scoped — already filtered by the caller
 
-  let data: any = {};
+  let data: Record<string, unknown> = {};
   try {
-    data = e.data ? JSON.parse(e.data) : {};
+    const parsed: unknown = e.data ? JSON.parse(e.data) : {};
+    data =
+      parsed && typeof parsed === "object" && !Array.isArray(parsed)
+        ? (parsed as Record<string, unknown>)
+        : {};
   } catch {
     data = {};
   }
-  return typeof data?.nodeKey === "string" && data.nodeKey ? [data.nodeKey] : null;
+  const nodeKey = data.nodeKey;
+  return typeof nodeKey === "string" && nodeKey ? [nodeKey] : null;
 }

@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { nodeRegistry } from "../../../lib/engine/nodes/registry";
+import { NodeDefinition } from "../../../lib/engine/nodes/shared";
 import { templateStore } from "../../../lib/engine/templates/template-store";
 import { prompts } from "../../../lib/engine/prompts/prompt-library";
 import { instantiateDeclarative, type DeclarativeRow } from "../../../lib/engine/nodes/declarative";
@@ -8,7 +9,6 @@ import {
   parseStartContract,
   startContractJsonSchema,
 } from "../../../lib/engine/nodes/kinds/start/contract";
-import type { NodeCapabilities } from "../../../lib/engine/nodes/shared/capabilities";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -116,34 +116,31 @@ function resolveNodeContract(params: ContractParams) {
       return e instanceof Error ? e.message : String(e);
     }
   })();
-  if (!inst || typeof inst !== "object") {
+  if (!(inst instanceof NodeDefinition)) {
     return NextResponse.json(
       { error: typeof inst === "string" ? `invalid node definition: ${inst}` : "unknown node type" },
       { status: typeof inst === "string" ? 400 : 404 },
     );
   }
-  const typed = inst as unknown as {
-    def: Record<string, unknown>;
-    configFields: unknown[];
-    outputContract(def?: Record<string, unknown>): unknown;
-    choices(def?: Record<string, unknown>): { label: string; description?: string; condition?: string }[] | null;
-    capabilities: NodeCapabilities;
-  };
   const overrides = instanceConfig ?? {};
-  const mergedDef = { ...typed.def, ...overrides } as Record<string, unknown>;
+  const baseConfig =
+    row.config && typeof row.config === "object" && !Array.isArray(row.config)
+      ? (row.config as Record<string, unknown>)
+      : {};
+  const mergedDef = { ...baseConfig, ...overrides };
   return NextResponse.json({
     key: row.id,
     catalogKey,
     label: row.name,
     kind: row.kind,
-    input: z.toJSONSchema((inst as unknown as { inputSchema: z.ZodTypeAny }).inputSchema),
-    output: typed.outputContract(mergedDef),
-    choices: typed.choices(mergedDef) ?? undefined,
-    capabilities: typed.capabilities,
+    input: z.toJSONSchema(inst.inputSchema),
+    output: inst.outputContract(mergedDef),
+    choices: inst.choices(mergedDef) ?? undefined,
+    capabilities: inst.capabilities,
     config: {
-      fields: typed.configFields,
+      fields: inst.configFields,
       defaults: mergedDef,
-      schema: { type: "object" },
+      schema: z.toJSONSchema(inst.configSchema),
     },
   });
 }

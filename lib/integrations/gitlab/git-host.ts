@@ -2,6 +2,7 @@ import "server-only";
 
 import { config } from "../../config";
 import { NotFoundError } from "../../errors";
+import { z } from "zod";
 import type {
   ChangeRequest,
   ChangeRequestDiffs,
@@ -18,6 +19,32 @@ import type {
 import { GitLabClient, gitLab, type Discussion, type MergeRequest, type Pipeline as GitLabPipeline } from "./client";
 
 import { maskToken } from "../../mask-token";
+
+const GitLabProjectRow = z.object({
+  id: z.number(),
+  web_url: z.string().nullable().optional(),
+});
+
+const GitLabWebhookEnvelope = z
+  .object({
+    object_kind: z.string(),
+    project: z
+      .object({
+        id: z.number(),
+        web_url: z.string().optional(),
+        homepage: z.string().optional(),
+      })
+      .optional(),
+    merge_request: z.object({ iid: z.number() }).passthrough().optional(),
+    object_attributes: z.record(z.string(), z.unknown()).optional(),
+    user: z
+      .object({
+        username: z.string().optional(),
+        name: z.string().optional(),
+      })
+      .optional(),
+  })
+  .passthrough();
 
 // ── shape normalization (GitLab snake_case → port camelCase) ────────────────
 
@@ -150,10 +177,16 @@ class GitLabHostClient implements GitHostClient {
   }
 
   getProject(): Promise<HostProject> {
-    return this.raw.getProject(this.projectPath).then((p: any) => ({
-      id: p.id,
-      webUrl: p.web_url ?? null,
-    }));
+    return this.raw.getProject(this.projectPath).then((p: unknown) => {
+      const parsed = GitLabProjectRow.safeParse(p);
+      if (!parsed.success) {
+        throw new Error("unexpected GitLab project payload");
+      }
+      return {
+        id: parsed.data.id,
+        webUrl: parsed.data.web_url ?? null,
+      };
+    });
   }
 }
 
@@ -246,42 +279,57 @@ export class GitLabHostService implements GitHostService {
   }
 
   parseWebhook(body: unknown): HostWebhookEvent | null {
-    const p = body as any;
-    const projectId = p?.project?.id as number | undefined;
-    const projectUrl = (p?.project?.web_url ?? p?.project?.homepage ?? "") as string;
-    const kind = p?.object_kind;
+    const parsed = GitLabWebhookEnvelope.safeParse(body);
+    if (!parsed.success) return null;
+    const p = parsed.data;
+    const projectId = p.project?.id;
+    const projectUrl = p.project?.web_url ?? p.project?.homepage ?? "";
+    const kind = p.object_kind;
     if (kind === "note" && projectId) {
-      const mr = p?.merge_request;
-      const n = p?.object_attributes;
-      if (!mr?.iid || !n) return null;
+      const mr = p.merge_request;
+      const n = p.object_attributes;
+      if (!mr?.iid || !n || typeof n !== "object" || Array.isArray(n)) return null;
+      const attrs = n as Record<string, unknown>;
+      const noteId = attrs.id;
+      if (noteId == null) return null;
+      const position =
+        attrs.position && typeof attrs.position === "object" && !Array.isArray(attrs.position)
+          ? (attrs.position as Record<string, unknown>)
+          : null;
       return {
         kind: "cr_comment",
         projectId,
         projectUrl,
         crNumber: mr.iid,
         comment: {
-          id: `gl_${n.id}`,
-          threadId: n.discussion_id ?? `ind_${n.id}`,
-          body: n.note,
-          author: p?.user?.username ?? p?.user?.name ?? "",
-          resolvable: n.type === "DiffNote",
+          id: `gl_${String(noteId)}`,
+          threadId:
+            typeof attrs.discussion_id === "string"
+              ? attrs.discussion_id
+              : `ind_${String(noteId)}`,
+          body: typeof attrs.note === "string" ? attrs.note : "",
+          author: p.user?.username ?? p.user?.name ?? "",
+          resolvable: attrs.type === "DiffNote",
           resolved: false,
           system: false,
-          path: n.position?.new_path ?? null,
-          line: n.position?.new_line ?? null,
-          createdAt: n.created_at,
+          path: typeof position?.new_path === "string" ? position.new_path : null,
+          line: typeof position?.new_line === "number" ? position.new_line : null,
+          createdAt: typeof attrs.created_at === "string" ? attrs.created_at : "",
         },
       };
     }
     if (kind === "pipeline" && projectId) {
-      const attrs = p?.object_attributes;
-      if (!attrs?.id || !attrs?.status) return null;
+      const attrs = p.object_attributes;
+      if (!attrs || typeof attrs !== "object" || Array.isArray(attrs)) return null;
+      const id = attrs.id;
+      const status = attrs.status;
+      if (typeof id !== "number" || typeof status !== "string") return null;
       return {
         kind: "pipeline",
         projectId,
         projectUrl,
-        crNumber: p?.merge_request?.iid ?? null,
-        pipeline: { id: attrs.id, status: attrs.status },
+        crNumber: p.merge_request?.iid ?? null,
+        pipeline: { id, status },
       };
     }
     return null;
