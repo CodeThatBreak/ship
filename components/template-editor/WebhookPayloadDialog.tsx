@@ -101,6 +101,8 @@ export const WebhookPayloadDialog = ({
   const curlText = hook
     ? `curl -X POST ${origin}/api/hooks/${hook.id} ` +
       `-H "content-type: application/json" ` +
+      `-H "webhook-id: demo-delivery-1" ` +
+      `-H "webhook-timestamp: $(date +%s)" ` +
       `-H "x-devflow-secret: ${hook.secret}" ` +
       `-d ${shellSingleQuoted(payloadText)}`
     : null;

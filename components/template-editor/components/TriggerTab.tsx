@@ -204,6 +204,8 @@ function WebhookRequestExample({
       )
     : "{}";
   const curl = `curl -X POST /api/hooks/{hook_id} \\
+  -H "webhook-id: demo-delivery-1" \\
+  -H "webhook-timestamp: $(date +%s)" \\
   -H "x-devflow-secret: {secret}" \\
   -H "content-type: application/json" \\
   -d '${body}'`;

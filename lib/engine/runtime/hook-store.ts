@@ -15,7 +15,8 @@ import { processSingleton } from "../../singleton";
  * Verification is `standardwebhooks` when the sender follows the spec
  * (`webhook-id` / `webhook-timestamp` / `webhook-signature` — OpenAI,
  * Anthropic, Supabase format); otherwise a shared-secret header fallback
- * (`x-devflow-secret`) with a constant-time compare. Provider-specific
+ * (`x-devflow-secret`) with a constant-time compare plus required
+ * `webhook-id` and `webhook-timestamp` (replay window). Provider-specific
  * schemes (GitLab token header, GitHub/Sentry HMAC) stay as tiny
  * per-provider verifiers next to their own routes.
  *
@@ -26,6 +27,7 @@ import { processSingleton } from "../../singleton";
 
 const HEADER_NAMES = ["webhook-id", "webhook-timestamp", "webhook-signature"] as const;
 const FALLBACK_HEADER = "x-devflow-secret";
+const FALLBACK_TIMESTAMP_TOLERANCE_SEC = 5 * 60;
 const DELIVERY_TTL_MS = 24 * 60 * 60_000; // webhook-ids are remembered for a day
 const CLEANUP_INTERVAL_MS = 60 * 60_000;
 
@@ -37,6 +39,14 @@ function newSecret(): string {
 function parseJson(raw: string | null | undefined): Record<string, unknown> {
   if (!raw) return {};
   try { return JSON.parse(raw) as Record<string, unknown>; } catch { return {}; }
+}
+
+/** Unix seconds within the standardwebhooks tolerance window. */
+function fallbackTimestampOk(raw: string): boolean {
+  const ts = Number(raw);
+  if (!Number.isFinite(ts)) return false;
+  const nowSec = Math.floor(Date.now() / 1000);
+  return Math.abs(nowSec - ts) <= FALLBACK_TIMESTAMP_TOLERANCE_SEC;
 }
 
 export class HookStore {
@@ -136,12 +146,21 @@ export class HookStore {
       }
     }
     // shared-secret header fallback (senders that don't follow the spec):
-    // constant-time compare via sha256 digests (timingSafeEqual needs equal lengths)
+    // constant-time compare via sha256 digests (timingSafeEqual needs equal lengths),
+    // plus webhook-id (dedup) and a fresh webhook-timestamp (replay window).
     const provided = headers.get(FALLBACK_HEADER) ?? "";
     const a = crypto.createHash("sha256").update(hook.secret).digest();
     const b = crypto.createHash("sha256").update(provided).digest();
     if (!provided || !crypto.timingSafeEqual(a, b)) {
       return { ok: false, reason: "missing or bad signature headers" };
+    }
+    const webhookId = (headers.get("webhook-id") ?? "").trim();
+    if (!webhookId) {
+      return { ok: false, reason: "fallback verification requires webhook-id header" };
+    }
+    const webhookTimestamp = headers.get("webhook-timestamp") ?? "";
+    if (!fallbackTimestampOk(webhookTimestamp)) {
+      return { ok: false, reason: "fallback verification requires a current webhook-timestamp header" };
     }
     return { ok: true };
   }

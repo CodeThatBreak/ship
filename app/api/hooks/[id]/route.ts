@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import { hookStore } from "../../../../lib/engine/runtime/hook-store";
 import { flowEngine } from "../../../../lib/engine/flow-engine";
 import { evalJsonata, jsonataTruthy } from "@/lib/jsonata";
+import { readCappedUtf8Body, RequestBodyTooLargeError } from "@/lib/net/read-capped-body";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -13,11 +14,12 @@ const MAX_PAYLOAD_BYTES = 1_000_000;
 /**
  * Generic inbound webhook (§6): `POST /api/hooks/<hook_id>`.
  *
- *  - raw-body read (signature verification is body-sensitive)
+ *  - raw-body read (signature verification is body-sensitive), capped at 1 MB
+ *    by byte count with an early Content-Length reject
  *  - verification: `standardwebhooks` spec headers when the sender follows it
  *    (webhook-id / webhook-timestamp / webhook-signature — OpenAI, Anthropic,
  *    Supabase format); otherwise the shared-secret `x-devflow-secret` header
- *    fallback with a constant-time compare
+ *    fallback (also requires webhook-id and webhook-timestamp for replay control)
  *  - dedup by the `webhook-id` header when present (replays return ok/dedup)
  *  - optional JSONata filter over `{payload, headers}` — a failing or falsy
  *    filter drops the delivery
@@ -33,9 +35,14 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
   const hook = hookStore.hook(id);
   if (!hook) return NextResponse.json({ error: "unknown hook" }, { status: 404 });
 
-  const raw = await req.text();
-  if (raw.length > MAX_PAYLOAD_BYTES) {
-    return NextResponse.json({ error: "payload too large (1 MB cap)" }, { status: 413 });
+  let raw: string;
+  try {
+    raw = await readCappedUtf8Body(req, MAX_PAYLOAD_BYTES);
+  } catch (e: unknown) {
+    if (e instanceof RequestBodyTooLargeError) {
+      return NextResponse.json({ error: "payload too large (1 MB cap)" }, { status: 413 });
+    }
+    throw e;
   }
 
   const v = hookStore.verify(hook, raw, req.headers);

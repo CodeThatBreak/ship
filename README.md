@@ -77,7 +77,8 @@ Infrastructure only — integration credentials (GitLab, Jira, Cursor) live in t
 | `DATABASE_PATH` | SQLite file (default `./data/devflow.db` for dev; production `next start` uses `./data/devflow.prod.db` when unset) |
 | `WORKSPACE_DIR` | Directory for clones and local-agent worktrees (default `./workspaces`; `~` expands) |
 | `DEFAULT_MODEL` | Optional last-resort default model id when settings do not specify one |
-| `GITLAB_WEBHOOK_SECRET` | Optional shared secret for `POST /api/webhooks/gitlab` (unset = accept all) |
+| `GITLAB_WEBHOOK_SECRET` | Shared secret for `POST /api/webhooks/gitlab` (required unless `GITLAB_WEBHOOK_ALLOW_UNSIGNED=1`) |
+| `GITLAB_WEBHOOK_ALLOW_UNSIGNED` | Set to `1` to accept unsigned GitLab webhooks when the secret is unset (local dev only) |
 
 ### GitLab webhook (for live CI + comment triggers)
 

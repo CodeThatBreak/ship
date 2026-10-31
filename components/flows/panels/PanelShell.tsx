@@ -147,7 +147,7 @@ function WaitBanner({ flow, node }: { flow?: FlowData; node: Node }) {
     if (!hook || !hookPath) return;
     const url = `${window.location.origin}${hookPath}`;
     void navigator.clipboard?.writeText(
-      `curl -X POST ${url} -H "content-type: application/json" -H "x-devflow-secret: ${hook.secret}" -d '{"ping":true}'`,
+      `curl -X POST ${url} -H "content-type: application/json" -H "webhook-id: demo-delivery-1" -H "webhook-timestamp: $(date +%s)" -H "x-devflow-secret: ${hook.secret}" -d '{"ping":true}'`,
     );
   };
   return (

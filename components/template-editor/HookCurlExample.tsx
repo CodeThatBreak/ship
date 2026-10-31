@@ -21,7 +21,7 @@ export function HookCurlExample({
   // this drawer body never renders on the server)
   const [origin, setOrigin] = useState("");
   useEffect(() => setOrigin(window.location.origin), []);
-  const curlText = `curl -X POST ${origin}/api/hooks/${hook.id} -H "content-type: application/json" -H "x-devflow-secret: ${hook.secret}" -d '{"event":"issue.created"}'`;
+  const curlText = `curl -X POST ${origin}/api/hooks/${hook.id} -H "content-type: application/json" -H "webhook-id: demo-delivery-1" -H "webhook-timestamp: $(date +%s)" -H "x-devflow-secret: ${hook.secret}" -d '{"event":"issue.created"}'`;
   const [before, after] = curlText.split(hook.secret);
   return (
     <span className="flex items-start gap-0.5 text-muted-foreground">

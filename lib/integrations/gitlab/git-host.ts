@@ -1,5 +1,6 @@
 import "server-only";
 
+import crypto from "crypto";
 import { config } from "../../config";
 import { NotFoundError, ValidationError } from "../../errors";
 import { baseUrlOverrideRequiresToken } from "../instance-credential-policy";
@@ -285,8 +286,14 @@ export class GitLabHostService implements GitHostService {
 
   verifyWebhook(headers: { get(name: string): string | null }): boolean {
     const secret = config.gitlab.webhookSecret();
-    if (!secret) return true;
-    return headers.get("x-gitlab-token") === secret;
+    if (!secret) {
+      return config.gitlab.webhookAllowUnsigned();
+    }
+    const provided = headers.get("x-gitlab-token") ?? "";
+    if (!provided) return false;
+    const expected = crypto.createHash("sha256").update(secret).digest();
+    const actual = crypto.createHash("sha256").update(provided).digest();
+    return crypto.timingSafeEqual(expected, actual);
   }
 
   parseWebhook(body: unknown): HostWebhookEvent | null {

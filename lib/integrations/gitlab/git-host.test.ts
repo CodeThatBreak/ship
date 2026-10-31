@@ -81,4 +81,30 @@ describe("GitLabHostService", () => {
       expect(event.comment.body).toBe("please fix");
     }
   });
+
+  describe("verifyWebhook", () => {
+    it("rejects unsigned deliveries when secret is unset (CR-069)", () => {
+      vi.stubEnv("GITLAB_WEBHOOK_SECRET", "");
+      vi.stubEnv("GITLAB_WEBHOOK_ALLOW_UNSIGNED", "");
+      expect(service.verifyWebhook(new Headers())).toBe(false);
+      vi.unstubAllEnvs();
+    });
+
+    it("allows unsigned deliveries when GITLAB_WEBHOOK_ALLOW_UNSIGNED=1", () => {
+      vi.stubEnv("GITLAB_WEBHOOK_SECRET", "");
+      vi.stubEnv("GITLAB_WEBHOOK_ALLOW_UNSIGNED", "1");
+      expect(service.verifyWebhook(new Headers())).toBe(true);
+      vi.unstubAllEnvs();
+    });
+
+    it("requires a matching x-gitlab-token when a secret is configured", () => {
+      vi.stubEnv("GITLAB_WEBHOOK_SECRET", "gitlab-hook-secret");
+      vi.stubEnv("GITLAB_WEBHOOK_ALLOW_UNSIGNED", "");
+      expect(service.verifyWebhook(new Headers({ "x-gitlab-token": "wrong" }))).toBe(false);
+      expect(service.verifyWebhook(new Headers({ "x-gitlab-token": "gitlab-hook-secret" }))).toBe(
+        true,
+      );
+      vi.unstubAllEnvs();
+    });
+  });
 });

@@ -182,7 +182,10 @@ export interface GitHostService {
   testInstance(id: string, input?: { baseUrl?: string; token?: string }): Promise<{ ok: boolean; detail: string }>;
 
   // ── webhook ingestion ────────────────────────────────────────────────────
-  /** True when no secret is configured or the delivery's signature matches. */
+  /**
+   * True when the delivery's `x-gitlab-token` matches `GITLAB_WEBHOOK_SECRET`,
+   * or when unsigned deliveries are explicitly allowed (`GITLAB_WEBHOOK_ALLOW_UNSIGNED=1`).
+   */
   verifyWebhook(headers: { get(name: string): string | null }): boolean;
   /** Normalize a delivery body; null for event kinds the engine ignores. */
   parseWebhook(body: unknown): HostWebhookEvent | null;

@@ -11,8 +11,8 @@ const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..
  *
  * Integration credentials (GitLab / Jira / Cursor) are managed from
  * Settings → Integrations and stored in the DB — the environment only
- * carries infrastructure config (db / workspace), the optional
- * GITLAB_WEBHOOK_SECRET, and the optional DEFAULT_MODEL fallback.
+ * carries infrastructure config (db / workspace), GitLab webhook auth env
+ * (`GITLAB_WEBHOOK_SECRET`, optional `GITLAB_WEBHOOK_ALLOW_UNSIGNED`), and the
  * Values are read lazily via methods so tests and
  * long-running processes always see the current environment.
  */
@@ -21,10 +21,36 @@ class CursorConfig {
   readonly baseUrl = "https://api.cursor.com";
 }
 
+let gitLabWebhookStartupWarned = false;
+
 class GitLabConfig {
-  /** Optional shared-secret check for /api/webhooks/gitlab (unset = accept all). */
+  /** Shared secret GitLab sends as `X-Gitlab-Token` on `/api/webhooks/gitlab`. */
   webhookSecret(): string {
     return AppConfig.env("GITLAB_WEBHOOK_SECRET");
+  }
+
+  /** Local-dev opt-in when `GITLAB_WEBHOOK_SECRET` is unset (deny by default). */
+  webhookAllowUnsigned(): boolean {
+    return AppConfig.env("GITLAB_WEBHOOK_ALLOW_UNSIGNED") === "1";
+  }
+
+  /** Log once when GitLab webhook auth is misconfigured or explicitly relaxed. */
+  logStartupWarnings(): void {
+    if (gitLabWebhookStartupWarned) return;
+    gitLabWebhookStartupWarned = true;
+    const secret = this.webhookSecret();
+    const allowUnsigned = this.webhookAllowUnsigned();
+    if (!secret && !allowUnsigned) {
+      console.warn(
+        "[devflow] GITLAB_WEBHOOK_SECRET is unset — POST /api/webhooks/gitlab is rejected. " +
+          "Set GITLAB_WEBHOOK_SECRET or GITLAB_WEBHOOK_ALLOW_UNSIGNED=1 for unsigned local dev.",
+      );
+    }
+    if (allowUnsigned) {
+      console.warn(
+        "[devflow] GITLAB_WEBHOOK_ALLOW_UNSIGNED=1 — accepting unsigned GitLab webhook deliveries.",
+      );
+    }
   }
 }
 

@@ -23,3 +23,44 @@ describe("HookStore delivery dedup", () => {
     expect(hookStore.isDeliverySeen(hookId, deliveryId)).toBe(true);
   });
 });
+
+describe("HookStore verify fallback", () => {
+  const hookId = db.uid("hk_");
+  const secret = "whsec_fallback_test";
+
+  db.run(
+    `INSERT INTO hooks (id,template_id,flow_id,node_key,secret,filter,created_at)
+     VALUES (?,NULL,NULL,NULL,?,NULL,?)`,
+    hookId, secret, db.now(),
+  );
+
+  const hook = hookStore.hook(hookId);
+  if (!hook) throw new Error("hook fixture missing");
+
+  it("rejects x-devflow-secret without webhook-id (CR-196)", () => {
+    const headers = new Headers({
+      "x-devflow-secret": secret,
+      "webhook-timestamp": String(Math.floor(Date.now() / 1000)),
+    });
+    expect(hookStore.verify(hook, "{}", headers).ok).toBe(false);
+  });
+
+  it("rejects stale webhook-timestamp on the fallback path (CR-196)", () => {
+    const staleSec = Math.floor(Date.now() / 1000) - 3600;
+    const headers = new Headers({
+      "x-devflow-secret": secret,
+      "webhook-id": "msg_stale",
+      "webhook-timestamp": String(staleSec),
+    });
+    expect(hookStore.verify(hook, "{}", headers).ok).toBe(false);
+  });
+
+  it("accepts fallback deliveries with id, fresh timestamp, and secret", () => {
+    const headers = new Headers({
+      "x-devflow-secret": secret,
+      "webhook-id": "msg_ok",
+      "webhook-timestamp": String(Math.floor(Date.now() / 1000)),
+    });
+    expect(hookStore.verify(hook, "{}", headers)).toEqual({ ok: true });
+  });
+});

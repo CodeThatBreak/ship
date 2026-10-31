@@ -2009,9 +2009,9 @@ Original findings, verbatim:
 
 ### CR-069 [Medium] GitLab webhook verification fails open when `GITLAB_WEBHOOK_SECRET` is unset, and compares the token with a non-constant-time `===`
 
-- **Status at `abaa007`:** **Open**, fix in [Task 58](review-tasks/58-security-webhook-auth.md)
+- **Status at `abaa007`:** **Fixed** ([Task 58](review-tasks/58-security-webhook-auth.md))
 - **Current location:** lib/config.ts:21-24, lib/engine/ports/git-host.ts:193-194, lib/integrations/gitlab/git-host.ts:244-248, app/api/webhooks/gitlab/route.ts:28
-- **Re-verification note:** Unchanged. `verifyWebhook` still returns true when `GITLAB_WEBHOOK_SECRET` is unset and compares `x-gitlab-token` with `===`; the config doc still says "unset = accept all". Fix: deny by default, with an explicit `GITLAB_WEBHOOK_ALLOW_UNSIGNED=1` opt-in and a startup warning. Compare with `crypto.timingSafeEqual` over sha256 digests (the same pattern `lib/engine/runtime/hook-store.ts:136-140` already uses) and update the port doc.
+- **Re-verification note:** Deny-by-default when `GITLAB_WEBHOOK_SECRET` is unset unless `GITLAB_WEBHOOK_ALLOW_UNSIGNED=1`; constant-time token compare; startup warnings via instrumentation.
 
 - **Severity:** Medium
 - **Category:** Correctness
@@ -4773,9 +4773,9 @@ Original findings, verbatim:
 
 ### CR-176 [Low] The hook payload cap is checked after the whole body is buffered, and counts characters instead of bytes
 
-- **Status at `abaa007`:** **Open**, fix in [Task 58](review-tasks/58-security-webhook-auth.md)
+- **Status at `abaa007`:** **Fixed** ([Task 58](review-tasks/58-security-webhook-auth.md))
 - **Current location:** app/api/hooks/[id]/route.ts:35-38
-- **Re-verification note:** `await req.text()` still buffers the whole body before the 1 MB check, and it runs before signature verification, so any unauthenticated caller who knows a hook id can make the server buffer arbitrarily large bodies. `raw.length` also still counts UTF-16 code units, not bytes. Reject early on `Content-Length`, then stream-read with a running byte count that aborts past the cap (or at minimum compare `Buffer.byteLength(raw)`).
+- **Re-verification note:** Early `Content-Length` reject and streaming byte cap via `readCappedUtf8Body`.
 
 - **Severity:** Low
 - **Category:** Correctness
@@ -5219,9 +5219,9 @@ Original findings, verbatim:
 
 ### CR-196 [Low] Shared-secret webhook fallback has no replay protection
 
-- **Status at `abaa007`:** **Open**, fix in [Task 58](review-tasks/58-security-webhook-auth.md)
+- **Status at `abaa007`:** **Fixed** ([Task 58](review-tasks/58-security-webhook-auth.md))
 - **Current location:** lib/engine/runtime/hook-store.ts:136-143,155-171; app/api/hooks/[id]/route.ts:43-46
-- **Re-verification note:** The `x-devflow-secret` fallback still accepts deliveries with no timestamp or id, and dedup runs only when a `webhook-id` header is present. A captured fallback request can therefore be replayed indefinitely, and each replay starts a new flow or resumes a waiting node. Require `webhook-id` (for dedup) plus a timestamp window on the fallback path, or explicitly document the fallback as replayable.
+- **Re-verification note:** Fallback path requires `webhook-id` and a fresh `webhook-timestamp` (5-minute window).
 
 - **Severity:** Low
 - **Category:** Correctness
@@ -7329,7 +7329,7 @@ One row per finding, at `abaa007`.
 | CR-066 | Medium | Bug | Fixed | [Task 17](review-tasks/17-node-claim-and-attempts.md) |
 | CR-067 | Medium | Bug | Fixed | [Task 12](review-tasks/12-db-transactions.md) |
 | CR-068 | Medium | Security | Open | [Task 60](review-tasks/60-security-process-and-network-isolation.md) |
-| CR-069 | Medium | Security | Open | [Task 58](review-tasks/58-security-webhook-auth.md) |
+| CR-069 | Medium | Security | Fixed | [Task 58](review-tasks/58-security-webhook-auth.md) |
 | CR-070 | Medium | Code quality | Fixed | [Task 45](review-tasks/45-flow-engine-decomposition.md) |
 | CR-071 | Medium | Code quality | Partly fixed | [Task 44](review-tasks/44-engine-stores-and-constants.md) |
 | CR-072 | Medium | Bug | Fixed | [Task 17](review-tasks/17-node-claim-and-attempts.md) |
@@ -7436,7 +7436,7 @@ One row per finding, at `abaa007`.
 | CR-173 | Low | Code quality | Fixed | [Task 46](review-tasks/46-backend-types-cleanup.md) |
 | CR-174 | Low | Code quality | Open | [Task 52](review-tasks/52-shared-ui-components.md) |
 | CR-175 | Low | Code quality | Open | [Task 47](review-tasks/47-thin-routes-and-services.md) |
-| CR-176 | Low | Bug | Open | [Task 58](review-tasks/58-security-webhook-auth.md) |
+| CR-176 | Low | Bug | Fixed | [Task 58](review-tasks/58-security-webhook-auth.md) |
 | CR-177 | Low | Code quality | Partly fixed | [Task 47](review-tasks/47-thin-routes-and-services.md) |
 | CR-178 | Low | Performance | Open | [Task 47](review-tasks/47-thin-routes-and-services.md) |
 | CR-179 | Low | Code quality | Open | [Task 47](review-tasks/47-thin-routes-and-services.md) |
@@ -7456,7 +7456,7 @@ One row per finding, at `abaa007`.
 | CR-193 | Low | Bug | Fixed (Task 25) | [Task 25](review-tasks/25-wait-timers-and-poller.md) |
 | CR-194 | Low | Performance | Fixed (Task 25) | [Task 25](review-tasks/25-wait-timers-and-poller.md) |
 | CR-195 | Low | Code quality | Fixed | [Task 50](review-tasks/50-small-module-cleanups.md) |
-| CR-196 | Low | Security | Open | [Task 58](review-tasks/58-security-webhook-auth.md) |
+| CR-196 | Low | Security | Fixed | [Task 58](review-tasks/58-security-webhook-auth.md) |
 | CR-197 | Low | Code quality | Fixed | [Task 50](review-tasks/50-small-module-cleanups.md) |
 | CR-198 | Low | Bug | Open | [Task 31](review-tasks/31-git-host-clients.md) |
 | CR-199 | Low | Security | Open | [Task 60](review-tasks/60-security-process-and-network-isolation.md) |
