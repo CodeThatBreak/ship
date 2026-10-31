@@ -1,7 +1,8 @@
 "use client";
-import { useCallback, useEffect, useDeferredValue, useState } from "react";
+import { useCallback, useDeferredValue, useState } from "react";
 import { Database, Plus } from "lucide-react";
 import type { Repo } from "@/components/settings";
+import { ConfirmDeleteDialog } from "@/components/shared";
 import { Button } from "@/components/ui/button";
 import { RepoCard } from "./components/RepoCard";
 import { RepoForm } from "./components/RepoForm";
@@ -10,31 +11,31 @@ import { ReposEmpty } from "./components/ReposEmpty";
 import { REPO_MODAL_TITLE } from "./constants";
 import { useDetectedPolicy } from "./hooks/use-detected-policy";
 import { useDeleteRepo, useSaveRepo } from "./hooks/use-repo-mutations";
-import { formFromRepo, useRepoForm } from "./hooks/use-repo-form";
+import { useRepoForm } from "./hooks/use-repo-form";
+import { buildRepoSavePayload } from "./utils/repo-save-payload";
 
 /**
  * Settings → Repositories: the repo registry plus the add/edit modal —
  * list + card pattern mirroring the integrations tabs.
  */
-export function ReposSection({ repos, onError }: {
+export const ReposSection = ({
+  repos,
+  serverHome,
+  onError,
+}: {
   repos: Repo[];
+  serverHome: string;
   onError: (e: string | null) => void;
-}) {
+}) => {
   const [editorOpen, setEditorOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
-  const { state, setField, replace, reset, applyDetected } = useRepoForm();
+  const [pendingDelete, setPendingDelete] = useState<Repo | null>(null);
+  const { state, touchedPolicy, setField, loadRepo, reset } = useRepoForm();
   const save = useSaveRepo();
   const remove = useDeleteRepo();
 
-  // detection lags one render behind typing, so the query key doesn't churn
-  // on every keystroke in the local-path field
-  const detected = useDetectedPolicy(useDeferredValue(state.local_path), editorOpen);
-
-  // prefill empty policy fields with what DevFlow would apply (re-runs on
-  // open with cached data, and whenever the local path changes)
-  useEffect(() => {
-    if (editorOpen) applyDetected(detected);
-  }, [detected, editorOpen, applyDetected]);
+  const deferredPath = useDeferredValue(state.local_path);
+  const detected = useDetectedPolicy(deferredPath, editorOpen);
 
   const openAdd = useCallback(() => {
     setEditingId(null);
@@ -44,12 +45,10 @@ export function ReposSection({ repos, onError }: {
 
   const openEdit = useCallback((repo: Repo) => {
     setEditingId(repo.id);
-    replace(formFromRepo(repo));
+    loadRepo(repo);
     setEditorOpen(true);
-  }, [replace]);
+  }, [loadRepo]);
 
-  // closing (cancel, backdrop, or success) always rolls the form back;
-  // `reset` is stable so this callback keeps its identity between renders
   const close = useCallback(() => {
     reset();
     setEditingId(null);
@@ -57,11 +56,28 @@ export function ReposSection({ repos, onError }: {
   }, [reset]);
 
   const submit = () => {
-    save.mutate(
-      { ...state, id: editingId },
-      { onSuccess: () => { close(); onError(null); }, onError: (e) => onError(e.message) },
-    );
+    const payload = buildRepoSavePayload(state, touchedPolicy, editingId);
+    save.mutate(payload, {
+      onSuccess: () => {
+        close();
+        onError(null);
+      },
+      onError: (e) => onError(e.message),
+    });
   };
+
+  const confirmDelete = () => {
+    if (!pendingDelete) return;
+    remove.mutate(pendingDelete.id, {
+      onSuccess: () => {
+        setPendingDelete(null);
+        onError(null);
+      },
+      onError: (e) => onError(e.message),
+    });
+  };
+
+  const deletingId = remove.isPending ? remove.variables : null;
 
   return (
     <section>
@@ -82,12 +98,10 @@ export function ReposSection({ repos, onError }: {
             <RepoCard
               key={r.id}
               repo={r}
+              serverHome={serverHome}
+              deleting={deletingId === r.id}
               onEdit={() => openEdit(r)}
-              onDelete={() =>
-                remove.mutate(r.id, {
-                  onSuccess: () => onError(null),
-                  onError: (e) => onError(e.message),
-                })}
+              onDelete={() => setPendingDelete(r)}
             />
           ))
         )}
@@ -102,8 +116,22 @@ export function ReposSection({ repos, onError }: {
         submitting={save.isPending}
         onSubmit={submit}
       >
-        <RepoForm form={state} setField={setField} detectedSource={detected?.source ?? null} />
+        <RepoForm
+          form={state}
+          setField={setField}
+          detected={detected}
+        />
       </RepoModal>
+
+      <ConfirmDeleteDialog
+        open={pendingDelete != null}
+        onClose={() => setPendingDelete(null)}
+        title={`Remove repo “${pendingDelete?.name ?? ""}”?`}
+        description="The registry entry is deleted. Running flows keep their snapshot; new flows won't offer this repo."
+        busy={remove.isPending}
+        confirmLabel="Remove repo"
+        onConfirm={confirmDelete}
+      />
     </section>
   );
-}
+};

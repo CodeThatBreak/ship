@@ -96,6 +96,7 @@ export function FilterPicker({
         value={text}
         onChange={(e) => onTextChange(e.target.value)}
         placeholder={placeholder ?? "Search tasks…"}
+        aria-label={placeholder ?? "Search tasks…"}
         className="h-6 min-w-[90px] flex-1 border-0 bg-transparent px-0 text-[13px] focus-visible:border-transparent focus-visible:ring-0"
       />
 

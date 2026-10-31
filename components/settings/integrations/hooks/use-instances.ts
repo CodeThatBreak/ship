@@ -64,12 +64,17 @@ async function callTestInstance(
   kind: string,
   id: string,
 ): Promise<TestResult> {
-  const res = await fetch(instancesUrl(surface, kind, id), { method: "POST" });
-  const body = (await res.json().catch(() => ({}))) as Partial<TestResult> & { error?: string };
-  if (!res.ok || typeof body.ok !== "boolean") {
-    return { ok: false, detail: body.error ?? `connection test failed (${res.status})` };
+  try {
+    const res = await fetch(instancesUrl(surface, kind, id), { method: "POST" });
+    const body = (await res.json().catch(() => ({}))) as Partial<TestResult> & { error?: string };
+    if (!res.ok || typeof body.ok !== "boolean") {
+      return { ok: false, detail: body.error ?? `connection test failed (${res.status})` };
+    }
+    return { ok: body.ok, detail: body.detail ?? "" };
+  } catch (e: unknown) {
+    const detail = e instanceof Error ? e.message : "connection test failed";
+    return { ok: false, detail };
   }
-  return { ok: body.ok, detail: body.detail ?? "" };
 }
 
 // ── hooks ───────────────────────────────────────────────────────────────────

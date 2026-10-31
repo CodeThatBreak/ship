@@ -4,22 +4,32 @@ import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import { SetupTestPanel } from "./SetupTestPanel";
+import type { DetectedPolicy } from "../hooks/use-detected-policy";
 import type { RepoFormState } from "../types";
+
+const DEFAULT_INSTALL_PLACEHOLDER = "pnpm install --filter web";
+const DEFAULT_SYNC_PLACEHOLDER = ".env*\n*.rc";
 
 /**
  * The add/edit repo body: identity fields, then the worktree setup policy.
- * Policy fields arrive prefilled with DevFlow's detected values (see
- * /api/repos/detect), command fields are textareas, toggles render as a
- * horizontal Field + Switch, and every placeholder is an example only — all
- * explanation lives in the FieldDescription help text.
+ * Auto-detected policy is shown as placeholders and help text only — never
+ * copied into form state (see /api/repos/detect).
  */
-export function RepoForm({
-  form, setField, detectedSource,
+export const RepoForm = ({
+  form,
+  setField,
+  detected,
 }: {
   form: RepoFormState;
   setField: <K extends keyof RepoFormState>(key: K, value: RepoFormState[K]) => void;
-  detectedSource?: string | null;
-}) {
+  detected?: DetectedPolicy | null;
+}) => {
+  const installPlaceholder =
+    detected?.install_command?.trim() || DEFAULT_INSTALL_PLACEHOLDER;
+  const syncPlaceholder = detected?.sync_paths?.trim() || DEFAULT_SYNC_PLACEHOLDER;
+  const sharedPlaceholder =
+    detected?.shared_dirs?.trim() || "node_modules/.cache\n.turbo";
+
   return (
     <>
       <div className="grid gap-3.5 sm:grid-cols-2">
@@ -73,9 +83,9 @@ export function RepoForm({
       <div className="border-t border-border pt-3">
         <div className="text-[13px] font-medium">Worktree setup policy</div>
         <p className="text-muted-foreground text-[11.5px] leading-snug mt-1 mb-0">
-          {detectedSource
-            ? <>Auto-detected: <span className="font-mono">{detectedSource}</span> — fields you fill win over it.</>
-            : "Fields you fill win over auto-detection."}
+          {detected?.source
+            ? <>Auto-detected: <span className="font-mono">{detected.source}</span> — leave a field empty to use detection.</>
+            : "Leave policy fields empty to use auto-detection when a local path is set."}
         </p>
 
         <div className="grid gap-3.5 mt-3">
@@ -86,7 +96,7 @@ export function RepoForm({
             </FieldDescription>
             <Textarea
               id="repo-install-command"
-              placeholder="pnpm install --filter web"
+              placeholder={installPlaceholder}
               className="font-mono text-[12px] min-h-9"
               value={form.install_command}
               onChange={(e) => setField("install_command", e.target.value)}
@@ -129,7 +139,7 @@ export function RepoForm({
             </FieldDescription>
             <Textarea
               id="repo-sync-paths"
-              placeholder={".env*\n*.rc"}
+              placeholder={syncPlaceholder}
               className="font-mono text-[12px] min-h-16"
               value={form.sync_paths}
               onChange={(e) => setField("sync_paths", e.target.value)}
@@ -143,7 +153,7 @@ export function RepoForm({
             </FieldDescription>
             <Textarea
               id="repo-shared-dirs"
-              placeholder={"node_modules/.cache\n.turbo"}
+              placeholder={sharedPlaceholder}
               className="font-mono text-[12px] min-h-16"
               value={form.shared_dirs}
               onChange={(e) => setField("shared_dirs", e.target.value)}
@@ -171,4 +181,4 @@ export function RepoForm({
       </div>
     </>
   );
-}
+};

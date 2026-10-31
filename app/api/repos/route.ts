@@ -8,7 +8,10 @@ export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
 export const GET = async () => {
-  return NextResponse.json({ repos: repoService.listWithPathStatus() });
+  return NextResponse.json({
+    repos: repoService.listWithPathStatus(),
+    server_home: process.env.HOME ?? "",
+  });
 };
 
 export const POST = async (req: Request) => {

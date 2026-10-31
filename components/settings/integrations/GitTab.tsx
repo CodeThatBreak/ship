@@ -1,6 +1,7 @@
 "use client";
-import { useCallback } from "react";
+import { useCallback, useState } from "react";
 import { GitLabIcon } from "../integration-icons";
+import { ConfirmDeleteDialog } from "@/components/shared";
 import { INSTANCE_SURFACE, PROVIDER_KIND } from "./constants";
 import { useConnectForm } from "./hooks/use-connect-form";
 import { useRecordTestResult, testResultKey, useTestResults } from "./hooks/use-test-results";
@@ -30,6 +31,7 @@ const GIT_HOSTING_OPTIONS = [
 ] as const;
 
 export function GitTab({ open, onOpenChange, onError }: TabProps) {
+  const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
   const { instances, isPending, isError, refetch } = useInstances(
     INSTANCE_SURFACE.HOST, PROVIDER_KIND.GITLAB,
   );
@@ -68,6 +70,22 @@ export function GitTab({ open, onOpenChange, onError }: TabProps) {
     test.mutate(id, {
       onSuccess: (result) =>
         recordTest.mutate({ provider: PROVIDER_KIND.GITLAB, id, result }),
+      onError: (e) => onError(e.message),
+    });
+  };
+
+  const pendingInstance = pendingDeleteId
+    ? instances.find((i) => i.id === pendingDeleteId) ?? null
+    : null;
+
+  const confirmRemove = () => {
+    if (!pendingDeleteId) return;
+    remove.mutate(pendingDeleteId, {
+      onSuccess: () => {
+        setPendingDeleteId(null);
+        onError(null);
+      },
+      onError: (e) => onError(e.message),
     });
   };
 
@@ -98,7 +116,8 @@ export function GitTab({ open, onOpenChange, onError }: TabProps) {
               testing={test.isPending && test.variables === i.id}
               testResult={testResults[testResultKey(PROVIDER_KIND.GITLAB, i.id)]}
               onTest={() => runTest(i.id)}
-              onDelete={() => remove.mutate(i.id)}
+              onDelete={() => setPendingDeleteId(i.id)}
+              deleting={remove.isPending && remove.variables === i.id}
             />
           ))}
         </div>
@@ -113,14 +132,24 @@ export function GitTab({ open, onOpenChange, onError }: TabProps) {
         onSubmit={submit}
       >
         <Field>
-          <FieldLabel>Provider</FieldLabel>
-          <ProviderSelect value={provider} onChange={setProvider} options={GIT_PROVIDER_OPTIONS} />
+          <FieldLabel htmlFor="gitlab-provider">Provider</FieldLabel>
+          <ProviderSelect
+            id="gitlab-provider"
+            value={provider}
+            onChange={setProvider}
+            options={GIT_PROVIDER_OPTIONS}
+          />
         </Field>
 
         {provider === PROVIDER_KIND.GITLAB && (
           <Field>
-            <FieldLabel>Type</FieldLabel>
-            <HostingSelect value={hosting} onChange={setHosting} options={GIT_HOSTING_OPTIONS} />
+            <FieldLabel htmlFor="gitlab-hosting-type">Type</FieldLabel>
+            <HostingSelect
+              id="gitlab-hosting-type"
+              value={hosting}
+              onChange={setHosting}
+              options={GIT_HOSTING_OPTIONS}
+            />
           </Field>
         )}
 
@@ -161,6 +190,24 @@ export function GitTab({ open, onOpenChange, onError }: TabProps) {
           </>
         )}
       </ConnectModal>
+
+      <ConfirmDeleteDialog
+        open={pendingDeleteId != null}
+        onClose={() => setPendingDeleteId(null)}
+        title="Remove GitLab connection?"
+        description={
+          <>
+            Disconnects{" "}
+            <span className="font-medium">
+              {pendingInstance?.name || pendingInstance?.baseUrl || "this instance"}
+            </span>
+            {" "}and deletes its stored token.
+          </>
+        }
+        busy={remove.isPending}
+        confirmLabel="Remove connection"
+        onConfirm={confirmRemove}
+      />
     </section>
   );
 }

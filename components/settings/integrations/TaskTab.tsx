@@ -1,6 +1,7 @@
 "use client";
-import { useCallback } from "react";
+import { useCallback, useState } from "react";
 import { JiraIcon } from "../integration-icons";
+import { ConfirmDeleteDialog } from "@/components/shared";
 import { INSTANCE_SURFACE, PROVIDER_KIND } from "./constants";
 import { useConnectForm } from "./hooks/use-connect-form";
 import { useRecordTestResult, testResultKey, useTestResults } from "./hooks/use-test-results";
@@ -30,6 +31,7 @@ const JIRA_HOSTING_OPTIONS = [
 ] as const;
 
 export function TaskTab({ open, onOpenChange, onError }: TabProps) {
+  const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
   const { instances, isPending, isError, refetch } = useInstances(
     INSTANCE_SURFACE.TASK, PROVIDER_KIND.JIRA,
   );
@@ -67,6 +69,22 @@ export function TaskTab({ open, onOpenChange, onError }: TabProps) {
   const runTest = (id: string) => {
     test.mutate(id, {
       onSuccess: (result) => recordTest.mutate({ provider: PROVIDER_KIND.JIRA, id, result }),
+      onError: (e) => onError(e.message),
+    });
+  };
+
+  const pendingInstance = pendingDeleteId
+    ? instances.find((i) => i.id === pendingDeleteId) ?? null
+    : null;
+
+  const confirmRemove = () => {
+    if (!pendingDeleteId) return;
+    remove.mutate(pendingDeleteId, {
+      onSuccess: () => {
+        setPendingDeleteId(null);
+        onError(null);
+      },
+      onError: (e) => onError(e.message),
     });
   };
 
@@ -97,7 +115,8 @@ export function TaskTab({ open, onOpenChange, onError }: TabProps) {
               testing={test.isPending && test.variables === i.id}
               testResult={testResults[testResultKey(PROVIDER_KIND.JIRA, i.id)]}
               onTest={() => runTest(i.id)}
-              onDelete={() => remove.mutate(i.id)}
+              onDelete={() => setPendingDeleteId(i.id)}
+              deleting={remove.isPending && remove.variables === i.id}
             />
           ))}
         </div>
@@ -112,14 +131,24 @@ export function TaskTab({ open, onOpenChange, onError }: TabProps) {
         onSubmit={submit}
       >
         <Field>
-          <FieldLabel>Provider</FieldLabel>
-          <ProviderSelect value={provider} onChange={setProvider} options={JIRA_PROVIDER_OPTIONS} />
+          <FieldLabel htmlFor="jira-provider">Provider</FieldLabel>
+          <ProviderSelect
+            id="jira-provider"
+            value={provider}
+            onChange={setProvider}
+            options={JIRA_PROVIDER_OPTIONS}
+          />
         </Field>
 
         {provider === PROVIDER_KIND.JIRA && (
           <Field>
-            <FieldLabel>Type</FieldLabel>
-            <HostingSelect value={hosting} onChange={setHosting} options={JIRA_HOSTING_OPTIONS} />
+            <FieldLabel htmlFor="jira-hosting-type">Type</FieldLabel>
+            <HostingSelect
+              id="jira-hosting-type"
+              value={hosting}
+              onChange={setHosting}
+              options={JIRA_HOSTING_OPTIONS}
+            />
           </Field>
         )}
 
@@ -168,6 +197,24 @@ export function TaskTab({ open, onOpenChange, onError }: TabProps) {
           </>
         )}
       </ConnectModal>
+
+      <ConfirmDeleteDialog
+        open={pendingDeleteId != null}
+        onClose={() => setPendingDeleteId(null)}
+        title="Remove Jira connection?"
+        description={
+          <>
+            Disconnects{" "}
+            <span className="font-medium">
+              {pendingInstance?.name || pendingInstance?.baseUrl || "this instance"}
+            </span>
+            {" "}and deletes its stored credentials.
+          </>
+        }
+        busy={remove.isPending}
+        confirmLabel="Remove connection"
+        onConfirm={confirmRemove}
+      />
     </section>
   );
 }

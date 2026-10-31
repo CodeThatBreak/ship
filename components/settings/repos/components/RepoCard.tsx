@@ -12,11 +12,13 @@ import { tildePath } from "../paths";
 /** One registered repo: icon square, name + branch/local badges, then the
  *  cloud URL and local checkout on the meta line (mirrors InstanceCard). */
 export function RepoCard({
-  repo, onEdit, onDelete,
+  repo, serverHome, onEdit, onDelete, deleting = false,
 }: {
   repo: Repo;
+  serverHome: string;
   onEdit: () => void;
   onDelete: () => void;
+  deleting?: boolean;
 }) {
   return (
     <Card className="flex-row items-center gap-3 px-4 py-3">
@@ -45,7 +47,7 @@ export function RepoCard({
           </span>
           {repo.local_path && (
             <span className="text-muted-foreground text-[12px] font-mono truncate">
-              {tildePath(repo.local_path)}
+              {tildePath(repo.local_path, serverHome)}
             </span>
           )}
         </div>
@@ -75,6 +77,7 @@ export function RepoCard({
                 aria-label="Remove repo"
                 className="text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
                 onClick={onDelete}
+                disabled={deleting}
               />
             }
           >

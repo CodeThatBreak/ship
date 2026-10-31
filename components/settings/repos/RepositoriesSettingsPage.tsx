@@ -23,7 +23,7 @@ const RepositoriesSkeleton = () => (
 
 /** Settings → Repositories client island. */
 export const RepositoriesSettingsPage = () => {
-  const { repos, isPending, isError, errorMessage, refetch } = useReposQuery();
+  const { repos, serverHome, isPending, isError, errorMessage, refetch } = useReposQuery();
   const { actionError, reportError, clearError } = useSettingsPageError();
 
   const bannerError = actionError ?? errorMessage;
@@ -60,7 +60,7 @@ export const RepositoriesSettingsPage = () => {
       {isPending ? (
         <RepositoriesSkeleton />
       ) : isError ? null : (
-        <ReposSection repos={repos} onError={onError} />
+        <ReposSection repos={repos} serverHome={serverHome} onError={onError} />
       )}
     </div>
   );

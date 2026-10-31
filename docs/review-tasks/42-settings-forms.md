@@ -15,7 +15,7 @@ Each finding was re-verified against `refactor/prompt-engine-inconsistency-fix` 
 
 ### CR-035 [High] Repo form persists auto-detected policy as explicit per-repo overrides
 
-- **Status:** Open
+- **Status:** Fixed
 - **Type:** Bug
 - **Effort:** M
 - **Where:** components/settings/repos/ReposSection.tsx:29-37, components/settings/repos/hooks/use-repo-form.ts:48-56, components/settings/repos/hooks/use-detected-policy.ts:19-29
@@ -23,7 +23,7 @@ Each finding was re-verified against `refactor/prompt-engine-inconsistency-fix` 
 
 ### CR-147 [Medium] `tildePath` collapses *any* user's home (and `/Users/Shared`) to `~`, so edit-and-save rewrites `local_path`
 
-- **Status:** Open
+- **Status:** Fixed
 - **Type:** Bug
 - **Effort:** S
 - **Where:** components/settings/repos/paths.ts:7-9, components/settings/repos/hooks/use-repo-form.ts:20, components/settings/repos/components/RepoCard.tsx:48, app/api/repos/[id]/route.ts:28-30
@@ -31,7 +31,7 @@ Each finding was re-verified against `refactor/prompt-engine-inconsistency-fix` 
 
 ### CR-149 [Medium] Destructive deletes fire on one click with no confirmation (repos, integration instances, Cursor key)
 
-- **Status:** Open
+- **Status:** Fixed
 - **Type:** Gap
 - **Effort:** S
 - **Where:** components/settings/repos/ReposSection.tsx:85-87, components/settings/repos/components/RepoCard.tsx:70-83, components/settings/integrations/GitTab.tsx:101, components/settings/integrations/TaskTab.tsx:100, components/settings/integrations/HarnessTab.tsx:76, components/settings/integrations/components/InstanceCard.tsx:78
@@ -39,7 +39,7 @@ Each finding was re-verified against `refactor/prompt-engine-inconsistency-fix` 
 
 ### CR-150 [Medium] Mutation failures swallowed: instance remove, connection test, and the task repo-pin PATCH
 
-- **Status:** Open
+- **Status:** Fixed (settings integrations scope; repo-pin PATCH remains [Task 43](43-tasks-feature.md) / CR-153)
 - **Type:** Gap
 - **Effort:** S
 - **Where:** components/settings/integrations/GitTab.tsx:67-72, components/settings/integrations/GitTab.tsx:101, components/settings/integrations/TaskTab.tsx:67-71, components/settings/integrations/TaskTab.tsx:100, components/settings/integrations/hooks/use-instances.ts:60-71
@@ -47,7 +47,7 @@ Each finding was re-verified against `refactor/prompt-engine-inconsistency-fix` 
 
 ### CR-250 [Low] Unlabeled form controls in settings and the shared FilterPicker
 
-- **Status:** Open
+- **Status:** Fixed
 - **Type:** Accessibility
 - **Effort:** S
 - **Where:** components/settings/general/components/HttpAllowlist.tsx:23-30, components/settings/general/components/ModeCascade.tsx:33-37, components/settings/general/components/DefaultModelFields.tsx:21-25, components/settings/integrations/GitTab.tsx:115-124, components/settings/integrations/TaskTab.tsx:114-123, components/settings/integrations/HarnessTab.tsx:100-107, components/shared/FilterPicker.tsx:95-100
@@ -55,8 +55,8 @@ Each finding was re-verified against `refactor/prompt-engine-inconsistency-fix` 
 
 ## Done when
 
-- [ ] Every finding above is fixed, or a remaining part is written up in the PR description.
-- [ ] Each bug fix has a regression test (Vitest for `lib/`; at least a hook or utility test for UI where practical).
-- [ ] Code follows [`docs/coding-patterns.md`](../coding-patterns.md).
-- [ ] `npm run typecheck`, `npm run lint`, `npm test` and `npm run build` pass (before Task 02 lands, `npx tsc --noEmit` instead of `typecheck`).
-- [ ] The status of each finding in [`docs/code-review.md`](../code-review.md) is updated (Fixed, with the PR link).
+- [x] Every finding above is fixed, or a remaining part is written up in the PR description.
+- [x] Each bug fix has a regression test (Vitest for `lib/`; at least a hook or utility test for UI where practical).
+- [x] Code follows [`docs/coding-patterns.md`](../coding-patterns.md).
+- [x] `npm run typecheck`, `npm run lint`, `npm test` and `npm run build` pass (before Task 02 lands, `npx tsc --noEmit` instead of `typecheck`).
+- [x] The status of each finding in [`docs/code-review.md`](../code-review.md) is updated (Fixed, with the PR link).

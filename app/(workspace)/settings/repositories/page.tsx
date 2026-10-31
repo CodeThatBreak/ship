@@ -2,7 +2,7 @@ import {
   RepositoriesSettingsPage,
   reposQueryOptions,
 } from "@/components/settings";
-import { loadRepos } from "@/loaders/settings";
+import { loadReposPayload } from "@/loaders/settings";
 import { QueryClient, dehydrate, HydrationBoundary } from "@tanstack/react-query";
 
 export const dynamic = "force-dynamic";
@@ -15,13 +15,13 @@ const reposQueryDefaults = {
 
 /** Settings → Repositories — server-prefetched repo list. */
 export default async function SettingsRepositoriesPage() {
-  const repos = loadRepos();
+  const payload = loadReposPayload();
   const queryClient = new QueryClient({
     defaultOptions: { queries: reposQueryDefaults },
   });
   await queryClient.prefetchQuery({
     ...reposQueryOptions(),
-    queryFn: () => repos,
+    queryFn: () => payload,
   });
 
   return (

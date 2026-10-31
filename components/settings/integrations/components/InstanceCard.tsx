@@ -9,13 +9,14 @@ import { CheckCircle2, PlugZap, Trash2, XCircle } from "lucide-react";
 import type { InstanceRow, TestResult } from "../types";
 
 export function InstanceCard({
-  icon, instance, onTest, onDelete, testing, testResult, children,
+  icon, instance, onTest, onDelete, testing, deleting = false, testResult, children,
 }: {
   icon: React.ReactNode;
   instance: InstanceRow;
   onTest?: () => void;
   onDelete: () => void;
   testing?: boolean;
+  deleting?: boolean;
   testResult?: TestResult;
   /** Optional detail section rendered under the header row, inside this card. */
   children?: React.ReactNode;
@@ -76,6 +77,7 @@ export function InstanceCard({
                 aria-label="Remove instance"
                 className="text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
                 onClick={onDelete}
+                disabled={deleting}
               />
             }
           >

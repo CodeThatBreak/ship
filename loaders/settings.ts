@@ -93,5 +93,13 @@ export const loadSettings = async (): Promise<Settings> => {
   };
 };
 
-/** Repo registry rows — same JSON shape as GET /api/repos → repos. */
-export const loadRepos = (): Repo[] => repoService.listWithPathStatus();
+export type ReposPayload = { repos: Repo[]; serverHome: string };
+
+/** Repo registry — same JSON shape as GET /api/repos. */
+export const loadReposPayload = (): ReposPayload => ({
+  repos: repoService.listWithPathStatus(),
+  serverHome: process.env.HOME ?? "",
+});
+
+/** @deprecated Prefer loadReposPayload — returns repos only for legacy callers. */
+export const loadRepos = (): Repo[] => loadReposPayload().repos;

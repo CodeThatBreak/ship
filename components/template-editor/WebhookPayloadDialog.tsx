@@ -30,7 +30,7 @@ import { Skeleton } from "../ui/skeleton";
 import { useCopy } from "../../hooks/use-copy";
 import { queryKeys } from "@/constants/query-keys";
 import { fetchJson } from "@/hooks/fetch-json";
-import { settingsQueryOptions, reposQueryOptions } from "../settings/queries";
+import { settingsQueryOptions, reposQueryOptions, reposFromQueryData } from "../settings/queries";
 import { type Harness, type Repo } from "../settings";
 import { schemaRows } from "./variables";
 
@@ -140,7 +140,7 @@ export function WebhookPayloadDialog({
     enabled: open,
   });
 
-  const repos = reposQuery.data ?? [];
+  const repos = reposFromQueryData(reposQuery.data);
   const settings = settingsQuery.data ?? null;
   const loading =
     settingsQuery.isPending || reposQuery.isPending || (open && contextQuery.isPending);

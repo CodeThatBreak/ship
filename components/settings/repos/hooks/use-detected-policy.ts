@@ -12,19 +12,19 @@ export type DetectedPolicy = {
 };
 
 /**
- * Detected worktree policy for one local checkout — used to prefill the repo
- * form's empty policy fields so the user sees what's going to be applied.
- * Resilient: any failure just means no prefill.
+ * Detected worktree policy for one local checkout — shown as placeholders /
+ * help text only; never copied into form state. Disabled when the path is empty.
  */
-export function useDetectedPolicy(localPath: string, enabled: boolean) {
+export const useDetectedPolicy = (localPath: string, enabled: boolean) => {
+  const trimmed = localPath.trim();
   const query = useQuery({
-    queryKey: queryKeys.reposDetect(localPath),
+    queryKey: queryKeys.reposDetect(trimmed),
     queryFn: () =>
       fetchJsonOr<DetectedPolicy | null>(
-        `/api/repos/detect${localPath ? `?local_path=${encodeURIComponent(localPath)}` : ""}`,
+        `/api/repos/detect?local_path=${encodeURIComponent(trimmed)}`,
         null,
       ),
-    enabled,
+    enabled: enabled && trimmed.length > 0,
   });
   return query.data ?? null;
-}
+};

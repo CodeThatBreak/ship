@@ -1,7 +1,8 @@
 "use client";
-import { useCallback } from "react";
+import { useCallback, useState } from "react";
 import { RefreshCw } from "lucide-react";
 import { CursorIcon } from "../integration-icons";
+import { ConfirmDeleteDialog } from "@/components/shared";
 import { useSettingsQuery } from "../hooks/use-settings-query";
 import { PROVIDER_KIND } from "./constants";
 import { useConnectForm } from "./hooks/use-connect-form";
@@ -29,6 +30,7 @@ const CURSOR_PROVIDER_OPTIONS = [
 ] as const;
 
 export function HarnessTab({ open, onOpenChange, onError }: TabProps) {
+  const [pendingClearKey, setPendingClearKey] = useState(false);
   const { settings, isError: settingsLoadFailed, refetch } = useSettingsQuery();
   const setCursorKey = useUpdateCursorApiKey();
   const localAgent = useLocalAgentOptions(onError);
@@ -85,7 +87,8 @@ export function HarnessTab({ open, onOpenChange, onError }: TabProps) {
               baseUrl: "https://api.cursor.com",
               tokenMasked: "API key set",
             }}
-            onDelete={() => updateKey("")}
+            onDelete={() => setPendingClearKey(true)}
+            deleting={setCursorKey.isPending && setCursorKey.variables === ""}
           >
             {/* local-run execution settings live inside the harness card once connected */}
             {localAgent.options ? (
@@ -110,8 +113,9 @@ export function HarnessTab({ open, onOpenChange, onError }: TabProps) {
         onSubmit={() => updateKey(fields.apiKey)}
       >
         <Field>
-          <FieldLabel>Provider</FieldLabel>
+          <FieldLabel htmlFor="cursor-provider">Provider</FieldLabel>
           <ProviderSelect
+            id="cursor-provider"
             value={provider}
             onChange={setProvider}
             options={CURSOR_PROVIDER_OPTIONS}
@@ -140,6 +144,24 @@ export function HarnessTab({ open, onOpenChange, onError }: TabProps) {
           </Field>
         )}
       </ConnectModal>
+
+      <ConfirmDeleteDialog
+        open={pendingClearKey}
+        onClose={() => setPendingClearKey(false)}
+        title="Clear Cursor API key?"
+        description="Removes the stored key. Local agent runs won't work until you connect again."
+        busy={setCursorKey.isPending}
+        confirmLabel="Clear API key"
+        onConfirm={() => {
+          setCursorKey.mutate("", {
+            onSuccess: () => {
+              setPendingClearKey(false);
+              onError(null);
+            },
+            onError: (e) => onError(e.message),
+          });
+        }}
+      />
     </section>
   );
 }

@@ -1093,7 +1093,7 @@ Original findings, verbatim:
 
 ### CR-035 [High] Repo form persists auto-detected policy as explicit per-repo overrides
 
-- **Status at `abaa007`:** **Open**, fix in [Task 42](review-tasks/42-settings-forms.md)
+- **Status at `abaa007`:** **Fixed** ([Task 42](review-tasks/42-settings-forms.md))
 - **Current location:** components/settings/repos/ReposSection.tsx:29-37, components/settings/repos/hooks/use-repo-form.ts:48-56, components/settings/repos/hooks/use-detected-policy.ts:19-29
 - **Re-verification note:** The effect still copies `/api/repos/detect` output into empty `install_command`/`sync_paths` whenever the editor is open, so saving an edit pins detected values as per-repo overrides and a cleared field gets refilled. Show detected values as placeholder/help text read during render, send only user-typed fields, disable the detect query when `local_path` is empty, and drop the effect + `applyDetected`.
 
@@ -4010,7 +4010,7 @@ Original findings, verbatim:
 
 ### CR-147 [Medium] `tildePath` collapses *any* user's home (and `/Users/Shared`) to `~`, so edit-and-save rewrites `local_path`
 
-- **Status at `abaa007`:** **Open**, fix in [Task 42](review-tasks/42-settings-forms.md)
+- **Status at `abaa007`:** **Fixed** ([Task 42](review-tasks/42-settings-forms.md))
 - **Current location:** components/settings/repos/paths.ts:7-9, components/settings/repos/hooks/use-repo-form.ts:20, components/settings/repos/components/RepoCard.tsx:48, app/api/repos/[id]/route.ts:28-30
 - **Re-verification note:** `tildePath` still collapses any `/Users/<x>` or `/home/<x>` prefix to `~`, and `formFromRepo` feeds that collapsed path into the editable field. On save, the API expands `~` against the server `HOME`, so editing a repo at `/Users/Shared/...` silently rewrites `local_path`. Fix: keep the raw stored path in the form and tilde-collapse only for display, ideally against the real home returned by the API.
 
@@ -4053,7 +4053,7 @@ Original findings, verbatim:
 
 ### CR-149 [Medium] Destructive deletes fire on one click with no confirmation (repos, integration instances, Cursor key)
 
-- **Status at `abaa007`:** **Open**, fix in [Task 42](review-tasks/42-settings-forms.md)
+- **Status at `abaa007`:** **Fixed** ([Task 42](review-tasks/42-settings-forms.md))
 - **Current location:** components/settings/repos/ReposSection.tsx:85-87, components/settings/repos/components/RepoCard.tsx:70-83, components/settings/integrations/GitTab.tsx:101, components/settings/integrations/TaskTab.tsx:100, components/settings/integrations/HarnessTab.tsx:76, components/settings/integrations/components/InstanceCard.tsx:78
 - **Re-verification note:** The trash buttons still DELETE a repo or an instance (with its stored token), or clear the Cursor API key, on one click. There is no confirm and no disabled-while-pending state, so double clicks send duplicate DELETEs. Fix: hold a `pendingDelete` id per container, render the shared `ConfirmDeleteDialog` with `busy={remove.isPending}`, and pass a `deleting` prop to `RepoCard` and `InstanceCard`.
 
@@ -4074,8 +4074,7 @@ Original findings, verbatim:
 
 ### CR-150 [Medium] Mutation failures swallowed: instance remove, connection test, and the task repo-pin PATCH
 
-- **Status at `abaa007`:** **Open**, fix in [Task 42](review-tasks/42-settings-forms.md)
-- **Current location:** components/settings/integrations/GitTab.tsx:67-72, components/settings/integrations/GitTab.tsx:101, components/settings/integrations/TaskTab.tsx:67-71, components/settings/integrations/TaskTab.tsx:100, components/settings/integrations/hooks/use-instances.ts:60-71
+- **Status at `abaa007`:** **Fixed** (settings integrations scope; repo-pin PATCH remains [Task 43](review-tasks/43-tasks-feature.md) / CR-153)
 - **Re-verification note:** `remove.mutate(i.id)` still has no `onError`, so a failed delete is silent. `callTestInstance` still awaits a bare `fetch` that can reject, and `runTest` has no `onError`, so an offline test just stops spinning with no badge. Fix: add `onError: (e) => onError(e.message)` to both removes, and wrap the test `fetch` in try/catch that returns `{ ok: false, detail }`.
 
 - **Severity:** Medium
@@ -6480,7 +6479,7 @@ Original findings, verbatim:
 
 ### CR-250 [Low] Unlabeled form controls in settings and the shared FilterPicker
 
-- **Status at `abaa007`:** **Open**, fix in [Task 42](review-tasks/42-settings-forms.md)
+- **Status at `abaa007`:** **Fixed** ([Task 42](review-tasks/42-settings-forms.md))
 - **Current location:** components/settings/general/components/HttpAllowlist.tsx:23-30, components/settings/general/components/ModeCascade.tsx:33-37, components/settings/general/components/DefaultModelFields.tsx:21-25, components/settings/integrations/GitTab.tsx:115-124, components/settings/integrations/TaskTab.tsx:114-123, components/settings/integrations/HarnessTab.tsx:100-107, components/shared/FilterPicker.tsx:95-100
 - **Re-verification note:** Labels are still plain `<div>`s, or a `FieldLabel` without `htmlFor` next to a `SelectTrigger` with no `id` (ProviderSelect / HostingSelect take no id prop), and the FilterPicker input has only a placeholder. Use `<FieldLabel htmlFor>` with matching ids threaded through the selects, and add `aria-label` to the FilterPicker input.
 
@@ -7311,7 +7310,7 @@ One row per finding, at `abaa007`.
 | CR-032 | High | Gap | Fixed | [Task 23](review-tasks/23-graph-semantics-and-validation.md) |
 | CR-033 | High | Bug | Fixed | [Task 39](review-tasks/39-editor-fields-and-effects.md) |
 | CR-034 | High | Accessibility | Fixed | [Task 39](review-tasks/39-editor-fields-and-effects.md) |
-| CR-035 | High | Bug | Open | [Task 42](review-tasks/42-settings-forms.md) |
+| CR-035 | High | Bug | Fixed | [Task 42](review-tasks/42-settings-forms.md) |
 | CR-036 | High | Gap | Open | [Task 14](review-tasks/14-frontend-throwing-fetchers.md) |
 | CR-037 | High | Gap | Open | [Task 43](review-tasks/43-tasks-feature.md) |
 | CR-038 | High | Bug | Open | [Task 41](review-tasks/41-settings-data-and-errors.md) |
@@ -7423,10 +7422,10 @@ One row per finding, at `abaa007`.
 | CR-144 | Medium | Bug | Open | [Task 40](review-tasks/40-editor-performance.md) |
 | CR-145 | Medium | Performance | Open | [Task 40](review-tasks/40-editor-performance.md) |
 | CR-146 | Medium | Code quality | Fixed | [Task 39](review-tasks/39-editor-fields-and-effects.md) |
-| CR-147 | Medium | Bug | Open | [Task 42](review-tasks/42-settings-forms.md) |
+| CR-147 | Medium | Bug | Fixed | [Task 42](review-tasks/42-settings-forms.md) |
 | CR-148 | Medium | Bug | Open | [Task 43](review-tasks/43-tasks-feature.md) |
-| CR-149 | Medium | Gap | Open | [Task 42](review-tasks/42-settings-forms.md) |
-| CR-150 | Medium | Gap | Open | [Task 42](review-tasks/42-settings-forms.md) |
+| CR-149 | Medium | Gap | Fixed | [Task 42](review-tasks/42-settings-forms.md) |
+| CR-150 | Medium | Gap | Fixed (settings integrations; repo-pin in [Task 43](review-tasks/43-tasks-feature.md)) | [Task 42](review-tasks/42-settings-forms.md) |
 | CR-151 | Medium | Bug | Open | [Task 41](review-tasks/41-settings-data-and-errors.md) |
 | CR-152 | Medium | Bug | Open | [Task 41](review-tasks/41-settings-data-and-errors.md) |
 | CR-153 | Medium | Bug | Open | [Task 43](review-tasks/43-tasks-feature.md) |
@@ -7526,7 +7525,7 @@ One row per finding, at `abaa007`.
 | CR-247 | Low | Code quality | Open | [Task 55](review-tasks/55-frontend-constants-and-types.md) |
 | CR-248 | Low | Code quality | Open | [Task 53](review-tasks/53-app-shell-and-settings-dedup.md) |
 | CR-249 | Low | Code quality | Open | [Task 53](review-tasks/53-app-shell-and-settings-dedup.md) |
-| CR-250 | Low | Accessibility | Open | [Task 42](review-tasks/42-settings-forms.md) |
+| CR-250 | Low | Accessibility | Fixed | [Task 42](review-tasks/42-settings-forms.md) |
 | CR-251 | Low | Bug | Open | [Task 52](review-tasks/52-shared-ui-components.md) |
 | CR-252 | Low | Code quality | Open | [Task 52](review-tasks/52-shared-ui-components.md) |
 | CR-253 | Low | Code quality | Open | [Task 55](review-tasks/55-frontend-constants-and-types.md) |

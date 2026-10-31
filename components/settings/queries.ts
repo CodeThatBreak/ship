@@ -8,15 +8,28 @@ import { fetchJson } from "@/hooks/fetch-json";
 import { FAILED_ACTION, type FailedAction } from "@/constants/api";
 import type { GitHost, Repo, Settings } from "./context";
 
-type SettingsPayload = { repos?: Repo[] };
+export type ReposQueryData = { repos: Repo[]; serverHome: string };
+
+/** Normalize cached repos query data (supports legacy array-shaped cache entries). */
+export const reposFromQueryData = (
+  data: ReposQueryData | Repo[] | undefined,
+): Repo[] => {
+  if (!data) return [];
+  if (Array.isArray(data)) return data;
+  return data.repos;
+};
+
 type GitHostsPayload = { hosts?: GitHost[] };
 
 const loadSettings = (): Promise<Settings> =>
   fetchJson<Settings>("/api/settings");
 
-const loadRepos = async (): Promise<Repo[]> => {
-  const payload = await fetchJson<SettingsPayload>("/api/repos");
-  return payload.repos ?? [];
+const loadRepos = async (): Promise<ReposQueryData> => {
+  const payload = await fetchJson<{ repos?: Repo[]; server_home?: string }>("/api/repos");
+  return {
+    repos: payload.repos ?? [],
+    serverHome: payload.server_home ?? "",
+  };
 };
 
 const loadGitHosts = async (): Promise<GitHost[]> => {
