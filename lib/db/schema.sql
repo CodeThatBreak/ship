@@ -28,6 +28,10 @@ CREATE TABLE IF NOT EXISTS flows (
   repo_url      TEXT,
   gitlab_project_id INTEGER,
   current_node  TEXT,                          -- node key currently running
+  execution_mode TEXT NOT NULL DEFAULT 'cloud',
+  repo_id       TEXT REFERENCES repos(id),
+  template_id   TEXT REFERENCES flow_templates(id),
+  trigger_payload TEXT,                        -- JSON: webhook/schedule payload that started the flow
   worktree_dir  TEXT,                          -- git worktree dir for local runs (created at build start; the hub checkout is never mutated)
   -- step sub-flows (plan fan-out): set on child flows, kind distinguishes them
   parent_flow_id TEXT REFERENCES flows(id),
@@ -44,6 +48,11 @@ CREATE TABLE IF NOT EXISTS nodes (
   status        TEXT NOT NULL DEFAULT 'pending',  -- pending|running|awaiting_approval|approved|failed|done|waiting|skipped
   agent_id      TEXT,                        -- runtime agent handle captured from the last run
   agent_ref     TEXT,
+  session_id    TEXT,                        -- local agent session
+  prompt_override TEXT,                      -- per-run prompt override
+  label         TEXT,                        -- display name override from the template instance
+  config        TEXT,                        -- effective config snapshot (JSON)
+  join_mode     TEXT,                        -- join semantics for incoming edges: all | any
   input         TEXT,                        -- JSON
   output        TEXT,                        -- JSON
   created_at    TEXT NOT NULL,
@@ -130,8 +139,7 @@ CREATE TABLE IF NOT EXISTS plan_steps (
 );
 CREATE INDEX IF NOT EXISTS idx_plan_steps_flow ON plan_steps(flow_id, position);
 
--- durable cursor-run handles so we can resume / re-attach after restart
--- Phase 3C: per-branch tracking for multi-branch builds
+-- Per-branch tracking for multi-branch builds (Phase 3C)
 CREATE TABLE IF NOT EXISTS branches (
   id            TEXT PRIMARY KEY,
   flow_id       TEXT NOT NULL REFERENCES flows(id),
@@ -156,6 +164,14 @@ CREATE TABLE IF NOT EXISTS runs (
   run_ref       TEXT NOT NULL,             -- the runtime's run id
   branch_id     TEXT REFERENCES branches(id),  -- Phase 3C: per-branch attribution
   status        TEXT NOT NULL DEFAULT 'running',  -- running|finished|error|cancelled
+  model         TEXT,
+  input_tokens  INTEGER,
+  output_tokens INTEGER,
+  cache_read_tokens INTEGER,
+  cache_write_tokens INTEGER,
+  duration_ms   INTEGER,
+  cost_cents    INTEGER,
+  usage         TEXT,                      -- raw usage JSON
   created_at    TEXT NOT NULL,
   updated_at    TEXT NOT NULL
 );

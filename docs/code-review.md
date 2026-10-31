@@ -694,6 +694,7 @@ Original findings, verbatim:
 ### CR-021 [High] DB connection is cached before schema/migrations finish — a failed migration is never retried and the app runs half-migrated
 
 - **Status at `abaa007`:** **Open**, fix in [Task 08](review-tasks/08-db-bootstrap-and-schema.md)
+- **Status:** **Fixed** (Task 08 — bootstrap opens into a pending handle, assigns `conn` only on success, throws `DatabaseMigrationError` on failure)
 - **Current location:** lib/db/index.ts:38-55
 - **Re-verification note:** `this.conn` is still assigned before `renameTicketsToTasks`, `exec(schema)` and `migrate()` run, so a failed migration leaves a cached, half-migrated handle for every later caller. Open into a local, run bootstrap and migrations, assign `this.conn` only on success, and otherwise `close()` and throw a typed `DatabaseMigrationError`.
 
@@ -722,6 +723,7 @@ Original findings, verbatim:
 ### CR-022 [High] Migrations and seeding are not atomic; table rebuilds are not resumable after a crash
 
 - **Status at `abaa007`:** **Open**, fix in [Task 08](review-tasks/08-db-bootstrap-and-schema.md)
+- **Status:** **Fixed** (Task 08 — legacy table rebuilds removed; `seedTemplates` runs inside the version-1 migration transaction)
 - **Current severity:** Medium (was High)
 - **Current location:** lib/db/index.ts:588-660 (seedTemplates, non-atomic SDLC template seed); legacy-only parts: lib/db/index.ts:64-70, 82-84, 198-208, 466-494, 547-580
 - **Re-verification note:** Still applies for the current flow only in part (b): `seedTemplates` inserts `tpl_sdlc_loop`, then its nodes and edges, as separate statements, so a crash in between makes the `hasSdlc` check permanently skip node seeding. Wrap each template seed in one transaction. Parts (a) and (c) concern legacy migrations (tickets→tasks rename, the `tasks_new`/`flows_new` FK and column rebuilds, `pipeline_fix` cleanup). That code still exists and should be deleted as a legacy cleanup task rather than hardened.
@@ -4303,6 +4305,7 @@ Original findings, verbatim:
 ### CR-158 [Medium] Seed scripts and `init-prod-db` run raw `schema.sql` and skip the app's migrations, which can shadow `tickets` data or fail on old DBs
 
 - **Status at `abaa007`:** **Obsolete (legacy, no fix)**, leftover code deleted in [Task 08](review-tasks/08-db-bootstrap-and-schema.md)
+- **Status:** **Fixed** (Task 08 — legacy migrations deleted; `schema.sql` is canonical for seed/bootstrap scripts)
 - **Re-verification note:** Both harms this finding describes (shadowing a pre-rename `tickets` table, and missing `ALTER TABLE ADD COLUMN` columns on old DBs) apply only to legacy pre-migration DB shapes, which the product owner won't support. The seeds still exec raw `schema.sql` (seed-*.mjs, init-prod-db.mjs:21). The legacy `tickets→tasks` rename and ALTER migrations still exist in `lib/db/index.ts:44-77` and `migrate()`, so they are candidates for a "delete legacy migrations" cleanup.
 
 - **Severity:** Medium
@@ -5582,6 +5585,7 @@ Original findings, verbatim:
 ### CR-210 [Low] `schema.sql` is not the canonical schema; migrations are unversioned and re-run every boot
 
 - **Status at `abaa007`:** **Open**, fix in [Task 08](review-tasks/08-db-bootstrap-and-schema.md)
+- **Status:** **Fixed** (Task 08 — columns folded into `schema.sql`, `user_version` migration v1 seeds templates once per transaction)
 - **Current location:** lib/db/schema.sql:20-37,39-52,133,151-161; lib/db/index.ts:73-259; scripts/init-prod-db.mjs:21; scripts/seed-custom-flow.mjs:38; scripts/seed-demo-flow.mjs:31
 - **Re-verification note:** `schema.sql` is still not canonical. These columns exist only as `ALTER TABLE` in `migrate()`: `flows.execution_mode/repo_id/template_id/trigger_payload`, `nodes.session_id/prompt_override/label/config/join_mode`, and the `runs` model/token/cost columns. So the scripts that bootstrap from `schema.sql` alone produce a DB that does not match `rows.ts`. There is still no `user_version`, every probe and seed re-runs on each boot, and the stray "durable cursor-run handles" comment still sits above `branches`. Fix: fold all columns into `schema.sql` and gate steps on `PRAGMA user_version`. The legacy-data parts of this item should be deleted rather than versioned (see CR-211 and CR-212).
 
@@ -5608,7 +5612,7 @@ Original findings, verbatim:
 ### CR-211 [Low] Legacy `flows` table rebuild drops constraints and would fail under enforced FKs
 
 - **Status at `abaa007`:** **Obsolete (legacy, no fix)**, leftover code deleted in [Task 08](review-tasks/08-db-bootstrap-and-schema.md)
-- **Re-verification note:** This only concerns the legacy tickets-to-tasks `flows` table rebuild, which the product owner no longer wants to support. The legacy code still exists (`lib/db/index.ts:466-494`, inside `migrateTicketsToTasks`, plus `renameTicketsToTasks` at 64-70) and is a candidate for a "delete legacy migrations" cleanup.
+- **Status:** **Fixed** (Task 08 — `migrateTicketsToTasks` / flows rebuild deleted)
 
 - **Severity:** Low
 - **Category:** Correctness
@@ -5629,6 +5633,7 @@ Original findings, verbatim:
 ### CR-212 [Low] Legacy normalizers do full-table scans plus per-row prepares on every boot
 
 - **Status at `abaa007`:** **Obsolete (legacy, no fix)**, leftover code deleted in [Task 08](review-tasks/08-db-bootstrap-and-schema.md)
+- **Status:** **Fixed** (Task 08 — `normalizeLegacy*` and per-boot data fixes deleted)
 - **Re-verification note:** This concerns the legacy data normalizers, which are out of scope now that legacy flows are unsupported. The code still runs on every boot: `normalizeLegacyModelSpecs`/`FlowTriggers`/`Comments`/`McpSources` at `lib/db/index.ts:254-405` (comments still do a full scan plus a prepare inside the loop at 372), and the `gitlab_pipeline` remap and `template_id` backfill at 246-253. Delete them as part of the legacy-code cleanup.
 
 - **Severity:** Low
@@ -5843,6 +5848,7 @@ Original findings, verbatim:
 ### CR-221 [Low] `schema.sql` is loaded relative to `process.cwd()`
 
 - **Status at `abaa007`:** **Open**, fix in [Task 08](review-tasks/08-db-bootstrap-and-schema.md)
+- **Status:** **Fixed** (Task 08 — `config.db.schemaSqlPath()` resolves from repo root; `AppConfig.root` no longer follows `process.cwd()`)
 - **Current location:** lib/db/index.ts:48-51
 - **Re-verification note:** `schema.sql` is still read from `path.join(process.cwd(), "lib/db/schema.sql")`, so launching from any other directory throws ENOENT on first DB access. Fix: resolve the path via `config` or embed the schema as a TS string module.
 
@@ -7330,8 +7336,8 @@ One row per finding, at `abaa007`.
 | CR-018 | High | Bug | Fixed | — |
 | CR-019 | High | Bug | Open | [Task 21](review-tasks/21-multi-branch-correctness.md) |
 | CR-020 | High | Bug | Open | [Task 21](review-tasks/21-multi-branch-correctness.md) |
-| CR-021 | High | Infra | Open | [Task 08](review-tasks/08-db-bootstrap-and-schema.md) |
-| CR-022 | Medium | Infra | Open | [Task 08](review-tasks/08-db-bootstrap-and-schema.md) |
+| CR-021 | High | Infra | Fixed (Task 08) | [Task 08](review-tasks/08-db-bootstrap-and-schema.md) |
+| CR-022 | Medium | Infra | Fixed (Task 08) | [Task 08](review-tasks/08-db-bootstrap-and-schema.md) |
 | CR-023 | High | Security | Open | [Task 59](review-tasks/59-security-credential-hygiene.md) |
 | CR-024 | High | Security | Open | [Task 59](review-tasks/59-security-credential-hygiene.md) |
 | CR-025 | High | Gap | Open | [Task 31](review-tasks/31-git-host-clients.md) |
@@ -7467,7 +7473,7 @@ One row per finding, at `abaa007`.
 | CR-155 | Medium | Code quality | Open | [Task 55](review-tasks/55-frontend-constants-and-types.md) |
 | CR-156 | Medium | Accessibility | Open | [Task 52](review-tasks/52-shared-ui-components.md) |
 | CR-157 | Medium | Infra | Fixed | [Task 06](review-tasks/06-db-path-and-seed-safety.md) |
-| CR-158 | Medium | Infra | Obsolete (legacy, no fix) | [Task 08](review-tasks/08-db-bootstrap-and-schema.md) |
+| CR-158 | Medium | Infra | Fixed (Task 08) | [Task 08](review-tasks/08-db-bootstrap-and-schema.md) |
 | CR-159 | Medium | Infra | Fixed | [Task 06](review-tasks/06-db-path-and-seed-safety.md) |
 | CR-160 | Medium | Infra | Partly fixed | [Task 05](review-tasks/05-test-coverage-baseline.md) |
 | CR-161 | Medium | Infra | Open | [Task 04](review-tasks/04-client-server-boundaries.md) |
@@ -7519,9 +7525,9 @@ One row per finding, at `abaa007`.
 | CR-207 | Low | Code quality | Fixed | Task 07 |
 | CR-208 | Low | Code quality | Open | [Task 49](review-tasks/49-node-kind-structure.md) |
 | CR-209 | Low | Bug | Open | [Task 22](review-tasks/22-pipeline-review-resolve.md) |
-| CR-210 | Low | Infra | Open | [Task 08](review-tasks/08-db-bootstrap-and-schema.md) |
-| CR-211 | Low | Bug | Obsolete (legacy, no fix) | [Task 08](review-tasks/08-db-bootstrap-and-schema.md) |
-| CR-212 | Low | Performance | Obsolete (legacy, no fix) | [Task 08](review-tasks/08-db-bootstrap-and-schema.md) |
+| CR-210 | Low | Infra | Fixed (Task 08) | [Task 08](review-tasks/08-db-bootstrap-and-schema.md) |
+| CR-211 | Low | Bug | Fixed (Task 08) | [Task 08](review-tasks/08-db-bootstrap-and-schema.md) |
+| CR-212 | Low | Performance | Fixed (Task 08) | [Task 08](review-tasks/08-db-bootstrap-and-schema.md) |
 | CR-213 | Low | Code quality | Open | [Task 46](review-tasks/46-backend-types-cleanup.md) |
 | CR-214 | Low | Code quality | Open | [Task 33](review-tasks/33-git-and-worktree-process-safety.md) |
 | CR-215 | Low | Code quality | Open | [Task 33](review-tasks/33-git-and-worktree-process-safety.md) |
@@ -7530,7 +7536,7 @@ One row per finding, at `abaa007`.
 | CR-218 | Low | Bug | Open | [Task 33](review-tasks/33-git-and-worktree-process-safety.md) |
 | CR-219 | Low | Bug | Open | [Task 31](review-tasks/31-git-host-clients.md) |
 | CR-220 | Low | Bug | Open | [Task 31](review-tasks/31-git-host-clients.md) |
-| CR-221 | Low | Infra | Open | [Task 08](review-tasks/08-db-bootstrap-and-schema.md) |
+| CR-221 | Low | Infra | Fixed (Task 08) | [Task 08](review-tasks/08-db-bootstrap-and-schema.md) |
 | CR-222 | Low | Code quality | Partly fixed | [Task 33](review-tasks/33-git-and-worktree-process-safety.md) |
 | CR-223 | Low | Bug | Open | [Task 32](review-tasks/32-agent-ports.md) |
 | CR-224 | Low | Bug | Open | [Task 33](review-tasks/33-git-and-worktree-process-safety.md) |

@@ -1,6 +1,10 @@
 import "server-only";
 
 import path from "path";
+import { fileURLToPath } from "node:url";
+
+/** Repository root (parent of `lib/`), stable regardless of `process.cwd()`. */
+const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
 /**
  * Application configuration, sourced from environment variables.
@@ -44,6 +48,11 @@ class DatabaseConfig {
     }
     return this.demoPath();
   }
+
+  /** Canonical DDL file (resolved from the repo root, not `process.cwd()`). */
+  schemaSqlPath(): string {
+    return path.resolve(AppConfig.root, "lib/db/schema.sql");
+  }
 }
 
 class WorkspaceConfig {
@@ -58,7 +67,7 @@ class WorkspaceConfig {
 }
 
 export class AppConfig {
-  private static readonly rootDir = process.cwd();
+  private static readonly rootDir = REPO_ROOT;
 
   static get root(): string {
     return AppConfig.rootDir;

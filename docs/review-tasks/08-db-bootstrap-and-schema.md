@@ -16,7 +16,7 @@ Each finding was re-verified against `refactor/prompt-engine-inconsistency-fix` 
 
 ### CR-021 [High] DB connection is cached before schema/migrations finish — a failed migration is never retried and the app runs half-migrated
 
-- **Status:** Open
+- **Status:** Fixed (Task 08)
 - **Type:** Infra
 - **Effort:** S
 - **Where:** lib/db/index.ts:38-55
@@ -24,7 +24,7 @@ Each finding was re-verified against `refactor/prompt-engine-inconsistency-fix` 
 
 ### CR-022 [Medium] Migrations and seeding are not atomic; table rebuilds are not resumable after a crash
 
-- **Status:** Open
+- **Status:** Fixed (Task 08 — legacy rebuilds removed; template seed is user_version 1 in one transaction)
 - **Type:** Infra
 - **Severity:** Medium (was High)
 - **Effort:** S
@@ -34,7 +34,7 @@ Each finding was re-verified against `refactor/prompt-engine-inconsistency-fix` 
 
 ### CR-210 [Low] `schema.sql` is not the canonical schema; migrations are unversioned and re-run every boot
 
-- **Status:** Open
+- **Status:** Fixed (Task 08)
 - **Type:** Infra
 - **Effort:** M
 - **Where:** lib/db/schema.sql:20-37,39-52,133,151-161; lib/db/index.ts:73-259; scripts/init-prod-db.mjs:21; scripts/seed-custom-flow.mjs:38; scripts/seed-demo-flow.mjs:31
@@ -43,11 +43,11 @@ Each finding was re-verified against `refactor/prompt-engine-inconsistency-fix` 
 
 ### CR-221 [Low] `schema.sql` is loaded relative to `process.cwd()`
 
-- **Status:** Open
+- **Status:** Fixed (Task 08)
 - **Type:** Infra
 - **Effort:** S
 - **Where:** lib/db/index.ts:48-51
-- **What to do:** `schema.sql` is still read from `path.join(process.cwd(), "lib/db/schema.sql")`, so launching from any other directory throws ENOENT on first DB access. Fix: resolve the path via `config` or embed the schema as a TS string module.
+- **What to do:** `schema.sql` is still read from `path.join(process.cwd(), "lib/db/schema.sql")`, so launching from any other directory throws ENOENT on first DB access. Fix: resolve the path via `lib/config.ts` or embed the schema as a TS string module.
 - **Fix after:** CR-021 (this task)
 
 ## Legacy code to delete
@@ -68,8 +68,13 @@ These findings are obsolete because they only affect legacy or deprecated flows,
 
 ## Done when
 
-- [ ] Every finding above is fixed, or a remaining part is written up in the PR description.
-- [ ] Each bug fix has a regression test (Vitest for `lib/`; at least a hook or utility test for UI where practical).
-- [ ] Code follows [`docs/coding-patterns.md`](../coding-patterns.md).
-- [ ] `npm run typecheck`, `npm run lint`, `npm test` and `npm run build` pass (before Task 02 lands, `npx tsc --noEmit` instead of `typecheck`).
-- [ ] The status of each finding in [`docs/code-review.md`](../code-review.md) is updated (Fixed, with the PR link).
+- [x] Every finding above is fixed, or a remaining part is written up in the PR description.
+- [x] Each bug fix has a regression test (Vitest for `lib/`; at least a hook or utility test for UI where practical).
+- [x] Code follows [`docs/coding-patterns.md`](../coding-patterns.md).
+- [x] `npm run typecheck`, `npm run lint`, `npm test` and `npm run build` pass (before Task 02 lands, `npx tsc --noEmit` instead of `typecheck`).
+- [x] The status of each finding in [`docs/code-review.md`](../code-review.md) is updated (Fixed, with the PR link).
+
+## PR notes
+
+- **Breaking:** Delete `data/devflow.db` (or run `npm run seed:demo:reset`) if your local file predates canonical `schema.sql` — legacy ALTER migrations are gone.
+- **rows.ts:** No mapper changes required; schema now matches existing row types.
