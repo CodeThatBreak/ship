@@ -2,7 +2,7 @@ import { prompts } from '../../../prompts/prompt-library';
 import { DEFAULT_PROMPT_TEMPLATES } from '../../../prompts/prompt-defaults';
 import { TemplateRenderer, type FlowCtx, type FlowContextHelper } from '../../shared';
 import type { NodeRow } from '../../../../db/rows';
-import type { PlanInput } from './schema';
+import { PlanInput } from './schema';
 import type { PlanContextBlocks } from './plan-context';
 import type { PlanStore } from './plan-store';
 import type { ScopedRefine } from './types';
@@ -10,7 +10,7 @@ import type { ScopedRefine } from './types';
 /** The plan node's `execution_default` knob resolution. */
 export type ExecutionKnob = 'whole' | 'follow';
 
-/** A run's mode label + follow-up decision, resolved before execution. */
+/** @deprecated unused — plan node has no manual `run()`. */
 export interface RunIntent {
   label: string;
   followUpOn: string | null;
@@ -42,33 +42,7 @@ export class PlanPromptBuilder {
     private readonly knobOf: (ctx: FlowCtx) => ExecutionKnob,
   ) {}
 
-  /**
-   * Scoped refines are fresh by default: their template is self-contained,
-   * and a follow-up biases the model toward its earlier decisions. Whole-plan
-   * updates after the first run go through `PlanNode.chat()`, not `run()`.
-   */
-  runIntent(node: NodeRow, input: PlanInput, scoped: ScopedRefine | null): RunIntent {
-    const scopedFresh = input.fresh ?? true;
-    if (scoped) {
-      return {
-        label: `sub-plan refine (${scoped.branch.name}${scopedFresh ? ', fresh' : ''})`,
-        followUpOn: scopedFresh ? null : (node.agent_id ?? null),
-      };
-    }
-    return {
-      label: input.prompt ? 'plan (custom prompt)' : 'plan',
-      followUpOn: null,
-    };
-  }
-
-  /**
-   * The conversation follow-up's prompt (docs/plan-conversation-refine.md §2):
-   * the plan_refine conversation contract over the SAME context assembly a
-   * whole refine uses — live state by default (the `edits` block carries the
-   * developer's hand edits, and the template's rules require preserving them).
-   * The `follow`-mode execution directive rides exactly like whole()'s refine
-   * arm so a plan-bearing response's meta stays coherent with a refine's.
-   */
+  /** Whole-plan / pre-publish conversation prompt (`plan_refine` assembly). */
   refineTurn(ctx: FlowCtx, content: string, userRules: string): string {
     // a conversation turn carries no context-picker selection — the whole-mode
     // defaults (task, branches, edits) are the recommendation (§4 "no mode state")
@@ -122,20 +96,10 @@ export class PlanPromptBuilder {
   }
 
   /**
-   * Scoped prompt (§2). Verbatim-prompt path composes as
-   * `{{developerPromptBody}}` + the template's internal blocks (via
-   * `assemblePrompt`) so the "Edit prompt" modal keeps working with
-   * `promptIsBody`.
+   * Branch-scoped turn prompt (`plan_subplan_refine`).
    */
-  scoped(ctx: FlowCtx, scoped: ScopedRefine, input: PlanInput, userRules: string): string {
-    const vars = this.scopedVars(ctx, scoped, input);
-    if (input.prompt) {
-      if (!input.promptIsBody) return input.prompt;
-      // feedback was typed into the modal body — keep the appended suffix's
-      // feedback section blank so it isn't echoed twice
-      return prompts.assemblePrompt('plan_subplan_refine', vars, { feedback: '' }, { body: input.prompt, userRules })
-        .final;
-    }
+  scoped(ctx: FlowCtx, scoped: ScopedRefine, userMessage: string, contextBlocks: string[], userRules: string): string {
+    const vars = this.scopedVars(ctx, scoped, userMessage, contextBlocks);
     return prompts.resolve('plan_subplan_refine', {}, vars, undefined, { userRules });
   }
 
@@ -143,19 +107,20 @@ export class PlanPromptBuilder {
   scopedVars(
     ctx: FlowCtx,
     scoped: ScopedRefine,
-    input: Pick<PlanInput, 'feedback' | 'contextBlocks'>
+    userMessage: string,
+    contextBlocks: string[]
   ): Record<string, string> {
     const b = scoped.branch;
+    const input = PlanInput.parse({ contextBlocks });
     return {
       branch: b.name,
       scope: b.scope || '(none stated)',
       files: b.files?.length ? b.files.join(', ') : '(none stated)',
       dependsOn: b.dependsOn.length ? b.dependsOn.join(', ') : '(none)',
-      // what the sub-plan may assume exists — nothing else about other branches
       dependsOnSummaries: this.store.dependencySummaries(scoped.latest, b),
       subPlanPrompt: b.subPlan?.prompt || '(none yet — seed the sub-plan from the contract above)',
       currentSteps: this.store.stepsText(scoped.liveRows),
-      feedback: input.feedback ?? '',
+      feedback: userMessage,
       context: this.context.assemble(ctx, input, scoped, { skipContract: true }),
     };
   }

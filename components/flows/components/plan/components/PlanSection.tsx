@@ -18,7 +18,6 @@ export function PlanSection({
   planId,
   viewedVersion,
   expandedBranch,
-  canRefine,
   onAction,
 }: {
   node: Node;
@@ -29,16 +28,11 @@ export function PlanSection({
   /** the plan version currently being viewed (the sub-plan staleness anchor, §8) */
   viewedVersion: number;
   expandedBranch: string | null;
-  canRefine: boolean;
 
   onAction: (action: Action) => void;
 }) {
   const onToggle = (name: string) => {
     onAction({ type: ACTION_TYPES.TOGGLE_BRANCH, payload: { name } });
-  };
-
-  const onRefine = (name: string) => {
-    onAction({ type: ACTION_TYPES.COLLAPSE_BRANCH });
   };
 
   if (!planId) return null;
@@ -53,9 +47,7 @@ export function PlanSection({
           plans={plans}
           viewedVersion={viewedVersion}
           expandedBranch={expandedBranch}
-          canRefine={canRefine}
           onToggle={onToggle}
-          onRefine={onRefine}
         />
       </div>
     </div>

@@ -182,7 +182,7 @@ describe('PlanStore.persistPlan — published execution rides every version', ()
     return store.persistPlan({
       ctx,
       node,
-      input: { feedback: 'fb' },
+      userMessage: 'fb',
       text: '# plan',
       planMeta: meta(),
       ...(plannerExecution !== undefined ? { plannerExecution: plannerExecution as never } : {}),
@@ -208,33 +208,5 @@ describe('PlanStore.persistPlan — published execution rides every version', ()
   it('follow with nothing published publishes whole as source "default"', () => {
     persist(new PlanStore(supportWith(null)), 'follow');
     expect(metaOf(0)).toMatchObject({ execution: 'whole', executionSource: 'default' });
-  });
-});
-
-describe('PlanStore.persistRecovery — recovery provenance', () => {
-  const persist = (plannerExecution: unknown) => {
-    savedMetas = [];
-    new PlanStore(supportWith(null)).persistRecovery({
-      ctx,
-      node,
-      text: '# plan',
-      planMeta: { steps: [], branches: [] },
-      plannerExecution: plannerExecution as never,
-    });
-    return metaOf(0);
-  };
-
-  it('keeps the recovered planner decision (planner / default by rationale)', () => {
-    expect(persist({ value: 'steps', rationale: 'why' })).toMatchObject({
-      recovered: true,
-      execution: 'steps',
-      executionSource: 'planner',
-      execution_rationale: 'why',
-    });
-    expect(persist({ value: 'whole', rationale: null })).toMatchObject({
-      recovered: true,
-      execution: 'whole',
-      executionSource: 'default',
-    });
   });
 });

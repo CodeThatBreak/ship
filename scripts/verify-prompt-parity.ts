@@ -210,7 +210,13 @@ async function main(): Promise<void> {
     const specStart = capturedSpecs.length;
     let runError: string | null = null;
     try {
-      await def.run(ctx, def.parseInput(args.input), def.defaultConfig());
+      if (kind === 'plan') {
+        const planDef = def as { turn: (c: typeof ctx, body: string, o: object) => Promise<string> };
+        const bootstrap = previewFinal?.trim() || 'parity bootstrap prompt';
+        await planDef.turn(ctx, bootstrap, {});
+      } else {
+        await def.run(ctx, def.parseInput(args.input), def.defaultConfig());
+      }
     } catch (e) {
       runError = e instanceof Error ? e.message : String(e);
     }

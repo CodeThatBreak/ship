@@ -98,17 +98,11 @@ export class PlanStore {
   persistPlan(args: {
     ctx: Pick<FlowCtx, 'flow'>;
     node: NodeRow;
-    input: Pick<PlanInput, 'feedback'>;
+    userMessage: string;
     text: string;
     planMeta: PlanMeta | null;
     plannerExecution?: PlannerExecution | null;
     knob: 'whole' | 'follow';
-    /**
-     * §6c refine provenance: when present, meta gains
-     * `refinedFrom: { version, source }` — "a version with refinedFrom" IS
-     * "a produced refine" (reply-only turns never persist, so nothing rides
-     * them). Never written on a template-faithful first run.
-     */
     refined?: RefinedFrom;
   }): { art: { id: string; version: number }; stepCount: number } {
     // plan fan-out (§1 "who decides the mode"): the published execution
@@ -131,35 +125,13 @@ export class PlanStore {
       source = 'knob';
     }
     const art = this.publish(args, {
-      feedback: args.input.feedback,
+      feedback: args.userMessage,
       branches: args.planMeta?.branches ?? undefined,
       steps: args.planMeta?.steps ?? undefined,
       execution,
       executionSource: source,
       ...(rationale ? { execution_rationale: rationale } : {}),
       ...(args.refined ? { refinedFrom: args.refined } : {}),
-    });
-    return { art, stepCount: this.syncSteps(args.ctx.flow.id, art, args.planMeta) };
-  }
-
-  /**
-   * Save the plan artifact from a RECOVERED finish (the same store, recovery
-   * provenance): a recovered response's planner decision rides the artifact
-   * meta so the plan panel/chips and from-plan fan-out gates see the same
-   * resolution.
-   */
-  persistRecovery(args: {
-    ctx: Pick<FlowCtx, 'flow'>;
-    node: NodeRow;
-    text: string;
-    planMeta: PlanMeta;
-    plannerExecution: PlannerExecution;
-  }): { art: { id: string; version: number }; stepCount: number } {
-    const art = this.publish(args, {
-      recovered: true,
-      execution: args.plannerExecution.value,
-      executionSource: args.plannerExecution.rationale ? 'planner' : 'default',
-      ...(args.plannerExecution.rationale ? { execution_rationale: args.plannerExecution.rationale } : {}),
     });
     return { art, stepCount: this.syncSteps(args.ctx.flow.id, art, args.planMeta) };
   }

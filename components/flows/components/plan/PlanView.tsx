@@ -26,10 +26,9 @@ import type { BranchPlan } from './types';
  * itself whether it renders; the raw panel `action` callback is gone — all
  * plan actions go through the `usePlanAction` mutation.
  *
- * The plan's runs and refinements are composer-driven
- * (docs/plan-conversation-refine.md §4) — the header's refine button focuses
- * the conversation composer and a branch card's Refine prefills the scoped
- * body, both dispatched through the plan composer bus (hooks/composerBus.ts).
+ * The plan's runs and refinements are composer-driven — use the chat rail
+ * (main or branch tab) to converse; branch changes send with `thread` set
+ * to the branch name.
  */
 export default function PlanView() {
   const { flow, node } = useNodePanel();
@@ -57,7 +56,8 @@ export default function PlanView() {
   const onApprove = (mode: ExecutionMode) => {
     onAction({
       type: ACTION_TYPES.APPROVE,
-      payload: showExecutionChoice && mode !== execution.published ? { executionOverride: mode } : undefined,
+      payload:
+        showExecutionChoice && mode !== execution.published ? { executionOverride: mode } : {},
     });
   };
 
@@ -78,7 +78,6 @@ export default function PlanView() {
             planId={current?.id}
             viewedVersion={current?.version ?? 0}
             expandedBranch={expandedBranch}
-            canRefine={showApprove}
             onAction={onAction}
           />
           <PlanSteps steps={flow.planSteps ?? []} editable={awaiting} flowId={flow.id} />

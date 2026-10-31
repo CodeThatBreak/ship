@@ -17,24 +17,18 @@ import { DEFAULT_MCP_SOURCES, configString, mcpSourcesOf, mcpSourcesSchema } fro
 import { agentRunner, type AgentRunner } from '../../../harness';
 import { flowCtxHelper, nodeSupport, type FlowContextHelper, type NodeSupport } from '../../shared';
 import { PlanInput, PlanOutput } from './schema';
-import { AgentOutputError, type AgentOutputError as AgentOutputErrorT } from '../../shared/agent/output-error';
-import { parseFollowUp } from './plan-followup';
+import { AgentOutputError, AGENT_OUTPUT_ERROR, type AgentOutputError as AgentOutputErrorT } from '../../shared/agent/output-error';
+import { PlanAgentSessions } from './plan-agent-sessions';
+import { normalizePlanThread } from './constants/planThread';
+import type { PlanTurnKind } from './plan-contract';
 
 import { PROMPT_KEYS } from './constants/promptKeys';
 import { AGENT_CONFIG_FIELDS } from './constants/config';
 import { RETRYABLE_OUTPUT_ERRORS } from './constants/retryableErrors';
 import {
-  PLAN_APPLY_ALLOWED,
   PLAN_CHAT_LABEL,
-  PLAN_CHAT_RETRY_LABEL,
-  PLAN_RETRY_NO_PLAN,
-  REFINED_FROM_SOURCE,
-  planRefusalReason,
-  planRefusedReply,
-  planUpdateIgnoredEvent,
   planValidationFailedEvent,
   planValidationRefusalReply,
-  type RefinedFrom,
 } from './constants/refine';
 
 import { PlanStore } from './plan-store';
@@ -55,8 +49,7 @@ import type { PlanRunArgs } from './types';
  * knobs, capabilities, previews) and the run/recover wiring; all plan-domain
  * behavior lives in the collaborators.
  *
- * The conversation surface is the plan kind's own (§3a): `chat()` is the
- * follow-up contract — never the base rerun-with-feedback recipe.
+ * The conversation surface is unified turns via {@link turn} (POST /chat).
  */
 export class PlanNode extends AgentRunNode<PlanInput, PlanOutput> {
   readonly key = NODE_KEYS.PLAN;
@@ -130,6 +123,7 @@ export class PlanNode extends AgentRunNode<PlanInput, PlanOutput> {
   private readonly prompt: PlanPromptBuilder;
   private readonly contract: PlanOutputContract;
   private readonly splitter: PlanSplitter;
+  private readonly sessions: PlanAgentSessions;
 
   constructor(
     support: NodeSupport = nodeSupport,
@@ -142,228 +136,158 @@ export class PlanNode extends AgentRunNode<PlanInput, PlanOutput> {
     this.prompt = new PlanPromptBuilder(ctxHelper, this.context, this.store, ctx => this.executionDefault(ctx));
     this.contract = new PlanOutputContract(support, this.store, runner, ctx => this.executionDefault(ctx), this.label);
     this.splitter = new PlanSplitter(this.store, ctx => this.executionDefault(ctx));
+    this.sessions = new PlanAgentSessions(support);
   }
 
-  async run(ctx: FlowCtx, input: PlanInput, config: Record<string, unknown>): Promise<RunOutcome> {
-    if (!input.branchRef && input.feedback?.trim()) {
-      throw new Error(
-        'whole-plan refinement uses the plan conversation (POST /chat), not run feedback — use branchRef for scoped sub-plan refines',
-      );
-    }
-    // the template/flow-layer prompt body knob folds into the existing
-    // user-body path (per-run input.prompt still wins)
-    if (!input.prompt && typeof config.prompt_body === 'string' && config.prompt_body.trim()) {
-      input = { ...input, prompt: config.prompt_body, promptIsBody: true };
-    }
-    // the user's standing rules (prompt_rules knob) apply to every run —
-    // template runs, config-body runs and modal-edited runs alike
-    const userRules = typeof config.prompt_rules === 'string' ? config.prompt_rules : '';
-    const node = this.node(ctx);
-
-    // Branch-scoped path (§2/§3): refine ONE branch's sub-plan.
-    const scoped = input.branchRef ? this.store.scopedRefine(ctx.flow.id, input.branchRef) : null;
-    if (input.branchRef && !scoped) {
-      // Edge case (§9): branchRef on a plan without branches or an unknown
-      // branch name → fall back to a whole-plan refine with a lifecycle note,
-      // never hard-fail.
-      this.support.emitLifecycle(
-        ctx.flow.id,
-        node.id,
-        `branch "${input.branchRef}" not found in the current plan — refining the whole plan instead`
-      );
-    }
-
-    const prompt = scoped
-      ? this.prompt.scoped(ctx, scoped, input, userRules)
-      : this.prompt.whole(ctx, node, input, userRules);
-    const intent = this.prompt.runIntent(node, input, scoped);
-    const args: PlanRunArgs = {
-      label: intent.label,
-      model: input.model,
-      settingSources: mcpSourcesOf(config),
-    };
-
-    // The refinement thread's transcript: a scoped refine logs its turn — the
-    // user's instruction and the agent's reply — into that branch's chat
-    // thread tab. Whole-plan runs and the branch-not-found fallback stay
-    // unthreaded (they belong to the main conversation). A failed refine
-    // leaves no reply; its retry runs from the branch card again.
-    const thread = scoped?.branch.name ?? null;
-    if (thread) {
-      this.support.addMessage(
-        ctx.flow.id,
-        node.node_key,
-        'user',
-        input.feedback?.trim() || input.prompt?.trim() || '(empty instruction)',
-        thread,
-      );
-    }
-
-    const outcome = await this.execute(ctx, {
-      // the run record: `input.prompt` is the exact final prompt (retry
-      // fidelity + the modal's lastRun read from it)
-      input: { ...input, prompt },
-      prompt,
-      agent: {
-        mode: 'plan',
-        name: `${args.label} ${ctx.task.key}`,
-        followUpOn: intent.followUpOn,
-        model: args.model,
-        settingSources: args.settingSources,
-      },
-      label: args.label,
-      finalize: result => this.contract.applyWithRetry(ctx, node, input, scoped, result, args),
-    });
-    if (thread) {
-      this.support.addMessage(ctx.flow.id, node.node_key, 'assistant', outcome.reply || '(no reply)', thread);
-    }
-    return outcome;
+  async run(_ctx: FlowCtx, _input: PlanInput, _config: Record<string, unknown>): Promise<RunOutcome> {
+    throw new Error('The plan node only accepts input via POST /api/flows/:id/chat');
   }
 
-  // ── the plan conversation (docs/plan-conversation-refine.md §3a–c) ────────
+  override async chat(ctx: FlowCtx, content: string, model?: string): Promise<string> {
+    return this.turn(ctx, content, { model });
+  }
 
   /**
-   * The conversation surface (§3a): a chat message becomes ONE agent turn on
-   * the SAME session whose RESPONSE SCHEMA decides what it did — the follow-up
-   * contract (`{ reply, plan? }`), never prose classification. This replaces
-   * the inherited rerun-with-feedback recipe (the base `chat()` re-running
-   * `run({ feedback })` unchanged is wrong for the plan: a question must not
-   * re-emit the plan) — every OTHER agent-run node keeps the base recipe.
-   *
-   * - reply-only turn: just the reply. Node status, artifacts, the checklist
-   *   and `current_node` are untouched (the same contract `converse()` keeps).
-   * - plan-bearing turn: `applyPlanVersion` — the same whole-plan persist path
-   *   as a refine, state-guarded (§3b) — then the reply.
-   * - a contract-violating plan payload: ONE bounded feedback retry on the
-   *   same session (§3c) and, if still invalid, a plain-language refusal —
-   *   the turn NEVER fails the node or leaves a partial version.
-   *
-   * The agent is the node's latest (`followUpOn`); with none yet, a fresh agent
-   * starts — the same fallback `run()`/`converse()` document (§8).
+   * Unified plan send (docs/architecture/plan-unified-turns.md): pre-publish,
+   * whole-plan, or branch-thread turns through one envelope + apply path.
    */
-  override async chat(ctx: FlowCtx, content: string, model?: string): Promise<string> {
+  override async turn(
+    ctx: FlowCtx,
+    content: string,
+    opts?: { model?: string; thread?: string | null },
+  ): Promise<string> {
+    const branch = normalizePlanThread(opts?.thread);
     const config = this.nodeConfig(ctx);
     const node = this.node(ctx);
     const userRules = typeof config.prompt_rules === 'string' ? config.prompt_rules : '';
-    const args: PlanRunArgs = {
+    const model = opts?.model ?? null;
+    const settingSources = mcpSourcesOf(config);
+
+    if (branch) {
+      const scoped = this.store.scopedRefine(ctx.flow.id, branch);
+      if (!scoped) {
+        throw new Error(`branch "${branch}" not found in the current plan`);
+      }
+      return this.runPlanTurn(ctx, content, {
+        turnKind: 'branch',
+        label: `plan branch chat (${branch})`,
+        model,
+        settingSources,
+        branch,
+        scoped,
+        prompt: this.prompt.scoped(ctx, scoped, content, [], userRules),
+      });
+    }
+
+    const latest = this.store.latestPlan(ctx.flow.id);
+    if (!latest) {
+      const bootstrapInput = PlanInput.parse({ prompt: content, promptIsBody: true });
+      return this.runPlanTurn(ctx, content, {
+        turnKind: 'pre-publish',
+        label: PLAN_CHAT_LABEL,
+        model,
+        settingSources,
+        branch: null,
+        scoped: null,
+        prompt: this.prompt.whole(ctx, node, bootstrapInput, userRules),
+      });
+    }
+
+    return this.runPlanTurn(ctx, content, {
+      turnKind: 'whole',
       label: PLAN_CHAT_LABEL,
-      model: model ?? null,
-      settingSources: mcpSourcesOf(config),
+      model,
+      settingSources,
+      branch: null,
+      scoped: null,
+      prompt: this.prompt.refineTurn(ctx, content, userRules),
+    });
+  }
+
+  private async runPlanTurn(
+    ctx: FlowCtx,
+    content: string,
+    opts: {
+      turnKind: PlanTurnKind;
+      label: string;
+      model: string | null;
+      settingSources: ReturnType<typeof mcpSourcesOf>;
+      branch: string | null;
+      scoped: ReturnType<PlanStore['scopedRefine']>;
+      prompt: string;
+    }
+  ): Promise<string> {
+    const node = this.node(ctx);
+    const previousStatus = node.status ?? 'pending';
+    const wholeAgentId = opts.branch ? (node.agent_id ?? this.support.lastAgentId(node.id)) : null;
+    const followUpOn = this.sessions.resolveFollowUp(node, opts.branch);
+    const args: PlanRunArgs = {
+      label: opts.label,
+      model: opts.model,
+      settingSources: opts.settingSources,
     };
-    const prompt = this.prompt.refineTurn(ctx, content, userRules);
+
+    this.support.setNode(node.id, {
+      status: 'running',
+      input: JSON.stringify(
+        PlanInput.parse({
+          planThread: opts.branch,
+          planTurnKind: opts.turnKind,
+          turnUserMessage: content,
+          previousStatus,
+          prompt: opts.prompt,
+        })
+      ),
+    });
+
     const result = await this.runner.executeRun(
       ctx,
       node.id,
       () =>
         this.runner.startAgent(ctx, {
-          prompt,
+          prompt: opts.prompt,
           mode: 'plan',
           name: `${this.label} chat ${ctx.task.key}`,
-          followUpOn: this.support.lastAgentId(node.id),
+          followUpOn,
           model: args.model,
           settingSources: args.settingSources,
         }),
       args.label
     );
 
-    const turn = parseFollowUp(result.result ?? '');
-    if (turn.plan == null) return turn.reply;
-    return this.applyFollowUpPlan(ctx, node, content, turn, args);
-  }
-
-  /**
-   * The plan-bearing half with the §3c failure semantics: after ONE bounded
-   * feedback retry on the same session, an invalid plan ends the turn as a
-   * conversational refusal (with ONE lifecycle event) — no `failed` status,
-   * no partial version. Guard refusals (§3b) come back as the reply here.
-   */
-  private async applyFollowUpPlan(
-    ctx: FlowCtx,
-    node: NodeRow,
-    message: string,
-    turn: { reply: string; plan: unknown },
-    args: PlanRunArgs
-  ): Promise<string> {
-    let failure: AgentOutputErrorT;
     try {
-      return await this.applyPlanVersion(ctx, node, message, turn);
-    } catch (e) {
+      const applied = await this.contract.applyTurnResultWithRetry(
+        ctx,
+        node,
+        opts.turnKind,
+        content,
+        result.result ?? '',
+        opts.scoped,
+        args
+      );
+      const agentId = this.support.lastAgentId(node.id);
+      if (agentId) {
+        this.sessions.recordAgent(ctx, this.node(ctx), opts.branch, agentId, wholeAgentId);
+      }
+      if (applied.outcome) {
+        this.applyOutcome(ctx, applied.outcome);
+        return applied.reply;
+      }
+      this.support.setNode(node.id, {
+        status: previousStatus,
+        ...(agentId ? { agent_id: agentId } : {}),
+      });
+      return applied.reply;
+    } catch (e: unknown) {
+      if (e instanceof AgentOutputError && e.code === AGENT_OUTPUT_ERROR.AGENT_REPORTED) {
+        this.support.setNode(node.id, { status: previousStatus });
+        return e.detail.reported?.reason ?? e.detail.message;
+      }
       if (!(e instanceof AgentOutputError) || !RETRYABLE_OUTPUT_ERRORS.has(e.code)) throw e;
-      failure = e;
+      this.support.setNode(node.id, { status: previousStatus });
+      this.support.emitLifecycle(ctx.flow.id, node.id, planValidationFailedEvent);
+      return planValidationRefusalReply(this.firstViolation(e));
     }
-
-    // §3c: the SAME retry machine the scoped refines ride — violations as the
-    // feedback, the follow-up contract re-stated, one more turn on the session.
-    this.support.emitLifecycle(
-      ctx.flow.id,
-      node.id,
-      `${args.label} output contract failed — retrying with feedback (${failure.code})`
-    );
-    const retry = await this.runner.executeRun(
-      ctx,
-      node.id,
-      () =>
-        this.runner.startAgent(ctx, {
-          prompt: this.contract.followUpRetryPrompt(failure),
-          mode: 'plan',
-          name: `${this.label} chat ${ctx.task.key}`,
-          followUpOn: this.support.lastAgentId(node.id),
-          model: args.model,
-          settingSources: args.settingSources,
-        }),
-      PLAN_CHAT_RETRY_LABEL
-    );
-    const retryTurn = parseFollowUp(retry.result ?? '');
-    if (retryTurn.plan == null) {
-      return this.validationRefusal(ctx, node, PLAN_RETRY_NO_PLAN);
-    }
-    try {
-      return await this.applyPlanVersion(ctx, node, message, retryTurn);
-    } catch (e) {
-      if (!(e instanceof AgentOutputError) || !RETRYABLE_OUTPUT_ERRORS.has(e.code)) throw e;
-      return this.validationRefusal(ctx, node, this.firstViolation(e));
-    }
-  }
-
-  /**
-   * The §3b apply: validate the turn's plan against the follow-up contract
-   * (identical messages to a normal refine's parse), guard the node state
-   * BEFORE persisting, then the exact whole-plan persist path a refine runs —
-   * `persistPlan` (checklist sync) + `applyOutcome` (agent cursor, output,
-   * event). Validation throws the standard {@link AgentOutputError} for the
-   * §3c bounded retry; a state-guard refusal returns its plain reason (the
-   * reply still flows — §8 never a silent dead end), with ONE lifecycle event.
-   */
-  private async applyPlanVersion(
-    ctx: FlowCtx,
-    node: NodeRow,
-    message: string,
-    turn: { reply: string; plan: unknown }
-  ): Promise<string> {
-    const plan = this.contract.parseFollowUpPlan(turn); // throws → §3c bounded retry
-    const nodeNow = this.node(ctx);
-    const status = nodeNow.status ?? '';
-    if (!PLAN_APPLY_ALLOWED.has(status)) {
-      this.support.emitLifecycle(ctx.flow.id, nodeNow.id, planUpdateIgnoredEvent(status));
-      return planRefusedReply(turn.reply, planRefusalReason(status));
-    }
-    const refined: RefinedFrom = {
-      version: this.store.latestPlan(ctx.flow.id)?.art.version ?? 0,
-      source: REFINED_FROM_SOURCE.CHAT,
-    };
-    const outcome = this.contract.applyChatPlan(ctx, nodeNow, plan, {
-      feedback: message,
-      refined,
-    });
-    this.applyOutcome(ctx, outcome);
-    return turn.reply;
-  }
-
-  /** §3c: the turn's attempt ends as a conversational refusal + ONE lifecycle
-   *  event — the developer can immediately reply on the same session. */
-  private validationRefusal(ctx: FlowCtx, node: NodeRow, violation: string): string {
-    this.support.emitLifecycle(ctx.flow.id, node.id, planValidationFailedEvent);
-    return planValidationRefusalReply(violation);
   }
 
   /** The FIRST violation in plain words — the same headline a schema_mismatch
@@ -375,30 +299,44 @@ export class PlanNode extends AgentRunNode<PlanInput, PlanOutput> {
   }
 
   async recover(ctx: FlowCtx, node: NodeRow, result: AgentRunResult, note: string): Promise<boolean> {
-    // Scoped recovery is skipped: recover() can't distinguish a scoped
-    // response from a whole-plan one, and a replayed scoped run must not be
-    // silently merged. Decline so the node fails → the developer retries (the
-    // retry stays scoped and re-enters the normal flow).
-    try {
-      const recorded = this.inputSchema.parse(node.input ?? {});
-      if (recorded.branchRef) return false;
-    } catch {
-      /* unparseable input → fall through to whole-plan recovery */
-    }
-
     if (result.status !== 'finished') return false;
 
-    // The same contract a live finish passes: an unparseable or contract-
-    // violating recorded result is not recoverable — the node fails for a
-    // manual retry (the standard agent-node recovery posture). The outcome
-    // itself (parse + version publish + checklist sync) lives in the contract.
-    const outcome = this.contract.recoverOutcome(ctx, node, result);
-    if (!outcome) return false;
+    let recorded: PlanInput;
+    try {
+      recorded = this.inputSchema.parse(node.input ?? {});
+    } catch {
+      recorded = PlanInput.parse({});
+    }
 
-    this.applyOutcome(ctx, outcome, {
-      note: `recovered: ${note}`,
-    });
-    return true;
+    if (!recorded.planTurnKind) return false;
+
+    const branch = recorded.planThread?.trim() || null;
+    const scoped = branch ? this.store.scopedRefine(ctx.flow.id, branch) : null;
+    if (branch && !scoped) return false;
+    try {
+      const applied = this.contract.applyTurnResult(
+        ctx,
+        node,
+        recorded.planTurnKind,
+        recorded.turnUserMessage ?? '',
+        result.result ?? '',
+        scoped
+      );
+      if (applied.outcome) {
+        this.applyOutcome(ctx, applied.outcome, { note: `recovered: ${note}` });
+      } else {
+        const previousStatus = recorded.previousStatus ?? 'awaiting_approval';
+        const agentId = this.support.lastAgentId(node.id);
+        this.support.setNode(node.id, {
+          status: previousStatus,
+          ...(agentId ? { agent_id: agentId } : {}),
+        });
+        this.support.emitLifecycle(ctx.flow.id, node.id, `recovered: ${note} (reply-only turn)`);
+      }
+      return true;
+    } catch {
+      return false;
+    }
   }
 
   // ── split source port — the plan's branches (the node makes the method
@@ -444,7 +382,7 @@ export class PlanNode extends AgentRunNode<PlanInput, PlanOutput> {
   ): { prompt: string; appendsInternal: true } & PromptSectionsLike | null {
     const scoped = this.store.scopedRefine(ctx.flow.id, branchName);
     if (!scoped) return null;
-    const vars = this.prompt.scopedVars(ctx, scoped, { feedback: '', contextBlocks: [] });
+    const vars = this.prompt.scopedVars(ctx, scoped, '', []);
     const asm = prompts.assemblePrompt(
       'plan_subplan_refine',
       vars,

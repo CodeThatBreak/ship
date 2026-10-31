@@ -1,9 +1,8 @@
 'use client';
-import { ArrowRightLeft, ChevronDown, ChevronRight, Pencil } from 'lucide-react';
+import { ArrowRightLeft, ChevronDown, ChevronRight } from 'lucide-react';
 import type { BranchPlan } from '../../types';
 import type { ScopedDiff } from '../../utils/branchDiff';
 import { Badge } from '@/components/ui/badge';
-import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Markdown } from '@/components/shared';
@@ -19,9 +18,7 @@ export function SubPlanCard({
   expanded,
   scopedDiff,
   staleVersion,
-  canRefine,
   onToggle,
-  onRefine,
 }: {
   branch: BranchPlan;
   expanded: boolean;
@@ -29,9 +26,7 @@ export function SubPlanCard({
   scopedDiff: ScopedDiff | null;
   /** version of the scoped refine newer than the overview, when stale (§8) */
   staleVersion?: number;
-  canRefine: boolean;
   onToggle: (name: string) => void;
-  onRefine: (name: string) => void;
 }) {
   const refined = scopedDiff && scopedDiff.branch === branch.name ? scopedDiff : null;
   const dependsOn = branch.dependsOn ?? [];
@@ -83,7 +78,7 @@ export function SubPlanCard({
           </Tooltip>
         )}
       </button>
-      {/* one compact meta row: scope · depends on · counts · refine */}
+      {/* one compact meta row: scope · depends on · counts */}
       <div className="flex items-center gap-3 text-[11.5px] text-muted-foreground mt-1.5">
         {branch.scope && (
           <span className="truncate min-w-0" title={branch.scope}>
@@ -94,28 +89,6 @@ export function SubPlanCard({
           <span className="shrink-0" title={dependsOn.join(', ')}>
             ↳ depends on: {dependsOn.join(', ')}
           </span>
-        )}
-        <span className="flex-1" />
-        {canRefine && (
-          <Tooltip>
-            <TooltipTrigger>
-              <Button
-                size="xs"
-                variant="secondary"
-                className="shrink-0"
-                onClick={e => {
-                  e.stopPropagation();
-                  onRefine(branch.name);
-                }}
-              >
-                <Pencil size={11} /> Refine
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent>
-              Prefill the chat composer with this branch&apos;s scoped refine prompt — the agent rewrites ONE branch,
-              not the whole plan; everything else stays untouched
-            </TooltipContent>
-          </Tooltip>
         )}
       </div>
 

@@ -23,10 +23,9 @@ type Params = Omit<SendMutationVariables, 'content'> & {
 
 /**
  * The standard chat composer's mechanics: draft state, the send mutation and
- * the derived send-gating state. A feature-owned send target (the plan node's
- * run_node rides `sendMutationFn`, receiving the draft text with the
- * composer's model pick and thread); without one the standard chat mutation
- * applies.
+ * the derived send-gating state. An optional feature-owned `sendMutationFn`
+ * overrides the default chat mutation; the plan node uses the standard
+ * `useSendChatMessage` path (including `thread` for branch tabs).
  */
 export function useChatComposer({ flowId, nodeKey, modelChoice, sendMutationFn, thread }: Params) {
   const sendChat = useSendChatMessage(flowId, nodeKey, {

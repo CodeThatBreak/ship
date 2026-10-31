@@ -21,9 +21,7 @@ export function SubPlanSection({
   plans,
   viewedVersion,
   expandedBranch,
-  canRefine,
   onToggle,
-  onRefine,
 }: {
   node: Node;
   /** the plan version artifacts — the source for branch provenance + staleness */
@@ -31,9 +29,7 @@ export function SubPlanSection({
   /** the plan version currently being viewed (staleness is measured against it, §8) */
   viewedVersion: number;
   expandedBranch: string | null;
-  canRefine: boolean;
   onToggle: (name: string) => void;
-  onRefine: (name: string) => void;
 }) {
   // Phase 3A: branches from the plan output — a fan-out plan lists one
   // sub-plan per branch; null when not fanned out
@@ -73,9 +69,7 @@ export function SubPlanSection({
             expanded={expandedBranch === b.name}
             scopedDiff={scopedDiff}
             staleVersion={staleBranches.get(b.name)}
-            canRefine={canRefine}
             onToggle={onToggle}
-            onRefine={onRefine}
           />
         ))}
       </div>

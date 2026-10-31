@@ -4,10 +4,10 @@ import type * as React from 'react';
  * The composer's config seam (docs/plan-conversation-refine.md §4d): the
  * surface a feature builds to drive the chat composer from outside, so
  * ChatComposerForm stays generic — no feature forks inside it. The plan node
- * is the first consumer: its three states (prompt / conversation /
- * scoped-prefill) all express as this config, built by the plan feature's
- * `usePlanComposer`. Other nodes render the standard composer (the chat
- * panel builds a zero-cost config from its own draft/send mechanics).
+ * uses the standard chat send (`POST /chat`) for all turns; optional
+ * `ComposerConfig` wiring may extend prefill and captions later. Other nodes
+ * render the standard composer (the chat panel builds a zero-cost config
+ * from its own draft/send mechanics).
  *
  * Referential stability (AGENTS §2.5): no current consumer memoizes on a
  * `ComposerConfig` — `ChatComposerForm` is not a `memo` child — so builders
@@ -48,7 +48,7 @@ export interface ComposerConfig {
   reset?: { canReset: boolean; onReset: () => void };
   /** Extra trailing controls beside the model selector (the decompose toggle in the prompt state). */
   aside?: React.ReactNode;
-  /** The send target — run_node | chat | refine_plan, decided by the builder.
+  /** Send handler — for plan, always `POST /chat` (optional `thread` on branch tabs).
    *  A returned promise is the "send accepted" signal: a managed draft clears
    *  on its resolution (and keeps the draft while it is pending/rejected). */
   onSend: (draft: string) => void | Promise<unknown>;

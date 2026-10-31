@@ -55,6 +55,14 @@ export abstract class AgentRunNode<
    * feedback. `model` is the per-run override the developer picked in the
    * chat panel.
    */
+  async turn(
+    ctx: FlowCtx,
+    content: string,
+    opts?: { model?: string; thread?: string | null },
+  ): Promise<string> {
+    return this.chat(ctx, content, opts?.model);
+  }
+
   async chat(ctx: FlowCtx, content: string, model?: string): Promise<string> {
     const outcome = await this.run(
       ctx,

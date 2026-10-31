@@ -30,6 +30,8 @@ import { stepFlows, StepFlowManager, type StepChildPayload } from "./runtime/fan
 import { DEFAULT_SPLIT_OUTPUT, splitManager, type SplitChildPayload } from "./runtime/split/split-manager";
 import { worktreeManager } from "./runtime/worktree-lifecycle";
 import { processSingleton } from "../singleton";
+import { normalizePlanThread } from "./nodes/kinds/plan/constants/planThread";
+import { PlanStore } from "./nodes/kinds/plan/plan-store";
 
 export interface CreateFlowOptions {
   executionMode?: "cloud" | "local";
@@ -782,35 +784,6 @@ export class FlowEngine {
 
   // ── public triggers ──────────────────────────────────────────────────────
 
-  /**
-   * Branch-scoped sub-plan refine (plan_subplan_refine). Whole-plan refinement
-   * is conversational — `sendChat` → `PlanNode.chat()` — not this action.
-   */
-  refineBranchPlan(
-    flowId: string,
-    branchRef: string,
-    feedback: string,
-    prompt?: string,
-    model?: string,
-    promptIsBody?: boolean,
-    fresh?: boolean,
-    contextBlocks?: string[],
-  ): void {
-    const planKey = this.keyOfRole(flowId, NODE_KEYS.PLAN);
-    if (!planKey) throw new Error("this flow template has no plan node");
-    this.setCurrentNode(flowId, planKey);
-    this.bg(flowId, planKey, () => this.runNode(flowId, planKey, {
-      feedback,
-      prompt: prompt ?? null,
-      promptIsBody: promptIsBody ?? false,
-      decompose: false,
-      model: model ?? null,
-      branchRef,
-      fresh: fresh ?? null,
-      contextBlocks: contextBlocks ?? [],
-    }).then(() => {}));
-  }
-
   // ── structured plan step editing ─────────────────────────────────────────
   private assertPlanEditable(flowId: string) {
     const flow = rows.get(FlowRow, `SELECT * FROM flows WHERE id=?`, flowId);
@@ -1507,6 +1480,10 @@ export class FlowEngine {
    * auto-starts do; `awaiting_approval` finishes wait for the generic approve.
    */
   runNodeManual(flowId: string, nodeKey: string, opts: { prompt?: string; model?: string; input?: Record<string, unknown> } = {}): void {
+    const def = this.defOf(flowId, nodeKey);
+    if (def.chainRole === NODE_KEYS.PLAN) {
+      throw new Error('The plan node only accepts input via POST /api/flows/:id/chat');
+    }
     const node = rows.get(NodeRow, `SELECT * FROM nodes WHERE flow_id=? AND node_key=?`, flowId, nodeKey);
     if (!node) throw new Error("unknown node");
     // a failed entry node re-runs from the form — its recorded input never
@@ -1748,12 +1725,21 @@ export class FlowEngine {
    */
   sendChat(flowId: string, nodeKey: string, content: string, chatOnly = false, model?: string, thread?: string | null): void {
     const def = this.defOf(flowId, nodeKey);
+    if (!chatOnly && def.chainRole === NODE_KEYS.PLAN) {
+      const branch = normalizePlanThread(thread);
+      if (branch && !new PlanStore(nodeSupport).scopedRefine(flowId, branch)) {
+        throw new Error(`branch "${branch}" not found in the current plan`);
+      }
+    }
     db.addMessage(flowId, nodeKey, "user", content, thread ?? null);
     this.setCurrentNode(flowId, nodeKey);
     this.bg(flowId, nodeKey, async () => {
       const reply = chatOnly
         ? (await nodeRoles.converserOf(def)?.converse(this.ctx(flowId), content)) ?? nodeRoles.noAgentReply(def.label)
-        : (await nodeRoles.chatRefinerOf(def)?.chat(this.ctx(flowId), content, model)) ?? CHAT_DECLINED;
+        : (await nodeRoles.chatRefinerOf(def)?.turn(this.ctx(flowId), content, {
+            model,
+            thread: thread ?? null,
+          })) ?? CHAT_DECLINED;
       db.addMessage(flowId, nodeKey, "assistant", reply || "Done.", thread ?? null);
       this.setCurrentNode(flowId, null);
     });

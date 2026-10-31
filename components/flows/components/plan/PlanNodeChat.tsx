@@ -8,14 +8,13 @@ import type { BranchPlan } from './types';
 import { MAIN_THREAD_CONFIG, REFINE_HINT } from './constants/thread';
 
 /**
- * The plan node's chat rail (docs/plan-conversation-refine.md §4d): the plan
- * feature builds its own composer config here — the three composer states and
- * the refinement tabs — instead of the cockpit deciding for it. The hook
- * inside is a no-op for nodes without the plan chat mode; the factory only
- * renders this rail for the plan node (capabilities.chatMode === 'plan').
+ * The plan node's chat rail (docs/architecture/plan-unified-turns.md): main
+ * and branch conversation tabs; sends always go through `POST /chat` with
+ * optional `thread`. The factory only renders this rail when
+ * `capabilities.chatMode === 'plan'`.
  */
 export default function PlanNodeChat() {
-  const { flow, node, events, model, modelChoice, setModelChoice } = useNodePanel();
+  const { flow, node, events, modelChoice, setModelChoice } = useNodePanel();
   const { busy, nodeKeysByNodeId, nodeStatusByNodeId } = useNodeChatBindings();
 
   // Todo: Add a generic in usePaneNode
@@ -35,14 +34,9 @@ export default function PlanNodeChat() {
     ];
   }, [branches]);
 
-  const { activeThreadId, prompts, chatInputRef, onAction, onSendChatMutationFn, isPromptsLoading } =
-    usePlanComposer({
-      flowId: flow.id,
-      nodeKey: node.node_key,
-      nodeStatus: node.status,
-      artifactCount: node.artifacts.length,
-      model,
-    });
+  const { activeThreadId, prompts, chatInputRef, onAction, isPromptsLoading } = usePlanComposer({
+    flowId: flow.id,
+  });
 
   if (isPromptsLoading) {
     return <ChatPanelSkeleton />;
@@ -65,7 +59,6 @@ export default function PlanNodeChat() {
       activeThreadId={activeThreadId ?? undefined}
       onAction={onAction}
       chatInputRef={chatInputRef}
-      sendMutationFn={onSendChatMutationFn}
     />
   );
 }

@@ -22,8 +22,16 @@ process.env.DATABASE_PATH = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'dev
 // fully initialized before plan-node is imported
 await import('../../registry');
 const { BranchRefinement } = await import('./branch-refinement');
-const { PLAN_RESPONSE_JSON_SCHEMA, SUB_PLAN_RESPONSE_JSON_SCHEMA, PlanResponse, SubPlanResponse, withStepIds } =
-  await import('./schema');
+const {
+  PLAN_RESPONSE_JSON_SCHEMA,
+  SUB_PLAN_RESPONSE_JSON_SCHEMA,
+  SUB_PLAN_PATCH_JSON_SCHEMA,
+  PlanTurnOutput,
+  SubPlanPatch,
+  PlanResponse,
+  SubPlanResponse,
+  withStepIds,
+} = await import('./schema');
 const { PlanNode } = await import('./plan-node');
 const { db } = await import('../../../../db');
 type PlanNodeInstance = InstanceType<typeof PlanNode>;
@@ -243,7 +251,28 @@ describe('the generated output-contract schemas', () => {
   it('renders both contracts as JSON Schema objects (recursion included)', () => {
     expect(PLAN_RESPONSE_JSON_SCHEMA).toBeTypeOf('object');
     expect(SUB_PLAN_RESPONSE_JSON_SCHEMA).toBeTypeOf('object');
+    expect(SUB_PLAN_PATCH_JSON_SCHEMA).toBeTypeOf('object');
     expect(JSON.stringify(SUB_PLAN_RESPONSE_JSON_SCHEMA)).toContain('"markdown"');
+  });
+});
+
+describe('SubPlanPatch + PlanTurnOutput', () => {
+  it('rejects an empty subPlanPatch', () => {
+    expect(SubPlanPatch.safeParse({}).success).toBe(false);
+  });
+
+  it('rejects more than one publish field on PlanTurnOutput', () => {
+    expect(
+      PlanTurnOutput.safeParse({
+        reply: 'hi',
+        plan: { markdown: '# P', steps: [step('s1', 'A')] },
+        subPlanPatch: { markdown: 'm' },
+      }).success
+    ).toBe(false);
+  });
+
+  it('accepts reply-only PlanTurnOutput', () => {
+    expect(PlanTurnOutput.safeParse({ reply: 'clarifying question' }).success).toBe(true);
   });
 });
 
@@ -514,7 +543,8 @@ describe('PlanNode — chat via the follow-up contract (docs/plan-conversation-r
     const reply = await node.chat(ctx, 'why is step 2 blocked?');
     expect(reply).toBe('Answered: step 2 is blocked.');
     expect(observ.savedMetas).toHaveLength(0);
-    expect(observ.nodePatches).toHaveLength(0);
+    expect(observ.nodePatches.some(p => p.status === 'running')).toBe(true);
+    expect(observ.nodePatches.some(p => p.status === 'awaiting_approval')).toBe(true);
     expect(observ.events).toHaveLength(0);
     expect(observ.startAgentInputs).toHaveLength(1);
     // the same-session follow-up turn, labelled as the conversation kind it is
@@ -538,8 +568,8 @@ describe('PlanNode — chat via the follow-up contract (docs/plan-conversation-r
     expect(meta.executionSource).toBe('knob');
     // the node row landed exactly like a normal refine's outcome
     const art = observ.savedArts[0];
-    expect(observ.nodePatches[0]).toMatchObject({ status: 'awaiting_approval' });
-    expect(observ.nodePatches[0]?.output).toContain(art.id);
+    expect(observ.nodePatches.some(p => p.status === 'awaiting_approval')).toBe(true);
+    expect(observ.nodePatches.find(p => p.output != null)?.output).toContain(art.id);
     expect(observ.events).toContain(`plan v${art.version} ready for review · 2 steps`);
     // the checklist synced from the plan payload (Id runs through the store's
     // real syncFromPlan into the live rows)
@@ -557,9 +587,9 @@ describe('PlanNode — chat via the follow-up contract (docs/plan-conversation-r
     });
     const reply = await node.chat(ctx, 'dedupe the steps');
     expect(observ.startAgentInputs).toHaveLength(2); // the initial turn + ONE retry
-    expect(observ.labels).toEqual(['plan chat', 'plan refine retry']);
+    expect(observ.labels).toEqual(['plan chat', 'plan chat retry']);
     expect(observ.savedMetas).toHaveLength(0); // no partial version ever persisted
-    expect(observ.nodePatches).toHaveLength(0); // no failed status either
+    expect(observ.nodePatches.some(p => p.status === 'running')).toBe(true);
     expect(observ.events).toContain('plan chat output contract failed — retrying with feedback (schema_mismatch)');
     expect(observ.events).toContain('plan refine failed validation — nothing was changed');
     expect(reply).toContain("I couldn't produce a valid plan for that —");
@@ -579,7 +609,7 @@ describe('PlanNode — chat via the follow-up contract (docs/plan-conversation-r
     expect(reply).toBe('Fixed for real.');
     expect(observ.savedMetas).toHaveLength(1);
     expect((observ.savedMetas[0] as Record<string, unknown>).refinedFrom).toEqual({ version: 2, source: 'chat' });
-    expect(observ.nodePatches[0]).toMatchObject({ status: 'awaiting_approval' });
+    expect(observ.nodePatches.some(p => p.status === 'awaiting_approval')).toBe(true);
   });
 
   it('the plan_refine feedback turn carries the developer message + user rules + the follow-up contract', async () => {
@@ -604,7 +634,6 @@ describe('PlanNode — chat via the follow-up contract (docs/plan-conversation-r
     expect(reply).toContain('On it.');
     expect(reply).toContain("can't update the plan while it is running");
     expect(observ.savedMetas).toHaveLength(0);
-    expect(observ.nodePatches).toHaveLength(0);
     expect(observ.events).toContain('plan update ignored — node running');
   });
 
@@ -629,8 +658,8 @@ describe('PlanNode — chat via the follow-up contract (docs/plan-conversation-r
     expect(reply).toBe('Planned.');
     expect(observ.savedMetas).toHaveLength(1);
     // no previous version: the refine provenance records version 0
-    expect((observ.savedMetas[0] as Record<string, unknown>).refinedFrom).toEqual({ version: 0, source: 'chat' });
-    expect(observ.nodePatches[0]).toMatchObject({ status: 'awaiting_approval' });
+    expect((observ.savedMetas[0] as Record<string, unknown>).refinedFrom).toEqual({ version: 0, source: 'start' });
+    expect(observ.nodePatches.some(p => p.status === 'awaiting_approval')).toBe(true);
   });
 
   it('a failed node accepts the apply as the rescue path (§3b): status → awaiting_approval', async () => {
@@ -642,7 +671,137 @@ describe('PlanNode — chat via the follow-up contract (docs/plan-conversation-r
     expect(reply).toBe('Recovered.');
     const art = observ.savedArts[0];
     expect(art).toBeDefined();
-    expect(observ.nodePatches[0]).toMatchObject({ status: 'awaiting_approval' });
+    expect(observ.nodePatches.some(p => p.status === 'awaiting_approval')).toBe(true);
     expect(observ.events).toContain(`plan v${art.version} ready for review · 2 steps`);
+  });
+});
+
+describe('PlanNode.turn — unified send routing', () => {
+  const branchedPlanRow = {
+    id: 'art_branch',
+    version: 2,
+    content: '# Plan document',
+    meta: JSON.stringify({
+      steps: metaWithTwoBranches().steps,
+      branches: metaWithTwoBranches().branches,
+    }),
+  };
+
+  let turnArtifactSeq = 0;
+
+  const turnNode = (opts: { responses: string[]; prevRow?: typeof branchedPlanRow | null; output?: string }) => {
+    const observ = {
+      startAgentInputs: [] as { followUpOn: string | null }[],
+      savedMetas: [] as Record<string, unknown>[],
+      nodePatches: [] as Record<string, unknown>[],
+    };
+    const responses = [...opts.responses];
+    const support = {
+      nodeByKey: () =>
+        ({
+          id: 'node-1',
+          flow_id: 'flow-1',
+          node_key: 'plan',
+          status: 'awaiting_approval',
+          agent_id: 'whole_agent',
+          output:
+            opts.output ??
+            ({
+              latestArtifact: 'art_branch',
+              version: 2,
+              branchAgents: { billing: 'branch_agent' },
+            } as Record<string, unknown>),
+          config: JSON.stringify({ prompt_rules: '' }),
+        }) as unknown as NodeRow,
+      lastAgentId: () => 'agent_turn',
+      setNode: (_id: string, patch: Record<string, unknown>) => {
+        observ.nodePatches.push(patch);
+      },
+      latestArtifact: () => (opts.prevRow === undefined ? branchedPlanRow : opts.prevRow),
+      artifactsOfKind: () => [branchedPlanRow],
+      saveArtifact(nodeId: string, flowId: string, kind: string, content: string, meta?: unknown) {
+        observ.savedMetas.push((meta ?? null) as Record<string, unknown>);
+        const prev = db.get<{ v: number | null }>(`SELECT MAX(version) v FROM artifacts WHERE node_id=? AND kind=?`, nodeId, kind);
+        const version = (prev?.v ?? 0) + 1;
+        const id = `art_turn_${String(++turnArtifactSeq)}`;
+        db.run(
+          `INSERT INTO artifacts (id,node_id,flow_id,kind,version,content,meta,status,created_at)
+           VALUES (?,?,?,?,?,?,?,'draft',?)`,
+          id,
+          nodeId,
+          flowId,
+          kind,
+          version,
+          content,
+          meta ? JSON.stringify(meta) : null,
+          db.now()
+        );
+        return { id, version };
+      },
+      emitLifecycle: () => {},
+    } as unknown as NodeSupport;
+    const runner = {
+      startAgent: (_ctx: FlowCtx, input: unknown) => {
+        observ.startAgentInputs.push(input as { followUpOn: string | null });
+        return Promise.resolve({ agentId: 'agent_turn', runId: 'run_1' });
+      },
+      executeRun: (_ctx: FlowCtx, _nodeId: string, start: () => Promise<unknown>) =>
+        start().then(() => ({
+          status: 'finished',
+          result: responses.shift(),
+          sessionId: 's',
+          durationMs: 1,
+          usage: null,
+        })),
+    } as unknown as AgentRunner;
+    const node = new PlanNode(
+      support,
+      runner,
+      { taskContext: () => 'ctx', taskLabel: () => 'task', execMode: () => 'cloud' } as unknown as FlowContextHelper
+    );
+    return { node, observ };
+  };
+
+  const ctx = { flow: { id: 'flow-1' }, task: { key: 'T-1' } } as unknown as FlowCtx;
+
+  it('throws for an unknown branch thread', async () => {
+    const { node } = turnNode({ responses: [] });
+    await expect(node.turn(ctx, 'hello', { thread: 'ghost' })).rejects.toThrow('branch "ghost" not found');
+  });
+
+  it('branch reply-only: no artifact write', async () => {
+    const { node, observ } = turnNode({ responses: [JSON.stringify({ reply: 'scoped answer' })] });
+    const reply = await node.turn(ctx, 'question', { thread: 'billing' });
+    expect(reply).toBe('scoped answer');
+    expect(observ.savedMetas).toHaveLength(0);
+    expect(observ.startAgentInputs[0]?.followUpOn).toBe('branch_agent');
+  });
+
+  it('rejects whole plan payload on branch turns after retry', async () => {
+    const planPayload = { markdown: '# P', steps: [step('s1', 'Only')] };
+    const { node } = turnNode({
+      responses: [
+        JSON.stringify({ reply: 'nope', plan: planPayload }),
+        JSON.stringify({ reply: 'still nope', plan: planPayload }),
+      ],
+    });
+    const reply = await node.turn(ctx, 'change billing', { thread: 'billing' });
+    expect(reply).toContain("couldn't produce a valid plan");
+  });
+
+  it('applies subPlanPatch on a branch thread', async () => {
+    const { node, observ } = turnNode({
+      responses: [
+        JSON.stringify({
+          reply: 'patched billing step',
+          subPlanPatch: { upsertSteps: [{ ...step('s4', 'Billing invoice'), detail: 'via patch' }] },
+        }),
+      ],
+    });
+    const reply = await node.turn(ctx, 'tweak invoice step', { thread: 'billing' });
+    expect(reply).toBe('patched billing step');
+    expect(observ.savedMetas).toHaveLength(1);
+    const meta = observ.savedMetas[0] as { steps: PlanStep[] };
+    expect(meta.steps.find(s => s.id === 's4' && s.branch === 'billing')?.detail).toBe('via patch');
   });
 });

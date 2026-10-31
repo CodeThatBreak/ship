@@ -10,22 +10,31 @@ import { extractJson } from '../agent/json-schema-lite';
 import { BranchRefinement } from './branch-refinement';
 import { planBodyDiverged } from './plan-prompt';
 import { RETRYABLE_OUTPUT_ERRORS } from './constants/retryableErrors';
-import { REFINED_FROM_SOURCE, type RefinedFrom } from './constants/refine';
 import {
-  PLAN_FOLLOWUP_JSON_SCHEMA,
-  PLAN_RESPONSE_JSON_SCHEMA,
-  SUB_PLAN_RESPONSE_JSON_SCHEMA,
-  PlanFollowUp,
+  REFINED_FROM_SOURCE,
+  PLAN_APPLY_ALLOWED,
+  planRefusalReason,
+  planRefusedReply,
+  planUpdateIgnoredEvent,
+  type RefinedFrom,
+} from './constants/refine';
+import {
+  PLAN_TURN_OUTPUT_JSON_SCHEMA,
   PlanResponse,
+  PlanTurnOutput,
   SubPlanResponse,
   withStepIds,
   type PlanInput,
   type PlanMeta,
+  type SubPlanPatch,
 } from './schema';
 import type { PlanStore } from './plan-store';
 import type { ExecutionKnob } from './plan-prompt';
 import type { PlanRunArgs } from './types';
 import type { ScopedRefine } from './types';
+
+/** Which unified-turn routing path produced the agent response. */
+export type PlanTurnKind = 'pre-publish' | 'whole' | 'branch';
 
 /**
  * The plan output contract: validate the agent's plan-mode response
@@ -93,58 +102,174 @@ export class PlanOutputContract {
   }
 
   /**
-   * Apply the plan output contract with one bounded self-heal: when the
-   * response misses the contract (`no_json` / `schema_mismatch`), re-prompt
-   * the SAME agent once with the violations as feedback and re-apply the
-   * contract. A second miss throws the standard {@link AgentOutputError} and
-   * fails the node loudly — the previous artifact version stays the latest
-   * plan, and the developer retries.
+   * Unified turn parse + apply: `PlanTurnOutput` envelope, then plan |
+   * subPlan | subPlanPatch | reply-only. Throws {@link AgentOutputError} on
+   * contract violations (including whole `plan` on branch turns).
    */
-  async applyWithRetry(
+  applyTurnResult(
     ctx: FlowCtx,
     node: NodeRow,
-    input: PlanInput,
+    turnKind: PlanTurnKind,
+    userMessage: string,
+    text: string,
+    scoped: ScopedRefine | null
+  ): { reply: string; outcome: RunOutcome | null } {
+    const envelope = this.parseTurnEnvelope(text);
+    const reply = envelope.reply;
+    const hasPlan = envelope.plan != null;
+    const hasSub = envelope.subPlan != null;
+    const hasPatch = envelope.subPlanPatch != null;
+
+    if (!hasPlan && !hasSub && !hasPatch) {
+      return { reply, outcome: null };
+    }
+
+    if (turnKind === 'branch') {
+      if (hasPlan) {
+        throw new AgentOutputError({
+          code: AGENT_OUTPUT_ERROR.SCHEMA_MISMATCH,
+          label: this.label,
+          message: `${this.label}: branch turns must not include a whole "plan" — use subPlan or subPlanPatch only`,
+          issues: [{ path: 'plan', message: 'forbidden on branch turns — emit subPlan or subPlanPatch instead' }],
+          response: text,
+        });
+      }
+      if (!scoped) {
+        throw new Error('branch turn apply requires scoped refine context');
+      }
+      if (hasSub) {
+        return { reply, outcome: this.scopedSubPlanOutcome(ctx, node, scoped, envelope.subPlan!) };
+      }
+      if (hasPatch) {
+        return { reply, outcome: this.scopedPatchOutcome(ctx, node, scoped, envelope.subPlanPatch!) };
+      }
+    }
+
+    if (hasSub || hasPatch) {
+      throw new AgentOutputError({
+        code: AGENT_OUTPUT_ERROR.SCHEMA_MISMATCH,
+        label: this.label,
+        message: `${this.label}: whole-plan turns must use "plan", not subPlan/subPlanPatch`,
+        issues: [{ path: hasSub ? 'subPlan' : 'subPlanPatch', message: 'forbidden on whole/pre-publish turns' }],
+        response: text,
+      });
+    }
+
+    if (hasPlan) {
+      const nodeNow = this.support.nodeByKey(ctx.flow.id, node.node_key);
+      const status = nodeNow.status ?? '';
+      if (!PLAN_APPLY_ALLOWED.has(status)) {
+        this.support.emitLifecycle(ctx.flow.id, nodeNow.id, planUpdateIgnoredEvent(status));
+        throw new PlanApplyRefusedError(planRefusedReply(reply, planRefusalReason(status)));
+      }
+      const prevVersion = this.store.latestPlan(ctx.flow.id)?.art.version ?? 0;
+      const refined: RefinedFrom | undefined =
+        turnKind === 'pre-publish'
+          ? planBodyDiverged(userMessage)
+            ? { version: prevVersion, source: REFINED_FROM_SOURCE.START }
+            : undefined
+          : { version: prevVersion, source: REFINED_FROM_SOURCE.CHAT };
+      const outcome = this.applyValidatedPlan(ctx, nodeNow, envelope.plan!, {
+        userMessage,
+        refined,
+      });
+      return { reply, outcome };
+    }
+
+    return { reply, outcome: null };
+  }
+
+  /** Parses the unified turn envelope (`PlanTurnOutput`). */
+  parseTurnEnvelope(text: string): PlanTurnOutput {
+    return this.parse(text, PlanTurnOutput);
+  }
+
+  /**
+   * ONE bounded retry prompt for unified turns — re-states `PlanTurnOutput`
+   * with turn-kind-specific guidance.
+   */
+  turnRetryPrompt(failure: AgentOutputError, turnKind: PlanTurnKind): string {
+    const branch = turnKind === 'branch';
+    const body =
+      failure.code === AGENT_OUTPUT_ERROR.NO_JSON
+        ? TemplateRenderer.compose('Your previous response could not be used: no JSON object could be parsed from it.')
+            .addBlankLine()
+            .addLine('Re-emit your ENTIRE response as a single JSON object.')
+            .build()
+        : TemplateRenderer.compose('Your previous response was valid JSON but violated the plan turn contract:')
+            .addBlankLine()
+            .addLines(failure.detail.issues.map(i => `  - ${i.path ? `${i.path}: ` : ''}${i.message}`))
+            .addBlankLine()
+            .addLine(
+              branch
+                ? 'Re-emit a single JSON object with "reply" and optionally "subPlanPatch" (preferred) or "subPlan" — never include "plan" on branch turns.'
+                : 'Re-emit a single JSON object with "reply" and optionally "plan" when changing the plan document.'
+            )
+            .build();
+    return TemplateRenderer.compose(body)
+      .addBlankLine()
+      .addBlankLine()
+      .addLine(AgentOutputError.directive(PLAN_TURN_OUTPUT_JSON_SCHEMA))
+      .build();
+  }
+
+  async applyTurnResultWithRetry(
+    ctx: FlowCtx,
+    node: NodeRow,
+    turnKind: PlanTurnKind,
+    userMessage: string,
+    text: string,
     scoped: ScopedRefine | null,
-    result: AgentRunResult,
     args: PlanRunArgs
-  ): Promise<RunOutcome> {
+  ): Promise<{ reply: string; outcome: RunOutcome | null }> {
     try {
-      return this.apply(ctx, node, input, result.result ?? '', scoped);
+      return this.applyTurnResult(ctx, node, turnKind, userMessage, text, scoped);
     } catch (e: unknown) {
+      if (e instanceof PlanApplyRefusedError) {
+        return { reply: e.reply, outcome: null };
+      }
       if (!(e instanceof AgentOutputError) || !RETRYABLE_OUTPUT_ERRORS.has(e.code)) throw e;
-      return this.retry(ctx, node, input, scoped, e, args);
+      return this.turnRetry(ctx, node, turnKind, userMessage, scoped, e, args);
     }
   }
 
-  /**
-   * Validate the agent's text against the plan response contract, then do the
-   * plan-domain work and build the outcome. Throws the standard
-   * {@link AgentOutputError} on no JSON, the agent's error envelope, or schema
-   * violations.
-   */
-  apply(ctx: FlowCtx, node: NodeRow, input: PlanInput, text: string, scoped: ScopedRefine | null): RunOutcome {
-    if (scoped) return this.scopedOutcome(ctx, node, text, scoped);
-
-    const plan = this.parse(text, PlanResponse);
-    return this.applyValidatedPlan(ctx, node, plan, {
-      feedback: input.feedback ?? '',
-      refined: this.wholeRefineMeta(ctx, input),
-    });
-  }
-
-  /**
-   * The conversational apply (§3a/§3b/§6c): a VALIDATED follow-up plan payload
-   * becomes a new version through the exact whole-plan persist path (the same
-   * persist + outcome a normal refine produces, with the conversation meta:
-   * `feedback` + §6c `refinedFrom`). Call only after parseFollowUpPlan.
-   */
-  applyChatPlan(
+  private async turnRetry(
     ctx: FlowCtx,
     node: NodeRow,
-    plan: PlanResponse,
-    opts: { feedback: string; refined?: RefinedFrom }
-  ): RunOutcome {
-    return this.applyValidatedPlan(ctx, node, plan, opts);
+    turnKind: PlanTurnKind,
+    userMessage: string,
+    scoped: ScopedRefine | null,
+    failure: AgentOutputError,
+    args: PlanRunArgs
+  ): Promise<{ reply: string; outcome: RunOutcome | null }> {
+    this.support.emitLifecycle(
+      ctx.flow.id,
+      node.id,
+      `${args.label} output contract failed — retrying with feedback (${failure.code})`
+    );
+    const retry = await this.runner.executeRun(
+      ctx,
+      node.id,
+      () =>
+        this.runner.startAgent(ctx, {
+          prompt: this.turnRetryPrompt(failure, turnKind),
+          mode: 'plan',
+          name: `${args.label} ${ctx.task.key}`,
+          followUpOn: this.support.lastAgentId(node.id),
+          model: args.model,
+          settingSources: args.settingSources,
+        }),
+      `${args.label} retry`
+    );
+    try {
+      return this.applyTurnResult(ctx, node, turnKind, userMessage, retry.result ?? '', scoped);
+    } catch (e: unknown) {
+      if (e instanceof PlanApplyRefusedError) {
+        return { reply: e.reply, outcome: null };
+      }
+      if (!(e instanceof AgentOutputError) || !RETRYABLE_OUTPUT_ERRORS.has(e.code)) throw e;
+      throw e;
+    }
   }
 
   /**
@@ -157,13 +282,13 @@ export class PlanOutputContract {
     ctx: FlowCtx,
     node: NodeRow,
     plan: PlanResponse,
-    opts: { feedback: string; refined?: RefinedFrom }
+    opts: { userMessage: string; refined?: RefinedFrom }
   ): RunOutcome {
     const planMeta: PlanMeta = { steps: withStepIds(plan.steps), branches: plan.branches ?? [] };
     const { art, stepCount } = this.store.persistPlan({
       ctx,
       node,
-      input: { feedback: opts.feedback },
+      userMessage: opts.userMessage,
       text: plan.markdown,
       planMeta,
       plannerExecution: this.store.normalizePlannerExecution(plan),
@@ -174,127 +299,53 @@ export class PlanOutputContract {
   }
 
   /**
-   * §6c provenance for run-node whole-plan paths: a `promptIsBody` run whose
-   * body DIVERGED from the plan template is `start` (a template-faithful body
-   * — including the first run — records nothing; when in doubt: NO provenance).
-   * Chat provenance is written in `applyChatPlan` only.
+   * Replay a finished unified turn from the recorded run snapshot + agent text.
+   * Returns null when the snapshot or response cannot be applied.
    */
-  private wholeRefineMeta(ctx: FlowCtx, input: PlanInput): RefinedFrom | undefined {
-    const prev = this.store.latestPlan(ctx.flow.id)?.art.version ?? 0;
-    if (input.promptIsBody && planBodyDiverged(input.prompt)) {
-      return { version: prev, source: REFINED_FROM_SOURCE.START };
-    }
-    return undefined;
-  }
+  recoverTurnOutcome(ctx: FlowCtx, node: NodeRow, result: AgentRunResult, input: PlanInput): RunOutcome | null {
+    if (result.status !== 'finished') return null;
+    const turnKind = input.planTurnKind;
+    if (!turnKind) return null;
 
-  /**
-   * The chat follow-up's plan validation (§3b): the whole turn — `reply` +
-   * `plan` — parses against the follow-up contract, so the plan child rides the
-   * exact same issue set a normal refine parse produces (identical messages →
-   * the §3c retry feedback and the raw-issue event payload stay truthful).
-   * Thrown as the standard {@link AgentOutputError} (`schema_mismatch`).
-   */
-  parseFollowUpPlan(turn: { reply: string; plan: unknown }): PlanResponse {
-    const missingPlan = (): AgentOutputError =>
-      new AgentOutputError({
-        code: AGENT_OUTPUT_ERROR.SCHEMA_MISMATCH,
-        label: this.label,
-        message: `${this.label}: the response carried no plan payload`,
-        issues: [{ path: 'plan', message: 'the response carried no plan payload' }],
-        response: JSON.stringify(turn),
-      });
-    if (turn.plan == null) throw missingPlan();
-    const result = PlanFollowUp.safeParse(turn);
-    if (!result.success) {
-      const issues = result.error.issues.map(i => ({ path: i.path.join('.'), message: i.message }));
-      throw new AgentOutputError({
-        code: AGENT_OUTPUT_ERROR.SCHEMA_MISMATCH,
-        label: this.label,
-        message: issues[0]?.message ?? `${this.label}: the plan response violated its schema`,
-        issues,
-        response: JSON.stringify(turn),
-      });
-    }
-    const plan = result.data.plan;
-    // the pre-checked turn validated: an absent/null plan is exactly the
-    // reply-only turn this method refuses to treat (caller bug — fails loudly)
-    if (plan == null) throw missingPlan();
-    return plan;
-  }
+    const branch = input.planThread?.trim() || null;
+    const scoped = branch ? this.store.scopedRefine(ctx.flow.id, branch) : null;
+    if (branch && !scoped) return null;
 
-  /**
-   * The chat follow-up's ONE bounded retry (§3c — the same machine as the
-   * scoped refine's): an AgentOutputError-grade feedback that re-states the
-   * follow-up contract (reply + optional plan envelope) on the same agent
-   * session, with the follow-up response schema as the directive.
-   */
-  followUpRetryPrompt(failure: AgentOutputError): string {
-    const body =
-      failure.code === AGENT_OUTPUT_ERROR.NO_JSON
-        ? TemplateRenderer.compose('Your previous response could not be used: no JSON object could be parsed from it.')
-            .addBlankLine()
-            .addLine('Re-emit your ENTIRE response as a single JSON object.')
-            .build()
-        : TemplateRenderer.compose('Your previous response was valid JSON but violated the plan follow-up contract:')
-            .addBlankLine()
-            .addLines(failure.detail.issues.map(i => `  - ${i.path ? `${i.path}: ` : ''}${i.message}`))
-            .addBlankLine()
-            .addLine(
-              'Re-emit the follow-up response as a single JSON object: "reply" always, and "plan" (the full plan response, contract below) when you are changing the plan.'
-            )
-            .build();
-    return TemplateRenderer.compose(body)
-      .addBlankLine()
-      .addBlankLine()
-      .addLine(AgentOutputError.directive(PLAN_FOLLOWUP_JSON_SCHEMA))
-      .build();
-  }
-
-  /**
-   * Parse + persist a whole-plan RECOVERED finish; null when the recorded
-   * result is not recoverable (unparseable or contract-violating — the node
-   * fails for a manual retry, the standard agent-node recovery posture).
-   */
-  recoverOutcome(ctx: FlowCtx, node: NodeRow, result: AgentRunResult): RunOutcome | null {
-    let plan: PlanResponse;
     try {
-      plan = this.parse(result.result ?? '', PlanResponse);
+      const applied = this.applyTurnResult(
+        ctx,
+        node,
+        turnKind,
+        input.turnUserMessage ?? '',
+        result.result ?? '',
+        scoped
+      );
+      return applied.outcome;
     } catch {
       return null;
     }
-    const planMeta: PlanMeta = { steps: withStepIds(plan.steps), branches: plan.branches ?? [] };
-    const { art, stepCount } = this.store.persistRecovery({
-      ctx,
-      node,
-      text: plan.markdown,
-      planMeta,
-      plannerExecution: this.store.normalizePlannerExecution(plan),
-    });
-    return this.planOutcome(art, planMeta, stepCount, plan.markdown);
+  }
+
+  /** Unified-turn recovery only — no legacy `run()` replay. */
+  recoverOutcome(ctx: FlowCtx, node: NodeRow, result: AgentRunResult, input?: PlanInput): RunOutcome | null {
+    if (!input?.planTurnKind) return null;
+    return this.recoverTurnOutcome(ctx, node, result, input);
   }
 
   /** The scoped refine's tail: deterministic merge → new artifact version
    *  (plan markdown unchanged) → scoped checklist sync → awaiting approval. */
-  private scopedOutcome(ctx: FlowCtx, node: NodeRow, text: string, scoped: ScopedRefine): RunOutcome {
-    const sub = this.parse(text, SubPlanResponse);
+  private scopedSubPlanOutcome(ctx: FlowCtx, node: NodeRow, scoped: ScopedRefine, sub: SubPlanResponse): RunOutcome {
     const branchName = scoped.branch.name;
 
-    // Deterministic merge: everything outside this branch stays byte-identical.
     const merged = BranchRefinement.merge(scoped.latest.meta, branchName, sub);
-    // §6c provenance rides BESIDE the scoped record: "a version with refinedFrom"
-    // is "a produced refine" — branch-scoped refines produce one (diff banner).
     const art = this.support.saveArtifact(node.id, ctx.flow.id, 'plan', scoped.latest.art.content, {
       ...scoped.latest.rawMeta,
       steps: merged.steps,
       branches: merged.branches,
-      scopedRefine: { branch: branchName, from: scoped.latest.art.version }, // provenance for the diff banner
+      scopedRefine: { branch: branchName, from: scoped.latest.art.version },
       refinedFrom: { version: scoped.latest.art.version, source: REFINED_FROM_SOURCE.BRANCH },
     });
 
-    // Sync the live checklist scoped, not wholesale (§5): rows of other
-    // branches are never touched; this branch's hand edits were already part
-    // of the refine's input — they come back as echoed intent, not clobbered
-    // state.
     const stepCount = planSteps.replaceBranch(
       ctx.flow.id,
       art.id,
@@ -308,22 +359,70 @@ export class PlanOutputContract {
 
     return {
       status: 'awaiting_approval',
-      output: {
-        latestArtifact: art.id,
-        version: art.version,
-        branches: merged.branches,
-        steps: merged.steps,
-        scopedRefine: { branch: branchName, from: scoped.latest.art.version },
-      },
+      output: this.scopedOutputBlob(ctx, node, art, merged, branchName, scoped.latest.art.version),
       event: `branch '${branchName}' sub-plan refined · ${stepCount} steps ${diffNote} — other branches untouched`,
       reply: sub.markdown,
     };
   }
 
+  private scopedPatchOutcome(
+    ctx: FlowCtx,
+    node: NodeRow,
+    scoped: ScopedRefine,
+    patch: SubPlanPatch
+  ): RunOutcome {
+    const branchName = scoped.branch.name;
+    const merged = BranchRefinement.applyPatch(scoped.latest.meta, branchName, patch);
+    const art = this.support.saveArtifact(node.id, ctx.flow.id, 'plan', scoped.latest.art.content, {
+      ...scoped.latest.rawMeta,
+      steps: merged.steps,
+      branches: merged.branches,
+      scopedRefine: { branch: branchName, from: scoped.latest.art.version },
+      refinedFrom: { version: scoped.latest.art.version, source: REFINED_FROM_SOURCE.BRANCH },
+    });
+
+    const branchSteps = merged.steps.filter(s => s.branch === branchName);
+    const stepCount = planSteps.replaceBranch(ctx.flow.id, art.id, branchName, branchSteps);
+
+    const oldSteps = scoped.latest.meta.steps.filter(s => s.branch === branchName);
+    const { added, removed, changed } = BranchRefinement.diffSteps(oldSteps, branchSteps);
+    const diffNote = `(+${added.length} / −${removed.length}${changed.length ? `, ${changed.length} changed` : ''})`;
+
+    return {
+      status: 'awaiting_approval',
+      output: this.scopedOutputBlob(ctx, node, art, merged, branchName, scoped.latest.art.version),
+      event: `branch '${branchName}' sub-plan patched · ${stepCount} steps ${diffNote} — other branches untouched`,
+      reply: patch.markdown ?? `Updated branch "${branchName}".`,
+    };
+  }
+
+  private scopedOutputBlob(
+    _ctx: FlowCtx,
+    node: NodeRow,
+    art: { id: string; version: number },
+    merged: PlanMeta,
+    branchName: string,
+    fromVersion: number
+  ): Record<string, unknown> {
+    const branchAgents = this.readBranchAgents(node);
+    return {
+      latestArtifact: art.id,
+      version: art.version,
+      branches: merged.branches,
+      steps: merged.steps,
+      scopedRefine: { branch: branchName, from: fromVersion },
+      ...(branchAgents ? { branchAgents } : {}),
+    };
+  }
+
+  private readBranchAgents(node: NodeRow): Record<string, string> | undefined {
+    if (!node.output) return undefined;
+    const raw = node.output as { branchAgents?: Record<string, string> };
+    return raw.branchAgents;
+  }
+
   /** The whole-plan outcome: awaiting approval, the output blob pointing at
-   *  the fresh artifact version, the lifecycle event. Public because the
-   *  conversational apply (PlanNode.applyPlanVersion) reuses this exact
-   *  outcome so a chat-produced version persists like a normal refine. */
+   *  the fresh artifact version, the lifecycle event. */
   planOutcome(
     art: { id: string; version: number },
     planMeta: PlanMeta,
@@ -346,73 +445,12 @@ export class PlanOutputContract {
       reply: text,
     };
   }
+}
 
-  /**
-   * One feedback turn on the same agent session (`followUpOn` = the run the
-   * contract just failed), then re-apply the contract to its response. The
-   * scoped retry re-appends the scoped directive — a scoped retry never
-   * re-emits the full plan.
-   */
-  private async retry(
-    ctx: FlowCtx,
-    node: NodeRow,
-    input: PlanInput,
-    scoped: ScopedRefine | null,
-    failure: AgentOutputError,
-    args: PlanRunArgs
-  ): Promise<RunOutcome> {
-    this.support.emitLifecycle(
-      ctx.flow.id,
-      node.id,
-      `${args.label} output contract failed — retrying with feedback (${failure.code})`
-    );
-
-    const retryPrompt = this.outputDirective(this.feedbackPrompt(failure, scoped != null), scoped != null);
-    const retry = await this.runner.executeRun(
-      ctx,
-      node.id,
-      () =>
-        this.runner.startAgent(ctx, {
-          prompt: retryPrompt,
-          mode: 'plan',
-          name: `${args.label} ${ctx.task.key}`,
-          followUpOn: this.support.lastAgentId(node.id),
-          model: args.model,
-          settingSources: args.settingSources,
-        }),
-      `${args.label} retry`
-    );
-    return this.apply(ctx, node, input, retry.result ?? '', scoped);
-  }
-
-  /** The specific failure is the feedback: what the agent got wrong, in its
-   *  own response's terms — the same human messages the trail shows. */
-  private feedbackPrompt(failure: AgentOutputError, scoped: boolean): string {
-    return failure.code === AGENT_OUTPUT_ERROR.NO_JSON
-      ? TemplateRenderer.compose('Your previous response could not be used: no JSON object could be parsed from it.')
-          .addBlankLine()
-          .addLine('Re-emit your ENTIRE response as a single JSON object.')
-          .build()
-      : TemplateRenderer.compose('Your previous response was valid JSON but violated the output contract:')
-          .addBlankLine()
-          .addLines(failure.detail.issues.map(i => `  - ${i.path ? `${i.path}: ` : ''}${i.message}`))
-          .addBlankLine()
-          .addLine(
-            scoped
-              ? 'Re-emit ONLY your sub-plan response as a single JSON object.'
-              : 'Re-emit the corrected JSON object.'
-          )
-          .build();
-  }
-
-  /** The plan output contract appended to a retry prompt: the schema the
-   *  response must satisfy + the agent's error-envelope escape hatch (the
-   *  same directive json-output agent nodes ride). */
-  private outputDirective(body: string, scoped: boolean): string {
-    return TemplateRenderer.compose(body)
-      .addBlankLine()
-      .addBlankLine()
-      .addLine(AgentOutputError.directive(scoped ? SUB_PLAN_RESPONSE_JSON_SCHEMA : PLAN_RESPONSE_JSON_SCHEMA))
-      .build();
+/** Conversational refusal from the §3b apply guard — not a contract retry. */
+class PlanApplyRefusedError extends Error {
+  constructor(readonly reply: string) {
+    super(reply);
+    this.name = 'PlanApplyRefusedError';
   }
 }

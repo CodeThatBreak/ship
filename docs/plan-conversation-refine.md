@@ -1,6 +1,10 @@
 # Conversational Plan Refinement — the composer is the plan's one input
 
-Date: 2026-10-29 · Status: **spec — ready to implement, not started**
+> **Superseded (2026-10-31):** Shipped behavior and the `PlanTurnOutput` envelope live in
+> `docs/architecture/plan-unified-turns.md` and `docs/architecture/plan-node.md`. Keep this
+> file for historical design context only.
+
+Date: 2026-10-29 · Status: **superseded — see plan-unified-turns.md**
 
 > Companions: `docs/refinement-plan.md` (overall refine model), `docs/branch-scoped-refine.md`
 > (scoped sub-plan refines — unchanged here; its Phase C "chat scope chip" direction is

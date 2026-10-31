@@ -1,4 +1,4 @@
-import { SubPlanResponse, type PlanMeta, type PlanStep } from './schema';
+import { SubPlanResponse, type PlanMeta, type PlanStep, type SubPlanPatch } from './schema';
 
 /**
  * Pure helpers for refining a single branch of a plan.
@@ -59,6 +59,70 @@ class BranchRefinement {
             steps: newSteps.map(s => s.title),
             markdown: sub.markdown,
             subPlan: b.subPlan ? { ...b.subPlan, steps: newSteps } : undefined,
+          }
+        : b
+    );
+
+    return { steps, branches };
+  }
+
+  /**
+   * Applies a change-only delta for one branch: optional markdown replace,
+   * step upserts by id within the branch, and step removals by id.
+   */
+  static applyPatch(meta: PlanMeta, branchName: string, patch: SubPlanPatch): PlanMeta {
+    const idx = meta.branches.findIndex(b => b.name === branchName);
+    if (idx === -1) throw new Error(`branch "${branchName}" not found`);
+
+    let steps = [...meta.steps];
+    const removeIds = new Set(patch.removeStepIds ?? []);
+    if (removeIds.size > 0) {
+      steps = steps.filter(s => !(s.branch === branchName && s.id != null && removeIds.has(s.id)));
+    }
+
+    if (patch.upsertSteps?.length) {
+      const taken = new Set(steps.filter(s => s.branch !== branchName).map(s => s.id));
+      const reId = (s: PlanStep, i: number) => {
+        let id = s.id?.trim() || `s${i + 1}`;
+        if (taken.has(id)) {
+          let n = taken.size + 1;
+          while (taken.has(`s${n}`)) n++;
+          id = `s${n}`;
+        }
+        taken.add(id);
+        return { ...s, id, branch: branchName };
+      };
+      const normalized = patch.upsertSteps.map(reId);
+      const pending = new Map(normalized.map(s => [s.id!, s] as const));
+
+      steps = steps.map(s => {
+        if (s.branch !== branchName || s.id == null || !pending.has(s.id)) return s;
+        const next = pending.get(s.id)!;
+        pending.delete(s.id);
+        return next;
+      });
+
+      if (pending.size > 0) {
+        let insertAt = -1;
+        for (let i = steps.length - 1; i >= 0; i--) {
+          if (steps[i].branch === branchName) {
+            insertAt = i + 1;
+            break;
+          }
+        }
+        const at = insertAt === -1 ? steps.length : insertAt;
+        steps.splice(at, 0, ...pending.values());
+      }
+    }
+
+    const branchSteps = steps.filter(s => s.branch === branchName);
+    const branches = meta.branches.map(b =>
+      b.name === branchName
+        ? {
+            ...b,
+            ...(patch.markdown != null ? { markdown: patch.markdown } : {}),
+            steps: branchSteps.map(s => s.title),
+            subPlan: b.subPlan ? { ...b.subPlan, steps: branchSteps } : undefined,
           }
         : b
     );

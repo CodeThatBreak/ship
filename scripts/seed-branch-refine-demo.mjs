@@ -322,7 +322,7 @@ const ev = (msg, m, nodeId = nodeIds.plan) => {
     .run(uid("ev_"), flowId, nodeId, msg, minsAgo(m));
 };
 
-let nodeInput = { feedback: null, prompt: null, promptIsBody: false, decompose: false, model: null, branchRef: null, fresh: null, contextBlocks: [] };
+let nodeInput = { prompt: null, promptIsBody: false, decompose: false, model: null, contextBlocks: [] };
 const setNodeInput = (i) => {
   nodeInput = { ...nodeInput, ...i };
   db.prepare(`UPDATE nodes SET input=?, updated_at=? WHERE id=?`).run(JSON.stringify(nodeInput), now(), nodeIds.plan);
@@ -364,7 +364,7 @@ ev("plan checklist edited (9 steps)", 44, null);
 
 // ── act 2 (t-31m): branch-scoped refine of `worker` → v2 ─────────────────────
 // (fresh agent, context blocks: task + contract + current)
-setNodeInput({ branchRef: "worker", fresh: true, contextBlocks: ["task", "contract", "current"] });
+setNodeInput({ contextBlocks: ["task", "contract", "current"], planThread: "worker" });
 ev('sub-plan refine (worker, fresh) validation failed — retrying with feedback (1 error)', 36);
 const mergedV2 = mergeBranchRefine(metaV1, "worker", SUB_WORKER_V2);
 const artV2 = savePlanArtifact(PLAN_V1, // ← plan markdown byte-identical: only the branch doc carries the change
@@ -380,7 +380,7 @@ db.prepare(`UPDATE nodes SET status='awaiting_approval', output=?, updated_at=? 
     minsAgo(31), nodeIds.plan);
 
 // ── act 3 (t-14m): whole-plan refine → v3 (overview prose refreshed) ─────────
-setNodeInput({ branchRef: null, fresh: true, contextBlocks: ["task", "branches", "edits"] });
+setNodeInput({ contextBlocks: ["task", "branches", "edits"] });
 const metaV3 = { steps: mergedV2.steps, branches: mergedV2.branches }; // steps untouched — prose only
 const artV3 = savePlanArtifact(PLAN_V3, { feedback: "tighten the overview prose after the worker refine", steps: metaV3.steps, branches: metaV3.branches, ...PLANNER_EXECUTION }, 3, 14,
   "tighten the overview prose after the worker refine");
@@ -391,7 +391,7 @@ db.prepare(`UPDATE nodes SET status='awaiting_approval', output=?, updated_at=? 
     minsAgo(14), nodeIds.plan);
 
 // ── act 4 (t-2m): branch-scoped refine of `backend` → v4 ─────────────────────
-setNodeInput({ branchRef: "backend", fresh: true, contextBlocks: ["task", "contract", "current"] });
+setNodeInput({ contextBlocks: ["task", "contract", "current"], planThread: "backend" });
 const mergedV4 = mergeBranchRefine(metaV3, "backend", SUB_BACKEND_V4);
 const artV4 = savePlanArtifact(PLAN_V3,
   { feedback: null, steps: mergedV4.steps, branches: mergedV4.branches, scopedRefine: { branch: "backend", from: 3 }, ...PLANNER_EXECUTION },

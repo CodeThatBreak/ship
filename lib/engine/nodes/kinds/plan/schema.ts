@@ -157,30 +157,6 @@ export const PlanResponse = z
   });
 export type PlanResponse = z.infer<typeof PlanResponse>;
 
-// ── the conversation follow-up response (JSON-only, §1) ─────────────────────
-
-/**
- * A plan conversation turn's response (docs/plan-conversation-refine.md §1):
- * always a reply, optionally a plan. `plan` present ⇒ the engine applies it as
- * a new version (§3 — the same whole-plan persist path as a refine, state-
- * guarded); absent (or an explicit `null`) ⇒ reply only — node status,
- * artifacts and checklist untouched.
- *
- * NOTE — parse-time strictness (§1): the pipeline ({@link ./plan-followup})
- * does NOT `safeParse` whole turns against this schema, because it couples the
- * envelope shape to the plan payload's schema refinements — a turn whose plan
- * carries a refinement violation would degrade silently to reply-only. The
- * turn kind is decided envelope-shape-only; `PlanNode.applyPlanVersion`
- * validates the plan payload itself and drives the §3c bounded retry.
- * This schema stays the canonical contract: the retry directive advertises it.
- */
-export const PlanFollowUp = z.object({
-  reply: z.string().min(1),
-  // .nullish(): an explicit "plan": null and an omitted "plan" mean the same (reply only)
-  plan: PlanResponse.nullish(),
-});
-export type PlanFollowUp = z.infer<typeof PlanFollowUp>;
-
 // ── branch-scoped sub-plan response (JSON-only) ──────────────────────────────
 
 /**
@@ -209,6 +185,40 @@ export const SubPlanResponse = z
   });
 export type SubPlanResponse = z.infer<typeof SubPlanResponse>;
 
+// ── branch-scoped delta (JSON-only) ───────────────────────────────────────────
+
+/** Change-only branch publish — upsert/remove steps and optional markdown replace. */
+export const SubPlanPatch = z
+  .object({
+    markdown: z.string().min(1).optional(),
+    upsertSteps: z.array(PlanStep).min(1).optional(),
+    removeStepIds: z.array(z.string()).optional(),
+  })
+  .superRefine((val, ctx) => {
+    if (!val.markdown && !val.upsertSteps?.length && !val.removeStepIds?.length) {
+      ctx.addIssue({ code: "custom", message: "subPlanPatch must include at least one change" });
+    }
+  });
+export type SubPlanPatch = z.infer<typeof SubPlanPatch>;
+
+// ── unified turn envelope (JSON-only) ─────────────────────────────────────────
+
+/** Every plan-mode agent turn — reply plus at most one publish payload. */
+export const PlanTurnOutput = z
+  .object({
+    reply: z.string().min(1),
+    plan: PlanResponse.nullish(),
+    subPlan: SubPlanResponse.nullish(),
+    subPlanPatch: SubPlanPatch.nullish(),
+  })
+  .superRefine((val, ctx) => {
+    const publishKeys = [val.plan, val.subPlan, val.subPlanPatch].filter(p => p != null);
+    if (publishKeys.length > 1) {
+      ctx.addIssue({ code: "custom", message: "use at most one of plan, subPlan, subPlanPatch" });
+    }
+  });
+export type PlanTurnOutput = z.infer<typeof PlanTurnOutput>;
+
 // ── the response contracts the output-contract directive advertises ──────────
 
 /**
@@ -219,30 +229,28 @@ export type SubPlanResponse = z.infer<typeof SubPlanResponse>;
  */
 export const PLAN_RESPONSE_JSON_SCHEMA: unknown = z.toJSONSchema(PlanResponse);
 export const SUB_PLAN_RESPONSE_JSON_SCHEMA: unknown = z.toJSONSchema(SubPlanResponse);
-/** The conversation follow-up contract (§1) — the chat retry's directive schema. */
-export const PLAN_FOLLOWUP_JSON_SCHEMA: unknown = z.toJSONSchema(PlanFollowUp);
+export const SUB_PLAN_PATCH_JSON_SCHEMA: unknown = z.toJSONSchema(SubPlanPatch);
+export const PLAN_TURN_OUTPUT_JSON_SCHEMA: unknown = z.toJSONSchema(PlanTurnOutput);
 
 // ── input / output schemas ───────────────────────────────────────────────────
 
 export const PlanInput = z.object({
-  /** developer instruction for a branch-scoped sub-plan refine (not whole-plan chat) */
-  feedback: z.string().nullable().default(null),
-  /** verbatim prompt override (bypasses the template) */
+  /** verbatim prompt override (bypasses the template) — recorded on turn runs for retry fidelity */
   prompt: z.string().nullable().default(null),
   /** prompt is the user-editable body only — append internal instructions at run time */
   promptIsBody: z.boolean().default(false),
-  /** decompose into sub-agents for repo exploration */
+  /** decompose into sub-agents for repo exploration (pre-publish prompt assembly) */
   decompose: z.boolean().default(false),
   /** per-run model override */
   model: z.string().nullable().default(null),
-  /** when refining a specific branch's sub-plan: the branch name */
-  branchRef: z.string().nullable().default(null),
-  /**
-   * Start a clean agent instead of following up on the node's existing one.
-   * Null = per-mode default: scoped refines default to fresh (their template
-   * is self-contained, §3). Explicit true always wins.
-   */
-  fresh: z.boolean().nullable().default(null),
+  /** branch thread for unified-turn recovery (recorded on turn runs). */
+  planThread: z.string().nullable().default(null),
+  /** unified turn kind for recovery replay (`applyTurnResult`). */
+  planTurnKind: z.enum(['pre-publish', 'whole', 'branch']).nullable().default(null),
+  /** user message for unified-turn recovery replay. */
+  turnUserMessage: z.string().nullable().default(null),
+  /** node status before a turn run started (reply-only recovery). */
+  previousStatus: z.string().nullable().default(null),
   /**
    * Ids of the context blocks to assemble into {{context}} (see the block
    * registry in plan-node). Unknown ids are dropped server-side; the pinned
@@ -265,5 +273,7 @@ export const PlanOutput = z.object({
       from: z.number(),
     })
     .optional(),
+  /** branch name → harness agent id for resume on branch threads */
+  branchAgents: z.record(z.string(), z.string()).optional(),
 });
 export type PlanOutput = z.infer<typeof PlanOutput>;

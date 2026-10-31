@@ -1,6 +1,10 @@
 # Branch-Scoped Sub-Plan Refinement
 
-Date: 2026-10-22 · Status: **Phase A + B implemented** (Phase C pending)
+> **Superseded (2026-10-31):** Branch sends and `subPlan` / `subPlanPatch` merges are unified
+> under `PlanNode.turn()` — see `docs/architecture/plan-unified-turns.md`. Panel modals and
+> `refine_plan` action wiring described here are retired.
+
+Date: 2026-10-22 · Status: **superseded — see plan-unified-turns.md**
 
 > Implemented: `SubPlanResponse` + `validateSubPlan`, `PlanBranch.markdown`, `PlanInput.fresh` /
 > `contextBlocks`, the `plan_subplan_refine` template, `PlanNode` scoped run + context block

@@ -53,9 +53,10 @@ const scriptDef = new ScriptTemplateNode(tmpl("nt_s", "Script"));
 
 describe("NodeRoleRouter — chat refine routing (T4)", () => {
   it("routes defs that opt in via capabilities + role", () => {
-    const chat = planDef as unknown as { chat?: unknown };
+    const chat = planDef as unknown as { chat?: unknown; turn?: unknown };
     expect(nodeRoles.chatRefinerOf(planDef)).not.toBeNull();
     expect(typeof chat.chat).toBe("function");
+    expect(typeof chat.turn).toBe("function");
   });
 
   it("declines a kind whose capabilities never opted in — even with a chat method", () => {

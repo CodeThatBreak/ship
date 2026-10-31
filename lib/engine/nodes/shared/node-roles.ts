@@ -53,6 +53,7 @@ export interface NodePromptPreview {
  */
 export interface ChatRefiner {
   chat(ctx: FlowCtx, content: string, model?: string): Promise<string>;
+  turn(ctx: FlowCtx, content: string, opts?: { model?: string; thread?: string | null }): Promise<string>;
 }
 
 /** A def that answers conversational follow-ups without changing node state. */
@@ -90,7 +91,9 @@ export class NodeRoleRouter {
   chatRefinerOf(def: NodeDefinition): ChatRefiner | null {
     if (def.capabilities.refinable !== true) return null;
     const candidate = def as Partial<ChatRefiner>;
-    return typeof candidate.chat === "function" ? (def as unknown as ChatRefiner) : null;
+    return typeof candidate.chat === "function" && typeof candidate.turn === "function"
+      ? (def as unknown as ChatRefiner)
+      : null;
   }
 
   /** The conversational ("just chat", `chatOnly`) role — the agent-run tier provides it. */

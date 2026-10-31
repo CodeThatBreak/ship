@@ -6,7 +6,7 @@ import { postJson } from '@/hooks/fetch-json';
 type Variables = Record<string, unknown>;
 
 /**
- * The flow's action route (run_node, refine_plan for branch refines, …) as one mutation.
+ * The flow's action route (run_node, approve_plan, checklist updates, …) as one mutation.
  * Returns `mutateAsync` so a caller awaiting the send gets the
  * accepted-draft semantics (the composer clears only on success).
  */

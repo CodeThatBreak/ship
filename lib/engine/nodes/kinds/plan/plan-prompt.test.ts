@@ -56,36 +56,6 @@ const scoped = (): ScopedRefine => ({
   liveRows: [branchStep as never],
 });
 
-describe('PlanPromptBuilder.runIntent — label + follow-up resolution', () => {
-  const intent = (input: Partial<PlanInput>, agentId = 'agent-1', scopedInput: ScopedRefine | null = null) =>
-    makeBuilder('whole').runIntent(nodeWith(agentId), input as PlanInput, scopedInput);
-
-  it('a plain first plan: label "plan", no follow-up', () => {
-    expect(intent({})).toEqual({ label: 'plan', followUpOn: null });
-  });
-
-  it('a custom prompt body run labels distinctly', () => {
-    expect(intent({ prompt: 'custom', promptIsBody: true })).toEqual({
-      label: 'plan (custom prompt)',
-      followUpOn: null,
-    });
-  });
-
-  it('scoped refines are fresh by default and label with the branch name', () => {
-    expect(intent({ branchRef: 'auth' }, 'agent-1', scoped())).toEqual({
-      label: 'sub-plan refine (auth, fresh)',
-      followUpOn: null,
-    });
-  });
-
-  it('scoped refine with fresh: false follows up on the node agent', () => {
-    expect(intent({ branchRef: 'auth', fresh: false }, 'agent-1', scoped())).toEqual({
-      label: 'sub-plan refine (auth)',
-      followUpOn: 'agent-1',
-    });
-  });
-});
-
 describe('PlanPromptBuilder.executionDirective — the follow-only prompt delta', () => {
   it('follow renders the branch child-flow contract fields', () => {
     const directive = makeBuilder('follow').executionDirective(ctx);
@@ -104,7 +74,7 @@ describe('PlanPromptBuilder.executionDirective — the follow-only prompt delta'
 
 describe('PlanPromptBuilder.scopedVars — built from the ref branch only', () => {
   it('fills branch, scope, files, dependencies, sub-plan seed and live steps', () => {
-    const vars = makeBuilder('whole').scopedVars(ctx, scoped(), { feedback: '', contextBlocks: [] });
+    const vars = makeBuilder('whole').scopedVars(ctx, scoped(), '', []);
     expect(vars.branch).toBe('auth');
     expect(vars.scope).toBe('logins');
     expect(vars.files).toBe('a.ts');
@@ -120,7 +90,7 @@ describe('PlanPromptBuilder.scopedVars — built from the ref branch only', () =
       ...scoped(),
       branch: { ...authBranch, scope: '', files: [], dependsOn: [] },
     };
-    const vars = makeBuilder('whole').scopedVars(ctx, bare, { feedback: 'go', contextBlocks: [] });
+    const vars = makeBuilder('whole').scopedVars(ctx, bare, 'go', []);
     expect(vars.scope).toBe('(none stated)');
     expect(vars.files).toBe('(none stated)');
     expect(vars.dependsOn).toBe('(none)');
@@ -160,10 +130,12 @@ describe('PlanPromptBuilder.refineTurn — the conversation contract template (�
     expect(makeBuilder('follow').refineTurn(ctx, 'msg', '')).toContain('"execution": "whole" or "steps"');
   });
 
-  it('the plan_refine template is a body-only conversation contract — variables stay feedback + context', () => {
+  it('the plan_refine template carries PlanTurnOutput in the locked contract block', () => {
     const tpl = DEFAULT_PROMPT_TEMPLATES.plan_refine;
     expect(tpl.variables).toEqual(['feedback', 'context']);
-    expect(tpl.internalBlocks).toEqual([]);
+    expect(tpl.internalBlocks).toHaveLength(1);
+    expect(tpl.internalBlocks[0]?.kind).toBe('contract');
+    expect(tpl.internalBlocks[0]?.text).toContain('PlanTurnOutput');
     expect(tpl.userTemplate).toContain('The conversation continues');
     // the base `plan` template body is untouched by this phase
     expect(DEFAULT_PROMPT_TEMPLATES.plan.userTemplate.startsWith('You are planning the implementation of a {{ticket_type}}')).toBe(true);
