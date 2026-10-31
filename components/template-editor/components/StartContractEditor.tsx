@@ -1,16 +1,5 @@
 "use client";
-/**
- * The Start node's run context — the fields the flow starts with, authored
- * with the same TS-lite schema box the agent node uses: members `name[?]: type`
- * compile to the contract rows. The start node validates the values the
- * trigger provides and simply passes them to the next nodes (they map from
- * those variables); who fills the values follows the start node's trigger
- * type. The waited event's variable (MR / pipeline) is enforced on top:
- * present and required while its source is selected — written by the
- * enforcement below, never required of the author. Per-field extras — the
- * friendly label and the auto-trigger default — are edited under the box.
- */
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useMemo, useState } from "react";
 import { Sparkles } from "lucide-react";
 import { Badge } from "../../ui/badge";
 import { Button } from "../../ui/button";
@@ -31,28 +20,26 @@ import {
   type StartContractField,
 } from "./start-contract";
 
+const contractEqual = (a: StartContractField[], b: StartContractField[]): boolean =>
+  JSON.stringify(a) === JSON.stringify(b);
+
 /** The start contract extras editor (the TS-lite row's label + default). */
-export function StartContractEditor({
+export const StartContractEditor = ({
   node,
   onChange,
   taskFields,
 }: {
   node: EditorNode;
   onChange: (p: Partial<EditorNode>) => void;
-  /** the template's declared task type's contextFields (Phase 3) — powers the
-   *  "seed from task context" convenience (fields the task already provides) */
   taskFields?: { key: string; label: string; type: string; required?: boolean }[];
-}) {
+}) => {
   const config = node.config ?? {};
   const fields = contractFieldsOf(config);
   const waitFor = node.trigger.wait_for;
   const ctxKey = contextFieldKeyOf(waitFor);
 
-  // the TS-lite authoring text — re-seeded on mount (the body resets to the
-  // Trigger tab on node change, so a fresh visit re-seeds fresh)
-  const [tsText, setTsText] = useState<string>(() => startFieldsToTs(fields));
+  const [tsText, setTsText] = useState(() => startFieldsToTs(fields));
 
-  // live compile of the authoring text → contract rows (errors surface inline)
   const parsed = useMemo(
     () =>
       tsText.trim()
@@ -64,33 +51,17 @@ export function StartContractEditor({
     [tsText],
   );
 
-  // the enforcement/compile effects read the latest node state through a ref
-  // so they fire only on the authored text / wait-for change (the node's
-  // config changes as a result of the same writes — re-adding those fields
-  // to the deps would loop)
-  const current = useRef({ config, fields, waitFor, onChange });
-  current.current = { config, fields, waitFor, onChange };
+  const emitContract = (nextFields: StartContractField[]) => {
+    if (contractEqual(nextFields, fields)) return;
+    onChange({ config: { ...config, contract: nextFields } });
+  };
 
-  // the box is the source of truth for the authored fields; the waited event's
-  // variable is enforced on top (parse errors keep the last good contract)
-  useEffect(() => {
-    if (parsed.error) return;
-    const { config, fields, waitFor, onChange } = current.current;
-    const next = withContextFields(
-      buildStartContract(parsed.inputs, fields),
-      waitFor,
-    );
-    onChange({ config: { ...config, contract: next } });
-  }, [tsText, parsed]);
-
-  // the enforced field must be on the config even when the box text hasn't
-  // changed (the wait-for source was just picked on the Trigger tab)
-  useEffect(() => {
-    const { config, fields, waitFor, onChange } = current.current;
-    const target = withContextFields(fields, waitFor);
-    if (JSON.stringify(target) === JSON.stringify(fields)) return;
-    onChange({ config: { ...config, contract: target } });
-  }, [waitFor]);
+  const commitTsText = (text: string) => {
+    const lite = text.trim() ? parseInputContract(text) : { inputs: [], error: undefined };
+    if (lite.error) return;
+    const next = withContextFields(buildStartContract(lite.inputs, fields), waitFor);
+    emitContract(next);
+  };
 
   const patchField = (i: number, patch: Partial<StartContractField>) =>
     onChange({
@@ -113,7 +84,7 @@ export function StartContractEditor({
       try {
         v = JSON.parse(raw);
       } catch {
-        v = raw; /* keep typing */
+        v = raw;
       }
     } else v = raw;
     patchField(i, { default: v });
@@ -140,15 +111,23 @@ export function StartContractEditor({
               const existing = new Set(fields.map((f) => f.key));
               const members = taskFields
                 .filter((f) => !existing.has(f.key))
-                .map((f) => `${f.key}${f.required ? "" : "?"}: ${startFieldTypeTs(f.type)};`);
+                .map(
+                  (f) =>
+                    `${f.key}${f.required ? "" : "?"}: ${startFieldTypeTs(f.type)};`,
+                );
               if (!members.length) return;
-              setTsText(tsText.trim() ? `${tsText.trimEnd()}\n${members.join("\n")}` : members.join("\n"));
+              const nextText = tsText.trim()
+                ? `${tsText.trimEnd()}\n${members.join("\n")}`
+                : members.join("\n");
+              setTsText(nextText);
+              commitTsText(nextText);
             }}
           >
             <Sparkles size={12} /> Seed from task context
           </Button>
           <span className="text-[11px] text-muted-foreground">
-            adds fields for the {taskFields.length} {`{{task.*}}`} values the template&apos;s task type provides
+            adds fields for the {taskFields.length} {`{{task.*}}`} values the
+            template&apos;s task type provides
           </span>
         </div>
       )}
@@ -158,6 +137,7 @@ export function StartContractEditor({
           id="node-run-context"
           value={tsText}
           onChange={(e) => setTsText(e.target.value)}
+          onBlur={(e) => commitTsText(e.target.value)}
           rows={8}
           className="font-mono text-[12px]"
           placeholder={`{\n  task: string\n  priority?: number\n  labels: string[]\n  settings: Record<string, unknown>\n}`}
@@ -169,11 +149,9 @@ export function StartContractEditor({
         )}
       </Field>
       {fields.map((f, i) => (
-        <Card key={i} className="p-2.5 grid gap-1.5">
+        <Card key={f.key} className="p-2.5 grid gap-1.5">
           <div className="flex items-center gap-2">
-            <code className="font-mono text-[12.5px] text-info">
-              {f.key}
-            </code>
+            <code className="font-mono text-[12.5px] text-info">{f.key}</code>
             <Badge variant="outline" className="text-[10px]">
               {f.type}
             </Badge>
@@ -213,4 +191,4 @@ export function StartContractEditor({
       ))}
     </div>
   );
-}
+};

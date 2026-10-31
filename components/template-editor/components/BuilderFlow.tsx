@@ -212,7 +212,7 @@ export function BuilderFlow(props: BuilderCanvasProps) {
         nodeStrokeColor={(n) => ((n.data as BuilderNodeData | undefined)?.selected ? "#3b82f6" : "transparent")}
         maskColor="oklch(0.141 0.005 285.823 / 0.6)"
       />
-      <ApiBridge onApi={(api) => props.onApi?.(api)} />
+      {props.onApi ? <ApiBridge onApi={props.onApi} /> : null}
     </ReactFlow>
   );
 }

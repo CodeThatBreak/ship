@@ -61,7 +61,8 @@ export function ConditionBuilder({
     removeRow,
     addCondition,
     changeCombinator,
-    editRaw,
+    editRawDraft,
+    commitRaw,
     switchToRaw,
     buildVisually,
   } = useConditionState({ value, onChange });
@@ -101,7 +102,8 @@ export function ConditionBuilder({
         templateId={templateId}
         scope={scope}
         placeholder={placeholder}
-        onEdit={editRaw}
+        onEdit={editRawDraft}
+        onCommit={commitRaw}
         onBuildVisually={buildVisually}
       />
     );
@@ -128,7 +130,7 @@ export function ConditionBuilder({
       )}
       {rows.map((r, i) => (
         <ConditionRowEditor
-          key={i}
+          key={r.id}
           row={r}
           index={i}
           options={options}

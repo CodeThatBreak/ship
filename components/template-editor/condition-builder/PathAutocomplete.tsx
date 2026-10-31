@@ -3,15 +3,8 @@
  * The autocomplete popover — one anchored panel over the field showing the
  * matching paths (the same vocabulary as the prompt `@` menu). Shared by the
  * path fields and the raw expression boxes.
- *
- * It renders through a portal at fixed coordinates taken from the field's
- * viewport rect: the fields live inside scroll containers (the configurator's
- * ScrollArea, the rows card) whose overflow clips in-flow descendants, so an
- * absolutely-positioned panel gets truncated instead of overlaying the card.
- * The panel flips above the field when the viewport edge is too close and
- * clamps horizontally so narrow side panels can't cut it off.
  */
-import { Fragment, useEffect, useMemo, useState } from "react";
+import { Fragment, useMemo } from "react";
 import { createPortal } from "react-dom";
 import { ScrollArea } from "../../ui/scroll-area";
 import { cn } from "../../../lib/utils";
@@ -25,72 +18,93 @@ import {
 } from "./constants";
 
 /** The path-ish token ending at the caret (letters, digits, `_`, `.`, `$`). */
-export function tokenBefore(
+export const tokenBefore = (
   text: string,
   caret: number,
-): { start: number; token: string } {
+): { start: number; token: string } => {
   let start = caret;
   while (start > 0 && /[A-Za-z0-9_.$]/.test(text[start - 1])) start--;
   return { start, token: text.slice(start, caret) };
-}
+};
 
-export function matchOptions(
+export const matchOptions = (
   options: JsonataPathOption[],
   token: string,
-): JsonataPathOption[] {
+): JsonataPathOption[] => {
   const q = token.trim().toLowerCase();
   const hits = options.filter((o) => !q || o.path.toLowerCase().includes(q));
   return hits.slice(0, AUTOCOMPLETE_LIMIT);
-}
+};
+
+export const handlePathPopoverKeyDown = ({
+  e,
+  count,
+  highlight,
+  setHighlight,
+  shown,
+  onPick,
+  onDismiss,
+  menuOpen,
+  setMenuOpen,
+}: {
+  e: React.KeyboardEvent;
+  count: number;
+  highlight: number;
+  setHighlight: (next: number | ((h: number) => number)) => void;
+  shown: JsonataPathOption[];
+  onPick: (path: string) => void;
+  onDismiss: () => void;
+  menuOpen: boolean;
+  setMenuOpen: (open: boolean) => void;
+}): void => {
+  if (e.key === "ArrowDown") {
+    if (!menuOpen && count > 0) {
+      setMenuOpen(true);
+      setHighlight(0);
+      e.preventDefault();
+      return;
+    }
+    if (menuOpen && count > 0) {
+      e.preventDefault();
+      setHighlight((h) => Math.min(count - 1, h < 0 ? 0 : h + 1));
+    }
+    return;
+  }
+  if (e.key === "ArrowUp" && menuOpen && count > 0) {
+    e.preventDefault();
+    setHighlight((h) => Math.max(0, h - 1));
+    return;
+  }
+  if (e.key === "Enter" && menuOpen && highlight >= 0 && count > 0) {
+    e.preventDefault();
+    onPick(shown[highlight].path);
+    return;
+  }
+  if (e.key === "Escape" && menuOpen) {
+    e.preventDefault();
+    onDismiss();
+  }
+};
 
 export function PathPopover({
   options,
   token,
   onPick,
-  onDismiss,
   align = "left",
   anchor,
+  highlight,
+  setHighlight,
 }: {
   options: JsonataPathOption[];
   token: string;
   onPick: (path: string) => void;
-  onDismiss: () => void;
-  /** which edge of the field the panel hugs — "right" keeps the panel inside
-   *  a narrow side panel when the field sits far from the left edge */
   align?: "left" | "right";
-  /** the focused field element — the panel anchors to its viewport rect */
   anchor: HTMLElement | null;
+  highlight: number;
+  setHighlight: (next: number | ((h: number) => number)) => void;
 }) {
   const shown = useMemo(() => matchOptions(options, token), [options, token]);
-  const [highlight, setHighlight] = useState(0);
   const count = shown.length;
-  useEffect(() => {
-    setHighlight(0);
-  }, [token, count]);
-  useEffect(() => {
-    if (!count) return;
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "ArrowDown") {
-        e.preventDefault();
-        e.stopPropagation();
-        setHighlight((h) => Math.min(count - 1, h + 1));
-      } else if (e.key === "ArrowUp") {
-        e.preventDefault();
-        e.stopPropagation();
-        setHighlight((h) => Math.max(0, h - 1));
-      } else if (e.key === "Enter" || e.key === "Tab") {
-        e.preventDefault();
-        e.stopPropagation();
-        onPick(shown[Math.min(highlight, count - 1)].path);
-      } else if (e.key === "Escape") {
-        e.preventDefault();
-        e.stopPropagation();
-        onDismiss();
-      }
-    };
-    window.addEventListener("keydown", onKey, true);
-    return () => window.removeEventListener("keydown", onKey, true);
-  }, [count, highlight, shown, onPick, onDismiss]);
 
   if (!count || !anchor) return null;
   const rect = anchor.getBoundingClientRect();
@@ -103,8 +117,6 @@ export function PathPopover({
       window.innerWidth - PANEL_WIDTH - VIEWPORT_MARGIN,
     ),
   );
-  // below the field, or flipped above it (anchored by its bottom edge) when
-  // the viewport edge is too close for the panel's worst-case height
   const placement = opensBelow
     ? { top: rect.bottom + PANEL_GAP }
     : { bottom: window.innerHeight - rect.top + PANEL_GAP };

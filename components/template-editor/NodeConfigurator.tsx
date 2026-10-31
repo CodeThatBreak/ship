@@ -210,6 +210,7 @@ export function NodeConfiguratorBody({
           <TriggerTab node={node} onChange={emitChange} />
         ) : tab === "inputs" ? (
           <InputsTab
+            key={node.key}
             node={node}
             upstream={upstreamSources}
             taskFields={taskFields}
@@ -238,7 +239,12 @@ export function NodeConfiguratorBody({
             templateId={templateId}
           />
         ) : tab === "output" ? (
-          <StartContractEditor node={node} onChange={emitChange} taskFields={taskFields} />
+          <StartContractEditor
+            key={node.key}
+            node={node}
+            onChange={emitChange}
+            taskFields={taskFields}
+          />
         ) : (
           <ContractView contract={contract} node={node} groups={groups} />
         )}

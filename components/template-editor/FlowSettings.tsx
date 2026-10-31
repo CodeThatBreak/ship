@@ -125,7 +125,11 @@ export function FlowSettingsBody({
       {/* ── When flows start (Phase 6 grouping): built-in levers + schedule ── */}
       <FlowSettingsSchedule
         scheduled={scheduled}
-        intervalMin={Number(trigger.interval_min ?? 60)}
+        intervalMin={
+          typeof trigger.interval_min === "number" && trigger.interval_min > 0
+            ? trigger.interval_min
+            : undefined
+        }
         repos={repos}
         boundRepo={boundRepo}
         readonly={readonly}

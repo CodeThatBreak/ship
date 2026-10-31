@@ -29,7 +29,12 @@ export const COMBINATOR_LABELS: Record<Combinator, string> = {
 
 /** A fresh, still-empty row — the "Add condition" seed. Hoisted so the state
  *  seeds and array spreads share one stable reference (§2.5). */
-export const EMPTY_ROW: ConditionRow = { path: "", op: "eq", value: "" };
+export const EMPTY_ROW: ConditionRow = {
+  path: "",
+  op: "eq",
+  value: "",
+  valueKind: "string",
+};
 
 // ── the autocomplete panel's geometry ────────────────────────────────────────
 

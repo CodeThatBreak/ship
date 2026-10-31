@@ -13,9 +13,6 @@ export function ApiBridge({ onApi }: { onApi: (api: BuilderApi) => void }) {
   const { screenToFlowPosition, fitView } = useReactFlow();
   useEffect(() => {
     onApi({ screenToFlowPosition, fitView });
-    // onApi is deliberately excluded: the page's handler is an inline lambda
-    // over a ref, and re-running on every render churns the registration
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [screenToFlowPosition, fitView]);
+  }, [screenToFlowPosition, fitView, onApi]);
   return null;
 }

@@ -14,6 +14,7 @@ import { SelectOption } from "../ConfigFieldRow";
 import {
   contractFieldsOf,
   contextFieldKeyOf,
+  withContextFields,
 } from "./start-contract";
 
 export function TriggerTab({
@@ -104,11 +105,23 @@ export function TriggerTab({
           </FieldLabel>
           <Select
             value={t.wait_for ?? null}
-            onValueChange={(v) =>
+            onValueChange={(v) => {
+              const wait_for = (v as string) || undefined;
+              const nextContract = withContextFields(contractFields, wait_for);
+              const contractPatch =
+                JSON.stringify(nextContract) === JSON.stringify(contractFields)
+                  ? {}
+                  : {
+                      config: {
+                        ...(node.config ?? {}),
+                        contract: nextContract,
+                      },
+                    };
               onChange({
-                trigger: { ...t, wait_for: (v as string) || undefined },
-              })
-            }
+                trigger: { ...t, wait_for },
+                ...contractPatch,
+              });
+            }}
           >
             <SelectTrigger id="node-trigger-wait-for" className="w-full rounded-lg border-border bg-card">
               <SelectValue placeholder="Starts when node is reached">

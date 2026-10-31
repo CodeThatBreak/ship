@@ -66,7 +66,7 @@ export interface ConfigField {
    * `choices` is the decision branch editor, `multi` renders the options as
    * a checkbox group writing a string array (e.g. the MCP sources knob).
    */
-  type: "boolean" | "number" | "string" | "text" | "select" | "ts_output" | "choices" | "map" | "multi";
+  type: "boolean" | "number" | "string" | "text" | "select" | "json" | "ts_output" | "choices" | "map" | "multi";
   /** help text shown under the field */
   help?: string;
   /** for select fields — a description renders as gray text under the label

@@ -40,7 +40,7 @@ export function PassMapEditor({
       <FieldTitle>{field.label}</FieldTitle>
       {rows.map((r, i) => (
         <PassMapRow
-          key={i}
+          key={r.id}
           index={i}
           row={r}
           varGroups={jsonataGroups}

@@ -1,4 +1,5 @@
 "use client";
+import { useState } from "react";
 import { RefreshCw } from "lucide-react";
 import { Field, FieldDescription, FieldLabel } from "../../ui/field";
 import { Input } from "../../ui/input";
@@ -14,17 +15,10 @@ import {
 } from "../../ui/select";
 import type { RepoOption } from "../FlowSettings";
 
-/** The unbound picker's label (only registered repos list below it). */
 const NO_REPO_BOUND_LABEL = "no repo bound";
-/** The picker's empty state (nothing registered, so there is no valid option). */
 const NO_REPOS_LABEL = "no repos imported yet";
 
-/**
- * The "When flows start" section (Phase 6 grouping): manual starts and webhook
- * deliveries are built-in levers for every flow, so the declared trigger only
- * toggles the optional Schedule (interval + bound repo).
- */
-export function FlowSettingsSchedule({
+export const FlowSettingsSchedule = ({
   scheduled,
   intervalMin,
   repos,
@@ -37,12 +31,9 @@ export function FlowSettingsSchedule({
   onIntervalChange,
   onRepoChange,
 }: {
-  /** the declared trigger carries `type: "schedule"` */
   scheduled: boolean;
-  /** the trigger's `interval_min` when set (the input's value) */
-  intervalMin: number;
+  intervalMin: number | undefined;
   repos: RepoOption[];
-  /** the repo currently bound to the trigger */
   boundRepo: RepoOption | null;
   readonly: boolean;
   reposPending?: boolean;
@@ -51,7 +42,27 @@ export function FlowSettingsSchedule({
   onToggleScheduled: () => void;
   onIntervalChange: (minutes: number | undefined) => void;
   onRepoChange: (repoId: string) => void;
-}) {
+}) => {
+  const [intervalText, setIntervalText] = useState(() =>
+    intervalMin != null && intervalMin > 0 ? String(intervalMin) : "",
+  );
+  const [intervalErr, setIntervalErr] = useState<string | null>(null);
+
+  const commitInterval = (raw: string) => {
+    const trimmed = raw.trim();
+    if (!trimmed) {
+      setIntervalErr("Enter a positive number of minutes");
+      return;
+    }
+    const n = Number(trimmed);
+    if (!Number.isFinite(n) || n <= 0) {
+      setIntervalErr("Enter a positive number of minutes");
+      return;
+    }
+    setIntervalErr(null);
+    onIntervalChange(n);
+  };
+
   return (
     <div className="grid gap-3">
       <div className="text-[11.5px] font-medium text-muted-foreground uppercase tracking-[0.8px]">
@@ -87,15 +98,21 @@ export function FlowSettingsSchedule({
               id="flow-interval"
               type="number"
               min={1}
-              value={intervalMin}
+              value={intervalText}
               disabled={readonly}
               aria-label="Interval (minutes)"
-              onChange={(e) =>
-                onIntervalChange(
-                  Number(e.target.value) > 0 ? Number(e.target.value) : undefined,
-                )
-              }
+              aria-invalid={intervalErr != null}
+              onChange={(e) => {
+                setIntervalText(e.target.value);
+                if (intervalErr) setIntervalErr(null);
+              }}
+              onBlur={() => commitInterval(intervalText)}
             />
+            {intervalErr && (
+              <FieldDescription className="text-destructive">
+                {intervalErr}
+              </FieldDescription>
+            )}
           </Field>
           <Field>
             <FieldLabel htmlFor="flow-bound-repo">Bound repo</FieldLabel>
@@ -128,9 +145,6 @@ export function FlowSettingsSchedule({
                   className="w-full rounded-lg border-border bg-card"
                   aria-label="Bound repo"
                 >
-                  {/* SelectValue's children always win over the selected value —
-                      the label is computed from the binding; a static
-                      placeholder would never show the picked repo */}
                   <SelectValue>
                     {boundRepo
                       ? `${boundRepo.name}${boundRepo.local_path ? " (local)" : ""}`
@@ -138,8 +152,6 @@ export function FlowSettingsSchedule({
                   </SelectValue>
                 </SelectTrigger>
                 <SelectContent>
-                  {/* only valid options — no clearing item; unbinding means
-                      switching repo or turning the schedule off */}
                   {repos.map((r) => (
                     <SelectItem key={r.id} value={r.id}>
                       {r.name}
@@ -158,4 +170,4 @@ export function FlowSettingsSchedule({
       )}
     </div>
   );
-}
+};

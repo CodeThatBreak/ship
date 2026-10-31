@@ -16,8 +16,11 @@ import {
 } from "../../ui/select";
 import { CONDITION_OPS } from "./constants";
 import { PathField } from "./PathField";
-import type { ConditionRow } from "../condition-grammar";
-import type { ConditionOp } from "../condition-grammar";
+import {
+  inferValueKind,
+  type ConditionOp,
+  type ConditionRow,
+} from "../condition-grammar";
 import type { JsonataPathOption } from "../variables";
 
 export function ConditionRowEditor({
@@ -64,7 +67,12 @@ export function ConditionRowEditor({
           value={row.value}
           placeholder="value"
           className="w-[130px] shrink-0 font-mono text-[12px]"
-          onChange={(e) => onPatch(index, { value: e.target.value })}
+          onChange={(e) =>
+            onPatch(index, {
+              value: e.target.value,
+              valueKind: inferValueKind(e.target.value),
+            })
+          }
         />
       )}
       <Button

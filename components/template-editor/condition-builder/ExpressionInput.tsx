@@ -1,9 +1,4 @@
 "use client";
-/**
- * The raw JSONata box (Tier 2 + 3): paths autocomplete from the vocabulary,
- * compile errors surface inline as you type (client-side lintJsonata), and
- * the expression's value renders underneath against the live preview context.
- */
 import { useMemo, useRef, useState } from "react";
 import { Textarea } from "../../ui/textarea";
 import { lintJsonata } from "@/lib/jsonata";
@@ -12,15 +7,21 @@ import {
   type VarGroup,
 } from "../variables";
 import { LINT_DEBOUNCE_MS } from "./constants";
-import { PathPopover, tokenBefore } from "./PathAutocomplete";
+import {
+  PathPopover,
+  handlePathPopoverKeyDown,
+  matchOptions,
+  tokenBefore,
+} from "./PathAutocomplete";
 import { PreviewLine } from "./PreviewLine";
 import { useDebouncedValue } from "./use-debounced-value";
 import { useExpressionPreview } from "./use-expression-preview";
 import type { PreviewScope } from "./types";
 
-export function ExpressionInput({
+export const ExpressionInput = ({
   value,
   onChange,
+  onBlur,
   varGroups,
   templateId,
   scope = "context",
@@ -31,20 +32,17 @@ export function ExpressionInput({
   align = "left",
 }: {
   value: string;
-  /** JSONata-stripped groups (asJsonataGroups) — the autocomplete vocabulary */
+  onChange: (v: string) => void;
+  onBlur?: () => void;
   varGroups?: VarGroup[];
-  /** enables the live preview (no template → no context to evaluate against) */
   templateId?: string;
   scope?: PreviewScope;
   placeholder?: string;
   rows?: number;
   disabled?: boolean;
-  /** focus the box on mount (the Inputs tab's custom-expression field) */
   autoFocus?: boolean;
-  /** the autocomplete panel's anchor edge (see PathPopover) */
   align?: "left" | "right";
-  onChange: (v: string) => void;
-}) {
+}) => {
   const options = useMemo(
     () => jsonataPathOptions(varGroups ?? []),
     [varGroups],
@@ -52,8 +50,8 @@ export function ExpressionInput({
   const ref = useRef<HTMLTextAreaElement>(null);
   const [caret, setCaret] = useState<number | null>(null);
   const [dismissed, setDismissed] = useState(false);
-  // live compile feedback (pure JS — no round trip): derived from the
-  // debounced text, not stored (a computable value isn't state)
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [highlight, setHighlight] = useState(-1);
   const debouncedValue = useDebouncedValue(value, LINT_DEBOUNCE_MS);
   const compileErr = useMemo(() => {
     const e = debouncedValue.trim();
@@ -65,6 +63,11 @@ export function ExpressionInput({
   });
 
   const { start, token } = tokenBefore(value, caret ?? value.length);
+  const shown = matchOptions(options, token);
+  const count = shown.length;
+  const panelOpen =
+    !dismissed && menuOpen && count > 0 && caret != null && token.length > 0;
+
   const pick = (path: string) => {
     if (caret == null) {
       onChange(value + path);
@@ -72,6 +75,8 @@ export function ExpressionInput({
       onChange(value.slice(0, start) + path + value.slice(caret));
     }
     setDismissed(false);
+    setMenuOpen(false);
+    setHighlight(-1);
     requestAnimationFrame(() => ref.current?.focus());
   };
 
@@ -95,28 +100,48 @@ export function ExpressionInput({
           placeholder={placeholder}
           autoFocus={autoFocus}
           className="font-mono text-[11.5px] min-h-[34px]"
-          onFocus={(e) => {
-            setCaret(e.target.selectionStart ?? value.length);
-            setDismissed(false);
+          onFocus={() => setCaret(ref.current?.selectionStart ?? value.length)}
+          onBlur={() => {
+            setCaret(null);
+            setMenuOpen(false);
+            onBlur?.();
           }}
-          onBlur={() => setCaret(null)}
-          onClick={(e) =>
-            setCaret(e.currentTarget.selectionStart ?? value.length)
-          }
+          onClick={() => setCaret(ref.current?.selectionStart ?? value.length)}
           onChange={(e) => {
             onChange(e.target.value);
-            setCaret(e.target.selectionStart ?? e.target.value.length);
+            const nextCaret = e.target.selectionStart ?? e.target.value.length;
+            setCaret(nextCaret);
             setDismissed(false);
+            const { token: nextToken } = tokenBefore(e.target.value, nextCaret);
+            setMenuOpen(nextToken.length > 0);
+            setHighlight(-1);
           }}
+          onKeyDown={(e) =>
+            handlePathPopoverKeyDown({
+              e,
+              count,
+              highlight,
+              setHighlight,
+              shown,
+              onPick: pick,
+              onDismiss: () => {
+                setDismissed(true);
+                setMenuOpen(false);
+              },
+              menuOpen: panelOpen || menuOpen,
+              setMenuOpen,
+            })
+          }
         />
-        {caret != null && !dismissed && options.length > 0 && (
+        {panelOpen && (
           <PathPopover
             options={options}
             token={token}
             align={align}
             anchor={ref.current}
+            highlight={highlight}
+            setHighlight={setHighlight}
             onPick={pick}
-            onDismiss={() => setDismissed(true)}
           />
         )}
       </div>
@@ -126,4 +151,4 @@ export function ExpressionInput({
       {!compileErr && <PreviewLine state={preview} retry={retryPreview} />}
     </div>
   );
-}
+};

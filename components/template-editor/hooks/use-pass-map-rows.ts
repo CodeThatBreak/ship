@@ -1,14 +1,8 @@
 "use client";
-/**
- * The decision pass-down map's row state (Phase 5), extracted from
- * ConfigFieldRow.tsx: the field → JSONata rows edited in place and compiled
- * to a `Record<string, string>` on every change — a row with a name but no
- * expression (or vice versa) writes nothing.
- */
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
-/** One in-place pass-map row: the editable field name + expression draft. */
 export interface PassMapDraft {
+  id: string;
   field: string;
   expr: string;
 }
@@ -19,29 +13,37 @@ interface UsePassMapRowsOptions {
   onChange: (v: unknown) => void;
 }
 
-export function usePassMapRows({
+const newRowId = (): string => crypto.randomUUID();
+
+const seedRows = (effective: Record<string, string>): PassMapDraft[] =>
+  Object.entries(effective).map(([field, expr]) => ({
+    id: newRowId(),
+    field,
+    expr: typeof expr === "string" ? expr : "",
+  }));
+
+export const usePassMapRows = ({
   value,
   defaultValue,
   onChange,
-}: UsePassMapRowsOptions) {
-  const effective = (
-    value && typeof value === "object" && !Array.isArray(value)
-      ? value
-      : defaultValue &&
-          typeof defaultValue === "object" &&
-          !Array.isArray(defaultValue)
-        ? defaultValue
-        : {}
-  ) as Record<string, string>;
-  const [rows, setRows] = useState<PassMapDraft[]>(() =>
-    Object.entries(effective).map(([field, expr]) => ({
-      field,
-      expr: typeof expr === "string" ? expr : "",
-    })),
+}: UsePassMapRowsOptions) => {
+  const effective = useMemo(
+    () =>
+      (value && typeof value === "object" && !Array.isArray(value)
+        ? value
+        : defaultValue &&
+            typeof defaultValue === "object" &&
+            !Array.isArray(defaultValue)
+          ? defaultValue
+          : {}) as Record<string, string>,
+    [value, defaultValue],
   );
+  const [rows, setRows] = useState<PassMapDraft[]>(() => seedRows(effective));
 
-  // the write-through: only fully-filled rows map (empty drafts stay in the
-  // editor)
+  useEffect(() => {
+    setRows(seedRows(effective));
+  }, [effective]);
+
   const write = useCallback(
     (next: PassMapDraft[]) => {
       setRows(next);
@@ -55,8 +57,6 @@ export function usePassMapRows({
     [onChange],
   );
 
-  // monolithic indexed callbacks for the presentational rows (§2.5 — no
-  // per-row closures inside the editor's map)
   const editRow = useCallback(
     (index: number, patch: Partial<PassMapDraft>) => {
       write(rows.map((x, j) => (j === index ? { ...x, ...patch } : x)));
@@ -67,10 +67,10 @@ export function usePassMapRows({
     (index: number) => write(rows.filter((_, j) => j !== index)),
     [rows, write],
   );
-  const addRow = useCallback(() => write([...rows, { field: "", expr: "" }]), [
-    rows,
-    write,
-  ]);
+  const addRow = useCallback(
+    () => write([...rows, { id: newRowId(), field: "", expr: "" }]),
+    [rows, write],
+  );
 
   return { rows, editRow, addRow, removeRow };
-}
+};

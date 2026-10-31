@@ -112,6 +112,9 @@ export function TemplateEditor({ templateId }: TemplateEditorProps) {
   const pendingNavigation = useRef<BlockedNavigation | null>(null);
   /** the canvas's screen→flow helper (palette placements go to viewport center) */
   const builderApi = useRef<BuilderApi | null>(null);
+  const registerBuilderApi = useCallback((api: BuilderApi) => {
+    builderApi.current = api;
+  }, []);
 
   const requestLeave = useCallback((target: BlockedNavigation) => {
     pendingNavigation.current = target;
@@ -269,9 +272,7 @@ export function TemplateEditor({ templateId }: TemplateEditorProps) {
         onPaneClick={() => actions.closeAll()}
         onAddCatalogNode={actions.addCatalogNode}
         onAddKindNode={actions.addKindNode}
-        onApi={(api) => {
-          builderApi.current = api;
-        }}
+        onApi={registerBuilderApi}
       />
 
       <EditorNodeDrawer

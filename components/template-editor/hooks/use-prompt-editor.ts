@@ -1,10 +1,4 @@
 "use client";
-/**
- * The prompt editor's Tiptap instance (§8 data layer): the plain-text doc
- * (paragraph per line) plus two extensions — the caller's variable-suggestion
- * extension and the inline `{{...}}` ref highlighter. The linter's invalid
- * refs ride a ref: a validation response lands without recreating the editor.
- */
 import { useEffect, useRef } from "react";
 import { useEditor, type Editor } from "@tiptap/react";
 import { Extension } from "@tiptap/core";
@@ -15,18 +9,12 @@ import { Decoration, DecorationSet } from "@tiptap/pm/view";
 import { cn } from "../../../lib/utils";
 import { refColorClass } from "../variables";
 
-/** The prompt text → an HTML doc (paragraph per line) for the editor seed. */
-function textToHtml(text: string): string {
-  const escape = (l: string) => l.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+const textToHtml = (text: string): string => {
+  const escape = (l: string) =>
+    l.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
   return (text ?? "").split("\n").map((l) => `<p>${escape(l)}</p>`).join("");
-}
+};
 
-/**
- * Inline decorations for the `{{...}}` refs already in the text: the root
- * color coding, plus a wavy underline (and a tooltip) on refs the live
- * linter reports. The invalid map rides a ref — a validation response lands
- * without recreating the editor.
- */
 function refHighlightFactory(
   invalid: { current: Record<string, string> | undefined },
 ): CoreExtension {
@@ -63,7 +51,7 @@ function refHighlightFactory(
   });
 }
 
-export function usePromptEditor({
+export const usePromptEditor = ({
   value,
   onChange,
   className,
@@ -73,19 +61,16 @@ export function usePromptEditor({
   value: string;
   onChange: (text: string) => void;
   className?: string;
-  /** ref (inner text) → the linter's problem — underlined inline */
   invalidRefs?: Record<string, string>;
-  /** the "@" variable suggestion (useVariablePopup's extension) */
   suggestionExtension: CoreExtension;
-}): Editor | null {
-  // so do the linter's invalid refs — decorations recompute per transaction
+}): Editor | null => {
   const invalidRef = useRef(invalidRefs);
   invalidRef.current = invalidRefs;
+  const lastEmitted = useRef(value);
 
   const editor = useEditor({
     extensions: [
       StarterKit.configure({
-        // plain-text doc — the prompt is a string with {{...}} refs
         bold: false,
         italic: false,
         strike: false,
@@ -114,12 +99,21 @@ export function usePromptEditor({
         ),
       },
     },
-    onUpdate: ({ editor }) => onChange(editor.getText({ blockSeparator: "\n" })),
+    onUpdate: ({ editor: ed }) => {
+      const text = ed.getText({ blockSeparator: "\n" });
+      lastEmitted.current = text;
+      onChange(text);
+    },
   });
 
-  // a validation response lands without a transaction — nudge the view so the
-  // decorations (colors / invalid underlines) recompute (no doc change → the
-  // onChange persist loop can't trigger)
+  useEffect(() => {
+    if (!editor || editor.isDestroyed) return;
+    if (value !== lastEmitted.current) {
+      editor.commands.setContent(textToHtml(value));
+      lastEmitted.current = value;
+    }
+  }, [value, editor]);
+
   useEffect(() => {
     if (editor && !editor.isDestroyed) {
       editor.view.dispatch(editor.view.state.tr);
@@ -127,4 +121,4 @@ export function usePromptEditor({
   }, [invalidRefs, editor]);
 
   return editor;
-}
+};

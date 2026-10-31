@@ -44,7 +44,7 @@ export function ChoicesEditor({
       <FieldTitle>Choices (branch labels)</FieldTitle>
       {rows.map((c, i) => (
         <ChoiceRow
-          key={i}
+          key={c.id}
           index={i}
           choice={c}
           showCondition={isExpression}

@@ -44,7 +44,7 @@ export class HttpTemplateNode extends NodeDefinition<Record<string, unknown>, Re
       key: "method", label: "Method", type: "select" as const,
       options: ["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD"].map((m) => ({ value: m, label: m })),
     },
-    { key: "headers", label: "Headers", type: "text" as const, help: "JSON object of header name → value" },
+    { key: "headers", label: "Headers", type: "json" as const, help: "JSON object of header name → value" },
     { key: "body", label: "Body", type: "text" as const, help: "Sent as-is ({{...}} interpolated) — set the Content-Type header for JSON" },
     { key: "timeout_ms", label: "Timeout (ms)", type: "number" as const },
     { key: "response_map", label: "Response map", type: "text" as const, help: "Optional JSONata over {status, ok, body, headers} — must yield an object stored as the node output" },

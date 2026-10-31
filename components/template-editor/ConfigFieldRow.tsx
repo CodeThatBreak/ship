@@ -23,11 +23,14 @@ import { Field } from "../ui/field";
 import { ExpressionInput } from "./condition-builder";
 import { PromptEditor } from "./PromptEditor";
 import { ChoicesEditor } from "./components/ChoicesEditor";
+import { ConfigJsonField } from "./components/ConfigJsonField";
 import { ConfigPlainField } from "./components/ConfigPlainField";
 import { FanoutChildPicker } from "./components/FanoutChildPicker";
 import { FieldHeading } from "./components/FieldHeading";
 import { MultiCheckboxField } from "./components/MultiCheckboxField";
 import { PassMapEditor } from "./components/PassMapEditor";
+import { SecretsChipGroup } from "./components/SecretsChipGroup";
+import { VariablesPicker } from "./components/VariablesPicker";
 import { TsOutputEditor } from "./components/TsOutputEditor";
 import {
   appendConfigRef,
@@ -197,6 +200,28 @@ export function ConfigFieldRow({
   const insertRef = (ref: string) => {
     onChange(appendConfigRef(typeof value === "string" ? value : "", ref));
   };
+  if (field.type === "json") {
+    return (
+      <Field>
+        <div className="flex items-center justify-between gap-2">
+          <FieldHeading field={field} htmlFor={`config-${field.key}`} />
+          {varGroups?.length ? (
+            <VariablesPicker groups={varGroups} onInsert={insertRef} />
+          ) : null}
+        </div>
+        <ConfigJsonField
+          key={field.key}
+          controlId={`config-${field.key}`}
+          effective={effective}
+          defaultValue={defaultValue}
+          onChange={onChange}
+        />
+        {secrets != null && (
+          <SecretsChipGroup names={secrets} onInsert={insertRef} />
+        )}
+      </Field>
+    );
+  }
   return (
     <ConfigPlainField
       field={field}

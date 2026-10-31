@@ -7307,10 +7307,10 @@ One row per finding, at `abaa007`.
 | CR-028 | High | Bug | Fixed (Task 35) | [Task 35](review-tasks/35-cockpit-panel-state.md) |
 | CR-029 | High | Bug | Fixed (Task 37) | [Task 37](review-tasks/37-editor-save-integrity.md) |
 | CR-030 | High | Bug | Fixed (Task 37) | [Task 37](review-tasks/37-editor-save-integrity.md) |
-| CR-031 | High | Bug | Open | [Task 39](review-tasks/39-editor-fields-and-effects.md) |
+| CR-031 | High | Bug | Fixed | [Task 39](review-tasks/39-editor-fields-and-effects.md) |
 | CR-032 | High | Gap | Fixed | [Task 23](review-tasks/23-graph-semantics-and-validation.md) |
-| CR-033 | High | Bug | Open | [Task 39](review-tasks/39-editor-fields-and-effects.md) |
-| CR-034 | High | Accessibility | Open | [Task 39](review-tasks/39-editor-fields-and-effects.md) |
+| CR-033 | High | Bug | Fixed | [Task 39](review-tasks/39-editor-fields-and-effects.md) |
+| CR-034 | High | Accessibility | Fixed | [Task 39](review-tasks/39-editor-fields-and-effects.md) |
 | CR-035 | High | Bug | Open | [Task 42](review-tasks/42-settings-forms.md) |
 | CR-036 | High | Gap | Open | [Task 14](review-tasks/14-frontend-throwing-fetchers.md) |
 | CR-037 | High | Gap | Open | [Task 43](review-tasks/43-tasks-feature.md) |
@@ -7413,8 +7413,8 @@ One row per finding, at `abaa007`.
 | CR-134 | Medium | Bug | Open | [Task 38](review-tasks/38-editor-draft-machine.md) |
 | CR-135 | Medium | Bug | Fixed | [Task 13](review-tasks/13-frontend-query-ownership.md) |
 | CR-136 | Medium | Bug | Fixed (Task 37) | [Task 37](review-tasks/37-editor-save-integrity.md) |
-| CR-137 | Medium | Bug | Open | [Task 39](review-tasks/39-editor-fields-and-effects.md) |
-| CR-138 | Medium | Bug | Open | [Task 39](review-tasks/39-editor-fields-and-effects.md) |
+| CR-137 | Medium | Bug | Fixed | [Task 39](review-tasks/39-editor-fields-and-effects.md) |
+| CR-138 | Medium | Bug | Fixed | [Task 39](review-tasks/39-editor-fields-and-effects.md) |
 | CR-139 | Medium | Bug | Open | [Task 38](review-tasks/38-editor-draft-machine.md) |
 | CR-140 | Medium | Bug | Fixed (Task 37) | [Task 37](review-tasks/37-editor-save-integrity.md) |
 | CR-141 | Medium | Gap | Open | [Task 38](review-tasks/38-editor-draft-machine.md) |
@@ -7422,7 +7422,7 @@ One row per finding, at `abaa007`.
 | CR-143 | Medium | Gap | Open | [Task 14](review-tasks/14-frontend-throwing-fetchers.md) |
 | CR-144 | Medium | Bug | Open | [Task 40](review-tasks/40-editor-performance.md) |
 | CR-145 | Medium | Performance | Open | [Task 40](review-tasks/40-editor-performance.md) |
-| CR-146 | Medium | Code quality | Open | [Task 39](review-tasks/39-editor-fields-and-effects.md) |
+| CR-146 | Medium | Code quality | Fixed | [Task 39](review-tasks/39-editor-fields-and-effects.md) |
 | CR-147 | Medium | Bug | Open | [Task 42](review-tasks/42-settings-forms.md) |
 | CR-148 | Medium | Bug | Open | [Task 43](review-tasks/43-tasks-feature.md) |
 | CR-149 | Medium | Gap | Open | [Task 42](review-tasks/42-settings-forms.md) |
@@ -7439,7 +7439,7 @@ One row per finding, at `abaa007`.
 | CR-160 | Medium | Infra | Partly fixed | [Task 05](review-tasks/05-test-coverage-baseline.md) |
 | CR-161 | Medium | Infra | Open | [Task 04](review-tasks/04-client-server-boundaries.md) |
 | CR-162 | Medium | Infra | Open | [Task 03](review-tasks/03-lint-rule-hardening.md) |
-| CR-163 | Medium | Infra | Open | [Task 39](review-tasks/39-editor-fields-and-effects.md) |
+| CR-163 | Medium | Infra | Partial | [Task 39](review-tasks/39-editor-fields-and-effects.md) — suppressions removed; `eslint-plugin-eslint-comments` disable-ban deferred (new dep) |
 | CR-164 | Medium | Bug | Open | [Task 05](review-tasks/05-test-coverage-baseline.md) |
 | CR-165 | Medium | Infra | Open | [Task 04](review-tasks/04-client-server-boundaries.md) |
 | CR-166 | Medium | Code quality | Open | [Task 04](review-tasks/04-client-server-boundaries.md) |
@@ -7517,8 +7517,8 @@ One row per finding, at `abaa007`.
 | CR-238 | Low | Code quality | Open | [Task 55](review-tasks/55-frontend-constants-and-types.md) |
 | CR-239 | Low | Code quality | Open | [Task 54](review-tasks/54-feature-layout-and-naming.md) |
 | CR-240 | Low | Accessibility | Open | [Task 38](review-tasks/38-editor-draft-machine.md) |
-| CR-241 | Low | Bug | Open | [Task 39](review-tasks/39-editor-fields-and-effects.md) |
-| CR-242 | Low | Bug | Open | [Task 39](review-tasks/39-editor-fields-and-effects.md) |
+| CR-241 | Low | Bug | Fixed | [Task 39](review-tasks/39-editor-fields-and-effects.md) |
+| CR-242 | Low | Bug | Fixed | [Task 39](review-tasks/39-editor-fields-and-effects.md) |
 | CR-243 | Low | Code quality | Open | [Task 52](review-tasks/52-shared-ui-components.md) |
 | CR-244 | Low | Bug | Open | [Task 53](review-tasks/53-app-shell-and-settings-dedup.md) |
 | CR-245 | Low | Code quality | Open | [Task 53](review-tasks/53-app-shell-and-settings-dedup.md) |

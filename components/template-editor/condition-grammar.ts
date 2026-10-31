@@ -13,40 +13,76 @@
 
 export type ConditionOp = "eq" | "ne" | "gt" | "lt" | "contains" | "empty" | "notEmpty";
 
+export type ConditionValueKind = "string" | "number" | "boolean" | "null";
+
 export interface ConditionRow {
   path: string;
   op: ConditionOp;
-  /** the value as typed (unquoted — quoting happens at compile time) */
+  /** the value as typed in the builder (quoting is applied at compile time) */
   value: string;
+  valueKind: ConditionValueKind;
+}
+
+/** A JSONata literal on the rhs → display value + kind; non-literals → null. */
+export function parseJsonataLiteral(
+  lit: string,
+): { value: string; valueKind: ConditionValueKind } | null {
+  const t = (lit ?? "").trim();
+  if (t === '""' || t === "''") return { value: "", valueKind: "string" };
+  if (t === "null") return { value: "null", valueKind: "null" };
+  if (t === "true" || t === "false") return { value: t, valueKind: "boolean" };
+  if (/^-?\d+(\.\d+)?$/.test(t)) return { value: t, valueKind: "number" };
+  const dq = /^"(.*)"$/.exec(t);
+  if (dq) return { value: dq[1], valueKind: "string" };
+  const sq = /^'(.*)'$/.exec(t);
+  if (sq) return { value: sq[1], valueKind: "string" };
+  return null;
+}
+
+/** Infer how a freshly typed value should compile on the next emit. */
+export function inferValueKind(raw: string): ConditionValueKind {
+  const t = raw.trim();
+  if (t === "null") return "null";
+  if (t === "true" || t === "false") return "boolean";
+  if (/^-?\d+(\.\d+)?$/.test(t)) return "number";
+  return "string";
 }
 
 /** The typed text → a JSONata literal (numbers / booleans bare, else a string). */
-export function literal(raw: string): string {
+export function literal(raw: string, kind: ConditionValueKind): string {
   const t = raw.trim();
+  if (kind === "null") return "null";
+  if (kind === "boolean") {
+    return t === "true" || t === "false" ? t : JSON.stringify(t);
+  }
+  if (kind === "number") return t;
   if (t === "") return '""';
-  if (/^-?\d+(\.\d+)?$/.test(t) || t === "true" || t === "false" || t === "null") return t;
-  const quoted = /^["'](.*)["']$/.exec(t);
-  return JSON.stringify(quoted ? quoted[1] : t);
+  return JSON.stringify(t);
 }
 
-/** The value input's display text — a quoted literal shows unquoted. */
+/** @deprecated use parseJsonataLiteral — kept for any external imports */
 export function unliteral(lit: string): string {
-  const t = (lit ?? "").trim();
-  const quoted = /^["'](.*)["']$/.exec(t);
-  return quoted ? quoted[1] : t;
+  return parseJsonataLiteral(lit)?.value ?? lit.trim();
 }
 
 export function rowExpr(r: ConditionRow): string | null {
   const path = r.path.trim();
   if (!path) return null;
   switch (r.op) {
-    case "eq": return `${path} = ${literal(r.value)}`;
-    case "ne": return `${path} != ${literal(r.value)}`;
-    case "gt": return `${path} > ${literal(r.value)}`;
-    case "lt": return `${path} < ${literal(r.value)}`;
-    case "contains": return `$contains(${path}, ${literal(r.value)})`;
-    case "empty": return `$not($exists(${path})) or ${path} = null or ${path} = ""`;
-    case "notEmpty": return `$exists(${path}) and ${path} != null and ${path} != ""`;
+    case "eq":
+      return `${path} = ${literal(r.value, r.valueKind)}`;
+    case "ne":
+      return `${path} != ${literal(r.value, r.valueKind)}`;
+    case "gt":
+      return `${path} > ${literal(r.value, r.valueKind)}`;
+    case "lt":
+      return `${path} < ${literal(r.value, r.valueKind)}`;
+    case "contains":
+      return `$contains(${path}, ${literal(r.value, r.valueKind)})`;
+    case "empty":
+      return `$not($exists(${path})) or ${path} = null or ${path} = ""`;
+    case "notEmpty":
+      return `$exists(${path}) and ${path} != null and ${path} != ""`;
   }
 }
 
@@ -80,7 +116,7 @@ export function splitTop(expr: string, keyword: "and" | "or"): string[] | null {
     const ch = expr[i];
     if (inStr) {
       cur += ch;
-      if (ch === inStr) inStr = null;
+      if (ch === inStr && expr[i - 1] !== "\\") inStr = null;
       continue;
     }
     if (ch === '"' || ch === "'") {
@@ -129,9 +165,19 @@ export function decomposeCondition(
   // they round-trip as the single row the user authored (backreference \1
   // pins all three operands to the same path)
   const empty = /^\$not\(\$exists\((.+)\)\) or \1 = null or \1 = ""$/.exec(s);
-  if (empty) return { rows: [{ path: empty[1].trim(), op: "empty", value: "" }], combinator: "and" };
+  if (empty)
+    return {
+      rows: [{ path: empty[1].trim(), op: "empty", value: "", valueKind: "string" }],
+      combinator: "and",
+    };
   const notEmpty = /^\$exists\((.+)\) and \1 != null and \1 != ""$/.exec(s);
-  if (notEmpty) return { rows: [{ path: notEmpty[1].trim(), op: "notEmpty", value: "" }], combinator: "and" };
+  if (notEmpty)
+    return {
+      rows: [
+        { path: notEmpty[1].trim(), op: "notEmpty", value: "", valueKind: "string" },
+      ],
+      combinator: "and",
+    };
   const andParts = splitTop(s, "and") ?? [];
   const orParts = splitTop(s, "or") ?? [];
   // both keywords present at top level (mixed precedence) → raw mode
@@ -147,19 +193,36 @@ export function decomposeCondition(
     if (body.startsWith("(") && body.endsWith(")")) body = body.slice(1, -1).trim();
     // the empty/not-empty chains matched per part too (they appear inside
     // multi-row compositions, wrapped in the builder's parens)
-    const empty = /^\$not\(\$exists\((.+)\)\) or \1 = null or \1 = ""$/.exec(body);
-    if (empty) {
-      rows.push({ path: empty[1].trim(), op: "empty", value: "" });
+    const emptyPart = /^\$not\(\$exists\((.+)\)\) or \1 = null or \1 = ""$/.exec(body);
+    if (emptyPart) {
+      rows.push({
+        path: emptyPart[1].trim(),
+        op: "empty",
+        value: "",
+        valueKind: "string",
+      });
       continue;
     }
-    const notEmpty = /^\$exists\((.+)\) and \1 != null and \1 != ""$/.exec(body);
-    if (notEmpty) {
-      rows.push({ path: notEmpty[1].trim(), op: "notEmpty", value: "" });
+    const notEmptyPart = /^\$exists\((.+)\) and \1 != null and \1 != ""$/.exec(body);
+    if (notEmptyPart) {
+      rows.push({
+        path: notEmptyPart[1].trim(),
+        op: "notEmpty",
+        value: "",
+        valueKind: "string",
+      });
       continue;
     }
     const contains = /^\$contains\((.+), ?(.+)\)$/.exec(body);
     if (contains && isPath(contains[1].trim())) {
-      rows.push({ path: contains[1].trim(), op: "contains", value: unliteral(contains[2]) });
+      const parsed = parseJsonataLiteral(contains[2]);
+      if (!parsed) return null;
+      rows.push({
+        path: contains[1].trim(),
+        op: "contains",
+        value: parsed.value,
+        valueKind: parsed.valueKind,
+      });
       continue;
     }
     const cmp = /^(.+?) (>=|<=|!=|=|>|<) (.+)$/.exec(body);
@@ -167,12 +230,22 @@ export function decomposeCondition(
       // >= / <= exist in JSONata but not in the builder's ops — raw mode keeps them honest;
       // anything but a bare path on the left (function calls, arithmetic) → raw mode too
       if (cmp[2] === ">=" || cmp[2] === "<=" || !isPath(cmp[1].trim())) return null;
+      const parsed = parseJsonataLiteral(cmp[3]);
+      if (!parsed) return null;
       const op: ConditionOp =
-        cmp[2] === "=" ? "eq"
-        : cmp[2] === "!=" ? "ne"
-        : cmp[2] === ">" ? "gt"
-        : "lt";
-      rows.push({ path: cmp[1].trim(), op, value: unliteral(cmp[3]) });
+        cmp[2] === "="
+          ? "eq"
+          : cmp[2] === "!="
+            ? "ne"
+            : cmp[2] === ">"
+              ? "gt"
+              : "lt";
+      rows.push({
+        path: cmp[1].trim(),
+        op,
+        value: parsed.value,
+        valueKind: parsed.valueKind,
+      });
       continue;
     }
     return null; // not builder-shaped (functions, paths, arithmetic) — raw mode

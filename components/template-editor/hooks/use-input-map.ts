@@ -5,7 +5,7 @@
  * renders. All writes stay local until the row's Add button commits them
  * (Cancel is a plain close, Remove drops an override).
  */
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import type { EditorNode } from "../types";
 import { mergeUpstreamFields, resolveMapExpr, type UpstreamVarSource } from "../variables";
 
@@ -83,12 +83,6 @@ export function useInputMap({
 
   /** the row being (re)mapped — null when the list is plain */
   const [editing, setEditing] = useState<InputMapEdit | null>(null);
-
-  // node switches reset the editing row (a stale edit would write into the
-  // next node's input_map)
-  useEffect(() => {
-    setEditing(null);
-  }, [node?.key]);
 
   /** Add: the single commit point — the settled name + expression land in
    *  input_map together (nothing is written while typing, so outside clicks

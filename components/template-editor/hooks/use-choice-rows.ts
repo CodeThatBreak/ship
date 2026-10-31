@@ -1,21 +1,13 @@
 "use client";
-/**
- * The decision branch-choices editor's row state (Phase 5), extracted from
- * ConfigFieldRow.tsx: the in-place label / description / condition rows and
- * the write-through to the config. At least one labeled choice is required by
- * the decision schema; an all-empty edit keeps the last good set (the write
- * skips when no row has a label) and the editor warns instead.
- */
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
-/** One in-place choices row: the editable draft strings. */
 export interface ChoiceDraft {
+  id: string;
   label: string;
   description: string;
   condition: string;
 }
 
-/** The persisted choice shape: label required, the rest undefined when empty. */
 interface ChoiceValue {
   label: string;
   description?: string;
@@ -28,28 +20,36 @@ interface UseChoiceRowsOptions {
   onChange: (v: unknown) => void;
 }
 
-export function useChoiceRows({
+const newRowId = (): string => crypto.randomUUID();
+
+const seedRows = (effective: ChoiceValue[]): ChoiceDraft[] =>
+  effective.map((c) => ({
+    id: newRowId(),
+    label: c.label,
+    description: c.description ?? "",
+    condition: c.condition ?? "",
+  }));
+
+export const useChoiceRows = ({
   value,
   defaultValue,
   onChange,
-}: UseChoiceRowsOptions) {
-  const effective = (
-    Array.isArray(value)
-      ? value
-      : Array.isArray(defaultValue)
-        ? defaultValue
-        : []
-  ) as ChoiceValue[];
-  const [rows, setRows] = useState<ChoiceDraft[]>(() =>
-    effective.map((c) => ({
-      label: c.label,
-      description: c.description ?? "",
-      condition: c.condition ?? "",
-    })),
+}: UseChoiceRowsOptions) => {
+  const effective = useMemo(
+    () =>
+      (Array.isArray(value)
+        ? value
+        : Array.isArray(defaultValue)
+          ? defaultValue
+          : []) as ChoiceValue[],
+    [value, defaultValue],
   );
+  const [rows, setRows] = useState<ChoiceDraft[]>(() => seedRows(effective));
 
-  // the write-through: only labeled choices persist (empty drafts stay in
-  // the editor for the next attempt)
+  useEffect(() => {
+    setRows(seedRows(effective));
+  }, [effective]);
+
   const write = useCallback(
     (next: ChoiceDraft[]) => {
       setRows(next);
@@ -65,8 +65,6 @@ export function useChoiceRows({
     [onChange],
   );
 
-  // monolithic indexed callbacks for the presentational rows (§2.5 — no
-  // per-row closures inside the editor's map)
   const editChoice = useCallback(
     (index: number, patch: Partial<ChoiceDraft>) => {
       write(rows.map((x, j) => (j === index ? { ...x, ...patch } : x)));
@@ -74,7 +72,11 @@ export function useChoiceRows({
     [rows, write],
   );
   const addChoice = useCallback(
-    () => write([...rows, { label: "", description: "", condition: "" }]),
+    () =>
+      write([
+        ...rows,
+        { id: newRowId(), label: "", description: "", condition: "" },
+      ]),
     [rows, write],
   );
   const removeChoice = useCallback(
@@ -83,4 +85,4 @@ export function useChoiceRows({
   );
 
   return { rows, editChoice, addChoice, removeChoice };
-}
+};
