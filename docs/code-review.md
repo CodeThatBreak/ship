@@ -279,7 +279,7 @@ Each item below can be fixed independently. Severity headings group the items; w
 
 ### CR-006 [High] Timer and comment-debounce waits are memory-only, so a restart strands `waiting` nodes forever
 
-- **Status at `abaa007`:** **Open**, fix in [Task 25](review-tasks/25-wait-timers-and-poller.md)
+- **Status at `abaa007`:** **Fixed** ([Task 25](review-tasks/25-wait-timers-and-poller.md) — startup re-arm; durable `nodes.wait_until` deferred)
 - **Current location:** lib/engine/flow-engine.ts:1290-1295 (armNodeWait), 1325-1333 (bounceCommentWaits), 1895-1925 (waitTimers / processWaitTimers); lib/engine/runtime/flow-poller.ts:26-41 (start: no re-arm pass)
 - **Re-verification note:** Timer and comment-debounce deadlines still live only in the in-memory `waitTimers` Map, and nothing re-arms `waiting` nodes after a restart. The comment at 1895-1900 claims a restart re-arms "on the next join evaluation", but no code does that. Persist `wait_until` on the node row (needs schema approval and a row-mapper update), or at minimum add a startup pass in `FlowPoller.start()` that re-arms every `waiting` timer/comments node from `updated_at` plus its configured minutes.
 
@@ -1407,7 +1407,7 @@ Original findings, verbatim:
 
 ### CR-045 [Medium] GET handlers and server loaders start the poller and run the reconciler as side effects
 
-- **Status at `abaa007`:** **Open**, fix in [Task 25](review-tasks/25-wait-timers-and-poller.md)
+- **Status at `abaa007`:** **Fixed** ([Task 25](review-tasks/25-wait-timers-and-poller.md))
 - **Current location:** app/api/flows/route.ts:8,13, app/api/flows/[id]/route.ts:9,14, app/api/flows/[id]/events/route.ts:11, loaders/flows.ts:25,28,42, app/api/hooks/[id]/route.ts:63, app/api/webhooks/gitlab/route.ts:33
 - **Re-verification note:** GET handlers and loaders still call `flowPoller.start()` and fire `reconciler.reconcileFlow(id)` (for any id, every 3 s from the events poll) with errors swallowed by `.catch(() => {})`; there is still no `instrumentation.ts`. Start the poller once from `instrumentation.ts` `register()`, move reconcile onto the poller tick or an explicit POST, and log reconcile failures.
 
@@ -1801,7 +1801,7 @@ Original findings, verbatim:
 
 ### CR-060 [Medium] Poller ticks can overlap, and non-MR steps of the tick run outside any try/catch
 
-- **Status at `abaa007`:** **Open**, fix in [Task 25](review-tasks/25-wait-timers-and-poller.md)
+- **Status at `abaa007`:** **Fixed** ([Task 25](review-tasks/25-wait-timers-and-poller.md))
 - **Current location:** lib/engine/runtime/flow-poller.ts:40,43-72
 - **Re-verification note:** `setInterval(() => void this.tick(), …)` still allows overlapping ticks, and `processWaitTimers()`/`processTemplateSchedules()` still run outside any try/catch, so a throw aborts the tick as an unhandled rejection. Add a `ticking` re-entrancy guard (or self-rescheduling `setTimeout`) and wrap each tick phase in its own logged try/catch.
 
@@ -5150,7 +5150,7 @@ Original findings, verbatim:
 
 ### CR-193 [Low] Schedule triggers drift and are interval-only
 
-- **Status at `abaa007`:** **Open**, fix in [Task 25](review-tasks/25-wait-timers-and-poller.md)
+- **Status at `abaa007`:** **Fixed** ([Task 25](review-tasks/25-wait-timers-and-poller.md) — interval drift; cron/timezone still interval-only)
 - **Current location:** lib/engine/runtime/flow-poller.ts:81-103 (92-93); lib/engine/templates/template-store.ts:895-909
 - **Re-verification note:** The next fire is still computed as `now + interval`, so each tick's lateness accumulates. Schedules remain interval-only, with no cron or timezone. Advance from `due` and skip missed slots (`due + ceil((now-due)/iv)*iv`), and add cron plus timezone to the trigger schema if wall-clock schedules are needed.
 
@@ -5170,7 +5170,7 @@ Original findings, verbatim:
 
 ### CR-194 [Low] Unbounded in-memory maps in long-lived singletons
 
-- **Status at `abaa007`:** **Open**, fix in [Task 25](review-tasks/25-wait-timers-and-poller.md)
+- **Status at `abaa007`:** **Fixed** ([Task 25](review-tasks/25-wait-timers-and-poller.md))
 - **Current location:** lib/cache.ts:9-12,17-22; app/api/tasks/live/route.ts:21; lib/engine/runtime/flow-reconciler.ts:40,44; lib/engine/runtime/flow-poller.ts:23
 - **Re-verification note:** `TtlCache` still never evicts, and its keys include free search text, so it grows without bound. `Reconciler.lastReconcile`/`flaggedOrphans` and `FlowPoller.lastCommentCount` are never pruned. The live-task route's stale-on-error fallback reads expired entries through `entry()`, so deleting on expired read would break it. Use a size cap with oldest-first eviction or a periodic sweep of entries much older than the TTL instead, and prune the engine maps on flow delete or when a flow goes inactive.
 
@@ -7290,7 +7290,7 @@ One row per finding, at `abaa007`.
 | CR-003 | High | Gap | Partly fixed | [Task 10](review-tasks/10-api-input-validation-flows.md), [Task 11](review-tasks/11-api-input-validation-settings.md) |
 | CR-004 | High | Bug | Partly fixed | [Task 28](review-tasks/28-prompt-preview-parity.md) |
 | CR-005 | High | Bug | Fixed | [Task 13](review-tasks/13-frontend-query-ownership.md) |
-| CR-006 | High | Bug | Open | [Task 25](review-tasks/25-wait-timers-and-poller.md) |
+| CR-006 | High | Bug | Fixed (Task 25) | [Task 25](review-tasks/25-wait-timers-and-poller.md) |
 | CR-007 | High | Bug | Fixed | [Task 23](review-tasks/23-graph-semantics-and-validation.md) |
 | CR-008 | High | Bug | Fixed | [Task 20](review-tasks/20-merge-arena-and-workspaces.md) |
 | CR-009 | High | Bug | Open | [Task 19](review-tasks/19-fanout-rollup-and-promises.md) |
@@ -7329,7 +7329,7 @@ One row per finding, at `abaa007`.
 | CR-042 | Medium | Bug | Open | [Task 10](review-tasks/10-api-input-validation-flows.md) |
 | CR-043 | Medium | Bug | Open | [Task 29](review-tasks/29-webhook-reliability.md) |
 | CR-044 | Medium | Bug | Open | [Task 29](review-tasks/29-webhook-reliability.md) |
-| CR-045 | Medium | Bug | Open | [Task 25](review-tasks/25-wait-timers-and-poller.md) |
+| CR-045 | Medium | Bug | Fixed (Task 25) | [Task 25](review-tasks/25-wait-timers-and-poller.md) |
 | CR-046 | Medium | Code quality | Open | [Task 09](review-tasks/09-typed-errors.md) |
 | CR-047 | Medium | Gap | Open | [Task 10](review-tasks/10-api-input-validation-flows.md) |
 | CR-048 | Medium | Bug | Fixed | [Task 11](review-tasks/11-api-input-validation-settings.md) |
@@ -7344,7 +7344,7 @@ One row per finding, at `abaa007`.
 | CR-057 | Medium | Bug | Open | [Task 19](review-tasks/19-fanout-rollup-and-promises.md) |
 | CR-058 | Medium | Bug | Open | [Task 19](review-tasks/19-fanout-rollup-and-promises.md) |
 | CR-059 | Medium | Bug | Fixed | [Task 20](review-tasks/20-merge-arena-and-workspaces.md) |
-| CR-060 | Medium | Bug | Open | [Task 25](review-tasks/25-wait-timers-and-poller.md) |
+| CR-060 | Medium | Bug | Fixed (Task 25) | [Task 25](review-tasks/25-wait-timers-and-poller.md) |
 | CR-061 | Medium | Bug | Open | [Task 19](review-tasks/19-fanout-rollup-and-promises.md) |
 | CR-062 | Medium | Gap | Fixed | [Task 23](review-tasks/23-graph-semantics-and-validation.md) |
 | CR-063 | Medium | Gap | Fixed | [Task 23](review-tasks/23-graph-semantics-and-validation.md) |
@@ -7477,8 +7477,8 @@ One row per finding, at `abaa007`.
 | CR-190 | Low | Bug | Open | [Task 60](review-tasks/60-security-process-and-network-isolation.md) |
 | CR-191 | Low | Bug | Fixed | [Task 24](review-tasks/24-template-snapshot-and-yaml.md) |
 | CR-192 | Low | Bug | Open | [Task 27](review-tasks/27-plan-checklist-integrity.md) |
-| CR-193 | Low | Bug | Open | [Task 25](review-tasks/25-wait-timers-and-poller.md) |
-| CR-194 | Low | Performance | Open | [Task 25](review-tasks/25-wait-timers-and-poller.md) |
+| CR-193 | Low | Bug | Fixed (Task 25) | [Task 25](review-tasks/25-wait-timers-and-poller.md) |
+| CR-194 | Low | Performance | Fixed (Task 25) | [Task 25](review-tasks/25-wait-timers-and-poller.md) |
 | CR-195 | Low | Code quality | Partly fixed | [Task 50](review-tasks/50-small-module-cleanups.md) |
 | CR-196 | Low | Security | Open | [Task 58](review-tasks/58-security-webhook-auth.md) |
 | CR-197 | Low | Code quality | Open | [Task 50](review-tasks/50-small-module-cleanups.md) |

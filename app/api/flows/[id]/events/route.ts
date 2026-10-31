@@ -3,7 +3,6 @@ import { parseQuery } from "@/lib/http/parse";
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { db } from "../../../../../lib/db";
-import { reconciler } from "../../../../../lib/engine/runtime/flow-reconciler";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -16,7 +15,6 @@ const EventsQuery = z.object({
 export const GET = async (req: Request, { params }: { params: Promise<{ id: string }> }) => {
   try {
     const { id } = await params;
-    void reconciler.reconcileFlow(id).catch(() => {});
     const url = new URL(req.url);
     const { after, limit } = parseQuery(url, EventsQuery);
     const events = db.listEvents(id, after, limit);

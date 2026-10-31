@@ -7,6 +7,7 @@ import { reconciler } from "./flow-reconciler";
 import { templateStore } from "../templates/template-store";
 import { processSingleton } from "../../singleton";
 import { worktreeManager } from "./worktree-lifecycle";
+import { nextScheduleFireAt } from "./schedule-trigger";
 
 /**
  * Background poller for active flows: pipeline status + CR (MR/PR) comments.
@@ -21,6 +22,7 @@ import { worktreeManager } from "./worktree-lifecycle";
  */
 export class FlowPoller {
   private started = false;
+  private ticking = false;
   /** Last open-comment count announced per flow — avoids repeating the wait message every tick. */
   private lastCommentCount = new Map<string, number>();
 
@@ -39,16 +41,52 @@ export class FlowPoller {
     void reconciler.sweepStuckStepMerges().catch((e: unknown) =>
       console.warn(`step-merge reconcile failed: ${e instanceof Error ? e.message : e}`)
     );
-    setInterval(() => void this.tick(), intervalMs).unref?.();
+    try {
+      flowEngine.reArmWaitingTimers();
+    } catch (e: unknown) {
+      console.warn(`wait-timer re-arm failed: ${e instanceof Error ? e.message : e}`);
+    }
+    setTimeout(() => void this.runTick(intervalMs), intervalMs).unref?.();
+  }
+
+  private async runTick(intervalMs: number): Promise<void> {
+    if (this.ticking) {
+      setTimeout(() => void this.runTick(intervalMs), intervalMs).unref?.();
+      return;
+    }
+    this.ticking = true;
+    try {
+      await this.tick();
+    } finally {
+      this.ticking = false;
+      setTimeout(() => void this.runTick(intervalMs), intervalMs).unref?.();
+    }
+  }
+
+  private logPhaseError(phase: string, e: unknown): void {
+    console.warn(`${phase}: ${e instanceof Error ? e.message : e}`);
   }
 
   private async tick(): Promise<void> {
-    // resume wait-armed nodes: `wait_for: timer` and the debounced comment
-    // quiet-period waits (the resolve role is template data armed by edges)
-    flowEngine.processWaitTimers();
-    // fire due `schedule` flow triggers
-    this.processTemplateSchedules();
+    try {
+      flowEngine.processWaitTimers();
+    } catch (e: unknown) {
+      this.logPhaseError("processWaitTimers", e);
+    }
+    try {
+      this.processTemplateSchedules();
+    } catch (e: unknown) {
+      this.logPhaseError("processTemplateSchedules", e);
+    }
+    try {
+      await this.reconcileActiveFlows();
+    } catch (e: unknown) {
+      this.logPhaseError("reconcileActiveFlows", e);
+    }
 
+    const activeFlowIds = new Set(
+      db.all<{ id: string }>(`SELECT id FROM flows WHERE status='active'`).map((r) => r.id),
+    );
     const flows = db.all<any>(
       `SELECT * FROM flows WHERE status='active' AND (mr_iid IS NOT NULL OR id IN (SELECT DISTINCT flow_id FROM branches WHERE mr_iid IS NOT NULL))`
     );
@@ -71,6 +109,28 @@ export class FlowPoller {
         db.emitEvent(f.id, null, "error", `poll: ${e?.message ?? e}`);
       }
     }
+    this.pruneCommentCounts(activeFlowIds);
+    reconciler.pruneFlowMaps(activeFlowIds);
+  }
+
+  /** Re-sync stuck `running` nodes for every active flow (throttled per flow). */
+  private async reconcileActiveFlows(): Promise<void> {
+    const flows = db.all<{ id: string }>(`SELECT id FROM flows WHERE status='active'`);
+    for (const f of flows) {
+      try {
+        await reconciler.reconcileFlow(f.id);
+      } catch (e: unknown) {
+        this.logPhaseError(`reconcile ${f.id}`, e);
+      }
+    }
+  }
+
+  /** Drop comment-count dedup keys for flows that are no longer active MR pollers. */
+  private pruneCommentCounts(activeFlowIds: Set<string>): void {
+    for (const key of [...this.lastCommentCount.keys()]) {
+      const flowId = key.includes(":") ? key.slice(0, key.indexOf(":")) : key;
+      if (!activeFlowIds.has(flowId)) this.lastCommentCount.delete(key);
+    }
   }
 
   /**
@@ -91,8 +151,9 @@ export class FlowPoller {
       const trigger = (() => { try { return JSON.parse(t.trigger ?? "{}") as Record<string, unknown>; } catch { return {}; } })();
       const intervalMin = typeof trigger.interval_min === "number" && trigger.interval_min > 0
         ? trigger.interval_min : 60;
+      const nextAt = nextScheduleFireAt(due, now, intervalMin);
       db.run(`UPDATE flow_templates SET schedule_next_at=? WHERE id=?`,
-        new Date(now + intervalMin * 60_000).toISOString(), t.id);
+        new Date(nextAt).toISOString(), t.id);
       try {
         // the fire provides nothing (the start contract's defaults apply) —
         // an ad-hoc body would fail the start contract's strict shape check

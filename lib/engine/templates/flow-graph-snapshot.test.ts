@@ -67,7 +67,9 @@ describe("flow template graph snapshot (CR-065)", () => {
       edges: [],
       byKey: new Map(),
     };
-    graph.byKey.set("a", graph.nodes[0]!);
+    const node = graph.nodes[0];
+    if (!node) throw new Error("expected node");
+    graph.byKey.set("a", node);
     const hydrated = hydrateFlowTemplateGraph(serializeFlowTemplateGraph(graph));
     expect(hydrated?.templateId).toBe("tpl_x");
     expect(hydrated?.byKey.get("a")?.catalogKind).toBe("plan");

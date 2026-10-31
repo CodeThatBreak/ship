@@ -1972,11 +1972,41 @@ export class FlowEngine {
   /**
    * Per-(flow,node) in-memory timer state for `wait_for: timer` and the
    * debounced comment waits — armed when the node goes to `waiting`, fired
-   * from the poller tick. In-memory like the resolve debounce; a restart
-   * re-arms on the next join evaluation (the node is `waiting`, not `pending`,
-   * so it resumes only via a new delivery).
+   * from the poller tick. Deadlines are re-derived after a restart by
+   * {@link reArmWaitingTimers} (poller start); durable `wait_until` on the
+   * node row is the long-term source of truth (not implemented yet).
    */
   private waitTimers = new Map<string, number>();
+
+  /**
+   * After a process restart, re-arm in-memory deadlines for every `waiting`
+   * timer/comments node from its row `updated_at` plus configured minutes.
+   */
+  reArmWaitingTimers(): void {
+    const waiting = rows.all(
+      NodeRow,
+      `SELECT n.* FROM nodes n
+       INNER JOIN flows f ON f.id = n.flow_id
+       WHERE n.status='waiting' AND f.status='active'`,
+    );
+    for (const node of waiting) {
+      const spec = this.graph(node.flow_id)?.byKey.get(node.node_key);
+      if (!spec) continue;
+      const updatedMs = Date.parse(node.updated_at ?? "");
+      const baseMs = Number.isFinite(updatedMs) ? updatedMs : Date.now();
+      const tt = spec.trigger.type;
+      const waitFor = spec.trigger.wait_for;
+      if (tt === "debounced" && waitFor === "comments") {
+        const mins = this.debounceMinutes(node.flow_id, node.node_key, spec);
+        this.waitTimers.set(`${node.flow_id}\n${node.node_key}`, baseMs + mins * 60_000);
+        continue;
+      }
+      if ((tt === "auto" || tt === "approval") && waitFor === "timer") {
+        const mins = spec.trigger.minutes ?? 1;
+        this.waitTimers.set(`${node.flow_id}\n${node.node_key}`, baseMs + mins * 60_000);
+      }
+    }
+  }
 
   /** Fire due wait-timer resumes (timer + debounced comment waits). Called from the poller tick. */
   processWaitTimers(): void {

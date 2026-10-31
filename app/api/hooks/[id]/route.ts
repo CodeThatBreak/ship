@@ -2,7 +2,6 @@ import { toErrorResponse } from "@/lib/errors";
 import { NextResponse } from "next/server";
 import { hookStore } from "../../../../lib/engine/runtime/hook-store";
 import { flowEngine } from "../../../../lib/engine/flow-engine";
-import { flowPoller } from "../../../../lib/engine/runtime/flow-poller";
 import { evalJsonata, jsonataTruthy } from "@/lib/jsonata";
 
 export const dynamic = "force-dynamic";
@@ -59,10 +58,6 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
     if (!r.ok) return NextResponse.json({ error: `hook filter failed — ${r.error}` }, { status: 400 });
     if (!jsonataTruthy(r.value)) return NextResponse.json({ ok: true, filtered: true });
   }
-
-  // scheduled resolves fire from the poller tick — make sure it's running
-  // even in webhook-only setups where nobody has opened the UI yet (idempotent)
-  flowPoller.start();
 
   try {
     if (hook.template_id) {

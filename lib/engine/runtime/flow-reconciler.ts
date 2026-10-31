@@ -45,6 +45,17 @@ export class Reconciler {
   /** step children already flagged orphaned in this process (event dedup) */
   private readonly flaggedOrphans = new Set<string>();
 
+  /** Drop throttle / orphan dedup entries for flows that are gone or inactive. */
+  pruneFlowMaps(activeFlowIds: Set<string>): void {
+    for (const id of [...this.lastReconcile.keys()]) {
+      if (!activeFlowIds.has(id)) this.lastReconcile.delete(id);
+    }
+    for (const id of [...this.flaggedOrphans]) {
+      const row = db.get<{ status: string }>(`SELECT status FROM flows WHERE id=?`, id);
+      if (!row || row.status !== "active") this.flaggedOrphans.delete(id);
+    }
+  }
+
   async reconcileFlow(flowId: string): Promise<void> {
     // legacy runs captured without cost (and stale estimates) get a cost from
     // our list-price calculation — once per process, async, non-blocking

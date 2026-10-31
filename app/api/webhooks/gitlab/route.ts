@@ -2,7 +2,6 @@ import { toErrorResponse } from "@/lib/errors";
 import { NextResponse } from "next/server";
 import { gitHostRegistry } from "../../../../lib/engine/ports/git-host";
 import { flowEngine } from "../../../../lib/engine/flow-engine";
-import { flowPoller } from "../../../../lib/engine/runtime/flow-poller";
 import { templateStore } from "../../../../lib/engine/templates/template-store";
 import { db } from "../../../../lib/db";
 
@@ -31,9 +30,6 @@ export async function POST(req: Request) {
   if (!host.verifyWebhook(req.headers)) {
     return NextResponse.json({ error: "bad token" }, { status: 401 });
   }
-  // scheduled resolves fire from the poller tick — make sure it's running even
-  // in webhook-only setups where nobody has opened the UI yet (idempotent)
-  flowPoller.start();
   const event = host.parseWebhook(payload);
   if (!event) return NextResponse.json({ ok: true }); // event kind the engine ignores
 

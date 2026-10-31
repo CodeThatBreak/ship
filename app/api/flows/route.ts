@@ -3,7 +3,6 @@ import { parseJson } from "@/lib/http/parse";
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { flowEngine } from "../../../lib/engine/flow-engine";
-import { flowPoller } from "../../../lib/engine/runtime/flow-poller";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -22,12 +21,10 @@ const CreateFlowBody = z
   });
 
 export const GET = async () => {
-  flowPoller.start();
   return NextResponse.json({ flows: flowEngine.list() });
 };
 
 export const POST = async (req: Request) => {
-  flowPoller.start();
   try {
     const body = await parseJson(req, CreateFlowBody);
     const id = flowEngine.create(body.taskId, body.repoUrl?.trim() ?? "", body.name, {

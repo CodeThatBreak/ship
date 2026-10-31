@@ -16,7 +16,7 @@ Each finding was re-verified against `refactor/prompt-engine-inconsistency-fix` 
 
 ### CR-006 [High] Timer and comment-debounce waits are memory-only, so a restart strands `waiting` nodes forever
 
-- **Status:** Open
+- **Status:** Fixed (Task 25 — startup re-arm; `nodes.wait_until` deferred)
 - **Type:** Bug
 - **Effort:** M
 - **Where:** lib/engine/flow-engine.ts:1290-1295 (armNodeWait), 1325-1333 (bounceCommentWaits), 1895-1925 (waitTimers / processWaitTimers); lib/engine/runtime/flow-poller.ts:26-41 (start: no re-arm pass)
@@ -24,7 +24,7 @@ Each finding was re-verified against `refactor/prompt-engine-inconsistency-fix` 
 
 ### CR-060 [Medium] Poller ticks can overlap, and non-MR steps of the tick run outside any try/catch
 
-- **Status:** Open
+- **Status:** Fixed (Task 25)
 - **Type:** Bug
 - **Effort:** S
 - **Where:** lib/engine/runtime/flow-poller.ts:40,43-72
@@ -32,7 +32,7 @@ Each finding was re-verified against `refactor/prompt-engine-inconsistency-fix` 
 
 ### CR-045 [Medium] GET handlers and server loaders start the poller and run the reconciler as side effects
 
-- **Status:** Open
+- **Status:** Fixed (Task 25)
 - **Type:** Bug
 - **Effort:** M
 - **Where:** app/api/flows/route.ts:8,13, app/api/flows/[id]/route.ts:9,14, app/api/flows/[id]/events/route.ts:11, loaders/flows.ts:25,28,42, app/api/hooks/[id]/route.ts:63, app/api/webhooks/gitlab/route.ts:33
@@ -40,7 +40,7 @@ Each finding was re-verified against `refactor/prompt-engine-inconsistency-fix` 
 
 ### CR-193 [Low] Schedule triggers drift and are interval-only
 
-- **Status:** Open
+- **Status:** Fixed (Task 25 — drift; cron/timezone not added)
 - **Type:** Bug
 - **Effort:** S
 - **Where:** lib/engine/runtime/flow-poller.ts:81-103 (92-93); lib/engine/templates/template-store.ts:895-909
@@ -48,7 +48,7 @@ Each finding was re-verified against `refactor/prompt-engine-inconsistency-fix` 
 
 ### CR-194 [Low] Unbounded in-memory maps in long-lived singletons
 
-- **Status:** Open
+- **Status:** Fixed (Task 25)
 - **Type:** Performance
 - **Effort:** S
 - **Where:** lib/cache.ts:9-12,17-22; app/api/tasks/live/route.ts:21; lib/engine/runtime/flow-reconciler.ts:40,44; lib/engine/runtime/flow-poller.ts:23
@@ -56,8 +56,8 @@ Each finding was re-verified against `refactor/prompt-engine-inconsistency-fix` 
 
 ## Done when
 
-- [ ] Every finding above is fixed, or a remaining part is written up in the PR description.
-- [ ] Each bug fix has a regression test (Vitest for `lib/`; at least a hook or utility test for UI where practical).
-- [ ] Code follows [`docs/coding-patterns.md`](../coding-patterns.md).
-- [ ] `npm run typecheck`, `npm run lint`, `npm test` and `npm run build` pass (before Task 02 lands, `npx tsc --noEmit` instead of `typecheck`).
-- [ ] The status of each finding in [`docs/code-review.md`](../code-review.md) is updated (Fixed, with the PR link).
+- [x] Every finding above is fixed, or a remaining part is written up in the PR description.
+- [x] Each bug fix has a regression test (Vitest for `lib/`; at least a hook or utility test for UI where practical).
+- [x] Code follows [`docs/coding-patterns.md`](../coding-patterns.md).
+- [x] `npm run typecheck`, `npm run lint`, `npm test` and `npm run build` pass (before Task 02 lands, `npx tsc --noEmit` instead of `typecheck`).
+- [x] The status of each finding in [`docs/code-review.md`](../code-review.md) is updated (Fixed, with the PR link).
