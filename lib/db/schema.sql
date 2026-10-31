@@ -144,7 +144,8 @@ CREATE INDEX IF NOT EXISTS idx_plan_steps_flow ON plan_steps(flow_id, position);
 CREATE TABLE IF NOT EXISTS branches (
   id            TEXT PRIMARY KEY,
   flow_id       TEXT NOT NULL REFERENCES flows(id),
-  name          TEXT NOT NULL,             -- git branch name
+  name          TEXT NOT NULL,             -- plan branch key (multi-branch plan meta)
+  git_branch    TEXT,                      -- actual git ref after build (branch_pattern applied)
   title         TEXT,
   status        TEXT NOT NULL DEFAULT 'pending',  -- pending|building|awaiting_approval|approved|failed|done
   mr_url        TEXT,

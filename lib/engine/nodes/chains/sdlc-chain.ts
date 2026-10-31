@@ -65,6 +65,7 @@ export class SdlcChain {
     if (!buildKey) throw new Error("this flow template has no build node");
     const gate = this.host.gateKey(flowId);
     if (!gate) throw new Error("this flow template has no pipeline gate node");
+    const reviewKey = this.host.keyOfRole(flowId, NODE_KEYS.REVIEW);
     this.host.setNodeStatus(flowId, buildKey, "approved");
     this.host.setCurrentNode(flowId, gate);
     this.host.bg(flowId, null, async () => {
@@ -80,13 +81,19 @@ export class SdlcChain {
         const targets = branchTargets.length > 1
           ? branchTargets.map((b) => b as string | null)
           : [branchTargets[0] ?? null];
+        const multiBranch = targets.length > 1;
         for (const b of targets) {
           await mergeRequests.createWithFixes(this.host.ctx(flowId), b ?? undefined, {
             maxAttempts,
-            // the CR-creation events route to the owning build tab (§3.3)
             emitNodeKey: buildKey,
+            gateKey: gate,
+            reviewKey,
+            skipGateReviewReset: multiBranch,
             runFix: (attempt, error) => this.runBuildCommitFix(flowId, buildKey, gate, b, attempt, maxAttempts, error),
           });
+        }
+        if (multiBranch) {
+          mergeRequests.resetGateReview(flowId, gate, reviewKey);
         }
         // CR created — the build → pipeline edge starts the gate (and the
         // green gate flows on to review → debounced resolve via edges)
@@ -127,8 +134,14 @@ export class SdlcChain {
     this.host.setCurrentNode(flowId, buildKey);
     this.host.claimNode(flowId, buildKey, ["approved"]);
     try {
+      const branchRow = branch ? branchStore.list(flowId).find((r) => r.name === branch) : null;
       await this.host.runNode(flowId, buildKey, {
-        plan: null, prompt: null, branchInfo: null, model: null,
+        plan: null,
+        prompt: null,
+        branchInfo: branch
+          ? { name: branch, title: branchRow?.title ?? branch }
+          : null,
+        model: null,
         feedback:
           `Pushing branch was rejected with the error below — most likely a pre-push/pre-receive hook ` +
           `(type check, lint, or test gate). Fix the code so the checks pass, commit, and push again to the same branch.\n\n` +

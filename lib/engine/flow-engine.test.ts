@@ -174,3 +174,25 @@ describe("engine chain-role routing (T3)", () => {
     expect(afterSecond?.output).toBe(afterFirst?.output);
   });
 });
+
+describe("ingestComments", () => {
+  const engine = new FlowEngine();
+
+  it("stores mr_iid on new comment rows", () => {
+    const flowId = seedFlow(50);
+    const n = engine.ingestComments(flowId, [{
+      id: "host-c1",
+      threadId: "t1",
+      author: "reviewer",
+      body: "change this",
+      path: "a.ts",
+      line: 1,
+      resolved: false,
+      system: false,
+      resolvable: true,
+      createdAt: now(),
+    }], 7);
+    expect(n).toBe(1);
+    expect(db.get<{ mr_iid: number | null }>(`SELECT mr_iid FROM comments WHERE id=?`, "host-c1")?.mr_iid).toBe(7);
+  });
+});

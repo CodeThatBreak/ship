@@ -15,6 +15,7 @@ import { parseStartContract, validateAgainstContract } from "../../nodes/kinds/s
 import { prompts } from "../../prompts/prompt-library";
 import { branchStore } from "../../nodes/kinds/build/branch-store";
 import { flowCtxHelper, type FlowCtx } from "../../nodes/shared/run-context";
+import { branchNamer } from "../../nodes/shared/branch-namer";
 import { nodeSupport } from "../../nodes/shared/node-support";
 import { planSteps, type PlanStepRow } from "../plan-step-store";
 import { configNumber, configString, fanoutOf, parseConfigSnapshot, stripFanoutKeys, type FanoutKnob } from "../../templates/node-config";
@@ -423,16 +424,7 @@ export class StepFlowManager {
   integrationBranchFor(parentFlowId: string, nodeOwnerKey: string, planBranch: string | null): string {
     const ctx = this.e.ctx(parentFlowId);
     const pattern = configString(this.e.nodeConfigFor(parentFlowId, nodeOwnerKey), "branch_pattern");
-    if (!pattern?.trim()) return flowCtxHelper.buildBranch(ctx, planBranch ?? undefined);
-    const slug = String(ctx.task.key ?? "task").toLowerCase().replace(/[^a-z0-9]+/g, "-");
-    const type = String(ctx.task.issueType ?? "").toLowerCase();
-    const prefix = /story|feature|task|epic/.test(type) ? "feature" : "bugfix";
-    return pattern.trim()
-      .replace(/\{prefix\}/g, prefix)
-      .replace(/\{slug\}/g, slug)
-      .replace(/\{ticket\}/g, String(ctx.task.key ?? "task"))
-      .replace(/\{id\}/g, ctx.flow.id.slice(-6))
-      .replace(/\{suffix\}/g, planBranch ?? "");
+    return branchNamer.branchName(ctx, pattern, planBranch ?? undefined);
   }
 
   /** Child template id: explicit `knob.child` | the parent def's fallback child

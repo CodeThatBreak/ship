@@ -403,9 +403,7 @@ Each item below can be fixed independently. Severity headings group the items; w
 
 ### CR-011 [High] Poller compares each branch's pipeline against the flow-wide last `pipeline` event, re-triggering the gate every tick
 
-- **Status at `abaa007`:** **Open**, fix in [Task 21](review-tasks/21-multi-branch-correctness.md)
-- **Current location:** lib/engine/runtime/flow-poller.ts:53-67 (per-branch loop), 112-139 (checkPipeline)
-- **Re-verification note:** `checkPipeline` still compares each branch's head pipeline with the flow-wide latest `pipeline` event, so two branches in different states flip-flop every tick and `triggerPipelineGate` is re-fired for the failed one whenever the gate isn't running. Scope `prev` per branch (`json_extract(data,'$.branchName') IS ?`), or track the last seen (branch, pipeline id, status), and trigger the gate only on a transition to `failed` for a new pipeline id.
+- **Status at `abaa007`:** **Fixed** (Task 21 — per-branch pipeline event lookup in `flow-poller.ts`)
 
 - **Severity:** High
 - **Category:** Correctness
@@ -593,9 +591,7 @@ Original findings, verbatim:
 
 ### CR-017 [High] Multi-branch resolve picks up and resolves comments from every MR in the flow
 
-- **Status at `abaa007`:** **Open**, fix in [Task 21](review-tasks/21-multi-branch-correctness.md)
-- **Current location:** lib/engine/nodes/kinds/resolve/resolve-node.ts:97, 166-175; lib/engine/nodes/shared/node-support.ts:163-165 (openComments filters flow_id only); lib/engine/flow-engine.ts:2008-2010 (ingest writes mr_iid = null)
-- **Re-verification note:** The open-comment query is still flow-wide, and ingestion still stores `mr_iid` as `null`. A per-branch resolve therefore pulls other branches' comments into its prompt, calls `resolveComment` on the wrong MR, and marks them resolved locally. Store `mr_iid` on ingest (pass it from the poller's per-branch loop) and filter `openComments(flowId, mrIid)`.
+- **Status at `abaa007`:** **Fixed** (Task 21 — `ingestComments` stores `mr_iid`; `openComments(flowId, mrIid)`)
 
 - **Severity:** High
 - **Category:** Correctness
@@ -644,9 +640,7 @@ Original findings, verbatim:
 
 ### CR-019 [High] MR creation forces the pipeline and review nodes to `pending` even while they are running, and throws when they don't exist
 
-- **Status at `abaa007`:** **Open**, fix in [Task 21](review-tasks/21-multi-branch-correctness.md)
-- **Current location:** lib/engine/nodes/kinds/merge-request/merge-request-service.ts:124-128; lib/engine/nodes/chains/sdlc-chain.ts:72-86 (per-branch create loop)
-- **Re-verification note:** After each CR is created, `nodeByKey(flow.id, NODE_KEYS.PIPELINE/REVIEW)` is still forced to `pending`, including while it is `running`. That happens once per branch in multi-branch flows, and it throws after the MR exists when the template lacks those built-in keys. Pass the chain's resolved gate and review keys in, skip `running` nodes, and reset once after all branches' MRs exist.
+- **Status at `abaa007`:** **Fixed** (Task 21 — `resetGateReview` once after multi-branch MR loop; skip `running`)
 
 - **Severity:** High
 - **Category:** Correctness
@@ -668,9 +662,7 @@ Original findings, verbatim:
 
 ### CR-020 [High] For multi-branch flows, the commit-fix agent runs on the wrong branch
 
-- **Status at `abaa007`:** **Open**, fix in [Task 21](review-tasks/21-multi-branch-correctness.md)
-- **Current location:** lib/engine/nodes/chains/sdlc-chain.ts:112-135 (runBuildCommitFix passes branchInfo: null); lib/engine/nodes/kinds/build/build-node.ts:354-382 (refine uses flowBranch / ctx.flow.mr_branch)
-- **Re-verification note:** `runBuildCommitFix` still ignores the rejected `branch` and runs the build with `branchInfo: null`, and `refine()` works on the flow's last-built `mr_branch`. A push rejection on branch A is therefore "fixed" on another branch. Pass `branchInfo: { name: branch }` when set, and have `refine()` resolve its worktree branch from `branchInfo` using the build's naming helper.
+- **Status at `abaa007`:** **Fixed** (Task 21 — commit-fix passes `branchInfo`; refine uses plan branch git ref)
 
 - **Severity:** High
 - **Category:** Correctness
@@ -2390,9 +2382,7 @@ Original findings, verbatim:
 
 ### CR-083 [Medium] Multi-branch MR, pipeline, review and resolve derive the git branch without the build's `branch_pattern`
 
-- **Status at `abaa007`:** **Open**, fix in [Task 21](review-tasks/21-multi-branch-correctness.md)
-- **Current location:** lib/engine/nodes/kinds/build/build-run-support.ts:31-44 (honors branch_pattern), lib/engine/nodes/kinds/merge-request/merge-request-service.ts:62, lib/engine/nodes/kinds/pipeline/pipeline-node.ts:144-153, lib/engine/nodes/kinds/review/review-node.ts:57-60, lib/engine/nodes/kinds/resolve/resolve-node.ts:87-91
-- **Re-verification note:** Downstream consumers still rebuild multi-branch git branch names with `ctxHelper.buildBranch(ctx, branchName)`, which ignores a custom `branch_pattern`. With a custom pattern, the MR push/lookup and the fix/resolve checkout target a non-existent branch. Fix: persist the actual git branch on the `branches` row in `finalizeBuild` (it knows `resultBranch`) and have every consumer read it from there. This needs a schema change, so ask first.
+- **Status at `abaa007`:** **Fixed** (Task 21 — `branches.git_branch` + `MrTargetResolver`)
 
 - **Severity:** Medium
 - **Category:** Correctness
@@ -2640,9 +2630,7 @@ Original findings, verbatim:
 
 ### CR-094 [Medium] Built-in nodes duplicate MR resolution, the "result branch + diff artifact" finalize, and the latest-plan query
 
-- **Status at `abaa007`:** **Partly fixed**, fix in [Task 21](review-tasks/21-multi-branch-correctness.md)
-- **Current location:** resolveMr: lib/engine/nodes/kinds/pipeline/pipeline-node.ts:140-160, lib/engine/nodes/kinds/review/review-node.ts:57-64 (public), lib/engine/nodes/kinds/resolve/resolve-node.ts:84-95 (inline, nullable mrIid); branch naming: lib/engine/nodes/kinds/build/build-run-support.ts:31-44, lib/engine/runtime/fanout/step-flow-manager.ts:407 vs lib/engine/nodes/shared/run-context.ts:91; latest plan: lib/engine/nodes/shared/node-support.ts:120-149 vs lib/engine/flow-engine.ts:903-910
-- **Re-verification note:** The diff-artifact finalize is consolidated in `BuildRunSupport.diffArtifact`. The five latest-plan queries are down to two helpers, but they disagree on ordering (see NEW-C1). MR resolution is still copied three times with different errors, and the branch prefix/slug logic is still duplicated. Fix: a shared `MrTargetResolver.resolve(ctx, branchName)` in `nodes/shared` and a `BranchNamer` used by `buildBranch`, `BuildRunSupport.branchName` and the step-flow manager.
+- **Status at `abaa007`:** **Fixed** (Task 21 — `MrTargetResolver` + `BranchNamer`; latest-plan ordering still tracked as NEW-C1)
 
 - **Severity:** Medium
 - **Category:** Code quality
@@ -7312,16 +7300,16 @@ One row per finding, at `abaa007`.
 | CR-008 | High | Bug | Fixed | [Task 20](review-tasks/20-merge-arena-and-workspaces.md) |
 | CR-009 | High | Bug | Open | [Task 19](review-tasks/19-fanout-rollup-and-promises.md) |
 | CR-010 | High | Bug | Open | [Task 19](review-tasks/19-fanout-rollup-and-promises.md) |
-| CR-011 | High | Bug | Open | [Task 21](review-tasks/21-multi-branch-correctness.md) |
+| CR-011 | High | Bug | Fixed | [Task 21](review-tasks/21-multi-branch-correctness.md) |
 | CR-012 | High | Bug | Fixed | [Task 12](review-tasks/12-db-transactions.md) |
 | CR-013 | High | Bug | Open | [Task 27](review-tasks/27-plan-checklist-integrity.md) |
 | CR-014 | High | Bug | Open | [Task 16](review-tasks/16-run-lifecycle-late-writes.md) |
 | CR-015 | High | Bug | Fixed | [Task 17](review-tasks/17-node-claim-and-attempts.md) |
 | CR-016 | High | Security | Open | [Task 60](review-tasks/60-security-process-and-network-isolation.md) |
-| CR-017 | High | Bug | Open | [Task 21](review-tasks/21-multi-branch-correctness.md) |
+| CR-017 | High | Bug | Fixed | [Task 21](review-tasks/21-multi-branch-correctness.md) |
 | CR-018 | High | Bug | Fixed | — |
-| CR-019 | High | Bug | Open | [Task 21](review-tasks/21-multi-branch-correctness.md) |
-| CR-020 | High | Bug | Open | [Task 21](review-tasks/21-multi-branch-correctness.md) |
+| CR-019 | High | Bug | Fixed | [Task 21](review-tasks/21-multi-branch-correctness.md) |
+| CR-020 | High | Bug | Fixed | [Task 21](review-tasks/21-multi-branch-correctness.md) |
 | CR-021 | High | Infra | Fixed (Task 08) | [Task 08](review-tasks/08-db-bootstrap-and-schema.md) |
 | CR-022 | Medium | Infra | Fixed (Task 08) | [Task 08](review-tasks/08-db-bootstrap-and-schema.md) |
 | CR-023 | High | Security | Open | [Task 59](review-tasks/59-security-credential-hygiene.md) |
@@ -7384,7 +7372,7 @@ One row per finding, at `abaa007`.
 | CR-080 | Medium | Bug | Open | [Task 26](review-tasks/26-node-config-validation.md) |
 | CR-081 | Medium | Bug | Open | [Task 16](review-tasks/16-run-lifecycle-late-writes.md) |
 | CR-082 | Medium | Bug | Open | [Task 16](review-tasks/16-run-lifecycle-late-writes.md) |
-| CR-083 | Medium | Bug | Open | [Task 21](review-tasks/21-multi-branch-correctness.md) |
+| CR-083 | Medium | Bug | Fixed | [Task 21](review-tasks/21-multi-branch-correctness.md) |
 | CR-084 | Medium | Bug | Open | [Task 27](review-tasks/27-plan-checklist-integrity.md) |
 | CR-085 | Medium | Bug | Open | [Task 22](review-tasks/22-pipeline-review-resolve.md) |
 | CR-086 | Medium | Bug | Open | [Task 22](review-tasks/22-pipeline-review-resolve.md) |
@@ -7395,7 +7383,7 @@ One row per finding, at `abaa007`.
 | CR-091 | Medium | Code quality | Fixed | — |
 | CR-092 | Medium | Code quality | Fixed | [Task 18](review-tasks/18-terminal-outcome-writer.md) |
 | CR-093 | Medium | Code quality | Partly fixed | [Task 49](review-tasks/49-node-kind-structure.md) |
-| CR-094 | Medium | Code quality | Partly fixed | [Task 21](review-tasks/21-multi-branch-correctness.md) |
+| CR-094 | Medium | Code quality | Fixed | [Task 21](review-tasks/21-multi-branch-correctness.md) |
 | CR-095 | Medium | Code quality | Partly fixed | [Task 48](review-tasks/48-backend-dependency-injection.md) |
 | CR-096 | Medium | Code quality | Open | [Task 49](review-tasks/49-node-kind-structure.md) |
 | CR-097 | Low | Bug | Partly fixed | [Task 27](review-tasks/27-plan-checklist-integrity.md) |

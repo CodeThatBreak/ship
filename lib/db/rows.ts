@@ -231,6 +231,7 @@ export const BranchRow = z.object({
   id: z.string(),
   flow_id: z.string(),
   name: z.string(),
+  git_branch: z.string().nullable(),
   title: z.string().nullable(),
   status: z.string(),
   mr_url: z.string().nullable(),

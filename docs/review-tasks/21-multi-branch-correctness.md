@@ -16,7 +16,7 @@ Each finding was re-verified against `refactor/prompt-engine-inconsistency-fix` 
 
 ### CR-011 [High] Poller compares each branch's pipeline against the flow-wide last `pipeline` event, re-triggering the gate every tick
 
-- **Status:** Open
+- **Status:** Fixed
 - **Type:** Bug
 - **Effort:** S
 - **Where:** lib/engine/runtime/flow-poller.ts:53-67 (per-branch loop), 112-139 (checkPipeline)
@@ -24,7 +24,7 @@ Each finding was re-verified against `refactor/prompt-engine-inconsistency-fix` 
 
 ### CR-017 [High] Multi-branch resolve picks up and resolves comments from every MR in the flow
 
-- **Status:** Open
+- **Status:** Fixed
 - **Type:** Bug
 - **Effort:** S
 - **Where:** lib/engine/nodes/kinds/resolve/resolve-node.ts:97, 166-175; lib/engine/nodes/shared/node-support.ts:163-165 (openComments filters flow_id only); lib/engine/flow-engine.ts:2008-2010 (ingest writes mr_iid = null)
@@ -32,7 +32,7 @@ Each finding was re-verified against `refactor/prompt-engine-inconsistency-fix` 
 
 ### CR-019 [High] MR creation forces the pipeline and review nodes to `pending` even while they are running, and throws when they don't exist
 
-- **Status:** Open
+- **Status:** Fixed
 - **Type:** Bug
 - **Effort:** S
 - **Where:** lib/engine/nodes/kinds/merge-request/merge-request-service.ts:124-128; lib/engine/nodes/chains/sdlc-chain.ts:72-86 (per-branch create loop)
@@ -40,7 +40,7 @@ Each finding was re-verified against `refactor/prompt-engine-inconsistency-fix` 
 
 ### CR-020 [High] For multi-branch flows, the commit-fix agent runs on the wrong branch
 
-- **Status:** Open
+- **Status:** Fixed
 - **Type:** Bug
 - **Effort:** S
 - **Where:** lib/engine/nodes/chains/sdlc-chain.ts:112-135 (runBuildCommitFix passes branchInfo: null); lib/engine/nodes/kinds/build/build-node.ts:354-382 (refine uses flowBranch / ctx.flow.mr_branch)
@@ -48,7 +48,7 @@ Each finding was re-verified against `refactor/prompt-engine-inconsistency-fix` 
 
 ### CR-083 [Medium] Multi-branch MR, pipeline, review and resolve derive the git branch without the build's `branch_pattern`
 
-- **Status:** Open
+- **Status:** Fixed (`branches.git_branch`, migration user_version 3)
 - **Type:** Bug
 - **Effort:** M
 - **Where:** lib/engine/nodes/kinds/build/build-run-support.ts:31-44 (honors branch_pattern), lib/engine/nodes/kinds/merge-request/merge-request-service.ts:62, lib/engine/nodes/kinds/pipeline/pipeline-node.ts:144-153, lib/engine/nodes/kinds/review/review-node.ts:57-60, lib/engine/nodes/kinds/resolve/resolve-node.ts:87-91
@@ -56,7 +56,7 @@ Each finding was re-verified against `refactor/prompt-engine-inconsistency-fix` 
 
 ### CR-094 [Medium] Built-in nodes duplicate MR resolution, the "result branch + diff artifact" finalize, and the latest-plan query
 
-- **Status:** Partly fixed
+- **Status:** Fixed (`MrTargetResolver`, `BranchNamer`; latest-plan ordering remains NEW-C1)
 - **Type:** Code quality
 - **Effort:** M
 - **Where:** resolveMr: lib/engine/nodes/kinds/pipeline/pipeline-node.ts:140-160, lib/engine/nodes/kinds/review/review-node.ts:57-64 (public), lib/engine/nodes/kinds/resolve/resolve-node.ts:84-95 (inline, nullable mrIid); branch naming: lib/engine/nodes/kinds/build/build-run-support.ts:31-44, lib/engine/runtime/fanout/step-flow-manager.ts:407 vs lib/engine/nodes/shared/run-context.ts:91; latest plan: lib/engine/nodes/shared/node-support.ts:120-149 vs lib/engine/flow-engine.ts:903-910
@@ -65,8 +65,8 @@ Each finding was re-verified against `refactor/prompt-engine-inconsistency-fix` 
 
 ## Done when
 
-- [ ] Every finding above is fixed, or a remaining part is written up in the PR description.
-- [ ] Each bug fix has a regression test (Vitest for `lib/`; at least a hook or utility test for UI where practical).
-- [ ] Code follows [`docs/coding-patterns.md`](../coding-patterns.md).
-- [ ] `npm run typecheck`, `npm run lint`, `npm test` and `npm run build` pass (before Task 02 lands, `npx tsc --noEmit` instead of `typecheck`).
-- [ ] The status of each finding in [`docs/code-review.md`](../code-review.md) is updated (Fixed, with the PR link).
+- [x] Every finding above is fixed, or a remaining part is written up in the PR description.
+- [x] Each bug fix has a regression test (Vitest for `lib/`; at least a hook or utility test for UI where practical).
+- [x] Code follows [`docs/coding-patterns.md`](../coding-patterns.md).
+- [x] `npm run typecheck`, `npm run lint`, `npm test` and `npm run build` pass (before Task 02 lands, `npx tsc --noEmit` instead of `typecheck`).
+- [x] The status of each finding in [`docs/code-review.md`](../code-review.md) is updated (Fixed, with the PR link).

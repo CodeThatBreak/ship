@@ -12,7 +12,14 @@ export class BranchStore {
   upsert(
     flowId: string,
     name: string,
-    opts: { title?: string; status?: string; mrUrl?: string; mrIid?: number; order?: number } = {}
+    opts: {
+      title?: string;
+      status?: string;
+      mrUrl?: string;
+      mrIid?: number;
+      gitBranch?: string;
+      order?: number;
+    } = {},
   ): string {
     const existing = db.get<{ id: string }>(`SELECT id FROM branches WHERE flow_id=? AND name=?`, flowId, name);
     if (existing) {
@@ -21,6 +28,7 @@ export class BranchStore {
       if (opts.status !== undefined) patch.status = opts.status;
       if (opts.mrUrl !== undefined) patch.mr_url = opts.mrUrl;
       if (opts.mrIid !== undefined) patch.mr_iid = opts.mrIid;
+      if (opts.gitBranch !== undefined) patch.git_branch = opts.gitBranch;
       if (Object.keys(patch).length) {
         const keys = Object.keys(patch);
         db.run(`UPDATE branches SET ${keys.map((k) => `${k}=?`).join(",")}, updated_at=? WHERE id=?`,
@@ -30,12 +38,19 @@ export class BranchStore {
     }
     const id = db.uid("br_");
     db.run(
-      `INSERT INTO branches (id,flow_id,name,title,status,mr_url,mr_iid,"order",created_at,updated_at)
-       VALUES (?,?,?,?,?,?,?,?,?,?)`,
-      id, flowId, name, opts.title ?? name, opts.status ?? "pending",
+      `INSERT INTO branches (id,flow_id,name,git_branch,title,status,mr_url,mr_iid,"order",created_at,updated_at)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?)`,
+      id, flowId, name, opts.gitBranch ?? null, opts.title ?? name, opts.status ?? "pending",
       opts.mrUrl ?? null, opts.mrIid ?? null, opts.order ?? 0, db.now(), db.now()
     );
     return id;
+  }
+
+  /** Persisted git ref for a plan branch row (null before the build finishes). */
+  gitBranch(flowId: string, planBranchName: string): string | null {
+    return db.get<{ git_branch: string | null }>(
+      `SELECT git_branch FROM branches WHERE flow_id=? AND name=?`, flowId, planBranchName,
+    )?.git_branch ?? null;
   }
 
   /** Tag a specific run row with a branch_id (per-branch cost attribution). */

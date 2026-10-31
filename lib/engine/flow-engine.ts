@@ -2068,7 +2068,7 @@ export class FlowEngine {
     return candidates.find((f) => hostOf(f.repo_url ?? "") === h) ?? candidates[0];
   }
 
-  ingestComments(flowId: string, incoming: HostComment[]): number {
+  ingestComments(flowId: string, incoming: HostComment[], mrIid?: number): number {
     let newOpen = 0;
     for (const c of incoming) {
       if (c.system) continue;
@@ -2079,7 +2079,7 @@ export class FlowEngine {
         db.run(
           `INSERT INTO comments (id,flow_id,mr_iid,discussion_id,author,body,file_path,line,status,raw,created_at,updated_at)
            VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`,
-          c.id, flowId, null, c.threadId, c.author, c.body,
+          c.id, flowId, mrIid ?? null, c.threadId, c.author, c.body,
           c.path ?? null, c.line ?? null,
           status, JSON.stringify(c), c.createdAt, db.now()
         );

@@ -111,10 +111,16 @@ export class FlowPoller {
     const cr = await host.getChangeRequest(repoUrl, mrIid).catch(() => null);
     const pipe = cr?.headPipeline;
     if (!pipe) return;
-    const prev = db.get<any>(
-      `SELECT data FROM events WHERE flow_id=? AND type='pipeline' ORDER BY created_at DESC LIMIT 1`,
-      f.id
-    );
+    const prev = branchName
+      ? db.get<any>(
+          `SELECT data FROM events WHERE flow_id=? AND type='pipeline' AND json_extract(data,'$.branchName')=? ORDER BY created_at DESC LIMIT 1`,
+          f.id,
+          branchName,
+        )
+      : db.get<any>(
+          `SELECT data FROM events WHERE flow_id=? AND type='pipeline' AND (json_extract(data,'$.branchName') IS NULL OR json_extract(data,'$.branchName')='') ORDER BY created_at DESC LIMIT 1`,
+          f.id,
+        );
     const prevStatus = prev?.data ? JSON.parse(prev.data).status : null;
     if (pipe.status === prevStatus) return;
 
@@ -148,17 +154,18 @@ export class FlowPoller {
       .listComments(repoUrl, mrIid)
       .catch(() => null);
     if (!comments) return;
-    const newOpen = flowEngine.ingestComments(f.id, comments);
+    const newOpen = flowEngine.ingestComments(f.id, comments, mrIid);
     const openCount = db.get<any>(
-      `SELECT COUNT(*) c FROM comments WHERE flow_id=? AND status='open'`, f.id
+      `SELECT COUNT(*) c FROM comments WHERE flow_id=? AND status='open' AND mr_iid=?`, f.id, mrIid
     )?.c ?? 0;
     if (newOpen > 0 && openCount > 0) {
       // debounce: each new open comment restarts the quiet period on the
       // debounced resolve wait — the wait-timer tick fires it once the flow
       // has been quiet for the delay and the pipeline gate is clear
       flowEngine.bounceCommentWaits(f.id);
-      if (this.lastCommentCount.get(f.id) !== openCount) {
-        this.lastCommentCount.set(f.id, openCount);
+      const countKey = branchName ? `${f.id}:${branchName}` : f.id;
+      if (this.lastCommentCount.get(countKey) !== openCount) {
+        this.lastCommentCount.set(countKey, openCount);
         const mins = Math.round(flowEngine.resolveDelayMs(f.id) / 60_000);
         db.emitEvent(f.id, null, "lifecycle",
           `${openCount} open comment(s)${branchName ? ` (${branchName})` : ""} — resolve queued for ` +

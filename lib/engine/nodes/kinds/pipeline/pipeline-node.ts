@@ -11,6 +11,7 @@ import { NODE_KEYS } from "../../../constants/node-keys";
 import type { ConfigField } from "../../../templates/node-config";
 import { configBool, configNumber, configString, splitConsumerConfigFields } from "../../../templates/node-config";
 import { splitConsumeSchema, splitParallelMaxSchema } from "../../shared/split";
+import { mrTargetResolver } from "../../shared/mr-target-resolver";
 import { PipelineInput, PipelineOutput } from "./schema";
 
 /** Poll interval while waiting for a pipeline to reach a terminal state. */
@@ -144,22 +145,7 @@ export class PipelineNode extends AgentRunNode<
     ctx: FlowCtx,
     branchName?: string | null,
   ): { mrIid: number; mrBranch: string | null } {
-    if (branchName) {
-      const mrIid = this.support.branchMrIid(ctx.flow.id, branchName);
-      if (!mrIid)
-        throw new Error(
-          `no merge request for branch ${branchName} — create it first`,
-        );
-      return {
-        mrIid,
-        mrBranch: this.ctxHelper.buildBranch(ctx, branchName),
-      };
-    }
-    if (!ctx.flow.mr_iid)
-      throw new Error(
-        "no merge request yet — approve the build to create one first",
-      );
-    return { mrIid: ctx.flow.mr_iid, mrBranch: ctx.flow.mr_branch };
+    return mrTargetResolver.resolve(ctx, branchName);
   }
 
   /**

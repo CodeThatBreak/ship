@@ -7,6 +7,7 @@ import type { FlowRow, Task } from "../../../db/rows";
 import { localGit } from "../../../git/local";
 import { authedCloneUrlFor } from "../../ports/git-host";
 import { taskRegistry } from "../../tasks/registry";
+import { branchNamer } from "./branch-namer";
 
 // ── context ──────────────────────────────────────────────────────────────────
 export type ExecMode = "cloud" | "local";
@@ -91,11 +92,7 @@ export class FlowContextHelper {
    * name gets rejected on push. Optional suffix for multi-branch builds.
    */
   buildBranch(ctx: FlowCtx, suffix?: string): string {
-    const slug = String(ctx.task.key ?? "task").toLowerCase().replace(/[^a-z0-9]+/g, "-");
-    const type = String(ctx.task.issueType ?? "").toLowerCase();
-    const prefix = /story|feature|task|epic/.test(type) ? "feature" : "bugfix";
-    const base = `${prefix}/${slug}-${ctx.flow.id.slice(-6)}`;
-    return suffix ? `${base}-${suffix}` : base;
+    return branchNamer.builtInBranch(ctx, suffix);
   }
 
   async makeDiff(ctx: FlowCtx, branch: string) {

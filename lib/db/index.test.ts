@@ -28,18 +28,18 @@ describe("Database bootstrap", () => {
     try {
       const { db } = await import("./index");
       db.connection();
-      expect(db.get<{ user_version: number }>(`PRAGMA user_version`)?.user_version).toBe(2);
+      expect(db.get<{ user_version: number }>(`PRAGMA user_version`)?.user_version).toBe(3);
     } finally {
       process.chdir(prevCwd);
     }
   });
 
-  it("sets user_version 2 and seeds built-in templates on a fresh DB", async () => {
+  it("sets user_version 3 and seeds built-in templates on a fresh DB", async () => {
     const dbPath = mkDbPath();
     process.env.DATABASE_PATH = dbPath;
     const { db } = await import("./index");
     db.connection();
-    expect(db.get<{ user_version: number }>(`PRAGMA user_version`)?.user_version).toBe(2);
+    expect(db.get<{ user_version: number }>(`PRAGMA user_version`)?.user_version).toBe(3);
     expect(db.get(`SELECT 1 AS ok FROM flow_templates WHERE id='tpl_sdlc_loop'`)).toEqual({ ok: 1 });
   });
 

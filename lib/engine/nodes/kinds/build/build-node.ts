@@ -232,7 +232,7 @@ export class BuildNode extends AgentRunNode<BuildInput, BuildOutput> {
     // the user's standing rules (prompt_rules knob) apply to every run
     const userRules = configString(config, "prompt_rules") ?? "";
     // Chat refine on an existing build agent is a different path
-    if (input.feedback) return this.refine(ctx, input.feedback, input.prompt, input.model, userRules);
+    if (input.feedback) return this.refine(ctx, input, userRules);
 
     const node = this.node(ctx);
     const plan = input.plan;
@@ -331,6 +331,7 @@ export class BuildNode extends AgentRunNode<BuildInput, BuildOutput> {
       const branchRowId = branchStore.upsert(ctx.flow.id, branchInfo.name, {
         title: branchInfo.title,
         status: "building",
+        gitBranch: resultBranch,
       });
       branchStore.tagRun(runRowId, branchRowId);
     }
@@ -354,38 +355,45 @@ export class BuildNode extends AgentRunNode<BuildInput, BuildOutput> {
   }
 
   /** Chat-driven changes: follow up on the build agent, regenerate the diff. */
-  private async refine(ctx: FlowCtx, feedback: string, promptOverride?: string | null, model?: string | null, userRules?: string): Promise<RunOutcome> {
+  private async refine(ctx: FlowCtx, input: BuildInput, userRules: string): Promise<RunOutcome> {
+    const feedback = input.feedback;
+    if (!feedback) throw new Error("feedback is required for a build refine");
     const node = this.node(ctx);
     if (!node.agent_id) {
       // no build agent yet — treat as a full build with the latest plan + note
       const plan = this.support.latestArtifact(ctx.flow.id, "plan");
       return this.run(ctx, this.inputSchema.parse({
         plan: (plan?.content ?? "") + `\n\nDeveloper note: ${feedback}`,
-        model: model ?? null,
+        model: input.model ?? null,
       }), this.nodeConfig(ctx));
     }
 
-    let prompt = prompts.resolve("build_refine", {}, { feedback }, promptOverride, { userRules });
-    // follow-ups run in the same worktree the build used (ensure creates it
-    // when the flow predates worktrees or the tree was swept)
-    const { worktree, setupNote } = await this.buildRun.worktree(
-      ctx, this.buildRun.flowBranch(ctx), node.id);
+    let prompt = prompts.resolve("build_refine", {}, { feedback }, input.prompt, { userRules });
+    const config = this.nodeConfig(ctx);
+    const gitBranch = input.branchInfo
+      ? (branchStore.gitBranch(ctx.flow.id, input.branchInfo.name)
+          ?? this.buildRun.branchName(ctx, config, input.branchInfo.name))
+      : this.buildRun.flowBranch(ctx);
+    const { worktree, setupNote } = await this.buildRun.worktree(ctx, gitBranch, node.id);
     prompt += this.buildRun.setupAdvisory(setupNote);
     const outcome = await this.execute(ctx, {
-      input: { feedback, prompt: promptOverride ?? null, model: model ?? null },
+      input: { feedback, prompt: input.prompt ?? null, model: input.model ?? null },
       prompt,
       agent: {
         mode: "agent",
         name: `build refine ${ctx.task.key}`,
         followUpOn: node.agent_id,
-        startingRef: ctx.flow.mr_branch ?? undefined,
+        startingRef: gitBranch,
         cwd: worktree ?? undefined,
-        model,
-        settingSources: mcpSourcesOf(this.nodeConfig(ctx)),
+        model: input.model,
+        settingSources: mcpSourcesOf(config),
       },
       label: "build refine",
       finalize: async (result) => {
-        const branch = await this.buildRun.refineBranch(ctx, result);
+        const branch = input.branchInfo
+          ? (branchStore.gitBranch(ctx.flow.id, input.branchInfo.name)
+              ?? (await this.buildRun.refineBranch(ctx, result)))
+          : (await this.buildRun.refineBranch(ctx, result));
         const art = await this.buildRun.diffArtifact(ctx, node.id, branch ?? "", {
           noDiffContent: result.result ?? "",
           extraMeta: { feedback },

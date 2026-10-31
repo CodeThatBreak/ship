@@ -5,6 +5,7 @@ import type { FlowCtx } from "../../shared";
 import { flowCtxHelper, type FlowContextHelper } from "../../shared/run-context";
 import { nodeSupport, type NodeSupport } from "../../shared/node-support";
 import type { AgentRunResult } from "../../../ports/agent-port";
+import { branchNamer } from "../../shared/branch-namer";
 import { configString } from "../../../templates/node-config";
 import { worktreeManager } from "../../../runtime/worktree-lifecycle";
 
@@ -32,17 +33,7 @@ export class BuildRunSupport {
    */
   branchName(ctx: FlowCtx, config: Record<string, unknown>, suffix?: string): string {
     const pattern = configString(config, "branch_pattern");
-    if (!pattern?.trim()) return this.ctxHelper.buildBranch(ctx, suffix);
-    const slug = String(ctx.task.key ?? "task").toLowerCase().replace(/[^a-z0-9]+/g, "-");
-    const type = String(ctx.task.issueType ?? "").toLowerCase();
-    const prefix = /story|feature|task|epic/.test(type) ? "feature" : "bugfix";
-    return pattern
-      .trim()
-      .replace(/\{prefix\}/g, prefix)
-      .replace(/\{slug\}/g, slug)
-      .replace(/\{ticket\}/g, String(ctx.task.key ?? "task"))
-      .replace(/\{id\}/g, ctx.flow.id.slice(-6))
-      .replace(/\{suffix\}/g, suffix ?? "");
+    return branchNamer.branchName(ctx, pattern, suffix);
   }
 
   /**

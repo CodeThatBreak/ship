@@ -18,6 +18,11 @@ export class NodeSupport {
     return n;
   }
 
+  /** Like nodeByKey but null when the instance key is absent (optional chain stages). */
+  optionalNodeByKey(flowId: string, key: string): NodeRow | null {
+    return rows.get(NodeRow, `SELECT * FROM nodes WHERE flow_id=? AND node_key=?`, flowId, key) ?? null;
+  }
+
   /** First node row of a given built-in node type (instance keys may differ
    *  from the type; callers that address by node_key use `nodeByKey`). */
   nodeByType(flowId: string, type: string): NodeRow | null {
@@ -230,7 +235,15 @@ export class NodeSupport {
   // ── comments ────────────────────────────────────────────────────────────────
 
   /** A flow's open MR comments (validated by the shared row mapper). */
-  openComments(flowId: string): CommentRow[] {
+  openComments(flowId: string, mrIid?: number | null): CommentRow[] {
+    if (mrIid != null) {
+      return rows.all(
+        CommentRow,
+        `SELECT * FROM comments WHERE flow_id=? AND status IN ('open') AND mr_iid=?`,
+        flowId,
+        mrIid,
+      );
+    }
     return rows.all(CommentRow, `SELECT * FROM comments WHERE flow_id=? AND status IN ('open')`, flowId);
   }
 

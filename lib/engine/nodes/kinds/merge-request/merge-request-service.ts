@@ -3,9 +3,9 @@ import "server-only";
 import { db } from "../../../../db";
 import { localGit } from "../../../../git/local";
 import { authedCloneUrlFor, gitHostRegistry, type ChangeRequest } from "../../../ports/git-host";
-import { flowCtxHelper, nodeSupport, type FlowCtx } from "../../shared";
-import { branchStore } from "../build";
-import { NODE_KEYS } from "../../../constants/node-keys";
+import { flowCtxHelper, type FlowCtx } from "../../shared/run-context";
+import { nodeSupport } from "../../shared/node-support";
+import { branchStore } from "../build/branch-store";
 
 /**
  * MR-creation failure that an agent can plausibly fix in the build step —
@@ -59,9 +59,34 @@ export function isHookRejection(text: string): boolean {
  * between build approval and the pipeline gate.
  */
 export class MergeRequestService {
-  async create(ctx: FlowCtx, branchName?: string, opts: { emitNodeKey?: string } = {}): Promise<ChangeRequest> {
+  /** Reset gate + review to pending once all branch MRs exist — skip `running`. */
+  resetGateReview(
+    flowId: string,
+    gateKey: string | null,
+    reviewKey: string | null,
+  ): void {
+    for (const key of [gateKey, reviewKey]) {
+      if (!key) continue;
+      const n = nodeSupport.optionalNodeByKey(flowId, key);
+      if (!n || n.status === "running") continue;
+      if (n.status !== "pending") nodeSupport.setNode(n.id, { status: "pending" });
+    }
+  }
+
+  async create(
+    ctx: FlowCtx,
+    branchName?: string,
+    opts: {
+      emitNodeKey?: string;
+      gateKey?: string | null;
+      reviewKey?: string | null;
+      skipGateReviewReset?: boolean;
+    } = {},
+  ): Promise<ChangeRequest> {
     const flow = ctx.flow;
-    const gitBranch = branchName ? flowCtxHelper.buildBranch(ctx, branchName) : flow.mr_branch;
+    const gitBranch = branchName
+      ? (branchStore.gitBranch(flow.id, branchName) ?? flowCtxHelper.buildBranch(ctx, branchName))
+      : flow.mr_branch;
     if (!gitBranch) throw new Error("no build branch to create an MR from");
 
     // Local mode: the branch may exist only in the local checkout (the agent
@@ -123,10 +148,8 @@ export class MergeRequestService {
         cr.webUrl, cr.number, project.id, db.now(), flow.id
       );
     }
-    // The pipeline gate + review re-run fresh for this CR
-    for (const key of [NODE_KEYS.PIPELINE, NODE_KEYS.REVIEW] as const) {
-      const n = nodeSupport.nodeByKey(flow.id, key);
-      if (n.status !== "pending") nodeSupport.setNode(n.id, { status: "pending" });
+    if (!opts.skipGateReviewReset) {
+      this.resetGateReview(flow.id, opts.gateKey ?? null, opts.reviewKey ?? null);
     }
     db.emitEvent(flow.id, null, "lifecycle", `Change request created: ${cr.webUrl}${branchName ? ` (${branchName})` : ""}`,
       { mrUrl: cr.webUrl, iid: cr.number, branchName: branchName ?? undefined, nodeKey: opts.emitNodeKey });
@@ -144,11 +167,23 @@ export class MergeRequestService {
   async createWithFixes(
     ctx: FlowCtx,
     branchName: string | undefined,
-    opts: { maxAttempts: number; runFix: (attempt: number, error: CommitError) => Promise<void>; emitNodeKey?: string },
+    opts: {
+      maxAttempts: number;
+      runFix: (attempt: number, error: CommitError) => Promise<void>;
+      emitNodeKey?: string;
+      gateKey?: string | null;
+      reviewKey?: string | null;
+      skipGateReviewReset?: boolean;
+    },
   ): Promise<ChangeRequest> {
     for (let attempt = 0; ; attempt++) {
       try {
-        return await this.create(ctx, branchName, { emitNodeKey: opts.emitNodeKey });
+        return await this.create(ctx, branchName, {
+          emitNodeKey: opts.emitNodeKey,
+          gateKey: opts.gateKey,
+          reviewKey: opts.reviewKey,
+          skipGateReviewReset: opts.skipGateReviewReset,
+        });
       } catch (e: unknown) {
         if (!isCommitError(e) || attempt >= opts.maxAttempts) throw e;
         await opts.runFix(attempt + 1, e);

@@ -40,7 +40,7 @@ export async function POST(req: Request) {
   if (event.kind === "cr_comment") {
     const f = flowEngine.findFlowByMR(event.projectId, event.crNumber, event.projectUrl);
     if (f) {
-      flowEngine.ingestComments(f.id, [event.comment]);
+      flowEngine.ingestComments(f.id, [event.comment], event.crNumber);
       const mins = Math.round(flowEngine.resolveDelayMs(f.id) / 60_000);
       // debounce: the comment restarts the debounced resolve's quiet period —
       // the wait-timer tick fires the resolve once quiet + the gate is clear

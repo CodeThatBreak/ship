@@ -11,6 +11,7 @@ import { NODE_KEYS } from "../../../constants/node-keys";
 import type { ConfigField } from "../../../templates/node-config";
 import { configString, mcpSourcesOf, mcpSourcesSchema, mcpSourceConfigFields, splitConsumerConfigFields } from "../../../templates/node-config";
 import { splitConsumeSchema, splitParallelMaxSchema } from "../../shared/split";
+import { mrTargetResolver } from "../../shared/mr-target-resolver";
 import { ResolveInput, ResolveOutput } from "./schema";
 import { worktreeManager } from "../../../runtime/worktree-lifecycle";
 
@@ -83,20 +84,9 @@ export class ResolveNode extends AgentRunNode<ResolveInput, ResolveOutput> {
 
     const node = this.node(ctx);
 
-    // resolve MR IID — per-branch or flow-level
-    let mrIid: number | null;
-    let mrBranch: string | null;
-    if (input.branchName) {
-      const branchMrIid = this.support.branchMrIid(ctx.flow.id, input.branchName);
-      if (!branchMrIid) throw new Error(`no merge request for branch ${input.branchName}`);
-      mrIid = branchMrIid;
-      mrBranch = this.ctxHelper.buildBranch(ctx, input.branchName);
-    } else {
-      mrIid = ctx.flow.mr_iid;
-      mrBranch = ctx.flow.mr_branch;
-    }
+    const { mrIid, mrBranch } = mrTargetResolver.resolve(ctx, input.branchName);
 
-    const open = this.support.openComments(ctx.flow.id);
+    const open = this.support.openComments(ctx.flow.id, mrIid);
     if (!open.length && !input.instructions) {
       return this.applyOutcome(ctx, {
         status: "done",

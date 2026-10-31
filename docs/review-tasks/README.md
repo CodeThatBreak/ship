@@ -60,7 +60,7 @@ Open and partly fixed findings: 262, spread over 61 tasks.
 | [ ] | 18 | [One terminal-status writer per node](18-terminal-outcome-writer.md) | CR-092, CR-206, CR-074, CR-088, CR-203 | M | 17 |
 | [x] | 19 | [Fan-out rollup idempotency and floating promises](19-fanout-rollup-and-promises.md) | CR-009, CR-010, CR-061, CR-057, CR-058, CR-064 | L | 17, 12 |
 | [x] | 20 | [Merge arena locking and workspace directories](20-merge-arena-and-workspaces.md) | CR-008, CR-059, CR-106, CR-107 | M | 19 |
-| [ ] | 21 | [Multi-branch (complex plan) flows](21-multi-branch-correctness.md) (needs approval) | CR-011, CR-017, CR-019, CR-020, CR-083, CR-094 | M | 18 |
+| [x] | 21 | [Multi-branch (complex plan) flows](21-multi-branch-correctness.md) (needs approval) | CR-011, CR-017, CR-019, CR-020, CR-083, CR-094 | M | 18 |
 | [ ] | 22 | [Pipeline gate, review posting and resolve correctness](22-pipeline-review-resolve.md) | CR-075, CR-085, CR-086, CR-209 | M | 18 |
 | [ ] | 23 | [Graph validation: loops, cycles, edge shapes, one validator](23-graph-semantics-and-validation.md) | CR-007, CR-062, CR-063, CR-032 | M | 05 |
 | [ ] | 24 | [Flow graph snapshot and YAML round-trip](24-template-snapshot-and-yaml.md) | CR-065, CR-191 | L | 23, 12 |
