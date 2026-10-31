@@ -1,5 +1,7 @@
 import "server-only";
 
+import { redactGitSecrets } from "./redact-git-secrets";
+
 export class GitCommandError extends Error {
   constructor(
     message: string,
@@ -11,18 +13,22 @@ export class GitCommandError extends Error {
     this.name = "GitCommandError";
   }
 
-  static fromExecError(args: readonly string[], e: unknown): GitCommandError {
+  static fromExecError(
+    args: readonly string[],
+    e: unknown,
+    redactSecrets: readonly string[] = [],
+  ): GitCommandError {
     const err = (typeof e === "object" && e !== null ? e : {}) as {
       killed?: boolean;
       stderr?: unknown;
       message?: unknown;
     };
-    const stderr = String(err.stderr ?? "").trim();
+    const stderr = redactGitSecrets(String(err.stderr ?? "").trim(), redactSecrets);
     const killed = !!err.killed;
     const tail = stderr.slice(-500);
-    const base = killed
-      ? `git ${args.join(" ")} timed out`
-      : `git ${args.join(" ")} failed (${String(err.message ?? e)})`;
+    const cmd = redactGitSecrets(`git ${args.join(" ")}`, redactSecrets);
+    const rawMsg = redactGitSecrets(String(err.message ?? e), redactSecrets);
+    const base = killed ? `${cmd} timed out` : `${cmd} failed (${rawMsg})`;
     return new GitCommandError(tail ? `${base} — ${tail}` : base, args, killed, stderr);
   }
 }

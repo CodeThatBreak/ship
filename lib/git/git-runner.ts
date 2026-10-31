@@ -15,6 +15,8 @@ export const MAX_GIT_BUFFER = 1024 * 1024 * 50;
 export type GitRunOpts = {
   timeout?: number;
   maxBuffer?: number;
+  env?: Record<string, string>;
+  redactSecrets?: readonly string[];
 };
 
 /**
@@ -32,9 +34,10 @@ export class GitRunner {
       return await execFileAsync("git", args, {
         maxBuffer: opts.maxBuffer ?? this.defaults.maxBuffer ?? MAX_GIT_BUFFER,
         timeout: opts.timeout ?? this.defaults.timeout ?? GIT_COMMAND_TIMEOUT_MS,
+        env: opts.env ? ({ ...process.env, ...opts.env } as NodeJS.ProcessEnv) : process.env,
       });
     } catch (e: unknown) {
-      throw GitCommandError.fromExecError(args, e);
+      throw GitCommandError.fromExecError(args, e, opts.redactSecrets ?? []);
     }
   }
 }

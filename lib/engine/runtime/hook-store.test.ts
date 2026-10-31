@@ -4,7 +4,13 @@ import { assignDatabasePath, createIsolatedDatabasePath } from "../../../tests/h
 assignDatabasePath(createIsolatedDatabasePath("devflow-hook-store-"));
 
 const { db } = await import("../../db");
-const { hookStore } = await import("./hook-store");
+const { hookStore, maskHookSecret } = await import("./hook-store");
+
+describe("maskHookSecret (CR-254)", () => {
+  it("masks hook secrets for flow snapshots", () => {
+    expect(maskHookSecret("whsec_abcdefghijklmnop")).toBe("••••mnop");
+  });
+});
 
 describe("HookStore delivery dedup", () => {
   it("does not record webhook-id until markDeliverySeen (CR-043)", () => {

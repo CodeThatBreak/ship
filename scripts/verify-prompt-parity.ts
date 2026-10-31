@@ -78,6 +78,8 @@ const fixtureHost: GitHostService = {
   ownsRepo: (u: string) => u === FIXTURE_REPO_URL,
   clientForRepo: noop as unknown as GitHostService["clientForRepo"],
   authedCloneUrl: (u: string) => u,
+  gitAuthEnv: () => ({}),
+  gitRedactValues: () => [],
   instances: () => [],
   addInstance: noop as unknown as GitHostService["addInstance"],
   updateInstance: noop as unknown as GitHostService["updateInstance"],

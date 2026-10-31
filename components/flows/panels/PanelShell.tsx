@@ -14,6 +14,7 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Spinner } from "@/components/ui/spinner";
 import { errorMessageOf } from "@/hooks/fetch-json";
 import { CostChip } from "./CostChip";
+import { apiFetch } from "@/hooks/local-api-token";
 import { useNodePanel } from "./context";
 
 /** The panel header title: the node contract's panel title wins, then the
@@ -143,13 +144,27 @@ export function PanelShell({
 function WaitBanner({ flow, node }: { flow?: FlowData; node: Node }) {
   const hook = (flow?.hooks ?? []).find((h) => h.node_key === node.node_key);
   const hookPath = hook ? `/api/hooks/${hook.id}` : null;
+
+  const loadSecret = async (): Promise<string | null> => {
+    if (!hook) return null;
+    const res = await apiFetch(`/api/hooks/${hook.id}/secret`);
+    if (!res.ok) return null;
+    const body = (await res.json()) as { secret?: string };
+    return body.secret ?? null;
+  };
+
   const copyCurl = () => {
     if (!hook || !hookPath) return;
-    const url = `${window.location.origin}${hookPath}`;
-    void navigator.clipboard?.writeText(
-      `curl -X POST ${url} -H "content-type: application/json" -H "webhook-id: demo-delivery-1" -H "webhook-timestamp: $(date +%s)" -H "x-devflow-secret: ${hook.secret}" -d '{"ping":true}'`,
-    );
+    void (async () => {
+      const secret = await loadSecret();
+      if (!secret) return;
+      const url = `${window.location.origin}${hookPath}`;
+      void navigator.clipboard?.writeText(
+        `curl -X POST ${url} -H "content-type: application/json" -H "webhook-id: demo-delivery-1" -H "webhook-timestamp: $(date +%s)" -H "x-devflow-secret: ${secret}" -d '{"ping":true}'`,
+      );
+    })();
   };
+
   return (
     <Alert className="mb-3.5">
       <Clock size={16} className="shrink-0" />

@@ -5,6 +5,7 @@ import {
   ArtifactRow,
   BranchRow,
   FlowRow,
+  HookRow,
   NodeRow,
   PlanStepRow,
   RunRow,
@@ -15,7 +16,7 @@ import type { Artifact, FlowData, Node as FlowNode } from "@/types/flow";
 import { declarativeDef } from "../nodes/declarative";
 import { nodeRegistry } from "../nodes/registry";
 import { uiCapabilities } from "../nodes/shared/capabilities";
-import { hookStore } from "./hook-store";
+import { hookStore, maskHookSecret } from "./hook-store";
 import { templateStore } from "../templates/template-store";
 import { stepFlows, StepFlowManager } from "./fanout/step-flow-manager";
 import { accumulateRunRow, emptyRunTokenBucket } from "../utils/run-token-rollup";
@@ -203,10 +204,10 @@ export class FlowReadModel {
       planSteps: stepsEnriched,
       resolveScheduleAt: this.schedule.resolveScheduleAt(id),
       task: toFlowTask(task),
-      hooks: hookStore.hooksForFlow(id).flatMap((h) =>
+      hooks: hookStore.hooksForFlow(id).flatMap((h: HookRow) =>
         h.flow_id == null
           ? []
-          : [{ id: h.id, flow_id: h.flow_id, node_key: h.node_key, secret: h.secret, filter: h.filter }],
+          : [{ id: h.id, flow_id: h.flow_id, node_key: h.node_key, secret: maskHookSecret(h.secret), filter: h.filter }],
       ),
       nodes: nodeRows.map((n): FlowNode => {
         const nt = ntOf(n.type);

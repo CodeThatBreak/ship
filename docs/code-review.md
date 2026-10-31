@@ -7283,8 +7283,8 @@ One row per finding, at `abaa007`.
 | CR-020 | High | Bug | Fixed | [Task 21](review-tasks/21-multi-branch-correctness.md) |
 | CR-021 | High | Infra | Fixed (Task 08) | [Task 08](review-tasks/08-db-bootstrap-and-schema.md) |
 | CR-022 | Medium | Infra | Fixed (Task 08) | [Task 08](review-tasks/08-db-bootstrap-and-schema.md) |
-| CR-023 | High | Security | Open | [Task 59](review-tasks/59-security-credential-hygiene.md) |
-| CR-024 | High | Security | Open | [Task 59](review-tasks/59-security-credential-hygiene.md) |
+| CR-023 | High | Security | Fixed | [Task 59](review-tasks/59-security-credential-hygiene.md) |
+| CR-024 | High | Security | Fixed | [Task 59](review-tasks/59-security-credential-hygiene.md) |
 | CR-025 | High | Gap | Open | [Task 31](review-tasks/31-git-host-clients.md) |
 | CR-026 | High | Bug | Open | [Task 30](review-tasks/30-events-feed.md) |
 | CR-027 | High | Gap | Fixed | [Task 15](review-tasks/15-frontend-mutation-conventions.md) |
@@ -7514,7 +7514,7 @@ One row per finding, at `abaa007`.
 | CR-251 | Low | Bug | Open | [Task 52](review-tasks/52-shared-ui-components.md) |
 | CR-252 | Low | Code quality | Open | [Task 52](review-tasks/52-shared-ui-components.md) |
 | CR-253 | Low | Code quality | Open | [Task 55](review-tasks/55-frontend-constants-and-types.md) |
-| CR-254 | Low | Security | Open | [Task 59](review-tasks/59-security-credential-hygiene.md) |
+| CR-254 | Low | Security | Fixed | [Task 59](review-tasks/59-security-credential-hygiene.md) |
 | CR-255 | Low | Performance | Open | [Task 41](review-tasks/41-settings-data-and-errors.md) |
 | CR-256 | Low | Code quality | Open | [Task 41](review-tasks/41-settings-data-and-errors.md) |
 | CR-257 | Low | Infra | Fixed | [Task 02](review-tasks/02-typecheck-and-build-gates.md) |
@@ -7524,8 +7524,8 @@ One row per finding, at `abaa007`.
 | CR-261 | Low | Docs | Fixed | [Task 56](review-tasks/56-docs-refresh.md) |
 | CR-262 | Low | Infra | Partly fixed | [Task 06](review-tasks/06-db-path-and-seed-safety.md) |
 | CR-263 | Low | Docs | Fixed | Task 07 |
-| CR-264 | Low | Security | Open | [Task 59](review-tasks/59-security-credential-hygiene.md) |
-| CR-265 | Low | Security | Open | [Task 59](review-tasks/59-security-credential-hygiene.md) |
+| CR-264 | Low | Security | Open (remove stale keys from local `.env`; see Task 59 PR) | [Task 59](review-tasks/59-security-credential-hygiene.md) |
+| CR-265 | Low | Security | Fixed | [Task 59](review-tasks/59-security-credential-hygiene.md) |
 | CR-266 | Low | Infra | Fixed | [Task 02](review-tasks/02-typecheck-and-build-gates.md) |
 | CR-267 | Low | Infra | Open | [Task 05](review-tasks/05-test-coverage-baseline.md) |
 | CR-268 | Low | Docs | Fixed | [Task 56](review-tasks/56-docs-refresh.md) |

@@ -289,7 +289,7 @@ export class GitLabService {
    * Resolve the GitLab credentials for a repo cloud URL: the registered
    * instance whose host matches wins (longest base_url first — handles
    * gitlab.company.com/group subpath setups); with exactly one instance
-   * registered it serves every host.
+   * registered it serves SSH-style URLs with no parseable host only.
    */
   instanceForRepo(repoUrl: string): GitLabInstance {
     const h = GitLabService.host(repoUrl);
@@ -298,7 +298,7 @@ export class GitLabService {
       .filter((i) => GitLabService.host(i.base_url) === h)
       .sort((a, b) => b.base_url.length - a.base_url.length)[0];
     if (match) return match;
-    if (instances.length === 1) return instances[0];
+    if (instances.length === 1 && h === null) return instances[0];
     throw new Error(
       `No GitLab instance configured for host "${h ?? repoUrl}". Add one on the Settings page.`
     );

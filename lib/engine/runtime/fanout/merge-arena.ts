@@ -6,9 +6,10 @@ import path from "path";
 import { promisify } from "util";
 import { db } from "../../../db";
 import { localGit } from "../../../git/local";
+import { redactGitSecrets } from "../../../git/redact-git-secrets";
 import { workspacePaths } from "../../../git/workspace-paths";
 import { processSingleton } from "../../../singleton";
-import { authedCloneUrlFor } from "../../ports/git-host";
+import { gitRemoteContextFor } from "../../ports/git-host";
 import { isHookRejection } from "../../nodes/kinds/merge-request";
 import type { MergeBackArgs, MergeBackResult } from "../../nodes/shared/capabilities";
 
@@ -87,12 +88,31 @@ class MergeArena {
 
   private async git(
     args: string[],
-    opts: { timeout?: number; maxBuffer?: number } = {}
+    opts: {
+      timeout?: number;
+      maxBuffer?: number;
+      env?: Record<string, string>;
+      redactSecrets?: readonly string[];
+    } = {},
   ): Promise<{ stdout: string; stderr: string }> {
-    return execFileAsync("git", args, {
-      maxBuffer: opts.maxBuffer ?? MAX_BUFFER,
-      timeout: opts.timeout ?? GIT_TIMEOUT_MS,
-    });
+    try {
+      return await execFileAsync("git", args, {
+        maxBuffer: opts.maxBuffer ?? MAX_BUFFER,
+        timeout: opts.timeout ?? GIT_TIMEOUT_MS,
+        env: opts.env ? ({ ...process.env, ...opts.env } as NodeJS.ProcessEnv) : process.env,
+      });
+    } catch (e: unknown) {
+      const err = (typeof e === "object" && e !== null ? e : {}) as {
+        stderr?: unknown;
+        stdout?: unknown;
+        message?: unknown;
+      };
+      const text = redactGitSecrets(
+        `${String(err.stderr ?? "")}\n${String(err.stdout ?? "")}\n${String(err.message ?? e)}`,
+        opts.redactSecrets ?? [],
+      );
+      throw new Error(text.trim() || String(e));
+    }
   }
 
   /**
@@ -278,10 +298,14 @@ class MergeArena {
   private async ensureWorkspaceUnlocked(parentFlowId: string, repoUrl: string): Promise<string> {
     const dir = workspacePaths.mergeArenaDir(parentFlowId);
     fs.mkdirSync(path.dirname(dir), { recursive: true });
-    await localGit.ensureClone(parentFlowId, repoUrl, authedCloneUrlFor).catch(() => null);
+    await localGit.ensureClone(parentFlowId, repoUrl, gitRemoteContextFor).catch(() => null);
     if (!fs.existsSync(path.join(dir, ".git"))) {
-      const authed = authedCloneUrlFor(repoUrl);
-      await this.git(["clone", "--no-checkout", authed, dir], { timeout: 300_000 });
+      const remote = gitRemoteContextFor(repoUrl);
+      await this.git(["clone", "--no-checkout", remote.cloneUrl, dir], {
+        timeout: 300_000,
+        env: remote.env,
+        redactSecrets: remote.redactSecrets,
+      });
     }
     await this.git(["-C", dir, "fetch", "origin", "--prune"], { timeout: 30_000 });
     return dir;
@@ -290,7 +314,9 @@ class MergeArena {
   private errorText(e: unknown): string {
     const err = e as { stderr?: string; stdout?: string; message?: string };
     const text = `${err?.stderr ?? ""}\n${err?.stdout ?? ""}\n${err?.message ?? String(e)}`;
-    return text.trim().split("\n").filter(Boolean).slice(-8).join("\n") || String(e);
+    return redactGitSecrets(
+      text.trim().split("\n").filter(Boolean).slice(-8).join("\n") || String(e),
+    );
   }
 }
 

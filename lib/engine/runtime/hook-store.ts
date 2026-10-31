@@ -4,6 +4,7 @@ import crypto from "crypto";
 import { Webhook } from "standardwebhooks";
 import { db } from "../../db";
 import { HookRow, rows } from "../../db/rows";
+import { maskToken } from "../../mask-token";
 import { processSingleton } from "../../singleton";
 
 /**
@@ -20,9 +21,9 @@ import { processSingleton } from "../../singleton";
  * schemes (GitLab token header, GitHub/Sentry HMAC) stay as tiny
  * per-provider verifiers next to their own routes.
  *
- * Hook secrets are displayable (unlike settings secrets) — the sender needs
- * them to sign payloads. Deliveries are deduped by the `webhook-id` header
- * (TTL'd rows in `hook_deliveries`).
+ * Hook secrets are masked in flow snapshots; the template editor and
+ * `GET /api/hooks/:id/secret` reveal them on demand (CR-254). Deliveries are
+ * deduped by the `webhook-id` header (TTL'd rows in `hook_deliveries`).
  */
 
 const HEADER_NAMES = ["webhook-id", "webhook-timestamp", "webhook-signature"] as const;
@@ -48,6 +49,9 @@ function fallbackTimestampOk(raw: string): boolean {
   const nowSec = Math.floor(Date.now() / 1000);
   return Math.abs(nowSec - ts) <= FALLBACK_TIMESTAMP_TOLERANCE_SEC;
 }
+
+/** Masked hook secret for flow snapshots and other client polls (CR-254). */
+export const maskHookSecret = (secret: string): string => maskToken(secret);
 
 export class HookStore {
   // ── reads ────────────────────────────────────────────────────────────────

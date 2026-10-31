@@ -5,7 +5,7 @@ import path from "path";
 import type { Repo } from "../../../db";
 import type { FlowRow, Task } from "../../../db/rows";
 import { localGit } from "../../../git/local";
-import { authedCloneUrlFor } from "../../ports/git-host";
+import { gitRemoteContextFor } from "../../ports/git-host";
 import { taskRegistry } from "../../tasks/registry";
 import { branchNamer } from "./branch-namer";
 
@@ -103,7 +103,7 @@ export class FlowContextHelper {
       const s = await localGit.localBranchState(lp, branch, ctx.repo?.default_branch ?? "main").catch(() => null);
       if (s && s.exists && s.raw) return { files: [], stat: s.stat, raw: s.raw };
     }
-    return localGit.diffBranch(ctx.flow.id, ctx.flow.repo_url ?? "", branch, undefined, lp, authedCloneUrlFor).catch(() => null);
+    return localGit.diffBranch(ctx.flow.id, ctx.flow.repo_url ?? "", branch, undefined, lp, gitRemoteContextFor).catch(() => null);
   }
 }
 

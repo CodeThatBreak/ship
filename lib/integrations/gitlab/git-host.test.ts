@@ -24,7 +24,7 @@ describe("GitLabHostService", () => {
 
   const service = new GitLabHostService(gitlab as unknown as GitLabService);
 
-  it("builds an authenticated clone URL with oauth2 and a .git suffix", () => {
+  it("returns a plain clone URL with a .git suffix (CR-023)", () => {
     vi.mocked(gitlab.instanceForRepo).mockReturnValue({
       id: "gli_1",
       name: null,
@@ -33,7 +33,24 @@ describe("GitLabHostService", () => {
       created_at: "2026-01-01T00:00:00.000Z",
     });
     const url = service.authedCloneUrl("https://gitlab.example.com/group/repo");
-    expect(url).toBe("https://oauth2:secret-token@gitlab.example.com/group/repo.git");
+    expect(url).toBe("https://gitlab.example.com/group/repo.git");
+    expect(url).not.toContain("secret-token");
+  });
+
+  it("supplies GIT_CONFIG auth env without embedding the token in the URL", () => {
+    vi.mocked(gitlab.instanceForRepo).mockReturnValue({
+      id: "gli_1",
+      name: null,
+      base_url: "https://gitlab.example.com",
+      token: "secret-token",
+      created_at: "2026-01-01T00:00:00.000Z",
+    });
+    const env = service.gitAuthEnv("https://gitlab.example.com/group/repo.git");
+    expect(env.GIT_CONFIG_KEY_0).toBe("http.extraHeader");
+    expect(env.GIT_CONFIG_VALUE_0).not.toContain("secret-token");
+    expect(service.gitRedactValues("https://gitlab.example.com/group/repo.git")).toEqual([
+      "secret-token",
+    ]);
   });
 
   it("passes through the repo URL when no token is available", () => {

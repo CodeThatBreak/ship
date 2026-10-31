@@ -1,5 +1,6 @@
 import "server-only";
 
+import type { GitRemoteContext } from "../../git/local";
 import { AuthedUrlResolutionError } from "../../git/git-errors";
 
 /** Lowercased URL host ("gitlab.company.com"), null when unparseable. */
@@ -165,8 +166,12 @@ export interface GitHostService {
   ownsRepo(repoUrl: string): boolean;
   /** API client bound to the instance that owns the given repo URL. */
   clientForRepo(repoUrl: string): GitHostClient;
-  /** Token-authed HTTPS clone/push URL for a repo (host-specific scheme). */
+  /** Plain HTTPS clone/push URL (credentials supplied via {@link gitAuthEnv}). */
   authedCloneUrl(repoUrl: string): string;
+  /** `GIT_CONFIG_*` env for HTTPS auth without embedding tokens in URLs. */
+  gitAuthEnv(repoUrl: string): Record<string, string>;
+  /** Secret values to strip from git error text for this repo. */
+  gitRedactValues(repoUrl: string): readonly string[];
 
   // ── instance registry (settings admin) ───────────────────────────────────
   instances(): HostInstance[];
@@ -266,6 +271,25 @@ export class GitHostRegistry {
 /** The engine's git-host seam. */
 export const gitHostRegistry = new GitHostRegistry();
 
+/** Ensure `.git` suffix for HTTPS remotes (GitLab redirect quirk). */
+export const normalizeCloneUrl = (repoUrl: string): string => {
+  const trimmed = repoUrl.trim();
+  return trimmed.endsWith(".git") ? trimmed : `${trimmed}.git`;
+};
+
+/**
+ * Plain clone URL plus out-of-band auth for local git operations. Keeps
+ * `lib/git` free of engine imports while the registry stays the router.
+ */
+export const gitRemoteContextFor = (repoUrl: string): GitRemoteContext => {
+  const svc = gitHostRegistry.forRepo(repoUrl);
+  return {
+    cloneUrl: svc.authedCloneUrl(repoUrl),
+    env: svc.gitAuthEnv(repoUrl),
+    redactSecrets: svc.gitRedactValues(repoUrl),
+  };
+};
+
 /**
  * Token-authed clone/push URL for a repo. Engine-side resolution handed to
  * `lib/git` local operations (ensureClone / pushBranch) — keeps `lib/git` free
@@ -273,7 +297,7 @@ export const gitHostRegistry = new GitHostRegistry();
  */
 export function authedCloneUrlFor(repoUrl: string): string {
   try {
-    return gitHostRegistry.forRepo(repoUrl).authedCloneUrl(repoUrl);
+    return gitRemoteContextFor(repoUrl).cloneUrl;
   } catch (e: unknown) {
     throw new AuthedUrlResolutionError(repoUrl, e);
   }

@@ -15,7 +15,7 @@ Each finding was re-verified against `refactor/prompt-engine-inconsistency-fix` 
 
 ### CR-023 [High] GitLab token embedded in git clone/push URLs leaks into error text, the event log, `step_merges.error` and on-disk `.git/config` (local clones and merge arena)
 
-- **Status:** Open
+- **Status:** Fixed
 - **Type:** Security
 - **Effort:** M
 - **Where:** lib/integrations/gitlab/git-host.ts:188-203 (oauth2:<token>@ URL); lib/engine/ports/git-host.ts:278-282; lib/git/local.ts:57-60, 77 (clone persists token in .git/config), 161, 170 (push error message interpolated, 300 chars); lib/engine/runtime/fanout/merge-arena.ts:91-94 (arena clone), 221-258, 289-293 (errorText unredacted into step_merges.error/events)
@@ -23,7 +23,7 @@ Each finding was re-verified against `refactor/prompt-engine-inconsistency-fix` 
 
 ### CR-024 [High] Single-GitLab-instance fallback claims every repo host and sends the GitLab token to foreign hosts
 
-- **Status:** Open
+- **Status:** Fixed
 - **Type:** Security
 - **Effort:** S
 - **Where:** lib/integrations/gitlab/client.ts:209-221 (instanceForRepo single-instance fallback); lib/integrations/gitlab/git-host.ts:175-182 (ownsRepo), 188-203 (authedCloneUrl)
@@ -31,7 +31,7 @@ Each finding was re-verified against `refactor/prompt-engine-inconsistency-fix` 
 
 ### CR-254 [Low] Webhook secrets are part of the client payload types (Needs verification)
 
-- **Status:** Open
+- **Status:** Fixed
 - **Type:** Security
 - **Effort:** S
 - **Where:** lib/engine/flow-engine.ts:480, types/flow.ts:115, components/flows/panels/PanelShell.tsx:107-127, types/template-editor.ts:69
@@ -39,7 +39,7 @@ Each finding was re-verified against `refactor/prompt-engine-inconsistency-fix` 
 
 ### CR-264 [Low] Local `.env` holds live integration secrets the app no longer reads
 
-- **Status:** Open
+- **Status:** Open (operator action)
 - **Type:** Security
 - **Effort:** S
 - **Where:** .env:3,6-8,11-12 (gitignored, never committed)
@@ -48,7 +48,7 @@ Each finding was re-verified against `refactor/prompt-engine-inconsistency-fix` 
 
 ### CR-265 [Low] `.gitignore` only ignores the literal `.env`
 
-- **Status:** Open
+- **Status:** Fixed
 - **Type:** Security
 - **Effort:** S
 - **Where:** .gitignore:3
@@ -56,8 +56,8 @@ Each finding was re-verified against `refactor/prompt-engine-inconsistency-fix` 
 
 ## Done when
 
-- [ ] Every finding above is fixed, or a remaining part is written up in the PR description.
-- [ ] Each bug fix has a regression test (Vitest for `lib/`; at least a hook or utility test for UI where practical).
-- [ ] Code follows [`docs/coding-patterns.md`](../coding-patterns.md).
-- [ ] `npm run typecheck`, `npm run lint`, `npm test` and `npm run build` pass (before Task 02 lands, `npx tsc --noEmit` instead of `typecheck`).
-- [ ] The status of each finding in [`docs/code-review.md`](../code-review.md) is updated (Fixed, with the PR link).
+- [x] Every finding above is fixed, or a remaining part is written up in the PR description.
+- [x] Each bug fix has a regression test (Vitest for `lib/`; at least a hook or utility test for UI where practical).
+- [x] Code follows [`docs/coding-patterns.md`](../coding-patterns.md).
+- [x] `npm run typecheck`, `npm run lint`, `npm test` and `npm run build` pass (before Task 02 lands, `npx tsc --noEmit` instead of `typecheck`).
+- [x] The status of each finding in [`docs/code-review.md`](../code-review.md) is updated (Fixed, with the PR link).

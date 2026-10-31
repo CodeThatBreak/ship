@@ -20,7 +20,13 @@ import type {
 } from "../../engine/ports/git-host";
 import { GitLabClient, type GitLabService, type Discussion, type MergeRequest, type Pipeline as GitLabPipeline } from "./client";
 
+import { gitLabOAuthBasicHeaderEnv } from "../../git/git-auth-env";
 import { maskToken } from "../../mask-token";
+
+const normalizeCloneUrl = (repoUrl: string): string => {
+  const trimmed = repoUrl.trim();
+  return trimmed.endsWith(".git") ? trimmed : `${trimmed}.git`;
+};
 
 const GitLabProjectRow = z.object({
   id: z.number(),
@@ -221,20 +227,31 @@ export class GitLabHostService implements GitHostService {
   }
 
   authedCloneUrl(repoUrl: string): string {
-    // Credential scheme is the host's: GitLab accepts `oauth2:<token>` as the
-    // HTTPS user. The resolved instance carries the token; without one, pass
-    // the URL through untouched.
-    let token = "";
     try {
-      token = this.gitlab.instanceForRepo(repoUrl).token;
+      this.gitlab.instanceForRepo(repoUrl);
     } catch {
-      token = "";
+      /* still normalize suffix for callers that push without a matching instance */
     }
-    if (!token) return repoUrl;
-    // https://oauth2:TOKEN@host/group/repo.git — the .git suffix matters: without
-    // it some GitLab fronts 301-redirect and git push fails on the redirect.
-    const withAuth = repoUrl.replace(/^https?:\/\//, (m) => `${m}oauth2:${token}@`);
-    return withAuth.endsWith(".git") ? withAuth : `${withAuth}.git`;
+    return normalizeCloneUrl(repoUrl);
+  }
+
+  gitAuthEnv(repoUrl: string): Record<string, string> {
+    try {
+      const token = this.gitlab.instanceForRepo(repoUrl).token;
+      if (!token) return {};
+      return gitLabOAuthBasicHeaderEnv(token);
+    } catch {
+      return {};
+    }
+  }
+
+  gitRedactValues(repoUrl: string): readonly string[] {
+    try {
+      const token = this.gitlab.instanceForRepo(repoUrl).token;
+      return token ? [token] : [];
+    } catch {
+      return [];
+    }
   }
 
   // ── instance registry (settings admin) ───────────────────────────────────
