@@ -20,6 +20,10 @@ import { useCallback, useMemo, useRef, useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { errorMessageOf } from "@/hooks/fetch-json";
 import {
+  useNavigationGuard,
+  type BlockedNavigation,
+} from "@/hooks/use-navigation-guard";
+import {
   isPlanDownstream,
   nodeRelationships,
   type BuilderApi,
@@ -105,8 +109,18 @@ export function TemplateEditor({ templateId }: TemplateEditorProps) {
   const [settingsOpen, setSettingsOpen] = useState(false);
   /** the styled "leave with unsaved changes?" confirm on the back link */
   const [confirmLeave, setConfirmLeave] = useState(false);
+  const pendingNavigation = useRef<BlockedNavigation | null>(null);
   /** the canvas's screen→flow helper (palette placements go to viewport center) */
   const builderApi = useRef<BuilderApi | null>(null);
+
+  const requestLeave = useCallback((target: BlockedNavigation) => {
+    pendingNavigation.current = target;
+    setConfirmLeave(true);
+  }, []);
+
+  useNavigationGuard(machine.dirty, {
+    onBlocked: requestLeave,
+  });
 
   const actions = useEditorActions({
     machine,
@@ -201,7 +215,7 @@ export function TemplateEditor({ templateId }: TemplateEditorProps) {
         saving={saveApi.saving}
         layoutSync={layout.layoutSync}
         onBack={() => {
-          if (machine.dirty) setConfirmLeave(true);
+          if (machine.dirty) requestLeave({ kind: "link", href: "/templates" });
           else router.push("/templates");
         }}
         onUndo={machine.undo}
@@ -274,7 +288,8 @@ export function TemplateEditor({ templateId }: TemplateEditorProps) {
         readonly={readonly}
         onClose={() => actions.setNodeDrawer(null)}
         onPatch={(patch) => {
-          if (configuring) machine.patchNode(configuring.key, patch);
+          if (readonly || !configuring) return;
+          machine.patchNode(configuring.key, patch);
         }}
         registerPendingFlush={registerPendingFlush}
         onRemove={actions.removeNode}
@@ -295,14 +310,13 @@ export function TemplateEditor({ templateId }: TemplateEditorProps) {
           triggerFields={contracts.triggerFields}
           onClose={() => actions.setEdgeDrawer(null)}
           onPatch={(patch) => {
-            if (!draft || actions.edgeDrawer == null) return;
-            const next = {
-              ...draft,
-              edges: draft.edges.map((e, i) =>
+            if (readonly || actions.edgeDrawer == null) return;
+            machine.apply((cur) => ({
+              ...cur,
+              edges: cur.edges.map((e, i) =>
                 i === actions.edgeDrawer ? { ...e, ...patch } : e,
               ),
-            };
-            machine.apply(next);
+            }));
           }}
           onRemove={() => {
             if (actions.edgeDrawer != null) actions.removeEdge(actions.edgeDrawer);
@@ -326,16 +340,32 @@ export function TemplateEditor({ templateId }: TemplateEditorProps) {
         onRetryRepos={() => void reposQuery.refetch()}
         templateId={draft.template.id}
         onTemplateChange={(t) =>
-          machine.apply({ ...draft, template: { ...draft.template, ...t } })
+          machine.apply((cur) => ({
+            ...cur,
+            template: { ...cur.template, ...t },
+          }))
         }
       />
 
       <EditorLeaveConfirm
         open={confirmLeave}
-        onKeep={() => setConfirmLeave(false)}
+        onKeep={() => {
+          pendingNavigation.current = null;
+          setConfirmLeave(false);
+        }}
         onLeave={() => {
           setConfirmLeave(false);
-          machine.setDirty(false); // don't trip the beforeunload guard on the way out
+          machine.setDirty(false);
+          const target = pendingNavigation.current;
+          pendingNavigation.current = null;
+          if (target?.kind === "history-back") {
+            window.history.back();
+            return;
+          }
+          if (target?.kind === "link") {
+            router.push(target.href);
+            return;
+          }
           router.push("/templates");
         }}
       />

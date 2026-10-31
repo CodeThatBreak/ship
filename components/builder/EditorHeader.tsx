@@ -5,7 +5,6 @@
  * autosave/"unsaved" annotations, then the flow-settings/undo/redo/save
  * actions (hidden while a read-only built-in is open).
  */
-import Link from "next/link";
 import { ArrowLeft, LayoutTemplate, Lock, Redo2, Save, Settings2, Undo2 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -99,9 +98,13 @@ export function EditorHeader({
       {readonly ? (
         <span className="text-[11.5px] text-muted-foreground flex items-center gap-1.5">
           <Lock size={11} /> read-only —{" "}
-          <Link href="/templates" className="underline">
+          <button
+            type="button"
+            className="underline"
+            onClick={onBack}
+          >
             duplicate in the gallery
-          </Link>{" "}
+          </button>{" "}
           to edit
         </span>
       ) : null}

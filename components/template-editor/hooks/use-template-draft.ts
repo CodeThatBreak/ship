@@ -9,11 +9,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { Draft } from "../draft";
 import { resolveEditorNodePatch, type EditorNodePatch } from "../types";
-
-/** How many structural snapshots undo/redo keeps. */
-const UNDO_STACK_LIMIT = 50;
-/** Bursts of structural edits (typing in a field) coalesce into one snapshot. */
-const SNAPSHOT_COALESCE_MS = 500;
+import { planDraftHistoryAfterMutation } from "../utils/draft-history";
 
 export interface UndoRedoOptions {
   /** a structural snapshot may invalidate the open drawers' targets (a node
@@ -29,7 +25,7 @@ export interface TemplateDraftMachine {
   /** replace the draft without touching dirty/history (timers, auto-labels) */
   setDraft: (next: Draft | null | ((cur: Draft | null) => Draft | null)) => void;
   /** a structural edit: snapshots for undo when nodes/edges changed */
-  apply: (next: Draft) => void;
+  apply: (next: Draft | ((cur: Draft) => Draft)) => void;
   /** one node's meta/config patch — meta-only, no snapshot */
   patchNode: (key: string, patch: EditorNodePatch) => void;
   /** adopt server state wholesale (initial load, post-save reload): history resets */
@@ -131,26 +127,26 @@ export function useTemplateDraft(
   );
 
   const apply = useCallback(
-    (next: Draft) => {
+    (nextOrUpdater: Draft | ((cur: Draft) => Draft)) => {
       const cur = draftRef.current;
-      if (cur) {
-        // structural changes (nodes/edges replaced) snapshot for undo; meta-only
-        // edits and rapid bursts (each keystroke re-replaces the edges array)
-        // coalesce into the previous snapshot instead of flooding the stack
-        const structural = next.nodes !== cur.nodes || next.edges !== cur.edges;
-        const now = Date.now();
-        if (
-          structural &&
-          (undoStack.current.length === 0 ||
-            now - lastSnapAt.current > SNAPSHOT_COALESCE_MS)
-        ) {
-          undoStack.current.push(cur);
-          if (undoStack.current.length > UNDO_STACK_LIMIT)
-            undoStack.current.shift();
-          redoStack.current = [];
-          lastSnapAt.current = now;
-        }
-      }
+      if (!cur) return;
+      const next =
+        typeof nextOrUpdater === "function"
+          ? nextOrUpdater(cur)
+          : nextOrUpdater;
+      const planned = planDraftHistoryAfterMutation(
+        cur,
+        next,
+        {
+          undo: undoStack.current,
+          redo: redoStack.current,
+          lastSnapAt: lastSnapAt.current,
+        },
+        Date.now(),
+      );
+      undoStack.current = planned.undo;
+      redoStack.current = planned.redo;
+      lastSnapAt.current = planned.lastSnapAt;
       setDraft(next);
       setDirty(true);
       setNotice(null);
@@ -162,21 +158,14 @@ export function useTemplateDraft(
 
   const patchNode = useCallback(
     (key: string, patch: EditorNodePatch) => {
-      setDraft((cur) =>
-        cur
-          ? {
-              ...cur,
-              nodes: cur.nodes.map((p) =>
-                p.key === key ? resolveEditorNodePatch(p, patch) : p,
-              ),
-            }
-          : cur,
-      );
-      setDirty(true);
-      setNotice(null);
-      bumpEditGeneration();
+      apply((cur) => ({
+        ...cur,
+        nodes: cur.nodes.map((p) =>
+          p.key === key ? resolveEditorNodePatch(p, patch) : p,
+        ),
+      }));
     },
-    [setDraft, bumpEditGeneration],
+    [apply],
   );
 
   // ⌘Z / Ctrl+Z (and ⇧ for redo) — skipped while typing so text fields keep

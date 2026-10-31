@@ -39,10 +39,15 @@ export function BuilderNodeView({ id, data }: NodeProps<Node<BuilderNodeData>>) 
   const branches = isDecision && choices?.length ? choices : null;
   return (
     <div
-      // no stopPropagation: the click must reach React Flow's node wrapper so
-      // the node becomes RF-selected (Backspace/Delete keyboard delete relies
-      // on it); the pane's own click handler ignores node clicks already
+      role="button"
+      tabIndex={0}
       onClick={() => onOpen(id)}
+      onKeyDown={(e) => {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          onOpen(id);
+        }
+      }}
       className={cn(
         "group relative rounded-lg border-[1.5px] bg-card cursor-pointer px-3 py-2 min-w-[148px] max-w-[188px] flex items-center gap-2.5 transition-all duration-150",
         "hover:shadow-panel",

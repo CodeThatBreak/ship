@@ -85,9 +85,10 @@ export function EditorNodeDrawer({
                   value={node.overrideLabel ?? ""}
                   placeholder={node.catalog_name ?? node.key}
                   className="h-7 w-1/2 rounded-none border-x-0 border-t-0 px-1.5 text-[15px] font-semibold focus-visible:ring-0"
-                  onChange={(e) =>
-                    onPatch({ overrideLabel: e.target.value || null })
-                  }
+                  onChange={(e) => {
+                    if (readonly) return;
+                    onPatch({ overrideLabel: e.target.value || null });
+                  }}
                 />
               )}
               <Badge variant="outline" className="shrink-0">
@@ -116,6 +117,7 @@ export function EditorNodeDrawer({
               invalidRefs={invalidRefs}
               templateId={templateId}
               problems={problems}
+              readOnly={readonly}
               onChange={onPatch}
               registerPendingFlush={registerPendingFlush}
             />

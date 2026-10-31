@@ -90,7 +90,7 @@ export interface EditorActionsApi {
 
 export function useEditorActions(deps: EditorActionsDeps): EditorActionsApi {
   const { machine, layout, builderApi, drawerCloser } = deps;
-  const { draft, apply, setDraft, setNotice } = machine;
+  const { draftRef, apply, setNotice } = machine;
   const { positions, setPositions, scheduleSave } = layout;
   const queryClient = useQueryClient();
 
@@ -122,48 +122,51 @@ export function useEditorActions(deps: EditorActionsDeps): EditorActionsApi {
    *  entry; delete its outgoing edges instead to strand a branch. */
   const removeNode = useCallback(
     (node: EditorNode) => {
-      if (!draft) return;
+      const cur = draftRef.current;
+      if (!cur) return;
       if (node.nodeTemplateId === START_NODE_TEMPLATE_ID) {
         setNotice(
           "The Start node can't be deleted — it's the flow's entry. Rewire its edges instead.",
         );
         return;
       }
-      apply({
-        ...draft,
-        nodes: draft.nodes.filter((n) => n.key !== node.key),
-        edges: draft.edges.filter(
+      apply((d) => ({
+        ...d,
+        nodes: d.nodes.filter((n) => n.key !== node.key),
+        edges: d.edges.filter(
           (e) => e.from !== node.key && e.to !== node.key,
         ),
-      });
-      setNodeDrawer((cur) => (cur === node.key ? null : cur));
-      setPlacedKey((cur) => (cur === node.key ? null : cur));
-      // the removed node's edges shift the edge indexes — close a stale drawer
+      }));
+      setNodeDrawer((open) => (open === node.key ? null : open));
+      setPlacedKey((open) => (open === node.key ? null : open));
       setEdgeDrawer(null);
     },
-    [draft, apply, setNotice],
+    [draftRef, apply, setNotice],
   );
 
   /** Keyboard-delete path from the canvas (BuilderCanvas resolves the id). */
   const removeNodeKey = useCallback(
     (key: string) => {
-      const node = draft?.nodes.find((n) => n.key === key);
+      const node = draftRef.current?.nodes.find((n) => n.key === key);
       if (node) removeNode(node);
     },
-    [draft, removeNode],
+    [draftRef, removeNode],
   );
 
   /** Removes an edge by draft index (footer button + keyboard deletes —
    *  BuilderCanvas resolves the flow edge id `edge<i>` to this index). */
   const removeEdge = useCallback(
     (index: number) => {
-      if (!draft) return;
-      apply({ ...draft, edges: draft.edges.filter((_, i) => i !== index) });
+      if (!draftRef.current) return;
+      apply((d) => ({
+        ...d,
+        edges: d.edges.filter((_, i) => i !== index),
+      }));
       setEdgeDrawer((cur) =>
         cur == null ? cur : cur === index ? null : cur > index ? cur - 1 : cur,
       );
     },
-    [draft, apply],
+    [draftRef, apply],
   );
 
   /** Right-click → Duplicate node (Phase 6, G3): a fresh unique key, the
@@ -172,8 +175,9 @@ export function useEditorActions(deps: EditorActionsDeps): EditorActionsApi {
    *  Draft instances share their pending def — nothing extra to carry. */
   const duplicateNode = useCallback(
     (key: string) => {
-      if (!draft) return;
-      const src = draft.nodes.find((n) => n.key === key);
+      const cur = draftRef.current;
+      if (!cur) return;
+      const src = cur.nodes.find((n) => n.key === key);
       if (!src) return;
       if (src.nodeTemplateId === START_NODE_TEMPLATE_ID || src.is_builtin) {
         setNotice(
@@ -185,13 +189,13 @@ export function useEditorActions(deps: EditorActionsDeps): EditorActionsApi {
       }
       const newKey = uniqueKey(
         `${src.overrideLabel || src.catalog_name || src.key} copy`,
-        draft.nodes,
+        cur.nodes,
       );
       const pos = positions[key] ?? { x: 0, y: 0 };
-      apply({
-        ...draft,
+      apply((d) => ({
+        ...d,
         nodes: [
-          ...draft.nodes,
+          ...d.nodes,
           {
             ...src,
             key: newKey,
@@ -199,21 +203,22 @@ export function useEditorActions(deps: EditorActionsDeps): EditorActionsApi {
             overrideLabel: `${nodeLabel(src)} copy`,
           },
         ],
-      });
+      }));
       setPositions((p) => ({ ...p, [newKey]: { x: pos.x + 44, y: pos.y + 44 } }));
       scheduleSave();
       setNotice("Node duplicated — drag from one of its handles to connect it.");
     },
-    [draft, apply, positions, setPositions, scheduleSave, setNotice],
+    [draftRef, apply, positions, setPositions, scheduleSave, setNotice],
   );
 
   /** "Tidy layout" (Phase 6, G2): dagre over the draft graph, then the usual
    *  debounced positions autosave (a tidy is just many drags at once). */
   const tidyLayout = useCallback(() => {
-    if (!draft || draft.template.is_builtin) return;
-    setPositions((p) => ({ ...p, ...dagreLayout(draft.nodes, draft.edges) }));
+    const cur = draftRef.current;
+    if (!cur || cur.template.is_builtin) return;
+    setPositions((p) => ({ ...p, ...dagreLayout(cur.nodes, cur.edges) }));
     scheduleSave();
-  }, [draft, setPositions, scheduleSave]);
+  }, [draftRef, setPositions, scheduleSave]);
 
   /** Decision branches: fetch the decision's choices (TanStack cache) and
    *  label the new edge with the first choice no sibling edge uses yet — the
@@ -221,7 +226,7 @@ export function useEditorActions(deps: EditorActionsDeps): EditorActionsApi {
    *  (label stays editable in the edge drawer). */
   const autoLabelDecisionEdge = useCallback(
     async (from: string, to: string, edges: Draft["edges"]) => {
-      const src = draft?.nodes.find((n) => n.key === from);
+      const src = draftRef.current?.nodes.find((n) => n.key === from);
       if (src?.kind !== "decision") return;
       const url = contractsUrl(src);
       const contract = await queryClient
@@ -236,21 +241,14 @@ export function useEditorActions(deps: EditorActionsDeps): EditorActionsApi {
       );
       const label = choices.find((ch) => !used.has(ch.label))?.label;
       if (!label) return;
-      setDraft((cur) =>
-        cur
-          ? {
-              ...cur,
-              edges: cur.edges.map((e) =>
-                e.from === from && e.to === to && !e.label
-                  ? { ...e, label }
-                  : e,
-              ),
-            }
-          : cur,
-      );
-      machine.setDirty(true);
+      apply((cur) => ({
+        ...cur,
+        edges: cur.edges.map((e) =>
+          e.from === from && e.to === to && !e.label ? { ...e, label } : e,
+        ),
+      }));
     },
-    [draft, queryClient, setDraft, machine],
+    [draftRef, queryClient, apply],
   );
 
   /** A new edge from the canvas. From a decision node's branch handle the
@@ -259,25 +257,31 @@ export function useEditorActions(deps: EditorActionsDeps): EditorActionsApi {
    *  finish it, and decision sources still auto-pick a free branch label. */
   const addEdge = useCallback(
     (from: string, to: string, branchLabel?: string | null) => {
-      if (!draft) return;
-      const exists = draft.edges.some(
+      const cur = draftRef.current;
+      if (!cur) return;
+      const exists = cur.edges.some(
         (e) => edgeDedupeKey(e.from, e.to, e.label) === edgeDedupeKey(from, to, branchLabel ?? null),
       );
       if (exists) {
         setNotice(`Nodes are already connected (${from} → ${to}).`);
         return;
       }
-      const nextEdges: Draft["edges"] = [
-        ...draft.edges,
-        { from, to, kind: "next", label: branchLabel ?? null, condition: null },
-      ];
-      apply({ ...draft, edges: nextEdges });
+      let nextEdgeCount = 0;
+      apply((d) => {
+        const nextEdges: Draft["edges"] = [
+          ...d.edges,
+          { from, to, kind: "next", label: branchLabel ?? null, condition: null },
+        ];
+        nextEdgeCount = nextEdges.length;
+        return { ...d, edges: nextEdges };
+      });
       if (!branchLabel) {
-        setEdgeDrawer(nextEdges.length - 1);
-        void autoLabelDecisionEdge(from, to, nextEdges);
+        setEdgeDrawer(nextEdgeCount - 1);
+        const edgesAfter = draftRef.current?.edges;
+        if (edgesAfter) void autoLabelDecisionEdge(from, to, edgesAfter);
       }
     },
-    [draft, apply, setNotice, autoLabelDecisionEdge],
+    [draftRef, apply, setNotice, autoLabelDecisionEdge],
   );
 
   /** Build + place a new node instance (palette pick): viewport center,
@@ -287,21 +291,17 @@ export function useEditorActions(deps: EditorActionsDeps): EditorActionsApi {
    *  a node's handle. Config happens when the user opens the drawer. */
   const addInstance = useCallback(
     (opts: PlacementOpts): string | null => {
-      if (!draft) return null;
-      const key = uniqueKey(opts.name || "node", draft.nodes);
-      placeNewNodeIntoLayout(
-        key,
-        draft,
-        builderApi,
-        setPositions,
-      );
-      apply({
-        ...draft,
+      const cur = draftRef.current;
+      if (!cur) return null;
+      const key = uniqueKey(opts.name || "node", cur.nodes);
+      placeNewNodeIntoLayout(key, cur, builderApi, setPositions);
+      apply((d) => ({
+        ...d,
         pendingDefs: opts.draftDef
-          ? { ...draft.pendingDefs, [opts.draftDef.draftId]: opts.draftDef }
-          : draft.pendingDefs,
+          ? { ...d.pendingDefs, [opts.draftDef.draftId]: opts.draftDef }
+          : d.pendingDefs,
         nodes: [
-          ...draft.nodes,
+          ...d.nodes,
           {
             key,
             nodeTemplateId: opts.nodeTemplateId,
@@ -318,13 +318,13 @@ export function useEditorActions(deps: EditorActionsDeps): EditorActionsApi {
             is_builtin: opts.isBuiltin,
           },
         ],
-      });
+      }));
       setNodeDrawer(null);
       setPlacedKey(key);
       setNotice("Node placed — drag from one of its handles to connect it.");
       return key;
     },
-    [draft, apply, builderApi, setPositions, setNotice],
+    [draftRef, apply, builderApi, setPositions, setNotice],
   );
 
   /** A palette pick: place an instance of the catalog row on the canvas
@@ -338,19 +338,18 @@ export function useEditorActions(deps: EditorActionsDeps): EditorActionsApi {
       catalogKey: string,
       name: string,
     ) => {
-      if (!draft) return;
+      const cur = draftRef.current;
+      if (!cur) return;
       if (
         isBuiltin &&
-        draft.nodes.some((n) => n.nodeTemplateId === nodeTemplateId)
+        cur.nodes.some((n) => n.nodeTemplateId === nodeTemplateId)
       ) {
         setNotice(`Only one "${name}" node is allowed — this template already has one.`);
         return;
       }
-      // only one Start node per template (the server's singleton rule enforces
-      // the same at save time — fail friendly here instead)
       if (
         catalogKey === "start" &&
-        draft.nodes.some((n) => n.nodeTemplateId === START_NODE_TEMPLATE_ID)
+        cur.nodes.some((n) => n.nodeTemplateId === START_NODE_TEMPLATE_ID)
       ) {
         setNotice(
           "Only one Start node is allowed — this template already has one.",
@@ -366,7 +365,7 @@ export function useEditorActions(deps: EditorActionsDeps): EditorActionsApi {
         catalogKey,
       });
     },
-    [draft, addInstance, setNotice],
+    [draftRef, addInstance, setNotice],
   );
 
   /**
@@ -379,9 +378,10 @@ export function useEditorActions(deps: EditorActionsDeps): EditorActionsApi {
    */
   const addKindNode = useCallback(
     (kind: DraftKind) => {
-      if (!draft) return;
+      const cur = draftRef.current;
+      if (!cur) return;
       const draftId = `draft:${draftSeq.current++}`;
-      const name = nextDraftName(kind, draft);
+      const name = nextDraftName(kind, cur);
       // the kind's boilerplate — the def carries it (the row born at Save) and
       // the instance config mirrors it (the drawer/canvas contract reads the
       // instance config; identical values keep the def the source of truth)
@@ -403,7 +403,7 @@ export function useEditorActions(deps: EditorActionsDeps): EditorActionsApi {
         },
       });
     },
-    [draft, addInstance],
+    [draftRef, addInstance],
   );
 
   return {

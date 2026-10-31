@@ -86,6 +86,7 @@ export function BuilderFlow(props: BuilderCanvasProps) {
         id: n.key,
         type: "template",
         position: props.positions[n.key] ?? { x: 0, y: 0 },
+        selected: props.selectedNodeKey === n.key,
         data: {
           node: n,
           selected: props.selectedNodeKey === n.key,
@@ -113,6 +114,7 @@ export function BuilderFlow(props: BuilderCanvasProps) {
           type: "template",
           source: e.from,
           target: e.to,
+          selected,
           markerEnd: {
             type: MarkerType.ArrowClosed,
             color: selected ? "#3b82f6" : "#64748b",

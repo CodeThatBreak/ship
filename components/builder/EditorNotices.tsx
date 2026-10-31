@@ -32,6 +32,7 @@ export function EditorNotices({ message, isError, onDismiss }: EditorNoticesProp
           size="icon-sm"
           className="ml-auto text-muted-foreground hover:text-foreground"
           title="Dismiss"
+          aria-label="Dismiss notice"
           onClick={onDismiss}
         >
           <X size={14} />

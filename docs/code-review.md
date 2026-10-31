@@ -3653,7 +3653,7 @@ Original findings, verbatim:
 
 ### CR-132 [Medium] Keyboard delete on the canvas is non-functional (selection is never controlled)
 
-- **Status at `abaa007`:** **Open**, fix in [Task 38](review-tasks/38-editor-draft-machine.md)
+- **Status at `abaa007`:** **Fixed** ([Task 38](review-tasks/38-editor-draft-machine.md))
 - **Current location:** components/template-editor/components/BuilderFlow.tsx:82-149, components/template-editor/components/BuilderFlow.tsx:180
 - **Re-verification note:** `rfNodes` and `rfEdges` still carry selection only in `data.selected`, never the React Flow `selected` field, and `onNodesChange`/`onEdgesChange` drop `select` changes. So `deleteKeyCode` (still set) never deletes anything. Fix: keep a local `selectedIds` set fed from `select` changes and project it as `selected`, or set `deleteKeyCode={null}`.
 
@@ -3676,7 +3676,7 @@ Original findings, verbatim:
 
 ### CR-133 [Medium] Structural actions build the next draft from the render-captured `draft`, so batched calls clobber each other
 
-- **Status at `abaa007`:** **Open**, fix in [Task 38](review-tasks/38-editor-draft-machine.md)
+- **Status at `abaa007`:** **Fixed** ([Task 38](review-tasks/38-editor-draft-machine.md))
 - **Current location:** components/builder/hooks/use-editor-actions.ts:123-161, components/builder/hooks/use-editor-actions.ts:173-206, components/builder/hooks/use-editor-actions.ts:261-330, components/template-editor/hooks/use-template-draft.ts:32, components/template-editor/hooks/use-template-draft.ts:125-151
 - **Re-verification note:** `removeNode`, `removeEdge`, `duplicateNode`, `addEdge` and `addInstance` still build `next` from the render-captured `draft` and call `apply(next)`, and `apply` only accepts a `Draft`, not an updater. Batched removals in one tick therefore clobber each other. Fix: let `apply` take `(cur) => next` (`setDraft` already supports updaters) and use it in every action, or add a batched `removeElements(nodeIds, edgeIds)`.
 
@@ -3700,7 +3700,7 @@ Original findings, verbatim:
 
 ### CR-134 [Medium] Read-only (built-in) templates are editable in the node drawer
 
-- **Status at `abaa007`:** **Open**, fix in [Task 38](review-tasks/38-editor-draft-machine.md)
+- **Status at `abaa007`:** **Fixed** ([Task 38](review-tasks/38-editor-draft-machine.md))
 - **Current location:** components/builder/EditorNodeDrawer.tsx:106-117, components/builder/EditorPage.tsx:240-244, components/template-editor/NodeConfigurator.tsx:46
 - **Re-verification note:** `EditorNodeDrawer` still doesn't forward `readonly` to `NodeConfiguratorBody`, which has no such prop, and `EditorPage`'s `onPatch` still calls `machine.patchNode` unconditionally. So built-in templates are editable in the drawer, dirty the draft, and then fail to save. Fix: add `readOnly` to `NodeConfiguratorBody` and its tabs (disabled inputs) and guard `onPatch` with `if (readonly) return`.
 
@@ -3825,7 +3825,7 @@ Original findings, verbatim:
 
 ### CR-139 [Medium] Redo silently drops config edits made after an undo
 
-- **Status at `abaa007`:** **Open**, fix in [Task 38](review-tasks/38-editor-draft-machine.md)
+- **Status at `abaa007`:** **Fixed** ([Task 38](review-tasks/38-editor-draft-machine.md))
 - **Current location:** components/template-editor/hooks/use-template-draft.ts:125-170
 - **Re-verification note:** `redoStack` is cleared only inside the snapshot branch of `apply` (line 142). Coalesced or meta-only `apply` calls and every `patchNode` (all drawer config edits) leave redo intact and take no snapshot. So undo, then a config edit, then redo silently discards the edit. Fix: clear `redoStack` (and sync flags) on every non-undo/redo mutation, and route `patchNode` through the coalescing snapshot path.
 
@@ -3870,7 +3870,7 @@ Original findings, verbatim:
 
 ### CR-141 [Medium] Unsaved-changes guard only covers tab close and the header back button
 
-- **Status at `abaa007`:** **Open**, fix in [Task 38](review-tasks/38-editor-draft-machine.md)
+- **Status at `abaa007`:** **Fixed** ([Task 38](review-tasks/38-editor-draft-machine.md))
 - **Current location:** components/template-editor/hooks/use-template-draft.ts:194-203, components/builder/EditorPage.tsx:169-172, components/builder/EditorPage.tsx:290-297, components/builder/EditorHeader.tsx:98-100, components/builder/EditorError.tsx:31
 - **Re-verification note:** There is still no `popstate` or link interception: only `beforeunload` and the header back button check `dirty`. The header's gallery `Link`, browser Back/Forward and nav-bar links discard the draft with no prompt. Fix: add a shared `hooks/useNavigationGuard(dirty)` that intercepts in-app link clicks and pushes a sentinel history entry while dirty, and route in-page links through `onBack`.
 
@@ -6258,7 +6258,7 @@ Original findings, verbatim:
 
 ### CR-240 [Low] Accessibility gaps: div-click node card, icon-only buttons without labels, tabs without ARIA
 
-- **Status at `abaa007`:** **Open**, fix in [Task 38](review-tasks/38-editor-draft-machine.md)
+- **Status at `abaa007`:** **Fixed** ([Task 38](review-tasks/38-editor-draft-machine.md))
 - **Current location:** components/template-editor/components/BuilderNodeView.tsx:41-57, components/builder/EditorNotices.tsx:30-37, components/template-editor/NodeConfigurator.tsx:171-185
 - **Re-verification note:** The node card is still a `div onClick` with no role, tabIndex or key handler. The notice dismiss button is icon-only with `title` but no `aria-label`. The configurator tabs are still plain buttons with no tablist/tab roles and no `aria-selected`. Add role="button", tabIndex and an Enter/Space handler (or use a button), add `aria-label`, and switch to the shadcn `Tabs` primitive or the new `components/shared/TabStrip`.
 

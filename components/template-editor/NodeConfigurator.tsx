@@ -1,9 +1,9 @@
 "use client";
-import { useMemo } from "react";
+import { useCallback, useMemo } from "react";
 import { AlertTriangle, RefreshCw, Unplug } from "lucide-react";
 import { Button } from "../ui/button";
 import { ScrollArea } from "../ui/scroll-area";
-import { cn } from "../../lib/utils";
+import { Tabs, TabsList, TabsTrigger } from "../ui/tabs";
 import type { EditorNode, EditorNodePatch } from "./types";
 import {
   NEXT_EDGE_KIND,
@@ -55,6 +55,7 @@ export function NodeConfiguratorBody({
   templateId,
   problems,
   registerPendingFlush,
+  readOnly = false,
 }: {
   node: EditorNode;
   onChange: (patch: EditorNodePatch) => void;
@@ -85,7 +86,16 @@ export function NodeConfiguratorBody({
    *  above the tabs (the prompt fields underline their refs inline too). */
   problems?: string[];
   registerPendingFlush?: (flush: () => void) => () => void;
+  /** Built-in templates: configurator fields are view-only (CR-134). */
+  readOnly?: boolean;
 }) {
+  const emitChange = useCallback(
+    (patch: EditorNodePatch) => {
+      if (readOnly) return;
+      onChange(patch);
+    },
+    [readOnly, onChange],
+  );
   const { contractQuery, contract } = useNodeContractView(node);
 
   // the upstream variables (friendly names, grouped by source node) — shared
@@ -170,27 +180,34 @@ export function NodeConfiguratorBody({
         </div>
       )}
       {/* tabs */}
-      <div className="flex gap-1 border-b border-border -mx-2 px-2">
-        {tabs.map((t) => (
-          <button
-            key={t}
-            onClick={() => setTab(t)}
-            className={cn(
-              "px-3 py-1.5 text-[12.5px] font-medium border-b-[1.5px] -mb-px",
-              tab === t
-                ? "text-foreground border-info"
-                : "text-muted-foreground border-transparent hover:text-foreground",
-            )}
-          >
-            {TAB_LABELS[t] ?? t}
-          </button>
-        ))}
-      </div>
+      <Tabs
+        value={tab}
+        onValueChange={(value) => setTab(value as typeof tab)}
+        className="flex flex-col min-h-0 flex-1 gap-0"
+      >
+        <TabsList
+          variant="line"
+          aria-label="Node configuration sections"
+          className="h-auto w-full justify-start rounded-none border-b border-border -mx-2 px-2 bg-transparent"
+        >
+          {tabs.map((t) => (
+            <TabsTrigger
+              key={t}
+              value={t}
+              className="rounded-none px-3 py-1.5 text-[12.5px] font-medium data-active:border-info"
+            >
+              {TAB_LABELS[t] ?? t}
+            </TabsTrigger>
+          ))}
+        </TabsList>
 
       <ScrollArea className="flex-1">
-        <div className="pt-4 pr-1">
+        <fieldset
+          disabled={readOnly}
+          className="min-w-0 border-0 p-0 m-0 pt-4 pr-1 disabled:opacity-100"
+        >
         {tab === "trigger" ? (
-          <TriggerTab node={node} onChange={onChange} />
+          <TriggerTab node={node} onChange={emitChange} />
         ) : tab === "inputs" ? (
           <InputsTab
             node={node}
@@ -198,7 +215,7 @@ export function NodeConfiguratorBody({
             taskFields={taskFields}
             triggerFields={triggerFields}
             templateId={templateId}
-            onChange={onChange}
+            onChange={emitChange}
           />
         ) : tab === "prompt" ? (
           <PromptTab
@@ -206,13 +223,13 @@ export function NodeConfiguratorBody({
             contract={contract}
             varGroups={varGroups}
             invalidRefs={invalidRefs}
-            onChange={onChange}
+            onChange={emitChange}
             registerPendingFlush={registerPendingFlush}
           />
         ) : tab === "config" ? (
           <ConfigTab
             node={node}
-            onChange={onChange}
+            onChange={emitChange}
             contract={contract}
             varGroups={varGroups}
             hasUpstream={hasUpstream}
@@ -221,12 +238,13 @@ export function NodeConfiguratorBody({
             templateId={templateId}
           />
         ) : tab === "output" ? (
-          <StartContractEditor node={node} onChange={onChange} taskFields={taskFields} />
+          <StartContractEditor node={node} onChange={emitChange} taskFields={taskFields} />
         ) : (
           <ContractView contract={contract} node={node} groups={groups} />
         )}
-        </div>
+        </fieldset>
       </ScrollArea>
+      </Tabs>
     </div>
   );
 }
