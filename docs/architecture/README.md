@@ -119,8 +119,36 @@ Compact table: **Concern → primary file(s)** for navigation.
 
 ## Index
 
+### Nodes
+
 | Doc | Topic |
 |-----|--------|
-| [client-bundle-boundaries.md](./client-bundle-boundaries.md) | Client vs server imports, ESLint allowlist, loaders seam |
+| [start-node.md](./start-node.md) | Start — flow entry, task intake, handoff to plan |
 | [plan-node.md](./plan-node.md) | Plan — implementation plan, conversational refine, branch split source |
 | [plan-unified-turns.md](./plan-unified-turns.md) | Plan chat / unified turns (current behavior) |
+| [build-node.md](./build-node.md) | Build — coding agent runs, diff approval, fan-out + merge-back runtime |
+| [pipeline-node.md](./pipeline-node.md) | Pipeline — CI gate, bounded fix agent, manual re-check |
+| [review-node.md](./review-node.md) | Review — AI review of the MR diff, comment posting, thread inbox |
+| [resolve-node.md](./resolve-node.md) | Resolve — debounced comment fixes, thread closing, review loop |
+| [declarative-nodes.md](./declarative-nodes.md) | Declarative (template-defined) node kinds: agent, decision, http, script, mergeRequest |
+
+### Engine and runtime
+
+| Doc | Topic |
+|-----|--------|
+| [flow-engine.md](./flow-engine.md) | Flow engine core — advance/run/approve/chat, poller, reconciler, schedulers |
+| [node-infra.md](./node-infra.md) | Node definition contract, registry, capabilities, shared node infrastructure |
+| [agent-harness.md](./agent-harness.md) | Agent port, runner, stream normalization, usage/pricing, providers |
+| [task-providers.md](./task-providers.md) | Task provider port and registry, Jira intake |
+| [templates.md](./templates.md) | Flow/node templates — store, YAML, lint, preview |
+
+### Data and infrastructure
+
+| Doc | Topic |
+|-----|--------|
+| [database.md](./database.md) | SQLite access layer, schema migrations, row mapping, secret storage |
+| [git.md](./git.md) | Git runner, auth hygiene, worktree lifecycle |
+| [gitlab-integration.md](./gitlab-integration.md) | GitHost port, GitLab client, merge request service |
+| [domain-services.md](./domain-services.md) | Artifacts, comments, contracts, settings, status, model catalog |
+| [platform.md](./platform.md) | Config, singletons, typed errors, SSRF guard, local API auth, schemas |
+| [client-bundle-boundaries.md](./client-bundle-boundaries.md) | Client vs server imports, ESLint allowlist, loaders seam |
