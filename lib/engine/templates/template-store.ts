@@ -43,6 +43,16 @@ export type {
   TemplateNodeSpec,
 } from "../types/template";
 
+/** Pending declarative defs from the template editor save payload. */
+export interface DraftNodeTemplateInput {
+  draft_id?: string;
+  name?: string;
+  kind?: string;
+  icon?: string | null;
+  description?: string | null;
+  config?: Record<string, unknown>;
+}
+
 /** Seeded built-in template — the SDLC loop (plan → build → pipeline → review → resolve). */
 export const SDLC_TEMPLATE_ID = "tpl_sdlc_loop";
 
@@ -325,14 +335,16 @@ export class TemplateStore {
     const { nodes, edges, trigger } = this.validated(input, { skipLint: opts.skipLint === true });
     const id = opts.id ?? db.uid("tpl_");
     const ts = db.now();
-    db.run(
-      `INSERT INTO flow_templates (id,name,description,version,is_builtin,trigger,created_at,updated_at)
-       VALUES (?,?,?,?,?,?,?,?)`,
-      id, input.name?.trim() || "Untitled flow", input.description ?? null,
-      1, opts.isBuiltin ? 1 : 0, JSON.stringify(trigger), ts, ts
-    );
-    this.writeNodesAndEdges(id, nodes, edges);
-    TemplateStore.syncTriggers(id, trigger);
+    db.transaction(() => {
+      db.run(
+        `INSERT INTO flow_templates (id,name,description,version,is_builtin,trigger,created_at,updated_at)
+         VALUES (?,?,?,?,?,?,?,?)`,
+        id, input.name?.trim() || "Untitled flow", input.description ?? null,
+        1, opts.isBuiltin ? 1 : 0, JSON.stringify(trigger), ts, ts
+      );
+      this.writeNodesAndEdges(id, nodes, edges);
+      TemplateStore.syncTriggers(id, trigger);
+    });
     return id;
   }
 
@@ -352,9 +364,8 @@ export class TemplateStore {
     // reference them — so the copy is built as template meta → local rows →
     // graph (the update path replaces nodes + edges wholesale).
     const localRemap = new Map<string, string>();
-    let newId: string | null = null;
-    try {
-      newId = this.create({
+    return db.transaction(() => {
+      const newId = this.create({
         name: name?.trim() || `${src.name} copy`,
         description: src.description,
         trigger: graph.flowTrigger,
@@ -388,22 +399,7 @@ export class TemplateStore {
         edges: graph.edges.map((e) => ({ from: e.from, to: e.to, kind: e.kind, label: e.label, condition: e.condition })),
       });
       return newId;
-    } catch (e: unknown) {
-      // the copy failed midway — roll the partial duplicate back (its local
-      // rows, any nodes/edges already written, then the template row itself;
-      // child rows go first — the FKs are enforced)
-      if (newId) {
-        try {
-          db.run(`DELETE FROM flow_template_nodes WHERE template_id=?`, newId);
-          db.run(`DELETE FROM flow_template_edges WHERE template_id=?`, newId);
-          db.run(`DELETE FROM node_templates WHERE template_id=? AND is_builtin=0`, newId);
-          db.run(`DELETE FROM flow_templates WHERE id=?`, newId);
-        } catch (e2: unknown) {
-          console.error("template duplicate rollback failed", e2);
-        }
-      }
-      throw e;
-    }
+    });
   }
 
   /**
@@ -441,6 +437,71 @@ export class TemplateStore {
     }
   }
 
+  /** Editor save with pending draft node templates — one atomic transaction (CR-050). */
+  saveWithDrafts(
+    templateId: string,
+    patch: Partial<TemplateInput> & {
+      nodes?: TemplateNodeInput[];
+      edges?: TemplateEdgeInput[];
+      new_node_templates?: DraftNodeTemplateInput[];
+    },
+  ): void {
+    const drafts = Array.isArray(patch.new_node_templates) ? patch.new_node_templates : [];
+    if (
+      !drafts.length &&
+      patch.nodes?.some((n) => typeof n.nodeTemplateId === "string" && n.nodeTemplateId.startsWith("draft:"))
+    ) {
+      throw new ValidationError(
+        "a node references an unsaved node template — send it in new_node_templates",
+      );
+    }
+    db.transaction(() => {
+      const remapped = { ...patch };
+      delete remapped.new_node_templates;
+      if (drafts.length) {
+        if (!remapped.nodes) {
+          throw new ValidationError("new_node_templates requires the nodes array (a full graph save)");
+        }
+        remapped.nodes = this.remapDraftNodeTemplates(templateId, remapped.nodes, drafts);
+      }
+      this.update(templateId, remapped);
+    });
+  }
+
+  private remapDraftNodeTemplates(
+    templateId: string,
+    nodes: TemplateNodeInput[],
+    drafts: DraftNodeTemplateInput[],
+  ): TemplateNodeInput[] {
+    const byDraftId = new Map<string, string>();
+    for (const d of drafts) {
+      const draftId = typeof d?.draft_id === "string" ? d.draft_id : "";
+      if (!draftId.startsWith("draft:")) {
+        throw new ValidationError("new_node_templates entry is missing its draft_id");
+      }
+      if (byDraftId.has(draftId)) continue;
+      const { id: rowId } = this.createOrReuseNodeTemplate({
+        name: (d.name ?? "").trim() || "Untitled node",
+        kind: d.kind ?? "agent",
+        icon: d.icon ?? null,
+        description: d.description ?? null,
+        config: d.config ?? {},
+      }, { templateId });
+      byDraftId.set(draftId, rowId);
+    }
+    return nodes.map((n) => {
+      const ntId = typeof n.nodeTemplateId === "string" ? n.nodeTemplateId : "";
+      if (!ntId.startsWith("draft:")) return n;
+      const rowId = byDraftId.get(ntId);
+      if (!rowId) {
+        throw new ValidationError(
+          `node "${n.key}" references unsaved node template "${ntId}" — it wasn't included in new_node_templates`,
+        );
+      }
+      return { ...n, nodeTemplateId: rowId };
+    });
+  }
+
   /** Delete a template (built-ins are protected; in-use templates are locked). */
   delete(templateId: string): void {
     this.assertEditable(templateId);
@@ -452,26 +513,28 @@ export class TemplateStore {
       );
     }
     hookStore.removeTemplate(templateId);
-    db.run(`DELETE FROM flow_template_nodes WHERE template_id=?`, templateId);
-    db.run(`DELETE FROM flow_template_edges WHERE template_id=?`, templateId);
-    // Template-local node templates (the canvas creator's rows): gone with
-    // their template — but only when no OTHER template's node still
-    // references one (belt-and-braces: Add to Library promotes without
-    // touching references, so a promoted row must survive here). Runs BEFORE
-    // the flow_templates delete (the FK is enforced); a stray external
-    // reference detaches the row to the shared Library instead of blocking
-    // the delete forever.
-    const locals = db.all<{ id: string }>(
-      `SELECT id FROM node_templates WHERE template_id=? AND is_builtin=0`, templateId
-    );
-    for (const l of locals) {
-      const used = db.get<{ c: number }>(
-        `SELECT COUNT(*) c FROM flow_template_nodes WHERE node_template_id=? AND template_id<>?`,
-        l.id, templateId)?.c ?? 0;
-      if (used === 0) db.run(`DELETE FROM node_templates WHERE id=?`, l.id);
-      else db.run(`UPDATE node_templates SET template_id=NULL WHERE id=?`, l.id);
-    }
-    db.run(`DELETE FROM flow_templates WHERE id=?`, templateId);
+    db.transaction(() => {
+      db.run(`DELETE FROM flow_template_nodes WHERE template_id=?`, templateId);
+      db.run(`DELETE FROM flow_template_edges WHERE template_id=?`, templateId);
+      // Template-local node templates (the canvas creator's rows): gone with
+      // their template — but only when no OTHER template's node still
+      // references one (belt-and-braces: Add to Library promotes without
+      // touching references, so a promoted row must survive here). Runs BEFORE
+      // the flow_templates delete (the FK is enforced); a stray external
+      // reference detaches the row to the shared Library instead of blocking
+      // the delete forever.
+      const locals = db.all<{ id: string }>(
+        `SELECT id FROM node_templates WHERE template_id=? AND is_builtin=0`, templateId
+      );
+      for (const l of locals) {
+        const used = db.get<{ c: number }>(
+          `SELECT COUNT(*) c FROM flow_template_nodes WHERE node_template_id=? AND template_id<>?`,
+          l.id, templateId)?.c ?? 0;
+        if (used === 0) db.run(`DELETE FROM node_templates WHERE id=?`, l.id);
+        else db.run(`UPDATE node_templates SET template_id=NULL WHERE id=?`, l.id);
+      }
+      db.run(`DELETE FROM flow_templates WHERE id=?`, templateId);
+    });
   }
 
   /** Built-in seeded templates (the SDLC loop) can be duplicated, not edited. */
@@ -737,7 +800,7 @@ export class TemplateStore {
    */
   ensureNodeTemplate(input: {
     key?: string; name: string; kind: string; icon?: string | null; config: Record<string, unknown>;
-  }): string {
+  }): { id: string; created: boolean } {
     const kind = (input.kind ?? "").trim();
     if (!(KINDED_NODE_TEMPLATE_KINDS as readonly string[]).includes(kind)) {
       throw new Error(`unsupported node kind "${kind}"`);
@@ -755,7 +818,7 @@ export class TemplateStore {
     const identical = candidates.find(
       (r) => r.kind === kind && JSON.stringify(r.config ?? {}) === JSON.stringify(normalized)
     );
-    if (identical) return identical.id;
+    if (identical) return { id: identical.id, created: false };
     const version = candidates.reduce((m, r) => Math.max(m, r.version), 0) + 1;
     const id = db.uid("nt_");
     const ts = db.now();
@@ -765,7 +828,7 @@ export class TemplateStore {
       id, key, name, kind, version, null, input.icon ?? null,
       JSON.stringify(normalized), ts, ts
     );
-    return id;
+    return { id, created: true };
   }
 
   /** Delete a declarative node template when no template instance references it. */
@@ -869,30 +932,37 @@ export class TemplateStore {
     edges: TemplateEdgeInput[],
     opts: { replace?: boolean } = {},
   ): void {
+    const write = () => {
+      if (opts.replace) {
+        db.run(`DELETE FROM flow_template_nodes WHERE template_id=?`, templateId);
+        db.run(`DELETE FROM flow_template_edges WHERE template_id=?`, templateId);
+      }
+      const ts = db.now();
+      for (const n of nodes) {
+        const trigger = JSON.stringify(TemplateStore.nodeTrigger(n.trigger));
+        const config = JSON.stringify(n.config && Object.keys(n.config).length ? n.config : {});
+        const inputMap = JSON.stringify(n.input_map && Object.keys(n.input_map).length ? n.input_map : {});
+        db.run(
+          `INSERT OR REPLACE INTO flow_template_nodes (id,template_id,node_key,node_template_id,label,trigger,join_mode,config,input_map,x,y,created_at,updated_at)
+           VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+          db.uid("ftn_"), templateId, n.key.trim(), n.nodeTemplateId, n.label ?? null, trigger,
+          n.join_mode === "any" ? "any" : "all", config, inputMap, n.x ?? null, n.y ?? null, ts, ts
+        );
+      }
+      for (const e of edges) {
+        db.run(
+          `INSERT OR REPLACE INTO flow_template_edges (id,template_id,from_key,to_key,kind,label,condition,created_at,updated_at)
+           VALUES (?,?,?,?,?,?,?,?,?)`,
+          db.uid("fte_"), templateId, e.from, e.to, e.kind ?? "next", e.label, e.condition, ts, ts
+        );
+      }
+      db.run(`UPDATE flow_templates SET updated_at=? WHERE id=?`, ts, templateId);
+    };
     if (opts.replace) {
-      db.run(`DELETE FROM flow_template_nodes WHERE template_id=?`, templateId);
-      db.run(`DELETE FROM flow_template_edges WHERE template_id=?`, templateId);
+      db.transaction(write);
+    } else {
+      write();
     }
-    const ts = db.now();
-    for (const n of nodes) {
-      const trigger = JSON.stringify(TemplateStore.nodeTrigger(n.trigger));
-      const config = JSON.stringify(n.config && Object.keys(n.config).length ? n.config : {});
-      const inputMap = JSON.stringify(n.input_map && Object.keys(n.input_map).length ? n.input_map : {});
-      db.run(
-        `INSERT OR REPLACE INTO flow_template_nodes (id,template_id,node_key,node_template_id,label,trigger,join_mode,config,input_map,x,y,created_at,updated_at)
-         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-        db.uid("ftn_"), templateId, n.key.trim(), n.nodeTemplateId, n.label ?? null, trigger,
-        n.join_mode === "any" ? "any" : "all", config, inputMap, n.x ?? null, n.y ?? null, ts, ts
-      );
-    }
-    for (const e of edges) {
-      db.run(
-        `INSERT OR REPLACE INTO flow_template_edges (id,template_id,from_key,to_key,kind,label,condition,created_at,updated_at)
-         VALUES (?,?,?,?,?,?,?,?,?)`,
-        db.uid("fte_"), templateId, e.from, e.to, e.kind ?? "next", e.label, e.condition, ts, ts
-      );
-    }
-    db.run(`UPDATE flow_templates SET updated_at=? WHERE id=?`, ts, templateId);
   }
 
   /**

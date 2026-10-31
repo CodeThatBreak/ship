@@ -1,6 +1,7 @@
 import "server-only";
 
 import YAML from "yaml";
+import { db } from "../../db";
 
 /**
  * Config-as-code for flow templates (§7 YAML form). Export writes each node as
@@ -233,7 +234,7 @@ export interface ImportedTemplate {
  */
 export function importTemplateYaml(
   store: {
-    ensureNodeTemplate(input: { key?: string; name: string; kind: string; icon?: string | null; config: Record<string, unknown> }): string;
+    ensureNodeTemplate(input: { key?: string; name: string; kind: string; icon?: string | null; config: Record<string, unknown> }): { id: string; created: boolean };
     nodeTemplateByKey(key: string): { id: string; key: string; is_builtin: number; kind: string } | undefined;
     create(input: {
       name?: string; description?: string | null; trigger?: Record<string, unknown>;
@@ -248,27 +249,15 @@ export function importTemplateYaml(
   text: string,
   opts: { namePrefix?: string } = {},
 ): ImportedTemplate {
-  const createdNodeTemplateIds: string[] = [];
-  try {
-    return importTemplateYamlInner(store, text, opts, createdNodeTemplateIds);
-  } catch (e) {
-    // The import is atomic for the template graph: inline declarative node
-    // templates created along the way must not linger — a rejected import's
-    // definition would otherwise be reused (matched by key) by the next
-    // import and hijack it.
-    for (const id of createdNodeTemplateIds) {
-      try { store.deleteNodeTemplate(id); } catch { /* referenced elsewhere — leave it */ }
-    }
-    throw e;
-  }
+  return db.transaction(() => importTemplateYamlInner(store, text, opts));
 }
 
 function importTemplateYamlInner(
   store: Parameters<typeof importTemplateYaml>[0],
   text: string,
   opts: { namePrefix?: string },
-  createdNodeTemplateIds: string[],
 ): ImportedTemplate {
+  const createdNodeTemplateIds: string[] = [];
   const parsed = parseTemplateYaml(text);
   const nodes = parsed.nodes.map((entry) => {
     let nodeTemplateId: string;
@@ -289,13 +278,14 @@ function importTemplateYamlInner(
           if (!entry.config || typeof entry.config !== "object" || Object.keys(entry.config).length === 0) {
             throw new YamlTemplateError(`${entry.type} node "${entry.key}" needs inline config (its declarative definition)`);
           }
-          nodeTemplateId = store.ensureNodeTemplate({
+          const ensured = store.ensureNodeTemplate({
             key: entry.key,
             name: entry.label ?? entry.key,
             kind: entry.type,
             config: entry.config,
           });
-          createdNodeTemplateIds.push(nodeTemplateId);
+          nodeTemplateId = ensured.id;
+          if (ensured.created) createdNodeTemplateIds.push(ensured.id);
           overrides = {};
         } else {
           throw new YamlTemplateError(

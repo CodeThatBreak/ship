@@ -428,9 +428,7 @@ Each item below can be fixed independently. Severity headings group the items; w
 
 ### CR-012 [High] The DB façade has no transaction API, so no multi-step write in the engine is atomic
 
-- **Status at `abaa007`:** **Open**, fix in [Task 12](review-tasks/12-db-transactions.md)
-- **Current location:** lib/db/index.ts:858-868 (get/all/run only, no transaction API); lib/engine/flow-engine.ts:95 (create), 173 (createStepChild), 546 (delete); lib/engine/runtime/fanout/step-flow-manager.ts:233 (expand); lib/engine/runtime/plan-step-store.ts:142 (replace), 207 (replaceBranch); lib/engine/templates/template-store.ts:321 (create), 337 (duplicate, hand-rolled rollback), 442 (delete), 856 (writeNodesAndEdges)
-- **Re-verification note:** There is still no `.transaction(` call anywhere in `lib/` or `app/`, so every multi-statement write (flow create, checklist replace, template graph replace, delete) can leave partial rows. Add `Database.transaction<T>(fn: () => T): T` (synchronous callback around `conn.transaction(fn)()`), wrap the listed methods in it, and remove the manual rollback in `duplicate()`.
+- **Status:** **Fixed** ([Task 12](review-tasks/12-db-transactions.md) — `Database.transaction`, engine/template multi-writes wrapped)
 
 - **Severity:** High
 - **Category:** Correctness (sources: ENG-07: Correctness; DATA-29: Boundaries)
@@ -1566,9 +1564,7 @@ Original findings, verbatim:
 
 ### CR-050 [Medium] Template save creates draft node templates in the route, with a manual, non-transactional rollback
 
-- **Status at `abaa007`:** **Open**, fix in [Task 12](review-tasks/12-db-transactions.md)
-- **Current location:** app/api/templates/[id]/route.ts:49-77,89-125
-- **Re-verification note:** `applyDraftNodeTemplates` still lives in the route, mutates the request body, creates rows one by one, and rolls back by deleting them with errors swallowed (`catch { /* keep rolling back */ }`), with no transaction around create + `templateStore.update`. Move into `TemplateStore.saveWithDrafts(id, input)` wrapped in a single `db.transaction`.
+- **Status:** **Fixed** ([Task 12](review-tasks/12-db-transactions.md) — `TemplateStore.saveWithDrafts` in one `db.transaction`; route thinned)
 
 - **Severity:** Medium
 - **Category:** Correctness
@@ -1985,9 +1981,7 @@ Original findings, verbatim:
 
 ### CR-067 [Medium] Failed YAML import "rollback" deletes pre-existing node templates it merely reused
 
-- **Status at `abaa007`:** **Open**, fix in [Task 12](review-tasks/12-db-transactions.md)
-- **Current location:** lib/engine/templates/template-yaml.ts:251-261,292-298, lib/engine/templates/template-store.ts:729-760
-- **Re-verification note:** `ensureNodeTemplate` still returns a bare id (an existing identical row's id when one matches) and the importer pushes it into `createdNodeTemplateIds` unconditionally, so a failed import's rollback deletes a user's pre-existing, currently unreferenced Library definition. Return `{ id, created }` (like `createOrReuseNodeTemplate`) and push only when `created`.
+- **Status:** **Fixed** ([Task 12](review-tasks/12-db-transactions.md) — `ensureNodeTemplate` returns `{ id, created }`; import runs in `db.transaction`)
 
 - **Severity:** Medium
 - **Category:** Correctness
@@ -7323,7 +7317,7 @@ One row per finding, at `abaa007`.
 | CR-009 | High | Bug | Open | [Task 19](review-tasks/19-fanout-rollup-and-promises.md) |
 | CR-010 | High | Bug | Open | [Task 19](review-tasks/19-fanout-rollup-and-promises.md) |
 | CR-011 | High | Bug | Open | [Task 21](review-tasks/21-multi-branch-correctness.md) |
-| CR-012 | High | Bug | Open | [Task 12](review-tasks/12-db-transactions.md) |
+| CR-012 | High | Bug | Fixed | [Task 12](review-tasks/12-db-transactions.md) |
 | CR-013 | High | Bug | Open | [Task 27](review-tasks/27-plan-checklist-integrity.md) |
 | CR-014 | High | Bug | Open | [Task 16](review-tasks/16-run-lifecycle-late-writes.md) |
 | CR-015 | High | Bug | Open | [Task 17](review-tasks/17-node-claim-and-attempts.md) |
@@ -7361,7 +7355,7 @@ One row per finding, at `abaa007`.
 | CR-047 | Medium | Gap | Open | [Task 10](review-tasks/10-api-input-validation-flows.md) |
 | CR-048 | Medium | Bug | Fixed | [Task 11](review-tasks/11-api-input-validation-settings.md) |
 | CR-049 | Low | Code quality | Partly fixed | [Task 28](review-tasks/28-prompt-preview-parity.md) |
-| CR-050 | Medium | Bug | Open | [Task 12](review-tasks/12-db-transactions.md) |
+| CR-050 | Medium | Bug | Fixed | [Task 12](review-tasks/12-db-transactions.md) |
 | CR-051 | Medium | Code quality | Open | [Task 47](review-tasks/47-thin-routes-and-services.md) |
 | CR-052 | Medium | Code quality | Open | [Task 41](review-tasks/41-settings-data-and-errors.md) |
 | CR-053 | Low | Code quality | Open | [Task 47](review-tasks/47-thin-routes-and-services.md) |
@@ -7378,7 +7372,7 @@ One row per finding, at `abaa007`.
 | CR-064 | Medium | Bug | Open | [Task 19](review-tasks/19-fanout-rollup-and-promises.md) |
 | CR-065 | Medium | Bug | Open | [Task 24](review-tasks/24-template-snapshot-and-yaml.md) |
 | CR-066 | Medium | Bug | Open | [Task 17](review-tasks/17-node-claim-and-attempts.md) |
-| CR-067 | Medium | Bug | Open | [Task 12](review-tasks/12-db-transactions.md) |
+| CR-067 | Medium | Bug | Fixed | [Task 12](review-tasks/12-db-transactions.md) |
 | CR-068 | Medium | Security | Open | [Task 60](review-tasks/60-security-process-and-network-isolation.md) |
 | CR-069 | Medium | Security | Open | [Task 58](review-tasks/58-security-webhook-auth.md) |
 | CR-070 | Medium | Code quality | Open | [Task 45](review-tasks/45-flow-engine-decomposition.md) |

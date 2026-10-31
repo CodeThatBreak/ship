@@ -12,7 +12,7 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 // Must run before any `../db` import touches the connection — dynamic imports
 // below execute in statement order after the static ones hoist.
@@ -83,5 +83,26 @@ describe("engine chain-role routing (T3)", () => {
       expect(() => engine.approveNode(flowId, nodeKey))
         .toThrow(`${nodeKey} approval belongs to its built-in flow actions`);
     }
+  });
+
+  it("rolls back flow rows when node insert fails mid-create (CR-012)", () => {
+    const taskId = "task_create_txn";
+    db.run(
+      `INSERT INTO tasks (id, type, key, summary, status, issue_type, priority) VALUES (?,?,?,?,?,?,?)`,
+      taskId, "jira", "CREATE-TXN", "txn test", "open", "task", "P2",
+    );
+    const origRun = db.run.bind(db);
+    let nodeInserts = 0;
+    vi.spyOn(db, "run").mockImplementation((sql: string, ...params: unknown[]) => {
+      if (typeof sql === "string" && sql.includes("INSERT INTO nodes")) {
+        nodeInserts += 1;
+        if (nodeInserts === 2) throw new Error("simulated node insert failure");
+      }
+      return origRun(sql, ...params);
+    });
+
+    expect(() => engine.create(taskId, "https://example.com/repo.git")).toThrow("simulated node insert failure");
+    expect(db.all(`SELECT id FROM flows WHERE task_id=?`, taskId)).toHaveLength(0);
+    expect(db.all(`SELECT id FROM nodes WHERE flow_id IN (SELECT id FROM flows WHERE task_id=?)`, taskId)).toHaveLength(0);
   });
 });

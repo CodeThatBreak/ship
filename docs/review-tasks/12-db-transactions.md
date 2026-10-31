@@ -15,7 +15,7 @@ Each finding was re-verified against `refactor/prompt-engine-inconsistency-fix` 
 
 ### CR-012 [High] The DB façade has no transaction API, so no multi-step write in the engine is atomic
 
-- **Status:** Open
+- **Status:** Fixed (Task 12)
 - **Type:** Bug
 - **Effort:** M
 - **Where:** lib/db/index.ts:858-868 (get/all/run only, no transaction API); lib/engine/flow-engine.ts:95 (create), 173 (createStepChild), 546 (delete); lib/engine/runtime/fanout/step-flow-manager.ts:233 (expand); lib/engine/runtime/plan-step-store.ts:142 (replace), 207 (replaceBranch); lib/engine/templates/template-store.ts:321 (create), 337 (duplicate, hand-rolled rollback), 442 (delete), 856 (writeNodesAndEdges)
@@ -23,7 +23,7 @@ Each finding was re-verified against `refactor/prompt-engine-inconsistency-fix` 
 
 ### CR-050 [Medium] Template save creates draft node templates in the route, with a manual, non-transactional rollback
 
-- **Status:** Open
+- **Status:** Fixed (Task 12)
 - **Type:** Bug
 - **Effort:** M
 - **Where:** app/api/templates/[id]/route.ts:49-77,89-125
@@ -32,7 +32,7 @@ Each finding was re-verified against `refactor/prompt-engine-inconsistency-fix` 
 
 ### CR-067 [Medium] Failed YAML import "rollback" deletes pre-existing node templates it merely reused
 
-- **Status:** Open
+- **Status:** Fixed (Task 12)
 - **Type:** Bug
 - **Effort:** S
 - **Where:** lib/engine/templates/template-yaml.ts:251-261,292-298, lib/engine/templates/template-store.ts:729-760
@@ -41,8 +41,8 @@ Each finding was re-verified against `refactor/prompt-engine-inconsistency-fix` 
 
 ## Done when
 
-- [ ] Every finding above is fixed, or a remaining part is written up in the PR description.
-- [ ] Each bug fix has a regression test (Vitest for `lib/`; at least a hook or utility test for UI where practical).
-- [ ] Code follows [`docs/coding-patterns.md`](../coding-patterns.md).
-- [ ] `npm run typecheck`, `npm run lint`, `npm test` and `npm run build` pass (before Task 02 lands, `npx tsc --noEmit` instead of `typecheck`).
-- [ ] The status of each finding in [`docs/code-review.md`](../code-review.md) is updated (Fixed, with the PR link).
+- [x] Every finding above is fixed, or a remaining part is written up in the PR description.
+- [x] Each bug fix has a regression test (Vitest for `lib/`; at least a hook or utility test for UI where practical).
+- [x] Code follows [`docs/coding-patterns.md`](../coding-patterns.md).
+- [x] `npm run typecheck`, `npm run lint`, `npm test` and `npm run build` pass (before Task 02 lands, `npx tsc --noEmit` instead of `typecheck`).
+- [x] The status of each finding in [`docs/code-review.md`](../code-review.md) is updated (Fixed, with the PR link).

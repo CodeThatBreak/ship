@@ -162,38 +162,40 @@ export class PlanStepStore {
         preserve.set(i, { subFlowId: prev.sub_flow_id, metaId: prev.meta_id });
       }
     }
-    db.run(`DELETE FROM plan_steps WHERE flow_id=?`, flowId);
-    steps.forEach((s, i) => {
-      if (skip.has(i)) return;
-      const p = preserve.get(i);
-      db.run(
-        `INSERT INTO plan_steps (id,flow_id,artifact_id,meta_id,position,title,detail,files,branch,status,origin,sub_flow_id,created_at,updated_at)
-         VALUES (?,?,?,?,?,?,?,?,?,'pending','user',?,?,?)`,
-        db.uid("step_"),
-        flowId,
-        artifactId,
-        p?.metaId ?? null,
-        i + survivors.length,
-        s.title,
-        s.detail ?? null,
-        JSON.stringify(s.files ?? []),
-        s.branch ?? null,
-        p?.subFlowId ?? null,
-        ts,
-        ts
-      );
+    db.transaction(() => {
+      db.run(`DELETE FROM plan_steps WHERE flow_id=?`, flowId);
+      steps.forEach((s, i) => {
+        if (skip.has(i)) return;
+        const p = preserve.get(i);
+        db.run(
+          `INSERT INTO plan_steps (id,flow_id,artifact_id,meta_id,position,title,detail,files,branch,status,origin,sub_flow_id,created_at,updated_at)
+           VALUES (?,?,?,?,?,?,?,?,?,'pending','user',?,?,?)`,
+          db.uid("step_"),
+          flowId,
+          artifactId,
+          p?.metaId ?? null,
+          i + survivors.length,
+          s.title,
+          s.detail ?? null,
+          JSON.stringify(s.files ?? []),
+          s.branch ?? null,
+          p?.subFlowId ?? null,
+          ts,
+          ts
+        );
+      });
+      for (const [i, survivor] of survivors.entries()) {
+        // keep guarded rows in place with their live linkage
+        db.run(
+          `INSERT INTO plan_steps (id,flow_id,artifact_id,meta_id,position,title,detail,files,branch,status,origin,completed_by,sub_flow_id,created_at,updated_at)
+           VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+          survivor.id, flowId, survivor.artifact_id, survivor.meta_id, i,
+          survivor.title, survivor.detail, survivor.files, survivor.branch,
+          survivor.status, survivor.origin, survivor.completed_by, survivor.sub_flow_id,
+          survivor.created_at, db.now()
+        );
+      }
     });
-    for (const [i, survivor] of survivors.entries()) {
-      // keep guarded rows in place with their live linkage
-      db.run(
-        `INSERT INTO plan_steps (id,flow_id,artifact_id,meta_id,position,title,detail,files,branch,status,origin,completed_by,sub_flow_id,created_at,updated_at)
-         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-        survivor.id, flowId, survivor.artifact_id, survivor.meta_id, i,
-        survivor.title, survivor.detail, survivor.files, survivor.branch,
-        survivor.status, survivor.origin, survivor.completed_by, survivor.sub_flow_id,
-        survivor.created_at, db.now()
-      );
-    }
     return this.list(flowId);
   }
 
@@ -213,33 +215,35 @@ export class PlanStepStore {
     const guard = this.deletableGuard(flowId);
     const stateByMetaId = new Map(existing.filter((s) => s.meta_id).map((s) => [s.meta_id!, s]));
     const firstPos = existing.length ? existing[0].position : 0;
-    db.run(
-      `DELETE FROM plan_steps WHERE flow_id=? AND branch=?`,
-      flowId, branchName
-    );
-    steps.forEach((s, i) => {
-      const prev = s.id ? stateByMetaId.get(s.id) : undefined;
-      const status = prev?.status ?? "pending";
-      const completedBy = status === "done" ? prev?.completed_by ?? "manual" : null;
+    db.transaction(() => {
       db.run(
-        `INSERT INTO plan_steps (id,flow_id,artifact_id,meta_id,position,title,detail,files,branch,status,origin,completed_by,sub_flow_id,created_at,updated_at)
-         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-        db.uid("step_"),
-        flowId,
-        artifactId,
-        s.id ?? null,
-        firstPos + i,
-        s.title,
-        s.detail ?? null,
-        JSON.stringify(s.files ?? []),
-        branchName,
-        status,
-        "agent",
-        completedBy,
-        prev?.sub_flow_id ?? null,
-        ts,
-        ts
+        `DELETE FROM plan_steps WHERE flow_id=? AND branch=?`,
+        flowId, branchName
       );
+      steps.forEach((s, i) => {
+        const prev = s.id ? stateByMetaId.get(s.id) : undefined;
+        const status = prev?.status ?? "pending";
+        const completedBy = status === "done" ? prev?.completed_by ?? "manual" : null;
+        db.run(
+          `INSERT INTO plan_steps (id,flow_id,artifact_id,meta_id,position,title,detail,files,branch,status,origin,completed_by,sub_flow_id,created_at,updated_at)
+           VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+          db.uid("step_"),
+          flowId,
+          artifactId,
+          s.id ?? null,
+          firstPos + i,
+          s.title,
+          s.detail ?? null,
+          JSON.stringify(s.files ?? []),
+          branchName,
+          status,
+          "agent",
+          completedBy,
+          prev?.sub_flow_id ?? null,
+          ts,
+          ts
+        );
+      });
     });
     return steps.length;
   }

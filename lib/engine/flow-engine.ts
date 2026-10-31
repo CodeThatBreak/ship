@@ -124,28 +124,30 @@ export class FlowEngine {
 
     const id = db.uid("flow_");
     const ts = db.now();
-    db.run(
-      `INSERT INTO flows (id,task_id,name,status,repo_url,repo_id,execution_mode,template_id,trigger_payload,created_at,updated_at)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?)`,
-      id, taskId, name ?? `${task.key} flow`, "active", repoUrl, repo?.id ?? null, executionMode,
-      graph.templateId, opts.triggerPayload != null ? JSON.stringify(opts.triggerPayload) : null, ts, ts
-    );
-    // one node row per template instance spec (template order), config merged
-    // from class defaults ← app settings ← template node config
-    for (const spec of graph.nodes) {
-      const def = nodeRegistry.resolve(spec.defKey, spec.key);
-      const config = mergeConfigLayers(def.defaultConfig(), appLayerConfig(def.key), spec.config);
+    db.transaction(() => {
       db.run(
-        `INSERT INTO nodes (id,flow_id,node_key,type,label,config,join_mode,status,created_at,updated_at)
-         VALUES (?,?,?,?,?,?,?,'pending',?,?)`,
-        db.uid("node_"), id, spec.key, spec.defKey,
-        spec.label === def.label ? null : spec.label,
-        JSON.stringify(config), spec.joinMode, ts, ts
+        `INSERT INTO flows (id,task_id,name,status,repo_url,repo_id,execution_mode,template_id,trigger_payload,created_at,updated_at)
+         VALUES (?,?,?,?,?,?,?,?,?,?,?)`,
+        id, taskId, name ?? `${task.key} flow`, "active", repoUrl, repo?.id ?? null, executionMode,
+        graph.templateId, opts.triggerPayload != null ? JSON.stringify(opts.triggerPayload) : null, ts, ts
       );
-      // wait_for webhook nodes get their own inbound hook bound to the flow
-      // instance (Phase 4B) — the delivery resumes the node
-      if (spec.trigger.wait_for === "webhook") hookStore.ensureForNode(id, spec.key);
-    }
+      // one node row per template instance spec (template order), config merged
+      // from class defaults ← app settings ← template node config
+      for (const spec of graph.nodes) {
+        const def = nodeRegistry.resolve(spec.defKey, spec.key);
+        const config = mergeConfigLayers(def.defaultConfig(), appLayerConfig(def.key), spec.config);
+        db.run(
+          `INSERT INTO nodes (id,flow_id,node_key,type,label,config,join_mode,status,created_at,updated_at)
+           VALUES (?,?,?,?,?,?,?,'pending',?,?)`,
+          db.uid("node_"), id, spec.key, spec.defKey,
+          spec.label === def.label ? null : spec.label,
+          JSON.stringify(config), spec.joinMode, ts, ts
+        );
+        // wait_for webhook nodes get their own inbound hook bound to the flow
+        // instance (Phase 4B) — the delivery resumes the node
+        if (spec.trigger.wait_for === "webhook") hookStore.ensureForNode(id, spec.key);
+      }
+    });
     // no "flow created" announcement event — the chat feed starts with the
     // user's first message instead of boilerplate
     // webhook/schedule flow triggers auto-start their auto nodes (§6) — a
@@ -204,25 +206,27 @@ export class FlowEngine {
     }
     const id = db.uid("flow_");
     const ts = db.now();
-    db.run(
-      `INSERT INTO flows (id,task_id,name,status,repo_url,repo_id,execution_mode,template_id,trigger_payload,mr_branch,parent_flow_id,kind,created_at,updated_at)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-      id, parent.task_id, name, "active", parent.repo_url, parent.repo_id, parent.execution_mode,
-      graph.templateId, JSON.stringify(payload), opts.branch, parentFlowId, "step", ts, ts
-    );
-    for (const spec of graph.nodes) {
-      const def = nodeRegistry.resolve(spec.defKey, spec.key);
-      const config = mergeConfigLayers(def.defaultConfig(), appLayerConfig(def.key), spec.config);
+    db.transaction(() => {
       db.run(
-        `INSERT INTO nodes (id,flow_id,node_key,type,label,config,join_mode,status,created_at,updated_at)
-         VALUES (?,?,?,?,?,?,?,'pending',?,?)`,
-        db.uid("node_"), id, spec.key, spec.defKey,
-        spec.label === def.label ? null : spec.label,
-        JSON.stringify(config), spec.joinMode, ts, ts
+        `INSERT INTO flows (id,task_id,name,status,repo_url,repo_id,execution_mode,template_id,trigger_payload,mr_branch,parent_flow_id,kind,created_at,updated_at)
+         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+        id, parent.task_id, name, "active", parent.repo_url, parent.repo_id, parent.execution_mode,
+        graph.templateId, JSON.stringify(payload), opts.branch, parentFlowId, "step", ts, ts
       );
-    }
-    db.emitEvent(id, null, "lifecycle",
-      `step child created from "${templateStore.flowTemplate(templateId)?.name ?? templateId}" — parent flow ${parentFlowId}`);
+      for (const spec of graph.nodes) {
+        const def = nodeRegistry.resolve(spec.defKey, spec.key);
+        const config = mergeConfigLayers(def.defaultConfig(), appLayerConfig(def.key), spec.config);
+        db.run(
+          `INSERT INTO nodes (id,flow_id,node_key,type,label,config,join_mode,status,created_at,updated_at)
+           VALUES (?,?,?,?,?,?,?,'pending',?,?)`,
+          db.uid("node_"), id, spec.key, spec.defKey,
+          spec.label === def.label ? null : spec.label,
+          JSON.stringify(config), spec.joinMode, ts, ts
+        );
+      }
+      db.emitEvent(id, null, "lifecycle",
+        `step child created from "${templateStore.flowTemplate(templateId)?.name ?? templateId}" — parent flow ${parentFlowId}`);
+    });
     return id;
   }
 
@@ -564,12 +568,14 @@ export class FlowEngine {
       ids.map((fid) =>
         worktreeManager.removeFlowWorktree(fid, { reason: "flow deleted" })),
     );
-    for (const fid of ids) {
-      for (const table of FLOW_CHILD_TABLES) {
-        db.run(`DELETE FROM ${table} WHERE flow_id=?`, fid);
+    db.transaction(() => {
+      for (const fid of ids) {
+        for (const table of FLOW_CHILD_TABLES) {
+          db.run(`DELETE FROM ${table} WHERE flow_id=?`, fid);
+        }
       }
-    }
-    db.run(`DELETE FROM flows WHERE id IN (${ids.map(() => "?").join(",")})`, ...ids);
+      db.run(`DELETE FROM flows WHERE id IN (${ids.map(() => "?").join(",")})`, ...ids);
+    });
   }
 
   // ── context ──────────────────────────────────────────────────────────────

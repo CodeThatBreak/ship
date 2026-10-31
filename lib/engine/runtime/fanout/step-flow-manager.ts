@@ -273,50 +273,52 @@ export class StepFlowManager {
     } as unknown as StepChildPayload);
 
     let made = 0;
-    for (const stepRow of pending) {
-      const integrationBranch = integrationBranchOf(stepRow.branch);
-      const groupIndex = this.branchGroupIndex(parentFlowId, integrationBranch, stepRow, integrationBranchOf);
-      const branch = codeChild ? `${integrationBranch}-s${groupIndex + 1}` : null;
+    db.transaction(() => {
+      for (const stepRow of pending) {
+        const integrationBranch = integrationBranchOf(stepRow.branch);
+        const groupIndex = this.branchGroupIndex(parentFlowId, integrationBranch, stepRow, integrationBranchOf);
+        const branch = codeChild ? `${integrationBranch}-s${groupIndex + 1}` : null;
 
-      const payload: StepChildPayload = {
-        plan: summary,
-        step: {
-          id: stepRow.meta_id ?? stepRow.id,
-          title: stepRow.title,
-          detail: stepRow.detail,
-          files: StepFlowManager.filesOf(stepRow),
-          ...(branch ? { branch } : {}),
-        },
-        siblings: planSteps.list(parentFlowId)
-          .filter((s) => s.id !== stepRow.id)
-          .map((s) => ({ id: s.meta_id ?? s.id, title: s.title, files: StepFlowManager.filesOf(s), status: s.status })),
-        parentNodeKey: nodeKey,
-      };
-      const childId = this.e.createStepChild(
-        parentFlowId,
-        templateId,
-        `${ctx.flow.name} · step: ${stepRow.title}`,
-        payload,
-        { branch }
-      );
-      db.run(`UPDATE plan_steps SET sub_flow_id=?, updated_at=? WHERE id=? AND flow_id=?`,
-        childId, db.now(), stepRow.id, parentFlowId);
-      if (codeChild) {
-        // integration branch rows mirror the whole-mode branch decomposition so
-        // the final aggregate approval's MR targets resolve through the chain
-        if (!branchStore.list(parentFlowId).some((b) => b.name === integrationBranch)) {
-          branchStore.upsert(parentFlowId, integrationBranch, {
-            title: `steps${stepRow.branch ? ` · ${stepRow.branch}` : ""}`,
-            order: branchStore.list(parentFlowId).length,
-            status: "pending",
-          });
+        const payload: StepChildPayload = {
+          plan: summary,
+          step: {
+            id: stepRow.meta_id ?? stepRow.id,
+            title: stepRow.title,
+            detail: stepRow.detail,
+            files: StepFlowManager.filesOf(stepRow),
+            ...(branch ? { branch } : {}),
+          },
+          siblings: planSteps.list(parentFlowId)
+            .filter((s) => s.id !== stepRow.id)
+            .map((s) => ({ id: s.meta_id ?? s.id, title: s.title, files: StepFlowManager.filesOf(s), status: s.status })),
+          parentNodeKey: nodeKey,
+        };
+        const childId = this.e.createStepChild(
+          parentFlowId,
+          templateId,
+          `${ctx.flow.name} · step: ${stepRow.title}`,
+          payload,
+          { branch }
+        );
+        db.run(`UPDATE plan_steps SET sub_flow_id=?, updated_at=? WHERE id=? AND flow_id=?`,
+          childId, db.now(), stepRow.id, parentFlowId);
+        if (codeChild) {
+          // integration branch rows mirror the whole-mode branch decomposition so
+          // the final aggregate approval's MR targets resolve through the chain
+          if (!branchStore.list(parentFlowId).some((b) => b.name === integrationBranch)) {
+            branchStore.upsert(parentFlowId, integrationBranch, {
+              title: `steps${stepRow.branch ? ` · ${stepRow.branch}` : ""}`,
+              order: branchStore.list(parentFlowId).length,
+              status: "pending",
+            });
+          }
         }
+        db.emitEvent(parentFlowId, null, "lifecycle",
+          `fan-out: step "${stepRow.title}" → child flow${branch ? ` · branch ${branch}` : ""}`,
+          { nodeKey, childFlowId: childId });
+        made++;
       }
-      db.emitEvent(parentFlowId, null, "lifecycle",
-        `fan-out: step "${stepRow.title}" → child flow${branch ? ` · branch ${branch}` : ""}`,
-        { nodeKey, childFlowId: childId });
-      made++;
-    }
+    });
 
     if (!made) return false;
     this.e.setNodeStatus(parentFlowId, nodeKey, "running");
