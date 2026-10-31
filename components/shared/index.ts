@@ -9,6 +9,7 @@ export { FilterPicker, type FilterDef } from "./FilterPicker";
 export { Markdown } from "./Markdown";
 export { loadHighlighter, highlightCode } from "./highlighter";
 export { FormModal, type FormModalWidth } from "./FormModal";
+export { SheetFooterHelper } from "./SheetFooterHelper";
 export { TabStrip } from "./TabStrip";
 export { RouteError, type RouteErrorProps, type RouteErrorShell } from "./RouteError";
 export { TableSkeleton } from "./TableSkeleton";

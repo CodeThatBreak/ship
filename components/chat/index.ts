@@ -3,7 +3,8 @@ export { default as ChatPanel } from "./ChatPanel";
 /** The rail's loading skeleton (§2.8) — mirrors the loaded ChatPanel layout. */
 export { default as ChatPanelSkeleton } from "./ChatPanelSkeleton";
 /** The composer's model picker; consumed by the flow cockpit and settings. */
-export { default as ModelSelector, useModels } from "./ModelSelector";
+export { default as ModelSelector } from "./ModelSelector";
+export { useModels } from "./hooks/useModels";
 export { default as PromptModal } from "./prompt-modal/PromptModal";
 /** The composer's config seam (docs/plan-conversation-refine.md §4d). */
 export type { ComposerConfig } from "./composer-config";

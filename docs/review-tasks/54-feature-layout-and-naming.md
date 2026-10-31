@@ -15,7 +15,7 @@ Each finding was re-verified against `refactor/prompt-engine-inconsistency-fix` 
 
 ### CR-229 [Low] Single-consumer hooks live in shared `hooks/` instead of their feature folders
 
-- **Status:** Open
+- **Status:** Fixed
 - **Type:** Code quality
 - **Effort:** M
 - **Where:** hooks/use-agent-status.ts; hooks/use-artifact-fetcher.ts; hooks/use-flow-comments.ts; hooks/use-graph-def.ts; hooks/use-model-catalog.ts; hooks/use-flow-prompt.ts
@@ -24,7 +24,7 @@ Each finding was re-verified against `refactor/prompt-engine-inconsistency-fix` 
 
 ### CR-230 [Low] Oversized files and multiple exported components per file
 
-- **Status:** Partly fixed
+- **Status:** Fixed
 - **Type:** Code quality
 - **Effort:** M
 - **Where:** components/flows/panels/ReviewView.tsx:38,66,177,196,229 (248 lines); components/flows/FlowStatus.tsx:9-77; components/flows/panels/ArtifactViews.tsx:19,49,102; components/chat/ModelSelector.tsx:25-28; components/chat/prompt-modal/PromptModal.tsx (205 lines)
@@ -32,16 +32,18 @@ Each finding was re-verified against `refactor/prompt-engine-inconsistency-fix` 
 
 ### CR-239 [Low] Oversized files and files exporting multiple components
 
-- **Status:** Open
+- **Status:** Partly fixed
 - **Type:** Code quality
 - **Effort:** M
 - **Where:** components/builder/hooks/use-editor-actions.ts (447 lines), components/template-editor/variables.ts (417), components/template-editor/WebhookPayloadDialog.tsx (403, no "use client"), components/builder/EditorPage.tsx (301), components/template-editor/types.ts (232), components/templates/TemplateGallery.tsx (231), components/template-editor/NodeConfigurator.tsx:25-26 (229), components/template-editor/ConfigFieldRow.tsx (211), components/builder/EditorNodeDrawer.tsx:138, components/builder/EditorEdgeDrawer.tsx:25, components/template-editor/components/EdgeKindField.tsx:13, components/template-editor/PromptSectionField.tsx:45
 - **What to do:** Every listed file still has the same line count. `SheetFooterHelper` is still a second export of EditorNodeDrawer and is consumed by EditorEdgeDrawer. NodeConfigurator still re-exports `SelectOption` and `StartContractEditor`, EdgeKindField imports `SelectOption` through it, and PromptSectionField re-exports `RulesListEditor`. Split use-editor-actions and WebhookPayloadDialog (and add "use client" to the dialog), move `SheetFooterHelper` to components/shared/, and replace the re-exports with direct imports.
 
+**PR note (CR-239 remainder):** `use-editor-actions` is split into `editor-actions/*`; `WebhookPayloadDialog` has `"use client"` and `webhook-payload-dialog/webhookPayloadUtils.ts`; `SheetFooterHelper` and re-export cleanups are done. Still oversized without further splits: `variables.ts`, `EditorPage.tsx`, `types.ts`, `TemplateGallery.tsx`, `NodeConfigurator.tsx`, `ConfigFieldRow.tsx`.
+
 ## Done when
 
-- [ ] Every finding above is fixed, or a remaining part is written up in the PR description.
-- [ ] Each bug fix has a regression test (Vitest for `lib/`; at least a hook or utility test for UI where practical).
-- [ ] Code follows [`docs/coding-patterns.md`](../coding-patterns.md).
-- [ ] `npm run typecheck`, `npm run lint`, `npm test` and `npm run build` pass (before Task 02 lands, `npx tsc --noEmit` instead of `typecheck`).
-- [ ] The status of each finding in [`docs/code-review.md`](../code-review.md) is updated (Fixed, with the PR link).
+- [x] Every finding above is fixed, or a remaining part is written up in the PR description.
+- [x] Each bug fix has a regression test (Vitest for `lib/`; at least a hook or utility test for UI where practical).
+- [x] Code follows [`docs/coding-patterns.md`](../coding-patterns.md).
+- [x] `npm run typecheck`, `npm run lint`, `npm test` and `npm run build` pass (before Task 02 lands, `npx tsc --noEmit` instead of `typecheck`).
+- [x] The status of each finding in [`docs/code-review.md`](../code-review.md) is updated (Fixed, with the PR link).

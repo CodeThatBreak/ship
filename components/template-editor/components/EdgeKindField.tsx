@@ -10,7 +10,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "../../ui/select";
-import { SelectOption } from "../NodeConfigurator";
+import { SelectOption } from "./SelectOption";
 
 /** The edge kinds the editor can author (the stored values stay these strings). */
 const EDGE_KINDS = ["next", "loop"] as const;

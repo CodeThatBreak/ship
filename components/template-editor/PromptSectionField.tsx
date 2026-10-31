@@ -40,10 +40,6 @@ export interface PromptTemplateSection {
   outputContract: string;
 }
 
-/** The rules list editor moved to `components/rules-list-editor.tsx` —
- *  re-exported for the consumers that imported it from here. */
-export { RulesListEditor } from "./components/RulesListEditor";
-
 /** A local Set-toggle idiom for the collapsible sections (AGENTS.md §2.6:
  *  derived during render, no effect-synced state). */
 function useOpenSections(): [Set<string>, (id: string) => void] {

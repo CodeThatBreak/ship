@@ -1,6 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { queryKeys } from "@/constants/query-keys";
-import { fetchJson } from "./fetch-json";
+import { fetchJson } from "@/hooks/fetch-json";
 
 const COMMENTS_REFETCH_MS = 8000;
 
@@ -24,8 +24,8 @@ type CommentsPayload = { comments?: MrComment[] };
  * The MR's comments polled while the merge request exists — `enabled` gates the
  * whole query (no MR → no fetch), mirroring the previous one-shot effect.
  */
-export function useFlowComments(flowId: string, enabled: boolean) {
-  return useQuery({
+export const useFlowComments = (flowId: string, enabled: boolean) =>
+  useQuery({
     queryKey: queryKeys.flows.comments(flowId),
     queryFn: () =>
       fetchJson<CommentsPayload>(`/api/flows/${flowId}/comments`).then(
@@ -34,4 +34,3 @@ export function useFlowComments(flowId: string, enabled: boolean) {
     enabled,
     refetchInterval: COMMENTS_REFETCH_MS,
   });
-}

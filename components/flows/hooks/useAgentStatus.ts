@@ -1,6 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { queryKeys } from "@/constants/query-keys";
-import { fetchJson } from "./fetch-json";
+import { fetchJson } from "@/hooks/fetch-json";
 
 const STATUS_REFETCH_MS = 5000;
 
@@ -26,10 +26,9 @@ export type StatusPayload = {
 };
 
 /** The agent-activity snapshot, polled every few seconds for the status bar. */
-export function useAgentStatus() {
-  return useQuery({
+export const useAgentStatus = () =>
+  useQuery({
     queryKey: queryKeys.status,
     queryFn: () => fetchJson<StatusPayload>("/api/status"),
     refetchInterval: STATUS_REFETCH_MS,
   });
-}

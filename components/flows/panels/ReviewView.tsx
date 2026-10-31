@@ -1,87 +1,31 @@
 "use client";
 import { useMemo, useState } from "react";
-import { ScanSearch, CheckCheck, User, MessageSquare, CornerDownRight, Pencil, FileCode2, CircleAlert } from "lucide-react";
-import { Markdown } from "@/components/shared";
+import { ScanSearch, CheckCheck, MessageSquare, Pencil, CircleAlert } from "lucide-react";
 import { PromptModal } from "@/components/chat";
 import { PanelShell } from "./shared";
 import { useNodePanel } from "./context";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Card } from "@/components/ui/card";
-import { Skeleton } from "@/components/ui/skeleton";
 import { Spinner } from "@/components/ui/spinner";
 import { EmptyHint } from "@/components/shared";
-import { cn } from "@/lib/utils";
-import { useFlowComments } from "@/hooks/use-flow-comments";
+import { useFlowComments } from "../hooks/useFlowComments";
 import { FLOW_STATUS } from "@/constants/flow";
-
-/** One MR comment/note — mirrors hooks/use-flow-comments's MrComment. */
-type Comment = {
-  id: string; threadId?: string | null; author?: string | null; body: string;
-  path?: string | null; line?: number | null; status: string;
-  resolvable: boolean; resolved: boolean; createdAt: string;
-};
-
-type ThreadNote = Comment;
-
-type Thread = {
-  id: string;
-  root: ThreadNote;
-  replies: ThreadNote[];
-  /** root thread participates in the resolve loop (only resolvable roots count as "open") */
-  resolvable: boolean;
-  /** thread-level open = root is open (and, for counting, resolvable) */
-  open: boolean;
-  resolved: boolean;
-};
-
-/** Group flat comments into discussion threads (root = earliest note). */
-function buildThreads(comments: Comment[]): Thread[] {
-  const byThread = new Map<string, ThreadNote[]>();
-  for (const c of comments) {
-    const key = c.threadId ?? `ind_${c.id}`;
-    const arr = byThread.get(key);
-    if (arr) arr.push(c);
-    else byThread.set(key, [c]);
-  }
-  const threads: Thread[] = [];
-  for (const [id, notes] of byThread) {
-    // chronological within the thread — the first note is the root
-    notes.sort((a, b) => a.createdAt.localeCompare(b.createdAt));
-    const root = notes[0];
-    const replies = notes.slice(1);
-    const open = root.status === "open";    threads.push({
-      id,
-      root,
-      replies,
-      resolvable: root.resolvable,
-      open,
-      resolved: !open,
-    });
-  }
-  // newest thread first (by root creation time)
-  threads.sort((a, b) => b.root.createdAt.localeCompare(a.root.createdAt));
-  return threads;
-}
+import { buildThreads } from "./review/buildThreads";
+import { ThreadCard } from "./review/ThreadCard";
+import { ThreadListSkeleton } from "./review/ThreadListSkeleton";
 
 export default function ReviewView() {
   const { flow, node, action, model } = useNodePanel();
   const [showPrompt, setShowPrompt] = useState(false);
 
-  // the query is gated on the MR existing — no MR means no fetch (and no poll)
   const commentsQuery = useFlowComments(flow.id, Boolean(flow.mr_iid));
-  // stable identity so the threading memo below doesn't invalidate per render
   const comments = useMemo(() => commentsQuery.data ?? [], [commentsQuery.data]);
 
   const threads = useMemo(() => buildThreads(comments), [comments]);
-  // Only resolvable root threads count toward "open" — system notes and plain
-  // discussion comments that can't be resolved don't block the loop.
   const openThreads = threads.filter((t) => t.open && t.resolvable);
   const resolvedThreads = threads.filter((t) => !t.open && t.resolvable);
 
   const running = node.status === FLOW_STATUS.RUNNING;
-  // the comments list is mid-load or its poll failed — the empty state must
-  // not render while those states are on screen instead of real data
   const commentIssue = commentsQuery.isLoading || commentsQuery.isError;
 
   const headerEnd = (
@@ -168,79 +112,5 @@ export default function ReviewView() {
         />
       )}
     </>
-  );
-}
-
-/** Loading skeleton mirroring the thread cards (header row + body lines). */
-function ThreadListSkeleton() {
-  return (
-    <div className="grid gap-2.5 mt-1">
-      {[0, 1].map((i) => (
-        <Card key={i} className="p-3.5">
-          <div className="flex items-center gap-2 mb-2">
-            <Skeleton className="h-3 w-24 rounded-full" />
-            <Skeleton className="h-3 w-16 rounded-full" />
-            <Skeleton className="ml-auto h-3 w-10 rounded-full" />
-          </div>
-          <Skeleton className="h-3.5 w-11/12 mb-1.5 rounded-full" />
-          <Skeleton className="h-3.5 w-2/3 mb-1.5 rounded-full" />
-          <Skeleton className="h-3.5 w-1/2 rounded-full" />
-        </Card>
-      ))}
-    </div>
-  );
-}
-
-function ThreadCard({ thread }: { thread: Thread }) {
-  const { root, replies } = thread;
-  return (
-    <Card className={cn("p-3.5", !thread.open && thread.resolvable && "opacity-60")}>
-      {/* root comment */}
-      <NoteHeader note={root} isRoot resolvable={thread.resolvable} />
-      <div className="text-[13px] [&_p]:my-1.5">
-        <Markdown className="text-[13px]">{root.body}</Markdown>
-      </div>
-
-      {/* nested replies — hierarchy preserved, not a separate thread */}
-      {replies.length > 0 && (
-        <div className="mt-2.5 grid gap-2 border-l-2 border-border pl-3.5">
-          {replies.map((r) => (
-            <div key={r.id} className="pt-1">
-              <div className="flex gap-2 items-center text-xs mb-1">
-                <CornerDownRight size={12} className="text-muted-foreground shrink-0" />
-                <span className="inline-flex items-center gap-[5px] font-semibold">
-                  <User size={11} className="text-muted-foreground" /> {r.author}
-                </span>
-                {r.resolved && <Badge className="bg-success/10 text-success">resolved</Badge>}
-              </div>
-              <div className="text-[12.5px] [&_p]:my-1 text-muted-foreground">
-                <Markdown className="text-[12.5px]">{r.body}</Markdown>
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
-    </Card>
-  );
-}
-
-function NoteHeader({ note, isRoot, resolvable }: { note: ThreadNote; isRoot?: boolean; resolvable?: boolean }) {
-  return (
-    <div className="flex gap-2 items-center text-xs mb-1.5 flex-wrap">
-      <span className="inline-flex items-center gap-[5px] font-semibold">
-        <User size={12} className="text-muted-foreground" /> {note.author}
-      </span>
-      {note.path && (
-        <span className="inline-flex items-center gap-1 text-muted-foreground text-[11px] font-mono">
-          <FileCode2 size={11} />
-          {note.path}{note.line ? `:${note.line}` : ""}
-        </span>
-      )}
-      <div className="flex-1" />
-      {resolvable === false && isRoot && <Badge>note</Badge>}
-      {isRoot && resolvable !== false && (
-        <Badge className={note.status === "resolved" ? "bg-success/10 text-success" : "bg-warning/10 text-warning"}>{note.status}</Badge>
-      )}
-    </div>
   );
 }

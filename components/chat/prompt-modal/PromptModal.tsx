@@ -3,7 +3,7 @@ import { useState } from "react";
 import { Lock, X, Play, Info } from "lucide-react";
 import { Modal } from "@/components/shared";
 import { Button } from "@/components/ui/button";
-import { useFlowPrompt } from "@/hooks/use-flow-prompt";
+import { useFlowPrompt } from "../hooks/useFlowPrompt";
 import { useToggledSections } from "./hooks/use-toggled-sections";
 import { FinalPromptFooter } from "./FinalPromptFooter";
 import { LockedSection } from "./LockedSection";
@@ -11,9 +11,7 @@ import { PromptEditorSection } from "./PromptEditorSection";
 import { PromptModalSkeleton } from "./PromptModalSkeleton";
 import { RulesSection } from "./RulesSection";
 
-// the prompt-modal types moved to the data hook (hooks/use-flow-prompt.ts) —
-// re-exported here for the consumers that imported them from this file
-export type { PromptData, RunDataBlock } from "@/hooks/use-flow-prompt";
+export type { PromptData, RunDataBlock } from "../hooks/useFlowPrompt";
 
 /**
  * The prompt editor modal (review/resolve/pipeline, docs/plan-conversation-

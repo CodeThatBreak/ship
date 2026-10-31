@@ -1,7 +1,7 @@
 "use client";
 import { useMemo } from "react";
 import type { Node } from "@/types/flow";
-import type { GraphDef } from "@/hooks/use-graph-def";
+import type { GraphDef } from "../hooks/useGraphDef";
 import { isTerminalFlowStatus } from "@/constants/flow";
 import { H, W } from "./graph-layout";
 

@@ -7,5 +7,5 @@
  */
 export { panelTitle, statusVariant, PanelShell } from "./PanelShell";
 export { CostChip } from "./CostChip";
-export { GenericArtifact, VersionTabs, ArtifactLoader } from "./ArtifactViews";
-export type { ArtifactPayload } from "./ArtifactViews";
+export { GenericArtifact, VersionTabs, ArtifactLoader } from "./artifacts";
+export type { ArtifactPayload } from "./artifacts";

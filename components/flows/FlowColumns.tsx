@@ -4,7 +4,7 @@ import { Cloud, FolderGit2, GitMerge } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import type { FlowSummary, WorktreeStatus } from "@/types/flows";
 import { EXECUTION_MODE_LOCAL } from "./constants";
-import { EMPTY_CELL, StatusBadge, WorktreeBadge, FlowStatusDot } from "./FlowStatus";
+import { EMPTY_CELL, StatusBadge, WorktreeBadge, FlowStatusDot } from "./flow-status";
 
 /**
  * Column definitions for the flows list. Rebuilt when the polled worktree

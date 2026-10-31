@@ -4,7 +4,7 @@ import * as React from "react";
 
 import { cn } from "@/lib/utils";
 import type { CatalogModel, ModelChoice } from "@/types/model-spec";
-import { useModelCatalog } from "@/hooks/use-model-catalog";
+import { useModelCatalog } from "./hooks/useModelCatalog";
 import { ModelMenu } from "./model-selector/ModelMenu";
 import { ModelOptionsMenu } from "./model-selector/ModelOptionsMenu";
 import type { ModelParameterDefinition } from "./model-selector/model-params";
@@ -16,15 +16,6 @@ import {
 
 /** Placeholder model shown when the catalog carries nothing usable. */
 const NO_MODEL: CatalogModel = { id: "", displayName: "Model" };
-
-/**
- * Back-compat export (the settings area still imports it from here): the
- * catalog payload itself — undefined until loaded, mirroring the old
- * fetch-once state.
- */
-export function useModels() {
-  return useModelCatalog().data;
-}
 
 /** Back-compat re-export (the definition moved to `model-selector/`). */
 export type { ModelParameterDefinition } from "./model-selector/model-params";

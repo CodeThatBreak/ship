@@ -15,7 +15,7 @@ import {
   Terminal,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
-import type { GraphDef } from "@/hooks/use-graph-def";
+import type { GraphDef } from "../hooks/useGraphDef";
 
 // icons are a pure UI concern — resolved from the node_templates `icon` column
 // (lucide names, e.g. the seeded nodes) with a kind fallback, then CircleDot.

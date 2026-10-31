@@ -1,6 +1,6 @@
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { queryKeys } from "@/constants/query-keys";
-import { fetchJson } from "./fetch-json";
+import { fetchJson } from "@/hooks/fetch-json";
 
 // The graph definition is a static template snapshot; refsresh it between
 // session visits (the flow's own graph) but keep one per session otherwise.
@@ -29,12 +29,11 @@ export type GraphDef = {
  * graph reflects that flow's snapshot (order/labels/edges), otherwise the
  * built-in registry graph.
  */
-export function useGraphDef(flowId: string) {
-  return useQuery({
+export const useGraphDef = (flowId: string) =>
+  useQuery({
     queryKey: queryKeys.graph(flowId),
     queryFn: () =>
       fetchJson<GraphDef>(`/api/graph${flowId ? `?flowId=${encodeURIComponent(flowId)}` : ""}`),
     staleTime: GRAPH_STALE_MS,
     placeholderData: keepPreviousData,
   });
-}

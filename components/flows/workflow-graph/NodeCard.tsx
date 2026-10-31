@@ -1,6 +1,6 @@
 "use client";
 import type { Node } from "@/types/flow";
-import type { GraphDef } from "@/hooks/use-graph-def";
+import type { GraphDef } from "../hooks/useGraphDef";
 import { cn } from "@/lib/utils";
 import { FANOUT_STATE, FLOW_STATUS, type FanoutState } from "@/constants/flow";
 import { iconFor } from "./icons";

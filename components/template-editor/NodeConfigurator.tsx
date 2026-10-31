@@ -20,10 +20,6 @@ import { ConfigTab } from "./components/ConfigTab";
 import { StartContractEditor } from "./components/StartContractEditor";
 import { ContractView } from "./components/ContractView";
 
-// parent-facing surface kept on this monolith path for the hosts that import
-// the configurator directly (the feature barrel does not re-export these)
-export { SelectOption } from "./ConfigFieldRow";
-export { StartContractEditor } from "./components/StartContractEditor";
 export type { IncomingLink, UpstreamGroup } from "./hooks/use-upstream-groups";
 
 /**

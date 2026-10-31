@@ -5975,7 +5975,7 @@ Original findings, verbatim:
 
 ### CR-229 [Low] Single-consumer hooks live in shared `hooks/` instead of their feature folders
 
-- **Status at `abaa007`:** **Open**, fix in [Task 54](review-tasks/54-feature-layout-and-naming.md)
+- **Status at `abaa007`:** **Fixed** (Task 54 — hooks moved to `components/flows/hooks/` and `components/chat/hooks/` with camelCase filenames; `use-artifact-fetcher` was already replaced by `useArtifact`)
 - **Current location:** hooks/use-agent-status.ts; hooks/use-artifact-fetcher.ts; hooks/use-flow-comments.ts; hooks/use-graph-def.ts; hooks/use-model-catalog.ts; hooks/use-flow-prompt.ts
 - **Re-verification note:** These six hooks still each have exactly one consuming feature (flows: agent-status, artifact-fetcher, flow-comments, graph-def; chat: model-catalog, flow-prompt). `use-flow-chat` now has consumers in both chat and the flows plan feature, so it legitimately stays shared. Fix: move the six into `components/flows/hooks/` and `components/chat/hooks/`, renaming to the camelCase `useThing.ts` convention that AGENTS.md §2.9 now requires.
 
@@ -5998,7 +5998,7 @@ Original findings, verbatim:
 
 ### CR-230 [Low] Oversized files and multiple exported components per file
 
-- **Status at `abaa007`:** **Partly fixed**, fix in [Task 54](review-tasks/54-feature-layout-and-naming.md)
+- **Status at `abaa007`:** **Fixed** (Task 54 — ReviewView, FlowStatus, ArtifactViews split; `useModels` moved to `components/chat/hooks/useModels.ts`. PromptModal left at ~205 lines — borderline, unchanged.)
 - **Current location:** components/flows/panels/ReviewView.tsx:38,66,177,196,229 (248 lines); components/flows/FlowStatus.tsx:9-77; components/flows/panels/ArtifactViews.tsx:19,49,102; components/chat/ModelSelector.tsx:25-28; components/chat/prompt-modal/PromptModal.tsx (205 lines)
 - **Re-verification note:** PlanView (100 lines), FlowCockpit (115) and use-flow-prompt (186) have been split down. Still open: ReviewView mixes `buildThreads` with three internal components, FlowStatus exports five items, ArtifactViews exports three components, and ModelSelector still exports the `useModels` hook. PromptModal is borderline at 205 lines. Fix: extract `buildThreads` and the thread components, split FlowStatus and ArtifactViews one component per file, and move `useModels` into the hook module.
 
@@ -6198,7 +6198,7 @@ Original findings, verbatim:
 
 ### CR-239 [Low] Oversized files and files exporting multiple components
 
-- **Status at `abaa007`:** **Open**, fix in [Task 54](review-tasks/54-feature-layout-and-naming.md)
+- **Status at `abaa007`:** **Partly fixed** (Task 54 — `use-editor-actions` split, `WebhookPayloadDialog` + `"use client"`, `SheetFooterHelper` in shared, re-export cleanups; remainder: `variables.ts`, `EditorPage.tsx`, `types.ts`, `TemplateGallery.tsx`, `NodeConfigurator.tsx`, `ConfigFieldRow.tsx` still oversized)
 - **Current location:** components/builder/hooks/use-editor-actions.ts (447 lines), components/template-editor/variables.ts (417), components/template-editor/WebhookPayloadDialog.tsx (403, no "use client"), components/builder/EditorPage.tsx (301), components/template-editor/types.ts (232), components/templates/TemplateGallery.tsx (231), components/template-editor/NodeConfigurator.tsx:25-26 (229), components/template-editor/ConfigFieldRow.tsx (211), components/builder/EditorNodeDrawer.tsx:138, components/builder/EditorEdgeDrawer.tsx:25, components/template-editor/components/EdgeKindField.tsx:13, components/template-editor/PromptSectionField.tsx:45
 - **Re-verification note:** Every listed file still has the same line count. `SheetFooterHelper` is still a second export of EditorNodeDrawer and is consumed by EditorEdgeDrawer. NodeConfigurator still re-exports `SelectOption` and `StartContractEditor`, EdgeKindField imports `SelectOption` through it, and PromptSectionField re-exports `RulesListEditor`. Split use-editor-actions and WebhookPayloadDialog (and add "use client" to the dialog), move `SheetFooterHelper` to components/shared/, and replace the re-exports with direct imports.
 

@@ -1,7 +1,7 @@
 'use client';
 import { useMemo } from 'react';
 import type { Node } from '@/types/flow';
-import { useGraphDef } from '@/hooks/use-graph-def';
+import { useGraphDef } from '../hooks/useGraphDef';
 import { GraphEdges, type NodePosition } from './GraphEdges';
 import { GraphStatusChips } from './GraphStatusChips';
 import WorkflowGraphSkeleton, { GRAPH_SKELETON_HEIGHT } from './WorkflowGraphSkeleton';

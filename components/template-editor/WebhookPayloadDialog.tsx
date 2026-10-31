@@ -1,10 +1,8 @@
+"use client";
 /**
  * The template gallery's "Copy webhook payload" table action: the dialog picks
- * the delivery's repo + harness (+ its exec mode), builds the request body —
- * the reserved keys the engine reads at flow start (`repo`, `execution_mode`)
- * plus the start contract's input fields (the template's input params) — and
- * shows the whole curl that sends it. The secret is masked on screen but
- * carried in the copied text (same posture as the editor's hook card).
+ * the delivery's repo + harness (+ its exec mode), builds the request body,
+ * and shows the whole curl that sends it.
  */
 import { useEffect, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
@@ -27,102 +25,33 @@ import {
   SelectValue,
 } from "../ui/select";
 import { Skeleton } from "../ui/skeleton";
-import { useCopy } from "../../hooks/use-copy";
+import { useCopy } from "@/hooks/use-copy";
 import { queryKeys } from "@/constants/query-keys";
-import { fetchJson } from "@/hooks/fetch-json";
 import { settingsQueryOptions, reposQueryOptions, reposFromQueryData } from "../settings/queries";
-import { type Harness, type Repo } from "../settings";
-import { schemaRows } from "./variables";
+import { type Harness } from "../settings";
+import {
+  fetchWebhookContext,
+  repoLabel,
+  sampleValue,
+  shellSingleQuoted,
+} from "./webhook-payload-dialog/webhookPayloadUtils";
 
-/** The saved template's start-node row (same catalog id the editor looks
- *  for); its instance config carries the start contract. */
-const START_NODE_TEMPLATE_ID = "nt_start";
-
-/** One start-contract field — the sample body's input params. */
-type ContractField = { key: string; label?: string; type?: string; required?: boolean };
-
-/** The template's flow-trigger hook (GET /api/templates response slice). */
-type HookInfo = { id: string; secret: string; filter: string | null };
-type TemplateDetailPayload = {
-  hook?: HookInfo | null;
-  nodes?: {
-    node_template_id: string;
-    config: Record<string, unknown> | null;
-  }[];
-};
-
-/** The start node's contract as typed rows: `/api/contracts` resolves it the
- *  same way the editor does (`def` + the instance `config` — the contract is
- *  per instance). */
-async function fetchContractFields(
-  config: Record<string, unknown> | null,
-): Promise<ContractField[]> {
-  const p = new URLSearchParams();
-  p.set("def", START_NODE_TEMPLATE_ID);
-  if (config && Object.keys(config).length) p.set("config", JSON.stringify(config));
-  const contract = await fetchJson<{ output?: unknown }>(`/api/contracts?${p.toString()}`);
-  return schemaRows(contract.output).map((r) => ({
-    key: r.name,
-    label: r.description,
-    type: r.type,
-    required: r.required,
-  }));
-}
-
-/** The dialog's context: the input fields + the provisioned hook (null until
- *  the template is saved with its side effects — the curl needs it). */
-async function fetchWebhookContext(
-  templateId: string,
-): Promise<{ fields: ContractField[]; hook: HookInfo | null }> {
-  const detail = await fetchJson<TemplateDetailPayload>(`/api/templates/${templateId}`);
-  const start = detail.nodes?.find((n) => n.node_template_id === START_NODE_TEMPLATE_ID);
-  const fields = start ? await fetchContractFields(start.config ?? null) : [];
-  return { fields, hook: detail.hook ?? null };
-}
-
-/** A placeholder value matching the declared field type (the sender replaces
- *  whatever applies). */
-function sampleValue(field: ContractField): unknown {
-  switch (field.type) {
-    case "number": return 0;
-    case "boolean": return true;
-    case "object": return {};
-    case "array": return [];
-    default: return `<${field.key}>`;
-  }
-}
-
-/** The friendly repo label (the "(local)" suffix marks the local checkout). */
-const repoLabel = (r: Repo) => `${r.name}${r.local_path ? " (local)" : ""}`;
-
-/** Shell-quote a string for the curl's `-d '…'` (embedds safely even when the
- *  body carries apostrophes). */
-function shellSingleQuoted(s: string): string {
-  return `'${s.replaceAll("'", "'\\''")}'`;
-}
-
-export function WebhookPayloadDialog({
+export const WebhookPayloadDialog = ({
   template,
   defaultRepoId,
   onClose,
 }: {
-  /** the row the action ran on — null = closed */
   template: { id: string; name: string } | null;
-  /** the template's bound repo (the repo select's preselection) */
   defaultRepoId?: string | null;
   onClose: () => void;
-}) {
+}) => {
   const open = template != null;
   const templateId = template?.id ?? "";
   const { copied, copy } = useCopy();
 
-  // selections: null until the user picks — every default resolves from the
-  // data (the bound repo, the settings' harness/mode defaults) below
   const [repoId, setRepoId] = useState<string | null>(null);
   const [harnessKey, setHarnessKey] = useState<string | null>(null);
   const [mode, setMode] = useState<string | null>(null);
-  // the page origin — browser-only state read after mount (hydration safe;
-  // dialogs only render client-side)
   const [origin, setOrigin] = useState("");
   useEffect(() => setOrigin(window.location.origin), []);
 
@@ -147,8 +76,6 @@ export function WebhookPayloadDialog({
   const failed =
     (open && contextQuery.isError) || reposQuery.isError || settingsQuery.isError;
 
-  // effective selections: the user's pick wins; otherwise the template's
-  // binding, then the settings defaults, then the first valid option
   const repo =
     repos.find((r) => r.id === (repoId ?? defaultRepoId ?? "")) ?? repos[0] ?? null;
   const harnesses = settings?.harnesses ?? [];
@@ -156,13 +83,13 @@ export function WebhookPayloadDialog({
     harnesses.find((h) => h.key === (harnessKey ?? settings?.default_harness ?? "")) ??
     harnesses[0] ??
     null;
-  const modeValue: string | null = harness?.modes.find(
-    (m) => m.value === (mode ?? settings?.default_execution_mode ?? ""),
-  )?.value ?? harness?.modes[0]?.value ?? null;
+  const modeValue: string | null =
+    harness?.modes.find((m) => m.value === (mode ?? settings?.default_execution_mode ?? ""))
+      ?.value ??
+    harness?.modes[0]?.value ??
+    null;
 
   const payload = {
-    // reserved keys consumed at flow start (never contract data): the repo the
-    // flow attaches to (id / URL / registered name) and the exec mode to pin
     ...(repo ? { repo: repo.name } : {}),
     ...(modeValue ? { execution_mode: modeValue } : {}),
     ...Object.fromEntries(
@@ -171,16 +98,12 @@ export function WebhookPayloadDialog({
   };
   const payloadText = JSON.stringify(payload, null, 2);
   const hook = contextQuery.data?.hook ?? null;
-  // the whole curl — endpoint, secret header and the body — displayed with the
-  // secret masked, copied verbatim (the sender needs the real secret to sign)
   const curlText = hook
     ? `curl -X POST ${origin}/api/hooks/${hook.id} ` +
       `-H "content-type: application/json" ` +
       `-H "x-devflow-secret: ${hook.secret}" ` +
       `-d ${shellSingleQuoted(payloadText)}`
     : null;
-  // the display's masked form: the secret is the split point — the real value
-  // only ever lives in the copied text (`hook-verify-copy` never renders it)
   let curlBefore = "";
   let curlAfter = "";
   if (hook && curlText) {
@@ -189,7 +112,6 @@ export function WebhookPayloadDialog({
     curlAfter = parts.slice(1).join(hook.secret);
   }
 
-  /** one block's header: label + inline copy (masked text, full copy). */
   const blockLabel = (label: string, text: () => string) => (
     <div className="flex items-center justify-between gap-2">
       <FieldTitle>{label}</FieldTitle>
@@ -207,7 +129,12 @@ export function WebhookPayloadDialog({
   );
 
   return (
-    <Dialog open={open} onOpenChange={(v) => { if (!v) onClose(); }}>
+    <Dialog
+      open={open}
+      onOpenChange={(v) => {
+        if (!v) onClose();
+      }}
+    >
       <DialogContent className="sm:max-w-[560px]">
         <DialogHeader>
           <DialogTitle>Copy webhook payload — {template?.name ?? ""}</DialogTitle>
@@ -236,7 +163,6 @@ export function WebhookPayloadDialog({
             </Alert>
           )}
 
-          {/* Repo — preselected from the template's binding when set */}
           <Field>
             <FieldLabel htmlFor="webhook-repo">Repo</FieldLabel>
             {reposQuery.isPending ? (
@@ -270,7 +196,6 @@ export function WebhookPayloadDialog({
             )}
           </Field>
 
-          {/* Harness → mode cascade (same shape as the settings General page) */}
           <div className="grid grid-cols-2 gap-2">
             <Field>
               <FieldLabel htmlFor="webhook-harness">Harness</FieldLabel>
@@ -337,12 +262,8 @@ export function WebhookPayloadDialog({
             </Field>
           </div>
 
-          {/* The body itself — the delivery JSON the curl sends */}
           <Field>
-            {blockLabel(
-              "Payload (request body)",
-              () => payloadText,
-            )}
+            {blockLabel("Payload (request body)", () => payloadText)}
             {contextQuery.isPending ? (
               <Skeleton className="h-20 rounded-lg" />
             ) : (
@@ -352,12 +273,8 @@ export function WebhookPayloadDialog({
             )}
           </Field>
 
-          {/* The whole curl — endpoint + secret + the body above */}
           <Field>
-            {blockLabel(
-              "Curl — send this body to the hook",
-              () => curlText ?? "",
-            )}
+            {blockLabel("Curl — send this body to the hook", () => curlText ?? "")}
             {hook && contextQuery.data && !contextQuery.isError ? (
               <pre className="max-h-44 overflow-auto rounded-lg bg-muted p-2 font-mono text-[12px] m-0 whitespace-pre-wrap break-all">
                 {curlBefore}
@@ -370,8 +287,7 @@ export function WebhookPayloadDialog({
               </p>
             ) : (
               <p className="text-[11px] text-muted-foreground m-0">
-                The hook endpoint appears once the template is saved or
-                duplicated.
+                The hook endpoint appears once the template is saved or duplicated.
               </p>
             )}
           </Field>
@@ -391,4 +307,4 @@ export function WebhookPayloadDialog({
       </DialogContent>
     </Dialog>
   );
-}
+};

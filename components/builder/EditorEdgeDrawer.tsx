@@ -22,7 +22,7 @@ import {
   type TaskProviderInfo,
 } from "@/components/template-editor";
 import type { TriggerField } from "./hooks/use-instance-contracts";
-import { SheetFooterHelper } from "./EditorNodeDrawer";
+import { SheetFooterHelper } from "@/components/shared";
 
 export interface EditorEdgeDrawerProps {
   edge: EditorEdge;
