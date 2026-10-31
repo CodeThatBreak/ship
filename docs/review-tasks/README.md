@@ -97,7 +97,7 @@ Open and partly fixed findings: 262, spread over 61 tasks.
 | [ ] | 45 | [Split the `FlowEngine` god class](45-flow-engine-decomposition.md) | CR-070, CR-185 | L | 44 |
 | [ ] | 46 | [Remove `any`, `!` and unsafe casts in the backend](46-backend-types-cleanup.md) | CR-182, CR-183, CR-202, CR-213, CR-173 | M | 03 |
 | [ ] | 47 | [Thin route handlers backed by services](47-thin-routes-and-services.md) | CR-051, CR-053, CR-168, CR-169, CR-172, CR-175, CR-177, CR-178, CR-179 | L | 11 |
-| [ ] | 48 | [Constructor injection and a smaller `Database` class](48-backend-dependency-injection.md) | CR-095, CR-118, CR-116 | L | 08 |
+| [x] | 48 | [Constructor injection and a smaller `Database` class](48-backend-dependency-injection.md) | CR-095, CR-118, CR-116 | L | 08 |
 | [ ] | 49 | [Declarative node base class and registry](49-node-kind-structure.md) | CR-093, CR-096, CR-208 | M | 26 |
 | [ ] | 50 | [Convert loose function modules and stop input mutation](50-small-module-cleanups.md) | CR-186, CR-216, CR-197, CR-195 | M | 48 |
 | [ ] | 51 | [Stricter TypeScript flags](51-tsconfig-strictness.md) | CR-258 | M | 46 |

@@ -177,9 +177,10 @@ export class BuildNode extends AgentRunNode<BuildInput, BuildOutput> {
     const plan = this.support.latestArtifact(ctx.flow.id, "plan", { nodeType: NODE_KEYS.PLAN });
     if (!plan) throw new Error("no plan to build — approve the plan first");
 
-    // carry the model selected for the plan run into the build
+    // carry the model selected for the plan run into the build (from plan output)
     const planNode = this.support.nodeByType(ctx.flow.id, NODE_KEYS.PLAN);
-    const planModel = (planNode?.input as { model?: string } | null)?.model ?? undefined;
+    const planOutput = planNode?.output as { model?: string | null } | null;
+    const planModel = planOutput?.model ?? undefined;
 
     // structured branches from the plan-meta (validated by the plan node at save time)
     let branches: PlanBranch[] | null = null;

@@ -19,6 +19,8 @@ const { AgentRunner } = await import("./agent-runner");
 const { RunSupersededError } = await import("../errors/run-superseded-error");
 const { AgentRunLookupError } = await import("../ports/agent-errors");
 const { agentPortRegistry } = await import("../ports/agent-port");
+const { config } = await import("../../config");
+const { worktreeManager } = await import("../runtime/worktree-lifecycle");
 import type {
   AgentPort,
   AgentRunHandle,
@@ -162,11 +164,14 @@ const runnerTestPort = new RunnerTestPort(async () => {
 agentPortRegistry.register(runnerTestPort);
 db.setSetting("default_harness", "runner-test");
 
+const makeRunner = (usage: typeof usageTracker = usageTracker) =>
+  new AgentRunner(flowCtxHelper, nodeSupport, usage, db, config, agentPortRegistry, worktreeManager);
+
 describe("AgentRunner.executeRun", () => {
   it("throws RunSupersededError when the attempt token no longer matches", async () => {
     const { ctx, nodeId } = seed("running", 1);
     supersedeDuringStream = nodeId;
-    const runner = new AgentRunner(flowCtxHelper, nodeSupport, usageTracker);
+    const runner = makeRunner();
     let runRef = "";
     await expect(
       runner.executeRun(
@@ -185,7 +190,7 @@ describe("AgentRunner.executeRun", () => {
 
   it("skips the late-write guard when ownsNodeStatus is false", async () => {
     const { ctx, nodeId } = seed("done", 2);
-    const runner = new AgentRunner(flowCtxHelper, nodeSupport, usageTracker);
+    const runner = makeRunner();
     const result = await runner.executeRun(
       ctx,
       nodeId,
@@ -202,7 +207,7 @@ describe("AgentRunner.executeRun", () => {
       persistUsage: usageTracker.persistUsage.bind(usageTracker),
     };
     const { ctx, nodeId } = seed("running", 3);
-    const runner = new AgentRunner(flowCtxHelper, nodeSupport, usage as unknown as typeof usageTracker);
+    const runner = makeRunner(usage as unknown as typeof usageTracker);
     let runRef = "";
     const result = await runner.executeRun(
       ctx,

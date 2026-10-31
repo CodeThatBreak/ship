@@ -1,29 +1,42 @@
 import { describe, expect, it, vi } from "vitest";
+import type { GitLabService } from "./client";
+import { GitLabHostService } from "./git-host";
 
-vi.mock("./client", () => ({
-  gitLab: {
+describe("GitLabHostService", () => {
+  const gitlab = {
     configured: () => true,
-    instanceForRepo: vi.fn(() => ({ token: "secret-token" })),
+    instanceForRepo: vi.fn(() => ({
+      id: "gli_1",
+      name: null,
+      base_url: "https://gitlab.example.com",
+      token: "secret-token",
+      created_at: "2026-01-01T00:00:00.000Z",
+    })),
     clientFor: vi.fn(),
     projectPathFromUrl: () => "group/repo",
     listInstances: () => [],
-  },
-}));
+    addInstance: vi.fn(),
+    updateInstance: vi.fn(),
+    deleteInstance: vi.fn(),
+    testInstance: vi.fn(),
+  };
 
-const { gitLab } = await import("./client");
-const { GitLabHostService } = await import("./git-host");
-
-describe("GitLabHostService", () => {
-  const service = new GitLabHostService();
+  const service = new GitLabHostService(gitlab as unknown as GitLabService);
 
   it("builds an authenticated clone URL with oauth2 and a .git suffix", () => {
-    vi.mocked(gitLab.instanceForRepo).mockReturnValue({ token: "secret-token" } as never);
+    vi.mocked(gitlab.instanceForRepo).mockReturnValue({
+      id: "gli_1",
+      name: null,
+      base_url: "https://gitlab.example.com",
+      token: "secret-token",
+      created_at: "2026-01-01T00:00:00.000Z",
+    });
     const url = service.authedCloneUrl("https://gitlab.example.com/group/repo");
     expect(url).toBe("https://oauth2:secret-token@gitlab.example.com/group/repo.git");
   });
 
   it("passes through the repo URL when no token is available", () => {
-    vi.mocked(gitLab.instanceForRepo).mockImplementation(() => {
+    vi.mocked(gitlab.instanceForRepo).mockImplementation(() => {
       throw new Error("no instance");
     });
     expect(service.authedCloneUrl("https://gitlab.example.com/group/repo.git")).toBe(

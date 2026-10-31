@@ -39,7 +39,14 @@ describe("LocalAgentService.streamRun timeout", () => {
     );
     cancelRun.mockResolvedValue(true);
 
-    const svc = new LocalAgentService();
+    const svc = new LocalAgentService({
+      getSetting: (_key, schema, fallback) => schema.parse(fallback),
+    });
+    vi.spyOn(svc, "defaults").mockReturnValue({
+      force: true,
+      sandbox: false,
+      timeoutMs: 30,
+    });
     await expect(svc.streamRun("run-timeout")).rejects.toMatchObject({
       runId: "run-timeout",
       timeoutMs: 30,

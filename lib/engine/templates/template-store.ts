@@ -57,8 +57,10 @@ export interface DraftNodeTemplateInput {
   config?: Record<string, unknown>;
 }
 
+import { SDLC_TEMPLATE_ID } from "../constants/node-keys";
+
 /** Seeded built-in template — the SDLC loop (plan → build → pipeline → review → resolve). */
-export const SDLC_TEMPLATE_ID = "tpl_sdlc_loop";
+export { SDLC_TEMPLATE_ID };
 
 /** Trigger vocabularies live in `constants/triggers.ts`; re-exported here so
  *  the TemplateStore module's public surface is unchanged. */

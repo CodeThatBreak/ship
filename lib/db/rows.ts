@@ -1,8 +1,7 @@
 import "server-only";
 
 import { z } from "zod";
-import { db } from "./index";
-import { processSingleton } from "../singleton";
+import type { Database } from "./database";
 
 /**
  * Zod schemas for every DB row + typed query helpers.
@@ -15,6 +14,7 @@ import { processSingleton } from "../singleton";
  */
 
 import { RowDecodeError, rowIdFromRaw } from "./row-decode-error";
+import { getRowGateway } from "./row-gateway-access";
 
 // ── helpers ──────────────────────────────────────────────────────────────────
 /** A TEXT column holding a JSON value of shape S. */
@@ -498,6 +498,8 @@ export type StepMergeRow = z.infer<typeof StepMergeRow>;
  * stripped (zod default) — SELECT * is fine.
  */
 export class RowGateway {
+  constructor(private readonly database: Database) {}
+
   private parseRow<S extends z.ZodTypeAny>(
     schema: S,
     raw: unknown,
@@ -523,7 +525,7 @@ export class RowGateway {
     sql: string,
     ...args: unknown[]
   ): z.infer<S> | undefined {
-    const row = db.get<unknown>(sql, ...(args as never[]));
+    const row = this.database.get<unknown>(sql, ...(args as never[]));
     if (row == null) return undefined;
     return this.parseRow(schema, row, sql, "get");
   }
@@ -534,7 +536,7 @@ export class RowGateway {
     ...args: unknown[]
   ): z.infer<S>[] {
     const decoded: z.infer<S>[] = [];
-    for (const raw of db.all<unknown>(sql, ...(args as never[]))) {
+    for (const raw of this.database.all<unknown>(sql, ...(args as never[]))) {
       const row = this.parseRow(schema, raw, sql, "all");
       if (row !== undefined) decoded.push(row);
     }
@@ -542,4 +544,13 @@ export class RowGateway {
   }
 }
 
-export const rows = processSingleton("rows", () => new RowGateway());
+/** Backward-compatible accessor — prefer `import { rows } from "@/lib/db"`. */
+export const rows: RowGateway = new Proxy({} as RowGateway, {
+  get(_target, prop: keyof RowGateway) {
+    const gateway = getRowGateway();
+    const value = gateway[prop];
+    return typeof value === "function"
+      ? (value as (...args: never[]) => unknown).bind(gateway)
+      : value;
+  },
+});

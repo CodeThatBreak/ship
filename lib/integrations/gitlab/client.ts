@@ -1,8 +1,8 @@
 import "server-only";
 
-import { db } from "../../db";
-import { rows, GitLabInstanceRow, type GitLabInstance } from "../../db/rows";
-import { processSingleton } from "../../singleton";
+import type { Database } from "../../db/database";
+import type { GitLabInstanceStore } from "../../db/stores";
+import { type GitLabInstance } from "../../db/rows";
 import {
   GitHostTimeoutError,
   gitHostErrorFromResponse,
@@ -259,31 +259,30 @@ export class GitLabClient {
  * in the settings store.
  */
 export class GitLabService {
+  constructor(
+    private readonly instances: GitLabInstanceStore,
+    private readonly database: Pick<Database, "uid" | "now" | "normalizeRepoUrl">,
+  ) {}
+
   private static host(url: string): string | null {
     return hostOfRepoUrl(url);
   }
 
   // ── instance registry ────────────────────────────────────────────────────
   listInstances(): GitLabInstance[] {
-    return rows.all(GitLabInstanceRow, `SELECT * FROM gitlab_instances ORDER BY base_url`);
+    return this.instances.list();
   }
 
   addInstance(input: { name?: string; base_url: string; token: string }): GitLabInstance {
-    const baseUrl = input.base_url.trim().replace(/\/+$/, "");
-    const id = db.uid("gli_");
-    const createdAt = db.now();
-    db.run(`INSERT INTO gitlab_instances (id,name,base_url,token,created_at) VALUES (?,?,?,?,?)`,
-      id, input.name ?? null, baseUrl, input.token, createdAt);
-    return { id, name: input.name ?? null, base_url: baseUrl, token: input.token, created_at: createdAt };
+    return this.instances.add(input);
   }
 
   updateInstance(id: string, input: { name?: string; base_url: string; token: string }): void {
-    db.run(`UPDATE gitlab_instances SET name=?, base_url=?, token=? WHERE id=?`,
-      input.name ?? null, input.base_url.trim().replace(/\/+$/, ""), input.token, id);
+    this.instances.update(id, input);
   }
 
   deleteInstance(id: string): void {
-    db.run(`DELETE FROM gitlab_instances WHERE id=?`, id);
+    this.instances.delete(id);
   }
 
   /**
@@ -317,12 +316,12 @@ export class GitLabService {
 
   /** Turn a repo URL into a URL-encoded GitLab project path. */
   projectPathFromUrl(repoUrl: string): string {
-    return encodedProjectPathFromRepoUrl(db.normalizeRepoUrl(repoUrl));
+    return encodedProjectPathFromRepoUrl(this.database.normalizeRepoUrl(repoUrl));
   }
 
   /** Project path (group/repo) without host, not URL-encoded. */
   projectNameFromUrl(repoUrl: string): string {
-    return projectPathFromRepoUrl(db.normalizeRepoUrl(repoUrl));
+    return projectPathFromRepoUrl(this.database.normalizeRepoUrl(repoUrl));
   }
 
   // ── repo-scoped API operations (instance resolved per call) ─────────────
@@ -410,5 +409,3 @@ export class GitLabService {
     }
   }
 }
-
-export const gitLab = processSingleton("gitLab", () => new GitLabService());

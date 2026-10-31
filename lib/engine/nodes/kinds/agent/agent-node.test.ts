@@ -25,6 +25,9 @@ const { nodeSupport } = await import("../../shared/node-support");
 const { flowCtxHelper } = await import("../../shared/run-context");
 const { usageTracker } = await import("../../../harness/usage-tracker");
 const { AgentRunner } = await import("../../../harness/agent-runner");
+const { config } = await import("../../../../config");
+const { agentPortRegistry } = await import("../../../ports/agent-port");
+const { worktreeManager } = await import("../../../runtime/worktree-lifecycle");
 const { AgentTemplateNode } = await import("./agent-node");
 import type { Started, AgentStartInput, ExecuteRunResult } from "../../../harness/agent-runner";
 import type { AgentRunResult } from "../../../ports/agent-port";
@@ -44,7 +47,7 @@ class StubRunner extends AgentRunner {
   readonly starts: AgentStartInput[] = [];
 
   constructor(...results: AgentRunResult[]) {
-    super(flowCtxHelper, nodeSupport, usageTracker);
+    super(flowCtxHelper, nodeSupport, usageTracker, db, config, agentPortRegistry, worktreeManager);
     this.queue = [...results];
   }
 

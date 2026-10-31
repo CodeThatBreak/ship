@@ -7,7 +7,8 @@ import { truncateUpstreamBody } from "../../../engine/ports/git-host-errors";
 import { AdfRenderer } from "../../../integrations/jira/adf-renderer";
 import { jiraAuthHeaders, jiraSearchPath } from "../../../integrations/jira/api-profile";
 import { JIRA_HTTP_TIMEOUT_MS } from "../../../integrations/jira/constants";
-import { jira, maskToken } from "../../../integrations/jira/service";
+import { jira } from "../../../integrations/jira/singleton";
+import { maskToken } from "../../../integrations/jira/service";
 import {
   TaskProvider,
   type LiveTask,

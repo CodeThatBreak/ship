@@ -2,29 +2,6 @@ import "server-only";
 
 import { AuthedUrlResolutionError } from "../../git/git-errors";
 
-/**
- * Git-host integration port — the neutral language engine + API code speaks.
- *
- * Concrete hosts (GitLab, GitHub, …) implement `GitHostService` in
- * `lib/integrations/<host>/git-host.ts` and register themselves in
- * `gitHostRegistry`. Nothing outside the integration layer (and this
- * composition point) may import a concrete host client.
- *
- * Normalized vocabulary:
- *  - "change request" (CR) — a merge request / pull request
- *  - "pipeline"            — a CI run on a branch or CR
- *  - "comment" / "thread"  — review discussion notes; a thread groups comments,
- *                            only resolvable threads participate in the
- *                            resolve loop
- *
- * IDs and status vocabulary are host-shaped (the built-ins understand GitLab's
- * CI statuses today); adapters must keep them stable so persisted rows stay
- * meaningful across releases: `ChangeRequest.number` / pipeline & job ids are
- * the host's numeric identifiers (persisted in `mr_iid` / events / outputs),
- * comment ids are prefixed strings (`gl_<note id>`, the DB comment row id).
- */
-import { GitLabHostService } from "../../integrations/gitlab/git-host";
-
 /** Lowercased URL host ("gitlab.company.com"), null when unparseable. */
 export const hostOf = (url: string): string | null => {
   const trimmed = url.trim();
@@ -228,6 +205,9 @@ export interface GitHostService {
   getProject(repoUrl: string): Promise<HostProject>;
 }
 
+/** Repo-scoped git host resolution (injected into nodes that call GitLab APIs). */
+export type GitHostResolver = Pick<GitHostRegistry, "forRepo">;
+
 /**
  * The git-host registry — the engine's single seam for anything host-shaped.
  * Mirrors `TaskProviderRegistry` (lib/engine/tasks/registry.ts): adding a host
@@ -236,14 +216,10 @@ export interface GitHostService {
 export class GitHostRegistry {
   private readonly registry = new Map<string, GitHostService>();
 
-  constructor() {
-    // Composition point: built-in adapters register here (the one place
-    // concrete integrations are named on the engine side).
-    this.registerBuiltins();
-  }
-
-  private registerBuiltins(): void {
-    this.register(new GitLabHostService());
+  private assertReady(): void {
+    if (this.registry.size === 0) {
+      throw new Error("Git host registry is empty — import @/lib/db before using gitHostRegistry");
+    }
   }
 
   register(service: GitHostService): void {
@@ -255,6 +231,7 @@ export class GitHostRegistry {
 
   /** Get a host by kind, or throw. */
   get(kind: string): GitHostService {
+    this.assertReady();
     const svc = this.registry.get(kind);
     if (!svc) throw new Error(`unknown git host kind: ${kind}`);
     return svc;
@@ -267,11 +244,13 @@ export class GitHostRegistry {
 
   /** All registered hosts (registration order). */
   list(): GitHostService[] {
+    this.assertReady();
     return [...this.registry.values()];
   }
 
   /** The host that serves the given repo URL, or throw. */
   forRepo(repoUrl: string): GitHostService {
+    this.assertReady();
     for (const svc of this.list()) {
       if (svc.ownsRepo(repoUrl)) return svc;
     }

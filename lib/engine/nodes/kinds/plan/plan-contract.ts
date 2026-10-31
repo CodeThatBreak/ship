@@ -336,7 +336,13 @@ export class PlanOutputContract {
       knob: this.knobOf(ctx),
       refined: opts.refined,
     });
-    return this.planOutcome(art, planMeta, stepCount, plan.markdown);
+    return this.planOutcome(art, planMeta, stepCount, plan.markdown, this.readRunModel(node));
+  }
+
+  private readRunModel(node: NodeRow): string | null {
+    const input = node.input as { model?: string | null } | null;
+    if (!input || input.model == null) return null;
+    return input.model;
   }
 
   /**
@@ -447,12 +453,14 @@ export class PlanOutputContract {
     fromVersion: number
   ): Record<string, unknown> {
     const branchAgents = this.readBranchAgents(node);
+    const model = this.readRunModel(node);
     return {
       latestArtifact: art.id,
       version: art.version,
       branches: merged.branches,
       steps: merged.steps,
       scopedRefine: { branch: branchName, from: fromVersion },
+      ...(model != null ? { model } : {}),
       ...(branchAgents ? { branchAgents } : {}),
     };
   }
@@ -469,7 +477,8 @@ export class PlanOutputContract {
     art: { id: string; version: number },
     planMeta: PlanMeta,
     stepCount: number,
-    text: string
+    text: string,
+    model: string | null,
   ): RunOutcome {
     const branchNote = planMeta.branches.length
       ? ` (${planMeta.branches.length} branch${planMeta.branches.length > 1 ? 'es' : ''})`
@@ -480,6 +489,7 @@ export class PlanOutputContract {
       output: {
         latestArtifact: art.id,
         version: art.version,
+        ...(model != null ? { model } : {}),
         ...(planMeta.branches.length ? { branches: planMeta.branches } : {}),
         ...(planMeta.steps.length ? { steps: planMeta.steps } : {}),
       },

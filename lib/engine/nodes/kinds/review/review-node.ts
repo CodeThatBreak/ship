@@ -2,9 +2,12 @@ import "server-only";
 
 import type { NodeRow } from "../../../../db/rows";
 import { z } from "zod";
-import { gitHostRegistry } from "../../../ports/git-host";
+import { gitHostRegistry, type GitHostResolver } from "../../../ports/git-host";
 import { prompts } from "../../../prompts/prompt-library";
-import { AgentRunNode, nodeRoles, type FlowCtx, type NodePromptPreview, type PromptPreviewParams, type RunOutcome } from "../../shared";
+import { AgentRunNode, nodeRoles, nodeSupport, type FlowCtx, type NodePromptPreview, type PromptPreviewParams, type RunOutcome } from "../../shared";
+import { flowCtxHelper, type FlowContextHelper } from "../../shared/run-context";
+import type { NodeSupport } from "../../shared/node-support";
+import type { AgentRunner } from "../../../harness";
 import type { NodeCapabilities } from "../../shared/capabilities";
 import { NODE_KEYS } from "../../../constants/node-keys";
 import type { ConfigField } from "../../../templates/node-config";
@@ -61,6 +64,18 @@ export class ReviewNode extends AgentRunNode<ReviewInput, ReviewOutput> {
     ...splitConsumerConfigFields,
   ] as const satisfies readonly ConfigField[];
 
+  private readonly gitHosts: GitHostResolver;
+
+  constructor(
+    support: NodeSupport = nodeSupport,
+    runner?: AgentRunner,
+    ctxHelper: FlowContextHelper = flowCtxHelper,
+    gitHosts: GitHostResolver = gitHostRegistry,
+  ) {
+    super(support, runner, ctxHelper);
+    this.gitHosts = gitHosts;
+  }
+
   /** Resolve the MR (iid + git branch) for this review — per-branch or flow-level. */
   resolveMr(ctx: FlowCtx, branchName?: string | null): { mrIid: number; mrBranch: string | null } {
     return mrTargetResolver.resolve(ctx, branchName);
@@ -104,7 +119,7 @@ export class ReviewNode extends AgentRunNode<ReviewInput, ReviewOutput> {
 
     const { mrIid, mrBranch } = this.resolveMr(ctx, input.branchName);
     const repoUrl = ctx.flow.repo_url ?? "";
-    const host = gitHostRegistry.forRepo(repoUrl);
+    const host = this.gitHosts.forRepo(repoUrl);
 
     const changes = await host.getChanges(repoUrl, mrIid);
     const diffText = changes.changes

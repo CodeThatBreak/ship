@@ -1,6 +1,7 @@
 import "server-only";
 
 import { config } from "../../config";
+import type { Database } from "../../db";
 import { db } from "../../db";
 import { resolveAgentRunModel } from "../../modelSpec";
 import { settingString } from "../../schemas/setting-values";
@@ -12,7 +13,7 @@ import {
   type SettingSource,
 } from "../ports/agent-port";
 import { flowCtxHelper, type FlowContextHelper, type FlowCtx } from "../nodes/shared/run-context";
-import { worktreeManager } from "../runtime/worktree-lifecycle";
+import { worktreeManager, type WorktreeManager } from "../runtime/worktree-lifecycle";
 import { nodeSupport, type NodeSupport } from "../nodes/shared/node-support";
 import { StreamBuffer } from "./stream-buffer";
 import { ToolPairer, type ToolEmitFn } from "./tool-pairer";
@@ -55,28 +56,36 @@ export interface AgentStartInput {
   settingSources?: SettingSource[];
 }
 
+type AgentRunnerDatabase = Pick<Database, "get" | "run" | "now" | "emitEvent" | "getSetting">;
+type AgentPortRegistry = Pick<typeof agentPortRegistry, "forMode">;
+type AppConfig = Pick<typeof config, "defaultModel">;
+type WorktreeRunManager = Pick<WorktreeManager, "ensureForRun">;
+
 /**
  * Starts and supervises agent runs on the flow's configured runtime (a vendor
- * `AgentPort` resolved from the {@link agentPortRegistry} registry): model
- * resolution, run-row persistence, event streaming (buffered), and usage/cost
- * capture.
+ * `AgentPort` resolved from the port registry): model resolution, run-row
+ * persistence, event streaming (buffered), and usage/cost capture.
  */
 export class AgentRunner {
   constructor(
     private readonly ctxHelper: FlowContextHelper,
     protected readonly support: NodeSupport,
-    private readonly usage: UsageTracker
+    private readonly usage: UsageTracker,
+    private readonly database: AgentRunnerDatabase,
+    private readonly appConfig: AppConfig,
+    private readonly ports: AgentPortRegistry,
+    private readonly worktrees: WorktreeRunManager,
   ) {}
 
   /** Start an agent run on the flow's configured runtime (port by exec mode). */
   async startAgent(ctx: FlowCtx, input: AgentStartInput): Promise<Started> {
     const mode = this.ctxHelper.execMode(ctx);
-    const port = agentPortRegistry.forMode(mode);
+    const port = this.ports.forMode(mode);
     // Model resolution: per-run → settings → env; local runs always pin a concrete id.
     const model = resolveAgentRunModel(
       input.model,
-      db.getSetting(SETTING_KEY.DEFAULT_MODEL, settingString, ""),
-      config.defaultModel(),
+      this.database.getSetting(SETTING_KEY.DEFAULT_MODEL, settingString, ""),
+      this.appConfig.defaultModel(),
       mode,
       port.fallbackModels,
     );
@@ -98,7 +107,7 @@ export class AgentRunner {
       spec.workspace = this.ctxHelper.requireRunCwd(ctx);
       // Option B: an unpinned MUTATING run is ensured into the flow worktree —
       // the node pin (input.cwd) always wins; plan runs stay on the hub.
-      const ensured = await worktreeManager.ensureForRun(ctx, {
+      const ensured = await this.worktrees.ensureForRun(ctx, {
         mode: input.mode,
         cwd: input.cwd,
         nodeId: input.nodeId ?? null,
@@ -130,22 +139,22 @@ export class AgentRunner {
   ): Promise<ExecuteRunResult> {
     const { flow } = ctx;
     const mode = this.ctxHelper.execMode(ctx);
-    const port: AgentPort = agentPortRegistry.forMode(mode);
+    const port: AgentPort = this.ports.forMode(mode);
     const startedAt = Date.now();
     const { agentId, runId } = await start();
     try {
       this.support.persistRun(flow.id, nodeId, agentId, runId);
-      const runRowId = db.get<{ id: string }>(`SELECT id FROM runs WHERE run_ref=?`, runId)?.id;
+      const runRowId = this.database.get<{ id: string }>(`SELECT id FROM runs WHERE run_ref=?`, runId)?.id;
       if (!runRowId) throw new Error(`run row missing after persist for ${runId}`);
     const attemptAtStart =
       options?.attemptId
-      ?? db.get<{ attempt_id: string | null }>(`SELECT attempt_id FROM nodes WHERE id=?`, nodeId)?.attempt_id;
+      ?? this.database.get<{ attempt_id: string | null }>(`SELECT attempt_id FROM nodes WHERE id=?`, nodeId)?.attempt_id;
     const startedWhileRunning = attemptAtStart != null;
-    db.emitEvent(flow.id, nodeId, EVENT_KIND.LIFECYCLE, `${label} started (${mode})`, { agentId, runId, run_id: runId, mode });
+    this.database.emitEvent(flow.id, nodeId, EVENT_KIND.LIFECYCLE, `${label} started (${mode})`, { agentId, runId, run_id: runId, mode });
 
     const stream = new StreamBuffer(flow.id, nodeId, runId);
     const emitTool: ToolEmitFn = (name, status, callId, args, result, startedAtMs) =>
-      db.emitEvent(flow.id, nodeId, EVENT_KIND.TOOL, `${name}: ${status}`, {
+      this.database.emitEvent(flow.id, nodeId, EVENT_KIND.TOOL, `${name}: ${status}`, {
         run_id: runId, callId, name, status,
         args: args != null ? JSON.stringify(args) : undefined,
         result,
@@ -156,13 +165,8 @@ export class AgentRunner {
     let result: AgentRunResult | undefined;
     let costSummary: RunCostSummary = {};
     let streamError: unknown;
-    // One streaming path for both runtimes (each port streams its own runtime
-    // to completion): the runtime emits the same normalized SDKMessage events
-    // whether the agent runs locally or in a cloud VM. Tool events go through
-    // the pairer (local) so start/end are matched by callId; cloud tool events
-    // arrive already paired, so they emit directly.
     const callbacks = {
-      onStatus: (s: string) => db.emitEvent(flow.id, nodeId, EVENT_KIND.STATUS, `run ${s}`, { run_id: runId }),
+      onStatus: (s: string) => this.database.emitEvent(flow.id, nodeId, EVENT_KIND.STATUS, `run ${s}`, { run_id: runId }),
       onAssistant: (t: string) => stream.push("assistant", t),
       onThinking: (t: string) => stream.push("thinking", t),
       onTool: (name: string, status: string, args: unknown, callId: string | undefined, extra: { result?: unknown } | undefined) => {
@@ -196,10 +200,10 @@ export class AgentRunner {
       }
     } finally {
       const runRowStatus = result?.status === RUN_STATUS.FINISHED ? RUN_STATUS.FINISHED : RUN_STATUS.ERROR;
-      db.run(
+      this.database.run(
         `UPDATE runs SET status=?, updated_at=? WHERE run_ref=?`,
         runRowStatus,
-        db.now(),
+        this.database.now(),
         runId,
       );
     }
@@ -215,18 +219,18 @@ export class AgentRunner {
     }
 
     if (result.status !== RUN_STATUS.FINISHED) {
-      db.emitEvent(flow.id, nodeId, EVENT_KIND.ERROR, `${label} ended with ${result.status}`, { run_id: runId });
+      this.database.emitEvent(flow.id, nodeId, EVENT_KIND.ERROR, `${label} ended with ${result.status}`, { run_id: runId });
       throw new Error(`${label} ended with status ${result.status}`);
     }
 
     const ownsNodeStatus = options?.ownsNodeStatus !== false;
     if (ownsNodeStatus && startedWhileRunning && attemptAtStart) {
-      const nodeNow = db.get<{ attempt_id: string | null; status: string }>(
+      const nodeNow = this.database.get<{ attempt_id: string | null; status: string }>(
         `SELECT attempt_id, status FROM nodes WHERE id=?`,
         nodeId,
       );
       if (nodeNow?.attempt_id !== attemptAtStart) {
-        db.emitEvent(
+        this.database.emitEvent(
           flow.id,
           nodeId,
           EVENT_KIND.LIFECYCLE,
@@ -237,7 +241,7 @@ export class AgentRunner {
       }
     }
 
-    db.emitEvent(flow.id, nodeId, EVENT_KIND.LIFECYCLE, `${label} finished`, {
+    this.database.emitEvent(flow.id, nodeId, EVENT_KIND.LIFECYCLE, `${label} finished`, {
       run_id: runId,
       durationMs,
       tokens: costSummary.tokens,
@@ -255,4 +259,12 @@ export class AgentRunner {
   }
 }
 
-export const agentRunner = new AgentRunner(flowCtxHelper, nodeSupport, usageTracker);
+export const agentRunner = new AgentRunner(
+  flowCtxHelper,
+  nodeSupport,
+  usageTracker,
+  db,
+  config,
+  agentPortRegistry,
+  worktreeManager,
+);

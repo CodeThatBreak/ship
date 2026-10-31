@@ -279,6 +279,8 @@ export type PlanInput = z.infer<typeof PlanInput>;
 export const PlanOutput = z.object({
   latestArtifact: z.string(),
   version: z.number(),
+  /** model id selected for the plan run — propagated to build */
+  model: z.string().nullable().optional(),
   branches: z.array(PlanBranch).optional(),
   steps: z.array(PlanStep).optional(),
   /** set on the artifact version a branch-scoped refine produced */

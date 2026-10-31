@@ -210,6 +210,7 @@ function defaultHarnessSetting(): string | null {
  */
 export class AgentPortRegistry {
   private readonly registry = new Map<string, AgentPort>();
+  private builtinsReady = false;
 
   constructor(
     /**
@@ -218,10 +219,13 @@ export class AgentPortRegistry {
      * the DB isolated.
      */
     private readonly resolveDefaultHarness: () => string | null = defaultHarnessSetting,
-    builtins = true,
-  ) {
-    // Composition point: built-in adapters register here.
-    if (builtins) this.registerBuiltins();
+    private readonly withBuiltins = true,
+  ) {}
+
+  private ensureBuiltins(): void {
+    if (!this.withBuiltins || this.builtinsReady) return;
+    this.builtinsReady = true;
+    this.registerBuiltins();
   }
 
   private registerBuiltins(): void {
@@ -238,6 +242,7 @@ export class AgentPortRegistry {
 
   /** Get a port by kind, or throw. */
   get(kind: string): AgentPort {
+    this.ensureBuiltins();
     const p = this.registry.get(kind);
     if (!p) throw new Error(`unknown agent port kind: ${kind}`);
     return p;
@@ -245,11 +250,13 @@ export class AgentPortRegistry {
 
   /** Get a port by kind, or undefined. */
   maybe(kind: string): AgentPort | undefined {
+    this.ensureBuiltins();
     return this.registry.get(kind);
   }
 
   /** All registered ports (registration order). */
   list(): AgentPort[] {
+    this.ensureBuiltins();
     return [...this.registry.values()];
   }
 
@@ -261,6 +268,7 @@ export class AgentPortRegistry {
    * back too, so a stale setting can never hard-fail a run.
    */
   forMode(mode: "cloud" | "local"): AgentPort {
+    this.ensureBuiltins();
     const harness = this.resolveDefaultHarness();
     const chosen = (harness
       ? this.list().find((x) => x.harness === harness && x.execMode === mode)

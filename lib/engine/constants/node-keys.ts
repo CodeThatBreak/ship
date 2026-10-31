@@ -23,3 +23,6 @@ export type NodeKey = (typeof NODE_KEYS)[keyof typeof NODE_KEYS];
  * resolves it.
  */
 export const STEP_BUILD_TEMPLATE_ID = "tpl_step_build";
+
+/** Built-in SDLC loop flow template seeded at migration user_version 1. */
+export const SDLC_TEMPLATE_ID = "tpl_sdlc_loop";

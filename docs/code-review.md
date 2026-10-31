@@ -2644,9 +2644,9 @@ Original findings, verbatim:
 
 ### CR-095 [Medium] Nodes and base services reach into the DB and other nodes' rows directly, and the "injected" services aren't really injected
 
-- **Status at `abaa007`:** **Partly fixed**, fix in [Task 48](review-tasks/48-backend-dependency-injection.md)
-- **Current location:** lib/engine/harness/agent-runner.ts:1-3, 12, 56, 60-61, 117-118, 168, 176; lib/engine/nodes/kinds/build/build-node.ts:179-180; lib/engine/nodes/kinds/pipeline/pipeline-node.ts:170-179; lib/engine/nodes/kinds/review/review-node.ts:102
-- **Re-verification note:** `NodeDefinition`/`AgentRunNode` now take support/runner/ctxHelper through the constructor, and resolve updates comments via `NodeSupport.resolveComment`. `AgentRunner` still uses the `db`, `config`, `agentPortRegistry` and `worktreeManager` singletons and raw run/node SQL. Build still reads the plan node's row and `input.model` by type. Nodes call `gitHostRegistry` directly. Fix: inject the db/event sink, port registry and worktree manager into `AgentRunner`, have the plan publish `model` in its output, and inject a git-host resolver.
+- **Status:** Partly fixed (Task 48)
+- **Current location:** lib/engine/harness/agent-runner.ts; lib/engine/nodes/kinds/build/build-node.ts; lib/engine/nodes/kinds/pipeline/pipeline-node.ts; lib/engine/nodes/kinds/review/review-node.ts; lib/engine/nodes/kinds/resolve/resolve-node.ts
+- **Re-verification note (Task 48):** `AgentRunner` constructor-injects `Database`, config, `AgentPortRegistry`, and `WorktreeManager`. Build reads `model` from plan **output** (via `PlanOutputContract`). Pipeline and review accept an optional `GitHostResolver` (default `gitHostRegistry`). Resolve, merge-request, and flow-poller still call `gitHostRegistry` directly — follow-up for a full resolver seam.
 
 - **Severity:** Medium
 - **Category:** Boundaries
@@ -3237,9 +3237,9 @@ Original findings, verbatim:
 
 ### CR-116 [Medium] `lib/db/index.ts` is a god module: connection, migrations, data fixes, seed content and four domain stores
 
-- **Status at `abaa007`:** **Open**, fix in [Task 48](review-tasks/48-backend-dependency-injection.md)
-- **Current location:** lib/db/index.ts:34-991 (migrations and data fixes 73-585, template seed 586-845, stores 870-990)
-- **Re-verification note:** `Database` is now about 1,000 lines and still owns the connection, about 12 migration and data-fix routines, the SDLC template seed and the messages, events, settings and repo stores. Many of those routines are legacy back-compat (tickets→tasks rename, `migrateLegacyTicketRefs`, the legacy SDLC `mcp_sources` fix, binding pre-template flows), so most can be deleted rather than moved, given the no-legacy policy. Fix: delete the legacy migrations, then split into `Database`, `SchemaMigrator`, `TemplateSeeder` and `lib/db/stores/*`, each registered via `processSingleton`.
+- **Status:** Fixed (Task 48)
+- **Current location:** lib/db/database.ts, lib/db/schema-migrator.ts, lib/db/template-seeder.ts, lib/db/stores/*, lib/db/index.ts (thin barrel)
+- **Re-verification note (Task 48):** Legacy back-compat migrations removed per no-legacy policy. Connection lifecycle, `SchemaMigrator`, `TemplateSeeder`, and domain stores (`MessageStore`, `EventStore`, `SettingsStore`, `RepoStore`, `GitLabInstanceStore`, `JiraInstanceStore`) are split out; `lib/db/index.ts` exports the `db` singleton only.
 
 - **Severity:** Medium
 - **Category:** Boundaries
@@ -3302,9 +3302,9 @@ Original findings, verbatim:
 
 ### CR-118 [Medium] Integrations and row gateway import the global `db` instead of taking injected dependencies
 
-- **Status at `abaa007`:** **Open**, fix in [Task 48](review-tasks/48-backend-dependency-injection.md)
-- **Current location:** lib/integrations/gitlab/client.ts:3, lib/integrations/gitlab/client.ts:176-200, lib/integrations/jira/service.ts:3, lib/integrations/jira/service.ts:25-60, lib/integrations/local-agent/agent.ts:13, lib/integrations/local-agent/agent.ts:86-94, lib/integrations/gitlab/git-host.ts:167-239, lib/db/rows.ts:4, lib/db/rows.ts:413-430
-- **Re-verification note:** `GitLabService`, `JiraService`, `LocalAgentService` and `RowGateway` still import the module-level `db`, and `GitLabHostService` still calls the module-level `gitLab`. The instance-table SQL still lives inside the HTTP integration classes. Fix: extract `GitLabInstanceStore` and `JiraInstanceStore`, then constructor-inject the stores, `GitLabService` and `Database`, wired in the singletons.
+- **Status:** Fixed (Task 48)
+- **Current location:** lib/integrations/gitlab/client.ts, lib/integrations/gitlab/singleton.ts, lib/integrations/jira/service.ts, lib/integrations/jira/singleton.ts, lib/integrations/local-agent/agent.ts, lib/integrations/gitlab/git-host.ts, lib/db/rows.ts, lib/db/stores/*
+- **Re-verification note (Task 48):** `GitLabInstanceStore` / `JiraInstanceStore` own instance-table SQL. `GitLabService`, `JiraService`, and `LocalAgentService` take constructor-injected stores and `Database`. `RowGateway` takes `Database`; legacy `rows` proxy uses `getRowGateway()`. `GitLabHostService` receives `GitLabService` from composition (`wireGitHostBuiltins`). Lazy integration singletons avoid load-order cycles with `getDb()`.
 
 - **Severity:** Medium
 - **Category:** Boundaries
@@ -7381,9 +7381,9 @@ One row per finding, at `abaa007`.
 | CR-113 | Medium | Performance | Open | [Task 34](review-tasks/34-db-row-safety.md) |
 | CR-114 | Medium | Bug | Open | [Task 34](review-tasks/34-db-row-safety.md) |
 | CR-115 | Medium | Code quality | Open | [Task 34](review-tasks/34-db-row-safety.md) |
-| CR-116 | Medium | Code quality | Open | [Task 48](review-tasks/48-backend-dependency-injection.md) |
+| CR-116 | Medium | Code quality | Fixed (Task 48) | [Task 48](review-tasks/48-backend-dependency-injection.md) |
 | CR-117 | Medium | Security | Open | [Task 61](review-tasks/61-security-secrets-at-rest-and-rendering.md) |
-| CR-118 | Medium | Code quality | Open | [Task 48](review-tasks/48-backend-dependency-injection.md) |
+| CR-118 | Medium | Code quality | Fixed (Task 48) | [Task 48](review-tasks/48-backend-dependency-injection.md) |
 | CR-119 | Medium | Bug | Open | [Task 30](review-tasks/30-events-feed.md) |
 | CR-120 | Medium | Gap | Fixed | [Task 13](review-tasks/13-frontend-query-ownership.md) |
 | CR-121 | Medium | Bug | Fixed | [Task 13](review-tasks/13-frontend-query-ownership.md) |

@@ -16,7 +16,7 @@ import type {
   HostWebhookEvent,
   Pipeline,
 } from "../../engine/ports/git-host";
-import { GitLabClient, gitLab, type Discussion, type MergeRequest, type Pipeline as GitLabPipeline } from "./client";
+import { GitLabClient, type GitLabService, type Discussion, type MergeRequest, type Pipeline as GitLabPipeline } from "./client";
 
 import { maskToken } from "../../mask-token";
 
@@ -199,13 +199,15 @@ export class GitLabHostService implements GitHostService {
   readonly kind = "gitlab";
   readonly label = "GitLab";
 
+  constructor(private readonly gitlab: GitLabService) {}
+
   configured(): boolean {
-    return gitLab.configured();
+    return this.gitlab.configured();
   }
 
   ownsRepo(repoUrl: string): boolean {
     try {
-      gitLab.instanceForRepo(repoUrl);
+      this.gitlab.instanceForRepo(repoUrl);
       return true;
     } catch {
       return false;
@@ -213,7 +215,7 @@ export class GitLabHostService implements GitHostService {
   }
 
   clientForRepo(repoUrl: string): GitHostClient {
-    return new GitLabHostClient(gitLab.clientFor(repoUrl), gitLab.projectPathFromUrl(repoUrl));
+    return new GitLabHostClient(this.gitlab.clientFor(repoUrl), this.gitlab.projectPathFromUrl(repoUrl));
   }
 
   authedCloneUrl(repoUrl: string): string {
@@ -222,7 +224,7 @@ export class GitLabHostService implements GitHostService {
     // the URL through untouched.
     let token = "";
     try {
-      token = gitLab.instanceForRepo(repoUrl).token;
+      token = this.gitlab.instanceForRepo(repoUrl).token;
     } catch {
       token = "";
     }
@@ -236,7 +238,7 @@ export class GitLabHostService implements GitHostService {
   // ── instance registry (settings admin) ───────────────────────────────────
 
   instances(): HostInstance[] {
-    return gitLab.listInstances().map(({ id, name, base_url, token }) => ({
+    return this.gitlab.listInstances().map(({ id, name, base_url, token }) => ({
       id,
       name,
       baseUrl: base_url,
@@ -245,14 +247,14 @@ export class GitLabHostService implements GitHostService {
   }
 
   addInstance(input: { name?: string | null; baseUrl: string; token: string }): HostInstance {
-    const inst = gitLab.addInstance({ name: input.name ?? undefined, base_url: input.baseUrl, token: input.token });
+    const inst = this.gitlab.addInstance({ name: input.name ?? undefined, base_url: input.baseUrl, token: input.token });
     return { id: inst.id, name: inst.name, baseUrl: inst.base_url, tokenMasked: maskToken(inst.token) };
   }
 
   updateInstance(id: string, input: { name?: string | null; baseUrl?: string; token?: string }): void {
-    const existing = gitLab.listInstances().find((i) => i.id === id);
+    const existing = this.gitlab.listInstances().find((i) => i.id === id);
     if (!existing) throw new NotFoundError("host instance", id);
-    gitLab.updateInstance(id, {
+    this.gitlab.updateInstance(id, {
       name: input.name ?? existing.name ?? undefined,
       base_url: input.baseUrl ?? existing.base_url,
       // blank token = keep the stored one
@@ -261,13 +263,13 @@ export class GitLabHostService implements GitHostService {
   }
 
   removeInstance(id: string): void {
-    gitLab.deleteInstance(id);
+    this.gitlab.deleteInstance(id);
   }
 
   async testInstance(id: string, input: { baseUrl?: string; token?: string } = {}): Promise<{ ok: boolean; detail: string }> {
-    const existing = gitLab.listInstances().find((i) => i.id === id);
+    const existing = this.gitlab.listInstances().find((i) => i.id === id);
     if (!existing) throw new NotFoundError("host instance", id);
-    return gitLab.testInstance(input.baseUrl ?? existing.base_url, input.token || existing.token);
+    return this.gitlab.testInstance(input.baseUrl ?? existing.base_url, input.token || existing.token);
   }
 
   // ── webhook ingestion ────────────────────────────────────────────────────

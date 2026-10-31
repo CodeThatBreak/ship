@@ -14,11 +14,11 @@ describe("worktree wiring tripwires", () => {
       new URL("../engine/harness/agent-runner.ts", import.meta.url),
       "utf8",
     );
-    expect(runnerSrc.includes("worktreeManager.ensureForRun(")).toBe(true);
+    expect(runnerSrc.includes("this.worktrees.ensureForRun(")).toBe(true);
     const localStart = runnerSrc.indexOf('if (port.execMode === "local") {');
     expect(localStart).toBeGreaterThan(-1);
     const localEnd = runnerSrc.indexOf("} else {", localStart);
     const localBlock = runnerSrc.slice(localStart, localEnd);
-    expect(localBlock.includes("worktreeManager.ensureForRun(")).toBe(true);
+    expect(localBlock.includes("this.worktrees.ensureForRun(")).toBe(true);
   });
 });

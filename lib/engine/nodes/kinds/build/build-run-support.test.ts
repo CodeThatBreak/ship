@@ -33,6 +33,9 @@ const { nodeSupport } = await import("../../shared/node-support");
 const { flowCtxHelper, FlowContextHelper } = await import("../../shared/run-context");
 const { usageTracker } = await import("../../../harness/usage-tracker");
 const { AgentRunner } = await import("../../../harness/agent-runner");
+const { config } = await import("../../../../config");
+const { agentPortRegistry } = await import("../../../ports/agent-port");
+const { worktreeManager } = await import("../../../runtime/worktree-lifecycle");
 const { AgentRunNode } = await import("../../shared");
 const { BuildRunSupport } = await import("./build-run-support");
 // the registry singleton first — entering the prompts → registry → build
@@ -94,7 +97,7 @@ class DiffStub extends FlowContextHelper {
 /** executeRun stand-in with the real runner's persistence contract. */
 class StubRunner extends AgentRunner {
   constructor(private readonly result: AgentRunResult) {
-    super(flowCtxHelper, nodeSupport, usageTracker);
+    super(flowCtxHelper, nodeSupport, usageTracker, db, config, agentPortRegistry, worktreeManager);
   }
   override async executeRun(
     ctx: FlowCtx,

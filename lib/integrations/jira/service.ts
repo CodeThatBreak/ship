@@ -2,9 +2,8 @@ import "server-only";
 
 import { ConflictError } from "../../errors";
 import { truncateUpstreamBody } from "../../engine/ports/git-host-errors";
-import { db } from "../../db";
-import { rows, JiraInstanceRow, type JiraInstance } from "../../db/rows";
-import { processSingleton } from "../../singleton";
+import type { JiraInstanceStore } from "../../db/stores";
+import { type JiraInstance } from "../../db/rows";
 import { jiraAuthHeaders, jiraAuthModeForInstance, jiraMyselfPath, type JiraAuthMode } from "./api-profile";
 import { JIRA_HTTP_TIMEOUT_MS } from "./constants";
 
@@ -41,9 +40,11 @@ const tryMyself = async (
  * provider and the settings API go through.
  */
 export class JiraService {
+  constructor(private readonly instances: JiraInstanceStore) {}
+
   // ── instance registry ────────────────────────────────────────────────────
   listInstances(): JiraInstance[] {
-    return rows.all(JiraInstanceRow, `SELECT * FROM jira_instances ORDER BY base_url`);
+    return this.instances.list();
   }
 
   addInstance(input: { name?: string | null; base_url: string; email: string; token: string }): JiraInstance {
@@ -52,21 +53,7 @@ export class JiraService {
         "Only one Jira instance is supported today. Remove the existing instance before adding another.",
       );
     }
-    const baseUrl = input.base_url.trim().replace(/\/+$/, "");
-    const id = db.uid("jri_");
-    const createdAt = db.now();
-    db.run(
-      `INSERT INTO jira_instances (id,name,base_url,email,token,created_at) VALUES (?,?,?,?,?,?)`,
-      id, input.name ?? null, baseUrl, input.email.trim(), input.token, createdAt
-    );
-    return {
-      id,
-      name: input.name ?? null,
-      base_url: baseUrl,
-      email: input.email.trim(),
-      token: input.token,
-      created_at: createdAt,
-    };
+    return this.instances.add(input);
   }
 
   /** Update by id; a blank/absent token or email keeps the stored one. */
@@ -76,18 +63,11 @@ export class JiraService {
   ): void {
     const existing = this.listInstances().find((i) => i.id === id);
     if (!existing) throw new Error(`jira instance not found: ${id}`);
-    db.run(
-      `UPDATE jira_instances SET name=?, base_url=?, email=?, token=? WHERE id=?`,
-      input.name ?? existing.name,
-      (input.base_url ?? existing.base_url).trim().replace(/\/+$/, ""),
-      (input.email ?? existing.email).trim(),
-      input.token || existing.token,
-      id
-    );
+    this.instances.update(id, input, existing);
   }
 
   deleteInstance(id: string): void {
-    db.run(`DELETE FROM jira_instances WHERE id=?`, id);
+    this.instances.delete(id);
   }
 
   /**
@@ -131,6 +111,3 @@ export class JiraService {
     }
   }
 }
-
-/** Shared Jira integration instance. */
-export const jira = processSingleton("jira", () => new JiraService());

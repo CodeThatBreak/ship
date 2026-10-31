@@ -8,7 +8,7 @@ import {
   type TokenUsage,
 } from "../cursorSdk";
 import { parseModelSpec } from "../../modelSpec";
-import { db } from "../../db";
+import { db, type Database } from "../../db";
 import { processSingleton } from "../../singleton";
 import { settingBoolean, settingNumber } from "../../schemas/setting-values";
 import { GIT_FETCH_TIMEOUT_MS, runGit } from "../../git/bounded-exec";
@@ -76,6 +76,8 @@ export interface LocalSessionInspection {
  * engine consumes.
  */
 export class LocalAgentService {
+  constructor(private readonly database: Pick<Database, "getSetting">) {}
+
   /** True if this server process still owns the given local run (false after restart). */
   hasActiveRun(runId: string): boolean {
     return cursorAgent.hasActiveRun(runId);
@@ -83,9 +85,9 @@ export class LocalAgentService {
 
   defaults() {
     return {
-      force: db.getSetting("local_agent.force", settingBoolean, true),
-      sandbox: db.getSetting("local_agent.sandbox", settingBoolean, false),
-      timeoutMs: db.getSetting("local_agent.timeout_ms", settingNumber, 30 * 60 * 1000),
+      force: this.database.getSetting("local_agent.force", settingBoolean, true),
+      sandbox: this.database.getSetting("local_agent.sandbox", settingBoolean, false),
+      timeoutMs: this.database.getSetting("local_agent.timeout_ms", settingNumber, 30 * 60 * 1000),
     };
   }
 
@@ -240,5 +242,5 @@ function usageFromResult(result: AgentRunResult): LocalUsage | null {
 
 export const localAgent = processSingleton(
   "localAgent",
-  () => new LocalAgentService(),
+  () => new LocalAgentService(db),
 );

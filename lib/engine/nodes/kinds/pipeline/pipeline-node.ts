@@ -2,9 +2,12 @@ import "server-only";
 
 import { z } from "zod";
 import type { NodeRow } from "../../../../db/rows";
-import { gitHostRegistry, type HostJob } from "../../../ports/git-host";
+import { gitHostRegistry, type GitHostResolver, type HostJob } from "../../../ports/git-host";
 import { prompts } from "../../../prompts/prompt-library";
-import { AgentRunNode, nodeRoles, type FlowCtx, type NodePromptPreview, type PromptPreviewParams, type RunOutcome } from "../../shared";
+import { AgentRunNode, nodeRoles, nodeSupport, type FlowCtx, type NodePromptPreview, type PromptPreviewParams, type RunOutcome } from "../../shared";
+import { flowCtxHelper, type FlowContextHelper } from "../../shared/run-context";
+import type { NodeSupport } from "../../shared/node-support";
+import type { AgentRunner } from "../../../harness";
 import { RunSupersededError } from "../../../errors/run-superseded-error";
 import type { NodeCapabilities } from "../../shared/capabilities";
 import { NODE_KEYS } from "../../../constants/node-keys";
@@ -145,6 +148,18 @@ export class PipelineNode extends AgentRunNode<
     ...splitConsumerConfigFields,
   ] as const satisfies readonly ConfigField[];
 
+  private readonly gitHosts: GitHostResolver;
+
+  constructor(
+    support: NodeSupport = nodeSupport,
+    runner?: AgentRunner,
+    ctxHelper: FlowContextHelper = flowCtxHelper,
+    gitHosts: GitHostResolver = gitHostRegistry,
+  ) {
+    super(support, runner, ctxHelper);
+    this.gitHosts = gitHosts;
+  }
+
   /** Resolve the MR (iid + git branch) this gate watches — per-branch or flow-level. */
   private resolveMr(
     ctx: FlowCtx,
@@ -161,7 +176,7 @@ export class PipelineNode extends AgentRunNode<
    */
   private async headPipeline(ctx: FlowCtx, mrIid: number): Promise<HeadPipelineLookup> {
     const repoUrl = ctx.flow.repo_url ?? "";
-    const host = gitHostRegistry.forRepo(repoUrl);
+    const host = this.gitHosts.forRepo(repoUrl);
     let crFailed = false;
     let cr: Awaited<ReturnType<typeof host.getChangeRequest>> | null = null;
     try {
@@ -196,7 +211,7 @@ export class PipelineNode extends AgentRunNode<
     nodeId: string,
   ): Promise<number | null> {
     const repoUrl = ctx.flow.repo_url ?? "";
-    const host = gitHostRegistry.forRepo(repoUrl);
+    const host = this.gitHosts.forRepo(repoUrl);
     const errMsg = (e: unknown) =>
       (e instanceof Error ? e.message : String(e)).slice(0, 300);
     this.support.emitLifecycle(
@@ -253,7 +268,7 @@ export class PipelineNode extends AgentRunNode<
     pipelineId: number,
   ): Promise<number> {
     const repoUrl = ctx.flow.repo_url ?? "";
-    const host = gitHostRegistry.forRepo(repoUrl);
+    const host = this.gitHosts.forRepo(repoUrl);
     const jobs = (await host
       .listPipelineJobs(repoUrl, pipelineId)
       .catch(() => [])) as HostJob[];
@@ -367,7 +382,7 @@ export class PipelineNode extends AgentRunNode<
       if (head && fixWaitStart != null) fixWaitStart = null;
 
       let pipe = watchedId
-        ? await gitHostRegistry
+        ? await this.gitHosts
             .forRepo(ctx.flow.repo_url ?? "")
             .getPipeline(ctx.flow.repo_url ?? "", watchedId)
             .catch(() => null)
@@ -549,13 +564,13 @@ export class PipelineNode extends AgentRunNode<
     maxFixAttempts: number,
     label: string,
   ): Promise<void> {
-    const jobs = await gitHostRegistry
+    const jobs = await this.gitHosts
       .forRepo(ctx.flow.repo_url ?? "")
       .listPipelineJobs(ctx.flow.repo_url ?? "", pipelineId);
     const failed = jobs.filter((j: HostJob) => j.status === "failed");
     let logs = "";
     for (const j of failed.slice(0, 3)) {
-      const trace = await gitHostRegistry
+      const trace = await this.gitHosts
         .forRepo(ctx.flow.repo_url ?? "")
         .getJobTrace(ctx.flow.repo_url ?? "", j.id)
         .catch(() => "");
