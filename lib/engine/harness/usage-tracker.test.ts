@@ -41,6 +41,7 @@ function fakePort(listDiscount: number, rateOverrides?: Record<string, PricingEn
     getRun: () => Promise.reject(new Error("not used")),
     cancel: () => Promise.reject(new Error("not used")),
     hasActiveRun: () => false,
+    releaseActiveRun: () => {},
     getUsage: () => Promise.reject(new Error("not used")),
     inspectSession: () => Promise.reject(new Error("not used")),
     listCatalog: () => Promise.reject(new Error("not used")),

@@ -17,10 +17,12 @@ const { flowCtxHelper } = await import("../nodes/shared/run-context");
 const { usageTracker } = await import("./usage-tracker");
 const { AgentRunner } = await import("./agent-runner");
 const { RunSupersededError } = await import("../errors/run-superseded-error");
+const { AgentRunLookupError } = await import("../ports/agent-errors");
 const { agentPortRegistry } = await import("../ports/agent-port");
 import type {
   AgentPort,
   AgentRunHandle,
+  AgentRunQuery,
   AgentRunResult,
   AgentStartSpec,
   AgentStreamOutcome,
@@ -54,8 +56,11 @@ class RunnerTestPort implements AgentPort {
     return this.streamImpl(handle);
   }
 
-  getRun() {
-    return Promise.resolve(null);
+  getRun(): Promise<AgentRunQuery> {
+    return Promise.resolve({
+      state: "unavailable",
+      error: new AgentRunLookupError("stub", "run_stub"),
+    });
   }
   cancel() {
     return Promise.resolve(false);
@@ -63,6 +68,7 @@ class RunnerTestPort implements AgentPort {
   hasActiveRun() {
     return false;
   }
+  releaseActiveRun() {}
   getUsage() {
     return Promise.resolve(null);
   }

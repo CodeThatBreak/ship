@@ -316,13 +316,19 @@ export class Reconciler {
       return;
     }
 
-    const result = await port
-      .getRun({ agentId: runRow.agent_ref, runId: runRow.run_ref })
-      .catch(() => null);
-    // null means either unreachable or still in flight — distinguish below.
+    const query = await port.getRun({ agentId: runRow.agent_ref, runId: runRow.run_ref });
+    if (query.state === "unavailable") {
+      nodeSupport.failOrphanedNode(
+        flow.id,
+        node.id,
+        node.node_key,
+        query.error.message,
+      );
+      return;
+    }
     const TERMINAL = ["finished", "error", "cancelled"];
-    if (result && TERMINAL.includes(result.status)) {
-      await flowEngine.completeNodeFromResult(ctx, node, result, "reconciled from the git/agent API");
+    if (query.state === "terminal" && TERMINAL.includes(query.result.status)) {
+      await flowEngine.completeNodeFromResult(ctx, node, query.result, "reconciled from the git/agent API");
       return;
     }
 

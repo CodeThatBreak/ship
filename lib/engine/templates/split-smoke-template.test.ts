@@ -36,6 +36,7 @@ const { agentPortRegistry } = await import("../ports/agent-port");
 import type {
   AgentPort,
   AgentRunHandle,
+  AgentRunQuery,
   AgentRunUsage,
   AgentStartSpec,
   AgentStarted,
@@ -99,8 +100,8 @@ class SmokeAgentPort implements AgentPort {
     return { result: { status: "finished", result } };
   }
 
-  async getRun(): Promise<null> {
-    return null;
+  async getRun(): Promise<AgentRunQuery> {
+    return { state: "running" };
   }
 
   async cancel(): Promise<boolean> {
@@ -110,6 +111,8 @@ class SmokeAgentPort implements AgentPort {
   hasActiveRun(): boolean {
     return false;
   }
+
+  releaseActiveRun(): void {}
 
   async getUsage(): Promise<AgentRunUsage | null> {
     return null;

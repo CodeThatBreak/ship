@@ -47,6 +47,7 @@ const { NODE_KEYS } = await import("../../constants/node-keys");
 const { splitConsumeOf, splitParallelMaxOf } = await import("../../nodes/shared/split");
 import type {
   AgentPort,
+  AgentRunQuery,
   AgentRunUsage,
   AgentStartSpec,
   AgentStarted,
@@ -90,8 +91,8 @@ class StubAgentPort implements AgentPort {
     return { result: { status: "finished", result: "stub unit output" } };
   }
 
-  async getRun(): Promise<null> {
-    return null;
+  async getRun(): Promise<AgentRunQuery> {
+    return { state: "running" };
   }
 
   async cancel(): Promise<boolean> {
@@ -101,6 +102,8 @@ class StubAgentPort implements AgentPort {
   hasActiveRun(): boolean {
     return false;
   }
+
+  releaseActiveRun(): void {}
 
   async getUsage(): Promise<AgentRunUsage | null> {
     return null;

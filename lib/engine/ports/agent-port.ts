@@ -19,6 +19,8 @@ import "server-only";
 import { db } from "../../db";
 import { CursorCloudAgentPort } from "../../integrations/cursor/agent-port";
 import { CursorLocalAgentPort } from "../../integrations/local-agent/agent-port";
+import type { AgentRunLookupError } from "./agent-errors";
+export type { AgentRunLookupError, AgentRunTimeoutError, AgentRunWorkspaceError } from "./agent-errors";
 import type { CatalogModel } from "../../modelSpec";
 import type { SettingSource } from "../templates/node-config";
 
@@ -122,6 +124,12 @@ export interface AgentStreamOutcome {
   sessionId?: string | null;
 }
 
+/** Outcome of probing a durable run (cloud reconcile / stream fallback). */
+export type AgentRunQuery =
+  | { state: "running" }
+  | { state: "terminal"; result: AgentRunResult }
+  | { state: "unavailable"; error: AgentRunLookupError };
+
 /** A single rate-card entry: USD per million tokens (token-cost estimates). */
 export interface PricingEntry {
   input_per_mtok?: number;
@@ -162,12 +170,14 @@ export interface AgentPort {
   start(spec: AgentStartSpec): Promise<AgentStarted>;
   /** Stream a run to completion (re-attaching after a restart when durable). */
   stream(handle: AgentRunHandle, callbacks?: AgentStreamCallbacks): Promise<AgentStreamOutcome>;
-  /** Terminal result for a run, or null while still in flight / unreachable. */
-  getRun(handle: AgentRunHandle): Promise<AgentRunResult | null>;
-  /** Stop an in-flight run (true when this process owned it). */
+  /** Probe a durable run: in flight, terminal, or failed lookup. */
+  getRun(handle: AgentRunHandle): Promise<AgentRunQuery>;
+  /** Stop an in-flight run (true when cancel was issued). */
   cancel(handle: AgentRunHandle): Promise<boolean>;
   /** True when this process owns the given in-flight run (false after restart). */
   hasActiveRun(runId: string): boolean;
+  /** Drop an in-process handle without streaming (leak guard when start() never streams). */
+  releaseActiveRun(runId: string): void;
   /** Billed per-run usage — null when the runtime doesn't report one. */
   getUsage(handle: AgentRunHandle): Promise<AgentRunUsage | null>;
   /**

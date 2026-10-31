@@ -3,7 +3,7 @@ import "server-only";
 import type {
   AgentPort,
   AgentRunHandle,
-  AgentRunResult,
+  AgentRunQuery,
   AgentRunUsage,
   AgentStartSpec,
   AgentStarted,
@@ -11,7 +11,9 @@ import type {
   AgentStreamOutcome,
   CatalogModel,
 } from "../../engine/ports/agent-port";
+import { AgentRunWorkspaceError } from "../../engine/ports/agent-errors";
 import { localAgent } from "./agent";
+import { AgentRunLookupError } from "../../engine/ports/agent-errors";
 import { CURSOR_LIST_DISCOUNT, CURSOR_RATE_OVERRIDES } from "../cursor/pricing";
 
 /**
@@ -30,11 +32,13 @@ export class CursorLocalAgentPort implements AgentPort {
   readonly rateOverrides = CURSOR_RATE_OVERRIDES;
 
   async start(spec: AgentStartSpec): Promise<AgentStarted> {
+    const workspace = spec.cwd ?? spec.workspace;
+    if (!workspace) {
+      throw new AgentRunWorkspaceError();
+    }
     return localAgent.createRun({
       prompt: spec.prompt,
-      // worktree wins: branch checkout (ensureBranch) must run in the worktree,
-      // never in the hub — a hub checkout would steal the developer's branch
-      workspace: spec.cwd ?? spec.workspace ?? "",
+      workspace,
       cwd: spec.cwd ?? undefined,
       mode: spec.mode,
       sessionId: spec.followUpOn ?? undefined,
@@ -51,20 +55,30 @@ export class CursorLocalAgentPort implements AgentPort {
     return { result: out.result, sessionId: out.sessionId };
   }
 
-  /**
-   * Local runs are in-process: there is no durable "getRun" — recovery goes
-   * through inspectSession instead.
-   */
-  async getRun(): Promise<AgentRunResult | null> {
-    return null;
+  async getRun(handle: AgentRunHandle): Promise<AgentRunQuery> {
+    if (localAgent.hasActiveRun(handle.runId)) {
+      return { state: "running" };
+    }
+    return {
+      state: "unavailable",
+      error: new AgentRunLookupError(
+        "Local runs are in-process only — use inspectSession after a restart",
+        handle.runId,
+        handle.agentId ?? undefined,
+      ),
+    };
   }
 
-  async cancel(handle: AgentRunHandle): Promise<boolean> {
+  cancel(handle: AgentRunHandle): Promise<boolean> {
     return localAgent.cancelRun(handle.runId);
   }
 
   hasActiveRun(runId: string): boolean {
     return localAgent.hasActiveRun(runId);
+  }
+
+  releaseActiveRun(runId: string): void {
+    localAgent.releaseRun(runId);
   }
 
   async getUsage(): Promise<AgentRunUsage | null> {

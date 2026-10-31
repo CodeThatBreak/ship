@@ -55,21 +55,20 @@ export class CursorCloudAgentPort implements AgentPort {
     return { result };
   }
 
-  getRun(handle: AgentRunHandle): Promise<AgentRunResult | null> {
+  getRun(handle: AgentRunHandle) {
     return cursorClient.getRun(handle.agentId ?? "", handle.runId);
   }
 
   async cancel(handle: AgentRunHandle): Promise<boolean> {
-    try {
-      await cursorClient.cancelRun(handle.agentId ?? "", handle.runId);
-      return true;
-    } catch {
-      return false;
-    }
+    return cursorClient.cancelRun(handle.agentId ?? "", handle.runId);
   }
 
   hasActiveRun(runId: string): boolean {
     return cursorAgent.hasActiveRun(runId);
+  }
+
+  releaseActiveRun(runId: string): void {
+    cursorAgent.releaseRun(runId);
   }
 
   async getUsage(handle: AgentRunHandle): Promise<AgentRunUsage | null> {

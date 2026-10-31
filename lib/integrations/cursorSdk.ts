@@ -17,6 +17,8 @@ import fs from "fs";
 import { FAST_OFF, FAST_ON, FAST_PARAM } from "../../constants/models";
 import { processSingleton } from "../singleton";
 import { cursorApiKey } from "./cursor/credentials";
+import { AgentRunLookupError } from "../engine/ports/agent-errors";
+import type { AgentRunQuery } from "../engine/ports/agent-port";
 
 // ── shared vocabulary (SDK-native shapes, re-exported for the engine) ───────
 export type { TokenUsage };
@@ -268,12 +270,35 @@ export class CursorAgentService {
     return { agentId: agent.agentId, runId: run.id };
   }
 
-  /** Cancel a live in-process run. No-op after restart (handle gone). */
-  cancelRun(runId: string): boolean {
+  /** Cancel a live in-process run, or a cloud run after restart (by durable id). */
+  async cancelRun(runId: string, agentId?: string): Promise<boolean> {
     const r = this.runs.get(runId);
-    if (!r) return false;
-    r.run.cancel().catch(() => {});
-    return true;
+    if (r) {
+      await r.run.cancel().catch(() => {});
+      this.releaseRun(runId);
+      return true;
+    }
+    if (!agentId?.startsWith("bc-")) return false;
+    try {
+      const run = await Agent.getRun(runId, {
+        runtime: "cloud",
+        agentId,
+        apiKey: this.apiKey(),
+      });
+      if (run.status !== "running") return false;
+      await run.cancel();
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  /** Drop an in-process handle and close the SDK agent (idempotent). */
+  releaseRun(runId: string): void {
+    const started = this.runs.get(runId);
+    if (!started) return;
+    this.runs.delete(runId);
+    started.agent.close();
   }
 
   /** Stream a run to completion, invoking callbacks per SDKMessage. */
@@ -287,8 +312,7 @@ export class CursorAgentService {
       const result = await this.pumpRun(started.run, cb);
       return { result, agentId: started.agentId };
     } finally {
-      this.runs.delete(runId);
-      started.agent.close();
+      this.releaseRun(runId);
     }
   }
 
@@ -299,11 +323,14 @@ export class CursorAgentService {
   async pumpRun(run: Run, cb: StreamCallbacks = {}): Promise<AgentRunResult> {
     cb.onStatus?.("RUNNING");
     const done = run.wait();
-    for await (const msg of run.stream()) {
-      this.dispatch(msg, cb);
+    try {
+      for await (const msg of run.stream()) {
+        this.dispatch(msg, cb);
+      }
+      return await done;
+    } finally {
+      await done.catch(() => {});
     }
-    const result = await done;
-    return result;
   }
 
   /** Map one SDKMessage onto the engine's stream callbacks. */
@@ -339,7 +366,7 @@ export class CursorAgentService {
     agentId: string,
     runId: string,
     cwd?: string,
-  ): Promise<AgentRunResult | null> {
+  ): Promise<AgentRunQuery> {
     try {
       if (agentId.startsWith("bc-")) {
         const run = await Agent.getRun(runId, {
@@ -347,14 +374,22 @@ export class CursorAgentService {
           agentId,
           apiKey: this.apiKey(),
         });
-        if (run.status === "running") return null; // still going
-        return await run.wait();
+        if (run.status === "running") return { state: "running" };
+        return { state: "terminal", result: await run.wait() };
       }
       const run = await Agent.getRun(runId, { runtime: "local", cwd });
-      if (run.status === "running") return null;
-      return await run.wait();
-    } catch {
-      return null;
+      if (run.status === "running") return { state: "running" };
+      return { state: "terminal", result: await run.wait() };
+    } catch (e) {
+      const message = e instanceof Error ? e.message : String(e);
+      return {
+        state: "unavailable",
+        error: new AgentRunLookupError(
+          `Could not load run ${runId}: ${message}`,
+          runId,
+          agentId,
+        ),
+      };
     }
   }
 
@@ -379,8 +414,13 @@ export class CursorAgentService {
       }
       const run = await Agent.getRun(runId, { runtime: "local", cwd });
       return run.status === "running" && run.supports("stream") ? run : null;
-    } catch {
-      return null;
+    } catch (e) {
+      const message = e instanceof Error ? e.message : String(e);
+      throw new AgentRunLookupError(
+        `Could not re-attach to run ${runId}: ${message}`,
+        runId,
+        agentId,
+      );
     }
   }
 

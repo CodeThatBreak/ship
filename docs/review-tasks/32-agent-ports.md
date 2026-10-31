@@ -15,7 +15,7 @@ Each finding was re-verified against `refactor/prompt-engine-inconsistency-fix` 
 
 ### CR-109 [Medium] Cursor `getRun`/`reattachRun` swallow every error as "still running"
 
-- **Status:** Open
+- **Status:** Fixed
 - **Type:** Bug
 - **Effort:** M
 - **Where:** lib/integrations/cursorSdk.ts:338-385, lib/integrations/cursor/client.ts:77-80, lib/integrations/cursor/agent-port.ts:58-60
@@ -23,7 +23,7 @@ Each finding was re-verified against `refactor/prompt-engine-inconsistency-fix` 
 
 ### CR-110 [Medium] Cloud-run cancel after a restart is a silent no-op that reports success
 
-- **Status:** Open
+- **Status:** Fixed
 - **Type:** Bug
 - **Effort:** S
 - **Where:** lib/integrations/cursor/client.ts:96-98, lib/integrations/cursor/agent-port.ts:62-69, lib/integrations/cursorSdk.ts:271-277
@@ -31,7 +31,7 @@ Each finding was re-verified against `refactor/prompt-engine-inconsistency-fix` 
 
 ### CR-111 [Medium] `pumpRun` can leave a rejected `run.wait()` promise unhandled
 
-- **Status:** Open
+- **Status:** Fixed
 - **Type:** Bug
 - **Effort:** S
 - **Where:** lib/integrations/cursorSdk.ts:299-307
@@ -39,7 +39,7 @@ Each finding was re-verified against `refactor/prompt-engine-inconsistency-fix` 
 
 ### CR-223 [Low] In-process run handles leak if a started run is never streamed
 
-- **Status:** Open
+- **Status:** Fixed
 - **Type:** Bug
 - **Effort:** S
 - **Where:** lib/integrations/cursorSdk.ts:148-150,267,272-278,284-292; lib/engine/harness/agent-runner.ts:116-118
@@ -47,7 +47,7 @@ Each finding was re-verified against `refactor/prompt-engine-inconsistency-fix` 
 
 ### CR-101 [Medium] Local-agent `ensureBranch` runs git with no timeout and can target the server's own cwd when no workspace is given
 
-- **Status:** Open
+- **Status:** Fixed
 - **Type:** Bug
 - **Effort:** S
 - **Where:** lib/integrations/local-agent/agent.ts:121-142, 168-170; lib/integrations/local-agent/agent-port.ts:37-38
@@ -56,7 +56,7 @@ Each finding was re-verified against `refactor/prompt-engine-inconsistency-fix` 
 
 ### CR-102 [Medium] `local_agent.timeout_ms` setting is exposed in Settings but never enforced — local runs can run forever
 
-- **Status:** Open
+- **Status:** Fixed
 - **Type:** Gap
 - **Effort:** S
 - **Where:** lib/integrations/local-agent/agent.ts:86-95, 159-184, 209-220; app/api/settings/route.ts:82, 140-145
@@ -64,8 +64,8 @@ Each finding was re-verified against `refactor/prompt-engine-inconsistency-fix` 
 
 ## Done when
 
-- [ ] Every finding above is fixed, or a remaining part is written up in the PR description.
-- [ ] Each bug fix has a regression test (Vitest for `lib/`; at least a hook or utility test for UI where practical).
-- [ ] Code follows [`docs/coding-patterns.md`](../coding-patterns.md).
-- [ ] `npm run typecheck`, `npm run lint`, `npm test` and `npm run build` pass (before Task 02 lands, `npx tsc --noEmit` instead of `typecheck`).
-- [ ] The status of each finding in [`docs/code-review.md`](../code-review.md) is updated (Fixed, with the PR link).
+- [x] Every finding above is fixed, or a remaining part is written up in the PR description.
+- [x] Each bug fix has a regression test (Vitest for `lib/`; at least a hook or utility test for UI where practical).
+- [x] Code follows [`docs/coding-patterns.md`](../coding-patterns.md).
+- [x] `npm run typecheck`, `npm run lint`, `npm test` and `npm run build` pass (before Task 02 lands, `npx tsc --noEmit` instead of `typecheck`).
+- [x] The status of each finding in [`docs/code-review.md`](../code-review.md) is updated (Fixed, with the PR link).

@@ -24,7 +24,7 @@ process.env.DATABASE_PATH = path.join(
 );
 
 const { AgentPortRegistry } = await import("./agent-port");
-import type { AgentPort, AgentRunHandle, AgentStreamOutcome } from "./agent-port";
+import type { AgentPort, AgentRunHandle, AgentRunQuery, AgentStreamOutcome } from "./agent-port";
 
 /** Identity-metaphor stub: selection only reads kind/harness/execMode; every
  *  port method throws loudly so a test cannot accidentally drive one. */
@@ -41,9 +41,10 @@ function fakePort(kind: string, harness: string, execMode: "cloud" | "local"): A
     listDiscount: 0,
     start: fail("start"),
     stream: fail("stream") as (_h: AgentRunHandle) => Promise<AgentStreamOutcome>,
-    getRun: fail("getRun"),
+    getRun: fail("getRun") as (_h: AgentRunHandle) => Promise<AgentRunQuery>,
     cancel: fail("cancel"),
     hasActiveRun: fail("hasActiveRun"),
+    releaseActiveRun: fail("releaseActiveRun"),
     getUsage: fail("getUsage"),
     inspectSession: fail("inspectSession"),
     listCatalog: fail("listCatalog"),

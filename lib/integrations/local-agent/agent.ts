@@ -1,7 +1,5 @@
 import "server-only";
 
-import { execFile } from "child_process";
-import { promisify } from "util";
 import {
   cursorAgent,
   type AgentRunResult,
@@ -12,9 +10,8 @@ import {
 import { parseModelSpec } from "../../modelSpec";
 import { db } from "../../db";
 import { processSingleton } from "../../singleton";
-// db is used for settings defaults (local_agent.*) below.
-
-const exec = promisify(execFile);
+import { GIT_FETCH_TIMEOUT_MS, runGit } from "../../git/bounded-exec";
+import { AgentRunTimeoutError } from "../../engine/ports/agent-errors";
 
 export interface LocalAgentInput {
   prompt: string;
@@ -119,25 +116,14 @@ export class LocalAgentService {
 
   /** Best-effort: make sure the workspace is on the requested branch. */
   private async ensureBranch(workspace: string, branch: string): Promise<void> {
-    const git = ["-C", workspace];
-    await exec("git", [...git, "fetch", "origin", branch], {
-      maxBuffer: 10 << 20,
+    const prefix = ["-C", workspace];
+    await runGit([...prefix, "fetch", "origin", branch], {
+      timeout: GIT_FETCH_TIMEOUT_MS,
     }).catch(() => {});
-    const { stdout: cur } = await exec("git", [
-      ...git,
-      "rev-parse",
-      "--abbrev-ref",
-      "HEAD",
-    ]);
+    const { stdout: cur } = await runGit([...prefix, "rev-parse", "--abbrev-ref", "HEAD"]);
     if (cur.trim() === branch) return;
-    await exec("git", [...git, "checkout", branch], {
-      maxBuffer: 10 << 20,
-    }).catch(async () => {
-      await exec(
-        "git",
-        [...git, "checkout", "-b", branch, `origin/${branch}`],
-        { maxBuffer: 10 << 20 },
-      );
+    await runGit([...prefix, "checkout", branch]).catch(async () => {
+      await runGit([...prefix, "checkout", "-b", branch, `origin/${branch}`]);
     });
   }
 
@@ -188,7 +174,7 @@ export class LocalAgentService {
    * rejects, so any executor awaiting it marks its node failed (retryable).
    * No-op after restart (handle gone) — reconcile handles orphaned nodes.
    */
-  cancelRun(runId: string): boolean {
+  cancelRun(runId: string): Promise<boolean> {
     return cursorAgent.cancelRun(runId);
   }
 
@@ -210,13 +196,31 @@ export class LocalAgentService {
     runId: string,
     cb: StreamCallbacks = {},
   ): Promise<LocalRunResult> {
-    const { result, agentId } = await cursorAgent.streamRun(runId, cb);
-    // agentId is the follow-up handle persisted as the run's session id.
-    return {
-      result,
-      sessionId: agentId,
-      usage: usageFromResult(result),
-    };
+    const { timeoutMs } = this.defaults();
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const onTimeout = new Promise<never>((_, reject) => {
+      timer = setTimeout(() => {
+        void this.cancelRun(runId);
+        reject(new AgentRunTimeoutError(runId, timeoutMs));
+      }, timeoutMs);
+    });
+    try {
+      const { result, agentId } = await Promise.race([
+        cursorAgent.streamRun(runId, cb),
+        onTimeout,
+      ]);
+      return {
+        result,
+        sessionId: agentId,
+        usage: usageFromResult(result),
+      };
+    } finally {
+      if (timer) clearTimeout(timer);
+    }
+  }
+
+  releaseRun(runId: string): void {
+    cursorAgent.releaseRun(runId);
   }
 }
 

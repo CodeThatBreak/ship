@@ -131,8 +131,9 @@ export class AgentRunner {
     const port: AgentPort = agentPortRegistry.forMode(mode);
     const startedAt = Date.now();
     const { agentId, runId } = await start();
-    this.support.persistRun(flow.id, nodeId, agentId, runId);
-    const runRowId = db.get<{ id: string }>(`SELECT id FROM runs WHERE run_ref=?`, runId)?.id as string;
+    try {
+      this.support.persistRun(flow.id, nodeId, agentId, runId);
+      const runRowId = db.get<{ id: string }>(`SELECT id FROM runs WHERE run_ref=?`, runId)?.id as string;
     const attemptAtStart =
       options?.attemptId
       ?? db.get<{ attempt_id: string | null }>(`SELECT attempt_id FROM nodes WHERE id=?`, nodeId)?.attempt_id;
@@ -243,6 +244,11 @@ export class AgentRunner {
       model: costSummary.model,
     });
     return { result, runRowId };
+    } finally {
+      if (port.hasActiveRun(runId)) {
+        port.releaseActiveRun(runId);
+      }
+    }
   }
 }
 
