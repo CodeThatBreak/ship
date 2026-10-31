@@ -48,6 +48,14 @@ export interface EditorSaveApi {
 
 export function useEditorSave(deps: EditorSaveDeps): EditorSaveApi {
   const { machine, layout, validation, detailQuery, flushPendingWrites } = deps;
+  const {
+    draftRef,
+    editGenerationRef,
+    replaceDraft,
+    setDirty,
+    setNotice,
+  } = machine;
+  const { positions, resetPositions } = layout;
   const queryClient = useQueryClient();
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -55,8 +63,8 @@ export function useEditorSave(deps: EditorSaveDeps): EditorSaveApi {
 
   const runSave = useCallback(async () => {
     flushPendingWrites();
-    const generationAtStart = machine.editGenerationRef.current;
-    const d = machine.draftRef.current;
+    const generationAtStart = editGenerationRef.current;
+    const d = draftRef.current;
     if (!d) return;
     setSaving(true);
     setError(null);
@@ -83,8 +91,8 @@ export function useEditorSave(deps: EditorSaveDeps): EditorSaveApi {
             join_mode: n.join_mode,
             config: n.config,
             input_map: n.input_map,
-            x: layout.positions[n.key]?.x ?? null,
-            y: layout.positions[n.key]?.y ?? null,
+            x: positions[n.key]?.x ?? null,
+            y: positions[n.key]?.y ?? null,
           })),
           edges: d.edges.map((e) => ({
             from: e.from,
@@ -105,20 +113,20 @@ export function useEditorSave(deps: EditorSaveDeps): EditorSaveApi {
       if (
         shouldAdoptServerDraftAfterSave(
           generationAtStart,
-          machine.editGenerationRef.current,
+          editGenerationRef.current,
         )
       ) {
-        machine.setNotice("Draft saved — new flows snapshot this version.");
-        machine.setDirty(false);
+        setNotice("Draft saved — new flows snapshot this version.");
+        setDirty(false);
         validation.clear();
         if (new_node_templates.length) setCatalogEpoch((e) => e + 1);
         const refreshed = await detailQuery.refetch();
         if (refreshed.data) {
-          machine.replaceDraft(detailToDraft(refreshed.data).draft);
-          layout.resetPositions(positionsOf(refreshed.data));
+          replaceDraft(detailToDraft(refreshed.data).draft);
+          resetPositions(positionsOf(refreshed.data));
         }
       } else {
-        machine.setNotice(
+        setNotice(
           "Draft saved — newer local edits were kept on the canvas.",
         );
       }
@@ -130,8 +138,13 @@ export function useEditorSave(deps: EditorSaveDeps): EditorSaveApi {
       setSaving(false);
     }
   }, [
-    machine,
-    layout,
+    draftRef,
+    editGenerationRef,
+    replaceDraft,
+    setDirty,
+    setNotice,
+    positions,
+    resetPositions,
     validation,
     detailQuery,
     flushPendingWrites,

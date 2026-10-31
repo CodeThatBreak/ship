@@ -5,7 +5,7 @@
  * back to the page (moves, keyboard deletes, connects) and hosts the
  * helpers/MiniMap/controls. The provider wrapper lives in BuilderCanvas.
  */
-import { useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   Background,
   Controls,
@@ -80,6 +80,19 @@ const nodeTypes = { template: BuilderNodeView };
 const edgeTypes = { template: BuilderEdgeView };
 
 export function BuilderFlow(props: BuilderCanvasProps) {
+  const [nodeMenu, setNodeMenu] = useState<{
+    x: number;
+    y: number;
+    nodeKey: string;
+  } | null>(null);
+
+  useEffect(() => {
+    if (!nodeMenu) return;
+    const dismiss = () => setNodeMenu(null);
+    window.addEventListener("pointerdown", dismiss);
+    return () => window.removeEventListener("pointerdown", dismiss);
+  }, [nodeMenu]);
+
   const rfNodes: FlowNode[] = useMemo(
     () =>
       props.nodes.map((n) => ({
@@ -161,18 +174,20 @@ export function BuilderFlow(props: BuilderCanvasProps) {
       onEdgesChange={onEdgesChange}
       onEdgeClick={(_e, edge) => props.onEdgeOpen(edgeIndexOf(edge.id))}
       onNodeContextMenu={(e, n) => {
-        // G3: right-click duplicates the node (the host copies it with a
-        // fresh key, config included, unconnected)
-        if (props.readonly) return;
+        if (props.readonly || !props.onNodeDuplicate) return;
         e.preventDefault();
-        props.onNodeDuplicate?.(n.id);
+        e.stopPropagation();
+        setNodeMenu({ x: e.clientX, y: e.clientY, nodeKey: n.id });
       }}
       onConnect={(c: Connection) => {
         if (c.source && c.target && c.source !== c.target) {
           props.onConnect(c.source, c.target, c.sourceHandle ?? null);
         }
       }}
-      onPaneClick={props.onPaneClick}
+      onPaneClick={() => {
+        setNodeMenu(null);
+        props.onPaneClick();
+      }}
       nodesDraggable={!props.readonly}
       nodesConnectable={!props.readonly}
       isValidConnection={(c) => {
@@ -213,6 +228,24 @@ export function BuilderFlow(props: BuilderCanvasProps) {
         maskColor="oklch(0.141 0.005 285.823 / 0.6)"
       />
       {props.onApi ? <ApiBridge onApi={props.onApi} /> : null}
+      {nodeMenu && props.onNodeDuplicate ? (
+        <div
+          className="fixed z-50 min-w-[9rem] rounded-lg border border-border bg-card py-1 shadow-lg"
+          style={{ left: nodeMenu.x, top: nodeMenu.y }}
+          onPointerDown={(e) => e.stopPropagation()}
+        >
+          <button
+            type="button"
+            className="w-full px-3 py-1.5 text-left text-[12px] hover:bg-muted"
+            onClick={() => {
+              props.onNodeDuplicate?.(nodeMenu.nodeKey);
+              setNodeMenu(null);
+            }}
+          >
+            Duplicate node
+          </button>
+        </div>
+      ) : null}
     </ReactFlow>
   );
 }

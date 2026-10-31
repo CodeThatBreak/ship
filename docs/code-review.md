@@ -3939,9 +3939,9 @@ Original findings, verbatim:
 
 ### CR-144 [Medium] Contract and preview queries put the full node config into a GET URL and re-key on every keystroke
 
-- **Status at `abaa007`:** **Open**, fix in [Task 40](review-tasks/40-editor-performance.md)
-- **Current location:** components/template-editor/types.ts:62-78, components/template-editor/types.ts:86-97, components/template-editor/hooks/use-node-contract.ts:34-46, components/builder/hooks/use-instance-contracts.ts:81-92, components/builder/hooks/use-instance-contracts.ts:143-150, components/template-editor/hooks/use-upstream-groups.ts:61-62, components/templates/hooks/use-node-schema-contract.ts:32-37, app/api/contracts/route.ts:38-50
-- **Re-verification note:** `contractsUrl` and `kindContractUrl` still serialize the whole instance config (prompts and script source) into the GET query string, and `/api/contracts` is GET-only. Large configs can hit 431, and every non-debounced field edit re-keys the query and leaves a cache entry. Only the prompt body is debounced (PromptTab) and `keepPreviousData` is set, both already true at review time. Fix: POST only the contract-relevant subset (`output_schema`, `choices`, `contract`) keyed by a stable hash of it, and debounce other field writes.
+- **Status at `abaa007`:** **Fixed** (Task 40)
+- **Current location:** components/template-editor/utils/contract-request.ts, components/template-editor/queries.ts, app/api/contracts/route.ts (POST), components/template-editor/hooks/use-deferred-node-contract-request.ts
+- **Re-verification note:** Contract reads POST only the contract-relevant config subset (`output_schema`, `choices`, `contract`, `pass`, `output`) with TanStack keys hashed from that subset; `useDeferredValue` defers rapid edits. GET without a body remains for def/kind-only lookups.
 
 - **Severity:** Medium
 - **Category:** Correctness
@@ -3960,9 +3960,9 @@ Original findings, verbatim:
 
 ### CR-145 [Medium] Unstable `machine`/`layout` objects and inline callbacks defeat memoization; the canvas rebuilds every render
 
-- **Status at `abaa007`:** **Open**, fix in [Task 40](review-tasks/40-editor-performance.md)
-- **Current location:** components/template-editor/hooks/use-template-draft.ts:205-220, components/template-editor/hooks/use-node-positions.ts:71-77, components/builder/EditorPage.tsx:202-226, components/template-editor/components/BuilderFlow.tsx:82-126, components/template-editor/components/BuilderFlow.tsx:160-166, components/template-editor/components/BuilderFlow.tsx:207, components/builder/hooks/use-editor-save.ts:115
-- **Re-verification note:** Both hooks still return fresh object literals (`resetPositions` is still an inline arrow), and `useEditorSave` and `useEditorActions` depend on the whole `machine`/`layout` objects. EditorPage still passes inline `onNodeOpen`/`onEdgeOpen`/`onApi` lambdas into `rfNodes`/`rfEdges` memo deps, so every drawer keystroke rebuilds all XYFlow nodes and edges. React Compiler is not enabled (`next.config.mjs`). Right-click still duplicates the node. Fix: `useMemo` the returned APIs, depend on the individual stable callbacks, `useCallback` the EditorPage handlers, and move duplicate behind a context menu.
+- **Status at `abaa007`:** **Fixed** (Task 40)
+- **Current location:** components/template-editor/hooks/use-template-draft.ts, components/template-editor/hooks/use-node-positions.ts, components/builder/EditorPage.tsx, components/template-editor/components/BuilderFlow.tsx, components/builder/hooks/use-editor-save.ts, components/builder/hooks/use-editor-actions.ts
+- **Re-verification note:** Hook return objects are memoized; save/actions depend on stable callbacks/refs; EditorPage canvas handlers are `useCallback`; node duplicate is a context-menu action instead of immediate right-click.
 
 - **Severity:** Medium
 - **Category:** Code quality

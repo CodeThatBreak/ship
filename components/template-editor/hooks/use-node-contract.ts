@@ -1,18 +1,8 @@
 "use client";
-/**
- * The configurator's contract data layer (Phase 2 migration): each node
- * instance's /api/contracts read as one query — the request URL is the
- * identity (the def/kind plus the instance config, which the contract
- * merges over). Consumers: the node configurator drawer and the edge
- * editor (the source node's contract feeds the condition vocabulary).
- *
- * Per-instance, unlike the templates feature's same-named (now
- * `use-node-schema-contract`) per-kind contract hook — both share the
- * `queryKeys.nodeContracts` cache keyed by request URL.
- */
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
+import { useDeferredNodeContractRequest } from "./use-deferred-node-contract-request";
 import { nodeContractQueryOptions } from "../queries";
-import { contractsUrl, type EditorNode, type NodeContract } from "../types";
+import { type EditorNode, type NodeContract } from "../types";
 
 /**
  * GET /api/contracts parsed — null when the resolved contract has no input
@@ -34,10 +24,10 @@ export const useNodeContract = (
     "nodeTemplateId" | "kind" | "catalog_name" | "config"
   > | null,
 ) => {
-  const url = node ? contractsUrl(node) : null;
+  const request = useDeferredNodeContractRequest(node);
   return useQuery({
-    ...nodeContractQueryOptions(url ?? "none"),
-    enabled: url != null,
+    ...nodeContractQueryOptions(request ?? { cacheKey: "none", body: {} }),
+    enabled: request != null,
     select: contractWithInput,
     placeholderData: keepPreviousData,
   });

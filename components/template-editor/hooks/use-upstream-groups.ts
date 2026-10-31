@@ -9,7 +9,7 @@
 import { useMemo } from "react";
 import { useQueries } from "@tanstack/react-query";
 import type { EditorEdge, EditorNode, NodeContract } from "../types";
-import { contractsUrl, nodeLabel } from "../types";
+import { nodeContractRequest, nodeLabel } from "../types";
 import { nodeContractQueryOptions } from "../queries";
 import { schemaRows } from "../variables";
 
@@ -33,13 +33,9 @@ export interface UpstreamGroup {
   fields: { name: string; type: string; required: boolean }[];
 }
 
-/** An upstream source's cache identity — the def plus the instance config. */
+/** An upstream source's cache identity — def/kind plus contract-relevant config. */
 function cacheKeyOf(src: EditorNode): string {
-  const cfg =
-    src.config && Object.keys(src.config).length
-      ? JSON.stringify(src.config)
-      : "";
-  return `${src.nodeTemplateId}::${cfg}`;
+  return nodeContractRequest(src).cacheKey;
 }
 
 export function useUpstreamGroups(incoming?: IncomingLink[]): UpstreamGroup[] {
@@ -56,7 +52,9 @@ export function useUpstreamGroups(incoming?: IncomingLink[]): UpstreamGroup[] {
   }, [incoming]);
 
   const contracts = useQueries({
-    queries: sources.map((src) => nodeContractQueryOptions(contractsUrl(src))),
+    queries: sources.map((src) =>
+      nodeContractQueryOptions(nodeContractRequest(src)),
+    ),
     combine: (results) => {
       const byKey: Record<string, NodeContract | null> = {};
       sources.forEach((src, i) => {

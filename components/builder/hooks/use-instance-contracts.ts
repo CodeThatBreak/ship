@@ -1,12 +1,13 @@
 "use client";
-import { useMemo } from "react";
+import { useDeferredValue, useMemo } from "react";
 import { keepPreviousData, useQueries, useQuery } from "@tanstack/react-query";
 import {
   START_NODE_TEMPLATE_ID,
-  contractsUrl,
   nodeContractQueryOptions,
+  nodeContractRequest,
   schemaRows,
   type Draft,
+  useDeferredNodeContractRequest,
 } from "@/components/template-editor";
 
 export interface BranchChoice {
@@ -53,11 +54,13 @@ export const useInstanceContracts = (draft: Draft | null): InstanceContracts => 
     [decisionNodes],
   );
 
+  const deferredPending = useDeferredValue(pendingDecisions);
+
   const contractQueries = useQueries({
-    queries: pendingDecisions.map((n) => {
-      const url = contractsUrl(n);
+    queries: deferredPending.map((n) => {
+      const request = nodeContractRequest(n);
       return {
-        ...nodeContractQueryOptions(url),
+        ...nodeContractQueryOptions(request),
         enabled: draft != null,
         placeholderData: keepPreviousData,
       };
@@ -68,12 +71,12 @@ export const useInstanceContracts = (draft: Draft | null): InstanceContracts => 
     () =>
       contractQueries.map((q, i) => {
         const choices =
-          pendingDecisions[i] === undefined || q.data == null
+          deferredPending[i] === undefined || q.data == null
             ? null
             : (q.data.choices ?? []);
-        return { key: pendingDecisions[i]?.key ?? "", choices };
+        return { key: deferredPending[i]?.key ?? "", choices };
       }),
-    [contractQueries, pendingDecisions],
+    [contractQueries, deferredPending],
   );
 
   const branchChoices = useMemo(() => {
@@ -96,10 +99,12 @@ export const useInstanceContracts = (draft: Draft | null): InstanceContracts => 
       null,
     [draft],
   );
-  const startUrl = startNode ? contractsUrl(startNode) : null;
+  const startRequest = useDeferredNodeContractRequest(startNode);
   const { data: startContract } = useQuery({
-    ...nodeContractQueryOptions(startUrl ?? "none"),
-    enabled: startUrl != null,
+    ...nodeContractQueryOptions(
+      startRequest ?? { cacheKey: "none", body: {} },
+    ),
+    enabled: startRequest != null,
     placeholderData: keepPreviousData,
   });
   const triggerFields = useMemo<TriggerField[]>(

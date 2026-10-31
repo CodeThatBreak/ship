@@ -131,6 +131,13 @@ export function TemplateEditor({ templateId }: TemplateEditorProps) {
     builderApi,
     drawerCloser,
   });
+  const {
+    setNodeDrawer,
+    setEdgeDrawer,
+    setPlacedKey,
+    closeAll,
+  } = actions;
+  const { setPositions, scheduleSave } = layout;
 
   // structural Save (validate → PATCH → clear badges → refresh hook/version):
   // the whole flow lives in the hook — the container only surfaces its states
@@ -141,6 +148,32 @@ export function TemplateEditor({ templateId }: TemplateEditorProps) {
     detailQuery,
     flushPendingWrites,
   });
+
+  const onNodeOpen = useCallback(
+    (key: string) => {
+      setEdgeDrawer(null);
+      setPlacedKey(null);
+      setNodeDrawer(key);
+    },
+    [setEdgeDrawer, setPlacedKey, setNodeDrawer],
+  );
+  const onEdgeOpen = useCallback(
+    (index: number) => {
+      setNodeDrawer(null);
+      setPlacedKey(null);
+      setEdgeDrawer(index);
+    },
+    [setNodeDrawer, setPlacedKey, setEdgeDrawer],
+  );
+  const onNodeMove = useCallback(
+    (key: string, x: number, y: number) => {
+      setPositions((p) => ({ ...p, [key]: { x, y } }));
+    },
+    [setPositions],
+  );
+  const onPaneClick = useCallback(() => {
+    closeAll();
+  }, [closeAll]);
 
   if (!machine.draft) {
     // the island renders with server-hydrated data; without it (a failed
@@ -250,26 +283,16 @@ export function TemplateEditor({ templateId }: TemplateEditorProps) {
         nodeProblems={validation.nodeProblems}
         edgeProblems={validation.edgeProblems}
         catalogEpoch={saveApi.catalogEpoch}
-        onNodeOpen={(key) => {
-          actions.setEdgeDrawer(null);
-          actions.setPlacedKey(null);
-          actions.setNodeDrawer(key);
-        }}
-        onEdgeOpen={(index) => {
-          actions.setNodeDrawer(null);
-          actions.setPlacedKey(null);
-          actions.setEdgeDrawer(index);
-        }}
-        onNodeMove={(key, x, y) =>
-          layout.setPositions((p) => ({ ...p, [key]: { x, y } }))
-        }
-        onNodeDragStop={layout.scheduleSave}
+        onNodeOpen={onNodeOpen}
+        onEdgeOpen={onEdgeOpen}
+        onNodeMove={onNodeMove}
+        onNodeDragStop={scheduleSave}
         onConnect={actions.addEdge}
         onNodeRemove={actions.removeNodeKey}
         onEdgeRemove={actions.removeEdge}
         onNodeDuplicate={actions.duplicateNode}
         onTidyLayout={actions.tidyLayout}
-        onPaneClick={() => actions.closeAll()}
+        onPaneClick={onPaneClick}
         onAddCatalogNode={actions.addCatalogNode}
         onAddKindNode={actions.addKindNode}
         onApi={registerBuilderApi}

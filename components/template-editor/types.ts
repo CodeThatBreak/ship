@@ -65,49 +65,14 @@ export function isDraftNodeTemplateId(nodeTemplateId: string): boolean {
   return nodeTemplateId.startsWith("draft:");
 }
 
-/**
- * URL for /api/contracts for a node instance. Draft instances have no catalog
- * row yet — their contract is synthesized from the declarative kind + the
- * instance config (`?kind=agent&config={…}`). Everything else resolves the
- * catalog row (`?def=nt_…`). The instance config always rides along: the
- * contract merges it over the def (start fields, choice overrides, …).
- */
-export function contractsUrl(node: {
-  nodeTemplateId: string;
-  kind: string | null;
-  catalog_name?: string | null;
-  config?: Record<string, unknown> | null;
-}): string {
-  const p = new URLSearchParams();
-  if (isDraftNodeTemplateId(node.nodeTemplateId)) {
-    p.set("kind", node.kind ?? "agent");
-    if (node.catalog_name) p.set("name", node.catalog_name);
-  } else {
-    p.set("def", node.nodeTemplateId);
-  }
-  const cfg = node.config && Object.keys(node.config).length ? node.config : null;
-  if (cfg) p.set("config", JSON.stringify(cfg));
-  return `/api/contracts?${p.toString()}`;
-}
-
-/**
- * URL for /api/contracts for a declarative kind with no row at all — the
- * Template Nodes page's create dialog synthesizes the kind's full field
- * list from the runtime class against the given config (same machinery the
- * draft instances use, just without a placement behind it).
- */
-export function kindContractUrl(kind: string, config?: unknown): string {
-  const p = new URLSearchParams({ kind });
-  if (
-    config &&
-    typeof config === "object" &&
-    !Array.isArray(config) &&
-    Object.keys(config).length
-  ) {
-    p.set("config", JSON.stringify(config));
-  }
-  return `/api/contracts?${p.toString()}`;
-}
+export {
+  contractConfigSignature,
+  contractRelevantConfig,
+  kindContractRequest,
+  nodeContractRequest,
+  type NodeContractRequest,
+  type NodeContractRequestBody,
+} from "./utils/contract-request";
 
 /** A /api/contracts response. */
 export interface NodeContract {

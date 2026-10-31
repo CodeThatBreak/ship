@@ -13,6 +13,15 @@ import type { NodeCapabilities } from "../../../lib/engine/nodes/shared/capabili
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
+const contractParamsSchema = z.object({
+  def: z.string().optional(),
+  kind: z.string().optional(),
+  name: z.string().optional(),
+  config: z.record(z.string(), z.unknown()).nullable().optional(),
+});
+
+export type ContractParams = z.infer<typeof contractParamsSchema>;
+
 /**
  * The def's prompt templates as unrendered three-part sections (body / locked
  * rules / locked output contract) — the configurator's Prompt tab. One entry
@@ -27,41 +36,26 @@ function promptSections(keys: readonly string[]) {
     .filter((s): s is NonNullable<typeof s> => s != null);
 }
 
-/**
- * A node's contract for the configurator (§5): declared input fields, output
- * schema, and config knobs (schema for display + fields for the auto form).
- * `def` is a built-in registry key or a node_templates row id. Draft instances
- * (Phase 2 — palette tiles place `draft:<n>` instances with no row until Save)
- * pass `kind=agent&config={…}` instead: the declarative runtime class is
- * instantiated against a synthetic row, no catalog row involved.
- */
-export async function GET(req: Request) {
-  const url = new URL(req.url);
-  const defKey = url.searchParams.get("def") ?? "";
-  const kindParam = url.searchParams.get("kind") ?? "";
+function resolveNodeContract(params: ContractParams) {
+  const defKey = params.def ?? "";
+  const kindParam = params.kind ?? "";
   if (!defKey && !kindParam) {
     return NextResponse.json({ error: "def or kind required" }, { status: 400 });
   }
-  // optional instance config (the start node's contract is per instance, not
-  // per catalog row) — {contract: [...]} turns into the input/output schemas
-  let instanceConfig: unknown = null;
-  const rawConfig = url.searchParams.get("config");
-  if (rawConfig) {
-    try { instanceConfig = JSON.parse(rawConfig); } catch { instanceConfig = null; }
-  }
+
+  const instanceConfig =
+    params.config && typeof params.config === "object" && !Array.isArray(params.config)
+      ? params.config
+      : null;
 
   if (!kindParam) {
     const builtin =
-      // built-ins resolve by registry key ("plan") …
       nodeRegistry.maybe(defKey) ??
-      // … or through a node_templates row id ("nt_plan") → the row's key
       (() => {
         const row = templateStore.nodeTemplate(defKey);
         return row?.is_builtin ? nodeRegistry.maybe(row.key) : undefined;
       })();
     if (builtin) {
-      // start node with a declared contract: the fields ARE the input/output
-      // contract (who provides the values follows the node's trigger type)
       const startFields = builtin.key === "start" ? parseStartContract(instanceConfig) : [];
       if (startFields.length) {
         const schema = startContractJsonSchema(startFields);
@@ -97,16 +91,12 @@ export async function GET(req: Request) {
     }
   }
 
-  // declarative kinds (agent / decision / http / script): the runtime class
-  // carries the parsed definition + config fields, and owns its output
-  // contract / choices (§5 — the configurator's Contract tab). Row-backed
-  // (`def=nt_…`) or synthesized (`kind=agent` — draft instances, Phase 2).
   let row: DeclarativeRow;
   let catalogKey: string | undefined;
   if (kindParam) {
     row = {
       id: defKey || "draft",
-      name: url.searchParams.get("name") ?? kindParam,
+      name: params.name ?? kindParam,
       description: null,
       kind: kindParam,
       config: instanceConfig ?? {},
@@ -123,8 +113,6 @@ export async function GET(req: Request) {
     try {
       return instantiateDeclarative(row);
     } catch (e) {
-      // unreadable definition (e.g. a decision without choices) — a readable
-      // 400, not an unhandled 500
       return e instanceof Error ? e.message : String(e);
     }
   })();
@@ -141,13 +129,7 @@ export async function GET(req: Request) {
     choices(def?: Record<string, unknown>): { label: string; description?: string; condition?: string }[] | null;
     capabilities: NodeCapabilities;
   };
-  // The instance config participates: the drawer authors output schemas /
-  // choices as instance overrides, and downstream nodes must see the merged run
-  // context — the catalog-only def would hide the fields an override adds.
-  const overrides =
-    instanceConfig && typeof instanceConfig === "object" && !Array.isArray(instanceConfig)
-      ? (instanceConfig as Record<string, unknown>)
-      : {};
+  const overrides = instanceConfig ?? {};
   const mergedDef = { ...typed.def, ...overrides } as Record<string, unknown>;
   return NextResponse.json({
     key: row.id,
@@ -164,4 +146,41 @@ export async function GET(req: Request) {
       schema: { type: "object" },
     },
   });
+}
+
+/**
+ * A node's contract for the configurator (§5): declared input fields, output
+ * schema, and config knobs (schema for display + fields for the auto form).
+ */
+export async function GET(req: Request) {
+  const url = new URL(req.url);
+  const defKey = url.searchParams.get("def") ?? "";
+  const kindParam = url.searchParams.get("kind") ?? "";
+  let instanceConfig: Record<string, unknown> | null = null;
+  const rawConfig = url.searchParams.get("config");
+  if (rawConfig) {
+    try {
+      const parsed: unknown = JSON.parse(rawConfig);
+      if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+        instanceConfig = parsed as Record<string, unknown>;
+      }
+    } catch {
+      instanceConfig = null;
+    }
+  }
+  return resolveNodeContract({
+    def: defKey || undefined,
+    kind: kindParam || undefined,
+    name: url.searchParams.get("name") ?? undefined,
+    config: instanceConfig,
+  });
+}
+
+export async function POST(req: Request) {
+  const body: unknown = await req.json().catch(() => null);
+  const parsed = contractParamsSchema.safeParse(body);
+  if (!parsed.success) {
+    return NextResponse.json({ error: "invalid contract request" }, { status: 400 });
+  }
+  return resolveNodeContract(parsed.data);
 }

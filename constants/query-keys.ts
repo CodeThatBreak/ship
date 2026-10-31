@@ -44,7 +44,7 @@ export const queryKeys = {
   templatesGallery: ["templates", "gallery"] as const,
   /** one node instance's resolved contract — the request URL is the identity
    *  (def/kind + the instance config, per /api/contracts) */
-  nodeContracts: (url: string) => ["node-contracts", url] as const,
+  nodeContracts: (cacheKey: string) => ["node-contracts", cacheKey] as const,
   tasks: {
     /** the runtime live-feed behind the tasks table — the serialized query
      *  string (filters + text) is the identity, so every filter change is a

@@ -8,7 +8,7 @@
  * except the decision contract read that labels a new branch edge — shared
  * TanStack cache with the canvas's branch handles.
  */
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import {
   boilerplateFor,
@@ -17,8 +17,8 @@ import {
   NODE_KIND_DESCRIPTIONS,
   nextDraftName,
   nodeLabel,
-  contractsUrl,
   nodeContractQueryOptions,
+  nodeContractRequest,
   uniqueKey,
   START_NODE_TEMPLATE_ID,
   type BuilderApi,
@@ -228,9 +228,9 @@ export function useEditorActions(deps: EditorActionsDeps): EditorActionsApi {
     async (from: string, to: string, edges: Draft["edges"]) => {
       const src = draftRef.current?.nodes.find((n) => n.key === from);
       if (src?.kind !== "decision") return;
-      const url = contractsUrl(src);
+      const request = nodeContractRequest(src);
       const contract = await queryClient
-        .fetchQuery(nodeContractQueryOptions(url))
+        .fetchQuery(nodeContractQueryOptions(request))
         .catch(() => null);
       const choices = contract?.choices ?? [];
       if (!choices.length) return;
@@ -406,23 +406,39 @@ export function useEditorActions(deps: EditorActionsDeps): EditorActionsApi {
     [draftRef, addInstance],
   );
 
-  return {
-    nodeDrawer,
-    setNodeDrawer,
-    edgeDrawer,
-    setEdgeDrawer,
-    placedKey,
-    setPlacedKey,
-    closeAll,
-    removeNode,
-    removeNodeKey,
-    removeEdge,
-    duplicateNode,
-    addEdge,
-    tidyLayout,
-    addCatalogNode,
-    addKindNode,
-  };
+  return useMemo(
+    () => ({
+      nodeDrawer,
+      setNodeDrawer,
+      edgeDrawer,
+      setEdgeDrawer,
+      placedKey,
+      setPlacedKey,
+      closeAll,
+      removeNode,
+      removeNodeKey,
+      removeEdge,
+      duplicateNode,
+      addEdge,
+      tidyLayout,
+      addCatalogNode,
+      addKindNode,
+    }),
+    [
+      nodeDrawer,
+      edgeDrawer,
+      placedKey,
+      closeAll,
+      removeNode,
+      removeNodeKey,
+      removeEdge,
+      duplicateNode,
+      addEdge,
+      tidyLayout,
+      addCatalogNode,
+      addKindNode,
+    ],
+  );
 }
 
 /** ── node placement for palette additions ────────────────────────────────

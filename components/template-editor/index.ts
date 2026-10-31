@@ -20,9 +20,19 @@ export {
   boilerplateFor,
   type NodeTemplateKind,
 } from "./boilerplate";
-export { kindContractUrl } from "./types";
+export {
+  kindContractRequest,
+  nodeContractRequest,
+  contractConfigSignature,
+  contractRelevantConfig,
+} from "./utils/contract-request";
 export { nodeContractQueryOptions } from "./queries";
-export { contractsUrl, describeTrigger, nodeLabel, nodeRelationships, isPlanDownstream } from "./types";
+export {
+  describeTrigger,
+  nodeLabel,
+  nodeRelationships,
+  isPlanDownstream,
+} from "./types";
 export type { NodeContract, EditorNode, EditorEdge, DraftNodeDef, TaskProviderInfo, EditorNodePatch } from "./types";
 export { FLOW_TRIGGER_TYPE } from "./constants";
 export { WebhookPayloadDialog } from "./WebhookPayloadDialog";
@@ -47,6 +57,7 @@ export {
   collectPendingDefs,
 } from "./draft";
 export { dagreLayout, initialPositions } from "./layout";
+export { useDeferredNodeContractRequest } from "./hooks/use-deferred-node-contract-request";
 export { useTemplateDraft, type TemplateDraftMachine } from "./hooks/use-template-draft";
 export { useNodePositions, type NodePositionsApi, type LayoutSync } from "./hooks/use-node-positions";
 export {

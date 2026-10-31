@@ -15,10 +15,13 @@ describe("frontend query ownership (Task 13)", () => {
     expect(settingsQueryOptions().queryKey).toEqual(queryKeys.settings);
   });
 
-  it("keys node contracts by request URL with shared options (CR-135)", () => {
-    const url = "/api/contracts?def=nt_agent";
-    expect(nodeContractQueryOptions(url).queryKey).toEqual(
-      queryKeys.nodeContracts(url),
+  it("keys node contracts by stable cache id with shared options (CR-135, CR-144)", () => {
+    const request = {
+      cacheKey: "def:nt_agent::cfg:abc",
+      body: { def: "nt_agent" },
+    };
+    expect(nodeContractQueryOptions(request).queryKey).toEqual(
+      queryKeys.nodeContracts(request.cacheKey),
     );
   });
 

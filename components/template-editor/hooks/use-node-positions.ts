@@ -1,5 +1,5 @@
 "use client";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 
 import type { JsonErrorBody } from "@/hooks/fetch-json";
@@ -132,11 +132,14 @@ export const useNodePositions = (
     setPositionsState(next);
   }, []);
 
-  return {
-    positions,
-    setPositions,
-    resetPositions,
-    scheduleSave: schedulePositionsSave,
-    layoutSync,
-  };
+  return useMemo(
+    () => ({
+      positions,
+      setPositions,
+      resetPositions,
+      scheduleSave: schedulePositionsSave,
+      layoutSync,
+    }),
+    [positions, setPositions, resetPositions, schedulePositionsSave, layoutSync],
+  );
 };

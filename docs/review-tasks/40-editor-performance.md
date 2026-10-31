@@ -15,7 +15,7 @@ Each finding was re-verified against `refactor/prompt-engine-inconsistency-fix` 
 
 ### CR-144 [Medium] Contract and preview queries put the full node config into a GET URL and re-key on every keystroke
 
-- **Status:** Open
+- **Status:** Fixed (Task 40)
 - **Type:** Bug
 - **Effort:** M
 - **Where:** components/template-editor/types.ts:62-78, components/template-editor/types.ts:86-97, components/template-editor/hooks/use-node-contract.ts:34-46, components/builder/hooks/use-instance-contracts.ts:81-92, components/builder/hooks/use-instance-contracts.ts:143-150, components/template-editor/hooks/use-upstream-groups.ts:61-62, components/templates/hooks/use-node-schema-contract.ts:32-37, app/api/contracts/route.ts:38-50
@@ -23,7 +23,7 @@ Each finding was re-verified against `refactor/prompt-engine-inconsistency-fix` 
 
 ### CR-145 [Medium] Unstable `machine`/`layout` objects and inline callbacks defeat memoization; the canvas rebuilds every render
 
-- **Status:** Open
+- **Status:** Fixed (Task 40)
 - **Type:** Performance
 - **Effort:** S
 - **Where:** components/template-editor/hooks/use-template-draft.ts:205-220, components/template-editor/hooks/use-node-positions.ts:71-77, components/builder/EditorPage.tsx:202-226, components/template-editor/components/BuilderFlow.tsx:82-126, components/template-editor/components/BuilderFlow.tsx:160-166, components/template-editor/components/BuilderFlow.tsx:207, components/builder/hooks/use-editor-save.ts:115
@@ -31,8 +31,8 @@ Each finding was re-verified against `refactor/prompt-engine-inconsistency-fix` 
 
 ## Done when
 
-- [ ] Every finding above is fixed, or a remaining part is written up in the PR description.
-- [ ] Each bug fix has a regression test (Vitest for `lib/`; at least a hook or utility test for UI where practical).
-- [ ] Code follows [`docs/coding-patterns.md`](../coding-patterns.md).
-- [ ] `npm run typecheck`, `npm run lint`, `npm test` and `npm run build` pass (before Task 02 lands, `npx tsc --noEmit` instead of `typecheck`).
+- [x] Every finding above is fixed, or a remaining part is written up in the PR description.
+- [x] Each bug fix has a regression test (Vitest for `lib/`; at least a hook or utility test for UI where practical).
+- [x] Code follows [`docs/coding-patterns.md`](../coding-patterns.md).
+- [x] `npm run typecheck`, `npm run lint`, `npm test` and `npm run build` pass (before Task 02 lands, `npx tsc --noEmit` instead of `typecheck`).
 - [ ] The status of each finding in [`docs/code-review.md`](../code-review.md) is updated (Fixed, with the PR link).

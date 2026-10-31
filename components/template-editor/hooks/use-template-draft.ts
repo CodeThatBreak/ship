@@ -6,7 +6,7 @@
  * render, plus the structural undo/redo snapshots and the "unsaved changes"
  * meta (dirty flag + transient notice) that travel with every edit.
  */
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { Draft } from "../draft";
 import { resolveEditorNodePatch, type EditorNodePatch } from "../types";
 import { planDraftHistoryAfterMutation } from "../utils/draft-history";
@@ -201,21 +201,36 @@ export function useTemplateDraft(
     return () => window.removeEventListener("beforeunload", onBeforeUnload);
   }, [dirty]);
 
-  return {
-    draft,
-    draftRef,
-    setDraft,
-    apply,
-    patchNode,
-    replaceDraft,
-    undo,
-    redo,
-    canUndo,
-    canRedo,
-    dirty,
-    setDirty,
-    notice,
-    setNotice,
-    editGenerationRef,
-  };
+  return useMemo(
+    () => ({
+      draft,
+      draftRef,
+      setDraft,
+      apply,
+      patchNode,
+      replaceDraft,
+      undo,
+      redo,
+      canUndo,
+      canRedo,
+      dirty,
+      setDirty,
+      notice,
+      setNotice,
+      editGenerationRef,
+    }),
+    [
+      draft,
+      setDraft,
+      apply,
+      patchNode,
+      replaceDraft,
+      undo,
+      redo,
+      canUndo,
+      canRedo,
+      dirty,
+      notice,
+    ],
+  );
 }
