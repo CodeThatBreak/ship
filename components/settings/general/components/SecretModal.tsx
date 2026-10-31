@@ -1,7 +1,7 @@
 "use client";
 import { KeyRound } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Modal } from "@/components/ui/modal";
+import { Modal } from "@/components/shared";
 import { Spinner } from "@/components/ui/spinner";
 
 /** Modal chrome for the add/edit secret form: Cancel + submit footer, with the

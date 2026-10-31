@@ -10,7 +10,7 @@ import { ChevronDown } from "lucide-react";
 import { Button } from "../../ui/button";
 import { Input } from "../../ui/input";
 import { ScrollArea } from "../../ui/scroll-area";
-import { cn } from "../../../lib/utils";
+import { cn } from "@/lib/utils";
 import { useVariablesPopover } from "../hooks/use-variables-popover";
 import { varGroupAccent, type VarGroup } from "../variables";
 

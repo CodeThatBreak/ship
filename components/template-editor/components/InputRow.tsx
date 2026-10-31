@@ -1,7 +1,7 @@
 "use client";
 /** One read row: `name ← source` + badges + the re-map / remove controls. */
 import { X } from "lucide-react";
-import { cn } from "../../../lib/utils";
+import { cn } from "@/lib/utils";
 import { Badge } from "../../ui/badge";
 import { Button } from "../../ui/button";
 import type { InputRowModel } from "../hooks/use-input-map";

@@ -4,7 +4,7 @@ import Link from "next/link";
 import { Cloud, FolderGit2, GitMerge, Loader2, Bot, CircleAlert } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useAgentStatus } from "@/hooks/use-agent-status";
-import { cn } from "cn";
+import { cn } from "@/lib/utils";
 
 const NODE_LABELS: Record<string, string> = {
   plan: "planning",

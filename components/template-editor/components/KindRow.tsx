@@ -3,7 +3,7 @@
  * (nothing persists until Save).
  */
 import { Plus } from "lucide-react";
-import { cn } from "../../../lib/utils";
+import { cn } from "@/lib/utils";
 import type { AuthorKind } from "../hooks/use-palette-catalog";
 import { iconForIconName } from "../icons";
 

@@ -1,7 +1,7 @@
 "use client";
 import { useState } from "react";
 import { Lock, X, Play, Info } from "lucide-react";
-import { Modal } from "@/components/ui/modal";
+import { Modal } from "@/components/shared";
 import { Button } from "@/components/ui/button";
 import { useFlowPrompt } from "@/hooks/use-flow-prompt";
 import { useToggledSections } from "./hooks/use-toggled-sections";

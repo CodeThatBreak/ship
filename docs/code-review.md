@@ -4213,7 +4213,7 @@ Original findings, verbatim:
 
 ### CR-156 [Medium] DataTable sortable headers are mouse-only; action link nests a button inside an anchor
 
-- **Status at `abaa007`:** **Open**, fix in [Task 52](review-tasks/52-shared-ui-components.md)
+- **Status at `abaa007`:** **Fixed** (Task 52)
 - **Current location:** components/shared/DataTable.tsx:200-204, components/shared/DataTable.tsx:315-330, components/shared/DataTable.tsx:355-357, components/shared/DataTable.tsx:393-394
 - **Re-verification note:** Sortable headers are still `onClick` on `TableHead`, with no button, `tabIndex` or `aria-sort`. The `href` action still nests `<Button>` inside `<a>`, the pagination icon buttons have no `aria-label`, and overflow items are keyed by `action.label`. Fix: render a `<button type="button">` in sortable headers and set `aria-sort`, use `<Button render={<a href=… />}>`, add Previous/Next page labels, and key menu items by index plus label.
 
@@ -4732,7 +4732,7 @@ Original findings, verbatim:
 
 ### CR-174 [Low] Six identical error boundaries and three copies of `TableSkeleton`
 
-- **Status at `abaa007`:** **Open**, fix in [Task 52](review-tasks/52-shared-ui-components.md)
+- **Status at `abaa007`:** **Fixed** (Task 52)
 - **Current location:** app/error.tsx; app/(workspace)/error.tsx; app/(workspace)/flows/error.tsx; app/(workspace)/settings/error.tsx; app/(workspace)/templates/error.tsx; app/(workspace)/templates/nodes/error.tsx; app/flows/[id]/error.tsx; app/templates/[id]/error.tsx; TableSkeleton in app/(workspace)/flows/loading.tsx:4, app/(workspace)/templates/loading.tsx:4, app/(workspace)/templates/nodes/loading.tsx:4
 - **Re-verification note:** There are still eight near-identical error boundaries (they differ only in log tag and message) and three local copies of `TableSkeleton`, and `components/shared/` has neither. Add `components/shared/RouteError.tsx` and `components/shared/TableSkeleton.tsx`, and make each `error.tsx`/`loading.tsx` a thin wrapper around them.
 
@@ -6022,7 +6022,7 @@ Original findings, verbatim:
 
 ### CR-231 [Low] Empty-state markup duplicated instead of reusing `PanelEmptyState`; generic components not in `components/shared/`
 
-- **Status at `abaa007`:** **Open**, fix in [Task 52](review-tasks/52-shared-ui-components.md)
+- **Status at `abaa007`:** **Fixed** (Task 52)
 - **Current location:** components/flows/panels/AgentView.tsx:105-108; components/flows/panels/ArtifactViews.tsx:40-43; components/flows/panels/BuildView.tsx:194-197; components/flows/panels/ReviewView.tsx:131-134; components/flows/components/plan/components/PlanEmptyHint.tsx:9; components/flows/panels/PanelEmptyState.tsx; components/chat/ChatFeedError.tsx
 - **Re-verification note:** Four panels (plus the new PlanEmptyHint) still hand-roll the icon-plus-muted-text empty block with drifting `py-10`/`py-16`, while HttpView, ScriptView and DecisionView use `PanelEmptyState`. `PanelEmptyState` and `ChatFeedError` are still in feature folders, not `components/shared/`. Fix: use `PanelEmptyState` everywhere and promote it (as `EmptyHint`) and a generic `InlineError` to `components/shared/`.
 
@@ -6311,7 +6311,7 @@ Original findings, verbatim:
 
 ### CR-243 [Low] `components/ui/modal.tsx` is a custom wrapper inside the shadcn-only folder
 
-- **Status at `abaa007`:** **Open**, fix in [Task 52](review-tasks/52-shared-ui-components.md)
+- **Status at `abaa007`:** **Fixed** (Task 52)
 - **Current location:** components/ui/modal.tsx:1-72 (import at :10, "Radix" comment at :12-15); consumers components/tasks/BuildModal.tsx, components/settings/integrations/components/ConnectModal.tsx, components/settings/repos/components/RepoModal.tsx, components/settings/general/components/SecretModal.tsx, components/chat/prompt-modal/PromptModal.tsx
 - **Re-verification note:** The custom `Modal` adapter, which preserves the old hand-rolled API, still lives in the shadcn-only `components/ui/` folder, still imports `../../lib/utils` (the ui lint rule blocks `@/lib/**` but not relative paths), and still says "Radix". Move it to components/shared/Modal.tsx, export it from the shared barrel, update the 5 importers, and fix the import and comment.
 
@@ -6487,7 +6487,7 @@ Original findings, verbatim:
 
 ### CR-251 [Low] `Markdown` memo comparator ignores every prop except `children`
 
-- **Status at `abaa007`:** **Open**, fix in [Task 52](review-tasks/52-shared-ui-components.md)
+- **Status at `abaa007`:** **Fixed** (Task 52)
 - **Current location:** components/shared/Markdown.tsx:136-150
 - **Re-verification note:** `React.memo(..., (prev, next) => prev.children === next.children)` still ignores changes to `className`, `id` and handlers. Drop the custom comparator so the default shallow compare applies, or compare `children` and `className` as well.
 
@@ -6510,7 +6510,7 @@ Original findings, verbatim:
 
 ### CR-252 [Low] `DataTable.tsx` is 436 lines with three components
 
-- **Status at `abaa007`:** **Open**, fix in [Task 52](review-tasks/52-shared-ui-components.md)
+- **Status at `abaa007`:** **Fixed** (Task 52)
 - **Current location:** components/shared/DataTable.tsx:84-335,338-415,419-436
 - **Re-verification note:** The file is still 436 lines and still defines `DataTable`, `ActionsCell` and a hand-rolled `ChevronsUpDown`. Split it into a components/shared/dataTable/ folder (DataTable, ActionsCell, pagination, skeleton rows, TreeCell; the folder name is lowercase per §2.9) and use lucide's `ChevronsUpDown`.
 
@@ -6659,7 +6659,7 @@ Original findings, verbatim:
 
 ### CR-259 [Low] Two competing `cn()` implementations are used side by side, and `components.json` is out of sync with both
 
-- **Status at `abaa007`:** **Open**, fix in [Task 52](review-tasks/52-shared-ui-components.md)
+- **Status at `abaa007`:** **Fixed** (Task 52)
 - **Current location:** package.json (deps `cn`, `clsx`, `tailwind-merge`), lib/utils.ts, components.json:15,20, components/ui/modal.tsx:10, components/shared/AppSidebar.tsx:15, components/shared/FilterPicker.tsx:17, components/tasks/TasksView.tsx, components/tasks/TaskBadges.tsx
 - **Re-verification note:** Two `cn` engines are still used side by side: 33 files import from the `cn` package and 33 from `@/lib/utils` (lib/utils is allowlisted for client code in eslint.config.mjs). components.json still points `utils` at `@/lib/utils` while the primitives use `cn`, and the `ai-elements` alias still targets a non-existent folder. Pick one implementation, codemod the imports, repoint components.json, drop the unused dependencies, and remove the alias (plus the lint allowlist entry if lib/utils is dropped).
 

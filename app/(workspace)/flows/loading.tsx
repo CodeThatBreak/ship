@@ -1,28 +1,5 @@
 import { Skeleton } from "@/components/ui/skeleton";
-
-/** One bordered table card mirroring DataTable's skeleton rows. */
-function TableSkeleton({ rows }: { rows: number }) {
-  return (
-    <div className="rounded-lg border border-border bg-card overflow-hidden">
-      <div className="flex h-10 items-center gap-6 border-b border-border bg-muted/40 px-4">
-        <Skeleton className="h-3 w-14" />
-        <Skeleton className="h-3 w-12" />
-        <Skeleton className="h-3 w-10" />
-        <Skeleton className="ml-auto h-3 w-14" />
-      </div>
-      {Array.from({ length: rows }, (_, i) => (
-        <div
-          key={i}
-          className="flex h-11 items-center gap-6 border-b border-border px-4 last:border-b-0"
-        >
-          <Skeleton className="h-4 w-[280px] max-w-1/2" />
-          <Skeleton className="h-4 w-16" />
-          <Skeleton className="h-4 w-16" />
-        </div>
-      ))}
-    </div>
-  );
-}
+import { TableSkeleton } from "@/components/shared";
 
 /** Section heading from the flows list (uppercase micro-head with count). */
 function SectionHeadingSkeleton() {
@@ -45,13 +22,13 @@ export default function FlowsLoading() {
         <section>
           <SectionHeadingSkeleton />
           <div className="mb-2">
-            <TableSkeleton rows={4} />
+            <TableSkeleton rows={4} columns={4} />
           </div>
         </section>
         <section>
           <SectionHeadingSkeleton />
           <div className="mb-2 opacity-80">
-            <TableSkeleton rows={2} />
+            <TableSkeleton rows={2} columns={4} />
           </div>
         </section>
       </div>

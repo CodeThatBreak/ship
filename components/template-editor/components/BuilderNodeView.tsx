@@ -5,7 +5,7 @@
  * branch handles. The registry wiring (`nodeTypes`) lives in builder-flow.
  */
 import { Handle, Position, type Node, type NodeProps } from "@xyflow/react";
-import { cn } from "../../../lib/utils";
+import { cn } from "@/lib/utils";
 import type { EditorNode } from "../types";
 import { iconForIconName } from "../icons";
 

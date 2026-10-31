@@ -1,7 +1,7 @@
 "use client";
 import { FolderGit2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Modal } from "@/components/ui/modal";
+import { Modal } from "@/components/shared";
 import { Spinner } from "@/components/ui/spinner";
 
 /** Modal chrome for the add/edit repo form: Cancel + submit footer, with the

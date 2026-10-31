@@ -1,6 +1,6 @@
 "use client";
 import { ChevronDown } from "lucide-react";
-import { cn } from "../../../lib/utils";
+import { cn } from "@/lib/utils";
 
 /**
  * One collapsible reference block (built-in body / locked rules / contract /

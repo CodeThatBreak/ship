@@ -1,4 +1,5 @@
 "use client";
+
 import {
   Dialog,
   DialogContent,
@@ -6,18 +7,14 @@ import {
   DialogHeader,
   DialogTitle,
   DialogDescription,
-} from "./dialog";
-import { cn } from "../../lib/utils";
+} from "@/components/ui/dialog";
+import { cn } from "@/lib/utils";
 
 /**
- * Thin wrapper over the shadcn Dialog that keeps the old hand-rolled Modal API
- * (`open`, `onClose`, `title`, `className`, `children`, `footer`). Escape/outside-click,
- * focus trap, portal stacking and scroll lock now come from Radix.
- *
- * `footer` renders as a shadcn-style modal footer: pinned below the scrollable
- * body, separated from it by a border line, with actions right-aligned.
+ * Thin wrapper over the shadcn Dialog that keeps the legacy Modal API
+ * (`open`, `onClose`, `title`, `className`, `children`, `footer`).
  */
-export function Modal({
+export const Modal = ({
   open,
   onClose,
   title,
@@ -31,7 +28,7 @@ export function Modal({
   children: React.ReactNode;
   footer?: React.ReactNode;
   className?: string;
-}) {
+}) => {
   return (
     <Dialog
       open={open}
@@ -48,12 +45,8 @@ export function Modal({
       >
         {title ? (
           <DialogHeader className="flex-row items-center justify-between px-5 py-3.5 border-b border-border shrink-0 space-y-0">
-            <DialogTitle className="text-[15px] font-medium">
-              {title}
-            </DialogTitle>
-            <DialogDescription className="sr-only">
-              Dialog — {title}
-            </DialogDescription>
+            <DialogTitle className="text-[15px] font-medium">{title}</DialogTitle>
+            <DialogDescription className="sr-only">Dialog — {title}</DialogDescription>
           </DialogHeader>
         ) : (
           <DialogTitle className="sr-only">Dialog</DialogTitle>
@@ -69,4 +62,4 @@ export function Modal({
       </DialogContent>
     </Dialog>
   );
-}
+};

@@ -1,18 +1,4 @@
-import { clsx, type ClassValue } from "clsx";
-import { twMerge } from "tailwind-merge";
+import { cn as mergeClassNames } from "cn";
 
-/** Tailwind-aware className composition. */
-export class Styles {
-  /**
-   * Merge conditional class values, resolving Tailwind conflicts
-   * (last one wins for the same utility group).
-   */
-  cn(...inputs: ClassValue[]): string {
-    return twMerge(clsx(inputs));
-  }
-}
-
-export const styles = new Styles();
-
-/** Convenience alias mirroring Styles.cn for component files. */
-export const cn = styles.cn.bind(styles);
+/** Tailwind-aware className composition (single `cn` entry point for app + shadcn). */
+export const cn = mergeClassNames;

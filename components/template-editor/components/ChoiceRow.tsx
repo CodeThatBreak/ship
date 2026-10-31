@@ -9,7 +9,7 @@
 import { Trash2 } from "lucide-react";
 import { Button } from "../../ui/button";
 import { Input } from "../../ui/input";
-import { cn } from "../../../lib/utils";
+import { cn } from "@/lib/utils";
 import { ConditionBuilder } from "../condition-builder";
 import type { ChoiceDraft } from "../hooks/use-choice-rows";
 import type { VarGroup } from "../variables";

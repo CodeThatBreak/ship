@@ -6,7 +6,7 @@ import type { Extension as CoreExtension } from "@tiptap/core";
 import StarterKit from "@tiptap/starter-kit";
 import { Plugin } from "@tiptap/pm/state";
 import { Decoration, DecorationSet } from "@tiptap/pm/view";
-import { cn } from "../../../lib/utils";
+import { cn } from "@/lib/utils";
 import { refColorClass } from "../variables";
 
 const textToHtml = (text: string): string => {

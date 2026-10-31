@@ -7,7 +7,7 @@ import { Card } from "../../ui/card";
 import { Input } from "../../ui/input";
 import { Field, FieldLabel } from "../../ui/field";
 import { Textarea } from "../../ui/textarea";
-import { cn } from "../../../lib/utils";
+import { cn } from "@/lib/utils";
 import type { EditorNode } from "../types";
 import { parseInputContract, type InputFieldRow } from "../ts-schema-lite";
 import {

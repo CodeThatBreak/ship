@@ -6,7 +6,7 @@
  */
 import { Fragment } from "react";
 import { ScrollArea } from "../../ui/scroll-area";
-import { cn } from "../../../lib/utils";
+import { cn } from "@/lib/utils";
 import { varGroupAccent } from "../variables";
 import type { VarItem } from "../hooks/use-variable-popup";
 

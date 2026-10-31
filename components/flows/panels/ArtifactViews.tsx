@@ -6,6 +6,7 @@ import type { Node } from "@/types/flow";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
+import { EmptyHint } from "@/components/shared";
 import { FLOW_STATUS } from "@/constants/flow";
 import { errorMessageOf } from "@/hooks/fetch-json";
 import { useArtifact } from "../hooks/useArtifact";
@@ -42,10 +43,7 @@ export const GenericArtifact = ({
           )}
         />
       ) : (
-        <div className="text-center px-5 py-16">
-          {Icon && <Icon size={32} className="text-muted-foreground mb-3 mx-auto" />}
-          <p className="text-muted-foreground max-w-[380px] mx-auto">{empty}</p>
-        </div>
+        <EmptyHint icon={Icon}>{empty}</EmptyHint>
       )}
     </div>
   );

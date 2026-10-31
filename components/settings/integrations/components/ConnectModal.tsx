@@ -1,7 +1,7 @@
 "use client";
 import { Link2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Modal } from "@/components/ui/modal";
+import { Modal } from "@/components/shared";
 import { Spinner } from "@/components/ui/spinner";
 
 /** Modal chrome shared by every connect modal: Cancel + Connect footer, with

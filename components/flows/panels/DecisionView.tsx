@@ -3,7 +3,7 @@ import { useCallback, useMemo, useState } from "react";
 import { CheckCheck, Split } from "lucide-react";
 import { PanelShell } from "./shared";
 import { useNodePanel } from "./context";
-import { PanelEmptyState } from "./PanelEmptyState";
+import { EmptyHint } from "@/components/shared";
 import {
   FLOW_STATUS,
   isTerminalFlowStatus,
@@ -123,7 +123,7 @@ export function DecisionView() {
         </div>
       )}
       {!awaiting && !finished && !running && pending && (
-        <PanelEmptyState icon={Split}>The decision runs when its upstream steps finish.</PanelEmptyState>
+        <EmptyHint icon={Split}>The decision runs when its upstream steps finish.</EmptyHint>
       )}
     </PanelShell>
   );

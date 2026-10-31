@@ -12,7 +12,7 @@ import {
   MessageScrollerViewport,
 } from '@/components/ui/message-scroller';
 import ChatFeedSkeleton from './ChatFeedSkeleton';
-import ChatFeedError from './ChatFeedError';
+import { InlineError } from '@/components/shared';
 import PendingRow from './PendingRow';
 import ChatMessageRow from './ChatMessageRow';
 import RunSectionRow from './RunSectionRow';
@@ -52,7 +52,7 @@ export default function ChatFeed({
       {loading ? (
         <ChatFeedSkeleton />
       ) : errorText ? (
-        <ChatFeedError message={errorText} onRetry={onRetry} />
+        <InlineError message={errorText} onRetry={onRetry} />
       ) : itemCount === 0 ? (
         <Empty className="flex-1">
           <EmptyHeader>

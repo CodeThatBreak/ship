@@ -7,7 +7,7 @@
 import { Fragment, useMemo } from "react";
 import { createPortal } from "react-dom";
 import { ScrollArea } from "../../ui/scroll-area";
-import { cn } from "../../../lib/utils";
+import { cn } from "@/lib/utils";
 import type { JsonataPathOption } from "../variables";
 import {
   AUTOCOMPLETE_LIMIT,

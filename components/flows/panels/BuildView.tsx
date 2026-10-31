@@ -13,6 +13,7 @@ import type { ArtifactPayload } from './shared';
 import { useNodePanel } from './context';
 import FanoutStepList from './FanoutStepList';
 import { FLOW_STATUS, isFailedStatus, statusVariantOf } from '@/constants/flow';
+import { EmptyHint } from '@/components/shared';
 
 /**
  * The build panel: the agent's diff per branch, the structured plan checklist
@@ -191,10 +192,7 @@ export default function BuildView() {
               render={(loaded: ArtifactPayload) => <DiffView raw={loaded.content} />}
             />
           ) : (
-            <div className="text-center px-5 py-10">
-              <GitMerge size={32} className="text-muted-foreground mb-3 mx-auto" />
-              <p className="text-muted-foreground max-w-[380px] mx-auto">No changes yet.</p>
-            </div>
+            <EmptyHint icon={GitMerge}>No changes yet.</EmptyHint>
           )}
         </div>
       )}

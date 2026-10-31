@@ -6,7 +6,7 @@ import { Alert } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Field, FieldLabel } from "@/components/ui/field";
-import { Modal } from "@/components/ui/modal";
+import { Modal } from "@/components/shared";
 import { Separator } from "@/components/ui/separator";
 import {
   Select,

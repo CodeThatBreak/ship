@@ -14,7 +14,7 @@ import {
   DropdownMenuSubTrigger,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { cn } from "cn";
+import { cn } from "@/lib/utils";
 
 /**
  * GitLab-style filter picker: one input-shaped box that holds the applied

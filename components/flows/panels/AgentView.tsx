@@ -2,7 +2,7 @@
 import { useState } from "react";
 import { CheckCheck, Pencil, Play, Sparkles } from "lucide-react";
 import type { Artifact, PlanStepRow } from "@/types/flow";
-import { Markdown } from "@/components/shared";
+import { Markdown, EmptyHint } from "@/components/shared";
 import { PanelShell, ArtifactLoader, VersionTabs } from "./shared";
 import type { ArtifactPayload } from "./shared";
 import { useNodePanel } from "./context";
@@ -106,10 +106,9 @@ export default function AgentView() {
           </div>
         )}
         {!current && !running && !failed && (
-          <div className="text-center px-5 py-10">
-            <Sparkles size={32} className="text-muted-foreground mb-3 mx-auto" />
-            <p className="text-muted-foreground max-w-[380px] mx-auto">No output yet. {pending ? "Click Run to start." : ""}</p>
-          </div>
+          <EmptyHint icon={Sparkles}>
+            No output yet. {pending ? "Click Run to start." : ""}
+          </EmptyHint>
         )}
       </PanelShell>
 

@@ -10,6 +10,7 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Spinner } from "@/components/ui/spinner";
+import { EmptyHint } from "@/components/shared";
 import { cn } from "@/lib/utils";
 import { useFlowComments } from "@/hooks/use-flow-comments";
 import { FLOW_STATUS } from "@/constants/flow";
@@ -128,12 +129,9 @@ export default function ReviewView() {
         )}
 
         {flow.mr_iid && comments.length === 0 && !commentIssue && !running && (
-          <div className="text-center px-5 py-16">
-            <MessageSquare size={32} className="text-muted-foreground mb-3 mx-auto" />
-            <p className="text-muted-foreground max-w-[380px] mx-auto">
-              No MR comments yet. Run an AI review, or wait for reviewers / the webhook.
-            </p>
-          </div>
+          <EmptyHint icon={MessageSquare}>
+            No MR comments yet. Run an AI review, or wait for reviewers / the webhook.
+          </EmptyHint>
         )}
 
         {threads.length > 0 && (

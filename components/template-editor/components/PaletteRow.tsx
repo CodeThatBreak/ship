@@ -3,7 +3,7 @@
  * plus (or a lock with a reason — e.g. the second Start node).
  */
 import { Lock, Plus } from "lucide-react";
-import { cn } from "../../../lib/utils";
+import { cn } from "@/lib/utils";
 import type { NodeCatalogEntry } from "../hooks/use-node-catalog";
 import { iconForIconName } from "../icons";
 

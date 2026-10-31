@@ -5,7 +5,7 @@ import {
 } from "lucide-react";
 import { PanelShell, ArtifactLoader } from "./shared";
 import { useNodePanel } from "./context";
-import { PanelEmptyState } from "./PanelEmptyState";
+import { EmptyHint } from "@/components/shared";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -64,7 +64,7 @@ export function ScriptView() {
             render={(loaded) => <pre className="overflow-y-auto whitespace-pre-wrap bg-background border border-border rounded-lg p-3.5 text-[12.5px] font-mono">{loaded.content}</pre>} />
         </div>
       ) : (
-        node.status !== FLOW_STATUS.RUNNING && <PanelEmptyState icon={Terminal}>No output yet.</PanelEmptyState>
+        node.status !== FLOW_STATUS.RUNNING && <EmptyHint icon={Terminal}>No output yet.</EmptyHint>
       )}
     </PanelShell>
   );

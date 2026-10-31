@@ -6,7 +6,7 @@
 import { Button } from "../../ui/button";
 import { Field, FieldLabel } from "../../ui/field";
 import { Input } from "../../ui/input";
-import { cn } from "../../../lib/utils";
+import { cn } from "@/lib/utils";
 
 export function EdgeLabelField({
   label,

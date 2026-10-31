@@ -11,7 +11,7 @@ import { useQuery } from "@tanstack/react-query";
 import { AlertTriangle, RefreshCw } from "lucide-react";
 import { Button } from "../../ui/button";
 import { Skeleton } from "../../ui/skeleton";
-import { cn } from "../../../lib/utils";
+import { cn } from "@/lib/utils";
 import { settingsQueryOptions } from "../../settings/queries";
 import type { EditorNode, NodeContract } from "../types";
 import {

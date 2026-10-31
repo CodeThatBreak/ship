@@ -5,7 +5,7 @@
  * registry wiring (`edgeTypes`) lives in builder-flow.
  */
 import { BaseEdge, EdgeLabelRenderer, getBezierPath, type Edge, type EdgeProps } from "@xyflow/react";
-import { cn } from "../../../lib/utils";
+import { cn } from "@/lib/utils";
 import type { EditorEdge } from "../types";
 
 export type BuilderEdgeData = {
