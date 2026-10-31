@@ -69,9 +69,10 @@ export class HookStore {
    * No-op for unknown templates.
    */
   syncTemplate(templateId: string): void {
-    const tpl = db.get<{ trigger: string | null }>(
-      `SELECT trigger FROM flow_templates WHERE id=?`, templateId);
+    const tpl = db.get<{ trigger: string | null; hidden: number }>(
+      `SELECT trigger, hidden FROM flow_templates WHERE id=?`, templateId);
     if (!tpl) return;
+    if (tpl.hidden === 1) return;
     const trigger = parseJson(tpl.trigger);
     const filter = typeof trigger.filter === "string" && trigger.filter.trim()
       ? trigger.filter.trim() : null;

@@ -142,4 +142,35 @@ describe("engine chain-role routing (T3)", () => {
     );
     expect(() => engine.approvePlan(flowId)).toThrow(/not awaiting approval/);
   });
+
+  it("finishFanout does not regress a parent node after the aggregate is already published (CR-009)", async () => {
+    const flowId = seedFlow(6);
+    const buildKey = engine.keyOfRole(flowId, NODE_KEYS.BUILD);
+    if (!buildKey) throw new Error("expected build key");
+    db.run(
+      `INSERT INTO nodes (id, flow_id, node_key, type, status, created_at, updated_at) VALUES (?,?,?,?,?,?,?)`,
+      `node_${flowId}_build`,
+      flowId,
+      buildKey,
+      NODE_KEYS.BUILD,
+      "running",
+      now(),
+      now(),
+    );
+    const aggregate = {
+      steps: [{ id: "s1", title: "Step", status: "done" as const, output: {} }],
+    };
+    await engine.finishFanout(flowId, buildKey, aggregate);
+    const afterFirst = db.get<{ status: string; output: string | null }>(
+      `SELECT status, output FROM nodes WHERE flow_id=? AND node_key=?`, flowId, buildKey);
+    expect(afterFirst?.status).toBe("awaiting_approval");
+
+    await engine.finishFanout(flowId, buildKey, {
+      steps: [{ id: "s2", title: "Retry", status: "failed" as const, output: {} }],
+    });
+    const afterSecond = db.get<{ status: string; output: string | null }>(
+      `SELECT status, output FROM nodes WHERE flow_id=? AND node_key=?`, flowId, buildKey);
+    expect(afterSecond?.status).toBe(afterFirst?.status);
+    expect(afterSecond?.output).toBe(afterFirst?.output);
+  });
 });

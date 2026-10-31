@@ -182,9 +182,13 @@ export class Reconciler {
       failLoud(`the step child is ${child.status} but its merge never landed`);
       return;
     }
-    const childNode = db.get<{ status: string }>(`SELECT status FROM nodes WHERE flow_id=?`, row.flow_id);
+    const childNode = db.get<{ status: string }>(
+      `SELECT status FROM nodes WHERE flow_id=? AND node_key=?`,
+      row.flow_id,
+      stepFlows.childWorkNodeKey(row.flow_id),
+    );
     if (!childNode) {
-      failLoud("the step child has no nodes (the fan-out linkage is broken)");
+      failLoud("the step child has no work node (the fan-out linkage is broken)");
       return;
     }
     if (childNode.status === "running") {
@@ -192,7 +196,11 @@ export class Reconciler {
       // are durable, so the STANDARD node reconcile decides recovered vs failed
       const childFlow = rows.get(FlowRow, `SELECT * FROM flows WHERE id=?`, row.flow_id);
       if (childFlow) await this.reconcileRunningNodes(childFlow);
-      const after = db.get<{ status: string }>(`SELECT status FROM nodes WHERE flow_id=?`, row.flow_id)?.status;
+      const after = db.get<{ status: string }>(
+        `SELECT status FROM nodes WHERE flow_id=? AND node_key=?`,
+        row.flow_id,
+        stepFlows.childWorkNodeKey(row.flow_id),
+      )?.status;
       if (after === "awaiting_approval") stepFlows.resumePendingMerge(row.flow_id);
       return;
     }

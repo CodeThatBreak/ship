@@ -58,7 +58,7 @@ Open and partly fixed findings: 262, spread over 61 tasks.
 | [x] | 16 | [Late-write guard and run-row lifecycle](16-run-lifecycle-late-writes.md) | CR-014, CR-081, CR-269, CR-082, CR-205 | M | 09, 05 |
 | [x] | 17 | [Atomic node claims and attempt identity](17-node-claim-and-attempts.md) | CR-015, CR-054, CR-055, CR-056, CR-072, CR-066 | L | 16 |
 | [ ] | 18 | [One terminal-status writer per node](18-terminal-outcome-writer.md) | CR-092, CR-206, CR-074, CR-088, CR-203 | M | 17 |
-| [ ] | 19 | [Fan-out rollup idempotency and floating promises](19-fanout-rollup-and-promises.md) | CR-009, CR-010, CR-061, CR-057, CR-058, CR-064 | L | 17, 12 |
+| [x] | 19 | [Fan-out rollup idempotency and floating promises](19-fanout-rollup-and-promises.md) | CR-009, CR-010, CR-061, CR-057, CR-058, CR-064 | L | 17, 12 |
 | [ ] | 20 | [Merge arena locking and workspace directories](20-merge-arena-and-workspaces.md) | CR-008, CR-059, CR-106, CR-107 | M | 19 |
 | [ ] | 21 | [Multi-branch (complex plan) flows](21-multi-branch-correctness.md) (needs approval) | CR-011, CR-017, CR-019, CR-020, CR-083, CR-094 | M | 18 |
 | [ ] | 22 | [Pipeline gate, review posting and resolve correctness](22-pipeline-review-resolve.md) | CR-075, CR-085, CR-086, CR-209 | M | 18 |

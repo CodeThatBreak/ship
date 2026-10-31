@@ -65,7 +65,7 @@ const dispatchAction = async (flowId: string, body: FlowActionBody): Promise<voi
       flowEngine.retryFanoutStep(flowId, body.stepId);
       break;
     case "skip_fanout_step":
-      flowEngine.skipFanoutStep(flowId, body.stepId);
+      await flowEngine.skipFanoutStep(flowId, body.stepId);
       break;
     case "skip_split_unit":
       await flowEngine.skipSplitUnit(flowId, body.unitKey, body.consumerNodeKey);

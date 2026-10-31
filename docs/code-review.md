@@ -353,7 +353,7 @@ Each item below can be fixed independently. Severity headings group the items; w
 
 ### CR-009 [High] Fan-out rollup is not idempotent: it can publish twice and can regress an already-finished parent node
 
-- **Status at `abaa007`:** **Open**, fix in [Task 19](review-tasks/19-fanout-rollup-and-promises.md)
+- **Status at `abaa007`:** **Fixed** ([Task 19](review-tasks/19-fanout-rollup-and-promises.md))
 - **Current location:** lib/engine/runtime/fanout/step-flow-manager.ts:544, 561-575 (onChildFinished), 578-591 (checkRollup), 603-660 (onAllResolved); lib/engine/flow-engine.ts:286-312 (finishFanout)
 - **Re-verification note:** `checkRollup` is still fired with `void` from both `advance()` and `onChildFinished()`, has no in-flight guard, and `finishFanout` does an unconditional `UPDATE nodes SET status=…`, so a concurrent call can double-publish and a post-publish child retry can push an `approved` parent back to `awaiting_approval`. In addition, `onAllResolved` calls the engine's async `finishFanout` through an interface typed `void` (step-flow-manager.ts:145, 653), so `advanceFrom` errors after fan-out are unhandled rejections. Add a per-parent in-flight Set, make the terminal write `… AND status='running'` with an early return when `changes===0`, type `finishFanout` as `Promise<void>` and await it.
 
@@ -381,7 +381,7 @@ Each item below can be fixed independently. Severity headings group the items; w
 
 ### CR-010 [High] `skipFanoutStep` drops the promise of async `skipStepFlow`: errors are unhandled and the API reports success
 
-- **Status at `abaa007`:** **Open**, fix in [Task 19](review-tasks/19-fanout-rollup-and-promises.md)
+- **Status at `abaa007`:** **Fixed** ([Task 19](review-tasks/19-fanout-rollup-and-promises.md))
 - **Current location:** lib/engine/flow-engine.ts:1618-1620; lib/engine/runtime/fanout/step-flow-manager.ts:938; app/api/flows/[id]/action/route.ts:65
 - **Re-verification note:** `skipFanoutStep` is still typed `void` and drops the promise from the async `skipStepFlow`, so the route answers `{ok:true}` immediately and validation throws become unhandled rejections. Make it `async … : Promise<void> { await stepFlows.skipStepFlow(…) }`. Enabling `@typescript-eslint/no-floating-promises` would also flag the `void checkRollup` / `finishFanout` drops in CR-009.
 
@@ -1743,7 +1743,7 @@ Original findings, verbatim:
 
 ### CR-057 [Medium] A double approve of a code step child starts a second merge loop that flips the merged step to `failed`
 
-- **Status at `abaa007`:** **Open**, fix in [Task 19](review-tasks/19-fanout-rollup-and-promises.md)
+- **Status at `abaa007`:** **Fixed** ([Task 19](review-tasks/19-fanout-rollup-and-promises.md))
 - **Current location:** lib/engine/runtime/fanout/step-flow-manager.ts:677-707,727, lib/engine/runtime/fanout/merge-arena.ts:56-58
 - **Re-verification note:** `approveChildStep` still only checks `status === "awaiting_approval"`, which stays true during merge-back, so a double approve launches a second `runMergeBack` that later fails fetching the deleted branch and flips the merged step to `failed`. Reject when `mergeArena.isMerging(childFlowId)`, a `step_merges` row is running, or `completed_by === 'merge'`; better, move the child to a distinct merging state atomically.
 
@@ -1765,7 +1765,7 @@ Original findings, verbatim:
 
 ### CR-058 [Medium] Step-child code assumes one node per child flow, but explicit child templates can have several
 
-- **Status at `abaa007`:** **Open**, fix in [Task 19](review-tasks/19-fanout-rollup-and-promises.md)
+- **Status at `abaa007`:** **Fixed** ([Task 19](review-tasks/19-fanout-rollup-and-promises.md))
 - **Current location:** lib/engine/runtime/fanout/step-flow-manager.ts:685,879,913,923,931, lib/engine/runtime/flow-reconciler.ts:183,193, lib/engine/flow-engine.ts:1643-1647, lib/engine/runtime/split/split-manager.ts:660,673, lib/engine/templates/template-lint.ts:212-235
 - **Re-verification note:** Step-child code still uses `SELECT … FROM nodes WHERE flow_id=?` with no `node_key`/`ORDER BY` for approve, merge resume, and reconcile, while lint only forbids SDLC built-ins in `knob.child` templates and never checks the node count. Resolve the child's work node key once (store it in the trigger payload) and query by it, or enforce one-node children in template-lint.
 
@@ -1833,7 +1833,7 @@ Original findings, verbatim:
 
 ### CR-061 [Medium] Floating promises and mistyped async signatures in the fan-out path and `bg()`
 
-- **Status at `abaa007`:** **Open**, fix in [Task 19](review-tasks/19-fanout-rollup-and-promises.md)
+- **Status at `abaa007`:** **Fixed** ([Task 19](review-tasks/19-fanout-rollup-and-promises.md))
 - **Current location:** lib/engine/runtime/fanout/step-flow-manager.ts:145,325,544,574,653,706,896, lib/engine/runtime/split/split-manager.ts:436,650, lib/engine/flow-engine.ts:286,598-615, lib/engine/runtime/flow-reconciler.ts:312-329
 - **Re-verification note:** The engine port still declares `finishFanout(...): void` while `FlowEngine.finishFanout` is async, so `step-flow-manager.ts:653` drops its promise; `void this.advance(...)` still voids a non-promise, `checkRollup`/`runMergeBack`/`checkJoin` are fire-and-forget, and the catch blocks in `bg()` and the reconciler re-attach IIFE still write to the DB unguarded. Type the port `Promise<void>` and await it, funnel fire-and-forget work through one guarded helper, and enable `@typescript-eslint/no-floating-promises` (lint now runs).
 
@@ -1909,7 +1909,7 @@ Original findings, verbatim:
 
 ### CR-064 [Medium] Auto-wrap template lookup can never match, so every fan-out expansion creates a new hidden template and inbound hook
 
-- **Status at `abaa007`:** **Open**, fix in [Task 19](review-tasks/19-fanout-rollup-and-promises.md)
+- **Status at `abaa007`:** **Fixed** ([Task 19](review-tasks/19-fanout-rollup-and-promises.md))
 - **Current location:** lib/engine/runtime/fanout/step-flow-manager.ts:436-466, lib/engine/templates/template-store.ts:233-236,897, lib/engine/runtime/hook-store.ts:71-88
 - **Re-verification note:** `autoWrap` still searches `templateStore.list()` (which filters `hidden=0`) for a `hidden === 1` row, so every expansion creates a new hidden template and, through `syncTemplate`, a new inbound webhook with its own secret; the name-based key would also collide across same-labeled nodes. Key reuse on (source template id, node key, config hash) looked up with `includeHidden`, and skip hook provisioning for hidden templates.
 

@@ -313,9 +313,10 @@ export class FlowEngine {
     }
     const tt = this.graph(parentFlowId)?.byKey.get(nodeKey)?.trigger.type ?? "auto";
     const status = tt === "approval" ? "awaiting_approval" : "done";
-    db.run(
-      `UPDATE nodes SET status=?, output=?, updated_at=? WHERE flow_id=? AND node_key=?`,
+    const published = db.run(
+      `UPDATE nodes SET status=?, output=?, updated_at=? WHERE flow_id=? AND node_key=? AND status='running'`,
       status, JSON.stringify({ ...output, steps }), db.now(), parentFlowId, nodeKey);
+    if (published.changes === 0) return;
     db.emitEvent(parentFlowId, db.get<{ id: string }>(
       `SELECT id FROM nodes WHERE flow_id=? AND node_key=?`, parentFlowId, nodeKey)?.id ?? null,
       "lifecycle",
@@ -1659,8 +1660,8 @@ export class FlowEngine {
    * Skip one fan-out step (StepFlowManager internals): cancel the child, mark
    * the step done with `completed_by: 'skipped'`, emit, advance the scheduler.
    */
-  skipFanoutStep(parentFlowId: string, stepId: string): void {
-    stepFlows.skipStepFlow(parentFlowId, stepId);
+  async skipFanoutStep(parentFlowId: string, stepId: string): Promise<void> {
+    await stepFlows.skipStepFlow(parentFlowId, stepId);
   }
 
   /**
@@ -1684,11 +1685,13 @@ export class FlowEngine {
       `SELECT sub_flow_id FROM plan_steps WHERE id=? AND flow_id=?`, stepId, parentFlowId);
     if (!step?.sub_flow_id) throw new Error("that step has no sub-flow yet");
     if (stepFlows.resumeMergeRetry(parentFlowId, step.sub_flow_id)) return;
-    const nodes = db.all<{ node_key: string; status: string }>(
-      `SELECT node_key, status FROM nodes WHERE flow_id=?`, step.sub_flow_id);
-    const n = nodes.find((x) => x.status === "failed");
-    if (!n) throw new Error("the step child has no failed node to retry");
-    this.retryNode(step.sub_flow_id, n.node_key);
+    const workNodeKey = stepFlows.childWorkNodeKey(step.sub_flow_id);
+    const workNode = db.get<{ status: string }>(
+      `SELECT status FROM nodes WHERE flow_id=? AND node_key=?`, step.sub_flow_id, workNodeKey);
+    if (!workNode || workNode.status !== "failed") {
+      throw new Error("the step child has no failed node to retry");
+    }
+    this.retryNode(step.sub_flow_id, workNodeKey);
   }
 
   /** Clear the current-node pointer when it still points at the given node.

@@ -260,6 +260,13 @@ export function lintTemplate(
         `SELECT n.node_key AS key, nt.kind AS kind, nt.key AS nt_key, n.config AS config, n.node_template_id AS node_template_id
          FROM flow_template_nodes n JOIN node_templates nt ON nt.id = n.node_template_id
          WHERE n.template_id=?`, cfg.child);
+      if (childNodes.length !== 1) {
+        problems.push({
+          where: `node "${n.key}"`,
+          message: `fan-out child template "${cfg.child}" must contain exactly one node (found ${childNodes.length})`,
+          nodeKey: n.key,
+        });
+      }
       for (const cn of childNodes) {
         if (cn.kind === "builtin" && ["plan", "pipeline", "review", "resolve"].includes(cn.nt_key)) {
           problems.push({
