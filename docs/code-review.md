@@ -205,7 +205,7 @@ Each item below can be fixed independently. Severity headings group the items; w
 
 ### CR-003 [High] No Zod validation at any API boundary, so bad bodies cause 500s or get saved
 
-- **Status at `abaa007`:** **Partly fixed** (Task 10 — `parseJson` / `parseQuery` in `lib/http/parse.ts`; flow create, action, chat, and events routes validated; remaining CR-003 routes in Task 11)
+- **Status at `abaa007`:** **Partly fixed** (Tasks 10–11 — `parseJson` / `parseQuery`; flow, settings, repo, host-instance, task-instance, and node-template routes validated; still open: `templates/*`, `tasks/materialize`, `tasks/handlers`, `webhooks/gitlab`, some query routes)
 - **Current location:** raw `await req.json()` at app/api/flows/route.ts:14, app/api/flows/[id]/action/route.ts:117, app/api/flows/[id]/chat/route.ts:14, app/api/host-instances/[host]/route.ts:18, app/api/host-instances/[host]/[id]/route.ts:10, app/api/repos/route.ts:37, app/api/repos/[id]/route.ts:26-28, app/api/repos/test-setup/route.ts:39, app/api/settings/route.ts:105,134,175, app/api/task-instances/[kind]/route.ts:25, app/api/task-instances/[kind]/[id]/route.ts:11, app/api/tasks/handlers.ts:28, app/api/webhooks/gitlab/route.ts:27; cast-only bodies at app/api/flows/[id]/action/route.ts:9-34, app/api/node-templates/route.ts:30, app/api/node-templates/[id]/route.ts:15, app/api/templates/[id]/route.ts:40, app/api/templates/[id]/validate/route.ts:27, app/api/tasks/materialize/route.ts:14; lib/integrations/jira/service.ts:36
 - **Re-verification note:** Only the new split-unit actions (`parseSplitUnitBody`, action/route.ts:101-113) are Zod-validated; every listed failure still reproduces (`local_path.startsWith` 500, `String(h)` allowlist entries, `String(body.default_model)`, `input.email.trim()` on a missing email, unchecked node-template kind). Add a shared `parseJson(req, schema)` helper that returns 400, one schema per route, and a `z.discriminatedUnion("action", …)` for the action route that replaces the hand-written `ActionBody`.
 
@@ -1521,9 +1521,7 @@ Original findings, verbatim:
 
 ### CR-048 [Medium] Settings PATCH writes some fields and then rejects later ones
 
-- **Status at `abaa007`:** **Open**, fix in [Task 11](review-tasks/11-api-input-validation-settings.md)
-- **Current location:** app/api/settings/route.ts:104-178
-- **Re-verification note:** PATCH still validates and writes field by field, so a bad later field (`default_execution_mode`, `local_agent.timeout_ms`, a non-string secret, `http_allowlist`) returns 400 after earlier fields (API key, harness, …) were already persisted. Validate the whole body up front with one Zod schema, then apply all writes in one `db.transaction` inside a `SettingsService.update(patch)`.
+- **Status at `abaa007`:** **Fixed** ([Task 11](review-tasks/11-api-input-validation-settings.md) — `settingsPatchBodySchema` + atomic `SettingsService.update` in `db.transaction`)
 
 - **Severity:** Medium
 - **Category:** Correctness
@@ -4608,9 +4606,7 @@ Original findings, verbatim:
 
 ### CR-167 [Low] The four repo routes duplicate their input helpers, and `~` expansion is wrong
 
-- **Status at `abaa007`:** **Open**, fix in [Task 11](review-tasks/11-api-input-validation-settings.md)
-- **Current location:** app/api/repos/route.ts:9-26,31,42; app/api/repos/[id]/route.ts:9-20,27-31; app/api/repos/test-setup/route.ts:11-25; app/api/repos/detect/route.ts:9-12
-- **Re-verification note:** The four repo routes still each carry their own `~` expansion, `optString` and `optTimeoutMs` (keep-on-absent vs null-on-absent variants), `validateLocalPath` still validates nothing, `~bob/x` still becomes `$HOME/bob/x`, and the `.git` existence check is duplicated. Add one Zod repo-input schema (accept only `~` or `~/` prefixes) in `lib/schemas/repo.ts` and move the path/.git checks into a `RepoService` used by all four routes.
+- **Status at `abaa007`:** **Fixed** ([Task 11](review-tasks/11-api-input-validation-settings.md) — `lib/schemas/repo.ts`, `RepoService`, shared path/`~` rules)
 
 - **Severity:** Low
 - **Category:** Code quality
@@ -7318,7 +7314,7 @@ One row per finding, at `abaa007`.
 | --- | --- | --- | --- | --- |
 | CR-001 | Critical | Security | Open | [Task 57](review-tasks/57-security-local-api-hardening.md) |
 | CR-002 | High | Security | Open | [Task 57](review-tasks/57-security-local-api-hardening.md) |
-| CR-003 | High | Gap | Open | [Task 10](review-tasks/10-api-input-validation-flows.md) |
+| CR-003 | High | Gap | Partly fixed | [Task 10](review-tasks/10-api-input-validation-flows.md), [Task 11](review-tasks/11-api-input-validation-settings.md) |
 | CR-004 | High | Bug | Partly fixed | [Task 28](review-tasks/28-prompt-preview-parity.md) |
 | CR-005 | High | Bug | Open | [Task 13](review-tasks/13-frontend-query-ownership.md) |
 | CR-006 | High | Bug | Open | [Task 25](review-tasks/25-wait-timers-and-poller.md) |
@@ -7363,7 +7359,7 @@ One row per finding, at `abaa007`.
 | CR-045 | Medium | Bug | Open | [Task 25](review-tasks/25-wait-timers-and-poller.md) |
 | CR-046 | Medium | Code quality | Open | [Task 09](review-tasks/09-typed-errors.md) |
 | CR-047 | Medium | Gap | Open | [Task 10](review-tasks/10-api-input-validation-flows.md) |
-| CR-048 | Medium | Bug | Open | [Task 11](review-tasks/11-api-input-validation-settings.md) |
+| CR-048 | Medium | Bug | Fixed | [Task 11](review-tasks/11-api-input-validation-settings.md) |
 | CR-049 | Low | Code quality | Partly fixed | [Task 28](review-tasks/28-prompt-preview-parity.md) |
 | CR-050 | Medium | Bug | Open | [Task 12](review-tasks/12-db-transactions.md) |
 | CR-051 | Medium | Code quality | Open | [Task 47](review-tasks/47-thin-routes-and-services.md) |
@@ -7482,7 +7478,7 @@ One row per finding, at `abaa007`.
 | CR-164 | Medium | Bug | Open | [Task 05](review-tasks/05-test-coverage-baseline.md) |
 | CR-165 | Medium | Infra | Open | [Task 04](review-tasks/04-client-server-boundaries.md) |
 | CR-166 | Medium | Code quality | Open | [Task 04](review-tasks/04-client-server-boundaries.md) |
-| CR-167 | Low | Code quality | Open | [Task 11](review-tasks/11-api-input-validation-settings.md) |
+| CR-167 | Low | Code quality | Fixed | [Task 11](review-tasks/11-api-input-validation-settings.md) |
 | CR-168 | Low | Code quality | Open | [Task 47](review-tasks/47-thin-routes-and-services.md) |
 | CR-169 | Low | Code quality | Open | [Task 47](review-tasks/47-thin-routes-and-services.md) |
 | CR-170 | Low | Infra | Open | [Task 03](review-tasks/03-lint-rule-hardening.md) |

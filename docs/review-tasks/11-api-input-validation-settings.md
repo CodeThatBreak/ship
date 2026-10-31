@@ -15,7 +15,7 @@ Each finding was re-verified against `refactor/prompt-engine-inconsistency-fix` 
 
 ### CR-048 [Medium] Settings PATCH writes some fields and then rejects later ones
 
-- **Status:** Open
+- **Status:** Fixed
 - **Type:** Bug
 - **Effort:** S
 - **Where:** app/api/settings/route.ts:104-178
@@ -24,16 +24,25 @@ Each finding was re-verified against `refactor/prompt-engine-inconsistency-fix` 
 
 ### CR-167 [Low] The four repo routes duplicate their input helpers, and `~` expansion is wrong
 
-- **Status:** Open
+- **Status:** Fixed
 - **Type:** Code quality
 - **Effort:** S
 - **Where:** app/api/repos/route.ts:9-26,31,42; app/api/repos/[id]/route.ts:9-20,27-31; app/api/repos/test-setup/route.ts:11-25; app/api/repos/detect/route.ts:9-12
 - **What to do:** The four repo routes still each carry their own `~` expansion, `optString` and `optTimeoutMs` (keep-on-absent vs null-on-absent variants), `validateLocalPath` still validates nothing, `~bob/x` still becomes `$HOME/bob/x`, and the `.git` existence check is duplicated. Add one Zod repo-input schema (accept only `~` or `~/` prefixes) in `lib/schemas/repo.ts` and move the path/.git checks into a `RepoService` used by all four routes.
 
+## CR-003 routes covered in this task
+
+- [x] `PATCH /api/settings`
+- [x] `GET|POST /api/repos`, `PATCH|DELETE /api/repos/[id]`, `GET /api/repos/detect`, `POST /api/repos/test-setup`
+- [x] Host and task instance routes under `app/api/host-instances/**` and `app/api/task-instances/**`
+- [x] `POST /api/node-templates`, `PATCH|DELETE /api/node-templates/[id]`
+
+Still open for a follow-up (see CR-003 in `docs/code-review.md`): `templates/*`, `tasks/materialize`, `tasks/handlers`, `webhooks/gitlab`, and unvalidated query params on `contracts` / `prompt` routes.
+
 ## Done when
 
-- [ ] Every finding above is fixed, or a remaining part is written up in the PR description.
-- [ ] Each bug fix has a regression test (Vitest for `lib/`; at least a hook or utility test for UI where practical).
-- [ ] Code follows [`docs/coding-patterns.md`](../coding-patterns.md).
-- [ ] `npm run typecheck`, `npm run lint`, `npm test` and `npm run build` pass (before Task 02 lands, `npx tsc --noEmit` instead of `typecheck`).
-- [ ] The status of each finding in [`docs/code-review.md`](../code-review.md) is updated (Fixed, with the PR link).
+- [x] Every finding above is fixed, or a remaining part is written up in the PR description.
+- [x] Each bug fix has a regression test (Vitest for `lib/`; at least a hook or utility test for UI where practical).
+- [x] Code follows [`docs/coding-patterns.md`](../coding-patterns.md).
+- [x] `npm run typecheck`, `npm run lint`, `npm test` and `npm run build` pass (before Task 02 lands, `npx tsc --noEmit` instead of `typecheck`).
+- [x] The status of each finding in [`docs/code-review.md`](../code-review.md) is updated (Fixed, with the PR link).

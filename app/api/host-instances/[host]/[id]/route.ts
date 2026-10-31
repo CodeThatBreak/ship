@@ -1,29 +1,33 @@
 import { toErrorResponse } from "@/lib/errors";
+import { parseJson } from "@/lib/http/parse";
+import {
+  gitHostInstancePatchBodySchema,
+  gitHostInstanceTestBodySchema,
+} from "@/lib/schemas/integration-instance";
 import { NextResponse } from "next/server";
 import { gitHostRegistry } from "../../../../../lib/engine/ports/git-host";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
-export async function PATCH(req: Request, { params }: { params: Promise<{ host: string; id: string }> }) {
+export const PATCH = async (req: Request, { params }: { params: Promise<{ host: string; id: string }> }) => {
   try {
     const { host, id } = await params;
     const svc = gitHostRegistry.maybe(host);
     if (!svc) return NextResponse.json({ error: `unknown git host: ${host}` }, { status: 404 });
-    const body = await req.json();
+    const body = await parseJson(req, gitHostInstancePatchBodySchema);
     svc.updateInstance(id, {
       name: body.name,
       baseUrl: body.baseUrl ?? body.base_url,
-      // blank token = keep the stored one (adapter-side)
       token: body.token,
     });
     return NextResponse.json({ ok: true });
   } catch (e: unknown) {
     return toErrorResponse(e);
   }
-}
+};
 
-export async function DELETE(_req: Request, { params }: { params: Promise<{ host: string; id: string }> }) {
+export const DELETE = async (_req: Request, { params }: { params: Promise<{ host: string; id: string }> }) => {
   try {
     const { host, id } = await params;
     const svc = gitHostRegistry.maybe(host);
@@ -33,18 +37,18 @@ export async function DELETE(_req: Request, { params }: { params: Promise<{ host
   } catch (e: unknown) {
     return toErrorResponse(e);
   }
-}
+};
 
 /** Test connectivity/auth for this instance (uses stored token unless one is passed). */
-export async function POST(req: Request, { params }: { params: Promise<{ host: string; id: string }> }) {
+export const POST = async (req: Request, { params }: { params: Promise<{ host: string; id: string }> }) => {
   try {
     const { host, id } = await params;
     const svc = gitHostRegistry.maybe(host);
     if (!svc) return NextResponse.json({ error: `unknown git host: ${host}` }, { status: 404 });
-    const body = await req.json().catch(() => ({}));
+    const body = await parseJson(req, gitHostInstanceTestBodySchema);
     const result = await svc.testInstance(id, { baseUrl: body.baseUrl ?? body.base_url, token: body.token });
     return NextResponse.json(result);
   } catch (e: unknown) {
     return toErrorResponse(e);
   }
-}
+};

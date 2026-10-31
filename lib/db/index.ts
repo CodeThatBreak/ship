@@ -35,6 +35,11 @@ export interface Repo {
 export class Database {
   private conn: SqliteDatabase.Database | null = null;
 
+  /** Run synchronous writes in one SQLite transaction. */
+  transaction<T>(fn: () => T): T {
+    return this.connection().transaction(fn)();
+  }
+
   /** Lazily open (and migrate) the connection. */
   connection(): SqliteDatabase.Database {
     if (this.conn) return this.conn;
