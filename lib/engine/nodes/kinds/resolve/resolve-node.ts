@@ -13,6 +13,7 @@ import { configString, mcpSourcesOf, mcpSourcesSchema, mcpSourceConfigFields, sp
 import { splitConsumeSchema, splitParallelMaxSchema } from "../../shared/split";
 import { mrTargetResolver } from "../../shared/mr-target-resolver";
 import { ResolveInput, ResolveOutput } from "./schema";
+import { countHostResolved, shouldResolveCommentsOnHost } from "./resolve-comments";
 import { worktreeManager } from "../../../runtime/worktree-lifecycle";
 
 export class ResolveNode extends AgentRunNode<ResolveInput, ResolveOutput> {
@@ -154,25 +155,53 @@ export class ResolveNode extends AgentRunNode<ResolveInput, ResolveOutput> {
       },
       label,
       finalize: async (result) => {
-        if (open.length && mrIid) {
+        const codeChanged = await this.detectCodeChange(ctx, mrIid, mrBranch, before);
+        const repoUrl = ctx.flow.repo_url ?? "";
+        const host = gitHostRegistry.forRepo(repoUrl);
+        const attempts: { commentId: string; ok: boolean }[] = [];
+
+        if (shouldResolveCommentsOnHost(open.length, codeChanged)) {
           for (const c of open) {
-            if (c.discussion_id) {
-              await gitHostRegistry
-                .forRepo(ctx.flow.repo_url ?? "")
-                .resolveComment(ctx.flow.repo_url ?? "", mrIid, c.discussion_id, true)
-                .catch(() => {});
+            if (!c.discussion_id) {
+              attempts.push({ commentId: c.id, ok: false });
+              continue;
             }
-            this.support.resolveComment(c.id);
+            try {
+              await host.resolveComment(repoUrl, mrIid, c.discussion_id, true);
+              this.support.resolveComment(c.id);
+              attempts.push({ commentId: c.id, ok: true });
+            } catch (e) {
+              const msg = e instanceof Error ? e.message : String(e);
+              this.support.emit(
+                ctx.flow.id,
+                node.id,
+                "error",
+                `could not resolve MR thread for comment ${c.id}: ${msg.slice(0, 200)}`,
+              );
+              attempts.push({ commentId: c.id, ok: false });
+            }
           }
         }
-        const codeChanged = await this.detectCodeChange(ctx, mrIid, mrBranch, before);
+
+        const resolved = countHostResolved(attempts);
+        const hostFailures = attempts.filter((a) => !a.ok).length;
         return {
           status: "done" as const,
-          output: this.outputSchema.parse({ resolved: open.length, branchName: input.branchName ?? undefined, codeChanged }),
-          artifact: { kind: "resolve", content: result.result ?? "", meta: { resolved: open.length, branchName: input.branchName ?? undefined, codeChanged } },
-          event: `resolved ${open.length} comment(s)${input.branchName ? ` (${input.branchName})` : ""}` +
-            `${codeChanged ? "" : " — no code changes, skipping re-review"}`,
-          eventData: { codeChanged },
+          output: this.outputSchema.parse({
+            resolved,
+            branchName: input.branchName ?? undefined,
+            codeChanged,
+          }),
+          artifact: {
+            kind: "resolve",
+            content: result.result ?? "",
+            meta: { resolved, branchName: input.branchName ?? undefined, codeChanged, hostFailures },
+          },
+          event:
+            `resolved ${resolved} comment(s)${input.branchName ? ` (${input.branchName})` : ""}` +
+            `${codeChanged ? "" : " — no code changes, MR threads left open"}` +
+            `${hostFailures ? ` — ${hostFailures} thread(s) could not be closed on the host` : ""}`,
+          eventData: { codeChanged, hostFailures },
           reply: result.result ?? "",
         };
       },

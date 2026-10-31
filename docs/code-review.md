@@ -2195,9 +2195,7 @@ Original findings, verbatim:
 
 ### CR-075 [Medium] Pipeline gate treats "stale head", "API error" and "no pipeline" as the same thing, so it triggers duplicate pipelines
 
-- **Status at `abaa007`:** **Open**, fix in [Task 22](review-tasks/22-pipeline-review-resolve.md)
-- **Current location:** lib/engine/nodes/kinds/pipeline/pipeline-node.ts:168-182, 354-388, 497-509
-- **Re-verification note:** Unchanged. `headPipeline()` still collapses API error (`.catch(() => null)`), no head pipeline, and stale sha into `null`. The fix-grace window only starts when `pipe != null`, so after a fix push (or a transient API error) the gate triggers an API pipeline immediately. Fix: return a discriminated `{kind: ok|stale|none|error}`, start `fixWaitStart` when `runFix` completes, and never trigger on `error` (back off instead).
+- **Status at `abaa007`:** **Fixed** (Task 22 — discriminated head lookup, post-fix grace from `runFix`, no trigger on API error)
 
 - **Severity:** Medium
 - **Category:** Correctness
@@ -2426,9 +2424,8 @@ Original findings, verbatim:
 
 ### CR-085 [Medium] Review comment parsing is fragile and unvalidated, so reviews can post nothing or post "undefined"
 
-- **Status at `abaa007`:** **Open**, fix in [Task 22](review-tasks/22-pipeline-review-resolve.md)
-- **Current location:** lib/engine/nodes/kinds/review/review-node.ts:141-146, 155, 162
-- **Re-verification note:** Unchanged. The greedy `/\[[\s\S]*\]/` plus `JSON.parse` silently yields `[]` on any markdown brackets, and unvalidated items can post "undefined". Fix: use `extractJson` from json-schema-lite, validate with `z.array(z.object({file?, line?, body: z.string().min(1)}))`, and warn or fail when the response has no valid array.
+- **Status at `abaa007`:** **Fixed** (Task 22 — `extractJson` + Zod validation, fail when output is not a valid comment list)
+- **Current location:** lib/engine/nodes/kinds/review/review-node.ts; lib/engine/nodes/kinds/review/review-comments.ts
 
 - **Severity:** Medium
 - **Category:** Correctness
@@ -2447,9 +2444,8 @@ Original findings, verbatim:
 
 ### CR-086 [Medium] Review posting isn't idempotent: a retry or partial failure posts duplicate MR comments
 
-- **Status at `abaa007`:** **Open**, fix in [Task 22](review-tasks/22-pipeline-review-resolve.md)
-- **Current location:** lib/engine/nodes/kinds/review/review-node.ts:148-166
-- **Re-verification note:** Comments are still posted one by one inside `finalize`, with no record of what was posted. A partial failure followed by Retry re-posts everything. Fix: persist per-comment content hashes (artifact meta, or a table after schema sign-off) and skip already-posted hashes for this MR. Alternatively, save the artifact first and post from it in an idempotent step.
+- **Status at `abaa007`:** **Fixed** (Task 22 — content hashes in review artifact meta, skip already-posted comments on retry)
+- **Current location:** lib/engine/nodes/kinds/review/review-node.ts; lib/engine/nodes/kinds/review/review-comments.ts
 
 - **Severity:** Medium
 - **Category:** Correctness
@@ -5537,9 +5533,8 @@ Original findings, verbatim:
 
 ### CR-209 [Low] Resolve marks comments resolved unconditionally and hides git-host failures
 
-- **Status at `abaa007`:** **Open**, fix in [Task 22](review-tasks/22-pipeline-review-resolve.md)
-- **Current location:** lib/engine/nodes/kinds/resolve/resolve-node.ts:165-176; lib/engine/nodes/shared/node-support.ts:168-170
-- **Re-verification note:** The finalize step still marks every open comment `resolved`/`resolved_by='agent'` regardless of what the agent did (including when `codeChanged` is false). Git-host `resolveComment` failures are still swallowed with `.catch(() => {})`, so the DB says resolved while the MR thread stays open. Fix: mark a comment resolved only after the host call succeeds, otherwise keep it `open` and emit a warning. Optionally use the `resolving` status while the run is in flight.
+- **Status at `abaa007`:** **Fixed** (Task 22 — resolve on host only after successful `resolveComment`; skip when `codeChanged` is false)
+- **Current location:** lib/engine/nodes/kinds/resolve/resolve-node.ts; lib/engine/nodes/kinds/resolve/resolve-comments.ts
 
 - **Severity:** Low
 - **Category:** Correctness
@@ -7364,7 +7359,7 @@ One row per finding, at `abaa007`.
 | CR-072 | Medium | Bug | Fixed | [Task 17](review-tasks/17-node-claim-and-attempts.md) |
 | CR-073 | Medium | Bug | Open | [Task 33](review-tasks/33-git-and-worktree-process-safety.md) |
 | CR-074 | Medium | Bug | Fixed | [Task 18](review-tasks/18-terminal-outcome-writer.md) |
-| CR-075 | Medium | Bug | Open | [Task 22](review-tasks/22-pipeline-review-resolve.md) |
+| CR-075 | Medium | Bug | Fixed (Task 22) | [Task 22](review-tasks/22-pipeline-review-resolve.md) |
 | CR-076 | Medium | Gap | Open | [Task 26](review-tasks/26-node-config-validation.md) |
 | CR-077 | Medium | Bug | Open | [Task 26](review-tasks/26-node-config-validation.md) |
 | CR-078 | Medium | Bug | Open | [Task 26](review-tasks/26-node-config-validation.md) |
@@ -7374,8 +7369,8 @@ One row per finding, at `abaa007`.
 | CR-082 | Medium | Bug | Open | [Task 16](review-tasks/16-run-lifecycle-late-writes.md) |
 | CR-083 | Medium | Bug | Fixed | [Task 21](review-tasks/21-multi-branch-correctness.md) |
 | CR-084 | Medium | Bug | Open | [Task 27](review-tasks/27-plan-checklist-integrity.md) |
-| CR-085 | Medium | Bug | Open | [Task 22](review-tasks/22-pipeline-review-resolve.md) |
-| CR-086 | Medium | Bug | Open | [Task 22](review-tasks/22-pipeline-review-resolve.md) |
+| CR-085 | Medium | Bug | Fixed (Task 22) | [Task 22](review-tasks/22-pipeline-review-resolve.md) |
+| CR-086 | Medium | Bug | Fixed (Task 22) | [Task 22](review-tasks/22-pipeline-review-resolve.md) |
 | CR-087 | Medium | Bug | Fixed | — |
 | CR-088 | Medium | Bug | Fixed | [Task 18](review-tasks/18-terminal-outcome-writer.md) |
 | CR-089 | Low | Code quality | Partly fixed | [Task 26](review-tasks/26-node-config-validation.md) |
@@ -7498,7 +7493,7 @@ One row per finding, at `abaa007`.
 | CR-206 | Low | Code quality | Fixed | [Task 18](review-tasks/18-terminal-outcome-writer.md) |
 | CR-207 | Low | Code quality | Fixed | Task 07 |
 | CR-208 | Low | Code quality | Open | [Task 49](review-tasks/49-node-kind-structure.md) |
-| CR-209 | Low | Bug | Open | [Task 22](review-tasks/22-pipeline-review-resolve.md) |
+| CR-209 | Low | Bug | Fixed (Task 22) | [Task 22](review-tasks/22-pipeline-review-resolve.md) |
 | CR-210 | Low | Infra | Fixed (Task 08) | [Task 08](review-tasks/08-db-bootstrap-and-schema.md) |
 | CR-211 | Low | Bug | Fixed (Task 08) | [Task 08](review-tasks/08-db-bootstrap-and-schema.md) |
 | CR-212 | Low | Performance | Fixed (Task 08) | [Task 08](review-tasks/08-db-bootstrap-and-schema.md) |

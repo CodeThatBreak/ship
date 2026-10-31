@@ -13,6 +13,11 @@ import { configBool, configNumber, configString, splitConsumerConfigFields } fro
 import { splitConsumeSchema, splitParallelMaxSchema } from "../../shared/split";
 import { mrTargetResolver } from "../../shared/mr-target-resolver";
 import { PipelineInput, PipelineOutput } from "./schema";
+import {
+  classifyHeadPipeline,
+  shouldDeferPipelineTrigger,
+  type HeadPipelineLookup,
+} from "./pipeline-head";
 
 /** Poll interval while waiting for a pipeline to reach a terminal state. */
 const POLL_MS_DEFAULT = 20_000;
@@ -154,20 +159,28 @@ export class PipelineNode extends AgentRunNode<
    * a pipeline for an older sha is stale (a push superseded it) and treated as
    * "no pipeline" so a fresh one gets triggered.
    */
-  private async headPipeline(ctx: FlowCtx, mrIid: number) {
+  private async headPipeline(ctx: FlowCtx, mrIid: number): Promise<HeadPipelineLookup> {
     const repoUrl = ctx.flow.repo_url ?? "";
-    const cr = await gitHostRegistry
-      .forRepo(repoUrl)
-      .getChangeRequest(repoUrl, mrIid)
-      .catch(() => null);
+    const host = gitHostRegistry.forRepo(repoUrl);
+    let crFailed = false;
+    let cr: Awaited<ReturnType<typeof host.getChangeRequest>> | null = null;
+    try {
+      cr = await host.getChangeRequest(repoUrl, mrIid);
+    } catch {
+      crFailed = true;
+    }
     const hp = cr?.headPipeline;
-    if (!cr || !hp) return null;
-    const pipe = await gitHostRegistry
-      .forRepo(repoUrl)
-      .getPipeline(repoUrl, hp.id)
-      .catch(() => null);
-    if (!pipe || (cr.sha && pipe.sha && pipe.sha !== cr.sha)) return null;
-    return pipe;
+    if (crFailed || !hp) {
+      return classifyHeadPipeline(cr, crFailed, null, false);
+    }
+    let pipeFailed = false;
+    let pipe: Awaited<ReturnType<typeof host.getPipeline>> | null = null;
+    try {
+      pipe = await host.getPipeline(repoUrl, hp.id);
+    } catch {
+      pipeFailed = true;
+    }
+    return classifyHeadPipeline(cr, false, pipe, pipeFailed);
   }
 
   /**
@@ -322,7 +335,8 @@ export class PipelineNode extends AgentRunNode<
     let lastSeen: string | null = null; // "<id>:<status>" — emit only on change
     const fixedIds = new Set<number>(); // pipelines we already ran a fix for — superseded
     let triggerAttempted = false; // one API trigger per "no pipeline" episode
-    let fixWaitStart: number | null = null; // when we started waiting for a fix's pipeline
+    let fixWaitStart: number | null = null; // set when a fix push completes — grace before API trigger
+    let headLookupWarned = false;
     const manualPlays = new Map<number, { plays: number; warned: boolean }>(); // per-pipeline manual-job play state
     let fixes = 0;
     const deadline = Date.now() + gateTimeoutMin * 60_000;
@@ -335,7 +349,23 @@ export class PipelineNode extends AgentRunNode<
       // Always re-read the MR head: the watched pipeline can be superseded by a
       // push, a retry, or a pipeline started from the GitLab UI — the head is
       // the only status worth reporting.
-      const head = await this.headPipeline(ctx, mrIid);
+      const headLookup = await this.headPipeline(ctx, mrIid);
+      if (headLookup.kind === "error" && !headLookupWarned) {
+        headLookupWarned = true;
+        this.support.emitLifecycle(
+          ctx.flow.id,
+          node.id,
+          "could not read the MR head pipeline from the git host — retrying without triggering a new pipeline",
+        );
+      }
+      if (headLookup.kind !== "error") headLookupWarned = false;
+
+      const head = headLookup.kind === "ok" ? headLookup.pipe : null;
+      const inFixGrace =
+        fixWaitStart != null && Date.now() - fixWaitStart < FIX_PIPELINE_GRACE_MS;
+      if (fixWaitStart != null && !inFixGrace) fixWaitStart = null;
+      if (head && fixWaitStart != null) fixWaitStart = null;
+
       let pipe = watchedId
         ? await gitHostRegistry
             .forRepo(ctx.flow.repo_url ?? "")
@@ -355,20 +385,13 @@ export class PipelineNode extends AgentRunNode<
         pipe = head;
         watchedId = head.id;
       }
-      // a pipeline we already fixed is superseded by the fix's push — wait for
-      // the push's new head pipeline. This is NOT immediately a "no pipeline"
-      // state: re-triggering right away would race the pipeline the push is
-      // about to start. But manual-CI projects never start one on push, so
-      // after a grace period we fall through and trigger one ourselves.
-      let awaitingFixPipeline = pipe != null && fixedIds.has(pipe.id);
-      if (awaitingFixPipeline) {
-        if (fixWaitStart == null) fixWaitStart = Date.now();
-        // grace over → treat the stale fixed head as "no pipeline" and trigger
-        // below; either way the fixed pipeline itself is never acted on again
-        if (Date.now() - fixWaitStart >= FIX_PIPELINE_GRACE_MS)
-          awaitingFixPipeline = false;
-        pipe = null;
-        watchedId = null;
+      // a pipeline we already fixed must not re-enter the fix loop — during the
+      // post-fix grace window wait for the push's new head pipeline instead.
+      if (pipe != null && fixedIds.has(pipe.id)) {
+        if (inFixGrace || headLookup.kind === "stale") {
+          pipe = null;
+          watchedId = null;
+        }
       }
 
       if (pipe) {
@@ -435,6 +458,7 @@ export class PipelineNode extends AgentRunNode<
             maxFixAttempts,
             label,
           );
+          fixWaitStart = Date.now();
           watchedId = null; // the fix pushed new commits — re-read the head pipeline
           continue;
         }
@@ -478,7 +502,7 @@ export class PipelineNode extends AgentRunNode<
         configBool(config, "auto_trigger_pipeline", true) &&
         !watchedId &&
         !triggerAttempted &&
-        !awaitingFixPipeline
+        !shouldDeferPipelineTrigger(headLookup, inFixGrace)
       ) {
         // no pipeline on the MR head (manual-CI projects don't start one on
         // push) — start it via the API, exactly once per episode. After a fix

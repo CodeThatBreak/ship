@@ -12,6 +12,11 @@ import { configNumber, configString, mcpSourcesOf, mcpSourcesSchema, mcpSourceCo
 import { splitConsumeSchema, splitParallelMaxSchema } from "../../shared/split";
 import { mrTargetResolver } from "../../shared/mr-target-resolver";
 import { ReviewInput, ReviewOutput } from "./schema";
+import {
+  parseReviewComments,
+  readPostedCommentHashes,
+  reviewCommentPostHash,
+} from "./review-comments";
 
 export class ReviewNode extends AgentRunNode<ReviewInput, ReviewOutput> {
   readonly key = NODE_KEYS.REVIEW;
@@ -95,6 +100,8 @@ export class ReviewNode extends AgentRunNode<ReviewInput, ReviewOutput> {
     // the user's standing rules (prompt_rules knob) apply to every run
     const userRules = typeof config.prompt_rules === "string" ? config.prompt_rules : "";
 
+    const node = this.node(ctx);
+
     const { mrIid, mrBranch } = this.resolveMr(ctx, input.branchName);
     const repoUrl = ctx.flow.repo_url ?? "";
     const host = gitHostRegistry.forRepo(repoUrl);
@@ -137,35 +144,90 @@ export class ReviewNode extends AgentRunNode<ReviewInput, ReviewOutput> {
       },
       label,
       finalize: async (result) => {
-        let comments: { file?: string; line?: number; body: string }[] = [];
-        try {
-          const m = (result.result ?? "").match(/\[[\s\S]*\]/);
-          comments = m ? JSON.parse(m[0]) : [];
-        } catch { comments = []; }
+        const parsed = parseReviewComments(result.result ?? "");
+        if (parsed.warning) {
+          this.support.emit(ctx.flow.id, node.id, "log", parsed.warning);
+        }
+        if (parsed.comments.length === 0 && (result.result ?? "").trim()) {
+          return {
+            status: "failed" as const,
+            output: this.outputSchema.parse({ comments: 0, branchName: input.branchName ?? undefined }),
+            artifact: {
+              kind: "review",
+              content: result.result ?? "",
+              meta: { posted: 0, branchName: input.branchName ?? undefined, mrIid },
+            },
+            event: parsed.warning ?? "review could not parse comments from agent output",
+            eventData: { error: parsed.warning },
+            reply: parsed.warning ?? "Review output was not a valid comment list.",
+          };
+        }
+
+        const commentStyle = configString(config, "comment_style") === "summary" ? "summary" : "inline";
+        const prevArt = this.support.latestArtifact(ctx.flow.id, "review", { nodeType: NODE_KEYS.REVIEW });
+        const postedHashes = new Set(readPostedCommentHashes(prevArt?.meta));
+        const maxComments = configNumber(config, "max_comments", 0);
+        const effective = maxComments > 0 ? parsed.comments.slice(0, maxComments) : parsed.comments;
 
         let posted = 0;
-        const maxComments = configNumber(config, "max_comments", 0);
-        const effective = maxComments > 0 ? comments.slice(0, maxComments) : comments;
-        if (configString(config, "comment_style") === "summary") {
-          // single aggregated CR note instead of one comment per issue
-          if (effective.length > 0) {
-            const summary = effective
+        const newHashes: string[] = [...postedHashes];
+
+        const persistProgress = () => {
+          this.support.saveArtifact(
+            node.id,
+            ctx.flow.id,
+            "review",
+            result.result ?? "",
+            {
+              posted: newHashes.length,
+              postedHashes: newHashes,
+              mrIid,
+              branchName: input.branchName ?? undefined,
+            },
+          );
+        };
+
+        if (commentStyle === "summary") {
+          const pending = effective.filter(
+            (c) => !postedHashes.has(reviewCommentPostHash(mrIid, c, "summary")),
+          );
+          if (pending.length > 0) {
+            const summary = pending
               .map((c) => `- ${c.file ? `\`${c.file}${c.line ? `:${c.line}` : ""}\` — ` : ""}${c.body}`)
               .join("\n");
             await host.createComment(repoUrl, mrIid, `**AI Review**\n\n${summary}`);
+            for (const c of pending) {
+              newHashes.push(reviewCommentPostHash(mrIid, c, "summary"));
+            }
+            posted = pending.length;
+            persistProgress();
           }
-          posted = effective.length;
         } else {
           for (const c of effective) {
+            const hash = reviewCommentPostHash(mrIid, c, "inline");
+            if (postedHashes.has(hash)) continue;
             const body = c.file ? `**${c.file}${c.line ? `:${c.line}` : ""}** — ${c.body}` : c.body;
             await host.createComment(repoUrl, mrIid, `**AI Review**\n\n${body}`);
+            newHashes.push(hash);
+            postedHashes.add(hash);
             posted++;
+            persistProgress();
           }
         }
+
         return {
           status: "done" as const,
           output: this.outputSchema.parse({ comments: posted, branchName: input.branchName ?? undefined }),
-          artifact: { kind: "review", content: result.result ?? "", meta: { posted, branchName: input.branchName ?? undefined } },
+          artifact: {
+            kind: "review",
+            content: result.result ?? "",
+            meta: {
+              posted,
+              postedHashes: newHashes,
+              mrIid,
+              branchName: input.branchName ?? undefined,
+            },
+          },
           event: `review complete${input.branchName ? ` (${input.branchName})` : ""}: ${posted} comment(s) posted`,
           reply: result.result ?? `Posted ${posted} comment(s).`,
         };
