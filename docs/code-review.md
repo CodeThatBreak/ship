@@ -6333,8 +6333,8 @@ Original findings, verbatim:
 
 ### CR-244 [Low] Sidebar active state uses exact pathname match, so nested routes highlight nothing
 
-- **Status at `abaa007`:** **Open**, fix in [Task 53](review-tasks/53-app-shell-and-settings-dedup.md)
-- **Current location:** components/shared/AppSidebar.tsx:81
+- **Status at `abaa007`:** **Fixed** ([Task 53](review-tasks/53-app-shell-and-settings-dedup.md))
+- **Current location:** components/layout/AppSidebar.tsx (via `pickActiveNavHref` in `lib/navigation/active-nav-href.ts`)
 - **Re-verification note:** `const active = pathname === nav.pathname` is unchanged, so on detail routes (for example /flows/<id> or /templates/<id>) no sidebar item is highlighted. Use longest-prefix matching (`pathname === href || pathname.startsWith(href + "/")`, picking the most specific match), with `/` special-cased.
 
 - **Severity:** Low
@@ -6352,8 +6352,8 @@ Original findings, verbatim:
 
 ### CR-245 [Low] `components/shared` holds app-specific code (sidebar nav routes, "Search tasks…" default)
 
-- **Status at `abaa007`:** **Open**, fix in [Task 53](review-tasks/53-app-shell-and-settings-dedup.md)
-- **Current location:** components/shared/AppSidebar.tsx:35-53,70,99, components/shared/FilterPicker.tsx:98, app/(workspace)/page.tsx:38
+- **Status at `abaa007`:** **Fixed** ([Task 53](review-tasks/53-app-shell-and-settings-dedup.md))
+- **Current location:** components/layout/AppSidebar.tsx, constants/routes.ts, components/shared/FilterPicker.tsx, app/(workspace)/page.tsx
 - **Re-verification note:** AppSidebar still hardcodes the DevFlow route table, product name and "Local workspace" inside `components/shared/`, and FilterPicker still defaults its placeholder to "Search tasks…". Move AppSidebar to an app-shell folder (for example components/layout/) with routes in constants/routes.ts, reuse those route constants in links, and give FilterPicker a neutral default.
 
 - **Severity:** Low
@@ -6422,8 +6422,8 @@ Original findings, verbatim:
 
 ### CR-248 [Low] GitTab / TaskTab are near-duplicates, and three identical modal chromes exist
 
-- **Status at `abaa007`:** **Open**, fix in [Task 53](review-tasks/53-app-shell-and-settings-dedup.md)
-- **Current location:** components/settings/integrations/GitTab.tsx:32-105 (166 lines), components/settings/integrations/TaskTab.tsx:32-104 (173 lines), components/settings/integrations/components/ConnectModal.tsx:10-39, components/settings/repos/components/RepoModal.tsx:10-40, components/settings/general/components/SecretModal.tsx:10-40
+- **Status at `abaa007`:** **Fixed** ([Task 53](review-tasks/53-app-shell-and-settings-dedup.md))
+- **Current location:** components/shared/FormModal.tsx, components/settings/integrations/components/InstanceList.tsx, GitTab.tsx, TaskTab.tsx
 - **Re-verification note:** GitTab and TaskTab are still near-duplicates in hook wiring, list, test/remove and submit logic, and the three modal chromes still repeat the same Cancel + submit footer. There is no `FormModal` yet. Add components/shared/FormModal.tsx (props for icon, submitLabel and width) and a shared `InstanceList` container, so each tab supplies only its form fields.
 
 - **Severity:** Low
@@ -6443,8 +6443,8 @@ Original findings, verbatim:
 
 ### CR-249 [Low] Callbacks created inside `.map()` for row components
 
-- **Status at `abaa007`:** **Open**, fix in [Task 53](review-tasks/53-app-shell-and-settings-dedup.md)
-- **Current location:** components/settings/repos/ReposSection.tsx:81-89, components/settings/integrations/GitTab.tsx:99-101, components/settings/integrations/TaskTab.tsx:98-100, components/settings/integrations/HarnessTab.tsx:76
+- **Status at `abaa007`:** **Fixed** ([Task 53](review-tasks/53-app-shell-and-settings-dedup.md))
+- **Current location:** components/settings/repos/ReposSection.tsx, GitTab.tsx, TaskTab.tsx, HarnessTab.tsx, RepoCard.tsx, InstanceCard.tsx
 - **Re-verification note:** Row callbacks (`onEdit={() => openEdit(r)}`, `onTest={() => runTest(i.id)}`, `onDelete={() => remove.mutate(i.id)}`) are still created inside `.map()`. Pass the id plus stable `onEdit(id)` / `onDelete(id)` / `onTest(id)` handlers and bind them inside the row, following CustomNodesSection.tsx:111-112 / SecretRow.
 
 - **Severity:** Low
@@ -7504,12 +7504,12 @@ One row per finding, at `abaa007`.
 | CR-241 | Low | Bug | Fixed | [Task 39](review-tasks/39-editor-fields-and-effects.md) |
 | CR-242 | Low | Bug | Fixed | [Task 39](review-tasks/39-editor-fields-and-effects.md) |
 | CR-243 | Low | Code quality | Open | [Task 52](review-tasks/52-shared-ui-components.md) |
-| CR-244 | Low | Bug | Open | [Task 53](review-tasks/53-app-shell-and-settings-dedup.md) |
-| CR-245 | Low | Code quality | Open | [Task 53](review-tasks/53-app-shell-and-settings-dedup.md) |
+| CR-244 | Low | Bug | Fixed | [Task 53](review-tasks/53-app-shell-and-settings-dedup.md) |
+| CR-245 | Low | Code quality | Fixed | [Task 53](review-tasks/53-app-shell-and-settings-dedup.md) |
 | CR-246 | Low | Code quality | Open | [Task 55](review-tasks/55-frontend-constants-and-types.md) |
 | CR-247 | Low | Code quality | Open | [Task 55](review-tasks/55-frontend-constants-and-types.md) |
-| CR-248 | Low | Code quality | Open | [Task 53](review-tasks/53-app-shell-and-settings-dedup.md) |
-| CR-249 | Low | Code quality | Open | [Task 53](review-tasks/53-app-shell-and-settings-dedup.md) |
+| CR-248 | Low | Code quality | Fixed | [Task 53](review-tasks/53-app-shell-and-settings-dedup.md) |
+| CR-249 | Low | Code quality | Fixed | [Task 53](review-tasks/53-app-shell-and-settings-dedup.md) |
 | CR-250 | Low | Accessibility | Fixed | [Task 42](review-tasks/42-settings-forms.md) |
 | CR-251 | Low | Bug | Open | [Task 52](review-tasks/52-shared-ui-components.md) |
 | CR-252 | Low | Code quality | Open | [Task 52](review-tasks/52-shared-ui-components.md) |

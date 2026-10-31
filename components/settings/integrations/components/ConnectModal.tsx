@@ -1,13 +1,9 @@
 "use client";
 import { Link2 } from "lucide-react";
-import { Button } from "@/components/ui/button";
-import { Modal } from "@/components/shared";
-import { Spinner } from "@/components/ui/spinner";
+import { FormModal } from "@/components/shared";
 
-/** Modal chrome shared by every connect modal: Cancel + Connect footer, with
- *  the submit button disabled while a request is in flight or the form is
- *  still incomplete. Tabs only supply the stepped fields. */
-export function ConnectModal({
+/** Connect integration modal — stepped fields come from the tab body. */
+export const ConnectModal = ({
   open, onClose, title, children, canSubmit, submitting, onSubmit,
 }: {
   open: boolean;
@@ -17,23 +13,20 @@ export function ConnectModal({
   canSubmit: boolean;
   submitting?: boolean;
   onSubmit: () => void;
-}) {
+}) => {
   return (
-    <Modal
+    <FormModal
       open={open}
       onClose={onClose}
       title={title}
-      className="max-w-[420px]! sm:max-w-[420px]!"
-      footer={
-        <>
-          <Button variant="outline" onClick={onClose}>Cancel</Button>
-          <Button onClick={onSubmit} disabled={submitting || !canSubmit}>
-            {submitting ? <Spinner /> : <Link2 size={13} />} Connect
-          </Button>
-        </>
-      }
+      width="sm"
+      submitLabel="Connect"
+      submitIcon={<Link2 size={13} />}
+      canSubmit={canSubmit}
+      submitting={submitting}
+      onSubmit={onSubmit}
     >
-      <div className="grid gap-3.5">{children}</div>
-    </Modal>
+      {children}
+    </FormModal>
   );
-}
+};

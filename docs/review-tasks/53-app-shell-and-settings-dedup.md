@@ -15,7 +15,7 @@ Each finding was re-verified against `refactor/prompt-engine-inconsistency-fix` 
 
 ### CR-244 [Low] Sidebar active state uses exact pathname match, so nested routes highlight nothing
 
-- **Status:** Open
+- **Status:** Fixed
 - **Type:** Bug
 - **Effort:** S
 - **Where:** components/shared/AppSidebar.tsx:81
@@ -23,7 +23,7 @@ Each finding was re-verified against `refactor/prompt-engine-inconsistency-fix` 
 
 ### CR-245 [Low] `components/shared` holds app-specific code (sidebar nav routes, "Search tasks…" default)
 
-- **Status:** Open
+- **Status:** Fixed
 - **Type:** Code quality
 - **Effort:** S
 - **Where:** components/shared/AppSidebar.tsx:35-53,70,99, components/shared/FilterPicker.tsx:98, app/(workspace)/page.tsx:38
@@ -31,7 +31,7 @@ Each finding was re-verified against `refactor/prompt-engine-inconsistency-fix` 
 
 ### CR-248 [Low] GitTab / TaskTab are near-duplicates, and three identical modal chromes exist
 
-- **Status:** Open
+- **Status:** Fixed
 - **Type:** Code quality
 - **Effort:** M
 - **Where:** components/settings/integrations/GitTab.tsx:32-105 (166 lines), components/settings/integrations/TaskTab.tsx:32-104 (173 lines), components/settings/integrations/components/ConnectModal.tsx:10-39, components/settings/repos/components/RepoModal.tsx:10-40, components/settings/general/components/SecretModal.tsx:10-40
@@ -40,7 +40,7 @@ Each finding was re-verified against `refactor/prompt-engine-inconsistency-fix` 
 
 ### CR-249 [Low] Callbacks created inside `.map()` for row components
 
-- **Status:** Open
+- **Status:** Fixed
 - **Type:** Code quality
 - **Effort:** S
 - **Where:** components/settings/repos/ReposSection.tsx:81-89, components/settings/integrations/GitTab.tsx:99-101, components/settings/integrations/TaskTab.tsx:98-100, components/settings/integrations/HarnessTab.tsx:76
@@ -49,8 +49,8 @@ Each finding was re-verified against `refactor/prompt-engine-inconsistency-fix` 
 
 ## Done when
 
-- [ ] Every finding above is fixed, or a remaining part is written up in the PR description.
-- [ ] Each bug fix has a regression test (Vitest for `lib/`; at least a hook or utility test for UI where practical).
-- [ ] Code follows [`docs/coding-patterns.md`](../coding-patterns.md).
-- [ ] `npm run typecheck`, `npm run lint`, `npm test` and `npm run build` pass (before Task 02 lands, `npx tsc --noEmit` instead of `typecheck`).
-- [ ] The status of each finding in [`docs/code-review.md`](../code-review.md) is updated (Fixed, with the PR link).
+- [x] Every finding above is fixed, or a remaining part is written up in the PR description.
+- [x] Each bug fix has a regression test (Vitest for `lib/`; at least a hook or utility test for UI where practical).
+- [x] Code follows [`docs/coding-patterns.md`](../coding-patterns.md).
+- [x] `npm run typecheck`, `npm run lint`, `npm test` and `npm run build` pass (before Task 02 lands, `npx tsc --noEmit` instead of `typecheck`).
+- [x] The status of each finding in [`docs/code-review.md`](../code-review.md) is updated (Fixed, with the PR link).

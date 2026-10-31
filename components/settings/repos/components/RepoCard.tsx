@@ -1,4 +1,5 @@
 "use client";
+import { useCallback } from "react";
 import { CheckCircle2, FolderGit2, GitBranch, Pencil, Trash2, XCircle } from "lucide-react";
 import type { Repo } from "@/components/settings";
 import { Badge } from "@/components/ui/badge";
@@ -16,10 +17,13 @@ export function RepoCard({
 }: {
   repo: Repo;
   serverHome: string;
-  onEdit: () => void;
-  onDelete: () => void;
+  onEdit: (id: string) => void;
+  onDelete: (id: string) => void;
   deleting?: boolean;
 }) {
+  const edit = useCallback(() => onEdit(repo.id), [onEdit, repo.id]);
+  const del = useCallback(() => onDelete(repo.id), [onDelete, repo.id]);
+
   return (
     <Card className="flex-row items-center gap-3 px-4 py-3">
       <span className="grid size-9 shrink-0 place-items-center rounded-lg bg-muted text-muted-foreground">
@@ -60,7 +64,7 @@ export function RepoCard({
                 size="icon-sm"
                 variant="ghost"
                 aria-label="Edit repo"
-                onClick={onEdit}
+                onClick={edit}
               />
             }
           >
@@ -76,7 +80,7 @@ export function RepoCard({
                 variant="ghost"
                 aria-label="Remove repo"
                 className="text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
-                onClick={onDelete}
+                onClick={del}
                 disabled={deleting}
               />
             }

@@ -1,13 +1,9 @@
 "use client";
 import { KeyRound } from "lucide-react";
-import { Button } from "@/components/ui/button";
-import { Modal } from "@/components/shared";
-import { Spinner } from "@/components/ui/spinner";
+import { FormModal } from "@/components/shared";
 
-/** Modal chrome for the add/edit secret form: Cancel + submit footer, with the
- *  submit button disabled while a request is in flight or the fields aren't
- *  valid yet. The body is the secret form itself. (Mirrors RepoModal.) */
-export function SecretModal({
+/** Modal chrome for the add/edit secret form. */
+export const SecretModal = ({
   open, onClose, title, submitLabel, children, canSubmit, submitting, onSubmit,
 }: {
   open: boolean;
@@ -18,23 +14,20 @@ export function SecretModal({
   canSubmit: boolean;
   submitting?: boolean;
   onSubmit: () => void;
-}) {
+}) => {
   return (
-    <Modal
+    <FormModal
       open={open}
       onClose={onClose}
       title={title}
-      className="max-w-[460px]! sm:max-w-[460px]!"
-      footer={
-        <>
-          <Button variant="outline" onClick={onClose}>Cancel</Button>
-          <Button onClick={onSubmit} disabled={submitting || !canSubmit}>
-            {submitting ? <Spinner /> : <KeyRound size={13} />} {submitLabel}
-          </Button>
-        </>
-      }
+      width="md"
+      submitLabel={submitLabel}
+      submitIcon={<KeyRound size={13} />}
+      canSubmit={canSubmit}
+      submitting={submitting}
+      onSubmit={onSubmit}
     >
-      <div className="grid gap-3.5">{children}</div>
-    </Modal>
+      {children}
+    </FormModal>
   );
-}
+};

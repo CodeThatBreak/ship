@@ -1,7 +1,8 @@
 "use client";
+
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import type { ReactNode } from "react";
+import { useMemo, type ReactNode } from "react";
 import {
   Blocks,
   FolderGit2,
@@ -12,15 +13,16 @@ import {
   Workflow,
   type LucideIcon,
 } from "lucide-react";
+import { APP_ROUTES } from "@/constants/routes";
+import { pickActiveNavHref } from "./utils/active-nav-href";
 import { cn } from "@/lib/utils";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { APP_SHELL } from "./constants/shell";
 
 type NavItem = {
   label: string;
   href: string;
   icon: LucideIcon;
-  /** pathname to match (defaults to href) */
-  pathname: string;
 };
 
 type NavSection = {
@@ -28,88 +30,90 @@ type NavSection = {
   items: NavItem[];
 };
 
-function item(label: string, href: string, icon: LucideIcon): NavItem {
-  return { label, href, icon, pathname: href };
-}
+const item = (label: string, href: string, icon: LucideIcon): NavItem => ({
+  label,
+  href,
+  icon,
+});
 
 const SECTIONS: NavSection[] = [
   {
     label: "Workspace",
     items: [
-      item("Tasks", "/", ListTree),
-      item("Flows", "/flows", Workflow),
-      item("Templates", "/templates", LayoutTemplate),
-      item("Template Nodes", "/templates/nodes", Blocks),
+      item("Tasks", APP_ROUTES.TASKS, ListTree),
+      item("Flows", APP_ROUTES.FLOWS, Workflow),
+      item("Templates", APP_ROUTES.TEMPLATES, LayoutTemplate),
+      item("Template Nodes", APP_ROUTES.TEMPLATE_NODES, Blocks),
     ],
   },
   {
     label: "Settings",
     items: [
-      item("General", "/settings", Settings2),
-      item("Repositories", "/settings/repositories", FolderGit2),
-      item("Integrations", "/settings/integrations", Plug),
+      item("General", APP_ROUTES.SETTINGS, Settings2),
+      item("Repositories", APP_ROUTES.SETTINGS_REPOSITORIES, FolderGit2),
+      item("Integrations", APP_ROUTES.SETTINGS_INTEGRATIONS, Plug),
     ],
   },
 ];
 
-export function AppSidebar() {
+const ALL_NAV_ITEMS = SECTIONS.flatMap((section) => section.items);
+
+export const AppSidebar = () => {
   const pathname = usePathname();
+  const activeHref = useMemo(
+    () => pickActiveNavHref(pathname, ALL_NAV_ITEMS),
+    [pathname],
+  );
 
   return (
     <aside className="sticky top-0 flex h-screen w-56 shrink-0 flex-col border-r border-sidebar-border bg-sidebar">
-      {/* workspace identity */}
       <div className="flex h-14 items-center gap-2.5 border-b border-sidebar-border px-4">
         <Link
-          href="/"
+          href={APP_ROUTES.TASKS}
           className="flex items-center gap-2.5 rounded-md outline-none focus-visible:ring-2 focus-visible:ring-sidebar-ring"
         >
           <span className="grid size-7 shrink-0 place-items-center rounded-md bg-foreground text-[15px] text-background">
             <Workflow size={14} strokeWidth={2.2} />
           </span>
           <span className="text-[13.5px] font-semibold tracking-tight text-sidebar-foreground">
-            DevFlow
+            {APP_SHELL.PRODUCT_NAME}
           </span>
         </Link>
       </div>
 
-      {/* sections */}
       <ScrollArea className="flex-1" viewportClassName="[&>nav]:px-2 [&>nav]:py-4">
         <nav>
-        {SECTIONS.map((section) => (
-          <SidebarSection key={section.label} label={section.label}>
-            {section.items.map((nav) => {
-              const active = pathname === nav.pathname;
-              return (
+          {SECTIONS.map((section) => (
+            <SidebarSection key={section.label} label={section.label}>
+              {section.items.map((nav) => (
                 <SidebarLink
                   key={nav.href}
                   nav={nav}
-                  active={active}
+                  active={activeHref === nav.href}
                 />
-              );
-            })}
-          </SidebarSection>
-        ))}
+              ))}
+            </SidebarSection>
+          ))}
         </nav>
       </ScrollArea>
 
-      {/* environment context */}
       <div className="border-t border-sidebar-border px-4 py-3">
         <div className="flex items-center gap-2 text-[11px] text-muted-foreground">
           <span className="size-1.5 rounded-full bg-success/80" />
-          Local workspace
+          {APP_SHELL.WORKSPACE_LABEL}
         </div>
       </div>
     </aside>
   );
-}
+};
 
-function SidebarSection({
+const SidebarSection = ({
   label,
   children,
 }: {
   label: string;
   children: ReactNode;
-}) {
+}) => {
   return (
     <div className="mb-5 last:mb-0">
       <div className="mb-1 px-2.5 text-[10.5px] font-medium uppercase tracking-[1.2px] text-muted-foreground/60">
@@ -118,9 +122,9 @@ function SidebarSection({
       <div className="grid gap-0.5">{children}</div>
     </div>
   );
-}
+};
 
-function SidebarLink({ nav, active }: { nav: NavItem; active: boolean }) {
+const SidebarLink = ({ nav, active }: { nav: NavItem; active: boolean }) => {
   const Icon = nav.icon;
   return (
     <Link
@@ -140,4 +144,4 @@ function SidebarLink({ nav, active }: { nav: NavItem; active: boolean }) {
       <span className="truncate">{nav.label}</span>
     </Link>
   );
-}
+};

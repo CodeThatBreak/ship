@@ -1,4 +1,4 @@
-import { AppSidebar } from "@/components/shared";
+import { AppSidebar } from "@/components/layout";
 import { StatusBar } from "@/components/flows";
 
 /**

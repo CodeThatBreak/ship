@@ -164,6 +164,7 @@ export function TasksView({
                 onFiltersChange={setFilters}
                 text={textInput}
                 onTextChange={onTextInput}
+                placeholder="Search tasks…"
               />
 
               {/* cache indicator + force refresh (icon-only, tooltip explains state) */}

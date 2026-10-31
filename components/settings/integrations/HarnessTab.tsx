@@ -48,7 +48,12 @@ export function HarnessTab({ open, onOpenChange, onError }: TabProps) {
     onOpenChange(false);
   }, [reset, onOpenChange]);
 
-  const updateKey = (apiKey: string) => {
+  const requestClearKey = useCallback((instanceId: string) => {
+    if (instanceId !== "cursor") return;
+    setPendingClearKey(true);
+  }, []);
+
+  const updateKey = useCallback((apiKey: string) => {
     setCursorKey.mutate(apiKey, {
       onSuccess: () => {
         close();
@@ -56,7 +61,7 @@ export function HarnessTab({ open, onOpenChange, onError }: TabProps) {
       },
       onError: (e) => onError(e.message),
     });
-  };
+  }, [setCursorKey, close, onError]);
 
   return (
     <section
@@ -87,7 +92,7 @@ export function HarnessTab({ open, onOpenChange, onError }: TabProps) {
               baseUrl: "https://api.cursor.com",
               tokenMasked: "API key set",
             }}
-            onDelete={() => setPendingClearKey(true)}
+            onDelete={requestClearKey}
             deleting={setCursorKey.isPending && setCursorKey.variables === ""}
           >
             {/* local-run execution settings live inside the harness card once connected */}
@@ -110,7 +115,7 @@ export function HarnessTab({ open, onOpenChange, onError }: TabProps) {
         title="Connect Cursor"
         canSubmit={canConnect}
         submitting={setCursorKey.isPending}
-        onSubmit={() => updateKey(fields.apiKey)}
+        onSubmit={() => updateKey(fields.apiKey ?? "")}
       >
         <Field>
           <FieldLabel htmlFor="cursor-provider">Provider</FieldLabel>

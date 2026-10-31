@@ -43,11 +43,18 @@ export const ReposSection = ({
     setEditorOpen(true);
   }, [reset]);
 
-  const openEdit = useCallback((repo: Repo) => {
+  const openEdit = useCallback((id: string) => {
+    const repo = repos.find((entry) => entry.id === id);
+    if (!repo) return;
     setEditingId(repo.id);
     loadRepo(repo);
     setEditorOpen(true);
-  }, [loadRepo]);
+  }, [repos, loadRepo]);
+
+  const requestDelete = useCallback((id: string) => {
+    const repo = repos.find((entry) => entry.id === id);
+    if (repo) setPendingDelete(repo);
+  }, [repos]);
 
   const close = useCallback(() => {
     reset();
@@ -100,8 +107,8 @@ export const ReposSection = ({
               repo={r}
               serverHome={serverHome}
               deleting={deletingId === r.id}
-              onEdit={() => openEdit(r)}
-              onDelete={() => setPendingDelete(r)}
+              onEdit={openEdit}
+              onDelete={requestDelete}
             />
           ))
         )}

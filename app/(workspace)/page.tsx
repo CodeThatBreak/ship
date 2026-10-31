@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { APP_ROUTES } from "@/constants/routes";
 import { loadTasksBoot } from "@/loaders/tasks";
 import { Alert } from "@/components/ui/alert";
 import { TasksView } from "@/components/tasks";
@@ -35,7 +36,7 @@ export default function TasksPage() {
         <Alert key={p.kind} className="bg-warning/10 text-warning mb-6">
           <span>
             {p.label} is not connected —{" "}
-            <Link href="/settings/integrations" className="underline">
+            <Link href={APP_ROUTES.SETTINGS_INTEGRATIONS} className="underline">
               add an instance in Settings → Integrations
             </Link>
             .
@@ -46,7 +47,7 @@ export default function TasksPage() {
         <Alert className="bg-warning/10 text-warning mb-6">
           <span>
             No repos registered yet —{" "}
-            <Link href="/settings/repositories" className="underline">
+            <Link href={APP_ROUTES.SETTINGS_REPOSITORIES} className="underline">
               add your repos
             </Link>{" "}
             to start flows.

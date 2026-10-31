@@ -1,4 +1,5 @@
 "use client";
+import { useCallback } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -13,14 +14,19 @@ export function InstanceCard({
 }: {
   icon: React.ReactNode;
   instance: InstanceRow;
-  onTest?: () => void;
-  onDelete: () => void;
+  onTest?: (id: string) => void;
+  onDelete: (id: string) => void;
   testing?: boolean;
   deleting?: boolean;
   testResult?: TestResult;
   /** Optional detail section rendered under the header row, inside this card. */
   children?: React.ReactNode;
 }) {
+  const handleTest = useCallback(() => {
+    if (onTest) onTest(instance.id);
+  }, [onTest, instance.id]);
+  const handleDelete = useCallback(() => onDelete(instance.id), [onDelete, instance.id]);
+
   return (
     <Card className="flex flex-col px-4 py-3">
       <div className="flex flex-row items-center gap-3">
@@ -58,7 +64,7 @@ export function InstanceCard({
                   size="icon-sm"
                   variant="ghost"
                   aria-label="Test connection"
-                  onClick={onTest}
+                  onClick={handleTest}
                   disabled={testing}
                 />
               }
@@ -76,7 +82,7 @@ export function InstanceCard({
                 variant="ghost"
                 aria-label="Remove instance"
                 className="text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
-                onClick={onDelete}
+                onClick={handleDelete}
                 disabled={deleting}
               />
             }

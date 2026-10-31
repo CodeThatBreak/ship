@@ -8,7 +8,7 @@ export { DataTable, type DataTableAction } from "./dataTable";
 export { FilterPicker, type FilterDef } from "./FilterPicker";
 export { Markdown } from "./Markdown";
 export { loadHighlighter, highlightCode } from "./highlighter";
-export { AppSidebar } from "./AppSidebar";
+export { FormModal, type FormModalWidth } from "./FormModal";
 export { TabStrip } from "./TabStrip";
 export { RouteError, type RouteErrorProps, type RouteErrorShell } from "./RouteError";
 export { TableSkeleton } from "./TableSkeleton";
