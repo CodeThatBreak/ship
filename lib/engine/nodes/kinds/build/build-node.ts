@@ -250,48 +250,15 @@ export class BuildNode extends AgentRunNode<BuildInput, BuildOutput> {
     const branch = this.buildRun.branchName(ctx, config, branchSuffix);
     const label = input.branchInfo ? `build (${input.branchInfo.name})` : "build";
 
-    // scope the prompt to this branch of the plan (multi-branch builds)
-    let scopedPlan = plan;
-    if (input.branchInfo?.scope) {
-      scopedPlan = `Branch scope: ${input.branchInfo.scope}\n\n${plan}`;
-    }
-
-    const ticketType = this.ctxHelper.taskLabel(ctx);
-
-    // Worktree mode (Phase 1): local builds run in a per-flow git worktree
-    // created once at build start — the registered checkout (hub) is never
-    // checked out or mutated. Creation failure fails the node (no hub
-    // fallback); deps-setup failure is non-fatal (setupNote on the prompt).
     const { worktree, setupNote } = await this.buildRun.worktree(ctx, branch, node.id);
 
-    let instructions = mode === "local"
-      ? `Implement the following approved plan for a ${ticketType} ticket. Your working directory is a git worktree already checked out on branch "${branch}" (fresh off the repo's default branch). Make the code changes, commit them to that branch, and push the branch to origin. Do NOT open a merge request, do not switch branches, and do not touch any checkout outside this directory.`
-      : `Implement the following approved plan for a ${ticketType} ticket. Make the code changes, commit them, and push to a feature branch. Do NOT open a merge request yet.`;
-    // non-fatal worktree deps setup: one line in the run prompt — the agent
-    // can self-repair by running the repo's dependency setup itself
-    instructions += this.buildRun.setupAdvisory(setupNote);
-
-    // pending checklist steps for this branch + the progress-report contract
-    const checklistRows = planSteps.markdown(ctx.flow.id, input.branchInfo?.name ?? null);
-    const checklist = checklistRows
-      ? [
-          `## Plan checklist`,
-          `Work through these steps (ids in brackets):`,
-          checklistRows,
-          ``,
-          `When you finish, end your response with a \`\`\`json build-progress\`\`\` block listing the ids of the steps you fully completed:`,
-          `\`\`\`json build-progress`,
-          `{"completed":["s1","s2"]}`,
-          `\`\`\``,
-        ].join("\n")
-      : "";
-
-    const prompt = prompts.resolve(NODE_KEYS.BUILD,
-      { ticket: this.ctxHelper.taskContext(ctx), branch, mode },
-      { instructions, plan: scopedPlan, checklist },
-      input.prompt,
-      { userRules },
-    );
+    const prompt = this.composeBuildPrompt(ctx, config, {
+      plan,
+      branchInfo: input.branchInfo,
+      promptOverride: input.prompt,
+      userRules,
+      setupNote,
+    });
 
     return this.execute(ctx, {
       input: { ...input, prompt, branch: input.branchInfo?.name ?? null },
@@ -411,30 +378,116 @@ export class BuildNode extends AgentRunNode<BuildInput, BuildOutput> {
   }
 
   /**
-   * Live prompt preview (verbatim from the route's former build case): the
-   * body knob is a verbatim prompt override for build (I3 — unified in a later
-   * phase); the default preview resolves the full template (plan +
-   * instructions are the body). The checklist the run appends is Phase-2
-   * preview work (I6).
+   * Shared build prompt assembly for `run` and `previewPrompt` — one branch
+   * name, instruction text, checklist block, and resolve/assemble path.
+   */
+  private composeBuildPrompt(
+    ctx: FlowCtx,
+    config: Record<string, unknown>,
+    args: {
+      plan: string;
+      branchInfo: BuildBranchInfo | null;
+      promptOverride: string | null;
+      userRules: string;
+      setupNote: string | null;
+    },
+  ): string {
+    const built = this.buildPromptAssembly(ctx, config, args);
+    return built.assembly.final;
+  }
+
+  private buildPromptAssembly(
+    ctx: FlowCtx,
+    config: Record<string, unknown>,
+    args: {
+      plan: string;
+      branchInfo: BuildBranchInfo | null;
+      promptOverride: string | null;
+      userRules: string;
+      setupNote: string | null;
+    },
+  ): { configBody: string | null; assembly: ReturnType<typeof prompts.assemblePrompt> } {
+    const branchSuffix = args.branchInfo?.name;
+    const branch = this.buildRun.branchName(ctx, config, branchSuffix);
+    const mode = this.ctxHelper.execMode(ctx);
+
+    let scopedPlan = args.plan;
+    if (args.branchInfo?.scope) {
+      scopedPlan = `Branch scope: ${args.branchInfo.scope}\n\n${args.plan}`;
+    }
+
+    const ticketType = this.ctxHelper.taskLabel(ctx);
+    let instructions = mode === "local"
+      ? `Implement the following approved plan for a ${ticketType} ticket. Your working directory is a git worktree already checked out on branch "${branch}" (fresh off the repo's default branch). Make the code changes, commit them to that branch, and push the branch to origin. Do NOT open a merge request, do not switch branches, and do not touch any checkout outside this directory.`
+      : `Implement the following approved plan for a ${ticketType} ticket. Make the code changes, commit them, and push to a feature branch. Do NOT open a merge request yet.`;
+    instructions += this.buildRun.setupAdvisory(args.setupNote);
+
+    const checklistRows = planSteps.markdown(ctx.flow.id, args.branchInfo?.name ?? null);
+    const checklist = checklistRows
+      ? [
+          `## Plan checklist`,
+          `Work through these steps (ids in brackets):`,
+          checklistRows,
+          ``,
+          `When you finish, end your response with a \`\`\`json build-progress\`\`\` block listing the ids of the steps you fully completed:`,
+          `\`\`\`json build-progress`,
+          `{"completed":["s1","s2"]}`,
+          `\`\`\``,
+        ].join("\n")
+      : "";
+
+    const configBody = args.promptOverride;
+    if (configBody) {
+      const final = prompts.resolve(
+        NODE_KEYS.BUILD,
+        { ticket: this.ctxHelper.taskContext(ctx), branch, mode },
+        { instructions, plan: scopedPlan, checklist },
+        configBody,
+        { userRules: args.userRules },
+      );
+      return {
+        configBody,
+        assembly: {
+          body: configBody.trim(),
+          userRules: args.userRules.trim(),
+          blocks: [],
+          final,
+        },
+      };
+    }
+
+    const assembly = prompts.assemblePrompt(
+      NODE_KEYS.BUILD,
+      { ticket: this.ctxHelper.taskContext(ctx), branch, mode },
+      { instructions, plan: scopedPlan, checklist },
+      { userRules: args.userRules },
+    );
+    return { configBody: null, assembly };
+  }
+
+  /**
+   * Live prompt preview: same branch/instructions/checklist path as `run`.
+   * Worktree setup notes appear only after a worktree exists (null beforehand).
    */
   previewPrompt(ctx: FlowCtx, node: NodeRow | null, _params: PromptPreviewParams): NodePromptPreview | null {
     const config = nodeRoles.previewConfig(this, node);
-    const branch = ctx.flow.mr_branch ?? this.ctxHelper.buildBranch(ctx);
-    const mode = this.ctxHelper.execMode(ctx);
     const planRow = this.support.latestArtifact(ctx.flow.id, "plan");
     const planContent = planRow?.content ?? "(no plan yet)";
-    const instr = mode === "local"
-      ? `Implement the following approved plan for a ${this.ctxHelper.taskLabel(ctx)} ticket. First create and check out a new git branch named "${branch}" (from the repo's default branch), then make the code changes, commit them, and push the branch to origin. Do NOT open a merge request.`
-      : `Implement the following approved plan for a ${this.ctxHelper.taskLabel(ctx)} ticket. Make the code changes, commit them, and push to a feature branch. Do NOT open a merge request yet.`;
+    const userRules = nodeRoles.previewRules(this, node);
     const configBody = configString(config, "prompt_body") ?? null;
-    // build's body knob is a verbatim prompt override; the default preview
-    // resolves the full template (plan + checklist are the body here)
-    const body = configBody ??
-      prompts.resolve(NODE_KEYS.BUILD, { ticket: this.ctxHelper.taskContext(ctx), branch, mode }, { instructions: instr, plan: planContent });
-    const asm = prompts.assemblePrompt(
-      NODE_KEYS.BUILD, {}, undefined, { body, userRules: nodeRoles.previewRules(this, node) },
-    );
-    return { templateKey: NODE_KEYS.BUILD, configBody, assembly: asm };
+    const { configBody: resolvedBody, assembly } = this.buildPromptAssembly(ctx, config, {
+      plan: planContent,
+      branchInfo: null,
+      promptOverride: configBody,
+      userRules,
+      setupNote: null,
+    });
+    return {
+      templateKey: NODE_KEYS.BUILD,
+      configBody: resolvedBody,
+      assembly,
+      rulesKey: "prompt_rules",
+    };
   }
 
   /**

@@ -88,7 +88,7 @@ export class ReviewNode extends AgentRunNode<ReviewInput, ReviewOutput> {
       },
       { body: configBody, userRules: nodeRoles.previewRules(this, node) },
     );
-    return { templateKey: NODE_KEYS.REVIEW, configBody, assembly: asm };
+    return { templateKey: NODE_KEYS.REVIEW, configBody, assembly: asm, rulesKey: "prompt_rules" };
   }
 
   async run(ctx: FlowCtx, input: ReviewInput, config: Record<string, unknown>): Promise<RunOutcome> {

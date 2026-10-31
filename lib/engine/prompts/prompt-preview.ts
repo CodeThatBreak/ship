@@ -61,14 +61,6 @@ export type AllPromptsResult =
   | { ok: true; prompts: Record<string, string> }
   | PromptFailure;
 
-/** The plan node's branch-scoped preview (§7.2 / composer prefill §4c) — structurally typed. */
-interface SubPlanPreviewer {
-  previewSubPlanPrompt(
-    ctx: FlowCtx,
-    branchName: string,
-  ): { prompt: string; appendsInternal: true } & PromptSections | null;
-}
-
 export class PromptPreview {
   previewFor(flowId: string, url: URL): Promise<PromptPreviewResult> {
     const nodeKey = url.searchParams.get("node") ?? "";
@@ -84,29 +76,6 @@ export class PromptPreview {
     const repo = flow.repo_id ? db.repoById(flow.repo_id) ?? null : null;
     const ctx: FlowCtx = { flow, task, repo };
 
-    // ── branch-scoped sub-plan refine prompt (§7.2 / §4c) ─────────────────────
-    // Resolves `plan_subplan_refine` (editable body + the three-part sections)
-    // — the chat composer's scoped-prefill state fetches this body.
-    if (params.branch && nodeKey === NODE_KEYS.PLAN) {
-      // the branch-scoped preview is the plan def's own special method
-      const planDef = nodeRegistry.get(NODE_KEYS.PLAN) as unknown as SubPlanPreviewer;
-      const preview = planDef.previewSubPlanPrompt(ctx, params.branch);
-      if (!preview) {
-        return this.bad(`branch "${params.branch}" not found in the latest plan — sub-plan refine unavailable`);
-      }
-      const payload = this.payload({
-        sections: preview,
-        templateKey: "plan_subplan_refine",
-        configBody: null,
-        bodySource: "default",
-        rulesKey: "prompt_rules",
-        appendsInternal: true,
-        ctx,
-        nodeKey,
-      });
-      return Promise.resolve({ ok: true, payload });
-    }
-
     const node = rows.get(NodeRow, `SELECT * FROM nodes WHERE flow_id=? AND node_key=?`, flowId, nodeKey) ?? null;
     const def = this.defFor(flowId, nodeKey, node);
     // §T4: the preview role is routed through the role router — defs without
@@ -114,6 +83,9 @@ export class PromptPreview {
     const previewer = nodeRoles.promptPreviewerOf(def);
     const preview: NodePromptPreview | null = previewer ? previewer.previewPrompt(ctx, node, params) : null;
     if (!preview) {
+      if (params.branch && nodeKey === NODE_KEYS.PLAN) {
+        return this.bad(`branch "${params.branch}" not found in the latest plan — sub-plan refine unavailable`);
+      }
       return this.bad(`unsupported node: ${nodeKey}`);
     }
 
@@ -123,7 +95,7 @@ export class PromptPreview {
       templateKey: preview.templateKey,
       configBody: preview.configBody,
       bodySource: preview.configBody != null ? "config" : "default",
-      rulesKey: preview.templateKey === "pipeline_fix" ? "fix_prompt_rules" : "prompt_rules",
+      rulesKey: preview.rulesKey ?? "prompt_rules",
       appendsInternal: prompts.getTemplate(preview.templateKey).internalBlocks.length > 0,
       ctx,
       nodeKey,

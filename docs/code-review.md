@@ -233,9 +233,8 @@ Each item below can be fixed independently. Severity headings group the items; w
 
 ### CR-004 [High] The prompt preview shows a different local-mode build prompt from the one the build node sends
 
-- **Status at `abaa007`:** **Partly fixed**, fix in [Task 28](review-tasks/28-prompt-preview-parity.md)
-- **Current location:** lib/engine/nodes/kinds/build/build-node.ts:408-426 (previewPrompt) vs 245-291 (run); lib/engine/prompts/prompt-preview.ts:186-224
-- **Re-verification note:** The route now delegates to the node's own `previewPrompt`, but `BuildNode.previewPrompt` still hard-codes the old local-mode text ("First create and check out a new git branch…") while the run says the worktree is "already checked out… do not switch branches". It also resolves the branch differently (`mr_branch ?? buildBranch` vs `buildRun.branchName`) and omits the checklist and setup advisory, so `diverges` is effectively always true after a build. Extract one instructions/branch helper that both `run` and `previewPrompt` call.
+- **Status at `abaa007`:** **Fixed** ([Task 28](review-tasks/28-prompt-preview-parity.md))
+- **Current location:** lib/engine/nodes/kinds/build/build-node.ts (`buildPromptAssembly` / `previewPrompt` / `run`)
 
 - **Severity:** High
 - **Category:** Correctness
@@ -1528,10 +1527,9 @@ Original findings, verbatim:
 
 ### CR-049 [Medium] The prompt preview route is a 230-line switch on node key instead of a registry method
 
-- **Status at `abaa007`:** **Partly fixed**, fix in [Task 28](review-tasks/28-prompt-preview-parity.md)
+- **Status at `abaa007`:** **Fixed** ([Task 28](review-tasks/28-prompt-preview-parity.md))
 - **Current severity:** Low (was Medium)
-- **Current location:** lib/engine/prompts/prompt-preview.ts:90-108,126
-- **Re-verification note:** The 230-line switch is gone: `/prompt` and `/prompts` routes are thin and each def builds its own preview via `nodeRoles.promptPreviewerOf(def).previewPrompt(...)` in the `PromptPreview` service. What remains is the branch-scoped plan special case, reached through an unchecked `nodeRegistry.get(NODE_KEYS.PLAN) as unknown as SubPlanPreviewer` downcast, plus the hardcoded `"pipeline_fix"` → `fix_prompt_rules` mapping; fold both into the previewer role (pass `branch` through `PromptPreviewParams`, return `rulesKey` from the def).
+- **Current location:** lib/engine/prompts/prompt-preview.ts; node defs' `previewPrompt` + `rulesKey`
 
 - **Severity:** Medium
 - **Category:** Boundaries
@@ -7277,7 +7275,7 @@ One row per finding, at `abaa007`.
 | CR-001 | Critical | Security | Open | [Task 57](review-tasks/57-security-local-api-hardening.md) |
 | CR-002 | High | Security | Open | [Task 57](review-tasks/57-security-local-api-hardening.md) |
 | CR-003 | High | Gap | Partly fixed | [Task 10](review-tasks/10-api-input-validation-flows.md), [Task 11](review-tasks/11-api-input-validation-settings.md) |
-| CR-004 | High | Bug | Partly fixed | [Task 28](review-tasks/28-prompt-preview-parity.md) |
+| CR-004 | High | Bug | Fixed | [Task 28](review-tasks/28-prompt-preview-parity.md) |
 | CR-005 | High | Bug | Fixed | [Task 13](review-tasks/13-frontend-query-ownership.md) |
 | CR-006 | High | Bug | Fixed (Task 25) | [Task 25](review-tasks/25-wait-timers-and-poller.md) |
 | CR-007 | High | Bug | Fixed | [Task 23](review-tasks/23-graph-semantics-and-validation.md) |
@@ -7322,7 +7320,7 @@ One row per finding, at `abaa007`.
 | CR-046 | Medium | Code quality | Open | [Task 09](review-tasks/09-typed-errors.md) |
 | CR-047 | Medium | Gap | Open | [Task 10](review-tasks/10-api-input-validation-flows.md) |
 | CR-048 | Medium | Bug | Fixed | [Task 11](review-tasks/11-api-input-validation-settings.md) |
-| CR-049 | Low | Code quality | Partly fixed | [Task 28](review-tasks/28-prompt-preview-parity.md) |
+| CR-049 | Low | Code quality | Fixed | [Task 28](review-tasks/28-prompt-preview-parity.md) |
 | CR-050 | Medium | Bug | Fixed | [Task 12](review-tasks/12-db-transactions.md) |
 | CR-051 | Medium | Code quality | Open | [Task 47](review-tasks/47-thin-routes-and-services.md) |
 | CR-052 | Medium | Code quality | Open | [Task 41](review-tasks/41-settings-data-and-errors.md) |

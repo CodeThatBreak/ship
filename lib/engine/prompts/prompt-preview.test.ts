@@ -86,3 +86,31 @@ describe("PromptPreview.allFor — the composer's bulk prompt read", () => {
     expect(result.error).toBe("flow not found");
   });
 });
+
+describe("PromptPreview.previewFor — branch-scoped plan and rulesKey (CR-049)", () => {
+  it("returns fix_prompt_rules for the pipeline node preview", async () => {
+    const flowId = seedFlow(10);
+    seedNode(flowId, NODE_KEYS.PIPELINE, NODE_KEYS.PIPELINE);
+
+    const result = await promptPreview.previewFor(
+      flowId,
+      new URL(`http://fixture.local/?node=${encodeURIComponent(NODE_KEYS.PIPELINE)}`),
+    );
+    if (!result.ok) throw new Error("expected an ok preview");
+    expect(result.payload.rulesKey).toBe("fix_prompt_rules");
+  });
+
+  it("unknown plan branch → 400 via previewPrompt on the plan def", async () => {
+    const flowId = seedFlow(11);
+    seedNode(flowId, NODE_KEYS.PLAN, NODE_KEYS.PLAN);
+
+    const result = await promptPreview.previewFor(
+      flowId,
+      new URL(`http://fixture.local/?node=${encodeURIComponent(NODE_KEYS.PLAN)}&branch=missing-branch`),
+    );
+    expect(result.ok).toBe(false);
+    if (result.ok) throw new Error("expected the failure member");
+    expect(result.status).toBe(400);
+    expect(result.error).toContain("missing-branch");
+  });
+});

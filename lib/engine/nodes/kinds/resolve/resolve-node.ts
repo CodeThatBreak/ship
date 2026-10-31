@@ -71,7 +71,7 @@ export class ResolveNode extends AgentRunNode<ResolveInput, ResolveOutput> {
       },
       { body: configBody, userRules: nodeRoles.previewRules(this, node) },
     );
-    return { templateKey: NODE_KEYS.RESOLVE, configBody, assembly: asm };
+    return { templateKey: NODE_KEYS.RESOLVE, configBody, assembly: asm, rulesKey: "prompt_rules" };
   }
 
   async run(ctx: FlowCtx, input: ResolveInput, config: Record<string, unknown>): Promise<RunOutcome> {

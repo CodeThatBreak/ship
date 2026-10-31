@@ -40,6 +40,8 @@ export interface NodePromptPreview {
   templateKey: string;
   configBody: string | null;
   assembly: PromptAssembly;
+  /** Config knob the prompt modal saves standing rules into — default `prompt_rules`. */
+  rulesKey?: string;
 }
 
 /**

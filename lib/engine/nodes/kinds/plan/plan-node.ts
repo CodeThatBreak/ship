@@ -3,12 +3,13 @@ import "server-only";
 import { z } from 'zod';
 import type { AgentRunResult } from '../../../ports/agent-port';
 import type { NodeRow } from '../../../../db/rows';
-import { prompts, sectionsOf, type PromptSections as PromptSectionsLike } from '../../../prompts/prompt-library';
+import { prompts } from '../../../prompts/prompt-library';
 import {
   AgentRunNode,
   nodeRoles,
   type FlowCtx,
   type NodePromptPreview,
+  type PromptPreviewParams,
   type RunOutcome,
   type SplitUnit,
 } from '../../shared';
@@ -387,37 +388,33 @@ export class PlanNode extends AgentRunNode<PlanInput, PlanOutput> {
    * ALWAYS serves the `plan` template — refinements are conversation turns
    * (`chat()`), and branch refines prefill the composer via the branch route.
    */
-  previewPrompt(ctx: FlowCtx, node: NodeRow | null): NodePromptPreview | null {
+  previewPrompt(ctx: FlowCtx, node: NodeRow | null, params: PromptPreviewParams): NodePromptPreview | null {
+    if (params.branch) {
+      const scoped = this.store.scopedRefine(ctx.flow.id, params.branch);
+      if (!scoped) return null;
+      const vars = this.prompt.scopedVars(ctx, scoped, "", []);
+      const asm = prompts.assemblePrompt(
+        "plan_subplan_refine",
+        vars,
+        { feedback: "" },
+        { userRules: configString(this.nodeConfig(ctx), "prompt_rules") },
+      );
+      return {
+        templateKey: "plan_subplan_refine",
+        configBody: null,
+        assembly: asm,
+        rulesKey: "prompt_rules",
+      };
+    }
+
     const configBody = nodeRoles.previewBody(this, node);
     const asm = prompts.assemblePrompt(
       NODE_KEYS.PLAN,
       { ticket: this.ctxHelper.taskContext(ctx), ticket_type: this.ctxHelper.taskLabel(ctx) },
       undefined,
-      { body: configBody, userRules: nodeRoles.previewRules(this, node) }
+      { body: configBody, userRules: nodeRoles.previewRules(this, node) },
     );
-    return { templateKey: NODE_KEYS.PLAN, configBody, assembly: asm };
-  }
-
-  /**
-   * Branch-scoped prompt preview for the prompt route (§7.2, now the §4c
-   * composer prefill): the developer-editable body ({{feedback}} blank — the
-   * developer edits it in the composer). Returns null when the branch is
-   * unknown (the route surfaces a 400 → the invalidated chip).
-   */
-  previewSubPlanPrompt(
-    ctx: FlowCtx,
-    branchName: string
-  ): { prompt: string; appendsInternal: true } & PromptSectionsLike | null {
-    const scoped = this.store.scopedRefine(ctx.flow.id, branchName);
-    if (!scoped) return null;
-    const vars = this.prompt.scopedVars(ctx, scoped, '', []);
-    const asm = prompts.assemblePrompt(
-      'plan_subplan_refine',
-      vars,
-      { feedback: '' },
-      { userRules: configString(this.nodeConfig(ctx), 'prompt_rules') }
-    );
-    return { prompt: asm.body, appendsInternal: true, ...sectionsOf(asm) };
+    return { templateKey: NODE_KEYS.PLAN, configBody, assembly: asm, rulesKey: "prompt_rules" };
   }
 
   /**

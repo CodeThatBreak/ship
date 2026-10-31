@@ -295,7 +295,7 @@ export class PipelineNode extends AgentRunNode<
       },
       { body: configBody, userRules: nodeRoles.previewRules(this, node, "fix_prompt_rules") },
     );
-    return { templateKey: FIX_PROMPT_KEY, configBody, assembly: asm };
+    return { templateKey: FIX_PROMPT_KEY, configBody, assembly: asm, rulesKey: "fix_prompt_rules" };
   }
 
   async run(
