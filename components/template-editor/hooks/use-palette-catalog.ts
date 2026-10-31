@@ -8,18 +8,19 @@
 import { useState, useMemo } from "react";
 import { useNodeCatalog, type NodeCatalogEntry } from "./use-node-catalog";
 import type { EditorNode } from "../types";
+import { BUILTIN_TEMPLATE_ID, NODE_KIND, type NodeKind } from "@/constants/node-kind";
 
 type CatalogEntry = NodeCatalogEntry;
 
 /** The kinds a New-node row can author. */
-export type AuthorKind = "agent" | "decision" | "http" | "script";
+export type AuthorKind = NodeKind;
 
 /** Custom kinds in a fixed display order + their palette group titles. */
 export const KIND_GROUPS: { kind: AuthorKind; title: string }[] = [
-  { kind: "agent", title: "Agent" },
-  { kind: "decision", title: "Decision" },
-  { kind: "http", title: "HTTP" },
-  { kind: "script", title: "Script" },
+  { kind: NODE_KIND.AGENT, title: "Agent" },
+  { kind: NODE_KIND.DECISION, title: "Decision" },
+  { kind: NODE_KIND.HTTP, title: "HTTP" },
+  { kind: NODE_KIND.SCRIPT, title: "Script" },
 ];
 
 /** A Library group: the kind title plus its (deduped) rows. */
@@ -61,7 +62,7 @@ export function usePaletteCatalog({
   // outlive either). The hook owns that invalidation.
   const catalogQuery = useNodeCatalog(templateId, open, catalogEpoch);
   /** only one Start node per template — the palette entry locks when it exists */
-  const hasStart = nodes.some((n) => n.nodeTemplateId === "nt_start");
+  const hasStart = nodes.some((n) => n.nodeTemplateId === BUILTIN_TEMPLATE_ID.START);
 
   // built-ins first; Library = global declarative rows, deduped by key
   // (a reused/updated row keeps older versions — only the newest is shown);

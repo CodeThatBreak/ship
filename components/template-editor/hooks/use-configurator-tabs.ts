@@ -12,9 +12,11 @@ export const TAB_LABELS: Record<string, string> = {
   output: "Start fields",
 };
 
+import { BUILTIN_TEMPLATE_ID, CATALOG_KEY } from "@/constants/node-kind";
+
 const isStartNode = (node: EditorNode): boolean =>
-  node.nodeTemplateId === "nt_start" ||
-  (node.is_builtin && (node.catalog_name ?? "").toLowerCase() === "start");
+  node.nodeTemplateId === BUILTIN_TEMPLATE_ID.START ||
+  (node.is_builtin && (node.catalog_name ?? "").toLowerCase() === CATALOG_KEY.START);
 
 const pickInitialTab = (
   node: EditorNode,

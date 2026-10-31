@@ -5,6 +5,7 @@ import { PanelShell } from "./shared";
 import { useNodePanel } from "./context";
 import { EmptyHint } from "@/components/shared";
 import {
+  FLOW_ACTION,
   FLOW_STATUS,
   isTerminalFlowStatus,
 } from "@/constants/flow";
@@ -68,12 +69,12 @@ export function DecisionView() {
       </span>
       <div className="flex-1" />
       {awaiting && hasProposal && samePick && (
-        <Button onClick={() => action("approve_node", { nodeKey: node.node_key })}>
+        <Button onClick={() => action(FLOW_ACTION.APPROVE_NODE, { nodeKey: node.node_key })}>
           <CheckCheck size={14} /> Confirm {proposed.join(" + ")}
         </Button>
       )}
       {awaiting && (!hasProposal || !samePick) && (
-        <Button disabled={!sel.length} onClick={() => action("choose_node", { nodeKey: node.node_key, chosen: sel, rationale: rationale || undefined })}>
+        <Button disabled={!sel.length} onClick={() => action(FLOW_ACTION.CHOOSE_NODE, { nodeKey: node.node_key, chosen: sel, rationale: rationale || undefined })}>
           <Split size={14} /> Take {sel.length ? sel.join(" + ") : "branch"}
         </Button>
       )}

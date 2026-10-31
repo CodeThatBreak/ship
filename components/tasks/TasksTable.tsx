@@ -4,7 +4,9 @@ import { CornerDownRight } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { DataTable, type DataTableAction } from "@/components/shared";
 import type { LiveTask } from "@/types/tasks";
-import { PriorityBadge, StatusBadge, TypeChip } from "./TaskBadges";
+import { PriorityBadge } from "./PriorityBadge";
+import { StatusBadge } from "./StatusBadge";
+import { TypeChip } from "./TypeChip";
 
 // table columns — they read the row only, so they live at module scope (no
 // per-render column rebuild). The action column comes through `getActions`.

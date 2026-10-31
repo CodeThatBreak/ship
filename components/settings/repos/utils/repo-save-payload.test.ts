@@ -13,7 +13,11 @@ const baseRepo: Repo = {
   local_path: "/Users/Shared/api",
   default_branch: "main",
   install_command: null,
+  skip_install: 0,
   sync_paths: null,
+  shared_dirs: null,
+  setup_command: null,
+  worktree_timeout_ms: null,
 };
 
 describe("buildRepoSavePayload", () => {

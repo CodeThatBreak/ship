@@ -2,7 +2,7 @@
 import { useCallback, useState } from "react";
 import { JiraIcon } from "../integration-icons";
 import { ConfirmDeleteDialog } from "@/components/shared";
-import { INSTANCE_SURFACE, PROVIDER_KIND } from "./constants";
+import { HOSTING, INSTANCE_SURFACE, PROVIDER_KIND } from "./constants";
 import { useConnectForm } from "./hooks/use-connect-form";
 import { useRecordTestResult, testResultKey, useTestResults } from "./hooks/use-test-results";
 import {
@@ -26,8 +26,8 @@ const JIRA_PROVIDER_OPTIONS = [
 ] as const;
 
 const JIRA_HOSTING_OPTIONS = [
-  { value: "cloud", label: "Cloud (atlassian.net)" },
-  { value: "custom", label: "Self-hosted (Data Center / Server)" },
+  { value: HOSTING.CLOUD, label: "Cloud (atlassian.net)" },
+  { value: HOSTING.CUSTOM, label: "Self-hosted (Data Center / Server)" },
 ] as const;
 
 export function TaskTab({ open, onOpenChange, onError }: TabProps) {

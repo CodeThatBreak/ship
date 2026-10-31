@@ -2,6 +2,7 @@
 import { AlertTriangle, Clock, RotateCcw, Square } from "lucide-react";
 import type { FlowData, Node } from "@/types/flow";
 import {
+  FLOW_ACTION,
   FLOW_STATUS,
   isFailedStatus,
   statusVariantOf,
@@ -92,7 +93,7 @@ export function PanelShell({
             <Button
               size="sm"
               disabled={actionPending}
-              onClick={() => action("retry", { nodeKey: node.node_key })}
+              onClick={() => action(FLOW_ACTION.RETRY, { nodeKey: node.node_key })}
             >
               <RotateCcw size={13} /> Retry
             </Button>
@@ -109,7 +110,7 @@ export function PanelShell({
               variant="ghost"
               className="mt-1"
               disabled={actionPending}
-              onClick={() => action("cancel", { nodeKey: node.node_key })}
+              onClick={() => action(FLOW_ACTION.CANCEL, { nodeKey: node.node_key })}
             >
               <Square size={12} /> Stop agent
             </Button>

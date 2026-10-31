@@ -1,10 +1,11 @@
 import { fetchJson } from "@/hooks/fetch-json";
 import { schemaRows } from "../variables";
-import type { Repo } from "../../settings";
+import { BUILTIN_TEMPLATE_ID } from "@/constants/node-kind";
+import type { Repo } from "@/types/repos";
 
 /** The saved template's start-node row (same catalog id the editor looks
  *  for); its instance config carries the start contract. */
-const START_NODE_TEMPLATE_ID = "nt_start";
+const START_NODE_TEMPLATE_ID = BUILTIN_TEMPLATE_ID.START;
 
 /** One start-contract field — the sample body's input params. */
 export type ContractField = {

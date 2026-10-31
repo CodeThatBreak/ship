@@ -15,7 +15,7 @@ Each finding was re-verified against `refactor/prompt-engine-inconsistency-fix` 
 
 ### CR-228 [Low] Domain strings (actions, node kinds/types, event types, merge statuses, modes) hardcoded instead of constants
 
-- **Status:** Partly fixed
+- **Status:** Fixed
 - **Type:** Code quality
 - **Effort:** M
 - **Where:** components/flows/panels/AgentView.tsx:57,62; DecisionView.tsx:61; ScriptView.tsx:41; HttpView.tsx:38; StartView.tsx:47; FanoutStepList.tsx:21,120,136,143,149,157; BuildView.tsx:54,64; FlowHeader.tsx:57; StatusBar.tsx:9,70; DeclarativeView.tsx:20; GraphEdges.tsx:46; components/chat/EventRow.tsx:18; components/chat/FlowEventRow.tsx:20; components/chat/RunSectionRow.tsx:73
@@ -23,7 +23,7 @@ Each finding was re-verified against `refactor/prompt-engine-inconsistency-fix` 
 
 ### CR-238 [Low] Duplicated domain magic strings and kind unions
 
-- **Status:** Open
+- **Status:** Fixed
 - **Type:** Code quality
 - **Effort:** S
 - **Where:** components/template-editor/components/BuilderFlow.tsx:32, components/template-editor/WebhookPayloadDialog.tsx:37, components/template-editor/hooks/use-palette-catalog.ts:15,20,64, components/template-editor/hooks/use-configurator-tabs.ts:26, components/template-editor/types.ts:162, components/template-editor/NodePalette.tsx:122, components/builder/hooks/use-editor-actions.ts:35,223,347, components/builder/EditorCanvas.tsx:46, components/template-editor/boilerplate.ts:12, components/templates/constants.ts:8,16, components/template-editor/components/ConfigTab.tsx:31, components/template-editor/DeclarativeConfigFields.tsx:97
@@ -31,7 +31,7 @@ Each finding was re-verified against `refactor/prompt-engine-inconsistency-fix` 
 
 ### CR-246 [Low] Execution-mode values are raw literals with no shared constant; the `ExecutionMode` name collides
 
-- **Status:** Open
+- **Status:** Fixed
 - **Type:** Code quality
 - **Effort:** S
 - **Where:** types/tasks.ts:10, components/tasks/hooks/use-start-build.ts:27, components/tasks/BuildModal.tsx:163,166, components/settings/general/constants.ts:7-10, components/flows/constants.ts:4, components/flows/components/plan/constants/index.ts:7-11
@@ -39,7 +39,7 @@ Each finding was re-verified against `refactor/prompt-engine-inconsistency-fix` 
 
 ### CR-247 [Low] Magic domain strings in tasks filters and integration tabs
 
-- **Status:** Open
+- **Status:** Fixed
 - **Type:** Code quality
 - **Effort:** S
 - **Where:** components/tasks/TasksView.tsx:47,67-79, components/tasks/hooks/use-live-tasks.ts:12,15, components/settings/integrations/GitTab.tsx:28-29,44, components/settings/integrations/TaskTab.tsx:28-29,44, components/settings/integrations/HarnessTab.tsx:71,73, components/settings/general/components/StatusBar.tsx:18-19
@@ -47,7 +47,7 @@ Each finding was re-verified against `refactor/prompt-engine-inconsistency-fix` 
 
 ### CR-155 [Medium] Client types duplicate server/DB shapes and live in a component file instead of `types/`
 
-- **Status:** Open
+- **Status:** Fixed
 - **Type:** Code quality
 - **Effort:** M
 - **Where:** components/settings/context.tsx:11-40, components/settings/integrations/types.ts:5-11, types/tasks.ts:20-25, types/template-editor.ts:19-23
@@ -55,7 +55,7 @@ Each finding was re-verified against `refactor/prompt-engine-inconsistency-fix` 
 
 ### CR-232 [Low] Duplicated types and transport helpers drift from their sources
 
-- **Status:** Open
+- **Status:** Fixed
 - **Type:** Code quality
 - **Effort:** S
 - **Where:** components/flows/workflow-graph/NodeCard.tsx:11-17; components/flows/cockpit/fanout-progress.ts:20-26; components/flows/panels/ReviewView.tsx:17-22; hooks/use-flow-comments.ts:8-19; hooks/use-flow-prompt.ts:53-57,138-151; components/flows/panels/CostChip.tsx:19-31
@@ -63,7 +63,7 @@ Each finding was re-verified against `refactor/prompt-engine-inconsistency-fix` 
 
 ### CR-253 [Low] Task badges: `target="_blank"` without `rel`, and regex if-chains instead of lookup tables
 
-- **Status:** Open
+- **Status:** Fixed
 - **Type:** Code quality
 - **Effort:** S
 - **Where:** components/tasks/TaskBadges.tsx:17-31,34-41,54-78 (also components/flows/panels/BuildView.tsx:155)
@@ -71,8 +71,8 @@ Each finding was re-verified against `refactor/prompt-engine-inconsistency-fix` 
 
 ## Done when
 
-- [ ] Every finding above is fixed, or a remaining part is written up in the PR description.
-- [ ] Each bug fix has a regression test (Vitest for `lib/`; at least a hook or utility test for UI where practical).
-- [ ] Code follows [`docs/coding-patterns.md`](../coding-patterns.md).
-- [ ] `npm run typecheck`, `npm run lint`, `npm test` and `npm run build` pass (before Task 02 lands, `npx tsc --noEmit` instead of `typecheck`).
+- [x] Every finding above is fixed, or a remaining part is written up in the PR description.
+- [x] Each bug fix has a regression test (Vitest for `lib/`; at least a hook or utility test for UI where practical).
+- [x] Code follows [`docs/coding-patterns.md`](../coding-patterns.md).
+- [x] `npm run typecheck`, `npm run lint`, `npm test` and `npm run build` pass (before Task 02 lands, `npx tsc --noEmit` instead of `typecheck`).
 - [ ] The status of each finding in [`docs/code-review.md`](../code-review.md) is updated (Fixed, with the PR link).

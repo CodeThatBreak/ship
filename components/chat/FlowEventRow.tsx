@@ -14,10 +14,11 @@ import {
 } from "@/components/ui/trace";
 import TaskCollapsible from "./TaskCollapsible";
 import type { FeedEvent } from "./timeline";
+import { FLOW_EVENT_TYPE } from "@/constants/events";
 
 /** Flow-level event row (MR pushes, pipeline results, checklist edits). */
 export default function FlowEventRow({ ev }: { ev: FeedEvent }) {
-  const failed = ev.type === "error";
+  const failed = ev.type === FLOW_EVENT_TYPE.ERROR;
   const steps = parseSteps(ev);
 
   if (failed || steps) {

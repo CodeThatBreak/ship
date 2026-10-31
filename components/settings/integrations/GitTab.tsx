@@ -2,7 +2,7 @@
 import { useCallback, useState } from "react";
 import { GitLabIcon } from "../integration-icons";
 import { ConfirmDeleteDialog } from "@/components/shared";
-import { INSTANCE_SURFACE, PROVIDER_KIND } from "./constants";
+import { HOSTING, INSTANCE_SURFACE, PROVIDER_KIND } from "./constants";
 import { useConnectForm } from "./hooks/use-connect-form";
 import { useRecordTestResult, testResultKey, useTestResults } from "./hooks/use-test-results";
 import {
@@ -26,8 +26,8 @@ const GIT_PROVIDER_OPTIONS = [
 ] as const;
 
 const GIT_HOSTING_OPTIONS = [
-  { value: "cloud", label: "Cloud (gitlab.com)" },
-  { value: "custom", label: "Self-hosted (custom URL)" },
+  { value: HOSTING.CLOUD, label: "Cloud (gitlab.com)" },
+  { value: HOSTING.CUSTOM, label: "Self-hosted (custom URL)" },
 ] as const;
 
 export function GitTab({ open, onOpenChange, onError }: TabProps) {

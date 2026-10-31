@@ -2,7 +2,8 @@
 import type { ComponentType } from "react";
 import { CheckCircle2, Cpu, XCircle } from "lucide-react";
 import { CursorIcon, GitLabIcon, JiraIcon } from "../../integration-icons";
-import type { Settings } from "../../context";
+import { PROVIDER_KIND } from "../../integrations/constants";
+import type { Settings } from "@/types/settings";
 import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
 
@@ -15,8 +16,16 @@ const STATUS_ITEMS: ReadonlyArray<{
 }> = [
   { label: "Cursor (Harness)", icon: CursorIcon, isOk: (s) => Boolean(s.status.cursorApiKeySet) },
   { label: "Local runtime", icon: Cpu, isOk: (s) => s.status.localAgentConfigured },
-  { label: "GitLab", icon: GitLabIcon, isOk: (s) => s.status.gitHosts?.gitlab ?? false },
-  { label: "Jira", icon: JiraIcon, isOk: (s) => s.status.taskProviders?.jira ?? false },
+  {
+    label: "GitLab",
+    icon: GitLabIcon,
+    isOk: (s) => s.status.gitHosts?.[PROVIDER_KIND.GITLAB] ?? false,
+  },
+  {
+    label: "Jira",
+    icon: JiraIcon,
+    isOk: (s) => s.status.taskProviders?.[PROVIDER_KIND.JIRA] ?? false,
+  },
 ];
 
 /** The status strip: harness, local runtime and the configured integrations

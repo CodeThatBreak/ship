@@ -8,7 +8,7 @@ export const EXECUTION_MODE = {
   WHOLE: 'whole',
   STEPS: 'steps',
 } as const;
-export type ExecutionMode = (typeof EXECUTION_MODE)[keyof typeof EXECUTION_MODE];
+export type PlanExecutionMode = (typeof EXECUTION_MODE)[keyof typeof EXECUTION_MODE];
 
 /** The plan node's `execution_default` knob values. */
 export const EXECUTION_KNOB = {

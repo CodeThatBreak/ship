@@ -13,7 +13,7 @@ import { PlanSection } from './components/PlanSection';
 import { PlanApproveFooter } from './components/PlanApproveFooter';
 import PlanSteps from './components/planSteps/PlanSteps';
 import { ACTION_TYPES } from './constants/action';
-import type { ExecutionMode } from './constants';
+import type { PlanExecutionMode } from './constants';
 import { resolveExecution } from './utils/planExecution';
 import { usePlanAction } from './hooks/usePlanAction';
 
@@ -53,7 +53,7 @@ export default function PlanView() {
 
   const execution = resolveExecution(node, current?.meta);
 
-  const onApprove = (mode: ExecutionMode) => {
+  const onApprove = (mode: PlanExecutionMode) => {
     onAction({
       type: ACTION_TYPES.APPROVE,
       payload:

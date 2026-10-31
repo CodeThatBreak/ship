@@ -6,7 +6,8 @@
  * from the editor page's action bundle via props.
  */
 import { NodePalette, BuilderCanvas, type BuilderApi } from "@/components/template-editor";
-import type { EditorNode, EditorEdge, CanvasPosition } from "@/components/template-editor";
+import type { NodeKind } from "@/constants/node-kind";
+import type { EditorEdge, EditorNode, CanvasPosition } from "@/components/template-editor";
 import type { BranchChoice } from "./hooks/use-instance-contracts";
 
 export interface EditorCanvasProps {
@@ -43,7 +44,7 @@ export interface EditorCanvasProps {
     catalogKey: string,
     name: string,
   ) => void;
-  onAddKindNode: (kind: "agent" | "decision" | "http" | "script") => void;
+  onAddKindNode: (kind: NodeKind) => void;
   onApi: (api: BuilderApi) => void;
 }
 

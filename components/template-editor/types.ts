@@ -1,4 +1,6 @@
 /** Shared draft types for the template editor + node configurator. */
+import { BUILTIN_TEMPLATE_ID, CATALOG_KEY } from "@/constants/node-kind";
+
 export interface EditorNode {
   /** instance key — unique in the template */
   key: string;
@@ -137,9 +139,9 @@ export function nodeLabel(n: Pick<EditorNode, "key" | "overrideLabel" | "catalog
 export function isPlanNode(n: EditorNode): boolean {
   return (
     Boolean(n.is_builtin) &&
-    (n.nodeTemplateId === "nt_plan" ||
-      n.catalogKey === "plan" ||
-      (n.catalog_name ?? "").toLowerCase() === "plan")
+    (n.nodeTemplateId === BUILTIN_TEMPLATE_ID.PLAN ||
+      n.catalogKey === CATALOG_KEY.PLAN ||
+      (n.catalog_name ?? "").toLowerCase() === CATALOG_KEY.PLAN)
   );
 }
 

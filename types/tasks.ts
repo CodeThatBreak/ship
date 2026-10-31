@@ -6,8 +6,7 @@
 export type { LiveTask } from "@/lib/engine/tasks/task-provider";
 import type { LiveTask } from "@/lib/engine/tasks/task-provider";
 
-/** Runtime execution mode of a flow build (settings default + modal pick). */
-export type ExecutionMode = "cloud" | "local";
+export type { RunMode as ExecutionMode } from "@/constants/execution";
 
 /** One registered task provider as shown in the filter bar's Provider chip. */
 export type TaskProviderInfo = {
@@ -16,13 +15,7 @@ export type TaskProviderInfo = {
   configured: boolean;
 };
 
-/** One registered repo, the slice the build modal needs. */
-export type RepoSummary = {
-  id: string;
-  name: string;
-  cloud_url: string;
-  local_path: string | null;
-};
+export type { RepoSummary } from "@/types/repos";
 
 /** One flow template as offered in the build modal's template picker. */
 export type TemplateOption = { id: string; name: string };

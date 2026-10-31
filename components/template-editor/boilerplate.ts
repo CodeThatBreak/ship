@@ -8,13 +8,23 @@
  * so unknown keys would never persist anyway.
  */
 
-/** The authorable declarative kinds (TemplateStore's KINDED_NODE_TEMPLATE_KINDS). */
-export type NodeTemplateKind = "agent" | "decision" | "http" | "script";
+import {
+  NODE_KIND,
+  type NodeKind,
+} from "@/constants/node-kind";
 
-export const NODE_TEMPLATE_KINDS: NodeTemplateKind[] = ["agent", "decision", "http", "script"];
+/** @deprecated Prefer {@link NodeKind} from `@/constants/node-kind`. */
+export type NodeTemplateKind = NodeKind;
+
+export const NODE_TEMPLATE_KINDS: NodeKind[] = [
+  NODE_KIND.AGENT,
+  NODE_KIND.DECISION,
+  NODE_KIND.HTTP,
+  NODE_KIND.SCRIPT,
+];
 
 /** Boilerplate display description per kind (the create dialog / palette seed). */
-export const NODE_KIND_DESCRIPTIONS: Record<NodeTemplateKind, string> = {
+export const NODE_KIND_DESCRIPTIONS: Record<NodeKind, string> = {
   agent: "Agent run — reusable from the Library once saved",
   decision: "Branch pick — reusable from the Library once saved",
   http: "HTTP request — reusable from the Library once saved",
@@ -23,7 +33,7 @@ export const NODE_KIND_DESCRIPTIONS: Record<NodeTemplateKind, string> = {
 
 /** A working starter definition per kind. Copy per node — never share
  *  references (the forms mutate their copies' arrays/objects in place). */
-export const NODE_BOILERPLATE: Record<NodeTemplateKind, Record<string, unknown>> = {
+export const NODE_BOILERPLATE: Record<NodeKind, Record<string, unknown>> = {
   agent: {
     mode: "plan",
     prompt: [
@@ -77,6 +87,6 @@ export const NODE_BOILERPLATE: Record<NodeTemplateKind, Record<string, unknown>>
 /** The kind's boilerplate as a fresh deep copy (an unknown kind → empty —
  *  the form still renders from the contract, the save validates the rest). */
 export function boilerplateFor(kind: string): Record<string, unknown> {
-  const seed = NODE_BOILERPLATE[kind as NodeTemplateKind];
+  const seed = NODE_BOILERPLATE[kind as NodeKind];
   return seed ? (structuredClone(seed) as Record<string, unknown>) : {};
 }

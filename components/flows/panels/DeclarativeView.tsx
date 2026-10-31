@@ -4,6 +4,7 @@ import { DecisionView } from "./DecisionView";
 import { HttpView } from "./HttpView";
 import { ScriptView } from "./ScriptView";
 import { useNodePanel } from "./context";
+import { NODE_KIND } from "@/constants/node-kind";
 
 /**
  * Phase 3 runtime panels for the declarative kinds (§8): the kind switch
@@ -17,9 +18,9 @@ import { useNodePanel } from "./context";
 export default function DeclarativeView() {
   const { flow, node } = useNodePanel();
   switch (node.kind) {
-    case "decision": return <DecisionView />;
-    case "http": return <HttpView />;
-    case "script": return <ScriptView />;
+    case NODE_KIND.DECISION: return <DecisionView />;
+    case NODE_KIND.HTTP: return <HttpView />;
+    case NODE_KIND.SCRIPT: return <ScriptView />;
     default:
       return (
         <PanelShell node={node} flow={flow}>

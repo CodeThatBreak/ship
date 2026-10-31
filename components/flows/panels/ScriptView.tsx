@@ -11,6 +11,7 @@ import { Card } from "@/components/ui/card";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import type { Artifact } from "@/types/flow";
 import {
+  FLOW_ACTION,
   FLOW_STATUS,
   isTerminalFlowStatus,
 } from "@/constants/flow";
@@ -38,7 +39,7 @@ export function ScriptView() {
       </span>
       <div className="flex-1" />
       {awaiting && (
-        <Button onClick={() => action("approve_node", { nodeKey: node.node_key })}>
+        <Button onClick={() => action(FLOW_ACTION.APPROVE_NODE, { nodeKey: node.node_key })}>
           <CheckCheck size={14} /> Approve
         </Button>
       )}

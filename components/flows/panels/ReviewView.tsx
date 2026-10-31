@@ -9,7 +9,7 @@ import { Button } from "@/components/ui/button";
 import { Spinner } from "@/components/ui/spinner";
 import { EmptyHint } from "@/components/shared";
 import { useFlowComments } from "../hooks/useFlowComments";
-import { FLOW_STATUS } from "@/constants/flow";
+import { FLOW_ACTION, FLOW_STATUS } from "@/constants/flow";
 import { buildThreads } from "./review/buildThreads";
 import { ThreadCard } from "./review/ThreadCard";
 import { ThreadListSkeleton } from "./review/ThreadListSkeleton";
@@ -43,11 +43,11 @@ export default function ReviewView() {
       </span>
       <div className="flex-1" />
       {openThreads.length > 0 && (
-        <Button onClick={() => action("resolve", { model: model || undefined })}>
+        <Button onClick={() => action(FLOW_ACTION.RESOLVE, { model: model || undefined })}>
           <CheckCheck size={14} /> Resolve {openThreads.length} open comment{openThreads.length > 1 ? "s" : ""}
         </Button>
       )}
-      <Button onClick={() => action("review", { model: model || undefined })} disabled={running}>
+      <Button onClick={() => action(FLOW_ACTION.REVIEW, { model: model || undefined })} disabled={running}>
         {running ? <><Spinner /> Reviewing…</> : <><ScanSearch size={14} /> Run AI review</>}
       </Button>
     </>
@@ -106,7 +106,7 @@ export default function ReviewView() {
           open={showPrompt}
           onClose={() => setShowPrompt(false)}
           onRun={(prompt, promptIsBody) => {
-            action("review", { prompt, promptIsBody: promptIsBody || undefined, model: model || undefined });
+            action(FLOW_ACTION.REVIEW, { prompt, promptIsBody: promptIsBody || undefined, model: model || undefined });
             setShowPrompt(false);
           }}
         />

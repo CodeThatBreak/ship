@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { LiveTask, RepoSummary } from "@/types/tasks";
+import { RUN_MODE } from "@/constants/execution";
 import { executeStartBuild } from "./execute-start-build";
 
 const task: LiveTask = {
@@ -46,7 +47,7 @@ describe("executeStartBuild (CR-153)", () => {
     vi.stubGlobal("fetch", fetchMock);
 
     await expect(
-      executeStartBuild({ task, repo, executionMode: "cloud", templateId: "tpl-1" }),
+      executeStartBuild({ task, repo, executionMode: RUN_MODE.CLOUD, templateId: "tpl-1" }),
     ).rejects.toThrow("pin failed");
 
     expect(fetchMock.mock.calls.some(([u]) => String(u).endsWith("/api/flows"))).toBe(false);
@@ -59,7 +60,7 @@ describe("executeStartBuild (CR-153)", () => {
     );
 
     await expect(
-      executeStartBuild({ task, repo, executionMode: "cloud", templateId: "tpl-1" }),
+      executeStartBuild({ task, repo, executionMode: RUN_MODE.CLOUD, templateId: "tpl-1" }),
     ).rejects.toThrow("store failed");
   });
 });

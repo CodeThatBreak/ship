@@ -7,7 +7,7 @@ import { PanelShell, ArtifactLoader, VersionTabs } from "./shared";
 import type { ArtifactPayload } from "./shared";
 import { useNodePanel } from "./context";
 import FanoutStepList from "./FanoutStepList";
-import { FLOW_STATUS, isFailedStatus } from "@/constants/flow";
+import { FLOW_ACTION, FLOW_STATUS, isFailedStatus } from "@/constants/flow";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
@@ -56,12 +56,12 @@ export default function AgentView() {
       </span>
       <div className="flex-1" />
       {awaitingApproval && (
-        <Button onClick={() => action("approve_node", { nodeKey: node.node_key })}>
+        <Button onClick={() => action(FLOW_ACTION.APPROVE_NODE, { nodeKey: node.node_key })}>
           <CheckCheck size={14} /> Approve
         </Button>
       )}
       {pending && !running && (
-        <Button onClick={() => action("run_node", { nodeKey: node.node_key, model: model || undefined })}>
+        <Button onClick={() => action(FLOW_ACTION.RUN_NODE, { nodeKey: node.node_key, model: model || undefined })}>
           <Play size={13} /> Run
         </Button>
       )}

@@ -6,7 +6,7 @@ import { PromptModal } from "@/components/chat";
 import { Button } from "@/components/ui/button";
 import { PanelShell, GenericArtifact } from "./shared";
 import { useNodePanel } from "./context";
-import { FLOW_STATUS } from "@/constants/flow";
+import { FLOW_ACTION, FLOW_STATUS } from "@/constants/flow";
 
 /**
  * The comment-resolution panel: the queued auto-resolve clock (the debounced
@@ -37,7 +37,7 @@ export default function ResolveView() {
     <>
       <span className="text-xs text-muted-foreground">Fix every open MR comment with an agent, then close the discussions.</span>
       <div className="flex-1" />
-      <Button onClick={() => action("resolve", { model: model || undefined })}>
+      <Button onClick={() => action(FLOW_ACTION.RESOLVE, { model: model || undefined })}>
         <CheckCheck size={14} /> Resolve comments
       </Button>
     </>
@@ -63,7 +63,7 @@ export default function ResolveView() {
           open={showPrompt}
           onClose={() => setShowPrompt(false)}
           onRun={(prompt, promptIsBody) => {
-            action("resolve", { prompt, promptIsBody: promptIsBody || undefined, model: model || undefined });
+            action(FLOW_ACTION.RESOLVE, { prompt, promptIsBody: promptIsBody || undefined, model: model || undefined });
             setShowPrompt(false);
           }}
         />

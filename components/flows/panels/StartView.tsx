@@ -13,6 +13,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { PanelShell } from "./shared";
 import { useNodePanel } from "./context";
 import {
+  FLOW_ACTION,
   FLOW_STATUS,
   isTerminalFlowStatus,
 } from "@/constants/flow";
@@ -44,7 +45,7 @@ export default function StartView() {
       if (v === undefined || v === null || v === "") continue;
       input[f.key] = v;
     }
-    Promise.resolve(action("run_node", {
+    Promise.resolve(action(FLOW_ACTION.RUN_NODE, {
       nodeKey: node.node_key,
       input: fields.length ? input : undefined,
     })).finally(() => setSubmitting(false));

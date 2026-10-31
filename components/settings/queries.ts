@@ -6,7 +6,8 @@ import { queryOptions } from "@tanstack/react-query";
 import { queryKeys } from "@/constants/query-keys";
 import { fetchJson } from "@/hooks/fetch-json";
 import { FAILED_ACTION, type FailedAction } from "@/constants/api";
-import type { GitHost, Repo, Settings } from "./context";
+import type { GitHost, Settings } from "@/types/settings";
+import type { Repo } from "@/types/repos";
 
 export type ReposQueryData = { repos: Repo[]; serverHome: string };
 

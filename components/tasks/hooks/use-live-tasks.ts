@@ -3,17 +3,22 @@ import { useCallback, useEffect } from "react";
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { queryKeys } from "@/constants/query-keys";
 import { errorMessageOf, fetchJson } from "@/hooks/fetch-json";
+import { TASK_ASSIGNEE, TASK_FILTER, TASK_PROVIDER_PARAM } from "@/constants/tasks";
 import type { LiveTasksPayload } from "@/types/tasks";
 
 /** Serialize the table's filters + debounced text into the feed's query
  *  string (the route adds `fresh=1` only for forced refreshes). */
 export const liveTaskParams = (filters: Record<string, string>, text: string): string => {
   const params = new URLSearchParams({
-    assignee: filters.assignee ?? "me",
-    text,
+    [TASK_FILTER.ASSIGNEE]: filters[TASK_FILTER.ASSIGNEE] ?? TASK_ASSIGNEE.ME,
+    [TASK_FILTER.TEXT]: text,
   });
-  if (filters.statusCategory) params.set("statusCategory", filters.statusCategory);
-  if (filters.provider) params.set("kind", filters.provider);
+  if (filters[TASK_FILTER.STATUS_CATEGORY]) {
+    params.set(TASK_FILTER.STATUS_CATEGORY, filters[TASK_FILTER.STATUS_CATEGORY]);
+  }
+  if (filters[TASK_FILTER.PROVIDER]) {
+    params.set(TASK_PROVIDER_PARAM, filters[TASK_FILTER.PROVIDER]);
+  }
   return params.toString();
 };
 

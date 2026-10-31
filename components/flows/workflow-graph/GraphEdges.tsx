@@ -3,6 +3,7 @@ import { useMemo } from "react";
 import type { Node } from "@/types/flow";
 import type { GraphDef } from "../hooks/useGraphDef";
 import { isTerminalFlowStatus } from "@/constants/flow";
+import { NODE_KIND } from "@/constants/node-kind";
 import { H, W } from "./graph-layout";
 
 export type NodePosition = { x: number; y: number };
@@ -44,7 +45,7 @@ export function GraphEdges({
   for (const e of edgeSpecs ?? []) {
     if (e.label == null) continue;
     const src = byKey.get(e.from);
-    if (src?.kind !== "decision") continue;
+    if (src?.kind !== NODE_KIND.DECISION) continue;
     const chosen = (src.output as { chosen?: string[] } | undefined)?.chosen ?? [];
     const done = isTerminalFlowStatus(src.status);
     if (done && chosen.includes(e.label)) takenEdges.add(`${e.from}>${e.to}:${e.label}`);

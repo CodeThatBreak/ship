@@ -1,6 +1,6 @@
 'use client';
 import { Check, ChevronDown } from 'lucide-react';
-import { EXECUTION_KNOB, EXECUTION_MODE, EXECUTION_SOURCE, type ExecutionMode } from '../constants';
+import { EXECUTION_KNOB, EXECUTION_MODE, EXECUTION_SOURCE, type PlanExecutionMode } from '../constants';
 import { executionLabel } from '../utils/planExecution';
 import { Button } from '@/components/ui/button';
 import { ButtonGroup } from '@/components/ui/button-group';
@@ -27,17 +27,17 @@ export const PlanApproveFooter = ({
   onApprove,
 }: {
   /** effective resolution from plan-meta + knob (used as the split button default) */
-  publishedResolution: ExecutionMode;
+  publishedResolution: PlanExecutionMode;
   publishedSource: string;
   plannerRationale: string | null;
   knob: string | undefined;
   branchCount: number;
   showExecutionChoice: boolean;
-  onApprove: (mode: ExecutionMode) => void;
+  onApprove: (mode: PlanExecutionMode) => void;
 }) => {
   const modes = [EXECUTION_MODE.WHOLE, EXECUTION_MODE.STEPS] as const;
 
-  const shortLabel = (mode: ExecutionMode) => (mode === EXECUTION_MODE.WHOLE ? 'Single run' : `Per branch`);
+  const shortLabel = (mode: PlanExecutionMode) => (mode === EXECUTION_MODE.WHOLE ? 'Single run' : `Per branch`);
 
   return (
     <div className="flex items-center gap-3 px-5 py-3 border-t border-border shrink-0">

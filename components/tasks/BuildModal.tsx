@@ -21,8 +21,10 @@ import type {
   RepoSummary,
   TemplateOption,
 } from "@/types/tasks";
+import { RUN_MODE } from "@/constants/execution";
 import { useStartBuild } from "./hooks/use-start-build";
-import { StatusBadge, TypeChip } from "./TaskBadges";
+import { StatusBadge } from "./StatusBadge";
+import { TypeChip } from "./TypeChip";
 
 function hostOf(url: string): string {
   try {
@@ -160,10 +162,10 @@ export function BuildModal({ task, repos, templates, defaultMode, defaultTemplat
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="cloud">
+              <SelectItem value={RUN_MODE.CLOUD}>
                 Cloud agent
               </SelectItem>
-              <SelectItem value="local" disabled={!selectedRepo?.local_path}>
+              <SelectItem value={RUN_MODE.LOCAL} disabled={!selectedRepo?.local_path}>
                 Local (SDK)
                 {!selectedRepo?.local_path && (
                   <span className="text-warning">(no local path)</span>

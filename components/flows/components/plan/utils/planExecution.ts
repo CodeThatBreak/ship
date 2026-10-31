@@ -1,12 +1,12 @@
 import type { Node } from '@/types/flow';
-import { EXECUTION_MODE, type ExecutionMode } from '../constants';
+import { EXECUTION_MODE, type PlanExecutionMode } from '../constants';
 
 /** The effective resolution of the plan fan-out (§1 who-decides-the-mode). */
 export interface ResolvedExecution {
   /** the plan node's raw `execution_default` knob (also holds "follow") */
   knob: string | undefined;
   /** the execution mode the selected plan version publishes (plan-meta `execution`) */
-  published: ExecutionMode;
+  published: PlanExecutionMode;
   /** who decided the published value: "planner" | "override" | "unknown" */
   publishedSource: string;
   /** the planner's one-line rationale for the published decision */
@@ -14,7 +14,7 @@ export interface ResolvedExecution {
   /** effective resolution: an explicit whole knob wins; follow (and a LEGACY
    *  "steps" knob — it now means the same per-branch fan-out) defer to the
    *  published value */
-  resolution: ExecutionMode;
+  resolution: PlanExecutionMode;
 }
 
 /**
@@ -38,7 +38,7 @@ export function resolveExecution(node: Node, meta: Record<string, unknown> | und
 }
 
 /** Label of what a resolution will execute as ("one run" / "one child flow per branch (n branches)"). */
-export function executionLabel(mode: ExecutionMode, branchCount: number): string {
+export function executionLabel(mode: PlanExecutionMode, branchCount: number): string {
   return mode === EXECUTION_MODE.STEPS
     ? `Each sub-flow will be implemented in a separate run (${branchCount} branch${branchCount === 1 ? '' : 'es'})`
     : 'Whole plan will be implemented in a single run';

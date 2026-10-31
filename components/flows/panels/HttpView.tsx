@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import type { Artifact } from "@/types/flow";
 import {
+  FLOW_ACTION,
   FLOW_STATUS,
   isTerminalFlowStatus,
 } from "@/constants/flow";
@@ -35,7 +36,7 @@ export function HttpView() {
       </span>
       <div className="flex-1" />
       {awaiting && (
-        <Button onClick={() => action("approve_node", { nodeKey: node.node_key })}>
+        <Button onClick={() => action(FLOW_ACTION.APPROVE_NODE, { nodeKey: node.node_key })}>
           <CheckCheck size={14} /> Approve
         </Button>
       )}

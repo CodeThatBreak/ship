@@ -5,6 +5,7 @@ import { Cloud, FolderGit2, GitMerge, Loader2, Bot, CircleAlert } from "lucide-r
 import { Skeleton } from "@/components/ui/skeleton";
 import { useAgentStatus } from "./hooks/useAgentStatus";
 import { cn } from "@/lib/utils";
+import { RUN_MODE } from "@/constants/execution";
 
 const NODE_LABELS: Record<string, string> = {
   plan: "planning",
@@ -67,7 +68,7 @@ export function StatusBar() {
                     {NODE_LABELS[a.node] ?? a.node}
                   </span>
                 )}
-                {a.mode === "local" ? (
+                {a.mode === RUN_MODE.LOCAL ? (
                   <FolderGit2 size={9} className="opacity-60 shrink-0" />
                 ) : (
                   <Cloud size={9} className="opacity-60 shrink-0" />

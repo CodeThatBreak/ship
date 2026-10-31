@@ -12,6 +12,7 @@ import type {
   TaskProviderInfo,
   TemplateOption,
 } from "@/types/tasks";
+import { TASK_ASSIGNEE, TASK_FILTER } from "@/constants/tasks";
 import { STATUS_VALUES, TEXT_DEBOUNCE_MS } from "./constants";
 import { useLiveTasks } from "./hooks/use-live-tasks";
 import { BuildModal } from "./BuildModal";
@@ -44,7 +45,7 @@ export function TasksView({
 }: TasksViewProps) {
   // ── filters (drive the feed fetch; provider omitted = default provider) ─
   const [filters, setFilters] = useState<Record<string, string>>({
-    assignee: "me",
+    [TASK_FILTER.ASSIGNEE]: TASK_ASSIGNEE.ME,
   });
   const [textInput, setTextInput] = useState("");
   const [text, setText] = useState("");
@@ -73,19 +74,19 @@ export function TasksView({
   const filterDefs = useMemo<FilterDef[]>(
     () => [
       {
-        key: "provider",
+        key: TASK_FILTER.PROVIDER,
         label: "Provider",
         values: providers.map((p) => ({ value: p.kind, label: p.label })),
       },
       {
-        key: "assignee",
+        key: TASK_FILTER.ASSIGNEE,
         label: "Assignee",
         values: [
-          { value: "me", label: "Me" },
-          { value: "any", label: "Anyone" },
+          { value: TASK_ASSIGNEE.ME, label: "Me" },
+          { value: TASK_ASSIGNEE.ANY, label: "Anyone" },
         ],
       },
-      { key: "statusCategory", label: "Status", values: STATUS_VALUES },
+      { key: TASK_FILTER.STATUS_CATEGORY, label: "Status", values: STATUS_VALUES },
     ],
     [providers],
   );

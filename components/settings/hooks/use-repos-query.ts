@@ -1,7 +1,7 @@
 "use client";
 import { useQuery } from "@tanstack/react-query";
 import { errorMessageOf } from "@/hooks/fetch-json";
-import type { Repo } from "../context";
+import type { Repo } from "@/types/repos";
 import type { ReposQueryData } from "../queries";
 import { reposQueryOptions } from "../queries";
 

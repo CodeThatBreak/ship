@@ -2,19 +2,14 @@
 import type { Node } from "@/types/flow";
 import type { GraphDef } from "../hooks/useGraphDef";
 import { cn } from "@/lib/utils";
-import { FANOUT_STATE, FLOW_STATUS, type FanoutState } from "@/constants/flow";
+import { FANOUT_STATE, FLOW_STATUS } from "@/constants/flow";
 import { iconFor } from "./icons";
 import type { NodePosition } from "./GraphEdges";
 import { H, STATUS, W, statusLabel } from "./graph-layout";
 
 /** Plan fan-out progress per node key — the card's subtitle (see `WorkflowGraph`). */
-export type FanoutProgress = {
-  total: number;
-  done: number;
-  running: string | null;
-  costCents: number;
-  state: FanoutState;
-};
+export type { FanoutProgress } from "../cockpit/fanout-progress";
+import type { FanoutProgress } from "../cockpit/fanout-progress";
 
 /**
  * One node card on the canvas (§2.2 presentational subcomponent): position,

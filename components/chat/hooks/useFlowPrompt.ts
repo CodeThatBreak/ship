@@ -9,6 +9,8 @@ import { invalidateFlowPrompts } from "@/hooks/invalidate-flow-queries";
 import { useEffect, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { queryKeys } from "@/constants/query-keys";
+import { fetchJson, postJson } from "@/hooks/fetch-json";
+import { FLOW_ACTION } from "@/constants/flow";
 
 /** Live run-data blocks (context, diffs, logs, comments) — finalized at run time. */
 export interface RunDataBlock {
@@ -38,12 +40,6 @@ export interface PromptData {
 const promptUrl = (flowId: string, params: string) =>
   `/api/flows/${flowId}/prompt?${params}`;
 
-async function fetchPromptData(url: string): Promise<PromptData> {
-  const res = await fetch(url);
-  if (!res.ok) throw new Error(`HTTP ${res.status}`);
-  return (await res.json()) as PromptData;
-}
-
 export interface UseFlowPromptInput {
   open: boolean;
   flowId: string;
@@ -69,7 +65,7 @@ export const useFlowPrompt = ({
 
   const baseQuery = useQuery({
     queryKey: queryKeys.flows.prompt(flowId, `seed:${seedParams}`),
-    queryFn: () => fetchPromptData(promptUrl(flowId, seedParams.toString())),
+    queryFn: () => fetchJson<PromptData>(promptUrl(flowId, seedParams.toString())),
     enabled: open,
   });
 
@@ -113,19 +109,11 @@ export const useFlowPrompt = ({
 
   const rulesSaveMutation = useMutation({
     mutationFn: async ({ rules, rulesKey }: { rules: string; rulesKey?: string }) => {
-      const res = await fetch(`/api/flows/${flowId}/action`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          action: "set_node_config",
-          nodeKey,
-          config: { [rulesKey ?? "prompt_rules"]: rules.trim() || null },
-        }),
-      });
-      if (!res.ok) {
-        const d = (await res.json().catch(() => null)) as { error?: string } | null;
-        throw new Error(d?.error ?? `HTTP ${res.status}`);
-      }
+      await postJson(`/api/flows/${flowId}/action`, JSON.stringify({
+        action: FLOW_ACTION.SET_NODE_CONFIG,
+        nodeKey,
+        config: { [rulesKey ?? "prompt_rules"]: rules.trim() || null },
+      }));
     },
     onSuccess: () => {
       setRulesSaved(true);

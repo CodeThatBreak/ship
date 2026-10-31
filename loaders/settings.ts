@@ -19,7 +19,8 @@ import {
   settingString,
   settingUnknownRecord,
 } from "@/lib/schemas/setting-values";
-import type { Repo, Settings } from "@/components/settings/context";
+import type { Repo } from "@/types/repos";
+import type { Settings } from "@/types/settings";
 
 /** One mode entry of a harness: the exec mode it runs + probe result. */
 type SettingsPortMode = {

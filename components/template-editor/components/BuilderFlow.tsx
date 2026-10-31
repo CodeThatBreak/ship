@@ -28,9 +28,7 @@ import { BuilderEdgeView, edgeIndexOf, type BuilderEdgeData } from "./BuilderEdg
 import { ApiBridge } from "./BuilderApiBridge";
 import { canConnectTemplateEdge } from "../utils/graph-edges";
 
-/** The catalog id of the one Start node instance — never deletable (the
- *  page guards this too; the canvas marks it RF-non-deletable). */
-const START_NODE_TEMPLATE_ID = "nt_start";
+import { START_NODE_TEMPLATE_ID } from "../draft";
 
 export interface BuilderCanvasProps {
   nodes: EditorNode[];

@@ -14,6 +14,7 @@
  * plan node is upstream (or an override already exists, so it stays clearable).
  */
 import { Spinner } from "../ui/spinner";
+import { FANOUT_FIELD_KEYS, NODE_KIND } from "@/constants/node-kind";
 import type { NodeContract } from "./types";
 import {
   ConfigFieldRow,
@@ -94,10 +95,9 @@ export function DeclarativeConfigFields({
   // shared Fanout fields render only for plan-downstream nodes. Gated off
   // while unqualified — unless the instance already overrides one (the stale
   // config must stay visible so the author can clear it) with a warning hint.
-  const fanoutKeys = new Set(["fanout_mode", "fanout_child", "fanout_parallel_max"]);
-  const fanoutConfigured = [...fanoutKeys].some((k) => config[k] != null);
+  const fanoutConfigured = [...FANOUT_FIELD_KEYS].some((k) => config[k] != null);
   const showFanout = planDownstream || fanoutConfigured;
-  const isHttp = kind === "http";
+  const isHttp = kind === NODE_KIND.HTTP;
   // the builder drawer's Config tab: prompt fields moved to the Prompt tab —
   // the create/configure dialog (no tabs) still renders them inline below
   const hidden = hideFields ?? new Set<string>();
@@ -125,7 +125,7 @@ export function DeclarativeConfigFields({
             !(kind === "decision" && f.key === "question") ||
             decisionSource === "agent",
         )
-        .filter((f) => !fanoutKeys.has(f.key) || showFanout)
+        .filter((f) => !FANOUT_FIELD_KEYS.has(f.key) || showFanout)
         .filter((f) => !hidden.has(f.key))
         .map((f) => {
           // the split block: a bespoke nested-object editor driven by the

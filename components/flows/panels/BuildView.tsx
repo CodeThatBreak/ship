@@ -12,7 +12,8 @@ import { PanelShell, ArtifactLoader } from './shared';
 import type { ArtifactPayload } from './shared';
 import { useNodePanel } from './context';
 import FanoutStepList from './FanoutStepList';
-import { FLOW_STATUS, isFailedStatus, statusVariantOf } from '@/constants/flow';
+import { FLOW_ACTION, FLOW_STATUS, isFailedStatus, statusVariantOf } from '@/constants/flow';
+import { FLOW_EVENT_TYPE } from '@/constants/events';
 import { EmptyHint } from '@/components/shared';
 
 /**
@@ -52,7 +53,7 @@ export default function BuildView() {
   const mrErrorFor = (branch?: string) => {
     for (let i = events.length - 1; i >= 0; i--) {
       const e = events[i];
-      if (e.type === 'mr_failed') {
+      if (e.type === FLOW_EVENT_TYPE.MR_FAILED) {
         let b: string | undefined;
         try {
           b = e.data ? (JSON.parse(e.data).branchName ?? undefined) : undefined;
@@ -62,13 +63,13 @@ export default function BuildView() {
         if (b === branch) return e.message as string;
         continue;
       }
-      if (e.type === 'lifecycle' || e.type === 'error') return null;
+      if (e.type === FLOW_EVENT_TYPE.LIFECYCLE || e.type === FLOW_EVENT_TYPE.ERROR) return null;
     }
     return null;
   };
 
-  const approveAll = () => action('approve_build');
-  const approveBranch = (name: string) => action('approve_build', { branch: name });
+  const approveAll = () => action(FLOW_ACTION.APPROVE_BUILD);
+  const approveBranch = (name: string) => action(FLOW_ACTION.APPROVE_BUILD, { branch: name });
 
   const singleErr = canApprove && !hasBranches ? mrErrorFor(undefined) : null;
   const allAwaiting =
@@ -153,7 +154,7 @@ export default function BuildView() {
                     {err && <div className="text-destructive text-xs mt-1">{err}</div>}
                   </div>
                   {b.mr_url && (
-                    <a href={b.mr_url} target="_blank" className="text-info hover:underline text-xs">
+                    <a href={b.mr_url} target="_blank" rel="noopener noreferrer" className="text-info hover:underline text-xs">
                       MR !{b.mr_iid} ↗
                     </a>
                   )}

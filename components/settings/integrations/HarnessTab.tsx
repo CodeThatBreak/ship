@@ -4,7 +4,7 @@ import { RefreshCw } from "lucide-react";
 import { CursorIcon } from "../integration-icons";
 import { ConfirmDeleteDialog } from "@/components/shared";
 import { useSettingsQuery } from "../hooks/use-settings-query";
-import { PROVIDER_KIND } from "./constants";
+import { CURSOR_HARNESS, PROVIDER_KIND } from "./constants";
 import { useConnectForm } from "./hooks/use-connect-form";
 import { useUpdateCursorApiKey } from "./hooks/use-cursor-api-key";
 import { ConnectEmpty } from "./components/ConnectEmpty";
@@ -49,7 +49,7 @@ export function HarnessTab({ open, onOpenChange, onError }: TabProps) {
   }, [reset, onOpenChange]);
 
   const requestClearKey = useCallback((instanceId: string) => {
-    if (instanceId !== "cursor") return;
+    if (instanceId !== CURSOR_HARNESS.INSTANCE_ID) return;
     setPendingClearKey(true);
   }, []);
 
@@ -87,9 +87,9 @@ export function HarnessTab({ open, onOpenChange, onError }: TabProps) {
           <InstanceCard
             icon={<CursorIcon size={16} />}
             instance={{
-              id: "cursor",
+              id: CURSOR_HARNESS.INSTANCE_ID,
               name: "Cursor",
-              baseUrl: "https://api.cursor.com",
+              baseUrl: CURSOR_HARNESS.API_BASE_URL,
               tokenMasked: "API key set",
             }}
             onDelete={requestClearKey}
@@ -139,7 +139,7 @@ export function HarnessTab({ open, onOpenChange, onError }: TabProps) {
               className="font-mono text-[12px]"
             />
             <a
-              href="https://cursor.com/dashboard/api"
+              href={CURSOR_HARNESS.DASHBOARD_API_URL}
               target="_blank"
               rel="noreferrer"
               className="text-[12px] text-info hover:underline"

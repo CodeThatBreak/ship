@@ -15,12 +15,10 @@ export interface EditorTaskProvider {
   contextFields: { key: string; label: string; type: string; required?: boolean }[];
 }
 
+import type { RepoSummary } from "@/types/repos";
+
 /** A registered repo's editor-facing slice (GET /repos list) — the Bound-repo picker's option. */
-export interface EditorRepoChoice {
-  id: string;
-  name: string;
-  local_path: string | null;
-}
+export type EditorRepoChoice = Pick<RepoSummary, "id" | "name" | "local_path">;
 
 /** One node instance row in the editor payload (snake_case API shape). */
 export interface EditorNodeRow {

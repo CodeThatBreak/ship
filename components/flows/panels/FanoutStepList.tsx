@@ -4,7 +4,7 @@ import { Coins, GitMerge } from "lucide-react";
 import type { FlowData, Node, PlanStepRow } from "@/types/flow";
 import { useNodePanel } from "./context";
 import { fmtDuration } from "@/lib/format";
-import { FLOW_STATUS } from "@/constants/flow";
+import { FLOW_ACTION, FLOW_STATUS } from "@/constants/flow";
 import { FanoutStepCard, fanoutStepState } from "./FanoutStepCard";
 
 /**
@@ -24,15 +24,15 @@ export default function FanoutStepList({ flow }: { flow: FlowData; node?: Node }
   const steps = (flow.planSteps ?? []).filter((s: PlanStepRow) => s.sub_flow != null);
 
   const onApprove = useCallback(
-    (stepId: string) => action("approve_fanout_step", { stepId }),
+    (stepId: string) => action(FLOW_ACTION.APPROVE_FANOUT_STEP, { stepId }),
     [action],
   );
   const onRetry = useCallback(
-    (stepId: string) => action("retry_fanout_step", { stepId }),
+    (stepId: string) => action(FLOW_ACTION.RETRY_FANOUT_STEP, { stepId }),
     [action],
   );
   const onSkip = useCallback(
-    (stepId: string) => action("skip_fanout_step", { stepId }),
+    (stepId: string) => action(FLOW_ACTION.SKIP_FANOUT_STEP, { stepId }),
     [action],
   );
 

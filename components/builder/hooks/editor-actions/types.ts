@@ -8,8 +8,10 @@ import type {
   TemplateDraftMachine,
 } from "@/components/template-editor";
 
+import type { NodeKind } from "@/constants/node-kind";
+
 /** Draft instance ids never collide within a session (monotonic). */
-export type DraftKind = "agent" | "decision" | "http" | "script";
+export type DraftKind = NodeKind;
 
 /** Placement opts for one new node instance (a catalog row or a draft). */
 export interface PlacementOpts {

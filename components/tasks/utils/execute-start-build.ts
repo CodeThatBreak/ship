@@ -1,4 +1,5 @@
 import { patchJson, postJson } from "@/hooks/fetch-json";
+import { RUN_MODE } from "@/constants/execution";
 import type { ExecutionMode, LiveTask, RepoSummary } from "@/types/tasks";
 
 type MaterializeBody = { id?: string; error?: string };
@@ -19,7 +20,7 @@ export type StartBuildArgs = {
  */
 export const executeStartBuild = async (args: StartBuildArgs): Promise<string> => {
   const { task, repo, executionMode, templateId } = args;
-  if (executionMode === "local" && !repo.local_path) {
+  if (executionMode === RUN_MODE.LOCAL && !repo.local_path) {
     throw new Error(
       `"${repo.name}" has no local path — set one on the Settings page or run in cloud mode.`,
     );

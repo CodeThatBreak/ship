@@ -2,7 +2,7 @@
 import { useState } from "react";
 import { Pencil, Wrench } from "lucide-react";
 import type { BranchRow } from "@/types/flow";
-import { FLOW_STATUS } from "@/constants/flow";
+import { FLOW_ACTION, FLOW_STATUS } from "@/constants/flow";
 import { PromptModal } from "@/components/chat";
 import { Alert } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
@@ -34,7 +34,7 @@ export default function PipelineView() {
           : "Run the pipeline gate to check CI and auto-fix failures."}
       </span>
       <div className="flex-1" />
-      <Button variant="default" onClick={() => action("pipeline", { model: model || undefined })}>
+      <Button variant="default" onClick={() => action(FLOW_ACTION.PIPELINE, { model: model || undefined })}>
         {node.status === FLOW_STATUS.DONE ? "Re-check pipeline" : "Check pipeline"}
       </Button>
     </>
@@ -61,7 +61,7 @@ export default function PipelineView() {
           open={showPrompt}
           onClose={() => setShowPrompt(false)}
           onRun={(prompt, promptIsBody) => {
-            action("pipeline", { prompt, promptIsBody: promptIsBody || undefined, model: model || undefined });
+            action(FLOW_ACTION.PIPELINE, { prompt, promptIsBody: promptIsBody || undefined, model: model || undefined });
             setShowPrompt(false);
           }}
         />

@@ -29,8 +29,10 @@ export interface Draft {
   pendingDefs?: Record<string, DraftNodeDef>;
 }
 
+import { BUILTIN_TEMPLATE_ID } from "@/constants/node-kind";
+
 /** The catalog id of the one Start node instance — the flow's entry. */
-export const START_NODE_TEMPLATE_ID = "nt_start";
+export const START_NODE_TEMPLATE_ID = BUILTIN_TEMPLATE_ID.START;
 
 /** Display names for the palette's New-node tiles (also the saved row names). */
 export const KIND_LABELS: Record<string, string> = {

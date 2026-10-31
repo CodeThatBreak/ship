@@ -12,10 +12,11 @@ import {
   TraceTitle,
 } from '@/components/ui/trace';
 import type { FeedEvent } from './timeline';
+import { FLOW_EVENT_TYPE } from '@/constants/events';
 
 /** Non-tool events inside a run (errors get a destructive Code Block). */
 export default function EventRow({ ev }: { ev: FeedEvent }) {
-  const failed = ev.type === 'error';
+  const failed = ev.type === FLOW_EVENT_TYPE.ERROR;
   if (failed) {
     return (
       <TraceCollapsible defaultOpen={false}>
