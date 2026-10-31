@@ -1,184 +1,120 @@
-"use client";
-import { useMemo, useState } from "react";
-import type { Artifact, FlowData, Node } from "@/types/flow";
-import PlanSteps from "./PlanSteps";
-import { registerPanel } from "../panels/registry";
-import { VersionTabs } from "../panels/shared";
-import { computeScopedDiff, computeStaleBranches, computeWholePlanDiff, planTabCaption } from "./branch-diff";
-import { PLAN_ACTION, type ExecutionMode } from "./constants";
-import { executionLabel, resolveExecution } from "./plan-execution";
-import { useExecutionPick } from "./hooks/use-execution-pick";
-import { PlanPanelHeader } from "./PlanPanelHeader";
-import { PlanFailureAlert } from "./PlanFailureAlert";
-import { PlanEmptyHint } from "./PlanEmptyHint";
-import { PlanRunningState } from "./PlanRunningState";
-import { MainPlanSection } from "./MainPlanSection";
-import { BranchPlanSection } from "./BranchPlanSection";
-import { DiffBanner } from "./DiffBanner";
-import { PlanApproveFooter } from "./PlanApproveFooter";
-import { planComposerBus } from "./hooks/composer-bus";
-import { ScrollArea } from "@/components/ui/scroll-area";
-import type { BranchPlan, FlowAction } from "./types";
-import { FLOW_STATUS } from "@/constants/flow";
+'use client';
+import { useMemo } from 'react';
+import type { Artifact } from '@/types/flow';
+import { registerPanel } from '../panels/registry';
+import { ScrollArea } from '@/components/ui/scroll-area';
+import { FLOW_STATUS } from '@/constants/flow';
+
+import { PlanPanelHeader } from './components/PlanPanelHeader';
+import { PlanStatusPanel } from './components/PlanStatusPanel';
+import { PlanVersionTabs } from './components/PlanVersionTabs';
+import { WholeDiffBanner } from './components/WholeDiffBanner';
+import { PlanSection } from './components/PlanSection';
+import { PlanApproveFooter } from './components/PlanApproveFooter';
+import PlanSteps from './components/planSteps/PlanSteps';
+import { PLAN_ACTION, type ExecutionMode } from './constants';
+import { executionLabel, resolveExecution } from './utils/planExecution';
+import { useExecutionPick } from './hooks/useExecutionPick';
+import { usePlanAction } from './hooks/usePlanAction';
+import { usePlanUi } from './hooks/usePlanUi';
+import { planComposerBus } from './hooks/composerBus';
+import type { PanelProps } from '../panels/registry';
+import type { BranchPlan } from './types';
 
 /**
- * The plan node's panel container: composes the extracted presentational
- * subcomponents (components/flows/plan/*) with the execution-resolution state
- * and the plan fan-out actions (§1, §7.1). The plan's runs and refinements
- * are composer-driven (docs/plan-conversation-refine.md §4) — the header's
- * refine button focuses the conversation composer and a branch card's Refine
- * prefills the scoped body, both dispatched through the plan composer bus.
+ * The plan panel's container: only what the panel owns — the selection
+ * reducer (`usePlanUi`), the execution pick (`useExecutionPick`), and the
+ * plan actions (`usePlanAction`) — composed with the pieces in
+ * `components/`. Every piece derives its own view of the node and decides by
+ * itself whether it renders; the raw panel `action` callback is gone — all
+ * plan actions go through the `usePlanAction` mutation.
+ *
+ * The plan's runs and refinements are composer-driven
+ * (docs/plan-conversation-refine.md §4) — the header's refine button focuses
+ * the conversation composer and a branch card's Refine prefills the scoped
+ * body, both dispatched through the plan composer bus (hooks/composerBus.ts).
  */
-export default function PlanView({
-  flow,
-  node,
-  action,
-  fetchArtifact,
-}: {
-  flow: FlowData;
-  node: Node;
-  action: FlowAction;
-  fetchArtifact: (id: string) => Promise<unknown>;
-}) {
-  const plans = node.artifacts.filter((a: Artifact) => a.kind === "plan");
-  const [sel, setSel] = useState<string | null>(null);
-  const [openBranchTab, setOpenBranchTab] = useState<string | null>(null);
-  const current = plans.find((a) => a.id === sel) ?? plans[plans.length - 1];
-  const awaiting = node.status === FLOW_STATUS.AWAITING_APPROVAL;
-  const running = node.status === FLOW_STATUS.RUNNING;
-  const isCurrent = Boolean(current && current.id === plans[plans.length - 1]?.id);
+export default function PlanView({ flow, node }: Pick<PanelProps, 'flow' | 'node'>) {
+  const plans = useMemo(() => node.artifacts.filter((a: Artifact) => a.kind === 'plan'), [node.artifacts]);
+  const { current, expandedBranch, selectVersion, toggleBranch, collapseBranch } = usePlanUi(plans);
+  const onAction = usePlanAction(flow.id);
 
-  // Phase 3A: extract branches from the plan output or artifact meta
+  // diff banners and approve only apply to the newest version being viewed
+  const isCurrent = Boolean(current?.id === plans[plans.length - 1]?.id);
+  const awaiting = node.status === FLOW_STATUS.AWAITING_APPROVAL;
+  const showApprove = awaiting && isCurrent;
+
+  // what the approve footer counts: fan-out branches when the plan fanned
+  // out, its plan steps otherwise
   const branches = (node.output?.branches ?? null) as BranchPlan[] | null;
-  // structured checklist (live rows; editable until the plan is approved)
-  const planSteps = flow.planSteps ?? [];
-  const showChecklist =
-    planSteps.length > 0 || awaiting || node.status === FLOW_STATUS.APPROVED;
+  const stepCount = branches ? branches.length : (flow.planSteps ?? []).length;
 
   const execution = resolveExecution(node, current?.meta);
   const [execPick, setExecPick] = useExecutionPick(
     execution.resolution,
-    `${current?.id ?? ""}:${execution.resolution}`,
+    `${current?.id ?? ''}:${execution.resolution}`
   );
 
-  // scoped-refine diff banner data (§6/§7.3), computed client-side from the
-  // two artifact versions' steps — no server diff endpoint needed.
-  const scopedDiff = useMemo(() => computeScopedDiff(plans), [plans]);
-  // whole-plan refine diff banner data (§6a) — fires only on the newest
-  // version when it carries a refine provenance mark; the banner is gated on
-  // `isCurrent` so old versions never show a stale banner
-  const wholeDiff = useMemo(() => computeWholePlanDiff(plans), [plans]);
-  // version tab captions (§6b): each artifact's provenance echo, per its meta
-  const captions = useMemo(() => {
-    const map = new Map<string, string>();
-    for (const a of plans) {
-      const caption = planTabCaption(a.meta);
-      if (caption) map.set(a.id, caption);
-    }
-    return map;
-  }, [plans]);
-  // staleness (§8): a scoped refine makes its branch doc newer than the overview
-  const staleBranches = useMemo(
-    () => computeStaleBranches(plans, branches, current?.version ?? 0),
-    [branches, plans, current?.version],
-  );
-
-  const toggleBranch = (name: string) =>
-    setOpenBranchTab((tab) => (tab === name ? null : name));
+  // ── named events ─────────────────────────────────────────────────────────
+  const onRetry = () => onAction({ type: PLAN_ACTION.RETRY, payload: { nodeKey: node.node_key } });
+  const onStopAgent = () => onAction({ type: PLAN_ACTION.CANCEL, payload: { nodeKey: node.node_key } });
   // branch-scoped sub-plan refine (§7.1, now §4c): prefill the composer with
-  // the scoped body — the collapse of the branch tab happens with it
-  const refineBranchAt = (name: string) => {
-    setOpenBranchTab(null);
+  // the scoped body — the collapse of the branch card happens with it
+  const onBranchRefine = (name: string) => {
+    collapseBranch();
     planComposerBus.prefillBranch(name);
   };
+  const onRefine = () => planComposerBus.focusComposer();
+  const onApprove = (pick: ExecutionMode) =>
+    onAction({
+      type: PLAN_ACTION.APPROVE,
+      payload: { executionOverride: pick !== execution.published ? pick : undefined },
+    });
 
   return (
     <div className="flex flex-col h-full min-h-0">
-      <PlanPanelHeader node={node} onRefine={() => planComposerBus.focusComposer()} />
+      <PlanPanelHeader node={node} onRefine={onRefine} />
 
       {/* scrollable content */}
       <ScrollArea className="flex-1">
-        <div className="px-5 py-4 flex flex-col gap-4">
-          {node.status === FLOW_STATUS.FAILED && (
-            <PlanFailureAlert
-              onRetry={() => action(PLAN_ACTION.RETRY, { nodeKey: node.node_key })}
-            />
-          )}
+        <div className="px-5 py-4 flex flex-col gap-4 h-full">
+          <PlanStatusPanel node={node} plans={plans} onRetry={onRetry} onStop={onStopAgent} />
 
-          {plans.length === 0 && node.status === FLOW_STATUS.PENDING && <PlanEmptyHint />}
+          <PlanVersionTabs plans={plans} selectedId={current?.id ?? null} onSel={selectVersion} />
 
-          {running && (
-            <PlanRunningState
-              hasPlans={plans.length > 0}
-              onStop={() => action(PLAN_ACTION.CANCEL, { nodeKey: node.node_key })}
-            />
-          )}
+          <WholeDiffBanner plans={plans} isCurrent={isCurrent} />
 
-          {plans.length > 1 && (
-            <VersionTabs
-              arts={plans}
-              sel={current?.id}
-              onSel={setSel}
-              captions={captions}
-            />
-          )}
-
-          {/* whole-plan refine diff banner (§6a): above the newest version's
-              content, only while that newest version is being viewed */}
-          {wholeDiff && isCurrent && <DiffBanner info={wholeDiff} />}
-
-          {/* ── main plan (level 1) — always on top, never hidden by an open sub-plan ── */}
-          {current && (
-            <MainPlanSection planId={current.id} fetchArtifact={fetchArtifact} />
-          )}
-
-          {/* ── sub-plans (level 2) — indented under the main plan to show hierarchy ── */}
-          {branches && branches.length > 0 && (
-            <BranchPlanSection
-              branches={branches}
-              staleBranches={staleBranches}
-              scopedDiff={scopedDiff}
-              expandedTab={openBranchTab}
-              canRefine={awaiting && isCurrent}
-              onToggle={toggleBranch}
-              onRefine={refineBranchAt}
-            />
-          )}
+          <PlanSection
+            node={node}
+            plans={plans}
+            planId={current?.id}
+            viewedVersion={current?.version ?? 0}
+            expandedBranch={expandedBranch}
+            canRefine={showApprove}
+            onToggle={toggleBranch}
+            onRefine={onBranchRefine}
+          />
 
           {/* structured editable checklist — the machine-readable plan steps, at the bottom */}
-          {showChecklist && (
-            <PlanSteps
-              steps={planSteps}
-              editable={awaiting}
-              action={action}
-            />
-          )}
+          <PlanSteps steps={flow.planSteps ?? []} editable={awaiting} flowId={flow.id} />
         </div>
       </ScrollArea>
 
       {/* fixed footer */}
-      {awaiting && isCurrent && (
+      {showApprove && (
         <PlanApproveFooter
           pick={execPick}
           onPick={setExecPick}
-          note={executionLabel(
-            execution.resolution,
-            branches && branches.length ? branches.length : planSteps.length,
-          )}
+          note={executionLabel(execution.resolution, stepCount)}
           publishedSource={execution.publishedSource}
           plannerRationale={execution.plannerRationale}
           knob={execution.knob}
-          stepCount={branches && branches.length ? branches.length : planSteps.length}
-          onApprove={(pick: ExecutionMode) =>
-            action(PLAN_ACTION.APPROVE, {
-              ...(pick !== execution.published ? { executionOverride: pick } : {}),
-            })
-          }
+          stepCount={stepCount}
+          onApprove={onApprove}
         />
       )}
     </div>
   );
 }
 
-// registered with the panel registry (§3.1) — served by the builtin plan key
-registerPanel({ type: "plan" }, PlanView);
+registerPanel({ type: 'plan' }, PlanView);
