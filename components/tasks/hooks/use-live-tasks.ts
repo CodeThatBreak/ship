@@ -1,13 +1,13 @@
 "use client";
-import { useCallback } from "react";
+import { useCallback, useEffect } from "react";
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { queryKeys } from "@/constants/query-keys";
-import { fetchJson } from "@/hooks/fetch-json";
+import { errorMessageOf, fetchJson } from "@/hooks/fetch-json";
 import type { LiveTasksPayload } from "@/types/tasks";
 
 /** Serialize the table's filters + debounced text into the feed's query
  *  string (the route adds `fresh=1` only for forced refreshes). */
-export function liveTaskParams(filters: Record<string, string>, text: string): string {
+export const liveTaskParams = (filters: Record<string, string>, text: string): string => {
   const params = new URLSearchParams({
     assignee: filters.assignee ?? "me",
     text,
@@ -15,7 +15,7 @@ export function liveTaskParams(filters: Record<string, string>, text: string): s
   if (filters.statusCategory) params.set("statusCategory", filters.statusCategory);
   if (filters.provider) params.set("kind", filters.provider);
   return params.toString();
-}
+};
 
 /**
  * The runtime task feed behind the tasks table, through TanStack Query:
@@ -28,7 +28,7 @@ export function liveTaskParams(filters: Record<string, string>, text: string): s
  * (`?fresh=1`) is a mutation that bypasses the route's cache and writes the
  * result back into the active query, so the table updates in place.
  */
-export function useLiveTasks(filters: Record<string, string>, text: string) {
+export const useLiveTasks = (filters: Record<string, string>, text: string) => {
   const queryClient = useQueryClient();
   const params = liveTaskParams(filters, text);
   const queryKey = queryKeys.tasks.live(params);
@@ -38,18 +38,27 @@ export function useLiveTasks(filters: Record<string, string>, text: string) {
     placeholderData: keepPreviousData,
   });
 
-  const refresh = useMutation({
-    mutationFn: () => fetchJson<LiveTasksPayload>(`/api/tasks/live?${params}&fresh=1`),
-    onSuccess: (payload) => queryClient.setQueryData(queryKey, payload),
+  const refreshMutation = useMutation({
+    mutationFn: (refreshParams: string) =>
+      fetchJson<LiveTasksPayload>(`/api/tasks/live?${refreshParams}&fresh=1`),
+    onSuccess: (payload, refreshParams) => {
+      queryClient.setQueryData(queryKeys.tasks.live(refreshParams), payload);
+    },
   });
+  const { mutate: mutateRefresh, reset: resetRefresh } = refreshMutation;
+
+  useEffect(() => {
+    resetRefresh();
+  }, [params, resetRefresh]);
 
   /** Force a fresh fetch (also the retry for any feed error). */
   const forceRefresh = useCallback(() => {
-    refresh.reset();
-    refresh.mutate();
-  }, [refresh]);
+    resetRefresh();
+    mutateRefresh(params);
+  }, [mutateRefresh, params, resetRefresh]);
 
   const staleError = typeof query.data?.error === "string" ? query.data.error : undefined;
+  const queryError = errorMessageOf(query.error);
 
   return {
     tasks: query.data?.tasks ?? [],
@@ -60,11 +69,13 @@ export function useLiveTasks(filters: Record<string, string>, text: string) {
     /** background refetch of the active filter-set (spinner only) */
     refetching: query.isFetching,
     /** the forced refresh is in flight */
-    refreshing: refresh.isPending,
+    refreshing: refreshMutation.isPending,
     /** route served a stale list after a failed fresh fetch (banner text) */
     staleError,
+    /** live query failed with no usable payload (banner + empty state) */
+    queryError,
     /** the forced refresh failed outright — the previous list stays up */
-    refreshError: refresh.error?.message,
+    refreshError: refreshMutation.error?.message,
     forceRefresh,
   };
-}
+};

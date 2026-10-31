@@ -23,6 +23,17 @@ export async function postJson<T>(url: string, body: string): Promise<T> {
   return (await res.json()) as T;
 }
 
+/** PATCH JSON, parse and return the payload, throwing on transport or HTTP errors. */
+export async function patchJson<T>(url: string, body: string): Promise<T> {
+  const res = await fetch(url, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body,
+  });
+  if (!res.ok) throw await errorOf(res);
+  return (await res.json()) as T;
+}
+
 /** A mutation/query failure's message for an `error`-slot UI prop — null when
  *  there is no failure at all. Guard clauses, so callers stay single-level. */
 export function errorMessageOf(error: unknown): string | null {

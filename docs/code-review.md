@@ -1153,9 +1153,9 @@ Original findings, verbatim:
 
 ### CR-037 [High] Tasks feed ignores query errors, so a failed provider fetch renders as "No tasks match the current filters"
 
-- **Status at `abaa007`:** **Open**, fix in [Task 43](review-tasks/43-tasks-feature.md)
-- **Current location:** components/tasks/hooks/use-live-tasks.ts:35-39,52-69, components/tasks/TasksView.tsx:53,111,137-148
-- **Re-verification note:** `useLiveTasks` still never returns `query.isError`/`query.error`; only `staleError` (payload.error) and the force-refresh mutation error reach `TasksView`, so a 502/500 with no cached data renders "No tasks match the current filters" with no banner or Retry. Return `queryError: query.error?.message`, fold it into `error` in TasksView, and keep rows visible on background failures.
+- **Status at `abaa007`:** **Fixed** (Task 43)
+- **Current location:** components/tasks/hooks/use-live-tasks.ts, components/tasks/TasksView.tsx
+- **Re-verification note:** `useLiveTasks` returns `queryError` from `query.error`; `TasksView` folds it into the banner and empty state. Background failures still keep prior rows via `keepPreviousData`.
 
 - **Severity:** High
 - **Category:** Correctness
@@ -4031,9 +4031,9 @@ Original findings, verbatim:
 
 ### CR-148 [Medium] Force-refresh race writes one filter-set's results into another filter-set's cache
 
-- **Status at `abaa007`:** **Open**, fix in [Task 43](review-tasks/43-tasks-feature.md)
-- **Current location:** components/tasks/hooks/use-live-tasks.ts:41-50, components/tasks/hooks/use-live-tasks.ts:67
-- **Re-verification note:** The refresh mutation still closes over `params` in `mutationFn` and writes to the render-bound `queryKey` in `onSuccess`. A filter change mid-refresh therefore writes the old filter's results into the new filter's cache. `refresh.error` is reset only on the next forced refresh, so the error banner persists across filter changes. Fix: pass `params` as the mutation variable, `setQueryData(queryKeys.tasks.live(vars))`, and `refresh.reset()` when `params` changes.
+- **Status at `abaa007`:** **Fixed** (Task 43)
+- **Current location:** components/tasks/hooks/use-live-tasks.ts
+- **Re-verification note:** Force refresh passes `params` as the mutation variable and writes to `queryKeys.tasks.live(refreshParams)` in `onSuccess`. `resetRefresh()` runs when `params` changes so refresh errors do not leak across filter sets.
 
 - **Severity:** Medium
 - **Category:** Correctness
@@ -4074,7 +4074,7 @@ Original findings, verbatim:
 
 ### CR-150 [Medium] Mutation failures swallowed: instance remove, connection test, and the task repo-pin PATCH
 
-- **Status at `abaa007`:** **Fixed** (settings integrations scope; repo-pin PATCH remains [Task 43](review-tasks/43-tasks-feature.md) / CR-153)
+- **Status at `abaa007`:** **Fixed** (settings integrations scope; repo-pin PATCH fixed in Task 43 / CR-153)
 - **Re-verification note:** `remove.mutate(i.id)` still has no `onError`, so a failed delete is silent. `callTestInstance` still awaits a bare `fetch` that can reject, and `runTest` has no `onError`, so an offline test just stops spinning with no badge. Fix: add `onError: (e) => onError(e.message)` to both removes, and wrap the test `fetch` in try/catch that returns `{ ok: false, detail }`.
 
 - **Severity:** Medium
@@ -4139,9 +4139,9 @@ Original findings, verbatim:
 
 ### CR-153 [Medium] Build start chain ignores the repo-pin PATCH result and parses non-JSON error bodies
 
-- **Status at `abaa007`:** **Open**, fix in [Task 43](review-tasks/43-tasks-feature.md)
-- **Current location:** components/tasks/hooks/use-start-build.ts:32-55
-- **Re-verification note:** The repo-pin `PATCH /api/tasks/:id` result is still never checked, so the flow is created even if pinning failed. Materialize and create-flow still do `.then((r) => r.json())` with no `res.ok`, so HTML 5xx bodies surface as a `SyntaxError`. Fix: use `postJson` from `@/hooks/fetch-json` for both POSTs, and add a throwing `patchJson` (or check `res.ok`) for the PATCH.
+- **Status at `abaa007`:** **Fixed** (Task 43)
+- **Current location:** components/tasks/utils/execute-start-build.ts, hooks/fetch-json.ts
+- **Re-verification note:** Materialize and create-flow use `postJson`; repo pin uses throwing `patchJson`. A failed PATCH aborts before flow creation; non-JSON HTTP errors surface as `Request failed (status)`.
 
 - **Severity:** Medium
 - **Category:** Correctness
@@ -7312,7 +7312,7 @@ One row per finding, at `abaa007`.
 | CR-034 | High | Accessibility | Fixed | [Task 39](review-tasks/39-editor-fields-and-effects.md) |
 | CR-035 | High | Bug | Fixed | [Task 42](review-tasks/42-settings-forms.md) |
 | CR-036 | High | Gap | Open | [Task 14](review-tasks/14-frontend-throwing-fetchers.md) |
-| CR-037 | High | Gap | Open | [Task 43](review-tasks/43-tasks-feature.md) |
+| CR-037 | High | Gap | Fixed | Task 43 |
 | CR-038 | High | Bug | Open | [Task 41](review-tasks/41-settings-data-and-errors.md) |
 | CR-039 | High | Infra | Fixed | — |
 | CR-040 | High | Bug | Fixed | [Task 06](review-tasks/06-db-path-and-seed-safety.md) |
@@ -7423,12 +7423,12 @@ One row per finding, at `abaa007`.
 | CR-145 | Medium | Performance | Open | [Task 40](review-tasks/40-editor-performance.md) |
 | CR-146 | Medium | Code quality | Fixed | [Task 39](review-tasks/39-editor-fields-and-effects.md) |
 | CR-147 | Medium | Bug | Fixed | [Task 42](review-tasks/42-settings-forms.md) |
-| CR-148 | Medium | Bug | Open | [Task 43](review-tasks/43-tasks-feature.md) |
+| CR-148 | Medium | Bug | Fixed | Task 43 |
 | CR-149 | Medium | Gap | Fixed | [Task 42](review-tasks/42-settings-forms.md) |
 | CR-150 | Medium | Gap | Fixed (settings integrations; repo-pin in [Task 43](review-tasks/43-tasks-feature.md)) | [Task 42](review-tasks/42-settings-forms.md) |
 | CR-151 | Medium | Bug | Open | [Task 41](review-tasks/41-settings-data-and-errors.md) |
 | CR-152 | Medium | Bug | Open | [Task 41](review-tasks/41-settings-data-and-errors.md) |
-| CR-153 | Medium | Bug | Open | [Task 43](review-tasks/43-tasks-feature.md) |
+| CR-153 | Medium | Bug | Fixed | Task 43 |
 | CR-154 | Medium | Security | Open | [Task 61](review-tasks/61-security-secrets-at-rest-and-rendering.md) |
 | CR-155 | Medium | Code quality | Open | [Task 55](review-tasks/55-frontend-constants-and-types.md) |
 | CR-156 | Medium | Accessibility | Open | [Task 52](review-tasks/52-shared-ui-components.md) |

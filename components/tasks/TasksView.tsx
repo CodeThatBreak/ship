@@ -50,8 +50,17 @@ export function TasksView({
   const [text, setText] = useState("");
   const [buildTarget, setBuildTarget] = useState<LiveTask | null>(null);
 
-  const { tasks, payload, pending, refetching, refreshing, staleError, refreshError, forceRefresh } =
-    useLiveTasks(filters, text);
+  const {
+    tasks,
+    payload,
+    pending,
+    refetching,
+    refreshing,
+    staleError,
+    queryError,
+    refreshError,
+    forceRefresh,
+  } = useLiveTasks(filters, text);
 
   // debounced text filter
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -108,7 +117,7 @@ export function TasksView({
     [openBuild],
   );
 
-  const error = staleError ?? refreshError ?? null;
+  const error = staleError ?? refreshError ?? queryError ?? null;
   const refreshingSpinner = refetching || refreshing;
 
   return (

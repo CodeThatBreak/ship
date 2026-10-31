@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { fetchJson } from "@/hooks/fetch-json";
+import { fetchJson, patchJson, postJson } from "@/hooks/fetch-json";
 import { fetchJsonOr, settingsQueryOptions } from "@/components/settings/queries";
 import {
   repoChoicesQueryOptions,
@@ -17,6 +17,28 @@ describe("frontend throwing fetchers (Task 14)", () => {
       vi.fn(async () => new Response(JSON.stringify({ error: "nope" }), { status: 500 })),
     );
     await expect(fetchJson("/api/example")).rejects.toThrow("nope");
+  });
+
+  it("postJson and patchJson throw with server messages on non-OK bodies (CR-153)", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (_input, init) => {
+        if (init?.method === "PATCH") {
+          return new Response(JSON.stringify({ error: "bad patch" }), { status: 400 });
+        }
+        return new Response(JSON.stringify({ error: "bad post" }), { status: 502 });
+      }),
+    );
+    await expect(postJson("/api/tasks/materialize", "{}")).rejects.toThrow("bad post");
+    await expect(patchJson("/api/tasks/1", "{}")).rejects.toThrow("bad patch");
+  });
+
+  it("postJson rejects HTML error pages without a JSON parse failure (CR-153)", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response("<html>error</html>", { status: 500 })),
+    );
+    await expect(postJson("/api/flows", "{}")).rejects.toThrow("Request failed (500)");
   });
 
   it("fetchJsonOr keeps the resilient fallback for one-off reads (CR-036)", async () => {
