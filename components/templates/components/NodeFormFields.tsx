@@ -7,11 +7,9 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import {
-  type NodeContract,
-  type NodeTemplateKind,
-  DeclarativeConfigFields,
-} from "@/components/template-editor";
+import type { NodeContract } from "@/components/templateEditor/types";
+import type { NodeTemplateKind } from "@/components/templateEditor/boilerplate";
+import { DeclarativeConfigFields } from "@/components/templateEditor/DeclarativeConfigFields";
 import { NODE_KINDS } from "../constants";
 import type { NodeFormState } from "../types";
 

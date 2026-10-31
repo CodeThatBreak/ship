@@ -1,7 +1,7 @@
 "use client";
 import { Check, CheckCircle2, Circle } from "lucide-react";
 import type { PlanStepRow } from "@/types/flow";
-import { PLAN_STEP_COMPLETED_BY, PLAN_STEP_ORIGIN, PLAN_STEP_STATUS } from "../../constants";
+import { PLAN_STEP_COMPLETED_BY, PLAN_STEP_ORIGIN, PLAN_STEP_STATUS } from "../../constants/planConstants";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";

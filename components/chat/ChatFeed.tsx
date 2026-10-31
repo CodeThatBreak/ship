@@ -12,13 +12,13 @@ import {
   MessageScrollerViewport,
 } from '@/components/ui/message-scroller';
 import ChatFeedSkeleton from './ChatFeedSkeleton';
-import { InlineError } from '@/components/shared';
+import { InlineError } from "@/components/shared/InlineError";
 import PendingRow from './PendingRow';
 import ChatMessageRow from './ChatMessageRow';
 import RunSectionRow from './RunSectionRow';
 import FlowEventRow from './FlowEventRow';
 import type { TimelineRow } from './timeline';
-import { timelineRowKey } from './timeline-keys';
+import { timelineRowKey } from './timelineKeys';
 
 /** The unified timeline (chat messages interleaved with run sections and
  *  flow-level events) inside the message scroller, with the transcript's

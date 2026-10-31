@@ -1,13 +1,13 @@
 import "server-only";
 
-import type { NodeDefinition } from "./shared";
-import { PlanNode } from "./kinds/plan";
-import { BuildNode } from "./kinds/build";
-import { StepBuildNode } from "./kinds/build/step-build-node";
-import { PipelineNode } from "./kinds/pipeline";
-import { ReviewNode } from "./kinds/review";
-import { ResolveNode } from "./kinds/resolve";
-import { StartNode } from "./kinds/start";
+import type { NodeDefinition } from "./shared/nodeSharedExports";
+import { PlanNode } from "./kinds/plan/planExports";
+import { BuildNode } from "./kinds/build/buildExports";
+import { StepBuildNode } from "./kinds/build/stepBuildNode";
+import { PipelineNode } from "./kinds/pipeline/pipelineExports";
+import { ReviewNode } from "./kinds/review/reviewExports";
+import { ResolveNode } from "./kinds/resolve/resolveExports";
+import { StartNode } from "./kinds/start/startExports";
 
 type DeclarativeResolver = (key: string, inst?: string) => AnyNodeDef | undefined;
 

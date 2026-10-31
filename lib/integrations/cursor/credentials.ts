@@ -1,8 +1,8 @@
 import "server-only";
 
-import type { IntegrationSecretStore } from "../../db/integration-secret-store";
+import type { IntegrationSecretStore } from "../../db/integrationSecretStore";
 import { processSingleton } from "../../singleton";
-import { db } from "../../db";
+import { db } from "../../db/app";
 
 /**
  * The Cursor API key resolution: stored on Settings → Integrations → Harness

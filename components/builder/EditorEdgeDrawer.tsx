@@ -15,14 +15,10 @@ import {
   SheetHeader,
   SheetTitle,
 } from "@/components/ui/sheet";
-import {
-  EdgeEditor,
-  type EditorEdge,
-  type EditorNode,
-  type TaskProviderInfo,
-} from "@/components/template-editor";
-import type { TriggerField } from "./hooks/use-instance-contracts";
-import { SheetFooterHelper } from "@/components/shared";
+import { EdgeEditor } from "@/components/templateEditor/EdgeEditor";
+import type { EditorEdge, EditorNode, TaskProviderInfo } from "@/components/templateEditor/types";
+import type { TriggerField } from "./hooks/useInstanceContracts";
+import { SheetFooterHelper } from "@/components/shared/SheetFooterHelper";
 
 export interface EditorEdgeDrawerProps {
   edge: EditorEdge;

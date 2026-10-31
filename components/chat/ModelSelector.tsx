@@ -3,22 +3,22 @@
 import * as React from "react";
 
 import { cn } from "@/lib/utils";
-import type { CatalogModel, ModelChoice } from "@/types/model-spec";
+import type { CatalogModel, ModelChoice } from "@/types/modelSpec";
 import { useModelCatalog } from "./hooks/useModelCatalog";
-import { ModelMenu } from "./model-selector/ModelMenu";
-import { ModelOptionsMenu } from "./model-selector/ModelOptionsMenu";
-import type { ModelParameterDefinition } from "./model-selector/model-params";
+import { ModelMenu } from "./modelSelector/ModelMenu";
+import { ModelOptionsMenu } from "./modelSelector/ModelOptionsMenu";
+import type { ModelParameterDefinition } from "./modelSelector/modelParams";
 import {
   defaultParamsOf,
   paramsOf,
   providerOf,
-} from "./model-selector/model-params";
+} from "./modelSelector/modelParams";
 
 /** Placeholder model shown when the catalog carries nothing usable. */
 const NO_MODEL: CatalogModel = { id: "", displayName: "Model" };
 
 /** Back-compat re-export (the definition moved to `model-selector/`). */
-export type { ModelParameterDefinition } from "./model-selector/model-params";
+export type { ModelParameterDefinition } from "./modelSelector/modelParams";
 
 /**
  * Model Selector — the shadcn/ui AI Elements pattern

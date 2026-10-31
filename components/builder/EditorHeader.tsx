@@ -9,7 +9,7 @@ import { ArrowLeft, LayoutTemplate, Lock, Redo2, Save, Settings2, Undo2 } from "
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Spinner } from "@/components/ui/spinner";
-import type { LayoutSync } from "@/components/template-editor";
+import type { LayoutSync } from "@/components/templateEditor/hooks/useNodePositions";
 
 export interface EditorHeaderProps {
   template: {

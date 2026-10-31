@@ -14,7 +14,7 @@ import { useNodePanel } from './context';
 import FanoutStepList from './FanoutStepList';
 import { FLOW_ACTION, FLOW_STATUS, isFailedStatus, statusVariantOf } from '@/constants/flow';
 import { FLOW_EVENT_TYPE } from '@/constants/events';
-import { EmptyHint } from '@/components/shared';
+import { EmptyHint } from "@/components/shared/EmptyHint";
 
 /**
  * The build panel: the agent's diff per branch, the structured plan checklist

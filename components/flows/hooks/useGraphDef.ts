@@ -1,6 +1,6 @@
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
-import { queryKeys } from "@/constants/query-keys";
-import { fetchJson } from "@/hooks/fetch-json";
+import { queryKeys } from "@/constants/queryKeys";
+import { fetchJson } from "@/hooks/fetchJson";
 
 // The graph definition is a static template snapshot; refsresh it between
 // session visits (the flow's own graph) but keep one per session otherwise.

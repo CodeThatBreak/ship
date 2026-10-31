@@ -18,7 +18,7 @@ import { ResetButton } from './components/ResetButton';
 import { ChatSkeleton } from './components/ChatSkeleton';
 import { InputGroup, InputGroupAddon, InputGroupTextarea } from '@/components/ui/input-group';
 
-import type { ModelChoice } from '@/types/model-spec';
+import type { ModelChoice } from '@/types/modelSpec';
 import type { ChatInputHandle } from '../../types';
 import type { ChatAction } from '../../types/action';
 

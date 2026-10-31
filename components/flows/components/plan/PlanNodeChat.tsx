@@ -1,9 +1,10 @@
 'use client';
 import { useMemo } from 'react';
-import { ChatPanel, ChatPanelSkeleton } from '@/components/chat';
+import ChatPanel from "@/components/chat/ChatPanel";
+import ChatPanelSkeleton from "@/components/chat/ChatPanelSkeleton";
 import { useNodePanel, useNodeChatBindings } from '../../panels';
-import { usePlanComposer } from './hooks/usePlanComposer';
-import type { BranchPlan } from './types';
+import { usePlanComposer } from './hooks/usePlanComposer/planComposerExports';
+import type { BranchPlan } from './types/planTypes';
 
 import { MAIN_THREAD_CONFIG, REFINE_HINT } from './constants/thread';
 

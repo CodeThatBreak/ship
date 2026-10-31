@@ -21,7 +21,7 @@ process.env.DATABASE_PATH = path.join(
 );
 
 const { nodeRegistry } = await import("./registry");
-const { NODE_KEYS, STEP_BUILD_TEMPLATE_ID } = await import("../constants/node-keys");
+const { NODE_KEYS, STEP_BUILD_TEMPLATE_ID } = await import("../constants/nodeKeys");
 
 describe("NodeDefinition engine-dispatch metadata (T3)", () => {
   it("the first def holding each SDLC chain role is the built-in kind", () => {

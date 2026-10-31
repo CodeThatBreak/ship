@@ -1,8 +1,8 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 
-import { postJson } from "@/hooks/fetch-json";
+import { postJson } from "@/hooks/fetchJson";
 
-import { invalidateFlowDetail, invalidateFlowPrompts } from "@/hooks/invalidate-flow-queries";
+import { invalidateFlowDetail, invalidateFlowPrompts } from "@/hooks/invalidateFlowQueries";
 
 type FlowActionBody = { action: string } & Record<string, unknown>;
 

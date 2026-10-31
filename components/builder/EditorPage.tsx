@@ -18,20 +18,18 @@
  */
 import { useCallback, useMemo, useRef, useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
-import { errorMessageOf } from "@/hooks/fetch-json";
+import { errorMessageOf } from "@/hooks/fetchJson";
 import {
   useNavigationGuard,
   type BlockedNavigation,
-} from "@/hooks/use-navigation-guard";
-import {
-  isPlanDownstream,
-  nodeRelationships,
-  type BuilderApi,
-  type IncomingLink,
-} from "@/components/template-editor";
-import { useTemplateDraft, type Draft } from "@/components/template-editor";
-import { useNodePositions } from "@/components/template-editor";
-import { useTemplateValidation } from "@/components/template-editor";
+} from "@/hooks/useNavigationGuard";
+import { isPlanDownstream, nodeRelationships } from "@/components/templateEditor/types";
+import type { BuilderApi } from "@/components/templateEditor/BuilderCanvas";
+import type { IncomingLink } from "@/components/templateEditor/NodeConfigurator";
+import { useTemplateDraft } from "@/components/templateEditor/hooks/useTemplateDraft";
+import type { Draft } from "@/components/templateEditor/draft";
+import { useNodePositions } from "@/components/templateEditor/hooks/useNodePositions";
+import { useTemplateValidation } from "@/components/templateEditor/hooks/useTemplateValidation";
 import { EditorHeader } from "./EditorHeader";
 import { EditorNotices } from "./EditorNotices";
 import { EditorCanvas } from "./EditorCanvas";
@@ -47,11 +45,11 @@ import {
   useRepoChoices,
   useTaskProviders,
   useTemplateDetail,
-} from "./hooks/use-editor-queries";
-import { useInstanceContracts } from "./hooks/use-instance-contracts";
-import { useEditorActions } from "./hooks/use-editor-actions";
-import { useEditorSave } from "./hooks/use-editor-save";
-import { usePendingWriteFlushes } from "./hooks/use-pending-write-flushes";
+} from "./hooks/useEditorQueries";
+import { useInstanceContracts } from "./hooks/useInstanceContracts";
+import { useEditorActions } from "./hooks/useEditorActions";
+import { useEditorSave } from "./hooks/useEditorSave";
+import { usePendingWriteFlushes } from "./hooks/usePendingWriteFlushes";
 
 export interface TemplateEditorProps {
   /** the owning template's route param — validated server-side (page.tsx) */

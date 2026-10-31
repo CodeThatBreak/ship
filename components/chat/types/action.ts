@@ -1,4 +1,4 @@
-import type { ModelChoice } from '@/types/model-spec';
+import type { ModelChoice } from '@/types/modelSpec';
 
 import { ACTION_TYPES } from '../constants/action';
 

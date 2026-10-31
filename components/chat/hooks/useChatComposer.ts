@@ -1,10 +1,10 @@
 'use client';
 
 import { useState, useCallback } from 'react';
-import { useSendChatMessage } from '@/hooks/use-flow-chat';
+import { useSendChatMessage } from '@/hooks/useFlowChat';
 import { composeModelChoice } from '@/lib/modelSpec';
 import useLatest from '@/hooks/utility/useLatest';
-import type { ModelChoice } from '@/types/model-spec';
+import type { ModelChoice } from '@/types/modelSpec';
 
 type SendMutationVariables = {
   flowId: string;

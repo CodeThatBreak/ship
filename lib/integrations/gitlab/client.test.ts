@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { GitHostApiError, GitHostTimeoutError } from "../../engine/ports/git-host-errors";
+import { GitHostApiError, GitHostTimeoutError } from "../../engine/ports/gitHostErrors";
 import { GITLAB_HTTP_TIMEOUT_MS } from "./constants";
 import { GitLabClient } from "./client";
 

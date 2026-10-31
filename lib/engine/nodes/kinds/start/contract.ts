@@ -4,4 +4,4 @@
  */
 import "server-only";
 
-export * from "@/types/start-contract";
+export * from "@/types/startContract";

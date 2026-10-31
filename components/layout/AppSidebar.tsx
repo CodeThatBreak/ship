@@ -14,7 +14,7 @@ import {
   type LucideIcon,
 } from "lucide-react";
 import { APP_ROUTES } from "@/constants/routes";
-import { pickActiveNavHref } from "./utils/active-nav-href";
+import { pickActiveNavHref } from "./utils/activeNavHref";
 import { cn } from "@/lib/utils";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { APP_SHELL } from "./constants/shell";

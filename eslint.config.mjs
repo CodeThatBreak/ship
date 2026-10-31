@@ -1,8 +1,8 @@
 import { dirname } from "path";
 import { fileURLToPath } from "url";
 import { FlatCompat } from "@eslint/eslintrc";
-import { FROZEN_PHASE0_OFFENDERS } from "./eslint/frozen-phase0-offenders.mjs";
-import { devflowPlugin } from "./eslint/rules/devflow-plugin.mjs";
+import { FROZEN_PHASE0_OFFENDERS } from "./eslint/frozenPhase0Offenders.mjs";
+import { devflowPlugin } from "./eslint/rules/devflowPlugin.mjs";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -13,9 +13,6 @@ const compat = new FlatCompat({
 
 const UI_PRIMITIVES_MESSAGE =
   "components/ui/ holds shadcn primitives only. Put custom code in components/, components/shared/ or a feature folder.";
-
-const FEATURE_BARREL_MESSAGE =
-  "Import feature code through the feature's index barrel, not through deep paths.";
 
 const PHASE0_DOWNGRADED_RULES = {
   "react-hooks/exhaustive-deps": "warn",
@@ -39,18 +36,22 @@ const LIB_CLIENT_IMPORT_PATTERNS = [
   },
 ];
 
+const NO_BARREL_MESSAGE =
+  "Do not import through index barrels or bare feature paths — import the concrete module file (see AGENTS.md §2.3).";
+
 const FEATURE_BARREL_PATTERNS = [
   {
-    group: [
-      "@/components/*/*",
-      "@/components/*/*/**",
-      "!@/components/ui",
-      "!@/components/ui/**",
-      "!@/components/settings/general",
-      "!@/components/settings/integrations",
-      "!@/components/settings/repos",
-    ],
-    message: FEATURE_BARREL_MESSAGE,
+    regex:
+      "^@/components/(builder|chat|flows|layout|settings|shared|tasks|templateEditor|templates)$",
+    message: NO_BARREL_MESSAGE,
+  },
+  {
+    regex: "^@/components/shared/dataTable$",
+    message: NO_BARREL_MESSAGE,
+  },
+  {
+    regex: "/index$",
+    message: NO_BARREL_MESSAGE,
   },
 ];
 
@@ -60,10 +61,11 @@ const eslintConfig = [
       ".next/**",
       "out/**",
       "next-env.d.ts",
+      "nextEnv.d.ts",
       "tsconfig.tsbuildinfo",
       "workspaces/**",
       "data/**",
-      "lib/eslint-policy-probe.ts",
+      "lib/eslintPolicyProbe.ts",
     ],
   },
 
@@ -90,7 +92,7 @@ const eslintConfig = [
 
   {
     files: ["lib/**/*.ts", "lib/**/*.tsx"],
-    ignores: ["lib/eslint-policy-probe.ts"],
+    ignores: ["lib/eslintPolicyProbe.ts"],
     languageOptions: {
       parserOptions: {
         projectService: true,
@@ -140,9 +142,7 @@ const eslintConfig = [
     },
   },
 
-  // Feature folders export through an index barrel. Deep imports from other
-  // files are blocked; feature-internal code uses relative imports.
-  //
+  // No barrel imports (AGENTS.md §2.3). Deep paths to concrete modules are allowed.
   // lib/ is server-only: better-sqlite3, node APIs and env access must never
   // be pulled into client bundles via app/ or components/.
   // Allowlist (client-safe lib modules — pure, no server imports; see AGENTS.md

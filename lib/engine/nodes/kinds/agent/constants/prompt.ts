@@ -1,6 +1,6 @@
 import "server-only";
 
-import type { ConfigField } from "../../../../templates/node-config";
+import type { ConfigField } from "../../../../templates/nodeConfig";
 
 /** The agent node's "Prompt" knob — the `{{...}}`-interpolated prompt body. */
 export const PROMPT_CONFIG_FIELD: ConfigField = {

@@ -2,7 +2,8 @@
 import { useState } from "react";
 import { CheckCheck, Pencil, Play, Sparkles } from "lucide-react";
 import type { Artifact, PlanStepRow } from "@/types/flow";
-import { Markdown, EmptyHint } from "@/components/shared";
+import { Markdown } from "@/components/shared/Markdown";
+import { EmptyHint } from "@/components/shared/EmptyHint";
 import { PanelShell, ArtifactLoader, VersionTabs } from "./shared";
 import type { ArtifactPayload } from "./shared";
 import { useNodePanel } from "./context";

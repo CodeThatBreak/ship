@@ -1,6 +1,6 @@
 "use client";
 
-import { RouteError } from "@/components/shared";
+import { RouteError } from "@/components/shared/RouteError";
 
 /** Flow cockpit error boundary: message + retry + way back (AGENTS.md §2.8). */
 export default function FlowError({

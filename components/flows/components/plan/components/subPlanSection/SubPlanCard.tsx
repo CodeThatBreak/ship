@@ -1,11 +1,11 @@
 'use client';
 import { ArrowRightLeft, ChevronDown, ChevronRight } from 'lucide-react';
-import type { BranchPlan } from '../../types';
+import type { BranchPlan } from '../../types/planTypes';
 import type { ScopedDiff } from '../../utils/branchDiff';
 import { Badge } from '@/components/ui/badge';
 import { Card } from '@/components/ui/card';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { Markdown } from '@/components/shared';
+import { Markdown } from "@/components/shared/Markdown";
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 
 /**

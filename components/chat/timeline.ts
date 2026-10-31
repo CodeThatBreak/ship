@@ -10,7 +10,7 @@
  * single seam until its consumers collapse onto `@/lib/groupEvents` (Phase 6
  * checklist).
  */
-import type { ChatMessage } from "@/hooks/use-flow-chat";
+import type { ChatMessage } from "@/hooks/useFlowChat";
 import { FLOW_STATUS } from "@/constants/flow";
 import {
   eventGrouper,

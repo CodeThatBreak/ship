@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { commentService } from "@/lib/comments";
+import { commentService } from "@/lib/comments/commentService";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";

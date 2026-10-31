@@ -1,6 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
-import { queryKeys } from "@/constants/query-keys";
-import { fetchJson } from "@/hooks/fetch-json";
+import { queryKeys } from "@/constants/queryKeys";
+import { fetchJson } from "@/hooks/fetchJson";
 
 const STATUS_REFETCH_MS = 5000;
 

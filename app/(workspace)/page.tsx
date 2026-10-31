@@ -2,7 +2,7 @@ import Link from "next/link";
 import { APP_ROUTES } from "@/constants/routes";
 import { loadTasksBoot } from "@/loaders/tasks";
 import { Alert } from "@/components/ui/alert";
-import { TasksView } from "@/components/tasks";
+import { TasksView } from "@/components/tasks/TasksView";
 import type { TaskProviderInfo } from "@/types/tasks";
 
 export const dynamic = "force-dynamic";

@@ -1,12 +1,12 @@
 import "server-only";
 
-import { db } from "../../../db";
+import { db } from "../../../db/app";
 import type { Task } from "../../../db/rows";
 import { UpstreamError, ValidationError } from "../../../errors";
-import { baseUrlOverrideRequiresToken } from "../../../integrations/instance-credential-policy";
-import { truncateUpstreamBody } from "../../../engine/ports/git-host-errors";
-import { AdfRenderer } from "../../../integrations/jira/adf-renderer";
-import { jiraAuthHeaders, jiraSearchPath } from "../../../integrations/jira/api-profile";
+import { baseUrlOverrideRequiresToken } from "../../../integrations/instanceCredentialPolicy";
+import { truncateUpstreamBody } from "../../../engine/ports/gitHostErrors";
+import { AdfRenderer } from "../../../integrations/jira/adfRenderer";
+import { jiraAuthHeaders, jiraSearchPath } from "../../../integrations/jira/apiProfile";
 import { JIRA_HTTP_TIMEOUT_MS } from "../../../integrations/jira/constants";
 import { jira } from "../../../integrations/jira/singleton";
 import { maskToken } from "../../../integrations/jira/service";
@@ -17,7 +17,7 @@ import {
   type ProviderInstance,
   type TaskField,
   type TaskInstanceStore,
-} from "../task-provider";
+} from "../taskProvider";
 
 /**
  * The Jira task provider — moved verbatim from lib/integrations/jira.ts

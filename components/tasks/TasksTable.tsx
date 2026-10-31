@@ -2,7 +2,7 @@
 import type { ColumnDef } from "@tanstack/react-table";
 import { CornerDownRight } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
-import { DataTable, type DataTableAction } from "@/components/shared";
+import { DataTable, type DataTableAction } from "@/components/shared/dataTable/DataTable";
 import type { LiveTask } from "@/types/tasks";
 import { PriorityBadge } from "./PriorityBadge";
 import { StatusBadge } from "./StatusBadge";

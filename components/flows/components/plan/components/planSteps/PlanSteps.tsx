@@ -1,7 +1,7 @@
 "use client";
 import { ListChecks, Pencil, Plus, Save, X } from "lucide-react";
 import type { PlanStepRow } from "@/types/flow";
-import { PLAN_STEP_STATUS } from "../../constants";
+import { PLAN_STEP_STATUS } from "../../constants/planConstants";
 import { ACTION_TYPES } from "../../constants/action";
 import { PlanStepItem } from "./PlanStepItem";
 import { PlanStepDraftRow } from "./PlanStepDraftRow";

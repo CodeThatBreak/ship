@@ -4,7 +4,7 @@ import { DecisionView } from "./DecisionView";
 import { HttpView } from "./HttpView";
 import { ScriptView } from "./ScriptView";
 import { useNodePanel } from "./context";
-import { NODE_KIND } from "@/constants/node-kind";
+import { NODE_KIND } from "@/constants/nodeKind";
 
 /**
  * Phase 3 runtime panels for the declarative kinds (§8): the kind switch

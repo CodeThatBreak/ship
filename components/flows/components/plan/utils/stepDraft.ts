@@ -1,5 +1,5 @@
 import type { PlanStepRow } from "@/types/flow";
-import type { PlanStepPayload } from "../types";
+import type { PlanStepPayload } from "../types/planTypes";
 
 /** A plan-step row serialized as an editable draft form. */
 export interface PlanStepDraft {

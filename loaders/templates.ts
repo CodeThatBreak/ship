@@ -9,15 +9,15 @@ import "server-only";
  * Server-only: never import from client code (the page passes the result
  * through dehydrate/HydrationBoundary instead).
  */
-import { templateStore } from "@/lib/engine/templates/template-store";
+import { templateStore } from "@/lib/engine/templates/templateStore";
 import { taskRegistry } from "@/lib/engine/tasks/registry";
-import { db } from "@/lib/db";
+import { db } from "@/lib/db/app";
 import type {
   EditorRepoChoice,
   EditorTaskProvider,
   TemplateCatalogDetail,
   TemplateEditorDetail,
-} from "@/types/template-editor";
+} from "@/types/templateEditor";
 import type { NodeRow, TemplateRow } from "@/types/templates";
 
 /** Registered task providers — the same serialization GET /api/tasks/providers does. */

@@ -1,6 +1,6 @@
 'use client';
 import { Check, ChevronDown } from 'lucide-react';
-import { EXECUTION_KNOB, EXECUTION_MODE, EXECUTION_SOURCE, type PlanExecutionMode } from '../constants';
+import { EXECUTION_KNOB, EXECUTION_MODE, EXECUTION_SOURCE, type PlanExecutionMode } from '../constants/planConstants';
 import { executionLabel } from '../utils/planExecution';
 import { Button } from '@/components/ui/button';
 import { ButtonGroup } from '@/components/ui/button-group';

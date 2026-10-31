@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
-import { gitHostRegistry } from "../../../../lib/engine/ports/git-host";
-import { flowEngine } from "../../../../lib/engine/flow-engine";
+import { gitHostRegistry } from "../../../../lib/engine/ports/gitHost";
+import { flowEngine } from "../../../../lib/engine/flowEngine";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";

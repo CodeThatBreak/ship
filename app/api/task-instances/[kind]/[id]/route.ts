@@ -3,11 +3,11 @@ import { parseJson } from "@/lib/http/parse";
 import {
   resolveInstanceTestBaseUrl,
   validateTaskInstanceBaseUrl,
-} from "@/lib/integrations/instance-route-validation";
+} from "@/lib/integrations/instanceRouteValidation";
 import {
   taskInstancePatchBodySchema,
   taskInstanceTestBodySchema,
-} from "@/lib/schemas/integration-instance";
+} from "@/lib/schemas/integrationInstance";
 import { NextResponse } from "next/server";
 import { taskRegistry } from "../../../../../lib/engine/tasks/registry";
 

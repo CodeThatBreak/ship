@@ -1,6 +1,6 @@
 "use client";
 
-import { RouteError } from "@/components/shared";
+import { RouteError } from "@/components/shared/RouteError";
 
 /** Workspace error boundary (renders inside the sidebar shell). */
 export default function WorkspaceError({

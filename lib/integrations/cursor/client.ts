@@ -8,7 +8,7 @@ import {
 } from "../cursorSdk";
 import { parseModelSpec } from "../../modelSpec";
 import { processSingleton } from "../../singleton";
-import type { AgentRunQuery } from "../../engine/ports/agent-port";
+import type { AgentRunQuery } from "../../engine/ports/agentPort";
 
 // ── cloud run result / usage shapes (SDK-native, re-exported) ───────────────
 // The cloud integration is now a thin adapter over the unified CursorAgentService

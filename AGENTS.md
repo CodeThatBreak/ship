@@ -89,25 +89,24 @@ export function NodePanel({ nodeId }: { nodeId: string }) {
 ```
 components/
   <feature>/              # group by feature or domain, not by file type
-    index.ts              # small public barrel: only what other features consume
     <Feature>.tsx         # top-level component
     components/           # subcomponents used only by this feature
-    hooks/                # feature-local hooks
-    utils/                # feature-local pure helpers (no React, no fetching)
-    constants/            # feature constants — barrel the values the feature exports
-    types/                # feature-local types — barrel the domain types it exports
-  ui/                     # shadcn primitives ONLY. Do not add custom components here.
+    hooks/                # feature-local hooks (useThing.ts)
+    utils/                # feature-local pure helpers
+    constants/            # named files, e.g. constants/planConstants.ts
+    types/                # named files, e.g. types/planTypes.ts
+  ui/                     # shadcn primitives ONLY (kebab-case filenames — do not rename)
   shared/                 # generic custom components (see 2.4)
-hooks/                    # shared cross-feature hooks (useThing.ts, camelCase)
-constants/                # shared app-wide constants
-types/                    # shared app-wide types
+hooks/                    # shared cross-feature hooks (camelCase)
+constants/                # shared app-wide constants (camelCase files)
+types/                    # shared app-wide types (camelCase files)
 lib/                      # backend and shared utilities (see section 3)
 ```
 
-- Feature folders are uniform: `components/` for subcomponents, `hooks/` for hooks (the `use` prefix, `hooks/useThing.ts`), `utils/` for pure helpers and utilities (plain TS only — no React, no fetching, no domain constants), `constants/` and `types/` for domain values and shared types. The constants and types directories barrel through `constants/index.ts` and `types/index.ts`, so feature code imports `../constants` / `../types`; a single-domain feature keeps one file per directory. Shared constants: `constants/<domain>.ts`. Shared types: `types/<domain>.ts`.
+- Feature folders are uniform: `components/` for subcomponents, `hooks/` for hooks (`hooks/useThing.ts`), `utils/` for pure helpers, `constants/` and `types/` for domain values with **named module files** (not `index.ts` aggregators).
 - Feature-local helpers stay in the feature folder until a second consumer exists.
-- Never deep-import across features. Go through the feature's `index.ts`.
-- Keep barrels small. Export only the public surface, never everything.
+- **No barrel imports.** Do not import from `index.ts`, from a directory path that resolves to a barrel, or from `@/components/<feature>` without a concrete file. Import the defining module (e.g. `@/components/shared/Modal`, `@/lib/settings/settingsService`). Feature-internal code uses relative paths to the same concrete files.
+- Cross-feature imports go directly to the owning module file, not through a re-export hub.
 
 ### 2.4 Generic Components Belong in `components/shared/`
 
@@ -200,7 +199,8 @@ export function NodePanelSkeleton() {
   - A component file is named after its export in PascalCase — `PlanView.tsx` exports `PlanView`, `MasterPlanSection.tsx` exports `MasterPlanSection`.
   - Component names (the exports) always start with a capital letter in PascalCase: `PlanView`, `SubPlanCard`.
   - Hook files are camelCase with the `use` prefix mirroring the hook name: `useExecutionPick.ts` exports `useExecutionPick`. Never `use-execution-pick.ts`.
-  - Constants/types/utils files are camelCase lowercase (`constants/<domain>.ts`, `utils/<name>.ts`).
+  - Constants, types, utils, and **all other non-component modules** (including `lib/**` and scripts that are TS) use camelCase filenames (`constants/queryKeys.ts`, `lib/engine/flowEngine.ts`).
+  - **Folders** under `components/`, `lib/`, and `hooks/` use camelCase (`templateEditor/`, `workflowGraph/`). Do not rename `components/ui/**` or Next.js `app/api/**` route segments (URL paths).
 - Tailwind: follow existing utility patterns. Extract repeated class strings into a constant or `cn()`. Never create a new CSS file.
 - Accessibility: interactive elements need labels and keyboard handling. Use `button`, not `div` with `onClick`.
 - No `any`. Use proper types, or `unknown` with narrowing as a last resort.
@@ -241,6 +241,7 @@ When your task touches a file, fix violations of this section in the lines you t
 | Hooks or browser APIs in a non-`"use client"` file          | Add directive or split server and client      |
 | Conditional hooks or hooks after early returns              | Reorder                                       |
 | `??` / `?.` fallbacks hiding missing data                   | Early guard clause, fail loudly (see 2.9)     |
+| Barrel or `index.ts` re-export imports                      | Import the concrete defining module           |
 
 ---
 
@@ -277,7 +278,7 @@ export class FlowService {
 - **Composition over inheritance.** Use `abstract` base classes only for genuine shared polymorphic behavior (see `lib/engine/nodes/shared`).
 - **Interfaces for boundaries:** one interface per external port (task providers, node registry, git host integrations). Depend on the interface. Follow the patterns in `lib/engine/tasks/task-provider.ts` and `lib/engine/ports/`.
 - **Registries over type-string `switch`:** new node and task kinds register into `lib/engine/nodes/registry.ts` and `lib/engine/tasks/registry.ts` instead of adding branches.
-- **One class per file**, named after the class in kebab-case (`flow-poller.ts` exports `FlowPoller`).
+- **One class per file**, named after the class in camelCase (`flowPoller.ts` exports `FlowPoller`). Pure helpers: camelCase module names (`readCappedBody.ts`).
 - **Errors:** throw typed error classes. Routes catch them and map to HTTP responses.
 - **Thin route handlers:** `app/api/**/route.ts` only parses and validates input, calls a service method, and serializes the response. No business logic.
 - Module-level string constants for repeated domain values (see 2.7).

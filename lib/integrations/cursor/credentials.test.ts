@@ -16,7 +16,7 @@ describe("CursorCredentials", () => {
   it("stores, reads, and clears the API key", async () => {
     const dbPath = mkDbPath();
     process.env.DATABASE_PATH = dbPath;
-    const { db } = await import("../../db");
+    const { db } = await import("../../db/app");
     db.connection();
 
     const creds = new CursorCredentials(db.integrationSecrets);
@@ -32,7 +32,7 @@ describe("CursorCredentials", () => {
   it("clear removes the stored key", async () => {
     const dbPath = mkDbPath();
     process.env.DATABASE_PATH = dbPath;
-    const { db } = await import("../../db");
+    const { db } = await import("../../db/app");
     db.connection();
 
     const creds = new CursorCredentials(db.integrationSecrets);

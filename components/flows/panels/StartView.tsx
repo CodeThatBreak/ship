@@ -2,7 +2,7 @@
 import { useMemo, useState } from "react";
 import { AlertTriangle, Braces, Play } from "lucide-react";
 import type { Node } from "@/types/flow";
-import { parseStartContract, type StartContractField } from "@/types/start-contract";
+import { parseStartContract, type StartContractField } from "@/types/startContract";
 import { Alert } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";

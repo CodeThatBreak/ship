@@ -18,7 +18,7 @@ import GroupRow from './GroupRow';
 import ToolRow from './ToolRow';
 import EventRow from './EventRow';
 import type { FeedItem, RunSection } from './timeline';
-import { feedItemKey } from './timeline-keys';
+import { feedItemKey } from './timelineKeys';
 
 /** Run section = the shadcn Task pattern over Trace. */
 export default function RunSectionRow({ section }: { section: RunSection }) {

@@ -13,8 +13,8 @@ import type { Database } from "./database";
  * stay as TEXT strings.
  */
 
-import { RowDecodeError, rowIdFromRaw } from "./row-decode-error";
-import { getRowGateway } from "./row-gateway-access";
+import { RowDecodeError, rowIdFromRaw } from "./rowDecodeError";
+import { getRowGateway } from "./rowGatewayAccess";
 
 // ── helpers ──────────────────────────────────────────────────────────────────
 /** A TEXT column holding a JSON value of shape S. */
@@ -544,7 +544,7 @@ export class RowGateway {
   }
 }
 
-/** Backward-compatible accessor — prefer `import { rows } from "@/lib/db"`. */
+/** Backward-compatible accessor — prefer `import { rows } from "@/lib/db/app"`. */
 export const rows: RowGateway = new Proxy({} as RowGateway, {
   get(_target, prop: keyof RowGateway) {
     const gateway = getRowGateway();

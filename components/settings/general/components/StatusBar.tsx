@@ -1,7 +1,7 @@
 "use client";
 import type { ComponentType } from "react";
 import { CheckCircle2, Cpu, XCircle } from "lucide-react";
-import { CursorIcon, GitLabIcon, JiraIcon } from "../../integration-icons";
+import { CursorIcon, GitLabIcon, JiraIcon } from "../../integrationIcons";
 import { PROVIDER_KIND } from "../../integrations/constants";
 import type { Settings } from "@/types/settings";
 import { Badge } from "@/components/ui/badge";

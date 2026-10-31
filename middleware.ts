@@ -1,8 +1,8 @@
 import type { NextRequest } from "next/server";
 import { NextResponse } from "next/server";
 
-import { LOCAL_API } from "./constants/local-api";
-import { evaluateLocalApiMiddleware } from "./local-api-middleware";
+import { LOCAL_API } from "./constants/localApi";
+import { evaluateLocalApiMiddleware } from "./localApiMiddleware";
 
 export const middleware = (req: NextRequest): NextResponse => {
   const expected = process.env[LOCAL_API.TOKEN_ENV]?.trim() ?? "";

@@ -2,8 +2,8 @@
 import { RefreshCw, XCircle } from "lucide-react";
 import { GeneralSection } from "./GeneralSection";
 import { GeneralSettingsSkeleton } from "../components/GeneralSettingsSkeleton";
-import { useSettingsPageError } from "../hooks/use-settings-page-error";
-import { useSettingsQuery } from "../hooks/use-settings-query";
+import { useSettingsPageError } from "../hooks/useSettingsPageError";
+import { useSettingsQuery } from "../hooks/useSettingsQuery";
 import { Alert } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 

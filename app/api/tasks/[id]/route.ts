@@ -1,7 +1,7 @@
 import { toErrorResponse } from "@/lib/errors";
 import { parseJson } from "@/lib/http/parse";
-import { db } from "@/lib/db";
-import { taskService } from "@/lib/engine/tasks";
+import { db } from "@/lib/db/app";
+import { taskService } from "@/lib/engine/tasks/taskService";
 import { NextResponse } from "next/server";
 import { z } from "zod";
 

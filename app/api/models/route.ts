@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { modelCatalogService } from "@/lib/model-catalog";
+import { modelCatalogService } from "@/lib/modelCatalog/modelCatalogService";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";

@@ -1,6 +1,6 @@
 import "server-only";
 
-import type { ConfigField } from "../../../../templates/node-config";
+import type { ConfigField } from "../../../../templates/nodeConfig";
 
 /** The agent node's "Model override" knob — text or a `{{...}}` ref; empty = the flow's default model. */
 export const MODEL_CONFIG_FIELD: ConfigField = {

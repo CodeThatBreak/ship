@@ -2,7 +2,7 @@ import { toErrorResponse } from "@/lib/errors";
 import { parseQuery } from "@/lib/http/parse";
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { db } from "../../../../../lib/db";
+import { db } from "../../../../../lib/db/app";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";

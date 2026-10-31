@@ -1,6 +1,6 @@
 "use client";
 
-import { RouteError } from "@/components/shared";
+import { RouteError } from "@/components/shared/RouteError";
 
 /** Root error boundary: message + retry (AGENTS.md §2.8). Routes with a
  *  closer error.tsx overlay this — this catches everything else. */

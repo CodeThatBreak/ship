@@ -2,7 +2,7 @@
 
 import type { ReactNode } from "react";
 
-import { setClientLocalApiToken } from "@/hooks/local-api-token";
+import { setClientLocalApiToken } from "@/hooks/localApiToken";
 
 type LocalApiProviderProps = {
   token: string;

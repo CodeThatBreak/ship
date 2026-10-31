@@ -1,5 +1,5 @@
 import { Skeleton } from "@/components/ui/skeleton";
-import { TableSkeleton } from "@/components/shared";
+import { TableSkeleton } from "@/components/shared/TableSkeleton";
 
 /** Section heading from the flows list (uppercase micro-head with count). */
 function SectionHeadingSkeleton() {

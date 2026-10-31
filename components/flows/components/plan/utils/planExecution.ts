@@ -1,5 +1,5 @@
 import type { Node } from '@/types/flow';
-import { EXECUTION_MODE, type PlanExecutionMode } from '../constants';
+import { EXECUTION_MODE, type PlanExecutionMode } from '../constants/planConstants';
 
 /** The effective resolution of the plan fan-out (§1 who-decides-the-mode). */
 export interface ResolvedExecution {

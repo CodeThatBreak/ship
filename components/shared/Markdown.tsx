@@ -12,7 +12,7 @@ import {
   CodeBlockLine,
   CodeBlockTitle,
 } from "@/components/ui/code-block";
-import { useHighlightedCode } from "@/hooks/use-highlighted-code";
+import { useHighlightedCode } from "@/hooks/useHighlightedCode";
 import { cn } from "@/lib/utils";
 import { markdownRehypePlugins } from "./markdownRehypePlugins";
 

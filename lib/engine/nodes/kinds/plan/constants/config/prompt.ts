@@ -1,6 +1,6 @@
 import "server-only";
 
-import type { ConfigField } from '../../../../../templates/node-config';
+import type { ConfigField } from '../../../../../templates/nodeConfig';
 
 const PROMPT_BODY: ConfigField = {
   key: 'prompt_body',

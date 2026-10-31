@@ -4,21 +4,21 @@ import "server-only";
  * GET /api/repos wrap (single mapping source). Pages prefetch these payloads
  * into TanStack Query instead of waiting on client fetches.
  */
-import { agentPortRegistry } from "@/lib/engine/ports/agent-port";
-import { gitHostRegistry } from "@/lib/engine/ports/git-host";
+import { agentPortRegistry } from "@/lib/engine/ports/agentPort";
+import { gitHostRegistry } from "@/lib/engine/ports/gitHost";
 import { taskRegistry } from "@/lib/engine/tasks/registry";
 import { cursorCredentials } from "@/lib/integrations/cursor/credentials";
-import { db } from "@/lib/db";
-import { repoService } from "@/lib/repos";
+import { db } from "@/lib/db/app";
+import { repoService } from "@/lib/repos/repoService";
 import { SETTINGS_KEYS } from "@/constants/settings";
 import { RUN_MODE } from "@/constants/execution";
-import { settingsService } from "@/lib/settings";
+import { settingsService } from "@/lib/settings/settingsService";
 import {
   settingBoolean,
   settingNumber,
   settingString,
   settingUnknownRecord,
-} from "@/lib/schemas/setting-values";
+} from "@/lib/schemas/settingValues";
 import type { Repo } from "@/types/repos";
 import type { Settings } from "@/types/settings";
 

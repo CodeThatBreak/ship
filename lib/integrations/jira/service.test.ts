@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
-import type { JiraInstanceMeta } from "../../db/stores/jira-instance-store";
-import type { JiraInstanceStore } from "../../db/stores";
+import type { JiraInstanceMeta } from "../../db/stores/jiraInstanceStore";
+import type { JiraInstanceStore } from "../../db/stores/storeExports";
 
 vi.mock("../../db", () => ({
   jiraInstanceStore: {

@@ -3,9 +3,9 @@
 // Query keys live in constants/query-keys.ts.
 
 import { queryOptions } from "@tanstack/react-query";
-import { queryKeys } from "@/constants/query-keys";
-import { fetchJson } from "@/hooks/fetch-json";
-import { apiFetch } from "@/hooks/local-api-token";
+import { queryKeys } from "@/constants/queryKeys";
+import { fetchJson } from "@/hooks/fetchJson";
+import { apiFetch } from "@/hooks/localApiToken";
 import { FAILED_ACTION, type FailedAction } from "@/constants/api";
 import type { GitHost, Settings } from "@/types/settings";
 import type { Repo } from "@/types/repos";

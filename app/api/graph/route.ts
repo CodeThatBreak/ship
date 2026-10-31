@@ -1,5 +1,5 @@
 import { toErrorResponse } from "@/lib/errors";
-import { graphService } from "@/lib/engine/graph";
+import { graphService } from "@/lib/engine/graph/graphService";
 import { NextResponse } from "next/server";
 
 export const dynamic = "force-dynamic";

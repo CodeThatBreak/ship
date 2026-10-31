@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
-import { liveTaskFeed } from "@/lib/engine/tasks";
-import type { LiveTaskFilters } from "@/lib/engine/tasks/task-provider";
+import { liveTaskFeed } from "@/lib/engine/tasks/liveTaskFeed";
+import type { LiveTaskFilters } from "@/lib/engine/tasks/taskProvider";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";

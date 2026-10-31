@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 
-import { hookStore } from "@/lib/engine/runtime/hook-store";
-import { localApiRequestAuthorized } from "@/lib/local-api/authorize-request";
+import { hookStore } from "@/lib/engine/runtime/hookStore";
+import { localApiRequestAuthorized } from "@/lib/localApi/authorizeRequest";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";

@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { taskService } from "@/lib/engine/tasks";
+import { taskService } from "@/lib/engine/tasks/taskService";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";

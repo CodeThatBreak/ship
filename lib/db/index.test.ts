@@ -26,7 +26,7 @@ describe("Database bootstrap", () => {
     const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "devflow-cwd-"));
     process.chdir(tmp);
     try {
-      const { db } = await import("./index");
+      const { db } = await import("./app");
       db.connection();
       expect(db.get<{ user_version: number }>(`PRAGMA user_version`)?.user_version).toBe(6);
     } finally {
@@ -37,7 +37,7 @@ describe("Database bootstrap", () => {
   it("sets user_version 6 and seeds built-in templates on a fresh DB", async () => {
     const dbPath = mkDbPath();
     process.env.DATABASE_PATH = dbPath;
-    const { db } = await import("./index");
+    const { db } = await import("./app");
     db.connection();
     expect(db.get<{ user_version: number }>(`PRAGMA user_version`)?.user_version).toBe(6);
     expect(db.get(`SELECT 1 AS ok FROM flow_templates WHERE id='tpl_sdlc_loop'`)).toEqual({ ok: 1 });
@@ -46,7 +46,7 @@ describe("Database bootstrap", () => {
   it("schema.sql defines columns expected by row mappers (flows, nodes, runs)", async () => {
     const dbPath = mkDbPath();
     process.env.DATABASE_PATH = dbPath;
-    const { db } = await import("./index");
+    const { db } = await import("./app");
     db.connection();
     const flowCols = db.all<{ name: string }>(`PRAGMA table_info(flows)`).map((c) => c.name);
     for (const col of ["execution_mode", "repo_id", "template_id", "template_graph", "trigger_payload"]) {
@@ -65,8 +65,8 @@ describe("Database bootstrap", () => {
   it("throws DatabaseMigrationError and does not cache the connection when schema read fails", async () => {
     const dbPath = mkDbPath();
     process.env.DATABASE_PATH = dbPath;
-    const { Database } = await import("./index");
-    const { DatabaseMigrationError } = await import("./database-migration-error");
+    const { Database } = await import("./app");
+    const { DatabaseMigrationError } = await import("./databaseMigrationError");
     const origRead = fs.readFileSync.bind(fs);
     vi.spyOn(fs, "readFileSync").mockImplementation((p, ...rest) => {
       if (String(p).endsWith("schema.sql")) throw new Error("ENOENT mock");
@@ -81,7 +81,7 @@ describe("Database bootstrap", () => {
   it("uid() is strictly increasing within the same mocked millisecond", async () => {
     const dbPath = mkDbPath();
     process.env.DATABASE_PATH = dbPath;
-    const { db } = await import("./index");
+    const { db } = await import("./app");
     const ms = 1_700_000_000_000;
     vi.spyOn(Date, "now").mockImplementation(() => ms);
     const ids = [db.uid("ev_"), db.uid("ev_"), db.uid("ev_")];
@@ -91,7 +91,7 @@ describe("Database bootstrap", () => {
   it("listEvents pages with id > after and listEventsTail returns newest window", async () => {
     const dbPath = mkDbPath();
     process.env.DATABASE_PATH = dbPath;
-    const { db } = await import("./index");
+    const { db } = await import("./app");
     db.connection();
     db.run(
       `INSERT INTO tasks (id,type,fields,key,summary) VALUES ('t_ev','jira','{}','K-ev','s')`,
@@ -119,7 +119,7 @@ describe("Database bootstrap", () => {
   it("upsertRepo throws NotFoundError when updating a missing repo id", async () => {
     const dbPath = mkDbPath();
     process.env.DATABASE_PATH = dbPath;
-    const { db } = await import("./index");
+    const { db } = await import("./app");
     db.connection();
     expect(() =>
       db.upsertRepo({
@@ -133,7 +133,7 @@ describe("Database bootstrap", () => {
   it("upsertRepo returns the inserted repo row", async () => {
     const dbPath = mkDbPath();
     process.env.DATABASE_PATH = dbPath;
-    const { db } = await import("./index");
+    const { db } = await import("./app");
     db.connection();
     const repo = db.upsertRepo({
       name: "demo",
@@ -146,7 +146,7 @@ describe("Database bootstrap", () => {
   it("addMessage stores messages.thread from the canonical schema", async () => {
     const dbPath = mkDbPath();
     process.env.DATABASE_PATH = dbPath;
-    const { db } = await import("./index");
+    const { db } = await import("./app");
     db.connection();
     db.run(
       `INSERT INTO tasks (id,type,fields,key,summary) VALUES ('t1','jira','{}','K-1','s')`,

@@ -3,12 +3,12 @@ import { useMemo, useState } from "react";
 // value from lib/modelSpec (pure helpers, Phase 0 allowlist); the types flow
 // through types/model-spec per the Phase 0 guidance
 import { composeModelChoice } from "@/lib/modelSpec";
-import type { ModelChoice } from "@/types/model-spec";
-import type { FeedEvent } from "@/components/chat";
+import type { ModelChoice } from "@/types/modelSpec";
+import type { FeedEvent } from "@/components/chat/timeline";
 import type { FlowData, Node } from "@/types/flow";
 import { EXECUTION_MODE_LOCAL, LOCAL_MODE_MODEL } from "../constants";
 import { NodePanelContext, type ActionPayload, type NodePanelContextValue } from "./context";
-import { resolveNodePanel } from "./panel-factory";
+import { resolveNodePanel } from "./panelFactory";
 import { PanelShell } from "./shared";
 
 /**

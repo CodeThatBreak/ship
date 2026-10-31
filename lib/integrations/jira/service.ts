@@ -1,16 +1,16 @@
 import "server-only";
 
 import { ConflictError, ValidationError } from "../../errors";
-import { baseUrlOverrideRequiresToken } from "../instance-credential-policy";
-import { truncateUpstreamBody } from "../../engine/ports/git-host-errors";
-import type { JiraInstanceStore, JiraInstanceMeta } from "../../db/stores/jira-instance-store";
+import { baseUrlOverrideRequiresToken } from "../instanceCredentialPolicy";
+import { truncateUpstreamBody } from "../../engine/ports/gitHostErrors";
+import type { JiraInstanceStore, JiraInstanceMeta } from "../../db/stores/jiraInstanceStore";
 import { type JiraInstance } from "../../db/rows";
-import { jiraAuthHeaders, jiraAuthModeForInstance, jiraMyselfPath, type JiraAuthMode } from "./api-profile";
+import { jiraAuthHeaders, jiraAuthModeForInstance, jiraMyselfPath, type JiraAuthMode } from "./apiProfile";
 import { JIRA_HTTP_TIMEOUT_MS } from "./constants";
 
 export type { JiraInstance } from "../../db/rows";
 
-export { maskToken } from "../../mask-token";
+export { maskToken } from "../../maskToken";
 
 const tryMyself = async (
   baseUrl: string,

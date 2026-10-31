@@ -1,7 +1,7 @@
 import { toErrorResponse } from "@/lib/errors";
 import { NextResponse } from "next/server";
-import { templateStore } from "../../../../lib/engine/templates/template-store";
-import { importTemplateYaml } from "../../../../lib/engine/templates/template-yaml";
+import { templateStore } from "../../../../lib/engine/templates/templateStore";
+import { importTemplateYaml } from "../../../../lib/engine/templates/templateYaml";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";

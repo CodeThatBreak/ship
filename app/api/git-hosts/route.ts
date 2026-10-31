@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { gitHostRegistry } from "../../../lib/engine/ports/git-host";
+import { gitHostRegistry } from "../../../lib/engine/ports/gitHost";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";

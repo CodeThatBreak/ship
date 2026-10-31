@@ -5,7 +5,7 @@ import { Field, FieldDescription, FieldLabel } from "@/components/ui/field";
 import { Spinner } from "@/components/ui/spinner";
 import { Textarea } from "@/components/ui/textarea";
 import { ALLOWLIST_PLACEHOLDER } from "../constants";
-import { useAllowlist } from "../hooks/use-allowlist";
+import { useAllowlist } from "../hooks/useAllowlist";
 
 /**
  * The outbound hostname allowlist the SSRF guard enforces (empty = deny-by-

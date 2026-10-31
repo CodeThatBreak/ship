@@ -1,5 +1,5 @@
 import { getFlowListData } from "@/loaders/flows";
-import { FlowsView } from "@/components/flows";
+import { FlowsView } from "@/components/flows/FlowsView";
 
 export const dynamic = "force-dynamic";
 

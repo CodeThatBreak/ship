@@ -3,13 +3,13 @@ import { parseJson } from "@/lib/http/parse";
 import {
   validateGitHostInstanceBaseUrl,
   resolveInstanceTestBaseUrl,
-} from "@/lib/integrations/instance-route-validation";
+} from "@/lib/integrations/instanceRouteValidation";
 import {
   gitHostInstancePatchBodySchema,
   gitHostInstanceTestBodySchema,
-} from "@/lib/schemas/integration-instance";
+} from "@/lib/schemas/integrationInstance";
 import { NextResponse } from "next/server";
-import { gitHostRegistry } from "../../../../../lib/engine/ports/git-host";
+import { gitHostRegistry } from "../../../../../lib/engine/ports/gitHost";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";

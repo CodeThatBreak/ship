@@ -1,12 +1,12 @@
 "use client";
 import { useCallback, useState } from "react";
 import { RefreshCw } from "lucide-react";
-import { CursorIcon } from "../integration-icons";
-import { ConfirmDeleteDialog } from "@/components/shared";
-import { useSettingsQuery } from "../hooks/use-settings-query";
+import { CursorIcon } from "../integrationIcons";
+import { ConfirmDeleteDialog } from "@/components/shared/ConfirmDeleteDialog";
+import { useSettingsQuery } from "../hooks/useSettingsQuery";
 import { CURSOR_HARNESS, PROVIDER_KIND } from "./constants";
-import { useConnectForm } from "./hooks/use-connect-form";
-import { useUpdateCursorApiKey } from "./hooks/use-cursor-api-key";
+import { useConnectForm } from "./hooks/useConnectForm";
+import { useUpdateCursorApiKey } from "./hooks/useCursorApiKey";
 import { ConnectEmpty } from "./components/ConnectEmpty";
 import { ConnectModal } from "./components/ConnectModal";
 import { InstanceCard } from "./components/InstanceCard";
@@ -15,7 +15,7 @@ import { ProviderSelect } from "./components/ProviderSelect";
 import { Field, FieldLabel } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
-import { useLocalAgentOptions } from "./hooks/use-local-agent-options";
+import { useLocalAgentOptions } from "./hooks/useLocalAgentOptions";
 import type { TabProps } from "./types";
 
 // ── Harness tab (agent runners — Cursor for now) ────────────────────────────

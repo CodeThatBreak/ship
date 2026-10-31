@@ -1,5 +1,5 @@
 import { CornerDownRight, User } from "lucide-react";
-import { Markdown } from "@/components/shared";
+import { Markdown } from "@/components/shared/Markdown";
 import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
 import { cn } from "@/lib/utils";

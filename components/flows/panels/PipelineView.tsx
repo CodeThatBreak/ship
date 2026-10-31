@@ -3,7 +3,7 @@ import { useState } from "react";
 import { Pencil, Wrench } from "lucide-react";
 import type { BranchRow } from "@/types/flow";
 import { FLOW_ACTION, FLOW_STATUS } from "@/constants/flow";
-import { PromptModal } from "@/components/chat";
+import PromptModal from "@/components/chat/promptModal/PromptModal";
 import { Alert } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { PanelShell, GenericArtifact } from "./shared";

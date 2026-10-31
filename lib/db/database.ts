@@ -5,14 +5,14 @@ import fs from "fs";
 import path from "path";
 import type { z } from "zod";
 import { config } from "../config";
-import { DatabaseMigrationError } from "./database-migration-error";
-import { bindDatabase } from "./db-access";
-import { bindRowGateway } from "./row-gateway-access";
-import { wireGitHostBuiltins } from "./wire-git-host-builtins";
+import { DatabaseMigrationError } from "./databaseMigrationError";
+import { bindDatabase } from "./dbAccess";
+import { bindRowGateway } from "./rowGatewayAccess";
+import { wireGitHostBuiltins } from "./wireGitHostBuiltins";
 import { RowGateway, type Repo } from "./rows";
-import { AtRestCipher } from "./at-rest-cipher";
-import { IntegrationSecretStore } from "./integration-secret-store";
-import { SchemaMigrator } from "./schema-migrator";
+import { AtRestCipher } from "./atRestCipher";
+import { IntegrationSecretStore } from "./integrationSecretStore";
+import { SchemaMigrator } from "./schemaMigrator";
 import {
   EventStore,
   GitLabInstanceStore,
@@ -20,7 +20,7 @@ import {
   MessageStore,
   RepoStore,
   SettingsStore,
-} from "./stores";
+} from "./stores/storeExports";
 
 export type { Repo } from "./rows";
 
@@ -198,7 +198,7 @@ export class Database {
   }
 }
 
-export { DatabaseMigrationError } from "./database-migration-error";
-export { SCHEMA_USER_VERSION } from "./schema-version";
-export { SchemaMigrator } from "./schema-migrator";
-export { TemplateSeeder } from "./template-seeder";
+export { DatabaseMigrationError } from "./databaseMigrationError";
+export { SCHEMA_USER_VERSION } from "./schemaVersion";
+export { SchemaMigrator } from "./schemaMigrator";
+export { TemplateSeeder } from "./templateSeeder";

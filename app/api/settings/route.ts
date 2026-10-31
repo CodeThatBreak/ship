@@ -1,10 +1,10 @@
 import { toErrorResponse } from "@/lib/errors";
 import { parseJson } from "@/lib/http/parse";
-import { settingsPatchBodySchema } from "@/lib/schemas/settings-patch";
-import { settingsService } from "@/lib/settings";
+import { settingsPatchBodySchema } from "@/lib/schemas/settingsPatch";
+import { settingsService } from "@/lib/settings/settingsService";
 import { loadSettings } from "@/loaders/settings";
 import { NextResponse } from "next/server";
-import { agentPortRegistry } from "../../../lib/engine/ports/agent-port";
+import { agentPortRegistry } from "../../../lib/engine/ports/agentPort";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";

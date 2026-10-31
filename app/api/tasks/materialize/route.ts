@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { taskRegistry } from "../../../../lib/engine/tasks/registry";
-import type { LiveTask } from "../../../../lib/engine/tasks/task-provider";
+import type { LiveTask } from "../../../../lib/engine/tasks/taskProvider";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";

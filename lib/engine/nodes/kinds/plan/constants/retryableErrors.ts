@@ -1,6 +1,6 @@
 import "server-only";
 
-import { AGENT_OUTPUT_ERROR, type AgentOutputErrorCode } from '../../../shared/agent/output-error';
+import { AGENT_OUTPUT_ERROR, type AgentOutputErrorCode } from '../../../shared/agent/outputError/outputErrorExports';
 
 /** Output-contract failures a feedback turn can fix: missing or schema-
  *  violating JSON. `agent_reported` never retries — the agent explicitly said

@@ -1,7 +1,5 @@
-import {
-  RepositoriesSettingsPage,
-  reposQueryOptions,
-} from "@/components/settings";
+import { reposQueryOptions } from "@/components/settings/queries";
+import { RepositoriesSettingsPage } from "@/components/settings/repos/RepositoriesSettingsPage";
 import { loadReposPayload } from "@/loaders/settings";
 import { QueryClient, dehydrate, HydrationBoundary } from "@tanstack/react-query";
 

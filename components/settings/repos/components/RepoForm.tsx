@@ -4,7 +4,7 @@ import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import { SetupTestPanel } from "./SetupTestPanel";
-import type { DetectedPolicy } from "../hooks/use-detected-policy";
+import type { DetectedPolicy } from "../hooks/useDetectedPolicy";
 import type { RepoFormState } from "../types";
 
 const DEFAULT_INSTALL_PLACEHOLDER = "pnpm install --filter web";

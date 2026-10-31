@@ -2,7 +2,7 @@
 import { CheckCheck, Globe, Send } from "lucide-react";
 import { PanelShell, ArtifactLoader } from "./shared";
 import { useNodePanel } from "./context";
-import { EmptyHint } from "@/components/shared";
+import { EmptyHint } from "@/components/shared/EmptyHint";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";

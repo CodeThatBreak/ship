@@ -1,6 +1,6 @@
 import "server-only";
 
-import type { ConfigField } from "../../../../templates/node-config";
+import type { ConfigField } from "../../../../templates/nodeConfig";
 import { AGENT_MODE } from "../../../../constants/declarative";
 
 /** The agent node's "Mode" knob: plan = read-only judgment run; agent = repo workspace run. */

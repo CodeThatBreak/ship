@@ -5,7 +5,7 @@
  * hangs off the NodePanelContext. The factory imports every panel eagerly,
  * so resolving a node needs only this module.
  */
-export { resolveNodePanel, type NodeWorkspace } from './panel-factory';
+export { resolveNodePanel, type NodeWorkspace } from './panelFactory';
 export { useNodePanel, NodePanelContext } from './context';
 export type { NodePanelContextValue, ActionPayload } from './context';
 export { useNodeChatBindings } from './hooks/useNodeChatBindings';

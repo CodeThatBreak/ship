@@ -2,7 +2,7 @@
 
 import { Compass } from 'lucide-react';
 
-import { EmptyHint } from '@/components/shared';
+import { EmptyHint } from "@/components/shared/EmptyHint";
 
 /** Pending plan state: the plan prompt preview lives over the chat panel. */
 export const PlanEmptyHint = () => {

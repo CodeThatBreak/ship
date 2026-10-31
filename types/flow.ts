@@ -6,7 +6,7 @@
  * the Phase 0 guidance: shared client types live in `types/`, not on a route
  * file.
  */
-import type { NodeUiCapabilities } from "@/types/node-capabilities";
+import type { NodeUiCapabilities } from "@/types/nodeCapabilities";
 
 /** Config keys a plan/artifact meta blob uses in the panels. */
 export type ArtifactMeta = Record<string, unknown>;

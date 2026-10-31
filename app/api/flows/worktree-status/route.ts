@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { processSingleton } from "@/lib/singleton";
-import { WorktreeStatusService } from "@/lib/engine/runtime/worktree-status-service";
+import { WorktreeStatusService } from "@/lib/engine/runtime/worktreeStatusService";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";

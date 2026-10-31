@@ -1,8 +1,8 @@
 import { queryOptions } from "@tanstack/react-query";
-import { queryKeys } from "@/constants/query-keys";
-import { fetchJson } from "@/hooks/fetch-json";
-import type { FeedEvent } from "@/components/chat";
-import { mergeFlowEvents } from "./cockpit/utils/merge-flow-events";
+import { queryKeys } from "@/constants/queryKeys";
+import { fetchJson } from "@/hooks/fetchJson";
+import type { FeedEvent } from "@/components/chat/timeline";
+import { mergeFlowEvents } from "./cockpit/utils/mergeFlowEvents";
 
 /** Rolling chat feed window — kept in the events query cache (CR-026, CR-119). */
 export const FLOW_EVENTS_BUFFER_MAX = 500;

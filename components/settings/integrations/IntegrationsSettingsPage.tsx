@@ -4,7 +4,7 @@ import { Cpu, GitBranch, ListTree, Link2, XCircle } from "lucide-react";
 import { GitTab } from "./GitTab";
 import { TaskTab } from "./TaskTab";
 import { HarnessTab } from "./HarnessTab";
-import { useSettingsPageError } from "../hooks/use-settings-page-error";
+import { useSettingsPageError } from "../hooks/useSettingsPageError";
 import { Alert } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";

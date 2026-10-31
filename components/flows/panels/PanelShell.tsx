@@ -12,9 +12,9 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Spinner } from "@/components/ui/spinner";
-import { errorMessageOf } from "@/hooks/fetch-json";
+import { errorMessageOf } from "@/hooks/fetchJson";
 import { CostChip } from "./CostChip";
-import { apiFetch } from "@/hooks/local-api-token";
+import { apiFetch } from "@/hooks/localApiToken";
 import { useNodePanel } from "./context";
 
 /** The panel header title: the node contract's panel title wins, then the

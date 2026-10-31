@@ -6,7 +6,7 @@ import { useFlowMutation } from "../../../mutations/useFlowMutation";
 
 import type { Action } from '../types/action';
 
-import { reducer, INITIAL_PLAN_UI } from '../reducer';
+import { reducer, INITIAL_PLAN_UI } from '../reducer/planUiReducer';
 
 export function usePlanAction(flowId: string) {
   const flowMutation = useFlowMutation({ flowId });

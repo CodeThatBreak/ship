@@ -2,7 +2,7 @@
 import { useMemo } from 'react';
 import { GitBranch, Info } from 'lucide-react';
 import type { Artifact, Node } from '@/types/flow';
-import type { BranchPlan } from '../../types';
+import type { BranchPlan } from '../../types/planTypes';
 import { computeScopedDiff, computeStaleBranches } from '../../utils/branchDiff';
 import { SubPlanCard } from './SubPlanCard';
 

@@ -2,9 +2,9 @@ import { toErrorResponse } from "@/lib/errors";
 import { parseJson } from "@/lib/http/parse";
 import { repoTestSetupBodySchema } from "@/lib/schemas/repo";
 import { config } from "../../../../lib/config";
-import type { RepoDepOverrides } from "../../../../lib/git/dep-policy";
-import { worktreeSetup } from "../../../../lib/git/worktree-setup";
-import type { WorktreeSetupProbeResult } from "../../../../lib/git/worktree-setup";
+import type { RepoDepOverrides } from "../../../../lib/git/depPolicy";
+import { worktreeSetup } from "../../../../lib/git/worktreeSetup";
+import type { WorktreeSetupProbeResult } from "../../../../lib/git/worktreeSetup";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";

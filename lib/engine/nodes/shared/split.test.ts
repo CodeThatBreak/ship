@@ -36,9 +36,9 @@ import {
 } from "./split";
 import type { StartContractField } from "../kinds/start/contract";
 
-const { templateStore } = await import("../../templates/template-store");
-const { flowSplitTargetLookup } = await import("./split-lookup");
-const { AgentDefSchema } = await import("../declarative-schemas");
+const { templateStore } = await import("../../templates/templateStore");
+const { flowSplitTargetLookup } = await import("./splitLookup");
+const { AgentDefSchema } = await import("../declarativeSchemas");
 
 /** A required row: throws instead of a `!` assertion (AGENTS.md §3.4). */
 function must<T>(row: T | undefined, what: string): T {
@@ -233,7 +233,7 @@ describe("AgentDefSchema.split", () => {
 
 // ── Phase 3: the split knobs' authoring-time lint (template save/import) ─────
 
-const { lintTemplate } = await import("../../templates/template-lint");
+const { lintTemplate } = await import("../../templates/templateLint");
 
 /** One agent node whose def config rides the catalog entry (no instance
  *  overrides) — the split lint reads the merged config. */

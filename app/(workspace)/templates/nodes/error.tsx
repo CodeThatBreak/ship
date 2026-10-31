@@ -1,6 +1,6 @@
 "use client";
 
-import { RouteError } from "@/components/shared";
+import { RouteError } from "@/components/shared/RouteError";
 
 /** Template Nodes catalog error boundary: message + retry (AGENTS.md §2.8). */
 export default function TemplateNodesError({

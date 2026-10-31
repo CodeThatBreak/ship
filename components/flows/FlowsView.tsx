@@ -7,16 +7,16 @@ import { Inbox, SquareCheckBig, Trash2, Workflow } from "lucide-react";
 import { Alert, AlertAction } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
-import { DataTable, type DataTableAction } from "@/components/shared";
-import { queryKeys } from "@/constants/query-keys";
-import { apiFetch } from "@/hooks/local-api-token";
+import { DataTable, type DataTableAction } from "@/components/shared/dataTable/DataTable";
+import { queryKeys } from "@/constants/queryKeys";
+import { apiFetch } from "@/hooks/localApiToken";
 import { FLOW_STATUS } from "@/constants/flow";
 import type { FlowSummary } from "@/types/flows";
 import { EXECUTION_MODE_LOCAL } from "./constants";
 import { DeleteFlowDialog } from "./DeleteFlowDialog";
 import { flowColumns } from "./FlowColumns";
-import { useFlowsQuery } from "./hooks/use-flows-query";
-import { useWorktreeStatus } from "./hooks/use-worktree-status";
+import { useFlowsQuery } from "./hooks/useFlowsQuery";
+import { useWorktreeStatus } from "./hooks/useWorktreeStatus";
 
 type DeleteErrorBody = { error?: string };
 

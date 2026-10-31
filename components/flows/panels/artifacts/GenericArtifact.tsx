@@ -2,7 +2,7 @@
 import { useState } from "react";
 import type { LucideIcon } from "lucide-react";
 import type { Node } from "@/types/flow";
-import { EmptyHint } from "@/components/shared";
+import { EmptyHint } from "@/components/shared/EmptyHint";
 import { ArtifactLoader } from "./ArtifactLoader";
 import { VersionTabs } from "./VersionTabs";
 

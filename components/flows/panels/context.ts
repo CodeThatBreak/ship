@@ -1,8 +1,8 @@
 "use client";
 import { createContext, useContext } from "react";
 import type { FlowData, Node } from "@/types/flow";
-import type { ModelChoice } from "@/types/model-spec";
-import type { FeedEvent } from "@/components/chat";
+import type { ModelChoice } from "@/types/modelSpec";
+import type { FeedEvent } from "@/components/chat/timeline";
 
 /** What a panel may pass to an action: the action route's open body shape. */
 export type ActionPayload = Record<string, unknown>;

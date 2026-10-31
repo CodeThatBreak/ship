@@ -1,13 +1,13 @@
 "use client";
 import { useCallback, useState } from "react";
-import { GitLabIcon } from "../integration-icons";
-import { ConfirmDeleteDialog } from "@/components/shared";
+import { GitLabIcon } from "../integrationIcons";
+import { ConfirmDeleteDialog } from "@/components/shared/ConfirmDeleteDialog";
 import { HOSTING, INSTANCE_SURFACE, PROVIDER_KIND } from "./constants";
-import { useConnectForm } from "./hooks/use-connect-form";
-import { useRecordTestResult, testResultKey, useTestResults } from "./hooks/use-test-results";
+import { useConnectForm } from "./hooks/useConnectForm";
+import { useRecordTestResult, testResultKey, useTestResults } from "./hooks/useTestResults";
 import {
   useConnectInstance, useInstances, useRemoveInstance, useTestInstance,
-} from "./hooks/use-instances";
+} from "./hooks/useInstances";
 import { ConnectEmpty } from "./components/ConnectEmpty";
 import { ConnectModal } from "./components/ConnectModal";
 import { HostingSelect } from "./components/HostingSelect";

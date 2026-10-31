@@ -18,7 +18,7 @@ vi.mock("@cursor/sdk", () => ({
 }));
 
 const { CursorAgentService } = await import("./cursorSdk");
-const { AgentRunLookupError } = await import("../engine/ports/agent-errors");
+const { AgentRunLookupError } = await import("../engine/ports/agentErrors");
 
 describe("CursorAgentService.getRun", () => {
   afterEach(() => {

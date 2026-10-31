@@ -4,10 +4,10 @@ import "server-only";
  * reads the thin `/api/tasks/*` routes wrap (single mapping source), so the
  * server-rendered island boots complete (no boot-fetch flash).
  */
-import { db } from "../lib/db";
-import { SDLC_TEMPLATE_ID, templateStore } from "../lib/engine/templates/template-store";
+import { db } from "../lib/db/app";
+import { SDLC_TEMPLATE_ID, templateStore } from "../lib/engine/templates/templateStore";
 import { taskRegistry } from "../lib/engine/tasks/registry";
-import { settingsService } from "../lib/settings";
+import { settingsService } from "../lib/settings/settingsService";
 import type {
   ExecutionMode,
   RepoSummary,

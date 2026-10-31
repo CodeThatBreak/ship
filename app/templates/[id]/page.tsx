@@ -9,10 +9,10 @@
  */
 import { notFound } from "next/navigation";
 import { dehydrate, HydrationBoundary } from "@tanstack/react-query";
-import { queryKeys } from "@/constants/query-keys";
-import { makeServerQueryClient } from "@/constants/query-client";
+import { queryKeys } from "@/constants/queryKeys";
+import { makeServerQueryClient } from "@/constants/queryClient";
 import { loadEditorBoot } from "@/loaders/templates";
-import { TemplateEditor } from "@/components/builder";
+import { TemplateEditor } from "@/components/builder/EditorPage";
 
 export const dynamic = "force-dynamic";
 

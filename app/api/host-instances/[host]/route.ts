@@ -1,9 +1,9 @@
 import { toErrorResponse } from "@/lib/errors";
 import { parseJson } from "@/lib/http/parse";
-import { validateNewGitHostBaseUrl } from "@/lib/integrations/instance-route-validation";
-import { gitHostInstanceCreateBodySchema } from "@/lib/schemas/integration-instance";
+import { validateNewGitHostBaseUrl } from "@/lib/integrations/instanceRouteValidation";
+import { gitHostInstanceCreateBodySchema } from "@/lib/schemas/integrationInstance";
 import { NextResponse } from "next/server";
-import { gitHostRegistry } from "../../../../lib/engine/ports/git-host";
+import { gitHostRegistry } from "../../../../lib/engine/ports/gitHost";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";

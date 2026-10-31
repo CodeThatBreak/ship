@@ -12,13 +12,9 @@ import {
   SheetHeader,
   SheetTitle,
 } from "@/components/ui/sheet";
-import {
-  FlowSettingsBody,
-  type FlowSettingsHook,
-  type RepoOption,
-  type TaskProviderInfo,
-} from "@/components/template-editor";
-import type { Draft } from "@/components/template-editor";
+import { FlowSettingsBody, type FlowSettingsHook, type RepoOption } from "@/components/templateEditor/FlowSettings";
+import type { TaskProviderInfo } from "@/components/templateEditor/types";
+import type { Draft } from "@/components/templateEditor/draft";
 
 export interface EditorSettingsDrawerProps {
   open: boolean;

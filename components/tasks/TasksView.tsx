@@ -3,7 +3,7 @@ import { useCallback, useMemo, useRef, useState } from "react";
 import { Inbox, Play, RefreshCw } from "lucide-react";
 import { Alert, AlertAction } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
-import { FilterPicker, type FilterDef } from "@/components/shared";
+import { FilterPicker, type FilterDef } from "@/components/shared/FilterPicker";
 import { cn } from "@/lib/utils";
 import type {
   ExecutionMode,
@@ -14,7 +14,7 @@ import type {
 } from "@/types/tasks";
 import { TASK_ASSIGNEE, TASK_FILTER } from "@/constants/tasks";
 import { STATUS_VALUES, TEXT_DEBOUNCE_MS } from "./constants";
-import { useLiveTasks } from "./hooks/use-live-tasks";
+import { useLiveTasks } from "./hooks/useLiveTasks";
 import { BuildModal } from "./BuildModal";
 import { TasksTable } from "./TasksTable";
 

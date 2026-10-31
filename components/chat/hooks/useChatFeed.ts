@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { useFlowChatMessages } from "@/hooks/use-flow-chat";
+import { useFlowChatMessages } from "@/hooks/useFlowChat";
 import {
   buildTimelineRows,
   nodeRunSections,

@@ -1,11 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { assignDatabasePath, createIsolatedDatabasePath } from "../../tests/helpers/in-memory-db";
+import { assignDatabasePath, createIsolatedDatabasePath } from "../../tests/helpers/inMemoryDb";
 
 assignDatabasePath(createIsolatedDatabasePath("devflow-rows-"));
 
-const { db } = await import("./index");
+const { db } = await import("./app");
 const { rows, TaskRow, Task, NodeRow, EventRow } = await import("./rows");
-const { RowDecodeError } = await import("./row-decode-error");
+const { RowDecodeError } = await import("./rowDecodeError");
 
 const now = () => new Date().toISOString();
 

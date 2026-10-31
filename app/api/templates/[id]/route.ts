@@ -6,7 +6,7 @@ import {
   type TemplateEdgeInput,
   type TemplateInput,
   type TemplateNodeInput,
-} from "../../../../lib/engine/templates/template-store";
+} from "../../../../lib/engine/templates/templateStore";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";

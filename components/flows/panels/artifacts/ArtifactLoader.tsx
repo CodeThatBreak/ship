@@ -2,7 +2,7 @@
 import { RotateCcw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
-import { errorMessageOf } from "@/hooks/fetch-json";
+import { errorMessageOf } from "@/hooks/fetchJson";
 import { useArtifact } from "../../hooks/useArtifact";
 import type { ArtifactPayload } from "./types";
 

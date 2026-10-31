@@ -33,7 +33,7 @@ import {
   now,
   openSeedDb,
   uid,
-} from "./lib/seed-db.mjs";
+} from "./lib/seedDb.mjs";
 
 const root = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const TASK_ID = "demo-207";

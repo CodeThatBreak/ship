@@ -1,6 +1,6 @@
 import { toErrorResponse } from "@/lib/errors";
-import { templateStore } from "../../../../../lib/engine/templates/template-store";
-import { gatherTemplateYaml } from "../../../../../lib/engine/templates/template-yaml";
+import { templateStore } from "../../../../../lib/engine/templates/templateStore";
+import { gatherTemplateYaml } from "../../../../../lib/engine/templates/templateYaml";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";

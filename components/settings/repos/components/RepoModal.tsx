@@ -1,6 +1,6 @@
 "use client";
 import { FolderGit2 } from "lucide-react";
-import { FormModal } from "@/components/shared";
+import { FormModal } from "@/components/shared/FormModal";
 
 /** Modal chrome for the add/edit repo form. */
 export const RepoModal = ({

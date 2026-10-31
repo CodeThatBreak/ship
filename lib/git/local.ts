@@ -3,16 +3,16 @@ import "server-only";
 import fs from "fs";
 import path from "path";
 import { processSingleton } from "../singleton";
-import { localBranchBaseCandidates } from "./base-ref";
-import { AuthedUrlResolutionError } from "./git-errors";
+import { localBranchBaseCandidates } from "./baseRef";
+import { AuthedUrlResolutionError } from "./gitErrors";
 import {
   GitRunner,
   GIT_FETCH_TIMEOUT_MS,
   gitRunner,
-} from "./git-runner";
-import { stripCredentialsFromRemoteUrl } from "./strip-remote-credentials";
-import { workspacePaths } from "./workspace-paths";
-import { assertValidBranchName } from "./branch-name";
+} from "./gitRunner";
+import { stripCredentialsFromRemoteUrl } from "./stripRemoteCredentials";
+import { workspacePaths } from "./workspacePaths";
+import { assertValidBranchName } from "./branchName";
 
 export interface DiffFile {
   file: string;

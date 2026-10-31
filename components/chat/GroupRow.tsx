@@ -2,7 +2,7 @@
 
 import { CircleCheckIcon, LoaderCircleIcon } from "lucide-react";
 
-import { Markdown } from "@/components/shared";
+import { Markdown } from "@/components/shared/Markdown";
 import {
   CodeBlock,
   CodeBlockContent,

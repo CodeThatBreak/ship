@@ -2,7 +2,7 @@
 
 import { BotIcon } from "lucide-react";
 
-import { Markdown } from "@/components/shared";
+import { Markdown } from "@/components/shared/Markdown";
 import { Bubble, BubbleContent } from "@/components/ui/bubble";
 import { Button } from "@/components/ui/button";
 import {
@@ -15,7 +15,7 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-import type { ChatMessage } from "@/hooks/use-flow-chat";
+import type { ChatMessage } from "@/hooks/useFlowChat";
 
 /** One chat turn: user turns as plain bubbles, agent turns as markdown with
  *  a copy action in the footer. */

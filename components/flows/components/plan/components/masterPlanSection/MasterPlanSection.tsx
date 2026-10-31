@@ -1,6 +1,6 @@
 'use client';
 import { Info, Layers, RotateCcw } from 'lucide-react';
-import { Markdown } from '@/components/shared';
+import { Markdown } from "@/components/shared/Markdown";
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';

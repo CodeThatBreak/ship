@@ -1,8 +1,8 @@
 import "server-only";
 
 import { z } from "zod";
-import { detectUnitCycle } from "../../shared";
-import { rejectInvalidBranchNameShape } from "../../../../git/branch-name";
+import { detectUnitCycle } from "../../shared/nodeSharedExports";
+import { rejectInvalidBranchNameShape } from "../../../../git/branchName";
 
 // ── step schema (shared by every plan response) ──────────────────────────────
 

@@ -1,6 +1,6 @@
 import { toErrorResponse } from "@/lib/errors";
 import { parseJson } from "@/lib/http/parse";
-import { repoService } from "@/lib/repos";
+import { repoService } from "@/lib/repos/repoService";
 import { repoCreateBodySchema } from "@/lib/schemas/repo";
 import { NextResponse } from "next/server";
 

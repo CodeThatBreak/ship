@@ -1,8 +1,8 @@
 "use client";
 import { RefreshCw, XCircle } from "lucide-react";
 import { ReposSection } from "./ReposSection";
-import { useSettingsPageError } from "../hooks/use-settings-page-error";
-import { useReposQuery } from "../hooks/use-repos-query";
+import { useSettingsPageError } from "../hooks/useSettingsPageError";
+import { useReposQuery } from "../hooks/useReposQuery";
 import { Alert } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";

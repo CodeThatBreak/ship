@@ -1,8 +1,8 @@
 "use client";
 import { useEffect, useState } from "react";
-import { resolveClockLabel } from "./utils/resolve-clock-label";
+import { resolveClockLabel } from "./utils/resolveClockLabel";
 import { CheckCheck, Clock, Pencil } from "lucide-react";
-import { PromptModal } from "@/components/chat";
+import PromptModal from "@/components/chat/promptModal/PromptModal";
 import { Button } from "@/components/ui/button";
 import { PanelShell, GenericArtifact } from "./shared";
 import { useNodePanel } from "./context";

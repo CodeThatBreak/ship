@@ -3,14 +3,14 @@
 import { useMemo, useCallback, type ReactNode, type RefObject } from 'react';
 import { CircleAlertIcon, MessageCircleDashedIcon } from 'lucide-react';
 
-import type { ModelChoice } from '@/types/model-spec';
-import type { NodeUiCapabilities } from '@/types/node-capabilities';
+import type { ModelChoice } from '@/types/modelSpec';
+import type { NodeUiCapabilities } from '@/types/nodeCapabilities';
 import type { FeedEvent } from './timeline';
 import type { ChatTab, ChatInputHandle } from './types';
-import { errorMessageOf } from '@/hooks/fetch-json';
+import { errorMessageOf } from '@/hooks/fetchJson';
 import { useChatComposer, type SendMutationFn } from './hooks/useChatComposer';
 import { useChatFeed } from './hooks/useChatFeed';
-import { TabStrip } from '@/components/shared';
+import { TabStrip } from "@/components/shared/TabStrip";
 import ChatFeed from './ChatFeed';
 import ChatComposerForm from './components/chatComposerForm/ChatComposerForm';
 import { ChatAction } from './types/action';

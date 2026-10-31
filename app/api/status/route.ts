@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { statusService } from "@/lib/status";
+import { statusService } from "@/lib/status/statusService";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";

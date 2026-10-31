@@ -3,7 +3,7 @@ import { useRef, useState } from "react";
 import { Check, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Spinner } from "@/components/ui/spinner";
-import { useTestSetup } from "../hooks/use-test-setup";
+import { useTestSetup } from "../hooks/useTestSetup";
 import type { RepoFormState } from "../types";
 
 /**

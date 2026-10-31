@@ -5,7 +5,7 @@ import {
 } from "lucide-react";
 import { PanelShell, ArtifactLoader } from "./shared";
 import { useNodePanel } from "./context";
-import { EmptyHint } from "@/components/shared";
+import { EmptyHint } from "@/components/shared/EmptyHint";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { ScrollArea } from "@/components/ui/scroll-area";

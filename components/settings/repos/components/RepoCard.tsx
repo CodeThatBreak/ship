@@ -1,7 +1,7 @@
 "use client";
 import { useCallback } from "react";
 import { CheckCircle2, FolderGit2, GitBranch, Pencil, Trash2, XCircle } from "lucide-react";
-import type { Repo } from "@/components/settings";
+import type { Repo } from "@/components/settings/context";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";

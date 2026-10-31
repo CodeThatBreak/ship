@@ -1,6 +1,6 @@
 "use client";
 import { KeyRound } from "lucide-react";
-import { FormModal } from "@/components/shared";
+import { FormModal } from "@/components/shared/FormModal";
 
 /** Modal chrome for the add/edit secret form. */
 export const SecretModal = ({

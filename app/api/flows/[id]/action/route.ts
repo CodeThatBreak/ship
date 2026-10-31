@@ -1,9 +1,9 @@
 import { FLOW_ACTION } from "@/constants/flow";
 import { toErrorResponse } from "@/lib/errors";
 import { parseJson } from "@/lib/http/parse";
-import { flowActionBodySchema, type FlowActionBody } from "@/lib/schemas/flow-action-body";
+import { flowActionBodySchema, type FlowActionBody } from "@/lib/schemas/flowActionBody";
 import { NextResponse } from "next/server";
-import { flowEngine } from "../../../../../lib/engine/flow-engine";
+import { flowEngine } from "../../../../../lib/engine/flowEngine";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";

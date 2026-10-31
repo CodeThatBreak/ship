@@ -1,7 +1,7 @@
 import { toErrorResponse } from "@/lib/errors";
 import { parseJson } from "@/lib/http/parse";
-import { validateNewTaskInstanceBaseUrl } from "@/lib/integrations/instance-route-validation";
-import { taskInstanceCreateBodySchema } from "@/lib/schemas/integration-instance";
+import { validateNewTaskInstanceBaseUrl } from "@/lib/integrations/instanceRouteValidation";
+import { taskInstanceCreateBodySchema } from "@/lib/schemas/integrationInstance";
 import { NextResponse } from "next/server";
 import { taskRegistry } from "../../../../lib/engine/tasks/registry";
 

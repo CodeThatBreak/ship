@@ -1,4 +1,4 @@
-import { contractParamsSchema, contractService } from "@/lib/contracts";
+import { contractParamsSchema, contractService } from "@/lib/contracts/contractService";
 import { NextResponse } from "next/server";
 
 export const dynamic = "force-dynamic";

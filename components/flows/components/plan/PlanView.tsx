@@ -13,11 +13,11 @@ import { PlanSection } from './components/PlanSection';
 import { PlanApproveFooter } from './components/PlanApproveFooter';
 import PlanSteps from './components/planSteps/PlanSteps';
 import { ACTION_TYPES } from './constants/action';
-import type { PlanExecutionMode } from './constants';
+import type { PlanExecutionMode } from './constants/planConstants';
 import { resolveExecution } from './utils/planExecution';
 import { usePlanAction } from './hooks/usePlanAction';
 
-import type { BranchPlan } from './types';
+import type { BranchPlan } from './types/planTypes';
 
 /**
  * The plan panel's container: only what the panel owns — the selection

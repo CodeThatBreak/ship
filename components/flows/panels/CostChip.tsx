@@ -4,7 +4,7 @@ import type { Node } from "@/types/flow";
 import { Badge } from "@/components/ui/badge";
 import { uncachedInputTokens } from "@/lib/usage";
 import { fmtDuration, fmtTokens } from "@/lib/format";
-import { formatCostCents } from "./utils/cost-format";
+import { formatCostCents } from "./utils/costFormat";
 
 /** One node run row as the engine rolls them up (`NodeCost.runs`). */
 interface CostRun {

@@ -3,16 +3,16 @@ import "server-only";
 import fs from "fs";
 import path from "path";
 import { processSingleton } from "../singleton";
-import { resolveWorktreeBaseRef } from "./base-ref";
-import { GitCommandError } from "./git-errors";
+import { resolveWorktreeBaseRef } from "./baseRef";
+import { GitCommandError } from "./gitErrors";
 import {
   GitRunner,
   GIT_COMMAND_TIMEOUT_MS,
   GIT_WORKTREE_ADD_TIMEOUT_MS,
   MAX_GIT_BUFFER,
   gitRunner,
-} from "./git-runner";
-import { assertValidBranchName } from "./branch-name";
+} from "./gitRunner";
+import { assertValidBranchName } from "./branchName";
 
 const GIT_TIMEOUT_MS = GIT_COMMAND_TIMEOUT_MS;
 const MAX_BUFFER = MAX_GIT_BUFFER;

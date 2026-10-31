@@ -2,7 +2,7 @@ import "server-only";
 
 import path from "path";
 import { z } from "zod";
-import { gitLabRepoCloudUrlSchema } from "../integrations/gitlab/repo-url";
+import { gitLabRepoCloudUrlSchema } from "../integrations/gitlab/repoUrl";
 
 const homeDir = (): string => process.env.HOME ?? "";
 

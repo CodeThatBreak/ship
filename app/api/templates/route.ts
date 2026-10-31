@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { templateStore } from "../../../lib/engine/templates/template-store";
+import { templateStore } from "../../../lib/engine/templates/templateStore";
 import { toErrorResponse } from "@/lib/errors";
 
 export const dynamic = "force-dynamic";

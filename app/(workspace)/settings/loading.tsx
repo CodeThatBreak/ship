@@ -1,5 +1,5 @@
 import { Skeleton } from "@/components/ui/skeleton";
-import { GeneralSettingsSkeleton } from "@/components/settings";
+import { GeneralSettingsSkeleton } from "@/components/settings/components/GeneralSettingsSkeleton";
 
 /**
  * Settings sub-route loading state: mirrors the default /settings (General)

@@ -10,7 +10,7 @@ import Database from "better-sqlite3";
 import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
-import { PROD_DB_REL } from "./lib/seed-db.mjs";
+import { PROD_DB_REL } from "./lib/seedDb.mjs";
 
 const root = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 

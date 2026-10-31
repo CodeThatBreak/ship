@@ -1,15 +1,15 @@
 import "server-only";
 
 import { z } from "zod";
-import { db } from "../../db";
-import { NodeDefinition } from "./shared";
+import { db } from "../../db/app";
+import { NodeDefinition } from "./shared/nodeSharedExports";
 import {
   declarativeDefCache,
   declarativeKindRegistry,
   type DeclarativeRow,
-} from "./declarative-registry";
+} from "./declarativeRegistry";
 
-export type { DeclarativeRow } from "./declarative-registry";
+export type { DeclarativeRow } from "./declarativeRegistry";
 
 const DeclarativeRowSchema = z.object({
   id: z.string(),

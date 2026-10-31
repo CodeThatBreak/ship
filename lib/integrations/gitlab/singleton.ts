@@ -1,6 +1,6 @@
 import "server-only";
 
-import { getDb } from "../../db/db-access";
+import { getDb } from "../../db/dbAccess";
 import { processSingleton } from "../../singleton";
 import { GitLabService } from "./client";
 

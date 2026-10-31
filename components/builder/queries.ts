@@ -1,7 +1,7 @@
 import { queryOptions } from "@tanstack/react-query";
-import { queryKeys } from "@/constants/query-keys";
-import { fetchJson } from "@/hooks/fetch-json";
-import type { EditorRepoChoice, EditorTaskProvider } from "@/types/template-editor";
+import { queryKeys } from "@/constants/queryKeys";
+import { fetchJson } from "@/hooks/fetchJson";
+import type { EditorRepoChoice, EditorTaskProvider } from "@/types/templateEditor";
 
 type ReposPayload = { repos?: EditorRepoChoice[] };
 

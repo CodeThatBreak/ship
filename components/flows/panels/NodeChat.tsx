@@ -1,5 +1,5 @@
 "use client";
-import { ChatPanel } from "@/components/chat";
+import ChatPanel from "@/components/chat/ChatPanel";
 import { useNodePanel } from "./context";
 import { useNodeChatBindings } from "./hooks/useNodeChatBindings";
 

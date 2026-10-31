@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { templatePreviewService } from "@/lib/engine/templates/template-preview-service";
+import { templatePreviewService } from "@/lib/engine/templates/templatePreviewService";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";

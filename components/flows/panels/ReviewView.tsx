@@ -1,13 +1,13 @@
 "use client";
 import { useMemo, useState } from "react";
 import { ScanSearch, CheckCheck, MessageSquare, Pencil, CircleAlert } from "lucide-react";
-import { PromptModal } from "@/components/chat";
+import PromptModal from "@/components/chat/promptModal/PromptModal";
 import { PanelShell } from "./shared";
 import { useNodePanel } from "./context";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Spinner } from "@/components/ui/spinner";
-import { EmptyHint } from "@/components/shared";
+import { EmptyHint } from "@/components/shared/EmptyHint";
 import { useFlowComments } from "../hooks/useFlowComments";
 import { FLOW_ACTION, FLOW_STATUS } from "@/constants/flow";
 import { buildThreads } from "./review/buildThreads";

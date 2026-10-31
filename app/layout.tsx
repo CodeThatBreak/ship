@@ -1,7 +1,7 @@
 import "./globals.css";
 import type { Metadata } from "next";
 
-import { LocalApiShell } from "@/loaders/local-api-shell";
+import { LocalApiShell } from "@/loaders/localApiShell";
 import { AppProviders } from "./providers";
 import { TooltipProvider } from "@/components/ui/tooltip";
 

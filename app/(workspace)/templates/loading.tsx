@@ -1,5 +1,5 @@
 import { Skeleton } from "@/components/ui/skeleton";
-import { TableSkeleton } from "@/components/shared";
+import { TableSkeleton } from "@/components/shared/TableSkeleton";
 
 /**
  * Templates gallery loading state: mirrors the page header (title left,

@@ -1,8 +1,9 @@
 import { useCallback, useRef, useState } from 'react';
 
-import type { ChatAction, ChatInputHandle } from '@/components/chat';
-import { ACTION_TYPES } from '@/components/chat';
-import { useFetchAllNodePrompt } from '@/hooks/use-flow-chat';
+import type { ChatAction } from "@/components/chat/types/action";
+import type { ChatInputHandle } from "@/components/chat/types";
+import { ACTION_TYPES } from "@/components/chat/constants/action";
+import { useFetchAllNodePrompt } from '@/hooks/useFlowChat';
 import useLatest from '@/hooks/utility/useLatest';
 
 import { MAIN_THREAD_CONFIG } from '../../../constants/thread';

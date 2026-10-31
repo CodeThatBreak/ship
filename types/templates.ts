@@ -1,4 +1,4 @@
-import type { NodeTemplateKind } from "@/components/template-editor";
+import type { NodeTemplateKind } from "@/components/templateEditor/boilerplate";
 
 /**
  * Client-safe template gallery / node-catalog row shapes (aligned with

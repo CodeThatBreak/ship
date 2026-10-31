@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { templateStore } from "../../../../../lib/engine/templates/template-store";
+import { templateStore } from "../../../../../lib/engine/templates/templateStore";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";

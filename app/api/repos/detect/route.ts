@@ -1,10 +1,10 @@
 import { toErrorResponse } from "@/lib/errors";
 import { parseQuery } from "@/lib/http/parse";
-import { repoService } from "@/lib/repos";
+import { repoService } from "@/lib/repos/repoService";
 import { repoDetectQuerySchema } from "@/lib/schemas/repo";
 import { NextResponse } from "next/server";
 import fs from "fs";
-import { depPolicies } from "../../../../lib/git/dep-policy";
+import { depPolicies } from "../../../../lib/git/depPolicy";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";

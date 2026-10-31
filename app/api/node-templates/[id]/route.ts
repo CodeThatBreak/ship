@@ -1,8 +1,8 @@
 import { toErrorResponse } from "@/lib/errors";
 import { parseJson } from "@/lib/http/parse";
-import { nodeTemplatePatchBodySchema } from "@/lib/schemas/node-template";
+import { nodeTemplatePatchBodySchema } from "@/lib/schemas/nodeTemplate";
 import { NextResponse } from "next/server";
-import { templateStore } from "../../../../lib/engine/templates/template-store";
+import { templateStore } from "../../../../lib/engine/templates/templateStore";
 import { invalidateDeclarativeDef } from "../../../../lib/engine/nodes/declarative";
 
 export const dynamic = "force-dynamic";

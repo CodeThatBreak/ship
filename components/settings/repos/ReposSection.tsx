@@ -1,18 +1,18 @@
 "use client";
 import { useCallback, useDeferredValue, useState } from "react";
 import { Database, Plus } from "lucide-react";
-import type { Repo } from "@/components/settings";
-import { ConfirmDeleteDialog } from "@/components/shared";
+import type { Repo } from "@/components/settings/context";
+import { ConfirmDeleteDialog } from "@/components/shared/ConfirmDeleteDialog";
 import { Button } from "@/components/ui/button";
 import { RepoCard } from "./components/RepoCard";
 import { RepoForm } from "./components/RepoForm";
 import { RepoModal } from "./components/RepoModal";
 import { ReposEmpty } from "./components/ReposEmpty";
 import { REPO_MODAL_TITLE } from "./constants";
-import { useDetectedPolicy } from "./hooks/use-detected-policy";
-import { useDeleteRepo, useSaveRepo } from "./hooks/use-repo-mutations";
-import { useRepoForm } from "./hooks/use-repo-form";
-import { buildRepoSavePayload } from "./utils/repo-save-payload";
+import { useDetectedPolicy } from "./hooks/useDetectedPolicy";
+import { useDeleteRepo, useSaveRepo } from "./hooks/useRepoMutations";
+import { useRepoForm } from "./hooks/useRepoForm";
+import { buildRepoSavePayload } from "./utils/repoSavePayload";
 
 /**
  * Settings → Repositories: the repo registry plus the add/edit modal —

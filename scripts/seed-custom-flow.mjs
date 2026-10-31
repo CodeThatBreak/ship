@@ -26,7 +26,7 @@ import {
   now,
   openSeedDb,
   uid,
-} from "./lib/seed-db.mjs";
+} from "./lib/seedDb.mjs";
 
 const root = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const TEMPLATE_ID = "tpl_release_notify";

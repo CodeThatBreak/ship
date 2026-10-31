@@ -5,11 +5,11 @@
  * (`POST /api/flows/:id/action` → `set_node_config`, which invalidates the
  * flow's prompt reads so the preview reflects the save).
  */
-import { invalidateFlowPrompts } from "@/hooks/invalidate-flow-queries";
+import { invalidateFlowPrompts } from "@/hooks/invalidateFlowQueries";
 import { useEffect, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { queryKeys } from "@/constants/query-keys";
-import { fetchJson, postJson } from "@/hooks/fetch-json";
+import { queryKeys } from "@/constants/queryKeys";
+import { fetchJson, postJson } from "@/hooks/fetchJson";
 import { FLOW_ACTION } from "@/constants/flow";
 
 /** Live run-data blocks (context, diffs, logs, comments) — finalized at run time. */

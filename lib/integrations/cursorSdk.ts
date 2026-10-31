@@ -17,8 +17,8 @@ import fs from "fs";
 import { FAST_OFF, FAST_ON, FAST_PARAM } from "../../constants/models";
 import { processSingleton } from "../singleton";
 import { cursorCredentials } from "./cursor/credentials";
-import { AgentRunLookupError } from "../engine/ports/agent-errors";
-import type { AgentRunQuery } from "../engine/ports/agent-port";
+import { AgentRunLookupError } from "../engine/ports/agentErrors";
+import type { AgentRunQuery } from "../engine/ports/agentPort";
 
 // ── shared vocabulary (SDK-native shapes, re-exported for the engine) ───────
 export type { TokenUsage };

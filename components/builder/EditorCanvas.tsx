@@ -5,10 +5,12 @@
  * This page's island composition wraps both: all editing callbacks arrive
  * from the editor page's action bundle via props.
  */
-import { NodePalette, BuilderCanvas, type BuilderApi } from "@/components/template-editor";
-import type { NodeKind } from "@/constants/node-kind";
-import type { EditorEdge, EditorNode, CanvasPosition } from "@/components/template-editor";
-import type { BranchChoice } from "./hooks/use-instance-contracts";
+import NodePalette from "@/components/templateEditor/NodePalette";
+import BuilderCanvas, { type BuilderApi } from "@/components/templateEditor/BuilderCanvas";
+import type { NodeKind } from "@/constants/nodeKind";
+import type { EditorEdge, EditorNode } from "@/components/templateEditor/types";
+import type { CanvasPosition } from "@/components/templateEditor/draft";
+import type { BranchChoice } from "./hooks/useInstanceContracts";
 
 export interface EditorCanvasProps {
   templateId: string;

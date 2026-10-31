@@ -1,6 +1,6 @@
 import "server-only";
 
-import type { ConfigField } from "../../../../templates/node-config";
+import type { ConfigField } from "../../../../templates/nodeConfig";
 
 /**
  * The agent node's "Split into units" knob (agent-node split plan Phase 3) —

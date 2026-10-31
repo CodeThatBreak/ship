@@ -6,7 +6,7 @@ import { Alert } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Field, FieldLabel } from "@/components/ui/field";
-import { Modal } from "@/components/shared";
+import { Modal } from "@/components/shared/Modal";
 import { Separator } from "@/components/ui/separator";
 import {
   Select,
@@ -22,7 +22,7 @@ import type {
   TemplateOption,
 } from "@/types/tasks";
 import { RUN_MODE } from "@/constants/execution";
-import { useStartBuild } from "./hooks/use-start-build";
+import { useStartBuild } from "./hooks/useStartBuild";
 import { StatusBadge } from "./StatusBadge";
 import { TypeChip } from "./TypeChip";
 

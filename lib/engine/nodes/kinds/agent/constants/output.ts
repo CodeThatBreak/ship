@@ -1,6 +1,6 @@
 import "server-only";
 
-import type { ConfigField } from "../../../../templates/node-config";
+import type { ConfigField } from "../../../../templates/nodeConfig";
 import { AGENT_OUTPUT_FORMAT } from "../../../../constants/declarative";
 
 /** The agent node's "Output" knob — the artifact contract (markdown artifact vs validated json payload). */

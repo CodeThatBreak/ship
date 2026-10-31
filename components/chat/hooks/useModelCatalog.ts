@@ -1,7 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
-import { queryKeys } from "@/constants/query-keys";
-import { fetchJson } from "@/hooks/fetch-json";
-import type { CatalogModel, ModelChoice } from "@/types/model-spec";
+import { queryKeys } from "@/constants/queryKeys";
+import { fetchJson } from "@/hooks/fetchJson";
+import type { CatalogModel, ModelChoice } from "@/types/modelSpec";
 
 const MODEL_CATALOG_STALE_MS = 60 * 60_000;
 

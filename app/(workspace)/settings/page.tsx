@@ -1,8 +1,6 @@
 import { QueryClient, dehydrate, HydrationBoundary } from "@tanstack/react-query";
-import {
-  GeneralSettingsPage,
-  settingsQueryOptions,
-} from "@/components/settings";
+import { settingsQueryOptions } from "@/components/settings/queries";
+import { GeneralSettingsPage } from "@/components/settings/general/GeneralSettingsPage";
 import { loadSettings } from "@/loaders/settings";
 
 export const dynamic = "force-dynamic";

@@ -16,16 +16,10 @@ import {
   SheetHeader,
   SheetTitle,
 } from "@/components/ui/sheet";
-import {
-  NodeConfiguratorBody,
-  describeTrigger,
-  type EditorNode,
-  type IncomingLink,
-  type TaskProviderInfo,
-  type EditorNodePatch,
-} from "@/components/template-editor";
-import type { TriggerField } from "./hooks/use-instance-contracts";
-import { SheetFooterHelper } from "@/components/shared";
+import { NodeConfiguratorBody, type IncomingLink } from "@/components/templateEditor/NodeConfigurator";
+import { describeTrigger, type EditorNode, type TaskProviderInfo, type EditorNodePatch } from "@/components/templateEditor/types";
+import type { TriggerField } from "./hooks/useInstanceContracts";
+import { SheetFooterHelper } from "@/components/shared/SheetFooterHelper";
 
 export interface EditorNodeDrawerProps {
   open: boolean;

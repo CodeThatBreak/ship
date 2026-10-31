@@ -1,7 +1,7 @@
 import { QueryClient, dehydrate, HydrationBoundary } from "@tanstack/react-query";
 import { loadNodeCatalog } from "@/loaders/templates";
-import { TemplateNodesCatalog } from "@/components/templates";
-import { queryKeys } from "@/constants/query-keys";
+import { TemplateNodesCatalog } from "@/components/templates/TemplateNodesCatalog";
+import { queryKeys } from "@/constants/queryKeys";
 
 export const dynamic = "force-dynamic";
 

@@ -3,7 +3,7 @@ import { useCallback, useMemo, useState } from "react";
 import { CheckCheck, Split } from "lucide-react";
 import { PanelShell } from "./shared";
 import { useNodePanel } from "./context";
-import { EmptyHint } from "@/components/shared";
+import { EmptyHint } from "@/components/shared/EmptyHint";
 import {
   FLOW_ACTION,
   FLOW_STATUS,
@@ -19,7 +19,7 @@ import {
   effectiveDecisionSelection,
   isSameDecisionPick,
   toggleDecisionLabel,
-} from "./utils/decision-selection";
+} from "./utils/decisionSelection";
 
 interface DecisionChoice { label: string; description?: string }
 

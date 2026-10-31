@@ -1,7 +1,7 @@
 import "server-only";
 
 import type { Database } from "../../db/database";
-import type { GitLabInstanceStore, GitLabInstanceMeta } from "../../db/stores/gitlab-instance-store";
+import type { GitLabInstanceStore, GitLabInstanceMeta } from "../../db/stores/gitlabInstanceStore";
 import { type GitLabInstance } from "../../db/rows";
 import {
   GitHostTimeoutError,
@@ -9,14 +9,14 @@ import {
   parseRetryAfterMs,
   redactSecretsInText,
   truncateUpstreamBody,
-} from "../../engine/ports/git-host-errors";
+} from "../../engine/ports/gitHostErrors";
 import {
   GITLAB_HTTP_TIMEOUT_MS,
   GITLAB_MAX_GET_RETRIES,
   GITLAB_MAX_LIST_PAGES,
   GITLAB_RETRYABLE_STATUSES,
 } from "./constants";
-import { encodedProjectPathFromRepoUrl, hostOfRepoUrl, projectPathFromRepoUrl } from "./repo-url";
+import { encodedProjectPathFromRepoUrl, hostOfRepoUrl, projectPathFromRepoUrl } from "./repoUrl";
 
 export type { GitLabInstance } from "../../db/rows";
 

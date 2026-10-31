@@ -1,5 +1,5 @@
 import { toErrorResponse } from "@/lib/errors";
-import { artifactService } from "@/lib/artifacts";
+import { artifactService } from "@/lib/artifacts/artifactService";
 import { NextResponse } from "next/server";
 
 export const dynamic = "force-dynamic";

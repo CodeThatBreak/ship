@@ -1,6 +1,6 @@
 "use client";
 import { Link2 } from "lucide-react";
-import { FormModal } from "@/components/shared";
+import { FormModal } from "@/components/shared/FormModal";
 
 /** Connect integration modal — stepped fields come from the tab body. */
 export const ConnectModal = ({

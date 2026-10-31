@@ -1,17 +1,17 @@
 'use client';
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { resolveCockpitSelectedKey } from './utils/resolve-cockpit-selection';
+import { resolveCockpitSelectedKey } from './utils/resolveCockpitSelection';
 import { useQueryClient } from '@tanstack/react-query';
-import WorkflowGraph from '../workflow-graph/WorkflowGraph';
+import WorkflowGraph from '../workflowGraph/WorkflowGraph';
 import NodePanel from '../panels/NodePanel';
 import FlowHeader from '../FlowHeader';
 import { Button } from '@/components/ui/button';
-import { queryKeys } from '@/constants/query-keys';
+import { queryKeys } from '@/constants/queryKeys';
 import type { FlowData, Node } from '@/types/flow';
 import { useFlowMutation } from '../mutations/useFlowMutation';
-import { useFlowData } from './hooks/use-flow-data';
-import { useFlowEvents } from './hooks/use-flow-events';
-import { fanoutProgressOf } from './fanout-progress';
+import { useFlowData } from './hooks/useFlowData';
+import { useFlowEvents } from './hooks/useFlowEvents';
+import { fanoutProgressOf } from './fanoutProgress';
 
 /**
  * The flow cockpit's client island (§2.1 server/client split): the server page
