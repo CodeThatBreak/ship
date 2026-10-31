@@ -24,6 +24,7 @@ process.env.DATABASE_PATH = path.join(
 const { db } = await import("../db");
 const { FlowEngine } = await import("./flow-engine");
 const { ERROR_CODE } = await import("../errors");
+const { ConflictError } = await import("../errors");
 const { NODE_KEYS } = await import("./constants/node-keys");
 const { templateStore } = await import("./templates/template-store");
 
@@ -104,5 +105,41 @@ describe("engine chain-role routing (T3)", () => {
     expect(() => engine.create(taskId, "https://example.com/repo.git")).toThrow("simulated node insert failure");
     expect(db.all(`SELECT id FROM flows WHERE task_id=?`, taskId)).toHaveLength(0);
     expect(db.all(`SELECT id FROM nodes WHERE flow_id IN (SELECT id FROM flows WHERE task_id=?)`, taskId)).toHaveLength(0);
+  });
+
+  it("sendChat refuses a second refine while the plan node is already running", () => {
+    const flowId = seedFlow(4);
+    const planKey = engine.keyOfRole(flowId, NODE_KEYS.PLAN);
+    if (!planKey) throw new Error("expected plan key");
+    db.run(
+      `INSERT INTO nodes (id, flow_id, node_key, type, status, attempt_id, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?)`,
+      `node_${flowId}_plan`,
+      flowId,
+      planKey,
+      NODE_KEYS.PLAN,
+      "running",
+      "att_busy",
+      now(),
+      now(),
+    );
+    expect(() => engine.sendChat(flowId, planKey, "second message")).toThrow(ConflictError);
+  });
+
+  it("approvePlan rejects when the plan node is running (refine in flight)", () => {
+    const flowId = seedFlow(5);
+    const planKey = engine.keyOfRole(flowId, NODE_KEYS.PLAN);
+    if (!planKey) throw new Error("expected plan key");
+    db.run(
+      `INSERT INTO nodes (id, flow_id, node_key, type, status, attempt_id, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?)`,
+      `node_${flowId}_plan`,
+      flowId,
+      planKey,
+      NODE_KEYS.PLAN,
+      "running",
+      "att_refine",
+      now(),
+      now(),
+    );
+    expect(() => engine.approvePlan(flowId)).toThrow(/not awaiting approval/);
   });
 });

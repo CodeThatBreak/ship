@@ -543,7 +543,6 @@ describe('PlanNode — chat via the follow-up contract (docs/plan-conversation-r
     const reply = await node.chat(ctx, 'why is step 2 blocked?');
     expect(reply).toBe('Answered: step 2 is blocked.');
     expect(observ.savedMetas).toHaveLength(0);
-    expect(observ.nodePatches.some(p => p.status === 'running')).toBe(true);
     expect(observ.nodePatches.some(p => p.status === 'awaiting_approval')).toBe(true);
     expect(observ.events).toHaveLength(0);
     expect(observ.startAgentInputs).toHaveLength(1);
@@ -589,7 +588,6 @@ describe('PlanNode — chat via the follow-up contract (docs/plan-conversation-r
     expect(observ.startAgentInputs).toHaveLength(2); // the initial turn + ONE retry
     expect(observ.labels).toEqual(['plan chat', 'plan chat retry']);
     expect(observ.savedMetas).toHaveLength(0); // no partial version ever persisted
-    expect(observ.nodePatches.some(p => p.status === 'running')).toBe(true);
     expect(observ.events).toContain('plan chat output contract failed — retrying with feedback (schema_mismatch)');
     expect(observ.events).toContain('plan refine failed validation — nothing was changed');
     expect(reply).toContain("I couldn't produce a valid plan for that —");

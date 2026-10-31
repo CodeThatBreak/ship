@@ -46,6 +46,7 @@ CREATE TABLE IF NOT EXISTS nodes (
   node_key      TEXT NOT NULL,              -- plan | build | pipeline | review | resolve
   type          TEXT NOT NULL,
   status        TEXT NOT NULL DEFAULT 'pending',  -- pending|running|awaiting_approval|approved|failed|done|waiting|skipped
+  attempt_id    TEXT,                        -- token for the in-flight run; set atomically on claim
   agent_id      TEXT,                        -- runtime agent handle captured from the last run
   agent_ref     TEXT,
   session_id    TEXT,                        -- local agent session

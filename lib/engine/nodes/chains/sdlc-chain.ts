@@ -14,6 +14,7 @@ export interface ChainHost {
   runNode(flowId: string, nodeKey: string, rawInput: unknown, deliveryPayload?: unknown): Promise<string>;
   setCurrentNode(flowId: string, nodeKey: string | null): void;
   setNodeStatus(flowId: string, nodeKey: string, status: string): void;
+  claimNode(flowId: string, nodeKey: string, from: readonly string[]): string;
   nodeStatus(flowId: string, nodeKey: string): string;
   nodeRunning(flowId: string, nodeKey: string): boolean;
   nodeConfigFor(flowId: string, nodeKey: string): Record<string, unknown>;
@@ -124,7 +125,7 @@ export class SdlcChain {
       `push rejected — running a commit-fix agent on the build step (attempt ${attempt}/${maxAttempts})`,
       { nodeKey: buildKey });
     this.host.setCurrentNode(flowId, buildKey);
-    this.host.setNodeStatus(flowId, buildKey, "running");
+    this.host.claimNode(flowId, buildKey, ["approved"]);
     try {
       await this.host.runNode(flowId, buildKey, {
         plan: null, prompt: null, branchInfo: null, model: null,
@@ -135,7 +136,6 @@ export class SdlcChain {
       });
     } finally {
       this.host.setNodeStatus(flowId, buildKey, "approved");
-      // hand the pointer back to the gate the chain will enter next
       this.host.setCurrentNode(flowId, gate);
     }
   }
@@ -145,19 +145,14 @@ export class SdlcChain {
     if (this.host.chainBusy(flowId)) return;
     const gate = this.host.gateKey(flowId);
     if (!gate) throw new Error("this flow template has no pipeline gate node");
+    this.host.claimNode(flowId, gate, ["pending", "failed"]);
     this.host.setCurrentNode(flowId, gate);
     this.host.bg(flowId, gate, async () => {
-      try {
-        // a green gate advances the template edges — review (and the
-        // debounced resolve when comments arrive) flows via edges
-        await this.host.runNode(flowId, gate, {
-          branchName: null, pipelineId: pipelineId ?? null, guidance: null,
-          prompt: prompt ?? null, promptIsBody: promptIsBody ?? false, model: model ?? null,
-        });
-        await this.host.advanceFrom(flowId, gate);
-      } finally {
-        this.host.setCurrentNode(flowId, null);
-      }
+      await this.host.runNode(flowId, gate, {
+        branchName: null, pipelineId: pipelineId ?? null, guidance: null,
+        prompt: prompt ?? null, promptIsBody: promptIsBody ?? false, model: model ?? null,
+      });
+      await this.host.advanceFrom(flowId, gate);
     });
   }
 
@@ -171,18 +166,13 @@ export class SdlcChain {
     if (this.host.chainBusy(flowId)) {
       throw new Error("wait for the pipeline/review step to finish before running resolve");
     }
+    this.host.claimNode(flowId, resolveKey, ["pending", "failed"]);
     this.host.setCurrentNode(flowId, resolveKey);
     this.host.bg(flowId, resolveKey, async () => {
-      try {
-        await this.host.runNode(flowId, resolveKey, {
-          instructions: null, prompt: prompt ?? null, promptIsBody: promptIsBody ?? false, branchName: null, model: model ?? null,
-        });
-        // the resolve → re-gate loop edge (condition = resolve changed code)
-        // activates here exactly like an engine auto-start's edges do
-        await this.host.advanceFrom(flowId, resolveKey);
-      } finally {
-        this.host.setCurrentNode(flowId, null);
-      }
+      await this.host.runNode(flowId, resolveKey, {
+        instructions: null, prompt: prompt ?? null, promptIsBody: promptIsBody ?? false, branchName: null, model: model ?? null,
+      });
+      await this.host.advanceFrom(flowId, resolveKey);
     });
   }
 
@@ -191,18 +181,13 @@ export class SdlcChain {
     const reviewKey = this.host.keyOfRole(flowId, NODE_KEYS.REVIEW);
     if (!reviewKey) throw new Error("this flow template has no review node");
     if (this.host.chainBusy(flowId)) throw new Error("wait for the current pipeline/review/resolve run to finish first");
+    this.host.claimNode(flowId, reviewKey, ["pending", "failed"]);
     this.host.setCurrentNode(flowId, reviewKey);
     this.host.bg(flowId, reviewKey, async () => {
-      try {
-        await this.host.runNode(flowId, reviewKey, {
-          instructions: null, prompt: prompt ?? null, promptIsBody: promptIsBody ?? false, branchName: null, model: model ?? null,
-        });
-        // the review → resolve edge arms the debounced resolve when comments
-        // are open — the same contract as an engine auto-start
-        await this.host.advanceFrom(flowId, reviewKey);
-      } finally {
-        this.host.setCurrentNode(flowId, null);
-      }
+      await this.host.runNode(flowId, reviewKey, {
+        instructions: null, prompt: prompt ?? null, promptIsBody: promptIsBody ?? false, branchName: null, model: model ?? null,
+      });
+      await this.host.advanceFrom(flowId, reviewKey);
     });
   }
 }

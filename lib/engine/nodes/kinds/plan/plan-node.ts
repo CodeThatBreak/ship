@@ -20,6 +20,7 @@ import { agentRunner, type AgentRunner } from '../../../harness';
 import { flowCtxHelper, nodeSupport, type FlowContextHelper, type NodeSupport } from '../../shared';
 import { PlanInput, PlanOutput } from './schema';
 import { AgentOutputError, AGENT_OUTPUT_ERROR, type AgentOutputError as AgentOutputErrorT } from '../../shared/agent/output-error';
+import { RunSupersededError } from '../../../errors/run-superseded-error';
 import { PlanAgentSessions } from './plan-agent-sessions';
 import { normalizePlanThread } from './constants/planThread';
 import type { PlanTurnKind } from './plan-contract';
@@ -221,6 +222,7 @@ export class PlanNode extends AgentRunNode<PlanInput, PlanOutput> {
   ): Promise<string> {
     const node = this.node(ctx);
     const previousStatus = node.status ?? 'pending';
+    const attemptId = node.attempt_id;
     const wholeAgentId = opts.branch ? (node.agent_id ?? this.support.lastAgentId(node.id)) : null;
     const followUpOn = this.sessions.resolveFollowUp(node, opts.branch);
     const args: PlanRunArgs = {
@@ -230,7 +232,6 @@ export class PlanNode extends AgentRunNode<PlanInput, PlanOutput> {
     };
 
     this.support.setNode(node.id, {
-      status: 'running',
       input: JSON.stringify(
         PlanInput.parse({
           planThread: opts.branch,
@@ -254,7 +255,8 @@ export class PlanNode extends AgentRunNode<PlanInput, PlanOutput> {
           model: args.model,
           settingSources: args.settingSources,
         }),
-      args.label
+      args.label,
+      { attemptId: attemptId ?? undefined },
     );
 
     try {
@@ -272,21 +274,41 @@ export class PlanNode extends AgentRunNode<PlanInput, PlanOutput> {
         this.sessions.recordAgent(ctx, this.node(ctx), opts.branch, agentId, wholeAgentId);
       }
       if (applied.outcome) {
-        this.applyOutcome(ctx, applied.outcome);
+        this.applyOutcome(ctx, applied.outcome, {
+          fenceSuperseded: Boolean(attemptId),
+          attemptId,
+        });
         return applied.reply;
       }
-      this.support.setNode(node.id, {
-        status: previousStatus,
-        ...(agentId ? { agent_id: agentId } : {}),
-      });
+      if (attemptId) {
+        this.support.patchIfAttempt(node.id, attemptId, {
+          status: previousStatus,
+          ...(agentId ? { agent_id: agentId } : {}),
+        });
+      } else {
+        this.support.setNode(node.id, {
+          status: previousStatus,
+          ...(agentId ? { agent_id: agentId } : {}),
+        });
+      }
       return applied.reply;
     } catch (e: unknown) {
+      if (e instanceof RunSupersededError) {
+        return "";
+      }
+      const revert = (patch: Record<string, unknown>) => {
+        if (attemptId) {
+          this.support.patchIfAttempt(node.id, attemptId, patch);
+        } else {
+          this.support.setNode(node.id, patch);
+        }
+      };
       if (e instanceof AgentOutputError && e.code === AGENT_OUTPUT_ERROR.AGENT_REPORTED) {
-        this.support.setNode(node.id, { status: previousStatus });
+        revert({ status: previousStatus });
         return e.detail.reported?.reason ?? e.detail.message;
       }
       if (!(e instanceof AgentOutputError) || !RETRYABLE_OUTPUT_ERRORS.has(e.code)) throw e;
-      this.support.setNode(node.id, { status: previousStatus });
+      revert({ status: previousStatus });
       this.support.emitLifecycle(ctx.flow.id, node.id, planValidationFailedEvent);
       return planValidationRefusalReply(this.firstViolation(e));
     }

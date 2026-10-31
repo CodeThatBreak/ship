@@ -21,6 +21,8 @@ import { RunSupersededError } from "../errors/run-superseded-error";
 export interface ExecuteRunOptions {
   /** When false, skip the late-write guard (chat-only turns that do not own node status). */
   ownsNodeStatus?: boolean;
+  /** Attempt token stamped when the node was claimed; fences late results. */
+  attemptId?: string;
 }
 
 // ── agent run machinery ──────────────────────────────────────────────────────
@@ -125,8 +127,10 @@ export class AgentRunner {
     const { agentId, runId } = await start();
     this.support.persistRun(flow.id, nodeId, agentId, runId);
     const runRowId = db.get<{ id: string }>(`SELECT id FROM runs WHERE run_ref=?`, runId)?.id as string;
-    const nodeAtStart = db.get<{ status: string }>(`SELECT status FROM nodes WHERE id=?`, nodeId);
-    const startedWhileRunning = nodeAtStart?.status === "running";
+    const attemptAtStart =
+      options?.attemptId
+      ?? db.get<{ attempt_id: string | null }>(`SELECT attempt_id FROM nodes WHERE id=?`, nodeId)?.attempt_id;
+    const startedWhileRunning = attemptAtStart != null;
     db.emitEvent(flow.id, nodeId, "lifecycle", `${label} started (${mode})`, { agentId, runId, run_id: runId, mode });
 
     const stream = new StreamBuffer(flow.id, nodeId, runId);
@@ -206,9 +210,12 @@ export class AgentRunner {
     }
 
     const ownsNodeStatus = options?.ownsNodeStatus !== false;
-    if (ownsNodeStatus && startedWhileRunning) {
-      const nodeNow = db.get<{ status: string }>(`SELECT status FROM nodes WHERE id=?`, nodeId);
-      if (nodeNow?.status !== "running") {
+    if (ownsNodeStatus && startedWhileRunning && attemptAtStart) {
+      const nodeNow = db.get<{ attempt_id: string | null; status: string }>(
+        `SELECT attempt_id, status FROM nodes WHERE id=?`,
+        nodeId,
+      );
+      if (nodeNow?.attempt_id !== attemptAtStart) {
         db.emitEvent(
           flow.id,
           nodeId,

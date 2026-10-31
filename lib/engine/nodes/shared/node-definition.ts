@@ -303,20 +303,30 @@ export abstract class NodeDefinition<I = unknown, O extends Record<string, unkno
    * A recovered finish therefore persists byte-identical node/artifact rows
    * to a normal finish — only the event message carries the recovery note.
    */
-  protected applyOutcome(ctx: FlowCtx, outcome: RunOutcome, opts?: { note?: string; fenceSuperseded?: boolean }): RunOutcome {
+  protected applyOutcome(ctx: FlowCtx, outcome: RunOutcome, opts?: { note?: string; fenceSuperseded?: boolean; attemptId?: string | null }): RunOutcome {
     const node = this.node(ctx);
-    if (opts?.fenceSuperseded && node.status !== "running") {
+    const attemptId = opts?.attemptId ?? node.attempt_id;
+    if (opts?.fenceSuperseded && attemptId) {
+      if (node.attempt_id !== attemptId) {
+        throw new RunSupersededError(node.id, node.status, attemptId);
+      }
+    } else if (opts?.fenceSuperseded && node.status !== "running") {
       throw new RunSupersededError(node.id, node.status, "applyOutcome");
     }
     if (outcome.artifact) {
       this.support.saveArtifact(node.id, ctx.flow.id, outcome.artifact.kind, outcome.artifact.content, outcome.artifact.meta);
     }
     const validatedOutput = this.outputSchema.parse(outcome.output);
-    this.support.setNode(node.id, {
+    const patch = {
       status: outcome.status,
       agent_id: this.support.lastAgentId(node.id),
       output: JSON.stringify(validatedOutput),
-    });
+    };
+    if (opts?.fenceSuperseded && attemptId) {
+      this.support.patchIfAttempt(node.id, attemptId, patch);
+    } else {
+      this.support.setNode(node.id, patch);
+    }
     this.support.emitLifecycle(
       ctx.flow.id,
       node.id,

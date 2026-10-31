@@ -10,6 +10,7 @@ import {
   RunRow,
   Task,
   rows,
+  type NodeStatus,
 } from "../db/rows";
 import { agentPortRegistry, type AgentRunResult } from "./ports/agent-port";
 import { hostOf, type HostComment } from "./ports/git-host";
@@ -29,12 +30,14 @@ import { hookStore } from "./runtime/hook-store";
 import { parseStartContract, validateAgainstContract } from "./nodes/kinds/start/contract";
 import { DEFAULT_FANOUT_OUTPUT, uiCapabilities, type NodeCapabilities } from "./nodes/shared/capabilities";
 import { stepFlows, StepFlowManager, type StepChildPayload } from "./runtime/fanout/step-flow-manager";
+import { mergeArena } from "./runtime/fanout/merge-arena";
 import { DEFAULT_SPLIT_OUTPUT, splitManager, type SplitChildPayload } from "./runtime/split/split-manager";
 import { worktreeManager } from "./runtime/worktree-lifecycle";
 import { processSingleton } from "../singleton";
 import { normalizePlanThread } from "./nodes/kinds/plan/constants/planThread";
 import { PlanStore } from "./nodes/kinds/plan/plan-store";
 import { ConflictError, NotFoundError, ValidationError } from "../errors";
+import { RunSupersededError } from "./errors/run-superseded-error";
 
 export interface CreateFlowOptions {
   executionMode?: "cloud" | "local";
@@ -555,15 +558,27 @@ export class FlowEngine {
   async delete(id: string): Promise<void> {
     const flow = db.get<{ id: string }>(`SELECT id FROM flows WHERE id=?`, id);
     if (!flow) throw new NotFoundError("flow", id);
-    // "the whole flow" includes the step children — they are hidden from the
-    // flow list and unreachable once the parent is gone. No deeper nesting
-    // exists (step children never fan out again).
     const childIds = db
       .all<{ id: string }>(`SELECT id FROM flows WHERE parent_flow_id=?`, id)
       .map((r) => r.id);
     const ids = [id, ...childIds];
-    // remove the local worktrees first (best-effort — the startup sweep also
-    // cleans up any removal that fails or is interrupted here)
+    for (const fid of ids) {
+      if (mergeArena.isMerging(fid)) {
+        throw new ConflictError("cannot delete a flow while a step merge is in progress");
+      }
+    }
+    for (const fid of ids) {
+      const active = db.all<{ node_key: string; status: string }>(
+        `SELECT node_key, status FROM nodes WHERE flow_id=? AND status IN ('running','waiting')`,
+        fid,
+      );
+      for (const n of active) {
+        await this.cancelNode(fid, n.node_key);
+      }
+    }
+    for (const key of [...this.waitTimers.keys()]) {
+      if (ids.some((fid) => key.startsWith(`${fid}\n`))) this.waitTimers.delete(key);
+    }
     await Promise.allSettled(
       ids.map((fid) =>
         worktreeManager.removeFlowWorktree(fid, { reason: "flow deleted" })),
@@ -604,21 +619,33 @@ export class FlowEngine {
       status, db.now(), flowId, nodeKey);
   }
 
+  /** Atomically claim a node for a background run (see docs/coding-patterns.md §3.6). */
+  claimNode(flowId: string, nodeKey: string, from: readonly NodeStatus[]): string {
+    return nodeSupport.claim(flowId, nodeKey, from);
+  }
+
   // fire-and-forget wrapper: runs async, marks node failed on error.
   // Engine internals shared with the SDLC builtin-chain module — not a public API.
-  bg(flowId: string, nodeKey: string | null, fn: () => Promise<void>): void {
-    (async () => {
+  bg(flowId: string, nodeKey: string | null, fn: () => Promise<void>, clearCurrentKey?: string | null): void {
+    const clearKey = clearCurrentKey ?? nodeKey;
+    void (async () => {
       try {
         await fn();
       } catch (e: unknown) {
+        if (e instanceof RunSupersededError) return;
         const msg = e instanceof Error ? e.message : String(e);
-        // tag the event with the node it belongs to — the chat panel groups
-        // flow-level rows per tab, and an untagged run failure would show up
-        // on every node's feed
         db.emitEvent(flowId, null, "error", msg, { nodeKey });
-        if (nodeKey) this.setNodeStatus(flowId, nodeKey, "failed");
+        if (nodeKey) {
+          db.run(
+            `UPDATE nodes SET status='failed', attempt_id=NULL, updated_at=? WHERE flow_id=? AND node_key=? AND status='running'`,
+            db.now(),
+            flowId,
+            nodeKey,
+          );
+        }
         db.run(`UPDATE flows SET updated_at=? WHERE id=?`, db.now(), flowId);
       } finally {
+        if (clearKey) this.clearCurrentIf(flowId, clearKey);
         this.touch(flowId);
       }
     })();
@@ -1207,6 +1234,13 @@ export class FlowEngine {
         return;
       }
     }
+    const claimFrom: readonly NodeStatus[] = opts.resumeWaiting ? ["waiting"] : ["pending"];
+    try {
+      this.claimNode(flowId, nodeKey, claimFrom);
+    } catch (e: unknown) {
+      if (e instanceof ConflictError) return;
+      throw e;
+    }
     this.setCurrentNode(flowId, nodeKey);
     try {
       const def = this.defOf(flowId, nodeKey);
@@ -1269,7 +1303,12 @@ export class FlowEngine {
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : String(e);
       db.emitEvent(flowId, null, "error", msg, { nodeKey });
-      this.setNodeStatus(flowId, nodeKey, "failed");
+      db.run(
+        `UPDATE nodes SET status='failed', attempt_id=NULL, updated_at=? WHERE flow_id=? AND node_key=? AND status='running'`,
+        db.now(),
+        flowId,
+        nodeKey,
+      );
       if (this.isStepChild(flowId)) {
         // notify hook: this failed stage runs on a step child — its parent's
         // rollup/scheduling reacts (standard failed → retry/skip)
@@ -1347,6 +1386,10 @@ export class FlowEngine {
   approvePlan(flowId: string, executionOverride?: "whole" | "steps"): void {
     const planKey = this.keyOfRole(flowId, NODE_KEYS.PLAN);
     if (!planKey) throw new Error("this flow template has no plan node");
+    const planStatus = this.nodeStatus(flowId, planKey);
+    if (planStatus !== "awaiting_approval") {
+      throw new ConflictError(`plan is not awaiting approval (${planStatus})`);
+    }
     // Phase 3B: the plan panel's override chip — the user forced whole/steps
     // at approve. Recorded in the plan version's plan-meta (execution +
     // executionSource: "override") so a downstream from-plan fan-out node
@@ -1378,7 +1421,7 @@ export class FlowEngine {
     const plan = this.latestResourceArtifact<{ id: string; content: string; meta: string | null }>(flowId, NODE_KEYS.PLAN);
     if (!plan) throw new Error("no plan to approve");
     db.run(`UPDATE artifacts SET status='approved' WHERE id=?`, plan.id);
-    this.setNodeStatus(flowId, planKey, "approved");
+    nodeSupport.transition(flowId, planKey, ["awaiting_approval"], "approved");
 
     // approvePlan originally inlined the plan→build handoff (plan-meta branch
     // decomposition, sequential builds). It now lives in the build node's
@@ -1502,10 +1545,11 @@ export class FlowEngine {
     if (node.status !== "pending" && !(node.status === "failed" && this.defOf(flowId, nodeKey).isEntry)) {
       throw new ConflictError(`run is not available while the node is ${node.status}`);
     }
+    const claimFrom: readonly NodeStatus[] =
+      node.status === "failed" && this.defOf(flowId, nodeKey).isEntry ? ["failed"] : ["pending"];
+    this.claimNode(flowId, nodeKey, claimFrom);
     this.setCurrentNode(flowId, nodeKey);
     this.bg(flowId, nodeKey, async () => {
-      try {
-        // wait for upstream stages (join semantics mirror the engine's edge activation)
         const g = this.graph(flowId);
         if (g && !(await this.joinSatisfied(flowId, g, nodeKey))) {
           throw new Error("upstream nodes must finish before this run can start");
@@ -1524,10 +1568,7 @@ export class FlowEngine {
         if (this.statusTerminalSuccess(finalStatus)) {
           await this.advanceFrom(flowId, nodeKey);
         }
-      } finally {
-        if (this.nodeStatus(flowId, nodeKey) !== "running") this.clearCurrentIf(flowId, nodeKey);
-      }
-    });
+      });
   }
 
   /**
@@ -1549,7 +1590,7 @@ export class FlowEngine {
     const def = this.defOf(flowId, nodeKey);
     if (def.builtinApproval) throw new ValidationError(`${nodeKey} approval belongs to its built-in flow actions`);
     db.emitEvent(flowId, node.id, "lifecycle", `${nodeKey} approved`);
-    this.setNodeStatus(flowId, nodeKey, "approved");
+    nodeSupport.transition(flowId, nodeKey, ["awaiting_approval"], "approved");
 
     const g = this.graph(flowId);
     const targets = g?.edges.filter((e) => e.kind === "next" && e.from === nodeKey) ?? [];
@@ -1561,11 +1602,7 @@ export class FlowEngine {
       }) ?? nodeKey;
     this.setCurrentNode(flowId, attribution);
     this.bg(flowId, attribution, async () => {
-      try {
-        await this.advanceFrom(flowId, nodeKey);
-      } finally {
-        this.clearCurrentIf(flowId, attribution);
-      }
+      await this.advanceFrom(flowId, nodeKey);
     });
   }
 
@@ -1600,11 +1637,7 @@ export class FlowEngine {
       }) ?? nodeKey;
     this.setCurrentNode(flowId, attribution);
     this.bg(flowId, attribution, async () => {
-      try {
-        await this.advanceFrom(flowId, nodeKey);
-      } finally {
-        this.clearCurrentIf(flowId, attribution);
-      }
+      await this.advanceFrom(flowId, nodeKey);
     });
   }
 
@@ -1685,6 +1718,7 @@ export class FlowEngine {
       throw new ConflictError("wait for the current pipeline/review/resolve run to finish first");
     }
     db.emitEvent(flowId, node.id, "lifecycle", `retrying ${nodeKey}`);
+    this.claimNode(flowId, nodeKey, ["failed"]);
     this.setCurrentNode(flowId, nodeKey);
     this.bg(flowId, nodeKey, async () => {
       // a retried node re-runs on its recorded input; the pipeline gate
@@ -1713,15 +1747,20 @@ export class FlowEngine {
   async cancelNode(flowId: string, nodeKey: string): Promise<void> {
     const node = rows.get(NodeRow, `SELECT * FROM nodes WHERE flow_id=? AND node_key=?`, flowId, nodeKey);
     if (!node) throw new NotFoundError("node", nodeKey);
+    if (node.status !== "running" && node.status !== "waiting" && node.status !== "awaiting_approval") {
+      throw new ConflictError(`cannot cancel ${nodeKey} while it is ${node.status}`);
+    }
     const flow = rows.get(FlowRow, `SELECT * FROM flows WHERE id=?`, flowId);
     const active = db.all<{ run_ref: string }>(
       `SELECT run_ref FROM runs WHERE node_id=? AND status='running'`, node.id);
-    if (flow?.execution_mode === "local") {
-      for (const r of active) agentPortRegistry.forMode("local").cancel({ runId: r.run_ref });
+    const mode = flow?.execution_mode === "local" ? "local" : "cloud";
+    for (const r of active) {
+      await agentPortRegistry.forMode(mode).cancel({ runId: r.run_ref });
     }
+    this.waitTimers.delete(`${flowId}\n${nodeKey}`);
     db.run(`UPDATE runs SET status='error', updated_at=? WHERE node_id=? AND status='running'`, db.now(), node.id);
-    this.setNodeStatus(flowId, nodeKey, "failed");
-    if (flow?.current_node === nodeKey) this.setCurrentNode(flowId, null);
+    nodeSupport.transition(flowId, nodeKey, ["running", "waiting", "awaiting_approval"], "failed");
+    this.clearCurrentIf(flowId, nodeKey);
     db.emitEvent(flowId, node.id, "lifecycle", `${nodeKey} stopped by user — retry when ready`);
     this.touch(flowId);
     if (this.isStepChild(flowId)) {
@@ -1747,6 +1786,9 @@ export class FlowEngine {
       }
     }
     db.addMessage(flowId, nodeKey, "user", content, thread ?? null);
+    if (!chatOnly) {
+      this.claimNode(flowId, nodeKey, ["pending", "awaiting_approval", "failed"]);
+    }
     this.setCurrentNode(flowId, nodeKey);
     this.bg(flowId, chatOnly ? null : nodeKey, async () => {
       const reply = chatOnly
@@ -1756,8 +1798,7 @@ export class FlowEngine {
             thread: thread ?? null,
           })) ?? CHAT_DECLINED;
       db.addMessage(flowId, nodeKey, "assistant", reply || "Done.", thread ?? null);
-      this.setCurrentNode(flowId, null);
-    });
+    }, nodeKey);
   }
 
   // ── Phase 4: triggers — flow start, webhooks, schedule, wait timers ──────
@@ -1902,6 +1943,7 @@ export class FlowEngine {
       throw new ValidationError(`${nodeKey} is not waiting on a webhook`);
     }
     if (node.status !== "waiting") throw new ConflictError(`${nodeKey} is not waiting for an event`);
+    this.claimNode(flowId, nodeKey, ["waiting"]);
     db.emitEvent(flowId, node.id, "lifecycle", `${nodeKey} resumed by a webhook delivery`);
     this.bg(flowId, nodeKey, () =>
       this.startNodeStage(flowId, nodeKey, {
@@ -1948,6 +1990,12 @@ export class FlowEngine {
 
   private fireWaitTimer(flowId: string, nodeKey: string, note?: string): void {
     if (this.nodeStatus(flowId, nodeKey) !== "waiting") return;
+    try {
+      this.claimNode(flowId, nodeKey, ["waiting"]);
+    } catch (e: unknown) {
+      if (e instanceof ConflictError) return;
+      throw e;
+    }
     db.emitEvent(flowId, db.get<{ id: string }>(
       `SELECT id FROM nodes WHERE flow_id=? AND node_key=?`, flowId, nodeKey)?.id ?? null,
       "lifecycle", note ? `${nodeKey} ${note} — resuming` : `${nodeKey} timer elapsed — resuming`);

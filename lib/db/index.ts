@@ -83,6 +83,11 @@ export class Database {
         d.transaction(() => {
           if (next === 1) {
             this.seedTemplates(d);
+          } else if (next === 2) {
+            const cols = d.prepare(`PRAGMA table_info(nodes)`).all() as { name: string }[];
+            if (!cols.some((c) => c.name === "attempt_id")) {
+              d.exec(`ALTER TABLE nodes ADD COLUMN attempt_id TEXT`);
+            }
           } else {
             throw new Error(`No migration defined for user_version ${next}`);
           }

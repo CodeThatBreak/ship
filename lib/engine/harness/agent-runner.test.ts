@@ -102,12 +102,13 @@ function seed(status: string, index: number): { ctx: FlowCtx; nodeId: string; fl
     now(),
   );
   db.run(
-    `INSERT INTO nodes (id, flow_id, node_key, type, status, created_at, updated_at) VALUES (?,?,?,?,?,?,?)`,
+    `INSERT INTO nodes (id, flow_id, node_key, type, status, attempt_id, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?)`,
     nodeId,
     flowId,
     "build",
     "build",
     status,
+    status === "running" ? "att_runner_test" : null,
     now(),
     now(),
   );
@@ -145,7 +146,7 @@ let supersedeDuringStream: string | null = null;
 
 const runnerTestPort = new RunnerTestPort(async () => {
   if (supersedeDuringStream) {
-    db.run(`UPDATE nodes SET status='done', updated_at=? WHERE id=?`, now(), supersedeDuringStream);
+    db.run(`UPDATE nodes SET attempt_id=?, updated_at=? WHERE id=?`, "att_superseded", now(), supersedeDuringStream);
     supersedeDuringStream = null;
   }
   return {
@@ -156,7 +157,7 @@ agentPortRegistry.register(runnerTestPort);
 db.setSetting("default_harness", "runner-test");
 
 describe("AgentRunner.executeRun", () => {
-  it("throws RunSupersededError when the node is no longer running", async () => {
+  it("throws RunSupersededError when the attempt token no longer matches", async () => {
     const { ctx, nodeId } = seed("running", 1);
     supersedeDuringStream = nodeId;
     const runner = new AgentRunner(flowCtxHelper, nodeSupport, usageTracker);

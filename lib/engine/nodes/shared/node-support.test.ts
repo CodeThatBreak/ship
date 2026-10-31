@@ -16,6 +16,7 @@ process.env.DATABASE_PATH = path.join(
 
 const { db } = await import("../../../db");
 const { NodeSupport } = await import("./node-support");
+const { ConflictError } = await import("../../../errors");
 
 const now = () => new Date().toISOString();
 
@@ -71,5 +72,34 @@ describe("NodeSupport — plan artifact ordering (CR-270)", () => {
 
     const all = support.artifactsOfKind(flowId, "plan", { nodeType: "plan" });
     expect(all.map((a) => a.version)).toEqual([3, 2, 1]);
+  });
+});
+
+describe("NodeSupport.claim (Task 17)", () => {
+  const support = new NodeSupport();
+
+  it("stamps attempt_id and rejects a second concurrent claim", () => {
+    const flowId = "flw_claim";
+    const nodeId = seedPlanNode(flowId);
+    db.run(`UPDATE nodes SET status='pending' WHERE id=?`, nodeId);
+
+    const first = support.claim(flowId, "plan", ["pending"]);
+    expect(first.startsWith("att_")).toBe(true);
+    expect(db.get<{ status: string; attempt_id: string }>(
+      `SELECT status, attempt_id FROM nodes WHERE id=?`,
+      nodeId,
+    )).toMatchObject({ status: "running", attempt_id: first });
+
+    expect(() => support.claim(flowId, "plan", ["pending"])).toThrow(ConflictError);
+  });
+
+  it("transition moves status only from allowed sources", () => {
+    const flowId = "flw_transition";
+    seedPlanNode(flowId);
+    support.transition(flowId, "plan", ["awaiting_approval"], "approved");
+    expect(db.get<{ status: string; attempt_id: null }>(
+      `SELECT status, attempt_id FROM nodes WHERE flow_id=? AND node_key='plan'`,
+      flowId,
+    )).toMatchObject({ status: "approved", attempt_id: null });
   });
 });

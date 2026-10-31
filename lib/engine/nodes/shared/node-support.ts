@@ -1,7 +1,9 @@
 import "server-only";
 
 import { db } from "../../../db";
-import { CommentRow, NodeRow, rows } from "../../../db/rows";
+import { CommentRow, NodeRow, rows, type NodeStatus } from "../../../db/rows";
+import { ConflictError } from "../../../errors";
+import { RunSupersededError } from "../../errors/run-superseded-error";
 
 /**
  * Persistence helpers for node rows, artifacts, runs and flow-feed events —
@@ -36,6 +38,82 @@ export class NodeSupport {
       db.now(),
       id
     );
+  }
+
+  /**
+   * Atomically move a node to `running` and stamp a fresh attempt token.
+   * Throws {@link ConflictError} when the node is not in one of `from`.
+   */
+  claim(flowId: string, nodeKey: string, from: readonly NodeStatus[]): string {
+    const attempt = db.uid("att_");
+    const marks = from.map(() => "?").join(",");
+    const { changes } = db.run(
+      `UPDATE nodes SET status = ?, attempt_id = ?, updated_at = ?
+       WHERE flow_id = ? AND node_key = ? AND status IN (${marks})`,
+      "running",
+      attempt,
+      db.now(),
+      flowId,
+      nodeKey,
+      ...from,
+    );
+    if (changes !== 1) {
+      throw new ConflictError(`Node ${nodeKey} is not in ${from.join("/")}`);
+    }
+    return attempt;
+  }
+
+  /**
+   * Atomically transition status when the node is in one of `from`.
+   * Clears `attempt_id` when leaving `running`.
+   */
+  transition(
+    flowId: string,
+    nodeKey: string,
+    from: readonly NodeStatus[],
+    to: NodeStatus,
+  ): void {
+    const marks = from.map(() => "?").join(",");
+    const clearAttempt = to !== "running";
+    const { changes } = db.run(
+      `UPDATE nodes SET status = ?, attempt_id = ?, updated_at = ?
+       WHERE flow_id = ? AND node_key = ? AND status IN (${marks})`,
+      to,
+      clearAttempt ? null : db.uid("att_"),
+      db.now(),
+      flowId,
+      nodeKey,
+      ...from,
+    );
+    if (changes !== 1) {
+      throw new ConflictError(`Node ${nodeKey} is not in ${from.join("/")}`);
+    }
+  }
+
+  /** Terminal (or mid-run) patch fenced by the active attempt token. */
+  patchIfAttempt(nodeId: string, attemptId: string, patch: Record<string, unknown>): void {
+    const status = patch.status;
+    const merged: Record<string, unknown> =
+      typeof status === "string" && status !== "running"
+        ? { ...patch, attempt_id: null }
+        : { ...patch };
+    const mergedKeys = Object.keys(merged);
+    const { changes } = db.run(
+      `UPDATE nodes SET ${mergedKeys.map((k) => `${k}=?`).join(",")}, updated_at=? WHERE id=? AND attempt_id=?`,
+      ...mergedKeys.map((k) => merged[k] as never),
+      db.now(),
+      nodeId,
+      attemptId,
+    );
+    if (changes !== 1) {
+      const node = db.get<{ status: string }>(`SELECT status FROM nodes WHERE id=?`, nodeId);
+      throw new RunSupersededError(nodeId, node?.status ?? "unknown", attemptId);
+    }
+  }
+
+  attemptId(nodeId: string): string | null {
+    return db.get<{ attempt_id: string | null }>(`SELECT attempt_id FROM nodes WHERE id=?`, nodeId)
+      ?.attempt_id ?? null;
   }
 
   /** A chat row scoped to a refinement thread (the plan's sub-plan refines). */

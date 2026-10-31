@@ -126,18 +126,21 @@ export abstract class AgentRunNode<
     }
   ): Promise<RunOutcome> {
     const node = this.node(ctx);
+    const attemptId = node.attempt_id;
     this.support.setNode(node.id, {
-      status: "running",
-      // the run's input blob is the per-run record: `input.prompt` carries the
-      // exact final prompt the agent receives — the only truthful prompt state
       input: JSON.stringify(opts.input),
     });
     const start = () =>
       this.runner.startAgent(ctx, { ...opts.agent, prompt: opts.prompt, nodeId: node.id });
     try {
-      const result = await this.runner.executeRun(ctx, node.id, start, opts.label);
+      const result = await this.runner.executeRun(ctx, node.id, start, opts.label, {
+        attemptId: attemptId ?? undefined,
+      });
       const outcome = await opts.finalize(result);
-      return this.applyOutcome(ctx, outcome, { fenceSuperseded: true });
+      return this.applyOutcome(ctx, outcome, {
+        fenceSuperseded: Boolean(attemptId),
+        attemptId,
+      });
     } catch (e) {
       if (e instanceof RunSupersededError) {
         return this.supersededOutcome(ctx, opts.label);

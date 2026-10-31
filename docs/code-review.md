@@ -542,7 +542,7 @@ Original findings, verbatim:
 
 ### CR-015 [High] Runs have no attempt identity, so overlapping attempts on one node both treat it as theirs
 
-- **Status at `abaa007`:** **Open**, fix in [Task 17](review-tasks/17-node-claim-and-attempts.md)
+- **Status at `abaa007`:** **Fixed** (Task 17 — atomic `claim` / `attempt_id`; PR link TBD)
 - **Current location:** lib/engine/harness/agent-runner.ts:176-177; lib/engine/nodes/shared/node-support.ts:80-89 (persistRun closes every running row); lib/engine/nodes/kinds/pipeline/pipeline-node.ts:348-349; lib/engine/flow-engine.ts:1726-1746 (sendChat has no running check)
 - **Re-verification note:** Guards still check only `nodes.status === 'running'`, and there is no attempt or run-sequence identity. After cancel then retry, or a chat sent mid-run, old runs or poll loops treat the node as theirs, and `persistRun` marks a still-streaming run row as `error`. Stamp an attempt token when a node goes `running`, pass it to `executeRun` and the pipeline loop, guard on token equality, and make `sendChat` refuse when the node is already running.
 
@@ -1667,7 +1667,7 @@ Original findings, verbatim:
 
 ### CR-054 [Medium] Node start guards are check-then-act, and `startPlan`/`refinePlan`/`sendChat` have no guard at all
 
-- **Status at `abaa007`:** **Open**, fix in [Task 17](review-tasks/17-node-claim-and-attempts.md)
+- **Status at `abaa007`:** **Fixed** (Task 17 — atomic `claim` / `attempt_id`; PR link TBD)
 - **Current location:** lib/engine/flow-engine.ts:1482-1520,1658-1692,1726-1746,1878-1892,1165, lib/engine/nodes/kinds/plan/plan-node.ts:220-241
 - **Re-verification note:** `startPlan`/`refinePlan` are gone; plan turns now go through `sendChat`, which still has no status guard, so a double send/second tab launches two concurrent plan turns (each sets `running` itself in `runPlanTurn`). `runNodeManual`, `retryNode` and `resumeNodeFromWebhook` still check status and then defer the real `running` write into `bg()`, leaving a check-then-act window. Add an atomic `claimNode(flowId, key, fromStatuses)` (`UPDATE … WHERE status IN (…)`, check `changes===1`) called synchronously before `bg()` in every trigger path.
 
@@ -1693,7 +1693,7 @@ Original findings, verbatim:
 
 ### CR-055 [Medium] `approvePlan` does not check the plan node's status, so approving during a refine silently discards the refine
 
-- **Status at `abaa007`:** **Open**, fix in [Task 17](review-tasks/17-node-claim-and-attempts.md)
+- **Status at `abaa007`:** **Fixed** (Task 17 — atomic `claim` / `attempt_id`; PR link TBD)
 - **Current location:** lib/engine/flow-engine.ts:1336-1388, lib/engine/harness/agent-runner.ts:171-182
 - **Re-verification note:** `approvePlan` still approves the latest plan artifact and sets the node `approved` regardless of its status, so approving during an in-flight refine starts the build on the old version and the late-write guard then discards the refine. Require `awaiting_approval` (via the claim helper) and throw a typed conflict error otherwise.
 
@@ -1716,7 +1716,7 @@ Original findings, verbatim:
 
 ### CR-056 [Medium] `cancelNode` has no status guard and does not stop cloud runs
 
-- **Status at `abaa007`:** **Open**, fix in [Task 17](review-tasks/17-node-claim-and-attempts.md)
+- **Status at `abaa007`:** **Fixed** (Task 17 — atomic `claim` / `attempt_id`; PR link TBD)
 - **Current location:** lib/engine/flow-engine.ts:1698-1718
 - **Re-verification note:** `cancelNode` still has no status guard (a `done`/`approved`/`awaiting_approval` node is forced to `failed`), still only calls `cancel` for local mode so cloud agents keep running and billing, and never clears the `waitTimers` entry. Allow cancel only from `running`/`waiting` (pending via an explicit flag for the skip path), call `agentPortRegistry.forMode(flow.execution_mode).cancel(...)` for both modes, and delete the timer.
 
@@ -1955,7 +1955,7 @@ Original findings, verbatim:
 
 ### CR-066 [Medium] Flow `delete()` does not stop in-flight work or clear in-memory engine state
 
-- **Status at `abaa007`:** **Open**, fix in [Task 17](review-tasks/17-node-claim-and-attempts.md)
+- **Status at `abaa007`:** **Fixed** (Task 17 — atomic `claim` / `attempt_id`; PR link TBD)
 - **Current location:** lib/engine/flow-engine.ts:546-567
 - **Re-verification note:** `delete()` still only removes worktrees and then deletes table rows per flow; it does not cancel running/waiting nodes or in-flight merges, clear `waitTimers`/in-memory state, or run the deletes in one transaction, so background work keeps writing to a deleted flow. Cancel every running/waiting node of the flow and its children first, refuse while `mergeArena.isMerging(child)`, drop timer entries, and wrap the deletes in one transaction.
 
@@ -2136,7 +2136,7 @@ Original findings, verbatim:
 
 ### CR-072 [Medium] `current_node` pointer lifecycle is inconsistent (never cleared, or cleared unconditionally)
 
-- **Status at `abaa007`:** **Open**, fix in [Task 17](review-tasks/17-node-claim-and-attempts.md)
+- **Status at `abaa007`:** **Fixed** (Task 17 — atomic `claim` / `attempt_id`; PR link TBD)
 - **Current location:** lib/engine/flow-engine.ts:598-614 (bg has no clear), 1658-1692 (retryNode sets the pointer at 1673, never clears it), 1726-1746 (sendChat clears unconditionally on success at 1744, never on failure), 788-791 (assertPlanEditable blocks on the pointer); lib/engine/nodes/chains/sdlc-chain.ts:103,157,182,202 (unconditional null); lib/engine/runtime/flow-reconciler.ts:59-67
 - **Re-verification note:** Plan runs now go through `sendChat`. A failed plan chat therefore leaves `current_node` set, and checklist edits stay blocked until the throttled reconcile. A successful chat can also wipe a pointer that another stage now owns. Fix: in `bg()`'s `finally`, call `clearCurrentIf(flowId, nodeKey)` when `nodeKey` is set, and remove the ad-hoc `setCurrentNode(flowId, null)` calls.
 
@@ -7316,7 +7316,7 @@ One row per finding, at `abaa007`.
 | CR-012 | High | Bug | Fixed | [Task 12](review-tasks/12-db-transactions.md) |
 | CR-013 | High | Bug | Open | [Task 27](review-tasks/27-plan-checklist-integrity.md) |
 | CR-014 | High | Bug | Open | [Task 16](review-tasks/16-run-lifecycle-late-writes.md) |
-| CR-015 | High | Bug | Open | [Task 17](review-tasks/17-node-claim-and-attempts.md) |
+| CR-015 | High | Bug | Fixed | [Task 17](review-tasks/17-node-claim-and-attempts.md) |
 | CR-016 | High | Security | Open | [Task 60](review-tasks/60-security-process-and-network-isolation.md) |
 | CR-017 | High | Bug | Open | [Task 21](review-tasks/21-multi-branch-correctness.md) |
 | CR-018 | High | Bug | Fixed | — |
@@ -7355,9 +7355,9 @@ One row per finding, at `abaa007`.
 | CR-051 | Medium | Code quality | Open | [Task 47](review-tasks/47-thin-routes-and-services.md) |
 | CR-052 | Medium | Code quality | Open | [Task 41](review-tasks/41-settings-data-and-errors.md) |
 | CR-053 | Low | Code quality | Open | [Task 47](review-tasks/47-thin-routes-and-services.md) |
-| CR-054 | Medium | Bug | Open | [Task 17](review-tasks/17-node-claim-and-attempts.md) |
-| CR-055 | Medium | Bug | Open | [Task 17](review-tasks/17-node-claim-and-attempts.md) |
-| CR-056 | Medium | Bug | Open | [Task 17](review-tasks/17-node-claim-and-attempts.md) |
+| CR-054 | Medium | Bug | Fixed | [Task 17](review-tasks/17-node-claim-and-attempts.md) |
+| CR-055 | Medium | Bug | Fixed | [Task 17](review-tasks/17-node-claim-and-attempts.md) |
+| CR-056 | Medium | Bug | Fixed | [Task 17](review-tasks/17-node-claim-and-attempts.md) |
 | CR-057 | Medium | Bug | Open | [Task 19](review-tasks/19-fanout-rollup-and-promises.md) |
 | CR-058 | Medium | Bug | Open | [Task 19](review-tasks/19-fanout-rollup-and-promises.md) |
 | CR-059 | Medium | Bug | Open | [Task 20](review-tasks/20-merge-arena-and-workspaces.md) |
@@ -7367,13 +7367,13 @@ One row per finding, at `abaa007`.
 | CR-063 | Medium | Gap | Open | [Task 23](review-tasks/23-graph-semantics-and-validation.md) |
 | CR-064 | Medium | Bug | Open | [Task 19](review-tasks/19-fanout-rollup-and-promises.md) |
 | CR-065 | Medium | Bug | Open | [Task 24](review-tasks/24-template-snapshot-and-yaml.md) |
-| CR-066 | Medium | Bug | Open | [Task 17](review-tasks/17-node-claim-and-attempts.md) |
+| CR-066 | Medium | Bug | Fixed | [Task 17](review-tasks/17-node-claim-and-attempts.md) |
 | CR-067 | Medium | Bug | Fixed | [Task 12](review-tasks/12-db-transactions.md) |
 | CR-068 | Medium | Security | Open | [Task 60](review-tasks/60-security-process-and-network-isolation.md) |
 | CR-069 | Medium | Security | Open | [Task 58](review-tasks/58-security-webhook-auth.md) |
 | CR-070 | Medium | Code quality | Open | [Task 45](review-tasks/45-flow-engine-decomposition.md) |
 | CR-071 | Medium | Code quality | Partly fixed | [Task 44](review-tasks/44-engine-stores-and-constants.md) |
-| CR-072 | Medium | Bug | Open | [Task 17](review-tasks/17-node-claim-and-attempts.md) |
+| CR-072 | Medium | Bug | Fixed | [Task 17](review-tasks/17-node-claim-and-attempts.md) |
 | CR-073 | Medium | Bug | Open | [Task 33](review-tasks/33-git-and-worktree-process-safety.md) |
 | CR-074 | Medium | Bug | Open | [Task 18](review-tasks/18-terminal-outcome-writer.md) |
 | CR-075 | Medium | Bug | Open | [Task 22](review-tasks/22-pipeline-review-resolve.md) |
