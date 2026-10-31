@@ -15,7 +15,7 @@ Each finding was re-verified against `refactor/prompt-engine-inconsistency-fix` 
 
 ### CR-041 [Medium] No test runner and no tests anywhere, although the Definition of Done requires tests for service classes and row mappers
 
-- **Status:** Partly fixed
+- **Status:** Fixed (Task 05)
 - **Type:** Infra
 - **Severity:** Medium (was High)
 - **Effort:** M
@@ -24,7 +24,7 @@ Each finding was re-verified against `refactor/prompt-engine-inconsistency-fix` 
 
 ### CR-164 [Medium] `docs/flow-templates/review-notes.yaml` uses an invalid `wait_for` and a non-existent output field
 
-- **Status:** Open
+- **Status:** Fixed (Task 05)
 - **Type:** Bug
 - **Effort:** S
 - **Where:** docs/flow-templates/review-notes.yaml:23, docs/flow-templates/review-notes.yaml:33, lib/engine/templates/template-store.ts:957-968, lib/engine/constants/triggers.ts:26, lib/engine/nodes/kinds/review/schema.ts:18
@@ -32,7 +32,7 @@ Each finding was re-verified against `refactor/prompt-engine-inconsistency-fix` 
 
 ### CR-160 [Medium] Every `scripts/check-*.ts` and `cursor-usage.ts` is unrunnable as documented
 
-- **Status:** Partly fixed
+- **Status:** Partly fixed — check scripts ported/deleted; `cursor-usage.ts` remains an ops probe
 - **Type:** Infra
 - **Effort:** M
 - **Where:** scripts/check-branch-refine.ts:4, scripts/check-worktrees.ts:12, scripts/check-plan-turn-output.ts:4, scripts/cursor-usage.ts:7-8, scripts/check-prompt-splits.ts:3, scripts/check-prompt-assembly.ts:10, package.json:5-12
@@ -40,7 +40,7 @@ Each finding was re-verified against `refactor/prompt-engine-inconsistency-fix` 
 
 ### CR-267 [Low] `check-worktrees.ts` leaks its temp workspace on failure
 
-- **Status:** Open
+- **Status:** Fixed (Task 05 — script removed; Vitest uses `afterAll` cleanup)
 - **Type:** Infra
 - **Effort:** S
 - **Where:** scripts/check-worktrees.ts:84,703-715
@@ -53,8 +53,8 @@ Each finding was re-verified against `refactor/prompt-engine-inconsistency-fix` 
 
 ## Done when
 
-- [ ] Every finding above is fixed, or a remaining part is written up in the PR description.
-- [ ] Each bug fix has a regression test (Vitest for `lib/`; at least a hook or utility test for UI where practical).
-- [ ] Code follows [`docs/coding-patterns.md`](../coding-patterns.md).
-- [ ] `npm run typecheck`, `npm run lint`, `npm test` and `npm run build` pass (before Task 02 lands, `npx tsc --noEmit` instead of `typecheck`).
+- [x] Every finding above is fixed, or a remaining part is written up in the PR description.
+- [x] Each bug fix has a regression test (Vitest for `lib/`; at least a hook or utility test for UI where practical).
+- [x] Code follows [`docs/coding-patterns.md`](../coding-patterns.md).
+- [x] `npm run typecheck`, `npm run lint`, `npm test` and `npm run build` pass (before Task 02 lands, `npx tsc --noEmit` instead of `typecheck`).
 - [ ] The status of each finding in [`docs/code-review.md`](../code-review.md) is updated (Fixed, with the PR link).

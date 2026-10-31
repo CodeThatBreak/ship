@@ -18,7 +18,6 @@ const ruleTester = new RuleTester({
 describe("frozen phase-0 offender list", () => {
   it("includes known legacy lib/db violations", () => {
     expect(FROZEN_PHASE0_OFFENDERS).toContain("lib/db/index.ts");
-    expect(FROZEN_PHASE0_OFFENDERS).toContain("scripts/check-worktrees.ts");
   });
 
   it("does not freeze the eslint policy probe module", () => {

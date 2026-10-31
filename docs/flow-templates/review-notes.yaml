@@ -20,7 +20,7 @@ nodes:
     type: builtin/pipeline
     trigger:
       type: auto
-      wait_for: gitlab_pipeline
+      wait_for: pipeline
   - key: review
     type: builtin/review
     trigger:
@@ -30,7 +30,7 @@ nodes:
     trigger:
       type: auto
     config:
-      prompt: "You are summarizing the AI review of MR {{flow.mr_url}} (branch {{flow.mr_branch}}) for task {{task.key}} — {{task.summary}}.\n\nWrite a short reviewer-notes markdown document: what this change does, the review verdict, and anything the human reviewer should double-check.\n\nReview notes docs are published as {{nodes.review.output.comment_count}} open review comments worth of feedback — read the latest review output above the fold in the flow log. End with a 'Final verdict' line."
+      prompt: "You are summarizing the AI review of MR {{flow.mr_url}} (branch {{flow.mr_branch}}) for task {{task.key}} — {{task.summary}}.\n\nWrite a short reviewer-notes markdown document: what this change does, the review verdict, and anything the human reviewer should double-check.\n\nReview notes docs are published as {{nodes.review.output.comments}} open review comments worth of feedback — read the latest review output above the fold in the flow log. End with a 'Final verdict' line."
       mode: plan
       output: markdown
     label: Review notes

@@ -22,5 +22,4 @@ export const FROZEN_PHASE0_OFFENDERS = [
   "lib/integrations/gitlab/git-host.ts",
   "lib/integrations/jira/service.ts",
   "lib/net/ssrf-guard.ts",
-  "scripts/check-worktrees.ts",
 ];

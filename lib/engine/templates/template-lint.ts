@@ -2,6 +2,7 @@ import "server-only";
 
 import { db } from "../../db";
 import { lintJsonata } from "@/lib/jsonata";
+import { NODE_TRIGGER_TYPES, WAIT_FOR_SOURCES } from "../constants/triggers";
 import { lintStartContract, parseStartContract } from "../nodes/kinds/start/contract";
 import type { LintProblem } from "@/types/template-lint";
 import { nodeRegistry } from "../nodes/registry";
@@ -60,6 +61,8 @@ interface LintNode {
   nodeTemplateId: string;
   inputMap: Record<string, unknown>;
   config: Record<string, unknown>;
+  /** raw trigger from the template instance (YAML/import or editor draft) */
+  trigger?: unknown;
 }
 
 interface CatalogEntry {
@@ -132,6 +135,39 @@ export function outputFieldsFor(kind: string, config: unknown): string[] | null 
   }
 }
 
+/** Validate a node trigger mapping (type + wait_for vocabulary). */
+export function lintNodeTrigger(
+  where: string,
+  raw: unknown,
+  problems: LintProblem[],
+  nodeKey: string,
+): void {
+  if (raw == null) return;
+  if (typeof raw !== "object" || Array.isArray(raw)) {
+    problems.push({ where, message: "node trigger must be a mapping", nodeKey });
+    return;
+  }
+  const rec = raw as Record<string, unknown>;
+  if (rec.type != null) {
+    if (typeof rec.type !== "string" || !(NODE_TRIGGER_TYPES as readonly string[]).includes(rec.type)) {
+      problems.push({
+        where,
+        message: `unknown node trigger type "${String(rec.type)}" — use one of: ${NODE_TRIGGER_TYPES.join(", ")}`,
+        nodeKey,
+      });
+    }
+  }
+  if (rec.wait_for != null) {
+    if (typeof rec.wait_for !== "string" || !(WAIT_FOR_SOURCES as readonly string[]).includes(rec.wait_for)) {
+      problems.push({
+        where,
+        message: `unknown wait_for source "${String(rec.wait_for)}" — use one of: ${WAIT_FOR_SOURCES.join(", ")}`,
+        nodeKey,
+      });
+    }
+  }
+}
+
 /**
  * Validate a template draft. Collects every problem into one readable message
  * (the store throws it on save/import); returns `error: null` when clean.
@@ -151,6 +187,7 @@ export function lintTemplate(
   interface NodeContract { fields: string[] | null; kind: string }
   const contractOfKey = new Map<string, NodeContract>();
   for (const n of nodes) {
+    lintNodeTrigger(`node "${n.key}"`, n.trigger, problems, n.key);
     const nt = catalog[n.nodeTemplateId];
     if (!nt) continue; // validated() already reports unknown node templates
     const mergedConfig = merge(nt.config, n.config);

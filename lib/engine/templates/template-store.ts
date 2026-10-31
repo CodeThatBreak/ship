@@ -841,6 +841,7 @@ export class TemplateStore {
           nodeTemplateId: n.nodeTemplateId,
           inputMap: (n.input_map ?? {}) as Record<string, unknown>,
           config: (n.config ?? {}) as Record<string, unknown>,
+          trigger: n.trigger,
         })),
         edges.map((e) => ({
           from: e.from, to: e.to, kind: e.kind ?? "next",

@@ -29,7 +29,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
     | null
     | {
         trigger?: Record<string, unknown>;
-        nodes?: { key?: string; nodeTemplateId?: string; config?: unknown; input_map?: unknown }[];
+        nodes?: { key?: string; nodeTemplateId?: string; config?: unknown; input_map?: unknown; trigger?: unknown }[];
         edges?: { from?: string; to?: string; kind?: string; label?: string | null; condition?: string | null }[];
         new_node_templates?: { draft_id?: string; kind?: string; config?: unknown }[];
       };
@@ -66,6 +66,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
       nodeTemplateId: typeof n.nodeTemplateId === "string" ? n.nodeTemplateId : "",
       inputMap: (n.input_map ?? {}) as Record<string, unknown>,
       config: (n.config ?? {}) as Record<string, unknown>,
+      trigger: n.trigger,
     })),
     (body.edges ?? []).map((e) => ({
       from: e.from ?? "",
