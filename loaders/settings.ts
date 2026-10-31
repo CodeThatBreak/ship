@@ -7,11 +7,12 @@ import "server-only";
 import { agentPortRegistry } from "@/lib/engine/ports/agent-port";
 import { gitHostRegistry } from "@/lib/engine/ports/git-host";
 import { taskRegistry } from "@/lib/engine/tasks/registry";
-import { config } from "@/lib/config";
 import { cursorApiKeyStored } from "@/lib/integrations/cursor/credentials";
 import { db } from "@/lib/db";
 import { repoService } from "@/lib/repos";
-import { normalizeModelSpec } from "@/lib/modelSpec";
+import { SETTINGS_KEYS } from "@/constants/settings";
+import { RUN_MODE } from "@/constants/execution";
+import { settingsService } from "@/lib/settings";
 import {
   settingBoolean,
   settingNumber,
@@ -44,12 +45,12 @@ const harnessGroups = (
   for (const key of registeredHarnesses()) {
     const ports = agentPortRegistry.list().filter((p) => p.harness === key);
     const modes: SettingsPortMode[] = [];
-    for (const mode of ["cloud", "local"] as const) {
+    for (const mode of [RUN_MODE.CLOUD, RUN_MODE.LOCAL] as const) {
       const port = ports.find((p) => p.execMode === mode);
       if (!port) continue;
       modes.push({
         value: mode,
-        label: mode === "cloud" ? "Cloud" : "Local (SDK)",
+        label: mode === RUN_MODE.CLOUD ? "Cloud" : "Local (SDK)",
         configured: statuses.get(port.kind)?.configured ?? false,
       });
     }
@@ -70,12 +71,10 @@ export const loadSettings = async (): Promise<Settings> => {
   );
   const statuses = new Map(ports.map((p, i) => [p.kind, stateList[i]]));
   return {
-    default_harness: db.getSetting("default_harness", settingString, "cursor"),
+    default_harness: db.getSetting(SETTINGS_KEYS.DEFAULT_HARNESS, settingString, "cursor"),
     harnesses: harnessGroups(statuses),
-    default_execution_mode: db.getSetting("default_execution_mode", settingString, "cloud"),
-    default_model: normalizeModelSpec(
-      db.getSetting("default_model", settingString, "") || config.defaultModel() || "",
-    ),
+    default_execution_mode: settingsService.defaultExecutionMode(),
+    default_model: settingsService.defaultModel(),
     local_agent: {
       force: db.getSetting("local_agent.force", settingBoolean, true),
       sandbox: db.getSetting("local_agent.sandbox", settingBoolean, false),

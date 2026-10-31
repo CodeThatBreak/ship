@@ -1,3 +1,4 @@
+import { FLOW_ACTION } from "@/constants/flow";
 import { toErrorResponse } from "@/lib/errors";
 import { parseJson } from "@/lib/http/parse";
 import { flowActionBodySchema, type FlowActionBody } from "@/lib/schemas/flow-action-body";
@@ -9,19 +10,19 @@ export const runtime = "nodejs";
 
 const dispatchAction = async (flowId: string, body: FlowActionBody): Promise<void> => {
   switch (body.action) {
-    case "approve_plan":
+    case FLOW_ACTION.APPROVE_PLAN:
       flowEngine.approvePlan(flowId, body.executionOverride);
       break;
-    case "update_plan_steps":
+    case FLOW_ACTION.UPDATE_PLAN_STEPS:
       flowEngine.updatePlanSteps(flowId, body.steps);
       break;
-    case "set_plan_step":
+    case FLOW_ACTION.SET_PLAN_STEP:
       flowEngine.setPlanStepStatus(flowId, body.stepId, body.status);
       break;
-    case "approve_build":
+    case FLOW_ACTION.APPROVE_BUILD:
       flowEngine.approveBuild(flowId, body.branch);
       break;
-    case "pipeline":
+    case FLOW_ACTION.PIPELINE:
       flowEngine.triggerPipelineGate(
         flowId,
         body.pipelineId,
@@ -30,53 +31,53 @@ const dispatchAction = async (flowId: string, body: FlowActionBody): Promise<voi
         body.promptIsBody,
       );
       break;
-    case "resolve":
+    case FLOW_ACTION.RESOLVE:
       flowEngine.triggerResolve(flowId, body.prompt, body.model, body.promptIsBody);
       break;
-    case "review":
+    case FLOW_ACTION.REVIEW:
       flowEngine.triggerReview(flowId, body.prompt, body.model, body.promptIsBody);
       break;
-    case "retry":
+    case FLOW_ACTION.RETRY:
       flowEngine.retryNode(flowId, body.nodeKey);
       break;
-    case "cancel":
+    case FLOW_ACTION.CANCEL:
       flowEngine.cancelNode(flowId, body.nodeKey);
       break;
-    case "run_node":
+    case FLOW_ACTION.RUN_NODE:
       flowEngine.runNodeManual(flowId, body.nodeKey, {
         prompt: body.prompt,
         model: body.model,
         input: body.input,
       });
       break;
-    case "approve_node":
+    case FLOW_ACTION.APPROVE_NODE:
       flowEngine.approveNode(flowId, body.nodeKey);
       break;
-    case "set_node_config":
+    case FLOW_ACTION.SET_NODE_CONFIG:
       flowEngine.setNodeConfig(flowId, body.nodeKey, body.config);
       break;
-    case "choose_node":
+    case FLOW_ACTION.CHOOSE_NODE:
       flowEngine.chooseNode(flowId, body.nodeKey, body.chosen, body.rationale);
       break;
-    case "approve_fanout_step":
+    case FLOW_ACTION.APPROVE_FANOUT_STEP:
       flowEngine.approveFanoutStep(flowId, body.stepId);
       break;
-    case "retry_fanout_step":
+    case FLOW_ACTION.RETRY_FANOUT_STEP:
       flowEngine.retryFanoutStep(flowId, body.stepId);
       break;
-    case "skip_fanout_step":
+    case FLOW_ACTION.SKIP_FANOUT_STEP:
       await flowEngine.skipFanoutStep(flowId, body.stepId);
       break;
-    case "skip_split_unit":
+    case FLOW_ACTION.SKIP_SPLIT_UNIT:
       await flowEngine.skipSplitUnit(flowId, body.unitKey, body.consumerNodeKey);
       break;
-    case "retry_split_unit":
+    case FLOW_ACTION.RETRY_SPLIT_UNIT:
       flowEngine.retrySplitUnit(flowId, body.unitKey, body.consumerNodeKey);
       break;
-    case "approve_split_unit":
+    case FLOW_ACTION.APPROVE_SPLIT_UNIT:
       flowEngine.approveSplitUnit(flowId, body.unitKey, body.consumerNodeKey);
       break;
-    case "cancel_split_unit":
+    case FLOW_ACTION.CANCEL_SPLIT_UNIT:
       await flowEngine.cancelSplitUnit(flowId, body.unitKey, body.consumerNodeKey);
       break;
     default: {

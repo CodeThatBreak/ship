@@ -1,5 +1,6 @@
 import "server-only";
 
+import { FLOW_STATUS } from "@/constants/flow";
 import { db } from "../../db";
 import {
   FlowTemplateRow,
@@ -13,8 +14,9 @@ import type {
   TemplateCatalogDetail,
   TemplateEditorDetail,
 } from "@/types/template-editor";
+import type { NodeRow } from "@/types/templates";
 import { parseDeclarativeConfig } from "../nodes/declarative-schemas";
-import { catalogForNodeTemplateIds, lintTemplate, type TaskUniverse } from "./template-lint";
+import { catalogForNodeTemplateIds, lintTemplate, type LintProblem, type TaskUniverse } from "./template-lint";
 import { graphStructureError, lintGraphStructure } from "./graph-structure";
 import { hydrateFlowTemplateGraph, serializeFlowTemplateGraph } from "./flow-graph-snapshot";
 import { hookStore } from "../runtime/hook-store";
@@ -73,6 +75,13 @@ export const TASK_TRIGGER_TYPES = taskRegistry.list().map((p) => p.kind) as stri
 
 const KINDED_NODE_TEMPLATE_KINDS = ["agent", "http", "script", "decision"] as const;
 export type DeclarativeNodeKind = (typeof KINDED_NODE_TEMPLATE_KINDS)[number];
+
+export const NODE_KIND_LABELS: Record<DeclarativeNodeKind, string> = {
+  agent: "Agent node",
+  decision: "Decision node",
+  http: "HTTP node",
+  script: "Script node",
+};
 
 /** One node_templates row as the palette/editor API serializes it (locality included). */
 function serializeNodeTemplate(nt: NodeTemplateRow): EditorCatalogEntry {
@@ -338,9 +347,149 @@ export class TemplateStore {
       nodeTemplates: [
         ...this.listNodeTemplates().filter((nt) => Boolean(nt.is_builtin)),
         ...library,
-      ].map(serializeNodeTemplate),
-      templateNodeTemplates: templateLocal.map(serializeNodeTemplate),
+      ].map((nt) => this.toCatalogEntry(nt)),
+      templateNodeTemplates: templateLocal.map((nt) => this.toCatalogEntry(nt)),
     };
+  }
+
+  /** One node_templates row as GET /api/node-templates and the catalog page serialize it. */
+  toCatalogEntry(nt: NodeTemplateRow): EditorCatalogEntry {
+    return serializeNodeTemplate(nt);
+  }
+
+  /** One row for GET/POST/PATCH node-template API responses. */
+  toNodeCatalogRow(nt: NodeTemplateRow): NodeRow {
+    return {
+      id: nt.id,
+      key: nt.key,
+      name: nt.name,
+      kind: nt.kind,
+      version: nt.version,
+      description: nt.description,
+      icon: nt.icon,
+      is_builtin: Boolean(nt.is_builtin),
+      config: nt.config ?? {},
+      template_id: nt.template_id,
+      is_local: Boolean(nt.template_id),
+      updated_at: nt.updated_at,
+    };
+  }
+
+  /** Gallery/catalog page rows — same shape as `loadNodeCatalog`. */
+  listNodeCatalogRows(): NodeRow[] {
+    return this.listNodeTemplates().map((nt) => this.toNodeCatalogRow(nt));
+  }
+
+  /**
+   * Create a declarative node template from the API body (optional auto-name
+   * when `name` is omitted).
+   */
+  createNodeTemplateFromRequest(input: {
+    key?: string;
+    name?: string;
+    kind?: string;
+    icon?: string | null;
+    description?: string | null;
+    config?: Record<string, unknown>;
+  }): NodeTemplateRow {
+    const kind = (input.kind ?? "agent").trim();
+    let name = (input.name ?? "").trim();
+    let description = input.description ?? null;
+    if (!name) {
+      const label =
+        NODE_KIND_LABELS[kind as DeclarativeNodeKind] ?? "Custom node";
+      description ??= `Blank ${kind} node — connect it, then author it in the drawer`;
+      for (let n = 1; ; n++) {
+        const candidate = n === 1 ? label : `${label} ${n}`;
+        const slug = TemplateStore.slugify(candidate);
+        if (!this.nodeTemplateByKey(slug)) {
+          name = candidate;
+          break;
+        }
+      }
+    }
+    return this.createNodeTemplate({
+      key: input.key,
+      name,
+      kind,
+      icon: input.icon ?? null,
+      description,
+      config: input.config ?? {},
+    });
+  }
+
+  /** Live lint of an editor draft — same logic as POST /api/templates/[id]/validate. */
+  lintDraft(body: {
+    trigger?: Record<string, unknown>;
+    nodes?: {
+      key?: string;
+      nodeTemplateId?: string;
+      config?: unknown;
+      input_map?: unknown;
+      trigger?: unknown;
+    }[];
+    edges?: {
+      from?: string;
+      to?: string;
+      kind?: string;
+      label?: string | null;
+      condition?: string | null;
+    }[];
+    new_node_templates?: { draft_id?: string; kind?: string; config?: unknown }[];
+  }): LintProblem[] {
+    const lintNodes = (body.nodes ?? []).map((n) => ({
+      key: (typeof n.key === "string" ? n.key : "").trim(),
+      nodeTemplateId: typeof n.nodeTemplateId === "string" ? n.nodeTemplateId : "",
+      inputMap: (n.input_map ?? {}) as Record<string, unknown>,
+      config: (n.config ?? {}) as Record<string, unknown>,
+      trigger: n.trigger,
+    }));
+
+    const lintEdges = (body.edges ?? []).map((e) => ({
+      from: e.from ?? "",
+      to: e.to ?? "",
+      kind: e.kind === "loop" ? "loop" : "next",
+      label: e.label ?? null,
+      condition: e.condition ?? null,
+    }));
+
+    const realIds = lintNodes
+      .map((n) => n.nodeTemplateId)
+      .filter((id) => id && !id.startsWith("draft:"));
+    const catalog = catalogForNodeTemplateIds(realIds);
+    for (const d of body.new_node_templates ?? []) {
+      if (typeof d?.draft_id === "string" && d.draft_id.startsWith("draft:")) {
+        catalog[d.draft_id] = {
+          kind: d.kind ?? "agent",
+          config: d.config ?? {},
+          key: "",
+          isBuiltin: false,
+        };
+      }
+    }
+
+    const structureProblems = lintGraphStructure(lintNodes, lintEdges, (node) => {
+      const entry = catalog[node.nodeTemplateId];
+      if (!entry) return null;
+      let decisionChoices: string[] | undefined;
+      if (entry.kind === "decision") {
+        const cfg = parseDeclarativeConfig("decision", { ...(entry.config ?? {}), ...(node.config ?? {}) }, node.key) as {
+          choices?: { label: string }[];
+        };
+        decisionChoices = (cfg.choices ?? []).map((c) => c.label);
+      }
+      return {
+        kind: entry.kind,
+        key: entry.key,
+        isBuiltin: entry.isBuiltin,
+        decisionChoices,
+      };
+    });
+
+    const trigger = TemplateStore.normalizeFlowTrigger(body.trigger);
+    const task = TemplateStore.lintTaskUniverse(trigger);
+    const lint = lintTemplate(lintNodes, lintEdges, catalog, task);
+    return [...structureProblems, ...lint.problems];
   }
 
   /** Create a template (meta + node instances + edges). Validates the graph.
@@ -582,7 +731,7 @@ export class TemplateStore {
   /** Structural edits are refused while flows are active on this template. */
   private assertNotRunning(templateId: string): void {
     const active = db.get<{ c: number }>(
-      `SELECT COUNT(*) c FROM flows WHERE template_id=? AND status='active'`, templateId)?.c ?? 0;
+      `SELECT COUNT(*) c FROM flows WHERE template_id=? AND status=?`, templateId, FLOW_STATUS.ACTIVE)?.c ?? 0;
     if (active > 0) {
       throw new ConflictError(
         `${active} flow${active > 1 ? "s are" : " is"} active on this template — cancel/finish them before restructuring`,

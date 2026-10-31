@@ -8,8 +8,9 @@
  * lives behind the client boundary in components/builder/.
  */
 import { notFound } from "next/navigation";
-import { QueryClient, dehydrate, HydrationBoundary } from "@tanstack/react-query";
+import { dehydrate, HydrationBoundary } from "@tanstack/react-query";
 import { queryKeys } from "@/constants/query-keys";
+import { makeServerQueryClient } from "@/constants/query-client";
 import { loadEditorBoot } from "@/loaders/templates";
 import { TemplateEditor } from "@/components/builder";
 
@@ -26,16 +27,7 @@ export default async function TemplateEditorRoute({
 
   // the editor's first paint never fetches: the boot data lands in the same
   // query keys the client island reads (query keys' single source of truth)
-  const queryClient = new QueryClient({
-    defaultOptions: {
-      queries: {
-        // mirror app/providers.tsx so SSR + client read the same freshness
-        staleTime: 30_000,
-        refetchOnWindowFocus: false,
-        retry: false,
-      },
-    },
-  });
+  const queryClient = makeServerQueryClient();
   await Promise.all([
     queryClient.prefetchQuery({
       queryKey: queryKeys.templates.detail(boot.detail.template.id),

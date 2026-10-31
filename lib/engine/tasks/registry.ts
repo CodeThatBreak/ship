@@ -56,6 +56,21 @@ export class TaskProviderRegistry {
     return [...this.registry.values()];
   }
 
+  /** Serialized provider list — shared by GET /api/tasks/providers and loaders. */
+  describe(): {
+    kind: string;
+    label: string;
+    configured: boolean;
+    contextFields: TaskProvider["contextFields"];
+  }[] {
+    return this.list().map((p) => ({
+      kind: p.kind,
+      label: p.label,
+      configured: p.configured(),
+      contextFields: p.contextFields,
+    }));
+  }
+
   /**
    * The default provider for syncs that don't request a kind — the first
    * registration while a single provider exists. Once more providers ship,

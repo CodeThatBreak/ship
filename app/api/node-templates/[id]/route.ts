@@ -16,11 +16,11 @@ export const PATCH = async (req: Request, { params }: { params: Promise<{ id: st
     if (body.add_to_library === true) {
       const nt = templateStore.addToLibrary(id);
       invalidateDeclarativeDef(id);
-      return NextResponse.json({ nodeTemplate: { ...nt, is_builtin: Boolean(nt.is_builtin) } });
+      return NextResponse.json({ nodeTemplate: templateStore.toNodeCatalogRow(nt) });
     }
     const nt = templateStore.updateNodeTemplate(id, body);
     invalidateDeclarativeDef(id);
-    return NextResponse.json({ nodeTemplate: { ...nt, is_builtin: Boolean(nt.is_builtin) } });
+    return NextResponse.json({ nodeTemplate: templateStore.toNodeCatalogRow(nt) });
   } catch (e: unknown) {
     return toErrorResponse(e);
   }
