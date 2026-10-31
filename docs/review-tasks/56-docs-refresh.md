@@ -15,7 +15,7 @@ Each finding was re-verified against `refactor/prompt-engine-inconsistency-fix` 
 
 ### CR-260 [Low] README is stale in several places (env keys, routes, paths, local-mode description)
 
-- **Status:** Open
+- **Status:** Fixed
 - **Type:** Docs
 - **Effort:** S
 - **Where:** README.md:9-10,16,58-61,73-74,89,124-125,165,226,261,277
@@ -23,7 +23,7 @@ Each finding was re-verified against `refactor/prompt-engine-inconsistency-fix` 
 
 ### CR-261 [Low] AGENTS.md seed command variants don't match `package.json`
 
-- **Status:** Open
+- **Status:** Fixed
 - **Type:** Docs
 - **Effort:** S
 - **Where:** AGENTS.md:17,32, package.json:5-12
@@ -32,7 +32,7 @@ Each finding was re-verified against `refactor/prompt-engine-inconsistency-fix` 
 
 ### CR-268 [Low] Design and plan docs reference files that no longer exist
 
-- **Status:** Open
+- **Status:** Fixed
 - **Type:** Docs
 - **Effort:** S
 - **Where:** docs/phase0-baseline.md, docs/pristine-plan.md, docs/tasks-plan.md, docs/custom-flows-plan.md, docs/worktree-support.md, docs/prompt-flow-fix-plan.md, docs/plan-conversation-refine.md, docs/node-definition-refactor-plan.md, docs/step-sub-flows-plan.md, docs/worktree-ensure-impl-plan.md, docs/worktree-ensure-runner.md, docs/refinement-plan.md, docs/template-editor-ux-plan.md, docs/prompt-flow-inconsistencies.md, eslint.config.mjs:38,92
@@ -40,8 +40,8 @@ Each finding was re-verified against `refactor/prompt-engine-inconsistency-fix` 
 
 ## Done when
 
-- [ ] Every finding above is fixed, or a remaining part is written up in the PR description.
-- [ ] Each bug fix has a regression test (Vitest for `lib/`; at least a hook or utility test for UI where practical).
-- [ ] Code follows [`docs/coding-patterns.md`](../coding-patterns.md).
-- [ ] `npm run typecheck`, `npm run lint`, `npm test` and `npm run build` pass (before Task 02 lands, `npx tsc --noEmit` instead of `typecheck`).
-- [ ] The status of each finding in [`docs/code-review.md`](../code-review.md) is updated (Fixed, with the PR link).
+- [x] Every finding above is fixed, or a remaining part is written up in the PR description.
+- [x] Each bug fix has a regression test (Vitest for `lib/`; at least a hook or utility test for UI where practical). _(Docs-only task — no product code behavior changed.)_
+- [x] Code follows [`docs/coding-patterns.md`](../coding-patterns.md).
+- [x] `npm run typecheck`, `npm run lint`, `npm test` and `npm run build` pass (before Task 02 lands, `npx tsc --noEmit` instead of `typecheck`).
+- [x] The status of each finding in [`docs/code-review.md`](../code-review.md) is updated (Fixed, with the PR link).

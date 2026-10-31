@@ -16,7 +16,7 @@
  *     skipped (branch deactivated, skipped propagation visible)
  *
  * Requires the starter templates to exist — open the app once first (they seed
- * at migration time), or `npm run seed:demo` for the built-in loop demo.
+ * at migration time), or `node scripts/seed-demo-flow.mjs` for the built-in loop demo.
  */
 import path from "path";
 import { fileURLToPath } from "url";

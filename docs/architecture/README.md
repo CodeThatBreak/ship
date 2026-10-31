@@ -1,6 +1,6 @@
 # Architecture documentation
 
-This folder holds **current-state** architecture for builtin and declarative nodes: how the UI and engine work today, not migration plans or legacy behavior. Historical specs live under `docs/` at the repo root (for example `plan-conversation-refine.md`).
+This folder holds **current-state** architecture for builtin and declarative nodes: how the UI and engine work today, not migration plans or legacy behavior. Completed plans and one-off migration specs were removed from the tree; see [`docs/archive/`](../archive/README.md) for context.
 
 When you add or change a node’s behavior, update its architecture doc in the same PR when the change is user-visible or crosses the API boundary.
 
@@ -119,6 +119,8 @@ Compact table: **Concern → primary file(s)** for navigation.
 
 ## Index
 
-| Doc | Node |
-|-----|------|
+| Doc | Topic |
+|-----|--------|
+| [client-bundle-boundaries.md](./client-bundle-boundaries.md) | Client vs server imports, ESLint allowlist, loaders seam |
 | [plan-node.md](./plan-node.md) | Plan — implementation plan, conversational refine, branch split source |
+| [plan-unified-turns.md](./plan-unified-turns.md) | Plan chat / unified turns (current behavior) |

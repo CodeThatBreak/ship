@@ -6709,9 +6709,9 @@ Original findings, verbatim:
 
 ### CR-260 [Low] README is stale in several places (env keys, routes, paths, local-mode description)
 
-- **Status at `abaa007`:** **Open**, fix in [Task 56](review-tasks/56-docs-refresh.md)
-- **Current location:** README.md:9-10,16,58-61,73-74,89,124-125,165,226,261,277
-- **Re-verification note:** The README still documents `CURSOR_API_KEY` / `JIRA_*` env keys (.env.example says credentials live in the DB), `/tasks/import`, `components/panels/`, the `GITLAB_BASE_URL/TOKEN` fallback, and a cursor-agent CLI description of local mode that contradicts line 277. It got worse: it now documents `npm run seed:demo`, `seed:demo:fanout`, `seed:custom` and their `:reset` variants, all removed from package.json. Rewrite the env table from .env.example, fix the paths and routes, unify local mode on the SDK, and document seeds as `node scripts/seed-*.mjs` (or restore the npm scripts).
+- **Status:** **Fixed** ([Task 56](review-tasks/56-docs-refresh.md))
+- **Current location:** README.md (env table, seeds, routes, architecture paths, local mode)
+- **Re-verification note:** Addressed in Task 56: env table matches `.env.example`, tasks home at `/`, seed invocations via `node scripts/seed-*.mjs`, `components/flows/panels/`, SDK-based local mode, no GitLab env fallback in README.
 
 - **Severity:** Low
 - **Category:** Code quality
@@ -6740,9 +6740,9 @@ Original findings, verbatim:
 
 ### CR-261 [Low] AGENTS.md seed command variants don't match `package.json`
 
-- **Status at `abaa007`:** **Open**, fix in [Task 56](review-tasks/56-docs-refresh.md)
-- **Current location:** AGENTS.md:17,32, package.json:5-12
-- **Re-verification note:** The mismatch has widened. AGENTS.md §0 still says `npm run seed:demo` (with variants) and §1 names `seed:demo:reset`, but package.json no longer defines any seed script, so the documented command fails. Update §0 to the real invocation (`node scripts/seed-*.mjs`, or re-add npm scripts), and reword §1 to cover every seed script with a reset mode.
+- **Status:** **Fixed** ([Task 56](review-tasks/56-docs-refresh.md))
+- **Current location:** AGENTS.md §0–§1, `scripts/seed-*.mjs`
+- **Re-verification note:** AGENTS.md documents `node scripts/seed-*.mjs` and `--reset` safety for all five seed scripts; package.json intentionally has no npm seed aliases.
 
 - **Severity:** Low
 - **Category:** Code quality
@@ -6885,9 +6885,9 @@ Original findings, verbatim:
 
 ### CR-268 [Low] Design and plan docs reference files that no longer exist
 
-- **Status at `abaa007`:** **Open**, fix in [Task 56](review-tasks/56-docs-refresh.md)
-- **Current location:** docs/phase0-baseline.md, docs/pristine-plan.md, docs/tasks-plan.md, docs/custom-flows-plan.md, docs/worktree-support.md, docs/prompt-flow-fix-plan.md, docs/plan-conversation-refine.md, docs/node-definition-refactor-plan.md, docs/step-sub-flows-plan.md, docs/worktree-ensure-impl-plan.md, docs/worktree-ensure-runner.md, docs/refinement-plan.md, docs/template-editor-ux-plan.md, docs/prompt-flow-inconsistencies.md, eslint.config.mjs:38,92
-- **Re-verification note:** Re-checked against current docs/: 14 docs now cite ~100 backticked paths that don't exist (~70 genuine full-path misses, vs 17 at review time), because of the renames (lib/engine/flow.ts, templates.ts, nodes/base/*, jsonata-eval.ts, components/flows/plan/*). Some newly added docs are already stale, docs/pristine-plan.md still links docs/ai-elements-migration.md (missing) and docs/repo-detail-page.md (now only in docs/archive/), and eslint.config.mjs still cites phase0-baseline.md (28 stale refs) as its verification source. Move completed plan docs to docs/archive/ with a "paths may be stale" banner, and refresh phase0-baseline.md or repoint the lint comments to docs/architecture/.
+- **Status:** **Fixed** ([Task 56](review-tasks/56-docs-refresh.md))
+- **Current location:** `docs/architecture/client-bundle-boundaries.md`, `docs/archive/README.md`, code comments; legacy plan markdown removed from the tree
+- **Re-verification note:** Completed plan docs are no longer at `docs/` root; `docs/archive/README.md` marks historical copies as path-stale. Client allowlist documented in `docs/architecture/client-bundle-boundaries.md` (ESLint comments already point at AGENTS.md / architecture). In-repo references to `phase0-baseline.md` repointed.
 
 - **Severity:** Low
 - **Category:** Code quality
@@ -7520,15 +7520,15 @@ One row per finding, at `abaa007`.
 | CR-257 | Low | Infra | Fixed | [Task 02](review-tasks/02-typecheck-and-build-gates.md) |
 | CR-258 | Low | Infra | Partly fixed | [Task 51](review-tasks/51-tsconfig-strictness.md) / [Task 63](review-tasks/63-no-unchecked-indexed-access.md) |
 | CR-259 | Low | Code quality | Open | [Task 52](review-tasks/52-shared-ui-components.md) |
-| CR-260 | Low | Docs | Open | [Task 56](review-tasks/56-docs-refresh.md) |
-| CR-261 | Low | Docs | Open | [Task 56](review-tasks/56-docs-refresh.md) |
+| CR-260 | Low | Docs | Fixed | [Task 56](review-tasks/56-docs-refresh.md) |
+| CR-261 | Low | Docs | Fixed | [Task 56](review-tasks/56-docs-refresh.md) |
 | CR-262 | Low | Infra | Partly fixed | [Task 06](review-tasks/06-db-path-and-seed-safety.md) |
 | CR-263 | Low | Docs | Fixed | Task 07 |
 | CR-264 | Low | Security | Open | [Task 59](review-tasks/59-security-credential-hygiene.md) |
 | CR-265 | Low | Security | Open | [Task 59](review-tasks/59-security-credential-hygiene.md) |
 | CR-266 | Low | Infra | Fixed | [Task 02](review-tasks/02-typecheck-and-build-gates.md) |
 | CR-267 | Low | Infra | Open | [Task 05](review-tasks/05-test-coverage-baseline.md) |
-| CR-268 | Low | Docs | Open | [Task 56](review-tasks/56-docs-refresh.md) |
+| CR-268 | Low | Docs | Fixed | [Task 56](review-tasks/56-docs-refresh.md) |
 | CR-269 | Medium | Bug | Open | [Task 16](review-tasks/16-run-lifecycle-late-writes.md) |
 | CR-270 | High | Bug | Fixed | [Task 01](review-tasks/01-plan-artifact-ordering-hotfix.md) |
 | CR-271 | Medium | Gap | Fixed | [Task 15](review-tasks/15-frontend-mutation-conventions.md) |

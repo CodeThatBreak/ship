@@ -110,7 +110,7 @@ Open and partly fixed findings: 262, spread over 61 tasks.
 
 | Done | # | Task | Findings | Effort | Depends on |
 | :---: | --- | --- | --- | :---: | --- |
-| [ ] | 56 | [README, AGENTS.md commands and stale plan docs](56-docs-refresh.md) | CR-260, CR-261, CR-268 | S | 06 |
+| [x] | 56 | [README, AGENTS.md commands and stale plan docs](56-docs-refresh.md) | CR-260, CR-261, CR-268 | S | 06 |
 
 ### Phase 6: Security (last)
 

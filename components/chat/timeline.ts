@@ -5,7 +5,7 @@
  *
  * This is the only module that imports lib/groupEvents directly (its grouper
  * and node-key resolver are used here as values). `lib/groupEvents` is one of
- * the verified-pure allowlisted modules (docs/phase0-baseline.md,
+ * the verified-pure allowlisted modules (docs/architecture/client-bundle-boundaries.md,
  * Dispositions) — safe to import directly; this module stays as the feature's
  * single seam until its consumers collapse onto `@/lib/groupEvents` (Phase 6
  * checklist).

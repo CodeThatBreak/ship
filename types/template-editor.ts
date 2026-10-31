@@ -4,7 +4,7 @@
  * The server hedges both sides here: `TemplateStore.editorPayload` (lib/)
  * and the client query hooks build/consume these types, so the two paths
  * can't drift apart. No imports from lib/ — this module must stay
- * client-safe (see docs/phase0-baseline.md).
+ * client-safe (see docs/architecture/client-bundle-boundaries.md).
  */
 
 /** A registered task provider's editor-facing slice (GET /api/tasks/providers). */

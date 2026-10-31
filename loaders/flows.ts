@@ -4,7 +4,7 @@ import "server-only";
  * through the services the thin API routes wrap — never through self-fetch).
  *
  * Lives outside `app/**` / `components/**` because the Phase 0 lint zone
- * (docs/phase0-baseline.md) restricts `lib/**` imports from those trees even
+ * (docs/architecture/client-bundle-boundaries.md) restricts `lib/**` imports from those trees even
  * for server-only code; a loader module is the sanctioned importer (see the
  * pending lint-config note about server-zone exceptions).
  */

@@ -17,7 +17,11 @@ npm run typecheck    # tsc --noEmit
 npm run lint         # eslint
 npm test             # vitest
 npm run check        # typecheck + lint + test
-npm run seed:demo    # seed demo data (variants: :reset, fanout, branch-refine, custom)
+node scripts/seed-demo-flow.mjs           # demo SDLC flow (DEMO-142); --reset removes it
+node scripts/seed-demo-fanout.mjs         # fan-out monitoring demo (DEMO-143); --reset
+node scripts/seed-branch-refine-demo.mjs  # branch-scoped refine demo (DEMO-207); --reset
+node scripts/seed-custom-flow.mjs         # custom template demo (DEMO-201); --reset
+node scripts/seed-split-smoke.mjs         # split smoke template seed; --reset
 ```
 
 A task is done only when all of these are true:
@@ -32,7 +36,7 @@ A task is done only when all of these are true:
 
 ## 1. Safety Rules (read first)
 
-- Never run `seed:demo:reset` or any destructive script against a database that is not the demo DB. Check the DB path first.
+- Never run a seed script with `--reset` (or any destructive seed) against a database that is not the demo DB. Seed scripts target `config.db.demoPath()` only — check `DATABASE_PATH` and `NODE_ENV` first. Affected scripts: `seed-demo-flow.mjs`, `seed-demo-fanout.mjs`, `seed-branch-refine-demo.mjs`, `seed-custom-flow.mjs`, `seed-split-smoke.mjs` (each accepts `--reset`).
 - Do not add new dependencies without asking.
 - No destructive git or file commands (`reset --hard`, `clean -fd`, `rm -rf`, force push) unless explicitly requested.
 - Ask before changing `lib/db/schema.sql`. Schema changes must be coordinated with row mappers in `lib/db/rows.ts`.

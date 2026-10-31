@@ -10,7 +10,7 @@ import { WAIT_FOR_SOURCES } from "../constants";
 import type { InputFieldRow } from "../ts-schema-lite";
 
 /** Re-exported so configurator pieces never import the engine module directly
- *  (the documented client-bundle conflict — see docs/phase0-baseline.md). */
+ *  (the documented client-bundle conflict — see docs/architecture/client-bundle-boundaries.md). */
 export type { StartContractField };
 
 /** The start contract fields on the instance config (missing/invalid → none). */

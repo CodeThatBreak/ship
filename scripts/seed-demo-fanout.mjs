@@ -5,7 +5,7 @@
  * Usage:
  *   node scripts/seed-demo-fanout.mjs           # seed (idempotent: resets + recreates)
  *   node scripts/seed-demo-fanout.mjs --reset   # remove the demo flow/task + children
- *   npm run seed:demo:fanout / seed:demo:fanout:reset
+ *   node scripts/seed-demo-fanout.mjs --reset   # remove the demo flow/task + children
  *
  * What you get (open http://localhost:3000 → "DEMO-143 flow"):
  *   - a demo task whose approved plan published `execution: steps` in plan-meta
