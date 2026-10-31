@@ -2059,8 +2059,8 @@ Original findings, verbatim:
 
 ### CR-070 [Medium] `FlowEngine` is a god class with about ten responsibilities in 1,800 lines
 
-- **Status at `abaa007`:** **Open**, fix in [Task 45](review-tasks/45-flow-engine-decomposition.md)
-- **Current location:** lib/engine/flow-engine.ts:89-2039 (create/createStepChild/createSplitChild 95-285, get/list 358-535, plan-step editing 788-857, edge/join/skip machine 966-1163, wait timers 1290-1335 and 1904-1943, triggers/webhook starts 1757-1903, MR lookup and comment ingestion 1971-2039)
+- **Status at `abaa007`:** **Fixed** ([Task 45](review-tasks/45-flow-engine-decomposition.md))
+- **Current location:** lib/engine/flow-engine.ts (facade); lib/engine/runtime/flow-factory.ts, flow-read-model.ts, edge-activator.ts, wait-scheduler.ts, comment-ingestor.ts
 - **Re-verification note:** The file grew from about 1,800 to 2,039 lines. Split-runtime proxies (skip/retry/approve/cancelSplitUnit, finishSplit) were added alongside the existing responsibilities. Only the SDLC chain, the split manager and the step-flow manager live outside it. Extract FlowFactory, FlowReadModel, EdgeActivator, WaitScheduler and CommentIngestor/MrLocator behind a thin facade, one per PR.
 
 - **Severity:** Medium
@@ -4965,8 +4965,8 @@ Original findings, verbatim:
 
 ### CR-185 [Low] `FlowEngine.get()` performs N+1 queries per request
 
-- **Status at `abaa007`:** **Open**, fix in [Task 45](review-tasks/45-flow-engine-decomposition.md)
-- **Current location:** lib/engine/flow-engine.ts:358-503 (431,433 per-step child flow + nodes; 467-472 full node_templates scan with linear `find`; 498-500 per-node artifact query incl. `content`; 394 `stepFlows.mergeStates`)
+- **Status at `abaa007`:** **Fixed** ([Task 45](review-tasks/45-flow-engine-decomposition.md))
+- **Current location:** lib/engine/runtime/flow-read-model.ts (`get`/`list` batching and artifact metadata)
 - **Re-verification note:** Unchanged from the reviewed commit. Only child runs are batched (one `IN` query), which was already true before. Each poll still runs two queries per step child and one per-node artifact query that selects full bodies, and searches node templates linearly. Batch child flows, child nodes and artifacts with `IN (...)` and group them in memory, index `ntRows` in a `Map`, and return artifact metadata only, lazy-loading content.
 
 - **Severity:** Low
@@ -7345,7 +7345,7 @@ One row per finding, at `abaa007`.
 | CR-067 | Medium | Bug | Fixed | [Task 12](review-tasks/12-db-transactions.md) |
 | CR-068 | Medium | Security | Open | [Task 60](review-tasks/60-security-process-and-network-isolation.md) |
 | CR-069 | Medium | Security | Open | [Task 58](review-tasks/58-security-webhook-auth.md) |
-| CR-070 | Medium | Code quality | Open | [Task 45](review-tasks/45-flow-engine-decomposition.md) |
+| CR-070 | Medium | Code quality | Fixed | [Task 45](review-tasks/45-flow-engine-decomposition.md) |
 | CR-071 | Medium | Code quality | Partly fixed | [Task 44](review-tasks/44-engine-stores-and-constants.md) |
 | CR-072 | Medium | Bug | Fixed | [Task 17](review-tasks/17-node-claim-and-attempts.md) |
 | CR-073 | Medium | Bug | Fixed (Task 33) | [Task 33](review-tasks/33-git-and-worktree-process-safety.md) |
@@ -7460,7 +7460,7 @@ One row per finding, at `abaa007`.
 | CR-182 | Low | Code quality | Open | [Task 46](review-tasks/46-backend-types-cleanup.md) |
 | CR-183 | Low | Code quality | Open | [Task 46](review-tasks/46-backend-types-cleanup.md) |
 | CR-184 | Low | Code quality | Open | [Task 44](review-tasks/44-engine-stores-and-constants.md) |
-| CR-185 | Low | Performance | Open | [Task 45](review-tasks/45-flow-engine-decomposition.md) |
+| CR-185 | Low | Performance | Fixed | [Task 45](review-tasks/45-flow-engine-decomposition.md) |
 | CR-186 | Low | Code quality | Open | [Task 50](review-tasks/50-small-module-cleanups.md) |
 | CR-187 | Low | Code quality | Fixed | Task 07 |
 | CR-188 | Low | Code quality | Open | [Task 60](review-tasks/60-security-process-and-network-isolation.md) |

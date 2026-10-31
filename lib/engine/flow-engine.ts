@@ -42,28 +42,13 @@ import { normalizePlanThread } from "./nodes/kinds/plan/constants/planThread";
 import { PlanStore } from "./nodes/kinds/plan/plan-store";
 import { ConflictError, DomainError, NotFoundError, ValidationError } from "../errors";
 import { RunSupersededError } from "./errors/run-superseded-error";
+import { CommentIngestor } from "./runtime/comment-ingestor";
+import { EdgeActivator } from "./runtime/edge-activator";
+import { FlowFactory, type CreateFlowOptions } from "./runtime/flow-factory";
+import { FlowReadModel } from "./runtime/flow-read-model";
+import { WaitScheduler } from "./runtime/wait-scheduler";
 
-export interface CreateFlowOptions {
-  executionMode?: "cloud" | "local";
-  repoId?: string;
-  /** flow template to snapshot (default: the seeded SDLC loop) */
-  templateId?: string;
-  /** the trigger payload that started this flow (webhook / schedule, §6) —
-   * persisted on the flow and available to input maps as {{trigger.payload}} */
-  triggerPayload?: unknown;
-  /** the delivery asks for its auto nodes to run immediately (webhook /
-   *  schedule starts via startFromTemplate) — manual task-picker starts don't */
-  autoStart?: boolean;
-}
-
-/** Reserved delivery keys the engine consumes at flow start — never passed to
- *  the start contract: `repo` (the id, cloud URL or registered name of the
- *  repo this flow attaches to) and the execution mode, accepted as
- *  `execution_mode` or its settings-page alias `harness` (local / cloud). */
-const REPO_DELIVERY_KEY = "repo";
-const EXEC_MODE_DELIVERY_KEY = "execution_mode";
-const EXEC_MODE_DELIVERY_ALIAS = "harness";
-const EXEC_MODE_VALUES = ["local", "cloud"] as const;
+export type { CreateFlowOptions };
 
 /** Flow-owned tables, in FK-safe delete order (children before `flows`).
  *  Keep in sync with `FLOW_CHILD_TABLES` in scripts/lib/seed-db.mjs. */
@@ -99,171 +84,122 @@ export const FLOW_CHILD_TABLES = [
  */
 export class FlowEngine {
   /** the SDLC builtin chain (approveBuild / panel stage entries) */
+  private readonly waits = new WaitScheduler(this);
+  private readonly edges = new EdgeActivator(this, this.waits);
+  private readonly readModel = new FlowReadModel(this.waits);
+  private readonly factory = new FlowFactory(this);
+  private readonly comments = new CommentIngestor(this, this.waits);
+
   private readonly chain = createSdlcChain(this);
 
-  // ── flow creation / read ─────────────────────────────────────────────────
-
   create(taskId: string, repoUrl: string, name?: string, opts: CreateFlowOptions = {}): string {
-    const task = rows.get(Task, `SELECT * FROM tasks WHERE id=?`, taskId);
-    if (!task) throw new NotFoundError("task", taskId);
-    const repo = opts.repoId ? db.repoById(opts.repoId) : undefined;
-    if (repo) repoUrl = repo.cloud_url;
-    const executionMode = opts.executionMode === "local" ? "local" : "cloud";
-    if (executionMode === "local" && !repo?.local_path) {
-      throw new ValidationError(
-        "Local mode requires a repo registered on the Settings page with a local path.",
-      );
-    }
-    // snapshot the flow's node set and template graph — running flows keep that
-    // snapshot; later template edits do not change edges/triggers/input maps
-    const templateId = opts.templateId ?? SDLC_TEMPLATE_ID;
-    const graph = templateStore.graph(templateId);
-    if (!graph) throw new NotFoundError("flow template", templateId);
-    // the template declares the task TYPE its flows run on (trigger.task_type,
-    // Phase 3) — a manual start passing the picked task must match it
-    const declaredType = typeof graph.flowTrigger.task_type === "string" ? graph.flowTrigger.task_type : null;
-    if (declaredType && task.type !== declaredType) {
-      throw new ValidationError(
-        `task ${task.key} is a "${task.type}" task but template "${templateStore.flowTemplate(templateId)?.name ?? templateId}" ` +
-        `declares "${declaredType}" task context — pick a ${declaredType} task or change the template's task type`,
-      );
-    }
-
-    const id = db.uid("flow_");
-    const ts = db.now();
-    db.transaction(() => {
-      db.run(
-        `INSERT INTO flows (id,task_id,name,status,repo_url,repo_id,execution_mode,template_id,trigger_payload,created_at,updated_at)
-         VALUES (?,?,?,?,?,?,?,?,?,?,?)`,
-        id, taskId, name ?? `${task.key} flow`, "active", repoUrl, repo?.id ?? null, executionMode,
-        graph.templateId, opts.triggerPayload != null ? JSON.stringify(opts.triggerPayload) : null, ts, ts
-      );
-      // one node row per template instance spec (template order), config merged
-      // from class defaults ← app settings ← template node config
-      nodeStore.insertSnapshots(id, graph, { provisionWebhookHooks: true, ts });
-      templateStore.persistFlowGraphSnapshot(id, graph);
-    });
-    // no "flow created" announcement event — the chat feed starts with the
-    // user's first message instead of boilerplate
-    // webhook/schedule flow triggers auto-start their auto nodes (§6) — a
-    // manual trigger template waits for run_node on the entry node, except
-    // when the entry node itself declares an `auto` trigger: the user's pick
-    // on the home page IS the manual step, and the auto trigger runs the
-    // entry straight away with the contract's authored defaults (§5)
-    if (opts.autoStart) {
-      this.start(id);
-    } else {
-      const entryKey = nodeRegistry.entryKey();
-      const entry = entryKey ? graph.nodes.find((n) => n.defKey === entryKey) : undefined;
-      if (entry?.trigger.type === "auto") this.start(id);
-    }
-    return id;
+    return this.factory.create(taskId, repoUrl, name, opts);
   }
 
-  // ── plan fan-out: step-child machinery (StepFlowManager internals) ────────
-
-  /**
-   * Create a step-child flow with the parent's snapshot machinery — the same
-   * shape as create() (snapshot + merged node configs), minus the standalone
-   * start validation a user start needs: no task-type check (the task is
-   * inherited), no entry-contract gate (the auto-wrapped/step child templates
-   * declare no start node), and the fan-out linkage columns set
-   * (`parent_flow_id`, `kind: 'step'`, the `{plan, step, siblings}` payload
-   * persisted as the trigger payload — which is exactly what makes
-   * `{{trigger.payload.step.*}}` work in child input maps / prompt vars, and
-   * what carries the rollup's `parentNodeKey`).
-   * StepFlowManager internal — not a public API.
-   */
   createStepChild(
     parentFlowId: string,
     templateId: string,
     name: string,
     payload: StepChildPayload,
-    opts: { branch: string | null }
+    opts: { branch: string | null },
   ): string {
-    const parent = rows.get(FlowRow, `SELECT * FROM flows WHERE id=?`, parentFlowId);
-    if (!parent) throw new NotFoundError("flow", parentFlowId);
-    const graph = templateStore.graph(templateId);
-    if (!graph) throw new NotFoundError("flow template", templateId);
-    // Phase 3C (§2): when the child template DECLARES a start contract, the
-    // `{plan, step, siblings}` payload is validated against it exactly like a
-    // webhook delivery (unknown fields rejected, missing required fields fail
-    // loudly). Auto-wrapped / step-build templates declare no start node, so
-    // the payload flows straight into input mapping and prompt variables.
-    const startSpec = graph.nodes.find((n) => n.defKey === nodeRegistry.entryKey());
-    const contractFields = startSpec ? parseStartContract(startSpec.config) : [];
-    if (contractFields.length) {
-      const v = validateAgainstContract(contractFields, payload);
-      if (!v.ok) {
-        throw new Error(
-          `payload doesn't match the step child's start contract (template "${templateStore.flowTemplate(templateId)?.name ?? templateId}") — ${v.error}`);
-      }
-    }
-    const id = db.uid("flow_");
-    const ts = db.now();
-    db.transaction(() => {
-      db.run(
-        `INSERT INTO flows (id,task_id,name,status,repo_url,repo_id,execution_mode,template_id,trigger_payload,mr_branch,parent_flow_id,kind,created_at,updated_at)
-         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-        id, parent.task_id, name, "active", parent.repo_url, parent.repo_id, parent.execution_mode,
-        graph.templateId, JSON.stringify(payload), opts.branch, parentFlowId, FLOW_KIND.STEP, ts, ts
-      );
-      nodeStore.insertSnapshots(id, graph, { ts });
-      templateStore.persistFlowGraphSnapshot(id, graph);
-      db.emitEvent(id, null, "lifecycle",
-        `step child created from "${templateStore.flowTemplate(templateId)?.name ?? templateId}" — parent flow ${parentFlowId}`);
-    });
-    return id;
+    return this.factory.createStepChild(parentFlowId, templateId, name, payload, opts);
   }
 
-  /**
-   * Start a step child's automatic nodes once (bg-wrapped start()). Safe to
-   * call again: startNodeStage refuses nodes that aren't `pending` anymore.
-   * StepFlowManager internal — not a public API.
-   */
-  startStepChild(childFlowId: string): void {
-    this.bg(childFlowId, null, async () => this.start(childFlowId));
-  }
-
-  /**
-   * Create a split-unit child flow (the split runtime's counterpart of
-   * createStepChild, agent-node split plan §3): the same snapshot machinery —
-   * node rows with merged configs — with `parent_flow_id`, `kind: 'split'`
-   * and the `{parentNodeKey, unit}` payload persisted as the trigger payload
-   * (which is what makes `{{input.unit.*}}` work in child input maps / prompt
-   * variables, and what carries the split manager's linkage, decision 1).
-   * No start-contract validation here: the split manager validated the unit's
-   * item against the target's contract before any row exists
-   * (assertSplitTargetCompatible), and the payload's linkage fields are
-   * engine bookkeeping, not contract surface.
-   * SplitManager internal — not a public API.
-   */
   createSplitChild(
     parentFlowId: string,
     templateId: string,
     name: string,
     payload: SplitChildPayload,
   ): string {
-    const parent = rows.get(FlowRow, `SELECT * FROM flows WHERE id=?`, parentFlowId);
-    if (!parent) throw new NotFoundError("flow", parentFlowId);
-    const graph = templateStore.graph(templateId);
-    if (!graph) throw new NotFoundError("flow template", templateId);
-    const id = db.uid("flow_");
-    const ts = db.now();
-    db.transaction(() => {
-      db.run(
-        `INSERT INTO flows (id,task_id,name,status,repo_url,repo_id,execution_mode,template_id,trigger_payload,parent_flow_id,kind,created_at,updated_at)
-         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-        id, parent.task_id, name, "active", parent.repo_url, parent.repo_id, parent.execution_mode,
-        graph.templateId, JSON.stringify(payload), parentFlowId, FLOW_KIND.SPLIT, ts, ts
-      );
-      nodeStore.insertSnapshots(id, graph, { ts });
-      templateStore.persistFlowGraphSnapshot(id, graph);
-      db.emitEvent(id, null, "lifecycle",
-        `split child created from "${templateStore.flowTemplate(templateId)?.name ?? templateId}" — parent flow ${parentFlowId}`);
-    });
-    return id;
+    return this.factory.createSplitChild(parentFlowId, templateId, name, payload);
   }
+
+  startStepChild(childFlowId: string): void {
+    this.bg(childFlowId, null, async () => this.start(childFlowId));
+  }
+
+  get(id: string) {
+    return this.readModel.get(id);
+  }
+
+  list() {
+    return this.readModel.list();
+  }
+
+  async advanceFrom(flowId: string, fromKey: string): Promise<void> {
+    await this.edges.advanceFrom(flowId, fromKey);
+  }
+
+  joinSatisfied(flowId: string, g: TemplateGraph, key: string): Promise<boolean> {
+    return this.edges.joinSatisfied(flowId, g, key);
+  }
+
+  startNodeStage(
+    flowId: string,
+    nodeKey: string,
+    opts: { rawInput?: unknown; rawPayload?: unknown; resumeWaiting?: boolean } = {},
+  ): Promise<void> {
+    return this.edges.startNodeStage(flowId, nodeKey, opts);
+  }
+
+  armNodeWait(flowId: string, nodeKey: string, wait: "webhook" | "timer" | "comments", minutes: number | null): void {
+    this.waits.armNodeWait(flowId, nodeKey, wait, minutes);
+  }
+
+  bounceCommentWaits(flowId: string): void {
+    this.waits.bounceCommentWaits(flowId);
+  }
+
+  resolveScheduleAt(flowId: string): number | null {
+    return this.waits.resolveScheduleAt(flowId);
+  }
+
+  resolveScheduleClock(flowId: string): string | null {
+    return this.waits.resolveScheduleClock(flowId);
+  }
+
+  resolveScheduleLabel(flowId: string): string {
+    return this.waits.resolveScheduleLabel(flowId);
+  }
+
+  resolveDelayMs(flowId?: string): number {
+    return this.waits.resolveDelayMs(flowId);
+  }
+
+  startFromTemplate(templateId: string, payload: unknown, opts: { taskId?: string } = {}): string {
+    return this.factory.startFromTemplate(templateId, payload, opts);
+  }
+
+  resumeNodeFromWebhook(flowId: string, nodeKey: string, payload: unknown): void {
+    this.waits.resumeNodeFromWebhook(flowId, nodeKey, payload);
+  }
+
+  reArmWaitingTimers(): void {
+    this.waits.reArmWaitingTimers();
+  }
+
+  processWaitTimers(): void {
+    this.waits.processWaitTimers();
+  }
+
+  handleHostEvent(event: HostWebhookEvent): void {
+    this.comments.handleHostEvent(event);
+  }
+
+  findFlowByMR(projectId: number, mrIid: number, projectUrl?: string): FlowRow | undefined {
+    return this.comments.findFlowByMR(projectId, mrIid, projectUrl);
+  }
+
+  ingestComments(flowId: string, incoming: HostComment[], mrIid?: number): number {
+    return this.comments.ingestComments(flowId, incoming, mrIid);
+  }
+
+  graph(flowId: string): TemplateGraph | null {
+    return templateStore.graphForFlow(flowId);
+  }
+
+  // ── plan fan-out: finish hooks ───────────────────────────────────────────
 
   /**
    * Publish a fan-out node's terminal state (StepFlowManager internals — not a
@@ -350,168 +286,6 @@ export class FlowEngine {
     this.clearCurrentIf(parentFlowId, nodeKey);
   }
 
-  get(id: string) {
-    const flow = rows.get(FlowRow, `SELECT * FROM flows WHERE id=?`, id);
-    if (!flow) return null;
-    const task = rows.get(Task, `SELECT * FROM tasks WHERE id=?`, flow.task_id);
-
-    // per-run cost/usage rows, rolled up per node + flow total
-    const runs = rows.all(RunRow,
-      `SELECT * FROM runs WHERE flow_id=? ORDER BY created_at, id`, id);
-    const nodeCosts = new Map<string, ReturnType<typeof emptyRunTokenBucket>>();
-    for (const r of runs) {
-      const c = nodeCosts.get(r.node_id) ?? emptyRunTokenBucket();
-      accumulateRunRow(c, r);
-      nodeCosts.set(r.node_id, c);
-    }
-    const flowCost = {
-      totalCents: [...nodeCosts.values()].reduce((s, c) => s + c.totalCents, 0),
-      tokens: [...nodeCosts.values()].reduce((s, c) => s + c.tokens, 0),
-      runCount: runs.length,
-    };
-    // plan fan-out (Phase 4): the step children's own runs ARE each step's
-    // cost/duration — one query over the whole checklist, keyed by child flow
-    // id, then folded into the flow total (a fanned-out parent node has no
-    // direct runs; the header cost would otherwise read ~0 while the work runs)
-    const stepRunStats = new Map<string, { costCents: number; tokens: number; durationMs: number; runCount: number }>();
-    const branches = rows.all(BranchRow, `SELECT * FROM branches WHERE flow_id=? ORDER BY "order", created_at`, id);
-    // plan fan-out merge-back state — ONE pass for the whole checklist
-    // (Phase 3A: hoisted out of the per-step map, was O(k²) reads)
-    const mergeStateMap = stepFlows.mergeStates(id);
-    const steps = rows.all(PlanStepRow, `SELECT * FROM plan_steps WHERE flow_id=? ORDER BY position, created_at`, id)
-      .map((s) => ({ ...s, files: s.files ?? [] }));
-    // per-step cost/usage: group the children's runs (keyed by child flow id)
-    // and fold them into the flow total — Phase 4 monitoring (cards, rollup,
-    // graph subtitle, header run summary)
-    const childFlowIds = steps.map((s) => s.sub_flow_id).filter((v): v is string => Boolean(v));
-    if (childFlowIds.length) {
-      const childRuns = rows.all(RunRow,
-        `SELECT * FROM runs WHERE flow_id IN (${childFlowIds.map(() => "?").join(",")}) ORDER BY created_at, id`,
-        ...childFlowIds);
-      for (const r of childRuns) {
-        const c = stepRunStats.get(r.flow_id) ?? { costCents: 0, tokens: 0, durationMs: 0, runCount: 0 };
-        if (r.cost_cents != null) c.costCents += r.cost_cents;
-        if (r.duration_ms != null) c.durationMs += r.duration_ms;
-        const bucket = emptyRunTokenBucket();
-        accumulateRunRow(bucket, r);
-        c.tokens += bucket.tokens;
-        c.runCount++;
-        stepRunStats.set(r.flow_id, c);
-      }
-      // the flow total includes the step sub-flows (a fanned-out parent node
-      // has no direct runs — the honest spend would otherwise read ~0)
-      for (const c of stepRunStats.values()) {
-        flowCost.totalCents += c.costCents;
-        flowCost.tokens += c.tokens;
-        flowCost.runCount += c.runCount;
-      }
-    }
-    const stepsEnriched = steps
-      // plan fan-out: attached per-step child state keeps the parent panels off
-      // N+1 side calls — the card links straight to the child flow screen
-      .map((s) => {
-        if (!s.sub_flow_id) return s;
-        const child = rows.get(FlowRow, `SELECT * FROM flows WHERE id=?`, s.sub_flow_id);
-        if (!child) return s;
-        const childNodes = rows.all(NodeRow, `SELECT * FROM nodes WHERE flow_id=? ORDER BY created_at`, s.sub_flow_id);
-        // the owning fan-out node key from the child's payload — what the
-        // graph subtitle / step card rollup keys on
-        let parentNodeKey: string | null = null;
-        const p = child.trigger_payload ?? {};
-        parentNodeKey = typeof p.parentNodeKey === "string" ? p.parentNodeKey : null;
-        // Phase 2 merge-back state (conflict / fixing / stale base chips)
-        const ms = mergeStateMap[s.sub_flow_id] ?? null;
-        return {
-          ...s,
-          sub_flow: {
-            id: child.id,
-            name: child.name,
-            status: child.status,
-            branch: child.mr_branch,
-            nodeStatus: StepFlowManager.childRollup(childNodes.map((n) => n.status), child.status),
-            nodeKey: childNodes[0]?.node_key ?? null,
-            parentNodeKey,
-            // Phase 4 cost/duration rollup: the child flow's own run rows
-            // (cards show cost + duration per step; zeroed when it has no runs)
-            ...(stepRunStats.get(s.sub_flow_id!) ?? { costCents: 0, tokens: 0, durationMs: 0, runCount: 0 }),
-            mergeStatus: ms?.mergeStatus ?? null,
-            mergeAttempts: ms?.mergeAttempts ?? 0,
-            mergeError: ms?.mergeError ?? null,
-            staleBase: ms?.staleBase ?? false,
-          },
-        };
-      });
-
-    // node order comes from the flow's own template (snapshot), not the global
-    // registry — templates may order and label nodes differently
-    const order = templateStore.graphForFlow(id)?.nodes.map((n) => n.key) ?? nodeRegistry.order();
-    // catalog identity per node instance (kind/icon for the UI's generic panel)
-    const ntRows = db.all<{ id: string; key: string; name: string; kind: string; icon: string | null; is_builtin: number }>(
-      `SELECT id, key, name, kind, icon, is_builtin FROM node_templates`
-    );
-    const ntOf = (type: string) =>
-      ntRows.find((r) => r.id === type || (r.is_builtin && r.key === type)) ?? null;
-    return {
-      ...flow,
-      cost: flowCost,
-      branches,
-      planSteps: stepsEnriched,
-      resolveScheduleAt: this.resolveScheduleAt(id),
-      task: task ?? null,
-      hooks: hookStore.hooksForFlow(id),
-      nodes: rows.all(NodeRow, `SELECT * FROM nodes WHERE flow_id=?`, id)
-        .sort((a, b) => order.indexOf(a.node_key) - order.indexOf(b.node_key))
-        .map((n) => {
-          const nt = ntOf(n.type);
-          // the node's capabilities (refine/chat/panel affordances) come from
-          // its def — built-ins by registry key, declarative kinds by their
-          // node_templates row (cached hydration)
-          const def = nodeRegistry.maybe(n.type)
-            ?? (nt?.is_builtin ? nodeRegistry.maybe(nt.key) : undefined)
-            ?? declarativeDef(n.type, n.node_key);
-          return {
-            ...n,
-            kind: nt?.kind ?? null,
-            icon: nt?.icon ?? null,
-            template_name: nt?.name ?? null,
-            capabilities: uiCapabilities(def?.capabilities),
-            cost: nodeCosts.get(n.id) ?? { totalCents: 0, tokens: 0, runs: [] },
-            artifacts: rows.all(ArtifactRow,
-              `SELECT id, node_id, flow_id, kind, version, content, meta, status, feedback, created_at
-               FROM artifacts WHERE node_id=? ORDER BY kind, version`, n.id),
-          };
-        }),
-    };
-  }
-
-  list() {
-    // step children (plan fan-out) are hidden from the home flow list — they
-    // are reachable from the parent's fan-out panel (§2 data model)
-    const flows = db.all<Record<string, unknown>>(`
-      SELECT f.*, t.key AS task_key, t.summary AS task_summary
-      FROM flows f JOIN tasks t ON t.id=f.task_id
-      WHERE (f.kind IS NULL OR f.kind <> 'step') AND f.parent_flow_id IS NULL
-      ORDER BY f.updated_at DESC`);
-    // Phase 4: per-parent step-progress summary for the home rows — ONE
-    // grouped query over the linked checklist (children hidden, progress not)
-    const fanoutByFlow = new Map<string, { steps: number; done: number }>();
-    for (const r of db.all<{ flow_id: string; steps: number; done: number }>(`
-      SELECT ps.flow_id,
-        COUNT(*) AS steps,
-        SUM(CASE WHEN ps.status='done' THEN 1 ELSE 0 END) AS done
-      FROM plan_steps ps
-      WHERE ps.sub_flow_id IS NOT NULL
-      GROUP BY ps.flow_id`)) {
-      fanoutByFlow.set(r.flow_id, { steps: r.steps, done: r.done });
-    }
-    if (fanoutByFlow.size) {
-      for (const f of flows) {
-        const fo = fanoutByFlow.get(f.id as string);
-        if (fo) f.fanout = { ...fo, active: fo.done < fo.steps };
-      }
-    }
-    return flows;
-  }
 
   /** True when the flow is a step child (plan fan-out). Engine internal helper. */
   isStepChild(flowId: string): boolean {
@@ -545,9 +319,7 @@ export class FlowEngine {
         await this.cancelNode(fid, n.node_key);
       }
     }
-    for (const key of [...this.waitTimers.keys()]) {
-      if (ids.some((fid) => key.startsWith(`${fid}\n`))) this.waitTimers.delete(key);
-    }
+    this.waits.clearTimersForFlows(ids);
     await Promise.allSettled(
       ids.map((fid) =>
         worktreeManager.removeFlowWorktree(fid, { reason: "flow deleted" })),
@@ -685,20 +457,6 @@ export class FlowEngine {
    * upstream `next`-edge sources' outputs merged (last wins). `input_map` still
    * overlays explicit mappings at run time — the mapped field wins.
    */
-  private inheritedInput(flowId: string, nodeKey: string, ctx: FlowCtx): Record<string, unknown> {
-    const parents = (this.graph(flowId)?.edges ?? [])
-      .filter((e) => e.kind === "next" && e.to === nodeKey)
-      .map((e) => e.from);
-    const nodesMap = buildFlowContext(ctx).nodes;
-    const out: Record<string, unknown> = {};
-    for (const p of parents) Object.assign(out, nodesMap[p]?.output ?? {});
-    // split children (agent-node split plan §2.1): the own unit rides the run
-    // input — `{{input.unit.*}}` — alongside any inherited parent outputs
-    // (only split children carry a unit on their trigger payload)
-    const payload = ctx.flow.trigger_payload as { unit?: unknown } | null;
-    if (payload?.unit != null) out.unit = payload.unit;
-    return out;
-  }
 
   /** The def for a node instance: built-ins by registry key, declarative kinds hydrate from their node_templates row. */
   defOf(flowId: string, nodeKey: string) {
@@ -739,30 +497,6 @@ export class FlowEngine {
    * are a loud error, never a silent pick. Nested children never split (the
    * same guard the split manager enforces).
    */
-  private splitGateSource(flowId: string, nodeKey: string): string | null {
-    const mode = splitConsumeOf(this.nodeConfigFor(flowId, nodeKey));
-    if (mode === "whole") return null;
-    if (this.isStepChild(flowId)) return null; // nesting guard (§3)
-    const g = this.graph(flowId);
-    if (!g) return null;
-    const sources = g.edges
-      .filter((e) => e.kind === "next" && e.to === nodeKey)
-      .map((e) => e.from)
-      .filter((k) => {
-        const def = this.defOf(flowId, k);
-        return def.splitUnits !== NodeDefinition.prototype.splitUnits;
-      });
-    if (!sources.length) return null; // no upstream def publishes units — whole path
-    if (sources.length > 1) {
-      throw new Error(
-        `${nodeKey} consumes split units but several upstream nodes publish them (${sources.join(", ")}) — route through one split source per consumer, or consume whole`);
-    }
-    const sourceKey = sources[0];
-    const effective: SplitConsumeMode = mode === "per-unit"
-      ? "per-unit" // explicit consumer choice wins over the recommendation (§2.4)
-      : this.defOf(flowId, sourceKey).splitResolution(this.ctx(flowId)) ?? "whole"; // absent ⇒ whole
-    return effective === "per-unit" ? sourceKey : null;
-  }
 
   // ── per-unit split actions (plan §3): the unit cards' engine entries ──────
 
@@ -860,12 +594,8 @@ export class FlowEngine {
     this.touch(flowId);
   }
 
-  // ── template topology + edge-driven activation ───────────────────────────
 
-  /** The flow's template graph (the seeded SDLC loop as the fallback). */
-  private graph(flowId: string): TemplateGraph | null {
-    return templateStore.graphForFlow(flowId);
-  }
+  // ── template topology + edge-driven activation ───────────────────────────
 
   /** Instance keys of the flow's template nodes with the given def key. */
   keysOfType(flowId: string, defKey: string): string[] {
@@ -965,392 +695,7 @@ export class FlowEngine {
    *
    * Engine internals shared with the SDLC builtin-chain module — not a public API.
    */
-  async advanceFrom(flowId: string, fromKey: string): Promise<void> {
-    const g = this.graph(flowId);
-    if (!g) return;
-    const outgoing = g.edges.filter((e) => e.kind !== "loop" || e.condition?.trim())
-      .filter((e) => e.from === fromKey);
-    if (!outgoing.length) return;
 
-    const fromSpec = g.byKey.get(fromKey);
-    const fromNtKind = fromSpec ? this.nodeKind(g, fromSpec) : null;
-    const chosen = fromNtKind === "decision" ? this.decisionChosen(flowId, fromKey) : null;
-    const ctx = fromNtKind !== "decision" && outgoing.some((e) => e.condition?.trim())
-      ? buildFlowContext(this.ctx(flowId)) : null;
-
-    for (const e of outgoing) {
-      const target = g.byKey.get(e.to);
-      if (!target) continue;
-      if (!(await this.edgeActive(flowId, e, { decision: fromNtKind === "decision", chosen, ctx }))) {
-        await this.resolveInactiveTarget(flowId, g, e.to);
-        continue;
-      }
-      if (!(await this.joinSatisfied(flowId, g, e.to))) continue;
-      // loop-edge re-entry: the target (and its downstream success-terminal
-      // path) resets to pending so the cycle runs again — see edgeActive's
-      // loop rules
-      if (e.kind === "loop") await this.resetLoopEntry(flowId, g, e.to);
-      await this.startNodeStage(flowId, target.key);
-    }
-  }
-
-  /**
-   * Loop-edge entry: reset the target to `pending`, then every downstream
-   * node along `next` edges that already holds a success terminal (done /
-   * approved) — the re-entry rerun path (e.g. resolve → gate → review →
-   * resolve). Nodes held elsewhere (pending/waiting/running/failed/
-   * awaiting_approval) are never touched. Skipped branches from a prior
-   * decision iteration reset too (CR-007).
-   */
-  private async resetLoopEntry(flowId: string, g: TemplateGraph, key: string): Promise<void> {
-    const queue = [key];
-    const seen = new Set(queue);
-    while (queue.length) {
-      const k = queue.shift()!;
-      const st = this.nodeStatus(flowId, k);
-      if (this.statusLoopResettable(st)) {
-        this.setNodeStatus(flowId, k, "pending");
-        nodeStore.emitEvent(flowId, k, "lifecycle", `${k} re-enters via the loop edge — reset to pending`);
-        for (const e of g.edges.filter((e) => e.kind === "next" && e.from === k)) {
-          if (!seen.has(e.to)) {
-            seen.add(e.to);
-            queue.push(e.to);
-          }
-        }
-      }
-    }
-  }
-
-  /** Loop re-entry clears success terminals and previously skipped branches. */
-  private statusLoopResettable(s: string): boolean {
-    return isNodeTerminalSuccess(s) || s === NODE_STATUS.SKIPPED;
-  }
-
-  /** The node_templates kind behind a template node spec (decision/agent/…/builtin). */
-  private nodeKind(g: TemplateGraph, spec: { nodeTemplateId: string; defKey: string; catalogKind?: string }): string | null {
-    if (spec.catalogKind) return spec.catalogKind;
-    return db.get<{ kind: string }>(`SELECT kind FROM node_templates WHERE id=?`, spec.nodeTemplateId)?.kind ?? null;
-  }
-
-  /** A decision node's chosen labels from its validated output ({} when absent). */
-  private decisionChosen(flowId: string, nodeKey: string): string[] {
-    const out = rows.get(NodeRow, `SELECT * FROM nodes WHERE flow_id=? AND node_key=?`, flowId, nodeKey)?.output;
-    const chosen = (out as { chosen?: unknown } | null)?.chosen;
-    return Array.isArray(chosen) ? chosen.map((c) => String(c)) : [];
-  }
-
-  /**
-   * One edge's active resolution. Decision sources gate on label ∈ chosen;
-   * other edges evaluate their JSONata condition (absent ⇒ active). `loud`
-   * emits an error event on a broken condition (the advance path); quiet
-   * re-evaluations (join/skip checks) just resolve inactive.
-   */
-  private async edgeActive(
-    flowId: string,
-    e: TemplateEdgeSpec,
-    src: { decision: boolean; chosen: string[] | null; ctx: unknown; loud?: boolean },
-  ): Promise<boolean> {
-    if (src.decision) {
-      // a decision's out-edges carry labels; unlabeled edges never activate
-      return e.label != null && (src.chosen ?? []).includes(e.label);
-    }
-    if (e.label != null) return false; // labels are only meaningful out of a decision
-    if (e.kind === "loop") {
-      // a loop edge is a re-entry edge: it activates only on an explicit truthy
-      // condition — condition-less loop edges stay display metadata, and the
-      // engine never picks an unconditional rerun (§4.3: no silent branches)
-      if (!e.condition?.trim()) return false;
-    }
-    if (!e.condition?.trim()) return true;
-    const r = await evalJsonata(e.condition, src.ctx ?? buildFlowContext(this.ctx(flowId)));
-    if (!r.ok) {
-      // a broken condition resolves the edge inactive and says so loudly —
-      // the engine never silently picks a branch (§4.3)
-      if (src.loud !== false) {
-        db.emitEvent(flowId, null, "error",
-          `edge ${e.from} → ${e.to}: the condition failed (${r.error}) — the branch resolves inactive`,
-          { nodeKey: e.from });
-      }
-      return false;
-    }
-    return jsonataTruthy(r.value);
-  }
-
-  /**
-   * The resolution state of a target's incoming `next` edges. An edge is
-   * resolved when its source reached a terminal state (success or skipped);
-   * it is active when the source succeeded AND the edge activates (decision ⇒
-   * label ∈ chosen; condition ⇒ truthy; unlabeled plain edges ⇒ active).
-   * Conditions re-evaluate quietly here — the flow context only carries node
-   * outputs (stable once terminal), so re-evaluation is deterministic.
-   */
-  private async incomingResolution(flowId: string, g: TemplateGraph, key: string): Promise<{ total: number; resolved: number; active: number }> {
-    const incoming = g.edges.filter((e) => e.kind === "next" && e.to === key);
-    let resolved = 0;
-    let active = 0;
-    let flowCtx: unknown = null;
-    let ctxBuilt = false;
-    for (const e of incoming) {
-      const src = g.byKey.get(e.from);
-      if (!src) continue;
-      const st = this.nodeStatus(flowId, e.from);
-      const srcSkipped = st === "skipped";
-      if (!isNodeTerminalSuccess(st) && !srcSkipped) continue;
-      resolved++;
-      if (srcSkipped) continue; // skipped sources propagate inactive
-      const srcKind = this.nodeKind(g, src);
-      if (srcKind !== "decision" && e.condition?.trim() && !ctxBuilt) {
-        flowCtx = buildFlowContext(this.ctx(flowId));
-        ctxBuilt = true;
-      }
-      const activeEdge = await this.edgeActive(flowId, e, {
-        decision: srcKind === "decision",
-        chosen: srcKind === "decision" ? this.decisionChosen(flowId, e.from) : null,
-        ctx: flowCtx,
-        loud: false,
-      });
-      if (activeEdge) active++;
-    }
-    return { total: incoming.length, resolved, active };
-  }
-
-  /**
-   * An inactive edge resolved: when the target's incoming edges are now all
-   * resolved with none active, the target becomes `skipped` and the skip
-   * propagates to its own outgoing edges (§3: skipped propagation).
-   */
-  private async resolveInactiveTarget(flowId: string, g: TemplateGraph, key: string): Promise<void> {
-    if (this.nodeStatus(flowId, key) !== "pending") return;
-    const r = await this.incomingResolution(flowId, g, key);
-    if (r.total === 0 || r.resolved !== r.total || r.active > 0) return;
-    this.setNodeStatus(flowId, key, "skipped");
-    nodeStore.emitEvent(flowId, key, "lifecycle", `${key} skipped — no active branch leads to it`);
-    // skipped sources propagate inactive downstream
-    for (const e of g.edges.filter((e) => e.kind === "next" && e.from === key)) {
-      await this.resolveInactiveTarget(flowId, g, e.to);
-    }
-  }
-
-  /**
-   * Join evaluation for a target's incoming `next` edges: all-resolved with at
-   * least one active (skipped sources propagate inactive), or first-active
-   * for `any` targets.
-   */
-  private async joinSatisfied(flowId: string, g: TemplateGraph, key: string): Promise<boolean> {
-    const r = await this.incomingResolution(flowId, g, key);
-    if (r.total === 0) return true;
-    const spec = g.byKey.get(key);
-    if (spec?.joinMode === "any") return r.active > 0;
-    return r.resolved === r.total && r.active > 0;
-  }
-
-  /**
-   * Run one trigger's node stage inline (sequential `triggerRuns` bundle —
-   * e.g. the multi-branch build), then advance past it when it reached a
-   * success terminal. Manual triggers are never started here; debounced
-   * targets arm their event-source wait.
-   *
-   * Phase 4B: an auto/approval node whose `wait_for` is `webhook` or `timer`
-   * does not run when it becomes eligible — it holds at `waiting` until the
-   * event source delivers (a hook bound to this (flow, node) at flow creation
-   * / a poller-driven timer), then `resumeNodeFromWebhook` /
-   * `processWaitTimers` re-enter this stage with `resumeWaiting`. A debounced
-   * node with `wait_for: comments` holds the same way — the comment debounce
-   * (reset-on-event while armed) fires it. The pipeline gate keeps its inline
-   * role (it runs its own wait loop when it runs).
-   *
-   * `rawInput` overrides the def's `triggerRuns` — the webhook-resume path
-   * passes the delivery body as the trigger input.
-   *
-   * A stage's own failure is contained: the failing node is marked failed and
-   * the advance stops there — the error never propagates to the upstream node
-   * whose edge activation started this stage (upstream stays done/approved;
-   * the downstream failure carries its own failed status + Retry).
-   */
-  private async startNodeStage(
-    flowId: string,
-    nodeKey: string,
-    opts: { rawInput?: unknown; rawPayload?: unknown; resumeWaiting?: boolean } = {},
-  ): Promise<void> {
-    const status = this.nodeStatus(flowId, nodeKey);
-    if (opts.resumeWaiting ? status !== "waiting" : status !== "pending") return;
-    const spec = this.graph(flowId)?.byKey.get(nodeKey);
-    const tt = spec?.trigger.type ?? "auto";
-    const wait = spec?.trigger.wait_for;
-    if (tt === "manual") return;
-    if (tt === "debounced") {
-      // a debounced node holds at `waiting` until its event source's quiet
-      // period elapses (the generic wait-timer machinery fires it); without a
-      // source it never auto-starts (the SDLC scheduler drives it)
-      if (!opts.resumeWaiting) {
-        if (wait === "comments") {
-          this.armNodeWait(flowId, nodeKey, wait, this.debounceMinutes(flowId, nodeKey, spec));
-        }
-        return;
-      }
-    }
-    // an approval-triggered entry node holds for the user, not for an output
-    // review: it publishes nothing until triggered, so the contract values are
-    // provided when the user starts it (same entry as a manual entry node)
-    if (tt === "approval" && spec?.defKey === nodeRegistry.entryKey() && parseStartContract(spec.config).length) return;
-    if (!opts.resumeWaiting && (tt === "auto" || tt === "approval")) {
-      // wait_for event sources gate eligibility (§6) — the pipeline source is
-      // the built-in gate (it runs its own wait loop when it runs)
-      if (wait === "webhook" || wait === "timer") {
-        this.armNodeWait(flowId, nodeKey, wait, spec?.trigger.minutes ?? null);
-        return;
-      }
-    }
-    const claimFrom: readonly NodeStatus[] = opts.resumeWaiting ? ["waiting"] : ["pending"];
-    try {
-      this.claimNode(flowId, nodeKey, claimFrom);
-    } catch (e: unknown) {
-      if (e instanceof ConflictError) return;
-      throw e;
-    }
-    this.setCurrentNode(flowId, nodeKey);
-    try {
-      const def = this.defOf(flowId, nodeKey);
-      // ── fan-out check (plan fan-out, Phase 1): the only engine hook into the
-      // run path. When the node's effective config carries a fan-out knob that
-      // resolves to "steps" AND pending checklist steps exist, the
-      // StepFlowManager expands into child flows and owns this node (the
-      // aggregate + terminal transition happen on all-resolved, via
-      // finishFanout). `whole-wrap` runs the def's normal whole path and wraps
-      // the native output as a single-entry aggregate afterwards. Anything
-      // else (unchanged default, whole) falls through byte-for-byte. Built-ins
-      // and declarative nodes hit the same check — orchestration lives here,
-      // node internals stay in their classes.
-      const fanout = stepFlows.gate(flowId, nodeKey);
-      if (fanout === "fanout") {
-        await stepFlows.expand(flowId, nodeKey);
-        return;
-      }
-      // ── split gate (agent-node split plan §2.4, Phase 4): the consumer's
-      // `split_consume` knob decides how it takes an upstream split source's
-      // units. `whole` (or absent — every def's default) never reaches the
-      // split runtime: the whole path below is byte-identical. The check sits
-      // after the fan-out gate on purpose — a node whose fan-out knob engaged
-      // keeps the existing fan-out behavior (documented conflict rule: the
-      // plan-step fan-out predates the split runtime and is not migrated).
-      // When expand() engages it parks the node `running`, advances the
-      // scheduler, and the join publishes through finishSplit; a `false`
-      // return (no units published / nested) falls through to the whole path.
-      if (fanout != null) {
-        // documented conflict rule (split plan §2.4, Phase 4): a node whose
-        // fan-out knob engaged keeps the fan-out behavior — record a split
-        // knob it shadows so the trail explains the run's shape
-        const shadowed = splitConsumeOf(this.nodeConfigFor(flowId, nodeKey));
-        if (shadowed !== "whole") {
-          db.emitEvent(flowId, null, "lifecycle",
-            `${nodeKey} ignores split_consume "${shadowed}" — the fan-out knob owns this run`,
-            { nodeKey });
-        }
-      } else {
-        const sourceKey = this.splitGateSource(flowId, nodeKey);
-        if (sourceKey != null
-          && splitManager.expand(flowId, nodeKey, sourceKey, { consume: "per-unit" })) {
-          return;
-        }
-      }
-      const runs =
-        opts.rawInput !== undefined
-          ? [{ input: opts.rawInput }]
-          : // declarative nodes declare no input contract — the input IS the
-            // previous node's output (merged when several edges feed in)
-            def.inheritsParentInput
-            ? [{ input: this.inheritedInput(flowId, nodeKey, this.ctx(flowId)) }]
-            : def.triggerRuns(this.ctx(flowId));
-      for (const run of runs) {
-        run.before?.();
-        await this.runNode(flowId, nodeKey, run.input, opts.rawPayload);
-        run.after?.();
-      }
-      if (fanout === "whole-wrap") stepFlows.wrapWholeOutput(flowId, nodeKey);
-    } catch (e: unknown) {
-      const msg = e instanceof Error ? e.message : String(e);
-      db.emitEvent(flowId, null, "error", msg, { nodeKey });
-      db.run(
-        `UPDATE nodes SET status='failed', attempt_id=NULL, updated_at=? WHERE flow_id=? AND node_key=? AND status='running'`,
-        db.now(),
-        flowId,
-        nodeKey,
-      );
-      if (this.isStepChild(flowId)) {
-        // notify hook: this failed stage runs on a step child — its parent's
-        // rollup/scheduling reacts (standard failed → retry/skip)
-        stepFlows.onChildFinished(flowId);
-        splitManager.onChildFinished(flowId); // split runtime (§3) — no-op without split linkage
-      }
-      return;
-    } finally {
-      this.clearCurrentIf(flowId, nodeKey);
-    }
-    const finalStatus = this.nodeStatus(flowId, nodeKey);
-    if (this.isStepChild(flowId)) {
-      // child-terminal notification hook (plan fan-out): the parent manager
-      // reschedules the next sibling / publishes the aggregate
-      stepFlows.onChildFinished(flowId);
-      splitManager.onChildFinished(flowId); // split runtime (§3) — no-op without split linkage
-    }
-    if (isNodeTerminalSuccess(finalStatus)) {
-      await this.advanceFrom(flowId, nodeKey);
-    }
-  }
-
-  /**
-   * A node that reached eligibility but still waits on an event source: mark
-   * it `waiting` and arm the resume. `timer` and the comment debounce arm a
-   * poller-driven deadline; the webhook case announces the hook endpoint the
-   * sender POSTs to.
-   */
-  armNodeWait(flowId: string, nodeKey: string, wait: "webhook" | "timer" | "comments", minutes: number | null): void {
-    if (this.nodeStatus(flowId, nodeKey) !== "pending") return;
-    if (wait === "timer" || wait === "comments") {
-      const mins = minutes ?? (wait === "comments" ? 10 : 1);
-      this.waitTimers.set(`${flowId}\n${nodeKey}`, Date.now() + mins * 60_000);
-    }
-    // the inbound hook is provisioned at flow creation — ensure it exists so
-    // the announcement and the sender's curl example always have an endpoint
-    const hook = wait === "webhook" ? hookStore.ensureForNode(flowId, nodeKey) : undefined;
-    this.setNodeStatus(flowId, nodeKey, "waiting");
-    nodeStore.emitEvent(
-      flowId,
-      nodeKey,
-      "lifecycle",
-      wait === "timer"
-        ? `${nodeKey} waits for a timer (${minutes ?? 1} min — the poller resumes it)`
-        : wait === "comments"
-        ? `${nodeKey} waits for the comment quiet period (${minutes ?? 10} min — new comments restart it; the poller fires it when the gate is clear)`
-        : `${nodeKey} waits for a webhook delivery — POST to /api/hooks/${hook?.id ?? "(hook unbound)"}`,
-    );
-  }
-
-  /**
-   * The declared quiet-period minutes for a debounced node: the template
-   * trigger's `minutes`, falling back to the node's `quiet_minutes` config
-   * knob (the flow's tuneable), then 10.
-   */
-  private debounceMinutes(flowId: string, nodeKey: string, spec?: { trigger: { minutes?: number } }): number {
-    if (typeof spec?.trigger.minutes === "number" && spec.trigger.minutes >= 0) return spec.trigger.minutes;
-    return configNumber(this.nodeConfigFor(flowId, nodeKey), "quiet_minutes", 10);
-  }
-
-  /**
-   * Reset every armed comment-debounce wait of a flow — each new open comment
-   * restarts the quiet period. The generic "reset-on-event while armed" timer
-   * feature lives here (a property of the wait source, not of any node);
-   * ingest paths (poller / git-host webhook) call it when open comments land.
-   */
-  bounceCommentWaits(flowId: string): void {
-    const g = this.graph(flowId);
-    if (!g) return;
-    for (const spec of g.nodes) {
-      if (spec.trigger.type !== "debounced" || spec.trigger.wait_for !== "comments") continue;
-      if (this.nodeStatus(flowId, spec.key) !== "waiting") continue;
-      this.waitTimers.set(`${flowId}\n${spec.key}`, Date.now() + this.debounceMinutes(flowId, spec.key, spec) * 60_000);
-    }
-  }
 
   approvePlan(flowId: string, executionOverride?: "whole" | "steps"): void {
     const planKey = this.keyOfRole(flowId, NODE_KEYS.PLAN);
@@ -1441,47 +786,6 @@ export class FlowEngine {
    * is template data now (the review → resolve edge arms it), so this reads
    * the generic wait-timer state rather than a chain scheduler.
    */
-  resolveScheduleAt(flowId: string): number | null {
-    const key = this.debounceKey(flowId);
-    return key ? this.waitTimers.get(`${flowId}\n${key}`) ?? null : null;
-  }
-
-  /** The armed resolve wait as wall-clock text ("14:32"), or null. */
-  resolveScheduleClock(flowId: string): string | null {
-    const at = this.resolveScheduleAt(flowId);
-    if (at == null) return null;
-    return new Date(at).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit", hour12: false });
-  }
-
-  /** Resolve schedule for lifecycle copy — armed clock or estimated fire time. */
-  resolveScheduleLabel(flowId: string): string {
-    return this.resolveScheduleClock(flowId)
-      ?? new Date(Date.now() + this.resolveDelayMs(flowId)).toLocaleTimeString("en-GB", {
-        hour: "2-digit", minute: "2-digit", hour12: false,
-      });
-  }
-
-  /** The resolve quiet period per flow (ms) — app layer + resolve `quiet_minutes` knob. */
-  resolveDelayMs(flowId?: string): number {
-    const resolveDef = this.roleDef(NODE_KEYS.RESOLVE);
-    const base = resolveDef ? appLayerConfig(resolveDef.key) : {};
-    if (!flowId || !resolveDef) {
-      return configNumber(mergeConfigLayers(base), "quiet_minutes", 10) * 60_000;
-    }
-    const resolveKey = this.firstKeyOfType(flowId, resolveDef.key);
-    const cfg = mergeConfigLayers(
-      base,
-      resolveKey ? this.flowNodeConfig(flowId, resolveKey) : {},
-    );
-    return configNumber(cfg, "quiet_minutes", 10) * 60_000;
-  }
-
-  /** The flow's debounced comment-wait node (the SDLC resolve role). */
-  private debounceKey(flowId: string): string | null {
-    return this.graph(flowId)?.nodes.find(
-      (n) => n.trigger.type === "debounced" && n.trigger.wait_for === "comments",
-    )?.key ?? null;
-  }
 
   // true when the node already has an in-flight run — guards against the webhook
   // + poller + UI all triggering the same node concurrently.
@@ -1750,7 +1054,7 @@ export class FlowEngine {
     for (const r of active) {
       await agentPortRegistry.forMode(mode).cancel({ runId: r.run_ref });
     }
-    this.waitTimers.delete(`${flowId}\n${nodeKey}`);
+    this.waits.clearTimerForNode(flowId, nodeKey);
     db.run(`UPDATE runs SET status='error', updated_at=? WHERE node_id=? AND status='running'`, db.now(), node.id);
     nodeSupport.transition(flowId, nodeKey, ["running", "waiting", "awaiting_approval"], "failed");
     this.clearCurrentIf(flowId, nodeKey);
@@ -1815,221 +1119,6 @@ export class FlowEngine {
     });
   }
 
-  /**
-   * Create and start a flow from a template's delivery — a webhook delivery
-   * or a due schedule fire (manual task-picker starts go through create()).
-   * The template declares the task TYPE its flows run on (`trigger.task_type`,
-   * Phase 3) and binds the repo its flows attach to; the delivery's reserved
-   * `repo` key can point at a different registered repo, and its
-   * `execution_mode` / `harness` key can pin the exec mode. Auto-start
-   * attaches the most recent imported task of the declared type — flows no
-   * longer depend on one pinned task row existing. Execution mode defaults
-   * to the repo: local when it has a local path, cloud otherwise.
-   */
-  startFromTemplate(templateId: string, payload: unknown, opts: { taskId?: string } = {}): string {
-    const t = templateStore.flowTemplate(templateId);
-    if (!t) throw new NotFoundError("template", templateId);
-    // the store normalizes trigger.task_type on read (absent → first provider)
-    const trigger = templateStore.graph(templateId)?.flowTrigger ?? {};
-    const taskType = typeof trigger.task_type === "string" ? trigger.task_type : NO_TASK_TYPE;
-    // Reserved delivery keys are consumed here before contract validation:
-    // `repo` picks which registered repo this flow attaches to (the template
-    // binding is the fallback), and the exec mode can be pinned per delivery.
-    const body = payload && typeof payload === "object" && !Array.isArray(payload)
-      ? (payload as Record<string, unknown>) : {};
-    const deliveryRepo =
-      typeof body[REPO_DELIVERY_KEY] === "string" ? body[REPO_DELIVERY_KEY].trim() : "";
-    const rawMode =
-      typeof body[EXEC_MODE_DELIVERY_KEY] === "string"
-        ? (body[EXEC_MODE_DELIVERY_KEY] as string).trim().toLowerCase()
-        : typeof body[EXEC_MODE_DELIVERY_ALIAS] === "string"
-          ? (body[EXEC_MODE_DELIVERY_ALIAS] as string).trim().toLowerCase()
-          : "";
-    const deliveryMode = (EXEC_MODE_VALUES as readonly string[]).includes(rawMode)
-      ? (rawMode as "local" | "cloud") : undefined;
-    let repoId = typeof trigger.repo_id === "string" ? trigger.repo_id : "";
-    if (deliveryRepo) {
-      const deliveryRepoRow = db.repoById(deliveryRepo)
-        ?? db.repoByCloudUrl(deliveryRepo)
-        ?? db.listRepos().find((r) => r.name === deliveryRepo);
-      if (!deliveryRepoRow) {
-        throw new Error(
-          `the delivery's "${REPO_DELIVERY_KEY}" doesn't match a registered repo — ` +
-          `use the repo's id, URL or name`);
-      }
-      repoId = deliveryRepoRow.id;
-    }
-    if (!repoId) {
-      throw new Error(
-        `template "${t.name}" has no repo binding — schedule fires and webhook ` +
-        `deliveries auto-create flows, so either bind a repo in the template ` +
-        `editor's flow settings or pass "${REPO_DELIVERY_KEY}" in the payload`);
-    }
-    // The concrete task: a caller-provided taskId (manual/eager starts) wins
-    // and is type-checked against the declared task_type; auto-start falls
-    // back to the most recent imported task of that type.
-    let taskId = typeof opts.taskId === "string" ? opts.taskId.trim() : "";
-    if (taskId) {
-      const existing = db.get<{ type: string }>(`SELECT type FROM tasks WHERE id=?`, taskId);
-      if (!existing) throw new NotFoundError("task", taskId);
-      if (existing.type !== taskType) {
-        throw new Error(
-          `task is a "${existing.type}" task but template "${t.name}" declares "${taskType}" task context — pick a ${taskType} task or change the template's task type`);
-      }
-    } else {
-      const latest = db.get<{ id: string }>(
-        `SELECT id FROM tasks WHERE type=? ORDER BY synced_at DESC, rowid DESC LIMIT 1`, taskType
-      );
-      if (!latest) {
-        throw new Error(
-          `template "${t.name}" runs on ${taskType} tasks but none are imported yet — import one on the task import screen first`);
-      }
-      taskId = latest.id;
-    }
-    const task = rows.get(Task, `SELECT * FROM tasks WHERE id=?`, taskId);
-    if (!task) throw new NotFoundError("task", taskId);
-    const repo = db.repoById(repoId);
-    if (!repo) {
-      throw new ValidationError(
-        "the template's bound repo no longer exists — rebind in the template editor",
-      );
-    }
-    // the start node's contract defines what the trigger must provide (§5):
-    // a payload that doesn't match is rejected here — no flow is created, and
-    // the hook route answers the sender with this exact message. The reserved
-    // delivery keys above were already consumed and never reach the contract.
-    const startSpec = templateStore.graph(templateId)?.nodes.find((n) => n.defKey === nodeRegistry.entryKey());
-    const contractFields = startSpec ? parseStartContract(startSpec.config) : [];
-    if (contractFields.length) {
-      const contractPayload: Record<string, unknown> = { ...body };
-      delete contractPayload[REPO_DELIVERY_KEY];
-      delete contractPayload[EXEC_MODE_DELIVERY_KEY];
-      delete contractPayload[EXEC_MODE_DELIVERY_ALIAS];
-      const v = validateAgainstContract(contractFields, contractPayload);
-      if (!v.ok) {
-        throw new ValidationError(`payload doesn't match the "${t.name}" start contract — ${v.error}`);
-      }
-    }
-    const id = this.create(taskId, repo.cloud_url, `${t.name} · ${new Date().toISOString()}`, {
-      repoId,
-      executionMode: deliveryMode ?? (repo.local_path ? "local" : "cloud"),
-      templateId,
-      triggerPayload: payload,
-      // the delivery starts the flow itself — run its auto nodes straight up
-      autoStart: true,
-    });
-    db.emitEvent(id, null, "lifecycle", `flow auto-created from the "${t.name}" template by a trigger — ${taskType} task ${task.key}`);
-    return id;
-  }
-
-  /**
-   * Resume a waiting node (wait_for webhook) with a delivery body (§6): the
-   * delivery becomes the node's trigger input and `{{trigger.payload}}` for
-   * this run's context (input maps + agent prompt variables). Non-waiting
-   * deliveries (node already resumed/finished/never armed) error loudly.
-   */
-  resumeNodeFromWebhook(flowId: string, nodeKey: string, payload: unknown): void {
-    const node = rows.get(NodeRow, `SELECT * FROM nodes WHERE flow_id=? AND node_key=?`, flowId, nodeKey);
-    if (!node) throw new NotFoundError("node", nodeKey);
-    const spec = this.graph(flowId)?.byKey.get(nodeKey);
-    if (spec?.trigger.wait_for !== "webhook") {
-      throw new ValidationError(`${nodeKey} is not waiting on a webhook`);
-    }
-    if (node.status !== "waiting") throw new ConflictError(`${nodeKey} is not waiting for an event`);
-    this.claimNode(flowId, nodeKey, ["waiting"]);
-    db.emitEvent(flowId, node.id, "lifecycle", `${nodeKey} resumed by a webhook delivery`);
-    this.bg(flowId, nodeKey, () =>
-      this.startNodeStage(flowId, nodeKey, {
-        resumeWaiting: true,
-        rawInput: { payload, prompt: null, model: null },
-        rawPayload: payload,
-      }).then(() => {})
-    );
-  }
-
-  /**
-   * Per-(flow,node) in-memory timer state for `wait_for: timer` and the
-   * debounced comment waits — armed when the node goes to `waiting`, fired
-   * from the poller tick. Deadlines are re-derived after a restart by
-   * {@link reArmWaitingTimers} (poller start); durable `wait_until` on the
-   * node row is the long-term source of truth (not implemented yet).
-   */
-  private waitTimers = new Map<string, number>();
-
-  /**
-   * After a process restart, re-arm in-memory deadlines for every `waiting`
-   * timer/comments node from its row `updated_at` plus configured minutes.
-   */
-  reArmWaitingTimers(): void {
-    const waiting = rows.all(
-      NodeRow,
-      `SELECT n.* FROM nodes n
-       INNER JOIN flows f ON f.id = n.flow_id
-       WHERE n.status='waiting' AND f.status='active'`,
-    );
-    for (const node of waiting) {
-      const spec = this.graph(node.flow_id)?.byKey.get(node.node_key);
-      if (!spec) continue;
-      const updatedMs = Date.parse(node.updated_at ?? "");
-      const baseMs = Number.isFinite(updatedMs) ? updatedMs : Date.now();
-      const tt = spec.trigger.type;
-      const waitFor = spec.trigger.wait_for;
-      if (tt === "debounced" && waitFor === "comments") {
-        const mins = this.debounceMinutes(node.flow_id, node.node_key, spec);
-        this.waitTimers.set(`${node.flow_id}\n${node.node_key}`, baseMs + mins * 60_000);
-        continue;
-      }
-      if ((tt === "auto" || tt === "approval") && waitFor === "timer") {
-        const mins = spec.trigger.minutes ?? 1;
-        this.waitTimers.set(`${node.flow_id}\n${node.node_key}`, baseMs + mins * 60_000);
-      }
-    }
-  }
-
-  /** Fire due wait-timer resumes (timer + debounced comment waits). Called from the poller tick. */
-  processWaitTimers(): void {
-    const now = Date.now();
-    for (const [k, due] of [...this.waitTimers]) {
-      if (now < due) continue;
-      const i = k.indexOf("\n");
-      const flowId = k.slice(0, i);
-      const nodeKey = k.slice(i + 1);
-      const spec = this.graph(flowId)?.byKey.get(nodeKey);
-      if (spec?.trigger.type === "debounced" && spec.trigger.wait_for === "comments") {
-        // debounced comment waits re-check their gates each tick instead of
-        // firing into a moving chain: no open comments (nothing to resolve)
-        // or a chain stage in flight → re-arm quietly, keep waiting
-        const open = db.get<{ c: number }>(
-          `SELECT COUNT(*) c FROM comments WHERE flow_id=? AND status='open'`, flowId)?.c ?? 0;
-        if (open === 0 || this.chainBusy(flowId)) {
-          this.waitTimers.set(k, now + this.debounceMinutes(flowId, nodeKey, spec) * 60_000);
-          continue;
-        }
-      }
-      this.waitTimers.delete(k);
-      this.fireWaitTimer(flowId, nodeKey, spec?.trigger.type === "debounced" ? "quiet period elapsed" : undefined);
-    }
-  }
-
-  private fireWaitTimer(flowId: string, nodeKey: string, note?: string): void {
-    if (this.nodeStatus(flowId, nodeKey) !== "waiting") return;
-    try {
-      this.claimNode(flowId, nodeKey, ["waiting"]);
-    } catch (e: unknown) {
-      if (e instanceof ConflictError) return;
-      throw e;
-    }
-    nodeStore.emitEvent(
-      flowId,
-      nodeKey,
-      "lifecycle",
-      note ? `${nodeKey} ${note} — resuming` : `${nodeKey} timer elapsed — resuming`,
-    );
-    this.bg(flowId, nodeKey, () =>
-      this.startNodeStage(flowId, nodeKey, { resumeWaiting: true }).then(() => {})
-    );
-  }
-
   // ── recovery (called by reconcile) ───────────────────────────────────────
 
   /**
@@ -2060,85 +1149,7 @@ export class FlowEngine {
     return true;
   }
 
-  // ── GitLab webhook / poll handling ───────────────────────────────────────
 
-  /** project ids are only unique per git host — match host too when given. */
-  /**
-   * React to a normalized git-host webhook delivery. Errors are logged and
-   * swallowed so the HTTP route can always ack (GitLab disables hooks on 5xx).
-   */
-  handleHostEvent(event: HostWebhookEvent): void {
-    try {
-      if (event.kind === "cr_comment") {
-        const f = this.findFlowByMR(event.projectId, event.crNumber, event.projectUrl);
-        if (!f) return;
-        this.ingestComments(f.id, [event.comment], event.crNumber);
-        const mins = Math.round(this.resolveDelayMs(f.id) / 60_000);
-        this.bounceCommentWaits(f.id);
-        db.emitEvent(f.id, null, "lifecycle",
-          `new MR comment from ${event.comment.author || "a reviewer"} — resolve queued for ` +
-          `${this.resolveScheduleLabel(f.id)} ` +
-          `(${mins} min quiet, then the pipeline gate)`,
-          { nodeKey: templateStore.waitNodeKey(f.id, "comments") ?? undefined });
-        return;
-      }
-      const f = event.crNumber
-        ? this.findFlowByMR(event.projectId, event.crNumber, event.projectUrl)
-        : undefined;
-      if (!f) return;
-      const gateKey = templateStore.waitNodeKey(f.id, "pipeline");
-      const gateStatus = gateKey
-        ? db.get<{ status: string }>(
-            `SELECT status FROM nodes WHERE flow_id=? AND node_key=?`, f.id, gateKey
-          )?.status
-        : undefined;
-      if (gateStatus !== "running") {
-        db.emitEvent(f.id, null, "pipeline", `pipeline ${event.pipeline.status}`,
-          { status: event.pipeline.status, id: event.pipeline.id, nodeKey: gateKey ?? undefined });
-      }
-      if (event.pipeline.status === "failed") {
-        this.triggerPipelineGate(f.id, event.pipeline.id);
-      }
-    } catch (e: unknown) {
-      if (e instanceof DomainError) {
-        console.error("[gitlab-webhook] domain error", e);
-      } else {
-        console.error("[gitlab-webhook] handler error", e);
-      }
-    }
-  }
-
-  findFlowByMR(projectId: number, mrIid: number, projectUrl?: string): FlowRow | undefined {
-    // check branches table first (multi-branch MRs)
-    const branchRow = rows.get(FlowRow,
-      `SELECT f.* FROM branches b JOIN flows f ON f.id = b.flow_id
-       WHERE b.mr_iid=? AND f.gitlab_project_id=?`, mrIid, projectId
-    );
-    if (branchRow) {
-      if (projectUrl) {
-        const h = hostOf(projectUrl);
-        if (h && hostOf(branchRow.repo_url ?? "") !== h) {
-          // host mismatch — fall through to flows table
-        } else {
-          return branchRow;
-        }
-      } else {
-        return branchRow;
-      }
-    }
-    // fall back to flows table (single-branch)
-    const candidates = rows.all(FlowRow,
-      `SELECT * FROM flows WHERE gitlab_project_id=? AND mr_iid=?`, projectId, mrIid
-    );
-    if (candidates.length <= 1) return candidates[0];
-    const h = projectUrl ? hostOf(projectUrl) : null;
-    if (!h) return candidates[0];
-    return candidates.find((f) => hostOf(f.repo_url ?? "") === h) ?? candidates[0];
-  }
-
-  ingestComments(flowId: string, incoming: HostComment[], mrIid?: number): number {
-    return commentStore.ingest(flowId, incoming, mrIid);
-  }
 }
 
 export const flowEngine = processSingleton("flowEngine", () => new FlowEngine());
