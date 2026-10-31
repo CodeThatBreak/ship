@@ -7,8 +7,16 @@ import { StepBuildNode } from "./kinds/build/step-build-node";
 import { PipelineNode } from "./kinds/pipeline";
 import { ReviewNode } from "./kinds/review";
 import { ResolveNode } from "./kinds/resolve";
-import { declarativeDef } from "./declarative";
 import { StartNode } from "./kinds/start";
+
+type DeclarativeResolver = (key: string, inst?: string) => AnyNodeDef | undefined;
+
+let declarativeResolver: DeclarativeResolver | null = null;
+
+/** Connect declarative template resolution (import `declarative-bootstrap` once at engine startup). */
+export const wireDeclarativeResolver = (resolver: DeclarativeResolver): void => {
+  declarativeResolver = resolver;
+};
 
 /**
  * The registry-level def shape: generics erased *honestly* (unknown /
@@ -71,7 +79,7 @@ export class NodeRegistry {
   resolve(key: string, inst?: string): AnyNodeDef {
     const builtin = this.registry.get(key);
     if (builtin) return builtin;
-    const def = declarativeDef(key, inst);
+    const def = declarativeResolver?.(key, inst);
     if (def) return def;
     throw new Error(`unknown node type: ${key}`);
   }

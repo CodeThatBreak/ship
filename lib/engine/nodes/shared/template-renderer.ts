@@ -4,6 +4,13 @@ import type { FlowCtx } from './run-context';
 import { buildFlowContext } from '../../context/flow-variables';
 import { TemplateComposer } from './template-composer';
 
+export type TemplateRenderOptions = {
+  /** Resolve `{{secrets.NAME}}` at render time (values must not be persisted). */
+  resolveSecret?: (name: string) => string | null | undefined;
+  /** Label for missing-secret errors. */
+  label?: string;
+};
+
 /**
  * Prompt rendering for declarative nodes: builds the `{{expr}}` variable map
  * from the flow context and interpolates templates against it. Stateless —
@@ -33,21 +40,38 @@ export class TemplateRenderer {
 
   static readonly templateRegex: RegExp = /\{\{([^{}]+)\}\}/g;
 
-  /** `{{a.b.c}}` interpolation against the flow variable map. */
-  static render(prompt: string, vars: Record<string, unknown>): string {
-    return prompt.replace(this.templateRegex, (_, raw: string) => {
-      const segments = raw.trim().split('.');
+  /** `{{a.b.c}}` interpolation; optional `{{secrets.NAME}}` via `resolveSecret`. */
+  static render(
+    prompt: string,
+    vars: Record<string, unknown>,
+    opts?: TemplateRenderOptions,
+  ): string {
+    return (prompt ?? "").replace(this.templateRegex, (_, raw: string) => {
+      const path = raw.trim();
+      const secretMatch = path.match(/^secrets\.([A-Za-z0-9_]+)$/);
+      if (secretMatch) {
+        const name = secretMatch[1];
+        const resolver = opts?.resolveSecret;
+        if (!resolver) return "";
+        const v = resolver(name);
+        if (v == null) {
+          const label = opts?.label ?? "template";
+          throw new Error(`${label}: secret "${name}" is not set — add it under Settings → secrets`);
+        }
+        return v;
+      }
+      const segments = path.split(".");
       let v: unknown = vars;
       for (const seg of segments) {
-        if (v == null || typeof v !== 'object') {
+        if (v == null || typeof v !== "object") {
           v = undefined;
           break;
         }
         v = (v as Record<string, unknown>)[seg];
       }
-      if (v == null) return '';
-      if (typeof v === 'string') return v;
-      if (typeof v === 'number' || typeof v === 'boolean') return String(v);
+      if (v == null) return "";
+      if (typeof v === "string") return v;
+      if (typeof v === "number" || typeof v === "boolean") return String(v);
       return JSON.stringify(v);
     });
   }

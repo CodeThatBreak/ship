@@ -6,49 +6,7 @@ import { authedCloneUrlFor, gitHostRegistry, type ChangeRequest } from "../../..
 import { flowCtxHelper, type FlowCtx } from "../../shared/run-context";
 import { nodeSupport } from "../../shared/node-support";
 import { branchStore } from "../build/branch-store";
-
-/**
- * MR-creation failure that an agent can plausibly fix in the build step —
- * a rejected push (pre-push/pre-receive hooks, type checks, lint gates).
- * Network/auth/API failures are thrown as plain Errors (manual retry).
- */
-export class CommitError extends Error {
-  constructor(
-    message: string,
-    readonly detail: string,
-  ) {
-    super(message);
-    this.name = "CommitError";
-  }
-}
-
-/** True when an error looks like a code/hook rejection rather than infra. */
-export function isCommitError(e: unknown): e is CommitError {
-  return e instanceof CommitError;
-}
-
-// push/hook rejection signatures — everything else (network, auth, DNS, 5xx)
-// is infra and surfaces to the user for manual retry
-const HOOK_PATTERNS = [
-  /pre-receive/i,
-  /pre-push/i,
-  /hook declined/i,
-  /push declined/i,
-  /rejected.*hook/i,
-  /hook.*reject/i,
-  /! \[remote rejected\]/i,
-  /error: failed to push some refs/i,
-];
-
-/**
- * True when a push failure looks like a code/hook rejection rather than infra
- * (merge-request-service owns the signatures; the merge arena's Phase-2
- * classification reuses them verbatim so "repairable code state vs infra
- * failure" is decided the same way in both paths).
- */
-export function isHookRejection(text: string): boolean {
-  return HOOK_PATTERNS.some((p) => p.test(text));
-}
+import { CommitError, isCommitError, isHookRejection } from "./errors";
 
 /**
  * Create (or reuse) the git-host change request (MR/PR) for a built branch,
@@ -102,7 +60,7 @@ export class MergeRequestService {
             { nodeKey: opts.emitNodeKey });
         } catch (e: unknown) {
           const msg = e instanceof Error ? e.message : String(e);
-          if (HOOK_PATTERNS.some((p) => p.test(msg))) {
+          if (isHookRejection(msg)) {
             throw new CommitError(
               `push rejected for branch ${gitBranch}`,
               msg.slice(0, 2000),
@@ -193,3 +151,5 @@ export class MergeRequestService {
 }
 
 export const mergeRequests = new MergeRequestService();
+
+export { CommitError, isCommitError, isHookRejection } from "./errors";

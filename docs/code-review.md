@@ -2589,7 +2589,7 @@ Original findings, verbatim:
 
 ### CR-093 [Medium] Declarative nodes copy-paste the same helpers
 
-- **Status at `abaa007`:** **Partly fixed**, fix in [Task 49](review-tasks/49-node-kind-structure.md)
+- **Status at `abaa007`:** **Fixed** ([Task 49](review-tasks/49-node-kind-structure.md))
 - **Current location:** holdsForApproval: lib/engine/nodes/kinds/agent/agent-node.ts:582-588, lib/engine/nodes/kinds/http/http-node.ts:232-236, lib/engine/nodes/kinds/decision/decision-node.ts:394-398, lib/engine/nodes/kinds/script/script-node.ts:293-297; runConfig: agent-node.ts:420-423, http-node.ts:227-230, decision-node.ts:272-275, script-node.ts:289-292; http-node.ts:195-221 vs lib/engine/nodes/shared/template-renderer.ts:35-51; decision-node.ts:10
 - **Re-verification note:** `{{a.b.c}}` rendering moved to the shared `TemplateRenderer` (used by agent and decision), and the unused `renderAgentPrompt` import in http-node is gone. Still duplicated: `holdsForApproval` ×4, `runConfig` ×4, the constructor/description/defaultConfig boilerplate ×4, and http's own `interpolate` path walk. Decision still imports `extractJson` from the sibling `agent/` kind. Fix: an abstract `DeclarativeNode<Def>` owning def/runConfig (strict)/holdsForApproval/description. Make http use `TemplateRenderer` with a secrets hook, and move `extractJson` to `nodes/shared`.
 
@@ -2672,7 +2672,7 @@ Original findings, verbatim:
 
 ### CR-096 [Medium] The declarative def cache is module-level mutable state, and kinds dispatch through `switch` instead of a registry
 
-- **Status at `abaa007`:** **Open**, fix in [Task 49](review-tasks/49-node-kind-structure.md)
+- **Status at `abaa007`:** **Fixed** ([Task 49](review-tasks/49-node-kind-structure.md))
 - **Current location:** lib/engine/nodes/declarative.ts:16, 53-61, 69-80; lib/engine/nodes/declarative-schemas.ts:148-173
 - **Re-verification note:** Unchanged. A module-level `const cache = new Map()` breaks the singleton rule and goes stale across HMR. Kinds still dispatch through two parallel `switch (row.kind)` blocks. Fix: a `DeclarativeKindRegistry` (kind → schema + ctor) and a `DeclarativeDefCache` created via `lib/singleton.ts`, used by both `parseDeclarativeConfig` and `instantiateDeclarative`.
 
@@ -5492,7 +5492,7 @@ Original findings, verbatim:
 
 ### CR-208 [Low] `merge-request-service.ts` mixes several exports, duplicates its own helper, and isn't a node
 
-- **Status at `abaa007`:** **Open**, fix in [Task 49](review-tasks/49-node-kind-structure.md)
+- **Status at `abaa007`:** **Fixed** ([Task 49](review-tasks/49-node-kind-structure.md))
 - **Current location:** lib/engine/nodes/kinds/merge-request/merge-request-service.ts:13-49,76-82; lib/engine/nodes/chains/sdlc-chain.ts:30-34,98
 - **Re-verification note:** One file still holds `CommitError`, `isCommitError`, `HOOK_PATTERNS`, `isHookRejection` and `MergeRequestService`. `create()` still inlines `HOOK_PATTERNS.some(...)` instead of calling `isHookRejection`. `MrCreationFailed` is still built from any error message. The services still live in the `nodes/` tree (now `nodes/kinds/merge-request` and `nodes/chains`). Fix: move the errors to `merge-request/errors.ts`, call `isHookRejection`, and consider relocating these orchestration services out of `nodes/`.
 
@@ -7358,10 +7358,10 @@ One row per finding, at `abaa007`.
 | CR-090 | Medium | Code quality | Fixed (Task 27) | [Task 27](review-tasks/27-plan-checklist-integrity.md) |
 | CR-091 | Medium | Code quality | Fixed | — |
 | CR-092 | Medium | Code quality | Fixed | [Task 18](review-tasks/18-terminal-outcome-writer.md) |
-| CR-093 | Medium | Code quality | Partly fixed | [Task 49](review-tasks/49-node-kind-structure.md) |
+| CR-093 | Medium | Code quality | Fixed | [Task 49](review-tasks/49-node-kind-structure.md) |
 | CR-094 | Medium | Code quality | Fixed | [Task 21](review-tasks/21-multi-branch-correctness.md) |
 | CR-095 | Medium | Code quality | Partly fixed | [Task 48](review-tasks/48-backend-dependency-injection.md) |
-| CR-096 | Medium | Code quality | Open | [Task 49](review-tasks/49-node-kind-structure.md) |
+| CR-096 | Medium | Code quality | Fixed | [Task 49](review-tasks/49-node-kind-structure.md) |
 | CR-097 | Low | Bug | Partly fixed (Task 27) | [Task 27](review-tasks/27-plan-checklist-integrity.md) |
 | CR-098 | Medium | Bug | Open | [Task 31](review-tasks/31-git-host-clients.md) |
 | CR-099 | Medium | Gap | Open | [Task 31](review-tasks/31-git-host-clients.md) |
@@ -7473,7 +7473,7 @@ One row per finding, at `abaa007`.
 | CR-205 | Low | Bug | Open | [Task 16](review-tasks/16-run-lifecycle-late-writes.md) |
 | CR-206 | Low | Code quality | Fixed | [Task 18](review-tasks/18-terminal-outcome-writer.md) |
 | CR-207 | Low | Code quality | Fixed | Task 07 |
-| CR-208 | Low | Code quality | Open | [Task 49](review-tasks/49-node-kind-structure.md) |
+| CR-208 | Low | Code quality | Fixed | [Task 49](review-tasks/49-node-kind-structure.md) |
 | CR-209 | Low | Bug | Fixed (Task 22) | [Task 22](review-tasks/22-pipeline-review-resolve.md) |
 | CR-210 | Low | Infra | Fixed (Task 08) | [Task 08](review-tasks/08-db-bootstrap-and-schema.md) |
 | CR-211 | Low | Bug | Fixed (Task 08) | [Task 08](review-tasks/08-db-bootstrap-and-schema.md) |

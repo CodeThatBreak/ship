@@ -15,7 +15,7 @@ Each finding was re-verified against `refactor/prompt-engine-inconsistency-fix` 
 
 ### CR-093 [Medium] Declarative nodes copy-paste the same helpers
 
-- **Status:** Partly fixed
+- **Status:** Fixed
 - **Type:** Code quality
 - **Effort:** M
 - **Where:** holdsForApproval: lib/engine/nodes/kinds/agent/agent-node.ts:582-588, lib/engine/nodes/kinds/http/http-node.ts:232-236, lib/engine/nodes/kinds/decision/decision-node.ts:394-398, lib/engine/nodes/kinds/script/script-node.ts:293-297; runConfig: agent-node.ts:420-423, http-node.ts:227-230, decision-node.ts:272-275, script-node.ts:289-292; http-node.ts:195-221 vs lib/engine/nodes/shared/template-renderer.ts:35-51; decision-node.ts:10
@@ -24,7 +24,7 @@ Each finding was re-verified against `refactor/prompt-engine-inconsistency-fix` 
 
 ### CR-096 [Medium] The declarative def cache is module-level mutable state, and kinds dispatch through `switch` instead of a registry
 
-- **Status:** Open
+- **Status:** Fixed
 - **Type:** Code quality
 - **Effort:** M
 - **Where:** lib/engine/nodes/declarative.ts:16, 53-61, 69-80; lib/engine/nodes/declarative-schemas.ts:148-173
@@ -32,7 +32,7 @@ Each finding was re-verified against `refactor/prompt-engine-inconsistency-fix` 
 
 ### CR-208 [Low] `merge-request-service.ts` mixes several exports, duplicates its own helper, and isn't a node
 
-- **Status:** Open
+- **Status:** Fixed
 - **Type:** Code quality
 - **Effort:** S
 - **Where:** lib/engine/nodes/kinds/merge-request/merge-request-service.ts:13-49,76-82; lib/engine/nodes/chains/sdlc-chain.ts:30-34,98
@@ -40,8 +40,8 @@ Each finding was re-verified against `refactor/prompt-engine-inconsistency-fix` 
 
 ## Done when
 
-- [ ] Every finding above is fixed, or a remaining part is written up in the PR description.
-- [ ] Each bug fix has a regression test (Vitest for `lib/`; at least a hook or utility test for UI where practical).
-- [ ] Code follows [`docs/coding-patterns.md`](../coding-patterns.md).
-- [ ] `npm run typecheck`, `npm run lint`, `npm test` and `npm run build` pass (before Task 02 lands, `npx tsc --noEmit` instead of `typecheck`).
-- [ ] The status of each finding in [`docs/code-review.md`](../code-review.md) is updated (Fixed, with the PR link).
+- [x] Every finding above is fixed, or a remaining part is written up in the PR description.
+- [x] Each bug fix has a regression test (Vitest for `lib/`; at least a hook or utility test for UI where practical).
+- [x] Code follows [`docs/coding-patterns.md`](../coding-patterns.md).
+- [x] `npm run typecheck`, `npm run lint`, `npm test` and `npm run build` pass (before Task 02 lands, `npx tsc --noEmit` instead of `typecheck`).
+- [x] The status of each finding in [`docs/code-review.md`](../code-review.md) is updated (Fixed, with the PR link).

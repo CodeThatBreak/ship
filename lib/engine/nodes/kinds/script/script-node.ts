@@ -6,10 +6,9 @@ import path from "node:path";
 import { z } from "zod";
 import type { NodeRow } from "../../../../db/rows";
 import type { AgentRunResult } from "../../../ports/agent-port";
-import { NodeDefinition, type FlowCtx, type RunOutcome } from "../../shared";
-import { templateStore } from "../../../templates/template-store";
+import { type FlowCtx, type RunOutcome } from "../../shared";
+import { DeclarativeNode } from "../../shared/declarative-node";
 import { ScriptDefSchema, type ScriptDef } from "../../declarative-schemas";
-import { parseDeclarativeRunConfig } from "../../shared/declarative-run-config";
 import { validateJsonSchema } from "../agent/json-schema-lite";
 import { worktreeManager } from "../../../runtime/worktree-lifecycle";
 import { workspaceForFlow } from "../../../../git/local";
@@ -33,9 +32,7 @@ import { workspaceForFlow } from "../../../../git/local";
  *  - `timeout_ms` kills the process, non-zero exit fails the node with stderr
  *  - env is allowlisted: PATH/HOME + the declared names + the DevFlow wiring
  */
-export class ScriptTemplateNode extends NodeDefinition<Record<string, unknown>, Record<string, unknown>> {
-  readonly key: string;
-  readonly label: string;
+export class ScriptTemplateNode extends DeclarativeNode<ScriptDef> {
   readonly promptKeys = [] as const;
   readonly order = 1003;
   readonly retryable = true;
@@ -72,25 +69,13 @@ export class ScriptTemplateNode extends NodeDefinition<Record<string, unknown>, 
       help: "TS-lite members (same box as the agent node) or a pasted JSON Schema the output JSON must satisfy" },
   ];
 
-  /** the parsed declarative definition (= the class-layer config) */
-  readonly def: ScriptDef;
+  declare readonly def: ScriptDef;
 
   constructor(
     tmpl: { id: string; name: string; description: string | null; config: unknown },
     instanceKey?: string,
   ) {
-    super();
-    this.key = instanceKey ?? tmpl.id;
-    this.label = tmpl.name;
-    this.def = ScriptDefSchema.parse(tmpl.config ?? {});
-    this.description = tmpl.description ?? undefined;
-  }
-
-  /** Display description from the node catalog entry. */
-  description?: string;
-
-  override defaultConfig(): Record<string, unknown> {
-    return this.def as unknown as Record<string, unknown>;
+    super(tmpl, instanceKey, ScriptDefSchema.parse(tmpl.config ?? {}), "script");
   }
 
   /** The script's output contract: its declared output schema, or free-form. */
@@ -283,21 +268,13 @@ export class ScriptTemplateNode extends NodeDefinition<Record<string, unknown>, 
           : ["sh", ["-c", cfg.script]];
     }
   }
-
-  private runConfig(config: Record<string, unknown>): ScriptDef {
-    return this.parseRunConfig(config) as unknown as ScriptDef;
-  }
-
-  override parseRunConfig(config: Record<string, unknown>): Record<string, unknown> {
-    return parseDeclarativeRunConfig("script", config, this.label);
-  }
-
-  private holdsForApproval(ctx: FlowCtx): boolean {
-    const g = templateStore.graphForFlow(ctx.flow.id);
-    const spec = g?.byKey.get(this.key);
-    return spec?.trigger.type === "approval";
-  }
 }
+
+import { declarativeKindRegistry } from "../../declarative-registry";
+import type { NodeDefinition } from "../../shared/node-definition";
+
+declarativeKindRegistry.register("script", ScriptDefSchema, (row, inst) =>
+  new ScriptTemplateNode(row, inst) as NodeDefinition<unknown, Record<string, unknown>>);
 
 function firstLines(text: string): string {
   const t = (text ?? "").trim();

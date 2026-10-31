@@ -6,10 +6,8 @@ import type { AgentRunResult } from '../../../ports/agent-port';
 import type { AgentRunner } from '../../../harness';
 import { NODE_RUN_STATUS } from '../../../../../constants/flow';
 import { AGENT_OUTPUT_FORMAT } from '../../../constants/declarative';
-import { NODE_TRIGGER_TYPE } from '../../../constants/triggers';
 import type { FlowContextHelper, NodeSupport } from '../../shared';
 import {
-  AgentRunNode,
   PROMPT_SOURCE,
   TemplateRenderer,
   type FlowCtx,
@@ -17,12 +15,11 @@ import {
   type PromptSource,
   type RunOutcome,
 } from '../../shared';
-import { templateStore } from '../../../templates/template-store';
+import { DeclarativeAgentNode } from "../../shared/declarative-node";
 import { parseConfigSnapshot } from '../../../templates/node-config';
 import { extractJson, jsonSchemaIssues } from './json-schema-lite';
 import { AGENT_OUTPUT_ERROR, AgentOutputError, type AgentOutputErrorCode } from '../../shared/agent/output-error';
 import { AgentDefSchema, type AgentDef } from '../../declarative-schemas';
-import { parseDeclarativeRunConfig } from '../../shared/declarative-run-config';
 import type { SplitUnit } from '../../shared';
 import { splitDirective } from './split-directive';
 import { AGENT_CONFIG_FIELDS } from './constants';
@@ -45,9 +42,7 @@ const RETRYABLE_OUTPUT_ERRORS: ReadonlySet<AgentOutputErrorCode> = new Set([
  * PromptLibrary-style variables, and reuses the standard agent run lifecycle —
  * status, streaming, cost, artifacts, output validation. No new infrastructure.
  */
-export class AgentTemplateNode extends AgentRunNode<Record<string, unknown>, Record<string, unknown>> {
-  readonly key: string;
-  readonly label: string;
+export class AgentTemplateNode extends DeclarativeAgentNode<AgentDef, Record<string, unknown>, Record<string, unknown>> {
   readonly promptKeys = [] as const;
   readonly order = 1000;
   readonly retryable = true;
@@ -62,7 +57,7 @@ export class AgentTemplateNode extends AgentRunNode<Record<string, unknown>, Rec
   override readonly inheritsParentInput = true;
 
   /** the parsed declarative definition (= the class-layer config) */
-  readonly def: AgentDef;
+  declare readonly def: AgentDef;
 
   constructor(
     tmpl: {
@@ -78,14 +73,8 @@ export class AgentTemplateNode extends AgentRunNode<Record<string, unknown>, Rec
       ctxHelper?: FlowContextHelper;
     } = {}
   ) {
-    super(services.support, services.runner, services.ctxHelper);
-    // The def key (registry resolution) is the node_templates row id, but the
-    // node row's node_key is the template instance key — every def ⇄ row
-    // lookup (this.node(ctx)) keys on the instance key, so this.key carries it.
-    this.key = instanceKey ?? tmpl.id;
-    this.label = tmpl.name;
-    this.def = AgentDefSchema.parse(tmpl.config ?? {});
-
+    const def = AgentDefSchema.parse(tmpl.config ?? {});
+    super(tmpl, instanceKey, def, "agent", services);
     // No declared input contract (§3): the run input is inherited from the
     // previous node's output — everything else reaches the prompt through the
     // flow-context variables. Loose: extra context fields (prompt refs,
@@ -100,8 +89,6 @@ export class AgentTemplateNode extends AgentRunNode<Record<string, unknown>, Rec
         ? z.looseObject({})
         : z.looseObject({ [AGENT_OUTPUT_FORMAT.MARKDOWN]: z.string() })
     ) as z.ZodType<Record<string, unknown>>;
-
-    this.description = tmpl.description ?? undefined;
   }
 
   /**
@@ -133,14 +120,6 @@ export class AgentTemplateNode extends AgentRunNode<Record<string, unknown>, Rec
    * clickable chips.
    */
   readonly configFields = AGENT_CONFIG_FIELDS;
-
-  /** Display description from the node catalog entry. */
-  description?: string;
-
-  /** Class-layer config = the declarative definition itself. */
-  override defaultConfig(): Record<string, unknown> {
-    return this.def as unknown as Record<string, unknown>;
-  }
 
   /**
    * The split source port (agent-node split plan §2.1, Phase 3): map the
@@ -423,16 +402,7 @@ export class AgentTemplateNode extends AgentRunNode<Record<string, unknown>, Rec
     return true;
   }
 
-  override parseRunConfig(config: Record<string, unknown>): Record<string, unknown> {
-    return parseDeclarativeRunConfig('agent', config, this.label);
-  }
-
   // ── internals ─────────────────────────────────────────────────────────────
-
-  /** The effective definition for this run (already merged by the engine). */
-  private runConfig(config: Record<string, unknown>): AgentDef {
-    return this.parseRunConfig(config) as unknown as AgentDef;
-  }
 
   /**
    * Apply the output contract with one bounded self-heal: when the response
@@ -596,17 +566,10 @@ export class AgentTemplateNode extends AgentRunNode<Record<string, unknown>, Rec
       reply: body,
     };
   }
-
-  /**
-   * Approval-triggered node instances hold at `awaiting_approval` after a
-   * successful run; outgoing edges activate on the generic approve action.
-   * The trigger type lives on the template instance (looked up by node_key).
-   */
-  private holdsForApproval(ctx: FlowCtx): boolean {
-    const graph = templateStore.graphForFlow(ctx.flow.id);
-    if (!graph) return false;
-
-    const spec = graph.byKey.get(this.key);
-    return spec?.trigger.type === NODE_TRIGGER_TYPE.APPROVAL;
-  }
 }
+
+import { declarativeKindRegistry } from "../../declarative-registry";
+import type { NodeDefinition } from "../../shared/node-definition";
+
+declarativeKindRegistry.register("agent", AgentDefSchema, (row, inst) =>
+  new AgentTemplateNode(row, inst) as NodeDefinition<unknown, Record<string, unknown>>);

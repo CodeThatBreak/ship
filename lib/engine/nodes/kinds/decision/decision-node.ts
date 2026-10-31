@@ -3,15 +3,14 @@ import "server-only";
 import { z } from "zod";
 import type { NodeRow } from "../../../../db/rows";
 import type { AgentRunResult } from "../../../ports/agent-port";
-import { AgentRunNode, TemplateRenderer, type FlowCtx, type RunOutcome } from "../../shared";
-import { templateStore } from "../../../templates/template-store";
+import { TemplateRenderer, type FlowCtx, type RunOutcome } from "../../shared";
+import { DeclarativeAgentNode } from "../../shared/declarative-node";
 import { buildFlowContext } from "../../../context/flow-variables";
 import { evalJsonata, jsonataTruthy } from "@/lib/jsonata";
 import { mcpSourceConfigFields } from "../../../templates/node-config";
 import { DecisionDefSchema, type DecisionDef } from "../../declarative-schemas";
-import { parseDeclarativeRunConfig } from "../../shared/declarative-run-config";
 import { digestJsonText } from "../../shared/payload-digest";
-import { extractJson } from "../agent/json-schema-lite";
+import { extractJson } from "../../shared/extract-json";
 
 // ── helpers ──────────────────────────────────────────────────────────────────
 
@@ -42,9 +41,7 @@ import { extractJson } from "../agent/json-schema-lite";
  * input (`{{input.<field>}}`), so pass mappings are how variables flow from
  * the decision to further nodes.
  */
-export class DecisionTemplateNode extends AgentRunNode<Record<string, unknown>, Record<string, unknown>> {
-  readonly key: string;
-  readonly label: string;
+export class DecisionTemplateNode extends DeclarativeAgentNode<DecisionDef, Record<string, unknown>, Record<string, unknown>> {
   readonly promptKeys = [] as const;
   readonly order = 1001;
   readonly retryable = true;
@@ -84,25 +81,13 @@ export class DecisionTemplateNode extends AgentRunNode<Record<string, unknown>, 
     ...mcpSourceConfigFields,
   ];
 
-  /** the parsed declarative definition (= the class-layer config) */
-  readonly def: DecisionDef;
+  declare readonly def: DecisionDef;
 
   constructor(
     tmpl: { id: string; name: string; description: string | null; config: unknown },
     instanceKey?: string,
   ) {
-    super();
-    this.key = instanceKey ?? tmpl.id;
-    this.label = tmpl.name;
-    this.def = DecisionDefSchema.parse(tmpl.config ?? {});
-    this.description = tmpl.description ?? undefined;
-  }
-
-  /** Display description from the node catalog entry. */
-  description?: string;
-
-  override defaultConfig(): Record<string, unknown> {
-    return this.def as unknown as Record<string, unknown>;
+    super(tmpl, instanceKey, DecisionDefSchema.parse(tmpl.config ?? {}), "decision");
   }
 
   /** A decision's labels — the engine validates manual picks against them. */
@@ -256,15 +241,6 @@ export class DecisionTemplateNode extends AgentRunNode<Record<string, unknown>, 
 
   // ── internals ─────────────────────────────────────────────────────────────
 
-  override parseRunConfig(config: Record<string, unknown>): Record<string, unknown> {
-    return parseDeclarativeRunConfig("decision", config, this.label);
-  }
-
-  /** The effective definition for this run (already merged by the engine). */
-  private runConfig(config: Record<string, unknown>): DecisionDef {
-    return this.parseRunConfig(config) as unknown as DecisionDef;
-  }
-
   /**
    * A pick becomes node output; held at `awaiting_approval` when the
    * template instance's trigger is `approval` (agent proposes, user disposes)
@@ -364,10 +340,10 @@ export class DecisionTemplateNode extends AgentRunNode<Record<string, unknown>, 
     }
     return { choice: exact, rationale };
   }
-
-  holdsForApproval(ctx: FlowCtx): boolean {
-    const g = templateStore.graphForFlow(ctx.flow.id);
-    const spec = g?.byKey.get(this.key);
-    return spec?.trigger.type === "approval";
-  }
 }
+
+import { declarativeKindRegistry } from "../../declarative-registry";
+import type { NodeDefinition } from "../../shared/node-definition";
+
+declarativeKindRegistry.register("decision", DecisionDefSchema, (row, inst) =>
+  new DecisionTemplateNode(row, inst) as NodeDefinition<unknown, Record<string, unknown>>);

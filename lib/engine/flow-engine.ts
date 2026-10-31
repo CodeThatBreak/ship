@@ -18,8 +18,8 @@ import { hostOf, type HostComment, type HostWebhookEvent } from "./ports/git-hos
 import { NodeDefinition, nodeSupport, splitConsumeOf, type ChainRole, type FlowCtx, type SplitConsumeMode } from "./nodes/shared";
 import { CHAT_DECLINED, nodeRoles } from "./nodes/shared/node-roles";
 import { nodeRegistry } from "./nodes/registry";
+import "./nodes/declarative-bootstrap";
 import { NODE_KEYS } from "./constants/node-keys";
-import { declarativeDef } from "./nodes/declarative";
 import { planSteps, type PlanStepInput } from "./runtime/plan-step-store";
 import { NO_TASK_TYPE, SDLC_TEMPLATE_ID, templateStore, type TemplateGraph, type TemplateEdgeSpec } from "./templates/template-store";
 import { appLayerConfig, configNumber, mergeConfigLayers, parseConfigSnapshot } from "./templates/node-config";

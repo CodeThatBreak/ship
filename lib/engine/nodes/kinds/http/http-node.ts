@@ -3,12 +3,11 @@ import "server-only";
 import { z } from "zod";
 import type { NodeRow } from "../../../../db/rows";
 import type { AgentRunResult } from "../../../ports/agent-port";
-import { NodeDefinition, type FlowCtx, type RunOutcome } from "../../shared";
-import { templateStore } from "../../../templates/template-store";
+import { TemplateRenderer, type FlowCtx, type RunOutcome } from "../../shared";
+import { DeclarativeNode } from "../../shared/declarative-node";
 import { buildFlowContext } from "../../../context/flow-variables";
 import { evalJsonata } from "@/lib/jsonata";
 import { HttpDefSchema, type HttpDef } from "../../declarative-schemas";
-import { parseDeclarativeRunConfig } from "../../shared/declarative-run-config";
 import { allowlistResponseHeaders, capSerializedPayload } from "../../shared/payload-digest";
 import { getSecrets, redactSecrets, httpAllowlist } from "../../../secrets";
 import { guardedRequest } from "../../../../net/ssrf-guard";
@@ -24,9 +23,7 @@ import { guardedRequest } from "../../../../net/ssrf-guard";
  * redirect re-validation). Output contract is fixed
  * `{status, ok, body, headers}`, shaped by the optional JSONata `response_map`.
  */
-export class HttpTemplateNode extends NodeDefinition<Record<string, unknown>, Record<string, unknown>> {
-  readonly key: string;
-  readonly label: string;
+export class HttpTemplateNode extends DeclarativeNode<HttpDef> {
   readonly promptKeys = [] as const;
   readonly order = 1002;
   readonly retryable = true;
@@ -50,25 +47,13 @@ export class HttpTemplateNode extends NodeDefinition<Record<string, unknown>, Re
     { key: "response_map", label: "Response map", type: "text" as const, help: "Optional JSONata over {status, ok, body, headers} — must yield an object stored as the node output" },
   ];
 
-  /** the parsed declarative definition (= the class-layer config) */
-  readonly def: HttpDef;
+  declare readonly def: HttpDef;
 
   constructor(
     tmpl: { id: string; name: string; description: string | null; config: unknown },
     instanceKey?: string,
   ) {
-    super();
-    this.key = instanceKey ?? tmpl.id;
-    this.label = tmpl.name;
-    this.def = HttpDefSchema.parse(tmpl.config ?? {});
-    this.description = tmpl.description ?? undefined;
-  }
-
-  /** Display description from the node catalog entry. */
-  description?: string;
-
-  override defaultConfig(): Record<string, unknown> {
-    return this.def as unknown as Record<string, unknown>;
+    super(tmpl, instanceKey, HttpDefSchema.parse(tmpl.config ?? {}), "http");
   }
 
   /** The default http contract — response_map may reshape it at run time. */
@@ -112,12 +97,17 @@ export class HttpTemplateNode extends NodeDefinition<Record<string, unknown>, Re
       delete inherited.prompt;
       delete inherited.model;
       const vars = { ...buildFlowContext(ctx), input: inherited };
-      const url = this.interpolate(cfg.url, vars);
+      const secrets = getSecrets();
+      const renderOpts = {
+        label: this.label,
+        resolveSecret: (name: string) => secrets[name],
+      };
+      const url = TemplateRenderer.render(cfg.url, vars, renderOpts);
       const headers: Record<string, string> = {};
       for (const [k, v] of Object.entries(cfg.headers ?? {})) {
-        headers[k] = this.interpolate(typeof v === "string" ? v : JSON.stringify(v), vars);
+        headers[k] = TemplateRenderer.render(typeof v === "string" ? v : JSON.stringify(v), vars, renderOpts);
       }
-      const body = cfg.body == null ? null : this.interpolate(cfg.body, vars);
+      const body = cfg.body == null ? null : TemplateRenderer.render(cfg.body, vars, renderOpts);
 
       const res = await guardedRequest({
         url,
@@ -200,52 +190,16 @@ export class HttpTemplateNode extends NodeDefinition<Record<string, unknown>, Re
     };
   }
 
-  /** `{{vars}}` + `{{secrets.NAME}}` rendering — secrets resolve only here. */
-  private interpolate(text: string, vars: Record<string, unknown>): string {
-    const secrets = getSecrets();
-    return (text ?? "").replace(/\{\{([^{}]+)\}\}/g, (_, raw: string) => {
-      const path = raw.trim();
-      const m = path.match(/^secrets\.([A-Za-z0-9_]+)$/);
-      if (m) {
-        const name = m[1];
-        const v = secrets[name];
-        if (v == null) throw new Error(`${this.label}: secret "${name}" is not set — add it under Settings → secrets`);
-        return v;
-      }
-      const segments = path.split(".");
-      let v: unknown = vars;
-      for (const seg of segments) {
-        if (v == null || typeof v !== "object") {
-          v = undefined;
-          break;
-        }
-        v = (v as Record<string, unknown>)[seg];
-      }
-      if (v == null) return "";
-      if (typeof v === "string") return v;
-      if (typeof v === "number" || typeof v === "boolean") return String(v);
-      return JSON.stringify(v);
-    });
-  }
-
   private renderErr(msg: string): string {
     return redactSecrets(msg);
   }
-
-  private runConfig(config: Record<string, unknown>): HttpDef {
-    return this.parseRunConfig(config) as unknown as HttpDef;
-  }
-
-  override parseRunConfig(config: Record<string, unknown>): Record<string, unknown> {
-    return parseDeclarativeRunConfig("http", config, this.label);
-  }
-
-  private holdsForApproval(ctx: FlowCtx): boolean {
-    const g = templateStore.graphForFlow(ctx.flow.id);
-    const spec = g?.byKey.get(this.key);
-    return spec?.trigger.type === "approval";
-  }
 }
+
+import { declarativeKindRegistry } from "../../declarative-registry";
+import type { NodeDefinition } from "../../shared/node-definition";
+
+declarativeKindRegistry.register("http", HttpDefSchema, (row, inst) =>
+  new HttpTemplateNode(row, inst) as NodeDefinition<unknown, Record<string, unknown>>);
 
 /** Artifact digest capping oversized bodies (headers + a body summary). */
 function safeDigest(o: Record<string, unknown>): Record<string, unknown> {

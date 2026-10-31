@@ -42,5 +42,6 @@ export {
   type SplitUnit,
 } from "./split";
 export type { NodeCapabilities } from "./capabilities";
-export { TemplateRenderer } from "./template-renderer";
+export { TemplateRenderer, type TemplateRenderOptions } from "./template-renderer";
 export { TemplateComposer } from "./template-composer";
+export { extractJson } from "./extract-json";

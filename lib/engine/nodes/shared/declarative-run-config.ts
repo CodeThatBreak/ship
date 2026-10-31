@@ -1,6 +1,6 @@
 import "server-only";
 
-import { parseDeclarativeConfig } from "../declarative-schemas";
+import { parseDeclarativeConfig } from "../declarative-config-parser";
 
 export type DeclarativeTemplateKind = "agent" | "decision" | "http" | "script";
 

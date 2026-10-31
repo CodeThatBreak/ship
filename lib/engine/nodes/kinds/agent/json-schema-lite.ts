@@ -14,6 +14,8 @@ import "server-only";
  */
 import type { AgentOutputIssue } from "../../shared/agent/output-error";
 
+export { extractJson } from "../../shared/extract-json";
+
 export function validateJsonSchema(schema: unknown, value: unknown, label: string): void {
   const issues = jsonSchemaIssues(schema, value, label);
   if (issues.length) throw new Error(issues[0].message);
@@ -115,39 +117,4 @@ function check(schema: unknown, value: unknown, label: string, path: string[], s
       }
     }
   }
-}
-
-/**
- * Pull the JSON payload out of an agent's free-text answer: a bare JSON body,
- * a ```json fenced block, or the first balanced {...} / [...] region.
- * Returns null when nothing parseable is found.
- */
-export function extractJson(text: string): unknown {
-  const trimmed = (text ?? "").trim();
-  if (!trimmed) return null;
-  try {
-    return JSON.parse(trimmed);
-  } catch {
-    /* keep trying */
-  }
-  const fence = trimmed.match(/```(?:json)?\s*([\s\S]*?)```/);
-  if (fence?.[1]) {
-    try {
-      return JSON.parse(fence[1].trim());
-    } catch {
-      /* keep trying */
-    }
-  }
-  for (const [open, close] of [["{", "}"], ["[", "]"]] as const) {
-    const start = trimmed.indexOf(open);
-    const end = trimmed.lastIndexOf(close);
-    if (start !== -1 && end > start) {
-      try {
-        return JSON.parse(trimmed.slice(start, end + 1));
-      } catch {
-        /* give up */
-      }
-    }
-  }
-  return null;
 }

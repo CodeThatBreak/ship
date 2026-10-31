@@ -6,7 +6,7 @@ import { NODE_KEYS } from "../../constants/node-keys";
 import { EVENT_KIND } from "../../constants/vocabulary";
 import { configNumber } from "../../templates/node-config";
 import { branchStore } from "../kinds/build";
-import { mergeRequests, type CommitError } from "../kinds/merge-request";
+import { mergeRequests, toMrCreationFailure, type CommitError } from "../kinds/merge-request";
 
 /** The engine surface the chain drives — the generic orchestration primitives. */
 export interface ChainHost {
@@ -28,14 +28,6 @@ export interface ChainHost {
   advanceFrom(flowId: string, fromKey: string): Promise<void>;
   /** true while any post-MR chain stage (pipeline/review/resolve) is running */
   chainBusy(flowId: string): boolean;
-}
-
-/** Distinguishes MR-creation failures from later pipeline/review failures. */
-export class MrCreationFailed extends Error {
-  constructor(message: string) {
-    super(message);
-    this.name = "MrCreationFailed";
-  }
 }
 
 /**
@@ -106,10 +98,10 @@ export class SdlcChain {
         // (Failures inside the edge advance are contained by the stage runner
         // — those nodes carry their own failed status + Retry.)
         const msg = e instanceof Error ? e.message : String(e);
-        const mrError = e instanceof MrCreationFailed ? e : new MrCreationFailed(msg);
+        const mrError = toMrCreationFailure(e);
         db.emitEvent(flowId, null, EVENT_KIND.MR_FAILED,
           `MR creation failed: ${mrError.message} — fix the issue, then click "Approve & create MR" again to retry`,
-          { branchName, nodeKey: buildKey });
+          { branchName, nodeKey: buildKey, detail: msg !== mrError.message ? msg : undefined });
         this.host.setNodeStatus(flowId, buildKey, "awaiting_approval");
         this.host.setCurrentNode(flowId, null);
       }
