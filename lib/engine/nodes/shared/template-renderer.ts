@@ -46,9 +46,31 @@ export class TemplateRenderer {
     vars: Record<string, unknown>,
     opts?: TemplateRenderOptions,
   ): string {
+    return this.interpolate(prompt, vars, opts, { encode: false });
+  }
+
+  /**
+   * URL interpolation: non-secret values are `encodeURIComponent`-encoded.
+   * Use `{{raw.input.field}}` when a segment must stay unencoded.
+   */
+  static renderUrl(
+    prompt: string,
+    vars: Record<string, unknown>,
+    opts?: TemplateRenderOptions,
+  ): string {
+    return this.interpolate(prompt, vars, opts, { encode: true });
+  }
+
+  private static interpolate(
+    prompt: string,
+    vars: Record<string, unknown>,
+    opts: TemplateRenderOptions | undefined,
+    mode: { encode: boolean },
+  ): string {
     return (prompt ?? "").replace(this.templateRegex, (_, raw: string) => {
       const path = raw.trim();
-      const secretMatch = path.match(/^secrets\.([A-Za-z0-9_]+)$/);
+      const rawPath = path.startsWith("raw.") ? path.slice("raw.".length) : null;
+      const secretMatch = (rawPath ?? path).match(/^secrets\.([A-Za-z0-9_]+)$/);
       if (secretMatch) {
         const name = secretMatch[1];
         const resolver = opts?.resolveSecret;
@@ -58,9 +80,9 @@ export class TemplateRenderer {
           const label = opts?.label ?? "template";
           throw new Error(`${label}: secret "${name}" is not set — add it under Settings → secrets`);
         }
-        return v;
+        return mode.encode && !rawPath ? encodeURIComponent(v) : v;
       }
-      const segments = path.split(".");
+      const segments = (rawPath ?? path).split(".");
       let v: unknown = vars;
       for (const seg of segments) {
         if (v == null || typeof v !== "object") {
@@ -70,9 +92,11 @@ export class TemplateRenderer {
         v = (v as Record<string, unknown>)[seg];
       }
       if (v == null) return "";
-      if (typeof v === "string") return v;
-      if (typeof v === "number" || typeof v === "boolean") return String(v);
-      return JSON.stringify(v);
+      let text: string;
+      if (typeof v === "string") text = v;
+      else if (typeof v === "number" || typeof v === "boolean") text = String(v);
+      else text = JSON.stringify(v);
+      return mode.encode && !rawPath ? encodeURIComponent(text) : text;
     });
   }
 }

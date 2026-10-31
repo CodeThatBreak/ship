@@ -564,7 +564,7 @@ Original findings, verbatim:
 
 ### CR-016 [High] The script node passes the server's whole `process.env` to user scripts, contrary to its "allowlisted env" contract
 
-- **Status at `abaa007`:** **Open**, fix in [Task 60](review-tasks/60-security-process-and-network-isolation.md)
+- **Status at `abaa007`:** **Fixed** in [Task 60](review-tasks/60-security-process-and-network-isolation.md)
 - **Current location:** lib/engine/nodes/kinds/script/script-node.ts:336-345 (execa call), 254 (childEnv), 31 (doc claims allowlist)
 - **Re-verification note:** `execa` (still 10.2.1) is called with `env: opts.env` and no `extendEnv: false`, so the whole server `process.env` (Cursor key, git tokens and so on) is merged under the allowlist for every script node. Pass `extendEnv: false` and add a test asserting that a non-allowlisted variable is absent in the child.
 
@@ -1986,7 +1986,7 @@ Original findings, verbatim:
 
 ### CR-068 [Medium] SSRF guard forwards all request headers, secrets included, across cross-host redirects
 
-- **Status at `abaa007`:** **Open**, fix in [Task 60](review-tasks/60-security-process-and-network-isolation.md)
+- **Status at `abaa007`:** **Fixed** in [Task 60](review-tasks/60-security-process-and-network-isolation.md)
 - **Current location:** lib/net/ssrf-guard.ts:79-99,121-145
 - **Re-verification note:** On redirect the guard re-validates the target against the allowlist but still replays `req.headers` (which carry interpolated `{{secrets.*}}`) to the new host, and allowlist entries match subdomains, so credentials leak across cross-origin redirects. Drop `authorization`/`cookie`/`proxy-authorization` and secret-bearing headers when `next.origin !== url.origin`, or refuse cross-origin redirects unless explicitly enabled.
 
@@ -2762,7 +2762,7 @@ Original findings, verbatim:
 
 ### CR-100 [Medium] Branch and ref names reach git argv without validation or a `--` separator (option-injection surface)
 
-- **Status at `abaa007`:** **Open**, fix in [Task 60](review-tasks/60-security-process-and-network-isolation.md)
+- **Status at `abaa007`:** **Fixed** in [Task 60](review-tasks/60-security-process-and-network-isolation.md)
 - **Current location:** lib/git/worktrees.ts:485-489, 636; lib/git/local.ts:87, 108, 150, 161, 163, 187; lib/integrations/local-agent/agent.ts:123, 133, 138; lib/engine/runtime/fanout/merge-arena.ts:169, 219, 234, 278-280; lib/engine/nodes/kinds/build/build-run-support.ts:31-44; lib/engine/nodes/kinds/plan/schema.ts:15
 - **Re-verification note:** There is still no branch-name validation or `--end-of-options` before positional refs. `branch_pattern` tokens (`{suffix}`, `{ticket}`) are unsanitized, and the plan step `branch` is a bare `z.string()`. Branch-record `name` is regex-validated, so only the pattern and ticket path remains. Fix: `assertValidBranchName()` in `lib/git` (reject a leading `-`, run `git check-ref-format --branch`, throw `InvalidBranchNameError`) at every public entry point. Insert `--end-of-options` where git supports it.
 
@@ -2882,7 +2882,7 @@ Original findings, verbatim:
 
 ### CR-105 [Medium] `shared_dirs` entries are not confined to the hub/worktree (path traversal) and the denylist is bypassable
 
-- **Status at `abaa007`:** **Open**, fix in [Task 60](review-tasks/60-security-process-and-network-isolation.md)
+- **Status at `abaa007`:** **Fixed** in [Task 60](review-tasks/60-security-process-and-network-isolation.md)
 - **Current location:** lib/git/worktree-setup.ts:116-131, lib/git/worktree-setup.ts:490-515
 - **Re-verification note:** `SharedDirsStep` still does `path.join(hub|wt, spec)` without normalizing or checking containment, so `../x` creates links outside the worktree. The `DENIED_SHARED_DIRS` exact-string `Set` check is bypassed by `./node_modules`, `node_modules/` or `a/../node_modules`. Fix: normalize, reject absolute paths and paths starting with `..`, assert `containsPath(hub, src)` and `containsPath(wt, dst)`, and check every path segment against the denylist.
 
@@ -5029,7 +5029,7 @@ Original findings, verbatim:
 
 ### CR-188 [Low] SSRF helper throws `SsrfReason`, not `SsrfError`, so callers see two error types for one policy
 
-- **Status at `abaa007`:** **Open**, fix in [Task 60](review-tasks/60-security-process-and-network-isolation.md)
+- **Status at `abaa007`:** **Fixed** in [Task 60](review-tasks/60-security-process-and-network-isolation.md)
 - **Current location:** lib/net/ssrf-helpers.ts:44,49,56,83-89; lib/net/ssrf-guard.ts:43-48,110-121
 - **Re-verification note:** The helpers still throw `SsrfReason`, which `resolveAndCheck` does not catch. Blocked private IPs therefore surface as `SsrfReason`, while scheme and allowlist rejections are `SsrfError`. Nothing outside `lib/net` checks `instanceof` today, so the impact is latent. Move `SsrfError` into a shared `ssrf-error.ts`, throw it from the helpers, and delete `SsrfReason`.
 
@@ -5049,7 +5049,7 @@ Original findings, verbatim:
 
 ### CR-189 [Low] SSRF guard has no DNS timeout and only an idle socket timeout
 
-- **Status at `abaa007`:** **Open**, fix in [Task 60](review-tasks/60-security-process-and-network-isolation.md)
+- **Status at `abaa007`:** **Fixed** in [Task 60](review-tasks/60-security-process-and-network-isolation.md)
 - **Current location:** lib/net/ssrf-helpers.ts:22,30-32; lib/net/ssrf-guard.ts:79-99,175-177
 - **Re-verification note:** `lookupAll` still has no timeout (the constant is unused), and `req.setTimeout` is still only an idle timeout applied per hop. A slow-trickle server can keep an http node running indefinitely, and the time budget multiplies across up to 5 redirects. Race the lookup against `RESOLVE_TIMEOUT_MS`, and enforce one total deadline (an `AbortController` or timer started in `guardedRequest`) across all hops.
 
@@ -5073,7 +5073,7 @@ Original findings, verbatim:
 
 ### CR-190 [Low] IPv6 literal URLs never match the IP-literal path, because `URL.hostname` keeps the brackets
 
-- **Status at `abaa007`:** **Open**, fix in [Task 60](review-tasks/60-security-process-and-network-isolation.md)
+- **Status at `abaa007`:** **Fixed** in [Task 60](review-tasks/60-security-process-and-network-isolation.md)
 - **Current location:** lib/net/ssrf-helpers.ts:24-28; lib/net/ssrf-guard.ts:110-113
 - **Re-verification note:** Confirmed in Node: `new URL("http://[2001:db8::1]/").hostname` is `"[2001:db8::1]"`, so `ipaddr.isValid` rejects it and the request falls through to a failing DNS lookup. This fails closed, but allowlisted IPv6 literals can never work and the error text is misleading. Strip the surrounding `[`/`]` before `isValid`/`parse`.
 
@@ -5285,7 +5285,7 @@ Original findings, verbatim:
 
 ### CR-199 [Low] HTTP node: interpolated values go into the URL unencoded
 
-- **Status at `abaa007`:** **Open**, fix in [Task 60](review-tasks/60-security-process-and-network-isolation.md)
+- **Status at `abaa007`:** **Fixed** in [Task 60](review-tasks/60-security-process-and-network-isolation.md)
 - **Current location:** lib/engine/nodes/kinds/http/http-node.ts:114-119,196-221
 - **Re-verification note:** `{{input.*}}` and `{{nodes.*}}` values, which can come from agent output or webhook payloads, are still inserted into the URL unencoded. A value like `x&admin=true` or `../other` can change the path or query on the allowlisted host, and the SSRF guard only checks the host. Header values are still inserted raw, so CR/LF fails with an opaque error. Apply `encodeURIComponent` to non-secret values interpolated into `url` (with an explicit raw escape hatch if needed), and reject header values containing `\r` or `\n` with a clear error.
 
@@ -7276,7 +7276,7 @@ One row per finding, at `abaa007`.
 | CR-013 | High | Bug | Fixed (Task 27) | [Task 27](review-tasks/27-plan-checklist-integrity.md) |
 | CR-014 | High | Bug | Open | [Task 16](review-tasks/16-run-lifecycle-late-writes.md) |
 | CR-015 | High | Bug | Fixed | [Task 17](review-tasks/17-node-claim-and-attempts.md) |
-| CR-016 | High | Security | Open | [Task 60](review-tasks/60-security-process-and-network-isolation.md) |
+| CR-016 | High | Security | Fixed | [Task 60](review-tasks/60-security-process-and-network-isolation.md) |
 | CR-017 | High | Bug | Fixed | [Task 21](review-tasks/21-multi-branch-correctness.md) |
 | CR-018 | High | Bug | Fixed | — |
 | CR-019 | High | Bug | Fixed | [Task 21](review-tasks/21-multi-branch-correctness.md) |
@@ -7328,7 +7328,7 @@ One row per finding, at `abaa007`.
 | CR-065 | Medium | Bug | Fixed | [Task 24](review-tasks/24-template-snapshot-and-yaml.md) |
 | CR-066 | Medium | Bug | Fixed | [Task 17](review-tasks/17-node-claim-and-attempts.md) |
 | CR-067 | Medium | Bug | Fixed | [Task 12](review-tasks/12-db-transactions.md) |
-| CR-068 | Medium | Security | Open | [Task 60](review-tasks/60-security-process-and-network-isolation.md) |
+| CR-068 | Medium | Security | Fixed | [Task 60](review-tasks/60-security-process-and-network-isolation.md) |
 | CR-069 | Medium | Security | Fixed | [Task 58](review-tasks/58-security-webhook-auth.md) |
 | CR-070 | Medium | Code quality | Fixed | [Task 45](review-tasks/45-flow-engine-decomposition.md) |
 | CR-071 | Medium | Code quality | Partly fixed | [Task 44](review-tasks/44-engine-stores-and-constants.md) |
@@ -7360,12 +7360,12 @@ One row per finding, at `abaa007`.
 | CR-097 | Low | Bug | Partly fixed (Task 27) | [Task 27](review-tasks/27-plan-checklist-integrity.md) |
 | CR-098 | Medium | Bug | Open | [Task 31](review-tasks/31-git-host-clients.md) |
 | CR-099 | Medium | Gap | Open | [Task 31](review-tasks/31-git-host-clients.md) |
-| CR-100 | Medium | Security | Open | [Task 60](review-tasks/60-security-process-and-network-isolation.md) |
+| CR-100 | Medium | Security | Fixed | [Task 60](review-tasks/60-security-process-and-network-isolation.md) |
 | CR-101 | Medium | Bug | Open | [Task 32](review-tasks/32-agent-ports.md) |
 | CR-102 | Medium | Gap | Open | [Task 32](review-tasks/32-agent-ports.md) |
 | CR-103 | Medium | Bug | Fixed (Task 33) | [Task 33](review-tasks/33-git-and-worktree-process-safety.md) |
 | CR-104 | Medium | Bug | Fixed (Task 33) | [Task 33](review-tasks/33-git-and-worktree-process-safety.md) |
-| CR-105 | Medium | Security | Open | [Task 60](review-tasks/60-security-process-and-network-isolation.md) |
+| CR-105 | Medium | Security | Fixed | [Task 60](review-tasks/60-security-process-and-network-isolation.md) |
 | CR-106 | Medium | Bug | Fixed | [Task 20](review-tasks/20-merge-arena-and-workspaces.md) |
 | CR-107 | Medium | Bug | Fixed | [Task 20](review-tasks/20-merge-arena-and-workspaces.md) |
 | CR-108 | Medium | Bug | Open | [Task 30](review-tasks/30-events-feed.md) |
@@ -7448,9 +7448,9 @@ One row per finding, at `abaa007`.
 | CR-185 | Low | Performance | Fixed | [Task 45](review-tasks/45-flow-engine-decomposition.md) |
 | CR-186 | Low | Code quality | Fixed | [Task 50](review-tasks/50-small-module-cleanups.md) |
 | CR-187 | Low | Code quality | Fixed | Task 07 |
-| CR-188 | Low | Code quality | Open | [Task 60](review-tasks/60-security-process-and-network-isolation.md) |
-| CR-189 | Low | Bug | Open | [Task 60](review-tasks/60-security-process-and-network-isolation.md) |
-| CR-190 | Low | Bug | Open | [Task 60](review-tasks/60-security-process-and-network-isolation.md) |
+| CR-188 | Low | Code quality | Fixed | [Task 60](review-tasks/60-security-process-and-network-isolation.md) |
+| CR-189 | Low | Bug | Fixed | [Task 60](review-tasks/60-security-process-and-network-isolation.md) |
+| CR-190 | Low | Bug | Fixed | [Task 60](review-tasks/60-security-process-and-network-isolation.md) |
 | CR-191 | Low | Bug | Fixed | [Task 24](review-tasks/24-template-snapshot-and-yaml.md) |
 | CR-192 | Low | Bug | Fixed (Task 27) | [Task 27](review-tasks/27-plan-checklist-integrity.md) |
 | CR-193 | Low | Bug | Fixed (Task 25) | [Task 25](review-tasks/25-wait-timers-and-poller.md) |
@@ -7459,7 +7459,7 @@ One row per finding, at `abaa007`.
 | CR-196 | Low | Security | Fixed | [Task 58](review-tasks/58-security-webhook-auth.md) |
 | CR-197 | Low | Code quality | Fixed | [Task 50](review-tasks/50-small-module-cleanups.md) |
 | CR-198 | Low | Bug | Open | [Task 31](review-tasks/31-git-host-clients.md) |
-| CR-199 | Low | Security | Open | [Task 60](review-tasks/60-security-process-and-network-isolation.md) |
+| CR-199 | Low | Security | Fixed | [Task 60](review-tasks/60-security-process-and-network-isolation.md) |
 | CR-200 | Low | Bug | Fixed | [Task 26](review-tasks/26-node-config-validation.md) |
 | CR-201 | Low | Code quality | Partly fixed | [Task 44](review-tasks/44-engine-stores-and-constants.md) |
 | CR-202 | Low | Code quality | Fixed | [Task 46](review-tasks/46-backend-types-cleanup.md) |

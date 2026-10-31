@@ -12,6 +12,7 @@ import {
 } from "./git-runner";
 import { stripCredentialsFromRemoteUrl } from "./strip-remote-credentials";
 import { workspacePaths } from "./workspace-paths";
+import { assertValidBranchName } from "./branch-name";
 
 export interface DiffFile {
   file: string;
@@ -109,10 +110,11 @@ export class LocalGit {
     branch: string,
     resolveRemote?: GitRemoteContextResolver,
   ): Promise<string> {
+    await assertValidBranchName(branch);
     const dir = await this.ensureClone(flowId, repoUrl, resolveRemote);
     const ctx = this.resolveRemote(repoUrl, resolveRemote);
     await this.git(
-      ["-C", dir, "fetch", "origin", branch],
+      ["-C", dir, "fetch", "origin", "--end-of-options", branch],
       { timeout: GIT_FETCH_TIMEOUT_MS, env: ctx.env, redactSecrets: ctx.redactSecrets },
     ).catch(() => {});
     return dir;
@@ -147,6 +149,7 @@ export class LocalGit {
     localPath?: string | null,
     resolveRemote?: GitRemoteContextResolver,
   ): Promise<{ files: DiffFile[]; stat: string; raw: string }> {
+    await assertValidBranchName(branch);
     let dir: string;
     const ctx = this.resolveRemote(repoUrl, resolveRemote);
     if (localPath && fs.existsSync(path.join(localPath, ".git"))) {
@@ -156,7 +159,7 @@ export class LocalGit {
         { timeout: GIT_FETCH_TIMEOUT_MS, env: ctx.env, redactSecrets: ctx.redactSecrets },
       ).catch(() => {});
       await this.git(
-        ["-C", dir, "fetch", "origin", branch],
+        ["-C", dir, "fetch", "origin", "--end-of-options", branch],
         { timeout: GIT_FETCH_TIMEOUT_MS, env: ctx.env, redactSecrets: ctx.redactSecrets },
       ).catch(() => {});
     } else {
@@ -197,10 +200,11 @@ export class LocalGit {
     repoUrl?: string,
     resolveRemote?: GitRemoteContextResolver,
   ): Promise<"origin" | "https"> {
+    await assertValidBranchName(branch);
     const base = ["-C", localPath];
     const opts = { timeout: GIT_FETCH_TIMEOUT_MS };
     try {
-      await this.git([...base, "push", "-u", "origin", branch], opts);
+      await this.git([...base, "push", "-u", "origin", "--end-of-options", branch], opts);
       return "origin";
     } catch (e: unknown) {
       if (!repoUrl) {
@@ -220,9 +224,9 @@ export class LocalGit {
     // succeeds on the retry
     for (let attempt = 0; attempt < 2; attempt++) {
       try {
-        await this.git([...base, "push", remote.cloneUrl, `${branch}:${branch}`], pushOpts);
+        await this.git([...base, "push", remote.cloneUrl, "--end-of-options", `${branch}:${branch}`], pushOpts);
         // keep origin/<branch> in sync for later diffs
-        await this.git([...base, "fetch", "origin", branch], pushOpts).catch(() => {});
+        await this.git([...base, "fetch", "origin", "--end-of-options", branch], pushOpts).catch(() => {});
         return "https";
       } catch (e: unknown) {
         lastErr = e;
@@ -245,6 +249,7 @@ export class LocalGit {
     branch: string,
     baseBranch = "main"
   ): Promise<LocalBranchState> {
+    await assertValidBranchName(branch);
     const none: LocalBranchState = { exists: false, commitsAhead: 0, commitsBehind: 0, base: baseBranch, stat: "", raw: "", pushed: false };
     const base = ["-C", localPath];
     try {

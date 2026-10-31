@@ -15,7 +15,7 @@ Each finding was re-verified against `refactor/prompt-engine-inconsistency-fix` 
 
 ### CR-016 [High] The script node passes the server's whole `process.env` to user scripts, contrary to its "allowlisted env" contract
 
-- **Status:** Open
+- **Status:** Fixed
 - **Type:** Security
 - **Effort:** S
 - **Where:** lib/engine/nodes/kinds/script/script-node.ts:336-345 (execa call), 254 (childEnv), 31 (doc claims allowlist)
@@ -23,7 +23,7 @@ Each finding was re-verified against `refactor/prompt-engine-inconsistency-fix` 
 
 ### CR-068 [Medium] SSRF guard forwards all request headers, secrets included, across cross-host redirects
 
-- **Status:** Open
+- **Status:** Fixed
 - **Type:** Security
 - **Effort:** S
 - **Where:** lib/net/ssrf-guard.ts:79-99,121-145
@@ -31,7 +31,7 @@ Each finding was re-verified against `refactor/prompt-engine-inconsistency-fix` 
 
 ### CR-199 [Low] HTTP node: interpolated values go into the URL unencoded
 
-- **Status:** Open
+- **Status:** Fixed
 - **Type:** Security
 - **Effort:** S
 - **Where:** lib/engine/nodes/kinds/http/http-node.ts:114-119,196-221
@@ -39,7 +39,7 @@ Each finding was re-verified against `refactor/prompt-engine-inconsistency-fix` 
 
 ### CR-100 [Medium] Branch and ref names reach git argv without validation or a `--` separator (option-injection surface)
 
-- **Status:** Open
+- **Status:** Fixed
 - **Type:** Security
 - **Effort:** M
 - **Where:** lib/git/worktrees.ts:485-489, 636; lib/git/local.ts:87, 108, 150, 161, 163, 187; lib/integrations/local-agent/agent.ts:123, 133, 138; lib/engine/runtime/fanout/merge-arena.ts:169, 219, 234, 278-280; lib/engine/nodes/kinds/build/build-run-support.ts:31-44; lib/engine/nodes/kinds/plan/schema.ts:15
@@ -47,7 +47,7 @@ Each finding was re-verified against `refactor/prompt-engine-inconsistency-fix` 
 
 ### CR-105 [Medium] `shared_dirs` entries are not confined to the hub/worktree (path traversal) and the denylist is bypassable
 
-- **Status:** Open
+- **Status:** Fixed
 - **Type:** Security
 - **Effort:** S
 - **Where:** lib/git/worktree-setup.ts:116-131, lib/git/worktree-setup.ts:490-515
@@ -55,7 +55,7 @@ Each finding was re-verified against `refactor/prompt-engine-inconsistency-fix` 
 
 ### CR-188 [Low] SSRF helper throws `SsrfReason`, not `SsrfError`, so callers see two error types for one policy
 
-- **Status:** Open
+- **Status:** Fixed
 - **Type:** Code quality
 - **Effort:** S
 - **Where:** lib/net/ssrf-helpers.ts:44,49,56,83-89; lib/net/ssrf-guard.ts:43-48,110-121
@@ -63,7 +63,7 @@ Each finding was re-verified against `refactor/prompt-engine-inconsistency-fix` 
 
 ### CR-189 [Low] SSRF guard has no DNS timeout and only an idle socket timeout
 
-- **Status:** Open
+- **Status:** Fixed
 - **Type:** Bug
 - **Effort:** S
 - **Where:** lib/net/ssrf-helpers.ts:22,30-32; lib/net/ssrf-guard.ts:79-99,175-177
@@ -71,7 +71,7 @@ Each finding was re-verified against `refactor/prompt-engine-inconsistency-fix` 
 
 ### CR-190 [Low] IPv6 literal URLs never match the IP-literal path, because `URL.hostname` keeps the brackets
 
-- **Status:** Open
+- **Status:** Fixed
 - **Type:** Bug
 - **Effort:** S
 - **Where:** lib/net/ssrf-helpers.ts:24-28; lib/net/ssrf-guard.ts:110-113
@@ -79,8 +79,8 @@ Each finding was re-verified against `refactor/prompt-engine-inconsistency-fix` 
 
 ## Done when
 
-- [ ] Every finding above is fixed, or a remaining part is written up in the PR description.
-- [ ] Each bug fix has a regression test (Vitest for `lib/`; at least a hook or utility test for UI where practical).
-- [ ] Code follows [`docs/coding-patterns.md`](../coding-patterns.md).
-- [ ] `npm run typecheck`, `npm run lint`, `npm test` and `npm run build` pass (before Task 02 lands, `npx tsc --noEmit` instead of `typecheck`).
-- [ ] The status of each finding in [`docs/code-review.md`](../code-review.md) is updated (Fixed, with the PR link).
+- [x] Every finding above is fixed, or a remaining part is written up in the PR description.
+- [x] Each bug fix has a regression test (Vitest for `lib/`; at least a hook or utility test for UI where practical).
+- [x] Code follows [`docs/coding-patterns.md`](../coding-patterns.md).
+- [x] `npm run typecheck`, `npm run lint`, `npm test` and `npm run build` pass (before Task 02 lands, `npx tsc --noEmit` instead of `typecheck`).
+- [x] The status of each finding in [`docs/code-review.md`](../code-review.md) is updated (Fixed, with the PR link).

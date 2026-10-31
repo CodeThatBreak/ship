@@ -3,6 +3,9 @@ import "server-only";
 import http from "node:http";
 import https from "node:https";
 import { lookupAll, validateIpLiteral, validateResolvedIps } from "./ssrf-helpers";
+import { SsrfError } from "./ssrf-error";
+
+export { SsrfError } from "./ssrf-error";
 
 /**
  * SSRF guard for template-authored outbound calls (plan §4.4). Own ~80-line
@@ -39,21 +42,17 @@ export interface GuardedResponse {
   body: string;
 }
 
-/** A handler rejected the target URL with a specific reason. */
-export class SsrfError extends Error {
-  constructor(message: string) {
-    super(message);
-    this.name = "SsrfError";
-  }
-}
-
 const BLOCKED = {
   scheme: (s: string) => `protocol "${s}:" is not allowed — http/https only`,
   allow: (h: string) =>
     `hostname "${h}" is not on the http allowlist — add it under Settings → HTTP allowlist (default: deny)`,
-  ip: (ip: string, why: string) =>
-    `resolved address ${ip} is ${why} — outbound calls may not target internal networks`,
 };
+
+const CROSS_ORIGIN_STRIPPED_HEADERS = new Set([
+  "authorization",
+  "cookie",
+  "proxy-authorization",
+]);
 
 function hostAllowed(hostname: string, allowlist: string[]): boolean {
   const host = hostname.toLowerCase();
@@ -109,13 +108,21 @@ export async function guardedRequest(req: GuardedRequest): Promise<GuardedRespon
   const maxRedirects = req.maxRedirects ?? 5;
   let method = req.method.toUpperCase();
   let body = req.body ?? null;
+  let hopHeaders = req.headers;
+  const deadline = Date.now() + req.timeoutMs;
 
   for (let hop = 0; ; hop++) {
+    const remainingMs = () => Math.max(1, deadline - Date.now());
+    if (remainingMs() <= 0) {
+      throw new SsrfError(`request timed out after ${req.timeoutMs}ms`);
+    }
+
     const pinned = await resolveAndCheck(url);
-    const res = await performHop(url, method, req.headers, body, pinned, req.timeoutMs);
+    const res = await performHop(url, method, hopHeaders, body, pinned, remainingMs());
 
     if ([301, 302, 303, 307, 308].includes(res.status) && hop < maxRedirects && res.headers.location) {
       const next = new URL(res.headers.location, url);
+      hopHeaders = stripCrossOriginSensitiveHeaders(url, next, hopHeaders);
       url = assertUrlPolicy(next.toString(), req.allowlist); // every hop re-validated
       if (res.status === 303 || (res.status === 301 && method === "POST") || (res.status === 302 && method === "POST")) {
         method = "GET";
@@ -125,6 +132,20 @@ export async function guardedRequest(req: GuardedRequest): Promise<GuardedRespon
     }
     return res;
   }
+}
+
+export function stripCrossOriginSensitiveHeaders(
+  from: URL,
+  to: URL,
+  headers: Record<string, string> | undefined,
+): Record<string, string> | undefined {
+  if (!headers || from.origin === to.origin) return headers;
+  const out: Record<string, string> = {};
+  for (const [k, v] of Object.entries(headers)) {
+    if (CROSS_ORIGIN_STRIPPED_HEADERS.has(k.toLowerCase())) continue;
+    out[k] = v;
+  }
+  return out;
 }
 
 // ── internals ────────────────────────────────────────────────────────────────
@@ -142,6 +163,7 @@ async function resolveAndCheck(url: URL): Promise<Pinned> {
   try {
     addrs = await lookupAll(url.hostname);
   } catch (e: unknown) {
+    if (e instanceof SsrfError) throw e;
     throw new SsrfError(`dns lookup failed for "${url.hostname}" — ${e instanceof Error ? e.message : String(e)}`);
   }
   if (!addrs.length) throw new SsrfError(`dns lookup returned no addresses for "${url.hostname}"`);

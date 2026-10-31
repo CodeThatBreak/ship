@@ -12,6 +12,7 @@ import {
   MAX_GIT_BUFFER,
   gitRunner,
 } from "./git-runner";
+import { assertValidBranchName } from "./branch-name";
 
 const GIT_TIMEOUT_MS = GIT_COMMAND_TIMEOUT_MS;
 const MAX_BUFFER = MAX_GIT_BUFFER;
@@ -314,6 +315,7 @@ export class Worktrees {
 
   private async createWorktreeUnlocked(input: CreateWorktreeInput): Promise<WorktreeCreateResult> {
     const { repoPath, dir, branch } = input;
+    await assertValidBranchName(branch);
     const worktrees = await this.listWorktrees(repoPath);
     const existing = worktrees.find((w) => !w.isMainWorktree && samePath(w.path, dir));
 
@@ -333,7 +335,7 @@ export class Worktrees {
     let base: string | null = null;
     if (await this.refExists(repoPath, `refs/heads/${branch}`)) {
       // branch already exists (e.g. a crashed run left it with commits) — check it out
-      await this.gitWorktreeAdd(repoPath, [dir, branch], input.addTimeoutMs);
+      await this.gitWorktreeAdd(repoPath, [dir, "--end-of-options", branch], input.addTimeoutMs);
     } else {
       base = await this.resolveBaseRef(repoPath, input.base);
       // --no-track: don't inherit the base's upstream (status would misreport
@@ -519,11 +521,11 @@ export class Worktrees {
     }
     try {
       if (await this.refExists(dir, `refs/heads/${branch}`)) {
-        await this.git(["-C", dir, "checkout", branch], { timeout: GIT_TIMEOUT_MS });
+        await this.git(["-C", dir, "checkout", "--end-of-options", branch], { timeout: GIT_TIMEOUT_MS });
         return { headBranch: branch, switched: true };
       }
       const baseRef = await this.resolveBaseRef(dir, base);
-      await this.git(["-C", dir, "checkout", "-b", branch, baseRef], { timeout: GIT_TIMEOUT_MS });
+      await this.git(["-C", dir, "checkout", "-b", branch, "--end-of-options", baseRef], { timeout: GIT_TIMEOUT_MS });
       return { headBranch: branch, switched: true };
     } catch (e: unknown) {
       const reason = e instanceof Error ? e.message : String(e);
@@ -643,6 +645,7 @@ export class Worktrees {
     force: boolean
   ): Promise<{ deleted: boolean; reason?: "unmerged" | "checked-out" | "missing" }> {
     try {
+      await assertValidBranchName(branch);
       const branchRef = `refs/heads/${branch}`;
       if (!(await this.refExists(repoPath, branchRef))) return { deleted: false, reason: "missing" };
 

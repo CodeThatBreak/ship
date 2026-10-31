@@ -2,6 +2,7 @@ import "server-only";
 
 import { z } from "zod";
 import { detectUnitCycle } from "../../shared";
+import { rejectInvalidBranchNameShape } from "../../../../git/branch-name";
 
 // ── step schema (shared by every plan response) ──────────────────────────────
 
@@ -14,7 +15,19 @@ const PlanStepBase = z.object({
   title: z.string().min(1),
   detail: z.string().default(""),
   files: z.array(z.string()).default([]),
-  branch: z.string().nullable().default(null),
+  branch: z
+    .string()
+    .nullable()
+    .default(null)
+    .superRefine((b, ctx) => {
+      if (b == null) return;
+      try {
+        rejectInvalidBranchNameShape(b);
+      } catch (e: unknown) {
+        const msg = e instanceof Error ? e.message : String(e);
+        ctx.addIssue({ code: "custom", message: msg });
+      }
+    }),
 });
 
 export type PlanStep = z.infer<typeof PlanStepBase> & {

@@ -19,3 +19,21 @@ describe("TemplateRenderer.render secrets", () => {
     ).toThrow(/secret "MISSING"/);
   });
 });
+
+describe("TemplateRenderer.renderUrl", () => {
+  it("percent-encodes interpolated query values", () => {
+    const url = TemplateRenderer.renderUrl(
+      "https://api.example.com/search?q={{input.term}}",
+      { input: { term: "a&b=c" } },
+    );
+    expect(url).toBe("https://api.example.com/search?q=a%26b%3Dc");
+  });
+
+  it("allows raw segments via raw.*", () => {
+    const url = TemplateRenderer.renderUrl(
+      "https://api.example.com/{{raw.input.path}}",
+      { input: { path: "v1/items" } },
+    );
+    expect(url).toBe("https://api.example.com/v1/items");
+  });
+});

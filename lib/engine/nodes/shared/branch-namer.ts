@@ -1,5 +1,6 @@
 import "server-only";
 
+import { rejectInvalidBranchNameShape } from "../../../git/branch-name";
 import type { FlowCtx } from "./run-context";
 
 /**
@@ -30,8 +31,9 @@ export class BranchNamer {
   /** Empty or whitespace pattern → built-in naming. */
   branchName(ctx: FlowCtx, pattern: string | null | undefined, suffix?: string): string {
     const trimmed = pattern?.trim();
-    if (!trimmed) return this.builtInBranch(ctx, suffix);
-    return this.fromPattern(ctx, trimmed, suffix);
+    const name = !trimmed ? this.builtInBranch(ctx, suffix) : this.fromPattern(ctx, trimmed, suffix);
+    rejectInvalidBranchNameShape(name);
+    return name;
   }
 }
 

@@ -2,6 +2,7 @@ import "server-only";
 
 import ipaddr from "ipaddr.js";
 import { lookup } from "node:dns/promises";
+import { SsrfError } from "./ssrf-error";
 import type { Pinned } from "./ssrf-guard";
 
 /**
@@ -21,10 +22,19 @@ const V6_FORBIDDEN = new Set([
 
 export const RESOLVE_TIMEOUT_MS = 5_000;
 
+/** Strip URL-style brackets so ipaddr.js can parse IPv6 literals. */
+export const ipLiteralHost = (hostname: string): string => {
+  if (hostname.startsWith("[") && hostname.endsWith("]") && hostname.length > 2) {
+    return hostname.slice(1, -1);
+  }
+  return hostname;
+};
+
 export function validateIpLiteral(hostname: string): Pinned | null {
-  if (!ipaddr.isValid(hostname)) return null;
-  const addr = ipaddr.parse(hostname) as ipaddr.IPv4 | ipaddr.IPv6;
-  return checkedPin(hostname, addr);
+  const literal = ipLiteralHost(hostname);
+  if (!ipaddr.isValid(literal)) return null;
+  const addr = ipaddr.parse(literal) as ipaddr.IPv4 | ipaddr.IPv6;
+  return checkedPin(literal, addr);
 }
 
 export function lookupAll(hostname: string): Promise<{ address: string; family: number }[]> {
@@ -33,7 +43,7 @@ export function lookupAll(hostname: string): Promise<{ address: string; family: 
   >;
   const timeout = new Promise<never>((_, reject) => {
     setTimeout(
-      () => reject(new SsrfReason(`dns lookup timed out after ${RESOLVE_TIMEOUT_MS}ms for "${hostname}"`)),
+      () => reject(new SsrfError(`dns lookup timed out after ${RESOLVE_TIMEOUT_MS}ms for "${hostname}"`)),
       RESOLVE_TIMEOUT_MS,
     );
   });
@@ -50,19 +60,19 @@ export function validateResolvedIps(
     if (seen.has(a.address)) continue;
     seen.add(a.address);
     if (!ipaddr.isValid(a.address)) {
-      throw new SsrfReason(`dns returned an unparseable address (${a.address}) for "${hostname}"`);
+      throw new SsrfError(`dns returned an unparseable address (${a.address}) for "${hostname}"`);
     }
     const p = checkedPin(a.address, ipaddr.parse(a.address) as ipaddr.IPv4 | ipaddr.IPv6);
     pin = pin ?? p;
   }
-  if (!pin) throw new SsrfReason(`no usable address for "${hostname}"`);
+  if (!pin) throw new SsrfError(`no usable address for "${hostname}"`);
   return pin;
 }
 
 function checkedPin(text: string, addr: ipaddr.IPv4 | ipaddr.IPv6): Pinned {
   const why = forbiddenReason(addr);
   if (why) {
-    throw new SsrfReason(
+    throw new SsrfError(
       `resolved address ${text} is forbidden (${why}) — outbound calls may not target internal networks`,
     );
   }
@@ -87,12 +97,4 @@ function forbiddenReason(addr: ipaddr.IPv4 | ipaddr.IPv6): string | null {
     }
   }
   return V6_FORBIDDEN.has(range) ? range : null;
-}
-
-/** Guard-local rejection carrying the classification — caught by the guard. */
-export class SsrfReason extends Error {
-  constructor(message: string) {
-    super(message);
-    this.name = "SsrfReason";
-  }
 }

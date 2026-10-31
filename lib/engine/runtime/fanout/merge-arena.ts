@@ -7,6 +7,7 @@ import { promisify } from "util";
 import { db } from "../../../db";
 import { localGit } from "../../../git/local";
 import { redactGitSecrets } from "../../../git/redact-git-secrets";
+import { assertValidBranchName } from "../../../git/branch-name";
 import { workspacePaths } from "../../../git/workspace-paths";
 import { processSingleton } from "../../../singleton";
 import { gitRemoteContextFor } from "../../ports/git-host";
@@ -127,6 +128,8 @@ class MergeArena {
    * restart resumes or flags.
    */
   async mergeStepBranch(args: MergeBackArgs): Promise<MergeBackResult> {
+    await assertValidBranchName(args.branch);
+    await assertValidBranchName(args.integrationBranch);
     const key = args.parentFlowId;
     const ts = () => db.now();
     // one durable row per attempt SERIES — a re-attempt (merge-fix / reconcile
@@ -174,7 +177,7 @@ class MergeArena {
         }
 
         // the step branch must have been pushed by the child build agent
-        await this.git(["-C", arena, "fetch", "origin", args.branch], { timeout: 30_000 });
+        await this.git(["-C", arena, "fetch", "origin", "--end-of-options", args.branch], { timeout: 30_000 });
         const stepRef = `origin/${args.branch}`;
         await this.git(["-C", arena, "cat-file", "-e", `${stepRef}^{commit}`]);
 
@@ -276,6 +279,7 @@ class MergeArena {
    * pipeline on hosts that accept push options, so failures here are swallowed.
    */
   async deleteStepBranch(parentFlowId: string, branch: string, parentNodeKey?: string): Promise<void> {
+    await assertValidBranchName(branch);
     await this.withLock(parentFlowId, async () => {
       const parent = db.get<{ repo_url: string | null }>(`SELECT repo_url FROM flows WHERE id=?`, parentFlowId);
       const repoUrl = parent?.repo_url;

@@ -19,6 +19,49 @@ import {
 } from "./dep-policy";
 import { containsPath, samePath } from "./worktrees";
 
+/** Path segments that must never be symlinked into a worktree. */
+export const DENIED_SHARED_DIR_SEGMENTS = new Set(["node_modules", ".git"]);
+
+/**
+ * Normalize and validate a hub-relative shared_dirs spec (rejects traversal and
+ * denied segments anywhere in the path).
+ */
+export const normalizeSharedDirSpec = (raw: string): string => {
+  const spec = path.posix.normalize(raw.replace(/\\/g, "/")).replace(/\/+$/, "");
+  if (!spec || spec === ".") {
+    throw new Error("shared_dirs entry must not be empty");
+  }
+  if (path.posix.isAbsolute(spec)) {
+    throw new Error(`shared_dirs entry must be relative: ${raw}`);
+  }
+  if (spec === ".." || spec.startsWith("../") || spec.split("/").some((s) => s === "..")) {
+    throw new Error(`shared_dirs entry must stay inside the worktree: ${raw}`);
+  }
+  for (const seg of spec.split("/")) {
+    if (seg && DENIED_SHARED_DIR_SEGMENTS.has(seg)) {
+      throw new Error(`refusing to symlink ${seg} — dep trees must be copied, never linked`);
+    }
+  }
+  return spec;
+};
+
+export const sharedDirPaths = (
+  hub: string,
+  wt: string,
+  spec: string,
+): { src: string; dst: string; rel: string } => {
+  const rel = normalizeSharedDirSpec(spec);
+  const src = path.resolve(hub, rel);
+  const dst = path.resolve(wt, rel);
+  if (!containsPath(hub, src)) {
+    throw new Error(`shared_dirs entry escapes the hub checkout: ${spec}`);
+  }
+  if (!containsPath(wt, dst)) {
+    throw new Error(`shared_dirs entry escapes the worktree: ${spec}`);
+  }
+  return { src, dst, rel };
+};
+
 const execFileAsync = promisify(execFile);
 const MAX_BUFFER = MAX_GIT_BUFFER;
 const COPY_TIMEOUT_MS = 120_000;
@@ -120,16 +163,15 @@ class SharedDirsStep extends SetupStep {
   async run(): Promise<string[]> {
     const actions: string[] = [];
     for (const spec of this.specs) {
-      const src = path.join(this.ctx.hub, spec);
-      const dst = path.join(this.ctx.wt, spec);
+      const { src, dst, rel } = sharedDirPaths(this.ctx.hub, this.ctx.wt, spec);
       if (!fs.lstatSync(src).isDirectory()) {
         throw new Error("shared_dirs entries must be directories in the hub");
       }
       if (fs.existsSync(dst)) continue; // existing (tracked or prior) — never shadow
       fs.mkdirSync(path.dirname(dst), { recursive: true });
       fs.symlinkSync(path.relative(path.dirname(dst), src), dst, "dir");
-      actions.push(`linked shared dir ${spec} → hub`);
-      this.ctx.emit(`linked shared dir ${spec} from the hub`);
+      actions.push(`linked shared dir ${rel} → hub`);
+      this.ctx.emit(`linked shared dir ${rel} from the hub`);
     }
     return actions;
   }
@@ -502,27 +544,21 @@ export class WorktreeSetup {
   }
 
   /** Denylist: dep trees must NEVER be symlinked into the hub's dep state. */
-  private static readonly DENIED_SHARED_DIRS = new Set(["node_modules", ".git"]);
-
-  /**
-   * Expand the shared_dirs spec (globs allowed) into hub-relative paths.
-   * Plain paths must exist (a typo is a config error, surfaced non-fatally);
-   * a glob matching nothing is fine (misses are fine).
-   */
   private sharedDirSpecs(hub: string, sharedDirs?: string[]): string[] {
     const out: string[] = [];
     for (const raw of sharedDirs ?? []) {
       for (const spec of depPolicies.parsePathList(raw)) {
-        if (WorktreeSetup.DENIED_SHARED_DIRS.has(spec)) {
-          throw new Error(`refusing to symlink ${spec} — dep trees must be copied, never linked`);
-        }
+        normalizeSharedDirSpec(spec);
         if (/[*?]/.test(spec)) {
-          out.push(...depPolicies.expandSyncPaths(hub, [spec]));
+          out.push(
+            ...depPolicies.expandSyncPaths(hub, [spec]).map((p) => normalizeSharedDirSpec(p)),
+          );
         } else {
-          if (!fs.existsSync(path.join(hub, spec))) {
-            throw new Error(`shared dir ${spec} does not exist in the hub`);
+          const rel = normalizeSharedDirSpec(spec);
+          if (!fs.existsSync(path.join(hub, rel))) {
+            throw new Error(`shared dir ${rel} does not exist in the hub`);
           }
-          out.push(spec);
+          out.push(rel);
         }
       }
     }

@@ -103,10 +103,14 @@ export class HttpTemplateNode extends DeclarativeNode<HttpDef> {
         label: this.label,
         resolveSecret: (name: string) => secrets[name],
       };
-      const url = TemplateRenderer.render(cfg.url, vars, renderOpts);
+      const url = TemplateRenderer.renderUrl(cfg.url, vars, renderOpts);
       const headers: Record<string, string> = {};
       for (const [k, v] of Object.entries(cfg.headers ?? {})) {
-        headers[k] = TemplateRenderer.render(typeof v === "string" ? v : JSON.stringify(v), vars, renderOpts);
+        const rendered = TemplateRenderer.render(typeof v === "string" ? v : JSON.stringify(v), vars, renderOpts);
+        if (/[\r\n]/.test(rendered)) {
+          throw new Error(`${this.label}: header "${k}" value must not contain CR or LF`);
+        }
+        headers[k] = rendered;
       }
       const body = cfg.body == null ? null : TemplateRenderer.render(cfg.body, vars, renderOpts);
 

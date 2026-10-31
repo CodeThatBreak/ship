@@ -270,6 +270,9 @@ export class ScriptTemplateNode extends DeclarativeNode<ScriptDef> {
   }
 }
 
+/** @internal Vitest-only export for child env contract checks. */
+export const runScriptProcessForTests = runProcess;
+
 import { declarativeKindRegistry } from "../../declarative-registry";
 import type { NodeDefinition } from "../../shared/node-definition";
 
@@ -316,6 +319,7 @@ async function runProcess(
       timeout: opts.timeoutMs,
       cwd: opts.cwd,
       env: opts.env,
+      extendEnv: false,
       killSignal: "SIGKILL",
       stripFinalNewline: false,
       reject: false,
