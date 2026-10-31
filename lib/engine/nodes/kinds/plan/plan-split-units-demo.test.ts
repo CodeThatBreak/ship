@@ -147,7 +147,7 @@ describe('dummy walkthrough — a branched plan through the split source port', 
     const units = splitter.units(ctxWith('follow'));
     if (!units) throw new Error('a plan with branches must yield split units');
     const done = new Set<string>();
-    const waves: number[][] = [];
+    const waves: string[][] = [];
     while (done.size < units.length) {
       const ready = units.filter(u => !done.has(u.key) && u.dependsOn.every(d => done.has(d)));
       if (!ready.length) break;

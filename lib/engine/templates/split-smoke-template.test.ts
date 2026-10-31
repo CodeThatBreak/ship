@@ -258,7 +258,7 @@ const TEMPLATE_ID = templateStore.create({
 
 // ── helpers ──────────────────────────────────────────────────────────────────
 
-function must<T>(row: T | undefined, what: string): T {
+function must<T>(row: T | null | undefined, what: string): T {
   if (row == null) throw new Error(`missing row: ${what}`);
   return row;
 }
@@ -341,7 +341,8 @@ describe("split smoke template — authoring path (templateStore + template-lint
     // the source def carries the split knob (createNodeTemplate parsed it —
     // the schema defaults ride along: key_field/depends_on_field)
     const splitter = must(templateStore.nodeTemplate(SPLITTER_ROW.id), "splitter row");
-    expect(splitter.config.split).toMatchObject({
+    const splitterConfig = must(splitter.config, "splitter config");
+    expect(splitterConfig.split).toMatchObject({
       field: "units",
       key_field: "key",
       depends_on_field: "dependsOn",

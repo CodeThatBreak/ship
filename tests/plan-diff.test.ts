@@ -15,6 +15,7 @@ import {
   pickWholeSteps,
   computeWholePlanDiff,
   planTabCaption,
+  type DiffStep,
 } from '@/components/flows/components/plan/utils/branchDiff';
 import { PLAN_TAB_CAPTION_MAX } from '@/components/flows/components/plan/constants';
 
@@ -29,7 +30,7 @@ const art = (version: number, meta: unknown): Artifact => ({
   meta: meta as Record<string, unknown>,
 });
 
-const step = (id: string, title: string, branch?: string): Record<string, unknown> => ({
+const step = (id: string, title: string, branch?: string): DiffStep & { branch: string | null } => ({
   id,
   title,
   detail: 'd',

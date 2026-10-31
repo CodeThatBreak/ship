@@ -2,12 +2,17 @@
   "name": "devflow",
   "version": "0.1.0",
   "private": true,
+  "engines": {
+    "node": ">=22.13"
+  },
   "scripts": {
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
+    "typecheck": "tsc --noEmit",
     "lint": "eslint .",
     "test": "vitest run",
+    "check": "npm run typecheck && npm run lint && npm test",
     "db:init:prod": "node scripts/init-prod-db.mjs"
   },
   "dependencies": {
@@ -16,7 +21,6 @@
     "@dagrejs/dagre": "^3.1.1",
     "@shadcn/react": "^0.3.1",
     "@streamdown/mermaid": "^1.0.3",
-    "@tailwindcss/postcss": "^4.3.3",
     "@tanstack/react-query": "^5.104.5",
     "@tanstack/react-table": "^8.21.3",
     "@tiptap/pm": "^3.32.0",
@@ -36,16 +40,15 @@
     "react": "^19.3.1",
     "react-diff-viewer-continued": "^4.4.0",
     "react-dom": "^19.3.1",
-    "shadcn": "^4.22.1",
     "shiki": "^4.5.0",
     "standardwebhooks": "^1.1.1",
     "streamdown": "^2.7.1",
     "tailwind-merge": "^3.7.0",
-    "tailwindcss": "^4.3.3",
     "yaml": "^2.9.1",
     "zod": "^4.6.7"
   },
   "devDependencies": {
+    "@tailwindcss/postcss": "^4.3.3",
     "@eslint/eslintrc": "^3.3.7",
     "@types/better-sqlite3": "^9.6.0",
     "@types/node": "^26.6.5",
@@ -53,6 +56,8 @@
     "@types/react-dom": "^19.3.0",
     "eslint": "^9.39.5",
     "eslint-config-next": "^15.5.28",
+    "shadcn": "^4.22.1",
+    "tailwindcss": "^4.3.3",
     "typescript": "5.9",
     "vitest": "^5.0.5"
   }

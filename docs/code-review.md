@@ -6675,7 +6675,7 @@ Original findings, verbatim:
 
 ### CR-257 [Low] `eslint.ignoreDuringBuilds: true` means `next build` never lints
 
-- **Status at `abaa007`:** **Open**, fix in [Task 02](review-tasks/02-typecheck-and-build-gates.md)
+- **Status at `abaa007`:** **Fixed** — removed `eslint.ignoreDuringBuilds` from `next.config.mjs`; AGENTS.md §0 DoD now lists `npm run lint` (PR link pending)
 - **Current location:** next.config.mjs:9, AGENTS.md:11-27 (§0 Definition of Done, build-only check at :22)
 - **Re-verification note:** `eslint: { ignoreDuringBuilds: true }` is still set, and the DoD still lists only `npm run build`. The blocker is gone: lint now installs and runs with 0 errors (CR-039 is resolved). Remove `ignoreDuringBuilds`, or add `npm run lint` and `npm test` to the AGENTS.md DoD checklist.
 
@@ -6903,7 +6903,7 @@ Original findings, verbatim:
 
 ### CR-266 [Low] `package.json` has no `engines` field, even though local mode requires Node ≥ 22.13; the `shadcn` CLI is a runtime dependency
 
-- **Status at `abaa007`:** **Open**, fix in [Task 02](review-tasks/02-typecheck-and-build-gates.md)
+- **Status at `abaa007`:** **Fixed** — `"engines": { "node": ">=22.13" }`, `engine-strict=true` in `.npmrc`; `shadcn`, `tailwindcss`, and `@tailwindcss/postcss` moved to `devDependencies` (PR link pending)
 - **Current location:** package.json:13-48, .npmrc:1, app/globals.css:2, README.md:277
 - **Re-verification note:** There is still no `engines` field (Node >= 22.13 is required by @cursor/sdk local mode) and no `engine-strict` in .npmrc. `shadcn` (CLI, used only for the `shadcn/tailwind.css` import), `tailwindcss` and `@tailwindcss/postcss` are still runtime dependencies. Add `"engines": { "node": ">=22.13" }`, move build-only packages to devDependencies, or vendor the CSS.
 
@@ -7014,7 +7014,7 @@ Found while re-verifying. Numbered after the original items.
 
 ### CR-273 [Medium] `tsc --noEmit` fails with 11 errors in tests and scripts, and no script runs it
 
-- **Status at `abaa007`:** **Open**, fix in [Task 02](review-tasks/02-typecheck-and-build-gates.md)
+- **Status at `abaa007`:** **Fixed** — test/script type errors resolved; `npm run typecheck` and `npm run check` added (PR link pending)
 - **Severity:** Medium
 - **Category:** Code quality
 - **Area:** Area 7b — Tooling & config (TOOL)
@@ -7576,7 +7576,7 @@ One row per finding, at `abaa007`.
 | CR-254 | Low | Security | Open | [Task 59](review-tasks/59-security-credential-hygiene.md) |
 | CR-255 | Low | Performance | Open | [Task 41](review-tasks/41-settings-data-and-errors.md) |
 | CR-256 | Low | Code quality | Open | [Task 41](review-tasks/41-settings-data-and-errors.md) |
-| CR-257 | Low | Infra | Open | [Task 02](review-tasks/02-typecheck-and-build-gates.md) |
+| CR-257 | Low | Infra | Fixed | [Task 02](review-tasks/02-typecheck-and-build-gates.md) |
 | CR-258 | Low | Infra | Open | [Task 51](review-tasks/51-tsconfig-strictness.md) |
 | CR-259 | Low | Code quality | Open | [Task 52](review-tasks/52-shared-ui-components.md) |
 | CR-260 | Low | Docs | Open | [Task 56](review-tasks/56-docs-refresh.md) |
@@ -7585,11 +7585,11 @@ One row per finding, at `abaa007`.
 | CR-263 | Low | Docs | Obsolete (legacy, no fix) | [Task 07](review-tasks/07-remove-dead-and-legacy-code.md) |
 | CR-264 | Low | Security | Open | [Task 59](review-tasks/59-security-credential-hygiene.md) |
 | CR-265 | Low | Security | Open | [Task 59](review-tasks/59-security-credential-hygiene.md) |
-| CR-266 | Low | Infra | Open | [Task 02](review-tasks/02-typecheck-and-build-gates.md) |
+| CR-266 | Low | Infra | Fixed | [Task 02](review-tasks/02-typecheck-and-build-gates.md) |
 | CR-267 | Low | Infra | Open | [Task 05](review-tasks/05-test-coverage-baseline.md) |
 | CR-268 | Low | Docs | Open | [Task 56](review-tasks/56-docs-refresh.md) |
 | CR-269 | Medium | Bug | Open | [Task 16](review-tasks/16-run-lifecycle-late-writes.md) |
 | CR-270 | High | Bug | Fixed | [Task 01](review-tasks/01-plan-artifact-ordering-hotfix.md) |
 | CR-271 | Medium | Gap | Open | [Task 15](review-tasks/15-frontend-mutation-conventions.md) |
 | CR-272 | Low | Bug | Open | [Task 06](review-tasks/06-db-path-and-seed-safety.md) |
-| CR-273 | Medium | Infra | Open | [Task 02](review-tasks/02-typecheck-and-build-gates.md) |
+| CR-273 | Medium | Infra | Fixed | [Task 02](review-tasks/02-typecheck-and-build-gates.md) |

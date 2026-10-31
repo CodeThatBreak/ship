@@ -186,10 +186,10 @@ class FixtureWorkerDef extends NodeDefinition<Record<string, unknown>, { summary
 
 /** The fixture source — publishes the units configured on its node row. */
 class FixtureSourceDef extends NodeDefinition<Record<string, unknown>, Record<string, unknown>> {
-  readonly key = "split_source_fixture";
-  readonly label = "Split source fixture";
+  readonly key: string = "split_source_fixture";
+  readonly label: string = "Split source fixture";
   readonly promptKeys = [];
-  readonly order = 901;
+  readonly order: number = 901;
   readonly inputSchema = z.record(z.string(), z.unknown());
   readonly outputSchema = z.record(z.string(), z.unknown());
   /** the units and the §2.4 resolution recommendation, both from the node row */
@@ -231,9 +231,9 @@ class FixtureSourceDef extends NodeDefinition<Record<string, unknown>, Record<st
 /** A second split source def — the multi-source conflict test needs two
  *  distinct upstream defs (node_templates keys are UNIQUE(key, version)). */
 class FixtureSourceDefB extends FixtureSourceDef {
-  override readonly key: string = "split_source_fixture_b";
-  override readonly label: string = "Split source fixture B";
-  override readonly order: number = 903;
+  override readonly key = "split_source_fixture_b";
+  override readonly label = "Split source fixture B";
+  override readonly order = 903;
 }
 
 /** The fixture consumer — per-unit, with a simple aggregate contract. */

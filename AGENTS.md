@@ -13,13 +13,16 @@ Where a rule here conflicts with an existing pattern in neighboring files, follo
 ```bash
 npm run dev          # dev server
 npm run build        # production build
+npm run typecheck    # tsc --noEmit
 npm run lint         # eslint
+npm test             # vitest
+npm run check        # typecheck + lint + test
 npm run seed:demo    # seed demo data (variants: :reset, fanout, branch-refine, custom)
 ```
 
 A task is done only when all of these are true:
 
-- [ ] `npm run build` pass
+- [ ] `npm run typecheck`, `npm run lint`, `npm test`, and `npm run build` pass
 - [ ] Diff is focused: no unrelated reformatting or renames
 - [ ] Every async UI has loading, error and empty states
 - [ ] New service classes and row mappers have tests
