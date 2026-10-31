@@ -1748,7 +1748,7 @@ export class FlowEngine {
     }
     db.addMessage(flowId, nodeKey, "user", content, thread ?? null);
     this.setCurrentNode(flowId, nodeKey);
-    this.bg(flowId, nodeKey, async () => {
+    this.bg(flowId, chatOnly ? null : nodeKey, async () => {
       const reply = chatOnly
         ? (await nodeRoles.converserOf(def)?.converse(this.ctx(flowId), content)) ?? nodeRoles.noAgentReply(def.label)
         : (await nodeRoles.chatRefinerOf(def)?.turn(this.ctx(flowId), content, {

@@ -510,8 +510,8 @@ Original findings, verbatim:
 
 ### CR-014 [High] When the late-write guard fires, callers still finalize, which brings cancelled nodes back and overwrites state
 
-- **Status at `abaa007`:** **Open**, fix in [Task 16](review-tasks/16-run-lifecycle-late-writes.md)
-- **Current location:** lib/engine/harness/agent-runner.ts:171-182; lib/engine/nodes/shared/agent-run-node.ts:132-134 (execute); lib/engine/nodes/shared/node-definition.ts:303-321 (applyOutcome); lib/engine/nodes/kinds/plan/plan-contract.ts:236-266 (turnRetry); lib/engine/nodes/kinds/pipeline/pipeline-node.ts:599-620 (runFix); lib/engine/nodes/kinds/resolve/resolve-node.ts:166-175 (finalize resolves host comments)
+- **Status at `abaa007`:** **Fixed** ([Task 16](review-tasks/16-run-lifecycle-late-writes.md))
+- **Current location:** lib/engine/harness/agent-runner.ts; lib/engine/nodes/shared/agent-run-node.ts (execute); lib/engine/nodes/shared/node-definition.ts (applyOutcome); lib/engine/nodes/kinds/plan/plan-contract.ts (turnRetry); lib/engine/nodes/kinds/pipeline/pipeline-node.ts (runFix)
 - **Re-verification note:** The late-write guard still returns `result` exactly as on success, so `execute()` runs `finalize`, then `applyOutcome` writes the final status over a cancelled node. Plan's retry path, resolve's host-side comment resolution and pipeline's fix artifact all still run. Throw a typed `RunSupersededError` (or return a discriminated result), catch it in `execute()`, the plan turn and the pipeline fix to stop with no write, and add a "still running?" check in `applyOutcome`.
 
 - **Severity:** High
@@ -2338,8 +2338,8 @@ Original findings, verbatim:
 
 ### CR-081 [Medium] `converse()` (chat-only) always trips the late-write guard: it logs a spurious "ignoring" event and hides run errors
 
-- **Status at `abaa007`:** **Open**, fix in [Task 16](review-tasks/16-run-lifecycle-late-writes.md)
-- **Current location:** lib/engine/nodes/shared/agent-run-node.ts:81-105, lib/engine/harness/agent-runner.ts:175-187
+- **Status at `abaa007`:** **Fixed** ([Task 16](review-tasks/16-run-lifecycle-late-writes.md))
+- **Current location:** lib/engine/nodes/shared/agent-run-node.ts; lib/engine/harness/agent-runner.ts
 - **Re-verification note:** `converse()` still calls `executeRun` while the node is done/awaiting_approval. Every chat-only reply therefore logs "…result arrived after the node was already … — ignoring", and returns before the `status !== "finished"` check, so errored conversational runs come back as normal replies. Fix: add an `ownsNodeStatus: false` option that skips the guard, and run the terminal-status check before the guard.
 
 - **Severity:** Medium
@@ -2362,8 +2362,8 @@ Original findings, verbatim:
 
 ### CR-082 [Medium] A failure in stream or usage capture leaves the run row `running` and fails an agent run that finished
 
-- **Status at `abaa007`:** **Open**, fix in [Task 16](review-tasks/16-run-lifecycle-late-writes.md)
-- **Current location:** lib/engine/harness/agent-runner.ts:148-169, lib/engine/harness/usage-tracker.ts:127-160 (port.getUsage at 140-142), lib/engine/harness/pricing-source.ts:90
+- **Status at `abaa007`:** **Fixed** ([Task 16](review-tasks/16-run-lifecycle-late-writes.md))
+- **Current location:** lib/engine/harness/agent-runner.ts; lib/engine/harness/usage-tracker.ts; lib/engine/harness/pricing-source.ts
 - **Re-verification note:** The run-row status update still sits after the try/finally, so a `port.stream` rejection leaves the row `running`. `captureRunUsage` (including the cloud `getUsage` call) is inside the same try, so a usage failure fails a finished agent run. The LiteLLM fetch errors are caught but it has no timeout. Fix: close the run row in `finally` (`error` when there's no result), wrap usage capture in its own try/catch that logs, and add `AbortSignal.timeout()` to the pricing fetch.
 
 - **Severity:** Medium
@@ -5455,8 +5455,8 @@ Original findings, verbatim:
 
 ### CR-205 [Low] `StreamBuffer` reports the wrong "chars omitted" count once text has been capped
 
-- **Status at `abaa007`:** **Open**, fix in [Task 16](review-tasks/16-run-lifecycle-late-writes.md)
-- **Current location:** lib/engine/harness/stream-buffer.ts:25-30,41-48; lib/engine/harness/agent-runner.ts:138-145
+- **Status at `abaa007`:** **Fixed** ([Task 16](review-tasks/16-run-lifecycle-late-writes.md))
+- **Current location:** lib/engine/harness/stream-buffer.ts; lib/engine/harness/agent-runner.ts
 - **Re-verification note:** `capHeadTail` still re-caps the already-capped text on every push, so the "N chars omitted" marker drops earlier counts and under-reports. Tool events are also still emitted immediately while assistant and thinking text waits up to 1.5 s, so the feed shows them out of order. Fix: keep `head`/`tail`/`omitted` counters per buffer, and flush the text buffers before emitting a tool event.
 
 - **Severity:** Low
@@ -6952,7 +6952,7 @@ Found while re-verifying. Numbered after the original items.
 
 ### CR-269 [Medium] Chat-only replies run inside `bg()`, so an agent error flips a finished node to `failed`
 
-- **Status at `abaa007`:** **Open**, fix in [Task 16](review-tasks/16-run-lifecycle-late-writes.md)
+- **Status at `abaa007`:** **Fixed** ([Task 16](review-tasks/16-run-lifecycle-late-writes.md))
 - **Severity:** Medium
 - **Category:** Correctness
 - **Area:** Area 2 — Engine core & shared lib (ENG)

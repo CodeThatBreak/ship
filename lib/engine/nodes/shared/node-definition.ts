@@ -10,6 +10,7 @@ import type { NodeCapabilities } from "./capabilities";
 import type { ConfigField } from "../../templates/node-config";
 import { appLayerConfig, mergeConfigLayers, parseConfigSnapshot } from "../../templates/node-config";
 import type { NodeRunStatus } from "../../../../constants/flow";
+import { RunSupersededError } from "../../errors/run-superseded-error";
 
 /** A role in the SDLC builtin chain (plan → build → review → resolve). */
 export type ChainRole = "plan" | "build" | "review" | "resolve";
@@ -302,8 +303,11 @@ export abstract class NodeDefinition<I = unknown, O extends Record<string, unkno
    * A recovered finish therefore persists byte-identical node/artifact rows
    * to a normal finish — only the event message carries the recovery note.
    */
-  protected applyOutcome(ctx: FlowCtx, outcome: RunOutcome, opts?: { note?: string }): RunOutcome {
+  protected applyOutcome(ctx: FlowCtx, outcome: RunOutcome, opts?: { note?: string; fenceSuperseded?: boolean }): RunOutcome {
     const node = this.node(ctx);
+    if (opts?.fenceSuperseded && node.status !== "running") {
+      throw new RunSupersededError(node.id, node.status, "applyOutcome");
+    }
     if (outcome.artifact) {
       this.support.saveArtifact(node.id, ctx.flow.id, outcome.artifact.kind, outcome.artifact.content, outcome.artifact.meta);
     }

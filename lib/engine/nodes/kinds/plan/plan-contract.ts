@@ -6,6 +6,7 @@ import { planSteps } from '../../../runtime/plan-step-store';
 import { TemplateRenderer, type FlowCtx, type RunOutcome } from '../../shared';
 import { AGENT_OUTPUT_ERROR, AgentOutputError } from '../../shared/agent/output-error';
 import type { AgentRunner } from '../../../harness';
+import { RunSupersededError } from '../../../errors/run-superseded-error';
 import type { NodeSupport } from '../../shared/node-support';
 import type { NodeRow } from '../../../../db/rows';
 import { extractJson } from '../agent/json-schema-lite';
@@ -249,20 +250,28 @@ export class PlanOutputContract {
       node.id,
       `${args.label} output contract failed — retrying with feedback (${failure.code})`
     );
-    const retry = await this.runner.executeRun(
-      ctx,
-      node.id,
-      () =>
-        this.runner.startAgent(ctx, {
-          prompt: this.turnRetryPrompt(failure, turnKind),
-          mode: 'plan',
-          name: `${args.label} ${ctx.task.key}`,
-          followUpOn: this.support.lastAgentId(node.id),
-          model: args.model,
-          settingSources: args.settingSources,
-        }),
-      `${args.label} retry`
-    );
+    let retry: AgentRunResult;
+    try {
+      retry = await this.runner.executeRun(
+        ctx,
+        node.id,
+        () =>
+          this.runner.startAgent(ctx, {
+            prompt: this.turnRetryPrompt(failure, turnKind),
+            mode: 'plan',
+            name: `${args.label} ${ctx.task.key}`,
+            followUpOn: this.support.lastAgentId(node.id),
+            model: args.model,
+            settingSources: args.settingSources,
+          }),
+        `${args.label} retry`
+      );
+    } catch (e) {
+      if (e instanceof RunSupersededError) {
+        return { reply: '', outcome: null };
+      }
+      throw e;
+    }
     try {
       return this.applyTurnResult(ctx, node, turnKind, userMessage, retry.result ?? '', scoped);
     } catch (e: unknown) {

@@ -5,6 +5,7 @@ import type { NodeRow } from "../../../../db/rows";
 import { gitHostRegistry, type HostJob } from "../../../ports/git-host";
 import { prompts } from "../../../prompts/prompt-library";
 import { AgentRunNode, nodeRoles, type FlowCtx, type NodePromptPreview, type PromptPreviewParams, type RunOutcome } from "../../shared";
+import { RunSupersededError } from "../../../errors/run-superseded-error";
 import type { NodeCapabilities } from "../../shared/capabilities";
 import { NODE_KEYS } from "../../../constants/node-keys";
 import type { ConfigField } from "../../../templates/node-config";
@@ -598,19 +599,25 @@ export class PipelineNode extends AgentRunNode<
       { pipelineId, attempt },
     );
 
-    const result = await this.runner.executeRun(
-      ctx,
-      node.id,
-      () =>
-        this.runner.startAgent(ctx, {
-          prompt,
-          mode: "agent",
-          name: `${label} fix ${ctx.task.key}`,
-          startingRef: mrBranch ?? undefined,
-          model: input.model,
-        }),
-      `${label} fix`,
-    );
+    let result: Awaited<ReturnType<typeof this.runner.executeRun>>;
+    try {
+      result = await this.runner.executeRun(
+        ctx,
+        node.id,
+        () =>
+          this.runner.startAgent(ctx, {
+            prompt,
+            mode: "agent",
+            name: `${label} fix ${ctx.task.key}`,
+            startingRef: mrBranch ?? undefined,
+            model: input.model,
+          }),
+        `${label} fix`,
+      );
+    } catch (e) {
+      if (e instanceof RunSupersededError) return;
+      throw e;
+    }
 
     this.support.saveArtifact(
       node.id,

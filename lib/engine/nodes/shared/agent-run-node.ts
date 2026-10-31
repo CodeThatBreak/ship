@@ -5,6 +5,8 @@ import { agentRunner, type AgentRunner, type AgentStartInput } from "../../harne
 import { flowCtxHelper, type FlowContextHelper, type FlowCtx } from "./run-context";
 import { nodeSupport, type NodeSupport } from "./node-support";
 import { NodeDefinition, type RunOutcome } from "./node-definition";
+import type { NodeRunStatus } from "../../../../constants/flow";
+import { RunSupersededError } from "../../errors/run-superseded-error";
 
 /**
  * The middle tier of the node family (§T4b): a run here goes through the
@@ -102,6 +104,7 @@ export abstract class AgentRunNode<
           followUpOn: agentId,
         }),
       `${this.label} chat`,
+      { ownsNodeStatus: false },
     );
     return result.result ?? "Done.";
   }
@@ -131,8 +134,27 @@ export abstract class AgentRunNode<
     });
     const start = () =>
       this.runner.startAgent(ctx, { ...opts.agent, prompt: opts.prompt, nodeId: node.id });
-    const result = await this.runner.executeRun(ctx, node.id, start, opts.label);
-    const outcome = await opts.finalize(result);
-    return this.applyOutcome(ctx, outcome);
+    try {
+      const result = await this.runner.executeRun(ctx, node.id, start, opts.label);
+      const outcome = await opts.finalize(result);
+      return this.applyOutcome(ctx, outcome, { fenceSuperseded: true });
+    } catch (e) {
+      if (e instanceof RunSupersededError) {
+        return this.supersededOutcome(ctx, opts.label);
+      }
+      throw e;
+    }
+  }
+
+  private supersededOutcome(ctx: FlowCtx, label: string): RunOutcome {
+    const current = this.node(ctx);
+    const output =
+      current.output && typeof current.output === "object" ? current.output : {};
+    return {
+      status: current.status as NodeRunStatus,
+      output,
+      event: `${label} superseded`,
+      reply: "",
+    };
   }
 }

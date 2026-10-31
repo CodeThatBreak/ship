@@ -87,7 +87,9 @@ export class PricingSource {
   private async fetchTable(): Promise<Record<string, PricingEntry> | null> {
     let json: unknown;
     try {
-      const res = await fetch(PricingSource.SOURCE_URL);
+      const res = await fetch(PricingSource.SOURCE_URL, {
+        signal: AbortSignal.timeout(15_000),
+      });
       if (!res.ok) return null;
       json = await res.json();
     } catch {

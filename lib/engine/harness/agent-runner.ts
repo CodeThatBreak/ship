@@ -16,6 +16,12 @@ import { nodeSupport, type NodeSupport } from "../nodes/shared/node-support";
 import { StreamBuffer } from "./stream-buffer";
 import { ToolPairer, type ToolEmitFn } from "./tool-pairer";
 import { usageTracker, type RunCostSummary, type UsageTracker } from "./usage-tracker";
+import { RunSupersededError } from "../errors/run-superseded-error";
+
+export interface ExecuteRunOptions {
+  /** When false, skip the late-write guard (chat-only turns that do not own node status). */
+  ownsNodeStatus?: boolean;
+}
 
 // ── agent run machinery ──────────────────────────────────────────────────────
 export interface Started {
@@ -109,7 +115,8 @@ export class AgentRunner {
     ctx: FlowCtx,
     nodeId: string,
     start: () => Promise<Started>,
-    label: string
+    label: string,
+    options?: ExecuteRunOptions,
   ): Promise<AgentRunResult> {
     const { flow } = ctx;
     const mode = this.ctxHelper.execMode(ctx);
@@ -118,6 +125,8 @@ export class AgentRunner {
     const { agentId, runId } = await start();
     this.support.persistRun(flow.id, nodeId, agentId, runId);
     const runRowId = db.get<{ id: string }>(`SELECT id FROM runs WHERE run_ref=?`, runId)?.id as string;
+    const nodeAtStart = db.get<{ status: string }>(`SELECT status FROM nodes WHERE id=?`, nodeId);
+    const startedWhileRunning = nodeAtStart?.status === "running";
     db.emitEvent(flow.id, nodeId, "lifecycle", `${label} started (${mode})`, { agentId, runId, run_id: runId, mode });
 
     const stream = new StreamBuffer(flow.id, nodeId, runId);
@@ -130,8 +139,9 @@ export class AgentRunner {
       });
     const pairTool = new ToolPairer(emitTool);
 
-    let result: AgentRunResult;
+    let result: AgentRunResult | undefined;
     let costSummary: RunCostSummary = {};
+    let streamError: unknown;
     // One streaming path for both runtimes (each port streams its own runtime
     // to completion): the runtime emits the same normalized SDKMessage events
     // whether the agent runs locally or in a cloud VM. Tool events go through
@@ -141,25 +151,48 @@ export class AgentRunner {
       onStatus: (s: string) => db.emitEvent(flow.id, nodeId, "status", `run ${s}`, { run_id: runId }),
       onAssistant: (t: string) => stream.push("assistant", t),
       onThinking: (t: string) => stream.push("thinking", t),
-      onTool: (name: string, status: string, args: unknown, callId: string | undefined, extra: { result?: unknown } | undefined) =>
-        port.execMode === "local"
+      onTool: (name: string, status: string, args: unknown, callId: string | undefined, extra: { result?: unknown } | undefined) => {
+        stream.flushBeforeTool();
+        return port.execMode === "local"
           ? pairTool.handle(name, status, args, callId, extra)
           : emitTool(name, status, callId ?? `${name}_${Date.now().toString(36)}`, args,
-              extra?.result == null ? undefined : typeof extra.result === "string" ? extra.result : JSON.stringify(extra.result)),
+              extra?.result == null ? undefined : typeof extra.result === "string" ? extra.result : JSON.stringify(extra.result));
+      },
     };
     try {
-      const out = await port.stream({ agentId, runId }, callbacks);
-      result = out.result;
-      if (out.sessionId) this.support.setRunAgentId(runId, out.sessionId);
-      costSummary = await this.usage.captureRunUsage({
-        runRowId,
-        result,
-        runId,
-        port,
-        cloudAgentId: port.execMode === "cloud" ? agentId : undefined,
-      });
+      try {
+        const out = await port.stream({ agentId, runId }, callbacks);
+        result = out.result;
+        if (out.sessionId) this.support.setRunAgentId(runId, out.sessionId);
+        try {
+          costSummary = await this.usage.captureRunUsage({
+            runRowId,
+            result,
+            runId,
+            port,
+            cloudAgentId: port.execMode === "cloud" ? agentId : undefined,
+          });
+        } catch (usageErr) {
+          console.error("[agent-runner] usage capture failed", usageErr);
+        }
+      } catch (e) {
+        streamError = e;
+      } finally {
+        stream.flushAll();
+      }
     } finally {
-      stream.flushAll();
+      const runRowStatus = result?.status === "finished" ? "finished" : "error";
+      db.run(
+        `UPDATE runs SET status=?, updated_at=? WHERE run_ref=?`,
+        runRowStatus,
+        db.now(),
+        runId,
+      );
+    }
+
+    if (streamError) throw streamError;
+    if (!result) {
+      throw new Error(`${label} ended without a result`);
     }
 
     const durationMs = costSummary.durationMs ?? result.durationMs ?? Date.now() - startedAt;
@@ -167,26 +200,26 @@ export class AgentRunner {
       this.usage.persistUsage(runRowId, { durationMs });
     }
 
-    db.run(`UPDATE runs SET status=?, updated_at=? WHERE run_ref=?`,
-      result.status === "finished" ? "finished" : "error", db.now(), runId);
-
-    // Late-write guard: if the node was already moved out of `running` while
-    // this run was in flight (reconcile failed it, user cancelled/retried),
-    // don't let the run's completion resurrect the node or stamp a duplicate
-    // artifact on top of the newer attempt. The run row is closed above; the
-    // event explains why nothing else changed.
-    const nodeNow = db.get<{ status: string }>(`SELECT status FROM nodes WHERE id=?`, nodeId);
-    if (nodeNow?.status !== "running") {
-      db.emitEvent(flow.id, nodeId, "lifecycle",
-        `${label} result arrived after the node was already ${nodeNow?.status ?? "unknown"} — ignoring`,
-        { run_id: runId });
-      return result;
-    }
-
     if (result.status !== "finished") {
       db.emitEvent(flow.id, nodeId, "error", `${label} ended with ${result.status}`, { run_id: runId });
       throw new Error(`${label} ended with status ${result.status}`);
     }
+
+    const ownsNodeStatus = options?.ownsNodeStatus !== false;
+    if (ownsNodeStatus && startedWhileRunning) {
+      const nodeNow = db.get<{ status: string }>(`SELECT status FROM nodes WHERE id=?`, nodeId);
+      if (nodeNow?.status !== "running") {
+        db.emitEvent(
+          flow.id,
+          nodeId,
+          "lifecycle",
+          `${label} result arrived after the node was already ${nodeNow?.status ?? "unknown"} — ignoring`,
+          { run_id: runId },
+        );
+        throw new RunSupersededError(nodeId, nodeNow?.status ?? "unknown", runId);
+      }
+    }
+
     db.emitEvent(flow.id, nodeId, "lifecycle", `${label} finished`, {
       run_id: runId,
       durationMs,
