@@ -34,15 +34,14 @@ export default function FlowCockpit({
   // the hydrated payload is authoritative immediately; a refetch failure keeps
   // the last synced state on screen (§2.8 — banner below, not a blank page)
   const flow: FlowData = flowQuery.data ?? initialFlow;
-  const events = useFlowEvents(flowId);
+  const { events, caughtUp } = useFlowEvents(flowId);
 
-  // a new event batch = state a flow refetch hasn't seen yet — refresh it once
-  // per batch (the old page called loadFlow() straight from the poll loop)
+  // New events after the tail snapshot — refresh flow detail once per new tail id (CR-119).
   const lastEventId = events.at(-1)?.id;
   useEffect(() => {
-    if (lastEventId === undefined) return;
+    if (!caughtUp || lastEventId === undefined) return;
     void queryClient.invalidateQueries({ queryKey: queryKeys.flows.detail(flowId) });
-  }, [queryClient, flowId, lastEventId]);
+  }, [queryClient, flowId, caughtUp, lastEventId]);
 
   // default selection = the first node in graph order (the flow's entry) —
   // nodes arrive pre-sorted; the user picks from there

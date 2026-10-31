@@ -15,7 +15,7 @@ Each finding was re-verified against `refactor/prompt-engine-inconsistency-fix` 
 
 ### CR-026 [High] Event stream replays the cached batch and refetches from cursor "" on remount, so events are duplicated or out of order
 
-- **Status:** Open
+- **Status:** Fixed (Task 30)
 - **Type:** Bug
 - **Effort:** M
 - **Where:** components/flows/cockpit/hooks/use-flow-events.ts:20-46; components/chat/ChatFeed.tsx (e${ev.id} keys)
@@ -23,7 +23,7 @@ Each finding was re-verified against `refactor/prompt-engine-inconsistency-fix` 
 
 ### CR-119 [Medium] Initial event history loads oldest-first, 200 per 3 s poll, and each page invalidates the flow snapshot
 
-- **Status:** Open
+- **Status:** Fixed (Task 30)
 - **Type:** Bug
 - **Effort:** M
 - **Where:** components/flows/cockpit/hooks/use-flow-events.ts:25-43, components/flows/cockpit/FlowCockpit.tsx:41-45, app/api/flows/[id]/events/route.ts:13-18
@@ -32,7 +32,7 @@ Each finding was re-verified against `refactor/prompt-engine-inconsistency-fix` 
 
 ### CR-108 [Medium] Event ids are not monotonic within a millisecond, so the events cursor (`id > after`) can silently skip events
 
-- **Status:** Open
+- **Status:** Fixed (Task 30)
 - **Type:** Bug
 - **Effort:** S
 - **Where:** lib/db/index.ts:853-855, app/api/flows/[id]/events/route.ts:13-18
@@ -40,8 +40,8 @@ Each finding was re-verified against `refactor/prompt-engine-inconsistency-fix` 
 
 ## Done when
 
-- [ ] Every finding above is fixed, or a remaining part is written up in the PR description.
-- [ ] Each bug fix has a regression test (Vitest for `lib/`; at least a hook or utility test for UI where practical).
-- [ ] Code follows [`docs/coding-patterns.md`](../coding-patterns.md).
-- [ ] `npm run typecheck`, `npm run lint`, `npm test` and `npm run build` pass (before Task 02 lands, `npx tsc --noEmit` instead of `typecheck`).
-- [ ] The status of each finding in [`docs/code-review.md`](../code-review.md) is updated (Fixed, with the PR link).
+- [x] Every finding above is fixed, or a remaining part is written up in the PR description.
+- [x] Each bug fix has a regression test (Vitest for `lib/`; at least a hook or utility test for UI where practical).
+- [x] Code follows [`docs/coding-patterns.md`](../coding-patterns.md).
+- [x] `npm run typecheck`, `npm run lint`, `npm test` and `npm run build` pass (before Task 02 lands, `npx tsc --noEmit` instead of `typecheck`).
+- [x] The status of each finding in [`docs/code-review.md`](../code-review.md) is updated (Fixed, with the PR link).

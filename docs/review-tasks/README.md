@@ -69,7 +69,7 @@ Open and partly fixed findings: 262, spread over 61 tasks.
 | [ ] | 27 | [Plan checklist edits keep step identity and order](27-plan-checklist-integrity.md) | CR-013, CR-192, CR-097, CR-090, CR-084 | M | 12, 01 |
 | [ ] | 28 | [Prompt preview matches the prompt that is sent](28-prompt-preview-parity.md) | CR-004, CR-049 | S | 05 |
 | [ ] | 29 | [Webhook delivery reliability](29-webhook-reliability.md) | CR-043, CR-044 | S | 09 |
-| [ ] | 30 | [Event feed ordering, cursor and tail loading](30-events-feed.md) | CR-026, CR-119, CR-108 | M | 13 |
+| [x] | 30 | [Event feed ordering, cursor and tail loading](30-events-feed.md) | CR-026, CR-119, CR-108 | M | 13 |
 | [ ] | 31 | [GitLab and Jira clients: timeouts, paging, typed errors](31-git-host-clients.md) (needs approval) | CR-025, CR-098, CR-099, CR-225, CR-219, CR-220, CR-198 | L | 09 |
 | [ ] | 32 | [Agent port reliability (Cursor SDK and local agent)](32-agent-ports.md) | CR-109, CR-110, CR-111, CR-223, CR-101, CR-102 | M | 09 |
 | [ ] | 33 | [Git wrappers, worktree setup and process lifetime](33-git-and-worktree-process-safety.md) | CR-103, CR-104, CR-214, CR-215, CR-218, CR-222, CR-224, CR-073 | M | 20 |

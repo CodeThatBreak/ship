@@ -34,6 +34,9 @@ export interface Repo {
  */
 export class Database {
   private conn: SqliteDatabase.Database | null = null;
+  /** Same-millisecond counter so event ids sort lexicographically in emit order. */
+  private uidLastMs = 0;
+  private uidSeqInMs = 0;
 
   /** Run synchronous writes in one SQLite transaction. */
   transaction<T>(fn: () => T): T {
@@ -381,7 +384,15 @@ export class Database {
   }
 
   uid(prefix = ""): string {
-    return prefix + Date.now().toString(36) + Math.random().toString(36).slice(2, 9);
+    const ms = Date.now();
+    if (ms !== this.uidLastMs) {
+      this.uidLastMs = ms;
+      this.uidSeqInMs = 0;
+    }
+    const seq = this.uidSeqInMs++;
+    const seqPart = seq.toString(36).padStart(4, "0");
+    const entropy = Math.random().toString(36).slice(2, 6);
+    return `${prefix}${ms.toString(36)}${seqPart}${entropy}`;
   }
 
   // ── typed row helpers ────────────────────────────────────────────────────
@@ -426,6 +437,16 @@ export class Database {
       after,
       limit,
     );
+  }
+
+  /** Newest `limit` events for a flow, returned oldest-first for the feed. */
+  listEventsTail(flowId: string, limit: number) {
+    const rows = this.all<Record<string, unknown>>(
+      `SELECT * FROM events WHERE flow_id=? ORDER BY created_at DESC, id DESC LIMIT ?`,
+      flowId,
+      limit,
+    );
+    return rows.reverse();
   }
 
   emitEvent(

@@ -78,6 +78,44 @@ describe("Database bootstrap", () => {
     expect(() => instance.connection()).toThrow(DatabaseMigrationError);
   });
 
+  it("uid() is strictly increasing within the same mocked millisecond", async () => {
+    const dbPath = mkDbPath();
+    process.env.DATABASE_PATH = dbPath;
+    const { db } = await import("./index");
+    const ms = 1_700_000_000_000;
+    vi.spyOn(Date, "now").mockImplementation(() => ms);
+    const ids = [db.uid("ev_"), db.uid("ev_"), db.uid("ev_")];
+    expect(ids[0] < ids[1] && ids[1] < ids[2]).toBe(true);
+  });
+
+  it("listEvents pages with id > after and listEventsTail returns newest window", async () => {
+    const dbPath = mkDbPath();
+    process.env.DATABASE_PATH = dbPath;
+    const { db } = await import("./index");
+    db.connection();
+    db.run(
+      `INSERT INTO tasks (id,type,fields,key,summary) VALUES ('t_ev','jira','{}','K-ev','s')`,
+    );
+    db.run(
+      `INSERT INTO flows (id,task_id,name,status,created_at,updated_at) VALUES ('flw_ev','t_ev','n','active',datetime('now'),datetime('now'))`,
+    );
+    const ts = "2026-01-01T00:00:00.000Z";
+    db.run(
+      `INSERT INTO events (id,flow_id,node_id,type,message,data,created_at) VALUES (?,?,NULL,'s','a',NULL,?)`,
+      "ev_a",
+      "flw_ev",
+      ts,
+    );
+    db.run(
+      `INSERT INTO events (id,flow_id,node_id,type,message,data,created_at) VALUES (?,?,NULL,'s','b',NULL,?)`,
+      "ev_b",
+      "flw_ev",
+      ts,
+    );
+    expect(db.listEvents("flw_ev", "ev_a", 10).map((r) => r.id)).toEqual(["ev_b"]);
+    expect(db.listEventsTail("flw_ev", 1).map((r) => r.id)).toEqual(["ev_b"]);
+  });
+
   it("addMessage stores messages.thread from the canonical schema", async () => {
     const dbPath = mkDbPath();
     process.env.DATABASE_PATH = dbPath;
