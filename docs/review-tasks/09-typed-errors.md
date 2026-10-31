@@ -15,7 +15,7 @@ Each finding was re-verified against `refactor/prompt-engine-inconsistency-fix` 
 
 ### CR-046 [Medium] No typed error classes: the engine throws bare `Error`, so routes map almost everything to 400 (or leak an unhandled 500)
 
-- **Status:** Open
+- **Status:** Fixed (Task 09 — `lib/errors.ts`, `toErrorResponse`, engine/route adoption)
 - **Type:** Code quality
 - **Effort:** M
 - **Where:** app/api/flows/[id]/action/route.ts:124-130, app/api/flows/[id]/chat/route.ts:27-29, app/api/templates/[id]/route.ts:72-77,132-134, app/api/hooks/[id]/route.ts:77-79, app/api/host-instances/[host]/[id]/route.ts:6-36, app/api/settings/route.ts, app/api/webhooks/gitlab/route.ts, lib/engine/flow-engine.ts:548,574,1667, lib/integrations/gitlab/git-host.ts:223,238
@@ -23,8 +23,8 @@ Each finding was re-verified against `refactor/prompt-engine-inconsistency-fix` 
 
 ## Done when
 
-- [ ] Every finding above is fixed, or a remaining part is written up in the PR description.
-- [ ] Each bug fix has a regression test (Vitest for `lib/`; at least a hook or utility test for UI where practical).
-- [ ] Code follows [`docs/coding-patterns.md`](../coding-patterns.md).
-- [ ] `npm run typecheck`, `npm run lint`, `npm test` and `npm run build` pass (before Task 02 lands, `npx tsc --noEmit` instead of `typecheck`).
-- [ ] The status of each finding in [`docs/code-review.md`](../code-review.md) is updated (Fixed, with the PR link).
+- [x] Every finding above is fixed, or a remaining part is written up in the PR description.
+- [x] Each bug fix has a regression test (Vitest for `lib/`; at least a hook or utility test for UI where practical).
+- [x] Code follows [`docs/coding-patterns.md`](../coding-patterns.md).
+- [x] `npm run typecheck`, `npm run lint`, `npm test` and `npm run build` pass (before Task 02 lands, `npx tsc --noEmit` instead of `typecheck`).
+- [x] The status of each finding in [`docs/code-review.md`](../code-review.md) is updated (Fixed, with the PR link).

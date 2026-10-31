@@ -1,3 +1,4 @@
+import { toErrorResponse } from "@/lib/errors";
 import { NextResponse } from "next/server";
 import { flowEngine } from "../../../lib/engine/flow-engine";
 import { flowPoller } from "../../../lib/engine/runtime/flow-poller";
@@ -20,6 +21,6 @@ export async function POST(req: Request) {
     const id = flowEngine.create(taskId, repoUrl ?? "", name, { executionMode, repoId, templateId });
     return NextResponse.json({ id });
   } catch (e: unknown) {
-    return NextResponse.json({ error: e instanceof Error ? e.message : String(e) }, { status: 400 });
+    return toErrorResponse(e);
   }
 }

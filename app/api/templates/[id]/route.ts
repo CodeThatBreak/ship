@@ -1,3 +1,4 @@
+import { toErrorResponse } from "@/lib/errors";
 import { NextResponse } from "next/server";
 import { templateStore, type TemplateInput, type TemplateNodeInput, type TemplateEdgeInput } from "../../../../lib/engine/templates/template-store";
 
@@ -74,7 +75,7 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
     for (const rowId of createdRows) {
       try { templateStore.deleteNodeTemplate(rowId); } catch { /* keep rolling back */ }
     }
-    return NextResponse.json({ error: e instanceof Error ? e.message : String(e) }, { status: 400 });
+    return toErrorResponse(e);
   }
 }
 
@@ -131,6 +132,6 @@ export async function DELETE(_req: Request, { params }: { params: Promise<{ id: 
     templateStore.delete(id);
     return NextResponse.json({ ok: true });
   } catch (e: unknown) {
-    return NextResponse.json({ error: e instanceof Error ? e.message : String(e) }, { status: 400 });
+    return toErrorResponse(e);
   }
 }

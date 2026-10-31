@@ -23,6 +23,7 @@ process.env.DATABASE_PATH = path.join(
 
 const { db } = await import("../db");
 const { FlowEngine } = await import("./flow-engine");
+const { ERROR_CODE } = await import("../errors");
 const { NODE_KEYS } = await import("./constants/node-keys");
 const { templateStore } = await import("./templates/template-store");
 
@@ -62,6 +63,14 @@ describe("engine chain-role routing (T3)", () => {
     const expected = templateStore.waitNodeKey(flowId, NODE_KEYS.PIPELINE);
     expect(expected).not.toBeNull(); // the seeded SDLC template has a gate
     expect(engine.gateKey(flowId)).toBe(expected);
+  });
+
+  it("delete throws NotFoundError when the flow id is missing", async () => {
+    await expect(engine.delete("flw_missing")).rejects.toMatchObject({
+      status: 404,
+      code: ERROR_CODE.NOT_FOUND,
+      message: "flow flw_missing not found",
+    });
   });
 
   it("plan and build approvals belong to their built-in flow actions (the flag, not the key)", () => {

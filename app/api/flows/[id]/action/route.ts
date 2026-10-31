@@ -1,3 +1,4 @@
+import { toErrorResponse } from '@/lib/errors';
 import { NextResponse } from 'next/server';
 import { z } from 'zod';
 import { flowEngine } from '../../../../../lib/engine/flow-engine';
@@ -123,10 +124,6 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
     await fn(id, body);
     return NextResponse.json({ ok: true });
   } catch (e: unknown) {
-    const httpStatus =
-      e instanceof Error && typeof (e as Error & { httpStatus?: number }).httpStatus === 'number'
-        ? (e as Error & { httpStatus: number }).httpStatus
-        : 400;
-    return NextResponse.json({ error: e instanceof Error ? e.message : String(e) }, { status: httpStatus });
+    return toErrorResponse(e);
   }
 }

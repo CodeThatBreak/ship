@@ -23,6 +23,7 @@ import {
   NODE_TRIGGER_TYPES,
   WAIT_FOR_SOURCES,
 } from "../constants/triggers";
+import { ConflictError, NotFoundError, ValidationError } from "../../errors";
 import type {
   TemplateEdgeInput,
   TemplateEdgeSpec,
@@ -338,9 +339,9 @@ export class TemplateStore {
   /** Copy a template — id/name regenerated, node instances + edges cloned. */
   duplicate(templateId: string, name?: string): string {
     const src = this.flowTemplate(templateId);
-    if (!src) throw new Error("template not found");
+    if (!src) throw new NotFoundError("template", templateId);
     const graph = this.graph(templateId);
-    if (!graph) throw new Error("template not found");
+    if (!graph) throw new NotFoundError("template", templateId);
     // Source-local node templates (the canvas creator's rows, scoped to the
     // source): the copy gets fresh local rows of its own — same name / kind /
     // icon / description / config, new id — and the copied nodes remap to
@@ -412,7 +413,7 @@ export class TemplateStore {
    * affected by template edits.
    */
   update(templateId: string, patch: Partial<TemplateInput>): void {
-    if (!this.flowTemplate(templateId)) throw new Error("template not found");
+    if (!this.flowTemplate(templateId)) throw new NotFoundError("template", templateId);
     this.assertEditable(templateId);
     if (patch.name !== undefined || patch.description !== undefined || patch.trigger !== undefined) {
       const cur = this.flowTemplate(templateId)!;
@@ -431,7 +432,7 @@ export class TemplateStore {
       this.assertNotRunning(templateId);
       this.writeNodesAndEdges(templateId, nodes, edges, { replace: true });
     } else if (patch.nodes !== undefined || patch.edges !== undefined) {
-      throw new Error("nodes and edges must be replaced together");
+      throw new ValidationError("nodes and edges must be replaced together");
     }
     // flow-trigger side data — the template's inbound hook (always) and the
     // schedule timer (schedule trigger) — whenever the trigger was touched
@@ -446,7 +447,9 @@ export class TemplateStore {
     const used = db.get<{ c: number }>(
       `SELECT COUNT(*) c FROM flows WHERE template_id=?`, templateId)?.c ?? 0;
     if (used > 0) {
-      throw new Error(`this template is used by ${used} flow${used > 1 ? "s" : ""} — delete the flows first`);
+      throw new ConflictError(
+        `this template is used by ${used} flow${used > 1 ? "s" : ""} — delete the flows first`,
+      );
     }
     hookStore.removeTemplate(templateId);
     db.run(`DELETE FROM flow_template_nodes WHERE template_id=?`, templateId);
@@ -474,8 +477,10 @@ export class TemplateStore {
   /** Built-in seeded templates (the SDLC loop) can be duplicated, not edited. */
   assertEditable(templateId: string): void {
     const t = this.flowTemplate(templateId);
-    if (!t) throw new Error("template not found");
-    if (t.is_builtin) throw new Error("the built-in template is read-only — duplicate it to make changes");
+    if (!t) throw new NotFoundError("template", templateId);
+    if (t.is_builtin) {
+      throw new ValidationError("the built-in template is read-only — duplicate it to make changes");
+    }
   }
 
   /**
@@ -499,7 +504,9 @@ export class TemplateStore {
     const active = db.get<{ c: number }>(
       `SELECT COUNT(*) c FROM flows WHERE template_id=? AND status='active'`, templateId)?.c ?? 0;
     if (active > 0) {
-      throw new Error(`${active} flow${active > 1 ? "s are" : " is"} active on this template — cancel/finish them before restructuring`);
+      throw new ConflictError(
+        `${active} flow${active > 1 ? "s are" : " is"} active on this template — cancel/finish them before restructuring`,
+      );
     }
   }
 
@@ -510,7 +517,7 @@ export class TemplateStore {
    * arrangement while a flow runs cannot change what that flow does.
    */
   updatePositions(templateId: string, positions: Record<string, { x: number; y: number }>): void {
-    if (!this.flowTemplate(templateId)) throw new Error("template not found");
+    if (!this.flowTemplate(templateId)) throw new NotFoundError("template", templateId);
     this.assertEditable(templateId);
     const entries = Object.entries(positions).filter(
       (kv) => kv[0] && Number.isFinite(kv[1]?.x) && Number.isFinite(kv[1]?.y),

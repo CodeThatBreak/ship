@@ -1,3 +1,4 @@
+import { toErrorResponse } from "@/lib/errors";
 import { NextResponse } from "next/server";
 import { flowEngine } from "../../../../lib/engine/flow-engine";
 import { flowPoller } from "../../../../lib/engine/runtime/flow-poller";
@@ -24,6 +25,6 @@ export async function DELETE(_req: Request, { params }: { params: Promise<{ id: 
     await flowEngine.delete(id);
     return NextResponse.json({ ok: true });
   } catch (e: unknown) {
-    return NextResponse.json({ error: e instanceof Error ? e.message : String(e) }, { status: 400 });
+    return toErrorResponse(e);
   }
 }

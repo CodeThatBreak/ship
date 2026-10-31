@@ -1,3 +1,4 @@
+import { toErrorResponse } from "@/lib/errors";
 import { NextResponse } from "next/server";
 import { templateStore } from "../../../../lib/engine/templates/template-store";
 import { invalidateDeclarativeDef } from "../../../../lib/engine/nodes/declarative";
@@ -28,7 +29,7 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
     invalidateDeclarativeDef(id); // running flows snapshot config — only cached defs refresh
     return NextResponse.json({ nodeTemplate: { ...nt, is_builtin: Boolean(nt.is_builtin) } });
   } catch (e: unknown) {
-    return NextResponse.json({ error: e instanceof Error ? e.message : String(e) }, { status: 400 });
+    return toErrorResponse(e);
   }
 }
 
@@ -39,6 +40,6 @@ export async function DELETE(_req: Request, { params }: { params: Promise<{ id: 
     invalidateDeclarativeDef(id);
     return NextResponse.json({ ok: true });
   } catch (e: unknown) {
-    return NextResponse.json({ error: e instanceof Error ? e.message : String(e) }, { status: 400 });
+    return toErrorResponse(e);
   }
 }

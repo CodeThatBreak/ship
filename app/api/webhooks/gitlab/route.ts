@@ -1,3 +1,4 @@
+import { toErrorResponse } from "@/lib/errors";
 import { NextResponse } from "next/server";
 import { gitHostRegistry } from "../../../../lib/engine/ports/git-host";
 import { flowEngine } from "../../../../lib/engine/flow-engine";
@@ -23,6 +24,7 @@ export const runtime = "nodejs";
  * (comment ingest + quiet-period resolve, pipeline re-gate) off the event.
  */
 export async function POST(req: Request) {
+  try {
   const host = gitHostRegistry.maybe("gitlab");
   if (!host) return NextResponse.json({ error: "no gitlab host registered" }, { status: 500 });
   const payload = await req.json();
@@ -74,4 +76,7 @@ export async function POST(req: Request) {
     }
   }
   return NextResponse.json({ ok: true });
+  } catch (e: unknown) {
+    return toErrorResponse(e);
+  }
 }

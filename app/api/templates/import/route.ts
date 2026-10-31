@@ -1,3 +1,4 @@
+import { toErrorResponse } from "@/lib/errors";
 import { NextResponse } from "next/server";
 import { templateStore } from "../../../../lib/engine/templates/template-store";
 import { importTemplateYaml } from "../../../../lib/engine/templates/template-yaml";
@@ -17,6 +18,6 @@ export async function POST(req: Request) {
     const created = importTemplateYaml(templateStore, text, { namePrefix: body?.namePrefix });
     return NextResponse.json(created);
   } catch (e: unknown) {
-    return NextResponse.json({ error: e instanceof Error ? e.message : String(e) }, { status: 400 });
+    return toErrorResponse(e);
   }
 }

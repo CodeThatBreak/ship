@@ -1,3 +1,4 @@
+import { toErrorResponse } from "@/lib/errors";
 import { NextResponse } from "next/server";
 import { db } from "../../../lib/db";
 import { agentPortRegistry } from "../../../lib/engine/ports/agent-port";
@@ -103,7 +104,8 @@ export async function GET() {
 }
 
 export async function PATCH(req: Request) {
-  const body = await req.json();
+  try {
+    const body = await req.json();
   // Cursor API key (write-only, like the secrets map): a non-empty value
   // replaces the stored key; an empty string deletes it. The value is never
   // returned by GET.
@@ -177,4 +179,7 @@ export async function PATCH(req: Request) {
     db.setSetting("http_allowlist", clean);
   }
   return NextResponse.json({ ok: true });
+  } catch (e: unknown) {
+    return toErrorResponse(e);
+  }
 }

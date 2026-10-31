@@ -34,6 +34,7 @@ import { worktreeManager } from "./runtime/worktree-lifecycle";
 import { processSingleton } from "../singleton";
 import { normalizePlanThread } from "./nodes/kinds/plan/constants/planThread";
 import { PlanStore } from "./nodes/kinds/plan/plan-store";
+import { ConflictError, NotFoundError, ValidationError } from "../errors";
 
 export interface CreateFlowOptions {
   executionMode?: "cloud" | "local";
@@ -97,25 +98,28 @@ export class FlowEngine {
 
   create(taskId: string, repoUrl: string, name?: string, opts: CreateFlowOptions = {}): string {
     const task = rows.get(Task, `SELECT * FROM tasks WHERE id=?`, taskId);
-    if (!task) throw new Error("task not found — import tasks first");
+    if (!task) throw new NotFoundError("task", taskId);
     const repo = opts.repoId ? db.repoById(opts.repoId) : undefined;
     if (repo) repoUrl = repo.cloud_url;
     const executionMode = opts.executionMode === "local" ? "local" : "cloud";
     if (executionMode === "local" && !repo?.local_path) {
-      throw new Error("Local mode requires a repo registered on the Settings page with a local path.");
+      throw new ValidationError(
+        "Local mode requires a repo registered on the Settings page with a local path.",
+      );
     }
     // snapshot the flow's node set from the template — running flows are never
     // mutated by later template edits
     const templateId = opts.templateId ?? SDLC_TEMPLATE_ID;
     const graph = templateStore.graph(templateId);
-    if (!graph) throw new Error(`unknown flow template: ${templateId}`);
+    if (!graph) throw new NotFoundError("flow template", templateId);
     // the template declares the task TYPE its flows run on (trigger.task_type,
     // Phase 3) — a manual start passing the picked task must match it
     const declaredType = typeof graph.flowTrigger.task_type === "string" ? graph.flowTrigger.task_type : null;
     if (declaredType && task.type !== declaredType) {
-      throw new Error(
+      throw new ValidationError(
         `task ${task.key} is a "${task.type}" task but template "${templateStore.flowTemplate(templateId)?.name ?? templateId}" ` +
-        `declares "${declaredType}" task context — pick a ${declaredType} task or change the template's task type`);
+        `declares "${declaredType}" task context — pick a ${declaredType} task or change the template's task type`,
+      );
     }
 
     const id = db.uid("flow_");
@@ -181,9 +185,9 @@ export class FlowEngine {
     opts: { branch: string | null }
   ): string {
     const parent = rows.get(FlowRow, `SELECT * FROM flows WHERE id=?`, parentFlowId);
-    if (!parent) throw new Error(`parent flow ${parentFlowId} not found`);
+    if (!parent) throw new NotFoundError("flow", parentFlowId);
     const graph = templateStore.graph(templateId);
-    if (!graph) throw new Error(`unknown flow template: ${templateId}`);
+    if (!graph) throw new NotFoundError("flow template", templateId);
     // Phase 3C (§2): when the child template DECLARES a start contract, the
     // `{plan, step, siblings}` payload is validated against it exactly like a
     // webhook delivery (unknown fields rejected, missing required fields fail
@@ -251,9 +255,9 @@ export class FlowEngine {
     payload: SplitChildPayload,
   ): string {
     const parent = rows.get(FlowRow, `SELECT * FROM flows WHERE id=?`, parentFlowId);
-    if (!parent) throw new Error(`parent flow ${parentFlowId} not found`);
+    if (!parent) throw new NotFoundError("flow", parentFlowId);
     const graph = templateStore.graph(templateId);
-    if (!graph) throw new Error(`unknown flow template: ${templateId}`);
+    if (!graph) throw new NotFoundError("flow template", templateId);
     const id = db.uid("flow_");
     const ts = db.now();
     db.run(
@@ -546,7 +550,7 @@ export class FlowEngine {
    */
   async delete(id: string): Promise<void> {
     const flow = db.get<{ id: string }>(`SELECT id FROM flows WHERE id=?`, id);
-    if (!flow) throw new Error("flow not found");
+    if (!flow) throw new NotFoundError("flow", id);
     // "the whole flow" includes the step children — they are hidden from the
     // flow list and unreachable once the parent is gone. No deeper nesting
     // exists (step children never fan out again).
@@ -572,9 +576,9 @@ export class FlowEngine {
 
   ctx(flowId: string): FlowCtx {
     const flow = rows.get(FlowRow, `SELECT * FROM flows WHERE id=?`, flowId);
-    if (!flow) throw new Error("flow not found");
+    if (!flow) throw new NotFoundError("flow", flowId);
     const task = rows.get(Task, `SELECT * FROM tasks WHERE id=?`, flow.task_id);
-    if (!task) throw new Error("task not found");
+    if (!task) throw new NotFoundError("task", flow.task_id);
     const repo = flow.repo_id ? db.repoById(flow.repo_id) ?? null : null;
     return { flow, task, repo };
   }
@@ -1483,14 +1487,14 @@ export class FlowEngine {
   runNodeManual(flowId: string, nodeKey: string, opts: { prompt?: string; model?: string; input?: Record<string, unknown> } = {}): void {
     const def = this.defOf(flowId, nodeKey);
     if (def.chainRole === NODE_KEYS.PLAN) {
-      throw new Error('The plan node only accepts input via POST /api/flows/:id/chat');
+      throw new ValidationError('The plan node only accepts input via POST /api/flows/:id/chat');
     }
     const node = rows.get(NodeRow, `SELECT * FROM nodes WHERE flow_id=? AND node_key=?`, flowId, nodeKey);
-    if (!node) throw new Error("unknown node");
+    if (!node) throw new NotFoundError("node", nodeKey);
     // a failed entry node re-runs from the form — its recorded input never
     // satisfied the contract, so the retry path (recorded input) can't help
     if (node.status !== "pending" && !(node.status === "failed" && this.defOf(flowId, nodeKey).isEntry)) {
-      throw new Error(`run is not available while the node is ${node.status}`);
+      throw new ConflictError(`run is not available while the node is ${node.status}`);
     }
     this.setCurrentNode(flowId, nodeKey);
     this.bg(flowId, nodeKey, async () => {
@@ -1527,17 +1531,17 @@ export class FlowEngine {
    */
   approveNode(flowId: string, nodeKey: string): void {
     const node = rows.get(NodeRow, `SELECT * FROM nodes WHERE flow_id=? AND node_key=?`, flowId, nodeKey);
-    if (!node) throw new Error("unknown node");
+    if (!node) throw new NotFoundError("node", nodeKey);
     // step children route to the fan-out approve (merge-back vs plain approval)
     if (this.isStepChild(flowId) && node.status === "awaiting_approval") {
       stepFlows.approveChildStep(flowId);
       return;
     }
     if (node.status !== "awaiting_approval") {
-      throw new Error(`${nodeKey} is not awaiting approval`);
+      throw new ConflictError(`${nodeKey} is not awaiting approval`);
     }
     const def = this.defOf(flowId, nodeKey);
-    if (def.builtinApproval) throw new Error(`${nodeKey} approval belongs to its built-in flow actions`);
+    if (def.builtinApproval) throw new ValidationError(`${nodeKey} approval belongs to its built-in flow actions`);
     db.emitEvent(flowId, node.id, "lifecycle", `${nodeKey} approved`);
     this.setNodeStatus(flowId, nodeKey, "approved");
 
@@ -1567,9 +1571,9 @@ export class FlowEngine {
    */
   async chooseNode(flowId: string, nodeKey: string, chosen: string[], rationale?: string): Promise<void> {
     const node = rows.get(NodeRow, `SELECT * FROM nodes WHERE flow_id=? AND node_key=?`, flowId, nodeKey);
-    if (!node) throw new Error("unknown node");
+    if (!node) throw new NotFoundError("node", nodeKey);
     if (node.status !== "awaiting_approval") {
-      throw new Error(`${nodeKey} is not waiting for a branch choice`);
+      throw new ConflictError(`${nodeKey} is not waiting for a branch choice`);
     }
     const def = this.defOf(flowId, nodeKey);
     if (!("applyChoice" in def) || typeof (def as { applyChoice?: unknown }).applyChoice !== "function") {
@@ -1601,10 +1605,10 @@ export class FlowEngine {
   /** Update a node instance's config layer (nodes.config), merging per key. */
   setNodeConfig(flowId: string, nodeKey: string, config: Record<string, unknown>): void {
     const node = rows.get(NodeRow, `SELECT * FROM nodes WHERE flow_id=? AND node_key=?`, flowId, nodeKey);
-    if (!node) throw new Error("unknown node");
-    if (node.status === "running") throw new Error("can't reconfigure a node while it is running");
+    if (!node) throw new NotFoundError("node", nodeKey);
+    if (node.status === "running") throw new ConflictError("can't reconfigure a node while it is running");
     if (!config || typeof config !== "object" || Array.isArray(config)) {
-      throw new Error("config must be an object");
+      throw new ValidationError("config must be an object");
     }
     const merged = { ...(node.config ?? {}), ...config };
     nodeSupport.setNode(node.id, { config: JSON.stringify(merged) });
@@ -1658,17 +1662,21 @@ export class FlowEngine {
   /** Re-run a node after failure, using its recorded (schema-validated) input. */
   retryNode(flowId: string, nodeKey: string): void {
     const node = rows.get(NodeRow, `SELECT * FROM nodes WHERE flow_id=? AND node_key=?`, flowId, nodeKey);
-    if (!node) throw new Error("unknown node");
+    if (!node) throw new NotFoundError("node", nodeKey);
     const def = this.defOf(flowId, nodeKey);
-    if (!def.retryable) throw new Error(`cannot retry node ${nodeKey}`);
+    if (!def.retryable) throw new ValidationError(`cannot retry node ${nodeKey}`);
 
     // the recorded input is validated against the node's schema — retry fails
     // fast with a clear error rather than running with a corrupt payload
     const recorded = def.parseInput(node.input ?? {});
-    if (node.status === "running") throw new Error(`${nodeKey} is already running`);
-    if (node.status === "waiting") throw new Error(`${nodeKey} is waiting for its event source — retry after it resumes (or cancel it)`);
+    if (node.status === "running") throw new ConflictError(`${nodeKey} is already running`);
+    if (node.status === "waiting") {
+      throw new ConflictError(
+        `${nodeKey} is waiting for its event source — retry after it resumes (or cancel it)`,
+      );
+    }
     if (templateStore.chainNodeKeys(flowId).includes(nodeKey) && this.chainBusy(flowId)) {
-      throw new Error("wait for the current pipeline/review/resolve run to finish first");
+      throw new ConflictError("wait for the current pipeline/review/resolve run to finish first");
     }
     db.emitEvent(flowId, node.id, "lifecycle", `retrying ${nodeKey}`);
     this.setCurrentNode(flowId, nodeKey);
@@ -1698,7 +1706,7 @@ export class FlowEngine {
    */
   async cancelNode(flowId: string, nodeKey: string): Promise<void> {
     const node = rows.get(NodeRow, `SELECT * FROM nodes WHERE flow_id=? AND node_key=?`, flowId, nodeKey);
-    if (!node) throw new Error("unknown node");
+    if (!node) throw new NotFoundError("node", nodeKey);
     const flow = rows.get(FlowRow, `SELECT * FROM flows WHERE id=?`, flowId);
     const active = db.all<{ run_ref: string }>(
       `SELECT run_ref FROM runs WHERE node_id=? AND status='running'`, node.id);
@@ -1729,7 +1737,7 @@ export class FlowEngine {
     if (!chatOnly && def.chainRole === NODE_KEYS.PLAN) {
       const branch = normalizePlanThread(thread);
       if (branch && !new PlanStore(nodeSupport).scopedRefine(flowId, branch)) {
-        throw new Error(`branch "${branch}" not found in the current plan`);
+        throw new ValidationError(`branch "${branch}" not found in the current plan`);
       }
     }
     db.addMessage(flowId, nodeKey, "user", content, thread ?? null);
@@ -1780,7 +1788,7 @@ export class FlowEngine {
    */
   startFromTemplate(templateId: string, payload: unknown, opts: { taskId?: string } = {}): string {
     const t = templateStore.flowTemplate(templateId);
-    if (!t) throw new Error("template not found");
+    if (!t) throw new NotFoundError("template", templateId);
     // the store normalizes trigger.task_type on read (absent → first provider)
     const trigger = templateStore.graph(templateId)?.flowTrigger ?? {};
     const taskType = typeof trigger.task_type === "string" ? trigger.task_type : NO_TASK_TYPE;
@@ -1823,7 +1831,7 @@ export class FlowEngine {
     let taskId = typeof opts.taskId === "string" ? opts.taskId.trim() : "";
     if (taskId) {
       const existing = db.get<{ type: string }>(`SELECT type FROM tasks WHERE id=?`, taskId);
-      if (!existing) throw new Error("the provided task no longer exists — import tasks first");
+      if (!existing) throw new NotFoundError("task", taskId);
       if (existing.type !== taskType) {
         throw new Error(
           `task is a "${existing.type}" task but template "${t.name}" declares "${taskType}" task context — pick a ${taskType} task or change the template's task type`);
@@ -1839,9 +1847,13 @@ export class FlowEngine {
       taskId = latest.id;
     }
     const task = rows.get(Task, `SELECT * FROM tasks WHERE id=?`, taskId);
-    if (!task) throw new Error("the template's task no longer exists — import tasks first");
+    if (!task) throw new NotFoundError("task", taskId);
     const repo = db.repoById(repoId);
-    if (!repo) throw new Error("the template's bound repo no longer exists — rebind in the template editor");
+    if (!repo) {
+      throw new ValidationError(
+        "the template's bound repo no longer exists — rebind in the template editor",
+      );
+    }
     // the start node's contract defines what the trigger must provide (§5):
     // a payload that doesn't match is rejected here — no flow is created, and
     // the hook route answers the sender with this exact message. The reserved
@@ -1855,7 +1867,7 @@ export class FlowEngine {
       delete contractPayload[EXEC_MODE_DELIVERY_ALIAS];
       const v = validateAgainstContract(contractFields, contractPayload);
       if (!v.ok) {
-        throw new Error(`payload doesn't match the "${t.name}" start contract — ${v.error}`);
+        throw new ValidationError(`payload doesn't match the "${t.name}" start contract — ${v.error}`);
       }
     }
     const id = this.create(taskId, repo.cloud_url, `${t.name} · ${new Date().toISOString()}`, {
@@ -1878,10 +1890,12 @@ export class FlowEngine {
    */
   resumeNodeFromWebhook(flowId: string, nodeKey: string, payload: unknown): void {
     const node = rows.get(NodeRow, `SELECT * FROM nodes WHERE flow_id=? AND node_key=?`, flowId, nodeKey);
-    if (!node) throw new Error("unknown node");
+    if (!node) throw new NotFoundError("node", nodeKey);
     const spec = this.graph(flowId)?.byKey.get(nodeKey);
-    if (spec?.trigger.wait_for !== "webhook") throw new Error(`${nodeKey} is not waiting on a webhook`);
-    if (node.status !== "waiting") throw new Error(`${nodeKey} is not waiting for an event`);
+    if (spec?.trigger.wait_for !== "webhook") {
+      throw new ValidationError(`${nodeKey} is not waiting on a webhook`);
+    }
+    if (node.status !== "waiting") throw new ConflictError(`${nodeKey} is not waiting for an event`);
     db.emitEvent(flowId, node.id, "lifecycle", `${nodeKey} resumed by a webhook delivery`);
     this.bg(flowId, nodeKey, () =>
       this.startNodeStage(flowId, nodeKey, {

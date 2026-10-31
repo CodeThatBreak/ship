@@ -1,3 +1,4 @@
+import { toErrorResponse } from "@/lib/errors";
 import { NextResponse } from "next/server";
 import { taskRegistry } from "../../../../lib/engine/tasks/registry";
 
@@ -31,10 +32,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ kind: s
   try {
     const inst = store.addInstance({ name: body.name ?? null, baseUrl, email: body.email, token: body.token });
     return NextResponse.json({ instance: inst });
-  } catch (err) {
-    return NextResponse.json(
-      { error: err instanceof Error ? err.message : String(err) },
-      { status: 400 }
-    );
+  } catch (err: unknown) {
+    return toErrorResponse(err);
   }
 }

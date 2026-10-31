@@ -1,3 +1,4 @@
+import { toErrorResponse } from "@/lib/errors";
 import { templateStore } from "../../../../../lib/engine/templates/template-store";
 import { gatherTemplateYaml } from "../../../../../lib/engine/templates/template-yaml";
 
@@ -26,6 +27,6 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
       },
     });
   } catch (e: unknown) {
-    return Response.json({ error: e instanceof Error ? e.message : String(e) }, { status: 404 });
+    return toErrorResponse(e);
   }
 }

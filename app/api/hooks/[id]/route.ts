@@ -1,3 +1,4 @@
+import { toErrorResponse } from "@/lib/errors";
 import { NextResponse } from "next/server";
 import { hookStore } from "../../../../lib/engine/runtime/hook-store";
 import { flowEngine } from "../../../../lib/engine/flow-engine";
@@ -76,6 +77,6 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
       { error: "hook is bound to nothing — rebind it to a template or a waiting node" },
       { status: 400 });
   } catch (e: unknown) {
-    return NextResponse.json({ error: e instanceof Error ? e.message : String(e) }, { status: 400 });
+    return toErrorResponse(e);
   }
 }

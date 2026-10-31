@@ -1442,7 +1442,7 @@ Original findings, verbatim:
 
 ### CR-046 [Medium] No typed error classes: the engine throws bare `Error`, so routes map almost everything to 400 (or leak an unhandled 500)
 
-- **Status at `abaa007`:** **Open**, fix in [Task 09](review-tasks/09-typed-errors.md)
+- **Status at `abaa007`:** **Fixed** in [Task 09](review-tasks/09-typed-errors.md) — `lib/errors.ts` + `toErrorResponse`, typed throws in `flow-engine`, `template-store`, GitLab host adapter; route handlers wired to the mapper (including host-instances, settings PATCH, GitLab webhook).
 - **Current location:** app/api/flows/[id]/action/route.ts:124-130, app/api/flows/[id]/chat/route.ts:27-29, app/api/templates/[id]/route.ts:72-77,132-134, app/api/hooks/[id]/route.ts:77-79, app/api/host-instances/[host]/[id]/route.ts:6-36, app/api/settings/route.ts, app/api/webhooks/gitlab/route.ts, lib/engine/flow-engine.ts:548,574,1667, lib/integrations/gitlab/git-host.ts:223,238
 - **Re-verification note:** Still no `NotFoundError`/`ConflictError`/`ValidationError`; the engine throws bare `Error` ("flow not found", "already running", "host instance not found") and routes map everything to 400 or leak an unhandled 500 (host-instances, settings, gitlab webhook). The action route's new `httpStatus` duck-typing is dead code (nothing in `lib/` sets it). Add a shared errors module + `toErrorResponse(e)` helper and use it across routes.
 

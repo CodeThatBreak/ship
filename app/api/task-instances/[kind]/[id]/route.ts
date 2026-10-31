@@ -1,3 +1,4 @@
+import { toErrorResponse } from "@/lib/errors";
 import { NextResponse } from "next/server";
 import { taskRegistry } from "../../../../../lib/engine/tasks/registry";
 
@@ -19,11 +20,8 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ kind: 
       token: body.token,
     });
     return NextResponse.json({ ok: true });
-  } catch (err) {
-    return NextResponse.json(
-      { error: err instanceof Error ? err.message : String(err) },
-      { status: 400 }
-    );
+  } catch (err: unknown) {
+    return toErrorResponse(err);
   }
 }
 
@@ -32,8 +30,12 @@ export async function DELETE(_req: Request, { params }: { params: Promise<{ kind
   const provider = taskRegistry.maybe(kind);
   const store = provider?.instanceStore();
   if (!provider || !store) return NextResponse.json({ error: `unknown task provider: ${kind}` }, { status: 404 });
-  store.removeInstance(id);
-  return NextResponse.json({ ok: true });
+  try {
+    store.removeInstance(id);
+    return NextResponse.json({ ok: true });
+  } catch (err: unknown) {
+    return toErrorResponse(err);
+  }
 }
 
 /** Test connectivity/auth for this instance (uses stored token unless one is passed). */
@@ -50,10 +52,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ kind: s
       token: body.token,
     });
     return NextResponse.json(result);
-  } catch (err) {
-    return NextResponse.json(
-      { error: err instanceof Error ? err.message : String(err) },
-      { status: 400 }
-    );
+  } catch (err: unknown) {
+    return toErrorResponse(err);
   }
 }

@@ -1,3 +1,4 @@
+import { toErrorResponse } from "@/lib/errors";
 import { NextResponse } from "next/server";
 import { templateStore } from "../../../lib/engine/templates/template-store";
 
@@ -30,6 +31,6 @@ export async function POST(req: Request) {
     });
     return NextResponse.json({ id });
   } catch (e: unknown) {
-    return NextResponse.json({ error: e instanceof Error ? e.message : String(e) }, { status: 400 });
+    return toErrorResponse(e);
   }
 }

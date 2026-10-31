@@ -1,6 +1,7 @@
 import "server-only";
 
 import { config } from "../../config";
+import { NotFoundError } from "../../errors";
 import type {
   ChangeRequest,
   CreateChangeRequestInput,
@@ -220,7 +221,7 @@ export class GitLabHostService implements GitHostService {
 
   updateInstance(id: string, input: { name?: string | null; baseUrl?: string; token?: string }): void {
     const existing = gitLab.listInstances().find((i) => i.id === id);
-    if (!existing) throw new Error(`host instance not found: ${id}`);
+    if (!existing) throw new NotFoundError("host instance", id);
     gitLab.updateInstance(id, {
       name: input.name ?? existing.name ?? undefined,
       base_url: input.baseUrl ?? existing.base_url,
@@ -235,7 +236,7 @@ export class GitLabHostService implements GitHostService {
 
   async testInstance(id: string, input: { baseUrl?: string; token?: string } = {}): Promise<{ ok: boolean; detail: string }> {
     const existing = gitLab.listInstances().find((i) => i.id === id);
-    if (!existing) throw new Error(`host instance not found: ${id}`);
+    if (!existing) throw new NotFoundError("host instance", id);
     return gitLab.testInstance(input.baseUrl ?? existing.base_url, input.token || existing.token);
   }
 

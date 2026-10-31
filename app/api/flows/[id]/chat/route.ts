@@ -1,3 +1,4 @@
+import { toErrorResponse } from "@/lib/errors";
 import { NextResponse } from "next/server";
 import { db } from "../../../../../lib/db";
 import { flowEngine } from "../../../../../lib/engine/flow-engine";
@@ -26,6 +27,6 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
     );
     return NextResponse.json({ ok: true });
   } catch (e: unknown) {
-    return NextResponse.json({ error: e instanceof Error ? e.message : String(e) }, { status: 400 });
+    return toErrorResponse(e);
   }
 }
