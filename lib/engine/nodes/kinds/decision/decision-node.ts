@@ -44,7 +44,7 @@ import { extractJson } from "../../shared/extract-json";
 export class DecisionTemplateNode extends DeclarativeAgentNode<DecisionDef, Record<string, unknown>, Record<string, unknown>> {
   readonly promptKeys = [] as const;
   readonly order = 1001;
-  readonly retryable = true;
+  override readonly retryable = true;
 
   readonly inputSchema = z.looseObject({}) as z.ZodType<Record<string, unknown>>;
   readonly outputSchema = z.looseObject({
@@ -55,7 +55,7 @@ export class DecisionTemplateNode extends DeclarativeAgentNode<DecisionDef, Reco
   /** no declared input contract — the input is the previous node's output */
   override readonly inheritsParentInput = true;
 
-  readonly configFields = [
+  override readonly configFields = [
     {
       key: "source", label: "Source", type: "select" as const,
       help: "How the branch is picked",

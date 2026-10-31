@@ -27,7 +27,7 @@ import { guardedRequest } from "../../../../net/ssrf-guard";
 export class HttpTemplateNode extends DeclarativeNode<HttpDef> {
   readonly promptKeys = [] as const;
   readonly order = 1002;
-  readonly retryable = true;
+  override readonly retryable = true;
 
   readonly inputSchema = z.looseObject({}) as z.ZodType<Record<string, unknown>>;
   /** default response contract — `response_map` may reshape the output */
@@ -36,7 +36,7 @@ export class HttpTemplateNode extends DeclarativeNode<HttpDef> {
   /** no declared input contract — the input is the previous node's output */
   override readonly inheritsParentInput = true;
 
-  readonly configFields = [
+  override readonly configFields = [
     { key: "url", label: "URL", type: "string" as const, help: "{{vars}} and {{secrets.NAME}} allowed" },
     {
       key: "method", label: "Method", type: "select" as const,

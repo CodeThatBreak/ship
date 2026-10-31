@@ -71,15 +71,15 @@ export class PipelineNode extends AgentRunNode<
    *  pipeline event source — gate lookups route through this, not a literal. */
   override readonly waitForKind = NODE_KEYS.PIPELINE;
   readonly promptKeys = [FIX_PROMPT_KEY] as const;
-  readonly promptSections = [FIX_PROMPT_KEY] as const;
+  override readonly promptSections = [FIX_PROMPT_KEY] as const;
   readonly order = 25;
-  readonly edges = [[NODE_KEYS.REVIEW, "next"]] as const;
+  override readonly edges = [[NODE_KEYS.REVIEW, "next"]] as const;
 
   readonly inputSchema = PipelineInput;
   readonly outputSchema = PipelineOutput;
 
   /** Typed config knobs (defaults = today's behavior). */
-  readonly configSchema = z.object({
+  override readonly configSchema = z.object({
     /** user-editable body for fix runs (app-settings pipeline_fix template fallback) */
     fix_prompt_body: z.string().optional(),
     /** user rules appended after the fix-run body, before the engine's locked blocks */
@@ -102,7 +102,7 @@ export class PipelineNode extends AgentRunNode<
     split_consume: splitConsumeSchema,
     split_parallel_max: splitParallelMaxSchema,
   });
-  readonly configFields = [
+  override readonly configFields = [
     {
       key: "fix_prompt_body",
       label: "Fix-run prompt body",

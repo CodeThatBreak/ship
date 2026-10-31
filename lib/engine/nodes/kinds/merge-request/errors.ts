@@ -42,7 +42,7 @@ export const isHookRejection = (text: string): boolean =>
 export class MrCreationFailed extends Error {
   constructor(
     message: string,
-    readonly cause?: unknown,
+    override readonly cause?: unknown,
   ) {
     super(message);
     this.name = "MrCreationFailed";

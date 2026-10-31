@@ -72,9 +72,9 @@ export class BuildNode extends AgentRunNode<BuildInput, BuildOutput> {
   override readonly builtinApproval = true;
   override readonly chainRole = NODE_KEYS.BUILD;
   readonly promptKeys: readonly string[] = [NODE_KEYS.BUILD, "build_refine"];
-  readonly promptSections: readonly string[] = [NODE_KEYS.BUILD];
+  override readonly promptSections: readonly string[] = [NODE_KEYS.BUILD];
   readonly order = 20;
-  readonly edges = [[NODE_KEYS.PIPELINE, "next"]] as const;
+  override readonly edges = [[NODE_KEYS.PIPELINE, "next"]] as const;
 
   /** Composed run machinery shared with the step child (§T6) — built from
    *  this def's own injected services so a test stub rides the same seam. */
@@ -93,7 +93,7 @@ export class BuildNode extends AgentRunNode<BuildInput, BuildOutput> {
   readonly outputSchema = BuildOutput;
 
   /** Typed config knobs (defaults = today's behavior). */
-  readonly configSchema = z.object({
+  override readonly configSchema = z.object({
     prompt_body: z.string().optional(),
     /** user rules appended after the prompt body / override */
     prompt_rules: z.string().optional(),
@@ -120,7 +120,7 @@ export class BuildNode extends AgentRunNode<BuildInput, BuildOutput> {
     split_consume: splitConsumeSchema.default("source"),
     split_parallel_max: splitParallelMaxSchema,
   });
-  readonly configFields = [
+  override readonly configFields = [
     { key: "prompt_body", label: "Prompt body", type: "text", help: "User-editable prompt body for build runs." },
     { key: "prompt_rules", label: "Your rules", type: "text", help: "Extra rules appended after the prompt body / override on every build or build-refine run. E.g. \"run npm run lint before pushing\"." },
     { key: "branch_pattern", label: "Branch pattern", type: "string", help: "Tokens: {prefix} {slug} {ticket} {id} {suffix}. Empty = built-in bugfix/feature pattern." },

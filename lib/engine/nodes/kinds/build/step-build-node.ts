@@ -51,7 +51,7 @@ export class StepBuildNode extends AgentRunNode<BuildInput, BuildOutput> {
   readonly key = NODE_KEYS.STEP_BUILD;
   readonly label = "Step build";
   readonly promptKeys: readonly string[] = [NODE_KEYS.STEP_BUILD, "build_refine"];
-  readonly promptSections: readonly string[] = [NODE_KEYS.STEP_BUILD];
+  override readonly promptSections: readonly string[] = [NODE_KEYS.STEP_BUILD];
   /** Fan-out children ride the parent build's graph slot (no template row of
    *  their own in the built-in graph; edges default to none — the child's
    *  flow runs the seeded step-build template, not the build → pipeline edge). */
@@ -68,7 +68,7 @@ export class StepBuildNode extends AgentRunNode<BuildInput, BuildOutput> {
    * data "Built-in" (parallel key run naming, nodes need max_commit_fix...
    * cross) — see class doc above for the lineage decision.
    */
-  readonly capabilities: NodeCapabilities = {
+  override readonly capabilities: NodeCapabilities = {
     panelTitle: "Step changes",
     fanoutOutput: DEFAULT_FANOUT_OUTPUT,
     refinable: true,
@@ -84,10 +84,10 @@ export class StepBuildNode extends AgentRunNode<BuildInput, BuildOutput> {
    * to the PARENT fan-out node's config — the StepFlowManager reads them
    * from the parent flow's node row, never from the child.
    */
-  readonly configSchema = z.object({
+  override readonly configSchema = z.object({
     mcp_sources: mcpSourcesSchema.default(DEFAULT_MCP_SOURCES),
   });
-  readonly configFields = mcpSourceConfigFields;
+  override readonly configFields = mcpSourceConfigFields;
 
   readonly inputSchema = BuildInput;
   readonly outputSchema = BuildOutput;

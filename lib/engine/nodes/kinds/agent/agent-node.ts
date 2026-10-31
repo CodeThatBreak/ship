@@ -45,7 +45,7 @@ const RETRYABLE_OUTPUT_ERRORS: ReadonlySet<AgentOutputErrorCode> = new Set([
 export class AgentTemplateNode extends DeclarativeAgentNode<AgentDef, Record<string, unknown>, Record<string, unknown>> {
   readonly promptKeys = [] as const;
   readonly order = 1000;
-  readonly retryable = true;
+  override readonly retryable = true;
 
   /** §T4: chat messages re-run the agent with the rendered feedback. */
   override readonly capabilities: NodeCapabilities = { refinable: true };
@@ -119,7 +119,7 @@ export class AgentTemplateNode extends DeclarativeAgentNode<AgentDef, Record<str
    * the node is connected, so the upstream run-context variables are
    * clickable chips.
    */
-  readonly configFields = AGENT_CONFIG_FIELDS;
+  override readonly configFields = AGENT_CONFIG_FIELDS;
 
   /**
    * The split source port (agent-node split plan §2.1, Phase 3): map the

@@ -39,23 +39,23 @@ export class StartNode extends NodeDefinition<StartPayload, StartPayload> {
   readonly promptKeys = [] as const;
   /** ahead of the plan node (10) so graphs display flow entry first */
   readonly order = 5;
-  readonly edges = [] as const;
+  override readonly edges = [] as const;
   override readonly isEntry = true;
-  readonly capabilities: NodeCapabilities = { panelTitle: "Flow start" };
+  override readonly capabilities: NodeCapabilities = { panelTitle: "Flow start" };
   /** nothing to recover — it just completes */
-  readonly retryable = false;
+  override readonly retryable = false;
 
   readonly inputSchema = StartPayload;
   readonly outputSchema = StartPayload;
 
   /** the contract knobs — edited through the configurator's dedicated start
    *  contract editor, not the generic config form (configFields stays empty) */
-  readonly configSchema = StartContractConfigSchema;
-  readonly configFields = [] as const;
+  override readonly configSchema = StartContractConfigSchema;
+  override readonly configFields = [] as const;
 
   /** the engine's auto-start input = whatever the flow trigger provided
    * (webhook delivery body / schedule fire payload — null for manual flows) */
-  triggerRuns(ctx: FlowCtx): NodeTriggerRun[] {
+  override triggerRuns(ctx: FlowCtx): NodeTriggerRun[] {
     return [{ input: (ctx.flow.trigger_payload as StartPayload | null) ?? {} }];
   }
 

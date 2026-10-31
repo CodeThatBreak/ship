@@ -35,7 +35,7 @@ import { workspaceForFlow } from "../../../../git/local";
 export class ScriptTemplateNode extends DeclarativeNode<ScriptDef> {
   readonly promptKeys = [] as const;
   readonly order = 1003;
-  readonly retryable = true;
+  override readonly retryable = true;
 
   readonly inputSchema = z.looseObject({}) as z.ZodType<Record<string, unknown>>;
   readonly outputSchema = z.looseObject({}) as unknown as z.ZodType<Record<string, unknown>>;
@@ -43,7 +43,7 @@ export class ScriptTemplateNode extends DeclarativeNode<ScriptDef> {
   /** no declared input contract — the input is the previous node's output */
   override readonly inheritsParentInput = true;
 
-  readonly configFields = [
+  override readonly configFields = [
     {
       key: "runtime", label: "Runtime", type: "select" as const,
       options: [

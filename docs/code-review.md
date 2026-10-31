@@ -6637,7 +6637,7 @@ Original findings, verbatim:
 
 ### CR-258 [Low] tsconfig strictness gaps: no `noUncheckedIndexedAccess` or `noImplicitOverride`; `.mjs` scripts are not type-checked
 
-- **Status at `abaa007`:** **Open**, fix in [Task 51](review-tasks/51-tsconfig-strictness.md)
+- **Status at `abaa007`:** **Partly fixed** (Task 51): `noFallthroughCasesInSwitch`, `noImplicitReturns`, and `noImplicitOverride` enabled in `tsconfig.json`; ~45 `override` keywords on node defs and error subclasses. **Open:** `noUncheckedIndexedAccess` ([Task 63](review-tasks/63-no-unchecked-indexed-access.md), ~189 errors) and `checkJs` for `scripts/*.mjs`.
 - **Current location:** tsconfig.json:2-20
 - **Re-verification note:** None of the flags are enabled, and `checkJs` is still off for scripts/*.mjs. Re-measured on the current tree: `noFallthroughCasesInSwitch` + `noImplicitReturns` add 0 new errors, `noImplicitOverride` adds ~41 (52 total vs an 11-error baseline), and `noUncheckedIndexedAccess` adds ~186 (197 total). Enable the free flags now, then `noImplicitOverride`, then plan the indexed-access burn-down.
 
@@ -7518,7 +7518,7 @@ One row per finding, at `abaa007`.
 | CR-255 | Low | Performance | Open | [Task 41](review-tasks/41-settings-data-and-errors.md) |
 | CR-256 | Low | Code quality | Open | [Task 41](review-tasks/41-settings-data-and-errors.md) |
 | CR-257 | Low | Infra | Fixed | [Task 02](review-tasks/02-typecheck-and-build-gates.md) |
-| CR-258 | Low | Infra | Open | [Task 51](review-tasks/51-tsconfig-strictness.md) |
+| CR-258 | Low | Infra | Partly fixed | [Task 51](review-tasks/51-tsconfig-strictness.md) / [Task 63](review-tasks/63-no-unchecked-indexed-access.md) |
 | CR-259 | Low | Code quality | Open | [Task 52](review-tasks/52-shared-ui-components.md) |
 | CR-260 | Low | Docs | Open | [Task 56](review-tasks/56-docs-refresh.md) |
 | CR-261 | Low | Docs | Open | [Task 56](review-tasks/56-docs-refresh.md) |

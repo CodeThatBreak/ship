@@ -29,15 +29,15 @@ export class ReviewNode extends AgentRunNode<ReviewInput, ReviewOutput> {
   /** Engine-dispatch metadata (§T3): the review kind occupies the chain's review role. */
   override readonly chainRole = NODE_KEYS.REVIEW;
   readonly promptKeys = [NODE_KEYS.REVIEW] as const;
-  readonly promptSections = [NODE_KEYS.REVIEW] as const;
+  override readonly promptSections = [NODE_KEYS.REVIEW] as const;
   readonly order = 40;
-  readonly edges = [[NODE_KEYS.RESOLVE, "next"]] as const;
+  override readonly edges = [[NODE_KEYS.RESOLVE, "next"]] as const;
 
   readonly inputSchema = ReviewInput;
   readonly outputSchema = ReviewOutput;
 
   /** Typed config knobs (defaults = today's behavior). */
-  readonly configSchema = z.object({
+  override readonly configSchema = z.object({
     prompt_body: z.string().optional(),
     /** user rules appended after the prompt body, before the engine's locked blocks */
     prompt_rules: z.string().optional(),
@@ -51,7 +51,7 @@ export class ReviewNode extends AgentRunNode<ReviewInput, ReviewOutput> {
     split_consume: splitConsumeSchema,
     split_parallel_max: splitParallelMaxSchema,
   });
-  readonly configFields = [
+  override readonly configFields = [
     { key: "prompt_body", label: "Prompt body", type: "text", help: "User-editable prompt body; internal contracts re-appended automatically." },
     { key: "prompt_rules", label: "Your rules", type: "text", help: "Extra rules appended after the prompt body, before the engine's locked instructions (review contract, diff) — on every run of this node." },
     { key: "max_comments", label: "Max comments", type: "number", help: "Cap on posted comments (0 = unlimited)." },

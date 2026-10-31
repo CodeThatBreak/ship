@@ -24,15 +24,15 @@ export class ResolveNode extends AgentRunNode<ResolveInput, ResolveOutput> {
   /** Engine-dispatch metadata (§T3): the resolve kind occupies the chain's resolve role. */
   override readonly chainRole = NODE_KEYS.RESOLVE;
   readonly promptKeys = [NODE_KEYS.RESOLVE] as const;
-  readonly promptSections = [NODE_KEYS.RESOLVE] as const;
+  override readonly promptSections = [NODE_KEYS.RESOLVE] as const;
   readonly order = 50;
-  readonly edges = [[NODE_KEYS.PIPELINE, "loop"]] as const;
+  override readonly edges = [[NODE_KEYS.PIPELINE, "loop"]] as const;
 
   readonly inputSchema = ResolveInput;
   readonly outputSchema = ResolveOutput;
 
   /** Typed config knobs (defaults = today's behavior). */
-  readonly configSchema = z.object({
+  override readonly configSchema = z.object({
     prompt_body: z.string().optional(),
     /** user rules appended after the prompt body, before the engine's locked blocks */
     prompt_rules: z.string().optional(),
@@ -44,7 +44,7 @@ export class ResolveNode extends AgentRunNode<ResolveInput, ResolveOutput> {
     split_consume: splitConsumeSchema,
     split_parallel_max: splitParallelMaxSchema,
   });
-  readonly configFields = [
+  override readonly configFields = [
     { key: "prompt_body", label: "Prompt body", type: "text", help: "User-editable prompt body; internal contracts re-appended automatically." },
     { key: "prompt_rules", label: "Your rules", type: "text", help: "Extra rules appended after the prompt body, before the engine's locked instructions and the open comments — on every run of this node." },
     { key: "quiet_minutes", label: "Quiet period (min)", type: "number", help: "Minutes of comment quiet before the debounced resolve fires. Empty = 10." },

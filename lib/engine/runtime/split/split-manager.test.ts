@@ -195,7 +195,7 @@ class FixtureSourceDef extends NodeDefinition<Record<string, unknown>, Record<st
   readonly order: number = 901;
   readonly inputSchema = z.record(z.string(), z.unknown());
   readonly outputSchema = z.record(z.string(), z.unknown());
-  readonly configSchema = z
+  override readonly configSchema = z
     .object({
       units: z.array(z.unknown()).optional(),
       resolution: z.enum(["whole", "per-unit"]).optional(),
@@ -208,7 +208,7 @@ class FixtureSourceDef extends NodeDefinition<Record<string, unknown>, Record<st
     return { units: cfg.units, resolution: cfg.resolution };
   }
 
-  splitUnits(ctx: FlowCtx): SplitUnit[] | null {
+  override splitUnits(ctx: FlowCtx): SplitUnit[] | null {
     const units = this.knobs(ctx).units;
     return Array.isArray(units) ? (units as SplitUnit[]) : null;
   }
@@ -217,7 +217,7 @@ class FixtureSourceDef extends NodeDefinition<Record<string, unknown>, Record<st
    * The Phase-4 recommendation port, driven by the node's `resolution` knob:
    * "per-unit" | "whole" | unset (no recommendation).
    */
-  splitResolution(ctx: FlowCtx): "whole" | "per-unit" | null {
+  override splitResolution(ctx: FlowCtx): "whole" | "per-unit" | null {
     const v = this.knobs(ctx).resolution;
     return v === "per-unit" || v === "whole" ? v : null;
   }
@@ -263,10 +263,10 @@ class FixtureConsumerDef extends NodeDefinition<Record<string, unknown>, Record<
   readonly label = "Split consumer fixture";
   readonly promptKeys = [];
   readonly order = 902;
-  readonly capabilities = { splitOutput: CONSUMER_AGGREGATE };
+  override readonly capabilities = { splitOutput: CONSUMER_AGGREGATE };
   readonly inputSchema = z.record(z.string(), z.unknown());
   readonly outputSchema = z.record(z.string(), z.unknown());
-  readonly configSchema = z
+  override readonly configSchema = z
     .object({
       split_consume: z.enum(["whole", "per-unit", "source"]).optional(),
       split_parallel_max: z.number().optional(),

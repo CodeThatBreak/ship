@@ -60,9 +60,9 @@ export class PlanNode extends AgentRunNode<PlanInput, PlanOutput> {
   readonly label = 'Plan';
   readonly promptKeys = PROMPT_KEYS;
   /** the settings page's editable plan section (the other keys are run-time sub-templates) */
-  readonly promptSections = ['plan'] as const;
+  override readonly promptSections = ['plan'] as const;
   readonly order = 10;
-  readonly edges = [[NODE_KEYS.BUILD, 'next']] as const;
+  override readonly edges = [[NODE_KEYS.BUILD, 'next']] as const;
 
   /**
    * The plan is the chat's first-class node: the composer-as-prompt
@@ -88,7 +88,7 @@ export class PlanNode extends AgentRunNode<PlanInput, PlanOutput> {
   readonly outputSchema = PlanOutput;
 
   /** Typed config knobs (defaults = today's behavior). */
-  readonly configSchema = z.object({
+  override readonly configSchema = z.object({
     /** user-editable prompt body (foldable per template/flow; the global overlay was removed) */
     prompt_body: z.string().optional(),
     /**
@@ -117,7 +117,7 @@ export class PlanNode extends AgentRunNode<PlanInput, PlanOutput> {
     mcp_sources: mcpSourcesSchema.default(DEFAULT_MCP_SOURCES),
   });
 
-  readonly configFields = AGENT_CONFIG_FIELDS;
+  override readonly configFields = AGENT_CONFIG_FIELDS;
 
   /** The plan-domain collaborators — built on the node's own support/runner/
    *  ctxHelper so tests overriding the node constructors get the same seams
