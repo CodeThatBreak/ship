@@ -135,7 +135,7 @@ export default function PlanSteps({
             <div className="grid gap-2.5">
               {drafts.map((d, i) => (
                 <PlanStepDraftRow
-                  key={i}
+                  key={d.clientId}
                   draft={d}
                   index={i}
                   onPatch={patch}

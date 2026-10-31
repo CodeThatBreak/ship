@@ -32,7 +32,13 @@ export function PromptEditorSection({
             <Badge
               key={v}
               className="cursor-pointer hover:border-info hover:text-info transition-colors"
-              onClick={() => onInsertVariable(v)}
+              render={
+                <button
+                  type="button"
+                  aria-label={`Insert variable ${v}`}
+                  onClick={() => onInsertVariable(v)}
+                />
+              }
             >
               {`{{${v}}}`}
             </Badge>

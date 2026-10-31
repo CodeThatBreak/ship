@@ -3552,7 +3552,7 @@ Original findings, verbatim:
 
 ### CR-128 [Medium] Invalid DOM nesting (`<ul>` inside `<p>`, button inside button, interactive inside `role="button"`)
 
-- **Status at `abaa007`:** **Partly fixed**, fix in [Task 36](review-tasks/36-cockpit-a11y-and-rendering.md)
+- **Status at `abaa007`:** **Fixed** (Task 36)
 - **Current location:** components/flows/components/plan/components/subPlanSection/SubPlanCard.tsx:36-80, components/flows/components/plan/components/masterPlanSection/MasterPlanSection.tsx:71-76
 - **Re-verification note:** The `<ul>`-in-`<p>` (`FailureAlert` was rewritten), `NodePromptBox` and `ContextPicker` cases are gone. `SubPlanCard` still nests two Base UI `TooltipTrigger` buttons inside its toggle `<button>`, and `MasterPlanSection` now wraps a `<button>` inside a `TooltipTrigger` without `render`, which is button-in-button. Fix: use `render={<span/>}` or `render={<Badge/>}` on triggers inside the toggle, and `render={<button type="button" aria-label=…/>}` in `MasterPlanSection`.
 
@@ -3627,7 +3627,7 @@ Original findings, verbatim:
 
 ### CR-131 [Medium] Clickable non-button elements without keyboard support (graph node cards, decision choices, variable chips)
 
-- **Status at `abaa007`:** **Open**, fix in [Task 36](review-tasks/36-cockpit-a11y-and-rendering.md)
+- **Status at `abaa007`:** **Fixed** (Task 36)
 - **Current location:** components/flows/workflow-graph/NodeCard.tsx:60-71, components/flows/panels/DecisionView.tsx:137-140, components/chat/prompt-modal/PromptEditorSection.tsx:32-38
 - **Re-verification note:** Graph node selection (`<div onClick>`), decision choice picking (`<Card onClick>`) and variable insertion (`<Badge onClick>`) still have no role, `tabIndex`, key handling or label. Fix: render them as `<button type="button">` (or use `render={<button/>}` on Card and Badge) with `aria-pressed` and `aria-label`.
 
@@ -5934,7 +5934,7 @@ Original findings, verbatim:
 
 ### CR-227 [Low] Index-based React keys remount rows: run sections lose expand state, and draft rows shift focus
 
-- **Status at `abaa007`:** **Open**, fix in [Task 36](review-tasks/36-cockpit-a11y-and-rendering.md)
+- **Status at `abaa007`:** **Fixed** (Task 36)
 - **Current location:** components/chat/ChatFeed.tsx:72-83; components/chat/RunSectionRow.tsx:61-63; components/flows/components/plan/components/planSteps/PlanSteps.tsx:136-144
 - **Re-verification note:** Run-section keys are still index-qualified (`r${section.key}#${i}`), feed items still use `key={i}`, and plan-step drafts still use `key={i}` with remove-by-index. Rows therefore remount and lose expand state when earlier rows shift. Fix: key sections by a stable identity (section key plus first event id), feed items by event or tool id, and drafts by a client id created in the draft factory.
 
@@ -6076,7 +6076,7 @@ Original findings, verbatim:
 
 ### CR-233 [Low] WorkflowGraph re-runs the dagre layout on every render (every poll and selection click)
 
-- **Status at `abaa007`:** **Open**, fix in [Task 36](review-tasks/36-cockpit-a11y-and-rendering.md)
+- **Status at `abaa007`:** **Fixed** (Task 36)
 - **Current location:** components/flows/workflow-graph/WorkflowGraph.tsx:37-58; components/flows/workflow-graph/graph-layout.ts:34-37; components/flows/workflow-graph/GraphEdges.tsx:51-52,84,92
 - **Re-verification note:** `layout(keys, edges)` still rebuilds the dagre graph on every render (every poll and selection click), `keys.includes` inside the edge loop is O(n²), and `specOf` does a linear `find` per edge, twice. React Compiler is not enabled. Fix: `useMemo` the layout on a stable signature placed before the early returns (hooks order), use a `Set` for keys, and pre-index `edgeSpecs`.
 
@@ -6098,7 +6098,7 @@ Original findings, verbatim:
 
 ### CR-234 [Low] Sub-flow navigation uses a raw `<a href>`, causing a full page reload and dropping the query cache
 
-- **Status at `abaa007`:** **Open**, fix in [Task 36](review-tasks/36-cockpit-a11y-and-rendering.md)
+- **Status at `abaa007`:** **Fixed** (Task 36)
 - **Current location:** components/flows/panels/FanoutStepList.tsx:161-169
 - **Re-verification note:** "Open sub-flow" is still a raw `<a href>` to an internal route, so each click does a full reload and drops the TanStack cache. Fix: use `next/link` (`<Link href=…>` or `Button render={<Link/>}` as FlowHeader does).
 
@@ -6140,7 +6140,7 @@ Original findings, verbatim:
 
 ### CR-236 [Low] Inline callbacks created inside `.map()` bodies
 
-- **Status at `abaa007`:** **Open**, fix in [Task 36](review-tasks/36-cockpit-a11y-and-rendering.md)
+- **Status at `abaa007`:** **Partly fixed** (Task 36 — `FanoutStepList`/`DecisionView`; `StartView`, `BuildView`, `ArtifactViews`, `PlanApproveFooter`, `PromptEditorSection` unchanged)
 - **Current location:** components/flows/panels/StartView.tsx:87, components/flows/panels/BuildView.tsx:165, components/flows/panels/DecisionView.tsx:94, components/flows/panels/FanoutStepList.tsx:116-172 (closures at 143,148,157), components/flows/panels/ArtifactViews.tsx:76, components/flows/components/plan/components/PlanApproveFooter.tsx:74, components/chat/prompt-modal/PromptEditorSection.tsx:35
 - **Re-verification note:** Closures are still created inside `.map()` bodies; the plan footer moved to components/flows/components/plan/components/ but kept the pattern. FanoutStepList's ~55-line inline step card is the main target. Extract `FanoutStepCard` / `BranchMrRow` (and similar) rows that take primitives and a stable `(id) => void`, as `PlanStepItem` / `PlanStepDraftRow` already do.
 

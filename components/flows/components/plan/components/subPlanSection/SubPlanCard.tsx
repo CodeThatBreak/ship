@@ -45,7 +45,7 @@ export function SubPlanCard({
 
         {refined && (
           <Tooltip>
-            <TooltipTrigger>
+            <TooltipTrigger render={<span className="inline-flex shrink-0" />}>
               <Badge className="bg-warning/10 text-warning shrink-0">
                 <ArrowRightLeft size={10} /> refined v{refined.from} → v{refined.to}
               </Badge>
@@ -68,7 +68,7 @@ export function SubPlanCard({
         )}
         {staleVersion && !refined && (
           <Tooltip>
-            <TooltipTrigger>
+            <TooltipTrigger render={<span className="inline-flex shrink-0" />}>
               <Badge className="bg-warning/10 text-warning shrink-0">● sub-plan refined v{staleVersion}</Badge>
             </TooltipTrigger>
             <TooltipContent>

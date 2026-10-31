@@ -58,11 +58,14 @@ export function WorkflowNodeCard({
       : STATUS.approved)
     : st;
   return (
-    <div
+    <button
+      type="button"
+      aria-pressed={selected}
+      aria-label={`Select node ${label}`}
       onClick={() => onSelect(node.node_key)}
       title={outputs.length ? `Publishes: ${outputs.join(", ")}` : undefined}
       className={cn(
-        "absolute rounded-lg cursor-pointer flex items-center gap-[9px] px-3 border-[1.5px] transition-all duration-150",
+        "absolute rounded-lg cursor-pointer flex items-center gap-[9px] px-3 border-[1.5px] transition-all duration-150 text-left",
         selected ? "bg-popover shadow-panel" : "bg-card",
         cardColor.border,
         isRunning && "animate-pulse",
@@ -109,6 +112,6 @@ export function WorkflowNodeCard({
           </div>
         )}
       </div>
-    </div>
+    </button>
   );
 }

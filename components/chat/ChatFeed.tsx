@@ -2,7 +2,6 @@
 
 import { MessageCircleDashedIcon } from 'lucide-react';
 
-import { cn } from '@/lib/utils';
 import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from '@/components/ui/empty';
 import {
   MessageScroller,
@@ -19,6 +18,7 @@ import ChatMessageRow from './ChatMessageRow';
 import RunSectionRow from './RunSectionRow';
 import FlowEventRow from './FlowEventRow';
 import type { TimelineRow } from './timeline';
+import { timelineRowKey } from './timeline-keys';
 
 /** The unified timeline (chat messages interleaved with run sections and
  *  flow-level events) inside the message scroller, with the transcript's
@@ -69,15 +69,8 @@ export default function ChatFeed({
         <MessageScroller className="min-h-0">
           <MessageScrollerViewport className="scroll-fade-b">
             <MessageScrollerContent aria-busy={awaitingReply} className="gap-4 pl-4 pr-7.5 py-4 text-sm">
-              {rows.map((row, i) => {
-                const key =
-                  row.kind === 'msg'
-                    ? `m${row.msg.id}`
-                    : row.kind === 'run'
-                      ? // index-qualified: two sections can share a runId key
-                        // (an event can re-open a run after it was closed)
-                        `r${row.section.key}#${i}`
-                      : `e${row.ev.id}`;
+              {rows.map((row) => {
+                const key = timelineRowKey(row);
                 return (
                   <MessageScrollerItem
                     key={key}

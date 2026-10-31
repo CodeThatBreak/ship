@@ -15,7 +15,7 @@ Each finding was re-verified against `refactor/prompt-engine-inconsistency-fix` 
 
 ### CR-131 [Medium] Clickable non-button elements without keyboard support (graph node cards, decision choices, variable chips)
 
-- **Status:** Open
+- **Status:** Fixed (Task 36)
 - **Type:** Accessibility
 - **Effort:** S
 - **Where:** components/flows/workflow-graph/NodeCard.tsx:60-71, components/flows/panels/DecisionView.tsx:137-140, components/chat/prompt-modal/PromptEditorSection.tsx:32-38
@@ -23,7 +23,7 @@ Each finding was re-verified against `refactor/prompt-engine-inconsistency-fix` 
 
 ### CR-128 [Medium] Invalid DOM nesting (`<ul>` inside `<p>`, button inside button, interactive inside `role="button"`)
 
-- **Status:** Partly fixed
+- **Status:** Fixed (Task 36)
 - **Type:** Bug
 - **Effort:** S
 - **Where:** components/flows/components/plan/components/subPlanSection/SubPlanCard.tsx:36-80, components/flows/components/plan/components/masterPlanSection/MasterPlanSection.tsx:71-76
@@ -31,7 +31,7 @@ Each finding was re-verified against `refactor/prompt-engine-inconsistency-fix` 
 
 ### CR-233 [Low] WorkflowGraph re-runs the dagre layout on every render (every poll and selection click)
 
-- **Status:** Open
+- **Status:** Fixed (Task 36)
 - **Type:** Performance
 - **Effort:** S
 - **Where:** components/flows/workflow-graph/WorkflowGraph.tsx:37-58; components/flows/workflow-graph/graph-layout.ts:34-37; components/flows/workflow-graph/GraphEdges.tsx:51-52,84,92
@@ -39,7 +39,7 @@ Each finding was re-verified against `refactor/prompt-engine-inconsistency-fix` 
 
 ### CR-234 [Low] Sub-flow navigation uses a raw `<a href>`, causing a full page reload and dropping the query cache
 
-- **Status:** Open
+- **Status:** Fixed (Task 36)
 - **Type:** Performance
 - **Effort:** S
 - **Where:** components/flows/panels/FanoutStepList.tsx:161-169
@@ -47,7 +47,7 @@ Each finding was re-verified against `refactor/prompt-engine-inconsistency-fix` 
 
 ### CR-236 [Low] Inline callbacks created inside `.map()` bodies
 
-- **Status:** Open
+- **Status:** Partly fixed (Task 36 — see PR note for remaining panels)
 - **Type:** Code quality
 - **Effort:** S
 - **Where:** components/flows/panels/StartView.tsx:87, components/flows/panels/BuildView.tsx:165, components/flows/panels/DecisionView.tsx:94, components/flows/panels/FanoutStepList.tsx:116-172 (closures at 143,148,157), components/flows/panels/ArtifactViews.tsx:76, components/flows/components/plan/components/PlanApproveFooter.tsx:74, components/chat/prompt-modal/PromptEditorSection.tsx:35
@@ -55,7 +55,7 @@ Each finding was re-verified against `refactor/prompt-engine-inconsistency-fix` 
 
 ### CR-227 [Low] Index-based React keys remount rows: run sections lose expand state, and draft rows shift focus
 
-- **Status:** Open
+- **Status:** Fixed (Task 36)
 - **Type:** Bug
 - **Effort:** S
 - **Where:** components/chat/ChatFeed.tsx:72-83; components/chat/RunSectionRow.tsx:61-63; components/flows/components/plan/components/planSteps/PlanSteps.tsx:136-144
@@ -63,8 +63,10 @@ Each finding was re-verified against `refactor/prompt-engine-inconsistency-fix` 
 
 ## Done when
 
-- [ ] Every finding above is fixed, or a remaining part is written up in the PR description.
-- [ ] Each bug fix has a regression test (Vitest for `lib/`; at least a hook or utility test for UI where practical).
-- [ ] Code follows [`docs/coding-patterns.md`](../coding-patterns.md).
-- [ ] `npm run typecheck`, `npm run lint`, `npm test` and `npm run build` pass (before Task 02 lands, `npx tsc --noEmit` instead of `typecheck`).
-- [ ] The status of each finding in [`docs/code-review.md`](../code-review.md) is updated (Fixed, with the PR link).
+- [x] Every finding above is fixed, or a remaining part is written up in the PR description.
+- [x] Each bug fix has a regression test (Vitest for `lib/`; at least a hook or utility test for UI where practical).
+- [x] Code follows [`docs/coding-patterns.md`](../coding-patterns.md).
+- [x] `npm run typecheck`, `npm run lint`, `npm test` and `npm run build` pass (before Task 02 lands, `npx tsc --noEmit` instead of `typecheck`).
+- [x] The status of each finding in [`docs/code-review.md`](../code-review.md) is updated (Fixed, with the PR link).
+
+**PR note (CR-236):** Remaining inline `.map()` closures in `StartView`, `BuildView`, `ArtifactViews`, `PlanApproveFooter`, and variable-chip `onClick` in `PromptEditorSection` are unchanged; the main fan-out step card and decision choice pick paths were refactored.

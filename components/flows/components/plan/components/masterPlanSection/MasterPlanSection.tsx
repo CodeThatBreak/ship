@@ -56,10 +56,12 @@ export function MasterPlanSection({ planId }: { planId: string }) {
         <Layers size={14} /> Master plan
         {feedback ? (
           <Tooltip>
-            <TooltipTrigger>
-              <button type="button" aria-label="Plan refinement feedback">
-                <Info size={12} className="text-muted-foreground" />
-              </button>
+            <TooltipTrigger
+              render={
+                <button type="button" aria-label="Plan refinement feedback" className="inline-flex" />
+              }
+            >
+              <Info size={12} className="text-muted-foreground" />
             </TooltipTrigger>
             <TooltipContent>
               <div className="border-l-[3px] pl-2.5 text-xs text-muted-foreground">

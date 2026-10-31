@@ -1,4 +1,5 @@
 "use client";
+import { useMemo } from "react";
 import type { Node } from "@/types/flow";
 import type { GraphDef } from "@/hooks/use-graph-def";
 import { isTerminalFlowStatus } from "@/constants/flow";
@@ -48,8 +49,15 @@ export function GraphEdges({
     const done = isTerminalFlowStatus(src.status);
     if (done && chosen.includes(e.label)) takenEdges.add(`${e.from}>${e.to}:${e.label}`);
   }
-  const specOf: EdgeSpecOf =
-    (a, b) => (edgeSpecs ?? []).find((e) => e.from === a && e.to === b) ?? null;
+  const specByPair = useMemo(() => {
+    const map = new Map<string, EdgeSpec>();
+    for (const edge of edgeSpecs ?? []) {
+      const pair = `${edge.from}>${edge.to}`;
+      if (!map.has(pair)) map.set(pair, edge);
+    }
+    return map;
+  }, [edgeSpecs]);
+  const specOf: EdgeSpecOf = (a, b) => specByPair.get(`${a}>${b}`) ?? null;
 
   return (
     <svg width={width} height={height} className="absolute inset-0">

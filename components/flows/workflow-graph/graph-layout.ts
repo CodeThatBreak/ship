@@ -31,9 +31,10 @@ export function layout(keys: string[], edges: [string, string, string][]) {
     marginy: 14,
   });
   g.setDefaultEdgeLabel(() => ({}));
+  const keySet = new Set(keys);
   keys.forEach((k) => g.setNode(k, { width: W, height: H }));
   edges.forEach(([a, b]) => {
-    if (keys.includes(a) && keys.includes(b)) g.setEdge(a, b);
+    if (keySet.has(a) && keySet.has(b)) g.setEdge(a, b);
   });
   dagre.layout(g);
   return g;

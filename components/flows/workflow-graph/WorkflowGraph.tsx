@@ -1,4 +1,5 @@
 'use client';
+import { useMemo } from 'react';
 import type { Node } from '@/types/flow';
 import { useGraphDef } from '@/hooks/use-graph-def';
 import { GraphEdges, type NodePosition } from './GraphEdges';
@@ -36,7 +37,20 @@ export default function WorkflowGraph({
 }) {
   const graphQuery = useGraphDef(flowId ?? '');
   const graphDef = graphQuery.data;
-  const keys = nodes.map(n => n.node_key);
+  const keys = useMemo(() => nodes.map((n) => n.node_key), [nodes]);
+  const edges = useMemo(() => graphDef?.edges ?? [], [graphDef?.edges]);
+  const layoutSignature = useMemo(
+    () =>
+      keys.length === 0
+        ? ''
+        : `${keys.join('\0')}\n${edges.map(([a, b, label]) => `${a}\t${b}\t${label}`).join('\n')}`,
+    [keys, edges],
+  );
+  const layoutGraph = useMemo(
+    () => (layoutSignature ? layout(keys, edges) : null),
+    [layoutSignature, keys, edges],
+  );
+
   if (!keys.length) return null;
   // the graph def's initial load (`placeholderData: keepPreviousData` keeps
   // refetches off this path): the interim state is the fixed-height shimmer
@@ -44,8 +58,8 @@ export default function WorkflowGraph({
   // layout resolves in (§2.8)
   if (graphQuery.isPending) return <WorkflowGraphSkeleton />;
 
-  const edges = graphDef?.edges ?? [];
-  const g = layout(keys, edges);
+  const g = layoutGraph;
+  if (!g) return null;
   const width = Math.max(...keys.map(k => g.node(k).x)) + W;
   // the band never shrinks below the height the skeleton reserved while
   // pending — a smaller dagre layout (single-row graphs come out under the

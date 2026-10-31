@@ -3,6 +3,8 @@ import type { PlanStepPayload } from "../types";
 
 /** A plan-step row serialized as an editable draft form. */
 export interface PlanStepDraft {
+  /** Stable client id for React keys — persisted step id or a generated uuid for new rows. */
+  clientId: string;
   id?: string;
   title: string;
   detail: string;
@@ -11,6 +13,7 @@ export interface PlanStepDraft {
 }
 
 const toDraft = (s: PlanStepRow): PlanStepDraft => ({
+  clientId: s.id,
   id: s.id,
   title: s.title,
   detail: s.detail ?? "",
@@ -18,7 +21,15 @@ const toDraft = (s: PlanStepRow): PlanStepDraft => ({
   branch: s.branch ?? "",
 });
 
+const newDraftClientId = (): string => {
+  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
+    return crypto.randomUUID();
+  }
+  return `draft-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+};
+
 const emptyDraft = (): PlanStepDraft => ({
+  clientId: newDraftClientId(),
   id: undefined,
   title: "",
   detail: "",

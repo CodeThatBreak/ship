@@ -18,6 +18,7 @@ import GroupRow from './GroupRow';
 import ToolRow from './ToolRow';
 import EventRow from './EventRow';
 import type { FeedItem, RunSection } from './timeline';
+import { feedItemKey } from './timeline-keys';
 
 /** Run section = the shadcn Task pattern over Trace. */
 export default function RunSectionRow({ section }: { section: RunSection }) {
@@ -58,8 +59,8 @@ export default function RunSectionRow({ section }: { section: RunSection }) {
         </TraceCollapsibleTrigger>
         <TraceCollapsibleContent keepMounted>
           <Trace>
-            {section.items.map((it, i) => (
-              <FeedItemRow key={i} item={it} active={section.active} />
+            {section.items.map((it) => (
+              <FeedItemRow key={feedItemKey(it)} item={it} active={section.active} />
             ))}
           </Trace>
         </TraceCollapsibleContent>

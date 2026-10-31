@@ -1,5 +1,5 @@
 "use client";
-import { useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { CheckCheck, Split } from "lucide-react";
 import { PanelShell } from "./shared";
 import { useNodePanel } from "./context";
@@ -13,6 +13,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Textarea } from "@/components/ui/textarea";
+import { cn } from "@/lib/utils";
 import {
   effectiveDecisionSelection,
   isSameDecisionPick,
@@ -30,7 +31,7 @@ export function DecisionView() {
   const cfg = (node.config ?? {}) as { source?: string; question?: string; choices?: DecisionChoice[] };
   const choices = cfg.choices ?? [];
   const out = (node.output ?? {}) as { chosen?: string[]; rationale?: string };
-  const proposed = out.chosen ?? [];
+  const proposed = useMemo(() => out.chosen ?? [], [out.chosen]);
 
   const [override, setOverride] = useState<string[] | null>(null);
   const sel = effectiveDecisionSelection(override, proposed);
@@ -44,8 +45,11 @@ export function DecisionView() {
   // pre-selects it; a manual source holds with no pick (chosen: [])
   const hasProposal = awaiting && proposed.length > 0;
 
-  const toggle = (label: string) =>
-    setOverride((cur) => toggleDecisionLabel(cur ?? proposed, label));
+  const onPickChoice = useCallback(
+    (label: string) =>
+      setOverride((cur) => toggleDecisionLabel(cur ?? proposed, label)),
+    [proposed],
+  );
 
   const samePick = isSameDecisionPick(sel, proposed);
 
@@ -97,7 +101,7 @@ export function DecisionView() {
             taken={finished && (out.chosen ?? []).includes(c.label)}
             picked={(awaiting ? sel : out.chosen ?? []).includes(c.label)}
             selectable={awaiting}
-            onPick={() => toggle(c.label)}
+            onPick={onPickChoice}
           />
         ))}
       </div>
@@ -137,20 +141,41 @@ function DecisionChoiceCard({
   taken: boolean;
   picked: boolean;
   selectable: boolean;
-  onPick: () => void;
+  onPick: (label: string) => void;
 }) {
-  return (
-    <Card
-      className={`px-4 py-3 ${selectable ? "cursor-pointer" : ""} ${picked ? "border-info/60 bg-info/5" : ""} ${taken ? "border-success/60 bg-success/5" : ""}`}
-      onClick={selectable ? onPick : undefined}
-    >
-      <div className="flex items-center gap-2.5">
-        <Badge className={taken ? "bg-success/10 text-success" : picked ? "bg-info/10 text-info" : undefined}>
-          {choice.label}
-        </Badge>
-        {choice.description && <span className="text-[12.5px] text-muted-foreground flex-1">{choice.description}</span>}
-        {taken && <CheckCheck size={14} className="text-success shrink-0" />}
-      </div>
-    </Card>
+  const inner = (
+    <div className="flex items-center gap-2.5">
+      <Badge className={taken ? "bg-success/10 text-success" : picked ? "bg-info/10 text-info" : undefined}>
+        {choice.label}
+      </Badge>
+      {choice.description && <span className="text-[12.5px] text-muted-foreground flex-1">{choice.description}</span>}
+      {taken && <CheckCheck size={14} className="text-success shrink-0" />}
+    </div>
   );
+
+  const cardClass = cn(
+    "px-4 py-3 w-full text-left",
+    selectable && "cursor-pointer",
+    picked && "border-info/60 bg-info/5",
+    taken && "border-success/60 bg-success/5",
+  );
+
+  if (selectable) {
+    return (
+      <button
+        type="button"
+        aria-pressed={picked}
+        aria-label={`Select branch ${choice.label}`}
+        className={cn(
+          "rounded-lg bg-card text-card-foreground shadow-sm ring-1 ring-foreground/5 dark:ring-foreground/10 border border-transparent",
+          cardClass,
+        )}
+        onClick={() => onPick(choice.label)}
+      >
+        {inner}
+      </button>
+    );
+  }
+
+  return <Card className={cardClass}>{inner}</Card>;
 }
