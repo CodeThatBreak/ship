@@ -4,7 +4,10 @@ const getRunMock = vi.fn();
 const waitMock = vi.fn();
 
 vi.mock("./cursor/credentials", () => ({
-  cursorApiKey: () => "test-key",
+  cursorCredentials: {
+    apiKey: () => "test-key",
+    isStored: () => true,
+  },
 }));
 
 vi.mock("@cursor/sdk", () => ({

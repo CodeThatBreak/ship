@@ -21,6 +21,16 @@ describe("EventGrouper", () => {
     const sections = grouper.group([event]);
     expect(sections[0]?.runId).toBe("run_abc");
   });
+
+  it("does not mutate input event rows (CR-197)", () => {
+    const grouper = new EventGrouper();
+    const event = baseEvent({
+      data: JSON.stringify({ run_id: "run_abc", mode: "cloud" }),
+    });
+    const snapshot = structuredClone(event);
+    grouper.group([event], new Map([["node_1", "plan"]]));
+    expect(event).toEqual(snapshot);
+  });
 });
 
 describe("flowEventNodeKeys", () => {

@@ -9,7 +9,8 @@ import { buildFlowContext } from "../../../context/flow-variables";
 import { evalJsonata } from "@/lib/jsonata";
 import { HttpDefSchema, type HttpDef } from "../../declarative-schemas";
 import { allowlistResponseHeaders, capSerializedPayload } from "../../shared/payload-digest";
-import { getSecrets, redactSecrets, httpAllowlist } from "../../../secrets";
+import { secretStore } from "../../../secret-store";
+import { settingsService } from "@/lib/settings";
 import { guardedRequest } from "../../../../net/ssrf-guard";
 
 /**
@@ -97,7 +98,7 @@ export class HttpTemplateNode extends DeclarativeNode<HttpDef> {
       delete inherited.prompt;
       delete inherited.model;
       const vars = { ...buildFlowContext(ctx), input: inherited };
-      const secrets = getSecrets();
+      const secrets = secretStore.all();
       const renderOpts = {
         label: this.label,
         resolveSecret: (name: string) => secrets[name],
@@ -115,7 +116,7 @@ export class HttpTemplateNode extends DeclarativeNode<HttpDef> {
         headers,
         body,
         timeoutMs: cfg.timeout_ms > 0 ? cfg.timeout_ms : 30_000,
-        allowlist: httpAllowlist(),
+        allowlist: settingsService.httpAllowlist(),
       });
 
       // parse the body: JSON when the content type says so, text otherwise
@@ -138,7 +139,7 @@ export class HttpTemplateNode extends DeclarativeNode<HttpDef> {
 
       this.support.emitLifecycle(ctx.flow.id, node.id,
         `${this.label}: ${cfg.method} → ${res.status}${res.ok ? "" : " (not ok)"}`,
-        { url: redactSecrets(url) });
+        { url: secretStore.redact(url) });
 
       return this.applyOutcome(ctx, this.finish(ctx, rawInput, output, res, defaultOutput));
     } catch (e: unknown) {
@@ -191,7 +192,7 @@ export class HttpTemplateNode extends DeclarativeNode<HttpDef> {
   }
 
   private renderErr(msg: string): string {
-    return redactSecrets(msg);
+    return secretStore.redact(msg);
   }
 }
 

@@ -18,9 +18,6 @@ export interface FeedEvent {
   message: string | null;
   data: string | null;
   created_at: string;
-  // enriched client-side
-  _data?: Record<string, unknown>;
-  _nodeKey?: string;
 }
 
 const eventString = (value: unknown): string | undefined =>
@@ -83,18 +80,30 @@ export class EventGrouper {
   /** Consecutive events further apart than this start a new group/section. */
   static readonly GAP_MS = 30_000;
 
+  private readonly parsedData = new WeakMap<FeedEvent, Record<string, unknown>>();
+  private readonly nodeKeys = new WeakMap<FeedEvent, string | undefined>();
+
   private parseData(e: FeedEvent): Record<string, unknown> {
-    if (e._data !== undefined) return e._data;
+    if (this.parsedData.has(e)) return this.parsedData.get(e) ?? {};
+    let parsed: Record<string, unknown>;
     try {
-      const parsed: unknown = e.data ? JSON.parse(e.data) : {};
-      e._data =
-        parsed && typeof parsed === "object" && !Array.isArray(parsed)
-          ? (parsed as Record<string, unknown>)
+      const raw: unknown = e.data ? JSON.parse(e.data) : {};
+      parsed =
+        raw && typeof raw === "object" && !Array.isArray(raw)
+          ? (raw as Record<string, unknown>)
           : {};
     } catch {
-      e._data = {};
+      parsed = {};
     }
-    return e._data;
+    this.parsedData.set(e, parsed);
+    return parsed;
+  }
+
+  private nodeKeyOf(e: FeedEvent, nodeKeysByNodeId?: Map<string, string>): string | undefined {
+    if (this.nodeKeys.has(e)) return this.nodeKeys.get(e);
+    const key = e.node_id ? nodeKeysByNodeId?.get(e.node_id) : undefined;
+    this.nodeKeys.set(e, key);
+    return key;
   }
 
   private isStreamType(t: string): boolean {
@@ -118,9 +127,9 @@ export class EventGrouper {
     };
 
     for (const raw of events) {
-      const e = raw as FeedEvent;
+      const e = raw;
       const d = this.parseData(e);
-      e._nodeKey = e.node_id ? nodeKeysByNodeId?.get(e.node_id) : undefined;
+      const nodeKey = this.nodeKeyOf(e, nodeKeysByNodeId);
       const runId = this.runIdOf(e);
 
       // ── section boundaries ─────────────────────────────────────────────
@@ -131,7 +140,7 @@ export class EventGrouper {
           key: runId,
           runId,
           nodeId: e.node_id,
-          nodeKey: e._nodeKey,
+          nodeKey,
           label: (e.message ?? "").replace(/\s*started.*$/, ""),
           mode: eventString(d.mode),
           startedAt: e.created_at,
@@ -176,8 +185,8 @@ export class EventGrouper {
           key: runId,
           runId,
           nodeId: e.node_id,
-          nodeKey: e._nodeKey,
-          label: e._nodeKey ?? "run",
+          nodeKey,
+          label: nodeKey ?? "run",
           startedAt: e.created_at,
           active: true,
           items: [],
@@ -200,8 +209,8 @@ export class EventGrouper {
       current = {
         key: `loose_${e.id}`,
         nodeId: e.node_id,
-        nodeKey: e._nodeKey,
-        label: e._nodeKey ? `${e._nodeKey} activity` : "flow activity",
+        nodeKey,
+        label: nodeKey ? `${nodeKey} activity` : "flow activity",
         startedAt: e.created_at,
         active: false,
         items: [],

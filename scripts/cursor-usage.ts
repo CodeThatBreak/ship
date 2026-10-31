@@ -16,9 +16,9 @@
 process.env.DATABASE_PATH ??= "./data/devflow.db";
 import { Agent, type AgentUsage } from "@cursor/sdk";
 import { db } from "../lib/db";
-import { cursorApiKey } from "../lib/integrations/cursor/credentials";
+import { cursorCredentials } from "../lib/integrations/cursor/credentials";
 
-const apiKey = cursorApiKey();
+const apiKey = cursorCredentials.apiKey();
 if (!apiKey) {
   console.error(
     "No Cursor API key stored — save one on Settings → Integrations → Harness.",

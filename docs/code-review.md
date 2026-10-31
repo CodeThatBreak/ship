@@ -4987,9 +4987,8 @@ Original findings, verbatim:
 
 ### CR-186 [Low] `secrets.ts` is a loose-function module holding unrelated responsibilities
 
-- **Status at `abaa007`:** **Open**, fix in [Task 50](review-tasks/50-small-module-cleanups.md)
-- **Current location:** lib/engine/secrets.ts:11-39
-- **Re-verification note:** Still a loose-function module, `getSecrets`/`redactSecrets`/`httpAllowlist`, reading the plain `settings` table on every call. Convert it to a `SecretStore` class with an injected db (`all()`, `redact()`), move `httpAllowlist` to an `HttpPolicy`/settings service, and flag plaintext-at-rest storage in the PR description.
+- **Status at `abaa007`:** **Fixed** ([Task 50](review-tasks/50-small-module-cleanups.md) — `SecretStore` with `all()`/`redact()`; HTTP allowlist on `SettingsService.httpAllowlist()`; flow secrets remain plaintext at rest until Task 61)
+- **Current location:** lib/engine/secret-store.ts
 
 - **Severity:** Low
 - **Category:** Boundaries
@@ -5176,9 +5175,7 @@ Original findings, verbatim:
 
 ### CR-195 [Low] `lib/engine` imports the JSONata evaluator from `components/template-editor` (inverted server→UI boundary)
 
-- **Status at `abaa007`:** **Partly fixed**, fix in [Task 50](review-tasks/50-small-module-cleanups.md)
-- **Current location:** lib/jsonata/eval.ts:19
-- **Re-verification note:** The boundary inversion is fixed. The evaluator moved to `lib/jsonata/` (a barrel at `lib/jsonata/index.ts`, on the ESLint client allowlist), the engine shim `lib/engine/jsonata-eval.ts` is deleted, and both the engine and the condition builder import `@/lib/jsonata`. The only thing left is the module-level compile `cache` Map, which the suggested fix said to make an instance field (low value; optional).
+- **Status at `abaa007`:** **Fixed** ([Task 50](review-tasks/50-small-module-cleanups.md) — compile cache is an instance field on `JsonataEvaluator`)
 
 - **Severity:** Low
 - **Category:** Boundaries
@@ -5245,9 +5242,8 @@ Original findings, verbatim:
 
 ### CR-197 [Low] `EventGrouper.group` mutates the caller's event objects
 
-- **Status at `abaa007`:** **Open**, fix in [Task 50](review-tasks/50-small-module-cleanups.md)
-- **Current location:** lib/groupEvents.ts:21-23,67-75,95-98; components/chat/timeline.ts:83-84
-- **Re-verification note:** `EventGrouper.group` still writes `_data` and `_nodeKey` onto the input rows, and `nodeRunSections` passes TanStack Query cache data straight in, so cached objects are mutated. `_nodeKey` is recomputed on every call, which makes stale values unlikely in practice, but this still breaks the no-mutation rule. Keep the parsed data in a local `WeakMap`, or shallow-copy each event before enriching it.
+- **Status at `abaa007`:** **Fixed** ([Task 50](review-tasks/50-small-module-cleanups.md) — parsed payload and node keys cached in per-grouper `WeakMap`s; regression test in `lib/groupEvents.test.ts`)
+- **Current location:** lib/groupEvents.ts
 
 - **Severity:** Low
 - **Category:** Code quality
@@ -5689,9 +5685,8 @@ Original findings, verbatim:
 
 ### CR-216 [Low] `cursor/credentials.ts` is a cohesive functional module that AGENTS.md section 3.5 says should be a class; setting key repeated
 
-- **Status at `abaa007`:** **Open**, fix in [Task 50](review-tasks/50-small-module-cleanups.md)
-- **Current location:** lib/integrations/cursor/credentials.ts:9-26; lib/integrations/local-agent/agent.ts:88-92; app/api/settings/route.ts:80-82,138-145
-- **Re-verification note:** There are still four loose functions with `"cursor.api_key"` repeated four times, and `setCursorApiKey("")` duplicates `clearCursorApiKey()`. The `local_agent.*` setting keys are still repeated between the agent and the settings route. Fix: create a `CursorCredentials` class and add setting-key constants (for example `constants/settings.ts` or a module const).
+- **Status at `abaa007`:** **Fixed** ([Task 50](review-tasks/50-small-module-cleanups.md) — `CursorCredentials` class; `SETTINGS_KEYS` for Cursor and local-agent settings)
+- **Current location:** lib/integrations/cursor/credentials.ts; loaders/settings.ts; lib/integrations/local-agent/agent.ts
 
 - **Severity:** Low
 - **Category:** Boundaries
@@ -7451,7 +7446,7 @@ One row per finding, at `abaa007`.
 | CR-183 | Low | Code quality | Fixed | [Task 46](review-tasks/46-backend-types-cleanup.md) |
 | CR-184 | Low | Code quality | Open | [Task 44](review-tasks/44-engine-stores-and-constants.md) |
 | CR-185 | Low | Performance | Fixed | [Task 45](review-tasks/45-flow-engine-decomposition.md) |
-| CR-186 | Low | Code quality | Open | [Task 50](review-tasks/50-small-module-cleanups.md) |
+| CR-186 | Low | Code quality | Fixed | [Task 50](review-tasks/50-small-module-cleanups.md) |
 | CR-187 | Low | Code quality | Fixed | Task 07 |
 | CR-188 | Low | Code quality | Open | [Task 60](review-tasks/60-security-process-and-network-isolation.md) |
 | CR-189 | Low | Bug | Open | [Task 60](review-tasks/60-security-process-and-network-isolation.md) |
@@ -7460,9 +7455,9 @@ One row per finding, at `abaa007`.
 | CR-192 | Low | Bug | Fixed (Task 27) | [Task 27](review-tasks/27-plan-checklist-integrity.md) |
 | CR-193 | Low | Bug | Fixed (Task 25) | [Task 25](review-tasks/25-wait-timers-and-poller.md) |
 | CR-194 | Low | Performance | Fixed (Task 25) | [Task 25](review-tasks/25-wait-timers-and-poller.md) |
-| CR-195 | Low | Code quality | Partly fixed | [Task 50](review-tasks/50-small-module-cleanups.md) |
+| CR-195 | Low | Code quality | Fixed | [Task 50](review-tasks/50-small-module-cleanups.md) |
 | CR-196 | Low | Security | Open | [Task 58](review-tasks/58-security-webhook-auth.md) |
-| CR-197 | Low | Code quality | Open | [Task 50](review-tasks/50-small-module-cleanups.md) |
+| CR-197 | Low | Code quality | Fixed | [Task 50](review-tasks/50-small-module-cleanups.md) |
 | CR-198 | Low | Bug | Open | [Task 31](review-tasks/31-git-host-clients.md) |
 | CR-199 | Low | Security | Open | [Task 60](review-tasks/60-security-process-and-network-isolation.md) |
 | CR-200 | Low | Bug | Fixed | [Task 26](review-tasks/26-node-config-validation.md) |
@@ -7481,7 +7476,7 @@ One row per finding, at `abaa007`.
 | CR-213 | Low | Code quality | Fixed | [Task 46](review-tasks/46-backend-types-cleanup.md) |
 | CR-214 | Low | Code quality | Fixed (Task 33) | [Task 33](review-tasks/33-git-and-worktree-process-safety.md) |
 | CR-215 | Low | Code quality | Fixed (Task 33) | [Task 33](review-tasks/33-git-and-worktree-process-safety.md) |
-| CR-216 | Low | Code quality | Open | [Task 50](review-tasks/50-small-module-cleanups.md) |
+| CR-216 | Low | Code quality | Fixed | [Task 50](review-tasks/50-small-module-cleanups.md) |
 | CR-217 | Low | Code quality | Open | [Task 44](review-tasks/44-engine-stores-and-constants.md) |
 | CR-218 | Low | Bug | Fixed (Task 33) | [Task 33](review-tasks/33-git-and-worktree-process-safety.md) |
 | CR-219 | Low | Bug | Open | [Task 31](review-tasks/31-git-host-clients.md) |

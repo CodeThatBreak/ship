@@ -16,7 +16,7 @@ import {
 import fs from "fs";
 import { FAST_OFF, FAST_ON, FAST_PARAM } from "../../constants/models";
 import { processSingleton } from "../singleton";
-import { cursorApiKey } from "./cursor/credentials";
+import { cursorCredentials } from "./cursor/credentials";
 import { AgentRunLookupError } from "../engine/ports/agent-errors";
 import type { AgentRunQuery } from "../engine/ports/agent-port";
 
@@ -97,7 +97,7 @@ export class CursorAgentService {
   private modelCache: { at: number; models: SDKModel[] } | null = null;
 
   private apiKey(): string {
-    const key = cursorApiKey();
+    const key = cursorCredentials.apiKey();
     if (!key) throw new Error("Cursor API key not set — add it in Settings → Integrations → Harness");
     return key;
   }
@@ -108,7 +108,7 @@ export class CursorAgentService {
       .split(".")
       .map((n) => parseInt(n, 10));
     const nodeOk = maj > 22 || (maj === 22 && min >= 13);
-    return nodeOk && Boolean(cursorApiKey());
+    return nodeOk && cursorCredentials.isStored();
   }
 
   /** Models available to the authenticated account (null when unavailable). */

@@ -4,8 +4,7 @@ import type { Database } from "../db";
 import { config } from "../config";
 import { normalizeModelSpec } from "../modelSpec";
 import type { SettingsPatchBody } from "../schemas/settings-patch";
-import { settingStringRecord } from "../schemas/setting-values";
-import { settingString } from "../schemas/setting-values";
+import { settingString, settingStringArray, settingStringRecord } from "../schemas/setting-values";
 import { SETTINGS_KEYS } from "@/constants/settings";
 import { RUN_MODE, type RunMode } from "@/constants/execution";
 
@@ -18,6 +17,17 @@ export class SettingsService {
         config.defaultModel() ||
         "",
     );
+  }
+
+  /**
+   * Class setting: hostname allowlist for template-authored http calls
+   * (`http_allowlist`, entries match the exact hostname or a subdomain of it).
+   * Empty = deny-by-default, per plan §4.4.
+   */
+  httpAllowlist(): string[] {
+    const raw = this.database.getSetting(SETTINGS_KEYS.HTTP_ALLOWLIST, settingStringArray, []);
+    if (Array.isArray(raw)) return raw.map((s) => String(s).trim()).filter(Boolean);
+    return [];
   }
 
   defaultExecutionMode(): RunMode {

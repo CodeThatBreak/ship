@@ -10,6 +10,7 @@ import {
 import { parseModelSpec } from "../../modelSpec";
 import { db, type Database } from "../../db";
 import { processSingleton } from "../../singleton";
+import { SETTINGS_KEYS } from "@/constants/settings";
 import { settingBoolean, settingNumber } from "../../schemas/setting-values";
 import { GIT_FETCH_TIMEOUT_MS, runGit } from "../../git/bounded-exec";
 import { AgentRunTimeoutError } from "../../engine/ports/agent-errors";
@@ -85,9 +86,9 @@ export class LocalAgentService {
 
   defaults() {
     return {
-      force: this.database.getSetting("local_agent.force", settingBoolean, true),
-      sandbox: this.database.getSetting("local_agent.sandbox", settingBoolean, false),
-      timeoutMs: this.database.getSetting("local_agent.timeout_ms", settingNumber, 30 * 60 * 1000),
+      force: this.database.getSetting(SETTINGS_KEYS.LOCAL_AGENT_FORCE, settingBoolean, true),
+      sandbox: this.database.getSetting(SETTINGS_KEYS.LOCAL_AGENT_SANDBOX, settingBoolean, false),
+      timeoutMs: this.database.getSetting(SETTINGS_KEYS.LOCAL_AGENT_TIMEOUT_MS, settingNumber, 30 * 60 * 1000),
     };
   }
 

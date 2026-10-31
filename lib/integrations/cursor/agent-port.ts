@@ -2,7 +2,7 @@ import "server-only";
 
 import { cursorAgent } from "../cursorSdk";
 import { cursorClient } from "./client";
-import { cursorApiKey } from "./credentials";
+import { cursorCredentials } from "./credentials";
 import { CURSOR_LIST_DISCOUNT, CURSOR_RATE_OVERRIDES } from "./pricing";
 import type {
   AgentPort,
@@ -94,7 +94,7 @@ export class CursorCloudAgentPort implements AgentPort {
   }
 
   async status(): Promise<{ configured: boolean; detail?: string }> {
-    const configured = Boolean(cursorApiKey());
+    const configured = cursorCredentials.isStored();
     return {
       configured,
       detail: configured ? undefined : "Cursor API key is not set — add it in Settings → Integrations → Harness",

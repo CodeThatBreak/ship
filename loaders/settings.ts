@@ -7,7 +7,7 @@ import "server-only";
 import { agentPortRegistry } from "@/lib/engine/ports/agent-port";
 import { gitHostRegistry } from "@/lib/engine/ports/git-host";
 import { taskRegistry } from "@/lib/engine/tasks/registry";
-import { cursorApiKeyStored } from "@/lib/integrations/cursor/credentials";
+import { cursorCredentials } from "@/lib/integrations/cursor/credentials";
 import { db } from "@/lib/db";
 import { repoService } from "@/lib/repos";
 import { SETTINGS_KEYS } from "@/constants/settings";
@@ -17,7 +17,6 @@ import {
   settingBoolean,
   settingNumber,
   settingString,
-  settingStringArray,
   settingUnknownRecord,
 } from "@/lib/schemas/setting-values";
 import type { Repo, Settings } from "@/components/settings/context";
@@ -76,14 +75,14 @@ export const loadSettings = async (): Promise<Settings> => {
     default_execution_mode: settingsService.defaultExecutionMode(),
     default_model: settingsService.defaultModel(),
     local_agent: {
-      force: db.getSetting("local_agent.force", settingBoolean, true),
-      sandbox: db.getSetting("local_agent.sandbox", settingBoolean, false),
-      timeout_ms: db.getSetting("local_agent.timeout_ms", settingNumber, 30 * 60 * 1000),
+      force: db.getSetting(SETTINGS_KEYS.LOCAL_AGENT_FORCE, settingBoolean, true),
+      sandbox: db.getSetting(SETTINGS_KEYS.LOCAL_AGENT_SANDBOX, settingBoolean, false),
+      timeout_ms: db.getSetting(SETTINGS_KEYS.LOCAL_AGENT_TIMEOUT_MS, settingNumber, 30 * 60 * 1000),
     },
-    secrets: Object.keys(db.getSetting("secrets", settingUnknownRecord, {})),
-    http_allowlist: db.getSetting("http_allowlist", settingStringArray, []),
+    secrets: Object.keys(db.getSetting(SETTINGS_KEYS.SECRETS, settingUnknownRecord, {})),
+    http_allowlist: settingsService.httpAllowlist(),
     status: {
-      cursorApiKeySet: cursorApiKeyStored(),
+      cursorApiKeySet: cursorCredentials.isStored(),
       localAgentConfigured:
         statuses.get(agentPortRegistry.forMode("local").kind)?.configured ?? false,
       gitHosts: Object.fromEntries(gitHostRegistry.list().map((h) => [h.kind, h.configured()])),

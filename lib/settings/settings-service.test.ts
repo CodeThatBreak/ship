@@ -73,5 +73,6 @@ describe("SettingsService.update", () => {
 
     expect(db.getSetting("default_execution_mode", settingString, "")).toBe("local");
     expect(db.getSetting("http_allowlist", settingStringArray, [])).toEqual(["example.com"]);
+    expect(service.httpAllowlist()).toEqual(["example.com"]);
   });
 });
