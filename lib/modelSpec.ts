@@ -1,4 +1,4 @@
-import { FAST_OFF, FAST_ON, FAST_PARAM } from "../constants/models";
+import { FAST_OFF, FAST_ON, FAST_PARAM, LOCAL_DEFAULT_MODEL } from "../constants/models";
 
 /**
  * Model spec strings: "<model-id>" or "<model-id>[param=value,param=value]".
@@ -80,4 +80,26 @@ export function normalizeModelSpec(raw: string): string {
   const usable = (p: ModelParamValue): boolean =>
     !(p.id === FAST_PARAM && p.value !== FAST_ON && p.value !== FAST_OFF);
   return composeModelSpec(parsed.id, (parsed.params ?? []).filter(usable));
+}
+
+/**
+ * Resolve the model spec string for an agent run.
+ * Per-run → settings default → `DEFAULT_MODEL` env; `"auto"` is treated as unset.
+ * Local runs always get a concrete id (port fallbacks, then {@link LOCAL_DEFAULT_MODEL}).
+ */
+export function resolveAgentRunModel(
+  perRun: string | null | undefined,
+  settingsDefault: string,
+  envDefault: string,
+  execMode: "cloud" | "local",
+  fallbackModels: readonly string[] = [],
+): string | undefined {
+  const requested = perRun?.trim() || settingsDefault.trim() || envDefault.trim();
+  if (requested && requested !== "auto") return requested;
+  if (execMode !== "local") return undefined;
+  const fromPort = fallbackModels.find((m) => {
+    const id = m.trim();
+    return id.length > 0 && id !== "auto";
+  });
+  return fromPort?.trim() || LOCAL_DEFAULT_MODEL;
 }

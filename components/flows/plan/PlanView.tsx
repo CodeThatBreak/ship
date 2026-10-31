@@ -110,6 +110,7 @@ export default function PlanView({
     action(PLAN_ACTION.REFINE, {
       prompt,
       promptIsBody: promptIsBody || undefined,
+      model: model || undefined,
       complex: true,
       branchRef: refineBranch,
       fresh: extras.fresh ?? true, // scoped refines default fresh (§3)

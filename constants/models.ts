@@ -16,3 +16,9 @@ export const FAST_PARAM = "fast";
  */
 export const FAST_ON = "true";
 export const FAST_OFF = "false";
+
+/**
+ * Concrete model id used when local SDK runs have no per-run / settings /
+ * env pick (local agents reject "auto" and omitted model on create/resume/send).
+ */
+export const LOCAL_DEFAULT_MODEL = "composer-2.5";

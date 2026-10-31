@@ -1,5 +1,6 @@
 import { config } from "../../../config";
 import { db } from "../../../db";
+import { resolveAgentRunModel } from "../../../modelSpec";
 import {
   agentPortRegistry,
   type AgentPort,
@@ -53,12 +54,14 @@ export class AgentRunner {
   async startAgent(ctx: FlowCtx, input: AgentStartInput): Promise<Started> {
     const mode = this.ctxHelper.execMode(ctx);
     const port = agentPortRegistry.forMode(mode);
-    // Model resolution: per-run selection → Settings default → DEFAULT_MODEL env.
-    const requested =
-      input.model?.trim() ||
-      db.getSetting<string>("default_model", "") ||
-      config.cursor.defaultModel();
-    const model = requested && requested !== "auto" ? requested : undefined;
+    // Model resolution: per-run → settings → env; local runs always pin a concrete id.
+    const model = resolveAgentRunModel(
+      input.model,
+      db.getSetting<string>("default_model", ""),
+      config.cursor.defaultModel(),
+      mode,
+      port.fallbackModels,
+    );
     const spec: AgentStartSpec = {
       prompt: input.prompt,
       mode: input.mode,
