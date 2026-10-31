@@ -36,6 +36,8 @@ export default function AgentView() {
   const failed = isFailedStatus(node.status);
   const mdArts = node.artifacts.filter((a: Artifact) => a.kind === (outputKind === "json" ? "json" : "markdown"));
   const latest = mdArts[mdArts.length - 1];
+  const [selId, setSelId] = useState<string | null>(null);
+  const current = mdArts.find((a) => a.id === selId) ?? latest;
   // plan fan-out: the node's panel swaps the prompt card for the step cards
   const fannedOut = (flow.planSteps ?? []).some((s: PlanStepRow) => s.sub_flow != null);
 
@@ -89,19 +91,21 @@ export default function AgentView() {
           </Card>
         )}
         {/* output — latest artifact version (wraps the artifact loader children) */}
-        {latest && (
+        {current && (
           <div>
             <h3 className="text-sm font-semibold mb-2 flex items-center gap-1.5">
               <Sparkles size={14} /> Output
             </h3>
-            {mdArts.length > 1 && <VersionTabs arts={mdArts} sel={latest.id} onSel={() => {}} className="mb-3.5" />}
-            <ArtifactLoader id={latest.id}
+            {mdArts.length > 1 && (
+              <VersionTabs arts={mdArts} sel={current.id} onSel={setSelId} className="mb-3.5" />
+            )}
+            <ArtifactLoader id={current.id}
               render={(loaded: ArtifactPayload) => outputKind === "json"
                 ? <pre className="overflow-y-auto whitespace-pre-wrap bg-background border border-border rounded-lg p-3.5 text-[12.5px] font-mono">{loaded.content}</pre>
                 : <Markdown className="text-[13px] [&>*:first-child]:mt-0">{loaded.content}</Markdown>} />
           </div>
         )}
-        {!latest && !running && !failed && (
+        {!current && !running && !failed && (
           <div className="text-center px-5 py-10">
             <Sparkles size={32} className="text-muted-foreground mb-3 mx-auto" />
             <p className="text-muted-foreground max-w-[380px] mx-auto">No output yet. {pending ? "Click Run to start." : ""}</p>

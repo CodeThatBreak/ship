@@ -85,8 +85,8 @@ export default function NodePanel({
       <div className="flex flex-1 min-h-0 min-w-0">
         {/* the node's panel column */}
         <div className="flex-[1.6] min-w-0 min-h-0 flex flex-col">
-          {Panel ? <Panel /> : (
-            <PanelShell node={node} flow={flow}>
+          {Panel ? <Panel key={node.node_key} /> : (
+            <PanelShell key={node.node_key} node={node} flow={flow}>
               {node.kind
                 ? <p className="text-muted-foreground text-[13px] m-0">The <strong>{node.kind}</strong> node type isn&apos;t supported yet — it can&apos;t run, even though you can configure it in the template editor.</p>
                 : <p className="text-muted-foreground">No panel for this node.</p>}
@@ -101,7 +101,7 @@ export default function NodePanel({
             keep the copy where it was. */}
         {Chat && (
           <aside className="flex-1 flex flex-col bg-card min-w-[340px] py-3.5 pl-3.5 pr-0 min-h-0">
-            <Chat />
+            <Chat key={node.node_key} />
           </aside>
         )}
       </div>

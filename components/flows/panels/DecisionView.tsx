@@ -13,6 +13,11 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Textarea } from "@/components/ui/textarea";
+import {
+  effectiveDecisionSelection,
+  isSameDecisionPick,
+  toggleDecisionLabel,
+} from "./utils/decision-selection";
 
 interface DecisionChoice { label: string; description?: string }
 
@@ -27,7 +32,8 @@ export function DecisionView() {
   const out = (node.output ?? {}) as { chosen?: string[]; rationale?: string };
   const proposed = out.chosen ?? [];
 
-  const [sel, setSel] = useState<string[]>(proposed);
+  const [override, setOverride] = useState<string[] | null>(null);
+  const sel = effectiveDecisionSelection(override, proposed);
   const [rationale, setRationale] = useState("");
 
   const running = node.status === FLOW_STATUS.RUNNING;
@@ -39,9 +45,9 @@ export function DecisionView() {
   const hasProposal = awaiting && proposed.length > 0;
 
   const toggle = (label: string) =>
-    setSel((cur) => (cur.includes(label) ? cur.filter((l) => l !== label) : [...cur, label]));
+    setOverride((cur) => toggleDecisionLabel(cur ?? proposed, label));
 
-  const samePick = sel.length === proposed.length && sel.every((l) => proposed.includes(l));
+  const samePick = isSameDecisionPick(sel, proposed);
 
   const footer = (
     <>

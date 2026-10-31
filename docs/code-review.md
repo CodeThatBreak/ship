@@ -900,7 +900,7 @@ Original findings, verbatim:
 
 ### CR-028 [High] NodePanel isn't keyed by node, so panel-local state leaks between nodes (including a wrong `choose_node` payload)
 
-- **Status at `abaa007`:** **Open**, fix in [Task 35](review-tasks/35-cockpit-panel-state.md)
+- **Status at `abaa007`:** **Fixed** (Task 35)
 - **Current location:** components/flows/panels/NodePanel.tsx:53-60 (Panel / PanelShell rendered without key); components/flows/cockpit/FlowCockpit.tsx:111; leaking state: components/flows/panels/DecisionView.tsx:30-31,66, AgentView.tsx:29-30, ArtifactViews.tsx:31,111
 - **Re-verification note:** The panel is still rendered as `<Panel />` with no `key`, so switching between two nodes served by the same component keeps the previous node's `useState`. For example, DecisionView posts node A's selection as `choose_node` for node B. Render `<Panel key={node.node_key} />` (and key the fallback `PanelShell`), or key `<NodePanel>` in the cockpit.
 
@@ -3402,7 +3402,7 @@ Original findings, verbatim:
 
 ### CR-122 [Medium] DecisionView seeds its pick from props once, so a proposal that arrives later is never preselected
 
-- **Status at `abaa007`:** **Open**, fix in [Task 35](review-tasks/35-cockpit-panel-state.md)
+- **Status at `abaa007`:** **Fixed** (Task 35)
 - **Current location:** components/flows/panels/DecisionView.tsx:28-30, components/flows/panels/DecisionView.tsx:39-44, components/flows/panels/DecisionView.tsx:60-69
 - **Re-verification note:** `useState<string[]>(proposed)` still captures `out.chosen` only at mount, so a proposal that arrives by polling is never preselected and the "Confirm" button never shows. Fix: hold only the user's override (`useState<string[] | null>(null)`) and derive `override ?? proposed` during render.
 
@@ -3426,7 +3426,7 @@ Original findings, verbatim:
 
 ### CR-123 [Medium] AgentView version tabs do nothing when clicked
 
-- **Status at `abaa007`:** **Open**, fix in [Task 35](review-tasks/35-cockpit-panel-state.md)
+- **Status at `abaa007`:** **Fixed** (Task 35)
 - **Current location:** components/flows/panels/AgentView.tsx:37-38, components/flows/panels/AgentView.tsx:92-102
 - **Re-verification note:** `VersionTabs` still gets `sel={latest.id}` and `onSel={() => {}}`, and the loader always renders `latest`, so earlier versions can't be viewed. Fix: add `selId` state with `current = mdArts.find(a => a.id === selId) ?? latest` (the same as `GenericArtifact`), or reuse `GenericArtifact` with a custom renderer.
 
@@ -3447,7 +3447,7 @@ Original findings, verbatim:
 
 ### CR-124 [Medium] ChatPanel state carries over between nodes (draft, refine toggle, prompt box, send error)
 
-- **Status at `abaa007`:** **Partly fixed**, fix in [Task 35](review-tasks/35-cockpit-panel-state.md)
+- **Status at `abaa007`:** **Fixed** (Task 35)
 - **Current location:** components/flows/panels/NodePanel.tsx:46-70, components/flows/panels/NodeChat.tsx:17-29, components/chat/components/chatComposerForm/ChatComposerForm.tsx:80
 - **Re-verification note:** The refine toggle and `NodePromptBox` are gone, and the chat panel no longer renders the send error. But the rail and panel are still not keyed by node: `ChatComposerForm`'s `useState(initialDraft)` draft survives a switch between two nodes using the same `NodeChat`, and is then sent to the new node. Panel-local state (for example `DecisionView` `sel` and `AgentView` dialogs) also carries over between same-kind nodes. Fix: render `<NodePanel key={node.node_key} …>` in `FlowCockpit`, or key `<Panel/>` and `<Chat/>` inside `NodePanel`.
 
@@ -3526,7 +3526,7 @@ Original findings, verbatim:
 
 ### CR-127 [Medium] Hydration mismatches: `window.location.origin` and `Date.now()`/`toLocaleTimeString` in SSR'd panel render
 
-- **Status at `abaa007`:** **Open**, fix in [Task 35](review-tasks/35-cockpit-panel-state.md)
+- **Status at `abaa007`:** **Fixed** (Task 35)
 - **Current location:** components/flows/panels/PanelShell.tsx:106-125, components/flows/panels/ResolveView.tsx:21-26
 - **Re-verification note:** `WaitBanner` still reads `window.location.origin` during render (empty on the server), and `ResolveView` still calls `Date.now()` and `toLocaleTimeString` during render. The cockpit is server-rendered with `initialFlow`, so both cause hydration mismatches. Fix: render a relative `/api/hooks/<id>` path and build the absolute URL only in the copy handler; format the time client-side after mount (a `useSyncExternalStore`/`useIsClient` hook).
 
@@ -3605,7 +3605,7 @@ Original findings, verbatim:
 
 ### CR-130 [Medium] CostChip shows sub-cent run costs 100× too high
 
-- **Status at `abaa007`:** **Open**, fix in [Task 35](review-tasks/35-cockpit-panel-state.md)
+- **Status at `abaa007`:** **Fixed** (Task 35)
 - **Current location:** components/flows/panels/CostChip.tsx:33-36, components/flows/panels/CostChip.tsx:19-31
 - **Re-verification note:** `fmtCents` still prints `$${c.toFixed(3)}` for `0 < c < 1` cents, so 0.4¢ shows as "$0.400", in both the chip and the per-run tooltip rows. Fix: `$${(c / 100).toFixed(c < 1 ? 4 : 2)}`, or reuse the shared cost, duration and token formatters instead of the local `fmtDur`, `fmtTok` and `fmtCents`.
 
@@ -6119,7 +6119,7 @@ Original findings, verbatim:
 
 ### CR-235 [Low] Cockpit selection reads a ref during render to decide what's shown
 
-- **Status at `abaa007`:** **Open**, fix in [Task 35](review-tasks/35-cockpit-panel-state.md)
+- **Status at `abaa007`:** **Fixed** (Task 35)
 - **Current location:** components/flows/cockpit/FlowCockpit.tsx:52-58
 - **Re-verification note:** `userSelected` ref is still read during render (`resolvedSelectedKey = userSelected.current ? selected : flow.current_node ?? ''`) and set inside `onSelect`. Derive `resolvedSelectedKey = selected || flow.current_node || ''`, drop the ref, and pass `setSelected` as `onSelect`.
 
@@ -7299,7 +7299,7 @@ One row per finding, at `abaa007`.
 | CR-025 | High | Gap | Open | [Task 31](review-tasks/31-git-host-clients.md) |
 | CR-026 | High | Bug | Open | [Task 30](review-tasks/30-events-feed.md) |
 | CR-027 | High | Gap | Fixed | [Task 15](review-tasks/15-frontend-mutation-conventions.md) |
-| CR-028 | High | Bug | Open | [Task 35](review-tasks/35-cockpit-panel-state.md) |
+| CR-028 | High | Bug | Fixed (Task 35) | [Task 35](review-tasks/35-cockpit-panel-state.md) |
 | CR-029 | High | Bug | Open | [Task 37](review-tasks/37-editor-save-integrity.md) |
 | CR-030 | High | Bug | Open | [Task 37](review-tasks/37-editor-save-integrity.md) |
 | CR-031 | High | Bug | Open | [Task 39](review-tasks/39-editor-fields-and-effects.md) |
@@ -7393,15 +7393,15 @@ One row per finding, at `abaa007`.
 | CR-119 | Medium | Bug | Open | [Task 30](review-tasks/30-events-feed.md) |
 | CR-120 | Medium | Gap | Fixed | [Task 13](review-tasks/13-frontend-query-ownership.md) |
 | CR-121 | Medium | Bug | Fixed | [Task 13](review-tasks/13-frontend-query-ownership.md) |
-| CR-122 | Medium | Bug | Open | [Task 35](review-tasks/35-cockpit-panel-state.md) |
-| CR-123 | Medium | Bug | Open | [Task 35](review-tasks/35-cockpit-panel-state.md) |
-| CR-124 | Medium | Bug | Partly fixed | [Task 35](review-tasks/35-cockpit-panel-state.md) |
+| CR-122 | Medium | Bug | Fixed (Task 35) | [Task 35](review-tasks/35-cockpit-panel-state.md) |
+| CR-123 | Medium | Bug | Fixed (Task 35) | [Task 35](review-tasks/35-cockpit-panel-state.md) |
+| CR-124 | Medium | Bug | Fixed (Task 35) | [Task 35](review-tasks/35-cockpit-panel-state.md) |
 | CR-125 | Medium | Bug | Fixed | — |
 | CR-126 | Medium | Bug | Fixed | [Task 15](review-tasks/15-frontend-mutation-conventions.md) |
-| CR-127 | Medium | Bug | Open | [Task 35](review-tasks/35-cockpit-panel-state.md) |
+| CR-127 | Medium | Bug | Fixed (Task 35) | [Task 35](review-tasks/35-cockpit-panel-state.md) |
 | CR-128 | Medium | Bug | Partly fixed | [Task 36](review-tasks/36-cockpit-a11y-and-rendering.md) |
 | CR-129 | Medium | Gap | Fixed | [Task 15](review-tasks/15-frontend-mutation-conventions.md) |
-| CR-130 | Medium | Bug | Open | [Task 35](review-tasks/35-cockpit-panel-state.md) |
+| CR-130 | Medium | Bug | Fixed (Task 35) | [Task 35](review-tasks/35-cockpit-panel-state.md) |
 | CR-131 | Medium | Accessibility | Open | [Task 36](review-tasks/36-cockpit-a11y-and-rendering.md) |
 | CR-132 | Medium | Bug | Open | [Task 38](review-tasks/38-editor-draft-machine.md) |
 | CR-133 | Medium | Bug | Open | [Task 38](review-tasks/38-editor-draft-machine.md) |
@@ -7506,7 +7506,7 @@ One row per finding, at `abaa007`.
 | CR-232 | Low | Code quality | Open | [Task 55](review-tasks/55-frontend-constants-and-types.md) |
 | CR-233 | Low | Performance | Open | [Task 36](review-tasks/36-cockpit-a11y-and-rendering.md) |
 | CR-234 | Low | Performance | Open | [Task 36](review-tasks/36-cockpit-a11y-and-rendering.md) |
-| CR-235 | Low | Code quality | Open | [Task 35](review-tasks/35-cockpit-panel-state.md) |
+| CR-235 | Low | Code quality | Fixed (Task 35) | [Task 35](review-tasks/35-cockpit-panel-state.md) |
 | CR-236 | Low | Code quality | Open | [Task 36](review-tasks/36-cockpit-a11y-and-rendering.md) |
 | CR-237 | Low | Bug | Fixed | [Task 15](review-tasks/15-frontend-mutation-conventions.md) |
 | CR-238 | Low | Code quality | Open | [Task 55](review-tasks/55-frontend-constants-and-types.md) |

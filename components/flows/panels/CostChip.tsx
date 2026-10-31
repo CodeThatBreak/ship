@@ -3,6 +3,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import type { Node } from "@/types/flow";
 import { Badge } from "@/components/ui/badge";
 import { uncachedInputTokens } from "@/lib/usage";
+import { formatCostCents } from "./utils/cost-format";
 
 /** One node run row as the engine rolls them up (`NodeCost.runs`). */
 interface CostRun {
@@ -28,11 +29,6 @@ function fmtTok(n?: number): string {
   if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
   if (n >= 1000) return `${Math.round(n / 1000)}k`;
   return `${n}`;
-}
-
-function fmtCents(c?: number | null): string {
-  if (c == null) return "—";
-  return c < 1 && c > 0 ? `$${c.toFixed(3)}` : `$${(c / 100).toFixed(2)}`;
 }
 
 /**
@@ -67,7 +63,7 @@ export function CostChip({ node }: { node: Node }) {
     `${runs.length} run${runs.length > 1 ? "s" : ""}`,
     fmtTok(totalTok) !== "—" ? `${fmtTok(totalTok)} tok` : null,
     fmtDur(totalMs) !== "—" ? fmtDur(totalMs) : null,
-    priced ? fmtCents(cost.totalCents) : "cost n/a",
+    priced ? formatCostCents(cost.totalCents) : "cost n/a",
   ].filter(Boolean).join(" · ");
 
   return (
@@ -101,7 +97,7 @@ export function CostChip({ node }: { node: Node }) {
                 <td className="px-2.5 py-0.5 text-right font-mono tabular-nums">{fmtTok(r.total)}</td>
                 <td className="px-2.5 py-0.5 text-right opacity-70">{fmtDur(r.durationMs)}</td>
                 <td className="px-2.5 py-0.5 text-right">
-                  {r.costCents != null ? fmtCents(r.costCents) : <span className="opacity-50">n/a</span>}
+                  {r.costCents != null ? formatCostCents(r.costCents) : <span className="opacity-50">n/a</span>}
                 </td>
               </tr>
             ))}
@@ -113,7 +109,7 @@ export function CostChip({ node }: { node: Node }) {
               <td className="px-2.5 py-0.5 text-right font-mono tabular-nums">{fmtTok(rows.reduce((s, r) => s + r.cacheRead + r.cacheWrite, 0))}</td>
               <td className="px-2.5 py-0.5 text-right font-mono tabular-nums">{fmtTok(totalTok)}</td>
               <td className="px-2.5 py-0.5 text-right opacity-70">{fmtDur(totalMs)}</td>
-              <td className="px-2.5 py-0.5 text-right">{priced ? fmtCents(cost.totalCents) : <span className="opacity-50">n/a</span>}</td>
+              <td className="px-2.5 py-0.5 text-right">{priced ? formatCostCents(cost.totalCents) : <span className="opacity-50">n/a</span>}</td>
             </tr>
           </tbody>
         </table>

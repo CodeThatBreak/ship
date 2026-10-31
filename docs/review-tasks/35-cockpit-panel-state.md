@@ -15,7 +15,7 @@ Each finding was re-verified against `refactor/prompt-engine-inconsistency-fix` 
 
 ### CR-028 [High] NodePanel isn't keyed by node, so panel-local state leaks between nodes (including a wrong `choose_node` payload)
 
-- **Status:** Open
+- **Status:** Fixed (Task 35)
 - **Type:** Bug
 - **Effort:** S
 - **Where:** components/flows/panels/NodePanel.tsx:53-60 (Panel / PanelShell rendered without key); components/flows/cockpit/FlowCockpit.tsx:111; leaking state: components/flows/panels/DecisionView.tsx:30-31,66, AgentView.tsx:29-30, ArtifactViews.tsx:31,111
@@ -23,7 +23,7 @@ Each finding was re-verified against `refactor/prompt-engine-inconsistency-fix` 
 
 ### CR-124 [Medium] ChatPanel state carries over between nodes (draft, refine toggle, prompt box, send error)
 
-- **Status:** Partly fixed
+- **Status:** Fixed (Task 35)
 - **Type:** Bug
 - **Effort:** S
 - **Where:** components/flows/panels/NodePanel.tsx:46-70, components/flows/panels/NodeChat.tsx:17-29, components/chat/components/chatComposerForm/ChatComposerForm.tsx:80
@@ -31,7 +31,7 @@ Each finding was re-verified against `refactor/prompt-engine-inconsistency-fix` 
 
 ### CR-122 [Medium] DecisionView seeds its pick from props once, so a proposal that arrives later is never preselected
 
-- **Status:** Open
+- **Status:** Fixed (Task 35)
 - **Type:** Bug
 - **Effort:** S
 - **Where:** components/flows/panels/DecisionView.tsx:28-30, components/flows/panels/DecisionView.tsx:39-44, components/flows/panels/DecisionView.tsx:60-69
@@ -39,7 +39,7 @@ Each finding was re-verified against `refactor/prompt-engine-inconsistency-fix` 
 
 ### CR-123 [Medium] AgentView version tabs do nothing when clicked
 
-- **Status:** Open
+- **Status:** Fixed (Task 35)
 - **Type:** Bug
 - **Effort:** S
 - **Where:** components/flows/panels/AgentView.tsx:37-38, components/flows/panels/AgentView.tsx:92-102
@@ -47,7 +47,7 @@ Each finding was re-verified against `refactor/prompt-engine-inconsistency-fix` 
 
 ### CR-127 [Medium] Hydration mismatches: `window.location.origin` and `Date.now()`/`toLocaleTimeString` in SSR'd panel render
 
-- **Status:** Open
+- **Status:** Fixed (Task 35)
 - **Type:** Bug
 - **Effort:** S
 - **Where:** components/flows/panels/PanelShell.tsx:106-125, components/flows/panels/ResolveView.tsx:21-26
@@ -55,7 +55,7 @@ Each finding was re-verified against `refactor/prompt-engine-inconsistency-fix` 
 
 ### CR-130 [Medium] CostChip shows sub-cent run costs 100× too high
 
-- **Status:** Open
+- **Status:** Fixed (Task 35)
 - **Type:** Bug
 - **Effort:** S
 - **Where:** components/flows/panels/CostChip.tsx:33-36, components/flows/panels/CostChip.tsx:19-31
@@ -63,7 +63,7 @@ Each finding was re-verified against `refactor/prompt-engine-inconsistency-fix` 
 
 ### CR-235 [Low] Cockpit selection reads a ref during render to decide what's shown
 
-- **Status:** Open
+- **Status:** Fixed (Task 35)
 - **Type:** Code quality
 - **Effort:** S
 - **Where:** components/flows/cockpit/FlowCockpit.tsx:52-58
@@ -71,8 +71,8 @@ Each finding was re-verified against `refactor/prompt-engine-inconsistency-fix` 
 
 ## Done when
 
-- [ ] Every finding above is fixed, or a remaining part is written up in the PR description.
-- [ ] Each bug fix has a regression test (Vitest for `lib/`; at least a hook or utility test for UI where practical).
-- [ ] Code follows [`docs/coding-patterns.md`](../coding-patterns.md).
-- [ ] `npm run typecheck`, `npm run lint`, `npm test` and `npm run build` pass (before Task 02 lands, `npx tsc --noEmit` instead of `typecheck`).
-- [ ] The status of each finding in [`docs/code-review.md`](../code-review.md) is updated (Fixed, with the PR link).
+- [x] Every finding above is fixed, or a remaining part is written up in the PR description.
+- [x] Each bug fix has a regression test (Vitest for `lib/`; at least a hook or utility test for UI where practical).
+- [x] Code follows [`docs/coding-patterns.md`](../coding-patterns.md).
+- [x] `npm run typecheck`, `npm run lint`, `npm test` and `npm run build` pass (before Task 02 lands, `npx tsc --noEmit` instead of `typecheck`).
+- [x] The status of each finding in [`docs/code-review.md`](../code-review.md) is updated (Fixed, with the PR link).

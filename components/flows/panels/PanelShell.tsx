@@ -141,24 +141,29 @@ export function PanelShell({
  */
 function WaitBanner({ flow, node }: { flow?: FlowData; node: Node }) {
   const hook = (flow?.hooks ?? []).find((h) => h.node_key === node.node_key);
-  const base = typeof window !== "undefined" ? window.location.origin : "";
+  const hookPath = hook ? `/api/hooks/${hook.id}` : null;
+  const copyCurl = () => {
+    if (!hook || !hookPath) return;
+    const url = `${window.location.origin}${hookPath}`;
+    void navigator.clipboard?.writeText(
+      `curl -X POST ${url} -H "content-type: application/json" -H "x-devflow-secret: ${hook.secret}" -d '{"ping":true}'`,
+    );
+  };
   return (
     <Alert className="mb-3.5">
       <Clock size={16} className="shrink-0" />
       <span className="flex-1 text-[12.5px] text-muted-foreground">
         Waiting for its event source — it resumes automatically on delivery.
-        {hook && (
+        {hook && hookPath && (
           <>
             <br />
-            POST to <code className="font-mono text-foreground">{base}/api/hooks/{hook.id}</code>
+            POST to <code className="font-mono text-foreground">{hookPath}</code>
             {" "}· secret <code className="font-mono text-foreground">{hook.secret}</code>
           </>
         )}
       </span>
-      {hook && (
-        <Button size="sm" variant="ghost" onClick={() => void navigator.clipboard?.writeText(
-          `curl -X POST ${base}/api/hooks/${hook.id} -H "content-type: application/json" -H "x-devflow-secret: ${hook.secret}" -d '{"ping":true}'`
-        )}>
+      {hook && hookPath && (
+        <Button size="sm" variant="ghost" onClick={copyCurl}>
           Copy curl example
         </Button>
       )}

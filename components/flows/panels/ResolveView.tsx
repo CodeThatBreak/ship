@@ -1,5 +1,6 @@
 "use client";
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { resolveClockLabel } from "./utils/resolve-clock-label";
 import { CheckCheck, Clock, Pencil } from "lucide-react";
 import { PromptModal } from "@/components/chat";
 import { Button } from "@/components/ui/button";
@@ -19,11 +20,12 @@ export default function ResolveView() {
   // the queue's actual start time — "resolve queued for 14:32"; while the
   // quiet period has already elapsed it flips to a "waiting on the gate" line
   const scheduledAt: number | null = flow.resolveScheduleAt ?? null;
-  const clock = running ? null
-    : scheduledAt == null ? null
-      : scheduledAt > Date.now()
-        ? new Date(scheduledAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", hour12: false })
-        : "pipeline-gated";
+  const [nowMs, setNowMs] = useState<number | null>(null);
+  useEffect(() => {
+    setNowMs(Date.now());
+  }, [scheduledAt]);
+  const clock =
+    running || nowMs === null ? null : resolveClockLabel(scheduledAt, nowMs);
 
   const headerEnd = (
     <Button size="xs" variant="secondary" onClick={() => setShowPrompt(true)}>
