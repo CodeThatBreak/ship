@@ -21,6 +21,14 @@ describe("expandRepoLocalPath", () => {
 });
 
 describe("repoCreateBodySchema", () => {
+  it("accepts scp-style cloud_url values", () => {
+    const parsed = repoCreateBodySchema.parse({
+      name: "devflow",
+      cloud_url: "git@gitlab.example.com:acme/webapp.git",
+    });
+    expect(parsed.cloud_url).toBe("git@gitlab.example.com:acme/webapp.git");
+  });
+
   it("maps empty optional strings to null", () => {
     const parsed = repoCreateBodySchema.parse({
       name: "devflow",

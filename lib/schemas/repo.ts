@@ -2,6 +2,7 @@ import "server-only";
 
 import path from "path";
 import { z } from "zod";
+import { gitLabRepoCloudUrlSchema } from "../integrations/gitlab/repo-url";
 
 const homeDir = (): string => process.env.HOME ?? "";
 
@@ -71,9 +72,18 @@ const repoWorktreeFields = {
   worktree_timeout_s: worktreeTimeoutSeconds,
 };
 
+const cloudUrlInput = z.string().trim().min(1).superRefine((value, ctx) => {
+  const parsed = gitLabRepoCloudUrlSchema.safeParse(value);
+  if (!parsed.success) {
+    for (const issue of parsed.error.issues) {
+      ctx.addIssue({ code: "custom", message: issue.message });
+    }
+  }
+});
+
 export const repoCreateBodySchema = z.object({
   name: z.string().trim().min(1),
-  cloud_url: z.string().trim().min(1),
+  cloud_url: cloudUrlInput,
   local_path: localPathInput,
   default_branch: z.string().trim().min(1).optional(),
   ...repoWorktreeFields,
@@ -96,7 +106,7 @@ const patchWorktreeTimeoutSeconds = z
 
 export const repoPatchBodySchema = z.object({
   name: z.string().trim().min(1).optional(),
-  cloud_url: z.string().trim().min(1).optional(),
+  cloud_url: cloudUrlInput.optional(),
   local_path: localPathInput,
   default_branch: z.string().trim().min(1).optional(),
   install_command: patchOptionalString,

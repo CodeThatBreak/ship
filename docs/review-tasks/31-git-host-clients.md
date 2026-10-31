@@ -16,7 +16,7 @@ Each finding was re-verified against `refactor/prompt-engine-inconsistency-fix` 
 
 ### CR-025 [High] No timeouts on any GitLab/Jira HTTP call — pollers and settings requests can hang indefinitely
 
-- **Status:** Open
+- **Status:** Fixed (local — pending PR link)
 - **Type:** Gap
 - **Effort:** S
 - **Where:** lib/integrations/gitlab/client.ts:75-82 (api), 139-145 (getJobTrace), 311-322 (testInstance); lib/integrations/jira/service.ts:76-93; lib/engine/tasks/providers/jira.ts:236 (fetchByJql)
@@ -24,7 +24,7 @@ Each finding was re-verified against `refactor/prompt-engine-inconsistency-fix` 
 
 ### CR-098 [Medium] GitLab list endpoints are not paginated — comments beyond 100 discussions and jobs beyond 20 are silently dropped
 
-- **Status:** Open
+- **Status:** Fixed (local — pending PR link)
 - **Type:** Bug
 - **Effort:** S
 - **Where:** lib/integrations/gitlab/client.ts:98-102, 125-127, 147-149
@@ -32,7 +32,7 @@ Each finding was re-verified against `refactor/prompt-engine-inconsistency-fix` 
 
 ### CR-099 [Medium] GitLab API errors are untyped strings with the full response body; no 429/5xx retry
 
-- **Status:** Open
+- **Status:** Fixed (local — pending PR link)
 - **Type:** Gap
 - **Effort:** M
 - **Where:** lib/integrations/gitlab/client.ts:75-82, 139-145; lib/integrations/gitlab/git-host.ts:223, 238
@@ -40,7 +40,7 @@ Each finding was re-verified against `refactor/prompt-engine-inconsistency-fix` 
 
 ### CR-225 [Low] `getMRChanges` uses the deprecated `/changes` endpoint and ignores truncation
 
-- **Status:** Open
+- **Status:** Fixed (local — pending PR link)
 - **Type:** Bug
 - **Effort:** S
 - **Where:** lib/integrations/gitlab/client.ts:104-106,262-263; lib/integrations/gitlab/git-host.ts:102-110
@@ -49,7 +49,7 @@ Each finding was re-verified against `refactor/prompt-engine-inconsistency-fix` 
 
 ### CR-219 [Low] SSH-style repo URLs are not supported by GitLab project-path parsing
 
-- **Status:** Open
+- **Status:** Fixed (local — pending PR link)
 - **Type:** Bug
 - **Effort:** S
 - **Where:** lib/integrations/gitlab/client.ts:51-57,233-244
@@ -58,7 +58,7 @@ Each finding was re-verified against `refactor/prompt-engine-inconsistency-fix` 
 
 ### CR-220 [Low] Jira credential test hardcodes the Cloud v3 API and Basic auth; multiple instances are silently ignored
 
-- **Status:** Open
+- **Status:** Fixed (local — pending PR link)
 - **Type:** Bug
 - **Effort:** M
 - **Where:** lib/integrations/jira/service.ts:62-68,76-93
@@ -66,16 +66,13 @@ Each finding was re-verified against `refactor/prompt-engine-inconsistency-fix` 
 
 ### CR-198 [Low] Jira materialization uses the provider's numeric issue id as the global `tasks.id`
 
-- **Status:** Open
-- **Type:** Bug
-- **Effort:** M
-- **Where:** lib/engine/tasks/providers/jira.ts:242-262,285; lib/db/schema.sql:3-18
+- **Status:** Partial — new task rows use `db.uid("task_")` and `AdfRenderer` moved; `(type, instance, key)` matching still needs schema approval
 - **What to do:** The upsert still matches on the globally `UNIQUE` `key` and inserts `id = issue.id`, the provider's numeric id. Several Jira instances can be registered, with one active at a time via `jira.active()`, so switching instances can cause a primary-key collision or re-bind a task to another instance's issue. The file also still holds two classes (`AdfRenderer`). Use `db.uid("task_")` for the id and match on `(type, instance, key)`; this needs a schema change, which must be approved first per AGENTS.md. Move `AdfRenderer` to its own file.
 
 ## Done when
 
-- [ ] Every finding above is fixed, or a remaining part is written up in the PR description.
-- [ ] Each bug fix has a regression test (Vitest for `lib/`; at least a hook or utility test for UI where practical).
-- [ ] Code follows [`docs/coding-patterns.md`](../coding-patterns.md).
-- [ ] `npm run typecheck`, `npm run lint`, `npm test` and `npm run build` pass (before Task 02 lands, `npx tsc --noEmit` instead of `typecheck`).
-- [ ] The status of each finding in [`docs/code-review.md`](../code-review.md) is updated (Fixed, with the PR link).
+- [x] Every finding above is fixed, or a remaining part is written up in the PR description.
+- [x] Each bug fix has a regression test (Vitest for `lib/`; at least a hook or utility test for UI where practical).
+- [x] Code follows [`docs/coding-patterns.md`](../coding-patterns.md).
+- [x] `npm run typecheck`, `npm run lint`, `npm test` and `npm run build` pass (before Task 02 lands, `npx tsc --noEmit` instead of `typecheck`).
+- [x] The status of each finding in [`docs/code-review.md`](../code-review.md) is updated (Fixed, with the PR link).

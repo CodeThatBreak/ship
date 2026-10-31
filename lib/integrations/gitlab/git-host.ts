@@ -4,6 +4,7 @@ import { config } from "../../config";
 import { NotFoundError } from "../../errors";
 import type {
   ChangeRequest,
+  ChangeRequestDiffs,
   CreateChangeRequestInput,
   GitHostClient,
   GitHostService,
@@ -100,9 +101,10 @@ class GitLabHostClient implements GitHostClient {
     return this.raw.listMRsByBranch(this.projectPath, sourceBranch).then((mrs) => mrs.map(mapChangeRequest));
   }
 
-  getChanges(crNumber: number): Promise<{ changes: { oldPath: string; newPath: string; diff: string }[] }> {
-    return this.raw.getMRChanges(this.projectPath, crNumber).then((r: any) => ({
-      changes: ((r.changes ?? []) as { old_path: string; new_path: string; diff: string }[]).map((c) => ({
+  getChanges(crNumber: number): Promise<ChangeRequestDiffs> {
+    return this.raw.getMRDiffs(this.projectPath, crNumber).then(({ diffs, truncated }) => ({
+      truncated,
+      changes: diffs.map((c) => ({
         oldPath: c.old_path,
         newPath: c.new_path,
         diff: c.diff,

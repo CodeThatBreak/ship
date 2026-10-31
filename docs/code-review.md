@@ -815,8 +815,8 @@ Original findings, verbatim:
 
 ### CR-025 [High] No timeouts on any GitLab/Jira HTTP call — pollers and settings requests can hang indefinitely
 
-- **Status at `abaa007`:** **Open**, fix in [Task 31](review-tasks/31-git-host-clients.md)
-- **Current location:** lib/integrations/gitlab/client.ts:75-82 (api), 139-145 (getJobTrace), 311-322 (testInstance); lib/integrations/jira/service.ts:76-93; lib/engine/tasks/providers/jira.ts:236 (fetchByJql)
+- **Status at `abaa007`:** **Fixed** ([Task 31](review-tasks/31-git-host-clients.md))
+- **Current location:** lib/integrations/gitlab/client.ts (request wrapper); lib/integrations/jira/service.ts; lib/engine/tasks/providers/jira.ts
 - **Re-verification note:** No GitLab or Jira `fetch` passes an `AbortSignal` (there are zero `signal:` / `AbortSignal` uses in `lib/integrations`), so an unreachable host stalls the poller tick and settings requests until the OS TCP timeout. Add `signal: AbortSignal.timeout(<module const>)` to each call and map `TimeoutError` to a typed error.
 
 - **Severity:** High
@@ -2713,8 +2713,8 @@ Original findings, verbatim:
 
 ### CR-098 [Medium] GitLab list endpoints are not paginated — comments beyond 100 discussions and jobs beyond 20 are silently dropped
 
-- **Status at `abaa007`:** **Open**, fix in [Task 31](review-tasks/31-git-host-clients.md)
-- **Current location:** lib/integrations/gitlab/client.ts:98-102, 125-127, 147-149
+- **Status at `abaa007`:** **Fixed** ([Task 31](review-tasks/31-git-host-clients.md))
+- **Current location:** lib/integrations/gitlab/client.ts (`paginate`)
 - **Re-verification note:** Unchanged. Discussions are capped at one page of 100, pipeline jobs use GitLab's default 20 with no paging, and MR lists are unpaged. The resolve node and pipeline gate miss comments and failed or manual jobs on busy MRs. Fix: a private `paginate<T>(path)` in `GitLabClient` that uses `per_page=100` and follows `x-next-page` up to a bounded page cap.
 
 - **Severity:** Medium
@@ -2740,8 +2740,8 @@ Original findings, verbatim:
 
 ### CR-099 [Medium] GitLab API errors are untyped strings with the full response body; no 429/5xx retry
 
-- **Status at `abaa007`:** **Open**, fix in [Task 31](review-tasks/31-git-host-clients.md)
-- **Current location:** lib/integrations/gitlab/client.ts:75-82, 139-145; lib/integrations/gitlab/git-host.ts:223, 238
+- **Status at `abaa007`:** **Fixed** ([Task 31](review-tasks/31-git-host-clients.md))
+- **Current location:** lib/engine/ports/git-host-errors.ts; lib/integrations/gitlab/client.ts
 - **Re-verification note:** Unchanged. `api()` throws a plain Error that embeds the full response body, with the status buried in the text. There is no typed error and no 429/5xx retry, so a rate limit during polling fails the node. Fix: `GitHostApiError {status, path, retryAfterMs}` (plus NotFound/Auth subclasses) in the git-host port, with the body truncated to about 500 chars. Add bounded retry with `Retry-After` for idempotent GETs on 429/502/503/504.
 
 - **Severity:** Medium
@@ -5263,8 +5263,8 @@ Original findings, verbatim:
 
 ### CR-198 [Low] Jira materialization uses the provider's numeric issue id as the global `tasks.id`
 
-- **Status at `abaa007`:** **Open**, fix in [Task 31](review-tasks/31-git-host-clients.md)
-- **Current location:** lib/engine/tasks/providers/jira.ts:242-262,285; lib/db/schema.sql:3-18
+- **Status at `abaa007`:** **Partial** ([Task 31](review-tasks/31-git-host-clients.md) — `db.uid("task_")` on insert; `(type, instance, key)` deferred pending schema approval)
+- **Current location:** lib/engine/tasks/providers/jira.ts; lib/integrations/jira/adf-renderer.ts
 - **Re-verification note:** The upsert still matches on the globally `UNIQUE` `key` and inserts `id = issue.id`, the provider's numeric id. Several Jira instances can be registered, with one active at a time via `jira.active()`, so switching instances can cause a primary-key collision or re-bind a task to another instance's issue. The file also still holds two classes (`AdfRenderer`). Use `db.uid("task_")` for the id and match on `(type, instance, key)`; this needs a schema change, which must be approved first per AGENTS.md. Move `AdfRenderer` to its own file.
 
 - **Severity:** Low
@@ -5753,8 +5753,8 @@ Original findings, verbatim:
 
 ### CR-219 [Low] SSH-style repo URLs are not supported by GitLab project-path parsing
 
-- **Status at `abaa007`:** **Open**, fix in [Task 31](review-tasks/31-git-host-clients.md)
-- **Current location:** lib/integrations/gitlab/client.ts:51-57,233-244
+- **Status at `abaa007`:** **Fixed** ([Task 31](review-tasks/31-git-host-clients.md))
+- **Current location:** lib/integrations/gitlab/repo-url.ts; lib/schemas/repo.ts
 - **Re-verification note:** The project-path parsing still uses `/^[a-z]+:\/\/[^/]+\/(.+)$/i`, so scp-style `git@host:group/repo.git` is URL-encoded whole and every API call 404s. `hostOf` returns null for it too. Fix: parse the `user@host:path` form (and `ssh://`) and validate repo URLs with Zod at registration.
 
 - **Severity:** Low
@@ -5774,8 +5774,8 @@ Original findings, verbatim:
 
 ### CR-220 [Low] Jira credential test hardcodes the Cloud v3 API and Basic auth; multiple instances are silently ignored
 
-- **Status at `abaa007`:** **Open**, fix in [Task 31](review-tasks/31-git-host-clients.md)
-- **Current location:** lib/integrations/jira/service.ts:62-68,76-93
+- **Status at `abaa007`:** **Fixed** ([Task 31](review-tasks/31-git-host-clients.md) — single instance enforced; Cloud/DC auth probe in `testInstance`; runtime auth from `api-profile`)
+- **Current location:** lib/integrations/jira/service.ts; lib/integrations/jira/api-profile.ts
 - **Re-verification note:** `testInstance` still always calls `/rest/api/3/myself` with Basic `email:token`, so Data Center PATs (`/rest/api/2` with Bearer auth) likely fail; this still needs checking against a DC instance. `active()` still returns `listInstances()[0]`, silently ignoring any other instance. Fix: store a per-instance deployment/auth kind, and either reject a second instance or make the active instance explicit.
 
 - **Severity:** Low
@@ -5886,8 +5886,8 @@ Original findings, verbatim:
 
 ### CR-225 [Low] `getMRChanges` uses the deprecated `/changes` endpoint and ignores truncation
 
-- **Status at `abaa007`:** **Open**, fix in [Task 31](review-tasks/31-git-host-clients.md)
-- **Current location:** lib/integrations/gitlab/client.ts:104-106,262-263; lib/integrations/gitlab/git-host.ts:102-110
+- **Status at `abaa007`:** **Fixed** ([Task 31](review-tasks/31-git-host-clients.md))
+- **Current location:** lib/integrations/gitlab/client.ts (`getMRDiffs`); lib/engine/ports/git-host.ts (`ChangeRequestDiffs.truncated`)
 - **Re-verification note:** This still uses the deprecated `/merge_requests/:iid/changes` endpoint and ignores `overflow`, so the AI review can silently review a truncated diff. Fix: switch to the paginated `/diffs` and surface a `truncated` flag on the port result.
 
 - **Severity:** Low

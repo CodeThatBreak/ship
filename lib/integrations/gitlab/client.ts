@@ -1,6 +1,20 @@
 import "server-only";
 
 import { db } from "../../db";
+import {
+  GitHostTimeoutError,
+  gitHostErrorFromResponse,
+  parseRetryAfterMs,
+  redactSecretsInText,
+  truncateUpstreamBody,
+} from "../../engine/ports/git-host-errors";
+import {
+  GITLAB_HTTP_TIMEOUT_MS,
+  GITLAB_MAX_GET_RETRIES,
+  GITLAB_MAX_LIST_PAGES,
+  GITLAB_RETRYABLE_STATUSES,
+} from "./constants";
+import { encodedProjectPathFromRepoUrl, hostOfRepoUrl, projectPathFromRepoUrl } from "./repo-url";
 
 export interface GitLabInstance {
   id: string;
@@ -47,14 +61,16 @@ export interface Discussion {
   notes: Note[];
 }
 
-/** Host of a URL, lowercased (null when unparseable). */
-export function hostOf(url: string): string | null {
-  try {
-    return new URL(url).host.toLowerCase();
-  } catch {
-    return null;
-  }
+export interface MergeRequestDiff {
+  old_path: string;
+  new_path: string;
+  diff: string;
 }
+
+/** @deprecated use hostOfRepoUrl from ./repo-url */
+export const hostOf = hostOfRepoUrl;
+
+const sleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
 
 /**
  * HTTP client for one GitLab instance (v4 API, PRIVATE-TOKEN auth).
@@ -72,13 +88,72 @@ export class GitLabClient {
     return { "PRIVATE-TOKEN": this.instance.token, "Content-Type": "application/json" };
   }
 
-  private async api<T = any>(path: string, init?: RequestInit): Promise<T> {
-    const res = await fetch(`${this.baseUrl}${path}`, {
-      ...init,
-      headers: { ...this.headers(), ...(init?.headers || {}) },
-    });
-    if (!res.ok) throw new Error(`GitLab ${path} failed (${res.status}): ${await res.text()}`);
+  private redactBody(body: string): string {
+    return redactSecretsInText(truncateUpstreamBody(body), [this.instance.token]);
+  }
+
+  private async request(path: string, init: RequestInit = {}): Promise<Response> {
+    const method = (init.method ?? "GET").toUpperCase();
+    const idempotentGet = method === "GET";
+    let attempt = 0;
+
+    for (;;) {
+      try {
+        const res = await fetch(`${this.baseUrl}${path}`, {
+          ...init,
+          headers: { ...this.headers(), ...(init.headers || {}) },
+          signal: AbortSignal.timeout(GITLAB_HTTP_TIMEOUT_MS),
+        });
+
+        if (res.ok) return res;
+
+        const retryAfterMs = parseRetryAfterMs(res.headers.get("retry-after"));
+        const bodyText = await res.text();
+        if (
+          idempotentGet &&
+          GITLAB_RETRYABLE_STATUSES.has(res.status) &&
+          attempt < GITLAB_MAX_GET_RETRIES
+        ) {
+          attempt += 1;
+          await sleep(retryAfterMs ?? Math.min(1000 * 2 ** attempt, 8000));
+          continue;
+        }
+        throw gitHostErrorFromResponse(path, res.status, this.redactBody(bodyText), retryAfterMs);
+      } catch (e: unknown) {
+        if (e instanceof Error && e.name === "TimeoutError") {
+          throw new GitHostTimeoutError(path, GITLAB_HTTP_TIMEOUT_MS);
+        }
+        throw e;
+      }
+    }
+  }
+
+  private async api<T>(path: string, init?: RequestInit): Promise<T> {
+    const res = await this.request(path, init);
     return res.json() as Promise<T>;
+  }
+
+  private async paginate<T>(path: string, init?: RequestInit): Promise<{ items: T[]; truncated: boolean }> {
+    const items: T[] = [];
+    let page = 1;
+    let truncated = false;
+
+    for (;;) {
+      const sep = path.includes("?") ? "&" : "?";
+      const res = await this.request(`${path}${sep}per_page=100&page=${page}`, init);
+      const chunk = (await res.json()) as T[];
+      items.push(...chunk);
+      const nextPage = res.headers.get("x-next-page");
+      if (!nextPage) break;
+      if (page >= GITLAB_MAX_LIST_PAGES) {
+        truncated = true;
+        break;
+      }
+      page = Number(nextPage);
+      if (!Number.isFinite(page) || page < 1) break;
+    }
+
+    return { items, truncated };
   }
 
   async getMR(projectPath: string, mrIid: number): Promise<MergeRequest> {
@@ -96,13 +171,21 @@ export class GitLabClient {
   }
 
   async listMRsByBranch(projectPath: string, sourceBranch: string): Promise<MergeRequest[]> {
-    return this.api(
-      `/projects/${projectPath}/merge_requests?source_branch=${encodeURIComponent(sourceBranch)}&state=opened`
+    const q = `source_branch=${encodeURIComponent(sourceBranch)}&state=opened`;
+    const { items } = await this.paginate<MergeRequest>(
+      `/projects/${projectPath}/merge_requests?${q}`,
     );
+    return items;
   }
 
-  async getMRChanges(projectPath: string, mrIid: number) {
-    return this.api(`/projects/${projectPath}/merge_requests/${mrIid}/changes`);
+  async getMRDiffs(
+    projectPath: string,
+    mrIid: number,
+  ): Promise<{ diffs: MergeRequestDiff[]; truncated: boolean }> {
+    const { items, truncated } = await this.paginate<MergeRequestDiff>(
+      `/projects/${projectPath}/merge_requests/${mrIid}/diffs`,
+    );
+    return { diffs: items, truncated };
   }
 
   async getPipeline(projectPath: string, pipelineId: number): Promise<Pipeline> {
@@ -123,7 +206,10 @@ export class GitLabClient {
   }
 
   async listPipelineJobs(projectPath: string, pipelineId: number) {
-    return this.api(`/projects/${projectPath}/pipelines/${pipelineId}/jobs`);
+    const { items } = await this.paginate<{ id: number; name: string; status: string; when?: string }>(
+      `/projects/${projectPath}/pipelines/${pipelineId}/jobs`,
+    );
+    return items;
   }
 
   /** Play a manual job (the "play" button) so a manual-gated pipeline proceeds. */
@@ -137,15 +223,17 @@ export class GitLabClient {
   }
 
   async getJobTrace(projectPath: string, jobId: number): Promise<string> {
-    const res = await fetch(`${this.baseUrl}/projects/${projectPath}/jobs/${jobId}/trace`, {
-      headers: this.headers(),
+    const res = await this.request(`/projects/${projectPath}/jobs/${jobId}/trace`, {
+      headers: { "PRIVATE-TOKEN": this.instance.token },
     });
-    if (!res.ok) throw new Error(`trace failed (${res.status})`);
     return res.text();
   }
 
   async listMRDiscussions(projectPath: string, mrIid: number): Promise<Discussion[]> {
-    return this.api(`/projects/${projectPath}/merge_requests/${mrIid}/discussions?per_page=100`);
+    const { items } = await this.paginate<Discussion>(
+      `/projects/${projectPath}/merge_requests/${mrIid}/discussions`,
+    );
+    return items;
   }
 
   async createMRNote(projectPath: string, mrIid: number, body: string) {
@@ -175,7 +263,7 @@ export class GitLabClient {
  */
 export class GitLabService {
   private static host(url: string): string | null {
-    return hostOf(url);
+    return hostOfRepoUrl(url);
   }
 
   // ── instance registry ────────────────────────────────────────────────────
@@ -231,16 +319,12 @@ export class GitLabService {
 
   /** Turn a repo URL into a URL-encoded GitLab project path. */
   projectPathFromUrl(repoUrl: string): string {
-    const u = db.normalizeRepoUrl(repoUrl);
-    const m = u.match(/^[a-z]+:\/\/[^/]+\/(.+)$/i);
-    return encodeURIComponent(m ? m[1] : u);
+    return encodedProjectPathFromRepoUrl(db.normalizeRepoUrl(repoUrl));
   }
 
   /** Project path (group/repo) without host, not URL-encoded. */
   projectNameFromUrl(repoUrl: string): string {
-    const u = db.normalizeRepoUrl(repoUrl);
-    const m = u.match(/^[a-z]+:\/\/[^/]+\/(.+)$/i);
-    return m ? m[1] : u;
+    return projectPathFromRepoUrl(db.normalizeRepoUrl(repoUrl));
   }
 
   // ── repo-scoped API operations (instance resolved per call) ─────────────
@@ -259,8 +343,8 @@ export class GitLabService {
     return this.clientFor(repoUrl).listMRsByBranch(this.projectPathFromUrl(repoUrl), sourceBranch);
   }
 
-  getMRChanges(repoUrl: string, mrIid: number) {
-    return this.clientFor(repoUrl).getMRChanges(this.projectPathFromUrl(repoUrl), mrIid);
+  getMRDiffs(repoUrl: string, mrIid: number) {
+    return this.clientFor(repoUrl).getMRDiffs(this.projectPathFromUrl(repoUrl), mrIid);
   }
 
   getPipeline(repoUrl: string, pipelineId: number): Promise<Pipeline> {
@@ -312,12 +396,19 @@ export class GitLabService {
     try {
       const res = await fetch(`${baseUrl.replace(/\/+$/, "")}/api/v4/user`, {
         headers: { "PRIVATE-TOKEN": token, "Content-Type": "application/json" },
+        signal: AbortSignal.timeout(GITLAB_HTTP_TIMEOUT_MS),
       });
-      if (!res.ok) return { ok: false, detail: `HTTP ${res.status}: ${await res.text().then((t) => t.slice(0, 200))}` };
-      const user = (await res.json()) as any;
+      if (!res.ok) {
+        const detail = truncateUpstreamBody(await res.text());
+        return { ok: false, detail: `HTTP ${res.status}: ${redactSecretsInText(detail, [token])}` };
+      }
+      const user = (await res.json()) as { username?: string; name?: string };
       return { ok: true, detail: `Authenticated as ${user.username ?? user.name ?? "user"}` };
-    } catch (e: any) {
-      return { ok: false, detail: e?.message ?? String(e) };
+    } catch (e: unknown) {
+      if (e instanceof Error && e.name === "TimeoutError") {
+        return { ok: false, detail: `Timed out after ${GITLAB_HTTP_TIMEOUT_MS}ms` };
+      }
+      return { ok: false, detail: e instanceof Error ? e.message : String(e) };
     }
   }
 }

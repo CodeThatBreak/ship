@@ -90,7 +90,7 @@ const fixtureHost: GitHostService = {
   getChangeRequest: async () => fixtureCR,
   createChangeRequest: async () => fixtureCR,
   listChangeRequestsByBranch: async () => [],
-  getChanges: async () => ({ changes: [] }),
+  getChanges: async () => ({ changes: [], truncated: false }),
   getPipeline: throwNo,
   createCRPipeline: throwNo,
   createPipeline: throwNo,

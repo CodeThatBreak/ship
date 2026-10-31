@@ -112,7 +112,15 @@ export class ReviewNode extends AgentRunNode<ReviewInput, ReviewOutput> {
       .join("\n")
       .slice(0, 60000);
 
-    const instructions = input.instructions ? `Extra review focus from the developer: ${input.instructions}` : "";
+    const truncatedNote = changes.truncated
+      ? "Note: the MR diff from GitLab was truncated (large change set). Review what is present and call out that the diff may be incomplete.\n"
+      : "";
+    const instructions = [
+      truncatedNote,
+      input.instructions ? `Extra review focus from the developer: ${input.instructions}` : "",
+    ]
+      .filter(Boolean)
+      .join("");
     const label = input.branchName ? `review (${input.branchName})` : "review";
     // ticket_key/ticket_summary/ticket_prd are the PromptLibrary template
     // variables ({{ticket_key}} etc.) — legacy names, kept verbatim

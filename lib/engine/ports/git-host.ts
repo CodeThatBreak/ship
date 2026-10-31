@@ -24,13 +24,24 @@ import "server-only";
 import { GitLabHostService } from "../../integrations/gitlab/git-host";
 
 /** Lowercased URL host ("gitlab.company.com"), null when unparseable. */
-export function hostOf(url: string): string | null {
+export const hostOf = (url: string): string | null => {
+  const trimmed = url.trim();
+  const sshMatch = trimmed.match(/^ssh:\/\/(?:[^/@]+@)?([^/:]+)(?::\d+)?/i);
+  if (sshMatch) return sshMatch[1].toLowerCase();
+  const scpMatch = trimmed.match(/^[^@]+@([^:/]+):/);
+  if (scpMatch) return scpMatch[1].toLowerCase();
   try {
-    return new URL(url).host.toLowerCase();
+    return new URL(trimmed).host.toLowerCase();
   } catch {
     return null;
   }
-}
+};
+
+export type ChangeRequestDiffs = {
+  changes: { oldPath: string; newPath: string; diff: string }[];
+  /** true when the host truncated or capped the diff list */
+  truncated: boolean;
+};
 
 /** The CI pipeline attached to a change request's head (null when none). */
 export interface HeadPipelineInfo {
@@ -140,7 +151,7 @@ export interface GitHostClient {
   createChangeRequest(input: CreateChangeRequestInput): Promise<ChangeRequest>;
   listChangeRequestsByBranch(sourceBranch: string): Promise<ChangeRequest[]>;
   /** the diff of a change request, per file */
-  getChanges(crNumber: number): Promise<{ changes: { oldPath: string; newPath: string; diff: string }[] }>;
+  getChanges(crNumber: number): Promise<ChangeRequestDiffs>;
   getPipeline(pipelineId: number): Promise<Pipeline>;
   /** pipeline for the CR's changed code (merged-results style) */
   createCRPipeline(crNumber: number): Promise<Pipeline>;
@@ -201,7 +212,7 @@ export interface GitHostService {
   getChangeRequest(repoUrl: string, crNumber: number): Promise<ChangeRequest>;
   createChangeRequest(repoUrl: string, input: CreateChangeRequestInput): Promise<ChangeRequest>;
   listChangeRequestsByBranch(repoUrl: string, sourceBranch: string): Promise<ChangeRequest[]>;
-  getChanges(repoUrl: string, crNumber: number): Promise<{ changes: { oldPath: string; newPath: string; diff: string }[] }>;
+  getChanges(repoUrl: string, crNumber: number): Promise<ChangeRequestDiffs>;
   getPipeline(repoUrl: string, pipelineId: number): Promise<Pipeline>;
   createCRPipeline(repoUrl: string, crNumber: number): Promise<Pipeline>;
   createPipeline(repoUrl: string, ref: string): Promise<Pipeline>;
