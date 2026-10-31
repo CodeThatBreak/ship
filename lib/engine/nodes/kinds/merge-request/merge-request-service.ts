@@ -1,3 +1,5 @@
+import "server-only";
+
 import { db } from "../../../../db";
 import { localGit } from "../../../../git/local";
 import { authedCloneUrlFor, gitHostRegistry, type ChangeRequest } from "../../../ports/git-host";

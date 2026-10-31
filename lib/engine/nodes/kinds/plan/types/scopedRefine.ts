@@ -1,3 +1,5 @@
+import "server-only";
+
 import type { PlanStepRow } from '../../../../../db/rows';
 import type { PlanBranch, PlanMeta } from '../schema';
 

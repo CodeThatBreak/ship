@@ -1,3 +1,5 @@
+import "server-only";
+
 import type { PromptBlock, PromptTemplate } from "./prompt-defaults";
 import { DEFAULT_PROMPT_TEMPLATES } from "./prompt-defaults";
 import { nodeRegistry } from "../nodes/registry";

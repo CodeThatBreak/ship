@@ -1,3 +1,5 @@
+import "server-only";
+
 import type { FlowCtx, SplitUnit } from '../../shared';
 import type { PlanStore } from './plan-store';
 import type { ExecutionKnob } from './plan-prompt';

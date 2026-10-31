@@ -1,6 +1,6 @@
 "use client";
 import { XCircle } from "lucide-react";
-import { useSettings } from "@/components/settings/context";
+import { useSettings } from "@/components/settings";
 import { ReposSection } from "@/components/settings/repos";
 import { Alert } from "@/components/ui/alert";
 import { Skeleton } from "@/components/ui/skeleton";

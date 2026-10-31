@@ -1,3 +1,5 @@
+import "server-only";
+
 import type { ConfigField } from "../../../../templates/node-config";
 
 /** The agent node's "Prompt" knob — the `{{...}}`-interpolated prompt body. */

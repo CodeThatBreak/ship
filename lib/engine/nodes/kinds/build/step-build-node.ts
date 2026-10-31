@@ -1,3 +1,5 @@
+import "server-only";
+
 import { z } from "zod";
 import { agentRunner, type AgentRunner } from "../../../harness";
 import { AgentRunNode, flowCtxHelper, type FlowContextHelper } from "../../shared";

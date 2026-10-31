@@ -1,3 +1,5 @@
+import "server-only";
+
 import { z } from "zod";
 import { mcpSourcesSchema } from "../templates/node-config";
 import { splitConsumeSchema, splitParallelMaxSchema } from "./shared/split";

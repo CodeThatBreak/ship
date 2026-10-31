@@ -1,3 +1,5 @@
+import "server-only";
+
 import type { NodeRow } from "../../../../db/rows";
 import { z } from "zod";
 import { gitHostRegistry } from "../../../ports/git-host";

@@ -59,4 +59,54 @@ describe("eslint config enforcement", () => {
     },
     30_000,
   );
+
+  it(
+    "blocks value imports from lib/ in hooks/",
+    async () => {
+      const eslint = new ESLint({ cwd: repoRoot, ignore: false });
+      const results = await eslint.lintText(
+        'import { getDb } from "@/lib/db";\n',
+        { filePath: path.join(repoRoot, "hooks/probe-lib-import.ts") },
+      );
+      const messages = results.flatMap((r) => r.messages);
+      expect(
+        messages.some(
+          (m) => m.ruleId === "no-restricted-imports" && m.severity === 2,
+        ),
+      ).toBe(true);
+    },
+    30_000,
+  );
+
+  it(
+    "allows type-only imports from lib/ in types/",
+    async () => {
+      const eslint = new ESLint({ cwd: repoRoot, ignore: false });
+      const results = await eslint.lintText(
+        'import type { CatalogModel } from "@/lib/modelSpec";\n',
+        { filePath: path.join(repoRoot, "types/probe-type-import.ts") },
+      );
+      const messages = results.flatMap((r) => r.messages);
+      expect(messages.filter((m) => m.ruleId === "no-restricted-imports")).toEqual([]);
+    },
+    30_000,
+  );
+
+  it(
+    "blocks deep feature imports outside the barrel",
+    async () => {
+      const eslint = new ESLint({ cwd: repoRoot, ignore: false });
+      const results = await eslint.lintText(
+        'import { Markdown } from "@/components/shared/Markdown";\n',
+        { filePath: path.join(repoRoot, "components/flows/probe-deep-import.tsx") },
+      );
+      const messages = results.flatMap((r) => r.messages);
+      expect(
+        messages.some(
+          (m) => m.ruleId === "no-restricted-imports" && m.severity === 2,
+        ),
+      ).toBe(true);
+    },
+    30_000,
+  );
 });

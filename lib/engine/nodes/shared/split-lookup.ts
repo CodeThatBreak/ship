@@ -1,3 +1,5 @@
+import "server-only";
+
 import { nodeRegistry } from "../registry";
 import { templateStore } from "../../templates/template-store";
 import type { SplitTargetLookup } from "./split";

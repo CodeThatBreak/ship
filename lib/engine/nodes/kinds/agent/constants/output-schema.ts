@@ -1,3 +1,5 @@
+import "server-only";
+
 import type { ConfigField } from "../../../../templates/node-config";
 
 /** The agent node's "Output schema" knob — the TS-lite schema box for the json output contract. */

@@ -1,3 +1,5 @@
+import "server-only";
+
 import { PROMPT_BODY, PROMPT_RULES } from './prompt';
 import { EXECUTION_CONFIG } from './execution';
 import { DECOMPOSE_CONFIG } from './decompose';

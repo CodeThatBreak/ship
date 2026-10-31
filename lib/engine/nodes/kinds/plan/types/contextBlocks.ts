@@ -1,3 +1,5 @@
+import "server-only";
+
 // ── context block registry (§4) ──────────────────────────────────────────────
 
 export type ContextBlockId = 'task' | 'contract' | 'current' | 'branches' | 'versions' | 'edits';

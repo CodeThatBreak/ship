@@ -1,3 +1,5 @@
+import "server-only";
+
 import { localGit } from "../../../../git/local";
 import type { FlowCtx } from "../../shared";
 import { flowCtxHelper, type FlowContextHelper } from "../../shared/run-context";

@@ -1,3 +1,5 @@
+import "server-only";
+
 import type { TaskProvider } from "./task-provider";
 import { JiraTaskProvider } from "./providers/jira";
 

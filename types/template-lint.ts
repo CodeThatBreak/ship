@@ -1,7 +1,13 @@
 /**
- * Client-safe re-export of the template linter's problem shape — the same
- * pattern as types/model-spec.ts: the client editor displays LintProblems but
- * must not import the server lib module that defines them (the linter's value
- * code stays server-side; the messages arrive via POST /api/templates/[id]/validate).
+ * Client-safe template linter problem shape. The server linter returns these
+ * via POST /api/templates/[id]/validate; the editor underlines refs from them.
  */
-export type { LintProblem } from "@/lib/engine/templates/template-lint";
+export interface LintProblem {
+  where: string;
+  ref?: string;
+  message: string;
+  /** the node instance key the problem belongs to (canvas badge target) */
+  nodeKey?: string;
+  /** the edge's index in the template's edge list (canvas badge target) */
+  edgeIndex?: number;
+}

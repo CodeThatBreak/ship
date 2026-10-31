@@ -1,3 +1,5 @@
+import "server-only";
+
 import { db } from "../../../db";
 import type { ChainRole, FlowCtx } from "../shared";
 import { NODE_KEYS } from "../../constants/node-keys";

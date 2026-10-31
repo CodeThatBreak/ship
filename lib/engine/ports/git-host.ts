@@ -1,3 +1,5 @@
+import "server-only";
+
 /**
  * Git-host integration port — the neutral language engine + API code speaks.
  *

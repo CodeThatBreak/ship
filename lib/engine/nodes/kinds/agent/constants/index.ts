@@ -1,3 +1,5 @@
+import "server-only";
+
 import type { ConfigField } from "../../../../templates/node-config";
 import { fanoutConfigFields, mcpSourceConfigFields, splitConsumerConfigFields } from "../../../../templates/node-config";
 import { MODE_CONFIG_FIELD } from "./mode";

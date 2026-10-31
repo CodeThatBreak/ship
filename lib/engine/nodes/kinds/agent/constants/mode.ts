@@ -1,3 +1,5 @@
+import "server-only";
+
 import type { ConfigField } from "../../../../templates/node-config";
 import { AGENT_MODE } from "../../../../constants/declarative";
 

@@ -1,3 +1,5 @@
+import "server-only";
+
 import { db } from "../../db";
 import { gitHostRegistry } from "../ports/git-host";
 import { flowEngine } from "../flow-engine";

@@ -1,3 +1,5 @@
+import "server-only";
+
 import type { ContextBlockSpec, ContextBlockId } from '../types/contextBlocks';
 
 /**

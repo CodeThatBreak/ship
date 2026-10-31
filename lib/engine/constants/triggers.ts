@@ -1,3 +1,5 @@
+import "server-only";
+
 /** Trigger vocabularies shared by the template store, engine and editors.
  *  Closed value sets only — derived lists (e.g. TASK_TRIGGER_TYPES, which is
  *  computed from the task registry) stay with their consumer. */

@@ -23,6 +23,37 @@ const PHASE0_DOWNGRADED_RULES = {
   "@typescript-eslint/no-non-null-assertion": "warn",
 };
 
+const LIB_CLIENT_IMPORT_PATTERNS = [
+  {
+    group: [
+      "**/lib/**",
+      "!**/lib/utils",
+      "!**/lib/modelSpec",
+      "!**/lib/format",
+      "!**/lib/usage",
+      "!**/lib/groupEvents",
+      "!**/lib/jsonata",
+    ],
+    message:
+      "lib/ is server-only. Only lib/utils, lib/modelSpec, lib/format, lib/usage, lib/groupEvents and lib/jsonata (all pure) may be imported by client code; fetch data through API routes and move shared client types to types/.",
+  },
+];
+
+const FEATURE_BARREL_PATTERNS = [
+  {
+    group: [
+      "@/components/*/*",
+      "@/components/*/*/**",
+      "!@/components/ui",
+      "!@/components/ui/**",
+      "!@/components/settings/general",
+      "!@/components/settings/integrations",
+      "!@/components/settings/repos",
+    ],
+    message: FEATURE_BARREL_MESSAGE,
+  },
+];
+
 const eslintConfig = [
   {
     ignores: [
@@ -131,52 +162,34 @@ const eslintConfig = [
   // better-sqlite3 lives there) — same disposition the server pages got via
   // the sanctioned loaders/ seam.
   {
-    files: ["app/**/*.{ts,tsx}", "components/**/*.{ts,tsx}"],
+    files: [
+      "app/**/*.{ts,tsx}",
+      "components/**/*.{ts,tsx}",
+      "hooks/**/*.{ts,tsx}",
+      "constants/**/*.ts",
+    ],
     ignores: ["components/ui/**", "app/api/**"],
     rules: {
       "no-restricted-imports": [
         "error",
         {
+          patterns: [...LIB_CLIENT_IMPORT_PATTERNS, ...FEATURE_BARREL_PATTERNS],
+        },
+      ],
+    },
+  },
+
+  {
+    files: ["types/**/*.ts"],
+    rules: {
+      "no-restricted-imports": [
+        "error",
+        {
           patterns: [
-            {
-              // gitignore-style matching (the `ignore` engine underneath this
-              // rule): ignore everything under any lib/ directory, then
-              // re-include the client-safe allowlist.
-              group: [
-                "**/lib/**",
-                "!**/lib/utils",
-                "!**/lib/modelSpec",
-                "!**/lib/format",
-                "!**/lib/usage",
-                "!**/lib/groupEvents",
-                "!**/lib/jsonata",
-              ],
-              message:
-                "lib/ is server-only. Only lib/utils, lib/modelSpec, lib/format, lib/usage, lib/groupEvents and lib/jsonata (all pure) may be imported by client code; fetch data through API routes and move shared client types to types/.",
-            },
-            // Single-file features with an index barrel
-            {
-              group: ["@/components/panels/!(index.tsx)"],
-              message: FEATURE_BARREL_MESSAGE,
-            },
-            {
-              group: ["@/components/shared/!(index.ts)"],
-              message: FEATURE_BARREL_MESSAGE,
-            },
-            {
-              group: ["@/components/template-editor/!(index.ts)"],
-              message: FEATURE_BARREL_MESSAGE,
-            },
-            // settings has per-domain barrels (repos, general, integrations);
-            // block everything beneath them
-            {
-              group: [
-                "@/components/settings/*/*",
-                "@/components/settings/*/*/*",
-                "@/components/settings/*/*/*/**",
-              ],
-              message: FEATURE_BARREL_MESSAGE,
-            },
+            ...LIB_CLIENT_IMPORT_PATTERNS.map((pattern) => ({
+              ...pattern,
+              allowTypeImports: true,
+            })),
           ],
         },
       ],

@@ -1,3 +1,5 @@
+import "server-only";
+
 import { TemplateRenderer } from './template-renderer';
 
 /**

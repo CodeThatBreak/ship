@@ -1,3 +1,5 @@
+import "server-only";
+
 export type { ContextBlockInfo, ContextBlockId } from './types/contextBlocks';
 
 export { PlanNode } from './plan-node';

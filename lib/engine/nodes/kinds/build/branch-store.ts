@@ -1,3 +1,5 @@
+import "server-only";
+
 import { db } from "../../../../db";
 import { BranchRow, rows } from "../../../../db/rows";
 

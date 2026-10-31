@@ -1,3 +1,5 @@
+import "server-only";
+
 /** Declarative node-kind vocabularies (agent / decision / http / script kinds).
  *  The zod schemas in `nodes/declarative-schemas.ts` consume these and re-export
  *  them, so its public surface is unchanged. */

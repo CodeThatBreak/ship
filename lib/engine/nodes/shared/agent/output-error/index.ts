@@ -1,3 +1,5 @@
+import "server-only";
+
 /** Public surface of the standard agent output-contract error. Consumers
  *  construct {@link AgentOutputError} directly — no exported factory
  *  functions — and use its statics for the agent-facing contract. */

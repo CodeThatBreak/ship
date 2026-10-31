@@ -1,3 +1,5 @@
+import "server-only";
+
 import { z } from "zod";
 import type { NodeRow } from "../../../db/rows";
 import type { AgentRunResult } from "../../ports/agent-port";

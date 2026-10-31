@@ -1,3 +1,5 @@
+import "server-only";
+
 /**
  * Agent-runner port — the neutral surface engine + API code drives agents
  * through (cloud agent VMs, local in-process agent loops, future vendors).

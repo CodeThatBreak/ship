@@ -1,7 +1,7 @@
 "use client";
 import { useState } from "react";
 import { Cpu, GitBranch, ListTree, Link2, XCircle } from "lucide-react";
-import { useSettings } from "@/components/settings/context";
+import { useSettings } from "@/components/settings";
 import { GitTab, HarnessTab, TaskTab } from "@/components/settings/integrations";
 import { Alert } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";

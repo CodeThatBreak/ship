@@ -1,3 +1,5 @@
+import "server-only";
+
 /**
  * Stable node keys for the built-in workflow graph.
  * Use these constants instead of string literals so renames stay type-safe.

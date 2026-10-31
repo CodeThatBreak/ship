@@ -5,4 +5,5 @@
  * Deep imports across features are forbidden — import from here.
  */
 export { fetchSettings, fetchRepos } from "./queries";
+export { SettingsProvider, useSettings } from "./context";
 export type { Repo, Harness, HarnessMode } from "./context";

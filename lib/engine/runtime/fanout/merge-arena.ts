@@ -1,3 +1,5 @@
+import "server-only";
+
 import { execFile } from "child_process";
 import fs from "fs";
 import path from "path";

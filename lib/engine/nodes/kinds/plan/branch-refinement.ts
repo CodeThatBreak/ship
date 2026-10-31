@@ -1,3 +1,5 @@
+import "server-only";
+
 import { SubPlanResponse, type PlanMeta, type PlanStep, type SubPlanPatch } from './schema';
 
 /**

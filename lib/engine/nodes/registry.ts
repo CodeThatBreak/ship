@@ -1,3 +1,5 @@
+import "server-only";
+
 import type { NodeDefinition } from "./shared";
 import { PlanNode } from "./kinds/plan";
 import { BuildNode } from "./kinds/build";

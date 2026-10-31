@@ -1,3 +1,5 @@
+import "server-only";
+
 import { config } from "../../config";
 import { db } from "../../db";
 import { resolveAgentRunModel } from "../../modelSpec";

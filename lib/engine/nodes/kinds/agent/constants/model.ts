@@ -1,3 +1,5 @@
+import "server-only";
+
 import type { ConfigField } from "../../../../templates/node-config";
 
 /** The agent node's "Model override" knob — text or a `{{...}}` ref; empty = the flow's default model. */

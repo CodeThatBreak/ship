@@ -1,3 +1,5 @@
+import "server-only";
+
 import { z } from "zod";
 import { AGENT_ERROR_ENVELOPE_KEY, AGENT_OUTPUT_ERROR, type AgentOutputErrorCode } from "./constants";
 

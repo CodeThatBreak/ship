@@ -2,7 +2,7 @@ import { useReducer } from 'react';
 
 import { ACTION_TYPES } from '../constants/action';
 
-import { useFlowMutation } from '@/components/flows/mutations/useFlowMutation';
+import { useFlowMutation } from "../../../mutations/useFlowMutation";
 
 import type { Action } from '../types/action';
 

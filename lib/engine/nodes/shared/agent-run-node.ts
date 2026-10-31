@@ -1,3 +1,5 @@
+import "server-only";
+
 import type { AgentRunResult } from "../../ports/agent-port";
 import { agentRunner, type AgentRunner, type AgentStartInput } from "../../harness";
 import { flowCtxHelper, type FlowContextHelper, type FlowCtx } from "./run-context";

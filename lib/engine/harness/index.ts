@@ -1,3 +1,5 @@
+import "server-only";
+
 /** Public surface of the agent-run harness: run supervision, streaming and
  *  usage/cost capture shared by every agent-executing node kind. Internal
  *  collaborators (StreamBuffer, ToolPairer, PricingSource) stay private. */

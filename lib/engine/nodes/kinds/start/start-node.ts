@@ -1,3 +1,5 @@
+import "server-only";
+
 // ── the flow entry node ──────────────────────────────────────────────────────
 import { z } from "zod";
 import { NodeDefinition, type FlowCtx, type NodeTriggerRun, type RunOutcome } from "../../shared";

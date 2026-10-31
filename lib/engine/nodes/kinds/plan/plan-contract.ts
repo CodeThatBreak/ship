@@ -1,3 +1,5 @@
+import "server-only";
+
 import { z } from 'zod';
 import type { AgentRunResult } from '../../../ports/agent-port';
 import { planSteps } from '../../../runtime/plan-step-store';

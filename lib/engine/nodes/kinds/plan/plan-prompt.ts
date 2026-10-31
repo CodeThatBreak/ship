@@ -1,3 +1,5 @@
+import "server-only";
+
 import { prompts } from '../../../prompts/prompt-library';
 import { DEFAULT_PROMPT_TEMPLATES } from '../../../prompts/prompt-defaults';
 import { TemplateRenderer, type FlowCtx, type FlowContextHelper } from '../../shared';

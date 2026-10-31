@@ -1,3 +1,5 @@
+import "server-only";
+
 /**
  * A minimal JSON Schema validator for the parts of the schema that declarative
  * node configs use: object {properties, required}, array {items}, primitives

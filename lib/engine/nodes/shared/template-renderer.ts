@@ -1,3 +1,5 @@
+import "server-only";
+
 import type { FlowCtx } from './run-context';
 import { buildFlowContext } from '../../context/flow-variables';
 import { TemplateComposer } from './template-composer';

@@ -1,3 +1,5 @@
+import "server-only";
+
 export { FlowContextHelper, flowCtxHelper, type ExecMode, type FlowCtx } from "./run-context";
 export { NodeSupport, nodeSupport } from "./node-support";
 export { AgentRunNode } from "./agent-run-node";

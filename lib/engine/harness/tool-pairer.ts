@@ -1,3 +1,5 @@
+import "server-only";
+
 // ── tool-call pairing for local mode (FIFO unmatched-start per name) ─────────
 
 export type ToolEmitFn = (

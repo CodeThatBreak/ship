@@ -1,3 +1,5 @@
+import "server-only";
+
 import type { FlowCtx } from '../../shared';
 import type { NodeSupport } from '../../shared/node-support';
 import { planSteps } from '../../../runtime/plan-step-store';

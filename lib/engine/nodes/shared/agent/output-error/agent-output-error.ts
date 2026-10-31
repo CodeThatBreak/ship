@@ -1,3 +1,5 @@
+import "server-only";
+
 /**
  * The standard error for agent output-contract failures: a node whose declared
  * output format (e.g. `output: json` + an output schema) is not satisfied by

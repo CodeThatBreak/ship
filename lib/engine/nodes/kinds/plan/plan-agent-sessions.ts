@@ -1,3 +1,5 @@
+import "server-only";
+
 import type { NodeRow } from '../../../../db/rows';
 import type { FlowCtx } from '../../shared';
 import type { NodeSupport } from '../../shared/node-support';

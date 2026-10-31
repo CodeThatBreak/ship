@@ -1,6 +1,9 @@
+import "server-only";
+
 import { db } from "../../db";
 import { lintJsonata } from "@/lib/jsonata";
 import { lintStartContract, parseStartContract } from "../nodes/kinds/start/contract";
+import type { LintProblem } from "@/types/template-lint";
 import { nodeRegistry } from "../nodes/registry";
 import { resolveSplitTarget, type SplitTargetLookup } from "../nodes/shared/split";
 import { fanoutOf } from "./node-config";
@@ -39,15 +42,7 @@ export interface TaskUniverse {
  * point the canvas's error badges and the drawer's jump-to-field at the
  * offending element without parsing the `where` string.
  */
-export interface LintProblem {
-  where: string;
-  ref?: string;
-  message: string;
-  /** the node instance key the problem belongs to (canvas badge target) */
-  nodeKey?: string;
-  /** the edge's index in the template's edge list (canvas badge target) */
-  edgeIndex?: number;
-}
+export type { LintProblem } from "@/types/template-lint";
 
 function joinProblems(problems: LintProblem[]): string {
   return problems.map((p) => (p.where ? `${p.where}: ${p.message}` : p.message)).join("\n");

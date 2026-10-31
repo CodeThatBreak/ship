@@ -1,3 +1,5 @@
+import "server-only";
+
 /**
  * Cross-module template types (engine/types/ — the engine's shared type
  * vocabulary). Only types consumed by engine modules outside

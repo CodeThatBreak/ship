@@ -1,3 +1,5 @@
+import "server-only";
+
 /** The closed set of output-contract failure codes (§2.7). `agent_reported` is
  *  the agent's own escape hatch: it answered with the standard error envelope
  *  (§AgentErrorEnvelopeSchema) instead of contract-conforming output. */

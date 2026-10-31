@@ -1,3 +1,5 @@
+import "server-only";
+
 import type { FlowCtx, FlowContextHelper } from '../../shared';
 import type { NodeSupport } from '../../shared/node-support';
 import { CONTEXT_BLOCKS, CONTEXT_BLOCK_ORDER } from './constants/contextBlocks';

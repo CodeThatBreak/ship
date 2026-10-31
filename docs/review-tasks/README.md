@@ -33,7 +33,7 @@ Open and partly fixed findings: 262, spread over 61 tasks.
 | [ ] | 01 | [Hotfix: "latest" plan artifact returns an arbitrary (oldest) version](01-plan-artifact-ordering-hotfix.md) | CR-270 | S | — |
 | [ ] | 02 | [Make typecheck, lint and tests real gates](02-typecheck-and-build-gates.md) | CR-273, CR-257, CR-266 | S | — |
 | [ ] | 03 | [Harden ESLint so new code cannot regress](03-lint-rule-hardening.md) | CR-162, CR-170 | M | 02 |
-| [ ] | 04 | [Enforce the client/server and feature-barrel boundaries](04-client-server-boundaries.md) (needs approval) | CR-161, CR-165, CR-166 | S | 03 |
+| [x] | 04 | [Enforce the client/server and feature-barrel boundaries](04-client-server-boundaries.md) (needs approval) | CR-161, CR-165, CR-166 | S | 03 |
 | [ ] | 05 | [Fill the test gaps for mappers, YAML fixtures and check scripts](05-test-coverage-baseline.md) | CR-041, CR-164, CR-160, CR-267 | M | 02 |
 | [ ] | 06 | [Separate the prod DB from the demo DB and make seed scripts safe](06-db-path-and-seed-safety.md) | CR-040, CR-157, CR-159, CR-272, CR-262 | M | 05 |
 | [ ] | 07 | [Delete dead code and legacy back-compat paths](07-remove-dead-and-legacy-code.md) | CR-187, CR-207 | S | 05 |

@@ -1,3 +1,5 @@
+import "server-only";
+
 /**
  * The default prompt templates as an explicit three-part split:
  *

@@ -1,7 +1,7 @@
 "use client";
 import { useCallback, useEffect, useDeferredValue, useState } from "react";
 import { Database, Plus } from "lucide-react";
-import type { Repo } from "@/components/settings/context";
+import type { Repo } from "@/components/settings";
 import { Button } from "@/components/ui/button";
 import { RepoCard } from "./components/RepoCard";
 import { RepoForm } from "./components/RepoForm";

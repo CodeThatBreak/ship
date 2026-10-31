@@ -1,6 +1,6 @@
 "use client";
 import { useCallback, useState } from "react";
-import type { Repo } from "@/components/settings/context";
+import type { Repo } from "@/components/settings";
 import { REPO_DEFAULT_BRANCH } from "../constants";
 import { tildePath } from "../paths";
 import type { RepoFormState } from "../types";

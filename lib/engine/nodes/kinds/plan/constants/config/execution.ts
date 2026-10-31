@@ -1,3 +1,5 @@
+import "server-only";
+
 import type { ConfigField } from '../../../../../templates/node-config';
 
 const EXECUTION_CONFIG: ConfigField = {

@@ -1,3 +1,5 @@
+import "server-only";
+
 import { AGENT_OUTPUT_ERROR, type AgentOutputErrorCode } from '../../../shared/agent/output-error';
 
 /** Output-contract failures a feedback turn can fix: missing or schema-

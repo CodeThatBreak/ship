@@ -1,3 +1,5 @@
+import "server-only";
+
 import { db } from "../../db";
 import { NodeDefinition } from "./shared";
 import { AgentTemplateNode } from "./kinds/agent/agent-node";

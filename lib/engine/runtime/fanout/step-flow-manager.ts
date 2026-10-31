@@ -1,3 +1,5 @@
+import "server-only";
+
 import { db } from "../../../db";
 import type { FlowRow } from "../../../db/rows";
 import { templateStore, type TemplateGraph } from "../../templates/template-store";
