@@ -2,6 +2,7 @@ import "server-only";
 
 import { z } from "zod";
 import { nodeRegistry } from "@/lib/engine/nodes/registry";
+import "@/lib/engine/nodes/declarativeBootstrap";
 import { NodeDefinition } from "@/lib/engine/nodes/shared/nodeDefinition";
 import { processSingleton } from "@/lib/singleton";
 import { templateStore } from "@/lib/engine/templates/templateStore";
