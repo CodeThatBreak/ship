@@ -65,8 +65,15 @@ export class PipelineNode extends AgentRunNode<
 > {
   readonly key = NODE_KEYS.PIPELINE;
   readonly label = "Pipeline";
-  /** §T4: chat messages ride the gate rerun as developer guidance. */
-  override readonly capabilities: NodeCapabilities = { panelTitle: "CI pipeline", refinable: true };
+  /** §T4: chat messages ride the gate rerun as developer guidance; the first
+   *  turn on a never-run gate carries the fix-run prompt body (composer-as-
+   *  prompt, plan's precedent). */
+  override readonly capabilities: NodeCapabilities = {
+    panelTitle: "CI pipeline",
+    refinable: true,
+    promptNode: NODE_KEYS.PIPELINE,
+    startLabel: "Run pipeline",
+  };
   /** Engine-dispatch metadata (§T3): consumers (the CI gate) wait on the
    *  pipeline event source — gate lookups route through this, not a literal. */
   override readonly waitForKind = NODE_KEYS.PIPELINE;
@@ -652,6 +659,21 @@ export class PipelineNode extends AgentRunNode<
     if (!ctx.flow.mr_iid)
       return "No merge request yet — the pipeline gate runs automatically after the build is approved and the MR is created.";
     const node = this.node(ctx);
+    // The first turn on a never-run gate treats the message as the fix-run
+    // prompt body (promptIsBody — the documented override the modal and the
+    // action route recorded); turns after a run stay guidance.
+    if (this.isFirstTurn(node)) {
+      const outcome = await this.run(
+        ctx,
+        this.inputSchema.parse({
+          prompt: content,
+          promptIsBody: true,
+          model: model ?? null,
+        }),
+        this.nodeConfig(ctx),
+      );
+      return outcome.reply;
+    }
     const prevInput = (node.input ?? {}) as PipelineInput;
     const outcome = await this.run(
       ctx,

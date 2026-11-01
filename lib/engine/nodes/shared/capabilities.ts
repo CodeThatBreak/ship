@@ -84,6 +84,12 @@ export interface NodeUiCapabilities {
    * (set for nodes that publish a user-editable prompt before their first run).
    */
   promptNode?: string;
+  /**
+   * The composer's send-button label for the node's first run — the body run
+   * (e.g. "Run AI review"). Plain "Send" when unset (the refine turn, and
+   * nodes without a prompt-body first turn).
+   */
+  startLabel?: string;
   /** The panel header title; falls back to the node's label. */
   panelTitle?: string;
 }
@@ -125,6 +131,7 @@ export function uiCapabilities(
     refinable: cap.refinable,
     chatMode: cap.chatMode,
     promptNode: cap.promptNode,
+    startLabel: cap.startLabel,
     panelTitle: cap.panelTitle,
   };
 }

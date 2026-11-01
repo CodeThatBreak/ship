@@ -258,7 +258,7 @@ describe("StepBuildNode — fan-out child paths (T6)", () => {
     const step = new StepBuildNode(nodeSupport, new StubRunner({ status: "finished", result: "step fixed" } as unknown as AgentRunResult));
     const outcome = await step.run(
       s.ctx,
-      { plan: null, prompt: null, branchInfo: null, feedback: "fix the flaky test", model: null },
+      { plan: null, prompt: null, promptIsBody: false, branchInfo: null, feedback: "fix the flaky test", model: null },
       {},
     );
     expect(outcome.status).toBe("awaiting_approval");

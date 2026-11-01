@@ -6,6 +6,8 @@ import { flowCtxHelper, type FlowContextHelper, type FlowCtx } from "./runContex
 import { nodeSupport, type NodeSupport } from "./nodeSupport";
 import { NodeDefinition, type RunOutcome } from "./nodeDefinition";
 import type { NodeRunStatus } from "../../../../constants/flow";
+import { FLOW_STATUS } from "../../../../constants/flow";
+import type { NodeRow } from "../../../db/rows";
 import { RunSupersededError } from "../../errors/runSupersededError";
 
 /** Metadata from {@link AgentRunner.executeRun} passed into finalize hooks. */
@@ -70,6 +72,21 @@ export abstract class AgentRunNode<
     opts?: { model?: string; thread?: string | null },
   ): Promise<string> {
     return this.chat(ctx, content, opts?.model);
+  }
+
+  /**
+   * A chat turn before the node's first run carries the prompt body, not
+   * feedback: the composer's first message IS the node's prompt (the same
+   * shape the retired prompt modal recorded — plan's precedent). Once the
+   * node has published an output, turns are refine feedback on that output.
+   * A failed node with no output is still a first turn (the retry is a
+   * fresh run).
+   */
+  protected isFirstTurn(node: NodeRow): boolean {
+    return (
+      node.output == null &&
+      (node.status === FLOW_STATUS.PENDING || node.status === FLOW_STATUS.FAILED)
+    );
   }
 
   async chat(ctx: FlowCtx, content: string, model?: string): Promise<string> {

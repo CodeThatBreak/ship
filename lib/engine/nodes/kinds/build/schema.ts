@@ -16,6 +16,8 @@ export const BuildInput = z
     plan: z.string().min(1).nullable().default(null),
     /** verbatim prompt override */
     prompt: z.string().nullable().default(null),
+    /** chat first turn: the message is the user-edited body only (the build template is body-only) */
+    promptIsBody: z.boolean().default(false),
     /** multi-branch: which branch of the plan to build */
     branchInfo: BuildBranchInfo.nullable().default(null),
     /** chat refine: developer feedback for a follow-up run */

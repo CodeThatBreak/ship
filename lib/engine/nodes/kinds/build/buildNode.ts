@@ -61,11 +61,15 @@ function splitUnitItemOf(payload: unknown): {
 export class BuildNode extends AgentRunNode<BuildInput, BuildOutput> {
   readonly key = NODE_KEYS.BUILD;
   readonly label = "Build";
-  /** §T4: chat messages refine the build — the node rerun-with-feedback recipe. */
+  /** §T4: chat messages refine the build — the node rerun-with-feedback recipe.
+   *  The first turn before a run IS the build prompt (composer-as-prompt, plan's
+   *  precedent): it carries the prompt body against the approved plan. */
   override readonly capabilities: NodeCapabilities = {
     panelTitle: "Code changes",
     fanoutOutput: DEFAULT_FANOUT_OUTPUT,
     refinable: true,
+    promptNode: NODE_KEYS.BUILD,
+    startLabel: "Start build",
   };
   /** Engine-dispatch metadata (§T3): build approval is a built-in flow action
    *  (the CR-creation chain), and the build kind occupies the chain's build role. */
@@ -163,6 +167,7 @@ export class BuildNode extends AgentRunNode<BuildInput, BuildOutput> {
     return {
       plan: unit.plan,
       prompt: null,
+      promptIsBody: false,
       branchInfo: { name: unit.name, title: unit.title, scope: unit.scope },
       feedback: null,
       model: null,
@@ -174,8 +179,8 @@ export class BuildNode extends AgentRunNode<BuildInput, BuildOutput> {
     // artifact reads below are parent-flow behavior only
     const unitInput = this.triggerInput(ctx);
     if (unitInput) return [{ input: unitInput }];
-    const plan = this.support.latestArtifact(ctx.flow.id, "plan", { nodeType: NODE_KEYS.PLAN });
-    if (!plan) throw new Error("no plan to build — approve the plan first");
+    const plan = this.approvedPlan(ctx);
+    const planContent = plan.content;
 
     // carry the model selected for the plan run into the build (from plan output)
     const planNode = this.support.nodeByType(ctx.flow.id, NODE_KEYS.PLAN);
@@ -198,7 +203,7 @@ export class BuildNode extends AgentRunNode<BuildInput, BuildOutput> {
         { nodeKey: planNode?.node_key ?? NODE_KEYS.PLAN });
       return sorted.map((b) => ({
         input: {
-          plan: plan.content, prompt: null,
+          plan: planContent, prompt: null,
           branchInfo: { name: b.name, title: b.title, scope: b.scope },
           feedback: null, model: planModel ?? null,
         },
@@ -209,7 +214,7 @@ export class BuildNode extends AgentRunNode<BuildInput, BuildOutput> {
 
     // single-branch fast path
     return [{
-      input: { plan: plan.content, prompt: null, branchInfo: null, feedback: null, model: planModel ?? null },
+      input: { plan: planContent, prompt: null, branchInfo: null, feedback: null, model: planModel ?? null },
     }];
   }
 
@@ -228,6 +233,17 @@ export class BuildNode extends AgentRunNode<BuildInput, BuildOutput> {
     };
     for (const b of branches) visit(b.name);
     return result;
+  }
+
+  /**
+   * The approved plan the build runs against — the same upstream read the
+   * chain's approve path uses (the plan node's published plan artifact).
+   * Shared by the engine trigger and the chat panel's first turn.
+   */
+  private approvedPlan(ctx: FlowCtx): { id: string; version: number; content: string; meta: string | null } {
+    const plan = this.support.latestArtifact(ctx.flow.id, "plan", { nodeType: NODE_KEYS.PLAN });
+    if (!plan) throw new Error("no plan to build — approve the plan first");
+    return plan;
   }
 
   async run(ctx: FlowCtx, input: BuildInput, config: Record<string, unknown>): Promise<RunOutcome> {
@@ -257,6 +273,7 @@ export class BuildNode extends AgentRunNode<BuildInput, BuildOutput> {
       plan,
       branchInfo: input.branchInfo,
       promptOverride: input.prompt,
+      promptIsBody: input.promptIsBody ?? false,
       userRules,
       setupNote,
     });
@@ -379,6 +396,30 @@ export class BuildNode extends AgentRunNode<BuildInput, BuildOutput> {
   }
 
   /**
+   * The first turn on a never-run node IS the build prompt: the composer's
+   * message is the build's prompt body, with the approved plan as the run's
+   * input (the composer-as-prompt shape plan introduced — the composer is
+   * prefilled with build's prompt body, which already renders the plan).
+   * Turns after a run are the `feedback` refine.
+   */
+  override async chat(ctx: FlowCtx, content: string, model?: string): Promise<string> {
+    if (this.isFirstTurn(this.node(ctx))) {
+      const outcome = await this.run(
+        ctx,
+        this.inputSchema.parse({
+          plan: this.approvedPlan(ctx).content,
+          prompt: content,
+          promptIsBody: true,
+          model: model ?? null,
+        }),
+        this.nodeConfig(ctx),
+      );
+      return outcome.reply;
+    }
+    return super.chat(ctx, content, model);
+  }
+
+  /**
    * Shared build prompt assembly for `run` and `previewPrompt` — one branch
    * name, instruction text, checklist block, and resolve/assemble path.
    */
@@ -389,6 +430,7 @@ export class BuildNode extends AgentRunNode<BuildInput, BuildOutput> {
       plan: string;
       branchInfo: BuildBranchInfo | null;
       promptOverride: string | null;
+      promptIsBody?: boolean;
       userRules: string;
       setupNote: string | null;
     },
@@ -404,6 +446,7 @@ export class BuildNode extends AgentRunNode<BuildInput, BuildOutput> {
       plan: string;
       branchInfo: BuildBranchInfo | null;
       promptOverride: string | null;
+      promptIsBody?: boolean;
       userRules: string;
       setupNote: string | null;
     },
@@ -439,6 +482,23 @@ export class BuildNode extends AgentRunNode<BuildInput, BuildOutput> {
 
     const configBody = args.promptOverride;
     if (configBody) {
+      if (args.promptIsBody) {
+        // chat first turn: the message is the full edited body — the same
+        // resolution the verbatim `prompt_body` config knob produces (the
+        // build template is body-only: plan, checklist and instructions all
+        // render inside the body, so a light edit of the prefilled body keeps
+        // them). Distinct from review/resolve/pipeline, whose internal blocks
+        // carry the contracts and re-append around their body slot.
+        return {
+          configBody,
+          assembly: prompts.assemblePrompt(
+            NODE_KEYS.BUILD,
+            { ticket: this.ctxHelper.taskContext(ctx), branch, mode },
+            { instructions, plan: scopedPlan, checklist },
+            { body: configBody, userRules: args.userRules },
+          ),
+        };
+      }
       const final = prompts.resolve(
         NODE_KEYS.BUILD,
         { ticket: this.ctxHelper.taskContext(ctx), branch, mode },

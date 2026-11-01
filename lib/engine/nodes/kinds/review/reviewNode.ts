@@ -24,8 +24,15 @@ import {
 export class ReviewNode extends AgentRunNode<ReviewInput, ReviewOutput> {
   readonly key = NODE_KEYS.REVIEW;
   readonly label = "Review";
-  /** §T4: chat messages refine the review — re-run with them as extra focus. */
-  override readonly capabilities: NodeCapabilities = { panelTitle: "AI review", refinable: true };
+  /** §T4: chat messages refine the review — re-run with them as extra focus.
+   *  The first turn before a run is the review prompt itself (composer-as-prompt,
+   *  plan's precedent): it carries the prompt body, later ones the extra focus. */
+  override readonly capabilities: NodeCapabilities = {
+    panelTitle: "AI review",
+    refinable: true,
+    promptNode: NODE_KEYS.REVIEW,
+    startLabel: "Run AI review",
+  };
   /** Engine-dispatch metadata (§T3): the review kind occupies the chain's review role. */
   override readonly chainRole = NODE_KEYS.REVIEW;
   readonly promptKeys = [NODE_KEYS.REVIEW] as const;
@@ -261,6 +268,23 @@ export class ReviewNode extends AgentRunNode<ReviewInput, ReviewOutput> {
   /** Chat maps the message onto the node's guidance field (§T4b recipe). */
   protected override chatInput(content: string, model?: string): Record<string, unknown> {
     return { instructions: content, model: model ?? null };
+  }
+
+  /**
+   * The first turn on a never-run node runs the review with the message as
+   * the prompt body (the shape the retired prompt modal produced); turns
+   * after a run are the `instructions` refine.
+   */
+  override async chat(ctx: FlowCtx, content: string, model?: string): Promise<string> {
+    if (this.isFirstTurn(this.node(ctx))) {
+      const outcome = await this.run(
+        ctx,
+        ReviewInput.parse({ prompt: content, promptIsBody: true, model: model ?? null }),
+        this.nodeConfig(ctx),
+      );
+      return outcome.reply;
+    }
+    return super.chat(ctx, content, model);
   }
 
   // Review posts MR notes — don't replay after a restart; let the user retry.

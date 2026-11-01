@@ -66,14 +66,15 @@ export class PlanNode extends AgentRunNode<PlanInput, PlanOutput> {
 
   /**
    * The plan is the chat's first-class node: the composer-as-prompt
-   * conversation mode, the prompt prefill before the first run, and the
-   * panel title (the chat panel keys all of this off these capabilities —
-   * no node-key checks).
+   * conversation mode, the prompt prefill before the first run, the first
+   * run's send label, and the panel title (the chat panel keys all of this
+   * off these capabilities — no node-key checks).
    */
   override readonly capabilities: NodeCapabilities = {
     refinable: true,
     chatMode: 'plan',
     promptNode: NODE_KEYS.PLAN,
+    startLabel: 'Generate plan',
     panelTitle: 'Implementation plan',
   };
 

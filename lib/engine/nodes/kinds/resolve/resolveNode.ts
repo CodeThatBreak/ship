@@ -19,8 +19,15 @@ import { worktreeManager } from "../../../runtime/worktreeLifecycle";
 export class ResolveNode extends AgentRunNode<ResolveInput, ResolveOutput> {
   readonly key = NODE_KEYS.RESOLVE;
   readonly label = "Resolve";
-  /** §T4: chat messages refine the resolve — re-run with them as instructions. */
-  override readonly capabilities: NodeCapabilities = { panelTitle: "Comment resolution", refinable: true };
+  /** §T4: chat messages refine the resolve — re-run with them as instructions.
+   *  The first turn before a run carries the resolve prompt body (composer-as-
+   *  prompt, plan's precedent); later ones the instructions. */
+  override readonly capabilities: NodeCapabilities = {
+    panelTitle: "Comment resolution",
+    refinable: true,
+    promptNode: NODE_KEYS.RESOLVE,
+    startLabel: "Resolve comments",
+  };
   /** Engine-dispatch metadata (§T3): the resolve kind occupies the chain's resolve role. */
   override readonly chainRole = NODE_KEYS.RESOLVE;
   readonly promptKeys = [NODE_KEYS.RESOLVE] as const;
@@ -262,6 +269,23 @@ export class ResolveNode extends AgentRunNode<ResolveInput, ResolveOutput> {
   /** Chat maps the message onto the node's guidance field (§T4b recipe). */
   protected override chatInput(content: string, model?: string): Record<string, unknown> {
     return { instructions: content, model: model ?? null };
+  }
+
+  /**
+   * The first turn on a never-run node runs the resolve with the message as
+   * the prompt body (the shape the retired prompt modal produced); turns
+   * after a run are the `instructions` refine.
+   */
+  override async chat(ctx: FlowCtx, content: string, model?: string): Promise<string> {
+    if (this.isFirstTurn(this.node(ctx))) {
+      const outcome = await this.run(
+        ctx,
+        ResolveInput.parse({ prompt: content, promptIsBody: true, model: model ?? null }),
+        this.nodeConfig(ctx),
+      );
+      return outcome.reply;
+    }
+    return super.chat(ctx, content, model);
   }
 
   // Resolve commits fixes and closes discussions — don't replay after a restart.
