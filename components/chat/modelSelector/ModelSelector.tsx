@@ -1,21 +1,17 @@
-"use client";
+'use client';
 
-import * as React from "react";
+import * as React from 'react';
 
-import { cn } from "@/lib/utils";
-import type { CatalogModel, ModelChoice } from "@/types/modelSpec";
+import { cn } from '@/lib/utils';
+import type { CatalogModel, ModelChoice } from '@/types/modelSpec';
 import { useModelCatalog } from '../hooks/useModelCatalog';
 import { ModelMenu } from './ModelMenu';
 import { ModelOptionsMenu } from './ModelOptionsMenu';
 import type { ModelParameterDefinition } from './modelParams';
-import {
-  defaultParamsOf,
-  paramsOf,
-  providerOf,
-} from './modelParams';
+import { defaultParamsOf, paramsOf, providerOf } from './modelParams';
 
 /** Placeholder model shown when the catalog carries nothing usable. */
-const NO_MODEL: CatalogModel = { id: "", displayName: "Model" };
+const NO_MODEL: CatalogModel = { id: '', displayName: 'Model' };
 
 /** Back-compat re-export (the definition moved to `model-selector/`). */
 export type { ModelParameterDefinition } from './modelParams';
@@ -41,19 +37,18 @@ export default function ModelSelector({
   const models = React.useMemo(() => data?.catalog ?? [], [data]);
   // nothing picked = the account's default model; resolve it (id + params)
   // so the menu preselects that model instead of a vague "account default"
-  const valueId = value?.id || data?.defaultChoice?.id || data?.default || "";
-  const valueParams = React.useMemo(
-    () => value?.params ?? data?.defaultChoice?.params ?? {},
-    [value, data],
-  );
+  const valueId = value?.id || data?.defaultChoice?.id || data?.default || '';
+  const valueParams = React.useMemo(() => value?.params ?? data?.defaultChoice?.params ?? {}, [value, data]);
 
-  const options = React.useMemo<CatalogModel[]>(() =>
-    models.some((m) => m.id === valueId)
-      ? models
-      : valueId
-        ? [...models, { id: valueId, displayName: valueId }]
-        : models,
-  [models, valueId]);
+  const options = React.useMemo<CatalogModel[]>(
+    () =>
+      models.some(m => m.id === valueId)
+        ? models
+        : valueId
+          ? [...models, { id: valueId, displayName: valueId }]
+          : models,
+    [models, valueId]
+  );
 
   const byProvider = React.useMemo(() => {
     const groups = new Map<string, CatalogModel[]>();
@@ -66,7 +61,7 @@ export default function ModelSelector({
     return [...groups.entries()].sort(([a], [b]) => a.localeCompare(b));
   }, [options]);
 
-  const current = options.find((m) => m.id === valueId);
+  const current = options.find(m => m.id === valueId);
   const paramDefs = React.useMemo<ModelParameterDefinition[]>(() => (current ? paramsOf(current) : []), [current]);
   // what the Options button previews: defaults overlaid with explicit picks
   const effectiveParams = React.useMemo(
@@ -85,7 +80,7 @@ export default function ModelSelector({
   };
 
   return (
-    <div className={cn("flex items-center", className)}>
+    <div className={cn('flex items-center gap-1', className)}>
       {/* model menu — grouped by provider */}
       <ModelMenu
         modelLabel={modelLabel}
