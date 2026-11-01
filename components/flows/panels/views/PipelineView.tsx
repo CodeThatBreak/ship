@@ -1,9 +1,7 @@
 "use client";
-import { useState } from "react";
-import { Pencil, Wrench } from "lucide-react";
+import { Wrench } from "lucide-react";
 import type { BranchRow } from "@/types/flow";
 import { FLOW_ACTION, FLOW_STATUS } from "@/constants/flow";
-import PromptModal from "@/components/chat/promptModal/PromptModal";
 import { Alert } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { PanelShell, GenericArtifact } from '../shared';
@@ -15,16 +13,9 @@ import { useNodePanel } from '../context';
  */
 export default function PipelineView() {
   const { flow, node, action, model } = useNodePanel();
-  const [showPrompt, setShowPrompt] = useState(false);
   const output = node.output as { pipelineId?: number; status?: string; fixes?: number } | undefined;
   const hasMr = Boolean(flow.mr_url) || (flow.branches ?? []).some((b: BranchRow) => b.mr_url);
   const running = node.status === FLOW_STATUS.RUNNING;
-
-  const headerEnd = (
-    <Button size="xs" variant="secondary" onClick={() => setShowPrompt(true)}>
-      <Pencil size={12} /> Edit prompt
-    </Button>
-  );
 
   const footer = !running && hasMr ? (
     <>
@@ -44,7 +35,7 @@ export default function PipelineView() {
 
   return (
     <>
-      <PanelShell node={node} flow={flow} headerEnd={headerEnd} runningLabel="Waiting for a green pipeline — failures are fixed automatically…" footer={footer}>
+      <PanelShell node={node} flow={flow} runningLabel="Waiting for a green pipeline — failures are fixed automatically…" footer={footer}>
         {node.status === FLOW_STATUS.DONE && output?.pipelineId && (
           <Alert className="bg-success/10 text-success mb-3.5">
             <span className="flex-1">
@@ -54,18 +45,6 @@ export default function PipelineView() {
         )}
         <GenericArtifact node={node} kind="fix" icon={Wrench} empty="No pipeline fix runs yet." />
       </PanelShell>
-      {showPrompt && (
-        <PromptModal
-          flowId={flow.id}
-          nodeKey="pipeline"
-          open={showPrompt}
-          onClose={() => setShowPrompt(false)}
-          onRun={(prompt, promptIsBody) => {
-            action(FLOW_ACTION.PIPELINE, { prompt, promptIsBody: promptIsBody || undefined, model: model || undefined });
-            setShowPrompt(false);
-          }}
-        />
-      )}
     </>
   );
 }

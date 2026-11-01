@@ -1,7 +1,6 @@
 "use client";
-import { useMemo, useState } from "react";
-import { ScanSearch, CheckCheck, MessageSquare, Pencil, CircleAlert } from "lucide-react";
-import PromptModal from "@/components/chat/promptModal/PromptModal";
+import { useMemo } from "react";
+import { ScanSearch, CheckCheck, MessageSquare, CircleAlert } from "lucide-react";
 import { PanelShell } from '../shared';
 import { useNodePanel } from '../context';
 import { Badge } from "@/components/ui/badge";
@@ -16,7 +15,6 @@ import { ThreadListSkeleton } from '../review/ThreadListSkeleton';
 
 export default function ReviewView() {
   const { flow, node, action, model } = useNodePanel();
-  const [showPrompt, setShowPrompt] = useState(false);
 
   const commentsQuery = useFlowComments(flow.id, Boolean(flow.mr_iid));
   const comments = useMemo(() => commentsQuery.data ?? [], [commentsQuery.data]);
@@ -27,12 +25,6 @@ export default function ReviewView() {
 
   const running = node.status === FLOW_STATUS.RUNNING;
   const commentIssue = commentsQuery.isLoading || commentsQuery.isError;
-
-  const headerEnd = (
-    <Button size="xs" variant="secondary" onClick={() => setShowPrompt(true)}>
-      <Pencil size={12} /> Edit prompt
-    </Button>
-  );
 
   const footer = flow.mr_iid ? (
     <>
@@ -57,7 +49,7 @@ export default function ReviewView() {
 
   return (
     <>
-      <PanelShell node={node} headerEnd={headerEnd} runningLabel="Agent is reviewing the merge request…" footer={footer}>
+      <PanelShell node={node} runningLabel="Agent is reviewing the merge request…" footer={footer}>
         {!flow.mr_iid && <p className="text-muted-foreground">Review runs after the merge request is created.</p>}
 
         {flow.mr_iid && commentsQuery.isLoading && <ThreadListSkeleton />}
@@ -98,19 +90,6 @@ export default function ReviewView() {
           </div>
         )}
       </PanelShell>
-
-      {showPrompt && (
-        <PromptModal
-          flowId={flow.id}
-          nodeKey="review"
-          open={showPrompt}
-          onClose={() => setShowPrompt(false)}
-          onRun={(prompt, promptIsBody) => {
-            action(FLOW_ACTION.REVIEW, { prompt, promptIsBody: promptIsBody || undefined, model: model || undefined });
-            setShowPrompt(false);
-          }}
-        />
-      )}
     </>
   );
 }
