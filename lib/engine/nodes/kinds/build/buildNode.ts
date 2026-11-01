@@ -99,8 +99,6 @@ export class BuildNode extends AgentRunNode<BuildInput, BuildOutput> {
   /** Typed config knobs (defaults = today's behavior). */
   override readonly configSchema = z.object({
     prompt_body: z.string().optional(),
-    /** user rules appended after the prompt body / override */
-    prompt_rules: z.string().optional(),
     /** custom branch naming, e.g. "bugfix/{ticket}-{id}"; empty = built-in pattern */
     branch_pattern: z.string().default(""),
     /** commit-fix agent attempts when the push is rejected during MR creation (engine-consumed) */
@@ -126,7 +124,6 @@ export class BuildNode extends AgentRunNode<BuildInput, BuildOutput> {
   });
   override readonly configFields = [
     { key: "prompt_body", label: "Prompt body", type: "text", help: "User-editable prompt body for build runs." },
-    { key: "prompt_rules", label: "Your rules", type: "text", help: "Extra rules appended after the prompt body / override on every build or build-refine run. E.g. \"run npm run lint before pushing\"." },
     { key: "branch_pattern", label: "Branch pattern", type: "string", help: "Tokens: {prefix} {slug} {ticket} {id} {suffix}. Empty = built-in bugfix/feature pattern." },
     { key: "max_commit_fix_attempts", label: "Max commit-fix attempts", type: "number", help: "Commit-fix agent runs when the push is rejected while creating the MR." },
     { key: "max_merge_fix_attempts", label: "Max merge-fix attempts", type: "number", help: "Merge-fix agent runs per step child when its branch conflicts with (or is stale against) the integration branch at merge-back. Exhaustion fails the step visibly." },
@@ -247,10 +244,8 @@ export class BuildNode extends AgentRunNode<BuildInput, BuildOutput> {
   }
 
   async run(ctx: FlowCtx, input: BuildInput, config: Record<string, unknown>): Promise<RunOutcome> {
-    // the user's standing rules (prompt_rules knob) apply to every run
-    const userRules = configString(config, "prompt_rules") ?? "";
     // Chat refine on an existing build agent is a different path
-    if (input.feedback) return this.refine(ctx, input, userRules);
+    if (input.feedback) return this.refine(ctx, input);
 
     const node = this.node(ctx);
     const plan = input.plan;
@@ -274,7 +269,6 @@ export class BuildNode extends AgentRunNode<BuildInput, BuildOutput> {
       branchInfo: input.branchInfo,
       promptOverride: input.prompt,
       promptIsBody: input.promptIsBody ?? false,
-      userRules,
       setupNote,
     });
 
@@ -341,7 +335,7 @@ export class BuildNode extends AgentRunNode<BuildInput, BuildOutput> {
   }
 
   /** Chat-driven changes: follow up on the build agent, regenerate the diff. */
-  private async refine(ctx: FlowCtx, input: BuildInput, userRules: string): Promise<RunOutcome> {
+  private async refine(ctx: FlowCtx, input: BuildInput): Promise<RunOutcome> {
     const feedback = input.feedback;
     if (!feedback) throw new Error("feedback is required for a build refine");
     const node = this.node(ctx);
@@ -354,7 +348,7 @@ export class BuildNode extends AgentRunNode<BuildInput, BuildOutput> {
       }), this.nodeConfig(ctx));
     }
 
-    let prompt = prompts.resolve("build_refine", {}, { feedback }, input.prompt, { userRules });
+    let prompt = prompts.resolve("build_refine", {}, { feedback }, input.prompt);
     const config = this.nodeConfig(ctx);
     const gitBranch = input.branchInfo
       ? (branchStore.gitBranch(ctx.flow.id, input.branchInfo.name)
@@ -431,7 +425,6 @@ export class BuildNode extends AgentRunNode<BuildInput, BuildOutput> {
       branchInfo: BuildBranchInfo | null;
       promptOverride: string | null;
       promptIsBody?: boolean;
-      userRules: string;
       setupNote: string | null;
     },
   ): string {
@@ -447,7 +440,6 @@ export class BuildNode extends AgentRunNode<BuildInput, BuildOutput> {
       branchInfo: BuildBranchInfo | null;
       promptOverride: string | null;
       promptIsBody?: boolean;
-      userRules: string;
       setupNote: string | null;
     },
   ): { configBody: string | null; assembly: ReturnType<typeof prompts.assemblePrompt> } {
@@ -495,7 +487,7 @@ export class BuildNode extends AgentRunNode<BuildInput, BuildOutput> {
             NODE_KEYS.BUILD,
             { ticket: this.ctxHelper.taskContext(ctx), branch, mode },
             { instructions, plan: scopedPlan, checklist },
-            { body: configBody, userRules: args.userRules },
+            { body: configBody },
           ),
         };
       }
@@ -504,13 +496,11 @@ export class BuildNode extends AgentRunNode<BuildInput, BuildOutput> {
         { ticket: this.ctxHelper.taskContext(ctx), branch, mode },
         { instructions, plan: scopedPlan, checklist },
         configBody,
-        { userRules: args.userRules },
       );
       return {
         configBody,
         assembly: {
           body: configBody.trim(),
-          userRules: args.userRules.trim(),
           blocks: [],
           final,
         },
@@ -521,7 +511,6 @@ export class BuildNode extends AgentRunNode<BuildInput, BuildOutput> {
       NODE_KEYS.BUILD,
       { ticket: this.ctxHelper.taskContext(ctx), branch, mode },
       { instructions, plan: scopedPlan, checklist },
-      { userRules: args.userRules },
     );
     return { configBody: null, assembly };
   }
@@ -534,20 +523,17 @@ export class BuildNode extends AgentRunNode<BuildInput, BuildOutput> {
     const config = nodeRoles.previewConfig(this, node);
     const planRow = this.support.latestArtifact(ctx.flow.id, "plan");
     const planContent = planRow?.content ?? "(no plan yet)";
-    const userRules = nodeRoles.previewRules(this, node);
     const configBody = configString(config, "prompt_body") ?? null;
     const { configBody: resolvedBody, assembly } = this.buildPromptAssembly(ctx, config, {
       plan: planContent,
       branchInfo: null,
       promptOverride: configBody,
-      userRules,
       setupNote: null,
     });
     return {
       templateKey: NODE_KEYS.BUILD,
       configBody: resolvedBody,
       assembly,
-      rulesKey: "prompt_rules",
     };
   }
 

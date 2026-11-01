@@ -33,14 +33,11 @@ export interface PromptPreviewPayload {
   appendsInternal: boolean;
   // three-part sections
   bodySource: "config" | "default";
-  userRules: string;
   engineRules: string;
   outputContract: string;
   runData: PromptSections["runData"];
   final: string;
   finalChars: number;
-  // the node's config key the modal saves the rules box into (set_node_config)
-  rulesKey: string;
   // last-run overlay (Phase 1): what run N actually sent, read from
   // nodes.input.prompt, and whether it diverges from the current resolution
   lastRun: string | null;
@@ -95,7 +92,6 @@ export class PromptPreview {
       templateKey: preview.templateKey,
       configBody: preview.configBody,
       bodySource: preview.configBody != null ? "config" : "default",
-      rulesKey: preview.rulesKey ?? "prompt_rules",
       appendsInternal: prompts.getTemplate(preview.templateKey).internalBlocks.length > 0,
       ctx,
       nodeKey,
@@ -149,7 +145,6 @@ export class PromptPreview {
     templateKey: string;
     configBody: string | null;
     bodySource: PromptPreviewPayload["bodySource"];
-    rulesKey: string;
     appendsInternal: boolean;
     ctx: FlowCtx;
     nodeKey: string;
@@ -182,14 +177,11 @@ export class PromptPreview {
       appendsInternal: input.appendsInternal,
       // three-part sections
       bodySource: input.bodySource,
-      userRules: input.sections.userRules,
       engineRules: input.sections.engineRules,
       outputContract: input.sections.outputContract,
       runData: input.sections.runData,
       final: input.sections.final,
       finalChars: input.sections.final.length,
-      // the node's config key the modal saves the rules box into (set_node_config)
-      rulesKey: input.rulesKey,
       // last-run overlay
       lastRun,
       diverges: lastRun != null && lastRun !== input.sections.final,

@@ -419,27 +419,6 @@ describe("BuildNode chat", () => {
     });
   });
 
-  it("the standing rules knob still applies after the chat body", async () => {
-    const j = newJournal();
-    const support = stubSupport(j, nodeRow({
-      node_key: "build",
-      type: "build",
-      config: { prompt_rules: "Run npm test before pushing." },
-    })) as NodeSupport & { latestArtifact: (...args: unknown[]) => unknown };
-    support.latestArtifact = (...args: unknown[]) =>
-      (args[2] as { nodeType?: string })?.nodeType === "plan" ? planArtifact : null;
-    const def = new BuildNode(
-      support as NodeSupport,
-      stubRunner(j, ["built it"]),
-      ctxHelper,
-    );
-    await def.chat(ctx, "Start with the API routes.");
-    const turn = j.startAgentInputs[0] as unknown as { prompt: string };
-    expect(turn.prompt).toBe(
-      "Start with the API routes.\n\nRun npm test before pushing.",
-    );
-  });
-
   it("a never-run build with no approved plan refuses with the trigger's error", async () => {
     const j = newJournal();
     const support = stubSupport(j, nodeRow({ node_key: "build", type: "build" }));

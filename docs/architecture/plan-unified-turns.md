@@ -36,7 +36,7 @@ Parsing and apply: **one turn envelope** (`reply` + optional payload). Main / pr
 ## Non-goals (this iteration)
 
 - Changing checklist editing, approve footer, split/fan-out, or build consumption.
-- Template editor / `prompt_body` / `prompt_rules` knobs (still apply on every turn’s prompt assembly).
+- Template editor / `prompt_body` knob (still applies on every turn’s prompt assembly).
 - StepFlowManager / per-checklist-step child flows.
 - Rewriting prompt copy in `prompt-defaults` beyond contract/schema references.
 

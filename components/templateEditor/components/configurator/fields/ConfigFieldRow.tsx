@@ -48,7 +48,6 @@ export {
   companionTextOf,
   freeTextFields,
   promptEditorKeys,
-  rulesKeyFor,
   secretFields,
   writeConfig,
 } from '../../../configFieldLogic';

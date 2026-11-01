@@ -21,7 +21,6 @@ import {
   companionTextOf,
   freeTextFields,
   promptEditorKeys,
-  rulesKeyFor,
   secretFields,
   writeConfig,
 } from "./ConfigFieldRow";
@@ -145,16 +144,13 @@ export function DeclarativeConfigFields({
             );
           }
           if (promptEditorKeys.has(f.key)) {
-            // the prompt surface: body + (free prompts) everything in one —
-            // declarative prompts have no rules knob or locked blocks yet
-            const rulesKey = rulesKeyFor(f.key);
+            // the prompt surface: body + everything in one — declarative
+            // prompts have no locked blocks yet
             return (
               <PromptSectionField
                 key={f.key}
                 field={f}
                 value={config[f.key]}
-                rulesKey={rulesKey}
-                rulesValue={rulesKey ? config[rulesKey] : undefined}
                 varGroups={
                   f.key === "response_map"
                     ? httpResponseVarGroups()
@@ -163,9 +159,6 @@ export function DeclarativeConfigFields({
                 invalidRefs={invalidRefs}
                 onBodyChange={(v, extra) =>
                   onConfigChange(writeConfig(config, f.key, v, extra))
-                }
-                onRulesChange={(v) =>
-                  onConfigChange(writeConfig(config, rulesKey ?? "", v))
                 }
               />
             );

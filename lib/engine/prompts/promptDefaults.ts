@@ -5,8 +5,7 @@ import "server-only";
  *
  *   1. `userTemplate` — the user-editable body (the prompt modal's textarea)
  *   2. rules blocks   — engine-authored behavioral rules (locked, shown in the
- *      modal's Rules section; users extend them via the `prompt_rules` config
- *      knob, which assembles right after the body)
+ *      modal's Rules section)
  *   3. output contract — the machine-parsed output-format block (locked, shown
  *      read-only in the modal's Output contract section)
  *

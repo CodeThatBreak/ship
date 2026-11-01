@@ -132,7 +132,7 @@ Generic `NodeChat`: refine sends rerun the node with the message as `feedback`; 
 ### Run lifecycle (`run`)
 
 1. `triggerRuns(ctx)`: a split child consumes its unit from `trigger_payload` (`triggerInput`); otherwise the latest `plan` artifact is required ("no plan to build — approve the plan first"). Multi-branch plan metas topo-sort into one run per branch with `before`/`after` hooks maintaining branch rows.
-2. `run(ctx, input, config)`: `feedback` present → `refine`. Otherwise compose the prompt (instructions + scoped plan + checklist block with the `build-progress` contract; `prompt_body` / `prompt_rules` knobs fold in), bind the worktree, and `execute` the agent on the computed branch.
+2. `run(ctx, input, config)`: `feedback` present → `refine`. Otherwise compose the prompt (instructions + scoped plan + checklist block with the `build-progress` contract; the `prompt_body` knob folds in), bind the worktree, and `execute` the agent on the computed branch.
 3. `finalizeBuild`: apply `build-progress` to the checklist, resolve the pushed branch (worktree HEAD locally, agent-reported in cloud), set `flows.mr_branch`, upsert the branch row (`gitBranch`, `tagRun`), save the `diff` artifact, return `awaiting_approval`.
 4. Orphaned runs (restart mid-build) recover via `recover` / `recoverBranch`: rebuild the `diff` artifact from the branch and re-gate.
 

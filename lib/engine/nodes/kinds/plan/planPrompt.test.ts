@@ -104,14 +104,14 @@ describe('PlanPromptBuilder.whole — the verbatim-prompt shortcut', () => {
     const out = makeBuilder('follow').whole(ctx, nodeWith(null), {
       prompt: 'EXACT TEXT',
       promptIsBody: false,
-    } as PlanInput, '');
+    } as PlanInput);
     expect(out).toBe('EXACT TEXT');
   });
 });
 
 describe('PlanPromptBuilder.refineTurn — the conversation contract template (§2)', () => {
-  it('the developer message interpolates into the plan_refine conversation contract with the context block and user rules', () => {
-    const out = makeBuilder('whole').refineTurn(ctx, 'why is step 2 blocked?', 'RULES');
+  it('the developer message interpolates into the plan_refine conversation contract with the context block', () => {
+    const out = makeBuilder('whole').refineTurn(ctx, 'why is step 2 blocked?');
     expect(out).toContain('why is step 2 blocked?');
     // the template body assembles ({{feedback}}/{{context}} resolved) in the
     // conversation shape: reply + optional plan, with the hand-edit rule
@@ -120,14 +120,12 @@ describe('PlanPromptBuilder.refineTurn — the conversation contract template (�
     // the whole-mode context assembly feeds {{context}} (the `edits` default-on
     // block that preserves hand edits)
     expect(out).toContain('CTX');
-    // the user's standing rules land right after the body
-    expect(out).toContain('RULES');
     expect(out.startsWith('The conversation continues')).toBe(true);
   });
 
   it('the follow-mode execution directive is appended (mirroring whole()), skipped under whole', () => {
-    expect(makeBuilder('whole').refineTurn(ctx, 'msg', '')).not.toContain('Execution resolution');
-    expect(makeBuilder('follow').refineTurn(ctx, 'msg', '')).toContain('"execution": "whole" or "steps"');
+    expect(makeBuilder('whole').refineTurn(ctx, 'msg')).not.toContain('Execution resolution');
+    expect(makeBuilder('follow').refineTurn(ctx, 'msg')).toContain('"execution": "whole" or "steps"');
   });
 
   it('the plan_refine template carries PlanTurnOutput in the locked contract block', () => {

@@ -171,7 +171,7 @@ No approval: `done` flows straight through `advanceFrom(gate)` onto the pipeline
 
 - `pipeline` events on status change; lifecycle events for triggers, manual-job plays, fix runs, supersession.
 - Fix runs push commits to the MR branch; the agent run is recorded through the standard runner (cost/activity).
-- Config knobs: `fix_prompt_body`, `fix_prompt_rules`, `max_fix_attempts` (3), `poll_interval_sec` (20), `play_manual_jobs` (true), `auto_trigger_pipeline` (true), `gate_timeout_min` (80), plus the split-consumption pair `split_consume` / `split_parallel_max`.
+- Config knobs: `fix_prompt_body`, `max_fix_attempts` (3), `poll_interval_sec` (20), `play_manual_jobs` (true), `auto_trigger_pipeline` (true), `gate_timeout_min` (80), plus the split-consumption pair `split_consume` / `split_parallel_max`.
 
 ## Agent contracts
 

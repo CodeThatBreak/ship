@@ -31,14 +31,6 @@ export const promptEditorKeys = new Set([
   "question",
 ]);
 
-/** The config knob a prompt field's standing rules ride (`prompt_rules`,
- *  `fix_prompt_rules`) — undefined for prompts without a rules knob. */
-export function rulesKeyFor(promptKey: string): string | undefined {
-  if (promptKey === "fix_prompt_body") return "fix_prompt_rules";
-  if (promptKey === "prompt_body") return "prompt_rules";
-  return undefined;
-}
-
 /** config knobs that carry {{...}} template refs — they get the "Variables ▾" picker */
 export const freeTextFields = new Set([
   "prompt",

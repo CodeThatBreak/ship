@@ -16,7 +16,7 @@ import {
 import type { NodeCapabilities } from '../../shared/capabilities';
 import { NODE_KEYS } from '../../../constants/nodeKeys';
 
-import { DEFAULT_MCP_SOURCES, configString, mcpSourcesOf, mcpSourcesSchema } from '../../../templates/nodeConfig';
+import { DEFAULT_MCP_SOURCES, mcpSourcesOf, mcpSourcesSchema } from '../../../templates/nodeConfig';
 import { agentRunner, type AgentRunner } from '../../../harness/harnessExports';
 import { flowCtxHelper, nodeSupport, type FlowContextHelper, type NodeSupport } from '../../shared/nodeSharedExports';
 import { PlanInput, PlanOutput } from './schema';
@@ -93,13 +93,6 @@ export class PlanNode extends AgentRunNode<PlanInput, PlanOutput> {
   override readonly configSchema = z.object({
     /** user-editable prompt body (foldable per template/flow; the global overlay was removed) */
     prompt_body: z.string().optional(),
-    /**
-     * User-added rules appended after the prompt body, before the engine's
-     * locked internal blocks (rules + output contract + run data) — for every
-     * run of this node (template runs, config-body runs and modal-edited runs
-     * alike). The prompt modal previews and edits it via set_node_config.
-     */
-    prompt_rules: z.string().optional(),
     /** default for starts that don't pass `decompose` explicitly */
     decompose_default: z.boolean().default(false),
     /**
@@ -165,7 +158,6 @@ export class PlanNode extends AgentRunNode<PlanInput, PlanOutput> {
     const branch = PlanSplitter.getPlanThread(opts?.thread);
     const config = this.parseRunConfig(this.nodeConfig(ctx));
     const node = this.node(ctx);
-    const userRules = typeof config.prompt_rules === 'string' ? config.prompt_rules : '';
     const model = opts?.model ?? null;
     const settingSources = mcpSourcesOf(config);
 
@@ -181,7 +173,7 @@ export class PlanNode extends AgentRunNode<PlanInput, PlanOutput> {
         settingSources,
         branch,
         scoped,
-        prompt: this.prompt.scoped(ctx, scoped, content, [], userRules),
+        prompt: this.prompt.scoped(ctx, scoped, content, []),
       });
     }
 
@@ -199,7 +191,7 @@ export class PlanNode extends AgentRunNode<PlanInput, PlanOutput> {
         settingSources,
         branch: null,
         scoped: null,
-        prompt: this.prompt.whole(ctx, node, bootstrapInput, userRules),
+        prompt: this.prompt.whole(ctx, node, bootstrapInput),
       });
     }
 
@@ -210,7 +202,7 @@ export class PlanNode extends AgentRunNode<PlanInput, PlanOutput> {
       settingSources,
       branch: null,
       scoped: null,
-      prompt: this.prompt.refineTurn(ctx, content, userRules),
+      prompt: this.prompt.refineTurn(ctx, content),
     });
   }
 
@@ -395,17 +387,11 @@ export class PlanNode extends AgentRunNode<PlanInput, PlanOutput> {
       const scoped = this.store.scopedRefine(ctx.flow.id, params.branch);
       if (!scoped) return null;
       const vars = this.prompt.scopedVars(ctx, scoped, '', []);
-      const asm = prompts.assemblePrompt(
-        'plan_subplan_refine',
-        vars,
-        { feedback: '' },
-        { userRules: configString(this.nodeConfig(ctx), 'prompt_rules') }
-      );
+      const asm = prompts.assemblePrompt('plan_subplan_refine', vars, { feedback: '' });
       return {
         templateKey: 'plan_subplan_refine',
         configBody: null,
         assembly: asm,
-        rulesKey: 'prompt_rules',
       };
     }
 
@@ -414,9 +400,9 @@ export class PlanNode extends AgentRunNode<PlanInput, PlanOutput> {
       NODE_KEYS.PLAN,
       { ticket: this.ctxHelper.taskContext(ctx), ticket_type: this.ctxHelper.taskLabel(ctx) },
       undefined,
-      { body: configBody, userRules: nodeRoles.previewRules(this, node) }
+      { body: configBody }
     );
-    return { templateKey: NODE_KEYS.PLAN, configBody, assembly: asm, rulesKey: 'prompt_rules' };
+    return { templateKey: NODE_KEYS.PLAN, configBody, assembly: asm };
   }
 
   /**

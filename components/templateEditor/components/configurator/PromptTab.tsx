@@ -1,17 +1,17 @@
 "use client";
 /**
  * The node configurator's Prompt tab: every prompt-carrying config field of
- * the node, edited as the full prompt surface (body / rules list / output
- * contract / assembled preview) via PromptSectionField — instead of one
- * textarea buried in the Config tab. Built-ins show the built-in body filled
- * into the prompt input itself, with the engine's locked rules riding inline
- * as non-deletable rows and the output contract from the contract's `prompt`
- * sections; declarative kinds edit their free-standing prompt (no split yet).
+ * the node, edited as the full prompt surface (body / output contract /
+ * assembled preview) via PromptSectionField — instead of one textarea buried
+ * in the Config tab. Built-ins show the built-in body filled into the prompt
+ * input itself, with the engine's locked rules riding inline as non-deletable
+ * rows and the output contract from the contract's `prompt` sections;
+ * declarative kinds edit their free-standing prompt (no split yet).
  */
 import { useEffect } from "react";
 import { Spinner } from '../../../ui/spinner';
 import type { NodeContract } from '../../types';
-import { promptEditorKeys, rulesKeyFor, writeConfig } from './fields/ConfigFieldRow';
+import { promptEditorKeys, writeConfig } from './fields/ConfigFieldRow';
 import { PromptSectionField, type PromptTemplateSection } from './prompt/PromptSectionField';
 import { useDebouncedCallback } from '../../hooks/useDebouncedCallback';
 import type { EditorNode, EditorNodePatch } from '../../types';
@@ -75,7 +75,6 @@ export function PromptTab({
   return (
     <div className="grid gap-4">
       {fields.map((f) => {
-        const rulesKey = node.is_builtin ? rulesKeyFor(f.key) : undefined;
         if (gatedOff(f.key)) {
           return (
             <p key={f.key} className="text-[12px] text-muted-foreground m-0">
@@ -89,17 +88,10 @@ export function PromptTab({
             key={`${node.key}:${f.key}`}
             field={f}
             value={node.config?.[f.key]}
-            rulesKey={rulesKey}
-            rulesValue={rulesKey ? node.config?.[rulesKey] : undefined}
             section={section}
             varGroups={varGroups}
             invalidRefs={invalidRefs}
             onBodyChange={(v, extra) => onBodyChange(f.key, v, extra)}
-            onRulesChange={(v) =>
-              onChange((n) => ({
-                config: writeConfig(n.config, rulesKey ?? "", v),
-              }))
-            }
           />
         );
       })}

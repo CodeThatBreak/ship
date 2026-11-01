@@ -87,8 +87,8 @@ describe("PromptPreview.allFor — the composer's bulk prompt read", () => {
   });
 });
 
-describe("PromptPreview.previewFor — branch-scoped plan and rulesKey (CR-049)", () => {
-  it("returns fix_prompt_rules for the pipeline node preview", async () => {
+describe("PromptPreview.previewFor — branch-scoped plan (CR-049)", () => {
+  it("the pipeline node preview assembles the fix-run body", async () => {
     const flowId = seedFlow(10);
     seedNode(flowId, NODE_KEYS.PIPELINE, NODE_KEYS.PIPELINE);
 
@@ -97,7 +97,8 @@ describe("PromptPreview.previewFor — branch-scoped plan and rulesKey (CR-049)"
       new URL(`http://fixture.local/?node=${encodeURIComponent(NODE_KEYS.PIPELINE)}`),
     );
     if (!result.ok) throw new Error("expected an ok preview");
-    expect(result.payload.rulesKey).toBe("fix_prompt_rules");
+    expect(result.payload.label).toBe("Pipeline fix");
+    expect(result.payload.engineRules).toContain("Fix the failures by committing and pushing fixes to the SAME branch");
   });
 
   it("unknown plan branch → 400 via previewPrompt on the plan def", async () => {

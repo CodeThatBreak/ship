@@ -453,7 +453,6 @@ describe('PlanNode — chat via the follow-up contract (docs/plan-conversation-r
     responses: string[]; // one per expected agent turn
     status?: string;
     agentId?: string | null;
-    promptRules?: string;
     /** the latest plan artifact the store sees (defaults to a version-2 plan) */
     prevRow?: { id: string; version: number; content: string; meta: string | null } | null;
   }) => {
@@ -474,7 +473,7 @@ describe('PlanNode — chat via the follow-up contract (docs/plan-conversation-r
           node_key: key,
           status: opts.status ?? 'awaiting_approval',
           agent_id: null,
-          config: JSON.stringify({ prompt_rules: opts.promptRules ?? '' }),
+          config: '{}',
         }) as unknown as NodeRow,
       lastAgentId: () => opts.agentId ?? null,
       setNode: (_id: string, patch: Record<string, unknown>) => {
@@ -613,17 +612,15 @@ describe('PlanNode — chat via the follow-up contract (docs/plan-conversation-r
     expect(observ.nodePatches.some(p => p.status === 'awaiting_approval')).toBe(true);
   });
 
-  it('the plan_refine feedback turn carries the developer message + user rules + the follow-up contract', async () => {
+  it('the plan_refine feedback turn carries the developer message + the follow-up contract', async () => {
     const { node, observ } = chatNode({
       responses: [JSON.stringify({ reply: 'Answered.' })],
-      promptRules: 'RULES',
     });
     await node.chat(ctx, 'why is step 2 blocked?');
     const turn = observ.startAgentInputs[0] as unknown as { prompt: string };
     expect(turn.prompt).toContain('why is step 2 blocked?');
     expect(turn.prompt).toContain('The conversation continues');
     expect(turn.prompt).toContain('"reply"');
-    expect(turn.prompt).toContain('RULES');
   });
 
   it('guard refusal per §3b: a running node keeps its state; the reply answers AND explains', async () => {
@@ -712,7 +709,7 @@ describe('PlanNode.turn — unified send routing', () => {
               version: 2,
               branchAgents: { billing: 'branch_agent' },
             } as Record<string, unknown>),
-          config: JSON.stringify({ prompt_rules: '' }),
+          config: '{}',
         }) as unknown as NodeRow,
       lastAgentId: () => 'agent_turn',
       setNode: (_id: string, patch: Record<string, unknown>) => {

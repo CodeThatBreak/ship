@@ -40,8 +40,6 @@ export interface NodePromptPreview {
   templateKey: string;
   configBody: string | null;
   assembly: PromptAssembly;
-  /** Config knob the prompt modal saves standing rules into — default `prompt_rules`. */
-  rulesKey?: string;
 }
 
 /**
@@ -119,11 +117,6 @@ export class NodeRoleRouter {
    */
   previewConfig(def: NodeDefinition, node: NodeRow | null): Record<string, unknown> {
     return mergeConfigLayers(def.defaultConfig(), appLayerConfig(def.key), node?.config ?? null);
-  }
-
-  /** Convenience: the def's `prompt_rules` knob for preview assembly. */
-  previewRules(def: NodeDefinition, node: NodeRow | null, key = "prompt_rules"): string {
-    return configString(this.previewConfig(def, node), key) ?? "";
   }
 
   /** Convenience: the def's `prompt_body` knob for preview assembly. */

@@ -95,7 +95,7 @@ const promptQuery = useNodePrompt(flow.id, promptKey ?? node.node_key, { enabled
 
 ### 2.3 Deliberate UX change to confirm
 
-Per-flow **rules editing** (`prompt_rules`) currently lives only in the modal. After deletion it moves to the settings/template config surface (where plan's `promptSections` already live). No replacement UI is built in this plan.
+Per-flow **rules editing** (`prompt_rules`) is removed entirely (see docs/remove-prompt-rules-plan.md): rules were advisory, so users write them into the prompt body instead.
 
 ---
 

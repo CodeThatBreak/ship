@@ -115,7 +115,7 @@ Generic `NodeChat` → `ChatPanel`; sends go to `POST /api/flows/:id/chat` and r
 
 ### Run lifecycle (`run`)
 
-1. Folds `prompt_body` / `prompt_rules` into the prompt; resolves the MR target.
+1. Folds `prompt_body` into the prompt; resolves the MR target.
 2. Reads open comments (`comments` table, `status = 'open'`, filtered by `mr_iid`). With none open and no developer `instructions`, completes immediately: `resolved: 0`, "no open comments".
 3. Builds the prompt — header "Address every open merge-request comment below by committing fixes to branch X", the comment list, optional local-mode checkout line and developer instructions.
 4. Captures the before-state (MR head SHA + local branch fingerprint), then runs the fix agent via `execute` (worktree `cwd` in local mode).

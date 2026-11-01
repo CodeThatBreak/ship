@@ -113,7 +113,7 @@ Generic `NodeChat` → `ChatPanel` bound to `node.node_key`; sends go to `POST /
 
 ### Run lifecycle (`run`)
 
-1. Folds the `prompt_body` / `prompt_rules` config knobs into the prompt override path.
+1. Folds the `prompt_body` config knob into the prompt override path.
 2. Resolves the MR target and fetches the diff via `host.getChanges` (capped at 60 000 chars; a truncation note is prepended when GitLab cut the change set).
 3. Assembles the prompt: template key `review`, ticket variables, optional developer `instructions`, the diff block.
 4. `execute` runs the agent; `finalize` parses the output with `parseReviewComments`:

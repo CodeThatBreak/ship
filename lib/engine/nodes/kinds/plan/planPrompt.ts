@@ -45,23 +45,21 @@ export class PlanPromptBuilder {
   ) {}
 
   /** Whole-plan / pre-publish conversation prompt (`plan_refine` assembly). */
-  refineTurn(ctx: FlowCtx, content: string, userRules: string): string {
+  refineTurn(ctx: FlowCtx, content: string): string {
     // a conversation turn carries no context-picker selection — the whole-mode
     // defaults (task, branches, edits) are the recommendation (§4 "no mode state")
     const contextBlock = this.context.assemble(ctx, { contextBlocks: [] }, null);
     const refined = prompts.resolve(
       "plan_refine",
       {},
-      { feedback: content, context: contextBlock },
-      undefined,
-      { userRules }
+      { feedback: content, context: contextBlock }
     );
     const execBlock = this.executionDirective(ctx);
     return execBlock ? `${refined}\n\n${execBlock}` : refined;
   }
 
   /** Whole-plan prompt: verbatim override or base plan template (first run). */
-  whole(ctx: FlowCtx, node: NodeRow, input: PlanInput, userRules: string): string {
+  whole(ctx: FlowCtx, node: NodeRow, input: PlanInput): string {
     const baseCtx = { ticket: this.ctxHelper.taskContext(ctx), ticket_type: this.ctxHelper.taskLabel(ctx) };
     const refining = Boolean(input.prompt);
     const contextBlock = this.context.assemble(ctx, input, null, {
@@ -79,11 +77,11 @@ export class PlanPromptBuilder {
 
     if (input.prompt) {
       return input.promptIsBody
-        ? prompts.assemblePrompt('plan', baseCtx, { context: contextBlock }, { body: input.prompt, userRules }).final +
+        ? prompts.assemblePrompt('plan', baseCtx, { context: contextBlock }, { body: input.prompt }).final +
             (execBlock ? `\n\n${execBlock}` : '')
         : input.prompt;
     }
-    const base = prompts.resolve('plan', baseCtx, { context: contextBlock }, undefined, { userRules });
+    const base = prompts.resolve('plan', baseCtx, { context: contextBlock });
     let prompt = base;
 
     if (input.decompose) {
@@ -100,9 +98,9 @@ export class PlanPromptBuilder {
   /**
    * Branch-scoped turn prompt (`plan_subplan_refine`).
    */
-  scoped(ctx: FlowCtx, scoped: ScopedRefine, userMessage: string, contextBlocks: string[], userRules: string): string {
+  scoped(ctx: FlowCtx, scoped: ScopedRefine, userMessage: string, contextBlocks: string[]): string {
     const vars = this.scopedVars(ctx, scoped, userMessage, contextBlocks);
-    return prompts.resolve('plan_subplan_refine', {}, vars, undefined, { userRules });
+    return prompts.resolve('plan_subplan_refine', {}, vars);
   }
 
   /** The scoped template's variables, built from the ref'd branch only (§2). */

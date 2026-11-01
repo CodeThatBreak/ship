@@ -89,8 +89,6 @@ export class PipelineNode extends AgentRunNode<
   override readonly configSchema = z.object({
     /** user-editable body for fix runs (app-settings pipeline_fix template fallback) */
     fix_prompt_body: z.string().optional(),
-    /** user rules appended after the fix-run body, before the engine's locked blocks */
-    fix_prompt_rules: z.string().optional(),
     max_fix_attempts: z.number().int().min(1).default(MAX_FIX_ATTEMPTS_DEFAULT),
     poll_interval_sec: z
       .number()
@@ -115,12 +113,6 @@ export class PipelineNode extends AgentRunNode<
       label: "Fix-run prompt body",
       type: "text",
       help: "User-editable body for CI fix runs; internal contracts re-appended automatically.",
-    },
-    {
-      key: "fix_prompt_rules",
-      label: "Fix-run rules",
-      type: "text",
-      help: "Extra rules appended after the fix-run body, before the engine's locked instructions and the failed-job logs — on every fix run.",
     },
     {
       key: "max_fix_attempts",
@@ -315,9 +307,9 @@ export class PipelineNode extends AgentRunNode<
         guidance: params.instructions ? `Developer guidance: ${params.instructions}` : "",
         instructions: mode === "local" ? `Start by checking out branch ${branch}.` : "",
       },
-      { body: configBody, userRules: nodeRoles.previewRules(this, node, "fix_prompt_rules") },
+      { body: configBody },
     );
-    return { templateKey: FIX_PROMPT_KEY, configBody, assembly: asm, rulesKey: "fix_prompt_rules" };
+    return { templateKey: FIX_PROMPT_KEY, configBody, assembly: asm };
   }
 
   async run(
@@ -590,9 +582,6 @@ export class PipelineNode extends AgentRunNode<
     const guidance = input.guidance
       ? `Developer guidance: ${input.guidance}`
       : "";
-    // the user's standing rules (fix_prompt_rules knob) apply to every fix run
-    const userRules =
-      configString(this.nodeConfig(ctx), "fix_prompt_rules") ?? "";
 
     // byte-parity rule (I7): internal-block whitespace is normalized inside
     // PromptLibrary — no per-node collapse, preview and run stay identical
@@ -602,15 +591,13 @@ export class PipelineNode extends AgentRunNode<
             FIX_PROMPT_KEY,
             { branch: mrBranch ?? "", pipelineId: String(pipelineId) },
             { instructions, guidance, logs: logs || "(logs unavailable)" },
-            { body: input.prompt, userRules },
+            { body: input.prompt },
           ).final
         : input.prompt
       : prompts.resolve(
           FIX_PROMPT_KEY,
           { branch: mrBranch ?? "", pipelineId: String(pipelineId) },
           { instructions, guidance, logs: logs || "(logs unavailable)" },
-          undefined,
-          { userRules },
         );
 
     this.support.emitLifecycle(

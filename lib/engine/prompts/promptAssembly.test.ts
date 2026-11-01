@@ -15,14 +15,8 @@ describe("prompt assembly", () => {
     expect(reviewFinal.startsWith("INSTRUCTIONS-BODY\n\n")).toBe(true);
   });
 
-  it("places prompt_rules between the body and locked blocks", () => {
-    const asm = prompts.assemblePrompt("plan", planCtx, extra, { userRules: "MY-STANDING-RULE" });
-    expect(asm.final.startsWith(`${asm.body}\n\nMY-STANDING-RULE\n\n`)).toBe(true);
-    expect(asm.userRules).toBe("MY-STANDING-RULE");
-  });
-
-  it("keeps build verbatim overrides ahead of standing rules", () => {
-    const buildFinal = prompts.resolve("build", {}, {}, "MY-VERBATIM-OVERRIDE", { userRules: "MY-STANDING-RULE" });
-    expect(buildFinal).toBe("MY-VERBATIM-OVERRIDE\n\nMY-STANDING-RULE");
+  it("build verbatim overrides ride through untouched", () => {
+    const buildFinal = prompts.resolve("build", {}, {}, "MY-VERBATIM-OVERRIDE");
+    expect(buildFinal).toBe("MY-VERBATIM-OVERRIDE");
   });
 });

@@ -15,14 +15,12 @@ export interface RenderedBlock {
 }
 
 /**
- * The three-part assembly of one node prompt:
- *   body (user's) → userRules (user's, from the `prompt_rules` config knob)
- *   → internal blocks (engine rules + locked output contract + run data).
- * `final` is exactly what the agent receives; the prompt modal previews it.
+ * The two-part assembly of one node prompt:
+ *   body (user's) → internal blocks (engine rules + locked output contract +
+ *   run data). `final` is exactly what the agent receives.
  */
 export interface PromptAssembly {
   body: string;
-  userRules: string;
   blocks: RenderedBlock[];
   final: string;
 }
@@ -31,8 +29,6 @@ export interface PromptAssembly {
 export interface PromptSections {
   /** the editable body — modal textarea seed */
   body: string;
-  /** the user's standing rules (the `prompt_rules` config knob) */
-  userRules: string;
   /** engine-authored rules, rendered — shown locked in the modal */
   engineRules: string;
   /** the machine-parsed output contract, rendered — shown locked in the modal */
@@ -49,7 +45,6 @@ export function sectionsOf(asm: PromptAssembly): PromptSections {
     asm.blocks.filter((b) => b.kind === kind).map((b) => b.text).filter(Boolean).join("\n\n");
   return {
     body: asm.body,
-    userRules: asm.userRules,
     engineRules: text("rules"),
     outputContract: text("contract"),
     runData: asm.blocks.filter((b) => b.kind === "data"),
@@ -131,15 +126,13 @@ export class PromptLibrary {
   /**
    * Assemble the full prompt for a node run — the single source of truth for
    * what the model receives. `body` overrides the template's user body (the
-   * modal's edited text or the `prompt_body` config knob); `userRules` (the
-   * `prompt_rules` config knob) is appended right after the body, before the
-   * engine's locked blocks.
+   * modal's edited text or the `prompt_body` config knob).
    */
   assemblePrompt(
     nodeKey: string,
     ctx: PromptCtx,
     extra?: PromptCtx,
-    opts?: { body?: string | null; userRules?: string | null },
+    opts?: { body?: string | null },
   ): PromptAssembly {
     const tpl = this.getTemplate(nodeKey);
     const vars = { ...ctx, ...extra };
@@ -148,13 +141,11 @@ export class PromptLibrary {
     // runs in the recorded run prompt. Applied to BOTH paths (user body knob
     // and default render) so the modal's final and run() match by construction.
     const body = PromptLibrary.normalizeBlock(opts?.body != null && opts.body.trim() ? opts.body : this.render(tpl.userTemplate, vars));
-    const userRules = (opts?.userRules ?? "").trim();
     const blocks = this.internalBlocks(nodeKey, ctx, extra).filter((b) => b.text);
     return {
       body,
-      userRules,
       blocks,
-      final: [body, userRules, ...blocks.map((b) => b.text)].filter(Boolean).join("\n\n"),
+      final: [body, ...blocks.map((b) => b.text)].filter(Boolean).join("\n\n"),
     };
   }
 
@@ -179,21 +170,17 @@ export class PromptLibrary {
    * @param ctx      base context variables (ticket, branch, mode, …)
    * @param extra    per-run extras (feedback, instructions, plan, diff, logs, comments, …)
    * @param override verbatim prompt that bypasses the template entirely
-   * @param opts     `userRules` (the `prompt_rules` config knob) is appended
-   *                 after the body/override, before the engine's locked blocks
    */
   resolve(
     nodeKey: string,
     ctx: PromptCtx,
     extra?: PromptCtx,
     override?: string | null,
-    opts?: { userRules?: string | null },
   ): string {
-    const userRules = (opts?.userRules ?? "").trim();
     if (override) {
-      return userRules ? `${override.trim()}\n\n${userRules}` : override.trim();
+      return override.trim();
     }
-    return this.assemblePrompt(nodeKey, ctx, extra, { userRules }).final;
+    return this.assemblePrompt(nodeKey, ctx, extra).final;
   }
 
   /** Validate that a node key is known. */
