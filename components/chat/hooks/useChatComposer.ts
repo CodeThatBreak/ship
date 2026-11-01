@@ -29,7 +29,6 @@ type Params = Omit<SendMutationVariables, 'content'> & {
  */
 export function useChatComposer({ flowId, nodeKey, modelChoice, sendMutationFn, thread }: Params) {
   const sendChat = useSendChatMessage(flowId, nodeKey, {
-    chatOnly: false,
     model: composeModelChoice(modelChoice) || undefined,
     thread,
   });

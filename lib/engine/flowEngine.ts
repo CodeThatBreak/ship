@@ -1,69 +1,72 @@
-import "server-only";
+import 'server-only';
 
-import type { FlowData } from "@/types/flow";
-import { db } from "../db/app";
+import type { FlowData } from '@/types/flow';
+import { db } from '../db/app';
+import { ArtifactRow, BranchRow, FlowRow, NodeRow, PlanStepRow, RunRow, Task, rows, type NodeStatus } from '../db/rows';
+import { agentPortRegistry, type AgentRunResult } from './ports/agentPort';
+import { hostOf, type HostComment, type HostWebhookEvent } from './ports/gitHost';
 import {
-  ArtifactRow,
-  BranchRow,
-  FlowRow,
-  NodeRow,
-  PlanStepRow,
-  RunRow,
-  Task,
-  rows,
-  type NodeStatus,
-} from "../db/rows";
-import { agentPortRegistry, type AgentRunResult } from "./ports/agentPort";
-import { hostOf, type HostComment, type HostWebhookEvent } from "./ports/gitHost";
-import { NodeDefinition, nodeSupport, splitConsumeOf, type ChainRole, type FlowCtx, type SplitConsumeMode } from "./nodes/shared/nodeSharedExports";
-import { CHAT_DECLINED, nodeRoles } from "./nodes/shared/nodeRoles";
-import { nodeRegistry } from "./nodes/registry";
-import "./nodes/declarativeBootstrap";
-import { NODE_KEYS } from "./constants/nodeKeys";
-import { planSteps, type PlanStepInput } from "./runtime/planStepStore";
-import { NO_TASK_TYPE, SDLC_TEMPLATE_ID, templateStore, type TemplateGraph, type TemplateEdgeSpec } from "./templates/templateStore";
-import { appLayerConfig, configNumber, mergeConfigLayers, parseConfigSnapshot } from "./templates/nodeConfig";
-import { createSdlcChain } from "./nodes/chains/sdlcChain";
-import { buildFlowContext, type FlowContextMap } from "./context/flowVariables";
-import { evalJsonata, jsonataTruthy } from "@/lib/jsonata/eval";
-import { hookStore } from "./runtime/hookStore";
-import { nodeStore } from "./runtime/nodeStore";
-import { commentStore } from "./runtime/commentStore";
-import { FLOW_KIND } from "./constants/flowKind";
-import { isNodeTerminalSuccess, NODE_STATUS } from "./constants/nodeStatus";
-import { accumulateRunRow, emptyRunTokenBucket } from "./utils/runTokenRollup";
-import { parseStartContract, validateAgainstContract } from "./nodes/kinds/start/contract";
-import { DEFAULT_FANOUT_OUTPUT, uiCapabilities, type NodeCapabilities } from "./nodes/shared/capabilities";
-import { stepFlows, StepFlowManager, type StepChildPayload } from "./runtime/fanout/stepFlowManager";
-import { mergeArena } from "./runtime/fanout/mergeArena";
-import { DEFAULT_SPLIT_OUTPUT, splitManager, type SplitChildPayload } from "./runtime/split/splitManager";
-import { worktreeManager } from "./runtime/worktreeLifecycle";
-import { processSingleton } from "../singleton";
-import { normalizePlanThread } from "./nodes/kinds/plan/constants/planThread";
-import { PlanStore } from "./nodes/kinds/plan/planStore";
-import { ConflictError, DomainError, NotFoundError, ValidationError } from "../errors";
-import { RunSupersededError } from "./errors/runSupersededError";
-import { CommentIngestor } from "./runtime/commentIngestor";
-import { EdgeActivator } from "./runtime/edgeActivator";
-import { FlowFactory, type CreateFlowOptions } from "./runtime/flowFactory";
-import { FlowReadModel } from "./runtime/flowReadModel";
-import { WaitScheduler } from "./runtime/waitScheduler";
+  NodeDefinition,
+  nodeSupport,
+  splitConsumeOf,
+  type ChainRole,
+  type FlowCtx,
+  type SplitConsumeMode,
+} from './nodes/shared/nodeSharedExports';
+import { CHAT_DECLINED, nodeRoles } from './nodes/shared/nodeRoles';
+import { nodeRegistry } from './nodes/registry';
+import './nodes/declarativeBootstrap';
+import { NODE_KEYS } from './constants/nodeKeys';
+import { planSteps, type PlanStepInput } from './runtime/planStepStore';
+import {
+  NO_TASK_TYPE,
+  SDLC_TEMPLATE_ID,
+  templateStore,
+  type TemplateGraph,
+  type TemplateEdgeSpec,
+} from './templates/templateStore';
+import { appLayerConfig, configNumber, mergeConfigLayers, parseConfigSnapshot } from './templates/nodeConfig';
+import { createSdlcChain } from './nodes/chains/sdlcChain';
+import { buildFlowContext, type FlowContextMap } from './context/flowVariables';
+import { evalJsonata, jsonataTruthy } from '@/lib/jsonata/eval';
+import { hookStore } from './runtime/hookStore';
+import { nodeStore } from './runtime/nodeStore';
+import { commentStore } from './runtime/commentStore';
+import { FLOW_KIND } from './constants/flowKind';
+import { isNodeTerminalSuccess, NODE_STATUS } from './constants/nodeStatus';
+import { accumulateRunRow, emptyRunTokenBucket } from './utils/runTokenRollup';
+import { parseStartContract, validateAgainstContract } from './nodes/kinds/start/contract';
+import { DEFAULT_FANOUT_OUTPUT, uiCapabilities, type NodeCapabilities } from './nodes/shared/capabilities';
+import { stepFlows, StepFlowManager, type StepChildPayload } from './runtime/fanout/stepFlowManager';
+import { mergeArena } from './runtime/fanout/mergeArena';
+import { DEFAULT_SPLIT_OUTPUT, splitManager, type SplitChildPayload } from './runtime/split/splitManager';
+import { worktreeManager } from './runtime/worktreeLifecycle';
+import { processSingleton } from '../singleton';
+import { normalizePlanThread } from './nodes/kinds/plan/constants/planThread';
+import { PlanStore } from './nodes/kinds/plan/planStore';
+import { ConflictError, DomainError, NotFoundError, ValidationError } from '../errors';
+import { RunSupersededError } from './errors/runSupersededError';
+import { CommentIngestor } from './runtime/commentIngestor';
+import { EdgeActivator } from './runtime/edgeActivator';
+import { FlowFactory, type CreateFlowOptions } from './runtime/flowFactory';
+import { FlowReadModel } from './runtime/flowReadModel';
+import { WaitScheduler } from './runtime/waitScheduler';
 
 export type { CreateFlowOptions };
 
 /** Flow-owned tables, in FK-safe delete order (children before `flows`).
  *  Keep in sync with `FLOW_CHILD_TABLES` in scripts/lib/seed-db.mjs. */
 export const FLOW_CHILD_TABLES = [
-  "step_merges", // parent_flow_id + flow_id — fan-out merge-back records
-  "plan_steps", // sub_flow_id → flows (fan-out checklist)
-  "events",
-  "messages",
-  "runs",
-  "artifacts",
-  "comments",
-  "branches",
-  "nodes",
-  "hooks", // flow-bound inbound webhooks (wait_for nodes)
+  'step_merges', // parent_flow_id + flow_id — fan-out merge-back records
+  'plan_steps', // sub_flow_id → flows (fan-out checklist)
+  'events',
+  'messages',
+  'runs',
+  'artifacts',
+  'comments',
+  'branches',
+  'nodes',
+  'hooks', // flow-bound inbound webhooks (wait_for nodes)
 ] as const;
 
 /**
@@ -102,17 +105,12 @@ export class FlowEngine {
     templateId: string,
     name: string,
     payload: StepChildPayload,
-    opts: { branch: string | null },
+    opts: { branch: string | null }
   ): string {
     return this.factory.createStepChild(parentFlowId, templateId, name, payload, opts);
   }
 
-  createSplitChild(
-    parentFlowId: string,
-    templateId: string,
-    name: string,
-    payload: SplitChildPayload,
-  ): string {
+  createSplitChild(parentFlowId: string, templateId: string, name: string, payload: SplitChildPayload): string {
     return this.factory.createSplitChild(parentFlowId, templateId, name, payload);
   }
 
@@ -139,12 +137,12 @@ export class FlowEngine {
   startNodeStage(
     flowId: string,
     nodeKey: string,
-    opts: { rawInput?: unknown; rawPayload?: unknown; resumeWaiting?: boolean } = {},
+    opts: { rawInput?: unknown; rawPayload?: unknown; resumeWaiting?: boolean } = {}
   ): Promise<void> {
     return this.edges.startNodeStage(flowId, nodeKey, opts);
   }
 
-  armNodeWait(flowId: string, nodeKey: string, wait: "webhook" | "timer" | "comments", minutes: number | null): void {
+  armNodeWait(flowId: string, nodeKey: string, wait: 'webhook' | 'timer' | 'comments', minutes: number | null): void {
     this.waits.armNodeWait(flowId, nodeKey, wait, minutes);
   }
 
@@ -220,22 +218,31 @@ export class FlowEngine {
     try {
       steps = ((fanoutContract ?? DEFAULT_FANOUT_OUTPUT).parse({ steps }) as { steps?: unknown })?.steps ?? steps;
     } catch (e: unknown) {
-      db.emitEvent(parentFlowId, null, "error",
+      db.emitEvent(
+        parentFlowId,
+        null,
+        'error',
         `${nodeKey}: the fan-out aggregate failed its output contract — publishing it unvalidated (${e instanceof Error ? e.message : e})`,
-        { nodeKey });
+        { nodeKey }
+      );
     }
-    const tt = this.graph(parentFlowId)?.byKey.get(nodeKey)?.trigger.type ?? "auto";
-    const status = tt === "approval" ? "awaiting_approval" : "done";
+    const tt = this.graph(parentFlowId)?.byKey.get(nodeKey)?.trigger.type ?? 'auto';
+    const status = tt === 'approval' ? 'awaiting_approval' : 'done';
     const published = db.run(
       `UPDATE nodes SET status=?, output=?, updated_at=? WHERE flow_id=? AND node_key=? AND status='running'`,
-      status, JSON.stringify({ ...output, steps }), db.now(), parentFlowId, nodeKey);
+      status,
+      JSON.stringify({ ...output, steps }),
+      db.now(),
+      parentFlowId,
+      nodeKey
+    );
     if (published.changes === 0) return;
     nodeStore.emitEvent(
       parentFlowId,
       nodeKey,
-      "lifecycle",
-      `${nodeKey} fan-out resolved — aggregate published (${(steps as unknown[])?.length ?? 0} steps)${status === "awaiting_approval" ? " · awaiting the final approval" : ""}`,
-      { nodeKey },
+      'lifecycle',
+      `${nodeKey} fan-out resolved — aggregate published (${(steps as unknown[])?.length ?? 0} steps)${status === 'awaiting_approval' ? ' · awaiting the final approval' : ''}`,
+      { nodeKey }
     );
     this.touch(parentFlowId);
     if (isNodeTerminalSuccess(status)) {
@@ -261,24 +268,35 @@ export class FlowEngine {
     try {
       units = ((splitContract ?? DEFAULT_SPLIT_OUTPUT).parse({ units }) as { units?: unknown })?.units ?? units;
     } catch (e: unknown) {
-      db.emitEvent(parentFlowId, null, "error",
+      db.emitEvent(
+        parentFlowId,
+        null,
+        'error',
         `${nodeKey}: the split aggregate failed its output contract — publishing it unvalidated (${e instanceof Error ? e.message : e})`,
-        { nodeKey });
+        { nodeKey }
+      );
     }
     // worst-of the unit entries (decision 4): failed > awaiting_approval > done
     const entries = Array.isArray(units) ? (units as { status?: unknown }[]) : [];
-    const status = entries.some((u) => u?.status === "failed") ? "failed"
-      : entries.some((u) => u?.status === "awaiting_approval") ? "awaiting_approval"
-      : "done";
+    const status = entries.some(u => u?.status === 'failed')
+      ? 'failed'
+      : entries.some(u => u?.status === 'awaiting_approval')
+        ? 'awaiting_approval'
+        : 'done';
     db.run(
       `UPDATE nodes SET status=?, output=?, updated_at=? WHERE flow_id=? AND node_key=?`,
-      status, JSON.stringify({ ...output, units }), db.now(), parentFlowId, nodeKey);
+      status,
+      JSON.stringify({ ...output, units }),
+      db.now(),
+      parentFlowId,
+      nodeKey
+    );
     nodeStore.emitEvent(
       parentFlowId,
       nodeKey,
-      "lifecycle",
-      `${nodeKey} split resolved — aggregate published (${entries.length} units)${status === "awaiting_approval" ? " · a unit awaits approval" : status === "failed" ? " · a unit failed" : ""}`,
-      { nodeKey },
+      'lifecycle',
+      `${nodeKey} split resolved — aggregate published (${entries.length} units)${status === 'awaiting_approval' ? ' · a unit awaits approval' : status === 'failed' ? ' · a unit failed' : ''}`,
+      { nodeKey }
     );
     this.touch(parentFlowId);
     if (isNodeTerminalSuccess(status)) {
@@ -287,11 +305,9 @@ export class FlowEngine {
     this.clearCurrentIf(parentFlowId, nodeKey);
   }
 
-
   /** True when the flow is a step child (plan fan-out). Engine internal helper. */
   isStepChild(flowId: string): boolean {
-    const row = db.get<{ parent_flow_id: string | null }>(
-      `SELECT parent_flow_id FROM flows WHERE id=?`, flowId);
+    const row = db.get<{ parent_flow_id: string | null }>(`SELECT parent_flow_id FROM flows WHERE id=?`, flowId);
     return row?.parent_flow_id != null;
   }
 
@@ -301,37 +317,32 @@ export class FlowEngine {
    */
   async delete(id: string): Promise<void> {
     const flow = db.get<{ id: string }>(`SELECT id FROM flows WHERE id=?`, id);
-    if (!flow) throw new NotFoundError("flow", id);
-    const childIds = db
-      .all<{ id: string }>(`SELECT id FROM flows WHERE parent_flow_id=?`, id)
-      .map((r) => r.id);
+    if (!flow) throw new NotFoundError('flow', id);
+    const childIds = db.all<{ id: string }>(`SELECT id FROM flows WHERE parent_flow_id=?`, id).map(r => r.id);
     const ids = [id, ...childIds];
     for (const fid of ids) {
       if (mergeArena.isMerging(fid)) {
-        throw new ConflictError("cannot delete a flow while a step merge is in progress");
+        throw new ConflictError('cannot delete a flow while a step merge is in progress');
       }
     }
     for (const fid of ids) {
       const active = db.all<{ node_key: string; status: string }>(
         `SELECT node_key, status FROM nodes WHERE flow_id=? AND status IN ('running','waiting')`,
-        fid,
+        fid
       );
       for (const n of active) {
         await this.cancelNode(fid, n.node_key);
       }
     }
     this.waits.clearTimersForFlows(ids);
-    await Promise.allSettled(
-      ids.map((fid) =>
-        worktreeManager.removeFlowWorktree(fid, { reason: "flow deleted" })),
-    );
+    await Promise.allSettled(ids.map(fid => worktreeManager.removeFlowWorktree(fid, { reason: 'flow deleted' })));
     db.transaction(() => {
       for (const fid of ids) {
         for (const table of FLOW_CHILD_TABLES) {
           db.run(`DELETE FROM ${table} WHERE flow_id=?`, fid);
         }
       }
-      db.run(`DELETE FROM flows WHERE id IN (${ids.map(() => "?").join(",")})`, ...ids);
+      db.run(`DELETE FROM flows WHERE id IN (${ids.map(() => '?').join(',')})`, ...ids);
     });
   }
 
@@ -339,10 +350,10 @@ export class FlowEngine {
 
   ctx(flowId: string): FlowCtx {
     const flow = rows.get(FlowRow, `SELECT * FROM flows WHERE id=?`, flowId);
-    if (!flow) throw new NotFoundError("flow", flowId);
+    if (!flow) throw new NotFoundError('flow', flowId);
     const task = rows.get(Task, `SELECT * FROM tasks WHERE id=?`, flow.task_id);
-    if (!task) throw new NotFoundError("task", flow.task_id);
-    const repo = flow.repo_id ? db.repoById(flow.repo_id) ?? null : null;
+    if (!task) throw new NotFoundError('task', flow.task_id);
+    const repo = flow.repo_id ? (db.repoById(flow.repo_id) ?? null) : null;
     return { flow, task, repo };
   }
 
@@ -375,7 +386,7 @@ export class FlowEngine {
       } catch (e: unknown) {
         if (e instanceof RunSupersededError) return;
         const msg = e instanceof Error ? e.message : String(e);
-        db.emitEvent(flowId, null, "error", msg, { nodeKey });
+        db.emitEvent(flowId, null, 'error', msg, { nodeKey });
         if (nodeKey) {
           db.run(
             `UPDATE nodes SET status=?, attempt_id=NULL, updated_at=? WHERE flow_id=? AND node_key=? AND status=?`,
@@ -383,7 +394,7 @@ export class FlowEngine {
             db.now(),
             flowId,
             nodeKey,
-            NODE_STATUS.RUNNING,
+            NODE_STATUS.RUNNING
           );
         }
       } finally {
@@ -432,14 +443,19 @@ export class FlowEngine {
   }
 
   /** The trigger input overlaid with the template node's evaluated input_map. */
-  private async evalInputMap(flowId: string, nodeKey: string, rawInput: unknown, ctxMap?: FlowContextMap): Promise<unknown> {
+  private async evalInputMap(
+    flowId: string,
+    nodeKey: string,
+    rawInput: unknown,
+    ctxMap?: FlowContextMap
+  ): Promise<unknown> {
     const g = this.graph(flowId);
     const spec = g?.byKey.get(nodeKey);
     const map = spec?.inputMap ?? {};
-    const entries = Object.entries(map).filter(([, v]) => typeof v === "string" && (v as string).trim());
+    const entries = Object.entries(map).filter(([, v]) => typeof v === 'string' && (v as string).trim());
     if (!entries.length) return rawInput;
     const base: Record<string, unknown> =
-      rawInput && typeof rawInput === "object" && !Array.isArray(rawInput)
+      rawInput && typeof rawInput === 'object' && !Array.isArray(rawInput)
         ? { ...(rawInput as Record<string, unknown>) }
         : {};
     const ctx = ctxMap ?? buildFlowContext(this.ctx(flowId));
@@ -467,8 +483,10 @@ export class FlowEngine {
   /** The ChainHost port the SDLC builtin-chain module drives (see
    *  nodes/chains/sdlc-chain.ts) — a deliberate narrow boundary, not a public API. */
   flowNodeConfig(flowId: string, nodeKey: string): Record<string, unknown> {
-    return parseConfigSnapshot(db.get<{ config: string | null }>(
-      `SELECT config FROM nodes WHERE flow_id=? AND node_key=?`, flowId, nodeKey)?.config ?? null);
+    return parseConfigSnapshot(
+      db.get<{ config: string | null }>(`SELECT config FROM nodes WHERE flow_id=? AND node_key=?`, flowId, nodeKey)
+        ?.config ?? null
+    );
   }
 
   /** Full config layer stack for a node instance: class ← app ← flow snapshot.
@@ -531,7 +549,7 @@ export class FlowEngine {
   private assertPlanEditable(flowId: string) {
     const flow = rows.get(FlowRow, `SELECT * FROM flows WHERE id=?`, flowId);
     if (flow?.current_node) throw new Error(`wait for the ${flow.current_node} run to finish before editing steps`);
-    return this.latestResourceArtifact<{ id: string }>(flowId, NODE_KEYS.PLAN, "a.id");
+    return this.latestResourceArtifact<{ id: string }>(flowId, NODE_KEYS.PLAN, 'a.id');
   }
 
   /** Bulk-replace the checklist from the Plan view editor.
@@ -543,17 +561,17 @@ export class FlowEngine {
    *  removed still hit the guards: a pending child's flow closes silently, a
    *  started/merged child's step refuses loudly. */
   updatePlanSteps(flowId: string, input: PlanStepInput[]): void {
-    if (!Array.isArray(input) || input.some((s) => !s?.title?.trim?.())) {
-      throw new Error("steps must be an array of {title, detail?, files?}");
+    if (!Array.isArray(input) || input.some(s => !s?.title?.trim?.())) {
+      throw new Error('steps must be an array of {title, detail?, files?}');
     }
     const latestPlan = this.assertPlanEditable(flowId);
     const guards = stepFlows.deletableStepIds(flowId);
     const existing = planSteps.list(flowId);
-    const byId = new Map(existing.map((s) => [s.id, s]));
+    const byId = new Map(existing.map(s => [s.id, s]));
     const claimed = new Set<string>(); // existing rows matched to a kept input row
     const matched = new Map<number, string>(); // input index → existing row id
     for (const [i, row] of input.entries()) {
-      const sentId = typeof row.id === "string" ? row.id.trim() : "";
+      const sentId = typeof row.id === 'string' ? row.id.trim() : '';
       const m = sentId ? byId.get(sentId) : undefined;
       if (m && !claimed.has(m.id)) {
         claimed.add(m.id);
@@ -562,11 +580,11 @@ export class FlowEngine {
     }
     // rows the user removed: a started/merged child's step cannot go (loud);
     // rows matched above are by definition kept — never treated as removed
-    const removedIds = existing
-      .filter((s) => !claimed.has(s.id) && !guards.deletable.has(s.id));
+    const removedIds = existing.filter(s => !claimed.has(s.id) && !guards.deletable.has(s.id));
     if (removedIds.length) {
       throw new Error(
-        `plan step "${removedIds[0].title}" has an active or merged sub-flow and can't be removed — skip the step instead`);
+        `plan step "${removedIds[0].title}" has an active or merged sub-flow and can't be removed — skip the step instead`
+      );
     }
     for (const [stepId, childId] of guards.toCancel) {
       // a step the user REMOVED whose child never started — close the child so
@@ -577,10 +595,10 @@ export class FlowEngine {
     const updated = planSteps.replace(
       flowId,
       latestPlan?.id ?? null,
-      input.map((s) => ({ title: s.title.trim(), detail: s.detail, files: s.files, branch: s.branch })),
-      { matchedRows: matched },
+      input.map(s => ({ title: s.title.trim(), detail: s.detail, files: s.files, branch: s.branch })),
+      { matchedRows: matched }
     );
-    db.emitEvent(flowId, null, "lifecycle", `plan checklist edited (${updated.length} steps)`, {
+    db.emitEvent(flowId, null, 'lifecycle', `plan checklist edited (${updated.length} steps)`, {
       // route the event to the tab that owns the checklist (§3.3 — stamped at
       // emit time; the feed no longer guesses from message text)
       nodeKey: this.keyOfRole(flowId, NODE_KEYS.PLAN) ?? undefined,
@@ -589,22 +607,22 @@ export class FlowEngine {
   }
 
   /** Toggle one step done/pending. */
-  setPlanStepStatus(flowId: string, stepId: string, status: "pending" | "done"): void {
-    if (status !== "pending" && status !== "done") throw new Error("status must be pending|done");
-    if (!planSteps.setStatus(flowId, stepId, status, "manual")) throw new Error("step not found");
+  setPlanStepStatus(flowId: string, stepId: string, status: 'pending' | 'done'): void {
+    if (status !== 'pending' && status !== 'done') throw new Error('status must be pending|done');
+    if (!planSteps.setStatus(flowId, stepId, status, 'manual')) throw new Error('step not found');
     this.touch(flowId);
   }
-
 
   // ── template topology + edge-driven activation ───────────────────────────
 
   /** Instance keys of the flow's template nodes with the given def key. */
   keysOfType(flowId: string, defKey: string): string[] {
     const g = this.graph(flowId);
-    if (g) return g.nodes.filter((n) => n.defKey === defKey).map((n) => n.key);
-    return rows.all(NodeRow, `SELECT * FROM nodes WHERE flow_id=?`, flowId)
-      .filter((n) => n.type === defKey)
-      .map((n) => n.node_key);
+    if (g) return g.nodes.filter(n => n.defKey === defKey).map(n => n.key);
+    return rows
+      .all(NodeRow, `SELECT * FROM nodes WHERE flow_id=?`, flowId)
+      .filter(n => n.type === defKey)
+      .map(n => n.node_key);
   }
 
   /** Instance keys → first instance of a def key. */
@@ -617,7 +635,7 @@ export class FlowEngine {
 
   /** The catalog def holding a chain role (plan/build/review/resolve), or undefined. */
   private roleDef(role: ChainRole) {
-    return nodeRegistry.all().find((d) => d.chainRole === role);
+    return nodeRegistry.all().find(d => d.chainRole === role);
   }
 
   /** The instance key of the flow's node holding a chain role — the
@@ -639,13 +657,16 @@ export class FlowEngine {
    * approval flow consume. Also on the StepFlowManager's engine surface
    * (publishedExecution reads the plan version through it).
    */
-  latestResourceArtifact<T>(flowId: string, role: ChainRole, columns = "a.*"): T | undefined {
+  latestResourceArtifact<T>(flowId: string, role: ChainRole, columns = 'a.*'): T | undefined {
     const kinds = this.resourceKinds(role);
     if (!kinds.length) return undefined;
     return db.get<T>(
       `SELECT ${columns} FROM artifacts a JOIN nodes n ON n.id=a.node_id
-       WHERE n.flow_id=? AND a.kind IN (${kinds.map(() => "?").join(",")})
-       ORDER BY a.version DESC LIMIT 1`, flowId, ...kinds);
+       WHERE n.flow_id=? AND a.kind IN (${kinds.map(() => '?').join(',')})
+       ORDER BY a.version DESC LIMIT 1`,
+      flowId,
+      ...kinds
+    );
   }
 
   /**
@@ -656,7 +677,7 @@ export class FlowEngine {
    * nodes/chains/sdlc-chain.ts) — a deliberate narrow boundary.
    */
   gateKey(flowId: string): string | null {
-    const source = nodeRegistry.all().find((d) => d.waitForKind);
+    const source = nodeRegistry.all().find(d => d.waitForKind);
     if (!source?.waitForKind) return null;
     return templateStore.waitNodeKey(flowId, source.waitForKind) ?? this.firstKeyOfType(flowId, source.key);
   }
@@ -672,7 +693,7 @@ export class FlowEngine {
 
   /** Engine internals shared with the SDLC builtin-chain module — not a public API. */
   nodeStatus(flowId: string, nodeKey: string): string {
-    return nodeStore.statusOf(flowId, nodeKey) ?? "";
+    return nodeStore.statusOf(flowId, nodeKey) ?? '';
   }
 
   /**
@@ -697,12 +718,11 @@ export class FlowEngine {
    * Engine internals shared with the SDLC builtin-chain module — not a public API.
    */
 
-
-  approvePlan(flowId: string, executionOverride?: "whole" | "steps"): void {
+  approvePlan(flowId: string, executionOverride?: 'whole' | 'steps'): void {
     const planKey = this.keyOfRole(flowId, NODE_KEYS.PLAN);
-    if (!planKey) throw new Error("this flow template has no plan node");
+    if (!planKey) throw new Error('this flow template has no plan node');
     const planStatus = this.nodeStatus(flowId, planKey);
-    if (planStatus !== "awaiting_approval") {
+    if (planStatus !== 'awaiting_approval') {
       throw new ConflictError(`plan is not awaiting approval (${planStatus})`);
     }
     // Phase 3B: the plan panel's override chip — the user forced whole/steps
@@ -711,34 +731,39 @@ export class FlowEngine {
     // honors it; every plan-meta field rides the artifact, so the override is
     // auditable per version. When the forced value equals the published one,
     // the approve is a no-op for the meta.
-    if (executionOverride === "whole" || executionOverride === "steps") {
+    if (executionOverride === 'whole' || executionOverride === 'steps') {
       const plan = this.latestResourceArtifact<{ id: string; meta: string | null }>(flowId, NODE_KEYS.PLAN);
-      if (!plan) throw new Error("no plan to approve");
+      if (!plan) throw new Error('no plan to approve');
       let meta: Record<string, unknown> = {};
       try {
         const m = plan.meta ? JSON.parse(plan.meta) : null;
-        if (m && typeof m === "object") meta = m;
-      } catch { meta = {}; }
-      const was = meta.execution === "steps" ? "steps" : "whole";
-      const wasSource = typeof meta.executionSource === "string" ? meta.executionSource : "unknown";
+        if (m && typeof m === 'object') meta = m;
+      } catch {
+        meta = {};
+      }
+      const was = meta.execution === 'steps' ? 'steps' : 'whole';
+      const wasSource = typeof meta.executionSource === 'string' ? meta.executionSource : 'unknown';
       if (was !== executionOverride) {
         meta.execution = executionOverride;
-        meta.executionSource = "override";
+        meta.executionSource = 'override';
         delete meta.execution_rationale; // the planner's rationale no longer applies
         db.run(`UPDATE artifacts SET meta=?, updated_at=? WHERE id=?`, JSON.stringify(meta), db.now(), plan.id);
         nodeStore.emitEvent(
           flowId,
           planKey,
-          "lifecycle",
+          'lifecycle',
           `plan execution overridden at approve: will execute ${executionOverride} (was ${was}, ${wasSource})`,
-          { nodeKey: planKey },
+          { nodeKey: planKey }
         );
       }
     }
-    const plan = this.latestResourceArtifact<{ id: string; content: string; meta: string | null }>(flowId, NODE_KEYS.PLAN);
-    if (!plan) throw new Error("no plan to approve");
+    const plan = this.latestResourceArtifact<{ id: string; content: string; meta: string | null }>(
+      flowId,
+      NODE_KEYS.PLAN
+    );
+    if (!plan) throw new Error('no plan to approve');
     db.run(`UPDATE artifacts SET status='approved' WHERE id=?`, plan.id);
-    nodeSupport.transition(flowId, planKey, ["awaiting_approval"], "approved");
+    nodeSupport.transition(flowId, planKey, ['awaiting_approval'], 'approved');
 
     // approvePlan originally inlined the plan→build handoff (plan-meta branch
     // decomposition, sequential builds). It now lives in the build node's
@@ -747,13 +772,14 @@ export class FlowEngine {
     // engine will actually start (auto / approval trigger) — the SDLC build
     // today; custom edge targets in Phase 2 templates.
     const g = this.graph(flowId);
-    const targets = g?.edges.filter((e) => e.kind === "next" && e.from === planKey) ?? [];
-    const attribution = targets
-      .map((e) => e.to)
-      .find((k) => {
-        const tt = g?.byKey.get(k)?.trigger.type ?? "auto";
-        return tt === "auto" || tt === "approval";
-      }) ?? planKey;
+    const targets = g?.edges.filter(e => e.kind === 'next' && e.from === planKey) ?? [];
+    const attribution =
+      targets
+        .map(e => e.to)
+        .find(k => {
+          const tt = g?.byKey.get(k)?.trigger.type ?? 'auto';
+          return tt === 'auto' || tt === 'approval';
+        }) ?? planKey;
     this.setCurrentNode(flowId, attribution);
     this.bg(flowId, attribution, () => this.advanceFrom(flowId, planKey).then(() => {}));
   }
@@ -792,7 +818,10 @@ export class FlowEngine {
   // + poller + UI all triggering the same node concurrently.
   // Engine internals shared with the SDLC builtin-chain module — not a public API.
   nodeRunning(flowId: string, nodeKey: string): boolean {
-    return db.get<{ status: string }>(`SELECT status FROM nodes WHERE flow_id=? AND node_key=?`, flowId, nodeKey)?.status === "running";
+    return (
+      db.get<{ status: string }>(`SELECT status FROM nodes WHERE flow_id=? AND node_key=?`, flowId, nodeKey)?.status ===
+      'running'
+    );
   }
   /**
    * True while any stage of the post-MR chain (pipeline gate → review →
@@ -804,7 +833,7 @@ export class FlowEngine {
    */
   chainBusy(flowId: string): boolean {
     for (const key of templateStore.chainNodeKeys(flowId)) {
-      if (this.nodeStatus(flowId, key) === "running") return true;
+      if (this.nodeStatus(flowId, key) === 'running') return true;
     }
     return false;
   }
@@ -817,42 +846,47 @@ export class FlowEngine {
    * Success terminal states advance the template edges exactly like engine
    * auto-starts do; `awaiting_approval` finishes wait for the generic approve.
    */
-  runNodeManual(flowId: string, nodeKey: string, opts: { prompt?: string; model?: string; input?: Record<string, unknown> } = {}): void {
+  runNodeManual(
+    flowId: string,
+    nodeKey: string,
+    opts: { prompt?: string; model?: string; input?: Record<string, unknown> } = {}
+  ): void {
     const def = this.defOf(flowId, nodeKey);
     if (def.chainRole === NODE_KEYS.PLAN) {
       throw new ValidationError('The plan node only accepts input via POST /api/flows/:id/chat');
     }
     const node = rows.get(NodeRow, `SELECT * FROM nodes WHERE flow_id=? AND node_key=?`, flowId, nodeKey);
-    if (!node) throw new NotFoundError("node", nodeKey);
+    if (!node) throw new NotFoundError('node', nodeKey);
     // a failed entry node re-runs from the form — its recorded input never
     // satisfied the contract, so the retry path (recorded input) can't help
-    if (node.status !== "pending" && !(node.status === "failed" && this.defOf(flowId, nodeKey).isEntry)) {
+    if (node.status !== 'pending' && !(node.status === 'failed' && this.defOf(flowId, nodeKey).isEntry)) {
       throw new ConflictError(`run is not available while the node is ${node.status}`);
     }
     const claimFrom: readonly NodeStatus[] =
-      node.status === "failed" && this.defOf(flowId, nodeKey).isEntry ? ["failed"] : ["pending"];
+      node.status === 'failed' && this.defOf(flowId, nodeKey).isEntry ? ['failed'] : ['pending'];
     this.claimNode(flowId, nodeKey, claimFrom);
     this.setCurrentNode(flowId, nodeKey);
     this.bg(flowId, nodeKey, async () => {
-        const g = this.graph(flowId);
-        if (g && !(await this.joinSatisfied(flowId, g, nodeKey))) {
-          throw new Error("upstream nodes must finish before this run can start");
-        }
-        // `input` carries the values the user provided at trigger time (the
-        // start node's contract form) — it IS the payload. prompt/model keep
-        // today's shape for agent nodes when no explicit input is passed.
-        const rawInput = opts.input && typeof opts.input === "object"
+      const g = this.graph(flowId);
+      if (g && !(await this.joinSatisfied(flowId, g, nodeKey))) {
+        throw new Error('upstream nodes must finish before this run can start');
+      }
+      // `input` carries the values the user provided at trigger time (the
+      // start node's contract form) — it IS the payload. prompt/model keep
+      // today's shape for agent nodes when no explicit input is passed.
+      const rawInput =
+        opts.input && typeof opts.input === 'object'
           ? { ...opts.input }
           : { prompt: opts.prompt ?? null, model: opts.model ?? null };
-        await this.runNode(flowId, nodeKey, rawInput);
-        const finalStatus = this.nodeStatus(flowId, nodeKey);
-        if (this.isStepChild(flowId)) {
-          stepFlows.onChildFinished(flowId);
-        }
-        if (isNodeTerminalSuccess(finalStatus)) {
-          await this.advanceFrom(flowId, nodeKey);
-        }
-      });
+      await this.runNode(flowId, nodeKey, rawInput);
+      const finalStatus = this.nodeStatus(flowId, nodeKey);
+      if (this.isStepChild(flowId)) {
+        stepFlows.onChildFinished(flowId);
+      }
+      if (isNodeTerminalSuccess(finalStatus)) {
+        await this.advanceFrom(flowId, nodeKey);
+      }
+    });
   }
 
   /**
@@ -862,28 +896,29 @@ export class FlowEngine {
    */
   approveNode(flowId: string, nodeKey: string): void {
     const node = rows.get(NodeRow, `SELECT * FROM nodes WHERE flow_id=? AND node_key=?`, flowId, nodeKey);
-    if (!node) throw new NotFoundError("node", nodeKey);
+    if (!node) throw new NotFoundError('node', nodeKey);
     // step children route to the fan-out approve (merge-back vs plain approval)
-    if (this.isStepChild(flowId) && node.status === "awaiting_approval") {
+    if (this.isStepChild(flowId) && node.status === 'awaiting_approval') {
       stepFlows.approveChildStep(flowId);
       return;
     }
-    if (node.status !== "awaiting_approval") {
+    if (node.status !== 'awaiting_approval') {
       throw new ConflictError(`${nodeKey} is not awaiting approval`);
     }
     const def = this.defOf(flowId, nodeKey);
     if (def.builtinApproval) throw new ValidationError(`${nodeKey} approval belongs to its built-in flow actions`);
-    db.emitEvent(flowId, node.id, "lifecycle", `${nodeKey} approved`);
-    nodeSupport.transition(flowId, nodeKey, ["awaiting_approval"], "approved");
+    db.emitEvent(flowId, node.id, 'lifecycle', `${nodeKey} approved`);
+    nodeSupport.transition(flowId, nodeKey, ['awaiting_approval'], 'approved');
 
     const g = this.graph(flowId);
-    const targets = g?.edges.filter((e) => e.kind === "next" && e.from === nodeKey) ?? [];
-    const attribution = targets
-      .map((e) => e.to)
-      .find((k) => {
-        const tt = g?.byKey.get(k)?.trigger.type ?? "auto";
-        return tt === "auto" || tt === "approval";
-      }) ?? nodeKey;
+    const targets = g?.edges.filter(e => e.kind === 'next' && e.from === nodeKey) ?? [];
+    const attribution =
+      targets
+        .map(e => e.to)
+        .find(k => {
+          const tt = g?.byKey.get(k)?.trigger.type ?? 'auto';
+          return tt === 'auto' || tt === 'approval';
+        }) ?? nodeKey;
     this.setCurrentNode(flowId, attribution);
     this.bg(flowId, attribution, async () => {
       await this.advanceFrom(flowId, nodeKey);
@@ -898,27 +933,35 @@ export class FlowEngine {
    */
   async chooseNode(flowId: string, nodeKey: string, chosen: string[], rationale?: string): Promise<void> {
     const node = rows.get(NodeRow, `SELECT * FROM nodes WHERE flow_id=? AND node_key=?`, flowId, nodeKey);
-    if (!node) throw new NotFoundError("node", nodeKey);
-    if (node.status !== "awaiting_approval") {
+    if (!node) throw new NotFoundError('node', nodeKey);
+    if (node.status !== 'awaiting_approval') {
       throw new ConflictError(`${nodeKey} is not waiting for a branch choice`);
     }
     const def = this.defOf(flowId, nodeKey);
-    if (!("applyChoice" in def) || typeof (def as { applyChoice?: unknown }).applyChoice !== "function") {
+    if (!('applyChoice' in def) || typeof (def as { applyChoice?: unknown }).applyChoice !== 'function') {
       throw new Error(`${nodeKey} is not a decision node`);
     }
-    if (!Array.isArray(chosen) || !chosen.length) throw new Error("pick at least one branch");
-    await (def as { applyChoice: (n: NodeRow, f: string, c: string[], r?: string, ctx?: FlowCtx) => Promise<void> })
-      .applyChoice(node, flowId, chosen.map((c) => String(c)), rationale?.trim() || undefined, this.ctx(flowId));
+    if (!Array.isArray(chosen) || !chosen.length) throw new Error('pick at least one branch');
+    await (
+      def as { applyChoice: (n: NodeRow, f: string, c: string[], r?: string, ctx?: FlowCtx) => Promise<void> }
+    ).applyChoice(
+      node,
+      flowId,
+      chosen.map(c => String(c)),
+      rationale?.trim() || undefined,
+      this.ctx(flowId)
+    );
 
     // release downstream exactly like a generic approval does
     const g = this.graph(flowId);
-    const targets = g?.edges.filter((e) => e.kind === "next" && e.from === nodeKey) ?? [];
-    const attribution = targets
-      .map((e) => e.to)
-      .find((k) => {
-        const tt = g?.byKey.get(k)?.trigger.type ?? "auto";
-        return tt === "auto" || tt === "approval";
-      }) ?? nodeKey;
+    const targets = g?.edges.filter(e => e.kind === 'next' && e.from === nodeKey) ?? [];
+    const attribution =
+      targets
+        .map(e => e.to)
+        .find(k => {
+          const tt = g?.byKey.get(k)?.trigger.type ?? 'auto';
+          return tt === 'auto' || tt === 'approval';
+        }) ?? nodeKey;
     this.setCurrentNode(flowId, attribution);
     this.bg(flowId, attribution, async () => {
       await this.advanceFrom(flowId, nodeKey);
@@ -928,18 +971,14 @@ export class FlowEngine {
   /** Update a node instance's config layer (nodes.config), merging per key. */
   setNodeConfig(flowId: string, nodeKey: string, config: Record<string, unknown>): void {
     const node = rows.get(NodeRow, `SELECT * FROM nodes WHERE flow_id=? AND node_key=?`, flowId, nodeKey);
-    if (!node) throw new NotFoundError("node", nodeKey);
-    if (node.status === "running") throw new ConflictError("can't reconfigure a node while it is running");
-    if (!config || typeof config !== "object" || Array.isArray(config)) {
-      throw new ValidationError("config must be an object");
+    if (!node) throw new NotFoundError('node', nodeKey);
+    if (node.status === 'running') throw new ConflictError("can't reconfigure a node while it is running");
+    if (!config || typeof config !== 'object' || Array.isArray(config)) {
+      throw new ValidationError('config must be an object');
     }
     const def = this.defOf(flowId, nodeKey);
     const snapshot = mergeConfigLayers(this.flowNodeConfig(flowId, nodeKey), config);
-    const effective = mergeConfigLayers(
-      def.defaultConfig(),
-      appLayerConfig(this.defKeyOf(flowId, nodeKey)),
-      snapshot,
-    );
+    const effective = mergeConfigLayers(def.defaultConfig(), appLayerConfig(this.defKeyOf(flowId, nodeKey)), snapshot);
     try {
       def.parseRunConfig(effective);
     } catch (e: unknown) {
@@ -947,7 +986,7 @@ export class FlowEngine {
       throw new ValidationError(msg);
     }
     nodeSupport.setNode(node.id, { config: JSON.stringify(snapshot) });
-    db.emitEvent(flowId, node.id, "lifecycle", `${nodeKey} config updated`);
+    db.emitEvent(flowId, node.id, 'lifecycle', `${nodeKey} config updated`);
     this.touch(flowId);
   }
 
@@ -966,8 +1005,11 @@ export class FlowEngine {
    */
   approveFanoutStep(parentFlowId: string, stepId: string): void {
     const step = db.get<{ sub_flow_id: string | null }>(
-      `SELECT sub_flow_id FROM plan_steps WHERE id=? AND flow_id=?`, stepId, parentFlowId);
-    if (!step?.sub_flow_id) throw new Error("that step has no sub-flow yet");
+      `SELECT sub_flow_id FROM plan_steps WHERE id=? AND flow_id=?`,
+      stepId,
+      parentFlowId
+    );
+    if (!step?.sub_flow_id) throw new Error('that step has no sub-flow yet');
     this.approveBuild(step.sub_flow_id); // step children route to the fan-out approve
   }
 
@@ -977,14 +1019,20 @@ export class FlowEngine {
    *  fix-agent work the conflict surfaced. */
   retryFanoutStep(parentFlowId: string, stepId: string): void {
     const step = db.get<{ sub_flow_id: string | null }>(
-      `SELECT sub_flow_id FROM plan_steps WHERE id=? AND flow_id=?`, stepId, parentFlowId);
-    if (!step?.sub_flow_id) throw new Error("that step has no sub-flow yet");
+      `SELECT sub_flow_id FROM plan_steps WHERE id=? AND flow_id=?`,
+      stepId,
+      parentFlowId
+    );
+    if (!step?.sub_flow_id) throw new Error('that step has no sub-flow yet');
     if (stepFlows.resumeMergeRetry(parentFlowId, step.sub_flow_id)) return;
     const workNodeKey = stepFlows.childWorkNodeKey(step.sub_flow_id);
     const workNode = db.get<{ status: string }>(
-      `SELECT status FROM nodes WHERE flow_id=? AND node_key=?`, step.sub_flow_id, workNodeKey);
-    if (!workNode || workNode.status !== "failed") {
-      throw new Error("the step child has no failed node to retry");
+      `SELECT status FROM nodes WHERE flow_id=? AND node_key=?`,
+      step.sub_flow_id,
+      workNodeKey
+    );
+    if (!workNode || workNode.status !== 'failed') {
+      throw new Error('the step child has no failed node to retry');
     }
     this.retryNode(step.sub_flow_id, workNodeKey);
   }
@@ -999,24 +1047,22 @@ export class FlowEngine {
   /** Re-run a node after failure, using its recorded (schema-validated) input. */
   retryNode(flowId: string, nodeKey: string): void {
     const node = rows.get(NodeRow, `SELECT * FROM nodes WHERE flow_id=? AND node_key=?`, flowId, nodeKey);
-    if (!node) throw new NotFoundError("node", nodeKey);
+    if (!node) throw new NotFoundError('node', nodeKey);
     const def = this.defOf(flowId, nodeKey);
     if (!def.retryable) throw new ValidationError(`cannot retry node ${nodeKey}`);
 
     // the recorded input is validated against the node's schema — retry fails
     // fast with a clear error rather than running with a corrupt payload
     const recorded = def.parseInput(node.input ?? {});
-    if (node.status === "running") throw new ConflictError(`${nodeKey} is already running`);
-    if (node.status === "waiting") {
-      throw new ConflictError(
-        `${nodeKey} is waiting for its event source — retry after it resumes (or cancel it)`,
-      );
+    if (node.status === 'running') throw new ConflictError(`${nodeKey} is already running`);
+    if (node.status === 'waiting') {
+      throw new ConflictError(`${nodeKey} is waiting for its event source — retry after it resumes (or cancel it)`);
     }
     if (templateStore.chainNodeKeys(flowId).includes(nodeKey) && this.chainBusy(flowId)) {
-      throw new ConflictError("wait for the current pipeline/review/resolve run to finish first");
+      throw new ConflictError('wait for the current pipeline/review/resolve run to finish first');
     }
-    db.emitEvent(flowId, node.id, "lifecycle", `retrying ${nodeKey}`);
-    this.claimNode(flowId, nodeKey, ["failed"]);
+    db.emitEvent(flowId, node.id, 'lifecycle', `retrying ${nodeKey}`);
+    this.claimNode(flowId, nodeKey, ['failed']);
     this.setCurrentNode(flowId, nodeKey);
     this.bg(flowId, nodeKey, async () => {
       // a retried node re-runs on its recorded input; the pipeline gate
@@ -1044,22 +1090,24 @@ export class FlowEngine {
    */
   async cancelNode(flowId: string, nodeKey: string): Promise<void> {
     const node = rows.get(NodeRow, `SELECT * FROM nodes WHERE flow_id=? AND node_key=?`, flowId, nodeKey);
-    if (!node) throw new NotFoundError("node", nodeKey);
-    if (node.status !== "running" && node.status !== "waiting" && node.status !== "awaiting_approval") {
+    if (!node) throw new NotFoundError('node', nodeKey);
+    if (node.status !== 'running' && node.status !== 'waiting' && node.status !== 'awaiting_approval') {
       throw new ConflictError(`cannot cancel ${nodeKey} while it is ${node.status}`);
     }
     const flow = rows.get(FlowRow, `SELECT * FROM flows WHERE id=?`, flowId);
     const active = db.all<{ run_ref: string }>(
-      `SELECT run_ref FROM runs WHERE node_id=? AND status='running'`, node.id);
-    const mode = flow?.execution_mode === "local" ? "local" : "cloud";
+      `SELECT run_ref FROM runs WHERE node_id=? AND status='running'`,
+      node.id
+    );
+    const mode = flow?.execution_mode === 'local' ? 'local' : 'cloud';
     for (const r of active) {
       await agentPortRegistry.forMode(mode).cancel({ runId: r.run_ref });
     }
     this.waits.clearTimerForNode(flowId, nodeKey);
     db.run(`UPDATE runs SET status='error', updated_at=? WHERE node_id=? AND status='running'`, db.now(), node.id);
-    nodeSupport.transition(flowId, nodeKey, ["running", "waiting", "awaiting_approval"], "failed");
+    nodeSupport.transition(flowId, nodeKey, ['running', 'waiting', 'awaiting_approval'], 'failed');
     this.clearCurrentIf(flowId, nodeKey);
-    db.emitEvent(flowId, node.id, "lifecycle", `${nodeKey} stopped by user — retry when ready`);
+    db.emitEvent(flowId, node.id, 'lifecycle', `${nodeKey} stopped by user — retry when ready`);
     this.touch(flowId);
     if (this.isStepChild(flowId)) {
       // child-terminal notification hook (plan fan-out): a stopped step child
@@ -1075,28 +1123,32 @@ export class FlowEngine {
    * reply (node state untouched); everything else goes to the node's ChatRefiner
    * when its capabilities opt in, and declines otherwise.
    */
-  sendChat(flowId: string, nodeKey: string, content: string, chatOnly = false, model?: string, thread?: string | null): void {
+  sendChat(flowId: string, nodeKey: string, content: string, model?: string, thread?: string | null): void {
     const def = this.defOf(flowId, nodeKey);
-    if (!chatOnly && def.chainRole === NODE_KEYS.PLAN) {
+    if (def.chainRole === NODE_KEYS.PLAN) {
       const branch = normalizePlanThread(thread);
       if (branch && !new PlanStore(nodeSupport).scopedRefine(flowId, branch)) {
         throw new ValidationError(`branch "${branch}" not found in the current plan`);
       }
     }
-    db.addMessage(flowId, nodeKey, "user", content, thread ?? null);
-    if (!chatOnly) {
-      this.claimNode(flowId, nodeKey, ["pending", "awaiting_approval", "failed"]);
-    }
+    db.addMessage(flowId, nodeKey, 'user', content, thread ?? null);
+    this.claimNode(flowId, nodeKey, ['pending', 'awaiting_approval', 'failed']);
+
     this.setCurrentNode(flowId, nodeKey);
-    this.bg(flowId, chatOnly ? null : nodeKey, async () => {
-      const reply = chatOnly
-        ? (await nodeRoles.converserOf(def)?.converse(this.ctx(flowId), content)) ?? nodeRoles.noAgentReply(def.label)
-        : (await nodeRoles.chatRefinerOf(def)?.turn(this.ctx(flowId), content, {
+    this.bg(
+      flowId,
+      nodeKey,
+      async () => {
+        const flowCtx = this.ctx(flowId);
+        const reply =
+          (await nodeRoles.chatRefinerOf(def)?.turn(flowCtx, content, {
             model,
-            thread: thread ?? null,
+            thread,
           })) ?? CHAT_DECLINED;
-      db.addMessage(flowId, nodeKey, "assistant", reply || "Done.", thread ?? null);
-    }, nodeKey);
+        db.addMessage(flowId, nodeKey, 'assistant', reply || 'Done.', thread);
+      },
+      nodeKey
+    );
   }
 
   // ── Phase 4: triggers — flow start, webhooks, schedule, wait timers ──────
@@ -1110,10 +1162,10 @@ export class FlowEngine {
    */
   start(flowId: string): void {
     const g = this.graph(flowId);
-    if (!g) throw new Error("this flow has no template graph");
+    if (!g) throw new Error('this flow has no template graph');
     this.bg(flowId, null, async () => {
       for (const spec of g.nodes) {
-        if (spec.trigger.type !== "auto" && spec.trigger.type !== "approval") continue;
+        if (spec.trigger.type !== 'auto' && spec.trigger.type !== 'approval') continue;
         if (!(await this.joinSatisfied(flowId, g, spec.key))) continue;
         await this.startNodeStage(flowId, spec.key);
       }
@@ -1126,34 +1178,41 @@ export class FlowEngine {
    * Finish a running node from a run result obtained out-of-band (server restart
    * recovery / cloud re-attach). Delegates to the node's own recover().
    */
-  async completeNodeFromResult(
-    c: FlowCtx,
-    node: NodeRow,
-    result: AgentRunResult,
-    note: string
-  ): Promise<boolean> {
-    db.run(`UPDATE runs SET status=?, updated_at=? WHERE node_id=? AND status='running'`,
-      result.status === "finished" ? "finished" : "error", db.now(), node.id);
-    if (node.status !== "running") return true; // already reconciled by a concurrent pass
+  async completeNodeFromResult(c: FlowCtx, node: NodeRow, result: AgentRunResult, note: string): Promise<boolean> {
+    db.run(
+      `UPDATE runs SET status=?, updated_at=? WHERE node_id=? AND status='running'`,
+      result.status === 'finished' ? 'finished' : 'error',
+      db.now(),
+      node.id
+    );
+    if (node.status !== 'running') return true; // already reconciled by a concurrent pass
 
     const def = this.defOf(c.flow.id, node.node_key);
     const ok = await def.recover(c, node, result, note);
     if (ok) return true;
 
     // node declined recovery → fail it so the user can retry
-    nodeSupport.setNode(node.id, { status: "failed" });
-    if (result.status !== "finished") {
-      db.emitEvent(c.flow.id, node.id, "error", `${node.node_key} run ended with ${result.status} (${note}) — retry the node to continue`);
+    nodeSupport.setNode(node.id, { status: 'failed' });
+    if (result.status !== 'finished') {
+      db.emitEvent(
+        c.flow.id,
+        node.id,
+        'error',
+        `${node.node_key} run ended with ${result.status} (${note}) — retry the node to continue`
+      );
     } else {
-      db.emitEvent(c.flow.id, node.id, "lifecycle", `${node.node_key} run finished while disconnected (${note}) — retry the node to apply it`);
+      db.emitEvent(
+        c.flow.id,
+        node.id,
+        'lifecycle',
+        `${node.node_key} run finished while disconnected (${note}) — retry the node to apply it`
+      );
     }
     return true;
   }
-
-
 }
 
-export const flowEngine = processSingleton("flowEngine", () => new FlowEngine());
+export const flowEngine = processSingleton('flowEngine', () => new FlowEngine());
 
 // plan fan-out: bind the StepFlowManager to the engine — resolves the
 // flow ↔ step-flow-manager singleton cycle (step-flow-manager is imported by

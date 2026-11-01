@@ -19,7 +19,7 @@ export type ChatMessage = {
 type ChatPayload = { messages?: ChatMessage[] };
 type PromptPayload = { prompt?: string };
 type AllPromptsPayload = { prompts?: Record<string, string> };
-type ChatSendOptions = { chatOnly: boolean; model?: string; thread?: string | null };
+type ChatSendOptions = { model?: string; thread?: string | null };
 
 /** The flow's chat transcript, polled for the node's agent replies. */
 export function useFlowChatMessages(flowId: string) {
@@ -98,7 +98,6 @@ export function useSendChatMessage(flowId: string, nodeKey: string, options: Cha
         JSON.stringify({
           nodeKey,
           content,
-          chatOnly: options.chatOnly,
           model: options.model,
           thread: options.thread ?? null,
         })
