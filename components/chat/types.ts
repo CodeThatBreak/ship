@@ -1,8 +1,5 @@
 /** Chat-level option types shared between ChatPanel and its subcomponents. */
 
-/** Options for plan-style runs (the decompose toggle). */
-export type PlanOptions = { decompose: boolean };
-
 /**
  * The chat panel's tabs seam (the `composer` seam's sibling): the feature
  * supplies the full tab list — its default view (e.g. the main plan) plus

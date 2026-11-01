@@ -28,7 +28,7 @@ import {
 import { RunSupersededError } from '../../../errors/runSupersededError';
 import { PlanAgentSessions } from './planAgentSessions';
 
-import type { PlanTurnKind } from './planContract';
+import { PlanTurnKind } from './constants/planTurn';
 
 import { PROMPT_KEYS } from './constants/promptKeys';
 import { AGENT_CONFIG_FIELDS } from './constants/config/planConfigExports';
@@ -93,8 +93,6 @@ export class PlanNode extends AgentRunNode<PlanInput, PlanOutput> {
   override readonly configSchema = z.object({
     /** user-editable prompt body (foldable per template/flow; the global overlay was removed) */
     prompt_body: z.string().optional(),
-    /** default for starts that don't pass `decompose` explicitly */
-    decompose_default: z.boolean().default(false),
     /**
      * Plan fan-out (§1 "who decides the mode"): the published execution
      * resolution. `follow` = the PLANNER decides per plan version — the
@@ -161,17 +159,17 @@ export class PlanNode extends AgentRunNode<PlanInput, PlanOutput> {
     const model = opts?.model ?? null;
     const settingSources = mcpSourcesOf(config);
 
+    const base = { model, settingSources, branch, scoped: null } as const;
+
     if (branch) {
       const scoped = this.store.scopedRefine(ctx.flow.id, branch);
       if (!scoped) {
         throw new ValidationError(`branch "${branch}" not found in the current plan`);
       }
       return this.runPlanTurn(ctx, content, {
-        turnKind: 'branch',
+        ...base,
+        turnKind: PlanTurnKind.Branch,
         label: `plan branch chat (${branch})`,
-        model,
-        settingSources,
-        branch,
         scoped,
         prompt: this.prompt.scoped(ctx, scoped, content, []),
       });
@@ -182,26 +180,20 @@ export class PlanNode extends AgentRunNode<PlanInput, PlanOutput> {
       const bootstrapInput = PlanInput.parse({
         prompt: content,
         promptIsBody: true,
-        decompose: config.decompose_default === true,
       });
+
       return this.runPlanTurn(ctx, content, {
-        turnKind: 'pre-publish',
+        ...base,
+        turnKind: PlanTurnKind.PrePublish,
         label: PLAN_CHAT_LABEL,
-        model,
-        settingSources,
-        branch: null,
-        scoped: null,
         prompt: this.prompt.whole(ctx, node, bootstrapInput),
       });
     }
 
     return this.runPlanTurn(ctx, content, {
-      turnKind: 'whole',
+      ...base,
+      turnKind: PlanTurnKind.Whole,
       label: PLAN_CHAT_LABEL,
-      model,
-      settingSources,
-      branch: null,
-      scoped: null,
       prompt: this.prompt.refineTurn(ctx, content),
     });
   }
@@ -222,25 +214,26 @@ export class PlanNode extends AgentRunNode<PlanInput, PlanOutput> {
     const node = this.node(ctx);
     const previousStatus = node.status ?? 'pending';
     const attemptId = node.attempt_id;
-    const wholeAgentId = opts.branch ? (node.agent_id ?? this.support.lastAgentId(node.id)) : null;
-    const followUpOn = this.sessions.resolveFollowUp(node, opts.branch);
+    // Todo: Revisit this, there should be only one source of truth for main agent id
+    const mainAgentId = opts.branch ? (node.agent_id ?? this.support.lastAgentId(node.id)) : null;
+
+    const followUpOnAgent = this.sessions.resolveFollowUp(node, opts.branch);
+
     const args: PlanRunArgs = {
       label: opts.label,
       model: opts.model,
       settingSources: opts.settingSources,
     };
 
-    this.support.setNode(node.id, {
-      input: JSON.stringify(
-        PlanInput.parse({
-          planThread: opts.branch,
-          planTurnKind: opts.turnKind,
-          turnUserMessage: content,
-          previousStatus,
-          prompt: opts.prompt,
-        })
-      ),
+    const finalInputPrompt = PlanInput.parse({
+      planThread: opts.branch,
+      planTurnKind: opts.turnKind,
+      turnUserMessage: content,
+      previousStatus,
+      prompt: opts.prompt,
     });
+
+    this.support.setNode(node.id, { input: JSON.stringify(finalInputPrompt) });
 
     const { result } = await this.runner.executeRun(
       ctx,
@@ -250,12 +243,12 @@ export class PlanNode extends AgentRunNode<PlanInput, PlanOutput> {
           prompt: opts.prompt,
           mode: 'plan',
           name: `${this.label} chat ${ctx.task.key}`,
-          followUpOn,
+          followUpOn: followUpOnAgent,
           model: args.model,
           settingSources: args.settingSources,
         }),
       args.label,
-      { attemptId: attemptId ?? undefined }
+      { attemptId }
     );
 
     try {
@@ -268,10 +261,13 @@ export class PlanNode extends AgentRunNode<PlanInput, PlanOutput> {
         opts.scoped,
         args
       );
+
       const agentId = this.support.lastAgentId(node.id);
+
       if (agentId) {
-        this.sessions.recordAgent(ctx, this.node(ctx), opts.branch, agentId, wholeAgentId);
+        this.sessions.recordAgent(ctx, this.node(ctx), opts.branch, agentId, mainAgentId);
       }
+
       if (applied.outcome) {
         this.applyOutcome(ctx, applied.outcome, {
           fenceSuperseded: Boolean(attemptId),

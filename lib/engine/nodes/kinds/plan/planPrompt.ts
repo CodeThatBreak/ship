@@ -1,4 +1,4 @@
-import "server-only";
+import 'server-only';
 
 import { prompts } from '../../../prompts/promptLibrary';
 import { DEFAULT_PROMPT_TEMPLATES } from '../../../prompts/promptDefaults';
@@ -26,7 +26,7 @@ export interface RunIntent {
  */
 export function planBodyDiverged(prompt: string | null | undefined): boolean {
   if (!prompt?.trim()) return false;
-  const norm = (s: string): string => s.trim().replace(/\n{3,}/g, "\n\n");
+  const norm = (s: string): string => s.trim().replace(/\n{3,}/g, '\n\n');
   return norm(prompt) !== norm(DEFAULT_PROMPT_TEMPLATES.plan.userTemplate);
 }
 
@@ -41,7 +41,7 @@ export class PlanPromptBuilder {
     private readonly ctxHelper: FlowContextHelper,
     private readonly context: PlanContextBlocks,
     private readonly store: PlanStore,
-    private readonly knobOf: (ctx: FlowCtx) => ExecutionKnob,
+    private readonly knobOf: (ctx: FlowCtx) => ExecutionKnob
   ) {}
 
   /** Whole-plan / pre-publish conversation prompt (`plan_refine` assembly). */
@@ -49,11 +49,7 @@ export class PlanPromptBuilder {
     // a conversation turn carries no context-picker selection — the whole-mode
     // defaults (task, branches, edits) are the recommendation (§4 "no mode state")
     const contextBlock = this.context.assemble(ctx, { contextBlocks: [] }, null);
-    const refined = prompts.resolve(
-      "plan_refine",
-      {},
-      { feedback: content, context: contextBlock }
-    );
+    const refined = prompts.resolve('plan_refine', {}, { feedback: content, context: contextBlock });
     const execBlock = this.executionDirective(ctx);
     return execBlock ? `${refined}\n\n${execBlock}` : refined;
   }
@@ -84,12 +80,6 @@ export class PlanPromptBuilder {
     const base = prompts.resolve('plan', baseCtx, { context: contextBlock });
     let prompt = base;
 
-    if (input.decompose) {
-      prompt +=
-        this.ctxHelper.execMode(ctx) === 'local'
-          ? '\n\nUse your built-in Task subagents to explore different areas of the repo in parallel, then merge the results into a single cohesive plan.'
-          : '\n\nDelegate exploration of different repo areas to sub-agents, then merge the results into a single cohesive plan.';
-    }
     if (execBlock) prompt += `\n\n${execBlock}`;
 
     return prompt;
@@ -104,12 +94,7 @@ export class PlanPromptBuilder {
   }
 
   /** The scoped template's variables, built from the ref'd branch only (§2). */
-  scopedVars(
-    ctx: FlowCtx,
-    scoped: ScopedRefine,
-    userMessage: string,
-    contextBlocks: string[]
-  ): Record<string, string> {
+  scopedVars(ctx: FlowCtx, scoped: ScopedRefine, userMessage: string, contextBlocks: string[]): Record<string, string> {
     const b = scoped.branch;
     const input = PlanInput.parse({ contextBlocks });
     return {

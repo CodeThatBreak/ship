@@ -1,4 +1,4 @@
-import "server-only";
+import 'server-only';
 
 import { z } from 'zod';
 import type { AgentRunResult } from '../../../ports/agentPort';
@@ -35,9 +35,7 @@ import type { PlanStore } from './planStore';
 import type { ExecutionKnob } from './planPrompt';
 import type { PlanRunArgs } from './types/planTypeExports';
 import type { ScopedRefine } from './types/planTypeExports';
-
-/** Which unified-turn routing path produced the agent response. */
-export type PlanTurnKind = 'pre-publish' | 'whole' | 'branch';
+import { PlanTurnKind } from './constants/planTurn';
 
 /**
  * The plan output contract: validate the agent's plan-mode response
@@ -54,7 +52,7 @@ export class PlanOutputContract {
     private readonly store: PlanStore,
     private readonly runner: AgentRunner,
     private readonly knobOf: (ctx: FlowCtx) => ExecutionKnob,
-    private readonly label: string,
+    private readonly label: string
   ) {}
 
   /**
@@ -127,7 +125,7 @@ export class PlanOutputContract {
       return { reply, outcome: null };
     }
 
-    if (turnKind === 'branch') {
+    if (turnKind === PlanTurnKind.Branch) {
       if (hasPlan) {
         throw new AgentOutputError({
           code: AGENT_OUTPUT_ERROR.SCHEMA_MISMATCH,
@@ -147,7 +145,7 @@ export class PlanOutputContract {
             code: AGENT_OUTPUT_ERROR.SCHEMA_MISMATCH,
             label: this.label,
             message: `${this.label}: branch turn missing subPlan payload`,
-            issues: [{ path: "subPlan", message: "required on branch turns" }],
+            issues: [{ path: 'subPlan', message: 'required on branch turns' }],
             response: text,
           });
         }
@@ -160,7 +158,7 @@ export class PlanOutputContract {
             code: AGENT_OUTPUT_ERROR.SCHEMA_MISMATCH,
             label: this.label,
             message: `${this.label}: branch turn missing subPlanPatch payload`,
-            issues: [{ path: "subPlanPatch", message: "required on branch turns" }],
+            issues: [{ path: 'subPlanPatch', message: 'required on branch turns' }],
             response: text,
           });
         }
@@ -198,7 +196,7 @@ export class PlanOutputContract {
           code: AGENT_OUTPUT_ERROR.SCHEMA_MISMATCH,
           label: this.label,
           message: `${this.label}: whole-plan turn missing plan payload`,
-          issues: [{ path: "plan", message: "required on whole/pre-publish turns" }],
+          issues: [{ path: 'plan', message: 'required on whole/pre-publish turns' }],
           response: text,
         });
       }
@@ -413,12 +411,7 @@ export class PlanOutputContract {
     };
   }
 
-  private scopedPatchOutcome(
-    ctx: FlowCtx,
-    node: NodeRow,
-    scoped: ScopedRefine,
-    patch: SubPlanPatch
-  ): RunOutcome {
+  private scopedPatchOutcome(ctx: FlowCtx, node: NodeRow, scoped: ScopedRefine, patch: SubPlanPatch): RunOutcome {
     const branchName = scoped.branch.name;
     const merged = BranchRefinement.applyPatch(scoped.latest.meta, branchName, patch);
     const art = this.support.saveArtifact(node.id, ctx.flow.id, 'plan', scoped.latest.art.content, {
@@ -478,7 +471,7 @@ export class PlanOutputContract {
     planMeta: PlanMeta,
     stepCount: number,
     text: string,
-    model: string | null,
+    model: string | null
   ): RunOutcome {
     const branchNote = planMeta.branches.length
       ? ` (${planMeta.branches.length} branch${planMeta.branches.length > 1 ? 'es' : ''})`

@@ -21,6 +21,7 @@ import type { NodeRow } from '../../../../db/rows';
 import type { AgentRunner } from '../../../harness/harnessExports';
 import type { FlowCtx, NodeSupport } from '../../shared/nodeSharedExports';
 import type { PlanStore } from './planStore';
+import { PlanTurnKind } from './constants/planTurn';
 
 /** The agent's error envelope, as the directive advertises it. */
 const envelope = (reason: string) => JSON.stringify({ output_error: { code: 'blocked', reason } });
@@ -50,7 +51,12 @@ const makeContract = () => {
         ? { value: 'steps', rationale: null }
         : { value: 'whole', rationale: null },
     persistPlan: (args: { text: string; planMeta: unknown; plannerExecution: unknown; knob: string }) => {
-      saved.push({ text: args.text, planMeta: args.planMeta, plannerExecution: args.plannerExecution, knob: args.knob });
+      saved.push({
+        text: args.text,
+        planMeta: args.planMeta,
+        plannerExecution: args.plannerExecution,
+        knob: args.knob,
+      });
       return { art: { id: 'art_new', version: 7 }, stepCount: 2 };
     },
   } as unknown as PlanStore;
@@ -109,7 +115,9 @@ describe('PlanOutputContract.parse — the three standard failures', () => {
   });
 
   it('a valid plan parses through the whole contract', () => {
-    expect(parse(JSON.stringify({ markdown: '# P', steps: [{ title: 'T', detail: '', files: [], branch: null }] }))).toEqual({
+    expect(
+      parse(JSON.stringify({ markdown: '# P', steps: [{ title: 'T', detail: '', files: [], branch: null }] }))
+    ).toEqual({
       markdown: '# P',
       steps: [{ title: 'T', detail: '', files: [], branch: null }],
     });
@@ -122,7 +130,7 @@ describe('PlanOutputContract.applyTurnResult (whole publish)', () => {
     const { outcome } = contract.applyTurnResult(
       ctx,
       node,
-      'whole',
+      PlanTurnKind.Whole,
       'fb',
       JSON.stringify({
         reply: 'done',
@@ -153,7 +161,7 @@ describe('PlanOutputContract.applyTurnResult', () => {
       contract.applyTurnResult(
         ctx,
         node,
-        'branch',
+        PlanTurnKind.Branch,
         'msg',
         JSON.stringify({
           reply: 'updated',
@@ -163,7 +171,10 @@ describe('PlanOutputContract.applyTurnResult', () => {
           branch: { name: 'auth', title: 'Auth', scope: '', files: [], steps: [], dependsOn: [] },
           latest: {
             art: { id: 'a', version: 1, content: '# P' },
-            meta: { steps: [], branches: [{ name: 'auth', title: 'Auth', scope: '', files: [], steps: [], dependsOn: [] }] },
+            meta: {
+              steps: [],
+              branches: [{ name: 'auth', title: 'Auth', scope: '', files: [], steps: [], dependsOn: [] }],
+            },
             rawMeta: {},
             liveRows: [],
           },

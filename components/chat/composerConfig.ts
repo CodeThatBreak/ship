@@ -46,7 +46,7 @@ export interface ComposerConfig {
   caption?: React.ReactNode;
   /** The ghost "Reset to template" affordance (prefill diverges from the template). */
   reset?: { canReset: boolean; onReset: () => void };
-  /** Extra trailing controls beside the model selector (the decompose toggle in the prompt state). */
+  /** Extra trailing controls beside the model selector */
   aside?: React.ReactNode;
   /** Send handler — for plan, always `POST /chat` (optional `thread` on branch tabs).
    *  A returned promise is the "send accepted" signal: a managed draft clears

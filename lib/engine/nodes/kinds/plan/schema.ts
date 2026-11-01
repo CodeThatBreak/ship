@@ -1,8 +1,9 @@
-import "server-only";
+import 'server-only';
 
-import { z } from "zod";
-import { detectUnitCycle } from "../../shared/nodeSharedExports";
-import { rejectInvalidBranchNameShape } from "../../../../git/branchName";
+import { z } from 'zod';
+import { detectUnitCycle } from '../../shared/nodeSharedExports';
+import { rejectInvalidBranchNameShape } from '../../../../git/branchName';
+import { PlanTurnKind } from './constants/planTurn';
 
 // ── step schema (shared by every plan response) ──────────────────────────────
 
@@ -13,7 +14,7 @@ import { rejectInvalidBranchNameShape } from "../../../../git/branchName";
 const PlanStepBase = z.object({
   id: z.string().optional(),
   title: z.string().min(1),
-  detail: z.string().default(""),
+  detail: z.string().default(''),
   files: z.array(z.string()).default([]),
   branch: z
     .string()
@@ -25,7 +26,7 @@ const PlanStepBase = z.object({
         rejectInvalidBranchNameShape(b);
       } catch (e: unknown) {
         const msg = e instanceof Error ? e.message : String(e);
-        ctx.addIssue({ code: "custom", message: msg });
+        ctx.addIssue({ code: 'custom', message: msg });
       }
     }),
 });
@@ -64,9 +65,9 @@ export const PlanBranch = z.object({
   name: z
     .string()
     .min(1)
-    .regex(/^[a-z0-9][a-z0-9-]*$/, "branch names must be lowercase alphanumeric + hyphens"),
+    .regex(/^[a-z0-9][a-z0-9-]*$/, 'branch names must be lowercase alphanumeric + hyphens'),
   title: z.string().min(1),
-  scope: z.string().default(""),
+  scope: z.string().default(''),
   files: z.array(z.string()).default([]),
   steps: z.array(z.string()).default([]),
   dependsOn: z.array(z.string()).default([]),
@@ -96,7 +97,7 @@ export const PlanArtifactMetaSchema = z.object({
 
 /** Safe-parse persisted plan artifact meta; corrupt or legacy shapes → null. */
 export const parsePlanArtifactMeta = (raw: unknown): PlanMeta | null => {
-  if (!raw || typeof raw !== "object") return null;
+  if (!raw || typeof raw !== 'object') return null;
   const parsed = PlanArtifactMetaSchema.safeParse(raw);
   if (!parsed.success) return null;
   return { steps: parsed.data.steps, branches: parsed.data.branches };
@@ -133,7 +134,7 @@ export const PlanResponse = z
     const branchNames = new Set<string>();
     for (const b of val.branches ?? []) {
       if (branchNames.has(b.name)) {
-        ctx.addIssue({ code: "custom", path: ["branches"], message: `duplicate branch name "${b.name}"` });
+        ctx.addIssue({ code: 'custom', path: ['branches'], message: `duplicate branch name "${b.name}"` });
       }
       branchNames.add(b.name);
     }
@@ -142,8 +143,8 @@ export const PlanResponse = z
         for (const dep of b.dependsOn) {
           if (!branchNames.has(dep)) {
             ctx.addIssue({
-              code: "custom",
-              path: ["branches"],
+              code: 'custom',
+              path: ['branches'],
               message: `dependsOn references unknown branch "${dep}"`,
             });
           }
@@ -153,13 +154,13 @@ export const PlanResponse = z
       // scheduler — the split runtime fails expansion on one (§3), so the
       // plan contract rejects it here, where the retry feedback can fix it
       const cycle = detectUnitCycle(
-        (val.branches ?? []).map((b) => ({ key: b.name, title: b.title, dependsOn: b.dependsOn, item: b })),
+        (val.branches ?? []).map(b => ({ key: b.name, title: b.title, dependsOn: b.dependsOn, item: b }))
       );
       if (cycle) {
         ctx.addIssue({
-          code: "custom",
-          path: ["branches"],
-          message: `branch dependency cycle: ${cycle.join(" → ")}`,
+          code: 'custom',
+          path: ['branches'],
+          message: `branch dependency cycle: ${cycle.join(' → ')}`,
         });
       }
       for (const s of val.steps) {
@@ -168,8 +169,8 @@ export const PlanResponse = z
           // identity the checklist publishes
           const id = s.id?.trim() || `s${val.steps.indexOf(s) + 1}`;
           ctx.addIssue({
-            code: "custom",
-            path: ["steps"],
+            code: 'custom',
+            path: ['steps'],
             message: `step "${id}" references unknown branch "${s.branch}"`,
           });
         }
@@ -179,7 +180,7 @@ export const PlanResponse = z
     val.steps.forEach((s, i) => {
       const id = s.id?.trim() || `s${i + 1}`;
       if (seen.has(id)) {
-        ctx.addIssue({ code: "custom", path: ["steps"], message: `duplicate step id "${id}"` });
+        ctx.addIssue({ code: 'custom', path: ['steps'], message: `duplicate step id "${id}"` });
       }
       seen.add(id);
     });
@@ -207,7 +208,7 @@ export const SubPlanResponse = z
     val.steps.forEach((s, i) => {
       const id = s.id?.trim() || `s${i + 1}`;
       if (seen.has(id)) {
-        ctx.addIssue({ code: "custom", path: ["steps"], message: `duplicate step id "${id}"` });
+        ctx.addIssue({ code: 'custom', path: ['steps'], message: `duplicate step id "${id}"` });
       }
       seen.add(id);
     });
@@ -225,7 +226,7 @@ export const SubPlanPatch = z
   })
   .superRefine((val, ctx) => {
     if (!val.markdown && !val.upsertSteps?.length && !val.removeStepIds?.length) {
-      ctx.addIssue({ code: "custom", message: "subPlanPatch must include at least one change" });
+      ctx.addIssue({ code: 'custom', message: 'subPlanPatch must include at least one change' });
     }
   });
 export type SubPlanPatch = z.infer<typeof SubPlanPatch>;
@@ -243,7 +244,7 @@ export const PlanTurnOutput = z
   .superRefine((val, ctx) => {
     const publishKeys = [val.plan, val.subPlan, val.subPlanPatch].filter(p => p != null);
     if (publishKeys.length > 1) {
-      ctx.addIssue({ code: "custom", message: "use at most one of plan, subPlan, subPlanPatch" });
+      ctx.addIssue({ code: 'custom', message: 'use at most one of plan, subPlan, subPlanPatch' });
     }
   });
 export type PlanTurnOutput = z.infer<typeof PlanTurnOutput>;
@@ -268,14 +269,12 @@ export const PlanInput = z.object({
   prompt: z.string().nullable().default(null),
   /** prompt is the user-editable body only — append internal instructions at run time */
   promptIsBody: z.boolean().default(false),
-  /** decompose into sub-agents for repo exploration (pre-publish prompt assembly) */
-  decompose: z.boolean().default(false),
   /** per-run model override */
   model: z.string().nullable().default(null),
   /** branch thread for unified-turn recovery (recorded on turn runs). */
   planThread: z.string().nullable().default(null),
   /** unified turn kind for recovery replay (`applyTurnResult`). */
-  planTurnKind: z.enum(['pre-publish', 'whole', 'branch']).nullable().default(null),
+  planTurnKind: z.enum(PlanTurnKind).nullable().default(null),
   /** user message for unified-turn recovery replay. */
   turnUserMessage: z.string().nullable().default(null),
   /** node status before a turn run started (reply-only recovery). */
