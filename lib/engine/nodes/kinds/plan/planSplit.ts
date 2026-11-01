@@ -1,8 +1,10 @@
-import "server-only";
+import 'server-only';
 
 import type { FlowCtx, SplitUnit } from '../../shared/nodeSharedExports';
 import type { PlanStore } from './planStore';
 import type { ExecutionKnob } from './planPrompt';
+
+import { MAIN_PLAN_THREAD_TAB_ID } from './constants/planThread';
 
 /**
  * The plan's split source port (agent-node split plan §2.1): the plan's
@@ -15,7 +17,7 @@ import type { ExecutionKnob } from './planPrompt';
 export class PlanSplitter {
   constructor(
     private readonly store: PlanStore,
-    private readonly knobOf: (ctx: FlowCtx) => ExecutionKnob,
+    private readonly knobOf: (ctx: FlowCtx) => ExecutionKnob
   ) {}
 
   /**
@@ -62,4 +64,13 @@ export class PlanSplitter {
     }
     return 'whole';
   }
+
+  static getPlanThread = (thread?: string | null): string | null => {
+    const trimmed = thread?.trim();
+
+    if (!trimmed) return null;
+    if (trimmed === MAIN_PLAN_THREAD_TAB_ID) return null;
+
+    return trimmed;
+  };
 }

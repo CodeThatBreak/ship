@@ -42,9 +42,8 @@ import { mergeArena } from './runtime/fanout/mergeArena';
 import { DEFAULT_SPLIT_OUTPUT, splitManager, type SplitChildPayload } from './runtime/split/splitManager';
 import { worktreeManager } from './runtime/worktreeLifecycle';
 import { processSingleton } from '../singleton';
-import { normalizePlanThread } from './nodes/kinds/plan/constants/planThread';
-import { PlanStore } from './nodes/kinds/plan/planStore';
-import { ConflictError, DomainError, NotFoundError, ValidationError } from '../errors';
+
+import { ConflictError, NotFoundError, ValidationError } from '../errors';
 import { RunSupersededError } from './errors/runSupersededError';
 import { CommentIngestor } from './runtime/commentIngestor';
 import { EdgeActivator } from './runtime/edgeActivator';
@@ -1125,12 +1124,6 @@ export class FlowEngine {
    */
   sendChat(flowId: string, nodeKey: string, content: string, model?: string, thread?: string | null): void {
     const def = this.defOf(flowId, nodeKey);
-    if (def.chainRole === NODE_KEYS.PLAN) {
-      const branch = normalizePlanThread(thread);
-      if (branch && !new PlanStore(nodeSupport).scopedRefine(flowId, branch)) {
-        throw new ValidationError(`branch "${branch}" not found in the current plan`);
-      }
-    }
     db.addMessage(flowId, nodeKey, 'user', content, thread ?? null);
     this.claimNode(flowId, nodeKey, ['pending', 'awaiting_approval', 'failed']);
 
@@ -1140,12 +1133,16 @@ export class FlowEngine {
       nodeKey,
       async () => {
         const flowCtx = this.ctx(flowId);
-        const reply =
-          (await nodeRoles.chatRefinerOf(def)?.turn(flowCtx, content, {
-            model,
-            thread,
-          })) ?? CHAT_DECLINED;
-        db.addMessage(flowId, nodeKey, 'assistant', reply || 'Done.', thread);
+        const chatRefiner = nodeRoles.chatRefinerOf(def);
+
+        const chatResponse = !chatRefiner
+          ? CHAT_DECLINED
+          : await chatRefiner.turn(flowCtx, content, {
+              model,
+              thread,
+            });
+
+        db.addMessage(flowId, nodeKey, 'assistant', chatResponse || 'Done.', thread);
       },
       nodeKey
     );

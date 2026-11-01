@@ -1,4 +1,4 @@
-import "server-only";
+import 'server-only';
 
 import { z } from 'zod';
 import type { AgentRunResult } from '../../../ports/agentPort';
@@ -20,20 +20,20 @@ import { DEFAULT_MCP_SOURCES, configString, mcpSourcesOf, mcpSourcesSchema } fro
 import { agentRunner, type AgentRunner } from '../../../harness/harnessExports';
 import { flowCtxHelper, nodeSupport, type FlowContextHelper, type NodeSupport } from '../../shared/nodeSharedExports';
 import { PlanInput, PlanOutput } from './schema';
-import { AgentOutputError, AGENT_OUTPUT_ERROR, type AgentOutputError as AgentOutputErrorT } from '../../shared/agent/outputError/outputErrorExports';
+import {
+  AgentOutputError,
+  AGENT_OUTPUT_ERROR,
+  type AgentOutputError as AgentOutputErrorT,
+} from '../../shared/agent/outputError/outputErrorExports';
 import { RunSupersededError } from '../../../errors/runSupersededError';
 import { PlanAgentSessions } from './planAgentSessions';
-import { normalizePlanThread } from './constants/planThread';
+
 import type { PlanTurnKind } from './planContract';
 
 import { PROMPT_KEYS } from './constants/promptKeys';
 import { AGENT_CONFIG_FIELDS } from './constants/config/planConfigExports';
 import { RETRYABLE_OUTPUT_ERRORS } from './constants/retryableErrors';
-import {
-  PLAN_CHAT_LABEL,
-  planValidationFailedEvent,
-  planValidationRefusalReply,
-} from './constants/refine';
+import { PLAN_CHAT_LABEL, planValidationFailedEvent, planValidationRefusalReply } from './constants/refine';
 
 import { PlanStore } from './planStore';
 import { PlanContextBlocks } from './planContext';
@@ -42,6 +42,7 @@ import { PlanOutputContract } from './planContract';
 import { PlanSplitter } from './planSplit';
 
 import type { PlanRunArgs } from './types/planTypeExports';
+import { ValidationError } from '@/lib/errors';
 
 /**
  * The Plan node (the chat's first-class node): a thin orchestrator over its
@@ -133,7 +134,7 @@ export class PlanNode extends AgentRunNode<PlanInput, PlanOutput> {
   constructor(
     support: NodeSupport = nodeSupport,
     runner: AgentRunner = agentRunner,
-    ctxHelper: FlowContextHelper = flowCtxHelper,
+    ctxHelper: FlowContextHelper = flowCtxHelper
   ) {
     super(support, runner, ctxHelper);
     this.store = new PlanStore(support);
@@ -159,9 +160,9 @@ export class PlanNode extends AgentRunNode<PlanInput, PlanOutput> {
   override async turn(
     ctx: FlowCtx,
     content: string,
-    opts?: { model?: string; thread?: string | null },
+    opts?: { model?: string; thread?: string | null }
   ): Promise<string> {
-    const branch = normalizePlanThread(opts?.thread);
+    const branch = PlanSplitter.getPlanThread(opts?.thread);
     const config = this.parseRunConfig(this.nodeConfig(ctx));
     const node = this.node(ctx);
     const userRules = typeof config.prompt_rules === 'string' ? config.prompt_rules : '';
@@ -171,7 +172,7 @@ export class PlanNode extends AgentRunNode<PlanInput, PlanOutput> {
     if (branch) {
       const scoped = this.store.scopedRefine(ctx.flow.id, branch);
       if (!scoped) {
-        throw new Error(`branch "${branch}" not found in the current plan`);
+        throw new ValidationError(`branch "${branch}" not found in the current plan`);
       }
       return this.runPlanTurn(ctx, content, {
         turnKind: 'branch',
@@ -262,7 +263,7 @@ export class PlanNode extends AgentRunNode<PlanInput, PlanOutput> {
           settingSources: args.settingSources,
         }),
       args.label,
-      { attemptId: attemptId ?? undefined },
+      { attemptId: attemptId ?? undefined }
     );
 
     try {
@@ -300,7 +301,7 @@ export class PlanNode extends AgentRunNode<PlanInput, PlanOutput> {
       return applied.reply;
     } catch (e: unknown) {
       if (e instanceof RunSupersededError) {
-        return "";
+        return '';
       }
       const revert = (patch: Record<string, unknown>) => {
         if (attemptId) {
@@ -393,18 +394,18 @@ export class PlanNode extends AgentRunNode<PlanInput, PlanOutput> {
     if (params.branch) {
       const scoped = this.store.scopedRefine(ctx.flow.id, params.branch);
       if (!scoped) return null;
-      const vars = this.prompt.scopedVars(ctx, scoped, "", []);
+      const vars = this.prompt.scopedVars(ctx, scoped, '', []);
       const asm = prompts.assemblePrompt(
-        "plan_subplan_refine",
+        'plan_subplan_refine',
         vars,
-        { feedback: "" },
-        { userRules: configString(this.nodeConfig(ctx), "prompt_rules") },
+        { feedback: '' },
+        { userRules: configString(this.nodeConfig(ctx), 'prompt_rules') }
       );
       return {
-        templateKey: "plan_subplan_refine",
+        templateKey: 'plan_subplan_refine',
         configBody: null,
         assembly: asm,
-        rulesKey: "prompt_rules",
+        rulesKey: 'prompt_rules',
       };
     }
 
@@ -413,9 +414,9 @@ export class PlanNode extends AgentRunNode<PlanInput, PlanOutput> {
       NODE_KEYS.PLAN,
       { ticket: this.ctxHelper.taskContext(ctx), ticket_type: this.ctxHelper.taskLabel(ctx) },
       undefined,
-      { body: configBody, userRules: nodeRoles.previewRules(this, node) },
+      { body: configBody, userRules: nodeRoles.previewRules(this, node) }
     );
-    return { templateKey: NODE_KEYS.PLAN, configBody, assembly: asm, rulesKey: "prompt_rules" };
+    return { templateKey: NODE_KEYS.PLAN, configBody, assembly: asm, rulesKey: 'prompt_rules' };
   }
 
   /**
