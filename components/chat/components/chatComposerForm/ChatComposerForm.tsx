@@ -1,7 +1,5 @@
 'use client';
 
-'use client';
-
 import {
   useRef,
   useState,
@@ -186,7 +184,9 @@ export default function ChatComposerForm({
         </div>
       ) : (
         <InputGroup>
-          <ScrollArea className="max-h-[40vh] flex-1 w-full">{textarea}</ScrollArea>
+          <ScrollArea className="max-h-[30vh] flex-1 w-full" viewportClassName="max-h-[30vh]">
+            {textarea}
+          </ScrollArea>
           <InputGroupAddon align="block-end">
             <ModelSelector value={modelChoice} onChange={onModelChange} />
             {aside}
