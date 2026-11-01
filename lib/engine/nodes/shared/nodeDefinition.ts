@@ -56,7 +56,17 @@ export interface NodeTriggerRun {
  * `AgentRunNode` for the run lifecycle, `base/node-roles.ts` for the role
  * interfaces they dispatch through.
  */
+const NODE_DEFINITION_BRAND = "devflow.NodeDefinition.v1";
+
 export abstract class NodeDefinition<I = unknown, O extends Record<string, unknown> = Record<string, unknown>> {
+  /**
+   * HMR-stable brand. `instanceof` cannot be trusted across dev-server
+   * module-graph re-evaluations (a hot-reloaded route gets a fresh class
+   * copy, while the `globalThis`-pinned kind registry still holds instances
+   * built by the previous copy) — cross-boundary checks use
+   * `isNodeDefinition`, which compares this brand instead.
+   */
+  static readonly IS_NODE_DEFINITION = NODE_DEFINITION_BRAND;
   /** stable node key, e.g. "plan" */
   abstract readonly key: string;
   /** UI label, e.g. "Plan" */
@@ -370,6 +380,19 @@ export abstract class NodeDefinition<I = unknown, O extends Record<string, unkno
     return this.ctxHelper.makeDiff(ctx, branch);
   }
 }
+
+/**
+ * Type guard for any `NodeDefinition` instance, stable across dev-server
+ * module-graph re-evaluations — the instanceof-proof counterpart to the
+ * class's HMR-stable brand (see `NodeDefinition.IS_NODE_DEFINITION`).
+ */
+export const isNodeDefinition = (
+  value: unknown,
+): value is NodeDefinition<unknown, Record<string, unknown>> => {
+  if (typeof value !== "object" || value === null) return false;
+  const ctor = (value as { constructor?: { IS_NODE_DEFINITION?: string } }).constructor;
+  return ctor?.IS_NODE_DEFINITION === NODE_DEFINITION_BRAND;
+};
 
 function formatZodConfigError(nodeKey: string, error: z.ZodError): Error {
   const first = error.issues[0];

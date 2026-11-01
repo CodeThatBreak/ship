@@ -3,7 +3,7 @@ import "server-only";
 import { z } from "zod";
 import { nodeRegistry } from "@/lib/engine/nodes/registry";
 import "@/lib/engine/nodes/declarativeBootstrap";
-import { NodeDefinition } from "@/lib/engine/nodes/shared/nodeDefinition";
+import { isNodeDefinition } from "@/lib/engine/nodes/shared/nodeDefinition";
 import { processSingleton } from "@/lib/singleton";
 import { templateStore } from "@/lib/engine/templates/templateStore";
 import { prompts } from "@/lib/engine/prompts/promptLibrary";
@@ -117,7 +117,7 @@ export class ContractService {
         return e instanceof Error ? e.message : String(e);
       }
     })();
-    if (!(inst instanceof NodeDefinition)) {
+    if (!isNodeDefinition(inst)) {
       return Response.json(
         {
           error:
