@@ -172,7 +172,7 @@ export const NodeRow = z.object({
   type: z.string(),
   status: z.enum(NODE_STATUSES),
   /** Set when the node is claimed for a run; fences terminal writes and late agent results. */
-  attempt_id: z.string().optional(),
+  attempt_id: z.string().nullable(),
   agent_id: z.string().nullable(),
   /** runtime agent handle (cloud agent id / local session id) */
   agent_ref: z.string().nullable(),

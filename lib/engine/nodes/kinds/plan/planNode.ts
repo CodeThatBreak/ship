@@ -248,7 +248,7 @@ export class PlanNode extends AgentRunNode<PlanInput, PlanOutput> {
           settingSources: args.settingSources,
         }),
       args.label,
-      { attemptId }
+      { attemptId: attemptId ?? undefined }
     );
 
     try {
