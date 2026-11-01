@@ -10,157 +10,84 @@ last_reviewed: 2026-11-01
 
 ## Summary
 
-Declarative nodes are template-defined node types: a `node_templates` row with kind `agent` | `decision` | `http` | `script` and a JSON `config` becomes a runnable `NodeDefinition` at resolve time through the declarative kind registry. They are authored in the template editor or imported from YAML, and give flows custom agent steps, branch decisions, outbound HTTP and local scripts without new engine code. Each kind has a zod def schema — validated at creation, checked statically at template save/import, and re-validated loudly at run time — and one runtime class that reuses the shared node and agent-run lifecycles.
+Declarative nodes are workflow node types defined by **data** — `node_templates` rows with a `kind` (`agent`, `decision`, `http`, `script`) and a validated config — rather than by registered code. Each row hydrates into a runtime `NodeDefinition` on demand, so teams compose custom flows in the template editor without touching the engine. They reuse the full node infrastructure (status, streaming, artifacts, output validation, config layering) and add no new orchestration concepts.
 
-## Registration pipeline (parse → register → resolve)
+## Architecture
 
-Three pieces cooperate:
-
-1. **Kind registration.** Each kind module self-registers on `declarativeKindRegistry` (`lib/engine/nodes/declarativeRegistry.ts`) with its zod schema and an `instantiate(row, inst)` factory. `lib/engine/nodes/declarativeWiring.ts` is the side-effect import list; `lib/engine/nodes/declarativeBootstrap.ts` pulls it in and calls `wireDeclarativeResolver(declarativeDef)` — imported once by `lib/engine/flowEngine.ts` at engine startup.
-2. **Row → def hydration.** `declarativeDef(defKey, inst)` (`lib/engine/nodes/declarative.ts`) loads the `node_templates` row (by id, or by `key` for non-builtin rows), parses the config JSON, and instantiates the runtime class. Results memoize in `DeclarativeDefCache` keyed `defKey#inst`; `invalidateDeclarativeDef` drops every instance of a def when its row changes.
-3. **Registry resolution.** `NodeRegistry.resolve(key, inst)` (`lib/engine/nodes/registry.ts`) returns builtins by registry key; anything else falls through to the wired declarative resolver, so engine code never branches on builtin vs declarative.
+### Registration and resolution
 
 ```mermaid
 flowchart LR
-  subgraph startup [Engine startup]
-    FE[flowEngine] --> BS[declarativeBootstrap]
-    BS --> W[declarativeWiring<br/>side-effect kind imports]
-    W --> KR[declarativeKindRegistry<br/>agent / decision / http / script]
-    BS --> WR[wireDeclarativeResolver]
-  end
-  subgraph resolve [Resolve time]
-    NR[NodeRegistry.resolve key, inst] -->|builtin hit| DEF1[builtin def]
-    NR -->|miss| DD[declarativeDef]
-    DD --> CACHE{DeclarativeDefCache}
-    CACHE -->|miss| ROW[(node_templates row)]
-    ROW --> KR2[kind instantiate]
-    KR2 --> DEF2[runtime NodeDefinition]
-    CACHE -->|hit| DEF2
-  end
-  WR -.resolver.-> NR
+  A[node_templates row: kind + config] -->|declarativeDef defKey, inst| B[DeclarativeDefCache]
+  B -->|miss| C[loadRow by id or key]
+  C --> D[DeclarativeKindRegistry.instantiate]
+  D --> E[runtime NodeDefinition per row + instance]
+  F[NodeRegistry.resolve] -->|builtin miss| B
 ```
 
-`templateStore.graph()` decides the `defKey`: builtins resolve by their `node_templates.key`, declarative rows by their row `id` (`is_builtin = 0`), with `inst` = the template instance's `node_key` so one catalog def can run as several labeled instances.
+- `declarativeBootstrap.ts` (imported once by `flowEngine.ts`) wires `declarativeDef` as the `NodeRegistry` declarative resolver and side-effect-imports `declarativeWiring.ts`, which registers each kind's runtime class on the `DeclarativeKindRegistry`.
+- `declarative.ts` loads the row (by id, or by `key` for non-builtin rows), instantiates through the kind registry, and caches defs in `DeclarativeDefCache` keyed `defKey#instanceKey`; `invalidateDeclarativeDef` drops entries on template edit.
+- Both registries are HMR-safe `processSingleton`s.
 
-## Data model: rows and config layers
+### Base classes (`nodes/shared/declarativeNode.ts`)
 
-- **`node_templates` row:** `id`, `key`, `name`, `kind`, `description`, `icon`, `config` (JSON text), `is_builtin = 0`, optional `template_id` (template-local rows, invisible to other templates' palettes). Creation goes through `TemplateStore.createNodeTemplate` / `ensureNodeTemplate`, which validate the config against the kind schema before insert.
-- **Effective config at run time** (`NodeDefinition.nodeConfig`): class defaults (for a declarative def, the catalog row config) ← app-settings layer (`settings["node_config.<defKey>"]`) ← the flow node row's config snapshot. Later layers win per key.
-- **Run config validation** (`lib/engine/nodes/shared/declarativeRunConfig.ts`): the merged config is parsed against the kind schema on every run — loud failure naming the first zod issue, no catalog fallback.
+- `DeclarativeNode` — identity (key = instance key ?? row id, label = row name), config validation via `parseDeclarativeRunConfig` (loud failure, no catalog fallback), and `holdsForApproval` (the instance's trigger type in the flow's template graph).
+- `DeclarativeAgentNode` — the same over the `AgentRunNode` tier, for kinds whose runs may start an agent.
 
-## The `DeclarativeNode` base
+Declarative defs declare **no input contract**: the run input is inherited from upstream `next`-edge outputs (`inheritsParentInput: true`), with `input_map` overlays; everything else reaches the run through flow-context variables (`{{task.*}}`, `{{nodes.X.output.*}}`, …).
 
-`lib/engine/nodes/shared/declarativeNode.ts` provides two abstract bases:
+### Kind contracts (`declarativeSchemas.ts`)
 
-- **`DeclarativeNode<Def>`** extends `NodeDefinition` — for kinds whose runs need no agent (http, script).
-- **`DeclarativeAgentNode<Def>`** extends `AgentRunNode` — for kinds whose runs go through the agent runner (agent, decision; inherits `execute()`, the default `chat()` rerun recipe, and `converse()`).
+| Kind | Runtime class | Config highlights | Output contract |
+|------|---------------|-------------------|-----------------|
+| `agent` | `AgentTemplateNode` (`kinds/agent/agentNode.ts`) | `prompt`, `mode` (`plan` read-only / `agent` workspace run), `model`, `mcp_sources`, `output` (`markdown` / `json` + `output_schema`), declarative `split` source and `split_consume` / `split_parallel_max` consumer knobs | markdown → `{markdown}` + artifact; json → schema-validated payload |
+| `decision` | `DecisionTemplateNode` (`kinds/decision/decisionNode.ts`) | `source` (`expression` / `manual` / `agent`), `question`, `choices` (label + optional JSONata `condition`), `pass` variables forwarded downstream | `{chosen: string[], rationale?}` + pass-mapped fields |
+| `http` | `HttpTemplateNode` (`kinds/http/httpNode.ts`) | `url` / `headers` / `body` with `{{vars}}` and `{{secrets.NAME}}` interpolation, `method`, `timeout_ms`, `response_map` JSONata | `{status, ok, body, headers}` reshaped by `response_map` |
+| `script` | `ScriptTemplateNode` (`kinds/script/scriptNode.ts`) | `runtime` (`shell` / `node` / `python`), `script`, `cwd` (`repo` / `workspace`), `timeout_ms`, allowlisted `env`, `output_schema` | JSON object validated against `output_schema` |
 
-Both bind identity from the row (`key` = instance key or row id, `label` = row name, `description`), expose `defaultConfig()` = the parsed def, route config validation through `parseDeclarativeRunConfig`, and share `holdsForApproval(ctx)` — true when the template instance's trigger is `approval`, so any declarative kind can hold its outcome at `awaiting_approval` for the generic `approve_node`.
+### Per-kind behavior
 
-## Kind contracts
+- **Agent** — renders the prompt through `TemplateRenderer` (PromptLibrary-style variables), runs through the standard agent lifecycle, and validates JSON output against `output_schema`. Output-contract failures classified retryable (`no_json`, `schema_MISMATCH`) get bounded feedback turns; `agent_reported` refusals go to the user, not back to the agent. `capabilities: { refinable: true }` — chat reruns with feedback. The declarative `split` block makes the node a split source (units from a schema-enforced array field, per-item key/target/depends-on paths).
+- **Decision** — picks the flow's branch among its outgoing labeled edges. `expression`: each truthy JSONata condition picks its branch. `manual`: the user picks via the decision card (`choose_node`). `agent`: the question plus flow state go to a plan-mode agent; the `{"choice","rationale"}` return format is appended automatically, and an invalid or ambiguous answer fails the node — the engine never silently picks. With `trigger: approval` the pick holds at `awaiting_approval` pre-selected on the card. Edges activate exactly when their label ∈ `chosen`; everything else resolves inactive → downstream skips. Chat is declined (no `refinable`) — pushback happens through the card; `converse` still works.
+- **HTTP** — every hop goes through the SSRF guard (scheme allowlist, hostname allowlist, pinned public IPs, redirect re-validation — see `platform.md`). `{{secrets.NAME}}` values resolve at execution time only and never persist into rows, inputs, or events.
+- **Script** — execa-based local execution (deliberately not a sandbox — the audience is devs running DevFlow locally). Input arrives on stdin and as `DEVFLOW_INPUT`; output comes from `$DEVFLOW_OUTPUT` or the last stdout line (a node runtime top-level `return` is emitted as output JSON). `timeout_ms` kills the process; non-zero exit fails the node with stderr. Env is allowlisted: PATH/HOME + declared names + DevFlow wiring.
 
-Def schemas live in `lib/engine/nodes/declarativeSchemas.ts`; closed vocabularies in `lib/engine/constants/declarative.ts`.
+The `mergeRequest` kind is **not** declarative — MR creation is the graph-level `MergeRequestService` (`kinds/mergeRequest/mergeRequestService.ts`), driven by the builtin chain; see `gitlab-integration.md`.
 
-### `agent` — `AgentTemplateNode`
+## UI architecture
 
-`lib/engine/nodes/kinds/agent/agentNode.ts`, on the agent-run tier. Def knobs: `prompt`, `mode` (`plan` = read-only judgment, `agent` = repo workspace run), `model` (nullable; may itself be a `{{...}}` ref), `mcp_sources` (ambient MCP setting layers), `output` (`markdown` | `json`), `output_schema`, plus the split knobs (`split`, `split_consume`, `split_parallel_max`).
-
-- **Prompt:** run input's `prompt` (chat-modal rerun) wins over the config prompt; one must be non-empty. Renders `{{vars}}` against the flow context with the inherited upstream output as `{{input.<field>}}` (`inheritsParentInput`). For `output: json`, `composePrompt` appends the output-contract directive (`AgentOutputError.directive`) and, when `split` is declared, the split directive (`splitDirective.ts`). The run record persists the rendered prompt plus its `prompt_source`.
-- **Output contract:** `markdown` publishes `{markdown}` and saves the text as an artifact; `json` extracts a JSON object, honors the agent's self-reported error envelope (`agent_reported` — its reason goes to the user, never retried), and validates against `output_schema` with the local `jsonSchemaLite.ts` validator (every violation reported as `{path, message}` issues).
-- **Retry:** one bounded feedback retry on the same agent session for `no_json` / `schema_mismatch`; a second miss fails the node loudly for manual retry.
-- **Split source:** `splitUnits()` maps the validated output's array at `split.field` into `SplitUnit`s (`key` ← `key_field`, `dependsOn` ← `depends_on_field`, per-item `target` override) — malformed arrays fail like a contract miss. The node never spawns anything; the split runtime consumes the units.
-- **Capabilities:** `refinable: true` — chat re-runs the agent as a follow-up on the same session with the same contract directives.
-
-### `decision` — `DecisionTemplateNode`
-
-`lib/engine/nodes/kinds/decision/decisionNode.ts`, agent-run tier. Def knobs: `source`, `question`, `choices[]` (`label`, `description`, `condition`), `pass` (field → JSONata), `mcp_sources`. Output contract is `{chosen: string[], rationale?}` plus the `pass`-mapped fields; each outgoing edge activates exactly when its label ∈ `chosen`.
-
-- **`expression`:** each choice's `condition` is JSONata over the flow context (`lib/jsonata/eval.ts`); every truthy condition picks its branch. No match or a broken expression fails the node — the engine never silently picks a branch.
-- **`manual`:** holds at `awaiting_approval`; the decision card collects the pick (`choose_node`, validated against the declared labels, duplicates rejected).
-- **`agent`:** the question + flow-state JSON + branch list go to a plan-mode agent; the strict `{"choice","rationale"}` return format is appended automatically. Labels normalize case-insensitively; an invalid or ambiguous answer fails the node.
-- **`pass`:** field → JSONata mappings evaluate once per run and merge into the output beside `chosen`/`rationale`, so every branch's downstream inherits them as `{{input.<field>}}`.
-- With an `approval` trigger, an agent/expression pick is held for confirmation (`approve_node` confirms the pre-selected pick, `choose_node` overrides). No `refinable` — pushback happens through the decision card; conversational follow-ups ride `converse()`.
-
-### `http` — `HttpTemplateNode`
-
-`lib/engine/nodes/kinds/http/httpNode.ts`, plain `DeclarativeNode`. Def knobs: `url`, `method`, `headers`, `body`, `timeout_ms`, `response_map`.
-
-- `url` / `headers` / `body` interpolate `{{vars}}` and `{{secrets.NAME}}` at execution time; secret values never persist into rows, inputs, or events, and error messages are redacted (`lib/engine/secretStore.ts`). Header values reject CR/LF.
-- Every request goes through the SSRF guard (`guardedRequest`, `lib/net/ssrfGuard.ts`): scheme allowlist, hostname allowlist from settings (`settingsService.httpAllowlist()`), pinned public IPs, redirect re-validation.
-- Output contract is fixed `{status, ok, body, headers}` (JSON bodies parsed, oversized payloads capped); an optional `response_map` JSONata reshapes it and must yield an object. A JSON digest artifact is saved. Non-2xx is not a failure; transport/guard errors fail the node with a redacted message.
-- Recovery always returns `false` — a finished run's response cannot be re-materialized, so the node fails for manual retry.
-
-### `script` — `ScriptTemplateNode`
-
-`lib/engine/nodes/kinds/script/scriptNode.ts`, plain `DeclarativeNode`. Def knobs: `runtime` (`shell` | `node` | `python`), `script`, `cwd` (`repo` | `workspace`), `timeout_ms`, `env` allowlist, `output_schema`.
-
-- Local trust model — deliberately **not** a sandbox: scripts run with the user's own trust, exactly like `npm run`. Execution is via execa (promise API, zombie cleanup, cross-platform).
-- Contract: the mapped input JSON arrives on stdin **and** as `$DEVFLOW_INPUT`; the script writes the `$DEVFLOW_OUTPUT` file or its last parseable stdout line is the output JSON (node scripts may top-level `return` the value). Output must be a JSON object and is validated against `output_schema` when declared.
-- Env is allowlisted: `PATH`/`HOME` always, plus the declared names and the DevFlow wiring (`extendEnv: false`). `timeout_ms` kills the process; non-zero exit fails the node with the stderr head.
-- `cwd: workspace` ensures the per-flow worktree the same way an agent run would; `cwd: repo` requires a registered local path. Recovery returns `false` — stdout is not persisted, retry re-runs.
-
-## Capabilities model and UI surface
-
-- UI capabilities (`NodeUiCapabilities`, `lib/engine/nodes/shared/capabilities.ts`) cross to the client in the flow snapshot. Among declarative kinds only `agent` sets one: `refinable: true`, which mounts the generic `NodeChat` rail — its messages call the def's `chat()`.
-- Panels resolve by kind in `components/flows/panels/panelFactory.tsx` (`PANEL_BY_KIND`): `agent` → `AgentView`; `decision` / `http` / `script` → `DeclarativeView`, which dispatches to `DecisionView` (decision card — chosen branch + rationale), `HttpView` (request summary + response artifact), `ScriptView` (script summary + output artifact).
-- Approval semantics: a declarative node's hold IS the generic `approve_node` (`builtinApproval` stays `false`); decisions additionally accept `choose_node`. `run_node` manually starts a pending instance; `set_node_config` writes per-flow overrides.
-- `outputContract()` on each def feeds the configurator's Contract tab, the `GET /api/contracts` endpoint, and static lint; `choices()` feeds the decision editor and card.
-- Authoring forms are data-driven: each def's `configFields` (e.g. `AGENT_CONFIG_FIELDS` under `lib/engine/nodes/kinds/agent/constants/`) describe the configurator drawer, including the shared `mcpSourceConfigFields` and the agent kind's fan-out / split knob groups.
-
-## Static lint rules
-
-`lib/engine/templates/templateLint.ts` runs at template save and import (and via `POST /api/templates/:id/validate`) — pure data, no runtime class instantiation:
-
-- Every `{{nodes.X.output.Y}}` reference resolves statically against the upstream node's output contract (declarative contracts derive straight from the `node_templates` config JSON; builtin outputs stay path-checked only).
-- JSONata compiles in `input_map`, decision `condition` / `pass`, http `response_map`, and edge conditions; the `{{task.*}}` universe comes from the template's declared `trigger.task_type` provider fields.
-- Known roots: `task`, `repo`, `flow`, `trigger`, `nodes`, `input`, `secrets` (fan-out step-child roots `plan` / `step` / `siblings` free-pass).
-- The entry node's start contract lints via `lintStartContract`; node triggers lint against `NODE_TRIGGER_TYPES` / `WAIT_FOR_SOURCES`.
-- Fan-out rules: a non-`whole` fan-out node must sit downstream of a plan node, and its aggregate contract is checked as `steps`.
-
-## YAML import/export
-
-`lib/engine/templates/templateYaml.ts` is the config-as-code path: export writes declarative nodes inline with their **effective** definition (catalog defaults ← instance overrides); import resolves `type` back to catalog rows and find-or-creates missing node templates via `TemplateStore.ensureNodeTemplate` — an identical definition reuses its row, a changed definition becomes a new row for the same key.
-
-## MergeRequest service (not a kind)
-
-`lib/engine/nodes/kinds/mergeRequest/mergeRequestService.ts` is an operation on the graph, not a node def — nothing registers it, and it has no `node_templates` row. It sits between build approval and the CI gate: push the built branch (local mode; hook rejections become `CommitError`), then create-or-reuse the host's change request through the git host port (`gitHostRegistry.forRepo` → `listChangeRequestsByBranch` / `createChangeRequest`), persist `mr_url` / `mr_iid` / project id on the flow or branch row, and reset the gate + review nodes to `pending`.
-
-- `createWithFixes` is the bounded commit-fix loop: a hook-rejected push (`isHookRejection` patterns in `errors.ts` — pre-push/pre-receive/hook declined) invokes the caller's fix callback up to `maxAttempts`; infra failures (network/auth/API) throw immediately for manual retry. The SDLC chain owns what "fix" means (a commit-fix agent on the build step).
-- `errors.ts` also maps failures to `MrCreationFailed` (`toMrCreationFailure`) so MR-creation failures stay distinguishable from later pipeline/review failures.
+`panelFactory.tsx` maps declarative kinds by `node.kind` (checked after the builtin def key): `agent` → `AgentView`; `decision` / `http` / `script` → `DeclarativeView`. Chat rail: `NodeChat` when `refinable` (agent only). Config editing rides the auto-generated form from `configFields` in the template editor's `NodeConfigurator`; contract tabs read `outputContract()`.
 
 ## API surface
 
-| Route / action | Caller | Purpose |
-|----------------|--------|---------|
-| `GET /api/node-templates?templateId=` | Builder palette | Catalog of builtins + declarative rows. |
-| `POST /api/node-templates` | Template editor | Create a declarative node template (config validated via `parseDeclarativeConfig`). |
-| `GET`/`POST /api/contracts` | Configurator, decision card | Resolve a def/instance's input/output contract (and choices). |
-| `POST /api/flows/:id/action` — `run_node`, `approve_node`, `choose_node`, `set_node_config` | Node panels | Manual start, generic approval, branch pick, per-flow config override. |
-| `POST /api/flows/:id/chat` | `NodeChat` (agent kind) | Refinement follow-up on the node's agent session. |
+| Route | Purpose |
+|-------|---------|
+| `GET/POST /api/node-templates`, `GET/PUT/DELETE /api/node-templates/:id` | Catalog CRUD; configs validated by the kind schemas at creation |
+| `POST /api/flows/:id/action` | `choose_node` (decision), generic `approve_node` (approval-triggered holds), `run_node`, `set_node_config` |
+| `POST /api/flows/:id/chat` | Agent-kind refine turns |
+
+## Data model
+
+- **Catalog:** `node_templates` rows (`id`, `key`, `name`, `kind`, `config` JSON, `is_builtin`) — validated by `AgentDefSchema` / `DecisionDefSchema` / `HttpDefSchema` / `ScriptDefSchema` on write.
+- **Instances:** `nodes` rows reference the template; instance-level config overrides merge over the row config (class ← app ← snapshot layering, `parseConfigSnapshot`).
+- **Static checks:** template lint validates decision label/edge matching, JSONata conditions, `{{refs}}` resolution, and split/fan-out contracts before save — see `templates.md`.
 
 ## Out of scope
 
-- The template store itself (graph loading/saving, palettes, drafts, triggers) — covered by `docs/architecture/templates.md`.
-- Builtin SDLC chain nodes (plan/build/pipeline/review/resolve) — see `docs/architecture/plan-node.md` and its siblings.
-- The split runtime's per-unit machinery (`lib/engine/runtime/split/splitManager.ts`) and plan fan-out child flows — this doc covers only the declarative knobs and contracts they consume.
-- Git host provider implementations behind `lib/engine/ports/gitHost.ts`.
+- Template storage, YAML import/export, and lint rules — see `templates.md`.
+- Agent execution internals — see `agent-harness.md`.
+- Builtin node kinds — see the per-node docs.
 
 ## Related code index
 
 | Concern | Location |
 |---------|----------|
-| Kind registry + def cache | `lib/engine/nodes/declarativeRegistry.ts` |
-| Row loading + resolution | `lib/engine/nodes/declarative.ts`, `lib/engine/nodes/registry.ts` (`resolve`) |
-| Startup wiring | `lib/engine/nodes/declarativeBootstrap.ts`, `lib/engine/nodes/declarativeWiring.ts` |
-| Def schemas + vocabularies | `lib/engine/nodes/declarativeSchemas.ts`, `lib/engine/constants/declarative.ts` |
-| Config parse (first-issue errors) | `lib/engine/nodes/declarativeConfigParser.ts`, `lib/engine/nodes/shared/declarativeRunConfig.ts` |
-| Base classes | `lib/engine/nodes/shared/declarativeNode.ts`, `lib/engine/nodes/shared/agentRunNode.ts` |
-| Agent kind | `lib/engine/nodes/kinds/agent/agentNode.ts`, `splitDirective.ts`, `jsonSchemaLite.ts`, `constants/` |
+| Resolution + cache | `lib/engine/nodes/declarative.ts`, `declarativeRegistry.ts` |
+| Bootstrap / wiring | `lib/engine/nodes/declarativeBootstrap.ts`, `declarativeWiring.ts` |
+| Kind config schemas | `lib/engine/nodes/declarativeSchemas.ts` |
+| Base classes | `lib/engine/nodes/shared/declarativeNode.ts`, `declarativeRunConfig.ts` |
+| Agent kind | `lib/engine/nodes/kinds/agent/agentNode.ts` |
 | Decision kind | `lib/engine/nodes/kinds/decision/decisionNode.ts` |
-| HTTP kind + SSRF guard | `lib/engine/nodes/kinds/http/httpNode.ts`, `lib/net/ssrfGuard.ts` |
+| HTTP kind | `lib/engine/nodes/kinds/http/httpNode.ts` |
 | Script kind | `lib/engine/nodes/kinds/script/scriptNode.ts` |
-| MR creation service + errors | `lib/engine/nodes/kinds/mergeRequest/mergeRequestService.ts`, `errors.ts` |
-| Static lint | `lib/engine/templates/templateLint.ts` |
-| YAML import/export | `lib/engine/templates/templateYaml.ts` |
-| Node template CRUD | `app/api/node-templates/route.ts`, `lib/engine/templates/templateStore.ts` |
-| Panels | `components/flows/panels/panelFactory.tsx`, `components/flows/panels/views/DeclarativeView.tsx` |
+| Panels | `components/flows/panels/panelFactory.tsx` |
