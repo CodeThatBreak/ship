@@ -11,12 +11,6 @@ const planStepSchema = z.object({
   branch: z.string().nullable().optional(),
 });
 
-const promptFields = {
-  prompt: z.string().optional(),
-  model: z.string().optional(),
-  promptIsBody: z.boolean().optional(),
-};
-
 const splitUnitFields = {
   unitKey: z.string().min(1),
   consumerNodeKey: z.string().min(1).optional(),
@@ -42,16 +36,16 @@ export const flowActionBodySchema = z.discriminatedUnion("action", [
   }),
   z.object({
     action: z.literal(FLOW_ACTION.PIPELINE),
-    ...promptFields,
+    model: z.string().optional(),
     pipelineId: z.coerce.number().optional(),
   }),
   z.object({
     action: z.literal(FLOW_ACTION.RESOLVE),
-    ...promptFields,
+    model: z.string().optional(),
   }),
   z.object({
     action: z.literal(FLOW_ACTION.REVIEW),
-    ...promptFields,
+    model: z.string().optional(),
   }),
   z.object({
     action: z.literal(FLOW_ACTION.RETRY),

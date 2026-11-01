@@ -40,4 +40,30 @@ describe("flowActionBodySchema", () => {
     });
     expect(missing.success).toBe(false);
   });
+
+  it("drops the retired modal prompt override from review/resolve/pipeline actions", () => {
+    const actions = [FLOW_ACTION.REVIEW, FLOW_ACTION.RESOLVE, FLOW_ACTION.PIPELINE] as const;
+    for (const action of actions) {
+      const result = flowActionBodySchema.parse({
+        action,
+        prompt: "body text",
+        promptIsBody: true,
+        model: "claude-sonnet",
+      });
+      expect(result).not.toHaveProperty("prompt");
+      expect(result).not.toHaveProperty("promptIsBody");
+      // The model selection stays: the footer re-run buttons still send it.
+      expect(result).toHaveProperty("model", "claude-sonnet");
+    }
+  });
+
+  it("still accepts prompt/model on run_node for the chat first-turn path", () => {
+    const result = flowActionBodySchema.safeParse({
+      action: FLOW_ACTION.RUN_NODE,
+      nodeKey: "build",
+      prompt: "body text",
+      model: "claude-sonnet",
+    });
+    expect(result.success).toBe(true);
+  });
 });

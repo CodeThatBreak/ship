@@ -88,8 +88,7 @@ const MAPS = {
     ChatPanelSkeleton: "@/components/chat/ChatPanelSkeleton",
     ModelSelector: "@/components/chat/ModelSelector",
     useModels: "@/components/chat/hooks/useModels",
-    PromptModal: "@/components/chat/promptModal/PromptModal",
-    ComposerConfig: "@/components/chat/composerConfig",
+      ComposerConfig: "@/components/chat/composerConfig",
     ChatTab: "@/components/chat/types",
     ChatInputHandle: "@/components/chat/types",
     ChatAction: "@/components/chat/types/action",
@@ -134,7 +133,6 @@ const rewriteImport = (full, typeOnly, clause, barrel) => {
         mod.endsWith("/FlowCockpit") ||
         mod.endsWith("/ChatPanel") ||
         mod.endsWith("/ChatPanelSkeleton") ||
-        mod.endsWith("/PromptModal") ||
         mod.endsWith("/EditorPage");
       if (isDefault && items.length === 1 && !items[0].isType) {
         return `import ${items[0].imported} from "${mod}";`;

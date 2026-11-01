@@ -769,16 +769,16 @@ export class FlowEngine {
   }
 
   /** (Re)run the pipeline gate — from the Pipeline panel, poller, or webhook. */
-  triggerPipelineGate(flowId: string, pipelineId?: number, prompt?: string, model?: string, promptIsBody?: boolean): void {
-    this.chain.triggerPipelineGate(flowId, pipelineId, prompt, model, promptIsBody);
+  triggerPipelineGate(flowId: string, pipelineId?: number, model?: string): void {
+    this.chain.triggerPipelineGate(flowId, pipelineId, model);
   }
 
-  triggerResolve(flowId: string, prompt?: string, model?: string, promptIsBody?: boolean): void {
-    this.chain.triggerResolve(flowId, prompt, model, promptIsBody);
+  triggerResolve(flowId: string, model?: string): void {
+    this.chain.triggerResolve(flowId, model);
   }
 
-  triggerReview(flowId: string, prompt?: string, model?: string, promptIsBody?: boolean): void {
-    this.chain.triggerReview(flowId, prompt, model, promptIsBody);
+  triggerReview(flowId: string, model?: string): void {
+    this.chain.triggerReview(flowId, model);
   }
 
   /**

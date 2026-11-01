@@ -23,19 +23,13 @@ const dispatchAction = async (flowId: string, body: FlowActionBody): Promise<voi
       flowEngine.approveBuild(flowId, body.branch);
       break;
     case FLOW_ACTION.PIPELINE:
-      flowEngine.triggerPipelineGate(
-        flowId,
-        body.pipelineId,
-        body.prompt,
-        body.model,
-        body.promptIsBody,
-      );
+      flowEngine.triggerPipelineGate(flowId, body.pipelineId, body.model);
       break;
     case FLOW_ACTION.RESOLVE:
-      flowEngine.triggerResolve(flowId, body.prompt, body.model, body.promptIsBody);
+      flowEngine.triggerResolve(flowId, body.model);
       break;
     case FLOW_ACTION.REVIEW:
-      flowEngine.triggerReview(flowId, body.prompt, body.model, body.promptIsBody);
+      flowEngine.triggerReview(flowId, body.model);
       break;
     case FLOW_ACTION.RETRY:
       flowEngine.retryNode(flowId, body.nodeKey);

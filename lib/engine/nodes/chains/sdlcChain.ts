@@ -147,7 +147,7 @@ export class SdlcChain {
   }
 
   /** (Re)run the pipeline gate — from the Pipeline panel, poller, or webhook. */
-  triggerPipelineGate(flowId: string, pipelineId?: number, prompt?: string, model?: string, promptIsBody?: boolean): void {
+  triggerPipelineGate(flowId: string, pipelineId?: number, model?: string): void {
     if (this.host.chainBusy(flowId)) return;
     const gate = this.host.gateKey(flowId);
     if (!gate) throw new Error("this flow template has no pipeline gate node");
@@ -155,15 +155,14 @@ export class SdlcChain {
     this.host.setCurrentNode(flowId, gate);
     this.host.bg(flowId, gate, async () => {
       await this.host.runNode(flowId, gate, {
-        branchName: null, pipelineId: pipelineId ?? null, guidance: null,
-        prompt: prompt ?? null, promptIsBody: promptIsBody ?? false, model: model ?? null,
+        branchName: null, pipelineId: pipelineId ?? null, guidance: null, model: model ?? null,
       });
       await this.host.advanceFrom(flowId, gate);
     });
   }
 
   /** Manual resolve run (Run button / API): run the stage, then the edges. */
-  triggerResolve(flowId: string, prompt?: string, model?: string, promptIsBody?: boolean): void {
+  triggerResolve(flowId: string, model?: string): void {
     const resolveKey = this.host.keyOfRole(flowId, NODE_KEYS.RESOLVE);
     if (!resolveKey) return;
     if (this.host.nodeRunning(flowId, resolveKey)) return;
@@ -176,14 +175,14 @@ export class SdlcChain {
     this.host.setCurrentNode(flowId, resolveKey);
     this.host.bg(flowId, resolveKey, async () => {
       await this.host.runNode(flowId, resolveKey, {
-        instructions: null, prompt: prompt ?? null, promptIsBody: promptIsBody ?? false, branchName: null, model: model ?? null,
+        instructions: null, branchName: null, model: model ?? null,
       });
       await this.host.advanceFrom(flowId, resolveKey);
     });
   }
 
   /** Manual review run (Run button / API): run the stage, then the edges. */
-  triggerReview(flowId: string, prompt?: string, model?: string, promptIsBody?: boolean): void {
+  triggerReview(flowId: string, model?: string): void {
     const reviewKey = this.host.keyOfRole(flowId, NODE_KEYS.REVIEW);
     if (!reviewKey) throw new Error("this flow template has no review node");
     if (this.host.chainBusy(flowId)) throw new Error("wait for the current pipeline/review/resolve run to finish first");
@@ -191,7 +190,7 @@ export class SdlcChain {
     this.host.setCurrentNode(flowId, reviewKey);
     this.host.bg(flowId, reviewKey, async () => {
       await this.host.runNode(flowId, reviewKey, {
-        instructions: null, prompt: prompt ?? null, promptIsBody: promptIsBody ?? false, branchName: null, model: model ?? null,
+        instructions: null, branchName: null, model: model ?? null,
       });
       await this.host.advanceFrom(flowId, reviewKey);
     });
