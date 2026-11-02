@@ -871,12 +871,21 @@ export class FlowEngine {
         throw new Error('upstream nodes must finish before this run can start');
       }
       // `input` carries the values the user provided at trigger time (the
-      // start node's contract form) — it IS the payload. prompt/model keep
-      // today's shape for agent nodes when no explicit input is passed.
+      // start node's contract form) — it IS the payload. With no explicit
+      // input, agent-style nodes (inheritsParentInput) take the merged
+      // upstream outputs — the manual path must mirror the engine's auto
+      // start (EdgeActivator.startNodeStage), otherwise `{{input.*}}` renders
+      // empty — and prompt/model keep today's shape for agent nodes on top.
       const rawInput =
         opts.input && typeof opts.input === 'object'
           ? { ...opts.input }
-          : { prompt: opts.prompt ?? null, model: opts.model ?? null };
+          : {
+              ...(def.inheritsParentInput
+                ? this.edges.inheritedInput(flowId, nodeKey, this.ctx(flowId))
+                : {}),
+              prompt: opts.prompt ?? null,
+              model: opts.model ?? null,
+            };
       await this.runNode(flowId, nodeKey, rawInput);
       const finalStatus = this.nodeStatus(flowId, nodeKey);
       if (this.isStepChild(flowId)) {
@@ -1125,6 +1134,9 @@ export class FlowEngine {
   sendChat(flowId: string, nodeKey: string, content: string, model?: string, thread?: string | null): void {
     const def = this.defOf(flowId, nodeKey);
     db.addMessage(flowId, nodeKey, 'user', content, thread ?? null);
+    // the pre-claim status decides "did THIS turn land a success terminal":
+    // the claim flips the node to running, so it must be read first
+    const wasSuccess = isNodeTerminalSuccess(this.nodeStatus(flowId, nodeKey));
     this.claimNode(flowId, nodeKey, ['pending', 'awaiting_approval', 'failed']);
 
     this.setCurrentNode(flowId, nodeKey);
@@ -1143,6 +1155,15 @@ export class FlowEngine {
             });
 
         db.addMessage(flowId, nodeKey, 'assistant', chatResponse || 'Done.', thread);
+        // a refine turn that lands the node on a NEW success terminal
+        // (failed → done via feedback, a first-turn chat run) obeys the same
+        // terminal contract as retryNode / runNodeManual: advance the template
+        // edges so the flow never stalls behind a recovery typed in the chat
+        // panel. An already-successful node's refine (done → done) never
+        // re-advances — its downstream already consumed the prior output.
+        if (!wasSuccess && isNodeTerminalSuccess(this.nodeStatus(flowId, nodeKey))) {
+          await this.advanceFrom(flowId, nodeKey);
+        }
       },
       nodeKey
     );

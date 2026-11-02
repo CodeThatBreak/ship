@@ -27,7 +27,14 @@ export class EdgeActivator {
     return templateStore.graphForFlow(flowId);
   }
 
-  private inheritedInput(flowId: string, nodeKey: string, ctx: FlowCtx): Record<string, unknown> {
+  /**
+   * The upstream outputs a node inherits when a `next` edge feeds it (its
+   * parents' outputs merged over the flow context) plus the split payload's
+   * unit. Public because the manual trigger path (`runNodeManual`) must hand a
+   * declarative run the same input the engine's auto start does — otherwise
+   * `{{input.*}}` renders empty for a node started from the runtime panel.
+   */
+  inheritedInput(flowId: string, nodeKey: string, ctx: FlowCtx): Record<string, unknown> {
     const parents = (this.graph(flowId)?.edges ?? [])
       .filter((e) => e.kind === "next" && e.to === nodeKey)
       .map((e) => e.from);
