@@ -12,7 +12,7 @@ const ChatBody = z.object({
   nodeKey: z.string().min(1),
   content: z.string().trim().min(1),
   model: z.string().min(1).optional(),
-  thread: z.string().trim().min(1).optional(),
+  thread: z.string().trim().min(1).nullable(),
 });
 
 export const GET = async (_req: Request, { params }: { params: Promise<{ id: string }> }) => {
