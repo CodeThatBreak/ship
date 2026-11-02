@@ -1,18 +1,18 @@
 import "server-only";
 
-import { execFile } from "child_process";
 import fs from "fs";
 import path from "path";
-import { promisify } from "util";
-import { config } from "../config";
-import { gitHostRegistry } from "../engine/ports/git-host";
-
-const execFileAsync = promisify(execFile);
-
-// never let a git command hang the engine (SSH connect can stall ~75s on a dead remote)
-const GIT_TIMEOUT_MS = 20_000;
-const GIT_FETCH_TIMEOUT_MS = 15_000;
-const MAX_BUFFER = 1024 * 1024 * 50;
+import { processSingleton } from "../singleton";
+import { localBranchBaseCandidates } from "./baseRef";
+import { AuthedUrlResolutionError } from "./gitErrors";
+import {
+  GitRunner,
+  GIT_FETCH_TIMEOUT_MS,
+  gitRunner,
+} from "./gitRunner";
+import { stripCredentialsFromRemoteUrl } from "./stripRemoteCredentials";
+import { workspacePaths } from "./workspacePaths";
+import { assertValidBranchName } from "./branchName";
 
 export interface DiffFile {
   file: string;
@@ -33,53 +33,107 @@ export interface LocalBranchState {
 }
 
 /**
+ * Plain clone URL plus out-of-band git auth env for HTTPS remotes. The engine
+ * supplies this (via the git-host registry) so this module stays engine-free.
+ */
+export type GitRemoteContext = {
+  cloneUrl: string;
+  env: Record<string, string>;
+  redactSecrets: readonly string[];
+};
+
+export type GitRemoteContextResolver = (repoUrl: string) => GitRemoteContext;
+
+/** @deprecated Use {@link GitRemoteContextResolver}. */
+export type AuthedUrlResolver = (repoUrl: string) => string;
+
+/**
  * Local git operations: per-flow clones, branch diffs, pushes and worktrees.
  * Prefers the repo's registered local checkout when available, falling back
  * to a per-flow clone under workspaces/.
  */
 export class LocalGit {
+  constructor(private readonly gitExec: GitRunner = gitRunner) {}
+
   /** Run a git command (never hangs the engine: bounded timeouts). */
   private async git(
     args: string[],
-    opts: { timeout?: number; maxBuffer?: number } = {}
+    opts: {
+      timeout?: number;
+      maxBuffer?: number;
+      env?: Record<string, string>;
+      redactSecrets?: readonly string[];
+    } = {},
   ): Promise<{ stdout: string; stderr: string }> {
-    return execFileAsync("git", args, {
-      maxBuffer: opts.maxBuffer ?? MAX_BUFFER,
-      timeout: opts.timeout ?? GIT_TIMEOUT_MS,
-    });
+    return this.gitExec.run(args, opts);
   }
 
-  private authedUrl(repoUrl: string): string {
-    // the token-embedding scheme (oauth2:<token>@) is the host adapter's —
-    // routing to the right instance lives in the git-host registry
+  private resolveRemote(repoUrl: string, resolve?: GitRemoteContextResolver): GitRemoteContext {
+    if (!resolve) {
+      return { cloneUrl: repoUrl, env: {}, redactSecrets: [] };
+    }
     try {
-      return gitHostRegistry.forRepo(repoUrl).authedCloneUrl(repoUrl);
+      return resolve(repoUrl);
+    } catch (e: unknown) {
+      throw new AuthedUrlResolutionError(repoUrl, e);
+    }
+  }
+
+  /** Clone (or reuse) a repo for a flow and fetch a branch. */
+  async ensureClone(
+    flowId: string,
+    repoUrl: string,
+    resolveRemote?: GitRemoteContextResolver,
+  ): Promise<string> {
+    const dir = this.cloneDir(flowId);
+    fs.mkdirSync(path.dirname(dir), { recursive: true });
+    const remote = this.resolveRemote(repoUrl, resolveRemote);
+    if (!fs.existsSync(path.join(dir, ".git"))) {
+      await this.git(["clone", "--no-checkout", remote.cloneUrl, dir], {
+        timeout: GIT_FETCH_TIMEOUT_MS * 8,
+        env: remote.env,
+        redactSecrets: remote.redactSecrets,
+      });
+    } else {
+      await this.sanitizeOriginRemote(dir);
+    }
+    await this.git(
+      ["-C", dir, "fetch", "origin", "--prune"],
+      { timeout: GIT_FETCH_TIMEOUT_MS, env: remote.env, redactSecrets: remote.redactSecrets },
+    );
+    return dir;
+  }
+
+  async fetchBranch(
+    flowId: string,
+    repoUrl: string,
+    branch: string,
+    resolveRemote?: GitRemoteContextResolver,
+  ): Promise<string> {
+    await assertValidBranchName(branch);
+    const dir = await this.ensureClone(flowId, repoUrl, resolveRemote);
+    const ctx = this.resolveRemote(repoUrl, resolveRemote);
+    await this.git(
+      ["-C", dir, "fetch", "origin", "--end-of-options", branch],
+      { timeout: GIT_FETCH_TIMEOUT_MS, env: ctx.env, redactSecrets: ctx.redactSecrets },
+    ).catch(() => {});
+    return dir;
+  }
+  private async sanitizeOriginRemote(dir: string): Promise<void> {
+    try {
+      const { stdout } = await this.git(["-C", dir, "remote", "get-url", "origin"]);
+      const current = stdout.trim();
+      const plain = stripCredentialsFromRemoteUrl(current);
+      if (plain && plain !== current) {
+        await this.git(["-C", dir, "remote", "set-url", "origin", plain]);
+      }
     } catch {
-      return repoUrl;
+      /* no origin yet */
     }
   }
 
   cloneDir(flowId: string): string {
-    return path.join(config.workspace.dir(), flowId);
-  }
-
-  /** Clone (or reuse) a repo for a flow and fetch a branch. */
-  async ensureClone(flowId: string, repoUrl: string): Promise<string> {
-    const dir = this.cloneDir(flowId);
-    fs.mkdirSync(path.dirname(dir), { recursive: true });
-    if (!fs.existsSync(path.join(dir, ".git"))) {
-      await this.git(["clone", "--no-checkout", this.authedUrl(repoUrl), dir], {
-        timeout: GIT_FETCH_TIMEOUT_MS * 8,
-      });
-    }
-    await this.git(["-C", dir, "fetch", "origin", "--prune"], { timeout: GIT_FETCH_TIMEOUT_MS });
-    return dir;
-  }
-
-  async fetchBranch(flowId: string, repoUrl: string, branch: string): Promise<string> {
-    const dir = await this.ensureClone(flowId, repoUrl);
-    await this.git(["-C", dir, "fetch", "origin", branch], { timeout: GIT_FETCH_TIMEOUT_MS }).catch(() => {});
-    return dir;
+    return workspacePaths.cloneDir(flowId);
   }
 
   /**
@@ -92,15 +146,24 @@ export class LocalGit {
     repoUrl: string,
     branch: string,
     baseRef?: string,
-    localPath?: string | null
+    localPath?: string | null,
+    resolveRemote?: GitRemoteContextResolver,
   ): Promise<{ files: DiffFile[]; stat: string; raw: string }> {
+    await assertValidBranchName(branch);
     let dir: string;
+    const ctx = this.resolveRemote(repoUrl, resolveRemote);
     if (localPath && fs.existsSync(path.join(localPath, ".git"))) {
       dir = localPath;
-      await this.git(["-C", dir, "fetch", "origin", "--prune"], { timeout: GIT_FETCH_TIMEOUT_MS }).catch(() => {});
-      await this.git(["-C", dir, "fetch", "origin", branch], { timeout: GIT_FETCH_TIMEOUT_MS }).catch(() => {});
+      await this.git(
+        ["-C", dir, "fetch", "origin", "--prune"],
+        { timeout: GIT_FETCH_TIMEOUT_MS, env: ctx.env, redactSecrets: ctx.redactSecrets },
+      ).catch(() => {});
+      await this.git(
+        ["-C", dir, "fetch", "origin", "--end-of-options", branch],
+        { timeout: GIT_FETCH_TIMEOUT_MS, env: ctx.env, redactSecrets: ctx.redactSecrets },
+      ).catch(() => {});
     } else {
-      dir = await this.fetchBranch(flowId, repoUrl, branch);
+      dir = await this.fetchBranch(flowId, repoUrl, branch, resolveRemote);
     }
     const target = `origin/${branch}`;
     // make sure base exists; fall back to master
@@ -131,31 +194,48 @@ export class LocalGit {
    * credentials — local-mode philosophy), then falls back to the token-authed
    * HTTPS URL, which often works when SSH is blocked. Throws with a clear error.
    */
-  async pushBranch(localPath: string, branch: string, repoUrl?: string): Promise<"origin" | "https"> {
+  async pushBranch(
+    localPath: string,
+    branch: string,
+    repoUrl?: string,
+    resolveRemote?: GitRemoteContextResolver,
+  ): Promise<"origin" | "https"> {
+    await assertValidBranchName(branch);
     const base = ["-C", localPath];
     const opts = { timeout: GIT_FETCH_TIMEOUT_MS };
     try {
-      await this.git([...base, "push", "-u", "origin", branch], opts);
+      await this.git([...base, "push", "-u", "origin", "--end-of-options", branch], opts);
       return "origin";
-    } catch (e: any) {
-      if (!repoUrl) throw new Error(`git push failed: ${e?.message ?? e}`);
+    } catch (e: unknown) {
+      if (!repoUrl) {
+        const msg = e instanceof Error ? e.message : String(e);
+        throw new Error(`git push failed: ${msg}`);
+      }
     }
-    let lastErr: any = null;
+    const remote = this.resolveRemote(repoUrl, resolveRemote);
+    const pushOpts = {
+      ...opts,
+      env: remote.env,
+      redactSecrets: remote.redactSecrets,
+    };
+    let lastErr: unknown = null;
     // retry once: local pre-push hooks (type checks) can flake, and a push that
     // got killed mid-hook may have actually landed — "Everything up-to-date" then
     // succeeds on the retry
     for (let attempt = 0; attempt < 2; attempt++) {
       try {
-        await this.git([...base, "push", this.authedUrl(repoUrl), `${branch}:${branch}`], opts);
+        await this.git([...base, "push", remote.cloneUrl, "--end-of-options", `${branch}:${branch}`], pushOpts);
         // keep origin/<branch> in sync for later diffs
-        await this.git([...base, "fetch", "origin", branch], opts).catch(() => {});
+        await this.git([...base, "fetch", "origin", "--end-of-options", branch], pushOpts).catch(() => {});
         return "https";
-      } catch (e: any) {
+      } catch (e: unknown) {
         lastErr = e;
       }
     }
+    const lastMsg =
+      lastErr instanceof Error ? lastErr.message : lastErr != null ? String(lastErr) : "unknown error";
     throw new Error(
-      `could not push branch ${branch} — check VPN/network access to the git host and your git credentials (${String(lastErr?.message ?? lastErr).slice(0, 300)})`
+      `could not push branch ${branch} — check VPN/network access to the git host and your git credentials (${lastMsg.slice(0, 300)})`
     );
   }
 
@@ -169,6 +249,7 @@ export class LocalGit {
     branch: string,
     baseBranch = "main"
   ): Promise<LocalBranchState> {
+    await assertValidBranchName(branch);
     const none: LocalBranchState = { exists: false, commitsAhead: 0, commitsBehind: 0, base: baseBranch, stat: "", raw: "", pushed: false };
     const base = ["-C", localPath];
     try {
@@ -178,7 +259,7 @@ export class LocalGit {
     }
     // best available base ref: fetched origin/<base> first, then local <base>/master
     let baseRef = `origin/${baseBranch}`;
-    for (const cand of [baseRef, baseBranch, "origin/master", "master"]) {
+    for (const cand of localBranchBaseCandidates(baseBranch)) {
       try {
         await this.git([...base, "rev-parse", "--verify", cand]);
         baseRef = cand;
@@ -221,13 +302,15 @@ export class LocalGit {
   }
 }
 
-export const localGit = new LocalGit();
+export const localGit = processSingleton("localGit", () => new LocalGit());
 
-/** The per-flow workspace clone directory (`workspaces/<flowId>`), or null when absent. */
+/** The per-flow workspace clone directory (`workspaces/clones/<flowId>`), or null when absent. */
 export function workspaceForFlow(flowId: string): string | null {
-  const dir = path.join(config.workspace.dir(), flowId);
+  const dir = workspacePaths.cloneDir(flowId);
   try {
-    return fs.existsSync(path.join(dir, ".git")) ? dir : null;
+    const dotGit = path.join(dir, ".git");
+    if (!fs.existsSync(dotGit)) return null;
+    return fs.lstatSync(dotGit).isDirectory() ? dir : null;
   } catch {
     return null;
   }

@@ -6,7 +6,7 @@
  * the Phase 0 guidance: shared client types live in `types/`, not on a route
  * file.
  */
-import type { NodeUiCapabilities } from "@/types/node-capabilities";
+import type { NodeUiCapabilities } from "@/types/nodeCapabilities";
 
 /** Config keys a plan/artifact meta blob uses in the panels. */
 export type ArtifactMeta = Record<string, unknown>;
@@ -111,7 +111,7 @@ export type FlowData = {
   resolveScheduleAt?: number | null;
   branches?: BranchRow[];
   planSteps?: PlanStepRow[];
-  /** inbound hooks feeding this flow's waiting nodes (wait_for webhook) */
+  /** inbound hooks feeding this flow's waiting nodes (wait_for webhook); `secret` is masked — use GET /api/hooks/:id/secret to reveal */
   hooks?: { id: string; flow_id: string; node_key: string | null; secret: string; filter: string | null }[];
   task: {
     key: string;

@@ -29,6 +29,49 @@ export const FLOW_STATUS = {
 
 export type FlowStatus = (typeof FLOW_STATUS)[keyof typeof FLOW_STATUS];
 
+/**
+ * The final statuses a finished node run can persist (the engine's
+ * `RunOutcome.status`, §T5/F11). Derived from `FLOW_STATUS` — the values have
+ * exactly one home; this is the closed vocabulary the engine's run outcomes
+ * are checked against at compile time.
+ */
+export const NODE_RUN_STATUS = {
+  AWAITING_APPROVAL: FLOW_STATUS.AWAITING_APPROVAL,
+  DONE: FLOW_STATUS.DONE,
+  FAILED: FLOW_STATUS.FAILED,
+} as const;
+
+export type NodeRunStatus = (typeof NODE_RUN_STATUS)[keyof typeof NODE_RUN_STATUS];
+
+/**
+ * Flow-node action names (§2.7): the client's wire vocabulary for the flow
+ * action route's dispatch (`app/api/flows/[id]/action/route.ts`).
+ */
+export const FLOW_ACTION = {
+  APPROVE_PLAN: "approve_plan",
+  UPDATE_PLAN_STEPS: "update_plan_steps",
+  SET_PLAN_STEP: "set_plan_step",
+  APPROVE_BUILD: "approve_build",
+  PIPELINE: "pipeline",
+  RESOLVE: "resolve",
+  REVIEW: "review",
+  RETRY: "retry",
+  CANCEL: "cancel",
+  RUN_NODE: "run_node",
+  APPROVE_NODE: "approve_node",
+  SET_NODE_CONFIG: "set_node_config",
+  CHOOSE_NODE: "choose_node",
+  APPROVE_FANOUT_STEP: "approve_fanout_step",
+  RETRY_FANOUT_STEP: "retry_fanout_step",
+  SKIP_FANOUT_STEP: "skip_fanout_step",
+  SKIP_SPLIT_UNIT: "skip_split_unit",
+  RETRY_SPLIT_UNIT: "retry_split_unit",
+  APPROVE_SPLIT_UNIT: "approve_split_unit",
+  CANCEL_SPLIT_UNIT: "cancel_split_unit",
+} as const;
+
+export type FlowActionName = (typeof FLOW_ACTION)[keyof typeof FLOW_ACTION];
+
 /** Plan fan-out aggregate child state (Phase 4 monitoring, §5): the node's
  *  own status stays `running` while it orchestrates, so the per-step rollup
  *  is an AGGREGATE over the children — see `components/flows/cockpit/fanout-progress.ts`. */

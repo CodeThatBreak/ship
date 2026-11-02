@@ -14,7 +14,7 @@ import {
   DropdownMenuSubTrigger,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { cn } from "cn";
+import { cn } from "@/lib/utils";
 
 /**
  * GitLab-style filter picker: one input-shaped box that holds the applied
@@ -95,7 +95,8 @@ export function FilterPicker({
       <Input
         value={text}
         onChange={(e) => onTextChange(e.target.value)}
-        placeholder={placeholder ?? "Search tasks…"}
+        placeholder={placeholder ?? "Search…"}
+        aria-label={placeholder ?? "Search…"}
         className="h-6 min-w-[90px] flex-1 border-0 bg-transparent px-0 text-[13px] focus-visible:border-transparent focus-visible:ring-0"
       />
 

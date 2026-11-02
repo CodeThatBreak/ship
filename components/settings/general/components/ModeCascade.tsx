@@ -1,6 +1,7 @@
 "use client";
 import type { Harness } from "../../context";
 import { Button } from "@/components/ui/button";
+import { Field, FieldDescription, FieldLabel } from "@/components/ui/field";
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
@@ -12,7 +13,7 @@ import { EXECUTION_MODE_META, INTEGRATIONS_HARNESS_HINT, MODE_FALLBACK_ICON } fr
  * modes as button chips — a disabled chip means the mode isn't connected yet.
  * Both saves write `default_harness` + `default_execution_mode` together.
  */
-export function ModeCascade({ harnesses, selectedKey, savedMode, saving, onSaveHarness, onSaveMode }: {
+export const ModeCascade = ({ harnesses, selectedKey, savedMode, saving, onSaveHarness, onSaveMode }: {
   harnesses: Harness[];
   selectedKey: string | null;
   savedMode: string;
@@ -20,7 +21,7 @@ export function ModeCascade({ harnesses, selectedKey, savedMode, saving, onSaveH
   saving?: boolean;
   onSaveHarness: (key: string) => void;
   onSaveMode: (key: string, value: string) => void;
-}) {
+}) => {
   const selected = selectedKey
     ? harnesses.find((h) => h.key === selectedKey) ?? null
     : null;
@@ -30,18 +31,20 @@ export function ModeCascade({ harnesses, selectedKey, savedMode, saving, onSaveH
 
   return (
     <div>
-      <div className="text-[13px] font-medium mb-2">Default harness &amp; mode for new flows</div>
-
-      <Select value={selectedKey} onValueChange={(v) => onSaveHarness(v ?? "")}>
-        <SelectTrigger className="max-w-[280px]">
-          <SelectValue placeholder="Select harness" />
-        </SelectTrigger>
+      <Field>
+        <FieldLabel htmlFor="settings-default-harness">Default harness &amp; mode for new flows</FieldLabel>
+        <FieldDescription>Pick a harness, then how agents run by default.</FieldDescription>
+        <Select value={selectedKey} onValueChange={(v) => onSaveHarness(v ?? "")}>
+          <SelectTrigger id="settings-default-harness" className="max-w-[280px]">
+            <SelectValue placeholder="Select harness" />
+          </SelectTrigger>
         <SelectContent>
           {harnesses.map((h) => (
             <SelectItem key={h.key} value={h.key}>{h.label}</SelectItem>
           ))}
         </SelectContent>
       </Select>
+      </Field>
 
       {selected && (
         <div className="flex gap-2 mt-2.5 flex-wrap">
@@ -86,4 +89,4 @@ export function ModeCascade({ harnesses, selectedKey, savedMode, saving, onSaveH
       )}
     </div>
   );
-}
+};

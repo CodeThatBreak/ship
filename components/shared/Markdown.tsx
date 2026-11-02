@@ -12,8 +12,9 @@ import {
   CodeBlockLine,
   CodeBlockTitle,
 } from "@/components/ui/code-block";
-import { useHighlightedCode } from "@/hooks/use-highlighted-code";
-import { cn } from "cn";
+import { useHighlightedCode } from "@/hooks/useHighlightedCode";
+import { cn } from "@/lib/utils";
+import { markdownRehypePlugins } from "./markdownRehypePlugins";
 
 /**
  * Markdown renderer per the shadcn AI-elements "Markdown" pattern:
@@ -133,20 +134,18 @@ export type MarkdownProps = React.ComponentProps<"div"> & {
   children: string;
 };
 
-export const Markdown = React.memo(
-  ({ children, className, ...props }: MarkdownProps) => (
-    <div className={cn("text-sm leading-relaxed", className)} {...props}>
-      <Streamdown
-        shikiTheme={shikiTheme as never}
-        plugins={{ mermaid: mermaidPlugin }}
-        components={markdownProps.components}
-        mode="static"
-      >
-        {children}
-      </Streamdown>
-    </div>
-  ),
-  (prev, next) => prev.children === next.children
-);
+export const Markdown = React.memo(({ children, className, ...props }: MarkdownProps) => (
+  <div className={cn("text-sm leading-relaxed", className)} {...props}>
+    <Streamdown
+      shikiTheme={shikiTheme as never}
+      plugins={{ mermaid: mermaidPlugin }}
+      rehypePlugins={markdownRehypePlugins}
+      components={markdownProps.components}
+      mode="static"
+    >
+      {children}
+    </Streamdown>
+  </div>
+));
 
 Markdown.displayName = "Markdown";

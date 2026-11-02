@@ -9,27 +9,20 @@ import "server-only";
  * Server-only: never import from client code (the page passes the result
  * through dehydrate/HydrationBoundary instead).
  */
-import { templateStore } from "@/lib/engine/templates";
+import { templateStore } from "@/lib/engine/templates/templateStore";
 import { taskRegistry } from "@/lib/engine/tasks/registry";
-import { db } from "@/lib/db";
+import { db } from "@/lib/db/app";
 import type {
   EditorRepoChoice,
   EditorTaskProvider,
   TemplateCatalogDetail,
   TemplateEditorDetail,
-} from "@/types/template-editor";
-import type { NodeRow, TemplateRow } from "@/components/templates";
+} from "@/types/templateEditor";
+import type { NodeRow, TemplateRow } from "@/types/templates";
 
 /** Registered task providers — the same serialization GET /api/tasks/providers does. */
 function registeredProviders(): EditorTaskProvider[] {
-  return taskRegistry
-    .list()
-    .map((p) => ({
-      kind: p.kind,
-      label: p.label,
-      configured: p.configured(),
-      contextFields: p.contextFields,
-    }));
+  return taskRegistry.describe();
 }
 
 /** Registered repos — the editor's Bound-repo picker slice (id/name/local_path). */
@@ -79,10 +72,5 @@ export function loadTemplateGallery(): TemplateRow[] {
  * `is_builtin`/`is_local` serialization.
  */
 export function loadNodeCatalog(): NodeRow[] {
-  return templateStore.listNodeTemplates().map((nt) => ({
-    ...nt,
-    is_builtin: Boolean(nt.is_builtin),
-    is_local: Boolean(nt.template_id),
-    config: nt.config ?? {},
-  }));
+  return templateStore.listNodeCatalogRows();
 }

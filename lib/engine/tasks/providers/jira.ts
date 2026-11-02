@@ -1,8 +1,15 @@
 import "server-only";
 
-import { db } from "../../../db";
+import { db } from "../../../db/app";
 import type { Task } from "../../../db/rows";
-import { jira, maskToken } from "../../../integrations/jira/service";
+import { UpstreamError, ValidationError } from "../../../errors";
+import { baseUrlOverrideRequiresToken } from "../../../integrations/instanceCredentialPolicy";
+import { truncateUpstreamBody } from '../../ports/gitHostErrors';
+import { AdfRenderer } from "../../../integrations/jira/adfRenderer";
+import { jiraAuthHeaders, jiraSearchPath } from "../../../integrations/jira/apiProfile";
+import { JIRA_HTTP_TIMEOUT_MS } from "../../../integrations/jira/constants";
+import { jira } from "../../../integrations/jira/singleton";
+import { maskToken } from "../../../integrations/jira/service";
 import {
   TaskProvider,
   type LiveTask,
@@ -10,7 +17,7 @@ import {
   type ProviderInstance,
   type TaskField,
   type TaskInstanceStore,
-} from "../task-provider";
+} from "../taskProvider";
 
 /**
  * The Jira task provider — moved verbatim from lib/integrations/jira.ts
@@ -61,8 +68,8 @@ export class JiraTaskProvider extends TaskProvider implements TaskInstanceStore 
   }
 
   instances(): ProviderInstance[] {
-    return jira.listInstances().map(({ id, name, base_url, email, token }) => ({
-      id, name, baseUrl: base_url, email, tokenMasked: maskToken(token),
+    return jira.listInstances().map(({ id, name, base_url, email }) => ({
+      id, name, baseUrl: base_url, email, tokenMasked: "••••",
     }));
   }
 
@@ -77,7 +84,17 @@ export class JiraTaskProvider extends TaskProvider implements TaskInstanceStore 
   }
 
   updateInstance(id: string, input: { name?: string | null; baseUrl?: string; email?: string; token?: string }): void {
-    jira.updateInstance(id, input);
+    const existing = jira.getInstance(id);
+    if (!existing) throw new Error(`jira instance not found: ${id}`);
+    if (baseUrlOverrideRequiresToken(existing.base_url, input.baseUrl, input.token)) {
+      throw new ValidationError("token is required when overriding baseUrl");
+    }
+    jira.updateInstance(id, {
+      name: input.name,
+      base_url: input.baseUrl,
+      email: input.email,
+      token: input.token,
+    });
   }
 
   removeInstance(id: string): void {
@@ -88,12 +105,15 @@ export class JiraTaskProvider extends TaskProvider implements TaskInstanceStore 
     id: string,
     input: { baseUrl?: string; email?: string; token?: string } = {}
   ): Promise<{ ok: boolean; detail: string }> {
-    const existing = jira.listInstances().find((i) => i.id === id);
+    const existing = jira.getInstance(id);
     if (!existing) throw new Error(`jira instance not found: ${id}`);
+    if (baseUrlOverrideRequiresToken(existing.base_url, input.baseUrl, input.token)) {
+      throw new ValidationError("token is required when overriding baseUrl");
+    }
     return jira.testInstance(
       input.baseUrl ?? existing.base_url,
       input.email ?? existing.email,
-      input.token || existing.token
+      input.token?.trim() || existing.token
     );
   }
 
@@ -192,10 +212,8 @@ export class JiraTaskProvider extends TaskProvider implements TaskInstanceStore 
 
   private headers(): HeadersInit {
     const inst = jira.active();
-    return {
-      Authorization: `Basic ${Buffer.from(`${inst?.email ?? ""}:${inst?.token ?? ""}`).toString("base64")}`,
-      Accept: "application/json",
-    };
+    if (!inst) return { Accept: "application/json" };
+    return jiraAuthHeaders(inst, jira.authMode(inst));
   }
 
   /** Heuristically split a PRD out of the description. */
@@ -204,24 +222,29 @@ export class JiraTaskProvider extends TaskProvider implements TaskInstanceStore 
     return m ? m[0].trim() : desc;
   }
 
-  private normalize(issue: any): JiraIssue {
+  private normalize(issue: { id: string | number; key: string; fields?: Record<string, unknown> }): JiraIssue {
     const f = issue.fields ?? {};
     const descText =
       typeof f.description === "string" ? f.description : AdfRenderer.toText(f.description);
-    const full = `${f.summary}\n${descText}`;
+    const summary = typeof f.summary === "string" ? f.summary : "";
+    const full = `${summary}\n${descText}`;
     const figma = Array.from(new Set(full.match(FIGMA_RE) ?? []));
+    const statusObj = f.status as { name?: string } | undefined;
+    const typeObj = f.issuetype as { name?: string } | undefined;
+    const priorityObj = f.priority as { name?: string } | undefined;
+    const parentObj = f.parent as { key?: string } | undefined;
     return {
       id: String(issue.id),
       key: issue.key,
-      summary: f.summary ?? "",
+      summary,
       description: descText,
-      status: f.status?.name ?? "",
-      issueType: f.issuetype?.name ?? "",
-      priority: f.priority?.name ?? "",
-      prdText: this.extractPrd(descText || f.summary || ""),
+      status: statusObj?.name ?? "",
+      issueType: typeObj?.name ?? "",
+      priority: priorityObj?.name ?? "",
+      prdText: this.extractPrd(descText || summary || ""),
       figmaUrls: figma,
       externalUrl: `${jira.active()?.base_url ?? ""}/browse/${issue.key}`,
-      parentKey: f.parent?.key ?? "",
+      parentKey: parentObj?.key ?? "",
       raw: issue,
     };
   }
@@ -229,14 +252,24 @@ export class JiraTaskProvider extends TaskProvider implements TaskInstanceStore 
   private async fetchByJql(jql: string): Promise<JiraIssue[]> {
     const inst = jira.active();
     if (!inst) return [];
-    // /rest/api/2/search was removed (Atlassian CHANGE-2046); use /rest/api/3/search/jql
-    const url = `${inst.base_url}/rest/api/3/search/jql?jql=${encodeURIComponent(
+    const mode = jira.authMode(inst);
+    const url = `${inst.base_url}${jiraSearchPath(mode)}?jql=${encodeURIComponent(
       jql,
     )}&maxResults=50&fields=summary,description,status,issuetype,priority,parent`;
-    const res = await fetch(url, { headers: this.headers() });
-    if (!res.ok) throw new Error(`Jira search failed (${res.status}): ${await res.text()}`);
-    const data = await res.json();
-    return (data.issues ?? []).map((i: any) => this.normalize(i));
+    const res = await fetch(url, {
+      headers: this.headers(),
+      signal: AbortSignal.timeout(JIRA_HTTP_TIMEOUT_MS),
+    });
+    if (!res.ok) {
+      throw new UpstreamError(
+        `Jira search failed (${res.status}): ${truncateUpstreamBody(await res.text())}`,
+        res.status,
+      );
+    }
+    const data = (await res.json()) as { issues?: unknown[] };
+    return (data.issues ?? []).map((i) =>
+      this.normalize(i as { id: string | number; key: string; fields?: Record<string, unknown> }),
+    );
   }
 
   /** Upsert one issue as a task row (idempotent on key) and return its row id. */
@@ -255,11 +288,13 @@ export class JiraTaskProvider extends TaskProvider implements TaskInstanceStore 
     db.run(
       `INSERT INTO tasks (id,key,summary,description,status,issue_type,priority,repo_url,parent_key,external_url,raw,fields,type,synced_at)
        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,'jira',?)`,
-      issue.id, issue.key, issue.summary, issue.description, issue.status, issue.issueType,
+      db.uid("task_"), issue.key, issue.summary, issue.description, issue.status, issue.issueType,
       issue.priority, null,
       issue.parentKey || null, issue.externalUrl, JSON.stringify(issue.raw), fields, ts
     );
-    return issue.id;
+    const row = db.get<{ id: string }>(`SELECT id FROM tasks WHERE key=?`, issue.key);
+    if (!row) throw new Error(`failed to insert task row for ${issue.key}`);
+    return row.id;
   }
 }
 
@@ -276,25 +311,7 @@ export interface JiraIssue {
   externalUrl: string;
   /** Parent issue key when this is a sub-task (e.g. a story's child). */
   parentKey: string;
-  raw: any;
+  raw: unknown;
 }
 
 const FIGMA_RE = /https?:\/\/(?:www\.)?figma\.com\/[^\s)\]"']+/g;
-
-/** Flatten Atlassian Document Format into plain text. */
-class AdfRenderer {
-  static toText(node: any): string {
-    if (!node) return "";
-    if (typeof node === "string") return node;
-    let out = "";
-    if (node.text) out += node.text;
-    if (Array.isArray(node.content)) {
-      const parts = node.content.map(AdfRenderer.toText);
-      const joined = parts.join(node.type === "paragraph" || node.type === "heading" ? "" : "");
-      out += joined;
-      if (["paragraph", "heading", "listItem", "codeBlock", "blockquote"].includes(node.type)) out += "\n";
-      if (node.type === "listItem") out = "• " + out;
-    }
-    return out;
-  }
-}

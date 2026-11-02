@@ -1,27 +1,110 @@
 "use client";
-import { useArtifactFetcher } from "@/hooks/use-artifact-fetcher";
+import { useMemo, useState } from "react";
+// value from lib/modelSpec (pure helpers, Phase 0 allowlist); the types flow
+// through types/model-spec per the Phase 0 guidance
+import { composeModelChoice } from "@/lib/modelSpec";
+import type { ModelChoice } from "@/types/modelSpec";
+import type { FeedEvent } from "@/components/chat/timeline";
+import type { FlowData, Node } from "@/types/flow";
+import { EXECUTION_MODE_LOCAL, LOCAL_MODE_MODEL } from "../constants";
+import { NodePanelContext, type ActionPayload, type NodePanelContextValue } from "./context";
+import { resolveNodePanel } from "./panelFactory";
 import { PanelShell } from "./shared";
-import { resolvePanel, type PanelProps } from ".";
 
 /**
- * The node panel dispatcher (§3.1): the registry resolves the panel from the
- * node's def key / declarative kind — no node-key switches here. Every panel
- * receives the same props (the registry's PanelProps); the artifact fetcher is
- * supplied here (through the query cache) so panels stay transport-free.
+ * The node workspace dispatcher: the factory resolves the node's panel and its
+ * chat rail (capability-driven), the context supplies every panel with the
+ * shared surface — panels take no props and read it through `useNodePanel`.
+ * The workspace pieces (panel + chat) resolve from `./panel-factory`; this
+ * context is only the shared surface they run on.
  */
 export default function NodePanel({
-  flow, node, action, events = [], model, planOptions = { decompose: false, complex: false },
-}: { flow: PanelProps["flow"]; node: PanelProps["node"]; action: PanelProps["action"]; events?: PanelProps["events"]; model: string; planOptions?: PanelProps["planOptions"] }) {
-  const fetchArtifact = useArtifactFetcher();
-  const Panel = resolvePanel(node);
-  if (Panel) {
-    return <Panel flow={flow} node={node} action={action} events={events} model={model} planOptions={planOptions} fetchArtifact={fetchArtifact} />;
-  }
+  flow,
+  node,
+  action,
+  actionAsync,
+  actionPending,
+  actionError,
+  resetAction,
+  retryAction,
+  events = [],
+}: {
+  flow: FlowData;
+  node: Node;
+  action: (a: string, b?: ActionPayload) => void;
+  actionAsync: (a: string, b?: ActionPayload) => Promise<unknown>;
+  actionPending: boolean;
+  actionError: unknown;
+  resetAction: () => void;
+  retryAction: () => void;
+  events?: FeedEvent[];
+}) {
+  // the flow-wide model override for this flow's runs — picked in the chat
+  // panel's model selector, consumed by run-start action payloads in the
+  // panels and by the plan composer. Local flows (mode picked at start)
+  // prefill the local runtime's model; cloud stays on the account default (null).
+  const [modelChoice, setModelChoice] = useState<ModelChoice | null>(
+    flow.execution_mode === EXECUTION_MODE_LOCAL ? { id: LOCAL_MODE_MODEL } : null
+  );
+  const model = composeModelChoice(modelChoice);
+
+  const context = useMemo<NodePanelContextValue>(
+    () => ({
+      flow,
+      node,
+      action,
+      actionAsync,
+      actionPending,
+      actionError,
+      resetAction,
+      retryAction,
+      events,
+      model,
+      modelChoice,
+      setModelChoice,
+    }),
+    [
+      flow,
+      node,
+      action,
+      actionAsync,
+      actionPending,
+      actionError,
+      resetAction,
+      retryAction,
+      events,
+      model,
+      modelChoice,
+    ],
+  );
+
+  const { panel: Panel, chat: Chat } = resolveNodePanel(node);
+
   return (
-    <PanelShell node={node} action={action} flow={flow}>
-      {node.kind
-        ? <p className="text-muted-foreground text-[13px] m-0">The <strong>{node.kind}</strong> node type isn&apos;t supported yet — it can&apos;t run, even though you can configure it in the template editor.</p>
-        : <p className="text-muted-foreground">No panel for this node.</p>}
-    </PanelShell>
+    <NodePanelContext.Provider value={context}>
+      <div className="flex flex-1 min-h-0 min-w-0">
+        {/* the node's panel column */}
+        <div className="flex-[1.6] min-w-0 min-h-0 flex flex-col">
+          {Panel ? <Panel key={node.node_key} /> : (
+            <PanelShell key={node.node_key} node={node} flow={flow}>
+              {node.kind
+                ? <p className="text-muted-foreground text-[13px] m-0">The <strong>{node.kind}</strong> node type isn&apos;t supported yet — it can&apos;t run, even though you can configure it in the template editor.</p>
+                : <p className="text-muted-foreground">No panel for this node.</p>}
+            </PanelShell>
+          )}
+        </div>
+        {/* the node's chat rail — agent-backed nodes only, the plan node
+            through the plan feature's composer config. The top/left/bottom
+            insets stay here; the right edge stays open so the chat feed's
+            scrollbar can run flush with the container's edge (like the app's
+            ScrollArea) — the rail's children re-add their own right inset to
+            keep the copy where it was. */}
+        {Chat && (
+          <aside className="flex-1 flex flex-col bg-card min-w-[340px] py-3.5 pl-3.5 pr-0 min-h-0">
+            <Chat key={node.node_key} />
+          </aside>
+        )}
+      </div>
+    </NodePanelContext.Provider>
   );
 }

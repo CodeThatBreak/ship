@@ -1,26 +1,41 @@
 import "server-only";
 
-import { db } from "../../db";
+import type { IntegrationSecretStore } from "../../db/integrationSecretStore";
+import { processSingleton } from "../../singleton";
+import { db } from "../../db/app";
 
 /**
  * The Cursor API key resolution: stored on Settings → Integrations → Harness
  * (DB). There is no env fallback — the key lives only in the settings store.
  */
-export function cursorApiKey(): string {
-  return db.getSetting<string>("cursor.api_key", "").trim();
+export class CursorCredentials {
+  constructor(private readonly secrets: IntegrationSecretStore) {}
+
+  apiKey(): string {
+    return this.secrets.readCursorApiKey();
+  }
+
+  /** Whether a DB-stored key is set — settings UI status. */
+  isStored(): boolean {
+    return Boolean(this.apiKey());
+  }
+
+  /** Store the Cursor API key (write-only). Empty input clears the stored key. */
+  setApiKey(key: string): void {
+    const trimmed = key.trim();
+    if (!trimmed) {
+      this.clear();
+      return;
+    }
+    this.secrets.writeCursorApiKey(trimmed);
+  }
+
+  clear(): void {
+    this.secrets.writeCursorApiKey("");
+  }
 }
 
-/** Whether a DB-stored key is set — settings UI status. */
-export function cursorApiKeyStored(): boolean {
-  return Boolean(db.getSetting<string>("cursor.api_key", "").trim());
-}
-
-/** Store the Cursor API key (write-only; empty string deletes). */
-export function setCursorApiKey(key: string): void {
-  db.setSetting("cursor.api_key", key.trim());
-}
-
-/** Remove the stored Cursor API key. */
-export function clearCursorApiKey(): void {
-  db.setSetting("cursor.api_key", "");
-}
+export const cursorCredentials = processSingleton(
+  "cursorCredentials",
+  () => new CursorCredentials(db.integrationSecrets),
+);

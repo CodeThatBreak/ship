@@ -14,15 +14,12 @@ import { Alert } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Spinner } from "@/components/ui/spinner";
-import {
-  NODE_KIND_DESCRIPTIONS,
-  type NodeTemplateKind,
-  boilerplateFor,
-} from "@/components/template-editor";
-import { queryKeys } from "@/constants/query-keys";
-import { fetchJson } from "@/hooks/fetch-json";
+import { NODE_KIND_DESCRIPTIONS, type NodeTemplateKind, boilerplateFor } from "@/components/templateEditor/boilerplate";
+import { queryKeys } from "@/constants/queryKeys";
+import { apiFetch } from "@/hooks/localApiToken";
+import { settingsQueryOptions } from "@/components/settings/queries";
 import { isNodeKind } from "../constants";
-import { useNodeSchemaContract } from "../hooks/use-node-schema-contract";
+import { useNodeSchemaContract } from "../hooks/useNodeSchemaContract";
 import type { NodeFormState, NodeRow } from "../types";
 import { NodeFormFields } from "./NodeFormFields";
 
@@ -68,8 +65,7 @@ export function NodeConfigureDialog({
   // names
   const contract = useNodeSchemaContract(form.kind, form.config);
   const { data: settingsData } = useQuery({
-    queryKey: queryKeys.settings,
-    queryFn: () => fetchJson<{ secrets?: string[] }>("/api/settings"),
+    ...settingsQueryOptions(),
     enabled: form.kind === "http",
   });
   const secretNames = form.kind === "http" ? (settingsData?.secrets ?? null) : null;
@@ -100,7 +96,7 @@ export function NodeConfigureDialog({
         kind: form.kind,
         config: form.config,
       });
-      return fetch(node ? `/api/node-templates/${node.id}` : "/api/node-templates", {
+      return apiFetch(node ? `/api/node-templates/${node.id}` : "/api/node-templates", {
         method: node ? "PATCH" : "POST",
         headers: { "Content-Type": "application/json" },
         body,

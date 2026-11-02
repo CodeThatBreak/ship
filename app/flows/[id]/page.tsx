@@ -8,7 +8,7 @@
  * client-side (see components/flows-cockpit).
  */
 import { notFound } from "next/navigation";
-import { FlowCockpit } from "@/components/flows";
+import FlowCockpit from "@/components/flows/cockpit/FlowCockpit";
 import { getFlowCockpitData } from "@/loaders/flows";
 
 // the cockpit is live server data polling an append-only SQLite log — never

@@ -17,6 +17,21 @@ export const PROVIDER_KIND = {
 } as const;
 export type ProviderKind = (typeof PROVIDER_KIND)[keyof typeof PROVIDER_KIND];
 
+/** Hosting mode when connecting GitLab / Jira (cloud vs self-hosted). */
+export const HOSTING = {
+  CLOUD: "cloud",
+  CUSTOM: "custom",
+} as const;
+
+export type HostingMode = (typeof HOSTING)[keyof typeof HOSTING];
+
+/** Synthetic instance id for the Cursor API key card (not a DB row). */
+export const CURSOR_HARNESS = {
+  INSTANCE_ID: "cursor",
+  API_BASE_URL: "https://api.cursor.com",
+  DASHBOARD_API_URL: "https://cursor.com/dashboard/api",
+} as const;
+
 /** PATCH key + field names for the harness's local-run execution settings
  *  (mirror of the settings API contract: partial { local_agent: {...} }). */
 export const LOCAL_AGENT = {

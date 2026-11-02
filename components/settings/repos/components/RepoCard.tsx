@@ -1,4 +1,5 @@
 "use client";
+import { useCallback } from "react";
 import { CheckCircle2, FolderGit2, GitBranch, Pencil, Trash2, XCircle } from "lucide-react";
 import type { Repo } from "@/components/settings/context";
 import { Badge } from "@/components/ui/badge";
@@ -12,12 +13,17 @@ import { tildePath } from "../paths";
 /** One registered repo: icon square, name + branch/local badges, then the
  *  cloud URL and local checkout on the meta line (mirrors InstanceCard). */
 export function RepoCard({
-  repo, onEdit, onDelete,
+  repo, serverHome, onEdit, onDelete, deleting = false,
 }: {
   repo: Repo;
-  onEdit: () => void;
-  onDelete: () => void;
+  serverHome: string;
+  onEdit: (id: string) => void;
+  onDelete: (id: string) => void;
+  deleting?: boolean;
 }) {
+  const edit = useCallback(() => onEdit(repo.id), [onEdit, repo.id]);
+  const del = useCallback(() => onDelete(repo.id), [onDelete, repo.id]);
+
   return (
     <Card className="flex-row items-center gap-3 px-4 py-3">
       <span className="grid size-9 shrink-0 place-items-center rounded-lg bg-muted text-muted-foreground">
@@ -45,7 +51,7 @@ export function RepoCard({
           </span>
           {repo.local_path && (
             <span className="text-muted-foreground text-[12px] font-mono truncate">
-              {tildePath(repo.local_path)}
+              {tildePath(repo.local_path, serverHome)}
             </span>
           )}
         </div>
@@ -58,7 +64,7 @@ export function RepoCard({
                 size="icon-sm"
                 variant="ghost"
                 aria-label="Edit repo"
-                onClick={onEdit}
+                onClick={edit}
               />
             }
           >
@@ -74,7 +80,8 @@ export function RepoCard({
                 variant="ghost"
                 aria-label="Remove repo"
                 className="text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
-                onClick={onDelete}
+                onClick={del}
+                disabled={deleting}
               />
             }
           >

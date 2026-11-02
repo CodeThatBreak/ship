@@ -5,12 +5,12 @@
  *
  * This is the only module that imports lib/groupEvents directly (its grouper
  * and node-key resolver are used here as values). `lib/groupEvents` is one of
- * the verified-pure allowlisted modules (docs/phase0-baseline.md,
+ * the verified-pure allowlisted modules (docs/architecture/client-bundle-boundaries.md,
  * Dispositions) — safe to import directly; this module stays as the feature's
  * single seam until its consumers collapse onto `@/lib/groupEvents` (Phase 6
  * checklist).
  */
-import type { ChatMessage } from "@/hooks/use-flow-chat";
+import type { ChatMessage } from "@/hooks/useFlowChat";
 import { FLOW_STATUS } from "@/constants/flow";
 import {
   eventGrouper,
@@ -51,12 +51,21 @@ function sectionLastTime(s: RunSection): string {
   return s.startedAt ?? "";
 }
 
-/** The flow's messages scoped to one node (node_key empty = flow-level). */
+/** The flow's messages scoped to one node and one thread (node_key empty =
+ *  flow-level; thread empty = the main conversation, threaded messages stay
+ *  in their refinement tabs). */
 export function selectNodeMessages(
   messages: ChatMessage[] | undefined,
   nodeKey: string,
+  thread: string | null = null,
 ): ChatMessage[] {
-  return (messages ?? []).filter((m) => !m.node_key || m.node_key === nodeKey);
+  return (messages ?? []).filter(
+    (m) =>
+      (!m.node_key || m.node_key === nodeKey) &&
+      // flow-level messages are unthreaded — a refinement tab only shows its
+      // node's turns, the main tab only shows unthreaded ones
+      (m.thread ?? null) === thread,
+  );
 }
 
 /** Run sections for this node only (chat is scoped by node_key; events by

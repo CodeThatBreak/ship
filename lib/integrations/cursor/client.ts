@@ -7,6 +7,8 @@ import {
   type TokenUsage,
 } from "../cursorSdk";
 import { parseModelSpec } from "../../modelSpec";
+import { processSingleton } from "../../singleton";
+import type { AgentRunQuery } from "../../engine/ports/agentPort";
 
 // ── cloud run result / usage shapes (SDK-native, re-exported) ───────────────
 // The cloud integration is now a thin adapter over the unified CursorAgentService
@@ -74,8 +76,7 @@ export class CursorClient {
     return { run: { id: started.runId } };
   }
 
-  /** Terminal result for a run, or null while it is still in flight. */
-  async getRun(agentId: string, runId: string): Promise<CursorRunResult | null> {
+  async getRun(agentId: string, runId: string): Promise<AgentRunQuery> {
     return cursorAgent.getRun(agentId, runId);
   }
 
@@ -93,8 +94,8 @@ export class CursorClient {
     } satisfies RunUsage;
   }
 
-  async cancelRun(agentId: string, runId: string) {
-    cursorAgent.cancelRun(runId);
+  async cancelRun(agentId: string, runId: string): Promise<boolean> {
+    return cursorAgent.cancelRun(runId, agentId);
   }
 
   /** Stream a run to completion, invoking callbacks per event. */
@@ -111,10 +112,11 @@ export class CursorClient {
     }
     const live = await cursorAgent.reattachRun(agentId, runId);
     if (live) return cursorAgent.pumpRun(live, cb);
-    const result = await cursorAgent.getRun(agentId, runId);
-    if (!result) throw new Error(`run ${runId} is unavailable`);
-    return result;
+    const query = await cursorAgent.getRun(agentId, runId);
+    if (query.state === "terminal") return query.result as CursorRunResult;
+    if (query.state === "unavailable") throw query.error;
+    throw new Error(`run ${runId} is still running and could not be re-attached`);
   }
 }
 
-export const cursorClient = new CursorClient();
+export const cursorClient = processSingleton("cursorClient", () => new CursorClient());

@@ -1,23 +1,32 @@
-import { NextResponse } from "next/server";
-import { db } from "../../../../../lib/db";
-import { flowEngine } from "../../../../../lib/engine/flow";
+import { toErrorResponse } from '@/lib/errors';
+import { parseJson } from '@/lib/http/parse';
+import { NextResponse } from 'next/server';
+import { z } from 'zod';
+import { db } from '../../../../../lib/db/app';
+import { flowEngine } from '../../../../../lib/engine/flowEngine';
 
-export const dynamic = "force-dynamic";
+export const dynamic = 'force-dynamic';
+export const runtime = 'nodejs';
 
-export async function GET(_req: Request, { params }: { params: Promise<{ id: string }> }) {
+const ChatBody = z.object({
+  nodeKey: z.string().min(1),
+  content: z.string().trim().min(1),
+  model: z.string().min(1).optional(),
+  thread: z.string().trim().min(1).nullable(),
+});
+
+export const GET = async (_req: Request, { params }: { params: Promise<{ id: string }> }) => {
   const { id } = await params;
   return NextResponse.json({ messages: db.listMessages(id) });
-}
+};
 
-export async function POST(req: Request, { params }: { params: Promise<{ id: string }> }) {
-  const { id } = await params;
-  const { nodeKey, content, chatOnly, model } = await req.json();
-  if (!nodeKey) return NextResponse.json({ error: "nodeKey required" }, { status: 400 });
-  if (!content?.trim()) return NextResponse.json({ error: "content required" }, { status: 400 });
+export const POST = async (req: Request, { params }: { params: Promise<{ id: string }> }) => {
   try {
-    flowEngine.sendChat(id, nodeKey, content.trim(), chatOnly === true, typeof model === "string" && model ? model : undefined);
+    const { id } = await params;
+    const body = await parseJson(req, ChatBody);
+    flowEngine.sendChat(id, body.nodeKey, body.content, body.model, body.thread);
     return NextResponse.json({ ok: true });
   } catch (e: unknown) {
-    return NextResponse.json({ error: e instanceof Error ? e.message : String(e) }, { status: 400 });
+    return toErrorResponse(e);
   }
-}
+};

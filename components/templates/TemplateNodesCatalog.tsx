@@ -17,11 +17,12 @@ import { Blocks, Pencil, Plus, Trash2 } from "lucide-react";
 import { Alert, AlertAction } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Spinner } from "@/components/ui/spinner";
-import { ConfirmDeleteDialog } from "@/components/shared";
-import { ListSection } from "@/components/shared";
-import { DataTable, type DataTableAction } from "@/components/shared";
-import { queryKeys } from "@/constants/query-keys";
-import { useNodeList } from "./hooks/use-node-list";
+import { ConfirmDeleteDialog } from "@/components/shared/ConfirmDeleteDialog";
+import { ListSection } from "@/components/shared/ListSection";
+import { DataTable, type DataTableAction } from "@/components/shared/dataTable/DataTable";
+import { queryKeys } from "@/constants/queryKeys";
+import { apiFetch } from "@/hooks/localApiToken";
+import { useNodeList } from "./hooks/useNodeList";
 import { nodeColumns } from "./components/NodeColumns";
 import { NodeConfigureDialog } from "./components/NodeConfigureDialog";
 import type { NodeRow } from "./types";
@@ -29,7 +30,7 @@ import type { NodeRow } from "./types";
 /** null = dialog closed; a row = configure it; `{ node: null }` = create */
 type Editing = { node: NodeRow | null } | null;
 
-export function TemplateNodesCatalog({ initialNodes }: { initialNodes: NodeRow[] }) {
+export function TemplateNodesCatalog() {
   const queryClient = useQueryClient();
   const invalidate = () => void queryClient.invalidateQueries({ queryKey: queryKeys.nodeTemplates });
 
@@ -40,19 +41,20 @@ export function TemplateNodesCatalog({ initialNodes }: { initialNodes: NodeRow[]
 
   // the server-hydrated list — every mutation invalidates this key and the
   // refetch runs through /api/node-templates
-  const nodesQuery = useNodeList(initialNodes);
-  const nodes = nodesQuery.data;
+  const nodesQuery = useNodeList();
+  const nodes = nodesQuery.data ?? [];
 
   /** The confirm's destructive action: delete, then refresh (the server
    *  refuses rows still referenced by template nodes — surface that). */
   const removeMutation = useMutation({
     mutationFn: async (n: NodeRow) => {
-      const res = await fetch(`/api/node-templates/${n.id}`, { method: "DELETE" });
+      const res = await apiFetch(`/api/node-templates/${n.id}`, { method: "DELETE" });
       const payload = (await res.json().catch(() => null)) as { error?: string } | null;
       if (!res.ok || payload?.error) {
         throw new Error(payload?.error ?? `Request failed (${res.status})`);
       }
     },
+    onMutate: () => setPageError(null),
     onError: (e) => setPageError(e.message),
     onSettled: invalidate,
   });

@@ -6,7 +6,7 @@ import { Alert } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Field, FieldLabel } from "@/components/ui/field";
-import { Modal } from "@/components/ui/modal";
+import { Modal } from "@/components/shared/Modal";
 import { Separator } from "@/components/ui/separator";
 import {
   Select,
@@ -21,8 +21,10 @@ import type {
   RepoSummary,
   TemplateOption,
 } from "@/types/tasks";
-import { useStartBuild } from "./hooks/use-start-build";
-import { StatusBadge, TypeChip } from "./TaskBadges";
+import { RUN_MODE } from "@/constants/execution";
+import { useStartBuild } from "./hooks/useStartBuild";
+import { StatusBadge } from "./StatusBadge";
+import { TypeChip } from "./TypeChip";
 
 function hostOf(url: string): string {
   try {
@@ -160,10 +162,10 @@ export function BuildModal({ task, repos, templates, defaultMode, defaultTemplat
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="cloud">
+              <SelectItem value={RUN_MODE.CLOUD}>
                 Cloud agent
               </SelectItem>
-              <SelectItem value="local" disabled={!selectedRepo?.local_path}>
+              <SelectItem value={RUN_MODE.LOCAL} disabled={!selectedRepo?.local_path}>
                 Local (SDK)
                 {!selectedRepo?.local_path && (
                   <span className="text-warning">(no local path)</span>

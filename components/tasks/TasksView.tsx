@@ -3,7 +3,7 @@ import { useCallback, useMemo, useRef, useState } from "react";
 import { Inbox, Play, RefreshCw } from "lucide-react";
 import { Alert, AlertAction } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
-import { FilterPicker, type FilterDef } from "@/components/shared";
+import { FilterPicker, type FilterDef } from "@/components/shared/FilterPicker";
 import { cn } from "@/lib/utils";
 import type {
   ExecutionMode,
@@ -12,8 +12,9 @@ import type {
   TaskProviderInfo,
   TemplateOption,
 } from "@/types/tasks";
+import { TASK_ASSIGNEE, TASK_FILTER } from "@/constants/tasks";
 import { STATUS_VALUES, TEXT_DEBOUNCE_MS } from "./constants";
-import { useLiveTasks } from "./hooks/use-live-tasks";
+import { useLiveTasks } from "./hooks/useLiveTasks";
 import { BuildModal } from "./BuildModal";
 import { TasksTable } from "./TasksTable";
 
@@ -44,14 +45,23 @@ export function TasksView({
 }: TasksViewProps) {
   // ── filters (drive the feed fetch; provider omitted = default provider) ─
   const [filters, setFilters] = useState<Record<string, string>>({
-    assignee: "me",
+    [TASK_FILTER.ASSIGNEE]: TASK_ASSIGNEE.ME,
   });
   const [textInput, setTextInput] = useState("");
   const [text, setText] = useState("");
   const [buildTarget, setBuildTarget] = useState<LiveTask | null>(null);
 
-  const { tasks, payload, pending, refetching, refreshing, staleError, refreshError, forceRefresh } =
-    useLiveTasks(filters, text);
+  const {
+    tasks,
+    payload,
+    pending,
+    refetching,
+    refreshing,
+    staleError,
+    queryError,
+    refreshError,
+    forceRefresh,
+  } = useLiveTasks(filters, text);
 
   // debounced text filter
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -64,19 +74,19 @@ export function TasksView({
   const filterDefs = useMemo<FilterDef[]>(
     () => [
       {
-        key: "provider",
+        key: TASK_FILTER.PROVIDER,
         label: "Provider",
         values: providers.map((p) => ({ value: p.kind, label: p.label })),
       },
       {
-        key: "assignee",
+        key: TASK_FILTER.ASSIGNEE,
         label: "Assignee",
         values: [
-          { value: "me", label: "Me" },
-          { value: "any", label: "Anyone" },
+          { value: TASK_ASSIGNEE.ME, label: "Me" },
+          { value: TASK_ASSIGNEE.ANY, label: "Anyone" },
         ],
       },
-      { key: "statusCategory", label: "Status", values: STATUS_VALUES },
+      { key: TASK_FILTER.STATUS_CATEGORY, label: "Status", values: STATUS_VALUES },
     ],
     [providers],
   );
@@ -108,7 +118,7 @@ export function TasksView({
     [openBuild],
   );
 
-  const error = staleError ?? refreshError ?? null;
+  const error = staleError ?? refreshError ?? queryError ?? null;
   const refreshingSpinner = refetching || refreshing;
 
   return (
@@ -155,6 +165,7 @@ export function TasksView({
                 onFiltersChange={setFilters}
                 text={textInput}
                 onTextChange={onTextInput}
+                placeholder="Search tasks…"
               />
 
               {/* cache indicator + force refresh (icon-only, tooltip explains state) */}

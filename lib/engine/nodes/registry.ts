@@ -1,12 +1,30 @@
-import type { NodeDefinition } from "./base";
-import { PlanNode } from "./plan";
-import { BuildNode } from "./build";
-import { StepBuildNode } from "./build/step-build-node";
-import { PipelineNode } from "./pipeline";
-import { ReviewNode } from "./review";
-import { ResolveNode } from "./resolve";
-import { declarativeDef } from "./declarative";
-import { StartNode } from "./start";
+import "server-only";
+
+import type { NodeDefinition } from "./shared/nodeSharedExports";
+import { PlanNode } from "./kinds/plan/planExports";
+import { BuildNode } from "./kinds/build/buildExports";
+import { StepBuildNode } from "./kinds/build/stepBuildNode";
+import { PipelineNode } from "./kinds/pipeline/pipelineExports";
+import { ReviewNode } from "./kinds/review/reviewExports";
+import { ResolveNode } from "./kinds/resolve/resolveExports";
+import { StartNode } from "./kinds/start/startExports";
+
+type DeclarativeResolver = (key: string, inst?: string) => AnyNodeDef | undefined;
+
+let declarativeResolver: DeclarativeResolver | null = null;
+
+/** Connect declarative template resolution (import `declarative-bootstrap` once at engine startup). */
+export const wireDeclarativeResolver = (resolver: DeclarativeResolver): void => {
+  declarativeResolver = resolver;
+};
+
+/**
+ * The registry-level def shape: generics erased *honestly* (unknown /
+ * Record<string, unknown>) instead of `any` (§T5/F10). `run()` implementations
+ * treat input loosely across this boundary — defs `parseInput()` internally —
+ * so the erasure is sound at every registry call site.
+ */
+type AnyNodeDef = NodeDefinition<unknown, Record<string, unknown>>;
 
 /**
  * The single source of truth for the workflow graph.
@@ -19,13 +37,13 @@ import { StartNode } from "./start";
  * chat routing, recovery, prompt templates, UI labels — derives from here.
  */
 export class NodeRegistry {
-  private readonly registry = new Map<string, NodeDefinition<any, any>>();
+  private readonly registry = new Map<string, AnyNodeDef>();
 
   constructor() {
     this.registerBuiltins();
   }
 
-  register(def: NodeDefinition<any, any>): void {
+  register(def: AnyNodeDef): void {
     if (this.registry.has(def.key)) throw new Error(`duplicate node key: ${def.key}`);
     this.registry.set(def.key, def);
   }
@@ -42,14 +60,14 @@ export class NodeRegistry {
   }
 
   /** Get a node definition by key, or throw. */
-  get(key: string): NodeDefinition<any, any> {
+  get(key: string): AnyNodeDef {
     const def = this.registry.get(key);
     if (!def) throw new Error(`unknown node key: ${key}`);
     return def;
   }
 
   /** Get a node definition by key, or undefined. */
-  maybe(key: string): NodeDefinition<any, any> | undefined {
+  maybe(key: string): AnyNodeDef | undefined {
     return this.registry.get(key);
   }
 
@@ -58,11 +76,11 @@ export class NodeRegistry {
    * by their `node_templates` row id, hydrating a runtime instance on demand.
    * `inst` is the template instance key (node_key) for declarative defs.
    */
-  resolve(key: string, inst?: string): NodeDefinition<any, any> {
+  resolve(key: string, inst?: string): AnyNodeDef {
     const builtin = this.registry.get(key);
     if (builtin) return builtin;
-    const def = declarativeDef(key, inst);
-    if (def) return def as NodeDefinition<any, any>;
+    const def = declarativeResolver?.(key, inst);
+    if (def) return def;
     throw new Error(`unknown node type: ${key}`);
   }
 
@@ -71,7 +89,7 @@ export class NodeRegistry {
   }
 
   /** All node definitions in graph order (ascending `order`). */
-  all(): NodeDefinition<any, any>[] {
+  all(): AnyNodeDef[] {
     return [...this.registry.values()].sort((a, b) => a.order - b.order);
   }
 

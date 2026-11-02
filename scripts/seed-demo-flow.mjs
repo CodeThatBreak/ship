@@ -13,26 +13,22 @@
  *     one manual step, one superseded-by-refine (gone)
  *   - a lifecycle event trail so the Activity tab tells the story
  */
-import Database from "better-sqlite3";
-import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
-import { resolveSeedDb } from "./lib/seed-db.mjs";
+import {
+  deleteTaskDemoFlows,
+  minsAgo,
+  now,
+  openSeedDb,
+  uid,
+} from "./lib/seedDb.mjs";
 
 const root = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const TASK_ID = "demo-142";
 const FLOW_NAME = "DEMO-142 flow";
 const RESET = process.argv.includes("--reset");
 
-const dbFile = resolveSeedDb(root);
-fs.mkdirSync(path.dirname(dbFile), { recursive: true });
-const db = new Database(dbFile);
-db.pragma("journal_mode = WAL");
-db.exec(fs.readFileSync(path.join(root, "lib/db/schema.sql"), "utf8"));
-
-const now = () => new Date().toISOString();
-const minsAgo = (m) => new Date(Date.now() - m * 60_000).toISOString();
-const uid = (p = "") => p + Date.now().toString(36) + Math.random().toString(36).slice(2, 9);
+const { db } = openSeedDb(root);
 
 // ── demo task: a webhook-retry PRD with enough surface for a real plan ────
 const PRD = `# PRD: Webhook delivery retries with exponential backoff
@@ -148,7 +144,7 @@ delivery → worker → admin replay, with the test suite as a first-class step.
 ],"branches":[]}
 \`\`\``;
 
-// ── engine replicas (syncStepsFromPlan / markStepsDone from lib/engine/steps) ─
+// ── engine replicas (syncStepsFromPlan / markStepsDone from lib/engine/runtime/plan-step-store) ─
 function syncStepsFromPlan(flowId, artifactId, steps) {
   const existingAgent = db.prepare(`SELECT * FROM plan_steps WHERE flow_id=? AND origin='agent'`).all(flowId);
   const byMetaId = new Map(existingAgent.filter((s) => s.meta_id).map((s) => [s.meta_id, s]));
@@ -193,17 +189,13 @@ function markStepsDone(flowId, refs) {
 const metaOf = (plan) => JSON.parse(plan.match(/```json plan-meta\s*\n([\s\S]*?)```/)[1]);
 
 function reset() {
-  // the seed owns its synthetic task: every flow bound to it goes too (not
-  // just the seeded-named one — earlier runs may have bound other flows)
   const flows = db.prepare(`SELECT id FROM flows WHERE name=? OR task_id=?`).all(FLOW_NAME, TASK_ID);
-  for (const f of flows) {
-    const fid = f.id;
-    for (const t of ["plan_steps", "events", "messages", "runs", "artifacts", "comments", "branches", "nodes"])
-      db.prepare(`DELETE FROM ${t} WHERE flow_id=?`).run(fid);
-    db.prepare(`DELETE FROM flows WHERE id=?`).run(fid);
-    console.log(`removed demo flow ${fid}`);
-  }
-  db.prepare(`DELETE FROM tasks WHERE id=?`).run(TASK_ID);
+  for (const f of flows) console.log(`removed demo flow ${f.id}`);
+  deleteTaskDemoFlows(
+    db,
+    TASK_ID,
+    flows.map((f) => f.id),
+  );
 }
 
 if (RESET) {
@@ -224,7 +216,7 @@ db.prepare(`INSERT INTO tasks (id,key,type,summary,description,status,issue_type
     JSON.stringify({ prd: PRD, figma_urls: [] }), now());
 console.log("task DEMO-142 inserted");
 
-// ── flow (mirrors lib/engine/flow.createFlow) ────────────────────────────────
+// ── flow (mirrors lib/engine/flow-engine.createFlow) ────────────────────────────────
 const flowId = uid("flow_");
 const ts0 = now();
 db.prepare(`INSERT INTO flows (id,task_id,name,status,repo_url,repo_id,execution_mode,created_at,updated_at)

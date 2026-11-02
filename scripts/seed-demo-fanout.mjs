@@ -5,7 +5,7 @@
  * Usage:
  *   node scripts/seed-demo-fanout.mjs           # seed (idempotent: resets + recreates)
  *   node scripts/seed-demo-fanout.mjs --reset   # remove the demo flow/task + children
- *   npm run seed:demo:fanout / seed:demo:fanout:reset
+ *   node scripts/seed-demo-fanout.mjs --reset   # remove the demo flow/task + children
  *
  * What you get (open http://localhost:3000 → "DEMO-143 flow"):
  *   - a demo task whose approved plan published `execution: steps` in plan-meta
@@ -24,22 +24,21 @@
  * agent runs, branches or diffs behind them. Try the real feature (fanout.mode
  * = steps on a build node) for an end-to-end run.
  */
-import Database from "better-sqlite3";
-import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
-import { resolveSeedDb } from "./lib/seed-db.mjs";
+import {
+  deleteFlowCascade,
+  minsAgo,
+  now,
+  openSeedDb,
+} from "./lib/seedDb.mjs";
 
 const root = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const TASK_ID = "demo-143";
 const FLOW_NAME = "DEMO-143 flow";
 const RESET = process.argv.includes("--reset");
 
-const dbFile = resolveSeedDb(root);
-fs.mkdirSync(path.dirname(dbFile), { recursive: true });
-const db = new Database(dbFile);
-db.pragma("journal_mode = WAL");
-db.exec(fs.readFileSync(path.join(root, "lib/db/schema.sql"), "utf8"));
+const { db } = openSeedDb(root);
 
 // the runtime migrations (lib/db/index.ts) add the columns this seed inserts —
 // guard them here too so the script works against a freshly created DB
@@ -127,22 +126,12 @@ const RUN = (mStart, durSec, cents, outTok) => ({
 
 function reset() {
   const flows = db.prepare(`SELECT id FROM flows WHERE name=? OR task_id=?`).all(FLOW_NAME, TASK_ID);
-  const childIds = [];
+  let childCount = 0;
   for (const f of flows) {
-    for (const c of db.prepare(`SELECT id FROM flows WHERE parent_flow_id=?`).all(f.id)) childIds.push(c.id);
+    childCount += db.prepare(`SELECT id FROM flows WHERE parent_flow_id=?`).all(f.id).length;
+    deleteFlowCascade(db, f.id);
   }
-  // linkage first (plan_steps.sub_flow_id + step_merges reference the children,
-  // so the links die before the child rows do — FK-safety without pragmas)
-  for (const f of flows) {
-    db.prepare(`DELETE FROM step_merges WHERE flow_id=? OR parent_flow_id=?`).run(f.id, f.id);
-    db.prepare(`DELETE FROM plan_steps WHERE flow_id=?`).run(f.id);
-  }
-  for (const fid of [...childIds, ...flows.map((f) => f.id)]) {
-    for (const t of ["events", "messages", "runs", "artifacts", "comments", "branches", "nodes"])
-      db.prepare(`DELETE FROM ${t} WHERE flow_id=?`).run(fid);
-    db.prepare(`DELETE FROM flows WHERE id=?`).run(fid);
-  }
-  if (flows.length) console.log(`removed demo flow + ${childIds.length} step children`);
+  if (flows.length) console.log(`removed demo flow + ${childCount} step children`);
   db.prepare(`DELETE FROM tasks WHERE id=?`).run(TASK_ID);
 }
 
@@ -235,7 +224,7 @@ function seedStep(step, opts) {
       minsAgo(44), opts.stepUpdatedAt ?? minsAgo(opts.minsAgo ?? 20));
   // billed runs (sample charging — the cost rollup reads these)
   for (const [i, r] of (opts.runs ?? []).entries()) {
-    db.prepare(`INSERT INTO runs (id,flow_id,node_id,cursor_agent_id,cursor_run_id,status,model,input_tokens,output_tokens,cache_read_tokens,cache_write_tokens,duration_ms,cost_cents,created_at,updated_at)
+    db.prepare(`INSERT INTO runs (id,flow_id,node_id,agent_ref,run_ref,status,model,input_tokens,output_tokens,cache_read_tokens,cache_write_tokens,duration_ms,cost_cents,created_at,updated_at)
       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`)
       .run(uid("run_"), childId, childNodeId, `demo-agent-${step.id}-${i + 1}`, `demo-run-${step.id}-${i + 1}`,
         r.status, r.model, r.input_tokens, r.output_tokens, r.cache_read_tokens, r.cache_write_tokens, r.duration_ms, r.cost_cents,

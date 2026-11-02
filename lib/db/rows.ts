@@ -1,16 +1,20 @@
-import "server-only";
+import 'server-only';
 
-import { z } from "zod";
-import { db } from "./index";
+import { z } from 'zod';
+import type { Database } from './database';
 
 /**
  * Zod schemas for every DB row + typed query helpers.
  *
  * Rows cross the DB boundary exactly once — here — so every consumer gets a
  * validated, fully-typed object instead of `any` + ad-hoc JSON.parse calls.
- * JSON-encoded columns (fields, input, output, meta, files, data, raw)
- * are decoded to their real types by the schema.
+ * JSON-encoded columns (fields, input, output, meta, files, data, trigger, …)
+ * are decoded to their real types by the schema. Opaque provider blobs (`raw`)
+ * stay as TEXT strings.
  */
+
+import { RowDecodeError, rowIdFromRaw } from './rowDecodeError';
+import { getRowGateway } from './rowGatewayAccess';
 
 // ── helpers ──────────────────────────────────────────────────────────────────
 /** A TEXT column holding a JSON value of shape S. */
@@ -23,8 +27,24 @@ const jsonCol = <S extends z.ZodTypeAny>(schema: S) =>
       try {
         return schema.parse(JSON.parse(s));
       } catch {
-        ctx.addIssue({ code: z.ZodIssueCode.custom, message: "invalid JSON column" });
+        ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'invalid JSON column' });
         return z.NEVER;
+      }
+    });
+
+/** JSON column that decodes to null when the cell is corrupt or the wrong shape (feed-safe reads). */
+const jsonColTolerant = <S extends z.ZodTypeAny>(schema: S) =>
+  z
+    .string()
+    .nullable()
+    .transform((s): z.infer<S> | null => {
+      if (s == null) return null;
+      try {
+        const parsed = JSON.parse(s);
+        const result = schema.safeParse(parsed);
+        return result.success ? result.data : null;
+      } catch {
+        return null;
       }
     });
 
@@ -57,7 +77,7 @@ export type TaskRow = z.infer<typeof TaskRow>;
  * Phase-4 data-fix migration copied the same values across from the retired
  * shared columns for rows synced before that.
  */
-export const Task = TaskRow.transform((t) => ({
+export const Task = TaskRow.transform(t => ({
   id: t.id,
   key: t.key,
   summary: t.summary,
@@ -65,7 +85,7 @@ export const Task = TaskRow.transform((t) => ({
   status: t.status,
   issueType: t.issue_type,
   priority: t.priority,
-  prdText: typeof t.fields?.prd === "string" ? (t.fields.prd as string) : "",
+  prdText: typeof t.fields?.prd === 'string' ? (t.fields.prd as string) : '',
   figmaUrls: Array.isArray(t.fields?.figma_urls) ? (t.fields.figma_urls as string[]) : [],
   repoUrl: t.repo_url,
   parentKey: t.parent_key,
@@ -77,18 +97,24 @@ export const Task = TaskRow.transform((t) => ({
 export type Task = z.infer<typeof Task>;
 
 // ── flows ────────────────────────────────────────────────────────────────────
+export const FLOW_STATUSES = ['active', 'done', 'failed'] as const;
+export type FlowRowStatus = (typeof FLOW_STATUSES)[number];
+
+export const FLOW_KINDS = ['sdlc', 'step', 'split'] as const;
+export type FlowKindRow = (typeof FLOW_KINDS)[number];
+
 export const FlowRow = z.object({
   id: z.string(),
   task_id: z.string(),
   name: z.string(),
-  status: z.string(),
+  status: z.enum(FLOW_STATUSES),
   mr_url: z.string().nullable(),
   mr_iid: z.number().nullable(),
   mr_branch: z.string().nullable(),
   repo_url: z.string().nullable(),
   gitlab_project_id: z.number().nullable(),
   current_node: z.string().nullable(),
-  execution_mode: z.string().nullable().default("cloud"),
+  execution_mode: z.string().nullable().default('cloud'),
   repo_id: z.string().nullable(),
   /** flow template this flow instance snapshot came from (Phase 1) */
   template_id: z.string().nullable(),
@@ -98,8 +124,8 @@ export const FlowRow = z.object({
   worktree_dir: z.string().nullable(),
   /** step sub-flows (plan fan-out): set on child flows — the parent's flow id */
   parent_flow_id: z.string().nullable(),
-  /** sdlc | step (plan fan-out child) */
-  kind: z.string().nullable().default("sdlc"),
+  /** sdlc | step (plan fan-out child) | split */
+  kind: z.enum(FLOW_KINDS).nullable().default('sdlc'),
   created_at: z.string(),
   updated_at: z.string(),
 });
@@ -107,18 +133,36 @@ export type FlowRow = z.infer<typeof FlowRow>;
 
 // ── nodes ────────────────────────────────────────────────────────────────────
 export const NODE_STATUSES = [
-  "pending",
+  'pending',
   /** eligible but a `wait_for` event is still pending (Phase 1: reserved) */
-  "waiting",
-  "running",
-  "awaiting_approval",
-  "approved",
-  "done",
-  "failed",
+  'waiting',
+  'running',
+  'awaiting_approval',
+  'approved',
+  'done',
+  'failed',
   /** on a non-taken branch (Phase 3: decision/edge conditions) */
-  "skipped",
+  'skipped',
 ] as const;
 export type NodeStatus = (typeof NODE_STATUSES)[number];
+
+export const ARTIFACT_STATUSES = ['draft', 'approved', 'superseded'] as const;
+export type ArtifactStatus = (typeof ARTIFACT_STATUSES)[number];
+
+export const COMMENT_STATUSES = ['open', 'resolving', 'resolved', 'wontfix'] as const;
+export type CommentStatus = (typeof COMMENT_STATUSES)[number];
+
+export const PLAN_STEP_STATUSES = ['pending', 'done'] as const;
+export type PlanStepStatus = (typeof PLAN_STEP_STATUSES)[number];
+
+export const BRANCH_STATUSES = ['pending', 'building', 'awaiting_approval', 'approved', 'failed', 'done'] as const;
+export type BranchStatus = (typeof BRANCH_STATUSES)[number];
+
+export const RUN_STATUSES = ['running', 'finished', 'error', 'cancelled'] as const;
+export type RunRowStatus = (typeof RUN_STATUSES)[number];
+
+export const STEP_MERGE_STATUSES = ['running', 'conflict', 'rejected', 'merged', 'failed'] as const;
+export type StepMergeStatus = (typeof STEP_MERGE_STATUSES)[number];
 
 export const NodeRow = z.object({
   id: z.string(),
@@ -127,8 +171,11 @@ export const NodeRow = z.object({
   /** node template key (def key for built-ins; Phase 2 adds declarative kinds) */
   type: z.string(),
   status: z.enum(NODE_STATUSES),
+  /** Set when the node is claimed for a run; fences terminal writes and late agent results. */
+  attempt_id: z.string().nullable(),
   agent_id: z.string().nullable(),
-  cursor_agent_id: z.string().nullable(),
+  /** runtime agent handle (cloud agent id / local session id) */
+  agent_ref: z.string().nullable(),
   session_id: z.string().nullable(),
   prompt_override: z.string().nullable(),
   /** display name override from the template instance */
@@ -153,7 +200,7 @@ export const ArtifactRow = z.object({
   version: z.number(),
   content: z.string(),
   meta: jsonCol(z.record(z.string(), z.unknown())),
-  status: z.string(),
+  status: z.enum(ARTIFACT_STATUSES),
   feedback: z.string().nullable(),
   created_at: z.string(),
 });
@@ -169,7 +216,7 @@ export const CommentRow = z.object({
   body: z.string().nullable(),
   file_path: z.string().nullable(),
   line: z.number().nullable(),
-  status: z.string(),
+  status: z.enum(COMMENT_STATUSES),
   resolved_by: z.string().nullable(),
   raw: z.string().nullable(),
   created_at: z.string(),
@@ -182,7 +229,8 @@ export const MessageRow = z.object({
   id: z.string(),
   flow_id: z.string(),
   node_key: z.string().nullable(),
-  role: z.enum(["user", "assistant"]),
+  thread: z.string().nullable(),
+  role: z.enum(['user', 'assistant']),
   content: z.string(),
   created_at: z.string(),
 });
@@ -195,7 +243,7 @@ export const EventRow = z.object({
   node_id: z.string().nullable(),
   type: z.string(),
   message: z.string().nullable(),
-  data: jsonCol(z.record(z.string(), z.unknown())),
+  data: jsonColTolerant(z.record(z.string(), z.unknown())),
   created_at: z.string(),
 });
 export type EventRow = z.infer<typeof EventRow>;
@@ -211,7 +259,7 @@ export const PlanStepRow = z.object({
   detail: z.string().nullable(),
   files: jsonCol(z.array(z.string())),
   branch: z.string().nullable(),
-  status: z.string(),
+  status: z.enum(PLAN_STEP_STATUSES),
   origin: z.string(),
   /** completed_by: manual | build | merge | skipped | null */
   completed_by: z.string().nullable(),
@@ -227,8 +275,9 @@ export const BranchRow = z.object({
   id: z.string(),
   flow_id: z.string(),
   name: z.string(),
+  git_branch: z.string().nullable(),
   title: z.string().nullable(),
-  status: z.string(),
+  status: z.enum(BRANCH_STATUSES),
   mr_url: z.string().nullable(),
   mr_iid: z.number().nullable(),
   order: z.number(),
@@ -242,11 +291,11 @@ export const RunRow = z.object({
   id: z.string(),
   flow_id: z.string(),
   node_id: z.string(),
-  cursor_agent_id: z.string(),
-  cursor_run_id: z.string(),
-  branch_id: z.string().nullable(),
-  status: z.string(),
-  model: z.string().nullable(),
+  /** runtime agent handle (cloud agent id / local session id) */
+  agent_ref: z.string(),
+  /** the runtime's run id */
+  run_ref: z.string(),
+  status: z.enum(RUN_STATUSES),
   input_tokens: z.number().nullable(),
   output_tokens: z.number().nullable(),
   cache_read_tokens: z.number().nullable(),
@@ -277,6 +326,7 @@ export const RepoRow = z.object({
   updated_at: z.string(),
 });
 export type RepoRow = z.infer<typeof RepoRow>;
+export type Repo = RepoRow;
 
 // ── gitlab_instances ─────────────────────────────────────────────────────────
 export const GitLabInstanceRow = z.object({
@@ -284,16 +334,50 @@ export const GitLabInstanceRow = z.object({
   name: z.string().nullable(),
   base_url: z.string(),
   token: z.string(),
-  created_at: z.string().optional(),
+  created_at: z.string(),
 });
 export type GitLabInstanceRow = z.infer<typeof GitLabInstanceRow>;
+export type GitLabInstance = GitLabInstanceRow;
+
+// ── jira_instances ───────────────────────────────────────────────────────────
+export const JiraInstanceRow = z.object({
+  id: z.string(),
+  name: z.string().nullable(),
+  base_url: z.string(),
+  email: z.string(),
+  token: z.string(),
+  created_at: z.string(),
+});
+export type JiraInstanceRow = z.infer<typeof JiraInstanceRow>;
+export type JiraInstance = JiraInstanceRow;
+
+// ── settings ─────────────────────────────────────────────────────────────────
+export const SettingRow = z.object({
+  key: z.string(),
+  value: z.string(),
+});
+export type SettingRow = z.infer<typeof SettingRow>;
+
+// ── worktree_removals ────────────────────────────────────────────────────────
+export const WorktreeRemovalRow = z.object({
+  id: z.string(),
+  flow_id: z.string().nullable(),
+  repo_path: z.string().nullable(),
+  path: z.string(),
+  branch: z.string().nullable(),
+  delete_branch: z.number().int(),
+  reason: z.string().nullable(),
+  created_at: z.string(),
+});
+export type WorktreeRemovalRow = z.infer<typeof WorktreeRemovalRow>;
+export type WorktreeRemovalRecord = WorktreeRemovalRow;
 
 // ── flow templates (Phase 1: template layer) ─────────────────────────────────
 export const NodeTemplateRow = z.object({
   id: z.string(),
   key: z.string(),
   name: z.string(),
-  kind: z.enum(["builtin", "agent", "http", "script", "decision"]),
+  kind: z.enum(['builtin', 'agent', 'http', 'script', 'decision']),
   version: z.number(),
   description: z.string().nullable(),
   icon: z.string().nullable(),
@@ -355,7 +439,7 @@ export const FlowTemplateEdgeRow = z.object({
   template_id: z.string(),
   from_key: z.string(),
   to_key: z.string(),
-  kind: z.enum(["next", "loop"]),
+  kind: z.enum(['next', 'loop']),
   label: z.string().nullable(),
   condition: z.string().nullable(),
   created_at: z.string(),
@@ -392,7 +476,7 @@ export const StepMergeRow = z.object({
   parent_flow_id: z.string(),
   parent_node: z.string(),
   branch: z.string().nullable(),
-  status: z.string(),
+  status: z.enum(STEP_MERGE_STATUSES),
   attempts: z.number(),
   error: z.string().nullable(),
   created_at: z.string(),
@@ -407,23 +491,49 @@ export type StepMergeRow = z.infer<typeof StepMergeRow>;
  * stripped (zod default) — SELECT * is fine.
  */
 export class RowGateway {
-  get<S extends z.ZodTypeAny>(
+  constructor(private readonly database: Database) {}
+
+  private parseRow<S extends z.ZodTypeAny>(
     schema: S,
+    raw: unknown,
     sql: string,
-    ...args: unknown[]
+    mode: 'get' | 'all'
   ): z.infer<S> | undefined {
-    const row = db.get<unknown>(sql, ...(args as never[]));
-    if (row == null) return undefined;
-    return schema.parse(row);
+    const result = schema.safeParse(raw);
+    if (result.success) return result.data;
+    const rowId = rowIdFromRaw(raw);
+    if (mode === 'get') {
+      throw new RowDecodeError(sql, rowId, result.error);
+    }
+    console.error('[rows] skipping undecodable row', {
+      sql,
+      rowId,
+      issues: result.error.issues,
+    });
+    return undefined;
   }
 
-  all<S extends z.ZodTypeAny>(
-    schema: S,
-    sql: string,
-    ...args: unknown[]
-  ): z.infer<S>[] {
-    return db.all<unknown>(sql, ...(args as never[])).map((r) => schema.parse(r));
+  get<S extends z.ZodTypeAny>(schema: S, sql: string, ...args: unknown[]): z.infer<S> | undefined {
+    const row = this.database.get<unknown>(sql, ...(args as never[]));
+    if (row == null) return undefined;
+    return this.parseRow(schema, row, sql, 'get');
+  }
+
+  all<S extends z.ZodTypeAny>(schema: S, sql: string, ...args: unknown[]): z.infer<S>[] {
+    const decoded: z.infer<S>[] = [];
+    for (const raw of this.database.all<unknown>(sql, ...(args as never[]))) {
+      const row = this.parseRow(schema, raw, sql, 'all');
+      if (row !== undefined) decoded.push(row);
+    }
+    return decoded;
   }
 }
 
-export const rows = new RowGateway();
+/** Backward-compatible accessor — prefer `import { rows } from "@/lib/db/app"`. */
+export const rows: RowGateway = new Proxy({} as RowGateway, {
+  get(_target, prop: keyof RowGateway) {
+    const gateway = getRowGateway();
+    const value = gateway[prop];
+    return typeof value === 'function' ? (value as (...args: never[]) => unknown).bind(gateway) : value;
+  },
+});

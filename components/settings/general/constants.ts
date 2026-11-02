@@ -2,11 +2,13 @@
 
 import { Cloud, Cpu, FolderGit2, type LucideIcon } from "lucide-react";
 
+import { RUN_MODE } from "@/constants/execution";
+
 /** Per-mode icon. The cascade itself is data-driven from `settings.harnesses`
  *  — this only maps a mode value onto presentation. */
 export const EXECUTION_MODE_META: Record<string, { icon: LucideIcon }> = {
-  cloud: { icon: Cloud },
-  local: { icon: FolderGit2 },
+  [RUN_MODE.CLOUD]: { icon: Cloud },
+  [RUN_MODE.LOCAL]: { icon: FolderGit2 },
 };
 
 /** Icon for mode values without dedicated artwork (data-driven cascade). */

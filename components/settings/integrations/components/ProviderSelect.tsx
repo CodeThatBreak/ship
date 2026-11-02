@@ -7,15 +7,16 @@ export type ProviderOption = { value: string; label: string; icon: React.ReactNo
 
 /** Module-level option lists (hoisted by callers) stay referentially stable. */
 export function ProviderSelect({
-  value, onChange, options,
+  id, value, onChange, options,
 }: {
+  id?: string;
   value: string;
   onChange: (v: string) => void;
   options: readonly ProviderOption[];
 }) {
   return (
     <Select value={value || null} onValueChange={(v) => onChange(v ?? "")}>
-      <SelectTrigger className="w-full">
+      <SelectTrigger id={id} className="w-full">
         <SelectValue placeholder="Select provider" />
       </SelectTrigger>
       <SelectContent>

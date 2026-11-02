@@ -1,14 +1,6 @@
-import type { Settings } from "../context";
+export type { InstanceRow } from "@/types/settings";
+import type { Settings } from "@/types/settings";
 import { LOCAL_AGENT } from "./constants";
-
-/** One connected integration instance as returned by the instance endpoints. */
-export type InstanceRow = {
-  id: string;
-  name: string | null;
-  baseUrl: string;
-  email?: string;
-  tokenMasked: string;
-};
 
 /** Editable local-run execution settings shown on the harness card
  *  (shape of GET /api/settings → local_agent). */

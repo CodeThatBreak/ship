@@ -1,18 +1,21 @@
 "use client";
-import { useCallback } from "react";
-import { CursorIcon } from "../integration-icons";
-import { useSettings } from "../context";
-import { PROVIDER_KIND } from "./constants";
-import { useConnectForm } from "./hooks/use-connect-form";
-import { useUpdateCursorApiKey } from "./hooks/use-cursor-api-key";
-import { ConnectEmpty } from "./components/ConnectEmpty";
-import { ConnectModal } from "./components/ConnectModal";
-import { InstanceCard } from "./components/InstanceCard";
+import { useCallback, useState } from "react";
+import { RefreshCw } from "lucide-react";
+import { CursorIcon } from "../integrationIcons";
+import { ConfirmDeleteDialog } from "@/components/shared/ConfirmDeleteDialog";
+import { useSettingsQuery } from "../hooks/useSettingsQuery";
+import { CURSOR_HARNESS, PROVIDER_KIND } from "./constants";
+import { useConnectForm } from "./hooks/useConnectForm";
+import { useUpdateCursorApiKey } from "./hooks/useCursorApiKey";
+import { ConnectEmpty } from './components/connect/ConnectEmpty';
+import { ConnectModal } from './components/connect/ConnectModal';
+import { InstanceCard } from './components/instances/InstanceCard';
 import { LocalAgentOptions, LocalAgentOptionsSkeleton } from "./components/LocalAgentOptions";
 import { ProviderSelect } from "./components/ProviderSelect";
 import { Field, FieldLabel } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
-import { useLocalAgentOptions } from "./hooks/use-local-agent-options";
+import { Button } from "@/components/ui/button";
+import { useLocalAgentOptions } from "./hooks/useLocalAgentOptions";
 import type { TabProps } from "./types";
 
 // ── Harness tab (agent runners — Cursor for now) ────────────────────────────
@@ -27,9 +30,10 @@ const CURSOR_PROVIDER_OPTIONS = [
 ] as const;
 
 export function HarnessTab({ open, onOpenChange, onError }: TabProps) {
-  const { settings } = useSettings();
+  const [pendingClearKey, setPendingClearKey] = useState(false);
+  const { settings, isError: settingsLoadFailed, refetch } = useSettingsQuery();
   const setCursorKey = useUpdateCursorApiKey();
-  const localAgent = useLocalAgentOptions();
+  const localAgent = useLocalAgentOptions(onError);
   const { state, setProvider, setField, reset } = useConnectForm();
 
   const keySet = settings?.status.cursorApiKeySet ?? false;
@@ -44,19 +48,34 @@ export function HarnessTab({ open, onOpenChange, onError }: TabProps) {
     onOpenChange(false);
   }, [reset, onOpenChange]);
 
-  const updateKey = (apiKey: string) => {
+  const requestClearKey = useCallback((instanceId: string) => {
+    if (instanceId !== CURSOR_HARNESS.INSTANCE_ID) return;
+    setPendingClearKey(true);
+  }, []);
+
+  const updateKey = useCallback((apiKey: string) => {
     setCursorKey.mutate(apiKey, {
-      onSuccess: close,
+      onSuccess: () => {
+        close();
+        onError(null);
+      },
       onError: (e) => onError(e.message),
     });
-  };
+  }, [setCursorKey, close, onError]);
 
   return (
     <section
       data-harness={PROVIDER_KIND.CURSOR}
       className="flex flex-1 flex-col"
     >
-      {!keySet ? (
+      {settingsLoadFailed ? (
+        <p className="text-[13px] text-destructive m-0 flex items-center gap-2">
+          Couldn&apos;t load harness settings.
+          <Button variant="outline" size="xs" onClick={() => void refetch()}>
+            <RefreshCw size={12} /> Retry
+          </Button>
+        </p>
+      ) : !keySet ? (
         <ConnectEmpty
           icon={<CursorIcon />}
           title="No harness connected"
@@ -68,12 +87,13 @@ export function HarnessTab({ open, onOpenChange, onError }: TabProps) {
           <InstanceCard
             icon={<CursorIcon size={16} />}
             instance={{
-              id: "cursor",
+              id: CURSOR_HARNESS.INSTANCE_ID,
               name: "Cursor",
-              baseUrl: "https://api.cursor.com",
+              baseUrl: CURSOR_HARNESS.API_BASE_URL,
               tokenMasked: "API key set",
             }}
-            onDelete={() => updateKey("")}
+            onDelete={requestClearKey}
+            deleting={setCursorKey.isPending && setCursorKey.variables === ""}
           >
             {/* local-run execution settings live inside the harness card once connected */}
             {localAgent.options ? (
@@ -95,11 +115,12 @@ export function HarnessTab({ open, onOpenChange, onError }: TabProps) {
         title="Connect Cursor"
         canSubmit={canConnect}
         submitting={setCursorKey.isPending}
-        onSubmit={() => updateKey(fields.apiKey)}
+        onSubmit={() => updateKey(fields.apiKey ?? "")}
       >
         <Field>
-          <FieldLabel>Provider</FieldLabel>
+          <FieldLabel htmlFor="cursor-provider">Provider</FieldLabel>
           <ProviderSelect
+            id="cursor-provider"
             value={provider}
             onChange={setProvider}
             options={CURSOR_PROVIDER_OPTIONS}
@@ -118,7 +139,7 @@ export function HarnessTab({ open, onOpenChange, onError }: TabProps) {
               className="font-mono text-[12px]"
             />
             <a
-              href="https://cursor.com/dashboard/api"
+              href={CURSOR_HARNESS.DASHBOARD_API_URL}
               target="_blank"
               rel="noreferrer"
               className="text-[12px] text-info hover:underline"
@@ -128,6 +149,24 @@ export function HarnessTab({ open, onOpenChange, onError }: TabProps) {
           </Field>
         )}
       </ConnectModal>
+
+      <ConfirmDeleteDialog
+        open={pendingClearKey}
+        onClose={() => setPendingClearKey(false)}
+        title="Clear Cursor API key?"
+        description="Removes the stored key. Local agent runs won't work until you connect again."
+        busy={setCursorKey.isPending}
+        confirmLabel="Clear API key"
+        onConfirm={() => {
+          setCursorKey.mutate("", {
+            onSuccess: () => {
+              setPendingClearKey(false);
+              onError(null);
+            },
+            onError: (e) => onError(e.message),
+          });
+        }}
+      />
     </section>
   );
 }

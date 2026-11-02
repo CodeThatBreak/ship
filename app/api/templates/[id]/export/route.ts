@@ -1,7 +1,9 @@
-import { templateStore } from "../../../../../lib/engine/templates";
-import { gatherTemplateYaml } from "../../../../../lib/engine/templates-yaml";
+import { toErrorResponse } from "@/lib/errors";
+import { templateStore } from "../../../../../lib/engine/templates/templateStore";
+import { gatherTemplateYaml } from "../../../../../lib/engine/templates/templateYaml";
 
 export const dynamic = "force-dynamic";
+export const runtime = "nodejs";
 
 /** Export the template as YAML (config-as-code, §7 shape). */
 export async function GET(_req: Request, { params }: { params: Promise<{ id: string }> }) {
@@ -25,6 +27,6 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
       },
     });
   } catch (e: unknown) {
-    return Response.json({ error: e instanceof Error ? e.message : String(e) }, { status: 404 });
+    return toErrorResponse(e);
   }
 }

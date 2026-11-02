@@ -20,13 +20,14 @@ import { Copy, Download, Trash2, Webhook } from "lucide-react";
 import { Alert, AlertAction } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Spinner } from "@/components/ui/spinner";
-import { ConfirmDeleteDialog } from "@/components/shared";
-import { ListSection } from "@/components/shared";
-import { DataTable, type DataTableAction } from "@/components/shared";
-import { WebhookPayloadDialog } from "@/components/template-editor";
-import { queryKeys } from "@/constants/query-keys";
-import { postJson } from "@/hooks/fetch-json";
-import { useTemplateList } from "./hooks/use-template-list";
+import { ConfirmDeleteDialog } from "@/components/shared/ConfirmDeleteDialog";
+import { ListSection } from "@/components/shared/ListSection";
+import { DataTable, type DataTableAction } from "@/components/shared/dataTable/DataTable";
+import { WebhookPayloadDialog } from '@/components/templateEditor/components/webhook/WebhookPayloadDialog';
+import { queryKeys } from "@/constants/queryKeys";
+import { postJson } from "@/hooks/fetchJson";
+import { apiFetch } from "@/hooks/localApiToken";
+import { useTemplateList } from "./hooks/useTemplateList";
 import { templateColumns } from "./components/TemplateColumns";
 import { GalleryHeader } from "./components/GalleryHeader";
 import { ImportTemplateDialog, type ImportDraft } from "./components/ImportTemplateDialog";
@@ -80,7 +81,7 @@ function getTemplateActions(
   ];
 }
 
-export function TemplateGallery({ initialTemplates }: { initialTemplates: TemplateRow[] }) {
+export function TemplateGallery() {
   const router = useRouter();
   const queryClient = useQueryClient();
   const invalidate = () => void queryClient.invalidateQueries({ queryKey: queryKeys.templatesGallery });
@@ -97,14 +98,18 @@ export function TemplateGallery({ initialTemplates }: { initialTemplates: Templa
 
   // the server-hydrated list — every mutation invalidates this key and the
   // refetch runs through /api/templates
-  const templatesQuery = useTemplateList(initialTemplates);
-  const templates = templatesQuery.data;
+  const templatesQuery = useTemplateList();
+  const templates = templatesQuery.data ?? [];
 
   /** A1: "New template" creates an *Untitled flow* instantly and opens the
    *  editor — the name is edited in the editor's Flow settings, not here. */
   const createMutation = useMutation({
     mutationFn: () => postJson<{ id: string }>("/api/templates", JSON.stringify({})),
-    onSuccess: ({ id }) => router.push(`/templates/${id}`),
+    onMutate: () => setPageError(null),
+    onSuccess: ({ id }) => {
+      invalidate();
+      router.push(`/templates/${id}`);
+    },
     onError: (e) => setPageError(e.message),
   });
 
@@ -120,6 +125,7 @@ export function TemplateGallery({ initialTemplates }: { initialTemplates: Templa
       );
     },
     onSuccess: ({ id }) => router.push(`/templates/${id}`),
+    onMutate: () => setPageError(null),
     onError: (e) => setPageError(e.message),
     onSettled: invalidate,
   });
@@ -127,12 +133,13 @@ export function TemplateGallery({ initialTemplates }: { initialTemplates: Templa
   /** The confirm's destructive action (A2): delete, then refresh. */
   const removeMutation = useMutation({
     mutationFn: async (t: TemplateRow) => {
-      const res = await fetch(`/api/templates/${t.id}`, { method: "DELETE" });
+      const res = await apiFetch(`/api/templates/${t.id}`, { method: "DELETE" });
       const payload = (await res.json().catch(() => null)) as { error?: string } | null;
       if (!res.ok || payload?.error) {
         throw new Error(payload?.error ?? `Request failed (${res.status})`);
       }
     },
+    onMutate: () => setPageError(null),
     onError: (e) => setPageError(e.message),
     onSettled: invalidate,
   });

@@ -1,33 +1,26 @@
-"use client";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useQueryClient } from "@tanstack/react-query";
-import WorkflowGraph from "../workflow-graph/WorkflowGraph";
-import NodePanel from "../panels/NodePanel";
-import {
-  ChatPanel,
-  type PlanOptions,
-  type PlanStartOpts,
-} from "@/components/chat";
-import FlowHeader from "../FlowHeader";
-import { Button } from "@/components/ui/button";
-// value from lib/modelSpec (pure helpers, Phase 0 allowlist); the types flow
-// through types/model-spec per the Phase 0 guidance
-import { composeModelChoice } from "@/lib/modelSpec";
-import type { ModelChoice } from "@/types/model-spec";
-import { queryKeys } from "@/constants/query-keys";
-import { FLOW_STATUS } from "@/constants/flow";
-import type { FlowData, Node } from "@/types/flow";
-import { EXECUTION_MODE_LOCAL, LOCAL_MODE_MODEL } from "../constants";
-import { useFlowData } from "./hooks/use-flow-data";
-import { useFlowEvents } from "./hooks/use-flow-events";
-import { fanoutProgressOf } from "./fanout-progress";
+'use client';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import { resolveCockpitSelectedKey } from './utils/resolveCockpitSelection';
+import { useQueryClient } from '@tanstack/react-query';
+import WorkflowGraph from '../workflowGraph/WorkflowGraph';
+import NodePanel from '../panels/NodePanel';
+import FlowHeader from '../components/FlowHeader';
+import { Button } from '@/components/ui/button';
+import { queryKeys } from '@/constants/queryKeys';
+import type { FlowData, Node } from '@/types/flow';
+import { useFlowMutation } from '../mutations/useFlowMutation';
+import { useFlowData } from './hooks/useFlowData';
+import { useFlowEvents } from './hooks/useFlowEvents';
+import { fanoutProgressOf } from './fanoutProgress';
 
 /**
  * The flow cockpit's client island (§2.1 server/client split): the server page
  * resolves the flow and hydrates this island through `useFlowData`'s
- * `initialData`; everything live — the event stream, chat, node panels and
- * their Poller-driven refreshes — stays client-side on TanStack Query
- * (`components/flows/panels` registry and the chat/feedback hooks are reused as-is).
+ * `initialData`; everything live — the event stream and the node panels (each
+ * resolving its own chat rail, per the panels' workspace factory) — stays
+ * client-side on TanStack Query. The cockpit is layout and the flow-wide
+ * shared props only — the flow state, the event stream and the action
+ * transport; nothing node-specific passes through here.
  */
 export default function FlowCockpit({
   flowId,
@@ -42,102 +35,50 @@ export default function FlowCockpit({
   // the hydrated payload is authoritative immediately; a refetch failure keeps
   // the last synced state on screen (§2.8 — banner below, not a blank page)
   const flow: FlowData = flowQuery.data ?? initialFlow;
-  const events = useFlowEvents(flowId);
+  const { events, caughtUp } = useFlowEvents(flowId);
 
-  // a new event batch = state a flow refetch hasn't seen yet — refresh it once
-  // per batch (the old page called loadFlow() straight from the poll loop)
+  // New events after the tail snapshot — refresh flow detail once per new tail id (CR-119).
   const lastEventId = events.at(-1)?.id;
   useEffect(() => {
-    if (lastEventId === undefined) return;
+    if (!caughtUp || lastEventId === undefined) return;
     void queryClient.invalidateQueries({ queryKey: queryKeys.flows.detail(flowId) });
-  }, [queryClient, flowId, lastEventId]);
+  }, [queryClient, flowId, caughtUp, lastEventId]);
 
   // default selection = the first node in graph order (the flow's entry) —
   // nodes arrive pre-sorted; the user picks from there
   //
-  // once the user clicks a node we stop auto-following current_node, so polling
-  // doesn't yank the view back to whatever happens to be running
-  const userSelected = useRef(false);
-  const [selected, setSelected] = useState("");
-  const resolvedSelectedKey = userSelected.current ? selected : flow.current_node ?? "";
-  const onSelect = useCallback((key: string) => {
-    userSelected.current = true;
-    setSelected(key);
-  }, []);
+  // empty `selected` follows current_node; once the user clicks a node, `selected`
+  // holds that key so polling doesn't yank the view back to whatever is running
+  const [selected, setSelected] = useState('');
+  const resolvedSelectedKey = resolveCockpitSelectedKey(selected, flow.current_node);
 
   const node = useMemo(
     () => flow.nodes.find((n: Node) => n.node_key === resolvedSelectedKey) ?? flow.nodes[0],
-    [flow.nodes, resolvedSelectedKey],
+    [flow.nodes, resolvedSelectedKey]
   );
-  // the prompt preview box sits over the chat: prompt-publishing nodes (the
-  // plan, §3.2 capabilities) before their first run — nothing to chat with yet
-  const promptPending =
-    Boolean(node?.capabilities?.promptNode) &&
-    (node?.artifacts.length ?? 0) === 0 &&
-    node?.status === FLOW_STATUS.PENDING;
 
-  // one model override for this flow's runs — picked in the chat panel's
-  // model selector, consumed by every run-start action below. Local flows
-  // (mode picked at start) prefill the local runtime's model; cloud stays on
-  // the account default (null).
-  const [modelChoice, setModelChoice] = useState<ModelChoice | null>(
-    initialFlow.execution_mode === EXECUTION_MODE_LOCAL
-      ? { id: LOCAL_MODE_MODEL }
-      : null,
-  );
-  const model = composeModelChoice(modelChoice);
-
-  // plan-generation options — toggled via the icon buttons in the chat panel's
-  // prompt box / input row, part of the plan node's contract input
-  const [planOptions, setPlanOptions] = useState<PlanOptions>({ decompose: false, complex: false });
-
+  const flowAction = useFlowMutation({ flowId });
   const action = useCallback(
-    async (act: string, body?: Record<string, unknown>) => {
-      await fetch(`/api/flows/${flowId}/action`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: act, ...body }),
-      });
-      // the action changed flow state — refresh the cockpit's snapshot
-      await queryClient.invalidateQueries({ queryKey: queryKeys.flows.detail(flowId) });
+    (act: string, body?: Record<string, unknown>) => {
+      flowAction.mutate({ action: act, ...body });
     },
-    [flowId, queryClient],
+    [flowAction],
   );
-
-  // start the node's first run from the chat's prompt box / prompt modal —
-  // the generic run_node action with the node's contract input (the plan
-  // node's contract carries prompt/promptIsBody/decompose/complex/model)
-  const startNode = useCallback(
-    (opts?: PlanStartOpts) => {
-      const nodeKey = node?.node_key;
-      if (!nodeKey) return;
-      return action("run_node", {
-        nodeKey,
-        input: {
-          prompt: opts?.prompt ?? null,
-          promptIsBody: opts?.promptIsBody ?? false,
-          decompose: planOptions.decompose,
-          complex: planOptions.complex,
-          model: model || null,
-        },
-      });
-    },
-    [action, node, planOptions.decompose, planOptions.complex, model],
+  const actionAsync = useCallback(
+    (act: string, body?: Record<string, unknown>) =>
+      flowAction.mutateAsync({ action: act, ...body }),
+    [flowAction],
   );
-
-  // node id → node key, for the chat feed's run-section grouping
-  const nodeKeysByNodeId = useMemo(
-    () => new Map(flow.nodes.map((n) => [n.id, n.node_key])),
-    [flow.nodes],
-  );
-  // node id → status, for the chat panel to close stale "running" sections
-  const nodeStatusByNodeId = useMemo(
-    () => new Map(flow.nodes.map((n) => [n.id, n.status])),
-    [flow.nodes],
-  );
-
-  // busy for the chat panel = this node's agent is running (not just any node)
-  const busy = flow.current_node === node?.node_key;
+  const resetAction = useCallback(() => {
+    flowAction.reset();
+  }, [flowAction]);
+  const retryAction = useCallback(() => {
+    if (flowAction.variables) {
+      flowAction.mutate(flowAction.variables);
+      return;
+    }
+    flowAction.reset();
+  }, [flowAction]);
 
   // plan fan-out: per-node step rollup for the graph subtitle (plain compute —
   // it derives straight from the attached plan-step state)
@@ -167,47 +108,30 @@ export default function FlowCockpit({
         <WorkflowGraph
           flowId={flow.id}
           nodes={flow.nodes}
-          selected={node?.node_key ?? ""}
-          onSelect={onSelect}
+          selected={node?.node_key ?? ''}
+          onSelect={setSelected}
           currentNode={flow.current_node}
           fanout={fanout}
         />
       </div>
 
-      {/* main split: node panel + right rail */}
-      <div className="flex flex-1 min-h-0">
-        <section className="flex-[1.6] border-r border-border flex flex-col min-h-0 min-w-0">
-          {node && (
-            <NodePanel
-              flow={flow}
-              node={node}
-              action={action}
-              events={events}
-              model={model}
-              planOptions={planOptions}
-            />
-          )}
-        </section>
-        <aside className="flex-1 flex flex-col bg-card min-w-[340px] p-3.5">
-          <ChatPanel
-            flowId={flow.id}
-            nodeKey={node?.node_key ?? ""}
-            nodeLabel={node?.label ?? node?.template_name ?? node?.node_key ?? ""}
-            capabilities={node?.capabilities ?? null}
-            busy={busy}
-            canRefine={Boolean(node?.artifacts.length)}
+      {/* the selected node's workspace: its panel + capability-driven chat rail */}
+      <section className="flex-1 flex flex-col min-h-0">
+        {node && (
+          <NodePanel
+            key={node.node_key}
+            flow={flow}
+            node={node}
+            action={action}
+            actionAsync={actionAsync}
+            actionPending={flowAction.isPending}
+            actionError={flowAction.error}
+            resetAction={resetAction}
+            retryAction={retryAction}
             events={events}
-            nodeKeysByNodeId={nodeKeysByNodeId}
-            nodeStatusByNodeId={nodeStatusByNodeId}
-            modelChoice={modelChoice}
-            setModelChoice={setModelChoice}
-            showPromptBox={promptPending}
-            planOptions={planOptions}
-            setPlanOptions={setPlanOptions}
-            onStartNode={startNode}
           />
-        </aside>
-      </div>
+        )}
+      </section>
     </main>
   );
 }

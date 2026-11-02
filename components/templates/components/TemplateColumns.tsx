@@ -2,7 +2,7 @@ import type { ColumnDef } from "@tanstack/react-table";
 import Link from "next/link";
 import { Workflow } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
-import { FLOW_TRIGGER_TYPE } from "@/components/template-editor";
+import { FLOW_TRIGGER_TYPE } from "@/components/templateEditor/constants";
 import { fmtDate } from "@/lib/format";
 import { nodeCountLabel } from "../constants";
 import type { TemplateRow } from "../types";

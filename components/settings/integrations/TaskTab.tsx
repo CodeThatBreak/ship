@@ -1,18 +1,19 @@
 "use client";
-import { useCallback } from "react";
-import { JiraIcon } from "../integration-icons";
-import { INSTANCE_SURFACE, PROVIDER_KIND } from "./constants";
-import { useConnectForm } from "./hooks/use-connect-form";
-import { useRecordTestResult, testResultKey, useTestResults } from "./hooks/use-test-results";
+import { useCallback, useState } from "react";
+import { JiraIcon } from "../integrationIcons";
+import { ConfirmDeleteDialog } from "@/components/shared/ConfirmDeleteDialog";
+import { HOSTING, INSTANCE_SURFACE, PROVIDER_KIND } from "./constants";
+import { useConnectForm } from "./hooks/useConnectForm";
+import { useRecordTestResult, testResultKey, useTestResults } from "./hooks/useTestResults";
 import {
   useConnectInstance, useInstances, useRemoveInstance, useTestInstance,
-} from "./hooks/use-instances";
-import { ConnectEmpty } from "./components/ConnectEmpty";
-import { ConnectModal } from "./components/ConnectModal";
+} from "./hooks/useInstances";
+import { ConnectEmpty } from './components/connect/ConnectEmpty';
+import { ConnectModal } from './components/connect/ConnectModal';
 import { HostingSelect } from "./components/HostingSelect";
-import { InstanceCard, InstanceCardSkeleton } from "./components/InstanceCard";
+import { InstanceCard } from './components/instances/InstanceCard';
 import { ProviderSelect } from "./components/ProviderSelect";
-import { InstanceListError } from "./components/InstanceListError";
+import { InstanceList } from './components/instances/InstanceList';
 import { Field, FieldLabel } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import type { TabProps } from "./types";
@@ -25,11 +26,12 @@ const JIRA_PROVIDER_OPTIONS = [
 ] as const;
 
 const JIRA_HOSTING_OPTIONS = [
-  { value: "cloud", label: "Cloud (atlassian.net)" },
-  { value: "custom", label: "Self-hosted (Data Center / Server)" },
+  { value: HOSTING.CLOUD, label: "Cloud (atlassian.net)" },
+  { value: HOSTING.CUSTOM, label: "Self-hosted (Data Center / Server)" },
 ] as const;
 
 export function TaskTab({ open, onOpenChange, onError }: TabProps) {
+  const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
   const { instances, isPending, isError, refetch } = useInstances(
     INSTANCE_SURFACE.TASK, PROVIDER_KIND.JIRA,
   );
@@ -60,48 +62,69 @@ export function TaskTab({ open, onOpenChange, onError }: TabProps) {
         email: fields.email,
         token: fields.token,
       },
-      { onSuccess: close, onError: (e) => onError(e.message) },
+      { onSuccess: () => { close(); onError(null); }, onError: (e) => onError(e.message) },
     );
   };
 
-  const runTest = (id: string) => {
+  const runTest = useCallback((id: string) => {
     test.mutate(id, {
       onSuccess: (result) => recordTest.mutate({ provider: PROVIDER_KIND.JIRA, id, result }),
+      onError: (e) => onError(e.message),
+    });
+  }, [test, recordTest, onError]);
+
+  const requestDelete = useCallback((id: string) => {
+    setPendingDeleteId(id);
+  }, []);
+
+  const retryList = useCallback(() => {
+    void refetch();
+  }, [refetch]);
+
+  const pendingInstance = pendingDeleteId
+    ? instances.find((i) => i.id === pendingDeleteId) ?? null
+    : null;
+
+  const confirmRemove = () => {
+    if (!pendingDeleteId) return;
+    remove.mutate(pendingDeleteId, {
+      onSuccess: () => {
+        setPendingDeleteId(null);
+        onError(null);
+      },
+      onError: (e) => onError(e.message),
     });
   };
 
   return (
     <section data-host={PROVIDER_KIND.JIRA} className="flex flex-1 flex-col">
-      {isError ? (
-        <InstanceListError onRetry={() => void refetch()} />
-      ) : isPending ? (
-        <div className="grid gap-2.5">
-          <InstanceCardSkeleton />
-          <InstanceCardSkeleton />
-          <InstanceCardSkeleton />
-        </div>
-      ) : instances.length === 0 ? (
-        <ConnectEmpty
-          icon={<JiraIcon />}
-          title="No task provider connected"
-          description="Connect a task provider — Jira for now — to bring in tasks."
-          onConnect={() => onOpenChange(true)}
-        />
-      ) : (
-        <div className="grid gap-2.5 content-start">
-          {instances.map((i) => (
-            <InstanceCard
-              key={i.id}
-              icon={<JiraIcon size={15} />}
-              instance={i}
-              testing={test.isPending && test.variables === i.id}
-              testResult={testResults[testResultKey(PROVIDER_KIND.JIRA, i.id)]}
-              onTest={() => runTest(i.id)}
-              onDelete={() => remove.mutate(i.id)}
-            />
-          ))}
-        </div>
-      )}
+      <InstanceList
+        isError={isError}
+        onRetry={retryList}
+        isPending={isPending}
+        isEmpty={instances.length === 0}
+        empty={
+          <ConnectEmpty
+            icon={<JiraIcon />}
+            title="No task provider connected"
+            description="Connect a task provider — Jira for now — to bring in tasks."
+            onConnect={() => onOpenChange(true)}
+          />
+        }
+      >
+        {instances.map((i) => (
+          <InstanceCard
+            key={i.id}
+            icon={<JiraIcon size={15} />}
+            instance={i}
+            testing={test.isPending && test.variables === i.id}
+            testResult={testResults[testResultKey(PROVIDER_KIND.JIRA, i.id)]}
+            onTest={runTest}
+            onDelete={requestDelete}
+            deleting={remove.isPending && remove.variables === i.id}
+          />
+        ))}
+      </InstanceList>
 
       <ConnectModal
         open={open}
@@ -112,14 +135,24 @@ export function TaskTab({ open, onOpenChange, onError }: TabProps) {
         onSubmit={submit}
       >
         <Field>
-          <FieldLabel>Provider</FieldLabel>
-          <ProviderSelect value={provider} onChange={setProvider} options={JIRA_PROVIDER_OPTIONS} />
+          <FieldLabel htmlFor="jira-provider">Provider</FieldLabel>
+          <ProviderSelect
+            id="jira-provider"
+            value={provider}
+            onChange={setProvider}
+            options={JIRA_PROVIDER_OPTIONS}
+          />
         </Field>
 
         {provider === PROVIDER_KIND.JIRA && (
           <Field>
-            <FieldLabel>Type</FieldLabel>
-            <HostingSelect value={hosting} onChange={setHosting} options={JIRA_HOSTING_OPTIONS} />
+            <FieldLabel htmlFor="jira-hosting-type">Type</FieldLabel>
+            <HostingSelect
+              id="jira-hosting-type"
+              value={hosting}
+              onChange={setHosting}
+              options={JIRA_HOSTING_OPTIONS}
+            />
           </Field>
         )}
 
@@ -168,6 +201,24 @@ export function TaskTab({ open, onOpenChange, onError }: TabProps) {
           </>
         )}
       </ConnectModal>
+
+      <ConfirmDeleteDialog
+        open={pendingDeleteId != null}
+        onClose={() => setPendingDeleteId(null)}
+        title="Remove Jira connection?"
+        description={
+          <>
+            Disconnects{" "}
+            <span className="font-medium">
+              {pendingInstance?.name || pendingInstance?.baseUrl || "this instance"}
+            </span>
+            {" "}and deletes its stored credentials.
+          </>
+        }
+        busy={remove.isPending}
+        confirmLabel="Remove connection"
+        onConfirm={confirmRemove}
+      />
     </section>
   );
 }

@@ -16,7 +16,6 @@
     "utils": "@/lib/utils",
     "ui": "@/components/ui",
     "lib": "@/lib",
-    "hooks": "@/hooks",
-    "ai-elements": "@/components/ai-elements"
+    "hooks": "@/hooks"
   }
 }

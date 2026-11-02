@@ -9,7 +9,8 @@
  *   <url>      e.g. http://localhost:3000/api/hooks/<hook_id>
  *   <secret>   the hook's whsec_... secret (shown in the template editor)
  *   json-body  the delivery body (becomes {{trigger.payload}}), default {"ping":true}
- *   --raw      use the shared-secret header fallback (x-devflow-secret)
+ *   --raw      use the shared-secret header fallback (x-devflow-secret plus
+ *              webhook-id and webhook-timestamp for replay control)
  *              instead of signing per the standardwebhooks spec
  */
 import { Webhook } from "standardwebhooks";
@@ -27,6 +28,9 @@ if (!url || !secret) {
 const headers = { "content-type": "application/json" };
 
 if (raw) {
+  const msgId = `msg_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
+  headers["webhook-id"] = msgId;
+  headers["webhook-timestamp"] = String(Math.floor(Date.now() / 1000));
   headers["x-devflow-secret"] = secret;
 } else {
   const wh = new Webhook(secret);

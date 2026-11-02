@@ -1,5 +1,5 @@
 import { Bot, FileCode2, GitBranch, Globe, type LucideIcon } from "lucide-react";
-import type { NodeTemplateKind } from "@/components/template-editor";
+import type { NodeTemplateKind } from "@/components/templateEditor/boilerplate";
 import type { NodeRow } from "./types";
 
 /** The declarative kinds a Template Node can have, in display order. */

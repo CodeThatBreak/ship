@@ -1,4 +1,6 @@
-import type { TaskProvider } from "./task-provider";
+import "server-only";
+
+import type { TaskProvider } from "./taskProvider";
 import { JiraTaskProvider } from "./providers/jira";
 
 /**
@@ -52,6 +54,21 @@ export class TaskProviderRegistry {
   /** All registered providers (registration order). */
   list(): TaskProvider[] {
     return [...this.registry.values()];
+  }
+
+  /** Serialized provider list — shared by GET /api/tasks/providers and loaders. */
+  describe(): {
+    kind: string;
+    label: string;
+    configured: boolean;
+    contextFields: TaskProvider["contextFields"];
+  }[] {
+    return this.list().map((p) => ({
+      kind: p.kind,
+      label: p.label,
+      configured: p.configured(),
+      contextFields: p.contextFields,
+    }));
   }
 
   /**

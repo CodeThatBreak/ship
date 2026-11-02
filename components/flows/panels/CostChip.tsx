@@ -3,6 +3,8 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import type { Node } from "@/types/flow";
 import { Badge } from "@/components/ui/badge";
 import { uncachedInputTokens } from "@/lib/usage";
+import { fmtDuration, fmtTokens } from "@/lib/format";
+import { formatCostCents } from "./utils/costFormat";
 
 /** One node run row as the engine rolls them up (`NodeCost.runs`). */
 interface CostRun {
@@ -14,25 +16,6 @@ interface CostRun {
   cache_read_tokens?: number;
   cache_write_tokens?: number;
   cost_cents?: number | null;
-}
-
-function fmtDur(ms?: number): string {
-  if (ms == null) return "—";
-  const s = Math.round(ms / 1000);
-  if (s < 60) return `${s}s`;
-  return `${Math.floor(s / 60)}m ${s % 60}s`;
-}
-
-function fmtTok(n?: number): string {
-  if (!n) return "—";
-  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
-  if (n >= 1000) return `${Math.round(n / 1000)}k`;
-  return `${n}`;
-}
-
-function fmtCents(c?: number | null): string {
-  if (c == null) return "—";
-  return c < 1 && c > 0 ? `$${c.toFixed(3)}` : `$${(c / 100).toFixed(2)}`;
 }
 
 /**
@@ -65,9 +48,9 @@ export function CostChip({ node }: { node: Node }) {
 
   const meta = [
     `${runs.length} run${runs.length > 1 ? "s" : ""}`,
-    fmtTok(totalTok) !== "—" ? `${fmtTok(totalTok)} tok` : null,
-    fmtDur(totalMs) !== "—" ? fmtDur(totalMs) : null,
-    priced ? fmtCents(cost.totalCents) : "cost n/a",
+    fmtTokens(totalTok) !== "—" ? `${fmtTokens(totalTok)} tok` : null,
+    fmtDuration(totalMs) !== "—" ? fmtDuration(totalMs) : null,
+    priced ? formatCostCents(cost.totalCents) : "cost n/a",
   ].filter(Boolean).join(" · ");
 
   return (
@@ -95,25 +78,25 @@ export function CostChip({ node }: { node: Node }) {
               <tr key={r.i} className="border-t border-background/15">
                 <td className="px-2.5 py-0.5 opacity-70">{r.i}</td>
                 <td className="max-w-[180px] truncate px-2.5 py-0.5">{r.model ?? "unknown"}</td>
-                <td className="px-2.5 py-0.5 text-right font-mono tabular-nums">{fmtTok(r.input)}</td>
-                <td className="px-2.5 py-0.5 text-right font-mono tabular-nums">{fmtTok(r.output)}</td>
-                <td className="px-2.5 py-0.5 text-right font-mono tabular-nums">{fmtTok(r.cacheRead + r.cacheWrite)}</td>
-                <td className="px-2.5 py-0.5 text-right font-mono tabular-nums">{fmtTok(r.total)}</td>
-                <td className="px-2.5 py-0.5 text-right opacity-70">{fmtDur(r.durationMs)}</td>
+                <td className="px-2.5 py-0.5 text-right font-mono tabular-nums">{fmtTokens(r.input)}</td>
+                <td className="px-2.5 py-0.5 text-right font-mono tabular-nums">{fmtTokens(r.output)}</td>
+                <td className="px-2.5 py-0.5 text-right font-mono tabular-nums">{fmtTokens(r.cacheRead + r.cacheWrite)}</td>
+                <td className="px-2.5 py-0.5 text-right font-mono tabular-nums">{fmtTokens(r.total)}</td>
+                <td className="px-2.5 py-0.5 text-right opacity-70">{fmtDuration(r.durationMs)}</td>
                 <td className="px-2.5 py-0.5 text-right">
-                  {r.costCents != null ? fmtCents(r.costCents) : <span className="opacity-50">n/a</span>}
+                  {r.costCents != null ? formatCostCents(r.costCents) : <span className="opacity-50">n/a</span>}
                 </td>
               </tr>
             ))}
             <tr className="border-t border-background/15 font-medium">
               <td className="px-2.5 py-0.5" />
               <td className="px-2.5 py-0.5">total</td>
-              <td className="px-2.5 py-0.5 text-right font-mono tabular-nums">{fmtTok(rows.reduce((s, r) => s + r.input, 0))}</td>
-              <td className="px-2.5 py-0.5 text-right font-mono tabular-nums">{fmtTok(rows.reduce((s, r) => s + r.output, 0))}</td>
-              <td className="px-2.5 py-0.5 text-right font-mono tabular-nums">{fmtTok(rows.reduce((s, r) => s + r.cacheRead + r.cacheWrite, 0))}</td>
-              <td className="px-2.5 py-0.5 text-right font-mono tabular-nums">{fmtTok(totalTok)}</td>
-              <td className="px-2.5 py-0.5 text-right opacity-70">{fmtDur(totalMs)}</td>
-              <td className="px-2.5 py-0.5 text-right">{priced ? fmtCents(cost.totalCents) : <span className="opacity-50">n/a</span>}</td>
+              <td className="px-2.5 py-0.5 text-right font-mono tabular-nums">{fmtTokens(rows.reduce((s, r) => s + r.input, 0))}</td>
+              <td className="px-2.5 py-0.5 text-right font-mono tabular-nums">{fmtTokens(rows.reduce((s, r) => s + r.output, 0))}</td>
+              <td className="px-2.5 py-0.5 text-right font-mono tabular-nums">{fmtTokens(rows.reduce((s, r) => s + r.cacheRead + r.cacheWrite, 0))}</td>
+              <td className="px-2.5 py-0.5 text-right font-mono tabular-nums">{fmtTokens(totalTok)}</td>
+              <td className="px-2.5 py-0.5 text-right opacity-70">{fmtDuration(totalMs)}</td>
+              <td className="px-2.5 py-0.5 text-right">{priced ? formatCostCents(cost.totalCents) : <span className="opacity-50">n/a</span>}</td>
             </tr>
           </tbody>
         </table>

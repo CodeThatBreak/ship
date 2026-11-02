@@ -13,13 +13,20 @@ Where a rule here conflicts with an existing pattern in neighboring files, follo
 ```bash
 npm run dev          # dev server
 npm run build        # production build
+npm run typecheck    # tsc --noEmit
 npm run lint         # eslint
-npm run seed:demo    # seed demo data (variants: :reset, fanout, branch-refine, custom)
+npm test             # vitest
+npm run check        # typecheck + lint + test
+node scripts/seed-demo-flow.mjs           # demo SDLC flow (DEMO-142); --reset removes it
+node scripts/seed-demo-fanout.mjs         # fan-out monitoring demo (DEMO-143); --reset
+node scripts/seed-branch-refine-demo.mjs  # branch-scoped refine demo (DEMO-207); --reset
+node scripts/seed-custom-flow.mjs         # custom template demo (DEMO-201); --reset
+node scripts/seed-split-smoke.mjs         # split smoke template seed; --reset
 ```
 
 A task is done only when all of these are true:
 
-- [ ] `npm run build` pass
+- [ ] `npm run typecheck`, `npm run lint`, `npm test`, and `npm run build` pass
 - [ ] Diff is focused: no unrelated reformatting or renames
 - [ ] Every async UI has loading, error and empty states
 - [ ] New service classes and row mappers have tests
@@ -29,7 +36,7 @@ A task is done only when all of these are true:
 
 ## 1. Safety Rules (read first)
 
-- Never run `seed:demo:reset` or any destructive script against a database that is not the demo DB. Check the DB path first.
+- Never run a seed script with `--reset` (or any destructive seed) against a database that is not the demo DB. Seed scripts target `config.db.demoPath()` only — check `DATABASE_PATH` and `NODE_ENV` first. Affected scripts: `seed-demo-flow.mjs`, `seed-demo-fanout.mjs`, `seed-branch-refine-demo.mjs`, `seed-custom-flow.mjs`, `seed-split-smoke.mjs` (each accepts `--reset`).
 - Do not add new dependencies without asking.
 - No destructive git or file commands (`reset --hard`, `clean -fd`, `rm -rf`, force push) unless explicitly requested.
 - Ask before changing `lib/db/schema.sql`. Schema changes must be coordinated with row mappers in `lib/db/rows.ts`.
@@ -82,24 +89,24 @@ export function NodePanel({ nodeId }: { nodeId: string }) {
 ```
 components/
   <feature>/              # group by feature or domain, not by file type
-    index.ts              # small public barrel: only what other features consume
     <Feature>.tsx         # top-level component
     components/           # subcomponents used only by this feature
-    hooks/                # feature-local hooks
-    constants.ts          # feature constants
-    types.ts              # feature-local types
-  ui/                     # shadcn primitives ONLY. Do not add custom components here.
+    hooks/                # feature-local hooks (useThing.ts)
+    utils/                # feature-local pure helpers
+    constants/            # named files, e.g. constants/planConstants.ts
+    types/                # named files, e.g. types/planTypes.ts
+  ui/                     # shadcn primitives ONLY (kebab-case filenames — do not rename)
   shared/                 # generic custom components (see 2.4)
-hooks/                    # shared cross-feature hooks (use-thing.ts, kebab-case)
-constants/                # shared app-wide constants
-types/                    # shared app-wide types
+hooks/                    # shared cross-feature hooks (camelCase)
+constants/                # shared app-wide constants (camelCase files)
+types/                    # shared app-wide types (camelCase files)
 lib/                      # backend and shared utilities (see section 3)
 ```
 
-- New shared hooks: `hooks/use-<name>.ts`. Shared constants: `constants/<domain>.ts`. Shared types: `types/<domain>.ts`.
+- Feature folders are uniform: `components/` for subcomponents, `hooks/` for hooks (`hooks/useThing.ts`), `utils/` for pure helpers, `constants/` and `types/` for domain values with **named module files** (not `index.ts` aggregators).
 - Feature-local helpers stay in the feature folder until a second consumer exists.
-- Never deep-import across features. Go through the feature's `index.ts`.
-- Keep barrels small. Export only the public surface, never everything.
+- **No barrel imports.** Do not import from `index.ts`, from a directory path that resolves to a barrel, or from `@/components/<feature>` without a concrete file. Import the defining module (e.g. `@/components/shared/Modal`, `@/lib/settings/settingsService`). Feature-internal code uses relative paths to the same concrete files.
+- Cross-feature imports go directly to the owning module file, not through a re-export hub.
 
 ### 2.4 Generic Components Belong in `components/shared/`
 
@@ -187,12 +194,36 @@ export function NodePanelSkeleton() {
 
 ### 2.9 Other Conventions
 
-- File naming: PascalCase components matching the export, `use-<name>.ts` hooks, lowercase constants and types files.
+- File naming — component files match their export in PascalCase; everything else is lowercase:
+  - Folders start lowercase: `components/flows/plan/masterPlanSection/`, never `plan-section/` or `PlanSection/`.
+  - A component file is named after its export in PascalCase — `PlanView.tsx` exports `PlanView`, `MasterPlanSection.tsx` exports `MasterPlanSection`.
+  - Component names (the exports) always start with a capital letter in PascalCase: `PlanView`, `SubPlanCard`.
+  - Hook files are camelCase with the `use` prefix mirroring the hook name: `useExecutionPick.ts` exports `useExecutionPick`. Never `use-execution-pick.ts`.
+  - Constants, types, utils, and **all other non-component modules** (including `lib/**` and scripts that are TS) use camelCase filenames (`constants/queryKeys.ts`, `lib/engine/flowEngine.ts`).
+  - **Folders** under `components/`, `lib/`, and `hooks/` use camelCase (`templateEditor/`, `workflowGraph/`). Do not rename `components/ui/**` or Next.js `app/api/**` route segments (URL paths).
 - Tailwind: follow existing utility patterns. Extract repeated class strings into a constant or `cn()`. Never create a new CSS file.
 - Accessibility: interactive elements need labels and keyboard handling. Use `button`, not `div` with `onClick`.
 - No `any`. Use proper types, or `unknown` with narrowing as a last resort.
 - No direct mutation of props or state.
 - Replace large `switch` or `if` chains on string literals in JSX with lookup tables in `constants/`.
+- **Early checks over nullish coalescing.** Do not hide missing data behind `??` fallbacks or `?.` chains. Validate with an explicit early return (guard clause) so the happy path stays flat and missing data fails loudly at the top of the function.
+
+```ts
+// Bad: fallback chain buries the missing-data case in the middle of the logic
+export function getFlowTitle(flow: Flow | undefined) {
+  return flow?.title ?? flow?.metadata?.label ?? UNTITLED_FLOW;
+}
+
+// Good: guard early, then work with a value you know exists
+export function getFlowTitle(flow: Flow): string {
+  if (!flow.title) {
+    throw new FlowError(`Flow ${flow.id} has no title`);
+  }
+  return flow.title;
+}
+```
+
+- Legitimate uses of `??` remain: default UI config values, module-level constants, and places where an empty value is genuinely expected and valid — not as a catch-all for data that should exist.
 
 ### 2.10 Fix Bad Practices in Touched Code
 
@@ -209,6 +240,8 @@ When your task touches a file, fix violations of this section in the lines you t
 | Data fetching in leaf components                            | Lift to hook or container, use TanStack Query |
 | Hooks or browser APIs in a non-`"use client"` file          | Add directive or split server and client      |
 | Conditional hooks or hooks after early returns              | Reorder                                       |
+| `??` / `?.` fallbacks hiding missing data                   | Early guard clause, fail loudly (see 2.9)     |
+| Barrel or `index.ts` re-export imports                      | Import the concrete defining module           |
 
 ---
 
@@ -242,10 +275,10 @@ export class FlowService {
 ### 3.2 Conventions
 
 - **Encapsulation:** private and readonly fields. Expose behavior methods, not raw data.
-- **Composition over inheritance.** Use `abstract` base classes only for genuine shared polymorphic behavior (see `lib/engine/nodes/base`).
+- **Composition over inheritance.** Use `abstract` base classes only for genuine shared polymorphic behavior (see `lib/engine/nodes/shared`).
 - **Interfaces for boundaries:** one interface per external port (task providers, node registry, git host integrations). Depend on the interface. Follow the patterns in `lib/engine/tasks/task-provider.ts` and `lib/engine/ports/`.
 - **Registries over type-string `switch`:** new node and task kinds register into `lib/engine/nodes/registry.ts` and `lib/engine/tasks/registry.ts` instead of adding branches.
-- **One class per file**, named after the class in kebab-case (`flow-poller.ts` exports `FlowPoller`).
+- **One class per file**, named after the class in camelCase (`flowPoller.ts` exports `FlowPoller`). Pure helpers: camelCase module names (`readCappedBody.ts`).
 - **Errors:** throw typed error classes. Routes catch them and map to HTTP responses.
 - **Thin route handlers:** `app/api/**/route.ts` only parses and validates input, calls a service method, and serializes the response. No business logic.
 - Module-level string constants for repeated domain values (see 2.7).
@@ -280,6 +313,8 @@ When your task touches an existing function-based module in `lib/`:
 2. **TypeScript strict.** No `any`, no `!` on possibly-missing data.
 3. **Keep diffs focused.** No unrelated reformatting or renames. Fix violations only in code your task touches (see 2.10), and flag the rest in the PR description.
 4. **Finish with the Definition of Done** in section 0.
+5. **Follow the recipes in [`docs/coding-patterns.md`](docs/coding-patterns.md)** (route handlers, typed errors, transactions, node claims, query options, mutations). Open review work is tracked as ordered tasks in [`docs/review-tasks/`](docs/review-tasks/README.md).
+6. **Current flow only.** Do not add shims, normalizers or fallbacks for legacy or deprecated flows or data shapes. Delete them instead.
 
 ---
 

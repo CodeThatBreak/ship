@@ -1,43 +1,38 @@
+import { toErrorResponse } from "@/lib/errors";
+import { parseJson } from "@/lib/http/parse";
+import { nodeTemplatePatchBodySchema } from "@/lib/schemas/nodeTemplate";
 import { NextResponse } from "next/server";
-import { templateStore } from "../../../../lib/engine/templates";
+import { templateStore } from "../../../../lib/engine/templates/templateStore";
 import { invalidateDeclarativeDef } from "../../../../lib/engine/nodes/declarative";
 
 export const dynamic = "force-dynamic";
+export const runtime = "nodejs";
 
-/** PATCH body flag marking a promotion (a meta patch carries it unset). */
-const ADD_TO_LIBRARY = "add_to_library";
-
-/** Update a declarative node template (shared definition), or — with
- *  `{ add_to_library: true }` — promote a template-local row to the global
- *  Library (every template's builder then lists it). */
-export async function PATCH(req: Request, { params }: { params: Promise<{ id: string }> }) {
-  const { id } = await params;
-  const body = await req.json().catch(() => null) as null | {
-    add_to_library?: boolean;
-    name?: string; description?: string | null; icon?: string | null; config?: Record<string, unknown>;
-  };
-  if (!body) return NextResponse.json({ error: "invalid body" }, { status: 400 });
+/** Update a declarative node template, or promote a template-local row to the global Library. */
+export const PATCH = async (req: Request, { params }: { params: Promise<{ id: string }> }) => {
   try {
-    if (body[ADD_TO_LIBRARY] === true) {
+    const { id } = await params;
+    const body = await parseJson(req, nodeTemplatePatchBodySchema);
+    if (body.add_to_library === true) {
       const nt = templateStore.addToLibrary(id);
-      invalidateDeclarativeDef(id); // running flows snapshot config — only cached defs refresh
-      return NextResponse.json({ nodeTemplate: { ...nt, is_builtin: Boolean(nt.is_builtin) } });
+      invalidateDeclarativeDef(id);
+      return NextResponse.json({ nodeTemplate: templateStore.toNodeCatalogRow(nt) });
     }
     const nt = templateStore.updateNodeTemplate(id, body);
-    invalidateDeclarativeDef(id); // running flows snapshot config — only cached defs refresh
-    return NextResponse.json({ nodeTemplate: { ...nt, is_builtin: Boolean(nt.is_builtin) } });
+    invalidateDeclarativeDef(id);
+    return NextResponse.json({ nodeTemplate: templateStore.toNodeCatalogRow(nt) });
   } catch (e: unknown) {
-    return NextResponse.json({ error: e instanceof Error ? e.message : String(e) }, { status: 400 });
+    return toErrorResponse(e);
   }
-}
+};
 
-export async function DELETE(_req: Request, { params }: { params: Promise<{ id: string }> }) {
-  const { id } = await params;
+export const DELETE = async (_req: Request, { params }: { params: Promise<{ id: string }> }) => {
   try {
+    const { id } = await params;
     templateStore.deleteNodeTemplate(id);
     invalidateDeclarativeDef(id);
     return NextResponse.json({ ok: true });
   } catch (e: unknown) {
-    return NextResponse.json({ error: e instanceof Error ? e.message : String(e) }, { status: 400 });
+    return toErrorResponse(e);
   }
-}
+};

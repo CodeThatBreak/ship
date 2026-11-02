@@ -1,5 +1,5 @@
 "use client";
-import type { Settings } from "../context";
+import type { Settings } from "@/types/settings";
 import { CustomNodesSection } from "./components/CustomNodesSection";
 import { ExecutionSection } from "./components/ExecutionSection";
 import { StatusBar } from "./components/StatusBar";

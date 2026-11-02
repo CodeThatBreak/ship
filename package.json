@@ -2,19 +2,17 @@
   "name": "devflow",
   "version": "0.1.0",
   "private": true,
+  "engines": {
+    "node": ">=22.13"
+  },
   "scripts": {
-    "dev": "next dev",
+    "dev": "node scripts/run-next-local.mjs dev",
     "build": "next build",
-    "start": "next start",
-    "lint": "eslint .",
-    "seed:demo": "node scripts/seed-demo-flow.mjs",
-    "seed:demo:reset": "node scripts/seed-demo-flow.mjs --reset",
-    "seed:demo:fanout": "node scripts/seed-demo-fanout.mjs",
-    "seed:demo:fanout:reset": "node scripts/seed-demo-fanout.mjs --reset",
-    "seed:branch-refine": "node scripts/seed-branch-refine-demo.mjs",
-    "seed:branch-refine:reset": "node scripts/seed-branch-refine-demo.mjs --reset",
-    "seed:custom": "node scripts/seed-custom-flow.mjs",
-    "seed:custom:reset": "node scripts/seed-custom-flow.mjs --reset",
+    "start": "node scripts/run-next-local.mjs start",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint . --max-warnings=53",
+    "test": "vitest run",
+    "check": "npm run typecheck && npm run lint && npm test",
     "db:init:prod": "node scripts/init-prod-db.mjs"
   },
   "dependencies": {
@@ -23,7 +21,6 @@
     "@dagrejs/dagre": "^3.1.1",
     "@shadcn/react": "^0.3.1",
     "@streamdown/mermaid": "^1.0.3",
-    "@tailwindcss/postcss": "^4.3.3",
     "@tanstack/react-query": "^5.104.5",
     "@tanstack/react-table": "^8.21.3",
     "@tiptap/pm": "^3.32.0",
@@ -33,7 +30,6 @@
     "@xyflow/react": "^12.12.0",
     "better-sqlite3": "^13.0.3",
     "class-variance-authority": "^0.7.1",
-    "clsx": "^2.1.1",
     "cn": "^0.5.0",
     "execa": "^10.2.1",
     "ipaddr.js": "^2.5.0",
@@ -43,23 +39,25 @@
     "react": "^19.3.1",
     "react-diff-viewer-continued": "^4.4.0",
     "react-dom": "^19.3.1",
-    "shadcn": "^4.22.1",
+    "server-only": "^0.0.1",
     "shiki": "^4.5.0",
     "standardwebhooks": "^1.1.1",
     "streamdown": "^2.7.1",
-    "tailwind-merge": "^3.7.0",
-    "tailwindcss": "^4.3.3",
     "yaml": "^2.9.1",
     "zod": "^4.6.7"
   },
   "devDependencies": {
     "@eslint/eslintrc": "^3.3.7",
+    "@tailwindcss/postcss": "^4.3.3",
     "@types/better-sqlite3": "^9.6.0",
     "@types/node": "^26.6.5",
     "@types/react": "^19.3.0",
     "@types/react-dom": "^19.3.0",
     "eslint": "^9.39.5",
     "eslint-config-next": "^15.5.28",
-    "typescript": "5.9"
+    "shadcn": "^4.22.1",
+    "tailwindcss": "^4.3.3",
+    "typescript": "5.9",
+    "vitest": "^5.0.5"
   }
 }

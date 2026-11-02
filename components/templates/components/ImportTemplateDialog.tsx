@@ -15,8 +15,8 @@ import { Button, buttonVariants } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Spinner } from "@/components/ui/spinner";
 import { Textarea } from "@/components/ui/textarea";
-import { queryKeys } from "@/constants/query-keys";
-import { postJson } from "@/hooks/fetch-json";
+import { queryKeys } from "@/constants/queryKeys";
+import { postJson } from "@/hooks/fetchJson";
 import { cn } from "@/lib/utils";
 
 /** The import draft the container keeps alive across dialog opens. */

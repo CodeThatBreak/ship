@@ -28,6 +28,11 @@ CREATE TABLE IF NOT EXISTS flows (
   repo_url      TEXT,
   gitlab_project_id INTEGER,
   current_node  TEXT,                          -- node key currently running
+  execution_mode TEXT NOT NULL DEFAULT 'cloud',
+  repo_id       TEXT REFERENCES repos(id),
+  template_id   TEXT REFERENCES flow_templates(id),
+  template_graph TEXT,                         -- JSON: graph snapshot at flow creation (edges, triggers, input maps)
+  trigger_payload TEXT,                        -- JSON: webhook/schedule payload that started the flow
   worktree_dir  TEXT,                          -- git worktree dir for local runs (created at build start; the hub checkout is never mutated)
   -- step sub-flows (plan fan-out): set on child flows, kind distinguishes them
   parent_flow_id TEXT REFERENCES flows(id),
@@ -35,6 +40,11 @@ CREATE TABLE IF NOT EXISTS flows (
   created_at    TEXT NOT NULL,
   updated_at    TEXT NOT NULL
 );
+CREATE INDEX IF NOT EXISTS idx_flows_parent ON flows(parent_flow_id) WHERE parent_flow_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_flows_gitlab_project ON flows(gitlab_project_id) WHERE gitlab_project_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_flows_status ON flows(status);
+CREATE INDEX IF NOT EXISTS idx_flows_template ON flows(template_id) WHERE template_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_flows_repo ON flows(repo_id) WHERE repo_id IS NOT NULL;
 
 CREATE TABLE IF NOT EXISTS nodes (
   id            TEXT PRIMARY KEY,
@@ -42,8 +52,14 @@ CREATE TABLE IF NOT EXISTS nodes (
   node_key      TEXT NOT NULL,              -- plan | build | pipeline | review | resolve
   type          TEXT NOT NULL,
   status        TEXT NOT NULL DEFAULT 'pending',  -- pending|running|awaiting_approval|approved|failed|done|waiting|skipped
-  agent_id      TEXT,                        -- cursor agent id
-  cursor_agent_id TEXT,
+  attempt_id    TEXT,                        -- token for the in-flight run; set atomically on claim
+  agent_id      TEXT,                        -- runtime agent handle captured from the last run
+  agent_ref     TEXT,
+  session_id    TEXT,                        -- local agent session
+  prompt_override TEXT,                      -- per-run prompt override
+  label         TEXT,                        -- display name override from the template instance
+  config        TEXT,                        -- effective config snapshot (JSON)
+  join_mode     TEXT,                        -- join semantics for incoming edges: all | any
   input         TEXT,                        -- JSON
   output        TEXT,                        -- JSON
   created_at    TEXT NOT NULL,
@@ -59,7 +75,7 @@ CREATE TABLE IF NOT EXISTS artifacts (
   kind          TEXT NOT NULL,             -- plan | diff | review | fix | resolve
   version       INTEGER NOT NULL,          -- 1-based per (node_id, kind)
   content       TEXT NOT NULL,             -- markdown / diff / json
-  meta          TEXT,                      -- JSON (cursor run id, branch, etc.)
+  meta          TEXT,                      -- JSON (run ref, branch, etc.)
   status        TEXT NOT NULL DEFAULT 'draft', -- draft | approved | superseded
   feedback      TEXT,                      -- human feedback that produced next version
   created_at    TEXT NOT NULL
@@ -89,6 +105,7 @@ CREATE TABLE IF NOT EXISTS messages (
   id            TEXT PRIMARY KEY,
   flow_id       TEXT NOT NULL REFERENCES flows(id),
   node_key      TEXT,                        -- which node the message targets
+  thread        TEXT,                        -- the per-refinement thread (branch name); NULL = the main conversation
   role          TEXT NOT NULL,               -- user | assistant
   content       TEXT NOT NULL,
   created_at    TEXT NOT NULL
@@ -128,13 +145,14 @@ CREATE TABLE IF NOT EXISTS plan_steps (
   updated_at    TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_plan_steps_flow ON plan_steps(flow_id, position);
+CREATE INDEX IF NOT EXISTS idx_plan_steps_sub_flow ON plan_steps(sub_flow_id) WHERE sub_flow_id IS NOT NULL;
 
--- durable cursor-run handles so we can resume / re-attach after restart
--- Phase 3C: per-branch tracking for multi-branch builds
+-- Per-branch tracking for multi-branch builds (Phase 3C)
 CREATE TABLE IF NOT EXISTS branches (
   id            TEXT PRIMARY KEY,
   flow_id       TEXT NOT NULL REFERENCES flows(id),
-  name          TEXT NOT NULL,             -- git branch name
+  name          TEXT NOT NULL,             -- plan branch key (multi-branch plan meta)
+  git_branch    TEXT,                      -- actual git ref after build (branch_pattern applied)
   title         TEXT,
   status        TEXT NOT NULL DEFAULT 'pending',  -- pending|building|awaiting_approval|approved|failed|done
   mr_url        TEXT,
@@ -151,13 +169,25 @@ CREATE TABLE IF NOT EXISTS runs (
   id            TEXT PRIMARY KEY,          -- our id
   flow_id       TEXT NOT NULL REFERENCES flows(id),
   node_id       TEXT NOT NULL REFERENCES nodes(id),
-  cursor_agent_id TEXT NOT NULL,
-  cursor_run_id TEXT NOT NULL,
+  agent_ref     TEXT NOT NULL,             -- runtime agent handle (cloud agent id / local session id)
+  run_ref       TEXT NOT NULL,             -- the runtime's run id
   branch_id     TEXT REFERENCES branches(id),  -- Phase 3C: per-branch attribution
   status        TEXT NOT NULL DEFAULT 'running',  -- running|finished|error|cancelled
+  model         TEXT,
+  input_tokens  INTEGER,
+  output_tokens INTEGER,
+  cache_read_tokens INTEGER,
+  cache_write_tokens INTEGER,
+  duration_ms   INTEGER,
+  cost_cents    INTEGER,
+  usage         TEXT,                      -- raw usage JSON
   created_at    TEXT NOT NULL,
   updated_at    TEXT NOT NULL
 );
+CREATE INDEX IF NOT EXISTS idx_runs_node ON runs(node_id);
+CREATE INDEX IF NOT EXISTS idx_runs_flow ON runs(flow_id);
+CREATE INDEX IF NOT EXISTS idx_runs_run_ref ON runs(run_ref);
+CREATE INDEX IF NOT EXISTS idx_runs_status ON runs(status);
 
 -- repo registry: local path ↔ cloud URL (per-domain GitLab) for each repo
 CREATE TABLE IF NOT EXISTS repos (
@@ -301,6 +331,7 @@ CREATE TABLE IF NOT EXISTS hook_deliveries (
   created_at   TEXT NOT NULL,
   UNIQUE(hook_id, webhook_id)
 );
+CREATE INDEX IF NOT EXISTS idx_hook_deliveries_created ON hook_deliveries(created_at);
 
 -- Crash-safe worktree removal records: persisted BEFORE the git removal runs
 -- (git drops a worktree's registration even when the directory delete fails —
@@ -336,3 +367,4 @@ CREATE TABLE IF NOT EXISTS step_merges (
   updated_at     TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_step_merges_parent ON step_merges(parent_flow_id, parent_node, status);
+CREATE INDEX IF NOT EXISTS idx_step_merges_flow ON step_merges(flow_id);
