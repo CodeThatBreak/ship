@@ -32,6 +32,10 @@ const { db } = await import("../db/app");
 const { flowEngine } = await import("./flowEngine");
 const { templateStore } = await import("./templates/templateStore");
 const { agentPortRegistry } = await import("./ports/agentPort");
+const { NODE_KEYS } = await import("./constants/nodeKeys");
+const { PlanInput } = await import("./nodes/kinds/plan/schema");
+const { PlanTurnKind } = await import("./nodes/kinds/plan/constants/planTurn");
+const { PLAN_CHAT_READY_LIFECYCLE } = await import("./nodes/kinds/plan/planRetryRevert");
 import type {
   AgentPort,
   AgentRunQuery,
@@ -263,5 +267,143 @@ describe("runNodeManual — agent nodes inherit the upstream input", () => {
     await until(() => nodeStatus(flowId, "paragraph_agent") === "done", "the manual run");
     expect(stub.prompts.some((p) => p.startsWith("Write a paragraph on react"))).toBe(true);
     expect(recordedInput(flowId, "paragraph_agent").topic).toBe("react");
+  });
+});
+
+// ── plan node retry (F2) ─────────────────────────────────────────────────────
+
+const planStep = (id: string, title: string) => ({
+  id,
+  title,
+  detail: "d",
+  files: ["f.ts"],
+  branch: null as string | null,
+});
+
+const validPlanPayload = {
+  markdown: "# Plan (refined)",
+  steps: [planStep("s1", "First"), planStep("s2", "Second")],
+};
+
+const planTurnJson = (reply: string) =>
+  JSON.stringify({ reply, plan: validPlanPayload });
+
+const planNodeRow = (flowId: string) =>
+  must(
+    db.get<{ id: string; input: string | null }>(
+      `SELECT id, input FROM nodes WHERE flow_id=? AND node_key=?`,
+      flowId,
+      NODE_KEYS.PLAN,
+    ),
+    `plan node of ${flowId}`,
+  );
+
+const insertPlanArtifact = (flowId: string, nodeId: string, version = 1): void => {
+  db.run(
+    `INSERT INTO artifacts (id, node_id, flow_id, kind, version, content, meta, status, created_at)
+     VALUES (?,?,?,?,?,?,?,'draft',?)`,
+    `art_plan_${flowId}_${version}`,
+    nodeId,
+    flowId,
+    "plan",
+    version,
+    "# Plan",
+    JSON.stringify({ steps: validPlanPayload.steps, branches: [] }),
+    db.now(),
+  );
+};
+
+/** Isolated flow with a single manual plan node — nothing auto-runs. */
+function seedPlanFlow(index: number): string {
+  const templateId = templateStore.create(
+    {
+      name: `plan-retry fixture ${index}`,
+      trigger: { type: "manual", task_type: "jira" },
+      nodes: [{ key: NODE_KEYS.PLAN, nodeTemplateId: "nt_plan", trigger: { type: "manual" } }],
+      edges: [],
+    },
+    { skipLint: true },
+  );
+  const taskId = `task_plan_retry_${index}`;
+  db.run(
+    `INSERT INTO tasks (id, type, key, summary, status, issue_type, priority) VALUES (?,?,?,?,?,?,?)`,
+    taskId, "jira", `PR-${index}`, "plan retry test", "open", "task", "P2",
+  );
+  return flowEngine.create(taskId, "https://git.example.com/o/r", `plan-retry fixture ${index}`, {
+    templateId,
+  });
+}
+
+const lifecycleMessages = (flowId: string, nodeId: string): string[] =>
+  db
+    .all<{ message: string }>(
+      `SELECT message FROM events WHERE flow_id=? AND node_id=? AND type='lifecycle' ORDER BY created_at`,
+      flowId,
+      nodeId,
+    )
+    .map((r) => r.message);
+
+describe("retryNode — plan node chat replay", () => {
+  it("replays a recorded turn via the chat refiner and lands awaiting_approval", async () => {
+    const flowId = seedPlanFlow(1);
+    const plan = planNodeRow(flowId);
+    insertPlanArtifact(flowId, plan.id);
+    const recorded = PlanInput.parse({
+      turnUserMessage: "move step 2 below step 1",
+      previousStatus: "awaiting_approval",
+      planTurnKind: PlanTurnKind.Whole,
+      planThread: null,
+      model: null,
+    });
+    db.run(
+      `UPDATE nodes SET status='failed', input=?, updated_at=? WHERE id=?`,
+      JSON.stringify(recorded),
+      db.now(),
+      plan.id,
+    );
+    stub.pushResult(planTurnJson("Moved step 2 below step 1."));
+
+    flowEngine.retryNode(flowId, NODE_KEYS.PLAN);
+
+    await until(
+      () => nodeStatus(flowId, NODE_KEYS.PLAN) === "awaiting_approval",
+      "plan retry to finish",
+    );
+    expect(stub.prompts.length).toBeGreaterThan(0);
+    expect(stub.prompts.some((p) => p.includes("move step 2 below step 1"))).toBe(true);
+    expect(lifecycleMessages(flowId, plan.id)).toContain(`retrying ${NODE_KEYS.PLAN}`);
+  });
+
+  it("with no recorded turn reverts to pending and emits plan chat ready", () => {
+    const flowId = seedPlanFlow(2);
+    const plan = planNodeRow(flowId);
+    db.run(
+      `UPDATE nodes SET status='failed', input=?, updated_at=? WHERE id=?`,
+      JSON.stringify(PlanInput.parse({ turnUserMessage: null, previousStatus: null })),
+      db.now(),
+      plan.id,
+    );
+
+    flowEngine.retryNode(flowId, NODE_KEYS.PLAN);
+
+    expect(nodeStatus(flowId, NODE_KEYS.PLAN)).toBe("pending");
+    expect(lifecycleMessages(flowId, plan.id)).toContain(PLAN_CHAT_READY_LIFECYCLE);
+  });
+
+  it("with no recorded turn but an existing plan version reverts to awaiting_approval", () => {
+    const flowId = seedPlanFlow(3);
+    const plan = planNodeRow(flowId);
+    insertPlanArtifact(flowId, plan.id);
+    db.run(
+      `UPDATE nodes SET status='failed', input=?, updated_at=? WHERE id=?`,
+      JSON.stringify(PlanInput.parse({ turnUserMessage: null, previousStatus: null })),
+      db.now(),
+      plan.id,
+    );
+
+    flowEngine.retryNode(flowId, NODE_KEYS.PLAN);
+
+    expect(nodeStatus(flowId, NODE_KEYS.PLAN)).toBe("awaiting_approval");
+    expect(lifecycleMessages(flowId, plan.id)).toContain(PLAN_CHAT_READY_LIFECYCLE);
   });
 });

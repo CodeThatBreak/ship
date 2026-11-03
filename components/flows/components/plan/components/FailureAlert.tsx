@@ -7,7 +7,7 @@ export function FailureAlert({ onRetry }: { onRetry: () => void }) {
   return (
     <Alert variant="destructive" className="max-w-md">
       <AlertCircleIcon />
-      <AlertTitle>Plan generation failed</AlertTitle>
+      <AlertTitle>The plan turn was interrupted</AlertTitle>
       <AlertDescription>The agent ran failed. See activity feed for exact error</AlertDescription>
       <AlertAction>
         <Button size="xs" onClick={onRetry}>

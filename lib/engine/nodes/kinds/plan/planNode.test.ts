@@ -31,8 +31,11 @@ const {
   PlanResponse,
   SubPlanResponse,
   withStepIds,
+  PlanInput,
 } = await import('./schema');
 const { PlanNode } = await import('./planNode');
+const { resolvePlanFailedRetryStatus, resolvePlanTurnPreviousStatus } = await import('./planRetryRevert');
+const { NODE_STATUS } = await import('../../../constants/nodeStatus');
 const { db } = await import('../../../../db/app');
 type PlanNodeInstance = InstanceType<typeof PlanNode>;
 import type { PlanBranch, PlanMeta, PlanStep } from './schema';
@@ -612,6 +615,17 @@ describe('PlanNode — chat via the follow-up contract (docs/plan-conversation-r
     expect(observ.nodePatches.some(p => p.status === 'awaiting_approval')).toBe(true);
   });
 
+  it('apply after sendChat claim: a running node still persists the plan when the turn completes', async () => {
+    const { node, observ } = chatNode({
+      responses: [JSON.stringify({ reply: 'Planned.', plan: validPlanPayload })],
+      status: 'running',
+    });
+    const reply = await node.chat(ctx, 'first turn');
+    expect(reply).toBe('Planned.');
+    expect(observ.savedMetas).toHaveLength(1);
+    expect(observ.nodePatches.some(p => p.status === 'awaiting_approval')).toBe(true);
+  });
+
   it('the plan_refine feedback turn carries the developer message + the follow-up contract', async () => {
     const { node, observ } = chatNode({
       responses: [JSON.stringify({ reply: 'Answered.' })],
@@ -623,16 +637,16 @@ describe('PlanNode — chat via the follow-up contract (docs/plan-conversation-r
     expect(turn.prompt).toContain('"reply"');
   });
 
-  it('guard refusal per §3b: a running node keeps its state; the reply answers AND explains', async () => {
+  it('guard refusal per §3b: a done node keeps its state; the reply answers AND explains', async () => {
     const { node, observ } = chatNode({
       responses: [JSON.stringify({ reply: 'On it.', plan: validPlanPayload })],
-      status: 'running',
+      status: 'done',
     });
     const reply = await node.chat(ctx, 'move step 2');
     expect(reply).toContain('On it.');
-    expect(reply).toContain("can't update the plan while it is running");
+    expect(reply).toContain("can't update the plan while it is done");
     expect(observ.savedMetas).toHaveLength(0);
-    expect(observ.events).toContain('plan update ignored — node running');
+    expect(observ.events).toContain('plan update ignored — node done');
   });
 
   it('guard refusal per §3b: an approved plan refuses mid-build the same way', async () => {
@@ -804,5 +818,47 @@ describe('PlanNode.turn — unified send routing', () => {
     expect(observ.savedMetas).toHaveLength(1);
     const meta = observ.savedMetas[0] as { steps: PlanStep[] };
     expect(meta.steps.find(s => s.id === 's4' && s.branch === 'billing')?.detail).toBe('via patch');
+  });
+});
+
+describe('resolvePlanFailedRetryStatus — no recorded turn revert targets', () => {
+  it('returns pending when there is no plan artifact and no safe previousStatus', () => {
+    expect(resolvePlanFailedRetryStatus(PlanInput.parse({}), false)).toBe(NODE_STATUS.PENDING);
+  });
+
+  it('returns awaiting_approval when a plan version exists and previousStatus is absent', () => {
+    expect(resolvePlanFailedRetryStatus(PlanInput.parse({}), true)).toBe(NODE_STATUS.AWAITING_APPROVAL);
+  });
+
+  it('honors a safe previousStatus over the artifact fallback', () => {
+    expect(
+      resolvePlanFailedRetryStatus(
+        PlanInput.parse({ previousStatus: NODE_STATUS.AWAITING_APPROVAL }),
+        false,
+      ),
+    ).toBe(NODE_STATUS.AWAITING_APPROVAL);
+  });
+
+  it('skips running/failed previousStatus and falls back to awaiting_approval when a plan exists', () => {
+    expect(
+      resolvePlanFailedRetryStatus(PlanInput.parse({ previousStatus: NODE_STATUS.RUNNING }), true),
+    ).toBe(NODE_STATUS.AWAITING_APPROVAL);
+  });
+});
+
+describe('resolvePlanTurnPreviousStatus — revert target while claimed running', () => {
+  it('uses prior input previousStatus when the live row is running', () => {
+    expect(
+      resolvePlanTurnPreviousStatus(
+        NODE_STATUS.RUNNING,
+        PlanInput.parse({ previousStatus: NODE_STATUS.AWAITING_APPROVAL }),
+      ),
+    ).toBe(NODE_STATUS.AWAITING_APPROVAL);
+  });
+
+  it('uses the live status when the node is not running', () => {
+    expect(
+      resolvePlanTurnPreviousStatus(NODE_STATUS.AWAITING_APPROVAL, PlanInput.parse({})),
+    ).toBe(NODE_STATUS.AWAITING_APPROVAL);
   });
 });

@@ -34,6 +34,7 @@ import { PROMPT_KEYS } from './constants/promptKeys';
 import { AGENT_CONFIG_FIELDS } from './constants/config/planConfigExports';
 import { RETRYABLE_OUTPUT_ERRORS } from './constants/retryableErrors';
 import { PLAN_CHAT_LABEL, planValidationFailedEvent, planValidationRefusalReply } from './constants/refine';
+import { resolvePlanTurnPreviousStatus } from './planRetryRevert';
 
 import { PlanStore } from './planStore';
 import { PlanContextBlocks } from './planContext';
@@ -212,7 +213,11 @@ export class PlanNode extends AgentRunNode<PlanInput, PlanOutput> {
     }
   ): Promise<string> {
     const node = this.node(ctx);
-    const previousStatus = node.status ?? 'pending';
+    const priorInput = PlanInput.safeParse(node.input ?? {});
+    const previousStatus = resolvePlanTurnPreviousStatus(
+      node.status ?? 'pending',
+      priorInput.success ? priorInput.data : null,
+    );
     const attemptId = node.attempt_id;
     // Todo: Revisit this, there should be only one source of truth for main agent id
     const mainAgentId = opts.branch ? (node.agent_id ?? this.support.lastAgentId(node.id)) : null;

@@ -66,7 +66,11 @@ async function callTestInstance(
   id: string,
 ): Promise<TestResult> {
   try {
-    const res = await apiFetch(instancesUrl(surface, kind, id), { method: "POST" });
+    const res = await apiFetch(instancesUrl(surface, kind, id), {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({}),
+    });
     const body = (await res.json().catch(() => ({}))) as Partial<TestResult> & { error?: string };
     if (!res.ok || typeof body.ok !== "boolean") {
       return { ok: false, detail: body.error ?? `connection test failed (${res.status})` };

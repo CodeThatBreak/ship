@@ -6,7 +6,7 @@ import { UpstreamError, ValidationError } from "../../../errors";
 import { baseUrlOverrideRequiresToken } from "../../../integrations/instanceCredentialPolicy";
 import { truncateUpstreamBody } from '../../ports/gitHostErrors';
 import { AdfRenderer } from "../../../integrations/jira/adfRenderer";
-import { jiraAuthHeaders, jiraSearchPath } from "../../../integrations/jira/apiProfile";
+import { jiraAuthHeaders, jiraMyselfPath, jiraSearchPath } from "../../../integrations/jira/apiProfile";
 import { JIRA_HTTP_TIMEOUT_MS } from "../../../integrations/jira/constants";
 import { jira } from "../../../integrations/jira/singleton";
 import { maskToken } from "../../../integrations/jira/service";
@@ -267,8 +267,28 @@ export class JiraTaskProvider extends TaskProvider implements TaskInstanceStore 
       );
     }
     const data = (await res.json()) as { issues?: unknown[] };
-    return (data.issues ?? []).map((i) =>
+    const rawIssues = data.issues ?? [];
+    if (rawIssues.length === 0) {
+      await this.assertAuthenticated(inst, mode);
+    }
+    return rawIssues.map((i) =>
       this.normalize(i as { id: string | number; key: string; fields?: Record<string, unknown> }),
+    );
+  }
+
+  /** Jira search can return 200 with an empty list when auth is invalid — verify /myself. */
+  private async assertAuthenticated(
+    inst: NonNullable<ReturnType<typeof jira.active>>,
+    mode: ReturnType<typeof jira.authMode>,
+  ): Promise<void> {
+    const myselfRes = await fetch(`${inst.base_url}${jiraMyselfPath(mode)}`, {
+      headers: this.headers(),
+      signal: AbortSignal.timeout(JIRA_HTTP_TIMEOUT_MS),
+    });
+    if (myselfRes.ok) return;
+    throw new UpstreamError(
+      `Jira authentication failed (${myselfRes.status}): ${truncateUpstreamBody(await myselfRes.text())}`,
+      myselfRes.status,
     );
   }
 

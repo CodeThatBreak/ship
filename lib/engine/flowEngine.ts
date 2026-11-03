@@ -43,6 +43,11 @@ import { DEFAULT_SPLIT_OUTPUT, splitManager, type SplitChildPayload } from './ru
 import { worktreeManager } from './runtime/worktreeLifecycle';
 import { processSingleton } from '../singleton';
 
+import { PlanInput } from './nodes/kinds/plan/schema';
+import {
+  PLAN_CHAT_READY_LIFECYCLE,
+  resolvePlanFailedRetryStatus,
+} from './nodes/kinds/plan/planRetryRevert';
 import { ConflictError, NotFoundError, ValidationError } from '../errors';
 import { RunSupersededError } from './errors/runSupersededError';
 import { CommentIngestor } from './runtime/commentIngestor';
@@ -1069,6 +1074,11 @@ export class FlowEngine {
     if (templateStore.chainNodeKeys(flowId).includes(nodeKey) && this.chainBusy(flowId)) {
       throw new ConflictError('wait for the current pipeline/review/resolve run to finish first');
     }
+    if (def.capabilities.chatMode === 'plan') {
+      this.retryPlanNode(flowId, nodeKey, node, def, PlanInput.parse(recorded));
+      return;
+    }
+
     db.emitEvent(flowId, node.id, 'lifecycle', `retrying ${nodeKey}`);
     this.claimNode(flowId, nodeKey, ['failed']);
     this.setCurrentNode(flowId, nodeKey);
@@ -1089,6 +1099,49 @@ export class FlowEngine {
       if (isNodeTerminalSuccess(finalStatus)) {
         await this.advanceFrom(flowId, nodeKey);
       }
+    });
+  }
+
+  /** Plan retry: replay a recorded chat turn, or revert when nothing was recorded. */
+  private retryPlanNode(
+    flowId: string,
+    nodeKey: string,
+    node: NodeRow,
+    def: NodeDefinition,
+    recorded: PlanInput
+  ): void {
+    db.emitEvent(flowId, node.id, 'lifecycle', `retrying ${nodeKey}`);
+    const turnMessage = recorded.turnUserMessage?.trim();
+    if (!turnMessage) {
+      const revertStatus = resolvePlanFailedRetryStatus(
+        recorded,
+        this.latestResourceArtifact(flowId, NODE_KEYS.PLAN) != null
+      );
+      nodeSupport.transition(flowId, nodeKey, ['failed'], revertStatus);
+      db.emitEvent(flowId, node.id, 'lifecycle', PLAN_CHAT_READY_LIFECYCLE);
+      this.clearCurrentIf(flowId, nodeKey);
+      this.touch(flowId);
+      return;
+    }
+
+    this.claimNode(flowId, nodeKey, ['failed']);
+    this.setCurrentNode(flowId, nodeKey);
+    this.bg(flowId, nodeKey, async () => {
+      const chatRefiner = nodeRoles.chatRefinerOf(def);
+      if (!chatRefiner) {
+        throw new ValidationError(`${nodeKey} does not accept chat replay`);
+      }
+      const chatResponse = await chatRefiner.turn(this.ctx(flowId), turnMessage, {
+        model: recorded.model ?? undefined,
+        thread: recorded.planThread,
+      });
+      db.addMessage(
+        flowId,
+        nodeKey,
+        'assistant',
+        chatResponse || 'Done.',
+        recorded.planThread ?? null
+      );
     });
   }
 
