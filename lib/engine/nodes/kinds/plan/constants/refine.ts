@@ -34,7 +34,10 @@ export interface RefinedFrom {
  * is the normal case, `pending` is the FIRST-apply state (no UI path — the tab
  * opens after run 1; contract-required), `failed` is the rescue path. Every
  * other non-empty status refuses (`running`, `approved`, `done`, …) — the
- * conservative default, never a silent mid-run mutation.
+ * conservative default, never a silent mid-run mutation. `running` is refused
+ * EXCEPT for the turn's own claim: `sendChat` claims the node (running + a
+ * fresh attempt token) before the turn dispatches, so the guard fences on
+ * attempt ownership (docs/coding-patterns.md §3.6), not the raw status.
  */
 export const PLAN_APPLY_ALLOWED: ReadonlySet<string> = new Set([
   FLOW_STATUS.PENDING,
