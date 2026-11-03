@@ -10,6 +10,9 @@ export const metadata: Metadata = {
   description: "Single-screen developer SDLC: Jira → Plan → Build → MR → CI → Review",
 };
 
+/** Local API token is per-process; avoid baking it into static prerender output. */
+export const dynamic = "force-dynamic";
+
 export default async function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="en">
