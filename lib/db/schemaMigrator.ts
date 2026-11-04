@@ -51,6 +51,11 @@ export class SchemaMigrator {
             `);
           } else if (next === 6) {
             sealIntegrationSecretsAtRest(d, AtRestCipher.fromConfig());
+          } else if (next === 7) {
+            const cols = d.prepare(`PRAGMA table_info(repos)`).all() as { name: string }[];
+            if (!cols.some((c) => c.name === "use_worktrees")) {
+              d.exec(`ALTER TABLE repos ADD COLUMN use_worktrees INTEGER NOT NULL DEFAULT 1`);
+            }
           } else {
             throw new Error(`No migration defined for user_version ${next}`);
           }

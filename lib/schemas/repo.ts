@@ -64,6 +64,7 @@ const worktreeTimeoutSeconds = z
   });
 
 const repoWorktreeFields = {
+  use_worktrees: z.boolean().optional(),
   install_command: optionalEmptyToNull,
   skip_install: z.boolean().optional(),
   sync_paths: optionalEmptyToNull,
@@ -109,6 +110,7 @@ export const repoPatchBodySchema = z.object({
   cloud_url: cloudUrlInput.optional(),
   local_path: localPathInput,
   default_branch: z.string().trim().min(1).optional(),
+  use_worktrees: z.boolean().optional(),
   install_command: patchOptionalString,
   skip_install: z.boolean().optional(),
   sync_paths: patchOptionalString,
