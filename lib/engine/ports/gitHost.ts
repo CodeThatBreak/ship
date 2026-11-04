@@ -30,6 +30,13 @@ export interface HeadPipelineInfo {
   webUrl: string;
 }
 
+/** SHAs GitLab uses to anchor an inline MR discussion on the diff. */
+export interface ChangeRequestDiffRefs {
+  baseSha: string;
+  startSha: string;
+  headSha: string;
+}
+
 /** A change request (merge request / pull request), normalized. */
 export interface ChangeRequest {
   /** host-native stable id (string form) */
@@ -44,7 +51,21 @@ export interface ChangeRequest {
   sha: string;
   headPipeline?: HeadPipelineInfo | null;
   projectId: number;
+  /** Present when the host exposes MR diff refs (required for inline review threads). */
+  diffRefs?: ChangeRequestDiffRefs | null;
 }
+
+/** Host context for posting a review comment on a specific diff line. */
+export type InlineCommentPositionContext = {
+  diffRefs: ChangeRequestDiffRefs | null | undefined;
+  changes: ChangeRequestDiffs["changes"];
+};
+
+export type InlineCommentInput = {
+  path: string;
+  line: number;
+  body: string;
+};
 
 /** A CI pipeline, normalized. */
 export interface Pipeline {
@@ -145,6 +166,12 @@ export interface GitHostClient {
   getJobTrace(jobId: number): Promise<string>;
   listComments(crNumber: number): Promise<HostComment[]>;
   createComment(crNumber: number, body: string): Promise<unknown>;
+  /** Inline diff thread when path/line resolve against `positionContext`; throws when not postable. */
+  createInlineComment(
+    crNumber: number,
+    input: InlineCommentInput,
+    positionContext: InlineCommentPositionContext,
+  ): Promise<unknown>;
   resolveComment(crNumber: number, threadId: string, resolved?: boolean): Promise<unknown>;
   getProject(): Promise<HostProject>;
 }
@@ -209,6 +236,12 @@ export interface GitHostService {
   getJobTrace(repoUrl: string, jobId: number): Promise<string>;
   listComments(repoUrl: string, crNumber: number): Promise<HostComment[]>;
   createComment(repoUrl: string, crNumber: number, body: string): Promise<unknown>;
+  createInlineComment(
+    repoUrl: string,
+    crNumber: number,
+    input: InlineCommentInput,
+    positionContext: InlineCommentPositionContext,
+  ): Promise<unknown>;
   resolveComment(repoUrl: string, crNumber: number, threadId: string, resolved?: boolean): Promise<unknown>;
   getProject(repoUrl: string): Promise<HostProject>;
 }

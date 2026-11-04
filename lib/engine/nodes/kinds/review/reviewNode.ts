@@ -124,6 +124,7 @@ export class ReviewNode extends AgentRunNode<ReviewInput, ReviewOutput> {
     const host = this.gitHosts.forRepo(repoUrl);
 
     const changes = await host.getChanges(repoUrl, mrIid);
+    const changeRequest = await host.getChangeRequest(repoUrl, mrIid);
     const diffText = changes.changes
       .map((c) => `--- ${c.oldPath}\n+++ ${c.newPath}\n${c.diff}`)
       .join("\n")
@@ -228,11 +229,33 @@ export class ReviewNode extends AgentRunNode<ReviewInput, ReviewOutput> {
             persistProgress();
           }
         } else {
+          const inlineContext = {
+            diffRefs: changeRequest.diffRefs,
+            changes: changes.changes,
+          };
           for (const c of effective) {
             const hash = reviewCommentPostHash(mrIid, c, "inline");
             if (postedHashes.has(hash)) continue;
-            const body = c.file ? `**${c.file}${c.line ? `:${c.line}` : ""}** — ${c.body}` : c.body;
-            await host.createComment(repoUrl, mrIid, `**AI Review**\n\n${body}`);
+            const noteBody = `**AI Review**\n\n${c.body}`;
+            const file = c.file?.trim();
+            const line = c.line;
+            if (file && typeof line === "number" && line > 0) {
+              try {
+                await host.createInlineComment(
+                  repoUrl,
+                  mrIid,
+                  { path: file, line, body: noteBody },
+                  inlineContext,
+                );
+              } catch (e: unknown) {
+                const detail = e instanceof Error ? e.message : String(e);
+                this.support.emit(ctx.flow.id, node.id, "log", `inline review comment fell back to MR note: ${detail}`);
+                const fallbackBody = `**${file}:${line}** — ${c.body}`;
+                await host.createComment(repoUrl, mrIid, `**AI Review**\n\n${fallbackBody}`);
+              }
+            } else {
+              await host.createComment(repoUrl, mrIid, noteBody);
+            }
             newHashes.push(hash);
             postedHashes.add(hash);
             posted++;

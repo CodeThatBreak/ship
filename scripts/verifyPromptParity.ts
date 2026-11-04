@@ -124,6 +124,7 @@ const fixtureHost: GitHostService = {
   getJobTrace: async () => '',
   listComments: async () => [],
   createComment: async () => ({}),
+  createInlineComment: async () => ({}),
   resolveComment: async () => ({}),
   getProject: async () => ({ id: 42, name: 'fixture', pathWithNamespace: 'fixture/repo', defaultBranch: 'main' }),
 };

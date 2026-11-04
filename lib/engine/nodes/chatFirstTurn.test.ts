@@ -197,7 +197,11 @@ describe("ReviewNode chat", () => {
         truncated: false,
       }),
       createComment: async () => ({}),
-      getChangeRequest: async () => ({ sha: "sha_before" }),
+      createInlineComment: async () => ({}),
+      getChangeRequest: async () => ({
+        sha: "sha_before",
+        diffRefs: { baseSha: "b", startSha: "s", headSha: "h" },
+      }),
     };
     const gitHosts = { forRepo: () => host } as unknown as GitHostResolver;
     const def = new ReviewNode(stubSupport(j, node), stubRunner(j, responses), ctxHelper, gitHosts);

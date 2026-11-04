@@ -31,6 +31,7 @@ export interface MergeRequest {
   sha: string;
   head_pipeline?: { id: number; status: string; web_url: string } | null;
   project_id: number;
+  diff_refs?: { base_sha: string; head_sha: string; start_sha: string } | null;
 }
 
 export interface Pipeline {
@@ -237,6 +238,26 @@ export class GitLabClient {
     return this.api(`/projects/${projectPath}/merge_requests/${mrIid}/notes`, {
       method: "POST",
       body: JSON.stringify({ body }),
+    });
+  }
+
+  async createMRDiscussion(
+    projectPath: string,
+    mrIid: number,
+    body: string,
+    position: {
+      base_sha: string;
+      start_sha: string;
+      head_sha: string;
+      position_type: "text";
+      old_path: string;
+      new_path: string;
+      new_line: number;
+    },
+  ) {
+    return this.api(`/projects/${projectPath}/merge_requests/${mrIid}/discussions`, {
+      method: "POST",
+      body: JSON.stringify({ body, position }),
     });
   }
 

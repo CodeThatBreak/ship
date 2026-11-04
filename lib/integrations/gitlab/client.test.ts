@@ -64,6 +64,31 @@ describe("GitLabClient", () => {
     expect(GITLAB_HTTP_TIMEOUT_MS).toBeGreaterThan(0);
   });
 
+  it("posts inline review findings via the discussions API", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse({ id: "disc_1" }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const client = new GitLabClient(instance);
+    await client.createMRDiscussion("group%2Frepo", 5, "**AI Review**\n\nfix", {
+      base_sha: "b",
+      start_sha: "s",
+      head_sha: "h",
+      position_type: "text",
+      old_path: "a.ts",
+      new_path: "a.ts",
+      new_line: 4,
+    });
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(url).toContain("/merge_requests/5/discussions");
+    expect(init.method).toBe("POST");
+    expect(JSON.parse(String(init.body))).toMatchObject({
+      body: "**AI Review**\n\nfix",
+      position: { new_line: 4, new_path: "a.ts" },
+    });
+  });
+
   it("loads MR diffs from the /diffs endpoint", async () => {
     vi.stubGlobal(
       "fetch",

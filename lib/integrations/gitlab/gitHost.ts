@@ -16,9 +16,12 @@ import type {
   HostJob,
   HostProject,
   HostWebhookEvent,
+  InlineCommentInput,
+  InlineCommentPositionContext,
   Pipeline,
 } from "../../engine/ports/gitHost";
 import { GitLabClient, type GitLabService, type Discussion, type MergeRequest, type Pipeline as GitLabPipeline } from "./client";
+import { buildDiscussionPosition } from "./diffCommentPosition";
 
 import { gitLabOAuthBasicHeaderEnv } from "../../git/gitAuthEnv";
 import { maskToken } from "../../maskToken";
@@ -57,6 +60,11 @@ const GitLabWebhookEnvelope = z
 // ── shape normalization (GitLab snake_case → port camelCase) ────────────────
 
 function mapChangeRequest(mr: MergeRequest): ChangeRequest {
+  const refs = mr.diff_refs;
+  const diffRefs =
+    refs?.base_sha && refs.start_sha && refs.head_sha
+      ? { baseSha: refs.base_sha, startSha: refs.start_sha, headSha: refs.head_sha }
+      : null;
   return {
     id: String(mr.id),
     number: mr.iid,
@@ -70,6 +78,7 @@ function mapChangeRequest(mr: MergeRequest): ChangeRequest {
       ? { id: mr.head_pipeline.id, status: mr.head_pipeline.status, webUrl: mr.head_pipeline.web_url }
       : null,
     projectId: mr.project_id,
+    diffRefs,
   };
 }
 
@@ -178,6 +187,30 @@ class GitLabHostClient implements GitHostClient {
 
   createComment(crNumber: number, body: string): Promise<unknown> {
     return this.raw.createMRNote(this.projectPath, crNumber, body);
+  }
+
+  createInlineComment(
+    crNumber: number,
+    input: InlineCommentInput,
+    positionContext: InlineCommentPositionContext,
+  ): Promise<unknown> {
+    if (!positionContext.diffRefs) {
+      throw new ValidationError(
+        `cannot anchor inline comment on ${input.path}:${input.line} — MR diff refs unavailable`,
+      );
+    }
+    const position = buildDiscussionPosition(
+      input.path,
+      input.line,
+      positionContext.diffRefs,
+      positionContext.changes,
+    );
+    if (!position) {
+      throw new ValidationError(
+        `cannot anchor inline comment on ${input.path}:${input.line} — path missing from MR diff`,
+      );
+    }
+    return this.raw.createMRDiscussion(this.projectPath, crNumber, input.body, position);
   }
 
   resolveComment(crNumber: number, threadId: string, resolved = true): Promise<unknown> {
@@ -422,6 +455,15 @@ export class GitLabHostService implements GitHostService {
 
   createComment(repoUrl: string, crNumber: number, body: string): Promise<unknown> {
     return this.clientForRepo(repoUrl).createComment(crNumber, body);
+  }
+
+  createInlineComment(
+    repoUrl: string,
+    crNumber: number,
+    input: InlineCommentInput,
+    positionContext: InlineCommentPositionContext,
+  ): Promise<unknown> {
+    return this.clientForRepo(repoUrl).createInlineComment(crNumber, input, positionContext);
   }
 
   resolveComment(repoUrl: string, crNumber: number, threadId: string, resolved?: boolean): Promise<unknown> {
