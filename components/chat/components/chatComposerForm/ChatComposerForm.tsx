@@ -43,6 +43,7 @@ export default function ChatComposerForm({
   sendLabel,
   canReset,
   canSend,
+  sending,
   chatInputRef,
   aside,
   error,
@@ -59,6 +60,10 @@ export default function ChatComposerForm({
   canReset: boolean;
   /** explicit send-gating override (e.g. the invalidated scoped chip) */
   canSend?: boolean;
+
+  /** outer send-in-progress state (the mutation's isPending); combined with
+   *  the form's own pending — true while a send is accepted but unfinished */
+  sending?: boolean;
 
   chatInputRef?: RefObject<ChatInputHandle | null>;
 
@@ -79,8 +84,9 @@ export default function ChatComposerForm({
   const [pending, setPending] = useState(false);
 
   // the send gate: an explicit override stays authoritative; the default gate
-  // is a non-empty draft (and no pending send)
-  const disableSendButton = (canSend ?? true) && draftState.trim().length > 0 && !pending;
+  // is a non-empty draft (and no pending send — ours or the outer mutation's)
+  const isSending = pending || sending === true;
+  const disableSendButton = (canSend ?? true) && draftState.trim().length > 0 && !isSending;
 
   const onModelChange = useCallback(
     (choice: ModelChoice | null) => {
@@ -158,7 +164,7 @@ export default function ChatComposerForm({
       onChange={onDraftEdit}
       placeholder={placeholder}
       aria-label="Message"
-      disabled={pending}
+      disabled={isSending}
       className="min-h-16 py-2"
       onKeyDown={onInputKeyDown}
     />
@@ -190,7 +196,7 @@ export default function ChatComposerForm({
           <InputGroupAddon align="block-end">
             <ModelSelector value={modelChoice} onChange={onModelChange} />
             {aside}
-            <SendButton sendLabel={sendLabel} canSend={disableSendButton} />
+            <SendButton sendLabel={sendLabel} canSend={disableSendButton} sending={isSending} />
           </InputGroupAddon>
         </InputGroup>
       )}

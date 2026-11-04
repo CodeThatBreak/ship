@@ -215,6 +215,7 @@ export default function ChatPanel({
         loading={loading}
         canSend={canSend}
         canReset={canReset}
+        sending={isSendingMessage}
         draft={initialDraft}
         sendLabel={sendLabel}
         modelChoice={modelChoice}
