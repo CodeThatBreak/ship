@@ -7,6 +7,11 @@ import { EVENT_KIND } from "../../constants/vocabulary";
 import { configNumber } from "../../templates/nodeConfig";
 import { branchStore } from "../kinds/build/buildExports";
 import { mergeRequests, toMrCreationFailure, type CommitError } from "../kinds/mergeRequest/mergeRequestExports";
+import type { NodeStatus } from "../../../db/rows";
+
+/** Manual panel/API re-runs after a prior success terminal (done) or debounced wait. */
+const MANUAL_CHAIN_STAGE_FROM: readonly NodeStatus[] = ["pending", "failed", "done"];
+const MANUAL_RESOLVE_FROM: readonly NodeStatus[] = ["pending", "failed", "done", "waiting"];
 
 /** The engine surface the chain drives — the generic orchestration primitives. */
 export interface ChainHost {
@@ -151,7 +156,7 @@ export class SdlcChain {
     if (this.host.chainBusy(flowId)) return;
     const gate = this.host.gateKey(flowId);
     if (!gate) throw new Error("this flow template has no pipeline gate node");
-    this.host.claimNode(flowId, gate, ["pending", "failed"]);
+    this.host.claimNode(flowId, gate, MANUAL_CHAIN_STAGE_FROM);
     this.host.setCurrentNode(flowId, gate);
     this.host.bg(flowId, gate, async () => {
       await this.host.runNode(flowId, gate, {
@@ -171,7 +176,7 @@ export class SdlcChain {
     if (this.host.chainBusy(flowId)) {
       throw new Error("wait for the pipeline/review step to finish before running resolve");
     }
-    this.host.claimNode(flowId, resolveKey, ["pending", "failed"]);
+    this.host.claimNode(flowId, resolveKey, MANUAL_RESOLVE_FROM);
     this.host.setCurrentNode(flowId, resolveKey);
     this.host.bg(flowId, resolveKey, async () => {
       await this.host.runNode(flowId, resolveKey, {
@@ -186,7 +191,7 @@ export class SdlcChain {
     const reviewKey = this.host.keyOfRole(flowId, NODE_KEYS.REVIEW);
     if (!reviewKey) throw new Error("this flow template has no review node");
     if (this.host.chainBusy(flowId)) throw new Error("wait for the current pipeline/review/resolve run to finish first");
-    this.host.claimNode(flowId, reviewKey, ["pending", "failed"]);
+    this.host.claimNode(flowId, reviewKey, MANUAL_CHAIN_STAGE_FROM);
     this.host.setCurrentNode(flowId, reviewKey);
     this.host.bg(flowId, reviewKey, async () => {
       await this.host.runNode(flowId, reviewKey, {

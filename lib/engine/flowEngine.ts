@@ -818,6 +818,10 @@ export class FlowEngine {
   }
 
   triggerResolve(flowId: string, model?: string): void {
+    const resolveKey = this.keyOfRole(flowId, NODE_KEYS.RESOLVE);
+    if (resolveKey && this.nodeStatus(flowId, resolveKey) === "waiting") {
+      this.waits.clearTimerForNode(flowId, resolveKey);
+    }
     this.chain.triggerResolve(flowId, model);
   }
 
@@ -1203,8 +1207,18 @@ export class FlowEngine {
     db.addMessage(flowId, nodeKey, 'user', content, thread ?? null);
     // the pre-claim status decides "did THIS turn land a success terminal":
     // the claim flips the node to running, so it must be read first
-    const wasSuccess = isNodeTerminalSuccess(this.nodeStatus(flowId, nodeKey));
-    this.claimNode(flowId, nodeKey, ['pending', 'awaiting_approval', 'failed']);
+    const priorStatus = this.nodeStatus(flowId, nodeKey);
+    if (priorStatus === "waiting") {
+      this.waits.clearTimerForNode(flowId, nodeKey);
+    }
+    const wasSuccess = isNodeTerminalSuccess(priorStatus);
+    this.claimNode(flowId, nodeKey, [
+      "pending",
+      "awaiting_approval",
+      "failed",
+      "done",
+      "waiting",
+    ]);
 
     this.setCurrentNode(flowId, nodeKey);
     this.bg(

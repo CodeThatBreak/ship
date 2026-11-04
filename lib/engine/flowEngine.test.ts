@@ -143,6 +143,31 @@ describe("engine chain-role routing (T3)", () => {
     expect(() => engine.approvePlan(flowId)).toThrow(/not awaiting approval/);
   });
 
+  it("triggerResolve re-runs when the resolve node is already done", () => {
+    const flowId = seedFlow(7);
+    const resolveKey = engine.keyOfRole(flowId, NODE_KEYS.RESOLVE);
+    if (!resolveKey) throw new Error("expected resolve key");
+    db.run(
+      `INSERT INTO nodes (id, flow_id, node_key, type, status, created_at, updated_at) VALUES (?,?,?,?,?,?,?)`,
+      `node_${flowId}_resolve`,
+      flowId,
+      resolveKey,
+      NODE_KEYS.RESOLVE,
+      "done",
+      now(),
+      now(),
+    );
+    vi.spyOn(engine, "bg").mockImplementation(() => {});
+    expect(() => engine.triggerResolve(flowId)).not.toThrow();
+    expect(
+      db.get<{ status: string }>(
+        `SELECT status FROM nodes WHERE flow_id=? AND node_key=?`,
+        flowId,
+        resolveKey,
+      )?.status,
+    ).toBe("running");
+  });
+
   it("finishFanout does not regress a parent node after the aggregate is already published (CR-009)", async () => {
     const flowId = seedFlow(6);
     const buildKey = engine.keyOfRole(flowId, NODE_KEYS.BUILD);
