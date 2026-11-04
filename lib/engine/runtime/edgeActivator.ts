@@ -13,6 +13,7 @@ import { templateStore, type TemplateEdgeSpec, type TemplateGraph } from "../tem
 import { stepFlows } from "./fanout/stepFlowManager";
 import { splitManager } from "./split/splitManager";
 import { nodeStore } from "./nodeStore";
+import { nodeAttemptRegistry } from "./nodeAttemptRegistry";
 import type { EdgeActivatorHost } from "./flowEngineHost";
 import type { WaitScheduler } from "./waitScheduler";
 
@@ -384,6 +385,8 @@ export class EdgeActivator {
         flowId,
         nodeKey,
       );
+      const failedNodeId = nodeStore.idOf(flowId, nodeKey);
+      if (failedNodeId) nodeAttemptRegistry.clear(failedNodeId);
       if (this.host.isStepChild(flowId)) {
         // notify hook: this failed stage runs on a step child — its parent's
         // rollup/scheduling reacts (standard failed → retry/skip)

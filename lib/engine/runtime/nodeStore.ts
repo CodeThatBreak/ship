@@ -9,6 +9,7 @@ import { appLayerConfig, mergeConfigLayers } from "../templates/nodeConfig";
 import type { TemplateGraph } from "../types/template";
 import { nodeRegistry } from "../nodes/registry";
 import { hookStore } from "./hookStore";
+import { nodeAttemptRegistry } from "./nodeAttemptRegistry";
 
 export type InsertNodeSnapshotsOptions = {
   /** When true, provision wait_for webhook hooks per node (top-level flow create). */
@@ -50,6 +51,10 @@ export class NodeStore {
       flowId,
       nodeKey,
     );
+    if (status !== NODE_STATUS.RUNNING) {
+      const nodeId = this.idOf(flowId, nodeKey);
+      if (nodeId) nodeAttemptRegistry.clear(nodeId);
+    }
   }
 
   /**

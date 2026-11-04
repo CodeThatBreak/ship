@@ -31,6 +31,7 @@ import { buildFlowContext, type FlowContextMap } from './context/flowVariables';
 import { evalJsonata, jsonataTruthy } from '@/lib/jsonata/eval';
 import { hookStore } from './runtime/hookStore';
 import { nodeStore } from './runtime/nodeStore';
+import { nodeAttemptRegistry } from './runtime/nodeAttemptRegistry';
 import { commentStore } from './runtime/commentStore';
 import { FLOW_KIND } from './constants/flowKind';
 import { isNodeTerminalSuccess, NODE_STATUS } from './constants/nodeStatus';
@@ -377,13 +378,19 @@ export class FlowEngine {
 
   /** Atomically claim a node for a background run (see docs/coding-patterns.md §3.6). */
   claimNode(flowId: string, nodeKey: string, from: readonly NodeStatus[]): string {
-    return nodeStore.claim(flowId, nodeKey, from);
+    const attempt = nodeStore.claim(flowId, nodeKey, from);
+    const nodeId = nodeStore.idOf(flowId, nodeKey);
+    if (nodeId) {
+      nodeAttemptRegistry.mark(nodeId, attempt);
+    }
+    return attempt;
   }
 
   // fire-and-forget wrapper: runs async, marks node failed on error.
   // Engine internals shared with the SDLC builtin-chain module — not a public API.
   bg(flowId: string, nodeKey: string | null, fn: () => Promise<void>, clearCurrentKey?: string | null): void {
     const clearKey = clearCurrentKey ?? nodeKey;
+    const nodeId = nodeKey ? nodeStore.idOf(flowId, nodeKey) : null;
     void (async () => {
       try {
         await fn();
@@ -402,6 +409,13 @@ export class FlowEngine {
           );
         }
       } finally {
+        if (nodeId) {
+          const attemptId = db.get<{ attempt_id: string | null }>(
+            `SELECT attempt_id FROM nodes WHERE id=?`,
+            nodeId,
+          )?.attempt_id;
+          nodeAttemptRegistry.clear(nodeId, attemptId);
+        }
         if (clearKey) this.clearCurrentIf(flowId, clearKey);
         this.touch(flowId);
       }

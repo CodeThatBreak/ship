@@ -4,8 +4,9 @@ import { db } from "../../../db/app";
 import { CommentRow, NodeRow, rows, type NodeStatus } from "../../../db/rows";
 import { ConflictError } from "../../../errors";
 import { NODE_STATUS } from "../../constants/nodeStatus";
-import { ARTIFACT_STATUS, COMMENT_STATUS, EVENT_KIND, RUN_STATUS } from "../../constants/vocabulary";
+import { ARTIFACT_STATUS, COMMENT_STATUS, EVENT_KIND, RUN_AGENT_REF, RUN_STATUS } from "../../constants/vocabulary";
 import { RunSupersededError } from "../../errors/runSupersededError";
+import { nodeAttemptRegistry } from "../../runtime/nodeAttemptRegistry";
 
 /**
  * Persistence helpers for node rows, artifacts, runs and flow-feed events —
@@ -38,6 +39,9 @@ export class NodeSupport {
   }
 
   setNode(id: string, patch: Record<string, unknown>): void {
+    if (typeof patch.status === "string" && patch.status !== NODE_STATUS.RUNNING) {
+      nodeAttemptRegistry.clear(id);
+    }
     const keys = Object.keys(patch);
     db.run(
       `UPDATE nodes SET ${keys.map((k) => `${k}=?`).join(",")}, updated_at=? WHERE id=?`,
@@ -164,7 +168,79 @@ export class NodeSupport {
     return { id, version };
   }
 
+  /**
+   * Placeholder run row for the current attempt — written at the start of
+   * `executeRun` so reconcile sees a run while the agent is still starting.
+   * `run_ref` is the attempt token until `persistRun` upgrades the row.
+   */
+  registerStartupRun(flowId: string, nodeId: string, attemptId: string): void {
+    const existing = db.get<{ agent_ref: string; run_ref: string }>(
+      `SELECT agent_ref, run_ref FROM runs
+       WHERE node_id=? AND status=? ORDER BY created_at DESC LIMIT 1`,
+      nodeId,
+      RUN_STATUS.RUNNING,
+    );
+    if (existing?.agent_ref === RUN_AGENT_REF.PENDING && existing.run_ref === attemptId) {
+      return;
+    }
+    db.run(
+      `UPDATE runs SET status=?, updated_at=? WHERE node_id=? AND status=?`,
+      RUN_STATUS.ERROR,
+      db.now(),
+      nodeId,
+      RUN_STATUS.RUNNING,
+    );
+    const id = db.uid("run_");
+    db.run(
+      `INSERT INTO runs (id,flow_id,node_id,agent_ref,run_ref,status,created_at,updated_at)
+       VALUES (?,?,?,?,?,?,?,?)`,
+      id,
+      flowId,
+      nodeId,
+      RUN_AGENT_REF.PENDING,
+      attemptId,
+      RUN_STATUS.RUNNING,
+      db.now(),
+      db.now(),
+    );
+  }
+
+  isStartupRun(agentRef: string): boolean {
+    return agentRef === RUN_AGENT_REF.PENDING;
+  }
+
   persistRun(flowId: string, nodeId: string, agentId: string, runId: string): string {
+    const attemptId = db.get<{ attempt_id: string | null }>(
+      `SELECT attempt_id FROM nodes WHERE id=?`,
+      nodeId,
+    )?.attempt_id;
+    if (attemptId) {
+      const { changes } = db.run(
+        `UPDATE runs SET agent_ref=?, run_ref=?, updated_at=?
+         WHERE node_id=? AND status=? AND agent_ref=? AND run_ref=?`,
+        agentId,
+        runId,
+        db.now(),
+        nodeId,
+        RUN_STATUS.RUNNING,
+        RUN_AGENT_REF.PENDING,
+        attemptId,
+      );
+      if (changes === 1) {
+        const upgraded = db.get<{ id: string }>(`SELECT id FROM runs WHERE run_ref=?`, runId);
+        if (upgraded) {
+          db.run(
+            `UPDATE runs SET status=?, updated_at=? WHERE node_id=? AND status=? AND run_ref<>?`,
+            RUN_STATUS.ERROR,
+            db.now(),
+            nodeId,
+            RUN_STATUS.RUNNING,
+            runId,
+          );
+          return upgraded.id;
+        }
+      }
+    }
     // close out any prior `running` rows for this node — they're stale (their
     // process died with a previous server/run) and would otherwise be picked up
     // as the "latest running run" by reconcile, clobbering this fresh run
@@ -180,7 +256,9 @@ export class NodeSupport {
 
   lastAgentId(nodeId: string): string | null {
     return db.get<{ agent_ref: string }>(
-      `SELECT agent_ref FROM runs WHERE node_id=? ORDER BY created_at DESC LIMIT 1`, nodeId
+      `SELECT agent_ref FROM runs WHERE node_id=? AND agent_ref<>? ORDER BY created_at DESC LIMIT 1`,
+      nodeId,
+      RUN_AGENT_REF.PENDING,
     )?.agent_ref ?? null;
   }
 

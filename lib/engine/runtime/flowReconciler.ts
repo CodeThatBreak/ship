@@ -11,6 +11,7 @@ import { mergeArena } from "./fanout/mergeArena";
 import { templateStore } from "../templates/templateStore";
 import { processSingleton } from "../../singleton";
 import { nodeStore } from "./nodeStore";
+import { nodeAttemptRegistry } from "./nodeAttemptRegistry";
 
 /**
  * Re-sync nodes stuck in `running` with the real state of their agent run.
@@ -112,6 +113,8 @@ export class Reconciler {
   // ── plan fan-out (Phase 2B): stuck step_merges + orphan children ──────────
 
   private async reconcileNode(flow: FlowRow, node: NodeRow): Promise<void> {
+    if (nodeAttemptRegistry.isActive(node.id)) return;
+
     const runRow = rows.get(RunRow,
       `SELECT * FROM runs WHERE node_id=? AND status='running' ORDER BY created_at DESC LIMIT 1`,
       node.id
@@ -271,6 +274,16 @@ export class Reconciler {
       return;
     }
 
+    if (nodeSupport.isStartupRun(runRow.agent_ref)) {
+      nodeSupport.failOrphanedNode(
+        flow.id,
+        node.id,
+        node.node_key,
+        "node startup was interrupted",
+      );
+      return;
+    }
+
     // Not owned by this process: local agent loops run in-process, so the run
     // is no longer executing. Ask the SDK's persisted run state what happened.
     // The probe must use the run's own cwd (the flow's worktree when it used
@@ -313,6 +326,16 @@ export class Reconciler {
     const port = agentPortRegistry.forMode("cloud");
     if (!runRow) {
       nodeSupport.failOrphanedNode(flow.id, node.id, node.node_key, "node was left running without an active run");
+      return;
+    }
+
+    if (nodeSupport.isStartupRun(runRow.agent_ref)) {
+      nodeSupport.failOrphanedNode(
+        flow.id,
+        node.id,
+        node.node_key,
+        "node startup was interrupted",
+      );
       return;
     }
 

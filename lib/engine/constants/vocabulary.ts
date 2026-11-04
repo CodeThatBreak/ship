@@ -24,6 +24,11 @@ export const RUN_STATUS = {
 
 export type RunStatus = (typeof RUN_STATUS)[keyof typeof RUN_STATUS];
 
+/** Placeholder `runs.agent_ref` while the agent has not started yet (claim → persistRun). */
+export const RUN_AGENT_REF = {
+  PENDING: "pending",
+} as const;
+
 /** GitLab (or host) pipeline states referenced by the pipeline node. */
 export const PIPELINE_STATUS = {
   CANCELED: "canceled",

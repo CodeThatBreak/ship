@@ -140,15 +140,19 @@ export class AgentRunner {
     const { flow } = ctx;
     const mode = this.ctxHelper.execMode(ctx);
     const port: AgentPort = this.ports.forMode(mode);
+    const ownsNodeStatus = options?.ownsNodeStatus !== false;
+    const attemptAtStart =
+      options?.attemptId
+      ?? this.database.get<{ attempt_id: string | null }>(`SELECT attempt_id FROM nodes WHERE id=?`, nodeId)?.attempt_id;
+    if (ownsNodeStatus && attemptAtStart) {
+      this.support.registerStartupRun(flow.id, nodeId, attemptAtStart);
+    }
     const startedAt = Date.now();
     const { agentId, runId } = await start();
     try {
       this.support.persistRun(flow.id, nodeId, agentId, runId);
       const runRowId = this.database.get<{ id: string }>(`SELECT id FROM runs WHERE run_ref=?`, runId)?.id;
       if (!runRowId) throw new Error(`run row missing after persist for ${runId}`);
-    const attemptAtStart =
-      options?.attemptId
-      ?? this.database.get<{ attempt_id: string | null }>(`SELECT attempt_id FROM nodes WHERE id=?`, nodeId)?.attempt_id;
     const startedWhileRunning = attemptAtStart != null;
     this.database.emitEvent(flow.id, nodeId, EVENT_KIND.LIFECYCLE, `${label} started (${mode})`, { agentId, runId, run_id: runId, mode });
 

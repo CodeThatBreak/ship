@@ -75,6 +75,37 @@ describe("NodeSupport — plan artifact ordering (CR-270)", () => {
   });
 });
 
+describe("NodeSupport — startup run rows", () => {
+  const support = new NodeSupport();
+
+  it("registerStartupRun is idempotent and persistRun upgrades the placeholder", () => {
+    const flowId = "flw_startup_run";
+    const nodeId = seedPlanNode(flowId);
+    db.run(`UPDATE nodes SET status='running', attempt_id='att_test' WHERE id=?`, nodeId);
+
+    support.registerStartupRun(flowId, nodeId, "att_test");
+    support.registerStartupRun(flowId, nodeId, "att_test");
+
+    const pending = db.get<{ agent_ref: string; run_ref: string; status: string }>(
+      `SELECT agent_ref, run_ref, status FROM runs WHERE node_id=? AND status='running'`,
+      nodeId,
+    );
+    expect(pending).toMatchObject({
+      agent_ref: "pending",
+      run_ref: "att_test",
+      status: "running",
+    });
+
+    const runRowId = support.persistRun(flowId, nodeId, "agt_real", "run_real");
+    const upgraded = db.get<{ id: string; agent_ref: string; run_ref: string }>(
+      `SELECT id, agent_ref, run_ref FROM runs WHERE id=?`,
+      runRowId,
+    );
+    expect(upgraded).toMatchObject({ agent_ref: "agt_real", run_ref: "run_real" });
+    expect(support.lastAgentId(nodeId)).toBe("agt_real");
+  });
+});
+
 describe("NodeSupport.claim (Task 17)", () => {
   const support = new NodeSupport();
 
