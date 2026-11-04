@@ -35,9 +35,9 @@ interface RemovalTarget {
  * The flow's worktree binding, returned by ensureFlowWorktree: the run cwd
  * plus a one-line setup note when deps setup failed (non-fatal — the caller
  * appends it to the agent's run prompt so the agent can self-repair).
- * `dir` is null ONLY when worktrees don't apply (cloud mode): local mode
- * either binds a worktree or throws — agent runs never fall back to the
- * registered checkout (the developer's checkout must not be mutated).
+ * `dir` is null when worktrees don't apply (cloud mode): local mode either
+ * binds a worktree (default) or, when the repo disables worktrees, binds the
+ * registered checkout directly — agent runs never fall back silently.
  */
 export interface WorktreeBinding {
   dir: string | null;
@@ -54,7 +54,8 @@ export interface WorktreeBinding {
  *
  * Layout: each local-mode flow's worktree lives at `workspaces/worktrees/<flowId>` —
  * outside the repo tree (the developer's checkout stays the hub: it owns the
- * object database, refs and config, and is never mutated by agent runs).
+ * object database, refs and config, and is never mutated unless the repo opts
+ * out with `use_worktrees = 0`, in which case flows run in the checkout itself).
  */
 export class WorktreeManager {
   /** Resolve feed routing key from a node row id (never use the row id as nodeKey). */
@@ -78,6 +79,19 @@ export class WorktreeManager {
     return { ...(extra ?? {}), ...(nodeKey ? { nodeKey } : {}) };
   }
 
+  /**
+   * Warm-up heartbeat: stamp the attributed node's `updated_at` each time an
+   * ensure step emits activity. A first-checkout ensure (`git worktree add` +
+   * the bounded deps copy) runs for minutes with no agent run row yet, and
+   * Reconciler's START_GRACE keys on `updated_at` — without the stamps the
+   * reconciler fails the live node as "left running without an active run"
+   * (the same aliveness contract the pipeline gate's per-poll stamps follow).
+   */
+  private touchNode(flowId: string, nodeId: string | null | undefined): void {
+    if (!nodeId) return;
+    db.run(`UPDATE nodes SET updated_at=? WHERE id=? AND flow_id=?`, db.now(), nodeId, flowId);
+  }
+
   /** A flow's worktree dir: `workspaces/worktrees/<flowId>` (unique per flow; sweep-joinable). */
   private worktreeDirForFlow(flowId: string): string {
     return workspacePaths.worktreeDir(flowId);
@@ -87,7 +101,9 @@ export class WorktreeManager {
 
   /**
    * Ensure the flow's worktree exists with `branch` checked out and return its
-   * binding — `{ dir: null }` only when worktrees don't apply (cloud mode).
+   * binding — `{ dir: null }` when worktrees don't apply (cloud mode). When the
+   * repo disables worktrees (`repos.use_worktrees = 0`), local-mode runs bind
+   * the registered checkout directly — the user opted out of parallel isolation.
    * Creation failure THROWS (fatal to the node): agent runs mutating the
    * developer's registered checkout cross-contaminated concurrent flows, so
    * the old hub fallback was removed — the node fails loudly with the reason
@@ -111,6 +127,24 @@ export class WorktreeManager {
       );
     }
 
+    if (!this.worktreesEnabled(ctx.repo)) {
+      // repo opted out: run in the registered checkout itself. A worktree left
+      // over from before the toggle flip is removed (branch kept) so the
+      // binding, sweep and status badge all agree on "no worktree".
+      if (flow.worktree_dir) {
+        await this.removeFlowWorktree(flow.id, {
+          reason: "worktrees disabled for this repo",
+        });
+        flow.worktree_dir = null;
+      }
+      const dir = this.tryRealpath(hub);
+      db.emitEvent(flow.id, opts.nodeId ?? null, "lifecycle",
+        `running in the registered checkout (${dir}) — worktrees disabled`,
+        this.lifecycleData(flow.id, opts.nodeId, { branch }));
+      this.touchNode(flow.id, opts.nodeId);
+      return { dir, setupNote: null };
+    }
+
     const dir = this.worktreeDirForFlow(flow.id);
     // visibility: the ensure can run for minutes on a first checkout — surface
     // it in the node's activity feed immediately instead of leaving the node
@@ -118,6 +152,7 @@ export class WorktreeManager {
     db.emitEvent(flow.id, opts.nodeId ?? null, "lifecycle",
       `setting up worktree (branch ${branch})…`,
       this.lifecycleData(flow.id, opts.nodeId, { branch }));
+    this.touchNode(flow.id, opts.nodeId);
     try {
       const result = await worktrees.createWorktree({
         repoPath: hub,
@@ -143,6 +178,7 @@ export class WorktreeManager {
           branch,
           base: result.base ?? undefined,
         }));
+      this.touchNode(flow.id, opts.nodeId);
       // deps setup runs once per flow (the worktree persists build → fixes →
       // re-gates → resolve, including session resumes); reuse skips it
       const setupNote = result.reused
@@ -197,6 +233,7 @@ export class WorktreeManager {
       const inflight = this.ensureInFlight.get(ctx.flow.id);
       if (inflight) {
         await inflight.catch(() => undefined);
+        this.touchNode(ctx.flow.id, opts.nodeId ?? null);
         const head = await this.currentWorktreeBranch(ctx);
         if (head === desiredBranch && ctx.flow.worktree_dir) {
           const dir = this.tryRealpath(ctx.flow.worktree_dir);
@@ -259,6 +296,7 @@ export class WorktreeManager {
         policy: policy.source,
         strategy: policy.strategy,
       }));
+    this.touchNode(ctx.flow.id, target.nodeId);
     const note = (err: string) => `worktree deps setup failed: ${err}`;
     try {
       const result = await worktreeSetup.run({
@@ -268,14 +306,18 @@ export class WorktreeManager {
         syncGlobs: depPolicies.resolveSyncGlobs(overrides),
         sharedDirs: depPolicies.parsePathList(overrides.shared_dirs),
         setupCommand: overrides.setup_command ?? null,
-        onEvent: (message) => db.emitEvent(ctx.flow.id, target.nodeId, "log", message,
-          this.lifecycleData(ctx.flow.id, target.nodeId)),
+        onEvent: (message) => {
+          db.emitEvent(ctx.flow.id, target.nodeId, "log", message,
+            this.lifecycleData(ctx.flow.id, target.nodeId));
+          this.touchNode(ctx.flow.id, target.nodeId);
+        },
       });
       const message = result.ok
         ? `worktree deps ready${result.actions.length ? `: ${result.actions.join("; ")}` : ""}`
         : note(result.error ?? "unknown error");
       db.emitEvent(ctx.flow.id, target.nodeId, result.ok ? "lifecycle" : "error", message,
         this.lifecycleData(ctx.flow.id, target.nodeId, { actions: result.actions }));
+      this.touchNode(ctx.flow.id, target.nodeId);
       return result.ok ? null : message;
     } catch (e: unknown) {
       // the executor reports failures as results — a throw here is a bug
@@ -283,6 +325,12 @@ export class WorktreeManager {
       db.emitEvent(ctx.flow.id, target.nodeId, "error", note(msg), this.lifecycleData(ctx.flow.id, target.nodeId));
       return note(msg);
     }
+  }
+
+  /** The repo's worktree opt-out (`repos.use_worktrees = 0`); on when unset. */
+  private worktreesEnabled(repo: Repo | null | undefined): boolean {
+    if (!repo) return true;
+    return Boolean(repo.use_worktrees);
   }
 
   /** The repo row's policy overrides, normalized for the pure dep-policy layer. */
