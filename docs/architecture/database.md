@@ -93,7 +93,7 @@ All stores are constructor-injected classes (AGENTS §3.1) composed by `Database
 Migration 1 runs `TemplateSeeder` (`lib/db/templateSeeder.ts`), an idempotent seed (`INSERT OR IGNORE`, deterministic ids) of the builtin catalog:
 
 - `node_templates` rows for the builtin node keys: `start`, `plan`, `build`, `step_build`, `pipeline`, `review`, `resolve`.
-- The SDLC loop flow template `tpl_sdlc_loop` (`SDLC_TEMPLATE_ID` in `lib/engine/constants/nodeKeys.ts`) with its `flow_template_nodes` (per-node triggers) and `flow_template_edges`, including the `resolve → pipeline` loop edge conditioned on the JSONata expression `nodes.resolve.output.codeChanged = true`.
+- The SDLC loop flow template `tpl_sdlc_loop` (`SDLC_TEMPLATE_ID` in `lib/engine/constants/nodeKeys.ts`) with its `flow_template_nodes` (per-node triggers) and `flow_template_edges`, including the `resolve → pipeline` loop edge conditioned on the JSONata expression `nodes.resolve.output.pushed = true`.
 - The step-build child template `tpl_step_build` (`STEP_BUILD_TEMPLATE_ID`) used by plan fan-out.
 
 ## Module surface

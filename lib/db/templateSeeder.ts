@@ -69,7 +69,7 @@ export class TemplateSeeder {
         [NODE_KEYS.BUILD, NODE_KEYS.PIPELINE, "next", null],
         [NODE_KEYS.PIPELINE, NODE_KEYS.REVIEW, "next", null],
         [NODE_KEYS.REVIEW, NODE_KEYS.RESOLVE, "next", null],
-        [NODE_KEYS.RESOLVE, NODE_KEYS.PIPELINE, "loop", "nodes.resolve.output.codeChanged = true"],
+        [NODE_KEYS.RESOLVE, NODE_KEYS.PIPELINE, "loop", "nodes.resolve.output.pushed = true"],
       ];
       edges.forEach(([from, to, kind, condition]) => {
         eStmt.run(`fte_${from}_${to}`, SDLC_TEMPLATE_ID, from, to, kind, null, condition, now, now);
@@ -92,7 +92,7 @@ export class TemplateSeeder {
         NODE_KEYS.RESOLVE,
         NODE_KEYS.PIPELINE,
         "loop",
-        "nodes.resolve.output.codeChanged = true",
+        "nodes.resolve.output.pushed = true",
         now,
         now,
       );

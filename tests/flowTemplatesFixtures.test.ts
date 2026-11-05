@@ -27,4 +27,18 @@ describe("docs/flow-templates fixtures", () => {
     const trig = JSON.parse(pipeline.trigger) as { wait_for?: string };
     expect(trig.wait_for).toBe("pipeline");
   });
+
+  it("the SDLC loop edge re-enters CI only on a verified push (§6A)", () => {
+    // the seeded template's loop edge — the one value the pipeline/review loop
+    // actually gate on
+    const seeded = db.get<{ condition: string }>(
+      `SELECT condition FROM flow_template_edges
+       WHERE template_id = 'tpl_sdlc_loop' AND from_key = 'resolve' AND kind = 'loop'`,
+    );
+    expect(seeded?.condition).toBe("nodes.resolve.output.pushed = true");
+
+    // the YAML fixture (test-imported, so this fails the suite when it drifts)
+    const yaml = fs.readFileSync(path.join(fixtureDir, "sdlc-loop.yaml"), "utf8");
+    expect(yaml).toContain("condition: 'nodes.resolve.output.pushed = true'");
+  });
 });

@@ -56,8 +56,8 @@ flowchart LR
   R -->|posts MR comments| R
   R -->|next: arm debounced wait| S[resolve waiting]
   S -->|quiet period elapsed| X[resolve run]
-  X -->|loop: codeChanged = true| P
-  X -->|codeChanged = false| E[cycle ends]
+  X -->|loop: pushed = true| P
+  X -->|pushed = false| E[cycle ends]
 ```
 
 ## UI architecture

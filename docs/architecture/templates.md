@@ -34,7 +34,7 @@ Templates are the design-time definition of a flow: a `flow_templates` row plus 
 `TemplateSeeder` (`lib/db/templateSeeder.ts`) runs at migration `user_version 1`, idempotently (`INSERT OR IGNORE`, deterministic ids):
 
 - **Catalog built-ins** — `nt_start`, `nt_plan`, `nt_build`, `nt_step_build`, `nt_pipeline`, `nt_review`, `nt_resolve` (kind `builtin`).
-- **`tpl_sdlc_loop`** (`SDLC_TEMPLATE_ID`) — the SDLC loop: `plan` (manual) → `build` (approval) → `pipeline` (`auto`, `wait_for: pipeline`) → `review` (`auto`) → `resolve` (`debounced`, 10 min, `wait_for: comments`), with a `loop` edge `resolve → pipeline` conditioned on the JSONata expression `nodes.resolve.output.codeChanged = true` — the cycle re-enters the CI gate only when the resolve agent pushed code.
+- **`tpl_sdlc_loop`** (`SDLC_TEMPLATE_ID`) — the SDLC loop: `plan` (manual) → `build` (approval) → `pipeline` (`auto`, `wait_for: pipeline`) → `review` (`auto`) → `resolve` (`debounced`, 10 min, `wait_for: comments`), with a `loop` edge `resolve → pipeline` conditioned on the JSONata expression `nodes.resolve.output.pushed = true` — the cycle re-enters the CI gate only when the resolve's fix is verified on the remote MR head.
 - **`tpl_step_build`** (`STEP_BUILD_TEMPLATE_ID`) — the hidden one-node child template plan fan-out defaults to: a single `step_build` instance with an `approval` trigger. `hidden=1` keeps it out of the gallery.
 - **Starter templates** — `tpl_docs_generation` (agent → script with input mapping), `tpl_release_notify` (agent → manual decision → http), `tpl_sentry_triage` (webhook-triggered agent → agent-proposes/approval-disposes decision → agent + http), plus their declarative catalog rows (`docs_summary`, `triage_agent`, …) as editable examples.
 

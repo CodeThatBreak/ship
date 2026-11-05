@@ -37,4 +37,4 @@ edges:
   # the re-entry loop: resolve → CI gate only when the resolve agent actually
   # pushed code (JSONata over the resolve output contract) — a no-code fix
   # ends the cycle
-  - [resolve, pipeline, {kind: loop, condition: 'nodes.resolve.output.codeChanged = true'}]
+  - [resolve, pipeline, {kind: loop, condition: 'nodes.resolve.output.pushed = true'}]
