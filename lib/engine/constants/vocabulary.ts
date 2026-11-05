@@ -51,6 +51,11 @@ export const COMMENT_STATUS = {
   RESOLVED: "resolved",
 } as const;
 
+/** The `comments.resolved_by` value the engine's own comment effects stamp —
+ *  the `commentStore.ingest` guard keys off it to never re-open agent-closed
+ *  rows when the poller/webhook re-deliver the same note. */
+export const RESOLVED_BY_AGENT = "agent";
+
 /** Settings keys stored in the app settings table. */
 export const SETTING_KEY = {
   DEFAULT_MODEL: "default_model",

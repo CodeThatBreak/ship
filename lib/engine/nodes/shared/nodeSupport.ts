@@ -4,7 +4,8 @@ import { db } from "../../../db/app";
 import { CommentRow, NodeRow, rows, type NodeStatus } from "../../../db/rows";
 import { ConflictError } from "../../../errors";
 import { NODE_STATUS } from "../../constants/nodeStatus";
-import { ARTIFACT_STATUS, COMMENT_STATUS, EVENT_KIND, RUN_AGENT_REF, RUN_STATUS } from "../../constants/vocabulary";
+import { ARTIFACT_STATUS, COMMENT_STATUS, EVENT_KIND, RESOLVED_BY_AGENT, RUN_AGENT_REF, RUN_STATUS } from "../../constants/vocabulary";
+import type { HostNote } from "../../ports/gitHost";
 import { RunSupersededError } from "../../errors/runSupersededError";
 import { nodeAttemptRegistry } from "../../runtime/nodeAttemptRegistry";
 
@@ -324,27 +325,84 @@ export class NodeSupport {
 
   // ── comments ────────────────────────────────────────────────────────────────
 
-  /** A flow's open MR comments (validated by the shared row mapper). */
+  /**
+   * A flow's open MR comments (validated by the shared row mapper), in
+   * deterministic order (G12) — the resolve prompt's comment list and the
+   * contract's decision coverage are built from this ordering.
+   */
   openComments(flowId: string, mrIid?: number | null): CommentRow[] {
     if (mrIid != null) {
       return rows.all(
         CommentRow,
-        `SELECT * FROM comments WHERE flow_id=? AND status IN (?) AND mr_iid=?`,
+        `SELECT * FROM comments WHERE flow_id=? AND status IN (?) AND mr_iid=? ORDER BY created_at ASC, id ASC`,
         flowId,
         COMMENT_STATUS.OPEN,
         mrIid,
       );
     }
-    return rows.all(CommentRow, `SELECT * FROM comments WHERE flow_id=? AND status IN (?)`, flowId, COMMENT_STATUS.OPEN);
+    return rows.all(
+      CommentRow,
+      `SELECT * FROM comments WHERE flow_id=? AND status IN (?) ORDER BY created_at ASC, id ASC`,
+      flowId,
+      COMMENT_STATUS.OPEN,
+    );
   }
 
   /** Record an agent resolution for a comment row. */
   resolveComment(id: string): void {
+    this.resolveComments([id]);
+  }
+
+  /**
+   * Mark several comment rows resolved-by-agent in one statement (G9) —
+   * multi-note threads store one row per note, so every row of a resolved
+   * discussion is closed together behind a single per-discussion host call.
+   * No-op for an empty id list.
+   */
+  resolveComments(ids: readonly string[]): void {
+    if (ids.length === 0) return;
+    const marks = ids.map(() => "?").join(",");
     db.run(
-      `UPDATE comments SET status=?, resolved_by='agent', updated_at=? WHERE id=?`,
+      `UPDATE comments SET status=?, resolved_by=?, updated_at=? WHERE id IN (${marks})`,
       COMMENT_STATUS.RESOLVED,
+      RESOLVED_BY_AGENT,
       db.now(),
-      id,
+      ...ids,
+    );
+  }
+
+  /**
+   * Insert the agent's just-posted thread reply as a local comment row (G10):
+   * `resolved` + `resolved_by='agent'` keeps the `commentStore.ingest` guard
+   * from re-opening it when the poller/webhook later deliver the same note,
+   * and `presentComments` reads the row as the "already replied" marker.
+   * Skips when a poll raced us and already ingested the host-prefixed note id.
+   */
+  recordAgentReply(params: {
+    flowId: string;
+    mrIid: number | null;
+    discussionId: string;
+    body: string;
+    note: HostNote;
+  }): void {
+    const existing = db.get<{ id: string }>(`SELECT id FROM comments WHERE id=?`, params.note.id);
+    if (existing) return;
+    db.run(
+      `INSERT INTO comments (id,flow_id,mr_iid,discussion_id,author,body,file_path,line,status,resolved_by,raw,created_at,updated_at)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+      params.note.id,
+      params.flowId,
+      params.mrIid,
+      params.discussionId,
+      params.note.author,
+      params.body,
+      null,
+      null,
+      COMMENT_STATUS.RESOLVED,
+      RESOLVED_BY_AGENT,
+      null,
+      params.note.createdAt,
+      db.now(),
     );
   }
 

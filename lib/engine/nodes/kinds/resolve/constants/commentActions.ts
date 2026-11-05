@@ -18,5 +18,4 @@ export const RESOLVE_COMMENT_ACTIONS = [
   RESOLVE_COMMENT_ACTION.SKIPPED,
 ] as const;
 
-/** `comments.resolved_by` value the resolve node's own effects stamp (G10). */
-export const RESOLVED_BY_AGENT = "agent";
+export { RESOLVED_BY_AGENT } from "../../../../constants/vocabulary";

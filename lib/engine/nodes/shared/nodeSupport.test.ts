@@ -134,3 +134,111 @@ describe("NodeSupport.claim (Task 17)", () => {
     )).toMatchObject({ status: "approved", attempt_id: null });
   });
 });
+
+describe("NodeSupport — comment queries and agent reply effects", () => {
+  const support = new NodeSupport();
+
+  /** Seed an open comment row with an explicit timestamp (ordering control). */
+  const seedOpenComment = (
+    flowId: string,
+    id: string,
+    overrides: { mrIid?: number; discussionId?: string; createdAt?: string } = {},
+  ) => {
+    db.run(
+      `INSERT INTO comments (id, flow_id, mr_iid, discussion_id, author, body, file_path, line, status, created_at, updated_at)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?)`,
+      id,
+      flowId,
+      overrides.mrIid ?? null,
+      overrides.discussionId ?? `d_${id}`,
+      "reviewer",
+      `comment ${id}`,
+      null,
+      null,
+      "open",
+      overrides.createdAt ?? now(),
+      now(),
+    );
+  };
+
+  it("openComments orders deterministically by created_at then id (G12)", () => {
+    const flowId = "flw_comments_order";
+    seedPlanNode(flowId);
+    // insertion order shuffled against both sort keys: id ASC is the tie-break,
+    // created_at ASC is primary regardless of insertion order
+    seedOpenComment(flowId, "gl_2", { createdAt: "2026-11-04T10:00:00.000Z" });
+    seedOpenComment(flowId, "gl_1", { createdAt: "2026-11-04T10:00:00.000Z" });
+    seedOpenComment(flowId, "gl_4", { createdAt: "2026-11-03T09:00:00.000Z" });
+    seedOpenComment(flowId, "gl_3", { createdAt: "2026-11-05T08:00:00.000Z" });
+
+    expect(support.openComments(flowId).map((c) => c.id)).toEqual(["gl_4", "gl_1", "gl_2", "gl_3"]);
+    expect(support.openComments(flowId, 42).map((c) => c.id)).toEqual([]);
+  });
+
+  it("resolveComments marks every given row resolved-by-agent and no-ops on empty", () => {
+    const flowId = "flw_comments_resolve";
+    seedPlanNode(flowId);
+    seedOpenComment(flowId, "gl_10", { mrIid: 7 });
+    seedOpenComment(flowId, "gl_11", { mrIid: 7 });
+    seedOpenComment(flowId, "gl_12", { mrIid: 7 });
+
+    support.resolveComments([]);
+
+    support.resolveComments(["gl_10", "gl_11"]);
+    expect(
+      db.all<{ id: string; status: string; resolved_by: string }>(
+        `SELECT id, status, resolved_by FROM comments WHERE flow_id=? ORDER BY id`,
+        flowId,
+      ),
+    ).toEqual([
+      { id: "gl_10", status: "resolved", resolved_by: "agent" },
+      { id: "gl_11", status: "resolved", resolved_by: "agent" },
+      { id: "gl_12", status: "open", resolved_by: null },
+    ]);
+    // the single-row method delegates to the same batch path
+    support.resolveComment("gl_12");
+    expect(db.get<{ status: string; resolved_by: string }>(
+      `SELECT status, resolved_by FROM comments WHERE id=?`,
+      "gl_12",
+    )).toEqual({ status: "resolved", resolved_by: "agent" });
+  });
+
+  it("recordAgentReply inserts the posted note closed-by-agent and skips raced ingests (G10)", () => {
+    const flowId = "flw_agent_reply";
+    seedPlanNode(flowId);
+
+    support.recordAgentReply({
+      flowId,
+      mrIid: 42,
+      discussionId: "d_note_thread",
+      body: "Fixed by renaming the variable.",
+      note: { id: "gl_777", author: "ai-bot", createdAt: "2026-11-05T12:00:00.000Z" },
+    });
+    const row = db.get<{ id: string; status: string; resolved_by: string; author: string; body: string; discussion_id: string; created_at: string }>(
+      `SELECT id, status, resolved_by, author, body, discussion_id, created_at FROM comments WHERE id='gl_777'`,
+    );
+    expect(row).toEqual({
+      id: "gl_777",
+      status: "resolved",
+      resolved_by: "agent",
+      author: "ai-bot",
+      body: "Fixed by renaming the variable.",
+      discussion_id: "d_note_thread",
+      created_at: "2026-11-05T12:00:00.000Z",
+    });
+
+    // the poller raced: the same note already arrived via ingest
+    db.run(`INSERT INTO comments (id, flow_id, mr_iid, discussion_id, author, body, status, created_at, updated_at)
+            VALUES ('gl_778', ?, 42, 'd_2', 'ai-bot', 'poller beat us', 'open', ?, ?)`, flowId, now(), now());
+    support.recordAgentReply({
+      flowId,
+      mrIid: 42,
+      discussionId: "d_2",
+      body: "poller copy",
+      note: { id: "gl_778", author: "ai-bot", createdAt: now() },
+    });
+    expect(db.get<{ status: string; body: string }>(
+      `SELECT status, body FROM comments WHERE id='gl_778'`,
+    )).toEqual({ status: "open", body: "poller beat us" });
+  });
+});
