@@ -26,9 +26,13 @@ export interface LocalBranchState {
   commitsAhead: number;
   /** commits on the base ref that the branch hasn't picked up yet (0 when current) */
   commitsBehind: number;
+  /** commits on the branch that origin/<branch> does not have yet; a missing
+   *  origin/<branch> counts every branch commit as unpushed */
+  unpushedAhead: number;
   base: string;
   stat: string;
   raw: string;
+  /** origin/<branch> exists at all — not that it is current (see unpushedAhead) */
   pushed: boolean;
 }
 
@@ -250,7 +254,16 @@ export class LocalGit {
     baseBranch = "main"
   ): Promise<LocalBranchState> {
     await assertValidBranchName(branch);
-    const none: LocalBranchState = { exists: false, commitsAhead: 0, commitsBehind: 0, base: baseBranch, stat: "", raw: "", pushed: false };
+    const none: LocalBranchState = {
+      exists: false,
+      commitsAhead: 0,
+      commitsBehind: 0,
+      unpushedAhead: 0,
+      base: baseBranch,
+      stat: "",
+      raw: "",
+      pushed: false,
+    };
     const base = ["-C", localPath];
     try {
       await this.git([...base, "rev-parse", "--verify", "--quiet", branch]);
@@ -275,7 +288,14 @@ export class LocalGit {
     const pushed = await this.git([...base, "rev-parse", "--verify", "--quiet", `origin/${branch}`])
       .then(() => true)
       .catch(() => false);
-    return { exists: true, commitsAhead, commitsBehind, base: baseRef, stat, raw, pushed };
+    // How far the local branch is ahead of origin/<branch> — the push-state
+    // signal ("local_only") for callers. `pushed` only says origin/<branch>
+    // exists, so a stale (or missing) remote ref needs this count.
+    const unpushedAhead = pushed
+      ? await this.git([...base, "rev-list", "--count", `origin/${branch}..${branch}`])
+          .then(({ stdout }) => parseInt(stdout.trim(), 10) || 0)
+      : commitsAhead;
+    return { exists: true, commitsAhead, commitsBehind, unpushedAhead, base: baseRef, stat, raw, pushed };
   }
 
   // ── worktrees ────────────────────────────────────────────────────────────
