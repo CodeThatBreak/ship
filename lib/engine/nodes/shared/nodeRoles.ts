@@ -42,6 +42,21 @@ export interface NodePromptPreview {
   assembly: PromptAssembly;
 }
 
+export interface ChatTurnOpts {
+  /** per-run model override (the chat panel's pick) */
+  model?: string;
+  /** branch-scoped thread ref (plan node only) */
+  thread?: string | null;
+  /**
+   * The node's status BEFORE the engine's claim: `sendChat` claims the node
+   * (running + a fresh attempt token) before dispatching the turn, so the
+   * turn cannot read its own pre-claim state off the live row. The plan turn
+   * records it (`PlanInput.previousStatus`) and reverts to it on every
+   * no-apply path (guard refusal, contract failure, reply-only).
+   */
+  previousStatus?: string | null;
+}
+
 /**
  * A def that can regenerate its output from a chat message (§T4 ChatRefiner).
  *
@@ -55,7 +70,7 @@ export interface NodePromptPreview {
  */
 export interface ChatRefiner {
   chat(ctx: FlowCtx, content: string, model?: string): Promise<string>;
-  turn(ctx: FlowCtx, content: string, opts?: { model?: string; thread?: string | null }): Promise<string>;
+  turn(ctx: FlowCtx, content: string, opts?: ChatTurnOpts): Promise<string>;
 }
 
 /** A def that answers conversational follow-ups without changing node state. */

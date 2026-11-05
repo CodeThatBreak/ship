@@ -12,6 +12,7 @@ const baseRepo: Repo = {
   cloud_url: "https://gitlab.com/g/api",
   local_path: "/Users/Shared/api",
   default_branch: "main",
+  use_worktrees: 1,
   install_command: null,
   skip_install: 0,
   sync_paths: null,
@@ -63,5 +64,10 @@ describe("touchedPolicyFromRepo", () => {
     expect(touched.has("install_command")).toBe(true);
     expect(touched.has("sync_paths")).toBe(true);
     expect(touched.has("shared_dirs")).toBe(false);
+  });
+
+  it("marks the worktree opt-out as touched only when disabled", () => {
+    expect(touchedPolicyFromRepo({ ...baseRepo, use_worktrees: 1 }).has("use_worktrees")).toBe(false);
+    expect(touchedPolicyFromRepo({ ...baseRepo, use_worktrees: 0 }).has("use_worktrees")).toBe(true);
   });
 });

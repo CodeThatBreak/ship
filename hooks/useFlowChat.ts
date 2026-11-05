@@ -106,6 +106,13 @@ export function useSendChatMessage(flowId: string, nodeKey: string, options: Cha
       void queryClient.invalidateQueries({
         queryKey: queryKeys.flows.chat(flowId),
       });
+      // the send flips flow state synchronously (claim → running + current_node)
+      // before the POST resolves — invalidate the snapshot too, so the status-
+      // driven UIs ("Agent is cooking up the plan...", the feed's busy/pending
+      // row) move without waiting for the events poll to catch the run event
+      void queryClient.invalidateQueries({
+        queryKey: queryKeys.flows.detail(flowId),
+      });
     },
   });
 }

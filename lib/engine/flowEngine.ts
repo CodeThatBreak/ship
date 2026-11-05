@@ -1207,11 +1207,11 @@ export class FlowEngine {
     db.addMessage(flowId, nodeKey, 'user', content, thread ?? null);
     // the pre-claim status decides "did THIS turn land a success terminal":
     // the claim flips the node to running, so it must be read first
-    const priorStatus = this.nodeStatus(flowId, nodeKey);
-    if (priorStatus === "waiting") {
+    const preClaimStatus = this.nodeStatus(flowId, nodeKey);
+    if (preClaimStatus === "waiting") {
       this.waits.clearTimerForNode(flowId, nodeKey);
     }
-    const wasSuccess = isNodeTerminalSuccess(priorStatus);
+    const wasSuccess = isNodeTerminalSuccess(preClaimStatus);
     this.claimNode(flowId, nodeKey, [
       "pending",
       "awaiting_approval",
@@ -1233,6 +1233,9 @@ export class FlowEngine {
           : await chatRefiner.turn(flowCtx, content, {
               model,
               thread,
+              // the claim already flipped the row to `running` — the turn
+              // needs the pre-claim status for its no-apply reverts
+              previousStatus: preClaimStatus,
             });
 
         db.addMessage(flowId, nodeKey, 'assistant', chatResponse || 'Done.', thread);

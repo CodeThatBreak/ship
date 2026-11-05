@@ -5,6 +5,7 @@ import { agentRunner, type AgentRunner, type AgentStartInput } from "../../harne
 import { flowCtxHelper, type FlowContextHelper, type FlowCtx } from "./runContext";
 import { nodeSupport, type NodeSupport } from "./nodeSupport";
 import { NodeDefinition, type RunOutcome } from "./nodeDefinition";
+import type { ChatTurnOpts } from "./nodeRoles";
 import type { NodeRunStatus } from "../../../../constants/flow";
 import { FLOW_STATUS } from "../../../../constants/flow";
 import type { NodeRow } from "../../../db/rows";
@@ -69,7 +70,7 @@ export abstract class AgentRunNode<
   async turn(
     ctx: FlowCtx,
     content: string,
-    opts?: { model?: string; thread?: string | null },
+    opts?: ChatTurnOpts,
   ): Promise<string> {
     return this.chat(ctx, content, opts?.model);
   }

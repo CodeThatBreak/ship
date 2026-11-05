@@ -41,6 +41,7 @@ export class RepoService {
       cloud_url: input.cloud_url,
       local_path: localPath,
       default_branch: input.default_branch ?? "main",
+      use_worktrees: input.use_worktrees ?? true,
       install_command: input.install_command ?? null,
       skip_install: Boolean(input.skip_install),
       sync_paths: input.sync_paths ?? null,
@@ -70,6 +71,8 @@ export class RepoService {
       cloud_url: patch.cloud_url ?? existing.cloud_url,
       local_path: localPath || null,
       default_branch: patch.default_branch ?? existing.default_branch,
+      use_worktrees:
+        patch.use_worktrees !== undefined ? Boolean(patch.use_worktrees) : Boolean(existing.use_worktrees),
       install_command: trimOrKeep(patch.install_command, existing.install_command),
       skip_install:
         patch.skip_install !== undefined ? Boolean(patch.skip_install) : Boolean(existing.skip_install),

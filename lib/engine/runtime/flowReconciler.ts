@@ -31,8 +31,11 @@ export class Reconciler {
   /**
    * Never fail a node that flipped to `running` very recently — a fresh run that
    * hasn't registered its run row/handle yet would otherwise be failed mid-startup.
+   * The budget covers the silent worst case of a first-checkout worktree ensure
+   * (the deps copy runs up to 120s with no run row; heartbeat stamps from
+   * WorktreeManager slide the grace between those silent windows).
    */
-  private static readonly START_GRACE_MS = 90_000;
+  private static readonly START_GRACE_MS = 180_000;
   /**
    * The pipeline node runs a server-side wait loop with no agent run row while
    * polling, stamping its node row once per ~20s poll cycle. A stamp fresher

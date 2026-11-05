@@ -315,6 +315,7 @@ export const RepoRow = z.object({
   cloud_url: z.string(),
   local_path: z.string().nullable(),
   default_branch: z.string(),
+  use_worktrees: z.number().int(),
   // worktree setup policy (Phase 2)
   install_command: z.string().nullable(),
   skip_install: z.number().int(),

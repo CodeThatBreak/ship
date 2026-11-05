@@ -71,7 +71,7 @@ export const PlanApproveFooter = ({
 
             <DropdownMenuContent align="start" side="top" className="w-64">
               {modes.map(mode => (
-                <DropdownMenuItem key={mode} onSelect={() => onApprove(mode)} className="items-start gap-2">
+                <DropdownMenuItem key={mode} onClick={() => onApprove(mode)} className="items-start gap-2">
                   <Check
                     size={14}
                     aria-hidden="true"

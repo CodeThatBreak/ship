@@ -136,7 +136,7 @@ The route (`app/api/flows/worktree-status/route.ts`) is a thin Node-runtime, `fo
 ## Data model
 
 - `flows.worktree_dir` — canonical path of the flow's bound worktree (NULL = none/cloud).
-- `repos` worktree-policy columns — `local_path`, `default_branch`, `install_command`, `skip_install`, `sync_paths`, `shared_dirs`, `setup_command`, `worktree_timeout_ms`.
+- `repos` worktree-policy columns — `local_path`, `default_branch`, `use_worktrees` (0 = local-mode runs work directly in the checkout, no per-flow worktree), `install_command`, `skip_install`, `sync_paths`, `shared_dirs`, `setup_command`, `worktree_timeout_ms`.
 - `worktree_removals` — crash-safe removal records, written before git removal and deleted on success; survivors resume at the startup sweep (see [`database.md`](./database.md)).
 
 ## Out of scope

@@ -4,6 +4,7 @@ export type RepoFormState = {
   cloud_url: string;
   local_path: string;
   default_branch: string;
+  use_worktrees: boolean;
   install_command: string;
   skip_install: boolean;
   sync_paths: string;

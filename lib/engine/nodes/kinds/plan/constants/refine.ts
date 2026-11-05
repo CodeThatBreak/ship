@@ -31,10 +31,10 @@ export interface RefinedFrom {
 
 /**
  * Node states a conversational plan apply may mutate (§3b): `awaiting_approval`
- * is the normal case, `pending` covers pre-claim snapshots in tests/recovery,
- * `running` is the normal post-`sendChat` claim state when the agent turn
- * finishes and `applyTurnResult` runs, and `failed` is the rescue path. Every
- * other non-empty status refuses (`approved`, `done`, …).
+ * is the normal case, `pending` covers first-apply and pre-claim snapshots,
+ * `failed` is the rescue path, and `running` is allowed only for the turn's
+ * own claim. Other statuses refuse unless attempt ownership matches
+ * (PlanOutputContract §3b guard — docs/coding-patterns.md §3.6).
  */
 export const PLAN_APPLY_ALLOWED: ReadonlySet<string> = new Set([
   FLOW_STATUS.PENDING,

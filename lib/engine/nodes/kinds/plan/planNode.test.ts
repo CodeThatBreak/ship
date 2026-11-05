@@ -455,6 +455,8 @@ describe('PlanNode — chat via the follow-up contract (docs/plan-conversation-r
   const chatNode = (opts: {
     responses: string[]; // one per expected agent turn
     status?: string;
+    /** When set, the live row mirrors sendChat's claim: `running` + attempt token. */
+    claimed?: string | null;
     agentId?: string | null;
     /** the latest plan artifact the store sees (defaults to a version-2 plan) */
     prevRow?: { id: string; version: number; content: string; meta: string | null } | null;
@@ -469,17 +471,24 @@ describe('PlanNode — chat via the follow-up contract (docs/plan-conversation-r
       events: [] as string[],
     };
     const support = {
+      // the live row: when `claimed` is set it reflects the sendChat claim
+      // the engine performs before dispatching the turn (running + attempt)
       nodeByKey: (flowId: string, key: string) =>
         ({
           id: 'node-1',
           flow_id: flowId,
           node_key: key,
-          status: opts.status ?? 'awaiting_approval',
+          status: opts.claimed != null ? 'running' : opts.status ?? 'awaiting_approval',
+          attempt_id: opts.claimed ?? null,
           agent_id: null,
           config: '{}',
         }) as unknown as NodeRow,
       lastAgentId: () => opts.agentId ?? null,
       setNode: (_id: string, patch: Record<string, unknown>) => {
+        observ.nodePatches.push(patch);
+      },
+      // the live row is honest in this harness: a fenced patch always applies
+      patchIfAttempt: (_id: string, _attemptId: string, patch: Record<string, unknown>) => {
         observ.nodePatches.push(patch);
       },
       // REAL artifact persist (the isolated DB has task/flow/node rows seeded
@@ -647,6 +656,45 @@ describe('PlanNode — chat via the follow-up contract (docs/plan-conversation-r
     expect(reply).toContain("can't update the plan while it is done");
     expect(observ.savedMetas).toHaveLength(0);
     expect(observ.events).toContain('plan update ignored — node done');
+  });
+
+  it('the turn\'s OWN sendChat claim does not refuse the apply — the guard fences on the attempt (regression)', async () => {
+    // the production timeline: sendChat claims (running + attempt) BEFORE the
+    // turn dispatches, and the engine hands over the pre-claim status
+    const { node, observ } = chatNode({
+      responses: [JSON.stringify({ reply: 'Moved step 2 below step 1.', plan: validPlanPayload })],
+      claimed: 'att_chat',
+    });
+    const reply = await node.turn(ctx, 'move step 2 below step 1', {
+      model: 'm',
+      thread: null,
+      previousStatus: 'awaiting_approval',
+    });
+    expect(reply).toBe('Moved step 2 below step 1.');
+    expect(observ.events).not.toContain('plan update ignored — node running');
+    // the refine landed + the node came back off the claimed running state
+    expect(observ.savedMetas).toHaveLength(1);
+    expect(observ.nodePatches.some(p => p.status === 'awaiting_approval')).toBe(true);
+    expect(observ.nodePatches.some(p => p.status === 'running')).toBe(false);
+  });
+
+  it('a reply-only turn on a claimed node restores the PRE-claim status — no stuck running', async () => {
+    const { node, observ } = chatNode({
+      responses: [JSON.stringify({ reply: 'Answered: step 2 is blocked.' })],
+      claimed: 'att_chat',
+    });
+    const reply = await node.turn(ctx, 'why is step 2 blocked?', {
+      model: 'm',
+      thread: null,
+      previousStatus: 'awaiting_approval',
+    });
+    expect(reply).toBe('Answered: step 2 is blocked.');
+    expect(observ.savedMetas).toHaveLength(0);
+    // the revert wrote the pre-claim status back (the old bug wrote `running` here)
+    expect(observ.nodePatches).toContainEqual(
+      expect.objectContaining({ status: 'awaiting_approval' }),
+    );
+    expect(observ.nodePatches.some(p => p.status === 'running')).toBe(false);
   });
 
   it('guard refusal per §3b: an approved plan refuses mid-build the same way', async () => {

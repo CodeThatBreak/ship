@@ -10,6 +10,7 @@ import { RunSupersededError } from '../../../errors/runSupersededError';
 import type { NodeSupport } from '../../shared/nodeSupport';
 import type { NodeRow } from '../../../../db/rows';
 import { extractJson } from '../agent/jsonSchemaLite';
+import { FLOW_STATUS } from '../../../../../constants/flow';
 import { BranchRefinement } from './branchRefinement';
 import { planBodyDiverged } from './planPrompt';
 import { RETRYABLE_OUTPUT_ERRORS } from './constants/retryableErrors';
@@ -179,7 +180,19 @@ export class PlanOutputContract {
     if (hasPlan) {
       const nodeNow = this.support.nodeByKey(ctx.flow.id, node.node_key);
       const status = nodeNow.status ?? '';
-      if (!PLAN_APPLY_ALLOWED.has(status)) {
+      // §3b apply guard, fenced on OWNERSHIP (docs/coding-patterns.md §3.6,
+      // not the raw status string): `sendChat` claims the node (running + a
+      // fresh attempt token) before this turn dispatches, so the live row
+      // legitimately reads `running` for the turn's OWN claim — the normal
+      // path. Refuse only when the claim moved on (a different or cleared
+      // attempt owns the node now — cancelled/retried mid-turn) or the node
+      // sits in a non-allowed status (approved, done, …) — the conservative
+      // default, never a silent mid-run mutation.
+      const ownsClaim =
+        status === FLOW_STATUS.RUNNING &&
+        node.attempt_id != null &&
+        nodeNow.attempt_id === node.attempt_id;
+      if (!ownsClaim && !PLAN_APPLY_ALLOWED.has(status)) {
         this.support.emitLifecycle(ctx.flow.id, nodeNow.id, planUpdateIgnoredEvent(status));
         throw new PlanApplyRefusedError(planRefusedReply(reply, planRefusalReason(status)));
       }

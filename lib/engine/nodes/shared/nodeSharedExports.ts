@@ -18,6 +18,7 @@ export {
   PROMPT_SOURCES,
   PROMPT_SOURCE,
   type ChatRefiner,
+  type ChatTurnOpts,
   type Converser,
   type NodePromptPreview,
   type PromptPreviewParams,

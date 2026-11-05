@@ -89,6 +89,23 @@ export const RepoForm = ({
         </p>
 
         <div className="grid gap-3.5 mt-3">
+          <Field orientation="horizontal">
+            <FieldContent>
+              <FieldLabel htmlFor="repo-use-worktrees">Use worktrees</FieldLabel>
+              <FieldDescription>
+                Run each local-mode flow in its own worktree (parallel-safe).
+                Off — runs happen directly in the local path above; fine when
+                you work one flow at a time.
+              </FieldDescription>
+            </FieldContent>
+            <Switch
+              id="repo-use-worktrees"
+              size="sm"
+              checked={form.use_worktrees}
+              onCheckedChange={(checked) => setField("use_worktrees", Boolean(checked))}
+            />
+          </Field>
+
           <Field>
             <FieldLabel htmlFor="repo-install-command">Install command</FieldLabel>
             <FieldDescription>

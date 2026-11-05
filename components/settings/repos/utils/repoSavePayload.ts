@@ -3,6 +3,7 @@ import type { RepoFormState } from "../types";
 
 /** Policy fields persisted only when the user explicitly edits them. */
 export const REPO_POLICY_FIELDS = [
+  "use_worktrees",
   "install_command",
   "skip_install",
   "sync_paths",
@@ -27,6 +28,7 @@ export const touchedPolicyFromRepo = (repo: Repo): Set<RepoPolicyField> => {
   if (repo.shared_dirs != null) touched.add("shared_dirs");
   if (repo.setup_command != null) touched.add("setup_command");
   if (repo.skip_install) touched.add("skip_install");
+  if (!repo.use_worktrees) touched.add("use_worktrees");
   if (repo.worktree_timeout_ms) touched.add("worktree_timeout_s");
   return touched;
 };
@@ -68,6 +70,9 @@ export const buildRepoSavePayload = (
         break;
       case "skip_install":
         payload.skip_install = state.skip_install;
+        break;
+      case "use_worktrees":
+        payload.use_worktrees = state.use_worktrees;
         break;
       case "worktree_timeout_s":
         payload.worktree_timeout_s = state.worktree_timeout_s;

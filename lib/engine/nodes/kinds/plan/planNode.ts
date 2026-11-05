@@ -7,6 +7,7 @@ import { prompts } from '../../../prompts/promptLibrary';
 import {
   AgentRunNode,
   nodeRoles,
+  type ChatTurnOpts,
   type FlowCtx,
   type NodePromptPreview,
   type PromptPreviewParams,
@@ -152,7 +153,7 @@ export class PlanNode extends AgentRunNode<PlanInput, PlanOutput> {
   override async turn(
     ctx: FlowCtx,
     content: string,
-    opts?: { model?: string; thread?: string | null }
+    opts?: ChatTurnOpts
   ): Promise<string> {
     const branch = PlanSplitter.getPlanThread(opts?.thread);
     const config = this.parseRunConfig(this.nodeConfig(ctx));
@@ -169,6 +170,7 @@ export class PlanNode extends AgentRunNode<PlanInput, PlanOutput> {
       }
       return this.runPlanTurn(ctx, content, {
         ...base,
+        previousStatus: opts?.previousStatus ?? null,
         turnKind: PlanTurnKind.Branch,
         label: `plan branch chat (${branch})`,
         scoped,
@@ -185,6 +187,7 @@ export class PlanNode extends AgentRunNode<PlanInput, PlanOutput> {
 
       return this.runPlanTurn(ctx, content, {
         ...base,
+        previousStatus: opts?.previousStatus ?? null,
         turnKind: PlanTurnKind.PrePublish,
         label: PLAN_CHAT_LABEL,
         prompt: this.prompt.whole(ctx, node, bootstrapInput),
@@ -193,6 +196,7 @@ export class PlanNode extends AgentRunNode<PlanInput, PlanOutput> {
 
     return this.runPlanTurn(ctx, content, {
       ...base,
+      previousStatus: opts?.previousStatus ?? null,
       turnKind: PlanTurnKind.Whole,
       label: PLAN_CHAT_LABEL,
       prompt: this.prompt.refineTurn(ctx, content),
@@ -210,14 +214,19 @@ export class PlanNode extends AgentRunNode<PlanInput, PlanOutput> {
       branch: string | null;
       scoped: ReturnType<PlanStore['scopedRefine']>;
       prompt: string;
+      previousStatus: string | null;
     }
   ): Promise<string> {
     const node = this.node(ctx);
+    // Engine `sendChat` passes pre-claim status (§T4 ChatTurnOpts). Otherwise
+    // derive from the live row / recorded input (tests, retry replay).
     const priorInput = PlanInput.safeParse(node.input ?? {});
-    const previousStatus = resolvePlanTurnPreviousStatus(
-      node.status ?? 'pending',
-      priorInput.success ? priorInput.data : null,
-    );
+    const previousStatus =
+      opts.previousStatus ??
+      resolvePlanTurnPreviousStatus(
+        node.status ?? "pending",
+        priorInput.success ? priorInput.data : null,
+      );
     const attemptId = node.attempt_id;
     // Todo: Revisit this, there should be only one source of truth for main agent id
     const mainAgentId = opts.branch ? (node.agent_id ?? this.support.lastAgentId(node.id)) : null;

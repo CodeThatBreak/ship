@@ -34,6 +34,7 @@ export class RepoStore {
     cloud_url: string;
     local_path?: string | null;
     default_branch?: string;
+    use_worktrees?: boolean;
     install_command?: string | null;
     skip_install?: boolean;
     sync_paths?: string | null;
@@ -45,12 +46,13 @@ export class RepoStore {
     const cloudUrl = this.normalizeRepoUrl(input.cloud_url);
     if (input.id) {
       const changes = this.db.run(
-        `UPDATE repos SET name=?, cloud_url=?, local_path=?, default_branch=?,
+        `UPDATE repos SET name=?, cloud_url=?, local_path=?, default_branch=?, use_worktrees=?,
          install_command=?, skip_install=?, sync_paths=?, shared_dirs=?, setup_command=?, worktree_timeout_ms=?, updated_at=? WHERE id=?`,
         input.name,
         cloudUrl,
         input.local_path ?? null,
         input.default_branch ?? "main",
+        input.use_worktrees ? 1 : 0,
         input.install_command ?? null,
         input.skip_install ? 1 : 0,
         input.sync_paths ?? null,
@@ -67,13 +69,14 @@ export class RepoStore {
     }
     const id = this.db.uid("repo_");
     this.db.run(
-      `INSERT INTO repos (id,name,cloud_url,local_path,default_branch,install_command,skip_install,sync_paths,shared_dirs,setup_command,worktree_timeout_ms,created_at,updated_at)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+      `INSERT INTO repos (id,name,cloud_url,local_path,default_branch,use_worktrees,install_command,skip_install,sync_paths,shared_dirs,setup_command,worktree_timeout_ms,created_at,updated_at)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
       id,
       input.name,
       cloudUrl,
       input.local_path ?? null,
       input.default_branch ?? "main",
+      input.use_worktrees ? 1 : 0,
       input.install_command ?? null,
       input.skip_install ? 1 : 0,
       input.sync_paths ?? null,

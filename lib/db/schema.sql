@@ -196,6 +196,7 @@ CREATE TABLE IF NOT EXISTS repos (
   cloud_url     TEXT UNIQUE NOT NULL,      -- e.g. https://gitlab.company.com/group/repo
   local_path    TEXT,                      -- local checkout used for local agent runs + diffs
   default_branch TEXT NOT NULL DEFAULT 'main',
+  use_worktrees INTEGER NOT NULL DEFAULT 1, -- 0 = local-mode runs work directly in the checkout above (no per-flow worktree)
   -- worktree setup policy (Phase 2): per-repo overrides for the pure dep-policy
   -- table (lib/git/dep-policy.ts). Odd repos are configured, never special-cased.
   install_command TEXT,                    -- wins over the auto-detected policy (run in worktree root)
