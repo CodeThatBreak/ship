@@ -145,6 +145,10 @@ const stubSupport = (j: Journal, node: NodeRow, opts: { openComments?: unknown[]
     nodeStatus: () => "running",
     branchMrIid: () => null,
     openComments: () => opts.openComments ?? [],
+    // resolve effect application + prompt markers
+    agentReplies: () => [],
+    resolveComments: () => {},
+    recordAgentReply: () => {},
   }) as unknown as NodeSupport;
 
 /** The run input blobs execute()/markRunning recorded, parsed. */
@@ -262,11 +266,23 @@ describe("ResolveNode chat", () => {
     line: 2,
   });
 
-  // resolve's before/after state capture goes through the gitHostRegistry
-  // singleton — point it at a stub host for the test repo
+  /** The contract-shaped stub response the resolve step now requires (§3). */
+  const contractResponse = () =>
+    JSON.stringify({
+      summary: "rename done",
+      codeChanged: false,
+      decisions: [{ id: "c1", action: "answered", reply: "renamed in the last commit", resolve: false }],
+    });
+
+  // resolve's state capture and effect application go through the injected
+  // gitHostResolver — point its registry default at a stub host for the test repo
   beforeEach(() => {
     vi.spyOn(gitHostRegistry, "forRepo").mockReturnValue(
-      { getChangeRequest: async () => ({ sha: "sha_before" }) } as never,
+      {
+        getChangeRequest: async () => ({ sha: "sha_before" }),
+        replyToComment: async () => ({ id: "gl_note_1", author: "devflow-bot", createdAt: new Date().toISOString() }),
+        resolveComment: async () => {},
+      } as never,
     );
   });
   afterEach(() => {
@@ -277,7 +293,7 @@ describe("ResolveNode chat", () => {
     const j = newJournal();
     const def = new ResolveNode(
       stubSupport(j, node, { openComments: [openComment()] }),
-      stubRunner(j, ["rename done"]),
+      stubRunner(j, [contractResponse()]),
       ctxHelper,
     );
     return { def, j };

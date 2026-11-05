@@ -3,7 +3,7 @@ import "server-only";
 /**
  * Applies the resolve contract's decisions against the MR and the local
  * comment rows — the effect-apply half of the contract (`ResolveOutputContract`
- * is the parse half). Replaces the blanket `shouldResolveCommentsOnHost` gate
+ * is the parse half). Replaces the blanket "resolve on any code change" gate
  * (G2) with the per-comment decision matrix (§3) plus the G8/G9/G10 fixes:
  * non-resolvable threads never host-call, one host resolve per discussion
  * marks every row of the thread, and posted replies are recorded locally so

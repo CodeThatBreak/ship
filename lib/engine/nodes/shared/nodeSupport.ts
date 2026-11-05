@@ -372,6 +372,30 @@ export class NodeSupport {
   }
 
   /**
+   * The MR's agent-authored comment rows (`resolved_by='agent'`) — the resolve
+   * prompt's "already replied — awaiting reviewer" markers (G11): an open row
+   * in the same discussion means the agent answered it last cycle and the
+   * reviewer hasn't responded yet. Deterministic order for the prompt.
+   */
+  agentReplies(flowId: string, mrIid?: number | null): CommentRow[] {
+    if (mrIid != null) {
+      return rows.all(
+        CommentRow,
+        `SELECT * FROM comments WHERE flow_id=? AND mr_iid=? AND resolved_by=? ORDER BY created_at ASC, id ASC`,
+        flowId,
+        mrIid,
+        RESOLVED_BY_AGENT,
+      );
+    }
+    return rows.all(
+      CommentRow,
+      `SELECT * FROM comments WHERE flow_id=? AND resolved_by=? ORDER BY created_at ASC, id ASC`,
+      flowId,
+      RESOLVED_BY_AGENT,
+    );
+  }
+
+  /**
    * Insert the agent's just-posted thread reply as a local comment row (G10):
    * `resolved` + `resolved_by='agent'` keeps the `commentStore.ingest` guard
    * from re-opening it when the poller/webhook later deliver the same note,
