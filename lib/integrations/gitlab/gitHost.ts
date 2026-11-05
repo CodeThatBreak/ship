@@ -18,9 +18,10 @@ import type {
   HostWebhookEvent,
   InlineCommentInput,
   InlineCommentPositionContext,
+  HostNote,
   Pipeline,
 } from "../../engine/ports/gitHost";
-import { GitLabClient, type GitLabService, type Discussion, type MergeRequest, type Pipeline as GitLabPipeline } from "./client";
+import { GitLabClient, type GitLabService, type Discussion, type MergeRequest, type Note, type Pipeline as GitLabPipeline } from "./client";
 import { buildDiscussionPosition } from "./diffCommentPosition";
 
 import { gitLabOAuthBasicHeaderEnv } from "../../git/gitAuthEnv";
@@ -99,6 +100,15 @@ function mapDiscussion(d: Discussion): HostComment[] {
     line: n.position?.new_line ?? null,
     createdAt: n.created_at,
   }));
+}
+
+/** Same id scheme as `mapDiscussion` so a posted reply dedupes against ingestion. */
+function mapNote(n: Note): HostNote {
+  return {
+    id: `gl_${n.id}`,
+    author: n.author?.username ?? n.author?.name ?? "",
+    createdAt: n.created_at,
+  };
 }
 
 function mapJobs(jobs: { id: number; name: string; status: string; when?: string }[]): HostJob[] {
@@ -215,6 +225,10 @@ class GitLabHostClient implements GitHostClient {
 
   resolveComment(crNumber: number, threadId: string, resolved = true): Promise<unknown> {
     return this.raw.resolveDiscussion(this.projectPath, crNumber, threadId, resolved);
+  }
+
+  replyToComment(crNumber: number, threadId: string, body: string): Promise<HostNote> {
+    return this.raw.createMRDiscussionNote(this.projectPath, crNumber, threadId, body).then(mapNote);
   }
 
   getProject(): Promise<HostProject> {
@@ -468,6 +482,10 @@ export class GitLabHostService implements GitHostService {
 
   resolveComment(repoUrl: string, crNumber: number, threadId: string, resolved?: boolean): Promise<unknown> {
     return this.clientForRepo(repoUrl).resolveComment(crNumber, threadId, resolved ?? true);
+  }
+
+  replyToComment(repoUrl: string, crNumber: number, threadId: string, body: string): Promise<HostNote> {
+    return this.clientForRepo(repoUrl).replyToComment(crNumber, threadId, body);
   }
 
   getProject(repoUrl: string): Promise<HostProject> {

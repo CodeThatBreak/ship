@@ -89,6 +89,29 @@ describe("GitLabClient", () => {
     });
   });
 
+  it("posts a reply note into an existing discussion thread", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      jsonResponse({
+        id: 77,
+        body: "**AI Resolve**\n\nfixed",
+        author: { username: "ai", name: "AI Agent" },
+        created_at: "2026-11-04T00:00:00.000Z",
+      }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const client = new GitLabClient(instance);
+    const note = await client.createMRDiscussionNote("group%2Frepo", 5, "disc_1", "**AI Resolve**\n\nfixed");
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(url).toContain("/merge_requests/5/discussions/disc_1/notes");
+    expect(init.method).toBe("POST");
+    expect(JSON.parse(String(init.body))).toMatchObject({ body: "**AI Resolve**\n\nfixed" });
+    expect(note.id).toBe(77);
+    expect(note.created_at).toBe("2026-11-04T00:00:00.000Z");
+  });
+
   it("loads MR diffs from the /diffs endpoint", async () => {
     vi.stubGlobal(
       "fetch",

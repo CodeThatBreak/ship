@@ -126,6 +126,7 @@ const fixtureHost: GitHostService = {
   createComment: async () => ({}),
   createInlineComment: async () => ({}),
   resolveComment: async () => ({}),
+  replyToComment: async () => ({ id: 'gl_fixture', author: 'fixture', createdAt: new Date().toISOString() }),
   getProject: async () => ({ id: 42, name: 'fixture', pathWithNamespace: 'fixture/repo', defaultBranch: 'main' }),
 };
 

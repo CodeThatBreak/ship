@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { ValidationError } from "../../errors";
-import type { GitLabService } from "./client";
+import type { GitLabClient, GitLabService } from "./client";
 import { GitLabHostService } from "./gitHost";
 
 describe("GitLabHostService", () => {
@@ -96,6 +96,26 @@ describe("GitLabHostService", () => {
       expect(event.crNumber).toBe(7);
       expect(event.comment.body).toBe("please fix");
     }
+  });
+
+  it("replyToComment posts to the thread and normalizes the note to the gl_ id scheme", async () => {
+    vi.mocked(gitlab.clientFor).mockReturnValue({
+      createMRDiscussionNote: vi.fn().mockResolvedValue({
+        id: 123,
+        body: "**AI Resolve**\n\nfixed",
+        author: { username: "ai", name: "AI Agent" },
+        created_at: "2026-11-04T00:00:00.000Z",
+      }),
+    } as unknown as GitLabClient);
+    const repoUrl = "https://gitlab.example.com/group/repo";
+
+    const note = await service.replyToComment(repoUrl, 7, "disc_1", "**AI Resolve**\n\nfixed");
+
+    expect(note).toEqual({
+      id: "gl_123",
+      author: "ai",
+      createdAt: "2026-11-04T00:00:00.000Z",
+    });
   });
 
   describe("verifyWebhook", () => {

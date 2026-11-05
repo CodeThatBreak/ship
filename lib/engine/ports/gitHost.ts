@@ -93,6 +93,14 @@ export interface HostComment {
   createdAt: string;
 }
 
+/** A note the host created on our behalf (a reply posted into a thread). */
+export interface HostNote {
+  /** host-native note id, normalized to the comment id scheme (`gl_<noteId>`) */
+  id: string;
+  author: string;
+  createdAt: string;
+}
+
 /** A CI pipeline job, normalized. */
 export interface HostJob {
   id: number;
@@ -173,6 +181,8 @@ export interface GitHostClient {
     positionContext: InlineCommentPositionContext,
   ): Promise<unknown>;
   resolveComment(crNumber: number, threadId: string, resolved?: boolean): Promise<unknown>;
+  /** Post a note into an existing discussion thread; returns the created note. */
+  replyToComment(crNumber: number, threadId: string, body: string): Promise<HostNote>;
   getProject(): Promise<HostProject>;
 }
 
@@ -243,6 +253,8 @@ export interface GitHostService {
     positionContext: InlineCommentPositionContext,
   ): Promise<unknown>;
   resolveComment(repoUrl: string, crNumber: number, threadId: string, resolved?: boolean): Promise<unknown>;
+  /** Post a note into an existing discussion thread; returns the created note. */
+  replyToComment(repoUrl: string, crNumber: number, threadId: string, body: string): Promise<HostNote>;
   getProject(repoUrl: string): Promise<HostProject>;
 }
 

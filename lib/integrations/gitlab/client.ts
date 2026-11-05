@@ -268,6 +268,19 @@ export class GitLabClient {
     );
   }
 
+  /** Post a note into an existing discussion thread; returns the created note. */
+  async createMRDiscussionNote(
+    projectPath: string,
+    mrIid: number,
+    discussionId: string,
+    body: string,
+  ): Promise<Note> {
+    return this.api<Note>(
+      `/projects/${projectPath}/merge_requests/${mrIid}/discussions/${discussionId}/notes`,
+      { method: "POST", body: JSON.stringify({ body }) },
+    );
+  }
+
   async getProject(projectPath: string) {
     return this.api(`/projects/${projectPath}`);
   }
@@ -412,6 +425,11 @@ export class GitLabService {
 
   resolveDiscussion(repoUrl: string, mrIid: number, discussionId: string, resolved = true) {
     return this.clientFor(repoUrl).resolveDiscussion(this.projectPathFromUrl(repoUrl), mrIid, discussionId, resolved);
+  }
+
+  /** Post a note into an existing discussion thread; returns the created note. */
+  createMRDiscussionNote(repoUrl: string, mrIid: number, discussionId: string, body: string): Promise<Note> {
+    return this.clientFor(repoUrl).createMRDiscussionNote(this.projectPathFromUrl(repoUrl), mrIid, discussionId, body);
   }
 
   getProject(repoUrl: string) {
