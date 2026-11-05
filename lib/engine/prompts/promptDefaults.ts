@@ -1,5 +1,7 @@
 import "server-only";
 
+import { resolveTemplate } from "../nodes/kinds/resolve/promptTemplate";
+
 /**
  * The default prompt templates as an explicit three-part split:
  *
@@ -10,6 +12,11 @@ import "server-only";
  *      read-only in the modal's Output contract section)
  *
  * `data` blocks carry live run data (diffs, logs, comments, context packs).
+ *
+ * Node-owned templates (`resolve` today) live in the node's own folder —
+ * `lib/engine/nodes/kinds/<node>/promptTemplate.ts` (AGENTS §2.3) — and are
+ * registered here instead of defined inline, so each node's prompt stays
+ * next to its code: `promptDefaults` is the registry, not the author.
  *
  * The blocks compose back to the exact strings that were hardcoded in the
  * pre-Phase-2 `nodes.ts` and carried verbatim through earlier phases:
@@ -325,16 +332,5 @@ export const DEFAULT_PROMPT_TEMPLATES: Record<string, PromptTemplate> = {
     variables: ["ticket_key", "ticket_type", "ticket_summary", "ticket_prd", "diff", "instructions"],
     mode: "agent",
   },
-  resolve: {
-    label: "Comment resolution",
-    description:
-      "Sent to the agent to address open MR review comments by committing fixes.",
-    userTemplate: `{{dev_instructions}}`,
-    internalBlocks: [
-      { kind: "rules", text: `{{header}}\n{{subheader}}\n{{instructions}}` },
-      { kind: "data", text: `{{comments}}` },
-    ],
-    variables: ["branch", "comments", "instructions", "mode", "header", "subheader", "dev_instructions"],
-    mode: "agent",
-  },
+  resolve: resolveTemplate,
 };

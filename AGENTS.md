@@ -281,6 +281,7 @@ export class FlowService {
 - **One class per file**, named after the class in camelCase (`flowPoller.ts` exports `FlowPoller`). Pure helpers: camelCase module names (`readCappedBody.ts`).
 - **Errors:** throw typed error classes. Routes catch them and map to HTTP responses.
 - **Thin route handlers:** `app/api/**/route.ts` only parses and validates input, calls a service method, and serializes the response. No business logic.
+- **Node prompt templates live with the node def:** a node's `PromptTemplate` is authored in its own folder (`lib/engine/nodes/kinds/<node>/promptTemplate.ts`) and merely registered into `DEFAULT_PROMPT_TEMPLATES` by `lib/engine/prompts/promptDefaults.ts` — `promptDefaults` is the registry, not the author. Engine-authored behavioral text goes in locked `contract`/`data` blocks, never as a user-style "Rules" list — the editable body may already carry developer rules.
 - Module-level string constants for repeated domain values (see 2.7).
 
 ### 3.3 Runtime and Server Boundaries

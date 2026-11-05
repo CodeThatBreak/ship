@@ -91,9 +91,11 @@ export class ResolveNode extends AgentRunNode<ResolveInput, ResolveOutput> {
 
     const open = this.support.openComments(ctx.flow.id, mrIid);
     if (!open.length && !input.instructions) {
+      // no effects run here — every count is zero (`pushed` stays false: nothing
+      // was verified on the remote MR head)
       return this.applyOutcome(ctx, {
         status: "done",
-        output: this.outputSchema.parse({ resolved: 0 }),
+        output: this.outputSchema.parse({ resolved: 0, replied: 0, wontfix: 0, skipped: 0 }),
         event: "no open comments",
         reply: "No open comments.",
       });
@@ -185,10 +187,18 @@ export class ResolveNode extends AgentRunNode<ResolveInput, ResolveOutput> {
 
         const resolved = countHostResolved(attempts);
         const hostFailures = attempts.filter((a) => !a.ok).length;
+        // the reply/wontfix/skipped counts full in when the §4 decision-matrix
+        // applier replaces this host-only path (§8 rewiring); `pushed` keeps its
+        // false default until `verifyPushState` (§6A) exists — the loop edge
+        // still reads `codeChanged` here
         return {
           status: "done" as const,
           output: this.outputSchema.parse({
             resolved,
+            replied: 0,
+            wontfix: 0,
+            skipped: 0,
+            hostFailures,
             branchName: input.branchName ?? undefined,
             codeChanged,
           }),

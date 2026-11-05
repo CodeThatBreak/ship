@@ -18,10 +18,20 @@ export const ResolveInput = z.object({
 export type ResolveInput = z.infer<typeof ResolveInput>;
 
 export const ResolveOutput = z.object({
+  /** threads actually closed (host-resolved + local-only closes) */
   resolved: z.number(),
-  branchName: z.string().optional(),
-  /** true when the agent actually pushed code changes to the MR branch */
+  /** replies posted to threads */
+  replied: z.number(),
+  wontfix: z.number(),
+  skipped: z.number(),
+  /** host effects that failed after bounded retry */
+  hostFailures: z.number().default(0),
+  /** engine-verified code movement anywhere (local or remote) — informational;
+   *  new user-template edge conditions must gate on `pushed` instead */
   codeChanged: z.boolean().default(false),
+  /** engine-verified: the fix is on the remote MR head — the loop-edge condition value */
+  pushed: z.boolean().default(false),
+  branchName: z.string().optional(),
 });
 export type ResolveOutput = z.infer<typeof ResolveOutput>;
 
