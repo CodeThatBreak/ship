@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { assignDatabasePath, createIsolatedDatabasePath } from "../../tests/helpers/inMemoryDb";
+import { assignDatabasePath, createIsolatedDatabasePath } from "../../tests/helpers/testDatabase";
 
 assignDatabasePath(createIsolatedDatabasePath("devflow-host-webhook-"));
 

@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
-import { assignDatabasePath, createIsolatedDatabasePath } from "./helpers/inMemoryDb";
+import { assignDatabasePath, createIsolatedDatabasePath } from "./helpers/testDatabase";
 
 assignDatabasePath(createIsolatedDatabasePath("devflow-flow-fixtures-"));
 

@@ -9,7 +9,7 @@ import {
   FLOW_CHILD_TABLES as SEED_FLOW_CHILD_TABLES,
   resolveSeedDb,
 } from "../scripts/lib/seed-db.mjs";
-import { createIsolatedDatabasePath } from "./helpers/inMemoryDb";
+import { createIsolatedDatabasePath } from "./helpers/testDatabase";
 
 describe("seed-db FLOW_CHILD_TABLES", () => {
   it("matches FlowEngine delete order", () => {

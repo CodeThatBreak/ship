@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { assignDatabasePath, createIsolatedDatabasePath } from "../../../tests/helpers/inMemoryDb";
+import { assignDatabasePath, createIsolatedDatabasePath } from "../../../tests/helpers/testDatabase";
 import { hydrateFlowTemplateGraph, serializeFlowTemplateGraph } from "./flowGraphSnapshot";
 import type { TemplateGraph } from "../types/template";
 
