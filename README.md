@@ -46,20 +46,27 @@ Everything runs from the single flow screen — workflow graph on top, selected 
 
 ## Setup
 
+DevFlow persists to **Postgres 16** (dockerized by default):
+
 ```bash
-cp .env.example .env   # fill in workspace path; leave DATABASE_PATH unset for production
+cp .env.example .env   # fill in workspace path; leave DATABASE_URL unset for production
 npm install
+npm run db:up          # docker compose up -d postgres (dev `devflow` + test `devflow_test` databases)
+npm run db:migrate     # prisma migrate deploy + builtin template seed
 npm run dev            # http://localhost:3000
 ```
+
+Any Postgres works instead of Docker: point `DATABASE_URL` at it and run
+`npm run db:migrate`.
 
 ### Demo flows (showcase the structured plan / editable checklist and plan fan-out)
 
 ```bash
-node scripts/seed-demo-flow.mjs           # DEMO-142 SDLC flow, mid-review (idempotent)
-node scripts/seed-demo-flow.mjs --reset   # remove it
-node scripts/seed-demo-fanout.mjs         # DEMO-143 mid fan-out (mixed step states)
+npm run db:seed                            # DEMO-142 SDLC flow, mid-review (idempotent)
+node scripts/seed-demo-flow.mjs --reset    # remove it
+node scripts/seed-demo-fanout.mjs          # DEMO-143 mid fan-out (mixed step states)
 node scripts/seed-demo-fanout.mjs --reset
-node scripts/seed-branch-refine-demo.mjs  # DEMO-207 branch-scoped refine story
+node scripts/seed-branch-refine-demo.mjs   # DEMO-207 branch-scoped refine story
 node scripts/seed-branch-refine-demo.mjs --reset
 ```
 
@@ -74,7 +81,7 @@ Infrastructure only — integration credentials (GitLab, Jira, Cursor) live in t
 
 | Key | What |
 |---|---|
-| `DATABASE_PATH` | SQLite file (default `./data/devflow.db` for dev; production `next start` uses `./data/devflow.prod.db` when unset) |
+| `DATABASE_URL` | Postgres connection string. Dev default: the dockerized `postgresql://devflow:devflow@localhost:5432/devflow`; production `next start` uses `postgresql://devflow:devflow@localhost:5432/devflow_prod` when unset. Run `npm run db:migrate` against it once |
 | `WORKSPACE_DIR` | Directory for clones and local-agent worktrees (default `./workspaces`; `~` expands) |
 | `DEFAULT_MODEL` | Optional last-resort default model id when settings do not specify one |
 | `GITLAB_WEBHOOK_SECRET` | Shared secret for `POST /api/webhooks/gitlab` (required unless `GITLAB_WEBHOOK_ALLOW_UNSIGNED=1`) |
@@ -225,15 +232,15 @@ lib/                    strict OOP: every module is a class with one responsibil
   git/local.ts          LocalGit — clone/diff/push/worktrees; authed clone URLs come from the
                         repo's git-host adapter (no integration imports here)
   db/
-    schema.sql          tables (tasks, flows, nodes, artifacts, comments, events, runs, plan_steps,
-                        branches, repos, gitlab_instances, settings)
-    index.ts            Database — better-sqlite3 connection + idempotent migrations, query helpers
-                        (get/all/run), settings, repos, events, messages
-    rows.ts             Zod schemas for every table row + RowGateway (get/all) — rows are validated
-                        once at the DB boundary, so consumers never see `any` or raw JSON strings.
-data/devflow.db         demo/dev SQLite — default target of `node scripts/seed-*.mjs` (mock data)
-data/devflow.prod.db    production SQLite (default when NODE_ENV=production; schema only, no mock
-                        data — created via `npm run db:init:prod`; seed scripts refuse to touch it)
+    prismaClient.ts     PrismaClient (pg driver adapter) — the ONLY process singleton
+    database.ts         Database — Prisma-backed facade: transactions, store composition,
+                        app-side uid/now; raw get/all/run for legacy read paths
+    rows.ts             Zod schemas for JSONB payload columns + RowGateway — payloads are
+                        validated once at the DB boundary, so consumers never see `any`.
+    ../prisma/schema.prisma  Postgres schema source of truth (camelCase fields, @map columns,
+                        enums, JSONB) + prisma/migrations/
+data/                   (sqlite-era files; the one-off scripts/migrate-sqlite-to-pg.mjs
+                        reads a legacy devflow.db to load its data into Postgres)
 workspaces/             per-flow dirs: git worktrees for local agent runs (Phase 1 worktrees —
                         ensured at the runner for every unpinned mutating run; the registered
                         checkout stays the hub and is never mutated), plus clones used for
@@ -255,7 +262,7 @@ integration ships an adapter under `lib/integrations/` and registers itself:
 Adding an integration = one adapter file + one `register()` line; engine, UI,
 and DB never learn the vendor's names.
 
-**Multi-user-ready:** all state is per-flow/per-task in the DB. To go multi-user, add auth, scope queries by user, and swap SQLite for Postgres — the engine is stateless across requests.
+**Multi-user-ready:** all state is per-flow/per-task in Postgres. To go multi-user, add auth and scope queries by user — the engine is stateless across requests.
 
 ## Adding a new node type
 

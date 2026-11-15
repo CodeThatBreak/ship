@@ -9,6 +9,10 @@ import { SDLC_TEMPLATE_ID, NODE_KEYS, STEP_BUILD_TEMPLATE_ID } from "../engine/c
  * user_version 1, now run explicitly — tests call it from
  * `tests/helpers/testDatabase.ts`, the app from the composition root).
  * Runs inside one Prisma transaction.
+ *
+ * KEEP IN SYNC with `prisma/migrations/20261116100000_builtin_template_seed/`
+ * — that migration seeds the same catalog on every `prisma migrate deploy`
+ * (dev/prod bootstrap); this class re-seeds truncated test databases.
  */
 export class TemplateSeeder {
   async seed(tx: PrismaClient | Prisma.TransactionClient): Promise<void> {

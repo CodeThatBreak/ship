@@ -1,6 +1,6 @@
 # DevFlow coding patterns
 
-Concrete recipes for writing code in this repo. [AGENTS.md](../AGENTS.md) holds the rules. This doc shows how to follow them for the problems DevFlow actually has: a long-running flow engine with a node state machine, background agent runs, git side effects, SQLite, and a polling React UI.
+Concrete recipes for writing code in this repo. [AGENTS.md](../AGENTS.md) holds the rules. This doc shows how to follow them for the problems DevFlow actually has: a long-running flow engine with a node state machine, background agent runs, git side effects, Postgres (Prisma), and a polling React UI.
 
 Some primitives below don't exist yet. Each one is marked **(added in Task NN)** and links to the task in [`docs/review-tasks/`](review-tasks/README.md) that creates it. Until it lands, follow the closest existing pattern and don't invent a parallel one.
 
@@ -144,27 +144,38 @@ export const toErrorResponse = (e: unknown): Response => {
 
 ### 3.5 Persistence
 
-- **Stores own SQL.** One class per table family (`NodeStore`, `CommentStore`, `PlanStepStore`), reading through `rows.ts` mappers. Engine orchestrators call store methods, not `db.get`/`db.all`.
-- **Bind constants as parameters.** Write `status = ?` with `FLOW_STATUS.RUNNING`, never `status = 'running'` in a SQL string.
+- **Stores own queries.** One class per table family (`NodeStore`, `CommentStore`, `PlanStepStore`), reading through the Prisma query API (new persistence) or the `rows.ts` mappers over raw SQL (legacy read paths — no NEW raw SQL). Engine orchestrators call store methods, not `db.get`/`db.all`.
+- **Bind constants as parameters.** Tagged templates (`prisma.$executeRaw\`WHERE status = ${FLOW_STATUS.RUNNING}\``) or positional `$1, $2, …` params — never interpolate a literal into a SQL string.
 - **"Latest" means `ORDER BY`.** Any "latest/newest" read has an explicit `ORDER BY … DESC` and a test with more than one row (see CR-270).
-- **Transactions (added in [Task 12](review-tasks/12-db-transactions.md))** are synchronous, because better-sqlite3 is synchronous:
+- **Transactions** are async Prisma interactive transactions ([Task 12](review-tasks/12-db-transactions.md), carried over to step 01):
 
   ```ts
   // Database
-  transaction<T>(fn: () => T): T {
-    return this.conn.transaction(fn)();
+  transaction<T>(fn: (tx: Prisma.TransactionClient) => Promise<T>): Promise<T> {
+    return this.prisma.$transaction((inner) => fn(inner));
   }
 
   // caller
-  this.db.transaction(() => {
-    this.flows.insert(flow);
-    this.nodes.insertSnapshots(flow.id, graph);
+  await this.db.transaction(async (tx) => {
+    await this.flows.insert(flow, tx);
+    await this.nodes.insertSnapshots(flow.id, graph, tx);
   });
   ```
 
-  Never `await` inside the callback. Do the async work (git, HTTP) before or after, and keep the transaction to DB writes only.
-- **Schema changes** go through numbered migrations gated on `PRAGMA user_version`, each in one transaction, with `schema.sql` kept canonical ([Task 08](review-tasks/08-db-bootstrap-and-schema.md)). Ask before changing `schema.sql` and update `rows.ts` in the same PR.
-- **Secrets** are read only through a `SecretStore`. List queries never `SELECT *` from tables with token columns.
+  The callback may `await` DB work only. Do the async I/O (git, HTTP, agent
+  calls) before or after, and keep the transaction to DB writes — same
+  discipline as the synchronous era, now enforced by the callback's types.
+- **Row counts over `.changes`.** A conditional `UPDATE … WHERE …` (claim,
+  attempt-fenced terminal write) checks the affected-row count returned by
+  `$executeRaw`/`updateMany` — `0` means lost race, `1` means claimed.
+- **Schema changes** go through Prisma migrations (`prisma/schema.prisma` +
+  `prisma migrate dev`). Ask before changing the schema, keep
+  `lib/db/rows.ts` (JSONB payload validators) in the same PR, and remember
+  enum values are sticky (adding values is easy, removing is not). Model
+  fields are camelCase with explicit `@map("snake_case")` columns (Q11);
+  the DB stays snake_case.
+- **Secrets** are read only through a `SecretStore`. List queries never
+  select token columns (`rows.ts` `.omit({ token: true })`).
 
 ### 3.6 Node state machine
 
@@ -174,21 +185,23 @@ The engine decides node ownership through the database, not through in-memory ch
 
   ```ts
   // NodeStore
-  claim(flowId: string, nodeKey: string, from: readonly NodeStatus[]): AttemptId {
+  async claim(flowId: string, nodeKey: string, from: readonly NodeStatus[]): Promise<AttemptId> {
     const attempt = this.db.uid("att_");
-    const marks = from.map(() => "?").join(",");
-    const { changes } = this.db.run(
-      `UPDATE nodes SET status = ?, attempt_id = ?, updated_at = ?
-       WHERE flow_id = ? AND node_key = ? AND status IN (${marks})`,
-      NODE_STATUS.RUNNING, attempt, Date.now(), flowId, nodeKey, ...from,
-    );
-    if (changes !== 1) throw new ConflictError(`Node ${nodeKey} is not in ${from.join("/")}`);
+    const changed = await this.db.prisma.node.updateMany({
+      where: { flowId, nodeKey, status: { in: [...from] } },
+      data: { status: NODE_STATUS.RUNNING, attemptId: attempt, updatedAt: new Date() },
+    });
+    if (changed.count !== 1) throw new ConflictError(`Node ${nodeKey} is not in ${from.join("/")}`);
     return attempt;
   }
   ```
 
-  (`attempt_id` is a schema change that needs approval.)
-- **Every later write is fenced by the attempt.** Terminal writes use `WHERE id = ? AND attempt_id = ?`. If `changes === 0`, the run was superseded. Throw `RunSupersededError` and let the caller stop without writing artifacts, comments or MR side effects.
+  (One conditional write — the `WHERE status IN (…)` predicate is the race
+  fence; check the affected-row count.)
+- **Every later write is fenced by the attempt.** Terminal writes use
+  `WHERE id = ? AND attempt_id = ?` (`updateMany` predicate
+  `{ id, attemptId }`). If the count is `0`, the run was superseded. Throw
+  `RunSupersededError` and let the caller stop without writing artifacts, comments or MR side effects.
 - **One terminal writer.** `applyOutcome` is the only code that sets a node's final status and emits its terminal event. `recover()` returns a `RunOutcome` and has no side effects.
 - **Status vocabulary** comes from one constant with named predicate sets (`STARTED`, `TERMINAL_SUCCESS`, `RESETTABLE`). Never repeat `status === "done" || status === "approved"` inline. Two guards already disagree on whether `skipped` counts as started (CR-180).
 - **Chat-only turns don't own the node.** They must not run through code paths that can set the node to `failed`.

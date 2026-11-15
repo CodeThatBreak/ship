@@ -2,7 +2,7 @@
 
 Rules for AI agents and contributors working in this repository.
 
-**Stack:** Next.js 15 (App Router), React 19, TypeScript (strict), Tailwind v4, TanStack Query, better-sqlite3
+**Stack:** Next.js 15 (App Router), React 19, TypeScript (strict), Tailwind v4, TanStack Query, Postgres + Prisma
 
 Where a rule here conflicts with an existing pattern in neighboring files, follow the rule for new code and flag the mismatch in the PR description. Do not rewrite untouched code.
 
@@ -36,10 +36,10 @@ A task is done only when all of these are true:
 
 ## 1. Safety Rules (read first)
 
-- Never run a seed script with `--reset` (or any destructive seed) against a database that is not the demo DB. Seed scripts target `config.db.demoPath()` only — check `DATABASE_PATH` and `NODE_ENV` first. Affected scripts: `seed-demo-flow.mjs`, `seed-demo-fanout.mjs`, `seed-branch-refine-demo.mjs`, `seed-custom-flow.mjs`, `seed-split-smoke.mjs` (each accepts `--reset`).
+- Never run a seed script with `--reset` (or any destructive seed) against a database that is not the demo DB. Seed scripts target `config.db.demoUrl()` only — check `DATABASE_URL` (the target database must be `devflow`) and `NODE_ENV` first. Affected scripts: `seed-demo-flow.mjs`, `seed-demo-fanout.mjs`, `seed-branch-refine-demo.mjs`, `seed-custom-flow.mjs`, `seed-split-smoke.mjs` (each accepts `--reset`).
 - Do not add new dependencies without asking.
 - No destructive git or file commands (`reset --hard`, `clean -fd`, `rm -rf`, force push) unless explicitly requested.
-- Ask before changing `lib/db/schema.sql`. Schema changes must be coordinated with row mappers in `lib/db/rows.ts`.
+- Ask before changing `prisma/schema.prisma`. Schema changes must be coordinated with the JSONB payload validators in `lib/db/rows.ts`, and land as a Prisma migration (`prisma migrate dev`). Enum values are sticky (removal is hard) — get status vocabularies right at authoring time.
 - Secrets and env values come only from `lib/config.ts`. Never hardcode them and never commit `.env`.
 - Never edit `components/ui/` (shadcn primitives) unless the task explicitly requires it.
 
@@ -286,9 +286,8 @@ export class FlowService {
 
 ### 3.3 Runtime and Server Boundaries
 
-- better-sqlite3 is synchronous and Node-only. API routes that touch the DB must use the Node runtime, never Edge.
 - `lib/` is server-only. Never import it from client components.
-- Dev singletons must survive HMR. Use the `globalThis` pattern implemented in `lib/singleton.ts`, and reuse it instead of inventing a new one.
+- Postgres via Prisma. API routes that touch the DB must use the Node runtime, never Edge. The Prisma client (`lib/db/prismaClient.ts`) is the only dev singleton that must survive HMR — use the `globalThis` pattern implemented in `lib/singleton.ts`, and reuse it instead of inventing a new one (other services are constructor-injected from `lib/composition/`).
 
 ### 3.4 Validation
 
