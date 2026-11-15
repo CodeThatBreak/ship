@@ -88,31 +88,31 @@ export class FlowPoller {
     const activeFlowIds = new Set(
       db.all<{ id: string }>(`SELECT id FROM flows WHERE status='active'`).map((r) => r.id),
     );
-    const flows = rows.all(
+    const flows = await rows.all(
       FlowRow,
       `SELECT id, task_id AS "taskId", name, status, mr_url AS "mrUrl", mr_iid AS "mrIid", mr_branch AS "mrBranch", repo_url AS "repoUrl", gitlab_project_id AS "gitlabProjectId", current_node AS "currentNode", execution_mode AS "executionMode", repo_id AS "repoId", template_id AS "templateId", template_graph AS "templateGraph", trigger_payload AS "triggerPayload", worktree_dir AS "worktreeDir", parent_flow_id AS "parentFlowId", kind, created_at AS "createdAt", updated_at AS "updatedAt" FROM flows WHERE status='active' AND (mr_iid IS NOT NULL OR id IN (SELECT DISTINCT flow_id FROM branches WHERE mr_iid IS NOT NULL))`,
     );
     for (const f of flows) {
       try {
         // Phase 3C: iterate over branches with MRs, then the flow-level MR
-        const branchMRs = rows.all(
+        const branchMRs = await rows.all(
           BranchRow,
           `SELECT id, flow_id AS "flowId", name, git_branch AS "gitBranch", title, status, mr_url AS "mrUrl", mr_iid AS "mrIid", "order", created_at AS "createdAt", updated_at AS "updatedAt" FROM branches WHERE flow_id=$1 AND mr_iid IS NOT NULL`,
           f.id,
         );
         if (branchMRs.length > 0) {
           for (const b of branchMRs) {
-            if (b.mr_iid == null) continue;
-            await this.checkPipeline(f, b.mr_iid, b.name);
-            await this.checkDiscussions(f, b.mr_iid, b.name);
+            if (b.mrIid == null) continue;
+            await this.checkPipeline(f, b.mrIid, b.name);
+            await this.checkDiscussions(f, b.mrIid, b.name);
           }
-        } else if (f.mr_iid) {
-          await this.checkPipeline(f, f.mr_iid);
-          await this.checkDiscussions(f, f.mr_iid);
+        } else if (f.mrIid) {
+          await this.checkPipeline(f, f.mrIid);
+          await this.checkDiscussions(f, f.mrIid);
         }
       } catch (e: unknown) {
         const msg = e instanceof Error ? e.message : String(e);
-        db.emitEvent(f.id, null, "error", `poll: ${msg}`);
+        await db.emitEvent(f.id, null, "error", `poll: ${msg}`);
       }
     }
     this.pruneCommentCounts(activeFlowIds);
@@ -148,17 +148,17 @@ export class FlowPoller {
    */
   private processTemplateSchedules(): void {
     const templates = db.all<{ id: string; trigger: string | null; schedule_next_at: string | null }>(
-      `SELECT id, trigger, schedule_next_at AS "scheduleNextAt" FROM flow_templates WHERE schedule_next_at IS NOT NULL`
+      async `SELECT id, trigger, schedule_next_at AS "scheduleNextAt" FROM flow_templates WHERE schedule_next_at IS NOT NULL`
     );
     const now = Date.now();
     for (const t of templates) {
-      const due = t.schedule_next_at ? Date.parse(t.schedule_next_at) : NaN;
+      const due = t.scheduleNextAt ? Date.parse(t.scheduleNextAt) : NaN;
       if (Number.isNaN(due) || now < due) continue;
       const trigger = (() => { try { return JSON.parse(t.trigger ?? "{}") as Record<string, unknown>; } catch { return {}; } })();
       const intervalMin = typeof trigger.interval_min === "number" && trigger.interval_min > 0
         ? trigger.interval_min : 60;
       const nextAt = nextScheduleFireAt(due, now, intervalMin);
-      db.run(`UPDATE flow_templates SET schedule_next_at=$1 WHERE id=$2`,
+      await db.run(`UPDATE flow_templates SET schedule_next_at=$1 WHERE id=$2`,
         new Date(nextAt).toISOString(), t.id);
       try {
         // the fire provides nothing (the start contract's defaults apply) —
@@ -173,7 +173,7 @@ export class FlowPoller {
   }
 
   private async checkPipeline(f: FlowRow, mrIid: number, branchName?: string): Promise<void> {
-    const repoUrl = f.repo_url ?? "";
+    const repoUrl = f.repoUrl ?? "";
     const host = gitHostRegistry.forRepo(repoUrl);
     const cr = await host.getChangeRequest(repoUrl, mrIid).catch(() => null);
     const pipe = cr?.headPipeline;
@@ -199,12 +199,12 @@ export class FlowPoller {
     const gateKey = templateStore.waitNodeKey(f.id, "pipeline");
     const gateStatus = gateKey
       ? db.get<{ status: string }>(
-          `SELECT status FROM nodes WHERE flow_id=$1 AND node_key=$2`, f.id, gateKey
+          async `SELECT status FROM nodes WHERE flow_id=$1 AND node_key=$2`, f.id, gateKey
         )?.status
       : undefined;
     if (gateStatus !== "running") {
       // stamped with the owning gate node so the feed routes it (§3.3)
-      db.emitEvent(f.id, null, "pipeline", `pipeline ${pipe.status}${branchName ? ` (${branchName})` : ""}`,
+      await db.emitEvent(f.id, null, "pipeline", `pipeline ${pipe.status}${branchName ? ` (${branchName})` : ""}`,
         { status: pipe.status, id: pipe.id, branchName: branchName ?? undefined, nodeKey: gateKey ?? undefined });
     }
 
@@ -215,7 +215,7 @@ export class FlowPoller {
   }
 
   private async checkDiscussions(f: FlowRow, mrIid: number, branchName?: string): Promise<void> {
-    const repoUrl = f.repo_url ?? "";
+    const repoUrl = f.repoUrl ?? "";
     const comments = await gitHostRegistry
       .forRepo(repoUrl)
       .listComments(repoUrl, mrIid)
@@ -228,13 +228,13 @@ export class FlowPoller {
     if (newOpen > 0 && openCount > 0) {
       // debounce: each new open comment restarts the quiet period on the
       // debounced resolve wait — the wait-timer tick fires it once the flow
-      // has been quiet for the delay and the pipeline gate is clear
+      async // has been quiet for the delay and the pipeline gate is clear
       flowEngine.bounceCommentWaits(f.id);
       const countKey = branchName ? `${f.id}:${branchName}` : f.id;
       if (this.lastCommentCount.get(countKey) !== openCount) {
         this.lastCommentCount.set(countKey, openCount);
         const mins = Math.round(flowEngine.resolveDelayMs(f.id) / 60_000);
-        db.emitEvent(f.id, null, "lifecycle",
+        await db.emitEvent(f.id, null, "lifecycle",
           `${openCount} open comment(s)${branchName ? ` (${branchName})` : ""} — resolve queued for ` +
           `${flowEngine.resolveScheduleClock(f.id) ?? FlowPoller.clockIn(flowEngine.resolveDelayMs(f.id))} ` +
           `(${mins} min quiet, then the pipeline gate)`,

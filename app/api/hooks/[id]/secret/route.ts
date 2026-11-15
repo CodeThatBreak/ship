@@ -12,7 +12,7 @@ export const GET = async (req: Request, { params }: { params: Promise<{ id: stri
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
   const { id } = await params;
-  const hook = hookStore.hook(id);
+  const hook = await hookStore.hook(id);
   if (!hook) return NextResponse.json({ error: "unknown hook" }, { status: 404 });
   return NextResponse.json({ secret: hook.secret });
 };

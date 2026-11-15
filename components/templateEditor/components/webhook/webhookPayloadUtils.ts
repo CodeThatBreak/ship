@@ -70,7 +70,7 @@ export const sampleValue = (field: ContractField): unknown => {
 };
 
 /** The friendly repo label (the "(local)" suffix marks the local checkout). */
-export const repoLabel = (r: Repo) => `${r.name}${r.local_path ? " (local)" : ""}`;
+export const repoLabel = (r: Repo) => `${r.name}${r.localPath ? " (local)" : ""}`;
 
 /** Shell-quote a string for the curl's `-d '…'` (embedds safely even when the
  *  body carries apostrophes). */

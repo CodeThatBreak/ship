@@ -9,16 +9,16 @@ import {
 const baseRepo: Repo = {
   id: "r1",
   name: "api",
-  cloud_url: "https://gitlab.com/g/api",
-  local_path: "/Users/Shared/api",
-  default_branch: "main",
-  use_worktrees: 1,
-  install_command: null,
-  skip_install: 0,
-  sync_paths: null,
-  shared_dirs: null,
-  setup_command: null,
-  worktree_timeout_ms: null,
+  cloudUrl: "https://gitlab.com/g/api",
+  localPath: "/Users/Shared/api",
+  defaultBranch: "main",
+  useWorktrees: 1,
+  installCommand: null,
+  skipInstall: 0,
+  syncPaths: null,
+  sharedDirs: null,
+  setupCommand: null,
+  worktreeTimeoutMs: null,
 };
 
 describe("buildRepoSavePayload", () => {
@@ -26,10 +26,10 @@ describe("buildRepoSavePayload", () => {
     const state = {
       ...EMPTY_REPO_FORM,
       name: "api-renamed",
-      cloud_url: baseRepo.cloud_url,
-      local_path: "/Users/Shared/api",
-      default_branch: "main",
-      sync_paths: ".env*\nfrom-detect-should-not-save",
+      cloudUrl: baseRepo.cloudUrl,
+      localPath: "/Users/Shared/api",
+      defaultBranch: "main",
+      syncPaths: ".env*\nfrom-detect-should-not-save",
     };
     const payload = buildRepoSavePayload(state, new Set(), "r1");
     expect(payload.name).toBe("api-renamed");
@@ -41,15 +41,15 @@ describe("buildRepoSavePayload", () => {
     const state = {
       ...EMPTY_REPO_FORM,
       name: "api",
-      cloud_url: baseRepo.cloud_url,
-      install_command: "pnpm install",
+      cloudUrl: baseRepo.cloudUrl,
+      installCommand: "pnpm install",
     };
     const payload = buildRepoSavePayload(
       state,
       new Set(["install_command"]),
       null,
     );
-    expect(payload.install_command).toBe("pnpm install");
+    expect(payload.installCommand).toBe("pnpm install");
     expect("sync_paths" in payload).toBe(false);
   });
 });
@@ -58,8 +58,8 @@ describe("touchedPolicyFromRepo", () => {
   it("marks columns that already had overrides", () => {
     const touched = touchedPolicyFromRepo({
       ...baseRepo,
-      install_command: "npm ci",
-      sync_paths: ".env*",
+      installCommand: "npm ci",
+      syncPaths: ".env*",
     });
     expect(touched.has("install_command")).toBe(true);
     expect(touched.has("sync_paths")).toBe(true);
@@ -67,7 +67,7 @@ describe("touchedPolicyFromRepo", () => {
   });
 
   it("marks the worktree opt-out as touched only when disabled", () => {
-    expect(touchedPolicyFromRepo({ ...baseRepo, use_worktrees: 1 }).has("use_worktrees")).toBe(false);
-    expect(touchedPolicyFromRepo({ ...baseRepo, use_worktrees: 0 }).has("use_worktrees")).toBe(true);
+    expect(touchedPolicyFromRepo({ ...baseRepo, useWorktrees: 1 }).has("use_worktrees")).toBe(false);
+    expect(touchedPolicyFromRepo({ ...baseRepo, useWorktrees: 0 }).has("use_worktrees")).toBe(true);
   });
 });

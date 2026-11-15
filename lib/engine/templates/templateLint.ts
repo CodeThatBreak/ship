@@ -19,7 +19,7 @@ import { NODE_KEYS } from "../constants/nodeKeys";
  * outputs stay path-checked only).
  *
  * The `{{task.*}}` universe comes in per template — the caller (TemplateStore)
- * resolves `trigger.task_type` → task provider → `contextFields` and passes it
+ * resolves `trigger.taskType` → task provider → `contextFields` and passes it
  * here, so this module stays pure data with no runtime class instantiation
  * (keeps the store import-cycle free): declarative output contracts are derived
  * straight from the node_templates config JSON.
@@ -27,7 +27,7 @@ import { NODE_KEYS } from "../constants/nodeKeys";
 
 /** The task universe passed in by the store (registry-resolved, Phase 3). */
 export interface TaskUniverse {
-  /** the template's declared task type (trigger.task_type) */
+  /** the template's declared task type (trigger.taskType) */
   kind: string;
   /** the provider's contextFields — the {{task.*}} vocabulary */
   fields: { key: string; label: string }[];
@@ -179,7 +179,7 @@ export async function lintTemplate(
   nodes: LintNode[],
   edges: { from: string; to: string; condition: string | null; label: string | null; kind: string }[],
   catalog: Record<string, CatalogEntry>, // nodeTemplateId → entry
-  task: TaskUniverse | null = null, // trigger.task_type → provider fields (null = unknown provider — free pass)
+  task: TaskUniverse | null = null, // trigger.taskType → provider fields (null = unknown provider — free pass)
 ): { error: string | null; problems: LintProblem[] } {
   const problems: LintProblem[] = [];
   const byKey = new Map(nodes.map((n) => [n.key, n]));
@@ -259,9 +259,9 @@ export async function lintTemplate(
         continue;
       }
       const childNodes = await db.all<{ key: string; kind: string; nt_key: string; config: string | null; node_template_id: string }>(
-              `SELECT n.node_key AS key, nt.kind AS kind, nt.key AS nt_key, n.config AS config, n.node_template_id AS node_template_id
-         FROM flow_template_nodes n JOIN node_templates nt ON nt.id = n.node_template_id
-         WHERE n.template_id=$1`, cfg.child);
+              `SELECT n.nodeKey AS key, nt.kind AS kind, nt.key AS nt_key, n.config AS config, n.nodeTemplateId AS node_template_id
+         FROM flow_template_nodes n JOIN node_templates nt ON nt.id = n.nodeTemplateId
+         WHERE n.templateId=$1`, cfg.child);
       if (childNodes.length !== 1) {
         problems.push({
           where: `node "${n.key}"`,

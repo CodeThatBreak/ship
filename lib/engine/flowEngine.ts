@@ -223,7 +223,7 @@ export class FlowEngine {
     try {
       steps = ((fanoutContract ?? DEFAULT_FANOUT_OUTPUT).parse({ steps }) as { steps?: unknown })?.steps ?? steps;
     } catch (e: unknown) {
-      db.emitEvent(
+      await db.emitEvent(
         parentFlowId,
         null,
         'error',
@@ -233,7 +233,7 @@ export class FlowEngine {
     }
     const tt = this.graph(parentFlowId)?.byKey.get(nodeKey)?.trigger.type ?? 'auto';
     const status = tt === 'approval' ? 'awaiting_approval' : 'done';
-    const published = db.run(
+    const published = await db.run(
       `UPDATE nodes SET status=$1, output=$2, updated_at=$3 WHERE flow_id=$4 AND node_key=$5 AND status='running'`,
       status,
       JSON.stringify({ ...output, steps }),
@@ -241,8 +241,8 @@ export class FlowEngine {
       parentFlowId,
       nodeKey
     );
-    if (published.changes === 0) return;
-    nodeStore.emitEvent(
+    if (published === 0) return;
+    await nodeStore.emitEvent(
       parentFlowId,
       nodeKey,
       'lifecycle',
@@ -273,7 +273,7 @@ export class FlowEngine {
     try {
       units = ((splitContract ?? DEFAULT_SPLIT_OUTPUT).parse({ units }) as { units?: unknown })?.units ?? units;
     } catch (e: unknown) {
-      db.emitEvent(
+      await db.emitEvent(
         parentFlowId,
         null,
         'error',
@@ -288,7 +288,7 @@ export class FlowEngine {
       : entries.some(u => u?.status === 'awaiting_approval')
         ? 'awaiting_approval'
         : 'done';
-    db.run(
+    await db.run(
       `UPDATE nodes SET status=$1, output=$2, updated_at=$3 WHERE flow_id=$4 AND node_key=$5`,
       status,
       JSON.stringify({ ...output, units }),
@@ -296,7 +296,7 @@ export class FlowEngine {
       parentFlowId,
       nodeKey
     );
-    nodeStore.emitEvent(
+    await nodeStore.emitEvent(
       parentFlowId,
       nodeKey,
       'lifecycle',
@@ -313,7 +313,7 @@ export class FlowEngine {
   /** True when the flow is a step child (plan fan-out). Engine internal helper. */
   isStepChild(flowId: string): boolean {
     const row = db.get<{ parent_flow_id: string | null }>(`SELECT parent_flow_id AS "parentFlowId" FROM flows WHERE id=$1`, flowId);
-    return row?.parent_flow_id != null;
+    return row?.parentFlowId != null;
   }
 
   /**
@@ -336,39 +336,39 @@ export class FlowEngine {
         fid
       );
       for (const n of active) {
-        await this.cancelNode(fid, n.node_key);
+        await this.cancelNode(fid, n.nodeKey);
       }
     }
     this.waits.clearTimersForFlows(ids);
     await Promise.allSettled(ids.map(fid => worktreeManager.removeFlowWorktree(fid, { reason: 'flow deleted' })));
-    db.transaction(() => {
+    await db.transaction(async (tx) => {
       for (const fid of ids) {
         for (const table of FLOW_CHILD_TABLES) {
-          db.run(`DELETE FROM ${table} WHERE flow_id=$1`, fid);
+          await db.run(`DELETE FROM ${table} WHERE flow_id=$1`, fid);
         }
       }
-      db.run(`DELETE FROM flows WHERE id IN (${ids.map(() => '?').join(',')})`, ...ids);
+      await db.run(`DELETE FROM flows WHERE id IN (${ids.map(() => '?').join(',')})`, ...ids);
     });
   }
 
   // ── context ──────────────────────────────────────────────────────────────
 
   ctx(flowId: string): FlowCtx {
-    const flow = rows.get(FlowRow, `SELECT id, task_id AS "taskId", name, status, mr_url AS "mrUrl", mr_iid AS "mrIid", mr_branch AS "mrBranch", repo_url AS "repoUrl", gitlab_project_id AS "gitlabProjectId", current_node AS "currentNode", execution_mode AS "executionMode", repo_id AS "repoId", template_id AS "templateId", template_graph AS "templateGraph", trigger_payload AS "triggerPayload", worktree_dir AS "worktreeDir", parent_flow_id AS "parentFlowId", kind, created_at AS "createdAt", updated_at AS "updatedAt" FROM flows WHERE id=$1`, flowId);
+    const flow = await rows.get(FlowRow, `SELECT id, task_id AS "taskId", name, status, mr_url AS "mrUrl", mr_iid AS "mrIid", mr_branch AS "mrBranch", repo_url AS "repoUrl", gitlab_project_id AS "gitlabProjectId", current_node AS "currentNode", execution_mode AS "executionMode", repo_id AS "repoId", template_id AS "templateId", template_graph AS "templateGraph", trigger_payload AS "triggerPayload", worktree_dir AS "worktreeDir", parent_flow_id AS "parentFlowId", kind, created_at AS "createdAt", updated_at AS "updatedAt" FROM flows WHERE id=$1`, flowId);
     if (!flow) throw new NotFoundError('flow', flowId);
-    const task = rows.get(Task, `SELECT id, type, key, summary, description, status, issue_type AS "issueType", priority, repo_url AS "repoUrl", parent_key AS "parentKey", external_url AS "externalUrl", raw, synced_at AS "syncedAt", fields FROM tasks WHERE id=$1`, flow.task_id);
-    if (!task) throw new NotFoundError('task', flow.task_id);
-    const repo = flow.repo_id ? (db.repoById(flow.repo_id) ?? null) : null;
+    const task = await rows.get(Task, `SELECT id, type, key, summary, description, status, issue_type AS "issueType", priority, repo_url AS "repoUrl", parent_key AS "parentKey", external_url AS "externalUrl", raw, synced_at AS "syncedAt", fields FROM tasks WHERE id=$1`, flow.taskId);
+    if (!task) throw new NotFoundError('task', flow.taskId);
+    const repo = flow.repoId ? (await db.repoById(flow.repoId) ?? null) : null;
     return { flow, task, repo };
   }
 
   private touch(flowId: string): void {
-    db.run(`UPDATE flows SET updated_at=$1 WHERE id=$2`, db.now(), flowId);
+    await db.run(`UPDATE flows SET updated_at=$1 WHERE id=$2`, db.now(), flowId);
   }
 
   /** Engine internals shared with the SDLC builtin-chain module — not a public API. */
   setCurrentNode(flowId: string, key: string | null): void {
-    db.run(`UPDATE flows SET current_node=$1, updated_at=$2 WHERE id=$3`, key, db.now(), flowId);
+    await db.run(`UPDATE flows SET current_node=$1, updated_at=$2 WHERE id=$3`, key, db.now(), flowId);
   }
 
   /** Engine internals shared with the SDLC builtin-chain module — not a public API. */
@@ -386,7 +386,7 @@ export class FlowEngine {
     return attempt;
   }
 
-  // fire-and-forget wrapper: runs async, marks node failed on error.
+  // fire-and-forget wrapper: runs , marks node failed on error.
   // Engine internals shared with the SDLC builtin-chain module — not a public API.
   bg(flowId: string, nodeKey: string | null, fn: () => Promise<void>, clearCurrentKey?: string | null): void {
     const clearKey = clearCurrentKey ?? nodeKey;
@@ -397,9 +397,9 @@ export class FlowEngine {
       } catch (e: unknown) {
         if (e instanceof RunSupersededError) return;
         const msg = e instanceof Error ? e.message : String(e);
-        db.emitEvent(flowId, null, 'error', msg, { nodeKey });
+        await db.emitEvent(flowId, null, 'error', msg, { nodeKey });
         if (nodeKey) {
-          db.run(
+          await db.run(
             `UPDATE nodes SET status=$1, attempt_id=NULL, updated_at=$2 WHERE flow_id=$3 AND node_key=$4 AND status=$5`,
             NODE_STATUS.FAILED,
             db.now(),
@@ -413,7 +413,7 @@ export class FlowEngine {
           const attemptId = db.get<{ attempt_id: string | null }>(
             `SELECT attempt_id AS "attemptId" FROM nodes WHERE id=$1`,
             nodeId,
-          )?.attempt_id;
+          )?.attemptId;
           nodeAttemptRegistry.clear(nodeId, attemptId);
         }
         if (clearKey) this.clearCurrentIf(flowId, clearKey);
@@ -565,8 +565,8 @@ export class FlowEngine {
 
   // ── structured plan step editing ─────────────────────────────────────────
   private assertPlanEditable(flowId: string) {
-    const flow = rows.get(FlowRow, `SELECT id, task_id AS "taskId", name, status, mr_url AS "mrUrl", mr_iid AS "mrIid", mr_branch AS "mrBranch", repo_url AS "repoUrl", gitlab_project_id AS "gitlabProjectId", current_node AS "currentNode", execution_mode AS "executionMode", repo_id AS "repoId", template_id AS "templateId", template_graph AS "templateGraph", trigger_payload AS "triggerPayload", worktree_dir AS "worktreeDir", parent_flow_id AS "parentFlowId", kind, created_at AS "createdAt", updated_at AS "updatedAt" FROM flows WHERE id=$1`, flowId);
-    if (flow?.current_node) throw new Error(`wait for the ${flow.current_node} run to finish before editing steps`);
+    const flow = await rows.get(FlowRow, `SELECT id, task_id AS "taskId", name, status, mr_url AS "mrUrl", mr_iid AS "mrIid", mr_branch AS "mrBranch", repo_url AS "repoUrl", gitlab_project_id AS "gitlabProjectId", current_node AS "currentNode", execution_mode AS "executionMode", repo_id AS "repoId", template_id AS "templateId", template_graph AS "templateGraph", trigger_payload AS "triggerPayload", worktree_dir AS "worktreeDir", parent_flow_id AS "parentFlowId", kind, created_at AS "createdAt", updated_at AS "updatedAt" FROM flows WHERE id=$1`, flowId);
+    if (flow?.currentNode) throw new Error(`wait for the ${flow.currentNode} run to finish before editing steps`);
     return this.latestResourceArtifact<{ id: string }>(flowId, NODE_KEYS.PLAN, 'a.id');
   }
 
@@ -578,7 +578,7 @@ export class FlowEngine {
    *  on renames and destroyed pending children). Rows that are actually
    *  removed still hit the guards: a pending child's flow closes silently, a
    *  started/merged child's step refuses loudly. */
-  updatePlanSteps(flowId: string, input: PlanStepInput[]): void {
+  async updatePlanSteps(flowId: string, input: PlanStepInput[]): void {
     if (!Array.isArray(input) || input.some(s => !s?.title?.trim?.())) {
       throw new Error('steps must be an array of {title, detail?, files?}');
     }
@@ -616,7 +616,7 @@ export class FlowEngine {
       input.map(s => ({ title: s.title.trim(), detail: s.detail, files: s.files, branch: s.branch })),
       { matchedRows: matched }
     );
-    db.emitEvent(flowId, null, 'lifecycle', `plan checklist edited (${updated.length} steps)`, {
+    await db.emitEvent(flowId, null, 'lifecycle', `plan checklist edited (${updated.length} steps)`, {
       // route the event to the tab that owns the checklist (§3.3 — stamped at
       // emit time; the feed no longer guesses from message text)
       nodeKey: this.keyOfRole(flowId, NODE_KEYS.PLAN) ?? undefined,
@@ -640,7 +640,7 @@ export class FlowEngine {
     return rows
       .all(NodeRow, `SELECT id, flow_id AS "flowId", node_key AS "nodeKey", type, status, attempt_id AS "attemptId", agent_id AS "agentId", agent_ref AS "agentRef", session_id AS "sessionId", prompt_override AS "promptOverride", label, config, join_mode AS "joinMode", input, output, created_at AS "createdAt", updated_at AS "updatedAt" FROM nodes WHERE flow_id=$1`, flowId)
       .filter(n => n.type === defKey)
-      .map(n => n.node_key);
+      .map(n => n.nodeKey);
   }
 
   /** Instance keys → first instance of a def key. */
@@ -679,8 +679,8 @@ export class FlowEngine {
     const kinds = this.resourceKinds(role);
     if (!kinds.length) return undefined;
     return db.get<T>(
-      `SELECT ${columns} FROM artifacts a JOIN nodes n ON n.id=a.node_id
-       WHERE n.flow_id=$1 AND a.kind IN (${kinds.map(() => '?').join(',')})
+      `SELECT ${columns} FROM artifacts a JOIN nodes n ON n.id=a.nodeId
+       WHERE n.flowId=$1 AND a.kind IN (${kinds.map(() => '?').join(',')})
        ORDER BY a.version DESC LIMIT 1`,
       flowId,
       ...kinds
@@ -701,11 +701,11 @@ export class FlowEngine {
   }
 
   /** def key of a node instance (for def resolution). */
-  private defKeyOf(flowId: string, nodeKey: string): string {
+  async private defKeyOf(flowId: string, nodeKey: string): string {
     const g = this.graph(flowId);
     const spec = g?.byKey.get(nodeKey);
     if (spec) return spec.defKey;
-    const n = rows.get(NodeRow, `SELECT id, flow_id AS "flowId", node_key AS "nodeKey", type, status, attempt_id AS "attemptId", agent_id AS "agentId", agent_ref AS "agentRef", session_id AS "sessionId", prompt_override AS "promptOverride", label, config, join_mode AS "joinMode", input, output, created_at AS "createdAt", updated_at AS "updatedAt" FROM nodes WHERE flow_id=$1 AND node_key=$2`, flowId, nodeKey);
+    const n = await rows.get(NodeRow, `SELECT id, flow_id AS "flowId", node_key AS "nodeKey", type, status, attempt_id AS "attemptId", agent_id AS "agentId", agent_ref AS "agentRef", session_id AS "sessionId", prompt_override AS "promptOverride", label, config, join_mode AS "joinMode", input, output, created_at AS "createdAt", updated_at AS "updatedAt" FROM nodes WHERE flow_id=$1 AND node_key=$2`, flowId, nodeKey);
     return n?.type ?? nodeKey;
   }
 
@@ -736,7 +736,7 @@ export class FlowEngine {
    * Engine internals shared with the SDLC builtin-chain module — not a public API.
    */
 
-  approvePlan(flowId: string, executionOverride?: 'whole' | 'steps'): void {
+  async approvePlan(flowId: string, executionOverride?: 'whole' | 'steps'): void {
     const planKey = this.keyOfRole(flowId, NODE_KEYS.PLAN);
     if (!planKey) throw new Error('this flow template has no plan node');
     const planStatus = this.nodeStatus(flowId, planKey);
@@ -758,15 +758,15 @@ export class FlowEngine {
         if (m && typeof m === 'object') meta = m;
       } catch {
         meta = {};
-      }
+      async }
       const was = meta.execution === 'steps' ? 'steps' : 'whole';
       const wasSource = typeof meta.executionSource === 'string' ? meta.executionSource : 'unknown';
       if (was !== executionOverride) {
         meta.execution = executionOverride;
         meta.executionSource = 'override';
         delete meta.execution_rationale; // the planner's rationale no longer applies
-        db.run(`UPDATE artifacts SET meta=$1, updated_at=$2 WHERE id=$3`, JSON.stringify(meta), db.now(), plan.id);
-        nodeStore.emitEvent(
+        await db.run(`UPDATE artifacts SET meta=$1, updated_at=$2 WHERE id=$3`, JSON.stringify(meta), db.now(), plan.id);
+        await nodeStore.emitEvent(
           flowId,
           planKey,
           'lifecycle',
@@ -780,7 +780,7 @@ export class FlowEngine {
       NODE_KEYS.PLAN
     );
     if (!plan) throw new Error('no plan to approve');
-    db.run(`UPDATE artifacts SET status='approved' WHERE id=$1`, plan.id);
+    await db.run(`UPDATE artifacts SET status='approved' WHERE id=$1`, plan.id);
     nodeSupport.transition(flowId, planKey, ['awaiting_approval'], 'approved');
 
     // approvePlan originally inlined the plan→build handoff (plan-meta branch
@@ -877,7 +877,7 @@ export class FlowEngine {
     if (def.chainRole === NODE_KEYS.PLAN) {
       throw new ValidationError('The plan node only accepts input via POST /api/flows/:id/chat');
     }
-    const node = rows.get(NodeRow, `SELECT id, flow_id AS "flowId", node_key AS "nodeKey", type, status, attempt_id AS "attemptId", agent_id AS "agentId", agent_ref AS "agentRef", session_id AS "sessionId", prompt_override AS "promptOverride", label, config, join_mode AS "joinMode", input, output, created_at AS "createdAt", updated_at AS "updatedAt" FROM nodes WHERE flow_id=$1 AND node_key=$2`, flowId, nodeKey);
+    const node = await rows.get(NodeRow, `SELECT id, flow_id AS "flowId", node_key AS "nodeKey", type, status, attempt_id AS "attemptId", agent_id AS "agentId", agent_ref AS "agentRef", session_id AS "sessionId", prompt_override AS "promptOverride", label, config, join_mode AS "joinMode", input, output, created_at AS "createdAt", updated_at AS "updatedAt" FROM nodes WHERE flow_id=$1 AND node_key=$2`, flowId, nodeKey);
     if (!node) throw new NotFoundError('node', nodeKey);
     // a failed entry node re-runs from the form — its recorded input never
     // satisfied the contract, so the retry path (recorded input) can't help
@@ -925,8 +925,8 @@ export class FlowEngine {
    * declarative nodes; e.g. an agent output held for review). Outgoing
    * template edges activate on approval — the same contract as plan/build.
    */
-  approveNode(flowId: string, nodeKey: string): void {
-    const node = rows.get(NodeRow, `SELECT id, flow_id AS "flowId", node_key AS "nodeKey", type, status, attempt_id AS "attemptId", agent_id AS "agentId", agent_ref AS "agentRef", session_id AS "sessionId", prompt_override AS "promptOverride", label, config, join_mode AS "joinMode", input, output, created_at AS "createdAt", updated_at AS "updatedAt" FROM nodes WHERE flow_id=$1 AND node_key=$2`, flowId, nodeKey);
+  async approveNode(flowId: string, nodeKey: string): void {
+    const node = await rows.get(NodeRow, `SELECT id, flow_id AS "flowId", node_key AS "nodeKey", type, status, attempt_id AS "attemptId", agent_id AS "agentId", agent_ref AS "agentRef", session_id AS "sessionId", prompt_override AS "promptOverride", label, config, join_mode AS "joinMode", input, output, created_at AS "createdAt", updated_at AS "updatedAt" FROM nodes WHERE flow_id=$1 AND node_key=$2`, flowId, nodeKey);
     if (!node) throw new NotFoundError('node', nodeKey);
     // step children route to the fan-out approve (merge-back vs plain approval)
     if (this.isStepChild(flowId) && node.status === 'awaiting_approval') {
@@ -938,7 +938,7 @@ export class FlowEngine {
     }
     const def = this.defOf(flowId, nodeKey);
     if (def.builtinApproval) throw new ValidationError(`${nodeKey} approval belongs to its built-in flow actions`);
-    db.emitEvent(flowId, node.id, 'lifecycle', `${nodeKey} approved`);
+    await db.emitEvent(flowId, node.id, 'lifecycle', `${nodeKey} approved`);
     nodeSupport.transition(flowId, nodeKey, ['awaiting_approval'], 'approved');
 
     const g = this.graph(flowId);
@@ -963,7 +963,7 @@ export class FlowEngine {
    * activates the chosen outgoing edges (everything else resolves inactive).
    */
   async chooseNode(flowId: string, nodeKey: string, chosen: string[], rationale?: string): Promise<void> {
-    const node = rows.get(NodeRow, `SELECT id, flow_id AS "flowId", node_key AS "nodeKey", type, status, attempt_id AS "attemptId", agent_id AS "agentId", agent_ref AS "agentRef", session_id AS "sessionId", prompt_override AS "promptOverride", label, config, join_mode AS "joinMode", input, output, created_at AS "createdAt", updated_at AS "updatedAt" FROM nodes WHERE flow_id=$1 AND node_key=$2`, flowId, nodeKey);
+    const node = await rows.get(NodeRow, `SELECT id, flow_id AS "flowId", node_key AS "nodeKey", type, status, attempt_id AS "attemptId", agent_id AS "agentId", agent_ref AS "agentRef", session_id AS "sessionId", prompt_override AS "promptOverride", label, config, join_mode AS "joinMode", input, output, created_at AS "createdAt", updated_at AS "updatedAt" FROM nodes WHERE flow_id=$1 AND node_key=$2`, flowId, nodeKey);
     if (!node) throw new NotFoundError('node', nodeKey);
     if (node.status !== 'awaiting_approval') {
       throw new ConflictError(`${nodeKey} is not waiting for a branch choice`);
@@ -1000,8 +1000,8 @@ export class FlowEngine {
   }
 
   /** Update a node instance's config layer (nodes.config), merging per key. */
-  setNodeConfig(flowId: string, nodeKey: string, config: Record<string, unknown>): void {
-    const node = rows.get(NodeRow, `SELECT id, flow_id AS "flowId", node_key AS "nodeKey", type, status, attempt_id AS "attemptId", agent_id AS "agentId", agent_ref AS "agentRef", session_id AS "sessionId", prompt_override AS "promptOverride", label, config, join_mode AS "joinMode", input, output, created_at AS "createdAt", updated_at AS "updatedAt" FROM nodes WHERE flow_id=$1 AND node_key=$2`, flowId, nodeKey);
+  async setNodeConfig(flowId: string, nodeKey: string, config: Record<string, unknown>): void {
+    const node = await rows.get(NodeRow, `SELECT id, flow_id AS "flowId", node_key AS "nodeKey", type, status, attempt_id AS "attemptId", agent_id AS "agentId", agent_ref AS "agentRef", session_id AS "sessionId", prompt_override AS "promptOverride", label, config, join_mode AS "joinMode", input, output, created_at AS "createdAt", updated_at AS "updatedAt" FROM nodes WHERE flow_id=$1 AND node_key=$2`, flowId, nodeKey);
     if (!node) throw new NotFoundError('node', nodeKey);
     if (node.status === 'running') throw new ConflictError("can't reconfigure a node while it is running");
     if (!config || typeof config !== 'object' || Array.isArray(config)) {
@@ -1017,7 +1017,7 @@ export class FlowEngine {
       throw new ValidationError(msg);
     }
     nodeSupport.setNode(node.id, { config: JSON.stringify(snapshot) });
-    db.emitEvent(flowId, node.id, 'lifecycle', `${nodeKey} config updated`);
+    await db.emitEvent(flowId, node.id, 'lifecycle', `${nodeKey} config updated`);
     this.touch(flowId);
   }
 
@@ -1040,8 +1040,8 @@ export class FlowEngine {
       stepId,
       parentFlowId
     );
-    if (!step?.sub_flow_id) throw new Error('that step has no sub-flow yet');
-    this.approveBuild(step.sub_flow_id); // step children route to the fan-out approve
+    if (!step?.subFlowId) throw new Error('that step has no sub-flow yet');
+    this.approveBuild(step.subFlowId); // step children route to the fan-out approve
   }
 
   /** Retry one failed fan-out step's child run (its recorded step input).
@@ -1054,30 +1054,30 @@ export class FlowEngine {
       stepId,
       parentFlowId
     );
-    if (!step?.sub_flow_id) throw new Error('that step has no sub-flow yet');
-    if (stepFlows.resumeMergeRetry(parentFlowId, step.sub_flow_id)) return;
-    const workNodeKey = stepFlows.childWorkNodeKey(step.sub_flow_id);
+    if (!step?.subFlowId) throw new Error('that step has no sub-flow yet');
+    if (stepFlows.resumeMergeRetry(parentFlowId, step.subFlowId)) return;
+    const workNodeKey = stepFlows.childWorkNodeKey(step.subFlowId);
     const workNode = db.get<{ status: string }>(
       `SELECT status FROM nodes WHERE flow_id=$1 AND node_key=$2`,
-      step.sub_flow_id,
+      step.subFlowId,
       workNodeKey
     );
     if (!workNode || workNode.status !== 'failed') {
       throw new Error('the step child has no failed node to retry');
     }
-    this.retryNode(step.sub_flow_id, workNodeKey);
+    this.retryNode(step.subFlowId, workNodeKey);
   }
 
   /** Clear the current-node pointer when it still points at the given node.
    *  Engine internals shared with the SDLC builtin-chain module — not a public API. */
-  clearCurrentIf(flowId: string, nodeKey: string): void {
-    const flow = rows.get(FlowRow, `SELECT id, task_id AS "taskId", name, status, mr_url AS "mrUrl", mr_iid AS "mrIid", mr_branch AS "mrBranch", repo_url AS "repoUrl", gitlab_project_id AS "gitlabProjectId", current_node AS "currentNode", execution_mode AS "executionMode", repo_id AS "repoId", template_id AS "templateId", template_graph AS "templateGraph", trigger_payload AS "triggerPayload", worktree_dir AS "worktreeDir", parent_flow_id AS "parentFlowId", kind, created_at AS "createdAt", updated_at AS "updatedAt" FROM flows WHERE id=$1`, flowId);
-    if (flow?.current_node === nodeKey) this.setCurrentNode(flowId, null);
+  async clearCurrentIf(flowId: string, nodeKey: string): void {
+    const flow = await rows.get(FlowRow, `SELECT id, task_id AS "taskId", name, status, mr_url AS "mrUrl", mr_iid AS "mrIid", mr_branch AS "mrBranch", repo_url AS "repoUrl", gitlab_project_id AS "gitlabProjectId", current_node AS "currentNode", execution_mode AS "executionMode", repo_id AS "repoId", template_id AS "templateId", template_graph AS "templateGraph", trigger_payload AS "triggerPayload", worktree_dir AS "worktreeDir", parent_flow_id AS "parentFlowId", kind, created_at AS "createdAt", updated_at AS "updatedAt" FROM flows WHERE id=$1`, flowId);
+    if (flow?.currentNode === nodeKey) this.setCurrentNode(flowId, null);
   }
 
   /** Re-run a node after failure, using its recorded (schema-validated) input. */
-  retryNode(flowId: string, nodeKey: string): void {
-    const node = rows.get(NodeRow, `SELECT id, flow_id AS "flowId", node_key AS "nodeKey", type, status, attempt_id AS "attemptId", agent_id AS "agentId", agent_ref AS "agentRef", session_id AS "sessionId", prompt_override AS "promptOverride", label, config, join_mode AS "joinMode", input, output, created_at AS "createdAt", updated_at AS "updatedAt" FROM nodes WHERE flow_id=$1 AND node_key=$2`, flowId, nodeKey);
+  async retryNode(flowId: string, nodeKey: string): void {
+    const node = await rows.get(NodeRow, `SELECT id, flow_id AS "flowId", node_key AS "nodeKey", type, status, attempt_id AS "attemptId", agent_id AS "agentId", agent_ref AS "agentRef", session_id AS "sessionId", prompt_override AS "promptOverride", label, config, join_mode AS "joinMode", input, output, created_at AS "createdAt", updated_at AS "updatedAt" FROM nodes WHERE flow_id=$1 AND node_key=$2`, flowId, nodeKey);
     if (!node) throw new NotFoundError('node', nodeKey);
     const def = this.defOf(flowId, nodeKey);
     if (!def.retryable) throw new ValidationError(`cannot retry node ${nodeKey}`);
@@ -1097,7 +1097,7 @@ export class FlowEngine {
       return;
     }
 
-    db.emitEvent(flowId, node.id, 'lifecycle', `retrying ${nodeKey}`);
+    await db.emitEvent(flowId, node.id, 'lifecycle', `retrying ${nodeKey}`);
     this.claimNode(flowId, nodeKey, ['failed']);
     this.setCurrentNode(flowId, nodeKey);
     this.bg(flowId, nodeKey, async () => {
@@ -1111,7 +1111,7 @@ export class FlowEngine {
       if (this.isStepChild(flowId)) {
         // child-terminal notification hook (plan fan-out): the parent's
         // scheduler/rollup reacts to the retried child's terminal state
-        stepFlows.onChildFinished(flowId);
+        await stepFlows.onChildFinished(flowId);
         splitManager.onChildFinished(flowId); // split runtime (§3) — no-op without split linkage
       }
       if (isNodeTerminalSuccess(finalStatus)) {
@@ -1128,7 +1128,7 @@ export class FlowEngine {
     def: NodeDefinition,
     recorded: PlanInput
   ): void {
-    db.emitEvent(flowId, node.id, 'lifecycle', `retrying ${nodeKey}`);
+    await db.emitEvent(flowId, node.id, 'lifecycle', `retrying ${nodeKey}`);
     const turnMessage = recorded.turnUserMessage?.trim();
     if (!turnMessage) {
       const revertStatus = resolvePlanFailedRetryStatus(
@@ -1136,7 +1136,7 @@ export class FlowEngine {
         this.latestResourceArtifact(flowId, NODE_KEYS.PLAN) != null
       );
       nodeSupport.transition(flowId, nodeKey, ['failed'], revertStatus);
-      db.emitEvent(flowId, node.id, 'lifecycle', PLAN_CHAT_READY_LIFECYCLE);
+      await db.emitEvent(flowId, node.id, 'lifecycle', PLAN_CHAT_READY_LIFECYCLE);
       this.clearCurrentIf(flowId, nodeKey);
       this.touch(flowId);
       return;
@@ -1153,7 +1153,7 @@ export class FlowEngine {
         model: recorded.model ?? undefined,
         thread: recorded.planThread,
       });
-      db.addMessage(
+      await db.addMessage(
         flowId,
         nodeKey,
         'assistant',
@@ -1168,25 +1168,25 @@ export class FlowEngine {
    * and marks the node failed so it can be retried.
    */
   async cancelNode(flowId: string, nodeKey: string): Promise<void> {
-    const node = rows.get(NodeRow, `SELECT id, flow_id AS "flowId", node_key AS "nodeKey", type, status, attempt_id AS "attemptId", agent_id AS "agentId", agent_ref AS "agentRef", session_id AS "sessionId", prompt_override AS "promptOverride", label, config, join_mode AS "joinMode", input, output, created_at AS "createdAt", updated_at AS "updatedAt" FROM nodes WHERE flow_id=$1 AND node_key=$2`, flowId, nodeKey);
+    const node = await rows.get(NodeRow, `SELECT id, flow_id AS "flowId", node_key AS "nodeKey", type, status, attempt_id AS "attemptId", agent_id AS "agentId", agent_ref AS "agentRef", session_id AS "sessionId", prompt_override AS "promptOverride", label, config, join_mode AS "joinMode", input, output, created_at AS "createdAt", updated_at AS "updatedAt" FROM nodes WHERE flow_id=$1 AND node_key=$2`, flowId, nodeKey);
     if (!node) throw new NotFoundError('node', nodeKey);
     if (node.status !== 'running' && node.status !== 'waiting' && node.status !== 'awaiting_approval') {
       throw new ConflictError(`cannot cancel ${nodeKey} while it is ${node.status}`);
     }
-    const flow = rows.get(FlowRow, `SELECT id, task_id AS "taskId", name, status, mr_url AS "mrUrl", mr_iid AS "mrIid", mr_branch AS "mrBranch", repo_url AS "repoUrl", gitlab_project_id AS "gitlabProjectId", current_node AS "currentNode", execution_mode AS "executionMode", repo_id AS "repoId", template_id AS "templateId", template_graph AS "templateGraph", trigger_payload AS "triggerPayload", worktree_dir AS "worktreeDir", parent_flow_id AS "parentFlowId", kind, created_at AS "createdAt", updated_at AS "updatedAt" FROM flows WHERE id=$1`, flowId);
+    const flow = await rows.get(FlowRow, `SELECT id, task_id AS "taskId", name, status, mr_url AS "mrUrl", mr_iid AS "mrIid", mr_branch AS "mrBranch", repo_url AS "repoUrl", gitlab_project_id AS "gitlabProjectId", current_node AS "currentNode", execution_mode AS "executionMode", repo_id AS "repoId", template_id AS "templateId", template_graph AS "templateGraph", trigger_payload AS "triggerPayload", worktree_dir AS "worktreeDir", parent_flow_id AS "parentFlowId", kind, created_at AS "createdAt", updated_at AS "updatedAt" FROM flows WHERE id=$1`, flowId);
     const active = db.all<{ run_ref: string }>(
       `SELECT run_ref AS "runRef" FROM runs WHERE node_id=$1 AND status='running'`,
       node.id
     );
-    const mode = flow?.execution_mode === 'local' ? 'local' : 'cloud';
+    const mode = flow?.executionMode === 'local' ? 'local' : 'cloud';
     for (const r of active) {
-      await agentPortRegistry.forMode(mode).cancel({ runId: r.run_ref });
+      await agentPortRegistry.forMode(mode).cancel({ runId: r.runRef });
     }
     this.waits.clearTimerForNode(flowId, nodeKey);
-    db.run(`UPDATE runs SET status='error', updated_at=$1 WHERE node_id=$2 AND status='running'`, db.now(), node.id);
+    await db.run(`UPDATE runs SET status='error', updated_at=$1 WHERE node_id=$2 AND status='running'`, db.now(), node.id);
     nodeSupport.transition(flowId, nodeKey, ['running', 'waiting', 'awaiting_approval'], 'failed');
     this.clearCurrentIf(flowId, nodeKey);
-    db.emitEvent(flowId, node.id, 'lifecycle', `${nodeKey} stopped by user — retry when ready`);
+    await db.emitEvent(flowId, node.id, 'lifecycle', `${nodeKey} stopped by user — retry when ready`);
     this.touch(flowId);
     if (this.isStepChild(flowId)) {
       // child-terminal notification hook (plan fan-out): a stopped step child
@@ -1204,7 +1204,7 @@ export class FlowEngine {
    */
   sendChat(flowId: string, nodeKey: string, content: string, model?: string, thread?: string | null): void {
     const def = this.defOf(flowId, nodeKey);
-    db.addMessage(flowId, nodeKey, 'user', content, thread ?? null);
+    await db.addMessage(flowId, nodeKey, 'user', content, thread ?? null);
     // the pre-claim status decides "did THIS turn land a success terminal":
     // the claim flips the node to running, so it must be read first
     const preClaimStatus = this.nodeStatus(flowId, nodeKey);
@@ -1238,11 +1238,11 @@ export class FlowEngine {
               previousStatus: preClaimStatus,
             });
 
-        db.addMessage(flowId, nodeKey, 'assistant', chatResponse || 'Done.', thread);
+        await db.addMessage(flowId, nodeKey, 'assistant', chatResponse || 'Done.', thread);
         // a refine turn that lands the node on a NEW success terminal
         // (failed → done via feedback, a first-turn chat run) obeys the same
         // terminal contract as retryNode / runNodeManual: advance the template
-        // edges so the flow never stalls behind a recovery typed in the chat
+        async // edges so the flow never stalls behind a recovery typed in the chat
         // panel. An already-successful node's refine (done → done) never
         // re-advances — its downstream already consumed the prior output.
         if (!wasSuccess && isNodeTerminalSuccess(this.nodeStatus(flowId, nodeKey))) {
@@ -1281,7 +1281,7 @@ export class FlowEngine {
    * recovery / cloud re-attach). Delegates to the node's own recover().
    */
   async completeNodeFromResult(c: FlowCtx, node: NodeRow, result: AgentRunResult, note: string): Promise<boolean> {
-    db.run(
+    await db.run(
       `UPDATE runs SET status=$1, updated_at=$2 WHERE node_id=$3 AND status='running'`,
       result.status === 'finished' ? 'finished' : 'error',
       db.now(),
@@ -1289,25 +1289,25 @@ export class FlowEngine {
     );
     if (node.status !== 'running') return true; // already reconciled by a concurrent pass
 
-    const def = this.defOf(c.flow.id, node.node_key);
+    const def = this.defOf(c.flow.id, node.nodeKey);
     const ok = await def.recover(c, node, result, note);
     if (ok) return true;
-
+async 
     // node declined recovery → fail it so the user can retry
     nodeSupport.setNode(node.id, { status: 'failed' });
     if (result.status !== 'finished') {
-      db.emitEvent(
+      await db.emitEvent(
         c.flow.id,
         node.id,
         'error',
-        `${node.node_key} run ended with ${result.status} (${note}) — retry the node to continue`
+        `${node.nodeKey} run ended with ${result.status} (${note}) — retry the node to continue`
       );
-    } else {
-      db.emitEvent(
+    async } else {
+      await db.emitEvent(
         c.flow.id,
         node.id,
         'lifecycle',
-        `${node.node_key} run finished while disconnected (${note}) — retry the node to apply it`
+        `${node.nodeKey} run finished while disconnected (${note}) — retry the node to apply it`
       );
     }
     return true;

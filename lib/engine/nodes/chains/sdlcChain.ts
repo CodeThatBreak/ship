@@ -77,7 +77,7 @@ export class SdlcChain {
               .filter((b) => b.status === "awaiting_approval" || b.status === "approved")
               .map((b) => b.name);
         const targets = branchTargets.length > 1
-          ? branchTargets.map((b) => b as string | null)
+          async ? branchTargets.map((b) => b as string | null)
           : [branchTargets[0] ?? null];
         const multiBranch = targets.length > 1;
         for (const b of targets) {
@@ -93,7 +93,7 @@ export class SdlcChain {
         if (multiBranch) {
           mergeRequests.resetGateReview(flowId, gate, reviewKey);
         }
-        // CR created — the build → pipeline edge starts the gate (and the
+        async // CR created — the build → pipeline edge starts the gate (and the
         // green gate flows on to review → debounced resolve via edges)
         await this.host.advanceFrom(flowId, buildKey);
       } catch (e: unknown) {

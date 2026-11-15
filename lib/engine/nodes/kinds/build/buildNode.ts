@@ -27,7 +27,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
  * The split-child trigger payload's unit item, narrowed (null otherwise):
  * a split child's `trigger_payload` is `{ parentNodeKey, unit: { key,
  * title, dependsOn, item, position } }` (the split runtime's linkage,
- * aliased through `ctx.flow.trigger_payload`), and the plan node's branch
+ * aliased through `ctx.flow.triggerPayload`), and the plan node's branch
  * units carry `item.name/title/scope/plan`.
  */
 function splitUnitItemOf(payload: unknown): {
@@ -295,7 +295,7 @@ export class BuildNode extends AgentRunNode<BuildInput, BuildOutput> {
     ctx: FlowCtx,
     result: AgentRunResult,
     branch: string,
-    branchInfo: BuildBranchInfo | null,
+    async branchInfo: BuildBranchInfo | null,
     nodeId: string,
     runRowId: string,
   ): Promise<RunOutcome> {

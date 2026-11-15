@@ -43,10 +43,10 @@ export class StatusService {
       mr_iid: number | null;
     }>(
       `SELECT f.id AS flow_id, t.key AS task_key, t.summary AS task_summary,
-              f.current_node, f.execution_mode AS "executionMode", f.status, f.mr_url AS "mrUrl", f.mr_iid AS "mrIid"
-       FROM flows f JOIN tasks t ON t.id = f.task_id
+              f.currentNode, f.executionMode AS "executionMode", f.status, f.mrUrl AS "mrUrl", f.mrIid AS "mrIid"
+       FROM flows f JOIN tasks t ON t.id = f.taskId
        WHERE f.status = $1
-       ORDER BY f.updated_at DESC`,
+       ORDER BY f.updatedAt DESC`,
       FLOW_STATUS.ACTIVE,
     );
 
@@ -56,14 +56,14 @@ export class StatusService {
     const repoCount = this.database.get<{ c: number }>(`SELECT COUNT(*) AS c FROM repos`)?.c ?? 0;
 
     const openMrs = agents.flatMap((a) =>
-      a.mr_url
+      a.mrUrl
         ? [
             {
-              flowId: a.flow_id,
+              flowId: a.flowId,
               taskKey: a.task_key,
               summary: a.task_summary,
-              mrUrl: a.mr_url,
-              mrIid: a.mr_iid,
+              mrUrl: a.mrUrl,
+              mrIid: a.mrIid,
             },
           ]
         : [],
@@ -71,13 +71,13 @@ export class StatusService {
 
     return {
       agents: agents.map((a) => ({
-        flowId: a.flow_id,
+        flowId: a.flowId,
         taskKey: a.task_key,
         summary: a.task_summary,
-        node: a.current_node,
-        mode: a.execution_mode ?? RUN_MODE.CLOUD,
+        node: a.currentNode,
+        mode: a.executionMode ?? RUN_MODE.CLOUD,
         status: a.status,
-        mrOpen: Boolean(a.mr_url),
+        mrOpen: Boolean(a.mrUrl),
       })),
       agentsRunning: agents.length,
       runsRunning,

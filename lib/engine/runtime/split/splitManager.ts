@@ -166,7 +166,7 @@ export class FlowsSplitLinkIndex implements SplitLinkIndex {
     );
     const links: SplitChildLink[] = [];
     for (const r of rows) {
-      const payload = parseSplitPayload(r.trigger_payload);
+      const payload = parseSplitPayload(r.triggerPayload);
       if (!payload || payload.parentNodeKey !== consumerNodeKey) continue;
       links.push({ childFlowId: r.id, unitKey: payload.unit.key, unit: payload.unit });
     }
@@ -177,7 +177,7 @@ export class FlowsSplitLinkIndex implements SplitLinkIndex {
     const row = db.get<{ trigger_payload: string | null }>(
       `SELECT trigger_payload AS "triggerPayload" FROM flows WHERE id=$1`, childFlowId
     );
-    return parseSplitPayload(row?.trigger_payload);
+    return parseSplitPayload(row?.triggerPayload);
   }
 
   consumerNodeOfUnit(parentFlowId: string, unitKey: string): string | null {
@@ -186,7 +186,7 @@ export class FlowsSplitLinkIndex implements SplitLinkIndex {
       parentFlowId
     );
     for (const r of rows) {
-      const payload = parseSplitPayload(r.trigger_payload);
+      const payload = parseSplitPayload(r.triggerPayload);
       if (payload?.unit.key === unitKey) return payload.parentNodeKey;
     }
     return null;
@@ -278,7 +278,7 @@ export class SplitManager {
     if (!flow) throw new Error(`parent flow ${parentFlowId} not found`);
     // nesting guard (§3): children never split — a `per-unit` consumer inside
     // a child flow resolves to `whole`, enforced here, not by convention
-    if (flow.parent_flow_id != null) return false;
+    if (flow.parentFlowId != null) return false;
     const consume = opts.consume ?? splitConsumeOf(this.e.nodeConfigFor(parentFlowId, consumerNodeKey));
     if (consume !== "per-unit") return false;
     const ctx = this.e.ctx(parentFlowId);
@@ -311,7 +311,7 @@ export class SplitManager {
     if (!made && !existing.size) return false;
     if (made) {
       this.e.setNodeStatus(parentFlowId, consumerNodeKey, "running");
-      db.emitEvent(parentFlowId, null, "lifecycle",
+      await db.emitEvent(parentFlowId, null, "lifecycle",
         `${consumerNodeKey} splits into ${made} unit child flow${made > 1 ? "s" : ""} — one child per published unit`,
         { nodeKey: consumerNodeKey });
     }
@@ -347,7 +347,7 @@ export class SplitManager {
     };
     const name = db.get<{ name: string }>(`SELECT name FROM flows WHERE id=$1`, parentFlowId)?.name ?? parentFlowId;
     const childId = this.e.createSplitChild(parentFlowId, templateId, `${name} · unit: ${unit.title}`, payload);
-    db.emitEvent(parentFlowId, null, "lifecycle",
+    await db.emitEvent(parentFlowId, null, "lifecycle",
       `split: unit "${unit.title}" → child flow`,
       { nodeKey: consumerNodeKey, childFlowId: childId, unitKey: unit.key });
     return childId;
@@ -362,11 +362,11 @@ export class SplitManager {
    * knobs); a `template` target wraps the declarative `node_templates` row —
    * the def hydrates from the row exactly as it does in any template.
    */
-  private unitChildTemplateId(parentFlowId: string, target: SplitTarget): string {
+  async private unitChildTemplateId(parentFlowId: string, target: SplitTarget): string {
     const row = target.kind === "template"
       ? must(templateStore.nodeTemplate(target.id), `split target template row ${target.id}`)
       : must(templateStore.nodeTemplateByKey(target.key), `split node target "${target.key}" catalog row`);
-    if (target.kind === "node" && !row.is_builtin) {
+    if (target.kind === "node" && !row.isBuiltin) {
       throw new SplitTargetError(`split node target "${target.key}" is not a builtin node key`);
     }
     const instanceKey = target.kind === "template" ? row.key : target.key;
@@ -392,7 +392,7 @@ export class SplitManager {
       ],
       edges: [],
     }, { skipLint: true });
-    db.run(`UPDATE flow_templates SET hidden=1, updated_at=$1 WHERE id=$2`, db.now(), tplId);
+    await db.run(`UPDATE flow_templates SET hidden=1, updated_at=$1 WHERE id=$2`, db.now(), tplId);
     return tplId;
   }
 
@@ -575,13 +575,13 @@ export class SplitManager {
    * is a split child (linkage check first — the whole method is two queries
    * for non-split children), then reschedules the parent's units.
    */
-  onChildFinished(childFlowId: string): void {
+  async onChildFinished(childFlowId: string): void {
     const payload = this.linkage.childPayloadOf(childFlowId);
     if (!payload?.parentNodeKey || !payload.unit?.key) return; // no split linkage
     const flow = db.get<{ parent_flow_id: string | null; kind: string | null; status: string }>(
       `SELECT parent_flow_id AS "parentFlowId", kind, status FROM flows WHERE id=$1`, childFlowId
     );
-    if (!flow?.parent_flow_id || flow.kind !== "split") return;
+    if (!flow?.parentFlowId || flow.kind !== "split") return;
     // a multi-node (template-target) child mid-graph is not terminal yet —
     // intermediate node finishes don't reschedule the parent's units. An
     // `awaiting_approval` node DOES: the unit holds a scheduler slot until
@@ -593,10 +593,10 @@ export class SplitManager {
       && statuses.every((s) => NODE_TERMINAL_STATUSES.includes(s));
     const holding = statuses.some((s) => s === FLOW_STATUS.AWAITING_APPROVAL);
     if (!allTerminal && !holding && !flowClosed) return;
-    db.emitEvent(flow.parent_flow_id, null, "lifecycle",
+    await db.emitEvent(flow.parentFlowId, null, "lifecycle",
       `split unit "${payload.unit.title}" resolved`,
       { nodeKey: payload.parentNodeKey, childFlowId, unitKey: payload.unit.key });
-    this.advance(flow.parent_flow_id, payload.parentNodeKey);
+    this.advance(flow.parentFlowId, payload.parentNodeKey);
   }
 
   // ── per-unit actions (§3), addressed by unit.key through the linkage ────────
@@ -613,10 +613,10 @@ export class SplitManager {
       throw new Error(`unit "${unitKey}" is already ${state.status}`);
     }
     await this.stopActiveChildNodes(state.childFlowId);
-    db.run(`UPDATE nodes SET status='skipped', updated_at=$1 WHERE flow_id=$2 AND status NOT IN ('done','skipped')`,
+    await db.run(`UPDATE nodes SET status='skipped', updated_at=$1 WHERE flow_id=$2 AND status NOT IN ('done','skipped')`,
       db.now(), state.childFlowId);
-    db.run(`UPDATE flows SET status='skipped', updated_at=$1 WHERE id=$2`, db.now(), state.childFlowId);
-    db.emitEvent(parentFlowId, null, "lifecycle",
+    await db.run(`UPDATE flows SET status='skipped', updated_at=$1 WHERE id=$2`, db.now(), state.childFlowId);
+    await db.emitEvent(parentFlowId, null, "lifecycle",
       `split unit "${state.title}" skipped`, { nodeKey: consumerNodeKey, unitKey, childFlowId: state.childFlowId });
     this.advance(parentFlowId, consumerNodeKey);
   }
@@ -629,7 +629,7 @@ export class SplitManager {
     const failed = db.all<{ node_key: string }>(
       `SELECT node_key AS "nodeKey" FROM nodes WHERE flow_id=$1 AND status='failed'`, state.childFlowId);
     if (!failed.length) throw new Error(`unit "${unitKey}" has no failed node to retry`);
-    this.e.retryNode(state.childFlowId, failed[0].node_key); // hooks reschedule on finish
+    this.e.retryNode(state.childFlowId, failed[0].nodeKey); // hooks reschedule on finish
   }
 
   /**
@@ -644,11 +644,11 @@ export class SplitManager {
       `SELECT node_key AS "nodeKey" FROM nodes WHERE flow_id=$1 AND status='awaiting_approval'`, state.childFlowId);
     if (!awaiting.length) throw new Error(`unit "${unitKey}" is not awaiting approval`);
     for (const n of awaiting) {
-      this.e.setNodeStatus(state.childFlowId, n.node_key, FLOW_STATUS.APPROVED);
-      db.emitEvent(state.childFlowId, null, "lifecycle", `${n.node_key} approved`);
+      this.e.setNodeStatus(state.childFlowId, n.nodeKey, FLOW_STATUS.APPROVED);
+      await db.emitEvent(state.childFlowId, null, "lifecycle", `${n.nodeKey} approved`);
     }
     // the child's own graph continues past its approval gate, if it has one
-    void this.e.advanceFrom(state.childFlowId, awaiting[0].node_key);
+    void this.e.advanceFrom(state.childFlowId, awaiting[0].nodeKey);
     this.advance(parentFlowId, consumerNodeKey);
   }
 
@@ -657,13 +657,13 @@ export class SplitManager {
   async cancelUnit(parentFlowId: string, consumerNodeKey: string, unitKey: string): Promise<void> {
     const state = this.stateFor(parentFlowId, consumerNodeKey, unitKey);
     if (!state.childFlowId) throw new Error(`unit "${unitKey}" has no child flow to cancel`);
-    const active = db.all<{ node_key: string; status: string }>(
+    async const active = db.all<{ node_key: string; status: string }>(
       `SELECT node_key AS "nodeKey", status FROM nodes WHERE flow_id=$1`, state.childFlowId)
       .filter((n) => NODE_ACTIVE_STATUSES.includes(n.status));
     for (const n of active) {
-      await this.e.cancelNode(state.childFlowId, n.node_key); // marks failed + stops in-flight runs
+      await this.e.cancelNode(state.childFlowId, n.nodeKey); // marks failed + stops in-flight runs
     }
-    db.emitEvent(parentFlowId, null, "lifecycle",
+    await db.emitEvent(parentFlowId, null, "lifecycle",
       `split unit "${state.title}" cancelled`, { nodeKey: consumerNodeKey, unitKey, childFlowId: state.childFlowId });
     this.advance(parentFlowId, consumerNodeKey);
   }
@@ -674,7 +674,7 @@ export class SplitManager {
       `SELECT node_key AS "nodeKey", status FROM nodes WHERE flow_id=$1`, childFlowId)
       .filter((n) => NODE_IN_FLIGHT_STATUSES.includes(n.status));
     for (const n of active) {
-      await this.e.cancelNode(childFlowId, n.node_key);
+      await this.e.cancelNode(childFlowId, n.nodeKey);
     }
   }
 

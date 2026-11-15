@@ -72,7 +72,7 @@ export {
 } from "../constants/triggers";
 /** Task types a template's trigger may declare — the registered provider kinds
  *  (docs/tasks-plan.md §2). A template declares WHICH task type its flows run
- *  on (trigger.task_type); flows receive the concrete task at start time. */
+ *  on (trigger.taskType); flows receive the concrete task at start time. */
 export const TASK_TRIGGER_TYPES = taskRegistry.list().map((p) => p.kind) as string[];
 
 const KINDED_NODE_TEMPLATE_KINDS = ["agent", "http", "script", "decision"] as const;
@@ -95,12 +95,12 @@ function serializeNodeTemplate(nt: NodeTemplateRow): EditorCatalogEntry {
     version: nt.version,
     description: nt.description,
     icon: nt.icon,
-    is_builtin: Boolean(nt.is_builtin),
+    is_builtin: Boolean(nt.isBuiltin),
     config: nt.config,
-    template_id: nt.template_id,
-    is_local: Boolean(nt.template_id),
-    created_at: nt.created_at,
-    updated_at: nt.updated_at,
+    template_id: nt.templateId,
+    is_local: Boolean(nt.templateId),
+    created_at: nt.createdAt,
+    updated_at: nt.updatedAt,
   };
 }
 
@@ -130,7 +130,7 @@ export interface TemplateNodeMeta {
  * (meta + node instances + edges), plus declarative node-template CRUD
  * (kind=agent). Phase 3 adds the decision / http / script kinds, static
  * template linting (§5), decision-edge label validation at save time, and the
- * flow trigger's declared task type (`trigger.task_type`, default = the first
+ * flow trigger's declared task type (`trigger.taskType`, default = the first
  * registered task provider).
  */
 export class TemplateStore {
@@ -142,27 +142,27 @@ export class TemplateStore {
     if (!tpl) return null;
 
     const nodes = db.all<Record<string, unknown>>(
-      `SELECT n.id, n.node_key, n.node_template_id AS "nodeTemplateId", n.label, n.trigger, n.join_mode AS "joinMode", n.config, n.input_map AS "inputMap", n.x, n.y,
+      `SELECT n.id, n.nodeKey, n.nodeTemplateId AS "nodeTemplateId", n.label, n.trigger, n.joinMode AS "joinMode", n.config, n.inputMap AS "inputMap", n.x, n.y,
               nt.key AS def_key, nt.id AS nt_id, nt.kind AS nt_kind, nt.icon AS nt_icon,
-              nt.name AS nt_name, nt.is_builtin AS nt_builtin
-       FROM flow_template_nodes n JOIN node_templates nt ON nt.id = n.node_template_id
-       WHERE n.template_id=$1 ORDER BY n.rowid`,
+              nt.name AS nt_name, nt.isBuiltin AS nt_builtin
+       FROM flow_template_nodes n JOIN node_templates nt ON nt.id = n.nodeTemplateId
+       WHERE n.templateId=$1 ORDER BY n.rowid`,
       templateId
     ).map((r) => {
       // Built-ins resolve their NodeDefinition by registry key; declarative
       // kinds (agent, …) resolve by the node_templates row id so the registry
       // can hydrate a runtime instance per catalog entry.
-      const defKey = r.nt_builtin ? (r.def_key as string) : (r.nt_id as string);
+      const defKey = r.ntBuiltin ? (r.defKey as string) : (r.ntId as string);
       const spec: TemplateNodeSpec = {
-        key: r.node_key as string,
+        key: r.nodeKey as string,
         defKey,
-        nodeTemplateId: r.node_template_id as string,
-        catalogKind: r.nt_kind as string,
-        label: (r.label as string | null) ?? (r.nt_name as string),
-        joinMode: (r.join_mode as "all" | "any") === "any" ? "any" : "all",
+        nodeTemplateId: r.nodeTemplateId as string,
+        catalogKind: r.ntKind as string,
+        label: (r.label as string | null) ?? (r.ntName as string),
+        joinMode: (r.joinMode as "all" | "any") === "any" ? "any" : "all",
         config: TemplateStore.parseJson<Record<string, unknown>>(r.config as string, {}),
         trigger: TemplateStore.parseTrigger(TemplateStore.parseJson<Record<string, unknown>>(r.trigger as string, {})),
-        inputMap: TemplateStore.parseJson<Record<string, unknown>>(r.input_map as string, {}),
+        inputMap: TemplateStore.parseJson<Record<string, unknown>>(r.inputMap as string, {}),
         x: typeof r.x === "number" ? r.x : null,
         y: typeof r.y === "number" ? r.y : null,
       };
@@ -174,8 +174,8 @@ export class TemplateStore {
        FROM flow_template_edges WHERE template_id=$1 ORDER BY rowid`,
       templateId
     ).map((r) => ({
-      from: r.from_key as string,
-      to: r.to_key as string,
+      from: r.fromKey as string,
+      to: r.toKey as string,
       kind: (r.kind as "next" | "loop") === "loop" ? "loop" as const : "next" as const,
       label: (r.label as string | null) ?? null,
       condition: (r.condition as string | null) ?? null,
@@ -195,7 +195,7 @@ export class TemplateStore {
 
   /**
    * The graph a flow instance runs against. New flows persist a JSON snapshot
-   * at creation (`flows.template_graph`); legacy rows without one fall back to
+   * at creation (`flows.templateGraph`); legacy rows without one fall back to
    * the live template (same as pre-snapshot behavior).
    */
   graphForFlow(flowId: string): TemplateGraph | null {
@@ -204,15 +204,15 @@ export class TemplateStore {
       flowId,
     );
     if (!row) return null;
-    const snapshotted = hydrateFlowTemplateGraph(row.template_graph);
+    const snapshotted = hydrateFlowTemplateGraph(row.templateGraph);
     if (snapshotted) return snapshotted;
-    const tid = row.template_id ?? SDLC_TEMPLATE_ID;
+    const tid = row.templateId ?? SDLC_TEMPLATE_ID;
     return this.graph(tid);
   }
 
   /** Persist the template graph snapshot taken when a flow is created. */
-  persistFlowGraphSnapshot(flowId: string, graph: TemplateGraph): void {
-    db.run(
+  async persistFlowGraphSnapshot(flowId: string, graph: TemplateGraph): void {
+    await db.run(
       `UPDATE flows SET template_graph=$1 WHERE id=$2`,
       serializeFlowTemplateGraph(graph),
       flowId,
@@ -227,7 +227,7 @@ export class TemplateStore {
   waitNodeKey(flowId: string, eventSource: string): string | null {
     const g = this.graphForFlow(flowId);
     if (!g) return null;
-    return g.nodes.find((n) => (n.trigger as TemplateNodeTrigger | undefined)?.wait_for === eventSource)?.key ?? null;
+    return g.nodes.find((n) => (n.trigger as TemplateNodeTrigger | undefined)?.waitFor === eventSource)?.key ?? null;
   }
 
   /**
@@ -239,7 +239,7 @@ export class TemplateStore {
   chainNodeKeys(flowId: string): string[] {
     const g = this.graphForFlow(flowId);
     if (!g) return [];
-    const head = g.nodes.find((n) => (n.trigger as TemplateNodeTrigger | undefined)?.wait_for === "pipeline");
+    const head = g.nodes.find((n) => (n.trigger as TemplateNodeTrigger | undefined)?.waitFor === "pipeline");
     if (!head) return g.nodes.map((n) => n.key); // no gate — treat the graph as the chain
     const out = [head.key];
     const seen = new Set(out);
@@ -273,8 +273,8 @@ export class TemplateStore {
    *  (hidden=1) — the gallery excludes them by default. */
   list(opts: { includeHidden?: boolean } = {}): (FlowTemplateRow & { nodeCount: number })[] {
     const templates = opts.includeHidden
-      ? rows.all(FlowTemplateRow, `SELECT id, name, description, version, is_builtin AS "isBuiltin", trigger, schedule_next_at AS "scheduleNextAt", hidden, created_at AS "createdAt", updated_at AS "updatedAt" FROM flow_templates ORDER BY rowid`)
-      : rows.all(FlowTemplateRow, `SELECT id, name, description, version, is_builtin AS "isBuiltin", trigger, schedule_next_at AS "scheduleNextAt", hidden, created_at AS "createdAt", updated_at AS "updatedAt" FROM flow_templates WHERE hidden=0 ORDER BY rowid`);
+      ? await rows.all(FlowTemplateRow, `SELECT id, name, description, version, is_builtin AS "isBuiltin", trigger, schedule_next_at AS "scheduleNextAt", hidden, created_at AS "createdAt", updated_at AS "updatedAt" FROM flow_templates ORDER BY rowid`)
+      : await rows.all(FlowTemplateRow, `SELECT id, name, description, version, is_builtin AS "isBuiltin", trigger, schedule_next_at AS "scheduleNextAt", hidden, created_at AS "createdAt", updated_at AS "updatedAt" FROM flow_templates WHERE hidden=0 ORDER BY rowid`);
     return templates.map((t) => ({
       ...t,
       nodeCount: db.get<{ c: number }>(
@@ -316,8 +316,8 @@ export class TemplateStore {
         /** node_templates row key ("plan"/"start"/...): the fan-out UI gates
          *  on builtin plan nodes the same way the save-time lint does */
         catalog_key: nt?.key ?? null,
-        is_builtin: Boolean(nt?.is_builtin),
-        is_local: Boolean(nt?.template_id),
+        is_builtin: Boolean(nt?.isBuiltin),
+        is_local: Boolean(nt?.templateId),
         x: n.x ?? null,
         y: n.y ?? null,
       };
@@ -328,7 +328,7 @@ export class TemplateStore {
         name: t.name,
         description: t.description,
         version: t.version,
-        is_builtin: Boolean(t.is_builtin),
+        is_builtin: Boolean(t.isBuiltin),
         trigger: g.flowTrigger,
       },
       hook: hook ? { id: hook.id, secret: hook.secret, filter: hook.filter } : null,
@@ -347,7 +347,7 @@ export class TemplateStore {
     const { library, templateLocal } = this.listNodeTemplatesForPalette(templateId);
     return {
       nodeTemplates: [
-        ...this.listNodeTemplates().filter((nt) => Boolean(nt.is_builtin)),
+        ...this.listNodeTemplates().filter((nt) => Boolean(nt.isBuiltin)),
         ...library,
       ].map((nt) => this.toCatalogEntry(nt)),
       templateNodeTemplates: templateLocal.map((nt) => this.toCatalogEntry(nt)),
@@ -369,11 +369,11 @@ export class TemplateStore {
       version: nt.version,
       description: nt.description,
       icon: nt.icon,
-      is_builtin: Boolean(nt.is_builtin),
+      is_builtin: Boolean(nt.isBuiltin),
       config: nt.config ?? {},
-      template_id: nt.template_id,
-      is_local: Boolean(nt.template_id),
-      updated_at: nt.updated_at,
+      template_id: nt.templateId,
+      is_local: Boolean(nt.templateId),
+      updated_at: nt.updatedAt,
     };
   }
 
@@ -442,7 +442,7 @@ export class TemplateStore {
     const lintNodes = (body.nodes ?? []).map((n) => ({
       key: (typeof n.key === "string" ? n.key : "").trim(),
       nodeTemplateId: typeof n.nodeTemplateId === "string" ? n.nodeTemplateId : "",
-      inputMap: (n.input_map ?? {}) as Record<string, unknown>,
+      inputMap: (n.inputMap ?? {}) as Record<string, unknown>,
       config: (n.config ?? {}) as Record<string, unknown>,
       trigger: n.trigger,
     }));
@@ -503,8 +503,8 @@ export class TemplateStore {
     const { nodes, edges, trigger } = this.validated(input, { skipLint: opts.skipLint === true });
     const id = opts.id ?? db.uid("tpl_");
     const ts = db.now();
-    db.transaction(() => {
-      db.run(
+    await db.transaction(async (tx) => {
+      await db.run(
         `INSERT INTO flow_templates (id,name,description,version,is_builtin,trigger,created_at,updated_at)
          VALUES ($1,$2,$3,$4,$5,$6,$7,$8) ON CONFLICT DO NOTHING`,
         id, input.name?.trim() || "Untitled flow", input.description ?? null,
@@ -532,7 +532,7 @@ export class TemplateStore {
     // reference them — so the copy is built as template meta → local rows →
     // graph (the update path replaces nodes + edges wholesale).
     const localRemap = new Map<string, string>();
-    return db.transaction(() => {
+    return await db.transaction(async (tx) => {
       const newId = this.create({
         name: name?.trim() || `${src.name} copy`,
         description: src.description,
@@ -542,7 +542,7 @@ export class TemplateStore {
       for (const n of graph.nodes) {
         if (localRemap.has(n.nodeTemplateId)) continue;
         const nt = this.nodeTemplate(n.nodeTemplateId);
-        if (!nt || nt.is_builtin || nt.template_id !== templateId) continue;
+        if (!nt || nt.isBuiltin || nt.templateId !== templateId) continue;
         const created = this.createNodeTemplate(
           {
             name: nt.name, kind: nt.kind, icon: nt.icon,
@@ -582,7 +582,7 @@ export class TemplateStore {
     if (!tpl) throw new NotFoundError("template", templateId);
     this.assertEditable(templateId);
     if (patch.name !== undefined || patch.description !== undefined || patch.trigger !== undefined) {
-      db.run(
+      await db.run(
         `UPDATE flow_templates SET name=$1, description=$2, trigger=$3, updated_at=$4 WHERE id=$5`,
         patch.name?.trim() || tpl.name,
         patch.description !== undefined ? patch.description : tpl.description,
@@ -614,7 +614,7 @@ export class TemplateStore {
       edges?: TemplateEdgeInput[];
       new_node_templates?: DraftNodeTemplateInput[];
     },
-  ): void {
+  async ): void {
     const drafts = Array.isArray(patch.new_node_templates) ? patch.new_node_templates : [];
     if (
       !drafts.length &&
@@ -624,7 +624,7 @@ export class TemplateStore {
         "a node references an unsaved node template — send it in new_node_templates",
       );
     }
-    db.transaction(() => {
+    await db.transaction(async (tx) => {
       const remapped = { ...patch };
       delete remapped.new_node_templates;
       if (drafts.length) {
@@ -672,7 +672,7 @@ export class TemplateStore {
   }
 
   /** Delete a template (built-ins are protected; in-use templates are locked). */
-  delete(templateId: string): void {
+  async delete(templateId: string): void {
     this.assertEditable(templateId);
     const used = db.get<{ c: number }>(
       `SELECT COUNT(*) c FROM flows WHERE template_id=$1`, templateId)?.c ?? 0;
@@ -682,9 +682,9 @@ export class TemplateStore {
       );
     }
     hookStore.removeTemplate(templateId);
-    db.transaction(() => {
-      db.run(`DELETE FROM flow_template_nodes WHERE template_id=$1`, templateId);
-      db.run(`DELETE FROM flow_template_edges WHERE template_id=$1`, templateId);
+    await db.transaction(async (tx) => {
+      await db.run(`DELETE FROM flow_template_nodes WHERE template_id=$1`, templateId);
+      await db.run(`DELETE FROM flow_template_edges WHERE template_id=$1`, templateId);
       // Template-local node templates (the canvas creator's rows): gone with
       // their template — but only when no OTHER template's node still
       // references one (belt-and-braces: Add to Library promotes without
@@ -692,17 +692,17 @@ export class TemplateStore {
       // the flow_templates delete (the FK is enforced); a stray external
       // reference detaches the row to the shared Library instead of blocking
       // the delete forever.
-      const locals = db.all<{ id: string }>(
+      async const locals = db.all<{ id: string }>(
         `SELECT id FROM node_templates WHERE template_id=$1 AND is_builtin=0`, templateId
       );
       for (const l of locals) {
         const used = db.get<{ c: number }>(
           `SELECT COUNT(*) c FROM flow_template_nodes WHERE node_template_id=$1 AND template_id<>$2`,
           l.id, templateId)?.c ?? 0;
-        if (used === 0) db.run(`DELETE FROM node_templates WHERE id=$1`, l.id);
-        else db.run(`UPDATE node_templates SET template_id=NULL WHERE id=$1`, l.id);
+        if (used === 0) await db.run(`DELETE FROM node_templates WHERE id=$1`, l.id);
+        else await db.run(`UPDATE node_templates SET template_id=NULL WHERE id=$1`, l.id);
       }
-      db.run(`DELETE FROM flow_templates WHERE id=$1`, templateId);
+      await db.run(`DELETE FROM flow_templates WHERE id=$1`, templateId);
     });
   }
 
@@ -710,7 +710,7 @@ export class TemplateStore {
   assertEditable(templateId: string): void {
     const t = this.flowTemplate(templateId);
     if (!t) throw new NotFoundError("template", templateId);
-    if (t.is_builtin) {
+    if (t.isBuiltin) {
       throw new ValidationError("the built-in template is read-only — duplicate it to make changes");
     }
   }
@@ -746,7 +746,7 @@ export class TemplateStore {
    * without touching the graph. Positions are display metadata — no validated()
    * walk, no assertNotRunning (the flow's graph snapshot is fixed at creation).
    */
-  updatePositions(templateId: string, positions: Record<string, { x: number; y: number }>): void {
+  async updatePositions(templateId: string, positions: Record<string, { x: number; y: number }>): void {
     if (!this.flowTemplate(templateId)) throw new NotFoundError("template", templateId);
     this.assertEditable(templateId);
     const entries = Object.entries(positions).filter(
@@ -754,15 +754,15 @@ export class TemplateStore {
     );
     if (!entries.length) return;
     const known = db.all<{ node_key: string }>(
-      `SELECT node_key AS "nodeKey" FROM flow_template_nodes WHERE template_id=$1`, templateId);
-    const keys = new Set(known.map((k) => k.node_key));
+      async `SELECT node_key AS "nodeKey" FROM flow_template_nodes WHERE template_id=$1`, templateId);
+    const keys = new Set(known.map((k) => k.nodeKey));
     const ts = db.now();
     for (const [key, pos] of entries) {
       if (!keys.has(key)) continue; // don't create rows for stray keys
-      db.run(`UPDATE flow_template_nodes SET x=$1, y=$2, updated_at=$3 WHERE template_id=$4 AND node_key=$5`,
+      await db.run(`UPDATE flow_template_nodes SET x=$1, y=$2, updated_at=$3 WHERE template_id=$4 AND node_key=$5`,
         pos.x, pos.y, ts, templateId, key);
     }
-    db.run(`UPDATE flow_templates SET updated_at=$1 WHERE id=$2`, ts, templateId);
+    await db.run(`UPDATE flow_templates SET updated_at=$1 WHERE id=$2`, ts, templateId);
   }
 
   // ── node-template (catalog) CRUD ──────────────────────────────────────────
@@ -784,10 +784,10 @@ export class TemplateStore {
     templateLocal: NodeTemplateRow[];
   } {
     return {
-      library: rows.all(NodeTemplateRow,
+      library: await rows.all(NodeTemplateRow,
         `SELECT id, key, name, kind, version, description, icon, config, is_builtin AS "isBuiltin", template_id AS "templateId", created_at AS "createdAt", updated_at AS "updatedAt" FROM node_templates WHERE is_builtin=0 AND template_id IS NULL ORDER BY rowid`),
       templateLocal: templateId !== undefined
-        ? rows.all(NodeTemplateRow,
+        ? await rows.all(NodeTemplateRow,
             `SELECT id, key, name, kind, version, description, icon, config, is_builtin AS "isBuiltin", template_id AS "templateId", created_at AS "createdAt", updated_at AS "updatedAt" FROM node_templates WHERE is_builtin=0 AND template_id=$1 ORDER BY rowid`, templateId)
         : [],
     };
@@ -810,7 +810,7 @@ export class TemplateStore {
   createNodeTemplate(input: {
     key?: string; name: string; kind: string; icon?: string | null;
     description?: string | null; config: Record<string, unknown>;
-  }, opts: { templateId?: string } = {}): NodeTemplateRow {
+  async }, opts: { templateId?: string } = {}): NodeTemplateRow {
     const kind = (input.kind ?? "").trim();
     if (!(KINDED_NODE_TEMPLATE_KINDS as readonly string[]).includes(kind)) {
       throw new Error(`unsupported node kind "${kind}" — declarative kinds: ${KINDED_NODE_TEMPLATE_KINDS.join(", ")}`);
@@ -838,7 +838,7 @@ export class TemplateStore {
     const config = parseDeclarativeConfig(kind, input.config ?? {}, name);
     const id = db.uid("nt_");
     const ts = db.now();
-    db.run(
+    await db.run(
       `INSERT INTO node_templates (id,key,name,kind,version,description,icon,config,is_builtin,template_id,created_at,updated_at)
        VALUES ($1,$2,$3,$4,1,$5,$6,$7,0,$8,$9,$10) ON CONFLICT DO NOTHING`,
       id, key, name, kind, input.description ?? null, input.icon ?? null,
@@ -884,7 +884,7 @@ export class TemplateStore {
     // another def). Rows local to other templates always get a fresh copy
     // scoped to this template.
     const slug = TemplateStore.slugify(name);
-    const identical = rows.all(NodeTemplateRow,
+    const identical = await rows.all(NodeTemplateRow,
       `SELECT id, key, name, kind, version, description, icon, config, is_builtin AS "isBuiltin", template_id AS "templateId", created_at AS "createdAt", updated_at AS "updatedAt" FROM node_templates
        WHERE is_builtin=0 AND (key=$1 OR key LIKE $2 ESCAPE '\\')
          AND (template_id IS NULL OR template_id=?)`,
@@ -927,18 +927,18 @@ export class TemplateStore {
    * UNIQUE(key, version) holds — references point at the row id, so promoted
    * instances keep working untouched.
    */
-  addToLibrary(id: string): NodeTemplateRow {
+  async addToLibrary(id: string): NodeTemplateRow {
     const row = this.nodeTemplate(id);
     if (!row) throw new Error("node template not found");
-    if (row.is_builtin) throw new Error("built-in node templates are read-only");
-    if (row.template_id == null) return row; // already in the Library — no-op
+    if (row.isBuiltin) throw new Error("built-in node templates are read-only");
+    if (row.templateId == null) return row; // already in the Library — no-op
     // another row holding this key (a global Library row, or a sibling
     // template's local row) blocks the promotion — make room via a variant
     const owner = this.nodeTemplateByKey(row.key);
     const key = owner && owner.id !== row.id
       ? TemplateStore.freeKeyVariant(row.key)
       : row.key;
-    db.run(
+    await db.run(
       `UPDATE node_templates SET template_id=NULL, key=$1, updated_at=$2 WHERE id=$3`,
       key, db.now(), id
     );
@@ -948,14 +948,14 @@ export class TemplateStore {
   /** Update a declarative node template (never built-ins). */
   updateNodeTemplate(id: string, patch: {
     name?: string; description?: string | null; icon?: string | null; config?: Record<string, unknown>;
-  }): NodeTemplateRow {
+  async }): NodeTemplateRow {
     const row = this.nodeTemplate(id);
     if (!row) throw new Error("node template not found");
-    if (row.is_builtin) throw new Error("built-in node templates are read-only");
+    if (row.isBuiltin) throw new Error("built-in node templates are read-only");
     const config = patch.config !== undefined
       ? JSON.stringify(parseDeclarativeConfig(row.kind, patch.config, patch.name?.trim() || row.name))
       : JSON.stringify(row.config);
-    db.run(
+    await db.run(
       `UPDATE node_templates SET name=$1, description=$2, icon=$3, config=$4, updated_at=$5 WHERE id=$6`,
       patch.name?.trim() || row.name,
       patch.description !== undefined ? patch.description : row.description,
@@ -973,7 +973,7 @@ export class TemplateStore {
    */
   ensureNodeTemplate(input: {
     key?: string; name: string; kind: string; icon?: string | null; config: Record<string, unknown>;
-  }): { id: string; created: boolean } {
+  async }): { id: string; created: boolean } {
     const kind = (input.kind ?? "").trim();
     if (!(KINDED_NODE_TEMPLATE_KINDS as readonly string[]).includes(kind)) {
       throw new Error(`unsupported node kind "${kind}"`);
@@ -986,7 +986,7 @@ export class TemplateStore {
     }
     // normalize the config once so "identical" comparisons compare parsed forms
     const normalized = parseDeclarativeConfig(kind, input.config ?? {}, name);
-    const candidates = rows.all(NodeTemplateRow,
+    const candidates = await rows.all(NodeTemplateRow,
       `SELECT id, key, name, kind, version, description, icon, config, is_builtin AS "isBuiltin", template_id AS "templateId", created_at AS "createdAt", updated_at AS "updatedAt" FROM node_templates WHERE key=$1 AND is_builtin=0`, key);
     const identical = candidates.find(
       (r) => r.kind === kind && JSON.stringify(r.config ?? {}) === JSON.stringify(normalized)
@@ -995,7 +995,7 @@ export class TemplateStore {
     const version = candidates.reduce((m, r) => Math.max(m, r.version), 0) + 1;
     const id = db.uid("nt_");
     const ts = db.now();
-    db.run(
+    await db.run(
       `INSERT INTO node_templates (id,key,name,kind,version,description,icon,config,is_builtin,created_at,updated_at)
        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,0,$9,$10) ON CONFLICT DO NOTHING`,
       id, key, name, kind, version, null, input.icon ?? null,
@@ -1005,14 +1005,14 @@ export class TemplateStore {
   }
 
   /** Delete a declarative node template when no template instance references it. */
-  deleteNodeTemplate(id: string): void {
+  async deleteNodeTemplate(id: string): void {
     const row = this.nodeTemplate(id);
     if (!row) throw new Error("node template not found");
-    if (row.is_builtin) throw new Error("built-in node templates are read-only");
+    if (row.isBuiltin) throw new Error("built-in node templates are read-only");
     const used = db.get<{ c: number }>(
       `SELECT COUNT(*) c FROM flow_template_nodes WHERE node_template_id=$1`, id)?.c ?? 0;
     if (used > 0) throw new Error(`this node template is used by ${used} template node${used > 1 ? "s" : ""}`);
-    db.run(`DELETE FROM node_templates WHERE id=$1`, id);
+    await db.run(`DELETE FROM node_templates WHERE id=$1`, id);
   }
 
   // ── write path helpers ────────────────────────────────────────────────────
@@ -1046,7 +1046,7 @@ export class TemplateStore {
       return {
         kind: row.kind,
         key: row.key,
-        isBuiltin: Boolean(row.is_builtin),
+        isBuiltin: Boolean(row.isBuiltin),
         decisionChoices,
       };
     };
@@ -1063,7 +1063,7 @@ export class TemplateStore {
       condition: e.condition?.trim() || null,
     }));
     // build-time static checks (§5): {{refs}} resolve against upstream
-    // contracts AND the template's task context (trigger.task_type → provider
+    // contracts AND the template's task context (trigger.taskType → provider
     // fields), JSONata compiles in input_map / decision expressions /
     // response_map / edge conditions
     const trigger = TemplateStore.flowTrigger(input.trigger);
@@ -1072,7 +1072,7 @@ export class TemplateStore {
         input.nodes.map((n) => ({
           key: n.key.trim(),
           nodeTemplateId: n.nodeTemplateId,
-          inputMap: (n.input_map ?? {}) as Record<string, unknown>,
+          inputMap: (n.inputMap ?? {}) as Record<string, unknown>,
           config: (n.config ?? {}) as Record<string, unknown>,
           trigger: n.trigger,
         })),
@@ -1097,32 +1097,32 @@ export class TemplateStore {
   ): void {
     const write = () => {
       if (opts.replace) {
-        db.run(`DELETE FROM flow_template_nodes WHERE template_id=$1`, templateId);
-        db.run(`DELETE FROM flow_template_edges WHERE template_id=$1`, templateId);
+        await db.run(`DELETE FROM flow_template_nodes WHERE template_id=$1`, templateId);
+        await db.run(`DELETE FROM flow_template_edges WHERE template_id=$1`, templateId);
       }
       const ts = db.now();
       for (const n of nodes) {
         const trigger = JSON.stringify(TemplateStore.nodeTrigger(n.trigger));
         const config = JSON.stringify(n.config && Object.keys(n.config).length ? n.config : {});
-        const inputMap = JSON.stringify(n.input_map && Object.keys(n.input_map).length ? n.input_map : {});
-        db.run(
+        const inputMap = JSON.stringify(n.inputMap && Object.keys(n.inputMap).length ? n.inputMap : {});
+        await db.run(
           `INSERT OR REPLACE INTO flow_template_nodes (id,template_id,node_key,node_template_id,label,trigger,join_mode,config,input_map,x,y,created_at,updated_at)
            VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)`,
           db.uid("ftn_"), templateId, n.key.trim(), n.nodeTemplateId, n.label ?? null, trigger,
-          n.join_mode === "any" ? "any" : "all", config, inputMap, n.x ?? null, n.y ?? null, ts, ts
+          n.joinMode === "any" ? "any" : "all", config, inputMap, n.x ?? null, n.y ?? null, ts, ts
         );
       }
       for (const e of edges) {
-        db.run(
+        await db.run(
           `INSERT OR REPLACE INTO flow_template_edges (id,template_id,from_key,to_key,kind,label,condition,created_at,updated_at)
            VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
           db.uid("fte_"), templateId, e.from, e.to, e.kind ?? "next", e.label, e.condition, ts, ts
         );
       }
-      db.run(`UPDATE flow_templates SET updated_at=$1 WHERE id=$2`, ts, templateId);
+      await db.run(`UPDATE flow_templates SET updated_at=$1 WHERE id=$2`, ts, templateId);
     };
     if (opts.replace) {
-      db.transaction(write);
+      await db.transaction(write);
     } else {
       write();
     }
@@ -1140,15 +1140,15 @@ export class TemplateStore {
     hookStore.syncTemplate(templateId);
     if (trigger.type === "schedule") {
       const intervalMin = typeof trigger.interval_min === "number" && trigger.interval_min > 0
-        ? trigger.interval_min : 60;
+        async ? trigger.interval_min : 60;
       const cur = db.get<{ schedule_next_at: string | null }>(
         `SELECT schedule_next_at AS "scheduleNextAt" FROM flow_templates WHERE id=$1`, templateId);
-      if (cur && !cur.schedule_next_at) {
-        db.run(`UPDATE flow_templates SET schedule_next_at=$1 WHERE id=$2`,
+      if (cur && !cur.scheduleNextAt) {
+        await db.run(`UPDATE flow_templates SET schedule_next_at=$1 WHERE id=$2`,
           new Date(Date.now() + intervalMin * 60_000).toISOString(), templateId);
       }
-    } else {
-      db.run(`UPDATE flow_templates SET schedule_next_at=NULL WHERE id=$1`, templateId);
+    async } else {
+      await db.run(`UPDATE flow_templates SET schedule_next_at=NULL WHERE id=$1`, templateId);
     }
   }
 
@@ -1185,8 +1185,8 @@ export class TemplateStore {
     if (typeof rec.filter === "string") out.filter = rec.filter;
     // the binding feeds auto-starts (schedule fires, webhook deliveries
     // without a `repo` key in the payload): kept whenever a valid id is present
-    if (typeof rec.repo_id === "string" && rec.repo_id.trim()) out.repo_id = rec.repo_id.trim();
-    out.task_type = TemplateStore.validTaskType(rec.task_type);
+    if (typeof rec.repoId === "string" && rec.repoId.trim()) out.repoId = rec.repoId.trim();
+    out.taskType = TemplateStore.validTaskType(rec.taskType);
     return out;
   }
 
@@ -1203,7 +1203,7 @@ export class TemplateStore {
    * linter free-passes instead of guessing).
    */
   private static taskUniverse(trigger: Record<string, unknown>): TaskUniverse | null {
-    const provider = taskRegistry.maybe(String(trigger.task_type ?? ""));
+    const provider = taskRegistry.maybe(String(trigger.taskType ?? ""));
     if (!provider) return null;
     return { kind: provider.kind, fields: provider.contextFields.map((f) => ({ key: f.key, label: f.label })) };
   }
@@ -1215,8 +1215,8 @@ export class TemplateStore {
     const out: TemplateNodeTrigger = { type };
     // minutes: the debounced quiet period, or the timer wait for wait_for: timer
     if (typeof rec.minutes === "number" && rec.minutes >= 0) out.minutes = rec.minutes;
-    if (typeof rec.wait_for === "string" && (WAIT_FOR_SOURCES as readonly string[]).includes(rec.wait_for)) {
-      out.wait_for = rec.wait_for;
+    if (typeof rec.waitFor === "string" && (WAIT_FOR_SOURCES as readonly string[]).includes(rec.waitFor)) {
+      out.waitFor = rec.waitFor;
     }
     return out;
   }
@@ -1258,7 +1258,7 @@ export class TemplateStore {
     return {
       type: (typeof o.type === "string" ? o.type : "auto"),
       minutes: typeof o.minutes === "number" ? o.minutes : undefined,
-      wait_for: typeof o.wait_for === "string" ? o.wait_for : undefined,
+      wait_for: typeof o.waitFor === "string" ? o.waitFor : undefined,
     };
   }
 }

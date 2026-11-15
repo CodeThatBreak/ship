@@ -16,7 +16,7 @@ import { templateStore } from "../templates/templateStore";
  * knobs — plus the last-run overlay read from `nodes.input.prompt`.
  *
  * The modal never shows a stale per-run "override" instead of the live
- * resolution (the veto the old route gave `nodes.prompt_override` is gone):
+ * resolution (the veto the old route gave `nodes.promptOverride` is gone):
  * the response carries BOTH the current final prompt and what the last run
  * actually sent, with a `diverges` flag so the UI can flag the difference.
  */
@@ -68,9 +68,9 @@ export class PromptPreview {
 
     const flow = await rows.get(FlowRow, `SELECT * FROM flows WHERE id=?`, flowId);
     if (!flow) return this.notFound("flow not found");
-    const task = await rows.get(Task, `SELECT * FROM tasks WHERE id=?`, flow.task_id);
+    const task = await rows.get(Task, `SELECT * FROM tasks WHERE id=?`, flow.taskId);
     if (!task) return this.notFound("task not found");
-    const repo = flow.repo_id ? await db.repoById(flow.repo_id) ?? null : null;
+    const repo = flow.repoId ? await db.repoById(flow.repoId) ?? null : null;
     const ctx: FlowCtx = { flow, task, repo };
 
     const node = await rows.get(NodeRow, `SELECT * FROM nodes WHERE flow_id=? AND node_key=?`, flowId, nodeKey) ?? null;
@@ -109,18 +109,18 @@ export class PromptPreview {
   async allFor(flowId: string): Promise<AllPromptsResult> {
     const flow = await rows.get(FlowRow, `SELECT * FROM flows WHERE id=?`, flowId);
     if (!flow) return this.notFound("flow not found");
-    const task = await rows.get(Task, `SELECT * FROM tasks WHERE id=?`, flow.task_id);
+    const task = await rows.get(Task, `SELECT * FROM tasks WHERE id=?`, flow.taskId);
     if (!task) return this.notFound("task not found");
-    const repo = flow.repo_id ? await db.repoById(flow.repo_id) ?? null : null;
+    const repo = flow.repoId ? await db.repoById(flow.repoId) ?? null : null;
     const ctx: FlowCtx = { flow, task, repo };
 
     const prompts: Record<string, string> = {};
     for (const node of await rows.all(NodeRow, `SELECT * FROM nodes WHERE flow_id=?`, flowId)) {
-      const def = this.defFor(flowId, node.node_key, node);
+      const def = this.defFor(flowId, node.nodeKey, node);
       const previewer = nodeRoles.promptPreviewerOf(def);
       const preview = previewer ? previewer.previewPrompt(ctx, node, {}) : null;
       if (!preview) continue;
-      prompts[node.node_key] = sectionsOf(preview.assembly).body;
+      prompts[node.nodeKey] = sectionsOf(preview.assembly).body;
     }
     return { ok: true, prompts };
   }

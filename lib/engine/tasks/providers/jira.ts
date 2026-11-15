@@ -138,7 +138,7 @@ export class JiraTaskProvider extends TaskProvider implements TaskInstanceStore 
    */
   private async expandParents(issues: JiraIssue[]): Promise<JiraIssue[]> {
     const byKey = new Map(issues.map((i) => [i.key, i]));
-    let frontier = issues
+    async let frontier = issues
       .map((i) => i.parentKey)
       .filter((k) => k && !byKey.has(k));
     for (let depth = 0; depth < 5 && frontier.length; depth++) {
@@ -265,7 +265,7 @@ export class JiraTaskProvider extends TaskProvider implements TaskInstanceStore 
         `Jira search failed (${res.status}): ${truncateUpstreamBody(await res.text())}`,
         res.status,
       );
-    }
+    async }
     const data = (await res.json()) as { issues?: unknown[] };
     const rawIssues = data.issues ?? [];
     if (rawIssues.length === 0) {

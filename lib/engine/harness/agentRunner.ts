@@ -84,7 +84,7 @@ export class AgentRunner {
     // Model resolution: per-run → settings → env; local runs always pin a concrete id.
     const model = resolveAgentRunModel(
       input.model,
-      this.database.getSetting(SETTING_KEY.DEFAULT_MODEL, settingString, ""),
+      await this.database.getSetting(SETTING_KEY.DEFAULT_MODEL, settingString, ""),
       this.appConfig.defaultModel(),
       mode,
       port.fallbackModels,
@@ -119,8 +119,8 @@ export class AgentRunner {
         spec.prompt += `\n${ensured.setupNote} If the changes need dependencies, run the repo's dependency setup yourself before building/testing.`;
       }
     } else {
-      spec.repos = ctx.flow.repo_url
-        ? [{ url: ctx.flow.repo_url, startingRef: input.startingRef ?? ctx.repo?.default_branch ?? "main" }]
+      spec.repos = ctx.flow.repoUrl
+        ? [{ url: ctx.flow.repoUrl, startingRef: input.startingRef ?? ctx.repo?.defaultBranch ?? "main" }]
         : undefined;
     }
     return port.start(spec);
@@ -143,7 +143,7 @@ export class AgentRunner {
     const ownsNodeStatus = options?.ownsNodeStatus !== false;
     const attemptAtStart =
       options?.attemptId
-      ?? this.database.get<{ attempt_id: string | null }>(`SELECT attempt_id AS "attemptId" FROM nodes WHERE id=$1`, nodeId)?.attempt_id;
+      ?? this.database.get<{ attempt_id: string | null }>(`SELECT attempt_id AS "attemptId" FROM nodes WHERE id=$1`, nodeId)?.attemptId;
     if (ownsNodeStatus && attemptAtStart) {
       this.support.registerStartupRun(flow.id, nodeId, attemptAtStart);
     }
@@ -154,11 +154,11 @@ export class AgentRunner {
       const runRowId = this.database.get<{ id: string }>(`SELECT id FROM runs WHERE run_ref=$1`, runId)?.id;
       if (!runRowId) throw new Error(`run row missing after persist for ${runId}`);
     const startedWhileRunning = attemptAtStart != null;
-    this.database.emitEvent(flow.id, nodeId, EVENT_KIND.LIFECYCLE, `${label} started (${mode})`, { agentId, runId, run_id: runId, mode });
+    await this.database.emitEvent(flow.id, nodeId, EVENT_KIND.LIFECYCLE, `${label} started (${mode})`, { agentId, runId, run_id: runId, mode });
 
     const stream = new StreamBuffer(flow.id, nodeId, runId);
     const emitTool: ToolEmitFn = (name, status, callId, args, result, startedAtMs) =>
-      this.database.emitEvent(flow.id, nodeId, EVENT_KIND.TOOL, `${name}: ${status}`, {
+      await this.database.emitEvent(flow.id, nodeId, EVENT_KIND.TOOL, `${name}: ${status}`, {
         run_id: runId, callId, name, status,
         args: args != null ? JSON.stringify(args) : undefined,
         result,
@@ -170,7 +170,7 @@ export class AgentRunner {
     let costSummary: RunCostSummary = {};
     let streamError: unknown;
     const callbacks = {
-      onStatus: (s: string) => this.database.emitEvent(flow.id, nodeId, EVENT_KIND.STATUS, `run ${s}`, { run_id: runId }),
+      onStatus: (s: string) => await this.database.emitEvent(flow.id, nodeId, EVENT_KIND.STATUS, `run ${s}`, { run_id: runId }),
       onAssistant: (t: string) => stream.push("assistant", t),
       onThinking: (t: string) => stream.push("thinking", t),
       onTool: (name: string, status: string, args: unknown, callId: string | undefined, extra: { result?: unknown } | undefined) => {
@@ -204,7 +204,7 @@ export class AgentRunner {
       }
     } finally {
       const runRowStatus = result?.status === RUN_STATUS.FINISHED ? RUN_STATUS.FINISHED : RUN_STATUS.ERROR;
-      this.database.run(
+      await this.database.run(
         `UPDATE runs SET status=$1, updated_at=$2 WHERE run_ref=$3`,
         runRowStatus,
         this.database.now(),
@@ -223,7 +223,7 @@ export class AgentRunner {
     }
 
     if (result.status !== RUN_STATUS.FINISHED) {
-      this.database.emitEvent(flow.id, nodeId, EVENT_KIND.ERROR, `${label} ended with ${result.status}`, { run_id: runId });
+      await this.database.emitEvent(flow.id, nodeId, EVENT_KIND.ERROR, `${label} ended with ${result.status}`, { run_id: runId });
       throw new Error(`${label} ended with status ${result.status}`);
     }
 
@@ -233,8 +233,8 @@ export class AgentRunner {
         `SELECT attempt_id AS "attemptId", status FROM nodes WHERE id=$1`,
         nodeId,
       );
-      if (nodeNow?.attempt_id !== attemptAtStart) {
-        this.database.emitEvent(
+      if (nodeNow?.attemptId !== attemptAtStart) {
+        await this.database.emitEvent(
           flow.id,
           nodeId,
           EVENT_KIND.LIFECYCLE,
@@ -245,7 +245,7 @@ export class AgentRunner {
       }
     }
 
-    this.database.emitEvent(flow.id, nodeId, EVENT_KIND.LIFECYCLE, `${label} finished`, {
+    await this.database.emitEvent(flow.id, nodeId, EVENT_KIND.LIFECYCLE, `${label} finished`, {
       run_id: runId,
       durationMs,
       tokens: costSummary.tokens,

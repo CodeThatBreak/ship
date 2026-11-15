@@ -55,7 +55,6 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
 
   let payload: unknown;
   try { payload = raw.trim() ? JSON.parse(raw) : {}; } catch { payload = raw; }
-
   // the JSONata filter sees the delivery body and the request headers — its
   // result is only ever the boolean drop decision, never persisted
   if (hook.filter) {

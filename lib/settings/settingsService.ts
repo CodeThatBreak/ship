@@ -58,7 +58,7 @@ export class SettingsService {
                           SETTINGS_KEYS.DEFAULT_MODEL,
                           normalizeModelSpec(patch.default_model.trim()),
                         );
-            }
+            async }
             if (patch.local_agent) {
               const la = patch.local_agent;
               if (la.force !== undefined) {

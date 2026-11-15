@@ -153,7 +153,7 @@ export class NodeSupport {
     nodeId: string,
     flowId: string,
     kind: string,
-    content: string,
+    async content: string,
     meta?: unknown,
     status = ARTIFACT_STATUS.DRAFT
   ): Promise<{ id: string; version: number }> {
@@ -223,7 +223,7 @@ export class NodeSupport {
   async persistRun(flowId: string, nodeId: string, agentId: string, runId: string): Promise<string> {
     const attemptRow = await db.get<{ attemptId: string | null }>(
       `SELECT attempt_id AS "attemptId" FROM nodes WHERE id=$1`,
-      nodeId,
+    nodeId,
     );
     const attemptId = attemptRow?.attemptId;
     if (attemptId) {
@@ -235,7 +235,7 @@ export class NodeSupport {
         db.now(),
         nodeId,
         RUN_STATUS.RUNNING,
-        RUN_AGENT_REF.PENDING,
+    RUN_AGENT_REF.PENDING,
         attemptId,
       );
       if (changes === 1) {
@@ -319,10 +319,10 @@ export class NodeSupport {
     const type = opts.nodeType;
     const scope = type ? ` AND n.type=$3` : "";
     const cap = opts.limit ? ` LIMIT ${Math.trunc(opts.limit)}` : "";
-    const sql = `SELECT a.id, a.version, a.content, a.meta FROM artifacts a JOIN nodes n ON n.id=a.node_id
-       WHERE n.flow_id=$1 AND a.kind=$2${scope}
-       ORDER BY a.version DESC, a.created_at DESC${cap}`;
-    return type ? db.all(sql, flowId, kind, type) : db.all(sql, flowId, kind);
+    const sql = `SELECT a.id, a.version, a.content, a.meta FROM artifacts a JOIN nodes n ON n.id=a.nodeId
+       WHERE n.flowId=$1 AND a.kind=$2${scope}
+       ORDER BY a.version DESC, a.createdAt DESC${cap}`;
+    return type ? await db.all(sql, flowId, kind, type) : await db.all(sql, flowId, kind);
   }
 
   // ── branches ────────────────────────────────────────────────────────────────

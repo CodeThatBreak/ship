@@ -23,13 +23,13 @@ export type RepoSavePayload = Pick<
 /** Which policy columns already had explicit DB values when editing started. */
 export const touchedPolicyFromRepo = (repo: Repo): Set<RepoPolicyField> => {
   const touched = new Set<RepoPolicyField>();
-  if (repo.install_command != null) touched.add("install_command");
-  if (repo.sync_paths != null) touched.add("sync_paths");
-  if (repo.shared_dirs != null) touched.add("shared_dirs");
-  if (repo.setup_command != null) touched.add("setup_command");
-  if (repo.skip_install) touched.add("skip_install");
-  if (!repo.use_worktrees) touched.add("use_worktrees");
-  if (repo.worktree_timeout_ms) touched.add("worktree_timeout_s");
+  if (repo.installCommand != null) touched.add("install_command");
+  if (repo.syncPaths != null) touched.add("sync_paths");
+  if (repo.sharedDirs != null) touched.add("shared_dirs");
+  if (repo.setupCommand != null) touched.add("setup_command");
+  if (repo.skipInstall) touched.add("skip_install");
+  if (!repo.useWorktrees) touched.add("use_worktrees");
+  if (repo.worktreeTimeoutMs) touched.add("worktree_timeout_s");
   return touched;
 };
 
@@ -48,31 +48,31 @@ export const buildRepoSavePayload = (
   const payload: RepoSavePayload = {
     id: editingId,
     name: state.name,
-    cloud_url: state.cloud_url,
-    local_path: state.local_path,
-    default_branch: state.default_branch,
+    cloudUrl: state.cloudUrl,
+    localPath: state.localPath,
+    defaultBranch: state.defaultBranch,
   };
 
   for (const key of REPO_POLICY_FIELDS) {
     if (!touched.has(key)) continue;
     switch (key) {
       case "install_command":
-        payload.install_command = state.install_command;
+        payload.installCommand = state.installCommand;
         break;
       case "sync_paths":
-        payload.sync_paths = state.sync_paths;
+        payload.syncPaths = state.syncPaths;
         break;
       case "shared_dirs":
-        payload.shared_dirs = state.shared_dirs;
+        payload.sharedDirs = state.sharedDirs;
         break;
       case "setup_command":
-        payload.setup_command = state.setup_command;
+        payload.setupCommand = state.setupCommand;
         break;
       case "skip_install":
-        payload.skip_install = state.skip_install;
+        payload.skipInstall = state.skipInstall;
         break;
       case "use_worktrees":
-        payload.use_worktrees = state.use_worktrees;
+        payload.useWorktrees = state.useWorktrees;
         break;
       case "worktree_timeout_s":
         payload.worktree_timeout_s = state.worktree_timeout_s;

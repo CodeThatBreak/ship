@@ -63,24 +63,24 @@ export class Reconciler {
 
   async reconcileFlow(flowId: string): Promise<void> {
     // legacy runs captured without cost (and stale estimates) get a cost from
-    // our list-price calculation — once per process, async, non-blocking
+    // our list-price calculation — once per process, , non-blocking
     void usageTracker.backfillCosts().catch(() => {});
     const nowMs = Date.now();
     if (nowMs - (this.lastReconcile.get(flowId) ?? 0) < Reconciler.THROTTLE_MS) return;
     this.lastReconcile.set(flowId, nowMs);
 
-    const flow = rows.get(FlowRow, `SELECT id, task_id AS "taskId", name, status, mr_url AS "mrUrl", mr_iid AS "mrIid", mr_branch AS "mrBranch", repo_url AS "repoUrl", gitlab_project_id AS "gitlabProjectId", current_node AS "currentNode", execution_mode AS "executionMode", repo_id AS "repoId", template_id AS "templateId", template_graph AS "templateGraph", trigger_payload AS "triggerPayload", worktree_dir AS "worktreeDir", parent_flow_id AS "parentFlowId", kind, created_at AS "createdAt", updated_at AS "updatedAt" FROM flows WHERE id=$1`, flowId);
+    const flow = await rows.get(FlowRow, `SELECT id, task_id AS "taskId", name, status, mr_url AS "mrUrl", mr_iid AS "mrIid", mr_branch AS "mrBranch", repo_url AS "repoUrl", gitlab_project_id AS "gitlabProjectId", current_node AS "currentNode", execution_mode AS "executionMode", repo_id AS "repoId", template_id AS "templateId", template_graph AS "templateGraph", trigger_payload AS "triggerPayload", worktree_dir AS "worktreeDir", parent_flow_id AS "parentFlowId", kind, created_at AS "createdAt", updated_at AS "updatedAt" FROM flows WHERE id=$1`, flowId);
     if (!flow || flow.status !== "active") return;
 
     await this.reconcileRunningNodes(flow);
 
     // clear a stale current_node pointer
-    if (flow.current_node) {
-      const cur = rows.get(NodeRow,
-        `SELECT id, flow_id AS "flowId", node_key AS "nodeKey", type, status, attempt_id AS "attemptId", agent_id AS "agentId", agent_ref AS "agentRef", session_id AS "sessionId", prompt_override AS "promptOverride", label, config, join_mode AS "joinMode", input, output, created_at AS "createdAt", updated_at AS "updatedAt" FROM nodes WHERE flow_id=$1 AND node_key=$2`, flowId, flow.current_node);
+    if (flow.currentNode) {
+      const cur = await rows.get(NodeRow,
+        `SELECT id, flow_id AS "flowId", node_key AS "nodeKey", type, status, attempt_id AS "attemptId", agent_id AS "agentId", agent_ref AS "agentRef", session_id AS "sessionId", prompt_override AS "promptOverride", label, config, join_mode AS "joinMode", input, output, created_at AS "createdAt", updated_at AS "updatedAt" FROM nodes WHERE flow_id=$1 AND node_key=$2`, flowId, flow.currentNode);
       if (!cur || cur.status !== "running") {
-        db.run(`UPDATE flows SET current_node=NULL, updated_at=$1 WHERE id=$2 AND current_node=$3`,
-          db.now(), flowId, flow.current_node);
+        await db.run(`UPDATE flows SET current_node=NULL, updated_at=$1 WHERE id=$2 AND current_node=$3`,
+          db.now(), flowId, flow.currentNode);
       }
     }
 
@@ -94,21 +94,21 @@ export class Reconciler {
   private async reconcileRunningNodes(flow: FlowRow): Promise<void> {
     const nowMs = Date.now();
     const flowId = flow.id;
-    const running = rows.all(NodeRow, `SELECT id, flow_id AS "flowId", node_key AS "nodeKey", type, status, attempt_id AS "attemptId", agent_id AS "agentId", agent_ref AS "agentRef", session_id AS "sessionId", prompt_override AS "promptOverride", label, config, join_mode AS "joinMode", input, output, created_at AS "createdAt", updated_at AS "updatedAt" FROM nodes WHERE flow_id=$1 AND status='running'`, flowId);
+    const running = await rows.all(NodeRow, `SELECT id, flow_id AS "flowId", node_key AS "nodeKey", type, status, attempt_id AS "attemptId", agent_id AS "agentId", agent_ref AS "agentRef", session_id AS "sessionId", prompt_override AS "promptOverride", label, config, join_mode AS "joinMode", input, output, created_at AS "createdAt", updated_at AS "updatedAt" FROM nodes WHERE flow_id=$1 AND status='running'`, flowId);
     // the node waiting on the pipeline event source (role lookup — the CI gate
     // runs a server-side wait loop; no hardcoded node key)
     const gateKey = templateStore.waitNodeKey(flowId, "pipeline");
     for (const node of running) {
       try {
         // skip nodes that just started — their run may not be visible yet
-        const updatedMs = Date.parse(node.updated_at ?? "");
+        const updatedMs = Date.parse(node.updatedAt ?? "");
         if (Number.isFinite(updatedMs) && nowMs - updatedMs < Reconciler.START_GRACE_MS) continue;
         // the pipeline gate runs a server-side wait loop (no agent run row while
         // polling) and stamps updated_at each iteration — a fresh stamp means alive
-        if (node.node_key === gateKey && Number.isFinite(updatedMs) && nowMs - updatedMs < Reconciler.PIPELINE_STAMP_FRESH_MS) continue;
+        if (node.nodeKey === gateKey && Number.isFinite(updatedMs) && nowMs - updatedMs < Reconciler.PIPELINE_STAMP_FRESH_MS) continue;
         await this.reconcileNode(flow, node);
       } catch (e: unknown) {
-        db.emitEvent(flowId, node.id, "error", `reconcile: ${e instanceof Error ? e.message : e}`);
+        await db.emitEvent(flowId, node.id, "error", `reconcile: ${e instanceof Error ? e.message : e}`);
       }
     }
   }
@@ -118,13 +118,13 @@ export class Reconciler {
   private async reconcileNode(flow: FlowRow, node: NodeRow): Promise<void> {
     if (nodeAttemptRegistry.isActive(node.id)) return;
 
-    const runRow = rows.get(RunRow,
+    const runRow = await rows.get(RunRow,
       `SELECT id, flow_id AS "flowId", node_id AS "nodeId", agent_ref AS "agentRef", run_ref AS "runRef", branch_id AS "branchId", status, model, input_tokens AS "inputTokens", output_tokens AS "outputTokens", cache_read_tokens AS "cacheReadTokens", cache_write_tokens AS "cacheWriteTokens", duration_ms AS "durationMs", cost_cents AS "costCents", usage, created_at AS "createdAt", updated_at AS "updatedAt" FROM runs WHERE node_id=$1 AND status='running' ORDER BY created_at DESC LIMIT 1`,
       node.id
     );
     const ctx = flowEngine.ctx(flow.id);
 
-    if (flow.execution_mode === "local") {
+    if (flow.executionMode === "local") {
       return this.reconcileLocal(ctx, node, runRow);
     }
     return this.reconcileCloud(ctx, node, runRow);
@@ -140,13 +140,13 @@ export class Reconciler {
    *    dead resumes the merge arena (bounded by the merge-fix budget) when the
    *    child is still approved/pending — or flags failed loudly (event on the
    *    parent, failed-visible step card) when the child is red/dead.
-   *  - orphan children (the `plan_steps.sub_flow_id` linkage or the parent
+   *  - orphan children (the `plan_steps.subFlowId` linkage or the parent
    *    fan-out node gone) are surfaced on the parent once; they are inert.
    * In-flight merges of the live process are never double-booked
    * (`mergeArena.isMerging`).
    */
   private async reconcileStepFanout(flow: FlowRow): Promise<void> {
-    const parentId = flow.parent_flow_id ?? flow.id;
+    const parentId = flow.parentFlowId ?? flow.id;
     const stuck = db.all<{ id: string; flow_id: string; parent_flow_id: string; parent_node: string; status: string; updated_at: string | null }>(
       `SELECT id, flow_id AS "flowId", parent_flow_id AS "parentFlowId", parent_node AS "parentNode", branch, status, attempts, error, created_at AS "createdAt", updated_at AS "updatedAt" FROM step_merges WHERE parent_flow_id=$1 AND status IN ('running','conflict','rejected')`, parentId
     );
@@ -154,45 +154,45 @@ export class Reconciler {
       try {
         await this.reconcileStepMerge(row);
       } catch (e: unknown) {
-        db.emitEvent(parentId, null, "error",
+        await db.emitEvent(parentId, null, "error",
           `reconcile: step merge ${row.id}: ${e instanceof Error ? e.message : String(e)}`);
       }
     }
-    if (flow.parent_flow_id == null) await this.reconcileOrphanChildren(flow.id);
+    if (flow.parentFlowId == null) await this.reconcileOrphanChildren(flow.id);
   }
 
   private async reconcileStepMerge(row: {
     id: string; flow_id: string; parent_flow_id: string; parent_node: string; status: string; updated_at: string | null;
   }): Promise<void> {
     const failLoud = (reason: string): void => {
-      db.run(`UPDATE step_merges SET status='failed', error=$1, updated_at=$2 WHERE id=$3 AND status IN ('running','conflict','rejected')`,
+      await db.run(`UPDATE step_merges SET status='failed', error=$1, updated_at=$2 WHERE id=$3 AND status IN ('running','conflict','rejected')`,
         reason.slice(0, 2000), db.now(), row.id);
-      db.emitEvent(row.parent_flow_id, null, "error",
-        `step merge-back on "${row.parent_node}" was interrupted: ${reason}`,
-        { nodeKey: row.parent_node, childFlowId: row.flow_id, mergeId: row.id });
+      await db.emitEvent(row.parentFlowId, null, "error",
+        `step merge-back on "${row.parentNode}" was interrupted: ${reason}`,
+        { nodeKey: row.parentNode, childFlowId: row.flowId, mergeId: row.id });
     };
-    if (mergeArena.isMerging(row.flow_id)) return; // alive in this process — nothing to flag
+    if (mergeArena.isMerging(row.flowId)) return; // alive in this process — nothing to flag
     // freshness guard: an attempt this process just re-booked stamps the row —
     // give it the same start grace the node reconcile uses
-    const updatedMs = Date.parse(row.updated_at ?? "");
+    const updatedMs = Date.parse(row.updatedAt ?? "");
     if (Number.isFinite(updatedMs) && Date.now() - updatedMs < Reconciler.START_GRACE_MS) return;
 
-    const parent = db.get<{ id: string; status: string }>(`SELECT id, status FROM flows WHERE id=$1`, row.parent_flow_id);
+    const parent = db.get<{ id: string; status: string }>(`SELECT id, status FROM flows WHERE id=$1`, row.parentFlowId);
     const child = db.get<{ id: string; parent_flow_id: string; status: string }>(
-      `SELECT id, parent_flow_id AS "parentFlowId",, status FROM flows WHERE id=$1`, row.flow_id);
-    if (!parent || !child || child.parent_flow_id !== row.parent_flow_id) {
+      `SELECT id, parent_flow_id AS "parentFlowId",, status FROM flows WHERE id=$1`, row.flowId);
+    if (!parent || !child || child.parentFlowId !== row.parentFlowId) {
       failLoud("the step child or its parent flow row is gone (orphaned merge-back)");
       return;
     }
     const step = db.get<{ id: string; title: string; status: string }>(
-      `SELECT id, title, status FROM plan_steps WHERE sub_flow_id=$1`, row.flow_id);
+      `SELECT id, title, status FROM plan_steps WHERE sub_flow_id=$1`, row.flowId);
     if (!step) {
       failLoud("the plan step ⇄ sub-flow linkage is gone (orphaned merge-back)");
       return;
     }
-    const parentNodeId = nodeStore.idOf(row.parent_flow_id, row.parent_node);
+    const parentNodeId = nodeStore.idOf(row.parentFlowId, row.parentNode);
     if (!parentNodeId) {
-      failLoud(`the parent fan-out node "${row.parent_node}" no longer exists (orphaned merge-back)`);
+      failLoud(`the parent fan-out node "${row.parentNode}" no longer exists (orphaned merge-back)`);
       return;
     }
     if (child.status !== "active") {
@@ -201,8 +201,8 @@ export class Reconciler {
     }
     const childNode = db.get<{ status: string }>(
       `SELECT status FROM nodes WHERE flow_id=$1 AND node_key=$2`,
-      row.flow_id,
-      stepFlows.childWorkNodeKey(row.flow_id),
+      row.flowId,
+      stepFlows.childWorkNodeKey(row.flowId),
     );
     if (!childNode) {
       failLoud("the step child has no work node (the fan-out linkage is broken)");
@@ -211,14 +211,14 @@ export class Reconciler {
     if (childNode.status === "running") {
       // a merge-fix agent run was mid-flight at the restart — the child's runs
       // are durable, so the STANDARD node reconcile decides recovered vs failed
-      const childFlow = rows.get(FlowRow, `SELECT id, task_id AS "taskId", name, status, mr_url AS "mrUrl", mr_iid AS "mrIid", mr_branch AS "mrBranch", repo_url AS "repoUrl", gitlab_project_id AS "gitlabProjectId", current_node AS "currentNode", execution_mode AS "executionMode", repo_id AS "repoId", template_id AS "templateId", template_graph AS "templateGraph", trigger_payload AS "triggerPayload", worktree_dir AS "worktreeDir", parent_flow_id AS "parentFlowId", kind, created_at AS "createdAt", updated_at AS "updatedAt" FROM flows WHERE id=$1`, row.flow_id);
+      const childFlow = await rows.get(FlowRow, `SELECT id, task_id AS "taskId", name, status, mr_url AS "mrUrl", mr_iid AS "mrIid", mr_branch AS "mrBranch", repo_url AS "repoUrl", gitlab_project_id AS "gitlabProjectId", current_node AS "currentNode", execution_mode AS "executionMode", repo_id AS "repoId", template_id AS "templateId", template_graph AS "templateGraph", trigger_payload AS "triggerPayload", worktree_dir AS "worktreeDir", parent_flow_id AS "parentFlowId", kind, created_at AS "createdAt", updated_at AS "updatedAt" FROM flows WHERE id=$1`, row.flowId);
       if (childFlow) await this.reconcileRunningNodes(childFlow);
       const after = db.get<{ status: string }>(
         `SELECT status FROM nodes WHERE flow_id=$1 AND node_key=$2`,
-        row.flow_id,
-        stepFlows.childWorkNodeKey(row.flow_id),
+        row.flowId,
+        stepFlows.childWorkNodeKey(row.flowId),
       )?.status;
-      if (after === "awaiting_approval") stepFlows.resumePendingMerge(row.flow_id);
+      if (after === "awaiting_approval") stepFlows.resumePendingMerge(row.flowId);
       return;
     }
     if (childNode.status !== "awaiting_approval") {
@@ -226,19 +226,19 @@ export class Reconciler {
       return;
     }
     // safe resume: the child is approved and unmerged — re-enter the bounded loop
-    stepFlows.resumePendingMerge(row.flow_id);
+    stepFlows.resumePendingMerge(row.flowId);
   }
 
   /** Orphan step children: the linkage (or the whole parent node) is gone — flag once, leave inert. */
   private async reconcileOrphanChildren(parentFlowId: string): Promise<void> {
-    const children = db.all<{ id: string; name: string; status: string }>(
+    async const children = db.all<{ id: string; name: string; status: string }>(
       `SELECT id, name, status FROM flows WHERE parent_flow_id=$1 AND kind='step'`, parentFlowId
     );
     for (const c of children) {
-      if (db.get(`SELECT 1 FROM plan_steps WHERE sub_flow_id=$1`, c.id)) continue;
+      if (await db.get(`SELECT 1 FROM plan_steps WHERE sub_flow_id=$1`, c.id)) continue;
       if (this.flaggedOrphans.has(c.id)) continue;
       this.flaggedOrphans.add(c.id);
-      db.emitEvent(parentFlowId, null, "error",
+      await db.emitEvent(parentFlowId, null, "error",
         `orphan step child "${c.name}" — its plan step no longer links to it (the step was removed or the flow re-planned); the child is inert and hidden from lists`,
         { childFlowId: c.id });
     }
@@ -254,12 +254,12 @@ export class Reconciler {
       `SELECT DISTINCT parent_flow_id p FROM step_merges WHERE status IN ('running','conflict','rejected')`
     );
     for (const { p } of parents) {
-      const flow = rows.get(FlowRow, `SELECT id, task_id AS "taskId", name, status, mr_url AS "mrUrl", mr_iid AS "mrIid", mr_branch AS "mrBranch", repo_url AS "repoUrl", gitlab_project_id AS "gitlabProjectId", current_node AS "currentNode", execution_mode AS "executionMode", repo_id AS "repoId", template_id AS "templateId", template_graph AS "templateGraph", trigger_payload AS "triggerPayload", worktree_dir AS "worktreeDir", parent_flow_id AS "parentFlowId", kind, created_at AS "createdAt", updated_at AS "updatedAt" FROM flows WHERE id=$1`, p);
+      const flow = await rows.get(FlowRow, `SELECT id, task_id AS "taskId", name, status, mr_url AS "mrUrl", mr_iid AS "mrIid", mr_branch AS "mrBranch", repo_url AS "repoUrl", gitlab_project_id AS "gitlabProjectId", current_node AS "currentNode", execution_mode AS "executionMode", repo_id AS "repoId", template_id AS "templateId", template_graph AS "templateGraph", trigger_payload AS "triggerPayload", worktree_dir AS "worktreeDir", parent_flow_id AS "parentFlowId", kind, created_at AS "createdAt", updated_at AS "updatedAt" FROM flows WHERE id=$1`, p);
       if (!flow || flow.status !== "active") continue;
       try {
         await this.reconcileStepFanout(flow);
       } catch (e: unknown) {
-        db.emitEvent(p, null, "error", `reconcile: ${e instanceof Error ? e.message : String(e)}`);
+        await db.emitEvent(p, null, "error", `reconcile: ${e instanceof Error ? e.message : String(e)}`);
       }
     }
   }
@@ -270,18 +270,18 @@ export class Reconciler {
     const { flow } = ctx;
     const port = agentPortRegistry.forMode("local");
     // run still owned by this process → genuinely running, nothing to do
-    if (runRow && port.hasActiveRun(runRow.run_ref)) return;
+    if (runRow && port.hasActiveRun(runRow.runRef)) return;
 
     if (!runRow) {
-      nodeSupport.failOrphanedNode(flow.id, node.id, node.node_key, "node was left running without an active run");
+      nodeSupport.failOrphanedNode(flow.id, node.id, node.nodeKey, "node was left running without an active run");
       return;
     }
 
-    if (nodeSupport.isStartupRun(runRow.agent_ref)) {
+    if (nodeSupport.isStartupRun(runRow.agentRef)) {
       nodeSupport.failOrphanedNode(
         flow.id,
         node.id,
-        node.node_key,
+        node.nodeKey,
         "node startup was interrupted",
       );
       return;
@@ -292,33 +292,33 @@ export class Reconciler {
     // The probe must use the run's own cwd (the flow's worktree when it used
     // one) — the SDK keys persisted sessions on it.
     const runCwd = flowCtxHelper.runCwd(ctx);
-    const sessionId = runRow.agent_ref;
+    const sessionId = runRow.agentRef;
     const probe =
       sessionId && runCwd
         ? await port
-            .inspectSession(sessionId, runRow.run_ref, runCwd)
+            .inspectSession(sessionId, runRow.runRef, runCwd)
             .catch(() => null)
         : null;
 
     if (!probe) {
-      nodeSupport.failOrphanedNode(flow.id, node.id, node.node_key,
+      nodeSupport.failOrphanedNode(flow.id, node.id, node.nodeKey,
         "server restarted mid-run and the agent session could not be re-attached");
       return;
     }
 
     if (!probe.completed) {
-      nodeSupport.failOrphanedNode(flow.id, node.id, node.node_key,
+      nodeSupport.failOrphanedNode(flow.id, node.id, node.nodeKey,
         "server restarted mid-run — the agent session shows an unfinished turn");
       return;
     }
 
     // the turn finished before the server died — recover it
-    db.emitEvent(flow.id, node.id, "lifecycle",
-      `server restarted — re-attached to the agent session; the ${node.node_key} turn had finished, recovering`);
+    await db.emitEvent(flow.id, node.id, "lifecycle",
+      `server restarted — re-attached to the agent session; the ${node.nodeKey} turn had finished, recovering`);
     await flowEngine.completeNodeFromResult(
       ctx,
       node,
-      { id: runRow.run_ref, status: "finished", result: probe.text },
+      { id: runRow.runRef, status: "finished", result: probe.text },
       "recovered from the persisted agent session after server restart"
     );
   }
@@ -328,26 +328,26 @@ export class Reconciler {
     const { flow } = ctx;
     const port = agentPortRegistry.forMode("cloud");
     if (!runRow) {
-      nodeSupport.failOrphanedNode(flow.id, node.id, node.node_key, "node was left running without an active run");
+      nodeSupport.failOrphanedNode(flow.id, node.id, node.nodeKey, "node was left running without an active run");
       return;
     }
 
-    if (nodeSupport.isStartupRun(runRow.agent_ref)) {
+    if (nodeSupport.isStartupRun(runRow.agentRef)) {
       nodeSupport.failOrphanedNode(
         flow.id,
         node.id,
-        node.node_key,
+        node.nodeKey,
         "node startup was interrupted",
       );
       return;
     }
 
-    const query = await port.getRun({ agentId: runRow.agent_ref, runId: runRow.run_ref });
+    const query = await port.getRun({ agentId: runRow.agentRef, runId: runRow.runRef });
     if (query.state === "unavailable") {
       nodeSupport.failOrphanedNode(
         flow.id,
         node.id,
-        node.node_key,
+        node.nodeKey,
         query.error.message,
       );
       return;
@@ -359,25 +359,25 @@ export class Reconciler {
     }
 
     // still running — re-attach once and stream it to completion
-    if (this.reattached.has(runRow.run_ref)) return;
-    this.reattached.add(runRow.run_ref);
-    db.emitEvent(flow.id, node.id, "lifecycle", `re-attached to ${node.node_key} run on the agent runtime (server restarted)`);
+    if (this.reattached.has(runRow.runRef)) return;
+    this.reattached.add(runRow.runRef);
+    await db.emitEvent(flow.id, node.id, "lifecycle", `re-attached to ${node.nodeKey} run on the agent runtime (server restarted)`);
     (async () => {
       try {
         const final = await port.stream(
-          { agentId: runRow.agent_ref, runId: runRow.run_ref },
+          { agentId: runRow.agentRef, runId: runRow.runRef },
           {
-          onStatus: (s) => db.emitEvent(flow.id, node.id, "status", `run ${s}`),
-          onAssistant: (t) => db.emitEvent(flow.id, node.id, "assistant", t),
-          onThinking: (t) => db.emitEvent(flow.id, node.id, "thinking", t.slice(0, 500)),
+          onStatus: (s) => await db.emitEvent(flow.id, node.id, "status", `run ${s}`),
+          onAssistant: (t) => await db.emitEvent(flow.id, node.id, "assistant", t),
+          onThinking: (t) => await db.emitEvent(flow.id, node.id, "thinking", t.slice(0, 500)),
           onTool: (name, status, args) =>
-            db.emitEvent(flow.id, node.id, "tool", `${name}: ${status}`, { args: JSON.stringify(args ?? {}).slice(0, 300) }),
+            await db.emitEvent(flow.id, node.id, "tool", `${name}: ${status}`, { args: JSON.stringify(args ?? {}).slice(0, 300) }),
         });
         await flowEngine.completeNodeFromResult(ctx, node, final.result, "completed after re-attach");
       } catch (e: unknown) {
-        nodeSupport.failOrphanedNode(flow.id, node.id, node.node_key, `lost run stream: ${e instanceof Error ? e.message : e}`);
+        nodeSupport.failOrphanedNode(flow.id, node.id, node.nodeKey, `lost run stream: ${e instanceof Error ? e.message : e}`);
       } finally {
-        this.reattached.delete(runRow.run_ref);
+        this.reattached.delete(runRow.runRef);
       }
     })();
   }

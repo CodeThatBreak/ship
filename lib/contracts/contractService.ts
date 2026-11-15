@@ -48,7 +48,7 @@ export class ContractService {
         nodeRegistry.maybe(defKey) ??
         (() => {
           const row = templateStore.nodeTemplate(defKey);
-          return row?.is_builtin ? nodeRegistry.maybe(row.key) : undefined;
+          return row?.isBuiltin ? nodeRegistry.maybe(row.key) : undefined;
         })();
       if (builtin) {
         const startFields = builtin.key === "start" ? parseStartContract(instanceConfig) : [];
@@ -99,7 +99,7 @@ export class ContractService {
     } else {
       const nt =
         templateStore.nodeTemplate(defKey) ??
-        templateStore.listNodeTemplates().find((r) => !r.is_builtin && r.key === defKey);
+        templateStore.listNodeTemplates().find((r) => !r.isBuiltin && r.key === defKey);
       if (!nt) return Response.json({ error: "unknown node type" }, { status: 404 });
       row = {
         id: nt.id,

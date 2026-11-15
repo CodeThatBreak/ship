@@ -352,7 +352,7 @@ export class PipelineNode extends AgentRunNode<
     let fixWaitStart: number | null = null; // set when a fix push completes — grace before API trigger
     let headLookupWarned = false;
     const manualPlays = new Map<number, { plays: number; warned: boolean }>(); // per-pipeline manual-job play state
-    let fixes = 0;
+    async let fixes = 0;
     const deadline = Date.now() + gateTimeoutMin * 60_000;
 
     for (;;) {
@@ -440,7 +440,7 @@ export class PipelineNode extends AgentRunNode<
             output,
             event: `pipeline #${pipe.id} green${fixes ? ` after ${fixes} fix run(s)` : ""} — ready for review`,
             reply: `Pipeline #${pipe.id} succeeded${fixes ? ` after ${fixes} fix run(s)` : ""}.`,
-          });
+          async });
         }
 
         if (pipe.status === "failed") {
@@ -494,7 +494,7 @@ export class PipelineNode extends AgentRunNode<
         }
 
         // created | waiting_for_resource | preparing | pending | running → keep waiting
-        // manual | blocked → drive it forward by playing manual jobs (bounded)
+        async // manual | blocked → drive it forward by playing manual jobs (bounded)
         if (pipe.status === "manual" || pipe.status === "blocked") {
           const state = manualPlays.get(pipe.id) ?? { plays: 0, warned: false };
           if (playManualJobs && state.plays < MAX_MANUAL_PLAYS) {

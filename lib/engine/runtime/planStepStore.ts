@@ -55,7 +55,7 @@ export class PlanStepStore {
     );
     if (!rows.length) return "";
     return rows
-      .map((s) => `- [${s.meta_id ?? s.id}] ${s.title}${s.detail ? ` — ${s.detail}` : ""}`)
+      .map((s) => `- [${s.metaId ?? s.id}] ${s.title}${s.detail ? ` — ${s.detail}` : ""}`)
       .join("\n");
   }
 
@@ -74,8 +74,8 @@ export class PlanStepStore {
     );
     const byMetaId = new Map(
       existingAgent
-        .filter((s): s is PlanStepRow & { meta_id: string } => s.meta_id != null)
-        .map((s) => [s.meta_id, s]),
+        .filter((s): s is PlanStepRow & { meta_id: string } => s.metaId != null)
+        .map((s) => [s.metaId, s]),
     );
     const seen = new Set<string>();
     const ts = db.now();
@@ -84,11 +84,11 @@ export class PlanStepStore {
 
     for (const step of steps) {
       const metaId = step.id ?? null;
-      const prev = metaId ? byMetaId.get(metaId) : undefined;
+      async const prev = metaId ? byMetaId.get(metaId) : undefined;
       if (prev) {
         seen.add(prev.id);
         if (prev.status !== "done") {
-          db.run(
+          await db.run(
             `UPDATE plan_steps SET artifact_id=$1, title=$2, detail=$3, files=$4, branch=$5, updated_at=$6 WHERE id=$7`,
             artifactId,
             step.title,
@@ -98,12 +98,12 @@ export class PlanStepStore {
             ts,
             prev.id
           );
-        } else {
+        async } else {
           // keep the record current with the latest plan version, but never reopen done work
-          db.run(`UPDATE plan_steps SET artifact_id=$1, updated_at=$2 WHERE id=$3`, artifactId, ts, prev.id);
+          await db.run(`UPDATE plan_steps SET artifact_id=$1, updated_at=$2 WHERE id=$3`, artifactId, ts, prev.id);
         }
-      } else {
-        db.run(
+      async } else {
+        await db.run(
           `INSERT INTO plan_steps (id,flow_id,artifact_id,meta_id,position,title,detail,files,branch,status,origin,created_at,updated_at)
            VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,'pending','agent',$10,$11) ON CONFLICT DO NOTHING`,
           db.uid("step_"),
@@ -122,13 +122,13 @@ export class PlanStepStore {
     }
 
     // supersede agent steps that vanished from the new plan version — with the
-    // fan-out guard: a step whose child has started/merged survives the refine
+    async // fan-out guard: a step whose child has started/merged survives the refine
     const guard = this.deletableGuard(flowId);
     for (const prev of existingAgent) {
-      if (!seen.has(prev.id) && prev.artifact_id !== artifactId) {
+      if (!seen.has(prev.id) && prev.artifactId !== artifactId) {
         if (guard.built.has(prev.id)) continue; // sub-flow running/merged — kept, not deleted
         this.cancelChildFlow(guard.cancelable.get(prev.id) ?? null);
-        db.run(`DELETE FROM plan_steps WHERE id=$1`, prev.id);
+        await db.run(`DELETE FROM plan_steps WHERE id=$1`, prev.id);
       }
     }
     return steps.length;
@@ -152,7 +152,7 @@ export class PlanStepStore {
     const survivors = existing.filter((s) => guard.built.has(s.id));
     const matchedRows = opts.matchedRows ?? new Map<number, string>();
 
-    db.transaction(() => {
+    await db.transaction(async (tx) => {
       const kept = new Set<string>();
 
       for (const [i, s] of steps.entries()) {
@@ -160,7 +160,7 @@ export class PlanStepStore {
         const prev = rowId ? existingById.get(rowId) : undefined;
         if (prev) {
           kept.add(prev.id);
-          db.run(
+          await db.run(
             `UPDATE plan_steps SET artifact_id=$1, position=$2, title=$3, detail=$4, files=$5, branch=$6, updated_at=$7 WHERE id=$8 AND flow_id=$9`,
             artifactId,
             i,
@@ -175,7 +175,7 @@ export class PlanStepStore {
         } else {
           const newId = db.uid("step_");
           kept.add(newId);
-          db.run(
+          await db.run(
             `INSERT INTO plan_steps (id,flow_id,artifact_id,meta_id,position,title,detail,files,branch,status,origin,sub_flow_id,created_at,updated_at)
              VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,'pending','user',$10,$11,$12) ON CONFLICT DO NOTHING`,
             newId,
@@ -198,7 +198,7 @@ export class PlanStepStore {
       for (const survivor of survivors) {
         if (kept.has(survivor.id)) continue;
         kept.add(survivor.id);
-        db.run(
+        await db.run(
           `UPDATE plan_steps SET position=$1, updated_at=$2 WHERE id=$3 AND flow_id=$4`,
           tail++,
           ts,
@@ -210,7 +210,7 @@ export class PlanStepStore {
       for (const row of existing) {
         if (kept.has(row.id)) continue;
         this.cancelChildFlow(guard.cancelable.get(row.id) ?? null);
-        db.run(`DELETE FROM plan_steps WHERE id=$1`, row.id);
+        await db.run(`DELETE FROM plan_steps WHERE id=$1`, row.id);
       }
     });
     return this.list(flowId);
@@ -232,20 +232,20 @@ export class PlanStepStore {
     const guard = this.deletableGuard(flowId);
     const stateByMetaId = new Map(
       existing
-        .filter((s): s is PlanStepRow & { meta_id: string } => s.meta_id != null)
-        .map((s) => [s.meta_id, s]),
+        .filter((s): s is PlanStepRow & { meta_id: string } => s.metaId != null)
+        .map((s) => [s.metaId, s]),
     );
     const firstPos = existing.length ? existing[0].position : 0;
-    db.transaction(() => {
-      db.run(
+    await db.transaction(async (tx) => {
+      await db.run(
         `DELETE FROM plan_steps WHERE flow_id=$1 AND branch=$2`,
         flowId, branchName
       );
       steps.forEach((s, i) => {
         const prev = s.id ? stateByMetaId.get(s.id) : undefined;
         const status = prev?.status ?? "pending";
-        const completedBy = status === "done" ? prev?.completed_by ?? "manual" : null;
-        db.run(
+        const completedBy = status === "done" ? prev?.completedBy ?? "manual" : null;
+        await db.run(
           `INSERT INTO plan_steps (id,flow_id,artifact_id,meta_id,position,title,detail,files,branch,status,origin,completed_by,sub_flow_id,created_at,updated_at)
            VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15) ON CONFLICT DO NOTHING`,
           db.uid("step_"),
@@ -260,7 +260,7 @@ export class PlanStepStore {
           status,
           "agent",
           completedBy,
-          prev?.sub_flow_id ?? null,
+          prev?.subFlowId ?? null,
           ts,
           ts
         );
@@ -281,10 +281,10 @@ export class PlanStepStore {
     const built = new Set<string>();
     const cancelable = new Map<string, string>();
     for (const s of linked) {
-      if (!s.sub_flow_id) continue;
-      const started = childFlowHasStarted(nodeStore.statusesOfFlow(s.sub_flow_id));
+      if (!s.subFlowId) continue;
+      const started = childFlowHasStarted(nodeStore.statusesOfFlow(s.subFlowId));
       if (started) built.add(s.id);
-      else cancelable.set(s.id, s.sub_flow_id);
+      else cancelable.set(s.id, s.subFlowId);
     }
     return { built, cancelable };
   }
@@ -296,7 +296,7 @@ export class PlanStepStore {
       `SELECT status FROM nodes WHERE flow_id=$1`, childFlowId
     ).some((n) => isNodeStarted(n.status));
     if (started) return; // never closed silently
-    db.run(`UPDATE flows SET status='done', updated_at=$1 WHERE id=$2 AND status<>'done'`, db.now(), childFlowId);
+    await db.run(`UPDATE flows SET status='done', updated_at=$1 WHERE id=$2 AND status<>'done'`, db.now(), childFlowId);
   }
 
   setStatus(
@@ -305,7 +305,7 @@ export class PlanStepStore {
     status: "pending" | "done",
     completedBy: string | null
   ): boolean {
-    const res = db.run(
+    const res = await db.run(
       `UPDATE plan_steps SET status=$1, completed_by=$2, updated_at=$3 WHERE id=$4 AND flow_id=$5`,
       status,
       status === "done" ? completedBy ?? "manual" : null,
@@ -313,7 +313,7 @@ export class PlanStepStore {
       stepId,
       flowId
     );
-    return res.changes > 0;
+    return res > 0;
   }
 
   /** Parse the build agent's trailing ```json build-progress``` block. */
@@ -341,13 +341,13 @@ export class PlanStepStore {
     const want = new Set(refs.map(norm));
     const done: string[] = [];
     for (const s of rows) {
-      if ((s.meta_id && want.has(norm(s.meta_id))) || want.has(norm(s.title))) {
+      if ((s.metaId && want.has(norm(s.metaId))) || want.has(norm(s.title))) {
         this.setStatus(flowId, s.id, "done", NODE_KEYS.BUILD);
         done.push(s.title);
       }
     }
     if (done.length) {
-      db.emitEvent(
+      await db.emitEvent(
         flowId,
         nodeId,
         "lifecycle",

@@ -37,7 +37,7 @@ export class MergeRequestService {
     opts: {
       emitNodeKey?: string;
       gateKey?: string | null;
-      reviewKey?: string | null;
+      async reviewKey?: string | null;
       skipGateReviewReset?: boolean;
     } = {},
   ): Promise<ChangeRequest> {
@@ -48,7 +48,7 @@ export class MergeRequestService {
     if (!gitBranch) throw new Error("no build branch to create an MR from");
 
     // Local mode: the branch may exist only in the local checkout (the agent
-    // commits locally; a restart may have killed the run before it pushed).
+    async // commits locally; a restart may have killed the run before it pushed).
     if (flowCtxHelper.execMode(ctx) === "local") {
       const lp = flowCtxHelper.localPath(ctx);
       if (lp) {
@@ -80,14 +80,14 @@ export class MergeRequestService {
       : `${ctx.task.key}: ${ctx.task.summary}`;
     if (existing.length) {
       cr = existing[0];
-    } else {
+    async } else {
       cr = await host.createChangeRequest(repoUrl, {
         sourceBranch: gitBranch,
         targetBranch: ctx.repo?.defaultBranch ?? "main",
         title: crTitle,
         description: `Implements ${ctx.task.externalUrl}\n\n${ctx.task.summary}${branchName ? `\n\nBranch: ${branchName}` : ""}`,
       });
-    }
+    async }
     const project = await host.getProject(repoUrl);
 
     if (branchName) {
@@ -100,7 +100,7 @@ export class MergeRequestService {
       // Ensure the host project id is set on the flow (needed by webhook/poller)
       await db.run(`UPDATE flows SET gitlab_project_id=COALESCE(gitlab_project_id, $1), updated_at=$2 WHERE id=$3`,
                 project.id, db.now(), flow.id);
-    } else {
+    async } else {
       await db.run(
                 `UPDATE flows SET mr_url=$1, mr_iid=$2, gitlab_project_id=$3, updated_at=$4 WHERE id=$5`,
                 cr.webUrl, cr.number, project.id, db.now(), flow.id

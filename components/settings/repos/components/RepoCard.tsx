@@ -33,9 +33,9 @@ export function RepoCard({
         <div className="flex items-center gap-2 min-w-0">
           <span className="font-medium text-[13.5px] truncate leading-tight">{repo.name}</span>
           <Badge variant="outline" className="font-mono text-[10.5px] shrink-0">
-            <GitBranch size={10} /> {repo.default_branch}
+            <GitBranch size={10} /> {repo.defaultBranch}
           </Badge>
-          {repo.local_path && (repo.local_path_exists ? (
+          {repo.localPath && (repo.local_path_exists ? (
             <Badge className="bg-success/10 text-success shrink-0">
               <CheckCircle2 size={11} /> {REPO_BADGE.LOCAL_READY}
             </Badge>
@@ -47,11 +47,11 @@ export function RepoCard({
         </div>
         <div className="flex items-center gap-2 mt-1 min-w-0">
           <span className="text-muted-foreground text-[12px] font-mono truncate">
-            {repo.cloud_url}
+            {repo.cloudUrl}
           </span>
-          {repo.local_path && (
+          {repo.localPath && (
             <span className="text-muted-foreground text-[12px] font-mono truncate">
-              {tildePath(repo.local_path, serverHome)}
+              {tildePath(repo.localPath, serverHome)}
             </span>
           )}
         </div>

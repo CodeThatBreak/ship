@@ -41,7 +41,7 @@ export class WaitScheduler {
       });
   }
 
-  resolveDelayMs(flowId?: string): number {
+  async resolveDelayMs(flowId?: string): number {
     const resolveDef = nodeRegistry.all().find((d) => d.chainRole === NODE_KEYS.RESOLVE);
     const base = resolveDef ? appLayerConfig(resolveDef.key) : {};
     if (!flowId || !resolveDef) {
@@ -49,8 +49,8 @@ export class WaitScheduler {
     }
     const resolveKey = templateStore.graphForFlow(flowId)?.nodes
       .find((n) => n.defKey === resolveDef.key)?.key
-      ?? rows.all(NodeRow, `SELECT id, flow_id AS "flowId", node_key AS "nodeKey", type, status, attempt_id AS "attemptId", agent_id AS "agentId", agent_ref AS "agentRef", session_id AS "sessionId", prompt_override AS "promptOverride", label, config, join_mode AS "joinMode", input, output, created_at AS "createdAt", updated_at AS "updatedAt" FROM nodes WHERE flow_id=$1`, flowId)
-        .find((n) => n.type === resolveDef.key)?.node_key
+      ?? await rows.all(NodeRow, `SELECT id, flow_id AS "flowId", node_key AS "nodeKey", type, status, attempt_id AS "attemptId", agent_id AS "agentId", agent_ref AS "agentRef", session_id AS "sessionId", prompt_override AS "promptOverride", label, config, join_mode AS "joinMode", input, output, created_at AS "createdAt", updated_at AS "updatedAt" FROM nodes WHERE flow_id=$1`, flowId)
+        .find((n) => n.type === resolveDef.key)?.nodeKey
       ?? null;
     const cfg = mergeConfigLayers(
       base,
@@ -59,7 +59,7 @@ export class WaitScheduler {
     return configNumber(cfg, "quiet_minutes", 10) * 60_000;
   }
 
-  armNodeWait(flowId: string, nodeKey: string, wait: "webhook" | "timer" | "comments", minutes: number | null): void {
+  async armNodeWait(flowId: string, nodeKey: string, wait: "webhook" | "timer" | "comments", minutes: number | null): void {
     if (this.host.nodeStatus(flowId, nodeKey) !== "pending") return;
     if (wait === "timer" || wait === "comments") {
       const mins = minutes ?? (wait === "comments" ? 10 : 1);
@@ -67,7 +67,7 @@ export class WaitScheduler {
     }
     const hook = wait === "webhook" ? hookStore.ensureForNode(flowId, nodeKey) : undefined;
     this.host.setNodeStatus(flowId, nodeKey, "waiting");
-    nodeStore.emitEvent(
+    await nodeStore.emitEvent(
       flowId,
       nodeKey,
       "lifecycle",
@@ -83,34 +83,34 @@ export class WaitScheduler {
     const g = templateStore.graphForFlow(flowId);
     if (!g) return;
     for (const spec of g.nodes) {
-      if (spec.trigger.type !== "debounced" || spec.trigger.wait_for !== "comments") continue;
+      if (spec.trigger.type !== "debounced" || spec.trigger.waitFor !== "comments") continue;
       if (this.host.nodeStatus(flowId, spec.key) !== "waiting") continue;
       this.waitTimers.set(`${flowId}\n${spec.key}`, Date.now() + this.debounceMinutesForNode(flowId, spec.key, spec) * 60_000);
     }
   }
 
-  reArmWaitingTimers(): void {
-    const waiting = rows.all(
+  async reArmWaitingTimers(): void {
+    const waiting = await rows.all(
       NodeRow,
       `SELECT n.* FROM nodes n
-       INNER JOIN flows f ON f.id = n.flow_id
+       INNER JOIN flows f ON f.id = n.flowId
        WHERE n.status='waiting' AND f.status='active'`,
     );
     for (const node of waiting) {
-      const spec = templateStore.graphForFlow(node.flow_id)?.byKey.get(node.node_key);
+      const spec = templateStore.graphForFlow(node.flowId)?.byKey.get(node.nodeKey);
       if (!spec) continue;
-      const updatedMs = Date.parse(node.updated_at ?? "");
+      const updatedMs = Date.parse(node.updatedAt ?? "");
       const baseMs = Number.isFinite(updatedMs) ? updatedMs : Date.now();
       const tt = spec.trigger.type;
-      const waitFor = spec.trigger.wait_for;
+      const waitFor = spec.trigger.waitFor;
       if (tt === "debounced" && waitFor === "comments") {
-        const mins = this.debounceMinutesForNode(node.flow_id, node.node_key, spec);
-        this.waitTimers.set(`${node.flow_id}\n${node.node_key}`, baseMs + mins * 60_000);
+        const mins = this.debounceMinutesForNode(node.flowId, node.nodeKey, spec);
+        this.waitTimers.set(`${node.flowId}\n${node.nodeKey}`, baseMs + mins * 60_000);
         continue;
       }
       if ((tt === "auto" || tt === "approval") && waitFor === "timer") {
         const mins = spec.trigger.minutes ?? 1;
-        this.waitTimers.set(`${node.flow_id}\n${node.node_key}`, baseMs + mins * 60_000);
+        this.waitTimers.set(`${node.flowId}\n${node.nodeKey}`, baseMs + mins * 60_000);
       }
     }
   }
@@ -123,7 +123,7 @@ export class WaitScheduler {
       const flowId = k.slice(0, i);
       const nodeKey = k.slice(i + 1);
       const spec = templateStore.graphForFlow(flowId)?.byKey.get(nodeKey);
-      if (spec?.trigger.type === "debounced" && spec.trigger.wait_for === "comments") {
+      if (spec?.trigger.type === "debounced" && spec.trigger.waitFor === "comments") {
         const open = db.get<{ c: number }>(
           `SELECT COUNT(*) c FROM comments WHERE flow_id=$1 AND status='open'`, flowId)?.c ?? 0;
         if (open === 0 || this.host.chainBusy(flowId)) {
@@ -136,16 +136,16 @@ export class WaitScheduler {
     }
   }
 
-  resumeNodeFromWebhook(flowId: string, nodeKey: string, payload: unknown): void {
-    const node = rows.get(NodeRow, `SELECT id, flow_id AS "flowId", node_key AS "nodeKey", type, status, attempt_id AS "attemptId", agent_id AS "agentId", agent_ref AS "agentRef", session_id AS "sessionId", prompt_override AS "promptOverride", label, config, join_mode AS "joinMode", input, output, created_at AS "createdAt", updated_at AS "updatedAt" FROM nodes WHERE flow_id=$1 AND node_key=$2`, flowId, nodeKey);
+  async resumeNodeFromWebhook(flowId: string, nodeKey: string, payload: unknown): void {
+    const node = await rows.get(NodeRow, `SELECT id, flow_id AS "flowId", node_key AS "nodeKey", type, status, attempt_id AS "attemptId", agent_id AS "agentId", agent_ref AS "agentRef", session_id AS "sessionId", prompt_override AS "promptOverride", label, config, join_mode AS "joinMode", input, output, created_at AS "createdAt", updated_at AS "updatedAt" FROM nodes WHERE flow_id=$1 AND node_key=$2`, flowId, nodeKey);
     if (!node) throw new NotFoundError("node", nodeKey);
     const spec = templateStore.graphForFlow(flowId)?.byKey.get(nodeKey);
-    if (spec?.trigger.wait_for !== "webhook") {
+    if (spec?.trigger.waitFor !== "webhook") {
       throw new ValidationError(`${nodeKey} is not waiting on a webhook`);
     }
     if (node.status !== "waiting") throw new ConflictError(`${nodeKey} is not waiting for an event`);
     this.host.claimNode(flowId, nodeKey, ["waiting"]);
-    db.emitEvent(flowId, node.id, "lifecycle", `${nodeKey} resumed by a webhook delivery`);
+    await db.emitEvent(flowId, node.id, "lifecycle", `${nodeKey} resumed by a webhook delivery`);
     this.host.bg(flowId, nodeKey, () =>
       this.host.startNodeStage(flowId, nodeKey, {
         resumeWaiting: true,
@@ -155,7 +155,7 @@ export class WaitScheduler {
     );
   }
 
-  private fireWaitTimer(flowId: string, nodeKey: string, note?: string): void {
+  async private fireWaitTimer(flowId: string, nodeKey: string, note?: string): void {
     if (this.host.nodeStatus(flowId, nodeKey) !== "waiting") return;
     try {
       this.host.claimNode(flowId, nodeKey, ["waiting"]);
@@ -163,7 +163,7 @@ export class WaitScheduler {
       if (e instanceof ConflictError) return;
       throw e;
     }
-    nodeStore.emitEvent(
+    await nodeStore.emitEvent(
       flowId,
       nodeKey,
       "lifecycle",
@@ -176,7 +176,7 @@ export class WaitScheduler {
 
   private debounceKey(flowId: string): string | null {
     return templateStore.graphForFlow(flowId)?.nodes.find(
-      (n) => n.trigger.type === "debounced" && n.trigger.wait_for === "comments",
+      (n) => n.trigger.type === "debounced" && n.trigger.waitFor === "comments",
     )?.key ?? null;
   }
 

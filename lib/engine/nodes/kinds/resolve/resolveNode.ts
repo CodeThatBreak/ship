@@ -264,7 +264,7 @@ export class ResolveNode extends AgentRunNode<ResolveInput, ResolveOutput> {
     // capture the MR head + local branch fingerprint before anything moves —
     // compared after the run to verify code movement and push state (§6A)
     const before = await this.captureState(ctx, repoUrl, mrIid, mrBranch);
-
+async 
     let worktree: string | null = null;
     let setupNote: string | null = null;
     if (mode === "local" && mrBranch) {
@@ -274,11 +274,11 @@ export class ResolveNode extends AgentRunNode<ResolveInput, ResolveOutput> {
       worktree = binding.dir;
       setupNote = binding.setupNote;
       // §6A pre-run flush: a previous cycle's stranded local commits go to the
-      // MR before the agent starts (the captures above predate this push, so
+      async // MR before the agent starts (the captures above predate this push, so
       // its MR-head movement lands inside this run's verified delta)
       const lp = this.ctxHelper.localPath(ctx);
       if (lp) {
-        const ahead = await localGit
+        async const ahead = await localGit
           .localBranchState(lp, mrBranch, ctx.repo?.defaultBranch ?? "main")
           .catch(() => null);
         if (ahead && ahead.unpushedAhead > 0) {
@@ -453,7 +453,7 @@ export class ResolveNode extends AgentRunNode<ResolveInput, ResolveOutput> {
    */
   private async parseWithRetry(
     ctx: FlowCtx,
-    p: FinishParams,
+    async p: FinishParams,
     result: AgentRunResult,
     openIds: readonly string[],
   ): Promise<ResolveAgentResponse> {

@@ -27,36 +27,36 @@ export class RepoService {
   listWithPathStatus(): Array<Repo & { local_path_exists: boolean }> {
     return this.database.listRepos().map((r) => ({
       ...r,
-      local_path_exists: r.local_path ? fs.existsSync(path.join(r.local_path, ".git")) : false,
+      local_path_exists: r.localPath ? fs.existsSync(path.join(r.localPath, ".git")) : false,
     }));
   }
 
   create(input: RepoCreateBody): Repo {
-    const localPath = input.local_path ?? null;
+    const localPath = input.localPath ?? null;
     if (localPath) {
       this.assertGitCheckout(localPath);
     }
     return this.database.upsertRepo({
       name: input.name,
-      cloud_url: input.cloud_url,
+      cloud_url: input.cloudUrl,
       local_path: localPath,
-      default_branch: input.default_branch ?? "main",
-      use_worktrees: input.use_worktrees ?? true,
-      install_command: input.install_command ?? null,
-      skip_install: Boolean(input.skip_install),
-      sync_paths: input.sync_paths ?? null,
-      shared_dirs: input.shared_dirs ?? null,
-      setup_command: input.setup_command ?? null,
+      default_branch: input.defaultBranch ?? "main",
+      use_worktrees: input.useWorktrees ?? true,
+      install_command: input.installCommand ?? null,
+      skip_install: Boolean(input.skipInstall),
+      sync_paths: input.syncPaths ?? null,
+      shared_dirs: input.sharedDirs ?? null,
+      setup_command: input.setupCommand ?? null,
       worktree_timeout_ms: input.worktree_timeout_s ?? null,
     });
   }
 
-  update(id: string, patch: RepoPatchBody): Repo {
-    const existing = this.database.repoById(id);
+  async update(id: string, patch: RepoPatchBody): Repo {
+    const existing = await this.database.repoById(id);
     if (!existing) {
       throw new NotFoundError("repo", id);
     }
-    const localPath = patch.local_path !== undefined ? patch.local_path : existing.local_path;
+    const localPath = patch.localPath !== undefined ? patch.localPath : existing.localPath;
     if (localPath) {
       this.assertGitCheckout(localPath);
     }
@@ -68,34 +68,34 @@ export class RepoService {
     return this.database.upsertRepo({
       id,
       name: patch.name ?? existing.name,
-      cloud_url: patch.cloud_url ?? existing.cloud_url,
+      cloud_url: patch.cloudUrl ?? existing.cloudUrl,
       local_path: localPath || null,
-      default_branch: patch.default_branch ?? existing.default_branch,
+      default_branch: patch.defaultBranch ?? existing.defaultBranch,
       use_worktrees:
-        patch.use_worktrees !== undefined ? Boolean(patch.use_worktrees) : Boolean(existing.use_worktrees),
-      install_command: trimOrKeep(patch.install_command, existing.install_command),
+        patch.useWorktrees !== undefined ? Boolean(patch.useWorktrees) : Boolean(existing.useWorktrees),
+      install_command: trimOrKeep(patch.installCommand, existing.installCommand),
       skip_install:
-        patch.skip_install !== undefined ? Boolean(patch.skip_install) : Boolean(existing.skip_install),
-      sync_paths: trimOrKeep(patch.sync_paths, existing.sync_paths),
-      shared_dirs: trimOrKeep(patch.shared_dirs, existing.shared_dirs),
-      setup_command: trimOrKeep(patch.setup_command, existing.setup_command),
+        patch.skipInstall !== undefined ? Boolean(patch.skipInstall) : Boolean(existing.skipInstall),
+      sync_paths: trimOrKeep(patch.syncPaths, existing.syncPaths),
+      shared_dirs: trimOrKeep(patch.sharedDirs, existing.sharedDirs),
+      setup_command: trimOrKeep(patch.setupCommand, existing.setupCommand),
       worktree_timeout_ms:
-        patch.worktree_timeout_s !== undefined ? patch.worktree_timeout_s : existing.worktree_timeout_ms,
+        patch.worktree_timeout_s !== undefined ? patch.worktree_timeout_s : existing.worktreeTimeoutMs,
     });
   }
 
-  delete(id: string): void {
-    const existing = this.database.repoById(id);
+  async delete(id: string): void {
+    const existing = await this.database.repoById(id);
     if (!existing) {
       throw new NotFoundError("repo", id);
     }
-    const inUse = this.database.countFlowsByRepoId(id);
+    const inUse = await this.database.countFlowsByRepoId(id);
     if (inUse > 0) {
       throw new ConflictError(
         `Cannot delete repo: ${inUse} flow${inUse === 1 ? "" : "s"} still reference it`,
       );
     }
-    this.database.deleteRepo(id);
+    await this.database.deleteRepo(id);
   }
 }
 

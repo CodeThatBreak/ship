@@ -133,7 +133,7 @@ export class GitLabClient {
 
   private async paginate<T>(path: string, init?: RequestInit): Promise<{ items: T[]; truncated: boolean }> {
     const items: T[] = [];
-    let page = 1;
+    async let page = 1;
     let truncated = false;
 
     for (;;) {
@@ -440,7 +440,7 @@ export class GitLabService {
   async testInstance(baseUrl: string, token: string): Promise<{ ok: boolean; detail: string }> {
     try {
       const res = await fetch(`${baseUrl.replace(/\/+$/, "")}/api/v4/user`, {
-        headers: { "PRIVATE-TOKEN": token, "Content-Type": "application/json" },
+        async headers: { "PRIVATE-TOKEN": token, "Content-Type": "application/json" },
         signal: AbortSignal.timeout(GITLAB_HTTP_TIMEOUT_MS),
       });
       if (!res.ok) {

@@ -55,7 +55,7 @@ export class FlowFactory {
     const templateId = opts.templateId ?? SDLC_TEMPLATE_ID;
     const graph = templateStore.graph(templateId);
     if (!graph) throw new NotFoundError("flow template", templateId);
-    const declaredType = typeof graph.flowTrigger.task_type === "string" ? graph.flowTrigger.task_type : null;
+    const declaredType = typeof graph.flowTrigger.taskType === "string" ? graph.flowTrigger.taskType : null;
     if (declaredType && task.type !== declaredType) {
       throw new ValidationError(
         `task ${task.key} is a "${task.type}" task but template "${templateStore.flowTemplate(templateId)?.name ?? templateId}" ` +
@@ -92,8 +92,8 @@ export class FlowFactory {
     name: string,
     payload: StepChildPayload,
     opts: { branch: string | null },
-  ): string {
-    const parent = rows.get(FlowRow, `SELECT id, task_id AS "taskId", name, status, mr_url AS "mrUrl", mr_iid AS "mrIid", mr_branch AS "mrBranch", repo_url AS "repoUrl", gitlab_project_id AS "gitlabProjectId", current_node AS "currentNode", execution_mode AS "executionMode", repo_id AS "repoId", template_id AS "templateId", template_graph AS "templateGraph", trigger_payload AS "triggerPayload", worktree_dir AS "worktreeDir", parent_flow_id AS "parentFlowId", kind, created_at AS "createdAt", updated_at AS "updatedAt" FROM flows WHERE id=$1`, parentFlowId);
+  async ): string {
+    const parent = await rows.get(FlowRow, `SELECT id, task_id AS "taskId", name, status, mr_url AS "mrUrl", mr_iid AS "mrIid", mr_branch AS "mrBranch", repo_url AS "repoUrl", gitlab_project_id AS "gitlabProjectId", current_node AS "currentNode", execution_mode AS "executionMode", repo_id AS "repoId", template_id AS "templateId", template_graph AS "templateGraph", trigger_payload AS "triggerPayload", worktree_dir AS "worktreeDir", parent_flow_id AS "parentFlowId", kind, created_at AS "createdAt", updated_at AS "updatedAt" FROM flows WHERE id=$1`, parentFlowId);
     if (!parent) throw new NotFoundError("flow", parentFlowId);
     const graph = templateStore.graph(templateId);
     if (!graph) throw new NotFoundError("flow template", templateId);
@@ -108,16 +108,16 @@ export class FlowFactory {
     }
     const id = db.uid("flow_");
     const ts = db.now();
-    db.transaction(() => {
-      db.run(
+    await db.transaction(async (tx) => {
+      await db.run(
         `INSERT INTO flows (id,task_id,name,status,repo_url,repo_id,execution_mode,template_id,trigger_payload,mr_branch,parent_flow_id,kind,created_at,updated_at)
          VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14) ON CONFLICT DO NOTHING`,
-        id, parent.task_id, name, "active", parent.repo_url, parent.repo_id, parent.execution_mode,
+        id, parent.taskId, name, "active", parent.repoUrl, parent.repoId, parent.executionMode,
         graph.templateId, JSON.stringify(payload), opts.branch, parentFlowId, FLOW_KIND.STEP, ts, ts
       );
       nodeStore.insertSnapshots(id, graph, { ts });
       templateStore.persistFlowGraphSnapshot(id, graph);
-      db.emitEvent(id, null, "lifecycle",
+      await db.emitEvent(id, null, "lifecycle",
         `step child created from "${templateStore.flowTemplate(templateId)?.name ?? templateId}" — parent flow ${parentFlowId}`);
     });
     return id;
@@ -128,33 +128,33 @@ export class FlowFactory {
     templateId: string,
     name: string,
     payload: SplitChildPayload,
-  ): string {
-    const parent = rows.get(FlowRow, `SELECT id, task_id AS "taskId", name, status, mr_url AS "mrUrl", mr_iid AS "mrIid", mr_branch AS "mrBranch", repo_url AS "repoUrl", gitlab_project_id AS "gitlabProjectId", current_node AS "currentNode", execution_mode AS "executionMode", repo_id AS "repoId", template_id AS "templateId", template_graph AS "templateGraph", trigger_payload AS "triggerPayload", worktree_dir AS "worktreeDir", parent_flow_id AS "parentFlowId", kind, created_at AS "createdAt", updated_at AS "updatedAt" FROM flows WHERE id=$1`, parentFlowId);
+  async ): string {
+    const parent = await rows.get(FlowRow, `SELECT id, task_id AS "taskId", name, status, mr_url AS "mrUrl", mr_iid AS "mrIid", mr_branch AS "mrBranch", repo_url AS "repoUrl", gitlab_project_id AS "gitlabProjectId", current_node AS "currentNode", execution_mode AS "executionMode", repo_id AS "repoId", template_id AS "templateId", template_graph AS "templateGraph", trigger_payload AS "triggerPayload", worktree_dir AS "worktreeDir", parent_flow_id AS "parentFlowId", kind, created_at AS "createdAt", updated_at AS "updatedAt" FROM flows WHERE id=$1`, parentFlowId);
     if (!parent) throw new NotFoundError("flow", parentFlowId);
     const graph = templateStore.graph(templateId);
     if (!graph) throw new NotFoundError("flow template", templateId);
     const id = db.uid("flow_");
     const ts = db.now();
-    db.transaction(() => {
-      db.run(
+    await db.transaction(async (tx) => {
+      await db.run(
         `INSERT INTO flows (id,task_id,name,status,repo_url,repo_id,execution_mode,template_id,trigger_payload,parent_flow_id,kind,created_at,updated_at)
          VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13) ON CONFLICT DO NOTHING`,
-        id, parent.task_id, name, "active", parent.repo_url, parent.repo_id, parent.execution_mode,
+        id, parent.taskId, name, "active", parent.repoUrl, parent.repoId, parent.executionMode,
         graph.templateId, JSON.stringify(payload), parentFlowId, FLOW_KIND.SPLIT, ts, ts
       );
       nodeStore.insertSnapshots(id, graph, { ts });
       templateStore.persistFlowGraphSnapshot(id, graph);
-      db.emitEvent(id, null, "lifecycle",
+      await db.emitEvent(id, null, "lifecycle",
         `split child created from "${templateStore.flowTemplate(templateId)?.name ?? templateId}" — parent flow ${parentFlowId}`);
     });
     return id;
   }
 
-  startFromTemplate(templateId: string, payload: unknown, opts: { taskId?: string } = {}): string {
+  async startFromTemplate(templateId: string, payload: unknown, opts: { taskId?: string } = {}): string {
     const t = templateStore.flowTemplate(templateId);
     if (!t) throw new NotFoundError("template", templateId);
     const trigger = templateStore.graph(templateId)?.flowTrigger ?? {};
-    const taskType = typeof trigger.task_type === "string" ? trigger.task_type : NO_TASK_TYPE;
+    const taskType = typeof trigger.taskType === "string" ? trigger.taskType : NO_TASK_TYPE;
     const body = payload && typeof payload === "object" && !Array.isArray(payload)
       ? (payload as Record<string, unknown>) : {};
     const deliveryRepo =
@@ -165,13 +165,13 @@ export class FlowFactory {
         : typeof body[EXEC_MODE_DELIVERY_ALIAS] === "string"
           ? (body[EXEC_MODE_DELIVERY_ALIAS] as string).trim().toLowerCase()
           : "";
-    const deliveryMode = (EXEC_MODE_VALUES as readonly string[]).includes(rawMode)
+    async const deliveryMode = (EXEC_MODE_VALUES as readonly string[]).includes(rawMode)
       ? (rawMode as "local" | "cloud") : undefined;
-    let repoId = typeof trigger.repo_id === "string" ? trigger.repo_id : "";
+    let repoId = typeof trigger.repoId === "string" ? trigger.repoId : "";
     if (deliveryRepo) {
-      const deliveryRepoRow = db.repoById(deliveryRepo)
-        ?? db.repoByCloudUrl(deliveryRepo)
-        ?? db.listRepos().find((r) => r.name === deliveryRepo);
+      const deliveryRepoRow = await db.repoById(deliveryRepo)
+        ?? await db.repoByCloudUrl(deliveryRepo)
+        ?? await db.listRepos().find((r) => r.name === deliveryRepo);
       if (!deliveryRepoRow) {
         throw new Error(
           `the delivery's "${REPO_DELIVERY_KEY}" doesn't match a registered repo — ` +
@@ -203,9 +203,9 @@ export class FlowFactory {
       }
       taskId = latest.id;
     }
-    const task = rows.get(Task, `SELECT id, type, key, summary, description, status, issue_type AS "issueType", priority, repo_url AS "repoUrl", parent_key AS "parentKey", external_url AS "externalUrl", raw, synced_at AS "syncedAt", fields FROM tasks WHERE id=$1`, taskId);
+    const task = await rows.get(Task, `SELECT id, type, key, summary, description, status, issue_type AS "issueType", priority, repo_url AS "repoUrl", parent_key AS "parentKey", external_url AS "externalUrl", raw, synced_at AS "syncedAt", fields FROM tasks WHERE id=$1`, taskId);
     if (!task) throw new NotFoundError("task", taskId);
-    const repo = db.repoById(repoId);
+    const repo = await db.repoById(repoId);
     if (!repo) {
       throw new ValidationError(
         "the template's bound repo no longer exists — rebind in the template editor",
@@ -223,14 +223,14 @@ export class FlowFactory {
         throw new ValidationError(`payload doesn't match the "${t.name}" start contract — ${v.error}`);
       }
     }
-    const id = this.create(taskId, repo.cloud_url, `${t.name} · ${new Date().toISOString()}`, {
+    const id = this.create(taskId, repo.cloudUrl, `${t.name} · ${new Date().toISOString()}`, {
       repoId,
-      executionMode: deliveryMode ?? (repo.local_path ? "local" : "cloud"),
+      executionMode: deliveryMode ?? (repo.localPath ? "local" : "cloud"),
       templateId,
       triggerPayload: payload,
       autoStart: true,
     });
-    db.emitEvent(id, null, "lifecycle", `flow auto-created from the "${t.name}" template by a trigger — ${taskType} task ${task.key}`);
+    await db.emitEvent(id, null, "lifecycle", `flow auto-created from the "${t.name}" template by a trigger — ${taskType} task ${task.key}`);
     return id;
   }
 }

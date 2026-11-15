@@ -40,7 +40,7 @@ export class CommentService {
         }
         return {
           id: c.id,
-          threadId: c.discussion_id,
+          threadId: c.discussionId,
           author: c.author,
           body: c.body,
           path: parsed.path ?? null,
@@ -49,7 +49,7 @@ export class CommentService {
           resolvable: typeof parsed.resolvable === "boolean" ? parsed.resolvable : true,
           resolved:
             typeof parsed.resolved === "boolean" ? parsed.resolved : c.status === COMMENT_RESOLVED,
-          createdAt: parsed.createdAt ?? c.created_at,
+          createdAt: parsed.createdAt ?? c.createdAt,
         };
       });
   }

@@ -46,7 +46,7 @@ export interface WorktreeBinding {
 
 /**
  * Engine-side manager for the pure worktree layer (lib/git/worktrees.ts).
- * Owns the flow ↔ worktree binding (`flows.worktree_dir`), the dependency-setup
+ * Owns the flow ↔ worktree binding (`flows.worktreeDir`), the dependency-setup
  * run (policy resolved from lib/git/dep-policy.ts, executed by
  * lib/git/worktree-setup.ts), crash-safe removal records (persisted BEFORE git
  * runs, resumed by the startup sweep), and the sweep itself. All git mechanics
@@ -66,7 +66,7 @@ export class WorktreeManager {
       nodeId,
       flowId,
     );
-    return row?.node_key;
+    return row?.nodeKey;
   }
 
   private lifecycleData(
@@ -87,9 +87,9 @@ export class WorktreeManager {
    * reconciler fails the live node as "left running without an active run"
    * (the same aliveness contract the pipeline gate's per-poll stamps follow).
    */
-  private touchNode(flowId: string, nodeId: string | null | undefined): void {
+  async private touchNode(flowId: string, nodeId: string | null | undefined): void {
     if (!nodeId) return;
-    db.run(`UPDATE nodes SET updated_at=$1 WHERE id=$2 AND flow_id=$3`, db.now(), nodeId, flowId);
+    await db.run(`UPDATE nodes SET updated_at=$1 WHERE id=$2 AND flow_id=$3`, db.now(), nodeId, flowId);
   }
 
   /** A flow's worktree dir: `workspaces/worktrees/<flowId>` (unique per flow; sweep-joinable). */
@@ -102,7 +102,7 @@ export class WorktreeManager {
   /**
    * Ensure the flow's worktree exists with `branch` checked out and return its
    * binding — `{ dir: null }` when worktrees don't apply (cloud mode). When the
-   * repo disables worktrees (`repos.use_worktrees = 0`), local-mode runs bind
+   * repo disables worktrees (`repos.useWorktrees = 0`), local-mode runs bind
    * the registered checkout directly — the user opted out of parallel isolation.
    * Creation failure THROWS (fatal to the node): agent runs mutating the
    * developer's registered checkout cross-contaminated concurrent flows, so
@@ -110,7 +110,7 @@ export class WorktreeManager {
    * and can be retried once fixed. A fresh worktree runs the repo's
    * dependency-setup policy once (per flow, not per run); a setup failure
    * remains non-fatal, surfaced as `setupNote` for the agent's run prompt.
-   * Non-null `dir` results are persisted on `flows.worktree_dir` before
+   * Non-null `dir` results are persisted on `flows.worktreeDir` before
    * returning.
    */
   async ensureFlowWorktree(
@@ -119,8 +119,8 @@ export class WorktreeManager {
     opts: { nodeId?: string | null } = {}
   ): Promise<WorktreeBinding> {
     const flow = ctx.flow;
-    if (flow.execution_mode !== "local") return { dir: null, setupNote: null };
-    const hub = ctx.repo?.local_path ?? null;
+    if (flow.executionMode !== "local") return { dir: null, setupNote: null };
+    const hub = ctx.repo?.localPath ?? null;
     if (!hub) {
       throw new Error(
         "This flow runs in local mode but its repo has no local path configured. Set one on the Settings page."
@@ -128,17 +128,17 @@ export class WorktreeManager {
     }
 
     if (!this.worktreesEnabled(ctx.repo)) {
-      // repo opted out: run in the registered checkout itself. A worktree left
+      async // repo opted out: run in the registered checkout itself. A worktree left
       // over from before the toggle flip is removed (branch kept) so the
       // binding, sweep and status badge all agree on "no worktree".
-      if (flow.worktree_dir) {
+      if (flow.worktreeDir) {
         await this.removeFlowWorktree(flow.id, {
           reason: "worktrees disabled for this repo",
         });
-        flow.worktree_dir = null;
+        flow.worktreeDir = null;
       }
       const dir = this.tryRealpath(hub);
-      db.emitEvent(flow.id, opts.nodeId ?? null, "lifecycle",
+      await db.emitEvent(flow.id, opts.nodeId ?? null, "lifecycle",
         `running in the registered checkout (${dir}) — worktrees disabled`,
         this.lifecycleData(flow.id, opts.nodeId, { branch }));
       this.touchNode(flow.id, opts.nodeId);
@@ -149,7 +149,7 @@ export class WorktreeManager {
     // visibility: the ensure can run for minutes on a first checkout — surface
     // it in the node's activity feed immediately instead of leaving the node
     // silent until the create/reuse outcome lands
-    db.emitEvent(flow.id, opts.nodeId ?? null, "lifecycle",
+    await db.emitEvent(flow.id, opts.nodeId ?? null, "lifecycle",
       `setting up worktree (branch ${branch})…`,
       this.lifecycleData(flow.id, opts.nodeId, { branch }));
     this.touchNode(flow.id, opts.nodeId);
@@ -158,18 +158,18 @@ export class WorktreeManager {
         repoPath: hub,
         dir,
         branch,
-        base: ctx.repo?.default_branch ?? "main",
-        addTimeoutMs: ctx.repo?.worktree_timeout_ms ?? undefined,
+        base: ctx.repo?.defaultBranch ?? "main",
+        addTimeoutMs: ctx.repo?.worktreeTimeoutMs ?? undefined,
       });
       // store the canonical (realpath) spelling — git canonicalizes worktree
       // paths itself (e.g. /var → /private/var on macOS), and sweep/removal
       // matching joins against `git worktree list` output
       const canonical = this.tryRealpath(dir);
-      if (!flow.worktree_dir || !samePath(flow.worktree_dir, canonical)) {
-        db.run(`UPDATE flows SET worktree_dir=$1, updated_at=$2 WHERE id=$3`, canonical, db.now(), flow.id);
-        flow.worktree_dir = canonical;
+      if (!flow.worktreeDir || !samePath(flow.worktreeDir, canonical)) {
+        await db.run(`UPDATE flows SET worktree_dir=$1, updated_at=$2 WHERE id=$3`, canonical, db.now(), flow.id);
+        flow.worktreeDir = canonical;
       }
-      db.emitEvent(flow.id, opts.nodeId ?? null, "lifecycle",
+      await db.emitEvent(flow.id, opts.nodeId ?? null, "lifecycle",
         result.reused
           ? `worktree reused at ${canonical} (branch ${result.headBranch})`
           : `worktree created at ${canonical} (branch ${branch} off ${result.base})`,
@@ -187,7 +187,7 @@ export class WorktreeManager {
       return { dir: canonical, setupNote };
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : String(e);
-      db.emitEvent(flow.id, opts.nodeId ?? null, "error",
+      await db.emitEvent(flow.id, opts.nodeId ?? null, "error",
         `worktree setup failed (${msg})`,
         this.lifecycleData(flow.id, opts.nodeId));
       // fatal: agent runs must never fall back to the registered checkout —
@@ -227,7 +227,7 @@ export class WorktreeManager {
     if (opts.cwd) return { cwd: opts.cwd, setupNote: null };
     if (opts.mode !== "agent") return { cwd: undefined, setupNote: null };
     const desiredBranch =
-      (await this.currentWorktreeBranch(ctx)) ?? ctx.flow.mr_branch ?? opts.defaultBranch;
+      (await this.currentWorktreeBranch(ctx)) ?? ctx.flow.mrBranch ?? opts.defaultBranch;
 
     while (true) {
       const inflight = this.ensureInFlight.get(ctx.flow.id);
@@ -235,8 +235,8 @@ export class WorktreeManager {
         await inflight.catch(() => undefined);
         this.touchNode(ctx.flow.id, opts.nodeId ?? null);
         const head = await this.currentWorktreeBranch(ctx);
-        if (head === desiredBranch && ctx.flow.worktree_dir) {
-          const dir = this.tryRealpath(ctx.flow.worktree_dir);
+        if (head === desiredBranch && ctx.flow.worktreeDir) {
+          const dir = this.tryRealpath(ctx.flow.worktreeDir);
           if (fs.existsSync(path.join(dir, ".git"))) {
             return { cwd: dir, setupNote: null };
           }
@@ -262,7 +262,7 @@ export class WorktreeManager {
    * strictly and fails non-fatally).
    */
   private async currentWorktreeBranch(ctx: FlowCtx): Promise<string | null> {
-    const dir = ctx.flow.worktree_dir;
+    const dir = ctx.flow.worktreeDir;
     if (!dir) return null;
     try {
       if (!fs.existsSync(path.join(dir, ".git"))) return null;
@@ -290,7 +290,7 @@ export class WorktreeManager {
       hubPath: target.hub,
       overrides,
     });
-    db.emitEvent(ctx.flow.id, target.nodeId, "lifecycle",
+    await db.emitEvent(ctx.flow.id, target.nodeId, "lifecycle",
       `setting up worktree deps (${policy.source})…`,
       this.lifecycleData(ctx.flow.id, target.nodeId, {
         policy: policy.source,
@@ -304,10 +304,10 @@ export class WorktreeManager {
         worktreePath: target.dir,
         policy,
         syncGlobs: depPolicies.resolveSyncGlobs(overrides),
-        sharedDirs: depPolicies.parsePathList(overrides.shared_dirs),
-        setupCommand: overrides.setup_command ?? null,
+        sharedDirs: depPolicies.parsePathList(overrides.sharedDirs),
+        setupCommand: overrides.setupCommand ?? null,
         onEvent: (message) => {
-          db.emitEvent(ctx.flow.id, target.nodeId, "log", message,
+          await db.emitEvent(ctx.flow.id, target.nodeId, "log", message,
             this.lifecycleData(ctx.flow.id, target.nodeId));
           this.touchNode(ctx.flow.id, target.nodeId);
         },
@@ -315,33 +315,33 @@ export class WorktreeManager {
       const message = result.ok
         ? `worktree deps ready${result.actions.length ? `: ${result.actions.join("; ")}` : ""}`
         : note(result.error ?? "unknown error");
-      db.emitEvent(ctx.flow.id, target.nodeId, result.ok ? "lifecycle" : "error", message,
+      await db.emitEvent(ctx.flow.id, target.nodeId, result.ok ? "lifecycle" : "error", message,
         this.lifecycleData(ctx.flow.id, target.nodeId, { actions: result.actions }));
       this.touchNode(ctx.flow.id, target.nodeId);
       return result.ok ? null : message;
     } catch (e: unknown) {
       // the executor reports failures as results — a throw here is a bug
       const msg = e instanceof Error ? e.message : String(e);
-      db.emitEvent(ctx.flow.id, target.nodeId, "error", note(msg), this.lifecycleData(ctx.flow.id, target.nodeId));
+      await db.emitEvent(ctx.flow.id, target.nodeId, "error", note(msg), this.lifecycleData(ctx.flow.id, target.nodeId));
       return note(msg);
     }
   }
 
-  /** The repo's worktree opt-out (`repos.use_worktrees = 0`); on when unset. */
+  /** The repo's worktree opt-out (`repos.useWorktrees = 0`); on when unset. */
   private worktreesEnabled(repo: Repo | null | undefined): boolean {
     if (!repo) return true;
-    return Boolean(repo.use_worktrees);
+    return Boolean(repo.useWorktrees);
   }
 
   /** The repo row's policy overrides, normalized for the pure dep-policy layer. */
   private depOverrides(repo: Repo | null | undefined): RepoDepOverrides {
     if (!repo) return {};
     return {
-      install_command: repo.install_command,
-      skip_install: Boolean(repo.skip_install),
-      setup_command: repo.setup_command,
-      sync_paths: repo.sync_paths,
-      shared_dirs: repo.shared_dirs,
+      install_command: repo.installCommand,
+      skip_install: Boolean(repo.skipInstall),
+      setup_command: repo.setupCommand,
+      sync_paths: repo.syncPaths,
+      shared_dirs: repo.sharedDirs,
     };
   }
 
@@ -358,13 +358,13 @@ export class WorktreeManager {
     const flow = db.get<{ worktree_dir: string | null; mr_branch: string | null; repo_id: string | null }>(
       `SELECT worktree_dir AS "worktreeDir", mr_branch AS "mrBranch",, repo_id AS "repoId" FROM flows WHERE id=$1`, flowId
     );
-    if (!flow?.worktree_dir) return;
-    const repo = flow.repo_id ? db.repoById(flow.repo_id) : null;
+    if (!flow?.worktreeDir) return;
+    const repo = flow.repoId ? await db.repoById(flow.repoId) : null;
     await this.removeWorktreeDir({
       flowId,
-      repoPath: repo?.local_path ?? null,
-      wtPath: flow.worktree_dir,
-      branch: flow.mr_branch,
+      repoPath: repo?.localPath ?? null,
+      wtPath: flow.worktreeDir,
+      branch: flow.mrBranch,
       deleteBranch: opts.deleteBranch ?? false,
       reason: opts.reason,
     });
@@ -387,17 +387,17 @@ export class WorktreeManager {
    */
   async sweepWorktrees(): Promise<void> {
     // 1. resume recorded removals
-    for (const rec of rows.all(
+    for (const rec of await rows.all(
       WorktreeRemovalRow,
       `SELECT id, flow_id AS "flowId", repo_path AS "repoPath", path, branch, delete_branch AS "deleteBranch", reason, created_at AS "createdAt" FROM worktree_removals ORDER BY created_at`,
     )) {
       try {
         await this.removeWorktreeDir({
-          flowId: rec.flow_id,
-          repoPath: rec.repo_path,
+          flowId: rec.flowId,
+          repoPath: rec.repoPath,
           wtPath: rec.path,
           branch: rec.branch,
-          deleteBranch: !!rec.delete_branch,
+          deleteBranch: !!rec.deleteBranch,
           reason: rec.reason ?? "interrupted removal (resumed at startup)",
           recordId: rec.id,
         });
@@ -412,10 +412,10 @@ export class WorktreeManager {
 
     // 2. reconcile registered worktrees against flows
     for (const repo of repos) {
-      if (!repo.local_path) continue;
+      if (!repo.localPath) continue;
       try {
-        await worktrees.pruneWorktrees(repo.local_path);
-        const registered = await worktrees.listWorktrees(repo.local_path);
+        await worktrees.pruneWorktrees(repo.localPath);
+        const registered = await worktrees.listWorktrees(repo.localPath);
         for (const wt of registered) {
           if (wt.isMainWorktree || wt.isBare) continue;
           if (!containsPath(this.tryRealpath(workspacePaths.worktreesRoot()), wt.path)) continue; // DevFlow-owned worktrees only
@@ -427,27 +427,27 @@ export class WorktreeManager {
           const branch = worktreeBranchName(wt);
           if (!flow) {
             await this.removeWorktreeDir({
-              flowId, repoPath: repo.local_path, wtPath: wt.path, branch,
+              flowId, repoPath: repo.localPath, wtPath: wt.path, branch,
               deleteBranch: true, reason: "flow no longer exists",
             });
           } else if (flow.status !== "active") {
             await this.removeWorktreeDir({
-              flowId, repoPath: repo.local_path, wtPath: wt.path, branch,
+              flowId, repoPath: repo.localPath, wtPath: wt.path, branch,
               deleteBranch: true, reason: `flow is ${flow.status}`,
             });
-          } else if (flow.worktree_dir && !samePath(flow.worktree_dir, wt.path)) {
+          } else if (flow.worktreeDir && !samePath(flow.worktreeDir, wt.path)) {
             await this.removeWorktreeDir({
-              flowId, repoPath: repo.local_path, wtPath: wt.path, branch,
+              flowId, repoPath: repo.localPath, wtPath: wt.path, branch,
               deleteBranch: true, reason: "flow points at a different worktree",
             });
-          } else if (!flow.worktree_dir) {
+          } else if (!flow.worktreeDir) {
             // crash between create and the column write — adopt the worktree
-            db.run(`UPDATE flows SET worktree_dir=$1, updated_at=$2 WHERE id=$3`, wt.path, db.now(), flow.id);
+            await db.run(`UPDATE flows SET worktree_dir=$1, updated_at=$2 WHERE id=$3`, wt.path, db.now(), flow.id);
           }
         }
       } catch (e: unknown) {
         // strict failure — skip this repo entirely, never prune based on a broken scan
-        console.warn(`worktree sweep skipped repo ${repo.local_path}: ${e instanceof Error ? e.message : e}`);
+        console.warn(`worktree sweep skipped repo ${repo.localPath}: ${e instanceof Error ? e.message : e}`);
       }
     }
 
@@ -482,7 +482,7 @@ export class WorktreeManager {
   /**
    * Remove one worktree dir with the full safety gate: workspace containment,
    * dangerous-path refusal, crash-safe record, git removal (fs fallback), then
-   * the flows.worktree_dir clear + record cleanup on success.
+   * the flows.worktreeDir clear + record cleanup on success.
    */
   private async removeWorktreeDir(target: RemovalTarget): Promise<boolean> {
     const wsDir = this.tryRealpath(workspacePaths.worktreesRoot());
@@ -495,11 +495,11 @@ export class WorktreeManager {
     if (target.repoPath && isDangerousWorktreeRemovalPath(target.wtPath, target.repoPath, os.homedir())) {
       console.warn(`worktree-lifecycle: refusing dangerous removal path: ${target.wtPath}`);
       return false;
-    }
+    async }
 
     const recordId = target.recordId ?? db.uid("wtrem_");
     if (!target.recordId) {
-      db.run(
+      await db.run(
         `INSERT INTO worktree_removals (id, flow_id, repo_path, path, branch, delete_branch, reason, created_at)
          VALUES ($1,$2,$3,$4,$5,$6,$7,$8) ON CONFLICT DO NOTHING`,
         recordId, target.flowId, target.repoPath, target.wtPath, target.branch,
@@ -531,22 +531,22 @@ export class WorktreeManager {
         done = true;
       } catch (e: unknown) {
         console.warn(`worktree-lifecycle: could not delete orphaned dir ${target.wtPath}: ${e instanceof Error ? e.message : e}`);
-      }
+      async }
     }
 
     if (done) {
-      db.run(`DELETE FROM worktree_removals WHERE id=$1`, recordId);
-      if (target.flowId && db.get(`SELECT 1 FROM flows WHERE id=$1`, target.flowId)) {
+      await db.run(`DELETE FROM worktree_removals WHERE id=$1`, recordId);
+      if (target.flowId && await db.get(`SELECT 1 FROM flows WHERE id=$1`, target.flowId)) {
         // clear the pointer only when it still names this worktree (a restarted
         // flow may have moved on); compare symlink-tolerantly — git canonicalizes
-        const stored = db.get<{ worktree_dir: string | null }>(
+        async const stored = db.get<{ worktree_dir: string | null }>(
           `SELECT worktree_dir AS "worktreeDir" FROM flows WHERE id=$1`, target.flowId
-        )?.worktree_dir ?? null;
+        )?.worktreeDir ?? null;
         if (stored && samePath(stored, target.wtPath)) {
-          db.run(`UPDATE flows SET worktree_dir=NULL, updated_at=$1 WHERE id=$2`, db.now(), target.flowId);
+          await db.run(`UPDATE flows SET worktree_dir=NULL, updated_at=$1 WHERE id=$2`, db.now(), target.flowId);
         }
         const branchNote = target.branch ? ` (branch ${target.branch} kept)` : "";
-        db.emitEvent(target.flowId, null, "lifecycle",
+        await db.emitEvent(target.flowId, null, "lifecycle",
           `worktree removed: ${target.wtPath}${branchNote}${target.reason ? ` — ${target.reason}` : ""}`);
       }
     }

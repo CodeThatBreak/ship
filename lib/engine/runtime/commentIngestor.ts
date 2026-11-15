@@ -19,15 +19,15 @@ export class CommentIngestor {
     private readonly waits: WaitScheduler,
   ) {}
 
-  findFlowByMR(projectId: number, mrIid: number, projectUrl?: string): FlowRow | undefined {
-    const branchRow = rows.get(FlowRow,
-      `SELECT f.* FROM branches b JOIN flows f ON f.id = b.flow_id
-       WHERE b.mr_iid=$1 AND f.gitlab_project_id=$2`, mrIid, projectId
+  async findFlowByMR(projectId: number, mrIid: number, projectUrl?: string): FlowRow | undefined {
+    const branchRow = await rows.get(FlowRow,
+      `SELECT f.* FROM branches b JOIN flows f ON f.id = b.flowId
+       WHERE b.mrIid=$1 AND f.gitlabProjectId=$2`, mrIid, projectId
     );
     if (branchRow) {
       if (projectUrl) {
         const h = hostOf(projectUrl);
-        if (h && hostOf(branchRow.repo_url ?? "") !== h) {
+        if (h && hostOf(branchRow.repoUrl ?? "") !== h) {
           // host mismatch — fall through to flows table
         } else {
           return branchRow;
@@ -36,19 +36,19 @@ export class CommentIngestor {
         return branchRow;
       }
     }
-    const candidates = rows.all(FlowRow,
+    const candidates = await rows.all(FlowRow,
       `SELECT id, task_id AS "taskId", name, status, mr_url AS "mrUrl", mr_iid AS "mrIid", mr_branch AS "mrBranch", repo_url AS "repoUrl", gitlab_project_id AS "gitlabProjectId", current_node AS "currentNode", execution_mode AS "executionMode", repo_id AS "repoId", template_id AS "templateId", template_graph AS "templateGraph", trigger_payload AS "triggerPayload", worktree_dir AS "worktreeDir", parent_flow_id AS "parentFlowId", kind, created_at AS "createdAt", updated_at AS "updatedAt" FROM flows WHERE gitlab_project_id=$1 AND mr_iid=$2`, projectId, mrIid
     );
     if (candidates.length <= 1) return candidates[0];
     const h = projectUrl ? hostOf(projectUrl) : null;
     if (!h) return candidates[0];
-    return candidates.find((f) => hostOf(f.repo_url ?? "") === h) ?? candidates[0];
+    return candidates.find((f) => hostOf(f.repoUrl ?? "") === h) ?? candidates[0];
   }
 
   ingestComments(flowId: string, incoming: HostComment[], mrIid?: number): number {
     return commentStore.ingest(flowId, incoming, mrIid);
   }
-
+async 
   handleHostEvent(event: HostWebhookEvent): void {
     try {
       if (event.kind === "cr_comment") {
@@ -57,7 +57,7 @@ export class CommentIngestor {
         this.ingestComments(f.id, [event.comment], event.crNumber);
         const mins = Math.round(this.waits.resolveDelayMs(f.id) / 60_000);
         this.waits.bounceCommentWaits(f.id);
-        db.emitEvent(f.id, null, "lifecycle",
+        await db.emitEvent(f.id, null, "lifecycle",
           `new MR comment from ${event.comment.author || "a reviewer"} — resolve queued for ` +
           `${this.waits.resolveScheduleLabel(f.id)} ` +
           `(${mins} min quiet, then the pipeline gate)`,
@@ -71,11 +71,11 @@ export class CommentIngestor {
       const gateKey = templateStore.waitNodeKey(f.id, "pipeline");
       const gateStatus = gateKey
         ? db.get<{ status: string }>(
-            `SELECT status FROM nodes WHERE flow_id=$1 AND node_key=$2`, f.id, gateKey
+            async `SELECT status FROM nodes WHERE flow_id=$1 AND node_key=$2`, f.id, gateKey
           )?.status
         : undefined;
       if (gateStatus !== "running") {
-        db.emitEvent(f.id, null, "pipeline", `pipeline ${event.pipeline.status}`,
+        await db.emitEvent(f.id, null, "pipeline", `pipeline ${event.pipeline.status}`,
           { status: event.pipeline.status, id: event.pipeline.id, nodeKey: gateKey ?? undefined });
       }
       if (event.pipeline.status === "failed") {

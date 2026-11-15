@@ -10,24 +10,24 @@ import {
 } from "../utils/repoSavePayload";
 
 export const EMPTY_REPO_FORM: RepoFormState = {
-  name: "", cloud_url: "", local_path: "", default_branch: REPO_DEFAULT_BRANCH,
-  use_worktrees: true, install_command: "", skip_install: false, sync_paths: "", shared_dirs: "",
-  setup_command: "", worktree_timeout_s: "",
+  name: "", cloudUrl: "", localPath: "", defaultBranch: REPO_DEFAULT_BRANCH,
+  useWorktrees: true, installCommand: "", skipInstall: false, syncPaths: "", sharedDirs: "",
+  setupCommand: "", worktree_timeout_s: "",
 };
 
 /** Map a stored repo row onto the editable form shape (paths stored verbatim). */
 export const formFromRepo = (repo: Repo): RepoFormState => ({
   name: repo.name,
-  cloud_url: repo.cloud_url,
-  local_path: repo.local_path ?? "",
-  default_branch: repo.default_branch || REPO_DEFAULT_BRANCH,
-  use_worktrees: Boolean(repo.use_worktrees),
-  install_command: repo.install_command ?? "",
-  skip_install: Boolean(repo.skip_install),
-  sync_paths: repo.sync_paths ?? "",
-  shared_dirs: repo.shared_dirs ?? "",
-  setup_command: repo.setup_command ?? "",
-  worktree_timeout_s: repo.worktree_timeout_ms ? String(Math.round(repo.worktree_timeout_ms / 1000)) : "",
+  cloudUrl: repo.cloudUrl,
+  localPath: repo.localPath ?? "",
+  defaultBranch: repo.defaultBranch || REPO_DEFAULT_BRANCH,
+  useWorktrees: Boolean(repo.useWorktrees),
+  installCommand: repo.installCommand ?? "",
+  skipInstall: Boolean(repo.skipInstall),
+  syncPaths: repo.syncPaths ?? "",
+  sharedDirs: repo.sharedDirs ?? "",
+  setupCommand: repo.setupCommand ?? "",
+  worktree_timeout_s: repo.worktreeTimeoutMs ? String(Math.round(repo.worktreeTimeoutMs / 1000)) : "",
 });
 
 /**

@@ -85,7 +85,7 @@ export class NodeStore {
   async emitEvent(
     flowId: string,
     nodeKey: string | null,
-    type: string,
+    async type: string,
     message: string,
     data?: Record<string, unknown>,
   ): Promise<void> {
@@ -110,7 +110,7 @@ export class NodeStore {
         JSON.stringify(config),
         spec.joinMode,
         NODE_STATUS.PENDING,
-        ts,
+    ts,
         ts,
       );
       if (opts.provisionWebhookHooks && spec.trigger.waitFor === "webhook") {

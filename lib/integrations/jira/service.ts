@@ -104,7 +104,7 @@ export class JiraService {
     const creds = { email: email.trim(), token };
     try {
       const preferred = jiraAuthModeForInstance({ base_url: trimmedBase });
-      const modes: JiraAuthMode[] =
+      async const modes: JiraAuthMode[] =
         preferred === "cloud_basic" ? ["cloud_basic", "dc_bearer"] : ["dc_bearer", "cloud_basic"];
       let lastDetail = "";
       for (const mode of modes) {

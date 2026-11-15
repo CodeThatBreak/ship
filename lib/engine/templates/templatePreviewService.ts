@@ -41,7 +41,7 @@ export class TemplatePreviewService {
       }
     })() as Record<string, unknown>;
 
-    const provider = taskRegistry.maybe(String(trigger.task_type ?? ""));
+    const provider = taskRegistry.maybe(String(trigger.taskType ?? ""));
     const task: Record<string, unknown> = {
       key: "TASK-1",
       summary: "Sample task",
@@ -60,7 +60,7 @@ export class TemplatePreviewService {
 
     const nodes: Record<string, { output: unknown }> = {};
     const nodeRows = await db.all<{ node_key: string; node_template_id: string; config: string | null }>(
-          `SELECT node_key AS "nodeKey", node_template_id AS "nodeTemplateId",, config FROM flow_template_nodes WHERE template_id=$1`,
+          async `SELECT node_key AS "nodeKey", node_template_id AS "nodeTemplateId",, config FROM flow_template_nodes WHERE template_id=$1`,
           templateId,
         );
     for (const r of nodeRows) {
@@ -113,8 +113,8 @@ export class TemplatePreviewService {
     const entryKey = nodeRegistry.entryKey();
     const row = await db.get<{ config: string | null }>(
           `SELECT n.config FROM flow_template_nodes n
-     JOIN node_templates t ON t.id = n.node_template_id
-     WHERE n.template_id=$1 AND t.key=$2`,
+     JOIN node_templates t ON t.id = n.nodeTemplateId
+     WHERE n.templateId=$1 AND t.key=$2`,
           templateId,
           entryKey,
         );
@@ -137,7 +137,7 @@ export class TemplatePreviewService {
     templateId: string,
     input: { expr: string; scope: PreviewScope },
   ): Promise<
-    | { ok: true; value: unknown; source: "run" | "sample" }
+    async | { ok: true; value: unknown; source: "run" | "sample" }
     | { ok: false; error: string; source: "run" | "sample" }
     | { ok: true; value: undefined; source: "sample" }
   > {
@@ -145,7 +145,7 @@ export class TemplatePreviewService {
     if (!expr.trim()) {
       return { ok: true, value: undefined, source: "sample" };
     }
-
+async 
     let context: unknown;
     let source: "run" | "sample" = "sample";
     if (scope === "context") {

@@ -20,24 +20,24 @@ export class BranchStore {
       gitBranch?: string;
       order?: number;
     } = {},
-  ): string {
+  async ): string {
     const existing = db.get<{ id: string }>(`SELECT id FROM branches WHERE flow_id=$1 AND name=$2`, flowId, name);
     if (existing) {
       const patch: Record<string, unknown> = {};
       if (opts.title !== undefined) patch.title = opts.title;
       if (opts.status !== undefined) patch.status = opts.status;
-      if (opts.mrUrl !== undefined) patch.mr_url = opts.mrUrl;
-      if (opts.mrIid !== undefined) patch.mr_iid = opts.mrIid;
-      if (opts.gitBranch !== undefined) patch.git_branch = opts.gitBranch;
+      if (opts.mrUrl !== undefined) patch.mrUrl = opts.mrUrl;
+      if (opts.mrIid !== undefined) patch.mrIid = opts.mrIid;
+      if (opts.gitBranch !== undefined) patch.gitBranch = opts.gitBranch;
       if (Object.keys(patch).length) {
         const keys = Object.keys(patch);
-        db.run(`UPDATE branches SET ${keys.map((k) => `${k}=?`).join(",")}, updated_at=? WHERE id=?`,
+        await db.run(`UPDATE branches SET ${keys.map((k) => `${k}=?`).join(",")}, updated_at=? WHERE id=?`,
           ...keys.map((k) => patch[k] as never), db.now(), existing.id);
       }
       return existing.id;
     }
     const id = db.uid("br_");
-    db.run(
+    await db.run(
       `INSERT INTO branches (id,flow_id,name,git_branch,title,status,mr_url,mr_iid,"order",created_at,updated_at)
        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) ON CONFLICT DO NOTHING`,
       id, flowId, name, opts.gitBranch ?? null, opts.title ?? name, opts.status ?? "pending",
@@ -50,12 +50,12 @@ export class BranchStore {
   gitBranch(flowId: string, planBranchName: string): string | null {
     return db.get<{ git_branch: string | null }>(
       `SELECT git_branch AS "gitBranch" FROM branches WHERE flow_id=$1 AND name=$2`, flowId, planBranchName,
-    )?.git_branch ?? null;
+    )?.gitBranch ?? null;
   }
 
   /** Tag a specific run row with a branch_id (per-branch cost attribution). */
-  tagRun(runRowId: string, branchRowId: string): void {
-    db.run(
+  async tagRun(runRowId: string, branchRowId: string): void {
+    await db.run(
       `UPDATE runs SET branch_id=$1, updated_at=$2 WHERE id=$3`,
       branchRowId, db.now(), runRowId,
     );

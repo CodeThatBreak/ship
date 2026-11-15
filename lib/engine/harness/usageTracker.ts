@@ -132,7 +132,7 @@ export class UsageTracker {
     result: AgentRunResult;
     /** the port whose runtime executed the run (billed usage is a port concept) */
     port: AgentPort;
-    /** when set (cloud runs), fetch billed cost for this run via the port */
+    async /** when set (cloud runs), fetch billed cost for this run via the port */
     cloudAgentId?: string;
     runId: string;
   }): Promise<RunCostSummary> {
