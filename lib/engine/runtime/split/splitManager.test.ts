@@ -22,8 +22,11 @@
  * lib/config.ts, so setting it before the first `db` import isolates the
  * singleton (AGENTS.md §1 — never a real database).
  */
-import { describe, expect, it } from "vitest";
+import { beforeAll, describe, expect, it } from "vitest";
 import { z } from "zod";
+import { assignTestDatabase, resetTestDatabase } from "../../../../tests/helpers/testDatabase";
+
+assignTestDatabase();
 
 const { db } = await import("../../../db/app");
 const { flowEngine } = await import("../../flowEngine");
@@ -148,6 +151,7 @@ class FixtureWorkerDef extends NodeDefinition<Record<string, unknown>, { summary
     const payload = (ctx.flow.triggerPayload ?? {}) as { unit?: { key?: string; item?: WorkerItem } };
     const unitKey = payload.unit?.key ?? "?";
     FixtureWorkerDef.started.push(unitKey);
+
     const count = (FixtureWorkerDef.runs.get(unitKey) ?? 0) + 1;
     FixtureWorkerDef.runs.set(unitKey, count);
     const node = await this.support.nodeByKey(ctx.flow.id, this.key);
@@ -301,39 +305,49 @@ async function seedCatalogRow(index: number, key: string, name: string): Promise
     `nt_${key}_${index}`, key, name, `fixture catalog row ${name}`, now(), now()
   );
 }
-await seedCatalogRow(1, "split_worker_fixture", "Split worker fixture");
-await seedCatalogRow(1, "split_source_fixture", "Split source fixture");
-await seedCatalogRow(1, "split_consumer_fixture", "Split consumer fixture");
-// a second SOURCE def for the multi-source conflict test (catalog keys are
-// UNIQUE(key, version) — the second source needs its own def + row)
-await seedCatalogRow(1, "split_source_fixture_b", "Split source fixture B");
 
-/** The `template` targets — declarative agent rows (resolved by row id, the
- *  Phase-1 lookup). The contract row declares a start contract the unit item
- *  must match (the compatibility check). */
-const DECL_ROW = must(
-  await templateStore.createNodeTemplate({
-    key: "unit_worker_decl",
-    name: "Unit worker declarative",
-    kind: "agent",
-    config: { mode: "plan", output: "markdown", prompt: "Process the unit {{input.unit.key}} — {{input.unit.item.summary}}" },
-  }),
-  "declarative agent row"
-);
-const DECL_ROW_CONTRACT = must(
-  await templateStore.createNodeTemplate({
-    key: "unit_worker_contract",
-    name: "Unit worker contract",
-    kind: "agent",
-    config: {
-      mode: "plan",
-      output: "markdown",
-      prompt: "process",
-      contract: [{ key: "service", label: "Service", type: "string", required: true }],
-    },
-  }),
-  "declarative contract row"
-);
+/**
+ * The `template` targets — declarative agent rows (resolved by row id, the
+ * Phase-1 lookup). The contract row declares a start contract the unit item
+ * must match (the compatibility check).
+ */
+let DECL_ROW: { id: string };
+let DECL_ROW_CONTRACT: { id: string };
+
+// Reset the shared test database per file (the doc'd convention) and seed the
+// fixture catalog rows + declarative target rows the tests reference.
+beforeAll(async () => {
+  await resetTestDatabase();
+  await seedCatalogRow(1, "split_worker_fixture", "Split worker fixture");
+  await seedCatalogRow(1, "split_source_fixture", "Split source fixture");
+  await seedCatalogRow(1, "split_consumer_fixture", "Split consumer fixture");
+  // a second SOURCE def for the multi-source conflict test (catalog keys are
+  // UNIQUE(key, version) — the second source needs its own def + row)
+  await seedCatalogRow(1, "split_source_fixture_b", "Split source fixture B");
+  DECL_ROW = must(
+    await templateStore.createNodeTemplate({
+      key: "unit_worker_decl",
+      name: "Unit worker declarative",
+      kind: "agent",
+      config: { mode: "plan", output: "markdown", prompt: "Process the unit {{input.unit.key}} — {{input.unit.item.summary}}" },
+    }),
+    "declarative agent row"
+  );
+  DECL_ROW_CONTRACT = must(
+    await templateStore.createNodeTemplate({
+      key: "unit_worker_contract",
+      name: "Unit worker contract",
+      kind: "agent",
+      config: {
+        mode: "plan",
+        output: "markdown",
+        prompt: "process",
+        contract: [{ key: "service", label: "Service", type: "string", required: true }],
+      },
+    }),
+    "declarative contract row"
+  );
+});
 
 // ── seeding + polling helpers ────────────────────────────────────────────────
 
@@ -557,8 +571,12 @@ describe("SplitManager — scheduling (deps + slot)", () => {
     await splitManager.expand(flowId, "split_consumer_fixture", "split_source_fixture");
     await until(joinSettled(flowId), "the parallel join");
 
-    // the free slot lets b start beside a, before its dependent c
-    expect(FixtureWorkerDef.started).toEqual(["a", "b", "c"]);
+    // the free slot lets b start beside a, before its dependent c. a and b
+    // race concurrent start chains through the async persistence layer, so
+    // only the set and "the dependent starts last" are deterministic —
+    // never an incidental a-vs-b order.
+    expect([...FixtureWorkerDef.started].sort()).toEqual(["a", "b", "c"]);
+    expect(FixtureWorkerDef.started.indexOf("c")).toBe(2);
   });
 
   it("a unit depending on an unknown key never starts — it surfaces blocked, the join still publishes", async () => {

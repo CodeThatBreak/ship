@@ -160,14 +160,25 @@ const recordedInputs = (j: Journal): Record<string, unknown>[] =>
 /**
  * Advance the resolve run past `detectCodeChange`'s re-check delay (a real
  * 5s sleep is pointless under test): the chat promise runs while fake timers
- * let the re-check fire immediately.
+ * let the re-check fire immediately. The async support layer hops real I/O
+ * between timer firings and schedules its timers late, so keep advancing the
+ * clock until the chat settles — a single advance can miss a timer the
+ * pending chain schedules after the advance already returned.
  */
 const withResolvedTimers = async (fn: () => Promise<string>): Promise<string> => {
   vi.useFakeTimers();
   try {
     const pending = fn();
-    await vi.advanceTimersByTimeAsync(30_000);
-    return await pending;
+    for (;;) {
+      const settled = await Promise.race([
+        pending.then(
+          () => true,
+          () => true,
+        ),
+        vi.advanceTimersByTimeAsync(5_000).then(() => false),
+      ]);
+      if (settled) return await pending;
+    }
   } finally {
     vi.useRealTimers();
   }

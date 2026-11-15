@@ -2,6 +2,7 @@ import "server-only";
 
 import { db } from "../../../../db/app";
 import { BranchRow, type BranchStatus } from "../../../../db/rows";
+import type { QueryExecutor } from "../../../../db/database";
 
 /**
  * Store for per-flow branch rows: upserts, status/MR updates, and tagging the
@@ -20,8 +21,10 @@ export class BranchStore {
       gitBranch?: string;
       order?: number;
     } = {},
+    tx?: QueryExecutor,
   ): Promise<string> {
-    const existing = await db.prisma.branch.findFirst({
+    const client = tx ?? db.prisma;
+    const existing = await client.branch.findFirst({
       where: { flowId, name },
       select: { id: true },
     });
@@ -33,7 +36,7 @@ export class BranchStore {
       if (opts.mrIid !== undefined) patch.mrIid = opts.mrIid;
       if (opts.gitBranch !== undefined) patch.gitBranch = opts.gitBranch;
       if (Object.keys(patch).length) {
-        await db.prisma.branch.update({
+        await client.branch.update({
           where: { id: existing.id },
           data: { ...patch, updatedAt: new Date() } as never,
         });
@@ -41,7 +44,7 @@ export class BranchStore {
       return existing.id;
     }
     const id = db.uid("br_");
-    await db.prisma.branch.create({
+    await client.branch.create({
       data: {
         id, flowId, name,
         gitBranch: opts.gitBranch ?? null,
@@ -75,8 +78,8 @@ export class BranchStore {
   }
 
   /** Get all branch rows for a flow, ordered. */
-  async list(flowId: string): Promise<BranchRow[]> {
-    const rows = await db.prisma.branch.findMany({
+  async list(flowId: string, tx?: QueryExecutor): Promise<BranchRow[]> {
+    const rows = await (tx ?? db.prisma).branch.findMany({
       where: { flowId },
       orderBy: [{ order: "asc" }, { createdAt: "asc" }],
     });

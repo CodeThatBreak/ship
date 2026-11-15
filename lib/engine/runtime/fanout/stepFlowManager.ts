@@ -1,6 +1,7 @@
 import "server-only";
 
 import crypto from "node:crypto";
+import type { Prisma } from "@prisma/client";
 import { db } from "../../../db/app";
 import type { FlowRow } from "../../../db/rows";
 import { templateStore, type TemplateGraph } from "../../templates/templateStore";
@@ -164,7 +165,8 @@ export class StepFlowManager {
       templateId: string,
       name: string,
       payload: StepChildPayload,
-      opts: { branch: string | null }
+      opts: { branch: string | null },
+      tx?: Prisma.TransactionClient
     ): Promise<string>;
     startStepChild(childFlowId: string): Promise<void>;
     finishFanout(parentFlowId: string, nodeKey: string, output: Record<string, unknown>): Promise<void>;
@@ -297,10 +299,9 @@ export class StepFlowManager {
 
     let made = 0;
     await db.transaction(async (tx) => {
-      void tx;
       for (const stepRow of pending) {
         const integrationBranch = await integrationBranchOf(stepRow.branch);
-        const groupIndex = await this.branchGroupIndex(parentFlowId, integrationBranch, stepRow, integrationBranchOf);
+        const groupIndex = await this.branchGroupIndex(parentFlowId, integrationBranch, stepRow, integrationBranchOf, tx);
         const branch = codeChild ? `${integrationBranch}-s${groupIndex + 1}` : null;
 
         const payload: StepChildPayload = {
@@ -312,7 +313,7 @@ export class StepFlowManager {
             files: StepFlowManager.filesOf(stepRow),
             ...(branch ? { branch } : {}),
           },
-          siblings: (await planSteps.list(parentFlowId))
+          siblings: (await planSteps.list(parentFlowId, tx))
             .filter((s) => s.id !== stepRow.id)
             .map((s) => ({ id: s.metaId ?? s.id, title: s.title, files: StepFlowManager.filesOf(s), status: s.status })),
           parentNodeKey: nodeKey,
@@ -323,24 +324,25 @@ export class StepFlowManager {
           templateId,
           `${ctx.flow.name} · step: ${stepRow.title}`,
           payload,
-          { branch }
+          { branch },
+          tx
         );
-        await db.run(`UPDATE plan_steps SET sub_flow_id=$1, updated_at=$2 WHERE id=$3 AND flow_id=$4`,
+        await tx.$executeRawUnsafe(`UPDATE plan_steps SET sub_flow_id=$1, updated_at=$2 WHERE id=$3 AND flow_id=$4`,
           childId, db.now(), stepRow.id, parentFlowId);
         if (codeChild) {
           // integration branch rows mirror the whole-mode branch decomposition so
           // the final aggregate approval's MR targets resolve through the chain
-          if (!(await branchStore.list(parentFlowId)).some((b) => b.name === integrationBranch)) {
+          if (!(await branchStore.list(parentFlowId, tx)).some((b) => b.name === integrationBranch)) {
             await branchStore.upsert(parentFlowId, integrationBranch, {
               title: `steps${stepRow.branch ? ` · ${stepRow.branch}` : ""}`,
-              order: (await branchStore.list(parentFlowId)).length,
+              order: (await branchStore.list(parentFlowId, tx)).length,
               status: "pending",
-            });
+            }, tx);
           }
         }
         await db.emitEvent(parentFlowId, null, "lifecycle",
           `fan-out: step "${stepRow.title}" → child flow${branch ? ` · branch ${branch}` : ""}`,
-          { nodeKey, childFlowId: childId });
+          { nodeKey, childFlowId: childId }, tx);
         made++;
       }
     });
@@ -494,9 +496,10 @@ export class StepFlowManager {
     parentFlowId: string,
     integrationBranch: string,
     self: PlanStepRow,
-    integrationBranchOf: (planBranch: string | null) => Promise<string>
+    integrationBranchOf: (planBranch: string | null) => Promise<string>,
+    tx?: Prisma.TransactionClient
   ): Promise<number> {
-    const rows = await planSteps.list(parentFlowId);
+    const rows = await planSteps.list(parentFlowId, tx);
     const group: PlanStepRow[] = [];
     for (const s of rows) {
       if ((await integrationBranchOf(s.branch)) === integrationBranch) group.push(s);

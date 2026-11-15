@@ -12,7 +12,6 @@ import { NO_TASK_TYPE, SDLC_TEMPLATE_ID, templateStore } from "../templates/temp
 import type { StepChildPayload } from "./fanout/stepFlowManager";
 import type { SplitChildPayload } from "./split/splitManager";
 import type { FlowFactoryHost } from "./flowEngineHost";
-
 const TASK_SELECT = `SELECT id, type, key, summary, description, status,
        issue_type AS "issueType", priority, repo_url AS "repoUrl",
        parent_key AS "parentKey", external_url AS "externalUrl", raw,
@@ -35,7 +34,7 @@ const EXEC_MODE_VALUES = ["local", "cloud"] as const;
 export class FlowFactory {
   constructor(private readonly host: FlowFactoryHost) {}
 
-  async create(taskId: string, repoUrl: string, name?: string, opts: CreateFlowOptions = {}): Promise<string> {
+  async create(taskId: string, repoUrl: string, name?: string, opts: CreateFlowOptions = {}, tx?: Prisma.TransactionClient): Promise<string> {
     const task = await db.rows.get(Task, `${TASK_SELECT} WHERE id=$1`, taskId);
     if (!task) throw new NotFoundError("task", taskId);
     const repo = opts.repoId ? await db.repoById(opts.repoId) : undefined;
@@ -59,8 +58,8 @@ export class FlowFactory {
 
     const id = db.uid("flow_");
     const ts = db.now();
-    await db.transaction(async (tx) => {
-      await tx.flow.create({
+    await db.transaction(async (exec) => {
+      await exec.flow.create({
         data: {
           id, taskId, name: name ?? `${task.key} flow`, status: "active",
           repoUrl, repoId: repo?.id ?? null, executionMode,
@@ -69,10 +68,9 @@ export class FlowFactory {
           createdAt: new Date(ts), updatedAt: new Date(ts),
         },
       });
-      await nodeStore.insertSnapshots(id, graph, { provisionWebhookHooks: true, ts });
-      await templateStore.persistFlowGraphSnapshot(id, graph);
-      void tx;
-    });
+      await nodeStore.insertSnapshots(id, graph, { provisionWebhookHooks: true, ts }, exec);
+      await templateStore.persistFlowGraphSnapshot(id, graph, exec);
+    }, tx);
     if (opts.autoStart) {
       void this.host.start(id);
     } else {
@@ -89,6 +87,7 @@ export class FlowFactory {
     name: string,
     payload: StepChildPayload,
     opts: { branch: string | null },
+    tx?: Prisma.TransactionClient,
   ): Promise<string> {
     const parent = await db.rows.get(FlowRow, `SELECT id, task_id AS "taskId", name, status, mr_url AS "mrUrl", mr_iid AS "mrIid", mr_branch AS "mrBranch", repo_url AS "repoUrl", gitlab_project_id AS "gitlabProjectId", current_node AS "currentNode", execution_mode AS "executionMode", repo_id AS "repoId", template_id AS "templateId", template_graph AS "templateGraph", trigger_payload AS "triggerPayload", worktree_dir AS "worktreeDir", parent_flow_id AS "parentFlowId", kind, created_at AS "createdAt", updated_at AS "updatedAt" FROM flows WHERE id=$1`, parentFlowId);
     if (!parent) throw new NotFoundError("flow", parentFlowId);
@@ -103,10 +102,11 @@ export class FlowFactory {
           `payload doesn't match the step child's start contract (template "${(await templateStore.flowTemplate(templateId))?.name ?? templateId}") — ${v.error}`);
       }
     }
+    const templateName = (await templateStore.flowTemplate(templateId))?.name ?? templateId;
     const id = db.uid("flow_");
     const ts = db.now();
-    await db.transaction(async (tx) => {
-      await tx.flow.create({
+    await db.transaction(async (exec) => {
+      await exec.flow.create({
         data: {
           id, taskId: parent.taskId, name, status: "active",
           repoUrl: parent.repoUrl, repoId: parent.repoId, executionMode: parent.executionMode ?? undefined,
@@ -118,11 +118,11 @@ export class FlowFactory {
           createdAt: new Date(ts), updatedAt: new Date(ts),
         },
       });
-      await nodeStore.insertSnapshots(id, graph, { ts });
-      await templateStore.persistFlowGraphSnapshot(id, graph);
+      await nodeStore.insertSnapshots(id, graph, { ts }, exec);
+      await templateStore.persistFlowGraphSnapshot(id, graph, exec);
       await db.emitEvent(id, null, "lifecycle",
-        `step child created from "${(await templateStore.flowTemplate(templateId))?.name ?? templateId}" — parent flow ${parentFlowId}`);
-    });
+        `step child created from "${templateName}" — parent flow ${parentFlowId}`, undefined, exec);
+    }, tx);
     return id;
   }
 
@@ -131,15 +131,17 @@ export class FlowFactory {
     templateId: string,
     name: string,
     payload: SplitChildPayload,
+    tx?: Prisma.TransactionClient,
   ): Promise<string> {
     const parent = await db.rows.get(FlowRow, `SELECT id, task_id AS "taskId", name, status, mr_url AS "mrUrl", mr_iid AS "mrIid", mr_branch AS "mrBranch", repo_url AS "repoUrl", gitlab_project_id AS "gitlabProjectId", current_node AS "currentNode", execution_mode AS "executionMode", repo_id AS "repoId", template_id AS "templateId", template_graph AS "templateGraph", trigger_payload AS "triggerPayload", worktree_dir AS "worktreeDir", parent_flow_id AS "parentFlowId", kind, created_at AS "createdAt", updated_at AS "updatedAt" FROM flows WHERE id=$1`, parentFlowId);
     if (!parent) throw new NotFoundError("flow", parentFlowId);
     const graph = await templateStore.graph(templateId);
     if (!graph) throw new NotFoundError("flow template", templateId);
+    const templateName = (await templateStore.flowTemplate(templateId))?.name ?? templateId;
     const id = db.uid("flow_");
     const ts = db.now();
-    await db.transaction(async (tx) => {
-      await tx.flow.create({
+    await db.transaction(async (exec) => {
+      await exec.flow.create({
         data: {
           id, taskId: parent.taskId, name, status: "active",
           repoUrl: parent.repoUrl, repoId: parent.repoId, executionMode: parent.executionMode ?? undefined,
@@ -150,11 +152,11 @@ export class FlowFactory {
           createdAt: new Date(ts), updatedAt: new Date(ts),
         },
       });
-      await nodeStore.insertSnapshots(id, graph, { ts });
-      await templateStore.persistFlowGraphSnapshot(id, graph);
+      await nodeStore.insertSnapshots(id, graph, { ts }, exec);
+      await templateStore.persistFlowGraphSnapshot(id, graph, exec);
       await db.emitEvent(id, null, "lifecycle",
-        `split child created from "${(await templateStore.flowTemplate(templateId))?.name ?? templateId}" — parent flow ${parentFlowId}`);
-    });
+        `split child created from "${templateName}" — parent flow ${parentFlowId}`, undefined, exec);
+    }, tx);
     return id;
   }
 

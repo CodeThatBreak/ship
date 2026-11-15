@@ -37,10 +37,11 @@ describe("SettingsService.update", () => {
     const service = new SettingsService(db);
     let calls = 0;
     const orig = db.setSetting.bind(db);
-    vi.spyOn(db, "setSetting").mockImplementation(async (key, value) => {
+    // tx-threaded signature: writes that join the transaction pass the tx client
+    vi.spyOn(db, "setSetting").mockImplementation(async (key, value, tx) => {
       calls += 1;
       if (calls === 2) throw new Error("simulated failure");
-      await orig(key, value);
+      await orig(key, value, tx);
     });
 
     await expect(

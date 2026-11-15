@@ -96,6 +96,10 @@ describe("plan node Retry is never a dead end", () => {
 
     flowEngine.retryNode(flowId, NODE_KEYS.PLAN);
 
+    await until(
+      async () => (await harness.nodeStatus(flowId, NODE_KEYS.PLAN)) === "pending",
+      "plan retry to revert to pending",
+    );
     expect(await harness.nodeStatus(flowId, NODE_KEYS.PLAN)).toBe("pending");
     const messages = (await harness.events(flowId, { nodeKey: NODE_KEYS.PLAN, type: "lifecycle" }))
       .map((e) => e.message);

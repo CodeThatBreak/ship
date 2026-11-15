@@ -31,7 +31,7 @@ type NodeTemplateRow = {
 };
 
 const ARTIFACT_LIST_COLUMNS =
-  `id, node_id, flow_id, kind, version, '' AS content, meta, status, feedback, created_at`;
+  `id, node_id AS "nodeId", flow_id AS "flowId", kind, version, '' AS content, meta, status, feedback, created_at AS "createdAt"`;
 
 const buildNodeTemplateIndex = (ntRows: NodeTemplateRow[]) => {
   const byId = new Map<string, NodeTemplateRow>();

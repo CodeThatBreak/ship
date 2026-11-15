@@ -144,11 +144,11 @@ export class HttpTemplateNode extends DeclarativeNode<HttpDef> {
 
       await this.support.emitLifecycle(ctx.flow.id, node.id,
         `${this.label}: ${cfg.method} → ${res.status}${res.ok ? "" : " (not ok)"}`,
-        { url: secretStore.redact(url) });
+        { url: await secretStore.redact(url) });
 
       return await this.applyOutcome(ctx, await this.finish(ctx, rawInput, output, res, defaultOutput));
     } catch (e: unknown) {
-      const msg = this.renderErr(e instanceof Error ? e.message : String(e));
+      const msg = await this.renderErr(e instanceof Error ? e.message : String(e));
       return await this.applyOutcome(ctx, {
         status: "failed",
         output: {},
@@ -196,7 +196,7 @@ export class HttpTemplateNode extends DeclarativeNode<HttpDef> {
     };
   }
 
-  private renderErr(msg: string): string {
+  private async renderErr(msg: string): Promise<string> {
     return secretStore.redact(msg);
   }
 }

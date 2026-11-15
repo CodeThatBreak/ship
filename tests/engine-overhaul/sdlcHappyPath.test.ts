@@ -65,7 +65,7 @@ describe("SDLC happy path (fake ports)", () => {
     agent.drainQueue();
 
     // approve the plan — the plan→build edge makes the build eligible
-    flowEngine.approvePlan(flowId);
+    await flowEngine.approvePlan(flowId);
     expect(await harness.nodeStatus(flowId, planKey)).toBe("approved");
 
     // build (whole): the agent ships a branch and reports it
@@ -73,6 +73,10 @@ describe("SDLC happy path (fake ports)", () => {
     if (!buildKey) throw new Error("expected a build node");
     agent.pushRun({ status: "finished", result: "built and pushed" });
     await harness.runStage(flowId, buildKey);
+    await until(
+      async () => (await harness.nodeStatus(flowId, buildKey)) === "awaiting_approval",
+      "the build run to land awaiting_approval",
+    );
     expect(await harness.nodeStatus(flowId, buildKey)).toBe("awaiting_approval");
     agent.drainQueue();
 

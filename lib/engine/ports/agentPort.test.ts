@@ -5,11 +5,9 @@
  * without engine changes — and fall back to the first port registered for
  * the mode (today's single-harness behavior) when there is no preference.
  *
- * Runs against an isolated temp SQLite DB: DATABASE_PATH is read lazily by
- * lib/config.ts, so setting it before the first `db` import isolates the
- * singleton (AGENTS.md §1 — never a real database). The registry under test
- * is constructed with builtins disabled and an injected harness resolver, so
- * the built-in Cursor adapters and the DB setting never participate.
+ * The registry under test is constructed with builtins disabled and an
+ * injected harness resolver, so the built-in Cursor adapters and the DB
+ * `default_harness` setting never participate.
  */
 import fs from "node:fs";
 import os from "node:os";
@@ -53,41 +51,41 @@ function fakePort(kind: string, harness: string, execMode: "cloud" | "local"): A
 }
 
 describe("AgentPortRegistry port selection", () => {
-  it("falls back to the first registered port for the mode without a harness preference", () => {
+  it("falls back to the first registered port for the mode without a harness preference", async () => {
     const reg = new AgentPortRegistry(() => null, false);
     const first = fakePort("cursor-cloud", "cursor", "cloud");
     reg.register(first);
     reg.register(fakePort("acme-cloud", "acme", "cloud"));
-    expect(reg.forMode("cloud")).toBe(first);
+    expect(await reg.forMode("cloud")).toBe(first);
   });
 
-  it("prefers the configured default harness's port within the mode", () => {
+  it("prefers the configured default harness's port within the mode", async () => {
     const reg = new AgentPortRegistry(() => "acme", false);
     reg.register(fakePort("cursor-local", "cursor", "local"));
     const acmeLocal = fakePort("acme-local", "acme", "local");
     reg.register(acmeLocal);
-    expect(reg.forMode("local")).toBe(acmeLocal);
+    expect(await reg.forMode("local")).toBe(acmeLocal);
   });
 
-  it("falls back when the default harness has no port for the mode", () => {
+  it("falls back when the default harness has no port for the mode", async () => {
     const reg = new AgentPortRegistry(() => "acme", false);
     reg.register(fakePort("acme-cloud", "acme", "cloud"));
     const firstLocal = fakePort("cursor-local", "cursor", "local");
     reg.register(firstLocal);
-    expect(reg.forMode("local")).toBe(firstLocal);
+    expect(await reg.forMode("local")).toBe(firstLocal);
   });
 
-  it("falls back when the default harness is unregistered (stale setting)", () => {
+  it("falls back when the default harness is unregistered (stale setting)", async () => {
     const reg = new AgentPortRegistry(() => "ghost", false);
     const first = fakePort("cursor-local", "cursor", "local");
     reg.register(first);
-    expect(reg.forMode("local")).toBe(first);
+    expect(await reg.forMode("local")).toBe(first);
   });
 
-  it("throws when no port is registered for the mode", () => {
+  it("throws when no port is registered for the mode", async () => {
     const reg = new AgentPortRegistry(() => null, false);
     reg.register(fakePort("cursor-cloud", "cursor", "cloud"));
-    expect(() => reg.forMode("local")).toThrow('no agent runner configured for execution mode "local"');
+    await expect(reg.forMode("local")).rejects.toThrow('no agent runner configured for execution mode "local"');
   });
 
   it("rejects duplicate kinds", () => {

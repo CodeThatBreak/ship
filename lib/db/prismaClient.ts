@@ -11,8 +11,16 @@ import { processSingleton } from "../singleton";
  * `next dev` HMR; every other service is constructor-injected from the
  * composition root (`lib/composition/container.ts`). The arch test
  * `tests/architecture/noProcessSingletonOutsideDb.test.ts` enforces this.
+ *
+ * The session timezone is pinned to UTC: `@prisma/adapter-pg` normalizes
+ * timestamptz text by replacing the numeric offset with `+00:00`, so under a
+ * non-UTC session zone every raw-query timestamp read would be skewed by the
+ * offset while the stored instant stays correct. With the session pinned, the
+ * wire format is always `+00`, and JS Dates carry the true instants.
  */
 export const prisma = processSingleton("prisma", () => {
-  const adapter = new PrismaPg({ connectionString: config.db.url() });
+  const url = new URL(config.db.url());
+  url.searchParams.set("options", "-c timezone=UTC");
+  const adapter = new PrismaPg({ connectionString: url.toString() });
   return new PrismaClient({ adapter });
 });

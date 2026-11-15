@@ -9,17 +9,12 @@
  * lib/config.ts, so setting it before the first `db` import isolates the
  * singleton (AGENTS.md §1 — never a real database).
  */
-import fs from "node:fs";
-import os from "node:os";
-import path from "node:path";
-import { describe, expect, it, vi } from "vitest";
+import { beforeAll, describe, expect, it, vi } from "vitest";
+import { assignTestDatabase, resetTestDatabase } from "../../tests/helpers/testDatabase";
 
 // Must run before any `../db` import touches the connection — dynamic imports
 // below execute in statement order after the static ones hoist.
-process.env.DATABASE_PATH = path.join(
-  fs.mkdtempSync(path.join(os.tmpdir(), "devflow-flow-engine-")),
-  "test.db",
-);
+assignTestDatabase();
 
 const { db } = await import("../db/app");
 const { FlowEngine } = await import("./flowEngine");
@@ -29,6 +24,8 @@ const { NODE_KEYS } = await import("./constants/nodeKeys");
 const { templateStore } = await import("./templates/templateStore");
 
 const now = () => new Date().toISOString();
+
+beforeAll(resetTestDatabase);
 
 /** One isolated task + flow on the seeded SDLC template (template_id null). */
 async function seedFlow(index: number): Promise<string> {
@@ -92,17 +89,43 @@ describe("engine chain-role routing (T3)", () => {
       `INSERT INTO tasks (id, type, key, summary, status, issue_type, priority) VALUES ($1,$2,$3,$4,$5,$6,$7)`,
       taskId, "jira", "CREATE-TXN", "txn test", "open", "task", "P2",
     );
-    const origRun = db.run.bind(db);
-    let nodeInserts = 0;
-    vi.spyOn(db, "run").mockImplementation((sql: string, ...params: unknown[]) => {
-      if (typeof sql === "string" && sql.includes("INSERT INTO nodes")) {
-        nodeInserts += 1;
-        if (nodeInserts === 2) return Promise.reject(new Error("simulated node insert failure"));
-      }
-      return origRun(sql, ...params);
-    });
-
-    await expect(engine.create(taskId, "https://example.com/repo.git")).rejects.toThrow("simulated node insert failure");
+    // node rows ride the tx client's ORM delegate now (decision Q1) — fail the
+    // second node create inside the transaction and let the whole create roll back
+    const origTransaction = db.transaction.bind(db);
+    let nodeCreates = 0;
+    const txSpy = vi.spyOn(db, "transaction").mockImplementation((fn, tx) =>
+      origTransaction(async (exec) => {
+        if (tx) return fn(tx);
+        const failing = new Proxy(exec, {
+          get(target, prop) {
+            if (prop === "node") {
+              return new Proxy(target.node, {
+                get(nTarget, m, nReceiver) {
+                  if (m === "create") {
+                    const orig = Reflect.get(nTarget, m, nReceiver) as (args: unknown) => Promise<unknown>;
+                    return (args: unknown) => {
+                      nodeCreates += 1;
+                      if (nodeCreates === 2) {
+                        return Promise.reject(new Error("simulated node insert failure"));
+                      }
+                      return orig.call(nTarget, args);
+                    };
+                  }
+                  return Reflect.get(nTarget, m, nReceiver);
+                },
+              }) as typeof target.node;
+            }
+            return Reflect.get(target, prop);
+          },
+        }) as typeof exec;
+        return fn(failing);
+      }),
+    );
+    try {
+      await expect(engine.create(taskId, "https://example.com/repo.git")).rejects.toThrow("simulated node insert failure");
+    } finally {
+      txSpy.mockRestore();
+    }
     expect(await db.all(`SELECT id FROM flows WHERE task_id=$1`, taskId)).toHaveLength(0);
     expect(await db.all(`SELECT id FROM nodes WHERE flow_id IN (SELECT id FROM flows WHERE task_id=$1)`, taskId)).toHaveLength(0);
   });
@@ -198,7 +221,9 @@ describe("engine chain-role routing (T3)", () => {
     const afterSecond = await db.get<{ status: string; output: string | null }>(
       `SELECT status, output FROM nodes WHERE flow_id=$1 AND node_key=$2`, flowId, buildKey);
     expect(afterSecond?.status).toBe(afterFirst?.status);
-    expect(afterSecond?.output).toBe(afterFirst?.output);
+    // JSONB column: each read surfaces a fresh object — compare the payload,
+    // not the reference (the sqlite TEXT column made `toBe` work)
+    expect(afterSecond?.output).toEqual(afterFirst?.output);
   });
 });
 

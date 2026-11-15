@@ -43,37 +43,38 @@ export class SettingsService {
 
   /** Apply a validated settings patch atomically (CR-048). */
   async update(patch: SettingsPatchBody): Promise<void> {
-    await this.database.transaction(async () => {
+    await this.database.transaction(async (tx) => {
             if (patch.cursor_api_key !== undefined) {
-              await this.database.integrationSecrets.writeCursorApiKey(patch.cursor_api_key);
+              await this.database.integrationSecrets.writeCursorApiKey(patch.cursor_api_key, tx);
             }
             if (patch.default_harness !== undefined) {
-              await this.database.setSetting(SETTINGS_KEYS.DEFAULT_HARNESS, patch.default_harness);
+              await this.database.setSetting(SETTINGS_KEYS.DEFAULT_HARNESS, patch.default_harness, tx);
             }
             if (patch.default_execution_mode !== undefined) {
-              await this.database.setSetting(SETTINGS_KEYS.DEFAULT_EXECUTION_MODE, patch.default_execution_mode);
+              await this.database.setSetting(SETTINGS_KEYS.DEFAULT_EXECUTION_MODE, patch.default_execution_mode, tx);
             }
             if (patch.default_model !== undefined) {
               await this.database.setSetting(
                           SETTINGS_KEYS.DEFAULT_MODEL,
                           normalizeModelSpec(patch.default_model.trim()),
+                          tx,
                         );
             }
             if (patch.local_agent) {
               const la = patch.local_agent;
               if (la.force !== undefined) {
-                await this.database.setSetting(SETTINGS_KEYS.LOCAL_AGENT_FORCE, la.force);
+                await this.database.setSetting(SETTINGS_KEYS.LOCAL_AGENT_FORCE, la.force, tx);
               }
               if (la.sandbox !== undefined) {
-                await this.database.setSetting(SETTINGS_KEYS.LOCAL_AGENT_SANDBOX, la.sandbox);
+                await this.database.setSetting(SETTINGS_KEYS.LOCAL_AGENT_SANDBOX, la.sandbox, tx);
               }
               if (la.timeout_ms !== undefined) {
-                await this.database.setSetting(SETTINGS_KEYS.LOCAL_AGENT_TIMEOUT_MS, la.timeout_ms);
+                await this.database.setSetting(SETTINGS_KEYS.LOCAL_AGENT_TIMEOUT_MS, la.timeout_ms, tx);
               }
             }
             if (patch.secrets !== undefined) {
               const current = this.database.integrationSecrets.openSecretsMap(
-                await this.database.getSetting(SETTINGS_KEYS.SECRETS, settingStringRecord, {}),
+                await this.database.getSetting(SETTINGS_KEYS.SECRETS, settingStringRecord, {}, tx),
               );
               const next: Record<string, string> = { ...current };
               for (const [k, v] of Object.entries(patch.secrets)) {
@@ -88,13 +89,14 @@ export class SettingsService {
               await this.database.setSetting(
                           SETTINGS_KEYS.SECRETS,
                           this.database.integrationSecrets.sealSecretsMap(next),
+                          tx,
                         );
             }
             if (patch.http_allowlist !== undefined) {
               const clean = patch.http_allowlist
                 .map((h) => h.trim().toLowerCase())
                 .filter(Boolean);
-              await this.database.setSetting(SETTINGS_KEYS.HTTP_ALLOWLIST, clean);
+              await this.database.setSetting(SETTINGS_KEYS.HTTP_ALLOWLIST, clean, tx);
             }
           });
   }

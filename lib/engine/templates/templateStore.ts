@@ -2,6 +2,7 @@ import "server-only";
 
 import { FLOW_STATUS } from "@/constants/flow";
 import { db } from "../../db/app";
+import type { Prisma } from "@prisma/client";
 import {
   FlowTemplateRow,
   NodeTemplateRow,
@@ -214,8 +215,8 @@ export class TemplateStore {
   }
 
   /** Persist the template graph snapshot taken when a flow is created. */
-  async persistFlowGraphSnapshot(flowId: string, graph: TemplateGraph): Promise<void> {
-    await db.run(
+  async persistFlowGraphSnapshot(flowId: string, graph: TemplateGraph, tx?: Prisma.TransactionClient): Promise<void> {
+    await (tx ?? db.prisma).$executeRawUnsafe(
       `UPDATE flows SET template_graph=$1 WHERE id=$2`,
       serializeFlowTemplateGraph(graph),
       flowId,
@@ -287,8 +288,15 @@ export class TemplateStore {
     return out;
   }
 
-  /** One template row (or undefined). */
-  async flowTemplate(id: string): Promise<FlowTemplateRow | undefined> {
+  /** One template row (or undefined). Tx-scoped inside a transaction. */
+  async flowTemplate(id: string, tx?: Prisma.TransactionClient): Promise<FlowTemplateRow | undefined> {
+    if (tx) {
+      const raw = (await tx.$queryRawUnsafe<unknown[]>(
+        `SELECT id, name, description, version, is_builtin AS "isBuiltin", trigger, schedule_next_at AS "scheduleNextAt", hidden, created_at AS "createdAt", updated_at AS "updatedAt" FROM flow_templates WHERE id=$1`,
+        id,
+      ))[0];
+      return raw ? FlowTemplateRow.parse(raw) : undefined;
+    }
     return rows.get(FlowTemplateRow, `SELECT id, name, description, version, is_builtin AS "isBuiltin", trigger, schedule_next_at AS "scheduleNextAt", hidden, created_at AS "createdAt", updated_at AS "updatedAt" FROM flow_templates WHERE id=$1`, id);
   }
 
@@ -505,26 +513,25 @@ export class TemplateStore {
    *  single-node template from an EXISTING catalog row with copied config
    *  (cross-node refs etc. are meaningless in the child's context family;
    *  the node's own refs resolve as fan-out step variables at child runtime). */
-  async create(input: TemplateInput, opts: { isBuiltin?: boolean; id?: string; skipLint?: boolean } = {}): Promise<string> {
-    const { nodes, edges, trigger } = await this.validated(input, { skipLint: opts.skipLint === true });
+  async create(input: TemplateInput, opts: { isBuiltin?: boolean; id?: string; skipLint?: boolean } = {}, tx?: Prisma.TransactionClient): Promise<string> {
+    const { nodes, edges, trigger } = await this.validated(input, { skipLint: opts.skipLint === true }, tx);
     const id = opts.id ?? db.uid("tpl_");
     const ts = db.now();
-    await db.transaction(async (tx) => {
-      await db.run(
+    await db.transaction(async (exec) => {
+      await exec.$executeRawUnsafe(
         `INSERT INTO flow_templates (id,name,description,version,is_builtin,trigger,created_at,updated_at)
          VALUES ($1,$2,$3,$4,$5,$6,$7,$8) ON CONFLICT DO NOTHING`,
         id, input.name?.trim() || "Untitled flow", input.description ?? null,
         1, Boolean(opts.isBuiltin), JSON.stringify(trigger), ts, ts
       );
-      await this.writeNodesAndEdges(id, nodes, edges);
-      await TemplateStore.syncTriggers(id, trigger);
-      void tx;
-    });
+      await this.writeNodesAndEdges(id, nodes, edges, {}, exec);
+      await TemplateStore.syncTriggers(id, trigger, exec);
+    }, tx);
     return id;
   }
 
   /** Copy a template — id/name regenerated, node instances + edges cloned. */
-  async duplicate(templateId: string, name?: string): Promise<string> {
+  async duplicate(templateId: string, name?: string, tx?: Prisma.TransactionClient): Promise<string> {
     const src = await this.flowTemplate(templateId);
     if (!src) throw new NotFoundError("template", templateId);
     const graph = await this.graph(templateId);
@@ -539,16 +546,16 @@ export class TemplateStore {
     // reference them — so the copy is built as template meta → local rows →
     // graph (the update path replaces nodes + edges wholesale).
     const localRemap = new Map<string, string>();
-    return await db.transaction(async (tx) => {
+    return await db.transaction(async (exec) => {
       const newId = await this.create({
         name: name?.trim() || `${src.name} copy`,
         description: src.description,
         trigger: graph.flowTrigger,
         nodes: [], edges: [],
-      });
+      }, {}, exec);
       for (const n of graph.nodes) {
         if (localRemap.has(n.nodeTemplateId)) continue;
-        const nt = await this.nodeTemplate(n.nodeTemplateId);
+        const nt = await this.nodeTemplate(n.nodeTemplateId, exec);
         if (!nt || nt.isBuiltin || nt.templateId !== templateId) continue;
         const created = await this.createNodeTemplate(
           {
@@ -556,6 +563,7 @@ export class TemplateStore {
             description: nt.description, config: nt.config ?? {},
           },
           { templateId: newId },
+          exec,
         );
         localRemap.set(nt.id, created.id);
       }
@@ -572,10 +580,9 @@ export class TemplateStore {
           y: n.y ?? null,
         })),
         edges: graph.edges.map((e) => ({ from: e.from, to: e.to, kind: e.kind, label: e.label, condition: e.condition })),
-      });
-      void tx;
+      }, exec);
       return newId;
-    });
+    }, tx);
   }
 
   /**
@@ -585,12 +592,12 @@ export class TemplateStore {
    * creation; only node config/join_mode on their node rows were frozen then
    * (structural template edits are blocked while flows are active).
    */
-  async update(templateId: string, patch: Partial<TemplateInput>): Promise<void> {
-    const tpl = await this.flowTemplate(templateId);
+  async update(templateId: string, patch: Partial<TemplateInput>, tx?: Prisma.TransactionClient): Promise<void> {
+    const tpl = await this.flowTemplate(templateId, tx);
     if (!tpl) throw new NotFoundError("template", templateId);
-    await this.assertEditable(templateId);
+    await this.assertEditable(templateId, tx);
     if (patch.name !== undefined || patch.description !== undefined || patch.trigger !== undefined) {
-      await db.run(
+      await (tx ?? db.prisma).$executeRawUnsafe(
         `UPDATE flow_templates SET name=$1, description=$2, trigger=$3, updated_at=$4 WHERE id=$5`,
         patch.name?.trim() || tpl.name,
         patch.description !== undefined ? patch.description : tpl.description,
@@ -601,16 +608,16 @@ export class TemplateStore {
       );
     }
     if (patch.nodes !== undefined && patch.edges !== undefined) {
-      const { nodes, edges } = await this.validated({ name: patch.name, nodes: patch.nodes, edges: patch.edges });
-      await this.assertNotRunning(templateId);
-      await this.writeNodesAndEdges(templateId, nodes, edges, { replace: true });
+      const { nodes, edges } = await this.validated({ name: patch.name, nodes: patch.nodes, edges: patch.edges }, {}, tx);
+      await this.assertNotRunning(templateId, tx);
+      await this.writeNodesAndEdges(templateId, nodes, edges, { replace: true }, tx);
     } else if (patch.nodes !== undefined || patch.edges !== undefined) {
       throw new ValidationError("nodes and edges must be replaced together");
     }
     // flow-trigger side data — the template's inbound hook (always) and the
     // schedule timer (schedule trigger) — whenever the trigger was touched
     if (patch.trigger !== undefined) {
-      await TemplateStore.syncTriggers(templateId, TemplateStore.flowTrigger(patch.trigger));
+      await TemplateStore.syncTriggers(templateId, TemplateStore.flowTrigger(patch.trigger), tx);
     }
   }
 
@@ -632,17 +639,16 @@ export class TemplateStore {
         "a node references an unsaved node template — send it in new_node_templates",
       );
     }
-    await db.transaction(async (tx) => {
+    await db.transaction(async (exec) => {
       const remapped = { ...patch };
       delete remapped.new_node_templates;
       if (drafts.length) {
         if (!remapped.nodes) {
           throw new ValidationError("new_node_templates requires the nodes array (a full graph save)");
         }
-        remapped.nodes = await this.remapDraftNodeTemplates(templateId, remapped.nodes, drafts);
+        remapped.nodes = await this.remapDraftNodeTemplates(templateId, remapped.nodes, drafts, exec);
       }
-      await this.update(templateId, remapped);
-      void tx;
+      await this.update(templateId, remapped, exec);
     });
   }
 
@@ -650,6 +656,7 @@ export class TemplateStore {
     templateId: string,
     nodes: TemplateNodeInput[],
     drafts: DraftNodeTemplateInput[],
+    tx?: Prisma.TransactionClient,
   ): Promise<TemplateNodeInput[]> {
     const byDraftId = new Map<string, string>();
     for (const d of drafts) {
@@ -664,7 +671,7 @@ export class TemplateStore {
         icon: d.icon ?? null,
         description: d.description ?? null,
         config: d.config ?? {},
-      }, { templateId });
+      }, { templateId }, tx);
       byDraftId.set(draftId, rowId);
     }
     return nodes.map((n) => {
@@ -691,9 +698,9 @@ export class TemplateStore {
       );
     }
     await hookStore.removeTemplate(templateId);
-    await db.transaction(async (tx) => {
-      await db.run(`DELETE FROM flow_template_nodes WHERE template_id=$1`, templateId);
-      await db.run(`DELETE FROM flow_template_edges WHERE template_id=$1`, templateId);
+    await db.transaction(async (exec) => {
+      await exec.$executeRawUnsafe(`DELETE FROM flow_template_nodes WHERE template_id=$1`, templateId);
+      await exec.$executeRawUnsafe(`DELETE FROM flow_template_edges WHERE template_id=$1`, templateId);
       // Template-local node templates (the canvas creator's rows): gone with
       // their template — but only when no OTHER template's node still
       // references one (belt-and-braces: Add to Library promotes without
@@ -701,24 +708,23 @@ export class TemplateStore {
       // the flow_templates delete (the FK is enforced); a stray external
       // reference detaches the row to the shared Library instead of blocking
       // the delete forever.
-      const locals = await db.all<{ id: string }>(
+      const locals = await exec.$queryRawUnsafe<{ id: string }[]>(
         `SELECT id FROM node_templates WHERE template_id=$1 AND is_builtin=false`, templateId
       );
       for (const l of locals) {
-        const used = (await db.get<{ c: number }>(
+        const used = ((await exec.$queryRawUnsafe<{ c: number }[]>(
           `SELECT COUNT(*)::int c FROM flow_template_nodes WHERE node_template_id=$1 AND template_id<>$2`,
-          l.id, templateId))?.c ?? 0;
-        if (used === 0) await db.run(`DELETE FROM node_templates WHERE id=$1`, l.id);
-        else await db.run(`UPDATE node_templates SET template_id=NULL WHERE id=$1`, l.id);
+          l.id, templateId))[0]?.c) ?? 0;
+        if (used === 0) await exec.$executeRawUnsafe(`DELETE FROM node_templates WHERE id=$1`, l.id);
+        else await exec.$executeRawUnsafe(`UPDATE node_templates SET template_id=NULL WHERE id=$1`, l.id);
       }
-      await db.run(`DELETE FROM flow_templates WHERE id=$1`, templateId);
-      void tx;
+      await exec.$executeRawUnsafe(`DELETE FROM flow_templates WHERE id=$1`, templateId);
     });
   }
 
   /** Built-in seeded templates (the SDLC loop) can be duplicated, not edited. */
-  async assertEditable(templateId: string): Promise<void> {
-    const t = await this.flowTemplate(templateId);
+  async assertEditable(templateId: string, tx?: Prisma.TransactionClient): Promise<void> {
+    const t = await this.flowTemplate(templateId, tx);
     if (!t) throw new NotFoundError("template", templateId);
     if (t.isBuiltin) {
       throw new ValidationError("the built-in template is read-only — duplicate it to make changes");
@@ -741,9 +747,9 @@ export class TemplateStore {
   }
 
   /** Structural edits are refused while flows are active on this template. */
-  private async assertNotRunning(templateId: string): Promise<void> {
-    const active = (await db.get<{ c: number }>(
-      `SELECT COUNT(*)::int c FROM flows WHERE template_id=$1 AND status=$2`, templateId, FLOW_STATUS.ACTIVE))?.c ?? 0;
+  private async assertNotRunning(templateId: string, tx?: Prisma.TransactionClient): Promise<void> {
+    const active = ((await (tx ?? db.prisma).$queryRawUnsafe<{ c: number }[]>(
+      `SELECT COUNT(*)::int c FROM flows WHERE template_id=$1 AND status=$2`, templateId, FLOW_STATUS.ACTIVE))[0]?.c) ?? 0;
     if (active > 0) {
       throw new ConflictError(
         `${active} flow${active > 1 ? "s are" : " is"} active on this template — cancel/finish them before restructuring`,
@@ -803,11 +809,25 @@ export class TemplateStore {
     };
   }
 
-  async nodeTemplate(id: string): Promise<NodeTemplateRow | undefined> {
+  async nodeTemplate(id: string, tx?: Prisma.TransactionClient): Promise<NodeTemplateRow | undefined> {
+    if (tx) {
+      const raw = (await tx.$queryRawUnsafe<unknown[]>(
+        `SELECT id, key, name, kind, version, description, icon, config, is_builtin AS "isBuiltin", template_id AS "templateId", created_at AS "createdAt", updated_at AS "updatedAt" FROM node_templates WHERE id=$1`,
+        id,
+      ))[0];
+      return raw ? NodeTemplateRow.parse(raw) : undefined;
+    }
     return rows.get(NodeTemplateRow, `SELECT id, key, name, kind, version, description, icon, config, is_builtin AS "isBuiltin", template_id AS "templateId", created_at AS "createdAt", updated_at AS "updatedAt" FROM node_templates WHERE id=$1`, id);
   }
 
-  async nodeTemplateByKey(key: string): Promise<NodeTemplateRow | undefined> {
+  async nodeTemplateByKey(key: string, tx?: Prisma.TransactionClient): Promise<NodeTemplateRow | undefined> {
+    if (tx) {
+      const raw = (await tx.$queryRawUnsafe<unknown[]>(
+        `SELECT id, key, name, kind, version, description, icon, config, is_builtin AS "isBuiltin", template_id AS "templateId", created_at AS "createdAt", updated_at AS "updatedAt" FROM node_templates WHERE key=$1`,
+        key,
+      ))[0];
+      return raw ? NodeTemplateRow.parse(raw) : undefined;
+    }
     return rows.get(NodeTemplateRow, `SELECT id, key, name, kind, version, description, icon, config, is_builtin AS "isBuiltin", template_id AS "templateId", created_at AS "createdAt", updated_at AS "updatedAt" FROM node_templates WHERE key=$1`, key);
   }
 
@@ -820,7 +840,8 @@ export class TemplateStore {
   async createNodeTemplate(input: {
     key?: string; name: string; kind: string; icon?: string | null;
     description?: string | null; config: Record<string, unknown>;
-  }, opts: { templateId?: string } = {}): Promise<NodeTemplateRow> {
+  }, opts: { templateId?: string } = {}, tx?: Prisma.TransactionClient): Promise<NodeTemplateRow> {
+    const client = tx ?? db.prisma;
     const kind = (input.kind ?? "").trim();
     if (!(KINDED_NODE_TEMPLATE_KINDS as readonly string[]).includes(kind)) {
       throw new Error(`unsupported node kind "${kind}" — declarative kinds: ${KINDED_NODE_TEMPLATE_KINDS.join(", ")}`);
@@ -835,30 +856,30 @@ export class TemplateStore {
     const key = opts.templateId !== undefined
       ? await TemplateStore.freeKeyVariant(slug)
       : slug;
-    if (await this.nodeTemplateByKey(key)) {
+    if (await this.nodeTemplateByKey(key, tx)) {
       throw new Error(`node template key "${key}" already exists`);
     }
     // a declarative key must not shadow a built-in component (the registry
     // resolves built-ins first)
-    const builtinKey = await db.get<{ key: string }>(
+    const builtinKey = ((await client.$queryRawUnsafe<{ key: string }[]>(
       `SELECT key FROM node_templates WHERE key=$1 AND is_builtin=true`, key
-    );
+    ))[0]);
     if (builtinKey) throw new Error(`"${key}" is a built-in node key — pick another name`);
     // validate the declarative definition up front (same schema the runtime hydrates)
     const config = parseDeclarativeConfig(kind, input.config ?? {}, name);
     const id = db.uid("nt_");
     const ts = db.now();
-    await db.run(
+    await client.$executeRawUnsafe(
       `INSERT INTO node_templates (id,key,name,kind,version,description,icon,config,is_builtin,template_id,created_at,updated_at)
        VALUES ($1,$2,$3,$4,1,$5,$6,$7,false,$8,$9,$10) ON CONFLICT DO NOTHING`,
       id, key, name, kind, input.description ?? null, input.icon ?? null,
       JSON.stringify(config), opts.templateId ?? null, ts, ts
     );
-    return this.requireNodeTemplate(id);
+    return this.requireNodeTemplate(id, tx);
   }
 
-  private async requireNodeTemplate(id: string): Promise<NodeTemplateRow> {
-    const row = await this.nodeTemplate(id);
+  private async requireNodeTemplate(id: string, tx?: Prisma.TransactionClient): Promise<NodeTemplateRow> {
+    const row = await this.nodeTemplate(id, tx);
     if (!row) throw new NotFoundError("node template", id);
     return row;
   }
@@ -877,7 +898,8 @@ export class TemplateStore {
   async createOrReuseNodeTemplate(input: {
     name: string; kind: string; icon?: string | null; description?: string | null;
     config: Record<string, unknown>;
-  }, opts: { templateId: string }): Promise<{ id: string; created: boolean }> {
+  }, opts: { templateId: string }, tx?: Prisma.TransactionClient): Promise<{ id: string; created: boolean }> {
+    const client = tx ?? db.prisma;
     const name = input.name.trim();
     if (!name) throw new Error("name is required");
     const kind = (input.kind ?? "").trim();
@@ -894,7 +916,7 @@ export class TemplateStore {
     // another def). Rows local to other templates always get a fresh copy
     // scoped to this template.
     const slug = TemplateStore.slugify(name);
-    const identical = (await rows.all(NodeTemplateRow,
+    const identical = (await db.rowsFor(tx).all(NodeTemplateRow,
       `SELECT id, key, name, kind, version, description, icon, config, is_builtin AS "isBuiltin", template_id AS "templateId", created_at AS "createdAt", updated_at AS "updatedAt" FROM node_templates
        WHERE is_builtin=false AND (key=$1 OR key LIKE $2 ESCAPE '\\')
          AND (template_id IS NULL OR template_id=$3)`,
@@ -906,6 +928,7 @@ export class TemplateStore {
         id: (await this.createNodeTemplate(
           { name, kind, icon: input.icon, description: input.description, config },
           { templateId: opts.templateId },
+          client,
         )).id,
         created: true,
       };
@@ -919,6 +942,7 @@ export class TemplateStore {
             id: (await this.createNodeTemplate(
               { name: `${name} ${n}`, kind, icon: input.icon, description: input.description, config },
               { templateId: opts.templateId },
+              client,
             )).id,
             created: true,
           };
@@ -983,7 +1007,8 @@ export class TemplateStore {
    */
   async ensureNodeTemplate(input: {
     key?: string; name: string; kind: string; icon?: string | null; config: Record<string, unknown>;
-  }): Promise<{ id: string; created: boolean }> {
+  }, tx?: Prisma.TransactionClient): Promise<{ id: string; created: boolean }> {
+    const client = tx ?? db.prisma;
     const kind = (input.kind ?? "").trim();
     if (!(KINDED_NODE_TEMPLATE_KINDS as readonly string[]).includes(kind)) {
       throw new Error(`unsupported node kind "${kind}"`);
@@ -991,12 +1016,13 @@ export class TemplateStore {
     const name = input.name.trim();
     if (!name) throw new Error("name is required");
     const key = TemplateStore.slugify(input.key?.trim() || name);
-    if (await db.get<{ key: string }>(`SELECT key FROM node_templates WHERE key=$1 AND is_builtin=true`, key)) {
+    if ((await client.$queryRawUnsafe<{ key: string }[]>(
+      `SELECT key FROM node_templates WHERE key=$1 AND is_builtin=true`, key))[0]) {
       throw new Error(`"${key}" is a built-in node key — pick another name`);
     }
     // normalize the config once so "identical" comparisons compare parsed forms
     const normalized = parseDeclarativeConfig(kind, input.config ?? {}, name);
-    const candidates = await rows.all(NodeTemplateRow,
+    const candidates = await db.rowsFor(tx).all(NodeTemplateRow,
       `SELECT id, key, name, kind, version, description, icon, config, is_builtin AS "isBuiltin", template_id AS "templateId", created_at AS "createdAt", updated_at AS "updatedAt" FROM node_templates WHERE key=$1 AND is_builtin=false`, key);
     const identical = candidates.find(
       (r) => r.kind === kind && JSON.stringify(r.config ?? {}) === JSON.stringify(normalized)
@@ -1005,7 +1031,7 @@ export class TemplateStore {
     const version = candidates.reduce((m, r) => Math.max(m, r.version), 0) + 1;
     const id = db.uid("nt_");
     const ts = db.now();
-    await db.run(
+    await client.$executeRawUnsafe(
       `INSERT INTO node_templates (id,key,name,kind,version,description,icon,config,is_builtin,created_at,updated_at)
        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,false,$9,$10) ON CONFLICT DO NOTHING`,
       id, key, name, kind, version, null, input.icon ?? null,
@@ -1038,7 +1064,7 @@ export class TemplateStore {
     return TemplateStore.taskUniverse(trigger);
   }
 
-  private async validated(input: TemplateInput, opts: { skipLint?: boolean } = {}): Promise<{
+  private async validated(input: TemplateInput, opts: { skipLint?: boolean } = {}, tx?: Prisma.TransactionClient): Promise<{
     trigger: Record<string, unknown>;
     nodes: TemplateNodeInput[];
     edges: TemplateEdgeInput[];
@@ -1047,7 +1073,7 @@ export class TemplateStore {
     // reads can't run inside lintGraphStructure's sync callback)
     const ntRows = new Map<string, NodeTemplateRow | undefined>();
     for (const id of new Set(input.nodes.map((n) => n.nodeTemplateId))) {
-      ntRows.set(id, await this.nodeTemplate(id));
+      ntRows.set(id, await this.nodeTemplate(id, tx));
     }
     const resolveNodeTemplate = (node: TemplateNodeInput) => {
       const row = ntRows.get(node.nodeTemplateId);
@@ -1096,7 +1122,7 @@ export class TemplateStore {
           from: e.from, to: e.to, kind: e.kind ?? "next",
           label: e.label ?? null, condition: e.condition ?? null,
         })),
-        await catalogForNodeTemplateIds(input.nodes.map((n) => n.nodeTemplateId)),
+        await catalogForNodeTemplateIds(input.nodes.map((n) => n.nodeTemplateId), tx),
         TemplateStore.taskUniverse(trigger),
       );
       if (lint.error) throw new Error(lint.error);
@@ -1110,18 +1136,19 @@ export class TemplateStore {
     nodes: TemplateNodeInput[],
     edges: TemplateEdgeInput[],
     opts: { replace?: boolean } = {},
+    tx?: Prisma.TransactionClient,
   ): Promise<void> {
-    const write = async () => {
+    const write = async (exec: Prisma.TransactionClient) => {
       if (opts.replace) {
-        await db.run(`DELETE FROM flow_template_nodes WHERE template_id=$1`, templateId);
-        await db.run(`DELETE FROM flow_template_edges WHERE template_id=$1`, templateId);
+        await exec.$executeRawUnsafe(`DELETE FROM flow_template_nodes WHERE template_id=$1`, templateId);
+        await exec.$executeRawUnsafe(`DELETE FROM flow_template_edges WHERE template_id=$1`, templateId);
       }
       const ts = db.now();
       for (const n of nodes) {
         const trigger = JSON.stringify(TemplateStore.nodeTrigger(n.trigger));
         const config = JSON.stringify(n.config && Object.keys(n.config).length ? n.config : {});
         const inputMap = JSON.stringify(n.input_map && Object.keys(n.input_map).length ? n.input_map : {});
-        await db.run(
+        await exec.$executeRawUnsafe(
           `INSERT INTO flow_template_nodes (id,template_id,node_key,node_template_id,label,trigger,join_mode,config,input_map,x,y,created_at,updated_at)
            VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13) ON CONFLICT DO NOTHING`,
           db.uid("ftn_"), templateId, n.key.trim(), n.nodeTemplateId, n.label ?? null, trigger,
@@ -1129,19 +1156,15 @@ export class TemplateStore {
         );
       }
       for (const e of edges) {
-        await db.run(
+        await exec.$executeRawUnsafe(
           `INSERT INTO flow_template_edges (id,template_id,from_key,to_key,kind,label,condition,created_at,updated_at)
            VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) ON CONFLICT DO NOTHING`,
           db.uid("fte_"), templateId, e.from, e.to, e.kind ?? "next", e.label, e.condition, ts, ts
         );
       }
-      await db.run(`UPDATE flow_templates SET updated_at=$1 WHERE id=$2`, ts, templateId);
+      await exec.$executeRawUnsafe(`UPDATE flow_templates SET updated_at=$1 WHERE id=$2`, ts, templateId);
     };
-    if (opts.replace) {
-      await db.transaction(write);
-    } else {
-      await write();
-    }
+    await db.transaction(write, tx);
   }
 
   /**
@@ -1152,19 +1175,19 @@ export class TemplateStore {
    * the poller bumps it after every fire). Callers pass the normalized
    * trigger.
    */
-  private static async syncTriggers(templateId: string, trigger: Record<string, unknown>): Promise<void> {
-    await hookStore.syncTemplate(templateId);
+  private static async syncTriggers(templateId: string, trigger: Record<string, unknown>, tx?: Prisma.TransactionClient): Promise<void> {
+    await hookStore.syncTemplate(templateId, tx);
     if (trigger.type === "schedule") {
       const intervalMin = typeof trigger.interval_min === "number" && trigger.interval_min > 0
         ? trigger.interval_min : 60;
-      const cur = await db.get<{ scheduleNextAt: string | null }>(
-        `SELECT schedule_next_at AS "scheduleNextAt" FROM flow_templates WHERE id=$1`, templateId);
+      const cur = ((await (tx ?? db.prisma).$queryRawUnsafe<{ scheduleNextAt: string | null }[]>(
+        `SELECT schedule_next_at AS "scheduleNextAt" FROM flow_templates WHERE id=$1`, templateId))[0]);
       if (cur && !cur.scheduleNextAt) {
-        await db.run(`UPDATE flow_templates SET schedule_next_at=$1 WHERE id=$2`,
+        await (tx ?? db.prisma).$executeRawUnsafe(`UPDATE flow_templates SET schedule_next_at=$1 WHERE id=$2`,
           new Date(Date.now() + intervalMin * 60_000).toISOString(), templateId);
       }
     } else {
-      await db.run(`UPDATE flow_templates SET schedule_next_at=NULL WHERE id=$1`, templateId);
+      await (tx ?? db.prisma).$executeRawUnsafe(`UPDATE flow_templates SET schedule_next_at=NULL WHERE id=$1`, templateId);
     }
   }
 

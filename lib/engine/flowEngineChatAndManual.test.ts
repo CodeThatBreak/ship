@@ -16,17 +16,12 @@
  * first `db` import isolates the singleton (AGENTS.md §1 — never a real
  * database).
  */
-import fs from "node:fs";
-import os from "node:os";
-import path from "node:path";
-import { describe, expect, it } from "vitest";
+import { beforeAll, describe, expect, it } from "vitest";
+import { assignTestDatabase, resetTestDatabase } from "../../tests/helpers/testDatabase";
 
 // Must run before any `db` import touches the connection — dynamic imports
 // below execute in statement order after the static ones hoist.
-process.env.DATABASE_PATH = path.join(
-  fs.mkdtempSync(path.join(os.tmpdir(), "devflow-chat-manual-")),
-  "test.db",
-);
+assignTestDatabase();
 
 const { db } = await import("../db/app");
 const { flowEngine } = await import("./flowEngine");
@@ -121,38 +116,43 @@ class StubAgentPort implements AgentPort {
 
 const stub = new StubAgentPort();
 agentPortRegistry.register(stub);
-await db.setSetting("default_harness", "stub"); // forMode("cloud") selects the stub
 
 // ── fixture: topic agent (json) → paragraph agent (markdown) ─────────────────
 
-const TOPIC_ROW = must(
-  await templateStore.createNodeTemplate({
-    key: "topic_agent_fixture",
-    name: "Topic agent fixture",
-    kind: "agent",
-    config: {
-      mode: "plan",
-      prompt: "You have to return a single topic",
-      output: "json",
-      output_schema: {
-        type: "object",
-        properties: { topic: { type: "string" } },
-        required: ["topic"],
-      },
-    },
-  }),
-  "topic agent row",
-);
+let TOPIC_ROW: { id: string };
+let PARAGRAPH_ROW: { id: string };
 
-const PARAGRAPH_ROW = must(
-  await templateStore.createNodeTemplate({
-    key: "paragraph_agent_fixture",
-    name: "Paragraph agent fixture",
-    kind: "agent",
-    config: { mode: "plan", output: "markdown", prompt: "Write a paragraph on {{input.topic}}" },
-  }),
-  "paragraph agent row",
-);
+beforeAll(async () => {
+  await resetTestDatabase();
+  await db.setSetting("default_harness", "stub"); // forMode("cloud") selects the stub
+  TOPIC_ROW = must(
+    await templateStore.createNodeTemplate({
+      key: "topic_agent_fixture",
+      name: "Topic agent fixture",
+      kind: "agent",
+      config: {
+        mode: "plan",
+        prompt: "You have to return a single topic",
+        output: "json",
+        output_schema: {
+          type: "object",
+          properties: { topic: { type: "string" } },
+          required: ["topic"],
+        },
+      },
+    }),
+    "topic agent row",
+  );
+  PARAGRAPH_ROW = must(
+    await templateStore.createNodeTemplate({
+      key: "paragraph_agent_fixture",
+      name: "Paragraph agent fixture",
+      kind: "agent",
+      config: { mode: "plan", output: "markdown", prompt: "Write a paragraph on {{input.topic}}" },
+    }),
+    "paragraph agent row",
+  );
+});
 
 const nodeStatus = async (flowId: string, key: string): Promise<string> =>
   must(
@@ -165,8 +165,9 @@ const recordedInput = async (flowId: string, key: string): Promise<Record<string
     await db.get<{ input: string | null }>(`SELECT input FROM nodes WHERE flow_id=$1 AND node_key=$2`, flowId, key),
     `recorded input of ${key}`,
   ).input;
-  if (typeof raw !== "string" || !raw.trim()) throw new Error(`${key} recorded no input`);
-  const parsed: unknown = JSON.parse(raw);
+  // JSONB column: the driver hands back a parsed object (a legacy TEXT row
+  // still surfaces as its JSON string)
+  const parsed: unknown = typeof raw === "string" ? JSON.parse(raw) : raw;
   if (parsed == null || typeof parsed !== "object" || Array.isArray(parsed)) {
     throw new Error(`${key} recorded input is not an object`);
   }
@@ -386,6 +387,10 @@ describe("retryNode — plan node chat replay", () => {
 
     void flowEngine.retryNode(flowId, NODE_KEYS.PLAN);
 
+    await until(
+      async () => (await nodeStatus(flowId, NODE_KEYS.PLAN)) === "pending",
+      "plan retry to revert to pending",
+    );
     expect(await nodeStatus(flowId, NODE_KEYS.PLAN)).toBe("pending");
     expect(await lifecycleMessages(flowId, plan.id)).toContain(PLAN_CHAT_READY_LIFECYCLE);
   });
@@ -403,6 +408,10 @@ describe("retryNode — plan node chat replay", () => {
 
     void flowEngine.retryNode(flowId, NODE_KEYS.PLAN);
 
+    await until(
+      async () => (await nodeStatus(flowId, NODE_KEYS.PLAN)) === "awaiting_approval",
+      "plan retry to revert to awaiting_approval",
+    );
     expect(await nodeStatus(flowId, NODE_KEYS.PLAN)).toBe("awaiting_approval");
     expect(await lifecycleMessages(flowId, plan.id)).toContain(PLAN_CHAT_READY_LIFECYCLE);
   });

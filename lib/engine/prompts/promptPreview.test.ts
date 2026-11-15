@@ -5,21 +5,19 @@
  * preview (defs without a prompt surface) are skipped, matching the
  * single-node route.
  *
- * Runs against an isolated temp SQLite DB: DATABASE_PATH is read lazily by
- * lib/config.ts, so setting it before the first `db` import isolates the
- * singleton (AGENTS.md §1 — never a real database).
+ * Runs against the dockerized Postgres test DB (vitest globalSetup migrates
+ * it; `resetTestDatabase` truncates + re-seeds per file — AGENTS.md §1 —
+ * never a real database).
  */
-import fs from "node:fs";
-import os from "node:os";
-import path from "node:path";
-import { describe, expect, it } from "vitest";
+import { beforeAll, describe, expect, it } from "vitest";
+import { assignTestDatabase, resetTestDatabase } from "../../../tests/helpers/testDatabase";
 
-process.env.DATABASE_PATH = path.join(
-  fs.mkdtempSync(path.join(os.tmpdir(), "devflow-prompt-bulk-")),
-  "test.db",
-);
+assignTestDatabase();
 
 const { db } = await import("../../db/app");
+
+beforeAll(resetTestDatabase);
+
 const { promptPreview } = await import("./promptPreview");
 const { NODE_KEYS } = await import("../constants/nodeKeys");
 
@@ -30,19 +28,19 @@ async function seedFlow(index: number): Promise<string> {
   const taskId = `task_${index}`;
   const flowId = `flw_${index}`;
   await db.run(
-    `INSERT INTO tasks (id, type, key, summary, status, issue_type, priority) VALUES (?,?,?,?,?,?,?)`,
+    `INSERT INTO tasks (id, type, key, summary, status, issue_type, priority) VALUES ($1,$2,$3,$4,$5,$6,$7)`,
     taskId, "generic", `TST-${index}`, "prompt bulk read", "open", "task", "P2",
   );
   await db.run(
-    `INSERT INTO flows (id, task_id, name, status, created_at, updated_at) VALUES (?,?,?,?,?,?)`,
-    flowId, taskId, `prompt bulk read ${index}`, "active", now(), now(),
+    `INSERT INTO flows (id, task_id, name, status, created_at, updated_at) VALUES ($1,$2,$3,'active',$4,$5)`,
+    flowId, taskId, `prompt bulk read ${index}`, now(), now(),
   );
   return flowId;
 }
 
 async function seedNode(flowId: string, nodeKey: string, type: string) {
   await db.run(
-    `INSERT INTO nodes (id, flow_id, node_key, type, status, created_at, updated_at) VALUES (?,?,?,?,?,?,?)`,
+    `INSERT INTO nodes (id, flow_id, node_key, type, status, created_at, updated_at) VALUES ($1,$2,$3,$4,$5,$6,$7)`,
     `node_${flowId}_${nodeKey}`, flowId, nodeKey, type, "pending", now(), now(),
   );
 }

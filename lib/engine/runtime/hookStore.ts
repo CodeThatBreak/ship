@@ -4,6 +4,7 @@ import crypto from "node:crypto";
 import { Webhook } from "standardwebhooks";
 import { db } from "../../db/app";
 import { HookRow, rows } from "../../db/rows";
+import type { Prisma } from "@prisma/client";
 import { maskToken } from "../../maskToken";
 import { processSingleton } from "../../singleton";
 
@@ -55,6 +56,16 @@ function fallbackTimestampOk(raw: string): boolean {
 const HOOK_SELECT = `SELECT id, template_id AS "templateId", flow_id AS "flowId",
        node_key AS "nodeKey", secret, filter, created_at AS "createdAt" FROM hooks`;
 
+/** Tx-scoped hook read: same aliased select, validated by the same {@link HookRow} schema. */
+async function firstHookRow(
+  tx: Prisma.TransactionClient,
+  sql: string,
+  ...args: unknown[]
+): Promise<HookRow | undefined> {
+  const raw = (await tx.$queryRawUnsafe<unknown[]>(sql, ...args))[0];
+  return raw ? HookRow.parse(raw) : undefined;
+}
+
 /** Masked hook secret for flow snapshots and other client polls (CR-254). */
 export const maskHookSecret = (secret: string): string => maskToken(secret);
 
@@ -66,13 +77,15 @@ export class HookStore {
   }
 
   /** The hook that starts flows from a template (webhook flow trigger). */
-  hookForTemplate(templateId: string): Promise<HookRow | undefined> {
+  hookForTemplate(templateId: string, tx?: Prisma.TransactionClient): Promise<HookRow | undefined> {
+    if (tx) return firstHookRow(tx, `${HOOK_SELECT} WHERE template_id=$1 AND flow_id IS NULL`, templateId);
     return rows.get(HookRow,
       `${HOOK_SELECT} WHERE template_id=$1 AND flow_id IS NULL`, templateId);
   }
 
   /** The hook that feeds a waiting node instance (wait_for webhook). */
-  hookForNode(flowId: string, nodeKey: string): Promise<HookRow | undefined> {
+  hookForNode(flowId: string, nodeKey: string, tx?: Prisma.TransactionClient): Promise<HookRow | undefined> {
+    if (tx) return firstHookRow(tx, `${HOOK_SELECT} WHERE flow_id=$1 AND node_key=$2`, flowId, nodeKey);
     return rows.get(HookRow,
       `${HOOK_SELECT} WHERE flow_id=$1 AND node_key=$2`, flowId, nodeKey);
   }
@@ -87,7 +100,7 @@ export class HookStore {
    * The hook is removed only when the template is deleted (`removeTemplate`).
    * No-op for unknown templates.
    */
-  async syncTemplate(templateId: string): Promise<void> {
+  async syncTemplate(templateId: string, tx?: Prisma.TransactionClient): Promise<void> {
     const tpl = await db.get<{ trigger: unknown; hidden: boolean }>(
       `SELECT trigger, hidden FROM flow_templates WHERE id=$1`, templateId);
     if (!tpl) return;
@@ -97,31 +110,33 @@ export class HookStore {
       ? trigger.filter.trim() : null;
     const existing = await this.hookForTemplate(templateId);
     if (!existing) {
-      await db.run(
+      await (tx ?? db.prisma).$executeRawUnsafe(
         `INSERT INTO hooks (id,template_id,flow_id,node_key,secret,filter,created_at)
          VALUES ($1,$2,NULL,NULL,$3,$4,$5)`,
         db.uid("hk_"), templateId, newSecret(), filter, db.now()
       );
     } else if (existing.filter !== filter) {
-      await db.run(`UPDATE hooks SET filter=$1 WHERE id=$2`, filter, existing.id);
+      await (tx ?? db.prisma).$executeRawUnsafe(`UPDATE hooks SET filter=$1 WHERE id=$2`, filter, existing.id);
     }
   }
 
   /** Remove a template's flow-trigger hook (template deleted). */
-  async removeTemplate(templateId: string): Promise<void> {
-    await db.run(`DELETE FROM hooks WHERE template_id=$1 AND flow_id IS NULL`, templateId);
+  async removeTemplate(templateId: string, tx?: Prisma.TransactionClient): Promise<void> {
+    await (tx ?? db.prisma).$executeRawUnsafe(
+      `DELETE FROM hooks WHERE template_id=$1 AND flow_id IS NULL`, templateId);
   }
 
   /** The hook that feeds a waiting node (wait_for webhook) — find-or-create. */
-  async ensureForNode(flowId: string, nodeKey: string): Promise<HookRow> {
+  async ensureForNode(flowId: string, nodeKey: string, tx?: Prisma.TransactionClient): Promise<HookRow> {
+    const client = tx ?? db.prisma;
     const existing = await this.hookForNode(flowId, nodeKey);
     if (existing) return existing;
-    await db.run(
+    await client.$executeRawUnsafe(
       `INSERT INTO hooks (id,template_id,flow_id,node_key,secret,filter,created_at)
        VALUES ($1,NULL,$2,$3,$4,NULL,$5)`,
       db.uid("hk_"), flowId, nodeKey, newSecret(), db.now()
     );
-    const hook = await this.hookForNode(flowId, nodeKey);
+    const hook = await this.hookForNode(flowId, nodeKey, tx);
     if (!hook) throw new Error(`hook insert failed for flow ${flowId} node ${nodeKey}`);
     return hook;
   }

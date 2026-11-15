@@ -43,17 +43,17 @@ export class StatusService {
       mrIid: number | null;
     }>(
       `SELECT f.id AS "flowId", t.key AS "taskKey", t.summary AS "taskSummary",
-              f."currentNode" AS "currentNode", f."executionMode" AS "executionMode", f.status, f."mrUrl" AS "mrUrl", f."mrIid" AS "mrIid"
-       FROM flows f JOIN tasks t ON t.id = f."taskId"
+              f.current_node AS "currentNode", f.execution_mode AS "executionMode", f.status, f.mr_url AS "mrUrl", f.mr_iid AS "mrIid"
+       FROM flows f JOIN tasks t ON t.id = f.task_id
        WHERE f.status = $1
-       ORDER BY f."updatedAt" DESC`,
+       ORDER BY f.updated_at DESC`,
       FLOW_STATUS.ACTIVE,
     );
 
     const runsRunning =
-      (await this.database.get<{ c: number }>(`SELECT COUNT(*) AS c FROM runs WHERE status = $1`, FLOW_STATUS.RUNNING))
-        ?.c ?? 0;
-    const repoCount = (await this.database.get<{ c: number }>(`SELECT COUNT(*) AS c FROM repos`))?.c ?? 0;
+      Number((await this.database.get<{ c: number }>(`SELECT COUNT(*) AS c FROM runs WHERE status = $1`, FLOW_STATUS.RUNNING))
+        ?.c ?? 0);
+    const repoCount = Number((await this.database.get<{ c: number }>(`SELECT COUNT(*) AS c FROM repos`))?.c ?? 0);
 
     const openMrs = agents.flatMap((a) =>
       a.mrUrl

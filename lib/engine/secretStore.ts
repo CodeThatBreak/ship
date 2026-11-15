@@ -29,9 +29,9 @@ export class SecretStore {
   }
 
   /** Remove every secret value from user-renderable text (events, errors, logs). */
-  redact(text: string, secrets?: Record<string, string>): string {
+  async redact(text: string, secrets?: Record<string, string>): Promise<string> {
     let out = text ?? "";
-    for (const v of Object.values(secrets ?? this.all())) {
+    for (const v of Object.values(secrets ?? await this.all())) {
       if (v && v.length > 3 && out.includes(v)) out = out.split(v).join("••••");
     }
     return out;

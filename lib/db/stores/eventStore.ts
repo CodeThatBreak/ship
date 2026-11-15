@@ -1,7 +1,7 @@
 import "server-only";
 
 import { EventRow } from "../rows";
-import type { Database } from "../database";
+import type { Database, QueryExecutor } from "../database";
 
 /** Append-only event log (drives the live activity feed + polling). */
 export class EventStore {
@@ -43,8 +43,9 @@ export class EventStore {
     type: string,
     message: string,
     data?: Record<string, unknown>,
+    tx?: QueryExecutor,
   ): Promise<void> {
-    await this.db.prisma.event.create({
+    await (tx ?? this.db.prisma).event.create({
       data: {
         id: this.db.uid("ev_"),
         flowId,

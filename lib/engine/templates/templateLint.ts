@@ -1,5 +1,6 @@
 import "server-only";
 
+import type { Prisma } from "@prisma/client";
 import { db } from "../../db/app";
 import { lintJsonata } from "@/lib/jsonata/eval";
 import { NODE_TRIGGER_TYPES, WAIT_FOR_SOURCES } from "../constants/triggers";
@@ -668,12 +669,15 @@ function parseObject(raw: unknown): Record<string, unknown> {
 /**
  * Catalog entries behind a template draft, straight off node_templates rows.
  */
-export async function catalogForNodeTemplateIds(ids: string[]): Promise<Record<string, { kind: string; config: unknown; key: string; isBuiltin: boolean }>> {
+export async function catalogForNodeTemplateIds(
+  ids: string[],
+  tx?: Prisma.TransactionClient,
+): Promise<Record<string, { kind: string; config: unknown; key: string; isBuiltin: boolean }>> {
   const out: Record<string, { kind: string; config: unknown; key: string; isBuiltin: boolean }> = {};
   for (const id of ids) {
-    const row = await db.get<{ id: string; key: string; kind: string; config: unknown; isBuiltin: boolean }>(
+    const row = (await (tx ?? db.prisma).$queryRawUnsafe<{ id: string; key: string; kind: string; config: unknown; isBuiltin: boolean }[]>(
           `SELECT id, key, kind, config, is_builtin AS "isBuiltin" FROM node_templates WHERE id=$1`, id
-        );
+        ))[0];
     if (!row) continue;
     out[row.id] = { kind: row.kind, config: row.config ?? {}, key: row.key, isBuiltin: Boolean(row.isBuiltin) };
   }

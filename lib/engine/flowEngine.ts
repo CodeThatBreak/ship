@@ -1,5 +1,6 @@
 import 'server-only';
 
+import type { Prisma } from '@prisma/client';
 import type { FlowData } from '@/types/flow';
 import { db } from '../db/app';
 import { FlowRow, NodeRow, Task, rows, type NodeStatus } from '../db/rows';
@@ -100,13 +101,14 @@ export class FlowEngine {
     templateId: string,
     name: string,
     payload: StepChildPayload,
-    opts: { branch: string | null }
+    opts: { branch: string | null },
+    tx?: Prisma.TransactionClient
   ): Promise<string> {
-    return this.factory.createStepChild(parentFlowId, templateId, name, payload, opts);
+    return this.factory.createStepChild(parentFlowId, templateId, name, payload, opts, tx);
   }
 
-  async createSplitChild(parentFlowId: string, templateId: string, name: string, payload: SplitChildPayload): Promise<string> {
-    return this.factory.createSplitChild(parentFlowId, templateId, name, payload);
+  async createSplitChild(parentFlowId: string, templateId: string, name: string, payload: SplitChildPayload, tx?: Prisma.TransactionClient): Promise<string> {
+    return this.factory.createSplitChild(parentFlowId, templateId, name, payload, tx);
   }
 
   async startStepChild(childFlowId: string): Promise<void> {
@@ -332,13 +334,12 @@ export class FlowEngine {
     this.waits.clearTimersForFlows(ids);
     await Promise.allSettled(ids.map(fid => worktreeManager.removeFlowWorktree(fid, { reason: 'flow deleted' })));
     await db.transaction(async (tx) => {
-      void tx;
       for (const fid of ids) {
         for (const table of FLOW_CHILD_TABLES) {
-          await db.run(`DELETE FROM ${table} WHERE flow_id=$1`, fid);
+          await tx.$executeRawUnsafe(`DELETE FROM ${table} WHERE flow_id=$1`, fid);
         }
       }
-      await db.run(`DELETE FROM flows WHERE id IN (${ids.map((_, i) => `$${i + 1}`).join(',')})`, ...ids);
+      await tx.$executeRawUnsafe(`DELETE FROM flows WHERE id IN (${ids.map((_, i) => `$${i + 1}`).join(',')})`, ...ids);
     });
   }
 

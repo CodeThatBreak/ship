@@ -2,7 +2,10 @@
  * FlowReadModel batching (CR-185): child flows/nodes load in one query each;
  * artifact rows omit bodies for lazy fetch via GET /api/artifacts/:id.
  */
-import { describe, expect, it, vi } from "vitest";
+import { beforeAll, describe, expect, it, vi } from "vitest";
+import { assignTestDatabase, resetTestDatabase } from "../../../tests/helpers/testDatabase";
+
+assignTestDatabase();
 
 const { db } = await import("../../db/app");
 const { FlowReadModel } = await import("./flowReadModel");
@@ -11,6 +14,10 @@ const { WaitScheduler } = await import("./waitScheduler");
 const now = () => new Date().toISOString();
 
 describe("FlowReadModel.get", () => {
+  beforeAll(async () => {
+    await resetTestDatabase();
+  });
+
   it("batches step-child flows and returns artifact metadata without content bodies", async () => {
     const taskId = "task_rm";
     const parentId = "flw_parent";

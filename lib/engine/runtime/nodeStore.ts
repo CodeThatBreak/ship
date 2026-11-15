@@ -7,6 +7,8 @@ import { NODE_STATUS } from "../constants/nodeStatus";
 import { processSingleton } from "../../singleton";
 import { appLayerConfig, mergeConfigLayers } from "../templates/nodeConfig";
 import type { TemplateGraph } from "../types/template";
+import type { QueryExecutor } from "../../db/database";
+import type { Prisma } from "@prisma/client";
 import { nodeRegistry } from "../nodes/registry";
 import { hookStore } from "./hookStore";
 import { nodeAttemptRegistry } from "./nodeAttemptRegistry";
@@ -22,37 +24,37 @@ export type InsertNodeSnapshotsOptions = {
  * Node kind implementations use {@link NodeSupport} instead.
  */
 export class NodeStore {
-  async idOf(flowId: string, nodeKey: string): Promise<string | null> {
-    const row = await db.prisma.node.findFirst({
+  async idOf(flowId: string, nodeKey: string, tx?: QueryExecutor): Promise<string | null> {
+    const row = await (tx ?? db.prisma).node.findFirst({
       where: { flowId, nodeKey },
       select: { id: true },
     });
     return row?.id ?? null;
   }
 
-  async statusOf(flowId: string, nodeKey: string): Promise<NodeStatus | null> {
-    const row = await db.prisma.node.findFirst({
+  async statusOf(flowId: string, nodeKey: string, tx?: QueryExecutor): Promise<NodeStatus | null> {
+    const row = await (tx ?? db.prisma).node.findFirst({
       where: { flowId, nodeKey },
       select: { status: true },
     });
     return row?.status ?? null;
   }
 
-  async statusesOfFlow(flowId: string): Promise<NodeStatus[]> {
-    const rows = await db.prisma.node.findMany({
+  async statusesOfFlow(flowId: string, tx?: QueryExecutor): Promise<NodeStatus[]> {
+    const rows = await (tx ?? db.prisma).node.findMany({
       where: { flowId },
       select: { status: true },
     });
     return rows.map((n) => n.status);
   }
 
-  async setStatus(flowId: string, nodeKey: string, status: NodeStatus): Promise<void> {
-    await db.prisma.node.updateMany({
+  async setStatus(flowId: string, nodeKey: string, status: NodeStatus, tx?: QueryExecutor): Promise<void> {
+    await (tx ?? db.prisma).node.updateMany({
       where: { flowId, nodeKey },
       data: { status, updatedAt: new Date() },
     });
     if (status !== NODE_STATUS.RUNNING) {
-      const nodeId = await this.idOf(flowId, nodeKey);
+      const nodeId = await this.idOf(flowId, nodeKey, tx);
       if (nodeId) nodeAttemptRegistry.clear(nodeId);
     }
   }
@@ -79,18 +81,25 @@ export class NodeStore {
     type: string,
     message: string,
     data?: Record<string, unknown>,
+    tx?: QueryExecutor,
   ): Promise<void> {
-    const nodeId = nodeKey ? await this.idOf(flowId, nodeKey) : null;
-    await db.emitEvent(flowId, nodeId, type, message, data);
+    const nodeId = nodeKey ? await this.idOf(flowId, nodeKey, tx) : null;
+    await db.emitEvent(flowId, nodeId, type, message, data, tx);
   }
 
   /** Insert node rows from a template graph snapshot (flow / step / split create). */
-  async insertSnapshots(flowId: string, graph: TemplateGraph, opts: InsertNodeSnapshotsOptions = {}): Promise<void> {
+  async insertSnapshots(
+    flowId: string,
+    graph: TemplateGraph,
+    opts: InsertNodeSnapshotsOptions = {},
+    tx?: Prisma.TransactionClient,
+  ): Promise<void> {
+    const client = tx ?? db.prisma;
     const ts = opts.ts ? new Date(opts.ts) : new Date();
     for (const spec of graph.nodes) {
       const def = await nodeRegistry.resolve(spec.defKey, spec.key);
       const config = mergeConfigLayers(def.defaultConfig(), await appLayerConfig(def.key), spec.config);
-      await db.prisma.node.create({
+      await client.node.create({
         data: {
           id: db.uid("node_"),
           flowId,
@@ -105,7 +114,7 @@ export class NodeStore {
         },
       });
       if (opts.provisionWebhookHooks && spec.trigger.waitFor === "webhook") {
-        await hookStore.ensureForNode(flowId, spec.key);
+        await hookStore.ensureForNode(flowId, spec.key, tx);
       }
     }
   }

@@ -1,6 +1,7 @@
 import "server-only";
 
 import YAML from "yaml";
+import type { Prisma } from "@prisma/client";
 import { db } from "../../db/app";
 
 /**
@@ -234,8 +235,8 @@ export interface ImportedTemplate {
  */
 export async function importTemplateYaml(
   store: {
-    ensureNodeTemplate(input: { key?: string; name: string; kind: string; icon?: string | null; config: Record<string, unknown> }): Promise<{ id: string; created: boolean }>;
-    nodeTemplateByKey(key: string): Promise<{ id: string; key: string; isBuiltin: boolean; kind: string } | undefined>;
+    ensureNodeTemplate(input: { key?: string; name: string; kind: string; icon?: string | null; config: Record<string, unknown> }, tx?: Prisma.TransactionClient): Promise<{ id: string; created: boolean }>;
+    nodeTemplateByKey(key: string, tx?: Prisma.TransactionClient): Promise<{ id: string; key: string; isBuiltin: boolean; kind: string } | undefined>;
     create(input: {
       name?: string; description?: string | null; trigger?: Record<string, unknown>;
       nodes: {
@@ -243,19 +244,20 @@ export async function importTemplateYaml(
         join_mode?: string; config?: Record<string, unknown>; input_map?: Record<string, unknown>;
       }[];
       edges: { from: string; to: string; kind?: "next" | "loop"; label?: string | null; condition?: string | null }[];
-    }): Promise<string>;
+    }, opts?: { isBuiltin?: boolean; id?: string; skipLint?: boolean }, tx?: Prisma.TransactionClient): Promise<string>;
     deleteNodeTemplate(id: string): Promise<void>;
   },
   text: string,
   opts: { namePrefix?: string } = {},
 ): Promise<ImportedTemplate> {
-  return await db.transaction(() => importTemplateYamlInner(store, text, opts));
+  return await db.transaction(async (tx) => importTemplateYamlInner(store, text, opts, tx));
 }
 
 async function importTemplateYamlInner(
   store: Parameters<typeof importTemplateYaml>[0],
   text: string,
   opts: { namePrefix?: string },
+  tx?: Prisma.TransactionClient,
 ): Promise<ImportedTemplate> {
   const createdNodeTemplateIds: string[] = [];
   const parsed = parseTemplateYaml(text);
@@ -268,11 +270,11 @@ async function importTemplateYamlInner(
     let overrides: Record<string, unknown> | undefined = entry.config;
     if (entry.type.startsWith("builtin/")) {
       const key = entry.type.slice("builtin/".length).trim();
-      const nt = await store.nodeTemplateByKey(key);
+      const nt = await store.nodeTemplateByKey(key, tx);
       if (!nt || !nt.isBuiltin) throw new YamlTemplateError(`unknown built-in node "builtin/${key}"`);
       nodeTemplateId = nt.id;
     } else {
-      const matchingByKey = await store.nodeTemplateByKey(entry.type);
+      const matchingByKey = await store.nodeTemplateByKey(entry.type, tx);
       if (matchingByKey && !matchingByKey.isBuiltin) {
         // reference an existing declarative catalog node
         nodeTemplateId = matchingByKey.id;
@@ -287,7 +289,7 @@ async function importTemplateYamlInner(
             name: entry.label ?? entry.key,
             kind: entry.type,
             config: entry.config,
-          });
+          }, tx);
           nodeTemplateId = ensured.id;
           if (ensured.created) createdNodeTemplateIds.push(ensured.id);
           overrides = {};
@@ -309,6 +311,6 @@ async function importTemplateYamlInner(
   }
 
   const name = `${opts.namePrefix ? `${opts.namePrefix} — ` : ""}${parsed.name}`;
-  const id = await store.create({ name, description: parsed.description, trigger: parsed.trigger, nodes, edges: parsed.edges });
+  const id = await store.create({ name, description: parsed.description, trigger: parsed.trigger, nodes, edges: parsed.edges }, {}, tx);
   return { id, name, createdNodeTemplateIds };
 }

@@ -61,9 +61,14 @@ describe("ArtifactService", () => {
     const service = new ArtifactService();
     const art = await service.get("art_1");
     expect(art.meta).toEqual({ branch: "main" });
-    expect((await rows.get(ArtifactRow, `SELECT * FROM artifacts WHERE id=$1`, "art_1"))?.meta).toEqual({
-      branch: "main",
-    });
+    // raw reads alias snake_case columns to the camelCase row shape (Q11)
+    expect(
+      (await rows.get(
+        ArtifactRow,
+        `SELECT id, node_id AS "nodeId", flow_id AS "flowId", kind, version, content, meta, status, feedback, created_at AS "createdAt" FROM artifacts WHERE id=$1`,
+        "art_1",
+      ))?.meta,
+    ).toEqual({ branch: "main" });
   });
 
   it("throws NotFoundError for a missing artifact", async () => {
@@ -109,7 +114,9 @@ describe("ArtifactService", () => {
       "plan",
       1,
       "x",
-      "{not-json",
+      // JSONB column: non-JSON text cannot be stored at all — the corrupt
+      // shape here is a JSON scalar where the mapper requires an object
+      JSON.stringify("not-an-object"),
       "draft",
       now(),
     );

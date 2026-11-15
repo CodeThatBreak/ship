@@ -2,6 +2,7 @@ import "server-only";
 
 import type { Prisma } from "@prisma/client";
 import { db } from "../../db/app";
+import type { QueryExecutor } from "../../db/database";
 import { NODE_KEYS } from "../constants/nodeKeys";
 import { childFlowHasStarted, isNodeStarted } from "../constants/nodeStatus";
 import { nodeStore } from "./nodeStore";
@@ -82,8 +83,8 @@ const toRow = (r: {
  * human bulk edits, status toggles, and build-progress application.
  */
 export class PlanStepStore {
-  async list(flowId: string): Promise<PlanStepRow[]> {
-    const rows = await db.prisma.planStep.findMany({
+  async list(flowId: string, tx?: QueryExecutor): Promise<PlanStepRow[]> {
+    const rows = await (tx ?? db.prisma).planStep.findMany({
       where: { flowId },
       orderBy: [{ position: "asc" }, { createdAt: "asc" }],
     });

@@ -2,7 +2,7 @@ import "server-only";
 
 import { SETTINGS_KEYS } from "@/constants/settings";
 import { settingString } from "../schemas/settingValues";
-import type { Database } from "./database";
+import type { Database, QueryExecutor } from "./database";
 import { AtRestCipher } from "./atRestCipher";
 
 /**
@@ -50,11 +50,12 @@ export class IntegrationSecretStore {
     return this.open(stored).trim();
   }
 
-  async writeCursorApiKey(key: string): Promise<void> {
+  async writeCursorApiKey(key: string, tx?: QueryExecutor): Promise<void> {
     const trimmed = key.trim();
     await this.database.setSetting(
       SETTINGS_KEYS.CURSOR_API_KEY,
       trimmed ? this.seal(trimmed) : "",
+      tx,
     );
   }
 

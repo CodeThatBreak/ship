@@ -481,7 +481,7 @@ export type StepMergeRow = z.infer<typeof StepMergeRow>;
  * are fine.
  */
 export class RowGateway {
-  constructor(private readonly database: Database) {}
+  constructor(private readonly database: Pick<Database, 'get' | 'all'>) {}
 
   private parseRow<S extends z.ZodTypeAny>(
     schema: S,

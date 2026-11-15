@@ -65,6 +65,21 @@ export class Database {
   }
 
   /**
+   * A RowGateway whose reads run on `executor` — inside a transaction pass the
+   * tx client so same-transaction reads see the uncommitted rows; outside,
+   * the global pool. Decode/validation behavior is identical to `this.rows`.
+   */
+  rowsFor(executor?: QueryExecutor): RowGateway {
+    if (!executor) return this.rows;
+    return new RowGateway({
+      get: async <T>(sql: string, ...args: unknown[]) =>
+        (await executor.$queryRawUnsafe<T[]>(sql, ...args))[0],
+      all: async <T>(sql: string, ...args: unknown[]) =>
+        executor.$queryRawUnsafe<T[]>(sql, ...args),
+    });
+  }
+
+  /**
    * Run async writes in one Postgres transaction (`prisma.$transaction`).
    * The callback receives the tx client; pass it to store calls that must
    * join the transaction. Never await network/agent/git I/O inside the
@@ -136,20 +151,22 @@ export class Database {
     type: string,
     message: string,
     data?: Record<string, unknown>,
+    tx?: QueryExecutor,
   ): Promise<void> {
-    return this.eventStore.emitEvent(flowId, nodeId, type, message, data);
+    return this.eventStore.emitEvent(flowId, nodeId, type, message, data, tx);
   }
 
   getSetting<S extends z.ZodTypeAny>(
     key: string,
     schema: S,
     fallback: z.infer<S>,
+    tx?: QueryExecutor,
   ): Promise<z.infer<S>> {
-    return this.settingsStore.getSetting(key, schema, fallback);
+    return this.settingsStore.getSetting(key, schema, fallback, tx);
   }
 
-  setSetting(key: string, value: unknown): Promise<void> {
-    return this.settingsStore.setSetting(key, value);
+  setSetting(key: string, value: unknown, tx?: QueryExecutor): Promise<void> {
+    return this.settingsStore.setSetting(key, value, tx);
   }
 
   listRepos(): Promise<Repo[]> {
