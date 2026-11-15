@@ -3,33 +3,33 @@ import type { RepoFormState } from "../types";
 
 /** Policy fields persisted only when the user explicitly edits them. */
 export const REPO_POLICY_FIELDS = [
-  "use_worktrees",
-  "install_command",
-  "skip_install",
-  "sync_paths",
-  "shared_dirs",
-  "setup_command",
-  "worktree_timeout_s",
+  "useWorktrees",
+  "installCommand",
+  "skipInstall",
+  "syncPaths",
+  "sharedDirs",
+  "setupCommand",
+  "worktreeTimeoutS",
 ] as const satisfies readonly (keyof RepoFormState)[];
 
 export type RepoPolicyField = (typeof REPO_POLICY_FIELDS)[number];
 
 export type RepoSavePayload = Pick<
   RepoFormState,
-  "name" | "cloud_url" | "local_path" | "default_branch"
+  "name" | "cloudUrl" | "localPath" | "defaultBranch"
 > &
   Partial<Pick<RepoFormState, RepoPolicyField>> & { id?: string | null };
 
 /** Which policy columns already had explicit DB values when editing started. */
 export const touchedPolicyFromRepo = (repo: Repo): Set<RepoPolicyField> => {
   const touched = new Set<RepoPolicyField>();
-  if (repo.installCommand != null) touched.add("install_command");
-  if (repo.syncPaths != null) touched.add("sync_paths");
-  if (repo.sharedDirs != null) touched.add("shared_dirs");
-  if (repo.setupCommand != null) touched.add("setup_command");
-  if (repo.skipInstall) touched.add("skip_install");
-  if (!repo.useWorktrees) touched.add("use_worktrees");
-  if (repo.worktreeTimeoutMs) touched.add("worktree_timeout_s");
+  if (repo.installCommand != null) touched.add("installCommand");
+  if (repo.syncPaths != null) touched.add("syncPaths");
+  if (repo.sharedDirs != null) touched.add("sharedDirs");
+  if (repo.setupCommand != null) touched.add("setupCommand");
+  if (repo.skipInstall) touched.add("skipInstall");
+  if (!repo.useWorktrees) touched.add("useWorktrees");
+  if (repo.worktreeTimeoutMs) touched.add("worktreeTimeoutS");
   return touched;
 };
 
@@ -56,26 +56,26 @@ export const buildRepoSavePayload = (
   for (const key of REPO_POLICY_FIELDS) {
     if (!touched.has(key)) continue;
     switch (key) {
-      case "install_command":
+      case "installCommand":
         payload.installCommand = state.installCommand;
         break;
-      case "sync_paths":
+      case "syncPaths":
         payload.syncPaths = state.syncPaths;
         break;
-      case "shared_dirs":
+      case "sharedDirs":
         payload.sharedDirs = state.sharedDirs;
         break;
-      case "setup_command":
+      case "setupCommand":
         payload.setupCommand = state.setupCommand;
         break;
-      case "skip_install":
+      case "skipInstall":
         payload.skipInstall = state.skipInstall;
         break;
-      case "use_worktrees":
+      case "useWorktrees":
         payload.useWorktrees = state.useWorktrees;
         break;
-      case "worktree_timeout_s":
-        payload.worktree_timeout_s = state.worktree_timeout_s;
+      case "worktreeTimeoutS":
+        payload.worktreeTimeoutS = state.worktreeTimeoutS;
         break;
     }
   }

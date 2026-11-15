@@ -121,11 +121,11 @@ def async_fix(src):
                         # header: up to 3 lines back
                         ls = src.rfind("\n", 0, j) + 1
                         header = src[ls:j]
-                        for _ in range(3):
+                        for _ in range(4):
                             p2 = src.rfind("\n", 0, ls - 1)
                             if p2 == -1: break
                             cand = src[p2+1:j]
-                            if re.search(r"[\)=>]\s*$", cand) or "=>" in cand or re.search(r"\b(function|get|set)\b", cand):
+                            if re.search(r"[\)=>]\s*(?::\s*[\w<>\[\] |&,.?()]+)?\s*$", cand) or "=>" in cand or re.search(r"\b(function|get|set)\b", cand):
                                 ls = p2 + 1; header = cand
                             else: break
                         h = header.strip()
@@ -152,8 +152,10 @@ def main(paths):
         path = pathlib.Path(p)
         src = path.read_text()
         segs = segment(src)
-        code = "".join(t if not s else t for s, t in segs)
-        code = transform(code)
+        out_parts = []
+        for is_str, text in segs:
+            out_parts.append(text if is_str else transform(text))
+        code = "".join(out_parts)
         code = async_fix(code)
         if code != src:
             path.write_text(code)

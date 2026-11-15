@@ -12,7 +12,7 @@ import {
 export const EMPTY_REPO_FORM: RepoFormState = {
   name: "", cloudUrl: "", localPath: "", defaultBranch: REPO_DEFAULT_BRANCH,
   useWorktrees: true, installCommand: "", skipInstall: false, syncPaths: "", sharedDirs: "",
-  setupCommand: "", worktree_timeout_s: "",
+  setupCommand: "", worktreeTimeoutS: "",
 };
 
 /** Map a stored repo row onto the editable form shape (paths stored verbatim). */
@@ -27,7 +27,7 @@ export const formFromRepo = (repo: Repo): RepoFormState => ({
   syncPaths: repo.syncPaths ?? "",
   sharedDirs: repo.sharedDirs ?? "",
   setupCommand: repo.setupCommand ?? "",
-  worktree_timeout_s: repo.worktreeTimeoutMs ? String(Math.round(repo.worktreeTimeoutMs / 1000)) : "",
+  worktreeTimeoutS: repo.worktreeTimeoutMs ? String(Math.round(repo.worktreeTimeoutMs / 1000)) : "",
 });
 
 /**

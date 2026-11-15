@@ -532,7 +532,7 @@ export class WorktreeManager {
       } catch (e: unknown) {
         console.warn(`worktree-lifecycle: could not delete orphaned dir ${target.wtPath}: ${e instanceof Error ? e.message : e}`);
       async }
-    }
+    async }
 
     if (done) {
       await db.run(`DELETE FROM worktree_removals WHERE id=$1`, recordId);

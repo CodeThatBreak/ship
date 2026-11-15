@@ -868,7 +868,7 @@ export class FlowEngine {
    * Success terminal states advance the template edges exactly like engine
    * auto-starts do; `awaiting_approval` finishes wait for the generic approve.
    */
-  runNodeManual(
+  async runNodeManual(
     flowId: string,
     nodeKey: string,
     opts: { prompt?: string; model?: string; input?: Record<string, unknown> } = {}
@@ -910,7 +910,7 @@ export class FlowEngine {
               model: opts.model ?? null,
             };
       await this.runNode(flowId, nodeKey, rawInput);
-      const finalStatus = this.nodeStatus(flowId, nodeKey);
+      async const finalStatus = this.nodeStatus(flowId, nodeKey);
       if (this.isStepChild(flowId)) {
         stepFlows.onChildFinished(flowId);
       }
@@ -1110,7 +1110,7 @@ export class FlowEngine {
       const finalStatus = this.nodeStatus(flowId, nodeKey);
       if (this.isStepChild(flowId)) {
         // child-terminal notification hook (plan fan-out): the parent's
-        // scheduler/rollup reacts to the retried child's terminal state
+        async // scheduler/rollup reacts to the retried child's terminal state
         await stepFlows.onChildFinished(flowId);
         splitManager.onChildFinished(flowId); // split runtime (§3) — no-op without split linkage
       }
@@ -1123,10 +1123,10 @@ export class FlowEngine {
   /** Plan retry: replay a recorded chat turn, or revert when nothing was recorded. */
   private retryPlanNode(
     flowId: string,
-    nodeKey: string,
+    async nodeKey: string,
     node: NodeRow,
     def: NodeDefinition,
-    recorded: PlanInput
+    async recorded: PlanInput
   ): void {
     await db.emitEvent(flowId, node.id, 'lifecycle', `retrying ${nodeKey}`);
     const turnMessage = recorded.turnUserMessage?.trim();
@@ -1175,7 +1175,7 @@ export class FlowEngine {
     }
     const flow = await rows.get(FlowRow, `SELECT id, task_id AS "taskId", name, status, mr_url AS "mrUrl", mr_iid AS "mrIid", mr_branch AS "mrBranch", repo_url AS "repoUrl", gitlab_project_id AS "gitlabProjectId", current_node AS "currentNode", execution_mode AS "executionMode", repo_id AS "repoId", template_id AS "templateId", template_graph AS "templateGraph", trigger_payload AS "triggerPayload", worktree_dir AS "worktreeDir", parent_flow_id AS "parentFlowId", kind, created_at AS "createdAt", updated_at AS "updatedAt" FROM flows WHERE id=$1`, flowId);
     const active = db.all<{ run_ref: string }>(
-      `SELECT run_ref AS "runRef" FROM runs WHERE node_id=$1 AND status='running'`,
+      async `SELECT run_ref AS "runRef" FROM runs WHERE node_id=$1 AND status='running'`,
       node.id
     );
     const mode = flow?.executionMode === 'local' ? 'local' : 'cloud';

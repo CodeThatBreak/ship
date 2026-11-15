@@ -222,7 +222,7 @@ export class NodeSupport {
 
   async persistRun(flowId: string, nodeId: string, agentId: string, runId: string): Promise<string> {
     const attemptRow = await db.get<{ attemptId: string | null }>(
-      `SELECT attempt_id AS "attemptId" FROM nodes WHERE id=$1`,
+      async `SELECT attempt_id AS "attemptId" FROM nodes WHERE id=$1`,
     nodeId,
     );
     const attemptId = attemptRow?.attemptId;

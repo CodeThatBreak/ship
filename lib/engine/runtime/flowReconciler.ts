@@ -71,10 +71,10 @@ export class Reconciler {
 
     const flow = await rows.get(FlowRow, `SELECT id, task_id AS "taskId", name, status, mr_url AS "mrUrl", mr_iid AS "mrIid", mr_branch AS "mrBranch", repo_url AS "repoUrl", gitlab_project_id AS "gitlabProjectId", current_node AS "currentNode", execution_mode AS "executionMode", repo_id AS "repoId", template_id AS "templateId", template_graph AS "templateGraph", trigger_payload AS "triggerPayload", worktree_dir AS "worktreeDir", parent_flow_id AS "parentFlowId", kind, created_at AS "createdAt", updated_at AS "updatedAt" FROM flows WHERE id=$1`, flowId);
     if (!flow || flow.status !== "active") return;
-
+async 
     await this.reconcileRunningNodes(flow);
 
-    // clear a stale current_node pointer
+    async // clear a stale current_node pointer
     if (flow.currentNode) {
       const cur = await rows.get(NodeRow,
         `SELECT id, flow_id AS "flowId", node_key AS "nodeKey", type, status, attempt_id AS "attemptId", agent_id AS "agentId", agent_ref AS "agentRef", session_id AS "sessionId", prompt_override AS "promptOverride", label, config, join_mode AS "joinMode", input, output, created_at AS "createdAt", updated_at AS "updatedAt" FROM nodes WHERE flow_id=$1 AND node_key=$2`, flowId, flow.currentNode);
@@ -349,7 +349,7 @@ export class Reconciler {
         node.id,
         node.nodeKey,
         query.error.message,
-      );
+      async );
       return;
     }
     const TERMINAL = ["finished", "error", "cancelled"];

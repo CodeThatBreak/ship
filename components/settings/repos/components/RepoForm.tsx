@@ -25,10 +25,10 @@ export const RepoForm = ({
   detected?: DetectedPolicy | null;
 }) => {
   const installPlaceholder =
-    detected?.install_command?.trim() || DEFAULT_INSTALL_PLACEHOLDER;
-  const syncPlaceholder = detected?.sync_paths?.trim() || DEFAULT_SYNC_PLACEHOLDER;
+    detected?.installCommand?.trim() || DEFAULT_INSTALL_PLACEHOLDER;
+  const syncPlaceholder = detected?.syncPaths?.trim() || DEFAULT_SYNC_PLACEHOLDER;
   const sharedPlaceholder =
-    detected?.shared_dirs?.trim() || "node_modules/.cache\n.turbo";
+    detected?.sharedDirs?.trim() || "node_modules/.cache\n.turbo";
 
   return (
     <>
@@ -49,8 +49,8 @@ export const RepoForm = ({
           <Input
             id="repo-default-branch"
             placeholder="main"
-            value={form.default_branch}
-            onChange={(e) => setField("default_branch", e.target.value)}
+            value={form.defaultBranch}
+            onChange={(e) => setField("defaultBranch", e.target.value)}
           />
         </Field>
       </div>
@@ -61,8 +61,8 @@ export const RepoForm = ({
         <Input
           id="repo-cloud-url"
           placeholder="https://gitlab.company.com/group/repo"
-          value={form.cloud_url}
-          onChange={(e) => setField("cloud_url", e.target.value)}
+          value={form.cloudUrl}
+          onChange={(e) => setField("cloudUrl", e.target.value)}
         />
       </Field>
 
@@ -75,8 +75,8 @@ export const RepoForm = ({
           id="repo-local-path"
           placeholder="~/work/repo"
           className="font-mono text-[12px]"
-          value={form.local_path}
-          onChange={(e) => setField("local_path", e.target.value)}
+          value={form.localPath}
+          onChange={(e) => setField("localPath", e.target.value)}
         />
       </Field>
 
@@ -101,8 +101,8 @@ export const RepoForm = ({
             <Switch
               id="repo-use-worktrees"
               size="sm"
-              checked={form.use_worktrees}
-              onCheckedChange={(checked) => setField("use_worktrees", Boolean(checked))}
+              checked={form.useWorktrees}
+              onCheckedChange={(checked) => setField("useWorktrees", Boolean(checked))}
             />
           </Field>
 
@@ -115,8 +115,8 @@ export const RepoForm = ({
               id="repo-install-command"
               placeholder={installPlaceholder}
               className="font-mono text-[12px] min-h-9"
-              value={form.install_command}
-              onChange={(e) => setField("install_command", e.target.value)}
+              value={form.installCommand}
+              onChange={(e) => setField("installCommand", e.target.value)}
             />
           </Field>
 
@@ -130,8 +130,8 @@ export const RepoForm = ({
             <Switch
               id="repo-skip-install"
               size="sm"
-              checked={form.skip_install}
-              onCheckedChange={(checked) => setField("skip_install", Boolean(checked))}
+              checked={form.skipInstall}
+              onCheckedChange={(checked) => setField("skipInstall", Boolean(checked))}
             />
           </Field>
 
@@ -144,8 +144,8 @@ export const RepoForm = ({
               id="repo-setup-command"
               placeholder="make bootstrap"
               className="font-mono text-[12px] min-h-9"
-              value={form.setup_command}
-              onChange={(e) => setField("setup_command", e.target.value)}
+              value={form.setupCommand}
+              onChange={(e) => setField("setupCommand", e.target.value)}
             />
           </Field>
 
@@ -158,8 +158,8 @@ export const RepoForm = ({
               id="repo-sync-paths"
               placeholder={syncPlaceholder}
               className="font-mono text-[12px] min-h-16"
-              value={form.sync_paths}
-              onChange={(e) => setField("sync_paths", e.target.value)}
+              value={form.syncPaths}
+              onChange={(e) => setField("syncPaths", e.target.value)}
             />
           </Field>
 
@@ -172,8 +172,8 @@ export const RepoForm = ({
               id="repo-shared-dirs"
               placeholder={sharedPlaceholder}
               className="font-mono text-[12px] min-h-16"
-              value={form.shared_dirs}
-              onChange={(e) => setField("shared_dirs", e.target.value)}
+              value={form.sharedDirs}
+              onChange={(e) => setField("sharedDirs", e.target.value)}
             />
           </Field>
 
@@ -188,8 +188,8 @@ export const RepoForm = ({
               type="number"
               min={1}
               placeholder="120"
-              value={form.worktree_timeout_s}
-              onChange={(e) => setField("worktree_timeout_s", e.target.value)}
+              value={form.worktreeTimeoutS}
+              onChange={(e) => setField("worktreeTimeoutS", e.target.value)}
             />
           </Field>
 

@@ -145,7 +145,7 @@ export function BuildModal({ task, repos, templates, defaultMode, defaultTemplat
             <SelectContent>
               {repos.map((r) => (
                 <SelectItem key={r.id} value={r.id}>
-                  {r.name} — {hostOf(r.cloud_url)}
+                  {r.name} — {hostOf(r.cloudUrl)}
                 </SelectItem>
               ))}
             </SelectContent>
@@ -165,9 +165,9 @@ export function BuildModal({ task, repos, templates, defaultMode, defaultTemplat
               <SelectItem value={RUN_MODE.CLOUD}>
                 Cloud agent
               </SelectItem>
-              <SelectItem value={RUN_MODE.LOCAL} disabled={!selectedRepo?.local_path}>
+              <SelectItem value={RUN_MODE.LOCAL} disabled={!selectedRepo?.localPath}>
                 Local (SDK)
-                {!selectedRepo?.local_path && (
+                {!selectedRepo?.localPath && (
                   <span className="text-warning">(no local path)</span>
                 )}
               </SelectItem>

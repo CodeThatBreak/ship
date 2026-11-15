@@ -35,7 +35,7 @@ export function RepoCard({
           <Badge variant="outline" className="font-mono text-[10.5px] shrink-0">
             <GitBranch size={10} /> {repo.defaultBranch}
           </Badge>
-          {repo.localPath && (repo.local_path_exists ? (
+          {repo.localPath && (repo.localPathExists ? (
             <Badge className="bg-success/10 text-success shrink-0">
               <CheckCircle2 size={11} /> {REPO_BADGE.LOCAL_READY}
             </Badge>

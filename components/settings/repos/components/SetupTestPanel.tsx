@@ -33,7 +33,7 @@ export function SetupTestPanel({ form }: { form: RepoFormState }) {
     });
   };
 
-  const disabled = !form.local_path.trim();
+  const disabled = !form.localPath.trim();
   const seconds = data ? (data.durationMs / 1000).toFixed(1) : null;
   return (
     <div className="mt-3.5">

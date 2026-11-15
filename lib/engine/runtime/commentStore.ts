@@ -14,7 +14,7 @@ export class CommentStore {
     for (const c of incoming) {
       if (c.system) continue;
       const existing = await db.get<{ id: string; status: string; resolvedBy: string | null }>(
-        `SELECT id, status, resolved_by AS "resolvedBy" FROM comments WHERE id=$1`,
+        async `SELECT id, status, resolved_by AS "resolvedBy" FROM comments WHERE id=$1`,
         c.id,
       );
       const status = c.resolved ? COMMENT_STATUS.RESOLVED : COMMENT_STATUS.OPEN;

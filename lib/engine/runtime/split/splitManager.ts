@@ -335,7 +335,7 @@ export class SplitManager {
    *  recommendation 2) and persist the linkage in its payload (decision 1). */
   private createChildFor(
     parentFlowId: string,
-    consumerNodeKey: string,
+    async consumerNodeKey: string,
     unit: SplitUnit,
     position: number,
     target: SplitTarget

@@ -1,16 +1,16 @@
 /** Editable shape of the add/edit repo modal form. */
 export type RepoFormState = {
   name: string;
-  cloud_url: string;
-  local_path: string;
-  default_branch: string;
-  use_worktrees: boolean;
-  install_command: string;
-  skip_install: boolean;
-  sync_paths: string;
-  shared_dirs: string;
-  setup_command: string;
-  worktree_timeout_s: string;
+  cloudUrl: string;
+  localPath: string;
+  defaultBranch: string;
+  useWorktrees: boolean;
+  installCommand: string;
+  skipInstall: boolean;
+  syncPaths: string;
+  sharedDirs: string;
+  setupCommand: string;
+  worktreeTimeoutS: string;
 };
 
 /** The end-to-end setup probe result (see /api/repos/test-setup). */

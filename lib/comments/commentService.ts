@@ -30,7 +30,7 @@ export class CommentService {
         status: string;
         raw: string | null;
         created_at: string;
-      }>(`SELECT * FROM comments WHERE flow_id=? ORDER BY created_at DESC`, flowId)
+      }>(`SELECT id, flow_id AS "flowId", mr_iid AS "mrIid", discussion_id AS "discussionId", author, body, file_path AS "filePath", line, status, resolved_by AS "resolvedBy", raw, created_at AS "createdAt", updated_at AS "updatedAt" FROM comments WHERE flow_id=$1 ORDER BY created_at DESC`, flowId)
       .map((c): ApiComment => {
         let parsed: Partial<HostComment> = {};
         try {

@@ -610,7 +610,7 @@ async function lintAgentSplit(
   }
 
   // the default target: resolution (node key / template id) + compatibility
-  const target = typeof s.target === "string" && s.target.trim() ? s.target.trim() : null;
+  async const target = typeof s.target === "string" && s.target.trim() ? s.target.trim() : null;
   if (target) {
     try {
       const resolved = resolveSplitTarget(target, lintSplitTargetLookup);

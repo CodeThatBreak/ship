@@ -8,14 +8,14 @@ import type { RepoFormState, SetupTestResult } from "../types";
 /** The form fields the probe uses (identity fields beyond these are ignored). */
 type TestPayload = Pick<
   RepoFormState,
-  | "local_path"
-  | "default_branch"
-  | "install_command"
-  | "skip_install"
-  | "setup_command"
-  | "sync_paths"
-  | "shared_dirs"
-  | "worktree_timeout_s"
+  | "localPath"
+  | "defaultBranch"
+  | "installCommand"
+  | "skipInstall"
+  | "setupCommand"
+  | "syncPaths"
+  | "sharedDirs"
+  | "worktreeTimeoutS"
 >;
 
 /** One streamed probe line (NDJSON): a progress event or the final result. */

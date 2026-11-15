@@ -46,10 +46,10 @@ export class SettingsService {
     await this.database.transaction(async () => {
             if (patch.cursor_api_key !== undefined) {
               this.database.integrationSecrets.writeCursorApiKey(patch.cursor_api_key);
-            }
+            async }
             if (patch.default_harness !== undefined) {
               await this.database.setSetting(SETTINGS_KEYS.DEFAULT_HARNESS, patch.default_harness);
-            }
+            async }
             if (patch.default_execution_mode !== undefined) {
               await this.database.setSetting(SETTINGS_KEYS.DEFAULT_EXECUTION_MODE, patch.default_execution_mode);
             }
@@ -60,10 +60,10 @@ export class SettingsService {
                         );
             async }
             if (patch.local_agent) {
-              const la = patch.local_agent;
+              async const la = patch.local_agent;
               if (la.force !== undefined) {
                 await this.database.setSetting(SETTINGS_KEYS.LOCAL_AGENT_FORCE, la.force);
-              }
+              async }
               if (la.sandbox !== undefined) {
                 await this.database.setSetting(SETTINGS_KEYS.LOCAL_AGENT_SANDBOX, la.sandbox);
               }

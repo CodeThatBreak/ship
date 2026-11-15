@@ -66,14 +66,14 @@ export class PromptPreview {
       branch: url.searchParams.get("branch") ?? undefined,
     };
 
-    const flow = await rows.get(FlowRow, `SELECT * FROM flows WHERE id=?`, flowId);
+    const flow = await rows.get(FlowRow, `SELECT id, task_id AS "taskId", name, status, mr_url AS "mrUrl", mr_iid AS "mrIid", mr_branch AS "mrBranch", repo_url AS "repoUrl", gitlab_project_id AS "gitlabProjectId", current_node AS "currentNode", execution_mode AS "executionMode", repo_id AS "repoId", template_id AS "templateId", template_graph AS "templateGraph", trigger_payload AS "triggerPayload", worktree_dir AS "worktreeDir", parent_flow_id AS "parentFlowId", kind, created_at AS "createdAt", updated_at AS "updatedAt" FROM flows WHERE id=$1`, flowId);
     if (!flow) return this.notFound("flow not found");
-    const task = await rows.get(Task, `SELECT * FROM tasks WHERE id=?`, flow.taskId);
+    const task = await rows.get(Task, `SELECT id, type, key, summary, description, status, issue_type AS "issueType", priority, repo_url AS "repoUrl", parent_key AS "parentKey", external_url AS "externalUrl", raw, synced_at AS "syncedAt", fields FROM tasks WHERE id=$1`, flow.taskId);
     if (!task) return this.notFound("task not found");
     const repo = flow.repoId ? await db.repoById(flow.repoId) ?? null : null;
     const ctx: FlowCtx = { flow, task, repo };
 
-    const node = await rows.get(NodeRow, `SELECT * FROM nodes WHERE flow_id=? AND node_key=?`, flowId, nodeKey) ?? null;
+    const node = await rows.get(NodeRow, `SELECT id, flow_id AS "flowId", node_key AS "nodeKey", type, status, attempt_id AS "attemptId", agent_id AS "agentId", agent_ref AS "agentRef", session_id AS "sessionId", prompt_override AS "promptOverride", label, config, join_mode AS "joinMode", input, output, created_at AS "createdAt", updated_at AS "updatedAt" FROM nodes WHERE flow_id=$1 AND node_key=$2`, flowId, nodeKey) ?? null;
     const def = this.defFor(flowId, nodeKey, node);
     // §T4: the preview role is routed through the role router — defs without
     // a previewable prompt (agent kinds leave it to the phase-2 work) decline.
@@ -107,15 +107,15 @@ export class PromptPreview {
    * the single-node route's rejection of unsupported nodes.
    */
   async allFor(flowId: string): Promise<AllPromptsResult> {
-    const flow = await rows.get(FlowRow, `SELECT * FROM flows WHERE id=?`, flowId);
+    const flow = await rows.get(FlowRow, `SELECT id, task_id AS "taskId", name, status, mr_url AS "mrUrl", mr_iid AS "mrIid", mr_branch AS "mrBranch", repo_url AS "repoUrl", gitlab_project_id AS "gitlabProjectId", current_node AS "currentNode", execution_mode AS "executionMode", repo_id AS "repoId", template_id AS "templateId", template_graph AS "templateGraph", trigger_payload AS "triggerPayload", worktree_dir AS "worktreeDir", parent_flow_id AS "parentFlowId", kind, created_at AS "createdAt", updated_at AS "updatedAt" FROM flows WHERE id=$1`, flowId);
     if (!flow) return this.notFound("flow not found");
-    const task = await rows.get(Task, `SELECT * FROM tasks WHERE id=?`, flow.taskId);
+    const task = await rows.get(Task, `SELECT id, type, key, summary, description, status, issue_type AS "issueType", priority, repo_url AS "repoUrl", parent_key AS "parentKey", external_url AS "externalUrl", raw, synced_at AS "syncedAt", fields FROM tasks WHERE id=$1`, flow.taskId);
     if (!task) return this.notFound("task not found");
     const repo = flow.repoId ? await db.repoById(flow.repoId) ?? null : null;
     const ctx: FlowCtx = { flow, task, repo };
 
     const prompts: Record<string, string> = {};
-    for (const node of await rows.all(NodeRow, `SELECT * FROM nodes WHERE flow_id=?`, flowId)) {
+    for (const node of await rows.all(NodeRow, `SELECT id, flow_id AS "flowId", node_key AS "nodeKey", type, status, attempt_id AS "attemptId", agent_id AS "agentId", agent_ref AS "agentRef", session_id AS "sessionId", prompt_override AS "promptOverride", label, config, join_mode AS "joinMode", input, output, created_at AS "createdAt", updated_at AS "updatedAt" FROM nodes WHERE flow_id=$1`, flowId)) {
       const def = this.defFor(flowId, node.nodeKey, node);
       const previewer = nodeRoles.promptPreviewerOf(def);
       const preview = previewer ? previewer.previewPrompt(ctx, node, {}) : null;
@@ -150,7 +150,7 @@ export class PromptPreview {
     nodeKey: string;
   }): PromptPreviewPayload {
     const tpl = prompts.getTemplate(input.templateKey);
-    const node = await rows.get(NodeRow, `SELECT * FROM nodes WHERE flow_id=? AND node_key=?`, input.ctx.flow.id, input.nodeKey);
+    const node = await rows.get(NodeRow, `SELECT id, flow_id AS "flowId", node_key AS "nodeKey", type, status, attempt_id AS "attemptId", agent_id AS "agentId", agent_ref AS "agentRef", session_id AS "sessionId", prompt_override AS "promptOverride", label, config, join_mode AS "joinMode", input, output, created_at AS "createdAt", updated_at AS "updatedAt" FROM nodes WHERE flow_id=$1 AND node_key=$2`, input.ctx.flow.id, input.nodeKey);
     const recordedInput = node?.input ?? null;
     // the last run's prompt: what run N actually sent — every run records the
     // exact final text into nodes.input.prompt (build/step-build/review/

@@ -34,7 +34,7 @@ export const ReposSection = ({
   const save = useSaveRepo();
   const remove = useDeleteRepo();
 
-  const deferredPath = useDeferredValue(state.local_path);
+  const deferredPath = useDeferredValue(state.localPath);
   const detected = useDetectedPolicy(deferredPath, editorOpen);
 
   const openAdd = useCallback(() => {
@@ -119,7 +119,7 @@ export const ReposSection = ({
         onClose={close}
         title={editingId ? REPO_MODAL_TITLE.EDIT : REPO_MODAL_TITLE.ADD}
         submitLabel={editingId ? "Save changes" : "Add repo"}
-        canSubmit={Boolean(state.name && state.cloud_url)}
+        canSubmit={Boolean(state.name && state.cloudUrl)}
         submitting={save.isPending}
         onSubmit={submit}
       >

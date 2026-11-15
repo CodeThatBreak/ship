@@ -33,8 +33,8 @@ describe("buildRepoSavePayload", () => {
     };
     const payload = buildRepoSavePayload(state, new Set(), "r1");
     expect(payload.name).toBe("api-renamed");
-    expect("install_command" in payload).toBe(false);
-    expect("sync_paths" in payload).toBe(false);
+    expect("installCommand" in payload).toBe(false);
+    expect("syncPaths" in payload).toBe(false);
   });
 
   it("includes policy fields the user touched", () => {
@@ -46,11 +46,11 @@ describe("buildRepoSavePayload", () => {
     };
     const payload = buildRepoSavePayload(
       state,
-      new Set(["install_command"]),
+      new Set(["installCommand"]),
       null,
     );
     expect(payload.installCommand).toBe("pnpm install");
-    expect("sync_paths" in payload).toBe(false);
+    expect("syncPaths" in payload).toBe(false);
   });
 });
 
@@ -61,13 +61,13 @@ describe("touchedPolicyFromRepo", () => {
       installCommand: "npm ci",
       syncPaths: ".env*",
     });
-    expect(touched.has("install_command")).toBe(true);
-    expect(touched.has("sync_paths")).toBe(true);
-    expect(touched.has("shared_dirs")).toBe(false);
+    expect(touched.has("installCommand")).toBe(true);
+    expect(touched.has("syncPaths")).toBe(true);
+    expect(touched.has("sharedDirs")).toBe(false);
   });
 
   it("marks the worktree opt-out as touched only when disabled", () => {
-    expect(touchedPolicyFromRepo({ ...baseRepo, useWorktrees: 1 }).has("use_worktrees")).toBe(false);
-    expect(touchedPolicyFromRepo({ ...baseRepo, useWorktrees: 0 }).has("use_worktrees")).toBe(true);
+    expect(touchedPolicyFromRepo({ ...baseRepo, useWorktrees: 1 }).has("useWorktrees")).toBe(false);
+    expect(touchedPolicyFromRepo({ ...baseRepo, useWorktrees: 0 }).has("useWorktrees")).toBe(true);
   });
 });

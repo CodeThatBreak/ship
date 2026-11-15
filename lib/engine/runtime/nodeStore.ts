@@ -110,7 +110,7 @@ export class NodeStore {
         JSON.stringify(config),
         spec.joinMode,
         NODE_STATUS.PENDING,
-    ts,
+        ts,
         ts,
       );
       if (opts.provisionWebhookHooks && spec.trigger.waitFor === "webhook") {
