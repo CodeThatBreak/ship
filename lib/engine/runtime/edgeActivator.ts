@@ -1,7 +1,7 @@
 import "server-only";
 
 import { db } from "../../db/app";
-import { NodeRow, type NodeStatus } from "../../db/rows";
+import { type NodeStatus } from "../../db/rows";
 import { ConflictError } from "../../errors";
 import { evalJsonata, jsonataTruthy } from "@/lib/jsonata/eval";
 import { buildFlowContext } from "../context/flowVariables";

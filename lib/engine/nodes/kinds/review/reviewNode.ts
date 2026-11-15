@@ -90,8 +90,8 @@ export class ReviewNode extends AgentRunNode<ReviewInput, ReviewOutput> {
    * diff is run data — fetched at run time, so the preview shows the
    * contract/rules + ticket context with an empty diff slot.
    */
-  previewPrompt(ctx: FlowCtx, node: NodeRow | null, params: PromptPreviewParams): NodePromptPreview | null {
-    const configBody = nodeRoles.previewBody(this, node);
+  async previewPrompt(ctx: FlowCtx, node: NodeRow | null, params: PromptPreviewParams): Promise<NodePromptPreview | null> {
+    const configBody = await nodeRoles.previewBody(this, node);
     const asm = prompts.assemblePrompt(
       NODE_KEYS.REVIEW,
       {

@@ -30,7 +30,6 @@ import {
 import { ConflictError, NotFoundError, ValidationError } from "../../errors";
 import type {
   TemplateEdgeInput,
-  TemplateEdgeSpec,
   TemplateGraph,
   TemplateInput,
   TemplateNodeInput,

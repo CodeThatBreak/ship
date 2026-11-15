@@ -144,6 +144,7 @@ class FixtureWorkerDef extends NodeDefinition<Record<string, unknown>, { summary
   }
 
   async run(ctx: FlowCtx, _input: Record<string, unknown>): Promise<RunOutcome> {
+    void _input;
     const payload = (ctx.flow.triggerPayload ?? {}) as { unit?: { key?: string; item?: WorkerItem } };
     const unitKey = payload.unit?.key ?? "?";
     FixtureWorkerDef.started.push(unitKey);

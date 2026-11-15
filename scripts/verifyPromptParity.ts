@@ -331,14 +331,15 @@ async function main(): Promise<void> {
     const ctx = { flow: flowRow, task: taskRow, repo: null };
     let previewFinal: string | null = null;
     try {
-      previewFinal =
-        nodeRoles
-          .promptPreviewerOf(def)
-          ?.previewPrompt(
+      const previewer = nodeRoles.promptPreviewerOf(def);
+      const preview = previewer
+        ? await previewer.previewPrompt(
             ctx,
             (await rows.get(NodeRow, NODE_BY_KEY, flow, nodeKey)) ?? null,
             {}
-          )?.assembly.final ?? null;
+          )
+        : null;
+      previewFinal = preview?.assembly.final ?? null;
     } catch {
       /* the preview must not gate the run-side check */
     }
@@ -509,8 +510,9 @@ async function main(): Promise<void> {
     } else {
       const ctx = { flow: flowRow, task: taskRow, repo: null };
       const pipeDef = nodeRegistry.get(NODE_KEYS.PIPELINE);
-      const previewChars =
-        nodeRoles.promptPreviewerOf(pipeDef)?.previewPrompt(ctx, null, {})?.assembly.final.length ?? null;
+      const pipePreviewer = nodeRoles.promptPreviewerOf(pipeDef);
+      const pipePreview = pipePreviewer ? await pipePreviewer.previewPrompt(ctx, null, {}) : null;
+      const previewChars = pipePreview?.assembly.final.length ?? null;
       results.push({
         kind: 'pipeline',
         status: 'SKIP',

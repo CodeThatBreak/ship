@@ -26,22 +26,22 @@ const { NODE_KEYS } = await import("../constants/nodeKeys");
 const now = () => new Date().toISOString();
 
 /** One isolated task + flow on the seeded SDLC template (template_id null). */
-function seedFlow(index: number): string {
+async function seedFlow(index: number): Promise<string> {
   const taskId = `task_${index}`;
   const flowId = `flw_${index}`;
-  db.run(
+  await db.run(
     `INSERT INTO tasks (id, type, key, summary, status, issue_type, priority) VALUES (?,?,?,?,?,?,?)`,
     taskId, "generic", `TST-${index}`, "prompt bulk read", "open", "task", "P2",
   );
-  db.run(
+  await db.run(
     `INSERT INTO flows (id, task_id, name, status, created_at, updated_at) VALUES (?,?,?,?,?,?)`,
     flowId, taskId, `prompt bulk read ${index}`, "active", now(), now(),
   );
   return flowId;
 }
 
-function seedNode(flowId: string, nodeKey: string, type: string) {
-  db.run(
+async function seedNode(flowId: string, nodeKey: string, type: string) {
+  await db.run(
     `INSERT INTO nodes (id, flow_id, node_key, type, status, created_at, updated_at) VALUES (?,?,?,?,?,?,?)`,
     `node_${flowId}_${nodeKey}`, flowId, nodeKey, type, "pending", now(), now(),
   );
@@ -49,9 +49,9 @@ function seedNode(flowId: string, nodeKey: string, type: string) {
 
 describe("PromptPreview.allFor — the composer's bulk prompt read", () => {
   it("every promptable node's body rides one response, keyed by node key", async () => {
-    const flowId = seedFlow(1);
+    const flowId = await seedFlow(1);
     for (const nodeKey of [NODE_KEYS.PLAN, NODE_KEYS.BUILD, NODE_KEYS.RESOLVE]) {
-      seedNode(flowId, nodeKey, nodeKey);
+      await seedNode(flowId, nodeKey, nodeKey);
     }
 
     const result = await promptPreview.allFor(flowId);
@@ -69,9 +69,9 @@ describe("PromptPreview.allFor — the composer's bulk prompt read", () => {
   });
 
   it("nodes whose def declines a preview are skipped (the start def has no prompt surface)", async () => {
-    const flowId = seedFlow(2);
-    seedNode(flowId, NODE_KEYS.PLAN, NODE_KEYS.PLAN);
-    seedNode(flowId, "entry_gate", "start");
+    const flowId = await seedFlow(2);
+    await seedNode(flowId, NODE_KEYS.PLAN, NODE_KEYS.PLAN);
+    await seedNode(flowId, "entry_gate", "start");
 
     const result = await promptPreview.allFor(flowId);
     if (!result.ok) throw new Error("expected an ok bulk read");
@@ -89,8 +89,8 @@ describe("PromptPreview.allFor — the composer's bulk prompt read", () => {
 
 describe("PromptPreview.previewFor — branch-scoped plan (CR-049)", () => {
   it("the pipeline node preview assembles the fix-run body", async () => {
-    const flowId = seedFlow(10);
-    seedNode(flowId, NODE_KEYS.PIPELINE, NODE_KEYS.PIPELINE);
+    const flowId = await seedFlow(10);
+    await seedNode(flowId, NODE_KEYS.PIPELINE, NODE_KEYS.PIPELINE);
 
     const result = await promptPreview.previewFor(
       flowId,
@@ -102,8 +102,8 @@ describe("PromptPreview.previewFor — branch-scoped plan (CR-049)", () => {
   });
 
   it("unknown plan branch → 400 via previewPrompt on the plan def", async () => {
-    const flowId = seedFlow(11);
-    seedNode(flowId, NODE_KEYS.PLAN, NODE_KEYS.PLAN);
+    const flowId = await seedFlow(11);
+    await seedNode(flowId, NODE_KEYS.PLAN, NODE_KEYS.PLAN);
 
     const result = await promptPreview.previewFor(
       flowId,

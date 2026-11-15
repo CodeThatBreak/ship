@@ -92,6 +92,7 @@ export class ScriptTemplateNode extends DeclarativeNode<ScriptDef> {
 
   /** Restart recovery: a finished run's stdout is not persisted for scripts — retry re-runs it. */
   async recover(_ctx: FlowCtx, _node: NodeRow, result: AgentRunResult, _note: string): Promise<boolean> {
+    void _note;
     if (result.status !== "finished") return false;
     return false;
   }

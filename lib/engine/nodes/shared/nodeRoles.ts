@@ -80,7 +80,7 @@ export interface Converser {
 
 /** A def that publishes a live prompt preview for the prompt modal. */
 export interface PromptPreviewer {
-  previewPrompt(ctx: FlowCtx, node: NodeRow | null, params: PromptPreviewParams): NodePromptPreview | null;
+  previewPrompt(ctx: FlowCtx, node: NodeRow | null, params: PromptPreviewParams): Promise<NodePromptPreview | null>;
 }
 
 /** The decline a chat-capable-off node still answers with (the old root default). */
@@ -130,13 +130,13 @@ export class NodeRoleRouter {
    * chat follow-ups, taking the row explicitly so a node that never ran still
    * previews.
    */
-  previewConfig(def: NodeDefinition, node: NodeRow | null): Record<string, unknown> {
-    return mergeConfigLayers(def.defaultConfig(), appLayerConfig(def.key), node?.config ?? null);
+  async previewConfig(def: NodeDefinition, node: NodeRow | null): Promise<Record<string, unknown>> {
+    return mergeConfigLayers(def.defaultConfig(), await appLayerConfig(def.key), node?.config ?? null);
   }
 
   /** Convenience: the def's `prompt_body` knob for preview assembly. */
-  previewBody(def: NodeDefinition, node: NodeRow | null, key = "prompt_body"): string | null {
-    return configString(this.previewConfig(def, node), key) ?? null;
+  async previewBody(def: NodeDefinition, node: NodeRow | null, key = "prompt_body"): Promise<string | null> {
+    return configString(await this.previewConfig(def, node), key) ?? null;
   }
 }
 

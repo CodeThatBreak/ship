@@ -125,6 +125,7 @@ class RecipeNode extends AgentRunNode<Record<string, unknown>, Record<string, un
   seen: Record<string, unknown>[] = [];
 
   protected override async nodeConfig(_ctx: FlowCtx): Promise<Record<string, unknown>> {
+    void _ctx;
     return {};
   }
 

@@ -2,9 +2,6 @@ import { describe, expect, it } from "vitest";
 import { prompts } from "./promptLibrary";
 
 describe("prompt assembly", () => {
-  const planCtx = { ticket: "TICKET-CTX", ticket_type: "bug" };
-  const extra = { context: "## Context\nCONTEXT-BLOCK" };
-
   it("keeps review instructions from being duplicated mid-prompt", () => {
     const reviewFinal = prompts.resolve(
       "review",

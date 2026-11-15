@@ -4,7 +4,7 @@ import type { FlowCtx } from '../../shared/nodeSharedExports';
 import type { NodeSupport } from '../../shared/nodeSupport';
 import { planSteps, type PlanStepRow } from '../../../runtime/planStepStore';
 import { type NodeRow } from '../../../../db/rows';
-import { type PlanInput, type PlanMeta, type PlanBranch, parsePlanArtifactMeta } from './schema';
+import { type PlanMeta, type PlanBranch, parsePlanArtifactMeta } from './schema';
 import type { RefinedFrom } from './constants/refine';
 import type { LatestPlan, ScopedRefine } from './types/planTypeExports';
 

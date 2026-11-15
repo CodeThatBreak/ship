@@ -13,13 +13,6 @@ import type { StepChildPayload } from "./fanout/stepFlowManager";
 import type { SplitChildPayload } from "./split/splitManager";
 import type { FlowFactoryHost } from "./flowEngineHost";
 
-const FLOW_SELECT = `SELECT id, task_id AS "taskId", name, status, mr_url AS "mrUrl",
-       mr_iid AS "mrIid", mr_branch AS "mrBranch", repo_url AS "repoUrl",
-       gitlab_project_id AS "gitlabProjectId", current_node AS "currentNode",
-       execution_mode AS "executionMode", repo_id AS "repoId", template_id AS "templateId",
-       template_graph AS "templateGraph", trigger_payload AS "triggerPayload",
-       worktree_dir AS "worktreeDir", parent_flow_id AS "parentFlowId", kind,
-       created_at AS "createdAt", updated_at AS "updatedAt" FROM flows`;
 const TASK_SELECT = `SELECT id, type, key, summary, description, status,
        issue_type AS "issueType", priority, repo_url AS "repoUrl",
        parent_key AS "parentKey", external_url AS "externalUrl", raw,

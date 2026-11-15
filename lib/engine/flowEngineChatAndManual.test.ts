@@ -121,7 +121,7 @@ class StubAgentPort implements AgentPort {
 
 const stub = new StubAgentPort();
 agentPortRegistry.register(stub);
-db.setSetting("default_harness", "stub"); // forMode("cloud") selects the stub
+await db.setSetting("default_harness", "stub"); // forMode("cloud") selects the stub
 
 // ── fixture: topic agent (json) → paragraph agent (markdown) ─────────────────
 

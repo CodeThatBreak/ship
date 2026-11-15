@@ -2,16 +2,14 @@ import 'server-only';
 
 import type { FlowData } from '@/types/flow';
 import { db } from '../db/app';
-import { ArtifactRow, BranchRow, FlowRow, NodeRow, PlanStepRow, RunRow, Task, rows, type NodeStatus } from '../db/rows';
+import { FlowRow, NodeRow, Task, rows, type NodeStatus } from '../db/rows';
 import { agentPortRegistry, type AgentRunResult } from './ports/agentPort';
-import { hostOf, type HostComment, type HostWebhookEvent } from './ports/gitHost';
+import { type HostComment, type HostWebhookEvent } from './ports/gitHost';
 import {
   NodeDefinition,
   nodeSupport,
-  splitConsumeOf,
   type ChainRole,
   type FlowCtx,
-  type SplitConsumeMode,
 } from './nodes/shared/nodeSharedExports';
 import { CHAT_DECLINED, nodeRoles } from './nodes/shared/nodeRoles';
 import { nodeRegistry } from './nodes/registry';
@@ -19,26 +17,18 @@ import './nodes/declarativeBootstrap';
 import { NODE_KEYS } from './constants/nodeKeys';
 import { planSteps, type PlanStepInput } from './runtime/planStepStore';
 import {
-  NO_TASK_TYPE,
-  SDLC_TEMPLATE_ID,
   templateStore,
   type TemplateGraph,
-  type TemplateEdgeSpec,
 } from './templates/templateStore';
-import { appLayerConfig, configNumber, mergeConfigLayers, parseConfigSnapshot } from './templates/nodeConfig';
+import { appLayerConfig, mergeConfigLayers, parseConfigSnapshot } from './templates/nodeConfig';
 import { createSdlcChain } from './nodes/chains/sdlcChain';
 import { buildFlowContext, type FlowContextMap } from './context/flowVariables';
-import { evalJsonata, jsonataTruthy } from '@/lib/jsonata/eval';
-import { hookStore } from './runtime/hookStore';
+import { evalJsonata } from '@/lib/jsonata/eval';
 import { nodeStore } from './runtime/nodeStore';
 import { nodeAttemptRegistry } from './runtime/nodeAttemptRegistry';
-import { commentStore } from './runtime/commentStore';
-import { FLOW_KIND } from './constants/flowKind';
 import { isNodeTerminalSuccess, NODE_STATUS } from './constants/nodeStatus';
-import { accumulateRunRow, emptyRunTokenBucket } from './utils/runTokenRollup';
-import { parseStartContract, validateAgainstContract } from './nodes/kinds/start/contract';
-import { DEFAULT_FANOUT_OUTPUT, uiCapabilities, type NodeCapabilities } from './nodes/shared/capabilities';
-import { stepFlows, StepFlowManager, type StepChildPayload } from './runtime/fanout/stepFlowManager';
+import { DEFAULT_FANOUT_OUTPUT, type NodeCapabilities } from './nodes/shared/capabilities';
+import { stepFlows, type StepChildPayload } from './runtime/fanout/stepFlowManager';
 import { mergeArena } from './runtime/fanout/mergeArena';
 import { DEFAULT_SPLIT_OUTPUT, splitManager, type SplitChildPayload } from './runtime/split/splitManager';
 import { worktreeManager } from './runtime/worktreeLifecycle';
@@ -342,6 +332,7 @@ export class FlowEngine {
     this.waits.clearTimersForFlows(ids);
     await Promise.allSettled(ids.map(fid => worktreeManager.removeFlowWorktree(fid, { reason: 'flow deleted' })));
     await db.transaction(async (tx) => {
+      void tx;
       for (const fid of ids) {
         for (const table of FLOW_CHILD_TABLES) {
           await db.run(`DELETE FROM ${table} WHERE flow_id=$1`, fid);
@@ -518,7 +509,7 @@ export class FlowEngine {
   async nodeConfigFor(flowId: string, nodeKey: string): Promise<Record<string, unknown>> {
     const def = await this.defOf(flowId, nodeKey);
     const appKey = await this.defKeyOf(flowId, nodeKey);
-    return mergeConfigLayers(def.defaultConfig(), appLayerConfig(appKey), await this.flowNodeConfig(flowId, nodeKey));
+    return mergeConfigLayers(def.defaultConfig(), await appLayerConfig(appKey), await this.flowNodeConfig(flowId, nodeKey));
   }
 
   // ── split gate (agent-node split plan §2.4, Phase 4) ──────────────────────
@@ -1015,7 +1006,7 @@ export class FlowEngine {
     }
     const def = await this.defOf(flowId, nodeKey);
     const snapshot = mergeConfigLayers(await this.flowNodeConfig(flowId, nodeKey), config);
-    const effective = mergeConfigLayers(def.defaultConfig(), appLayerConfig(await this.defKeyOf(flowId, nodeKey)), snapshot);
+    const effective = mergeConfigLayers(def.defaultConfig(), await appLayerConfig(await this.defKeyOf(flowId, nodeKey)), snapshot);
     try {
       def.parseRunConfig(effective);
     } catch (e: unknown) {

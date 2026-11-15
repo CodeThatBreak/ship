@@ -6,7 +6,6 @@
  * Usage:
  *   node scripts/seed-branch-refine-demo.mjs            # seed (resets demo flow first)
  *   node scripts/seed-branch-refine-demo.mjs --reset    # remove this demo flow + task only
- *   node scripts/seed-branch-refine-demo.mjs --serve    # + start `next dev` on :3000
  *
  * Target database: DATABASE_URL, defaulting to the demo DB (devflow). The seed
  * guard refuses any other database (AGENTS.md §1) — see scripts/lib/seed-db.mjs.
@@ -28,13 +27,11 @@
  * rationale and the Force-whole override — exactly what PlanStore.persistPlan
  * publishes at run time.
  */
-import { spawn } from 'child_process';
 import { deleteTaskDemoFlows, minsAgo, now, openSeedPrisma, uid } from './lib/seed-db.mjs';
 
 const TASK_ID = 'demo-207';
 const FLOW_NAME = 'DEMO-207 sub-plan refine demo';
 const RESET = process.argv.includes('--reset');
-const SERVE = process.argv.includes('--serve');
 
 const { prisma } = openSeedPrisma();
 

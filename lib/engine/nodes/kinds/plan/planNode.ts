@@ -139,6 +139,9 @@ export class PlanNode extends AgentRunNode<PlanInput, PlanOutput> {
   }
 
   async run(_ctx: FlowCtx, _input: PlanInput, _config: Record<string, unknown>): Promise<RunOutcome> {
+    void _ctx;
+    void _input;
+    void _config;
     throw new Error('The plan node only accepts input via POST /api/flows/:id/chat');
   }
 
@@ -407,7 +410,7 @@ export class PlanNode extends AgentRunNode<PlanInput, PlanOutput> {
       };
     }
 
-    const configBody = nodeRoles.previewBody(this, node);
+    const configBody = await nodeRoles.previewBody(this, node);
     const asm = prompts.assemblePrompt(
       NODE_KEYS.PLAN,
       { ticket: this.ctxHelper.taskContext(ctx), ticket_type: this.ctxHelper.taskLabel(ctx) },

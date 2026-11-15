@@ -5,7 +5,6 @@ import os from "os";
 import path from "path";
 import { workspacePaths } from "../../git/workspacePaths";
 import { db, type Repo } from "../../db/app";
-import { WorktreeRemovalRow } from "../../db/rows";
 import { processSingleton } from "../../singleton";
 import {
   containsPath,

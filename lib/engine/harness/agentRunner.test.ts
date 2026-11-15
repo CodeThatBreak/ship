@@ -43,6 +43,7 @@ class RunnerTestPort implements AgentPort {
   ) {}
 
   start(_spec: AgentStartSpec) {
+    void _spec;
     return Promise.resolve({
       agentId: "agt_test",
       runId: `run_${Date.now()}`,
@@ -162,7 +163,7 @@ const runnerTestPort = new RunnerTestPort(async () => {
   };
 });
 agentPortRegistry.register(runnerTestPort);
-db.setSetting("default_harness", "runner-test");
+await db.setSetting("default_harness", "runner-test");
 
 const makeRunner = (usage: typeof usageTracker = usageTracker) =>
   new AgentRunner(flowCtxHelper, nodeSupport, usage, db, config, agentPortRegistry, worktreeManager);

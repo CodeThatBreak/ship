@@ -49,7 +49,7 @@ export class WaitScheduler {
 
   async resolveDelayMs(flowId?: string): Promise<number> {
     const resolveDef = nodeRegistry.all().find((d) => d.chainRole === NODE_KEYS.RESOLVE);
-    const base = resolveDef ? appLayerConfig(resolveDef.key) : {};
+    const base = resolveDef ? await appLayerConfig(resolveDef.key) : {};
     if (!flowId || !resolveDef) {
       return configNumber(mergeConfigLayers(base), "quiet_minutes", 10) * 60_000;
     }

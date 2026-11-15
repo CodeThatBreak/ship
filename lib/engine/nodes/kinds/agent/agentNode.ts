@@ -234,6 +234,7 @@ export class AgentTemplateNode extends DeclarativeAgentNode<AgentDef, Record<str
   ): { prompt: string; source: PromptSource } {
     const cfg = this.runConfig(config);
     const { prompt: inputPrompt, model: _, ...inheritedInput } = rawInput;
+    void _;
 
     const promptBody = typeof inputPrompt === 'string' ? inputPrompt.trim() : '';
     const template = promptBody || cfg.prompt;

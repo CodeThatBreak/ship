@@ -86,9 +86,9 @@ export interface ConfigField {
  * The app-settings layer: `settings["node_config.<defKey>"]` wins. Template
  * and per-flow configs sit above this layer in the merge order.
  */
-export function appLayerConfig(defKey: string): Record<string, unknown> {
+export async function appLayerConfig(defKey: string): Promise<Record<string, unknown>> {
   const out: Record<string, unknown> = {};
-  const stored = getDb().getSetting(`node_config.${defKey}`, settingUnknownRecord.nullable(), null);
+  const stored = await getDb().getSetting(`node_config.${defKey}`, settingUnknownRecord.nullable(), null);
   if (stored && typeof stored === "object") Object.assign(out, stored);
   return out;
 }
@@ -114,14 +114,14 @@ export function mergeConfigLayers(...layers: (Record<string, unknown> | null | u
  *   class defaults ← app settings ← template node config
  * (the per-flow instance layer overrides at read time).
  */
-export function bakeNodeConfig(
+export async function bakeNodeConfig(
   defKey: string,
   defDefaults: Record<string, unknown>,
   templateConfig: unknown,
-): string {
+): Promise<string> {
   const merged = mergeConfigLayers(
     defDefaults,
-    appLayerConfig(defKey),
+    await appLayerConfig(defKey),
     normalize(templateConfig)
   );
   return JSON.stringify(merged);

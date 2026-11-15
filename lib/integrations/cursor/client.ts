@@ -4,7 +4,6 @@ import {
   cursorAgent,
   type AgentRunResult,
   type StreamCallbacks,
-  type TokenUsage,
 } from "../cursorSdk";
 import { parseModelSpec } from "../../modelSpec";
 import { processSingleton } from "../../singleton";

@@ -89,7 +89,7 @@ export class NodeStore {
     const ts = opts.ts ? new Date(opts.ts) : new Date();
     for (const spec of graph.nodes) {
       const def = await nodeRegistry.resolve(spec.defKey, spec.key);
-      const config = mergeConfigLayers(def.defaultConfig(), appLayerConfig(def.key), spec.config);
+      const config = mergeConfigLayers(def.defaultConfig(), await appLayerConfig(def.key), spec.config);
       await db.prisma.node.create({
         data: {
           id: db.uid("node_"),

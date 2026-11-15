@@ -73,34 +73,6 @@ interface CatalogEntry {
   isBuiltin: boolean;
 }
 
-/** Where {{...}} template refs may appear in a declarative definition. */
-function templateRefFields(nt: CatalogEntry): string[] {
-  const cfg = (nt.config && typeof nt.config === "object" ? nt.config : {}) as Record<string, unknown>;
-  switch (nt.kind) {
-    case "agent":
-      return [
-        typeof cfg.prompt === "string" ? cfg.prompt : "",
-        typeof cfg.model === "string" ? cfg.model : "",
-      ];
-    case "http": {
-      const fields: string[] = [];
-      if (typeof cfg.url === "string") fields.push(cfg.url);
-      if (typeof cfg.body === "string") fields.push(cfg.body);
-      const headers = cfg.headers;
-      if (headers && typeof headers === "object") {
-        for (const v of Object.values(headers as Record<string, unknown>)) {
-          if (typeof v === "string") fields.push(v);
-        }
-      }
-      return fields;
-    }
-    case "decision":
-      return [typeof cfg.question === "string" ? cfg.question : ""];
-    default:
-      return [];
-  }
-}
-
 /** The output contract (addressable fields) a definition publishes. Shared
  *  with the graph API so the canvas can show the same variables. */
 export function outputFieldsFor(kind: string, config: unknown): string[] | null {

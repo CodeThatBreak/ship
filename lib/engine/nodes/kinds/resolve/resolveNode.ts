@@ -208,7 +208,7 @@ export class ResolveNode extends AgentRunNode<ResolveInput, ResolveOutput> {
    * renders this preview) keep the flow's configured branch.
    */
   async previewPrompt(ctx: FlowCtx, node: NodeRow | null, params: PromptPreviewParams): Promise<NodePromptPreview | null> {
-    const configBody = nodeRoles.previewBody(this, node);
+    const configBody = await nodeRoles.previewBody(this, node);
     const mrBranch = ctx.flow.mrIid
       ? (await mrTargetResolver.resolve(ctx, null)).mrBranch
       : ctx.flow.mrBranch ?? this.ctxHelper.buildBranch(ctx);

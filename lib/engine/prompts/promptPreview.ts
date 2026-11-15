@@ -3,7 +3,7 @@ import "server-only";
 import { db } from "../../db/app";
 import { FlowRow, Task, rows, NodeRow } from "../../db/rows";
 import { PROMPT_SOURCES } from "../nodes/shared/nodeSharedExports";
-import type { FlowCtx, NodeDefinition, NodePromptPreview, PromptPreviewParams, PromptSource } from "../nodes/shared/nodeSharedExports";
+import type { FlowCtx, NodeDefinition, PromptPreviewParams, PromptSource } from "../nodes/shared/nodeSharedExports";
 import { nodeRoles } from "../nodes/shared/nodeRoles";
 import { NODE_KEYS } from "../constants/nodeKeys";
 import { nodeRegistry } from "../nodes/registry";
@@ -78,7 +78,7 @@ export class PromptPreview {
     // §T4: the preview role is routed through the role router — defs without
     // a previewable prompt (agent kinds leave it to the phase-2 work) decline.
     const previewer = nodeRoles.promptPreviewerOf(def);
-    const preview: NodePromptPreview | null = previewer ? previewer.previewPrompt(ctx, node, params) : null;
+    const preview = previewer ? await previewer.previewPrompt(ctx, node, params) : null;
     if (!preview) {
       if (params.branch && nodeKey === NODE_KEYS.PLAN) {
         return this.bad(`branch "${params.branch}" not found in the latest plan — sub-plan refine unavailable`);
@@ -118,7 +118,7 @@ export class PromptPreview {
     for (const node of await rows.all(NodeRow, `SELECT id, flow_id AS "flowId", node_key AS "nodeKey", type, status, attempt_id AS "attemptId", agent_id AS "agentId", agent_ref AS "agentRef", session_id AS "sessionId", prompt_override AS "promptOverride", label, config, join_mode AS "joinMode", input, output, created_at AS "createdAt", updated_at AS "updatedAt" FROM nodes WHERE flow_id=$1`, flowId)) {
       const def = await this.defFor(flowId, node.nodeKey, node);
       const previewer = nodeRoles.promptPreviewerOf(def);
-      const preview = previewer ? previewer.previewPrompt(ctx, node, {}) : null;
+      const preview = previewer ? await previewer.previewPrompt(ctx, node, {}) : null;
       if (!preview) continue;
       prompts[node.nodeKey] = sectionsOf(preview.assembly).body;
     }

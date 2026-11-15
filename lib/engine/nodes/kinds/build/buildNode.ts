@@ -522,7 +522,8 @@ export class BuildNode extends AgentRunNode<BuildInput, BuildOutput> {
    * Worktree setup notes appear only after a worktree exists (null beforehand).
    */
   async previewPrompt(ctx: FlowCtx, node: NodeRow | null, _params: PromptPreviewParams): Promise<NodePromptPreview | null> {
-    const config = nodeRoles.previewConfig(this, node);
+    void _params;
+    const config = await nodeRoles.previewConfig(this, node);
     const planRow = await this.support.latestArtifact(ctx.flow.id, "plan");
     const planContent = planRow?.content ?? "(no plan yet)";
     const configBody = configString(config, "prompt_body") ?? null;

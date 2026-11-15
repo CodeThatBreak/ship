@@ -8,9 +8,8 @@ process.env.DATABASE_PATH = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'dev
 await import('../../registry');
 const { PlanTurnOutput } = await import('./schema');
 const { PlanOutputContract } = await import('./planContract');
-import type { NodeRow } from '../../../../db/rows';
 import type { AgentRunner } from '../../../harness/harnessExports';
-import type { FlowCtx, NodeSupport } from '../../shared/nodeSharedExports';
+import type { NodeSupport } from '../../shared/nodeSharedExports';
 import type { PlanStore } from './planStore';
 
 const goodPlan = {

@@ -296,10 +296,10 @@ export class PipelineNode extends AgentRunNode<
    * pipeline-id/branch/logs vars are run data (the failed pipeline is known
    * only at run time) — filled at Phase-2 preview work (I5).
    */
-  previewPrompt(ctx: FlowCtx, node: NodeRow | null, params: PromptPreviewParams): NodePromptPreview | null {
+  async previewPrompt(ctx: FlowCtx, node: NodeRow | null, params: PromptPreviewParams): Promise<NodePromptPreview | null> {
     const branch = ctx.flow.mrBranch ?? this.ctxHelper.buildBranch(ctx);
     const mode = this.ctxHelper.execMode(ctx);
-    const configBody = configString(nodeRoles.previewConfig(this, node), "fix_prompt_body") ?? null;
+    const configBody = configString(await nodeRoles.previewConfig(this, node), "fix_prompt_body") ?? null;
     const asm = prompts.assemblePrompt(
       FIX_PROMPT_KEY,
       {},

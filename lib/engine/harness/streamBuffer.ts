@@ -76,7 +76,7 @@ export class StreamBuffer {
     b.tail = "";
     b.omitted = 0;
     if (!text) return;
-    db.emitEvent(this.flowId, this.nodeId, kind, text, { run_id: this.runId });
+    void db.emitEvent(this.flowId, this.nodeId, kind, text, { run_id: this.runId });
   }
 
   push(kind: "thinking" | "assistant", delta: string): void {

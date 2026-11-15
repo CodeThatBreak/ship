@@ -297,6 +297,7 @@ export class StepFlowManager {
 
     let made = 0;
     await db.transaction(async (tx) => {
+      void tx;
       for (const stepRow of pending) {
         const integrationBranch = await integrationBranchOf(stepRow.branch);
         const groupIndex = await this.branchGroupIndex(parentFlowId, integrationBranch, stepRow, integrationBranchOf);

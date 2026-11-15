@@ -45,7 +45,7 @@ export class SettingsService {
   async update(patch: SettingsPatchBody): Promise<void> {
     await this.database.transaction(async () => {
             if (patch.cursor_api_key !== undefined) {
-              this.database.integrationSecrets.writeCursorApiKey(patch.cursor_api_key);
+              await this.database.integrationSecrets.writeCursorApiKey(patch.cursor_api_key);
             }
             if (patch.default_harness !== undefined) {
               await this.database.setSetting(SETTINGS_KEYS.DEFAULT_HARNESS, patch.default_harness);

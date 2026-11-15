@@ -219,7 +219,7 @@ export class AgentRunner {
 
     const durationMs = costSummary.durationMs ?? result.durationMs ?? Date.now() - startedAt;
     if (costSummary.durationMs == null) {
-      this.usage.persistUsage(runRowId, { durationMs });
+      await this.usage.persistUsage(runRowId, { durationMs });
     }
 
     if (result.status !== RUN_STATUS.FINISHED) {

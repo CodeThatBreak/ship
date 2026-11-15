@@ -137,6 +137,7 @@ export abstract class NodeDefinition<I = unknown, O extends Record<string, unkno
    * instance overrides add fields the catalog def lacks (§5).
    */
   outputContract(_def?: Record<string, unknown>): unknown {
+    void _def;
     return z.toJSONSchema(this.outputSchema);
   }
 
@@ -145,6 +146,7 @@ export abstract class NodeDefinition<I = unknown, O extends Record<string, unkno
    * configurator / decision card — null for non-decision kinds.
    */
   choices(_def?: Record<string, unknown>): { label: string; description?: string; condition?: string }[] | null {
+    void _def;
     return null;
   }
 
@@ -208,6 +210,7 @@ export abstract class NodeDefinition<I = unknown, O extends Record<string, unkno
    * single trigger (the multi-branch build) override `triggerRuns` instead.
    */
   triggerInput(_ctx: FlowCtx): unknown {
+    void _ctx;
     return {};
   }
 
@@ -231,6 +234,7 @@ export abstract class NodeDefinition<I = unknown, O extends Record<string, unkno
    * owns expansion/scheduling/join.
    */
   async splitUnits(_ctx: FlowCtx): Promise<SplitUnit[] | null> {
+    void _ctx;
     return null;
   }
 
@@ -240,6 +244,7 @@ export abstract class NodeDefinition<I = unknown, O extends Record<string, unkno
    * recommendation (a `source` consumer then falls back to `whole`).
    */
   async splitResolution(_ctx: FlowCtx): Promise<"whole" | "per-unit" | null> {
+    void _ctx;
     return null;
   }
 
@@ -269,7 +274,7 @@ export abstract class NodeDefinition<I = unknown, O extends Record<string, unkno
     const snapshot = typeof raw === "string"
       ? parseConfigSnapshot(raw)
       : parseConfigSnapshot(JSON.stringify(raw ?? null));
-    return mergeConfigLayers(this.defaultConfig(), appLayerConfig(this.key), snapshot);
+    return mergeConfigLayers(this.defaultConfig(), await appLayerConfig(this.key), snapshot);
   }
 
   /**
