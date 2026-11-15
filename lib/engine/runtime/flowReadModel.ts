@@ -10,7 +10,6 @@ import {
   PlanStepRow,
   RunRow,
   Task,
-  rows,
 } from "../../db/rows";
 import type { Artifact, FlowData, Node as FlowNode } from "@/types/flow";
 import { declarativeDef } from "../nodes/declarative";
@@ -28,7 +27,7 @@ type NodeTemplateRow = {
   name: string;
   kind: string;
   icon: string | null;
-  is_builtin: number;
+  isBuiltin: number;
 };
 
 const ARTIFACT_LIST_COLUMNS =
@@ -66,16 +65,16 @@ const toFlowArtifact = (art: ArtifactRow): Artifact => ({
 });
 
 /** Flow list/detail read model — batched SQL, artifact bodies lazy-loaded via GET /api/artifacts/:id. */
-async export class FlowReadModel {
+export class FlowReadModel {
   constructor(private readonly schedule: FlowReadScheduleHost) {}
 
-  get(id: string): FlowData | null {
-    const flow = await rows.get(FlowRow, `SELECT id, task_id AS "taskId", name, status, mr_url AS "mrUrl", mr_iid AS "mrIid", mr_branch AS "mrBranch", repo_url AS "repoUrl", gitlab_project_id AS "gitlabProjectId", current_node AS "currentNode", execution_mode AS "executionMode", repo_id AS "repoId", template_id AS "templateId", template_graph AS "templateGraph", trigger_payload AS "triggerPayload", worktree_dir AS "worktreeDir", parent_flow_id AS "parentFlowId", kind, created_at AS "createdAt", updated_at AS "updatedAt" FROM flows WHERE id=$1`, id);
+  async get(id: string): Promise<FlowData | null> {
+    const flow = await db.rows.get(FlowRow, `SELECT id, task_id AS "taskId", name, status, mr_url AS "mrUrl", mr_iid AS "mrIid", mr_branch AS "mrBranch", repo_url AS "repoUrl", gitlab_project_id AS "gitlabProjectId", current_node AS "currentNode", execution_mode AS "executionMode", repo_id AS "repoId", template_id AS "templateId", template_graph AS "templateGraph", trigger_payload AS "triggerPayload", worktree_dir AS "worktreeDir", parent_flow_id AS "parentFlowId", kind, created_at AS "createdAt", updated_at AS "updatedAt" FROM flows WHERE id=$1`, id);
     if (!flow) return null;
-    const task = await rows.get(Task, `SELECT id, type, key, summary, description, status, issue_type AS "issueType", priority, repo_url AS "repoUrl", parent_key AS "parentKey", external_url AS "externalUrl", raw, synced_at AS "syncedAt", fields FROM tasks WHERE id=$1`, flow.taskId);
+    const task = await db.rows.get(Task, `SELECT id, type, key, summary, description, status, issue_type AS "issueType", priority, repo_url AS "repoUrl", parent_key AS "parentKey", external_url AS "externalUrl", raw, synced_at AS "syncedAt", fields FROM tasks WHERE id=$1`, flow.taskId);
     if (!task) return null;
 
-    const runs = await rows.all(RunRow,
+    const runs = await db.rows.all(RunRow,
       `SELECT id, flow_id AS "flowId", node_id AS "nodeId", agent_ref AS "agentRef", run_ref AS "runRef", branch_id AS "branchId", status, model, input_tokens AS "inputTokens", output_tokens AS "outputTokens", cache_read_tokens AS "cacheReadTokens", cache_write_tokens AS "cacheWriteTokens", duration_ms AS "durationMs", cost_cents AS "costCents", usage, created_at AS "createdAt", updated_at AS "updatedAt" FROM runs WHERE flow_id=$1 ORDER BY created_at, id`, id);
     const nodeCosts = new Map<string, ReturnType<typeof emptyRunTokenBucket>>();
     for (const r of runs) {
@@ -90,27 +89,27 @@ async export class FlowReadModel {
     };
 
     const stepRunStats = new Map<string, { costCents: number; tokens: number; durationMs: number; runCount: number }>();
-    const branches = await rows.all(BranchRow, `SELECT id, flow_id AS "flowId", name, git_branch AS "gitBranch", title, status, mr_url AS "mrUrl", mr_iid AS "mrIid", "order", created_at AS "createdAt", updated_at AS "updatedAt" FROM branches WHERE flow_id=$1 ORDER BY "order", created_at`, id);
+    const branches = await db.rows.all(BranchRow, `SELECT id, flow_id AS "flowId", name, git_branch AS "gitBranch", title, status, mr_url AS "mrUrl", mr_iid AS "mrIid", "order", created_at AS "createdAt", updated_at AS "updatedAt" FROM branches WHERE flow_id=$1 ORDER BY "order", created_at`, id);
     const mergeStateMap = stepFlows.mergeStates(id);
-    const steps = await rows.all(PlanStepRow, `SELECT id, flow_id AS "flowId", artifact_id AS "artifactId", meta_id AS "metaId", position, title, detail, files, branch, status, origin, completed_by AS "completedBy", sub_flow_id AS "subFlowId", created_at AS "createdAt", updated_at AS "updatedAt" FROM plan_steps WHERE flow_id=$1 ORDER BY position, created_at`, id)
+    const steps = (await db.rows.all(PlanStepRow, `SELECT id, flow_id AS "flowId", artifact_id AS "artifactId", meta_id AS "metaId", position, title, detail, files, branch, status, origin, completed_by AS "completedBy", sub_flow_id AS "subFlowId", created_at AS "createdAt", updated_at AS "updatedAt" FROM plan_steps WHERE flow_id=$1 ORDER BY position, created_at`, id))
       .map((s) => ({ ...s, files: s.files ?? [] }));
 
-    async const childFlowIds = steps.map((s) => s.subFlowId).filter((v): v is string => Boolean(v));
+    const childFlowIds = steps.map((s) => s.subFlowId).filter((v): v is string => Boolean(v));
     const childFlowById = new Map<string, FlowRow>();
     const childNodesByFlowId = new Map<string, NodeRow[]>();
     if (childFlowIds.length) {
       const placeholders = childFlowIds.map(() => "?").join(",");
-      for (const child of await rows.all(FlowRow,
+      for (const child of await db.rows.all(FlowRow,
         `SELECT id, task_id AS "taskId", name, status, mr_url AS "mrUrl", mr_iid AS "mrIid", mr_branch AS "mrBranch", repo_url AS "repoUrl", gitlab_project_id AS "gitlabProjectId", current_node AS "currentNode", execution_mode AS "executionMode", repo_id AS "repoId", template_id AS "templateId", template_graph AS "templateGraph", trigger_payload AS "triggerPayload", worktree_dir AS "worktreeDir", parent_flow_id AS "parentFlowId", kind, created_at AS "createdAt", updated_at AS "updatedAt" FROM flows WHERE id IN (${placeholders})`, ...childFlowIds)) {
         childFlowById.set(child.id, child);
       }
-      for (const node of await rows.all(NodeRow,
+      for (const node of await db.rows.all(NodeRow,
         `SELECT id, flow_id AS "flowId", node_key AS "nodeKey", type, status, attempt_id AS "attemptId", agent_id AS "agentId", agent_ref AS "agentRef", session_id AS "sessionId", prompt_override AS "promptOverride", label, config, join_mode AS "joinMode", input, output, created_at AS "createdAt", updated_at AS "updatedAt" FROM nodes WHERE flow_id IN (${placeholders}) ORDER BY created_at`, ...childFlowIds)) {
         const list = childNodesByFlowId.get(node.flowId);
         if (list) list.push(node);
         else childNodesByFlowId.set(node.flowId, [node]);
       }
-      const childRuns = await rows.all(RunRow,
+      const childRuns = await db.rows.all(RunRow,
         `SELECT id, flow_id AS "flowId", node_id AS "nodeId", agent_ref AS "agentRef", run_ref AS "runRef", branch_id AS "branchId", status, model, input_tokens AS "inputTokens", output_tokens AS "outputTokens", cache_read_tokens AS "cacheReadTokens", cache_write_tokens AS "cacheWriteTokens", duration_ms AS "durationMs", cost_cents AS "costCents", usage, created_at AS "createdAt", updated_at AS "updatedAt" FROM runs WHERE flow_id IN (${placeholders}) ORDER BY created_at, id`, ...childFlowIds);
       for (const r of childRuns) {
         const c = stepRunStats.get(r.flowId) ?? { costCents: 0, tokens: 0, durationMs: 0, runCount: 0 };
@@ -157,20 +156,20 @@ async export class FlowReadModel {
       };
     });
 
-    const order = templateStore.graphForFlow(id)?.nodes.map((n) => n.key) ?? nodeRegistry.order();
-    const ntRows = db.all<NodeTemplateRow>(
-      `SELECT id, key, name, kind, icon, is_builtin AS "isBuiltin" FROM node_templates`,
-    );
-    const ntOf = buildNodeTemplateIndex(ntRows);
+    const order = (await templateStore.graphForFlow(id))?.nodes.map((n) => n.key) ?? nodeRegistry.order();
+    const ntRows = await db.prisma.nodeTemplate.findMany({
+      select: { id: true, key: true, name: true, kind: true, icon: true, isBuiltin: true },
+    });
+    const ntOf = buildNodeTemplateIndex(ntRows as NodeTemplateRow[]);
 
-    const nodeRows = await rows.all(NodeRow, `SELECT id, flow_id AS "flowId", node_key AS "nodeKey", type, status, attempt_id AS "attemptId", agent_id AS "agentId", agent_ref AS "agentRef", session_id AS "sessionId", prompt_override AS "promptOverride", label, config, join_mode AS "joinMode", input, output, created_at AS "createdAt", updated_at AS "updatedAt" FROM nodes WHERE flow_id=$1`, id)
-      async .sort((a, b) => order.indexOf(a.nodeKey) - order.indexOf(b.nodeKey));
+    const nodeRows = (await db.rows.all(NodeRow, `SELECT id, flow_id AS "flowId", node_key AS "nodeKey", type, status, attempt_id AS "attemptId", agent_id AS "agentId", agent_ref AS "agentRef", session_id AS "sessionId", prompt_override AS "promptOverride", label, config, join_mode AS "joinMode", input, output, created_at AS "createdAt", updated_at AS "updatedAt" FROM nodes WHERE flow_id=$1`, id))
+      .sort((a, b) => order.indexOf(a.nodeKey) - order.indexOf(b.nodeKey));
 
     const artifactsByNodeId = new Map<string, ArtifactRow[]>();
     if (nodeRows.length) {
       const nodeIds = nodeRows.map((n) => n.id);
       const artPlaceholders = nodeIds.map(() => "?").join(",");
-      const allArtifacts = await rows.all(ArtifactRow,
+      const allArtifacts = await db.rows.all(ArtifactRow,
         `SELECT ${ARTIFACT_LIST_COLUMNS} FROM artifacts WHERE node_id IN (${artPlaceholders}) ORDER BY kind, version`,
         ...nodeIds);
       for (const art of allArtifacts) {
@@ -204,7 +203,7 @@ async export class FlowReadModel {
       planSteps: stepsEnriched,
       resolveScheduleAt: this.schedule.resolveScheduleAt(id),
       task: toFlowTask(task),
-      hooks: hookStore.hooksForFlow(id).flatMap((h: HookRow) =>
+      hooks: (await hookStore.hooksForFlow(id)).flatMap((h: HookRow) =>
         h.flowId == null
           ? []
           : [{ id: h.id, flow_id: h.flowId, node_key: h.nodeKey, secret: maskHookSecret(h.secret), filter: h.filter }],
@@ -237,26 +236,34 @@ async export class FlowReadModel {
     };
   }
 
-  list() {
-    const flows = db.all<Record<string, unknown>>(`
-      SELECT f.*, t.key AS task_key, t.summary AS task_summary
-      FROM flows f JOIN tasks t ON t.id=f.taskId
-      WHERE (f.kind IS NULL OR f.kind <> 'step') AND f.parentFlowId IS NULL
-      ORDER BY f.updatedAt DESC`);
+  async list() {
+    const flows = await db.prisma.flow.findMany({
+      where: { OR: [{ kind: null }, { kind: { not: "step" } }], parentFlowId: null },
+      orderBy: { updatedAt: "desc" },
+      select: {
+        id: true, taskId: true, name: true, status: true, mrUrl: true, mrIid: true,
+        mrBranch: true, repoUrl: true, gitlabProjectId: true, currentNode: true,
+        executionMode: true, repoId: true, templateId: true, templateGraph: true,
+        triggerPayload: true, worktreeDir: true, parentFlowId: true, kind: true,
+        createdAt: true, updatedAt: true,
+        task: { select: { key: true, summary: true } },
+      },
+    });
     const fanoutByFlow = new Map<string, { steps: number; done: number }>();
-    for (const r of db.all<{ flow_id: string; steps: number; done: number }>(`
-      SELECT ps.flowId AS "flowId",
-        COUNT(*) AS steps,
-        SUM(CASE WHEN ps.status='done' THEN 1 ELSE 0 END) AS done
-      FROM plan_steps ps
-      WHERE ps.subFlowId IS NOT NULL
-      GROUP BY ps.flowId`)) {
-      fanoutByFlow.set(r.flowId, { steps: r.steps, done: r.done });
+    for (const r of await db.prisma.planStep.groupBy({
+      by: ["flowId"],
+      where: { subFlowId: { not: null } },
+      _count: { _all: true },
+      _sum: { status: true },
+    })) {
+      // _sum.status counts non-null statuses; done counts need a filtered sum — compute per flow
+      const done = await db.prisma.planStep.count({ where: { flowId: r.flowId, subFlowId: { not: null }, status: "done" } });
+      fanoutByFlow.set(r.flowId, { steps: r._count._all, done });
     }
     if (fanoutByFlow.size) {
       for (const f of flows) {
-        const fo = fanoutByFlow.get(f.id as string);
-        if (fo) f.fanout = { ...fo, active: fo.done < fo.steps };
+        const fo = fanoutByFlow.get(f.id);
+        if (fo) (f as Record<string, unknown>).fanout = { ...fo, active: fo.done < fo.steps };
       }
     }
     return flows;

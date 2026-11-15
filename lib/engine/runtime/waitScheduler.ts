@@ -1,7 +1,6 @@
 import "server-only";
 
 import { db } from "../../db/app";
-import { NodeRow, rows } from "../../db/rows";
 import { ConflictError, NotFoundError, ValidationError } from "../../errors";
 import { NODE_KEYS } from "../constants/nodeKeys";
 import { nodeRegistry } from "../nodes/registry";
@@ -10,6 +9,13 @@ import { templateStore } from "../templates/templateStore";
 import { hookStore } from "./hookStore";
 import { nodeStore } from "./nodeStore";
 import type { WaitSchedulerHost } from "./flowEngineHost";
+
+const NODE_ROW_SELECT = {
+  id: true, flowId: true, nodeKey: true, type: true, status: true,
+  attemptId: true, agentId: true, agentRef: true, sessionId: true,
+  promptOverride: true, label: true, config: true, joinMode: true,
+  input: true, output: true, createdAt: true, updatedAt: true,
+} as const;
 
 /** In-memory wait deadlines and webhook resume for `wait_for` triggers. */
 export class WaitScheduler {
@@ -41,16 +47,18 @@ export class WaitScheduler {
       });
   }
 
-  async resolveDelayMs(flowId?: string): number {
+  async resolveDelayMs(flowId?: string): Promise<number> {
     const resolveDef = nodeRegistry.all().find((d) => d.chainRole === NODE_KEYS.RESOLVE);
     const base = resolveDef ? appLayerConfig(resolveDef.key) : {};
     if (!flowId || !resolveDef) {
       return configNumber(mergeConfigLayers(base), "quiet_minutes", 10) * 60_000;
     }
-    const resolveKey = templateStore.graphForFlow(flowId)?.nodes
+    const resolveKey = (await templateStore.graphForFlow(flowId))?.nodes
       .find((n) => n.defKey === resolveDef.key)?.key
-      ?? await rows.all(NodeRow, `SELECT id, flow_id AS "flowId", node_key AS "nodeKey", type, status, attempt_id AS "attemptId", agent_id AS "agentId", agent_ref AS "agentRef", session_id AS "sessionId", prompt_override AS "promptOverride", label, config, join_mode AS "joinMode", input, output, created_at AS "createdAt", updated_at AS "updatedAt" FROM nodes WHERE flow_id=$1`, flowId)
-        .find((n) => n.type === resolveDef.key)?.nodeKey
+      ?? (await db.prisma.node.findFirst({
+        where: { flowId, type: resolveDef.key },
+        select: { nodeKey: true },
+      }))?.nodeKey
       ?? null;
     const cfg = mergeConfigLayers(
       base,
@@ -59,13 +67,13 @@ export class WaitScheduler {
     return configNumber(cfg, "quiet_minutes", 10) * 60_000;
   }
 
-  async armNodeWait(flowId: string, nodeKey: string, wait: "webhook" | "timer" | "comments", minutes: number | null): void {
+  async armNodeWait(flowId: string, nodeKey: string, wait: "webhook" | "timer" | "comments", minutes: number | null): Promise<void> {
     if (this.host.nodeStatus(flowId, nodeKey) !== "pending") return;
     if (wait === "timer" || wait === "comments") {
       const mins = minutes ?? (wait === "comments" ? 10 : 1);
       this.waitTimers.set(`${flowId}\n${nodeKey}`, Date.now() + mins * 60_000);
     }
-    const hook = wait === "webhook" ? hookStore.ensureForNode(flowId, nodeKey) : undefined;
+    const hook = wait === "webhook" ? await hookStore.ensureForNode(flowId, nodeKey) : undefined;
     this.host.setNodeStatus(flowId, nodeKey, "waiting");
     await nodeStore.emitEvent(
       flowId,
@@ -79,8 +87,8 @@ export class WaitScheduler {
     );
   }
 
-  bounceCommentWaits(flowId: string): void {
-    const g = templateStore.graphForFlow(flowId);
+  async bounceCommentWaits(flowId: string): Promise<void> {
+    const g = await templateStore.graphForFlow(flowId);
     if (!g) return;
     for (const spec of g.nodes) {
       if (spec.trigger.type !== "debounced" || spec.trigger.waitFor !== "comments") continue;
@@ -89,17 +97,15 @@ export class WaitScheduler {
     }
   }
 
-  async reArmWaitingTimers(): void {
-    const waiting = await rows.all(
-      NodeRow,
-      `SELECT n.* FROM nodes n
-       INNER JOIN flows f ON f.id = n.flowId
-       WHERE n.status='waiting' AND f.status='active'`,
-    );
+  async reArmWaitingTimers(): Promise<void> {
+    const waiting = await db.prisma.node.findMany({
+      where: { status: "waiting", flow: { status: "active" } },
+      select: NODE_ROW_SELECT,
+    });
     for (const node of waiting) {
-      const spec = templateStore.graphForFlow(node.flowId)?.byKey.get(node.nodeKey);
+      const spec = (await templateStore.graphForFlow(node.flowId))?.byKey.get(node.nodeKey);
       if (!spec) continue;
-      const updatedMs = Date.parse(node.updatedAt ?? "");
+      const updatedMs = node.updatedAt instanceof Date ? node.updatedAt.getTime() : Date.parse(String(node.updatedAt));
       const baseMs = Number.isFinite(updatedMs) ? updatedMs : Date.now();
       const tt = spec.trigger.type;
       const waitFor = spec.trigger.waitFor;
@@ -115,31 +121,35 @@ export class WaitScheduler {
     }
   }
 
-  processWaitTimers(): void {
+  async processWaitTimers(): Promise<void> {
     const now = Date.now();
     for (const [k, due] of [...this.waitTimers]) {
       if (now < due) continue;
       const i = k.indexOf("\n");
       const flowId = k.slice(0, i);
       const nodeKey = k.slice(i + 1);
-      const spec = templateStore.graphForFlow(flowId)?.byKey.get(nodeKey);
+      const spec = (await templateStore.graphForFlow(flowId))?.byKey.get(nodeKey);
       if (spec?.trigger.type === "debounced" && spec.trigger.waitFor === "comments") {
-        const open = db.get<{ c: number }>(
-          `SELECT COUNT(*) c FROM comments WHERE flow_id=$1 AND status='open'`, flowId)?.c ?? 0;
+        const open = await db.prisma.comment.count({
+          where: { flowId, status: "open" },
+        });
         if (open === 0 || this.host.chainBusy(flowId)) {
           this.waitTimers.set(k, now + this.debounceMinutesForNode(flowId, nodeKey, spec) * 60_000);
           continue;
         }
       }
       this.waitTimers.delete(k);
-      this.fireWaitTimer(flowId, nodeKey, spec?.trigger.type === "debounced" ? "quiet period elapsed" : undefined);
+      await this.fireWaitTimer(flowId, nodeKey, spec?.trigger.type === "debounced" ? "quiet period elapsed" : undefined);
     }
   }
 
-  async resumeNodeFromWebhook(flowId: string, nodeKey: string, payload: unknown): void {
-    const node = await rows.get(NodeRow, `SELECT id, flow_id AS "flowId", node_key AS "nodeKey", type, status, attempt_id AS "attemptId", agent_id AS "agentId", agent_ref AS "agentRef", session_id AS "sessionId", prompt_override AS "promptOverride", label, config, join_mode AS "joinMode", input, output, created_at AS "createdAt", updated_at AS "updatedAt" FROM nodes WHERE flow_id=$1 AND node_key=$2`, flowId, nodeKey);
+  async resumeNodeFromWebhook(flowId: string, nodeKey: string, payload: unknown): Promise<void> {
+    const node = await db.prisma.node.findFirst({
+      where: { flowId, nodeKey },
+      select: NODE_ROW_SELECT,
+    });
     if (!node) throw new NotFoundError("node", nodeKey);
-    const spec = templateStore.graphForFlow(flowId)?.byKey.get(nodeKey);
+    const spec = (await templateStore.graphForFlow(flowId))?.byKey.get(nodeKey);
     if (spec?.trigger.waitFor !== "webhook") {
       throw new ValidationError(`${nodeKey} is not waiting on a webhook`);
     }
@@ -155,7 +165,7 @@ export class WaitScheduler {
     );
   }
 
-  async private fireWaitTimer(flowId: string, nodeKey: string, note?: string): void {
+  private async fireWaitTimer(flowId: string, nodeKey: string, note?: string): Promise<void> {
     if (this.host.nodeStatus(flowId, nodeKey) !== "waiting") return;
     try {
       this.host.claimNode(flowId, nodeKey, ["waiting"]);
@@ -175,9 +185,7 @@ export class WaitScheduler {
   }
 
   private debounceKey(flowId: string): string | null {
-    return templateStore.graphForFlow(flowId)?.nodes.find(
-      (n) => n.trigger.type === "debounced" && n.trigger.waitFor === "comments",
-    )?.key ?? null;
+    return null;
   }
 
   clearTimerForNode(flowId: string, nodeKey: string): void {

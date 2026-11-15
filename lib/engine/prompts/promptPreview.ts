@@ -148,7 +148,7 @@ export class PromptPreview {
     appendsInternal: boolean;
     ctx: FlowCtx;
     nodeKey: string;
-  }): PromptPreviewPayload {
+  }): Promise<PromptPreviewPayload> {
     const tpl = prompts.getTemplate(input.templateKey);
     const node = await rows.get(NodeRow, `SELECT id, flow_id AS "flowId", node_key AS "nodeKey", type, status, attempt_id AS "attemptId", agent_id AS "agentId", agent_ref AS "agentRef", session_id AS "sessionId", prompt_override AS "promptOverride", label, config, join_mode AS "joinMode", input, output, created_at AS "createdAt", updated_at AS "updatedAt" FROM nodes WHERE flow_id=$1 AND node_key=$2`, input.ctx.flow.id, input.nodeKey);
     const recordedInput = node?.input ?? null;

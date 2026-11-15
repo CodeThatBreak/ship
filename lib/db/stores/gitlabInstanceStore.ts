@@ -2,23 +2,30 @@ import "server-only";
 
 import { GitLabInstanceRow, type GitLabInstance } from "../rows";
 import type { Database } from "../database";
-import type { RowGateway } from "../rows";
 import type { IntegrationSecretStore } from "../integrationSecretStore";
 
 export type GitLabInstanceMeta = Omit<GitLabInstance, "token">;
 
+const metaSchema = GitLabInstanceRow.omit({ token: true });
+
+/** Self-hosted GitLab instances: repo host → API token (sealed at rest). */
 export class GitLabInstanceStore {
   constructor(
     private readonly db: Database,
-    private readonly rows: RowGateway,
     private readonly secrets: IntegrationSecretStore,
   ) {}
 
-  listMeta(): Promise<GitLabInstanceMeta[]> {
-    return this.rows.all(
-      GitLabInstanceRow.omit({ token: true }),
-      `SELECT id, name, base_url AS "baseUrl", created_at AS "createdAt" FROM gitlab_instances ORDER BY base_url`,
-    );
+  async listMeta(): Promise<GitLabInstanceMeta[]> {
+    const rows = await this.db.prisma.gitlabInstance.findMany({
+      orderBy: { baseUrl: "asc" },
+      select: { id: true, name: true, baseUrl: true, createdAt: true },
+    });
+    const decoded: GitLabInstanceMeta[] = [];
+    for (const raw of rows) {
+      const result = metaSchema.safeParse(raw);
+      if (result.success) decoded.push(result.data);
+    }
+    return decoded;
   }
 
   async get(id: string): Promise<GitLabInstance | undefined> {
@@ -35,30 +42,26 @@ export class GitLabInstanceStore {
   async add(input: { name?: string | null; baseUrl: string; token: string }): Promise<GitLabInstance> {
     const baseUrl = input.baseUrl.trim().replace(/\/+$/, "");
     const id = this.db.uid("gli_");
-    const createdAt = this.db.now();
+    const createdAt = new Date().toISOString();
     const sealed = this.secrets.seal(input.token);
-    await this.db.run(
-      `INSERT INTO gitlab_instances (id,name,base_url,token,created_at) VALUES ($1,$2,$3,$4,$5)`,
-      id,
-      input.name ?? null,
-      baseUrl,
-      sealed,
-      createdAt,
-    );
+    await this.db.prisma.gitlabInstance.create({
+      data: { id, name: input.name ?? null, baseUrl, token: sealed, createdAt: new Date() },
+    });
     return { id, name: input.name ?? null, baseUrl, token: input.token, createdAt };
   }
 
   async update(id: string, input: { name?: string | null; baseUrl: string; token: string }): Promise<void> {
-    await this.db.run(
-      `UPDATE gitlab_instances SET name=$1, base_url=$2, token=$3 WHERE id=$4`,
-      input.name ?? null,
-      input.baseUrl.trim().replace(/\/+$/, ""),
-      this.secrets.seal(input.token),
-      id,
-    );
+    await this.db.prisma.gitlabInstance.update({
+      where: { id },
+      data: {
+        name: input.name ?? null,
+        baseUrl: input.baseUrl.trim().replace(/\/+$/, ""),
+        token: this.secrets.seal(input.token),
+      },
+    });
   }
 
   async delete(id: string): Promise<void> {
-    await this.db.run(`DELETE FROM gitlab_instances WHERE id=$1`, id);
+    await this.db.prisma.gitlabInstance.deleteMany({ where: { id } });
   }
 }

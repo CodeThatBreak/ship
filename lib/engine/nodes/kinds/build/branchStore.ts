@@ -1,7 +1,7 @@
 import "server-only";
 
 import { db } from "../../../../db/app";
-import { BranchRow, rows } from "../../../../db/rows";
+import { BranchRow } from "../../../../db/rows";
 
 /**
  * Store for per-flow branch rows: upserts, status/MR updates, and tagging the
@@ -9,7 +9,7 @@ import { BranchRow, rows } from "../../../../db/rows";
  */
 export class BranchStore {
   /** Insert or update a branch row for a flow. Returns the row id. */
-  upsert(
+  async upsert(
     flowId: string,
     name: string,
     opts: {
@@ -20,8 +20,11 @@ export class BranchStore {
       gitBranch?: string;
       order?: number;
     } = {},
-  async ): string {
-    const existing = db.get<{ id: string }>(`SELECT id FROM branches WHERE flow_id=$1 AND name=$2`, flowId, name);
+  ): Promise<string> {
+    const existing = await db.prisma.branch.findFirst({
+      where: { flowId, name },
+      select: { id: true },
+    });
     if (existing) {
       const patch: Record<string, unknown> = {};
       if (opts.title !== undefined) patch.title = opts.title;
@@ -30,40 +33,59 @@ export class BranchStore {
       if (opts.mrIid !== undefined) patch.mrIid = opts.mrIid;
       if (opts.gitBranch !== undefined) patch.gitBranch = opts.gitBranch;
       if (Object.keys(patch).length) {
-        const keys = Object.keys(patch);
-        await db.run(`UPDATE branches SET ${keys.map((k) => `${k}=?`).join(",")}, updated_at=? WHERE id=?`,
-          ...keys.map((k) => patch[k] as never), db.now(), existing.id);
+        await db.prisma.branch.update({
+          where: { id: existing.id },
+          data: { ...patch, updatedAt: new Date() } as never,
+        });
       }
       return existing.id;
     }
     const id = db.uid("br_");
-    await db.run(
-      `INSERT INTO branches (id,flow_id,name,git_branch,title,status,mr_url,mr_iid,"order",created_at,updated_at)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) ON CONFLICT DO NOTHING`,
-      id, flowId, name, opts.gitBranch ?? null, opts.title ?? name, opts.status ?? "pending",
-      opts.mrUrl ?? null, opts.mrIid ?? null, opts.order ?? 0, db.now(), db.now()
-    );
+    await db.prisma.branch.create({
+      data: {
+        id, flowId, name,
+        gitBranch: opts.gitBranch ?? null,
+        title: opts.title ?? name,
+        status: opts.status ?? "pending",
+        mrUrl: opts.mrUrl ?? null,
+        mrIid: opts.mrIid ?? null,
+        order: opts.order ?? 0,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      },
+    });
     return id;
   }
 
   /** Persisted git ref for a plan branch row (null before the build finishes). */
-  gitBranch(flowId: string, planBranchName: string): string | null {
-    return db.get<{ git_branch: string | null }>(
-      `SELECT git_branch AS "gitBranch" FROM branches WHERE flow_id=$1 AND name=$2`, flowId, planBranchName,
-    )?.gitBranch ?? null;
+  async gitBranch(flowId: string, planBranchName: string): Promise<string | null> {
+    const row = await db.prisma.branch.findFirst({
+      where: { flowId, name: planBranchName },
+      select: { gitBranch: true },
+    });
+    return row?.gitBranch ?? null;
   }
 
   /** Tag a specific run row with a branch_id (per-branch cost attribution). */
-  async tagRun(runRowId: string, branchRowId: string): void {
-    await db.run(
-      `UPDATE runs SET branch_id=$1, updated_at=$2 WHERE id=$3`,
-      branchRowId, db.now(), runRowId,
-    );
+  async tagRun(runRowId: string, branchRowId: string): Promise<void> {
+    await db.prisma.run.updateMany({
+      where: { id: runRowId },
+      data: { branchId: branchRowId, updatedAt: new Date() },
+    });
   }
 
   /** Get all branch rows for a flow, ordered. */
-  list(flowId: string): BranchRow[] {
-    return rows.all(BranchRow, `SELECT id, flow_id AS "flowId", name, git_branch AS "gitBranch", title, status, mr_url AS "mrUrl", mr_iid AS "mrIid", "order", created_at AS "createdAt", updated_at AS "updatedAt" FROM branches WHERE flow_id=$1 ORDER BY "order", created_at`, flowId);
+  async list(flowId: string): Promise<BranchRow[]> {
+    const rows = await db.prisma.branch.findMany({
+      where: { flowId },
+      orderBy: [{ order: "asc" }, { createdAt: "asc" }],
+    });
+    const decoded: BranchRow[] = [];
+    for (const raw of rows) {
+      const result = BranchRow.safeParse(raw);
+      if (result.success) decoded.push(result.data);
+    }
+    return decoded;
   }
 }
 

@@ -13,7 +13,7 @@ import { RUN_MODE, type RunMode } from "@/constants/execution";
 export class SettingsService {
   constructor(private readonly database: Database) {}
 
-  async defaultModel(): string {
+  async defaultModel(): Promise<string> {
     return normalizeModelSpec(
       await this.database.getSetting(SETTINGS_KEYS.DEFAULT_MODEL, settingString, "") ||
         config.defaultModel() ||
@@ -26,13 +26,13 @@ export class SettingsService {
    * (`http_allowlist`, entries match the exact hostname or a subdomain of it).
    * Empty = deny-by-default, per plan §4.4.
    */
-  async httpAllowlist(): string[] {
+  async httpAllowlist(): Promise<string[]> {
     const raw = await this.database.getSetting(SETTINGS_KEYS.HTTP_ALLOWLIST, settingStringArray, []);
     if (Array.isArray(raw)) return raw.map((s) => String(s).trim()).filter(Boolean);
     return [];
   }
 
-  async defaultExecutionMode(): RunMode {
+  async defaultExecutionMode(): Promise<RunMode> {
     const raw = await this.database.getSetting(
           SETTINGS_KEYS.DEFAULT_EXECUTION_MODE,
           settingString,
@@ -42,14 +42,14 @@ export class SettingsService {
   }
 
   /** Apply a validated settings patch atomically (CR-048). */
-  async update(patch: SettingsPatchBody): void {
+  async update(patch: SettingsPatchBody): Promise<void> {
     await this.database.transaction(async () => {
             if (patch.cursor_api_key !== undefined) {
               this.database.integrationSecrets.writeCursorApiKey(patch.cursor_api_key);
-            async }
+            }
             if (patch.default_harness !== undefined) {
               await this.database.setSetting(SETTINGS_KEYS.DEFAULT_HARNESS, patch.default_harness);
-            async }
+            }
             if (patch.default_execution_mode !== undefined) {
               await this.database.setSetting(SETTINGS_KEYS.DEFAULT_EXECUTION_MODE, patch.default_execution_mode);
             }
@@ -58,12 +58,12 @@ export class SettingsService {
                           SETTINGS_KEYS.DEFAULT_MODEL,
                           normalizeModelSpec(patch.default_model.trim()),
                         );
-            async }
+            }
             if (patch.local_agent) {
-              async const la = patch.local_agent;
+              const la = patch.local_agent;
               if (la.force !== undefined) {
                 await this.database.setSetting(SETTINGS_KEYS.LOCAL_AGENT_FORCE, la.force);
-              async }
+              }
               if (la.sandbox !== undefined) {
                 await this.database.setSetting(SETTINGS_KEYS.LOCAL_AGENT_SANDBOX, la.sandbox);
               }

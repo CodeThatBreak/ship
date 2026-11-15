@@ -51,7 +51,7 @@ export class RepoService {
     });
   }
 
-  async update(id: string, patch: RepoPatchBody): Repo {
+  async update(id: string, patch: RepoPatchBody): Promise<Repo> {
     const existing = await this.database.repoById(id);
     if (!existing) {
       throw new NotFoundError("repo", id);
@@ -84,7 +84,7 @@ export class RepoService {
     });
   }
 
-  async delete(id: string): void {
+  async delete(id: string): Promise<void> {
     const existing = await this.database.repoById(id);
     if (!existing) {
       throw new NotFoundError("repo", id);

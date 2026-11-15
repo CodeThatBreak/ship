@@ -153,7 +153,7 @@ export class NodeSupport {
     nodeId: string,
     flowId: string,
     kind: string,
-    async content: string,
+    content: string,
     meta?: unknown,
     status = ARTIFACT_STATUS.DRAFT
   ): Promise<{ id: string; version: number }> {
@@ -222,7 +222,7 @@ export class NodeSupport {
 
   async persistRun(flowId: string, nodeId: string, agentId: string, runId: string): Promise<string> {
     const attemptRow = await db.get<{ attemptId: string | null }>(
-      async `SELECT attempt_id AS "attemptId" FROM nodes WHERE id=$1`,
+      `SELECT attempt_id AS "attemptId" FROM nodes WHERE id=$1`,
     nodeId,
     );
     const attemptId = attemptRow?.attemptId;

@@ -13,28 +13,28 @@ export class CommentStore {
     let newOpen = 0;
     for (const c of incoming) {
       if (c.system) continue;
-      const existing = await db.get<{ id: string; status: string; resolvedBy: string | null }>(
-        async `SELECT id, status, resolved_by AS "resolvedBy" FROM comments WHERE id=$1`,
-        c.id,
-      );
+      const existing = await db.prisma.comment.findUnique({
+        where: { id: c.id },
+        select: { id: true, status: true, resolvedBy: true },
+      });
       const status = c.resolved ? COMMENT_STATUS.RESOLVED : COMMENT_STATUS.OPEN;
       if (!existing) {
-        await db.run(
-          `INSERT INTO comments (id,flow_id,mr_iid,discussion_id,author,body,file_path,line,status,raw,created_at,updated_at)
-           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)`,
-          c.id,
-          flowId,
-          mrIid ?? null,
-          c.threadId,
-          c.author,
-          c.body,
-          c.path ?? null,
-          c.line ?? null,
-          status,
-          JSON.stringify(c),
-          c.createdAt,
-          db.now(),
-        );
+        await db.prisma.comment.create({
+          data: {
+            id: c.id,
+            flowId,
+            mrIid: mrIid ?? null,
+            discussionId: c.threadId,
+            author: c.author,
+            body: c.body,
+            filePath: c.path ?? null,
+            line: c.line ?? null,
+            status,
+            raw: JSON.stringify(c),
+            createdAt: new Date(c.createdAt),
+            updatedAt: new Date(),
+          },
+        });
         if (status === COMMENT_STATUS.OPEN) newOpen++;
       } else if (existing.status !== status) {
         if (
@@ -44,7 +44,10 @@ export class CommentStore {
         ) {
           continue;
         }
-        await db.run(`UPDATE comments SET status=$1, updated_at=$2 WHERE id=$3`, status, db.now(), c.id);
+        await db.prisma.comment.update({
+          where: { id: c.id },
+          data: { status, updatedAt: new Date() },
+        });
         if (status === COMMENT_STATUS.OPEN) newOpen++;
       }
     }

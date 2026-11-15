@@ -28,7 +28,7 @@ const sampleValue = (type: unknown): unknown => {
 };
 
 export class TemplatePreviewService {
-  private async sampleContext(templateId: string): FlowContextMap {
+  private async sampleContext(templateId: string): Promise<FlowContextMap> {
     const tpl = await db.get<{ trigger: string | null }>(
           `SELECT trigger FROM flow_templates WHERE id=$1`,
           templateId,
@@ -60,7 +60,7 @@ export class TemplatePreviewService {
 
     const nodes: Record<string, { output: unknown }> = {};
     const nodeRows = await db.all<{ node_key: string; node_template_id: string; config: string | null }>(
-          async `SELECT node_key AS "nodeKey", node_template_id AS "nodeTemplateId",, config FROM flow_template_nodes WHERE template_id=$1`,
+          `SELECT node_key AS "nodeKey", node_template_id AS "nodeTemplateId",, config FROM flow_template_nodes WHERE template_id=$1`,
           templateId,
         );
     for (const r of nodeRows) {
@@ -109,7 +109,7 @@ export class TemplatePreviewService {
     };
   }
 
-  private async sampleTriggerPayload(templateId: string): Record<string, unknown> {
+  private async sampleTriggerPayload(templateId: string): Promise<Record<string, unknown>> {
     const entryKey = nodeRegistry.entryKey();
     const row = await db.get<{ config: string | null }>(
           `SELECT n.config FROM flow_template_nodes n

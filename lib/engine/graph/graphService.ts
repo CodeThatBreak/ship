@@ -22,7 +22,7 @@ export type GraphApiPayload = {
 };
 
 export class GraphService {
-  async resolve(query: { flowId: string | null; templateId: string | null }): GraphApiPayload {
+  async resolve(query: { flowId: string | null; templateId: string | null }): Promise<GraphApiPayload> {
     const { flowId, templateId } = query;
     if (!flowId && !templateId) {
       return {
@@ -38,7 +38,7 @@ export class GraphService {
         throw new NotFoundError("template", templateId);
       }
       resolvedTemplateId = templateId;
-    async } else {
+    } else {
       const flow = await rows.get(FlowRow, `SELECT id, task_id AS "taskId", name, status, mr_url AS "mrUrl", mr_iid AS "mrIid", mr_branch AS "mrBranch", repo_url AS "repoUrl", gitlab_project_id AS "gitlabProjectId", current_node AS "currentNode", execution_mode AS "executionMode", repo_id AS "repoId", template_id AS "templateId", template_graph AS "templateGraph", trigger_payload AS "triggerPayload", worktree_dir AS "worktreeDir", parent_flow_id AS "parentFlowId", kind, created_at AS "createdAt", updated_at AS "updatedAt" FROM flows WHERE id=$1`, flowId ?? "");
       if (!flow) {
         throw new NotFoundError("flow", flowId ?? "");

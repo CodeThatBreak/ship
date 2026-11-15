@@ -2,11 +2,6 @@ import "server-only";
 
 import type { Prisma, PrismaClient } from "@prisma/client";
 import type { z } from "zod";
-import { prisma } from "./prismaClient";
-import { bindDatabase } from "./dbAccess";
-import { bindRowGateway } from "./rowGatewayAccess";
-import { wireGitHostBuiltins } from "./wireGitHostBuiltins";
-import { RowGateway, type Repo } from "./rows";
 import { AtRestCipher } from "./atRestCipher";
 import { IntegrationSecretStore } from "./integrationSecretStore";
 import {
@@ -17,6 +12,10 @@ import {
   RepoStore,
   SettingsStore,
 } from "./stores/storeExports";
+import { bindDatabase } from "./dbAccess";
+import { bindRowGateway } from "./rowGatewayAccess";
+import { RowGateway, type Repo } from "./rows";
+import { wireGitHostBuiltins } from "./wireGitHostBuiltins";
 
 export type { Repo } from "./rows";
 
@@ -24,15 +23,16 @@ export type { Repo } from "./rows";
 export type QueryExecutor = PrismaClient | Prisma.TransactionClient;
 
 /**
- * The application database (Postgres, via Prisma).
+ * The application database (Postgres, via Prisma) — composition root for the
+ * domain stores.
  *
- * Thin async facade over the PrismaClient singleton (`lib/db/prismaClient.ts`)
- * so the sync→async call-site conversion is mechanical: `db.get/all/run` are
- * raw-SQL helpers returning camelCase rows, and `transaction(fn)` maps to
- * `prisma.$transaction` (async I/O stays outside the callback — same rule as
- * the better-sqlite3 era, now enforced by types). Domain stores are
- * constructor-injected here; the wider composition root lands incrementally
- * through step 09 (decision Q9).
+ * Engine stores receive the typed Prisma client via this facade — new
+ * persistence goes through the Prisma ORM query API (decision Q1).
+ * `transaction(fn)` maps to `prisma.$transaction`; async I/O stays outside
+ * the callback. The raw `get`/`all`/`run` helpers remain for the read-model
+ * serialization paths that still hand SQL to the RowGateway — they migrate
+ * to the composition root incrementally through step 09 (decision Q9), and
+ * no NEW raw SQL is introduced (hard requirement: ORM-first).
  */
 export class Database {
   /** Same-millisecond counter so event ids sort lexicographically in emit order. */
@@ -53,22 +53,22 @@ export class Database {
     bindDatabase(this);
     this.rows = new RowGateway(this);
     bindRowGateway(this.rows);
-    this.messageStore = new MessageStore(this, this.rows);
-    this.eventStore = new EventStore(this, this.rows);
+    this.messageStore = new MessageStore(this);
+    this.eventStore = new EventStore(this);
     this.settingsStore = new SettingsStore(this);
-    this.repoStore = new RepoStore(this, this.rows);
+    this.repoStore = new RepoStore(this);
     const atRestCipher = AtRestCipher.fromConfig();
     this.integrationSecrets = new IntegrationSecretStore(this, atRestCipher);
-    this.gitlabInstances = new GitLabInstanceStore(this, this.rows, this.integrationSecrets);
-    this.jiraInstances = new JiraInstanceStore(this, this.rows, this.integrationSecrets);
+    this.gitlabInstances = new GitLabInstanceStore(this, this.integrationSecrets);
+    this.jiraInstances = new JiraInstanceStore(this, this.integrationSecrets);
     wireGitHostBuiltins();
   }
 
   /**
    * Run async writes in one Postgres transaction (`prisma.$transaction`).
-   * The callback receives the tx client; pass it as the executor to any
-   * `db.get/all/run` calls that must join the transaction. Never await
-   * network/agent/git I/O inside the callback.
+   * The callback receives the tx client; pass it to store calls that must
+   * join the transaction. Never await network/agent/git I/O inside the
+   * callback (same rule as the better-sqlite3 era, now enforced by types).
    */
   transaction<T>(
     fn: (tx: Prisma.TransactionClient) => Promise<T>,
@@ -94,10 +94,7 @@ export class Database {
     return `${prefix}${ms.toString(36)}${seqPart}${entropy}`;
   }
 
-  async get<T = unknown>(
-    sql: string,
-    ...args: unknown[]
-  ): Promise<T | undefined> {
+  async get<T = unknown>(sql: string, ...args: unknown[]): Promise<T | undefined> {
     const rows = await this.prisma.$queryRawUnsafe<T[]>(sql, ...args);
     return rows[0];
   }

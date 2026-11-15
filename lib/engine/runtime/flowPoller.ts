@@ -1,7 +1,7 @@
 import "server-only";
 
 import { db } from "../../db/app";
-import { BranchRow, FlowRow, rows } from "../../db/rows";
+import { BranchRow, FlowRow } from "../../db/rows";
 import { gitHostRegistry } from "../ports/gitHost";
 import { flowEngine } from "../flowEngine";
 import { reconciler } from "./flowReconciler";
@@ -42,11 +42,9 @@ export class FlowPoller {
     void reconciler.sweepStuckStepMerges().catch((e: unknown) =>
       console.warn(`step-merge reconcile failed: ${e instanceof Error ? e.message : e}`)
     );
-    try {
-      flowEngine.reArmWaitingTimers();
-    } catch (e: unknown) {
-      console.warn(`wait-timer re-arm failed: ${e instanceof Error ? e.message : e}`);
-    }
+    void flowEngine.reArmWaitingTimers().catch((e: unknown) =>
+      console.warn(`wait-timer re-arm failed: ${e instanceof Error ? e.message : e}`)
+    );
     setTimeout(() => void this.runTick(intervalMs), intervalMs).unref?.();
   }
 
@@ -70,12 +68,12 @@ export class FlowPoller {
 
   private async tick(): Promise<void> {
     try {
-      flowEngine.processWaitTimers();
+      await flowEngine.processWaitTimers();
     } catch (e: unknown) {
       this.logPhaseError("processWaitTimers", e);
     }
     try {
-      this.processTemplateSchedules();
+      await this.processTemplateSchedules();
     } catch (e: unknown) {
       this.logPhaseError("processTemplateSchedules", e);
     }
@@ -86,29 +84,37 @@ export class FlowPoller {
     }
 
     const activeFlowIds = new Set(
-      db.all<{ id: string }>(`SELECT id FROM flows WHERE status='active'`).map((r) => r.id),
+      (await db.prisma.flow.findMany({ where: { status: "active" }, select: { id: true } })).map((r) => r.id),
     );
-    const flows = await rows.all(
-      FlowRow,
-      `SELECT id, task_id AS "taskId", name, status, mr_url AS "mrUrl", mr_iid AS "mrIid", mr_branch AS "mrBranch", repo_url AS "repoUrl", gitlab_project_id AS "gitlabProjectId", current_node AS "currentNode", execution_mode AS "executionMode", repo_id AS "repoId", template_id AS "templateId", template_graph AS "templateGraph", trigger_payload AS "triggerPayload", worktree_dir AS "worktreeDir", parent_flow_id AS "parentFlowId", kind, created_at AS "createdAt", updated_at AS "updatedAt" FROM flows WHERE status='active' AND (mr_iid IS NOT NULL OR id IN (SELECT DISTINCT flow_id FROM branches WHERE mr_iid IS NOT NULL))`,
-    );
+    const flows = await db.prisma.flow.findMany({
+      where: {
+        status: "active",
+        OR: [{ mrIid: { not: null } }, { branches: { some: { mrIid: { not: null } } } }],
+      },
+      select: {
+        id: true, taskId: true, name: true, status: true, mrUrl: true, mrIid: true,
+        mrBranch: true, repoUrl: true, gitlabProjectId: true, currentNode: true,
+        executionMode: true, repoId: true, templateId: true, templateGraph: true,
+        triggerPayload: true, worktreeDir: true, parentFlowId: true, kind: true,
+        createdAt: true, updatedAt: true,
+      },
+    });
     for (const f of flows) {
       try {
         // Phase 3C: iterate over branches with MRs, then the flow-level MR
-        const branchMRs = await rows.all(
-          BranchRow,
-          `SELECT id, flow_id AS "flowId", name, git_branch AS "gitBranch", title, status, mr_url AS "mrUrl", mr_iid AS "mrIid", "order", created_at AS "createdAt", updated_at AS "updatedAt" FROM branches WHERE flow_id=$1 AND mr_iid IS NOT NULL`,
-          f.id,
-        );
+        const branchMRs = await db.prisma.branch.findMany({
+          where: { flowId: f.id, mrIid: { not: null } },
+          select: { mrIid: true, name: true },
+        });
         if (branchMRs.length > 0) {
           for (const b of branchMRs) {
             if (b.mrIid == null) continue;
-            await this.checkPipeline(f, b.mrIid, b.name);
-            await this.checkDiscussions(f, b.mrIid, b.name);
+            await this.checkPipeline(f as FlowRow, b.mrIid, b.name);
+            await this.checkDiscussions(f as FlowRow, b.mrIid, b.name);
           }
         } else if (f.mrIid) {
-          await this.checkPipeline(f, f.mrIid);
-          await this.checkDiscussions(f, f.mrIid);
+          await this.checkPipeline(f as FlowRow, f.mrIid);
+          await this.checkDiscussions(f as FlowRow, f.mrIid);
         }
       } catch (e: unknown) {
         const msg = e instanceof Error ? e.message : String(e);
@@ -121,7 +127,7 @@ export class FlowPoller {
 
   /** Re-sync stuck `running` nodes for every active flow (throttled per flow). */
   private async reconcileActiveFlows(): Promise<void> {
-    const flows = db.all<{ id: string }>(`SELECT id FROM flows WHERE status='active'`);
+    const flows = await db.prisma.flow.findMany({ where: { status: "active" }, select: { id: true } });
     for (const f of flows) {
       try {
         await reconciler.reconcileFlow(f.id);
@@ -146,24 +152,27 @@ export class FlowPoller {
    * TemplateStore) advances by the interval immediately — a failing fire
    * skips this round and the schedule keeps its beat instead of spinning.
    */
-  private processTemplateSchedules(): void {
-    const templates = db.all<{ id: string; trigger: string | null; schedule_next_at: string | null }>(
-      async `SELECT id, trigger, schedule_next_at AS "scheduleNextAt" FROM flow_templates WHERE schedule_next_at IS NOT NULL`
-    );
+  private async processTemplateSchedules(): Promise<void> {
+    const templates = await db.prisma.flowTemplate.findMany({
+      where: { scheduleNextAt: { not: null } },
+      select: { id: true, trigger: true, scheduleNextAt: true },
+    });
     const now = Date.now();
     for (const t of templates) {
-      const due = t.scheduleNextAt ? Date.parse(t.scheduleNextAt) : NaN;
+      const due = t.scheduleNextAt ? t.scheduleNextAt.getTime() : NaN;
       if (Number.isNaN(due) || now < due) continue;
-      const trigger = (() => { try { return JSON.parse(t.trigger ?? "{}") as Record<string, unknown>; } catch { return {}; } })();
+      const trigger = (() => { try { return (t.trigger && typeof t.trigger === "object" ? t.trigger : {}) as Record<string, unknown>; } catch { return {}; } })();
       const intervalMin = typeof trigger.interval_min === "number" && trigger.interval_min > 0
         ? trigger.interval_min : 60;
       const nextAt = nextScheduleFireAt(due, now, intervalMin);
-      await db.run(`UPDATE flow_templates SET schedule_next_at=$1 WHERE id=$2`,
-        new Date(nextAt).toISOString(), t.id);
+      await db.prisma.flowTemplate.update({
+        where: { id: t.id },
+        data: { scheduleNextAt: new Date(nextAt) },
+      });
       try {
         // the fire provides nothing (the start contract's defaults apply) —
         // an ad-hoc body would fail the start contract's strict shape check
-        flowEngine.startFromTemplate(t.id, {});
+        await flowEngine.startFromTemplate(t.id, {});
       } catch (e: unknown) {
         // no flow instance exists to attach an event to — the dev server log
         // and the template editor (which validates the binding) surface it
@@ -179,16 +188,21 @@ export class FlowPoller {
     const pipe = cr?.headPipeline;
     if (!pipe) return;
     const prev = branchName
-      ? db.get<{ data: string | null }>(
-          `SELECT data FROM events WHERE flow_id=$1 AND type='pipeline' AND json_extract(data,'$.branchName')=$2 ORDER BY created_at DESC LIMIT 1`,
-          f.id,
-          branchName,
-        )
-      : db.get<{ data: string | null }>(
-          `SELECT data FROM events WHERE flow_id=$1 AND type='pipeline' AND (json_extract(data,'$.branchName') IS NULL OR json_extract(data,'$.branchName')='') ORDER BY created_at DESC LIMIT 1`,
-          f.id,
-        );
-    const prevStatus = prev?.data ? JSON.parse(prev.data).status : null;
+      ? await db.prisma.event.findFirst({
+          where: { flowId: f.id, type: "pipeline", data: { path: ["branchName"], equals: branchName } },
+          orderBy: { createdAt: "desc" },
+          select: { data: true },
+        })
+      : await db.prisma.event.findFirst({
+          where: {
+            flowId: f.id, type: "pipeline",
+            OR: [{ data: { path: ["branchName"], equals: null } }, { data: { path: ["branchName"], equals: "" } }],
+          },
+          orderBy: { createdAt: "desc" },
+          select: { data: true },
+        });
+    const prevStatus = prev?.data && typeof prev.data === "object"
+      ? (prev.data as { status?: string }).status ?? null : null;
     if (pipe.status === prevStatus) return;
 
     // While the gate node is running it owns pipeline reporting (it watches the
@@ -196,11 +210,12 @@ export class FlowPoller {
     // to (re)trigger the gate on a fresh failure, so the two writers never
     // fight over the displayed status. The gate node is the one that waits on
     // the pipeline event (role lookup, not the "pipeline" key constant).
-    const gateKey = templateStore.waitNodeKey(f.id, "pipeline");
+    const gateKey = await templateStore.waitNodeKey(f.id, "pipeline");
     const gateStatus = gateKey
-      ? db.get<{ status: string }>(
-          async `SELECT status FROM nodes WHERE flow_id=$1 AND node_key=$2`, f.id, gateKey
-        )?.status
+      ? (await db.prisma.node.findFirst({
+          where: { flowId: f.id, nodeKey: gateKey },
+          select: { status: true },
+        }))?.status
       : undefined;
     if (gateStatus !== "running") {
       // stamped with the owning gate node so the feed routes it (§3.3)
@@ -210,7 +225,7 @@ export class FlowPoller {
 
     if (pipe.status === "failed") {
       // the pipeline gate owns fixes — trigger it (it guards against double-runs)
-      flowEngine.triggerPipelineGate(f.id, pipe.id);
+      await flowEngine.triggerPipelineGate(f.id, pipe.id);
     }
   }
 
@@ -221,24 +236,24 @@ export class FlowPoller {
       .listComments(repoUrl, mrIid)
       .catch(() => null);
     if (!comments) return;
-    const newOpen = flowEngine.ingestComments(f.id, comments, mrIid);
-    const openCount = db.get<{ c: number }>(
-      `SELECT COUNT(*) c FROM comments WHERE flow_id=$1 AND status='open' AND mr_iid=$2`, f.id, mrIid
-    )?.c ?? 0;
+    const newOpen = await flowEngine.ingestComments(f.id, comments, mrIid);
+    const openCount = await db.prisma.comment.count({
+      where: { flowId: f.id, status: "open", mrIid },
+    });
     if (newOpen > 0 && openCount > 0) {
       // debounce: each new open comment restarts the quiet period on the
       // debounced resolve wait — the wait-timer tick fires it once the flow
-      async // has been quiet for the delay and the pipeline gate is clear
-      flowEngine.bounceCommentWaits(f.id);
+      // has been quiet for the delay and the pipeline gate is clear
+      await flowEngine.bounceCommentWaits(f.id);
       const countKey = branchName ? `${f.id}:${branchName}` : f.id;
       if (this.lastCommentCount.get(countKey) !== openCount) {
         this.lastCommentCount.set(countKey, openCount);
-        const mins = Math.round(flowEngine.resolveDelayMs(f.id) / 60_000);
+        const mins = Math.round((await flowEngine.resolveDelayMs(f.id)) / 60_000);
         await db.emitEvent(f.id, null, "lifecycle",
           `${openCount} open comment(s)${branchName ? ` (${branchName})` : ""} — resolve queued for ` +
-          `${flowEngine.resolveScheduleClock(f.id) ?? FlowPoller.clockIn(flowEngine.resolveDelayMs(f.id))} ` +
+          `${flowEngine.resolveScheduleClock(f.id) ?? FlowPoller.clockIn(await flowEngine.resolveDelayMs(f.id))} ` +
           `(${mins} min quiet, then the pipeline gate)`,
-          { nodeKey: templateStore.waitNodeKey(f.id, "comments") ?? undefined });
+          { nodeKey: (await templateStore.waitNodeKey(f.id, "comments")) ?? undefined });
       }
     }
   }

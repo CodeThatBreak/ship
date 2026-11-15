@@ -27,9 +27,9 @@ async function mapPool<T, R>(items: T[], limit: number, fn: (item: T) => Promise
 
 type FlowWorktreeRow = {
   id: string;
-  worktree_dir: string;
-  mr_branch: string | null;
-  repo_id: string | null;
+  worktreeDir: string;
+  mrBranch: string | null;
+  repoId: string | null;
 };
 
 export type WorktreeStatusEntry = {
@@ -47,9 +47,10 @@ export type WorktreeStatusEntry = {
 
 export class WorktreeStatusService {
   async statusesForActiveFlows(): Promise<Record<string, WorktreeStatusEntry>> {
-    const flowRows = await db.all<FlowWorktreeRow>(
-          `SELECT id, worktree_dir AS "worktreeDir",, mr_branch AS "mrBranch",, repo_id AS "repoId" FROM flows WHERE worktree_dir IS NOT NULL`,
-        );
+    const flowRows = await db.prisma.flow.findMany({
+      where: { worktreeDir: { not: null } },
+      select: { id: true, worktreeDir: true, mrBranch: true, repoId: true },
+    });
     const byRepo = new Map<string, FlowWorktreeRow[]>();
     const noRepo: FlowWorktreeRow[] = [];
     for (const f of flowRows) {
@@ -58,7 +59,7 @@ export class WorktreeStatusService {
         continue;
       }
       const bucket = byRepo.get(f.repoId) ?? [];
-      bucket.push(f);
+      bucket.push(f as FlowWorktreeRow);
       byRepo.set(f.repoId, bucket);
     }
 

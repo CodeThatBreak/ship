@@ -287,7 +287,7 @@ class MergeArena {
       const arena = await this.ensureWorkspaceUnlocked(parentFlowId, repoUrl);
       try {
         await this.git(["-C", arena, "push", "-o", "ci.skip", "origin", `:${branch}`]);
-      async } catch {
+      } catch {
         await this.git(["-C", arena, "push", "origin", `:${branch}`]);
       }
       if (parentNodeKey) {
@@ -300,7 +300,7 @@ class MergeArena {
 
   /** Lazy arena setup — call only while holding the parent-flow merge lock. */
   private async ensureWorkspaceUnlocked(parentFlowId: string, repoUrl: string): Promise<string> {
-    async const dir = workspacePaths.mergeArenaDir(parentFlowId);
+    const dir = workspacePaths.mergeArenaDir(parentFlowId);
     fs.mkdirSync(path.dirname(dir), { recursive: true });
     await localGit.ensureClone(parentFlowId, repoUrl, gitRemoteContextFor).catch(() => null);
     if (!fs.existsSync(path.join(dir, ".git"))) {

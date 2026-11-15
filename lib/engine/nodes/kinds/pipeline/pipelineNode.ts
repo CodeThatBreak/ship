@@ -352,7 +352,7 @@ export class PipelineNode extends AgentRunNode<
     let fixWaitStart: number | null = null; // set when a fix push completes — grace before API trigger
     let headLookupWarned = false;
     const manualPlays = new Map<number, { plays: number; warned: boolean }>(); // per-pipeline manual-job play state
-    async let fixes = 0;
+    let fixes = 0;
     const deadline = Date.now() + gateTimeoutMin * 60_000;
 
     for (;;) {
@@ -440,7 +440,7 @@ export class PipelineNode extends AgentRunNode<
             output,
             event: `pipeline #${pipe.id} green${fixes ? ` after ${fixes} fix run(s)` : ""} — ready for review`,
             reply: `Pipeline #${pipe.id} succeeded${fixes ? ` after ${fixes} fix run(s)` : ""}.`,
-          async });
+          });
         }
 
         if (pipe.status === "failed") {

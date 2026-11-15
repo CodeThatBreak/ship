@@ -89,7 +89,7 @@ export const planResolveEffects = (input: {
 
     if (decision.action === RESOLVE_COMMENT_ACTION.SKIPPED) continue; // counted at apply time
 
-    const threadId = row.discussion_id;
+    const threadId = row.discussionId;
     const hostable = threadId != null && commentResolvable(row);
     // one effect key per thread of each closure type — same-discussion rows
     // slat together, host resolves and local closes never collide (G9)
@@ -147,7 +147,7 @@ export const planResolveEffects = (input: {
     slatted.add(threadKey);
 
     const groupRows = threadId
-      ? input.open.filter((r) => r.discussion_id === threadId)
+      ? input.open.filter((r) => r.discussionId === threadId)
       : [row];
     if (hostable) {
       closureEffects.push({ kind: "resolve", threadId: threadId as string, rowIds: groupRows.map((r) => r.id) });

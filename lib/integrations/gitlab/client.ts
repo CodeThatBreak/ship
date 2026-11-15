@@ -133,7 +133,7 @@ export class GitLabClient {
 
   private async paginate<T>(path: string, init?: RequestInit): Promise<{ items: T[]; truncated: boolean }> {
     const items: T[] = [];
-    async let page = 1;
+    let page = 1;
     let truncated = false;
 
     for (;;) {

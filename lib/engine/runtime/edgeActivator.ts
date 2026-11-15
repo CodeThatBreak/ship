@@ -1,7 +1,7 @@
 import "server-only";
 
 import { db } from "../../db/app";
-import { NodeRow, rows, type NodeStatus } from "../../db/rows";
+import { NodeRow, type NodeStatus } from "../../db/rows";
 import { ConflictError } from "../../errors";
 import { evalJsonata, jsonataTruthy } from "@/lib/jsonata/eval";
 import { buildFlowContext } from "../context/flowVariables";
@@ -24,7 +24,7 @@ export class EdgeActivator {
     private readonly waits: WaitScheduler,
   ) {}
 
-  private graph(flowId: string): TemplateGraph | null {
+  private async graph(flowId: string): Promise<TemplateGraph | null> {
     return templateStore.graphForFlow(flowId);
   }
 
@@ -35,25 +35,25 @@ export class EdgeActivator {
    * declarative run the same input the engine's auto start does — otherwise
    * `{{input.*}}` renders empty for a node started from the runtime panel.
    */
-  inheritedInput(flowId: string, nodeKey: string, ctx: FlowCtx): Record<string, unknown> {
-    const parents = (this.graph(flowId)?.edges ?? [])
+  async inheritedInput(flowId: string, nodeKey: string, ctx: FlowCtx): Promise<Record<string, unknown>> {
+    const parents = ((await this.graph(flowId))?.edges ?? [])
       .filter((e) => e.kind === "next" && e.to === nodeKey)
       .map((e) => e.from);
-    const nodesMap = buildFlowContext(ctx).nodes;
+    const nodesMap = (await buildFlowContext(ctx)).nodes;
     const out: Record<string, unknown> = {};
     for (const p of parents) Object.assign(out, nodesMap[p]?.output ?? {});
     // split children (agent-node split plan §2.1): the own unit rides the run
     // input — `{{input.unit.*}}` — alongside any inherited parent outputs
     // (only split children carry a unit on their trigger payload)
-    const payload = ctx.flow.trigger_payload as { unit?: unknown } | null;
+    const payload = ctx.flow.triggerPayload as { unit?: unknown } | null;
     if (payload?.unit != null) out.unit = payload.unit;
     return out;
   }
-  private splitGateSource(flowId: string, nodeKey: string): string | null {
+  private async splitGateSource(flowId: string, nodeKey: string): Promise<string | null> {
     const mode = splitConsumeOf(this.host.nodeConfigFor(flowId, nodeKey));
     if (mode === "whole") return null;
-    if (this.host.isStepChild(flowId)) return null; // nesting guard (§3)
-    const g = this.graph(flowId);
+    if (await this.host.isStepChild(flowId)) return null; // nesting guard (§3)
+    const g = await this.graph(flowId);
     if (!g) return null;
     const sources = g.edges
       .filter((e) => e.kind === "next" && e.to === nodeKey)
@@ -70,21 +70,21 @@ export class EdgeActivator {
     const sourceKey = sources[0];
     const effective: SplitConsumeMode = mode === "per-unit"
       ? "per-unit" // explicit consumer choice wins over the recommendation (§2.4)
-      : this.host.defOf(flowId, sourceKey).splitResolution(this.host.ctx(flowId)) ?? "whole"; // absent ⇒ whole
+      : this.host.defOf(flowId, sourceKey).splitResolution(await this.host.ctx(flowId)) ?? "whole"; // absent ⇒ whole
     return effective === "per-unit" ? sourceKey : null;
   }
   async advanceFrom(flowId: string, fromKey: string): Promise<void> {
-    const g = this.graph(flowId);
+    const g = await this.graph(flowId);
     if (!g) return;
     const outgoing = g.edges.filter((e) => e.kind !== "loop" || e.condition?.trim())
       .filter((e) => e.from === fromKey);
     if (!outgoing.length) return;
 
     const fromSpec = g.byKey.get(fromKey);
-    const fromNtKind = fromSpec ? this.nodeKind(g, fromSpec) : null;
-    const chosen = fromNtKind === "decision" ? this.decisionChosen(flowId, fromKey) : null;
+    const fromNtKind = fromSpec ? await this.nodeKind(g, fromSpec) : null;
+    const chosen = fromNtKind === "decision" ? await this.decisionChosen(flowId, fromKey) : null;
     const ctx = fromNtKind !== "decision" && outgoing.some((e) => e.condition?.trim())
-      ? buildFlowContext(this.host.ctx(flowId)) : null;
+      ? await buildFlowContext(await this.host.ctx(flowId)) : null;
 
     for (const e of outgoing) {
       const target = g.byKey.get(e.to);
@@ -116,10 +116,10 @@ export class EdgeActivator {
     while (queue.length) {
       const k = queue.shift();
       if (k === undefined) break;
-      const st = this.host.nodeStatus(flowId, k);
-      if (this.statusLoopResettable(st)) {
-        this.host.setNodeStatus(flowId, k, "pending");
-        nodeStore.emitEvent(flowId, k, "lifecycle", `${k} re-enters via the loop edge — reset to pending`);
+      const st = await this.host.nodeStatus(flowId, k);
+      if (this.statusLoopResettable(st ?? "")) {
+        await this.host.setNodeStatus(flowId, k, "pending");
+        await nodeStore.emitEvent(flowId, k, "lifecycle", `${k} re-enters via the loop edge — reset to pending`);
         for (const e of g.edges.filter((e) => e.kind === "next" && e.from === k)) {
           if (!seen.has(e.to)) {
             seen.add(e.to);
@@ -136,15 +136,22 @@ export class EdgeActivator {
   }
 
   /** The node_templates kind behind a template node spec (decision/agent/…/builtin). */
-  private nodeKind(g: TemplateGraph, spec: { nodeTemplateId: string; defKey: string; catalogKind?: string }): string | null {
+  private async nodeKind(g: TemplateGraph, spec: { nodeTemplateId: string; defKey: string; catalogKind?: string }): Promise<string | null> {
     if (spec.catalogKind) return spec.catalogKind;
-    return db.get<{ kind: string }>(`SELECT kind FROM node_templates WHERE id=$1`, spec.nodeTemplateId)?.kind ?? null;
+    const row = await db.prisma.nodeTemplate.findUnique({
+      where: { id: spec.nodeTemplateId },
+      select: { kind: true },
+    });
+    return row?.kind ?? null;
   }
 
   /** A decision node's chosen labels from its validated output ({} when absent). */
-  private decisionChosen(flowId: string, nodeKey: string): string[] {
-    const out = rows.get(NodeRow, `SELECT id, flow_id AS "flowId", node_key AS "nodeKey", type, status, attempt_id AS "attemptId", agent_id AS "agentId", agent_ref AS "agentRef", session_id AS "sessionId", prompt_override AS "promptOverride", label, config, join_mode AS "joinMode", input, output, created_at AS "createdAt", updated_at AS "updatedAt" FROM nodes WHERE flow_id=$1 AND node_key=$2`, flowId, nodeKey)?.output;
-    const chosen = (out as { chosen?: unknown } | null)?.chosen;
+  private async decisionChosen(flowId: string, nodeKey: string): Promise<string[]> {
+    const node = await db.prisma.node.findFirst({
+      where: { flowId, nodeKey },
+      select: { output: true },
+    });
+    const chosen = (node?.output as { chosen?: unknown } | null)?.chosen;
     return Array.isArray(chosen) ? chosen.map((c) => String(c)) : [];
   }
 
@@ -171,12 +178,12 @@ export class EdgeActivator {
       if (!e.condition?.trim()) return false;
     }
     if (!e.condition?.trim()) return true;
-    const r = await evalJsonata(e.condition, src.ctx ?? buildFlowContext(this.host.ctx(flowId)));
+    const r = await evalJsonata(e.condition, src.ctx ?? await buildFlowContext(await this.host.ctx(flowId)));
     if (!r.ok) {
       // a broken condition resolves the edge inactive and says so loudly —
       // the engine never silently picks a branch (§4.3)
       if (src.loud !== false) {
-        db.emitEvent(flowId, null, "error",
+        await db.emitEvent(flowId, null, "error",
           `edge ${e.from} → ${e.to}: the condition failed (${r.error}) — the branch resolves inactive`,
           { nodeKey: e.from });
       }
@@ -202,19 +209,19 @@ export class EdgeActivator {
     for (const e of incoming) {
       const src = g.byKey.get(e.from);
       if (!src) continue;
-      const st = this.host.nodeStatus(flowId, e.from);
+      const st = await this.host.nodeStatus(flowId, e.from);
       const srcSkipped = st === "skipped";
-      if (!isNodeTerminalSuccess(st) && !srcSkipped) continue;
+      if (!isNodeTerminalSuccess(st ?? "") && !srcSkipped) continue;
       resolved++;
       if (srcSkipped) continue; // skipped sources propagate inactive
-      const srcKind = this.nodeKind(g, src);
+      const srcKind = await this.nodeKind(g, src);
       if (srcKind !== "decision" && e.condition?.trim() && !ctxBuilt) {
-        flowCtx = buildFlowContext(this.host.ctx(flowId));
+        flowCtx = await buildFlowContext(await this.host.ctx(flowId));
         ctxBuilt = true;
       }
       const activeEdge = await this.edgeActive(flowId, e, {
         decision: srcKind === "decision",
-        chosen: srcKind === "decision" ? this.decisionChosen(flowId, e.from) : null,
+        chosen: srcKind === "decision" ? await this.decisionChosen(flowId, e.from) : null,
         ctx: flowCtx,
         loud: false,
       });
@@ -229,11 +236,11 @@ export class EdgeActivator {
    * propagates to its own outgoing edges (§3: skipped propagation).
    */
   private async resolveInactiveTarget(flowId: string, g: TemplateGraph, key: string): Promise<void> {
-    if (this.host.nodeStatus(flowId, key) !== "pending") return;
+    if ((await this.host.nodeStatus(flowId, key)) !== "pending") return;
     const r = await this.incomingResolution(flowId, g, key);
     if (r.total === 0 || r.resolved !== r.total || r.active > 0) return;
-    this.host.setNodeStatus(flowId, key, "skipped");
-    nodeStore.emitEvent(flowId, key, "lifecycle", `${key} skipped — no active branch leads to it`);
+    await this.host.setNodeStatus(flowId, key, "skipped");
+    await nodeStore.emitEvent(flowId, key, "lifecycle", `${key} skipped — no active branch leads to it`);
     // skipped sources propagate inactive downstream
     for (const e of g.edges.filter((e) => e.kind === "next" && e.from === key)) {
       await this.resolveInactiveTarget(flowId, g, e.to);
@@ -281,11 +288,11 @@ export class EdgeActivator {
     nodeKey: string,
     opts: { rawInput?: unknown; rawPayload?: unknown; resumeWaiting?: boolean } = {},
   ): Promise<void> {
-    const status = this.host.nodeStatus(flowId, nodeKey);
+    const status = await this.host.nodeStatus(flowId, nodeKey);
     if (opts.resumeWaiting ? status !== "waiting" : status !== "pending") return;
-    const spec = this.graph(flowId)?.byKey.get(nodeKey);
+    const spec = (await this.graph(flowId))?.byKey.get(nodeKey);
     const tt = spec?.trigger.type ?? "auto";
-    const wait = spec?.trigger.wait_for;
+    const wait = spec?.trigger.waitFor;
     if (tt === "manual") return;
     if (tt === "debounced") {
       // a debounced node holds at `waiting` until its event source's quiet
@@ -293,7 +300,7 @@ export class EdgeActivator {
       // source it never auto-starts (the SDLC scheduler drives it)
       if (!opts.resumeWaiting) {
         if (wait === "comments") {
-          this.waits.armNodeWait(flowId, nodeKey, wait, this.waits.debounceMinutesForNode(flowId, nodeKey, spec));
+          await this.waits.armNodeWait(flowId, nodeKey, wait, this.waits.debounceMinutesForNode(flowId, nodeKey, spec));
         }
         return;
       }
@@ -306,18 +313,18 @@ export class EdgeActivator {
       // wait_for event sources gate eligibility (§6) — the pipeline source is
       // the built-in gate (it runs its own wait loop when it runs)
       if (wait === "webhook" || wait === "timer") {
-        this.waits.armNodeWait(flowId, nodeKey, wait, spec?.trigger.minutes ?? null);
+        await this.waits.armNodeWait(flowId, nodeKey, wait, spec?.trigger.minutes ?? null);
         return;
       }
     }
     const claimFrom: readonly NodeStatus[] = opts.resumeWaiting ? ["waiting"] : ["pending"];
     try {
-      this.host.claimNode(flowId, nodeKey, claimFrom);
+      await this.host.claimNode(flowId, nodeKey, claimFrom);
     } catch (e: unknown) {
       if (e instanceof ConflictError) return;
       throw e;
     }
-    this.host.setCurrentNode(flowId, nodeKey);
+    await this.host.setCurrentNode(flowId, nodeKey);
     try {
       const def = this.host.defOf(flowId, nodeKey);
       // ── fan-out check (plan fan-out, Phase 1): the only engine hook into the
@@ -351,14 +358,14 @@ export class EdgeActivator {
         // knob it shadows so the trail explains the run's shape
         const shadowed = splitConsumeOf(this.host.nodeConfigFor(flowId, nodeKey));
         if (shadowed !== "whole") {
-          db.emitEvent(flowId, null, "lifecycle",
+          await db.emitEvent(flowId, null, "lifecycle",
             `${nodeKey} ignores split_consume "${shadowed}" — the fan-out knob owns this run`,
             { nodeKey });
         }
       } else {
-        const sourceKey = this.splitGateSource(flowId, nodeKey);
+        const sourceKey = await this.splitGateSource(flowId, nodeKey);
         if (sourceKey != null
-          && splitManager.expand(flowId, nodeKey, sourceKey, { consume: "per-unit" })) {
+          && (await splitManager.expand(flowId, nodeKey, sourceKey, { consume: "per-unit" }))) {
           return;
         }
       }
@@ -368,43 +375,41 @@ export class EdgeActivator {
           : // declarative nodes declare no input contract — the input IS the
             // previous node's output (merged when several edges feed in)
             def.inheritsParentInput
-            ? [{ input: this.inheritedInput(flowId, nodeKey, this.host.ctx(flowId)) }]
-            : def.triggerRuns(this.host.ctx(flowId));
+            ? [{ input: await this.inheritedInput(flowId, nodeKey, await this.host.ctx(flowId)) }]
+            : def.triggerRuns(await this.host.ctx(flowId));
       for (const run of runs) {
         run.before?.();
         await this.host.runNode(flowId, nodeKey, run.input, opts.rawPayload);
         run.after?.();
       }
-      if (fanout === "whole-wrap") stepFlows.wrapWholeOutput(flowId, nodeKey);
+      if (fanout === "whole-wrap") await stepFlows.wrapWholeOutput(flowId, nodeKey);
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : String(e);
-      db.emitEvent(flowId, null, "error", msg, { nodeKey });
-      db.run(
-        `UPDATE nodes SET status='failed', attempt_id=NULL, updated_at=$1 WHERE flow_id=$2 AND node_key=$3 AND status='running'`,
-        db.now(),
-        flowId,
-        nodeKey,
-      );
-      const failedNodeId = nodeStore.idOf(flowId, nodeKey);
+      await db.emitEvent(flowId, null, "error", msg, { nodeKey });
+      await db.prisma.node.updateMany({
+        where: { flowId, nodeKey, status: "running" },
+        data: { status: "failed", attemptId: null, updatedAt: new Date() },
+      });
+      const failedNodeId = await nodeStore.idOf(flowId, nodeKey);
       if (failedNodeId) nodeAttemptRegistry.clear(failedNodeId);
-      if (this.host.isStepChild(flowId)) {
+      if (await this.host.isStepChild(flowId)) {
         // notify hook: this failed stage runs on a step child — its parent's
         // rollup/scheduling reacts (standard failed → retry/skip)
-        stepFlows.onChildFinished(flowId);
-        splitManager.onChildFinished(flowId); // split runtime (§3) — no-op without split linkage
+        await stepFlows.onChildFinished(flowId);
+        await splitManager.onChildFinished(flowId); // split runtime (§3) — no-op without split linkage
       }
       return;
     } finally {
-      this.host.clearCurrentIf(flowId, nodeKey);
+      await this.host.clearCurrentIf(flowId, nodeKey);
     }
-    const finalStatus = this.host.nodeStatus(flowId, nodeKey);
-    if (this.host.isStepChild(flowId)) {
+    const finalStatus = await this.host.nodeStatus(flowId, nodeKey);
+    if (await this.host.isStepChild(flowId)) {
       // child-terminal notification hook (plan fan-out): the parent manager
       // reschedules the next sibling / publishes the aggregate
-      stepFlows.onChildFinished(flowId);
-      splitManager.onChildFinished(flowId); // split runtime (§3) — no-op without split linkage
+      await stepFlows.onChildFinished(flowId);
+      await splitManager.onChildFinished(flowId); // split runtime (§3) — no-op without split linkage
     }
-    if (isNodeTerminalSuccess(finalStatus)) {
+    if (isNodeTerminalSuccess(finalStatus ?? "")) {
       await this.advanceFrom(flowId, nodeKey);
     }
   }

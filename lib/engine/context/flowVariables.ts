@@ -39,11 +39,12 @@ export interface FlowContextMap extends Record<string, unknown> {
   input?: { unit: Record<string, unknown> };
 }
 
-export async function buildFlowContext(ctx: FlowCtx): FlowContextMap {
+export async function buildFlowContext(ctx: FlowCtx): Promise<FlowContextMap> {
   const nodes: Record<string, { output: unknown }> = {};
-  const rowsOut = await db.all<{ node_key: string; output: unknown }>(
-      `SELECT node_key AS "nodeKey", output FROM nodes WHERE flow_id=$1`, ctx.flow.id
-    );
+  const rowsOut = await db.prisma.node.findMany({
+    where: { flowId: ctx.flow.id },
+    select: { nodeKey: true, output: true },
+  });
   for (const r of rowsOut) {
     // db.all is the raw row — the output column is a JSON TEXT blob
     nodes[r.nodeKey] = { output: parseJsonObject(r.output) };

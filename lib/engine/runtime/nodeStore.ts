@@ -23,36 +23,34 @@ export type InsertNodeSnapshotsOptions = {
  */
 export class NodeStore {
   async idOf(flowId: string, nodeKey: string): Promise<string | null> {
-    const row = await db.get<{ id: string }>(
-      `SELECT id FROM nodes WHERE flow_id=$1 AND node_key=$2`,
-      flowId,
-      nodeKey,
-    );
+    const row = await db.prisma.node.findFirst({
+      where: { flowId, nodeKey },
+      select: { id: true },
+    });
     return row?.id ?? null;
   }
 
   async statusOf(flowId: string, nodeKey: string): Promise<NodeStatus | null> {
-    const row = await db.get<{ status: NodeStatus }>(
-      `SELECT status FROM nodes WHERE flow_id=$1 AND node_key=$2`,
-      flowId,
-      nodeKey,
-    );
+    const row = await db.prisma.node.findFirst({
+      where: { flowId, nodeKey },
+      select: { status: true },
+    });
     return row?.status ?? null;
   }
 
   async statusesOfFlow(flowId: string): Promise<NodeStatus[]> {
-    const rows = await db.all<{ status: NodeStatus }>(`SELECT status FROM nodes WHERE flow_id=$1`, flowId);
+    const rows = await db.prisma.node.findMany({
+      where: { flowId },
+      select: { status: true },
+    });
     return rows.map((n) => n.status);
   }
 
   async setStatus(flowId: string, nodeKey: string, status: NodeStatus): Promise<void> {
-    await db.run(
-      `UPDATE nodes SET status=$1, updated_at=$2 WHERE flow_id=$3 AND node_key=$4`,
-      status,
-      db.now(),
-      flowId,
-      nodeKey,
-    );
+    await db.prisma.node.updateMany({
+      where: { flowId, nodeKey },
+      data: { status, updatedAt: new Date() },
+    });
     if (status !== NODE_STATUS.RUNNING) {
       const nodeId = await this.idOf(flowId, nodeKey);
       if (nodeId) nodeAttemptRegistry.clear(nodeId);
@@ -65,18 +63,11 @@ export class NodeStore {
    */
   async claim(flowId: string, nodeKey: string, from: readonly NodeStatus[]): Promise<string> {
     const attempt = db.uid("att_");
-    const marks = from.map((_, i) => `$${i + 5}`).join(",");
-    const changes = await db.run(
-      `UPDATE nodes SET status = $1, attempt_id = $2, updated_at = $3
-       WHERE flow_id = $4 AND node_key = $5 AND status IN (${marks})`,
-      NODE_STATUS.RUNNING,
-      attempt,
-      db.now(),
-      flowId,
-      nodeKey,
-      ...from,
-    );
-    if (changes !== 1) {
+    const { count } = await db.prisma.node.updateMany({
+      where: { flowId, nodeKey, status: { in: [...from] } },
+      data: { status: NODE_STATUS.RUNNING, attemptId: attempt, updatedAt: new Date() },
+    });
+    if (count !== 1) {
       throw new ConflictError(`Node ${nodeKey} is not in ${from.join("/")}`);
     }
     return attempt;
@@ -85,7 +76,7 @@ export class NodeStore {
   async emitEvent(
     flowId: string,
     nodeKey: string | null,
-    async type: string,
+    type: string,
     message: string,
     data?: Record<string, unknown>,
   ): Promise<void> {
@@ -95,24 +86,24 @@ export class NodeStore {
 
   /** Insert node rows from a template graph snapshot (flow / step / split create). */
   async insertSnapshots(flowId: string, graph: TemplateGraph, opts: InsertNodeSnapshotsOptions = {}): Promise<void> {
-    const ts = opts.ts ?? db.now();
+    const ts = opts.ts ? new Date(opts.ts) : new Date();
     for (const spec of graph.nodes) {
       const def = nodeRegistry.resolve(spec.defKey, spec.key);
       const config = mergeConfigLayers(def.defaultConfig(), appLayerConfig(def.key), spec.config);
-      await db.run(
-        `INSERT INTO nodes (id,flow_id,node_key,type,label,config,join_mode,status,created_at,updated_at)
-         VALUES ($1,$2,$3,$4,$5,$6::jsonb,$7,$8,$9,$10)`,
-        db.uid("node_"),
-        flowId,
-        spec.key,
-        spec.defKey,
-        spec.label === def.label ? null : spec.label,
-        JSON.stringify(config),
-        spec.joinMode,
-        NODE_STATUS.PENDING,
-        ts,
-        ts,
-      );
+      await db.prisma.node.create({
+        data: {
+          id: db.uid("node_"),
+          flowId,
+          nodeKey: spec.key,
+          type: spec.defKey,
+          label: spec.label === def.label ? null : spec.label,
+          config: config as never,
+          joinMode: spec.joinMode,
+          status: NODE_STATUS.PENDING,
+          createdAt: ts,
+          updatedAt: ts,
+        },
+      });
       if (opts.provisionWebhookHooks && spec.trigger.waitFor === "webhook") {
         await hookStore.ensureForNode(flowId, spec.key);
       }

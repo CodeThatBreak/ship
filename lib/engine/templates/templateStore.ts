@@ -211,7 +211,7 @@ export class TemplateStore {
   }
 
   /** Persist the template graph snapshot taken when a flow is created. */
-  async persistFlowGraphSnapshot(flowId: string, graph: TemplateGraph): void {
+  async persistFlowGraphSnapshot(flowId: string, graph: TemplateGraph): Promise<void> {
     await db.run(
       `UPDATE flows SET template_graph=$1 WHERE id=$2`,
       serializeFlowTemplateGraph(graph),
@@ -614,7 +614,7 @@ export class TemplateStore {
       edges?: TemplateEdgeInput[];
       new_node_templates?: DraftNodeTemplateInput[];
     },
-  async ): void {
+  ): void {
     const drafts = Array.isArray(patch.new_node_templates) ? patch.new_node_templates : [];
     if (
       !drafts.length &&
@@ -672,7 +672,7 @@ export class TemplateStore {
   }
 
   /** Delete a template (built-ins are protected; in-use templates are locked). */
-  async delete(templateId: string): void {
+  async delete(templateId: string): Promise<void> {
     this.assertEditable(templateId);
     const used = db.get<{ c: number }>(
       `SELECT COUNT(*) c FROM flows WHERE template_id=$1`, templateId)?.c ?? 0;
@@ -692,7 +692,7 @@ export class TemplateStore {
       // the flow_templates delete (the FK is enforced); a stray external
       // reference detaches the row to the shared Library instead of blocking
       // the delete forever.
-      async const locals = db.all<{ id: string }>(
+      const locals = db.all<{ id: string }>(
         `SELECT id FROM node_templates WHERE template_id=$1 AND is_builtin=0`, templateId
       );
       for (const l of locals) {
@@ -746,7 +746,7 @@ export class TemplateStore {
    * without touching the graph. Positions are display metadata — no validated()
    * walk, no assertNotRunning (the flow's graph snapshot is fixed at creation).
    */
-  async updatePositions(templateId: string, positions: Record<string, { x: number; y: number }>): void {
+  async updatePositions(templateId: string, positions: Record<string, { x: number; y: number }>): Promise<void> {
     if (!this.flowTemplate(templateId)) throw new NotFoundError("template", templateId);
     this.assertEditable(templateId);
     const entries = Object.entries(positions).filter(
@@ -754,7 +754,7 @@ export class TemplateStore {
     );
     if (!entries.length) return;
     const known = db.all<{ node_key: string }>(
-      async `SELECT node_key AS "nodeKey" FROM flow_template_nodes WHERE template_id=$1`, templateId);
+      `SELECT node_key AS "nodeKey" FROM flow_template_nodes WHERE template_id=$1`, templateId);
     const keys = new Set(known.map((k) => k.nodeKey));
     const ts = db.now();
     for (const [key, pos] of entries) {
@@ -810,7 +810,7 @@ export class TemplateStore {
   createNodeTemplate(input: {
     key?: string; name: string; kind: string; icon?: string | null;
     description?: string | null; config: Record<string, unknown>;
-  async }, opts: { templateId?: string } = {}): NodeTemplateRow {
+  }, opts: { templateId?: string } = {}): NodeTemplateRow {
     const kind = (input.kind ?? "").trim();
     if (!(KINDED_NODE_TEMPLATE_KINDS as readonly string[]).includes(kind)) {
       throw new Error(`unsupported node kind "${kind}" — declarative kinds: ${KINDED_NODE_TEMPLATE_KINDS.join(", ")}`);
@@ -927,7 +927,7 @@ export class TemplateStore {
    * UNIQUE(key, version) holds — references point at the row id, so promoted
    * instances keep working untouched.
    */
-  async addToLibrary(id: string): NodeTemplateRow {
+  async addToLibrary(id: string): Promise<NodeTemplateRow> {
     const row = this.nodeTemplate(id);
     if (!row) throw new Error("node template not found");
     if (row.isBuiltin) throw new Error("built-in node templates are read-only");
@@ -948,7 +948,7 @@ export class TemplateStore {
   /** Update a declarative node template (never built-ins). */
   updateNodeTemplate(id: string, patch: {
     name?: string; description?: string | null; icon?: string | null; config?: Record<string, unknown>;
-  async }): NodeTemplateRow {
+  }): NodeTemplateRow {
     const row = this.nodeTemplate(id);
     if (!row) throw new Error("node template not found");
     if (row.isBuiltin) throw new Error("built-in node templates are read-only");
@@ -973,7 +973,7 @@ export class TemplateStore {
    */
   ensureNodeTemplate(input: {
     key?: string; name: string; kind: string; icon?: string | null; config: Record<string, unknown>;
-  async }): { id: string; created: boolean } {
+  }): { id: string; created: boolean } {
     const kind = (input.kind ?? "").trim();
     if (!(KINDED_NODE_TEMPLATE_KINDS as readonly string[]).includes(kind)) {
       throw new Error(`unsupported node kind "${kind}"`);
@@ -1005,7 +1005,7 @@ export class TemplateStore {
   }
 
   /** Delete a declarative node template when no template instance references it. */
-  async deleteNodeTemplate(id: string): void {
+  async deleteNodeTemplate(id: string): Promise<void> {
     const row = this.nodeTemplate(id);
     if (!row) throw new Error("node template not found");
     if (row.isBuiltin) throw new Error("built-in node templates are read-only");
@@ -1140,14 +1140,14 @@ export class TemplateStore {
     hookStore.syncTemplate(templateId);
     if (trigger.type === "schedule") {
       const intervalMin = typeof trigger.interval_min === "number" && trigger.interval_min > 0
-        async ? trigger.interval_min : 60;
+        ? trigger.interval_min : 60;
       const cur = db.get<{ schedule_next_at: string | null }>(
         `SELECT schedule_next_at AS "scheduleNextAt" FROM flow_templates WHERE id=$1`, templateId);
       if (cur && !cur.scheduleNextAt) {
         await db.run(`UPDATE flow_templates SET schedule_next_at=$1 WHERE id=$2`,
           new Date(Date.now() + intervalMin * 60_000).toISOString(), templateId);
       }
-    async } else {
+    } else {
       await db.run(`UPDATE flow_templates SET schedule_next_at=NULL WHERE id=$1`, templateId);
     }
   }

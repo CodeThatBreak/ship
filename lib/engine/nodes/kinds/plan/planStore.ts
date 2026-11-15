@@ -3,7 +3,7 @@ import "server-only";
 import type { FlowCtx } from '../../shared/nodeSharedExports';
 import type { NodeSupport } from '../../shared/nodeSupport';
 import { planSteps } from '../../../runtime/planStepStore';
-import { PlanStepRow, rows, type NodeRow } from '../../../../db/rows';
+import { PlanStepRow, type NodeRow } from '../../../../db/rows';
 import { type PlanInput, type PlanMeta, type PlanBranch, parsePlanArtifactMeta } from './schema';
 import type { RefinedFrom } from './constants/refine';
 import type { LatestPlan, ScopedRefine } from './types/planTypeExports';
@@ -30,8 +30,8 @@ export class PlanStore {
    * an EMPTY meta (a branchless plan) — it never throws; the scoped refine
    * falls back to the whole-plan path on that.
    */
-  latestPlan(flowId: string): LatestPlan | null {
-    const row = this.support.latestArtifact(flowId, 'plan');
+  async latestPlan(flowId: string): Promise<LatestPlan | null> {
+    const row = await this.support.latestArtifact(flowId, 'plan');
     if (!row) return null;
     let meta: PlanMeta = { steps: [], branches: [] };
     let rawMeta: Record<string, unknown> = {};
@@ -49,15 +49,15 @@ export class PlanStore {
   }
 
   /** Live checklist rows (validated) — hand edits included by construction. */
-  liveRows(flowId: string): PlanStepRow[] {
-    return rows.all(PlanStepRow, `SELECT * FROM plan_steps WHERE flow_id=? ORDER BY position, created_at`, flowId);
+  async liveRows(flowId: string): Promise<PlanStepRow[]> {
+    return planSteps.list(flowId);
   }
 
   /** Compact current-steps list from LIVE checklist rows (hand edits included). */
   stepsText(liveRows: PlanStepRow[]): string {
     if (!liveRows.length) return '(none yet)';
     return liveRows
-      .map(r => `- ${r.meta_id ?? r.id}: ${r.title}${r.detail ? ` — ${r.detail}` : ''} (${r.files?.length ?? 0} files)`)
+      .map(r => `- ${r.metaId ?? r.id}: ${r.title}${r.detail ? ` — ${r.detail}` : ''} (${r.files?.length ?? 0} files)`)
       .join('\n');
   }
 
@@ -72,11 +72,11 @@ export class PlanStore {
    * The contract: the ref'd branch of the LATEST plan version plus that
    * branch's live rows (hand edits are input by construction, §2).
    */
-  scopedRefine(flowId: string, branchRef: string): ScopedRefine | null {
-    const latest = this.latestPlan(flowId);
+  async scopedRefine(flowId: string, branchRef: string): Promise<ScopedRefine | null> {
+    const latest = await this.latestPlan(flowId);
     const branch = latest?.meta.branches.find(b => b.name === branchRef);
     if (!latest || !branch) return null;
-    return { latest, branch, liveRows: this.liveRows(flowId).filter(s => s.branch === branch.name) };
+    return { latest, branch, liveRows: (await this.liveRows(flowId)).filter(s => s.branch === branch.name) };
   }
 
   /**
@@ -93,7 +93,7 @@ export class PlanStore {
   }
 
   /** Save the plan artifact and sync the editable step checklist from it (the run path). */
-  persistPlan(args: {
+  async persistPlan(args: {
     ctx: Pick<FlowCtx, 'flow'>;
     node: NodeRow;
     userMessage: string;
@@ -102,7 +102,7 @@ export class PlanStore {
     plannerExecution?: PlannerExecution | null;
     knob: 'whole' | 'follow';
     refined?: RefinedFrom;
-  }): { art: { id: string; version: number }; stepCount: number } {
+  }): Promise<{ art: { id: string; version: number }; stepCount: number }> {
     // plan fan-out (§1 "who decides the mode"): the published execution
     // resolution rides every plan version in artifacts.meta (`execution`) —
     // precedence: the knob (whole) > the planner's follow value > whole.
@@ -122,7 +122,7 @@ export class PlanStore {
       execution = args.knob;
       source = 'knob';
     }
-    const art = this.publish(args, {
+    const art = await this.publish(args, {
       feedback: args.userMessage,
       branches: args.planMeta?.branches ?? undefined,
       steps: args.planMeta?.steps ?? undefined,
@@ -131,19 +131,19 @@ export class PlanStore {
       ...(rationale ? { execution_rationale: rationale } : {}),
       ...(args.refined ? { refinedFrom: args.refined } : {}),
     });
-    return { art, stepCount: this.syncSteps(args.ctx.flow.id, art, args.planMeta) };
+    return { art, stepCount: await this.syncSteps(args.ctx.flow.id, art, args.planMeta) };
   }
 
   /** The single artifact-write path both publish paths share. */
-  private publish(
+  private async publish(
     args: { ctx: Pick<FlowCtx, 'flow'>; node: NodeRow; text: string },
     meta: Record<string, unknown>
-  ): { id: string; version: number } {
+  ): Promise<{ id: string; version: number }> {
     return this.support.saveArtifact(args.node.id, args.ctx.flow.id, 'plan', args.text, meta);
   }
 
   /** Sync the checklist from a plan version's steps (no steps → no-op). */
-  private syncSteps(flowId: string, art: { id: string }, planMeta: PlanMeta | null): number {
+  private async syncSteps(flowId: string, art: { id: string }, planMeta: PlanMeta | null): Promise<number> {
     return planMeta?.steps?.length ? planSteps.syncFromPlan(flowId, art.id, planMeta.steps) : 0;
   }
 

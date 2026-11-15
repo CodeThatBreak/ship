@@ -10,7 +10,7 @@ import { taskRegistry } from "./registry";
 export class TaskService {
   constructor(
     private readonly database: Database,
-    async private readonly registry: TaskProviderRegistry,
+    private readonly registry: TaskProviderRegistry,
   ) {}
 
   list() {

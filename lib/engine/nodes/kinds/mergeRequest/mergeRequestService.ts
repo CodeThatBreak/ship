@@ -18,16 +18,16 @@ import { CommitError, isCommitError, isHookRejection } from "./errors";
  */
 export class MergeRequestService {
   /** Reset gate + review to pending once all branch MRs exist — skip `running`. */
-  resetGateReview(
+  async resetGateReview(
     flowId: string,
     gateKey: string | null,
     reviewKey: string | null,
-  ): void {
+  ): Promise<void> {
     for (const key of [gateKey, reviewKey]) {
       if (!key) continue;
-      const n = nodeSupport.optionalNodeByKey(flowId, key);
+      const n = await nodeSupport.optionalNodeByKey(flowId, key);
       if (!n || n.status === "running") continue;
-      if (n.status !== "pending") nodeSupport.setNode(n.id, { status: "pending" });
+      if (n.status !== "pending") await nodeSupport.setNode(n.id, { status: "pending" });
     }
   }
 
@@ -37,18 +37,18 @@ export class MergeRequestService {
     opts: {
       emitNodeKey?: string;
       gateKey?: string | null;
-      async reviewKey?: string | null;
+      reviewKey?: string | null;
       skipGateReviewReset?: boolean;
     } = {},
   ): Promise<ChangeRequest> {
     const flow = ctx.flow;
     const gitBranch = branchName
-      ? (branchStore.gitBranch(flow.id, branchName) ?? flowCtxHelper.buildBranch(ctx, branchName))
+      ? ((await branchStore.gitBranch(flow.id, branchName)) ?? flowCtxHelper.buildBranch(ctx, branchName))
       : flow.mrBranch;
     if (!gitBranch) throw new Error("no build branch to create an MR from");
 
     // Local mode: the branch may exist only in the local checkout (the agent
-    async // commits locally; a restart may have killed the run before it pushed).
+    // commits locally; a restart may have killed the run before it pushed).
     if (flowCtxHelper.execMode(ctx) === "local") {
       const lp = flowCtxHelper.localPath(ctx);
       if (lp) {
@@ -80,34 +80,36 @@ export class MergeRequestService {
       : `${ctx.task.key}: ${ctx.task.summary}`;
     if (existing.length) {
       cr = existing[0];
-    async } else {
+    } else {
       cr = await host.createChangeRequest(repoUrl, {
         sourceBranch: gitBranch,
         targetBranch: ctx.repo?.defaultBranch ?? "main",
         title: crTitle,
         description: `Implements ${ctx.task.externalUrl}\n\n${ctx.task.summary}${branchName ? `\n\nBranch: ${branchName}` : ""}`,
       });
-    async }
+    }
     const project = await host.getProject(repoUrl);
 
     if (branchName) {
       // Multi-branch: update the branch row, not the flow row
-      branchStore.upsert(flow.id, branchName, {
+      await branchStore.upsert(flow.id, branchName, {
         mrUrl: cr.webUrl,
         mrIid: cr.number,
         status: "approved",
       });
       // Ensure the host project id is set on the flow (needed by webhook/poller)
-      await db.run(`UPDATE flows SET gitlab_project_id=COALESCE(gitlab_project_id, $1), updated_at=$2 WHERE id=$3`,
-                project.id, db.now(), flow.id);
-    async } else {
-      await db.run(
-                `UPDATE flows SET mr_url=$1, mr_iid=$2, gitlab_project_id=$3, updated_at=$4 WHERE id=$5`,
-                cr.webUrl, cr.number, project.id, db.now(), flow.id
-              );
+      await db.prisma.flow.updateMany({
+        where: { id: flow.id, gitlabProjectId: null },
+        data: { gitlabProjectId: project.id, updatedAt: new Date() },
+      });
+    } else {
+      await db.prisma.flow.update({
+        where: { id: flow.id },
+        data: { mrUrl: cr.webUrl, mrIid: cr.number, gitlabProjectId: project.id, updatedAt: new Date() },
+      });
     }
     if (!opts.skipGateReviewReset) {
-      this.resetGateReview(flow.id, opts.gateKey ?? null, opts.reviewKey ?? null);
+      await this.resetGateReview(flow.id, opts.gateKey ?? null, opts.reviewKey ?? null);
     }
     await db.emitEvent(flow.id, null, "lifecycle", `Change request created: ${cr.webUrl}${branchName ? ` (${branchName})` : ""}`,
             { mrUrl: cr.webUrl, iid: cr.number, branchName: branchName ?? undefined, nodeKey: opts.emitNodeKey });

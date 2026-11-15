@@ -99,7 +99,7 @@ export class UsageTracker {
       model?: string; input?: number; output?: number; cacheRead?: number; cacheWrite?: number;
       durationMs?: number; costCents?: number; raw?: unknown;
     }
-  ): void {
+  ): Promise<void> {
     // COALESCE-backed partial update: unspecified columns keep their existing
     // value, so a duration-only touch (agent-runner after capture) can't wipe
     // the tokens/cost that were just persisted.

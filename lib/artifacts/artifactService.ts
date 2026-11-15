@@ -5,7 +5,7 @@ import { NotFoundError } from "../errors";
 import { processSingleton } from "../singleton";
 
 export class ArtifactService {
-  async get(id: string): ArtifactRowType {
+  async get(id: string): Promise<ArtifactRowType> {
     const art = await rows.get(ArtifactRow, `SELECT id, node_id AS "nodeId", flow_id AS "flowId", kind, version, content, meta, status, feedback, created_at AS "createdAt" FROM artifacts WHERE id=$1`, id);
     if (!art) {
       throw new NotFoundError("artifact", id);

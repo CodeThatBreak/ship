@@ -171,16 +171,16 @@ export class BuildNode extends AgentRunNode<BuildInput, BuildOutput> {
     };
   }
 
-  override triggerRuns(ctx: FlowCtx): NodeTriggerRun[] {
+  override async triggerRuns(ctx: FlowCtx): Promise<NodeTriggerRun[]> {
     // split child (Phase 6): the unit payload IS the run input — the plan
     // artifact reads below are parent-flow behavior only
     const unitInput = this.triggerInput(ctx);
     if (unitInput) return [{ input: unitInput }];
-    const plan = this.approvedPlan(ctx);
+    const plan = await this.approvedPlan(ctx);
     const planContent = plan.content;
 
     // carry the model selected for the plan run into the build (from plan output)
-    const planNode = this.support.nodeByType(ctx.flow.id, NODE_KEYS.PLAN);
+    const planNode = await this.support.nodeByType(ctx.flow.id, NODE_KEYS.PLAN);
     const planOutput = planNode?.output as { model?: string | null } | null;
     const planModel = planOutput?.model ?? undefined;
 
@@ -195,8 +195,10 @@ export class BuildNode extends AgentRunNode<BuildInput, BuildOutput> {
     if (branches && branches.length > 1) {
       const sorted = BuildNode.topoSortBranches(branches);
       // branch rows first (pending) — today's approvePlan behavior
-      sorted.forEach((b, i) => branchStore.upsert(ctx.flow.id, b.name, { title: b.title, order: i, status: "pending" }));
-      this.support.emitLifecycle(ctx.flow.id, null, `plan approved with ${branches.length} branches — building sequentially`,
+      for (const [i, b] of sorted.entries()) {
+        await branchStore.upsert(ctx.flow.id, b.name, { title: b.title, order: i, status: "pending" });
+      }
+      await this.support.emitLifecycle(ctx.flow.id, null, `plan approved with ${branches.length} branches — building sequentially`,
         { nodeKey: planNode?.nodeKey ?? NODE_KEYS.PLAN });
       return sorted.map((b) => ({
         input: {
@@ -204,8 +206,8 @@ export class BuildNode extends AgentRunNode<BuildInput, BuildOutput> {
           branchInfo: { name: b.name, title: b.title, scope: b.scope },
           feedback: null, model: planModel ?? null,
         },
-        before: () => branchStore.upsert(ctx.flow.id, b.name, { status: "building" }),
-        after: () => branchStore.upsert(ctx.flow.id, b.name, { status: "awaiting_approval" }),
+        before: () => { void branchStore.upsert(ctx.flow.id, b.name, { status: "building" }); },
+        after: () => { void branchStore.upsert(ctx.flow.id, b.name, { status: "awaiting_approval" }); },
       }));
     }
 
@@ -237,8 +239,8 @@ export class BuildNode extends AgentRunNode<BuildInput, BuildOutput> {
    * chain's approve path uses (the plan node's published plan artifact).
    * Shared by the engine trigger and the chat panel's first turn.
    */
-  private approvedPlan(ctx: FlowCtx): { id: string; version: number; content: string; meta: string | null } {
-    const plan = this.support.latestArtifact(ctx.flow.id, "plan", { nodeType: NODE_KEYS.PLAN });
+  private async approvedPlan(ctx: FlowCtx): Promise<{ id: string; version: number; content: string; meta: unknown }> {
+    const plan = await this.support.latestArtifact(ctx.flow.id, "plan", { nodeType: NODE_KEYS.PLAN });
     if (!plan) throw new Error("no plan to build — approve the plan first");
     return plan;
   }
@@ -264,7 +266,7 @@ export class BuildNode extends AgentRunNode<BuildInput, BuildOutput> {
 
     const { worktree, setupNote } = await this.buildRun.worktree(ctx, branch, node.id);
 
-    const prompt = this.composeBuildPrompt(ctx, config, {
+    const prompt = await this.composeBuildPrompt(ctx, config, {
       plan,
       branchInfo: input.branchInfo,
       promptOverride: input.prompt,
@@ -295,25 +297,25 @@ export class BuildNode extends AgentRunNode<BuildInput, BuildOutput> {
     ctx: FlowCtx,
     result: AgentRunResult,
     branch: string,
-    async branchInfo: BuildBranchInfo | null,
+    branchInfo: BuildBranchInfo | null,
     nodeId: string,
     runRowId: string,
   ): Promise<RunOutcome> {
     // apply the build agent's structured progress report to the plan checklist
-    planSteps.markDone(ctx.flow.id, nodeId, planSteps.parseBuildProgress(result.result ?? ""));
+    await planSteps.markDone(ctx.flow.id, nodeId, planSteps.parseBuildProgress(result.result ?? ""));
 
     const resultBranch = await this.buildRun.resultBranch(ctx, result, branch);
 
-    this.support.setFlowBranch(ctx.flow.id, resultBranch);
+    await this.support.setFlowBranch(ctx.flow.id, resultBranch);
     ctx.flow.mrBranch = resultBranch;
 
     if (branchInfo) {
-      const branchRowId = branchStore.upsert(ctx.flow.id, branchInfo.name, {
+      const branchRowId = await branchStore.upsert(ctx.flow.id, branchInfo.name, {
         title: branchInfo.title,
         status: "building",
         gitBranch: resultBranch,
       });
-      branchStore.tagRun(runRowId, branchRowId);
+      await branchStore.tagRun(runRowId, branchRowId);
     }
 
     const art = await this.buildRun.diffArtifact(ctx, nodeId, resultBranch, {
@@ -351,7 +353,7 @@ export class BuildNode extends AgentRunNode<BuildInput, BuildOutput> {
     let prompt = prompts.resolve("build_refine", {}, { feedback }, input.prompt);
     const config = this.nodeConfig(ctx);
     const gitBranch = input.branchInfo
-      ? (branchStore.gitBranch(ctx.flow.id, input.branchInfo.name)
+      ? ((await branchStore.gitBranch(ctx.flow.id, input.branchInfo.name))
           ?? this.buildRun.branchName(ctx, config, input.branchInfo.name))
       : this.buildRun.flowBranch(ctx);
     const { worktree, setupNote } = await this.buildRun.worktree(ctx, gitBranch, node.id);
@@ -371,7 +373,7 @@ export class BuildNode extends AgentRunNode<BuildInput, BuildOutput> {
       label: "build refine",
       finalize: async (result) => {
         const branch = input.branchInfo
-          ? (branchStore.gitBranch(ctx.flow.id, input.branchInfo.name)
+          ? ((await branchStore.gitBranch(ctx.flow.id, input.branchInfo.name))
               ?? (await this.buildRun.refineBranch(ctx, result)))
           : (await this.buildRun.refineBranch(ctx, result));
         const art = await this.buildRun.diffArtifact(ctx, node.id, branch ?? "", {
@@ -401,7 +403,7 @@ export class BuildNode extends AgentRunNode<BuildInput, BuildOutput> {
       const outcome = await this.run(
         ctx,
         this.inputSchema.parse({
-          plan: this.approvedPlan(ctx).content,
+          plan: (await this.approvedPlan(ctx)).content,
           prompt: content,
           promptIsBody: true,
           model: model ?? null,
@@ -417,7 +419,7 @@ export class BuildNode extends AgentRunNode<BuildInput, BuildOutput> {
    * Shared build prompt assembly for `run` and `previewPrompt` — one branch
    * name, instruction text, checklist block, and resolve/assemble path.
    */
-  private composeBuildPrompt(
+  private async composeBuildPrompt(
     ctx: FlowCtx,
     config: Record<string, unknown>,
     args: {
@@ -427,12 +429,12 @@ export class BuildNode extends AgentRunNode<BuildInput, BuildOutput> {
       promptIsBody?: boolean;
       setupNote: string | null;
     },
-  ): string {
-    const built = this.buildPromptAssembly(ctx, config, args);
+  ): Promise<string> {
+    const built = await this.buildPromptAssembly(ctx, config, args);
     return built.assembly.final;
   }
 
-  private buildPromptAssembly(
+  private async buildPromptAssembly(
     ctx: FlowCtx,
     config: Record<string, unknown>,
     args: {
@@ -442,7 +444,7 @@ export class BuildNode extends AgentRunNode<BuildInput, BuildOutput> {
       promptIsBody?: boolean;
       setupNote: string | null;
     },
-  ): { configBody: string | null; assembly: ReturnType<typeof prompts.assemblePrompt> } {
+  ): Promise<{ configBody: string | null; assembly: ReturnType<typeof prompts.assemblePrompt> }> {
     const branchSuffix = args.branchInfo?.name;
     const branch = this.buildRun.branchName(ctx, config, branchSuffix);
     const mode = this.ctxHelper.execMode(ctx);
@@ -458,7 +460,7 @@ export class BuildNode extends AgentRunNode<BuildInput, BuildOutput> {
       : `Implement the following approved plan for a ${ticketType} ticket. Make the code changes, commit them, and push to a feature branch. Do NOT open a merge request yet.`;
     instructions += this.buildRun.setupAdvisory(args.setupNote);
 
-    const checklistRows = planSteps.markdown(ctx.flow.id, args.branchInfo?.name ?? null);
+    const checklistRows = await planSteps.markdown(ctx.flow.id, args.branchInfo?.name ?? null);
     const checklist = checklistRows
       ? [
           `## Plan checklist`,
@@ -519,12 +521,12 @@ export class BuildNode extends AgentRunNode<BuildInput, BuildOutput> {
    * Live prompt preview: same branch/instructions/checklist path as `run`.
    * Worktree setup notes appear only after a worktree exists (null beforehand).
    */
-  previewPrompt(ctx: FlowCtx, node: NodeRow | null, _params: PromptPreviewParams): NodePromptPreview | null {
+  override async previewPrompt(ctx: FlowCtx, node: NodeRow | null, _params: PromptPreviewParams): Promise<NodePromptPreview | null> {
     const config = nodeRoles.previewConfig(this, node);
-    const planRow = this.support.latestArtifact(ctx.flow.id, "plan");
+    const planRow = await this.support.latestArtifact(ctx.flow.id, "plan");
     const planContent = planRow?.content ?? "(no plan yet)";
     const configBody = configString(config, "prompt_body") ?? null;
-    const { configBody: resolvedBody, assembly } = this.buildPromptAssembly(ctx, config, {
+    const { configBody: resolvedBody, assembly } = await this.buildPromptAssembly(ctx, config, {
       plan: planContent,
       branchInfo: null,
       promptOverride: configBody,

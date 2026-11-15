@@ -138,7 +138,7 @@ export class JiraTaskProvider extends TaskProvider implements TaskInstanceStore 
    */
   private async expandParents(issues: JiraIssue[]): Promise<JiraIssue[]> {
     const byKey = new Map(issues.map((i) => [i.key, i]));
-    async let frontier = issues
+    let frontier = issues
       .map((i) => i.parentKey)
       .filter((k) => k && !byKey.has(k));
     for (let depth = 0; depth < 5 && frontier.length; depth++) {
@@ -265,7 +265,7 @@ export class JiraTaskProvider extends TaskProvider implements TaskInstanceStore 
         `Jira search failed (${res.status}): ${truncateUpstreamBody(await res.text())}`,
         res.status,
       );
-    async }
+    }
     const data = (await res.json()) as { issues?: unknown[] };
     const rawIssues = data.issues ?? [];
     if (rawIssues.length === 0) {
@@ -293,7 +293,7 @@ export class JiraTaskProvider extends TaskProvider implements TaskInstanceStore 
   }
 
   /** Upsert one issue as a task row (idempotent on key) and return its row id. */
-  private async upsert(issue: JiraIssue, ts: string): string {
+  private async upsert(issue: JiraIssue, ts: string): Promise<string> {
     const fields = JSON.stringify({ prd: issue.prdText, figma_urls: issue.figmaUrls });
     const existing = await db.get<{ id: string }>(`SELECT id FROM tasks WHERE key=$1`, issue.key);
     if (existing) {

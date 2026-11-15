@@ -278,7 +278,7 @@ async
       // its MR-head movement lands inside this run's verified delta)
       const lp = this.ctxHelper.localPath(ctx);
       if (lp) {
-        async const ahead = await localGit
+        const ahead = await localGit
           .localBranchState(lp, mrBranch, ctx.repo?.defaultBranch ?? "main")
           .catch(() => null);
         if (ahead && ahead.unpushedAhead > 0) {

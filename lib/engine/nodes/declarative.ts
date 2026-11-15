@@ -19,7 +19,7 @@ const DeclarativeRowSchema = z.object({
   config: z.unknown(),
 });
 
-const loadRow = async (defKey: string): DeclarativeRow | undefined => {
+const loadRow = async (defKey: string): Promise<DeclarativeRow | undefined> => {
   const decode = (r: Record<string, unknown> | undefined): DeclarativeRow | undefined => {
     if (!r) return undefined;
     let row = r;
@@ -33,14 +33,16 @@ const loadRow = async (defKey: string): DeclarativeRow | undefined => {
     const parsed = DeclarativeRowSchema.safeParse(row);
     return parsed.success ? parsed.data : undefined;
   };
-  const byId = await db.get<Record<string, unknown>>(
-      `SELECT id, name, description, kind, config FROM node_templates WHERE id=$1`, defKey
-    );
-  if (byId) return decode(byId);
-  const byKey = await db.get<Record<string, unknown>>(
-      `SELECT id, name, description, kind, config FROM node_templates WHERE key=$1 AND is_builtin=0`, defKey
-    );
-  return decode(byKey);
+  const byId = await db.prisma.nodeTemplate.findUnique({
+    where: { id: defKey },
+    select: { id: true, name: true, description: true, kind: true, config: true },
+  });
+  if (byId) return decode(byId as Record<string, unknown>);
+  const byKey = await db.prisma.nodeTemplate.findFirst({
+    where: { key: defKey, isBuiltin: false },
+    select: { id: true, name: true, description: true, kind: true, config: true },
+  });
+  return decode(byKey as Record<string, unknown> | undefined);
 };
 
 export const instantiateDeclarative = (
@@ -49,15 +51,15 @@ export const instantiateDeclarative = (
 ): NodeDefinition<unknown, Record<string, unknown>> | undefined =>
   declarativeKindRegistry.instantiate(row, inst);
 
-export const declarativeDef = (
+export const declarativeDef = async (
   defKey: string,
   inst?: string,
-): NodeDefinition<unknown, Record<string, unknown>> | undefined => {
+): Promise<NodeDefinition<unknown, Record<string, unknown>> | undefined> => {
   const ck = declarativeDefCache.cacheKey(defKey, inst);
   const hit = declarativeDefCache.get(ck);
   if (hit) return hit;
 
-  const row = loadRow(defKey);
+  const row = await loadRow(defKey);
   if (!row) return undefined;
   const def = instantiateDeclarative(row, inst);
   if (!def) return undefined;

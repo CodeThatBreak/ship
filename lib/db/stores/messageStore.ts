@@ -2,13 +2,10 @@ import "server-only";
 
 import { MessageRow } from "../rows";
 import type { Database } from "../database";
-import type { RowGateway } from "../rows";
 
+/** Chat thread between the developer and the node agents. */
 export class MessageStore {
-  constructor(
-    private readonly db: Database,
-    private readonly rows: RowGateway,
-  ) {}
+  constructor(private readonly db: Database) {}
 
   async addMessage(
     flowId: string,
@@ -17,26 +14,30 @@ export class MessageStore {
     content: string,
     thread?: string | null,
   ): Promise<void> {
-    await this.db.run(
-      `INSERT INTO messages (id, flow_id, node_key, thread, role, content, created_at)
-       VALUES ($1,$2,$3,$4,$5,$6,$7)`,
-      this.db.uid("msg_"),
-      flowId,
-      nodeKey,
-      thread ?? null,
-      role,
-      content,
-      this.db.now(),
-    );
+    await this.db.prisma.message.create({
+      data: {
+        id: this.db.uid("msg_"),
+        flowId,
+        nodeKey,
+        thread: thread ?? null,
+        role: role as never,
+        content,
+        createdAt: new Date(),
+      },
+    });
   }
 
-  listMessages(flowId: string) {
-    return this.rows.all(
-      MessageRow,
-      `SELECT id, flow_id AS "flowId", node_key AS "nodeKey", thread, role, content,
-              created_at AS "createdAt"
-       FROM messages WHERE flow_id=$1 ORDER BY created_at, id`,
-      flowId,
-    );
+  async listMessages(flowId: string) {
+    const rows = await this.db.prisma.message.findMany({
+      where: { flowId },
+      orderBy: [{ createdAt: "asc" }, { id: "asc" }],
+    });
+    const decoded: MessageRow[] = [];
+    for (const raw of rows) {
+      const result = MessageRow.safeParse(raw);
+      if (result.success) decoded.push(result.data);
+      else console.error("[rows] skipping undecodable row", { rowId: raw.id, issues: result.error.issues });
+    }
+    return decoded;
   }
 }

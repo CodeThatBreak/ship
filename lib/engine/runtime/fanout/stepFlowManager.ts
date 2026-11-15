@@ -604,7 +604,7 @@ export class StepFlowManager {
    * generic approve when a step child's node reached a terminal state.
    * Early-returns unless the whole child is terminal, then reschedules.
    */
-  async onChildFinished(childFlowId: string): void {
+  async onChildFinished(childFlowId: string): Promise<void> {
     const link = db.get<{ flow_id: string }>(`SELECT flow_id AS "flowId" FROM plan_steps WHERE sub_flow_id=$1`, childFlowId);
     if (!link) return;
     const payload = this.childPayload(childFlowId);
@@ -974,7 +974,7 @@ export class StepFlowManager {
    * merge-failure path — a plain build failure with no merge row keeps
    * routing to the standard node retry).
    */
-  async resumeMergeRetry(parentFlowId: string, childFlowId: string): boolean {
+  async resumeMergeRetry(parentFlowId: string, childFlowId: string): Promise<boolean> {
     const row = db.get<{ id: string }>(
       `SELECT id FROM step_merges WHERE flow_id=$1 AND status IN ('conflict','rejected','failed') ORDER BY created_at DESC LIMIT 1`,
       childFlowId);
