@@ -83,6 +83,6 @@ describe("prismaSchemaCasing", () => {
     for (const en of ["node_status", "run_status", "flow_status", "artifact_status"]) {
       expect(text).toContain(`@@map("${en}")`);
     }
-    expect(text).toMatch(/SKIPPED\s+@map\("skipped"\)/);
+    expect(text).toMatch(/enum NodeStatus\s*\{[^}]*\bskipped\b/);
   });
 });

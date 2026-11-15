@@ -15,110 +15,112 @@ datasource db {
 
 // ── enums ────────────────────────────────────────────────────────────────────
 
+// Enum members are declared lowercase so the TypeScript values equal the DB
+// labels — call sites keep their string vocabulary, zero-ripple (Q11).
 enum FlowStatus {
-  ACTIVE   @map("active")
-  DONE     @map("done")
-  FAILED   @map("failed")
-  SKIPPED  @map("skipped")
+  active
+  done
+  failed
+  skipped
 
   @@map("flow_status")
 }
 
 enum FlowKind {
-  SDLC   @map("sdlc")
-  STEP   @map("step")
-  SPLIT  @map("split")
+  sdlc
+  step
+  split
 
   @@map("flow_kind")
 }
 
 enum NodeStatus {
-  PENDING            @map("pending")
-  WAITING            @map("waiting")
-  RUNNING            @map("running")
-  AWAITING_APPROVAL  @map("awaiting_approval")
-  APPROVED           @map("approved")
-  DONE               @map("done")
-  FAILED             @map("failed")
-  SKIPPED            @map("skipped")
+  pending
+  waiting
+  running
+  awaiting_approval
+  approved
+  done
+  failed
+  skipped
 
   @@map("node_status")
 }
 
 enum ArtifactStatus {
-  DRAFT       @map("draft")
-  APPROVED    @map("approved")
-  SUPERSEDED  @map("superseded")
+  draft
+  approved
+  superseded
 
   @@map("artifact_status")
 }
 
 enum CommentStatus {
-  OPEN       @map("open")
-  RESOLVING  @map("resolving")
-  RESOLVED   @map("resolved")
-  WONTFIX    @map("wontfix")
+  open
+  resolving
+  resolved
+  wontfix
 
   @@map("comment_status")
 }
 
 enum PlanStepStatus {
-  PENDING  @map("pending")
-  DONE     @map("done")
+  pending
+  done
 
   @@map("plan_step_status")
 }
 
 enum BranchStatus {
-  PENDING            @map("pending")
-  BUILDING           @map("building")
-  AWAITING_APPROVAL  @map("awaiting_approval")
-  APPROVED           @map("approved")
-  FAILED             @map("failed")
-  DONE               @map("done")
+  pending
+  building
+  awaiting_approval
+  approved
+  failed
+  done
 
   @@map("branch_status")
 }
 
 enum RunStatus {
-  RUNNING    @map("running")
-  FINISHED   @map("finished")
-  ERROR      @map("error")
-  CANCELLED  @map("cancelled")
+  running
+  finished
+  error
+  cancelled
 
   @@map("run_status")
 }
 
 enum StepMergeStatus {
-  RUNNING   @map("running")
-  CONFLICT  @map("conflict")
-  REJECTED  @map("rejected")
-  MERGED    @map("merged")
-  FAILED    @map("failed")
+  running
+  conflict
+  rejected
+  merged
+  failed
 
   @@map("step_merge_status")
 }
 
 enum MessageRole {
-  USER       @map("user")
-  ASSISTANT  @map("assistant")
+  user
+  assistant
 
   @@map("message_role")
 }
 
 enum NodeTemplateKind {
-  BUILTIN   @map("builtin")
-  AGENT     @map("agent")
-  HTTP      @map("http")
-  SCRIPT    @map("script")
-  DECISION  @map("decision")
+  builtin
+  agent
+  http
+  script
+  decision
 
   @@map("node_template_kind")
 }
 
 enum EdgeKind {
-  NEXT  @map("next")
-  LOOP  @map("loop")
+  next
+  loop
 
   @@map("edge_kind")
 }
@@ -152,7 +154,7 @@ model Flow {
   id              String    @id
   taskId          String    @map("task_id")
   name            String
-  status          FlowStatus @default(ACTIVE)
+  status          FlowStatus @default(active)
   mrUrl           String?   @map("mr_url")
   mrIid           Int?      @map("mr_iid")
   mrBranch        String?   @map("mr_branch")
@@ -166,7 +168,7 @@ model Flow {
   triggerPayload  Json?     @map("trigger_payload")
   worktreeDir     String?   @map("worktree_dir")
   parentFlowId    String?   @map("parent_flow_id")
-  kind            FlowKind  @default(SDLC)
+  kind            FlowKind  @default(sdlc)
   createdAt       DateTime  @map("created_at") @db.Timestamptz
   updatedAt       DateTime  @map("updated_at") @db.Timestamptz
 
@@ -203,7 +205,7 @@ model Node {
   flowId         String     @map("flow_id")
   nodeKey        String     @map("node_key")
   type           String // node template key (def key for built-ins)
-  status         NodeStatus @default(PENDING)
+  status         NodeStatus @default(pending)
   attemptId      String?    @map("attempt_id")
   agentId        String?    @map("agent_id")
   agentRef       String?    @map("agent_ref")
@@ -235,7 +237,7 @@ model Artifact {
   version   Int
   content   String
   meta      Json?
-  status    ArtifactStatus @default(DRAFT)
+  status    ArtifactStatus @default(draft)
   feedback  String?
   createdAt DateTime       @map("created_at") @db.Timestamptz
 
@@ -258,7 +260,7 @@ model Comment {
   body         String?
   filePath     String?       @map("file_path")
   line         Int?
-  status       CommentStatus @default(OPEN)
+  status       CommentStatus @default(open)
   resolvedBy   String?       @map("resolved_by")
   raw          String?
   createdAt    DateTime      @map("created_at") @db.Timestamptz
@@ -317,7 +319,7 @@ model PlanStep {
   detail      String?
   files       Json?
   branch      String?
-  status      PlanStepStatus @default(PENDING)
+  status      PlanStepStatus @default(pending)
   origin      String        @default("agent")
   completedBy String?       @map("completed_by")
   subFlowId   String?       @map("sub_flow_id")
@@ -341,7 +343,7 @@ model Branch {
   name      String
   gitBranch String?      @map("git_branch")
   title     String?
-  status    BranchStatus @default(PENDING)
+  status    BranchStatus @default(pending)
   mrUrl     String?      @map("mr_url")
   mrIid     Int?         @map("mr_iid")
   order     Int          @default(0)
@@ -366,7 +368,7 @@ model Run {
   agentRef        String    @map("agent_ref")
   runRef          String    @map("run_ref")
   branchId        String?   @map("branch_id")
-  status          RunStatus @default(RUNNING)
+  status          RunStatus @default(running)
   model           String?
   inputTokens     Int?      @map("input_tokens")
   outputTokens    Int?      @map("output_tokens")
@@ -515,7 +517,7 @@ model FlowTemplateEdge {
   templateId String   @map("template_id")
   fromKey    String   @map("from_key")
   toKey      String   @map("to_key")
-  kind       EdgeKind @default(NEXT)
+  kind       EdgeKind @default(next)
   label      String?
   condition  String?
   createdAt  DateTime @map("created_at") @db.Timestamptz
@@ -580,7 +582,7 @@ model StepMerge {
   parentFlowId String          @map("parent_flow_id")
   parentNode   String          @map("parent_node")
   branch       String?
-  status       StepMergeStatus @default(RUNNING)
+  status       StepMergeStatus @default(running)
   attempts     Int             @default(0)
   error        String?
   createdAt    DateTime        @map("created_at") @db.Timestamptz
