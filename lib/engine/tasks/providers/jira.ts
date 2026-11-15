@@ -293,26 +293,26 @@ export class JiraTaskProvider extends TaskProvider implements TaskInstanceStore 
   }
 
   /** Upsert one issue as a task row (idempotent on key) and return its row id. */
-  private upsert(issue: JiraIssue, ts: string): string {
+  private async upsert(issue: JiraIssue, ts: string): string {
     const fields = JSON.stringify({ prd: issue.prdText, figma_urls: issue.figmaUrls });
-    const existing = db.get<{ id: string }>(`SELECT id FROM tasks WHERE key=$1`, issue.key);
+    const existing = await db.get<{ id: string }>(`SELECT id FROM tasks WHERE key=$1`, issue.key);
     if (existing) {
-      db.run(
-        `UPDATE tasks SET summary=$1,description=$2,status=$3,issue_type=$4,priority=$5,external_url=$6,parent_key=$7,raw=$8,fields=$9,synced_at=$10 WHERE key=$11`,
-        issue.summary, issue.description, issue.status, issue.issueType, issue.priority,
-        issue.externalUrl, issue.parentKey || null,
-        JSON.stringify(issue.raw), fields, ts, issue.key
-      );
+      await db.run(
+                `UPDATE tasks SET summary=$1,description=$2,status=$3,issue_type=$4,priority=$5,external_url=$6,parent_key=$7,raw=$8,fields=$9,synced_at=$10 WHERE key=$11`,
+                issue.summary, issue.description, issue.status, issue.issueType, issue.priority,
+                issue.externalUrl, issue.parentKey || null,
+                JSON.stringify(issue.raw), fields, ts, issue.key
+              );
       return existing.id;
     }
-    db.run(
-      `INSERT INTO tasks (id,key,summary,description,status,issue_type,priority,repo_url,parent_key,external_url,raw,fields,type,synced_at)
+    await db.run(
+            `INSERT INTO tasks (id,key,summary,description,status,issue_type,priority,repo_url,parent_key,external_url,raw,fields,type,synced_at)
        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,'jira',$13) ON CONFLICT DO NOTHING`,
-      db.uid("task_"), issue.key, issue.summary, issue.description, issue.status, issue.issueType,
-      issue.priority, null,
-      issue.parentKey || null, issue.externalUrl, JSON.stringify(issue.raw), fields, ts
-    );
-    const row = db.get<{ id: string }>(`SELECT id FROM tasks WHERE key=$1`, issue.key);
+            db.uid("task_"), issue.key, issue.summary, issue.description, issue.status, issue.issueType,
+            issue.priority, null,
+            issue.parentKey || null, issue.externalUrl, JSON.stringify(issue.raw), fields, ts
+          );
+    const row = await db.get<{ id: string }>(`SELECT id FROM tasks WHERE key=$1`, issue.key);
     if (!row) throw new Error(`failed to insert task row for ${issue.key}`);
     return row.id;
   }

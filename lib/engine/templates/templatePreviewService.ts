@@ -28,11 +28,11 @@ const sampleValue = (type: unknown): unknown => {
 };
 
 export class TemplatePreviewService {
-  private sampleContext(templateId: string): FlowContextMap {
-    const tpl = db.get<{ trigger: string | null }>(
-      `SELECT trigger FROM flow_templates WHERE id=$1`,
-      templateId,
-    );
+  private async sampleContext(templateId: string): FlowContextMap {
+    const tpl = await db.get<{ trigger: string | null }>(
+          `SELECT trigger FROM flow_templates WHERE id=$1`,
+          templateId,
+        );
     const trigger = (() => {
       try {
         return tpl?.trigger ? JSON.parse(tpl.trigger) : {};
@@ -59,15 +59,15 @@ export class TemplatePreviewService {
     };
 
     const nodes: Record<string, { output: unknown }> = {};
-    const nodeRows = db.all<{ node_key: string; node_template_id: string; config: string | null }>(
-      `SELECT node_key AS "nodeKey", node_template_id AS "nodeTemplateId",, config FROM flow_template_nodes WHERE template_id=$1`,
-      templateId,
-    );
+    const nodeRows = await db.all<{ node_key: string; node_template_id: string; config: string | null }>(
+          `SELECT node_key AS "nodeKey", node_template_id AS "nodeTemplateId",, config FROM flow_template_nodes WHERE template_id=$1`,
+          templateId,
+        );
     for (const r of nodeRows) {
-      const nt = db.get<{ kind: string; config: string | null }>(
-        `SELECT kind, config FROM node_templates WHERE id=$1`,
-        r.node_template_id,
-      );
+      const nt = await db.get<{ kind: string; config: string | null }>(
+              `SELECT kind, config FROM node_templates WHERE id=$1`,
+              r.node_template_id,
+            );
       if (!nt) continue;
       let instConfig: unknown = {};
       try {
@@ -109,15 +109,15 @@ export class TemplatePreviewService {
     };
   }
 
-  private sampleTriggerPayload(templateId: string): Record<string, unknown> {
+  private async sampleTriggerPayload(templateId: string): Record<string, unknown> {
     const entryKey = nodeRegistry.entryKey();
-    const row = db.get<{ config: string | null }>(
-      `SELECT n.config FROM flow_template_nodes n
+    const row = await db.get<{ config: string | null }>(
+          `SELECT n.config FROM flow_template_nodes n
      JOIN node_templates t ON t.id = n.node_template_id
      WHERE n.template_id=$1 AND t.key=$2`,
-      templateId,
-      entryKey,
-    );
+          templateId,
+          entryKey,
+        );
     if (!row?.config) return {};
     let config: unknown = {};
     try {
@@ -149,10 +149,10 @@ export class TemplatePreviewService {
     let context: unknown;
     let source: "run" | "sample" = "sample";
     if (scope === "context") {
-      const flow = db.get<{ id: string }>(
-        `SELECT id FROM flows WHERE template_id=$1 ORDER BY updated_at DESC LIMIT 1`,
-        templateId,
-      );
+      const flow = await db.get<{ id: string }>(
+              `SELECT id FROM flows WHERE template_id=$1 ORDER BY updated_at DESC LIMIT 1`,
+              templateId,
+            );
       if (flow) {
         try {
           context = buildFlowContext(flowEngine.ctx(flow.id));

@@ -175,7 +175,7 @@ export function lintNodeTrigger(
  * The problems are also returned structured (where / ref / message) for the
  * live validation endpoint.
  */
-export function lintTemplate(
+export async function lintTemplate(
   nodes: LintNode[],
   edges: { from: string; to: string; condition: string | null; label: string | null; kind: string }[],
   catalog: Record<string, CatalogEntry>, // nodeTemplateId → entry
@@ -249,7 +249,7 @@ export function lintTemplate(
     for (const n of fanoutNodes) {
       const cfg = fanoutOf(merge(catalog[n.nodeTemplateId]?.config, n.config));
       if (!cfg.child) continue;
-      const child = db.get<{ id: string }>(`SELECT id FROM flow_templates WHERE id=$1`, cfg.child);
+      const child = await db.get<{ id: string }>(`SELECT id FROM flow_templates WHERE id=$1`, cfg.child);
       if (!child) {
         problems.push({
           where: `node "${n.key}"`,
@@ -258,8 +258,8 @@ export function lintTemplate(
         });
         continue;
       }
-      const childNodes = db.all<{ key: string; kind: string; nt_key: string; config: string | null; node_template_id: string }>(
-        `SELECT n.node_key AS key, nt.kind AS kind, nt.key AS nt_key, n.config AS config, n.node_template_id AS node_template_id
+      const childNodes = await db.all<{ key: string; kind: string; nt_key: string; config: string | null; node_template_id: string }>(
+              `SELECT n.node_key AS key, nt.kind AS kind, nt.key AS nt_key, n.config AS config, n.node_template_id AS node_template_id
          FROM flow_template_nodes n JOIN node_templates nt ON nt.id = n.node_template_id
          WHERE n.template_id=$1`, cfg.child);
       if (childNodes.length !== 1) {
@@ -529,14 +529,14 @@ function lintTaskRef(where: string, segments: string[], ref: string, ctx: LintCt
  */
 const lintSplitTargetLookup: SplitTargetLookup = {
   isNodeKey: (key) => nodeRegistry.has(key),
-  template: (idOrKey) => {
-    const byId = db.get<{ id: string; is_builtin: number }>(
-      `SELECT id, is_builtin AS "isBuiltin" FROM node_templates WHERE id=$1`, idOrKey,
-    );
+  template: async (idOrKey) => {
+    const byId = await db.get<{ id: string; is_builtin: number }>(
+          `SELECT id, is_builtin AS "isBuiltin" FROM node_templates WHERE id=$1`, idOrKey,
+        );
     if (byId) return { id: byId.id };
-    const byKey = db.get<{ id: string; is_builtin: number }>(
-      `SELECT id, is_builtin AS "isBuiltin" FROM node_templates WHERE key=$1`, idOrKey,
-    );
+    const byKey = await db.get<{ id: string; is_builtin: number }>(
+          `SELECT id, is_builtin AS "isBuiltin" FROM node_templates WHERE key=$1`, idOrKey,
+        );
     return byKey && byKey.is_builtin === 0 ? { id: byKey.id } : null;
   },
 };
@@ -551,7 +551,7 @@ const lintSplitTargetLookup: SplitTargetLookup = {
  * the concrete item). Every check free-passes when it can't know (no output
  * schema, permissive element shape) — the runtime re-checks with real data.
  */
-function lintAgentSplit(
+async function lintAgentSplit(
   cfg: Record<string, unknown>,
   where: string,
   nodeKey: string,
@@ -615,9 +615,9 @@ function lintAgentSplit(
     try {
       const resolved = resolveSplitTarget(target, lintSplitTargetLookup);
       if (resolved.kind === "template" && elementKeys != null) {
-        const row = db.get<{ config: string | null }>(
-          `SELECT config FROM node_templates WHERE id=$1`, resolved.id,
-        );
+        const row = await db.get<{ config: string | null }>(
+                  `SELECT config FROM node_templates WHERE id=$1`, resolved.id,
+                );
         const fields = parseStartContract(parseObject(row?.config));
         if (fields.length) {
           const missing = fields.filter((f) => f.required && !elementKeys.includes(f.key)).map((f) => f.key);
@@ -694,12 +694,12 @@ function parseObject(raw: unknown): Record<string, unknown> {
 /**
  * Catalog entries behind a template draft, straight off node_templates rows.
  */
-export function catalogForNodeTemplateIds(ids: string[]): Record<string, { kind: string; config: unknown; key: string; isBuiltin: boolean }> {
+export async function catalogForNodeTemplateIds(ids: string[]): Record<string, { kind: string; config: unknown; key: string; isBuiltin: boolean }> {
   const out: Record<string, { kind: string; config: unknown; key: string; isBuiltin: boolean }> = {};
   for (const id of ids) {
-    const row = db.get<{ id: string; key: string; kind: string; config: string | null; is_builtin: number }>(
-      `SELECT id, key, kind, config, is_builtin AS "isBuiltin" FROM node_templates WHERE id=$1`, id
-    );
+    const row = await db.get<{ id: string; key: string; kind: string; config: string | null; is_builtin: number }>(
+          `SELECT id, key, kind, config, is_builtin AS "isBuiltin" FROM node_templates WHERE id=$1`, id
+        );
     if (!row) continue;
     let config: unknown = {};
     if (row.config) {

@@ -47,9 +47,9 @@ export type WorktreeStatusEntry = {
 
 export class WorktreeStatusService {
   async statusesForActiveFlows(): Promise<Record<string, WorktreeStatusEntry>> {
-    const flowRows = db.all<FlowWorktreeRow>(
-      `SELECT id, worktree_dir AS "worktreeDir",, mr_branch AS "mrBranch",, repo_id AS "repoId" FROM flows WHERE worktree_dir IS NOT NULL`,
-    );
+    const flowRows = await db.all<FlowWorktreeRow>(
+          `SELECT id, worktree_dir AS "worktreeDir",, mr_branch AS "mrBranch",, repo_id AS "repoId" FROM flows WHERE worktree_dir IS NOT NULL`,
+        );
     const byRepo = new Map<string, FlowWorktreeRow[]>();
     const noRepo: FlowWorktreeRow[] = [];
     for (const f of flowRows) {
@@ -72,7 +72,7 @@ export class WorktreeStatusService {
     }
 
     await mapPool([...byRepo.entries()], GIT_CONCURRENCY, async ([repoId, flows]) => {
-      const repo = db.repoById(repoId);
+      const repo = await db.repoById(repoId);
       if (!repo?.local_path) {
         for (const f of flows) {
           out[f.id] = {

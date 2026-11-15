@@ -104,9 +104,9 @@ export class SdlcChain {
         // — those nodes carry their own failed status + Retry.)
         const msg = e instanceof Error ? e.message : String(e);
         const mrError = toMrCreationFailure(e);
-        db.emitEvent(flowId, null, EVENT_KIND.MR_FAILED,
-          `MR creation failed: ${mrError.message} — fix the issue, then click "Approve & create MR" again to retry`,
-          { branchName, nodeKey: buildKey, detail: msg !== mrError.message ? msg : undefined });
+        await db.emitEvent(flowId, null, EVENT_KIND.MR_FAILED,
+                    `MR creation failed: ${mrError.message} — fix the issue, then click "Approve & create MR" again to retry`,
+                    { branchName, nodeKey: buildKey, detail: msg !== mrError.message ? msg : undefined });
         this.host.setNodeStatus(flowId, buildKey, "awaiting_approval");
         this.host.setCurrentNode(flowId, null);
       }
@@ -126,9 +126,9 @@ export class SdlcChain {
     maxAttempts: number,
     error: CommitError,
   ): Promise<void> {
-    db.emitEvent(flowId, null, EVENT_KIND.LIFECYCLE,
-      `push rejected — running a commit-fix agent on the build step (attempt ${attempt}/${maxAttempts})`,
-      { nodeKey: buildKey });
+    await db.emitEvent(flowId, null, EVENT_KIND.LIFECYCLE,
+            `push rejected — running a commit-fix agent on the build step (attempt ${attempt}/${maxAttempts})`,
+            { nodeKey: buildKey });
     this.host.setCurrentNode(flowId, buildKey);
     this.host.claimNode(flowId, buildKey, ["approved"]);
     try {

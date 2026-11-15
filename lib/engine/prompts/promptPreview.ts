@@ -59,21 +59,21 @@ export type AllPromptsResult =
   | PromptFailure;
 
 export class PromptPreview {
-  previewFor(flowId: string, url: URL): Promise<PromptPreviewResult> {
+  async previewFor(flowId: string, url: URL): Promise<PromptPreviewResult> {
     const nodeKey = url.searchParams.get("node") ?? "";
     const params: PromptPreviewParams = {
       instructions: url.searchParams.get("instructions") ?? undefined,
       branch: url.searchParams.get("branch") ?? undefined,
     };
 
-    const flow = rows.get(FlowRow, `SELECT * FROM flows WHERE id=?`, flowId);
+    const flow = await rows.get(FlowRow, `SELECT * FROM flows WHERE id=?`, flowId);
     if (!flow) return this.notFound("flow not found");
-    const task = rows.get(Task, `SELECT * FROM tasks WHERE id=?`, flow.task_id);
+    const task = await rows.get(Task, `SELECT * FROM tasks WHERE id=?`, flow.task_id);
     if (!task) return this.notFound("task not found");
-    const repo = flow.repo_id ? db.repoById(flow.repo_id) ?? null : null;
+    const repo = flow.repo_id ? await db.repoById(flow.repo_id) ?? null : null;
     const ctx: FlowCtx = { flow, task, repo };
 
-    const node = rows.get(NodeRow, `SELECT * FROM nodes WHERE flow_id=? AND node_key=?`, flowId, nodeKey) ?? null;
+    const node = await rows.get(NodeRow, `SELECT * FROM nodes WHERE flow_id=? AND node_key=?`, flowId, nodeKey) ?? null;
     const def = this.defFor(flowId, nodeKey, node);
     // §T4: the preview role is routed through the role router — defs without
     // a previewable prompt (agent kinds leave it to the phase-2 work) decline.
@@ -107,15 +107,15 @@ export class PromptPreview {
    * the single-node route's rejection of unsupported nodes.
    */
   async allFor(flowId: string): Promise<AllPromptsResult> {
-    const flow = rows.get(FlowRow, `SELECT * FROM flows WHERE id=?`, flowId);
+    const flow = await rows.get(FlowRow, `SELECT * FROM flows WHERE id=?`, flowId);
     if (!flow) return this.notFound("flow not found");
-    const task = rows.get(Task, `SELECT * FROM tasks WHERE id=?`, flow.task_id);
+    const task = await rows.get(Task, `SELECT * FROM tasks WHERE id=?`, flow.task_id);
     if (!task) return this.notFound("task not found");
-    const repo = flow.repo_id ? db.repoById(flow.repo_id) ?? null : null;
+    const repo = flow.repo_id ? await db.repoById(flow.repo_id) ?? null : null;
     const ctx: FlowCtx = { flow, task, repo };
 
     const prompts: Record<string, string> = {};
-    for (const node of rows.all(NodeRow, `SELECT * FROM nodes WHERE flow_id=?`, flowId)) {
+    for (const node of await rows.all(NodeRow, `SELECT * FROM nodes WHERE flow_id=?`, flowId)) {
       const def = this.defFor(flowId, node.node_key, node);
       const previewer = nodeRoles.promptPreviewerOf(def);
       const preview = previewer ? previewer.previewPrompt(ctx, node, {}) : null;
@@ -140,7 +140,7 @@ export class PromptPreview {
   }
 
   /** Assemble the modal payload for one node row's resolution + last-run overlay. */
-  private payload(input: {
+  private async payload(input: {
     sections: PromptSections;
     templateKey: string;
     configBody: string | null;
@@ -150,7 +150,7 @@ export class PromptPreview {
     nodeKey: string;
   }): PromptPreviewPayload {
     const tpl = prompts.getTemplate(input.templateKey);
-    const node = rows.get(NodeRow, `SELECT * FROM nodes WHERE flow_id=? AND node_key=?`, input.ctx.flow.id, input.nodeKey);
+    const node = await rows.get(NodeRow, `SELECT * FROM nodes WHERE flow_id=? AND node_key=?`, input.ctx.flow.id, input.nodeKey);
     const recordedInput = node?.input ?? null;
     // the last run's prompt: what run N actually sent — every run records the
     // exact final text into nodes.input.prompt (build/step-build/review/

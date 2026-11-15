@@ -19,7 +19,7 @@ const DeclarativeRowSchema = z.object({
   config: z.unknown(),
 });
 
-const loadRow = (defKey: string): DeclarativeRow | undefined => {
+const loadRow = async (defKey: string): DeclarativeRow | undefined => {
   const decode = (r: Record<string, unknown> | undefined): DeclarativeRow | undefined => {
     if (!r) return undefined;
     let row = r;
@@ -33,13 +33,13 @@ const loadRow = (defKey: string): DeclarativeRow | undefined => {
     const parsed = DeclarativeRowSchema.safeParse(row);
     return parsed.success ? parsed.data : undefined;
   };
-  const byId = db.get<Record<string, unknown>>(
-    `SELECT id, name, description, kind, config FROM node_templates WHERE id=$1`, defKey
-  );
+  const byId = await db.get<Record<string, unknown>>(
+      `SELECT id, name, description, kind, config FROM node_templates WHERE id=$1`, defKey
+    );
   if (byId) return decode(byId);
-  const byKey = db.get<Record<string, unknown>>(
-    `SELECT id, name, description, kind, config FROM node_templates WHERE key=$1 AND is_builtin=0`, defKey
-  );
+  const byKey = await db.get<Record<string, unknown>>(
+      `SELECT id, name, description, kind, config FROM node_templates WHERE key=$1 AND is_builtin=0`, defKey
+    );
   return decode(byKey);
 };
 

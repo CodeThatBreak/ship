@@ -52,12 +52,12 @@ export class MergeRequestService {
     if (flowCtxHelper.execMode(ctx) === "local") {
       const lp = flowCtxHelper.localPath(ctx);
       if (lp) {
-        db.emitEvent(flow.id, null, "lifecycle", `pushing branch ${gitBranch} to origin…`,
-          { nodeKey: opts.emitNodeKey });
+        await db.emitEvent(flow.id, null, "lifecycle", `pushing branch ${gitBranch} to origin…`,
+                    { nodeKey: opts.emitNodeKey });
         try {
           const how = await localGit.pushBranch(lp, gitBranch, flow.repo_url ?? "", gitRemoteContextFor);
-          db.emitEvent(flow.id, null, "lifecycle", `branch ${gitBranch} pushed (via ${how === "https" ? "token-authed HTTPS" : "origin remote"})`,
-            { nodeKey: opts.emitNodeKey });
+          await db.emitEvent(flow.id, null, "lifecycle", `branch ${gitBranch} pushed (via ${how === "https" ? "token-authed HTTPS" : "origin remote"})`,
+                        { nodeKey: opts.emitNodeKey });
         } catch (e: unknown) {
           const msg = e instanceof Error ? e.message : String(e);
           if (isHookRejection(msg)) {
@@ -98,19 +98,19 @@ export class MergeRequestService {
         status: "approved",
       });
       // Ensure the host project id is set on the flow (needed by webhook/poller)
-      db.run(`UPDATE flows SET gitlab_project_id=COALESCE(gitlab_project_id, $1), updated_at=$2 WHERE id=$3`,
-        project.id, db.now(), flow.id);
+      await db.run(`UPDATE flows SET gitlab_project_id=COALESCE(gitlab_project_id, $1), updated_at=$2 WHERE id=$3`,
+                project.id, db.now(), flow.id);
     } else {
-      db.run(
-        `UPDATE flows SET mr_url=$1, mr_iid=$2, gitlab_project_id=$3, updated_at=$4 WHERE id=$5`,
-        cr.webUrl, cr.number, project.id, db.now(), flow.id
-      );
+      await db.run(
+                `UPDATE flows SET mr_url=$1, mr_iid=$2, gitlab_project_id=$3, updated_at=$4 WHERE id=$5`,
+                cr.webUrl, cr.number, project.id, db.now(), flow.id
+              );
     }
     if (!opts.skipGateReviewReset) {
       this.resetGateReview(flow.id, opts.gateKey ?? null, opts.reviewKey ?? null);
     }
-    db.emitEvent(flow.id, null, "lifecycle", `Change request created: ${cr.webUrl}${branchName ? ` (${branchName})` : ""}`,
-      { mrUrl: cr.webUrl, iid: cr.number, branchName: branchName ?? undefined, nodeKey: opts.emitNodeKey });
+    await db.emitEvent(flow.id, null, "lifecycle", `Change request created: ${cr.webUrl}${branchName ? ` (${branchName})` : ""}`,
+            { mrUrl: cr.webUrl, iid: cr.number, branchName: branchName ?? undefined, nodeKey: opts.emitNodeKey });
     return cr;
   }
 

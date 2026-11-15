@@ -18,8 +18,8 @@ export class SecretStore {
   ) {}
 
   /** All configured secret name → value pairs. */
-  all(): Record<string, string> {
-    const stored = this.database.getSetting(SETTINGS_KEYS.SECRETS, settingUnknownRecord.nullable(), null);
+  async all(): Record<string, string> {
+    const stored = await this.database.getSetting(SETTINGS_KEYS.SECRETS, settingUnknownRecord.nullable(), null);
     if (!stored || typeof stored !== "object" || Array.isArray(stored)) return {};
     const raw: Record<string, string> = {};
     for (const [k, v] of Object.entries(stored)) {

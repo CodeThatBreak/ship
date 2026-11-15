@@ -39,11 +39,11 @@ export interface FlowContextMap extends Record<string, unknown> {
   input?: { unit: Record<string, unknown> };
 }
 
-export function buildFlowContext(ctx: FlowCtx): FlowContextMap {
+export async function buildFlowContext(ctx: FlowCtx): FlowContextMap {
   const nodes: Record<string, { output: unknown }> = {};
-  const rowsOut = db.all<{ node_key: string; output: unknown }>(
-    `SELECT node_key AS "nodeKey", output FROM nodes WHERE flow_id=$1`, ctx.flow.id
-  );
+  const rowsOut = await db.all<{ node_key: string; output: unknown }>(
+      `SELECT node_key AS "nodeKey", output FROM nodes WHERE flow_id=$1`, ctx.flow.id
+    );
   for (const r of rowsOut) {
     // db.all is the raw row — the output column is a JSON TEXT blob
     nodes[r.node_key] = { output: parseJsonObject(r.output) };
