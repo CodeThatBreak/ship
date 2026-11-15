@@ -44,10 +44,12 @@ const FROZEN_OFFENDERS: readonly string[] = [
   "lib/comments/commentService.ts",
   "lib/config.ts",
   "lib/contracts/contractService.ts",
+  "lib/db/database.ts", // step-01 facade — QueryExecutor type + re-exports
   "lib/db/rowDecodeError.ts",
   "lib/db/rows.ts",
   "lib/db/stores/gitlabInstanceStore.ts",
   "lib/db/stores/jiraInstanceStore.ts",
+  "lib/db/templateSeeder.ts", // step-01 — seed tuple consts (module-scope data)
   "lib/engine/flowEngine.ts", // module helpers
   "lib/engine/graph/graphService.ts",
   "lib/engine/harness/agentRunner.ts",

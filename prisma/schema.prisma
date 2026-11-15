@@ -162,7 +162,7 @@ model Flow {
   executionMode   String    @default("cloud") @map("execution_mode")
   repoId          String?   @map("repo_id")
   templateId      String?   @map("template_id")
-  templateGraph   Json?
+  templateGraph   Json?     @map("template_graph")
   triggerPayload  Json?     @map("trigger_payload")
   worktreeDir     String?   @map("worktree_dir")
   parentFlowId    String?   @map("parent_flow_id")
