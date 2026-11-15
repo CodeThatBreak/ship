@@ -98,7 +98,7 @@ function mapDiscussion(d: Discussion): HostComment[] {
     system: n.system,
     path: n.position?.new_path ?? null,
     line: n.position?.new_line ?? null,
-    createdAt: n.created_at,
+    createdAt: n.createdAt,
   }));
 }
 
@@ -107,7 +107,7 @@ function mapNote(n: Note): HostNote {
   return {
     id: `gl_${n.id}`,
     author: n.author?.username ?? n.author?.name ?? "",
-    createdAt: n.created_at,
+    createdAt: n.createdAt,
   };
 }
 
@@ -213,7 +213,7 @@ class GitLabHostClient implements GitHostClient {
       input.path,
       input.line,
       positionContext.diffRefs,
-      positionContext.changes,
+      positionContext,
     );
     if (!position) {
       throw new ValidationError(
@@ -314,18 +314,18 @@ export class GitLabHostService implements GitHostService {
 
   addInstance(input: { name?: string | null; baseUrl: string; token: string }): HostInstance {
     const inst = this.gitlab.addInstance({ name: input.name ?? undefined, base_url: input.baseUrl, token: input.token });
-    return { id: inst.id, name: inst.name, baseUrl: inst.base_url, tokenMasked: maskToken(inst.token) };
+    return { id: inst.id, name: inst.name, baseUrl: inst.baseUrl, tokenMasked: maskToken(inst.token) };
   }
 
   updateInstance(id: string, input: { name?: string | null; baseUrl?: string; token?: string }): void {
     const existing = this.gitlab.getInstance(id);
     if (!existing) throw new NotFoundError("host instance", id);
-    if (baseUrlOverrideRequiresToken(existing.base_url, input.baseUrl, input.token)) {
+    if (baseUrlOverrideRequiresToken(existing.baseUrl, input.baseUrl, input.token)) {
       throw new ValidationError("token is required when overriding baseUrl");
     }
     this.gitlab.updateInstance(id, {
       name: input.name ?? existing.name ?? undefined,
-      base_url: input.baseUrl ?? existing.base_url,
+      base_url: input.baseUrl ?? existing.baseUrl,
       // blank token = keep the stored one
       token: input.token || existing.token,
     });
@@ -338,10 +338,10 @@ export class GitLabHostService implements GitHostService {
   async testInstance(id: string, input: { baseUrl?: string; token?: string } = {}): Promise<{ ok: boolean; detail: string }> {
     const existing = this.gitlab.getInstance(id);
     if (!existing) throw new NotFoundError("host instance", id);
-    if (baseUrlOverrideRequiresToken(existing.base_url, input.baseUrl, input.token)) {
+    if (baseUrlOverrideRequiresToken(existing.baseUrl, input.baseUrl, input.token)) {
       throw new ValidationError("token is required when overriding baseUrl");
     }
-    const baseUrl = input.baseUrl ?? existing.base_url;
+    const baseUrl = input.baseUrl ?? existing.baseUrl;
     const token = input.token?.trim() || existing.token;
     return this.gitlab.testInstance(baseUrl, token);
   }
@@ -386,8 +386,8 @@ export class GitLabHostService implements GitHostService {
         comment: {
           id: `gl_${String(noteId)}`,
           threadId:
-            typeof attrs.discussion_id === "string"
-              ? attrs.discussion_id
+            typeof attrs.discussionId === "string"
+              ? attrs.discussionId
               : `ind_${String(noteId)}`,
           body: typeof attrs.note === "string" ? attrs.note : "",
           author: p.user?.username ?? p.user?.name ?? "",
@@ -396,7 +396,7 @@ export class GitLabHostService implements GitHostService {
           system: false,
           path: typeof position?.new_path === "string" ? position.new_path : null,
           line: typeof position?.new_line === "number" ? position.new_line : null,
-          createdAt: typeof attrs.created_at === "string" ? attrs.created_at : "",
+          createdAt: typeof attrs.createdAt === "string" ? attrs.createdAt : "",
         },
       };
     }

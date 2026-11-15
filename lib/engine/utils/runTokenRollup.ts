@@ -17,14 +17,14 @@ export const emptyRunTokenBucket = (): RunTokenBucket => ({
 
 /** Fold one run row into a per-node or per-flow token/cost rollup. */
 export const accumulateRunRow = (bucket: RunTokenBucket, r: RunRow): void => {
-  if (r.cost_cents != null) bucket.totalCents += r.cost_cents;
+  if (r.costCents != null) bucket.totalCents += r.costCents;
   bucket.tokens += uncachedInputTokens({
-    inputTokens: r.input_tokens,
-    cacheReadTokens: r.cache_read_tokens,
-    cacheWriteTokens: r.cache_write_tokens,
+    inputTokens: r.inputTokens,
+    cacheReadTokens: r.cacheReadTokens,
+    cacheWriteTokens: r.cacheWriteTokens,
   })
-    + (r.output_tokens ?? 0)
-    + (r.cache_read_tokens ?? 0)
-    + (r.cache_write_tokens ?? 0);
+    + (r.outputTokens ?? 0)
+    + (r.cacheReadTokens ?? 0)
+    + (r.cacheWriteTokens ?? 0);
   bucket.runs.push(r);
 };

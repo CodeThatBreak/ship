@@ -158,11 +158,11 @@ export function lintNodeTrigger(
       });
     }
   }
-  if (rec.wait_for != null) {
-    if (typeof rec.wait_for !== "string" || !(WAIT_FOR_SOURCES as readonly string[]).includes(rec.wait_for)) {
+  if (rec.waitFor != null) {
+    if (typeof rec.waitFor !== "string" || !(WAIT_FOR_SOURCES as readonly string[]).includes(rec.waitFor)) {
       problems.push({
         where,
-        message: `unknown wait_for source "${String(rec.wait_for)}" — use one of: ${WAIT_FOR_SOURCES.join(", ")}`,
+        message: `unknown wait_for source "${String(rec.waitFor)}" — use one of: ${WAIT_FOR_SOURCES.join(", ")}`,
         nodeKey,
       });
     }
@@ -537,7 +537,7 @@ const lintSplitTargetLookup: SplitTargetLookup = {
     const byKey = await db.get<{ id: string; is_builtin: number }>(
           `SELECT id, is_builtin AS "isBuiltin" FROM node_templates WHERE key=$1`, idOrKey,
         );
-    return byKey && byKey.is_builtin === 0 ? { id: byKey.id } : null;
+    return byKey && byKey.isBuiltin === 0 ? { id: byKey.id } : null;
   },
 };
 
@@ -705,7 +705,7 @@ export async function catalogForNodeTemplateIds(ids: string[]): Record<string, {
     if (row.config) {
       try { config = JSON.parse(row.config); } catch { config = {}; }
     }
-    out[row.id] = { kind: row.kind, config, key: row.key, isBuiltin: Boolean(row.is_builtin) };
+    out[row.id] = { kind: row.kind, config, key: row.key, isBuiltin: Boolean(row.isBuiltin) };
   }
   return out;
 }

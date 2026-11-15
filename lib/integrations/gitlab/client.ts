@@ -79,7 +79,7 @@ export class GitLabClient {
   constructor(private readonly instance: GitLabInstance) {}
 
   private get baseUrl(): string {
-    return `${this.instance.base_url.replace(/\/+$/, "")}/api/v4`;
+    return `${this.instance.baseUrl.replace(/\/+$/, "")}/api/v4`;
   }
 
   private headers(): HeadersInit {
@@ -333,8 +333,8 @@ export class GitLabService {
     const h = GitLabService.host(repoUrl);
     const instances = this.listInstances();
     const match = instances
-      .filter((i) => GitLabService.host(i.base_url) === h)
-      .sort((a, b) => b.base_url.length - a.base_url.length)[0];
+      .filter((i) => GitLabService.host(i.baseUrl) === h)
+      .sort((a, b) => b.baseUrl.length - a.baseUrl.length)[0];
     if (match) {
       return { ...match, token: this.instances.readToken(match.id) };
     }

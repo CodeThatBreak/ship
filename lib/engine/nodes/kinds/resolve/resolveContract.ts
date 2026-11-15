@@ -133,7 +133,7 @@ export class ResolveOutputContract {
     agentReplies: readonly CommentRow[] = [],
   ): PresentedComments {
     const replyDates = this.latestAgentReplyDates(agentReplies);
-    const lines = open.map((row) => this.commentLine(row, replyDates.get(row.discussion_id ?? "") ?? null));
+    const lines = open.map((row) => this.commentLine(row, replyDates.get(row.discussionId ?? "") ?? null));
 
     const block = lines.join("\n");
     if (block.length <= RESOLVE_COMMENTS_BLOCK_CAP) {
@@ -249,8 +249,8 @@ export class ResolveOutputContract {
     const metaPart = meta.length ? ` (${meta.join("; ")})` : "";
     const body = this.capText(row.body ?? "", RESOLVE_BODY_CAP);
 
-    const location = row.file_path
-      ? `${row.file_path}${row.line != null ? `:${row.line}` : ""}`
+    const location = row.filePath
+      ? `${row.filePath}${row.line != null ? `:${row.line}` : ""}`
       : null;
     const marker = !commentResolvable(row) ? "(MR note, not resolvable)" : null;
     const head = [`[${row.id}]`, location ?? marker].filter(Boolean).join(" ");
@@ -262,9 +262,9 @@ export class ResolveOutputContract {
   private latestAgentReplyDates(agentReplies: readonly CommentRow[]): Map<string, string> {
     const dates = new Map<string, string>();
     for (const r of agentReplies) {
-      if (!r.discussion_id || r.resolved_by !== RESOLVED_BY_AGENT) continue;
-      const prev = dates.get(r.discussion_id);
-      if (!prev || r.created_at > prev) dates.set(r.discussion_id, r.created_at);
+      if (!r.discussionId || r.resolvedBy !== RESOLVED_BY_AGENT) continue;
+      const prev = dates.get(r.discussionId);
+      if (!prev || r.createdAt > prev) dates.set(r.discussionId, r.createdAt);
     }
     return dates;
   }

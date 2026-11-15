@@ -43,10 +43,10 @@ export class GraphService {
       if (!flow) {
         throw new NotFoundError("flow", flowId ?? "");
       }
-      if (!flow.template_id) {
+      if (!flow.templateId) {
         throw new NotFoundError("flow template", flowId ?? "");
       }
-      resolvedTemplateId = flow.template_id;
+      resolvedTemplateId = flow.templateId;
     }
 
     const g = templateStore.graph(resolvedTemplateId);

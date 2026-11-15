@@ -174,7 +174,7 @@ export class PipelineNode extends AgentRunNode<
    * "no pipeline" so a fresh one gets triggered.
    */
   private async headPipeline(ctx: FlowCtx, mrIid: number): Promise<HeadPipelineLookup> {
-    const repoUrl = ctx.flow.repo_url ?? "";
+    const repoUrl = ctx.flow.repoUrl ?? "";
     const host = this.gitHosts.forRepo(repoUrl);
     let crFailed = false;
     let cr: Awaited<ReturnType<typeof host.getChangeRequest>> | null = null;
@@ -209,7 +209,7 @@ export class PipelineNode extends AgentRunNode<
     mrBranch: string | null,
     nodeId: string,
   ): Promise<number | null> {
-    const repoUrl = ctx.flow.repo_url ?? "";
+    const repoUrl = ctx.flow.repoUrl ?? "";
     const host = this.gitHosts.forRepo(repoUrl);
     const errMsg = (e: unknown) =>
       (e instanceof Error ? e.message : String(e)).slice(0, 300);
@@ -266,7 +266,7 @@ export class PipelineNode extends AgentRunNode<
     nodeId: string,
     pipelineId: number,
   ): Promise<number> {
-    const repoUrl = ctx.flow.repo_url ?? "";
+    const repoUrl = ctx.flow.repoUrl ?? "";
     const host = this.gitHosts.forRepo(repoUrl);
     const jobs = (await host
       .listPipelineJobs(repoUrl, pipelineId)
@@ -297,7 +297,7 @@ export class PipelineNode extends AgentRunNode<
    * only at run time) — filled at Phase-2 preview work (I5).
    */
   previewPrompt(ctx: FlowCtx, node: NodeRow | null, params: PromptPreviewParams): NodePromptPreview | null {
-    const branch = ctx.flow.mr_branch ?? this.ctxHelper.buildBranch(ctx);
+    const branch = ctx.flow.mrBranch ?? this.ctxHelper.buildBranch(ctx);
     const mode = this.ctxHelper.execMode(ctx);
     const configBody = configString(nodeRoles.previewConfig(this, node), "fix_prompt_body") ?? null;
     const asm = prompts.assemblePrompt(
@@ -382,8 +382,8 @@ export class PipelineNode extends AgentRunNode<
 
       let pipe = watchedId
         ? await this.gitHosts
-            .forRepo(ctx.flow.repo_url ?? "")
-            .getPipeline(ctx.flow.repo_url ?? "", watchedId)
+            .forRepo(ctx.flow.repoUrl ?? "")
+            .getPipeline(ctx.flow.repoUrl ?? "", watchedId)
             .catch(() => null)
         : null;
       // switch to the head when it's newer/different — stops the watched id
@@ -564,14 +564,14 @@ export class PipelineNode extends AgentRunNode<
     label: string,
   ): Promise<void> {
     const jobs = await this.gitHosts
-      .forRepo(ctx.flow.repo_url ?? "")
-      .listPipelineJobs(ctx.flow.repo_url ?? "", pipelineId);
+      .forRepo(ctx.flow.repoUrl ?? "")
+      .listPipelineJobs(ctx.flow.repoUrl ?? "", pipelineId);
     const failed = jobs.filter((j: HostJob) => j.status === "failed");
     let logs = "";
     for (const j of failed.slice(0, 3)) {
       const trace = await this.gitHosts
-        .forRepo(ctx.flow.repo_url ?? "")
-        .getJobTrace(ctx.flow.repo_url ?? "", j.id)
+        .forRepo(ctx.flow.repoUrl ?? "")
+        .getJobTrace(ctx.flow.repoUrl ?? "", j.id)
         .catch(() => "");
       logs += `\n\n===== job ${j.name} (#${j.id}) =====\n${trace.slice(-8000)}`;
     }
@@ -643,7 +643,7 @@ export class PipelineNode extends AgentRunNode<
   }
 
   override async chat(ctx: FlowCtx, content: string, model?: string): Promise<string> {
-    if (!ctx.flow.mr_iid)
+    if (!ctx.flow.mrIid)
       return "No merge request yet — the pipeline gate runs automatically after the build is approved and the MR is created.";
     const node = this.node(ctx);
     // The first turn on a never-run gate treats the message as the fix-run

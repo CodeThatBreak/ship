@@ -9,6 +9,16 @@ import type { HostNote } from "../../ports/gitHost";
 import { RunSupersededError } from "../../errors/runSupersededError";
 import { nodeAttemptRegistry } from "../../runtime/nodeAttemptRegistry";
 
+const NODE_SELECT = `SELECT id, flow_id AS "flowId", node_key AS "nodeKey", type, status,
+       attempt_id AS "attemptId", agent_id AS "agentId", agent_ref AS "agentRef",
+       session_id AS "sessionId", prompt_override AS "promptOverride", label, config,
+       join_mode AS "joinMode", input, output, created_at AS "createdAt",
+       updated_at AS "updatedAt" FROM nodes`;
+const COMMENT_SELECT = `SELECT id, flow_id AS "flowId", mr_iid AS "mrIid",
+       discussion_id AS "discussionId", author, body, file_path AS "filePath", line,
+       status, resolved_by AS "resolvedBy", raw, created_at AS "createdAt",
+       updated_at AS "updatedAt" FROM comments`;
+
 /**
  * Persistence helpers for node rows, artifacts, runs and flow-feed events —
  * the shared DB surface every node implementation builds on. Node
@@ -16,36 +26,36 @@ import { nodeAttemptRegistry } from "../../runtime/nodeAttemptRegistry";
  * appears here as a named method (T1 seam).
  */
 export class NodeSupport {
-  nodeByKey(flowId: string, key: string): NodeRow {
-    const n = rows.get(NodeRow, `SELECT id, flow_id AS "flowId", node_key AS "nodeKey", type, status, attempt_id AS "attemptId", agent_id AS "agentId", agent_ref AS "agentRef", session_id AS "sessionId", prompt_override AS "promptOverride", label, config, join_mode AS "joinMode", input, output, created_at AS "createdAt", updated_at AS "updatedAt" FROM nodes WHERE flow_id=$1 AND node_key=$2`, flowId, key);
+  async nodeByKey(flowId: string, key: string): Promise<NodeRow> {
+    const n = await rows.get(NodeRow, `${NODE_SELECT} WHERE flow_id=$1 AND node_key=$2`, flowId, key);
     if (!n) throw new Error(`node ${key} not found for flow ${flowId}`);
     return n;
   }
 
   /** Like nodeByKey but null when the instance key is absent (optional chain stages). */
-  optionalNodeByKey(flowId: string, key: string): NodeRow | null {
-    return rows.get(NodeRow, `SELECT id, flow_id AS "flowId", node_key AS "nodeKey", type, status, attempt_id AS "attemptId", agent_id AS "agentId", agent_ref AS "agentRef", session_id AS "sessionId", prompt_override AS "promptOverride", label, config, join_mode AS "joinMode", input, output, created_at AS "createdAt", updated_at AS "updatedAt" FROM nodes WHERE flow_id=$1 AND node_key=$2`, flowId, key) ?? null;
+  async optionalNodeByKey(flowId: string, key: string): Promise<NodeRow | null> {
+    return (await rows.get(NodeRow, `${NODE_SELECT} WHERE flow_id=$1 AND node_key=$2`, flowId, key)) ?? null;
   }
 
   /** First node row of a given built-in node type (instance keys may differ
    *  from the type; callers that address by node_key use `nodeByKey`). */
-  nodeByType(flowId: string, type: string): NodeRow | null {
-    return rows.get(NodeRow, `SELECT id, flow_id AS "flowId", node_key AS "nodeKey", type, status, attempt_id AS "attemptId", agent_id AS "agentId", agent_ref AS "agentRef", session_id AS "sessionId", prompt_override AS "promptOverride", label, config, join_mode AS "joinMode", input, output, created_at AS "createdAt", updated_at AS "updatedAt" FROM nodes WHERE flow_id=$1 AND type=$2`, flowId, type) ?? null;
+  async nodeByType(flowId: string, type: string): Promise<NodeRow | null> {
+    return (await rows.get(NodeRow, `${NODE_SELECT} WHERE flow_id=$1 AND type=$2`, flowId, type)) ?? null;
   }
 
   /** A node's current status (null when the row is gone) — polling callers
    *  use this to detect an external cancel/retry mid-wait. */
-  nodeStatus(nodeId: string): string | null {
-    return db.get<{ status: string }>(`SELECT status FROM nodes WHERE id=$1`, nodeId)?.status ?? null;
+  async nodeStatus(nodeId: string): Promise<string | null> {
+    return (await db.get<{ status: string }>(`SELECT status FROM nodes WHERE id=$1`, nodeId))?.status ?? null;
   }
 
-  setNode(id: string, patch: Record<string, unknown>): void {
+  async setNode(id: string, patch: Record<string, unknown>): Promise<void> {
     if (typeof patch.status === "string" && patch.status !== NODE_STATUS.RUNNING) {
       nodeAttemptRegistry.clear(id);
     }
     const keys = Object.keys(patch);
-    db.run(
-      `UPDATE nodes SET ${keys.map((k) => `${k}=?`).join(",")}, updated_at=? WHERE id=?`,
+    await db.run(
+      `UPDATE nodes SET ${keys.map((k, i) => `${k}=$${i + 1}`).join(",")}, updated_at=$${keys.length + 1} WHERE id=$${keys.length + 2}`,
       ...keys.map((k) => patch[k] as never),
       db.now(),
       id
@@ -56,10 +66,10 @@ export class NodeSupport {
    * Atomically move a node to `running` and stamp a fresh attempt token.
    * Throws {@link ConflictError} when the node is not in one of `from`.
    */
-  claim(flowId: string, nodeKey: string, from: readonly NodeStatus[]): string {
+  async claim(flowId: string, nodeKey: string, from: readonly NodeStatus[]): Promise<string> {
     const attempt = db.uid("att_");
-    const marks = from.map(() => "?").join(",");
-    const __changes = await db.run(
+    const marks = from.map((_, i) => `$${i + 5}`).join(",");
+    const changes = await db.run(
       `UPDATE nodes SET status = $1, attempt_id = $2, updated_at = $3
        WHERE flow_id = $4 AND node_key = $5 AND status IN (${marks})`,
       NODE_STATUS.RUNNING,
@@ -79,15 +89,15 @@ export class NodeSupport {
    * Atomically transition status when the node is in one of `from`.
    * Clears `attempt_id` when leaving `running`.
    */
-  transition(
+  async transition(
     flowId: string,
     nodeKey: string,
     from: readonly NodeStatus[],
     to: NodeStatus,
-  ): void {
-    const marks = from.map(() => "?").join(",");
+  ): Promise<void> {
+    const marks = from.map((_, i) => `$${i + 5}`).join(",");
     const clearAttempt = to !== NODE_STATUS.RUNNING;
-    const __changes = await db.run(
+    const changes = await db.run(
       `UPDATE nodes SET status = $1, attempt_id = $2, updated_at = $3
        WHERE flow_id = $4 AND node_key = $5 AND status IN (${marks})`,
       to,
@@ -103,29 +113,29 @@ export class NodeSupport {
   }
 
   /** Terminal (or mid-run) patch fenced by the active attempt token. */
-  patchIfAttempt(nodeId: string, attemptId: string, patch: Record<string, unknown>): void {
+  async patchIfAttempt(nodeId: string, attemptId: string, patch: Record<string, unknown>): Promise<void> {
     const status = patch.status;
     const merged: Record<string, unknown> =
       typeof status === "string" && status !== NODE_STATUS.RUNNING
         ? { ...patch, attempt_id: null }
         : { ...patch };
     const mergedKeys = Object.keys(merged);
-    const __changes = await db.run(
-      `UPDATE nodes SET ${mergedKeys.map((k) => `${k}=?`).join(",")}, updated_at=? WHERE id=? AND attempt_id=?`,
+    const changes = await db.run(
+      `UPDATE nodes SET ${mergedKeys.map((k, i) => `${k}=$${i + 1}`).join(",")}, updated_at=$${mergedKeys.length + 1} WHERE id=$${mergedKeys.length + 2} AND attempt_id=$${mergedKeys.length + 3}`,
       ...mergedKeys.map((k) => merged[k] as never),
       db.now(),
       nodeId,
       attemptId,
     );
     if (changes !== 1) {
-      const node = db.get<{ status: string }>(`SELECT status FROM nodes WHERE id=$1`, nodeId);
+      const node = await db.get<{ status: string }>(`SELECT status FROM nodes WHERE id=$1`, nodeId);
       throw new RunSupersededError(nodeId, node?.status ?? "unknown", attemptId);
     }
   }
 
-  attemptId(nodeId: string): string | null {
-    return db.get<{ attempt_id: string | null }>(`SELECT attempt_id AS "attemptId" FROM nodes WHERE id=$1`, nodeId)
-      ?.attempt_id ?? null;
+  async attemptId(nodeId: string): Promise<string | null> {
+    return (await db.get<{ attemptId: string | null }>(`SELECT attempt_id AS "attemptId" FROM nodes WHERE id=$1`, nodeId))
+      ?.attemptId ?? null;
   }
 
   /** A chat row scoped to a refinement thread (the plan's sub-plan refines). */
@@ -135,25 +145,25 @@ export class NodeSupport {
     role: "user" | "assistant",
     content: string,
     thread?: string | null
-  ): void {
-    db.addMessage(flowId, nodeKey, role, content, thread ?? null);
+  ): Promise<void> {
+    return db.addMessage(flowId, nodeKey, role, content, thread ?? null);
   }
 
-  saveArtifact(
+  async saveArtifact(
     nodeId: string,
     flowId: string,
     kind: string,
     content: string,
     meta?: unknown,
     status = ARTIFACT_STATUS.DRAFT
-  ): { id: string; version: number } {
-    const prev = db.get<{ v: number | null }>(
-      `SELECT MAX(version) v FROM artifacts WHERE node_id=$1 AND kind=$2`,
+  ): Promise<{ id: string; version: number }> {
+    const prev = await db.get<{ v: number | null }>(
+      `SELECT MAX(version) AS v FROM artifacts WHERE node_id=$1 AND kind=$2`,
       nodeId,
       kind
     );
     const version = (prev?.v ?? 0) + 1;
-    db.run(
+    await db.run(
       `UPDATE artifacts SET status=$1 WHERE node_id=$2 AND kind=$3 AND status=$4`,
       ARTIFACT_STATUS.SUPERSEDED,
       nodeId,
@@ -161,9 +171,9 @@ export class NodeSupport {
       ARTIFACT_STATUS.DRAFT,
     );
     const id = db.uid("art_");
-    db.run(
+    await db.run(
       `INSERT INTO artifacts (id,node_id,flow_id,kind,version,content,meta,status,created_at)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) ON CONFLICT DO NOTHING`,
+       VALUES ($1,$2,$3,$4,$5,$6,$7::jsonb,$8,$9)`,
       id, nodeId, flowId, kind, version, content, meta ? JSON.stringify(meta) : null, status, db.now()
     );
     return { id, version };
@@ -174,17 +184,17 @@ export class NodeSupport {
    * `executeRun` so reconcile sees a run while the agent is still starting.
    * `run_ref` is the attempt token until `persistRun` upgrades the row.
    */
-  registerStartupRun(flowId: string, nodeId: string, attemptId: string): void {
-    const existing = db.get<{ agent_ref: string; run_ref: string }>(
+  async registerStartupRun(flowId: string, nodeId: string, attemptId: string): Promise<void> {
+    const existing = await db.get<{ agentRef: string; runRef: string }>(
       `SELECT agent_ref AS "agentRef", run_ref AS "runRef" FROM runs
        WHERE node_id=$1 AND status=$2 ORDER BY created_at DESC LIMIT 1`,
       nodeId,
       RUN_STATUS.RUNNING,
     );
-    if (existing?.agent_ref === RUN_AGENT_REF.PENDING && existing.run_ref === attemptId) {
+    if (existing?.agentRef === RUN_AGENT_REF.PENDING && existing.runRef === attemptId) {
       return;
     }
-    db.run(
+    await db.run(
       `UPDATE runs SET status=$1, updated_at=$2 WHERE node_id=$3 AND status=$4`,
       RUN_STATUS.ERROR,
       db.now(),
@@ -192,9 +202,9 @@ export class NodeSupport {
       RUN_STATUS.RUNNING,
     );
     const id = db.uid("run_");
-    db.run(
+    await db.run(
       `INSERT INTO runs (id,flow_id,node_id,agent_ref,run_ref,status,created_at,updated_at)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8) ON CONFLICT DO NOTHING`,
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
       id,
       flowId,
       nodeId,
@@ -210,13 +220,14 @@ export class NodeSupport {
     return agentRef === RUN_AGENT_REF.PENDING;
   }
 
-  persistRun(flowId: string, nodeId: string, agentId: string, runId: string): string {
-    const attemptId = db.get<{ attempt_id: string | null }>(
+  async persistRun(flowId: string, nodeId: string, agentId: string, runId: string): Promise<string> {
+    const attemptRow = await db.get<{ attemptId: string | null }>(
       `SELECT attempt_id AS "attemptId" FROM nodes WHERE id=$1`,
       nodeId,
-    )?.attempt_id;
+    );
+    const attemptId = attemptRow?.attemptId;
     if (attemptId) {
-      const __changes = await db.run(
+      const changes = await db.run(
         `UPDATE runs SET agent_ref=$1, run_ref=$2, updated_at=$3
          WHERE node_id=$4 AND status=$5 AND agent_ref=$6 AND run_ref=$7`,
         agentId,
@@ -228,9 +239,9 @@ export class NodeSupport {
         attemptId,
       );
       if (changes === 1) {
-        const upgraded = db.get<{ id: string }>(`SELECT id FROM runs WHERE run_ref=$1`, runId);
+        const upgraded = await db.get<{ id: string }>(`SELECT id FROM runs WHERE run_ref=$1`, runId);
         if (upgraded) {
-          db.run(
+          await db.run(
             `UPDATE runs SET status=$1, updated_at=$2 WHERE node_id=$3 AND status=$4 AND run_ref<>$5`,
             RUN_STATUS.ERROR,
             db.now(),
@@ -245,42 +256,42 @@ export class NodeSupport {
     // close out any prior `running` rows for this node — they're stale (their
     // process died with a previous server/run) and would otherwise be picked up
     // as the "latest running run" by reconcile, clobbering this fresh run
-    db.run(`UPDATE runs SET status=$1, updated_at=$2 WHERE node_id=$3 AND status=$4`, RUN_STATUS.ERROR, db.now(), nodeId, RUN_STATUS.RUNNING);
+    await db.run(`UPDATE runs SET status=$1, updated_at=$2 WHERE node_id=$3 AND status=$4`, RUN_STATUS.ERROR, db.now(), nodeId, RUN_STATUS.RUNNING);
     const id = db.uid("run_");
-    db.run(
+    await db.run(
       `INSERT INTO runs (id,flow_id,node_id,agent_ref,run_ref,status,created_at,updated_at)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8) ON CONFLICT DO NOTHING`,
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
       id, flowId, nodeId, agentId, runId, RUN_STATUS.RUNNING, db.now(), db.now()
     );
     return id;
   }
 
-  lastAgentId(nodeId: string): string | null {
-    return db.get<{ agent_ref: string }>(
+  async lastAgentId(nodeId: string): Promise<string | null> {
+    return (await db.get<{ agentRef: string }>(
       `SELECT agent_ref AS "agentRef" FROM runs WHERE node_id=$1 AND agent_ref<>$2 ORDER BY created_at DESC LIMIT 1`,
       nodeId,
       RUN_AGENT_REF.PENDING,
-    )?.agent_ref ?? null;
+    ))?.agentRef ?? null;
   }
 
   /** Update the run row with the real agent/session id once known (local mode). */
-  setRunAgentId(runId: string, agentId: string): void {
-    db.run(`UPDATE runs SET agent_ref=$1, updated_at=$2 WHERE run_ref=$3`, agentId, db.now(), runId);
+  async setRunAgentId(runId: string, agentId: string): Promise<void> {
+    await db.run(`UPDATE runs SET agent_ref=$1, updated_at=$2 WHERE run_ref=$3`, agentId, db.now(), runId);
   }
 
   /** Mark a node's orphaned run as failed after a server restart (nothing recoverable). */
-  failOrphanedNode(flowId: string, nodeId: string, nodeKey: string, reason: string): void {
-    const node = db.get<{ status: string }>(`SELECT status FROM nodes WHERE id=$1`, nodeId);
+  async failOrphanedNode(flowId: string, nodeId: string, nodeKey: string, reason: string): Promise<void> {
+    const node = await db.get<{ status: string }>(`SELECT status FROM nodes WHERE id=$1`, nodeId);
     if (node?.status !== NODE_STATUS.RUNNING) return; // already reconciled
-    db.run(
+    await db.run(
       `UPDATE runs SET status=$1, updated_at=$2 WHERE node_id=$3 AND status=$4`,
       RUN_STATUS.ERROR,
       db.now(),
       nodeId,
       RUN_STATUS.RUNNING,
     );
-    this.setNode(nodeId, { status: NODE_STATUS.FAILED });
-    db.emitEvent(flowId, nodeId, EVENT_KIND.ERROR, `${nodeKey}: ${reason} — retry the node to continue`);
+    await this.setNode(nodeId, { status: NODE_STATUS.FAILED });
+    await db.emitEvent(flowId, nodeId, EVENT_KIND.ERROR, `${nodeKey}: ${reason} — retry the node to continue`);
   }
 
   // ── artifacts ────────────────────────────────────────────────────────────────
@@ -291,22 +302,22 @@ export class NodeSupport {
    * a template holds several nodes that save the same kind). Raw meta comes
    * back unparsed — callers own their schema.
    */
-  latestArtifact(
+  async latestArtifact(
     flowId: string,
     kind: string,
     opts: { nodeType?: string } = {},
-  ): { id: string; version: number; content: string; meta: string | null } | null {
-    return this.artifactsOfKind(flowId, kind, { ...opts, limit: 1 })[0] ?? null;
+  ): Promise<{ id: string; version: number; content: string; meta: unknown } | null> {
+    return (await this.artifactsOfKind(flowId, kind, { ...opts, limit: 1 }))[0] ?? null;
   }
 
   /** A kind's artifacts within a flow, newest first, `limit`-bounded. */
-  artifactsOfKind(
+  async artifactsOfKind(
     flowId: string,
     kind: string,
     opts: { nodeType?: string; limit?: number } = {},
-  ): { id: string; version: number; content: string; meta: string | null }[] {
+  ): Promise<{ id: string; version: number; content: string; meta: unknown }[]> {
     const type = opts.nodeType;
-    const scope = type ? ` AND n.type=?` : "";
+    const scope = type ? ` AND n.type=$3` : "";
     const cap = opts.limit ? ` LIMIT ${Math.trunc(opts.limit)}` : "";
     const sql = `SELECT a.id, a.version, a.content, a.meta FROM artifacts a JOIN nodes n ON n.id=a.node_id
        WHERE n.flow_id=$1 AND a.kind=$2${scope}
@@ -317,10 +328,10 @@ export class NodeSupport {
   // ── branches ────────────────────────────────────────────────────────────────
 
   /** A branch row's MR iid (null when the branch has no merge request yet). */
-  branchMrIid(flowId: string, name: string): number | null {
-    return db.get<{ mr_iid: number | null }>(
+  async branchMrIid(flowId: string, name: string): Promise<number | null> {
+    return (await db.get<{ mrIid: number | null }>(
       `SELECT mr_iid AS "mrIid" FROM branches WHERE flow_id=$1 AND name=$2`, flowId, name,
-    )?.mr_iid ?? null;
+    ))?.mrIid ?? null;
   }
 
   // ── comments ────────────────────────────────────────────────────────────────
@@ -330,11 +341,11 @@ export class NodeSupport {
    * deterministic order (G12) — the resolve prompt's comment list and the
    * contract's decision coverage are built from this ordering.
    */
-  openComments(flowId: string, mrIid?: number | null): CommentRow[] {
+  async openComments(flowId: string, mrIid?: number | null): Promise<CommentRow[]> {
     if (mrIid != null) {
       return rows.all(
         CommentRow,
-        `SELECT id, flow_id AS "flowId", mr_iid AS "mrIid", discussion_id AS "discussionId", author, body, file_path AS "filePath", line, status, resolved_by AS "resolvedBy", raw, created_at AS "createdAt", updated_at AS "updatedAt" FROM comments WHERE flow_id=$1 AND status IN ($2) AND mr_iid=$3 ORDER BY created_at ASC, id ASC`,
+        `${COMMENT_SELECT} WHERE flow_id=$1 AND status=$2 AND mr_iid=$3 ORDER BY created_at ASC, id ASC`,
         flowId,
         COMMENT_STATUS.OPEN,
         mrIid,
@@ -342,15 +353,15 @@ export class NodeSupport {
     }
     return rows.all(
       CommentRow,
-      `SELECT id, flow_id AS "flowId", mr_iid AS "mrIid", discussion_id AS "discussionId", author, body, file_path AS "filePath", line, status, resolved_by AS "resolvedBy", raw, created_at AS "createdAt", updated_at AS "updatedAt" FROM comments WHERE flow_id=$1 AND status IN ($2) ORDER BY created_at ASC, id ASC`,
+      `${COMMENT_SELECT} WHERE flow_id=$1 AND status=$2 ORDER BY created_at ASC, id ASC`,
       flowId,
       COMMENT_STATUS.OPEN,
     );
   }
 
   /** Record an agent resolution for a comment row. */
-  resolveComment(id: string): void {
-    this.resolveComments([id]);
+  resolveComment(id: string): Promise<void> {
+    return this.resolveComments([id]);
   }
 
   /**
@@ -359,10 +370,10 @@ export class NodeSupport {
    * discussion is closed together behind a single per-discussion host call.
    * No-op for an empty id list.
    */
-  resolveComments(ids: readonly string[]): void {
+  async resolveComments(ids: readonly string[]): Promise<void> {
     if (ids.length === 0) return;
-    const marks = ids.map(() => "?").join(",");
-    db.run(
+    const marks = ids.map((_, i) => `$${i + 4}`).join(",");
+    await db.run(
       `UPDATE comments SET status=$1, resolved_by=$2, updated_at=$3 WHERE id IN (${marks})`,
       COMMENT_STATUS.RESOLVED,
       RESOLVED_BY_AGENT,
@@ -377,11 +388,11 @@ export class NodeSupport {
    * in the same discussion means the agent answered it last cycle and the
    * reviewer hasn't responded yet. Deterministic order for the prompt.
    */
-  agentReplies(flowId: string, mrIid?: number | null): CommentRow[] {
+  async agentReplies(flowId: string, mrIid?: number | null): Promise<CommentRow[]> {
     if (mrIid != null) {
       return rows.all(
         CommentRow,
-        `SELECT id, flow_id AS "flowId", mr_iid AS "mrIid", discussion_id AS "discussionId", author, body, file_path AS "filePath", line, status, resolved_by AS "resolvedBy", raw, created_at AS "createdAt", updated_at AS "updatedAt" FROM comments WHERE flow_id=$1 AND mr_iid=$2 AND resolved_by=$3 ORDER BY created_at ASC, id ASC`,
+        `${COMMENT_SELECT} WHERE flow_id=$1 AND mr_iid=$2 AND resolved_by=$3 ORDER BY created_at ASC, id ASC`,
         flowId,
         mrIid,
         RESOLVED_BY_AGENT,
@@ -389,7 +400,7 @@ export class NodeSupport {
     }
     return rows.all(
       CommentRow,
-      `SELECT id, flow_id AS "flowId", mr_iid AS "mrIid", discussion_id AS "discussionId", author, body, file_path AS "filePath", line, status, resolved_by AS "resolvedBy", raw, created_at AS "createdAt", updated_at AS "updatedAt" FROM comments WHERE flow_id=$1 AND resolved_by=$2 ORDER BY created_at ASC, id ASC`,
+      `${COMMENT_SELECT} WHERE flow_id=$1 AND resolved_by=$2 ORDER BY created_at ASC, id ASC`,
       flowId,
       RESOLVED_BY_AGENT,
     );
@@ -402,18 +413,18 @@ export class NodeSupport {
    * and `presentComments` reads the row as the "already replied" marker.
    * Skips when a poll raced us and already ingested the host-prefixed note id.
    */
-  recordAgentReply(params: {
+  async recordAgentReply(params: {
     flowId: string;
     mrIid: number | null;
     discussionId: string;
     body: string;
     note: HostNote;
-  }): void {
-    const existing = db.get<{ id: string }>(`SELECT id FROM comments WHERE id=$1`, params.note.id);
+  }): Promise<void> {
+    const existing = await db.get<{ id: string }>(`SELECT id FROM comments WHERE id=$1`, params.note.id);
     if (existing) return;
-    db.run(
+    await db.run(
       `INSERT INTO comments (id,flow_id,mr_iid,discussion_id,author,body,file_path,line,status,resolved_by,raw,created_at,updated_at)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13) ON CONFLICT DO NOTHING`,
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13) ON CONFLICT (id) DO NOTHING`,
       params.note.id,
       params.flowId,
       params.mrIid,
@@ -433,21 +444,21 @@ export class NodeSupport {
   // ── flows ───────────────────────────────────────────────────────────────────
 
   /** Point the flow's merge-request branch at `branch`. */
-  setFlowBranch(flowId: string, branch: string): void {
-    db.run(`UPDATE flows SET mr_branch=$1 WHERE id=$2`, branch, flowId);
+  async setFlowBranch(flowId: string, branch: string): Promise<void> {
+    await db.run(`UPDATE flows SET mr_branch=$1 WHERE id=$2`, branch, flowId);
   }
 
   // ── feed events ─────────────────────────────────────────────────────────────
 
   /** A flow-feed event of any type ("pipeline", "error", "log" — named
    *  lifecycle transitions go through `emitLifecycle`). */
-  emit(flowId: string, nodeId: string | null, type: string, message: string, data?: Record<string, unknown>): void {
-    db.emitEvent(flowId, nodeId, type, message, data);
+  emit(flowId: string, nodeId: string | null, type: string, message: string, data?: Record<string, unknown>): Promise<void> {
+    return db.emitEvent(flowId, nodeId, type, message, data);
   }
 
   /** The lifecycle event: run transitions and state changes the UI trail is built from. */
-  emitLifecycle(flowId: string, nodeId: string | null, message: string, data?: Record<string, unknown>): void {
-    db.emitEvent(flowId, nodeId, EVENT_KIND.LIFECYCLE, message, data);
+  emitLifecycle(flowId: string, nodeId: string | null, message: string, data?: Record<string, unknown>): Promise<void> {
+    return db.emitEvent(flowId, nodeId, EVENT_KIND.LIFECYCLE, message, data);
   }
 }
 

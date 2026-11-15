@@ -209,9 +209,9 @@ export class ResolveNode extends AgentRunNode<ResolveInput, ResolveOutput> {
    */
   previewPrompt(ctx: FlowCtx, node: NodeRow | null, params: PromptPreviewParams): NodePromptPreview | null {
     const configBody = nodeRoles.previewBody(this, node);
-    const mrBranch = ctx.flow.mr_iid
+    const mrBranch = ctx.flow.mrIid
       ? mrTargetResolver.resolve(ctx, null).mrBranch
-      : ctx.flow.mr_branch ?? this.ctxHelper.buildBranch(ctx);
+      : ctx.flow.mrBranch ?? this.ctxHelper.buildBranch(ctx);
     const contractDirective = AgentOutputError.directive(RESOLVE_RESPONSE_JSON_SCHEMA);
     const asm = prompts.assemblePrompt(
       NODE_KEYS.RESOLVE,
@@ -228,7 +228,7 @@ export class ResolveNode extends AgentRunNode<ResolveInput, ResolveOutput> {
   }
 
   async run(ctx: FlowCtx, rawInput: ResolveInput, config: Record<string, unknown>): Promise<RunOutcome> {
-    const repoUrl = ctx.flow.repo_url;
+    const repoUrl = ctx.flow.repoUrl;
     if (!repoUrl) {
       // G17: fail loudly instead of falling back to an empty repoUrl that the
       // host registry and pushes would then silently consume
@@ -279,7 +279,7 @@ export class ResolveNode extends AgentRunNode<ResolveInput, ResolveOutput> {
       const lp = this.ctxHelper.localPath(ctx);
       if (lp) {
         const ahead = await localGit
-          .localBranchState(lp, mrBranch, ctx.repo?.default_branch ?? "main")
+          .localBranchState(lp, mrBranch, ctx.repo?.defaultBranch ?? "main")
           .catch(() => null);
         if (ahead && ahead.unpushedAhead > 0) {
           await this.pushLocalBranch(ctx, {
@@ -519,7 +519,7 @@ export class ResolveNode extends AgentRunNode<ResolveInput, ResolveOutput> {
     const lp = this.ctxHelper.localPath(ctx);
     const after =
       lp && p.mrBranch
-        ? await localGit.localBranchState(lp, p.mrBranch, ctx.repo?.default_branch ?? "main").catch(() => null)
+        ? await localGit.localBranchState(lp, p.mrBranch, ctx.repo?.defaultBranch ?? "main").catch(() => null)
         : null;
     const codeChanged =
       after?.stat != null && before?.localRef != null && after.stat !== before.localRef;
@@ -657,7 +657,7 @@ export class ResolveNode extends AgentRunNode<ResolveInput, ResolveOutput> {
     const lp = this.ctxHelper.localPath(ctx);
     const localState =
       lp && mrBranch
-        ? await localGit.localBranchState(lp, mrBranch, ctx.repo?.default_branch ?? "main").catch(() => null)
+        ? await localGit.localBranchState(lp, mrBranch, ctx.repo?.defaultBranch ?? "main").catch(() => null)
         : null;
     return { mrSha, localRef: localState?.stat ?? null };
   }
@@ -694,7 +694,7 @@ export class ResolveNode extends AgentRunNode<ResolveInput, ResolveOutput> {
   async recover(ctx: FlowCtx, node: NodeRow, result: AgentRunResult, note: string): Promise<boolean> {
     if (result.status !== "finished") return false;
     try {
-      const repoUrl = ctx.flow.repo_url;
+      const repoUrl = ctx.flow.repoUrl;
       if (!repoUrl) return false;
       const recorded = this.inputSchema.parse(node.input ?? {});
       const { mrIid, mrBranch } = mrTargetResolver.resolve(ctx, recorded.branchName);
@@ -706,7 +706,7 @@ export class ResolveNode extends AgentRunNode<ResolveInput, ResolveOutput> {
         mrBranch,
         open,
         before: null,
-        worktree: ctx.flow.worktree_dir ?? null,
+        worktree: ctx.flow.worktreeDir ?? null,
         label: recorded.branchName ? `resolve (${recorded.branchName})` : "resolve",
         model: recorded.model,
         settingSources: mcpSourcesOf(this.nodeConfig(ctx)),

@@ -58,7 +58,7 @@ export class JiraTaskProvider extends TaskProvider implements TaskInstanceStore 
 
   /** The issue's external deep link (stored link wins; instance baseUrl as fallback). */
   externalUrl(task: Task): string {
-    return task.externalUrl || `${jira.active()?.base_url ?? ""}/browse/${task.key}`;
+    return task.externalUrl || `${jira.active()?.baseUrl ?? ""}/browse/${task.key}`;
   }
 
   /** ── instance registry (Settings → Integrations → Task) ────────────────── */
@@ -80,13 +80,13 @@ export class JiraTaskProvider extends TaskProvider implements TaskInstanceStore 
       email: input.email ?? "",
       token: input.token,
     });
-    return { id: inst.id, name: inst.name, baseUrl: inst.base_url, email: inst.email, tokenMasked: maskToken(inst.token) };
+    return { id: inst.id, name: inst.name, baseUrl: inst.baseUrl, email: inst.email, tokenMasked: maskToken(inst.token) };
   }
 
   updateInstance(id: string, input: { name?: string | null; baseUrl?: string; email?: string; token?: string }): void {
     const existing = jira.getInstance(id);
     if (!existing) throw new Error(`jira instance not found: ${id}`);
-    if (baseUrlOverrideRequiresToken(existing.base_url, input.baseUrl, input.token)) {
+    if (baseUrlOverrideRequiresToken(existing.baseUrl, input.baseUrl, input.token)) {
       throw new ValidationError("token is required when overriding baseUrl");
     }
     jira.updateInstance(id, {
@@ -107,11 +107,11 @@ export class JiraTaskProvider extends TaskProvider implements TaskInstanceStore 
   ): Promise<{ ok: boolean; detail: string }> {
     const existing = jira.getInstance(id);
     if (!existing) throw new Error(`jira instance not found: ${id}`);
-    if (baseUrlOverrideRequiresToken(existing.base_url, input.baseUrl, input.token)) {
+    if (baseUrlOverrideRequiresToken(existing.baseUrl, input.baseUrl, input.token)) {
       throw new ValidationError("token is required when overriding baseUrl");
     }
     return jira.testInstance(
-      input.baseUrl ?? existing.base_url,
+      input.baseUrl ?? existing.baseUrl,
       input.email ?? existing.email,
       input.token?.trim() || existing.token
     );
@@ -243,7 +243,7 @@ export class JiraTaskProvider extends TaskProvider implements TaskInstanceStore 
       priority: priorityObj?.name ?? "",
       prdText: this.extractPrd(descText || summary || ""),
       figmaUrls: figma,
-      externalUrl: `${jira.active()?.base_url ?? ""}/browse/${issue.key}`,
+      externalUrl: `${jira.active()?.baseUrl ?? ""}/browse/${issue.key}`,
       parentKey: parentObj?.key ?? "",
       raw: issue,
     };
@@ -253,7 +253,7 @@ export class JiraTaskProvider extends TaskProvider implements TaskInstanceStore 
     const inst = jira.active();
     if (!inst) return [];
     const mode = jira.authMode(inst);
-    const url = `${inst.base_url}${jiraSearchPath(mode)}?jql=${encodeURIComponent(
+    const url = `${inst.baseUrl}${jiraSearchPath(mode)}?jql=${encodeURIComponent(
       jql,
     )}&maxResults=50&fields=summary,description,status,issuetype,priority,parent`;
     const res = await fetch(url, {
@@ -281,7 +281,7 @@ export class JiraTaskProvider extends TaskProvider implements TaskInstanceStore 
     inst: NonNullable<ReturnType<typeof jira.active>>,
     mode: ReturnType<typeof jira.authMode>,
   ): Promise<void> {
-    const myselfRes = await fetch(`${inst.base_url}${jiraMyselfPath(mode)}`, {
+    const myselfRes = await fetch(`${inst.baseUrl}${jiraMyselfPath(mode)}`, {
       headers: this.headers(),
       signal: AbortSignal.timeout(JIRA_HTTP_TIMEOUT_MS),
     });

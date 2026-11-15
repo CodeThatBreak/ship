@@ -46,9 +46,9 @@ export async function buildFlowContext(ctx: FlowCtx): FlowContextMap {
     );
   for (const r of rowsOut) {
     // db.all is the raw row — the output column is a JSON TEXT blob
-    nodes[r.node_key] = { output: parseJsonObject(r.output) };
+    nodes[r.nodeKey] = { output: parseJsonObject(r.output) };
   }
-  let payload: unknown = ctx.flow.trigger_payload ?? null;
+  let payload: unknown = ctx.flow.triggerPayload ?? null;
   if (typeof payload === "string") payload = parseJsonObject(payload);
   // plan fan-out step children: the trigger payload carries {plan, step,
   // siblings} — alias them at the top level so child templates render the
@@ -66,12 +66,12 @@ export async function buildFlowContext(ctx: FlowCtx): FlowContextMap {
   return {
     task: taskContextOf(ctx),
     repo: {
-      cloud_url: ctx.repo?.cloud_url ?? ctx.flow.repo_url ?? "",
-      local_path: ctx.repo?.local_path ?? "",
+      cloud_url: ctx.repo?.cloudUrl ?? ctx.flow.repoUrl ?? "",
+      local_path: ctx.repo?.localPath ?? "",
     },
     flow: {
-      mr_url: ctx.flow.mr_url ?? "",
-      mr_branch: ctx.flow.mr_branch ?? "",
+      mr_url: ctx.flow.mrUrl ?? "",
+      mr_branch: ctx.flow.mrBranch ?? "",
     },
     trigger: { payload },
     nodes,

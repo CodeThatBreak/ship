@@ -217,10 +217,10 @@ export class UsageTracker {
     for (const r of pending) {
       const est = estimateCostCents({
         model: r.model ?? undefined,
-        inputTokens: r.input_tokens ?? 0,
-        outputTokens: r.output_tokens ?? 0,
-        cacheReadTokens: r.cache_read_tokens ?? 0,
-        cacheWriteTokens: r.cache_write_tokens ?? 0,
+        inputTokens: r.inputTokens ?? 0,
+        outputTokens: r.outputTokens ?? 0,
+        cacheReadTokens: r.cacheReadTokens ?? 0,
+        cacheWriteTokens: r.cacheWriteTokens ?? 0,
       }, resolveRates(r.model ?? undefined, pricing, this.pricingSource, table), discount);
       // zero-token rows price to exactly 0 — leave them uncosted rather than
       // pretend a free run happened

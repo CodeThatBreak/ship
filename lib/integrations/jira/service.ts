@@ -68,7 +68,7 @@ export class JiraService {
   ): void {
     const existing = this.getInstance(id);
     if (!existing) throw new Error(`jira instance not found: ${id}`);
-    if (baseUrlOverrideRequiresToken(existing.base_url, input.base_url, input.token)) {
+    if (baseUrlOverrideRequiresToken(existing.baseUrl, input.baseUrl, input.token)) {
       throw new ValidationError("token is required when overriding baseUrl");
     }
     this.instances.update(id, input, existing);

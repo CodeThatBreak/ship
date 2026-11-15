@@ -159,7 +159,7 @@ export class BuildNode extends AgentRunNode<BuildInput, BuildOutput> {
    * ordinary parent-flow build — the plan-based behavior below is unchanged.
    */
   override triggerInput(ctx: FlowCtx): BuildInput | null {
-    const unit = splitUnitItemOf(ctx.flow.trigger_payload);
+    const unit = splitUnitItemOf(ctx.flow.triggerPayload);
     if (!unit) return null;
     return {
       plan: unit.plan,
@@ -197,7 +197,7 @@ export class BuildNode extends AgentRunNode<BuildInput, BuildOutput> {
       // branch rows first (pending) — today's approvePlan behavior
       sorted.forEach((b, i) => branchStore.upsert(ctx.flow.id, b.name, { title: b.title, order: i, status: "pending" }));
       this.support.emitLifecycle(ctx.flow.id, null, `plan approved with ${branches.length} branches — building sequentially`,
-        { nodeKey: planNode?.node_key ?? NODE_KEYS.PLAN });
+        { nodeKey: planNode?.nodeKey ?? NODE_KEYS.PLAN });
       return sorted.map((b) => ({
         input: {
           plan: planContent, prompt: null,
@@ -281,7 +281,7 @@ export class BuildNode extends AgentRunNode<BuildInput, BuildOutput> {
         autoCreatePR: false,
         // worktree mode: the branch already exists (created with the worktree);
         // cloud mode: the agent branches off the default ref itself
-        startingRef: mode === "local" ? branch : (ctx.repo?.default_branch ?? "main"),
+        startingRef: mode === "local" ? branch : (ctx.repo?.defaultBranch ?? "main"),
         cwd: worktree ?? undefined,
         model: input.model,
         settingSources: mcpSourcesOf(config),
@@ -305,7 +305,7 @@ export class BuildNode extends AgentRunNode<BuildInput, BuildOutput> {
     const resultBranch = await this.buildRun.resultBranch(ctx, result, branch);
 
     this.support.setFlowBranch(ctx.flow.id, resultBranch);
-    ctx.flow.mr_branch = resultBranch;
+    ctx.flow.mrBranch = resultBranch;
 
     if (branchInfo) {
       const branchRowId = branchStore.upsert(ctx.flow.id, branchInfo.name, {
@@ -339,7 +339,7 @@ export class BuildNode extends AgentRunNode<BuildInput, BuildOutput> {
     const feedback = input.feedback;
     if (!feedback) throw new Error("feedback is required for a build refine");
     const node = this.node(ctx);
-    if (!node.agent_id) {
+    if (!node.agentId) {
       // no build agent yet — treat as a full build with the latest plan + note
       const plan = this.support.latestArtifact(ctx.flow.id, "plan");
       return this.run(ctx, this.inputSchema.parse({
@@ -362,7 +362,7 @@ export class BuildNode extends AgentRunNode<BuildInput, BuildOutput> {
       agent: {
         mode: "agent",
         name: `build refine ${ctx.task.key}`,
-        followUpOn: node.agent_id,
+        followUpOn: node.agentId,
         startingRef: gitBranch,
         cwd: worktree ?? undefined,
         model: input.model,
@@ -552,7 +552,7 @@ export class BuildNode extends AgentRunNode<BuildInput, BuildOutput> {
   async recoverBranch(ctx: FlowCtx, node: NodeRow, branch: string, note: string): Promise<void> {
     if (node.status !== "running") return;
     this.support.setFlowBranch(ctx.flow.id, branch);
-    ctx.flow.mr_branch = branch;
+    ctx.flow.mrBranch = branch;
     const art = await this.buildRun.diffArtifact(ctx, node.id, branch, {
       noDiffContent: "(diff unavailable — fetch from GitLab)",
       extraMeta: { recovered: true },

@@ -66,7 +66,7 @@ export class TemplatePreviewService {
     for (const r of nodeRows) {
       const nt = await db.get<{ kind: string; config: string | null }>(
               `SELECT kind, config FROM node_templates WHERE id=$1`,
-              r.node_template_id,
+              r.nodeTemplateId,
             );
       if (!nt) continue;
       let instConfig: unknown = {};
@@ -86,7 +86,7 @@ export class TemplatePreviewService {
         ...(instConfig as Record<string, unknown>),
       };
       const fields = outputFieldsFor(nt.kind, merged);
-      nodes[r.node_key] = {
+      nodes[r.nodeKey] = {
         output:
           fields == null
             ? {}

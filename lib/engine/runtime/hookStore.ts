@@ -1,6 +1,6 @@
 import "server-only";
 
-import crypto from "crypto";
+import crypto from "node:crypto";
 import { Webhook } from "standardwebhooks";
 import { db } from "../../db/app";
 import { HookRow, rows } from "../../db/rows";
@@ -61,20 +61,20 @@ export const maskHookSecret = (secret: string): string => maskToken(secret);
 export class HookStore {
   // ── reads ────────────────────────────────────────────────────────────────
 
-  async hook(id: string): Promise<HookRow | undefined> {
-    return await rows.get(HookRow, `${HOOK_SELECT} WHERE id=$1`, id);
+  hook(id: string): Promise<HookRow | undefined> {
+    return rows.get(HookRow, `${HOOK_SELECT} WHERE id=$1`, id);
   }
 
   /** The hook that starts flows from a template (webhook flow trigger). */
-  async hookForTemplate(templateId: string): Promise<HookRow | undefined> {
-    return await rows.get(HookRow,
-          `${HOOK_SELECT} WHERE template_id=$1 AND flow_id IS NULL`, templateId);
+  hookForTemplate(templateId: string): Promise<HookRow | undefined> {
+    return rows.get(HookRow,
+      `${HOOK_SELECT} WHERE template_id=$1 AND flow_id IS NULL`, templateId);
   }
 
   /** The hook that feeds a waiting node instance (wait_for webhook). */
-  async hookForNode(flowId: string, nodeKey: string): Promise<HookRow | undefined> {
-    return await rows.get(HookRow,
-          `${HOOK_SELECT} WHERE flow_id=$1 AND node_key=$2`, flowId, nodeKey);
+  hookForNode(flowId: string, nodeKey: string): Promise<HookRow | undefined> {
+    return rows.get(HookRow,
+      `${HOOK_SELECT} WHERE flow_id=$1 AND node_key=$2`, flowId, nodeKey);
   }
 
   // ── provisioning (called from TemplateStore save paths + flow creation) ──
@@ -127,9 +127,9 @@ export class HookStore {
   }
 
   /** The inbound hooks feeding this flow's waiting nodes. */
-  async hooksForFlow(flowId: string): Promise<HookRow[]> {
-    return await rows.all(HookRow,
-          `${HOOK_SELECT} WHERE flow_id=$1 AND node_key IS NOT NULL ORDER BY created_at`, flowId);
+  hooksForFlow(flowId: string): Promise<HookRow[]> {
+    return rows.all(HookRow,
+      `${HOOK_SELECT} WHERE flow_id=$1 AND node_key IS NOT NULL ORDER BY created_at`, flowId);
   }
 
   // ── verification ─────────────────────────────────────────────────────────

@@ -53,19 +53,19 @@ export class WorktreeStatusService {
     const byRepo = new Map<string, FlowWorktreeRow[]>();
     const noRepo: FlowWorktreeRow[] = [];
     for (const f of flowRows) {
-      if (!f.repo_id) {
+      if (!f.repoId) {
         noRepo.push(f);
         continue;
       }
-      const bucket = byRepo.get(f.repo_id) ?? [];
+      const bucket = byRepo.get(f.repoId) ?? [];
       bucket.push(f);
-      byRepo.set(f.repo_id, bucket);
+      byRepo.set(f.repoId, bucket);
     }
 
     const out: Record<string, WorktreeStatusEntry> = {};
     for (const f of noRepo) {
       out[f.id] = {
-        path: f.worktree_dir,
+        path: f.worktreeDir,
         registered: false,
         reason: "hub checkout missing or unregistered",
       };
@@ -73,25 +73,25 @@ export class WorktreeStatusService {
 
     await mapPool([...byRepo.entries()], GIT_CONCURRENCY, async ([repoId, flows]) => {
       const repo = await db.repoById(repoId);
-      if (!repo?.local_path) {
+      if (!repo?.localPath) {
         for (const f of flows) {
           out[f.id] = {
-            path: f.worktree_dir,
+            path: f.worktreeDir,
             registered: false,
             reason: "hub checkout missing or unregistered",
           };
         }
         return;
       }
-      const localPath = repo.local_path;
-      const baseBranch = repo.default_branch || "main";
+      const localPath = repo.localPath;
+      const baseBranch = repo.defaultBranch || "main";
       let list;
       try {
         list = await worktrees.listWorktrees(localPath);
       } catch (e: unknown) {
         const reason = e instanceof Error ? e.message : String(e);
         for (const f of flows) {
-          out[f.id] = { path: f.worktree_dir, registered: false, reason };
+          out[f.id] = { path: f.worktreeDir, registered: false, reason };
         }
         return;
       }
@@ -111,11 +111,11 @@ export class WorktreeStatusService {
     list: Awaited<ReturnType<typeof worktrees.listWorktrees>>,
   ): Promise<WorktreeStatusEntry> {
     const missing = {
-      path: flow.worktree_dir,
+      path: flow.worktreeDir,
       registered: false as const,
       reason: "worktree dir not found",
     };
-    const wt = list.find((w) => samePath(w.path, flow.worktree_dir));
+    const wt = list.find((w) => samePath(w.path, flow.worktreeDir));
     if (!wt) {
       return { ...missing, reason: "not a registered worktree of this repo" };
     }
@@ -136,7 +136,7 @@ export class WorktreeStatusService {
         behind: branchState?.exists ? branchState.commitsBehind : 0,
         pushed: branchState?.exists ? branchState.pushed : false,
         stat: branchState?.stat ?? "",
-        mrBranch: flow.mr_branch,
+        mrBranch: flow.mrBranch,
       };
     } catch (e: unknown) {
       return {

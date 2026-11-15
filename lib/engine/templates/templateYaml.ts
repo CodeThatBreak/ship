@@ -67,8 +67,8 @@ export function exportTemplateYaml(
     }
     const trig = n.trigger as Record<string, unknown> | undefined;
     if (trig && Object.keys(trig).length) doc.trigger = trig;
-    if (n.joinMode && n.joinMode !== "all") doc.join_mode = n.joinMode;
-    if (Object.keys(n.inputMap ?? {}).length) doc.input_map = n.inputMap;
+    if (n.joinMode && n.joinMode !== "all") doc.joinMode = n.joinMode;
+    if (Object.keys(n.inputMap ?? {}).length) doc.inputMap = n.inputMap;
     nodeDocs.push(doc);
   }
 
@@ -132,9 +132,9 @@ export function parseTemplateYaml(text: string): {
     const out: YamlNodeEntry = { key: e.key.trim(), type: e.type.trim() };
     if (typeof e.label === "string" && e.label.trim()) out.label = e.label.trim();
     if (e.trigger && typeof e.trigger === "object" && !Array.isArray(e.trigger)) out.trigger = e.trigger as Record<string, unknown>;
-    if (typeof e.join_mode === "string") out.join_mode = e.join_mode;
+    if (typeof e.joinMode === "string") out.joinMode = e.joinMode;
     if (e.config && typeof e.config === "object" && !Array.isArray(e.config)) out.config = e.config as Record<string, unknown>;
-    if (e.input_map && typeof e.input_map === "object" && !Array.isArray(e.input_map)) out.input_map = e.input_map as Record<string, unknown>;
+    if (e.inputMap && typeof e.inputMap === "object" && !Array.isArray(e.inputMap)) out.inputMap = e.inputMap as Record<string, unknown>;
     return out;
   });
 
@@ -198,7 +198,7 @@ export function gatherTemplateYaml(
     if (catalog[n.nodeTemplateId]) continue;
     const nt = store.nodeTemplate(n.nodeTemplateId);
     if (!nt) throw new YamlTemplateError(`missing node template row ${n.nodeTemplateId}`);
-    catalog[nt.id] = { key: nt.key, name: nt.name, kind: nt.kind, isBuiltin: Boolean(nt.is_builtin), config: nt.config ?? {} };
+    catalog[nt.id] = { key: nt.key, name: nt.name, kind: nt.kind, isBuiltin: Boolean(nt.isBuiltin), config: nt.config ?? {} };
   }
   return exportTemplateYaml({
     name: t.name,
@@ -232,7 +232,7 @@ export interface ImportedTemplate {
  * Validation is the store's: unknown `{{refs}}` / task types / node types
  * reject the import with a clear lint error.
  */
-export function importTemplateYaml(
+export async function importTemplateYaml(
   store: {
     ensureNodeTemplate(input: { key?: string; name: string; kind: string; icon?: string | null; config: Record<string, unknown> }): { id: string; created: boolean };
     nodeTemplateByKey(key: string): { id: string; key: string; is_builtin: number; kind: string } | undefined;
@@ -249,7 +249,7 @@ export function importTemplateYaml(
   text: string,
   opts: { namePrefix?: string } = {},
 ): ImportedTemplate {
-  return db.transaction(() => importTemplateYamlInner(store, text, opts));
+  return await db.transaction(() => importTemplateYamlInner(store, text, opts));
 }
 
 function importTemplateYamlInner(
@@ -265,11 +265,11 @@ function importTemplateYamlInner(
     if (entry.type.startsWith("builtin/")) {
       const key = entry.type.slice("builtin/".length).trim();
       const nt = store.nodeTemplateByKey(key);
-      if (!nt || !nt.is_builtin) throw new YamlTemplateError(`unknown built-in node "builtin/${key}"`);
+      if (!nt || !nt.isBuiltin) throw new YamlTemplateError(`unknown built-in node "builtin/${key}"`);
       nodeTemplateId = nt.id;
     } else {
       const matchingByKey = store.nodeTemplateByKey(entry.type);
-      if (matchingByKey && !matchingByKey.is_builtin) {
+      if (matchingByKey && !matchingByKey.isBuiltin) {
         // reference an existing declarative catalog node
         nodeTemplateId = matchingByKey.id;
       } else {
@@ -298,9 +298,9 @@ function importTemplateYamlInner(
       nodeTemplateId,
       label: entry.label ?? null,
       trigger: entry.trigger,
-      join_mode: entry.join_mode,
+      join_mode: entry.joinMode,
       config: overrides,
-      input_map: entry.input_map,
+      input_map: entry.inputMap,
     };
   });
 

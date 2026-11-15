@@ -44,7 +44,7 @@ export class MergeRequestService {
     const flow = ctx.flow;
     const gitBranch = branchName
       ? (branchStore.gitBranch(flow.id, branchName) ?? flowCtxHelper.buildBranch(ctx, branchName))
-      : flow.mr_branch;
+      : flow.mrBranch;
     if (!gitBranch) throw new Error("no build branch to create an MR from");
 
     // Local mode: the branch may exist only in the local checkout (the agent
@@ -55,7 +55,7 @@ export class MergeRequestService {
         await db.emitEvent(flow.id, null, "lifecycle", `pushing branch ${gitBranch} to origin…`,
                     { nodeKey: opts.emitNodeKey });
         try {
-          const how = await localGit.pushBranch(lp, gitBranch, flow.repo_url ?? "", gitRemoteContextFor);
+          const how = await localGit.pushBranch(lp, gitBranch, flow.repoUrl ?? "", gitRemoteContextFor);
           await db.emitEvent(flow.id, null, "lifecycle", `branch ${gitBranch} pushed (via ${how === "https" ? "token-authed HTTPS" : "origin remote"})`,
                         { nodeKey: opts.emitNodeKey });
         } catch (e: unknown) {
@@ -71,7 +71,7 @@ export class MergeRequestService {
       }
     }
 
-    const repoUrl = flow.repo_url ?? "";
+    const repoUrl = flow.repoUrl ?? "";
     const host = gitHostRegistry.forRepo(repoUrl);
     const existing = await host.listChangeRequestsByBranch(repoUrl, gitBranch);
     let cr: ChangeRequest;
@@ -83,7 +83,7 @@ export class MergeRequestService {
     } else {
       cr = await host.createChangeRequest(repoUrl, {
         sourceBranch: gitBranch,
-        targetBranch: ctx.repo?.default_branch ?? "main",
+        targetBranch: ctx.repo?.defaultBranch ?? "main",
         title: crTitle,
         description: `Implements ${ctx.task.externalUrl}\n\n${ctx.task.summary}${branchName ? `\n\nBranch: ${branchName}` : ""}`,
       });
