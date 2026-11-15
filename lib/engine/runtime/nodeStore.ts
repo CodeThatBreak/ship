@@ -22,37 +22,39 @@ export type InsertNodeSnapshotsOptions = {
  * Node kind implementations use {@link NodeSupport} instead.
  */
 export class NodeStore {
-  idOf(flowId: string, nodeKey: string): string | null {
-    return db.get<{ id: string }>(
-      `SELECT id FROM nodes WHERE flow_id=? AND node_key=?`,
+  async idOf(flowId: string, nodeKey: string): Promise<string | null> {
+    const row = await db.get<{ id: string }>(
+      `SELECT id FROM nodes WHERE flow_id=$1 AND node_key=$2`,
       flowId,
       nodeKey,
-    )?.id ?? null;
+    );
+    return row?.id ?? null;
   }
 
-  statusOf(flowId: string, nodeKey: string): NodeStatus | null {
-    return db.get<{ status: NodeStatus }>(
-      `SELECT status FROM nodes WHERE flow_id=? AND node_key=?`,
+  async statusOf(flowId: string, nodeKey: string): Promise<NodeStatus | null> {
+    const row = await db.get<{ status: NodeStatus }>(
+      `SELECT status FROM nodes WHERE flow_id=$1 AND node_key=$2`,
       flowId,
       nodeKey,
-    )?.status ?? null;
+    );
+    return row?.status ?? null;
   }
 
-  statusesOfFlow(flowId: string): NodeStatus[] {
-    return db.all<{ status: NodeStatus }>(`SELECT status FROM nodes WHERE flow_id=?`, flowId)
-      .map((n) => n.status);
+  async statusesOfFlow(flowId: string): Promise<NodeStatus[]> {
+    const rows = await db.all<{ status: NodeStatus }>(`SELECT status FROM nodes WHERE flow_id=$1`, flowId);
+    return rows.map((n) => n.status);
   }
 
-  setStatus(flowId: string, nodeKey: string, status: NodeStatus): void {
-    db.run(
-      `UPDATE nodes SET status=?, updated_at=? WHERE flow_id=? AND node_key=?`,
+  async setStatus(flowId: string, nodeKey: string, status: NodeStatus): Promise<void> {
+    await db.run(
+      `UPDATE nodes SET status=$1, updated_at=$2 WHERE flow_id=$3 AND node_key=$4`,
       status,
       db.now(),
       flowId,
       nodeKey,
     );
     if (status !== NODE_STATUS.RUNNING) {
-      const nodeId = this.idOf(flowId, nodeKey);
+      const nodeId = await this.idOf(flowId, nodeKey);
       if (nodeId) nodeAttemptRegistry.clear(nodeId);
     }
   }
@@ -61,12 +63,12 @@ export class NodeStore {
    * Atomically move a node to `running` and stamp a fresh attempt token.
    * Throws {@link ConflictError} when the node is not in one of `from`.
    */
-  claim(flowId: string, nodeKey: string, from: readonly NodeStatus[]): string {
+  async claim(flowId: string, nodeKey: string, from: readonly NodeStatus[]): Promise<string> {
     const attempt = db.uid("att_");
-    const marks = from.map(() => "?").join(",");
-    const { changes } = db.run(
-      `UPDATE nodes SET status = ?, attempt_id = ?, updated_at = ?
-       WHERE flow_id = ? AND node_key = ? AND status IN (${marks})`,
+    const marks = from.map((_, i) => `$${i + 5}`).join(",");
+    const changes = await db.run(
+      `UPDATE nodes SET status = $1, attempt_id = $2, updated_at = $3
+       WHERE flow_id = $4 AND node_key = $5 AND status IN (${marks})`,
       NODE_STATUS.RUNNING,
       attempt,
       db.now(),
@@ -80,26 +82,26 @@ export class NodeStore {
     return attempt;
   }
 
-  emitEvent(
+  async emitEvent(
     flowId: string,
     nodeKey: string | null,
     type: string,
     message: string,
     data?: Record<string, unknown>,
-  ): void {
-    const nodeId = nodeKey ? this.idOf(flowId, nodeKey) : null;
-    db.emitEvent(flowId, nodeId, type, message, data);
+  ): Promise<void> {
+    const nodeId = nodeKey ? await this.idOf(flowId, nodeKey) : null;
+    await db.emitEvent(flowId, nodeId, type, message, data);
   }
 
   /** Insert node rows from a template graph snapshot (flow / step / split create). */
-  insertSnapshots(flowId: string, graph: TemplateGraph, opts: InsertNodeSnapshotsOptions = {}): void {
+  async insertSnapshots(flowId: string, graph: TemplateGraph, opts: InsertNodeSnapshotsOptions = {}): Promise<void> {
     const ts = opts.ts ?? db.now();
     for (const spec of graph.nodes) {
       const def = nodeRegistry.resolve(spec.defKey, spec.key);
       const config = mergeConfigLayers(def.defaultConfig(), appLayerConfig(def.key), spec.config);
-      db.run(
+      await db.run(
         `INSERT INTO nodes (id,flow_id,node_key,type,label,config,join_mode,status,created_at,updated_at)
-         VALUES (?,?,?,?,?,?,?,?,?,?)`,
+         VALUES ($1,$2,$3,$4,$5,$6::jsonb,$7,$8,$9,$10)`,
         db.uid("node_"),
         flowId,
         spec.key,
@@ -111,8 +113,8 @@ export class NodeStore {
         ts,
         ts,
       );
-      if (opts.provisionWebhookHooks && spec.trigger.wait_for === "webhook") {
-        hookStore.ensureForNode(flowId, spec.key);
+      if (opts.provisionWebhookHooks && spec.trigger.waitFor === "webhook") {
+        await hookStore.ensureForNode(flowId, spec.key);
       }
     }
   }

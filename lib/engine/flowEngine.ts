@@ -234,7 +234,7 @@ export class FlowEngine {
     const tt = this.graph(parentFlowId)?.byKey.get(nodeKey)?.trigger.type ?? 'auto';
     const status = tt === 'approval' ? 'awaiting_approval' : 'done';
     const published = db.run(
-      `UPDATE nodes SET status=?, output=?, updated_at=? WHERE flow_id=? AND node_key=? AND status='running'`,
+      `UPDATE nodes SET status=$1, output=$2, updated_at=$3 WHERE flow_id=$4 AND node_key=$5 AND status='running'`,
       status,
       JSON.stringify({ ...output, steps }),
       db.now(),
@@ -289,7 +289,7 @@ export class FlowEngine {
         ? 'awaiting_approval'
         : 'done';
     db.run(
-      `UPDATE nodes SET status=?, output=?, updated_at=? WHERE flow_id=? AND node_key=?`,
+      `UPDATE nodes SET status=$1, output=$2, updated_at=$3 WHERE flow_id=$4 AND node_key=$5`,
       status,
       JSON.stringify({ ...output, units }),
       db.now(),
@@ -312,7 +312,7 @@ export class FlowEngine {
 
   /** True when the flow is a step child (plan fan-out). Engine internal helper. */
   isStepChild(flowId: string): boolean {
-    const row = db.get<{ parent_flow_id: string | null }>(`SELECT parent_flow_id FROM flows WHERE id=?`, flowId);
+    const row = db.get<{ parent_flow_id: string | null }>(`SELECT parent_flow_id AS "parentFlowId" FROM flows WHERE id=$1`, flowId);
     return row?.parent_flow_id != null;
   }
 
@@ -321,9 +321,9 @@ export class FlowEngine {
    * row, and the local worktree(s). Throws when the flow does not exist.
    */
   async delete(id: string): Promise<void> {
-    const flow = db.get<{ id: string }>(`SELECT id FROM flows WHERE id=?`, id);
+    const flow = db.get<{ id: string }>(`SELECT id FROM flows WHERE id=$1`, id);
     if (!flow) throw new NotFoundError('flow', id);
-    const childIds = db.all<{ id: string }>(`SELECT id FROM flows WHERE parent_flow_id=?`, id).map(r => r.id);
+    const childIds = db.all<{ id: string }>(`SELECT id FROM flows WHERE parent_flow_id=$1`, id).map(r => r.id);
     const ids = [id, ...childIds];
     for (const fid of ids) {
       if (mergeArena.isMerging(fid)) {
@@ -332,7 +332,7 @@ export class FlowEngine {
     }
     for (const fid of ids) {
       const active = db.all<{ node_key: string; status: string }>(
-        `SELECT node_key, status FROM nodes WHERE flow_id=? AND status IN ('running','waiting')`,
+        `SELECT node_key AS "nodeKey", status FROM nodes WHERE flow_id=$1 AND status IN ('running','waiting')`,
         fid
       );
       for (const n of active) {
@@ -344,7 +344,7 @@ export class FlowEngine {
     db.transaction(() => {
       for (const fid of ids) {
         for (const table of FLOW_CHILD_TABLES) {
-          db.run(`DELETE FROM ${table} WHERE flow_id=?`, fid);
+          db.run(`DELETE FROM ${table} WHERE flow_id=$1`, fid);
         }
       }
       db.run(`DELETE FROM flows WHERE id IN (${ids.map(() => '?').join(',')})`, ...ids);
@@ -354,21 +354,21 @@ export class FlowEngine {
   // ── context ──────────────────────────────────────────────────────────────
 
   ctx(flowId: string): FlowCtx {
-    const flow = rows.get(FlowRow, `SELECT * FROM flows WHERE id=?`, flowId);
+    const flow = rows.get(FlowRow, `SELECT id, task_id AS "taskId", name, status, mr_url AS "mrUrl", mr_iid AS "mrIid", mr_branch AS "mrBranch", repo_url AS "repoUrl", gitlab_project_id AS "gitlabProjectId", current_node AS "currentNode", execution_mode AS "executionMode", repo_id AS "repoId", template_id AS "templateId", template_graph AS "templateGraph", trigger_payload AS "triggerPayload", worktree_dir AS "worktreeDir", parent_flow_id AS "parentFlowId", kind, created_at AS "createdAt", updated_at AS "updatedAt" FROM flows WHERE id=$1`, flowId);
     if (!flow) throw new NotFoundError('flow', flowId);
-    const task = rows.get(Task, `SELECT * FROM tasks WHERE id=?`, flow.task_id);
+    const task = rows.get(Task, `SELECT id, type, key, summary, description, status, issue_type AS "issueType", priority, repo_url AS "repoUrl", parent_key AS "parentKey", external_url AS "externalUrl", raw, synced_at AS "syncedAt", fields FROM tasks WHERE id=$1`, flow.task_id);
     if (!task) throw new NotFoundError('task', flow.task_id);
     const repo = flow.repo_id ? (db.repoById(flow.repo_id) ?? null) : null;
     return { flow, task, repo };
   }
 
   private touch(flowId: string): void {
-    db.run(`UPDATE flows SET updated_at=? WHERE id=?`, db.now(), flowId);
+    db.run(`UPDATE flows SET updated_at=$1 WHERE id=$2`, db.now(), flowId);
   }
 
   /** Engine internals shared with the SDLC builtin-chain module — not a public API. */
   setCurrentNode(flowId: string, key: string | null): void {
-    db.run(`UPDATE flows SET current_node=?, updated_at=? WHERE id=?`, key, db.now(), flowId);
+    db.run(`UPDATE flows SET current_node=$1, updated_at=$2 WHERE id=$3`, key, db.now(), flowId);
   }
 
   /** Engine internals shared with the SDLC builtin-chain module — not a public API. */
@@ -400,7 +400,7 @@ export class FlowEngine {
         db.emitEvent(flowId, null, 'error', msg, { nodeKey });
         if (nodeKey) {
           db.run(
-            `UPDATE nodes SET status=?, attempt_id=NULL, updated_at=? WHERE flow_id=? AND node_key=? AND status=?`,
+            `UPDATE nodes SET status=$1, attempt_id=NULL, updated_at=$2 WHERE flow_id=$3 AND node_key=$4 AND status=$5`,
             NODE_STATUS.FAILED,
             db.now(),
             flowId,
@@ -411,7 +411,7 @@ export class FlowEngine {
       } finally {
         if (nodeId) {
           const attemptId = db.get<{ attempt_id: string | null }>(
-            `SELECT attempt_id FROM nodes WHERE id=?`,
+            `SELECT attempt_id AS "attemptId" FROM nodes WHERE id=$1`,
             nodeId,
           )?.attempt_id;
           nodeAttemptRegistry.clear(nodeId, attemptId);
@@ -502,7 +502,7 @@ export class FlowEngine {
    *  nodes/chains/sdlc-chain.ts) — a deliberate narrow boundary, not a public API. */
   flowNodeConfig(flowId: string, nodeKey: string): Record<string, unknown> {
     return parseConfigSnapshot(
-      db.get<{ config: string | null }>(`SELECT config FROM nodes WHERE flow_id=? AND node_key=?`, flowId, nodeKey)
+      db.get<{ config: string | null }>(`SELECT config FROM nodes WHERE flow_id=$1 AND node_key=$2`, flowId, nodeKey)
         ?.config ?? null
     );
   }
@@ -565,7 +565,7 @@ export class FlowEngine {
 
   // ── structured plan step editing ─────────────────────────────────────────
   private assertPlanEditable(flowId: string) {
-    const flow = rows.get(FlowRow, `SELECT * FROM flows WHERE id=?`, flowId);
+    const flow = rows.get(FlowRow, `SELECT id, task_id AS "taskId", name, status, mr_url AS "mrUrl", mr_iid AS "mrIid", mr_branch AS "mrBranch", repo_url AS "repoUrl", gitlab_project_id AS "gitlabProjectId", current_node AS "currentNode", execution_mode AS "executionMode", repo_id AS "repoId", template_id AS "templateId", template_graph AS "templateGraph", trigger_payload AS "triggerPayload", worktree_dir AS "worktreeDir", parent_flow_id AS "parentFlowId", kind, created_at AS "createdAt", updated_at AS "updatedAt" FROM flows WHERE id=$1`, flowId);
     if (flow?.current_node) throw new Error(`wait for the ${flow.current_node} run to finish before editing steps`);
     return this.latestResourceArtifact<{ id: string }>(flowId, NODE_KEYS.PLAN, 'a.id');
   }
@@ -638,7 +638,7 @@ export class FlowEngine {
     const g = this.graph(flowId);
     if (g) return g.nodes.filter(n => n.defKey === defKey).map(n => n.key);
     return rows
-      .all(NodeRow, `SELECT * FROM nodes WHERE flow_id=?`, flowId)
+      .all(NodeRow, `SELECT id, flow_id AS "flowId", node_key AS "nodeKey", type, status, attempt_id AS "attemptId", agent_id AS "agentId", agent_ref AS "agentRef", session_id AS "sessionId", prompt_override AS "promptOverride", label, config, join_mode AS "joinMode", input, output, created_at AS "createdAt", updated_at AS "updatedAt" FROM nodes WHERE flow_id=$1`, flowId)
       .filter(n => n.type === defKey)
       .map(n => n.node_key);
   }
@@ -680,7 +680,7 @@ export class FlowEngine {
     if (!kinds.length) return undefined;
     return db.get<T>(
       `SELECT ${columns} FROM artifacts a JOIN nodes n ON n.id=a.node_id
-       WHERE n.flow_id=? AND a.kind IN (${kinds.map(() => '?').join(',')})
+       WHERE n.flow_id=$1 AND a.kind IN (${kinds.map(() => '?').join(',')})
        ORDER BY a.version DESC LIMIT 1`,
       flowId,
       ...kinds
@@ -705,7 +705,7 @@ export class FlowEngine {
     const g = this.graph(flowId);
     const spec = g?.byKey.get(nodeKey);
     if (spec) return spec.defKey;
-    const n = rows.get(NodeRow, `SELECT * FROM nodes WHERE flow_id=? AND node_key=?`, flowId, nodeKey);
+    const n = rows.get(NodeRow, `SELECT id, flow_id AS "flowId", node_key AS "nodeKey", type, status, attempt_id AS "attemptId", agent_id AS "agentId", agent_ref AS "agentRef", session_id AS "sessionId", prompt_override AS "promptOverride", label, config, join_mode AS "joinMode", input, output, created_at AS "createdAt", updated_at AS "updatedAt" FROM nodes WHERE flow_id=$1 AND node_key=$2`, flowId, nodeKey);
     return n?.type ?? nodeKey;
   }
 
@@ -765,7 +765,7 @@ export class FlowEngine {
         meta.execution = executionOverride;
         meta.executionSource = 'override';
         delete meta.execution_rationale; // the planner's rationale no longer applies
-        db.run(`UPDATE artifacts SET meta=?, updated_at=? WHERE id=?`, JSON.stringify(meta), db.now(), plan.id);
+        db.run(`UPDATE artifacts SET meta=$1, updated_at=$2 WHERE id=$3`, JSON.stringify(meta), db.now(), plan.id);
         nodeStore.emitEvent(
           flowId,
           planKey,
@@ -780,7 +780,7 @@ export class FlowEngine {
       NODE_KEYS.PLAN
     );
     if (!plan) throw new Error('no plan to approve');
-    db.run(`UPDATE artifacts SET status='approved' WHERE id=?`, plan.id);
+    db.run(`UPDATE artifacts SET status='approved' WHERE id=$1`, plan.id);
     nodeSupport.transition(flowId, planKey, ['awaiting_approval'], 'approved');
 
     // approvePlan originally inlined the plan→build handoff (plan-meta branch
@@ -841,7 +841,7 @@ export class FlowEngine {
   // Engine internals shared with the SDLC builtin-chain module — not a public API.
   nodeRunning(flowId: string, nodeKey: string): boolean {
     return (
-      db.get<{ status: string }>(`SELECT status FROM nodes WHERE flow_id=? AND node_key=?`, flowId, nodeKey)?.status ===
+      db.get<{ status: string }>(`SELECT status FROM nodes WHERE flow_id=$1 AND node_key=$2`, flowId, nodeKey)?.status ===
       'running'
     );
   }
@@ -877,7 +877,7 @@ export class FlowEngine {
     if (def.chainRole === NODE_KEYS.PLAN) {
       throw new ValidationError('The plan node only accepts input via POST /api/flows/:id/chat');
     }
-    const node = rows.get(NodeRow, `SELECT * FROM nodes WHERE flow_id=? AND node_key=?`, flowId, nodeKey);
+    const node = rows.get(NodeRow, `SELECT id, flow_id AS "flowId", node_key AS "nodeKey", type, status, attempt_id AS "attemptId", agent_id AS "agentId", agent_ref AS "agentRef", session_id AS "sessionId", prompt_override AS "promptOverride", label, config, join_mode AS "joinMode", input, output, created_at AS "createdAt", updated_at AS "updatedAt" FROM nodes WHERE flow_id=$1 AND node_key=$2`, flowId, nodeKey);
     if (!node) throw new NotFoundError('node', nodeKey);
     // a failed entry node re-runs from the form — its recorded input never
     // satisfied the contract, so the retry path (recorded input) can't help
@@ -926,7 +926,7 @@ export class FlowEngine {
    * template edges activate on approval — the same contract as plan/build.
    */
   approveNode(flowId: string, nodeKey: string): void {
-    const node = rows.get(NodeRow, `SELECT * FROM nodes WHERE flow_id=? AND node_key=?`, flowId, nodeKey);
+    const node = rows.get(NodeRow, `SELECT id, flow_id AS "flowId", node_key AS "nodeKey", type, status, attempt_id AS "attemptId", agent_id AS "agentId", agent_ref AS "agentRef", session_id AS "sessionId", prompt_override AS "promptOverride", label, config, join_mode AS "joinMode", input, output, created_at AS "createdAt", updated_at AS "updatedAt" FROM nodes WHERE flow_id=$1 AND node_key=$2`, flowId, nodeKey);
     if (!node) throw new NotFoundError('node', nodeKey);
     // step children route to the fan-out approve (merge-back vs plain approval)
     if (this.isStepChild(flowId) && node.status === 'awaiting_approval') {
@@ -963,7 +963,7 @@ export class FlowEngine {
    * activates the chosen outgoing edges (everything else resolves inactive).
    */
   async chooseNode(flowId: string, nodeKey: string, chosen: string[], rationale?: string): Promise<void> {
-    const node = rows.get(NodeRow, `SELECT * FROM nodes WHERE flow_id=? AND node_key=?`, flowId, nodeKey);
+    const node = rows.get(NodeRow, `SELECT id, flow_id AS "flowId", node_key AS "nodeKey", type, status, attempt_id AS "attemptId", agent_id AS "agentId", agent_ref AS "agentRef", session_id AS "sessionId", prompt_override AS "promptOverride", label, config, join_mode AS "joinMode", input, output, created_at AS "createdAt", updated_at AS "updatedAt" FROM nodes WHERE flow_id=$1 AND node_key=$2`, flowId, nodeKey);
     if (!node) throw new NotFoundError('node', nodeKey);
     if (node.status !== 'awaiting_approval') {
       throw new ConflictError(`${nodeKey} is not waiting for a branch choice`);
@@ -1001,7 +1001,7 @@ export class FlowEngine {
 
   /** Update a node instance's config layer (nodes.config), merging per key. */
   setNodeConfig(flowId: string, nodeKey: string, config: Record<string, unknown>): void {
-    const node = rows.get(NodeRow, `SELECT * FROM nodes WHERE flow_id=? AND node_key=?`, flowId, nodeKey);
+    const node = rows.get(NodeRow, `SELECT id, flow_id AS "flowId", node_key AS "nodeKey", type, status, attempt_id AS "attemptId", agent_id AS "agentId", agent_ref AS "agentRef", session_id AS "sessionId", prompt_override AS "promptOverride", label, config, join_mode AS "joinMode", input, output, created_at AS "createdAt", updated_at AS "updatedAt" FROM nodes WHERE flow_id=$1 AND node_key=$2`, flowId, nodeKey);
     if (!node) throw new NotFoundError('node', nodeKey);
     if (node.status === 'running') throw new ConflictError("can't reconfigure a node while it is running");
     if (!config || typeof config !== 'object' || Array.isArray(config)) {
@@ -1036,7 +1036,7 @@ export class FlowEngine {
    */
   approveFanoutStep(parentFlowId: string, stepId: string): void {
     const step = db.get<{ sub_flow_id: string | null }>(
-      `SELECT sub_flow_id FROM plan_steps WHERE id=? AND flow_id=?`,
+      `SELECT sub_flow_id AS "subFlowId" FROM plan_steps WHERE id=$1 AND flow_id=$2`,
       stepId,
       parentFlowId
     );
@@ -1050,7 +1050,7 @@ export class FlowEngine {
    *  fix-agent work the conflict surfaced. */
   retryFanoutStep(parentFlowId: string, stepId: string): void {
     const step = db.get<{ sub_flow_id: string | null }>(
-      `SELECT sub_flow_id FROM plan_steps WHERE id=? AND flow_id=?`,
+      `SELECT sub_flow_id AS "subFlowId" FROM plan_steps WHERE id=$1 AND flow_id=$2`,
       stepId,
       parentFlowId
     );
@@ -1058,7 +1058,7 @@ export class FlowEngine {
     if (stepFlows.resumeMergeRetry(parentFlowId, step.sub_flow_id)) return;
     const workNodeKey = stepFlows.childWorkNodeKey(step.sub_flow_id);
     const workNode = db.get<{ status: string }>(
-      `SELECT status FROM nodes WHERE flow_id=? AND node_key=?`,
+      `SELECT status FROM nodes WHERE flow_id=$1 AND node_key=$2`,
       step.sub_flow_id,
       workNodeKey
     );
@@ -1071,13 +1071,13 @@ export class FlowEngine {
   /** Clear the current-node pointer when it still points at the given node.
    *  Engine internals shared with the SDLC builtin-chain module — not a public API. */
   clearCurrentIf(flowId: string, nodeKey: string): void {
-    const flow = rows.get(FlowRow, `SELECT * FROM flows WHERE id=?`, flowId);
+    const flow = rows.get(FlowRow, `SELECT id, task_id AS "taskId", name, status, mr_url AS "mrUrl", mr_iid AS "mrIid", mr_branch AS "mrBranch", repo_url AS "repoUrl", gitlab_project_id AS "gitlabProjectId", current_node AS "currentNode", execution_mode AS "executionMode", repo_id AS "repoId", template_id AS "templateId", template_graph AS "templateGraph", trigger_payload AS "triggerPayload", worktree_dir AS "worktreeDir", parent_flow_id AS "parentFlowId", kind, created_at AS "createdAt", updated_at AS "updatedAt" FROM flows WHERE id=$1`, flowId);
     if (flow?.current_node === nodeKey) this.setCurrentNode(flowId, null);
   }
 
   /** Re-run a node after failure, using its recorded (schema-validated) input. */
   retryNode(flowId: string, nodeKey: string): void {
-    const node = rows.get(NodeRow, `SELECT * FROM nodes WHERE flow_id=? AND node_key=?`, flowId, nodeKey);
+    const node = rows.get(NodeRow, `SELECT id, flow_id AS "flowId", node_key AS "nodeKey", type, status, attempt_id AS "attemptId", agent_id AS "agentId", agent_ref AS "agentRef", session_id AS "sessionId", prompt_override AS "promptOverride", label, config, join_mode AS "joinMode", input, output, created_at AS "createdAt", updated_at AS "updatedAt" FROM nodes WHERE flow_id=$1 AND node_key=$2`, flowId, nodeKey);
     if (!node) throw new NotFoundError('node', nodeKey);
     const def = this.defOf(flowId, nodeKey);
     if (!def.retryable) throw new ValidationError(`cannot retry node ${nodeKey}`);
@@ -1168,14 +1168,14 @@ export class FlowEngine {
    * and marks the node failed so it can be retried.
    */
   async cancelNode(flowId: string, nodeKey: string): Promise<void> {
-    const node = rows.get(NodeRow, `SELECT * FROM nodes WHERE flow_id=? AND node_key=?`, flowId, nodeKey);
+    const node = rows.get(NodeRow, `SELECT id, flow_id AS "flowId", node_key AS "nodeKey", type, status, attempt_id AS "attemptId", agent_id AS "agentId", agent_ref AS "agentRef", session_id AS "sessionId", prompt_override AS "promptOverride", label, config, join_mode AS "joinMode", input, output, created_at AS "createdAt", updated_at AS "updatedAt" FROM nodes WHERE flow_id=$1 AND node_key=$2`, flowId, nodeKey);
     if (!node) throw new NotFoundError('node', nodeKey);
     if (node.status !== 'running' && node.status !== 'waiting' && node.status !== 'awaiting_approval') {
       throw new ConflictError(`cannot cancel ${nodeKey} while it is ${node.status}`);
     }
-    const flow = rows.get(FlowRow, `SELECT * FROM flows WHERE id=?`, flowId);
+    const flow = rows.get(FlowRow, `SELECT id, task_id AS "taskId", name, status, mr_url AS "mrUrl", mr_iid AS "mrIid", mr_branch AS "mrBranch", repo_url AS "repoUrl", gitlab_project_id AS "gitlabProjectId", current_node AS "currentNode", execution_mode AS "executionMode", repo_id AS "repoId", template_id AS "templateId", template_graph AS "templateGraph", trigger_payload AS "triggerPayload", worktree_dir AS "worktreeDir", parent_flow_id AS "parentFlowId", kind, created_at AS "createdAt", updated_at AS "updatedAt" FROM flows WHERE id=$1`, flowId);
     const active = db.all<{ run_ref: string }>(
-      `SELECT run_ref FROM runs WHERE node_id=? AND status='running'`,
+      `SELECT run_ref AS "runRef" FROM runs WHERE node_id=$1 AND status='running'`,
       node.id
     );
     const mode = flow?.execution_mode === 'local' ? 'local' : 'cloud';
@@ -1183,7 +1183,7 @@ export class FlowEngine {
       await agentPortRegistry.forMode(mode).cancel({ runId: r.run_ref });
     }
     this.waits.clearTimerForNode(flowId, nodeKey);
-    db.run(`UPDATE runs SET status='error', updated_at=? WHERE node_id=? AND status='running'`, db.now(), node.id);
+    db.run(`UPDATE runs SET status='error', updated_at=$1 WHERE node_id=$2 AND status='running'`, db.now(), node.id);
     nodeSupport.transition(flowId, nodeKey, ['running', 'waiting', 'awaiting_approval'], 'failed');
     this.clearCurrentIf(flowId, nodeKey);
     db.emitEvent(flowId, node.id, 'lifecycle', `${nodeKey} stopped by user — retry when ready`);
@@ -1282,7 +1282,7 @@ export class FlowEngine {
    */
   async completeNodeFromResult(c: FlowCtx, node: NodeRow, result: AgentRunResult, note: string): Promise<boolean> {
     db.run(
-      `UPDATE runs SET status=?, updated_at=? WHERE node_id=? AND status='running'`,
+      `UPDATE runs SET status=$1, updated_at=$2 WHERE node_id=$3 AND status='running'`,
       result.status === 'finished' ? 'finished' : 'error',
       db.now(),
       node.id

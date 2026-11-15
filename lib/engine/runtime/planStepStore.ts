@@ -43,7 +43,7 @@ export interface PlanStepRow {
 export class PlanStepStore {
   list(flowId: string): PlanStepRow[] {
     return db.all<PlanStepRow>(
-      `SELECT * FROM plan_steps WHERE flow_id=? ORDER BY position, created_at`,
+      `SELECT id, flow_id AS "flowId", artifact_id AS "artifactId", meta_id AS "metaId", position, title, detail, files, branch, status, origin, completed_by AS "completedBy", sub_flow_id AS "subFlowId", created_at AS "createdAt", updated_at AS "updatedAt" FROM plan_steps WHERE flow_id=$1 ORDER BY position, created_at`,
       flowId
     );
   }
@@ -69,7 +69,7 @@ export class PlanStepStore {
    */
   syncFromPlan(flowId: string, artifactId: string, steps: PlanStepInput[]): number {
     const existingAgent = db.all<PlanStepRow>(
-      `SELECT * FROM plan_steps WHERE flow_id=? AND origin='agent'`,
+      `SELECT id, flow_id AS "flowId", artifact_id AS "artifactId", meta_id AS "metaId", position, title, detail, files, branch, status, origin, completed_by AS "completedBy", sub_flow_id AS "subFlowId", created_at AS "createdAt", updated_at AS "updatedAt" FROM plan_steps WHERE flow_id=$1 AND origin='agent'`,
       flowId
     );
     const byMetaId = new Map(
@@ -80,7 +80,7 @@ export class PlanStepStore {
     const seen = new Set<string>();
     const ts = db.now();
     let maxPos =
-      db.get<{ p: number | null }>(`SELECT MAX(position) p FROM plan_steps WHERE flow_id=?`, flowId)?.p ?? -1;
+      db.get<{ p: number | null }>(`SELECT MAX(position) p FROM plan_steps WHERE flow_id=$1`, flowId)?.p ?? -1;
 
     for (const step of steps) {
       const metaId = step.id ?? null;
@@ -89,7 +89,7 @@ export class PlanStepStore {
         seen.add(prev.id);
         if (prev.status !== "done") {
           db.run(
-            `UPDATE plan_steps SET artifact_id=?, title=?, detail=?, files=?, branch=?, updated_at=? WHERE id=?`,
+            `UPDATE plan_steps SET artifact_id=$1, title=$2, detail=$3, files=$4, branch=$5, updated_at=$6 WHERE id=$7`,
             artifactId,
             step.title,
             step.detail ?? null,
@@ -100,12 +100,12 @@ export class PlanStepStore {
           );
         } else {
           // keep the record current with the latest plan version, but never reopen done work
-          db.run(`UPDATE plan_steps SET artifact_id=?, updated_at=? WHERE id=?`, artifactId, ts, prev.id);
+          db.run(`UPDATE plan_steps SET artifact_id=$1, updated_at=$2 WHERE id=$3`, artifactId, ts, prev.id);
         }
       } else {
         db.run(
           `INSERT INTO plan_steps (id,flow_id,artifact_id,meta_id,position,title,detail,files,branch,status,origin,created_at,updated_at)
-           VALUES (?,?,?,?,?,?,?,?,?,'pending','agent',?,?)`,
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,'pending','agent',$10,$11) ON CONFLICT DO NOTHING`,
           db.uid("step_"),
           flowId,
           artifactId,
@@ -128,7 +128,7 @@ export class PlanStepStore {
       if (!seen.has(prev.id) && prev.artifact_id !== artifactId) {
         if (guard.built.has(prev.id)) continue; // sub-flow running/merged — kept, not deleted
         this.cancelChildFlow(guard.cancelable.get(prev.id) ?? null);
-        db.run(`DELETE FROM plan_steps WHERE id=?`, prev.id);
+        db.run(`DELETE FROM plan_steps WHERE id=$1`, prev.id);
       }
     }
     return steps.length;
@@ -161,7 +161,7 @@ export class PlanStepStore {
         if (prev) {
           kept.add(prev.id);
           db.run(
-            `UPDATE plan_steps SET artifact_id=?, position=?, title=?, detail=?, files=?, branch=?, updated_at=? WHERE id=? AND flow_id=?`,
+            `UPDATE plan_steps SET artifact_id=$1, position=$2, title=$3, detail=$4, files=$5, branch=$6, updated_at=$7 WHERE id=$8 AND flow_id=$9`,
             artifactId,
             i,
             s.title,
@@ -177,7 +177,7 @@ export class PlanStepStore {
           kept.add(newId);
           db.run(
             `INSERT INTO plan_steps (id,flow_id,artifact_id,meta_id,position,title,detail,files,branch,status,origin,sub_flow_id,created_at,updated_at)
-             VALUES (?,?,?,?,?,?,?,?,?,'pending','user',?,?,?)`,
+             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,'pending','user',$10,$11,$12) ON CONFLICT DO NOTHING`,
             newId,
             flowId,
             artifactId,
@@ -199,7 +199,7 @@ export class PlanStepStore {
         if (kept.has(survivor.id)) continue;
         kept.add(survivor.id);
         db.run(
-          `UPDATE plan_steps SET position=?, updated_at=? WHERE id=? AND flow_id=?`,
+          `UPDATE plan_steps SET position=$1, updated_at=$2 WHERE id=$3 AND flow_id=$4`,
           tail++,
           ts,
           survivor.id,
@@ -210,7 +210,7 @@ export class PlanStepStore {
       for (const row of existing) {
         if (kept.has(row.id)) continue;
         this.cancelChildFlow(guard.cancelable.get(row.id) ?? null);
-        db.run(`DELETE FROM plan_steps WHERE id=?`, row.id);
+        db.run(`DELETE FROM plan_steps WHERE id=$1`, row.id);
       }
     });
     return this.list(flowId);
@@ -238,7 +238,7 @@ export class PlanStepStore {
     const firstPos = existing.length ? existing[0].position : 0;
     db.transaction(() => {
       db.run(
-        `DELETE FROM plan_steps WHERE flow_id=? AND branch=?`,
+        `DELETE FROM plan_steps WHERE flow_id=$1 AND branch=$2`,
         flowId, branchName
       );
       steps.forEach((s, i) => {
@@ -247,7 +247,7 @@ export class PlanStepStore {
         const completedBy = status === "done" ? prev?.completed_by ?? "manual" : null;
         db.run(
           `INSERT INTO plan_steps (id,flow_id,artifact_id,meta_id,position,title,detail,files,branch,status,origin,completed_by,sub_flow_id,created_at,updated_at)
-           VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15) ON CONFLICT DO NOTHING`,
           db.uid("step_"),
           flowId,
           artifactId,
@@ -276,7 +276,7 @@ export class PlanStepStore {
    */
   private deletableGuard(flowId: string): { built: Set<string>; cancelable: Map<string, string> } {
     const linked = db.all<{ id: string; sub_flow_id: string | null }>(
-      `SELECT id, sub_flow_id FROM plan_steps WHERE flow_id=? AND sub_flow_id IS NOT NULL`, flowId
+      `SELECT id, sub_flow_id AS "subFlowId" FROM plan_steps WHERE flow_id=$1 AND sub_flow_id IS NOT NULL`, flowId
     );
     const built = new Set<string>();
     const cancelable = new Map<string, string>();
@@ -293,10 +293,10 @@ export class PlanStepStore {
   private cancelChildFlow(childFlowId: string | null): void {
     if (!childFlowId) return;
     const started = db.all<{ status: string }>(
-      `SELECT status FROM nodes WHERE flow_id=?`, childFlowId
+      `SELECT status FROM nodes WHERE flow_id=$1`, childFlowId
     ).some((n) => isNodeStarted(n.status));
     if (started) return; // never closed silently
-    db.run(`UPDATE flows SET status='done', updated_at=? WHERE id=? AND status<>'done'`, db.now(), childFlowId);
+    db.run(`UPDATE flows SET status='done', updated_at=$1 WHERE id=$2 AND status<>'done'`, db.now(), childFlowId);
   }
 
   setStatus(
@@ -306,7 +306,7 @@ export class PlanStepStore {
     completedBy: string | null
   ): boolean {
     const res = db.run(
-      `UPDATE plan_steps SET status=?, completed_by=?, updated_at=? WHERE id=? AND flow_id=?`,
+      `UPDATE plan_steps SET status=$1, completed_by=$2, updated_at=$3 WHERE id=$4 AND flow_id=$5`,
       status,
       status === "done" ? completedBy ?? "manual" : null,
       db.now(),

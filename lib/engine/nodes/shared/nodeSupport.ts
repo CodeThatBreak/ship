@@ -17,26 +17,26 @@ import { nodeAttemptRegistry } from "../../runtime/nodeAttemptRegistry";
  */
 export class NodeSupport {
   nodeByKey(flowId: string, key: string): NodeRow {
-    const n = rows.get(NodeRow, `SELECT * FROM nodes WHERE flow_id=? AND node_key=?`, flowId, key);
+    const n = rows.get(NodeRow, `SELECT id, flow_id AS "flowId", node_key AS "nodeKey", type, status, attempt_id AS "attemptId", agent_id AS "agentId", agent_ref AS "agentRef", session_id AS "sessionId", prompt_override AS "promptOverride", label, config, join_mode AS "joinMode", input, output, created_at AS "createdAt", updated_at AS "updatedAt" FROM nodes WHERE flow_id=$1 AND node_key=$2`, flowId, key);
     if (!n) throw new Error(`node ${key} not found for flow ${flowId}`);
     return n;
   }
 
   /** Like nodeByKey but null when the instance key is absent (optional chain stages). */
   optionalNodeByKey(flowId: string, key: string): NodeRow | null {
-    return rows.get(NodeRow, `SELECT * FROM nodes WHERE flow_id=? AND node_key=?`, flowId, key) ?? null;
+    return rows.get(NodeRow, `SELECT id, flow_id AS "flowId", node_key AS "nodeKey", type, status, attempt_id AS "attemptId", agent_id AS "agentId", agent_ref AS "agentRef", session_id AS "sessionId", prompt_override AS "promptOverride", label, config, join_mode AS "joinMode", input, output, created_at AS "createdAt", updated_at AS "updatedAt" FROM nodes WHERE flow_id=$1 AND node_key=$2`, flowId, key) ?? null;
   }
 
   /** First node row of a given built-in node type (instance keys may differ
    *  from the type; callers that address by node_key use `nodeByKey`). */
   nodeByType(flowId: string, type: string): NodeRow | null {
-    return rows.get(NodeRow, `SELECT * FROM nodes WHERE flow_id=? AND type=?`, flowId, type) ?? null;
+    return rows.get(NodeRow, `SELECT id, flow_id AS "flowId", node_key AS "nodeKey", type, status, attempt_id AS "attemptId", agent_id AS "agentId", agent_ref AS "agentRef", session_id AS "sessionId", prompt_override AS "promptOverride", label, config, join_mode AS "joinMode", input, output, created_at AS "createdAt", updated_at AS "updatedAt" FROM nodes WHERE flow_id=$1 AND type=$2`, flowId, type) ?? null;
   }
 
   /** A node's current status (null when the row is gone) — polling callers
    *  use this to detect an external cancel/retry mid-wait. */
   nodeStatus(nodeId: string): string | null {
-    return db.get<{ status: string }>(`SELECT status FROM nodes WHERE id=?`, nodeId)?.status ?? null;
+    return db.get<{ status: string }>(`SELECT status FROM nodes WHERE id=$1`, nodeId)?.status ?? null;
   }
 
   setNode(id: string, patch: Record<string, unknown>): void {
@@ -59,9 +59,9 @@ export class NodeSupport {
   claim(flowId: string, nodeKey: string, from: readonly NodeStatus[]): string {
     const attempt = db.uid("att_");
     const marks = from.map(() => "?").join(",");
-    const { changes } = db.run(
-      `UPDATE nodes SET status = ?, attempt_id = ?, updated_at = ?
-       WHERE flow_id = ? AND node_key = ? AND status IN (${marks})`,
+    const __changes = await db.run(
+      `UPDATE nodes SET status = $1, attempt_id = $2, updated_at = $3
+       WHERE flow_id = $4 AND node_key = $5 AND status IN (${marks})`,
       NODE_STATUS.RUNNING,
       attempt,
       db.now(),
@@ -87,9 +87,9 @@ export class NodeSupport {
   ): void {
     const marks = from.map(() => "?").join(",");
     const clearAttempt = to !== NODE_STATUS.RUNNING;
-    const { changes } = db.run(
-      `UPDATE nodes SET status = ?, attempt_id = ?, updated_at = ?
-       WHERE flow_id = ? AND node_key = ? AND status IN (${marks})`,
+    const __changes = await db.run(
+      `UPDATE nodes SET status = $1, attempt_id = $2, updated_at = $3
+       WHERE flow_id = $4 AND node_key = $5 AND status IN (${marks})`,
       to,
       clearAttempt ? null : db.uid("att_"),
       db.now(),
@@ -110,7 +110,7 @@ export class NodeSupport {
         ? { ...patch, attempt_id: null }
         : { ...patch };
     const mergedKeys = Object.keys(merged);
-    const { changes } = db.run(
+    const __changes = await db.run(
       `UPDATE nodes SET ${mergedKeys.map((k) => `${k}=?`).join(",")}, updated_at=? WHERE id=? AND attempt_id=?`,
       ...mergedKeys.map((k) => merged[k] as never),
       db.now(),
@@ -118,13 +118,13 @@ export class NodeSupport {
       attemptId,
     );
     if (changes !== 1) {
-      const node = db.get<{ status: string }>(`SELECT status FROM nodes WHERE id=?`, nodeId);
+      const node = db.get<{ status: string }>(`SELECT status FROM nodes WHERE id=$1`, nodeId);
       throw new RunSupersededError(nodeId, node?.status ?? "unknown", attemptId);
     }
   }
 
   attemptId(nodeId: string): string | null {
-    return db.get<{ attempt_id: string | null }>(`SELECT attempt_id FROM nodes WHERE id=?`, nodeId)
+    return db.get<{ attempt_id: string | null }>(`SELECT attempt_id AS "attemptId" FROM nodes WHERE id=$1`, nodeId)
       ?.attempt_id ?? null;
   }
 
@@ -148,13 +148,13 @@ export class NodeSupport {
     status = ARTIFACT_STATUS.DRAFT
   ): { id: string; version: number } {
     const prev = db.get<{ v: number | null }>(
-      `SELECT MAX(version) v FROM artifacts WHERE node_id=? AND kind=?`,
+      `SELECT MAX(version) v FROM artifacts WHERE node_id=$1 AND kind=$2`,
       nodeId,
       kind
     );
     const version = (prev?.v ?? 0) + 1;
     db.run(
-      `UPDATE artifacts SET status=? WHERE node_id=? AND kind=? AND status=?`,
+      `UPDATE artifacts SET status=$1 WHERE node_id=$2 AND kind=$3 AND status=$4`,
       ARTIFACT_STATUS.SUPERSEDED,
       nodeId,
       kind,
@@ -163,7 +163,7 @@ export class NodeSupport {
     const id = db.uid("art_");
     db.run(
       `INSERT INTO artifacts (id,node_id,flow_id,kind,version,content,meta,status,created_at)
-       VALUES (?,?,?,?,?,?,?,?,?)`,
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) ON CONFLICT DO NOTHING`,
       id, nodeId, flowId, kind, version, content, meta ? JSON.stringify(meta) : null, status, db.now()
     );
     return { id, version };
@@ -176,8 +176,8 @@ export class NodeSupport {
    */
   registerStartupRun(flowId: string, nodeId: string, attemptId: string): void {
     const existing = db.get<{ agent_ref: string; run_ref: string }>(
-      `SELECT agent_ref, run_ref FROM runs
-       WHERE node_id=? AND status=? ORDER BY created_at DESC LIMIT 1`,
+      `SELECT agent_ref AS "agentRef", run_ref AS "runRef" FROM runs
+       WHERE node_id=$1 AND status=$2 ORDER BY created_at DESC LIMIT 1`,
       nodeId,
       RUN_STATUS.RUNNING,
     );
@@ -185,7 +185,7 @@ export class NodeSupport {
       return;
     }
     db.run(
-      `UPDATE runs SET status=?, updated_at=? WHERE node_id=? AND status=?`,
+      `UPDATE runs SET status=$1, updated_at=$2 WHERE node_id=$3 AND status=$4`,
       RUN_STATUS.ERROR,
       db.now(),
       nodeId,
@@ -194,7 +194,7 @@ export class NodeSupport {
     const id = db.uid("run_");
     db.run(
       `INSERT INTO runs (id,flow_id,node_id,agent_ref,run_ref,status,created_at,updated_at)
-       VALUES (?,?,?,?,?,?,?,?)`,
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8) ON CONFLICT DO NOTHING`,
       id,
       flowId,
       nodeId,
@@ -212,13 +212,13 @@ export class NodeSupport {
 
   persistRun(flowId: string, nodeId: string, agentId: string, runId: string): string {
     const attemptId = db.get<{ attempt_id: string | null }>(
-      `SELECT attempt_id FROM nodes WHERE id=?`,
+      `SELECT attempt_id AS "attemptId" FROM nodes WHERE id=$1`,
       nodeId,
     )?.attempt_id;
     if (attemptId) {
-      const { changes } = db.run(
-        `UPDATE runs SET agent_ref=?, run_ref=?, updated_at=?
-         WHERE node_id=? AND status=? AND agent_ref=? AND run_ref=?`,
+      const __changes = await db.run(
+        `UPDATE runs SET agent_ref=$1, run_ref=$2, updated_at=$3
+         WHERE node_id=$4 AND status=$5 AND agent_ref=$6 AND run_ref=$7`,
         agentId,
         runId,
         db.now(),
@@ -228,10 +228,10 @@ export class NodeSupport {
         attemptId,
       );
       if (changes === 1) {
-        const upgraded = db.get<{ id: string }>(`SELECT id FROM runs WHERE run_ref=?`, runId);
+        const upgraded = db.get<{ id: string }>(`SELECT id FROM runs WHERE run_ref=$1`, runId);
         if (upgraded) {
           db.run(
-            `UPDATE runs SET status=?, updated_at=? WHERE node_id=? AND status=? AND run_ref<>?`,
+            `UPDATE runs SET status=$1, updated_at=$2 WHERE node_id=$3 AND status=$4 AND run_ref<>$5`,
             RUN_STATUS.ERROR,
             db.now(),
             nodeId,
@@ -245,11 +245,11 @@ export class NodeSupport {
     // close out any prior `running` rows for this node — they're stale (their
     // process died with a previous server/run) and would otherwise be picked up
     // as the "latest running run" by reconcile, clobbering this fresh run
-    db.run(`UPDATE runs SET status=?, updated_at=? WHERE node_id=? AND status=?`, RUN_STATUS.ERROR, db.now(), nodeId, RUN_STATUS.RUNNING);
+    db.run(`UPDATE runs SET status=$1, updated_at=$2 WHERE node_id=$3 AND status=$4`, RUN_STATUS.ERROR, db.now(), nodeId, RUN_STATUS.RUNNING);
     const id = db.uid("run_");
     db.run(
       `INSERT INTO runs (id,flow_id,node_id,agent_ref,run_ref,status,created_at,updated_at)
-       VALUES (?,?,?,?,?,?,?,?)`,
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8) ON CONFLICT DO NOTHING`,
       id, flowId, nodeId, agentId, runId, RUN_STATUS.RUNNING, db.now(), db.now()
     );
     return id;
@@ -257,7 +257,7 @@ export class NodeSupport {
 
   lastAgentId(nodeId: string): string | null {
     return db.get<{ agent_ref: string }>(
-      `SELECT agent_ref FROM runs WHERE node_id=? AND agent_ref<>? ORDER BY created_at DESC LIMIT 1`,
+      `SELECT agent_ref AS "agentRef" FROM runs WHERE node_id=$1 AND agent_ref<>$2 ORDER BY created_at DESC LIMIT 1`,
       nodeId,
       RUN_AGENT_REF.PENDING,
     )?.agent_ref ?? null;
@@ -265,15 +265,15 @@ export class NodeSupport {
 
   /** Update the run row with the real agent/session id once known (local mode). */
   setRunAgentId(runId: string, agentId: string): void {
-    db.run(`UPDATE runs SET agent_ref=?, updated_at=? WHERE run_ref=?`, agentId, db.now(), runId);
+    db.run(`UPDATE runs SET agent_ref=$1, updated_at=$2 WHERE run_ref=$3`, agentId, db.now(), runId);
   }
 
   /** Mark a node's orphaned run as failed after a server restart (nothing recoverable). */
   failOrphanedNode(flowId: string, nodeId: string, nodeKey: string, reason: string): void {
-    const node = db.get<{ status: string }>(`SELECT status FROM nodes WHERE id=?`, nodeId);
+    const node = db.get<{ status: string }>(`SELECT status FROM nodes WHERE id=$1`, nodeId);
     if (node?.status !== NODE_STATUS.RUNNING) return; // already reconciled
     db.run(
-      `UPDATE runs SET status=?, updated_at=? WHERE node_id=? AND status=?`,
+      `UPDATE runs SET status=$1, updated_at=$2 WHERE node_id=$3 AND status=$4`,
       RUN_STATUS.ERROR,
       db.now(),
       nodeId,
@@ -309,7 +309,7 @@ export class NodeSupport {
     const scope = type ? ` AND n.type=?` : "";
     const cap = opts.limit ? ` LIMIT ${Math.trunc(opts.limit)}` : "";
     const sql = `SELECT a.id, a.version, a.content, a.meta FROM artifacts a JOIN nodes n ON n.id=a.node_id
-       WHERE n.flow_id=? AND a.kind=?${scope}
+       WHERE n.flow_id=$1 AND a.kind=$2${scope}
        ORDER BY a.version DESC, a.created_at DESC${cap}`;
     return type ? db.all(sql, flowId, kind, type) : db.all(sql, flowId, kind);
   }
@@ -319,7 +319,7 @@ export class NodeSupport {
   /** A branch row's MR iid (null when the branch has no merge request yet). */
   branchMrIid(flowId: string, name: string): number | null {
     return db.get<{ mr_iid: number | null }>(
-      `SELECT mr_iid FROM branches WHERE flow_id=? AND name=?`, flowId, name,
+      `SELECT mr_iid AS "mrIid" FROM branches WHERE flow_id=$1 AND name=$2`, flowId, name,
     )?.mr_iid ?? null;
   }
 
@@ -334,7 +334,7 @@ export class NodeSupport {
     if (mrIid != null) {
       return rows.all(
         CommentRow,
-        `SELECT * FROM comments WHERE flow_id=? AND status IN (?) AND mr_iid=? ORDER BY created_at ASC, id ASC`,
+        `SELECT id, flow_id AS "flowId", mr_iid AS "mrIid", discussion_id AS "discussionId", author, body, file_path AS "filePath", line, status, resolved_by AS "resolvedBy", raw, created_at AS "createdAt", updated_at AS "updatedAt" FROM comments WHERE flow_id=$1 AND status IN ($2) AND mr_iid=$3 ORDER BY created_at ASC, id ASC`,
         flowId,
         COMMENT_STATUS.OPEN,
         mrIid,
@@ -342,7 +342,7 @@ export class NodeSupport {
     }
     return rows.all(
       CommentRow,
-      `SELECT * FROM comments WHERE flow_id=? AND status IN (?) ORDER BY created_at ASC, id ASC`,
+      `SELECT id, flow_id AS "flowId", mr_iid AS "mrIid", discussion_id AS "discussionId", author, body, file_path AS "filePath", line, status, resolved_by AS "resolvedBy", raw, created_at AS "createdAt", updated_at AS "updatedAt" FROM comments WHERE flow_id=$1 AND status IN ($2) ORDER BY created_at ASC, id ASC`,
       flowId,
       COMMENT_STATUS.OPEN,
     );
@@ -363,7 +363,7 @@ export class NodeSupport {
     if (ids.length === 0) return;
     const marks = ids.map(() => "?").join(",");
     db.run(
-      `UPDATE comments SET status=?, resolved_by=?, updated_at=? WHERE id IN (${marks})`,
+      `UPDATE comments SET status=$1, resolved_by=$2, updated_at=$3 WHERE id IN (${marks})`,
       COMMENT_STATUS.RESOLVED,
       RESOLVED_BY_AGENT,
       db.now(),
@@ -381,7 +381,7 @@ export class NodeSupport {
     if (mrIid != null) {
       return rows.all(
         CommentRow,
-        `SELECT * FROM comments WHERE flow_id=? AND mr_iid=? AND resolved_by=? ORDER BY created_at ASC, id ASC`,
+        `SELECT id, flow_id AS "flowId", mr_iid AS "mrIid", discussion_id AS "discussionId", author, body, file_path AS "filePath", line, status, resolved_by AS "resolvedBy", raw, created_at AS "createdAt", updated_at AS "updatedAt" FROM comments WHERE flow_id=$1 AND mr_iid=$2 AND resolved_by=$3 ORDER BY created_at ASC, id ASC`,
         flowId,
         mrIid,
         RESOLVED_BY_AGENT,
@@ -389,7 +389,7 @@ export class NodeSupport {
     }
     return rows.all(
       CommentRow,
-      `SELECT * FROM comments WHERE flow_id=? AND resolved_by=? ORDER BY created_at ASC, id ASC`,
+      `SELECT id, flow_id AS "flowId", mr_iid AS "mrIid", discussion_id AS "discussionId", author, body, file_path AS "filePath", line, status, resolved_by AS "resolvedBy", raw, created_at AS "createdAt", updated_at AS "updatedAt" FROM comments WHERE flow_id=$1 AND resolved_by=$2 ORDER BY created_at ASC, id ASC`,
       flowId,
       RESOLVED_BY_AGENT,
     );
@@ -409,11 +409,11 @@ export class NodeSupport {
     body: string;
     note: HostNote;
   }): void {
-    const existing = db.get<{ id: string }>(`SELECT id FROM comments WHERE id=?`, params.note.id);
+    const existing = db.get<{ id: string }>(`SELECT id FROM comments WHERE id=$1`, params.note.id);
     if (existing) return;
     db.run(
       `INSERT INTO comments (id,flow_id,mr_iid,discussion_id,author,body,file_path,line,status,resolved_by,raw,created_at,updated_at)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13) ON CONFLICT DO NOTHING`,
       params.note.id,
       params.flowId,
       params.mrIid,
@@ -434,7 +434,7 @@ export class NodeSupport {
 
   /** Point the flow's merge-request branch at `branch`. */
   setFlowBranch(flowId: string, branch: string): void {
-    db.run(`UPDATE flows SET mr_branch=? WHERE id=?`, branch, flowId);
+    db.run(`UPDATE flows SET mr_branch=$1 WHERE id=$2`, branch, flowId);
   }
 
   // ── feed events ─────────────────────────────────────────────────────────────

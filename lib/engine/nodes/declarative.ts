@@ -34,11 +34,11 @@ const loadRow = (defKey: string): DeclarativeRow | undefined => {
     return parsed.success ? parsed.data : undefined;
   };
   const byId = db.get<Record<string, unknown>>(
-    `SELECT id, name, description, kind, config FROM node_templates WHERE id=?`, defKey
+    `SELECT id, name, description, kind, config FROM node_templates WHERE id=$1`, defKey
   );
   if (byId) return decode(byId);
   const byKey = db.get<Record<string, unknown>>(
-    `SELECT id, name, description, kind, config FROM node_templates WHERE key=? AND is_builtin=0`, defKey
+    `SELECT id, name, description, kind, config FROM node_templates WHERE key=$1 AND is_builtin=0`, defKey
   );
   return decode(byKey);
 };

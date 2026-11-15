@@ -98,11 +98,11 @@ export class MergeRequestService {
         status: "approved",
       });
       // Ensure the host project id is set on the flow (needed by webhook/poller)
-      db.run(`UPDATE flows SET gitlab_project_id=COALESCE(gitlab_project_id, ?), updated_at=? WHERE id=?`,
+      db.run(`UPDATE flows SET gitlab_project_id=COALESCE(gitlab_project_id, $1), updated_at=$2 WHERE id=$3`,
         project.id, db.now(), flow.id);
     } else {
       db.run(
-        `UPDATE flows SET mr_url=?, mr_iid=?, gitlab_project_id=?, updated_at=? WHERE id=?`,
+        `UPDATE flows SET mr_url=$1, mr_iid=$2, gitlab_project_id=$3, updated_at=$4 WHERE id=$5`,
         cr.webUrl, cr.number, project.id, db.now(), flow.id
       );
     }

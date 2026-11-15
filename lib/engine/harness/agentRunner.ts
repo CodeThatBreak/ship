@@ -143,7 +143,7 @@ export class AgentRunner {
     const ownsNodeStatus = options?.ownsNodeStatus !== false;
     const attemptAtStart =
       options?.attemptId
-      ?? this.database.get<{ attempt_id: string | null }>(`SELECT attempt_id FROM nodes WHERE id=?`, nodeId)?.attempt_id;
+      ?? this.database.get<{ attempt_id: string | null }>(`SELECT attempt_id AS "attemptId" FROM nodes WHERE id=$1`, nodeId)?.attempt_id;
     if (ownsNodeStatus && attemptAtStart) {
       this.support.registerStartupRun(flow.id, nodeId, attemptAtStart);
     }
@@ -151,7 +151,7 @@ export class AgentRunner {
     const { agentId, runId } = await start();
     try {
       this.support.persistRun(flow.id, nodeId, agentId, runId);
-      const runRowId = this.database.get<{ id: string }>(`SELECT id FROM runs WHERE run_ref=?`, runId)?.id;
+      const runRowId = this.database.get<{ id: string }>(`SELECT id FROM runs WHERE run_ref=$1`, runId)?.id;
       if (!runRowId) throw new Error(`run row missing after persist for ${runId}`);
     const startedWhileRunning = attemptAtStart != null;
     this.database.emitEvent(flow.id, nodeId, EVENT_KIND.LIFECYCLE, `${label} started (${mode})`, { agentId, runId, run_id: runId, mode });
@@ -205,7 +205,7 @@ export class AgentRunner {
     } finally {
       const runRowStatus = result?.status === RUN_STATUS.FINISHED ? RUN_STATUS.FINISHED : RUN_STATUS.ERROR;
       this.database.run(
-        `UPDATE runs SET status=?, updated_at=? WHERE run_ref=?`,
+        `UPDATE runs SET status=$1, updated_at=$2 WHERE run_ref=$3`,
         runRowStatus,
         this.database.now(),
         runId,
@@ -230,7 +230,7 @@ export class AgentRunner {
     const ownsNodeStatus = options?.ownsNodeStatus !== false;
     if (ownsNodeStatus && startedWhileRunning && attemptAtStart) {
       const nodeNow = this.database.get<{ attempt_id: string | null; status: string }>(
-        `SELECT attempt_id, status FROM nodes WHERE id=?`,
+        `SELECT attempt_id AS "attemptId", status FROM nodes WHERE id=$1`,
         nodeId,
       );
       if (nodeNow?.attempt_id !== attemptAtStart) {

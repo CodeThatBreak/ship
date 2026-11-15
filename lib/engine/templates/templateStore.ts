@@ -137,16 +137,16 @@ export class TemplateStore {
   /** Load a template's graph, or null when the template does not exist. */
   graph(templateId: string): TemplateGraph | null {
     const tpl = db.get<{ version: number; trigger: string | null }>(
-      `SELECT version, trigger FROM flow_templates WHERE id=?`, templateId
+      `SELECT version, trigger FROM flow_templates WHERE id=$1`, templateId
     );
     if (!tpl) return null;
 
     const nodes = db.all<Record<string, unknown>>(
-      `SELECT n.id, n.node_key, n.node_template_id, n.label, n.trigger, n.join_mode, n.config, n.input_map, n.x, n.y,
+      `SELECT n.id, n.node_key, n.node_template_id AS "nodeTemplateId", n.label, n.trigger, n.join_mode AS "joinMode", n.config, n.input_map AS "inputMap", n.x, n.y,
               nt.key AS def_key, nt.id AS nt_id, nt.kind AS nt_kind, nt.icon AS nt_icon,
               nt.name AS nt_name, nt.is_builtin AS nt_builtin
        FROM flow_template_nodes n JOIN node_templates nt ON nt.id = n.node_template_id
-       WHERE n.template_id=? ORDER BY n.rowid`,
+       WHERE n.template_id=$1 ORDER BY n.rowid`,
       templateId
     ).map((r) => {
       // Built-ins resolve their NodeDefinition by registry key; declarative
@@ -170,8 +170,8 @@ export class TemplateStore {
     });
 
     const edges = db.all<Record<string, unknown>>(
-      `SELECT from_key, to_key, kind, label, condition
-       FROM flow_template_edges WHERE template_id=? ORDER BY rowid`,
+      `SELECT from_key AS "fromKey", to_key AS "toKey",, kind, label, condition
+       FROM flow_template_edges WHERE template_id=$1 ORDER BY rowid`,
       templateId
     ).map((r) => ({
       from: r.from_key as string,
@@ -200,7 +200,7 @@ export class TemplateStore {
    */
   graphForFlow(flowId: string): TemplateGraph | null {
     const row = db.get<{ template_id: string | null; template_graph: string | null }>(
-      `SELECT template_id, template_graph FROM flows WHERE id=?`,
+      `SELECT template_id AS "templateId", template_graph AS "templateGraph" FROM flows WHERE id=$1`,
       flowId,
     );
     if (!row) return null;
@@ -213,7 +213,7 @@ export class TemplateStore {
   /** Persist the template graph snapshot taken when a flow is created. */
   persistFlowGraphSnapshot(flowId: string, graph: TemplateGraph): void {
     db.run(
-      `UPDATE flows SET template_graph=? WHERE id=?`,
+      `UPDATE flows SET template_graph=$1 WHERE id=$2`,
       serializeFlowTemplateGraph(graph),
       flowId,
     );
@@ -273,18 +273,18 @@ export class TemplateStore {
    *  (hidden=1) — the gallery excludes them by default. */
   list(opts: { includeHidden?: boolean } = {}): (FlowTemplateRow & { nodeCount: number })[] {
     const templates = opts.includeHidden
-      ? rows.all(FlowTemplateRow, `SELECT * FROM flow_templates ORDER BY rowid`)
-      : rows.all(FlowTemplateRow, `SELECT * FROM flow_templates WHERE hidden=0 ORDER BY rowid`);
+      ? rows.all(FlowTemplateRow, `SELECT id, name, description, version, is_builtin AS "isBuiltin", trigger, schedule_next_at AS "scheduleNextAt", hidden, created_at AS "createdAt", updated_at AS "updatedAt" FROM flow_templates ORDER BY rowid`)
+      : rows.all(FlowTemplateRow, `SELECT id, name, description, version, is_builtin AS "isBuiltin", trigger, schedule_next_at AS "scheduleNextAt", hidden, created_at AS "createdAt", updated_at AS "updatedAt" FROM flow_templates WHERE hidden=0 ORDER BY rowid`);
     return templates.map((t) => ({
       ...t,
       nodeCount: db.get<{ c: number }>(
-        `SELECT COUNT(*) c FROM flow_template_nodes WHERE template_id=?`, t.id)?.c ?? 0,
+        `SELECT COUNT(*) c FROM flow_template_nodes WHERE template_id=$1`, t.id)?.c ?? 0,
     }));
   }
 
   /** One template row (or undefined). */
   flowTemplate(id: string): FlowTemplateRow | undefined {
-    return rows.get(FlowTemplateRow, `SELECT * FROM flow_templates WHERE id=?`, id);
+    return rows.get(FlowTemplateRow, `SELECT id, name, description, version, is_builtin AS "isBuiltin", trigger, schedule_next_at AS "scheduleNextAt", hidden, created_at AS "createdAt", updated_at AS "updatedAt" FROM flow_templates WHERE id=$1`, id);
   }
 
   /**
@@ -506,7 +506,7 @@ export class TemplateStore {
     db.transaction(() => {
       db.run(
         `INSERT INTO flow_templates (id,name,description,version,is_builtin,trigger,created_at,updated_at)
-         VALUES (?,?,?,?,?,?,?,?)`,
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8) ON CONFLICT DO NOTHING`,
         id, input.name?.trim() || "Untitled flow", input.description ?? null,
         1, opts.isBuiltin ? 1 : 0, JSON.stringify(trigger), ts, ts
       );
@@ -583,7 +583,7 @@ export class TemplateStore {
     this.assertEditable(templateId);
     if (patch.name !== undefined || patch.description !== undefined || patch.trigger !== undefined) {
       db.run(
-        `UPDATE flow_templates SET name=?, description=?, trigger=?, updated_at=? WHERE id=?`,
+        `UPDATE flow_templates SET name=$1, description=$2, trigger=$3, updated_at=$4 WHERE id=$5`,
         patch.name?.trim() || tpl.name,
         patch.description !== undefined ? patch.description : tpl.description,
         patch.trigger !== undefined
@@ -675,7 +675,7 @@ export class TemplateStore {
   delete(templateId: string): void {
     this.assertEditable(templateId);
     const used = db.get<{ c: number }>(
-      `SELECT COUNT(*) c FROM flows WHERE template_id=?`, templateId)?.c ?? 0;
+      `SELECT COUNT(*) c FROM flows WHERE template_id=$1`, templateId)?.c ?? 0;
     if (used > 0) {
       throw new ConflictError(
         `this template is used by ${used} flow${used > 1 ? "s" : ""} — delete the flows first`,
@@ -683,8 +683,8 @@ export class TemplateStore {
     }
     hookStore.removeTemplate(templateId);
     db.transaction(() => {
-      db.run(`DELETE FROM flow_template_nodes WHERE template_id=?`, templateId);
-      db.run(`DELETE FROM flow_template_edges WHERE template_id=?`, templateId);
+      db.run(`DELETE FROM flow_template_nodes WHERE template_id=$1`, templateId);
+      db.run(`DELETE FROM flow_template_edges WHERE template_id=$1`, templateId);
       // Template-local node templates (the canvas creator's rows): gone with
       // their template — but only when no OTHER template's node still
       // references one (belt-and-braces: Add to Library promotes without
@@ -693,16 +693,16 @@ export class TemplateStore {
       // reference detaches the row to the shared Library instead of blocking
       // the delete forever.
       const locals = db.all<{ id: string }>(
-        `SELECT id FROM node_templates WHERE template_id=? AND is_builtin=0`, templateId
+        `SELECT id FROM node_templates WHERE template_id=$1 AND is_builtin=0`, templateId
       );
       for (const l of locals) {
         const used = db.get<{ c: number }>(
-          `SELECT COUNT(*) c FROM flow_template_nodes WHERE node_template_id=? AND template_id<>?`,
+          `SELECT COUNT(*) c FROM flow_template_nodes WHERE node_template_id=$1 AND template_id<>$2`,
           l.id, templateId)?.c ?? 0;
-        if (used === 0) db.run(`DELETE FROM node_templates WHERE id=?`, l.id);
-        else db.run(`UPDATE node_templates SET template_id=NULL WHERE id=?`, l.id);
+        if (used === 0) db.run(`DELETE FROM node_templates WHERE id=$1`, l.id);
+        else db.run(`UPDATE node_templates SET template_id=NULL WHERE id=$1`, l.id);
       }
-      db.run(`DELETE FROM flow_templates WHERE id=?`, templateId);
+      db.run(`DELETE FROM flow_templates WHERE id=$1`, templateId);
     });
   }
 
@@ -724,7 +724,7 @@ export class TemplateStore {
   hasDraftNodes(templateId: string): boolean {
     return (
       (db.get<{ c: number }>(
-        `SELECT COUNT(*) c FROM flow_template_nodes WHERE template_id=? AND node_template_id LIKE 'draft:%'`,
+        `SELECT COUNT(*) c FROM flow_template_nodes WHERE template_id=$1 AND node_template_id LIKE 'draft:%'`,
         templateId,
       )?.c ?? 0) > 0
     );
@@ -733,7 +733,7 @@ export class TemplateStore {
   /** Structural edits are refused while flows are active on this template. */
   private assertNotRunning(templateId: string): void {
     const active = db.get<{ c: number }>(
-      `SELECT COUNT(*) c FROM flows WHERE template_id=? AND status=?`, templateId, FLOW_STATUS.ACTIVE)?.c ?? 0;
+      `SELECT COUNT(*) c FROM flows WHERE template_id=$1 AND status=$2`, templateId, FLOW_STATUS.ACTIVE)?.c ?? 0;
     if (active > 0) {
       throw new ConflictError(
         `${active} flow${active > 1 ? "s are" : " is"} active on this template — cancel/finish them before restructuring`,
@@ -754,22 +754,22 @@ export class TemplateStore {
     );
     if (!entries.length) return;
     const known = db.all<{ node_key: string }>(
-      `SELECT node_key FROM flow_template_nodes WHERE template_id=?`, templateId);
+      `SELECT node_key AS "nodeKey" FROM flow_template_nodes WHERE template_id=$1`, templateId);
     const keys = new Set(known.map((k) => k.node_key));
     const ts = db.now();
     for (const [key, pos] of entries) {
       if (!keys.has(key)) continue; // don't create rows for stray keys
-      db.run(`UPDATE flow_template_nodes SET x=?, y=?, updated_at=? WHERE template_id=? AND node_key=?`,
+      db.run(`UPDATE flow_template_nodes SET x=$1, y=$2, updated_at=$3 WHERE template_id=$4 AND node_key=$5`,
         pos.x, pos.y, ts, templateId, key);
     }
-    db.run(`UPDATE flow_templates SET updated_at=? WHERE id=?`, ts, templateId);
+    db.run(`UPDATE flow_templates SET updated_at=$1 WHERE id=$2`, ts, templateId);
   }
 
   // ── node-template (catalog) CRUD ──────────────────────────────────────────
 
   /** The node-type catalog, grouped for the configurator palette. */
   listNodeTemplates(): NodeTemplateRow[] {
-    return rows.all(NodeTemplateRow, `SELECT * FROM node_templates ORDER BY is_builtin DESC, rowid`);
+    return rows.all(NodeTemplateRow, `SELECT id, key, name, kind, version, description, icon, config, is_builtin AS "isBuiltin", template_id AS "templateId", created_at AS "createdAt", updated_at AS "updatedAt" FROM node_templates ORDER BY is_builtin DESC, rowid`);
   }
 
   /**
@@ -785,20 +785,20 @@ export class TemplateStore {
   } {
     return {
       library: rows.all(NodeTemplateRow,
-        `SELECT * FROM node_templates WHERE is_builtin=0 AND template_id IS NULL ORDER BY rowid`),
+        `SELECT id, key, name, kind, version, description, icon, config, is_builtin AS "isBuiltin", template_id AS "templateId", created_at AS "createdAt", updated_at AS "updatedAt" FROM node_templates WHERE is_builtin=0 AND template_id IS NULL ORDER BY rowid`),
       templateLocal: templateId !== undefined
         ? rows.all(NodeTemplateRow,
-            `SELECT * FROM node_templates WHERE is_builtin=0 AND template_id=? ORDER BY rowid`, templateId)
+            `SELECT id, key, name, kind, version, description, icon, config, is_builtin AS "isBuiltin", template_id AS "templateId", created_at AS "createdAt", updated_at AS "updatedAt" FROM node_templates WHERE is_builtin=0 AND template_id=$1 ORDER BY rowid`, templateId)
         : [],
     };
   }
 
   nodeTemplate(id: string): NodeTemplateRow | undefined {
-    return rows.get(NodeTemplateRow, `SELECT * FROM node_templates WHERE id=?`, id);
+    return rows.get(NodeTemplateRow, `SELECT id, key, name, kind, version, description, icon, config, is_builtin AS "isBuiltin", template_id AS "templateId", created_at AS "createdAt", updated_at AS "updatedAt" FROM node_templates WHERE id=$1`, id);
   }
 
   nodeTemplateByKey(key: string): NodeTemplateRow | undefined {
-    return rows.get(NodeTemplateRow, `SELECT * FROM node_templates WHERE key=?`, key);
+    return rows.get(NodeTemplateRow, `SELECT id, key, name, kind, version, description, icon, config, is_builtin AS "isBuiltin", template_id AS "templateId", created_at AS "createdAt", updated_at AS "updatedAt" FROM node_templates WHERE key=$1`, key);
   }
 
   /**
@@ -831,7 +831,7 @@ export class TemplateStore {
     // a declarative key must not shadow a built-in component (the registry
     // resolves built-ins first)
     const builtinKey = db.get<{ key: string }>(
-      `SELECT key FROM node_templates WHERE key=? AND is_builtin=1`, key
+      `SELECT key FROM node_templates WHERE key=$1 AND is_builtin=1`, key
     );
     if (builtinKey) throw new Error(`"${key}" is a built-in node key — pick another name`);
     // validate the declarative definition up front (same schema the runtime hydrates)
@@ -840,7 +840,7 @@ export class TemplateStore {
     const ts = db.now();
     db.run(
       `INSERT INTO node_templates (id,key,name,kind,version,description,icon,config,is_builtin,template_id,created_at,updated_at)
-       VALUES (?,?,?,?,1,?,?,?,0,?,?,?)`,
+       VALUES ($1,$2,$3,$4,1,$5,$6,$7,0,$8,$9,$10) ON CONFLICT DO NOTHING`,
       id, key, name, kind, input.description ?? null, input.icon ?? null,
       JSON.stringify(config), opts.templateId ?? null, ts, ts
     );
@@ -885,8 +885,8 @@ export class TemplateStore {
     // scoped to this template.
     const slug = TemplateStore.slugify(name);
     const identical = rows.all(NodeTemplateRow,
-      `SELECT * FROM node_templates
-       WHERE is_builtin=0 AND (key=? OR key LIKE ? ESCAPE '\\')
+      `SELECT id, key, name, kind, version, description, icon, config, is_builtin AS "isBuiltin", template_id AS "templateId", created_at AS "createdAt", updated_at AS "updatedAt" FROM node_templates
+       WHERE is_builtin=0 AND (key=$1 OR key LIKE $2 ESCAPE '\\')
          AND (template_id IS NULL OR template_id=?)`,
       slug, `${TemplateStore.likeEscape(slug)}\\_local%`, opts.templateId,
     ).find((r) => r.kind === kind && JSON.stringify(r.config ?? {}) === JSON.stringify(config));
@@ -939,7 +939,7 @@ export class TemplateStore {
       ? TemplateStore.freeKeyVariant(row.key)
       : row.key;
     db.run(
-      `UPDATE node_templates SET template_id=NULL, key=?, updated_at=? WHERE id=?`,
+      `UPDATE node_templates SET template_id=NULL, key=$1, updated_at=$2 WHERE id=$3`,
       key, db.now(), id
     );
     return this.requireNodeTemplate(id);
@@ -956,7 +956,7 @@ export class TemplateStore {
       ? JSON.stringify(parseDeclarativeConfig(row.kind, patch.config, patch.name?.trim() || row.name))
       : JSON.stringify(row.config);
     db.run(
-      `UPDATE node_templates SET name=?, description=?, icon=?, config=?, updated_at=? WHERE id=?`,
+      `UPDATE node_templates SET name=$1, description=$2, icon=$3, config=$4, updated_at=$5 WHERE id=$6`,
       patch.name?.trim() || row.name,
       patch.description !== undefined ? patch.description : row.description,
       patch.icon !== undefined ? patch.icon : row.icon,
@@ -981,13 +981,13 @@ export class TemplateStore {
     const name = input.name.trim();
     if (!name) throw new Error("name is required");
     const key = TemplateStore.slugify(input.key?.trim() || name);
-    if (db.get<{ key: string }>(`SELECT key FROM node_templates WHERE key=? AND is_builtin=1`, key)) {
+    if (db.get<{ key: string }>(`SELECT key FROM node_templates WHERE key=$1 AND is_builtin=1`, key)) {
       throw new Error(`"${key}" is a built-in node key — pick another name`);
     }
     // normalize the config once so "identical" comparisons compare parsed forms
     const normalized = parseDeclarativeConfig(kind, input.config ?? {}, name);
     const candidates = rows.all(NodeTemplateRow,
-      `SELECT * FROM node_templates WHERE key=? AND is_builtin=0`, key);
+      `SELECT id, key, name, kind, version, description, icon, config, is_builtin AS "isBuiltin", template_id AS "templateId", created_at AS "createdAt", updated_at AS "updatedAt" FROM node_templates WHERE key=$1 AND is_builtin=0`, key);
     const identical = candidates.find(
       (r) => r.kind === kind && JSON.stringify(r.config ?? {}) === JSON.stringify(normalized)
     );
@@ -997,7 +997,7 @@ export class TemplateStore {
     const ts = db.now();
     db.run(
       `INSERT INTO node_templates (id,key,name,kind,version,description,icon,config,is_builtin,created_at,updated_at)
-       VALUES (?,?,?,?,?,?,?,?,0,?,?)`,
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,0,$9,$10) ON CONFLICT DO NOTHING`,
       id, key, name, kind, version, null, input.icon ?? null,
       JSON.stringify(normalized), ts, ts
     );
@@ -1010,9 +1010,9 @@ export class TemplateStore {
     if (!row) throw new Error("node template not found");
     if (row.is_builtin) throw new Error("built-in node templates are read-only");
     const used = db.get<{ c: number }>(
-      `SELECT COUNT(*) c FROM flow_template_nodes WHERE node_template_id=?`, id)?.c ?? 0;
+      `SELECT COUNT(*) c FROM flow_template_nodes WHERE node_template_id=$1`, id)?.c ?? 0;
     if (used > 0) throw new Error(`this node template is used by ${used} template node${used > 1 ? "s" : ""}`);
-    db.run(`DELETE FROM node_templates WHERE id=?`, id);
+    db.run(`DELETE FROM node_templates WHERE id=$1`, id);
   }
 
   // ── write path helpers ────────────────────────────────────────────────────
@@ -1097,8 +1097,8 @@ export class TemplateStore {
   ): void {
     const write = () => {
       if (opts.replace) {
-        db.run(`DELETE FROM flow_template_nodes WHERE template_id=?`, templateId);
-        db.run(`DELETE FROM flow_template_edges WHERE template_id=?`, templateId);
+        db.run(`DELETE FROM flow_template_nodes WHERE template_id=$1`, templateId);
+        db.run(`DELETE FROM flow_template_edges WHERE template_id=$1`, templateId);
       }
       const ts = db.now();
       for (const n of nodes) {
@@ -1107,7 +1107,7 @@ export class TemplateStore {
         const inputMap = JSON.stringify(n.input_map && Object.keys(n.input_map).length ? n.input_map : {});
         db.run(
           `INSERT OR REPLACE INTO flow_template_nodes (id,template_id,node_key,node_template_id,label,trigger,join_mode,config,input_map,x,y,created_at,updated_at)
-           VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)`,
           db.uid("ftn_"), templateId, n.key.trim(), n.nodeTemplateId, n.label ?? null, trigger,
           n.join_mode === "any" ? "any" : "all", config, inputMap, n.x ?? null, n.y ?? null, ts, ts
         );
@@ -1115,11 +1115,11 @@ export class TemplateStore {
       for (const e of edges) {
         db.run(
           `INSERT OR REPLACE INTO flow_template_edges (id,template_id,from_key,to_key,kind,label,condition,created_at,updated_at)
-           VALUES (?,?,?,?,?,?,?,?,?)`,
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
           db.uid("fte_"), templateId, e.from, e.to, e.kind ?? "next", e.label, e.condition, ts, ts
         );
       }
-      db.run(`UPDATE flow_templates SET updated_at=? WHERE id=?`, ts, templateId);
+      db.run(`UPDATE flow_templates SET updated_at=$1 WHERE id=$2`, ts, templateId);
     };
     if (opts.replace) {
       db.transaction(write);
@@ -1142,13 +1142,13 @@ export class TemplateStore {
       const intervalMin = typeof trigger.interval_min === "number" && trigger.interval_min > 0
         ? trigger.interval_min : 60;
       const cur = db.get<{ schedule_next_at: string | null }>(
-        `SELECT schedule_next_at FROM flow_templates WHERE id=?`, templateId);
+        `SELECT schedule_next_at AS "scheduleNextAt" FROM flow_templates WHERE id=$1`, templateId);
       if (cur && !cur.schedule_next_at) {
-        db.run(`UPDATE flow_templates SET schedule_next_at=? WHERE id=?`,
+        db.run(`UPDATE flow_templates SET schedule_next_at=$1 WHERE id=$2`,
           new Date(Date.now() + intervalMin * 60_000).toISOString(), templateId);
       }
     } else {
-      db.run(`UPDATE flow_templates SET schedule_next_at=NULL WHERE id=?`, templateId);
+      db.run(`UPDATE flow_templates SET schedule_next_at=NULL WHERE id=$1`, templateId);
     }
   }
 
@@ -1232,10 +1232,10 @@ export class TemplateStore {
    * uniqueness check then reports the collision.
    */
   private static freeKeyVariant(slug: string): string {
-    if (!db.get<{ k: number }>(`SELECT 1 k FROM node_templates WHERE key=?`, slug)) return slug;
+    if (!db.get<{ k: number }>(`SELECT 1 k FROM node_templates WHERE key=$1`, slug)) return slug;
     for (let n = 1; n < 500; n++) {
       const variant = n === 1 ? `${slug}_local` : `${slug}_local${n}`;
-      if (!db.get<{ k: number }>(`SELECT 1 k FROM node_templates WHERE key=?`, variant)) return variant;
+      if (!db.get<{ k: number }>(`SELECT 1 k FROM node_templates WHERE key=$1`, variant)) return variant;
     }
     return slug;
   }

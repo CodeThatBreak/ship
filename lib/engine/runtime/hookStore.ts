@@ -9,9 +9,9 @@ import { processSingleton } from "../../singleton";
 
 /**
  * Generic inbound webhook endpoints (Phase 4A, §6): the `hooks` table binds
- * an inbound delivery endpoint to either a flow template (`template_id` set ⇒
+ * an inbound delivery endpoint to either a flow template (`templateId` set ⇒
  * the delivery starts a new flow from it) or a waiting node instance
- * (`flow_id` + `node_key` set ⇒ the delivery resumes the node).
+ * (`flowId` + `nodeKey` set ⇒ the delivery resumes the node).
  *
  * Verification is `standardwebhooks` when the sender follows the spec
  * (`webhook-id` / `webhook-timestamp` / `webhook-signature` — OpenAI,
@@ -37,8 +37,10 @@ function newSecret(): string {
   return `whsec_${crypto.randomBytes(32).toString("base64")}`;
 }
 
-function parseJson(raw: string | null | undefined): Record<string, unknown> {
-  if (!raw) return {};
+function parseJson(raw: unknown): Record<string, unknown> {
+  if (raw == null) return {};
+  if (typeof raw === "object") return raw as Record<string, unknown>;
+  if (typeof raw !== "string") return {};
   try { return JSON.parse(raw) as Record<string, unknown>; } catch { return {}; }
 }
 
@@ -50,26 +52,29 @@ function fallbackTimestampOk(raw: string): boolean {
   return Math.abs(nowSec - ts) <= FALLBACK_TIMESTAMP_TOLERANCE_SEC;
 }
 
+const HOOK_SELECT = `SELECT id, template_id AS "templateId", flow_id AS "flowId",
+       node_key AS "nodeKey", secret, filter, created_at AS "createdAt" FROM hooks`;
+
 /** Masked hook secret for flow snapshots and other client polls (CR-254). */
 export const maskHookSecret = (secret: string): string => maskToken(secret);
 
 export class HookStore {
   // ── reads ────────────────────────────────────────────────────────────────
 
-  hook(id: string): HookRow | undefined {
-    return rows.get(HookRow, `SELECT * FROM hooks WHERE id=?`, id);
+  hook(id: string): Promise<HookRow | undefined> {
+    return rows.get(HookRow, `${HOOK_SELECT} WHERE id=$1`, id);
   }
 
   /** The hook that starts flows from a template (webhook flow trigger). */
-  hookForTemplate(templateId: string): HookRow | undefined {
+  hookForTemplate(templateId: string): Promise<HookRow | undefined> {
     return rows.get(HookRow,
-      `SELECT * FROM hooks WHERE template_id=? AND flow_id IS NULL`, templateId);
+      `${HOOK_SELECT} WHERE template_id=$1 AND flow_id IS NULL`, templateId);
   }
 
   /** The hook that feeds a waiting node instance (wait_for webhook). */
-  hookForNode(flowId: string, nodeKey: string): HookRow | undefined {
+  hookForNode(flowId: string, nodeKey: string): Promise<HookRow | undefined> {
     return rows.get(HookRow,
-      `SELECT * FROM hooks WHERE flow_id=? AND node_key=?`, flowId, nodeKey);
+      `${HOOK_SELECT} WHERE flow_id=$1 AND node_key=$2`, flowId, nodeKey);
   }
 
   // ── provisioning (called from TemplateStore save paths + flow creation) ──
@@ -82,49 +87,49 @@ export class HookStore {
    * The hook is removed only when the template is deleted (`removeTemplate`).
    * No-op for unknown templates.
    */
-  syncTemplate(templateId: string): void {
-    const tpl = db.get<{ trigger: string | null; hidden: number }>(
-      `SELECT trigger, hidden FROM flow_templates WHERE id=?`, templateId);
+  async syncTemplate(templateId: string): Promise<void> {
+    const tpl = await db.get<{ trigger: unknown; hidden: boolean }>(
+      `SELECT trigger, hidden FROM flow_templates WHERE id=$1`, templateId);
     if (!tpl) return;
-    if (tpl.hidden === 1) return;
+    if (tpl.hidden) return;
     const trigger = parseJson(tpl.trigger);
     const filter = typeof trigger.filter === "string" && trigger.filter.trim()
       ? trigger.filter.trim() : null;
-    const existing = this.hookForTemplate(templateId);
+    const existing = await this.hookForTemplate(templateId);
     if (!existing) {
-      db.run(
+      await db.run(
         `INSERT INTO hooks (id,template_id,flow_id,node_key,secret,filter,created_at)
-         VALUES (?,?,NULL,NULL,?,?,?)`,
+         VALUES ($1,$2,NULL,NULL,$3,$4,$5)`,
         db.uid("hk_"), templateId, newSecret(), filter, db.now()
       );
     } else if (existing.filter !== filter) {
-      db.run(`UPDATE hooks SET filter=? WHERE id=?`, filter, existing.id);
+      await db.run(`UPDATE hooks SET filter=$1 WHERE id=$2`, filter, existing.id);
     }
   }
 
   /** Remove a template's flow-trigger hook (template deleted). */
-  removeTemplate(templateId: string): void {
-    db.run(`DELETE FROM hooks WHERE template_id=? AND flow_id IS NULL`, templateId);
+  async removeTemplate(templateId: string): Promise<void> {
+    await db.run(`DELETE FROM hooks WHERE template_id=$1 AND flow_id IS NULL`, templateId);
   }
 
   /** The hook that feeds a waiting node (wait_for webhook) — find-or-create. */
-  ensureForNode(flowId: string, nodeKey: string): HookRow {
-    const existing = this.hookForNode(flowId, nodeKey);
+  async ensureForNode(flowId: string, nodeKey: string): Promise<HookRow> {
+    const existing = await this.hookForNode(flowId, nodeKey);
     if (existing) return existing;
-    db.run(
+    await db.run(
       `INSERT INTO hooks (id,template_id,flow_id,node_key,secret,filter,created_at)
-       VALUES (?,NULL,?,?,?,NULL,?)`,
+       VALUES ($1,NULL,$2,$3,$4,NULL,$5)`,
       db.uid("hk_"), flowId, nodeKey, newSecret(), db.now()
     );
-    const hook = this.hookForNode(flowId, nodeKey);
+    const hook = await this.hookForNode(flowId, nodeKey);
     if (!hook) throw new Error(`hook insert failed for flow ${flowId} node ${nodeKey}`);
     return hook;
   }
 
-  /** The inbound hooks feeding this flow's waiting nodes (Phase 4B). */
-  hooksForFlow(flowId: string): HookRow[] {
+  /** The inbound hooks feeding this flow's waiting nodes. */
+  hooksForFlow(flowId: string): Promise<HookRow[]> {
     return rows.all(HookRow,
-      `SELECT * FROM hooks WHERE flow_id=? AND node_key IS NOT NULL ORDER BY created_at`, flowId);
+      `${HOOK_SELECT} WHERE flow_id=$1 AND node_key IS NOT NULL ORDER BY created_at`, flowId);
   }
 
   // ── verification ─────────────────────────────────────────────────────────
@@ -173,26 +178,27 @@ export class HookStore {
 
   private lastDeliveryCleanup = 0;
 
-  private maybeCleanupDeliveries(): void {
+  private async maybeCleanupDeliveries(): Promise<void> {
     if (Date.now() - this.lastDeliveryCleanup <= CLEANUP_INTERVAL_MS) return;
     this.lastDeliveryCleanup = Date.now();
-    db.run(`DELETE FROM hook_deliveries WHERE created_at < ?`,
+    await db.run(`DELETE FROM hook_deliveries WHERE created_at < $1`,
       new Date(Date.now() - DELIVERY_TTL_MS).toISOString());
   }
 
   /** Whether this `webhook-id` was already processed for the hook (replay dedup). */
-  isDeliverySeen(hookId: string, webhookId: string): boolean {
-    this.maybeCleanupDeliveries();
-    return Boolean(db.get(
-      `SELECT 1 FROM hook_deliveries WHERE hook_id=? AND webhook_id=?`,
+  async isDeliverySeen(hookId: string, webhookId: string): Promise<boolean> {
+    await this.maybeCleanupDeliveries();
+    return Boolean(await db.get(
+      `SELECT 1 FROM hook_deliveries WHERE hook_id=$1 AND webhook_id=$2`,
       hookId, webhookId));
   }
 
   /** Record a processed delivery id so retries with the same `webhook-id` dedup. */
-  markDeliverySeen(hookId: string, webhookId: string): void {
-    this.maybeCleanupDeliveries();
-    db.run(
-      `INSERT OR IGNORE INTO hook_deliveries (hook_id,webhook_id,created_at) VALUES (?,?,?)`,
+  async markDeliverySeen(hookId: string, webhookId: string): Promise<void> {
+    await this.maybeCleanupDeliveries();
+    await db.run(
+      `INSERT INTO hook_deliveries (hook_id,webhook_id,created_at) VALUES ($1,$2,$3)
+       ON CONFLICT (hook_id, webhook_id) DO NOTHING`,
       hookId, webhookId, db.now()
     );
   }

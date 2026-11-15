@@ -43,15 +43,15 @@ export class StatusService {
       mr_iid: number | null;
     }>(
       `SELECT f.id AS flow_id, t.key AS task_key, t.summary AS task_summary,
-              f.current_node, f.execution_mode, f.status, f.mr_url, f.mr_iid
+              f.current_node, f.execution_mode AS "executionMode", f.status, f.mr_url AS "mrUrl", f.mr_iid AS "mrIid"
        FROM flows f JOIN tasks t ON t.id = f.task_id
-       WHERE f.status = ?
+       WHERE f.status = $1
        ORDER BY f.updated_at DESC`,
       FLOW_STATUS.ACTIVE,
     );
 
     const runsRunning =
-      this.database.get<{ c: number }>(`SELECT COUNT(*) AS c FROM runs WHERE status = ?`, FLOW_STATUS.RUNNING)
+      this.database.get<{ c: number }>(`SELECT COUNT(*) AS c FROM runs WHERE status = $1`, FLOW_STATUS.RUNNING)
         ?.c ?? 0;
     const repoCount = this.database.get<{ c: number }>(`SELECT COUNT(*) AS c FROM repos`)?.c ?? 0;
 

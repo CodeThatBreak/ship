@@ -21,7 +21,7 @@ export class BranchStore {
       order?: number;
     } = {},
   ): string {
-    const existing = db.get<{ id: string }>(`SELECT id FROM branches WHERE flow_id=? AND name=?`, flowId, name);
+    const existing = db.get<{ id: string }>(`SELECT id FROM branches WHERE flow_id=$1 AND name=$2`, flowId, name);
     if (existing) {
       const patch: Record<string, unknown> = {};
       if (opts.title !== undefined) patch.title = opts.title;
@@ -39,7 +39,7 @@ export class BranchStore {
     const id = db.uid("br_");
     db.run(
       `INSERT INTO branches (id,flow_id,name,git_branch,title,status,mr_url,mr_iid,"order",created_at,updated_at)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?)`,
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) ON CONFLICT DO NOTHING`,
       id, flowId, name, opts.gitBranch ?? null, opts.title ?? name, opts.status ?? "pending",
       opts.mrUrl ?? null, opts.mrIid ?? null, opts.order ?? 0, db.now(), db.now()
     );
@@ -49,21 +49,21 @@ export class BranchStore {
   /** Persisted git ref for a plan branch row (null before the build finishes). */
   gitBranch(flowId: string, planBranchName: string): string | null {
     return db.get<{ git_branch: string | null }>(
-      `SELECT git_branch FROM branches WHERE flow_id=? AND name=?`, flowId, planBranchName,
+      `SELECT git_branch AS "gitBranch" FROM branches WHERE flow_id=$1 AND name=$2`, flowId, planBranchName,
     )?.git_branch ?? null;
   }
 
   /** Tag a specific run row with a branch_id (per-branch cost attribution). */
   tagRun(runRowId: string, branchRowId: string): void {
     db.run(
-      `UPDATE runs SET branch_id=?, updated_at=? WHERE id=?`,
+      `UPDATE runs SET branch_id=$1, updated_at=$2 WHERE id=$3`,
       branchRowId, db.now(), runRowId,
     );
   }
 
   /** Get all branch rows for a flow, ordered. */
   list(flowId: string): BranchRow[] {
-    return rows.all(BranchRow, `SELECT * FROM branches WHERE flow_id=? ORDER BY "order", created_at`, flowId);
+    return rows.all(BranchRow, `SELECT id, flow_id AS "flowId", name, git_branch AS "gitBranch", title, status, mr_url AS "mrUrl", mr_iid AS "mrIid", "order", created_at AS "createdAt", updated_at AS "updatedAt" FROM branches WHERE flow_id=$1 ORDER BY "order", created_at`, flowId);
   }
 }
 

@@ -324,7 +324,7 @@ export class StepFlowManager {
           payload,
           { branch }
         );
-        db.run(`UPDATE plan_steps SET sub_flow_id=?, updated_at=? WHERE id=? AND flow_id=?`,
+        db.run(`UPDATE plan_steps SET sub_flow_id=$1, updated_at=$2 WHERE id=$3 AND flow_id=$4`,
           childId, db.now(), stepRow.id, parentFlowId);
         if (codeChild) {
           // integration branch rows mirror the whole-mode branch decomposition so
@@ -404,7 +404,7 @@ export class StepFlowManager {
           ...(mergeStatus ? { mergeStatus } : {}),
         };
       });
-    db.run(`UPDATE flows SET trigger_payload=?, updated_at=? WHERE id=?`,
+    db.run(`UPDATE flows SET trigger_payload=$1, updated_at=$2 WHERE id=$3`,
       JSON.stringify(payload), db.now(), childFlowId);
   }
 
@@ -482,7 +482,7 @@ export class StepFlowManager {
       ],
       edges: [],
     }, { skipLint: true });
-    db.run(`UPDATE flow_templates SET hidden=1, updated_at=? WHERE id=?`, db.now(), tplId);
+    db.run(`UPDATE flow_templates SET hidden=1, updated_at=$1 WHERE id=$2`, db.now(), tplId);
     return tplId;
   }
 
@@ -605,7 +605,7 @@ export class StepFlowManager {
    * Early-returns unless the whole child is terminal, then reschedules.
    */
   onChildFinished(childFlowId: string): void {
-    const link = db.get<{ flow_id: string }>(`SELECT flow_id FROM plan_steps WHERE sub_flow_id=?`, childFlowId);
+    const link = db.get<{ flow_id: string }>(`SELECT flow_id AS "flowId" FROM plan_steps WHERE sub_flow_id=$1`, childFlowId);
     if (!link) return;
     const payload = this.childPayload(childFlowId);
     const parentNodeKey = payload?.parentNodeKey;
@@ -682,7 +682,7 @@ export class StepFlowManager {
         const group = states.filter((s) => s.integrationBranch === branch);
         if (!group.some((s) => s.step.status === "done" && s.step.completed_by === "merge")) continue;
         branchStore.upsert(parentFlowId, branch, { status: "awaiting_approval" });
-        db.run(`UPDATE flows SET mr_branch=? WHERE id=? AND (mr_branch IS NULL OR mr_branch='')`, branch, parentFlowId);
+        db.run(`UPDATE flows SET mr_branch=$1 WHERE id=$2 AND (mr_branch IS NULL OR mr_branch='')`, branch, parentFlowId);
         if (!nodeId) continue;
         try {
           const diff = await flowCtxHelper.makeDiff(ctx, branch);
@@ -731,7 +731,7 @@ export class StepFlowManager {
     const parentFlowId = childFlow.parent_flow_id;
     const workNodeKey = this.childWorkNodeKey(childFlowId);
     const node = db.get<{ node_key: string; status: string }>(
-      `SELECT node_key, status FROM nodes WHERE flow_id=? AND node_key=?`, childFlowId, workNodeKey);
+      `SELECT node_key AS "nodeKey", status FROM nodes WHERE flow_id=$1 AND node_key=$2`, childFlowId, workNodeKey);
     if (!node) throw new Error("the step child has no work node");
     if (node.status !== "awaiting_approval") throw new Error(`the step is ${node.status}, not awaiting approval`);
     const stepRow = this.stepRowOf(childFlowId);
@@ -743,7 +743,7 @@ export class StepFlowManager {
       throw new Error("the step merge is already in progress");
     }
     const activeMerge = db.get<{ id: string }>(
-      `SELECT id FROM step_merges WHERE flow_id=? AND status IN ('running','conflict','rejected') LIMIT 1`,
+      `SELECT id FROM step_merges WHERE flow_id=$1 AND status IN ('running','conflict','rejected') LIMIT 1`,
       childFlowId);
     if (activeMerge) {
       throw new Error("the step merge is already in progress");
@@ -757,14 +757,14 @@ export class StepFlowManager {
       `step approved${typeof this.engineCapabilitiesOfMergeBack(childFlowId) === "function" ? ` — merging ${branch} into ${integrationBranch}` : ""}`);
     if (typeof this.engineCapabilitiesOfMergeBack(childFlowId) !== "function") {
       // non-code child: nothing to merge — approval closes the child
-      db.run(`UPDATE plan_steps SET status='done', completed_by='approved', updated_at=? WHERE sub_flow_id=?`,
+      db.run(`UPDATE plan_steps SET status='done', completed_by='approved', updated_at=$1 WHERE sub_flow_id=$2`,
         db.now(), childFlowId);
       this.closeChild(childFlowId);
       this.onChildFinished(childFlowId);
       return;
     }
     const claimed = db.run(
-      `UPDATE plan_steps SET completed_by='merge', updated_at=? WHERE sub_flow_id=? AND (completed_by IS NULL OR completed_by='')`,
+      `UPDATE plan_steps SET completed_by='merge', updated_at=$1 WHERE sub_flow_id=$2 AND (completed_by IS NULL OR completed_by='')`,
       db.now(), childFlowId);
     if (claimed.changes === 0) {
       throw new Error("the step merge is already in progress");
@@ -842,7 +842,7 @@ export class StepFlowManager {
         });
         // the arena ROW id is bookkeeping truth — adopt it for re-attempts
         mergeRowId = db.get<{ id: string }>(
-          `SELECT id FROM step_merges WHERE flow_id=? ORDER BY created_at DESC, id DESC LIMIT 1`, childFlowId
+          `SELECT id FROM step_merges WHERE flow_id=$1 ORDER BY created_at DESC, id DESC LIMIT 1`, childFlowId
         )?.id ?? mergeRowId;
 
         if (result.status === "merged") {
@@ -864,7 +864,7 @@ export class StepFlowManager {
 
         // conflict / rejected — repairable code state → the bounded fix agent
         const attempts = mergeRowId
-          ? (db.get<{ attempts: number }>(`SELECT attempts FROM step_merges WHERE id=?`, mergeRowId)?.attempts ?? 0)
+          ? (db.get<{ attempts: number }>(`SELECT attempts FROM step_merges WHERE id=$1`, mergeRowId)?.attempts ?? 0)
           : 1;
         if (attempts > maxAttempts) {
           const err = `${result.status} after ${attempts - 1} merge-fix agent runs (max ${maxAttempts}): ${result.error}`;
@@ -900,7 +900,7 @@ export class StepFlowManager {
             `merge-fix agent finished — re-attempting the arena merge`,
             { nodeKey: nodeOwnerKey, childFlowId });
         }
-        db.run(`UPDATE nodes SET status='awaiting_approval', updated_at=? WHERE flow_id=? AND node_key=?`,
+        db.run(`UPDATE nodes SET status='awaiting_approval', updated_at=$1 WHERE flow_id=$2 AND node_key=$3`,
           db.now(), childFlowId, childNodeKey);
       }
     } catch (e: unknown) {
@@ -918,9 +918,9 @@ export class StepFlowManager {
     parentNodeKey: string,
     error: string,
   ): void {
-    db.run(`UPDATE step_merges SET status='failed', error=?, updated_at=? WHERE flow_id=? AND status IN ('running','conflict','rejected')`,
+    db.run(`UPDATE step_merges SET status='failed', error=$1, updated_at=$2 WHERE flow_id=$3 AND status IN ('running','conflict','rejected')`,
       error.slice(0, 2000), db.now(), childFlowId);
-    db.run(`UPDATE nodes SET status='failed', updated_at=? WHERE flow_id=? AND node_key=?`,
+    db.run(`UPDATE nodes SET status='failed', updated_at=$1 WHERE flow_id=$2 AND node_key=$3`,
       db.now(), childFlowId, childNodeKey);
     db.emitEvent(childFlowId, null, "error", `merge-back failed: ${error}`, { nodeKey: childNodeKey });
     db.emitEvent(parentFlowId, null, "error",
@@ -943,10 +943,10 @@ export class StepFlowManager {
     const stepRow = this.stepRowOf(childFlowId);
     const workNodeKey = this.childWorkNodeKey(childFlowId);
     const childNode = db.get<{ node_key: string; status: string }>(
-      `SELECT node_key, status FROM nodes WHERE flow_id=? AND node_key=?`, childFlowId, workNodeKey);
+      `SELECT node_key AS "nodeKey", status FROM nodes WHERE flow_id=$1 AND node_key=$2`, childFlowId, workNodeKey);
     const childFlow = this.childFlowOf(childFlowId);
     const row = db.get<{ id: string; status: string }>(
-      `SELECT id, status FROM step_merges WHERE flow_id=? AND status IN ('running','conflict') ORDER BY created_at DESC LIMIT 1`,
+      `SELECT id, status FROM step_merges WHERE flow_id=$1 AND status IN ('running','conflict') ORDER BY created_at DESC LIMIT 1`,
       childFlowId);
     if (!payload?.parentNodeKey || !stepRow || !childNode || !childFlow?.parent_flow_id || !row) {
       db.emitEvent(childFlowId, null, "error", "a pending step merge could not be resumed (the fan-out linkage is gone)");
@@ -957,7 +957,7 @@ export class StepFlowManager {
       parentFlowId, payload.parentNodeKey, stepRow.branch ?? null);
     const branch = childFlow.mr_branch;
     if (!branch) {
-      db.run(`UPDATE step_merges SET status='failed', error='restart interrupted the merge and the step branch is lost', updated_at=? WHERE id=?`,
+      db.run(`UPDATE step_merges SET status='failed', error='restart interrupted the merge and the step branch is lost', updated_at=$1 WHERE id=$2`,
         db.now(), row.id);
       return;
     }
@@ -976,13 +976,13 @@ export class StepFlowManager {
    */
   resumeMergeRetry(parentFlowId: string, childFlowId: string): boolean {
     const row = db.get<{ id: string }>(
-      `SELECT id FROM step_merges WHERE flow_id=? AND status IN ('conflict','rejected','failed') ORDER BY created_at DESC LIMIT 1`,
+      `SELECT id FROM step_merges WHERE flow_id=$1 AND status IN ('conflict','rejected','failed') ORDER BY created_at DESC LIMIT 1`,
       childFlowId);
     const workNodeKey = this.childWorkNodeKey(childFlowId);
     const childNode = db.get<{ node_key: string; status: string }>(
-      `SELECT node_key, status FROM nodes WHERE flow_id=? AND node_key=?`, childFlowId, workNodeKey);
+      `SELECT node_key AS "nodeKey", status FROM nodes WHERE flow_id=$1 AND node_key=$2`, childFlowId, workNodeKey);
     if (!row || !childNode || childNode.status !== "failed") return false;
-    db.run(`UPDATE nodes SET status='awaiting_approval', updated_at=? WHERE flow_id=? AND node_key=?`,
+    db.run(`UPDATE nodes SET status='awaiting_approval', updated_at=$1 WHERE flow_id=$2 AND node_key=$3`,
       db.now(), childFlowId, workNodeKey);
     this.resumePendingMerge(childFlowId);
     return true;
@@ -999,7 +999,7 @@ export class StepFlowManager {
   private childTypeOf(childFlowId: string): string {
     const workNodeKey = this.childWorkNodeKey(childFlowId);
     return db.get<{ type: string }>(
-      `SELECT type FROM nodes WHERE flow_id=? AND node_key=?`, childFlowId, workNodeKey)?.type ?? "";
+      `SELECT type FROM nodes WHERE flow_id=$1 AND node_key=$2`, childFlowId, workNodeKey)?.type ?? "";
   }
 
   /** The work node instance key for a step child (from expand-time payload, with legacy fallback). */
@@ -1007,7 +1007,7 @@ export class StepFlowManager {
     const payload = this.childPayload(childFlowId);
     if (payload?.workNodeKey) return payload.workNodeKey;
     const row = db.get<{ node_key: string }>(
-      `SELECT node_key FROM nodes WHERE flow_id=? ORDER BY created_at LIMIT 1`, childFlowId);
+      `SELECT node_key AS "nodeKey" FROM nodes WHERE flow_id=$1 ORDER BY created_at LIMIT 1`, childFlowId);
     if (!row) throw new Error("the step child has no nodes");
     return row.node_key;
   }
@@ -1031,10 +1031,10 @@ export class StepFlowManager {
       const childId = step.sub_flow_id;
       const childFlow = this.childFlowOf(childId);
       // a stuck merge-back must never resume for a step the user skipped
-      db.run(`UPDATE step_merges SET status='failed', error='step skipped — the merge-back was abandoned', updated_at=? WHERE flow_id=? AND status IN ('running','conflict','rejected')`,
+      db.run(`UPDATE step_merges SET status='failed', error='step skipped — the merge-back was abandoned', updated_at=$1 WHERE flow_id=$2 AND status IN ('running','conflict','rejected')`,
         db.now(), childId);
       const codeChild = typeof this.engineCapabilitiesOfMergeBack(childId) === "function";
-      for (const n of db.all<{ node_key: string; status: string }>(`SELECT node_key, status FROM nodes WHERE flow_id=?`, childId)) {
+      for (const n of db.all<{ node_key: string; status: string }>(`SELECT node_key AS "nodeKey", status FROM nodes WHERE flow_id=$1`, childId)) {
         if (NODE_CANCELABLE_STATUSES.includes(n.status)) {
           await this.e.cancelNode(childId, n.node_key); // marks failed + stops in-flight local runs (standard stop)
         }
@@ -1058,7 +1058,7 @@ export class StepFlowManager {
 
   /** The first node instance of the flow whose effective fan-out knob isn't whole. */
   private firstFanoutNodeKey(parentFlowId: string): string | null {
-    for (const n of db.all<{ node_key: string; config: string | null }>(`SELECT node_key, config FROM nodes WHERE flow_id=?`, parentFlowId)) {
+    for (const n of db.all<{ node_key: string; config: string | null }>(`SELECT node_key AS "nodeKey", config FROM nodes WHERE flow_id=$1`, parentFlowId)) {
       if (fanoutOf(parseConfigSnapshot(n.config)).mode !== "whole") return n.node_key;
     }
     return null;
@@ -1159,7 +1159,7 @@ export class StepFlowManager {
    */
   wrapWholeOutput(flowId: string, nodeKey: string): void {
     const node = db.get<{ id: string; output: string | null }>(
-      `SELECT id, output FROM nodes WHERE flow_id=? AND node_key=?`, flowId, nodeKey);
+      `SELECT id, output FROM nodes WHERE flow_id=$1 AND node_key=$2`, flowId, nodeKey);
     if (!node) return;
     let native: unknown = null;
     try { native = node.output ? JSON.parse(node.output) : null; } catch { native = null; }
@@ -1168,7 +1168,7 @@ export class StepFlowManager {
       steps: [{ id: "whole", title: task?.summary ?? nodeKey, status: "done", output: native ?? {} }],
     };
     DEFAULT_FANOUT_OUTPUT.parse(wrapped);
-    db.run(`UPDATE nodes SET output=?, updated_at=? WHERE id=?`, JSON.stringify(wrapped), db.now(), node.id);
+    db.run(`UPDATE nodes SET output=$1, updated_at=$2 WHERE id=$3`, JSON.stringify(wrapped), db.now(), node.id);
   }
 
   // ── state derivation ────────────────────────────────────────────────────────
@@ -1208,7 +1208,7 @@ export class StepFlowManager {
     const childFlow = this.childFlowOf(childFlowId) ?? null;
     const workNodeKey = payload.workNodeKey ?? this.childWorkNodeKey(childFlowId);
     const nodes = db.all<{ node_key: string; type: string; status: string }>(
-      `SELECT node_key, type, status FROM nodes WHERE flow_id=? ORDER BY created_at`, childFlowId);
+      `SELECT node_key AS "nodeKey", type, status FROM nodes WHERE flow_id=$1 ORDER BY created_at`, childFlowId);
     const workNode = nodes.find((n) => n.node_key === workNodeKey) ?? nodes[0];
     const statuses = workNode ? [workNode.status] : nodes.map((n) => n.status);
     const childDef = workNode ? nodeRegistry.maybe(workNode.type) : undefined;
@@ -1252,7 +1252,7 @@ export class StepFlowManager {
   /** The latest step_merges row for a child (null = never merged/attempts). */
   private latestMergeRow(childFlowId: string): { status: string; attempts: number; error: string | null } | null {
     return db.get<{ status: string; attempts: number; error: string | null }>(
-      `SELECT status, attempts, error FROM step_merges WHERE flow_id=? ORDER BY created_at DESC, id DESC LIMIT 1`,
+      `SELECT status, attempts, error FROM step_merges WHERE flow_id=$1 ORDER BY created_at DESC, id DESC LIMIT 1`,
       childFlowId
     ) ?? null;
   }
@@ -1266,12 +1266,12 @@ export class StepFlowManager {
   }
 
   private childFlowOf(childFlowId: string): FlowRow | undefined {
-    return db.get<FlowRow>(`SELECT * FROM flows WHERE id=?`, childFlowId);
+    return db.get<FlowRow>(`SELECT id, task_id AS "taskId", name, status, mr_url AS "mrUrl", mr_iid AS "mrIid", mr_branch AS "mrBranch", repo_url AS "repoUrl", gitlab_project_id AS "gitlabProjectId", current_node AS "currentNode", execution_mode AS "executionMode", repo_id AS "repoId", template_id AS "templateId", template_graph AS "templateGraph", trigger_payload AS "triggerPayload", worktree_dir AS "worktreeDir", parent_flow_id AS "parentFlowId", kind, created_at AS "createdAt", updated_at AS "updatedAt" FROM flows WHERE id=$1`, childFlowId);
   }
 
   /** Close a child flow (standard terminal state; keeps rows for the audit trail). */
   private closeChild(childFlowId: string): void {
-    db.run(`UPDATE flows SET status='done', updated_at=? WHERE id=? AND status<>'done'`, db.now(), childFlowId);
+    db.run(`UPDATE flows SET status='done', updated_at=$1 WHERE id=$2 AND status<>'done'`, db.now(), childFlowId);
     // child worktree sweep on terminal (Phase 2C): the local-mode child's
     // per-step worktree is transient — removed now, not on the next startup
     // sweep. `deleteBranch:false`: the branch ref lives in the hub, so a later
@@ -1294,17 +1294,17 @@ export class StepFlowManager {
   }
 
   private childFlowStatus(childFlowId: string): string {
-    return db.get<{ status: string }>(`SELECT status FROM flows WHERE id=?`, childFlowId)?.status ?? "";
+    return db.get<{ status: string }>(`SELECT status FROM flows WHERE id=$1`, childFlowId)?.status ?? "";
   }
 
   private stepRowOf(childFlowId: string): PlanStepRow | undefined {
-    return db.get<PlanStepRow>(`SELECT * FROM plan_steps WHERE sub_flow_id=?`, childFlowId);
+    return db.get<PlanStepRow>(`SELECT id, flow_id AS "flowId", artifact_id AS "artifactId", meta_id AS "metaId", position, title, detail, files, branch, status, origin, completed_by AS "completedBy", sub_flow_id AS "subFlowId", created_at AS "createdAt", updated_at AS "updatedAt" FROM plan_steps WHERE sub_flow_id=$1`, childFlowId);
   }
 
   /** The child flow's persisted trigger payload (parsed; null when absent/unparseable). */
   childPayload(childFlowId: string): StepChildPayload | null {
     const raw = db.get<{ trigger_payload: string | null }>(
-      `SELECT trigger_payload FROM flows WHERE id=?`, childFlowId)?.trigger_payload ?? null;
+      `SELECT trigger_payload AS "triggerPayload" FROM flows WHERE id=$1`, childFlowId)?.trigger_payload ?? null;
     if (!raw) return null;
     try {
       const parsed = JSON.parse(raw) as StepChildPayload;
@@ -1317,7 +1317,7 @@ export class StepFlowManager {
   /** The child's merged node outputs (last write wins per key). */
   private childOutput(childFlowId: string): Record<string, unknown> | null {
     const outs = db.all<{ output: string | null }>(
-      `SELECT output FROM nodes WHERE flow_id=? AND output IS NOT NULL ORDER BY updated_at`, childFlowId);
+      `SELECT output FROM nodes WHERE flow_id=$1 AND output IS NOT NULL ORDER BY updated_at`, childFlowId);
     const merged: Record<string, unknown> = {};
     let any = false;
     for (const row of outs) {

@@ -22,7 +22,7 @@ export class CommentIngestor {
   findFlowByMR(projectId: number, mrIid: number, projectUrl?: string): FlowRow | undefined {
     const branchRow = rows.get(FlowRow,
       `SELECT f.* FROM branches b JOIN flows f ON f.id = b.flow_id
-       WHERE b.mr_iid=? AND f.gitlab_project_id=?`, mrIid, projectId
+       WHERE b.mr_iid=$1 AND f.gitlab_project_id=$2`, mrIid, projectId
     );
     if (branchRow) {
       if (projectUrl) {
@@ -37,7 +37,7 @@ export class CommentIngestor {
       }
     }
     const candidates = rows.all(FlowRow,
-      `SELECT * FROM flows WHERE gitlab_project_id=? AND mr_iid=?`, projectId, mrIid
+      `SELECT id, task_id AS "taskId", name, status, mr_url AS "mrUrl", mr_iid AS "mrIid", mr_branch AS "mrBranch", repo_url AS "repoUrl", gitlab_project_id AS "gitlabProjectId", current_node AS "currentNode", execution_mode AS "executionMode", repo_id AS "repoId", template_id AS "templateId", template_graph AS "templateGraph", trigger_payload AS "triggerPayload", worktree_dir AS "worktreeDir", parent_flow_id AS "parentFlowId", kind, created_at AS "createdAt", updated_at AS "updatedAt" FROM flows WHERE gitlab_project_id=$1 AND mr_iid=$2`, projectId, mrIid
     );
     if (candidates.length <= 1) return candidates[0];
     const h = projectUrl ? hostOf(projectUrl) : null;
@@ -71,7 +71,7 @@ export class CommentIngestor {
       const gateKey = templateStore.waitNodeKey(f.id, "pipeline");
       const gateStatus = gateKey
         ? db.get<{ status: string }>(
-            `SELECT status FROM nodes WHERE flow_id=? AND node_key=?`, f.id, gateKey
+            `SELECT status FROM nodes WHERE flow_id=$1 AND node_key=$2`, f.id, gateKey
           )?.status
         : undefined;
       if (gateStatus !== "running") {

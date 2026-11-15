@@ -56,7 +56,7 @@ export class Reconciler {
       if (!activeFlowIds.has(id)) this.lastReconcile.delete(id);
     }
     for (const id of [...this.flaggedOrphans]) {
-      const row = db.get<{ status: string }>(`SELECT status FROM flows WHERE id=?`, id);
+      const row = db.get<{ status: string }>(`SELECT status FROM flows WHERE id=$1`, id);
       if (!row || row.status !== "active") this.flaggedOrphans.delete(id);
     }
   }
@@ -69,7 +69,7 @@ export class Reconciler {
     if (nowMs - (this.lastReconcile.get(flowId) ?? 0) < Reconciler.THROTTLE_MS) return;
     this.lastReconcile.set(flowId, nowMs);
 
-    const flow = rows.get(FlowRow, `SELECT * FROM flows WHERE id=?`, flowId);
+    const flow = rows.get(FlowRow, `SELECT id, task_id AS "taskId", name, status, mr_url AS "mrUrl", mr_iid AS "mrIid", mr_branch AS "mrBranch", repo_url AS "repoUrl", gitlab_project_id AS "gitlabProjectId", current_node AS "currentNode", execution_mode AS "executionMode", repo_id AS "repoId", template_id AS "templateId", template_graph AS "templateGraph", trigger_payload AS "triggerPayload", worktree_dir AS "worktreeDir", parent_flow_id AS "parentFlowId", kind, created_at AS "createdAt", updated_at AS "updatedAt" FROM flows WHERE id=$1`, flowId);
     if (!flow || flow.status !== "active") return;
 
     await this.reconcileRunningNodes(flow);
@@ -77,9 +77,9 @@ export class Reconciler {
     // clear a stale current_node pointer
     if (flow.current_node) {
       const cur = rows.get(NodeRow,
-        `SELECT * FROM nodes WHERE flow_id=? AND node_key=?`, flowId, flow.current_node);
+        `SELECT id, flow_id AS "flowId", node_key AS "nodeKey", type, status, attempt_id AS "attemptId", agent_id AS "agentId", agent_ref AS "agentRef", session_id AS "sessionId", prompt_override AS "promptOverride", label, config, join_mode AS "joinMode", input, output, created_at AS "createdAt", updated_at AS "updatedAt" FROM nodes WHERE flow_id=$1 AND node_key=$2`, flowId, flow.current_node);
       if (!cur || cur.status !== "running") {
-        db.run(`UPDATE flows SET current_node=NULL, updated_at=? WHERE id=? AND current_node=?`,
+        db.run(`UPDATE flows SET current_node=NULL, updated_at=$1 WHERE id=$2 AND current_node=$3`,
           db.now(), flowId, flow.current_node);
       }
     }
@@ -94,7 +94,7 @@ export class Reconciler {
   private async reconcileRunningNodes(flow: FlowRow): Promise<void> {
     const nowMs = Date.now();
     const flowId = flow.id;
-    const running = rows.all(NodeRow, `SELECT * FROM nodes WHERE flow_id=? AND status='running'`, flowId);
+    const running = rows.all(NodeRow, `SELECT id, flow_id AS "flowId", node_key AS "nodeKey", type, status, attempt_id AS "attemptId", agent_id AS "agentId", agent_ref AS "agentRef", session_id AS "sessionId", prompt_override AS "promptOverride", label, config, join_mode AS "joinMode", input, output, created_at AS "createdAt", updated_at AS "updatedAt" FROM nodes WHERE flow_id=$1 AND status='running'`, flowId);
     // the node waiting on the pipeline event source (role lookup — the CI gate
     // runs a server-side wait loop; no hardcoded node key)
     const gateKey = templateStore.waitNodeKey(flowId, "pipeline");
@@ -119,7 +119,7 @@ export class Reconciler {
     if (nodeAttemptRegistry.isActive(node.id)) return;
 
     const runRow = rows.get(RunRow,
-      `SELECT * FROM runs WHERE node_id=? AND status='running' ORDER BY created_at DESC LIMIT 1`,
+      `SELECT id, flow_id AS "flowId", node_id AS "nodeId", agent_ref AS "agentRef", run_ref AS "runRef", branch_id AS "branchId", status, model, input_tokens AS "inputTokens", output_tokens AS "outputTokens", cache_read_tokens AS "cacheReadTokens", cache_write_tokens AS "cacheWriteTokens", duration_ms AS "durationMs", cost_cents AS "costCents", usage, created_at AS "createdAt", updated_at AS "updatedAt" FROM runs WHERE node_id=$1 AND status='running' ORDER BY created_at DESC LIMIT 1`,
       node.id
     );
     const ctx = flowEngine.ctx(flow.id);
@@ -148,7 +148,7 @@ export class Reconciler {
   private async reconcileStepFanout(flow: FlowRow): Promise<void> {
     const parentId = flow.parent_flow_id ?? flow.id;
     const stuck = db.all<{ id: string; flow_id: string; parent_flow_id: string; parent_node: string; status: string; updated_at: string | null }>(
-      `SELECT * FROM step_merges WHERE parent_flow_id=? AND status IN ('running','conflict','rejected')`, parentId
+      `SELECT id, flow_id AS "flowId", parent_flow_id AS "parentFlowId", parent_node AS "parentNode", branch, status, attempts, error, created_at AS "createdAt", updated_at AS "updatedAt" FROM step_merges WHERE parent_flow_id=$1 AND status IN ('running','conflict','rejected')`, parentId
     );
     for (const row of stuck) {
       try {
@@ -165,7 +165,7 @@ export class Reconciler {
     id: string; flow_id: string; parent_flow_id: string; parent_node: string; status: string; updated_at: string | null;
   }): Promise<void> {
     const failLoud = (reason: string): void => {
-      db.run(`UPDATE step_merges SET status='failed', error=?, updated_at=? WHERE id=? AND status IN ('running','conflict','rejected')`,
+      db.run(`UPDATE step_merges SET status='failed', error=$1, updated_at=$2 WHERE id=$3 AND status IN ('running','conflict','rejected')`,
         reason.slice(0, 2000), db.now(), row.id);
       db.emitEvent(row.parent_flow_id, null, "error",
         `step merge-back on "${row.parent_node}" was interrupted: ${reason}`,
@@ -177,15 +177,15 @@ export class Reconciler {
     const updatedMs = Date.parse(row.updated_at ?? "");
     if (Number.isFinite(updatedMs) && Date.now() - updatedMs < Reconciler.START_GRACE_MS) return;
 
-    const parent = db.get<{ id: string; status: string }>(`SELECT id, status FROM flows WHERE id=?`, row.parent_flow_id);
+    const parent = db.get<{ id: string; status: string }>(`SELECT id, status FROM flows WHERE id=$1`, row.parent_flow_id);
     const child = db.get<{ id: string; parent_flow_id: string; status: string }>(
-      `SELECT id, parent_flow_id, status FROM flows WHERE id=?`, row.flow_id);
+      `SELECT id, parent_flow_id AS "parentFlowId",, status FROM flows WHERE id=$1`, row.flow_id);
     if (!parent || !child || child.parent_flow_id !== row.parent_flow_id) {
       failLoud("the step child or its parent flow row is gone (orphaned merge-back)");
       return;
     }
     const step = db.get<{ id: string; title: string; status: string }>(
-      `SELECT id, title, status FROM plan_steps WHERE sub_flow_id=?`, row.flow_id);
+      `SELECT id, title, status FROM plan_steps WHERE sub_flow_id=$1`, row.flow_id);
     if (!step) {
       failLoud("the plan step ⇄ sub-flow linkage is gone (orphaned merge-back)");
       return;
@@ -200,7 +200,7 @@ export class Reconciler {
       return;
     }
     const childNode = db.get<{ status: string }>(
-      `SELECT status FROM nodes WHERE flow_id=? AND node_key=?`,
+      `SELECT status FROM nodes WHERE flow_id=$1 AND node_key=$2`,
       row.flow_id,
       stepFlows.childWorkNodeKey(row.flow_id),
     );
@@ -211,10 +211,10 @@ export class Reconciler {
     if (childNode.status === "running") {
       // a merge-fix agent run was mid-flight at the restart — the child's runs
       // are durable, so the STANDARD node reconcile decides recovered vs failed
-      const childFlow = rows.get(FlowRow, `SELECT * FROM flows WHERE id=?`, row.flow_id);
+      const childFlow = rows.get(FlowRow, `SELECT id, task_id AS "taskId", name, status, mr_url AS "mrUrl", mr_iid AS "mrIid", mr_branch AS "mrBranch", repo_url AS "repoUrl", gitlab_project_id AS "gitlabProjectId", current_node AS "currentNode", execution_mode AS "executionMode", repo_id AS "repoId", template_id AS "templateId", template_graph AS "templateGraph", trigger_payload AS "triggerPayload", worktree_dir AS "worktreeDir", parent_flow_id AS "parentFlowId", kind, created_at AS "createdAt", updated_at AS "updatedAt" FROM flows WHERE id=$1`, row.flow_id);
       if (childFlow) await this.reconcileRunningNodes(childFlow);
       const after = db.get<{ status: string }>(
-        `SELECT status FROM nodes WHERE flow_id=? AND node_key=?`,
+        `SELECT status FROM nodes WHERE flow_id=$1 AND node_key=$2`,
         row.flow_id,
         stepFlows.childWorkNodeKey(row.flow_id),
       )?.status;
@@ -232,10 +232,10 @@ export class Reconciler {
   /** Orphan step children: the linkage (or the whole parent node) is gone — flag once, leave inert. */
   private async reconcileOrphanChildren(parentFlowId: string): Promise<void> {
     const children = db.all<{ id: string; name: string; status: string }>(
-      `SELECT id, name, status FROM flows WHERE parent_flow_id=? AND kind='step'`, parentFlowId
+      `SELECT id, name, status FROM flows WHERE parent_flow_id=$1 AND kind='step'`, parentFlowId
     );
     for (const c of children) {
-      if (db.get(`SELECT 1 FROM plan_steps WHERE sub_flow_id=?`, c.id)) continue;
+      if (db.get(`SELECT 1 FROM plan_steps WHERE sub_flow_id=$1`, c.id)) continue;
       if (this.flaggedOrphans.has(c.id)) continue;
       this.flaggedOrphans.add(c.id);
       db.emitEvent(parentFlowId, null, "error",
@@ -254,7 +254,7 @@ export class Reconciler {
       `SELECT DISTINCT parent_flow_id p FROM step_merges WHERE status IN ('running','conflict','rejected')`
     );
     for (const { p } of parents) {
-      const flow = rows.get(FlowRow, `SELECT * FROM flows WHERE id=?`, p);
+      const flow = rows.get(FlowRow, `SELECT id, task_id AS "taskId", name, status, mr_url AS "mrUrl", mr_iid AS "mrIid", mr_branch AS "mrBranch", repo_url AS "repoUrl", gitlab_project_id AS "gitlabProjectId", current_node AS "currentNode", execution_mode AS "executionMode", repo_id AS "repoId", template_id AS "templateId", template_graph AS "templateGraph", trigger_payload AS "triggerPayload", worktree_dir AS "worktreeDir", parent_flow_id AS "parentFlowId", kind, created_at AS "createdAt", updated_at AS "updatedAt" FROM flows WHERE id=$1`, p);
       if (!flow || flow.status !== "active") continue;
       try {
         await this.reconcileStepFanout(flow);

@@ -9,19 +9,19 @@ import { processSingleton } from "../../singleton";
  * MR comment upserts for git-host ingestion (flow engine webhook paths).
  */
 export class CommentStore {
-  ingest(flowId: string, incoming: HostComment[], mrIid?: number): number {
+  async ingest(flowId: string, incoming: HostComment[], mrIid?: number): Promise<number> {
     let newOpen = 0;
     for (const c of incoming) {
       if (c.system) continue;
-      const existing = db.get<{ id: string; status: string; resolved_by: string | null }>(
-        `SELECT id,status,resolved_by FROM comments WHERE id=?`,
+      const existing = await db.get<{ id: string; status: string; resolvedBy: string | null }>(
+        `SELECT id, status, resolved_by AS "resolvedBy" FROM comments WHERE id=$1`,
         c.id,
       );
       const status = c.resolved ? COMMENT_STATUS.RESOLVED : COMMENT_STATUS.OPEN;
       if (!existing) {
-        db.run(
+        await db.run(
           `INSERT INTO comments (id,flow_id,mr_iid,discussion_id,author,body,file_path,line,status,raw,created_at,updated_at)
-           VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`,
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)`,
           c.id,
           flowId,
           mrIid ?? null,
@@ -39,12 +39,12 @@ export class CommentStore {
       } else if (existing.status !== status) {
         if (
           existing.status === COMMENT_STATUS.RESOLVED
-          && existing.resolved_by === "agent"
+          && existing.resolvedBy === "agent"
           && status === COMMENT_STATUS.OPEN
         ) {
           continue;
         }
-        db.run(`UPDATE comments SET status=?, updated_at=? WHERE id=?`, status, db.now(), c.id);
+        await db.run(`UPDATE comments SET status=$1, updated_at=$2 WHERE id=$3`, status, db.now(), c.id);
         if (status === COMMENT_STATUS.OPEN) newOpen++;
       }
     }

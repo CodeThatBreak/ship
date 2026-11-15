@@ -1,0 +1,595 @@
+// DevFlow persistence (decision Q1): Postgres + Prisma.
+// Ported from lib/db/schema.sql (22 tables). Naming (Q11): every model field is
+// camelCase with an explicit @map("snake_case") column; tables keep snake_case
+// via @@map. JSON columns are Json (JSONB); status vocabularies are real PG
+// enums; timestamps are timestamptz. Conventions enforced by
+// tests/architecture/prismaSchemaCasing.test.ts.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// ── enums ────────────────────────────────────────────────────────────────────
+
+enum FlowStatus {
+  ACTIVE   @map("active")
+  DONE     @map("done")
+  FAILED   @map("failed")
+  SKIPPED  @map("skipped")
+
+  @@map("flow_status")
+}
+
+enum FlowKind {
+  SDLC   @map("sdlc")
+  STEP   @map("step")
+  SPLIT  @map("split")
+
+  @@map("flow_kind")
+}
+
+enum NodeStatus {
+  PENDING            @map("pending")
+  WAITING            @map("waiting")
+  RUNNING            @map("running")
+  AWAITING_APPROVAL  @map("awaiting_approval")
+  APPROVED           @map("approved")
+  DONE               @map("done")
+  FAILED             @map("failed")
+  SKIPPED            @map("skipped")
+
+  @@map("node_status")
+}
+
+enum ArtifactStatus {
+  DRAFT       @map("draft")
+  APPROVED    @map("approved")
+  SUPERSEDED  @map("superseded")
+
+  @@map("artifact_status")
+}
+
+enum CommentStatus {
+  OPEN       @map("open")
+  RESOLVING  @map("resolving")
+  RESOLVED   @map("resolved")
+  WONTFIX    @map("wontfix")
+
+  @@map("comment_status")
+}
+
+enum PlanStepStatus {
+  PENDING  @map("pending")
+  DONE     @map("done")
+
+  @@map("plan_step_status")
+}
+
+enum BranchStatus {
+  PENDING            @map("pending")
+  BUILDING           @map("building")
+  AWAITING_APPROVAL  @map("awaiting_approval")
+  APPROVED           @map("approved")
+  FAILED             @map("failed")
+  DONE               @map("done")
+
+  @@map("branch_status")
+}
+
+enum RunStatus {
+  RUNNING    @map("running")
+  FINISHED   @map("finished")
+  ERROR      @map("error")
+  CANCELLED  @map("cancelled")
+
+  @@map("run_status")
+}
+
+enum StepMergeStatus {
+  RUNNING   @map("running")
+  CONFLICT  @map("conflict")
+  REJECTED  @map("rejected")
+  MERGED    @map("merged")
+  FAILED    @map("failed")
+
+  @@map("step_merge_status")
+}
+
+enum MessageRole {
+  USER       @map("user")
+  ASSISTANT  @map("assistant")
+
+  @@map("message_role")
+}
+
+enum NodeTemplateKind {
+  BUILTIN   @map("builtin")
+  AGENT     @map("agent")
+  HTTP      @map("http")
+  SCRIPT    @map("script")
+  DECISION  @map("decision")
+
+  @@map("node_template_kind")
+}
+
+enum EdgeKind {
+  NEXT  @map("next")
+  LOOP  @map("loop")
+
+  @@map("edge_kind")
+}
+
+// ── tasks ────────────────────────────────────────────────────────────────────
+
+model Task {
+  id          String   @id
+  type        String // task type discriminator (provider kind)
+  fields      Json     @default("{}")
+  key         String   @unique
+  summary     String
+  description String?
+  status      String?
+  issueType   String?  @map("issue_type")
+  priority    String?
+  repoUrl     String?  @map("repo_url")
+  parentKey   String?  @map("parent_key")
+  externalUrl String?  @map("external_url")
+  raw         String?
+  syncedAt    DateTime? @map("synced_at") @db.Timestamptz
+
+  flows       Flow[]
+
+  @@map("tasks")
+}
+
+// ── flows ────────────────────────────────────────────────────────────────────
+
+model Flow {
+  id              String    @id
+  taskId          String    @map("task_id")
+  name            String
+  status          FlowStatus @default(ACTIVE)
+  mrUrl           String?   @map("mr_url")
+  mrIid           Int?      @map("mr_iid")
+  mrBranch        String?   @map("mr_branch")
+  repoUrl         String?   @map("repo_url")
+  gitlabProjectId Int?      @map("gitlab_project_id")
+  currentNode     String?   @map("current_node")
+  executionMode   String    @default("cloud") @map("execution_mode")
+  repoId          String?   @map("repo_id")
+  templateId      String?   @map("template_id")
+  templateGraph   Json?
+  triggerPayload  Json?     @map("trigger_payload")
+  worktreeDir     String?   @map("worktree_dir")
+  parentFlowId    String?   @map("parent_flow_id")
+  kind            FlowKind  @default(SDLC)
+  createdAt       DateTime  @map("created_at") @db.Timestamptz
+  updatedAt       DateTime  @map("updated_at") @db.Timestamptz
+
+  task            Task       @relation(fields: [taskId], references: [id])
+  repo            Repo?      @relation(fields: [repoId], references: [id])
+  template        FlowTemplate? @relation(fields: [templateId], references: [id])
+  parentFlow      Flow?      @relation("StepFlows", fields: [parentFlowId], references: [id])
+  childFlows      Flow[]     @relation("StepFlows")
+  nodes           Node[]
+  artifacts       Artifact[]
+  comments        Comment[]
+  messages        Message[]
+  events          Event[]
+  planSteps       PlanStep[]
+  branches        Branch[]
+  runs            Run[]
+  hooks           Hook[]
+  parentMerges    StepMerge[] @relation("ParentMerges")
+  childMerges     StepMerge[] @relation("ChildMerges")
+  planStepSubFlows PlanStep[] @relation("SubFlowSteps")
+
+  @@index([parentFlowId], map: "idx_flows_parent")
+  @@index([gitlabProjectId], map: "idx_flows_gitlab_project")
+  @@index([status], map: "idx_flows_status")
+  @@index([templateId], map: "idx_flows_template")
+  @@index([repoId], map: "idx_flows_repo")
+  @@map("flows")
+}
+
+// ── nodes ────────────────────────────────────────────────────────────────────
+
+model Node {
+  id             String     @id
+  flowId         String     @map("flow_id")
+  nodeKey        String     @map("node_key")
+  type           String // node template key (def key for built-ins)
+  status         NodeStatus @default(PENDING)
+  attemptId      String?    @map("attempt_id")
+  agentId        String?    @map("agent_id")
+  agentRef       String?    @map("agent_ref")
+  sessionId      String?    @map("session_id")
+  promptOverride String?    @map("prompt_override")
+  label          String?
+  config         Json?
+  joinMode       String?    @map("join_mode")
+  input          Json?
+  output         Json?
+  createdAt      DateTime   @map("created_at") @db.Timestamptz
+  updatedAt      DateTime   @map("updated_at") @db.Timestamptz
+
+  flow           Flow       @relation(fields: [flowId], references: [id])
+  artifacts      Artifact[]
+  runs           Run[]
+
+  @@unique([flowId, nodeKey])
+  @@map("nodes")
+}
+
+// ── artifacts ────────────────────────────────────────────────────────────────
+
+model Artifact {
+  id        String         @id
+  nodeId    String         @map("node_id")
+  flowId    String         @map("flow_id")
+  kind      String // plan | diff | review | fix | resolve
+  version   Int
+  content   String
+  meta      Json?
+  status    ArtifactStatus @default(DRAFT)
+  feedback  String?
+  createdAt DateTime       @map("created_at") @db.Timestamptz
+
+  node      Node           @relation(fields: [nodeId], references: [id])
+  flow      Flow           @relation(fields: [flowId], references: [id])
+  planSteps PlanStep[]
+
+  @@index([nodeId, kind, version], map: "idx_artifacts_node")
+  @@map("artifacts")
+}
+
+// ── comments ─────────────────────────────────────────────────────────────────
+
+model Comment {
+  id           String        @id
+  flowId       String        @map("flow_id")
+  mrIid        Int?          @map("mr_iid")
+  discussionId String?       @map("discussion_id")
+  author       String?
+  body         String?
+  filePath     String?       @map("file_path")
+  line         Int?
+  status       CommentStatus @default(OPEN)
+  resolvedBy   String?       @map("resolved_by")
+  raw          String?
+  createdAt    DateTime      @map("created_at") @db.Timestamptz
+  updatedAt    DateTime      @map("updated_at") @db.Timestamptz
+
+  flow         Flow          @relation(fields: [flowId], references: [id])
+
+  @@unique([discussionId, id])
+  @@index([flowId, status], map: "idx_comments_flow")
+  @@map("comments")
+}
+
+// ── messages ─────────────────────────────────────────────────────────────────
+
+model Message {
+  id        String      @id
+  flowId    String      @map("flow_id")
+  nodeKey   String?     @map("node_key")
+  thread    String?
+  role      MessageRole
+  content   String
+  createdAt DateTime    @map("created_at") @db.Timestamptz
+
+  flow      Flow        @relation(fields: [flowId], references: [id])
+
+  @@index([flowId, createdAt], map: "idx_messages_flow")
+  @@map("messages")
+}
+
+// ── events ───────────────────────────────────────────────────────────────────
+
+model Event {
+  id        String   @id
+  flowId    String   @map("flow_id")
+  nodeId    String?  @map("node_id")
+  type      String // status | log | assistant | tool | error | lifecycle
+  message   String?
+  data      Json?
+  createdAt DateTime @map("created_at") @db.Timestamptz
+
+  flow      Flow     @relation(fields: [flowId], references: [id])
+
+  @@index([flowId, createdAt], map: "idx_events_flow")
+  @@map("events")
+}
+
+// ── plan_steps ───────────────────────────────────────────────────────────────
+
+model PlanStep {
+  id          String        @id
+  flowId      String        @map("flow_id")
+  artifactId  String?       @map("artifact_id")
+  metaId      String?       @map("meta_id")
+  position    Int           @default(0)
+  title       String
+  detail      String?
+  files       Json?
+  branch      String?
+  status      PlanStepStatus @default(PENDING)
+  origin      String        @default("agent")
+  completedBy String?       @map("completed_by")
+  subFlowId   String?       @map("sub_flow_id")
+  createdAt   DateTime      @map("created_at") @db.Timestamptz
+  updatedAt   DateTime      @map("updated_at") @db.Timestamptz
+
+  flow        Flow          @relation(fields: [flowId], references: [id])
+  artifact    Artifact?     @relation(fields: [artifactId], references: [id])
+  subFlow     Flow?         @relation("SubFlowSteps", fields: [subFlowId], references: [id])
+
+  @@index([flowId, position], map: "idx_plan_steps_flow")
+  @@index([subFlowId], map: "idx_plan_steps_sub_flow")
+  @@map("plan_steps")
+}
+
+// ── branches ─────────────────────────────────────────────────────────────────
+
+model Branch {
+  id        String       @id
+  flowId    String       @map("flow_id")
+  name      String
+  gitBranch String?      @map("git_branch")
+  title     String?
+  status    BranchStatus @default(PENDING)
+  mrUrl     String?      @map("mr_url")
+  mrIid     Int?         @map("mr_iid")
+  order     Int          @default(0)
+  createdAt DateTime     @map("created_at") @db.Timestamptz
+  updatedAt DateTime     @map("updated_at") @db.Timestamptz
+
+  flow      Flow         @relation(fields: [flowId], references: [id])
+  runs      Run[]
+
+  @@unique([flowId, name])
+  @@index([flowId, status], map: "idx_branches_flow")
+  @@index([mrIid], map: "idx_branches_mr")
+  @@map("branches")
+}
+
+// ── runs ─────────────────────────────────────────────────────────────────────
+
+model Run {
+  id              String    @id
+  flowId          String    @map("flow_id")
+  nodeId          String    @map("node_id")
+  agentRef        String    @map("agent_ref")
+  runRef          String    @map("run_ref")
+  branchId        String?   @map("branch_id")
+  status          RunStatus @default(RUNNING)
+  model           String?
+  inputTokens     Int?      @map("input_tokens")
+  outputTokens    Int?      @map("output_tokens")
+  cacheReadTokens Int?      @map("cache_read_tokens")
+  cacheWriteTokens Int?     @map("cache_write_tokens")
+  durationMs      Int?      @map("duration_ms")
+  costCents       Int?      @map("cost_cents")
+  usage           Json?
+  createdAt       DateTime  @map("created_at") @db.Timestamptz
+  updatedAt       DateTime  @map("updated_at") @db.Timestamptz
+
+  flow            Flow      @relation(fields: [flowId], references: [id])
+  node            Node      @relation(fields: [nodeId], references: [id])
+  branch          Branch?   @relation(fields: [branchId], references: [id])
+
+  @@index([nodeId], map: "idx_runs_node")
+  @@index([flowId], map: "idx_runs_flow")
+  @@index([runRef], map: "idx_runs_run_ref")
+  @@index([status], map: "idx_runs_status")
+  @@map("runs")
+}
+
+// ── repos ────────────────────────────────────────────────────────────────────
+
+model Repo {
+  id                String   @id
+  name              String
+  cloudUrl          String   @unique @map("cloud_url")
+  localPath         String?  @map("local_path")
+  defaultBranch     String   @default("main") @map("default_branch")
+  useWorktrees      Boolean  @default(true) @map("use_worktrees")
+  installCommand    String?  @map("install_command")
+  skipInstall       Boolean  @default(false) @map("skip_install")
+  syncPaths         String?  @map("sync_paths")
+  sharedDirs        String?  @map("shared_dirs")
+  setupCommand      String?  @map("setup_command")
+  worktreeTimeoutMs Int?     @map("worktree_timeout_ms")
+  createdAt         DateTime @map("created_at") @db.Timestamptz
+  updatedAt         DateTime @map("updated_at") @db.Timestamptz
+
+  flows             Flow[]
+
+  @@map("repos")
+}
+
+// ── integration instances ────────────────────────────────────────────────────
+
+model GitlabInstance {
+  id        String   @id
+  name      String?
+  baseUrl   String   @unique @map("base_url")
+  token     String
+  createdAt DateTime @map("created_at") @db.Timestamptz
+
+  @@map("gitlab_instances")
+}
+
+model JiraInstance {
+  id        String   @id
+  name      String?
+  baseUrl   String   @unique @map("base_url")
+  email     String
+  token     String
+  createdAt DateTime @map("created_at") @db.Timestamptz
+
+  @@map("jira_instances")
+}
+
+// ── settings ─────────────────────────────────────────────────────────────────
+
+model Setting {
+  key   String @id
+  value String
+
+  @@map("settings")
+}
+
+// ── template layer ───────────────────────────────────────────────────────────
+
+model NodeTemplate {
+  id          String           @id
+  key         String
+  name        String
+  kind        NodeTemplateKind
+  version     Int              @default(1)
+  description String?
+  icon        String?
+  config      Json             @default("{}")
+  isBuiltin   Boolean          @default(false) @map("is_builtin")
+  templateId  String?          @map("template_id")
+  createdAt   DateTime         @map("created_at") @db.Timestamptz
+  updatedAt   DateTime         @map("updated_at") @db.Timestamptz
+
+  template    FlowTemplate?    @relation(fields: [templateId], references: [id])
+  nodes       FlowTemplateNode[]
+
+  @@unique([key, version])
+  @@map("node_templates")
+}
+
+model FlowTemplate {
+  id             String   @id
+  name           String
+  description    String?
+  version        Int      @default(1)
+  isBuiltin      Boolean  @default(false) @map("is_builtin")
+  trigger        Json     @default("{\"type\":\"manual\"}")
+  scheduleNextAt DateTime? @map("schedule_next_at") @db.Timestamptz
+  hidden         Boolean  @default(false)
+  createdAt      DateTime @map("created_at") @db.Timestamptz
+  updatedAt      DateTime @map("updated_at") @db.Timestamptz
+
+  nodes          FlowTemplateNode[]
+  edges          FlowTemplateEdge[]
+  flows          Flow[]
+  nodeTemplates  NodeTemplate[]
+  hooks          Hook[]
+
+  @@map("flow_templates")
+}
+
+model FlowTemplateNode {
+  id             String   @id
+  templateId     String   @map("template_id")
+  nodeKey        String   @map("node_key")
+  nodeTemplateId String   @map("node_template_id")
+  label          String?
+  trigger        Json     @default("{\"type\":\"auto\"}")
+  joinMode       String   @default("all") @map("join_mode")
+  config         Json     @default("{}")
+  inputMap       Json     @default("{}") @map("input_map")
+  x              Float?
+  y              Float?
+  createdAt      DateTime @map("created_at") @db.Timestamptz
+  updatedAt      DateTime @map("updated_at") @db.Timestamptz
+
+  template       FlowTemplate @relation(fields: [templateId], references: [id])
+  nodeTemplate   NodeTemplate @relation(fields: [nodeTemplateId], references: [id])
+
+  @@unique([templateId, nodeKey])
+  @@map("flow_template_nodes")
+}
+
+model FlowTemplateEdge {
+  id         String   @id
+  templateId String   @map("template_id")
+  fromKey    String   @map("from_key")
+  toKey      String   @map("to_key")
+  kind       EdgeKind @default(NEXT)
+  label      String?
+  condition  String?
+  createdAt  DateTime @map("created_at") @db.Timestamptz
+  updatedAt  DateTime @map("updated_at") @db.Timestamptz
+
+  template   FlowTemplate @relation(fields: [templateId], references: [id])
+
+  @@unique([templateId, fromKey, toKey, label])
+  @@map("flow_template_edges")
+}
+
+// ── hooks (inbound webhook endpoints) ────────────────────────────────────────
+
+model Hook {
+  id         String   @id
+  templateId String?  @map("template_id")
+  flowId     String?  @map("flow_id")
+  nodeKey    String?  @map("node_key")
+  secret     String
+  filter     String?
+  createdAt  DateTime @map("created_at") @db.Timestamptz
+
+  template   FlowTemplate? @relation(fields: [templateId], references: [id])
+  flow       Flow?         @relation(fields: [flowId], references: [id])
+  deliveries HookDelivery[]
+
+  @@map("hooks")
+}
+
+model HookDelivery {
+  hookId    String   @map("hook_id")
+  webhookId String   @map("webhook_id")
+  createdAt DateTime @map("created_at") @db.Timestamptz
+
+  hook      Hook     @relation(fields: [hookId], references: [id])
+
+  @@unique([hookId, webhookId])
+  @@index([createdAt], map: "idx_hook_deliveries_created")
+  @@map("hook_deliveries")
+}
+
+// ── worktree_removals ────────────────────────────────────────────────────────
+
+model WorktreeRemoval {
+  id           String   @id
+  flowId       String?  @map("flow_id")
+  repoPath     String?  @map("repo_path")
+  path         String
+  branch       String?
+  deleteBranch Boolean  @default(false) @map("delete_branch")
+  reason       String?
+  createdAt    DateTime @map("created_at") @db.Timestamptz
+
+  @@map("worktree_removals")
+}
+
+// ── step_merges (plan fan-out durable merge-back) ────────────────────────────
+
+model StepMerge {
+  id           String          @id
+  flowId       String          @map("flow_id")
+  parentFlowId String          @map("parent_flow_id")
+  parentNode   String          @map("parent_node")
+  branch       String?
+  status       StepMergeStatus @default(RUNNING)
+  attempts     Int             @default(0)
+  error        String?
+  createdAt    DateTime        @map("created_at") @db.Timestamptz
+  updatedAt    DateTime        @map("updated_at") @db.Timestamptz
+
+  flow         Flow            @relation("ChildMerges", fields: [flowId], references: [id])
+  parentFlow   Flow            @relation("ParentMerges", fields: [parentFlowId], references: [id])
+
+  @@index([parentFlowId, parentNode, status], map: "idx_step_merges_parent")
+  @@index([flowId], map: "idx_step_merges_flow")
+  @@map("step_merges")
+}

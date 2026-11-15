@@ -14,30 +14,31 @@ export class JiraInstanceStore {
     private readonly secrets: IntegrationSecretStore,
   ) {}
 
-  listMeta(): JiraInstanceMeta[] {
+  listMeta(): Promise<JiraInstanceMeta[]> {
     return this.rows.all(
       JiraInstanceRow.omit({ token: true }),
-      `SELECT id, name, base_url, email, created_at FROM jira_instances ORDER BY base_url`,
+      `SELECT id, name, base_url AS "baseUrl", email, created_at AS "createdAt" FROM jira_instances ORDER BY base_url`,
     );
   }
 
-  get(id: string): JiraInstance | undefined {
-    const meta = this.listMeta().find((row) => row.id === id);
+  async get(id: string): Promise<JiraInstance | undefined> {
+    const metas = await this.listMeta();
+    const meta = metas.find((row) => row.id === id);
     if (!meta) return undefined;
-    return { ...meta, token: this.secrets.readJiraToken(id) };
+    return { ...meta, token: await this.secrets.readJiraToken(id) };
   }
 
-  readToken(id: string): string {
+  readToken(id: string): Promise<string> {
     return this.secrets.readJiraToken(id);
   }
 
-  add(input: { name?: string | null; base_url: string; email: string; token: string }): JiraInstance {
-    const baseUrl = input.base_url.trim().replace(/\/+$/, "");
+  async add(input: { name?: string | null; baseUrl: string; email: string; token: string }): Promise<JiraInstance> {
+    const baseUrl = input.baseUrl.trim().replace(/\/+$/, "");
     const id = this.db.uid("jri_");
     const createdAt = this.db.now();
     const sealed = this.secrets.seal(input.token);
-    this.db.run(
-      `INSERT INTO jira_instances (id,name,base_url,email,token,created_at) VALUES (?,?,?,?,?,?)`,
+    await this.db.run(
+      `INSERT INTO jira_instances (id,name,base_url,email,token,created_at) VALUES ($1,$2,$3,$4,$5,$6)`,
       id,
       input.name ?? null,
       baseUrl,
@@ -48,30 +49,30 @@ export class JiraInstanceStore {
     return {
       id,
       name: input.name ?? null,
-      base_url: baseUrl,
+      baseUrl,
       email: input.email.trim(),
       token: input.token,
-      created_at: createdAt,
+      createdAt,
     };
   }
 
-  update(
+  async update(
     id: string,
-    input: { name?: string | null; base_url?: string; email?: string; token?: string },
+    input: { name?: string | null; baseUrl?: string; email?: string; token?: string },
     existing: JiraInstance,
-  ): void {
+  ): Promise<void> {
     const token = input.token || existing.token;
-    this.db.run(
-      `UPDATE jira_instances SET name=?, base_url=?, email=?, token=? WHERE id=?`,
+    await this.db.run(
+      `UPDATE jira_instances SET name=$1, base_url=$2, email=$3, token=$4 WHERE id=$5`,
       input.name ?? existing.name,
-      (input.base_url ?? existing.base_url).trim().replace(/\/+$/, ""),
+      (input.baseUrl ?? existing.baseUrl).trim().replace(/\/+$/, ""),
       (input.email ?? existing.email).trim(),
       this.secrets.seal(token),
       id,
     );
   }
 
-  delete(id: string): void {
-    this.db.run(`DELETE FROM jira_instances WHERE id=?`, id);
+  async delete(id: string): Promise<void> {
+    await this.db.run(`DELETE FROM jira_instances WHERE id=$1`, id);
   }
 }

@@ -49,7 +49,7 @@ export class WaitScheduler {
     }
     const resolveKey = templateStore.graphForFlow(flowId)?.nodes
       .find((n) => n.defKey === resolveDef.key)?.key
-      ?? rows.all(NodeRow, `SELECT * FROM nodes WHERE flow_id=?`, flowId)
+      ?? rows.all(NodeRow, `SELECT id, flow_id AS "flowId", node_key AS "nodeKey", type, status, attempt_id AS "attemptId", agent_id AS "agentId", agent_ref AS "agentRef", session_id AS "sessionId", prompt_override AS "promptOverride", label, config, join_mode AS "joinMode", input, output, created_at AS "createdAt", updated_at AS "updatedAt" FROM nodes WHERE flow_id=$1`, flowId)
         .find((n) => n.type === resolveDef.key)?.node_key
       ?? null;
     const cfg = mergeConfigLayers(
@@ -125,7 +125,7 @@ export class WaitScheduler {
       const spec = templateStore.graphForFlow(flowId)?.byKey.get(nodeKey);
       if (spec?.trigger.type === "debounced" && spec.trigger.wait_for === "comments") {
         const open = db.get<{ c: number }>(
-          `SELECT COUNT(*) c FROM comments WHERE flow_id=? AND status='open'`, flowId)?.c ?? 0;
+          `SELECT COUNT(*) c FROM comments WHERE flow_id=$1 AND status='open'`, flowId)?.c ?? 0;
         if (open === 0 || this.host.chainBusy(flowId)) {
           this.waitTimers.set(k, now + this.debounceMinutesForNode(flowId, nodeKey, spec) * 60_000);
           continue;
@@ -137,7 +137,7 @@ export class WaitScheduler {
   }
 
   resumeNodeFromWebhook(flowId: string, nodeKey: string, payload: unknown): void {
-    const node = rows.get(NodeRow, `SELECT * FROM nodes WHERE flow_id=? AND node_key=?`, flowId, nodeKey);
+    const node = rows.get(NodeRow, `SELECT id, flow_id AS "flowId", node_key AS "nodeKey", type, status, attempt_id AS "attemptId", agent_id AS "agentId", agent_ref AS "agentRef", session_id AS "sessionId", prompt_override AS "promptOverride", label, config, join_mode AS "joinMode", input, output, created_at AS "createdAt", updated_at AS "updatedAt" FROM nodes WHERE flow_id=$1 AND node_key=$2`, flowId, nodeKey);
     if (!node) throw new NotFoundError("node", nodeKey);
     const spec = templateStore.graphForFlow(flowId)?.byKey.get(nodeKey);
     if (spec?.trigger.wait_for !== "webhook") {

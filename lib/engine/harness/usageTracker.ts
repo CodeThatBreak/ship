@@ -104,10 +104,10 @@ export class UsageTracker {
     // value, so a duration-only touch (agent-runner after capture) can't wipe
     // the tokens/cost that were just persisted.
     db.run(
-      `UPDATE runs SET model=COALESCE(?,model), input_tokens=COALESCE(?,input_tokens), output_tokens=COALESCE(?,output_tokens),
-          cache_read_tokens=COALESCE(?,cache_read_tokens), cache_write_tokens=COALESCE(?,cache_write_tokens),
-          duration_ms=COALESCE(?,duration_ms), cost_cents=COALESCE(?,cost_cents), usage=COALESCE(?,usage),
-          updated_at=? WHERE id=?`,
+      `UPDATE runs SET model=COALESCE($1,model), input_tokens=COALESCE($2,input_tokens), output_tokens=COALESCE($3,output_tokens),
+          cache_read_tokens=COALESCE($4,cache_read_tokens), cache_write_tokens=COALESCE($5,cache_write_tokens),
+          duration_ms=COALESCE($6,duration_ms), cost_cents=COALESCE($7,cost_cents), usage=COALESCE($8,usage),
+          updated_at=$9 WHERE id=$10`,
       u.model ?? null, u.input ?? null, u.output ?? null, u.cacheRead ?? null,
       u.cacheWrite ?? null, u.durationMs ?? null, u.costCents != null ? Math.round(u.costCents) : null,
       u.raw ? JSON.stringify(u.raw) : null, db.now(), runRowId
@@ -202,8 +202,7 @@ export class UsageTracker {
       input_tokens: number | null; output_tokens: number | null;
       cache_read_tokens: number | null; cache_write_tokens: number | null;
     }>(
-      `SELECT id, model, usage, input_tokens, output_tokens, cache_read_tokens, cache_write_tokens
-       FROM runs
+      `SELECT id, model, usage, input_tokens AS "inputTokens",, output_tokens AS "outputTokens",, cache_read_tokens AS "cacheReadTokens",, cache_write_tokens AS "cacheWriteTokens" FROM runs
        WHERE (input_tokens IS NOT NULL OR output_tokens IS NOT NULL)
          AND (cost_cents IS NULL OR cost_cents = 0
               OR (usage IS NOT NULL AND usage LIKE '%"costSource":"estimate"%'))`);
@@ -239,7 +238,7 @@ function markEstimated(runRowId: string, cents: number, existingUsage: string | 
     try { base = JSON.parse(existingUsage) as object; } catch { /* unparseable older row — start from a fresh envelope */ }
   }
   const raw = JSON.stringify({ ...(base ?? {}), costSource: "estimate" });
-  db.run(`UPDATE runs SET cost_cents=?, usage=?, updated_at=? WHERE id=?`, cents, raw, db.now(), runRowId);
+  db.run(`UPDATE runs SET cost_cents=$1, usage=$2, updated_at=$3 WHERE id=$4`, cents, raw, db.now(), runRowId);
 }
 
 export const usageTracker = new UsageTracker();

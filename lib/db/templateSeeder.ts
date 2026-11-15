@@ -1,13 +1,19 @@
 import "server-only";
 
-import type SqliteDatabase from "better-sqlite3";
+import type { PrismaClient } from "@prisma/client";
+import { Prisma } from "@prisma/client";
 import { SDLC_TEMPLATE_ID, NODE_KEYS, STEP_BUILD_TEMPLATE_ID } from "../engine/constants/nodeKeys";
 
-/** Idempotent built-in node and flow template seed (migration user_version 1). */
+/**
+ * Idempotent built-in node and flow template seed (the sqlite-era migration
+ * user_version 1, now run explicitly — tests call it from
+ * `tests/helpers/testDatabase.ts`, the app from the composition root).
+ * Runs inside one Prisma transaction.
+ */
 export class TemplateSeeder {
-  seed(d: SqliteDatabase.Database): void {
+  async seed(tx: PrismaClient | Prisma.TransactionClient): Promise<void> {
+    const now = new Date();
 
-    const now = new Date().toISOString();
     const nt: [string, string, string, string, string][] = [
       // id, key, name, description, icon
       ["nt_start", "start", "Start", "The template's entry node — carries the branch trigger, then finishes immediately", "Play"],
@@ -18,28 +24,18 @@ export class TemplateSeeder {
       ["nt_review", "review", "Review", "AI review of the MR diff", "ScanSearch"],
       ["nt_resolve", "resolve", "Resolve", "Address open MR comments", "CheckCheck"],
     ];
-    const ntStmt = d.prepare(
-      `INSERT OR IGNORE INTO node_templates (id,key,name,kind,version,description,icon,config,is_builtin,created_at,updated_at)
-       VALUES (?,?,?,'builtin',1,?,?,'{}',1,?,?)`
-    );
     for (const [id, key, name, description, icon] of nt) {
-      ntStmt.run(id, key, name, description, icon, now, now);
+      await tx.$executeRaw`
+        INSERT INTO node_templates (id,key,name,kind,version,description,icon,config,is_builtin,created_at,updated_at)
+        VALUES (${id},${key},${name},'builtin',1,${description},${icon},'{}'::jsonb,true,${now},${now})
+        ON CONFLICT (id) DO NOTHING`;
     }
-    const hasSdlc = d.prepare(`SELECT 1 FROM flow_templates WHERE id=?`).get(SDLC_TEMPLATE_ID);
-    if (!hasSdlc) {
-      d.prepare(
-        `INSERT INTO flow_templates (id,name,description,version,is_builtin,trigger,created_at,updated_at)
-         VALUES (?,?,?,?,?,?,?,?)`
-      ).run(
-        SDLC_TEMPLATE_ID,
-        "SDLC loop",
-        "The built-in software development loop: plan → build → pipeline → review → resolve.",
-        1,
-        1,
-        '{"type":"manual"}',
-        now,
-        now,
-      );
+    const hasSdlc = await tx.$queryRaw<{ "?column?": number }[]>`
+      SELECT 1 FROM flow_templates WHERE id=${SDLC_TEMPLATE_ID}`;
+    if (hasSdlc.length === 0) {
+      await tx.$executeRaw`
+        INSERT INTO flow_templates (id,name,description,version,is_builtin,trigger,created_at,updated_at)
+        VALUES (${SDLC_TEMPLATE_ID},'SDLC loop',${"The built-in software development loop: plan → build → pipeline → review → resolve."},1,true,'{"type":"manual"}'::jsonb,${now},${now})`;
       // (key, trigger JSON) — minutes mirrors the resolve quiet-period default
       const nodes: [string, string][] = [
         [NODE_KEYS.PLAN, '{"type":"manual"}'],
@@ -51,15 +47,10 @@ export class TemplateSeeder {
       for (const [key, trigger] of nodes) {
         const id = `ftn_${key}`;
         const nodeTemplateId = `nt_${key}`;
-        d.prepare(
-          `INSERT INTO flow_template_nodes (id,template_id,node_key,node_template_id,label,trigger,join_mode,config,input_map,created_at,updated_at)
-           VALUES (?,?,?,?,NULL,?,'all','{}','{}',?,?)`
-        ).run(id, SDLC_TEMPLATE_ID, key, nodeTemplateId, trigger, now, now);
+        await tx.$executeRaw`
+          INSERT INTO flow_template_nodes (id,template_id,node_key,node_template_id,label,trigger,join_mode,config,input_map,created_at,updated_at)
+          VALUES (${id},${SDLC_TEMPLATE_ID},${key},${nodeTemplateId},NULL,${trigger}::jsonb,'all','{}'::jsonb,'{}'::jsonb,${now},${now})`;
       }
-      const eStmt = d.prepare(
-        `INSERT OR IGNORE INTO flow_template_edges (id,template_id,from_key,to_key,kind,label,condition,created_at,updated_at)
-         VALUES (?,?,?,?,?,?,?,?,?)`
-      );
       // (from, to, kind, condition) — the loop is template data now: resolve
       // re-enters the CI gate only when the resolve agent actually pushed code
       // (JSONata over the resolve output contract); a no-code fix ends the
@@ -71,74 +62,48 @@ export class TemplateSeeder {
         [NODE_KEYS.REVIEW, NODE_KEYS.RESOLVE, "next", null],
         [NODE_KEYS.RESOLVE, NODE_KEYS.PIPELINE, "loop", "nodes.resolve.output.pushed = true"],
       ];
-      edges.forEach(([from, to, kind, condition]) => {
-        eStmt.run(`fte_${from}_${to}`, SDLC_TEMPLATE_ID, from, to, kind, null, condition, now, now);
-      });
+      for (const [from, to, kind, condition] of edges) {
+        await tx.$executeRaw`
+          INSERT INTO flow_template_edges (id,template_id,from_key,to_key,kind,label,condition,created_at,updated_at)
+          VALUES (${`fte_${from}_${to}`},${SDLC_TEMPLATE_ID},${from},${to},${kind},NULL,${condition},${now},${now})
+          ON CONFLICT DO NOTHING`;
+      }
     } else {
       // migrate older seedings: the display-only `resolve → review` loop edge
       // becomes the real re-entry `resolve → pipeline` edge (conditioned on
       // the resolve output contract). Idempotent: deterministic edge ids, and
       // existing running flows keep their snapshotted graph semantics.
-      d.prepare(
-        `DELETE FROM flow_template_edges
-         WHERE template_id=? AND id='fte_resolve_review'
-           AND from_key=? AND kind='loop'`
-      ).run(SDLC_TEMPLATE_ID, NODE_KEYS.RESOLVE);
-      d.prepare(
-        `INSERT OR IGNORE INTO flow_template_edges (id,template_id,from_key,to_key,kind,label,condition,created_at,updated_at)
-         VALUES ('fte_resolve_pipeline',?,?,?,?,?,NULL,?,?)`
-      ).run(
-        SDLC_TEMPLATE_ID,
-        NODE_KEYS.RESOLVE,
-        NODE_KEYS.PIPELINE,
-        "loop",
-        "nodes.resolve.output.pushed = true",
-        now,
-        now,
-      );
+      await tx.$executeRaw`
+        DELETE FROM flow_template_edges
+        WHERE template_id=${SDLC_TEMPLATE_ID} AND id='fte_resolve_review'
+          AND from_key=${NODE_KEYS.RESOLVE} AND kind='loop'`;
+      await tx.$executeRaw`
+        INSERT INTO flow_template_edges (id,template_id,from_key,to_key,kind,label,condition,created_at,updated_at)
+        VALUES ('fte_resolve_pipeline',${SDLC_TEMPLATE_ID},${NODE_KEYS.RESOLVE},${NODE_KEYS.PIPELINE},'loop',NULL,${"nodes.resolve.output.pushed = true"},${now},${now})
+        ON CONFLICT DO NOTHING`;
     }
 
-    // ── Plan fan-out: the built-in step template (Phase 1A) ─────────────────
-    // The child template a fan-out `build` node defaults to (`child` unset):
-    // one node instance of the step_build builtin def with an approval trigger
-    // — the per-step gate. The StepFlowManager snapshots it per child flow and
-    // feeds the {plan, step, siblings} trigger payload. `hidden` keeps it out
-    // of the gallery (it is a child template; the fan-out knob references it
-    // by id, never the picker).
-    if (!d.prepare(`SELECT 1 FROM flow_templates WHERE id=?`).get(STEP_BUILD_TEMPLATE_ID)) {
-      d.prepare(
-        `INSERT INTO flow_templates (id,name,description,version,is_builtin,trigger,hidden,created_at,updated_at)
-         VALUES (?,?,?,?,?,?,?,?,?)`
-      ).run(
-        STEP_BUILD_TEMPLATE_ID,
-        "Step build",
-        "One plan step built by its own child flow — per-step branch, diff and approval gate (fan-out child of the build node).",
-        1,
-        1,
-        '{"type":"manual"}',
-        1,
-        now,
-        now,
-      );
-      d.prepare(
-        `INSERT INTO flow_template_nodes (id,template_id,node_key,node_template_id,label,trigger,join_mode,config,input_map,created_at,updated_at)
-         VALUES (?,?,?,?,NULL,'{"type":"approval"}','all','{}','{}',?,?)`
-      ).run(
-        "ftn_tpl_step_build_step_build",
-        STEP_BUILD_TEMPLATE_ID,
-        NODE_KEYS.STEP_BUILD,
-        "nt_step_build",
-        now,
-        now,
-      );
+    // ── Plan fan-out: the built-in step template ────────────────────────────
+    // The child template a fan-out `build` node defaults to (`child` unset).
+    // `hidden` keeps it out of the gallery (it is a child template; the fan-out
+    // knob references it by id, never the picker).
+    const hasStepBuild = await tx.$queryRaw<{ "?column?": number }[]>`
+      SELECT 1 FROM flow_templates WHERE id=${STEP_BUILD_TEMPLATE_ID}`;
+    if (hasStepBuild.length === 0) {
+      await tx.$executeRaw`
+        INSERT INTO flow_templates (id,name,description,version,is_builtin,trigger,hidden,created_at,updated_at)
+        VALUES (${STEP_BUILD_TEMPLATE_ID},'Step build',${"One plan step built by its own child flow — per-step branch, diff and approval gate (fan-out child of the build node)."},1,true,'{"type":"manual"}'::jsonb,true,${now},${now})`;
+      await tx.$executeRaw`
+        INSERT INTO flow_template_nodes (id,template_id,node_key,node_template_id,label,trigger,join_mode,config,input_map,created_at,updated_at)
+        VALUES ('ftn_tpl_step_build_step_build',${STEP_BUILD_TEMPLATE_ID},${NODE_KEYS.STEP_BUILD},'nt_step_build',NULL,'{"type":"approval"}'::jsonb,'all','{}'::jsonb,'{}'::jsonb,${now},${now})`;
     }
 
-    // ── Phase 5: starter templates ──────────────────────────────────────────
-    // Declarative catalog rows the starters reference (is_builtin=0 — the user
-    // may edit/duplicate them like any authored node), then three built-in
-    // flow templates exercosing agent / decision / http / script + input maps.
-    // Idempotent: deterministic ids + INSERT OR IGNORE; configs mirror the
-    // docs/flow-templates/*.yaml fixtures so export/import round-trips.
+    // ── Starter templates ───────────────────────────────────────────────────
+    // Declarative catalog rows the starters reference (is_builtin=false — the
+    // user may edit/duplicate them like any authored node), then three built-in
+    // flow templates exercising agent / decision / http / script + input maps.
+    // Idempotent: deterministic ids + ON CONFLICT DO NOTHING; configs mirror
+    // the docs/flow-templates/*.yaml fixtures so export/import round-trips.
     const starterNodes: [string, string, string, string, string, string, string][] = [
       // id, key, kind, name, icon, description, config JSON
       ["nt_st_summarize", "docs_summary", "agent", "Docs summarize", "agent",
@@ -220,12 +185,11 @@ export class TemplateSeeder {
           body: "{ \"text\": \"Triaged {{task.key}}: {{nodes.triage.output.summary}}\" }",
         })],
     ];
-    const starterNodeStmt = d.prepare(
-      `INSERT OR IGNORE INTO node_templates (id,key,name,kind,version,description,icon,config,is_builtin,created_at,updated_at)
-       VALUES (?,?,?,?,1,?,?,?,0,?,?)`
-    );
     for (const [id, key, kind, name, icon, description, config] of starterNodes) {
-      starterNodeStmt.run(id, key, name, kind, description, icon, config, now, now);
+      await tx.$executeRaw`
+        INSERT INTO node_templates (id,key,name,kind,version,description,icon,config,is_builtin,created_at,updated_at)
+        VALUES (${id},${key},${name},${kind},1,${description},${icon},${config}::jsonb,false,${now},${now})
+        ON CONFLICT (id) DO NOTHING`;
     }
 
     const starterTemplates: {
@@ -279,25 +243,26 @@ export class TemplateSeeder {
       },
     ];
     for (const st of starterTemplates) {
-      const exists = d.prepare(`SELECT 1 FROM flow_templates WHERE id=?`).get(st.id);
-      if (exists) continue;
-      d.prepare(
-        `INSERT INTO flow_templates (id,name,description,version,is_builtin,trigger,created_at,updated_at)
-         VALUES (?,?,?,1,1,?,?,?)`
-      ).run(st.id, st.name, st.description, st.trigger, now, now);
+      const exists = await tx.$queryRaw<{ "?column?": number }[]>`
+        SELECT 1 FROM flow_templates WHERE id=${st.id}`;
+      if (exists.length > 0) continue;
+      await tx.$executeRaw`
+        INSERT INTO flow_templates (id,name,description,version,is_builtin,trigger,created_at,updated_at)
+        VALUES (${st.id},${st.name},${st.description},1,true,${st.trigger}::jsonb,${now},${now})`;
       for (const [key, nodeTemplateId, trigger, config, inputMap] of st.nodes) {
-        d.prepare(
-          `INSERT INTO flow_template_nodes (id,template_id,node_key,node_template_id,label,trigger,join_mode,config,input_map,x,y,created_at,updated_at)
-           VALUES (?,?,?,?,NULL,?,'all',?,?,NULL,NULL,?,?)`
-        ).run(`ftn_${st.id.slice(4)}_${key}`, st.id, key, nodeTemplateId, trigger, config ?? "{}", inputMap ?? "{}", now, now);
+        await tx.$executeRaw`
+          INSERT INTO flow_template_nodes (id,template_id,node_key,node_template_id,label,trigger,join_mode,config,input_map,x,y,created_at,updated_at)
+          VALUES (${`ftn_${st.id.slice(4)}_${key}`},${st.id},${key},${nodeTemplateId},NULL,${trigger}::jsonb,'all',${config ?? "{}"}::jsonb,${inputMap ?? "{}"}::jsonb,NULL,NULL,${now},${now})`;
       }
       for (const [from, to, kind, label] of st.edges) {
-        d.prepare(
-          `INSERT OR IGNORE INTO flow_template_edges (id,template_id,from_key,to_key,kind,label,condition,created_at,updated_at)
-           VALUES (?,?,?,?,?,?,NULL,?,?)`
-        ).run(`fte_${st.id.slice(4)}_${from}_${to}${label ? `_${label}` : ""}`, st.id, from, to, kind, label, now, now);
+        await tx.$executeRaw`
+          INSERT INTO flow_template_edges (id,template_id,from_key,to_key,kind,label,condition,created_at,updated_at)
+          VALUES (${`fte_${st.id.slice(4)}_${from}_${to}${label ? `_${label}` : ""}`},${st.id},${from},${to},${kind},${label},NULL,${now},${now})
+          ON CONFLICT DO NOTHING`;
       }
     }
   }
 }
 
+/** Type-only re-export so callers can type the executor without importing Prisma. */
+export type TemplateSeedExecutor = PrismaClient | Prisma.TransactionClient;

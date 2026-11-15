@@ -14,50 +14,51 @@ export class GitLabInstanceStore {
     private readonly secrets: IntegrationSecretStore,
   ) {}
 
-  listMeta(): GitLabInstanceMeta[] {
+  listMeta(): Promise<GitLabInstanceMeta[]> {
     return this.rows.all(
       GitLabInstanceRow.omit({ token: true }),
-      `SELECT id, name, base_url, created_at FROM gitlab_instances ORDER BY base_url`,
+      `SELECT id, name, base_url AS "baseUrl", created_at AS "createdAt" FROM gitlab_instances ORDER BY base_url`,
     );
   }
 
-  get(id: string): GitLabInstance | undefined {
-    const meta = this.listMeta().find((row) => row.id === id);
+  async get(id: string): Promise<GitLabInstance | undefined> {
+    const metas = await this.listMeta();
+    const meta = metas.find((row) => row.id === id);
     if (!meta) return undefined;
-    return { ...meta, token: this.secrets.readGitLabToken(id) };
+    return { ...meta, token: await this.secrets.readGitLabToken(id) };
   }
 
-  readToken(id: string): string {
+  readToken(id: string): Promise<string> {
     return this.secrets.readGitLabToken(id);
   }
 
-  add(input: { name?: string | null; base_url: string; token: string }): GitLabInstance {
-    const baseUrl = input.base_url.trim().replace(/\/+$/, "");
+  async add(input: { name?: string | null; baseUrl: string; token: string }): Promise<GitLabInstance> {
+    const baseUrl = input.baseUrl.trim().replace(/\/+$/, "");
     const id = this.db.uid("gli_");
     const createdAt = this.db.now();
     const sealed = this.secrets.seal(input.token);
-    this.db.run(
-      `INSERT INTO gitlab_instances (id,name,base_url,token,created_at) VALUES (?,?,?,?,?)`,
+    await this.db.run(
+      `INSERT INTO gitlab_instances (id,name,base_url,token,created_at) VALUES ($1,$2,$3,$4,$5)`,
       id,
       input.name ?? null,
       baseUrl,
       sealed,
       createdAt,
     );
-    return { id, name: input.name ?? null, base_url: baseUrl, token: input.token, created_at: createdAt };
+    return { id, name: input.name ?? null, baseUrl, token: input.token, createdAt };
   }
 
-  update(id: string, input: { name?: string | null; base_url: string; token: string }): void {
-    this.db.run(
-      `UPDATE gitlab_instances SET name=?, base_url=?, token=? WHERE id=?`,
+  async update(id: string, input: { name?: string | null; baseUrl: string; token: string }): Promise<void> {
+    await this.db.run(
+      `UPDATE gitlab_instances SET name=$1, base_url=$2, token=$3 WHERE id=$4`,
       input.name ?? null,
-      input.base_url.trim().replace(/\/+$/, ""),
+      input.baseUrl.trim().replace(/\/+$/, ""),
       this.secrets.seal(input.token),
       id,
     );
   }
 
-  delete(id: string): void {
-    this.db.run(`DELETE FROM gitlab_instances WHERE id=?`, id);
+  async delete(id: string): Promise<void> {
+    await this.db.run(`DELETE FROM gitlab_instances WHERE id=$1`, id);
   }
 }

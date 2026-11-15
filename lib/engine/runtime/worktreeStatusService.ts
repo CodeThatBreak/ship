@@ -48,7 +48,7 @@ export type WorktreeStatusEntry = {
 export class WorktreeStatusService {
   async statusesForActiveFlows(): Promise<Record<string, WorktreeStatusEntry>> {
     const flowRows = db.all<FlowWorktreeRow>(
-      `SELECT id, worktree_dir, mr_branch, repo_id FROM flows WHERE worktree_dir IS NOT NULL`,
+      `SELECT id, worktree_dir AS "worktreeDir",, mr_branch AS "mrBranch",, repo_id AS "repoId" FROM flows WHERE worktree_dir IS NOT NULL`,
     );
     const byRepo = new Map<string, FlowWorktreeRow[]>();
     const noRepo: FlowWorktreeRow[] = [];

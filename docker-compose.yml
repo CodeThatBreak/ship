@@ -1,0 +1,25 @@
+# DevFlow persistence (Q1): Postgres 16 for dev + test.
+# Start: npm run db:up (docker compose up -d postgres)
+# Two databases on one server: `devflow` (app/demo) and `devflow_test` (vitest).
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: devflow-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: devflow
+      POSTGRES_PASSWORD: devflow
+      POSTGRES_DB: devflow
+    ports:
+      - "5432:5432"
+    volumes:
+      - devflow-pgdata:/var/lib/postgresql/data
+      - ./scripts/db/init-test-db.sql:/docker-entrypoint-initdb.d/init-test-db.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U devflow -d devflow"]
+      interval: 2s
+      timeout: 5s
+      retries: 20
+
+volumes:
+  devflow-pgdata:

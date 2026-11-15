@@ -42,7 +42,7 @@ export interface FlowContextMap extends Record<string, unknown> {
 export function buildFlowContext(ctx: FlowCtx): FlowContextMap {
   const nodes: Record<string, { output: unknown }> = {};
   const rowsOut = db.all<{ node_key: string; output: unknown }>(
-    `SELECT node_key, output FROM nodes WHERE flow_id=?`, ctx.flow.id
+    `SELECT node_key AS "nodeKey", output FROM nodes WHERE flow_id=$1`, ctx.flow.id
   );
   for (const r of rowsOut) {
     // db.all is the raw row — the output column is a JSON TEXT blob

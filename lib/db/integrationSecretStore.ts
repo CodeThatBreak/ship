@@ -27,32 +27,32 @@ export class IntegrationSecretStore {
     return this.cipher.isSealed(value);
   }
 
-  readGitLabToken(id: string): string {
-    const row = this.database.get<{ token: string }>(
-      `SELECT token FROM gitlab_instances WHERE id=?`,
+  async readGitLabToken(id: string): Promise<string> {
+    const row = await this.database.get<{ token: string }>(
+      `SELECT token FROM gitlab_instances WHERE id=$1`,
       id,
     );
     if (!row?.token) return "";
     return this.open(row.token);
   }
 
-  readJiraToken(id: string): string {
-    const row = this.database.get<{ token: string }>(
-      `SELECT token FROM jira_instances WHERE id=?`,
+  async readJiraToken(id: string): Promise<string> {
+    const row = await this.database.get<{ token: string }>(
+      `SELECT token FROM jira_instances WHERE id=$1`,
       id,
     );
     if (!row?.token) return "";
     return this.open(row.token);
   }
 
-  readCursorApiKey(): string {
-    const stored = this.database.getSetting(SETTINGS_KEYS.CURSOR_API_KEY, settingString, "");
+  async readCursorApiKey(): Promise<string> {
+    const stored = await this.database.getSetting(SETTINGS_KEYS.CURSOR_API_KEY, settingString, "");
     return this.open(stored).trim();
   }
 
-  writeCursorApiKey(key: string): void {
+  async writeCursorApiKey(key: string): Promise<void> {
     const trimmed = key.trim();
-    this.database.setSetting(
+    await this.database.setSetting(
       SETTINGS_KEYS.CURSOR_API_KEY,
       trimmed ? this.seal(trimmed) : "",
     );

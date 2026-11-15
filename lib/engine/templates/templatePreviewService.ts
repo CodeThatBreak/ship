@@ -30,7 +30,7 @@ const sampleValue = (type: unknown): unknown => {
 export class TemplatePreviewService {
   private sampleContext(templateId: string): FlowContextMap {
     const tpl = db.get<{ trigger: string | null }>(
-      `SELECT trigger FROM flow_templates WHERE id=?`,
+      `SELECT trigger FROM flow_templates WHERE id=$1`,
       templateId,
     );
     const trigger = (() => {
@@ -60,12 +60,12 @@ export class TemplatePreviewService {
 
     const nodes: Record<string, { output: unknown }> = {};
     const nodeRows = db.all<{ node_key: string; node_template_id: string; config: string | null }>(
-      `SELECT node_key, node_template_id, config FROM flow_template_nodes WHERE template_id=?`,
+      `SELECT node_key AS "nodeKey", node_template_id AS "nodeTemplateId",, config FROM flow_template_nodes WHERE template_id=$1`,
       templateId,
     );
     for (const r of nodeRows) {
       const nt = db.get<{ kind: string; config: string | null }>(
-        `SELECT kind, config FROM node_templates WHERE id=?`,
+        `SELECT kind, config FROM node_templates WHERE id=$1`,
         r.node_template_id,
       );
       if (!nt) continue;
@@ -114,7 +114,7 @@ export class TemplatePreviewService {
     const row = db.get<{ config: string | null }>(
       `SELECT n.config FROM flow_template_nodes n
      JOIN node_templates t ON t.id = n.node_template_id
-     WHERE n.template_id=? AND t.key=?`,
+     WHERE n.template_id=$1 AND t.key=$2`,
       templateId,
       entryKey,
     );
@@ -150,7 +150,7 @@ export class TemplatePreviewService {
     let source: "run" | "sample" = "sample";
     if (scope === "context") {
       const flow = db.get<{ id: string }>(
-        `SELECT id FROM flows WHERE template_id=? ORDER BY updated_at DESC LIMIT 1`,
+        `SELECT id FROM flows WHERE template_id=$1 ORDER BY updated_at DESC LIMIT 1`,
         templateId,
       );
       if (flow) {

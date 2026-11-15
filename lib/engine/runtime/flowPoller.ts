@@ -90,14 +90,14 @@ export class FlowPoller {
     );
     const flows = rows.all(
       FlowRow,
-      `SELECT * FROM flows WHERE status='active' AND (mr_iid IS NOT NULL OR id IN (SELECT DISTINCT flow_id FROM branches WHERE mr_iid IS NOT NULL))`,
+      `SELECT id, task_id AS "taskId", name, status, mr_url AS "mrUrl", mr_iid AS "mrIid", mr_branch AS "mrBranch", repo_url AS "repoUrl", gitlab_project_id AS "gitlabProjectId", current_node AS "currentNode", execution_mode AS "executionMode", repo_id AS "repoId", template_id AS "templateId", template_graph AS "templateGraph", trigger_payload AS "triggerPayload", worktree_dir AS "worktreeDir", parent_flow_id AS "parentFlowId", kind, created_at AS "createdAt", updated_at AS "updatedAt" FROM flows WHERE status='active' AND (mr_iid IS NOT NULL OR id IN (SELECT DISTINCT flow_id FROM branches WHERE mr_iid IS NOT NULL))`,
     );
     for (const f of flows) {
       try {
         // Phase 3C: iterate over branches with MRs, then the flow-level MR
         const branchMRs = rows.all(
           BranchRow,
-          `SELECT * FROM branches WHERE flow_id=? AND mr_iid IS NOT NULL`,
+          `SELECT id, flow_id AS "flowId", name, git_branch AS "gitBranch", title, status, mr_url AS "mrUrl", mr_iid AS "mrIid", "order", created_at AS "createdAt", updated_at AS "updatedAt" FROM branches WHERE flow_id=$1 AND mr_iid IS NOT NULL`,
           f.id,
         );
         if (branchMRs.length > 0) {
@@ -148,7 +148,7 @@ export class FlowPoller {
    */
   private processTemplateSchedules(): void {
     const templates = db.all<{ id: string; trigger: string | null; schedule_next_at: string | null }>(
-      `SELECT id, trigger, schedule_next_at FROM flow_templates WHERE schedule_next_at IS NOT NULL`
+      `SELECT id, trigger, schedule_next_at AS "scheduleNextAt" FROM flow_templates WHERE schedule_next_at IS NOT NULL`
     );
     const now = Date.now();
     for (const t of templates) {
@@ -158,7 +158,7 @@ export class FlowPoller {
       const intervalMin = typeof trigger.interval_min === "number" && trigger.interval_min > 0
         ? trigger.interval_min : 60;
       const nextAt = nextScheduleFireAt(due, now, intervalMin);
-      db.run(`UPDATE flow_templates SET schedule_next_at=? WHERE id=?`,
+      db.run(`UPDATE flow_templates SET schedule_next_at=$1 WHERE id=$2`,
         new Date(nextAt).toISOString(), t.id);
       try {
         // the fire provides nothing (the start contract's defaults apply) —
@@ -180,12 +180,12 @@ export class FlowPoller {
     if (!pipe) return;
     const prev = branchName
       ? db.get<{ data: string | null }>(
-          `SELECT data FROM events WHERE flow_id=? AND type='pipeline' AND json_extract(data,'$.branchName')=? ORDER BY created_at DESC LIMIT 1`,
+          `SELECT data FROM events WHERE flow_id=$1 AND type='pipeline' AND json_extract(data,'$.branchName')=$2 ORDER BY created_at DESC LIMIT 1`,
           f.id,
           branchName,
         )
       : db.get<{ data: string | null }>(
-          `SELECT data FROM events WHERE flow_id=? AND type='pipeline' AND (json_extract(data,'$.branchName') IS NULL OR json_extract(data,'$.branchName')='') ORDER BY created_at DESC LIMIT 1`,
+          `SELECT data FROM events WHERE flow_id=$1 AND type='pipeline' AND (json_extract(data,'$.branchName') IS NULL OR json_extract(data,'$.branchName')='') ORDER BY created_at DESC LIMIT 1`,
           f.id,
         );
     const prevStatus = prev?.data ? JSON.parse(prev.data).status : null;
@@ -199,7 +199,7 @@ export class FlowPoller {
     const gateKey = templateStore.waitNodeKey(f.id, "pipeline");
     const gateStatus = gateKey
       ? db.get<{ status: string }>(
-          `SELECT status FROM nodes WHERE flow_id=? AND node_key=?`, f.id, gateKey
+          `SELECT status FROM nodes WHERE flow_id=$1 AND node_key=$2`, f.id, gateKey
         )?.status
       : undefined;
     if (gateStatus !== "running") {
@@ -223,7 +223,7 @@ export class FlowPoller {
     if (!comments) return;
     const newOpen = flowEngine.ingestComments(f.id, comments, mrIid);
     const openCount = db.get<{ c: number }>(
-      `SELECT COUNT(*) c FROM comments WHERE flow_id=? AND status='open' AND mr_iid=?`, f.id, mrIid
+      `SELECT COUNT(*) c FROM comments WHERE flow_id=$1 AND status='open' AND mr_iid=$2`, f.id, mrIid
     )?.c ?? 0;
     if (newOpen > 0 && openCount > 0) {
       // debounce: each new open comment restarts the quiet period on the

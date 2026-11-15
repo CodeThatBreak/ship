@@ -22,7 +22,7 @@ const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..
 class SecretsConfig {
   /**
    * 32-byte AES key. Set `DEVFLOW_SECRETS_KEY` (base64url) in production.
-   * In non-production, a deterministic dev key is derived from the DB path.
+   * In non-production, a deterministic dev key is derived from the DB URL.
    */
   masterKeyBytes(): Buffer {
     const fromEnv = AppConfig.env("DEVFLOW_SECRETS_KEY");
@@ -37,8 +37,8 @@ class SecretsConfig {
       }
       throw new Error("DEVFLOW_SECRETS_KEY is required in production");
     }
-    const dbPath = new DatabaseConfig().path();
-    return crypto.scryptSync(`devflow-dev:${dbPath}`, "devflow-at-rest", 32);
+    const dbUrl = new DatabaseConfig().url();
+    return crypto.scryptSync(`devflow-dev:${dbUrl}`, "devflow-at-rest", 32);
   }
 }
 
@@ -80,29 +80,43 @@ class GitLabConfig {
 }
 
 class DatabaseConfig {
-  /** Demo/dev DB — the default (and only sanctioned) target for seed scripts. */
-  demoPath(): string {
-    return path.resolve(
-      AppConfig.root,
-      AppConfig.env("DATABASE_PATH", "./data/devflow.db")
+  /** Demo/dev database — the default (and only sanctioned) target for seed scripts. */
+  demoUrl(): string {
+    return AppConfig.env(
+      "DATABASE_URL",
+      "postgresql://devflow:devflow@localhost:5432/devflow"
     );
   }
 
   /**
-   * Application DB path. In production (`next start`) this defaults to a
-   * dedicated file so seeded demo data can never leak into the production
-   * database; DATABASE_PATH overrides in every environment.
+   * Application database URL. In production (`next start`) this defaults to a
+   * dedicated database so seeded demo data can never leak into production;
+   * DATABASE_URL overrides in every environment.
    */
-  path(): string {
-    if (!AppConfig.env("DATABASE_PATH") && process.env.NODE_ENV === "production") {
-      return path.resolve(AppConfig.root, "./data/devflow.prod.db");
+  url(): string {
+    if (!AppConfig.env("DATABASE_URL") && process.env.NODE_ENV === "production") {
+      return "postgresql://devflow:devflow@localhost:5432/devflow_prod";
     }
-    return this.demoPath();
+    return this.demoUrl();
   }
 
-  /** Canonical DDL file (resolved from the repo root, not `process.cwd()`). */
-  schemaSqlPath(): string {
-    return path.resolve(AppConfig.root, "lib/db/schema.sql");
+  /**
+   * Test database URL (vitest globalSetup). TEST_DATABASE_URL overrides;
+   * defaults to the dockerized `devflow_test` database.
+   */
+  testUrl(): string {
+    return AppConfig.env(
+      "TEST_DATABASE_URL",
+      "postgresql://devflow:devflow@localhost:5432/devflow_test"
+    );
+  }
+
+  /**
+   * The database name portion of the demo URL — seed scripts refuse to run
+   * against anything else (AGENTS.md §1).
+   */
+  demoDatabaseName(): string {
+    return new URL(this.demoUrl()).pathname.replace(/^\//, "");
   }
 }
 

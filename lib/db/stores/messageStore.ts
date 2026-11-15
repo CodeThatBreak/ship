@@ -10,16 +10,16 @@ export class MessageStore {
     private readonly rows: RowGateway,
   ) {}
 
-  addMessage(
+  async addMessage(
     flowId: string,
     nodeKey: string | null,
     role: "user" | "assistant",
     content: string,
     thread?: string | null,
-  ): void {
-    this.db.run(
+  ): Promise<void> {
+    await this.db.run(
       `INSERT INTO messages (id, flow_id, node_key, thread, role, content, created_at)
-       VALUES (?,?,?,?,?,?,?)`,
+       VALUES ($1,$2,$3,$4,$5,$6,$7)`,
       this.db.uid("msg_"),
       flowId,
       nodeKey,
@@ -33,7 +33,9 @@ export class MessageStore {
   listMessages(flowId: string) {
     return this.rows.all(
       MessageRow,
-      `SELECT * FROM messages WHERE flow_id=? ORDER BY created_at, id`,
+      `SELECT id, flow_id AS "flowId", node_key AS "nodeKey", thread, role, content,
+              created_at AS "createdAt"
+       FROM messages WHERE flow_id=$1 ORDER BY created_at, id`,
       flowId,
     );
   }

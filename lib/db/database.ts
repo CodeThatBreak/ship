@@ -1,18 +1,14 @@
 import "server-only";
 
-import SqliteDatabase from "better-sqlite3";
-import fs from "fs";
-import path from "path";
+import type { Prisma, PrismaClient } from "@prisma/client";
 import type { z } from "zod";
-import { config } from "../config";
-import { DatabaseMigrationError } from "./databaseMigrationError";
+import { prisma } from "./prismaClient";
 import { bindDatabase } from "./dbAccess";
 import { bindRowGateway } from "./rowGatewayAccess";
 import { wireGitHostBuiltins } from "./wireGitHostBuiltins";
 import { RowGateway, type Repo } from "./rows";
 import { AtRestCipher } from "./atRestCipher";
 import { IntegrationSecretStore } from "./integrationSecretStore";
-import { SchemaMigrator } from "./schemaMigrator";
 import {
   EventStore,
   GitLabInstanceStore,
@@ -24,14 +20,21 @@ import {
 
 export type { Repo } from "./rows";
 
+/** Options a caller can pass to raw queries — inside a transaction, the tx client. */
+export type QueryExecutor = PrismaClient | Prisma.TransactionClient;
+
 /**
- * The application database (better-sqlite3, WAL mode).
+ * The application database (Postgres, via Prisma).
  *
- * Owns the connection lifecycle, schema bootstrap and migrations, plus
- * domain stores (messages, events, settings, repos, integration instances).
+ * Thin async facade over the PrismaClient singleton (`lib/db/prismaClient.ts`)
+ * so the sync→async call-site conversion is mechanical: `db.get/all/run` are
+ * raw-SQL helpers returning camelCase rows, and `transaction(fn)` maps to
+ * `prisma.$transaction` (async I/O stays outside the callback — same rule as
+ * the better-sqlite3 era, now enforced by types). Domain stores are
+ * constructor-injected here; the wider composition root lands incrementally
+ * through step 09 (decision Q9).
  */
 export class Database {
-  private conn: SqliteDatabase.Database | null = null;
   /** Same-millisecond counter so event ids sort lexicographically in emit order. */
   private uidLastMs = 0;
   private uidSeqInMs = 0;
@@ -41,13 +44,12 @@ export class Database {
   readonly gitlabInstances: GitLabInstanceStore;
   readonly jiraInstances: JiraInstanceStore;
 
-  private readonly schemaMigrator = new SchemaMigrator();
   private readonly messageStore: MessageStore;
   private readonly eventStore: EventStore;
   private readonly settingsStore: SettingsStore;
   private readonly repoStore: RepoStore;
 
-  constructor() {
+  constructor(readonly prisma: PrismaClient) {
     bindDatabase(this);
     this.rows = new RowGateway(this);
     bindRowGateway(this.rows);
@@ -62,43 +64,18 @@ export class Database {
     wireGitHostBuiltins();
   }
 
-  /** Run synchronous writes in one SQLite transaction. */
-  transaction<T>(fn: () => T): T {
-    return this.connection().transaction(fn)();
-  }
-
-  /** Lazily open (and migrate) the connection. */
-  connection(): SqliteDatabase.Database {
-    if (this.conn) return this.conn;
-    const file = config.db.path();
-    fs.mkdirSync(path.dirname(file), { recursive: true });
-    let pending: SqliteDatabase.Database | null = null;
-    try {
-      pending = new SqliteDatabase(file);
-      pending.pragma("journal_mode = WAL");
-      this.bootstrap(pending);
-      this.conn = pending;
-      pending = null;
-      return this.conn;
-    } catch (err) {
-      pending?.close();
-      if (err instanceof DatabaseMigrationError) throw err;
-      const cause = err instanceof Error ? err : undefined;
-      throw new DatabaseMigrationError("Database bootstrap failed", { cause });
-    }
-  }
-
-  private bootstrap(d: SqliteDatabase.Database): void {
-    const schemaPath = config.db.schemaSqlPath();
-    let schema: string;
-    try {
-      schema = fs.readFileSync(schemaPath, "utf8");
-    } catch (err) {
-      const cause = err instanceof Error ? err : undefined;
-      throw new DatabaseMigrationError(`Failed to read schema at ${schemaPath}`, { cause });
-    }
-    d.exec(schema);
-    this.schemaMigrator.runMigrations(d);
+  /**
+   * Run async writes in one Postgres transaction (`prisma.$transaction`).
+   * The callback receives the tx client; pass it as the executor to any
+   * `db.get/all/run` calls that must join the transaction. Never await
+   * network/agent/git I/O inside the callback.
+   */
+  transaction<T>(
+    fn: (tx: Prisma.TransactionClient) => Promise<T>,
+    tx?: Prisma.TransactionClient,
+  ): Promise<T> {
+    if (tx) return fn(tx);
+    return this.prisma.$transaction((inner) => fn(inner));
   }
 
   now(): string {
@@ -117,16 +94,21 @@ export class Database {
     return `${prefix}${ms.toString(36)}${seqPart}${entropy}`;
   }
 
-  get<T = unknown>(sql: string, ...args: unknown[]): T | undefined {
-    return this.connection().prepare(sql).get(...args) as T | undefined;
+  async get<T = unknown>(
+    sql: string,
+    ...args: unknown[]
+  ): Promise<T | undefined> {
+    const rows = await this.prisma.$queryRawUnsafe<T[]>(sql, ...args);
+    return rows[0];
   }
 
-  all<T = unknown>(sql: string, ...args: unknown[]): T[] {
-    return this.connection().prepare(sql).all(...args) as T[];
+  async all<T = unknown>(sql: string, ...args: unknown[]): Promise<T[]> {
+    return this.prisma.$queryRawUnsafe<T[]>(sql, ...args);
   }
 
-  run(sql: string, ...args: unknown[]) {
-    return this.connection().prepare(sql).run(...args);
+  /** Execute a write. Returns the affected row count (like sqlite's `changes`). */
+  async run(sql: string, ...args: unknown[]): Promise<number> {
+    return this.prisma.$executeRawUnsafe(sql, ...args);
   }
 
   addMessage(
@@ -135,8 +117,8 @@ export class Database {
     role: "user" | "assistant",
     content: string,
     thread?: string | null,
-  ): void {
-    this.messageStore.addMessage(flowId, nodeKey, role, content, thread);
+  ): Promise<void> {
+    return this.messageStore.addMessage(flowId, nodeKey, role, content, thread);
   }
 
   listMessages(flowId: string) {
@@ -157,27 +139,31 @@ export class Database {
     type: string,
     message: string,
     data?: Record<string, unknown>,
-  ): void {
-    this.eventStore.emitEvent(flowId, nodeId, type, message, data);
+  ): Promise<void> {
+    return this.eventStore.emitEvent(flowId, nodeId, type, message, data);
   }
 
-  getSetting<S extends z.ZodTypeAny>(key: string, schema: S, fallback: z.infer<S>): z.infer<S> {
+  getSetting<S extends z.ZodTypeAny>(
+    key: string,
+    schema: S,
+    fallback: z.infer<S>,
+  ): Promise<z.infer<S>> {
     return this.settingsStore.getSetting(key, schema, fallback);
   }
 
-  setSetting(key: string, value: unknown): void {
-    this.settingsStore.setSetting(key, value);
+  setSetting(key: string, value: unknown): Promise<void> {
+    return this.settingsStore.setSetting(key, value);
   }
 
-  listRepos(): Repo[] {
+  listRepos(): Promise<Repo[]> {
     return this.repoStore.listRepos();
   }
 
-  repoById(id: string): Repo | undefined {
+  repoById(id: string): Promise<Repo | undefined> {
     return this.repoStore.repoById(id);
   }
 
-  repoByCloudUrl(cloudUrl: string): Repo | undefined {
+  repoByCloudUrl(cloudUrl: string): Promise<Repo | undefined> {
     return this.repoStore.repoByCloudUrl(cloudUrl);
   }
 
@@ -185,20 +171,18 @@ export class Database {
     return this.repoStore.normalizeRepoUrl(url);
   }
 
-  upsertRepo(input: Parameters<RepoStore["upsertRepo"]>[0]): Repo {
+  upsertRepo(input: Parameters<RepoStore["upsertRepo"]>[0]): Promise<Repo> {
     return this.repoStore.upsertRepo(input);
   }
 
-  deleteRepo(id: string): void {
-    this.repoStore.deleteRepo(id);
+  deleteRepo(id: string): Promise<void> {
+    return this.repoStore.deleteRepo(id);
   }
 
-  countFlowsByRepoId(repoId: string): number {
+  countFlowsByRepoId(repoId: string): Promise<number> {
     return this.repoStore.countFlowsByRepoId(repoId);
   }
 }
 
 export { DatabaseMigrationError } from "./databaseMigrationError";
-export { SCHEMA_USER_VERSION } from "./schemaVersion";
-export { SchemaMigrator } from "./schemaMigrator";
 export { TemplateSeeder } from "./templateSeeder";

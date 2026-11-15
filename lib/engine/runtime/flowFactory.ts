@@ -12,6 +12,18 @@ import type { StepChildPayload } from "./fanout/stepFlowManager";
 import type { SplitChildPayload } from "./split/splitManager";
 import type { FlowFactoryHost } from "./flowEngineHost";
 
+const FLOW_SELECT = `SELECT id, task_id AS "taskId", name, status, mr_url AS "mrUrl",
+       mr_iid AS "mrIid", mr_branch AS "mrBranch", repo_url AS "repoUrl",
+       gitlab_project_id AS "gitlabProjectId", current_node AS "currentNode",
+       execution_mode AS "executionMode", repo_id AS "repoId", template_id AS "templateId",
+       template_graph AS "templateGraph", trigger_payload AS "triggerPayload",
+       worktree_dir AS "worktreeDir", parent_flow_id AS "parentFlowId", kind,
+       created_at AS "createdAt", updated_at AS "updatedAt" FROM flows`;
+const TASK_SELECT = `SELECT id, type, key, summary, description, status,
+       issue_type AS "issueType", priority, repo_url AS "repoUrl",
+       parent_key AS "parentKey", external_url AS "externalUrl", raw,
+       synced_at AS "syncedAt", fields FROM tasks`;
+
 export interface CreateFlowOptions {
   executionMode?: "cloud" | "local";
   repoId?: string;
@@ -29,13 +41,13 @@ const EXEC_MODE_VALUES = ["local", "cloud"] as const;
 export class FlowFactory {
   constructor(private readonly host: FlowFactoryHost) {}
 
-  create(taskId: string, repoUrl: string, name?: string, opts: CreateFlowOptions = {}): string {
-    const task = rows.get(Task, `SELECT * FROM tasks WHERE id=?`, taskId);
+  async create(taskId: string, repoUrl: string, name?: string, opts: CreateFlowOptions = {}): Promise<string> {
+    const task = await rows.get(Task, `${TASK_SELECT} WHERE id=$1`, taskId);
     if (!task) throw new NotFoundError("task", taskId);
-    const repo = opts.repoId ? db.repoById(opts.repoId) : undefined;
-    if (repo) repoUrl = repo.cloud_url;
+    const repo = opts.repoId ? await db.repoById(opts.repoId) : undefined;
+    if (repo) repoUrl = repo.cloudUrl;
     const executionMode = opts.executionMode === "local" ? "local" : "cloud";
-    if (executionMode === "local" && !repo?.local_path) {
+    if (executionMode === "local" && !repo?.localPath) {
       throw new ValidationError(
         "Local mode requires a repo registered on the Settings page with a local path.",
       );
@@ -53,15 +65,16 @@ export class FlowFactory {
 
     const id = db.uid("flow_");
     const ts = db.now();
-    db.transaction(() => {
-      db.run(
+    await db.transaction(async (tx) => {
+      await db.run(
         `INSERT INTO flows (id,task_id,name,status,repo_url,repo_id,execution_mode,template_id,trigger_payload,created_at,updated_at)
-         VALUES (?,?,?,?,?,?,?,?,?,?,?)`,
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9::jsonb,$10,$11)`,
         id, taskId, name ?? `${task.key} flow`, "active", repoUrl, repo?.id ?? null, executionMode,
         graph.templateId, opts.triggerPayload != null ? JSON.stringify(opts.triggerPayload) : null, ts, ts
       );
-      nodeStore.insertSnapshots(id, graph, { provisionWebhookHooks: true, ts });
-      templateStore.persistFlowGraphSnapshot(id, graph);
+      await nodeStore.insertSnapshots(id, graph, { provisionWebhookHooks: true, ts });
+      await templateStore.persistFlowGraphSnapshot(id, graph);
+      void tx;
     });
     if (opts.autoStart) {
       this.host.start(id);
@@ -80,7 +93,7 @@ export class FlowFactory {
     payload: StepChildPayload,
     opts: { branch: string | null },
   ): string {
-    const parent = rows.get(FlowRow, `SELECT * FROM flows WHERE id=?`, parentFlowId);
+    const parent = rows.get(FlowRow, `SELECT id, task_id AS "taskId", name, status, mr_url AS "mrUrl", mr_iid AS "mrIid", mr_branch AS "mrBranch", repo_url AS "repoUrl", gitlab_project_id AS "gitlabProjectId", current_node AS "currentNode", execution_mode AS "executionMode", repo_id AS "repoId", template_id AS "templateId", template_graph AS "templateGraph", trigger_payload AS "triggerPayload", worktree_dir AS "worktreeDir", parent_flow_id AS "parentFlowId", kind, created_at AS "createdAt", updated_at AS "updatedAt" FROM flows WHERE id=$1`, parentFlowId);
     if (!parent) throw new NotFoundError("flow", parentFlowId);
     const graph = templateStore.graph(templateId);
     if (!graph) throw new NotFoundError("flow template", templateId);
@@ -98,7 +111,7 @@ export class FlowFactory {
     db.transaction(() => {
       db.run(
         `INSERT INTO flows (id,task_id,name,status,repo_url,repo_id,execution_mode,template_id,trigger_payload,mr_branch,parent_flow_id,kind,created_at,updated_at)
-         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14) ON CONFLICT DO NOTHING`,
         id, parent.task_id, name, "active", parent.repo_url, parent.repo_id, parent.execution_mode,
         graph.templateId, JSON.stringify(payload), opts.branch, parentFlowId, FLOW_KIND.STEP, ts, ts
       );
@@ -116,7 +129,7 @@ export class FlowFactory {
     name: string,
     payload: SplitChildPayload,
   ): string {
-    const parent = rows.get(FlowRow, `SELECT * FROM flows WHERE id=?`, parentFlowId);
+    const parent = rows.get(FlowRow, `SELECT id, task_id AS "taskId", name, status, mr_url AS "mrUrl", mr_iid AS "mrIid", mr_branch AS "mrBranch", repo_url AS "repoUrl", gitlab_project_id AS "gitlabProjectId", current_node AS "currentNode", execution_mode AS "executionMode", repo_id AS "repoId", template_id AS "templateId", template_graph AS "templateGraph", trigger_payload AS "triggerPayload", worktree_dir AS "worktreeDir", parent_flow_id AS "parentFlowId", kind, created_at AS "createdAt", updated_at AS "updatedAt" FROM flows WHERE id=$1`, parentFlowId);
     if (!parent) throw new NotFoundError("flow", parentFlowId);
     const graph = templateStore.graph(templateId);
     if (!graph) throw new NotFoundError("flow template", templateId);
@@ -125,7 +138,7 @@ export class FlowFactory {
     db.transaction(() => {
       db.run(
         `INSERT INTO flows (id,task_id,name,status,repo_url,repo_id,execution_mode,template_id,trigger_payload,parent_flow_id,kind,created_at,updated_at)
-         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13) ON CONFLICT DO NOTHING`,
         id, parent.task_id, name, "active", parent.repo_url, parent.repo_id, parent.execution_mode,
         graph.templateId, JSON.stringify(payload), parentFlowId, FLOW_KIND.SPLIT, ts, ts
       );
@@ -174,7 +187,7 @@ export class FlowFactory {
     }
     let taskId = typeof opts.taskId === "string" ? opts.taskId.trim() : "";
     if (taskId) {
-      const existing = db.get<{ type: string }>(`SELECT type FROM tasks WHERE id=?`, taskId);
+      const existing = db.get<{ type: string }>(`SELECT type FROM tasks WHERE id=$1`, taskId);
       if (!existing) throw new NotFoundError("task", taskId);
       if (existing.type !== taskType) {
         throw new Error(
@@ -182,7 +195,7 @@ export class FlowFactory {
       }
     } else {
       const latest = db.get<{ id: string }>(
-        `SELECT id FROM tasks WHERE type=? ORDER BY synced_at DESC, rowid DESC LIMIT 1`, taskType
+        `SELECT id FROM tasks WHERE type=$1 ORDER BY synced_at DESC, rowid DESC LIMIT 1`, taskType
       );
       if (!latest) {
         throw new Error(
@@ -190,7 +203,7 @@ export class FlowFactory {
       }
       taskId = latest.id;
     }
-    const task = rows.get(Task, `SELECT * FROM tasks WHERE id=?`, taskId);
+    const task = rows.get(Task, `SELECT id, type, key, summary, description, status, issue_type AS "issueType", priority, repo_url AS "repoUrl", parent_key AS "parentKey", external_url AS "externalUrl", raw, synced_at AS "syncedAt", fields FROM tasks WHERE id=$1`, taskId);
     if (!task) throw new NotFoundError("task", taskId);
     const repo = db.repoById(repoId);
     if (!repo) {

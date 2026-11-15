@@ -62,7 +62,7 @@ export class WorktreeManager {
   private nodeKeyFor(flowId: string, nodeId: string | null | undefined): string | undefined {
     if (!nodeId) return undefined;
     const row = db.get<{ node_key: string }>(
-      `SELECT node_key FROM nodes WHERE id=? AND flow_id=?`,
+      `SELECT node_key AS "nodeKey" FROM nodes WHERE id=$1 AND flow_id=$2`,
       nodeId,
       flowId,
     );
@@ -89,7 +89,7 @@ export class WorktreeManager {
    */
   private touchNode(flowId: string, nodeId: string | null | undefined): void {
     if (!nodeId) return;
-    db.run(`UPDATE nodes SET updated_at=? WHERE id=? AND flow_id=?`, db.now(), nodeId, flowId);
+    db.run(`UPDATE nodes SET updated_at=$1 WHERE id=$2 AND flow_id=$3`, db.now(), nodeId, flowId);
   }
 
   /** A flow's worktree dir: `workspaces/worktrees/<flowId>` (unique per flow; sweep-joinable). */
@@ -166,7 +166,7 @@ export class WorktreeManager {
       // matching joins against `git worktree list` output
       const canonical = this.tryRealpath(dir);
       if (!flow.worktree_dir || !samePath(flow.worktree_dir, canonical)) {
-        db.run(`UPDATE flows SET worktree_dir=?, updated_at=? WHERE id=?`, canonical, db.now(), flow.id);
+        db.run(`UPDATE flows SET worktree_dir=$1, updated_at=$2 WHERE id=$3`, canonical, db.now(), flow.id);
         flow.worktree_dir = canonical;
       }
       db.emitEvent(flow.id, opts.nodeId ?? null, "lifecycle",
@@ -356,7 +356,7 @@ export class WorktreeManager {
     opts: { deleteBranch?: boolean; reason?: string } = {}
   ): Promise<void> {
     const flow = db.get<{ worktree_dir: string | null; mr_branch: string | null; repo_id: string | null }>(
-      `SELECT worktree_dir, mr_branch, repo_id FROM flows WHERE id=?`, flowId
+      `SELECT worktree_dir AS "worktreeDir", mr_branch AS "mrBranch",, repo_id AS "repoId" FROM flows WHERE id=$1`, flowId
     );
     if (!flow?.worktree_dir) return;
     const repo = flow.repo_id ? db.repoById(flow.repo_id) : null;
@@ -389,7 +389,7 @@ export class WorktreeManager {
     // 1. resume recorded removals
     for (const rec of rows.all(
       WorktreeRemovalRow,
-      `SELECT * FROM worktree_removals ORDER BY created_at`,
+      `SELECT id, flow_id AS "flowId", repo_path AS "repoPath", path, branch, delete_branch AS "deleteBranch", reason, created_at AS "createdAt" FROM worktree_removals ORDER BY created_at`,
     )) {
       try {
         await this.removeWorktreeDir({
@@ -408,7 +408,7 @@ export class WorktreeManager {
 
     const wsDir = this.tryRealpath(workspacePaths.worktreesRoot());
     const handled = new Set<string>();
-    const repos = db.all<Repo>(`SELECT * FROM repos WHERE local_path IS NOT NULL`);
+    const repos = db.all<Repo>(`SELECT id, name, cloud_url AS "cloudUrl", local_path AS "localPath", default_branch AS "defaultBranch", use_worktrees AS "useWorktrees", install_command AS "installCommand", skip_install AS "skipInstall", sync_paths AS "syncPaths", shared_dirs AS "sharedDirs", setup_command AS "setupCommand", worktree_timeout_ms AS "worktreeTimeoutMs", created_at AS "createdAt", updated_at AS "updatedAt" FROM repos WHERE local_path IS NOT NULL`);
 
     // 2. reconcile registered worktrees against flows
     for (const repo of repos) {
@@ -422,7 +422,7 @@ export class WorktreeManager {
           handled.add(this.tryRealpath(wt.path));
           const flowId = path.basename(wt.path);
           const flow = db.get<{ id: string; status: string; worktree_dir: string | null }>(
-            `SELECT id, status, worktree_dir FROM flows WHERE id=?`, flowId
+            `SELECT id, status, worktree_dir AS "worktreeDir" FROM flows WHERE id=$1`, flowId
           );
           const branch = worktreeBranchName(wt);
           if (!flow) {
@@ -442,7 +442,7 @@ export class WorktreeManager {
             });
           } else if (!flow.worktree_dir) {
             // crash between create and the column write — adopt the worktree
-            db.run(`UPDATE flows SET worktree_dir=?, updated_at=? WHERE id=?`, wt.path, db.now(), flow.id);
+            db.run(`UPDATE flows SET worktree_dir=$1, updated_at=$2 WHERE id=$3`, wt.path, db.now(), flow.id);
           }
         }
       } catch (e: unknown) {
@@ -467,7 +467,7 @@ export class WorktreeManager {
         continue;
       }
       if (handled.has(this.tryRealpath(dir))) continue;
-      const flow = db.get<{ status: string }>(`SELECT status FROM flows WHERE id=?`, name);
+      const flow = db.get<{ status: string }>(`SELECT status FROM flows WHERE id=$1`, name);
       if (flow && flow.status === "active") continue; // conservative: an active flow may still adopt it
       try {
         fs.rmSync(dir, { recursive: true, force: true });
@@ -501,7 +501,7 @@ export class WorktreeManager {
     if (!target.recordId) {
       db.run(
         `INSERT INTO worktree_removals (id, flow_id, repo_path, path, branch, delete_branch, reason, created_at)
-         VALUES (?,?,?,?,?,?,?,?)`,
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8) ON CONFLICT DO NOTHING`,
         recordId, target.flowId, target.repoPath, target.wtPath, target.branch,
         target.deleteBranch ? 1 : 0, target.reason ?? null, db.now()
       );
@@ -535,15 +535,15 @@ export class WorktreeManager {
     }
 
     if (done) {
-      db.run(`DELETE FROM worktree_removals WHERE id=?`, recordId);
-      if (target.flowId && db.get(`SELECT 1 FROM flows WHERE id=?`, target.flowId)) {
+      db.run(`DELETE FROM worktree_removals WHERE id=$1`, recordId);
+      if (target.flowId && db.get(`SELECT 1 FROM flows WHERE id=$1`, target.flowId)) {
         // clear the pointer only when it still names this worktree (a restarted
         // flow may have moved on); compare symlink-tolerantly — git canonicalizes
         const stored = db.get<{ worktree_dir: string | null }>(
-          `SELECT worktree_dir FROM flows WHERE id=?`, target.flowId
+          `SELECT worktree_dir AS "worktreeDir" FROM flows WHERE id=$1`, target.flowId
         )?.worktree_dir ?? null;
         if (stored && samePath(stored, target.wtPath)) {
-          db.run(`UPDATE flows SET worktree_dir=NULL, updated_at=? WHERE id=?`, db.now(), target.flowId);
+          db.run(`UPDATE flows SET worktree_dir=NULL, updated_at=$1 WHERE id=$2`, db.now(), target.flowId);
         }
         const branchNote = target.branch ? ` (branch ${target.branch} kept)` : "";
         db.emitEvent(target.flowId, null, "lifecycle",

@@ -137,16 +137,16 @@ class MergeArena {
     let rowId = args.mergeRowId ?? null;
     if (rowId) {
       db.run(
-        `UPDATE step_merges SET status='running', attempts=attempts+1, error=NULL, updated_at=? WHERE id=?`,
+        `UPDATE step_merges SET status='running', attempts=attempts+1, error=NULL, updated_at=$1 WHERE id=$2`,
         ts(), rowId
       );
-      rowId = db.get<{ id: string }>(`SELECT id FROM step_merges WHERE id=?`, rowId)?.id ?? null;
+      rowId = db.get<{ id: string }>(`SELECT id FROM step_merges WHERE id=$1`, rowId)?.id ?? null;
     }
     if (!rowId) {
       rowId = db.uid("sm_");
       db.run(
         `INSERT INTO step_merges (id,flow_id,parent_flow_id,parent_node,branch,status,attempts,created_at,updated_at)
-         VALUES (?,?,?,?,?,'running',1,?,?)`,
+         VALUES ($1,$2,$3,$4,$5,'running',1,$6,$7) ON CONFLICT DO NOTHING`,
         rowId, args.childFlowId, args.parentFlowId, args.parentNodeKey, args.branch, ts(), ts()
       );
     }
@@ -154,7 +154,7 @@ class MergeArena {
     try {
       const result = await this.withLock(key, async () => {
         const flow = db.get<{ repo_url: string | null; execution_mode: string | null }>(
-          `SELECT repo_url, execution_mode FROM flows WHERE id=?`, args.parentFlowId
+          `SELECT repo_url AS "repoUrl", execution_mode AS "executionMode" FROM flows WHERE id=$1`, args.parentFlowId
         );
         const repoUrl = flow?.repo_url ?? "";
         if (!repoUrl) return { status: "failed" as const, error: "the parent flow has no repo url" };
@@ -216,7 +216,7 @@ class MergeArena {
           db.emitEvent(args.parentFlowId, null, "error",
             `step "${args.branch}" merge-back CONFLICT against ${args.integrationBranch} — running the bounded merge-fix agent`,
             { nodeKey: args.parentNodeKey, childFlowId: args.childFlowId, branch: args.branch });
-          db.run(`UPDATE step_merges SET status='conflict', error=?, updated_at=? WHERE id=?`,
+          db.run(`UPDATE step_merges SET status='conflict', error=$1, updated_at=$2 WHERE id=$3`,
             conflictText, ts(), rowId);
           return { status: "conflict" as const, error: conflictText };
         }
@@ -232,7 +232,7 @@ class MergeArena {
           if (isHookRejection(text)) {
             // pre-receive/pre-push hook declined the integration push —
             // repairable CODE state → the StepFlowManager's bounded fix agent
-            db.run(`UPDATE step_merges SET status='rejected', error=?, updated_at=? WHERE id=?`,
+            db.run(`UPDATE step_merges SET status='rejected', error=$1, updated_at=$2 WHERE id=$3`,
               text.slice(0, 2000), ts(), rowId);
             db.emitEvent(args.parentFlowId, null, "error",
               `merge-back: pushing ${args.integrationBranch} was rejected by a hook — running the bounded commit-fix agent`,
@@ -245,7 +245,7 @@ class MergeArena {
           } catch (e2: unknown) {
             const text2 = this.errorText(e2);
             if (isHookRejection(text2)) {
-              db.run(`UPDATE step_merges SET status='rejected', error=?, updated_at=? WHERE id=?`,
+              db.run(`UPDATE step_merges SET status='rejected', error=$1, updated_at=$2 WHERE id=$3`,
                 text2.slice(0, 2000), ts(), rowId);
               return { status: "rejected" as const, error: text2.slice(0, 2000) };
             }
@@ -255,7 +255,7 @@ class MergeArena {
         // success: the step branch was a scoping unit, not an MR unit — delete
         // it from origin too (best effort; ci.skip + plain fallback)
         await this.deleteStepBranch(args.parentFlowId, args.branch).catch(() => null);
-        db.run(`UPDATE step_merges SET status='merged', error=?, updated_at=? WHERE id=?`,
+        db.run(`UPDATE step_merges SET status='merged', error=$1, updated_at=$2 WHERE id=$3`,
           stale ? "merged — the branch was stale against the integration branch" : null, ts(), rowId);
         return { status: "merged" as const, ...(stale ? { stale: true } : {}) };
       });
@@ -265,7 +265,7 @@ class MergeArena {
       // pre-receive infra — surfaced to the developer (goes to failed; the
       // retry path re-runs the merge)
       const msg = this.errorText(e).slice(0, 2000);
-      db.run(`UPDATE step_merges SET status='failed', error=?, updated_at=? WHERE id=?`, msg, ts(), rowId);
+      db.run(`UPDATE step_merges SET status='failed', error=$1, updated_at=$2 WHERE id=$3`, msg, ts(), rowId);
       return { status: "failed" as const, error: msg };
     } finally {
       this.inFlight.delete(args.childFlowId);
@@ -281,7 +281,7 @@ class MergeArena {
   async deleteStepBranch(parentFlowId: string, branch: string, parentNodeKey?: string): Promise<void> {
     await assertValidBranchName(branch);
     await this.withLock(parentFlowId, async () => {
-      const parent = db.get<{ repo_url: string | null }>(`SELECT repo_url FROM flows WHERE id=?`, parentFlowId);
+      const parent = db.get<{ repo_url: string | null }>(`SELECT repo_url AS "repoUrl" FROM flows WHERE id=$1`, parentFlowId);
       const repoUrl = parent?.repo_url;
       if (!repoUrl) return;
       const arena = await this.ensureWorkspaceUnlocked(parentFlowId, repoUrl);

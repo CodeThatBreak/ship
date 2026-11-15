@@ -138,12 +138,12 @@ export class EdgeActivator {
   /** The node_templates kind behind a template node spec (decision/agent/…/builtin). */
   private nodeKind(g: TemplateGraph, spec: { nodeTemplateId: string; defKey: string; catalogKind?: string }): string | null {
     if (spec.catalogKind) return spec.catalogKind;
-    return db.get<{ kind: string }>(`SELECT kind FROM node_templates WHERE id=?`, spec.nodeTemplateId)?.kind ?? null;
+    return db.get<{ kind: string }>(`SELECT kind FROM node_templates WHERE id=$1`, spec.nodeTemplateId)?.kind ?? null;
   }
 
   /** A decision node's chosen labels from its validated output ({} when absent). */
   private decisionChosen(flowId: string, nodeKey: string): string[] {
-    const out = rows.get(NodeRow, `SELECT * FROM nodes WHERE flow_id=? AND node_key=?`, flowId, nodeKey)?.output;
+    const out = rows.get(NodeRow, `SELECT id, flow_id AS "flowId", node_key AS "nodeKey", type, status, attempt_id AS "attemptId", agent_id AS "agentId", agent_ref AS "agentRef", session_id AS "sessionId", prompt_override AS "promptOverride", label, config, join_mode AS "joinMode", input, output, created_at AS "createdAt", updated_at AS "updatedAt" FROM nodes WHERE flow_id=$1 AND node_key=$2`, flowId, nodeKey)?.output;
     const chosen = (out as { chosen?: unknown } | null)?.chosen;
     return Array.isArray(chosen) ? chosen.map((c) => String(c)) : [];
   }
@@ -380,7 +380,7 @@ export class EdgeActivator {
       const msg = e instanceof Error ? e.message : String(e);
       db.emitEvent(flowId, null, "error", msg, { nodeKey });
       db.run(
-        `UPDATE nodes SET status='failed', attempt_id=NULL, updated_at=? WHERE flow_id=? AND node_key=? AND status='running'`,
+        `UPDATE nodes SET status='failed', attempt_id=NULL, updated_at=$1 WHERE flow_id=$2 AND node_key=$3 AND status='running'`,
         db.now(),
         flowId,
         nodeKey,
