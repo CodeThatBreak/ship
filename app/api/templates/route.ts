@@ -13,7 +13,7 @@ const createTemplateBody = z.object({
 
 /** The template gallery. */
 export async function GET() {
-  return NextResponse.json({ templates: templateStore.list() });
+  return NextResponse.json({ templates: await templateStore.list() });
 }
 
 /** Create a blank template — every template starts with a Start node (the flow
@@ -24,7 +24,7 @@ export async function POST(req: Request) {
   const parsed = createTemplateBody.safeParse(raw ?? {});
   const body = parsed.success ? parsed.data : {};
   try {
-    const id = templateStore.create({
+    const id = await templateStore.create({
       name: typeof body.name === "string" && body.name.trim() ? body.name : undefined,
       description: typeof body.description === "string" ? body.description : null,
       nodes: [{

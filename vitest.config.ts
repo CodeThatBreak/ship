@@ -18,9 +18,8 @@ export default defineConfig({
     include: ["lib/**/*.test.ts", "tests/**/*.test.ts"],
     globalSetup: [fileURLToPath(new URL("./tests/globalSetup.ts", import.meta.url))],
     // DB-touching tests share the dockerized test database — serial files keep
-    // per-file truncation + template seeding race-free.
-    pool: "forks",
-    poolOptions: { forks: { singleFork: true } },
+    // per-file truncation + template seeding race-free (`fileParallelism:
+    // false` forces maxWorkers = 1 in vitest v5).
     fileParallelism: false,
   },
 });

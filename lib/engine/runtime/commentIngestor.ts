@@ -40,10 +40,10 @@ export class CommentIngestor {
         if (h && hostOf(branchRow.flow.repoUrl ?? "") !== h) {
           // host mismatch — fall through to flows table
         } else {
-          return branchRow.flow as FlowRow;
+          return branchRow.flow as unknown as FlowRow;
         }
       } else {
-        return branchRow.flow as FlowRow;
+        return branchRow.flow as unknown as FlowRow;
       }
     }
     const candidates = await db.prisma.flow.findMany({
@@ -56,10 +56,10 @@ export class CommentIngestor {
         createdAt: true, updatedAt: true,
       },
     });
-    if (candidates.length <= 1) return candidates[0] as FlowRow | undefined;
+    if (candidates.length <= 1) return candidates[0] as unknown as FlowRow | undefined;
     const h = projectUrl ? hostOf(projectUrl) : null;
-    if (!h) return candidates[0] as FlowRow | undefined;
-    return (candidates.find((f) => hostOf(f.repoUrl ?? "") === h) ?? candidates[0]) as FlowRow | undefined;
+    if (!h) return candidates[0] as unknown as FlowRow | undefined;
+    return (candidates.find((f) => hostOf(f.repoUrl ?? "") === h) ?? candidates[0]) as unknown as FlowRow | undefined;
   }
 
   async ingestComments(flowId: string, incoming: HostComment[], mrIid?: number): Promise<number> {
@@ -76,7 +76,7 @@ export class CommentIngestor {
         await this.waits.bounceCommentWaits(f.id);
         await db.emitEvent(f.id, null, "lifecycle",
           `new MR comment from ${event.comment.author || "a reviewer"} — resolve queued for ` +
-          `${this.waits.resolveScheduleLabel(f.id)} ` +
+          `${await this.waits.resolveScheduleLabel(f.id)} ` +
           `(${mins} min quiet, then the pipeline gate)`,
           { nodeKey: (await templateStore.waitNodeKey(f.id, "comments")) ?? undefined });
         return;

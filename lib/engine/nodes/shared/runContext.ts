@@ -25,11 +25,11 @@ export interface FlowCtx {
  */
 export class FlowContextHelper {
   execMode(ctx: FlowCtx): ExecMode {
-    return ctx.flow.execution_mode === "local" ? "local" : "cloud";
+    return ctx.flow.executionMode === "local" ? "local" : "cloud";
   }
 
   localPath(ctx: FlowCtx): string | null {
-    return ctx.repo?.local_path ?? null;
+    return ctx.repo?.localPath ?? null;
   }
 
   requireLocalPath(ctx: FlowCtx): string {
@@ -49,7 +49,7 @@ export class FlowContextHelper {
    * flow row's pointer.
    */
   runCwd(ctx: FlowCtx): string | null {
-    const wt = ctx.flow.worktree_dir;
+    const wt = ctx.flow.worktreeDir;
     if (wt) {
       try {
         if (fs.existsSync(path.join(wt, ".git"))) return wt;
@@ -100,10 +100,10 @@ export class FlowContextHelper {
     // from origin, which can hang for a minute+ when the remote is unreachable.
     const lp = this.localPath(ctx);
     if (lp) {
-      const s = await localGit.localBranchState(lp, branch, ctx.repo?.default_branch ?? "main").catch(() => null);
+      const s = await localGit.localBranchState(lp, branch, ctx.repo?.defaultBranch ?? "main").catch(() => null);
       if (s && s.exists && s.raw) return { files: [], stat: s.stat, raw: s.raw };
     }
-    return localGit.diffBranch(ctx.flow.id, ctx.flow.repo_url ?? "", branch, undefined, lp, gitRemoteContextFor).catch(() => null);
+    return localGit.diffBranch(ctx.flow.id, ctx.flow.repoUrl ?? "", branch, undefined, lp, gitRemoteContextFor).catch(() => null);
   }
 }
 

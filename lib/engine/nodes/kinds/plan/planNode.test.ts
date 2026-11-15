@@ -10,12 +10,8 @@
  * singleton (AGENTS.md §1 — never a real database). The imports hoist it —
  * dynamic imports keep the order.
  */
-import fs from 'node:fs';
-import os from 'node:os';
-import path from 'node:path';
-import { describe, expect, it } from 'vitest';
+import { beforeAll, describe, expect, it } from 'vitest';
 
-process.env.DATABASE_PATH = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'devflow-plan-node-')), 'test.db');
 
 // the registry instantiates every builtin on first load — resolve its import
 // cycle from here (not from a mid-evaluation node class) so all classes are
@@ -36,7 +32,13 @@ const {
 const { PlanNode } = await import('./planNode');
 const { resolvePlanFailedRetryStatus, resolvePlanTurnPreviousStatus } = await import('./planRetryRevert');
 const { NODE_STATUS } = await import('../../../constants/nodeStatus');
+import { assignTestDatabase, resetTestDatabase } from '../../../../../tests/helpers/testDatabase';
+
+assignTestDatabase();
+
 const { db } = await import('../../../../db/app');
+
+beforeAll(resetTestDatabase);
 type PlanNodeInstance = InstanceType<typeof PlanNode>;
 import type { PlanBranch, PlanMeta, PlanStep } from './schema';
 import type { FlowCtx, FlowContextHelper } from '../../shared/nodeSharedExports';
@@ -318,16 +320,16 @@ describe('PlanNode — the split source port (Phase 6: branches are the units)',
    *  never called. */
   const planNodeWith = (
     knob: string,
-    row: { id: string; version: number; content: string; meta: string | null } | null
+    row: { id: string; version: number; content: string; meta: unknown } | null
   ): PlanNodeInstance =>
     new PlanNode(
       {
-        latestArtifact: () => row,
-        nodeByKey: (flowId: string, key: string) =>
+        latestArtifact: async () => row,
+        nodeByKey: async (flowId: string, key: string) =>
           ({
             id: 'node-1',
-            flow_id: flowId,
-            node_key: key,
+            flowId,
+            nodeKey: key,
             config: JSON.stringify({ execution_default: knob }),
           }) as unknown as NodeRow,
       } as unknown as NodeSupport,
@@ -354,14 +356,14 @@ describe('PlanNode — the split source port (Phase 6: branches are the units)',
     id: 'art_1',
     version: 3,
     content: '# Plan document',
-    meta: JSON.stringify({
+    meta: {
       steps: [step('s1', 'Auth service', 'auth')],
       ...meta,
-    }),
+    },
   });
 
-  it('splitUnits: one unit per branch — key/title/dependsOn, target build, item carries name + plan', () => {
-    const units = planNodeWith('whole', planRow({ branches })).splitUnits(ctx);
+  it('splitUnits: one unit per branch — key/title/dependsOn, target build, item carries name + plan', async () => {
+    const units = await planNodeWith('whole', planRow({ branches })).splitUnits(ctx);
     if (!units) throw new Error('expected split units');
     expect(units.map(u => u.key)).toEqual(['auth', 'billing']);
     expect(units.map(u => u.title)).toEqual(['Auth', 'Billing']);
@@ -383,54 +385,56 @@ describe('PlanNode — the split source port (Phase 6: branches are the units)',
     expect(item.markdown).toBe('## billing');
   });
 
-  it('splitUnits: null for a branch-less plan', () => {
-    expect(planNodeWith('whole', planRow({ branches: [] })).splitUnits(ctx)).toBeNull();
+  it('splitUnits: null for a branch-less plan', async () => {
+    expect(await planNodeWith('whole', planRow({ branches: [] })).splitUnits(ctx)).toBeNull();
   });
 
-  it('splitUnits: null with no plan artifact', () => {
-    expect(planNodeWith('whole', null).splitUnits(ctx)).toBeNull();
+  it('splitUnits: null with no plan artifact', async () => {
+    expect(await planNodeWith('whole', null).splitUnits(ctx)).toBeNull();
   });
 
-  it('splitResolution: knob whole → whole', () => {
-    expect(planNodeWith('whole', planRow({ branches, execution: 'whole' })).splitResolution(ctx)).toBe('whole');
+  it('splitResolution: knob whole → whole', async () => {
+    expect(await planNodeWith('whole', planRow({ branches, execution: 'whole' })).splitResolution(ctx)).toBe('whole');
   });
 
-  it('splitResolution: legacy "steps" knob config → whole (the legacy fan-out is retired)', () => {
-    expect(planNodeWith('steps', planRow({ branches, execution: 'whole' })).splitResolution(ctx)).toBe('whole');
+  it('splitResolution: legacy "steps" knob config → whole (the legacy fan-out is retired)', async () => {
+    expect(await planNodeWith('steps', planRow({ branches, execution: 'whole' })).splitResolution(ctx)).toBe('whole');
   });
 
-  it('splitResolution: follow + published steps → per-unit', () => {
-    expect(planNodeWith('follow', planRow({ branches, execution: 'steps' })).splitResolution(ctx)).toBe('per-unit');
+  it('splitResolution: follow + published steps → per-unit', async () => {
+    expect(await planNodeWith('follow', planRow({ branches, execution: 'steps' })).splitResolution(ctx)).toBe('per-unit');
   });
 
-  it('splitResolution: follow + published whole → whole', () => {
-    expect(planNodeWith('follow', planRow({ branches, execution: 'whole' })).splitResolution(ctx)).toBe('whole');
+  it('splitResolution: follow + published whole → whole', async () => {
+    expect(await planNodeWith('follow', planRow({ branches, execution: 'whole' })).splitResolution(ctx)).toBe('whole');
   });
 
-  it('splitResolution: follow with nothing published / no artifact → whole', () => {
-    expect(planNodeWith('follow', planRow({ branches })).splitResolution(ctx)).toBe('whole');
-    expect(planNodeWith('follow', null).splitResolution(ctx)).toBe('whole');
+  it('splitResolution: follow with nothing published / no artifact → whole', async () => {
+    expect(await planNodeWith('follow', planRow({ branches })).splitResolution(ctx)).toBe('whole');
+    expect(await planNodeWith('follow', null).splitResolution(ctx)).toBe('whole');
   });
 });
 
 describe('PlanNode — chat via the follow-up contract (docs/plan-conversation-refine.md §3a–c)', () => {
   // real rows for `plan_steps` FKs (the checklist sync writes live rows in the
-  // isolated DB — see chatNode's saveArtifact); `db` resolves above with the
+  // shared test DB — see chatNode's saveArtifact); `db` resolves above with the
   // other dynamic imports
-  db.run(
-    `INSERT OR IGNORE INTO tasks (id, type, key, summary, status, issue_type, priority)
-     VALUES ('task_chat','generic','T-1','plan chat contract test','open','task','P2')`
-  );
-  db.run(
-    `INSERT OR IGNORE INTO flows (id, task_id, name, status, created_at, updated_at)
-     VALUES ('flow-1','task_chat','plan chat contract test','active',?,?)`,
-    db.now(), db.now()
-  );
-  db.run(
-    `INSERT OR IGNORE INTO nodes (id, flow_id, node_key, type, status, agent_id, created_at, updated_at)
-     VALUES ('node-1','flow-1','plan','plan','awaiting_approval',NULL,?,?)`,
-    db.now(), db.now()
-  );
+  beforeAll(async () => {
+    await db.run(
+      `INSERT INTO tasks (id, type, key, summary, status, issue_type, priority)
+       VALUES ('task_chat','generic','T-1','plan chat contract test','open','task','P2') ON CONFLICT DO NOTHING`
+    );
+    await db.run(
+      `INSERT INTO flows (id, task_id, name, status, created_at, updated_at)
+       VALUES ('flow-1','task_chat','plan chat contract test','active',$1,$2) ON CONFLICT DO NOTHING`,
+      db.now(), db.now()
+    );
+    await db.run(
+      `INSERT INTO nodes (id, flow_id, node_key, type, status, agent_id, created_at, updated_at)
+       VALUES ('node-1','flow-1','plan','plan','awaiting_approval',NULL,$1,$2) ON CONFLICT DO NOTHING`,
+      db.now(), db.now()
+    );
+  });
 
   const ctx = {
     flow: { id: 'flow-1' },
@@ -446,7 +450,7 @@ describe('PlanNode — chat via the follow-up contract (docs/plan-conversation-r
     id: 'art_1',
     version: 2,
     content: '# Plan document',
-    meta: JSON.stringify({ steps: [step('s1', 'First', 'auth')], branches: [] }),
+    meta: { steps: [step('s1', 'First', 'auth')], branches: [] },
   };
 
   /** The stub harness: support journals artifact saves + node updates + events;
@@ -459,7 +463,7 @@ describe('PlanNode — chat via the follow-up contract (docs/plan-conversation-r
     claimed?: string | null;
     agentId?: string | null;
     /** the latest plan artifact the store sees (defaults to a version-2 plan) */
-    prevRow?: { id: string; version: number; content: string; meta: string | null } | null;
+    prevRow?: { id: string; version: number; content: string; meta: unknown } | null;
   }) => {
     const observ = {
       startAgentInputs: [] as unknown as { prompt: string; mode: string; followUpOn: string | null; model: string | null }[],
@@ -473,45 +477,45 @@ describe('PlanNode — chat via the follow-up contract (docs/plan-conversation-r
     const support = {
       // the live row: when `claimed` is set it reflects the sendChat claim
       // the engine performs before dispatching the turn (running + attempt)
-      nodeByKey: (flowId: string, key: string) =>
+      nodeByKey: async (flowId: string, key: string) =>
         ({
           id: 'node-1',
-          flow_id: flowId,
-          node_key: key,
+          flowId,
+          nodeKey: key,
           status: opts.claimed != null ? 'running' : opts.status ?? 'awaiting_approval',
-          attempt_id: opts.claimed ?? null,
-          agent_id: null,
+          attemptId: opts.claimed ?? null,
+          agentId: null,
           config: '{}',
         }) as unknown as NodeRow,
-      lastAgentId: () => opts.agentId ?? null,
-      setNode: (_id: string, patch: Record<string, unknown>) => {
+      lastAgentId: async () => opts.agentId ?? null,
+      setNode: async (_id: string, patch: Record<string, unknown>) => {
         observ.nodePatches.push(patch);
       },
       // the live row is honest in this harness: a fenced patch always applies
-      patchIfAttempt: (_id: string, _attemptId: string, patch: Record<string, unknown>) => {
+      patchIfAttempt: async (_id: string, _attemptId: string, patch: Record<string, unknown>) => {
         observ.nodePatches.push(patch);
       },
       // REAL artifact persist (the isolated DB has task/flow/node rows seeded
       // below) so `persistPlan`'s checklist sync can write valid `plan_steps`
       // rows — with the meta/observability journal on top.
-      saveArtifact(nodeId: string, flowId: string, kind: string, content: string, meta?: unknown) {
+      async saveArtifact(nodeId: string, flowId: string, kind: string, content: string, meta?: unknown) {
         observ.savedMetas.push((meta ?? null) as Record<string, unknown> | null);
         observ.savedContents.push(content);
-        const prev = db.get<{ v: number | null }>(`SELECT MAX(version) v FROM artifacts WHERE node_id=? AND kind=?`, nodeId, kind);
+        const prev = await db.get<{ v: number | null }>(`SELECT MAX(version) AS v FROM artifacts WHERE node_id=$1 AND kind=$2`, nodeId, kind);
         const version = (prev?.v ?? 0) + 1;
         const id = `art_chat_${String(++chatArtifactSeq)}`;
-        db.run(
+        await db.run(
           `INSERT INTO artifacts (id,node_id,flow_id,kind,version,content,meta,status,created_at)
-           VALUES (?,?,?,?,?,?,?,'draft',?)`,
+           VALUES ($1,$2,$3,$4,$5,$6,$7::jsonb,'draft',$8)`,
           id, nodeId, flowId, kind, version, content, meta ? JSON.stringify(meta) : null, db.now()
         );
         const art = { id, version };
         observ.savedArts.push(art);
         return art;
       },
-      latestArtifact: () => (opts.prevRow === undefined ? prevPlanRow : opts.prevRow),
-      artifactsOfKind: () => (opts.prevRow === undefined ? [{ id: 'art_1', version: 2, content: '# Plan document', meta: prevPlanRow.meta }] : []),
-      emitLifecycle: (_flowId: string, _nodeId: string, message: string) => {
+      latestArtifact: async () => (opts.prevRow === undefined ? prevPlanRow : opts.prevRow),
+      artifactsOfKind: async () => (opts.prevRow === undefined ? [{ id: 'art_1', version: 2, content: '# Plan document', meta: prevPlanRow.meta }] : []),
+      emitLifecycle: async (_flowId: string, _nodeId: string, message: string) => {
         observ.events.push(message);
       },
     } as unknown as NodeSupport;
@@ -586,7 +590,7 @@ describe('PlanNode — chat via the follow-up contract (docs/plan-conversation-r
     expect(observ.events).toContain(`plan v${art.version} ready for review · 2 steps`);
     // the checklist synced from the plan payload (Id runs through the store's
     // real syncFromPlan into the live rows)
-    const checklist = db.all<{ title: string }>(`SELECT title FROM plan_steps WHERE flow_id=? ORDER BY position`, 'flow-1');
+    const checklist = await db.all<{ title: string }>(`SELECT title FROM plan_steps WHERE flow_id=$1 ORDER BY position`, 'flow-1');
     expect(checklist.map(r => r.title)).toEqual(['First', 'Second']);
   });
 
@@ -741,10 +745,10 @@ describe('PlanNode.turn — unified send routing', () => {
     id: 'art_branch',
     version: 2,
     content: '# Plan document',
-    meta: JSON.stringify({
+    meta: {
       steps: metaWithTwoBranches().steps,
       branches: metaWithTwoBranches().branches,
-    }),
+    },
   };
 
   let turnArtifactSeq = 0;
@@ -757,13 +761,13 @@ describe('PlanNode.turn — unified send routing', () => {
     };
     const responses = [...opts.responses];
     const support = {
-      nodeByKey: () =>
+      nodeByKey: async () =>
         ({
           id: 'node-1',
-          flow_id: 'flow-1',
-          node_key: 'plan',
+          flowId: 'flow-1',
+          nodeKey: 'plan',
           status: 'awaiting_approval',
-          agent_id: 'whole_agent',
+          agentId: 'whole_agent',
           output:
             opts.output ??
             ({
@@ -773,20 +777,20 @@ describe('PlanNode.turn — unified send routing', () => {
             } as Record<string, unknown>),
           config: '{}',
         }) as unknown as NodeRow,
-      lastAgentId: () => 'agent_turn',
-      setNode: (_id: string, patch: Record<string, unknown>) => {
+      lastAgentId: async () => 'agent_turn',
+      setNode: async (_id: string, patch: Record<string, unknown>) => {
         observ.nodePatches.push(patch);
       },
-      latestArtifact: () => (opts.prevRow === undefined ? branchedPlanRow : opts.prevRow),
-      artifactsOfKind: () => [branchedPlanRow],
-      saveArtifact(nodeId: string, flowId: string, kind: string, content: string, meta?: unknown) {
+      latestArtifact: async () => (opts.prevRow === undefined ? branchedPlanRow : opts.prevRow),
+      artifactsOfKind: async () => [branchedPlanRow],
+      async saveArtifact(nodeId: string, flowId: string, kind: string, content: string, meta?: unknown) {
         observ.savedMetas.push((meta ?? null) as Record<string, unknown>);
-        const prev = db.get<{ v: number | null }>(`SELECT MAX(version) v FROM artifacts WHERE node_id=? AND kind=?`, nodeId, kind);
+        const prev = await db.get<{ v: number | null }>(`SELECT MAX(version) AS v FROM artifacts WHERE node_id=$1 AND kind=$2`, nodeId, kind);
         const version = (prev?.v ?? 0) + 1;
         const id = `art_turn_${String(++turnArtifactSeq)}`;
-        db.run(
+        await db.run(
           `INSERT INTO artifacts (id,node_id,flow_id,kind,version,content,meta,status,created_at)
-           VALUES (?,?,?,?,?,?,?,'draft',?)`,
+           VALUES ($1,$2,$3,$4,$5,$6,$7::jsonb,'draft',$8)`,
           id,
           nodeId,
           flowId,
@@ -798,7 +802,7 @@ describe('PlanNode.turn — unified send routing', () => {
         );
         return { id, version };
       },
-      emitLifecycle: () => {},
+      emitLifecycle: async () => {},
     } as unknown as NodeSupport;
     const runner = {
       startAgent: (_ctx: FlowCtx, input: unknown) => {

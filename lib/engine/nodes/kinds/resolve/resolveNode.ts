@@ -207,10 +207,10 @@ export class ResolveNode extends AgentRunNode<ResolveInput, ResolveOutput> {
    * (run data, computed at run time). Pre-MR flows (the composer's bulk read
    * renders this preview) keep the flow's configured branch.
    */
-  previewPrompt(ctx: FlowCtx, node: NodeRow | null, params: PromptPreviewParams): NodePromptPreview | null {
+  async previewPrompt(ctx: FlowCtx, node: NodeRow | null, params: PromptPreviewParams): Promise<NodePromptPreview | null> {
     const configBody = nodeRoles.previewBody(this, node);
     const mrBranch = ctx.flow.mrIid
-      ? mrTargetResolver.resolve(ctx, null).mrBranch
+      ? (await mrTargetResolver.resolve(ctx, null)).mrBranch
       : ctx.flow.mrBranch ?? this.ctxHelper.buildBranch(ctx);
     const contractDirective = AgentOutputError.directive(RESOLVE_RESPONSE_JSON_SCHEMA);
     const asm = prompts.assemblePrompt(
@@ -234,8 +234,8 @@ export class ResolveNode extends AgentRunNode<ResolveInput, ResolveOutput> {
       // host registry and pushes would then silently consume
       throw new Error("resolve needs a repository URL — the flow has no repo configured");
     }
-    const node = this.node(ctx);
-    const { mrIid, mrBranch } = mrTargetResolver.resolve(ctx, rawInput.branchName);
+    const node = await this.node(ctx);
+    const { mrIid, mrBranch } = await mrTargetResolver.resolve(ctx, rawInput.branchName);
 
     const mode = this.ctxHelper.execMode(ctx);
     const label = rawInput.branchName ? `resolve (${rawInput.branchName})` : "resolve";
@@ -249,11 +249,11 @@ export class ResolveNode extends AgentRunNode<ResolveInput, ResolveOutput> {
       if (body) input = ResolveInput.parse({ ...input, prompt: body, promptIsBody: true });
     }
 
-    const open = this.support.openComments(ctx.flow.id, mrIid);
+    const open = await this.support.openComments(ctx.flow.id, mrIid);
     if (!open.length && !input.instructions) {
       // no effects run — every count is zero and `pushed` stays false: nothing
       // was verified on the remote MR head
-      return this.applyOutcome(ctx, {
+      return await this.applyOutcome(ctx, {
         status: "done",
         output: this.outputSchema.parse({ resolved: 0, replied: 0, wontfix: 0, skipped: 0 }),
         event: "no open comments",
@@ -264,7 +264,7 @@ export class ResolveNode extends AgentRunNode<ResolveInput, ResolveOutput> {
     // capture the MR head + local branch fingerprint before anything moves —
     // compared after the run to verify code movement and push state (§6A)
     const before = await this.captureState(ctx, repoUrl, mrIid, mrBranch);
-async 
+
     let worktree: string | null = null;
     let setupNote: string | null = null;
     if (mode === "local" && mrBranch) {
@@ -274,7 +274,7 @@ async
       worktree = binding.dir;
       setupNote = binding.setupNote;
       // §6A pre-run flush: a previous cycle's stranded local commits go to the
-      async // MR before the agent starts (the captures above predate this push, so
+      // MR before the agent starts (the captures above predate this push, so
       // its MR-head movement lands inside this run's verified delta)
       const lp = this.ctxHelper.localPath(ctx);
       if (lp) {
@@ -297,7 +297,7 @@ async
 
     const presented = this.contract.presentComments(
       open,
-      this.support.agentReplies(ctx.flow.id, mrIid),
+      await this.support.agentReplies(ctx.flow.id, mrIid),
     );
     const contractDirective = AgentOutputError.directive(RESOLVE_RESPONSE_JSON_SCHEMA);
 
@@ -360,7 +360,7 @@ async
 
     // 2) push-state verification (§6 layer 3 / §6A) — a crashed run's recorded
     //    verify wins and is only re-attempted if it recorded local_only
-    const recorded = p.restart ? this.readRecoveryState(ctx) : null;
+    const recorded = p.restart ? await this.readRecoveryState(ctx) : null;
     let pushState: PushState;
     let codeChanged: boolean;
     if (recorded?.pushState) {
@@ -396,10 +396,10 @@ async
       codeChanged,
       pushState,
     };
-    const persistProgress = (ledger: ResolveEffectLedger): void => {
+    const persistProgress = async (ledger: ResolveEffectLedger): Promise<void> => {
       // the ledger rides the artifact meta after every effect (§4) — restart
       // recovery reads exactly this (the review `persistProgress` precedent)
-      this.support.saveArtifact(p.node.id, ctx.flow.id, RESOLVE_ARTIFACT_KIND, content, {
+      await this.support.saveArtifact(p.node.id, ctx.flow.id, RESOLVE_ARTIFACT_KIND, content, {
         ...baseMeta,
         ledger,
       });
@@ -407,7 +407,7 @@ async
 
     // restart recovery completes only the effects the ledger does not hold
     const ledger = recorded?.ledger ?? EMPTY_LEDGER;
-    persistProgress(ledger);
+    await persistProgress(ledger);
 
     const counts = await this.effects.apply({
       flowId: ctx.flow.id,
@@ -453,7 +453,7 @@ async
    */
   private async parseWithRetry(
     ctx: FlowCtx,
-    async p: FinishParams,
+    p: FinishParams,
     result: AgentRunResult,
     openIds: readonly string[],
   ): Promise<ResolveAgentResponse> {
@@ -464,7 +464,7 @@ async
       if (!(e instanceof AgentOutputError) || !RETRYABLE_OUTPUT_ERRORS.has(e.code)) throw e;
       failure = e;
     }
-    this.support.emitLifecycle(
+    await this.support.emitLifecycle(
       ctx.flow.id,
       p.node.id,
       `resolve output contract failed — one retry with feedback (${failure.code})`,
@@ -472,12 +472,12 @@ async
     const { result: retry } = await this.runner.executeRun(
       ctx,
       p.node.id,
-      () =>
+      async () =>
         this.runner.startAgent(ctx, {
           prompt: this.contract.retryPrompt(failure, openIds),
           mode: "agent",
           name: `${p.label} ${ctx.task.key}`,
-          followUpOn: this.support.lastAgentId(p.node.id),
+          followUpOn: await this.support.lastAgentId(p.node.id),
           model: p.model,
           settingSources: p.settingSources,
         }),
@@ -506,7 +506,9 @@ async
     for (const delay of reads) {
       if (delay) await new Promise((r) => setTimeout(r, delay));
       try {
-        afterSha = (await this.gitHosts.forRepo(p.repoUrl).getChangeRequest(p.repoUrl, p.mrIid))?.sha ?? null;
+        afterSha =
+          (await (await this.gitHosts.forRepo(p.repoUrl)).getChangeRequest(p.repoUrl, p.mrIid))?.sha ??
+          null;
         if (before?.mrSha && afterSha && afterSha !== before.mrSha) {
           return { pushState: PUSH_STATE.PUSHED, codeChanged: true };
         }
@@ -530,7 +532,7 @@ async
     if (afterSha == null) {
       // 3) verification failed (§6 layer 3): loud — the swallowed "no change"
       //    was the CR-075 class of bug
-      this.support.emit(
+      await this.support.emit(
         ctx.flow.id,
         p.node.id,
         EVENT_KIND.ERROR,
@@ -555,10 +557,10 @@ async
     if (!mrBranch) return { pushed: false, reason: null };
     const lp = this.ctxHelper.localPath(ctx);
     if (!lp) return { pushed: false, reason: null };
-    this.support.emit(ctx.flow.id, p.nodeId, EVENT_KIND.LOG, `pushing branch ${mrBranch} to origin…`);
+    await this.support.emit(ctx.flow.id, p.nodeId, EVENT_KIND.LOG, `pushing branch ${mrBranch} to origin…`);
     try {
       const how = await localGit.pushBranch(lp, mrBranch, p.repoUrl, gitRemoteContextFor);
-      this.support.emit(
+      await this.support.emit(
         ctx.flow.id,
         p.nodeId,
         EVENT_KIND.LOG,
@@ -571,13 +573,13 @@ async
         // infra failure (network/VPN/auth): NOT a node failure — replies still
         // post and the next debounce cycle retries the push (§6A)
         const reason = `push of branch ${mrBranch} failed: ${msg.slice(0, 300)}`;
-        this.support.emit(ctx.flow.id, p.nodeId, EVENT_KIND.ERROR, reason);
+        await this.support.emit(ctx.flow.id, p.nodeId, EVENT_KIND.ERROR, reason);
         return { pushed: false, reason };
       }
       // hook rejection: the repo's gates spoke — one bounded agent fix turn
       // with the hook output, then one re-push (createWithFixes precedent)
       const hookDetail = msg.slice(0, 2000);
-      this.support.emit(
+      await this.support.emit(
         ctx.flow.id,
         p.nodeId,
         EVENT_KIND.LOG,
@@ -586,12 +588,12 @@ async
       await this.runner.executeRun(
         ctx,
         p.nodeId,
-        () =>
+        async () =>
           this.runner.startAgent(ctx, {
             prompt: hookFixPrompt(hookDetail, mrBranch),
             mode: "agent",
             name: `${p.label} hook fix ${ctx.task.key}`,
-            followUpOn: this.support.lastAgentId(p.nodeId),
+            followUpOn: await this.support.lastAgentId(p.nodeId),
             cwd: p.worktree ?? undefined,
             model: p.model,
             settingSources: p.settingSources,
@@ -600,7 +602,7 @@ async
       );
       try {
         const how = await localGit.pushBranch(lp, mrBranch, p.repoUrl, gitRemoteContextFor);
-        this.support.emit(
+        await this.support.emit(
           ctx.flow.id,
           p.nodeId,
           EVENT_KIND.LOG,
@@ -615,22 +617,22 @@ async
           );
         }
         const reason = `push of branch ${mrBranch} failed: ${msg2.slice(0, 300)}`;
-        this.support.emit(ctx.flow.id, p.nodeId, EVENT_KIND.ERROR, reason);
+        await this.support.emit(ctx.flow.id, p.nodeId, EVENT_KIND.ERROR, reason);
         return { pushed: false, reason };
       }
     }
   }
 
   /** The crashed run's persisted ledger + verified push state (restart recovery). */
-  private readRecoveryState(ctx: FlowCtx): {
+  private async readRecoveryState(ctx: FlowCtx): Promise<{
     ledger: ResolveEffectLedger;
     pushState: PushState | null;
     codeChanged: boolean | null;
-  } {
-    const art = this.support.latestArtifact(ctx.flow.id, RESOLVE_ARTIFACT_KIND, { nodeType: NODE_KEYS.RESOLVE });
+  }> {
+    const art = await this.support.latestArtifact(ctx.flow.id, RESOLVE_ARTIFACT_KIND, { nodeType: NODE_KEYS.RESOLVE });
     if (!art?.meta) return { ledger: EMPTY_LEDGER, pushState: null, codeChanged: null };
     try {
-      const parsed = RECOVERY_META.parse(JSON.parse(art.meta));
+      const parsed = RECOVERY_META.parse(art.meta);
       return {
         ledger: parsed.ledger ?? EMPTY_LEDGER,
         pushState: parsed.pushState ?? null,
@@ -649,10 +651,10 @@ async
     mrBranch: string | null,
   ): Promise<CapturedState> {
     const mrSha = mrIid
-      ? ((await this.gitHosts
-          .forRepo(repoUrl)
-          .getChangeRequest(repoUrl, mrIid)
-          .catch(() => null))?.sha ?? null)
+      ? ((await (
+          await this.gitHosts.forRepo(repoUrl)
+        ).getChangeRequest(repoUrl, mrIid)
+        .catch(() => null))?.sha ?? null)
       : null;
     const lp = this.ctxHelper.localPath(ctx);
     const localState =
@@ -673,11 +675,11 @@ async
    * after a run are the `instructions` refine.
    */
   override async chat(ctx: FlowCtx, content: string, model?: string): Promise<string> {
-    if (this.isFirstTurn(this.node(ctx))) {
+    if (this.isFirstTurn(await this.node(ctx))) {
       const outcome = await this.run(
         ctx,
         ResolveInput.parse({ prompt: content, promptIsBody: true, model: model ?? null }),
-        this.nodeConfig(ctx),
+        await this.nodeConfig(ctx),
       );
       return outcome.reply;
     }
@@ -697,8 +699,8 @@ async
       const repoUrl = ctx.flow.repoUrl;
       if (!repoUrl) return false;
       const recorded = this.inputSchema.parse(node.input ?? {});
-      const { mrIid, mrBranch } = mrTargetResolver.resolve(ctx, recorded.branchName);
-      const open = this.support.openComments(ctx.flow.id, mrIid);
+      const { mrIid, mrBranch } = await mrTargetResolver.resolve(ctx, recorded.branchName);
+      const open = await this.support.openComments(ctx.flow.id, mrIid);
       const outcome = await this.finishRun(ctx, recorded, result, {
         node,
         repoUrl,
@@ -709,10 +711,10 @@ async
         worktree: ctx.flow.worktreeDir ?? null,
         label: recorded.branchName ? `resolve (${recorded.branchName})` : "resolve",
         model: recorded.model,
-        settingSources: mcpSourcesOf(this.nodeConfig(ctx)),
+        settingSources: mcpSourcesOf(await this.nodeConfig(ctx)),
         restart: true,
       });
-      this.applyOutcome(ctx, outcome, { note: `recovered: ${note}` });
+      await this.applyOutcome(ctx, outcome, { note: `recovered: ${note}` });
       return true;
     } catch {
       return false;

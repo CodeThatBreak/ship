@@ -96,19 +96,19 @@ export class CursorAgentService {
   private static readonly MODEL_TTL_MS = 10 * 60 * 1000;
   private modelCache: { at: number; models: SDKModel[] } | null = null;
 
-  private apiKey(): string {
-    const key = cursorCredentials.apiKey();
+  private async apiKey(): Promise<string> {
+    const key = await cursorCredentials.apiKey();
     if (!key) throw new Error("Cursor API key not set — add it in Settings → Integrations → Harness");
     return key;
   }
 
   /** True when the SDK can run at all (Node >= 22.13 and an API key is set). */
-  available(): boolean {
+  async available(): Promise<boolean> {
     const [maj, min] = process.versions.node
       .split(".")
       .map((n) => parseInt(n, 10));
     const nodeOk = maj > 22 || (maj === 22 && min >= 13);
-    return nodeOk && cursorCredentials.isStored();
+    return nodeOk && (await cursorCredentials.isStored());
   }
 
   /** Models available to the authenticated account (null when unavailable). */
@@ -134,7 +134,7 @@ export class CursorAgentService {
       return this.modelCache.models;
     }
     try {
-      const models = await Cursor.models.list({ apiKey: this.apiKey() });
+      const models = await Cursor.models.list({ apiKey: await this.apiKey() });
       if (models?.length) {
         this.modelCache = { at: now, models };
         return models;
@@ -195,7 +195,7 @@ export class CursorAgentService {
   async createRun(
     input: CreateRunInput,
   ): Promise<{ agentId: string; runId: string }> {
-    const apiKey = this.apiKey();
+    const apiKey = await this.apiKey();
     const isCloud = input.cloud === true;
     // fast mode defaults OFF — pinned before the selection reaches either
     // runtime (the SDK would otherwise fall through to the fast variant)
@@ -283,7 +283,7 @@ export class CursorAgentService {
       const run = await Agent.getRun(runId, {
         runtime: "cloud",
         agentId,
-        apiKey: this.apiKey(),
+        apiKey: await this.apiKey(),
       });
       if (run.status !== "running") return false;
       await run.cancel();
@@ -372,7 +372,7 @@ export class CursorAgentService {
         const run = await Agent.getRun(runId, {
           runtime: "cloud",
           agentId,
-          apiKey: this.apiKey(),
+          apiKey: await this.apiKey(),
         });
         if (run.status === "running") return { state: "running" };
         return { state: "terminal", result: await run.wait() };
@@ -408,7 +408,7 @@ export class CursorAgentService {
         const run = await Agent.getRun(runId, {
           runtime: "cloud",
           agentId,
-          apiKey: this.apiKey(),
+          apiKey: await this.apiKey(),
         });
         return run.status === "running" ? run : null;
       }
@@ -466,7 +466,7 @@ export class CursorAgentService {
   } | null> {
     try {
       const res = await Agent.getUsage(agentId, {
-        apiKey: this.apiKey(),
+        apiKey: await this.apiKey(),
         runId,
       });
       const entry = res.runs.find((r) => r.runId === runId) ?? res.runs[0];

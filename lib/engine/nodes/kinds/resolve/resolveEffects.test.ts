@@ -5,17 +5,16 @@
  * the artifact ledger (§4). Fake GitHostResolver + injected retry sleep +
  * isolated temp SQLite DB (AGENTS.md §1).
  */
-import fs from "node:fs";
-import os from "node:os";
-import path from "node:path";
-import { describe, expect, it } from "vitest";
+import { beforeAll, describe, expect, it } from "vitest";
 
-process.env.DATABASE_PATH = path.join(
-  fs.mkdtempSync(path.join(os.tmpdir(), "devflow-resolve-effects-")),
-  "test.db",
-);
+
+import { assignTestDatabase, resetTestDatabase } from "../../../../../tests/helpers/testDatabase";
+
+assignTestDatabase();
 
 const { db } = await import("../../../../db/app");
+
+beforeAll(resetTestDatabase);
 const { NodeSupport } = await import("../../shared/nodeSupport");
 const { ResolveEffects, planResolveEffects } = await import("./resolveEffects");
 const { RESOLVE_COMMENT_ACTION } = await import("./constants/commentActions");
@@ -51,35 +50,35 @@ const response = (...decisions: ResolveCommentDecision[]): ResolveAgentResponse 
 /** In-memory comment row for the pure planner (the resolveContract.test row shape). */
 const row = (id: string, discussionId: string | null = `d_${id}`, raw: string | null = null): CommentRow => ({
   id,
-  flow_id: "flw_resolve_effects",
-  mr_iid: 42,
-  discussion_id: discussionId,
+  flowId: "flw_resolve_effects",
+  mrIid: 42,
+  discussionId,
   author: "reviewer",
   body: `comment ${id}`,
-  file_path: "src/a.ts",
+  filePath: "src/a.ts",
   line: 2,
   status: "open",
-  resolved_by: null,
+  resolvedBy: null,
   raw,
-  created_at: "2026-11-04T09:00:00.000Z",
-  updated_at: "2026-11-04T09:00:00.000Z",
+  createdAt: "2026-11-04T09:00:00.000Z",
+  updatedAt: "2026-11-04T09:00:00.000Z",
 });
 
 const EMPTY_LEDGER: ResolveEffectLedger = { replies: [], resolvedDiscussions: [] };
 
-const seedFlow = (flowId: string) => {
+const seedFlow = async (flowId: string): Promise<string> => {
   const taskId = `task_${flowId}`;
-  db.run(
-    `INSERT INTO tasks (id, type, key, summary, status, issue_type, priority) VALUES (?,?,?,?,?,?,?)`,
+  await db.run(
+    `INSERT INTO tasks (id, type, key, summary, status, issue_type, priority) VALUES ($1,$2,$3,$4,$5,$6,$7)`,
     taskId, "generic", `TST-${flowId}`, "resolve effects test", "open", "task", "P2",
   );
-  db.run(
-    `INSERT INTO flows (id, task_id, name, status, created_at, updated_at) VALUES (?,?,?,?,?,?)`,
+  await db.run(
+    `INSERT INTO flows (id, task_id, name, status, created_at, updated_at) VALUES ($1,$2,$3,$4,$5,$6)`,
     flowId, taskId, "resolve effects test", "active", now(), now(),
   );
   const nodeId = `node_${flowId}`;
-  db.run(
-    `INSERT INTO nodes (id, flow_id, node_key, type, status, created_at, updated_at) VALUES (?,?,?,?,?,?,?)`,
+  await db.run(
+    `INSERT INTO nodes (id, flow_id, node_key, type, status, created_at, updated_at) VALUES ($1,$2,$3,$4,$5,$6,$7)`,
     nodeId, flowId, "resolve", "resolve", "running", now(), now(),
   );
   return nodeId;
@@ -228,11 +227,11 @@ class FakeHostService {
 }
 
 const hostOf = (service: FakeHostService): GitHostResolver =>
-  ({ forRepo: () => service }) as unknown as GitHostResolver;
+  ({ forRepo: async () => service }) as unknown as GitHostResolver;
 
 const eventsByType = (flowId: string, type: string) =>
   db.all<{ type: string; message: string }>(
-    `SELECT type, message FROM events WHERE flow_id=? AND type=? ORDER BY created_at ASC`,
+    `SELECT type, message FROM events WHERE flow_id=$1 AND type=$2 ORDER BY created_at ASC`,
     flowId,
     type,
   );
@@ -241,27 +240,33 @@ const eventsByType = (flowId: string, type: string) =>
 
 describe("ResolveEffects.apply — host effects with retry + ledger", () => {
   const flowId = "flw_resolve_effects";
-  const nodeId = seedFlow(flowId);
+  let nodeId = "";
+  beforeAll(async () => {
+    nodeId = await seedFlow(flowId);
+  });
   const support = new NodeSupport();
   const repoUrl = "https://gitlab.company.com/group/repo.git";
 
-  const seedComment = (
+  const seedComment = async (
     id: string,
     { discussionId, raw, createdAt = now() }: { discussionId?: string | null; raw?: string; createdAt?: string } = {},
   ) => {
     // an explicit null must seed a threadless row (the ?? default only covers an omitted key)
     const thread = discussionId === undefined ? `d_${id}` : discussionId;
-    db.run(
+    await db.run(
       `INSERT INTO comments (id, flow_id, mr_iid, discussion_id, author, body, file_path, line, status, raw, created_at, updated_at)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`,
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)`,
       id, flowId, 42, thread, "reviewer", `comment ${id}`, "src/a.ts", 2,
       "open", raw ?? null, createdAt, now(),
     );
   };
 
-  const commentRows = () =>
-    db.all<CommentRow>(
-      `SELECT * FROM comments WHERE flow_id=? AND status='open' ORDER BY created_at ASC, id ASC`,
+  const commentRows = async () =>
+    await db.all<CommentRow>(
+      `SELECT id, flow_id AS "flowId", mr_iid AS "mrIid", discussion_id AS "discussionId", author, body,
+              file_path AS "filePath", line, status, resolved_by AS "resolvedBy", raw,
+              created_at AS "createdAt", updated_at AS "updatedAt"
+       FROM comments WHERE flow_id=$1 AND status='open' ORDER BY created_at ASC, id ASC`,
       flowId,
     );
 
@@ -271,36 +276,36 @@ describe("ResolveEffects.apply — host effects with retry + ledger", () => {
     repoUrl,
     mrIid: 42,
     ledger: EMPTY_LEDGER,
-    persistProgress: () => {},
+    persistProgress: async () => {},
     ...over,
   });
 
   it("fixed + resolve + pushed: reply posts first, then the host resolve closes the thread", async () => {
     const host = new FakeHostService();
     const effects = new ResolveEffects(support, hostOf(host), async () => {});
-    seedComment("gl_a");
+    await seedComment("gl_a");
 
-    const result = await effects.apply(input({ response: response(decision("gl_a", RESOLVE_COMMENT_ACTION.FIXED, { reply: "renamed badlyNamedValue" })), open: commentRows(), pushState: PUSH_STATE.PUSHED }));
+    const result = await effects.apply(input({ response: response(decision("gl_a", RESOLVE_COMMENT_ACTION.FIXED, { reply: "renamed badlyNamedValue" })), open: await commentRows(), pushState: PUSH_STATE.PUSHED }));
 
     expect(host.calls.map((c) => c.op)).toEqual(["reply", "resolve"]);
     expect(host.calls[0].body).toBe("**AI Resolve**\n\nrenamed badlyNamedValue");
     const noteId = host.calls[0].noteId;
     if (!noteId) throw new Error("expected the reply to return a note id");
     // G10: the posted reply is locally closed before the poller can re-deliver it
-    expect(db.get<{ status: string; resolved_by: string }>(
-      `SELECT status, resolved_by FROM comments WHERE id=?`,
+    expect(await db.get<{ status: string; resolved_by: string }>(
+      `SELECT status, resolved_by FROM comments WHERE id=$1`,
       noteId,
     )).toEqual({ status: "resolved", resolved_by: "agent" });
     expect(result).toMatchObject({ resolved: 1, replied: 1, wontfix: 0, skipped: 0, hostFailures: 0 });
-    expect(db.get<{ status: string }>(`SELECT status FROM comments WHERE id='gl_a'`)).toEqual({ status: "resolved" });
+    expect(await db.get<{ status: string }>(`SELECT status FROM comments WHERE id='gl_a'`)).toEqual({ status: "resolved" });
   });
 
   it("local-only closes for non-resolvable rows: nothing host-called, never a failure (G8)", async () => {
     const host = new FakeHostService();
     const effects = new ResolveEffects(support, hostOf(host), async () => {});
-    seedComment("gl_b", { raw: JSON.stringify({ resolvable: false }) });
-    seedComment("gl_c", { discussionId: null });
-    seedComment("gl_d", { discussionId: null });
+    await seedComment("gl_b", { raw: JSON.stringify({ resolvable: false }) });
+    await seedComment("gl_c", { discussionId: null });
+    await seedComment("gl_d", { discussionId: null });
 
     const result = await effects.apply(input({
       response: response(
@@ -308,27 +313,27 @@ describe("ResolveEffects.apply — host effects with retry + ledger", () => {
         decision("gl_c", RESOLVE_COMMENT_ACTION.FIXED),
         decision("gl_d", RESOLVE_COMMENT_ACTION.ANSWERED, { reply: "because two surfaces", resolve: false }),
       ),
-      open: commentRows(),
+      open: await commentRows(),
       pushState: PUSH_STATE.PUSHED,
     }));
 
     expect(host.calls).toEqual([]);
     expect(result.resolved).toBe(2);
     expect(result.hostFailures).toBe(0);
-    expect(db.get<{ status: string }>(`SELECT status FROM comments WHERE id='gl_c'`)).toEqual({ status: "resolved" });
+    expect(await db.get<{ status: string }>(`SELECT status FROM comments WHERE id='gl_c'`)).toEqual({ status: "resolved" });
     // the reply could not be posted (no thread) and the notes stay open (G11 marker path)
-    expect(db.get<{ status: string }>(`SELECT status FROM comments WHERE id='gl_d'`)).toEqual({ status: "open" });
-    expect(eventsByType(flowId, "log").some((e) => e.message.includes("no discussion thread"))).toBe(true);
+    expect(await db.get<{ status: string }>(`SELECT status FROM comments WHERE id='gl_d'`)).toEqual({ status: "open" });
+    expect((await eventsByType(flowId, "log")).some((e) => e.message.includes("no discussion thread"))).toBe(true);
   });
 
   it("pushed=false-like states hold threads open: local_only replies post, nothing resolves, no failure (§6A)", async () => {
     const host = new FakeHostService();
     const effects = new ResolveEffects(support, hostOf(host), async () => {});
-    seedComment("gl_e");
+    await seedComment("gl_e");
 
     const result = await effects.apply(input({
       response: response(decision("gl_e", RESOLVE_COMMENT_ACTION.FIXED, { reply: "renamed the variable" })),
-      open: commentRows(),
+      open: await commentRows(),
       pushState: PUSH_STATE.LOCAL_ONLY,
     }));
 
@@ -336,8 +341,8 @@ describe("ResolveEffects.apply — host effects with retry + ledger", () => {
     expect(result.replied).toBe(1);
     expect(result.resolved).toBe(0);
     expect(result.hostFailures).toBe(0);
-    expect(db.get<{ status: string }>(`SELECT status FROM comments WHERE id='gl_e'`)).toEqual({ status: "open" });
-    expect(eventsByType(flowId, "log").some((e) => e.message.includes("not pushed"))).toBe(true);
+    expect(await db.get<{ status: string }>(`SELECT status FROM comments WHERE id='gl_e'`)).toEqual({ status: "open" });
+    expect((await eventsByType(flowId, "log")).some((e) => e.message.includes("not pushed"))).toBe(true);
   });
 
   it("429s retry with honored retryAfterMs and recover mid-effect", async () => {
@@ -345,11 +350,11 @@ describe("ResolveEffects.apply — host effects with retry + ledger", () => {
     host.failOn("resolve", () => new GitHostApiError("rate limited", "/notes", 429, 2500));
     const delays: number[] = [];
     const effects = new ResolveEffects(support, hostOf(host), async (ms) => { delays.push(ms); });
-    seedComment("gl_f");
+    await seedComment("gl_f");
 
     const result = await effects.apply(input({
       response: response(decision("gl_f", RESOLVE_COMMENT_ACTION.FIXED)),
-      open: commentRows(),
+      open: await commentRows(),
       pushState: PUSH_STATE.PUSHED,
     }));
 
@@ -357,7 +362,7 @@ describe("ResolveEffects.apply — host effects with retry + ledger", () => {
     expect(delays).toEqual([2500]);
     expect(result.resolved).toBe(1);
     expect(result.hostFailures).toBe(0);
-    expect(db.get<{ status: string }>(`SELECT status FROM comments WHERE id='gl_f'`)).toEqual({ status: "resolved" });
+    expect(await db.get<{ status: string }>(`SELECT status FROM comments WHERE id='gl_f'`)).toEqual({ status: "resolved" });
   });
 
   it("exhausted 429 retries count one hostFailure and leave the thread open", async () => {
@@ -369,35 +374,35 @@ describe("ResolveEffects.apply — host effects with retry + ledger", () => {
     );
     const delays: number[] = [];
     const effects = new ResolveEffects(support, hostOf(host), async (ms) => { delays.push(ms); });
-    seedComment("gl_g");
+    await seedComment("gl_g");
 
     const result = await effects.apply(input({
       response: response(decision("gl_g", RESOLVE_COMMENT_ACTION.FIXED)),
-      open: commentRows(),
+      open: await commentRows(),
       pushState: PUSH_STATE.PUSHED,
     }));
 
     expect(host.calls.filter((c) => c.op === "resolve")).toHaveLength(3); // initial + 2 bounded retries
     expect(delays).toEqual([1000, 2000]); // backoff min(1s·2ⁿ, 8s)
     expect(result.hostFailures).toBe(1);
-    expect(db.get<{ status: string }>(`SELECT status FROM comments WHERE id='gl_g'`)).toEqual({ status: "open" });
-    expect(eventsByType(flowId, "error").some((e) => e.message.includes("could not resolve MR thread"))).toBe(true);
+    expect(await db.get<{ status: string }>(`SELECT status FROM comments WHERE id='gl_g'`)).toEqual({ status: "open" });
+    expect((await eventsByType(flowId, "error")).some((e) => e.message.includes("could not resolve MR thread"))).toBe(true);
   });
 
   it("404 is permanent — no retry, one call, one failure", async () => {
     const host = new FakeHostService();
     host.failOn("reply", () => new GitHostApiError("not found", "/notes", 404));
     const effects = new ResolveEffects(support, hostOf(host), async () => {});
-    seedComment("gl_h");
+    await seedComment("gl_h");
 
     const result = await effects.apply(input({
       response: response(decision("gl_h", RESOLVE_COMMENT_ACTION.WONTFIX, { reply: "won't change", resolve: false })),
-      open: commentRows(),
+      open: await commentRows(),
       pushState: PUSH_STATE.PUSHED,
     }));
 
     expect(host.calls).toHaveLength(1);
-    expect(eventsByType(flowId, "error").some((e) => e.message.includes("could not post reply"))).toBe(true);
+    expect((await eventsByType(flowId, "error")).some((e) => e.message.includes("could not post reply"))).toBe(true);
     expect(result.hostFailures).toBe(1);
     expect(result.wontfix).toBe(1);
   });
@@ -405,15 +410,15 @@ describe("ResolveEffects.apply — host effects with retry + ledger", () => {
   it("re-application skips ledgered effects and only counts the new ones (§4 recovery)", async () => {
     const host = new FakeHostService();
     const effects = new ResolveEffects(support, hostOf(host), async () => {});
-    seedComment("gl_i");
-    seedComment("gl_j", { discussionId: "d_j" });
+    await seedComment("gl_i");
+    await seedComment("gl_j", { discussionId: "d_j" });
 
     const first = await effects.apply(input({
       response: response(
         decision("gl_i", RESOLVE_COMMENT_ACTION.FIXED, { reply: "did it" }),
         decision("gl_j", RESOLVE_COMMENT_ACTION.FIXED),
       ),
-      open: commentRows(),
+      open: await commentRows(),
       pushState: PUSH_STATE.PUSHED,
     }));
     const callsAfterFirst = host.calls.length;
@@ -427,7 +432,7 @@ describe("ResolveEffects.apply — host effects with retry + ledger", () => {
         decision("gl_i", RESOLVE_COMMENT_ACTION.FIXED, { reply: "did it" }),
         decision("gl_j", RESOLVE_COMMENT_ACTION.FIXED),
       ),
-      open: commentRows(),
+      open: await commentRows(),
       pushState: PUSH_STATE.PUSHED,
       ledger: first.ledger,
     }));
@@ -440,47 +445,47 @@ describe("ResolveEffects.apply — host effects with retry + ledger", () => {
   it("persistProgress runs after every landed effect and journals the ledger into the artifact meta", async () => {
     const host = new FakeHostService();
     const effects = new ResolveEffects(support, hostOf(host), async () => {});
-    seedComment("gl_k");
+    await seedComment("gl_k");
 
     let saves = 0;
     await effects.apply(input({
       response: response(decision("gl_k", RESOLVE_COMMENT_ACTION.FIXED, { reply: "fixed in place" })),
-      open: commentRows(),
+      open: await commentRows(),
       pushState: PUSH_STATE.PUSHED,
-      persistProgress: (ledger) => {
+      persistProgress: async (ledger) => {
         saves += 1;
-        support.saveArtifact(nodeId, flowId, "resolve", "summary", { ledger });
+        await support.saveArtifact(nodeId, flowId, "resolve", "summary", { ledger });
       },
     }));
 
     // one persist per landed effect: reply, then host resolve
     expect(saves).toBe(2);
-    const versions = db.all<{ version: number; meta: string | null }>(
-      `SELECT version, meta FROM artifacts WHERE node_id=? AND kind='resolve' ORDER BY version`,
+    const versions = await db.all<{ version: number; meta: unknown }>(
+      `SELECT version, meta FROM artifacts WHERE node_id=$1 AND kind='resolve' ORDER BY version`,
       nodeId,
     );
     expect(versions).toHaveLength(2);
-    expect(JSON.parse(versions[1].meta ?? "{}").ledger.resolvedDiscussions).toEqual(["d_gl_k"]);
+    expect((versions[1].meta as { ledger?: { resolvedDiscussions?: string[] } } | null)?.ledger?.resolvedDiscussions).toEqual(["d_gl_k"]);
   });
 
   it("one failing effect never stops the rest of the plan (§4)", async () => {
     const host = new FakeHostService();
     host.failOn("resolve", () => new GitHostApiError("not found", "/notes", 404)); // permanent for the first thread
     const effects = new ResolveEffects(support, hostOf(host), async () => {});
-    seedComment("gl_l", { discussionId: "d_l" });
-    seedComment("gl_m", { discussionId: "d_m" });
+    await seedComment("gl_l", { discussionId: "d_l" });
+    await seedComment("gl_m", { discussionId: "d_m" });
 
     const result = await effects.apply(input({
       response: response(
         decision("gl_l", RESOLVE_COMMENT_ACTION.FIXED),
         decision("gl_m", RESOLVE_COMMENT_ACTION.FIXED),
       ),
-      open: commentRows(),
+      open: await commentRows(),
       pushState: PUSH_STATE.PUSHED,
     }));
 
     expect(result.hostFailures).toBe(1);
     expect(result.resolved).toBe(1); // gl_m's thread still closed
-    expect(db.get<{ status: string }>(`SELECT status FROM comments WHERE id='gl_m'`)).toEqual({ status: "resolved" });
+    expect(await db.get<{ status: string }>(`SELECT status FROM comments WHERE id='gl_m'`)).toEqual({ status: "resolved" });
   });
 });

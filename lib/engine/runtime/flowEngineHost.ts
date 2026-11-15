@@ -9,7 +9,7 @@ export type WaitSchedulerHost = {
   setNodeStatus(flowId: string, nodeKey: string, status: string): Promise<void>;
   claimNode(flowId: string, nodeKey: string, from: readonly NodeStatus[]): Promise<string>;
   bg(flowId: string, nodeKey: string | null, fn: () => Promise<void>, clearCurrentKey?: string | null): void;
-  nodeConfigFor(flowId: string, nodeKey: string): Record<string, unknown>;
+  nodeConfigFor(flowId: string, nodeKey: string): Promise<Record<string, unknown>>;
   chainBusy(flowId: string): Promise<boolean>;
   startNodeStage(
     flowId: string,
@@ -21,7 +21,7 @@ export type WaitSchedulerHost = {
 /** Narrow surface {@link EdgeActivator} needs from the orchestrator. */
 export type EdgeActivatorHost = WaitSchedulerHost & {
   ctx(flowId: string): Promise<FlowCtx>;
-  defOf(flowId: string, nodeKey: string): NodeDefinition;
+  defOf(flowId: string, nodeKey: string): Promise<NodeDefinition>;
   runNode(flowId: string, nodeKey: string, rawInput: unknown, deliveryPayload?: unknown): Promise<string>;
   setCurrentNode(flowId: string, key: string | null): Promise<void>;
   clearCurrentIf(flowId: string, nodeKey: string): Promise<void>;
@@ -37,5 +37,5 @@ export type FlowFactoryHost = {
 
 /** Schedule fields folded into the flow read model. */
 export type FlowReadScheduleHost = {
-  resolveScheduleAt(flowId: string): number | null;
+  resolveScheduleAt(flowId: string): Promise<number | null>;
 };

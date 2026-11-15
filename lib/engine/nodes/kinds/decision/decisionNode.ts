@@ -98,14 +98,14 @@ export class DecisionTemplateNode extends DeclarativeAgentNode<DecisionDef, Reco
   /** The engine's choose action validates + records a manual branch pick
    *  (with the pass-down variables merged in when the flow ctx is given). */
   async applyChoice(node: NodeRow, flowId: string, chosen: string[], rationale: string | undefined, ctx: FlowCtx): Promise<void> {
-    const cfg = this.runConfig(this.nodeConfig(ctx));
+    const cfg = this.runConfig(await this.nodeConfig(ctx));
     this.validateChoice(chosen, cfg);
-    const passed = await this.evalPass(cfg, buildFlowContext(ctx));
-    this.support.setNode(node.id, {
+    const passed = await this.evalPass(cfg, await buildFlowContext(ctx));
+    await this.support.setNode(node.id, {
       status: "approved",
       output: JSON.stringify({ ...passed, chosen, rationale: rationale ?? "chosen by the user" }),
     });
-    this.support.emitLifecycle(flowId, node.id, `branch chosen: ${chosen.join(" + ")}`);
+    await this.support.emitLifecycle(flowId, node.id, `branch chosen: ${chosen.join(" + ")}`);
   }
 
   validateChoice(chosen: string[], cfg: DecisionDef = this.def): void {
@@ -157,19 +157,19 @@ export class DecisionTemplateNode extends DeclarativeAgentNode<DecisionDef, Reco
 
   async run(ctx: FlowCtx, rawInput: Record<string, unknown>, config: Record<string, unknown>): Promise<RunOutcome> {
     const cfg = this.runConfig(config);
-    const node = this.node(ctx);
+    const node = await this.node(ctx);
     // inline paths (manual / expression) — set running, then finish through
     // the shared outcome path (status + output + event) like execute() does
-    this.support.setNode(node.id, { status: "running", input: JSON.stringify(rawInput ?? {}) });
+    await this.support.setNode(node.id, { status: "running", input: JSON.stringify(rawInput ?? {}) });
 
-    const flowCtx = buildFlowContext(ctx);
+    const flowCtx = await buildFlowContext(ctx);
     // the pass-down map is source-independent — evaluated once, merged into
     // whichever outcome the pick produces
     const passed = await this.evalPass(cfg, flowCtx);
 
     if (cfg.source === "manual") {
       // nothing to compute — hold and let the decision card collect the pick
-      return this.applyOutcome(ctx, this.awaiting("pick a branch in the decision card", passed, cfg));
+      return await this.applyOutcome(ctx, this.awaiting("pick a branch in the decision card", passed, cfg));
     }
 
     if (cfg.source === "expression") {
@@ -192,7 +192,7 @@ export class DecisionTemplateNode extends DeclarativeAgentNode<DecisionDef, Reco
           throw new Error(
             `${this.label}: no choice condition matched — every branch stayed inactive (${conditioned.map((c) => c.label).join(", ")})`);
         }
-        return this.applyOutcome(ctx, this.applyPick(ctx, chosen, `conditions matched: ${chosen.join(", ")}`, passed));
+        return await this.applyOutcome(ctx, await this.applyPick(ctx, chosen, `conditions matched: ${chosen.join(", ")}`, passed));
       }
       throw new Error(`${this.label}: no condition configured — set a JSONata condition on the choices`);
     }
@@ -209,13 +209,13 @@ export class DecisionTemplateNode extends DeclarativeAgentNode<DecisionDef, Reco
         mode: "plan",
         name: `${this.label} ${ctx.task.key}`,
         model: null, // a decision is a judgment call — it uses the flow/default model
-        startingRef: ctx.flow.mr_branch ?? undefined,
+        startingRef: ctx.flow.mrBranch ?? undefined,
         settingSources: cfg.mcp_sources,
       },
       label: `${this.label.toLowerCase()} decision`,
       finalize: async (runResult) => {
         const parsed = this.parseAgentChoice(cfg, runResult.result ?? "");
-        return this.applyPick(ctx, [parsed.choice], parsed.rationale, passed);
+        return await this.applyPick(ctx, [parsed.choice], parsed.rationale, passed);
       },
     });
   }
@@ -225,17 +225,17 @@ export class DecisionTemplateNode extends DeclarativeAgentNode<DecisionDef, Reco
    * with the note on the event. */
   override async recover(ctx: FlowCtx, node: NodeRow, result: AgentRunResult, note: string): Promise<boolean> {
     if (result.status !== "finished") return false; // fail it — decision runs are re-runnable
-    const cfg = this.runConfig(this.nodeConfig(ctx));
+    const cfg = this.runConfig(await this.nodeConfig(ctx));
     let outcome: RunOutcome;
     if (cfg.source === "agent") {
       const parsed = this.parseAgentChoice(cfg, result.result ?? "");
-      outcome = this.applyPick(ctx, [parsed.choice], parsed.rationale, await this.evalPass(cfg, buildFlowContext(ctx)));
+      outcome = await this.applyPick(ctx, [parsed.choice], parsed.rationale, await this.evalPass(cfg, await buildFlowContext(ctx)));
     } else if (cfg.source === "manual") {
-      outcome = this.awaiting("pick a branch in the decision card", await this.evalPass(cfg, buildFlowContext(ctx)), cfg);
+      outcome = this.awaiting("pick a branch in the decision card", await this.evalPass(cfg, await buildFlowContext(ctx)), cfg);
     } else {
       return false; // expression decisions run inline — nothing to recover from
     }
-    this.applyOutcome(ctx, outcome, { note });
+    await this.applyOutcome(ctx, outcome, { note });
     return true;
   }
 
@@ -246,8 +246,8 @@ export class DecisionTemplateNode extends DeclarativeAgentNode<DecisionDef, Reco
    * template instance's trigger is `approval` (agent proposes, user disposes)
    * — the same contract the agent node uses.
    */
-  private applyPick(ctx: FlowCtx, chosen: string[], rationale: string, passed: Record<string, unknown> = {}): RunOutcome {
-    const hold = this.holdsForApproval(ctx);
+  private async applyPick(ctx: FlowCtx, chosen: string[], rationale: string, passed: Record<string, unknown> = {}): Promise<RunOutcome> {
+    const hold = await this.holdsForApproval(ctx);
     return {
       status: hold ? "awaiting_approval" : "done",
       output: { ...passed, chosen, rationale },

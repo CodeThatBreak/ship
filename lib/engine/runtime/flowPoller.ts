@@ -1,7 +1,8 @@
 import "server-only";
 
+import { Prisma } from "@prisma/client";
 import { db } from "../../db/app";
-import { BranchRow, FlowRow } from "../../db/rows";
+import { FlowRow } from "../../db/rows";
 import { gitHostRegistry } from "../ports/gitHost";
 import { flowEngine } from "../flowEngine";
 import { reconciler } from "./flowReconciler";
@@ -42,7 +43,7 @@ export class FlowPoller {
     void reconciler.sweepStuckStepMerges().catch((e: unknown) =>
       console.warn(`step-merge reconcile failed: ${e instanceof Error ? e.message : e}`)
     );
-    void flowEngine.reArmWaitingTimers().catch((e: unknown) =>
+    void Promise.resolve(flowEngine.reArmWaitingTimers()).catch((e: unknown) =>
       console.warn(`wait-timer re-arm failed: ${e instanceof Error ? e.message : e}`)
     );
     setTimeout(() => void this.runTick(intervalMs), intervalMs).unref?.();
@@ -109,12 +110,12 @@ export class FlowPoller {
         if (branchMRs.length > 0) {
           for (const b of branchMRs) {
             if (b.mrIid == null) continue;
-            await this.checkPipeline(f as FlowRow, b.mrIid, b.name);
-            await this.checkDiscussions(f as FlowRow, b.mrIid, b.name);
+            await this.checkPipeline(f as unknown as FlowRow, b.mrIid, b.name);
+            await this.checkDiscussions(f as unknown as FlowRow, b.mrIid, b.name);
           }
         } else if (f.mrIid) {
-          await this.checkPipeline(f as FlowRow, f.mrIid);
-          await this.checkDiscussions(f as FlowRow, f.mrIid);
+          await this.checkPipeline(f as unknown as FlowRow, f.mrIid);
+          await this.checkDiscussions(f as unknown as FlowRow, f.mrIid);
         }
       } catch (e: unknown) {
         const msg = e instanceof Error ? e.message : String(e);
@@ -122,7 +123,7 @@ export class FlowPoller {
       }
     }
     this.pruneCommentCounts(activeFlowIds);
-    reconciler.pruneFlowMaps(activeFlowIds);
+    await reconciler.pruneFlowMaps(activeFlowIds);
   }
 
   /** Re-sync stuck `running` nodes for every active flow (throttled per flow). */
@@ -183,7 +184,7 @@ export class FlowPoller {
 
   private async checkPipeline(f: FlowRow, mrIid: number, branchName?: string): Promise<void> {
     const repoUrl = f.repoUrl ?? "";
-    const host = gitHostRegistry.forRepo(repoUrl);
+    const host = await gitHostRegistry.forRepo(repoUrl);
     const cr = await host.getChangeRequest(repoUrl, mrIid).catch(() => null);
     const pipe = cr?.headPipeline;
     if (!pipe) return;
@@ -196,7 +197,7 @@ export class FlowPoller {
       : await db.prisma.event.findFirst({
           where: {
             flowId: f.id, type: "pipeline",
-            OR: [{ data: { path: ["branchName"], equals: null } }, { data: { path: ["branchName"], equals: "" } }],
+            OR: [{ data: { path: ["branchName"], equals: Prisma.DbNull } }, { data: { path: ["branchName"], equals: "" } }],
           },
           orderBy: { createdAt: "desc" },
           select: { data: true },
@@ -231,8 +232,9 @@ export class FlowPoller {
 
   private async checkDiscussions(f: FlowRow, mrIid: number, branchName?: string): Promise<void> {
     const repoUrl = f.repoUrl ?? "";
-    const comments = await gitHostRegistry
-      .forRepo(repoUrl)
+    const comments = await (
+      await gitHostRegistry.forRepo(repoUrl)
+    )
       .listComments(repoUrl, mrIid)
       .catch(() => null);
     if (!comments) return;
@@ -251,7 +253,7 @@ export class FlowPoller {
         const mins = Math.round((await flowEngine.resolveDelayMs(f.id)) / 60_000);
         await db.emitEvent(f.id, null, "lifecycle",
           `${openCount} open comment(s)${branchName ? ` (${branchName})` : ""} — resolve queued for ` +
-          `${flowEngine.resolveScheduleClock(f.id) ?? FlowPoller.clockIn(await flowEngine.resolveDelayMs(f.id))} ` +
+          `${await flowEngine.resolveScheduleClock(f.id) ?? FlowPoller.clockIn(await flowEngine.resolveDelayMs(f.id))} ` +
           `(${mins} min quiet, then the pipeline gate)`,
           { nodeKey: (await templateStore.waitNodeKey(f.id, "comments")) ?? undefined });
       }

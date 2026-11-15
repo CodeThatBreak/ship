@@ -22,8 +22,8 @@ export type DeclarativeTemplateRow = {
   config: unknown;
 };
 
-export const declarativeHoldsForApproval = (ctx: FlowCtx, nodeKey: string): boolean => {
-  const graph = templateStore.graphForFlow(ctx.flow.id);
+export const declarativeHoldsForApproval = async (ctx: FlowCtx, nodeKey: string): Promise<boolean> => {
+  const graph = await templateStore.graphForFlow(ctx.flow.id);
   if (!graph) return false;
   const spec = graph.byKey.get(nodeKey);
   return spec?.trigger.type === NODE_TRIGGER_TYPE.APPROVAL;
@@ -73,7 +73,7 @@ export abstract class DeclarativeNode<
     return this.parseRunConfig(config) as unknown as Def;
   }
 
-  protected holdsForApproval(ctx: FlowCtx): boolean {
+  protected async holdsForApproval(ctx: FlowCtx): Promise<boolean> {
     return declarativeHoldsForApproval(ctx, this.key);
   }
 }
@@ -122,7 +122,7 @@ export abstract class DeclarativeAgentNode<
     return this.parseRunConfig(config) as unknown as Def;
   }
 
-  protected holdsForApproval(ctx: FlowCtx): boolean {
+  protected async holdsForApproval(ctx: FlowCtx): Promise<boolean> {
     return declarativeHoldsForApproval(ctx, this.key);
   }
 }

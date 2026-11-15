@@ -14,10 +14,10 @@ import type { SplitTargetLookup } from "./split";
  */
 export const flowSplitTargetLookup: SplitTargetLookup = {
   isNodeKey: (key) => nodeRegistry.has(key),
-  template: (idOrKey) => {
-    const byId = templateStore.nodeTemplate(idOrKey);
+  template: async (idOrKey) => {
+    const byId = await templateStore.nodeTemplate(idOrKey);
     if (byId) return { id: byId.id };
-    const byKey = templateStore.nodeTemplateByKey(idOrKey);
-    return byKey && byKey.is_builtin === 0 ? { id: byKey.id } : null;
+    const byKey = await templateStore.nodeTemplateByKey(idOrKey);
+    return byKey && !byKey.isBuiltin ? { id: byKey.id } : null;
   },
 };

@@ -25,10 +25,10 @@ export const RepoForm = ({
   detected?: DetectedPolicy | null;
 }) => {
   const installPlaceholder =
-    detected?.installCommand?.trim() || DEFAULT_INSTALL_PLACEHOLDER;
-  const syncPlaceholder = detected?.syncPaths?.trim() || DEFAULT_SYNC_PLACEHOLDER;
+    detected?.install_command?.trim() || DEFAULT_INSTALL_PLACEHOLDER;
+  const syncPlaceholder = detected?.sync_paths?.trim() || DEFAULT_SYNC_PLACEHOLDER;
   const sharedPlaceholder =
-    detected?.sharedDirs?.trim() || "node_modules/.cache\n.turbo";
+    detected?.shared_dirs?.trim() || "node_modules/.cache\n.turbo";
 
   return (
     <>

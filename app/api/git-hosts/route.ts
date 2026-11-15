@@ -9,11 +9,13 @@ export const runtime = "nodejs";
  * configured status, and their instances (tokens masked).
  */
 export async function GET() {
-  const hosts = gitHostRegistry.list().map((h) => ({
-    kind: h.kind,
-    label: h.label,
-    configured: h.configured(),
-    instances: h.instances(),
-  }));
+  const hosts = await Promise.all(
+    gitHostRegistry.list().map(async (h) => ({
+      kind: h.kind,
+      label: h.label,
+      configured: await h.configured(),
+      instances: await h.instances(),
+    })),
+  );
   return NextResponse.json({ hosts });
 }

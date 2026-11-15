@@ -72,7 +72,7 @@ export class MergeRequestService {
     }
 
     const repoUrl = flow.repoUrl ?? "";
-    const host = gitHostRegistry.forRepo(repoUrl);
+    const host = await gitHostRegistry.forRepo(repoUrl);
     const existing = await host.listChangeRequestsByBranch(repoUrl, gitBranch);
     let cr: ChangeRequest;
     const crTitle = branchName

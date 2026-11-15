@@ -41,24 +41,24 @@ export class PlanPromptBuilder {
     private readonly ctxHelper: FlowContextHelper,
     private readonly context: PlanContextBlocks,
     private readonly store: PlanStore,
-    private readonly knobOf: (ctx: FlowCtx) => ExecutionKnob
+    private readonly knobOf: (ctx: FlowCtx) => Promise<ExecutionKnob>
   ) {}
 
   /** Whole-plan / pre-publish conversation prompt (`plan_refine` assembly). */
-  refineTurn(ctx: FlowCtx, content: string): string {
+  async refineTurn(ctx: FlowCtx, content: string): Promise<string> {
     // a conversation turn carries no context-picker selection — the whole-mode
     // defaults (task, branches, edits) are the recommendation (§4 "no mode state")
-    const contextBlock = this.context.assemble(ctx, { contextBlocks: [] }, null);
+    const contextBlock = await this.context.assemble(ctx, { contextBlocks: [] }, null);
     const refined = prompts.resolve('plan_refine', {}, { feedback: content, context: contextBlock });
-    const execBlock = this.executionDirective(ctx);
+    const execBlock = await this.executionDirective(ctx);
     return execBlock ? `${refined}\n\n${execBlock}` : refined;
   }
 
   /** Whole-plan prompt: verbatim override or base plan template (first run). */
-  whole(ctx: FlowCtx, node: NodeRow, input: PlanInput): string {
+  async whole(ctx: FlowCtx, node: NodeRow, input: PlanInput): Promise<string> {
     const baseCtx = { ticket: this.ctxHelper.taskContext(ctx), ticket_type: this.ctxHelper.taskLabel(ctx) };
     const refining = Boolean(input.prompt);
-    const contextBlock = this.context.assemble(ctx, input, null, {
+    const contextBlock = await this.context.assemble(ctx, input, null, {
       // the base template already renders {{ticket}} — a task context block
       // earns its place only on refinement prompts (+ branch refines)
       skip: refining ? [] : ['task'],
@@ -69,7 +69,7 @@ export class PlanPromptBuilder {
     // rides the base/refine/promptIsBody paths so an "Edit prompt" run keeps
     // the output contract. The raw verbatim-prompt path is untouched
     // (feedback-echo refines skip it by definition).
-    const execBlock = this.executionDirective(ctx);
+    const execBlock = await this.executionDirective(ctx);
 
     if (input.prompt) {
       return input.promptIsBody
@@ -88,13 +88,14 @@ export class PlanPromptBuilder {
   /**
    * Branch-scoped turn prompt (`plan_subplan_refine`).
    */
-  scoped(ctx: FlowCtx, scoped: ScopedRefine, userMessage: string, contextBlocks: string[]): string {
-    const vars = this.scopedVars(ctx, scoped, userMessage, contextBlocks);
-    return prompts.resolve('plan_subplan_refine', {}, vars);
+  scoped(ctx: FlowCtx, scoped: ScopedRefine, userMessage: string, contextBlocks: string[]): Promise<string> {
+    return this.scopedVars(ctx, scoped, userMessage, contextBlocks).then(vars =>
+      prompts.resolve('plan_subplan_refine', {}, vars)
+    );
   }
 
   /** The scoped template's variables, built from the ref'd branch only (§2). */
-  scopedVars(ctx: FlowCtx, scoped: ScopedRefine, userMessage: string, contextBlocks: string[]): Record<string, string> {
+  async scopedVars(ctx: FlowCtx, scoped: ScopedRefine, userMessage: string, contextBlocks: string[]): Promise<Record<string, string>> {
     const b = scoped.branch;
     const input = PlanInput.parse({ contextBlocks });
     return {
@@ -106,7 +107,7 @@ export class PlanPromptBuilder {
       subPlanPrompt: b.subPlan?.prompt || '(none yet — seed the sub-plan from the contract above)',
       currentSteps: this.store.stepsText(scoped.liveRows),
       feedback: userMessage,
-      context: this.context.assemble(ctx, input, scoped, { skipContract: true }),
+      context: await this.context.assemble(ctx, input, scoped, { skipContract: true }),
     };
   }
 
@@ -118,8 +119,8 @@ export class PlanPromptBuilder {
    * is planner HINT text here, never a runtime threshold. Composed on the
    * TemplateComposer (Phase 5): skip-empty part semantics, no `join` array.
    */
-  executionDirective(ctx: FlowCtx): string | null {
-    if (this.knobOf(ctx) !== 'follow') return null;
+  async executionDirective(ctx: FlowCtx): Promise<string | null> {
+    if ((await this.knobOf(ctx)) !== 'follow') return null;
     return TemplateRenderer.compose('## Execution resolution — add these two top-level fields to your JSON response')
       .addLine(
         "This flow's plan node is configured so YOU decide how the work executes after approval. Add exactly two top-level fields (everything else in the schema is unchanged):"

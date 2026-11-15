@@ -44,7 +44,7 @@ describe('PlanOutputContract.parseTurnEnvelope', () => {
     {} as NodeSupport,
     {} as PlanStore,
     {} as AgentRunner,
-    () => 'whole',
+    () => Promise.resolve('whole'),
     'Plan'
   );
 

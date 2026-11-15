@@ -1,8 +1,8 @@
-import { describe, expect, it, vi } from "vitest";
-import { assignDatabasePath, createIsolatedDatabasePath } from "../../../tests/helpers/testDatabase";
+import { beforeAll, describe, expect, it, vi } from "vitest";
+import { assignTestDatabase, resetTestDatabase } from "../../../tests/helpers/testDatabase";
 import { ValidationError } from "../../errors";
 
-assignDatabasePath(createIsolatedDatabasePath("devflow-tpl-txn-"));
+assignTestDatabase();
 
 const { importTemplateYaml } = await import("./templateYaml");
 const { templateStore } = await import("./templateStore");
@@ -19,18 +19,22 @@ edges: []
 `;
 
 describe("TemplateStore transactions", () => {
-  it("saveWithDrafts leaves no draft rows when update fails (CR-050)", () => {
-    const { id } = importTemplateYaml(templateStore, miniYaml, { namePrefix: "save-drafts" });
-    const before = db.all<{ id: string }>(
-      `SELECT id FROM node_templates WHERE template_id=?`,
+  beforeAll(async () => {
+    await resetTestDatabase();
+  });
+
+  it("saveWithDrafts leaves no draft rows when update fails (CR-050)", async () => {
+    const { id } = await importTemplateYaml(templateStore, miniYaml, { namePrefix: "save-drafts" });
+    const before = (await db.all<{ id: string }>(
+      `SELECT id FROM node_templates WHERE template_id=$1`,
       id,
-    ).length;
+    )).length;
 
     const spy = vi.spyOn(templateStore, "update").mockImplementation(() => {
       throw new ValidationError("simulated save failure");
     });
     try {
-      expect(() =>
+      await expect(() =>
         templateStore.saveWithDrafts(id, {
           nodes: [
             {
@@ -49,21 +53,21 @@ describe("TemplateStore transactions", () => {
             },
           ],
         }),
-      ).toThrow("simulated save failure");
+      ).rejects.toThrow("simulated save failure");
     } finally {
       spy.mockRestore();
     }
 
-    const after = db.all<{ id: string }>(
-      `SELECT id FROM node_templates WHERE template_id=?`,
+    const after = (await db.all<{ id: string }>(
+      `SELECT id FROM node_templates WHERE template_id=$1`,
       id,
-    ).length;
+    )).length;
     expect(after).toBe(before);
   });
 
-  it("failed YAML import does not delete a reused pre-existing node template (CR-067)", () => {
+  it("failed YAML import does not delete a reused pre-existing node template (CR-067)", async () => {
     const agentConfig = { prompt: "reuse me", model: "test" };
-    const existing = templateStore.ensureNodeTemplate({
+    const existing = await templateStore.ensureNodeTemplate({
       key: "reuse_agent",
       name: "Reuse agent",
       kind: "agent",
@@ -89,10 +93,10 @@ edges:
   - [reuse_agent, missing_target]
 `;
 
-    expect(() => importTemplateYaml(templateStore, badYaml, { namePrefix: "cr067" })).toThrow();
-    expect(templateStore.nodeTemplate(existing.id)?.id).toBe(existing.id);
+    await expect(() => importTemplateYaml(templateStore, badYaml, { namePrefix: "cr067" })).rejects.toThrow();
+    expect((await templateStore.nodeTemplate(existing.id))?.id).toBe(existing.id);
     expect(
-      db.get<{ c: number }>(`SELECT COUNT(*) c FROM flow_templates WHERE name LIKE ?`, "cr067 — Broken import%")?.c,
+      (await db.get<{ c: number }>(`SELECT COUNT(*)::int c FROM flow_templates WHERE name LIKE $1`, "cr067 — Broken import%"))?.c,
     ).toBe(0);
   });
 });

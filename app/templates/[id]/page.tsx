@@ -22,7 +22,7 @@ export default async function TemplateEditorRoute({
   params: Promise<{ id: string }>;
 }) {
   const { id } = await params;
-  const boot = loadEditorBoot(id);
+  const boot = await loadEditorBoot(id);
   if (!boot) notFound();
 
   // the editor's first paint never fetches: the boot data lands in the same

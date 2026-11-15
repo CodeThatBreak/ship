@@ -24,7 +24,7 @@ export const PATCH = async (req: Request, { params }: { params: Promise<{ host: 
     if (nextBase) {
       await validateGitHostInstanceBaseUrl(svc, id, nextBase);
     }
-    svc.updateInstance(id, {
+    await svc.updateInstance(id, {
       name: body.name,
       baseUrl: body.baseUrl ?? body.base_url,
       token: body.token,
@@ -40,7 +40,7 @@ export const DELETE = async (_req: Request, { params }: { params: Promise<{ host
     const { host, id } = await params;
     const svc = gitHostRegistry.maybe(host);
     if (!svc) return NextResponse.json({ error: `unknown git host: ${host}` }, { status: 404 });
-    svc.removeInstance(id);
+    await svc.removeInstance(id);
     return NextResponse.json({ ok: true });
   } catch (e: unknown) {
     return toErrorResponse(e);
@@ -54,7 +54,7 @@ export const POST = async (req: Request, { params }: { params: Promise<{ host: s
     const svc = gitHostRegistry.maybe(host);
     if (!svc) return NextResponse.json({ error: `unknown git host: ${host}` }, { status: 404 });
     const body = await parseJson(req, gitHostInstanceTestBodySchema);
-    const existing = svc.instances().find((i) => i.id === id);
+    const existing = (await svc.instances()).find((i) => i.id === id);
     if (!existing) return NextResponse.json({ error: `host instance not found: ${id}` }, { status: 404 });
     const baseUrl = await resolveInstanceTestBaseUrl(existing.baseUrl, body.baseUrl ?? body.base_url);
     const result = await svc.testInstance(id, { baseUrl, token: body.token });

@@ -40,7 +40,7 @@ export interface PlanStepRow {
   updatedAt: string;
 }
 
-type PlanStepDelegate = Prisma.PlanStepDelegate<Prisma.TransactionClient | undefined>;
+type PlanStepDelegate = Prisma.PlanStepDelegate;
 
 /** Row shape consumers see (ISO timestamps, `files` as a JSON string). */
 const toRow = (r: {
@@ -292,7 +292,7 @@ export class PlanStepStore {
       await stepTx.deleteMany({ where: { flowId, branch: branchName } });
       for (const [i, s] of steps.entries()) {
         const prev = s.id ? stateByMetaId.get(s.id) : undefined;
-        const status = prev?.status ?? "pending";
+        const status = prev?.status === "done" ? "done" : "pending";
         const completedBy = status === "done" ? prev?.completedBy ?? "manual" : null;
         await stepTx.create({
           data: {

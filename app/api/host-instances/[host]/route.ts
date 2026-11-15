@@ -13,7 +13,7 @@ export const GET = async (_req: Request, { params }: { params: Promise<{ host: s
   const { host } = await params;
   const svc = gitHostRegistry.maybe(host);
   if (!svc) return NextResponse.json({ error: `unknown git host: ${host}` }, { status: 404 });
-  return NextResponse.json({ instances: svc.instances(), configured: svc.configured() });
+  return NextResponse.json({ instances: await svc.instances(), configured: await svc.configured() });
 };
 
 export const POST = async (req: Request, { params }: { params: Promise<{ host: string }> }) => {
@@ -23,7 +23,7 @@ export const POST = async (req: Request, { params }: { params: Promise<{ host: s
     if (!svc) return NextResponse.json({ error: `unknown git host: ${host}` }, { status: 404 });
     const body = await parseJson(req, gitHostInstanceCreateBodySchema);
     const baseUrl = await validateNewGitHostBaseUrl(body.baseUrl);
-    const inst = svc.addInstance({ name: body.name, baseUrl, token: body.token });
+    const inst = await svc.addInstance({ name: body.name, baseUrl, token: body.token });
     return NextResponse.json({ instance: inst });
   } catch (e: unknown) {
     return toErrorResponse(e);

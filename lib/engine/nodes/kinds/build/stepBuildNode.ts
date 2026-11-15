@@ -5,7 +5,7 @@ import { agentRunner, type AgentRunner } from "../../../harness/harnessExports";
 import { AgentRunNode, flowCtxHelper, type FlowContextHelper } from "../../shared/nodeSharedExports";
 import type { FlowCtx, NodeTriggerRun, RunOutcome } from "../../shared/nodeSharedExports";
 import { nodeSupport, type NodeSupport } from "../../shared/nodeSupport";
-import type { FlowRow, NodeRow } from "../../../../db/rows";
+import type { NodeRow } from "../../../../db/rows";
 import type { AgentRunResult } from "../../../ports/agentPort";
 import { prompts } from "../../../prompts/promptLibrary";
 import { DEFAULT_FANOUT_OUTPUT, type MergeBackArgs, type MergeBackResult, type NodeCapabilities } from "../../shared/capabilities";
@@ -101,7 +101,7 @@ export class StepBuildNode extends AgentRunNode<BuildInput, BuildOutput> {
     this.buildRun = new BuildRunSupport(support, ctxHelper);
   }
 
-  override triggerRuns(ctx: FlowCtx): NodeTriggerRun[] {
+  override async triggerRuns(ctx: FlowCtx): Promise<NodeTriggerRun[]> {
     const step = this.payloadOf(ctx)?.step;
     if (!step) throw new Error("this step child has no step payload — the fan-out linkage is broken");
     return [{ input: { step, prompt: null, feedback: null, model: null } }];
@@ -117,12 +117,12 @@ export class StepBuildNode extends AgentRunNode<BuildInput, BuildOutput> {
     if (!step) throw new Error("this step child has no step payload to build");
     const settingSources = mcpSourcesOf(config);
 
-    const node = this.node(ctx);
+    const node = await this.node(ctx);
     const mode = this.ctxHelper.execMode(ctx);
     // the step branch was assigned by the StepFlowManager (flows.mr_branch on
     // the child row); the built-in naming is the fallback
     const branch = this.buildRun.flowBranch(ctx);
-    const parentFlowId = ctx.flow.parent_flow_id;
+    const parentFlowId = ctx.flow.parentFlowId;
     if (!parentFlowId) throw new Error("the step child has no parent flow — not a fan-out child");
 
     // local mode builds run in the child's own worktree keyed by the child
@@ -135,7 +135,7 @@ export class StepBuildNode extends AgentRunNode<BuildInput, BuildOutput> {
       : `Implement ONE step of the approved plan below for a ${ticketType} ticket. Make the code changes for exactly that step, commit them, and push to your step branch "${branch}". Do NOT open a merge request.`;
     instructions += this.buildRun.setupAdvisory(setupNote);
 
-    const planMarkdown = this.parentPlanMarkdown(parentFlowId);
+    const planMarkdown = await this.parentPlanMarkdown(parentFlowId);
     const stepSection = [
       `- id: ${step.id}`,
       `- title: ${step.title}`,
@@ -162,7 +162,7 @@ export class StepBuildNode extends AgentRunNode<BuildInput, BuildOutput> {
         autoCreatePR: false,
         // local worktree mode: the branch already exists (created with the
         // worktree) — the cloud side lets the agent branch off the default ref
-        startingRef: mode === "local" ? branch : (ctx.repo?.default_branch ?? "main"),
+        startingRef: mode === "local" ? branch : (ctx.repo?.defaultBranch ?? "main"),
         cwd: worktree ?? undefined,
         model: input.model,
         settingSources,
@@ -194,7 +194,7 @@ export class StepBuildNode extends AgentRunNode<BuildInput, BuildOutput> {
 
   /** Chat refinement inside the child: follow-up fix on the same step branch. */
   private async refineStep(ctx: FlowCtx, feedback: string, model?: string | null): Promise<RunOutcome> {
-    const node = this.node(ctx);
+    const node = await this.node(ctx);
     const branch = this.buildRun.flowBranch(ctx);
     const { worktree, setupNote } = await this.buildRun.worktree(ctx, branch, node.id);
     let prompt = prompts.resolve("build_refine", {}, { feedback });
@@ -205,11 +205,11 @@ export class StepBuildNode extends AgentRunNode<BuildInput, BuildOutput> {
       agent: {
         mode: "agent",
         name: `step build refine ${ctx.task.key}`,
-        followUpOn: this.support.lastAgentId(node.id),
+        followUpOn: await this.support.lastAgentId(node.id),
         startingRef: branch,
         cwd: worktree ?? undefined,
         model,
-        settingSources: mcpSourcesOf(this.nodeConfig(ctx)),
+        settingSources: mcpSourcesOf(await this.nodeConfig(ctx)),
       },
       label: "step build refine",
       finalize: async (result) => {
@@ -240,13 +240,13 @@ export class StepBuildNode extends AgentRunNode<BuildInput, BuildOutput> {
     // idempotent: a concurrent reconcile may have already recovered this node
     if (node.status !== "running") return true;
     const branch = this.buildRun.reportedBranch(result) ?? this.buildRun.flowBranch(ctx);
-    this.support.setFlowBranch(ctx.flow.id, branch);
-    ctx.flow.mr_branch = branch;
+    await this.support.setFlowBranch(ctx.flow.id, branch);
+    ctx.flow.mrBranch = branch;
     const art = await this.buildRun.diffArtifact(ctx, node.id, branch, {
       noDiffContent: "(diff unavailable — fetch from GitLab)",
       extraMeta: { recovered: true },
     });
-    this.applyOutcome(ctx, {
+    await this.applyOutcome(ctx, {
       status: "awaiting_approval",
       output: this.outputSchema.parse({ branch, latestArtifact: art.id }),
       event: `step build recovered on branch ${branch}; diff ready for review`,
@@ -260,7 +260,7 @@ export class StepBuildNode extends AgentRunNode<BuildInput, BuildOutput> {
 
   /** The child flow's persisted `{plan, step, siblings, parentNodeKey}` payload. */
   private payloadOf(ctx: FlowCtx): StepChildPayload | null {
-    const raw: unknown = (ctx.flow as FlowRow).trigger_payload ?? null;
+    const raw: unknown = ctx.flow.triggerPayload ?? null;
     const p = raw && typeof raw === "object" ? raw : null;
     if (!p) return null;
     const parsed = StepBuildTriggerPayload.safeParse(p);
@@ -269,8 +269,8 @@ export class StepBuildNode extends AgentRunNode<BuildInput, BuildOutput> {
   }
 
   /** The FULL parent plan markdown, so the child agent knows where its step sits. */
-  private parentPlanMarkdown(parentFlowId: string): string {
-    const row = this.support.latestArtifact(parentFlowId, "plan");
+  private async parentPlanMarkdown(parentFlowId: string): Promise<string> {
+    const row = await this.support.latestArtifact(parentFlowId, "plan");
     return row?.content ?? "";
   }
 }

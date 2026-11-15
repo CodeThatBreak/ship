@@ -68,7 +68,7 @@ export class NodeSupport {
    */
   async claim(flowId: string, nodeKey: string, from: readonly NodeStatus[]): Promise<string> {
     const attempt = db.uid("att_");
-    const marks = from.map((_, i) => `$${i + 5}`).join(",");
+    const marks = from.map((_, i) => `$${i + 6}`).join(",");
     const changes = await db.run(
       `UPDATE nodes SET status = $1, attempt_id = $2, updated_at = $3
        WHERE flow_id = $4 AND node_key = $5 AND status IN (${marks})`,
@@ -95,7 +95,7 @@ export class NodeSupport {
     from: readonly NodeStatus[],
     to: NodeStatus,
   ): Promise<void> {
-    const marks = from.map((_, i) => `$${i + 5}`).join(",");
+    const marks = from.map((_, i) => `$${i + 6}`).join(",");
     const clearAttempt = to !== NODE_STATUS.RUNNING;
     const changes = await db.run(
       `UPDATE nodes SET status = $1, attempt_id = $2, updated_at = $3
@@ -319,9 +319,9 @@ export class NodeSupport {
     const type = opts.nodeType;
     const scope = type ? ` AND n.type=$3` : "";
     const cap = opts.limit ? ` LIMIT ${Math.trunc(opts.limit)}` : "";
-    const sql = `SELECT a.id, a.version, a.content, a.meta FROM artifacts a JOIN nodes n ON n.id=a.nodeId
-       WHERE n.flowId=$1 AND a.kind=$2${scope}
-       ORDER BY a.version DESC, a.createdAt DESC${cap}`;
+    const sql = `SELECT a.id, a.version, a.content, a.meta FROM artifacts a JOIN nodes n ON n.id=a.node_id
+       WHERE n.flow_id=$1 AND a.kind=$2${scope}
+       ORDER BY a.version DESC, a.created_at DESC${cap}`;
     return type ? await db.all(sql, flowId, kind, type) : await db.all(sql, flowId, kind);
   }
 

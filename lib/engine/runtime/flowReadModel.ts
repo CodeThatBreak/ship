@@ -27,7 +27,7 @@ type NodeTemplateRow = {
   name: string;
   kind: string;
   icon: string | null;
-  isBuiltin: number;
+  isBuiltin: boolean;
 };
 
 const ARTIFACT_LIST_COLUMNS =
@@ -90,15 +90,32 @@ export class FlowReadModel {
 
     const stepRunStats = new Map<string, { costCents: number; tokens: number; durationMs: number; runCount: number }>();
     const branches = await db.rows.all(BranchRow, `SELECT id, flow_id AS "flowId", name, git_branch AS "gitBranch", title, status, mr_url AS "mrUrl", mr_iid AS "mrIid", "order", created_at AS "createdAt", updated_at AS "updatedAt" FROM branches WHERE flow_id=$1 ORDER BY "order", created_at`, id);
-    const mergeStateMap = stepFlows.mergeStates(id);
+    const mergeStateMap = await stepFlows.mergeStates(id);
     const steps = (await db.rows.all(PlanStepRow, `SELECT id, flow_id AS "flowId", artifact_id AS "artifactId", meta_id AS "metaId", position, title, detail, files, branch, status, origin, completed_by AS "completedBy", sub_flow_id AS "subFlowId", created_at AS "createdAt", updated_at AS "updatedAt" FROM plan_steps WHERE flow_id=$1 ORDER BY position, created_at`, id))
       .map((s) => ({ ...s, files: s.files ?? [] }));
+
+    /** rows.ts rows are camelCase; the UI read model keeps its snake_case shape. */
+    const toUiStep = (s: (typeof steps)[number]) => ({
+      id: s.id,
+      flow_id: s.flowId,
+      artifact_id: s.artifactId,
+      meta_id: s.metaId,
+      position: s.position,
+      title: s.title,
+      detail: s.detail,
+      files: s.files,
+      branch: s.branch,
+      status: s.status,
+      origin: s.origin,
+      completed_by: s.completedBy,
+      sub_flow_id: s.subFlowId,
+    });
 
     const childFlowIds = steps.map((s) => s.subFlowId).filter((v): v is string => Boolean(v));
     const childFlowById = new Map<string, FlowRow>();
     const childNodesByFlowId = new Map<string, NodeRow[]>();
     if (childFlowIds.length) {
-      const placeholders = childFlowIds.map(() => "?").join(",");
+      const placeholders = childFlowIds.map((_, i) => `$${i + 1}`).join(",");
       for (const child of await db.rows.all(FlowRow,
         `SELECT id, task_id AS "taskId", name, status, mr_url AS "mrUrl", mr_iid AS "mrIid", mr_branch AS "mrBranch", repo_url AS "repoUrl", gitlab_project_id AS "gitlabProjectId", current_node AS "currentNode", execution_mode AS "executionMode", repo_id AS "repoId", template_id AS "templateId", template_graph AS "templateGraph", trigger_payload AS "triggerPayload", worktree_dir AS "worktreeDir", parent_flow_id AS "parentFlowId", kind, created_at AS "createdAt", updated_at AS "updatedAt" FROM flows WHERE id IN (${placeholders})`, ...childFlowIds)) {
         childFlowById.set(child.id, child);
@@ -129,16 +146,17 @@ export class FlowReadModel {
     }
 
     const stepsEnriched = steps.map((s) => {
-      if (!s.subFlowId) return s;
+      const base = toUiStep(s);
+      if (!s.subFlowId) return base;
       const child = childFlowById.get(s.subFlowId);
-      if (!child) return s;
+      if (!child) return base;
       const childNodes = childNodesByFlowId.get(s.subFlowId) ?? [];
       let parentNodeKey: string | null = null;
       const p = child.triggerPayload ?? {};
       parentNodeKey = typeof p.parentNodeKey === "string" ? p.parentNodeKey : null;
       const ms = mergeStateMap[s.subFlowId] ?? null;
       return {
-        ...s,
+        ...base,
         sub_flow: {
           id: child.id,
           name: child.name,
@@ -168,7 +186,7 @@ export class FlowReadModel {
     const artifactsByNodeId = new Map<string, ArtifactRow[]>();
     if (nodeRows.length) {
       const nodeIds = nodeRows.map((n) => n.id);
-      const artPlaceholders = nodeIds.map(() => "?").join(",");
+      const artPlaceholders = nodeIds.map((_, i) => `$${i + 1}`).join(",");
       const allArtifacts = await db.rows.all(ArtifactRow,
         `SELECT ${ARTIFACT_LIST_COLUMNS} FROM artifacts WHERE node_id IN (${artPlaceholders}) ORDER BY kind, version`,
         ...nodeIds);
@@ -201,18 +219,18 @@ export class FlowReadModel {
         order: b.order,
       })),
       planSteps: stepsEnriched,
-      resolveScheduleAt: this.schedule.resolveScheduleAt(id),
+      resolveScheduleAt: await this.schedule.resolveScheduleAt(id),
       task: toFlowTask(task),
       hooks: (await hookStore.hooksForFlow(id)).flatMap((h: HookRow) =>
         h.flowId == null
           ? []
           : [{ id: h.id, flow_id: h.flowId, node_key: h.nodeKey, secret: maskHookSecret(h.secret), filter: h.filter }],
       ),
-      nodes: nodeRows.map((n): FlowNode => {
+      nodes: await Promise.all(nodeRows.map(async (n): Promise<FlowNode> => {
         const nt = ntOf(n.type);
         const def = nodeRegistry.maybe(n.type)
           ?? (nt?.isBuiltin ? nodeRegistry.maybe(nt.key) : undefined)
-          ?? declarativeDef(n.type, n.nodeKey);
+          ?? await declarativeDef(n.type, n.nodeKey);
         const cost = nodeCosts.get(n.id) ?? { totalCents: 0, tokens: 0, runs: [] };
         return {
           id: n.id,
@@ -232,13 +250,13 @@ export class FlowReadModel {
           artifacts: (artifactsByNodeId.get(n.id) ?? []).map(toFlowArtifact),
           cost,
         };
-      }),
+      })),
     };
   }
 
   async list() {
     const flows = await db.prisma.flow.findMany({
-      where: { OR: [{ kind: null }, { kind: { not: "step" } }], parentFlowId: null },
+      where: { kind: { not: "step" }, parentFlowId: null },
       orderBy: { updatedAt: "desc" },
       select: {
         id: true, taskId: true, name: true, status: true, mrUrl: true, mrIid: true,
@@ -254,9 +272,8 @@ export class FlowReadModel {
       by: ["flowId"],
       where: { subFlowId: { not: null } },
       _count: { _all: true },
-      _sum: { status: true },
     })) {
-      // _sum.status counts non-null statuses; done counts need a filtered sum — compute per flow
+      // done counts need a filtered count — compute per flow
       const done = await db.prisma.planStep.count({ where: { flowId: r.flowId, subFlowId: { not: null }, status: "done" } });
       fanoutByFlow.set(r.flowId, { steps: r._count._all, done });
     }

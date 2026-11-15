@@ -8,19 +8,22 @@
  * terminal status + output and advances the outgoing edges — the downstream
  * consumes an aggregate nothing validated.
  *
- * Runs against an isolated temp SQLite DB (AGENTS.md §1 — never a real DB).
+ * Runs against the isolated dockerized Postgres test database
+ * (AGENTS.md §1 — never a demo/real DB).
  */
-import { describe, expect, test } from "vitest";
-import { assignDatabasePath, createIsolatedDatabasePath } from "../helpers/testDatabase";
+import { beforeAll, describe, expect, test } from "vitest";
+import { assignTestDatabase, resetTestDatabase } from "../helpers/testDatabase";
 import { FlowHarness } from "../helpers/flowHarness";
 
-assignDatabasePath(createIsolatedDatabasePath("devflow-ovh-unvalidated-"));
+assignTestDatabase();
 
 const { db } = await import("@/lib/db/app");
 const { flowEngine } = await import("@/lib/engine/flowEngine");
 const { templateStore } = await import("@/lib/engine/templates/templateStore");
 
 const harness = new FlowHarness({ db, flowEngine, templateStore });
+
+beforeAll(resetTestDatabase);
 
 /** A split consumer (build) feeding a downstream node, so "advance" is observable. */
 const splitFlowYaml = `
@@ -44,10 +47,10 @@ const { importTemplateYaml } = await import("@/lib/engine/templates/templateYaml
 describe("unvalidated fan-out/split aggregate", () => {
   // OVERHAUL: flip in step 04
   test.fails("finishSplit contract failure fails the node and does NOT advance the flow", async () => {
-    const { id: templateId } = importTemplateYaml(templateStore, splitFlowYaml, {
+    const { id: templateId } = await importTemplateYaml(templateStore, splitFlowYaml, {
       namePrefix: "ovh-unvalidated",
     });
-    const flowId = harness.seedFlowFromTemplate(templateId);
+    const flowId = await harness.seedFlowFromTemplate(templateId);
 
     // the split consumer is mid-run when a malformed aggregate resolves: the
     // `units` entries violate the split contract (status out of vocabulary)
@@ -58,10 +61,10 @@ describe("unvalidated fan-out/split aggregate", () => {
 
     // target: the node is failed with a typed contract event, and the
     // downstream node is NOT started (the flow does not advance on invalid data)
-    expect(harness.nodeStatus(flowId, "build")).toBe("failed");
-    const contractEvents = harness.events(flowId, { nodeKey: "build" })
+    expect(await harness.nodeStatus(flowId, "build")).toBe("failed");
+    const contractEvents = (await harness.events(flowId, { nodeKey: "build" }))
       .filter((e) => e.message.toLowerCase().includes("contract"));
     expect(contractEvents.length).toBeGreaterThan(0);
-    expect(harness.nodeStatus(flowId, "gate")).toBe("pending");
+    expect(await harness.nodeStatus(flowId, "gate")).toBe("pending");
   });
 });

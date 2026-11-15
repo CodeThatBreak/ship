@@ -31,15 +31,15 @@ const { templateStore } = await import("./templates/templateStore");
 const now = () => new Date().toISOString();
 
 /** One isolated task + flow on the seeded SDLC template (template_id null). */
-function seedFlow(index: number): string {
+async function seedFlow(index: number): Promise<string> {
   const taskId = `task_${index}`;
   const flowId = `flw_${index}`;
-  db.run(
-    `INSERT INTO tasks (id, type, key, summary, status, issue_type, priority) VALUES (?,?,?,?,?,?,?)`,
+  await db.run(
+    `INSERT INTO tasks (id, type, key, summary, status, issue_type, priority) VALUES ($1,$2,$3,$4,$5,$6,$7)`,
     taskId, "generic", `TST-${index}`, "metadata test", "open", "task", "P2",
   );
-  db.run(
-    `INSERT INTO flows (id, task_id, name, status, created_at, updated_at) VALUES (?,?,?,?,?,?)`,
+  await db.run(
+    `INSERT INTO flows (id, task_id, name, status, created_at, updated_at) VALUES ($1,$2,$3,$4,$5,$6)`,
     flowId, taskId, `metadata test ${index}`, "active", now(), now(),
   );
   return flowId;
@@ -48,22 +48,22 @@ function seedFlow(index: number): string {
 describe("engine chain-role routing (T3)", () => {
   const engine = new FlowEngine();
 
-  it("keyOfRole resolves the flow's node for a chain role through the metadata", () => {
-    const flowId = seedFlow(1);
-    const expected = templateStore.graphForFlow(flowId)?.nodes
+  it("keyOfRole resolves the flow's node for a chain role through the metadata", async () => {
+    const flowId = await seedFlow(1);
+    const expected = (await templateStore.graphForFlow(flowId))?.nodes
       .find((n) => n.defKey === NODE_KEYS.PLAN)?.key ?? null;
     expect(expected).not.toBeNull(); // the seeded SDLC template has a plan role
-    expect(engine.keyOfRole(flowId, NODE_KEYS.PLAN)).toBe(expected);
-    expect(engine.keyOfRole(flowId, NODE_KEYS.RESOLVE)).toBe(
-      templateStore.graphForFlow(flowId)?.nodes.find((n) => n.defKey === NODE_KEYS.RESOLVE)?.key ?? null,
+    expect(await engine.keyOfRole(flowId, NODE_KEYS.PLAN)).toBe(expected);
+    expect(await engine.keyOfRole(flowId, NODE_KEYS.RESOLVE)).toBe(
+      (await templateStore.graphForFlow(flowId))?.nodes.find((n) => n.defKey === NODE_KEYS.RESOLVE)?.key ?? null,
     );
   });
 
-  it("gateKey resolves the CI gate through the pipeline def's wait source", () => {
-    const flowId = seedFlow(2);
-    const expected = templateStore.waitNodeKey(flowId, NODE_KEYS.PIPELINE);
+  it("gateKey resolves the CI gate through the pipeline def's wait source", async () => {
+    const flowId = await seedFlow(2);
+    const expected = await templateStore.waitNodeKey(flowId, NODE_KEYS.PIPELINE);
     expect(expected).not.toBeNull(); // the seeded SDLC template has a gate
-    expect(engine.gateKey(flowId)).toBe(expected);
+    expect(await engine.gateKey(flowId)).toBe(expected);
   });
 
   it("delete throws NotFoundError when the flow id is missing", async () => {
@@ -74,22 +74,22 @@ describe("engine chain-role routing (T3)", () => {
     });
   });
 
-  it("plan and build approvals belong to their built-in flow actions (the flag, not the key)", () => {
-    const flowId = seedFlow(3);
+  it("plan and build approvals belong to their built-in flow actions (the flag, not the key)", async () => {
+    const flowId = await seedFlow(3);
     for (const [nodeKey, type] of [[NODE_KEYS.PLAN, NODE_KEYS.PLAN], [NODE_KEYS.BUILD, NODE_KEYS.BUILD]] as const) {
-      db.run(
-        `INSERT INTO nodes (id, flow_id, node_key, type, status, created_at, updated_at) VALUES (?,?,?,?,?,?,?)`,
+      await db.run(
+        `INSERT INTO nodes (id, flow_id, node_key, type, status, created_at, updated_at) VALUES ($1,$2,$3,$4,$5,$6,$7)`,
         `node_${flowId}_${nodeKey}`, flowId, nodeKey, type, "awaiting_approval", now(), now(),
       );
-      expect(() => engine.approveNode(flowId, nodeKey))
-        .toThrow(`${nodeKey} approval belongs to its built-in flow actions`);
+      await expect(engine.approveNode(flowId, nodeKey))
+        .rejects.toThrow(`${nodeKey} approval belongs to its built-in flow actions`);
     }
   });
 
-  it("rolls back flow rows when node insert fails mid-create (CR-012)", () => {
+  it("rolls back flow rows when node insert fails mid-create (CR-012)", async () => {
     const taskId = "task_create_txn";
-    db.run(
-      `INSERT INTO tasks (id, type, key, summary, status, issue_type, priority) VALUES (?,?,?,?,?,?,?)`,
+    await db.run(
+      `INSERT INTO tasks (id, type, key, summary, status, issue_type, priority) VALUES ($1,$2,$3,$4,$5,$6,$7)`,
       taskId, "jira", "CREATE-TXN", "txn test", "open", "task", "P2",
     );
     const origRun = db.run.bind(db);
@@ -97,22 +97,22 @@ describe("engine chain-role routing (T3)", () => {
     vi.spyOn(db, "run").mockImplementation((sql: string, ...params: unknown[]) => {
       if (typeof sql === "string" && sql.includes("INSERT INTO nodes")) {
         nodeInserts += 1;
-        if (nodeInserts === 2) throw new Error("simulated node insert failure");
+        if (nodeInserts === 2) return Promise.reject(new Error("simulated node insert failure"));
       }
       return origRun(sql, ...params);
     });
 
-    expect(() => engine.create(taskId, "https://example.com/repo.git")).toThrow("simulated node insert failure");
-    expect(db.all(`SELECT id FROM flows WHERE task_id=?`, taskId)).toHaveLength(0);
-    expect(db.all(`SELECT id FROM nodes WHERE flow_id IN (SELECT id FROM flows WHERE task_id=?)`, taskId)).toHaveLength(0);
+    await expect(engine.create(taskId, "https://example.com/repo.git")).rejects.toThrow("simulated node insert failure");
+    expect(await db.all(`SELECT id FROM flows WHERE task_id=$1`, taskId)).toHaveLength(0);
+    expect(await db.all(`SELECT id FROM nodes WHERE flow_id IN (SELECT id FROM flows WHERE task_id=$1)`, taskId)).toHaveLength(0);
   });
 
-  it("sendChat refuses a second refine while the plan node is already running", () => {
-    const flowId = seedFlow(4);
-    const planKey = engine.keyOfRole(flowId, NODE_KEYS.PLAN);
+  it("sendChat refuses a second refine while the plan node is already running", async () => {
+    const flowId = await seedFlow(4);
+    const planKey = await engine.keyOfRole(flowId, NODE_KEYS.PLAN);
     if (!planKey) throw new Error("expected plan key");
-    db.run(
-      `INSERT INTO nodes (id, flow_id, node_key, type, status, attempt_id, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?)`,
+    await db.run(
+      `INSERT INTO nodes (id, flow_id, node_key, type, status, attempt_id, created_at, updated_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
       `node_${flowId}_plan`,
       flowId,
       planKey,
@@ -122,15 +122,15 @@ describe("engine chain-role routing (T3)", () => {
       now(),
       now(),
     );
-    expect(() => engine.sendChat(flowId, planKey, "second message")).toThrow(ConflictError);
+    await expect(engine.sendChat(flowId, planKey, "second message")).rejects.toThrow(ConflictError);
   });
 
-  it("approvePlan rejects when the plan node is running (refine in flight)", () => {
-    const flowId = seedFlow(5);
-    const planKey = engine.keyOfRole(flowId, NODE_KEYS.PLAN);
+  it("approvePlan rejects when the plan node is running (refine in flight)", async () => {
+    const flowId = await seedFlow(5);
+    const planKey = await engine.keyOfRole(flowId, NODE_KEYS.PLAN);
     if (!planKey) throw new Error("expected plan key");
-    db.run(
-      `INSERT INTO nodes (id, flow_id, node_key, type, status, attempt_id, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?)`,
+    await db.run(
+      `INSERT INTO nodes (id, flow_id, node_key, type, status, attempt_id, created_at, updated_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
       `node_${flowId}_plan`,
       flowId,
       planKey,
@@ -140,15 +140,15 @@ describe("engine chain-role routing (T3)", () => {
       now(),
       now(),
     );
-    expect(() => engine.approvePlan(flowId)).toThrow(/not awaiting approval/);
+    await expect(engine.approvePlan(flowId)).rejects.toThrow(/not awaiting approval/);
   });
 
-  it("triggerResolve re-runs when the resolve node is already done", () => {
-    const flowId = seedFlow(7);
-    const resolveKey = engine.keyOfRole(flowId, NODE_KEYS.RESOLVE);
+  it("triggerResolve re-runs when the resolve node is already done", async () => {
+    const flowId = await seedFlow(7);
+    const resolveKey = await engine.keyOfRole(flowId, NODE_KEYS.RESOLVE);
     if (!resolveKey) throw new Error("expected resolve key");
-    db.run(
-      `INSERT INTO nodes (id, flow_id, node_key, type, status, created_at, updated_at) VALUES (?,?,?,?,?,?,?)`,
+    await db.run(
+      `INSERT INTO nodes (id, flow_id, node_key, type, status, created_at, updated_at) VALUES ($1,$2,$3,$4,$5,$6,$7)`,
       `node_${flowId}_resolve`,
       flowId,
       resolveKey,
@@ -158,22 +158,24 @@ describe("engine chain-role routing (T3)", () => {
       now(),
     );
     vi.spyOn(engine, "bg").mockImplementation(() => {});
-    expect(() => engine.triggerResolve(flowId)).not.toThrow();
+    await engine.triggerResolve(flowId);
     expect(
-      db.get<{ status: string }>(
-        `SELECT status FROM nodes WHERE flow_id=? AND node_key=?`,
-        flowId,
-        resolveKey,
+      (
+        await db.get<{ status: string }>(
+          `SELECT status FROM nodes WHERE flow_id=$1 AND node_key=$2`,
+          flowId,
+          resolveKey,
+        )
       )?.status,
     ).toBe("running");
   });
 
   it("finishFanout does not regress a parent node after the aggregate is already published (CR-009)", async () => {
-    const flowId = seedFlow(6);
-    const buildKey = engine.keyOfRole(flowId, NODE_KEYS.BUILD);
+    const flowId = await seedFlow(6);
+    const buildKey = await engine.keyOfRole(flowId, NODE_KEYS.BUILD);
     if (!buildKey) throw new Error("expected build key");
-    db.run(
-      `INSERT INTO nodes (id, flow_id, node_key, type, status, created_at, updated_at) VALUES (?,?,?,?,?,?,?)`,
+    await db.run(
+      `INSERT INTO nodes (id, flow_id, node_key, type, status, created_at, updated_at) VALUES ($1,$2,$3,$4,$5,$6,$7)`,
       `node_${flowId}_build`,
       flowId,
       buildKey,
@@ -186,15 +188,15 @@ describe("engine chain-role routing (T3)", () => {
       steps: [{ id: "s1", title: "Step", status: "done" as const, output: {} }],
     };
     await engine.finishFanout(flowId, buildKey, aggregate);
-    const afterFirst = db.get<{ status: string; output: string | null }>(
-      `SELECT status, output FROM nodes WHERE flow_id=? AND node_key=?`, flowId, buildKey);
+    const afterFirst = await db.get<{ status: string; output: string | null }>(
+      `SELECT status, output FROM nodes WHERE flow_id=$1 AND node_key=$2`, flowId, buildKey);
     expect(afterFirst?.status).toBe("awaiting_approval");
 
     await engine.finishFanout(flowId, buildKey, {
       steps: [{ id: "s2", title: "Retry", status: "failed" as const, output: {} }],
     });
-    const afterSecond = db.get<{ status: string; output: string | null }>(
-      `SELECT status, output FROM nodes WHERE flow_id=? AND node_key=?`, flowId, buildKey);
+    const afterSecond = await db.get<{ status: string; output: string | null }>(
+      `SELECT status, output FROM nodes WHERE flow_id=$1 AND node_key=$2`, flowId, buildKey);
     expect(afterSecond?.status).toBe(afterFirst?.status);
     expect(afterSecond?.output).toBe(afterFirst?.output);
   });
@@ -203,9 +205,9 @@ describe("engine chain-role routing (T3)", () => {
 describe("ingestComments", () => {
   const engine = new FlowEngine();
 
-  it("stores mr_iid on new comment rows", () => {
-    const flowId = seedFlow(50);
-    const n = engine.ingestComments(flowId, [{
+  it("stores mr_iid on new comment rows", async () => {
+    const flowId = await seedFlow(50);
+    const n = await engine.ingestComments(flowId, [{
       id: "host-c1",
       threadId: "t1",
       author: "reviewer",
@@ -218,6 +220,8 @@ describe("ingestComments", () => {
       createdAt: now(),
     }], 7);
     expect(n).toBe(1);
-    expect(db.get<{ mr_iid: number | null }>(`SELECT mr_iid FROM comments WHERE id=?`, "host-c1")?.mr_iid).toBe(7);
+    expect(
+      (await db.get<{ mrIid: number | null }>(`SELECT mr_iid AS "mrIid" FROM comments WHERE id=$1`, "host-c1"))?.mrIid,
+    ).toBe(7);
   });
 });

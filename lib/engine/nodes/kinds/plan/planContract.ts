@@ -52,7 +52,7 @@ export class PlanOutputContract {
     private readonly support: NodeSupport,
     private readonly store: PlanStore,
     private readonly runner: AgentRunner,
-    private readonly knobOf: (ctx: FlowCtx) => ExecutionKnob,
+    private readonly knobOf: (ctx: FlowCtx) => Promise<ExecutionKnob>,
     private readonly label: string
   ) {}
 
@@ -108,14 +108,14 @@ export class PlanOutputContract {
    * subPlan | subPlanPatch | reply-only. Throws {@link AgentOutputError} on
    * contract violations (including whole `plan` on branch turns).
    */
-  applyTurnResult(
+  async applyTurnResult(
     ctx: FlowCtx,
     node: NodeRow,
     turnKind: PlanTurnKind,
     userMessage: string,
     text: string,
     scoped: ScopedRefine | null
-  ): { reply: string; outcome: RunOutcome | null } {
+  ): Promise<{ reply: string; outcome: RunOutcome | null }> {
     const envelope = this.parseTurnEnvelope(text);
     const reply = envelope.reply;
     const hasPlan = envelope.plan != null;
@@ -150,7 +150,7 @@ export class PlanOutputContract {
             response: text,
           });
         }
-        return { reply, outcome: this.scopedSubPlanOutcome(ctx, node, scoped, subPlan) };
+        return { reply, outcome: await this.scopedSubPlanOutcome(ctx, node, scoped, subPlan) };
       }
       if (hasPatch) {
         const subPlanPatch = envelope.subPlanPatch;
@@ -163,7 +163,7 @@ export class PlanOutputContract {
             response: text,
           });
         }
-        return { reply, outcome: this.scopedPatchOutcome(ctx, node, scoped, subPlanPatch) };
+        return { reply, outcome: await this.scopedPatchOutcome(ctx, node, scoped, subPlanPatch) };
       }
     }
 
@@ -178,7 +178,7 @@ export class PlanOutputContract {
     }
 
     if (hasPlan) {
-      const nodeNow = this.support.nodeByKey(ctx.flow.id, node.node_key);
+      const nodeNow = await this.support.nodeByKey(ctx.flow.id, node.nodeKey);
       const status = nodeNow.status ?? '';
       // §3b apply guard, fenced on OWNERSHIP (docs/coding-patterns.md §3.6,
       // not the raw status string): `sendChat` claims the node (running + a
@@ -190,13 +190,13 @@ export class PlanOutputContract {
       // default, never a silent mid-run mutation.
       const ownsClaim =
         status === FLOW_STATUS.RUNNING &&
-        node.attempt_id != null &&
-        nodeNow.attempt_id === node.attempt_id;
+        node.attemptId != null &&
+        nodeNow.attemptId === node.attemptId;
       if (!ownsClaim && !PLAN_APPLY_ALLOWED.has(status)) {
-        this.support.emitLifecycle(ctx.flow.id, nodeNow.id, planUpdateIgnoredEvent(status));
+        await this.support.emitLifecycle(ctx.flow.id, nodeNow.id, planUpdateIgnoredEvent(status));
         throw new PlanApplyRefusedError(planRefusedReply(reply, planRefusalReason(status)));
       }
-      const prevVersion = this.store.latestPlan(ctx.flow.id)?.art.version ?? 0;
+      const prevVersion = (await this.store.latestPlan(ctx.flow.id))?.art.version ?? 0;
       const refined: RefinedFrom | undefined =
         turnKind === 'pre-publish'
           ? planBodyDiverged(userMessage)
@@ -213,7 +213,7 @@ export class PlanOutputContract {
           response: text,
         });
       }
-      const outcome = this.applyValidatedPlan(ctx, nodeNow, plan, {
+      const outcome = await this.applyValidatedPlan(ctx, nodeNow, plan, {
         userMessage,
         refined,
       });
@@ -267,7 +267,7 @@ export class PlanOutputContract {
     args: PlanRunArgs
   ): Promise<{ reply: string; outcome: RunOutcome | null }> {
     try {
-      return this.applyTurnResult(ctx, node, turnKind, userMessage, text, scoped);
+      return await this.applyTurnResult(ctx, node, turnKind, userMessage, text, scoped);
     } catch (e: unknown) {
       if (e instanceof PlanApplyRefusedError) {
         return { reply: e.reply, outcome: null };
@@ -286,7 +286,7 @@ export class PlanOutputContract {
     failure: AgentOutputError,
     args: PlanRunArgs
   ): Promise<{ reply: string; outcome: RunOutcome | null }> {
-    this.support.emitLifecycle(
+    await this.support.emitLifecycle(
       ctx.flow.id,
       node.id,
       `${args.label} output contract failed — retrying with feedback (${failure.code})`
@@ -296,12 +296,12 @@ export class PlanOutputContract {
       retry = await this.runner.executeRun(
         ctx,
         node.id,
-        () =>
+        async () =>
           this.runner.startAgent(ctx, {
             prompt: this.turnRetryPrompt(failure, turnKind),
             mode: 'plan',
             name: `${args.label} ${ctx.task.key}`,
-            followUpOn: this.support.lastAgentId(node.id),
+            followUpOn: await this.support.lastAgentId(node.id),
             model: args.model,
             settingSources: args.settingSources,
           }),
@@ -314,7 +314,7 @@ export class PlanOutputContract {
       throw e;
     }
     try {
-      return this.applyTurnResult(ctx, node, turnKind, userMessage, retry.result.result ?? '', scoped);
+      return await this.applyTurnResult(ctx, node, turnKind, userMessage, retry.result.result ?? '', scoped);
     } catch (e: unknown) {
       if (e instanceof PlanApplyRefusedError) {
         return { reply: e.reply, outcome: null };
@@ -330,21 +330,21 @@ export class PlanOutputContract {
    * `syncFromPlan`), then awaiting approval. Shared by the run outcome and
    * the conversational apply so they can never drift.
    */
-  private applyValidatedPlan(
+  private async applyValidatedPlan(
     ctx: FlowCtx,
     node: NodeRow,
     plan: PlanResponse,
     opts: { userMessage: string; refined?: RefinedFrom }
-  ): RunOutcome {
+  ): Promise<RunOutcome> {
     const planMeta: PlanMeta = { steps: withStepIds(plan.steps), branches: plan.branches ?? [] };
-    const { art, stepCount } = this.store.persistPlan({
+    const { art, stepCount } = await this.store.persistPlan({
       ctx,
       node,
       userMessage: opts.userMessage,
       text: plan.markdown,
       planMeta,
       plannerExecution: this.store.normalizePlannerExecution(plan),
-      knob: this.knobOf(ctx),
+      knob: await this.knobOf(ctx),
       refined: opts.refined,
     });
     return this.planOutcome(art, planMeta, stepCount, plan.markdown, this.readRunModel(node));
@@ -360,17 +360,17 @@ export class PlanOutputContract {
    * Replay a finished unified turn from the recorded run snapshot + agent text.
    * Returns null when the snapshot or response cannot be applied.
    */
-  recoverTurnOutcome(ctx: FlowCtx, node: NodeRow, result: AgentRunResult, input: PlanInput): RunOutcome | null {
+  async recoverTurnOutcome(ctx: FlowCtx, node: NodeRow, result: AgentRunResult, input: PlanInput): Promise<RunOutcome | null> {
     if (result.status !== 'finished') return null;
     const turnKind = input.planTurnKind;
     if (!turnKind) return null;
 
     const branch = input.planThread?.trim() || null;
-    const scoped = branch ? this.store.scopedRefine(ctx.flow.id, branch) : null;
+    const scoped = branch ? await this.store.scopedRefine(ctx.flow.id, branch) : null;
     if (branch && !scoped) return null;
 
     try {
-      const applied = this.applyTurnResult(
+      const applied = await this.applyTurnResult(
         ctx,
         node,
         turnKind,
@@ -385,18 +385,18 @@ export class PlanOutputContract {
   }
 
   /** Unified-turn recovery only — no legacy `run()` replay. */
-  recoverOutcome(ctx: FlowCtx, node: NodeRow, result: AgentRunResult, input?: PlanInput): RunOutcome | null {
+  async recoverOutcome(ctx: FlowCtx, node: NodeRow, result: AgentRunResult, input?: PlanInput): Promise<RunOutcome | null> {
     if (!input?.planTurnKind) return null;
     return this.recoverTurnOutcome(ctx, node, result, input);
   }
 
   /** The scoped refine's tail: deterministic merge → new artifact version
    *  (plan markdown unchanged) → scoped checklist sync → awaiting approval. */
-  private scopedSubPlanOutcome(ctx: FlowCtx, node: NodeRow, scoped: ScopedRefine, sub: SubPlanResponse): RunOutcome {
+  private async scopedSubPlanOutcome(ctx: FlowCtx, node: NodeRow, scoped: ScopedRefine, sub: SubPlanResponse): Promise<RunOutcome> {
     const branchName = scoped.branch.name;
 
     const merged = BranchRefinement.merge(scoped.latest.meta, branchName, sub);
-    const art = this.support.saveArtifact(node.id, ctx.flow.id, 'plan', scoped.latest.art.content, {
+    const art = await this.support.saveArtifact(node.id, ctx.flow.id, 'plan', scoped.latest.art.content, {
       ...scoped.latest.rawMeta,
       steps: merged.steps,
       branches: merged.branches,
@@ -404,7 +404,7 @@ export class PlanOutputContract {
       refinedFrom: { version: scoped.latest.art.version, source: REFINED_FROM_SOURCE.BRANCH },
     });
 
-    const stepCount = planSteps.replaceBranch(
+    const stepCount = await planSteps.replaceBranch(
       ctx.flow.id,
       art.id,
       branchName,
@@ -424,10 +424,10 @@ export class PlanOutputContract {
     };
   }
 
-  private scopedPatchOutcome(ctx: FlowCtx, node: NodeRow, scoped: ScopedRefine, patch: SubPlanPatch): RunOutcome {
+  private async scopedPatchOutcome(ctx: FlowCtx, node: NodeRow, scoped: ScopedRefine, patch: SubPlanPatch): Promise<RunOutcome> {
     const branchName = scoped.branch.name;
     const merged = BranchRefinement.applyPatch(scoped.latest.meta, branchName, patch);
-    const art = this.support.saveArtifact(node.id, ctx.flow.id, 'plan', scoped.latest.art.content, {
+    const art = await this.support.saveArtifact(node.id, ctx.flow.id, 'plan', scoped.latest.art.content, {
       ...scoped.latest.rawMeta,
       steps: merged.steps,
       branches: merged.branches,
@@ -436,7 +436,7 @@ export class PlanOutputContract {
     });
 
     const branchSteps = merged.steps.filter(s => s.branch === branchName);
-    const stepCount = planSteps.replaceBranch(ctx.flow.id, art.id, branchName, branchSteps);
+    const stepCount = await planSteps.replaceBranch(ctx.flow.id, art.id, branchName, branchSteps);
 
     const oldSteps = scoped.latest.meta.steps.filter(s => s.branch === branchName);
     const { added, removed, changed } = BranchRefinement.diffSteps(oldSteps, branchSteps);

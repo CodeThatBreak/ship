@@ -88,7 +88,7 @@ export class NodeStore {
   async insertSnapshots(flowId: string, graph: TemplateGraph, opts: InsertNodeSnapshotsOptions = {}): Promise<void> {
     const ts = opts.ts ? new Date(opts.ts) : new Date();
     for (const spec of graph.nodes) {
-      const def = nodeRegistry.resolve(spec.defKey, spec.key);
+      const def = await nodeRegistry.resolve(spec.defKey, spec.key);
       const config = mergeConfigLayers(def.defaultConfig(), appLayerConfig(def.key), spec.config);
       await db.prisma.node.create({
         data: {

@@ -11,27 +11,27 @@ export class MrTargetResolver {
     private readonly gitBranchOf = branchStore.gitBranch.bind(branchStore),
   ) {}
 
-  resolve(
+  async resolve(
     ctx: FlowCtx,
     planBranchName?: string | null,
-  ): { mrIid: number; mrBranch: string | null } {
+  ): Promise<{ mrIid: number; mrBranch: string | null }> {
     if (planBranchName) {
-      const mrIid = this.support.branchMrIid(ctx.flow.id, planBranchName);
+      const mrIid = await this.support.branchMrIid(ctx.flow.id, planBranchName);
       if (!mrIid) {
         throw new Error(
           `no merge request for branch ${planBranchName} — create it first`,
         );
       }
-      const persisted = this.gitBranchOf(ctx.flow.id, planBranchName);
+      const persisted = await this.gitBranchOf(ctx.flow.id, planBranchName);
       const mrBranch = persisted ?? flowCtxHelper.buildBranch(ctx, planBranchName);
       return { mrIid, mrBranch };
     }
-    if (!ctx.flow.mr_iid) {
+    if (!ctx.flow.mrIid) {
       throw new Error(
         "no merge request yet — approve the build to create one first",
       );
     }
-    return { mrIid: ctx.flow.mr_iid, mrBranch: ctx.flow.mr_branch };
+    return { mrIid: ctx.flow.mrIid, mrBranch: ctx.flow.mrBranch };
   }
 }
 

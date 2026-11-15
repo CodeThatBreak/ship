@@ -94,7 +94,7 @@ export class CursorCloudAgentPort implements AgentPort {
   }
 
   async status(): Promise<{ configured: boolean; detail?: string }> {
-    const configured = cursorCredentials.isStored();
+    const configured = await cursorCredentials.isStored();
     return {
       configured,
       detail: configured ? undefined : "Cursor API key is not set — add it in Settings → Integrations → Harness",

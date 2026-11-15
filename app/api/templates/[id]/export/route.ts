@@ -11,14 +11,14 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
   try {
     // draft instances (Phase 2) have no catalog row yet — exporting would
     // reference node templates that don't exist
-    if (templateStore.hasDraftNodes(id)) {
+    if (await templateStore.hasDraftNodes(id)) {
       return Response.json(
         { error: "Save before exporting — this template has custom nodes that aren't saved yet." },
         { status: 409 },
       );
     }
-    const yaml = gatherTemplateYaml(templateStore, id);
-    const name = templateStore.flowTemplate(id)?.name ?? "template";
+    const yaml = await gatherTemplateYaml(templateStore, id);
+    const name = (await templateStore.flowTemplate(id))?.name ?? "template";
     return new Response(yaml, {
       status: 200,
       headers: {

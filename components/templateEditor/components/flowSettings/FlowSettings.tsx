@@ -23,7 +23,7 @@ import type { TaskProviderInfo } from '../../types';
 export type RepoOption = {
   id: string;
   name: string;
-  local_path: string | null;
+  localPath: string | null;
 };
 
 /** An inbound hook — the template's always-provisioned webhook endpoint. */

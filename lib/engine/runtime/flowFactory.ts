@@ -1,6 +1,7 @@
 import "server-only";
 
 import { db } from "../../db/app";
+import { Prisma } from "@prisma/client";
 import { FlowRow, Task } from "../../db/rows";
 import { NotFoundError, ValidationError } from "../../errors";
 import { FLOW_KIND } from "../constants/flowKind";
@@ -71,7 +72,7 @@ export class FlowFactory {
           id, taskId, name: name ?? `${task.key} flow`, status: "active",
           repoUrl, repoId: repo?.id ?? null, executionMode,
           templateId: graph.templateId,
-          triggerPayload: opts.triggerPayload != null ? (opts.triggerPayload as never) : null,
+          triggerPayload: opts.triggerPayload != null ? (opts.triggerPayload as never) : Prisma.DbNull,
           createdAt: new Date(ts), updatedAt: new Date(ts),
         },
       });
@@ -80,11 +81,11 @@ export class FlowFactory {
       void tx;
     });
     if (opts.autoStart) {
-      this.host.start(id);
+      void this.host.start(id);
     } else {
       const entryKey = nodeRegistry.entryKey();
       const entry = entryKey ? graph.nodes.find((n) => n.defKey === entryKey) : undefined;
-      if (entry?.trigger.type === "auto") this.host.start(id);
+      if (entry?.trigger.type === "auto") void this.host.start(id);
     }
     return id;
   }
@@ -115,7 +116,7 @@ export class FlowFactory {
       await tx.flow.create({
         data: {
           id, taskId: parent.taskId, name, status: "active",
-          repoUrl: parent.repoUrl, repoId: parent.repoId, executionMode: parent.executionMode,
+          repoUrl: parent.repoUrl, repoId: parent.repoId, executionMode: parent.executionMode ?? undefined,
           templateId: graph.templateId,
           triggerPayload: payload as never,
           mrBranch: opts.branch,
@@ -148,7 +149,7 @@ export class FlowFactory {
       await tx.flow.create({
         data: {
           id, taskId: parent.taskId, name, status: "active",
-          repoUrl: parent.repoUrl, repoId: parent.repoId, executionMode: parent.executionMode,
+          repoUrl: parent.repoUrl, repoId: parent.repoId, executionMode: parent.executionMode ?? undefined,
           templateId: graph.templateId,
           triggerPayload: payload as never,
           parentFlowId,

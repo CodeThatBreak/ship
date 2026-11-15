@@ -1,4 +1,5 @@
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import Database from "better-sqlite3";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -9,7 +10,6 @@ import {
   FLOW_CHILD_TABLES as SEED_FLOW_CHILD_TABLES,
   resolveSeedDb,
 } from "../scripts/lib/seed-db.mjs";
-import { createIsolatedDatabasePath } from "./helpers/testDatabase";
 
 describe("seed-db FLOW_CHILD_TABLES", () => {
   it("matches FlowEngine delete order", () => {
@@ -17,25 +17,26 @@ describe("seed-db FLOW_CHILD_TABLES", () => {
   });
 });
 
-describe("DatabaseConfig.path", () => {
+describe("DatabaseConfig.url", () => {
   const envSnapshot = { ...process.env };
 
   afterEach(() => {
     process.env = { ...envSnapshot };
   });
 
-  it("uses devflow.prod.db under production when DATABASE_PATH is unset", () => {
-    delete process.env.DATABASE_PATH;
+  it("uses the devflow_prod URL under production when DATABASE_URL is unset", () => {
+    delete process.env.DATABASE_URL;
     vi.stubEnv("NODE_ENV", "production");
     const cfg = new AppConfig();
-    expect(cfg.db.path()).toBe(path.resolve(AppConfig.root, "./data/devflow.prod.db"));
-    expect(cfg.db.demoPath()).toBe(path.resolve(AppConfig.root, "./data/devflow.db"));
+    expect(cfg.db.url()).toBe("postgresql://devflow:devflow@localhost:5432/devflow_prod");
+    expect(cfg.db.demoUrl()).toBe("postgresql://devflow:devflow@localhost:5432/devflow");
   });
 });
 
 describe("deleteFlowCascade", () => {
   it("removes child flows, hooks, and step_merges before the parent flow", () => {
-    const dbPath = createIsolatedDatabasePath("devflow-seed-cascade-");
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "devflow-seed-cascade-"));
+    const dbPath = path.join(dir, "cascade.db");
     const schema = fs.readFileSync(path.join(AppConfig.root, "lib/db/schema.sql"), "utf8");
     const db = new Database(dbPath);
     db.exec(schema);
@@ -75,7 +76,7 @@ describe("deleteFlowCascade", () => {
     expect(db.prepare(`SELECT id FROM hooks WHERE flow_id=?`).all(parentId)).toEqual([]);
     expect(db.prepare(`SELECT id FROM step_merges WHERE parent_flow_id=?`).all(parentId)).toEqual([]);
     db.close();
-    fs.rmSync(path.dirname(dbPath), { recursive: true, force: true });
+    fs.rmSync(dir, { recursive: true, force: true });
   });
 });
 
@@ -91,7 +92,8 @@ describe("resolveSeedDb allowlist", () => {
 
   it("refuses non-demo paths without --allow-non-demo-db", () => {
     const root = AppConfig.root;
-    const other = createIsolatedDatabasePath("devflow-seed-guard-");
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "devflow-seed-guard-"));
+    const other = path.join(dir, "other.db");
     process.env.DATABASE_PATH = other;
     delete process.env.SEED_ALLOW_NON_DEMO_DB;
     process.argv = process.argv.filter((a) => a !== "--allow-non-demo-db");
@@ -102,7 +104,7 @@ describe("resolveSeedDb allowlist", () => {
 
     expect(() => resolveSeedDb(root)).toThrow(/exit:1/);
     expect(exit).toHaveBeenCalledWith(1);
-    fs.rmSync(path.dirname(other), { recursive: true, force: true });
+    fs.rmSync(dir, { recursive: true, force: true });
   });
 
   it("accepts the demo DB path and logs the target", () => {

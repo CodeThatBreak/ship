@@ -303,24 +303,24 @@ export class GitLabService {
   }
 
   // ── instance registry ────────────────────────────────────────────────────
-  listInstances(): GitLabInstanceMeta[] {
+  async listInstances(): Promise<GitLabInstanceMeta[]> {
     return this.instances.listMeta();
   }
 
-  getInstance(id: string): GitLabInstance | undefined {
+  async getInstance(id: string): Promise<GitLabInstance | undefined> {
     return this.instances.get(id);
   }
 
-  addInstance(input: { name?: string; base_url: string; token: string }): GitLabInstance {
+  async addInstance(input: { name?: string | null; baseUrl: string; token: string }): Promise<GitLabInstance> {
     return this.instances.add(input);
   }
 
-  updateInstance(id: string, input: { name?: string; base_url: string; token: string }): void {
-    this.instances.update(id, input);
+  async updateInstance(id: string, input: { name?: string | null; baseUrl: string; token: string }): Promise<void> {
+    await this.instances.update(id, input);
   }
 
-  deleteInstance(id: string): void {
-    this.instances.delete(id);
+  async deleteInstance(id: string): Promise<void> {
+    await this.instances.delete(id);
   }
 
   /**
@@ -329,18 +329,18 @@ export class GitLabService {
    * gitlab.company.com/group subpath setups); with exactly one instance
    * registered it serves SSH-style URLs with no parseable host only.
    */
-  instanceForRepo(repoUrl: string): GitLabInstance {
+  async instanceForRepo(repoUrl: string): Promise<GitLabInstance> {
     const h = GitLabService.host(repoUrl);
-    const instances = this.listInstances();
+    const instances = await this.listInstances();
     const match = instances
       .filter((i) => GitLabService.host(i.baseUrl) === h)
       .sort((a, b) => b.baseUrl.length - a.baseUrl.length)[0];
     if (match) {
-      return { ...match, token: this.instances.readToken(match.id) };
+      return { ...match, token: await this.instances.readToken(match.id) };
     }
     if (instances.length === 1 && h === null) {
       const only = instances[0];
-      return { ...only, token: this.instances.readToken(only.id) };
+      return { ...only, token: await this.instances.readToken(only.id) };
     }
     throw new Error(
       `No GitLab instance configured for host "${h ?? repoUrl}". Add one on the Settings page.`
@@ -348,13 +348,14 @@ export class GitLabService {
   }
 
   /** True when GitLab is usable at all (at least one registered instance). */
-  configured(): boolean {
-    return this.listInstances().length > 0;
+  async configured(): Promise<boolean> {
+    const instances = await this.listInstances();
+    return instances.length > 0;
   }
 
   /** API client bound to the instance that owns the given repo URL. */
-  clientFor(repoUrl: string): GitLabClient {
-    return new GitLabClient(this.instanceForRepo(repoUrl));
+  async clientFor(repoUrl: string): Promise<GitLabClient> {
+    return new GitLabClient(await this.instanceForRepo(repoUrl));
   }
 
   /** Turn a repo URL into a URL-encoded GitLab project path. */
@@ -368,79 +369,79 @@ export class GitLabService {
   }
 
   // ── repo-scoped API operations (instance resolved per call) ─────────────
-  getMR(repoUrl: string, mrIid: number): Promise<MergeRequest> {
-    return this.clientFor(repoUrl).getMR(this.projectPathFromUrl(repoUrl), mrIid);
+  async getMR(repoUrl: string, mrIid: number): Promise<MergeRequest> {
+    return (await this.clientFor(repoUrl)).getMR(this.projectPathFromUrl(repoUrl), mrIid);
   }
 
-  createMR(
+  async createMR(
     repoUrl: string,
     input: { source_branch: string; target_branch: string; title: string; description?: string }
   ): Promise<MergeRequest> {
-    return this.clientFor(repoUrl).createMR(this.projectPathFromUrl(repoUrl), input);
+    return (await this.clientFor(repoUrl)).createMR(this.projectPathFromUrl(repoUrl), input);
   }
 
-  listMRsByBranch(repoUrl: string, sourceBranch: string): Promise<MergeRequest[]> {
-    return this.clientFor(repoUrl).listMRsByBranch(this.projectPathFromUrl(repoUrl), sourceBranch);
+  async listMRsByBranch(repoUrl: string, sourceBranch: string): Promise<MergeRequest[]> {
+    return (await this.clientFor(repoUrl)).listMRsByBranch(this.projectPathFromUrl(repoUrl), sourceBranch);
   }
 
-  getMRDiffs(repoUrl: string, mrIid: number) {
-    return this.clientFor(repoUrl).getMRDiffs(this.projectPathFromUrl(repoUrl), mrIid);
+  async getMRDiffs(repoUrl: string, mrIid: number) {
+    return (await this.clientFor(repoUrl)).getMRDiffs(this.projectPathFromUrl(repoUrl), mrIid);
   }
 
-  getPipeline(repoUrl: string, pipelineId: number): Promise<Pipeline> {
-    return this.clientFor(repoUrl).getPipeline(this.projectPathFromUrl(repoUrl), pipelineId);
+  async getPipeline(repoUrl: string, pipelineId: number): Promise<Pipeline> {
+    return (await this.clientFor(repoUrl)).getPipeline(this.projectPathFromUrl(repoUrl), pipelineId);
   }
 
-  createMRPipeline(repoUrl: string, mrIid: number): Promise<Pipeline> {
-    return this.clientFor(repoUrl).createMRPipeline(this.projectPathFromUrl(repoUrl), mrIid);
+  async createMRPipeline(repoUrl: string, mrIid: number): Promise<Pipeline> {
+    return (await this.clientFor(repoUrl)).createMRPipeline(this.projectPathFromUrl(repoUrl), mrIid);
   }
 
-  createPipeline(repoUrl: string, ref: string): Promise<Pipeline> {
-    return this.clientFor(repoUrl).createPipeline(this.projectPathFromUrl(repoUrl), ref);
+  async createPipeline(repoUrl: string, ref: string): Promise<Pipeline> {
+    return (await this.clientFor(repoUrl)).createPipeline(this.projectPathFromUrl(repoUrl), ref);
   }
 
-  listPipelineJobs(repoUrl: string, pipelineId: number) {
-    return this.clientFor(repoUrl).listPipelineJobs(this.projectPathFromUrl(repoUrl), pipelineId);
+  async listPipelineJobs(repoUrl: string, pipelineId: number) {
+    return (await this.clientFor(repoUrl)).listPipelineJobs(this.projectPathFromUrl(repoUrl), pipelineId);
   }
 
-  playJob(repoUrl: string, jobId: number) {
-    return this.clientFor(repoUrl).playJob(this.projectPathFromUrl(repoUrl), jobId);
+  async playJob(repoUrl: string, jobId: number) {
+    return (await this.clientFor(repoUrl)).playJob(this.projectPathFromUrl(repoUrl), jobId);
   }
 
-  retryPipeline(repoUrl: string, pipelineId: number): Promise<Pipeline> {
-    return this.clientFor(repoUrl).retryPipeline(this.projectPathFromUrl(repoUrl), pipelineId);
+  async retryPipeline(repoUrl: string, pipelineId: number): Promise<Pipeline> {
+    return (await this.clientFor(repoUrl)).retryPipeline(this.projectPathFromUrl(repoUrl), pipelineId);
   }
 
-  getJobTrace(repoUrl: string, jobId: number): Promise<string> {
-    return this.clientFor(repoUrl).getJobTrace(this.projectPathFromUrl(repoUrl), jobId);
+  async getJobTrace(repoUrl: string, jobId: number): Promise<string> {
+    return (await this.clientFor(repoUrl)).getJobTrace(this.projectPathFromUrl(repoUrl), jobId);
   }
 
-  listMRDiscussions(repoUrl: string, mrIid: number): Promise<Discussion[]> {
-    return this.clientFor(repoUrl).listMRDiscussions(this.projectPathFromUrl(repoUrl), mrIid);
+  async listMRDiscussions(repoUrl: string, mrIid: number): Promise<Discussion[]> {
+    return (await this.clientFor(repoUrl)).listMRDiscussions(this.projectPathFromUrl(repoUrl), mrIid);
   }
 
-  createMRNote(repoUrl: string, mrIid: number, body: string) {
-    return this.clientFor(repoUrl).createMRNote(this.projectPathFromUrl(repoUrl), mrIid, body);
+  async createMRNote(repoUrl: string, mrIid: number, body: string) {
+    return (await this.clientFor(repoUrl)).createMRNote(this.projectPathFromUrl(repoUrl), mrIid, body);
   }
 
-  resolveDiscussion(repoUrl: string, mrIid: number, discussionId: string, resolved = true) {
-    return this.clientFor(repoUrl).resolveDiscussion(this.projectPathFromUrl(repoUrl), mrIid, discussionId, resolved);
+  async resolveDiscussion(repoUrl: string, mrIid: number, discussionId: string, resolved = true) {
+    return (await this.clientFor(repoUrl)).resolveDiscussion(this.projectPathFromUrl(repoUrl), mrIid, discussionId, resolved);
   }
 
   /** Post a note into an existing discussion thread; returns the created note. */
-  createMRDiscussionNote(repoUrl: string, mrIid: number, discussionId: string, body: string): Promise<Note> {
-    return this.clientFor(repoUrl).createMRDiscussionNote(this.projectPathFromUrl(repoUrl), mrIid, discussionId, body);
+  async createMRDiscussionNote(repoUrl: string, mrIid: number, discussionId: string, body: string): Promise<Note> {
+    return (await this.clientFor(repoUrl)).createMRDiscussionNote(this.projectPathFromUrl(repoUrl), mrIid, discussionId, body);
   }
 
-  getProject(repoUrl: string) {
-    return this.clientFor(repoUrl).getProject(this.projectPathFromUrl(repoUrl));
+  async getProject(repoUrl: string) {
+    return (await this.clientFor(repoUrl)).getProject(this.projectPathFromUrl(repoUrl));
   }
 
   /** Quick reachability/auth check used by the Settings page. */
   async testInstance(baseUrl: string, token: string): Promise<{ ok: boolean; detail: string }> {
     try {
       const res = await fetch(`${baseUrl.replace(/\/+$/, "")}/api/v4/user`, {
-        async headers: { "PRIVATE-TOKEN": token, "Content-Type": "application/json" },
+        headers: { "PRIVATE-TOKEN": token, "Content-Type": "application/json" },
         signal: AbortSignal.timeout(GITLAB_HTTP_TIMEOUT_MS),
       });
       if (!res.ok) {

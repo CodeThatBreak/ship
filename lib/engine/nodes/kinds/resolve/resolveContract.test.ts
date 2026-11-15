@@ -24,28 +24,28 @@ import type { AgentOutputErrorCode } from "../../shared/agent/outputError/output
 
 const row = (over: Partial<CommentRow>): CommentRow => ({
   id: "gl_1",
-  flow_id: "flow-1",
-  mr_iid: 7,
-  discussion_id: "d1",
+  flowId: "flow-1",
+  mrIid: 7,
+  discussionId: "d1",
   author: "reviewer",
   body: "Rename the variable.",
-  file_path: "src/a.ts",
+  filePath: "src/a.ts",
   line: 2,
   status: "open",
-  resolved_by: null,
+  resolvedBy: null,
   raw: null,
-  created_at: "2026-11-04T09:00:00.000Z",
-  updated_at: "2026-11-04T09:00:00.000Z",
+  createdAt: "2026-11-04T09:00:00.000Z",
+  updatedAt: "2026-11-04T09:00:00.000Z",
   ...over,
 });
 
 const agentReply = (over: Partial<CommentRow>): CommentRow =>
   row({
-    discussion_id: "d1",
+    discussionId: "d1",
     body: "Done, renamed.",
     status: "resolved",
-    resolved_by: RESOLVED_BY_AGENT,
-    created_at: "2026-11-04T18:00:00.000Z",
+    resolvedBy: RESOLVED_BY_AGENT,
+    createdAt: "2026-11-04T18:00:00.000Z",
     ...over,
   });
 
@@ -197,7 +197,7 @@ describe("presentComments", () => {
   it("renders deterministic id-tagged lines with location and author", () => {
     const open = [
       row({ id: "gl_123", author: "reviewer" }),
-      row({ id: "gl_125", body: "Drop the cast.", file_path: "src/b.ts", line: 9, author: "reviewer", discussion_id: "d2" }),
+      row({ id: "gl_125", body: "Drop the cast.", filePath: "src/b.ts", line: 9, author: "reviewer", discussionId: "d2" }),
     ];
     const presented = contract.presentComments(open);
     expect(presented.text).toBe(
@@ -211,7 +211,7 @@ describe("presentComments", () => {
 
   it("marks a resolvable comment without a file path with body only, null body as empty", () => {
     const presented = contract.presentComments([
-      row({ id: "gl_126", file_path: null, line: null, discussion_id: "d3", raw: JSON.stringify({ resolvable: true }), author: null, body: null }),
+      row({ id: "gl_126", filePath: null, line: null, discussionId: "d3", raw: JSON.stringify({ resolvable: true }), author: null, body: null }),
     ]);
     expect(presented.text).toBe("- [gl_126] ");
     // no location segment, no "not resolvable" marker for a resolvable note
@@ -221,7 +221,7 @@ describe("presentComments", () => {
 
   it("marks a non-resolvable MR note but still lists its id", () => {
     const presented = contract.presentComments([
-      row({ id: "gl_124", file_path: null, line: null, discussion_id: null, raw: JSON.stringify({ resolvable: false }), body: "Question: why two clients?" }),
+      row({ id: "gl_124", filePath: null, line: null, discussionId: null, raw: JSON.stringify({ resolvable: false }), body: "Question: why two clients?" }),
     ]);
     expect(presented.text).toBe(
       "- [gl_124] (MR note, not resolvable) — Question: why two clients? (author: @reviewer)",
@@ -230,10 +230,10 @@ describe("presentComments", () => {
   });
 
   it("adds the already-replied marker from same-thread agent replies", () => {
-    const open = [row({ id: "gl_125", discussion_id: "d2" })];
+    const open = [row({ id: "gl_125", discussionId: "d2" })];
     const replies = [
-      agentReply({ id: "gl_200", discussion_id: "d2", created_at: "2026-11-03T10:00:00.000Z" }),
-      agentReply({ id: "gl_201", discussion_id: "d2", created_at: "2026-11-04T10:00:00.000Z" }),
+      agentReply({ id: "gl_200", discussionId: "d2", createdAt: "2026-11-03T10:00:00.000Z" }),
+      agentReply({ id: "gl_201", discussionId: "d2", createdAt: "2026-11-04T10:00:00.000Z" }),
     ];
     const presented = contract.presentComments(open, replies);
     expect(presented.text).toContain("you replied on 2026-11-04 — awaiting reviewer");
@@ -242,10 +242,10 @@ describe("presentComments", () => {
   });
 
   it("ignores resolved-by-host rows and other threads' agent replies", () => {
-    const open = [row({ id: "gl_1", discussion_id: "d1" })];
+    const open = [row({ id: "gl_1", discussionId: "d1" })];
     const replies = [
-      row({ id: "gl_101", discussion_id: "d1", status: "resolved", resolved_by: "reviewer", body: "host resolved" }),
-      agentReply({ id: "gl_102", discussion_id: "other", body: "different thread" }),
+      row({ id: "gl_101", discussionId: "d1", status: "resolved", resolvedBy: "reviewer", body: "host resolved" }),
+      agentReply({ id: "gl_102", discussionId: "other", body: "different thread" }),
     ];
     const presented = contract.presentComments(open, replies);
     expect(presented.text).not.toContain("awaiting reviewer");
@@ -261,7 +261,7 @@ describe("presentComments", () => {
 
   it("caps the whole block at 40 000 chars, drops whole lines and names the truncation", () => {
     const open = Array.from({ length: 30 }, (_, i) =>
-      row({ id: `gl_${i}`, body: "y".repeat(1999), file_path: `src/f${i}.ts`, author: null }),
+      row({ id: `gl_${i}`, body: "y".repeat(1999), filePath: `src/f${i}.ts`, author: null }),
     );
     const presented = contract.presentComments(open);
     expect(presented.text.length).toBeLessThanOrEqual(40_000);

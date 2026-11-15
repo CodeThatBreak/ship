@@ -29,17 +29,11 @@ const sampleValue = (type: unknown): unknown => {
 
 export class TemplatePreviewService {
   private async sampleContext(templateId: string): Promise<FlowContextMap> {
-    const tpl = await db.get<{ trigger: string | null }>(
+    const tpl = await db.get<{ trigger: unknown }>(
           `SELECT trigger FROM flow_templates WHERE id=$1`,
           templateId,
         );
-    const trigger = (() => {
-      try {
-        return tpl?.trigger ? JSON.parse(tpl.trigger) : {};
-      } catch {
-        return {};
-      }
-    })() as Record<string, unknown>;
+    const trigger = (tpl?.trigger ?? {}) as Record<string, unknown>;
 
     const provider = taskRegistry.maybe(String(trigger.taskType ?? ""));
     const task: Record<string, unknown> = {
@@ -59,28 +53,18 @@ export class TemplatePreviewService {
     };
 
     const nodes: Record<string, { output: unknown }> = {};
-    const nodeRows = await db.all<{ node_key: string; node_template_id: string; config: string | null }>(
-          `SELECT node_key AS "nodeKey", node_template_id AS "nodeTemplateId",, config FROM flow_template_nodes WHERE template_id=$1`,
+    const nodeRows = await db.all<{ nodeKey: string; nodeTemplateId: string; config: unknown }>(
+          `SELECT node_key AS "nodeKey", node_template_id AS "nodeTemplateId", config FROM flow_template_nodes WHERE template_id=$1`,
           templateId,
         );
     for (const r of nodeRows) {
-      const nt = await db.get<{ kind: string; config: string | null }>(
+      const nt = await db.get<{ kind: string; config: unknown }>(
               `SELECT kind, config FROM node_templates WHERE id=$1`,
               r.nodeTemplateId,
             );
       if (!nt) continue;
-      let instConfig: unknown = {};
-      try {
-        instConfig = r.config ? JSON.parse(r.config) : {};
-      } catch {
-        instConfig = {};
-      }
-      let defConfig: unknown = {};
-      try {
-        defConfig = nt.config ? JSON.parse(nt.config) : {};
-      } catch {
-        defConfig = {};
-      }
+      const instConfig: unknown = r.config ?? {};
+      const defConfig: unknown = nt.config ?? {};
       const merged = {
         ...(defConfig as Record<string, unknown>),
         ...(instConfig as Record<string, unknown>),
@@ -111,20 +95,15 @@ export class TemplatePreviewService {
 
   private async sampleTriggerPayload(templateId: string): Promise<Record<string, unknown>> {
     const entryKey = nodeRegistry.entryKey();
-    const row = await db.get<{ config: string | null }>(
+    const row = await db.get<{ config: unknown }>(
           `SELECT n.config FROM flow_template_nodes n
-     JOIN node_templates t ON t.id = n.nodeTemplateId
-     WHERE n.templateId=$1 AND t.key=$2`,
+     JOIN node_templates t ON t.id = n.node_template_id
+     WHERE n.template_id=$1 AND t.key=$2`,
           templateId,
           entryKey,
         );
-    if (!row?.config) return {};
-    let config: unknown = {};
-    try {
-      config = JSON.parse(row.config);
-    } catch {
-      return {};
-    }
+    if (row?.config == null) return {};
+    const config: unknown = row.config;
     return Object.fromEntries(
       parseStartContract(config).map((f) => [
         f.key,
@@ -137,7 +116,7 @@ export class TemplatePreviewService {
     templateId: string,
     input: { expr: string; scope: PreviewScope },
   ): Promise<
-    async | { ok: true; value: unknown; source: "run" | "sample" }
+    { ok: true; value: unknown; source: "run" | "sample" }
     | { ok: false; error: string; source: "run" | "sample" }
     | { ok: true; value: undefined; source: "sample" }
   > {
@@ -145,7 +124,7 @@ export class TemplatePreviewService {
     if (!expr.trim()) {
       return { ok: true, value: undefined, source: "sample" };
     }
-async 
+
     let context: unknown;
     let source: "run" | "sample" = "sample";
     if (scope === "context") {
@@ -155,13 +134,13 @@ async
             );
       if (flow) {
         try {
-          context = buildFlowContext(flowEngine.ctx(flow.id));
+          context = await buildFlowContext(await flowEngine.ctx(flow.id));
           source = "run";
         } catch {
           /* sample fallback */
         }
       }
-      if (!context) context = this.sampleContext(templateId);
+      if (!context) context = await this.sampleContext(templateId);
     } else if (scope === "response") {
       context = {
         status: 200,
@@ -171,7 +150,7 @@ async
       };
     } else {
       context = {
-        payload: this.sampleTriggerPayload(templateId),
+        payload: await this.sampleTriggerPayload(templateId),
         headers: { "content-type": "application/json" },
       };
     }
@@ -183,8 +162,8 @@ async
     return { ok: true, value: r.value ?? null, source };
   }
 
-  assertTemplateExists(templateId: string): boolean {
-    return Boolean(templateStore.flowTemplate(templateId));
+  async assertTemplateExists(templateId: string): Promise<boolean> {
+    return Boolean(await templateStore.flowTemplate(templateId));
   }
 }
 

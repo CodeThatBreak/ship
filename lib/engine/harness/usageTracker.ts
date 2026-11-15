@@ -110,7 +110,7 @@ export class UsageTracker {
           updated_at=$9 WHERE id=$10`,
             u.model ?? null, u.input ?? null, u.output ?? null, u.cacheRead ?? null,
             u.cacheWrite ?? null, u.durationMs ?? null, u.costCents != null ? Math.round(u.costCents) : null,
-            u.raw ? JSON.stringify(u.raw) : null, db.now(), runRowId
+            u.raw ?? null, db.now(), runRowId
           );
   }
 
@@ -132,7 +132,7 @@ export class UsageTracker {
     result: AgentRunResult;
     /** the port whose runtime executed the run (billed usage is a port concept) */
     port: AgentPort;
-    async /** when set (cloud runs), fetch billed cost for this run via the port */
+    /** when set (cloud runs), fetch billed cost for this run via the port */
     cloudAgentId?: string;
     runId: string;
   }): Promise<RunCostSummary> {
@@ -147,7 +147,7 @@ export class UsageTracker {
     const u: AgentRunUsage | undefined = billed ?? (result.usage as unknown as AgentRunUsage | undefined);
     const model = u?.model ?? result.model?.id;
     if (!u) {
-      this.persistUsage(runRowId, { durationMs: result.durationMs });
+      await this.persistUsage(runRowId, { durationMs: result.durationMs });
       return { durationMs: result.durationMs, model };
     }
 
@@ -169,7 +169,7 @@ export class UsageTracker {
       uncachedInputTokens(u) + (u.outputTokens ?? 0) + (u.cacheReadTokens ?? 0) + (u.cacheWriteTokens ?? 0)
       || undefined;
 
-    this.persistUsage(runRowId, {
+    await this.persistUsage(runRowId, {
       model,
       input: u.inputTokens, output: u.outputTokens,
       cacheRead: u.cacheReadTokens, cacheWrite: u.cacheWriteTokens,
@@ -198,14 +198,14 @@ export class UsageTracker {
     if (this.backfilled && !force) return;
     this.backfilled = true;
     const pending = await db.all<{
-          id: string; model: string | null; usage: string | null;
-          input_tokens: number | null; output_tokens: number | null;
-          cache_read_tokens: number | null; cache_write_tokens: number | null;
+          id: string; model: string | null; usage: unknown;
+          inputTokens: number | null; outputTokens: number | null;
+          cacheReadTokens: number | null; cacheWriteTokens: number | null;
         }>(
-          `SELECT id, model, usage, input_tokens AS "inputTokens",, output_tokens AS "outputTokens",, cache_read_tokens AS "cacheReadTokens",, cache_write_tokens AS "cacheWriteTokens" FROM runs
+          `SELECT id, model, usage, input_tokens AS "inputTokens", output_tokens AS "outputTokens", cache_read_tokens AS "cacheReadTokens", cache_write_tokens AS "cacheWriteTokens" FROM runs
        WHERE (input_tokens IS NOT NULL OR output_tokens IS NOT NULL)
          AND (cost_cents IS NULL OR cost_cents = 0
-              OR (usage IS NOT NULL AND usage LIKE '%"costSource":"estimate"%'))`);
+              OR (usage IS NOT NULL AND usage->>'costSource' = 'estimate'))`);
     if (!pending.length) return;
 
     const pricing = await db.getSetting("pricing", pricingTableSchema, {});
@@ -225,19 +225,20 @@ export class UsageTracker {
       // zero-token rows price to exactly 0 — leave them uncosted rather than
       // pretend a free run happened
       if (est?.cents == null || est.cents <= 0) continue;
-      markEstimated(r.id, est.cents, r.usage);
+      await markEstimated(r.id, est.cents, r.usage);
     }
   }
 }
 
 /** Persist an estimated cost, flagging it in the usage JSON so a later
  *  backfill (e.g. after the pricing rates change) re-prices it. */
-async function markEstimated(runRowId: string, cents: number, existingUsage: string | null): void {
-  let base: object | null = null;
-  if (existingUsage != null) {
-    try { base = JSON.parse(existingUsage) as object; } catch { /* unparseable older row — start from a fresh envelope */ }
-  }
-  const raw = JSON.stringify({ ...(base ?? {}), costSource: "estimate" });
+async function markEstimated(runRowId: string, cents: number, existingUsage: unknown): Promise<void> {
+  const base =
+    existingUsage != null && typeof existingUsage === "object" && !Array.isArray(existingUsage)
+      ? (existingUsage as object)
+      : null;
+  // JSONB column: bind the payload object directly (no JSON.stringify)
+  const raw = { ...(base ?? {}), costSource: "estimate" };
   await db.run(`UPDATE runs SET cost_cents=$1, usage=$2, updated_at=$3 WHERE id=$4`, cents, raw, db.now(), runRowId);
 }
 

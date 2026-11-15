@@ -2,8 +2,8 @@ import "server-only";
 
 import type { FlowCtx } from '../../shared/nodeSharedExports';
 import type { NodeSupport } from '../../shared/nodeSupport';
-import { planSteps } from '../../../runtime/planStepStore';
-import { PlanStepRow, type NodeRow } from '../../../../db/rows';
+import { planSteps, type PlanStepRow } from '../../../runtime/planStepStore';
+import { type NodeRow } from '../../../../db/rows';
 import { type PlanInput, type PlanMeta, type PlanBranch, parsePlanArtifactMeta } from './schema';
 import type { RefinedFrom } from './constants/refine';
 import type { LatestPlan, ScopedRefine } from './types/planTypeExports';
@@ -36,9 +36,9 @@ export class PlanStore {
     let meta: PlanMeta = { steps: [], branches: [] };
     let rawMeta: Record<string, unknown> = {};
     try {
-      const m = row.meta ? JSON.parse(row.meta) : null;
+      const m = row.meta ?? null;
       if (m && typeof m === 'object') {
-        rawMeta = m;
+        rawMeta = m as Record<string, unknown>;
         const parsed = parsePlanArtifactMeta(m);
         if (parsed) meta = parsed;
       }

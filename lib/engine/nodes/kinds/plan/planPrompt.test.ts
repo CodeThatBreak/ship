@@ -22,7 +22,7 @@ import type { PlanContextBlocks } from './planContext';
 import type { PlanStore } from './planStore';
 import type { ScopedRefine } from './types/planTypeExports';
 
-const nodeWith = (agentId: string | null) => ({ agent_id: agentId }) as unknown as NodeRow;
+const nodeWith = (agentId: string | null) => ({ agentId }) as unknown as NodeRow;
 
 const makeBuilder = (knob: 'whole' | 'follow') => {
   const ctxHelper = {
@@ -30,13 +30,13 @@ const makeBuilder = (knob: 'whole' | 'follow') => {
     taskLabel: () => 'Label',
     execMode: () => 'cloud',
   } as unknown as FlowContextHelper;
-  const context = { assemble: () => 'CTX' } as unknown as PlanContextBlocks;
+  const context = { assemble: async () => 'CTX' } as unknown as PlanContextBlocks;
   const store = {
     stepsText: (rows: { title: string }[]) => rows.map(r => r.title).join('\n'),
     dependencySummaries: (_latest: unknown, b: { dependsOn: string[] }) =>
       b.dependsOn.includes('b2') ? '- `b2` (B2): s2b' : '',
   } as unknown as PlanStore;
-  return new PlanPromptBuilder(ctxHelper, context, store, () => knob);
+  return new PlanPromptBuilder(ctxHelper, context, store, () => Promise.resolve(knob));
 };
 
 const ctx = { flow: { id: 'flow-1' }, task: { key: 'T-1' } } as unknown as FlowCtx;
@@ -57,8 +57,8 @@ const scoped = (): ScopedRefine => ({
 });
 
 describe('PlanPromptBuilder.executionDirective — the follow-only prompt delta', () => {
-  it('follow renders the branch child-flow contract fields', () => {
-    const directive = makeBuilder('follow').executionDirective(ctx);
+  it('follow renders the branch child-flow contract fields', async () => {
+    const directive = await makeBuilder('follow').executionDirective(ctx);
     if (!directive) throw new Error('expected a directive under follow');
     expect(directive).toContain('"execution": "whole" or "steps"');
     expect(directive).toContain('"execution_rationale"');
@@ -67,14 +67,14 @@ describe('PlanPromptBuilder.executionDirective — the follow-only prompt delta'
     expect(directive).toContain('one at a time');
   });
 
-  it('any other knob → null (non-follow prompts stay byte-identical)', () => {
-    expect(makeBuilder('whole').executionDirective(ctx)).toBeNull();
+  it('any other knob → null (non-follow prompts stay byte-identical)', async () => {
+    expect(await makeBuilder('whole').executionDirective(ctx)).toBeNull();
   });
 });
 
 describe('PlanPromptBuilder.scopedVars — built from the ref branch only', () => {
-  it('fills branch, scope, files, dependencies, sub-plan seed and live steps', () => {
-    const vars = makeBuilder('whole').scopedVars(ctx, scoped(), '', []);
+  it('fills branch, scope, files, dependencies, sub-plan seed and live steps', async () => {
+    const vars = await makeBuilder('whole').scopedVars(ctx, scoped(), '', []);
     expect(vars.branch).toBe('auth');
     expect(vars.scope).toBe('logins');
     expect(vars.files).toBe('a.ts');
@@ -85,12 +85,12 @@ describe('PlanPromptBuilder.scopedVars — built from the ref branch only', () =
     expect(vars.feedback).toBe('');
   });
 
-  it('missing values state themselves instead of going blank', () => {
+  it('missing values state themselves instead of going blank', async () => {
     const bare: ScopedRefine = {
       ...scoped(),
       branch: { ...authBranch, scope: '', files: [], dependsOn: [] },
     };
-    const vars = makeBuilder('whole').scopedVars(ctx, bare, 'go', []);
+    const vars = await makeBuilder('whole').scopedVars(ctx, bare, 'go', []);
     expect(vars.scope).toBe('(none stated)');
     expect(vars.files).toBe('(none stated)');
     expect(vars.dependsOn).toBe('(none)');
@@ -100,8 +100,8 @@ describe('PlanPromptBuilder.scopedVars — built from the ref branch only', () =
 });
 
 describe('PlanPromptBuilder.whole — the verbatim-prompt shortcut', () => {
-  it('a raw verbatim prompt rides through untouched (no contract re-append)', () => {
-    const out = makeBuilder('follow').whole(ctx, nodeWith(null), {
+  it('a raw verbatim prompt rides through untouched (no contract re-append)', async () => {
+    const out = await makeBuilder('follow').whole(ctx, nodeWith(null), {
       prompt: 'EXACT TEXT',
       promptIsBody: false,
     } as PlanInput);
@@ -110,8 +110,8 @@ describe('PlanPromptBuilder.whole — the verbatim-prompt shortcut', () => {
 });
 
 describe('PlanPromptBuilder.refineTurn — the conversation contract template (§2)', () => {
-  it('the developer message interpolates into the plan_refine conversation contract with the context block', () => {
-    const out = makeBuilder('whole').refineTurn(ctx, 'why is step 2 blocked?');
+  it('the developer message interpolates into the plan_refine conversation contract with the context block', async () => {
+    const out = await makeBuilder('whole').refineTurn(ctx, 'why is step 2 blocked?');
     expect(out).toContain('why is step 2 blocked?');
     // the template body assembles ({{feedback}}/{{context}} resolved) in the
     // conversation shape: reply + optional plan, with the hand-edit rule
@@ -123,9 +123,9 @@ describe('PlanPromptBuilder.refineTurn — the conversation contract template (�
     expect(out.startsWith('The conversation continues')).toBe(true);
   });
 
-  it('the follow-mode execution directive is appended (mirroring whole()), skipped under whole', () => {
-    expect(makeBuilder('whole').refineTurn(ctx, 'msg')).not.toContain('Execution resolution');
-    expect(makeBuilder('follow').refineTurn(ctx, 'msg')).toContain('"execution": "whole" or "steps"');
+  it('the follow-mode execution directive is appended (mirroring whole()), skipped under whole', async () => {
+    expect(await makeBuilder('whole').refineTurn(ctx, 'msg')).not.toContain('Execution resolution');
+    expect(await makeBuilder('follow').refineTurn(ctx, 'msg')).toContain('"execution": "whole" or "steps"');
   });
 
   it('the plan_refine template carries PlanTurnOutput in the locked contract block', () => {

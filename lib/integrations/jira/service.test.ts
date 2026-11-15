@@ -4,7 +4,7 @@ import type { JiraInstanceStore } from "../../db/stores/storeExports";
 
 vi.mock("../../db", () => ({
   jiraInstanceStore: {
-    listMeta: vi.fn(() => []),
+    listMeta: vi.fn(async () => []),
     add: vi.fn(),
     update: vi.fn(),
     delete: vi.fn(),
@@ -15,7 +15,7 @@ const { JiraService } = await import("./service");
 
 describe("JiraService", () => {
   const makeStore = (listMeta: JiraInstanceMeta[]) => ({
-    listMeta: vi.fn(() => listMeta),
+    listMeta: vi.fn(async () => listMeta),
     get: vi.fn(),
     readToken: vi.fn(),
     add: vi.fn(),
@@ -23,20 +23,20 @@ describe("JiraService", () => {
     delete: vi.fn(),
   });
 
-  it("rejects registering a second instance", () => {
+  it("rejects registering a second instance", async () => {
     const svc = new JiraService(
       makeStore([
         {
           id: "jri_1",
           name: null,
-          base_url: "https://a.atlassian.net",
+          baseUrl: "https://a.atlassian.net",
           email: "a@b.c",
-          created_at: "2026-01-01T00:00:00.000Z",
+          createdAt: "2026-01-01T00:00:00.000Z",
         },
       ]) as unknown as JiraInstanceStore,
     );
-    expect(() =>
-      svc.addInstance({ base_url: "https://b.atlassian.net", email: "x@y.z", token: "tok" }),
-    ).toThrow(/Only one Jira instance/);
+    await expect(
+      svc.addInstance({ baseUrl: "https://b.atlassian.net", email: "x@y.z", token: "tok" }),
+    ).rejects.toThrow(/Only one Jira instance/);
   });
 });

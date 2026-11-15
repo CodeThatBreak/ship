@@ -67,8 +67,8 @@ export function exportTemplateYaml(
     }
     const trig = n.trigger as Record<string, unknown> | undefined;
     if (trig && Object.keys(trig).length) doc.trigger = trig;
-    if (n.joinMode && n.joinMode !== "all") doc.joinMode = n.joinMode;
-    if (Object.keys(n.inputMap ?? {}).length) doc.inputMap = n.inputMap;
+    if (n.joinMode && n.joinMode !== "all") doc.join_mode = n.joinMode;
+    if (Object.keys(n.inputMap ?? {}).length) doc.input_map = n.inputMap;
     nodeDocs.push(doc);
   }
 
@@ -132,9 +132,9 @@ export function parseTemplateYaml(text: string): {
     const out: YamlNodeEntry = { key: e.key.trim(), type: e.type.trim() };
     if (typeof e.label === "string" && e.label.trim()) out.label = e.label.trim();
     if (e.trigger && typeof e.trigger === "object" && !Array.isArray(e.trigger)) out.trigger = e.trigger as Record<string, unknown>;
-    if (typeof e.joinMode === "string") out.joinMode = e.joinMode;
+    if (typeof e.join_mode === "string") out.join_mode = e.join_mode;
     if (e.config && typeof e.config === "object" && !Array.isArray(e.config)) out.config = e.config as Record<string, unknown>;
-    if (e.inputMap && typeof e.inputMap === "object" && !Array.isArray(e.inputMap)) out.inputMap = e.inputMap as Record<string, unknown>;
+    if (e.input_map && typeof e.input_map === "object" && !Array.isArray(e.input_map)) out.input_map = e.input_map as Record<string, unknown>;
     return out;
   });
 
@@ -174,29 +174,29 @@ export function parseTemplateYaml(text: string): {
  * Apt data for `exportTemplateYaml` from the store: the template's graph plus
  * the node_templates catalog slice it needs.
  */
-export function gatherTemplateYaml(
+export async function gatherTemplateYaml(
   store: {
-    flowTemplate(id: string): { id: string; name: string; description: string | null } | undefined;
-    graph(id: string): {
+    flowTemplate(id: string): Promise<{ id: string; name: string; description: string | null } | undefined>;
+    graph(id: string): Promise<{
       flowTrigger: unknown;
       nodes: {
         key: string; nodeTemplateId: string; label: string; trigger: unknown;
         joinMode: string; config: Record<string, unknown>; inputMap: Record<string, unknown>;
       }[];
       edges: { from: string; to: string; kind: "next" | "loop"; label: string | null; condition: string | null }[];
-    } | null;
-    nodeTemplate(id: string): { id: string; key: string; name: string; kind: string; is_builtin: number; config: Record<string, unknown> | null } | undefined;
+    } | null>;
+    nodeTemplate(id: string): Promise<{ id: string; key: string; name: string; kind: string; isBuiltin: boolean; config: Record<string, unknown> | null } | undefined>;
   },
   templateId: string,
-): string {
-  const t = store.flowTemplate(templateId);
+): Promise<string> {
+  const t = await store.flowTemplate(templateId);
   if (!t) throw new YamlTemplateError("template not found");
-  const g = store.graph(templateId);
+  const g = await store.graph(templateId);
   if (!g) throw new YamlTemplateError("template not found");
   const catalog: Record<string, { key: string; name: string; kind: string; isBuiltin: boolean; config: Record<string, unknown> }> = {};
   for (const n of g.nodes) {
     if (catalog[n.nodeTemplateId]) continue;
-    const nt = store.nodeTemplate(n.nodeTemplateId);
+    const nt = await store.nodeTemplate(n.nodeTemplateId);
     if (!nt) throw new YamlTemplateError(`missing node template row ${n.nodeTemplateId}`);
     catalog[nt.id] = { key: nt.key, name: nt.name, kind: nt.kind, isBuiltin: Boolean(nt.isBuiltin), config: nt.config ?? {} };
   }
@@ -234,8 +234,8 @@ export interface ImportedTemplate {
  */
 export async function importTemplateYaml(
   store: {
-    ensureNodeTemplate(input: { key?: string; name: string; kind: string; icon?: string | null; config: Record<string, unknown> }): { id: string; created: boolean };
-    nodeTemplateByKey(key: string): { id: string; key: string; is_builtin: number; kind: string } | undefined;
+    ensureNodeTemplate(input: { key?: string; name: string; kind: string; icon?: string | null; config: Record<string, unknown> }): Promise<{ id: string; created: boolean }>;
+    nodeTemplateByKey(key: string): Promise<{ id: string; key: string; isBuiltin: boolean; kind: string } | undefined>;
     create(input: {
       name?: string; description?: string | null; trigger?: Record<string, unknown>;
       nodes: {
@@ -243,32 +243,36 @@ export async function importTemplateYaml(
         join_mode?: string; config?: Record<string, unknown>; input_map?: Record<string, unknown>;
       }[];
       edges: { from: string; to: string; kind?: "next" | "loop"; label?: string | null; condition?: string | null }[];
-    }): string;
-    deleteNodeTemplate(id: string): void;
+    }): Promise<string>;
+    deleteNodeTemplate(id: string): Promise<void>;
   },
   text: string,
   opts: { namePrefix?: string } = {},
-): ImportedTemplate {
+): Promise<ImportedTemplate> {
   return await db.transaction(() => importTemplateYamlInner(store, text, opts));
 }
 
-function importTemplateYamlInner(
+async function importTemplateYamlInner(
   store: Parameters<typeof importTemplateYaml>[0],
   text: string,
   opts: { namePrefix?: string },
-): ImportedTemplate {
+): Promise<ImportedTemplate> {
   const createdNodeTemplateIds: string[] = [];
   const parsed = parseTemplateYaml(text);
-  const nodes = parsed.nodes.map((entry) => {
+  const nodes: {
+    key: string; nodeTemplateId: string; label?: string | null; trigger?: Record<string, unknown>;
+    join_mode?: string; config?: Record<string, unknown>; input_map?: Record<string, unknown>;
+  }[] = [];
+  for (const entry of parsed.nodes) {
     let nodeTemplateId: string;
     let overrides: Record<string, unknown> | undefined = entry.config;
     if (entry.type.startsWith("builtin/")) {
       const key = entry.type.slice("builtin/".length).trim();
-      const nt = store.nodeTemplateByKey(key);
+      const nt = await store.nodeTemplateByKey(key);
       if (!nt || !nt.isBuiltin) throw new YamlTemplateError(`unknown built-in node "builtin/${key}"`);
       nodeTemplateId = nt.id;
     } else {
-      const matchingByKey = store.nodeTemplateByKey(entry.type);
+      const matchingByKey = await store.nodeTemplateByKey(entry.type);
       if (matchingByKey && !matchingByKey.isBuiltin) {
         // reference an existing declarative catalog node
         nodeTemplateId = matchingByKey.id;
@@ -278,7 +282,7 @@ function importTemplateYamlInner(
           if (!entry.config || typeof entry.config !== "object" || Object.keys(entry.config).length === 0) {
             throw new YamlTemplateError(`${entry.type} node "${entry.key}" needs inline config (its declarative definition)`);
           }
-          const ensured = store.ensureNodeTemplate({
+          const ensured = await store.ensureNodeTemplate({
             key: entry.key,
             name: entry.label ?? entry.key,
             kind: entry.type,
@@ -293,18 +297,18 @@ function importTemplateYamlInner(
         }
       }
     }
-    return {
+    nodes.push({
       key: entry.key,
       nodeTemplateId,
       label: entry.label ?? null,
       trigger: entry.trigger,
-      join_mode: entry.joinMode,
+      join_mode: entry.join_mode,
       config: overrides,
-      input_map: entry.inputMap,
-    };
-  });
+      input_map: entry.input_map,
+    });
+  }
 
   const name = `${opts.namePrefix ? `${opts.namePrefix} — ` : ""}${parsed.name}`;
-  const id = store.create({ name, description: parsed.description, trigger: parsed.trigger, nodes, edges: parsed.edges });
+  const id = await store.create({ name, description: parsed.description, trigger: parsed.trigger, nodes, edges: parsed.edges });
   return { id, name, createdNodeTemplateIds };
 }

@@ -20,18 +20,17 @@ export type ApiComment = {
 const COMMENT_RESOLVED = "resolved";
 
 export class CommentService {
-  listForFlow(flowId: string): ApiComment[] {
-    return db
-      .all<{
-        id: string;
-        discussion_id: string | null;
-        author: string | null;
-        body: string;
-        status: string;
-        raw: string | null;
-        created_at: string;
-      }>(`SELECT id, flow_id AS "flowId", mr_iid AS "mrIid", discussion_id AS "discussionId", author, body, file_path AS "filePath", line, status, resolved_by AS "resolvedBy", raw, created_at AS "createdAt", updated_at AS "updatedAt" FROM comments WHERE flow_id=$1 ORDER BY created_at DESC`, flowId)
-      .map((c): ApiComment => {
+  async listForFlow(flowId: string): Promise<ApiComment[]> {
+    const comments = await db.all<{
+      id: string;
+      discussionId: string | null;
+      author: string | null;
+      body: string;
+      status: string;
+      raw: string | null;
+      createdAt: string;
+    }>(`SELECT id, flow_id AS "flowId", mr_iid AS "mrIid", discussion_id AS "discussionId", author, body, file_path AS "filePath", line, status, resolved_by AS "resolvedBy", raw, created_at AS "createdAt", updated_at AS "updatedAt" FROM comments WHERE flow_id=$1 ORDER BY created_at DESC`, flowId);
+    return comments.map((c): ApiComment => {
         let parsed: Partial<HostComment> = {};
         try {
           parsed = c.raw ? (JSON.parse(c.raw) as Partial<HostComment>) : {};

@@ -1,14 +1,13 @@
-import fs from "node:fs";
-import os from "node:os";
-import path from "node:path";
-import { describe, expect, it } from "vitest";
+import { beforeAll, describe, expect, it } from "vitest";
 
-process.env.DATABASE_PATH = path.join(
-  fs.mkdtempSync(path.join(os.tmpdir(), "devflow-http-recover-")),
-  "test.db",
-);
+
+import { assignTestDatabase, resetTestDatabase } from "../../../../../tests/helpers/testDatabase";
+
+assignTestDatabase();
 
 const { db } = await import("../../../../db/app");
+
+beforeAll(resetTestDatabase);
 const { HttpTemplateNode } = await import("./httpNode");
 import type { AgentRunResult } from "../../../ports/agentPort";
 import type { FlowCtx } from "../../shared/nodeSharedExports";
@@ -21,8 +20,8 @@ describe("HttpTemplateNode.recover", () => {
     const taskId = "task_http_recover";
     const flowId = "flw_http_recover";
     const nodeId = "node_http_recover";
-    db.run(
-      `INSERT INTO tasks (id, type, key, summary, status, issue_type, priority) VALUES (?,?,?,?,?,?,?)`,
+    await db.run(
+      `INSERT INTO tasks (id, type, key, summary, status, issue_type, priority) VALUES ($1,$2,$3,$4,$5,$6,$7)`,
       taskId,
       "generic",
       "HTTP-1",
@@ -31,8 +30,8 @@ describe("HttpTemplateNode.recover", () => {
       "story",
       "P2",
     );
-    db.run(
-      `INSERT INTO flows (id, task_id, name, status, created_at, updated_at) VALUES (?,?,?,?,?,?)`,
+    await db.run(
+      `INSERT INTO flows (id, task_id, name, status, created_at, updated_at) VALUES ($1,$2,$3,$4,$5,$6)`,
       flowId,
       taskId,
       "http recover",
@@ -40,8 +39,8 @@ describe("HttpTemplateNode.recover", () => {
       now(),
       now(),
     );
-    db.run(
-      `INSERT INTO nodes (id, flow_id, node_key, type, status, created_at, updated_at) VALUES (?,?,?,?,?,?,?)`,
+    await db.run(
+      `INSERT INTO nodes (id, flow_id, node_key, type, status, created_at, updated_at) VALUES ($1,$2,$3,$4,$5,$6,$7)`,
       nodeId,
       flowId,
       "http_call",
@@ -55,15 +54,15 @@ describe("HttpTemplateNode.recover", () => {
       task: { id: "task_http_recover", type: "generic", key: "HTTP-1", summary: "test", fields: {}, status: "open", issueType: "story", priority: "P2" },
     } as unknown as FlowCtx;
     const node = new HttpTemplateNode({ id: "http_call", name: "HTTP", description: null, config: { url: "https://example.com", method: "GET" } });
-    const nodeRow = db.get<NodeRow>(`SELECT * FROM nodes WHERE id=?`, nodeId);
+    const nodeRow = await db.get<NodeRow>(`SELECT * FROM nodes WHERE id=$1`, nodeId);
     if (!nodeRow) throw new Error("missing node row");
 
     const ok = await node.recover(ctx, nodeRow, { status: "finished" } satisfies AgentRunResult, "server restarted");
     expect(ok).toBe(false);
 
-    const after = db.get<{ status: string }>(`SELECT status FROM nodes WHERE id=?`, nodeId);
+    const after = await db.get<{ status: string }>(`SELECT status FROM nodes WHERE id=$1`, nodeId);
     expect(after?.status).toBe("running");
-    const errors = db.all<{ type: string }>(`SELECT type FROM events WHERE node_id=?`, nodeId);
+    const errors = await db.all<{ type: string }>(`SELECT type FROM events WHERE node_id=$1`, nodeId);
     expect(errors.some((e) => e.type === "error")).toBe(false);
   });
 });

@@ -43,7 +43,7 @@ import { PlanPromptBuilder, type ExecutionKnob } from './planPrompt';
 import { PlanOutputContract } from './planContract';
 import { PlanSplitter } from './planSplit';
 
-import type { PlanRunArgs } from './types/planTypeExports';
+import type { PlanRunArgs, ScopedRefine } from './types/planTypeExports';
 import { ValidationError } from '@/lib/errors';
 
 /**
@@ -156,15 +156,15 @@ export class PlanNode extends AgentRunNode<PlanInput, PlanOutput> {
     opts?: ChatTurnOpts
   ): Promise<string> {
     const branch = PlanSplitter.getPlanThread(opts?.thread);
-    const config = this.parseRunConfig(this.nodeConfig(ctx));
-    const node = this.node(ctx);
+    const config = this.parseRunConfig(await this.nodeConfig(ctx));
+    const node = await this.node(ctx);
     const model = opts?.model ?? null;
     const settingSources = mcpSourcesOf(config);
 
     const base = { model, settingSources, branch, scoped: null } as const;
 
     if (branch) {
-      const scoped = this.store.scopedRefine(ctx.flow.id, branch);
+      const scoped = await this.store.scopedRefine(ctx.flow.id, branch);
       if (!scoped) {
         throw new ValidationError(`branch "${branch}" not found in the current plan`);
       }
@@ -174,11 +174,11 @@ export class PlanNode extends AgentRunNode<PlanInput, PlanOutput> {
         turnKind: PlanTurnKind.Branch,
         label: `plan branch chat (${branch})`,
         scoped,
-        prompt: this.prompt.scoped(ctx, scoped, content, []),
+        prompt: await this.prompt.scoped(ctx, scoped, content, []),
       });
     }
 
-    const latest = this.store.latestPlan(ctx.flow.id);
+    const latest = await this.store.latestPlan(ctx.flow.id);
     if (!latest) {
       const bootstrapInput = PlanInput.parse({
         prompt: content,
@@ -190,7 +190,7 @@ export class PlanNode extends AgentRunNode<PlanInput, PlanOutput> {
         previousStatus: opts?.previousStatus ?? null,
         turnKind: PlanTurnKind.PrePublish,
         label: PLAN_CHAT_LABEL,
-        prompt: this.prompt.whole(ctx, node, bootstrapInput),
+        prompt: await this.prompt.whole(ctx, node, bootstrapInput),
       });
     }
 
@@ -199,7 +199,7 @@ export class PlanNode extends AgentRunNode<PlanInput, PlanOutput> {
       previousStatus: opts?.previousStatus ?? null,
       turnKind: PlanTurnKind.Whole,
       label: PLAN_CHAT_LABEL,
-      prompt: this.prompt.refineTurn(ctx, content),
+      prompt: await this.prompt.refineTurn(ctx, content),
     });
   }
 
@@ -212,12 +212,12 @@ export class PlanNode extends AgentRunNode<PlanInput, PlanOutput> {
       model: string | null;
       settingSources: ReturnType<typeof mcpSourcesOf>;
       branch: string | null;
-      scoped: ReturnType<PlanStore['scopedRefine']>;
+      scoped: ScopedRefine | null;
       prompt: string;
       previousStatus: string | null;
     }
   ): Promise<string> {
-    const node = this.node(ctx);
+    const node = await this.node(ctx);
     // Engine `sendChat` passes pre-claim status (§T4 ChatTurnOpts). Otherwise
     // derive from the live row / recorded input (tests, retry replay).
     const priorInput = PlanInput.safeParse(node.input ?? {});
@@ -227,11 +227,13 @@ export class PlanNode extends AgentRunNode<PlanInput, PlanOutput> {
         node.status ?? "pending",
         priorInput.success ? priorInput.data : null,
       );
-    const attemptId = node.attempt_id;
+    const attemptId = node.attemptId;
     // Todo: Revisit this, there should be only one source of truth for main agent id
-    const mainAgentId = opts.branch ? (node.agent_id ?? this.support.lastAgentId(node.id)) : null;
+    const mainAgentId = opts.branch
+      ? (node.agentId ?? (await this.support.lastAgentId(node.id)))
+      : null;
 
-    const followUpOnAgent = this.sessions.resolveFollowUp(node, opts.branch);
+    const followUpOnAgent = await this.sessions.resolveFollowUp(node, opts.branch);
 
     const args: PlanRunArgs = {
       label: opts.label,
@@ -247,7 +249,7 @@ export class PlanNode extends AgentRunNode<PlanInput, PlanOutput> {
       prompt: opts.prompt,
     });
 
-    this.support.setNode(node.id, { input: JSON.stringify(finalInputPrompt) });
+    await this.support.setNode(node.id, { input: JSON.stringify(finalInputPrompt) });
 
     const { result } = await this.runner.executeRun(
       ctx,
@@ -276,26 +278,26 @@ export class PlanNode extends AgentRunNode<PlanInput, PlanOutput> {
         args
       );
 
-      const agentId = this.support.lastAgentId(node.id);
+      const agentId = await this.support.lastAgentId(node.id);
 
       if (agentId) {
-        this.sessions.recordAgent(ctx, this.node(ctx), opts.branch, agentId, mainAgentId);
+        await this.sessions.recordAgent(ctx, await this.node(ctx), opts.branch, agentId, mainAgentId);
       }
 
       if (applied.outcome) {
-        this.applyOutcome(ctx, applied.outcome, {
+        await this.applyOutcome(ctx, applied.outcome, {
           fenceSuperseded: Boolean(attemptId),
           attemptId,
         });
         return applied.reply;
       }
       if (attemptId) {
-        this.support.patchIfAttempt(node.id, attemptId, {
+        await this.support.patchIfAttempt(node.id, attemptId, {
           status: previousStatus,
           ...(agentId ? { agent_id: agentId } : {}),
         });
       } else {
-        this.support.setNode(node.id, {
+        await this.support.setNode(node.id, {
           status: previousStatus,
           ...(agentId ? { agent_id: agentId } : {}),
         });
@@ -305,20 +307,20 @@ export class PlanNode extends AgentRunNode<PlanInput, PlanOutput> {
       if (e instanceof RunSupersededError) {
         return '';
       }
-      const revert = (patch: Record<string, unknown>) => {
+      const revert = async (patch: Record<string, unknown>) => {
         if (attemptId) {
-          this.support.patchIfAttempt(node.id, attemptId, patch);
+          await this.support.patchIfAttempt(node.id, attemptId, patch);
         } else {
-          this.support.setNode(node.id, patch);
+          await this.support.setNode(node.id, patch);
         }
       };
       if (e instanceof AgentOutputError && e.code === AGENT_OUTPUT_ERROR.AGENT_REPORTED) {
-        revert({ status: previousStatus });
+        await revert({ status: previousStatus });
         return e.detail.reported?.reason ?? e.detail.message;
       }
       if (!(e instanceof AgentOutputError) || !RETRYABLE_OUTPUT_ERRORS.has(e.code)) throw e;
-      revert({ status: previousStatus });
-      this.support.emitLifecycle(ctx.flow.id, node.id, planValidationFailedEvent);
+      await revert({ status: previousStatus });
+      await this.support.emitLifecycle(ctx.flow.id, node.id, planValidationFailedEvent);
       return planValidationRefusalReply(this.firstViolation(e));
     }
   }
@@ -344,10 +346,10 @@ export class PlanNode extends AgentRunNode<PlanInput, PlanOutput> {
     if (!recorded.planTurnKind) return false;
 
     const branch = recorded.planThread?.trim() || null;
-    const scoped = branch ? this.store.scopedRefine(ctx.flow.id, branch) : null;
+    const scoped = branch ? await this.store.scopedRefine(ctx.flow.id, branch) : null;
     if (branch && !scoped) return false;
     try {
-      const applied = this.contract.applyTurnResult(
+      const applied = await this.contract.applyTurnResult(
         ctx,
         node,
         recorded.planTurnKind,
@@ -356,15 +358,15 @@ export class PlanNode extends AgentRunNode<PlanInput, PlanOutput> {
         scoped
       );
       if (applied.outcome) {
-        this.applyOutcome(ctx, applied.outcome, { note: `recovered: ${note}` });
+        await this.applyOutcome(ctx, applied.outcome, { note: `recovered: ${note}` });
       } else {
         const previousStatus = recorded.previousStatus ?? 'awaiting_approval';
-        const agentId = this.support.lastAgentId(node.id);
-        this.support.setNode(node.id, {
+        const agentId = await this.support.lastAgentId(node.id);
+        await this.support.setNode(node.id, {
           status: previousStatus,
           ...(agentId ? { agent_id: agentId } : {}),
         });
-        this.support.emitLifecycle(ctx.flow.id, node.id, `recovered: ${note} (reply-only turn)`);
+        await this.support.emitLifecycle(ctx.flow.id, node.id, `recovered: ${note} (reply-only turn)`);
       }
       return true;
     } catch {
@@ -375,11 +377,11 @@ export class PlanNode extends AgentRunNode<PlanInput, PlanOutput> {
   // ── split source port — the plan's branches (the node makes the method
   //    identity the engine's port check keys off; the logic is the splitter's) ─
 
-  override splitUnits(ctx: FlowCtx): SplitUnit[] | null {
+  override async splitUnits(ctx: FlowCtx): Promise<SplitUnit[] | null> {
     return this.splitter.units(ctx);
   }
 
-  override splitResolution(ctx: FlowCtx): 'whole' | 'per-unit' | null {
+  override async splitResolution(ctx: FlowCtx): Promise<'whole' | 'per-unit' | null> {
     return this.splitter.resolution(ctx);
   }
 
@@ -392,11 +394,11 @@ export class PlanNode extends AgentRunNode<PlanInput, PlanOutput> {
    * ALWAYS serves the `plan` template — refinements are conversation turns
    * (`chat()`), and branch refines prefill the composer via the branch route.
    */
-  previewPrompt(ctx: FlowCtx, node: NodeRow | null, params: PromptPreviewParams): NodePromptPreview | null {
+  async previewPrompt(ctx: FlowCtx, node: NodeRow | null, params: PromptPreviewParams): Promise<NodePromptPreview | null> {
     if (params.branch) {
-      const scoped = this.store.scopedRefine(ctx.flow.id, params.branch);
+      const scoped = await this.store.scopedRefine(ctx.flow.id, params.branch);
       if (!scoped) return null;
-      const vars = this.prompt.scopedVars(ctx, scoped, '', []);
+      const vars = await this.prompt.scopedVars(ctx, scoped, '', []);
       const asm = prompts.assemblePrompt('plan_subplan_refine', vars, { feedback: '' });
       return {
         templateKey: 'plan_subplan_refine',
@@ -421,8 +423,8 @@ export class PlanNode extends AgentRunNode<PlanInput, PlanOutput> {
    * "steps" legacy value included — old per-step configs degrade to the
    * default whole execution).
    */
-  private executionDefault(ctx: FlowCtx): ExecutionKnob {
-    const raw = this.nodeConfig(ctx)['execution_default'];
+  private async executionDefault(ctx: FlowCtx): Promise<ExecutionKnob> {
+    const raw = (await this.nodeConfig(ctx))['execution_default'];
     return raw === 'follow' ? raw : 'whole';
   }
 }

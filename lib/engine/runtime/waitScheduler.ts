@@ -29,20 +29,20 @@ export class WaitScheduler {
     }
   }
 
-  resolveScheduleAt(flowId: string): number | null {
-    const key = this.debounceKey(flowId);
+  async resolveScheduleAt(flowId: string): Promise<number | null> {
+    const key = await this.debounceKey(flowId);
     return key ? this.waitTimers.get(`${flowId}\n${key}`) ?? null : null;
   }
 
-  resolveScheduleClock(flowId: string): string | null {
-    const at = this.resolveScheduleAt(flowId);
+  async resolveScheduleClock(flowId: string): Promise<string | null> {
+    const at = await this.resolveScheduleAt(flowId);
     if (at == null) return null;
     return new Date(at).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit", hour12: false });
   }
 
-  resolveScheduleLabel(flowId: string): string {
-    return this.resolveScheduleClock(flowId)
-      ?? new Date(Date.now() + this.resolveDelayMs(flowId)).toLocaleTimeString("en-GB", {
+  async resolveScheduleLabel(flowId: string): Promise<string> {
+    return (await this.resolveScheduleClock(flowId))
+      ?? new Date(Date.now() + (await this.resolveDelayMs(flowId))).toLocaleTimeString("en-GB", {
         hour: "2-digit", minute: "2-digit", hour12: false,
       });
   }
@@ -62,19 +62,20 @@ export class WaitScheduler {
       ?? null;
     const cfg = mergeConfigLayers(
       base,
-      resolveKey ? this.host.nodeConfigFor(flowId, resolveKey) : {},
+      resolveKey ? await this.host.nodeConfigFor(flowId, resolveKey) : {},
     );
     return configNumber(cfg, "quiet_minutes", 10) * 60_000;
   }
 
   async armNodeWait(flowId: string, nodeKey: string, wait: "webhook" | "timer" | "comments", minutes: number | null): Promise<void> {
-    if (this.host.nodeStatus(flowId, nodeKey) !== "pending") return;
+    const nodeStatus = await this.host.nodeStatus(flowId, nodeKey);
+    if (nodeStatus !== "pending") return;
     if (wait === "timer" || wait === "comments") {
       const mins = minutes ?? (wait === "comments" ? 10 : 1);
       this.waitTimers.set(`${flowId}\n${nodeKey}`, Date.now() + mins * 60_000);
     }
     const hook = wait === "webhook" ? await hookStore.ensureForNode(flowId, nodeKey) : undefined;
-    this.host.setNodeStatus(flowId, nodeKey, "waiting");
+    await this.host.setNodeStatus(flowId, nodeKey, "waiting");
     await nodeStore.emitEvent(
       flowId,
       nodeKey,
@@ -92,8 +93,8 @@ export class WaitScheduler {
     if (!g) return;
     for (const spec of g.nodes) {
       if (spec.trigger.type !== "debounced" || spec.trigger.waitFor !== "comments") continue;
-      if (this.host.nodeStatus(flowId, spec.key) !== "waiting") continue;
-      this.waitTimers.set(`${flowId}\n${spec.key}`, Date.now() + this.debounceMinutesForNode(flowId, spec.key, spec) * 60_000);
+      if ((await this.host.nodeStatus(flowId, spec.key)) !== "waiting") continue;
+      this.waitTimers.set(`${flowId}\n${spec.key}`, Date.now() + (await this.debounceMinutesForNode(flowId, spec.key, spec)) * 60_000);
     }
   }
 
@@ -110,7 +111,7 @@ export class WaitScheduler {
       const tt = spec.trigger.type;
       const waitFor = spec.trigger.waitFor;
       if (tt === "debounced" && waitFor === "comments") {
-        const mins = this.debounceMinutesForNode(node.flowId, node.nodeKey, spec);
+        const mins = await this.debounceMinutesForNode(node.flowId, node.nodeKey, spec);
         this.waitTimers.set(`${node.flowId}\n${node.nodeKey}`, baseMs + mins * 60_000);
         continue;
       }
@@ -133,8 +134,8 @@ export class WaitScheduler {
         const open = await db.prisma.comment.count({
           where: { flowId, status: "open" },
         });
-        if (open === 0 || this.host.chainBusy(flowId)) {
-          this.waitTimers.set(k, now + this.debounceMinutesForNode(flowId, nodeKey, spec) * 60_000);
+        if (open === 0 || (await this.host.chainBusy(flowId))) {
+          this.waitTimers.set(k, now + (await this.debounceMinutesForNode(flowId, nodeKey, spec)) * 60_000);
           continue;
         }
       }
@@ -154,7 +155,7 @@ export class WaitScheduler {
       throw new ValidationError(`${nodeKey} is not waiting on a webhook`);
     }
     if (node.status !== "waiting") throw new ConflictError(`${nodeKey} is not waiting for an event`);
-    this.host.claimNode(flowId, nodeKey, ["waiting"]);
+    await this.host.claimNode(flowId, nodeKey, ["waiting"]);
     await db.emitEvent(flowId, node.id, "lifecycle", `${nodeKey} resumed by a webhook delivery`);
     this.host.bg(flowId, nodeKey, () =>
       this.host.startNodeStage(flowId, nodeKey, {
@@ -166,9 +167,9 @@ export class WaitScheduler {
   }
 
   private async fireWaitTimer(flowId: string, nodeKey: string, note?: string): Promise<void> {
-    if (this.host.nodeStatus(flowId, nodeKey) !== "waiting") return;
+    if ((await this.host.nodeStatus(flowId, nodeKey)) !== "waiting") return;
     try {
-      this.host.claimNode(flowId, nodeKey, ["waiting"]);
+      await this.host.claimNode(flowId, nodeKey, ["waiting"]);
     } catch (e: unknown) {
       if (e instanceof ConflictError) return;
       throw e;
@@ -184,16 +185,18 @@ export class WaitScheduler {
     );
   }
 
-  private debounceKey(flowId: string): string | null {
-    return null;
+  private async debounceKey(flowId: string): Promise<string | null> {
+    return (await templateStore.graphForFlow(flowId))?.nodes.find(
+      (n) => n.trigger.type === "debounced" && n.trigger.waitFor === "comments",
+    )?.key ?? null;
   }
 
   clearTimerForNode(flowId: string, nodeKey: string): void {
     this.waitTimers.delete(`${flowId}\n${nodeKey}`);
   }
 
-  debounceMinutesForNode(flowId: string, nodeKey: string, spec?: { trigger: { minutes?: number } }): number {
+  async debounceMinutesForNode(flowId: string, nodeKey: string, spec?: { trigger: { minutes?: number } }): Promise<number> {
     if (typeof spec?.trigger.minutes === "number" && spec.trigger.minutes >= 0) return spec.trigger.minutes;
-    return configNumber(this.host.nodeConfigFor(flowId, nodeKey), "quiet_minutes", 10);
+    return configNumber(await this.host.nodeConfigFor(flowId, nodeKey), "quiet_minutes", 10);
   }
 }

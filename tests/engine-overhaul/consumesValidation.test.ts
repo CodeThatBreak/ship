@@ -10,12 +10,13 @@
  * There is no seam to assert against today, so the test is a placeholder
  * documenting the contract.
  *
- * Runs against an isolated temp SQLite DB (AGENTS.md §1 — never a real DB).
+ * Runs against the isolated dockerized Postgres test database
+ * (AGENTS.md §1 — never a demo/real DB).
  */
 import { describe, test } from "vitest";
-import { assignDatabasePath, createIsolatedDatabasePath } from "../helpers/testDatabase";
+import { assignTestDatabase } from "../helpers/testDatabase";
 
-assignDatabasePath(createIsolatedDatabasePath("devflow-ovh-consumes-"));
+assignTestDatabase();
 
 describe("consumes validation at stage start", () => {
   // OVERHAUL: flip in step 04 (skipped — the consumes declaration doesn't exist yet)

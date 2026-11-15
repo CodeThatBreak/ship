@@ -71,23 +71,27 @@ export const loadSettings = async (): Promise<Settings> => {
   );
   const statuses = new Map(ports.map((p, i) => [p.kind, stateList[i]]));
   return {
-    default_harness: db.getSetting(SETTINGS_KEYS.DEFAULT_HARNESS, settingString, "cursor"),
+    default_harness: await db.getSetting(SETTINGS_KEYS.DEFAULT_HARNESS, settingString, "cursor"),
     harnesses: harnessGroups(statuses),
-    default_execution_mode: settingsService.defaultExecutionMode(),
-    default_model: settingsService.defaultModel(),
+    default_execution_mode: await settingsService.defaultExecutionMode(),
+    default_model: await settingsService.defaultModel(),
     local_agent: {
-      force: db.getSetting(SETTINGS_KEYS.LOCAL_AGENT_FORCE, settingBoolean, true),
-      sandbox: db.getSetting(SETTINGS_KEYS.LOCAL_AGENT_SANDBOX, settingBoolean, false),
-      timeout_ms: db.getSetting(SETTINGS_KEYS.LOCAL_AGENT_TIMEOUT_MS, settingNumber, 30 * 60 * 1000),
+      force: await db.getSetting(SETTINGS_KEYS.LOCAL_AGENT_FORCE, settingBoolean, true),
+      sandbox: await db.getSetting(SETTINGS_KEYS.LOCAL_AGENT_SANDBOX, settingBoolean, false),
+      timeout_ms: await db.getSetting(SETTINGS_KEYS.LOCAL_AGENT_TIMEOUT_MS, settingNumber, 30 * 60 * 1000),
     },
-    secrets: Object.keys(db.getSetting(SETTINGS_KEYS.SECRETS, settingUnknownRecord, {})),
-    http_allowlist: settingsService.httpAllowlist(),
+    secrets: Object.keys(await db.getSetting(SETTINGS_KEYS.SECRETS, settingUnknownRecord, {})),
+    http_allowlist: await settingsService.httpAllowlist(),
     status: {
-      cursorApiKeySet: cursorCredentials.isStored(),
+      cursorApiKeySet: await cursorCredentials.isStored(),
       localAgentConfigured:
-        statuses.get(agentPortRegistry.forMode("local").kind)?.configured ?? false,
-      gitHosts: Object.fromEntries(gitHostRegistry.list().map((h) => [h.kind, h.configured()])),
-      taskProviders: Object.fromEntries(taskRegistry.list().map((p) => [p.kind, p.configured()])),
+        statuses.get((await agentPortRegistry.forMode("local")).kind)?.configured ?? false,
+      gitHosts: Object.fromEntries(
+        await Promise.all(gitHostRegistry.list().map(async (h) => [h.kind, await h.configured()] as const)),
+      ),
+      taskProviders: Object.fromEntries(
+        await Promise.all(taskRegistry.list().map(async (p) => [p.kind, await p.configured()] as const)),
+      ),
     },
   };
 };
@@ -95,10 +99,10 @@ export const loadSettings = async (): Promise<Settings> => {
 export type ReposPayload = { repos: Repo[]; serverHome: string };
 
 /** Repo registry — same JSON shape as GET /api/repos. */
-export const loadReposPayload = (): ReposPayload => ({
-  repos: repoService.listWithPathStatus(),
+export const loadReposPayload = async (): Promise<ReposPayload> => ({
+  repos: await repoService.listWithPathStatus(),
   serverHome: process.env.HOME ?? "",
 });
 
 /** @deprecated Prefer loadReposPayload — returns repos only for legacy callers. */
-export const loadRepos = (): Repo[] => loadReposPayload().repos;
+export const loadRepos = async (): Promise<Repo[]> => (await loadReposPayload()).repos;

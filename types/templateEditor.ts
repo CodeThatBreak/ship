@@ -18,7 +18,7 @@ export interface EditorTaskProvider {
 import type { RepoSummary } from "@/types/repos";
 
 /** A registered repo's editor-facing slice (GET /repos list) — the Bound-repo picker's option. */
-export type EditorRepoChoice = Pick<RepoSummary, "id" | "name" | "local_path">;
+export type EditorRepoChoice = Pick<RepoSummary, "id" | "name" | "localPath">;
 
 /** One node instance row in the editor payload (snake_case API shape). */
 export interface EditorNodeRow {

@@ -17,7 +17,7 @@ import { flowSummaries, type FlowSummary } from "@/types/flows";
  * `GET /api/flows/:id` route wraps. Returns `null` when the flow doesn't
  * exist — the caller maps that to 404.
  */
-export const getFlowCockpitData = (id: string): FlowData | null => {
+export const getFlowCockpitData = async (id: string): Promise<FlowData | null> => {
   return flowEngine.get(id);
 };
 
@@ -26,6 +26,6 @@ export const getFlowCockpitData = (id: string): FlowData | null => {
  * `GET /api/flows` route wraps, narrowed into the typed list rows
  * (`types/flows.ts`), handed to the client island as initial data.
  */
-export const getFlowListData = (): FlowSummary[] => {
-  return flowSummaries(flowEngine.list());
+export const getFlowListData = async (): Promise<FlowSummary[]> => {
+  return flowSummaries(await flowEngine.list());
 };

@@ -3,19 +3,21 @@ import { ValidationError } from "../../errors";
 import type { GitLabClient, GitLabService } from "./client";
 import { GitLabHostService } from "./gitHost";
 
+const instanceFixture = {
+  id: "gli_1",
+  name: null,
+  baseUrl: "https://gitlab.example.com",
+  token: "secret-token",
+  createdAt: "2026-01-01T00:00:00.000Z",
+};
+
 describe("GitLabHostService", () => {
   const gitlab = {
-    configured: () => true,
-    instanceForRepo: vi.fn(() => ({
-      id: "gli_1",
-      name: null,
-      base_url: "https://gitlab.example.com",
-      token: "secret-token",
-      created_at: "2026-01-01T00:00:00.000Z",
-    })),
+    configured: async () => true,
+    instanceForRepo: vi.fn(async () => instanceFixture),
     clientFor: vi.fn(),
     projectPathFromUrl: () => "group/repo",
-    listInstances: vi.fn<GitLabService["listInstances"]>(() => []),
+    listInstances: vi.fn<GitLabService["listInstances"]>(async () => []),
     getInstance: vi.fn<GitLabService["getInstance"]>(),
     addInstance: vi.fn(),
     updateInstance: vi.fn(),
@@ -25,52 +27,32 @@ describe("GitLabHostService", () => {
 
   const service = new GitLabHostService(gitlab as unknown as GitLabService);
 
-  it("returns a plain clone URL with a .git suffix (CR-023)", () => {
-    vi.mocked(gitlab.instanceForRepo).mockReturnValue({
-      id: "gli_1",
-      name: null,
-      base_url: "https://gitlab.example.com",
-      token: "secret-token",
-      created_at: "2026-01-01T00:00:00.000Z",
-    });
-    const url = service.authedCloneUrl("https://gitlab.example.com/group/repo");
+  it("returns a plain clone URL with a .git suffix (CR-023)", async () => {
+    vi.mocked(gitlab.instanceForRepo).mockResolvedValue(instanceFixture);
+    const url = await service.authedCloneUrl("https://gitlab.example.com/group/repo");
     expect(url).toBe("https://gitlab.example.com/group/repo.git");
     expect(url).not.toContain("secret-token");
   });
 
-  it("supplies GIT_CONFIG auth env without embedding the token in the URL", () => {
-    vi.mocked(gitlab.instanceForRepo).mockReturnValue({
-      id: "gli_1",
-      name: null,
-      base_url: "https://gitlab.example.com",
-      token: "secret-token",
-      created_at: "2026-01-01T00:00:00.000Z",
-    });
-    const env = service.gitAuthEnv("https://gitlab.example.com/group/repo.git");
+  it("supplies GIT_CONFIG auth env without embedding the token in the URL", async () => {
+    vi.mocked(gitlab.instanceForRepo).mockResolvedValue(instanceFixture);
+    const env = await service.gitAuthEnv("https://gitlab.example.com/group/repo.git");
     expect(env.GIT_CONFIG_KEY_0).toBe("http.extraHeader");
     expect(env.GIT_CONFIG_VALUE_0).not.toContain("secret-token");
-    expect(service.gitRedactValues("https://gitlab.example.com/group/repo.git")).toEqual([
+    expect(await service.gitRedactValues("https://gitlab.example.com/group/repo.git")).toEqual([
       "secret-token",
     ]);
   });
 
-  it("passes through the repo URL when no token is available", () => {
-    vi.mocked(gitlab.instanceForRepo).mockImplementation(() => {
-      throw new Error("no instance");
-    });
-    expect(service.authedCloneUrl("https://gitlab.example.com/group/repo.git")).toBe(
+  it("passes through the repo URL when no token is available", async () => {
+    vi.mocked(gitlab.instanceForRepo).mockRejectedValue(new Error("no instance"));
+    expect(await service.authedCloneUrl("https://gitlab.example.com/group/repo.git")).toBe(
       "https://gitlab.example.com/group/repo.git",
     );
   });
 
   it("rejects testInstance when baseUrl changes without a new token (CR-002)", async () => {
-    vi.mocked(gitlab.getInstance).mockReturnValue({
-      id: "gli_1",
-      name: null,
-      base_url: "https://gitlab.example.com",
-      token: "secret-token",
-      created_at: "2026-01-01T00:00:00.000Z",
-    });
+    vi.mocked(gitlab.getInstance).mockResolvedValue(instanceFixture);
     await expect(
       service.testInstance("gli_1", { baseUrl: "https://evil.test" }),
     ).rejects.toBeInstanceOf(ValidationError);
@@ -99,7 +81,7 @@ describe("GitLabHostService", () => {
   });
 
   it("replyToComment posts to the thread and normalizes the note to the gl_ id scheme", async () => {
-    vi.mocked(gitlab.clientFor).mockReturnValue({
+    vi.mocked(gitlab.clientFor).mockResolvedValue({
       createMRDiscussionNote: vi.fn().mockResolvedValue({
         id: 123,
         body: "**AI Resolve**\n\nfixed",

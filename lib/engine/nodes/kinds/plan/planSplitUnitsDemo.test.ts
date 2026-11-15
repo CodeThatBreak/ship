@@ -87,8 +87,8 @@ const latest: LatestPlan = {
 const ctxWith = (knob: ExecutionKnob): FlowCtx => ({ flow: { id: 'flow-1', knob } }) as unknown as FlowCtx;
 
 // The same wiring the plan node uses at run time; the store is the only stub.
-const knobOf = (ctx: FlowCtx): ExecutionKnob => ((ctx.flow as { knob?: string }).knob === 'follow' ? 'follow' : 'whole');
-const splitter = new PlanSplitter({ latestPlan: () => latest } as unknown as PlanStore, knobOf);
+const knobOf = (ctx: FlowCtx): Promise<ExecutionKnob> => Promise.resolve((ctx.flow as { knob?: string }).knob === 'follow' ? 'follow' : 'whole');
+const splitter = new PlanSplitter({ latestPlan: async () => latest } as unknown as PlanStore, knobOf);
 
 describe('dummy walkthrough — a branched plan through the split source port', () => {
   it('1 · the plan artifact: branches scheduled purely by the branch DAG', () => {
@@ -101,8 +101,8 @@ describe('dummy walkthrough — a branched plan through the split source port', 
     expect(latest.rawMeta).toMatchObject({ execution: 'steps', executionSource: 'planner' });
   });
 
-  it('2 · splitUnits: one SplitUnit per branch — what each child build flow receives', () => {
-    const units = splitter.units(ctxWith('follow'));
+  it('2 · splitUnits: one SplitUnit per branch — what each child build flow receives', async () => {
+    const units = await splitter.units(ctxWith('follow'));
     if (!units) throw new Error('a plan with branches must yield split units');
 
     console.log('── SplitUnit[] (one unit per branch, target: build) ──');
@@ -124,9 +124,9 @@ describe('dummy walkthrough — a branched plan through the split source port', 
     });
   });
 
-  it('3 · splitResolution: what the build consumer honors (split_consume: "source")', () => {
-    expect(splitter.resolution(ctxWith('whole'))).toBe('whole');
-    expect(splitter.resolution(ctxWith('follow'))).toBe('per-unit'); // published "steps" ⇒ per-branch fan-out
+  it('3 · splitResolution: what the build consumer honors (split_consume: "source")', async () => {
+    expect(await splitter.resolution(ctxWith('whole'))).toBe('whole');
+    expect(await splitter.resolution(ctxWith('follow'))).toBe('per-unit'); // published "steps" ⇒ per-branch fan-out
     // legacy "steps" knob configs degrade to whole (the retired mapping);
     // the approve_plan override writes executionSource "override" into the
     // same meta and is honored the same way at approve time
@@ -143,8 +143,8 @@ describe('dummy walkthrough — a branched plan through the split source port', 
     console.log('  approve override:  executionSource "override" in the same meta');
   });
 
-  it('4 · after approval: the branch DAG as scheduling waves + the child payload', () => {
-    const units = splitter.units(ctxWith('follow'));
+  it('4 · after approval: the branch DAG as scheduling waves + the child payload', async () => {
+    const units = await splitter.units(ctxWith('follow'));
     if (!units) throw new Error('a plan with branches must yield split units');
     const done = new Set<string>();
     const waves: string[][] = [];

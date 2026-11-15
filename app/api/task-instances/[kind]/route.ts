@@ -18,7 +18,7 @@ export const GET = async (_req: Request, { params }: { params: Promise<{ kind: s
   if (!provider) return NextResponse.json({ error: `unknown task provider: ${kind}` }, { status: 404 });
   const store = provider.instanceStore();
   if (!store) return NextResponse.json({ error: `${provider.label} does not manage instances` }, { status: 400 });
-  return NextResponse.json({ instances: store.instances(), configured: provider.configured() });
+  return NextResponse.json({ instances: await store.instances(), configured: await provider.configured() });
 };
 
 export const POST = async (req: Request, { params }: { params: Promise<{ kind: string }> }) => {
@@ -30,7 +30,7 @@ export const POST = async (req: Request, { params }: { params: Promise<{ kind: s
     if (!store) return NextResponse.json({ error: `${provider.label} does not manage instances` }, { status: 400 });
     const body = await parseJson(req, taskInstanceCreateBodySchema);
     const baseUrl = await validateNewTaskInstanceBaseUrl(body.baseUrl);
-    const inst = store.addInstance({ ...body, baseUrl });
+    const inst = await store.addInstance({ ...body, baseUrl });
     return NextResponse.json({ instance: inst });
   } catch (err: unknown) {
     return toErrorResponse(err);

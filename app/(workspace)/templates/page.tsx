@@ -18,7 +18,7 @@ const galleryQueryDefaults = {
  * for the gallery island.
  */
 export default async function TemplatesPage() {
-  const templates = loadTemplateGallery();
+  const templates = await loadTemplateGallery();
   const queryClient = new QueryClient({
     defaultOptions: { queries: galleryQueryDefaults },
   });

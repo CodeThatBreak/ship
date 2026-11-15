@@ -156,20 +156,20 @@ export { STEP_BUILD_TEMPLATE_ID } from "../../constants/nodeKeys";
 export class StepFlowManager {
   /** Engine surface the manager drives (bound once by flow.ts at module load). */
   private engine: {
-    ctx(flowId: string): FlowCtx;
-    nodeConfigFor(flowId: string, nodeKey: string): Record<string, unknown>;
-    defOf(flowId: string, nodeKey: string): { key: string; label: string; capabilities: NodeCapabilities };
+    ctx(flowId: string): Promise<FlowCtx>;
+    nodeConfigFor(flowId: string, nodeKey: string): Promise<Record<string, unknown>>;
+    defOf(flowId: string, nodeKey: string): Promise<{ key: string; label: string; capabilities: NodeCapabilities }>;
     createStepChild(
       parentFlowId: string,
       templateId: string,
       name: string,
       payload: StepChildPayload,
       opts: { branch: string | null }
-    ): string;
-    startStepChild(childFlowId: string): void;
+    ): Promise<string>;
+    startStepChild(childFlowId: string): Promise<void>;
     finishFanout(parentFlowId: string, nodeKey: string, output: Record<string, unknown>): Promise<void>;
     cancelNode(flowId: string, nodeKey: string): Promise<void>;
-    setNodeStatus(flowId: string, nodeKey: string, status: string): void;
+    setNodeStatus(flowId: string, nodeKey: string, status: string): Promise<void>;
     bg(flowId: string, nodeKey: string | null, fn: () => Promise<void>): void;
     /** run a node with a validated rawInput (the Phase-2 merge-fix agent drives
      *  the step child's runNode-with-feedback path, exactly like the SDLC
@@ -178,7 +178,7 @@ export class StepFlowManager {
     /** the latest artifact version a chain role's def published as a
      *  first-class resource (§T3/F3) — the plan version the mode resolution
      *  reads, scoped through the plan def's metadata instead of a literal kind */
-    latestResourceArtifact<T>(flowId: string, role: ChainRole, columns?: string): T | undefined;
+    latestResourceArtifact<T>(flowId: string, role: ChainRole, columns?: string): Promise<T | undefined>;
   } | null = null;
 
   /** Called once from flow.ts (module-load tail) — resolves the engine cycle. */
@@ -209,8 +209,8 @@ export class StepFlowManager {
   }
 
   /** The plan node's published execution on the latest plan artifact (plan-meta `execution`). */
-  publishedExecution(flowId: string): "whole" | "steps" | null {
-    const meta = this.e.latestResourceArtifact<{ meta: string | null }>(flowId, NODE_KEYS.PLAN, "a.meta")
+  async publishedExecution(flowId: string): Promise<"whole" | "steps" | null> {
+    const meta = (await this.e.latestResourceArtifact<{ meta: string | null }>(flowId, NODE_KEYS.PLAN, "a.meta"))
       ?.meta ?? null;
     if (!meta) return null;
     try {
@@ -229,20 +229,20 @@ export class StepFlowManager {
    * shape so downstream `{{nodes.X.output.steps.*}}` mappings survive plan
    * revisions that change the checklist size (rev 3 decision).
    */
-  gate(flowId: string, nodeKey: string): "fanout" | "whole-wrap" | null {
-    const config = this.e.nodeConfigFor(flowId, nodeKey);
+  async gate(flowId: string, nodeKey: string): Promise<"fanout" | "whole-wrap" | null> {
+    const config = await this.e.nodeConfigFor(flowId, nodeKey);
     const knob = fanoutOf(config);
     if (knob.mode === "whole") return null; // the frozen default — nothing to do
-    const ctx = this.e.ctx(flowId);
+    const ctx = await this.e.ctx(flowId);
     if (ctx.flow.parentFlowId != null) return null; // no nesting (lint rule 3's runtime mirror)
-    const resolved = this.resolveMode(config, this.publishedExecution(flowId));
+    const resolved = this.resolveMode(config, await this.publishedExecution(flowId));
     if (resolved.override) {
       await db.emitEvent(flowId, null, "lifecycle",
         `${nodeKey} fan-out mode "${resolved.mode}" overrides the plan's published execution "${resolved.published}"`,
         { nodeKey });
     }
     if (resolved.mode === "whole") return "whole-wrap";
-    const pending = planSteps.list(flowId).filter((s) => s.status === "pending" && s.subFlowId == null);
+    const pending = (await planSteps.list(flowId)).filter((s) => s.status === "pending" && s.subFlowId == null);
     if (!pending.length) return null; // nothing to expand — the whole path runs
     return "fanout";
   }
@@ -255,26 +255,26 @@ export class StepFlowManager {
    * (they expand at the flow's next gate hit — e.g. a re-entered node).
    * Returns true when at least one child was spawned.
    */
-  expand(parentFlowId: string, nodeKey: string): boolean {
-    const ctx = this.e.ctx(parentFlowId);
-    const summary = this.planSummary(parentFlowId);
-    const pending = planSteps.list(parentFlowId).filter((s) => s.status === "pending" && s.subFlowId == null);
+  async expand(parentFlowId: string, nodeKey: string): Promise<boolean> {
+    const ctx = await this.e.ctx(parentFlowId);
+    const summary = await this.planSummary(parentFlowId);
+    const pending = (await planSteps.list(parentFlowId)).filter((s) => s.status === "pending" && s.subFlowId == null);
     if (!pending.length) return false;
-    const spec = templateStore.graphForFlow(parentFlowId)?.byKey.get(nodeKey);
+    const spec = (await templateStore.graphForFlow(parentFlowId))?.byKey.get(nodeKey);
     // the parent def owns its fan-out fallback child (§T3/F5) — resolved like
     // every def in the engine (built-in by key, declarative by row + instance)
-    const parentDef = spec ? nodeRegistry.resolve(spec.defKey ?? nodeKey, nodeKey) : undefined;
+    const parentDef = spec ? await nodeRegistry.resolve(spec.defKey ?? nodeKey, nodeKey) : undefined;
     // the child template resolves ONCE per expansion — a missing/unresolvable
     // child fails the node loudly before any child row exists
-    const templateId = this.childTemplateId(
+    const templateId = await this.childTemplateId(
       parentFlowId, nodeKey, parentDef,
-      fanoutOf(this.e.nodeConfigFor(parentFlowId, nodeKey)));
-    const childGraph = templateStore.graph(templateId);
+      fanoutOf(await this.e.nodeConfigFor(parentFlowId, nodeKey)));
+    const childGraph = await templateStore.graph(templateId);
     if (!childGraph?.nodes.length) {
       throw new Error(`fan-out: child template "${templateId}" has no nodes`);
     }
     const codeChild = Boolean((nodeRegistry.maybe(childGraph.nodes[0].defKey)?.capabilities as NodeCapabilities | undefined)?.mergeBack);
-    const integrationBranchOf = (planBranch: string | null) => this.integrationBranchFor(parentFlowId, nodeKey, planBranch);
+    const integrationBranchOf = async (planBranch: string | null) => this.integrationBranchFor(parentFlowId, nodeKey, planBranch);
 
     // §2 data model: when the EXPLICIT child template declares a start
     // contract, the `{plan, step, siblings}` payload is validated against it
@@ -282,7 +282,7 @@ export class StepFlowManager {
     // 3C: explicit picks run the §2 check; auto-wrapped/step-build templates
     // declare no start node, so the payload flows straight into input
     // mapping and prompt variables as before)
-    this.validateChildStartContract(childGraph, templateId, {
+    await this.validateChildStartContract(childGraph, templateId, {
       plan: summary,
       step: {
         id: pending[0].metaId ?? pending[0].id,
@@ -298,8 +298,8 @@ export class StepFlowManager {
     let made = 0;
     await db.transaction(async (tx) => {
       for (const stepRow of pending) {
-        const integrationBranch = integrationBranchOf(stepRow.branch);
-        const groupIndex = this.branchGroupIndex(parentFlowId, integrationBranch, stepRow, integrationBranchOf);
+        const integrationBranch = await integrationBranchOf(stepRow.branch);
+        const groupIndex = await this.branchGroupIndex(parentFlowId, integrationBranch, stepRow, integrationBranchOf);
         const branch = codeChild ? `${integrationBranch}-s${groupIndex + 1}` : null;
 
         const payload: StepChildPayload = {
@@ -311,13 +311,13 @@ export class StepFlowManager {
             files: StepFlowManager.filesOf(stepRow),
             ...(branch ? { branch } : {}),
           },
-          siblings: planSteps.list(parentFlowId)
+          siblings: (await planSteps.list(parentFlowId))
             .filter((s) => s.id !== stepRow.id)
             .map((s) => ({ id: s.metaId ?? s.id, title: s.title, files: StepFlowManager.filesOf(s), status: s.status })),
           parentNodeKey: nodeKey,
           workNodeKey: childGraph.nodes[0]?.key ?? nodeKey,
         };
-        const childId = this.e.createStepChild(
+        const childId = await this.e.createStepChild(
           parentFlowId,
           templateId,
           `${ctx.flow.name} · step: ${stepRow.title}`,
@@ -329,10 +329,10 @@ export class StepFlowManager {
         if (codeChild) {
           // integration branch rows mirror the whole-mode branch decomposition so
           // the final aggregate approval's MR targets resolve through the chain
-          if (!branchStore.list(parentFlowId).some((b) => b.name === integrationBranch)) {
-            branchStore.upsert(parentFlowId, integrationBranch, {
+          if (!(await branchStore.list(parentFlowId)).some((b) => b.name === integrationBranch)) {
+            await branchStore.upsert(parentFlowId, integrationBranch, {
               title: `steps${stepRow.branch ? ` · ${stepRow.branch}` : ""}`,
-              order: branchStore.list(parentFlowId).length,
+              order: (await branchStore.list(parentFlowId)).length,
               status: "pending",
             });
           }
@@ -345,12 +345,12 @@ export class StepFlowManager {
     });
 
     if (!made) return false;
-    this.e.setNodeStatus(parentFlowId, nodeKey, "running");
-    const parallelMax = Math.max(1, fanoutOf(this.e.nodeConfigFor(parentFlowId, nodeKey)).parallelMax);
+    await this.e.setNodeStatus(parentFlowId, nodeKey, "running");
+    const parallelMax = Math.max(1, fanoutOf(await this.e.nodeConfigFor(parentFlowId, nodeKey)).parallelMax);
     await db.emitEvent(parentFlowId, null, "lifecycle",
       `${nodeKey} fans out into ${made} step sub-flow${made > 1 ? "s" : ""} — one child per pending plan step${parallelMax > 1 ? `, up to ${parallelMax} concurrent (file-disjoint)` : ", sequential"}`,
       { nodeKey });
-    this.advance(parentFlowId, nodeKey);
+    await this.advance(parentFlowId, nodeKey);
     return true;
   }
 
@@ -362,62 +362,64 @@ export class StepFlowManager {
    * context pack then advises against touching files owned by concurrently
    * working siblings against the current picture, not the expand-time one.
    */
-  private refreshSiblings(
+  private async refreshSiblings(
     parentFlowId: string,
     nodeKey: string,
     childFlowId: string,
     states: StepState[],
-  ): void {
-    const payload = this.childPayload(childFlowId);
+  ): Promise<void> {
+    const payload = await this.childPayload(childFlowId);
     if (!payload) return;
-    payload.siblings = states
-      .filter((s) => s.childFlowId != null && s.childFlowId !== childFlowId)
-      .map((s) => {
-        const isCode = s.isCodeChild;
-        const done = s.step.status === "done";
-        let status: string;
-        if (s.step.completedBy === "skipped") status = "skipped";
-        else if (s.isFailed) status = "failed";
-        else if (done) status = isCode ? "merged" : "done";
-        else if (s.isAwaiting) status = "awaiting approval";
-        else if (s.isRunning) status = "building";
-        else status = "pending";
-        let summary: string | undefined;
-        let mergeStatus: string | undefined;
-        const out = s.childFlowId ? this.childOutput(s.childFlowId) : null;
-        const outObj = out && typeof out === "object" ? (out as Record<string, unknown>) : null;
-        if (isCode) {
-          // done ⇒ its merge landed; a merge row in repair surfaces the state
-          mergeStatus = !done && s.mergeStatus && s.mergeStatus !== "merged"
-            ? s.mergeStatus
-            : undefined;
-        } else if (done || (!s.isFailed && outObj)) {
-          const raw = outObj?.summary ?? outObj?.output_summary ?? outObj?.markdown;
-          if (typeof raw === "string" && raw.trim()) summary = raw.trim().slice(0, 200);
-        }
-        return {
-          id: s.step.metaId ?? s.step.id,
-          title: s.step.title,
-          files: StepFlowManager.filesOf(s.step),
-          status,
-          ...(summary ? { summary } : {}),
-          ...(mergeStatus ? { mergeStatus } : {}),
-        };
-      });
-    await db.run(`UPDATE flows SET trigger_payload=$1, updated_at=$2 WHERE id=$3`,
+    payload.siblings = await Promise.all(
+      states
+        .filter((s) => s.childFlowId != null && s.childFlowId !== childFlowId)
+        .map(async (s) => {
+          const isCode = s.isCodeChild;
+          const done = s.step.status === "done";
+          let status: string;
+          if (s.step.completedBy === "skipped") status = "skipped";
+          else if (s.isFailed) status = "failed";
+          else if (done) status = isCode ? "merged" : "done";
+          else if (s.isAwaiting) status = "awaiting approval";
+          else if (s.isRunning) status = "building";
+          else status = "pending";
+          let summary: string | undefined;
+          let mergeStatus: string | undefined;
+          const out = s.childFlowId ? await this.childOutput(s.childFlowId) : null;
+          const outObj = out && typeof out === "object" ? (out as Record<string, unknown>) : null;
+          if (isCode) {
+            // done ⇒ its merge landed; a merge row in repair surfaces the state
+            mergeStatus = !done && s.mergeStatus && s.mergeStatus !== "merged"
+              ? s.mergeStatus
+              : undefined;
+          } else if (done || (!s.isFailed && outObj)) {
+            const raw = outObj?.summary ?? outObj?.output_summary ?? outObj?.markdown;
+            if (typeof raw === "string" && raw.trim()) summary = raw.trim().slice(0, 200);
+          }
+          return {
+            id: s.step.metaId ?? s.step.id,
+            title: s.step.title,
+            files: StepFlowManager.filesOf(s.step),
+            status,
+            ...(summary ? { summary } : {}),
+            ...(mergeStatus ? { mergeStatus } : {}),
+          };
+        }),
+    );
+    await db.run(`UPDATE flows SET trigger_payload=$1::jsonb, updated_at=$2 WHERE id=$3`,
       JSON.stringify(payload), db.now(), childFlowId);
   }
 
   /** The child template's declared start contract, validated against the step payload
    *  (§2: "exactly like a webhook delivery") — a no-op when none declares fields. */
-  validateChildStartContract(childGraph: TemplateGraph, templateId: string, payload: unknown): void {
+  async validateChildStartContract(childGraph: TemplateGraph, templateId: string, payload: unknown): Promise<void> {
     const startSpec = childGraph.nodes.find((n) => n.defKey === nodeRegistry.entryKey());
     const contractFields = startSpec ? parseStartContract(startSpec.config) : [];
     if (!contractFields.length) return;
     const v = validateAgainstContract(contractFields, payload);
     if (!v.ok) {
       throw new Error(
-        `fan-out: the step payload doesn't match the child template "${templateStore.flowTemplate(templateId)?.name ?? templateId}" start contract — ${v.error}`);
+        `fan-out: the step payload doesn't match the child template "${(await templateStore.flowTemplate(templateId))?.name ?? templateId}" start contract — ${v.error}`);
     }
   }
 
@@ -429,17 +431,17 @@ export class StepFlowManager {
    * every caller uses this one method now. Step branches are
    * `<integration>-sN` built off this prefix, same as before.
    */
-  integrationBranchFor(parentFlowId: string, nodeOwnerKey: string, planBranch: string | null): string {
-    const ctx = this.e.ctx(parentFlowId);
-    const pattern = configString(this.e.nodeConfigFor(parentFlowId, nodeOwnerKey), "branch_pattern");
+  async integrationBranchFor(parentFlowId: string, nodeOwnerKey: string, planBranch: string | null): Promise<string> {
+    const ctx = await this.e.ctx(parentFlowId);
+    const pattern = configString(await this.e.nodeConfigFor(parentFlowId, nodeOwnerKey), "branch_pattern");
     return branchNamer.branchName(ctx, pattern, planBranch ?? undefined);
   }
 
   /** Child template id: explicit `knob.child` | the parent def's fallback child
    *  (the build's seeded step build, §T3/F5) | auto-wrap. */
-  private childTemplateId(parentFlowId: string, nodeKey: string, parentDef: NodeDefinition | undefined, knob: FanoutKnob): string {
+  private async childTemplateId(parentFlowId: string, nodeKey: string, parentDef: NodeDefinition | undefined, knob: FanoutKnob): Promise<string> {
     if (knob.child) {
-      if (!templateStore.flowTemplate(knob.child)) {
+      if (!(await templateStore.flowTemplate(knob.child))) {
         throw new Error(`fan-out child template "${knob.child}" does not exist (the ${nodeKey} node's fan-out config)`);
       }
       return knob.child;
@@ -452,22 +454,22 @@ export class StepFlowManager {
   }
 
   /** Find-or-create the hidden auto-wrap child template (keyed by source template, node key, config). */
-  private autoWrap(parentFlowId: string, nodeKey: string): string {
-    const spec = templateStore.graphForFlow(parentFlowId)?.byKey.get(nodeKey);
+  private async autoWrap(parentFlowId: string, nodeKey: string): Promise<string> {
+    const spec = (await templateStore.graphForFlow(parentFlowId))?.byKey.get(nodeKey);
     if (!spec) throw new Error(`fan-out: node "${nodeKey}" is not a template node`);
-    const parentTemplateId = this.e.ctx(parentFlowId).flow.templateId;
+    const parentTemplateId = (await this.e.ctx(parentFlowId)).flow.templateId;
     if (!parentTemplateId) throw new Error(`fan-out: flow ${parentFlowId} has no template id for auto-wrap`);
-    const effective = this.e.nodeConfigFor(parentFlowId, nodeKey);
+    const effective = await this.e.nodeConfigFor(parentFlowId, nodeKey);
     const configHash = hashFanoutChildConfig(effective);
     const autoWrapKey = fanoutAutoWrapDescription(parentTemplateId, nodeKey, configHash);
-    const existing = templateStore.list({ includeHidden: true }).find((t) => t.description === autoWrapKey);
+    const existing = (await templateStore.list({ includeHidden: true })).find((t) => t.description === autoWrapKey);
     if (existing) return existing.id;
     const name = `${spec.label} · step`;
     // trigger type: approval if the parent's is approval else auto — an
     // approval parent's gate BECOMES the per-step gates; the parent itself
     // never gates in fan-out mode (spec §auto-wrap)
     const parentTrigger = spec.trigger.type;
-    const tplId = templateStore.create({
+    const tplId = await templateStore.create({
       name,
       description: autoWrapKey,
       trigger: { type: "manual" },
@@ -482,21 +484,23 @@ export class StepFlowManager {
       ],
       edges: [],
     }, { skipLint: true });
-    await db.run(`UPDATE flow_templates SET hidden=1, updated_at=$1 WHERE id=$2`, db.now(), tplId);
+    await db.run(`UPDATE flow_templates SET hidden=true, updated_at=$1 WHERE id=$2`, db.now(), tplId);
     return tplId;
   }
 
   /** 0-based index of the step within its integration-branch group (ordered by position). */
-  private branchGroupIndex(
+  private async branchGroupIndex(
     parentFlowId: string,
     integrationBranch: string,
     self: PlanStepRow,
-    integrationBranchOf: (planBranch: string | null) => string
-  ): number {
-    const group = planSteps
-      .list(parentFlowId)
-      .filter((s) => integrationBranchOf(s.branch) === integrationBranch)
-      .sort((a, b) => a.position - b.position || a.createdAt.localeCompare(b.createdAt));
+    integrationBranchOf: (planBranch: string | null) => Promise<string>
+  ): Promise<number> {
+    const rows = await planSteps.list(parentFlowId);
+    const group: PlanStepRow[] = [];
+    for (const s of rows) {
+      if ((await integrationBranchOf(s.branch)) === integrationBranch) group.push(s);
+    }
+    group.sort((a, b) => a.position - b.position || a.createdAt.localeCompare(b.createdAt));
     return Math.max(0, group.findIndex((s) => s.id === self.id));
   }
 
@@ -516,8 +520,8 @@ export class StepFlowManager {
    * order (step order when approvals arrive in step order; an out-of-order
    * landing is repaired by a merge commit — never a rebase).
    */
-  advance(parentFlowId: string, nodeKey: string): void {
-    const states = this.statesOf(parentFlowId, nodeKey);
+  async advance(parentFlowId: string, nodeKey: string): Promise<void> {
+    const states = await this.statesOf(parentFlowId, nodeKey);
     if (!states.length) return;
     // claims prevent double-starts when two hooks hit advance concurrently
     // (parallel scheduling widens the expand/terminal/merge hook overlap)
@@ -526,7 +530,7 @@ export class StepFlowManager {
       if (now - at > 60_000) this.claimedStarts.delete(id);
     }
     for (const s of states) if (s.childFlowId && s.childNodeStatus !== null) this.claimedStarts.delete(s.childFlowId);
-    const maxParallel = Math.max(1, fanoutOf(this.e.nodeConfigFor(parentFlowId, nodeKey)).parallelMax);
+    const maxParallel = Math.max(1, fanoutOf(await this.e.nodeConfigFor(parentFlowId, nodeKey)).parallelMax);
     const inFlight = states.filter((s) => s.isRunning || s.isAwaiting);
     let slots = maxParallel - inFlight.length;
     if (slots > 0) {
@@ -561,12 +565,12 @@ export class StepFlowManager {
             this.overlaps(o, s));
         if (blocked) continue;
         this.claimedStarts.set(childFlowId, now);
-        this.refreshSiblings(parentFlowId, nodeKey, childFlowId, states);
-        this.e.startStepChild(childFlowId); // fire-and-forget (engine bg) — keep filling free slots
+        await this.refreshSiblings(parentFlowId, nodeKey, childFlowId, states);
+        void this.e.startStepChild(childFlowId); // fire-and-forget (engine bg) — keep filling free slots
         slots--;
       }
     }
-    this.scheduleRollup(parentFlowId, nodeKey);
+    await this.scheduleRollup(parentFlowId, nodeKey);
   }
 
   /** In-process rollup guard: one publish pass per parent fan-out node at a time. */
@@ -605,13 +609,13 @@ export class StepFlowManager {
    * Early-returns unless the whole child is terminal, then reschedules.
    */
   async onChildFinished(childFlowId: string): Promise<void> {
-    const link = db.get<{ flow_id: string }>(`SELECT flow_id AS "flowId" FROM plan_steps WHERE sub_flow_id=$1`, childFlowId);
+    const link = await db.get<{ flowId: string }>(`SELECT flow_id AS "flowId" FROM plan_steps WHERE sub_flow_id=$1`, childFlowId);
     if (!link) return;
-    const payload = this.childPayload(childFlowId);
+    const payload = await this.childPayload(childFlowId);
     const parentNodeKey = payload?.parentNodeKey;
     if (!parentNodeKey) return; // no fan-out linkage — nothing this manager scheduled
-    const nodes = nodeStore.statusesOfFlow(childFlowId);
-    const flowStatus = this.childFlowStatus(childFlowId);
+    const nodes = await nodeStore.statusesOfFlow(childFlowId);
+    const flowStatus = await this.childFlowStatus(childFlowId);
     const allTerminal = nodes.length > 0 && nodes.every((n) => NODE_TERMINAL_STATUSES.includes(n));
     if (!allTerminal && flowStatus !== "done") return;
     await db.emitEvent(link.flowId, null, "lifecycle",
@@ -622,7 +626,7 @@ export class StepFlowManager {
 
   /** Rollup: when every linked child is resolved, publish the aggregate (all resolved). */
   private async checkRollup(parentFlowId: string, nodeKey: string): Promise<void> {
-    const states = this.statesOf(parentFlowId, nodeKey);
+    const states = await this.statesOf(parentFlowId, nodeKey);
     if (!states.length) return;
     if (states.some((s) => s.childFlowId != null && !s.isResolved && !s.isFailed)) return;
     if (states.some((s) => s.childFlowId == null && s.step.status === "pending")) return;
@@ -630,7 +634,7 @@ export class StepFlowManager {
     // semantics unchanged — done on child success/merge, never on agent claim)
     for (const s of states) {
       if (s.step.status === "pending" && s.isResolved && !s.isFailed) {
-        planSteps.setStatus(parentFlowId, s.step.id, "done", "child");
+        await planSteps.setStatus(parentFlowId, s.step.id, "done", "child");
       }
     }
     await this.onAllResolved(parentFlowId, nodeKey);
@@ -647,16 +651,16 @@ export class StepFlowManager {
    * evaluation continues downstream.
    */
   async onAllResolved(parentFlowId: string, nodeKey: string): Promise<void> {
-    const parentRunning = nodeStore.statusOf(parentFlowId, nodeKey);
+    const parentRunning = await nodeStore.statusOf(parentFlowId, nodeKey);
     if (parentRunning !== NODE_STATUS.RUNNING) return;
 
-    const ctx = this.e.ctx(parentFlowId);
-    const states = this.statesOf(parentFlowId, nodeKey);
-    const def = this.e.defOf(parentFlowId, nodeKey);
+    const ctx = await this.e.ctx(parentFlowId);
+    const states = await this.statesOf(parentFlowId, nodeKey);
+    const def = await this.e.defOf(parentFlowId, nodeKey);
     const isCode = typeof def.capabilities.mergeBack === "function";
 
-    const stepsOut = states.map((s) => {
-      const out = s.childFlowId ? this.childOutput(s.childFlowId) : null;
+    const stepsOut = await Promise.all(states.map(async (s) => {
+      const out = s.childFlowId ? await this.childOutput(s.childFlowId) : null;
       const outObj = out && typeof out === "object" && !Array.isArray(out) ? (out as Record<string, unknown>) : null;
       const artifactId = outObj?.latestArtifact ?? outObj?.artifactId ?? outObj?.output_id ?? null;
       return {
@@ -667,7 +671,7 @@ export class StepFlowManager {
         artifact_id: typeof artifactId === "string" ? artifactId : undefined,
         output: outObj ?? {},
       };
-    });
+    }));
     const aggregate = { steps: DEFAULT_FANOUT_OUTPUT.parse({ steps: stepsOut }).steps };
 
     // code children merged onto integration branches: publish the parent-side
@@ -677,16 +681,16 @@ export class StepFlowManager {
     const perBranch: Record<string, string> = {};
     let latestArtifact: string | null = null;
     if (isCode) {
-      const nodeId = nodeStore.idOf(parentFlowId, nodeKey);
+      const nodeId = await nodeStore.idOf(parentFlowId, nodeKey);
       for (const branch of integrationBranches) {
         const group = states.filter((s) => s.integrationBranch === branch);
         if (!group.some((s) => s.step.status === "done" && s.step.completedBy === "merge")) continue;
-        branchStore.upsert(parentFlowId, branch, { status: "awaiting_approval" });
+        await branchStore.upsert(parentFlowId, branch, { status: "awaiting_approval" });
         await db.run(`UPDATE flows SET mr_branch=$1 WHERE id=$2 AND (mr_branch IS NULL OR mr_branch='')`, branch, parentFlowId);
         if (!nodeId) continue;
         try {
           const diff = await flowCtxHelper.makeDiff(ctx, branch);
-          const art = nodeSupport.saveArtifact(
+          const art = await nodeSupport.saveArtifact(
             nodeId, parentFlowId, "diff",
             diff ? diff.raw : "(diff unavailable)",
             { branch, stat: diff?.stat ?? "", fanout: true });
@@ -722,19 +726,19 @@ export class StepFlowManager {
    * Code children run the `mergeBack` hook (approve ≠ MR: the MR machinery
    * runs only when the PARENT's aggregate is finally approved).
    */
-  approveChildStep(childFlowId: string): void {
-    const childFlow = this.childFlowOf(childFlowId);
-    const payload = this.childPayload(childFlowId);
+  async approveChildStep(childFlowId: string): Promise<void> {
+    const childFlow = await this.childFlowOf(childFlowId);
+    const payload = await this.childPayload(childFlowId);
     if (!childFlow?.parentFlowId || !payload?.parentNodeKey) {
       throw new Error("this flow is not a fan-out step child");
     }
     const parentFlowId = childFlow.parentFlowId;
-    const workNodeKey = this.childWorkNodeKey(childFlowId);
-    const node = db.get<{ node_key: string; status: string }>(
+    const workNodeKey = await this.childWorkNodeKey(childFlowId);
+    const node = await db.get<{ nodeKey: string; status: string }>(
       `SELECT node_key AS "nodeKey", status FROM nodes WHERE flow_id=$1 AND node_key=$2`, childFlowId, workNodeKey);
     if (!node) throw new Error("the step child has no work node");
     if (node.status !== "awaiting_approval") throw new Error(`the step is ${node.status}, not awaiting approval`);
-    const stepRow = this.stepRowOf(childFlowId);
+    const stepRow = await this.stepRowOf(childFlowId);
     if (!stepRow) throw new Error("the step child has no linked plan step");
     if (stepRow.completedBy === "merge") {
       throw new Error("the step merge is already in progress");
@@ -742,25 +746,25 @@ export class StepFlowManager {
     if (mergeArena.isMerging(childFlowId)) {
       throw new Error("the step merge is already in progress");
     }
-    const activeMerge = db.get<{ id: string }>(
+    const activeMerge = await db.get<{ id: string }>(
       `SELECT id FROM step_merges WHERE flow_id=$1 AND status IN ('running','conflict','rejected') LIMIT 1`,
       childFlowId);
     if (activeMerge) {
       throw new Error("the step merge is already in progress");
     }
-    const ctx = this.e.ctx(childFlowId);
+    const ctx = await this.e.ctx(childFlowId);
     const branch = ctx.flow.mrBranch;
     if (!branch) throw new Error("the step child has no step branch to merge");
-    const integrationBranch = this.integrationBranchFor(parentFlowId, payload.parentNodeKey, stepRow.branch ?? null);
+    const integrationBranch = await this.integrationBranchFor(parentFlowId, payload.parentNodeKey, stepRow.branch ?? null);
 
     await db.emitEvent(childFlowId, null, "lifecycle",
-      `step approved${typeof this.engineCapabilitiesOfMergeBack(childFlowId) === "function" ? ` — merging ${branch} into ${integrationBranch}` : ""}`);
-    if (typeof this.engineCapabilitiesOfMergeBack(childFlowId) !== "function") {
+      `step approved${typeof (await this.engineCapabilitiesOfMergeBack(childFlowId)) === "function" ? ` — merging ${branch} into ${integrationBranch}` : ""}`);
+    if (typeof (await this.engineCapabilitiesOfMergeBack(childFlowId)) !== "function") {
       // non-code child: nothing to merge — approval closes the child
       await db.run(`UPDATE plan_steps SET status='done', completed_by='approved', updated_at=$1 WHERE sub_flow_id=$2`,
         db.now(), childFlowId);
-      this.closeChild(childFlowId);
-      this.onChildFinished(childFlowId);
+      await this.closeChild(childFlowId);
+      await this.onChildFinished(childFlowId);
       return;
     }
     const claimed = await db.run(
@@ -803,10 +807,10 @@ export class StepFlowManager {
     resumeNote?: string,
   ): Promise<void> {
     const nodeOwnerKey = payload.parentNodeKey;
-    const nodeRefId = nodeStore.idOf(childFlowId, childNodeKey);
+    const nodeRefId = await nodeStore.idOf(childFlowId, childNodeKey);
     const nodeRef = nodeRefId ? { id: nodeRefId } : undefined;
     const maxAttempts = Math.max(1, configNumber(
-      this.e.nodeConfigFor(parentFlowId, nodeOwnerKey), "max_merge_fix_attempts", 2));
+      await this.e.nodeConfigFor(parentFlowId, nodeOwnerKey), "max_merge_fix_attempts", 2));
     if (resumeNote) {
       await db.emitEvent(parentFlowId, null, "lifecycle", resumeNote,
         { nodeKey: nodeOwnerKey, childFlowId });
@@ -820,8 +824,8 @@ export class StepFlowManager {
       for (;;) {
         // abandoned approvals hand-back: the step may have been skipped (or
         // closed by a checklist edit) while this loop awaited — never land it
-        const live = this.stepRowOf(childFlowId);
-        const nodeStatus = nodeStore.statusOf(childFlowId, childNodeKey);
+        const live = await this.stepRowOf(childFlowId);
+        const nodeStatus = await nodeStore.statusOf(childFlowId, childNodeKey);
         if (!live || live.completedBy === "skipped" || !nodeStatus ||
             (nodeStatus !== NODE_STATUS.AWAITING_APPROVAL && nodeStatus !== NODE_STATUS.RUNNING)) {
           await db.emitEvent(parentFlowId, null, "lifecycle",
@@ -837,38 +841,38 @@ export class StepFlowManager {
           integrationBranch,
           branch,
           message: `[${stepRow.metaId ?? "s?"}] ${stepRow.title}`,
-          baseBranch: this.e.ctx(parentFlowId).repo?.defaultBranch ?? "main",
+          baseBranch: (await this.e.ctx(parentFlowId)).repo?.defaultBranch ?? "main",
           ...(mergeRowId ? { mergeRowId } : {}),
         });
         // the arena ROW id is bookkeeping truth — adopt it for re-attempts
-        mergeRowId = db.get<{ id: string }>(
+        mergeRowId = (await db.get<{ id: string }>(
           `SELECT id FROM step_merges WHERE flow_id=$1 ORDER BY created_at DESC, id DESC LIMIT 1`, childFlowId
-        )?.id ?? mergeRowId;
+        ))?.id ?? mergeRowId;
 
         if (result.status === "merged") {
-          planSteps.setStatus(parentFlowId, stepRow.id, "done", "merge");
-          this.closeChild(childFlowId);
+          await planSteps.setStatus(parentFlowId, stepRow.id, "done", "merge");
+          await this.closeChild(childFlowId);
           await db.emitEvent(parentFlowId, null, "lifecycle",
             `step "${stepRow.title}" merged into ${integrationBranch}${result.stale ? " (stale base resolved by merge — no rebase)" : ""}`,
             { nodeKey: nodeOwnerKey, childFlowId });
-          this.onChildFinished(childFlowId);
+          await this.onChildFinished(childFlowId);
           return;
         }
 
         // infra failure: the commit-fix classification — an agent cannot code
         // away network/auth. Fail visible; the user Retry re-runs the loop.
         if (result.status === "failed") {
-          this.failMergeBack(parentFlowId, childFlowId, childNodeKey, stepRow, nodeOwnerKey, result.error);
+          await this.failMergeBack(parentFlowId, childFlowId, childNodeKey, stepRow, nodeOwnerKey, result.error);
           return;
         }
 
         // conflict / rejected — repairable code state → the bounded fix agent
         const attempts = mergeRowId
-          ? (db.get<{ attempts: number }>(`SELECT attempts FROM step_merges WHERE id=$1`, mergeRowId)?.attempts ?? 0)
+          ? ((await db.get<{ attempts: number }>(`SELECT attempts FROM step_merges WHERE id=$1`, mergeRowId))?.attempts ?? 0)
           : 1;
         if (attempts > maxAttempts) {
           const err = `${result.status} after ${attempts - 1} merge-fix agent runs (max ${maxAttempts}): ${result.error}`;
-          this.failMergeBack(parentFlowId, childFlowId, childNodeKey, stepRow, nodeOwnerKey, err);
+          await this.failMergeBack(parentFlowId, childFlowId, childNodeKey, stepRow, nodeOwnerKey, err);
           return;
         }
         await db.emitEvent(parentFlowId, null, "lifecycle",
@@ -889,7 +893,7 @@ export class StepFlowManager {
         } catch (e: unknown) {
           // the fix agent's own run failed (agent error / runtime) — not a
           // code-repairable outcome, hand back failed-visible
-          this.failMergeBack(parentFlowId, childFlowId, childNodeKey, stepRow, nodeOwnerKey,
+          await this.failMergeBack(parentFlowId, childFlowId, childNodeKey, stepRow, nodeOwnerKey,
             `merge-fix agent failed: ${e instanceof Error ? e.message : String(e)}`);
           return;
         }
@@ -904,20 +908,20 @@ export class StepFlowManager {
           db.now(), childFlowId, childNodeKey);
       }
     } catch (e: unknown) {
-      this.failMergeBack(parentFlowId, childFlowId, childNodeKey, stepRow, nodeOwnerKey,
+      await this.failMergeBack(parentFlowId, childFlowId, childNodeKey, stepRow, nodeOwnerKey,
         e instanceof Error ? e.message : String(e));
     }
   }
 
   /** Mark a merge-back failed loud: step_merges → failed, child node → failed, failure on the parent. */
-  private failMergeBack(
+  private async failMergeBack(
     parentFlowId: string,
     childFlowId: string,
     childNodeKey: string,
     stepRow: PlanStepRow,
     parentNodeKey: string,
     error: string,
-  ): void {
+  ): Promise<void> {
     await db.run(`UPDATE step_merges SET status='failed', error=$1, updated_at=$2 WHERE flow_id=$3 AND status IN ('running','conflict','rejected')`,
       error.slice(0, 2000), db.now(), childFlowId);
     await db.run(`UPDATE nodes SET status='failed', updated_at=$1 WHERE flow_id=$2 AND node_key=$3`,
@@ -926,7 +930,7 @@ export class StepFlowManager {
     await db.emitEvent(parentFlowId, null, "error",
       `step "${stepRow.title}" merge-back failed: ${error} — Retry the step to re-run the merge (+ fix agent)`,
       { nodeKey: parentNodeKey, childFlowId });
-    this.onChildFinished(childFlowId);
+    await this.onChildFinished(childFlowId);
   }
 
   // ── reconcile resume (Phase 2B: restart mid-merge) ─────────────────────────
@@ -938,14 +942,14 @@ export class StepFlowManager {
    * reconcile only resumes awaiting-approval children). The loop re-verifies
    * step ownership before every attempt.
    */
-  resumePendingMerge(childFlowId: string): void {
-    const payload = this.childPayload(childFlowId);
-    const stepRow = this.stepRowOf(childFlowId);
-    const workNodeKey = this.childWorkNodeKey(childFlowId);
-    const childNode = db.get<{ node_key: string; status: string }>(
+  async resumePendingMerge(childFlowId: string): Promise<void> {
+    const payload = await this.childPayload(childFlowId);
+    const stepRow = await this.stepRowOf(childFlowId);
+    const workNodeKey = await this.childWorkNodeKey(childFlowId);
+    const childNode = await db.get<{ nodeKey: string; status: string }>(
       `SELECT node_key AS "nodeKey", status FROM nodes WHERE flow_id=$1 AND node_key=$2`, childFlowId, workNodeKey);
-    const childFlow = this.childFlowOf(childFlowId);
-    const row = db.get<{ id: string; status: string }>(
+    const childFlow = await this.childFlowOf(childFlowId);
+    const row = await db.get<{ id: string; status: string }>(
       `SELECT id, status FROM step_merges WHERE flow_id=$1 AND status IN ('running','conflict') ORDER BY created_at DESC LIMIT 1`,
       childFlowId);
     if (!payload?.parentNodeKey || !stepRow || !childNode || !childFlow?.parentFlowId || !row) {
@@ -953,7 +957,7 @@ export class StepFlowManager {
       return;
     }
     const parentFlowId = childFlow.parentFlowId;
-    const integrationBranch = this.integrationBranchFor(
+    const integrationBranch = await this.integrationBranchFor(
       parentFlowId, payload.parentNodeKey, stepRow.branch ?? null);
     const branch = childFlow.mrBranch;
     if (!branch) {
@@ -975,38 +979,39 @@ export class StepFlowManager {
    * routing to the standard node retry).
    */
   async resumeMergeRetry(parentFlowId: string, childFlowId: string): Promise<boolean> {
-    const row = db.get<{ id: string }>(
+    const row = await db.get<{ id: string }>(
       `SELECT id FROM step_merges WHERE flow_id=$1 AND status IN ('conflict','rejected','failed') ORDER BY created_at DESC LIMIT 1`,
       childFlowId);
-    const workNodeKey = this.childWorkNodeKey(childFlowId);
-    const childNode = db.get<{ node_key: string; status: string }>(
+    const workNodeKey = await this.childWorkNodeKey(childFlowId);
+    const childNode = await db.get<{ nodeKey: string; status: string }>(
       `SELECT node_key AS "nodeKey", status FROM nodes WHERE flow_id=$1 AND node_key=$2`, childFlowId, workNodeKey);
     if (!row || !childNode || childNode.status !== "failed") return false;
     await db.run(`UPDATE nodes SET status='awaiting_approval', updated_at=$1 WHERE flow_id=$2 AND node_key=$3`,
       db.now(), childFlowId, workNodeKey);
-    this.resumePendingMerge(childFlowId);
+    await this.resumePendingMerge(childFlowId);
     return true;
   }
 
   /** The child's def mergeBack hook presence — internal. */
-  private engineCapabilitiesOfMergeBack(childFlowId: string): unknown {
-    const type = this.childTypeOf(childFlowId);
+  private async engineCapabilitiesOfMergeBack(childFlowId: string): Promise<unknown> {
+    const type = await this.childTypeOf(childFlowId);
     if (!type) return null;
     const def = nodeRegistry.maybe(type) ?? undefined;
     return (def?.capabilities as NodeCapabilities | undefined)?.mergeBack ?? null;
   }
 
-  private childTypeOf(childFlowId: string): string {
-    const workNodeKey = this.childWorkNodeKey(childFlowId);
-    return db.get<{ type: string }>(
-      `SELECT type FROM nodes WHERE flow_id=$1 AND node_key=$2`, childFlowId, workNodeKey)?.type ?? "";
+  private async childTypeOf(childFlowId: string): Promise<string> {
+    const workNodeKey = await this.childWorkNodeKey(childFlowId);
+    const row = await db.get<{ type: string }>(
+      `SELECT type FROM nodes WHERE flow_id=$1 AND node_key=$2`, childFlowId, workNodeKey);
+    return row?.type ?? "";
   }
 
   /** The work node instance key for a step child (from expand-time payload, with legacy fallback). */
-  childWorkNodeKey(childFlowId: string): string {
-    const payload = this.childPayload(childFlowId);
+  async childWorkNodeKey(childFlowId: string): Promise<string> {
+    const payload = await this.childPayload(childFlowId);
     if (payload?.workNodeKey) return payload.workNodeKey;
-    const row = db.get<{ node_key: string }>(
+    const row = await db.get<{ nodeKey: string }>(
       `SELECT node_key AS "nodeKey" FROM nodes WHERE flow_id=$1 ORDER BY created_at LIMIT 1`, childFlowId);
     if (!row) throw new Error("the step child has no nodes");
     return row.nodeKey;
@@ -1017,24 +1022,24 @@ export class StepFlowManager {
    *  delete the step branch (code children) and sweep the child worktree, emit,
    *  advance. Skipped steps stay visible on the checklist + parent card. */
   async skipStepFlow(parentFlowId: string, stepId: string): Promise<void> {
-    const step = planSteps.list(parentFlowId).find((s) => s.id === stepId);
+    const step = (await planSteps.list(parentFlowId)).find((s) => s.id === stepId);
     if (!step) throw new Error("plan step not found");
     if (step.status !== "pending") throw new Error(`the step is already ${step.status}`);
     // owning fan-out node: the child payload knows; unlinked steps resolve via
     // the parent's first configured fan-out node
     const nodeKey =
-      (step.subFlowId ? this.childPayload(step.subFlowId)?.parentNodeKey : null) ??
-      this.firstFanoutNodeKey(parentFlowId);
+      (step.subFlowId ? (await this.childPayload(step.subFlowId))?.parentNodeKey : null) ??
+      await this.firstFanoutNodeKey(parentFlowId);
     if (!nodeKey) throw new Error("no fan-out node on this flow");
-    planSteps.setStatus(parentFlowId, stepId, "done", "skipped");
+    await planSteps.setStatus(parentFlowId, stepId, "done", "skipped");
     if (step.subFlowId) {
       const childId = step.subFlowId;
-      const childFlow = this.childFlowOf(childId);
+      const childFlow = await this.childFlowOf(childId);
       // a stuck merge-back must never resume for a step the user skipped
       await db.run(`UPDATE step_merges SET status='failed', error='step skipped — the merge-back was abandoned', updated_at=$1 WHERE flow_id=$2 AND status IN ('running','conflict','rejected')`,
         db.now(), childId);
-      const codeChild = typeof this.engineCapabilitiesOfMergeBack(childId) === "function";
-      for (const n of db.all<{ node_key: string; status: string }>(`SELECT node_key AS "nodeKey", status FROM nodes WHERE flow_id=$1`, childId)) {
+      const codeChild = typeof (await this.engineCapabilitiesOfMergeBack(childId)) === "function";
+      for (const n of await db.all<{ nodeKey: string; status: string }>(`SELECT node_key AS "nodeKey", status FROM nodes WHERE flow_id=$1`, childId)) {
         if (NODE_CANCELABLE_STATUSES.includes(n.status)) {
           await this.e.cancelNode(childId, n.nodeKey); // marks failed + stops in-flight local runs (standard stop)
         }
@@ -1050,25 +1055,25 @@ export class StepFlowManager {
             { nodeKey, branch: childFlow.mrBranch });
         }
       }
-      this.closeChild(childId);
+      await this.closeChild(childId);
     }
     await db.emitEvent(parentFlowId, null, "lifecycle", `plan step skipped: ${step.title}`, { nodeKey });
-    this.advance(parentFlowId, nodeKey);
+    await this.advance(parentFlowId, nodeKey);
   }
 
   /** The first node instance of the flow whose effective fan-out knob isn't whole. */
-  private firstFanoutNodeKey(parentFlowId: string): string | null {
-    for (const n of db.all<{ node_key: string; config: string | null }>(`SELECT node_key AS "nodeKey", config FROM nodes WHERE flow_id=$1`, parentFlowId)) {
+  private async firstFanoutNodeKey(parentFlowId: string): Promise<string | null> {
+    for (const n of await db.all<{ nodeKey: string; config: string | null }>(`SELECT node_key AS "nodeKey", config FROM nodes WHERE flow_id=$1`, parentFlowId)) {
       if (fanoutOf(parseConfigSnapshot(n.config)).mode !== "whole") return n.nodeKey;
     }
     return null;
   }
 
   /** Internal helper for the checklist-edit guard: close a child that never started. */
-  cancelUnstartedChild(childFlowId: string): void {
-    const statuses = nodeStore.statusesOfFlow(childFlowId);
+  async cancelUnstartedChild(childFlowId: string): Promise<void> {
+    const statuses = await nodeStore.statusesOfFlow(childFlowId);
     if (statuses.some((s) => isNodeStarted(s))) return; // started — never closed silently
-    this.closeChild(childFlowId);
+    await this.closeChild(childFlowId);
   }
 
   /**
@@ -1076,15 +1081,15 @@ export class StepFlowManager {
    * has started/merged cannot be deleted; a pending child with no run may be
    * removed — its child flow closes. Consumed by the plan-step editing paths.
    */
-  deletableStepIds(flowId: string): { deletable: Set<string>; toCancel: Map<string, string> } {
+  async deletableStepIds(flowId: string): Promise<{ deletable: Set<string>; toCancel: Map<string, string> }> {
     const deletable = new Set<string>();
     const toCancel = new Map<string, string>();
-    for (const s of planSteps.list(flowId)) {
+    for (const s of await planSteps.list(flowId)) {
       if (!s.subFlowId) {
         deletable.add(s.id);
         continue;
       }
-      const started = childFlowHasStarted(nodeStore.statusesOfFlow(s.subFlowId));
+      const started = childFlowHasStarted(await nodeStore.statusesOfFlow(s.subFlowId));
       if (started) continue; // building/done child — not deletable
       deletable.add(s.id);
       toCancel.set(s.id, s.subFlowId); // pending child with no run → removed + cancelled
@@ -1095,8 +1100,8 @@ export class StepFlowManager {
   // ── progress (parent panel + graph subtitle) ───────────────────────────────
 
   /** Fan-out progress for a parent node, or null when it never fanned out. */
-  progress(parentFlowId: string, nodeKey: string): FanoutProgress | null {
-    const states = this.statesOf(parentFlowId, nodeKey);
+  async progress(parentFlowId: string, nodeKey: string): Promise<FanoutProgress | null> {
+    const states = await this.statesOf(parentFlowId, nodeKey);
     if (!states.length) return null;
     const p: FanoutProgress = { total: states.length, done: 0, building: 0, awaiting: 0, failed: 0, skipped: 0 };
     for (const s of states) {
@@ -1117,26 +1122,26 @@ export class StepFlowManager {
    * plan step's `sub_flow` so the FanoutStepList renders the new states with
    * no extra side calls.
    */
-  mergeStates(parentFlowId: string): Record<string, {
+  async mergeStates(parentFlowId: string): Promise<Record<string, {
     mergeStatus: string | null;
     mergeAttempts: number;
     mergeError: string | null;
     staleBase: boolean;
-  }> {
+  }>> {
     const out: Record<string, { mergeStatus: string | null; mergeAttempts: number; mergeError: string | null; staleBase: boolean }> = {};
     // index by owner node key: one statesOf pass per owning node (usually one)
     // instead of one per step — Phase 3A de-O(k²)
     const perNode = new Map<string, string[]>();
-    for (const s of planSteps.list(parentFlowId)) {
+    for (const s of await planSteps.list(parentFlowId)) {
       if (!s.subFlowId) continue;
-      const nodeKey = this.childPayload(s.subFlowId)?.parentNodeKey;
+      const nodeKey = (await this.childPayload(s.subFlowId))?.parentNodeKey;
       if (!nodeKey) continue;
       const ids = perNode.get(nodeKey) ?? [];
       ids.push(s.subFlowId);
       perNode.set(nodeKey, ids);
     }
     for (const [nodeKey, ids] of perNode) {
-      const states = this.statesOf(parentFlowId, nodeKey);
+      const states = await this.statesOf(parentFlowId, nodeKey);
       const byChild = new Map(states.map((x) => [x.childFlowId, x]));
       for (const childId of ids) {
         const st = byChild.get(childId);
@@ -1157,18 +1162,18 @@ export class StepFlowManager {
    * Wrap a fan-out node's whole-mode native output as a single-entry aggregate
    * (`step.id: "whole"` distinguishes it — spec §contract consequence).
    */
-  wrapWholeOutput(flowId: string, nodeKey: string): void {
-    const node = db.get<{ id: string; output: string | null }>(
+  async wrapWholeOutput(flowId: string, nodeKey: string): Promise<void> {
+    const node = await db.get<{ id: string; output: unknown }>(
       `SELECT id, output FROM nodes WHERE flow_id=$1 AND node_key=$2`, flowId, nodeKey);
     if (!node) return;
     let native: unknown = null;
-    try { native = node.output ? JSON.parse(node.output) : null; } catch { native = null; }
-    const task = this.e.ctx(flowId).task;
+    try { native = typeof node.output === "string" ? JSON.parse(node.output) : node.output ?? null; } catch { native = null; }
+    const task = (await this.e.ctx(flowId)).task;
     const wrapped = {
       steps: [{ id: "whole", title: task?.summary ?? nodeKey, status: "done", output: native ?? {} }],
     };
     DEFAULT_FANOUT_OUTPUT.parse(wrapped);
-    await db.run(`UPDATE nodes SET output=$1, updated_at=$2 WHERE id=$3`, JSON.stringify(wrapped), db.now(), node.id);
+    await db.run(`UPDATE nodes SET output=$1::jsonb, updated_at=$2 WHERE id=$3`, JSON.stringify(wrapped), db.now(), node.id);
   }
 
   // ── state derivation ────────────────────────────────────────────────────────
@@ -1177,15 +1182,15 @@ export class StepFlowManager {
    * All step children a parent node owns. `null` engine key at bind time is
    * handled by callers via checkedRollup, so only linked rows are read here.
    */
-  private statesOf(parentFlowId: string, nodeKey: string): StepState[] {
-    const all = planSteps.list(parentFlowId).filter((s) => s.subFlowId != null);
+  private async statesOf(parentFlowId: string, nodeKey: string): Promise<StepState[]> {
+    const all = (await planSteps.list(parentFlowId)).filter((s) => s.subFlowId != null);
     const states: StepState[] = [];
     for (const step of all) {
       const childFlowId = step.subFlowId;
       if (!childFlowId) continue;
-      const payload = this.childPayload(childFlowId);
+      const payload = await this.childPayload(childFlowId);
       if (!payload || payload.parentNodeKey !== nodeKey) continue;
-      states.push(this.stateOf(parentFlowId, step, payload));
+      states.push(await this.stateOf(parentFlowId, step, payload));
     }    // cross-sibling pass: a code child awaiting its merge whose integration
     // branch already absorbed an earlier sibling's merge has a STALE BASE —
     // its step branch was cut at expand time, before that merge existed. The
@@ -1202,19 +1207,19 @@ export class StepFlowManager {
     return states;
   }
 
-  private stateOf(parentFlowId: string, step: PlanStepRow, payload: StepChildPayload): StepState {
+  private async stateOf(parentFlowId: string, step: PlanStepRow, payload: StepChildPayload): Promise<StepState> {
     const childFlowId = step.subFlowId;
     if (!childFlowId) throw new Error("stateOf requires a linked sub-flow");
-    const childFlow = this.childFlowOf(childFlowId) ?? null;
-    const workNodeKey = payload.workNodeKey ?? this.childWorkNodeKey(childFlowId);
-    const nodes = db.all<{ node_key: string; type: string; status: string }>(
+    const childFlow = (await this.childFlowOf(childFlowId)) ?? null;
+    const workNodeKey = payload.workNodeKey ?? await this.childWorkNodeKey(childFlowId);
+    const nodes = await db.all<{ nodeKey: string; type: string; status: string }>(
       `SELECT node_key AS "nodeKey", type, status FROM nodes WHERE flow_id=$1 ORDER BY created_at`, childFlowId);
     const workNode = nodes.find((n) => n.nodeKey === workNodeKey) ?? nodes[0];
     const statuses = workNode ? [workNode.status] : nodes.map((n) => n.status);
     const childDef = workNode ? nodeRegistry.maybe(workNode.type) : undefined;
     const isCodeChild = typeof (childDef?.capabilities as NodeCapabilities | undefined)?.mergeBack === "function";
     const rollup = StepFlowManager.childRollup(statuses, childFlow?.status ?? null);
-    const merge = this.latestMergeRow(childFlowId);
+    const merge = await this.latestMergeRow(childFlowId);
     const isFailed =
       rollup === "failed" ||
       (merge != null && merge.status !== "merged" && step.status !== "done");
@@ -1226,7 +1231,7 @@ export class StepFlowManager {
       childNodeType: workNode?.type ?? null,
       childNodeStatus: rollup,
       branch: childFlow?.mrBranch ?? null,
-      integrationBranch: isCodeChild ? this.integrationBranchFor(parentFlowId, payload.parentNodeKey, step.branch ?? null) : null,
+      integrationBranch: isCodeChild ? await this.integrationBranchFor(parentFlowId, payload.parentNodeKey, step.branch ?? null) : null,
       isCodeChild,
       isRunning: rollup === "running",
       isAwaiting: rollup === "awaiting_approval",
@@ -1250,11 +1255,11 @@ export class StepFlowManager {
   }
 
   /** The latest step_merges row for a child (null = never merged/attempts). */
-  private latestMergeRow(childFlowId: string): { status: string; attempts: number; error: string | null } | null {
-    return db.get<{ status: string; attempts: number; error: string | null }>(
+  private async latestMergeRow(childFlowId: string): Promise<{ status: string; attempts: number; error: string | null } | null> {
+    return (await db.get<{ status: string; attempts: number; error: string | null }>(
       `SELECT status, attempts, error FROM step_merges WHERE flow_id=$1 ORDER BY created_at DESC, id DESC LIMIT 1`,
       childFlowId
-    ) ?? null;
+    )) ?? null;
   }
 
   /** Two steps overlap when their `files` lists share a path (empty lists ⇒ independent UNKNOWN ⇒ overlap). */
@@ -1265,12 +1270,12 @@ export class StepFlowManager {
     return fa.some((f) => fb.includes(f));
   }
 
-  private childFlowOf(childFlowId: string): FlowRow | undefined {
+  private async childFlowOf(childFlowId: string): Promise<FlowRow | undefined> {
     return db.get<FlowRow>(`SELECT id, task_id AS "taskId", name, status, mr_url AS "mrUrl", mr_iid AS "mrIid", mr_branch AS "mrBranch", repo_url AS "repoUrl", gitlab_project_id AS "gitlabProjectId", current_node AS "currentNode", execution_mode AS "executionMode", repo_id AS "repoId", template_id AS "templateId", template_graph AS "templateGraph", trigger_payload AS "triggerPayload", worktree_dir AS "worktreeDir", parent_flow_id AS "parentFlowId", kind, created_at AS "createdAt", updated_at AS "updatedAt" FROM flows WHERE id=$1`, childFlowId);
   }
 
   /** Close a child flow (standard terminal state; keeps rows for the audit trail). */
-  async private closeChild(childFlowId: string): void {
+  private async closeChild(childFlowId: string): Promise<void> {
     await db.run(`UPDATE flows SET status='done', updated_at=$1 WHERE id=$2 AND status<>'done'`, db.now(), childFlowId);
     // child worktree sweep on terminal (Phase 2C): the local-mode child's
     // per-step worktree is transient — removed now, not on the next startup
@@ -1293,21 +1298,31 @@ export class StepFlowManager {
     }
   }
 
-  private childFlowStatus(childFlowId: string): string {
-    return db.get<{ status: string }>(`SELECT status FROM flows WHERE id=$1`, childFlowId)?.status ?? "";
+  private async childFlowStatus(childFlowId: string): Promise<string> {
+    const row = await db.get<{ status: string }>(`SELECT status FROM flows WHERE id=$1`, childFlowId);
+    return row?.status ?? "";
   }
 
-  private stepRowOf(childFlowId: string): PlanStepRow | undefined {
-    return db.get<PlanStepRow>(`SELECT id, flow_id AS "flowId", artifact_id AS "artifactId", meta_id AS "metaId", position, title, detail, files, branch, status, origin, completed_by AS "completedBy", sub_flow_id AS "subFlowId", created_at AS "createdAt", updated_at AS "updatedAt" FROM plan_steps WHERE sub_flow_id=$1`, childFlowId);
+  private async stepRowOf(childFlowId: string): Promise<PlanStepRow | undefined> {
+    const row = await db.get<{ id: string; flowId: string; artifactId: string | null; metaId: string | null; position: number; title: string; detail: string | null; files: unknown; branch: string | null; status: string; origin: string; completedBy: string | null; subFlowId: string | null; createdAt: unknown; updatedAt: unknown }>(
+      `SELECT id, flow_id AS "flowId", artifact_id AS "artifactId", meta_id AS "metaId", position, title, detail, files, branch, status, origin, completed_by AS "completedBy", sub_flow_id AS "subFlowId", created_at AS "createdAt", updated_at AS "updatedAt" FROM plan_steps WHERE sub_flow_id=$1`, childFlowId);
+    if (!row) return undefined;
+    return {
+      ...row,
+      files: typeof row.files === "string" ? row.files : JSON.stringify(row.files ?? []),
+      createdAt: row.createdAt instanceof Date ? row.createdAt.toISOString() : String(row.createdAt),
+      updatedAt: row.updatedAt instanceof Date ? row.updatedAt.toISOString() : String(row.updatedAt),
+    };
   }
 
   /** The child flow's persisted trigger payload (parsed; null when absent/unparseable). */
-  childPayload(childFlowId: string): StepChildPayload | null {
-    const raw = db.get<{ trigger_payload: string | null }>(
-      `SELECT trigger_payload AS "triggerPayload" FROM flows WHERE id=$1`, childFlowId)?.triggerPayload ?? null;
-    if (!raw) return null;
+  async childPayload(childFlowId: string): Promise<StepChildPayload | null> {
+    const row = await db.get<{ triggerPayload: unknown }>(
+      `SELECT trigger_payload AS "triggerPayload" FROM flows WHERE id=$1`, childFlowId);
+    const raw = row?.triggerPayload;
+    if (raw == null) return null;
     try {
-      const parsed = JSON.parse(raw) as StepChildPayload;
+      const parsed = (typeof raw === "string" ? JSON.parse(raw) : raw) as StepChildPayload;
       return parsed && typeof parsed === "object" && parsed.parentNodeKey ? parsed : null;
     } catch {
       return null;
@@ -1315,15 +1330,15 @@ export class StepFlowManager {
   }
 
   /** The child's merged node outputs (last write wins per key). */
-  private childOutput(childFlowId: string): Record<string, unknown> | null {
-    const outs = db.all<{ output: string | null }>(
+  private async childOutput(childFlowId: string): Promise<Record<string, unknown> | null> {
+    const outs = await db.all<{ output: unknown }>(
       `SELECT output FROM nodes WHERE flow_id=$1 AND output IS NOT NULL ORDER BY updated_at`, childFlowId);
     const merged: Record<string, unknown> = {};
     let any = false;
     for (const row of outs) {
-      if (!row.output) continue;
+      if (row.output == null) continue;
       try {
-        const parsed = JSON.parse(row.output);
+        const parsed = typeof row.output === "string" ? JSON.parse(row.output) : row.output;
         if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
           Object.assign(merged, parsed);
           any = true;
@@ -1337,8 +1352,8 @@ export class StepFlowManager {
   }
 
   /** The parent plan's title/summary for the child payload (`plan` part). */
-  private planSummary(parentFlowId: string): { title: string; summary: string } {
-    const task = this.e.ctx(parentFlowId).task;
+  private async planSummary(parentFlowId: string): Promise<{ title: string; summary: string }> {
+    const task = (await this.e.ctx(parentFlowId)).task;
     return { title: `${task.key}: ${task.summary}`, summary: task.summary };
   }
 }

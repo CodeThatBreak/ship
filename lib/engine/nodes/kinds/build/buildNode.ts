@@ -187,7 +187,7 @@ export class BuildNode extends AgentRunNode<BuildInput, BuildOutput> {
     // structured branches from the plan-meta (validated by the plan node at save time)
     let branches: PlanBranch[] | null = null;
     try {
-      const meta = plan.meta ? JSON.parse(plan.meta) : null;
+      const meta = plan.meta ?? null;
       const parsed = parsePlanArtifactMeta(meta);
       if (parsed && parsed.branches.length > 0) branches = parsed.branches;
     } catch { /* single-branch fallback */ }
@@ -249,7 +249,7 @@ export class BuildNode extends AgentRunNode<BuildInput, BuildOutput> {
     // Chat refine on an existing build agent is a different path
     if (input.feedback) return this.refine(ctx, input);
 
-    const node = this.node(ctx);
+    const node = await this.node(ctx);
     const plan = input.plan;
     if (!plan) throw new Error("plan is required for a build");
 
@@ -340,18 +340,18 @@ export class BuildNode extends AgentRunNode<BuildInput, BuildOutput> {
   private async refine(ctx: FlowCtx, input: BuildInput): Promise<RunOutcome> {
     const feedback = input.feedback;
     if (!feedback) throw new Error("feedback is required for a build refine");
-    const node = this.node(ctx);
+    const node = await this.node(ctx);
     if (!node.agentId) {
       // no build agent yet — treat as a full build with the latest plan + note
-      const plan = this.support.latestArtifact(ctx.flow.id, "plan");
+      const plan = await this.support.latestArtifact(ctx.flow.id, "plan");
       return this.run(ctx, this.inputSchema.parse({
         plan: (plan?.content ?? "") + `\n\nDeveloper note: ${feedback}`,
         model: input.model ?? null,
-      }), this.nodeConfig(ctx));
+      }), await this.nodeConfig(ctx));
     }
 
     let prompt = prompts.resolve("build_refine", {}, { feedback }, input.prompt);
-    const config = this.nodeConfig(ctx);
+    const config = await this.nodeConfig(ctx);
     const gitBranch = input.branchInfo
       ? ((await branchStore.gitBranch(ctx.flow.id, input.branchInfo.name))
           ?? this.buildRun.branchName(ctx, config, input.branchInfo.name))
@@ -399,7 +399,7 @@ export class BuildNode extends AgentRunNode<BuildInput, BuildOutput> {
    * Turns after a run are the `feedback` refine.
    */
   override async chat(ctx: FlowCtx, content: string, model?: string): Promise<string> {
-    if (this.isFirstTurn(this.node(ctx))) {
+    if (this.isFirstTurn(await this.node(ctx))) {
       const outcome = await this.run(
         ctx,
         this.inputSchema.parse({
@@ -408,7 +408,7 @@ export class BuildNode extends AgentRunNode<BuildInput, BuildOutput> {
           promptIsBody: true,
           model: model ?? null,
         }),
-        this.nodeConfig(ctx),
+        await this.nodeConfig(ctx),
       );
       return outcome.reply;
     }
@@ -521,7 +521,7 @@ export class BuildNode extends AgentRunNode<BuildInput, BuildOutput> {
    * Live prompt preview: same branch/instructions/checklist path as `run`.
    * Worktree setup notes appear only after a worktree exists (null beforehand).
    */
-  override async previewPrompt(ctx: FlowCtx, node: NodeRow | null, _params: PromptPreviewParams): Promise<NodePromptPreview | null> {
+  async previewPrompt(ctx: FlowCtx, node: NodeRow | null, _params: PromptPreviewParams): Promise<NodePromptPreview | null> {
     const config = nodeRoles.previewConfig(this, node);
     const planRow = await this.support.latestArtifact(ctx.flow.id, "plan");
     const planContent = planRow?.content ?? "(no plan yet)";
@@ -553,13 +553,13 @@ export class BuildNode extends AgentRunNode<BuildInput, BuildOutput> {
   /** Recover an orphaned build from a known branch (reconcile calls this too). */
   async recoverBranch(ctx: FlowCtx, node: NodeRow, branch: string, note: string): Promise<void> {
     if (node.status !== "running") return;
-    this.support.setFlowBranch(ctx.flow.id, branch);
+    await this.support.setFlowBranch(ctx.flow.id, branch);
     ctx.flow.mrBranch = branch;
     const art = await this.buildRun.diffArtifact(ctx, node.id, branch, {
       noDiffContent: "(diff unavailable — fetch from GitLab)",
       extraMeta: { recovered: true },
     });
-    this.applyOutcome(ctx, {
+    await this.applyOutcome(ctx, {
       status: "awaiting_approval",
       output: this.outputSchema.parse({ branch, latestArtifact: art.id }),
       event: `build recovered on branch ${branch}; diff ready for review`,

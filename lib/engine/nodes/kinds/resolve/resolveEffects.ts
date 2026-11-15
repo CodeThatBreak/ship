@@ -224,7 +224,7 @@ export class ResolveEffects {
   async apply(input: ResolveEffectInput): Promise<ResolveEffectResult> {
     const plan = planResolveEffects(input);
     for (const warning of plan.warnings) {
-      this.support.emit(input.flowId, input.nodeId, EVENT_KIND.LOG, warning);
+      await this.support.emit(input.flowId, input.nodeId, EVENT_KIND.LOG, warning);
     }
 
     const ledger: ResolveEffectLedger = {
@@ -247,8 +247,8 @@ export class ResolveEffects {
       (d) => d.action === RESOLVE_COMMENT_ACTION.SKIPPED,
     ).length;
 
-    const host = this.gitHosts.forRepo(input.repoUrl);
-    const persist = () => input.persistProgress(ledger);
+    const host = await this.gitHosts.forRepo(input.repoUrl);
+    const persist = async () => input.persistProgress(ledger);
 
     for (const effect of plan.effects) {
       if (effect.kind === "reply") {
@@ -263,17 +263,17 @@ export class ResolveEffects {
           counts.replied += 1;
           // G10 self-ingestion guard: close the posted reply locally before the
           // poller/webhook can deliver it back as a new open comment
-          this.support.recordAgentReply({
+          await this.support.recordAgentReply({
             flowId: input.flowId,
             mrIid: input.mrIid,
             discussionId: effect.threadId,
             body: effect.body,
             note,
           });
-          persist();
+          await persist();
         } catch (e) {
           counts.hostFailures += 1;
-          this.support.emit(
+          await this.support.emit(
             input.flowId,
             input.nodeId,
             EVENT_KIND.ERROR,
@@ -285,9 +285,9 @@ export class ResolveEffects {
 
       if (effect.kind === "localClose") {
         // G8: nothing on the host — never a failure, just bookkeeping
-        this.support.resolveComments(effect.rowIds);
+        await this.support.resolveComments(effect.rowIds);
         counts.resolved += 1;
-        persist();
+        await persist();
         continue;
       }
 
@@ -300,11 +300,11 @@ export class ResolveEffects {
         ledger.resolvedDiscussions.push(effect.threadId);
         counts.resolved += 1;
         // G9: mark every open row of the discussion behind the one host call
-        this.support.resolveComments(effect.rowIds);
-        persist();
+        await this.support.resolveComments(effect.rowIds);
+        await persist();
       } catch (e) {
         counts.hostFailures += 1;
-        this.support.emit(
+        await this.support.emit(
           input.flowId,
           input.nodeId,
           EVENT_KIND.ERROR,

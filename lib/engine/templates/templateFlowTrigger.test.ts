@@ -1,7 +1,7 @@
-import { describe, expect, it } from "vitest";
-import { assignDatabasePath, createIsolatedDatabasePath } from "../../../tests/helpers/testDatabase";
+import { beforeAll, describe, expect, it } from "vitest";
+import { assignTestDatabase, resetTestDatabase } from "../../../tests/helpers/testDatabase";
 
-assignDatabasePath(createIsolatedDatabasePath("devflow-flow-trigger-"));
+assignTestDatabase();
 
 const { importTemplateYaml } = await import("./templateYaml");
 const { templateStore } = await import("./templateStore");
@@ -17,16 +17,20 @@ edges: []
 `;
 
 describe("TemplateStore flow trigger", () => {
-  it("imports templates with manual trigger", () => {
-    const { id } = importTemplateYaml(templateStore, miniYaml, { namePrefix: "trigger-test" });
+  beforeAll(async () => {
+    await resetTestDatabase();
+  });
+
+  it("imports templates with manual trigger", async () => {
+    const { id } = await importTemplateYaml(templateStore, miniYaml, { namePrefix: "trigger-test" });
     expect(id).toMatch(/^tpl_/);
-    const graph = templateStore.graph(id);
+    const graph = await templateStore.graph(id);
     expect(graph?.flowTrigger.type).toBe("manual");
   });
 
-  it("rejects legacy webhook flow trigger types on import", () => {
+  it("rejects legacy webhook flow trigger types on import", async () => {
     const yaml = miniYaml.replace("type: manual", "type: webhook");
-    expect(() => importTemplateYaml(templateStore, yaml, { namePrefix: "trigger-test" })).toThrow(
+    await expect(() => importTemplateYaml(templateStore, yaml, { namePrefix: "trigger-test" })).rejects.toThrow(
       /unknown flow trigger type "webhook"/,
     );
   });

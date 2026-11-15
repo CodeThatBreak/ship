@@ -1,6 +1,7 @@
 import "server-only";
 
 import { z } from "zod";
+import { Prisma } from "@prisma/client";
 import { db } from "../../../db/app";
 import { FLOW_STATUS } from "../../../../constants/flow";
 import {
@@ -212,8 +213,8 @@ export interface SplitUnitState {
  *  module load (the same structural seam the StepFlowManager binds through). */
 interface SplitEngineSurface {
   ctx(flowId: string): Promise<FlowCtx>;
-  defOf(flowId: string, nodeKey: string): NodeDefinition<unknown, Record<string, unknown>>;
-  nodeConfigFor(flowId: string, nodeKey: string): Record<string, unknown>;
+  defOf(flowId: string, nodeKey: string): Promise<NodeDefinition<unknown, Record<string, unknown>>>;
+  nodeConfigFor(flowId: string, nodeKey: string): Promise<Record<string, unknown>>;
   createSplitChild(
     parentFlowId: string,
     templateId: string,
@@ -283,10 +284,10 @@ export class SplitManager {
     // nesting guard (§3): children never split — a `per-unit` consumer inside
     // a child flow resolves to `whole`, enforced here, not by convention
     if (flow.parentFlowId != null) return false;
-    const consume = opts.consume ?? splitConsumeOf(this.e.nodeConfigFor(parentFlowId, consumerNodeKey));
+    const consume = opts.consume ?? splitConsumeOf(await this.e.nodeConfigFor(parentFlowId, consumerNodeKey));
     if (consume !== "per-unit") return false;
     const ctx = await this.e.ctx(parentFlowId);
-    const units = this.e.defOf(parentFlowId, sourceNodeKey).splitUnits(ctx);
+    const units = await (await this.e.defOf(parentFlowId, sourceNodeKey)).splitUnits(ctx);
     if (!units || !units.length) return false;
 
     // loud producer errors before any child row exists (§3 policy)
@@ -298,12 +299,12 @@ export class SplitManager {
     }
     // the split config default target comes from the source def's config
     // (`split_target` — Phase 3's AgentDef.split.target feeds the same knob)
-    const defaultTarget = configString(this.e.nodeConfigFor(parentFlowId, sourceNodeKey), "split_target");
-    const resolved = units.map((unit, position) => {
-      const target = resolveSplitTarget(unit.target ?? defaultTarget ?? "", flowSplitTargetLookup);
-      assertSplitTargetCompatible(target, unit.item, this.templateContractFields(target));
+    const defaultTarget = configString(await this.e.nodeConfigFor(parentFlowId, sourceNodeKey), "split_target");
+    const resolved = await Promise.all(units.map(async (unit, position) => {
+      const target = await resolveSplitTarget(unit.target ?? defaultTarget ?? "", flowSplitTargetLookup);
+      await assertSplitTargetCompatible(target, unit.item, await this.templateContractFields(target));
       return { unit, position, target };
-    });
+    }));
 
     const existing = new Map((await this.linkage.linksOf(parentFlowId, consumerNodeKey)).map((l) => [l.unitKey, l.childFlowId]));
     let made = 0;
@@ -328,9 +329,9 @@ export class SplitManager {
    *  target's contract is the declarative row's `contract` config block
    *  (absent = accepts anything); a `node` target declares its split-capable
    *  input via the `split_consume` knob instead (Phase 4). */
-  private templateContractFields(target: SplitTarget): StartContractField[] {
+  private async templateContractFields(target: SplitTarget): Promise<StartContractField[]> {
     if (target.kind === "node") return [];
-    const row = templateStore.nodeTemplate(target.id);
+    const row = await templateStore.nodeTemplate(target.id);
     if (!row) throw new SplitTargetError(`split target template "${target.id}" does not exist`);
     return parseStartContract(row.config);
   }
@@ -379,7 +380,7 @@ export class SplitManager {
       : undefined;
     const name = `${row.name} · unit`;
     const existing = (await templateStore.list({ includeHidden: true }))
-      .find((t) => t.hidden === 1 && t.name === name);
+      .find((t) => t.hidden === true && t.name === name);
     if (existing) return existing.id;
     const tplId = await templateStore.create({
       name,
@@ -416,7 +417,7 @@ export class SplitManager {
     const states = await this.unitStates(parentFlowId, consumerNodeKey);
     if (!states.length) return;
     const parallelMax = splitParallelMaxOf(
-      this.e.nodeConfigFor(parentFlowId, consumerNodeKey));
+      await this.e.nodeConfigFor(parentFlowId, consumerNodeKey));
     // claims prevent double-starts when two hooks hit advance concurrently
     // (a child terminal + a user action can interleave): a start that never
     // took re-arms the slot after 60 s; the claim is dropped as soon as the
@@ -537,7 +538,7 @@ export class SplitManager {
   /** A child's merged node outputs (last write wins per key; {} when none). */
   private async childOutput(childFlowId: string): Promise<Record<string, unknown>> {
     const outs = await db.prisma.node.findMany({
-      where: { flowId: childFlowId, output: { not: null } },
+      where: { flowId: childFlowId, output: { not: Prisma.DbNull } },
       select: { output: true },
       orderBy: { updatedAt: "asc" },
     });
@@ -573,7 +574,7 @@ export class SplitManager {
     // its slot until the user acts; nothing can advance around it — the join
     // publishes then, the awaiting entry surfacing in the worst-of status)
     const parallelMax = splitParallelMaxOf(
-      this.e.nodeConfigFor(parentFlowId, consumerNodeKey));
+      await this.e.nodeConfigFor(parentFlowId, consumerNodeKey));
     const inFlight = states.filter((s) => s.status === "running" || s.status === "awaiting_approval").length;
     const couldAdvance = inFlight < parallelMax && states.some((s) =>
       s.status === "pending" && s.dependsOn.every((d) => states.find((x) => x.key === d)?.status === "done"));

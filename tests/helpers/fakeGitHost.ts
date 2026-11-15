@@ -125,43 +125,43 @@ export class FakeGitHost implements GitHostService {
 
   // ── service-level plumbing (all thin delegations + recording) ─────────────
 
-  configured(): boolean {
+  async configured(): Promise<boolean> {
     return true;
   }
 
-  ownsRepo(): boolean {
+  async ownsRepo(): Promise<boolean> {
     return true; // wins every forRepo() in the test file
   }
 
-  clientForRepo(): GitHostClient {
+  async clientForRepo(): Promise<GitHostClient> {
     return this.client;
   }
 
-  authedCloneUrl(repoUrl: string): string {
+  async authedCloneUrl(repoUrl: string): Promise<string> {
     return repoUrl;
   }
 
-  gitAuthEnv(): Record<string, string> {
+  async gitAuthEnv(): Promise<Record<string, string>> {
     return {};
   }
 
-  gitRedactValues(): readonly string[] {
+  async gitRedactValues(): Promise<readonly string[]> {
     return [];
   }
 
-  instances(): HostInstance[] {
+  async instances(): Promise<HostInstance[]> {
     return [];
   }
 
-  addInstance(): HostInstance {
+  async addInstance(): Promise<HostInstance> {
     throw new Error("FakeGitHost: instance admin is not scripted");
   }
 
-  updateInstance(): void {
+  async updateInstance(): Promise<void> {
     throw new Error("FakeGitHost: instance admin is not scripted");
   }
 
-  removeInstance(): void {
+  async removeInstance(): Promise<void> {
     throw new Error("FakeGitHost: instance admin is not scripted");
   }
 

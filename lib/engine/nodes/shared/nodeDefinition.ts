@@ -217,7 +217,7 @@ export abstract class NodeDefinition<I = unknown, O extends Record<string, unkno
    * by the engine; `before`/`after` hooks own the surrounding wiring (e.g.
    * branch-row status transitions).
    */
-  triggerRuns(ctx: FlowCtx): NodeTriggerRun[] {
+  async triggerRuns(ctx: FlowCtx): Promise<NodeTriggerRun[]> {
     return [{ input: this.triggerInput(ctx) }];
   }
 
@@ -230,7 +230,7 @@ export abstract class NodeDefinition<I = unknown, O extends Record<string, unkno
    * units" — it never spawns anything (§2.1); the split runtime (Phase 2)
    * owns expansion/scheduling/join.
    */
-  splitUnits(_ctx: FlowCtx): SplitUnit[] | null {
+  async splitUnits(_ctx: FlowCtx): Promise<SplitUnit[] | null> {
     return null;
   }
 
@@ -239,7 +239,7 @@ export abstract class NodeDefinition<I = unknown, O extends Record<string, unkno
    * consumers whose `split_consume` knob is `source` (§2.4). Null = no
    * recommendation (a `source` consumer then falls back to `whole`).
    */
-  splitResolution(_ctx: FlowCtx): "whole" | "per-unit" | null {
+  async splitResolution(_ctx: FlowCtx): Promise<"whole" | "per-unit" | null> {
     return null;
   }
 
@@ -259,8 +259,8 @@ export abstract class NodeDefinition<I = unknown, O extends Record<string, unkno
    * config from the engine (chat follow-ups). Merges class defaults ←
    * app-settings layer ← the config snapshot from the flow's node row.
    */
-  protected nodeConfig(ctx: FlowCtx): Record<string, unknown> {
-    const node = this.node(ctx);
+  protected async nodeConfig(ctx: FlowCtx): Promise<Record<string, unknown>> {
+    const node = await this.node(ctx);
     // `nodeByKey` returns the RAW row (db.get does not map): the `config`
     // column is the JSON TEXT blob here, not the mapped NodeRow shape —
     // parse the snapshot before merging (merging it raw spread char-index
@@ -305,7 +305,7 @@ export abstract class NodeDefinition<I = unknown, O extends Record<string, unkno
     return parsed.data as Record<string, unknown>;
   }
 
-  node(ctx: FlowCtx): NodeRow {
+  async node(ctx: FlowCtx): Promise<NodeRow> {
     return this.support.nodeByKey(ctx.flow.id, this.key);
   }
 
@@ -314,8 +314,8 @@ export abstract class NodeDefinition<I = unknown, O extends Record<string, unkno
    * `def.run()` from this record, and its recorded `prompt` field carries the
    * exact final prompt the run sent.
    */
-  protected recordInput(nodeId: string, input: Record<string, unknown>): void {
-    this.support.setNode(nodeId, { input: JSON.stringify(input) });
+  protected async recordInput(nodeId: string, input: Record<string, unknown>): Promise<void> {
+    await this.support.setNode(nodeId, { input: JSON.stringify(input) });
   }
 
   /**
@@ -323,9 +323,9 @@ export abstract class NodeDefinition<I = unknown, O extends Record<string, unkno
    * the node before `run()`; this records input (and refreshes running for
    * long-lived waits that touch liveness separately).
    */
-  protected markRunning(ctx: FlowCtx, input: Record<string, unknown>): void {
-    const node = this.node(ctx);
-    this.support.setNode(node.id, {
+  protected async markRunning(ctx: FlowCtx, input: Record<string, unknown>): Promise<void> {
+    const node = await this.node(ctx);
+    await this.support.setNode(node.id, {
       status: "running",
       input: JSON.stringify(input),
     });
@@ -343,31 +343,31 @@ export abstract class NodeDefinition<I = unknown, O extends Record<string, unkno
    * A recovered finish therefore persists byte-identical node/artifact rows
    * to a normal finish — only the event message carries the recovery note.
    */
-  protected applyOutcome(ctx: FlowCtx, outcome: RunOutcome, opts?: { note?: string; fenceSuperseded?: boolean; attemptId?: string | null }): RunOutcome {
-    const node = this.node(ctx);
-    const attemptId = opts?.attemptId ?? node.attempt_id;
+  protected async applyOutcome(ctx: FlowCtx, outcome: RunOutcome, opts?: { note?: string; fenceSuperseded?: boolean; attemptId?: string | null }): Promise<RunOutcome> {
+    const node = await this.node(ctx);
+    const attemptId = opts?.attemptId ?? node.attemptId;
     if (opts?.fenceSuperseded && attemptId) {
-      if (node.attempt_id !== attemptId) {
+      if (node.attemptId !== attemptId) {
         throw new RunSupersededError(node.id, node.status, attemptId);
       }
     } else if (opts?.fenceSuperseded && node.status !== "running") {
       throw new RunSupersededError(node.id, node.status, "applyOutcome");
     }
     if (outcome.artifact) {
-      this.support.saveArtifact(node.id, ctx.flow.id, outcome.artifact.kind, outcome.artifact.content, outcome.artifact.meta);
+      await this.support.saveArtifact(node.id, ctx.flow.id, outcome.artifact.kind, outcome.artifact.content, outcome.artifact.meta);
     }
     const validatedOutput = this.outputSchema.parse(outcome.output);
     const patch = {
       status: outcome.status,
-      agent_id: this.support.lastAgentId(node.id),
+      agent_id: await this.support.lastAgentId(node.id),
       output: JSON.stringify(validatedOutput),
     };
     if (opts?.fenceSuperseded && attemptId) {
-      this.support.patchIfAttempt(node.id, attemptId, patch);
+      await this.support.patchIfAttempt(node.id, attemptId, patch);
     } else {
-      this.support.setNode(node.id, patch);
+      await this.support.setNode(node.id, patch);
     }
-    this.support.emitLifecycle(
+    await this.support.emitLifecycle(
       ctx.flow.id,
       node.id,
       opts?.note ? `${outcome.event} (${opts.note})` : outcome.event,

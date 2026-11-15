@@ -1,11 +1,14 @@
 /**
  * Seed a demo flow that samples the Plan fan-out / step sub-flows UI mid-flight
- * (Phase 4 monitoring surface). Zero-dependency: plain Node + better-sqlite3.
+ * (Phase 4 monitoring surface). Plain Node + @prisma/client writes against the
+ * demo Postgres database — no TS compile step needed.
  *
  * Usage:
  *   node scripts/seed-demo-fanout.mjs           # seed (idempotent: resets + recreates)
  *   node scripts/seed-demo-fanout.mjs --reset   # remove the demo flow/task + children
- *   node scripts/seed-demo-fanout.mjs --reset   # remove the demo flow/task + children
+ *
+ * Target database: DATABASE_URL, defaulting to the demo DB (devflow). The seed
+ * guard refuses any other database (AGENTS.md §1) — see scripts/lib/seed-db.mjs.
  *
  * What you get (open http://localhost:3000 → "DEMO-143 flow"):
  *   - a demo task whose approved plan published `execution: steps` in plan-meta
@@ -24,45 +27,19 @@
  * agent runs, branches or diffs behind them. Try the real feature (fanout.mode
  * = steps on a build node) for an end-to-end run.
  */
-import path from "path";
-import { fileURLToPath } from "url";
 import {
-  deleteFlowCascade,
+  deleteFlowCascadePg,
   minsAgo,
   now,
-  openSeedDb,
-} from "./lib/seedDb.mjs";
+  openSeedPrisma,
+  uid,
+} from "./lib/seed-db.mjs";
 
-const root = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const TASK_ID = "demo-143";
 const FLOW_NAME = "DEMO-143 flow";
 const RESET = process.argv.includes("--reset");
 
-const { db } = openSeedDb(root);
-
-// the runtime migrations (lib/db/index.ts) add the columns this seed inserts —
-// guard them here too so the script works against a freshly created DB
-const hasCol = (t, c) => db.prepare(`PRAGMA table_info(${t})`).all().some((x) => x.name === c);
-const ensureCols = (t, defs) => {
-  for (const [n, ddl] of defs) if (!hasCol(t, n)) db.exec(`ALTER TABLE ${t} ADD COLUMN ${n} ${ddl}`);
-};
-ensureCols("flows", [
-  ["execution_mode", "TEXT NOT NULL DEFAULT 'cloud'"],
-  ["repo_id", "TEXT"],
-  ["trigger_payload", "TEXT"],
-  ["worktree_dir", "TEXT"],
-]);
-ensureCols("runs", [
-  ["model", "TEXT"],
-  ["input_tokens", "INTEGER"], ["output_tokens", "INTEGER"],
-  ["cache_read_tokens", "INTEGER"], ["cache_write_tokens", "INTEGER"],
-  ["duration_ms", "INTEGER"], ["cost_cents", "INTEGER"], ["usage", "TEXT"],
-  ["branch_id", "TEXT REFERENCES branches(id)"],
-]);
-
-const now = () => new Date().toISOString();
-const minsAgo = (m) => new Date(Date.now() - m * 60_000).toISOString();
-const uid = (p = "") => p + Date.now().toString(36) + Math.random().toString(36).slice(2, 9);
+const { prisma } = openSeedPrisma();
 
 // ── the demo task: a saved-views feature with a 6-step plan ─────────────────
 const PRD = `# PRD: Saved dashboard views for the support team
@@ -124,70 +101,133 @@ const RUN = (mStart, durSec, cents, outTok) => ({
   created_at: minsAgo(mStart), updated_at: minsAgo(mStart - durSec / 60),
 });
 
-function reset() {
-  const flows = db.prepare(`SELECT id FROM flows WHERE name=? OR task_id=?`).all(FLOW_NAME, TASK_ID);
+async function reset() {
+  const flows = await prisma.flow.findMany({
+    where: { OR: [{ name: FLOW_NAME }, { taskId: TASK_ID }] },
+    select: { id: true },
+  });
   let childCount = 0;
   for (const f of flows) {
-    childCount += db.prepare(`SELECT id FROM flows WHERE parent_flow_id=?`).all(f.id).length;
-    deleteFlowCascade(db, f.id);
+    childCount += await prisma.flow.count({ where: { parentFlowId: f.id } });
+    await deleteFlowCascadePg(prisma, f.id);
   }
   if (flows.length) console.log(`removed demo flow + ${childCount} step children`);
-  db.prepare(`DELETE FROM tasks WHERE id=?`).run(TASK_ID);
+  await prisma.task.deleteMany({ where: { id: TASK_ID } });
 }
 
 if (RESET) {
-  reset();
+  await reset();
   console.log("fanout demo reset done");
   process.exit(0);
 }
 
-reset();
+await reset();
 
 // ── task ────────────────────────────────────────────────────────────────────
-const repo = db.prepare(`SELECT id, cloud_url FROM repos ORDER BY created_at LIMIT 1`).get();
-db.prepare(`INSERT INTO tasks (id,key,type,summary,description,status,issue_type,priority,repo_url,external_url,raw,fields,synced_at)
-  VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`)
-  .run(TASK_ID, "DEMO-143", "jira", "Saved dashboard views for the support team",
-    PRD, "In Progress", "Story", "High",
-    repo?.cloud_url ?? null, "https://jira.example.com/browse/DEMO-143",
-    JSON.stringify({ demo: true }), JSON.stringify({ prd: PRD, figma_urls: [] }), now());
+const repo = await prisma.repo.findFirst({ orderBy: { createdAt: "asc" } });
+await prisma.task.create({
+  data: {
+    id: TASK_ID,
+    type: "jira",
+    key: "DEMO-143",
+    summary: "Saved dashboard views for the support team",
+    description: PRD,
+    status: "In Progress",
+    issueType: "Story",
+    priority: "High",
+    repoUrl: repo?.cloudUrl ?? null,
+    externalUrl: "https://jira.example.com/browse/DEMO-143",
+    raw: JSON.stringify({ demo: true }),
+    fields: { prd: PRD, figmaUrls: [] },
+    syncedAt: now(),
+  },
+});
 console.log("task DEMO-143 inserted");
 
 // ── parent flow + SDLC node chain (plan approved → build fanning out) ───────
 const flowId = "flow_fanoutdemo"; // stable tail drives the integration-branch formula
 const ts0 = now();
-db.prepare(`INSERT INTO flows (id,task_id,name,status,repo_url,repo_id,execution_mode,current_node,created_at,updated_at)
-  VALUES (?,?,?,?,?,?,?,?,?,?)`)
-  .run(flowId, TASK_ID, FLOW_NAME, "active",
-    repo?.cloud_url ?? "https://gitlab.example.com/acme/webapp", repo?.id ?? null, "cloud", "build", ts0, ts0);
+await prisma.flow.create({
+  data: {
+    id: flowId,
+    taskId: TASK_ID,
+    name: FLOW_NAME,
+    status: "active",
+    repoUrl: repo?.cloudUrl ?? "https://gitlab.example.com/acme/webapp",
+    repoId: repo?.id ?? null,
+    executionMode: "cloud",
+    currentNode: "build",
+    createdAt: ts0,
+    updatedAt: ts0,
+  },
+});
 const nodeIds = {};
 for (const key of ["plan", "build", "pipeline", "review", "resolve"]) {
   const nid = uid("node_");
   nodeIds[key] = nid;
-  db.prepare(`INSERT INTO nodes (id,flow_id,node_key,type,status,created_at,updated_at) VALUES (?,?,?,?,'pending',?,?)`)
-    .run(nid, flowId, key, key, ts0, ts0);
+  await prisma.node.create({
+    data: {
+      id: nid,
+      flowId,
+      nodeKey: key,
+      type: key,
+      status: "pending",
+      createdAt: ts0,
+      updatedAt: ts0,
+    },
+  });
 }
 console.log(`flow created: ${flowId} (integration branch: feature/demo-143-${flowId.slice(-6)})`);
 
 // plan v1: approved, published `execution: steps`; build currently orchestrating
 const artId = uid("art_");
-db.prepare(`INSERT INTO artifacts (id,node_id,flow_id,kind,version,content,meta,status,feedback,created_at)
-  VALUES (?,?,?,'plan',?,?,?,?,?,?)`)
-  .run(artId, nodeIds.plan, flowId, 1, PLAN,
-    JSON.stringify({ execution: "steps", executionSource: "knob", steps: meta.steps, branches: [] }),
-    "approved", null, minsAgo(42));
-db.prepare(`UPDATE nodes SET status='approved', output=?, updated_at=? WHERE id=?`)
-  .run(JSON.stringify({ latestArtifact: artId, version: 1, steps: meta.steps, execution: "steps" }), minsAgo(40), nodeIds.plan);
-db.prepare(`UPDATE nodes SET status='running', input=?, updated_at=? WHERE id=?`)
-  .run(JSON.stringify({ fanout: { mode: "steps", parallel_max: 2 } }), minsAgo(40), nodeIds.build);
+await prisma.artifact.create({
+  data: {
+    id: artId,
+    nodeId: nodeIds.plan,
+    flowId,
+    kind: "plan",
+    version: 1,
+    content: PLAN,
+    meta: { execution: "steps", executionSource: "knob", steps: meta.steps, branches: [] },
+    status: "approved",
+    feedback: null,
+    createdAt: minsAgo(42),
+  },
+});
+await prisma.node.update({
+  where: { id: nodeIds.plan },
+  data: {
+    status: "approved",
+    output: { latestArtifact: artId, version: 1, steps: meta.steps, execution: "steps" },
+    updatedAt: minsAgo(40),
+  },
+});
+await prisma.node.update({
+  where: { id: nodeIds.build },
+  data: {
+    status: "running",
+    input: { fanout: { mode: "steps", parallel_max: 2 } },
+    updatedAt: minsAgo(40),
+  },
+});
 
 const ev = (flow_id, nodeId, msg, m, type = "lifecycle") =>
-  db.prepare(`INSERT INTO events (id,flow_id,node_id,type,message,data,created_at) VALUES (?,?,?,?,?,?,?)`)
-    .run(uid("ev_"), flow_id, nodeId, type, msg, null, minsAgo(m));
+  prisma.event.create({
+    data: {
+      id: uid("ev_"),
+      flowId: flow_id,
+      nodeId,
+      type,
+      message: msg,
+      data: null,
+      createdAt: minsAgo(m),
+    },
+  });
 
-ev(flowId, nodeIds.plan, "plan v1 ready for review · 6 steps", 44);
-ev(flowId, nodeIds.plan, "plan approved — execution published: step-by-step (6 steps)", 40, "lifecycle");
-ev(flowId, nodeIds.build, "build fans out into 6 step sub-flows — one child per pending plan step, up to 2 concurrent (file-disjoint)", 38);
+await ev(flowId, nodeIds.plan, "plan v1 ready for review · 6 steps", 44);
+await ev(flowId, nodeIds.plan, "plan approved — execution published: step-by-step (6 steps)", 40, "lifecycle");
+await ev(flowId, nodeIds.build, "build fans out into 6 step sub-flows — one child per pending plan step, up to 2 concurrent (file-disjoint)", 38);
 
 // ── the six step children, mixed states ──────────────────────────────────────
 const itg = `feature/demo-143-${flowId.slice(-6)}`;
@@ -195,7 +235,7 @@ let pos = 0;
 const steps = meta.steps;
 const childOf = {}; // step id → { childId, branch }
 
-function seedStep(step, opts) {
+async function seedStep(step, opts) {
   const rowId = uid("step_");
   const childId = `flow_fanstep${++pos}${Math.random().toString(36).slice(2, 6)}`;
   const branch = `${itg}-s${pos}`;
@@ -208,97 +248,178 @@ function seedStep(step, opts) {
     })),
     parentNodeKey: "build",
   };
-  db.prepare(`INSERT INTO flows (id,task_id,parent_flow_id,kind,name,status,mr_branch,repo_url,repo_id,execution_mode,trigger_payload,current_node,created_at,updated_at)
-    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`)
-    .run(childId, TASK_ID, flowId, "step", `${FLOW_NAME} · step: ${step.title}`,
-      opts.flowStatus ?? "active", branch,
-      repo?.cloud_url ?? "https://gitlab.example.com/acme/webapp", repo?.id ?? null, "cloud",
-      JSON.stringify(payload), opts.childNodeKey ?? "step_build", childTs, opts.updatedAt ?? childTs);
+  await prisma.flow.create({
+    data: {
+      id: childId,
+      taskId: TASK_ID,
+      parentFlowId: flowId,
+      kind: "step",
+      name: `${FLOW_NAME} · step: ${step.title}`,
+      status: opts.flowStatus ?? "active",
+      mrBranch: branch,
+      repoUrl: repo?.cloudUrl ?? "https://gitlab.example.com/acme/webapp",
+      repoId: repo?.id ?? null,
+      executionMode: "cloud",
+      triggerPayload: payload,
+      currentNode: opts.childNodeKey ?? "step_build",
+      createdAt: childTs,
+      updatedAt: opts.updatedAt ?? childTs,
+    },
+  });
   const childNodeId = uid("node_");
-  db.prepare(`INSERT INTO nodes (id,flow_id,node_key,type,status,created_at,updated_at) VALUES (?,?,?,?,?,?,?)`)
-    .run(childNodeId, childId, "step_build", "step_build", opts.nodeStatus, childTs, opts.updatedAt ?? childTs);
-  db.prepare(`INSERT INTO plan_steps (id,flow_id,artifact_id,meta_id,position,title,detail,files,branch,status,origin,completed_by,sub_flow_id,created_at,updated_at)
-    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`)
-    .run(rowId, flowId, artId, step.id, pos, step.title, step.detail ?? null,
-      JSON.stringify(step.files ?? []), null, opts.stepStatus, "agent", opts.completedBy ?? null, childId,
-      minsAgo(44), opts.stepUpdatedAt ?? minsAgo(opts.minsAgo ?? 20));
+  await prisma.node.create({
+    data: {
+      id: childNodeId,
+      flowId: childId,
+      nodeKey: "step_build",
+      type: "step_build",
+      status: opts.nodeStatus,
+      createdAt: childTs,
+      updatedAt: opts.updatedAt ?? childTs,
+    },
+  });
+  await prisma.planStep.create({
+    data: {
+      id: rowId,
+      flowId,
+      artifactId: artId,
+      metaId: step.id,
+      position: pos,
+      title: step.title,
+      detail: step.detail ?? null,
+      files: step.files ?? [],
+      branch: null,
+      status: opts.stepStatus,
+      origin: "agent",
+      completedBy: opts.completedBy ?? null,
+      subFlowId: childId,
+      createdAt: minsAgo(44),
+      updatedAt: opts.stepUpdatedAt ?? minsAgo(opts.minsAgo ?? 20),
+    },
+  });
   // billed runs (sample charging — the cost rollup reads these)
   for (const [i, r] of (opts.runs ?? []).entries()) {
-    db.prepare(`INSERT INTO runs (id,flow_id,node_id,agent_ref,run_ref,status,model,input_tokens,output_tokens,cache_read_tokens,cache_write_tokens,duration_ms,cost_cents,created_at,updated_at)
-      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`)
-      .run(uid("run_"), childId, childNodeId, `demo-agent-${step.id}-${i + 1}`, `demo-run-${step.id}-${i + 1}`,
-        r.status, r.model, r.input_tokens, r.output_tokens, r.cache_read_tokens, r.cache_write_tokens, r.duration_ms, r.cost_cents,
-        r.created_at, r.updated_at);
-    ev(childId, childNodeId, `run ${r.status} · ${r.model} · ${r.input_tokens + r.output_tokens} tok`, 38 - i);
+    await prisma.run.create({
+      data: {
+        id: uid("run_"),
+        flowId: childId,
+        nodeId: childNodeId,
+        agentRef: `demo-agent-${step.id}-${i + 1}`,
+        runRef: `demo-run-${step.id}-${i + 1}`,
+        status: r.status,
+        model: r.model,
+        inputTokens: r.input_tokens,
+        outputTokens: r.output_tokens,
+        cacheReadTokens: r.cache_read_tokens,
+        cacheWriteTokens: r.cache_write_tokens,
+        durationMs: r.duration_ms,
+        costCents: r.cost_cents,
+        createdAt: r.created_at,
+        updatedAt: r.updated_at,
+      },
+    });
+    await ev(childId, childNodeId, `run ${r.status} · ${r.model} · ${r.input_tokens + r.output_tokens} tok`, 38 - i);
   }
-  for (const m of opts.events ?? []) ev(flowId, nodeIds.build, m, m.mins ?? 20);
+  for (const m of opts.events ?? []) await ev(flowId, nodeIds.build, m, m.mins ?? 20);
   childOf[step.id] = { childId, branch };
   return { childId, branch, childNodeId };
 }
 
 // s1 + s2: merged (build runs + merge-commit bookkeeping, durable merged rows)
 for (const step of steps.slice(0, 2)) {
-  seedStep(step, {
+  await seedStep(step, {
     stepStatus: "done", completedBy: "merge", stepUpdatedAt: minsAgo(34),
     flowStatus: "done", nodeStatus: "done",
     runs: [RUN(38, 94, 21, 4100), RUN(36, 47, 9, 1800), RUN(34, 12, 4, 900)],
   });
 }
 for (const step of steps.slice(0, 2)) {
-  db.prepare(`INSERT INTO step_merges (id,flow_id,parent_flow_id,parent_node,branch,status,attempts,error,created_at,updated_at)
-    VALUES (?,?,?,?,?,'merged',0,NULL,?,?)`)
-    .run(uid("smg_"), childOf[step.id].childId, flowId, "build", childOf[step.id].branch, minsAgo(34), minsAgo(34));
+  await prisma.stepMerge.create({
+    data: {
+      id: uid("smg_"),
+      flowId: childOf[step.id].childId,
+      parentFlowId: flowId,
+      parentNode: "build",
+      branch: childOf[step.id].branch,
+      status: "merged",
+      attempts: 0,
+      error: null,
+      createdAt: minsAgo(34),
+      updatedAt: minsAgo(34),
+    },
+  });
 }
 
 // s3: building — live run in flight, cost unknown yet
-seedStep(steps[2], {
+await seedStep(steps[2], {
   stepStatus: "pending",
   nodeStatus: "running",
   runs: [{ status: "running", cost_cents: null, duration_ms: null, model: "claude-sonnet-4-5", input_tokens: null, output_tokens: null, cache_read_tokens: null, cache_write_tokens: null, created_at: minsAgo(3), updated_at: minsAgo(3) }],
   events: [`step "Filter encode/decode" → child flow · branch ${itg}-s3`],
 });
-ev(flowId, nodeIds.build, `step child resolved ("Saved views table + migration")`, 35);
-ev(flowId, nodeIds.build, `step child resolved ("View store CRUD + visibility")`, 34);
-ev(flowId, nodeIds.build, `step "Filter encode/decode" started (qualified parallel — files disjoint from in-flight sibling)`, 3);
+await ev(flowId, nodeIds.build, `step child resolved ("Saved views table + migration")`, 35);
+await ev(flowId, nodeIds.build, `step child resolved ("View store CRUD + visibility")`, 34);
+await ev(flowId, nodeIds.build, `step "Filter encode/decode" started (qualified parallel — files disjoint from in-flight sibling)`, 3);
 
 // s4: awaiting approval — diff is up (stale-base chip derives live: an earlier
 // overlapping sibling already merged onto the integration branch)
-seedStep(steps[3], {
+await seedStep(steps[3], {
   stepStatus: "pending",
   nodeStatus: "awaiting_approval",
   runs: [RUN(37, 88, 26, 5200)],
   events: [`step "Views API routes" → child flow · branch ${itg}-s4 (awaiting approval)`],
 });
-ev(flowId, nodeIds.build, `step "Views API routes" awaiting approval — 4 files changed`, 10);
+await ev(flowId, nodeIds.build, `step "Views API routes" awaiting approval — 4 files changed`, 10);
 
 // s5: conflict → the bounded merge-fix agent is running on the step branch
-seedStep(steps[4], {
+await seedStep(steps[4], {
   stepStatus: "pending",
   nodeStatus: "running",
   runs: [RUN(36, 91, 28, 5600), { ...RUN(14, 71, 11, 2100), status: "finished" }],
   events: [`step "Dashboard ViewBar UI" → child flow · branch ${itg}-s5`, `merge-fix agent starting (attempt 1/2) — resolving the merge conflict on the step branch`],
 });
-db.prepare(`INSERT INTO step_merges (id,flow_id,parent_flow_id,parent_node,branch,status,attempts,error,created_at,updated_at)
-  VALUES (?,?,?,?,?,'conflict',1,?,?,?)`)
-  .run(uid("smg_"), childOf[steps[4].id].childId, flowId, "build", childOf[steps[4].id].branch,
-    "CONFLICT (content): Merge conflict in app/dashboard/ViewBar.tsx", minsAgo(22), minsAgo(14));
-ev(flowId, nodeIds.build, `step "Dashboard ViewBar UI" merge conflict on ${itg} — dispatching the merge-fix agent`, 22);
+await prisma.stepMerge.create({
+  data: {
+    id: uid("smg_"),
+    flowId: childOf[steps[4].id].childId,
+    parentFlowId: flowId,
+    parentNode: "build",
+    branch: childOf[steps[4].id].branch,
+    status: "conflict",
+    attempts: 1,
+    error: "CONFLICT (content): Merge conflict in app/dashboard/ViewBar.tsx",
+    createdAt: minsAgo(22),
+    updatedAt: minsAgo(14),
+  },
+});
+await ev(flowId, nodeIds.build, `step "Dashboard ViewBar UI" merge conflict on ${itg} — dispatching the merge-fix agent`, 22);
 
 // s6: pending — child spawned by the expansion, never started (slot budget)
-seedStep(steps[5], {
+await seedStep(steps[5], {
   stepStatus: "pending",
   nodeStatus: "pending",
   events: [`step "Tests: store, filters, routes" → child flow`],
 });
 
-const rows = db.prepare(`SELECT meta_id,title,status,completed_by FROM plan_steps WHERE flow_id=? ORDER BY position`).all(flowId);
-const totalCents = db.prepare(`SELECT SUM(cost_cents) c FROM runs WHERE flow_id IN (SELECT sub_flow_id FROM plan_steps WHERE flow_id=?)`).get(flowId).c;
+const rows = await prisma.planStep.findMany({
+  where: { flowId },
+  orderBy: { position: "asc" },
+  select: { metaId: true, title: true, status: true, completedBy: true },
+});
+const subFlowIds = (await prisma.planStep.findMany({ where: { flowId }, select: { subFlowId: true } }))
+  .map((r) => r.subFlowId)
+  .filter(Boolean);
+const totalCents = (
+  await prisma.run.aggregate({ _sum: { costCents: true }, where: { flowId: { in: subFlowIds } } })
+)._sum.costCents;
 console.log("\nfan-out state (parent panel shows exactly this):");
 for (const s of rows) {
-  const st = s.completed_by === "merge" ? "merged  " : s.completed_by;
-  console.log(`  [${s.status === "done" ? "x" : " "}] ${s.meta_id}  ${(st ?? "").padEnd(8)} ${s.title}`);
+  const st = s.completedBy === "merge" ? "merged  " : s.completedBy;
+  console.log(`  [${s.status === "done" ? "x" : " "}] ${s.metaId}  ${(st ?? "").padEnd(8)} ${s.title}`);
 }
 console.log(`\nchildren cost rollup: $${((totalCents ?? 0) / 100).toFixed(2)} (parent header Cost chip + per-card chips)`);
 console.log(`\nopen http://localhost:3000/flows/${flowId}`);
 console.log("sample data only — the children have no real agent runs behind them;");
 console.log(`approve/skip actions will not merge real branches (integration branch would be ${itg}).`);
+
+await prisma.$disconnect();

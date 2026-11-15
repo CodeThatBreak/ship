@@ -5,5 +5,5 @@ export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
 export const GET = async () => {
-  return NextResponse.json(taskService.list());
+  return NextResponse.json(await taskService.list());
 };

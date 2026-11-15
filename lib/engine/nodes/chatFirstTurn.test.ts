@@ -40,13 +40,13 @@ type GitHostResolver = import("../ports/gitHost").GitHostResolver;
 const ctx: FlowCtx = {
   flow: {
     id: "flw_ft",
-    task_id: "task_ft",
+    taskId: "task_ft",
     name: "first turn",
     status: "active",
-    execution_mode: "cloud",
-    mr_iid: 7,
-    mr_branch: "feature/x",
-    repo_url: "https://gitlab.example/g/p",
+    executionMode: "cloud",
+    mrIid: 7,
+    mrBranch: "feature/x",
+    repoUrl: "https://gitlab.example/g/p",
   },
   task: {
     id: "task_ft",
@@ -207,7 +207,7 @@ describe("ReviewNode chat", () => {
         diffRefs: { baseSha: "b", startSha: "s", headSha: "h" },
       }),
     };
-    const gitHosts = { forRepo: () => host } as unknown as GitHostResolver;
+    const gitHosts = { forRepo: async () => host } as unknown as GitHostResolver;
     const def = new ReviewNode(stubSupport(j, node), stubRunner(j, responses), ctxHelper, gitHosts);
     return { def, j };
   };
@@ -241,7 +241,7 @@ describe("ReviewNode chat", () => {
 
   it("second turn after a run: the message is the instructions refine, no prompt body", async () => {
     const { def, j } = make(
-      nodeRow({ status: "done", output: { comments: 2 }, agent_id: "agent_prev" }),
+      nodeRow({ status: "done", output: { comments: 2 }, agentId: "agent_prev" }),
       ["hello"],
     );
     await def.chat(ctx, "Focus on naming");
@@ -277,7 +277,7 @@ describe("ResolveNode chat", () => {
   // resolve's state capture and effect application go through the injected
   // gitHostResolver — point its registry default at a stub host for the test repo
   beforeEach(() => {
-    vi.spyOn(gitHostRegistry, "forRepo").mockReturnValue(
+    vi.spyOn(gitHostRegistry, "forRepo").mockResolvedValue(
       {
         getChangeRequest: async () => ({ sha: "sha_before" }),
         replyToComment: async () => ({ id: "gl_note_1", author: "devflow-bot", createdAt: new Date().toISOString() }),
@@ -300,7 +300,7 @@ describe("ResolveNode chat", () => {
   };
 
   it("first turn on a never-run node: the message IS the prompt body with the comments re-appended", async () => {
-    const { def, j } = make(nodeRow({ node_key: "resolve", type: "resolve" }));
+    const { def, j } = make(nodeRow({ nodeKey: "resolve", type: "resolve" }));
     const reply = await withResolvedTimers(() => def.chat(ctx, "Start with the auth files."));
     expect(j.labels).toEqual(["resolve"]);
     const turn = j.startAgentInputs[0] as unknown as { prompt: string };
@@ -313,11 +313,11 @@ describe("ResolveNode chat", () => {
   it("second turn after a run: the message is the instructions refine", async () => {
     const { def, j } = make(
       nodeRow({
-        node_key: "resolve",
+        nodeKey: "resolve",
         type: "resolve",
         status: "done",
         output: { resolved: 1 },
-        agent_id: "agent_prev",
+        agentId: "agent_prev",
       }),
     );
     await withResolvedTimers(() => def.chat(ctx, "Also improve naming"));
@@ -339,7 +339,7 @@ describe("PipelineNode chat", () => {
   const make = (node: NodeRow) => {
     const j = newJournal();
     let getPipelineCalls = 0;
-    const router = { forRepo: () => host } as unknown as GitHostResolver;
+    const router = { forRepo: async () => host } as unknown as GitHostResolver;
     const host = {
       getChangeRequest: async () => ({ headPipeline: { id: 77, status: "failed" } }),
       getPipeline: async () => {
@@ -361,7 +361,7 @@ describe("PipelineNode chat", () => {
   };
 
   it("first turn on a never-run gate: the message IS the fix-run prompt body", async () => {
-    const { def, j } = make(nodeRow({ node_key: "pipeline", type: "pipeline" }));
+    const { def, j } = make(nodeRow({ nodeKey: "pipeline", type: "pipeline" }));
     const reply = await def.chat(ctx, "Sketch a fix for the failing test job.");
     expect(j.labels[0]).toContain("pipeline fix");
     const turn = j.startAgentInputs[0] as unknown as { prompt: string };
@@ -376,12 +376,12 @@ describe("PipelineNode chat", () => {
   it("second turn after a run: the message is the guidance refine", async () => {
     const { def, j } = make(
       nodeRow({
-        node_key: "pipeline",
+        nodeKey: "pipeline",
         type: "pipeline",
         status: "done",
         output: { pipelineId: 77, status: "success", fixes: 0 },
         input: { branchName: null, pipelineId: null, guidance: null, prompt: null, promptIsBody: false, model: null },
-        agent_id: "agent_prev",
+        agentId: "agent_prev",
       }),
     );
     await def.chat(ctx, "Speed up the flaky test");
@@ -394,12 +394,12 @@ describe("PipelineNode chat", () => {
   it("a gate with no merge request answers instead of throwing", async () => {
     const j = newJournal();
     const def = new PipelineNode(
-      stubSupport(j, nodeRow({ node_key: "pipeline", type: "pipeline" })),
+      stubSupport(j, nodeRow({ nodeKey: "pipeline", type: "pipeline" })),
       stubRunner(j, []),
       ctxHelper,
-      { forRepo: () => ({}) } as unknown as GitHostResolver,
+      { forRepo: async () => ({}) } as unknown as GitHostResolver,
     );
-    const reply = await def.chat({ ...ctx, flow: { ...ctx.flow, mr_iid: null } }, "run now");
+    const reply = await def.chat({ ...ctx, flow: { ...ctx.flow, mrIid: null } }, "run now");
     expect(reply).toContain("No merge request yet");
     expect(j.startAgentInputs).toHaveLength(0);
   });
@@ -416,13 +416,13 @@ describe("BuildNode chat", () => {
       latestArtifact: (...args: unknown[]) => unknown;
     };
     support.latestArtifact = (...args: unknown[]) =>
-      (args[2] as { nodeType?: string })?.nodeType === "plan" ? planArtifact : null;
+      Promise.resolve((args[2] as { nodeType?: string })?.nodeType === "plan" ? planArtifact : null);
     const def = new BuildNode(support as NodeSupport, stubRunner(j, ["built it"]), ctxHelper);
     return { def, j };
   };
 
   it("first turn on a never-run node: the message is the build body (the approved plan rides the input blob)", async () => {
-    const { def, j } = make(nodeRow({ node_key: "build", type: "build" }));
+    const { def, j } = make(nodeRow({ nodeKey: "build", type: "build" }));
     await def.chat(ctx, "Start with the API routes.");
     expect(j.labels).toEqual(["build"]);
     const turn = j.startAgentInputs[0] as unknown as { prompt: string };
@@ -441,7 +441,7 @@ describe("BuildNode chat", () => {
 
   it("a never-run build with no approved plan refuses with the trigger's error", async () => {
     const j = newJournal();
-    const support = stubSupport(j, nodeRow({ node_key: "build", type: "build" }));
+    const support = stubSupport(j, nodeRow({ nodeKey: "build", type: "build" }));
     const def = new BuildNode(support, stubRunner(j, []), ctxHelper);
     await expect(def.chat(ctx, "go")).rejects.toThrow("no plan to build — approve the plan first");
   });
@@ -449,11 +449,11 @@ describe("BuildNode chat", () => {
   it("second turn after a run: the message is the feedback refine", async () => {
     const { def, j } = make(
       nodeRow({
-        node_key: "build",
+        nodeKey: "build",
         type: "build",
         status: "awaiting_approval",
-        output: { branch: ctx.flow.mr_branch ?? "", latestArtifact: "art_diff" },
-        agent_id: "agent_prev",
+        output: { branch: ctx.flow.mrBranch ?? "", latestArtifact: "art_diff" },
+        agentId: "agent_prev",
       }),
     );
     await def.chat(ctx, "Please squash the commits");

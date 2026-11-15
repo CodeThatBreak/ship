@@ -147,7 +147,7 @@ export const FlowSettingsSchedule = ({
                 >
                   <SelectValue>
                     {boundRepo
-                      ? `${boundRepo.name}${boundRepo.local_path ? " (local)" : ""}`
+                      ? `${boundRepo.name}${boundRepo.localPath ? " (local)" : ""}`
                       : NO_REPO_BOUND_LABEL}
                   </SelectValue>
                 </SelectTrigger>
@@ -155,7 +155,7 @@ export const FlowSettingsSchedule = ({
                   {repos.map((r) => (
                     <SelectItem key={r.id} value={r.id}>
                       {r.name}
-                      {r.local_path ? " (local)" : ""}
+                      {r.localPath ? " (local)" : ""}
                     </SelectItem>
                   ))}
                 </SelectContent>

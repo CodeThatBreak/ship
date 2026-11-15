@@ -17,7 +17,7 @@ import { MAIN_PLAN_THREAD_TAB_ID } from './constants/planThread';
 export class PlanSplitter {
   constructor(
     private readonly store: PlanStore,
-    private readonly knobOf: (ctx: FlowCtx) => ExecutionKnob
+    private readonly knobOf: (ctx: FlowCtx) => Promise<ExecutionKnob>
   ) {}
 
   /**
@@ -28,8 +28,8 @@ export class PlanSplitter {
    * triggerRuns decomposition passes. Null when there is no plan artifact
    * or no branches (the consumer then runs whole).
    */
-  units(ctx: FlowCtx): SplitUnit[] | null {
-    const latest = this.store.latestPlan(ctx.flow.id);
+  async units(ctx: FlowCtx): Promise<SplitUnit[] | null> {
+    const latest = await this.store.latestPlan(ctx.flow.id);
     if (!latest || !latest.meta.branches.length) return null;
     return latest.meta.branches.map(b => ({
       key: b.name,
@@ -56,10 +56,10 @@ export class PlanSplitter {
    * anything else whole). Total: a missing/unparseable plan artifact
    * resolves whole — never throws.
    */
-  resolution(ctx: FlowCtx): 'whole' | 'per-unit' | null {
-    const knob = this.knobOf(ctx);
+  async resolution(ctx: FlowCtx): Promise<'whole' | 'per-unit' | null> {
+    const knob = await this.knobOf(ctx);
     if (knob === 'follow') {
-      const published = this.store.latestPlan(ctx.flow.id)?.rawMeta.execution;
+      const published = (await this.store.latestPlan(ctx.flow.id))?.rawMeta.execution;
       return published === 'steps' ? 'per-unit' : 'whole';
     }
     return 'whole';

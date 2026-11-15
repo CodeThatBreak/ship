@@ -11,27 +11,27 @@ import { db } from "../../db/app";
 export class CursorCredentials {
   constructor(private readonly secrets: IntegrationSecretStore) {}
 
-  apiKey(): string {
+  async apiKey(): Promise<string> {
     return this.secrets.readCursorApiKey();
   }
 
   /** Whether a DB-stored key is set — settings UI status. */
-  isStored(): boolean {
-    return Boolean(this.apiKey());
+  async isStored(): Promise<boolean> {
+    return Boolean(await this.apiKey());
   }
 
   /** Store the Cursor API key (write-only). Empty input clears the stored key. */
-  setApiKey(key: string): void {
+  async setApiKey(key: string): Promise<void> {
     const trimmed = key.trim();
     if (!trimmed) {
-      this.clear();
+      await this.clear();
       return;
     }
-    this.secrets.writeCursorApiKey(trimmed);
+    await this.secrets.writeCursorApiKey(trimmed);
   }
 
-  clear(): void {
-    this.secrets.writeCursorApiKey("");
+  async clear(): Promise<void> {
+    await this.secrets.writeCursorApiKey("");
   }
 }
 

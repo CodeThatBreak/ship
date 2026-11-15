@@ -6,13 +6,14 @@
  * EdgeActivator behavior, so terminal states are placed via fixture writes
  * and the assertion reads the reset after a bare `advanceFrom`.
  *
- * Runs against an isolated temp SQLite DB (AGENTS.md §1 — never a real DB).
+ * Runs against the isolated dockerized Postgres test database
+ * (AGENTS.md §1 — never a demo/real DB).
  */
-import { describe, expect, it } from "vitest";
-import { assignDatabasePath, createIsolatedDatabasePath } from "../helpers/testDatabase";
+import { beforeAll, describe, expect, it } from "vitest";
+import { assignTestDatabase, resetTestDatabase } from "../helpers/testDatabase";
 import { FlowHarness } from "../helpers/flowHarness";
 
-assignDatabasePath(createIsolatedDatabasePath("devflow-ovh-loop-"));
+assignTestDatabase();
 
 const { db } = await import("@/lib/db/app");
 const { flowEngine } = await import("@/lib/engine/flowEngine");
@@ -20,6 +21,8 @@ const { templateStore } = await import("@/lib/engine/templates/templateStore");
 const { importTemplateYaml } = await import("@/lib/engine/templates/templateYaml");
 
 const harness = new FlowHarness({ db, flowEngine, templateStore });
+
+beforeAll(resetTestDatabase);
 
 const loopYaml = `
 name: Overhaul loop reset
@@ -59,27 +62,27 @@ edges:
 
 describe("loop re-entry resets downstream terminals", () => {
   it("a loop edge re-entry clears the skipped branch before the next iteration", async () => {
-    const { id: templateId } = importTemplateYaml(templateStore, loopYaml, {
+    const { id: templateId } = await importTemplateYaml(templateStore, loopYaml, {
       namePrefix: "ovh-loop",
     });
-    const flowId = harness.seedFlowFromTemplate(templateId);
+    const flowId = await harness.seedFlowFromTemplate(templateId);
 
     // first iteration's terminal state (fixture setup): the decision picked
     // "fix", so fix_path ran and ship_path was skipped
-    harness.setNodeForFixture(flowId, "pass_a", "done");
-    harness.setNodeOutputForFixture(flowId, "pick", "done", { chosen: ["fix"], rationale: "t" });
-    harness.setNodeForFixture(flowId, "fix_path", "done");
-    harness.setNodeForFixture(flowId, "ship_path", "skipped");
+    await harness.setNodeForFixture(flowId, "pass_a", "done");
+    await harness.setNodeOutputForFixture(flowId, "pick", "done", { chosen: ["fix"], rationale: "t" });
+    await harness.setNodeForFixture(flowId, "fix_path", "done");
+    await harness.setNodeForFixture(flowId, "ship_path", "skipped");
 
     // the loop edge back to pass_a re-enters the cycle: the skipped branch
     // resets to pending so the second iteration's decision can choose it
     await harness.advance(flowId, "fix_path");
-    expect(harness.nodeStatus(flowId, "ship_path")).toBe("pending");
+    expect(await harness.nodeStatus(flowId, "ship_path")).toBe("pending");
 
     // second iteration: the decision now picks "ship" — its branch must not
     // still hold the stale skipped state
-    harness.setNodeOutputForFixture(flowId, "pick", "done", { chosen: ["ship"], rationale: "t" });
+    await harness.setNodeOutputForFixture(flowId, "pick", "done", { chosen: ["ship"], rationale: "t" });
     await harness.advance(flowId, "pick");
-    expect(harness.nodeStatus(flowId, "ship_path")).not.toBe("skipped");
+    expect(await harness.nodeStatus(flowId, "ship_path")).not.toBe("skipped");
   });
 });

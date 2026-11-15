@@ -1,12 +1,7 @@
-import fs from "node:fs";
-import os from "node:os";
-import path from "node:path";
-import { describe, expect, it } from "vitest";
+import { beforeAll, describe, expect, it } from "vitest";
+import { assignTestDatabase, resetTestDatabase } from "../../../tests/helpers/testDatabase";
 
-process.env.DATABASE_PATH = path.join(
-  fs.mkdtempSync(path.join(os.tmpdir(), "devflow-node-store-")),
-  "test.db",
-);
+assignTestDatabase();
 
 const { db } = await import("../../db/app");
 const { nodeStore } = await import('./nodeStore');
@@ -14,11 +9,9 @@ const { NODE_STATUS } = await import("../constants/nodeStatus");
 const { isNodeStarted, childFlowHasStarted } = await import("../constants/nodeStatus");
 const { ConflictError } = await import("../../errors");
 
-const now = () => new Date().toISOString();
-
-const seedFlow = (flowId: string, taskId: string) => {
-  db.run(
-    `INSERT INTO tasks (id, type, key, summary, status, issue_type, priority) VALUES (?,?,?,?,?,?,?)`,
+const seedFlow = async (flowId: string, taskId: string) => {
+  await db.run(
+    `INSERT INTO tasks (id, type, key, summary, status, issue_type, priority) VALUES ($1,$2,$3,$4,$5,$6,$7)`,
     taskId,
     "generic",
     taskId.toUpperCase(),
@@ -27,56 +20,60 @@ const seedFlow = (flowId: string, taskId: string) => {
     "task",
     "P2",
   );
-  db.run(
-    `INSERT INTO flows (id, task_id, name, status, created_at, updated_at) VALUES (?,?,?,?,?,?)`,
+  await db.run(
+    `INSERT INTO flows (id, task_id, name, status, created_at, updated_at) VALUES ($1,$2,$3,$4,now(),now())`,
     flowId,
     taskId,
     "t",
     "active",
-    now(),
-    now(),
   );
 };
 
 describe("NodeStore", () => {
-  it("idOf and statusOf read node rows", () => {
-    const flowId = "flow_ns1";
-    const taskId = "task_ns1";
-    seedFlow(flowId, taskId);
-    const nodeId = "node_ns1";
-    db.run(
-      `INSERT INTO nodes (id, flow_id, node_key, type, status, created_at, updated_at) VALUES (?,?,?,?,?,?,?)`,
-      nodeId,
-      flowId,
-      "plan",
-      "plan",
-      NODE_STATUS.PENDING,
-      now(),
-      now(),
-    );
-    expect(nodeStore.idOf(flowId, "plan")).toBe(nodeId);
-    expect(nodeStore.statusOf(flowId, "plan")).toBe(NODE_STATUS.PENDING);
-    expect(nodeStore.idOf(flowId, "missing")).toBeNull();
+  beforeAll(async () => {
+    await resetTestDatabase();
   });
 
-  it("claim stamps running and rejects double claim", () => {
+  it("idOf and statusOf read node rows", async () => {
+    const flowId = "flow_ns1";
+    const taskId = "task_ns1";
+    await seedFlow(flowId, taskId);
+    const nodeId = "node_ns1";
+    await db.prisma.node.create({
+      data: {
+        id: nodeId,
+        flowId,
+        nodeKey: "plan",
+        type: "plan",
+        status: NODE_STATUS.PENDING,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      },
+    });
+    expect(await nodeStore.idOf(flowId, "plan")).toBe(nodeId);
+    expect(await nodeStore.statusOf(flowId, "plan")).toBe(NODE_STATUS.PENDING);
+    expect(await nodeStore.idOf(flowId, "missing")).toBeNull();
+  });
+
+  it("claim stamps running and rejects double claim", async () => {
     const flowId = "flow_ns2";
     const taskId = "task_ns2";
-    seedFlow(flowId, taskId);
-    db.run(
-      `INSERT INTO nodes (id, flow_id, node_key, type, status, created_at, updated_at) VALUES (?,?,?,?,?,?,?)`,
-      "node_ns2",
-      flowId,
-      "build",
-      "build",
-      NODE_STATUS.PENDING,
-      now(),
-      now(),
-    );
-    const attempt = nodeStore.claim(flowId, "build", [NODE_STATUS.PENDING]);
+    await seedFlow(flowId, taskId);
+    await db.prisma.node.create({
+      data: {
+        id: "node_ns2",
+        flowId,
+        nodeKey: "build",
+        type: "build",
+        status: NODE_STATUS.PENDING,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      },
+    });
+    const attempt = await nodeStore.claim(flowId, "build", [NODE_STATUS.PENDING]);
     expect(attempt).toMatch(/^att_/);
-    expect(nodeStore.statusOf(flowId, "build")).toBe(NODE_STATUS.RUNNING);
-    expect(() => nodeStore.claim(flowId, "build", [NODE_STATUS.PENDING])).toThrow(ConflictError);
+    expect(await nodeStore.statusOf(flowId, "build")).toBe(NODE_STATUS.RUNNING);
+    await expect(nodeStore.claim(flowId, "build", [NODE_STATUS.PENDING])).rejects.toThrow(ConflictError);
   });
 });
 

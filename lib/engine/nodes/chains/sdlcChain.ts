@@ -23,10 +23,10 @@ export interface ChainHost {
   claimNode(flowId: string, nodeKey: string, from: readonly string[]): Promise<string>;
   nodeStatus(flowId: string, nodeKey: string): Promise<string | null>;
   nodeRunning(flowId: string, nodeKey: string): Promise<boolean>;
-  nodeConfigFor(flowId: string, nodeKey: string): Record<string, unknown>;
+  nodeConfigFor(flowId: string, nodeKey: string): Promise<Record<string, unknown>>;
   /** the instance key of the flow's node holding a chain role (§T3 —
    *  metadata-routed; the chain names roles, never literal def keys) */
-  keyOfRole(flowId: string, role: ChainRole): string | null;
+  keyOfRole(flowId: string, role: ChainRole): Promise<string | null>;
   /** the CI gate node (waits on the pipeline source) */
   gateKey(flowId: string): Promise<string | null>;
   /** resolve a node's outgoing edges and start what becomes eligible */
@@ -59,17 +59,17 @@ export class SdlcChain {
    * gate before a CR exists.
    */
   async approveBuild(flowId: string, branchName?: string): Promise<void> {
-    const buildKey = this.host.keyOfRole(flowId, NODE_KEYS.BUILD);
+    const buildKey = await this.host.keyOfRole(flowId, NODE_KEYS.BUILD);
     if (!buildKey) throw new Error("this flow template has no build node");
     const gate = await this.host.gateKey(flowId);
     if (!gate) throw new Error("this flow template has no pipeline gate node");
-    const reviewKey = this.host.keyOfRole(flowId, NODE_KEYS.REVIEW);
+    const reviewKey = await this.host.keyOfRole(flowId, NODE_KEYS.REVIEW);
     await this.host.setNodeStatus(flowId, buildKey, "approved");
     await this.host.setCurrentNode(flowId, gate);
     this.host.bg(flowId, null, async () => {
       try {
         const maxAttempts = configNumber(
-          this.host.nodeConfigFor(flowId, buildKey), "max_commit_fix_attempts", 2);
+          await this.host.nodeConfigFor(flowId, buildKey), "max_commit_fix_attempts", 2);
         // multi-branch: one CR per awaiting branch; single-branch: the flow-level MR
         const branchTargets = branchName
           ? [branchName]
@@ -168,7 +168,7 @@ export class SdlcChain {
 
   /** Manual resolve run (Run button / API): run the stage, then the edges. */
   async triggerResolve(flowId: string, model?: string): Promise<void> {
-    const resolveKey = this.host.keyOfRole(flowId, NODE_KEYS.RESOLVE);
+    const resolveKey = await this.host.keyOfRole(flowId, NODE_KEYS.RESOLVE);
     if (!resolveKey) return;
     if (await this.host.nodeRunning(flowId, resolveKey)) return;
     // Direct triggers respect the chain — resolve must not run while the
@@ -188,7 +188,7 @@ export class SdlcChain {
 
   /** Manual review run (Run button / API): run the stage, then the edges. */
   async triggerReview(flowId: string, model?: string): Promise<void> {
-    const reviewKey = this.host.keyOfRole(flowId, NODE_KEYS.REVIEW);
+    const reviewKey = await this.host.keyOfRole(flowId, NODE_KEYS.REVIEW);
     if (!reviewKey) throw new Error("this flow template has no review node");
     if (await this.host.chainBusy(flowId)) throw new Error("wait for the current pipeline/review/resolve run to finish first");
     await this.host.claimNode(flowId, reviewKey, MANUAL_CHAIN_STAGE_FROM);

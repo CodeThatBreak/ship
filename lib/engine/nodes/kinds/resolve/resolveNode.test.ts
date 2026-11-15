@@ -13,17 +13,16 @@
  * §1 — never a real database). Imports hoist — dynamic imports keep the
  * evaluation order.
  */
-import fs from "node:fs";
-import os from "node:os";
-import path from "node:path";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { beforeAll, afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-process.env.DATABASE_PATH = path.join(
-  fs.mkdtempSync(path.join(os.tmpdir(), "devflow-resolve-node-")),
-  "test.db",
-);
+
+import { assignTestDatabase, resetTestDatabase } from "../../../../../tests/helpers/testDatabase";
+
+assignTestDatabase();
 
 const { db } = await import("../../../../db/app");
+
+beforeAll(resetTestDatabase);
 // registry first — it pulls the node kinds (and their prompt assemblies) in
 // ahead of everything else; direct kind imports later then hit a live module
 await import("../../registry");
@@ -53,13 +52,13 @@ const REPO_URL = "https://gitlab.example/g/p";
 const ctx: FlowCtx = {
   flow: {
     id: "flw_rn",
-    task_id: "task_rn",
+    taskId: "task_rn",
     name: "resolve node test",
     status: "active",
-    execution_mode: "cloud",
-    mr_iid: 7,
-    mr_branch: "feature/x",
-    repo_url: REPO_URL,
+    executionMode: "cloud",
+    mrIid: 7,
+    mrBranch: "feature/x",
+    repoUrl: REPO_URL,
   },
   task: {
     id: "task_rn",
@@ -71,7 +70,7 @@ const ctx: FlowCtx = {
     issueType: "story",
     priority: "P2",
   },
-  repo: { default_branch: "main" },
+  repo: { defaultBranch: "main" },
 } as unknown as FlowCtx;
 
 /** `localPath()` decides the mode: set it (with the worktree + git spies)
@@ -87,30 +86,30 @@ const ctxHelper = {
   makeDiff: async () => ({ raw: "diff raw", stat: "+1 -1" }),
 } as unknown as FlowContextHelper;
 
-const seedFlow = () => {
-  // idempotent seed + per-test state reset: the file runs against ONE sqlite
-  // file across tests, so flow-owned state (comments, artifacts, runs, events,
+const seedFlow = async () => {
+  // idempotent seed + per-test state reset: the file runs against the shared
+  // test database, so flow-owned state (comments, artifacts, runs, events,
   // the node row) is cleared and the static rows are re-inserted safely
-  db.run(`INSERT OR IGNORE INTO tasks (id, type, key, summary, status, issue_type, priority) VALUES (?,?,?,?,?,?,?)`,
+  await db.run(`INSERT INTO tasks (id, type, key, summary, status, issue_type, priority) VALUES ($1,$2,$3,$4,$5,$6,$7) ON CONFLICT DO NOTHING`,
     "task_rn", "generic", "T-RN", "resolve node test", "open", "story", "P2",
   );
-  db.run(`INSERT OR IGNORE INTO flows (id, task_id, name, status, mr_iid, mr_branch, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?)`,
+  await db.run(`INSERT INTO flows (id, task_id, name, status, mr_iid, mr_branch, created_at, updated_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8) ON CONFLICT DO NOTHING`,
     "flw_rn", "task_rn", "resolve node test", "active", 7, "feature/x", now(), now(),
   );
-  db.run(`INSERT OR IGNORE INTO nodes (id, flow_id, node_key, type, status, created_at, updated_at) VALUES (?,?,?,?,?,?,?)`,
+  await db.run(`INSERT INTO nodes (id, flow_id, node_key, type, status, created_at, updated_at) VALUES ($1,$2,$3,$4,$5,$6,$7) ON CONFLICT DO NOTHING`,
     "node_rn", "flw_rn", "resolve", "resolve", "running", now(), now(),
   );
-  db.run(`DELETE FROM comments WHERE flow_id='flw_rn'`);
-  db.run(`DELETE FROM events WHERE flow_id='flw_rn'`);
-  db.run(`DELETE FROM runs WHERE node_id='node_rn'`);
-  db.run(`DELETE FROM artifacts WHERE node_id='node_rn'`);
-  db.run(`UPDATE nodes SET status='running', input=NULL, output=NULL, attempt_id=NULL WHERE id='node_rn'`);
+  await db.run(`DELETE FROM comments WHERE flow_id='flw_rn'`);
+  await db.run(`DELETE FROM events WHERE flow_id='flw_rn'`);
+  await db.run(`DELETE FROM runs WHERE node_id='node_rn'`);
+  await db.run(`DELETE FROM artifacts WHERE node_id='node_rn'`);
+  await db.run(`UPDATE nodes SET status='running', input=NULL, output=NULL, attempt_id=NULL WHERE id='node_rn'`);
 };
 
-const seedComment = (id: string, discussionId = `d_${id}`) =>
-  db.run(
+const seedComment = async (id: string, discussionId = `d_${id}`) =>
+  await db.run(
     `INSERT INTO comments (id, flow_id, mr_iid, discussion_id, author, body, file_path, line, status, raw, created_at, updated_at)
-     VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`,
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)`,
     id, "flw_rn", 7, discussionId, "reviewer", "Rename the badly named variable.",
     "src/a.ts", 2, "open", null, now(), now(),
   );
@@ -127,11 +126,11 @@ const newJournal = (): Journal => ({ startAgentInputs: [], labels: [] });
  *  executeRun. */
 const stubRunner = (support: NodeSupport, j: Journal, responses: string[]): AgentRunner =>
   ({
-    startAgent: (_c: FlowCtx, input: unknown) => {
+    startAgent: async (_c: FlowCtx, input: unknown) => {
       j.startAgentInputs.push(input as never);
       const agentId = `agent_${j.startAgentInputs.length}`;
-      support.persistRun("flw_rn", "node_rn", agentId, `run_${j.startAgentInputs.length}`);
-      return Promise.resolve({ agentId, runId: `run_${j.startAgentInputs.length}` });
+      await support.persistRun("flw_rn", "node_rn", agentId, `run_${j.startAgentInputs.length}`);
+      return { agentId, runId: `run_${j.startAgentInputs.length}` };
     },
     executeRun: (_c: FlowCtx, _n: string, start: () => Promise<unknown>, label: string) => {
       j.labels.push(label);
@@ -214,7 +213,7 @@ class FakeResolveHost {
 }
 
 const hostResolver = (host: FakeResolveHost): GitHostResolver =>
-  ({ forRepo: () => host }) as unknown as GitHostResolver;
+  ({ forRepo: async () => host }) as unknown as GitHostResolver;
 
 // ── git / worktree seam stubs ────────────────────────────────────────────────
 
@@ -247,37 +246,32 @@ const stubLocalStates = (...states: LocalBranchState[]): void => {
 };
 
 /**
- * Advance the resolve run past `verifyPushState`'s bounded recheck (a real
- * 5s sleep is pointless under test): the run promise spins while fake timers
- * flush every pending timer. Rejections propagate.
+ * Run the resolve flow with REAL timers: Postgres made the path to the
+ * bounded MR-head recheck (RECHECK_MS) genuinely async, so flushing it with
+ * fake timers races the run's real DB I/O (a pre-advanced fake clock misses
+ * timers scheduled after the I/O settled). The recheck is the run's only
+ * wait — real timers are deterministic, at the cost of RECHECK_MS per test.
  */
 const withFlushedTimers = async (run: () => Promise<unknown>): Promise<unknown> => {
-  vi.useFakeTimers();
-  try {
-    const pending = run();
-    await vi.advanceTimersByTimeAsync(30_000);
-    return await pending;
-  } finally {
-    vi.useRealTimers();
-  }
+  return await run();
 };
 
 const eventsByType = (type: string) =>
   db.all<{ type: string; message: string }>(
-    `SELECT type, message FROM events WHERE flow_id='flw_rn' AND type=? ORDER BY created_at ASC`,
+    `SELECT type, message FROM events WHERE flow_id='flw_rn' AND type=$1 ORDER BY created_at ASC`,
     type,
   );
 
-const nodeOutputRecord = (): Record<string, unknown> => {
-  const raw = db.get<{ output: string | null }>(`SELECT output FROM nodes WHERE id='node_rn'`)?.output;
-  return (raw ? JSON.parse(raw) : {}) as Record<string, unknown>;
+const nodeOutputRecord = async (): Promise<Record<string, unknown>> => {
+  const raw = (await db.get<{ output: Record<string, unknown> | null }>(`SELECT output FROM nodes WHERE id='node_rn'`))?.output;
+  return (raw ?? {}) as Record<string, unknown>;
 };
 
-const commentStatus = (id: string): { status: string } | undefined =>
-  db.get<{ status: string }>(`SELECT status FROM comments WHERE id=?`, id);
+const commentStatus = async (id: string): Promise<{ status: string } | undefined> =>
+  await db.get<{ status: string }>(`SELECT status FROM comments WHERE id=$1`, id);
 
-beforeEach(() => {
-  seedFlow();
+beforeEach(async () => {
+  await seedFlow();
 });
 afterEach(() => {
   vi.restoreAllMocks();
@@ -290,7 +284,7 @@ describe("ResolveNode — the contract retry (§6 layer 1)", () => {
   it("a retryable miss gets exactly ONE feedback follow-up; a second miss fails the node", async () => {
     const host = new FakeResolveHost(["sha_before"]);
     const { def, j } = make(["nothing to parse here", "still no JSON object"], host);
-    seedComment("gl_1");
+    await seedComment("gl_1");
 
     await expect(def.run(ctx, runInput, {})).rejects.toThrow(/contained no JSON/i);
 
@@ -300,7 +294,7 @@ describe("ResolveNode — the contract retry (§6 layer 1)", () => {
     // the feedback re-runs on the SAME agent session
     expect(j.startAgentInputs[1]?.followUpOn).toBe("agent_1");
     // the lifecycle trail names the retry; nothing on the host was touched
-    expect(eventsByType("lifecycle").some((e) => e.message.includes("one retry with feedback"))).toBe(true);
+    expect((await eventsByType("lifecycle")).some((e) => e.message.includes("one retry with feedback"))).toBe(true);
     expect(host.resolveCalls).toEqual([]);
   });
 });
@@ -321,26 +315,26 @@ describe("ResolveNode — verifyPushState", () => {
       ],
       host,
     );
-    seedComment("gl_1");
+    await seedComment("gl_1");
 
     await withFlushedTimers(() => def.run(ctx, runInput, {}));
 
     // unknown ⇒ no resolution authority: the answer posts, the thread stays open
     expect(host.resolveCalls).toEqual([]);
-    expect(commentStatus("gl_1")).toEqual({ status: "open" });
-    expect(eventsByType("error").some((e) => e.message.includes("could not verify the MR head"))).toBe(true);
-    expect(nodeOutputRecord()).toMatchObject({ pushed: false, resolved: 0, codeChanged: false, hostFailures: 0 });
+    expect(await commentStatus("gl_1")).toEqual({ status: "open" });
+    expect((await eventsByType("error")).some((e) => e.message.includes("could not verify the MR head"))).toBe(true);
+    expect(await nodeOutputRecord()).toMatchObject({ pushed: false, resolved: 0, codeChanged: false, hostFailures: 0 });
   });
 });
 
 // ── §6A: cloud mode verifies on MR-head movement alone ──────────────────────
 
 describe("ResolveNode — cloud mode (§6A)", () => {
-  it("pushes nothing locally: `pushed` comes from MR-head movement only", async () => {
+  it("pushes nothing locally: `pushed` comes from MR-head movement only", { timeout: 20_000 }, async () => {
     const host = new FakeResolveHost(["sha_before", "sha_after"]);
     const pushSpy = vi.spyOn(localGit, "pushBranch");
     const { def, j } = make([JSON.stringify(contractResponse())], host);
-    seedComment("gl_1");
+    await seedComment("gl_1");
 
     await withFlushedTimers(() => def.run(ctx, runInput, {}));
 
@@ -348,14 +342,14 @@ describe("ResolveNode — cloud mode (§6A)", () => {
     expect(pushSpy).not.toHaveBeenCalled();
     expect(j.labels).toEqual(["resolve"]); // no hook-fix turn either
     expect(host.resolveCalls).toEqual(["d_gl_1"]);
-    expect(nodeOutputRecord()).toMatchObject({ resolved: 1, replied: 1, codeChanged: true, pushed: true });
+    expect(await nodeOutputRecord()).toMatchObject({ resolved: 1, replied: 1, codeChanged: true, pushed: true });
   });
 });
 
 // ── §6A: the engine push in local mode ──────────────────────────────────────
 
 describe("ResolveNode — the engine push (§6A)", () => {
-  it("local_only commits are pushed in finalize; threads close once the fix is on the MR", async () => {
+  it("local_only commits are pushed in finalize; threads close once the fix is on the MR", { timeout: 20_000 }, async () => {
     localPathValue = "/repo/checkout";
     stubWorktree();
     // capture + the pre-run check see a synced branch; the post-run verify
@@ -368,18 +362,18 @@ describe("ResolveNode — the engine push (§6A)", () => {
     const pushSpy = vi.spyOn(localGit, "pushBranch").mockResolvedValue("origin");
     const host = new FakeResolveHost(["sha_before"]);
     const { def } = make([JSON.stringify(contractResponse())], host);
-    seedComment("gl_1");
+    await seedComment("gl_1");
 
     await withFlushedTimers(() => def.run(ctx, runInput, {}));
 
     // exactly one engine push — the finalize one (no pre-run backlog this cycle)
     expect(pushSpy).toHaveBeenCalledTimes(1);
     expect(host.resolveCalls).toEqual(["d_gl_1"]);
-    expect(nodeOutputRecord()).toMatchObject({ resolved: 1, replied: 1, codeChanged: true, pushed: true });
-    expect(db.get<{ status: string }>(`SELECT status FROM nodes WHERE id='node_rn'`)).toEqual({ status: "done" });
+    expect(await nodeOutputRecord()).toMatchObject({ resolved: 1, replied: 1, codeChanged: true, pushed: true });
+    expect(await db.get<{ status: string }>(`SELECT status FROM nodes WHERE id='node_rn'`)).toEqual({ status: "done" });
   });
 
-  it("a hook rejection gets ONE agent fix turn then one re-push; a second rejection fails the node", async () => {    localPathValue = "/repo/checkout";
+  it("a hook rejection gets ONE agent fix turn then one re-push; a second rejection fails the node", { timeout: 20_000 }, async () => {    localPathValue = "/repo/checkout";
     stubWorktree();
     stubLocalStates(
       fullBranchState({ stat: "stat_a", unpushedAhead: 0 }),
@@ -397,7 +391,7 @@ describe("ResolveNode — the engine push (§6A)", () => {
     });
     const host = new FakeResolveHost(["sha_before"]);
     const { def, j } = make([JSON.stringify(contractResponse())], host);
-    seedComment("gl_1");
+    await seedComment("gl_1");
 
     await withFlushedTimers(async () => {
       await expect(def.run(ctx, runInput, {})).rejects.toThrow(
@@ -414,7 +408,7 @@ describe("ResolveNode — the engine push (§6A)", () => {
     expect(host.resolveCalls).toEqual([]); // the run failed before any effect
   });
 
-  it("an infra push failure degrades, not fails: replies post, threads stay open, pushed=false", async () => {
+  it("an infra push failure degrades, not fails: replies post, threads stay open, pushed=false", { timeout: 20_000 }, async () => {
     localPathValue = "/repo/checkout";
     stubWorktree();
     stubLocalStates(
@@ -427,19 +421,19 @@ describe("ResolveNode — the engine push (§6A)", () => {
     );
     const host = new FakeResolveHost(["sha_before"]);
     const { def } = make([JSON.stringify(contractResponse())], host);
-    seedComment("gl_1");
+    await seedComment("gl_1");
 
     await withFlushedTimers(() => def.run(ctx, runInput, {}));
 
     // the agent's work is real: the run completes, the reply posts…
     expect(host.replyCalls).toHaveLength(1);
     expect(host.resolveCalls).toEqual([]); // …but a local-only fix never closes
-    expect(commentStatus("gl_1")).toEqual({ status: "open" });
-    expect(nodeOutputRecord()).toMatchObject({ resolved: 0, replied: 1, pushed: false, hostFailures: 0 });
-    expect(db.get<{ status: string }>(`SELECT status FROM nodes WHERE id='node_rn'`)).toEqual({ status: "done" });
+    expect(await commentStatus("gl_1")).toEqual({ status: "open" });
+    expect(await nodeOutputRecord()).toMatchObject({ resolved: 0, replied: 1, pushed: false, hostFailures: 0 });
+    expect(await db.get<{ status: string }>(`SELECT status FROM nodes WHERE id='node_rn'`)).toEqual({ status: "done" });
     // …and the failure names the push, not the node
     expect(
-      eventsByType("error").some((e) => e.message.includes("push of branch feature/x failed")),
+      (await eventsByType("error")).some((e) => e.message.includes("push of branch feature/x failed")),
     ).toBe(true);
   });
 });
@@ -457,7 +451,7 @@ describe("ResolveNode — recover()", () => {
   });
 
   it("re-applies the recorded result and completes the remaining ledgered effects", async () => {
-    seedComment("gl_1");
+    await seedComment("gl_1");
     const support = new NodeSupport();
     const response = contractResponse();
 
@@ -477,23 +471,24 @@ describe("ResolveNode — recover()", () => {
     // simulate the interrupted run at the effects layer: the reply landed and
     // is journaled into the artifact's persistProgress (with the pre-crash
     // verify), then the process died before the threaded resolve landed
-    await new ResolveEffects(support, { forRepo: () => crashedHost } as unknown as GitHostResolver).apply({
+    await new ResolveEffects(support, { forRepo: async () => crashedHost } as unknown as GitHostResolver).apply({
       flowId: "flw_rn",
       nodeId: "node_rn",
       repoUrl: REPO_URL,
       mrIid: 7,
       response,
-      open: support.openComments("flw_rn", 7),
+      open: await support.openComments("flw_rn", 7),
       pushState: PUSH_STATE.PUSHED,
       ledger: emptyLedger,
-      persistProgress: (ledger: ResolveEffectLedger) =>
-        support.saveArtifact("node_rn", "flw_rn", "resolve", "summary", {
+      persistProgress: async (ledger: ResolveEffectLedger) => {
+        await support.saveArtifact("node_rn", "flw_rn", "resolve", "summary", {
           ledger,
           pushState: PUSH_STATE.PUSHED,
           codeChanged: true,
-        }),
+        });
+      },
     });
-    expect(commentStatus("gl_1")).toEqual({ status: "open" });
+    expect(await commentStatus("gl_1")).toEqual({ status: "open" });
 
     // the host recovers with the restart: the recovery side closes the thread
     const recoveredHost = new FakeResolveHost(["sha_before"]);
@@ -509,18 +504,18 @@ describe("ResolveNode — recover()", () => {
 
     const ok = await def.recover(
       ctx,
-      support.nodeByKey("flw_rn", "resolve"),
+      await support.nodeByKey("flw_rn", "resolve"),
       finishedResult(JSON.stringify(response)),
       "server restarted mid-finalize",
     );
 
     expect(ok).toBe(true);
-    expect(commentStatus("gl_1")).toEqual({ status: "resolved" });
+    expect(await commentStatus("gl_1")).toEqual({ status: "resolved" });
     expect(recoveredHost.resolveCalls).toEqual(["d_gl_1"]);
     // the ledgered reply is NOT posted again (replied stays 0)
-    expect(nodeOutputRecord()).toMatchObject({ resolved: 1, replied: 0, pushed: true });
+    expect(await nodeOutputRecord()).toMatchObject({ resolved: 1, replied: 0, pushed: true });
     expect(
-      eventsByType("lifecycle").some((e) => e.message.includes("recovered: server restarted mid-finalize")),
+      (await eventsByType("lifecycle")).some((e) => e.message.includes("recovered: server restarted mid-finalize")),
     ).toBe(true);
   });
 });

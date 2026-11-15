@@ -12,14 +12,15 @@
  * (step 05): today the gate's `fixes`/`manualPlays`/attempt counters live in
  * the in-process wait loop, so a restart discards them.
  *
- * Runs against an isolated temp SQLite DB (AGENTS.md §1 — never a real DB).
+ * Runs against the isolated dockerized Postgres test database
+ * (AGENTS.md §1 — never a demo/real DB).
  */
-import { describe, expect, test } from "vitest";
-import { assignDatabasePath, createIsolatedDatabasePath } from "../helpers/testDatabase";
+import { beforeAll, describe, expect, test } from "vitest";
+import { assignTestDatabase, resetTestDatabase } from "../helpers/testDatabase";
 import { FlowHarness } from "../helpers/flowHarness";
 import { registerFakeGitHost } from "../helpers/fakeGitHost";
 
-assignDatabasePath(createIsolatedDatabasePath("devflow-ovh-pipeline-gate-"));
+assignTestDatabase();
 
 const { db } = await import("@/lib/db/app");
 const { flowEngine } = await import("@/lib/engine/flowEngine");
@@ -29,18 +30,21 @@ const { nodeRegistry } = await import("@/lib/engine/nodes/registry");
 registerFakeGitHost();
 const harness = new FlowHarness({ db, flowEngine, templateStore });
 
+beforeAll(resetTestDatabase);
+
 describe("pipeline gate terminal output is schema-valid", () => {
   // OVERHAUL: flip in step 05
   test.fails("deadline timeout with no head pipeline publishes a schema-valid PipelineOutput", async () => {
-    const flowId = harness.seedSdlcFlow();
-    db.run(`UPDATE flows SET mr_iid=?, mr_branch=? WHERE id=?`, 1, "devflow/ovh-gate", flowId);
+    const flowId = await harness.seedSdlcFlow();
+    await db.run(`UPDATE flows SET mr_iid=$1, mr_branch=$2 WHERE id=$3`, 1, "devflow/ovh-gate", flowId);
 
-    const spec = harness.graphForFlow(flowId)?.byKey.get("pipeline");
+    const graph = await harness.graphForFlow(flowId);
+    const spec = graph?.byKey.get("pipeline");
     if (!spec) throw new Error("expected a pipeline node");
-    const def = nodeRegistry.resolve(spec.defKey, "pipeline");
-    const ctx = flowEngine.ctx(flowId);
-    const node = db.get<import("@/lib/db/rows").NodeRow>(
-      `SELECT * FROM nodes WHERE flow_id=? AND node_key='pipeline'`,
+    const def = await nodeRegistry.resolve(spec.defKey, "pipeline");
+    const ctx = await flowEngine.ctx(flowId);
+    const node = await db.get<import("@/lib/db/rows").NodeRow>(
+      `SELECT * FROM nodes WHERE flow_id=$1 AND node_key='pipeline'`,
       flowId,
     );
     if (!node) throw new Error("no pipeline node row");

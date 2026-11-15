@@ -1,34 +1,27 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { beforeAll, describe, expect, it } from "vitest";
 import { ConflictError, NotFoundError, ValidationError } from "../errors";
+import { assignTestDatabase, resetTestDatabase } from "../../tests/helpers/testDatabase";
 import { RepoService } from "./repoService";
 
-const mkDbPath = () =>
-  path.join(fs.mkdtempSync(path.join(os.tmpdir(), "devflow-repo-svc-")), "test.db");
+assignTestDatabase();
+
+const { db } = await import("../db/app");
 
 describe("RepoService", () => {
-  afterEach(() => {
-    vi.resetModules();
-    delete process.env.DATABASE_PATH;
+  beforeAll(async () => {
+    await resetTestDatabase();
   });
 
   it("rejects paths that are not git checkouts", async () => {
-    const dbPath = mkDbPath();
-    process.env.DATABASE_PATH = dbPath;
-    const { db } = await import("../db/app");
-    db.connection();
     const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "devflow-nogit-"));
     const service = new RepoService(db);
     expect(() => service.assertGitCheckout(tmp)).toThrow(ValidationError);
   });
 
   it("accepts a directory with a .git folder", async () => {
-    const dbPath = mkDbPath();
-    process.env.DATABASE_PATH = dbPath;
-    const { db } = await import("../db/app");
-    db.connection();
     const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "devflow-git-"));
     fs.mkdirSync(path.join(tmp, ".git"));
     const service = new RepoService(db);
@@ -36,23 +29,15 @@ describe("RepoService", () => {
   });
 
   it("delete throws NotFoundError for an unknown repo", async () => {
-    const dbPath = mkDbPath();
-    process.env.DATABASE_PATH = dbPath;
-    const { db } = await import("../db/app");
-    db.connection();
     const service = new RepoService(db);
-    expect(() => service.delete("repo_missing")).toThrow(NotFoundError);
+    await expect(service.delete("repo_missing")).rejects.toThrow(NotFoundError);
   });
 
   it("delete throws ConflictError when flows reference the repo", async () => {
-    const dbPath = mkDbPath();
-    process.env.DATABASE_PATH = dbPath;
-    const { db } = await import("../db/app");
-    db.connection();
     const ts = new Date().toISOString();
-    db.run(
+    await db.run(
       `INSERT INTO repos (id,name,cloud_url,default_branch,skip_install,created_at,updated_at)
-       VALUES (?,?,?,?,?,?,?)`,
+       VALUES ($1,$2,$3,$4,$5,$6,$7)`,
       "repo_in_use",
       "In use",
       "https://gitlab.example.com/group/in-use",
@@ -61,15 +46,15 @@ describe("RepoService", () => {
       ts,
       ts,
     );
-    db.run(
-      `INSERT INTO tasks (id,type,key,summary) VALUES (?,?,?,?)`,
+    await db.run(
+      `INSERT INTO tasks (id,type,key,summary) VALUES ($1,$2,$3,$4)`,
       "task_r",
       "generic",
       "R-1",
       "t",
     );
-    db.run(
-      `INSERT INTO flows (id,task_id,name,status,repo_id,created_at,updated_at) VALUES (?,?,?,?,?,?,?)`,
+    await db.run(
+      `INSERT INTO flows (id,task_id,name,status,repo_id,created_at,updated_at) VALUES ($1,$2,$3,$4,$5,$6,$7)`,
       "flw_r",
       "task_r",
       "flow",
@@ -79,7 +64,7 @@ describe("RepoService", () => {
       ts,
     );
     const service = new RepoService(db);
-    expect(() => service.delete("repo_in_use")).toThrow(ConflictError);
-    expect(db.repoById("repo_in_use")).toBeDefined();
+    await expect(service.delete("repo_in_use")).rejects.toThrow(ConflictError);
+    expect(await db.repoById("repo_in_use")).toBeDefined();
   });
 });

@@ -15,7 +15,7 @@ export async function POST(req: Request) {
   const text = typeof body?.yaml === "string" ? body.yaml : null;
   if (!text) return NextResponse.json({ error: "yaml text required" }, { status: 400 });
   try {
-    const created = importTemplateYaml(templateStore, text, { namePrefix: body?.namePrefix });
+    const created = await importTemplateYaml(templateStore, text, { namePrefix: body?.namePrefix });
     return NextResponse.json(created);
   } catch (e: unknown) {
     return toErrorResponse(e);

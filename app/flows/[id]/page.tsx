@@ -21,7 +21,7 @@ export default async function FlowPage({
   params: Promise<{ id: string }>;
 }) {
   const { id } = await params;
-  const initialFlow = getFlowCockpitData(id);
+  const initialFlow = await getFlowCockpitData(id);
   if (!initialFlow) notFound();
   // the id in the key resets the island's selection/event buffers on a
   // client-side navigation to a different flow (§2.6 key-reset)

@@ -68,7 +68,7 @@ const makeContract = () => {
       throw new Error('retry should not start an agent in this test');
     },
   } as unknown as AgentRunner;
-  const contract = new PlanOutputContract(support, store, runner, () => 'whole', 'Plan');
+  const contract = new PlanOutputContract(support, store, runner, () => Promise.resolve('whole'), 'Plan');
   return { contract, saved };
 };
 
@@ -125,9 +125,9 @@ describe('PlanOutputContract.parse — the three standard failures', () => {
 });
 
 describe('PlanOutputContract.applyTurnResult (whole publish)', () => {
-  it('awaits approval with the fresh artifact version; persist + sync happen in the store', () => {
+  it('awaits approval with the fresh artifact version; persist + sync happen in the store', async () => {
     const { contract, saved } = makeContract();
-    const { outcome } = contract.applyTurnResult(
+    const { outcome } = await contract.applyTurnResult(
       ctx,
       node,
       PlanTurnKind.Whole,
@@ -155,9 +155,9 @@ describe('PlanOutputContract.applyTurnResult (whole publish)', () => {
 });
 
 describe('PlanOutputContract.applyTurnResult', () => {
-  it('forbids plan on branch turns at parse/apply time', () => {
+  it('forbids plan on branch turns at parse/apply time', async () => {
     const { contract } = makeContract();
-    expect(() =>
+    await expect(
       contract.applyTurnResult(
         ctx,
         node,
@@ -180,7 +180,7 @@ describe('PlanOutputContract.applyTurnResult', () => {
           },
         } as never
       )
-    ).toThrow(/must not include a whole "plan"/);
+    ).rejects.toThrow(/must not include a whole "plan"/);
   });
 
   it('parseTurnEnvelope accepts reply-only turns', () => {
@@ -190,8 +190,8 @@ describe('PlanOutputContract.applyTurnResult', () => {
 });
 
 describe('PlanOutputContract.recoverOutcome — unified turns only', () => {
-  it('returns null without planTurnKind on the recorded input', () => {
+  it('returns null without planTurnKind on the recorded input', async () => {
     const { contract } = makeContract();
-    expect(contract.recoverOutcome(ctx, node, { status: 'error', result: 'garbage' } as never)).toBeNull();
+    await expect(contract.recoverOutcome(ctx, node, { status: 'error', result: 'garbage' } as never)).resolves.toBeNull();
   });
 });

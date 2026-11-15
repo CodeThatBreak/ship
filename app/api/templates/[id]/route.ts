@@ -18,7 +18,7 @@ export const GET = async (_req: Request, { params }: { params: Promise<{ id: str
   const { id } = await params;
   // the single mapping source is TemplateStore.editorPayload (the SSR boot
   // hydrates the same shape — loaders/templates)
-  const payload = templateStore.editorPayload(id);
+  const payload = await templateStore.editorPayload(id);
   if (!payload) return notFound();
   return NextResponse.json(payload);
 };
@@ -38,10 +38,10 @@ export const PATCH = async (req: Request, { params }: { params: Promise<{ id: st
   try {
     // positions-only drag sync (Phase 5): display metadata, no graph rewrite
     if (body.positions && body.nodes === undefined && body.edges === undefined) {
-      templateStore.updatePositions(id, body.positions);
+      await templateStore.updatePositions(id, body.positions);
       return NextResponse.json({ ok: true });
     }
-    templateStore.saveWithDrafts(id, body);
+    await templateStore.saveWithDrafts(id, body);
     return NextResponse.json({ ok: true });
   } catch (e: unknown) {
     return toErrorResponse(e);
@@ -51,7 +51,7 @@ export const PATCH = async (req: Request, { params }: { params: Promise<{ id: st
 export const DELETE = async (_req: Request, { params }: { params: Promise<{ id: string }> }) => {
   const { id } = await params;
   try {
-    templateStore.delete(id);
+    await templateStore.delete(id);
     return NextResponse.json({ ok: true });
   } catch (e: unknown) {
     return toErrorResponse(e);

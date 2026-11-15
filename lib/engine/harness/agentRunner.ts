@@ -80,7 +80,7 @@ export class AgentRunner {
   /** Start an agent run on the flow's configured runtime (port by exec mode). */
   async startAgent(ctx: FlowCtx, input: AgentStartInput): Promise<Started> {
     const mode = this.ctxHelper.execMode(ctx);
-    const port = this.ports.forMode(mode);
+    const port = await this.ports.forMode(mode);
     // Model resolution: per-run → settings → env; local runs always pin a concrete id.
     const model = resolveAgentRunModel(
       input.model,
@@ -139,25 +139,25 @@ export class AgentRunner {
   ): Promise<ExecuteRunResult> {
     const { flow } = ctx;
     const mode = this.ctxHelper.execMode(ctx);
-    const port: AgentPort = this.ports.forMode(mode);
+    const port: AgentPort = await this.ports.forMode(mode);
     const ownsNodeStatus = options?.ownsNodeStatus !== false;
     const attemptAtStart =
       options?.attemptId
-      ?? this.database.get<{ attempt_id: string | null }>(`SELECT attempt_id AS "attemptId" FROM nodes WHERE id=$1`, nodeId)?.attemptId;
+      ?? (await this.database.get<{ attemptId: string | null }>(`SELECT attempt_id AS "attemptId" FROM nodes WHERE id=$1`, nodeId))?.attemptId;
     if (ownsNodeStatus && attemptAtStart) {
-      this.support.registerStartupRun(flow.id, nodeId, attemptAtStart);
+      await this.support.registerStartupRun(flow.id, nodeId, attemptAtStart);
     }
     const startedAt = Date.now();
     const { agentId, runId } = await start();
     try {
-      this.support.persistRun(flow.id, nodeId, agentId, runId);
-      const runRowId = this.database.get<{ id: string }>(`SELECT id FROM runs WHERE run_ref=$1`, runId)?.id;
+      await this.support.persistRun(flow.id, nodeId, agentId, runId);
+      const runRowId = (await this.database.get<{ id: string }>(`SELECT id FROM runs WHERE run_ref=$1`, runId))?.id;
       if (!runRowId) throw new Error(`run row missing after persist for ${runId}`);
     const startedWhileRunning = attemptAtStart != null;
     await this.database.emitEvent(flow.id, nodeId, EVENT_KIND.LIFECYCLE, `${label} started (${mode})`, { agentId, runId, run_id: runId, mode });
 
     const stream = new StreamBuffer(flow.id, nodeId, runId);
-    const emitTool: ToolEmitFn = (name, status, callId, args, result, startedAtMs) =>
+    const emitTool: ToolEmitFn = async (name, status, callId, args, result, startedAtMs) =>
       await this.database.emitEvent(flow.id, nodeId, EVENT_KIND.TOOL, `${name}: ${status}`, {
         run_id: runId, callId, name, status,
         args: args != null ? JSON.stringify(args) : undefined,
@@ -170,7 +170,7 @@ export class AgentRunner {
     let costSummary: RunCostSummary = {};
     let streamError: unknown;
     const callbacks = {
-      onStatus: (s: string) => await this.database.emitEvent(flow.id, nodeId, EVENT_KIND.STATUS, `run ${s}`, { run_id: runId }),
+      onStatus: async (s: string) => await this.database.emitEvent(flow.id, nodeId, EVENT_KIND.STATUS, `run ${s}`, { run_id: runId }),
       onAssistant: (t: string) => stream.push("assistant", t),
       onThinking: (t: string) => stream.push("thinking", t),
       onTool: (name: string, status: string, args: unknown, callId: string | undefined, extra: { result?: unknown } | undefined) => {
@@ -185,7 +185,7 @@ export class AgentRunner {
       try {
         const out = await port.stream({ agentId, runId }, callbacks);
         result = out.result;
-        if (out.sessionId) this.support.setRunAgentId(runId, out.sessionId);
+        if (out.sessionId) await this.support.setRunAgentId(runId, out.sessionId);
         try {
           costSummary = await this.usage.captureRunUsage({
             runRowId,
@@ -229,7 +229,7 @@ export class AgentRunner {
 
     const ownsNodeStatus = options?.ownsNodeStatus !== false;
     if (ownsNodeStatus && startedWhileRunning && attemptAtStart) {
-      const nodeNow = this.database.get<{ attempt_id: string | null; status: string }>(
+      const nodeNow = await this.database.get<{ attemptId: string | null; status: string }>(
         `SELECT attempt_id AS "attemptId", status FROM nodes WHERE id=$1`,
         nodeId,
       );

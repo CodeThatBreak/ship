@@ -180,7 +180,7 @@ export async function lintTemplate(
   edges: { from: string; to: string; condition: string | null; label: string | null; kind: string }[],
   catalog: Record<string, CatalogEntry>, // nodeTemplateId → entry
   task: TaskUniverse | null = null, // trigger.taskType → provider fields (null = unknown provider — free pass)
-): { error: string | null; problems: LintProblem[] } {
+): Promise<{ error: string | null; problems: LintProblem[] }> {
   const problems: LintProblem[] = [];
   const byKey = new Map(nodes.map((n) => [n.key, n]));
 
@@ -258,10 +258,10 @@ export async function lintTemplate(
         });
         continue;
       }
-      const childNodes = await db.all<{ key: string; kind: string; nt_key: string; config: string | null; node_template_id: string }>(
-              `SELECT n.nodeKey AS key, nt.kind AS kind, nt.key AS nt_key, n.config AS config, n.nodeTemplateId AS node_template_id
-         FROM flow_template_nodes n JOIN node_templates nt ON nt.id = n.nodeTemplateId
-         WHERE n.templateId=$1`, cfg.child);
+      const childNodes = await db.all<{ nodeKey: string; kind: string; ntKey: string; config: unknown; nodeTemplateId: string }>(
+              `SELECT n.node_key AS "nodeKey", nt.kind AS kind, nt.key AS "ntKey", n.config AS config, n.node_template_id AS "nodeTemplateId"
+         FROM flow_template_nodes n JOIN node_templates nt ON nt.id = n.node_template_id
+         WHERE n.template_id=$1`, cfg.child);
       if (childNodes.length !== 1) {
         problems.push({
           where: `node "${n.key}"`,
@@ -272,11 +272,11 @@ export async function lintTemplate(
       for (const cn of childNodes) {
         if (
           cn.kind === "builtin"
-          && ([NODE_KEYS.PLAN, NODE_KEYS.PIPELINE, NODE_KEYS.REVIEW, NODE_KEYS.RESOLVE] as readonly string[]).includes(cn.nt_key)
+          && ([NODE_KEYS.PLAN, NODE_KEYS.PIPELINE, NODE_KEYS.REVIEW, NODE_KEYS.RESOLVE] as readonly string[]).includes(cn.ntKey)
         ) {
           problems.push({
             where: `node "${n.key}"`,
-            message: `fan-out child template "${cfg.child}" contains a "${cn.nt_key}" node — children are one-node chains, never a full SDLC`,
+            message: `fan-out child template "${cfg.child}" contains a "${cn.ntKey}" node — children are one-node chains, never a full SDLC`,
             nodeKey: n.key,
           });
         }
@@ -388,7 +388,7 @@ export async function lintTemplate(
       // checks the configurator only hints at — loud at save, like every
       // static rule here
       if (nt.kind === "agent") {
-        lintAgentSplit(merge(nt.config, n.config), `node "${n.key}"`, n.key, problems);
+        await lintAgentSplit(merge(nt.config, n.config), `node "${n.key}"`, n.key, problems);
       }
     }
   }
@@ -530,14 +530,14 @@ function lintTaskRef(where: string, segments: string[], ref: string, ctx: LintCt
 const lintSplitTargetLookup: SplitTargetLookup = {
   isNodeKey: (key) => nodeRegistry.has(key),
   template: async (idOrKey) => {
-    const byId = await db.get<{ id: string; is_builtin: number }>(
+    const byId = await db.get<{ id: string; isBuiltin: boolean }>(
           `SELECT id, is_builtin AS "isBuiltin" FROM node_templates WHERE id=$1`, idOrKey,
         );
     if (byId) return { id: byId.id };
-    const byKey = await db.get<{ id: string; is_builtin: number }>(
+    const byKey = await db.get<{ id: string; isBuiltin: boolean }>(
           `SELECT id, is_builtin AS "isBuiltin" FROM node_templates WHERE key=$1`, idOrKey,
         );
-    return byKey && byKey.isBuiltin === 0 ? { id: byKey.id } : null;
+    return byKey && !byKey.isBuiltin ? { id: byKey.id } : null;
   },
 };
 
@@ -556,7 +556,7 @@ async function lintAgentSplit(
   where: string,
   nodeKey: string,
   problems: LintProblem[],
-): void {
+): Promise<void> {
   const split = cfg.split;
   if (!split || typeof split !== "object" || Array.isArray(split)) return;
   const s = split as Record<string, unknown>;
@@ -613,12 +613,12 @@ async function lintAgentSplit(
   const target = typeof s.target === "string" && s.target.trim() ? s.target.trim() : null;
   if (target) {
     try {
-      const resolved = resolveSplitTarget(target, lintSplitTargetLookup);
+      const resolved = await resolveSplitTarget(target, lintSplitTargetLookup);
       if (resolved.kind === "template" && elementKeys != null) {
-        const row = await db.get<{ config: string | null }>(
+        const configRow = await db.get<{ config: unknown }>(
                   `SELECT config FROM node_templates WHERE id=$1`, resolved.id,
                 );
-        const fields = parseStartContract(parseObject(row?.config));
+        const fields = parseStartContract(parseObject(configRow?.config));
         if (fields.length) {
           const missing = fields.filter((f) => f.required && !elementKeys.includes(f.key)).map((f) => f.key);
           if (missing.length) {
@@ -680,8 +680,10 @@ function merge(a: unknown, b: unknown): Record<string, unknown> {
   return out;
 }
 
-/** Defensive JSON-object parse for a raw TEXT config column. */
+  /** Defensive JSON-object read for a raw config value (Postgres Json columns
+   *  arrive parsed; legacy TEXT strings still parse). */
 function parseObject(raw: unknown): Record<string, unknown> {
+  if (raw && typeof raw === "object" && !Array.isArray(raw)) return raw as Record<string, unknown>;
   if (typeof raw !== "string" || !raw.trim()) return {};
   try {
     const v = JSON.parse(raw);
@@ -694,18 +696,14 @@ function parseObject(raw: unknown): Record<string, unknown> {
 /**
  * Catalog entries behind a template draft, straight off node_templates rows.
  */
-export async function catalogForNodeTemplateIds(ids: string[]): Record<string, { kind: string; config: unknown; key: string; isBuiltin: boolean }> {
+export async function catalogForNodeTemplateIds(ids: string[]): Promise<Record<string, { kind: string; config: unknown; key: string; isBuiltin: boolean }>> {
   const out: Record<string, { kind: string; config: unknown; key: string; isBuiltin: boolean }> = {};
   for (const id of ids) {
-    const row = await db.get<{ id: string; key: string; kind: string; config: string | null; is_builtin: number }>(
+    const row = await db.get<{ id: string; key: string; kind: string; config: unknown; isBuiltin: boolean }>(
           `SELECT id, key, kind, config, is_builtin AS "isBuiltin" FROM node_templates WHERE id=$1`, id
         );
     if (!row) continue;
-    let config: unknown = {};
-    if (row.config) {
-      try { config = JSON.parse(row.config); } catch { config = {}; }
-    }
-    out[row.id] = { kind: row.kind, config, key: row.key, isBuiltin: Boolean(row.isBuiltin) };
+    out[row.id] = { kind: row.kind, config: row.config ?? {}, key: row.key, isBuiltin: Boolean(row.isBuiltin) };
   }
   return out;
 }

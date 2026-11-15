@@ -140,7 +140,7 @@ class MergeArena {
         `UPDATE step_merges SET status='running', attempts=attempts+1, error=NULL, updated_at=$1 WHERE id=$2`,
         ts(), rowId
       );
-      rowId = db.get<{ id: string }>(`SELECT id FROM step_merges WHERE id=$1`, rowId)?.id ?? null;
+      rowId = (await db.get<{ id: string }>(`SELECT id FROM step_merges WHERE id=$1`, rowId))?.id ?? null;
     }
     if (!rowId) {
       rowId = db.uid("sm_");
@@ -153,7 +153,7 @@ class MergeArena {
     this.inFlight.add(args.childFlowId);
     try {
       const result = await this.withLock(key, async () => {
-        const flow = db.get<{ repo_url: string | null; execution_mode: string | null }>(
+        const flow = await db.get<{ repoUrl: string | null; executionMode: string | null }>(
           `SELECT repo_url AS "repoUrl", execution_mode AS "executionMode" FROM flows WHERE id=$1`, args.parentFlowId
         );
         const repoUrl = flow?.repoUrl ?? "";
@@ -281,7 +281,7 @@ class MergeArena {
   async deleteStepBranch(parentFlowId: string, branch: string, parentNodeKey?: string): Promise<void> {
     await assertValidBranchName(branch);
     await this.withLock(parentFlowId, async () => {
-      const parent = db.get<{ repo_url: string | null }>(`SELECT repo_url AS "repoUrl" FROM flows WHERE id=$1`, parentFlowId);
+      const parent = await db.get<{ repoUrl: string | null }>(`SELECT repo_url AS "repoUrl" FROM flows WHERE id=$1`, parentFlowId);
       const repoUrl = parent?.repoUrl;
       if (!repoUrl) return;
       const arena = await this.ensureWorkspaceUnlocked(parentFlowId, repoUrl);
@@ -304,7 +304,7 @@ class MergeArena {
     fs.mkdirSync(path.dirname(dir), { recursive: true });
     await localGit.ensureClone(parentFlowId, repoUrl, gitRemoteContextFor).catch(() => null);
     if (!fs.existsSync(path.join(dir, ".git"))) {
-      const remote = gitRemoteContextFor(repoUrl);
+      const remote = await gitRemoteContextFor(repoUrl);
       await this.git(["clone", "--no-checkout", remote.cloneUrl, dir], {
         timeout: 300_000,
         env: remote.env,

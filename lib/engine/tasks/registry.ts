@@ -57,18 +57,20 @@ export class TaskProviderRegistry {
   }
 
   /** Serialized provider list — shared by GET /api/tasks/providers and loaders. */
-  describe(): {
+  async describe(): Promise<{
     kind: string;
     label: string;
     configured: boolean;
     contextFields: TaskProvider["contextFields"];
-  }[] {
-    return this.list().map((p) => ({
-      kind: p.kind,
-      label: p.label,
-      configured: p.configured(),
-      contextFields: p.contextFields,
-    }));
+  }[]> {
+    return Promise.all(
+      this.list().map(async (p) => ({
+        kind: p.kind,
+        label: p.label,
+        configured: await p.configured(),
+        contextFields: p.contextFields,
+      })),
+    );
   }
 
   /**

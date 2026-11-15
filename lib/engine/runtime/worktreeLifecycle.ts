@@ -309,8 +309,8 @@ export class WorktreeManager {
         worktreePath: target.dir,
         policy,
         syncGlobs: depPolicies.resolveSyncGlobs(overrides),
-        sharedDirs: depPolicies.parsePathList(overrides.sharedDirs),
-        setupCommand: overrides.setupCommand ?? null,
+        sharedDirs: depPolicies.parsePathList(overrides.shared_dirs),
+        setupCommand: overrides.setup_command ?? null,
         onEvent: async (message) => {
           await db.emitEvent(ctx.flow.id, target.nodeId, "log", message,
             await this.lifecycleData(ctx.flow.id, target.nodeId));

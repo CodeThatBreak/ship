@@ -2,16 +2,16 @@
  * PlanStore — the latest-plan/meta parsing, the scoped-refine bundle, the
  * planner-execution normalization, and the two plan-version publish paths.
  *
- * Isolated temp SQLite DB (AGENTS.md §1); class instances get a stub
+ * Shared dockerized test database (AGENTS.md §1 — truncated per file); class instances get a stub
  * NodeSupport so the store's calls are observable without touching real rows
  * (the plan_steps sync itself is covered by the runtime's own tests).
  */
-import fs from 'node:fs';
-import os from 'node:os';
-import path from 'node:path';
-import { describe, expect, it } from 'vitest';
+import { beforeAll, describe, expect, it } from 'vitest';
+import { assignTestDatabase, resetTestDatabase } from '../../../../../tests/helpers/testDatabase';
 
-process.env.DATABASE_PATH = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'devflow-plan-store-')), 'test.db');
+assignTestDatabase();
+
+beforeAll(resetTestDatabase);
 
 await import('../../registry');
 const { PlanStore } = await import('./planStore');
@@ -38,10 +38,10 @@ const branch = (name: string, dependsOn: string[] = [], scope = ''): PlanBranch 
 });
 
 /** A stub support: `latestArtifact` is `row`; every other method is never called. */
-const supportWith = (row: { id: string; version: number; content: string; meta: string | null } | null) =>
+const supportWith = (row: { id: string; version: number; content: string; meta: unknown } | null) =>
   ({
-    latestArtifact: () => row,
-    saveArtifact: (nodeId: string, flowId: string, kind: string, content: string, meta?: unknown) => {
+    latestArtifact: async () => row,
+    saveArtifact: async (nodeId: string, flowId: string, kind: string, content: string, meta?: unknown) => {
       savedMetas?.push({ nodeId, flowId, kind, content, meta });
       return { id: 'art_new', version: 9 };
     },
@@ -55,36 +55,37 @@ const artRow = (meta: unknown) => ({
   id: 'art_1',
   version: 3,
   content: '# Plan document',
-  meta: typeof meta === 'string' ? meta : meta == null ? null : JSON.stringify(meta),
+  // artifact meta is the already-parsed JSONB value under Postgres
+  meta: meta == null ? null : meta,
 });
 
 const metaOf = (callIndex: number) => (savedMetas ?? [])[callIndex]?.meta as Record<string, unknown> | undefined;
 
 describe('PlanStore.latestPlan — parse + degrade', () => {
-  it('returns null without an artifact', () => {
-    expect(new PlanStore(supportWith(null)).latestPlan('flow-1')).toBeNull();
+  it('returns null without an artifact', async () => {
+    expect(await new PlanStore(supportWith(null)).latestPlan('flow-1')).toBeNull();
   });
 
-  it('parses steps + branches from valid meta', () => {
-    const latest = new PlanStore(supportWith(artRow({ steps: [step('s1', 'A', 'b')], branches: [branch('b')] }))).latestPlan('flow-1');
+  it('parses steps + branches from valid meta', async () => {
+    const latest = await new PlanStore(supportWith(artRow({ steps: [step('s1', 'A', 'b')], branches: [branch('b')] }))).latestPlan('flow-1');
     expect(latest).not.toBeNull();
     expect(latest?.meta.steps).toHaveLength(1);
     expect(latest?.meta.branches).toHaveLength(1);
     expect(latest?.art).toEqual({ id: 'art_1', version: 3, content: '# Plan document' });
   });
 
-  it('degrades garbage meta to an empty (branchless) plan — never throws', () => {
+  it('degrades garbage meta to an empty (branchless) plan — never throws', async () => {
     const store = new PlanStore(supportWith(artRow('{not json')));
-    const latest = store.latestPlan('flow-1');
+    const latest = await store.latestPlan('flow-1');
     expect(latest).not.toBeNull();
     expect(latest?.meta).toEqual({ steps: [], branches: [] });
   });
 
-  it('parses branches-only meta with empty steps (Zod defaults)', () => {
+  it('parses branches-only meta with empty steps (Zod defaults)', async () => {
     const stores = new PlanStore(supportWith(artRow({ branches: [branch('b')] })));
-    expect(stores.latestPlan('flow-1')?.meta).toEqual({ steps: [], branches: [branch('b')] });
+    expect((await stores.latestPlan('flow-1'))?.meta).toEqual({ steps: [], branches: [branch('b')] });
     const branchless = new PlanStore(supportWith(artRow({ steps: [step('s1', 'A')] })));
-    expect(branchless.latestPlan('flow-1')?.meta.branches).toEqual([]);
+    expect((await branchless.latestPlan('flow-1'))?.meta.branches).toEqual([]);
   });
 });
 
@@ -95,35 +96,35 @@ describe('PlanStore.scopedRefine — the ref-count bundle or null', () => {
     );
 
 
-  it('null with no plan artifact', () => {
-    expect(new PlanStore(supportWith(null)).scopedRefine('flow-1', 'auth')).toBeNull();
+  it('null with no plan artifact', async () => {
+    expect(await new PlanStore(supportWith(null)).scopedRefine('flow-1', 'auth')).toBeNull();
   });
 
-  it('null for an unknown branch name', () => {
-    expect(full().scopedRefine('flow-1', 'ghost')).toBeNull();
+  it('null for an unknown branch name', async () => {
+    expect(await full().scopedRefine('flow-1', 'ghost')).toBeNull();
   });
 
   it('resolves the branch + its rows from the LATEST plan only', async () => {
     // real plan_steps rows in the isolated DB — liveRows reads the real table
     const { db } = await import('../../../../db/app');
-    db.run(
+    await db.run(
       `INSERT INTO tasks (id, type, key, summary, status, issue_type, priority) VALUES ('task_1','generic','TST-1','plan store','open','task','P2')`
     );
-    db.run(
-      `INSERT INTO flows (id, task_id, name, status, created_at, updated_at) VALUES ('flow-1','task_1','plan store','active',?,?)`,
+    await db.run(
+      `INSERT INTO flows (id, task_id, name, status, created_at, updated_at) VALUES ('flow-1','task_1','plan store','active',$1,$2)`,
       db.now(), db.now()
     );
-    db.run(
+    await db.run(
       `INSERT INTO plan_steps (id,flow_id,artifact_id,meta_id,position,title,detail,files,branch,status,origin,completed_by,sub_flow_id,created_at,updated_at)
-       VALUES ('r1','flow-1',NULL,'s1',0,'A',NULL,'[]','auth','pending','agent',NULL,NULL,?,?)`,
+       VALUES ('r1','flow-1',NULL,'s1',0,'A',NULL,'[]','auth','pending','agent',NULL,NULL,$1,$2)`,
       db.now(), db.now()
     );
-    db.run(
+    await db.run(
       `INSERT INTO plan_steps (id,flow_id,artifact_id,meta_id,position,title,detail,files,branch,status,origin,completed_by,sub_flow_id,created_at,updated_at)
-       VALUES ('r2','flow-1',NULL,'s2',1,'B',NULL,'[]','billing','pending','agent',NULL,NULL,?,?)`,
+       VALUES ('r2','flow-1',NULL,'s2',1,'B',NULL,'[]','billing','pending','agent',NULL,NULL,$1,$2)`,
       db.now(), db.now()
     );
-    const scoped = full().scopedRefine('flow-1', 'auth');
+    const scoped = await full().scopedRefine('flow-1', 'auth');
     expect(scoped?.branch.name).toBe('auth');
     expect(scoped?.liveRows.map(s => s.title)).toEqual(['A']);
   });
@@ -133,7 +134,7 @@ describe('PlanStore.stepsText / dependencySummaries', () => {
   it('renders live rows compactly — "(none yet)" when empty', () => {
     const store = new PlanStore(supportWith(null));
     expect(store.stepsText([])).toBe('(none yet)');
-    expect(store.stepsText([{ id: 'row-1', meta_id: 's1', title: 'A', detail: 'do', files: ['x'] } as never])).toBe(
+    expect(store.stepsText([{ id: 'row-1', metaId: 's1', title: 'A', detail: 'do', files: ['x'] } as never])).toBe(
       '- s1: A — do (1 files)'
     );
   });
@@ -190,14 +191,14 @@ describe('PlanStore.persistPlan — published execution rides every version', ()
     });
   };
 
-  it('knob whole publishes source "knob"', () => {
-    persist(new PlanStore(supportWith(null)), 'whole');
+  it('knob whole publishes source "knob"', async () => {
+    await persist(new PlanStore(supportWith(null)), 'whole');
     expect(metaOf(0)).toMatchObject({ feedback: 'fb', execution: 'whole', executionSource: 'knob' });
     expect(metaOf(0)).not.toHaveProperty('execution_rationale');
   });
 
-  it('follow publishes the planner decision as source "planner"', () => {
-    persist(new PlanStore(supportWith(null)), 'follow', { value: 'steps', rationale: 'independent branches' });
+  it('follow publishes the planner decision as source "planner"', async () => {
+    await persist(new PlanStore(supportWith(null)), 'follow', { value: 'steps', rationale: 'independent branches' });
     expect(metaOf(0)).toMatchObject({
       execution: 'steps',
       executionSource: 'planner',
@@ -205,8 +206,8 @@ describe('PlanStore.persistPlan — published execution rides every version', ()
     });
   });
 
-  it('follow with nothing published publishes whole as source "default"', () => {
-    persist(new PlanStore(supportWith(null)), 'follow');
+  it('follow with nothing published publishes whole as source "default"', async () => {
+    await persist(new PlanStore(supportWith(null)), 'follow');
     expect(metaOf(0)).toMatchObject({ execution: 'whole', executionSource: 'default' });
   });
 });

@@ -160,10 +160,10 @@ export class PipelineNode extends AgentRunNode<
   }
 
   /** Resolve the MR (iid + git branch) this gate watches — per-branch or flow-level. */
-  private resolveMr(
+  private async resolveMr(
     ctx: FlowCtx,
     branchName?: string | null,
-  ): { mrIid: number; mrBranch: string | null } {
+  ): Promise<{ mrIid: number; mrBranch: string | null }> {
     return mrTargetResolver.resolve(ctx, branchName);
   }
 
@@ -175,7 +175,7 @@ export class PipelineNode extends AgentRunNode<
    */
   private async headPipeline(ctx: FlowCtx, mrIid: number): Promise<HeadPipelineLookup> {
     const repoUrl = ctx.flow.repoUrl ?? "";
-    const host = this.gitHosts.forRepo(repoUrl);
+    const host = await this.gitHosts.forRepo(repoUrl);
     let crFailed = false;
     let cr: Awaited<ReturnType<typeof host.getChangeRequest>> | null = null;
     try {
@@ -210,17 +210,17 @@ export class PipelineNode extends AgentRunNode<
     nodeId: string,
   ): Promise<number | null> {
     const repoUrl = ctx.flow.repoUrl ?? "";
-    const host = this.gitHosts.forRepo(repoUrl);
+    const host = await this.gitHosts.forRepo(repoUrl);
     const errMsg = (e: unknown) =>
       (e instanceof Error ? e.message : String(e)).slice(0, 300);
-    this.support.emitLifecycle(
+    await this.support.emitLifecycle(
       ctx.flow.id,
       nodeId,
       `no pipeline found for ${mrBranch ?? "the MR"} — triggering one via the git host API…`,
     );
     try {
       const p = await host.createCRPipeline(repoUrl, mrIid);
-      this.support.emitLifecycle(
+      await this.support.emitLifecycle(
         ctx.flow.id,
         nodeId,
         `pipeline #${p.id} triggered (merge-request pipeline)`,
@@ -228,7 +228,7 @@ export class PipelineNode extends AgentRunNode<
       return p.id;
     } catch (e1) {
       if (!mrBranch) {
-        this.support.emit(
+        await this.support.emit(
           ctx.flow.id,
           nodeId,
           "error",
@@ -238,14 +238,14 @@ export class PipelineNode extends AgentRunNode<
       }
       try {
         const p = await host.createPipeline(repoUrl, mrBranch);
-        this.support.emitLifecycle(
+        await this.support.emitLifecycle(
           ctx.flow.id,
           nodeId,
           `pipeline #${p.id} triggered (branch pipeline)`,
         );
         return p.id;
       } catch (e2) {
-        this.support.emit(
+        await this.support.emit(
           ctx.flow.id,
           nodeId,
           "error",
@@ -267,7 +267,7 @@ export class PipelineNode extends AgentRunNode<
     pipelineId: number,
   ): Promise<number> {
     const repoUrl = ctx.flow.repoUrl ?? "";
-    const host = this.gitHosts.forRepo(repoUrl);
+    const host = await this.gitHosts.forRepo(repoUrl);
     const jobs = (await host
       .listPipelineJobs(repoUrl, pipelineId)
       .catch(() => [])) as HostJob[];
@@ -280,7 +280,7 @@ export class PipelineNode extends AgentRunNode<
         .catch(() => false);
       if (ok) {
         played++;
-        this.support.emitLifecycle(
+        await this.support.emitLifecycle(
           ctx.flow.id,
           nodeId,
           `played manual job "${j.name}" (#${j.id}) on pipeline #${pipelineId}`,
@@ -330,7 +330,7 @@ export class PipelineNode extends AgentRunNode<
       WAIT_TIMEOUT_MS_DEFAULT / 60_000,
     );
     const playManualJobs = configBool(config, "play_manual_jobs", true);
-    const { mrIid, mrBranch } = this.resolveMr(ctx, input.branchName);
+    const { mrIid, mrBranch } = await this.resolveMr(ctx, input.branchName);
 
     // the fix-run prompt-body knob folds into the per-run prompt override path
     if (!input.prompt) {
@@ -339,8 +339,8 @@ export class PipelineNode extends AgentRunNode<
         input = { ...input, prompt: body, promptIsBody: true } as PipelineInput;
     }
 
-    const node = this.node(ctx);
-    this.markRunning(ctx, input as unknown as Record<string, unknown>);
+    const node = await this.node(ctx);
+    await this.markRunning(ctx, input as unknown as Record<string, unknown>);
 
     const label = input.branchName
       ? `pipeline (${input.branchName})`
@@ -357,7 +357,7 @@ export class PipelineNode extends AgentRunNode<
 
     for (;;) {
       // user cancelled / retry started while we were waiting — stop quietly
-      const statusNow = this.support.nodeStatus(node.id);
+      const statusNow = await this.support.nodeStatus(node.id);
       if (statusNow !== "running") throw new Error("pipeline wait cancelled");
 
       // Always re-read the MR head: the watched pipeline can be superseded by a
@@ -366,7 +366,7 @@ export class PipelineNode extends AgentRunNode<
       const headLookup = await this.headPipeline(ctx, mrIid);
       if (headLookup.kind === "error" && !headLookupWarned) {
         headLookupWarned = true;
-        this.support.emitLifecycle(
+        await this.support.emitLifecycle(
           ctx.flow.id,
           node.id,
           "could not read the MR head pipeline from the git host — retrying without triggering a new pipeline",
@@ -381,16 +381,15 @@ export class PipelineNode extends AgentRunNode<
       if (head && fixWaitStart != null) fixWaitStart = null;
 
       let pipe = watchedId
-        ? await this.gitHosts
-            .forRepo(ctx.flow.repoUrl ?? "")
-            .getPipeline(ctx.flow.repoUrl ?? "", watchedId)
-            .catch(() => null)
+        ? await (await this.gitHosts.forRepo(ctx.flow.repoUrl ?? ""))
+              .getPipeline(ctx.flow.repoUrl ?? "", watchedId)
+              .catch(() => null)
         : null;
       // switch to the head when it's newer/different — stops the watched id
       // from dragging the UI back to a stale/failed state
       if (head && (!pipe || head.id !== pipe.id)) {
         if (pipe && pipe.id !== head.id && !fixedIds.has(pipe.id)) {
-          this.support.emitLifecycle(
+          await this.support.emitLifecycle(
             ctx.flow.id,
             node.id,
             `pipeline #${pipe.id} superseded by head pipeline #${head.id} — watching the head`,
@@ -415,7 +414,7 @@ export class PipelineNode extends AgentRunNode<
         const seen = `${pipe.id}:${pipe.status}`;
         if (seen !== lastSeen) {
           lastSeen = seen;
-          this.support.emit(
+          await this.support.emit(
             ctx.flow.id,
             node.id,
             "pipeline",
@@ -435,7 +434,7 @@ export class PipelineNode extends AgentRunNode<
             fixes,
             branchName: input.branchName ?? undefined,
           });
-          return this.applyOutcome(ctx, {
+          return await this.applyOutcome(ctx, {
             status: "done",
             output,
             event: `pipeline #${pipe.id} green${fixes ? ` after ${fixes} fix run(s)` : ""} — ready for review`,
@@ -452,7 +451,7 @@ export class PipelineNode extends AgentRunNode<
               fixes,
               branchName: input.branchName ?? undefined,
             });
-            return this.applyOutcome(ctx, {
+            return await this.applyOutcome(ctx, {
               status: "failed",
               output,
               event: msg,
@@ -479,7 +478,7 @@ export class PipelineNode extends AgentRunNode<
 
         if (pipe.status === "canceled" || pipe.status === "skipped") {
           const msg = `pipeline #${pipe.id} was ${pipe.status} — retry the pipeline node after starting a new pipeline`;
-          return this.applyOutcome(ctx, {
+          return await this.applyOutcome(ctx, {
             status: "failed",
             output: this.outputSchema.parse({
               pipelineId: pipe.id,
@@ -494,7 +493,7 @@ export class PipelineNode extends AgentRunNode<
         }
 
         // created | waiting_for_resource | preparing | pending | running → keep waiting
-        async // manual | blocked → drive it forward by playing manual jobs (bounded)
+        // manual | blocked → drive it forward by playing manual jobs (bounded)
         if (pipe.status === "manual" || pipe.status === "blocked") {
           const state = manualPlays.get(pipe.id) ?? { plays: 0, warned: false };
           if (playManualJobs && state.plays < MAX_MANUAL_PLAYS) {
@@ -503,7 +502,7 @@ export class PipelineNode extends AgentRunNode<
             if (played === 0 && !state.warned) {
               // nothing playable — some manual jobs need a human in the GitLab UI
               state.warned = true;
-              this.support.emitLifecycle(
+              await this.support.emitLifecycle(
                 ctx.flow.id,
                 node.id,
                 `pipeline #${pipe.id} is waiting on manual job(s) — playing them via the API; if none start, run them from GitLab`,
@@ -538,7 +537,7 @@ export class PipelineNode extends AgentRunNode<
           });
         }
         const msg = `timed out waiting for the pipeline on ${mrBranch ?? "the MR"} — retry the pipeline node`;
-        return this.applyOutcome(ctx, {
+        return await this.applyOutcome(ctx, {
           status: "failed",
           output: output ?? {},
           event: msg,
@@ -547,7 +546,7 @@ export class PipelineNode extends AgentRunNode<
       }
       // server-side wait liveness: the reconciler treats a fresh updated_at on a
       // running pipeline node as "alive" (it has no agent run row while waiting)
-      this.support.setNode(node.id, { status: "running" });
+      await this.support.setNode(node.id, { status: "running" });
       await sleep(pollMs);
     }
   }
@@ -563,14 +562,15 @@ export class PipelineNode extends AgentRunNode<
     maxFixAttempts: number,
     label: string,
   ): Promise<void> {
-    const jobs = await this.gitHosts
-      .forRepo(ctx.flow.repoUrl ?? "")
-      .listPipelineJobs(ctx.flow.repoUrl ?? "", pipelineId);
+    const jobs = await (
+      await this.gitHosts.forRepo(ctx.flow.repoUrl ?? "")
+    ).listPipelineJobs(ctx.flow.repoUrl ?? "", pipelineId);
     const failed = jobs.filter((j: HostJob) => j.status === "failed");
     let logs = "";
     for (const j of failed.slice(0, 3)) {
-      const trace = await this.gitHosts
-        .forRepo(ctx.flow.repoUrl ?? "")
+      const trace = await (
+        await this.gitHosts.forRepo(ctx.flow.repoUrl ?? "")
+      )
         .getJobTrace(ctx.flow.repoUrl ?? "", j.id)
         .catch(() => "");
       logs += `\n\n===== job ${j.name} (#${j.id}) =====\n${trace.slice(-8000)}`;
@@ -600,7 +600,7 @@ export class PipelineNode extends AgentRunNode<
           { instructions, guidance, logs: logs || "(logs unavailable)" },
         );
 
-    this.support.emitLifecycle(
+    await this.support.emitLifecycle(
       ctx.flow.id,
       node.id,
       `pipeline #${pipelineId} failed — fix run ${attempt}/${maxFixAttempts}`,
@@ -627,14 +627,14 @@ export class PipelineNode extends AgentRunNode<
       throw e;
     }
 
-    this.support.saveArtifact(
+    await this.support.saveArtifact(
       node.id,
       ctx.flow.id,
       "fix",
       result.result.result ?? "",
       { pipelineId, attempt },
     );
-    this.support.emitLifecycle(
+    await this.support.emitLifecycle(
       ctx.flow.id,
       node.id,
       `fix run ${attempt} pushed to ${mrBranch} — waiting for the new pipeline`,
@@ -645,7 +645,7 @@ export class PipelineNode extends AgentRunNode<
   override async chat(ctx: FlowCtx, content: string, model?: string): Promise<string> {
     if (!ctx.flow.mrIid)
       return "No merge request yet — the pipeline gate runs automatically after the build is approved and the MR is created.";
-    const node = this.node(ctx);
+    const node = await this.node(ctx);
     // The first turn on a never-run gate treats the message as the fix-run
     // prompt body (promptIsBody — the documented override the modal and the
     // action route recorded); turns after a run stay guidance.
@@ -657,7 +657,7 @@ export class PipelineNode extends AgentRunNode<
           promptIsBody: true,
           model: model ?? null,
         }),
-        this.nodeConfig(ctx),
+        await this.nodeConfig(ctx),
       );
       return outcome.reply;
     }
@@ -671,7 +671,7 @@ export class PipelineNode extends AgentRunNode<
         promptIsBody: false,
         model: model ?? null,
       }),
-      this.nodeConfig(ctx),
+      await this.nodeConfig(ctx),
     );
     return outcome.reply;
   }

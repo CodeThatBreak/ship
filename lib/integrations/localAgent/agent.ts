@@ -85,11 +85,15 @@ export class LocalAgentService {
     return cursorAgent.hasActiveRun(runId);
   }
 
-  defaults() {
+  async defaults(): Promise<{
+    force: boolean;
+    sandbox: boolean;
+    timeoutMs: number;
+  }> {
     return {
-      force: this.database.getSetting(SETTINGS_KEYS.LOCAL_AGENT_FORCE, settingBoolean, true),
-      sandbox: this.database.getSetting(SETTINGS_KEYS.LOCAL_AGENT_SANDBOX, settingBoolean, false),
-      timeoutMs: this.database.getSetting(SETTINGS_KEYS.LOCAL_AGENT_TIMEOUT_MS, settingNumber, 30 * 60 * 1000),
+      force: await this.database.getSetting(SETTINGS_KEYS.LOCAL_AGENT_FORCE, settingBoolean, true),
+      sandbox: await this.database.getSetting(SETTINGS_KEYS.LOCAL_AGENT_SANDBOX, settingBoolean, false),
+      timeoutMs: await this.database.getSetting(SETTINGS_KEYS.LOCAL_AGENT_TIMEOUT_MS, settingNumber, 30 * 60 * 1000),
     };
   }
 
@@ -148,12 +152,12 @@ export class LocalAgentService {
   async createRun(
     input: LocalAgentInput,
   ): Promise<{ agentId: string; runId: string }> {
-    if (!cursorAgent.available()) {
+    if (!(await cursorAgent.available())) {
       throw new Error(
         "Local agent runs require Node 22.13+ and the Cursor API key. Set the key in Settings → Integrations → Harness.",
       );
     }
-    const opts = this.defaults();
+    const opts = await this.defaults();
     if (input.branch && input.mode !== "plan") {
       await this.ensureBranch(input.workspace, input.branch).catch(() => {});
     }
@@ -199,7 +203,7 @@ export class LocalAgentService {
     runId: string,
     cb: StreamCallbacks = {},
   ): Promise<LocalRunResult> {
-    const { timeoutMs } = this.defaults();
+    const { timeoutMs } = await this.defaults();
     let timer: ReturnType<typeof setTimeout> | undefined;
     const onTimeout = new Promise<never>((_, reject) => {
       timer = setTimeout(() => {

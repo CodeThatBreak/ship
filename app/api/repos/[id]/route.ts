@@ -11,7 +11,7 @@ export const PATCH = async (req: Request, { params }: { params: Promise<{ id: st
   try {
     const { id } = await params;
     const body = await parseJson(req, repoPatchBodySchema);
-    const repo = repoService.update(id, body);
+    const repo = await repoService.update(id, body);
     return NextResponse.json({ repo });
   } catch (e: unknown) {
     return toErrorResponse(e);
@@ -21,7 +21,7 @@ export const PATCH = async (req: Request, { params }: { params: Promise<{ id: st
 export const DELETE = async (_req: Request, { params }: { params: Promise<{ id: string }> }) => {
   try {
     const { id } = await params;
-    repoService.delete(id);
+    await repoService.delete(id);
     return NextResponse.json({ ok: true });
   } catch (e: unknown) {
     return toErrorResponse(e);

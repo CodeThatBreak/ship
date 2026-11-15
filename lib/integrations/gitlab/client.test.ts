@@ -6,9 +6,9 @@ import { GitLabClient } from "./client";
 const instance = {
   id: "gli_test",
   name: null,
-  base_url: "https://gitlab.example.com",
+  baseUrl: "https://gitlab.example.com",
   token: "secret-token",
-  created_at: "2026-01-01T00:00:00.000Z",
+  createdAt: "2026-01-01T00:00:00.000Z",
 };
 
 const jsonResponse = (body: unknown, headers: Record<string, string> = {}): Response =>

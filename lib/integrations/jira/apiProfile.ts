@@ -4,9 +4,9 @@ import type { JiraInstance } from "./service";
 
 export type JiraAuthMode = "cloud_basic" | "dc_bearer";
 
-export const jiraAuthModeForInstance = (inst: Pick<JiraInstance, "base_url">): JiraAuthMode => {
+export const jiraAuthModeForInstance = (inst: Pick<JiraInstance, "baseUrl">): JiraAuthMode => {
   try {
-    const host = new URL(inst.base_url).hostname.toLowerCase();
+    const host = new URL(inst.baseUrl).hostname.toLowerCase();
     if (host.endsWith(".atlassian.net")) return "cloud_basic";
   } catch {
     /* self-hosted URL may omit scheme in edge cases — treat as DC */

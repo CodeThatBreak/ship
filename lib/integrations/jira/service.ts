@@ -44,16 +44,16 @@ export class JiraService {
   constructor(private readonly instances: JiraInstanceStore) {}
 
   // ── instance registry ────────────────────────────────────────────────────
-  listInstances(): JiraInstanceMeta[] {
+  async listInstances(): Promise<JiraInstanceMeta[]> {
     return this.instances.listMeta();
   }
 
-  getInstance(id: string): JiraInstance | undefined {
+  async getInstance(id: string): Promise<JiraInstance | undefined> {
     return this.instances.get(id);
   }
 
-  addInstance(input: { name?: string | null; base_url: string; email: string; token: string }): JiraInstance {
-    if (this.listInstances().length > 0) {
+  async addInstance(input: { name?: string | null; baseUrl: string; email: string; token: string }): Promise<JiraInstance> {
+    if ((await this.listInstances()).length > 0) {
       throw new ConflictError(
         "Only one Jira instance is supported today. Remove the existing instance before adding another.",
       );
@@ -62,40 +62,41 @@ export class JiraService {
   }
 
   /** Update by id; a blank/absent token or email keeps the stored one. */
-  updateInstance(
+  async updateInstance(
     id: string,
-    input: { name?: string | null; base_url?: string; email?: string; token?: string }
-  ): void {
-    const existing = this.getInstance(id);
+    input: { name?: string | null; baseUrl?: string; email?: string; token?: string }
+  ): Promise<void> {
+    const existing = await this.getInstance(id);
     if (!existing) throw new Error(`jira instance not found: ${id}`);
     if (baseUrlOverrideRequiresToken(existing.baseUrl, input.baseUrl, input.token)) {
       throw new ValidationError("token is required when overriding baseUrl");
     }
-    this.instances.update(id, input, existing);
+    await this.instances.update(id, input, existing);
   }
 
-  deleteInstance(id: string): void {
-    this.instances.delete(id);
+  async deleteInstance(id: string): Promise<void> {
+    await this.instances.delete(id);
   }
 
   /**
    * The instance the task provider talks to. Only one instance may be registered.
    */
-  active(): JiraInstance | undefined {
-    const meta = this.listInstances()[0];
+  async active(): Promise<JiraInstance | undefined> {
+    const meta = (await this.listInstances())[0];
     if (!meta) return undefined;
     return this.getInstance(meta.id);
   }
 
-  authMode(inst?: JiraInstance): JiraAuthMode {
-    const resolved = inst ?? this.active();
+  async authMode(inst?: JiraInstance): Promise<JiraAuthMode> {
+    const resolved = inst ?? (await this.active());
     if (!resolved) throw new Error("no jira instance configured");
     return jiraAuthModeForInstance(resolved);
   }
 
   /** True when at least one instance is registered. */
-  configured(): boolean {
-    return this.listInstances().length > 0;
+  async configured(): Promise<boolean> {
+    const instances = await this.listInstances();
+    return instances.length > 0;
   }
 
   /** Quick reachability/auth check used by the settings UI. */
@@ -103,7 +104,7 @@ export class JiraService {
     const trimmedBase = baseUrl.replace(/\/+$/, "");
     const creds = { email: email.trim(), token };
     try {
-      const preferred = jiraAuthModeForInstance({ base_url: trimmedBase });
+      const preferred = jiraAuthModeForInstance({ baseUrl: trimmedBase });
       const modes: JiraAuthMode[] =
         preferred === "cloud_basic" ? ["cloud_basic", "dc_bearer"] : ["dc_bearer", "cloud_basic"];
       let lastDetail = "";

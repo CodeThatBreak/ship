@@ -1,7 +1,7 @@
 import "server-only";
 
 import { db } from "../../../../db/app";
-import { BranchRow } from "../../../../db/rows";
+import { BranchRow, type BranchStatus } from "../../../../db/rows";
 
 /**
  * Store for per-flow branch rows: upserts, status/MR updates, and tagging the
@@ -14,7 +14,7 @@ export class BranchStore {
     name: string,
     opts: {
       title?: string;
-      status?: string;
+      status?: BranchStatus;
       mrUrl?: string;
       mrIid?: number;
       gitBranch?: string;

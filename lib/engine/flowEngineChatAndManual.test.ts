@@ -126,7 +126,7 @@ db.setSetting("default_harness", "stub"); // forMode("cloud") selects the stub
 // ── fixture: topic agent (json) → paragraph agent (markdown) ─────────────────
 
 const TOPIC_ROW = must(
-  templateStore.createNodeTemplate({
+  await templateStore.createNodeTemplate({
     key: "topic_agent_fixture",
     name: "Topic agent fixture",
     kind: "agent",
@@ -145,7 +145,7 @@ const TOPIC_ROW = must(
 );
 
 const PARAGRAPH_ROW = must(
-  templateStore.createNodeTemplate({
+  await templateStore.createNodeTemplate({
     key: "paragraph_agent_fixture",
     name: "Paragraph agent fixture",
     kind: "agent",
@@ -154,15 +154,15 @@ const PARAGRAPH_ROW = must(
   "paragraph agent row",
 );
 
-const nodeStatus = (flowId: string, key: string): string =>
+const nodeStatus = async (flowId: string, key: string): Promise<string> =>
   must(
-    db.get<{ status: string }>(`SELECT status FROM nodes WHERE flow_id=? AND node_key=?`, flowId, key),
+    await db.get<{ status: string }>(`SELECT status FROM nodes WHERE flow_id=$1 AND node_key=$2`, flowId, key),
     `node ${key} of ${flowId}`,
   ).status;
 
-const recordedInput = (flowId: string, key: string): Record<string, unknown> => {
+const recordedInput = async (flowId: string, key: string): Promise<Record<string, unknown>> => {
   const raw = must(
-    db.get<{ input: string | null }>(`SELECT input FROM nodes WHERE flow_id=? AND node_key=?`, flowId, key),
+    await db.get<{ input: string | null }>(`SELECT input FROM nodes WHERE flow_id=$1 AND node_key=$2`, flowId, key),
     `recorded input of ${key}`,
   ).input;
   if (typeof raw !== "string" || !raw.trim()) throw new Error(`${key} recorded no input`);
@@ -177,8 +177,8 @@ const recordedInput = (flowId: string, key: string): Record<string, unknown> => 
 
 /** One isolated flow on a two-agent-template: topic_agent → paragraph_agent.
  *  No start node (skipLint) and a manual flow trigger — nothing auto-runs. */
-function seedAgentFlow(index: number): string {
-  const templateId = templateStore.create(
+async function seedAgentFlow(index: number): Promise<string> {
+  const templateId = await templateStore.create(
     {
       name: `chat-manual fixture ${index}`,
       trigger: { type: "manual", task_type: "jira" },
@@ -191,8 +191,8 @@ function seedAgentFlow(index: number): string {
     { skipLint: true },
   );
   const taskId = `task_chat_manual_${index}`;
-  db.run(
-    `INSERT INTO tasks (id, type, key, summary, status, issue_type, priority) VALUES (?,?,?,?,?,?,?)`,
+  await db.run(
+    `INSERT INTO tasks (id, type, key, summary, status, issue_type, priority) VALUES ($1,$2,$3,$4,$5,$6,$7)`,
     taskId, "jira", `CM-${index}`, "speechless test", "open", "task", "P2",
   );
   return flowEngine.create(taskId, "https://git.example.com/o/r", `chat-manual fixture ${index}`, {
@@ -201,9 +201,9 @@ function seedAgentFlow(index: number): string {
 }
 
 /** Poll the DB until the async engine bg work settles (or fail loudly). */
-async function until(cond: () => boolean, what: string): Promise<void> {
+async function until(cond: () => boolean | Promise<boolean>, what: string): Promise<void> {
   for (let i = 0; i < 300; i++) {
-    if (cond()) return;
+    if (await cond()) return;
     await new Promise((r) => setTimeout(r, 10));
   }
   throw new Error(`timed out waiting for ${what}`);
@@ -213,30 +213,30 @@ async function until(cond: () => boolean, what: string): Promise<void> {
 
 describe("sendChat — a refine turn obeys the terminal contract", () => {
   it("failed → chat feedback → done advances the edge: the next node starts with the topic", async () => {
-    const flowId = seedAgentFlow(1);
+    const flowId = await seedAgentFlow(1);
     // the topic agent failed its run (the model self-reported missing input)
-    db.run(
-      `UPDATE nodes SET status='failed', updated_at=? WHERE flow_id=? AND node_key='topic_agent'`,
+    await db.run(
+      `UPDATE nodes SET status='failed', updated_at=$1 WHERE flow_id=$2 AND node_key='topic_agent'`,
       db.now(), flowId,
     );
-    expect(nodeStatus(flowId, "topic_agent")).toBe("failed");
+    expect(await nodeStatus(flowId, "topic_agent")).toBe("failed");
     stub.pushResult('{"topic":"react"}');
     stub.pushResult("React is a library for building UIs from components.");
 
-    flowEngine.sendChat(flowId, "topic_agent", "pick react as topic");
+    void flowEngine.sendChat(flowId, "topic_agent", "pick react as topic");
 
     await until(
-      () => nodeStatus(flowId, "topic_agent") === "done" && nodeStatus(flowId, "paragraph_agent") === "done",
+      async () => (await nodeStatus(flowId, "topic_agent")) === "done" && (await nodeStatus(flowId, "paragraph_agent")) === "done",
       "the refined node and its downstream successor",
     );
     expect(stub.prompts.some((p) => p.startsWith("Write a paragraph on react"))).toBe(true);
-    expect(recordedInput(flowId, "paragraph_agent").topic).toBe("react");
+    expect((await recordedInput(flowId, "paragraph_agent")).topic).toBe("react");
   });
 
   it("a turn that misses the output contract again leaves the node failed — no advance", async () => {
-    const flowId = seedAgentFlow(2);
-    db.run(
-      `UPDATE nodes SET status='failed', updated_at=? WHERE flow_id=? AND node_key='topic_agent'`,
+    const flowId = await seedAgentFlow(2);
+    await db.run(
+      `UPDATE nodes SET status='failed', updated_at=$1 WHERE flow_id=$2 AND node_key='topic_agent'`,
       db.now(), flowId,
     );
     // the refine turn fails the contract, gets its one bounded self-heal
@@ -244,29 +244,29 @@ describe("sendChat — a refine turn obeys the terminal contract", () => {
     stub.pushResult("no json here");
     stub.pushResult("still no json here");
 
-    flowEngine.sendChat(flowId, "topic_agent", "pick react as topic");
-    await until(() => nodeStatus(flowId, "topic_agent") === "failed", "the refined node to re-fail");
+    void flowEngine.sendChat(flowId, "topic_agent", "pick react as topic");
+    await until(async () => (await nodeStatus(flowId, "topic_agent")) === "failed", "the refined node to re-fail");
 
-    expect(nodeStatus(flowId, "paragraph_agent")).toBe("pending");
+    expect(await nodeStatus(flowId, "paragraph_agent")).toBe("pending");
   });
 });
 
 describe("runNodeManual — agent nodes inherit the upstream input", () => {
   it("a manual start renders {{input.*}} from the merged upstream outputs", async () => {
-    const flowId = seedAgentFlow(3);
+    const flowId = await seedAgentFlow(3);
     // the topic agent finished with topic=react but the follow-up edge never
     // activated (the pre-fix chat stall) — the user starts the node manually
-    db.run(
-      `UPDATE nodes SET status='done', output=?, updated_at=? WHERE flow_id=? AND node_key='topic_agent'`,
+    await db.run(
+      `UPDATE nodes SET status='done', output=$1, updated_at=$2 WHERE flow_id=$3 AND node_key='topic_agent'`,
       JSON.stringify({ topic: "react" }), db.now(), flowId,
     );
     stub.pushResult("React is a library for building UIs from components.");
 
-    flowEngine.runNodeManual(flowId, "paragraph_agent");
+    void flowEngine.runNodeManual(flowId, "paragraph_agent");
 
-    await until(() => nodeStatus(flowId, "paragraph_agent") === "done", "the manual run");
+    await until(async () => (await nodeStatus(flowId, "paragraph_agent")) === "done", "the manual run");
     expect(stub.prompts.some((p) => p.startsWith("Write a paragraph on react"))).toBe(true);
-    expect(recordedInput(flowId, "paragraph_agent").topic).toBe("react");
+    expect((await recordedInput(flowId, "paragraph_agent")).topic).toBe("react");
   });
 });
 
@@ -288,20 +288,20 @@ const validPlanPayload = {
 const planTurnJson = (reply: string) =>
   JSON.stringify({ reply, plan: validPlanPayload });
 
-const planNodeRow = (flowId: string) =>
+const planNodeRow = async (flowId: string) =>
   must(
-    db.get<{ id: string; input: string | null }>(
-      `SELECT id, input FROM nodes WHERE flow_id=? AND node_key=?`,
+    await db.get<{ id: string; input: string | null }>(
+      `SELECT id, input FROM nodes WHERE flow_id=$1 AND node_key=$2`,
       flowId,
       NODE_KEYS.PLAN,
     ),
     `plan node of ${flowId}`,
   );
 
-const insertPlanArtifact = (flowId: string, nodeId: string, version = 1): void => {
-  db.run(
+const insertPlanArtifact = async (flowId: string, nodeId: string, version = 1): Promise<void> => {
+  await db.run(
     `INSERT INTO artifacts (id, node_id, flow_id, kind, version, content, meta, status, created_at)
-     VALUES (?,?,?,?,?,?,?,'draft',?)`,
+     VALUES ($1,$2,$3,$4,$5,$6,$7,'draft',$8)`,
     `art_plan_${flowId}_${version}`,
     nodeId,
     flowId,
@@ -314,8 +314,8 @@ const insertPlanArtifact = (flowId: string, nodeId: string, version = 1): void =
 };
 
 /** Isolated flow with a single manual plan node — nothing auto-runs. */
-function seedPlanFlow(index: number): string {
-  const templateId = templateStore.create(
+async function seedPlanFlow(index: number): Promise<string> {
+  const templateId = await templateStore.create(
     {
       name: `plan-retry fixture ${index}`,
       trigger: { type: "manual", task_type: "jira" },
@@ -325,8 +325,8 @@ function seedPlanFlow(index: number): string {
     { skipLint: true },
   );
   const taskId = `task_plan_retry_${index}`;
-  db.run(
-    `INSERT INTO tasks (id, type, key, summary, status, issue_type, priority) VALUES (?,?,?,?,?,?,?)`,
+  await db.run(
+    `INSERT INTO tasks (id, type, key, summary, status, issue_type, priority) VALUES ($1,$2,$3,$4,$5,$6,$7)`,
     taskId, "jira", `PR-${index}`, "plan retry test", "open", "task", "P2",
   );
   return flowEngine.create(taskId, "https://git.example.com/o/r", `plan-retry fixture ${index}`, {
@@ -334,20 +334,20 @@ function seedPlanFlow(index: number): string {
   });
 }
 
-const lifecycleMessages = (flowId: string, nodeId: string): string[] =>
-  db
-    .all<{ message: string }>(
-      `SELECT message FROM events WHERE flow_id=? AND node_id=? AND type='lifecycle' ORDER BY created_at`,
+const lifecycleMessages = async (flowId: string, nodeId: string): Promise<string[]> =>
+  (
+    await db.all<{ message: string }>(
+      `SELECT message FROM events WHERE flow_id=$1 AND node_id=$2 AND type='lifecycle' ORDER BY created_at`,
       flowId,
       nodeId,
     )
-    .map((r) => r.message);
+  ).map((r) => r.message);
 
 describe("retryNode — plan node chat replay", () => {
   it("replays a recorded turn via the chat refiner and lands awaiting_approval", async () => {
-    const flowId = seedPlanFlow(1);
-    const plan = planNodeRow(flowId);
-    insertPlanArtifact(flowId, plan.id);
+    const flowId = await seedPlanFlow(1);
+    const plan = await planNodeRow(flowId);
+    await insertPlanArtifact(flowId, plan.id);
     const recorded = PlanInput.parse({
       turnUserMessage: "move step 2 below step 1",
       previousStatus: "awaiting_approval",
@@ -355,55 +355,55 @@ describe("retryNode — plan node chat replay", () => {
       planThread: null,
       model: null,
     });
-    db.run(
-      `UPDATE nodes SET status='failed', input=?, updated_at=? WHERE id=?`,
+    await db.run(
+      `UPDATE nodes SET status='failed', input=$1, updated_at=$2 WHERE id=$3`,
       JSON.stringify(recorded),
       db.now(),
       plan.id,
     );
     stub.pushResult(planTurnJson("Moved step 2 below step 1."));
 
-    flowEngine.retryNode(flowId, NODE_KEYS.PLAN);
+    void flowEngine.retryNode(flowId, NODE_KEYS.PLAN);
 
     await until(
-      () => nodeStatus(flowId, NODE_KEYS.PLAN) === "awaiting_approval",
+      async () => (await nodeStatus(flowId, NODE_KEYS.PLAN)) === "awaiting_approval",
       "plan retry to finish",
     );
     expect(stub.prompts.length).toBeGreaterThan(0);
     expect(stub.prompts.some((p) => p.includes("move step 2 below step 1"))).toBe(true);
-    expect(lifecycleMessages(flowId, plan.id)).toContain(`retrying ${NODE_KEYS.PLAN}`);
+    expect(await lifecycleMessages(flowId, plan.id)).toContain(`retrying ${NODE_KEYS.PLAN}`);
   });
 
-  it("with no recorded turn reverts to pending and emits plan chat ready", () => {
-    const flowId = seedPlanFlow(2);
-    const plan = planNodeRow(flowId);
-    db.run(
-      `UPDATE nodes SET status='failed', input=?, updated_at=? WHERE id=?`,
+  it("with no recorded turn reverts to pending and emits plan chat ready", async () => {
+    const flowId = await seedPlanFlow(2);
+    const plan = await planNodeRow(flowId);
+    await db.run(
+      `UPDATE nodes SET status='failed', input=$1, updated_at=$2 WHERE id=$3`,
       JSON.stringify(PlanInput.parse({ turnUserMessage: null, previousStatus: null })),
       db.now(),
       plan.id,
     );
 
-    flowEngine.retryNode(flowId, NODE_KEYS.PLAN);
+    void flowEngine.retryNode(flowId, NODE_KEYS.PLAN);
 
-    expect(nodeStatus(flowId, NODE_KEYS.PLAN)).toBe("pending");
-    expect(lifecycleMessages(flowId, plan.id)).toContain(PLAN_CHAT_READY_LIFECYCLE);
+    expect(await nodeStatus(flowId, NODE_KEYS.PLAN)).toBe("pending");
+    expect(await lifecycleMessages(flowId, plan.id)).toContain(PLAN_CHAT_READY_LIFECYCLE);
   });
 
-  it("with no recorded turn but an existing plan version reverts to awaiting_approval", () => {
-    const flowId = seedPlanFlow(3);
-    const plan = planNodeRow(flowId);
-    insertPlanArtifact(flowId, plan.id);
-    db.run(
-      `UPDATE nodes SET status='failed', input=?, updated_at=? WHERE id=?`,
+  it("with no recorded turn but an existing plan version reverts to awaiting_approval", async () => {
+    const flowId = await seedPlanFlow(3);
+    const plan = await planNodeRow(flowId);
+    await insertPlanArtifact(flowId, plan.id);
+    await db.run(
+      `UPDATE nodes SET status='failed', input=$1, updated_at=$2 WHERE id=$3`,
       JSON.stringify(PlanInput.parse({ turnUserMessage: null, previousStatus: null })),
       db.now(),
       plan.id,
     );
 
-    flowEngine.retryNode(flowId, NODE_KEYS.PLAN);
+    void flowEngine.retryNode(flowId, NODE_KEYS.PLAN);
 
-    expect(nodeStatus(flowId, NODE_KEYS.PLAN)).toBe("awaiting_approval");
-    expect(lifecycleMessages(flowId, plan.id)).toContain(PLAN_CHAT_READY_LIFECYCLE);
+    expect(await nodeStatus(flowId, NODE_KEYS.PLAN)).toBe("awaiting_approval");
+    expect(await lifecycleMessages(flowId, plan.id)).toContain(PLAN_CHAT_READY_LIFECYCLE);
   });
 });

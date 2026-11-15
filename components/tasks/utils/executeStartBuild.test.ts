@@ -21,8 +21,8 @@ const task: LiveTask = {
 const repo: RepoSummary = {
   id: "repo-1",
   name: "devflow",
-  cloud_url: "https://gitlab.com/g/devflow",
-  local_path: "/Users/me/devflow",
+  cloudUrl: "https://gitlab.com/g/devflow",
+  localPath: "/Users/me/devflow",
 };
 
 describe("executeStartBuild (CR-153)", () => {

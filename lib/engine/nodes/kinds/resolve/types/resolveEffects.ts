@@ -65,5 +65,5 @@ export type ResolveEffectInput = {
   /** the previous application's ledger, read from the artifact meta */
   ledger: ResolveEffectLedger;
   /** called after every landed effect — persists the ledger into the artifact meta */
-  persistProgress: (ledger: ResolveEffectLedger) => void;
+  persistProgress: (ledger: ResolveEffectLedger) => Promise<void>;
 };

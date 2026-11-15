@@ -21,7 +21,7 @@ export class ModelCatalogService {
   constructor(private readonly agentPorts: AgentPortRegistry) {}
 
   async normalized(): Promise<ModelCatalogPayload> {
-    const port = this.agentPorts.forMode("local");
+    const port = await this.agentPorts.forMode("local");
     const raw = new Map<string, CatalogModel>();
     const bracketed: { m: CatalogModel; id: string; params: Record<string, string> }[] = [];
 
@@ -56,7 +56,7 @@ export class ModelCatalogService {
     const catalogList = [...raw.values()];
     const source = catalogList.length ? "catalog" : "fallback";
     const models = catalogList.length ? catalogList.map((m) => m.id) : [...port.fallbackModels];
-    const currentDefault = this.defaultModelSpec();
+    const currentDefault = await this.defaultModelSpec();
     const parsedDefault = parseModelSpec(currentDefault);
     const defaultChoice = parsedDefault
       ? {
@@ -94,7 +94,7 @@ export class ModelCatalogService {
     };
   }
 
-  defaultModelSpec(): string {
+  async defaultModelSpec(): Promise<string> {
     return settingsService.defaultModel();
   }
 }

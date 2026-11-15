@@ -50,18 +50,17 @@ export class EdgeActivator {
     return out;
   }
   private async splitGateSource(flowId: string, nodeKey: string): Promise<string | null> {
-    const mode = splitConsumeOf(this.host.nodeConfigFor(flowId, nodeKey));
+    const mode = splitConsumeOf(await this.host.nodeConfigFor(flowId, nodeKey));
     if (mode === "whole") return null;
     if (await this.host.isStepChild(flowId)) return null; // nesting guard (§3)
     const g = await this.graph(flowId);
     if (!g) return null;
-    const sources = g.edges
-      .filter((e) => e.kind === "next" && e.to === nodeKey)
-      .map((e) => e.from)
-      .filter((k) => {
-        const def = this.host.defOf(flowId, k);
-        return def.splitUnits !== NodeDefinition.prototype.splitUnits;
-      });
+    const sources: string[] = [];
+    for (const e of g.edges) {
+      if (e.kind !== "next" || e.to !== nodeKey) continue;
+      const def = await this.host.defOf(flowId, e.from);
+      if (def.splitUnits !== NodeDefinition.prototype.splitUnits) sources.push(e.from);
+    }
     if (!sources.length) return null; // no upstream def publishes units — whole path
     if (sources.length > 1) {
       throw new Error(
@@ -70,7 +69,7 @@ export class EdgeActivator {
     const sourceKey = sources[0];
     const effective: SplitConsumeMode = mode === "per-unit"
       ? "per-unit" // explicit consumer choice wins over the recommendation (§2.4)
-      : this.host.defOf(flowId, sourceKey).splitResolution(await this.host.ctx(flowId)) ?? "whole"; // absent ⇒ whole
+      : await (await this.host.defOf(flowId, sourceKey)).splitResolution(await this.host.ctx(flowId)) ?? "whole"; // absent ⇒ whole
     return effective === "per-unit" ? sourceKey : null;
   }
   async advanceFrom(flowId: string, fromKey: string): Promise<void> {
@@ -300,7 +299,7 @@ export class EdgeActivator {
       // source it never auto-starts (the SDLC scheduler drives it)
       if (!opts.resumeWaiting) {
         if (wait === "comments") {
-          await this.waits.armNodeWait(flowId, nodeKey, wait, this.waits.debounceMinutesForNode(flowId, nodeKey, spec));
+          await this.waits.armNodeWait(flowId, nodeKey, wait, await this.waits.debounceMinutesForNode(flowId, nodeKey, spec));
         }
         return;
       }
@@ -326,7 +325,7 @@ export class EdgeActivator {
     }
     await this.host.setCurrentNode(flowId, nodeKey);
     try {
-      const def = this.host.defOf(flowId, nodeKey);
+      const def = await this.host.defOf(flowId, nodeKey);
       // ── fan-out check (plan fan-out, Phase 1): the only engine hook into the
       // run path. When the node's effective config carries a fan-out knob that
       // resolves to "steps" AND pending checklist steps exist, the
@@ -337,7 +336,7 @@ export class EdgeActivator {
       // else (unchanged default, whole) falls through byte-for-byte. Built-ins
       // and declarative nodes hit the same check — orchestration lives here,
       // node internals stay in their classes.
-      const fanout = stepFlows.gate(flowId, nodeKey);
+      const fanout = await stepFlows.gate(flowId, nodeKey);
       if (fanout === "fanout") {
         await stepFlows.expand(flowId, nodeKey);
         return;
@@ -356,7 +355,7 @@ export class EdgeActivator {
         // documented conflict rule (split plan §2.4, Phase 4): a node whose
         // fan-out knob engaged keeps the fan-out behavior — record a split
         // knob it shadows so the trail explains the run's shape
-        const shadowed = splitConsumeOf(this.host.nodeConfigFor(flowId, nodeKey));
+        const shadowed = splitConsumeOf(await this.host.nodeConfigFor(flowId, nodeKey));
         if (shadowed !== "whole") {
           await db.emitEvent(flowId, null, "lifecycle",
             `${nodeKey} ignores split_consume "${shadowed}" — the fan-out knob owns this run`,
@@ -376,7 +375,7 @@ export class EdgeActivator {
             // previous node's output (merged when several edges feed in)
             def.inheritsParentInput
             ? [{ input: await this.inheritedInput(flowId, nodeKey, await this.host.ctx(flowId)) }]
-            : def.triggerRuns(await this.host.ctx(flowId));
+            : await def.triggerRuns(await this.host.ctx(flowId));
       for (const run of runs) {
         run.before?.();
         await this.host.runNode(flowId, nodeKey, run.input, opts.rawPayload);

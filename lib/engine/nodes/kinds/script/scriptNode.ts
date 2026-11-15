@@ -99,20 +99,20 @@ export class ScriptTemplateNode extends DeclarativeNode<ScriptDef> {
   // ── internals ─────────────────────────────────────────────────────────────
 
   private async runScript(ctx: FlowCtx, rawInput: Record<string, unknown>, cfg: ScriptDef): Promise<RunOutcome> {
-    const node = this.node(ctx);
+    const node = await this.node(ctx);
     if (!cfg.script?.trim()) {
       const msg = `${this.label}: no script configured — set one in the template editor`;
-      return this.applyOutcome(ctx, { status: "failed", output: {}, event: msg, reply: msg });
+      return await this.applyOutcome(ctx, { status: "failed", output: {}, event: msg, reply: msg });
     }
 
-    this.markRunning(ctx, { ...rawInput, mapped: true });
+    await this.markRunning(ctx, { ...rawInput, mapped: true });
 
     let cwd: string;
     try {
       cwd = await this.workingDir(ctx, cfg, node.id);
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : String(e);
-      return this.applyOutcome(ctx, { status: "failed", output: {}, event: msg, reply: msg });
+      return await this.applyOutcome(ctx, { status: "failed", output: {}, event: msg, reply: msg });
     }
 
     const outPath = path.join(os.tmpdir(), `devflow-out-${node.id}-${Date.now()}.json`);
@@ -127,7 +127,7 @@ export class ScriptTemplateNode extends DeclarativeNode<ScriptDef> {
       env,
     });
 
-    this.support.emit(ctx.flow.id, node.id, "log",
+    await this.support.emit(ctx.flow.id, node.id, "log",
       `${this.label}: ${bin} exited ${result.exitCode} (${((result.durationMs ?? 0) / 1000).toFixed(1)}s)${result.timedOut ? " — killed after timeout" : ""}`,
       {
         exitCode: result.exitCode,
@@ -154,10 +154,10 @@ export class ScriptTemplateNode extends DeclarativeNode<ScriptDef> {
       if (cfg.output_schema && typeof cfg.output_schema === "object") {
         validateJsonSchema(cfg.output_schema, parsed, this.label);
       }
-      return this.applyOutcome(ctx, this.finish(ctx, parsed as Record<string, unknown>, result.stdout));
+      return await this.applyOutcome(ctx, await this.finish(ctx, parsed as Record<string, unknown>, result.stdout));
     } catch (e: unknown) {
       const msg = `${this.label}: ${e instanceof Error ? e.message : String(e)}`;
-      return this.applyOutcome(ctx, {
+      return await this.applyOutcome(ctx, {
         status: "failed",
         output: {},
         event: `${this.label} failed`,
@@ -168,8 +168,8 @@ export class ScriptTemplateNode extends DeclarativeNode<ScriptDef> {
     }
   }
 
-  private finish(ctx: FlowCtx, output: Record<string, unknown>, stdout: string): RunOutcome {
-    const hold = this.holdsForApproval(ctx);
+  private async finish(ctx: FlowCtx, output: Record<string, unknown>, stdout: string): Promise<RunOutcome> {
+    const hold = await this.holdsForApproval(ctx);
     return {
       status: hold ? "awaiting_approval" : "done",
       output,
@@ -211,7 +211,7 @@ export class ScriptTemplateNode extends DeclarativeNode<ScriptDef> {
       // explicitly asked for the flow workspace but no agent step created it
       // yet — ensure it the same way an unpinned agent run does (script-only
       // flows are first-class); when worktrees can't apply, keep the old error
-      const branch = ctx.flow.mr_branch ?? this.ctxHelper.buildBranch(ctx);
+      const branch = ctx.flow.mrBranch ?? this.ctxHelper.buildBranch(ctx);
       const binding = await worktreeManager.ensureFlowWorktree(ctx, branch, { nodeId });
       if (!binding.dir) return this.legacyWorkspaceError(); // worktrees can't apply (cloud mode)
       return binding.dir;

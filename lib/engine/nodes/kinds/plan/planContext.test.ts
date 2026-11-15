@@ -13,7 +13,7 @@ process.env.DATABASE_PATH = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'dev
 
 await import('../../registry');
 const { PlanContextBlocks } = await import('./planContext');
-import type { PlanStepRow } from '../../../../db/rows';
+import type { PlanStepRow } from '../../../runtime/planStepStore';
 import type { PlanBranch, PlanStep } from './schema';
 import type { FlowCtx, FlowContextHelper, NodeSupport } from '../../shared/nodeSharedExports';
 import type { PlanStore } from './planStore';
@@ -37,27 +37,27 @@ const latest = {
 /** A minimal live plan_steps row (the mapped shape PlanStore.liveRows returns). */
 const row: PlanStepRow = {
   id: 'row-1',
-  flow_id: 'flow-1',
-  artifact_id: null,
-  meta_id: 's1',
+  flowId: 'flow-1',
+  artifactId: null,
+  metaId: 's1',
   position: 0,
   title: step.title,
   detail: 'hand edit',
-  files: ['a.ts'],
+  files: '["a.ts"]',
   branch: 'auth',
   status: 'pending',
   origin: 'agent',
-  completed_by: null,
-  sub_flow_id: null,
-  created_at: '',
-  updated_at: '',
+  completedBy: null,
+  subFlowId: null,
+  createdAt: '',
+  updatedAt: '',
 };
 const scoped: ScopedRefine = { latest, branch: latest.meta.branches[0], liveRows: [row] };
 
 const makeContexts = () => {
   const store = {
-    latestPlan: () => latest,
-    liveRows: () => [row],
+    latestPlan: async () => latest,
+    liveRows: async () => [row],
     stepsText: (rows: { title: string }[]) => rows.map(r => r.title).join('\n'),
     dependencySummaries: () => '- `billing` (BILLING): invoices',
   } as unknown as PlanStore;
@@ -71,8 +71,8 @@ const byId = (blocks: { id: string; text: string; chars: number; defaultOn: bool
   new Map(blocks.map(b => [b.id, b]));
 
 describe('PlanContextBlocks.resolve — picker data per mode', () => {
-  it('whole plan: scoped-only blocks are empty, unlocked; defaults follow wholeDefault', () => {
-    const blocks = byId(makeContexts().resolve(ctx, null));
+  it('whole plan: scoped-only blocks are empty, unlocked; defaults follow wholeDefault', async () => {
+    const blocks = byId(await makeContexts().resolve(ctx, null));
     expect(blocks.get('task')).toMatchObject({ text: 'TASK CONTEXT' });
     const scopedOnly: [string, boolean, string][] = [
       ['contract', false, ''], // wholeDefault
@@ -85,8 +85,8 @@ describe('PlanContextBlocks.resolve — picker data per mode', () => {
     expect(blocks.get('branches')).toMatchObject({ defaultOn: true, locked: false });
   });
 
-  it('scoped refine: only OTHER branches render in "branches"; the contract is locked + rendered', () => {
-    const blocks = byId(makeContexts().resolve(ctx, scoped));
+  it('scoped refine: only OTHER branches render in "branches"; the contract is locked + rendered', async () => {
+    const blocks = byId(await makeContexts().resolve(ctx, scoped));
     expect(blocks.get('branches')).toMatchObject({ text: '- `billing` (BILLING): invoices', defaultOn: false });
     expect(blocks.get('contract')).toMatchObject({ locked: true, defaultOn: true });
     expect(blocks.get('contract')?.text).toContain('- scope: logins');
@@ -95,14 +95,14 @@ describe('PlanContextBlocks.resolve — picker data per mode', () => {
     expect(blocks.get('current')).toMatchObject({ text: expect.stringContaining('Live row') });
   });
 
-  it('chars mirrors the rendered text length', () => {
-    for (const b of makeContexts().resolve(ctx, scoped)) expect(b.chars).toBe(b.text.length);
+  it('chars mirrors the rendered text length', async () => {
+    for (const b of await makeContexts().resolve(ctx, scoped)) expect(b.chars).toBe(b.text.length);
   });
 });
 
 describe('PlanContextBlocks.assemble — server-side assembly', () => {
-  it('an empty selection falls back to the per-mode defaults', () => {
-    const text = makeContexts().assemble(ctx, { contextBlocks: [] }, scoped);
+  it('an empty selection falls back to the per-mode defaults', async () => {
+    const text = await makeContexts().assemble(ctx, { contextBlocks: [] }, scoped);
     // scopedDefault: task, contract (pinned), current — branches/edits are off
     expect(text).toContain('## Task context');
     expect(text).toContain('## Branch contract');
@@ -111,24 +111,24 @@ describe('PlanContextBlocks.assemble — server-side assembly', () => {
     expect(text).not.toContain('## Hand edits');
   });
 
-  it('skipContract removes the pinned block (its count still reports to the picker)', () => {
-    const asIs = makeContexts().assemble(ctx, { contextBlocks: [] }, scoped);
-    const skipped = makeContexts().assemble(ctx, { contextBlocks: [] }, scoped, { skipContract: true });
+  it('skipContract removes the pinned block (its count still reports to the picker)', async () => {
+    const asIs = await makeContexts().assemble(ctx, { contextBlocks: [] }, scoped);
+    const skipped = await makeContexts().assemble(ctx, { contextBlocks: [] }, scoped, { skipContract: true });
     expect(asIs).toContain('## Branch contract');
     expect(skipped).not.toContain('## Branch contract');
   });
 
-  it('a non-empty selection wins over defaults; unknown ids drop silently; skip applies', () => {
-    const chosen = makeContexts().assemble(ctx, { contextBlocks: ['branches', 'ghost'] }, scoped);
+  it('a non-empty selection wins over defaults; unknown ids drop silently; skip applies', async () => {
+    const chosen = await makeContexts().assemble(ctx, { contextBlocks: ['branches', 'ghost'] }, scoped);
     expect(chosen).toContain('## Other branches');
     expect(chosen).not.toContain('## Task context');
 
-    const skipped = makeContexts().assemble(ctx, { contextBlocks: ['branches'] }, null, { skip: ['branches'] });
+    const skipped = await makeContexts().assemble(ctx, { contextBlocks: ['branches'] }, null, { skip: ['branches'] });
     expect(skipped).toBe('');
   });
 
-  it('blocks render in the fixed registry order across modes (§4)', () => {
-    const text = makeContexts().assemble(ctx, { contextBlocks: ['edits', 'task', 'branches'] }, null);
+  it('blocks render in the fixed registry order across modes (§4)', async () => {
+    const text = await makeContexts().assemble(ctx, { contextBlocks: ['edits', 'task', 'branches'] }, null);
     expect(text.indexOf('## Task context')).toBeLessThan(text.indexOf('## Other branches'));
     expect(text.indexOf('## Other branches')).toBeLessThan(text.indexOf('## Hand edits'));
   });

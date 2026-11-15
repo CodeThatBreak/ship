@@ -74,7 +74,7 @@ export class PromptPreview {
     const ctx: FlowCtx = { flow, task, repo };
 
     const node = await rows.get(NodeRow, `SELECT id, flow_id AS "flowId", node_key AS "nodeKey", type, status, attempt_id AS "attemptId", agent_id AS "agentId", agent_ref AS "agentRef", session_id AS "sessionId", prompt_override AS "promptOverride", label, config, join_mode AS "joinMode", input, output, created_at AS "createdAt", updated_at AS "updatedAt" FROM nodes WHERE flow_id=$1 AND node_key=$2`, flowId, nodeKey) ?? null;
-    const def = this.defFor(flowId, nodeKey, node);
+    const def = await this.defFor(flowId, nodeKey, node);
     // §T4: the preview role is routed through the role router — defs without
     // a previewable prompt (agent kinds leave it to the phase-2 work) decline.
     const previewer = nodeRoles.promptPreviewerOf(def);
@@ -87,7 +87,7 @@ export class PromptPreview {
     }
 
     const sections = sectionsOf(preview.assembly);
-    const payload = this.payload({
+    const payload = await this.payload({
       sections,
       templateKey: preview.templateKey,
       configBody: preview.configBody,
@@ -96,7 +96,7 @@ export class PromptPreview {
       ctx,
       nodeKey,
     });
-    return Promise.resolve({ ok: true, payload });
+    return { ok: true, payload };
   }
 
   /**
@@ -116,7 +116,7 @@ export class PromptPreview {
 
     const prompts: Record<string, string> = {};
     for (const node of await rows.all(NodeRow, `SELECT id, flow_id AS "flowId", node_key AS "nodeKey", type, status, attempt_id AS "attemptId", agent_id AS "agentId", agent_ref AS "agentRef", session_id AS "sessionId", prompt_override AS "promptOverride", label, config, join_mode AS "joinMode", input, output, created_at AS "createdAt", updated_at AS "updatedAt" FROM nodes WHERE flow_id=$1`, flowId)) {
-      const def = this.defFor(flowId, node.nodeKey, node);
+      const def = await this.defFor(flowId, node.nodeKey, node);
       const previewer = nodeRoles.promptPreviewerOf(def);
       const preview = previewer ? previewer.previewPrompt(ctx, node, {}) : null;
       if (!preview) continue;
@@ -134,8 +134,8 @@ export class PromptPreview {
   }
 
   /** The def for a node instance — same resolution the engine's retry path uses. */
-  private defFor(flowId: string, nodeKey: string, node: NodeRow | null): NodeDefinition {
-    const spec = templateStore.graphForFlow(flowId)?.byKey.get(nodeKey);
+  private async defFor(flowId: string, nodeKey: string, node: NodeRow | null): Promise<NodeDefinition> {
+    const spec = (await templateStore.graphForFlow(flowId))?.byKey.get(nodeKey);
     return nodeRegistry.resolve(spec?.defKey ?? node?.type ?? nodeKey, nodeKey);
   }
 

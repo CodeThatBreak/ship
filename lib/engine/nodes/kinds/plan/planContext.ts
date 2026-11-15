@@ -23,19 +23,19 @@ export class PlanContextBlocks {
   ) {}
 
   /** A block id → its rendered text, from the mode's state (scoped or whole). */
-  private readonly renderers: Record<ContextBlockId, (ctx: FlowCtx, scoped: ScopedRefine | null) => string> = {
-    task: (ctx) => this.ctxHelper.taskContext(ctx),
-    contract: (_ctx, scoped) => (scoped ? this.renderContract(scoped) : ''),
-    current: (_ctx, scoped) => (scoped ? this.renderCurrent(scoped) : ''),
+  private readonly renderers: Record<ContextBlockId, (ctx: FlowCtx, scoped: ScopedRefine | null) => Promise<string>> = {
+    task: (ctx) => Promise.resolve(this.ctxHelper.taskContext(ctx)),
+    contract: (_ctx, scoped) => (scoped ? Promise.resolve(this.renderContract(scoped)) : Promise.resolve('')),
+    current: (_ctx, scoped) => (scoped ? Promise.resolve(this.renderCurrent(scoped)) : Promise.resolve('')),
     branches: (ctx, scoped) => this.renderBranches(ctx.flow.id, scoped),
-    edits: (ctx, scoped) => (scoped ? '' : this.renderEdits(ctx.flow.id)),
+    edits: (ctx, scoped) => (scoped ? Promise.resolve('') : this.renderEdits(ctx.flow.id)),
   };
 
   /** Resolve every block's rendered text (picker data + assembly source). */
-  resolve(ctx: FlowCtx, scoped: ScopedRefine | null): ContextBlockInfo[] {
+  async resolve(ctx: FlowCtx, scoped: ScopedRefine | null): Promise<ContextBlockInfo[]> {
     const isScoped = Boolean(scoped);
-    return CONTEXT_BLOCKS.map(spec => {
-      const text = this.renderers[spec.id](ctx, scoped);
+    return Promise.all(CONTEXT_BLOCKS.map(async spec => {
+      const text = await this.renderers[spec.id](ctx, scoped);
       return {
         id: spec.id,
         label: spec.label,
@@ -45,7 +45,7 @@ export class PlanContextBlocks {
         defaultOn: isScoped ? spec.scopedDefault : spec.wholeDefault,
         locked: Boolean(spec.pinned) && isScoped,
       };
-    });
+    }));
   }
 
   /**
@@ -55,13 +55,13 @@ export class PlanContextBlocks {
    * selection falls back to the per-mode defaults (the minimal-context
    * recommendation).
    */
-  assemble(
+  async assemble(
     ctx: FlowCtx,
     input: Pick<PlanInput, 'contextBlocks'>,
     scoped: ScopedRefine | null,
     opts: { skipContract?: boolean; skip?: ContextBlockId[] } = {}
-  ): string {
-    const blocks = this.resolve(ctx, scoped);
+  ): Promise<string> {
+    const blocks = await this.resolve(ctx, scoped);
     const selected = new Set(input.contextBlocks ?? []);
     const useDefaults = selected.size === 0;
     const byId = new Map<string, ContextBlockInfo>(blocks.map(b => [b.id as string, b]));
@@ -113,16 +113,16 @@ export class PlanContextBlocks {
   }
 
   /** Sibling branches as title + scope summaries only. */
-  private renderBranches(flowId: string, scoped: ScopedRefine | null): string {
-    const branches = this.store.latestPlan(flowId)?.meta.branches ?? [];
+  private async renderBranches(flowId: string, scoped: ScopedRefine | null): Promise<string> {
+    const branches = (await this.store.latestPlan(flowId))?.meta.branches ?? [];
     const others = scoped ? branches.filter(b => b.name !== scoped.branch.name) : branches;
     if (!others.length) return '';
     return others.map(b => `- \`${b.name}\` (${b.title}): ${b.scope || '(no scope)'}`).join('\n');
   }
 
   /** The developer's live hand edits — whole-plan refines only (§4). */
-  private renderEdits(flowId: string): string {
-    const all = this.store.liveRows(flowId);
+  private async renderEdits(flowId: string): Promise<string> {
+    const all = await this.store.liveRows(flowId);
     if (!all.length) return '';
     return (
       'The developer already adjusted the plan checklist like this — treat these as intent and ' +
@@ -130,7 +130,7 @@ export class PlanContextBlocks {
       all
         .map(
           r =>
-            `- ${r.meta_id ?? r.id}: ${r.title}${r.detail ? ` — ${r.detail}` : ''}${r.branch ? ` (branch: ${r.branch})` : ''}`
+            `- ${r.metaId ?? r.id}: ${r.title}${r.detail ? ` — ${r.detail}` : ''}${r.branch ? ` (branch: ${r.branch})` : ''}`
         )
         .join('\n')
     );

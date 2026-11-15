@@ -34,7 +34,7 @@ export class GraphService {
 
     let resolvedTemplateId: string;
     if (templateId) {
-      if (!templateStore.flowTemplate(templateId)) {
+      if (!(await templateStore.flowTemplate(templateId))) {
         throw new NotFoundError("template", templateId);
       }
       resolvedTemplateId = templateId;
@@ -49,12 +49,12 @@ export class GraphService {
       resolvedTemplateId = flow.templateId;
     }
 
-    const g = templateStore.graph(resolvedTemplateId);
+    const g = await templateStore.graph(resolvedTemplateId);
     if (!g) {
       throw new NotFoundError("template", resolvedTemplateId);
     }
 
-    const nts = new Map(templateStore.listNodeTemplates().map((nt) => [nt.id, nt]));
+    const nts = new Map((await templateStore.listNodeTemplates()).map((nt) => [nt.id, nt]));
     return {
       templateId: g.templateId,
       order: g.nodes.map((n) => n.key),

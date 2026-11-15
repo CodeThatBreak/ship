@@ -4,7 +4,7 @@ import { NotFoundError } from "../errors";
 import { validateInstanceBaseUrl } from "./instanceBaseUrl";
 
 type GitHostLike = {
-  instances: () => { id: string; baseUrl: string }[];
+  instances: () => Promise<{ id: string; baseUrl: string }[]>;
 };
 
 export const validateGitHostInstanceBaseUrl = async (
@@ -13,7 +13,7 @@ export const validateGitHostInstanceBaseUrl = async (
   requestedBaseUrl: string | undefined,
 ): Promise<string | undefined> => {
   if (!requestedBaseUrl?.trim()) return undefined;
-  const existing = svc.instances().find((i) => i.id === id);
+  const existing = (await svc.instances()).find((i) => i.id === id);
   if (!existing) throw new NotFoundError("host instance", id);
   return validateInstanceBaseUrl(requestedBaseUrl);
 };
@@ -25,12 +25,12 @@ export const validateNewTaskInstanceBaseUrl = async (baseUrl: string): Promise<s
   validateInstanceBaseUrl(baseUrl);
 
 export const validateTaskInstanceBaseUrl = async (
-  instances: () => { id: string; baseUrl: string }[],
+  instances: () => Promise<{ id: string; baseUrl: string }[]>,
   id: string,
   requestedBaseUrl: string | undefined,
 ): Promise<string | undefined> => {
   if (!requestedBaseUrl?.trim()) return undefined;
-  const existing = instances().find((i) => i.id === id);
+  const existing = (await instances()).find((i) => i.id === id);
   if (!existing) throw new NotFoundError("task instance", id);
   return validateInstanceBaseUrl(requestedBaseUrl);
 };

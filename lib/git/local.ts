@@ -46,7 +46,7 @@ export type GitRemoteContext = {
   redactSecrets: readonly string[];
 };
 
-export type GitRemoteContextResolver = (repoUrl: string) => GitRemoteContext;
+export type GitRemoteContextResolver = (repoUrl: string) => Promise<GitRemoteContext>;
 
 /** @deprecated Use {@link GitRemoteContextResolver}. */
 export type AuthedUrlResolver = (repoUrl: string) => string;
@@ -72,12 +72,15 @@ export class LocalGit {
     return this.gitExec.run(args, opts);
   }
 
-  private resolveRemote(repoUrl: string, resolve?: GitRemoteContextResolver): GitRemoteContext {
+  private async resolveRemote(
+    repoUrl: string,
+    resolve?: GitRemoteContextResolver,
+  ): Promise<GitRemoteContext> {
     if (!resolve) {
       return { cloneUrl: repoUrl, env: {}, redactSecrets: [] };
     }
     try {
-      return resolve(repoUrl);
+      return await resolve(repoUrl);
     } catch (e: unknown) {
       throw new AuthedUrlResolutionError(repoUrl, e);
     }
@@ -91,7 +94,7 @@ export class LocalGit {
   ): Promise<string> {
     const dir = this.cloneDir(flowId);
     fs.mkdirSync(path.dirname(dir), { recursive: true });
-    const remote = this.resolveRemote(repoUrl, resolveRemote);
+    const remote = await this.resolveRemote(repoUrl, resolveRemote);
     if (!fs.existsSync(path.join(dir, ".git"))) {
       await this.git(["clone", "--no-checkout", remote.cloneUrl, dir], {
         timeout: GIT_FETCH_TIMEOUT_MS * 8,
@@ -116,7 +119,7 @@ export class LocalGit {
   ): Promise<string> {
     await assertValidBranchName(branch);
     const dir = await this.ensureClone(flowId, repoUrl, resolveRemote);
-    const ctx = this.resolveRemote(repoUrl, resolveRemote);
+    const ctx = await this.resolveRemote(repoUrl, resolveRemote);
     await this.git(
       ["-C", dir, "fetch", "origin", "--end-of-options", branch],
       { timeout: GIT_FETCH_TIMEOUT_MS, env: ctx.env, redactSecrets: ctx.redactSecrets },
@@ -155,7 +158,7 @@ export class LocalGit {
   ): Promise<{ files: DiffFile[]; stat: string; raw: string }> {
     await assertValidBranchName(branch);
     let dir: string;
-    const ctx = this.resolveRemote(repoUrl, resolveRemote);
+    const ctx = await this.resolveRemote(repoUrl, resolveRemote);
     if (localPath && fs.existsSync(path.join(localPath, ".git"))) {
       dir = localPath;
       await this.git(
@@ -216,7 +219,7 @@ export class LocalGit {
         throw new Error(`git push failed: ${msg}`);
       }
     }
-    const remote = this.resolveRemote(repoUrl, resolveRemote);
+    const remote = await this.resolveRemote(repoUrl, resolveRemote);
     const pushOpts = {
       ...opts,
       env: remote.env,

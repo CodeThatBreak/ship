@@ -141,8 +141,8 @@ export class AgentTemplateNode extends DeclarativeAgentNode<AgentDef, Record<str
    *   applyOutput throws (code `schema_mismatch`), since these shapes all
    *   violate the unit contract the split directive declared.
    */
-  override splitUnits(ctx: FlowCtx): SplitUnit[] | null {
-    const cfg = this.runConfig(this.nodeConfig(ctx));
+  override async splitUnits(ctx: FlowCtx): Promise<SplitUnit[] | null> {
+    const cfg = this.runConfig(await this.nodeConfig(ctx));
     const split = cfg.split;
     if (!split) return null;
 
@@ -151,7 +151,7 @@ export class AgentTemplateNode extends DeclarativeAgentNode<AgentDef, Record<str
     // before reading the split field (parseConfigSnapshot yields {} for a
     // missing/unreadable blob → no array → null, no expansion; an
     // already-decoded record is tolerated too)
-    const rawOutput: unknown = this.node(ctx).output;
+    const rawOutput: unknown = (await this.node(ctx)).output;
     const output = parseConfigSnapshot(
       typeof rawOutput === "string" || rawOutput == null ? rawOutput : JSON.stringify(rawOutput),
     );
@@ -351,7 +351,7 @@ export class AgentTemplateNode extends DeclarativeAgentNode<AgentDef, Record<str
         mode: cfg.mode,
         name: `${this.label} ${ctx.task.key}`,
         model,
-        startingRef: ctx.flow.mr_branch ?? undefined,
+        startingRef: ctx.flow.mrBranch ?? undefined,
         settingSources: cfg.mcp_sources,
       },
       label: this.label.toLowerCase(),
@@ -363,8 +363,8 @@ export class AgentTemplateNode extends DeclarativeAgentNode<AgentDef, Record<str
    * feedback rides the same contract directives a fresh run's prompt does —
    * the follow-up output goes through the same applyOutput validation. */
   override async chat(ctx: FlowCtx, content: string, model?: string): Promise<string> {
-    const cfg = this.runConfig(this.nodeConfig(ctx));
-    const node = this.node(ctx);
+    const cfg = this.runConfig(await this.nodeConfig(ctx));
+    const node = await this.node(ctx);
 
     const prompt = this.composePrompt(
       TemplateRenderer.render(content, TemplateRenderer.vars(ctx)),
@@ -383,8 +383,8 @@ export class AgentTemplateNode extends DeclarativeAgentNode<AgentDef, Record<str
         mode: cfg.mode,
         name: `${this.label} ${ctx.task.key}`,
         model: model ?? cfg.model ?? null,
-        startingRef: ctx.flow.mr_branch ?? undefined,
-        followUpOn: this.support.lastAgentId(node.id),
+        startingRef: ctx.flow.mrBranch ?? undefined,
+        followUpOn: await this.support.lastAgentId(node.id),
         settingSources: cfg.mcp_sources,
       },
       label: `${this.label.toLowerCase()} follow-up`,
@@ -397,8 +397,8 @@ export class AgentTemplateNode extends DeclarativeAgentNode<AgentDef, Record<str
    * node/artifact rows as a normal finish, with the note on the event. */
   async recover(ctx: FlowCtx, node: NodeRow, result: AgentRunResult, note: string): Promise<boolean> {
     if (result.status !== 'finished') return false;
-    const outcome = this.applyOutput(ctx, result.result ?? '', this.runConfig(this.nodeConfig(ctx)));
-    this.applyOutcome(ctx, outcome, { note });
+    const outcome = await this.applyOutput(ctx, result.result ?? '', this.runConfig(await this.nodeConfig(ctx)));
+    await this.applyOutcome(ctx, outcome, { note });
     return true;
   }
 
@@ -421,7 +421,7 @@ export class AgentTemplateNode extends DeclarativeAgentNode<AgentDef, Record<str
     model: string | null
   ): Promise<RunOutcome> {
     try {
-      return this.applyOutput(ctx, result.result ?? '', cfg);
+      return await this.applyOutput(ctx, result.result ?? '', cfg);
     } catch (e: unknown) {
       if (!(e instanceof AgentOutputError) || !RETRYABLE_OUTPUT_ERRORS.has(e.code)) throw e;
       return this.retryOutput(ctx, e, cfg, model);
@@ -436,7 +436,7 @@ export class AgentTemplateNode extends DeclarativeAgentNode<AgentDef, Record<str
     cfg: AgentDef,
     model: string | null
   ): Promise<RunOutcome> {
-    const node = this.node(ctx);
+    const node = await this.node(ctx);
     // the specific failure is the feedback: what the agent got wrong, in its
     // own response's terms — the same human messages the trail shows
 
@@ -451,7 +451,7 @@ export class AgentTemplateNode extends DeclarativeAgentNode<AgentDef, Record<str
             .addBlankLine()
             .addLine('Re-emit the corrected JSON object.');
 
-    this.support.emitLifecycle(
+    await this.support.emitLifecycle(
       ctx.flow.id,
       node.id,
       `${this.label} output contract failed — retrying with feedback (${failure.code})`
@@ -464,18 +464,18 @@ export class AgentTemplateNode extends DeclarativeAgentNode<AgentDef, Record<str
     const retry = await this.runner.executeRun(
       ctx,
       node.id,
-      () =>
+      async () =>
         this.runner.startAgent(ctx, {
           prompt: retryPrompt,
           mode: cfg.mode,
           name: `${this.label} ${ctx.task.key}`,
           model,
-          followUpOn: this.support.lastAgentId(node.id),
+          followUpOn: await this.support.lastAgentId(node.id),
           settingSources: cfg.mcp_sources,
         }),
       `${this.label.toLowerCase()} retry`
     );
-    return this.applyOutput(ctx, retry.result.result ?? '', cfg);
+    return await this.applyOutput(ctx, retry.result.result ?? '', cfg);
   }
 
   /**
@@ -492,8 +492,8 @@ export class AgentTemplateNode extends DeclarativeAgentNode<AgentDef, Record<str
    * `output: markdown` saves the text as an artifact and publishes
    * `{{nodes.<key>.output.markdown}}`.
    */
-  private applyOutput(ctx: FlowCtx, text: string, cfg: AgentDef): RunOutcome {
-    const hold = this.holdsForApproval(ctx);
+  private async applyOutput(ctx: FlowCtx, text: string, cfg: AgentDef): Promise<RunOutcome> {
+    const hold = await this.holdsForApproval(ctx);
     if (cfg.output === AGENT_OUTPUT_FORMAT.JSON) {
       const parsed = extractJson(text);
 

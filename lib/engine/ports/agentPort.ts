@@ -196,8 +196,8 @@ export interface AgentPort {
  *  null — unset/empty means "no preference" and {@link AgentPortRegistry.forMode}
  *  falls back to the first port registered for the mode. Read per selection so
  *  a settings change takes effect without a restart. */
-function defaultHarnessSetting(): string | null {
-  return db.getSetting("default_harness", settingString, "") || null;
+async function defaultHarnessSetting(): Promise<string | null> {
+  return (await db.getSetting("default_harness", settingString, "")) || null;
 }
 
 /**
@@ -216,9 +216,10 @@ export class AgentPortRegistry {
     /**
      * Resolves the configured default harness key, or null for "no
      * preference". Tests inject their own (and disable the builtins) to keep
-     * the DB isolated.
+     * the DB isolated. May return the key directly or as a promise (the
+     * built-in resolver reads the async settings store).
      */
-    private readonly resolveDefaultHarness: () => string | null = defaultHarnessSetting,
+    private readonly resolveDefaultHarness: () => string | null | Promise<string | null> = defaultHarnessSetting,
     private readonly withBuiltins = true,
   ) {}
 
@@ -267,9 +268,9 @@ export class AgentPortRegistry {
    * single-harness installs see no change). Unknown/unregistered keys fall
    * back too, so a stale setting can never hard-fail a run.
    */
-  forMode(mode: "cloud" | "local"): AgentPort {
+  async forMode(mode: "cloud" | "local"): Promise<AgentPort> {
     this.ensureBuiltins();
-    const harness = this.resolveDefaultHarness();
+    const harness = await this.resolveDefaultHarness();
     const chosen = (harness
       ? this.list().find((x) => x.harness === harness && x.execMode === mode)
       : undefined) ?? this.list().find((x) => x.execMode === mode);

@@ -40,9 +40,9 @@ describe("LocalAgentService.streamRun timeout", () => {
     cancelRun.mockResolvedValue(true);
 
     const svc = new LocalAgentService({
-      getSetting: (_key, schema, fallback) => schema.parse(fallback),
+      getSetting: async (_key, schema, fallback) => schema.parse(fallback),
     });
-    vi.spyOn(svc, "defaults").mockReturnValue({
+    vi.spyOn(svc, "defaults").mockResolvedValue({
       force: true,
       sandbox: false,
       timeoutMs: 30,

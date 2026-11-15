@@ -94,7 +94,7 @@ export abstract class AgentRunNode<
     const outcome = await this.run(
       ctx,
       this.inputSchema.parse(this.chatInput(content, model)) as I,
-      this.nodeConfig(ctx),
+      await this.nodeConfig(ctx),
     );
     return outcome.reply;
   }
@@ -106,8 +106,8 @@ export abstract class AgentRunNode<
    * there is nothing to converse with.
    */
   async converse(ctx: FlowCtx, content: string): Promise<string> {
-    const node = this.node(ctx);
-    const agentId = this.support.lastAgentId(node.id);
+    const node = await this.node(ctx);
+    const agentId = await this.support.lastAgentId(node.id);
     if (!agentId) {
       return `There's no ${this.label} agent to chat with yet — run the step first (or switch on refine mode), then ask me anything.`;
     }
@@ -148,9 +148,9 @@ export abstract class AgentRunNode<
       finalize: (result: AgentRunResult, _meta: ExecuteRunMeta) => Promise<RunOutcome>;
     }
   ): Promise<RunOutcome> {
-    const node = this.node(ctx);
-    const attemptId = node.attempt_id;
-    this.support.setNode(node.id, {
+    const node = await this.node(ctx);
+    const attemptId = node.attemptId;
+    await this.support.setNode(node.id, {
       input: JSON.stringify(opts.input),
     });
     const start = () =>
@@ -166,14 +166,14 @@ export abstract class AgentRunNode<
       });
     } catch (e) {
       if (e instanceof RunSupersededError) {
-        return this.supersededOutcome(ctx, opts.label);
+        return await this.supersededOutcome(ctx, opts.label);
       }
       throw e;
     }
   }
 
-  private supersededOutcome(ctx: FlowCtx, label: string): RunOutcome {
-    const current = this.node(ctx);
+  private async supersededOutcome(ctx: FlowCtx, label: string): Promise<RunOutcome> {
+    const current = await this.node(ctx);
     const output =
       current.output && typeof current.output === "object" ? current.output : {};
     return {

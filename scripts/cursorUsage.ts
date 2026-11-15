@@ -13,12 +13,11 @@
  *   agent ids stored without a prefix are retried as `agent-<uuid>` (the SDK
  *   requires 'agent-<uuid>' (local) or 'bc-<uuid>' (cloud)).
  */
-process.env.DATABASE_PATH ??= "./data/devflow.db";
 import { Agent, type AgentUsage } from "@cursor/sdk";
 import { db } from "../lib/db/app";
 import { cursorCredentials } from "../lib/integrations/cursor/credentials";
 
-const apiKey = cursorCredentials.apiKey();
+const apiKey = await cursorCredentials.apiKey();
 if (!apiKey) {
   console.error(
     "No Cursor API key stored — save one on Settings → Integrations → Harness.",
@@ -89,25 +88,25 @@ async function main() {
 
   if (dbMode) {
     const limit = Math.max(1, Number(args[1]) || 5);
-    const agents = db.all<{
-      agent_ref: string;
-      run_ref: string;
+    const agents = await db.all<{
+      agentRef: string;
+      runRef: string;
       status: string;
     }>(
-      `SELECT DISTINCT agent_ref, run_ref, status FROM runs
-       WHERE agent_ref IS NOT NULL ORDER BY created_at DESC LIMIT ?`,
+      `SELECT DISTINCT agent_ref AS "agentRef", run_ref AS "runRef", status FROM runs
+       WHERE agent_ref IS NOT NULL ORDER BY created_at DESC LIMIT $1`,
       limit,
     );
     if (!agents.length) {
       console.log("no runs with agent ids in the db");
       return;
     }
-    for (const { agent_ref, run_ref, status } of agents) {
-      const id = normalizeAgentId(agent_ref);
+    for (const { agentRef, runRef, status } of agents) {
+      const id = normalizeAgentId(agentRef);
       console.log(
-        `\n── agent ${id} (row id ${agent_ref}, run ${run_ref}, ${status})`,
+        `\n── agent ${id} (row id ${agentRef}, run ${runRef}, ${status})`,
       );
-      await probeInstance(id, run_ref);
+      await probeInstance(id, runRef);
       await probeStatic(id);
     }
     return;

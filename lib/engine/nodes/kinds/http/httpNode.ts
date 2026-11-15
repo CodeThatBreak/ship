@@ -73,8 +73,8 @@ export class HttpTemplateNode extends DeclarativeNode<HttpDef> {
 
   async run(ctx: FlowCtx, rawInput: Record<string, unknown>, config: Record<string, unknown>): Promise<RunOutcome> {
     const cfg = this.runConfig(config);
-    const node = this.node(ctx);
-    this.markRunning(ctx, { ...rawInput, mapped: true });
+    await this.node(ctx);
+    await this.markRunning(ctx, { ...rawInput, mapped: true });
     return this.executeStep(ctx, rawInput, cfg);
   }
 
@@ -87,7 +87,7 @@ export class HttpTemplateNode extends DeclarativeNode<HttpDef> {
   // ── internals ─────────────────────────────────────────────────────────────
 
   private async executeStep(ctx: FlowCtx, rawInput: Record<string, unknown>, cfg: HttpDef): Promise<RunOutcome> {
-    const node = this.node(ctx);
+    const node = await this.node(ctx);
     try {
       if (!cfg.url?.trim()) {
         throw new Error(`${this.label}: no URL configured — set one in the template editor`);
@@ -97,8 +97,8 @@ export class HttpTemplateNode extends DeclarativeNode<HttpDef> {
       const inherited = { ...(rawInput ?? {}) };
       delete inherited.prompt;
       delete inherited.model;
-      const vars = { ...buildFlowContext(ctx), input: inherited };
-      const secrets = secretStore.all();
+      const vars = { ...(await buildFlowContext(ctx)), input: inherited };
+      const secrets = await secretStore.all();
       const renderOpts = {
         label: this.label,
         resolveSecret: (name: string) => secrets[name],
@@ -120,7 +120,7 @@ export class HttpTemplateNode extends DeclarativeNode<HttpDef> {
         headers,
         body,
         timeoutMs: cfg.timeout_ms > 0 ? cfg.timeout_ms : 30_000,
-        allowlist: settingsService.httpAllowlist(),
+        allowlist: await settingsService.httpAllowlist(),
       });
 
       // parse the body: JSON when the content type says so, text otherwise
@@ -141,14 +141,14 @@ export class HttpTemplateNode extends DeclarativeNode<HttpDef> {
       };
       const output = await this.mapResponse(cfg, defaultOutput);
 
-      this.support.emitLifecycle(ctx.flow.id, node.id,
+      await this.support.emitLifecycle(ctx.flow.id, node.id,
         `${this.label}: ${cfg.method} → ${res.status}${res.ok ? "" : " (not ok)"}`,
         { url: secretStore.redact(url) });
 
-      return this.applyOutcome(ctx, this.finish(ctx, rawInput, output, res, defaultOutput));
+      return await this.applyOutcome(ctx, await this.finish(ctx, rawInput, output, res, defaultOutput));
     } catch (e: unknown) {
       const msg = this.renderErr(e instanceof Error ? e.message : String(e));
-      return this.applyOutcome(ctx, {
+      return await this.applyOutcome(ctx, {
         status: "failed",
         output: {},
         event: `${this.label} failed`,
@@ -175,15 +175,15 @@ export class HttpTemplateNode extends DeclarativeNode<HttpDef> {
     return r.value as Record<string, unknown>;
   }
 
-  private finish(
+  private async finish(
     ctx: FlowCtx,
     rawInput: Record<string, unknown>,
     output: Record<string, unknown>,
     res: { status: number; headers: Record<string, string> },
     defaultOutput: Record<string, unknown>,
-  ): RunOutcome {
+  ): Promise<RunOutcome> {
     const validated = this.outputSchema.parse(output);
-    const hold = this.holdsForApproval(ctx);
+    const hold = await this.holdsForApproval(ctx);
     const artifactBody = safeDigest(defaultOutput);
     return {
       status: hold ? "awaiting_approval" : "done",

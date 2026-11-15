@@ -1,9 +1,9 @@
-import { describe, expect, it } from "vitest";
-import { assignDatabasePath, createIsolatedDatabasePath } from "../../../tests/helpers/testDatabase";
+import { beforeAll, describe, expect, it } from "vitest";
+import { assignTestDatabase, resetTestDatabase } from "../../../tests/helpers/testDatabase";
 import { hydrateFlowTemplateGraph, serializeFlowTemplateGraph } from "./flowGraphSnapshot";
 import type { TemplateGraph } from "../types/template";
 
-assignDatabasePath(createIsolatedDatabasePath("devflow-flow-graph-snap-"));
+assignTestDatabase();
 
 const { importTemplateYaml } = await import("./templateYaml");
 const { templateStore } = await import("./templateStore");
@@ -24,29 +24,33 @@ edges:
 `;
 
 describe("flow template graph snapshot (CR-065)", () => {
-  it("graphForFlow keeps edges from creation after the live template changes", () => {
-    const { id: templateId } = importTemplateYaml(templateStore, miniYaml, { namePrefix: "snap" });
-    const before = templateStore.graph(templateId);
+  beforeAll(async () => {
+    await resetTestDatabase();
+  });
+
+  it("graphForFlow keeps edges from creation after the live template changes", async () => {
+    const { id: templateId } = await importTemplateYaml(templateStore, miniYaml, { namePrefix: "snap" });
+    const before = await templateStore.graph(templateId);
     expect(before?.edges).toEqual([{ from: "plan", to: "build", kind: "next", label: null, condition: null }]);
 
-    db.run(
-      `INSERT INTO tasks (id, type, key, summary, status, issue_type, priority) VALUES (?,?,?,?,?,?,?)`,
+    await db.run(
+      `INSERT INTO tasks (id, type, key, summary, status, issue_type, priority) VALUES ($1,$2,$3,$4,$5,$6,$7)`,
       "task_snap", "jira", "SNAP-1", "snap test", "open", "task", "P2",
     );
-    const flowId = flowEngine.create("task_snap", "https://example.com/repo.git", "snap flow", {
+    const flowId = await flowEngine.create("task_snap", "https://example.com/repo.git", "snap flow", {
       templateId,
       autoStart: false,
     });
 
-    db.run(`DELETE FROM flow_template_edges WHERE template_id=?`, templateId);
+    await db.run(`DELETE FROM flow_template_edges WHERE template_id=$1`, templateId);
 
-    const live = templateStore.graph(templateId);
+    const live = await templateStore.graph(templateId);
     expect(live?.edges).toEqual([]);
-    const frozen = templateStore.graphForFlow(flowId);
+    const frozen = await templateStore.graphForFlow(flowId);
     expect(frozen?.edges).toEqual(before?.edges);
   });
 
-  it("round-trips serialize/hydrate with byKey", () => {
+  it("round-trips serialize/hydrate with byKey", async () => {
     const graph: TemplateGraph = {
       templateId: "tpl_x",
       version: 1,

@@ -55,8 +55,8 @@ export class StartNode extends NodeDefinition<StartPayload, StartPayload> {
 
   /** the engine's auto-start input = whatever the flow trigger provided
    * (webhook delivery body / schedule fire payload — null for manual flows) */
-  override triggerRuns(ctx: FlowCtx): NodeTriggerRun[] {
-    return [{ input: (ctx.flow.trigger_payload as StartPayload | null) ?? {} }];
+  override async triggerRuns(ctx: FlowCtx): Promise<NodeTriggerRun[]> {
+    return [{ input: (ctx.flow.triggerPayload as StartPayload | null) ?? {} }];
   }
 
   async run(ctx: FlowCtx, input: StartPayload, config: Record<string, unknown>): Promise<RunOutcome> {
@@ -73,7 +73,7 @@ export class StartNode extends NodeDefinition<StartPayload, StartPayload> {
       output = v.values;
       event = `Flow started — publishing ${Object.keys(output).join(", ") || "no values"}`;
     }
-    return this.applyOutcome(ctx, {
+    return await this.applyOutcome(ctx, {
       output,
       status: "done",
       event,

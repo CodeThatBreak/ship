@@ -62,12 +62,20 @@ export const reviewCommentPostHash = (
   return createHash("sha256").update(payload).digest("hex");
 };
 
-export const readPostedCommentHashes = (metaJson: string | null | undefined): string[] => {
-  if (!metaJson) return [];
+export const readPostedCommentHashes = (meta: unknown): string[] => {
+  if (meta == null || meta === "") return [];
   try {
-    const meta = JSON.parse(metaJson) as { postedHashes?: unknown };
-    if (!Array.isArray(meta.postedHashes)) return [];
-    return meta.postedHashes.filter((h): h is string => typeof h === "string");
+    // artifact meta was a serialized JSON string pre-Postgres; the Json column
+    // now surfaces it already-parsed — tolerate both (legacy meta blobs keep
+    // their round-trip behavior)
+    const metaObj =
+      typeof meta === "string" ? (JSON.parse(meta) as unknown) : meta;
+    const postedHashes =
+      metaObj && typeof metaObj === "object"
+        ? (metaObj as { postedHashes?: unknown }).postedHashes
+        : undefined;
+    if (!Array.isArray(postedHashes)) return [];
+    return postedHashes.filter((h): h is string => typeof h === "string");
   } catch {
     return [];
   }

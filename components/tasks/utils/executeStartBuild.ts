@@ -20,7 +20,7 @@ export type StartBuildArgs = {
  */
 export const executeStartBuild = async (args: StartBuildArgs): Promise<string> => {
   const { task, repo, executionMode, templateId } = args;
-  if (executionMode === RUN_MODE.LOCAL && !repo.local_path) {
+  if (executionMode === RUN_MODE.LOCAL && !repo.localPath) {
     throw new Error(
       `"${repo.name}" has no local path — set one on the Settings page or run in cloud mode.`,
     );
@@ -34,7 +34,7 @@ export const executeStartBuild = async (args: StartBuildArgs): Promise<string> =
   }
   await patchJson<PatchTaskBody>(
     `/api/tasks/${mat.id}`,
-    JSON.stringify({ repoUrl: repo.cloud_url }),
+    JSON.stringify({ repoUrl: repo.cloudUrl }),
   );
   const flow = await postJson<CreateFlowBody>(
     "/api/flows",

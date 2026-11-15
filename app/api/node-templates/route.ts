@@ -10,7 +10,7 @@ export const runtime = "nodejs";
 /** The node-type catalog (built-ins + declarative), for the builder palette. */
 export const GET = async (req: Request) => {
   const templateId = new URL(req.url).searchParams.get("templateId") ?? undefined;
-  const payload = templateStore.paletteCatalog(templateId);
+  const payload = await templateStore.paletteCatalog(templateId);
   return NextResponse.json(payload);
 };
 
@@ -18,7 +18,7 @@ export const GET = async (req: Request) => {
 export const POST = async (req: Request) => {
   try {
     const body = await parseJson(req, nodeTemplateCreateBodySchema);
-    const nt = templateStore.createNodeTemplateFromRequest(body);
+    const nt = await templateStore.createNodeTemplateFromRequest(body);
     return NextResponse.json({ nodeTemplate: templateStore.toNodeCatalogRow(nt) });
   } catch (e: unknown) {
     return toErrorResponse(e);

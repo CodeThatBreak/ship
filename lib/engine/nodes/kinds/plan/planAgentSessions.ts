@@ -12,22 +12,22 @@ import { PlanOutput } from './schema';
 export class PlanAgentSessions {
   constructor(private readonly support: NodeSupport) {}
 
-  resolveFollowUp(node: NodeRow, branchRef: string | null): string | null {
+  async resolveFollowUp(node: NodeRow, branchRef: string | null): Promise<string | null> {
     if (branchRef) {
       return this.readBranchAgents(node)?.[branchRef] ?? null;
     }
-    return node.agent_id ?? this.support.lastAgentId(node.id);
+    return node.agentId ?? (await this.support.lastAgentId(node.id));
   }
 
-  recordAgent(ctx: FlowCtx, node: NodeRow, branchRef: string | null, agentId: string, wholeAgentId: string | null): void {
+  async recordAgent(ctx: FlowCtx, node: NodeRow, branchRef: string | null, agentId: string, wholeAgentId: string | null): Promise<void> {
     if (!branchRef) {
-      this.support.setNode(node.id, { agent_id: agentId });
+      await this.support.setNode(node.id, { agent_id: agentId });
       return;
     }
-    const nodeNow = this.support.nodeByKey(ctx.flow.id, node.node_key);
+    const nodeNow = await this.support.nodeByKey(ctx.flow.id, node.nodeKey);
     const branchAgents = { ...(this.readBranchAgents(nodeNow) ?? {}), [branchRef]: agentId };
     const merged = this.mergeBranchAgentsIntoOutput(nodeNow, branchAgents);
-    this.support.setNode(node.id, {
+    await this.support.setNode(node.id, {
       agent_id: wholeAgentId,
       output: merged,
     });

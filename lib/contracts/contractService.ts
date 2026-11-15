@@ -31,7 +31,7 @@ const promptSections = (keys: readonly string[]) =>
     .filter((s): s is NonNullable<typeof s> => s != null);
 
 export class ContractService {
-  resolve(params: ContractParams): Response {
+  async resolve(params: ContractParams): Promise<Response> {
     const defKey = params.def ?? "";
     const kindParam = params.kind ?? "";
     if (!defKey && !kindParam) {
@@ -44,12 +44,11 @@ export class ContractService {
         : null;
 
     if (!kindParam) {
-      const builtin =
-        nodeRegistry.maybe(defKey) ??
-        (() => {
-          const row = templateStore.nodeTemplate(defKey);
-          return row?.isBuiltin ? nodeRegistry.maybe(row.key) : undefined;
-        })();
+      let builtin = nodeRegistry.maybe(defKey);
+      if (!builtin) {
+        const row = await templateStore.nodeTemplate(defKey);
+        builtin = row?.isBuiltin ? nodeRegistry.maybe(row.key) : undefined;
+      }
       if (builtin) {
         const startFields = builtin.key === "start" ? parseStartContract(instanceConfig) : [];
         if (startFields.length) {
@@ -98,8 +97,8 @@ export class ContractService {
       };
     } else {
       const nt =
-        templateStore.nodeTemplate(defKey) ??
-        templateStore.listNodeTemplates().find((r) => !r.isBuiltin && r.key === defKey);
+        (await templateStore.nodeTemplate(defKey)) ??
+        (await templateStore.listNodeTemplates()).find((r) => !r.isBuiltin && r.key === defKey);
       if (!nt) return Response.json({ error: "unknown node type" }, { status: 404 });
       row = {
         id: nt.id,

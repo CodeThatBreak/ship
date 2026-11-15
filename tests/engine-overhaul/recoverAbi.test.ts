@@ -12,13 +12,14 @@
  *    recover() just returns false — safe today, pinned so the step-05 ABI
  *    ({kind:"manual"} instead of false) keeps them non-throwing.
  *
- * Runs against an isolated temp SQLite DB (AGENTS.md §1 — never a real DB).
+ * Runs against the isolated dockerized Postgres test database
+ * (AGENTS.md §1 — never a demo/real DB).
  */
-import { describe, expect, test } from "vitest";
-import { assignDatabasePath, createIsolatedDatabasePath } from "../helpers/testDatabase";
+import { beforeAll, describe, expect, test } from "vitest";
+import { assignTestDatabase, resetTestDatabase } from "../helpers/testDatabase";
 import { FlowHarness } from "../helpers/flowHarness";
 
-assignDatabasePath(createIsolatedDatabasePath("devflow-ovh-recover-abi-"));
+assignTestDatabase();
 
 const { db } = await import("@/lib/db/app");
 const { flowEngine } = await import("@/lib/engine/flowEngine");
@@ -27,12 +28,14 @@ const { nodeRegistry } = await import("@/lib/engine/nodes/registry");
 
 const harness = new FlowHarness({ db, flowEngine, templateStore });
 
+beforeAll(resetTestDatabase);
+
 type NodeRow = import("@/lib/db/rows").NodeRow;
 
 /** A node row recover() reads (resolved through the engine's own graph). */
-const nodeRowOf = (flowId: string, nodeKey: string): NodeRow => {
-  const row = db.get<Record<string, unknown>>(
-    `SELECT * FROM nodes WHERE flow_id=? AND node_key=?`,
+const nodeRowOf = async (flowId: string, nodeKey: string): Promise<NodeRow> => {
+  const row = await db.get<Record<string, unknown>>(
+    `SELECT * FROM nodes WHERE flow_id=$1 AND node_key=$2`,
     flowId, nodeKey,
   );
   if (!row) throw new Error(`no node row for ${flowId}/${nodeKey}`);
@@ -40,8 +43,9 @@ const nodeRowOf = (flowId: string, nodeKey: string): NodeRow => {
 };
 
 /** Resolve the def for one of the flow's nodes through the engine's registry. */
-const defOfNode = (flowId: string, nodeKey: string) => {
-  const spec = harness.graphForFlow(flowId)?.byKey.get(nodeKey);
+const defOfNode = async (flowId: string, nodeKey: string) => {
+  const graph = await harness.graphForFlow(flowId);
+  const spec = graph?.byKey.get(nodeKey);
   if (!spec) throw new Error(`no graph node ${nodeKey} on ${flowId}`);
   return nodeRegistry.resolve(spec.defKey, nodeKey);
 };
@@ -50,7 +54,7 @@ describe("recover() never throws out of the reconciler", () => {
   // OVERHAUL: flip in step 05
   test.fails("agent recover() with a contract-violating recorded result resolves, never throws", async () => {
     // a declarative json-output agent node (its contract the recover re-parse enforces)
-    const flowId = harness.seedInlineFlow(
+    const flowId = await harness.seedInlineFlow(
       [
         {
           key: "triage",
@@ -69,9 +73,9 @@ describe("recover() never throws out of the reconciler", () => {
       ],
       [],
     );
-    const ctx = flowEngine.ctx(flowId);
-    const node = nodeRowOf(flowId, "triage");
-    const def = defOfNode(flowId, "triage");
+    const ctx = await flowEngine.ctx(flowId);
+    const node = await nodeRowOf(flowId, "triage");
+    const def = await defOfNode(flowId, "triage");
     // a finished result whose text violates the agent's JSON output contract
     await expect(
       def.recover(ctx, node, { status: "finished", result: "not json at all" }, "reconcile"),
@@ -80,7 +84,7 @@ describe("recover() never throws out of the reconciler", () => {
 
   // OVERHAUL: flip in step 05
   test.fails("decision recover() with a malformed recorded result resolves, never throws", async () => {
-    const flowId = harness.seedInlineFlow(
+    const flowId = await harness.seedInlineFlow(
       [
         {
           key: "pick",
@@ -94,9 +98,9 @@ describe("recover() never throws out of the reconciler", () => {
       ],
       [],
     );
-    const ctx = flowEngine.ctx(flowId);
-    const node = nodeRowOf(flowId, "pick");
-    const def = defOfNode(flowId, "pick");
+    const ctx = await flowEngine.ctx(flowId);
+    const node = await nodeRowOf(flowId, "pick");
+    const def = await defOfNode(flowId, "pick");
     await expect(
       def.recover(ctx, node, { status: "finished", result: "totally unparseable" }, "reconcile"),
     ).resolves.not.toThrow();
@@ -104,10 +108,10 @@ describe("recover() never throws out of the reconciler", () => {
 
   // OVERHAUL: flip in step 05 (already safe today — pinned for the ABI change)
   test("review recover() returns false (not a throw) — the always-false kinds stay safe", async () => {
-    const flowId = harness.seedSdlcFlow();
-    const ctx = flowEngine.ctx(flowId);
-    const node = nodeRowOf(flowId, "review");
-    const def = defOfNode(flowId, "review");
+    const flowId = await harness.seedSdlcFlow();
+    const ctx = await flowEngine.ctx(flowId);
+    const node = await nodeRowOf(flowId, "review");
+    const def = await defOfNode(flowId, "review");
     await expect(
       def.recover(ctx, node, { status: "finished", result: "[]" }, "reconcile"),
     ).resolves.toBe(false);

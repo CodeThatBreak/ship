@@ -21,15 +21,15 @@ import type {
 import type { NodeRow, TemplateRow } from "@/types/templates";
 
 /** Registered task providers — the same serialization GET /api/tasks/providers does. */
-function registeredProviders(): EditorTaskProvider[] {
+async function registeredProviders(): Promise<EditorTaskProvider[]> {
   return taskRegistry.describe();
 }
 
-/** Registered repos — the editor's Bound-repo picker slice (id/name/local_path). */
-function registeredRepos(): EditorRepoChoice[] {
-  return db
-    .listRepos()
-    .map((r) => ({ id: r.id, name: r.name, local_path: r.local_path ?? null }));
+/** Registered repos — the editor's Bound-repo picker slice (id/name/localPath). */
+async function registeredRepos(): Promise<EditorRepoChoice[]> {
+  return (await db
+    .listRepos())
+    .map((r) => ({ id: r.id, name: r.name, localPath: r.localPath ?? null }));
 }
 
 export interface EditorBoot {
@@ -45,15 +45,15 @@ export interface EditorBoot {
  * All first-paint editor data in one read. Null when the template id is
  * unknown — the route renders notFound() instead of the editor island.
  */
-export function loadEditorBoot(templateId: string): EditorBoot | null {
-  if (!templateStore.flowTemplate(templateId)) return null;
-  const detail = templateStore.editorPayload(templateId);
+export async function loadEditorBoot(templateId: string): Promise<EditorBoot | null> {
+  if (!(await templateStore.flowTemplate(templateId))) return null;
+  const detail = await templateStore.editorPayload(templateId);
   if (!detail) return null;
   return {
     detail,
-    catalog: templateStore.paletteCatalog(templateId),
-    providers: registeredProviders(),
-    repos: registeredRepos(),
+    catalog: await templateStore.paletteCatalog(templateId),
+    providers: await registeredProviders(),
+    repos: await registeredRepos(),
   };
 }
 
@@ -62,8 +62,18 @@ export function loadEditorBoot(templateId: string): EditorBoot | null {
  * `/api/templates` GET wraps (no HTTP hop). The client island hydrates it
  * into TanStack Query as `initialData`.
  */
-export function loadTemplateGallery(): TemplateRow[] {
-  return templateStore.list();
+export async function loadTemplateGallery(): Promise<TemplateRow[]> {
+  return (await templateStore.list()).map((t) => ({
+    id: t.id,
+    name: t.name,
+    description: t.description,
+    version: t.version,
+    is_builtin: t.isBuiltin ? 1 : 0,
+    trigger: t.trigger,
+    nodeCount: t.nodeCount,
+    created_at: t.createdAt,
+    updated_at: t.updatedAt,
+  }));
 }
 
 /**
@@ -71,6 +81,6 @@ export function loadTemplateGallery(): TemplateRow[] {
  * thin `/api/node-templates` GET wraps, including its
  * `is_builtin`/`is_local` serialization.
  */
-export function loadNodeCatalog(): NodeRow[] {
+export async function loadNodeCatalog(): Promise<NodeRow[]> {
   return templateStore.listNodeCatalogRows();
 }

@@ -10,17 +10,10 @@
  * lazily by lib/config.ts, so setting it before the first `db` import
  * isolates the singleton (AGENTS.md §1 — never a real database).
  */
-import fs from "node:fs";
-import os from "node:os";
-import path from "node:path";
-import { describe, expect, it } from "vitest";
+import { beforeAll, describe, expect, it } from "vitest";
 
 // Must run before any `db` import touches the connection — dynamic imports
 // below execute in statement order after the static ones hoist.
-process.env.DATABASE_PATH = path.join(
-  fs.mkdtempSync(path.join(os.tmpdir(), "devflow-split-contracts-")),
-  "test.db",
-);
 
 import {
   DEFAULT_SPLIT_CONSUME,
@@ -36,9 +29,15 @@ import {
 } from "./split";
 import type { StartContractField } from "../kinds/start/contract";
 
+import { assignTestDatabase, resetTestDatabase } from "../../../../tests/helpers/testDatabase";
+
+assignTestDatabase();
+
 const { templateStore } = await import("../../templates/templateStore");
 const { flowSplitTargetLookup } = await import("./splitLookup");
 const { AgentDefSchema } = await import("../declarativeSchemas");
+
+beforeAll(resetTestDatabase);
 
 /** A required row: throws instead of a `!` assertion (AGENTS.md §3.4). */
 function must<T>(row: T | undefined, what: string): T {
@@ -56,49 +55,49 @@ const unit = (key: string, dependsOn: string[] = []): SplitUnit => ({
 describe("resolveSplitTarget", () => {
   const nodeOnly: SplitTargetLookup = {
     isNodeKey: (k) => k === "build",
-    template: () => null,
+    template: () => Promise.resolve(null),
   };
   const templateOnly: SplitTargetLookup = {
     isNodeKey: () => false,
-    template: (k) => (k === "nt_docs" || k === "docs" ? { id: "nt_docs" } : null),
+    template: async (k) => (k === "nt_docs" || k === "docs" ? { id: "nt_docs" } : null),
   };
 
-  it("resolves a node key to a node target", () => {
-    expect(resolveSplitTarget("build", nodeOnly)).toEqual({ kind: "node", key: "build" });
+  it("resolves a node key to a node target", async () => {
+    await expect(resolveSplitTarget("build", nodeOnly)).resolves.toEqual({ kind: "node", key: "build" });
   });
 
-  it("resolves a template id (and catalog key) to a template target with the row id", () => {
-    expect(resolveSplitTarget("nt_docs", templateOnly)).toEqual({ kind: "template", id: "nt_docs" });
-    expect(resolveSplitTarget("docs", templateOnly)).toEqual({ kind: "template", id: "nt_docs" });
+  it("resolves a template id (and catalog key) to a template target with the row id", async () => {
+    await expect(resolveSplitTarget("nt_docs", templateOnly)).resolves.toEqual({ kind: "template", id: "nt_docs" });
+    await expect(resolveSplitTarget("docs", templateOnly)).resolves.toEqual({ kind: "template", id: "nt_docs" });
   });
 
-  it("throws the typed error when a target matches both registries (ambiguity)", () => {
+  it("throws the typed error when a target matches both registries (ambiguity)", async () => {
     const both: SplitTargetLookup = {
       isNodeKey: (k) => k === "build",
-      template: (k) => (k === "build" ? { id: "nt_build" } : null),
+      template: async (k) => (k === "build" ? { id: "nt_build" } : null),
     };
-    expect(() => resolveSplitTarget("build", both)).toThrow(SplitTargetError);
-    expect(() => resolveSplitTarget("build", both)).toThrow(/ambiguous/);
+    await expect(resolveSplitTarget("build", both)).rejects.toThrow(SplitTargetError);
+    await expect(resolveSplitTarget("build", both)).rejects.toThrow(/ambiguous/);
   });
 
-  it("throws the typed error for an unknown target", () => {
-    expect(() => resolveSplitTarget("nope", nodeOnly)).toThrow(SplitTargetError);
-    expect(() => resolveSplitTarget("nope", nodeOnly)).toThrow(/unknown split target/);
+  it("throws the typed error for an unknown target", async () => {
+    await expect(resolveSplitTarget("nope", nodeOnly)).rejects.toThrow(SplitTargetError);
+    await expect(resolveSplitTarget("nope", nodeOnly)).rejects.toThrow(/unknown split target/);
   });
 
-  it("resolves against the real singletons: builtin key → node, created template row → template", () => {
-    expect(resolveSplitTarget("build", flowSplitTargetLookup)).toEqual({ kind: "node", key: "build" });
-    const row = templateStore.createNodeTemplate({
+  it("resolves against the real singletons: builtin key → node, created template row → template", async () => {
+    await expect(resolveSplitTarget("build", flowSplitTargetLookup)).resolves.toEqual({ kind: "node", key: "build" });
+    const row = await templateStore.createNodeTemplate({
       key: "docs_writer",
       name: "Docs Writer",
       kind: "agent",
       config: {},
     });
-    expect(resolveSplitTarget(must(row, "created node template").id, flowSplitTargetLookup))
-      .toEqual({ kind: "template", id: row.id });
-    expect(resolveSplitTarget("docs_writer", flowSplitTargetLookup))
-      .toEqual({ kind: "template", id: row.id });
-    expect(flowSplitTargetLookup.template("nt_missing")).toBeNull();
+    await expect(resolveSplitTarget(must(row, "created node template").id, flowSplitTargetLookup))
+      .resolves.toEqual({ kind: "template", id: row.id });
+    await expect(resolveSplitTarget("docs_writer", flowSplitTargetLookup))
+      .resolves.toEqual({ kind: "template", id: row.id });
+    await expect(flowSplitTargetLookup.template("nt_missing")).resolves.toBeNull();
   });
 });
 
@@ -261,24 +260,24 @@ describe("template-lint — agent split rules", () => {
     split: { field: "services", key_field: "id", depends_on_field: "title" },
   };
 
-  it("a well-formed split lints clean", () => {
-    expect(lintAgentSplit(VALID).error).toBeNull();
+  it("a well-formed split lints clean", async () => {
+    expect((await lintAgentSplit(VALID)).error).toBeNull();
   });
 
-  it("split on a markdown agent is flagged (no array to iterate)", () => {
-    const lint = lintAgentSplit({ ...VALID, output_schema: null, split: { field: "services" }, output: "markdown" });
+  it("split on a markdown agent is flagged (no array to iterate)", async () => {
+    const lint = await lintAgentSplit({ ...VALID, output_schema: null, split: { field: "services" }, output: "markdown" });
     expect(lint.problems.some((p) => /set output to json/.test(p.message))).toBe(true);
   });
 
-  it("a blank or undeclared split.field is flagged", () => {
-    const blank = lintAgentSplit({ ...VALID, split: { key_field: "id" } });
+  it("a blank or undeclared split.field is flagged", async () => {
+    const blank = await lintAgentSplit({ ...VALID, split: { key_field: "id" } });
     expect(blank.problems.some((p) => /split.field is required/.test(p.message))).toBe(true);
-    const missing = lintAgentSplit({ ...VALID, split: { ...VALID.split, field: "nope" } });
+    const missing = await lintAgentSplit({ ...VALID, split: { ...VALID.split, field: "nope" } });
     expect(missing.problems.some((p) => /"nope" is not declared in the output schema/.test(p.message))).toBe(true);
   });
 
-  it("a non-array split.field is flagged — a unit source iterates an array", () => {
-    const lint = lintAgentSplit({
+  it("a non-array split.field is flagged — a unit source iterates an array", async () => {
+    const lint = await lintAgentSplit({
       ...VALID,
       output_schema: { type: "object", properties: { cost: { type: "integer" } } },
       split: { field: "cost", key_field: "id" },
@@ -286,31 +285,31 @@ describe("template-lint — agent split rules", () => {
     expect(lint.problems.some((p) => /"cost" must be an array/.test(p.message))).toBe(true);
   });
 
-  it("per-item paths must resolve in the array's element shape (defaults included)", () => {
+  it("per-item paths must resolve in the array's element shape (defaults included)", async () => {
     // the explicit selector misses the element fields
-    const explicit = lintAgentSplit({ ...VALID, split: { field: "services", key_field: "key" } });
+    const explicit = await lintAgentSplit({ ...VALID, split: { field: "services", key_field: "key" } });
     expect(explicit.problems.some((p) => /split.key_field "key" .* element fields: id, title/.test(p.message))).toBe(true);
     // the DEFAULT key_field ("key") is checked too when the author never set it
-    const defaulted = lintAgentSplit({ output: "json", output_schema: SPLIT_SOURCE_SCHEMA, split: { field: "services" } });
+    const defaulted = await lintAgentSplit({ output: "json", output_schema: SPLIT_SOURCE_SCHEMA, split: { field: "services" } });
     expect(defaulted.problems.some((p) => /split.key_field "key"/.test(p.message))).toBe(true);
   });
 
-  it("an unresolvable default target is flagged with the resolver's message", () => {
-    const lint = lintAgentSplit({ ...VALID, split: { ...VALID.split, target: "nope" } });
+  it("an unresolvable default target is flagged with the resolver's message", async () => {
+    const lint = await lintAgentSplit({ ...VALID, split: { ...VALID.split, target: "nope" } });
     expect(lint.problems.some((p) => /unknown split target "nope"/.test(p.message))).toBe(true);
   });
 
-  it("a resolvable target is clean; a template target's start contract must accept the item shape", () => {
+  it("a resolvable target is clean; a template target's start contract must accept the item shape", async () => {
     const docs = must(
-      templateStore.createNodeTemplate({ key: "docs_target", name: "Docs", kind: "agent", config: {} }),
+      await templateStore.createNodeTemplate({ key: "docs_target", name: "Docs", kind: "agent", config: {} }),
       "created target row",
     );
-    expect(lintAgentSplit({ ...VALID, split: { ...VALID.split, target: docs.id } }).error).toBeNull();
+    expect((await lintAgentSplit({ ...VALID, split: { ...VALID.split, target: docs.id } })).error).toBeNull();
 
     // a target with a strict start contract: the unit items must provide its
     // required fields and carry nothing outside it
     const strict = must(
-      templateStore.createNodeTemplate({
+      await templateStore.createNodeTemplate({
         key: "strict_target",
         name: "Strict",
         kind: "agent",
@@ -318,7 +317,7 @@ describe("template-lint — agent split rules", () => {
       }),
       "created strict row",
     );
-    const lint = lintAgentSplit({ ...VALID, split: { ...VALID.split, target: strict.id } });
+    const lint = await lintAgentSplit({ ...VALID, split: { ...VALID.split, target: strict.id } });
     expect(lint.problems.some((p) => /don't declare \["service"\]/.test(p.message))).toBe(true);
     expect(lint.problems.some((p) => /outside the target template.*start contract \(strict shape\): id, title/.test(p.message))).toBe(true);
   });

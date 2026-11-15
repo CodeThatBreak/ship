@@ -9,7 +9,7 @@ export const runtime = "nodejs";
 
 export const GET = async () => {
   return NextResponse.json({
-    repos: repoService.listWithPathStatus(),
+    repos: await repoService.listWithPathStatus(),
     server_home: process.env.HOME ?? "",
   });
 };
@@ -17,7 +17,7 @@ export const GET = async () => {
 export const POST = async (req: Request) => {
   try {
     const body = await parseJson(req, repoCreateBodySchema);
-    const repo = repoService.create(body);
+    const repo = await repoService.create(body);
     return NextResponse.json({ repo });
   } catch (e: unknown) {
     return toErrorResponse(e);

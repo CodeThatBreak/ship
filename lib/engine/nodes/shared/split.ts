@@ -61,7 +61,7 @@ export interface SplitTargetLookup {
   isNodeKey(key: string): boolean;
   /** the declarative `node_templates` row matching an id or catalog key
    *  (builtin knob-override rows are NOT targets), or null */
-  template(idOrKey: string): { id: string } | null;
+  template(idOrKey: string): Promise<{ id: string } | null>;
 }
 
 /**
@@ -71,9 +71,9 @@ export interface SplitTargetLookup {
  * so a collision means a broken authoring surface; assert it. Unknown
  * targets are equally loud.
  */
-export function resolveSplitTarget(target: string, lookup: SplitTargetLookup): SplitTarget {
+export async function resolveSplitTarget(target: string, lookup: SplitTargetLookup): Promise<SplitTarget> {
   const isNode = lookup.isNodeKey(target);
-  const row = lookup.template(target);
+  const row = await lookup.template(target);
   if (isNode && row) {
     throw new SplitTargetError(
       `split target "${target}" is ambiguous — it matches both a node key and a node template ("${row.id}")`

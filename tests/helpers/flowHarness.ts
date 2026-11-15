@@ -57,9 +57,9 @@ export class FlowHarness {
    * and local-worktree helpers resolve it. Uses the repo service the engine
    * reads (`db.listRepos` / `repoByCloudUrl`). Idempotent per harness.
    */
-  registerRepoWithLocalPath(localPath: string): void {
-    const existing = this.deps.db.get<{ id: string }>(
-      `SELECT id FROM repos WHERE cloud_url=?`,
+  async registerRepoWithLocalPath(localPath: string): Promise<void> {
+    const existing = await this.deps.db.get<{ id: string }>(
+      `SELECT id FROM repos WHERE cloud_url=$1`,
       this.repoUrl,
     );
     if (existing) {
@@ -67,8 +67,8 @@ export class FlowHarness {
       return;
     }
     this.repoId = this.deps.db.uid("repo_");
-    this.deps.db.run(
-      `INSERT INTO repos (id, name, cloud_url, local_path, created_at, updated_at) VALUES (?,?,?,?,?,?)`,
+    await this.deps.db.run(
+      `INSERT INTO repos (id, name, cloud_url, local_path, created_at, updated_at) VALUES ($1,$2,$3,$4,$5,$6)`,
       this.repoId, "overhaul repo", this.repoUrl, localPath, this.deps.db.now(), this.deps.db.now(),
     );
   }
@@ -77,7 +77,7 @@ export class FlowHarness {
    * Seed a task + flow on the built-in SDLC template. `create()` does not
    * auto-start the manual plan node, so the flow sits at pending plan.
    */
-  seedSdlcFlow(): string {
+  async seedSdlcFlow(): Promise<string> {
     return this.seedFlowFromTemplate(null);
   }
 
@@ -88,9 +88,9 @@ export class FlowHarness {
    * rejection would hide the seam under test (the lint itself has its own
    * red test).
    */
-  seedInlineFlow(nodes: InlineNodeInput[], edges: InlineEdgeInput[]): string {
+  async seedInlineFlow(nodes: InlineNodeInput[], edges: InlineEdgeInput[]): Promise<string> {
     this.flowCounter += 1;
-    const templateId = this.deps.templateStore.create(
+    const templateId = await this.deps.templateStore.create(
       {
         name: `overhaul harness ${this.flowCounter}`,
         trigger: { type: "manual", task_type: "jira" },
@@ -115,11 +115,11 @@ export class FlowHarness {
   }
 
   /** Seed a task + flow on a stored template (YAML-imported or inline-created). */
-  seedFlowFromTemplate(templateId: string | null): string {
+  async seedFlowFromTemplate(templateId: string | null): Promise<string> {
     this.flowCounter += 1;
     const taskId = `task_overhaul_${this.flowCounter}`;
-    this.deps.db.run(
-      `INSERT INTO tasks (id, type, key, summary, status, issue_type, priority) VALUES (?,?,?,?,?,?,?)`,
+    await this.deps.db.run(
+      `INSERT INTO tasks (id, type, key, summary, status, issue_type, priority) VALUES ($1,$2,$3,$4,$5,$6,$7)`,
       taskId, "jira", `OVH-${this.flowCounter}`, "overhaul harness task", "open", "task", "P2",
     );
     return this.deps.flowEngine.create(taskId, this.repoUrl, `overhaul harness ${this.flowCounter}`, {
@@ -130,37 +130,38 @@ export class FlowHarness {
 
   // ── read handles (SQL reads only — never a write path) ─────────────────────
 
-  nodeStatus(flowId: string, nodeKey: string): string {
-    const row = this.deps.db.get<{ status: string }>(
-      `SELECT status FROM nodes WHERE flow_id=? AND node_key=?`,
+  async nodeStatus(flowId: string, nodeKey: string): Promise<string> {
+    const row = await this.deps.db.get<{ status: string }>(
+      `SELECT status FROM nodes WHERE flow_id=$1 AND node_key=$2`,
       flowId, nodeKey,
     );
     if (!row) throw new Error(`harness: no node row for ${flowId}/${nodeKey}`);
     return row.status;
   }
 
-  nodeOutput(flowId: string, nodeKey: string): Record<string, unknown> | null {
-    const row = this.deps.db.get<{ output: string | null }>(
-      `SELECT output FROM nodes WHERE flow_id=? AND node_key=?`,
+  async nodeOutput(flowId: string, nodeKey: string): Promise<Record<string, unknown> | null> {
+    const row = await this.deps.db.get<{ output: unknown }>(
+      `SELECT output FROM nodes WHERE flow_id=$1 AND node_key=$2`,
       flowId, nodeKey,
     );
     if (!row) throw new Error(`harness: no node row for ${flowId}/${nodeKey}`);
-    if (row.output == null) return null;
-    const parsed: unknown = JSON.parse(row.output);
-    if (parsed == null || typeof parsed !== "object" || Array.isArray(parsed)) {
+    // jsonb columns come back already parsed — shape-check, never re-parse
+    const parsed: unknown = row.output;
+    if (parsed == null) return null;
+    if (typeof parsed !== "object" || Array.isArray(parsed)) {
       throw new Error(`harness: ${nodeKey} output is not an object`);
     }
     return parsed as Record<string, unknown>;
   }
 
   /** Feed events (optionally one node, one type) in creation order. */
-  events(flowId: string, filter: { nodeKey?: string; type?: string } = {}): { type: string; message: string }[] {
-    const nodeId = filter.nodeKey ? this.nodeIdOf(flowId, filter.nodeKey) : undefined;
-    const rows = this.deps.db.all<{ type: string; message: string }>(
+  async events(flowId: string, filter: { nodeKey?: string; type?: string } = {}): Promise<{ type: string; message: string }[]> {
+    const nodeId = filter.nodeKey ? await this.nodeIdOf(flowId, filter.nodeKey) : undefined;
+    const rows = await this.deps.db.all<{ type: string; message: string }>(
       `SELECT type, message FROM events
-       WHERE flow_id=?
-         AND (? IS NULL OR node_id = ?)
-         AND (? IS NULL OR type = ?)
+       WHERE flow_id=$1
+         AND ($2::text IS NULL OR node_id = $3)
+         AND ($4::text IS NULL OR type = $5)
        ORDER BY created_at, id`,
       flowId,
       nodeId ?? null,
@@ -176,7 +177,7 @@ export class FlowHarness {
    *  startNodeStage, or the harness's stage helpers below). Raw status writes
    *  are exactly what the transition-authority step owns, so the harness
    *  never exposes one. */
-  graphForFlow(flowId: string): TemplateGraph | null {
+  async graphForFlow(flowId: string): Promise<TemplateGraph | null> {
     return this.deps.templateStore.graphForFlow(flowId);
   }
 
@@ -211,29 +212,29 @@ export class FlowHarness {
    * assertions still read through the engine's own state transitions. Mirrors
    * the direct status writes the repo's existing engine tests do inline.
    */
-  setNodeForFixture(flowId: string, nodeKey: string, status: string): void {
-    this.deps.db.run(
-      `UPDATE nodes SET status=?, updated_at=? WHERE flow_id=? AND node_key=?`,
+  async setNodeForFixture(flowId: string, nodeKey: string, status: string): Promise<void> {
+    await this.deps.db.run(
+      `UPDATE nodes SET status=$1, updated_at=$2 WHERE flow_id=$3 AND node_key=$4`,
       status, this.deps.db.now(), flowId, nodeKey,
     );
   }
 
   /** Fixture setup ONLY: place a node terminal with an output (decision picks). */
-  setNodeOutputForFixture(
+  async setNodeOutputForFixture(
     flowId: string,
     nodeKey: string,
     status: string,
     output: Record<string, unknown>,
-  ): void {
-    this.deps.db.run(
-      `UPDATE nodes SET status=?, output=?, updated_at=? WHERE flow_id=? AND node_key=?`,
+  ): Promise<void> {
+    await this.deps.db.run(
+      `UPDATE nodes SET status=$1, output=$2, updated_at=$3 WHERE flow_id=$4 AND node_key=$5`,
       status, JSON.stringify(output), this.deps.db.now(), flowId, nodeKey,
     );
   }
 
-  private nodeIdOf(flowId: string, nodeKey: string): string {
-    const row = this.deps.db.get<{ id: string }>(
-      `SELECT id FROM nodes WHERE flow_id=? AND node_key=?`,
+  private async nodeIdOf(flowId: string, nodeKey: string): Promise<string> {
+    const row = await this.deps.db.get<{ id: string }>(
+      `SELECT id FROM nodes WHERE flow_id=$1 AND node_key=$2`,
       flowId, nodeKey,
     );
     if (!row) throw new Error(`harness: no node row for ${flowId}/${nodeKey}`);
@@ -244,10 +245,14 @@ export class FlowHarness {
 /** Poll a read model until the engine's background work settles (or fail
  *  loudly). Mirrors the `until` helper in flowEngineChatAndManual.test.ts —
  *  the repo's existing answer to fire-and-forget `bg()`. */
-export async function until(cond: () => boolean, what: string, timeoutMs = 3_000): Promise<void> {
+export async function until(
+  cond: () => boolean | Promise<boolean>,
+  what: string,
+  timeoutMs = 3_000,
+): Promise<void> {
   const deadline = Date.now() + timeoutMs;
   for (;;) {
-    if (cond()) return;
+    if (await cond()) return;
     if (Date.now() > deadline) throw new Error(`harness: timed out waiting for ${what}`);
     await new Promise((r) => setTimeout(r, 10));
   }

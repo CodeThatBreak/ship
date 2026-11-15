@@ -52,26 +52,6 @@ import { NODE_KEYS } from '../lib/engine/constants/nodeKeys';
 
 // ── runtime stubs ─────────────────────────────────────────────────────────────
 const capturedSpecs: string[] = [];
-// Patch the registered cloud port in place (the engine resolves it via
-// agentPortRegistry.forMode("cloud") — see CursorCloudAgentPort registration).
-const cloud = agentPortRegistry.forMode('cloud');
-Object.assign(cloud, {
-  start(spec: AgentStartSpec): Promise<AgentStarted> {
-    capturedSpecs.push(spec.prompt);
-    return Promise.resolve({ agentId: 'fixture-agent', runId: 'fixture-run' });
-  },
-  stream(): Promise<AgentStreamOutcome> {
-    return Promise.resolve({
-      result: {
-        status: 'finished',
-        result: 'FIXTURE RUN RESULT',
-        sessionId: 'fixture-session',
-        durationMs: 10,
-        usage: null,
-      },
-    });
-  },
-} satisfies Partial<AgentPort>);
 const usageAccess = usageTracker as unknown as Record<string, unknown>;
 usageAccess.captureRunUsage = async (): Promise<RunCostSummary> => ({});
 usageAccess.persistUsage = (): void => {};
@@ -96,13 +76,13 @@ const throwNo = async (): Promise<never> => {
 const fixtureHost: GitHostService = {
   kind: 'fixture',
   label: 'Fixture',
-  configured: () => true,
-  ownsRepo: (u: string) => u === FIXTURE_REPO_URL,
+  configured: () => Promise.resolve(true),
+  ownsRepo: (u: string) => Promise.resolve(u === FIXTURE_REPO_URL),
   clientForRepo: noop as unknown as GitHostService['clientForRepo'],
-  authedCloneUrl: (u: string) => u,
-  gitAuthEnv: () => ({}),
-  gitRedactValues: () => [],
-  instances: () => [],
+  authedCloneUrl: (u: string) => Promise.resolve(u),
+  gitAuthEnv: () => Promise.resolve({}),
+  gitRedactValues: () => Promise.resolve([]),
+  instances: () => Promise.resolve([]),
   addInstance: noop as unknown as GitHostService['addInstance'],
   updateInstance: noop as unknown as GitHostService['updateInstance'],
   removeInstance: noop as unknown as GitHostService['removeInstance'],
@@ -143,17 +123,44 @@ interface RowResult {
   note: string;
 }
 
+// Raw reads alias the snake_case columns to the camelCase row keys (Q11).
+const FLOW_BY_ID = `SELECT id, task_id AS "taskId", name, status, mr_url AS "mrUrl", mr_iid AS "mrIid", mr_branch AS "mrBranch", repo_url AS "repoUrl", gitlab_project_id AS "gitlabProjectId", current_node AS "currentNode", execution_mode AS "executionMode", repo_id AS "repoId", template_id AS "templateId", template_graph AS "templateGraph", trigger_payload AS "triggerPayload", worktree_dir AS "worktreeDir", parent_flow_id AS "parentFlowId", kind, created_at AS "createdAt", updated_at AS "updatedAt" FROM flows WHERE id=$1`;
+const TASK_BY_ID = `SELECT id, type, key, summary, description, status, issue_type AS "issueType", priority, repo_url AS "repoUrl", parent_key AS "parentKey", external_url AS "externalUrl", raw, synced_at AS "syncedAt", fields FROM tasks WHERE id=$1`;
+const NODE_BY_KEY = `SELECT id, flow_id AS "flowId", node_key AS "nodeKey", type, status, attempt_id AS "attemptId", agent_id AS "agentId", agent_ref AS "agentRef", session_id AS "sessionId", prompt_override AS "promptOverride", label, config, join_mode AS "joinMode", input, output, created_at AS "createdAt", updated_at AS "updatedAt" FROM nodes WHERE flow_id=$1 AND node_key=$2`;
+
 async function main(): Promise<void> {
   gitHostRegistry.register(fixtureHost); // unique kind — the scratch db is fresh
+
+  // Patch the registered cloud port in place (the engine resolves it via
+  // agentPortRegistry.forMode("cloud") — see CursorCloudAgentPort registration).
+  const cloud = await agentPortRegistry.forMode('cloud');
+  Object.assign(cloud, {
+    start(spec: AgentStartSpec): Promise<AgentStarted> {
+      capturedSpecs.push(spec.prompt);
+      return Promise.resolve({ agentId: 'fixture-agent', runId: 'fixture-run' });
+    },
+    stream(): Promise<AgentStreamOutcome> {
+      return Promise.resolve({
+        result: {
+          status: 'finished',
+          result: 'FIXTURE RUN RESULT',
+          sessionId: 'fixture-session',
+          durationMs: 10,
+          usage: null,
+        },
+      });
+    },
+  } satisfies Partial<AgentPort>);
 
   // ── fixture DB rows ────────────────────────────────────────────────────────
   const now = () => new Date().toISOString();
   const taskId = 'PARITY-1';
-  db.run(
-    `INSERT INTO tasks (id, type, fields, key, summary, description, status, issue_type) VALUES (?,?,?,?,?,?,?,?)`,
+  await db.run(
+    `INSERT INTO tasks (id, type, fields, key, summary, description, status, issue_type) VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
     taskId,
     'jira',
-    JSON.stringify({ prd: '# PRD\nparity fixture PRD' }),
+    // JSONB column: bind the payload object directly (no JSON.stringify)
+    { prd: '# PRD\nparity fixture PRD' },
     taskId,
     'Parity fixture ticket',
     'desc',
@@ -161,8 +168,8 @@ async function main(): Promise<void> {
     'bug'
   );
   const flowId = 'flow_fixture_sdlc';
-  db.run(
-    `INSERT INTO flows (id, task_id, name, status, mr_url, mr_iid, mr_branch, repo_url, execution_mode, current_node, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`,
+  await db.run(
+    `INSERT INTO flows (id, task_id, name, status, mr_url, mr_iid, mr_branch, repo_url, execution_mode, current_node, created_at, updated_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)`,
     flowId,
     taskId,
     'parity flow',
@@ -177,8 +184,8 @@ async function main(): Promise<void> {
     now()
   );
   const parentFlowId = 'flow_fixture_parent';
-  db.run(
-    `INSERT INTO flows (id, task_id, name, status, mr_url, mr_iid, mr_branch, repo_url, execution_mode, current_node, parent_flow_id, kind, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+  await db.run(
+    `INSERT INTO flows (id, task_id, name, status, mr_url, mr_iid, mr_branch, repo_url, execution_mode, current_node, parent_flow_id, kind, created_at, updated_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)`,
     parentFlowId,
     taskId,
     'parity parent flow',
@@ -194,8 +201,8 @@ async function main(): Promise<void> {
     now(),
     now()
   );
-  db.run(
-    `INSERT INTO nodes (id, flow_id, node_key, type, status, created_at, updated_at) VALUES (?,?,?,?, 'pending', ?, ?)`,
+  await db.run(
+    `INSERT INTO nodes (id, flow_id, node_key, type, status, created_at, updated_at) VALUES ($1,$2,$3,$4,'pending',$5,$6)`,
     'node_fixture_art',
     parentFlowId,
     NODE_KEYS.PLAN,
@@ -203,8 +210,8 @@ async function main(): Promise<void> {
     now(),
     now()
   );
-  db.run(
-    `INSERT INTO artifacts (id, node_id, flow_id, kind, version, content, status, created_at) VALUES (?,?,?,?,1,?,?,?)`,
+  await db.run(
+    `INSERT INTO artifacts (id, node_id, flow_id, kind, version, content, status, created_at) VALUES ($1,$2,$3,$4,1,$5,$6,$7)`,
     'art_fixture_plan',
     'node_fixture_art',
     parentFlowId,
@@ -214,8 +221,8 @@ async function main(): Promise<void> {
     now()
   );
   const childFlowId = 'flow_fixture_step';
-  db.run(
-    `INSERT INTO flows (id, task_id, name, status, mr_url, mr_iid, mr_branch, repo_url, execution_mode, current_node, parent_flow_id, kind, trigger_payload, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+  await db.run(
+    `INSERT INTO flows (id, task_id, name, status, mr_url, mr_iid, mr_branch, repo_url, execution_mode, current_node, parent_flow_id, kind, trigger_payload, created_at, updated_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)`,
     childFlowId,
     taskId,
     'parity step flow',
@@ -228,15 +235,16 @@ async function main(): Promise<void> {
     null,
     parentFlowId,
     'step',
-    JSON.stringify({
+    // JSONB column: bind the payload object directly (no JSON.stringify)
+    {
       step: { id: 's1', title: 'Parity step', detail: null, files: ['a.ts'], branch: 'parity/step-branch' },
       siblings: [],
-    }),
+    },
     now(),
     now()
   );
-  db.run(
-    `INSERT INTO comments (id, flow_id, mr_iid, discussion_id, author, body, file_path, line, status, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?)`,
+  await db.run(
+    `INSERT INTO comments (id, flow_id, mr_iid, discussion_id, author, body, file_path, line, status, created_at, updated_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`,
     'cmt_1',
     flowId,
     101,
@@ -250,8 +258,8 @@ async function main(): Promise<void> {
     now()
   );
   for (const node of ['plan', 'build', 'review', 'resolve'] as const) {
-    db.run(
-      `INSERT INTO nodes (id, flow_id, node_key, type, status, created_at, updated_at) VALUES (?,?,?,?, 'pending', ?, ?)`,
+    await db.run(
+      `INSERT INTO nodes (id, flow_id, node_key, type, status, created_at, updated_at) VALUES ($1,$2,$3,$4,'pending',$5,$6)`,
       `node_fixture_${node}`,
       flowId,
       node,
@@ -260,8 +268,8 @@ async function main(): Promise<void> {
       now()
     );
   }
-  db.run(
-    `INSERT INTO nodes (id, flow_id, node_key, type, status, created_at, updated_at) VALUES (?,?,?,?, 'pending', ?, ?)`,
+  await db.run(
+    `INSERT INTO nodes (id, flow_id, node_key, type, status, created_at, updated_at) VALUES ($1,$2,$3,$4,'pending',$5,$6)`,
     'node_fixture_step_build',
     childFlowId,
     NODE_KEYS.STEP_BUILD,
@@ -271,21 +279,22 @@ async function main(): Promise<void> {
   );
   // declarative agent def + its node row (resolved via nodeRegistry.resolve)
   const agDefId = 'ag_fixture_parity';
-  db.run(
-    `INSERT INTO node_templates (id, key, name, kind, version, description, config, is_builtin, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?,?)`,
+  await db.run(
+    `INSERT INTO node_templates (id, key, name, kind, version, description, config, is_builtin, created_at, updated_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`,
     agDefId,
     'parity-agent',
     'Parity agent',
     'agent',
     1,
     null,
-    JSON.stringify({ mode: 'plan', prompt: 'Do {{task.key}} with {{input.detail}}', output: 'markdown' }),
+    // JSONB column: bind the payload object directly (no JSON.stringify)
+    { mode: 'plan', prompt: 'Do {{task.key}} with {{input.detail}}', output: 'markdown' },
     0,
     now(),
     now()
   );
-  db.run(
-    `INSERT INTO nodes (id, flow_id, node_key, type, status, created_at, updated_at) VALUES (?,?,?,?, 'pending', ?, ?)`,
+  await db.run(
+    `INSERT INTO nodes (id, flow_id, node_key, type, status, created_at, updated_at) VALUES ($1,$2,$3,$4,'pending',$5,$6)`,
     'node_fixture_agent',
     childFlowId,
     'parity-agent',
@@ -305,8 +314,8 @@ async function main(): Promise<void> {
     input: unknown;
   }): Promise<string | null> => {
     const { kind, def, flowId: flow, nodeKey } = args;
-    const flowRow = rows.get(FlowRow, `SELECT * FROM flows WHERE id=?`, flow);
-    const taskRow = rows.get(Task, `SELECT * FROM tasks WHERE id=?`, taskId);
+    const flowRow = await rows.get(FlowRow, FLOW_BY_ID, flow);
+    const taskRow = await rows.get(Task, TASK_BY_ID, taskId);
     if (!flowRow || !taskRow) {
       results.push({
         kind,
@@ -327,7 +336,7 @@ async function main(): Promise<void> {
           .promptPreviewerOf(def)
           ?.previewPrompt(
             ctx,
-            rows.get(NodeRow, `SELECT * FROM nodes WHERE flow_id=? AND node_key=?`, flow, nodeKey) ?? null,
+            (await rows.get(NodeRow, NODE_BY_KEY, flow, nodeKey)) ?? null,
             {}
           )?.assembly.final ?? null;
     } catch {
@@ -349,12 +358,11 @@ async function main(): Promise<void> {
     }
     const specPrompt = capturedSpecs[specStart] ?? null;
 
-    const rawInput = db.get<{ input: string | null }>(
-      `SELECT input FROM nodes WHERE flow_id=? AND node_key=?`,
+    const recorded = (await db.get<{ input: Record<string, unknown> | null }>(
+      `SELECT input FROM nodes WHERE flow_id=$1 AND node_key=$2`,
       flow,
       nodeKey
-    )?.input;
-    const recorded = rawInput ? (JSON.parse(rawInput) as Record<string, unknown>) : null;
+    ))?.input ?? null;
     const recordedPrompt = typeof recorded?.prompt === 'string' && recorded.prompt ? recorded.prompt : null;
 
     const recordedSent = recordedPrompt != null && specPrompt != null && recordedPrompt === specPrompt;
@@ -436,8 +444,8 @@ async function main(): Promise<void> {
 
   // ── declarative agent: rendered prompt === spec.prompt + prompt_source ─────
   {
-    const flowRow = rows.get(FlowRow, `SELECT * FROM flows WHERE id=?`, childFlowId);
-    const taskRow = rows.get(Task, `SELECT * FROM tasks WHERE id=?`, taskId);
+    const flowRow = await rows.get(FlowRow, FLOW_BY_ID, childFlowId);
+    const taskRow = await rows.get(Task, TASK_BY_ID, taskId);
     if (!flowRow || !taskRow) {
       results.push({
         kind: 'agent',
@@ -450,7 +458,7 @@ async function main(): Promise<void> {
       });
     } else {
       const ctx = { flow: flowRow, task: taskRow, repo: null };
-      const agDef = nodeRegistry.resolve(agDefId, 'parity-agent');
+      const agDef = await nodeRegistry.resolve(agDefId, 'parity-agent');
       const specStart = capturedSpecs.length;
       let runError: string | null = null;
       try {
@@ -459,12 +467,11 @@ async function main(): Promise<void> {
         runError = e instanceof Error ? e.message : String(e);
       }
       const specPrompt = capturedSpecs[specStart] ?? null;
-      const rawInput = db.get<{ input: string | null }>(
-        `SELECT input FROM nodes WHERE flow_id=? AND node_key=?`,
+      const recorded = (await db.get<{ input: Record<string, unknown> | null }>(
+        `SELECT input FROM nodes WHERE flow_id=$1 AND node_key=$2`,
         childFlowId,
         'parity-agent'
-      )?.input;
-      const recorded = rawInput ? (JSON.parse(rawInput) as Record<string, unknown>) : null;
+      ))?.input ?? null;
       const recordedPrompt = typeof recorded?.prompt === 'string' && recorded.prompt ? recorded.prompt : null;
       const recordedSent = recordedPrompt != null && specPrompt != null && recordedPrompt === specPrompt;
       const promptSource = typeof recorded?.prompt_source === 'string' ? recorded.prompt_source : null;
@@ -487,8 +494,8 @@ async function main(): Promise<void> {
   // ── pipeline: the gate's fix prompt is assembled inside runFix() — not
   //    simulable off-server; full parity rides the Phase-2 preview work (I5)
   {
-    const flowRow = rows.get(FlowRow, `SELECT * FROM flows WHERE id=?`, flowId);
-    const taskRow = rows.get(Task, `SELECT * FROM tasks WHERE id=?`, taskId);
+    const flowRow = await rows.get(FlowRow, FLOW_BY_ID, flowId);
+    const taskRow = await rows.get(Task, TASK_BY_ID, taskId);
     if (!flowRow || !taskRow) {
       results.push({
         kind: 'pipeline',

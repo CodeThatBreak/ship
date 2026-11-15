@@ -13,14 +13,15 @@
  *  - `awaiting_approval` with a dead upstream (its producer failed) never
  *    fails — it waits for an approval that can never meaningfully come.
  *
- * Runs against an isolated temp SQLite DB (AGENTS.md §1 — never a real DB).
+ * Runs against the isolated dockerized Postgres test database
+ * (AGENTS.md §1 — never a demo/real DB).
  */
-import { describe, expect, test } from "vitest";
-import { assignDatabasePath, createIsolatedDatabasePath } from "../helpers/testDatabase";
+import { beforeAll, describe, expect, test } from "vitest";
+import { assignTestDatabase, resetTestDatabase } from "../helpers/testDatabase";
 import { FlowHarness } from "../helpers/flowHarness";
 import { registerFakeGitHost } from "../helpers/fakeGitHost";
 
-assignDatabasePath(createIsolatedDatabasePath("devflow-ovh-reconcile-"));
+assignTestDatabase();
 
 const { db } = await import("@/lib/db/app");
 const { flowEngine } = await import("@/lib/engine/flowEngine");
@@ -30,23 +31,25 @@ const { reconciler } = await import("@/lib/engine/runtime/flowReconciler");
 registerFakeGitHost();
 const harness = new FlowHarness({ db, flowEngine, templateStore });
 
+beforeAll(resetTestDatabase);
+
 describe("reconciler resolves every non-terminal state", () => {
   // OVERHAUL: flip in step 03
   test.fails("approved-without-MR ⇒ revert-or-adopt (today invisible to the reconciler)", async () => {
-    const flowId = harness.seedSdlcFlow();
+    const flowId = await harness.seedSdlcFlow();
     // a build approved but its MR never landed: approved, no mr_iid, old stamp
-    harness.setNodeForFixture(flowId, "build", "approved");
+    await harness.setNodeForFixture(flowId, "build", "approved");
     const stale = new Date(Date.now() - 10 * 60_000).toISOString();
-    db.run(`UPDATE nodes SET updated_at=? WHERE flow_id=? AND node_key='build'`, stale, flowId);
+    await db.run(`UPDATE nodes SET updated_at=$1 WHERE flow_id=$2 AND node_key='build'`, stale, flowId);
 
     await reconciler.reconcileFlow(flowId);
 
     // target: the reconciler either adopts the MR (re-creates/attaches it) or
     // reverts the build to awaiting_approval with a loud event — today it
     // never looks at `approved` nodes, so nothing changes
-    const status = harness.nodeStatus(flowId, "build");
+    const status = await harness.nodeStatus(flowId, "build");
     expect(status === "awaiting_approval" || status === "done" || status === "approved").toBe(true);
-    const resolved = db.get<{ mr_iid: number | null }>(`SELECT mr_iid FROM flows WHERE id=?`, flowId);
+    const resolved = await db.get<{ mr_iid: number | null }>(`SELECT mr_iid FROM flows WHERE id=$1`, flowId);
     const revertedOrAdopted = status === "awaiting_approval" || resolved?.mr_iid != null;
     expect(revertedOrAdopted).toBe(true);
   }, 15_000);
@@ -71,36 +74,36 @@ nodes:
       prompt: "Ack."
 edges: []
 `;
-    const { id: templateId } = importTemplateYaml(templateStore, timerYaml, {
+    const { id: templateId } = await importTemplateYaml(templateStore, timerYaml, {
       namePrefix: "ovh-reconcile-wait",
     });
-    const flowId = harness.seedFlowFromTemplate(templateId);
+    const flowId = await harness.seedFlowFromTemplate(templateId);
     // the gate is waiting with a deadline already in the past (a restart lost
     // the in-memory timer) — the reconciler must fire it
-    harness.setNodeForFixture(flowId, "gate", "waiting");
+    await harness.setNodeForFixture(flowId, "gate", "waiting");
     const stale = new Date(Date.now() - 10 * 60_000).toISOString();
-    db.run(`UPDATE nodes SET updated_at=? WHERE flow_id=? AND node_key='gate'`, stale, flowId);
+    await db.run(`UPDATE nodes SET updated_at=$1 WHERE flow_id=$2 AND node_key='gate'`, stale, flowId);
 
     await reconciler.reconcileFlow(flowId);
 
     // target: an expired wait is fired by the reconciler — today it only
     // reconciles `running` nodes, so a waiting node is never resumed
-    expect(harness.nodeStatus(flowId, "gate")).not.toBe("waiting");
+    expect(await harness.nodeStatus(flowId, "gate")).not.toBe("waiting");
   }, 15_000);
 
   // OVERHAUL: flip in step 03
   test.fails("awaiting_approval with a dead upstream ⇒ failed (today waits forever)", async () => {
-    const flowId = harness.seedSdlcFlow();
+    const flowId = await harness.seedSdlcFlow();
     // build awaiting approval, but its upstream plan failed (dead upstream)
-    harness.setNodeForFixture(flowId, "plan", "failed");
-    harness.setNodeForFixture(flowId, "build", "awaiting_approval");
+    await harness.setNodeForFixture(flowId, "plan", "failed");
+    await harness.setNodeForFixture(flowId, "build", "awaiting_approval");
     const stale = new Date(Date.now() - 10 * 60_000).toISOString();
-    db.run(`UPDATE nodes SET updated_at=? WHERE flow_id=? AND node_key='build'`, stale, flowId);
+    await db.run(`UPDATE nodes SET updated_at=$1 WHERE flow_id=$2 AND node_key='build'`, stale, flowId);
 
     await reconciler.reconcileFlow(flowId);
 
     // target: a node awaiting approval whose upstream is dead is failed with a
     // typed event — today the reconciler ignores non-running states
-    expect(harness.nodeStatus(flowId, "build")).toBe("failed");
+    expect(await harness.nodeStatus(flowId, "build")).toBe("failed");
   }, 15_000);
 });

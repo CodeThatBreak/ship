@@ -17,7 +17,7 @@ export const PATCH = async (req: Request, { params }: { params: Promise<{ id: st
     const { id } = await params;
     const body = await parseJson(req, TaskPatchBody);
     if (body.repoUrl !== undefined) {
-      return NextResponse.json(taskService.updateRepoUrl(id, body.repoUrl));
+      return NextResponse.json(await taskService.updateRepoUrl(id, body.repoUrl));
     }
     return NextResponse.json({ ok: true, updated_at: db.now() });
   } catch (e: unknown) {

@@ -42,7 +42,7 @@ export class BuildRunSupport {
    * `flows.mr_branch`), else the built-in naming.
    */
   flowBranch(ctx: FlowCtx, suffix?: string): string {
-    return ctx.flow.mr_branch ?? this.ctxHelper.buildBranch(ctx, suffix);
+    return ctx.flow.mrBranch ?? this.ctxHelper.buildBranch(ctx, suffix);
   }
 
   // ── worktree lifecycle (local mode; `ensureFlowWorktree` is a no-op in cloud) ──
@@ -105,7 +105,7 @@ export class BuildRunSupport {
    * reply as the diff content instead.
    */
   async refineBranch(ctx: FlowCtx, result: AgentRunResult): Promise<string | null> {
-    return ctx.flow.mr_branch ?? (
+    return ctx.flow.mrBranch ?? (
       this.ctxHelper.execMode(ctx) === "local"
         ? await this.currentBranch(ctx)
         : this.reportedBranch(result)
@@ -125,7 +125,7 @@ export class BuildRunSupport {
     opts: { noDiffContent?: string; extraMeta?: Record<string, unknown> } = {},
   ): Promise<{ id: string; stat: string | undefined }> {
     const diff = await this.ctxHelper.makeDiff(ctx, branch);
-    const art = this.support.saveArtifact(
+    const art = await this.support.saveArtifact(
       nodeId, ctx.flow.id, "diff",
       diff ? diff.raw : (opts.noDiffContent ?? "(diff unavailable)"),
       { branch, stat: diff?.stat ?? "", ...opts.extraMeta },

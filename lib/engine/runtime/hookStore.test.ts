@@ -1,7 +1,4 @@
 import { describe, expect, it } from "vitest";
-import { assignDatabasePath, createIsolatedDatabasePath } from "../../../tests/helpers/testDatabase";
-
-assignDatabasePath(createIsolatedDatabasePath("devflow-hook-store-"));
 
 const { db } = await import("../../db/app");
 const { hookStore, maskHookSecret } = await import("./hookStore");
@@ -13,20 +10,20 @@ describe("maskHookSecret (CR-254)", () => {
 });
 
 describe("HookStore delivery dedup", () => {
-  it("does not record webhook-id until markDeliverySeen (CR-043)", () => {
+  it("does not record webhook-id until markDeliverySeen (CR-043)", async () => {
     const hookId = db.uid("hk_");
-    db.run(
+    await db.run(
       `INSERT INTO hooks (id,template_id,flow_id,node_key,secret,filter,created_at)
-       VALUES (?,NULL,NULL,NULL,?,NULL,?)`,
+       VALUES ($1,NULL,NULL,NULL,$2,NULL,$3)`,
       hookId, "whsec_test", db.now(),
     );
     const deliveryId = "msg_retry_1";
 
-    expect(hookStore.isDeliverySeen(hookId, deliveryId)).toBe(false);
-    expect(hookStore.isDeliverySeen(hookId, deliveryId)).toBe(false);
+    expect(await hookStore.isDeliverySeen(hookId, deliveryId)).toBe(false);
+    expect(await hookStore.isDeliverySeen(hookId, deliveryId)).toBe(false);
 
-    hookStore.markDeliverySeen(hookId, deliveryId);
-    expect(hookStore.isDeliverySeen(hookId, deliveryId)).toBe(true);
+    await hookStore.markDeliverySeen(hookId, deliveryId);
+    expect(await hookStore.isDeliverySeen(hookId, deliveryId)).toBe(true);
   });
 });
 
@@ -34,39 +31,41 @@ describe("HookStore verify fallback", () => {
   const hookId = db.uid("hk_");
   const secret = "whsec_fallback_test";
 
-  db.run(
+  const hookFixture = db.run(
     `INSERT INTO hooks (id,template_id,flow_id,node_key,secret,filter,created_at)
-     VALUES (?,NULL,NULL,NULL,?,NULL,?)`,
+     VALUES ($1,NULL,NULL,NULL,$2,NULL,$3)`,
     hookId, secret, db.now(),
-  );
+  ).then(() => hookStore.hook(hookId));
+  const hookOf = async () => {
+    const hook = await hookFixture;
+    if (!hook) throw new Error("hook fixture missing");
+    return hook;
+  };
 
-  const hook = hookStore.hook(hookId);
-  if (!hook) throw new Error("hook fixture missing");
-
-  it("rejects x-devflow-secret without webhook-id (CR-196)", () => {
+  it("rejects x-devflow-secret without webhook-id (CR-196)", async () => {
     const headers = new Headers({
       "x-devflow-secret": secret,
       "webhook-timestamp": String(Math.floor(Date.now() / 1000)),
     });
-    expect(hookStore.verify(hook, "{}", headers).ok).toBe(false);
+    expect(hookStore.verify(await hookOf(), "{}", headers).ok).toBe(false);
   });
 
-  it("rejects stale webhook-timestamp on the fallback path (CR-196)", () => {
+  it("rejects stale webhook-timestamp on the fallback path (CR-196)", async () => {
     const staleSec = Math.floor(Date.now() / 1000) - 3600;
     const headers = new Headers({
       "x-devflow-secret": secret,
       "webhook-id": "msg_stale",
       "webhook-timestamp": String(staleSec),
     });
-    expect(hookStore.verify(hook, "{}", headers).ok).toBe(false);
+    expect(hookStore.verify(await hookOf(), "{}", headers).ok).toBe(false);
   });
 
-  it("accepts fallback deliveries with id, fresh timestamp, and secret", () => {
+  it("accepts fallback deliveries with id, fresh timestamp, and secret", async () => {
     const headers = new Headers({
       "x-devflow-secret": secret,
       "webhook-id": "msg_ok",
       "webhook-timestamp": String(Math.floor(Date.now() / 1000)),
     });
-    expect(hookStore.verify(hook, "{}", headers)).toEqual({ ok: true });
+    expect(hookStore.verify(await hookOf(), "{}", headers)).toEqual({ ok: true });
   });
 });

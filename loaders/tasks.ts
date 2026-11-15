@@ -23,24 +23,23 @@ export interface TasksBoot {
   defaultTemplateId: string;
 }
 
-export function loadTasksBoot(): TasksBoot {
-  const providers: TaskProviderInfo[] = taskRegistry.describe().map(({ kind, label, configured }) => ({
+export async function loadTasksBoot(): Promise<TasksBoot> {
+  const providers: TaskProviderInfo[] = (await taskRegistry.describe()).map(({ kind, label, configured }) => ({
     kind,
     label,
     configured,
   }));
 
-  const repos: RepoSummary[] = db.listRepos().map((r) => ({
+  const repos: RepoSummary[] = (await db.listRepos()).map((r) => ({
     id: r.id,
     name: r.name,
-    cloud_url: r.cloud_url,
-    local_path: r.local_path,
+    cloudUrl: r.cloudUrl,
+    localPath: r.localPath,
   }));
 
-  const defaultMode: ExecutionMode = settingsService.defaultExecutionMode();
+  const defaultMode: ExecutionMode = await settingsService.defaultExecutionMode();
 
-  const templates: TemplateOption[] = templateStore
-    .list()
+  const templates: TemplateOption[] = (await templateStore.list())
     .map((t) => ({ id: t.id, name: t.name }))
     .reverse();
   const defaultTemplateId =

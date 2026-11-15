@@ -8,19 +8,18 @@
  * lib/config.ts, so setting it before the first `db` import isolates the
  * singleton (AGENTS.md §1 — never a real database).
  */
-import fs from "node:fs";
-import os from "node:os";
-import path from "node:path";
-import { describe, expect, it } from "vitest";
+import { beforeAll, describe, expect, it } from "vitest";
 
 // Must run before any `../../../db` import touches the connection — dynamic
 // imports below execute in statement order after the static ones hoist.
-process.env.DATABASE_PATH = path.join(
-  fs.mkdtempSync(path.join(os.tmpdir(), "devflow-agent-recover-")),
-  "test.db",
-);
+
+import { assignTestDatabase, resetTestDatabase } from "../../../../../tests/helpers/testDatabase";
+
+assignTestDatabase();
 
 const { db } = await import("../../../../db/app");
+
+beforeAll(resetTestDatabase);
 const { nodeSupport } = await import("../../shared/nodeSupport");
 const { flowCtxHelper } = await import("../../shared/runContext");
 const { usageTracker } = await import("../../../harness/usageTracker");
@@ -65,14 +64,14 @@ class StubRunner extends AgentRunner {
     const result = this.queue.shift();
     if (result == null) throw new Error(`${label}: no stubbed run result left`);
     const { agentId, runId } = await start();
-    this.support.persistRun(ctx.flow.id, nodeId, agentId, runId);
-    const runRowId = db.get<{ id: string }>(`SELECT id FROM runs WHERE run_ref=?`, runId)?.id;
+    await this.support.persistRun(ctx.flow.id, nodeId, agentId, runId);
+    const runRowId = (await db.get<{ id: string }>(`SELECT id FROM runs WHERE run_ref=$1`, runId))?.id;
     if (!runRowId) throw new Error(`${label}: missing run row`);
-    db.emitEvent(ctx.flow.id, nodeId, "lifecycle", `${label} started (cloud)`);
+    await db.emitEvent(ctx.flow.id, nodeId, "lifecycle", `${label} started (cloud)`);
     if (result.status !== "finished") {
       throw new Error(`${label} ended with status ${result.status}`);
     }
-    db.emitEvent(ctx.flow.id, nodeId, "lifecycle", `${label} finished`);
+    await db.emitEvent(ctx.flow.id, nodeId, "lifecycle", `${label} finished`);
     return { result, runRowId };
   }
 }
@@ -86,24 +85,24 @@ function must<T>(row: T | undefined, what: string): T {
 }
 
 /** One isolated flow + running agent node row (node_key = instance key). */
-function seedAgentNode(index: number): { flowId: string; nodeId: string; ctx: FlowCtx } {
+async function seedAgentNode(index: number): Promise<{ flowId: string; nodeId: string; ctx: FlowCtx }> {
   const taskId = `task_${index}`;
   const flowId = `flw_${index}`;
   const nodeId = `node_${index}`;
-  db.run(
-    `INSERT INTO tasks (id, type, key, summary, status, issue_type, priority) VALUES (?,?,?,?,?,?,?)`,
+  await db.run(
+    `INSERT INTO tasks (id, type, key, summary, status, issue_type, priority) VALUES ($1,$2,$3,$4,$5,$6,$7)`,
     taskId, "generic", `TST-${index}`, "recover test", "open", "task", "P2",
   );
-  db.run(
-    `INSERT INTO flows (id, task_id, name, status, created_at, updated_at) VALUES (?,?,?,?,?,?)`,
+  await db.run(
+    `INSERT INTO flows (id, task_id, name, status, created_at, updated_at) VALUES ($1,$2,$3,$4,$5,$6)`,
     flowId, taskId, `recover test ${index}`, "active", now(), now(),
   );
-  db.run(
-    `INSERT INTO nodes (id, flow_id, node_key, type, status, created_at, updated_at) VALUES (?,?,?,?,?,?,?)`,
+  await db.run(
+    `INSERT INTO nodes (id, flow_id, node_key, type, status, created_at, updated_at) VALUES ($1,$2,$3,$4,$5,$6,$7)`,
     nodeId, flowId, `agent_${index}`, "agent", "running", now(), now(),
   );
   const ctx = {
-    flow: { id: flowId, task_id: taskId, name: `recover test ${index}`, status: "active", execution_mode: "cloud", created_at: now(), updated_at: now() },
+    flow: { id: flowId, taskId, name: `recover test ${index}`, status: "active", executionMode: "cloud", createdAt: now(), updatedAt: now() },
     task: { id: taskId, type: "generic", key: `TST-${index}`, summary: "recover test", fields: {}, status: "open", issueType: "task", priority: "P2" },
   } as unknown as FlowCtx;
   return { flowId, nodeId, ctx };
@@ -128,22 +127,22 @@ interface AppliedRows {
 
 /** The persisted state a finish leaves behind (node row, latest artifact, the
  * "output ready" lifecycle event — the tail both execute() and recover() own). */
-function appliedRows(flowId: string, nodeKey: string): AppliedRows {
+async function appliedRows(flowId: string, nodeKey: string): Promise<AppliedRows> {
   const nodeId = must(
-    db.get<{ id: string }>(`SELECT id FROM nodes WHERE flow_id=? AND node_key=?`, flowId, nodeKey),
+    await db.get<{ id: string }>(`SELECT id FROM nodes WHERE flow_id=$1 AND node_key=$2`, flowId, nodeKey),
     `node ${nodeKey} of flow ${flowId}`,
   ).id;
   const node = must(
-    db.get<{ status: string; agent_id: string | null; output: string | null }>(
-      `SELECT status, agent_id, output FROM nodes WHERE id=?`, nodeId,
+    await db.get<{ status: string; agent_id: string | null; output: string | null }>(
+      `SELECT status, agent_id, output FROM nodes WHERE id=$1`, nodeId,
     ),
     `node row ${nodeId}`,
   );
-  const artifact = db.get<{ kind: string; content: string; meta: string | null; status: string }>(
-    `SELECT kind, content, meta, status FROM artifacts WHERE node_id=? ORDER BY version DESC LIMIT 1`, nodeId,
+  const artifact = await db.get<{ kind: string; content: string; meta: string | null; status: string }>(
+    `SELECT kind, content, meta, status FROM artifacts WHERE node_id=$1 ORDER BY version DESC LIMIT 1`, nodeId,
   );
-  const events = db.all<{ type: string; message: string; data: string | null }>(
-    `SELECT type, message, data FROM events WHERE node_id=? AND message LIKE '%output ready%'`, nodeId,
+  const events = await db.all<{ type: string; message: string; data: string | null }>(
+    `SELECT type, message, data FROM events WHERE node_id=$1 AND message LIKE '%output ready%'`, nodeId,
   );
   return { node, artifact, finishEvent: events.at(-1) };
 }
@@ -166,7 +165,7 @@ function jsonAgentNode(index: number, runner: InstanceType<typeof AgentRunner>):
 
 describe("AgentTemplateNode — the agent's self-report channel (json output)", () => {
   it("json output without an output_schema accepts any JSON object", async () => {
-    const seeded = seedAgentNode(26);
+    const seeded = await seedAgentNode(26);
     const cfg = { output: "json" as const, output_schema: null };
     const node = new AgentTemplateNode(
       { id: "nt_26", name: LABEL, description: null, config: cfg },
@@ -178,20 +177,21 @@ describe("AgentTemplateNode — the agent's self-report channel (json output)", 
   });
 
   it("the json prompt rides the contract directive: schema + error envelope", async () => {
-    const seeded = seedAgentNode(21);
+    const seeded = await seedAgentNode(21);
     const node = jsonAgentNode(21, new StubRunner({ status: "finished", result: '{"cost":42}' }));
     const outcome = await node.run(seeded.ctx, { prompt: "Estimate the cost" }, JSON_CONFIG);
     expect(outcome.output).toEqual({ cost: 42 });
 
-    const recorded = db.get<{ input: string }>(`SELECT input FROM nodes WHERE id=?`, seeded.nodeId)?.input;
+    const recorded = (await db.get<{ input: Record<string, unknown> | null }>(`SELECT input FROM nodes WHERE id=$1`, seeded.nodeId))?.input;
     if (recorded == null) throw new Error("the node run recorded no input");
-    expect(JSON.parse(recorded).prompt).toContain("exactly one JSON object");
-    expect(JSON.parse(recorded).prompt).toContain('"type": "integer"');
-    expect(JSON.parse(recorded).prompt).toContain('"output_error"');
+    const recordedPrompt = recorded.prompt as string;
+    expect(recordedPrompt).toContain("exactly one JSON object");
+    expect(recordedPrompt).toContain('"type": "integer"');
+    expect(recordedPrompt).toContain('"output_error"');
   });
 
   it("an agent-self-reported envelope fails with the agent's own reason, not a validator message", async () => {
-    const seeded = seedAgentNode(22);
+    const seeded = await seedAgentNode(22);
     const runner = new StubRunner({
       status: "finished",
       result: JSON.stringify({
@@ -209,7 +209,7 @@ describe("AgentTemplateNode — the agent's self-report channel (json output)", 
   });
 
   it("a schema-violating response retries once with the violations as feedback, then succeeds", async () => {
-    const seeded = seedAgentNode(24);
+    const seeded = await seedAgentNode(24);
     const runner = new StubRunner(
       { status: "finished", result: '{"cost":"free"}' },
       { status: "finished", result: '{"cost":42}' },
@@ -228,14 +228,14 @@ describe("AgentTemplateNode — the agent's self-report channel (json output)", 
     expect(runner.starts[1]?.followUpOn).toBe("agt_test");
 
     // the trail shows the contract failure and the bounded retry
-    const events = db.all<{ message: string }>(
-      `SELECT message FROM events WHERE node_id=? AND type='lifecycle'`, seeded.nodeId,
+    const events = await db.all<{ message: string }>(
+      `SELECT message FROM events WHERE node_id=$1 AND type='lifecycle'`, seeded.nodeId,
     );
     expect(events.some((e) => e.message.includes("retrying with feedback"))).toBe(true);
   });
 
   it("a no-json response retries once too", async () => {
-    const seeded = seedAgentNode(25);
+    const seeded = await seedAgentNode(25);
     const runner = new StubRunner(
       { status: "finished", result: "I cannot answer in JSON, sorry" },
       { status: "finished", result: '{"cost":42}' },
@@ -247,7 +247,7 @@ describe("AgentTemplateNode — the agent's self-report channel (json output)", 
   });
 
   it("a second contract miss fails the node loudly — the retry is bounded", async () => {
-    const seeded = seedAgentNode(23);
+    const seeded = await seedAgentNode(23);
     const node = jsonAgentNode(
       23,
       new StubRunner(
@@ -268,25 +268,25 @@ describe("AgentTemplateNode — one persistence path (T2)", () => {
     const NOTE = "server restarted";
 
     // ── path A: a normal in-process finish (execute()) ──────────────────────
-    const a = seedAgentNode(1);
+    const a = await seedAgentNode(1);
     const nodeA = agentNode(1, new StubRunner(result));
     await nodeA.run(a.ctx, { prompt: "Do the work" }, {});
-    const executed = appliedRows(a.flowId, "agent_1");
+    const executed = await appliedRows(a.flowId, "agent_1");
 
     // ── path B: the same run finished while the server was down ────────────
-    const b = seedAgentNode(2);
+    const b = await seedAgentNode(2);
     const nodeB = agentNode(2, new StubRunner(result));
-    const nodeRow = must(db.get<NodeRow>(`SELECT * FROM nodes WHERE id=?`, b.nodeId), `node ${b.nodeId}`);
-    nodeSupport.persistRun(b.flowId, b.nodeId, "agt_test", "run_orphan"); // the run row left by the dead process
+    const nodeRow = must(await db.get<NodeRow>(`SELECT * FROM nodes WHERE id=$1`, b.nodeId), `node ${b.nodeId}`);
+    await nodeSupport.persistRun(b.flowId, b.nodeId, "agt_test", "run_orphan"); // the run row left by the dead process
     const recovered = await nodeB.recover(b.ctx, nodeRow, result, NOTE);
     expect(recovered).toBe(true);
-    const recoveredRows = appliedRows(b.flowId, "agent_2");
+    const recoveredRows = await appliedRows(b.flowId, "agent_2");
 
     // byte-identical persistence (the only sanctioned difference: the note)
     expect(recoveredRows.node).toEqual(executed.node);
     expect(recoveredRows.node.status).toBe("done");
     expect(recoveredRows.node.agent_id).toBe("agt_test");
-    expect(recoveredRows.node.output).toBe(JSON.stringify({ markdown: FINISHED_TEXT }));
+    expect(recoveredRows.node.output).toEqual({ markdown: FINISHED_TEXT });
     expect(recoveredRows.artifact).toEqual(executed.artifact);
     expect(recoveredRows.artifact?.kind).toBe("markdown");
     expect(recoveredRows.artifact?.content).toBe(FINISHED_TEXT);
@@ -296,36 +296,36 @@ describe("AgentTemplateNode — one persistence path (T2)", () => {
       data: executed.finishEvent?.data ?? null,
     });
     expect(executed.finishEvent?.message).toBe(`${LABEL} output ready`);
-    expect(JSON.parse(recoveredRows.finishEvent?.data ?? "{}")).toEqual({ output_format: "markdown" });
+    expect(recoveredRows.finishEvent?.data).toEqual({ output_format: "markdown" });
   });
 
   it("a non-finished run declines recovery — the node fails for retry", async () => {
-    const b = seedAgentNode(3);
+    const b = await seedAgentNode(3);
     const nodeB = agentNode(3, new StubRunner({ status: "finished", result: FINISHED_TEXT }));
-    const nodeRow = must(db.get<NodeRow>(`SELECT * FROM nodes WHERE id=?`, b.nodeId), `node ${b.nodeId}`);
+    const nodeRow = must(await db.get<NodeRow>(`SELECT * FROM nodes WHERE id=$1`, b.nodeId), `node ${b.nodeId}`);
     const declined = await nodeB.recover(b.ctx, nodeRow, { status: "error" }, "server restarted");
     expect(declined).toBe(false);
-    const node = must(db.get<{ status: string }>(`SELECT status FROM nodes WHERE id=?`, b.nodeId), `node ${b.nodeId}`);
+    const node = must(await db.get<{ status: string }>(`SELECT status FROM nodes WHERE id=$1`, b.nodeId), `node ${b.nodeId}`);
     expect(node.status).toBe("running"); // completeNodeFromResult owns the failing
   });
 
   it("a no-note applyOutcome (the execute() path) emits the bare event", async () => {
-    const a = seedAgentNode(4);
+    const a = await seedAgentNode(4);
     const nodeA = agentNode(4, new StubRunner({ status: "finished", result: FINISHED_TEXT }));
     await nodeA.run(a.ctx, { prompt: "Do the work" }, {});
-    const rows = appliedRows(a.flowId, "agent_4");
+    const rows = await appliedRows(a.flowId, "agent_4");
     expect(rows.finishEvent?.message).toBe(`${LABEL} output ready`);
   });
 
   it("chat follow-up merges feedback into the recorded input without dropping inherited fields", async () => {
-    const seeded = seedAgentNode(990);
+    const seeded = await seedAgentNode(990);
     const inherited = { upstreamField: "from-parent", prompt: "initial" };
-    db.run(`UPDATE nodes SET input=? WHERE id=?`, JSON.stringify(inherited), seeded.nodeId);
+    await db.run(`UPDATE nodes SET input=$1 WHERE id=$2`, JSON.stringify(inherited), seeded.nodeId);
     const runner = new StubRunner({ status: "finished", result: FINISHED_TEXT });
     const node = agentNode(990, runner);
     await node.chat(seeded.ctx, "tweak this", "model-x");
-    const row = must(db.get<{ input: string }>(`SELECT input FROM nodes WHERE id=?`, seeded.nodeId), "node");
-    const recorded = JSON.parse(row.input) as Record<string, unknown>;
+    const row = must(await db.get<{ input: Record<string, unknown> | null }>(`SELECT input FROM nodes WHERE id=$1`, seeded.nodeId), "node");
+    const recorded = row.input as Record<string, unknown>;
     expect(recorded.upstreamField).toBe("from-parent");
     expect(recorded.feedback).toBe("tweak this");
     expect(recorded.model).toBe("model-x");
@@ -385,49 +385,49 @@ function splitAgentNode(
 describe("AgentTemplateNode — split units (the source port)", () => {
   it("no split declared → null units, and the prompt path is byte-identical (no directive)", async () => {
     // markdown: the whole path unchanged — the recorded prompt is the body, verbatim
-    const a = seedAgentNode(31);
+    const a = await seedAgentNode(31);
     const nodeA = agentNode(31, new StubRunner({ status: "finished", result: FINISHED_TEXT }));
     await nodeA.run(a.ctx, { prompt: "Do the work" }, {});
-    expect(nodeA.splitUnits(a.ctx)).toBeNull();
-    const mdPrompt = db.get<{ input: string }>(`SELECT input FROM nodes WHERE id=?`, a.nodeId)?.input;
-    expect(JSON.parse(mdPrompt ?? "{}").prompt).toBe("Do the work");
+    expect(await nodeA.splitUnits(a.ctx)).toBeNull();
+    const mdPrompt = (await db.get<{ input: Record<string, unknown> | null }>(`SELECT input FROM nodes WHERE id=$1`, a.nodeId))?.input;
+    expect((mdPrompt ?? {}) as Record<string, unknown>).toMatchObject({ prompt: "Do the work" });
 
     // json: the contract directive rides, the split directive does not
-    const b = seedAgentNode(32);
+    const b = await seedAgentNode(32);
     const nodeB = jsonAgentNode(32, new StubRunner({ status: "finished", result: '{"cost":42}' }));
     await nodeB.run(b.ctx, { prompt: "Estimate the cost" }, JSON_CONFIG);
-    expect(nodeB.splitUnits(b.ctx)).toBeNull();
-    const jsonPrompt = db.get<{ input: string }>(`SELECT input FROM nodes WHERE id=?`, b.nodeId)?.input;
-    expect(JSON.parse(jsonPrompt ?? "{}").prompt).toContain("RESPONSE FORMAT");
-    expect(JSON.parse(jsonPrompt ?? "{}").prompt).not.toContain("UNIT OUTPUT");
+    expect(await nodeB.splitUnits(b.ctx)).toBeNull();
+    const jsonPrompt = ((await db.get<{ input: Record<string, unknown> | null }>(`SELECT input FROM nodes WHERE id=$1`, b.nodeId))?.input ?? {}) as Record<string, unknown>;
+    expect(jsonPrompt.prompt as string).toContain("RESPONSE FORMAT");
+    expect(jsonPrompt.prompt as string).not.toContain("UNIT OUTPUT");
   });
 
-  it("no run output yet → null (nothing to iterate)", () => {
-    const seeded = seedAgentNode(33);
+  it("no run output yet → null (nothing to iterate)", async () => {
+    const seeded = await seedAgentNode(33);
     const node = splitAgentNode(33, new StubRunner({ status: "finished", result: SPLIT_OUTPUT }));
-    expect(node.splitUnits(seeded.ctx)).toBeNull();
+    expect(await node.splitUnits(seeded.ctx)).toBeNull();
   });
 
   it("an empty units array → null (no expansion)", async () => {
-    const seeded = seedAgentNode(34);
+    const seeded = await seedAgentNode(34);
     const node = splitAgentNode(34, new StubRunner({ status: "finished", result: '{"services":[]}' }));
     await node.run(seeded.ctx, { prompt: "List the services" }, SPLIT_CONFIG);
-    expect(node.splitUnits(seeded.ctx)).toBeNull();
+    expect(await node.splitUnits(seeded.ctx)).toBeNull();
   });
 
   it("the split field absent from the output → null (no expansion)", async () => {
-    const seeded = seedAgentNode(35);
+    const seeded = await seedAgentNode(35);
     const node = splitAgentNode(35, new StubRunner({ status: "finished", result: '{"cost":1}' }), PERMISSIVE_SPLIT_CONFIG);
     await node.run(seeded.ctx, { prompt: "List the services" }, PERMISSIVE_SPLIT_CONFIG);
-    expect(node.splitUnits(seeded.ctx)).toBeNull();
+    expect(await node.splitUnits(seeded.ctx)).toBeNull();
   });
 
   it("maps key/title/dependsOn/target selectors, with the per-item target override", async () => {
-    const seeded = seedAgentNode(36);
+    const seeded = await seedAgentNode(36);
     const node = splitAgentNode(36, new StubRunner({ status: "finished", result: SPLIT_OUTPUT }));
     await node.run(seeded.ctx, { prompt: "List the services" }, SPLIT_CONFIG);
 
-    const units = node.splitUnits(seeded.ctx);
+    const units = await node.splitUnits(seeded.ctx);
     if (units == null) throw new Error("splitUnits returned null for a non-empty array");
     expect(units).toHaveLength(2);
     // selectors on non-default paths; the item rides verbatim
@@ -449,12 +449,12 @@ describe("AgentTemplateNode — split units (the source port)", () => {
   });
 
   it("the directive is appended after the output-contract directive, only when split is set", async () => {
-    const seeded = seedAgentNode(37);
+    const seeded = await seedAgentNode(37);
     const node = splitAgentNode(37, new StubRunner({ status: "finished", result: SPLIT_OUTPUT }));
     await node.run(seeded.ctx, { prompt: "List the services" }, SPLIT_CONFIG);
-    const recorded = db.get<{ input: string }>(`SELECT input FROM nodes WHERE id=?`, seeded.nodeId)?.input;
+    const recorded = (await db.get<{ input: Record<string, unknown> | null }>(`SELECT input FROM nodes WHERE id=$1`, seeded.nodeId))?.input;
     if (recorded == null) throw new Error("the node run recorded no input");
-    const prompt = JSON.parse(recorded).prompt as string;
+    const prompt = recorded.prompt as string;
     const contractAt = prompt.indexOf("RESPONSE FORMAT");
     const splitAt = prompt.indexOf("UNIT OUTPUT");
     expect(contractAt).toBeGreaterThanOrEqual(0);
@@ -467,53 +467,53 @@ describe("AgentTemplateNode — split units (the source port)", () => {
 
   it("a malformed units array fails loudly — the producer-error policy", async () => {
     // units not an array
-    const a = seedAgentNode(38);
+    const a = await seedAgentNode(38);
     const nodeA = splitAgentNode(38, new StubRunner({ status: "finished", result: '{"services":"oops"}' }), PERMISSIVE_SPLIT_CONFIG);
     await nodeA.run(a.ctx, { prompt: "List the services" }, PERMISSIVE_SPLIT_CONFIG);
-    expect(splitUnitsErrorOf(nodeA, a.ctx)).toMatchObject({
+    expect(await splitUnitsErrorOf(nodeA, a.ctx)).toMatchObject({
       name: "AgentOutputError",
       code: "schema_mismatch",
       message: `${LABEL}: split field "services" must be an array of unit items (got string)`,
     });
 
     // an item that is not an object
-    const b = seedAgentNode(39);
+    const b = await seedAgentNode(39);
     const nodeB = splitAgentNode(39, new StubRunner({ status: "finished", result: '{"services":[1]}' }), PERMISSIVE_SPLIT_CONFIG);
     await nodeB.run(b.ctx, { prompt: "List the services" }, PERMISSIVE_SPLIT_CONFIG);
-    expect(splitUnitsErrorOf(nodeB, b.ctx)).toMatchObject({
+    expect(await splitUnitsErrorOf(nodeB, b.ctx)).toMatchObject({
       code: "schema_mismatch",
       message: `${LABEL}: split field "services" item 0 is not an object`,
     });
 
     // a missing unit key — the loud contract failure, never a silent skip
-    const c = seedAgentNode(40);
+    const c = await seedAgentNode(40);
     const nodeC = splitAgentNode(40, new StubRunner({ status: "finished", result: '{"services":[{"title":"no id"}]}' }), PERMISSIVE_SPLIT_CONFIG);
     await nodeC.run(c.ctx, { prompt: "List the services" }, PERMISSIVE_SPLIT_CONFIG);
-    expect(splitUnitsErrorOf(nodeC, c.ctx)).toMatchObject({
+    expect(await splitUnitsErrorOf(nodeC, c.ctx)).toMatchObject({
       code: "schema_mismatch",
       message: `${LABEL}: item 0 has no usable "id" — every unit needs a stable, non-empty key`,
     });
 
     // non-string[] dependencies
-    const d = seedAgentNode(41);
+    const d = await seedAgentNode(41);
     const nodeD = splitAgentNode(
       41,
       new StubRunner({ status: "finished", result: '{"services":[{"id":"api","after":"db"}]}' }),
       PERMISSIVE_SPLIT_CONFIG,
     );
     await nodeD.run(d.ctx, { prompt: "List the services" }, PERMISSIVE_SPLIT_CONFIG);
-    expect(splitUnitsErrorOf(nodeD, d.ctx)).toMatchObject({
+    expect(await splitUnitsErrorOf(nodeD, d.ctx)).toMatchObject({
       code: "schema_mismatch",
       message: `${LABEL}: item 0's "after" must be an array of unit keys`,
     });
   });
 });
 
-/** splitUnits fails synchronously (the port is sync) — capture the thrown
- *  producer error; a clean return is itself the failure. */
-function splitUnitsErrorOf(node: InstanceType<typeof AgentTemplateNode>, ctx: FlowCtx): unknown {
+/** splitUnits rejects with the producer error — capture it; a clean
+ *  (non-throwing) return is itself the failure. */
+async function splitUnitsErrorOf(node: InstanceType<typeof AgentTemplateNode>, ctx: FlowCtx): Promise<unknown> {
   try {
-    node.splitUnits(ctx);
+    await node.splitUnits(ctx);
   } catch (e: unknown) {
     return e;
   }

@@ -14,11 +14,11 @@ export const PATCH = async (req: Request, { params }: { params: Promise<{ id: st
     const { id } = await params;
     const body = await parseJson(req, nodeTemplatePatchBodySchema);
     if (body.add_to_library === true) {
-      const nt = templateStore.addToLibrary(id);
+      const nt = await templateStore.addToLibrary(id);
       invalidateDeclarativeDef(id);
       return NextResponse.json({ nodeTemplate: templateStore.toNodeCatalogRow(nt) });
     }
-    const nt = templateStore.updateNodeTemplate(id, body);
+    const nt = await templateStore.updateNodeTemplate(id, body);
     invalidateDeclarativeDef(id);
     return NextResponse.json({ nodeTemplate: templateStore.toNodeCatalogRow(nt) });
   } catch (e: unknown) {
@@ -29,7 +29,7 @@ export const PATCH = async (req: Request, { params }: { params: Promise<{ id: st
 export const DELETE = async (_req: Request, { params }: { params: Promise<{ id: string }> }) => {
   try {
     const { id } = await params;
-    templateStore.deleteNodeTemplate(id);
+    await templateStore.deleteNodeTemplate(id);
     invalidateDeclarativeDef(id);
     return NextResponse.json({ ok: true });
   } catch (e: unknown) {

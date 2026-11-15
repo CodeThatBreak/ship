@@ -17,7 +17,7 @@ const catalogQueryDefaults = {
  * and dehydrated for the catalog island.
  */
 export default async function TemplateNodesPage() {
-  const nodes = loadNodeCatalog();
+  const nodes = await loadNodeCatalog();
   const queryClient = new QueryClient({
     defaultOptions: { queries: catalogQueryDefaults },
   });

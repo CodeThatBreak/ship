@@ -3,23 +3,25 @@ import { db } from '../../db/app';
 import { WorktreeManager } from './worktreeLifecycle';
 
 describe('WorktreeManager lifecycle events (CR-073)', () => {
-  it('writes node_key (not the row id) into event data.nodeKey', () => {
-    const get = vi.spyOn(db, 'get').mockReturnValue({ node_key: 'build' });
+  it('writes node_key (not the row id) into event data.nodeKey', async () => {
+    const findFirst = vi
+      .spyOn(db.prisma.node, 'findFirst')
+      .mockResolvedValue({ nodeKey: 'build' } as never);
     const mgr = new WorktreeManager();
-    const data = (
+    const data = await (
       mgr as unknown as {
         lifecycleData: (
           flowId: string,
           nodeId: string | null | undefined,
           extra?: Record<string, unknown>
-        ) => Record<string, unknown> | undefined;
+        ) => Promise<Record<string, unknown> | undefined>;
       }
     ).lifecycleData('flow-1', 'node-row-id', { branch: 'main' });
 
-    expect(get).toHaveBeenCalled();
+    expect(findFirst).toHaveBeenCalled();
     expect(data?.nodeKey).toBe('build');
     expect(data?.nodeKey).not.toBe('node-row-id');
-    get.mockRestore();
+    findFirst.mockRestore();
   });
 });
 
@@ -27,34 +29,38 @@ describe('WorktreeManager node heartbeat', () => {
   const asTouch = (mgr: WorktreeManager) =>
     (
       mgr as unknown as {
-        touchNode: (flowId: string, nodeId: string | null | undefined) => void;
+        touchNode: (flowId: string, nodeId: string | null | undefined) => Promise<void>;
       }
     ).touchNode.bind(mgr);
 
-  it("stamps the attributed node row so reconcile's start-grace skips the warm-up", () => {
-    // @ts-expect-error mockReturnValue expects a RunResult, but we don't need to return anything
-    const run = vi.spyOn(db, 'run').mockReturnValue(undefined);
+  it("stamps the attributed node row so reconcile's start-grace skips the warm-up", async () => {
+    const updateMany = vi
+      .spyOn(db.prisma.node, 'updateMany')
+      .mockResolvedValue({ count: 1 });
     try {
-      asTouch(new WorktreeManager())('flow-1', 'node-row-id');
-      expect(run).toHaveBeenCalledTimes(1);
-      const [sql, ...params] = run.mock.calls[0] as unknown as [string, unknown[]];
-      expect(sql).toContain('UPDATE nodes SET updated_at');
-      expect(params).toEqual([expect.any(String), 'node-row-id', 'flow-1']);
+      await asTouch(new WorktreeManager())('flow-1', 'node-row-id');
+      expect(updateMany).toHaveBeenCalledTimes(1);
+      const [payload] = updateMany.mock.calls[0] as unknown as [
+        { where: { id: string; flowId: string }; data: { updatedAt: Date } },
+      ];
+      expect(payload.where).toEqual({ id: 'node-row-id', flowId: 'flow-1' });
+      expect(payload.data.updatedAt).toEqual(expect.any(Date));
     } finally {
-      run.mockRestore();
+      updateMany.mockRestore();
     }
   });
 
-  it("is a no-op without a node attribution (flow-level events don't stamp strangers)", () => {
-    // @ts-expect-error mockReturnValue expects a RunResult, but we don't need to return anything
-    const run = vi.spyOn(db, 'run').mockReturnValue(undefined);
+  it("is a no-op without a node attribution (flow-level events don't stamp strangers)", async () => {
+    const updateMany = vi
+      .spyOn(db.prisma.node, 'updateMany')
+      .mockResolvedValue({ count: 1 });
     try {
       const touch = asTouch(new WorktreeManager());
-      touch('flow-1', null);
-      touch('flow-1', undefined);
-      expect(run).not.toHaveBeenCalled();
+      await touch('flow-1', null);
+      await touch('flow-1', undefined);
+      expect(updateMany).not.toHaveBeenCalled();
     } finally {
-      run.mockRestore();
+      updateMany.mockRestore();
     }
   });
 });

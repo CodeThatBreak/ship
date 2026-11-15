@@ -44,7 +44,7 @@ export class LiveTaskFeed {
     if (!provider) {
       return { ok: false, status: 500, error: "no task providers registered" };
     }
-    if (!provider.configured()) {
+    if (!(await provider.configured())) {
       return {
         ok: true,
         tasks: [],

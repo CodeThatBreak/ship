@@ -5,21 +5,14 @@
  * pricing source's table — the port-owned facts that replaced the hardcoded
  * Cursor constant in the engine.
  *
- * Runs against an isolated temp SQLite DB: DATABASE_PATH is read lazily by
- * lib/config.ts, so setting it before the first `db` import isolates the
- * singleton (AGENTS.md §1 — never a real database).
+ * Runs against the shared Postgres test database (vitest globalSetup assigns
+ * `DATABASE_URL`); `lib/config.ts` reads it lazily before the first `db`
+ * import (AGENTS.md §1 — never a real database).
  */
-import fs from "node:fs";
-import os from "node:os";
-import path from "node:path";
+import { assignTestDatabase } from "../../../tests/helpers/testDatabase";
 import { describe, expect, it, vi } from "vitest";
 
-// Must run before any `../../db` import touches the connection — dynamic
-// imports below execute in statement order after the static ones hoist.
-process.env.DATABASE_PATH = path.join(
-  fs.mkdtempSync(path.join(os.tmpdir(), "devflow-usage-tracker-")),
-  "test.db",
-);
+assignTestDatabase();
 
 const { estimateCostCents, UsageTracker } = await import("./usageTracker");
 const { PricingSource } = await import("./pricingSource");

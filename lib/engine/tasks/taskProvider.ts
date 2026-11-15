@@ -100,17 +100,17 @@ export abstract class TaskProvider {
    * Write one live task into the `tasks` table (idempotent on `key`). Only
    * called when a build starts — the engine needs a row to attach the flow to.
    */
-  abstract upsertLive(task: LiveTask): string;
+  abstract upsertLive(task: LiveTask): Promise<string>;
 
   /** Where to view this task externally (UI deep link). */
-  abstract externalUrl(task: Task): string;
+  abstract externalUrl(task: Task): Promise<string>;
 
   /**
    * Whether the provider's credentials/config are present — drives the
    * connect state in the settings UI. Default true (no config needed).
    */
-  configured(): boolean {
-    return true;
+  configured(): Promise<boolean> {
+    return Promise.resolve(true);
   }
 
   /**
@@ -139,11 +139,11 @@ export interface ProviderInstance {
  * /api/task-instances routes expose (mirrors GitHostService's instance half).
  */
 export interface TaskInstanceStore {
-  instances(): ProviderInstance[];
-  addInstance(input: { name?: string | null; baseUrl: string; email?: string; token: string }): ProviderInstance;
+  instances(): Promise<ProviderInstance[]>;
+  addInstance(input: { name?: string | null; baseUrl: string; email?: string; token: string }): Promise<ProviderInstance>;
   /** Update by id; a blank/absent token keeps the stored one. */
-  updateInstance(id: string, input: { name?: string | null; baseUrl?: string; email?: string; token?: string }): void;
-  removeInstance(id: string): void;
+  updateInstance(id: string, input: { name?: string | null; baseUrl?: string; email?: string; token?: string }): Promise<void>;
+  removeInstance(id: string): Promise<void>;
   /** Quick reachability/auth check (settings UI "Test" button). */
   testInstance(id: string, input?: { baseUrl?: string; email?: string; token?: string }): Promise<{ ok: boolean; detail: string }>;
 }

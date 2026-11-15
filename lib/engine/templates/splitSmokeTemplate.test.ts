@@ -16,23 +16,19 @@
  * scheduling → the join publishes the aggregate in unit order → the parent
  * continues.
  *
- * Runs against an isolated temp SQLite DB (DATABASE_PATH is read lazily by
- * lib/config.ts — AGENTS.md §1, never a real database).
+ * Runs against the test Postgres database (DATABASE_URL — AGENTS.md §1, never
+ * a real database).
  */
-import fs from "node:fs";
-import os from "node:os";
-import path from "node:path";
 import { describe, expect, it } from "vitest";
+import { assignTestDatabase, resetTestDatabase } from "../../../tests/helpers/testDatabase";
 
-process.env.DATABASE_PATH = path.join(
-  fs.mkdtempSync(path.join(os.tmpdir(), "devflow-split-smoke-")),
-  "test.db",
-);
+assignTestDatabase();
 
 const { db } = await import("../../db/app");
 const { flowEngine } = await import("../flowEngine");
 const { templateStore } = await import("./templateStore");
 const { agentPortRegistry } = await import("../ports/agentPort");
+await resetTestDatabase();
 import type {
   AgentPort,
   AgentRunHandle,
@@ -133,7 +129,7 @@ class SmokeAgentPort implements AgentPort {
 
 const stubPort = new SmokeAgentPort();
 agentPortRegistry.register(stubPort);
-db.setSetting("default_harness", "smoke-stub"); // forMode("cloud") selects the stub
+await db.setSetting("default_harness", "smoke-stub"); // forMode("cloud") selects the stub
 
 // ── the smoke template, authored exactly as a user would ─────────────────────
 
@@ -205,7 +201,7 @@ const ROLLUP_CONFIG = {
     + "Write a one-paragraph rollup: which units delivered, what the dependency chain produced, and anything a human should look at. Markdown.",
 };
 
-const SPLITTER_ROW = templateStore.createNodeTemplate({
+const SPLITTER_ROW = await templateStore.createNodeTemplate({
   key: "smoke_scope_splitter",
   name: "Scope splitter (smoke)",
   kind: "agent",
@@ -213,7 +209,7 @@ const SPLITTER_ROW = templateStore.createNodeTemplate({
   description: "Smoke source: publishes units from its json output (agent-node split §2.2)",
   config: SPLITTER_CONFIG,
 });
-const WORKER_ROW = templateStore.createNodeTemplate({
+const WORKER_ROW = await templateStore.createNodeTemplate({
   key: "smoke_unit_worker",
   name: "Unit worker (smoke)",
   kind: "agent",
@@ -221,7 +217,7 @@ const WORKER_ROW = templateStore.createNodeTemplate({
   description: "Smoke consumer: runs once per unit, joins the aggregate (§2.4 per-unit)",
   config: WORKER_CONFIG,
 });
-const ROLLUP_ROW = templateStore.createNodeTemplate({
+const ROLLUP_ROW = await templateStore.createNodeTemplate({
   key: "smoke_rollup",
   name: "Unit rollup (smoke)",
   kind: "agent",
@@ -237,7 +233,7 @@ const ROLLUP_ROW = templateStore.createNodeTemplate({
 // publishes its aggregate `{units: [...]}` at run time, but a markdown agent's
 // lint contract is `{markdown}` — the input_map declares the aggregate field
 // so `{{input.units}}` lints and the join output flows on.
-const TEMPLATE_ID = templateStore.create({
+const TEMPLATE_ID = await templateStore.create({
   name: "Split smoke: units fan-out",
   description:
     "Agent-node split end-to-end (no plan/build): a json agent splits its output into units → a per-unit agent runs one child per unit (parallel where no dependency, up to 2) → the engine joins and publishes the aggregate → a rollup agent consumes it whole. "
@@ -267,9 +263,9 @@ function must<T>(row: T | null | undefined, what: string): T {
 }
 
 /** Poll the DB until the async engine bg work settles (or fail loudly). */
-async function until(cond: () => boolean, what: string): Promise<void> {
+async function until(cond: () => boolean | Promise<boolean>, what: string): Promise<void> {
   for (let i = 0; i < 1000; i++) {
-    if (cond()) return;
+    if (await cond()) return;
     await new Promise((r) => setTimeout(r, 10));
   }
   throw new Error(`timed out waiting for ${what}`);
@@ -292,15 +288,16 @@ interface SplitChildPayload {
  * millisecond (db.now()) and the SQL tiebreak falls to a random id — so the
  * assertions ride the splitter's own deterministic `position`, not row order.
  */
-function splitChildren(flowId: string): { id: string; name: string; payload: SplitChildPayload }[] {
-  return db.all<{ id: string; name: string; trigger_payload: string | null }>(
-    `SELECT id, name, trigger_payload FROM flows WHERE parent_flow_id=? AND kind='split' ORDER BY created_at, id`,
+async function splitChildren(flowId: string): Promise<{ id: string; name: string; payload: SplitChildPayload }[]> {
+  return (await db.all<{ id: string; name: string; trigger_payload: SplitChildPayload | null }>(
+    `SELECT id, name, trigger_payload FROM flows WHERE parent_flow_id=$1 AND kind='split' ORDER BY created_at, id`,
     flowId,
-  )
+  ))
     .map((r) => ({
       id: r.id,
       name: r.name,
-      payload: JSON.parse(must(r.trigger_payload, `trigger payload of ${r.id}`)) as SplitChildPayload,
+      // the Json column arrives parsed from Prisma
+      payload: must(r.trigger_payload, `trigger payload of ${r.id}`),
     }))
     .sort((a, b) => a.payload.unit.position - b.payload.unit.position);
 }
@@ -308,21 +305,22 @@ function splitChildren(flowId: string): { id: string; name: string; payload: Spl
 interface AggregateEntry { key: string; title: string; status: string; output?: Record<string, unknown> }
 
 /** One flow node's status + parsed output. */
-function nodeOf(flowId: string, nodeKey: string): { status: string; output: Record<string, unknown> } {
+async function nodeOf(flowId: string, nodeKey: string): Promise<{ status: string; output: Record<string, unknown> }> {
   const row = must(
-    db.get<{ status: string; output: string | null }>(
-      `SELECT status, output FROM nodes WHERE flow_id=? AND node_key=?`, flowId, nodeKey,
+    await db.get<{ status: string; output: Record<string, unknown> | null }>(
+      `SELECT status, output FROM nodes WHERE flow_id=$1 AND node_key=$2`, flowId, nodeKey,
     ),
     `node ${nodeKey} of ${flowId}`,
   );
   return {
     status: row.status,
-    output: row.output ? (JSON.parse(row.output) as Record<string, unknown>) : {},
+    // the Json column arrives parsed from Prisma
+    output: row.output ?? {},
   };
 }
 
-const joinPublished = (flowId: string) => () => {
-  const worker = nodeOf(flowId, "smoke_unit_worker");
+const joinPublished = (flowId: string) => async () => {
+  const worker = await nodeOf(flowId, "smoke_unit_worker");
   const units = worker.output.units as AggregateEntry[] | undefined;
   return worker.status === "done" && Array.isArray(units) && units.length === 3
     && units.every((u) => u.status === "done");
@@ -331,11 +329,11 @@ const joinPublished = (flowId: string) => () => {
 // ── tests ────────────────────────────────────────────────────────────────────
 
 describe("split smoke template — authoring path (templateStore + template-lint)", () => {
-  it("saves through the store with the split knobs on the right nodes", () => {
-    const tpl = must(templateStore.flowTemplate(TEMPLATE_ID), "the smoke flow template");
+  it("saves through the store with the split knobs on the right nodes", async () => {
+    const tpl = must(await templateStore.flowTemplate(TEMPLATE_ID), "the smoke flow template");
     expect(tpl.name).toBe("Split smoke: units fan-out");
 
-    const graph = must(templateStore.graph(TEMPLATE_ID), "the smoke template graph");
+    const graph = must(await templateStore.graph(TEMPLATE_ID), "the smoke template graph");
     expect(graph.nodes.map((n) => n.key)).toEqual(["scope_splitter", "smoke_unit_worker", "smoke_rollup"]);
     expect(graph.edges.map((e) => `${e.from}>${e.to}`)).toEqual([
       "scope_splitter>smoke_unit_worker", "smoke_unit_worker>smoke_rollup",
@@ -343,7 +341,7 @@ describe("split smoke template — authoring path (templateStore + template-lint
 
     // the source def carries the split knob (createNodeTemplate parsed it —
     // the schema defaults ride along: key_field/depends_on_field)
-    const splitter = must(templateStore.nodeTemplate(SPLITTER_ROW.id), "splitter row");
+    const splitter = must(await templateStore.nodeTemplate(SPLITTER_ROW.id), "splitter row");
     const splitterConfig = must(splitter.config, "splitter config");
     expect(splitterConfig.split).toMatchObject({
       field: "units",
@@ -352,7 +350,7 @@ describe("split smoke template — authoring path (templateStore + template-lint
       target: "smoke_unit_worker",
     });
     // the consumer def carries the consume knobs
-    const worker = must(templateStore.nodeTemplate(WORKER_ROW.id), "worker row");
+    const worker = must(await templateStore.nodeTemplate(WORKER_ROW.id), "worker row");
     expect(worker.config).toMatchObject({ split_consume: "per-unit", split_parallel_max: 2 });
   });
 });
@@ -360,18 +358,18 @@ describe("split smoke template — authoring path (templateStore + template-lint
 describe("split smoke template — end-to-end run (source → per-unit children → join → parent continues)", () => {
   it("fans units out, schedules the dependency, publishes the aggregate and continues", async () => {
     const taskId = "task_smoke_e2e";
-    db.run(
-      `INSERT INTO tasks (id, type, key, summary, status, issue_type, priority) VALUES (?,?,?,?,?,?,?)`,
+    await db.run(
+      `INSERT INTO tasks (id, type, key, summary, status, issue_type, priority) VALUES ($1,$2,$3,$4,$5,$6,$7)`,
       taskId, "jira", "SMOKE-1", "split smoke end-to-end run", "open", "task", "P2",
     );
-    const flowId = flowEngine.create(taskId, "https://git.example.com/o/r", "split smoke e2e", { templateId: TEMPLATE_ID });
+    const flowId = await flowEngine.create(taskId, "https://git.example.com/o/r", "split smoke e2e", { templateId: TEMPLATE_ID });
 
-    flowEngine.start(flowId);
+    await flowEngine.start(flowId);
 
     // the splitter answered the contract directive with the unit payload and
     // the consumer expanded one child per unit
-    await until(() => splitChildren(flowId).length === 3, "the per-unit expansion");
-    const children = splitChildren(flowId);
+    await until(async () => (await splitChildren(flowId)).length === 3, "the per-unit expansion");
+    const children = await splitChildren(flowId);
     expect(children.map((c) => c.payload.unit.key)).toEqual(["foundation", "interface", "rollout"]);
     expect(children.map((c) => c.payload.unit.position)).toEqual([0, 1, 2]);
     for (const c of children) {
@@ -401,7 +399,7 @@ describe("split smoke template — end-to-end run (source → per-unit children 
     expect(rolloutIdx).toBeGreaterThan(-1);
 
     // the join published the aggregate on the consumer in unit order
-    const worker = nodeOf(flowId, "smoke_unit_worker");
+    const worker = await nodeOf(flowId, "smoke_unit_worker");
     const units = worker.output.units as AggregateEntry[];
     expect(units.map((u) => `${u.key}:${u.status}`)).toEqual([
       "foundation:done", "interface:done", "rollout:done",
@@ -412,7 +410,7 @@ describe("split smoke template — end-to-end run (source → per-unit children 
     }
 
     // the parent continued: the rollup consumed the aggregate whole and ran
-    await until(() => nodeOf(flowId, "smoke_rollup").status === "done", "the rollup run");
+    await until(async () => (await nodeOf(flowId, "smoke_rollup")).status === "done", "the rollup run");
     const rollupPrompt = must(
       stubPort.prompts.find((p) => p.includes("All units of the split have resolved")),
       "the rollup prompt",
@@ -421,7 +419,7 @@ describe("split smoke template — end-to-end run (source → per-unit children 
     expect(rollupPrompt).toContain('"interface"');
     expect(rollupPrompt).toContain('"rollout"');
     expect(rollupPrompt).not.toContain("{{"); // nothing left unrendered
-    expect(nodeOf(flowId, "smoke_rollup").output.markdown).toBe("Smoke stub markdown output");
+    expect((await nodeOf(flowId, "smoke_rollup")).output.markdown).toBe("Smoke stub markdown output");
 
     // exactly one splitter run (json agent), three unit runs, one rollup run
     expect(stubPort.prompts.filter((p) => p.includes("RESPONSE FORMAT"))).toHaveLength(1);

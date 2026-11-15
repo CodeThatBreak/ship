@@ -198,24 +198,24 @@ export interface GitHostService {
   readonly label: string;
 
   /** True when usable at all (at least one registered instance). */
-  configured(): boolean;
+  configured(): Promise<boolean>;
   /** True when this host has credentials for the given repo URL. */
-  ownsRepo(repoUrl: string): boolean;
+  ownsRepo(repoUrl: string): Promise<boolean>;
   /** API client bound to the instance that owns the given repo URL. */
-  clientForRepo(repoUrl: string): GitHostClient;
+  clientForRepo(repoUrl: string): Promise<GitHostClient>;
   /** Plain HTTPS clone/push URL (credentials supplied via {@link gitAuthEnv}). */
-  authedCloneUrl(repoUrl: string): string;
+  authedCloneUrl(repoUrl: string): Promise<string>;
   /** `GIT_CONFIG_*` env for HTTPS auth without embedding tokens in URLs. */
-  gitAuthEnv(repoUrl: string): Record<string, string>;
+  gitAuthEnv(repoUrl: string): Promise<Record<string, string>>;
   /** Secret values to strip from git error text for this repo. */
-  gitRedactValues(repoUrl: string): readonly string[];
+  gitRedactValues(repoUrl: string): Promise<readonly string[]>;
 
   // ── instance registry (settings admin) ───────────────────────────────────
-  instances(): HostInstance[];
-  addInstance(input: { name?: string | null; baseUrl: string; token: string }): HostInstance;
+  instances(): Promise<HostInstance[]>;
+  addInstance(input: { name?: string | null; baseUrl: string; token: string }): Promise<HostInstance>;
   /** Update by id; a blank/absent token keeps the stored one. */
-  updateInstance(id: string, input: { name?: string | null; baseUrl?: string; token?: string }): void;
-  removeInstance(id: string): void;
+  updateInstance(id: string, input: { name?: string | null; baseUrl?: string; token?: string }): Promise<void>;
+  removeInstance(id: string): Promise<void>;
   /**
    * Quick reachability/auth check used by the settings page — tests the
    * stored instance's credentials, with optional overrides (e.g. the form
@@ -302,10 +302,10 @@ export class GitHostRegistry {
   }
 
   /** The host that serves the given repo URL, or throw. */
-  forRepo(repoUrl: string): GitHostService {
+  async forRepo(repoUrl: string): Promise<GitHostService> {
     this.assertReady();
     for (const svc of this.list()) {
-      if (svc.ownsRepo(repoUrl)) return svc;
+      if (await svc.ownsRepo(repoUrl)) return svc;
     }
     throw new Error(
       `no git host configured for repo "${repoUrl}" — add one on the Settings page`
@@ -326,12 +326,12 @@ export const normalizeCloneUrl = (repoUrl: string): string => {
  * Plain clone URL plus out-of-band auth for local git operations. Keeps
  * `lib/git` free of engine imports while the registry stays the router.
  */
-export const gitRemoteContextFor = (repoUrl: string): GitRemoteContext => {
-  const svc = gitHostRegistry.forRepo(repoUrl);
+export const gitRemoteContextFor = async (repoUrl: string): Promise<GitRemoteContext> => {
+  const svc = await gitHostRegistry.forRepo(repoUrl);
   return {
-    cloneUrl: svc.authedCloneUrl(repoUrl),
-    env: svc.gitAuthEnv(repoUrl),
-    redactSecrets: svc.gitRedactValues(repoUrl),
+    cloneUrl: await svc.authedCloneUrl(repoUrl),
+    env: await svc.gitAuthEnv(repoUrl),
+    redactSecrets: await svc.gitRedactValues(repoUrl),
   };
 };
 
@@ -340,9 +340,9 @@ export const gitRemoteContextFor = (repoUrl: string): GitRemoteContext => {
  * `lib/git` local operations (ensureClone / pushBranch) — keeps `lib/git` free
  * of engine imports while the registry stays the only instance router.
  */
-export function authedCloneUrlFor(repoUrl: string): string {
+export async function authedCloneUrlFor(repoUrl: string): Promise<string> {
   try {
-    return gitRemoteContextFor(repoUrl).cloneUrl;
+    return (await gitRemoteContextFor(repoUrl)).cloneUrl;
   } catch (e: unknown) {
     throw new AuthedUrlResolutionError(repoUrl, e);
   }

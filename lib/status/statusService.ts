@@ -31,37 +31,37 @@ export type StatusSnapshot = {
 export class StatusService {
   constructor(private readonly database: Database) {}
 
-  snapshot(): StatusSnapshot {
-    const agents = this.database.all<{
-      flow_id: string;
-      task_key: string;
-      task_summary: string;
-      current_node: string | null;
-      execution_mode: string | null;
+  async snapshot(): Promise<StatusSnapshot> {
+    const agents = await this.database.all<{
+      flowId: string;
+      taskKey: string;
+      taskSummary: string;
+      currentNode: string | null;
+      executionMode: string | null;
       status: string;
-      mr_url: string | null;
-      mr_iid: number | null;
+      mrUrl: string | null;
+      mrIid: number | null;
     }>(
-      `SELECT f.id AS flow_id, t.key AS task_key, t.summary AS task_summary,
-              f.currentNode, f.executionMode AS "executionMode", f.status, f.mrUrl AS "mrUrl", f.mrIid AS "mrIid"
-       FROM flows f JOIN tasks t ON t.id = f.taskId
+      `SELECT f.id AS "flowId", t.key AS "taskKey", t.summary AS "taskSummary",
+              f."currentNode" AS "currentNode", f."executionMode" AS "executionMode", f.status, f."mrUrl" AS "mrUrl", f."mrIid" AS "mrIid"
+       FROM flows f JOIN tasks t ON t.id = f."taskId"
        WHERE f.status = $1
-       ORDER BY f.updatedAt DESC`,
+       ORDER BY f."updatedAt" DESC`,
       FLOW_STATUS.ACTIVE,
     );
 
     const runsRunning =
-      this.database.get<{ c: number }>(`SELECT COUNT(*) AS c FROM runs WHERE status = $1`, FLOW_STATUS.RUNNING)
+      (await this.database.get<{ c: number }>(`SELECT COUNT(*) AS c FROM runs WHERE status = $1`, FLOW_STATUS.RUNNING))
         ?.c ?? 0;
-    const repoCount = this.database.get<{ c: number }>(`SELECT COUNT(*) AS c FROM repos`)?.c ?? 0;
+    const repoCount = (await this.database.get<{ c: number }>(`SELECT COUNT(*) AS c FROM repos`))?.c ?? 0;
 
     const openMrs = agents.flatMap((a) =>
       a.mrUrl
         ? [
             {
               flowId: a.flowId,
-              taskKey: a.task_key,
-              summary: a.task_summary,
+              taskKey: a.taskKey,
+              summary: a.taskSummary,
               mrUrl: a.mrUrl,
               mrIid: a.mrIid,
             },
@@ -72,8 +72,8 @@ export class StatusService {
     return {
       agents: agents.map((a) => ({
         flowId: a.flowId,
-        taskKey: a.task_key,
-        summary: a.task_summary,
+        taskKey: a.taskKey,
+        summary: a.taskSummary,
         node: a.currentNode,
         mode: a.executionMode ?? RUN_MODE.CLOUD,
         status: a.status,

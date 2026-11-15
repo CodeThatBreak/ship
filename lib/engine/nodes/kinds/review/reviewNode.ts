@@ -81,7 +81,7 @@ export class ReviewNode extends AgentRunNode<ReviewInput, ReviewOutput> {
   }
 
   /** Resolve the MR (iid + git branch) for this review — per-branch or flow-level. */
-  resolveMr(ctx: FlowCtx, branchName?: string | null): { mrIid: number; mrBranch: string | null } {
+  async resolveMr(ctx: FlowCtx, branchName?: string | null): Promise<{ mrIid: number; mrBranch: string | null }> {
     return mrTargetResolver.resolve(ctx, branchName);
   }
 
@@ -117,11 +117,11 @@ export class ReviewNode extends AgentRunNode<ReviewInput, ReviewOutput> {
       if (body) input = { ...input, prompt: body, promptIsBody: true } as ReviewInput;
     }
 
-    const node = this.node(ctx);
+    const node = await this.node(ctx);
 
-    const { mrIid, mrBranch } = this.resolveMr(ctx, input.branchName);
-    const repoUrl = ctx.flow.repo_url ?? "";
-    const host = this.gitHosts.forRepo(repoUrl);
+    const { mrIid, mrBranch } = await this.resolveMr(ctx, input.branchName);
+    const repoUrl = ctx.flow.repoUrl ?? "";
+    const host = await this.gitHosts.forRepo(repoUrl);
 
     const changes = await host.getChanges(repoUrl, mrIid);
     const changeRequest = await host.getChangeRequest(repoUrl, mrIid);
@@ -172,7 +172,7 @@ export class ReviewNode extends AgentRunNode<ReviewInput, ReviewOutput> {
       finalize: async (result) => {
         const parsed = parseReviewComments(result.result ?? "");
         if (parsed.warning) {
-          this.support.emit(ctx.flow.id, node.id, "log", parsed.warning);
+          await this.support.emit(ctx.flow.id, node.id, "log", parsed.warning);
         }
         if (parsed.comments.length === 0 && (result.result ?? "").trim()) {
           return {
@@ -190,7 +190,7 @@ export class ReviewNode extends AgentRunNode<ReviewInput, ReviewOutput> {
         }
 
         const commentStyle = configString(config, "comment_style") === "summary" ? "summary" : "inline";
-        const prevArt = this.support.latestArtifact(ctx.flow.id, "review", { nodeType: NODE_KEYS.REVIEW });
+        const prevArt = await this.support.latestArtifact(ctx.flow.id, "review", { nodeType: NODE_KEYS.REVIEW });
         const postedHashes = new Set(readPostedCommentHashes(prevArt?.meta));
         const maxComments = configNumber(config, "max_comments", 0);
         const effective = maxComments > 0 ? parsed.comments.slice(0, maxComments) : parsed.comments;
@@ -198,8 +198,8 @@ export class ReviewNode extends AgentRunNode<ReviewInput, ReviewOutput> {
         let posted = 0;
         const newHashes: string[] = [...postedHashes];
 
-        const persistProgress = () => {
-          this.support.saveArtifact(
+        const persistProgress = async () => {
+          await this.support.saveArtifact(
             node.id,
             ctx.flow.id,
             "review",
@@ -226,7 +226,7 @@ export class ReviewNode extends AgentRunNode<ReviewInput, ReviewOutput> {
               newHashes.push(reviewCommentPostHash(mrIid, c, "summary"));
             }
             posted = pending.length;
-            persistProgress();
+            await persistProgress();
           }
         } else {
           const inlineContext = {
@@ -249,7 +249,7 @@ export class ReviewNode extends AgentRunNode<ReviewInput, ReviewOutput> {
                 );
               } catch (e: unknown) {
                 const detail = e instanceof Error ? e.message : String(e);
-                this.support.emit(ctx.flow.id, node.id, "log", `inline review comment fell back to MR note: ${detail}`);
+                await this.support.emit(ctx.flow.id, node.id, "log", `inline review comment fell back to MR note: ${detail}`);
                 const fallbackBody = `**${file}:${line}** — ${c.body}`;
                 await host.createComment(repoUrl, mrIid, `**AI Review**\n\n${fallbackBody}`);
               }
@@ -259,7 +259,7 @@ export class ReviewNode extends AgentRunNode<ReviewInput, ReviewOutput> {
             newHashes.push(hash);
             postedHashes.add(hash);
             posted++;
-            persistProgress();
+            await persistProgress();
           }
         }
 
@@ -294,11 +294,11 @@ export class ReviewNode extends AgentRunNode<ReviewInput, ReviewOutput> {
    * after a run are the `instructions` refine.
    */
   override async chat(ctx: FlowCtx, content: string, model?: string): Promise<string> {
-    if (this.isFirstTurn(this.node(ctx))) {
+    if (this.isFirstTurn(await this.node(ctx))) {
       const outcome = await this.run(
         ctx,
         ReviewInput.parse({ prompt: content, promptIsBody: true, model: model ?? null }),
-        this.nodeConfig(ctx),
+        await this.nodeConfig(ctx),
       );
       return outcome.reply;
     }

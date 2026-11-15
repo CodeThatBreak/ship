@@ -10,7 +10,7 @@ const loadRepoChoices = async (): Promise<EditorRepoChoice[]> => {
   return (payload.repos ?? []).map((r) => ({
     id: r.id,
     name: r.name,
-    local_path: r.local_path ?? null,
+    localPath: r.localPath ?? null,
   }));
 };
 

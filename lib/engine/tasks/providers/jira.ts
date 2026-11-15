@@ -1,12 +1,12 @@
 import "server-only";
 
 import { db } from "../../../db/app";
-import type { Task } from "../../../db/rows";
+import type { JiraInstance, Task } from "../../../db/rows";
 import { UpstreamError, ValidationError } from "../../../errors";
 import { baseUrlOverrideRequiresToken } from "../../../integrations/instanceCredentialPolicy";
 import { truncateUpstreamBody } from '../../ports/gitHostErrors';
 import { AdfRenderer } from "../../../integrations/jira/adfRenderer";
-import { jiraAuthHeaders, jiraMyselfPath, jiraSearchPath } from "../../../integrations/jira/apiProfile";
+import { jiraAuthHeaders, jiraMyselfPath, jiraSearchPath, type JiraAuthMode } from "../../../integrations/jira/apiProfile";
 import { JIRA_HTTP_TIMEOUT_MS } from "../../../integrations/jira/constants";
 import { jira } from "../../../integrations/jira/singleton";
 import { maskToken } from "../../../integrations/jira/service";
@@ -52,13 +52,14 @@ export class JiraTaskProvider extends TaskProvider implements TaskInstanceStore 
     { key: "repo_url", label: "Repo URL", type: "string" },
   ];
 
-  override configured(): boolean {
+  override async configured(): Promise<boolean> {
     return jira.configured();
   }
 
   /** The issue's external deep link (stored link wins; instance baseUrl as fallback). */
-  externalUrl(task: Task): string {
-    return task.externalUrl || `${jira.active()?.baseUrl ?? ""}/browse/${task.key}`;
+  override async externalUrl(task: Task): Promise<string> {
+    const inst = await jira.active();
+    return task.externalUrl || `${inst?.baseUrl ?? ""}/browse/${task.key}`;
   }
 
   /** ── instance registry (Settings → Integrations → Task) ────────────────── */
@@ -67,45 +68,46 @@ export class JiraTaskProvider extends TaskProvider implements TaskInstanceStore 
     return this;
   }
 
-  instances(): ProviderInstance[] {
-    return jira.listInstances().map(({ id, name, base_url, email }) => ({
-      id, name, baseUrl: base_url, email, tokenMasked: "••••",
+  async instances(): Promise<ProviderInstance[]> {
+    const list = await jira.listInstances();
+    return list.map(({ id, name, baseUrl, email }) => ({
+      id, name, baseUrl, email, tokenMasked: "••••",
     }));
   }
 
-  addInstance(input: { name?: string | null; baseUrl: string; email?: string; token: string }): ProviderInstance {
-    const inst = jira.addInstance({
+  async addInstance(input: { name?: string | null; baseUrl: string; email?: string; token: string }): Promise<ProviderInstance> {
+    const inst = await jira.addInstance({
       name: input.name ?? undefined,
-      base_url: input.baseUrl,
+      baseUrl: input.baseUrl,
       email: input.email ?? "",
       token: input.token,
     });
     return { id: inst.id, name: inst.name, baseUrl: inst.baseUrl, email: inst.email, tokenMasked: maskToken(inst.token) };
   }
 
-  updateInstance(id: string, input: { name?: string | null; baseUrl?: string; email?: string; token?: string }): void {
-    const existing = jira.getInstance(id);
+  async updateInstance(id: string, input: { name?: string | null; baseUrl?: string; email?: string; token?: string }): Promise<void> {
+    const existing = await jira.getInstance(id);
     if (!existing) throw new Error(`jira instance not found: ${id}`);
     if (baseUrlOverrideRequiresToken(existing.baseUrl, input.baseUrl, input.token)) {
       throw new ValidationError("token is required when overriding baseUrl");
     }
-    jira.updateInstance(id, {
+    await jira.updateInstance(id, {
       name: input.name,
-      base_url: input.baseUrl,
+      baseUrl: input.baseUrl,
       email: input.email,
       token: input.token,
     });
   }
 
-  removeInstance(id: string): void {
-    jira.deleteInstance(id);
+  async removeInstance(id: string): Promise<void> {
+    await jira.deleteInstance(id);
   }
 
   async testInstance(
     id: string,
     input: { baseUrl?: string; email?: string; token?: string } = {}
   ): Promise<{ ok: boolean; detail: string }> {
-    const existing = jira.getInstance(id);
+    const existing = await jira.getInstance(id);
     if (!existing) throw new Error(`jira instance not found: ${id}`);
     if (baseUrlOverrideRequiresToken(existing.baseUrl, input.baseUrl, input.token)) {
       throw new ValidationError("token is required when overriding baseUrl");
@@ -170,7 +172,7 @@ export class JiraTaskProvider extends TaskProvider implements TaskInstanceStore 
   }
 
   /** Store one live task in the `tasks` table (idempotent on key). */
-  override upsertLive(task: LiveTask): string {
+  override async upsertLive(task: LiveTask): Promise<string> {
     const issue: JiraIssue = {
       id: task.id,
       key: task.key,
@@ -180,8 +182,8 @@ export class JiraTaskProvider extends TaskProvider implements TaskInstanceStore 
       issueType: task.issueType,
       priority: task.priority,
       prdText: typeof task.fields.prd === "string" ? task.fields.prd : "",
-      figmaUrls: Array.isArray(task.fields.figma_urls)
-        ? (task.fields.figma_urls as string[])
+      figmaUrls: Array.isArray(task.fields.figmaUrls)
+        ? (task.fields.figmaUrls as string[])
         : [],
       externalUrl: task.externalUrl,
       parentKey: task.parentKey,
@@ -203,17 +205,17 @@ export class JiraTaskProvider extends TaskProvider implements TaskInstanceStore 
       priority: issue.priority,
       externalUrl: issue.externalUrl,
       parentKey: issue.parentKey,
-      fields: { prd: issue.prdText, figma_urls: issue.figmaUrls },
+      fields: { prd: issue.prdText, figmaUrls: issue.figmaUrls },
       raw: issue.raw,
     };
   }
 
   // ── transport + normalization (single source of truth for jira logic) ────
 
-  private headers(): HeadersInit {
-    const inst = jira.active();
+  private async headers(): Promise<HeadersInit> {
+    const inst = await jira.active();
     if (!inst) return { Accept: "application/json" };
-    return jiraAuthHeaders(inst, jira.authMode(inst));
+    return jiraAuthHeaders(inst, await jira.authMode(inst));
   }
 
   /** Heuristically split a PRD out of the description. */
@@ -222,7 +224,7 @@ export class JiraTaskProvider extends TaskProvider implements TaskInstanceStore 
     return m ? m[0].trim() : desc;
   }
 
-  private normalize(issue: { id: string | number; key: string; fields?: Record<string, unknown> }): JiraIssue {
+  private async normalize(issue: { id: string | number; key: string; fields?: Record<string, unknown> }): Promise<JiraIssue> {
     const f = issue.fields ?? {};
     const descText =
       typeof f.description === "string" ? f.description : AdfRenderer.toText(f.description);
@@ -233,6 +235,7 @@ export class JiraTaskProvider extends TaskProvider implements TaskInstanceStore 
     const typeObj = f.issuetype as { name?: string } | undefined;
     const priorityObj = f.priority as { name?: string } | undefined;
     const parentObj = f.parent as { key?: string } | undefined;
+    const inst = await jira.active();
     return {
       id: String(issue.id),
       key: issue.key,
@@ -243,21 +246,21 @@ export class JiraTaskProvider extends TaskProvider implements TaskInstanceStore 
       priority: priorityObj?.name ?? "",
       prdText: this.extractPrd(descText || summary || ""),
       figmaUrls: figma,
-      externalUrl: `${jira.active()?.baseUrl ?? ""}/browse/${issue.key}`,
+      externalUrl: `${inst?.baseUrl ?? ""}/browse/${issue.key}`,
       parentKey: parentObj?.key ?? "",
       raw: issue,
     };
   }
 
   private async fetchByJql(jql: string): Promise<JiraIssue[]> {
-    const inst = jira.active();
+    const inst = await jira.active();
     if (!inst) return [];
-    const mode = jira.authMode(inst);
+    const mode = await jira.authMode(inst);
     const url = `${inst.baseUrl}${jiraSearchPath(mode)}?jql=${encodeURIComponent(
       jql,
     )}&maxResults=50&fields=summary,description,status,issuetype,priority,parent`;
     const res = await fetch(url, {
-      headers: this.headers(),
+      headers: await this.headers(),
       signal: AbortSignal.timeout(JIRA_HTTP_TIMEOUT_MS),
     });
     if (!res.ok) {
@@ -271,18 +274,20 @@ export class JiraTaskProvider extends TaskProvider implements TaskInstanceStore 
     if (rawIssues.length === 0) {
       await this.assertAuthenticated(inst, mode);
     }
-    return rawIssues.map((i) =>
-      this.normalize(i as { id: string | number; key: string; fields?: Record<string, unknown> }),
-    );
+    const issues: JiraIssue[] = [];
+    for (const i of rawIssues) {
+      issues.push(await this.normalize(i as { id: string | number; key: string; fields?: Record<string, unknown> }));
+    }
+    return issues;
   }
 
   /** Jira search can return 200 with an empty list when auth is invalid — verify /myself. */
   private async assertAuthenticated(
-    inst: NonNullable<ReturnType<typeof jira.active>>,
-    mode: ReturnType<typeof jira.authMode>,
+    inst: JiraInstance,
+    mode: JiraAuthMode,
   ): Promise<void> {
     const myselfRes = await fetch(`${inst.baseUrl}${jiraMyselfPath(mode)}`, {
-      headers: this.headers(),
+      headers: await this.headers(),
       signal: AbortSignal.timeout(JIRA_HTTP_TIMEOUT_MS),
     });
     if (myselfRes.ok) return;
@@ -294,7 +299,8 @@ export class JiraTaskProvider extends TaskProvider implements TaskInstanceStore 
 
   /** Upsert one issue as a task row (idempotent on key) and return its row id. */
   private async upsert(issue: JiraIssue, ts: string): Promise<string> {
-    const fields = JSON.stringify({ prd: issue.prdText, figma_urls: issue.figmaUrls });
+    // JSONB column: bind the payload object directly (no JSON.stringify)
+    const fields = { prd: issue.prdText, figmaUrls: issue.figmaUrls };
     const existing = await db.get<{ id: string }>(`SELECT id FROM tasks WHERE key=$1`, issue.key);
     if (existing) {
       await db.run(

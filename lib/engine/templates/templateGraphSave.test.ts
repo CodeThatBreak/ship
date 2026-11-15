@@ -1,13 +1,17 @@
-import { describe, expect, it } from "vitest";
-import { assignDatabasePath, createIsolatedDatabasePath } from "../../../tests/helpers/testDatabase";
+import { beforeAll, describe, expect, it } from "vitest";
+import { assignTestDatabase, resetTestDatabase } from "../../../tests/helpers/testDatabase";
 
-assignDatabasePath(createIsolatedDatabasePath("devflow-graph-save-"));
+assignTestDatabase();
 
 const { importTemplateYaml } = await import("./templateYaml");
 const { templateStore } = await import("./templateStore");
 
 describe("TemplateStore graph structure on save", () => {
-  it("rejects a next-edge cycle at save time (CR-062)", () => {
+  beforeAll(async () => {
+    await resetTestDatabase();
+  });
+
+  it("rejects a next-edge cycle at save time (CR-062)", async () => {
     const yaml = `
 name: Cycle save test
 trigger:
@@ -25,7 +29,7 @@ edges:
   - [a, b]
   - [b, a]
 `;
-    expect(() => importTemplateYaml(templateStore, yaml, { namePrefix: "cycle" })).toThrow(
+    await expect(() => importTemplateYaml(templateStore, yaml, { namePrefix: "cycle" })).rejects.toThrow(
       /loop edge/,
     );
   });

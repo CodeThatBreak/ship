@@ -24,30 +24,31 @@ export class RepoService {
     }
   }
 
-  listWithPathStatus(): Array<Repo & { local_path_exists: boolean }> {
-    return this.database.listRepos().map((r) => ({
+  async listWithPathStatus(): Promise<Array<Repo & { localPathExists: boolean }>> {
+    const repos = await this.database.listRepos();
+    return repos.map((r) => ({
       ...r,
-      local_path_exists: r.localPath ? fs.existsSync(path.join(r.localPath, ".git")) : false,
+      localPathExists: r.localPath ? fs.existsSync(path.join(r.localPath, ".git")) : false,
     }));
   }
 
-  create(input: RepoCreateBody): Repo {
-    const localPath = input.localPath ?? null;
+  async create(input: RepoCreateBody): Promise<Repo> {
+    const localPath = input.local_path ?? null;
     if (localPath) {
       this.assertGitCheckout(localPath);
     }
     return this.database.upsertRepo({
       name: input.name,
-      cloud_url: input.cloudUrl,
-      local_path: localPath,
-      default_branch: input.defaultBranch ?? "main",
-      use_worktrees: input.useWorktrees ?? true,
-      install_command: input.installCommand ?? null,
-      skip_install: Boolean(input.skipInstall),
-      sync_paths: input.syncPaths ?? null,
-      shared_dirs: input.sharedDirs ?? null,
-      setup_command: input.setupCommand ?? null,
-      worktree_timeout_ms: input.worktree_timeout_s ?? null,
+      cloudUrl: input.cloud_url,
+      localPath,
+      defaultBranch: input.default_branch ?? "main",
+      useWorktrees: input.use_worktrees ?? true,
+      installCommand: input.install_command ?? null,
+      skipInstall: Boolean(input.skip_install),
+      syncPaths: input.sync_paths ?? null,
+      sharedDirs: input.shared_dirs ?? null,
+      setupCommand: input.setup_command ?? null,
+      worktreeTimeoutMs: input.worktree_timeout_s ?? null,
     });
   }
 
@@ -56,7 +57,7 @@ export class RepoService {
     if (!existing) {
       throw new NotFoundError("repo", id);
     }
-    const localPath = patch.localPath !== undefined ? patch.localPath : existing.localPath;
+    const localPath = patch.local_path !== undefined ? patch.local_path : existing.localPath;
     if (localPath) {
       this.assertGitCheckout(localPath);
     }
@@ -68,18 +69,18 @@ export class RepoService {
     return this.database.upsertRepo({
       id,
       name: patch.name ?? existing.name,
-      cloud_url: patch.cloudUrl ?? existing.cloudUrl,
-      local_path: localPath || null,
-      default_branch: patch.defaultBranch ?? existing.defaultBranch,
-      use_worktrees:
-        patch.useWorktrees !== undefined ? Boolean(patch.useWorktrees) : Boolean(existing.useWorktrees),
-      install_command: trimOrKeep(patch.installCommand, existing.installCommand),
-      skip_install:
-        patch.skipInstall !== undefined ? Boolean(patch.skipInstall) : Boolean(existing.skipInstall),
-      sync_paths: trimOrKeep(patch.syncPaths, existing.syncPaths),
-      shared_dirs: trimOrKeep(patch.sharedDirs, existing.sharedDirs),
-      setup_command: trimOrKeep(patch.setupCommand, existing.setupCommand),
-      worktree_timeout_ms:
+      cloudUrl: patch.cloud_url ?? existing.cloudUrl,
+      localPath: localPath || null,
+      defaultBranch: patch.default_branch ?? existing.defaultBranch,
+      useWorktrees:
+        patch.use_worktrees !== undefined ? Boolean(patch.use_worktrees) : Boolean(existing.useWorktrees),
+      installCommand: trimOrKeep(patch.install_command, existing.installCommand),
+      skipInstall:
+        patch.skip_install !== undefined ? Boolean(patch.skip_install) : Boolean(existing.skipInstall),
+      syncPaths: trimOrKeep(patch.sync_paths, existing.syncPaths),
+      sharedDirs: trimOrKeep(patch.shared_dirs, existing.sharedDirs),
+      setupCommand: trimOrKeep(patch.setup_command, existing.setupCommand),
+      worktreeTimeoutMs:
         patch.worktree_timeout_s !== undefined ? patch.worktree_timeout_s : existing.worktreeTimeoutMs,
     });
   }

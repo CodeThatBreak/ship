@@ -47,10 +47,10 @@ export type WorktreeStatusEntry = {
 
 export class WorktreeStatusService {
   async statusesForActiveFlows(): Promise<Record<string, WorktreeStatusEntry>> {
-    const flowRows = await db.prisma.flow.findMany({
+    const flowRows = (await db.prisma.flow.findMany({
       where: { worktreeDir: { not: null } },
       select: { id: true, worktreeDir: true, mrBranch: true, repoId: true },
-    });
+    })).filter((f): f is typeof f & { worktreeDir: string } => f.worktreeDir != null);
     const byRepo = new Map<string, FlowWorktreeRow[]>();
     const noRepo: FlowWorktreeRow[] = [];
     for (const f of flowRows) {

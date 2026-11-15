@@ -9,7 +9,7 @@ import { ReviewNode } from "./kinds/review/reviewExports";
 import { ResolveNode } from "./kinds/resolve/resolveExports";
 import { StartNode } from "./kinds/start/startExports";
 
-type DeclarativeResolver = (key: string, inst?: string) => AnyNodeDef | undefined;
+type DeclarativeResolver = (key: string, inst?: string) => Promise<AnyNodeDef | undefined>;
 
 let declarativeResolver: DeclarativeResolver | null = null;
 
@@ -76,10 +76,10 @@ export class NodeRegistry {
    * by their `node_templates` row id, hydrating a runtime instance on demand.
    * `inst` is the template instance key (node_key) for declarative defs.
    */
-  resolve(key: string, inst?: string): AnyNodeDef {
+  async resolve(key: string, inst?: string): Promise<AnyNodeDef> {
     const builtin = this.registry.get(key);
     if (builtin) return builtin;
-    const def = declarativeResolver?.(key, inst);
+    const def = await declarativeResolver?.(key, inst);
     if (def) return def;
     throw new Error(`unknown node type: ${key}`);
   }

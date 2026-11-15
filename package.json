@@ -13,7 +13,11 @@
     "lint": "eslint . --max-warnings=53",
     "test": "vitest run",
     "check": "npm run typecheck && npm run lint && npm test",
-    "db:init:prod": "node scripts/init-prod-db.mjs"
+    "db:init:prod": "node scripts/init-prod-db.mjs",
+    "db:up": "docker compose up -d postgres",
+    "db:migrate": "prisma migrate deploy --config prisma7.config.ts",
+    "db:seed": "node scripts/seed-demo-flow.mjs",
+    "db:test:setup": "node scripts/db/migrate-test-db.mjs"
   },
   "dependencies": {
     "@base-ui/react": "^1.9.0",

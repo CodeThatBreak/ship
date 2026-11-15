@@ -9,6 +9,6 @@ export const dynamic = "force-dynamic";
  * as initial data — no loading flash on the table. Live refresh, delete and
  * worktree polling stay client-side (see components/flows).
  */
-export default function FlowsPage() {
-  return <FlowsView initialFlows={getFlowListData()} />;
+export default async function FlowsPage() {
+  return <FlowsView initialFlows={await getFlowListData()} />;
 }

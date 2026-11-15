@@ -1,15 +1,10 @@
 /**
  * Agent run lifecycle: late-write guard, run-row closure, converse mode.
  */
-import fs from "node:fs";
-import os from "node:os";
-import path from "node:path";
-import { describe, expect, it, vi } from "vitest";
+import { beforeAll, describe, expect, it, vi } from "vitest";
+import { assignTestDatabase, resetTestDatabase } from "../../../tests/helpers/testDatabase";
 
-process.env.DATABASE_PATH = path.join(
-  fs.mkdtempSync(path.join(os.tmpdir(), "devflow-agent-runner-")),
-  "test.db",
-);
+assignTestDatabase();
 
 const { db } = await import("../../db/app");
 const { nodeSupport } = await import("../nodes/shared/nodeSupport");
@@ -85,12 +80,12 @@ class RunnerTestPort implements AgentPort {
   }
 }
 
-function seed(status: string, index: number): { ctx: FlowCtx; nodeId: string; flowId: string } {
+async function seed(status: string, index: number): Promise<{ ctx: FlowCtx; nodeId: string; flowId: string }> {
   const flowId = `flw_runner_test_${index}`;
   const nodeId = `node_runner_test_${index}`;
   const taskId = `task_runner_test_${index}`;
-  db.run(
-    `INSERT INTO tasks (id, type, key, summary, status, issue_type, priority) VALUES (?,?,?,?,?,?,?)`,
+  await db.run(
+    `INSERT INTO tasks (id, type, key, summary, status, issue_type, priority) VALUES ($1,$2,$3,$4,$5,$6,$7)`,
     taskId,
     "generic",
     `RUN-${index}`,
@@ -99,8 +94,8 @@ function seed(status: string, index: number): { ctx: FlowCtx; nodeId: string; fl
     "story",
     "P2",
   );
-  db.run(
-    `INSERT INTO flows (id, task_id, name, status, execution_mode, created_at, updated_at) VALUES (?,?,?,?,?,?,?)`,
+  await db.run(
+    `INSERT INTO flows (id, task_id, name, status, execution_mode, created_at, updated_at) VALUES ($1,$2,$3,$4,$5,$6,$7)`,
     flowId,
     taskId,
     "runner test",
@@ -109,8 +104,8 @@ function seed(status: string, index: number): { ctx: FlowCtx; nodeId: string; fl
     now(),
     now(),
   );
-  db.run(
-    `INSERT INTO nodes (id, flow_id, node_key, type, status, attempt_id, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?)`,
+  await db.run(
+    `INSERT INTO nodes (id, flow_id, node_key, type, status, attempt_id, created_at, updated_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
     nodeId,
     flowId,
     "build",
@@ -146,15 +141,20 @@ function seed(status: string, index: number): { ctx: FlowCtx; nodeId: string; fl
   return { ctx, nodeId, flowId };
 }
 
-function runRowStatus(runRef: string): string | undefined {
-  return db.get<{ status: string }>(`SELECT status FROM runs WHERE run_ref=?`, runRef)?.status;
+async function runRowStatus(runRef: string): Promise<string | undefined> {
+  return (await db.get<{ status: string }>(`SELECT status FROM runs WHERE run_ref=$1`, runRef))?.status;
 }
 
 let supersedeDuringStream: string | null = null;
 
 const runnerTestPort = new RunnerTestPort(async () => {
   if (supersedeDuringStream) {
-    db.run(`UPDATE nodes SET attempt_id=?, updated_at=? WHERE id=?`, "att_superseded", now(), supersedeDuringStream);
+    await db.run(
+      `UPDATE nodes SET attempt_id=$1, updated_at=$2 WHERE id=$3`,
+      "att_superseded",
+      now(),
+      supersedeDuringStream,
+    );
     supersedeDuringStream = null;
   }
   return {
@@ -168,8 +168,14 @@ const makeRunner = (usage: typeof usageTracker = usageTracker) =>
   new AgentRunner(flowCtxHelper, nodeSupport, usage, db, config, agentPortRegistry, worktreeManager);
 
 describe("AgentRunner.executeRun", () => {
+  beforeAll(async () => {
+    await resetTestDatabase();
+    agentPortRegistry.register(runnerTestPort);
+    await db.setSetting("default_harness", "runner-test");
+  });
+
   it("throws RunSupersededError when the attempt token no longer matches", async () => {
-    const { ctx, nodeId } = seed("running", 1);
+    const { ctx, nodeId } = await seed("running", 1);
     supersedeDuringStream = nodeId;
     const runner = makeRunner();
     let runRef = "";
@@ -185,11 +191,11 @@ describe("AgentRunner.executeRun", () => {
         "test run",
       ),
     ).rejects.toBeInstanceOf(RunSupersededError);
-    expect(runRowStatus(runRef)).toBe("finished");
+    expect(await runRowStatus(runRef)).toBe("finished");
   });
 
   it("skips the late-write guard when ownsNodeStatus is false", async () => {
-    const { ctx, nodeId } = seed("done", 2);
+    const { ctx, nodeId } = await seed("done", 2);
     const runner = makeRunner();
     const result = await runner.executeRun(
       ctx,
@@ -206,7 +212,7 @@ describe("AgentRunner.executeRun", () => {
       captureRunUsage: vi.fn().mockRejectedValue(new Error("usage down")),
       persistUsage: usageTracker.persistUsage.bind(usageTracker),
     };
-    const { ctx, nodeId } = seed("running", 3);
+    const { ctx, nodeId } = await seed("running", 3);
     const runner = makeRunner(usage as unknown as typeof usageTracker);
     let runRef = "";
     const result = await runner.executeRun(
@@ -220,6 +226,6 @@ describe("AgentRunner.executeRun", () => {
       "test run",
     );
     expect(result.result.result).toBe("ok");
-    expect(runRowStatus(runRef)).toBe("finished");
+    expect(await runRowStatus(runRef)).toBe("finished");
   });
 });

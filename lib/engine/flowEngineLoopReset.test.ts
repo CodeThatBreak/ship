@@ -57,8 +57,8 @@ const setNode = (
   status: string,
   output: Record<string, unknown> | null = null,
 ) => {
-  db.run(
-    `UPDATE nodes SET status=?, output=?, updated_at=? WHERE flow_id=? AND node_key=?`,
+  return db.run(
+    `UPDATE nodes SET status=$1, output=$2, updated_at=$3 WHERE flow_id=$4 AND node_key=$5`,
     status,
     output ? JSON.stringify(output) : null,
     now(),
@@ -67,23 +67,25 @@ const setNode = (
   );
 };
 
-const statusOf = (flowId: string, nodeKey: string): string =>
-  db.get<{ status: string }>(
-    `SELECT status FROM nodes WHERE flow_id=? AND node_key=?`,
-    flowId,
-    nodeKey,
+const statusOf = async (flowId: string, nodeKey: string): Promise<string> =>
+  (
+    await db.get<{ status: string }>(
+      `SELECT status FROM nodes WHERE flow_id=$1 AND node_key=$2`,
+      flowId,
+      nodeKey,
+    )
   )?.status ?? "";
 
 describe("resetLoopEntry skipped branches (CR-007)", () => {
   const engine = new FlowEngine();
 
   it("clears a skipped decision branch before the loop's second iteration", async () => {
-    const { id: templateId } = importTemplateYaml(templateStore, loopDecisionYaml, {
+    const { id: templateId } = await importTemplateYaml(templateStore, loopDecisionYaml, {
       namePrefix: "loop-decision",
     });
     const taskId = "task_loop_decision";
-    db.run(
-      `INSERT INTO tasks (id, type, key, summary, status, issue_type, priority) VALUES (?,?,?,?,?,?,?)`,
+    await db.run(
+      `INSERT INTO tasks (id, type, key, summary, status, issue_type, priority) VALUES ($1,$2,$3,$4,$5,$6,$7)`,
       taskId,
       "jira",
       "LOOP-1",
@@ -92,23 +94,23 @@ describe("resetLoopEntry skipped branches (CR-007)", () => {
       "task",
       "P2",
     );
-    const flowId = engine.create(taskId, "https://example.com/repo.git", "loop test", {
+    const flowId = await engine.create(taskId, "https://example.com/repo.git", "loop test", {
       templateId,
       autoStart: false,
     });
 
-    setNode(flowId, "pass_a", "done");
-    setNode(flowId, "pick", "done", { chosen: ["fix"], rationale: "test" });
-    setNode(flowId, "fix_path", "done");
-    setNode(flowId, "ship_path", "skipped");
+    await setNode(flowId, "pass_a", "done");
+    await setNode(flowId, "pick", "done", { chosen: ["fix"], rationale: "test" });
+    await setNode(flowId, "fix_path", "done");
+    await setNode(flowId, "ship_path", "skipped");
 
     await engine.advanceFrom(flowId, "fix_path");
 
-    expect(statusOf(flowId, "ship_path")).toBe("pending");
+    expect(await statusOf(flowId, "ship_path")).toBe("pending");
 
-    setNode(flowId, "pick", "done", { chosen: ["ship"], rationale: "test" });
+    await setNode(flowId, "pick", "done", { chosen: ["ship"], rationale: "test" });
     await engine.advanceFrom(flowId, "pick");
 
-    expect(statusOf(flowId, "ship_path")).not.toBe("skipped");
+    expect(await statusOf(flowId, "ship_path")).not.toBe("skipped");
   });
 });

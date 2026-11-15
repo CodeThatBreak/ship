@@ -7,8 +7,8 @@ const { parseDeclarativeConfig, DecisionDefSchema } = await import("./declarativ
 import type { DecisionDef } from "./declarativeSchemas";
 
 describe("parseRunConfig — built-in nodes", () => {
-  it("rejects poll_interval_sec below the schema minimum", () => {
-    const pipeline = nodeRegistry.resolve("pipeline");
+  it("rejects poll_interval_sec below the schema minimum", async () => {
+    const pipeline = await nodeRegistry.resolve("pipeline");
     expect(() =>
       pipeline.parseRunConfig({
         ...pipeline.defaultConfig(),

@@ -87,7 +87,7 @@ export class Reconciler {
     const flow = await db.prisma.flow.findUnique({ where: { id: flowId }, select: FLOW_ROW_SELECT });
     if (!flow || flow.status !== "active") return;
 
-    await this.reconcileRunningNodes(flow as FlowRow);
+    await this.reconcileRunningNodes(flow as unknown as FlowRow);
 
     // clear a stale current_node pointer
     if (flow.currentNode) {
@@ -106,7 +106,7 @@ export class Reconciler {
     // plan fan-out (Phase 2B): stuck step_merges rows resume-or-flag; orphan
     // children surface loud. Covers both directions — opening the parent page
     // or any child's page reconciles the fan-out family.
-    await this.reconcileStepFanout(flow as FlowRow);
+    await this.reconcileStepFanout(flow as unknown as FlowRow);
   }
 
   /** The stuck-`running` node recovery pass of one flow (page open / global sweep). */
@@ -128,7 +128,7 @@ export class Reconciler {
         // the pipeline gate runs a server-side wait loop (no agent run row while
         // polling) and stamps updated_at each iteration — a fresh stamp means alive
         if (node.nodeKey === gateKey && Number.isFinite(updatedMs) && nowMs - updatedMs < Reconciler.PIPELINE_STAMP_FRESH_MS) continue;
-        await this.reconcileNode(flow, node as NodeRow);
+        await this.reconcileNode(flow, node as unknown as NodeRow);
       } catch (e: unknown) {
         await db.emitEvent(flowId, node.id, "error", `reconcile: ${e instanceof Error ? e.message : e}`);
       }
@@ -153,9 +153,9 @@ export class Reconciler {
     const ctx = await flowEngine.ctx(flow.id);
 
     if (flow.executionMode === "local") {
-      return this.reconcileLocal(ctx, node, runRow as RunRow | undefined);
+      return this.reconcileLocal(ctx, node, runRow as unknown as RunRow | undefined);
     }
-    return this.reconcileCloud(ctx, node, runRow as RunRow | undefined);
+    return this.reconcileCloud(ctx, node, runRow as unknown as RunRow | undefined);
   }
 
   // ── plan fan-out (Phase 2B): stuck step_merges + orphan children ──────────
@@ -235,7 +235,7 @@ export class Reconciler {
       return;
     }
     const childNode = await db.prisma.node.findFirst({
-      where: { flowId: row.flowId, nodeKey: stepFlows.childWorkNodeKey(row.flowId) },
+      where: { flowId: row.flowId, nodeKey: await stepFlows.childWorkNodeKey(row.flowId) },
       select: { status: true },
     });
     if (!childNode) {
@@ -246,9 +246,9 @@ export class Reconciler {
       // a merge-fix agent run was mid-flight at the restart — the child's runs
       // are durable, so the STANDARD node reconcile decides recovered vs failed
       const childFlow = await db.prisma.flow.findUnique({ where: { id: row.flowId }, select: FLOW_ROW_SELECT });
-      if (childFlow) await this.reconcileRunningNodes(childFlow as FlowRow);
+      if (childFlow) await this.reconcileRunningNodes(childFlow as unknown as FlowRow);
       const after = (await db.prisma.node.findFirst({
-        where: { flowId: row.flowId, nodeKey: stepFlows.childWorkNodeKey(row.flowId) },
+        where: { flowId: row.flowId, nodeKey: await stepFlows.childWorkNodeKey(row.flowId) },
         select: { status: true },
       }))?.status;
       if (after === "awaiting_approval") await stepFlows.resumePendingMerge(row.flowId);
@@ -293,7 +293,7 @@ export class Reconciler {
       const flow = await db.prisma.flow.findUnique({ where: { id: p }, select: FLOW_ROW_SELECT });
       if (!flow || flow.status !== "active") continue;
       try {
-        await this.reconcileStepFanout(flow as FlowRow);
+        await this.reconcileStepFanout(flow as unknown as FlowRow);
       } catch (e: unknown) {
         await db.emitEvent(p, null, "error", `reconcile: ${e instanceof Error ? e.message : String(e)}`);
       }
@@ -304,7 +304,7 @@ export class Reconciler {
   // ── persisted run state is the ground truth ───────────────────────────────
   private async reconcileLocal(ctx: FlowCtx, node: NodeRow, runRow: RunRow | undefined): Promise<void> {
     const { flow } = ctx;
-    const port = agentPortRegistry.forMode("local");
+    const port = await agentPortRegistry.forMode("local");
     // run still owned by this process → genuinely running, nothing to do
     if (runRow && port.hasActiveRun(runRow.runRef)) return;
 
@@ -362,7 +362,7 @@ export class Reconciler {
   // ── cloud mode: ask the runtime's API ─────────────────────────────────────
   private async reconcileCloud(ctx: FlowCtx, node: NodeRow, runRow: RunRow | undefined): Promise<void> {
     const { flow } = ctx;
-    const port = agentPortRegistry.forMode("cloud");
+    const port = await agentPortRegistry.forMode("cloud");
     if (!runRow) {
       await nodeSupport.failOrphanedNode(flow.id, node.id, node.nodeKey, "node was left running without an active run");
       return;

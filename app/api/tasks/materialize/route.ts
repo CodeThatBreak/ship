@@ -32,6 +32,6 @@ export async function POST(req: Request) {
       { status: 404 },
     );
   }
-  const id = provider.upsertLive(task);
+  const id = await provider.upsertLive(task);
   return NextResponse.json({ id, key: task.key });
 }

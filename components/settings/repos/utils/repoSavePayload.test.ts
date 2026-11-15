@@ -12,9 +12,9 @@ const baseRepo: Repo = {
   cloudUrl: "https://gitlab.com/g/api",
   localPath: "/Users/Shared/api",
   defaultBranch: "main",
-  useWorktrees: 1,
+  useWorktrees: true,
   installCommand: null,
-  skipInstall: 0,
+  skipInstall: false,
   syncPaths: null,
   sharedDirs: null,
   setupCommand: null,
@@ -67,7 +67,7 @@ describe("touchedPolicyFromRepo", () => {
   });
 
   it("marks the worktree opt-out as touched only when disabled", () => {
-    expect(touchedPolicyFromRepo({ ...baseRepo, useWorktrees: 1 }).has("useWorktrees")).toBe(false);
-    expect(touchedPolicyFromRepo({ ...baseRepo, useWorktrees: 0 }).has("useWorktrees")).toBe(true);
+    expect(touchedPolicyFromRepo({ ...baseRepo, useWorktrees: true }).has("useWorktrees")).toBe(false);
+    expect(touchedPolicyFromRepo({ ...baseRepo, useWorktrees: false }).has("useWorktrees")).toBe(true);
   });
 });

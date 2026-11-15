@@ -12,14 +12,15 @@
  * today waits live in WaitScheduler's in-memory `waitTimers` map, so a
  * restart loses them outright — there is nothing to resume.
  *
- * Runs against an isolated temp SQLite DB (AGENTS.md §1 — never a real DB).
+ * Runs against the isolated dockerized Postgres test database
+ * (AGENTS.md §1 — never a demo/real DB).
  */
-import { describe, expect, test } from "vitest";
-import { assignDatabasePath, createIsolatedDatabasePath } from "../helpers/testDatabase";
+import { beforeAll, describe, expect, test } from "vitest";
+import { assignTestDatabase, resetTestDatabase } from "../helpers/testDatabase";
 import { FlowHarness, until } from "../helpers/flowHarness";
 import { registerFakeAgentPort } from "../helpers/fakeAgentPort";
 
-assignDatabasePath(createIsolatedDatabasePath("devflow-ovh-wait-resume-"));
+assignTestDatabase();
 
 const { db } = await import("@/lib/db/app");
 const { flowEngine } = await import("@/lib/engine/flowEngine");
@@ -27,6 +28,8 @@ const { templateStore } = await import("@/lib/engine/templates/templateStore");
 
 registerFakeAgentPort((v) => db.setSetting("default_harness", v));
 const harness = new FlowHarness({ db, flowEngine, templateStore });
+
+beforeAll(resetTestDatabase);
 
 /** A webhook-waiting agent node fed by an entry script (so it has an input). */
 const webhookWaitYaml = `
@@ -81,43 +84,43 @@ const { importTemplateYaml } = await import("@/lib/engine/templates/templateYaml
 describe("wait resume runs the node", () => {
   // OVERHAUL: flip in step 03
   test.fails("webhook resume runs the node (today the claim strands it running)", async () => {
-    const { id: templateId } = importTemplateYaml(templateStore, webhookWaitYaml, {
+    const { id: templateId } = await importTemplateYaml(templateStore, webhookWaitYaml, {
       namePrefix: "ovh-webhook-wait",
     });
-    const flowId = harness.seedFlowFromTemplate(templateId);
+    const flowId = await harness.seedFlowFromTemplate(templateId);
 
     // entry done → gate becomes eligible → arms the webhook wait (waiting)
-    harness.setNodeForFixture(flowId, "entry", "done");
+    await harness.setNodeForFixture(flowId, "entry", "done");
     await harness.advance(flowId, "entry");
-    expect(harness.nodeStatus(flowId, "gate")).toBe("waiting");
+    expect(await harness.nodeStatus(flowId, "gate")).toBe("waiting");
 
     // webhook delivery resumes the gate: target = the node RUNS to a terminal
     flowEngine.resumeNodeFromWebhook(flowId, "gate", { delivery: true });
     await until(
-      () => harness.nodeStatus(flowId, "gate") === "done",
+      async () => (await harness.nodeStatus(flowId, "gate")) === "done",
       "the resumed gate to run to done",
     );
-    expect(harness.nodeStatus(flowId, "gate")).toBe("done");
+    expect(await harness.nodeStatus(flowId, "gate")).toBe("done");
   }, 15_000);
 
   // OVERHAUL: flip in step 03
   test.fails("timer resume runs the node (today the claim strands it running)", async () => {
-    const { id: templateId } = importTemplateYaml(templateStore, timerWaitYaml, {
+    const { id: templateId } = await importTemplateYaml(templateStore, timerWaitYaml, {
       namePrefix: "ovh-timer-wait",
     });
-    const flowId = harness.seedFlowFromTemplate(templateId);
+    const flowId = await harness.seedFlowFromTemplate(templateId);
 
-    harness.setNodeForFixture(flowId, "entry", "done");
+    await harness.setNodeForFixture(flowId, "entry", "done");
     await harness.advance(flowId, "entry");
-    expect(harness.nodeStatus(flowId, "gate")).toBe("waiting");
+    expect(await harness.nodeStatus(flowId, "gate")).toBe("waiting");
 
     // timer fire resumes the gate: target = the node RUNS to a terminal
     flowEngine.processWaitTimers();
     await until(
-      () => harness.nodeStatus(flowId, "gate") === "done",
+      async () => (await harness.nodeStatus(flowId, "gate")) === "done",
       "the timer-fired gate to run to done",
     );
-    expect(harness.nodeStatus(flowId, "gate")).toBe("done");
+    expect(await harness.nodeStatus(flowId, "gate")).toBe("done");
   }, 15_000);
 
   // OVERHAUL: flip in step 03 (restart needs durable wait_until — skipped until then)

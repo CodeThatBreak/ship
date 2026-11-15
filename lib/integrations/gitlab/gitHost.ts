@@ -98,7 +98,7 @@ function mapDiscussion(d: Discussion): HostComment[] {
     system: n.system,
     path: n.position?.new_path ?? null,
     line: n.position?.new_line ?? null,
-    createdAt: n.createdAt,
+    createdAt: n.created_at,
   }));
 }
 
@@ -107,7 +107,7 @@ function mapNote(n: Note): HostNote {
   return {
     id: `gl_${n.id}`,
     author: n.author?.username ?? n.author?.name ?? "",
-    createdAt: n.createdAt,
+    createdAt: n.created_at,
   };
 }
 
@@ -213,7 +213,7 @@ class GitLabHostClient implements GitHostClient {
       input.path,
       input.line,
       positionContext.diffRefs,
-      positionContext,
+      positionContext.changes,
     );
     if (!position) {
       throw new ValidationError(
@@ -256,35 +256,38 @@ export class GitLabHostService implements GitHostService {
 
   constructor(private readonly gitlab: GitLabService) {}
 
-  configured(): boolean {
+  async configured(): Promise<boolean> {
     return this.gitlab.configured();
   }
 
-  ownsRepo(repoUrl: string): boolean {
+  async ownsRepo(repoUrl: string): Promise<boolean> {
     try {
-      this.gitlab.instanceForRepo(repoUrl);
+      await this.gitlab.instanceForRepo(repoUrl);
       return true;
     } catch {
       return false;
     }
   }
 
-  clientForRepo(repoUrl: string): GitHostClient {
-    return new GitLabHostClient(this.gitlab.clientFor(repoUrl), this.gitlab.projectPathFromUrl(repoUrl));
+  async clientForRepo(repoUrl: string): Promise<GitHostClient> {
+    return new GitLabHostClient(
+      await this.gitlab.clientFor(repoUrl),
+      this.gitlab.projectPathFromUrl(repoUrl),
+    );
   }
 
-  authedCloneUrl(repoUrl: string): string {
+  async authedCloneUrl(repoUrl: string): Promise<string> {
     try {
-      this.gitlab.instanceForRepo(repoUrl);
+      await this.gitlab.instanceForRepo(repoUrl);
     } catch {
       /* still normalize suffix for callers that push without a matching instance */
     }
     return normalizeCloneUrl(repoUrl);
   }
 
-  gitAuthEnv(repoUrl: string): Record<string, string> {
+  async gitAuthEnv(repoUrl: string): Promise<Record<string, string>> {
     try {
-      const token = this.gitlab.instanceForRepo(repoUrl).token;
+      const token = (await this.gitlab.instanceForRepo(repoUrl)).token;
       if (!token) return {};
       return gitLabOAuthBasicHeaderEnv(token);
     } catch {
@@ -292,9 +295,9 @@ export class GitLabHostService implements GitHostService {
     }
   }
 
-  gitRedactValues(repoUrl: string): readonly string[] {
+  async gitRedactValues(repoUrl: string): Promise<readonly string[]> {
     try {
-      const token = this.gitlab.instanceForRepo(repoUrl).token;
+      const token = (await this.gitlab.instanceForRepo(repoUrl)).token;
       return token ? [token] : [];
     } catch {
       return [];
@@ -303,40 +306,41 @@ export class GitLabHostService implements GitHostService {
 
   // ── instance registry (settings admin) ───────────────────────────────────
 
-  instances(): HostInstance[] {
-    return this.gitlab.listInstances().map(({ id, name, base_url }) => ({
+  async instances(): Promise<HostInstance[]> {
+    const list = await this.gitlab.listInstances();
+    return list.map(({ id, name, baseUrl }) => ({
       id,
       name,
-      baseUrl: base_url,
+      baseUrl,
       tokenMasked: "••••",
     }));
   }
 
-  addInstance(input: { name?: string | null; baseUrl: string; token: string }): HostInstance {
-    const inst = this.gitlab.addInstance({ name: input.name ?? undefined, base_url: input.baseUrl, token: input.token });
+  async addInstance(input: { name?: string | null; baseUrl: string; token: string }): Promise<HostInstance> {
+    const inst = await this.gitlab.addInstance({ name: input.name ?? undefined, baseUrl: input.baseUrl, token: input.token });
     return { id: inst.id, name: inst.name, baseUrl: inst.baseUrl, tokenMasked: maskToken(inst.token) };
   }
 
-  updateInstance(id: string, input: { name?: string | null; baseUrl?: string; token?: string }): void {
-    const existing = this.gitlab.getInstance(id);
+  async updateInstance(id: string, input: { name?: string | null; baseUrl?: string; token?: string }): Promise<void> {
+    const existing = await this.gitlab.getInstance(id);
     if (!existing) throw new NotFoundError("host instance", id);
     if (baseUrlOverrideRequiresToken(existing.baseUrl, input.baseUrl, input.token)) {
       throw new ValidationError("token is required when overriding baseUrl");
     }
-    this.gitlab.updateInstance(id, {
+    await this.gitlab.updateInstance(id, {
       name: input.name ?? existing.name ?? undefined,
-      base_url: input.baseUrl ?? existing.baseUrl,
+      baseUrl: input.baseUrl ?? existing.baseUrl,
       // blank token = keep the stored one
       token: input.token || existing.token,
     });
   }
 
-  removeInstance(id: string): void {
-    this.gitlab.deleteInstance(id);
+  async removeInstance(id: string): Promise<void> {
+    await this.gitlab.deleteInstance(id);
   }
 
   async testInstance(id: string, input: { baseUrl?: string; token?: string } = {}): Promise<{ ok: boolean; detail: string }> {
-    const existing = this.gitlab.getInstance(id);
+    const existing = await this.gitlab.getInstance(id);
     if (!existing) throw new NotFoundError("host instance", id);
     if (baseUrlOverrideRequiresToken(existing.baseUrl, input.baseUrl, input.token)) {
       throw new ValidationError("token is required when overriding baseUrl");
@@ -396,7 +400,7 @@ export class GitLabHostService implements GitHostService {
           system: false,
           path: typeof position?.new_path === "string" ? position.new_path : null,
           line: typeof position?.new_line === "number" ? position.new_line : null,
-          createdAt: typeof attrs.createdAt === "string" ? attrs.createdAt : "",
+          createdAt: typeof attrs.created_at === "string" ? attrs.created_at : "",
         },
       };
     }
@@ -419,76 +423,76 @@ export class GitLabHostService implements GitHostService {
 
   // ── repo-scoped convenience surface ──────────────────────────────────────
 
-  getChangeRequest(repoUrl: string, crNumber: number): Promise<ChangeRequest> {
-    return this.clientForRepo(repoUrl).getChangeRequest(crNumber);
+  async getChangeRequest(repoUrl: string, crNumber: number): Promise<ChangeRequest> {
+    return (await this.clientForRepo(repoUrl)).getChangeRequest(crNumber);
   }
 
-  createChangeRequest(repoUrl: string, input: CreateChangeRequestInput): Promise<ChangeRequest> {
-    return this.clientForRepo(repoUrl).createChangeRequest(input);
+  async createChangeRequest(repoUrl: string, input: CreateChangeRequestInput): Promise<ChangeRequest> {
+    return (await this.clientForRepo(repoUrl)).createChangeRequest(input);
   }
 
-  listChangeRequestsByBranch(repoUrl: string, sourceBranch: string): Promise<ChangeRequest[]> {
-    return this.clientForRepo(repoUrl).listChangeRequestsByBranch(sourceBranch);
+  async listChangeRequestsByBranch(repoUrl: string, sourceBranch: string): Promise<ChangeRequest[]> {
+    return (await this.clientForRepo(repoUrl)).listChangeRequestsByBranch(sourceBranch);
   }
 
-  getChanges(repoUrl: string, crNumber: number): ReturnType<GitHostClient["getChanges"]> {
-    return this.clientForRepo(repoUrl).getChanges(crNumber);
+  async getChanges(repoUrl: string, crNumber: number): ReturnType<GitHostClient["getChanges"]> {
+    return (await this.clientForRepo(repoUrl)).getChanges(crNumber);
   }
 
-  getPipeline(repoUrl: string, pipelineId: number): Promise<Pipeline> {
-    return this.clientForRepo(repoUrl).getPipeline(pipelineId);
+  async getPipeline(repoUrl: string, pipelineId: number): Promise<Pipeline> {
+    return (await this.clientForRepo(repoUrl)).getPipeline(pipelineId);
   }
 
-  createCRPipeline(repoUrl: string, crNumber: number): Promise<Pipeline> {
-    return this.clientForRepo(repoUrl).createCRPipeline(crNumber);
+  async createCRPipeline(repoUrl: string, crNumber: number): Promise<Pipeline> {
+    return (await this.clientForRepo(repoUrl)).createCRPipeline(crNumber);
   }
 
-  createPipeline(repoUrl: string, ref: string): Promise<Pipeline> {
-    return this.clientForRepo(repoUrl).createPipeline(ref);
+  async createPipeline(repoUrl: string, ref: string): Promise<Pipeline> {
+    return (await this.clientForRepo(repoUrl)).createPipeline(ref);
   }
 
-  listPipelineJobs(repoUrl: string, pipelineId: number): Promise<HostJob[]> {
-    return this.clientForRepo(repoUrl).listPipelineJobs(pipelineId);
+  async listPipelineJobs(repoUrl: string, pipelineId: number): Promise<HostJob[]> {
+    return (await this.clientForRepo(repoUrl)).listPipelineJobs(pipelineId);
   }
 
-  playJob(repoUrl: string, jobId: number): Promise<unknown> {
-    return this.clientForRepo(repoUrl).playJob(jobId);
+  async playJob(repoUrl: string, jobId: number): Promise<unknown> {
+    return (await this.clientForRepo(repoUrl)).playJob(jobId);
   }
 
-  retryPipeline(repoUrl: string, pipelineId: number): Promise<Pipeline> {
-    return this.clientForRepo(repoUrl).retryPipeline(pipelineId);
+  async retryPipeline(repoUrl: string, pipelineId: number): Promise<Pipeline> {
+    return (await this.clientForRepo(repoUrl)).retryPipeline(pipelineId);
   }
 
-  getJobTrace(repoUrl: string, jobId: number): Promise<string> {
-    return this.clientForRepo(repoUrl).getJobTrace(jobId);
+  async getJobTrace(repoUrl: string, jobId: number): Promise<string> {
+    return (await this.clientForRepo(repoUrl)).getJobTrace(jobId);
   }
 
-  listComments(repoUrl: string, crNumber: number): Promise<HostComment[]> {
-    return this.clientForRepo(repoUrl).listComments(crNumber);
+  async listComments(repoUrl: string, crNumber: number): Promise<HostComment[]> {
+    return (await this.clientForRepo(repoUrl)).listComments(crNumber);
   }
 
-  createComment(repoUrl: string, crNumber: number, body: string): Promise<unknown> {
-    return this.clientForRepo(repoUrl).createComment(crNumber, body);
+  async createComment(repoUrl: string, crNumber: number, body: string): Promise<unknown> {
+    return (await this.clientForRepo(repoUrl)).createComment(crNumber, body);
   }
 
-  createInlineComment(
+  async createInlineComment(
     repoUrl: string,
     crNumber: number,
     input: InlineCommentInput,
     positionContext: InlineCommentPositionContext,
   ): Promise<unknown> {
-    return this.clientForRepo(repoUrl).createInlineComment(crNumber, input, positionContext);
+    return (await this.clientForRepo(repoUrl)).createInlineComment(crNumber, input, positionContext);
   }
 
-  resolveComment(repoUrl: string, crNumber: number, threadId: string, resolved?: boolean): Promise<unknown> {
-    return this.clientForRepo(repoUrl).resolveComment(crNumber, threadId, resolved ?? true);
+  async resolveComment(repoUrl: string, crNumber: number, threadId: string, resolved?: boolean): Promise<unknown> {
+    return (await this.clientForRepo(repoUrl)).resolveComment(crNumber, threadId, resolved ?? true);
   }
 
-  replyToComment(repoUrl: string, crNumber: number, threadId: string, body: string): Promise<HostNote> {
-    return this.clientForRepo(repoUrl).replyToComment(crNumber, threadId, body);
+  async replyToComment(repoUrl: string, crNumber: number, threadId: string, body: string): Promise<HostNote> {
+    return (await this.clientForRepo(repoUrl)).replyToComment(crNumber, threadId, body);
   }
 
-  getProject(repoUrl: string): Promise<HostProject> {
-    return this.clientForRepo(repoUrl).getProject();
+  async getProject(repoUrl: string): Promise<HostProject> {
+    return (await this.clientForRepo(repoUrl)).getProject();
   }
 }

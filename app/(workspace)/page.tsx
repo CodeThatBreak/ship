@@ -15,9 +15,9 @@ export const dynamic = "force-dynamic";
  * The live task feed stays client-side (its filters are page state; see
  * components/tasks).
  */
-export default function TasksPage() {
+export default async function TasksPage() {
   const { providers, repos, defaultMode, templates, defaultTemplateId } =
-    loadTasksBoot();
+    await loadTasksBoot();
   const unconfigured = providers.filter((p: TaskProviderInfo) => !p.configured);
 
   return (
