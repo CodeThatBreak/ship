@@ -28,6 +28,6 @@ export const POST = async (req: Request) => {
   const event = host.parseWebhook(payload);
   if (!event) return NextResponse.json({ ok: true });
 
-  flowEngine.handleHostEvent(event);
+  await flowEngine.handleHostEvent(event);
   return NextResponse.json({ ok: true });
 };

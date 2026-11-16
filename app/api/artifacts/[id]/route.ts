@@ -8,7 +8,7 @@ export const runtime = "nodejs";
 export const GET = async (_req: Request, { params }: { params: Promise<{ id: string }> }) => {
   try {
     const { id } = await params;
-    const art = artifactService.get(id);
+    const art = await artifactService.get(id);
     return NextResponse.json(art);
   } catch (e: unknown) {
     return toErrorResponse(e);

@@ -24,7 +24,7 @@ export const POST = async (req: Request, { params }: { params: Promise<{ id: str
   try {
     const { id } = await params;
     const body = await parseJson(req, ChatBody);
-    flowEngine.sendChat(id, body.nodeKey, body.content, body.model, body.thread);
+    await flowEngine.sendChat(id, body.nodeKey, body.content, body.model, body.thread);
     return NextResponse.json({ ok: true });
   } catch (e: unknown) {
     return toErrorResponse(e);

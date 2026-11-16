@@ -20,7 +20,7 @@ export const GET = async () => {
 export const PATCH = async (req: Request) => {
   try {
     const body = await parseJson(req, settingsPatchBodySchema(registeredHarnesses()));
-    settingsService.update(body);
+    await settingsService.update(body);
     return NextResponse.json({ ok: true });
   } catch (e: unknown) {
     return toErrorResponse(e);

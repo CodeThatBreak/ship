@@ -21,13 +21,13 @@ const CreateFlowBody = z
   });
 
 export const GET = async () => {
-  return NextResponse.json({ flows: flowEngine.list() });
+  return NextResponse.json({ flows: await flowEngine.list() });
 };
 
 export const POST = async (req: Request) => {
   try {
     const body = await parseJson(req, CreateFlowBody);
-    const id = flowEngine.create(body.taskId, body.repoUrl?.trim() ?? "", body.name, {
+    const id = await flowEngine.create(body.taskId, body.repoUrl?.trim() ?? "", body.name, {
       executionMode: body.executionMode,
       repoId: body.repoId,
       templateId: body.templateId,

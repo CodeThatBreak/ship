@@ -70,12 +70,12 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
 
   try {
     if (hook.templateId) {
-      const flowId = flowEngine.startFromTemplate(hook.templateId, payload);
+      const flowId = await flowEngine.startFromTemplate(hook.templateId, payload);
       if (webhookId) await hookStore.markDeliverySeen(hook.id, webhookId);
       return NextResponse.json({ ok: true, flow_id: flowId });
     }
     if (hook.flowId && hook.nodeKey) {
-      flowEngine.resumeNodeFromWebhook(hook.flowId, hook.nodeKey, payload);
+      await flowEngine.resumeNodeFromWebhook(hook.flowId, hook.nodeKey, payload);
       if (webhookId) await hookStore.markDeliverySeen(hook.id, webhookId);
       return NextResponse.json({ ok: true, resumed: hook.nodeKey });
     }

@@ -11,53 +11,53 @@ export const runtime = "nodejs";
 const dispatchAction = async (flowId: string, body: FlowActionBody): Promise<void> => {
   switch (body.action) {
     case FLOW_ACTION.APPROVE_PLAN:
-      flowEngine.approvePlan(flowId, body.executionOverride);
+      await flowEngine.approvePlan(flowId, body.executionOverride);
       break;
     case FLOW_ACTION.UPDATE_PLAN_STEPS:
-      flowEngine.updatePlanSteps(flowId, body.steps);
+      await flowEngine.updatePlanSteps(flowId, body.steps);
       break;
     case FLOW_ACTION.SET_PLAN_STEP:
-      flowEngine.setPlanStepStatus(flowId, body.stepId, body.status);
+      await flowEngine.setPlanStepStatus(flowId, body.stepId, body.status);
       break;
     case FLOW_ACTION.APPROVE_BUILD:
-      flowEngine.approveBuild(flowId, body.branch);
+      await flowEngine.approveBuild(flowId, body.branch);
       break;
     case FLOW_ACTION.PIPELINE:
-      flowEngine.triggerPipelineGate(flowId, body.pipelineId, body.model);
+      await flowEngine.triggerPipelineGate(flowId, body.pipelineId, body.model);
       break;
     case FLOW_ACTION.RESOLVE:
-      flowEngine.triggerResolve(flowId, body.model);
+      await flowEngine.triggerResolve(flowId, body.model);
       break;
     case FLOW_ACTION.REVIEW:
-      flowEngine.triggerReview(flowId, body.model);
+      await flowEngine.triggerReview(flowId, body.model);
       break;
     case FLOW_ACTION.RETRY:
-      flowEngine.retryNode(flowId, body.nodeKey);
+      await flowEngine.retryNode(flowId, body.nodeKey);
       break;
     case FLOW_ACTION.CANCEL:
-      flowEngine.cancelNode(flowId, body.nodeKey);
+      await flowEngine.cancelNode(flowId, body.nodeKey);
       break;
     case FLOW_ACTION.RUN_NODE:
-      flowEngine.runNodeManual(flowId, body.nodeKey, {
+      await flowEngine.runNodeManual(flowId, body.nodeKey, {
         prompt: body.prompt,
         model: body.model,
         input: body.input,
       });
       break;
     case FLOW_ACTION.APPROVE_NODE:
-      flowEngine.approveNode(flowId, body.nodeKey);
+      await flowEngine.approveNode(flowId, body.nodeKey);
       break;
     case FLOW_ACTION.SET_NODE_CONFIG:
-      flowEngine.setNodeConfig(flowId, body.nodeKey, body.config);
+      await flowEngine.setNodeConfig(flowId, body.nodeKey, body.config);
       break;
     case FLOW_ACTION.CHOOSE_NODE:
-      flowEngine.chooseNode(flowId, body.nodeKey, body.chosen, body.rationale);
+      await flowEngine.chooseNode(flowId, body.nodeKey, body.chosen, body.rationale);
       break;
     case FLOW_ACTION.APPROVE_FANOUT_STEP:
-      flowEngine.approveFanoutStep(flowId, body.stepId);
+      await flowEngine.approveFanoutStep(flowId, body.stepId);
       break;
     case FLOW_ACTION.RETRY_FANOUT_STEP:
-      flowEngine.retryFanoutStep(flowId, body.stepId);
+      await flowEngine.retryFanoutStep(flowId, body.stepId);
       break;
     case FLOW_ACTION.SKIP_FANOUT_STEP:
       await flowEngine.skipFanoutStep(flowId, body.stepId);
@@ -66,10 +66,10 @@ const dispatchAction = async (flowId: string, body: FlowActionBody): Promise<voi
       await flowEngine.skipSplitUnit(flowId, body.unitKey, body.consumerNodeKey);
       break;
     case FLOW_ACTION.RETRY_SPLIT_UNIT:
-      flowEngine.retrySplitUnit(flowId, body.unitKey, body.consumerNodeKey);
+      await flowEngine.retrySplitUnit(flowId, body.unitKey, body.consumerNodeKey);
       break;
     case FLOW_ACTION.APPROVE_SPLIT_UNIT:
-      flowEngine.approveSplitUnit(flowId, body.unitKey, body.consumerNodeKey);
+      await flowEngine.approveSplitUnit(flowId, body.unitKey, body.consumerNodeKey);
       break;
     case FLOW_ACTION.CANCEL_SPLIT_UNIT:
       await flowEngine.cancelSplitUnit(flowId, body.unitKey, body.consumerNodeKey);
