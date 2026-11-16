@@ -42,10 +42,11 @@ export class JiraInstanceStore {
   async add(input: { name?: string | null; baseUrl: string; email: string; token: string }): Promise<JiraInstance> {
     const baseUrl = input.baseUrl.trim().replace(/\/+$/, "");
     const id = this.db.uid("jri_");
-    const createdAt = new Date().toISOString();
+    // one Date for the row and the return value (see gitlabInstanceStore)
+    const createdAt = new Date();
     const sealed = this.secrets.seal(input.token);
     await this.db.prisma.jiraInstance.create({
-      data: { id, name: input.name ?? null, baseUrl, email: input.email.trim(), token: sealed, createdAt: new Date() },
+      data: { id, name: input.name ?? null, baseUrl, email: input.email.trim(), token: sealed, createdAt },
     });
     return {
       id,
@@ -53,7 +54,7 @@ export class JiraInstanceStore {
       baseUrl,
       email: input.email.trim(),
       token: input.token,
-      createdAt,
+      createdAt: createdAt.toISOString(),
     };
   }
 

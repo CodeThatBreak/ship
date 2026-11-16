@@ -42,12 +42,14 @@ export class GitLabInstanceStore {
   async add(input: { name?: string | null; baseUrl: string; token: string }): Promise<GitLabInstance> {
     const baseUrl = input.baseUrl.trim().replace(/\/+$/, "");
     const id = this.db.uid("gli_");
-    const createdAt = new Date().toISOString();
+    // one Date for the row and the return value — a second `new Date()` can
+    // land a millisecond later and disagree with what listMeta reads back
+    const createdAt = new Date();
     const sealed = this.secrets.seal(input.token);
     await this.db.prisma.gitlabInstance.create({
-      data: { id, name: input.name ?? null, baseUrl, token: sealed, createdAt: new Date() },
+      data: { id, name: input.name ?? null, baseUrl, token: sealed, createdAt },
     });
-    return { id, name: input.name ?? null, baseUrl, token: input.token, createdAt };
+    return { id, name: input.name ?? null, baseUrl, token: input.token, createdAt: createdAt.toISOString() };
   }
 
   async update(id: string, input: { name?: string | null; baseUrl: string; token: string }): Promise<void> {

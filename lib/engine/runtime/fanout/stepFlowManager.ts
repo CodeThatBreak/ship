@@ -107,16 +107,6 @@ const fanoutAutoWrapDescription = (
 const hashFanoutChildConfig = (config: Record<string, unknown>): string =>
   crypto.createHash("sha256").update(JSON.stringify(stripFanoutKeys(config))).digest("hex").slice(0, 16);
 
-/** Per-node fan-out progress for the parent panel / graph subtitle. */
-export interface FanoutProgress {
-  total: number;
-  done: number;
-  building: number;
-  awaiting: number;
-  failed: number;
-  skipped: number;
-}
-
 /** Live state of one step child, derived from plan_steps + the child flow. */
 export interface StepState {
   step: PlanStepRow;
@@ -1099,23 +1089,6 @@ export class StepFlowManager {
       toCancel.set(s.id, s.subFlowId); // pending child with no run → removed + cancelled
     }
     return { deletable, toCancel };
-  }
-
-  // ── progress (parent panel + graph subtitle) ───────────────────────────────
-
-  /** Fan-out progress for a parent node, or null when it never fanned out. */
-  async progress(parentFlowId: string, nodeKey: string): Promise<FanoutProgress | null> {
-    const states = await this.statesOf(parentFlowId, nodeKey);
-    if (!states.length) return null;
-    const p: FanoutProgress = { total: states.length, done: 0, building: 0, awaiting: 0, failed: 0, skipped: 0 };
-    for (const s of states) {
-      if (s.step.completedBy === "skipped") p.skipped++;
-      else if (s.step.status === "done") p.done++;
-      else if (s.isFailed) p.failed++;
-      else if (s.isAwaiting) p.awaiting++;
-      else if (s.isRunning || s.childNodeStatus === "waiting") p.building++;
-    }
-    return p;
   }
 
   /**

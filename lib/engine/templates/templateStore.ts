@@ -206,9 +206,8 @@ export class TemplateStore {
     if (!row) return null;
     // Json columns arrive parsed from Prisma; the snapshot helper still speaks
     // its serialized form, so re-stringify the object at this boundary
-    const snapshotted = hydrateFlowTemplateGraph(
-      typeof row.templateGraph === "string" ? row.templateGraph : row.templateGraph != null ? JSON.stringify(row.templateGraph) : null,
-    );
+    const snapshotted = hydrateFlowTemplateGraph(typeof row.templateGraph === "string"
+      ? row.templateGraph : row.templateGraph != null ? JSON.stringify(row.templateGraph) : null);
     if (snapshotted) return snapshotted;
     const tid = row.templateId ?? SDLC_TEMPLATE_ID;
     return this.graph(tid);
@@ -290,14 +289,7 @@ export class TemplateStore {
 
   /** One template row (or undefined). Tx-scoped inside a transaction. */
   async flowTemplate(id: string, tx?: Prisma.TransactionClient): Promise<FlowTemplateRow | undefined> {
-    if (tx) {
-      const raw = (await tx.$queryRawUnsafe<unknown[]>(
-        `SELECT id, name, description, version, is_builtin AS "isBuiltin", trigger, schedule_next_at AS "scheduleNextAt", hidden, created_at AS "createdAt", updated_at AS "updatedAt" FROM flow_templates WHERE id=$1`,
-        id,
-      ))[0];
-      return raw ? FlowTemplateRow.parse(raw) : undefined;
-    }
-    return rows.get(FlowTemplateRow, `SELECT id, name, description, version, is_builtin AS "isBuiltin", trigger, schedule_next_at AS "scheduleNextAt", hidden, created_at AS "createdAt", updated_at AS "updatedAt" FROM flow_templates WHERE id=$1`, id);
+    return db.rowsFor(tx).get(FlowTemplateRow, `SELECT id, name, description, version, is_builtin AS "isBuiltin", trigger, schedule_next_at AS "scheduleNextAt", hidden, created_at AS "createdAt", updated_at AS "updatedAt" FROM flow_templates WHERE id=$1`, id);
   }
 
   /**
@@ -530,61 +522,6 @@ export class TemplateStore {
     return id;
   }
 
-  /** Copy a template — id/name regenerated, node instances + edges cloned. */
-  async duplicate(templateId: string, name?: string, tx?: Prisma.TransactionClient): Promise<string> {
-    const src = await this.flowTemplate(templateId);
-    if (!src) throw new NotFoundError("template", templateId);
-    const graph = await this.graph(templateId);
-    if (!graph) throw new NotFoundError("template", templateId);
-    // Source-local node templates (the canvas creator's rows, scoped to the
-    // source): the copy gets fresh local rows of its own — same name / kind /
-    // icon / description / config, new id — and the copied nodes remap to
-    // them, so the duplicate owns the defs its nodes reference instead of
-    // reaching into the source template's private rows. Order matters (the
-    // FKs are enforced): the flow_templates row must exist before local rows
-    // reference it, and the local rows must exist before the copied nodes
-    // reference them — so the copy is built as template meta → local rows →
-    // graph (the update path replaces nodes + edges wholesale).
-    const localRemap = new Map<string, string>();
-    return await db.transaction(async (exec) => {
-      const newId = await this.create({
-        name: name?.trim() || `${src.name} copy`,
-        description: src.description,
-        trigger: graph.flowTrigger,
-        nodes: [], edges: [],
-      }, {}, exec);
-      for (const n of graph.nodes) {
-        if (localRemap.has(n.nodeTemplateId)) continue;
-        const nt = await this.nodeTemplate(n.nodeTemplateId, exec);
-        if (!nt || nt.isBuiltin || nt.templateId !== templateId) continue;
-        const created = await this.createNodeTemplate(
-          {
-            name: nt.name, kind: nt.kind, icon: nt.icon,
-            description: nt.description, config: nt.config ?? {},
-          },
-          { templateId: newId },
-          exec,
-        );
-        localRemap.set(nt.id, created.id);
-      }
-      await this.update(newId, {
-        nodes: graph.nodes.map((n) => ({
-          key: n.key,
-          nodeTemplateId: localRemap.get(n.nodeTemplateId) ?? n.nodeTemplateId,
-          label: n.label,
-          trigger: n.trigger as unknown as Record<string, unknown>,
-          join_mode: n.joinMode,
-          config: n.config,
-          input_map: n.inputMap,
-          x: n.x ?? null,
-          y: n.y ?? null,
-        })),
-        edges: graph.edges.map((e) => ({ from: e.from, to: e.to, kind: e.kind, label: e.label, condition: e.condition })),
-      }, exec);
-      return newId;
-    }, tx);
-  }
-
   /**
    * Update a template. Node/edge arrays, when present, replace the existing
    * ones wholesale (the editor sends its full draft); otherwise only the
@@ -810,25 +747,11 @@ export class TemplateStore {
   }
 
   async nodeTemplate(id: string, tx?: Prisma.TransactionClient): Promise<NodeTemplateRow | undefined> {
-    if (tx) {
-      const raw = (await tx.$queryRawUnsafe<unknown[]>(
-        `SELECT id, key, name, kind, version, description, icon, config, is_builtin AS "isBuiltin", template_id AS "templateId", created_at AS "createdAt", updated_at AS "updatedAt" FROM node_templates WHERE id=$1`,
-        id,
-      ))[0];
-      return raw ? NodeTemplateRow.parse(raw) : undefined;
-    }
-    return rows.get(NodeTemplateRow, `SELECT id, key, name, kind, version, description, icon, config, is_builtin AS "isBuiltin", template_id AS "templateId", created_at AS "createdAt", updated_at AS "updatedAt" FROM node_templates WHERE id=$1`, id);
+    return db.rowsFor(tx).get(NodeTemplateRow, `SELECT id, key, name, kind, version, description, icon, config, is_builtin AS "isBuiltin", template_id AS "templateId", created_at AS "createdAt", updated_at AS "updatedAt" FROM node_templates WHERE id=$1`, id);
   }
 
   async nodeTemplateByKey(key: string, tx?: Prisma.TransactionClient): Promise<NodeTemplateRow | undefined> {
-    if (tx) {
-      const raw = (await tx.$queryRawUnsafe<unknown[]>(
-        `SELECT id, key, name, kind, version, description, icon, config, is_builtin AS "isBuiltin", template_id AS "templateId", created_at AS "createdAt", updated_at AS "updatedAt" FROM node_templates WHERE key=$1`,
-        key,
-      ))[0];
-      return raw ? NodeTemplateRow.parse(raw) : undefined;
-    }
-    return rows.get(NodeTemplateRow, `SELECT id, key, name, kind, version, description, icon, config, is_builtin AS "isBuiltin", template_id AS "templateId", created_at AS "createdAt", updated_at AS "updatedAt" FROM node_templates WHERE key=$1`, key);
+    return db.rowsFor(tx).get(NodeTemplateRow, `SELECT id, key, name, kind, version, description, icon, config, is_builtin AS "isBuiltin", template_id AS "templateId", created_at AS "createdAt", updated_at AS "updatedAt" FROM node_templates WHERE key=$1`, key);
   }
 
   /**

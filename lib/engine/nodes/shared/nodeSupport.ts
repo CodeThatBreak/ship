@@ -133,11 +133,6 @@ export class NodeSupport {
     }
   }
 
-  async attemptId(nodeId: string): Promise<string | null> {
-    return (await db.get<{ attemptId: string | null }>(`SELECT attempt_id AS "attemptId" FROM nodes WHERE id=$1`, nodeId))
-      ?.attemptId ?? null;
-  }
-
   /** A chat row scoped to a refinement thread (the plan's sub-plan refines). */
   addMessage(
     flowId: string,
@@ -188,9 +183,7 @@ export class NodeSupport {
     const existing = await db.get<{ agentRef: string; runRef: string }>(
       `SELECT agent_ref AS "agentRef", run_ref AS "runRef" FROM runs
        WHERE node_id=$1 AND status=$2 ORDER BY created_at DESC LIMIT 1`,
-      nodeId,
-      RUN_STATUS.RUNNING,
-    );
+      nodeId, RUN_STATUS.RUNNING);
     if (existing?.agentRef === RUN_AGENT_REF.PENDING && existing.runRef === attemptId) {
       return;
     }
@@ -221,11 +214,8 @@ export class NodeSupport {
   }
 
   async persistRun(flowId: string, nodeId: string, agentId: string, runId: string): Promise<string> {
-    const attemptRow = await db.get<{ attemptId: string | null }>(
-      `SELECT attempt_id AS "attemptId" FROM nodes WHERE id=$1`,
-    nodeId,
-    );
-    const attemptId = attemptRow?.attemptId;
+    const attemptId = (await db.get<{ attemptId: string | null }>(
+      `SELECT attempt_id AS "attemptId" FROM nodes WHERE id=$1`, nodeId))?.attemptId;
     if (attemptId) {
       const changes = await db.run(
         `UPDATE runs SET agent_ref=$1, run_ref=$2, updated_at=$3
@@ -235,7 +225,7 @@ export class NodeSupport {
         db.now(),
         nodeId,
         RUN_STATUS.RUNNING,
-    RUN_AGENT_REF.PENDING,
+        RUN_AGENT_REF.PENDING,
         attemptId,
       );
       if (changes === 1) {
@@ -269,9 +259,7 @@ export class NodeSupport {
   async lastAgentId(nodeId: string): Promise<string | null> {
     return (await db.get<{ agentRef: string }>(
       `SELECT agent_ref AS "agentRef" FROM runs WHERE node_id=$1 AND agent_ref<>$2 ORDER BY created_at DESC LIMIT 1`,
-      nodeId,
-      RUN_AGENT_REF.PENDING,
-    ))?.agentRef ?? null;
+      nodeId, RUN_AGENT_REF.PENDING))?.agentRef ?? null;
   }
 
   /** Update the run row with the real agent/session id once known (local mode). */
@@ -330,8 +318,7 @@ export class NodeSupport {
   /** A branch row's MR iid (null when the branch has no merge request yet). */
   async branchMrIid(flowId: string, name: string): Promise<number | null> {
     return (await db.get<{ mrIid: number | null }>(
-      `SELECT mr_iid AS "mrIid" FROM branches WHERE flow_id=$1 AND name=$2`, flowId, name,
-    ))?.mrIid ?? null;
+      `SELECT mr_iid AS "mrIid" FROM branches WHERE flow_id=$1 AND name=$2`, flowId, name))?.mrIid ?? null;
   }
 
   // ── comments ────────────────────────────────────────────────────────────────

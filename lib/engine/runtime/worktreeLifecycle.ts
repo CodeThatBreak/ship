@@ -60,10 +60,7 @@ export class WorktreeManager {
   /** Resolve feed routing key from a node row id (never use the row id as nodeKey). */
   private async nodeKeyFor(flowId: string, nodeId: string | null | undefined): Promise<string | undefined> {
     if (!nodeId) return undefined;
-    const row = await db.prisma.node.findFirst({
-      where: { id: nodeId, flowId },
-      select: { nodeKey: true },
-    });
+    const row = await db.prisma.node.findFirst({ where: { id: nodeId, flowId }, select: { nodeKey: true } });
     return row?.nodeKey;
   }
 
@@ -87,10 +84,7 @@ export class WorktreeManager {
    */
   private async touchNode(flowId: string, nodeId: string | null | undefined): Promise<void> {
     if (!nodeId) return;
-    await db.prisma.node.updateMany({
-      where: { id: nodeId, flowId },
-      data: { updatedAt: new Date() },
-    });
+    await db.prisma.node.updateMany({ where: { id: nodeId, flowId }, data: { updatedAt: new Date() } });
   }
 
   /** A flow's worktree dir: `workspaces/worktrees/<flowId>` (unique per flow; sweep-joinable). */
@@ -167,10 +161,7 @@ export class WorktreeManager {
       // matching joins against `git worktree list` output
       const canonical = this.tryRealpath(dir);
       if (!flow.worktreeDir || !samePath(flow.worktreeDir, canonical)) {
-        await db.prisma.flow.update({
-          where: { id: flow.id },
-          data: { worktreeDir: canonical, updatedAt: new Date() },
-        });
+        await db.prisma.flow.update({ where: { id: flow.id }, data: { worktreeDir: canonical, updatedAt: new Date() } });
         flow.worktreeDir = canonical;
       }
       await db.emitEvent(flow.id, opts.nodeId ?? null, "lifecycle",
@@ -360,8 +351,7 @@ export class WorktreeManager {
     opts: { deleteBranch?: boolean; reason?: string } = {}
   ): Promise<void> {
     const flow = await db.prisma.flow.findUnique({
-      where: { id: flowId },
-      select: { worktreeDir: true, mrBranch: true, repoId: true },
+      where: { id: flowId }, select: { worktreeDir: true, mrBranch: true, repoId: true },
     });
     if (!flow?.worktreeDir) return;
     const repo = flow.repoId ? await db.repoById(flow.repoId) : null;
@@ -392,9 +382,7 @@ export class WorktreeManager {
    */
   async sweepWorktrees(): Promise<void> {
     // 1. resume recorded removals
-    for (const rec of await db.prisma.worktreeRemoval.findMany({
-      orderBy: { createdAt: "asc" },
-    })) {
+    for (const rec of await db.prisma.worktreeRemoval.findMany({ orderBy: { createdAt: "asc" } })) {
       try {
         await this.removeWorktreeDir({
           flowId: rec.flowId,
@@ -412,9 +400,7 @@ export class WorktreeManager {
 
     const wsDir = this.tryRealpath(workspacePaths.worktreesRoot());
     const handled = new Set<string>();
-    const repos = await db.prisma.repo.findMany({
-      where: { localPath: { not: null } },
-    });
+    const repos = await db.prisma.repo.findMany({ where: { localPath: { not: null } } });
 
     // 2. reconcile registered worktrees against flows
     for (const repo of repos) {
@@ -428,9 +414,7 @@ export class WorktreeManager {
           handled.add(this.tryRealpath(wt.path));
           const flowId = path.basename(wt.path);
           const flow = await db.prisma.flow.findUnique({
-            where: { id: flowId },
-            select: { id: true, status: true, worktreeDir: true },
-          });
+            where: { id: flowId }, select: { id: true, status: true, worktreeDir: true } });
           const branch = worktreeBranchName(wt);
           if (!flow) {
             await this.removeWorktreeDir({
@@ -449,10 +433,8 @@ export class WorktreeManager {
             });
           } else if (!flow.worktreeDir) {
             // crash between create and the column write — adopt the worktree
-            await db.prisma.flow.update({
-              where: { id: flow.id },
-              data: { worktreeDir: wt.path, updatedAt: new Date() },
-            });
+            await db.prisma.flow.update({ where: { id: flow.id },
+              data: { worktreeDir: wt.path, updatedAt: new Date() } });
           }
         }
       } catch (e: unknown) {
@@ -477,10 +459,7 @@ export class WorktreeManager {
         continue;
       }
       if (handled.has(this.tryRealpath(dir))) continue;
-      const flow = await db.prisma.flow.findUnique({
-        where: { id: name },
-        select: { status: true },
-      });
+      const flow = await db.prisma.flow.findUnique({ where: { id: name }, select: { status: true } });
       if (flow && flow.status === "active") continue; // conservative: an active flow may still adopt it
       try {
         fs.rmSync(dir, { recursive: true, force: true });
@@ -514,11 +493,8 @@ export class WorktreeManager {
     if (!target.recordId) {
       await db.prisma.worktreeRemoval.createMany({
         data: [{
-          id: recordId, flowId: target.flowId, repoPath: target.repoPath, path: target.wtPath,
-          branch: target.branch,
-          deleteBranch: target.deleteBranch ?? false,
-          reason: target.reason ?? null,
-          createdAt: new Date(),
+          id: recordId, flowId: target.flowId, repoPath: target.repoPath, path: target.wtPath, branch: target.branch,
+          deleteBranch: target.deleteBranch ?? false, reason: target.reason ?? null, createdAt: new Date(),
         }],
         skipDuplicates: true,
       });
@@ -557,14 +533,10 @@ export class WorktreeManager {
         // clear the pointer only when it still names this worktree (a restarted
         // flow may have moved on); compare symlink-tolerantly — git canonicalizes
         const stored = (await db.prisma.flow.findUnique({
-          where: { id: target.flowId },
-          select: { worktreeDir: true },
-        }))?.worktreeDir ?? null;
+          where: { id: target.flowId }, select: { worktreeDir: true } }))?.worktreeDir ?? null;
         if (stored && samePath(stored, target.wtPath)) {
-          await db.prisma.flow.update({
-            where: { id: target.flowId },
-            data: { worktreeDir: null, updatedAt: new Date() },
-          });
+          await db.prisma.flow.update({ where: { id: target.flowId },
+            data: { worktreeDir: null, updatedAt: new Date() } });
         }
         const branchNote = target.branch ? ` (branch ${target.branch} kept)` : "";
         await db.emitEvent(target.flowId, null, "lifecycle",

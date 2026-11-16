@@ -97,9 +97,7 @@ export class AgentTemplateNode extends DeclarativeAgentNode<AgentDef, Record<str
    * default artifact contract.
    */
   override outputContract(def: Record<string, unknown> = this.def): unknown {
-    if (def.output === AGENT_OUTPUT_FORMAT.JSON && def.output_schema) {
-      return def.output_schema;
-    }
+    if (def.output === AGENT_OUTPUT_FORMAT.JSON && def.output_schema) return def.output_schema;
 
     return {
       type: 'object',

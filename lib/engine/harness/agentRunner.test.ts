@@ -171,7 +171,8 @@ const makeRunner = (usage: typeof usageTracker = usageTracker) =>
 describe("AgentRunner.executeRun", () => {
   beforeAll(async () => {
     await resetTestDatabase();
-    agentPortRegistry.register(runnerTestPort);
+    // runnerTestPort is already registered at module scope; the registry is
+    // process-wide and rejects duplicate kinds.
     await db.setSetting("default_harness", "runner-test");
   });
 

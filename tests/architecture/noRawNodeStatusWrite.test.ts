@@ -30,10 +30,7 @@ const ENGINE_ROOT = path.join(repoRoot, "lib/engine");
 const FROZEN_OFFENDERS: readonly string[] = [
   "lib/engine/flowEngine.ts", // finishFanout/finishSplit/bg() catch + setNodeStatus/claimNode wrappers
   "lib/engine/nodes/shared/nodeSupport.ts", // claim/transition/patchIfAttempt duplicates
-  "lib/engine/runtime/edgeActivator.ts", // stage catch + loop-reset/skip propagation setNodeStatus
   "lib/engine/runtime/fanout/stepFlowManager.ts", // fan-out aggregate status writes
-  "lib/engine/runtime/nodeStore.ts", // claim/setStatus (the authority absorbs these)
-  "lib/engine/runtime/split/splitManager.ts", // split join/skipUnit status writes
 ];
 
 const walk = (dir: string, out: string[] = []): string[] => {

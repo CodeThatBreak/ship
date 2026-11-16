@@ -162,8 +162,7 @@ function parseSplitPayload(raw: unknown): SplitChildPayload | null {
 export class FlowsSplitLinkIndex implements SplitLinkIndex {
   async linksOf(parentFlowId: string, consumerNodeKey: string): Promise<SplitChildLink[]> {
     const rows = await db.prisma.flow.findMany({
-      where: { parentFlowId, kind: "split" },
-      select: { id: true, triggerPayload: true },
+      where: { parentFlowId, kind: "split" }, select: { id: true, triggerPayload: true },
       orderBy: [{ createdAt: "asc" }, { id: "asc" }],
     });
     const links: SplitChildLink[] = [];
@@ -176,17 +175,13 @@ export class FlowsSplitLinkIndex implements SplitLinkIndex {
   }
 
   async childPayloadOf(childFlowId: string): Promise<SplitChildPayload | null> {
-    const row = await db.prisma.flow.findUnique({
-      where: { id: childFlowId },
-      select: { triggerPayload: true },
-    });
+    const row = await db.prisma.flow.findUnique({ where: { id: childFlowId }, select: { triggerPayload: true } });
     return parseSplitPayload(row?.triggerPayload);
   }
 
   async consumerNodeOfUnit(parentFlowId: string, unitKey: string): Promise<string | null> {
     const rows = await db.prisma.flow.findMany({
-      where: { parentFlowId, kind: "split" },
-      select: { triggerPayload: true },
+      where: { parentFlowId, kind: "split" }, select: { triggerPayload: true },
       orderBy: [{ createdAt: "asc" }, { id: "asc" }],
     });
     for (const r of rows) {
@@ -276,10 +271,7 @@ export class SplitManager {
     // "source"` here (Phase 4); direct callers omit it and the config decides
     opts: { consume?: SplitConsumeMode } = {},
   ): Promise<boolean> {
-    const flow = await db.prisma.flow.findUnique({
-      where: { id: parentFlowId },
-      select: { parentFlowId: true },
-    });
+    const flow = await db.prisma.flow.findUnique({ where: { id: parentFlowId }, select: { parentFlowId: true } });
     if (!flow) throw new Error(`parent flow ${parentFlowId} not found`);
     // nesting guard (§3): children never split — a `per-unit` consumer inside
     // a child flow resolves to `whole`, enforced here, not by convention
@@ -289,7 +281,6 @@ export class SplitManager {
     const ctx = await this.e.ctx(parentFlowId);
     const units = await (await this.e.defOf(parentFlowId, sourceNodeKey)).splitUnits(ctx);
     if (!units || !units.length) return false;
-
     // loud producer errors before any child row exists (§3 policy)
     const cycle = detectUnitCycle(units);
     if (cycle) throw new UnitCycleError(cycle);
@@ -397,10 +388,7 @@ export class SplitManager {
       ],
       edges: [],
     }, { skipLint: true });
-    await db.prisma.flowTemplate.update({
-      where: { id: tplId },
-      data: { hidden: true, updatedAt: new Date() },
-    });
+    await db.prisma.flowTemplate.update({ where: { id: tplId }, data: { hidden: true, updatedAt: new Date() } });
     return tplId;
   }
 
@@ -453,16 +441,6 @@ export class SplitManager {
   // ── state derivation ────────────────────────────────────────────────────────
 
   /**
-   * All unit states a consumer node owns, in unit (expansion) order — the
-   * scheduler's, the join's and the actions' single view. Includes the
-   * `blocked` closure: a pending unit whose dependency failed/skipped/blocked
-   * (or is unknown — it could never resolve) can never start.
-   */
-  async statesOf(parentFlowId: string, consumerNodeKey: string): Promise<SplitUnitState[]> {
-    return this.unitStates(parentFlowId, consumerNodeKey);
-  }
-
-  /**
    * The consumer node key that owns a unit key on this flow (the per-unit
    * actions' optional addressing — the caller may address a unit by key
    * alone), or null when no split linkage on the flow carries it.
@@ -471,18 +449,19 @@ export class SplitManager {
     return this.linkage.consumerNodeOfUnit(parentFlowId, unitKey);
   }
 
+  /**
+   * All unit states a consumer node owns, in unit (expansion) order — the
+   * scheduler's, the join's and the actions' single view. Includes the
+   * `blocked` closure: a pending unit whose dependency failed/skipped/blocked
+   * (or is unknown — it could never resolve) can never start.
+   */
   private async unitStates(parentFlowId: string, consumerNodeKey: string): Promise<SplitUnitState[]> {
     const links = await this.linkage.linksOf(parentFlowId, consumerNodeKey);
     const states: SplitUnitState[] = await Promise.all(links.map(async (link) => {
-      const flow = await db.prisma.flow.findUnique({
-        where: { id: link.childFlowId },
-        select: { status: true },
-      });
+      const flow = await db.prisma.flow.findUnique({ where: { id: link.childFlowId }, select: { status: true } });
       const flowStatus = flow?.status ?? null;
       const statuses = (await db.prisma.node.findMany({
-        where: { flowId: link.childFlowId },
-        select: { status: true },
-        orderBy: { createdAt: "asc" },
+        where: { flowId: link.childFlowId }, select: { status: true }, orderBy: { createdAt: "asc" },
       })).map((n) => n.status);
       const status = SplitManager.unitStatusOf(statuses, flowStatus);
       return {
@@ -538,8 +517,7 @@ export class SplitManager {
   /** A child's merged node outputs (last write wins per key; {} when none). */
   private async childOutput(childFlowId: string): Promise<Record<string, unknown>> {
     const outs = await db.prisma.node.findMany({
-      where: { flowId: childFlowId, output: { not: Prisma.DbNull } },
-      select: { output: true },
+      where: { flowId: childFlowId, output: { not: Prisma.DbNull } }, select: { output: true },
       orderBy: { updatedAt: "asc" },
     });
     const merged: Record<string, unknown> = {};
@@ -605,8 +583,7 @@ export class SplitManager {
     // `awaiting_approval` node DOES: the unit holds a scheduler slot until
     // the user acts, and the join accounts for it.
     const statuses = (await db.prisma.node.findMany({
-      where: { flowId: childFlowId },
-      select: { status: true },
+      where: { flowId: childFlowId }, select: { status: true },
     })).map((n) => n.status);
     const flowClosed = flow.status === FLOW_STATUS.DONE || flow.status === FLOW_STATUS.SKIPPED;
     const allTerminal = statuses.length > 0
@@ -637,10 +614,7 @@ export class SplitManager {
       where: { flowId: state.childFlowId, status: { notIn: ["done", "skipped"] } },
       data: { status: "skipped", updatedAt: new Date() },
     });
-    await db.prisma.flow.update({
-      where: { id: state.childFlowId },
-      data: { status: "skipped", updatedAt: new Date() },
-    });
+    await db.prisma.flow.update({ where: { id: state.childFlowId }, data: { status: "skipped", updatedAt: new Date() } });
     await db.emitEvent(parentFlowId, null, "lifecycle",
       `split unit "${state.title}" skipped`, { nodeKey: consumerNodeKey, unitKey, childFlowId: state.childFlowId });
     await this.advance(parentFlowId, consumerNodeKey);
@@ -652,8 +626,7 @@ export class SplitManager {
     const state = await this.stateFor(parentFlowId, consumerNodeKey, unitKey);
     if (!state.childFlowId) throw new Error(`unit "${unitKey}" has no child flow to retry`);
     const failed = await db.prisma.node.findMany({
-      where: { flowId: state.childFlowId, status: "failed" },
-      select: { nodeKey: true },
+      where: { flowId: state.childFlowId, status: "failed" }, select: { nodeKey: true },
     });
     if (!failed.length) throw new Error(`unit "${unitKey}" has no failed node to retry`);
     await this.e.retryNode(state.childFlowId, failed[0].nodeKey); // hooks reschedule on finish
@@ -668,8 +641,7 @@ export class SplitManager {
     const state = await this.stateFor(parentFlowId, consumerNodeKey, unitKey);
     if (!state.childFlowId) throw new Error(`unit "${unitKey}" has no child flow to approve`);
     const awaiting = await db.prisma.node.findMany({
-      where: { flowId: state.childFlowId, status: "awaiting_approval" },
-      select: { nodeKey: true },
+      where: { flowId: state.childFlowId, status: "awaiting_approval" }, select: { nodeKey: true },
     });
     if (!awaiting.length) throw new Error(`unit "${unitKey}" is not awaiting approval`);
     for (const n of awaiting) {
@@ -687,8 +659,7 @@ export class SplitManager {
     const state = await this.stateFor(parentFlowId, consumerNodeKey, unitKey);
     if (!state.childFlowId) throw new Error(`unit "${unitKey}" has no child flow to cancel`);
     const active = (await db.prisma.node.findMany({
-      where: { flowId: state.childFlowId },
-      select: { nodeKey: true, status: true },
+      where: { flowId: state.childFlowId }, select: { nodeKey: true, status: true },
     })).filter((n) => NODE_ACTIVE_STATUSES.includes(n.status));
     for (const n of active) {
       await this.e.cancelNode(state.childFlowId, n.nodeKey); // marks failed + stops in-flight runs
@@ -701,8 +672,7 @@ export class SplitManager {
   /** Standard stop for a child's active nodes (used by skip). */
   private async stopActiveChildNodes(childFlowId: string): Promise<void> {
     const active = (await db.prisma.node.findMany({
-      where: { flowId: childFlowId },
-      select: { nodeKey: true, status: true },
+      where: { flowId: childFlowId }, select: { nodeKey: true, status: true },
     })).filter((n) => NODE_IN_FLIGHT_STATUSES.includes(n.status));
     for (const n of active) {
       await this.e.cancelNode(childFlowId, n.nodeKey);
@@ -712,9 +682,7 @@ export class SplitManager {
   /** One unit's state by key (the actions' addressing). */
   private async stateFor(parentFlowId: string, consumerNodeKey: string, unitKey: string): Promise<SplitUnitState> {
     const state = (await this.unitStates(parentFlowId, consumerNodeKey)).find((s) => s.key === unitKey);
-    if (!state) {
-      throw new Error(`no split unit "${unitKey}" on ${consumerNodeKey} of flow ${parentFlowId}`);
-    }
+    if (!state) throw new Error(`no split unit "${unitKey}" on ${consumerNodeKey} of flow ${parentFlowId}`);
     return state;
   }
 }

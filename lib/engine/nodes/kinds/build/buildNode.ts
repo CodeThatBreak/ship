@@ -6,7 +6,7 @@ import type { AgentRunResult } from "../../../ports/agentPort";
 import { prompts } from "../../../prompts/promptLibrary";
 import { planSteps } from "../../../runtime/planStepStore";
 import { agentRunner, type AgentRunner } from "../../../harness/harnessExports";
-import { AgentRunNode, flowCtxHelper, nodeRoles, type FlowContextHelper, type FlowCtx, type NodePromptPreview, type NodeTriggerRun, type PromptPreviewParams, type RunOutcome } from "../../shared/nodeSharedExports";
+import { AgentRunNode, flowCtxHelper, nodeRoles, type FlowContextHelper, type FlowCtx, type NodePromptPreview, type NodeTriggerRun, type RunOutcome } from "../../shared/nodeSharedExports";
 import { DEFAULT_FANOUT_OUTPUT, type NodeCapabilities } from "../../shared/capabilities";
 import { NODE_KEYS, STEP_BUILD_TEMPLATE_ID } from "../../../constants/nodeKeys";
 import type { ConfigField } from "../../../templates/nodeConfig";
@@ -266,13 +266,13 @@ export class BuildNode extends AgentRunNode<BuildInput, BuildOutput> {
 
     const { worktree, setupNote } = await this.buildRun.worktree(ctx, branch, node.id);
 
-    const prompt = await this.composeBuildPrompt(ctx, config, {
+    const prompt = (await this.buildPromptAssembly(ctx, config, {
       plan,
       branchInfo: input.branchInfo,
       promptOverride: input.prompt,
       promptIsBody: input.promptIsBody ?? false,
       setupNote,
-    });
+    })).assembly.final;
 
     return this.execute(ctx, {
       input: { ...input, prompt, branch: input.branchInfo?.name ?? null },
@@ -419,21 +419,6 @@ export class BuildNode extends AgentRunNode<BuildInput, BuildOutput> {
    * Shared build prompt assembly for `run` and `previewPrompt` — one branch
    * name, instruction text, checklist block, and resolve/assemble path.
    */
-  private async composeBuildPrompt(
-    ctx: FlowCtx,
-    config: Record<string, unknown>,
-    args: {
-      plan: string;
-      branchInfo: BuildBranchInfo | null;
-      promptOverride: string | null;
-      promptIsBody?: boolean;
-      setupNote: string | null;
-    },
-  ): Promise<string> {
-    const built = await this.buildPromptAssembly(ctx, config, args);
-    return built.assembly.final;
-  }
-
   private async buildPromptAssembly(
     ctx: FlowCtx,
     config: Record<string, unknown>,
@@ -521,8 +506,7 @@ export class BuildNode extends AgentRunNode<BuildInput, BuildOutput> {
    * Live prompt preview: same branch/instructions/checklist path as `run`.
    * Worktree setup notes appear only after a worktree exists (null beforehand).
    */
-  async previewPrompt(ctx: FlowCtx, node: NodeRow | null, _params: PromptPreviewParams): Promise<NodePromptPreview | null> {
-    void _params;
+  async previewPrompt(ctx: FlowCtx, node: NodeRow | null): Promise<NodePromptPreview | null> {
     const config = await nodeRoles.previewConfig(this, node);
     const planRow = await this.support.latestArtifact(ctx.flow.id, "plan");
     const planContent = planRow?.content ?? "(no plan yet)";
