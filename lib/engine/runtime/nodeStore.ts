@@ -2,16 +2,12 @@ import "server-only";
 
 import { db } from "../../db/app";
 import { type NodeStatus } from "../../db/rows";
-import { ConflictError } from "../../errors";
 import { NODE_STATUS } from "../constants/nodeStatus";
-import { processSingleton } from "../../singleton";
 import { appLayerConfig, mergeConfigLayers } from "../templates/nodeConfig";
 import type { TemplateGraph } from "../types/template";
 import type { QueryExecutor } from "../../db/database";
 import type { Prisma } from "@prisma/client";
-import { nodeRegistry } from "../nodes/registry";
 import { hookStore } from "./hookStore";
-import { nodeAttemptRegistry } from "./nodeAttemptRegistry";
 
 export type InsertNodeSnapshotsOptions = {
   /** When true, provision wait_for webhook hooks per node (top-level flow create). */
@@ -21,7 +17,12 @@ export type InsertNodeSnapshotsOptions = {
 
 /**
  * Node table access for engine orchestrators (flow engine, fan-out, reconciler).
- * Node kind implementations use {@link NodeSupport} instead.
+ * Node kind implementations use {@link NodeSupport} instead. Statusless
+ * after step 02: every status/attempt write belongs to the
+ * `TransitionAuthority` (`runtime/transitions/`); this class only reads node
+ * rows, inserts flow-creation snapshots (`[*] → pending`, the state
+ * machine's birth edge) and emits events. Constructed in `lib/composition`
+ * (decision Q9).
  */
 export class NodeStore {
   async idOf(flowId: string, nodeKey: string, tx?: QueryExecutor): Promise<string | null> {
@@ -48,33 +49,6 @@ export class NodeStore {
     return rows.map((n) => n.status);
   }
 
-  async setStatus(flowId: string, nodeKey: string, status: NodeStatus, tx?: QueryExecutor): Promise<void> {
-    await (tx ?? db.prisma).node.updateMany({
-      where: { flowId, nodeKey },
-      data: { status, updatedAt: new Date() },
-    });
-    if (status !== NODE_STATUS.RUNNING) {
-      const nodeId = await this.idOf(flowId, nodeKey, tx);
-      if (nodeId) nodeAttemptRegistry.clear(nodeId);
-    }
-  }
-
-  /**
-   * Atomically move a node to `running` and stamp a fresh attempt token.
-   * Throws {@link ConflictError} when the node is not in one of `from`.
-   */
-  async claim(flowId: string, nodeKey: string, from: readonly NodeStatus[]): Promise<string> {
-    const attempt = db.uid("att_");
-    const { count } = await db.prisma.node.updateMany({
-      where: { flowId, nodeKey, status: { in: [...from] } },
-      data: { status: NODE_STATUS.RUNNING, attemptId: attempt, updatedAt: new Date() },
-    });
-    if (count !== 1) {
-      throw new ConflictError(`Node ${nodeKey} is not in ${from.join("/")}`);
-    }
-    return attempt;
-  }
-
   async emitEvent(
     flowId: string,
     nodeKey: string | null,
@@ -94,6 +68,13 @@ export class NodeStore {
     opts: InsertNodeSnapshotsOptions = {},
     tx?: Prisma.TransactionClient,
   ): Promise<void> {
+    // CONSTRUCTION-CYCLE BREAK (step 02): the node registry statically imports
+    // the node kinds, whose base classes import the composition root for the
+    // shared `nodeSupport` — importing the registry here at module scope would
+    // loop `composition → nodeStore → registry → kinds → composition`. The
+    // lazy import resolves against the module cache on first use, after both
+    // sides of the cycle have finished evaluating.
+    const { nodeRegistry } = await import("../nodes/registry");
     const client = tx ?? db.prisma;
     const ts = opts.ts ? new Date(opts.ts) : new Date();
     for (const spec of graph.nodes) {
@@ -119,5 +100,3 @@ export class NodeStore {
     }
   }
 }
-
-export const nodeStore = processSingleton("nodeStore", () => new NodeStore());

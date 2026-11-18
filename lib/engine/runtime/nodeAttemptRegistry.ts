@@ -1,12 +1,15 @@
 import "server-only";
 
-import { processSingleton } from "../../singleton";
-
 /**
  * In-process registry of node attempts currently executing in this server.
  * Reconcile uses it so a `running` node with no agent handle yet (worktree
  * setup, prompt assembly, agent startup before persistRun) is not failed as
  * orphaned while the same process is still working on it.
+ *
+ * Step 02 (decision Q9): no longer a global — an instance field of the
+ * container-owned engine services (`lib/composition`), marked by the
+ * transition authority's claims. Step 03 removes its liveness role entirely
+ * in favor of leases.
  */
 export class NodeAttemptRegistry {
   private readonly active = new Map<string, string>();
@@ -28,8 +31,3 @@ export class NodeAttemptRegistry {
     return attemptId != null && this.active.get(nodeId) === attemptId;
   }
 }
-
-export const nodeAttemptRegistry = processSingleton(
-  "nodeAttemptRegistry",
-  () => new NodeAttemptRegistry(),
-);

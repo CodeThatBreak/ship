@@ -40,14 +40,13 @@ const walk = (dir: string, out: string[] = []): string[] => {
  * that migrates it shrinks it under the ceiling. NOTHING is ever added.
  */
 const FROZEN_GIANTS: readonly string[] = [
-  "lib/engine/flowEngine.ts", // 1328 — facade carve-up (steps 02→07)
+  "lib/engine/flowEngine.ts", // 1214 — facade carve-up (steps 02→07; approvals extracted in step 02)
   "lib/engine/nodes/kinds/agent/agentNode.ts", // 576 — output pipeline migration (step 05)
   "lib/engine/nodes/kinds/build/buildNode.ts", // 569 — output pipeline migration (step 05)
   "lib/engine/nodes/kinds/pipeline/pipelineNode.ts", // 688 — GateWaitLoop/GateFixRunner split (step 05)
   "lib/engine/nodes/kinds/plan/planContract.ts", // 515 — contract dedup (step 05)
   "lib/engine/nodes/kinds/resolve/resolveNode.ts", // 722 — collaborator extraction (step 05)
-  "lib/engine/nodes/shared/nodeSupport.ts", // 455 — authority funnel (step 02)
-  "lib/engine/runtime/fanout/stepFlowManager.ts", // 1349 — Expander/Scheduler/Rollup split (step 07)
+  "lib/engine/runtime/fanout/stepFlowManager.ts", // 1347 — Expander/Scheduler/Rollup split (step 07)
   "lib/engine/runtime/split/splitManager.ts", // 695 — Expander/Join/LinkageStore split (step 07)
   "lib/engine/runtime/worktreeLifecycle.ts", // 567 — worktree decomposition (step 03/05)
   "lib/engine/templates/templateLint.ts", // 712 — lint split as contract checks land (step 04)
@@ -73,14 +72,13 @@ describe("engineClassSize", () => {
     // a frozen giant may leave the list by shrinking under the ceiling; it may
     // NEVER grow. Pin each giant's current line count as its ceiling.
     const frozen = new Map<string, number>([
-      ["lib/engine/flowEngine.ts", 1328],
+      ["lib/engine/flowEngine.ts", 1214],
       ["lib/engine/nodes/kinds/agent/agentNode.ts", 576],
       ["lib/engine/nodes/kinds/build/buildNode.ts", 569],
       ["lib/engine/nodes/kinds/pipeline/pipelineNode.ts", 688],
       ["lib/engine/nodes/kinds/plan/planContract.ts", 515],
       ["lib/engine/nodes/kinds/resolve/resolveNode.ts", 722],
-      ["lib/engine/nodes/shared/nodeSupport.ts", 455],
-      ["lib/engine/runtime/fanout/stepFlowManager.ts", 1349],
+      ["lib/engine/runtime/fanout/stepFlowManager.ts", 1347],
       ["lib/engine/runtime/split/splitManager.ts", 695],
       ["lib/engine/runtime/worktreeLifecycle.ts", 567],
       ["lib/engine/templates/templateLint.ts", 712],

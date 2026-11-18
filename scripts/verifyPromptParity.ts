@@ -124,7 +124,7 @@ interface RowResult {
 }
 
 // Raw reads alias the snake_case columns to the camelCase row keys (Q11).
-const FLOW_BY_ID = `SELECT id, task_id AS "taskId", name, status, mr_url AS "mrUrl", mr_iid AS "mrIid", mr_branch AS "mrBranch", repo_url AS "repoUrl", gitlab_project_id AS "gitlabProjectId", current_node AS "currentNode", execution_mode AS "executionMode", repo_id AS "repoId", template_id AS "templateId", template_graph AS "templateGraph", trigger_payload AS "triggerPayload", worktree_dir AS "worktreeDir", parent_flow_id AS "parentFlowId", kind, created_at AS "createdAt", updated_at AS "updatedAt" FROM flows WHERE id=$1`;
+const FLOW_BY_ID = `SELECT id, task_id AS "taskId", name, status, mr_url AS "mrUrl", mr_iid AS "mrIid", mr_branch AS "mrBranch", repo_url AS "repoUrl", gitlab_project_id AS "gitlabProjectId", execution_mode AS "executionMode", repo_id AS "repoId", template_id AS "templateId", template_graph AS "templateGraph", trigger_payload AS "triggerPayload", worktree_dir AS "worktreeDir", parent_flow_id AS "parentFlowId", kind, created_at AS "createdAt", updated_at AS "updatedAt" FROM flows WHERE id=$1`;
 const TASK_BY_ID = `SELECT id, type, key, summary, description, status, issue_type AS "issueType", priority, repo_url AS "repoUrl", parent_key AS "parentKey", external_url AS "externalUrl", raw, synced_at AS "syncedAt", fields FROM tasks WHERE id=$1`;
 const NODE_BY_KEY = `SELECT id, flow_id AS "flowId", node_key AS "nodeKey", type, status, attempt_id AS "attemptId", agent_id AS "agentId", agent_ref AS "agentRef", session_id AS "sessionId", prompt_override AS "promptOverride", label, config, join_mode AS "joinMode", input, output, created_at AS "createdAt", updated_at AS "updatedAt" FROM nodes WHERE flow_id=$1 AND node_key=$2`;
 
@@ -169,7 +169,7 @@ async function main(): Promise<void> {
   );
   const flowId = 'flow_fixture_sdlc';
   await db.run(
-    `INSERT INTO flows (id, task_id, name, status, mr_url, mr_iid, mr_branch, repo_url, execution_mode, current_node, created_at, updated_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)`,
+    `INSERT INTO flows (id, task_id, name, status, mr_url, mr_iid, mr_branch, repo_url, execution_mode, created_at, updated_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`,
     flowId,
     taskId,
     'parity flow',
@@ -179,13 +179,12 @@ async function main(): Promise<void> {
     'parity/mr-branch',
     FIXTURE_REPO_URL,
     'cloud',
-    null,
     now(),
     now()
   );
   const parentFlowId = 'flow_fixture_parent';
   await db.run(
-    `INSERT INTO flows (id, task_id, name, status, mr_url, mr_iid, mr_branch, repo_url, execution_mode, current_node, parent_flow_id, kind, created_at, updated_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)`,
+    `INSERT INTO flows (id, task_id, name, status, mr_url, mr_iid, mr_branch, repo_url, execution_mode, parent_flow_id, kind, created_at, updated_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)`,
     parentFlowId,
     taskId,
     'parity parent flow',
@@ -195,7 +194,6 @@ async function main(): Promise<void> {
     null,
     FIXTURE_REPO_URL,
     'cloud',
-    null,
     null,
     'sdlc',
     now(),
@@ -222,7 +220,7 @@ async function main(): Promise<void> {
   );
   const childFlowId = 'flow_fixture_step';
   await db.run(
-    `INSERT INTO flows (id, task_id, name, status, mr_url, mr_iid, mr_branch, repo_url, execution_mode, current_node, parent_flow_id, kind, trigger_payload, created_at, updated_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)`,
+    `INSERT INTO flows (id, task_id, name, status, mr_url, mr_iid, mr_branch, repo_url, execution_mode, parent_flow_id, kind, trigger_payload, created_at, updated_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)`,
     childFlowId,
     taskId,
     'parity step flow',
@@ -232,7 +230,6 @@ async function main(): Promise<void> {
     'parity/step-branch',
     FIXTURE_REPO_URL,
     'cloud',
-    null,
     parentFlowId,
     'step',
     // JSONB column: bind the payload object directly (no JSON.stringify)

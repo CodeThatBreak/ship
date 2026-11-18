@@ -8,13 +8,14 @@ import { templateStore, type TemplateGraph } from "../../templates/templateStore
 import { nodeRegistry } from "../../nodes/registry";
 import { NODE_KEYS } from "../../constants/nodeKeys";
 import {
+  NODE_STATUS,
+} from "../../constants/nodeStatus";
+import {
   childFlowHasStarted,
   isNodeStarted,
   NODE_CANCELABLE_STATUSES,
-  NODE_STATUS,
   NODE_TERMINAL_STATUSES,
-} from "../../constants/nodeStatus";
-import { nodeStore } from "../nodeStore";
+} from "../transitions/constants/statusSets";
 import type { ChainRole, NodeDefinition } from "../../nodes/shared/nodeSharedExports";
 import {
   DEFAULT_FANOUT_OUTPUT,
@@ -25,7 +26,8 @@ import { prompts } from "../../prompts/promptLibrary";
 import { branchStore } from "../../nodes/kinds/build/branchStore";
 import { flowCtxHelper, type FlowCtx } from "../../nodes/shared/runContext";
 import { branchNamer } from "../../nodes/shared/branchNamer";
-import { nodeSupport } from "../../nodes/shared/nodeSupport";
+import { engineParts, nodeSupport } from "@/lib/composition/container";
+import type { TransitionKey } from "../transitions/types/transitions";
 import { planSteps, type PlanStepRow } from "../planStepStore";
 import { configNumber, configString, fanoutOf, parseConfigSnapshot, stripFanoutKeys, type FanoutKnob } from "../../templates/nodeConfig";
 import { mergeArena } from "./mergeArena";
@@ -159,9 +161,9 @@ export class StepFlowManager {
       tx?: Prisma.TransactionClient
     ): Promise<string>;
     startStepChild(childFlowId: string): Promise<void>;
-    finishFanout(parentFlowId: string, nodeKey: string, output: Record<string, unknown>): Promise<void>;
+    finishFanout(parentFlowId: string, nodeKey: string, output: Record<string, unknown>, attemptId?: string | null): Promise<void>;
     cancelNode(flowId: string, nodeKey: string): Promise<void>;
-    setNodeStatus(flowId: string, nodeKey: string, status: string): Promise<void>;
+    setNodeStatus(flowId: string, nodeKey: string, key: TransitionKey): Promise<boolean>;
     bg(flowId: string, nodeKey: string | null, fn: () => Promise<void>): void;
     /** run a node with a validated rawInput (the Phase-2 merge-fix agent drives
      *  the step child's runNode-with-feedback path, exactly like the SDLC
@@ -172,6 +174,10 @@ export class StepFlowManager {
      *  reads, scoped through the plan def's metadata instead of a literal kind */
     latestResourceArtifact<T>(flowId: string, role: ChainRole, columns?: string): Promise<T | undefined>;
   } | null = null;
+
+  /** Fan-out attempt tokens captured at expand — the rollup's aggregate publish is
+   *  attempt-fenced (stale aggregates lose to the user's re-claim; step 03 makes it durable). */
+  private readonly aggregateAttempts = new Map<string, string>();
 
   /** Called once from flow.ts (module-load tail) — resolves the engine cycle. */
   bind(engine: NonNullable<StepFlowManager["engine"]>): void {
@@ -338,7 +344,8 @@ export class StepFlowManager {
     });
 
     if (!made) return false;
-    await this.e.setNodeStatus(parentFlowId, nodeKey, "running");
+    const attemptId = (await db.prisma.node.findFirst({ where: { flowId: parentFlowId, nodeKey }, select: { attemptId: true } }))?.attemptId;
+    if (attemptId) this.aggregateAttempts.set(`${parentFlowId}\n${nodeKey}`, attemptId);
     const parallelMax = Math.max(1, fanoutOf(await this.e.nodeConfigFor(parentFlowId, nodeKey)).parallelMax);
     await db.emitEvent(parentFlowId, null, "lifecycle",
       `${nodeKey} fans out into ${made} step sub-flow${made > 1 ? "s" : ""} — one child per pending plan step${parallelMax > 1 ? `, up to ${parallelMax} concurrent (file-disjoint)` : ", sequential"}`,
@@ -608,7 +615,7 @@ export class StepFlowManager {
     const payload = await this.childPayload(childFlowId);
     const parentNodeKey = payload?.parentNodeKey;
     if (!parentNodeKey) return; // no fan-out linkage — nothing this manager scheduled
-    const nodes = await nodeStore.statusesOfFlow(childFlowId);
+    const nodes = await engineParts.nodeStore.statusesOfFlow(childFlowId);
     const flowStatus = await this.childFlowStatus(childFlowId);
     const allTerminal = nodes.length > 0 && nodes.every((n) => NODE_TERMINAL_STATUSES.includes(n));
     if (!allTerminal && flowStatus !== "done") return;
@@ -645,7 +652,7 @@ export class StepFlowManager {
    * evaluation continues downstream.
    */
   async onAllResolved(parentFlowId: string, nodeKey: string): Promise<void> {
-    const parentRunning = await nodeStore.statusOf(parentFlowId, nodeKey);
+    const parentRunning = await engineParts.nodeStore.statusOf(parentFlowId, nodeKey);
     if (parentRunning !== NODE_STATUS.RUNNING) return;
 
     const ctx = await this.e.ctx(parentFlowId);
@@ -675,7 +682,7 @@ export class StepFlowManager {
     const perBranch: Record<string, string> = {};
     let latestArtifact: string | null = null;
     if (isCode) {
-      const nodeId = await nodeStore.idOf(parentFlowId, nodeKey);
+      const nodeId = await engineParts.nodeStore.idOf(parentFlowId, nodeKey);
       for (const branch of integrationBranches) {
         const group = states.filter((s) => s.integrationBranch === branch);
         if (!group.some((s) => s.step.status === "done" && s.step.completedBy === "merge")) continue;
@@ -701,7 +708,7 @@ export class StepFlowManager {
       ...(integrationBranches[0] ? { branch: integrationBranches[0] } : {}),
       ...(latestArtifact ? { latestArtifact } : {}),
       ...(integrationBranches.length > 1 ? { branchArtifacts: perBranch } : {}),
-    });
+    }, this.aggregateAttempts.get(`${parentFlowId}\n${nodeKey}`) ?? null);
   }
 
   private aggregateStatus(s: StepState): "done" | "failed" | "skipped" {
@@ -801,7 +808,7 @@ export class StepFlowManager {
     resumeNote?: string,
   ): Promise<void> {
     const nodeOwnerKey = payload.parentNodeKey;
-    const nodeRefId = await nodeStore.idOf(childFlowId, childNodeKey);
+    const nodeRefId = await engineParts.nodeStore.idOf(childFlowId, childNodeKey);
     const nodeRef = nodeRefId ? { id: nodeRefId } : undefined;
     const maxAttempts = Math.max(1, configNumber(
       await this.e.nodeConfigFor(parentFlowId, nodeOwnerKey), "max_merge_fix_attempts", 2));
@@ -819,7 +826,7 @@ export class StepFlowManager {
         // abandoned approvals hand-back: the step may have been skipped (or
         // closed by a checklist edit) while this loop awaited — never land it
         const live = await this.stepRowOf(childFlowId);
-        const nodeStatus = await nodeStore.statusOf(childFlowId, childNodeKey);
+        const nodeStatus = await engineParts.nodeStore.statusOf(childFlowId, childNodeKey);
         if (!live || live.completedBy === "skipped" || !nodeStatus ||
             (nodeStatus !== NODE_STATUS.AWAITING_APPROVAL && nodeStatus !== NODE_STATUS.RUNNING)) {
           await db.emitEvent(parentFlowId, null, "lifecycle",
@@ -898,8 +905,8 @@ export class StepFlowManager {
             `merge-fix agent finished — re-attempting the arena merge`,
             { nodeKey: nodeOwnerKey, childFlowId });
         }
-        await db.run(`UPDATE nodes SET status='awaiting_approval', updated_at=$1 WHERE flow_id=$2 AND node_key=$3`,
-          db.now(), childFlowId, childNodeKey);
+        // declared: the child stays awaiting_approval while the merge re-attempts
+        await this.e.setNodeStatus(childFlowId, childNodeKey, "mergeFixAwaiting");
       }
     } catch (e: unknown) {
       await this.failMergeBack(parentFlowId, childFlowId, childNodeKey, stepRow, nodeOwnerKey,
@@ -918,8 +925,8 @@ export class StepFlowManager {
   ): Promise<void> {
     await db.run(`UPDATE step_merges SET status='failed', error=$1, updated_at=$2 WHERE flow_id=$3 AND status IN ('running','conflict','rejected')`,
       error.slice(0, 2000), db.now(), childFlowId);
-    await db.run(`UPDATE nodes SET status='failed', updated_at=$1 WHERE flow_id=$2 AND node_key=$3`,
-      db.now(), childFlowId, childNodeKey);
+    // declared mergeBackFailed — from-set fenced; published terminals are never overwritten
+    await this.e.setNodeStatus(childFlowId, childNodeKey, "mergeBackFailed");
     await db.emitEvent(childFlowId, null, "error", `merge-back failed: ${error}`, { nodeKey: childNodeKey });
     await db.emitEvent(parentFlowId, null, "error",
       `step "${stepRow.title}" merge-back failed: ${error} — Retry the step to re-run the merge (+ fix agent)`,
@@ -980,8 +987,7 @@ export class StepFlowManager {
     const childNode = await db.get<{ nodeKey: string; status: string }>(
       `SELECT node_key AS "nodeKey", status FROM nodes WHERE flow_id=$1 AND node_key=$2`, childFlowId, workNodeKey);
     if (!row || !childNode || childNode.status !== "failed") return false;
-    await db.run(`UPDATE nodes SET status='awaiting_approval', updated_at=$1 WHERE flow_id=$2 AND node_key=$3`,
-      db.now(), childFlowId, workNodeKey);
+    await this.e.setNodeStatus(childFlowId, workNodeKey, "mergeRetryAwaiting");
     await this.resumePendingMerge(childFlowId);
     return true;
   }
@@ -1065,7 +1071,7 @@ export class StepFlowManager {
 
   /** Internal helper for the checklist-edit guard: close a child that never started. */
   async cancelUnstartedChild(childFlowId: string): Promise<void> {
-    const statuses = await nodeStore.statusesOfFlow(childFlowId);
+    const statuses = await engineParts.nodeStore.statusesOfFlow(childFlowId);
     if (statuses.some((s) => isNodeStarted(s))) return; // started — never closed silently
     await this.closeChild(childFlowId);
   }
@@ -1083,7 +1089,7 @@ export class StepFlowManager {
         deletable.add(s.id);
         continue;
       }
-      const started = childFlowHasStarted(await nodeStore.statusesOfFlow(s.subFlowId));
+      const started = childFlowHasStarted(await engineParts.nodeStore.statusesOfFlow(s.subFlowId));
       if (started) continue; // building/done child — not deletable
       deletable.add(s.id);
       toCancel.set(s.id, s.subFlowId); // pending child with no run → removed + cancelled
@@ -1248,7 +1254,7 @@ export class StepFlowManager {
   }
 
   private async childFlowOf(childFlowId: string): Promise<FlowRow | undefined> {
-    return db.get<FlowRow>(`SELECT id, task_id AS "taskId", name, status, mr_url AS "mrUrl", mr_iid AS "mrIid", mr_branch AS "mrBranch", repo_url AS "repoUrl", gitlab_project_id AS "gitlabProjectId", current_node AS "currentNode", execution_mode AS "executionMode", repo_id AS "repoId", template_id AS "templateId", template_graph AS "templateGraph", trigger_payload AS "triggerPayload", worktree_dir AS "worktreeDir", parent_flow_id AS "parentFlowId", kind, created_at AS "createdAt", updated_at AS "updatedAt" FROM flows WHERE id=$1`, childFlowId);
+    return db.get<FlowRow>(`SELECT id, task_id AS "taskId", name, status, mr_url AS "mrUrl", mr_iid AS "mrIid", mr_branch AS "mrBranch", repo_url AS "repoUrl", gitlab_project_id AS "gitlabProjectId", execution_mode AS "executionMode", repo_id AS "repoId", template_id AS "templateId", template_graph AS "templateGraph", trigger_payload AS "triggerPayload", worktree_dir AS "worktreeDir", parent_flow_id AS "parentFlowId", kind, created_at AS "createdAt", updated_at AS "updatedAt" FROM flows WHERE id=$1`, childFlowId);
   }
 
   /** Close a child flow (standard terminal state; keeps rows for the audit trail). */

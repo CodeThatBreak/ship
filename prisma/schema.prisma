@@ -160,7 +160,6 @@ model Flow {
   mrBranch        String?   @map("mr_branch")
   repoUrl         String?   @map("repo_url")
   gitlabProjectId Int?      @map("gitlab_project_id")
-  currentNode     String?   @map("current_node")
   executionMode   String    @default("cloud") @map("execution_mode")
   repoId          String?   @map("repo_id")
   templateId      String?   @map("template_id")

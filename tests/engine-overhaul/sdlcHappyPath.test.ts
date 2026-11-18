@@ -16,6 +16,7 @@ import { assignTestDatabase, resetTestDatabase } from "../helpers/testDatabase";
 import { FlowHarness, until } from "../helpers/flowHarness";
 import { registerFakeAgentPort } from "../helpers/fakeAgentPort";
 import { registerFakeGitHost } from "../helpers/fakeGitHost";
+import { expectTransitionsDeclared } from "../helpers/transitionLogAssert";
 
 assignTestDatabase();
 
@@ -110,5 +111,9 @@ describe("SDLC happy path (fake ports)", () => {
       "the debounced resolve to arm",
     );
     expect(await harness.nodeStatus(flowId, resolveKey)).toBe("waiting");
+
+    // step-02 task 6: every status change this happy path drove resolves
+    // against the declared transition table (the in-memory log assert)
+    expectTransitionsDeclared(flowEngine.transitions, flowId);
   }, 60_000); // the gate's wait loop polls on the app default (≈20s)
 });

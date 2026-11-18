@@ -546,7 +546,7 @@ export class PipelineNode extends AgentRunNode<
       }
       // server-side wait liveness: the reconciler treats a fresh updated_at on a
       // running pipeline node as "alive" (it has no agent run row while waiting)
-      await this.support.setNode(node.id, { status: "running" });
+      await this.support.touchNode(node.id);
       await sleep(pollMs);
     }
   }

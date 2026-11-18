@@ -15,7 +15,7 @@
  * `flowEngineChatAndManual.test.ts`).
  */
 import type { Database } from "@/lib/db/app";
-import type { NodeStatus } from "@/lib/db/rows";
+import type { TransitionKey } from "@/lib/engine/runtime/transitions/types/transitions";
 import type { FlowEngine } from "@/lib/engine/flowEngine";
 import type { TemplateStore } from "@/lib/engine/templates/templateStore";
 import type { TemplateGraph, TemplateInput } from "@/lib/engine/types/template";
@@ -201,8 +201,8 @@ export class FlowHarness {
    * that need an in-flight node (duplicate-trigger, reconcile). The caller is
    * responsible for the node def's run being scripted on the fake agent port.
    */
-  claimNode(flowId: string, nodeKey: string, from: readonly NodeStatus[]): void {
-    this.deps.flowEngine.claimNode(flowId, nodeKey, from);
+  async claimNode(flowId: string, nodeKey: string, key: TransitionKey): Promise<void> {
+    await this.deps.flowEngine.claimNode(flowId, nodeKey, key);
   }
 
   /**

@@ -2,7 +2,8 @@ import "server-only";
 
 import { branchStore } from "../kinds/build/branchStore";
 import { flowCtxHelper, type FlowCtx } from "./runContext";
-import { nodeSupport, type NodeSupport } from "./nodeSupport";
+import type { NodeSupport } from "./nodeSupport";
+import { nodeSupport } from "@/lib/composition/container";
 
 /** MR iid + git branch for pipeline, review, resolve and MR creation. */
 export class MrTargetResolver {

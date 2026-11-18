@@ -38,6 +38,7 @@ const { agentPortRegistry } = await import("../../ports/agentPort");
 const { AgentDefSchema } = await import("../../nodes/declarativeSchemas");
 const { NODE_KEYS } = await import("../../constants/nodeKeys");
 const { splitConsumeOf, splitParallelMaxOf } = await import("../../nodes/shared/split");
+const { engineParts } = await import("@/lib/composition/container");
 import type {
   AgentPort,
   AgentRunQuery,
@@ -155,7 +156,8 @@ class FixtureWorkerDef extends NodeDefinition<Record<string, unknown>, { summary
     const count = (FixtureWorkerDef.runs.get(unitKey) ?? 0) + 1;
     FixtureWorkerDef.runs.set(unitKey, count);
     const node = await this.support.nodeByKey(ctx.flow.id, this.key);
-    await this.support.setNode(node.id, { status: "running" });
+    // the engine's stage claim already holds the node running — record only
+    // the input (status writes belong to the transition authority, step 02)
     await this.recordInput(node.id, { unitKey });
     const item = payload.unit?.item ?? {};
     if (item.behavior === "fail" || (item.behavior === "fail-once" && count === 1)) {
@@ -441,6 +443,19 @@ const joinSettled = (flowId: string) => async () => {
   return c.units.length > 0 && c.units.every((u) => ["done", "failed", "blocked", "skipped", "awaiting_approval"].includes(u.status));
 };
 
+
+/** The production precondition for a direct `expand` call: the engine's
+ *  stage claim holds the consumer running first (EdgeActivator.startNodeStage
+ *  claims, then expands). The declared claim is a no-op when the consumer is
+ *  already engaged (re-expansion fixtures call expand repeatedly). */
+const engageConsumer = async (flowId: string): Promise<void> => {
+  try {
+    await engineParts.transitions.claim(flowId, "split_consumer_fixture", "runFromPending");
+  } catch {
+    // already running — the stage claim owns the attempt
+  }
+};
+
 // ── tests ────────────────────────────────────────────────────────────────────
 
 describe("SplitManager — expansion", () => {
@@ -448,6 +463,8 @@ describe("SplitManager — expansion", () => {
     const flowId = await seedParentFlow(101);
     FixtureWorkerDef.reset();
     await setUnits(flowId, [unit("a"), unit("b", { dependsOn: ["a"] })], "split_worker_fixture");
+
+    await engageConsumer(flowId);
 
     expect(await splitManager.expand(flowId, "split_consumer_fixture", "split_source_fixture")).toBe(true);
 
@@ -465,6 +482,8 @@ describe("SplitManager — expansion", () => {
   it("a `template` target runs the declarative row; the unit rides {{input.unit.*}}", async () => {
     const flowId = await seedParentFlow(102);
     await setUnits(flowId, [unit("a"), unit("b")], DECL_ROW.id);
+
+    await engageConsumer(flowId);
 
     expect(await splitManager.expand(flowId, "split_consumer_fixture", "split_source_fixture")).toBe(true);
     await until(joinSettled(flowId), "the template-target join");
@@ -490,6 +509,8 @@ describe("SplitManager — expansion", () => {
     FixtureWorkerDef.reset();
     await setUnits(flowId, [unit("n1")], "split_worker_fixture"); // registry key, not a row id
 
+    await engageConsumer(flowId);
+
     expect(await splitManager.expand(flowId, "split_consumer_fixture", "split_source_fixture")).toBe(true);
     await until(joinSettled(flowId), "the node-target join");
 
@@ -511,6 +532,8 @@ describe("SplitManager — expansion", () => {
       unit("n"), // default target = the node target set below
     ], "split_worker_fixture");
 
+    await engageConsumer(flowId);
+
     await splitManager.expand(flowId, "split_consumer_fixture", "split_source_fixture");
     await until(joinSettled(flowId), "the mixed-target join");
 
@@ -530,12 +553,18 @@ describe("SplitManager — expansion", () => {
     const flowId = await seedParentFlow(106);
     FixtureWorkerDef.reset();
     await setUnits(flowId, [unit("a"), unit("b")], "split_worker_fixture");
+    await engageConsumer(flowId);
     await splitManager.expand(flowId, "split_consumer_fixture", "split_source_fixture");
     await until(joinSettled(flowId), "the first join");
     const first = await childFlowsOf(flowId);
 
-    // a plan refinement adds a unit — a and b must keep their child flows
+    // a plan refinement adds a unit — a and b must keep their child flows.
+    // The real engine re-enters the consumer first (loop re-entry reset →
+    // fresh stage claim); mirror it: the done aggregate is final until the
+    // node is re-claimed (CR-009)
     await setUnits(flowId, [unit("a"), unit("b"), unit("c")], "split_worker_fixture");
+    await engineParts.transitions.apply(flowId, "split_consumer_fixture", "loopReentry"); // done → pending
+    await engageConsumer(flowId); // the fresh stage claim
     await splitManager.expand(flowId, "split_consumer_fixture", "split_source_fixture");
     await until(async () => (await childFlowsOf(flowId)).length === 3, "the third child");
     await until(async () => (await consumerOf(flowId)).units.length === 3, "the re-join");
@@ -555,6 +584,8 @@ describe("SplitManager — scheduling (deps + slot)", () => {
     FixtureWorkerDef.reset();
     await setUnits(flowId, [unit("a"), unit("c", { dependsOn: ["a"] }), unit("b")], "split_worker_fixture");
 
+    await engageConsumer(flowId);
+
     await splitManager.expand(flowId, "split_consumer_fixture", "split_source_fixture");
     await until(joinSettled(flowId), "the serial join");
 
@@ -567,6 +598,8 @@ describe("SplitManager — scheduling (deps + slot)", () => {
     const flowId = await seedParentFlow(202, { consumerConfig: { split_parallel_max: 2 } });
     FixtureWorkerDef.reset();
     await setUnits(flowId, [unit("a"), unit("c", { dependsOn: ["a"] }), unit("b")], "split_worker_fixture");
+
+    await engageConsumer(flowId);
 
     await splitManager.expand(flowId, "split_consumer_fixture", "split_source_fixture");
     await until(joinSettled(flowId), "the parallel join");
@@ -582,6 +615,8 @@ describe("SplitManager — scheduling (deps + slot)", () => {
   it("a unit depending on an unknown key never starts — it surfaces blocked, the join still publishes", async () => {
     const flowId = await seedParentFlow(203);
     await setUnits(flowId, [unit("a", { dependsOn: ["ghost"] })], "split_worker_fixture");
+
+    await engageConsumer(flowId);
 
     await splitManager.expand(flowId, "split_consumer_fixture", "split_source_fixture");
     await until(joinSettled(flowId), "the ghost-dep join");
@@ -602,6 +637,8 @@ describe("SplitManager — failure semantics + join", () => {
       unit("b"),
     ], "split_worker_fixture");
 
+    await engageConsumer(flowId);
+
     await splitManager.expand(flowId, "split_consumer_fixture", "split_source_fixture");
     await until(joinSettled(flowId), "the failed join");
 
@@ -618,6 +655,8 @@ describe("SplitManager — failure semantics + join", () => {
     const flowId = await seedParentFlow(302, { consumerConfig: { split_parallel_max: 3 } });
     await setUnits(flowId, [unit("z"), unit("m"), unit("a")], "split_worker_fixture");
 
+    await engageConsumer(flowId);
+
     await splitManager.expand(flowId, "split_consumer_fixture", "split_source_fixture");
     await until(joinSettled(flowId), "the ordered join");
 
@@ -630,6 +669,8 @@ describe("SplitManager — per-unit actions", () => {
     const flowId = await seedParentFlow(401);
     FixtureWorkerDef.reset();
     await setUnits(flowId, [unit("a", { item: { behavior: "hold" } }), unit("b", { dependsOn: ["a"] }), unit("c")], "split_worker_fixture");
+
+    await engageConsumer(flowId);
 
     await splitManager.expand(flowId, "split_consumer_fixture", "split_source_fixture");
     await until(async () => (await consumerOf(flowId)).units.some((u) => u.key === "a" && u.status === "awaiting_approval"), "the held unit");
@@ -647,6 +688,8 @@ describe("SplitManager — per-unit actions", () => {
     FixtureWorkerDef.reset();
     await setUnits(flowId, [unit("a", { item: { behavior: "fail-once" } }), unit("b", { dependsOn: ["a"] })], "split_worker_fixture");
 
+    await engageConsumer(flowId);
+
     await splitManager.expand(flowId, "split_consumer_fixture", "split_source_fixture");
     await until(joinSettled(flowId), "the fail-once join");
     expect((await consumerOf(flowId)).units.map((u) => `${u.key}:${u.status}`)).toEqual(["a:failed", "b:blocked"]);
@@ -661,6 +704,8 @@ describe("SplitManager — per-unit actions", () => {
   it("cancelUnit stops a held unit — it surfaces failed, dependents blocked", async () => {
     const flowId = await seedParentFlow(403);
     await setUnits(flowId, [unit("a", { item: { behavior: "hold" } }), unit("b", { dependsOn: ["a"] })], "split_worker_fixture");
+
+    await engageConsumer(flowId);
 
     await splitManager.expand(flowId, "split_consumer_fixture", "split_source_fixture");
     await until(async () => (await consumerOf(flowId)).units.some((u) => u.key === "a" && u.status === "awaiting_approval"), "the held unit");
@@ -678,6 +723,8 @@ describe("SplitManager — per-unit actions", () => {
       unit("b", { dependsOn: ["a"] }),
       unit("c"),
     ], "split_worker_fixture");
+
+    await engageConsumer(flowId);
 
     await splitManager.expand(flowId, "split_consumer_fixture", "split_source_fixture");
     await until(async () => (await consumerOf(flowId)).units.some((u) => u.key === "a" && u.status === "awaiting_approval"), "the held unit");
@@ -930,7 +977,15 @@ describe("Phase 4 — the engine split gate", () => {
     await setUnits(flowId, [unit("a")], "split_worker_fixture");
 
     await flowEngine.start(flowId);
-    await until(async () => (await consumerOf(flowId)).status === "done", "the wrapped whole run");
+    // poll for the WRAPPED output, not the terminal status — the whole-wrap
+    // write lands a beat after the outcome publish (a status poll can read
+    // the pre-wrap output)
+    await until(async () => {
+      const row = await db.get<{ output: unknown }>(
+        `SELECT output FROM nodes WHERE flow_id=$1 AND node_key='split_consumer_fixture'`, flowId);
+      const out = typeof row?.output === "string" ? JSON.parse(row.output) : row?.output;
+      return (out as { steps?: unknown[] } | null)?.steps != null;
+    }, "the wrapped whole run");
 
     expect(FixtureConsumerDef.wholeRuns).toBe(1);
     expect(await childFlowsOf(flowId)).toHaveLength(0);
@@ -980,6 +1035,8 @@ describe("Phase 4 — the per-unit actions resolve their consumer by unit key", 
   it("consumerOfUnit finds the owning consumer; unknown unit keys bow out", async () => {
     const flowId = await seedParentFlow(801);
     await setUnits(flowId, [unit("a"), unit("b")], "split_worker_fixture");
+
+    await engageConsumer(flowId);
 
     expect(await splitManager.expand(flowId, "split_consumer_fixture", "split_source_fixture")).toBe(true);
     expect(await splitManager.consumerOfUnit(flowId, "a")).toBe("split_consumer_fixture");

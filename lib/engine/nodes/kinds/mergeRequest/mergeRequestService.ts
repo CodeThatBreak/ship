@@ -4,7 +4,7 @@ import { db } from "../../../../db/app";
 import { localGit } from "../../../../git/local";
 import { gitHostRegistry, gitRemoteContextFor, type ChangeRequest } from "../../../ports/gitHost";
 import { flowCtxHelper, type FlowCtx } from "../../shared/runContext";
-import { nodeSupport } from "../../shared/nodeSupport";
+import { nodeSupport } from "@/lib/composition/container";
 import { branchStore } from "../build/branchStore";
 import { CommitError, isCommitError, isHookRejection } from "./errors";
 
@@ -17,7 +17,9 @@ import { CommitError, isCommitError, isHookRejection } from "./errors";
  * between build approval and the pipeline gate.
  */
 export class MergeRequestService {
-  /** Reset gate + review to pending once all branch MRs exist — skip `running`. */
+  /** Reset gate + review to pending once all branch MRs exist — skip `running`.
+   *  The reset itself is the declared `gateReset` transition (from-set fenced:
+   *  a running or already-pending node is never touched). */
   async resetGateReview(
     flowId: string,
     gateKey: string | null,
@@ -26,8 +28,8 @@ export class MergeRequestService {
     for (const key of [gateKey, reviewKey]) {
       if (!key) continue;
       const n = await nodeSupport.optionalNodeByKey(flowId, key);
-      if (!n || n.status === "running") continue;
-      if (n.status !== "pending") await nodeSupport.setNode(n.id, { status: "pending" });
+      if (!n || n.status === "running" || n.status === "pending") continue;
+      await nodeSupport.applyTransition(flowId, key, "gateReset");
     }
   }
 

@@ -1,14 +1,23 @@
 import "server-only";
 
-import type { NodeStatus } from "../../db/rows";
 import type { FlowCtx, NodeDefinition } from "../nodes/shared/nodeSharedExports";
+import type { EngineNodeStatus } from "../constants/nodeStatus";
+import type { TransitionKey } from "./transitions/types/transitions";
+
+/** The keyed transition opts the engine's wrappers forward to the authority. */
+export type KeyedTransitionOpts = {
+  toStatus?: EngineNodeStatus;
+  patch?: Record<string, unknown>;
+  detail?: string;
+};
 
 /** Narrow surface {@link WaitScheduler} needs from the orchestrator. */
 export type WaitSchedulerHost = {
   nodeStatus(flowId: string, nodeKey: string): Promise<string | null>;
-  setNodeStatus(flowId: string, nodeKey: string, status: string): Promise<void>;
-  claimNode(flowId: string, nodeKey: string, from: readonly NodeStatus[]): Promise<string>;
-  bg(flowId: string, nodeKey: string | null, fn: () => Promise<void>, clearCurrentKey?: string | null): void;
+  /** keyed delegate to the transition authority (declared from→to set) */
+  setNodeStatus(flowId: string, nodeKey: string, key: TransitionKey, opts?: KeyedTransitionOpts): Promise<boolean>;
+  claimNode(flowId: string, nodeKey: string, key: TransitionKey): Promise<string>;
+  bg(flowId: string, nodeKey: string | null, fn: () => Promise<void>): void;
   nodeConfigFor(flowId: string, nodeKey: string): Promise<Record<string, unknown>>;
   chainBusy(flowId: string): Promise<boolean>;
   startNodeStage(
@@ -23,8 +32,6 @@ export type EdgeActivatorHost = WaitSchedulerHost & {
   ctx(flowId: string): Promise<FlowCtx>;
   defOf(flowId: string, nodeKey: string): Promise<NodeDefinition>;
   runNode(flowId: string, nodeKey: string, rawInput: unknown, deliveryPayload?: unknown): Promise<string>;
-  setCurrentNode(flowId: string, key: string | null): Promise<void>;
-  clearCurrentIf(flowId: string, nodeKey: string): Promise<void>;
   isStepChild(flowId: string): Promise<boolean>;
   armNodeWait(flowId: string, nodeKey: string, wait: "webhook" | "timer" | "comments", minutes: number | null): Promise<void>;
 };

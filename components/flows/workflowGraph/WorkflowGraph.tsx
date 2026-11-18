@@ -21,14 +21,16 @@ export default function WorkflowGraph({
   flowId,
   selected,
   onSelect,
-  currentNode,
+  runningKeys,
   fanout,
 }: {
   nodes: Node[];
   flowId?: string;
   selected: string;
   onSelect: (k: string) => void;
-  currentNode?: string;
+  /** running node keys, derived from the flow payload's node statuses — a
+   *  set because fan-out flows may run several nodes at once */
+  runningKeys: Set<string>;
   /** plan fan-out progress per node key — rendered as the card subtitle; the
    *  `state` field is the AGGREGATE child state driving the card colors while
    *  the node orchestrates (its own row stays `running`): failed → red,
@@ -89,7 +91,7 @@ export default function WorkflowGraph({
           meta={meta}
           position={positions.get(n.node_key) ?? { x: 0, y: 0 }}
           selected={selected === n.node_key}
-          running={currentNode === n.node_key}
+          running={runningKeys.has(n.node_key)}
           fanout={fanout?.[n.node_key]}
           onSelect={onSelect}
         />

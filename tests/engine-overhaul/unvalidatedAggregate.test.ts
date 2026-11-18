@@ -54,7 +54,7 @@ describe("unvalidated fan-out/split aggregate", () => {
 
     // the split consumer is mid-run when a malformed aggregate resolves: the
     // `units` entries violate the split contract (status out of vocabulary)
-    harness.claimNode(flowId, "build", ["pending", "failed", "done"]);
+    await harness.claimNode(flowId, "build", "manualStage");
     await flowEngine.finishSplit(flowId, "build", {
       units: [{ key: "u1", title: "Unit", status: 12345, output: {} }],
     });

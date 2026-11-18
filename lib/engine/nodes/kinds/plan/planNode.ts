@@ -19,7 +19,8 @@ import { NODE_KEYS } from '../../../constants/nodeKeys';
 
 import { DEFAULT_MCP_SOURCES, mcpSourcesOf, mcpSourcesSchema } from '../../../templates/nodeConfig';
 import { agentRunner, type AgentRunner } from '../../../harness/harnessExports';
-import { flowCtxHelper, nodeSupport, type FlowContextHelper, type NodeSupport } from '../../shared/nodeSharedExports';
+import { flowCtxHelper, type FlowContextHelper, type NodeSupport } from '../../shared/nodeSharedExports';
+import { nodeSupport } from '@/lib/composition/container';
 import { PlanInput, PlanOutput } from './schema';
 import {
   AgentOutputError,
@@ -27,6 +28,8 @@ import {
   type AgentOutputError as AgentOutputErrorT,
 } from '../../shared/agent/outputError/outputErrorExports';
 import { RunSupersededError } from '../../../errors/runSupersededError';
+import { toStatusOf } from '../../../runtime/transitions/utils/transitionLookup';
+import type { EngineNodeStatus } from '../../../constants/nodeStatus';
 import { PlanAgentSessions } from './planAgentSessions';
 
 import { PlanTurnKind } from './constants/planTurn';
@@ -294,37 +297,50 @@ export class PlanNode extends AgentRunNode<PlanInput, PlanOutput> {
         });
         return applied.reply;
       }
-      if (attemptId) {
-        await this.support.patchIfAttempt(node.id, attemptId, {
-          status: previousStatus,
-          ...(agentId ? { agent_id: agentId } : {}),
-        });
-      } else {
-        await this.support.setNode(node.id, {
-          status: previousStatus,
-          ...(agentId ? { agent_id: agentId } : {}),
-        });
+      // a reply-only turn: revert to the pre-claim status via the declared
+      // chatRevert transition (attempt-fenced when this run holds the token)
+      if (previousStatus == null) {
+        throw new Error('chat turn cannot revert without a pre-claim status');
       }
+      await this.revertChat(ctx, node, attemptId, toStatusOf('chatRevert', previousStatus), agentId ? { agent_id: agentId } : {});
       return applied.reply;
     } catch (e: unknown) {
       if (e instanceof RunSupersededError) {
         return '';
       }
-      const revert = async (patch: Record<string, unknown>) => {
-        if (attemptId) {
-          await this.support.patchIfAttempt(node.id, attemptId, patch);
-        } else {
-          await this.support.setNode(node.id, patch);
-        }
-      };
+      const revert = (status: string) =>
+        this.revertChat(ctx, node, attemptId, toStatusOf('chatRevert', status));
       if (e instanceof AgentOutputError && e.code === AGENT_OUTPUT_ERROR.AGENT_REPORTED) {
-        await revert({ status: previousStatus });
+        await revert(previousStatus ?? 'awaiting_approval');
         return e.detail.reported?.reason ?? e.detail.message;
       }
       if (!(e instanceof AgentOutputError) || !RETRYABLE_OUTPUT_ERRORS.has(e.code)) throw e;
-      await revert({ status: previousStatus });
+      await revert(previousStatus ?? 'awaiting_approval');
       await this.support.emitLifecycle(ctx.flow.id, node.id, planValidationFailedEvent);
       return planValidationRefusalReply(this.firstViolation(e));
+    }
+  }
+
+  /**
+   * Revert a claimed node to its pre-claim status through the declared
+   * `chatRevert` transition — fenced by the attempt token when this run
+   * holds one, from-set fenced otherwise. The engine's chat claim owns the
+   * `running` state this undo (step 02, Invariant 1: never a raw write).
+   */
+  private async revertChat(
+    ctx: FlowCtx,
+    node: NodeRow,
+    attemptId: string | null,
+    toStatus: EngineNodeStatus,
+    patch: Record<string, unknown> = {},
+  ): Promise<void> {
+    if (attemptId) {
+      await this.support.applyTransitionFenced({
+        flowId: ctx.flow.id, nodeKey: node.nodeKey, nodeId: node.id, attemptId,
+        key: 'chatRevert', toStatus, patch,
+      });
+    } else {
+      await this.support.applyTransition(ctx.flow.id, node.nodeKey, 'chatRevert', { toStatus, patch });
     }
   }
 
@@ -363,12 +379,10 @@ export class PlanNode extends AgentRunNode<PlanInput, PlanOutput> {
       if (applied.outcome) {
         await this.applyOutcome(ctx, applied.outcome, { note: `recovered: ${note}` });
       } else {
+        // reply-only recovered turn: revert through the declared chatRevert
         const previousStatus = recorded.previousStatus ?? 'awaiting_approval';
         const agentId = await this.support.lastAgentId(node.id);
-        await this.support.setNode(node.id, {
-          status: previousStatus,
-          ...(agentId ? { agent_id: agentId } : {}),
-        });
+        await this.revertChat(ctx, node, null, toStatusOf('chatRevert', previousStatus), agentId ? { agent_id: agentId } : {});
         await this.support.emitLifecycle(ctx.flow.id, node.id, `recovered: ${note} (reply-only turn)`);
       }
       return true;

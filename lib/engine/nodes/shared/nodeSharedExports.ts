@@ -3,7 +3,9 @@ import "server-only";
 export { branchNamer, BranchNamer } from "./branchNamer";
 export { mrTargetResolver, MrTargetResolver } from "./mrTargetResolver";
 export { FlowContextHelper, flowCtxHelper, type ExecMode, type FlowCtx } from "./runContext";
-export { NodeSupport, nodeSupport } from "./nodeSupport";
+export { NodeSupport } from "./nodeSupport";
+// the shared instance is composition-root owned (step 02, decision Q9)
+export { nodeSupport } from "../../../composition/container";
 export { AgentRunNode } from "./agentRunNode";
 export {
   NodeDefinition,

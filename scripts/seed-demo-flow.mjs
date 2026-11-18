@@ -391,7 +391,7 @@ await prisma.node.update({
     updatedAt: minsAgo(30),
   },
 });
-await prisma.flow.update({ where: { id: flowId }, data: { currentNode: null, updatedAt: minsAgo(10) } });
+await prisma.flow.update({ where: { id: flowId }, data: { updatedAt: minsAgo(10) } });
 
 const final = await prisma.planStep.findMany({ where: { flowId }, orderBy: { position: "asc" } });
 console.log("\nchecklist state:");

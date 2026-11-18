@@ -131,7 +131,6 @@ export const FlowRow = z.object({
   mrBranch: z.string().nullable(),
   repoUrl: z.string().nullable(),
   gitlabProjectId: z.number().nullable(),
-  currentNode: z.string().nullable(),
   executionMode: z.string().nullable().default('cloud'),
   repoId: z.string().nullable(),
   /** flow template this flow instance snapshot came from */

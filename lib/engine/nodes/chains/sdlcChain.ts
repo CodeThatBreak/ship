@@ -1,29 +1,27 @@
 import "server-only";
 
-import { db } from "../../../db/app";
 import type { ChainRole, FlowCtx } from "../shared/nodeSharedExports";
 import { NODE_KEYS } from "../../constants/nodeKeys";
-import { EVENT_KIND } from "../../constants/vocabulary";
+import { ConflictError } from "../../../errors";
 import { configNumber } from "../../templates/nodeConfig";
 import { branchStore } from "../kinds/build/buildExports";
 import { mergeRequests, toMrCreationFailure, type CommitError } from "../kinds/mergeRequest/mergeRequestExports";
-import type { NodeStatus } from "../../../db/rows";
-
-/** Manual panel/API re-runs after a prior success terminal (done) or debounced wait. */
-const MANUAL_CHAIN_STAGE_FROM: readonly NodeStatus[] = ["pending", "failed", "done"];
-const MANUAL_RESOLVE_FROM: readonly NodeStatus[] = ["pending", "failed", "done", "waiting"];
+import type { EngineNodeStatus } from "../../constants/nodeStatus";
+import type { TransitionKey } from "../../runtime/transitions/types/transitions";
 
 /** The engine surface the chain drives — the generic orchestration primitives. */
 export interface ChainHost {
   ctx(flowId: string): Promise<FlowCtx>;
   bg(flowId: string, nodeKey: string | null, fn: () => Promise<void>): void;
   runNode(flowId: string, nodeKey: string, rawInput: unknown, deliveryPayload?: unknown): Promise<string>;
-  setCurrentNode(flowId: string, nodeKey: string | null): Promise<void>;
-  setNodeStatus(flowId: string, nodeKey: string, status: string): Promise<void>;
-  claimNode(flowId: string, nodeKey: string, from: readonly string[]): Promise<string>;
+  /** keyed delegate to the transition authority (declared from→to set) */
+  setNodeStatus(flowId: string, nodeKey: string, key: TransitionKey, opts?: { toStatus?: EngineNodeStatus; patch?: Record<string, unknown>; detail?: string }): Promise<boolean>;
+  claimNode(flowId: string, nodeKey: string, key: TransitionKey): Promise<string>;
   nodeStatus(flowId: string, nodeKey: string): Promise<string | null>;
   nodeRunning(flowId: string, nodeKey: string): Promise<boolean>;
   nodeConfigFor(flowId: string, nodeKey: string): Promise<Record<string, unknown>>;
+  emitLifecycle(flowId: string, nodeKey: string | null, message: string, data?: Record<string, unknown>): Promise<void>;
+  emitMrFailed(flowId: string, nodeKey: string | null, message: string, data?: Record<string, unknown>): Promise<void>;
   /** the instance key of the flow's node holding a chain role (§T3 —
    *  metadata-routed; the chain names roles, never literal def keys) */
   keyOfRole(flowId: string, role: ChainRole): Promise<string | null>;
@@ -45,9 +43,14 @@ export interface ChainHost {
  *    template edges take over (build → pipeline → …).
  *  - the Pipeline/Review/Resolve panel entries: run one stage, then advance
  *    the edges exactly like engine auto-starts do.
- *  - the advance interceptor: a builtin-chain module hook the engine consults
- *    so a built-in template's edges can defer to chain-managed stages (the
- *    CR-creation ordering between build approval and the CI gate).
+ *
+ * Every status write is a declared transition through the authority (step 02):
+ * `buildApprove` (awaiting → approved), `commitFix` (approved → running),
+ * `commitFixHandback` (running/awaiting → approved — the old unconditional
+ * `finally` overwrite is gone: a genuinely failed fix run stands failed), and
+ * `mrHandback` (approved → awaiting when MR creation failed). The manual
+ * stage/resolve claims (`manualStage`, `manualResolve`) carry their from-sets
+ * in the transition table, not here.
  */
 export class SdlcChain {
   constructor(private readonly host: ChainHost) {}
@@ -64,8 +67,11 @@ export class SdlcChain {
     const gate = await this.host.gateKey(flowId);
     if (!gate) throw new Error("this flow template has no pipeline gate node");
     const reviewKey = await this.host.keyOfRole(flowId, NODE_KEYS.REVIEW);
-    await this.host.setNodeStatus(flowId, buildKey, "approved");
-    await this.host.setCurrentNode(flowId, gate);
+    // declared approval: awaiting_approval → approved (the button's contract)
+    if (!(await this.host.setNodeStatus(flowId, buildKey, "buildApprove"))) {
+      const status = await this.host.nodeStatus(flowId, buildKey);
+      throw new ConflictError(`build is not awaiting approval (${status ?? "missing"})`);
+    }
     this.host.bg(flowId, null, async () => {
       try {
         const maxAttempts = configNumber(
@@ -87,7 +93,7 @@ export class SdlcChain {
             gateKey: gate,
             reviewKey,
             skipGateReviewReset: multiBranch,
-            runFix: (attempt, error) => this.runBuildCommitFix(flowId, buildKey, gate, b, attempt, maxAttempts, error),
+            runFix: (attempt, error) => this.runBuildCommitFix(flowId, buildKey, b, attempt, maxAttempts, error),
           });
         }
         if (multiBranch) {
@@ -104,11 +110,13 @@ export class SdlcChain {
         // — those nodes carry their own failed status + Retry.)
         const msg = e instanceof Error ? e.message : String(e);
         const mrError = toMrCreationFailure(e);
-        await db.emitEvent(flowId, null, EVENT_KIND.MR_FAILED,
+        await this.host.emitMrFailed(flowId, buildKey,
                     `MR creation failed: ${mrError.message} — fix the issue, then click "Approve & create MR" again to retry`,
                     { branchName, nodeKey: buildKey, detail: msg !== mrError.message ? msg : undefined });
-        await this.host.setNodeStatus(flowId, buildKey, "awaiting_approval");
-        await this.host.setCurrentNode(flowId, null);
+        // declared hand-back: approved → awaiting_approval. A node the fix
+        // loop left in another state (e.g. failed) keeps that state — the
+        // failure stands visible for retry.
+        await this.host.setNodeStatus(flowId, buildKey, "mrHandback");
       }
     });
   }
@@ -120,17 +128,16 @@ export class SdlcChain {
   private async runBuildCommitFix(
     flowId: string,
     buildKey: string,
-    gate: string,
     branch: string | null,
     attempt: number,
     maxAttempts: number,
     error: CommitError,
   ): Promise<void> {
-    await db.emitEvent(flowId, null, EVENT_KIND.LIFECYCLE,
+    await this.host.emitLifecycle(flowId, buildKey,
             `push rejected — running a commit-fix agent on the build step (attempt ${attempt}/${maxAttempts})`,
             { nodeKey: buildKey });
-    await this.host.setCurrentNode(flowId, buildKey);
-    await this.host.claimNode(flowId, buildKey, ["approved"]);
+    // declared effect claim: approved → running (fresh attempt token)
+    await this.host.claimNode(flowId, buildKey, "commitFix");
     try {
       const branchRow = branch ? (await branchStore.list(flowId)).find((r) => r.name === branch) : null;
       await this.host.runNode(flowId, buildKey, {
@@ -146,8 +153,12 @@ export class SdlcChain {
           `${error.detail}`,
       });
     } finally {
-      await this.host.setNodeStatus(flowId, buildKey, "approved");
-      await this.host.setCurrentNode(flowId, gate);
+      // declared hand-back so the bounded loop can re-claim from approved.
+      // From-set fenced (running / awaiting_approval): a genuinely failed
+      // fix run — or any terminal the run published outside those — is left
+      // untouched; the old unconditional "back to approved" hid real
+      // outcomes (step-02 risk item, covered by the characterization tests).
+      await this.host.setNodeStatus(flowId, buildKey, "commitFixHandback");
     }
   }
 
@@ -156,8 +167,7 @@ export class SdlcChain {
     if (await this.host.chainBusy(flowId)) return;
     const gate = await this.host.gateKey(flowId);
     if (!gate) throw new Error("this flow template has no pipeline gate node");
-    await this.host.claimNode(flowId, gate, MANUAL_CHAIN_STAGE_FROM);
-    await this.host.setCurrentNode(flowId, gate);
+    await this.host.claimNode(flowId, gate, "manualStage");
     this.host.bg(flowId, gate, async () => {
       await this.host.runNode(flowId, gate, {
         branchName: null, pipelineId: pipelineId ?? null, guidance: null, model: model ?? null,
@@ -176,8 +186,7 @@ export class SdlcChain {
     if (await this.host.chainBusy(flowId)) {
       throw new Error("wait for the pipeline/review step to finish before running resolve");
     }
-    await this.host.claimNode(flowId, resolveKey, MANUAL_RESOLVE_FROM);
-    await this.host.setCurrentNode(flowId, resolveKey);
+    await this.host.claimNode(flowId, resolveKey, "manualResolve");
     this.host.bg(flowId, resolveKey, async () => {
       await this.host.runNode(flowId, resolveKey, {
         instructions: null, branchName: null, model: model ?? null,
@@ -191,8 +200,7 @@ export class SdlcChain {
     const reviewKey = await this.host.keyOfRole(flowId, NODE_KEYS.REVIEW);
     if (!reviewKey) throw new Error("this flow template has no review node");
     if (await this.host.chainBusy(flowId)) throw new Error("wait for the current pipeline/review/resolve run to finish first");
-    await this.host.claimNode(flowId, reviewKey, MANUAL_CHAIN_STAGE_FROM);
-    await this.host.setCurrentNode(flowId, reviewKey);
+    await this.host.claimNode(flowId, reviewKey, "manualStage");
     this.host.bg(flowId, reviewKey, async () => {
       await this.host.runNode(flowId, reviewKey, {
         instructions: null, branchName: null, model: model ?? null,

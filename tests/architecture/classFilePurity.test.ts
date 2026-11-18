@@ -56,7 +56,7 @@ const FROZEN_OFFENDERS: readonly string[] = [
   "lib/engine/harness/pricingSource.ts",
   "lib/engine/harness/toolPairer.ts",
   "lib/engine/harness/usageTracker.ts",
-  "lib/engine/nodes/chains/sdlcChain.ts", // MANUAL_* consts
+  "lib/engine/nodes/chains/sdlcChain.ts", // ChainHost interface + createSdlcChain factory
   "lib/engine/nodes/declarativeRegistry.ts",
   "lib/engine/nodes/kinds/build/branchStore.ts",
   "lib/engine/nodes/kinds/build/buildNode.ts", // splitUnitItemOf
@@ -76,7 +76,6 @@ const FROZEN_OFFENDERS: readonly string[] = [
   "lib/engine/nodes/shared/mrTargetResolver.ts",
   "lib/engine/nodes/shared/nodeDefinition.ts",
   "lib/engine/nodes/shared/nodeRoles.ts",
-  "lib/engine/nodes/shared/nodeSupport.ts",
   "lib/engine/nodes/shared/runContext.ts",
   "lib/engine/nodes/shared/split.ts",
   "lib/engine/nodes/shared/templateRenderer.ts",
@@ -92,7 +91,6 @@ const FROZEN_OFFENDERS: readonly string[] = [
   "lib/engine/runtime/flowPoller.ts",
   "lib/engine/runtime/flowReconciler.ts",
   "lib/engine/runtime/hookStore.ts", // TTL consts
-  "lib/engine/runtime/nodeAttemptRegistry.ts",
   "lib/engine/runtime/nodeStore.ts",
   "lib/engine/runtime/planStepStore.ts",
   "lib/engine/runtime/split/splitManager.ts",

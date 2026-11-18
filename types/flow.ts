@@ -100,7 +100,6 @@ export type FlowData = {
   id: string;
   name: string;
   status: string;
-  current_node?: string;
   mr_url?: string;
   mr_iid?: number;
   mr_branch?: string;

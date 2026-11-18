@@ -28,7 +28,7 @@ assignTestDatabase();
 const { db } = await import("../../../../db/app");
 
 beforeAll(resetTestDatabase);
-const { nodeSupport } = await import("../../shared/nodeSupport");
+const { nodeSupport } = await import("@/lib/composition/container");
 const { flowCtxHelper, FlowContextHelper } = await import("../../shared/runContext");
 const { usageTracker } = await import("../../../harness/usageTracker");
 const { AgentRunner } = await import("../../../harness/agentRunner");
@@ -253,7 +253,10 @@ describe("StepBuildNode — fan-out child paths (T6)", () => {
   });
 
   it("the chat-refine terminal reruns on the step branch and saves the per-step diff", async () => {
-    const s = must(await seed(43, { nodeKey: "step_build", type: "step_build", mrBranch: "bugfix/step-3", status: "awaiting_approval" }), "seed 43");
+    // `running` mirrors the production precondition: the engine's chat path
+    // claims the node (sendChat's chatRefine) before the refine turn runs —
+    // the authority's outcome publish is from-set fenced on running.
+    const s = must(await seed(43, { nodeKey: "step_build", type: "step_build", mrBranch: "bugfix/step-3", status: "running" }), "seed 43");
     const step = new StepBuildNode(nodeSupport, new StubRunner({ status: "finished", result: "step fixed" } as unknown as AgentRunResult));
     const outcome = await step.run(
       s.ctx,

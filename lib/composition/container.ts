@@ -10,6 +10,11 @@ import {
   RepoStore,
   SettingsStore,
 } from "../db/stores/storeExports";
+import { NodeSupport } from "../engine/nodes/shared/nodeSupport";
+import { NodeStore } from "../engine/runtime/nodeStore";
+import { NodeAttemptRegistry } from "../engine/runtime/nodeAttemptRegistry";
+import { TransitionAuthority } from "../engine/runtime/transitions/nodeTransitions";
+import { TransitionEvents } from "../engine/runtime/transitions/transitionEvents";
 
 /**
  * Composition root (decision Q9 — lands incrementally through step 09).
@@ -24,11 +29,6 @@ import {
  * The DB client is the ONLY singleton (`lib/db/prismaClient.ts`).
  */
 export const createContainer = (prisma: PrismaClient) => {
-  // stores constructed via constructor injection (the wider engine wiring —
-  // TransitionAuthority, StageRunner, EffectRegistry — lands in steps 02–07)
-  const dbLike = { prisma } as never; // Database facade owns the stores today;
-  // step-09 lifts construction here as the singleton inventory shrinks.
-  void dbLike;
   return {
     stores: {
       events: EventStore,
@@ -40,7 +40,50 @@ export const createContainer = (prisma: PrismaClient) => {
     },
     rows: RowGateway,
     prisma,
+    engine: engineParts,
   };
 };
 
 export type Container = ReturnType<typeof createContainer>;
+
+/** The engine-cluster parts (step 02): the transition authority's collaborators. */
+export interface EngineParts {
+  nodeSupport: NodeSupport;
+  nodeStore: NodeStore;
+  attemptRegistry: NodeAttemptRegistry;
+  transitions: TransitionAuthority;
+  events: TransitionEvents;
+}
+
+/**
+ * The engine wiring (step 02, decision Q9): one place constructs
+ * `NodeSupport`, `NodeStore`, `NodeAttemptRegistry` and the
+ * `TransitionAuthority` — the former module/process singletons become
+ * constructor-injected from here.
+ *
+ * The shared `engineParts` instance is deliberately NOT process-pinned:
+ * every part is stateless or DB-fenced, so per-module-graph copies cannot
+ * disagree (the authority's writes are conditional UPDATEs against the same
+ * rows). The one in-memory map — the attempt registry's liveness hint — is
+ * only ever consulted through the `flowEngine` singleton's copy (reconcile
+ * asks `flowEngine.activeAttempt`), and its role ends in step 03. Modules
+ * not yet container-owned (node-kind helpers, reconciler, poller) import
+ * `engineParts` until their step rewires them.
+ */
+export const createEngineParts = (): EngineParts => {
+  const nodeStore = new NodeStore();
+  const attemptRegistry = new NodeAttemptRegistry();
+  const events = new TransitionEvents();
+  const transitions = new TransitionAuthority(attemptRegistry, events);
+  const nodeSupport = new NodeSupport(transitions);
+  return { nodeSupport, nodeStore, attemptRegistry, transitions, events };
+};
+
+export const engineParts = createEngineParts();
+
+/**
+ * The shared `NodeSupport` instance — node-kind helpers import it directly
+ * until their step threads construction through the container (steps 05+).
+ */
+export const nodeSupport = engineParts.nodeSupport;
+

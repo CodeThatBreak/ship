@@ -3,15 +3,14 @@ import "server-only";
 import { db } from "../../db/app";
 import { FlowRow, NodeRow, RunRow } from "../../db/rows";
 import { agentPortRegistry } from "../ports/agentPort";
-import { flowCtxHelper, nodeSupport, type FlowCtx } from "../nodes/shared/nodeSharedExports";
+import { flowCtxHelper, type FlowCtx } from "../nodes/shared/nodeSharedExports";
 import { usageTracker } from "../harness/usageTracker";
 import { flowEngine } from "../flowEngine";
 import { stepFlows } from "./fanout/stepFlowManager";
 import { mergeArena } from "./fanout/mergeArena";
 import { templateStore } from "../templates/templateStore";
 import { processSingleton } from "../../singleton";
-import { nodeStore } from "./nodeStore";
-import { nodeAttemptRegistry } from "./nodeAttemptRegistry";
+import { engineParts } from "../../composition/container";
 
 const NODE_ROW_SELECT = {
   id: true, flowId: true, nodeKey: true, type: true, status: true,
@@ -22,7 +21,7 @@ const NODE_ROW_SELECT = {
 
 const FLOW_ROW_SELECT = {
   id: true, taskId: true, name: true, status: true, mrUrl: true, mrIid: true,
-  mrBranch: true, repoUrl: true, gitlabProjectId: true, currentNode: true,
+  mrBranch: true, repoUrl: true, gitlabProjectId: true,
   executionMode: true, repoId: true, templateId: true, templateGraph: true,
   triggerPayload: true, worktreeDir: true, parentFlowId: true, kind: true,
   createdAt: true, updatedAt: true,
@@ -89,20 +88,6 @@ export class Reconciler {
 
     await this.reconcileRunningNodes(flow as unknown as FlowRow);
 
-    // clear a stale current_node pointer
-    if (flow.currentNode) {
-      const cur = await db.prisma.node.findFirst({
-        where: { flowId, nodeKey: flow.currentNode },
-        select: NODE_ROW_SELECT,
-      });
-      if (!cur || cur.status !== "running") {
-        await db.prisma.flow.updateMany({
-          where: { id: flowId, currentNode: flow.currentNode },
-          data: { currentNode: null, updatedAt: new Date() },
-        });
-      }
-    }
-
     // plan fan-out (Phase 2B): stuck step_merges rows resume-or-flag; orphan
     // children surface loud. Covers both directions — opening the parent page
     // or any child's page reconciles the fan-out family.
@@ -138,7 +123,7 @@ export class Reconciler {
   // ── plan fan-out (Phase 2B): stuck step_merges + orphan children ──────────
 
   private async reconcileNode(flow: FlowRow, node: NodeRow): Promise<void> {
-    if (nodeAttemptRegistry.isActive(node.id)) return;
+    if (flowEngine.activeAttempt(node.id)) return;
 
     const runRow = await db.prisma.run.findFirst({
       where: { nodeId: node.id, status: "running" },
@@ -225,7 +210,7 @@ export class Reconciler {
       await failLoud("the plan step ⇄ sub-flow linkage is gone (orphaned merge-back)");
       return;
     }
-    const parentNodeId = await nodeStore.idOf(row.parentFlowId, row.parentNode);
+    const parentNodeId = await engineParts.nodeStore.idOf(row.parentFlowId, row.parentNode);
     if (!parentNodeId) {
       await failLoud(`the parent fan-out node "${row.parentNode}" no longer exists (orphaned merge-back)`);
       return;
@@ -309,12 +294,12 @@ export class Reconciler {
     if (runRow && port.hasActiveRun(runRow.runRef)) return;
 
     if (!runRow) {
-      await nodeSupport.failOrphanedNode(flow.id, node.id, node.nodeKey, "node was left running without an active run");
+      await flowEngine.failOrphanedNode(flow.id, node.id, node.nodeKey, "node was left running without an active run");
       return;
     }
 
-    if (nodeSupport.isStartupRun(runRow.agentRef)) {
-      await nodeSupport.failOrphanedNode(
+    if (engineParts.nodeSupport.isStartupRun(runRow.agentRef)) {
+      await flowEngine.failOrphanedNode(
         flow.id,
         node.id,
         node.nodeKey,
@@ -337,13 +322,13 @@ export class Reconciler {
         : null;
 
     if (!probe) {
-      await nodeSupport.failOrphanedNode(flow.id, node.id, node.nodeKey,
+      await flowEngine.failOrphanedNode(flow.id, node.id, node.nodeKey,
         "server restarted mid-run and the agent session could not be re-attached");
       return;
     }
 
     if (!probe.completed) {
-      await nodeSupport.failOrphanedNode(flow.id, node.id, node.nodeKey,
+      await flowEngine.failOrphanedNode(flow.id, node.id, node.nodeKey,
         "server restarted mid-run — the agent session shows an unfinished turn");
       return;
     }
@@ -364,12 +349,12 @@ export class Reconciler {
     const { flow } = ctx;
     const port = await agentPortRegistry.forMode("cloud");
     if (!runRow) {
-      await nodeSupport.failOrphanedNode(flow.id, node.id, node.nodeKey, "node was left running without an active run");
+      await flowEngine.failOrphanedNode(flow.id, node.id, node.nodeKey, "node was left running without an active run");
       return;
     }
 
-    if (nodeSupport.isStartupRun(runRow.agentRef)) {
-      await nodeSupport.failOrphanedNode(
+    if (engineParts.nodeSupport.isStartupRun(runRow.agentRef)) {
+      await flowEngine.failOrphanedNode(
         flow.id,
         node.id,
         node.nodeKey,
@@ -380,7 +365,7 @@ export class Reconciler {
 
     const query = await port.getRun({ agentId: runRow.agentRef, runId: runRow.runRef });
     if (query.state === "unavailable") {
-      await nodeSupport.failOrphanedNode(
+      await flowEngine.failOrphanedNode(
         flow.id,
         node.id,
         node.nodeKey,
@@ -411,7 +396,7 @@ export class Reconciler {
         });
         await flowEngine.completeNodeFromResult(ctx, node, final.result, "completed after re-attach");
       } catch (e: unknown) {
-        await nodeSupport.failOrphanedNode(flow.id, node.id, node.nodeKey, `lost run stream: ${e instanceof Error ? e.message : e}`);
+        await flowEngine.failOrphanedNode(flow.id, node.id, node.nodeKey, `lost run stream: ${e instanceof Error ? e.message : e}`);
       } finally {
         this.reattached.delete(runRow.runRef);
       }

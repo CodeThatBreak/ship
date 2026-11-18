@@ -14,6 +14,7 @@ beforeAll(resetTestDatabase);
 const { branchStore } = await import("../kinds/build/branchStore");
 const { MrTargetResolver } = await import('./mrTargetResolver');
 const { NodeSupport } = await import('./nodeSupport');
+const { engineParts } = await import('@/lib/composition/container');
 
 const now = () => new Date().toISOString();
 
@@ -50,14 +51,14 @@ const seed = async () => {
 describe("MrTargetResolver", () => {
   it("uses persisted git_branch instead of built-in naming", async () => {
     const { ctx } = await seed();
-    const resolver = new MrTargetResolver(new NodeSupport());
+    const resolver = new MrTargetResolver(new NodeSupport(engineParts.transitions));
     const target = await resolver.resolve(ctx, "backend");
     expect(target.mrIid).toBe(42);
     expect(target.mrBranch).toBe("custom/pattern-backend");
   });
 
   it("openComments filters by mr_iid", async () => {
-    const support = new NodeSupport();
+    const support = new NodeSupport(engineParts.transitions);
     const flowId = "flw_2";
     await db.run(
       `INSERT INTO tasks (id, type, key, summary, status, issue_type, priority) VALUES ($1,$2,$3,$4,$5,$6,$7)`,

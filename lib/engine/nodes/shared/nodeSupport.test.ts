@@ -15,6 +15,7 @@ const { db } = await import("../../../db/app");
 
 beforeAll(resetTestDatabase);
 const { NodeSupport } = await import("./nodeSupport");
+const { engineParts } = await import("@/lib/composition/container");
 const { ConflictError } = await import("../../../errors");
 
 const now = () => new Date().toISOString();
@@ -55,7 +56,7 @@ const seedPlanNode = async (flowId: string): Promise<string> => {
 };
 
 describe("NodeSupport — plan artifact ordering (CR-270)", () => {
-  const support = new NodeSupport();
+  const support = new NodeSupport(engineParts.transitions);
 
   it("latestArtifact and artifactsOfKind return newest plan versions first", async () => {
     const flowId = "flw_art_order";
@@ -75,7 +76,7 @@ describe("NodeSupport — plan artifact ordering (CR-270)", () => {
 });
 
 describe("NodeSupport — startup run rows", () => {
-  const support = new NodeSupport();
+  const support = new NodeSupport(engineParts.transitions);
 
   it("registerStartupRun is idempotent and persistRun upgrades the placeholder", async () => {
     const flowId = "flw_startup_run";
@@ -106,36 +107,42 @@ describe("NodeSupport — startup run rows", () => {
 });
 
 describe("NodeSupport.claim (Task 17)", () => {
-  const support = new NodeSupport();
+  const support = new NodeSupport(engineParts.transitions);
 
   it("stamps attempt_id and rejects a second concurrent claim", async () => {
     const flowId = "flw_claim";
     const nodeId = await seedPlanNode(flowId);
     await db.run(`UPDATE nodes SET status='pending' WHERE id=$1`, nodeId);
 
-    const first = await support.claim(flowId, "plan", ["pending"]);
-    expect(first.startsWith("att_")).toBe(true);
+    const { attemptId } = await engineParts.transitions.claim(flowId, "plan", "runFromPending");
+    expect(attemptId.startsWith("att_")).toBe(true);
     expect(await db.get<{ status: string; attempt_id: string }>(
       `SELECT status, attempt_id FROM nodes WHERE id=$1`,
       nodeId,
-    )).toMatchObject({ status: "running", attempt_id: first });
+    )).toMatchObject({ status: "running", attempt_id: attemptId });
 
-    await expect(support.claim(flowId, "plan", ["pending"])).rejects.toThrow(ConflictError);
+    await expect(engineParts.transitions.claim(flowId, "plan", "runFromPending")).rejects.toThrow(ConflictError);
   });
 
-  it("transition moves status only from allowed sources", async () => {
+  it("applyTransition moves status only from declared sources", async () => {
     const flowId = "flw_transition";
     await seedPlanNode(flowId);
-    await support.transition(flowId, "plan", ["awaiting_approval"], "approved");
+    await support.applyTransition(flowId, "plan", "approve");
     expect(await db.get<{ status: string; attempt_id: null }>(
       `SELECT status, attempt_id FROM nodes WHERE flow_id=$1 AND node_key='plan'`,
       flowId,
     )).toMatchObject({ status: "approved", attempt_id: null });
   });
+
+  it("setNode refuses status keys — status writes belong to the authority", async () => {
+    const flowId = "flw_refuse";
+    const nodeId = await seedPlanNode(flowId);
+    await expect(support.setNode(nodeId, { status: "done" })).rejects.toThrow(/TransitionAuthority/);
+  });
 });
 
 describe("NodeSupport — comment queries and agent reply effects", () => {
-  const support = new NodeSupport();
+  const support = new NodeSupport(engineParts.transitions);
 
   /** Seed an open comment row with an explicit timestamp (ordering control). */
   const seedOpenComment = async (

@@ -4,7 +4,8 @@ import { z } from "zod";
 import type { NodeRow } from "../../../db/rows";
 import type { AgentRunResult } from "../../ports/agentPort";
 import { flowCtxHelper, type FlowContextHelper, type FlowCtx } from "./runContext";
-import { nodeSupport, type NodeSupport } from "./nodeSupport";
+import type { NodeSupport } from "./nodeSupport";
+import { nodeSupport } from "@/lib/composition/container";
 import type { SplitUnit } from "./split";
 import type { NodeCapabilities } from "./capabilities";
 import type { ConfigField } from "../../templates/nodeConfig";
@@ -324,14 +325,13 @@ export abstract class NodeDefinition<I = unknown, O extends Record<string, unkno
   }
 
   /**
-   * Mark the node running and persist the run input blob. The engine claims
-   * the node before `run()`; this records input (and refreshes running for
-   * long-lived waits that touch liveness separately).
+   * Persist a run's input blob. The engine's claim already holds the node
+   * `running`; this records the input and refreshes `updated_at` (liveness
+   * for long-lived waits that touch it separately).
    */
   protected async markRunning(ctx: FlowCtx, input: Record<string, unknown>): Promise<void> {
     const node = await this.node(ctx);
     await this.support.setNode(node.id, {
-      status: "running",
       input: JSON.stringify(input),
     });
   }
@@ -347,6 +347,9 @@ export abstract class NodeDefinition<I = unknown, O extends Record<string, unkno
    *     event so the trail explains the recovery).
    * A recovered finish therefore persists byte-identical node/artifact rows
    * to a normal finish — only the event message carries the recovery note.
+   * The terminal write itself is the transition authority's
+   * `publishOutcome`: status + validated output in ONE attempt-fenced
+   * statement (step 02, Invariant 1 — never a raw status write).
    */
   protected async applyOutcome(ctx: FlowCtx, outcome: RunOutcome, opts?: { note?: string; fenceSuperseded?: boolean; attemptId?: string | null }): Promise<RunOutcome> {
     const node = await this.node(ctx);
@@ -362,16 +365,17 @@ export abstract class NodeDefinition<I = unknown, O extends Record<string, unkno
       await this.support.saveArtifact(node.id, ctx.flow.id, outcome.artifact.kind, outcome.artifact.content, outcome.artifact.meta);
     }
     const validatedOutput = this.outputSchema.parse(outcome.output);
-    const patch = {
-      status: outcome.status,
-      agent_id: await this.support.lastAgentId(node.id),
-      output: JSON.stringify(validatedOutput),
-    };
-    if (opts?.fenceSuperseded && attemptId) {
-      await this.support.patchIfAttempt(node.id, attemptId, patch);
-    } else {
-      await this.support.setNode(node.id, patch);
-    }
+    await this.support.publishOutcome({
+      flowId: ctx.flow.id,
+      nodeKey: node.nodeKey,
+      nodeId: node.id,
+      attemptId: opts?.fenceSuperseded && attemptId ? attemptId : undefined,
+      outcome: {
+        status: outcome.status,
+        output: validatedOutput,
+        agentId: await this.support.lastAgentId(node.id),
+      },
+    });
     await this.support.emitLifecycle(
       ctx.flow.id,
       node.id,

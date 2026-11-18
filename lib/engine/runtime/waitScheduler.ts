@@ -7,7 +7,7 @@ import { nodeRegistry } from "../nodes/registry";
 import { appLayerConfig, configNumber, mergeConfigLayers } from "../templates/nodeConfig";
 import { templateStore } from "../templates/templateStore";
 import { hookStore } from "./hookStore";
-import { nodeStore } from "./nodeStore";
+import type { TransitionEvents } from "./transitions/transitionEvents";
 import type { WaitSchedulerHost } from "./flowEngineHost";
 
 const NODE_ROW_SELECT = {
@@ -21,7 +21,10 @@ const NODE_ROW_SELECT = {
 export class WaitScheduler {
   private readonly waitTimers = new Map<string, number>();
 
-  constructor(private readonly host: WaitSchedulerHost) {}
+  constructor(
+    private readonly host: WaitSchedulerHost,
+    private readonly events: TransitionEvents,
+  ) {}
 
   clearTimersForFlows(flowIds: readonly string[]): void {
     for (const key of [...this.waitTimers.keys()]) {
@@ -75,17 +78,15 @@ export class WaitScheduler {
       this.waitTimers.set(`${flowId}\n${nodeKey}`, Date.now() + mins * 60_000);
     }
     const hook = wait === "webhook" ? await hookStore.ensureForNode(flowId, nodeKey) : undefined;
-    await this.host.setNodeStatus(flowId, nodeKey, "waiting");
-    await nodeStore.emitEvent(
-      flowId,
-      nodeKey,
-      "lifecycle",
-      wait === "timer"
-        ? `${nodeKey} waits for a timer (${minutes ?? 1} min — the poller resumes it)`
-        : wait === "comments"
-        ? `${nodeKey} waits for the comment quiet period (${minutes ?? 10} min — new comments restart it; the poller fires it when the gate is clear)`
-        : `${nodeKey} waits for a webhook delivery — POST to /api/hooks/${hook?.id ?? "(hook unbound)"}`,
-    );
+    // the authority announces the arm with the wait-specific detail line
+    await this.host.setNodeStatus(flowId, nodeKey, "armWait", {
+      detail:
+        wait === "timer"
+          ? `waits for a timer (${minutes ?? 1} min — the poller resumes it)`
+          : wait === "comments"
+          ? `waits for the comment quiet period (${minutes ?? 10} min — new comments restart it; the poller fires it when the gate is clear)`
+          : `waits for a webhook delivery — POST to /api/hooks/${hook?.id ?? "(hook unbound)"}`,
+    });
   }
 
   async bounceCommentWaits(flowId: string): Promise<void> {
@@ -155,8 +156,8 @@ export class WaitScheduler {
       throw new ValidationError(`${nodeKey} is not waiting on a webhook`);
     }
     if (node.status !== "waiting") throw new ConflictError(`${nodeKey} is not waiting for an event`);
-    await this.host.claimNode(flowId, nodeKey, ["waiting"]);
-    await db.emitEvent(flowId, node.id, "lifecycle", `${nodeKey} resumed by a webhook delivery`);
+    await this.host.claimNode(flowId, nodeKey, "resumeWait");
+    await this.events.lifecycle(flowId, nodeKey, `${nodeKey} resumed by a webhook delivery`);
     this.host.bg(flowId, nodeKey, () =>
       this.host.startNodeStage(flowId, nodeKey, {
         resumeWaiting: true,
@@ -169,15 +170,14 @@ export class WaitScheduler {
   private async fireWaitTimer(flowId: string, nodeKey: string, note?: string): Promise<void> {
     if ((await this.host.nodeStatus(flowId, nodeKey)) !== "waiting") return;
     try {
-      await this.host.claimNode(flowId, nodeKey, ["waiting"]);
+      await this.host.claimNode(flowId, nodeKey, "resumeWait");
     } catch (e: unknown) {
       if (e instanceof ConflictError) return;
       throw e;
     }
-    await nodeStore.emitEvent(
+    await this.events.lifecycle(
       flowId,
       nodeKey,
-      "lifecycle",
       note ? `${nodeKey} ${note} — resuming` : `${nodeKey} timer elapsed — resuming`,
     );
     this.host.bg(flowId, nodeKey, () =>

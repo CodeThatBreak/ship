@@ -5,7 +5,7 @@ import { templateStore } from "../../templates/templateStore";
 import type { FlowContextHelper, FlowCtx } from "./runContext";
 import { flowCtxHelper } from "./runContext";
 import type { NodeSupport } from "./nodeSupport";
-import { nodeSupport } from "./nodeSupport";
+import { nodeSupport } from "@/lib/composition/container";
 import { NodeDefinition } from "./nodeDefinition";
 import { AgentRunNode } from "./agentRunNode";
 import type { AgentRunner } from "../../harness/harnessExports";

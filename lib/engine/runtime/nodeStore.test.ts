@@ -4,9 +4,9 @@ import { assignTestDatabase, resetTestDatabase } from "../../../tests/helpers/te
 assignTestDatabase();
 
 const { db } = await import("../../db/app");
-const { nodeStore } = await import('./nodeStore');
+const { engineParts } = await import("../../composition/container");
 const { NODE_STATUS } = await import("../constants/nodeStatus");
-const { isNodeStarted, childFlowHasStarted } = await import("../constants/nodeStatus");
+const { isNodeStarted, childFlowHasStarted } = await import("./transitions/constants/statusSets");
 const { ConflictError } = await import("../../errors");
 
 const seedFlow = async (flowId: string, taskId: string) => {
@@ -50,12 +50,12 @@ describe("NodeStore", () => {
         updatedAt: new Date(),
       },
     });
-    expect(await nodeStore.idOf(flowId, "plan")).toBe(nodeId);
-    expect(await nodeStore.statusOf(flowId, "plan")).toBe(NODE_STATUS.PENDING);
-    expect(await nodeStore.idOf(flowId, "missing")).toBeNull();
+    expect(await engineParts.nodeStore.idOf(flowId, "plan")).toBe(nodeId);
+    expect(await engineParts.nodeStore.statusOf(flowId, "plan")).toBe(NODE_STATUS.PENDING);
+    expect(await engineParts.nodeStore.idOf(flowId, "missing")).toBeNull();
   });
 
-  it("claim stamps running and rejects double claim", async () => {
+  it("the authority's claim stamps running and rejects a double claim", async () => {
     const flowId = "flow_ns2";
     const taskId = "task_ns2";
     await seedFlow(flowId, taskId);
@@ -70,10 +70,10 @@ describe("NodeStore", () => {
         updatedAt: new Date(),
       },
     });
-    const attempt = await nodeStore.claim(flowId, "build", [NODE_STATUS.PENDING]);
-    expect(attempt).toMatch(/^att_/);
-    expect(await nodeStore.statusOf(flowId, "build")).toBe(NODE_STATUS.RUNNING);
-    await expect(nodeStore.claim(flowId, "build", [NODE_STATUS.PENDING])).rejects.toThrow(ConflictError);
+    const { attemptId } = await engineParts.transitions.claim(flowId, "build", "runFromPending");
+    expect(attemptId).toMatch(/^att_/);
+    expect(await engineParts.nodeStore.statusOf(flowId, "build")).toBe(NODE_STATUS.RUNNING);
+    await expect(engineParts.transitions.claim(flowId, "build", "runFromPending")).rejects.toThrow(ConflictError);
   });
 });
 

@@ -4,8 +4,8 @@ import type { Prisma } from "@prisma/client";
 import { db } from "../../db/app";
 import type { QueryExecutor } from "../../db/database";
 import { NODE_KEYS } from "../constants/nodeKeys";
-import { childFlowHasStarted, isNodeStarted } from "../constants/nodeStatus";
-import { nodeStore } from "./nodeStore";
+import { childFlowHasStarted, isNodeStarted } from "./transitions/constants/statusSets";
+import { engineParts } from "@/lib/composition/container";
 
 // ── Structured plan steps ────────────────────────────────────────────────────
 // The live, editable checklist behind the Plan view. Agent-emitted steps are
@@ -333,7 +333,7 @@ export class PlanStepStore {
     const cancelable = new Map<string, string>();
     for (const s of linked) {
       if (!s.subFlowId) continue;
-      const started = childFlowHasStarted(await nodeStore.statusesOfFlow(s.subFlowId));
+      const started = childFlowHasStarted(await engineParts.nodeStore.statusesOfFlow(s.subFlowId));
       if (started) built.add(s.id);
       else cancelable.set(s.id, s.subFlowId);
     }

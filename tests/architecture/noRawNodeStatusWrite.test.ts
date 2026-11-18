@@ -1,14 +1,14 @@
 /**
  * Architecture (source-scan, `serverOnlyPolicy.test.ts` pattern): no raw
- * `UPDATE nodes SET status` (or `attempt_id`) write outside the transition
- * authority (engine overhaul step 02; decision Q6).
+ * `nodes.status` / `attempt_id` write outside the transition authority
+ * (engine overhaul step 02; decision Q6 — flipped green in step 02).
  *
- * Starts as `test.fails` with the frozen known-offender list below — the
- * modules the step-02 transition-authority migration rewrites. Each offender's
- * removal SHRINKS the list; the list is shrink-only (nothing is ever added —
- * a new raw write fails the suite, not just code review).
- *
- * Scans the source text, not the DB — this is a static gate, not a runtime one.
+ * The transition authority (`lib/engine/runtime/transitions/`) is the ONLY
+ * writer of node status and attempt tokens (Invariant 1). This gate scans the
+ * source text — raw SQL UPDATEs, Prisma node-update calls carrying status /
+ * attemptId, and node `setStatus(` calls — so a smuggled writer fails the
+ * suite, not just code review. The runtime mirror is the authority's declared
+ * table (see `transitionTable.test.ts` and the transition-log assert).
  */
 import { describe, expect, it } from "vitest";
 import fs from "node:fs";
@@ -18,20 +18,7 @@ import { fileURLToPath } from "node:url";
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
 
 const ENGINE_ROOT = path.join(repoRoot, "lib/engine");
-
-/**
- * Frozen known offenders (step 02 transition-authority migration targets).
- * SHRINK-ONLY: a step removes an entry when it routes that module's status
- * writes through the authority. Adding an entry is forbidden — a NEW raw
- * writer fails this list's diff.
- *
- * Each entry: the module, and why it holds a raw status write today.
- */
-const FROZEN_OFFENDERS: readonly string[] = [
-  "lib/engine/flowEngine.ts", // finishFanout/finishSplit/bg() catch + setNodeStatus/claimNode wrappers
-  "lib/engine/nodes/shared/nodeSupport.ts", // claim/transition/patchIfAttempt duplicates
-  "lib/engine/runtime/fanout/stepFlowManager.ts", // fan-out aggregate status writes
-];
+const AUTHORITY_ROOT = path.join(repoRoot, "lib/engine/runtime/transitions");
 
 const walk = (dir: string, out: string[] = []): string[] => {
   for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
@@ -45,30 +32,38 @@ const walk = (dir: string, out: string[] = []): string[] => {
   return out;
 };
 
-// A raw node-status/attempt write: a SQL UPDATE against nodes touching
-// status/attempt_id. Read SQL (SELECT … status) never matches — the pattern
-// requires the UPDATE verb.
-const RAW_WRITE = /UPDATE\s+nodes\s+SET\s+[^;]*\b(status|attempt_id)\b/i;
+// A raw node-status/attempt write — any of three shapes:
+//  1. SQL UPDATE against nodes touching status/attempt_id (reads never match —
+//     the pattern requires the UPDATE verb)
+//  2. a Prisma node.update/node.updateMany whose data/where carries
+//     status or attemptId
+//  3. a node setStatus( call (nodeStore/node `.setStatus` — plan-step
+//     checklist `planSteps.setStatus` is a different domain and never matches)
+const RAW_WRITE = /UPDATE\s+nodes\s+SET\s*[^;]*\b(status|attempt_id)\b/i;
+const PRISMA_WRITE = /\.node\.update(?:Many)?\s*\([\s\S]{0,300}?\b(status|attemptId)\s*:/;
+const SETSTATUS_WRITE = /\bnode\w*\.setStatus\s*\(/;
 
 const offenders = (): string[] => {
   const found: string[] = [];
   for (const abs of walk(ENGINE_ROOT)) {
+    if (abs.startsWith(AUTHORITY_ROOT)) continue; // the authority itself
     const rel = path.relative(repoRoot, abs).replaceAll("\\", "/");
     const text = fs.readFileSync(abs, "utf8");
-    if (RAW_WRITE.test(text)) found.push(rel);
+    if (RAW_WRITE.test(text) || PRISMA_WRITE.test(text) || SETSTATUS_WRITE.test(text)) {
+      found.push(rel);
+    }
   }
   return found.sort();
 };
 
 describe("noRawNodeStatusWrite", () => {
-  // OVERHAUL: flip in step 02 (passes with zero offenders once the authority owns every write)
-  it.fails("no raw nodes.status/attempt_id write outside the transition authority", () => {
+  it("no raw nodes.status/attempt_id write outside the transition authority", () => {
     expect(offenders()).toEqual([]);
   });
 
-  it("the frozen offender list only shrinks (current offenders match the freeze)", () => {
-    // every offender found today must be on the frozen list — a NEW raw writer
-    // that isn't frozen fails here loudly (shrink-only ratchet)
-    expect(offenders()).toEqual([...FROZEN_OFFENDERS].sort());
+  it("the gate stays at zero — any new writer fails here loudly", () => {
+    // a NEW raw writer fails the test above; this second assertion exists so
+    // the empty-list contract is pinned even if the first is skipped
+    expect(offenders().length).toBe(0);
   });
 });

@@ -20,7 +20,7 @@ assignTestDatabase();
 const { db } = await import("../../../../db/app");
 
 beforeAll(resetTestDatabase);
-const { nodeSupport } = await import("../../shared/nodeSupport");
+const { nodeSupport } = await import("@/lib/composition/container");
 const { flowCtxHelper } = await import("../../shared/runContext");
 const { usageTracker } = await import("../../../harness/usageTracker");
 const { AgentRunner } = await import("../../../harness/agentRunner");

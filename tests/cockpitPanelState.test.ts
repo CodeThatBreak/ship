@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { resolveCockpitSelectedKey } from "@/components/flows/cockpit/utils/resolveCockpitSelection";
+import {
+  resolveCockpitSelectedKey,
+  runningNodeKeysOf,
+} from "@/components/flows/cockpit/utils/resolveCockpitSelection";
 import {
   effectiveDecisionSelection,
   isSameDecisionPick,
@@ -7,12 +10,33 @@ import {
 } from "@/components/flows/panels/utils/decisionSelection";
 import { formatCostCents } from "@/components/flows/panels/utils/costFormat";
 import { resolveClockLabel } from "@/components/flows/panels/utils/resolveClockLabel";
+import type { Node } from "@/types/flow";
+
+const node = (key: string, status: string): Node => ({
+  id: `id_${key}`,
+  node_key: key,
+  type: key,
+  status,
+  artifacts: [],
+});
 
 describe("resolveCockpitSelectedKey", () => {
-  it("follows current_node until the user selects a node", () => {
-    expect(resolveCockpitSelectedKey("", "node_b")).toBe("node_b");
-    expect(resolveCockpitSelectedKey("node_a", "node_b")).toBe("node_a");
-    expect(resolveCockpitSelectedKey("", null)).toBe("");
+  it("follows the first running node (graph order) until the user selects a node", () => {
+    const nodes = [node("plan", "done"), node("build", "running"), node("review", "running")];
+    expect(resolveCockpitSelectedKey("", nodes)).toBe("build");
+    expect(resolveCockpitSelectedKey("plan", nodes)).toBe("plan");
+    expect(resolveCockpitSelectedKey("", [node("plan", "done")])).toBe("");
+  });
+});
+
+describe("runningNodeKeysOf", () => {
+  it("collects every running node key — fan-out may run several at once", () => {
+    const nodes = [node("plan", "done"), node("build", "running"), node("review", "running")];
+    expect(runningNodeKeysOf(nodes)).toEqual(new Set(["build", "review"]));
+  });
+
+  it("is empty for an idle flow (no running nodes)", () => {
+    expect(runningNodeKeysOf([node("plan", "awaiting_approval")])).toEqual(new Set());
   });
 });
 

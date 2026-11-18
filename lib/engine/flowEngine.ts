@@ -3,12 +3,11 @@ import 'server-only';
 import type { Prisma } from '@prisma/client';
 import type { FlowData } from '@/types/flow';
 import { db } from '../db/app';
-import { FlowRow, NodeRow, Task, rows, type NodeStatus } from '../db/rows';
+import { FlowRow, NodeRow, Task, rows } from '../db/rows';
 import { agentPortRegistry, type AgentRunResult } from './ports/agentPort';
 import { type HostComment, type HostWebhookEvent } from './ports/gitHost';
 import {
   NodeDefinition,
-  nodeSupport,
   type ChainRole,
   type FlowCtx,
 } from './nodes/shared/nodeSharedExports';
@@ -16,23 +15,25 @@ import { CHAT_DECLINED, nodeRoles } from './nodes/shared/nodeRoles';
 import { nodeRegistry } from './nodes/registry';
 import './nodes/declarativeBootstrap';
 import { NODE_KEYS } from './constants/nodeKeys';
+import { RUN_STATUS } from './constants/vocabulary';
 import { planSteps, type PlanStepInput } from './runtime/planStepStore';
 import {
   templateStore,
   type TemplateGraph,
 } from './templates/templateStore';
 import { appLayerConfig, mergeConfigLayers, parseConfigSnapshot } from './templates/nodeConfig';
-import { createSdlcChain } from './nodes/chains/sdlcChain';
+import { createSdlcChain, type SdlcChain } from './nodes/chains/sdlcChain';
 import { buildFlowContext, type FlowContextMap } from './context/flowVariables';
 import { evalJsonata } from '@/lib/jsonata/eval';
-import { nodeStore } from './runtime/nodeStore';
-import { nodeAttemptRegistry } from './runtime/nodeAttemptRegistry';
-import { isNodeTerminalSuccess, NODE_STATUS } from './constants/nodeStatus';
+import { NODE_STATUS, type EngineNodeStatus } from './constants/nodeStatus';
+import { isNodeTerminalSuccess } from './runtime/transitions/constants/statusSets';
+import type { TransitionKey } from './runtime/transitions/types/transitions';
 import { DEFAULT_FANOUT_OUTPUT, type NodeCapabilities } from './nodes/shared/capabilities';
 import { stepFlows, type StepChildPayload } from './runtime/fanout/stepFlowManager';
 import { mergeArena } from './runtime/fanout/mergeArena';
 import { DEFAULT_SPLIT_OUTPUT, splitManager, type SplitChildPayload } from './runtime/split/splitManager';
 import { worktreeManager } from './runtime/worktreeLifecycle';
+import { engineParts, type EngineParts } from '../composition/container';
 import { processSingleton } from '../singleton';
 
 import { PlanInput } from './nodes/kinds/plan/schema';
@@ -47,6 +48,7 @@ import { EdgeActivator } from './runtime/edgeActivator';
 import { FlowFactory, type CreateFlowOptions } from './runtime/flowFactory';
 import { FlowReadModel } from './runtime/flowReadModel';
 import { WaitScheduler } from './runtime/waitScheduler';
+import { FlowApprovalService } from './flow/flowApprovalService';
 
 export type { CreateFlowOptions };
 
@@ -71,7 +73,11 @@ export const FLOW_CHILD_TABLES = [
  * webhook/comment ingestion.
  *
  * All node-type-specific behavior lives in the node classes (registry); this
- * class only sequences them and owns cross-node state transitions.
+ * class only sequences them and owns cross-node state transitions — every
+ * `nodes.status` write goes through the transition authority (step 02,
+ * Invariant 1), never raw SQL. The approval paths live in
+ * `lib/engine/flow/flowApprovalService.ts`; the builtin SDLC chain actions in
+ * `nodes/chains/sdlc-chain.ts`.
  *
  * Phase 1 (custom flows): every previously-hardcoded chain position
  * ("pipeline", "review", "resolve") is derived from the flow's template graph
@@ -79,18 +85,30 @@ export const FLOW_CHILD_TABLES = [
  * the template's edges (join all/any, decision labels, JSONata conditions, real
  * re-entry loops) and starts satisfying targets per their trigger type;
  * debounced targets hold at `waiting` until their event source's quiet period
- * elapses. The built-in SDLC flow actions live in the `chains/sdlc-chain.ts`
- * builtin-chain module (pristine plan §2.1–2.2).
+ * elapses.
  */
 export class FlowEngine {
+  private readonly parts: EngineParts;
   /** the SDLC builtin chain (approveBuild / panel stage entries) */
-  private readonly waits = new WaitScheduler(this);
-  private readonly edges = new EdgeActivator(this, this.waits);
-  private readonly readModel = new FlowReadModel(this.waits);
-  private readonly factory = new FlowFactory(this);
-  private readonly comments = new CommentIngestor(this, this.waits);
+  private readonly waits: WaitScheduler;
+  private readonly edges: EdgeActivator;
+  private readonly readModel: FlowReadModel;
+  private readonly factory: FlowFactory;
+  private readonly comments: CommentIngestor;
+  private readonly chain: SdlcChain;
+  private readonly approvals: FlowApprovalService;
 
-  private readonly chain = createSdlcChain(this);
+  /** Engine parts are constructor-injected from the composition root (Q9). */
+  constructor(parts: EngineParts = engineParts) {
+    this.parts = parts;
+    this.waits = new WaitScheduler(this, parts.events);
+    this.edges = new EdgeActivator(this, this.waits, parts.events);
+    this.readModel = new FlowReadModel(this.waits);
+    this.factory = new FlowFactory(this, parts.nodeStore);
+    this.comments = new CommentIngestor(this, this.waits);
+    this.chain = createSdlcChain(this);
+    this.approvals = new FlowApprovalService(this);
+  }
 
   async create(taskId: string, repoUrl: string, name?: string, opts: CreateFlowOptions = {}): Promise<string> {
     return this.factory.create(taskId, repoUrl, name, opts);
@@ -203,9 +221,10 @@ export class FlowEngine {
    * trigger-type terminal (approval ⇒ `awaiting_approval` — the SDLC build's
    * final aggregate approval flows through the untouched approveBuild chain →
    * MR creation), then continue the normal edge evaluation on a success
-   * terminal.
+   * terminal. The authority's `running` from-set is the fence: a late
+   * aggregate that resolves after the user retried the node loses silently.
    */
-  async finishFanout(parentFlowId: string, nodeKey: string, output: Record<string, unknown>): Promise<void> {
+  async finishFanout(parentFlowId: string, nodeKey: string, output: Record<string, unknown>, attemptId?: string | null): Promise<void> {
     const def = await this.defOf(parentFlowId, nodeKey);
     // the aggregate `steps` array validates against the def's fanoutOutput
     // contract when one is published (default shape otherwise); the parent's
@@ -215,37 +234,26 @@ export class FlowEngine {
     try {
       steps = ((fanoutContract ?? DEFAULT_FANOUT_OUTPUT).parse({ steps }) as { steps?: unknown })?.steps ?? steps;
     } catch (e: unknown) {
-      await db.emitEvent(
+      await this.parts.events.error(
         parentFlowId,
-        null,
-        'error',
+        nodeKey,
         `${nodeKey}: the fan-out aggregate failed its output contract — publishing it unvalidated (${e instanceof Error ? e.message : e})`,
         { nodeKey }
       );
     }
     const tt = (await this.graph(parentFlowId))?.byKey.get(nodeKey)?.trigger.type ?? 'auto';
-    const status = tt === 'approval' ? 'awaiting_approval' : 'done';
-    const published = await db.run(
-      `UPDATE nodes SET status=$1, output=$2, updated_at=$3 WHERE flow_id=$4 AND node_key=$5 AND status='running'`,
+    const status = tt === 'approval' ? NODE_STATUS.AWAITING_APPROVAL : NODE_STATUS.DONE;
+    const published = await this.parts.transitions.publishAggregate(parentFlowId, nodeKey, 'fanoutOutcome', {
       status,
-      JSON.stringify({ ...output, steps }),
-      db.now(),
-      parentFlowId,
-      nodeKey
-    );
-    if (published === 0) return;
-    await nodeStore.emitEvent(
-      parentFlowId,
-      nodeKey,
-      'lifecycle',
-      `${nodeKey} fan-out resolved — aggregate published (${(steps as unknown[])?.length ?? 0} steps)${status === 'awaiting_approval' ? ' · awaiting the final approval' : ''}`,
-      { nodeKey }
-    );
+      output: { ...output, steps },
+      attemptId,
+      detail: `fan-out resolved — aggregate published (${(steps as unknown[])?.length ?? 0} steps)${status === NODE_STATUS.AWAITING_APPROVAL ? ' · awaiting the final approval' : ''}`,
+    });
+    if (!published) return;
     await this.touch(parentFlowId);
     if (isNodeTerminalSuccess(status)) {
       await this.advanceFrom(parentFlowId, nodeKey);
     }
-    await this.clearCurrentIf(parentFlowId, nodeKey);
   }
 
   /**
@@ -256,50 +264,42 @@ export class FlowEngine {
    * worst-of status of its unit entries (decision 4: failed >
    * awaiting_approval > done), and the parent continues via the normal edge
    * evaluation on a success terminal. A failed aggregate holds for the
-   * per-unit actions (Retry the failed unit).
+   * per-unit actions (Retry the failed unit). The authority's `running`
+   * from-set is the fence — a stale aggregate can no longer clobber a node
+   * the user retried or cancelled (the step-00 characterization test).
    */
-  async finishSplit(parentFlowId: string, nodeKey: string, output: Record<string, unknown>): Promise<void> {
+  async finishSplit(parentFlowId: string, nodeKey: string, output: Record<string, unknown>, attemptId?: string | null): Promise<void> {
     const def = await this.defOf(parentFlowId, nodeKey);
     const splitContract = (def.capabilities as NodeCapabilities | undefined)?.splitOutput;
     let units: unknown = output.units ?? [];
     try {
       units = ((splitContract ?? DEFAULT_SPLIT_OUTPUT).parse({ units }) as { units?: unknown })?.units ?? units;
     } catch (e: unknown) {
-      await db.emitEvent(
+      await this.parts.events.error(
         parentFlowId,
-        null,
-        'error',
+        nodeKey,
         `${nodeKey}: the split aggregate failed its output contract — publishing it unvalidated (${e instanceof Error ? e.message : e})`,
         { nodeKey }
       );
     }
     // worst-of the unit entries (decision 4): failed > awaiting_approval > done
     const entries = Array.isArray(units) ? (units as { status?: unknown }[]) : [];
-    const status = entries.some(u => u?.status === 'failed')
-      ? 'failed'
-      : entries.some(u => u?.status === 'awaiting_approval')
-        ? 'awaiting_approval'
-        : 'done';
-    await db.run(
-      `UPDATE nodes SET status=$1, output=$2, updated_at=$3 WHERE flow_id=$4 AND node_key=$5`,
+    const status = entries.some(u => u?.status === NODE_STATUS.FAILED)
+      ? NODE_STATUS.FAILED
+      : entries.some(u => u?.status === NODE_STATUS.AWAITING_APPROVAL)
+        ? NODE_STATUS.AWAITING_APPROVAL
+        : NODE_STATUS.DONE;
+    const published = await this.parts.transitions.publishAggregate(parentFlowId, nodeKey, 'splitOutcome', {
       status,
-      JSON.stringify({ ...output, units }),
-      db.now(),
-      parentFlowId,
-      nodeKey
-    );
-    await nodeStore.emitEvent(
-      parentFlowId,
-      nodeKey,
-      'lifecycle',
-      `${nodeKey} split resolved — aggregate published (${entries.length} units)${status === 'awaiting_approval' ? ' · a unit awaits approval' : status === 'failed' ? ' · a unit failed' : ''}`,
-      { nodeKey }
-    );
+      output: { ...output, units },
+      attemptId,
+      detail: `split resolved — aggregate published (${entries.length} units)${status === NODE_STATUS.AWAITING_APPROVAL ? ' · a unit awaits approval' : status === NODE_STATUS.FAILED ? ' · a unit failed' : ''}`,
+    });
+    if (!published) return;
     await this.touch(parentFlowId);
     if (isNodeTerminalSuccess(status)) {
       await this.advanceFrom(parentFlowId, nodeKey);
     }
-    await this.clearCurrentIf(parentFlowId, nodeKey);
   }
 
   /** True when the flow is a step child (plan fan-out). Engine internal helper. */
@@ -346,7 +346,7 @@ export class FlowEngine {
   // ── context ──────────────────────────────────────────────────────────────
 
   async ctx(flowId: string): Promise<FlowCtx> {
-    const flow = await rows.get(FlowRow, `SELECT id, task_id AS "taskId", name, status, mr_url AS "mrUrl", mr_iid AS "mrIid", mr_branch AS "mrBranch", repo_url AS "repoUrl", gitlab_project_id AS "gitlabProjectId", current_node AS "currentNode", execution_mode AS "executionMode", repo_id AS "repoId", template_id AS "templateId", template_graph AS "templateGraph", trigger_payload AS "triggerPayload", worktree_dir AS "worktreeDir", parent_flow_id AS "parentFlowId", kind, created_at AS "createdAt", updated_at AS "updatedAt" FROM flows WHERE id=$1`, flowId);
+    const flow = await rows.get(FlowRow, `SELECT id, task_id AS "taskId", name, status, mr_url AS "mrUrl", mr_iid AS "mrIid", mr_branch AS "mrBranch", repo_url AS "repoUrl", gitlab_project_id AS "gitlabProjectId", execution_mode AS "executionMode", repo_id AS "repoId", template_id AS "templateId", template_graph AS "templateGraph", trigger_payload AS "triggerPayload", worktree_dir AS "worktreeDir", parent_flow_id AS "parentFlowId", kind, created_at AS "createdAt", updated_at AS "updatedAt" FROM flows WHERE id=$1`, flowId);
     if (!flow) throw new NotFoundError('flow', flowId);
     const task = await rows.get(Task, `SELECT id, type, key, summary, description, status, issue_type AS "issueType", priority, repo_url AS "repoUrl", parent_key AS "parentKey", external_url AS "externalUrl", raw, synced_at AS "syncedAt", fields FROM tasks WHERE id=$1`, flow.taskId);
     if (!task) throw new NotFoundError('task', flow.taskId);
@@ -358,59 +358,56 @@ export class FlowEngine {
     await db.run(`UPDATE flows SET updated_at=$1 WHERE id=$2`, db.now(), flowId);
   }
 
-  /** Engine internals shared with the SDLC builtin-chain module — not a public API. */
-  async setCurrentNode(flowId: string, key: string | null): Promise<void> {
-    await db.run(`UPDATE flows SET current_node=$1, updated_at=$2 WHERE id=$3`, key, db.now(), flowId);
+  /**
+   * The engine's keyed transition wrapper (engine internals shared with the
+   * SDLC builtin-chain module — not a public API): a thin delegate to the
+   * transition authority's declared table. Returns false when the from-set
+   * missed.
+   */
+  async setNodeStatus(
+    flowId: string,
+    nodeKey: string,
+    key: TransitionKey,
+    opts: { toStatus?: EngineNodeStatus; patch?: Record<string, unknown>; detail?: string } = {},
+  ): Promise<boolean> {
+    return this.parts.transitions.apply(flowId, nodeKey, key, opts);
   }
 
-  /** Engine internals shared with the SDLC builtin-chain module — not a public API. */
-  async setNodeStatus(flowId: string, nodeKey: string, status: string): Promise<void> {
-    await nodeStore.setStatus(flowId, nodeKey, status as NodeStatus);
+  /** Atomically claim a node for a background run (see docs/coding-patterns.md
+   *  §3.6) — keyed delegate to the authority: from-set guard, fresh attempt
+   *  token, registry mark. */
+  async claimNode(flowId: string, nodeKey: string, key: TransitionKey): Promise<string> {
+    const { attemptId } = await this.parts.transitions.claim(flowId, nodeKey, key);
+    return attemptId;
   }
 
-  /** Atomically claim a node for a background run (see docs/coding-patterns.md §3.6). */
-  async claimNode(flowId: string, nodeKey: string, from: readonly NodeStatus[]): Promise<string> {
-    const attempt = await nodeStore.claim(flowId, nodeKey, from);
-    const nodeId = await nodeStore.idOf(flowId, nodeKey);
-    if (nodeId) {
-      nodeAttemptRegistry.mark(nodeId, attempt);
-    }
-    return attempt;
-  }
-
-  // fire-and-forget wrapper: runs , marks node failed on error.
+  // fire-and-forget wrapper: runs, marks the node failed on error via the
+  // authority's declared `stageError` transition.
   // Engine internals shared with the SDLC builtin-chain module — not a public API.
-  bg(flowId: string, nodeKey: string | null, fn: () => Promise<void>, clearCurrentKey?: string | null): void {
-    const clearKey = clearCurrentKey ?? nodeKey;
+  bg(flowId: string, nodeKey: string | null, fn: () => Promise<void>): void {
     void (async () => {
-      const nodeId = nodeKey ? await nodeStore.idOf(flowId, nodeKey) : null;
       try {
         await fn();
       } catch (e: unknown) {
         if (e instanceof RunSupersededError) return;
         const msg = e instanceof Error ? e.message : String(e);
-        await db.emitEvent(flowId, null, 'error', msg, { nodeKey });
+        await this.parts.events.error(flowId, nodeKey, msg, { nodeKey });
         if (nodeKey) {
-          await db.run(
-            `UPDATE nodes SET status=$1, attempt_id=NULL, updated_at=$2 WHERE flow_id=$3 AND node_key=$4 AND status=$5`,
-            NODE_STATUS.FAILED,
-            db.now(),
-            flowId,
-            nodeKey,
-            NODE_STATUS.RUNNING
-          );
+          await this.parts.transitions.failFromRunning(flowId, nodeKey);
         }
       } finally {
-        if (nodeId) {
-          const attemptId = (
-            await db.get<{ attemptId: string | null }>(
-              `SELECT attempt_id AS "attemptId" FROM nodes WHERE id=$1`,
-              nodeId,
-            )
-          )?.attemptId;
-          nodeAttemptRegistry.clear(nodeId, attemptId);
+        if (nodeKey) {
+          const nodeId = await this.parts.nodeStore.idOf(flowId, nodeKey);
+          if (nodeId) {
+            const attemptId = (
+              await db.get<{ attemptId: string | null }>(
+                `SELECT attempt_id AS "attemptId" FROM nodes WHERE id=$1`,
+                nodeId,
+              )
+            )?.attemptId;
+            this.parts.attemptRegistry.clear(nodeId, attemptId);
+          }
         }
-        if (clearKey) await this.clearCurrentIf(flowId, clearKey);
         await this.touch(flowId);
       }
     })();
@@ -562,8 +559,12 @@ export class FlowEngine {
 
   // ── structured plan step editing ─────────────────────────────────────────
   private async assertPlanEditable(flowId: string) {
-    const flow = await rows.get(FlowRow, `SELECT id, task_id AS "taskId", name, status, mr_url AS "mrUrl", mr_iid AS "mrIid", mr_branch AS "mrBranch", repo_url AS "repoUrl", gitlab_project_id AS "gitlabProjectId", current_node AS "currentNode", execution_mode AS "executionMode", repo_id AS "repoId", template_id AS "templateId", template_graph AS "templateGraph", trigger_payload AS "triggerPayload", worktree_dir AS "worktreeDir", parent_flow_id AS "parentFlowId", kind, created_at AS "createdAt", updated_at AS "updatedAt" FROM flows WHERE id=$1`, flowId);
-    if (flow?.currentNode) throw new Error(`wait for the ${flow.currentNode} run to finish before editing steps`);
+    // derive the in-flight run from node statuses (Q5: current_node is gone)
+    const running = await db.get<{ nodeKey: string }>(
+      `SELECT node_key AS "nodeKey" FROM nodes WHERE flow_id=$1 AND status='running' LIMIT 1`,
+      flowId
+    );
+    if (running) throw new Error(`wait for the ${running.nodeKey} run to finish before editing steps`);
     return this.latestResourceArtifact<{ id: string }>(flowId, NODE_KEYS.PLAN, 'a.id');
   }
 
@@ -613,7 +614,7 @@ export class FlowEngine {
       input.map(s => ({ title: s.title.trim(), detail: s.detail, files: s.files, branch: s.branch })),
       { matchedRows: matched }
     );
-    await db.emitEvent(flowId, null, 'lifecycle', `plan checklist edited (${updated.length} steps)`, {
+    await this.parts.events.lifecycle(flowId, null, `plan checklist edited (${updated.length} steps)`, {
       // route the event to the tab that owns the checklist (§3.3 — stamped at
       // emit time; the feed no longer guesses from message text)
       nodeKey: (await this.keyOfRole(flowId, NODE_KEYS.PLAN)) ?? undefined,
@@ -706,7 +707,7 @@ export class FlowEngine {
 
   /** Engine internals shared with the SDLC builtin-chain module — not a public API. */
   async nodeStatus(flowId: string, nodeKey: string): Promise<string | null> {
-    return nodeStore.statusOf(flowId, nodeKey);
+    return this.parts.nodeStore.statusOf(flowId, nodeKey);
   }
 
   /**
@@ -731,82 +732,43 @@ export class FlowEngine {
    * Engine internals shared with the SDLC builtin-chain module — not a public API.
    */
 
-  async approvePlan(flowId: string, executionOverride?: 'whole' | 'steps'): Promise<void> {
-    const planKey = await this.keyOfRole(flowId, NODE_KEYS.PLAN);
-    if (!planKey) throw new Error('this flow template has no plan node');
-    const planStatus = await this.nodeStatus(flowId, planKey);
-    if (planStatus !== 'awaiting_approval') {
-      throw new ConflictError(`plan is not awaiting approval (${planStatus})`);
-    }
-    // Phase 3B: the plan panel's override chip — the user forced whole/steps
-    // at approve. Recorded in the plan version's plan-meta (execution +
-    // executionSource: "override") so a downstream from-plan fan-out node
-    // honors it; every plan-meta field rides the artifact, so the override is
-    // auditable per version. When the forced value equals the published one,
-    // the approve is a no-op for the meta.
-    if (executionOverride === 'whole' || executionOverride === 'steps') {
-      const plan = await this.latestResourceArtifact<{ id: string; meta: string | null }>(flowId, NODE_KEYS.PLAN);
-      if (!plan) throw new Error('no plan to approve');
-      let meta: Record<string, unknown> = {};
-      try {
-        // plan-meta rides the artifact's JSONB `meta` column — already parsed
-        // by the driver (Prisma); legacy string-encoded rows still parse
-        const m = typeof plan.meta === 'string' ? JSON.parse(plan.meta) : plan.meta;
-        if (m && typeof m === 'object' && !Array.isArray(m)) meta = m as Record<string, unknown>;
-      } catch {
-        meta = {};
-      }
-      const was = meta.execution === 'steps' ? 'steps' : 'whole';
-      const wasSource = typeof meta.executionSource === 'string' ? meta.executionSource : 'unknown';
-      if (was !== executionOverride) {
-        meta.execution = executionOverride;
-        meta.executionSource = 'override';
-        delete meta.execution_rationale; // the planner's rationale no longer applies
-        await db.run(`UPDATE artifacts SET meta=$1, updated_at=$2 WHERE id=$3`, JSON.stringify(meta), db.now(), plan.id);
-        await nodeStore.emitEvent(
-          flowId,
-          planKey,
-          'lifecycle',
-          `plan execution overridden at approve: will execute ${executionOverride} (was ${was}, ${wasSource})`,
-          { nodeKey: planKey }
-        );
-      }
-    }
-    const plan = await this.latestResourceArtifact<{ id: string; content: string; meta: string | null }>(
-      flowId,
-      NODE_KEYS.PLAN
-    );
-    if (!plan) throw new Error('no plan to approve');
-    await db.run(`UPDATE artifacts SET status='approved' WHERE id=$1`, plan.id);
-    await nodeSupport.transition(flowId, planKey, ['awaiting_approval'], 'approved');
+  // ── approvals (FlowApprovalService — lib/engine/flow/) ───────────────────
 
-    // approvePlan originally inlined the plan→build handoff (plan-meta branch
-    // decomposition, sequential builds). It now lives in the build node's
-    // triggerRuns (a built-in internal) and is activated by the template edge
-    // evaluation here. The run attribution picks the first downstream node the
-    // engine will actually start (auto / approval trigger) — the SDLC build
-    // today; custom edge targets in Phase 2 templates.
-    const g = await this.graph(flowId);
-    const targets = g?.edges.filter(e => e.kind === 'next' && e.from === planKey) ?? [];
-    const attribution =
-      targets
-        .map(e => e.to)
-        .find(k => {
-          const tt = g?.byKey.get(k)?.trigger.type ?? 'auto';
-          return tt === 'auto' || tt === 'approval';
-        }) ?? planKey;
-    await this.setCurrentNode(flowId, attribution);
-    this.bg(flowId, attribution, () => this.advanceFrom(flowId, planKey).then(() => {}));
+  /** Approve the plan (optional execution override chip) and release its edges. */
+  async approvePlan(flowId: string, executionOverride?: 'whole' | 'steps'): Promise<void> {
+    await this.approvals.approvePlan(flowId, executionOverride);
   }
 
+  /** Approve the build output ("Approve & create MR") — step children route
+   *  to the fan-out approve. */
   async approveBuild(flowId: string, branchName?: string): Promise<void> {
-    // step children route to the fan-out approve (merge-back, approve ≠ MR);
-    // the parent's aggregate approval flows through the untouched chain below
-    if (await this.isStepChild(flowId)) {
-      await stepFlows.approveChildStep(flowId);
-      return;
-    }
+    await this.approvals.approveBuild(flowId, branchName);
+  }
+
+  /** The ChainHost / ApprovalHost port: the builtin chain's build approval. */
+  async sdlcApproveBuild(flowId: string, branchName?: string): Promise<void> {
     await this.chain.approveBuild(flowId, branchName);
+  }
+
+  /** The ChainHost / ApprovalHost port: typed lifecycle emission. */
+  async emitLifecycle(flowId: string, nodeKey: string | null, message: string, data?: Record<string, unknown>): Promise<void> {
+    await this.parts.events.lifecycle(flowId, nodeKey, message, data);
+  }
+
+  /** The ChainHost port: typed MR-creation-failure emission. */
+  async emitMrFailed(flowId: string, nodeKey: string | null, message: string, data?: Record<string, unknown>): Promise<void> {
+    await this.parts.events.mrFailed(flowId, nodeKey, message, data);
+  }
+
+  /** Approve an `awaiting_approval` node generically (approval-triggered
+   *  declarative nodes; e.g. an agent output held for review). */
+  async approveNode(flowId: string, nodeKey: string): Promise<void> {
+    await this.approvals.approveNode(flowId, nodeKey);
+  }
+
+  /** Record a branch pick on a decision node awaiting its choice (§4.3). */
+  async chooseNode(flowId: string, nodeKey: string, chosen: string[], rationale?: string): Promise<void> {
+    await this.approvals.chooseNode(flowId, nodeKey, chosen, rationale);
   }
 
   /** (Re)run the pipeline gate — from the Pipeline panel, poller, or webhook. */
@@ -882,10 +844,8 @@ export class FlowEngine {
     if (node.status !== 'pending' && !(node.status === 'failed' && def.isEntry)) {
       throw new ConflictError(`run is not available while the node is ${node.status}`);
     }
-    const claimFrom: readonly NodeStatus[] =
-      node.status === 'failed' && def.isEntry ? ['failed'] : ['pending'];
-    await this.claimNode(flowId, nodeKey, claimFrom);
-    await this.setCurrentNode(flowId, nodeKey);
+    const claimKey: TransitionKey = node.status === 'failed' && def.isEntry ? 'retry' : 'runFromPending';
+    await this.claimNode(flowId, nodeKey, claimKey);
     this.bg(flowId, nodeKey, async () => {
       const g = await this.graph(flowId);
       if (g && !(await this.joinSatisfied(flowId, g, nodeKey))) {
@@ -918,85 +878,6 @@ export class FlowEngine {
     });
   }
 
-  /**
-   * Approve an `awaiting_approval` node generically (approval-triggered
-   * declarative nodes; e.g. an agent output held for review). Outgoing
-   * template edges activate on approval — the same contract as plan/build.
-   */
-  async approveNode(flowId: string, nodeKey: string): Promise<void> {
-    const node = await rows.get(NodeRow, `SELECT id, flow_id AS "flowId", node_key AS "nodeKey", type, status, attempt_id AS "attemptId", agent_id AS "agentId", agent_ref AS "agentRef", session_id AS "sessionId", prompt_override AS "promptOverride", label, config, join_mode AS "joinMode", input, output, created_at AS "createdAt", updated_at AS "updatedAt" FROM nodes WHERE flow_id=$1 AND node_key=$2`, flowId, nodeKey);
-    if (!node) throw new NotFoundError('node', nodeKey);
-    // step children route to the fan-out approve (merge-back vs plain approval)
-    if ((await this.isStepChild(flowId)) && node.status === 'awaiting_approval') {
-      await stepFlows.approveChildStep(flowId);
-      return;
-    }
-    if (node.status !== 'awaiting_approval') {
-      throw new ConflictError(`${nodeKey} is not awaiting approval`);
-    }
-    const def = await this.defOf(flowId, nodeKey);
-    if (def.builtinApproval) throw new ValidationError(`${nodeKey} approval belongs to its built-in flow actions`);
-    await db.emitEvent(flowId, node.id, 'lifecycle', `${nodeKey} approved`);
-    await nodeSupport.transition(flowId, nodeKey, ['awaiting_approval'], 'approved');
-
-    const g = await this.graph(flowId);
-    const targets = g?.edges.filter(e => e.kind === 'next' && e.from === nodeKey) ?? [];
-    const attribution =
-      targets
-        .map(e => e.to)
-        .find(k => {
-          const tt = g?.byKey.get(k)?.trigger.type ?? 'auto';
-          return tt === 'auto' || tt === 'approval';
-        }) ?? nodeKey;
-    await this.setCurrentNode(flowId, attribution);
-    this.bg(flowId, attribution, async () => {
-      await this.advanceFrom(flowId, nodeKey);
-    });
-  }
-
-  /**
-   * Record a branch pick on a decision node awaiting its choice (§4.3 manual
-   * source / approval-override): validates the labels against the node's
-   * choices, marks the node approved with `{chosen, rationale}` output, and
-   * activates the chosen outgoing edges (everything else resolves inactive).
-   */
-  async chooseNode(flowId: string, nodeKey: string, chosen: string[], rationale?: string): Promise<void> {
-    const node = await rows.get(NodeRow, `SELECT id, flow_id AS "flowId", node_key AS "nodeKey", type, status, attempt_id AS "attemptId", agent_id AS "agentId", agent_ref AS "agentRef", session_id AS "sessionId", prompt_override AS "promptOverride", label, config, join_mode AS "joinMode", input, output, created_at AS "createdAt", updated_at AS "updatedAt" FROM nodes WHERE flow_id=$1 AND node_key=$2`, flowId, nodeKey);
-    if (!node) throw new NotFoundError('node', nodeKey);
-    if (node.status !== 'awaiting_approval') {
-      throw new ConflictError(`${nodeKey} is not waiting for a branch choice`);
-    }
-    const def = await this.defOf(flowId, nodeKey);
-    if (!('applyChoice' in def) || typeof (def as { applyChoice?: unknown }).applyChoice !== 'function') {
-      throw new Error(`${nodeKey} is not a decision node`);
-    }
-    if (!Array.isArray(chosen) || !chosen.length) throw new Error('pick at least one branch');
-    await (
-      def as { applyChoice: (n: NodeRow, f: string, c: string[], r?: string, ctx?: FlowCtx) => Promise<void> }
-    ).applyChoice(
-      node,
-      flowId,
-      chosen.map(c => String(c)),
-      rationale?.trim() || undefined,
-      await this.ctx(flowId)
-    );
-
-    // release downstream exactly like a generic approval does
-    const g = await this.graph(flowId);
-    const targets = g?.edges.filter(e => e.kind === 'next' && e.from === nodeKey) ?? [];
-    const attribution =
-      targets
-        .map(e => e.to)
-        .find(k => {
-          const tt = g?.byKey.get(k)?.trigger.type ?? 'auto';
-          return tt === 'auto' || tt === 'approval';
-        }) ?? nodeKey;
-    await this.setCurrentNode(flowId, attribution);
-    this.bg(flowId, attribution, async () => {
-      await this.advanceFrom(flowId, nodeKey);
-    });
-  }
-
   /** Update a node instance's config layer (nodes.config), merging per key. */
   async setNodeConfig(flowId: string, nodeKey: string, config: Record<string, unknown>): Promise<void> {
     const node = await rows.get(NodeRow, `SELECT id, flow_id AS "flowId", node_key AS "nodeKey", type, status, attempt_id AS "attemptId", agent_id AS "agentId", agent_ref AS "agentRef", session_id AS "sessionId", prompt_override AS "promptOverride", label, config, join_mode AS "joinMode", input, output, created_at AS "createdAt", updated_at AS "updatedAt" FROM nodes WHERE flow_id=$1 AND node_key=$2`, flowId, nodeKey);
@@ -1014,8 +895,8 @@ export class FlowEngine {
       const msg = e instanceof Error ? e.message : String(e);
       throw new ValidationError(msg);
     }
-    await nodeSupport.setNode(node.id, { config: JSON.stringify(snapshot) });
-    await db.emitEvent(flowId, node.id, 'lifecycle', `${nodeKey} config updated`);
+    await this.parts.nodeSupport.setNode(node.id, { config: JSON.stringify(snapshot) });
+    await this.parts.events.lifecycle(flowId, nodeKey, `${nodeKey} config updated`);
     await this.touch(flowId);
   }
 
@@ -1066,13 +947,6 @@ export class FlowEngine {
     await this.retryNode(step.subFlowId, workNodeKey);
   }
 
-  /** Clear the current-node pointer when it still points at the given node.
-   *  Engine internals shared with the SDLC builtin-chain module — not a public API. */
-  async clearCurrentIf(flowId: string, nodeKey: string): Promise<void> {
-    const flow = await rows.get(FlowRow, `SELECT id, task_id AS "taskId", name, status, mr_url AS "mrUrl", mr_iid AS "mrIid", mr_branch AS "mrBranch", repo_url AS "repoUrl", gitlab_project_id AS "gitlabProjectId", current_node AS "currentNode", execution_mode AS "executionMode", repo_id AS "repoId", template_id AS "templateId", template_graph AS "templateGraph", trigger_payload AS "triggerPayload", worktree_dir AS "worktreeDir", parent_flow_id AS "parentFlowId", kind, created_at AS "createdAt", updated_at AS "updatedAt" FROM flows WHERE id=$1`, flowId);
-    if (flow?.currentNode === nodeKey) await this.setCurrentNode(flowId, null);
-  }
-
   /** Re-run a node after failure, using its recorded (schema-validated) input. */
   async retryNode(flowId: string, nodeKey: string): Promise<void> {
     const node = await rows.get(NodeRow, `SELECT id, flow_id AS "flowId", node_key AS "nodeKey", type, status, attempt_id AS "attemptId", agent_id AS "agentId", agent_ref AS "agentRef", session_id AS "sessionId", prompt_override AS "promptOverride", label, config, join_mode AS "joinMode", input, output, created_at AS "createdAt", updated_at AS "updatedAt" FROM nodes WHERE flow_id=$1 AND node_key=$2`, flowId, nodeKey);
@@ -1095,9 +969,8 @@ export class FlowEngine {
       return;
     }
 
-    await db.emitEvent(flowId, node.id, 'lifecycle', `retrying ${nodeKey}`);
-    await this.claimNode(flowId, nodeKey, ['failed']);
-    await this.setCurrentNode(flowId, nodeKey);
+    await this.parts.events.lifecycle(flowId, nodeKey, `retrying ${nodeKey}`);
+    await this.claimNode(flowId, nodeKey, 'retry');
     this.bg(flowId, nodeKey, async () => {
       // a retried node re-runs on its recorded input; the pipeline gate
       // self-heals (an already-green head finishes immediately) and a green
@@ -1126,22 +999,20 @@ export class FlowEngine {
     def: NodeDefinition,
     recorded: PlanInput
   ): Promise<void> {
-    await db.emitEvent(flowId, node.id, 'lifecycle', `retrying ${nodeKey}`);
+    await this.parts.events.lifecycle(flowId, nodeKey, `retrying ${nodeKey}`);
     const turnMessage = recorded.turnUserMessage?.trim();
     if (!turnMessage) {
       const revertStatus = resolvePlanFailedRetryStatus(
         recorded,
         (await this.latestResourceArtifact(flowId, NODE_KEYS.PLAN)) != null
       );
-      await nodeSupport.transition(flowId, nodeKey, ['failed'], revertStatus);
-      await db.emitEvent(flowId, node.id, 'lifecycle', PLAN_CHAT_READY_LIFECYCLE);
-      await this.clearCurrentIf(flowId, nodeKey);
+      await this.parts.transitions.applyOrThrow(flowId, nodeKey, 'planRetryRevert', { toStatus: revertStatus });
+      await this.parts.events.lifecycle(flowId, nodeKey, PLAN_CHAT_READY_LIFECYCLE);
       await this.touch(flowId);
       return;
     }
 
-    await this.claimNode(flowId, nodeKey, ['failed']);
-    await this.setCurrentNode(flowId, nodeKey);
+    await this.claimNode(flowId, nodeKey, 'retry');
     this.bg(flowId, nodeKey, async () => {
       const chatRefiner = nodeRoles.chatRefinerOf(def);
       if (!chatRefiner) {
@@ -1171,20 +1042,17 @@ export class FlowEngine {
     if (node.status !== 'running' && node.status !== 'waiting' && node.status !== 'awaiting_approval') {
       throw new ConflictError(`cannot cancel ${nodeKey} while it is ${node.status}`);
     }
-    const flow = await rows.get(FlowRow, `SELECT id, task_id AS "taskId", name, status, mr_url AS "mrUrl", mr_iid AS "mrIid", mr_branch AS "mrBranch", repo_url AS "repoUrl", gitlab_project_id AS "gitlabProjectId", current_node AS "currentNode", execution_mode AS "executionMode", repo_id AS "repoId", template_id AS "templateId", template_graph AS "templateGraph", trigger_payload AS "triggerPayload", worktree_dir AS "worktreeDir", parent_flow_id AS "parentFlowId", kind, created_at AS "createdAt", updated_at AS "updatedAt" FROM flows WHERE id=$1`, flowId);
+    const mode = (await db.get<{ executionMode: string | null }>(`SELECT execution_mode AS "executionMode" FROM flows WHERE id=$1`, flowId))?.executionMode === 'local' ? 'local' : 'cloud';
     const active = await db.all<{ runRef: string }>(
       `SELECT run_ref AS "runRef" FROM runs WHERE node_id=$1 AND status='running'`,
       node.id
     );
-    const mode = flow?.executionMode === 'local' ? 'local' : 'cloud';
     for (const r of active) {
       await (await agentPortRegistry.forMode(mode)).cancel({ runId: r.runRef });
     }
     this.waits.clearTimerForNode(flowId, nodeKey);
     await db.run(`UPDATE runs SET status='error', updated_at=$1 WHERE node_id=$2 AND status='running'`, db.now(), node.id);
-    await nodeSupport.transition(flowId, nodeKey, ['running', 'waiting', 'awaiting_approval'], 'failed');
-    await this.clearCurrentIf(flowId, nodeKey);
-    await db.emitEvent(flowId, node.id, 'lifecycle', `${nodeKey} stopped by user — retry when ready`);
+    await this.parts.transitions.applyOrThrow(flowId, nodeKey, 'cancel');
     await this.touch(flowId);
     if (await this.isStepChild(flowId)) {
       // child-terminal notification hook (plan fan-out): a stopped step child
@@ -1210,15 +1078,8 @@ export class FlowEngine {
       this.waits.clearTimerForNode(flowId, nodeKey);
     }
     const wasSuccess = isNodeTerminalSuccess(preClaimStatus ?? '');
-    await this.claimNode(flowId, nodeKey, [
-      "pending",
-      "awaiting_approval",
-      "failed",
-      "done",
-      "waiting",
-    ]);
+    await this.claimNode(flowId, nodeKey, 'chatRefine');
 
-    await this.setCurrentNode(flowId, nodeKey);
     this.bg(
       flowId,
       nodeKey,
@@ -1247,7 +1108,6 @@ export class FlowEngine {
           await this.advanceFrom(flowId, nodeKey);
         }
       },
-      nodeKey
     );
   }
 
@@ -1292,23 +1152,51 @@ export class FlowEngine {
     if (ok) return true;
 
     // node declined recovery → fail it so the user can retry
-    await nodeSupport.setNode(node.id, { status: 'failed' });
+    await this.parts.transitions.apply(c.flow.id, node.nodeKey, 'recoverDeclined');
     if (result.status !== 'finished') {
-      await db.emitEvent(
+      await this.parts.events.error(
         c.flow.id,
-        node.id,
-        'error',
+        node.nodeKey,
         `${node.nodeKey} run ended with ${result.status} (${note}) — retry the node to continue`
       );
     } else {
-      await db.emitEvent(
+      await this.parts.events.lifecycle(
         c.flow.id,
-        node.id,
-        'lifecycle',
+        node.nodeKey,
         `${node.nodeKey} run finished while disconnected (${note}) — retry the node to apply it`
       );
     }
     return true;
+  }
+
+  /** Reconciler surface: mark an orphaned run's node failed (nothing
+   *  recoverable) through the declared `orphanFail` transition. */
+  async failOrphanedNode(flowId: string, nodeId: string, nodeKey: string, reason: string): Promise<void> {
+    const applied = await this.parts.transitions.apply(flowId, nodeKey, 'orphanFail');
+    if (!applied) return; // already reconciled by a concurrent pass
+    await db.run(
+      `UPDATE runs SET status=$1, updated_at=$2 WHERE node_id=$3 AND status=$4`,
+      RUN_STATUS.ERROR,
+      db.now(),
+      nodeId,
+      RUN_STATUS.RUNNING,
+    );
+    await this.parts.events.error(flowId, nodeKey, `${nodeKey}: ${reason} — retry the node to continue`);
+  }
+
+  /**
+   * Reconciler liveness hint: an attempt of this node is executing in this
+   * process (the attempt registry the authority marks). Step 03 replaces this
+   * with durable leases.
+   */
+  activeAttempt(nodeId: string): boolean {
+    return this.parts.attemptRegistry.isActive(nodeId);
+  }
+
+  /** The transition authority this engine writes through (engine-internal
+   *  accessor — diagnostics and the test harness's transition-log assert). */
+  get transitions() {
+    return this.parts.transitions;
   }
 }
 

@@ -16,6 +16,7 @@ const { db } = await import("../../../../db/app");
 
 beforeAll(resetTestDatabase);
 const { NodeSupport } = await import("../../shared/nodeSupport");
+const { engineParts } = await import("@/lib/composition/container");
 const { ResolveEffects, planResolveEffects } = await import("./resolveEffects");
 const { RESOLVE_COMMENT_ACTION } = await import("./constants/commentActions");
 const { PUSH_STATE } = await import("./constants/pushState");
@@ -244,7 +245,7 @@ describe("ResolveEffects.apply — host effects with retry + ledger", () => {
   beforeAll(async () => {
     nodeId = await seedFlow(flowId);
   });
-  const support = new NodeSupport();
+  const support = new NodeSupport(engineParts.transitions);
   const repoUrl = "https://gitlab.company.com/group/repo.git";
 
   const seedComment = async (

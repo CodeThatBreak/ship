@@ -53,11 +53,9 @@ const FROZEN_OFFENDERS: readonly string[] = [
   "lib/engine/nodes/declarativeRegistry.ts", // declarativeKindRegistry/declarativeDefCache
   "lib/engine/tasks/taskService.ts",
   "lib/engine/tasks/liveTaskFeed.ts", // liveTaskFeed
-  "lib/engine/runtime/nodeStore.ts",
   "lib/engine/runtime/flowReconciler.ts", // reconciler
   "lib/engine/flowEngine.ts",
   "lib/engine/runtime/flowPoller.ts",
-  "lib/engine/runtime/nodeAttemptRegistry.ts",
   "lib/engine/runtime/fanout/stepFlowManager.ts", // stepFlows
   "lib/engine/runtime/worktreeLifecycle.ts", // worktreeManager
   "lib/engine/runtime/hookStore.ts",

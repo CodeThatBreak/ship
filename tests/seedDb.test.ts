@@ -33,13 +33,34 @@ describe("DatabaseConfig.url", () => {
   });
 });
 
+/**
+ * Minimal scratch schema for the cascade characterization test — the tables
+ * `deleteFlowCascade` sweeps, with just the columns the test inserts. The
+ * legacy `lib/db/schema.sql` was deleted in the Postgres/Prisma era (the
+ * Prisma schema is the source of truth); this inline DDL keeps the sqlite
+ * contract test self-contained until it retires with better-sqlite3.
+ */
+const CASCADE_SCRATCH_SCHEMA = `
+  CREATE TABLE tasks (id TEXT PRIMARY KEY, type TEXT, key TEXT, summary TEXT);
+  CREATE TABLE flows (id TEXT PRIMARY KEY, task_id TEXT, name TEXT, status TEXT, parent_flow_id TEXT, created_at TEXT, updated_at TEXT);
+  CREATE TABLE step_merges (id TEXT PRIMARY KEY, flow_id TEXT, parent_flow_id TEXT, parent_node TEXT, status TEXT, attempts INTEGER, created_at TEXT, updated_at TEXT);
+  CREATE TABLE hooks (id TEXT PRIMARY KEY, template_id TEXT, flow_id TEXT, node_key TEXT, secret TEXT, filter TEXT, created_at TEXT);
+  CREATE TABLE plan_steps (id TEXT PRIMARY KEY, flow_id TEXT);
+  CREATE TABLE events (id TEXT PRIMARY KEY, flow_id TEXT);
+  CREATE TABLE messages (id TEXT PRIMARY KEY, flow_id TEXT);
+  CREATE TABLE runs (id TEXT PRIMARY KEY, flow_id TEXT);
+  CREATE TABLE artifacts (id TEXT PRIMARY KEY, flow_id TEXT);
+  CREATE TABLE comments (id TEXT PRIMARY KEY, flow_id TEXT);
+  CREATE TABLE branches (id TEXT PRIMARY KEY, flow_id TEXT);
+  CREATE TABLE nodes (id TEXT PRIMARY KEY, flow_id TEXT);
+`;
+
 describe("deleteFlowCascade", () => {
   it("removes child flows, hooks, and step_merges before the parent flow", () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), "devflow-seed-cascade-"));
     const dbPath = path.join(dir, "cascade.db");
-    const schema = fs.readFileSync(path.join(AppConfig.root, "lib/db/schema.sql"), "utf8");
     const db = new Database(dbPath);
-    db.exec(schema);
+    db.exec(CASCADE_SCRATCH_SCHEMA);
 
     const taskId = "task_cascade";
     const parentId = "flow_parent";

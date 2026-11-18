@@ -101,9 +101,9 @@ export class DecisionTemplateNode extends DeclarativeAgentNode<DecisionDef, Reco
     const cfg = this.runConfig(await this.nodeConfig(ctx));
     this.validateChoice(chosen, cfg);
     const passed = await this.evalPass(cfg, await buildFlowContext(ctx));
-    await this.support.setNode(node.id, {
-      status: "approved",
-      output: JSON.stringify({ ...passed, chosen, rationale: rationale ?? "chosen by the user" }),
+    // declared transition (awaiting_approval → approved) with the choice output
+    await this.support.applyTransition(flowId, node.nodeKey, "chooseBranch", {
+      patch: { output: JSON.stringify({ ...passed, chosen, rationale: rationale ?? "chosen by the user" }) },
     });
     await this.support.emitLifecycle(flowId, node.id, `branch chosen: ${chosen.join(" + ")}`);
   }
@@ -158,9 +158,10 @@ export class DecisionTemplateNode extends DeclarativeAgentNode<DecisionDef, Reco
   async run(ctx: FlowCtx, rawInput: Record<string, unknown>, config: Record<string, unknown>): Promise<RunOutcome> {
     const cfg = this.runConfig(config);
     const node = await this.node(ctx);
-    // inline paths (manual / expression) — set running, then finish through
-    // the shared outcome path (status + output + event) like execute() does
-    await this.support.setNode(node.id, { status: "running", input: JSON.stringify(rawInput ?? {}) });
+    // inline paths (manual / expression) — record the run input (the stage
+    // claim already holds the node running), then finish through the shared
+    // outcome path (status + output + event) like execute() does
+    await this.support.setNode(node.id, { input: JSON.stringify(rawInput ?? {}) });
 
     const flowCtx = await buildFlowContext(ctx);
     // the pass-down map is source-independent — evaluated once, merged into

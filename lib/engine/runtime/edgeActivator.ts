@@ -1,19 +1,18 @@
 import "server-only";
 
 import { db } from "../../db/app";
-import { type NodeStatus } from "../../db/rows";
 import { ConflictError } from "../../errors";
 import { evalJsonata, jsonataTruthy } from "@/lib/jsonata/eval";
 import { buildFlowContext } from "../context/flowVariables";
-import { isNodeTerminalSuccess, NODE_STATUS } from "../constants/nodeStatus";
+import { NODE_STATUS } from "../constants/nodeStatus";
+import { isNodeTerminalSuccess } from "./transitions/constants/statusSets";
 import { NodeDefinition, splitConsumeOf, type FlowCtx, type SplitConsumeMode } from "../nodes/shared/nodeSharedExports";
 import { nodeRegistry } from "../nodes/registry";
 import { parseStartContract } from "../nodes/kinds/start/contract";
 import { templateStore, type TemplateEdgeSpec, type TemplateGraph } from "../templates/templateStore";
 import { stepFlows } from "./fanout/stepFlowManager";
 import { splitManager } from "./split/splitManager";
-import { nodeStore } from "./nodeStore";
-import { nodeAttemptRegistry } from "./nodeAttemptRegistry";
+import type { TransitionEvents } from "./transitions/transitionEvents";
 import type { EdgeActivatorHost } from "./flowEngineHost";
 import type { WaitScheduler } from "./waitScheduler";
 
@@ -22,6 +21,7 @@ export class EdgeActivator {
   constructor(
     private readonly host: EdgeActivatorHost,
     private readonly waits: WaitScheduler,
+    private readonly events: TransitionEvents,
   ) {}
 
   private async graph(flowId: string): Promise<TemplateGraph | null> {
@@ -117,8 +117,7 @@ export class EdgeActivator {
       if (k === undefined) break;
       const st = await this.host.nodeStatus(flowId, k);
       if (this.statusLoopResettable(st ?? "")) {
-        await this.host.setNodeStatus(flowId, k, "pending");
-        await nodeStore.emitEvent(flowId, k, "lifecycle", `${k} re-enters via the loop edge — reset to pending`);
+        await this.host.setNodeStatus(flowId, k, "loopReentry");
         for (const e of g.edges.filter((e) => e.kind === "next" && e.from === k)) {
           if (!seen.has(e.to)) {
             seen.add(e.to);
@@ -182,7 +181,7 @@ export class EdgeActivator {
       // a broken condition resolves the edge inactive and says so loudly —
       // the engine never silently picks a branch (§4.3)
       if (src.loud !== false) {
-        await db.emitEvent(flowId, null, "error",
+        await this.events.error(flowId, e.from,
           `edge ${e.from} → ${e.to}: the condition failed (${r.error}) — the branch resolves inactive`,
           { nodeKey: e.from });
       }
@@ -238,8 +237,7 @@ export class EdgeActivator {
     if ((await this.host.nodeStatus(flowId, key)) !== "pending") return;
     const r = await this.incomingResolution(flowId, g, key);
     if (r.total === 0 || r.resolved !== r.total || r.active > 0) return;
-    await this.host.setNodeStatus(flowId, key, "skipped");
-    await nodeStore.emitEvent(flowId, key, "lifecycle", `${key} skipped — no active branch leads to it`);
+    await this.host.setNodeStatus(flowId, key, "skipBranch");
     // skipped sources propagate inactive downstream
     for (const e of g.edges.filter((e) => e.kind === "next" && e.from === key)) {
       await this.resolveInactiveTarget(flowId, g, e.to);
@@ -316,14 +314,13 @@ export class EdgeActivator {
         return;
       }
     }
-    const claimFrom: readonly NodeStatus[] = opts.resumeWaiting ? ["waiting"] : ["pending"];
+    const claimKey = opts.resumeWaiting ? "resumeWait" : "runFromPending";
     try {
-      await this.host.claimNode(flowId, nodeKey, claimFrom);
+      await this.host.claimNode(flowId, nodeKey, claimKey);
     } catch (e: unknown) {
       if (e instanceof ConflictError) return;
       throw e;
     }
-    await this.host.setCurrentNode(flowId, nodeKey);
     try {
       const def = await this.host.defOf(flowId, nodeKey);
       // ── fan-out check (plan fan-out, Phase 1): the only engine hook into the
@@ -357,7 +354,7 @@ export class EdgeActivator {
         // knob it shadows so the trail explains the run's shape
         const shadowed = splitConsumeOf(await this.host.nodeConfigFor(flowId, nodeKey));
         if (shadowed !== "whole") {
-          await db.emitEvent(flowId, null, "lifecycle",
+          await this.events.lifecycle(flowId, nodeKey,
             `${nodeKey} ignores split_consume "${shadowed}" — the fan-out knob owns this run`,
             { nodeKey });
         }
@@ -384,13 +381,11 @@ export class EdgeActivator {
       if (fanout === "whole-wrap") await stepFlows.wrapWholeOutput(flowId, nodeKey);
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : String(e);
-      await db.emitEvent(flowId, null, "error", msg, { nodeKey });
-      await db.prisma.node.updateMany({
-        where: { flowId, nodeKey, status: "running" },
-        data: { status: "failed", attemptId: null, updatedAt: new Date() },
-      });
-      const failedNodeId = await nodeStore.idOf(flowId, nodeKey);
-      if (failedNodeId) nodeAttemptRegistry.clear(failedNodeId);
+      await this.events.error(flowId, nodeKey, msg, { nodeKey });
+      // declared stageError: running → failed, attempt cleared — silently
+      // skipped when the node already moved on (the error event carries the
+      // failure detail)
+      await this.host.setNodeStatus(flowId, nodeKey, "stageError");
       if (await this.host.isStepChild(flowId)) {
         // notify hook: this failed stage runs on a step child — its parent's
         // rollup/scheduling reacts (standard failed → retry/skip)
@@ -398,8 +393,6 @@ export class EdgeActivator {
         await splitManager.onChildFinished(flowId); // split runtime (§3) — no-op without split linkage
       }
       return;
-    } finally {
-      await this.host.clearCurrentIf(flowId, nodeKey);
     }
     const finalStatus = await this.host.nodeStatus(flowId, nodeKey);
     if (await this.host.isStepChild(flowId)) {

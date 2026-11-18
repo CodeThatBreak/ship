@@ -14,7 +14,8 @@ import {
 } from "../ports/agentPort";
 import { flowCtxHelper, type FlowContextHelper, type FlowCtx } from "../nodes/shared/runContext";
 import { worktreeManager, type WorktreeManager } from "../runtime/worktreeLifecycle";
-import { nodeSupport, type NodeSupport } from "../nodes/shared/nodeSupport";
+import type { NodeSupport } from "../nodes/shared/nodeSupport";
+import { nodeSupport } from "@/lib/composition/container";
 import { StreamBuffer } from "./streamBuffer";
 import { ToolPairer, type ToolEmitFn } from "./toolPairer";
 import { usageTracker, type RunCostSummary, type UsageTracker } from "./usageTracker";

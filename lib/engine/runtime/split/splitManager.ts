@@ -9,7 +9,9 @@ import {
   NODE_IN_FLIGHT_STATUSES,
   NODE_SUCCESS_STATUSES,
   NODE_TERMINAL_STATUSES,
-} from "../../constants/nodeStatus";
+} from "../transitions/constants/statusSets";
+import type { TransitionKey } from "../transitions/types/transitions";
+import { engineParts } from "@/lib/composition/container";
 import { processSingleton } from "../../../singleton";
 import type { FlowCtx, NodeDefinition } from "../../nodes/shared/nodeSharedExports";
 import {
@@ -217,8 +219,8 @@ interface SplitEngineSurface {
     payload: SplitChildPayload
   ): Promise<string>;
   startStepChild(childFlowId: string): Promise<void>;
-  finishSplit(parentFlowId: string, nodeKey: string, output: Record<string, unknown>): Promise<void>;
-  setNodeStatus(flowId: string, nodeKey: string, status: string): Promise<void>;
+  finishSplit(parentFlowId: string, nodeKey: string, output: Record<string, unknown>, attemptId?: string | null): Promise<void>;
+  setNodeStatus(flowId: string, nodeKey: string, key: TransitionKey): Promise<boolean>;
   retryNode(flowId: string, nodeKey: string): Promise<void>;
   cancelNode(flowId: string, nodeKey: string): Promise<void>;
   advanceFrom(flowId: string, nodeKey: string): Promise<void>;
@@ -237,6 +239,9 @@ function stripSplitKeys(cfg: Record<string, unknown>): Record<string, unknown> {
 export class SplitManager {
   private engine: SplitEngineSurface | null = null;
 
+  // Consumer attempt tokens captured at expand — the join's aggregate publish is attempt-fenced
+  // (stale aggregates lose to the user's re-claim; step 03 makes this durable).
+  private readonly consumerAttempts = new Map<string, string>();
   /** Called once from flow-engine.ts (module tail) — resolves the engine cycle. */
   bind(engine: SplitEngineSurface): void {
     this.engine = engine;
@@ -306,7 +311,8 @@ export class SplitManager {
     }
     if (!made && !existing.size) return false;
     if (made) {
-      await this.e.setNodeStatus(parentFlowId, consumerNodeKey, "running");
+      const attemptId = (await db.prisma.node.findFirst({ where: { flowId: parentFlowId, nodeKey: consumerNodeKey }, select: { attemptId: true } }))?.attemptId;
+      if (attemptId) this.consumerAttempts.set(`${parentFlowId}\n${consumerNodeKey}`, attemptId);
       await db.emitEvent(parentFlowId, null, "lifecycle",
         `${consumerNodeKey} splits into ${made} unit child flow${made > 1 ? "s" : ""} — one child per published unit`,
         { nodeKey: consumerNodeKey });
@@ -559,7 +565,7 @@ export class SplitManager {
     if (couldAdvance) return;
     const entries = states.map((s) => ({ key: s.key, title: s.title, status: s.status, output: s.output }));
     const worst = WORST_OF_PRECEDENCE.find((w) => entries.some((e) => e.status === w)) ?? "done";
-    await this.e.finishSplit(parentFlowId, consumerNodeKey, { units: entries, worst });
+    await this.e.finishSplit(parentFlowId, consumerNodeKey, { units: entries, worst }, this.consumerAttempts.get(`${parentFlowId}\n${consumerNodeKey}`) ?? null);
   }
 
   // ── child terminal hook (the engine's additive tail calls) ─────────────────
@@ -599,9 +605,8 @@ export class SplitManager {
   // ── per-unit actions (§3), addressed by unit.key through the linkage ────────
 
   /**
-   * Skip a unit: stop any in-flight run, mark the unit's nodes skipped, close
-   * the child flow with the `skipped` marker (the aggregate surfaces
-   * `skipped`), and reschedule — the unit's dependents become `blocked`.
+   * Skip a unit: stop in-flight runs, mark its nodes skipped, close the child
+   * flow `skipped`, reschedule — dependents become `blocked`.
    */
   async skipUnit(parentFlowId: string, consumerNodeKey: string, unitKey: string): Promise<void> {
     const state = await this.stateFor(parentFlowId, consumerNodeKey, unitKey);
@@ -610,10 +615,7 @@ export class SplitManager {
       throw new Error(`unit "${unitKey}" is already ${state.status}`);
     }
     await this.stopActiveChildNodes(state.childFlowId);
-    await db.prisma.node.updateMany({
-      where: { flowId: state.childFlowId, status: { notIn: ["done", "skipped"] } },
-      data: { status: "skipped", updatedAt: new Date() },
-    });
+    await engineParts.transitions.applyFlowScope(state.childFlowId, "skipUnit"); // terminals never overwritten
     await db.prisma.flow.update({ where: { id: state.childFlowId }, data: { status: "skipped", updatedAt: new Date() } });
     await db.emitEvent(parentFlowId, null, "lifecycle",
       `split unit "${state.title}" skipped`, { nodeKey: consumerNodeKey, unitKey, childFlowId: state.childFlowId });
@@ -633,9 +635,8 @@ export class SplitManager {
   }
 
   /**
-   * Approve a unit holding at `awaiting_approval`. Implemented inline (not
-   * through the generic approveNode): that route sends every child flow to
-   * the plan fan-out approve, which split children have no plan step for.
+   * Approve a unit holding at `awaiting_approval` — inline (not the generic
+   * approveNode: that route sends child flows to the plan fan-out approve).
    */
   async approveUnit(parentFlowId: string, consumerNodeKey: string, unitKey: string): Promise<void> {
     const state = await this.stateFor(parentFlowId, consumerNodeKey, unitKey);
@@ -645,7 +646,7 @@ export class SplitManager {
     });
     if (!awaiting.length) throw new Error(`unit "${unitKey}" is not awaiting approval`);
     for (const n of awaiting) {
-      await this.e.setNodeStatus(state.childFlowId, n.nodeKey, FLOW_STATUS.APPROVED);
+      await this.e.setNodeStatus(state.childFlowId, n.nodeKey, "approve"); // raced-out nodes keep their real state
       await db.emitEvent(state.childFlowId, null, "lifecycle", `${n.nodeKey} approved`);
     }
     // the child's own graph continues past its approval gate, if it has one

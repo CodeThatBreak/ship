@@ -492,8 +492,16 @@ describe('PlanNode — chat via the follow-up contract (docs/plan-conversation-r
         observ.nodePatches.push(patch);
       },
       // the live row is honest in this harness: a fenced patch always applies
-      patchIfAttempt: async (_id: string, _attemptId: string, patch: Record<string, unknown>) => {
-        observ.nodePatches.push(patch);
+      // (the step-02 authority delegates journal in the same patch shape)
+      applyTransitionFenced: async (p: { toStatus?: string; patch?: Record<string, unknown> }) => {
+        observ.nodePatches.push({ status: p.toStatus, ...(p.patch ?? {}) });
+      },
+      applyTransition: async (_f: string, _k: string, _key: string, o?: { toStatus?: string; patch?: Record<string, unknown> }) => {
+        observ.nodePatches.push({ status: o?.toStatus, ...(o?.patch ?? {}) });
+        return true;
+      },
+      publishOutcome: async (p: { outcome: { status: string; output: Record<string, unknown>; agentId?: string | null } }) => {
+        observ.nodePatches.push({ status: p.outcome.status, output: p.outcome.output, agent_id: p.outcome.agentId ?? null });
       },
       // REAL artifact persist (the isolated DB has task/flow/node rows seeded
       // below) so `persistPlan`'s checklist sync can write valid `plan_steps`
@@ -586,7 +594,7 @@ describe('PlanNode — chat via the follow-up contract (docs/plan-conversation-r
     // the node row landed exactly like a normal refine's outcome
     const art = observ.savedArts[0];
     expect(observ.nodePatches.some(p => p.status === 'awaiting_approval')).toBe(true);
-    expect(observ.nodePatches.find(p => p.output != null)?.output).toContain(art.id);
+    expect(observ.nodePatches.find(p => p.output != null)?.output).toMatchObject({ latestArtifact: art.id });
     expect(observ.events).toContain(`plan v${art.version} ready for review · 2 steps`);
     // the checklist synced from the plan payload (Id runs through the store's
     // real syncFromPlan into the live rows)
@@ -780,6 +788,13 @@ describe('PlanNode.turn — unified send routing', () => {
       lastAgentId: async () => 'agent_turn',
       setNode: async (_id: string, patch: Record<string, unknown>) => {
         observ.nodePatches.push(patch);
+      },
+      applyTransition: async (_f: string, _k: string, _key: string, o?: { toStatus?: string; patch?: Record<string, unknown> }) => {
+        observ.nodePatches.push({ status: o?.toStatus, ...(o?.patch ?? {}) });
+        return true;
+      },
+      publishOutcome: async (p: { outcome: { status: string; output: Record<string, unknown>; agentId?: string | null } }) => {
+        observ.nodePatches.push({ status: p.outcome.status, output: p.outcome.output, agent_id: p.outcome.agentId ?? null });
       },
       latestArtifact: async () => (opts.prevRow === undefined ? branchedPlanRow : opts.prevRow),
       artifactsOfKind: async () => [branchedPlanRow],

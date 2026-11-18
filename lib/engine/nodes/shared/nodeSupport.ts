@@ -1,13 +1,23 @@
 import "server-only";
 
 import { db } from "../../../db/app";
-import { CommentRow, NodeRow, rows, type NodeStatus } from "../../../db/rows";
-import { ConflictError } from "../../../errors";
-import { NODE_STATUS } from "../../constants/nodeStatus";
-import { ARTIFACT_STATUS, COMMENT_STATUS, EVENT_KIND, RESOLVED_BY_AGENT, RUN_AGENT_REF, RUN_STATUS } from "../../constants/vocabulary";
+import { CommentRow, NodeRow, rows } from "../../../db/rows";
+import { ValidationError } from "../../../errors";
+import {
+  ARTIFACT_STATUS,
+  COMMENT_STATUS,
+  EVENT_KIND,
+  RESOLVED_BY_AGENT,
+  RUN_AGENT_REF,
+  RUN_STATUS,
+} from "../../constants/vocabulary";
 import type { HostNote } from "../../ports/gitHost";
-import { RunSupersededError } from "../../errors/runSupersededError";
-import { nodeAttemptRegistry } from "../../runtime/nodeAttemptRegistry";
+import type { EngineNodeStatus } from "../../constants/nodeStatus";
+import type {
+  NodeOutcome,
+  TransitionKey,
+} from "../../runtime/transitions/types/transitions";
+import type { TransitionAuthority } from "../../runtime/transitions/nodeTransitions";
 
 const NODE_SELECT = `SELECT id, flow_id AS "flowId", node_key AS "nodeKey", type, status,
        attempt_id AS "attemptId", agent_id AS "agentId", agent_ref AS "agentRef",
@@ -24,8 +34,18 @@ const COMMENT_SELECT = `SELECT id, flow_id AS "flowId", mr_iid AS "mrIid",
  * the shared DB surface every node implementation builds on. Node
  * implementations never import `db` directly: every read/write they need
  * appears here as a named method (T1 seam).
+ *
+ * Status writes funnel into the {@link TransitionAuthority} (step 02,
+ * Invariant 1): `applyTransition`/`applyTransitionFenced`/`publishOutcome`
+ * are thin delegates, and `setNode` REFUSES `status`/`attempt_id` keys so no
+ * node kind can smuggle a raw status write past the declared table. The
+ * instance is constructed in `lib/composition` (decision Q9).
+ *
+ * Must never: write `nodes.status` or `attempt_id` outside the authority.
  */
 export class NodeSupport {
+  constructor(private readonly transitions: TransitionAuthority) {}
+
   async nodeByKey(flowId: string, key: string): Promise<NodeRow> {
     const n = await rows.get(NodeRow, `${NODE_SELECT} WHERE flow_id=$1 AND node_key=$2`, flowId, key);
     if (!n) throw new Error(`node ${key} not found for flow ${flowId}`);
@@ -44,16 +64,23 @@ export class NodeSupport {
   }
 
   /** A node's current status (null when the row is gone) — polling callers
-   *  use this to detect an external cancel/retry mid-wait. */
+   * use this to detect an external cancel/retry mid-wait. */
   async nodeStatus(nodeId: string): Promise<string | null> {
     return (await db.get<{ status: string }>(`SELECT status FROM nodes WHERE id=$1`, nodeId))?.status ?? null;
   }
 
+  /**
+   * Patch non-status node columns (input, output, agent_id, config …).
+   * `status`/`attempt_id` are REFUSED — every status write goes through the
+   * transition authority's declared table (Invariant 1), so a smuggled key
+   * fails loudly here instead of landing unfenced in the DB.
+   */
   async setNode(id: string, patch: Record<string, unknown>): Promise<void> {
-    if (typeof patch.status === "string" && patch.status !== NODE_STATUS.RUNNING) {
-      nodeAttemptRegistry.clear(id);
+    if ("status" in patch || "attempt_id" in patch) {
+      throw new ValidationError("node status writes go through the TransitionAuthority (declared transitions only)");
     }
     const keys = Object.keys(patch);
+    if (keys.length === 0) return;
     await db.run(
       `UPDATE nodes SET ${keys.map((k, i) => `${k}=$${i + 1}`).join(",")}, updated_at=$${keys.length + 1} WHERE id=$${keys.length + 2}`,
       ...keys.map((k) => patch[k] as never),
@@ -63,74 +90,57 @@ export class NodeSupport {
   }
 
   /**
-   * Atomically move a node to `running` and stamp a fresh attempt token.
-   * Throws {@link ConflictError} when the node is not in one of `from`.
+   * Refresh a running node's `updated_at` (liveness for the reconciler's
+   * pipeline-gate freshness check) without touching status — the old
+   * re-stamp-`running` trick reduced to its honest effect.
    */
-  async claim(flowId: string, nodeKey: string, from: readonly NodeStatus[]): Promise<string> {
-    const attempt = db.uid("att_");
-    const marks = from.map((_, i) => `$${i + 6}`).join(",");
-    const changes = await db.run(
-      `UPDATE nodes SET status = $1, attempt_id = $2, updated_at = $3
-       WHERE flow_id = $4 AND node_key = $5 AND status IN (${marks})`,
-      NODE_STATUS.RUNNING,
-      attempt,
-      db.now(),
-      flowId,
-      nodeKey,
-      ...from,
-    );
-    if (changes !== 1) {
-      throw new ConflictError(`Node ${nodeKey} is not in ${from.join("/")}`);
-    }
-    return attempt;
+  async touchNode(nodeId: string): Promise<void> {
+    await db.run(`UPDATE nodes SET updated_at=$1 WHERE id=$2`, db.now(), nodeId);
+  }
+
+  // ── transition-authority delegates (Invariant 1 funnels) ─────────────────
+
+  /**
+   * Apply a declared transition by (flow, nodeKey) — thin delegate to
+   * `TransitionAuthority.apply` (from-set fenced; returns false on a missed
+   * from-set, matching the fire-and-forget call sites that read-check first).
+   */
+  applyTransition(
+    flowId: string,
+    nodeKey: string,
+    key: TransitionKey,
+    opts: { toStatus?: EngineNodeStatus; patch?: Record<string, unknown>; detail?: string } = {},
+  ): Promise<boolean> {
+    return this.transitions.apply(flowId, nodeKey, key, opts);
+  }
+
+  /** Attempt-fenced transition by node id (chat-turn reverts). */
+  applyTransitionFenced(params: {
+    flowId: string;
+    nodeKey: string;
+    nodeId: string;
+    attemptId: string;
+    key: TransitionKey;
+    toStatus?: EngineNodeStatus;
+    patch?: Record<string, unknown>;
+  }): Promise<void> {
+    return this.transitions.transitionFenced(params);
   }
 
   /**
-   * Atomically transition status when the node is in one of `from`.
-   * Clears `attempt_id` when leaving `running`.
+   * THE terminal door for a finished run — thin delegate to
+   * `TransitionAuthority.publishOutcome` (status + validated output in one
+   * attempt-fenced statement). Node kinds never publish a terminal any other
+   * way.
    */
-  async transition(
-    flowId: string,
-    nodeKey: string,
-    from: readonly NodeStatus[],
-    to: NodeStatus,
-  ): Promise<void> {
-    const marks = from.map((_, i) => `$${i + 6}`).join(",");
-    const clearAttempt = to !== NODE_STATUS.RUNNING;
-    const changes = await db.run(
-      `UPDATE nodes SET status = $1, attempt_id = $2, updated_at = $3
-       WHERE flow_id = $4 AND node_key = $5 AND status IN (${marks})`,
-      to,
-      clearAttempt ? null : db.uid("att_"),
-      db.now(),
-      flowId,
-      nodeKey,
-      ...from,
-    );
-    if (changes !== 1) {
-      throw new ConflictError(`Node ${nodeKey} is not in ${from.join("/")}`);
-    }
-  }
-
-  /** Terminal (or mid-run) patch fenced by the active attempt token. */
-  async patchIfAttempt(nodeId: string, attemptId: string, patch: Record<string, unknown>): Promise<void> {
-    const status = patch.status;
-    const merged: Record<string, unknown> =
-      typeof status === "string" && status !== NODE_STATUS.RUNNING
-        ? { ...patch, attempt_id: null }
-        : { ...patch };
-    const mergedKeys = Object.keys(merged);
-    const changes = await db.run(
-      `UPDATE nodes SET ${mergedKeys.map((k, i) => `${k}=$${i + 1}`).join(",")}, updated_at=$${mergedKeys.length + 1} WHERE id=$${mergedKeys.length + 2} AND attempt_id=$${mergedKeys.length + 3}`,
-      ...mergedKeys.map((k) => merged[k] as never),
-      db.now(),
-      nodeId,
-      attemptId,
-    );
-    if (changes !== 1) {
-      const node = await db.get<{ status: string }>(`SELECT status FROM nodes WHERE id=$1`, nodeId);
-      throw new RunSupersededError(nodeId, node?.status ?? "unknown", attemptId);
-    }
+  publishOutcome(params: {
+    flowId: string;
+    nodeKey: string;
+    nodeId: string;
+    attemptId?: string | null;
+    outcome: NodeOutcome;
+  }): Promise<void> {
+    return this.transitions.publishOutcome(params);
   }
 
   /** A chat row scoped to a refinement thread (the plan's sub-plan refines). */
@@ -267,22 +277,7 @@ export class NodeSupport {
     await db.run(`UPDATE runs SET agent_ref=$1, updated_at=$2 WHERE run_ref=$3`, agentId, db.now(), runId);
   }
 
-  /** Mark a node's orphaned run as failed after a server restart (nothing recoverable). */
-  async failOrphanedNode(flowId: string, nodeId: string, nodeKey: string, reason: string): Promise<void> {
-    const node = await db.get<{ status: string }>(`SELECT status FROM nodes WHERE id=$1`, nodeId);
-    if (node?.status !== NODE_STATUS.RUNNING) return; // already reconciled
-    await db.run(
-      `UPDATE runs SET status=$1, updated_at=$2 WHERE node_id=$3 AND status=$4`,
-      RUN_STATUS.ERROR,
-      db.now(),
-      nodeId,
-      RUN_STATUS.RUNNING,
-    );
-    await this.setNode(nodeId, { status: NODE_STATUS.FAILED });
-    await db.emitEvent(flowId, nodeId, EVENT_KIND.ERROR, `${nodeKey}: ${reason} — retry the node to continue`);
-  }
-
-  // ── artifacts ────────────────────────────────────────────────────────────────
+  // ── artifacts ────────────────────────────────────────────────────────────
 
   /**
    * The flow's latest artifact of a kind (by version), optionally scoped to
@@ -313,7 +308,7 @@ export class NodeSupport {
     return type ? await db.all(sql, flowId, kind, type) : await db.all(sql, flowId, kind);
   }
 
-  // ── branches ────────────────────────────────────────────────────────────────
+  // ── branches ─────────────────────────────────────────────────────────────
 
   /** A branch row's MR iid (null when the branch has no merge request yet). */
   async branchMrIid(flowId: string, name: string): Promise<number | null> {
@@ -321,7 +316,7 @@ export class NodeSupport {
       `SELECT mr_iid AS "mrIid" FROM branches WHERE flow_id=$1 AND name=$2`, flowId, name))?.mrIid ?? null;
   }
 
-  // ── comments ────────────────────────────────────────────────────────────────
+  // ── comments ─────────────────────────────────────────────────────────────
 
   /**
    * A flow's open MR comments (validated by the shared row mapper), in
@@ -428,14 +423,14 @@ export class NodeSupport {
     );
   }
 
-  // ── flows ───────────────────────────────────────────────────────────────────
+  // ── flows ────────────────────────────────────────────────────────────────
 
   /** Point the flow's merge-request branch at `branch`. */
   async setFlowBranch(flowId: string, branch: string): Promise<void> {
     await db.run(`UPDATE flows SET mr_branch=$1 WHERE id=$2`, branch, flowId);
   }
 
-  // ── feed events ─────────────────────────────────────────────────────────────
+  // ── feed events ──────────────────────────────────────────────────────────
 
   /** A flow-feed event of any type ("pipeline", "error", "log" — named
    *  lifecycle transitions go through `emitLifecycle`). */
@@ -448,5 +443,3 @@ export class NodeSupport {
     return db.emitEvent(flowId, nodeId, EVENT_KIND.LIFECYCLE, message, data);
   }
 }
-
-export const nodeSupport = new NodeSupport();

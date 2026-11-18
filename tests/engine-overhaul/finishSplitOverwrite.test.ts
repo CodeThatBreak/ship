@@ -1,12 +1,9 @@
 /**
- * Characterization (red): a late split aggregate must NOT overwrite a node the
- * user already retried or cancelled (engine overhaul step 00; flip in step 02).
- *
- * Current bug (flowEngine.ts finishSplit, the unconditional
- * `UPDATE nodes SET status=?, output=? … WHERE flow_id=? AND node_key=?` —
- * no status precondition, contrasted with finishFanout's `AND status='running'`):
- * a split aggregate that resolves after the user retried/cancelled the node
- * clobbers the live status and re-advances the flow off stale units.
+ * Characterization (flipped green in step 02): a late split aggregate must
+ * NOT overwrite a node the user already retried — the aggregate publish is
+ * attempt-fenced (the split manager captures the consumer's attempt token at
+ * expand time), so a stale aggregate loses to the fresh claim even though the
+ * node is `running` again.
  *
  * Runs against the isolated dockerized Postgres test database
  * (AGENTS.md §1 — never a demo/real DB).
@@ -14,11 +11,13 @@
 import { beforeAll, describe, expect, test } from "vitest";
 import { assignTestDatabase, resetTestDatabase } from "../helpers/testDatabase";
 import { FlowHarness } from "../helpers/flowHarness";
+import { expectTransitionsDeclared } from "../helpers/transitionLogAssert";
 
 assignTestDatabase();
 
 const { db } = await import("@/lib/db/app");
 const { flowEngine } = await import("@/lib/engine/flowEngine");
+const { engineParts } = await import("@/lib/composition/container");
 const { templateStore } = await import("@/lib/engine/templates/templateStore");
 
 const harness = new FlowHarness({ db, flowEngine, templateStore });
@@ -26,21 +25,40 @@ const harness = new FlowHarness({ db, flowEngine, templateStore });
 beforeAll(resetTestDatabase);
 
 describe("finishSplit overwrite guard", () => {
-  // OVERHAUL: flip in step 02
-  test.fails("a late split aggregate does not regress a node the user retried", async () => {
+  test("a late split aggregate does not regress a node the user retried", async () => {
     const flowId = await harness.seedSdlcFlow();
     const buildKey = "build";
 
-    // the user retried the split consumer: it is claimed back into running
-    harness.claimNode(flowId, buildKey, ["pending", "failed", "done"]);
+    // the split consumer's ORIGINAL run: claimed, and the split manager
+    // captured this attempt token for its join's aggregate publish
+    const original = await engineParts.transitions.claim(flowId, buildKey, "runFromPending");
     expect(await harness.nodeStatus(flowId, buildKey)).toBe("running");
 
-    // a STALE split aggregate resolves late — target: it must NOT overwrite the
-    // retried node; today finishSplit has no status precondition and clobbers it
+    // the user retried the consumer: cancel → failed, then a fresh claim
+    // stamps a NEW attempt (the split children of the original run are still
+    // resolving in the background)
+    await flowEngine.cancelNode(flowId, buildKey);
+    const retried = await engineParts.transitions.claim(flowId, buildKey, "retry");
+    expect(retried.attemptId).not.toBe(original.attemptId);
+    expect(await harness.nodeStatus(flowId, buildKey)).toBe("running");
+
+    // a STALE aggregate resolves late — carrying the ORIGINAL run's attempt
+    // (exactly what the split manager's checkJoin passes): it must NOT
+    // overwrite the retried node's live state
     await flowEngine.finishSplit(flowId, buildKey, {
       units: [{ key: "u1", title: "Unit", status: "done", output: {} }],
-    });
-
+    }, original.attemptId);
     expect(await harness.nodeStatus(flowId, buildKey)).toBe("running");
+
+    // the CURRENT attempt's aggregate still publishes through the declared
+    // splitOutcome transition
+    await flowEngine.finishSplit(flowId, buildKey, {
+      units: [{ key: "u1", title: "Unit", status: "done", output: {} }],
+    }, retried.attemptId);
+    expect(await harness.nodeStatus(flowId, buildKey)).toBe("done");
+
+    // step-02 task 6: the transitions this test drove resolve against the
+    // declared table (the in-memory log assert)
+    expectTransitionsDeclared(flowEngine.transitions, flowId);
   });
 });

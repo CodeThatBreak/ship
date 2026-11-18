@@ -36,18 +36,21 @@ export class StatusService {
       flowId: string;
       taskKey: string;
       taskSummary: string;
-      currentNode: string | null;
+      runningNode: string | null;
       executionMode: string | null;
       status: string;
       mrUrl: string | null;
       mrIid: number | null;
     }>(
       `SELECT f.id AS "flowId", t.key AS "taskKey", t.summary AS "taskSummary",
-              f.current_node AS "currentNode", f.execution_mode AS "executionMode", f.status, f.mr_url AS "mrUrl", f.mr_iid AS "mrIid"
+              f.execution_mode AS "executionMode", f.status, f.mr_url AS "mrUrl", f.mr_iid AS "mrIid",
+              (SELECT n.node_key FROM nodes n WHERE n.flow_id = f.id AND n.status = $2
+               ORDER BY n.created_at, n.node_key LIMIT 1) AS "runningNode"
        FROM flows f JOIN tasks t ON t.id = f.task_id
        WHERE f.status = $1
        ORDER BY f.updated_at DESC`,
       FLOW_STATUS.ACTIVE,
+      FLOW_STATUS.RUNNING,
     );
 
     const runsRunning =
@@ -74,7 +77,7 @@ export class StatusService {
         flowId: a.flowId,
         taskKey: a.taskKey,
         summary: a.taskSummary,
-        node: a.currentNode,
+        node: a.runningNode,
         mode: a.executionMode ?? RUN_MODE.CLOUD,
         status: a.status,
         mrOpen: Boolean(a.mrUrl),

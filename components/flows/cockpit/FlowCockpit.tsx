@@ -1,6 +1,6 @@
 'use client';
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { resolveCockpitSelectedKey } from './utils/resolveCockpitSelection';
+import { resolveCockpitSelectedKey, runningNodeKeysOf } from './utils/resolveCockpitSelection';
 import { useQueryClient } from '@tanstack/react-query';
 import WorkflowGraph from '../workflowGraph/WorkflowGraph';
 import NodePanel from '../panels/NodePanel';
@@ -47,10 +47,14 @@ export default function FlowCockpit({
   // default selection = the first node in graph order (the flow's entry) —
   // nodes arrive pre-sorted; the user picks from there
   //
-  // empty `selected` follows current_node; once the user clicks a node, `selected`
-  // holds that key so polling doesn't yank the view back to whatever is running
+  // empty `selected` follows the running node (derived from node statuses —
+  // fan-out may run several at once, the first in graph order wins); once the
+  // user clicks a node, `selected` holds that key so polling doesn't yank the
+  // view back to whatever is running
   const [selected, setSelected] = useState('');
-  const resolvedSelectedKey = resolveCockpitSelectedKey(selected, flow.current_node);
+  const resolvedSelectedKey = resolveCockpitSelectedKey(selected, flow.nodes);
+  // every running node key — the graph highlights all of them (fan-out)
+  const runningNodeKeys = useMemo(() => runningNodeKeysOf(flow.nodes), [flow.nodes]);
 
   const node = useMemo(
     () => flow.nodes.find((n: Node) => n.node_key === resolvedSelectedKey) ?? flow.nodes[0],
@@ -110,7 +114,7 @@ export default function FlowCockpit({
           nodes={flow.nodes}
           selected={node?.node_key ?? ''}
           onSelect={setSelected}
-          currentNode={flow.current_node}
+          runningKeys={runningNodeKeys}
           fanout={fanout}
         />
       </div>

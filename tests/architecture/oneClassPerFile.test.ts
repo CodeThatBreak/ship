@@ -62,6 +62,9 @@ const FROZEN_MISNAMED: readonly string[] = [
   "lib/engine/ports/agentPort.ts",
   "lib/engine/ports/gitHost.ts",
   "lib/engine/runtime/flowReconciler.ts",
+  // step-02 doc mandate: the TransitionAuthority lives in `nodeTransitions.ts`
+  // (target-architecture §12 layout names the file, not the class)
+  "lib/engine/runtime/transitions/nodeTransitions.ts",
   "lib/engine/runtime/worktreeLifecycle.ts",
   "lib/engine/tasks/providers/jira.ts",
   "lib/engine/tasks/registry.ts",

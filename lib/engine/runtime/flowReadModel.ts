@@ -69,7 +69,7 @@ export class FlowReadModel {
   constructor(private readonly schedule: FlowReadScheduleHost) {}
 
   async get(id: string): Promise<FlowData | null> {
-    const flow = await db.rows.get(FlowRow, `SELECT id, task_id AS "taskId", name, status, mr_url AS "mrUrl", mr_iid AS "mrIid", mr_branch AS "mrBranch", repo_url AS "repoUrl", gitlab_project_id AS "gitlabProjectId", current_node AS "currentNode", execution_mode AS "executionMode", repo_id AS "repoId", template_id AS "templateId", template_graph AS "templateGraph", trigger_payload AS "triggerPayload", worktree_dir AS "worktreeDir", parent_flow_id AS "parentFlowId", kind, created_at AS "createdAt", updated_at AS "updatedAt" FROM flows WHERE id=$1`, id);
+    const flow = await db.rows.get(FlowRow, `SELECT id, task_id AS "taskId", name, status, mr_url AS "mrUrl", mr_iid AS "mrIid", mr_branch AS "mrBranch", repo_url AS "repoUrl", gitlab_project_id AS "gitlabProjectId", execution_mode AS "executionMode", repo_id AS "repoId", template_id AS "templateId", template_graph AS "templateGraph", trigger_payload AS "triggerPayload", worktree_dir AS "worktreeDir", parent_flow_id AS "parentFlowId", kind, created_at AS "createdAt", updated_at AS "updatedAt" FROM flows WHERE id=$1`, id);
     if (!flow) return null;
     const task = await db.rows.get(Task, `SELECT id, type, key, summary, description, status, issue_type AS "issueType", priority, repo_url AS "repoUrl", parent_key AS "parentKey", external_url AS "externalUrl", raw, synced_at AS "syncedAt", fields FROM tasks WHERE id=$1`, flow.taskId);
     if (!task) return null;
@@ -117,7 +117,7 @@ export class FlowReadModel {
     if (childFlowIds.length) {
       const placeholders = childFlowIds.map((_, i) => `$${i + 1}`).join(",");
       for (const child of await db.rows.all(FlowRow,
-        `SELECT id, task_id AS "taskId", name, status, mr_url AS "mrUrl", mr_iid AS "mrIid", mr_branch AS "mrBranch", repo_url AS "repoUrl", gitlab_project_id AS "gitlabProjectId", current_node AS "currentNode", execution_mode AS "executionMode", repo_id AS "repoId", template_id AS "templateId", template_graph AS "templateGraph", trigger_payload AS "triggerPayload", worktree_dir AS "worktreeDir", parent_flow_id AS "parentFlowId", kind, created_at AS "createdAt", updated_at AS "updatedAt" FROM flows WHERE id IN (${placeholders})`, ...childFlowIds)) {
+        `SELECT id, task_id AS "taskId", name, status, mr_url AS "mrUrl", mr_iid AS "mrIid", mr_branch AS "mrBranch", repo_url AS "repoUrl", gitlab_project_id AS "gitlabProjectId", execution_mode AS "executionMode", repo_id AS "repoId", template_id AS "templateId", template_graph AS "templateGraph", trigger_payload AS "triggerPayload", worktree_dir AS "worktreeDir", parent_flow_id AS "parentFlowId", kind, created_at AS "createdAt", updated_at AS "updatedAt" FROM flows WHERE id IN (${placeholders})`, ...childFlowIds)) {
         childFlowById.set(child.id, child);
       }
       for (const node of await db.rows.all(NodeRow,
@@ -201,7 +201,6 @@ export class FlowReadModel {
       id: flow.id,
       name: flow.name,
       status: flow.status,
-      current_node: flow.currentNode ?? undefined,
       mr_url: flow.mrUrl ?? undefined,
       mr_iid: flow.mrIid ?? undefined,
       mr_branch: flow.mrBranch ?? undefined,
@@ -260,7 +259,7 @@ export class FlowReadModel {
       orderBy: { updatedAt: "desc" },
       select: {
         id: true, taskId: true, name: true, status: true, mrUrl: true, mrIid: true,
-        mrBranch: true, repoUrl: true, gitlabProjectId: true, currentNode: true,
+        mrBranch: true, repoUrl: true, gitlabProjectId: true,
         executionMode: true, repoId: true, templateId: true, templateGraph: true,
         triggerPayload: true, worktreeDir: true, parentFlowId: true, kind: true,
         createdAt: true, updatedAt: true,

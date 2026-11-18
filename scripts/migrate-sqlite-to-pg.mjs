@@ -200,7 +200,7 @@ const TABLES = [
   ["flow", "flows", (r) => ({
     id: r.id, taskId: r.task_id, name: r.name, status: r.status,
     mrUrl: r.mr_url, mrIid: r.mr_iid, mrBranch: r.mr_branch, repoUrl: r.repo_url,
-    gitlabProjectId: r.gitlab_project_id, currentNode: r.current_node,
+    gitlabProjectId: r.gitlab_project_id,
     executionMode: r.execution_mode ?? "cloud", repoId: r.repo_id,
     templateId: r.template_id, templateGraph: json(r.template_graph, `flow ${r.id}`),
     triggerPayload: json(r.trigger_payload, `flow ${r.id}`), worktreeDir: r.worktree_dir,

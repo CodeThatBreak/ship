@@ -688,7 +688,7 @@ await prisma.node.update({
     updatedAt: minsAgo(2),
   },
 });
-await prisma.flow.update({ where: { id: flowId }, data: { currentNode: null, updatedAt: minsAgo(2) } });
+await prisma.flow.update({ where: { id: flowId }, data: { updatedAt: minsAgo(2) } });
 await ev("branch 'backend' sub-plan refined · 5 steps (+0 / −0, 2 changed) — other branches untouched", 2);
 
 const final = await prisma.planStep.findMany({

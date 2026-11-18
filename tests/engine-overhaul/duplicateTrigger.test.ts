@@ -34,7 +34,7 @@ describe("duplicate triggers collapse to one run + one skip event", () => {
     const flowId = await harness.seedSdlcFlow();
     await db.run(`UPDATE flows SET mr_iid=$1, mr_branch=$2 WHERE id=$3`, 1, "devflow/ovh-dup", flowId);
     // the gate is mid-run (an in-flight pipeline wait owns it)
-    harness.claimNode(flowId, "pipeline", ["pending", "failed", "done"]);
+    await harness.claimNode(flowId, "pipeline", "manualStage");
     expect(await harness.nodeStatus(flowId, "pipeline")).toBe("running");
 
     // three duplicate triggers race the in-flight gate: the poller's

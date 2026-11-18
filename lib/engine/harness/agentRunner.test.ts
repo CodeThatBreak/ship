@@ -7,7 +7,7 @@ import { assignTestDatabase, resetTestDatabase } from "../../../tests/helpers/te
 assignTestDatabase();
 
 const { db } = await import("../../db/app");
-const { nodeSupport } = await import("../nodes/shared/nodeSupport");
+const { nodeSupport } = await import("@/lib/composition/container");
 const { flowCtxHelper } = await import("../nodes/shared/runContext");
 const { usageTracker } = await import("./usageTracker");
 const { AgentRunner } = await import("./agentRunner");

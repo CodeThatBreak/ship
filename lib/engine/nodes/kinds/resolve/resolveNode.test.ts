@@ -27,6 +27,7 @@ beforeAll(resetTestDatabase);
 // ahead of everything else; direct kind imports later then hit a live module
 await import("../../registry");
 const { NodeSupport } = await import("../../shared/nodeSupport");
+const { engineParts } = await import("@/lib/composition/container");
 const { ResolveNode } = await import("./resolveNode");
 const { ResolveEffects } = await import("./resolveEffects");
 const { worktreeManager } = await import("../../../runtime/worktreeLifecycle");
@@ -157,7 +158,7 @@ const make = (
   responses: string[],
   host: FakeResolveHost,
 ): { def: ResolveNode; j: Journal } => {
-  const support = new NodeSupport();
+  const support = new NodeSupport(engineParts.transitions);
   const j = newJournal();
   const def = new ResolveNode(
     support,
@@ -452,7 +453,7 @@ describe("ResolveNode — recover()", () => {
 
   it("re-applies the recorded result and completes the remaining ledgered effects", async () => {
     await seedComment("gl_1");
-    const support = new NodeSupport();
+    const support = new NodeSupport(engineParts.transitions);
     const response = contractResponse();
 
     // the pre-crash host answers the reply, then dies on the threaded resolve
