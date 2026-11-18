@@ -4,6 +4,7 @@ import { db } from "../../../db/app";
 import type { Database } from "../../../db/database";
 import { ConflictError } from "../../../errors";
 import { NODE_STATUS, type EngineNodeStatus } from "../../constants/nodeStatus";
+import { NODE_LEASE_SECONDS } from "../../constants/leases";
 import { RunSupersededError } from "../../errors/runSupersededError";
 import { NodeAttemptRegistry } from "../nodeAttemptRegistry";
 import { isClaimKey, resolveToStatus, sqlMarks } from "./utils/transitionLookup";
@@ -58,6 +59,9 @@ export class TransitionAuthority {
    * Claim a node for a run: conditional `UPDATE` to `running` guarded by the
    * key's from-set, stamping a fresh attempt token. Marks the attempt
    * registry so reconcile can distinguish this process's in-flight runs.
+   * Leaves `waiting` (wait_until cleared) and stamps the durable node lease
+   * (`lease_until = now() + NODE_LEASE_SECONDS`, DB-server time — the
+   * clock-skew rule: never compare a lease against app-server time).
    * Throws {@link ConflictError} when the node is not in the from-set.
    */
   async claim(
@@ -68,11 +72,13 @@ export class TransitionAuthority {
     const row = TRANSITION_TABLE[key];
     const attemptId = this.database.uid("att_");
     const claimed = await this.database.get<{ id: string }>(
-      `UPDATE nodes SET status=$1, attempt_id=$2, updated_at=$3
-       WHERE flow_id=$4 AND node_key=$5 AND status IN (${sqlMarks(row.from, 6)})
+      `UPDATE nodes SET status=$1, attempt_id=$2, wait_until=NULL,
+         lease_until = now() + make_interval(secs => $3), updated_at=$4
+       WHERE flow_id=$5 AND node_key=$6 AND status IN (${sqlMarks(row.from, 7)})
        RETURNING id`,
       NODE_STATUS.RUNNING,
       attemptId,
+      NODE_LEASE_SECONDS,
       this.database.now(),
       flowId,
       nodeKey,
@@ -105,7 +111,12 @@ export class TransitionAuthority {
     }
     const row = TRANSITION_TABLE[key];
     const patchEntries = Object.entries(opts.patch ?? {});
-    const sets = `status=$1, attempt_id=NULL, updated_at=$2`
+    // leaving a state releases its liveness/wait markers: a terminal (or any
+    // non-claim) transition clears the node lease, and wait_until goes with
+    // it unless the transition itself arms a new wait (armWait patches it)
+    const clearsWaitUntil = !patchEntries.some(([column]) => column === "wait_until");
+    const sets = `status=$1, attempt_id=NULL, lease_until=NULL, updated_at=$2`
+      + (clearsWaitUntil ? `, wait_until=NULL` : "")
       + (patchEntries.length ? `, ${patchEntries.map((e, i) => `${e[0]}=$${i + 3}`).join(", ")}` : "");
     const params: unknown[] = [to, this.database.now(), ...patchEntries.map((e) => e[1]), flowId, nodeKey, ...row.from];
     const offset = 3 + patchEntries.length;
@@ -149,7 +160,7 @@ export class TransitionAuthority {
     }
     const row = TRANSITION_TABLE[key];
     const affected = await this.database.all<{ id: string; node_key: string }>(
-      `UPDATE nodes SET status=$1, attempt_id=NULL, updated_at=$2
+      `UPDATE nodes SET status=$1, attempt_id=NULL, lease_until=NULL, wait_until=NULL, updated_at=$2
        WHERE flow_id=$3 AND status IN (${sqlMarks(row.from, 4)})
        RETURNING id, node_key AS "node_key"`,
       to,
@@ -182,7 +193,7 @@ export class TransitionAuthority {
     const to = resolveToStatus(params.key, params.toStatus);
     const row = TRANSITION_TABLE[params.key];
     const patchEntries = Object.entries(params.patch ?? {});
-    const sets = `status=$1, attempt_id=NULL, updated_at=$2`
+    const sets = `status=$1, attempt_id=NULL, lease_until=NULL, wait_until=NULL, updated_at=$2`
       + (patchEntries.length ? `, ${patchEntries.map((e, i) => `${e[0]}=$${i + 3}`).join(", ")}` : "");
     const values: unknown[] = [to, this.database.now(), ...patchEntries.map((e) => e[1])];
     const attemptIdx = values.length + 1;
@@ -220,7 +231,7 @@ export class TransitionAuthority {
     const row = TRANSITION_TABLE.outcome;
     const agentId = params.outcome.agentId ?? null;
     const changes = await this.database.run(
-      `UPDATE nodes SET status=$1, attempt_id=NULL, output=$2::jsonb, agent_id=$3, updated_at=$4
+      `UPDATE nodes SET status=$1, attempt_id=NULL, lease_until=NULL, output=$2::jsonb, agent_id=$3, updated_at=$4
        WHERE id=$5${params.attemptId ? ` AND attempt_id=$6` : ""} AND status IN (${sqlMarks(row.from, params.attemptId ? 7 : 6)})`,
       ...([
         to,
@@ -276,7 +287,7 @@ export class TransitionAuthority {
       ...row.from,
     ];
     const applied = await this.database.get<{ id: string }>(
-      `UPDATE nodes SET status=$1, attempt_id=NULL, output=$2::jsonb, updated_at=$3
+      `UPDATE nodes SET status=$1, attempt_id=NULL, lease_until=NULL, output=$2::jsonb, updated_at=$3
        WHERE flow_id=$4 AND node_key=$5${attemptGuard} AND status IN (${sqlMarks(row.from, fence ? 7 : 6)})
        RETURNING id`,
       ...params,

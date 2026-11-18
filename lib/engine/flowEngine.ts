@@ -47,7 +47,7 @@ import { CommentIngestor } from './runtime/commentIngestor';
 import { EdgeActivator } from './runtime/edgeActivator';
 import { FlowFactory, type CreateFlowOptions } from './runtime/flowFactory';
 import { FlowReadModel } from './runtime/flowReadModel';
-import { WaitScheduler } from './runtime/waitScheduler';
+import { WaitStore } from './runtime/waits/waitStore';
 import { FlowApprovalService } from './flow/flowApprovalService';
 
 export type { CreateFlowOptions };
@@ -90,7 +90,7 @@ export const FLOW_CHILD_TABLES = [
 export class FlowEngine {
   private readonly parts: EngineParts;
   /** the SDLC builtin chain (approveBuild / panel stage entries) */
-  private readonly waits: WaitScheduler;
+  private readonly waits: WaitStore;
   private readonly edges: EdgeActivator;
   private readonly readModel: FlowReadModel;
   private readonly factory: FlowFactory;
@@ -101,7 +101,7 @@ export class FlowEngine {
   /** Engine parts are constructor-injected from the composition root (Q9). */
   constructor(parts: EngineParts = engineParts) {
     this.parts = parts;
-    this.waits = new WaitScheduler(this, parts.events);
+    this.waits = new WaitStore(this, parts.events);
     this.edges = new EdgeActivator(this, this.waits, parts.events);
     this.readModel = new FlowReadModel(this.waits);
     this.factory = new FlowFactory(this, parts.nodeStore);
@@ -189,12 +189,17 @@ export class FlowEngine {
     await this.waits.resumeNodeFromWebhook(flowId, nodeKey, payload);
   }
 
-  async reArmWaitingTimers(): Promise<void> {
-    await this.waits.reArmWaitingTimers();
+  /**
+   * Sweep every due durable wait of active flows (the poller tick's wait
+   * driver — and the restart resume: deadlines live on `nodes.wait_until`).
+   */
+  async processWaitTimers(): Promise<void> {
+    await this.waits.sweepDueWaits();
   }
 
-  async processWaitTimers(): Promise<void> {
-    await this.waits.processWaitTimers();
+  /** The durable wait store (engine-internal — the worker's poller drives it). */
+  get waitsStore(): WaitStore {
+    return this.waits;
   }
 
   async handleHostEvent(event: HostWebhookEvent): Promise<void> {
@@ -331,7 +336,9 @@ export class FlowEngine {
         await this.cancelNode(fid, n.nodeKey);
       }
     }
-    this.waits.clearTimersForFlows(ids);
+    // durable waits die with the rows: cancelNode moved every running/waiting
+    // node out of `waiting` (clearing wait_until), and the child-table delete
+    // below removes the node rows entirely
     await Promise.allSettled(ids.map(fid => worktreeManager.removeFlowWorktree(fid, { reason: 'flow deleted' })));
     await db.transaction(async (tx) => {
       for (const fid of ids) {
@@ -777,10 +784,8 @@ export class FlowEngine {
   }
 
   async triggerResolve(flowId: string, model?: string): Promise<void> {
-    const resolveKey = await this.keyOfRole(flowId, NODE_KEYS.RESOLVE);
-    if (resolveKey && (await this.nodeStatus(flowId, resolveKey)) === "waiting") {
-      this.waits.clearTimerForNode(flowId, resolveKey);
-    }
+    // a waiting resolve's durable wait clears itself: the chain's claim below
+    // leaves `waiting` through the authority, which clears wait_until
     await this.chain.triggerResolve(flowId, model);
   }
 
@@ -1050,8 +1055,10 @@ export class FlowEngine {
     for (const r of active) {
       await (await agentPortRegistry.forMode(mode)).cancel({ runId: r.runRef });
     }
-    this.waits.clearTimerForNode(flowId, nodeKey);
-    await db.run(`UPDATE runs SET status='error', updated_at=$1 WHERE node_id=$2 AND status='running'`, db.now(), node.id);
+    // the cancel transition clears the durable wait + node lease (the
+    // authority's non-claim UPDATE clears wait_until/lease_until with the
+    // status); the interrupted run rows drop their leases here
+    await db.run(`UPDATE runs SET status='error', lease_until=NULL, updated_at=$1 WHERE node_id=$2 AND status='running'`, db.now(), node.id);
     await this.parts.transitions.applyOrThrow(flowId, nodeKey, 'cancel');
     await this.touch(flowId);
     if (await this.isStepChild(flowId)) {
@@ -1074,9 +1081,8 @@ export class FlowEngine {
     // the pre-claim status decides "did THIS turn land a success terminal":
     // the claim flips the node to running, so it must be read first
     const preClaimStatus = await this.nodeStatus(flowId, nodeKey);
-    if (preClaimStatus === "waiting") {
-      this.waits.clearTimerForNode(flowId, nodeKey);
-    }
+    // a waiting node's durable wait clears itself: the chatRefine claim below
+    // leaves `waiting` through the authority, which clears wait_until
     const wasSuccess = isNodeTerminalSuccess(preClaimStatus ?? '');
     await this.claimNode(flowId, nodeKey, 'chatRefine');
 
@@ -1140,7 +1146,7 @@ export class FlowEngine {
    */
   async completeNodeFromResult(c: FlowCtx, node: NodeRow, result: AgentRunResult, note: string): Promise<boolean> {
     await db.run(
-      `UPDATE runs SET status=$1, updated_at=$2 WHERE node_id=$3 AND status='running'`,
+      `UPDATE runs SET status=$1, lease_until=NULL, updated_at=$2 WHERE node_id=$3 AND status='running'`,
       result.status === 'finished' ? 'finished' : 'error',
       db.now(),
       node.id
@@ -1169,28 +1175,20 @@ export class FlowEngine {
     return true;
   }
 
-  /** Reconciler surface: mark an orphaned run's node failed (nothing
-   *  recoverable) through the declared `orphanFail` transition. */
+  /**
+   * Reconciler surface: mark an orphaned run's node failed (nothing
+   * recoverable) through the declared `orphanFail` transition. */
   async failOrphanedNode(flowId: string, nodeId: string, nodeKey: string, reason: string): Promise<void> {
     const applied = await this.parts.transitions.apply(flowId, nodeKey, 'orphanFail');
     if (!applied) return; // already reconciled by a concurrent pass
     await db.run(
-      `UPDATE runs SET status=$1, updated_at=$2 WHERE node_id=$3 AND status=$4`,
+      `UPDATE runs SET status=$1, lease_until=NULL, updated_at=$2 WHERE node_id=$3 AND status=$4`,
       RUN_STATUS.ERROR,
       db.now(),
       nodeId,
       RUN_STATUS.RUNNING,
     );
     await this.parts.events.error(flowId, nodeKey, `${nodeKey}: ${reason} — retry the node to continue`);
-  }
-
-  /**
-   * Reconciler liveness hint: an attempt of this node is executing in this
-   * process (the attempt registry the authority marks). Step 03 replaces this
-   * with durable leases.
-   */
-  activeAttempt(nodeId: string): boolean {
-    return this.parts.attemptRegistry.isActive(nodeId);
   }
 
   /** The transition authority this engine writes through (engine-internal

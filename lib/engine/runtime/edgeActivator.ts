@@ -14,13 +14,13 @@ import { stepFlows } from "./fanout/stepFlowManager";
 import { splitManager } from "./split/splitManager";
 import type { TransitionEvents } from "./transitions/transitionEvents";
 import type { EdgeActivatorHost } from "./flowEngineHost";
-import type { WaitScheduler } from "./waitScheduler";
+import type { WaitStore } from "./waits/waitStore";
 
 /** Template edge activation, join/skip propagation, and auto-start stages. */
 export class EdgeActivator {
   constructor(
     private readonly host: EdgeActivatorHost,
-    private readonly waits: WaitScheduler,
+    private readonly waits: WaitStore,
     private readonly events: TransitionEvents,
   ) {}
 

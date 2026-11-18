@@ -1,6 +1,11 @@
 import { NextResponse } from "next/server";
+import { config } from "@/lib/config";
 import { gitHostRegistry } from "../../../../lib/engine/ports/gitHost";
-import { flowEngine } from "../../../../lib/engine/flowEngine";
+import { JobQueue } from "@/lib/engine/runtime/jobs/jobQueue";
+import { WebhookDeliveryHandler } from "@/lib/engine/runtime/jobs/webhookDeliveryHandler";
+import { JOB_KIND } from "@/lib/engine/runtime/jobs/constants/jobVocabulary";
+import { gitlabDeliveryDedupKey } from "@/lib/engine/runtime/jobs/utils/jobDedupKeys";
+import { toErrorResponse } from "@/lib/errors";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -14,8 +19,15 @@ export const runtime = "nodejs";
  *
  * A thin route: the host adapter normalizes the delivery, the engine reacts
  * (comment ingest + quiet-period resolve, pipeline re-gate) off the event.
+ * GitLab retries deliveries that 5xx — dedup is journaled through the job
+ * queue (step 03): a delivery carrying `X-Gitlab-Event-UUID` is enqueued
+ * write-ahead (dedup key `gitlab:<uuid>`), claimed, dispatched, and marked
+ * done; a retry with the same UUID answers `{ok, dedup: true}` instead of
+ * re-ingesting.
  */
 export const POST = async (req: Request) => {
+  // first-use startup warning (the old instrumentation bootstrap's duty)
+  config.gitlab.logStartupWarnings();
   const host = gitHostRegistry.maybe("gitlab");
   if (!host) return NextResponse.json({ error: "no gitlab host registered" }, { status: 500 });
   if (!host.verifyWebhook(req.headers)) {
@@ -28,6 +40,40 @@ export const POST = async (req: Request) => {
   const event = host.parseWebhook(payload);
   if (!event) return NextResponse.json({ ok: true });
 
-  await flowEngine.handleHostEvent(event);
-  return NextResponse.json({ ok: true });
+  const eventUuid = req.headers.get("x-gitlab-event-uuid")?.trim();
+  if (!eventUuid) {
+    // no UUID header (older GitLab / custom proxies) — dispatch directly
+    await dispatchDirect(payload);
+    return NextResponse.json({ ok: true });
+  }
+
+  const jobs = new JobQueue();
+  const { id: jobId, deduplicated } = await jobs.enqueue({
+    kind: JOB_KIND.WEBHOOK_DELIVERY,
+    dedupKey: gitlabDeliveryDedupKey(eventUuid),
+    payload: { source: "gitlab", body: payload },
+  });
+  if (deduplicated) return NextResponse.json({ ok: true, dedup: true });
+  const job = await jobs.claimById(jobId);
+  if (!job) return NextResponse.json({ ok: true, dedup: true });
+
+  try {
+    await new WebhookDeliveryHandler().handle(job);
+    await jobs.complete(jobId);
+    return NextResponse.json({ ok: true });
+  } catch (e: unknown) {
+    await jobs.fail(jobId, e instanceof Error ? e.message : String(e));
+    return toErrorResponse(e);
+  }
+};
+
+/** Direct (un-journaled) dispatch for deliveries without an event UUID. */
+const dispatchDirect = async (payload: unknown): Promise<void> => {
+  const host = gitHostRegistry.maybe("gitlab");
+  if (!host) throw new Error("no gitlab host registered");
+  const event = host.parseWebhook(payload);
+  if (event) {
+    const { flowEngine } = await import("@/lib/engine/flowEngine");
+    await flowEngine.handleHostEvent(event);
+  }
 };

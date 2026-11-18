@@ -10,26 +10,10 @@ export { RowGateway } from "./rows";
 export { getDb } from "./dbAccess";
 export { getRowGateway } from "./rowGatewayAccess";
 
-const ensureBackgroundWorkers = (): void => {
-  processSingleton("background-workers", () => {
-    void import("../engine/runtime/flowPoller").then(({ flowPoller }) => {
-      void flowPoller.start();
-    });
-    return true;
-  });
-};
-
-const shouldStartBackgroundWorkers = (): boolean =>
-  process.env.NODE_ENV !== "test" && process.env.VITEST !== "true";
-
 /**
- * Shared application database facade over the Prisma singleton. (The lazy
- * background-workers side effect dies with `instrumentation.ts` in the step
- * that lands the worker process — decision Q10.)
+ * Shared application database facade over the Prisma singleton. The web
+ * process is pure request/response (decision Q10): time-driven work (the
+ * poller, reconciler, job sweeps) lives in the dedicated worker process
+ * (`npm run worker`, `worker/main.ts`) — importing `db` starts nothing.
  */
-export const db = processSingleton("db", () => {
-  if (shouldStartBackgroundWorkers()) {
-    ensureBackgroundWorkers();
-  }
-  return new Database(prisma);
-});
+export const db = processSingleton("db", () => new Database(prisma));

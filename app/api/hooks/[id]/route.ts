@@ -1,7 +1,10 @@
 import { toErrorResponse } from "@/lib/errors";
 import { NextResponse } from "next/server";
 import { hookStore } from "../../../../lib/engine/runtime/hookStore";
-import { flowEngine } from "../../../../lib/engine/flowEngine";
+import { JobQueue } from "@/lib/engine/runtime/jobs/jobQueue";
+import { WebhookDeliveryHandler } from "@/lib/engine/runtime/jobs/webhookDeliveryHandler";
+import { JOB_KIND } from "@/lib/engine/runtime/jobs/constants/jobVocabulary";
+import { hookDeliveryDedupKey } from "@/lib/engine/runtime/jobs/utils/jobDedupKeys";
 import { evalJsonata, jsonataTruthy } from "@/lib/jsonata/eval";
 import { readCappedUtf8Body, RequestBodyTooLargeError } from "@/lib/net/readCappedBody";
 
@@ -20,9 +23,14 @@ const MAX_PAYLOAD_BYTES = 1_000_000;
  *    (webhook-id / webhook-timestamp / webhook-signature — OpenAI, Anthropic,
  *    Supabase format); otherwise the shared-secret `x-devflow-secret` header
  *    fallback (also requires webhook-id and webhook-timestamp for replay control)
- *  - dedup by the `webhook-id` header when present (replays return ok/dedup)
  *  - optional JSONata filter over `{payload, headers}` — a failing or falsy
  *    filter drops the delivery
+ *  - dispatch is journaled through the job queue (step 03, Invariant 7):
+ *    write-ahead insert (dedup key `hook:<hookId>:<webhook-id>`), atomic
+ *    claim, dispatch, mark done. A crash between dispatch and done leaves a
+ *    claimed job whose lease expiry re-claims it — and the resume claim
+ *    itself dedups the side effect. Retried deliveries with the same
+ *    `webhook-id` answer `{ok, dedup: true}`.
  *  - dispatch: `template_id` bound ⇒ start a new flow from that template
  *    (payload becomes `{{trigger.payload}}`); `flow_id` + `node_key` bound ⇒
  *    resume that waiting node (payload becomes its trigger input)
@@ -48,11 +56,6 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
   const v = hookStore.verify(hook, raw, req.headers);
   if (!v.ok) return NextResponse.json({ error: v.reason }, { status: 401 });
 
-  const webhookId = req.headers.get("webhook-id") ?? "";
-  if (webhookId && await hookStore.isDeliverySeen(hook.id, webhookId)) {
-    return NextResponse.json({ ok: true, dedup: true });
-  }
-
   let payload: unknown;
   try { payload = raw.trim() ? JSON.parse(raw) : {}; } catch { payload = raw; }
   // the JSONata filter sees the delivery body and the request headers — its
@@ -63,26 +66,43 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
     const r = await evalJsonata(hook.filter, { payload, headers });
     if (!r.ok) return NextResponse.json({ error: `hook filter failed — ${r.error}` }, { status: 400 });
     if (!jsonataTruthy(r.value)) {
-      if (webhookId) await hookStore.markDeliverySeen(hook.id, webhookId);
       return NextResponse.json({ ok: true, filtered: true });
     }
   }
 
+  // write-ahead journal: enqueue, then claim — whoever wins the claim
+  // dispatches exactly once (a retried delivery re-enqueues into the same row)
+  const jobs = new JobQueue();
+  const webhookId = req.headers.get("webhook-id") ?? "";
+  const { id: jobId, deduplicated } = await jobs.enqueue({
+    kind: JOB_KIND.WEBHOOK_DELIVERY,
+    flowId: hook.flowId,
+    dedupKey: webhookId ? hookDeliveryDedupKey(hook.id, webhookId) : null,
+    payload: {
+      source: "hook",
+      hookId: hook.id,
+      templateId: hook.templateId,
+      flowId: hook.flowId,
+      nodeKey: hook.nodeKey,
+      body: payload,
+    },
+  });
+  if (deduplicated) return NextResponse.json({ ok: true, dedup: true });
+  const job = await jobs.claimById(jobId);
+  if (!job) return NextResponse.json({ ok: true, dedup: true });
+
   try {
-    if (hook.templateId) {
-      const flowId = await flowEngine.startFromTemplate(hook.templateId, payload);
-      if (webhookId) await hookStore.markDeliverySeen(hook.id, webhookId);
-      return NextResponse.json({ ok: true, flow_id: flowId });
+    const result = await new WebhookDeliveryHandler().handle(job);
+    await jobs.complete(jobId);
+    if (result.startedFlowId) {
+      return NextResponse.json({ ok: true, flow_id: result.startedFlowId });
     }
-    if (hook.flowId && hook.nodeKey) {
-      await flowEngine.resumeNodeFromWebhook(hook.flowId, hook.nodeKey, payload);
-      if (webhookId) await hookStore.markDeliverySeen(hook.id, webhookId);
-      return NextResponse.json({ ok: true, resumed: hook.nodeKey });
+    if (result.resumedNodeKey) {
+      return NextResponse.json({ ok: true, resumed: result.resumedNodeKey });
     }
-    return NextResponse.json(
-      { error: "hook is bound to nothing — rebind it to a template or a waiting node" },
-      { status: 400 });
+    return NextResponse.json({ ok: true });
   } catch (e: unknown) {
+    await jobs.fail(jobId, e instanceof Error ? e.message : String(e));
     return toErrorResponse(e);
   }
 }

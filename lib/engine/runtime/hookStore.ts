@@ -6,7 +6,6 @@ import { db } from "../../db/app";
 import { HookRow, rows } from "../../db/rows";
 import type { Prisma } from "@prisma/client";
 import { maskToken } from "../../maskToken";
-import { processSingleton } from "../../singleton";
 
 /**
  * Generic inbound webhook endpoints (Phase 4A, §6): the `hooks` table binds
@@ -23,15 +22,14 @@ import { processSingleton } from "../../singleton";
  * per-provider verifiers next to their own routes.
  *
  * Hook secrets are masked in flow snapshots; the template editor and
- * `GET /api/hooks/:id/secret` reveal them on demand (CR-254). Deliveries are
- * deduped by the `webhook-id` header (TTL'd rows in `hook_deliveries`).
+ * `GET /api/hooks/:id/secret` reveal them on demand (CR-254). Delivery
+ * dedup is the job queue's write-ahead `dedup_key` (step 03, Invariant 7) —
+ * a retried delivery re-enqueues into the same `webhook_delivery` job.
  */
 
 const HEADER_NAMES = ["webhook-id", "webhook-timestamp", "webhook-signature"] as const;
 const FALLBACK_HEADER = "x-devflow-secret";
 const FALLBACK_TIMESTAMP_TOLERANCE_SEC = 5 * 60;
-const DELIVERY_TTL_MS = 24 * 60 * 60_000; // webhook-ids are remembered for a day
-const CLEANUP_INTERVAL_MS = 60 * 60_000;
 
 /** A `whsec_`-prefixed random secret the standardwebhooks library accepts. */
 function newSecret(): string {
@@ -189,35 +187,9 @@ export class HookStore {
     return { ok: true };
   }
 
-  // ── dedup by webhook-id (TTL'd) ──────────────────────────────────────────
-
-  private lastDeliveryCleanup = 0;
-
-  private async maybeCleanupDeliveries(): Promise<void> {
-    if (Date.now() - this.lastDeliveryCleanup <= CLEANUP_INTERVAL_MS) return;
-    this.lastDeliveryCleanup = Date.now();
-    await db.run(`DELETE FROM hook_deliveries WHERE created_at < $1`,
-      new Date(Date.now() - DELIVERY_TTL_MS).toISOString());
-  }
-
-  /** Whether this `webhook-id` was already processed for the hook (replay dedup). */
-  async isDeliverySeen(hookId: string, webhookId: string): Promise<boolean> {
-    await this.maybeCleanupDeliveries();
-    return Boolean(await db.get(
-      `SELECT 1 FROM hook_deliveries WHERE hook_id=$1 AND webhook_id=$2`,
-      hookId, webhookId));
-  }
-
-  /** Record a processed delivery id so retries with the same `webhook-id` dedup. */
-  async markDeliverySeen(hookId: string, webhookId: string): Promise<void> {
-    await this.maybeCleanupDeliveries();
-    await db.run(
-      `INSERT INTO hook_deliveries (hook_id,webhook_id,created_at) VALUES ($1,$2,$3)
-       ON CONFLICT (hook_id, webhook_id) DO NOTHING`,
-      hookId, webhookId, db.now()
-    );
-  }
+  // ── dedup (write-ahead jobs — step 03, Invariant 7) ─────────────────────
 }
 
-/** Shared application hook store. */
-export const hookStore = processSingleton("hookStore", () => new HookStore());
+/** Shared application hook store (stateless — decision Q9: no processSingleton). */
+export const hookStore = new HookStore();
+

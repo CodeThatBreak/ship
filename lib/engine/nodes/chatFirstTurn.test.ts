@@ -136,7 +136,7 @@ const stubSupport = (j: Journal, node: NodeRow, opts: { openComments?: unknown[]
     setNode: (_id: string, patch: Record<string, unknown>) => {
       j.nodePatches.push(patch);
     },
-    touchNode: () => {},
+    heartbeatLeases: () => {},
     // the step-02 authority delegates journal in the same patch shape
     applyTransition: (_f: string, _k: string, _key: string, o?: { toStatus?: string; patch?: Record<string, unknown> }) => {
       j.nodePatches.push({ status: o?.toStatus, ...(o?.patch ?? {}) });

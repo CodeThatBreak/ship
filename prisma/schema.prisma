@@ -91,6 +91,27 @@ enum RunStatus {
   @@map("run_status")
 }
 
+// Invariant 7: kinds of durable, claimable background work (target-architecture §3).
+// `wait_fire` and `merge_back` are part of the declared vocabulary; their
+// dispatchers land with steps 03 (wait sweep) and 07 (merge-back coordinator).
+enum JobKind {
+  webhook_delivery
+  schedule_fire
+  wait_fire
+  merge_back
+
+  @@map("job_kind")
+}
+
+enum JobStatus {
+  queued
+  claimed
+  done
+  failed
+
+  @@map("job_status")
+}
+
 enum StepMergeStatus {
   running
   conflict
@@ -206,6 +227,12 @@ model Node {
   type           String // node template key (def key for built-ins)
   status         NodeStatus @default(pending)
   attemptId      String?    @map("attempt_id")
+  // Invariant 2: durable waits + node leases. `wait_until` is set on entry to
+  // `waiting` and cleared on exit; `lease_until` is stamped at claim and
+  // heartbeated by the owning loop — liveness is `lease_until > now()`, never
+  // `updated_at` freshness (step 03).
+  waitUntil      DateTime?  @map("wait_until") @db.Timestamptz
+  leaseUntil     DateTime?  @map("lease_until") @db.Timestamptz
   agentId        String?    @map("agent_id")
   agentRef       String?    @map("agent_ref")
   sessionId      String?    @map("session_id")
@@ -368,6 +395,12 @@ model Run {
   runRef          String    @map("run_ref")
   branchId        String?   @map("branch_id")
   status          RunStatus @default(running)
+  // Invariant 2: the attempt token the run was started under + the run's own
+  // lease (registerStartupRun/persistRun write both; the stream loop
+  // heartbeats). The worker's reconciler trusts lease + SDK persisted state,
+  // never in-process handles (step 03).
+  attemptId       String?   @map("attempt_id")
+  leaseUntil      DateTime? @map("lease_until") @db.Timestamptz
   model           String?
   inputTokens     Int?      @map("input_tokens")
   outputTokens    Int?      @map("output_tokens")
@@ -556,6 +589,28 @@ model HookDelivery {
   @@unique([hookId, webhookId])
   @@index([createdAt], map: "idx_hook_deliveries_created")
   @@map("hook_deliveries")
+}
+
+// ── jobs (durable claimable background work — Invariant 7) ────────────────────
+
+model Job {
+  id         String    @id
+  kind       JobKind
+  flowId     String?   @map("flow_id")
+  payload    Json?
+  status     JobStatus @default(queued)
+  leaseUntil DateTime? @map("lease_until") @db.Timestamptz
+  attempts   Int       @default(0)
+  // e.g. `hook:<hookId>:<webhookId>`, `template:<templateId>:<fireAt>` — the
+  // write-ahead dedup: a retried delivery re-enqueues into the same row
+  dedupKey   String?   @map("dedup_key")
+  runAt      DateTime  @map("run_at") @db.Timestamptz
+  createdAt  DateTime  @map("created_at") @db.Timestamptz @default(now())
+  updatedAt  DateTime  @map("updated_at") @db.Timestamptz @updatedAt
+
+  @@unique([dedupKey], map: "jobs_dedup_key_key")
+  @@index([status, runAt], map: "idx_jobs_status_run_at")
+  @@map("jobs")
 }
 
 // ── worktree_removals ────────────────────────────────────────────────────────

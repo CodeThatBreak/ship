@@ -11,8 +11,8 @@ export type KeyedTransitionOpts = {
   detail?: string;
 };
 
-/** Narrow surface {@link WaitScheduler} needs from the orchestrator. */
-export type WaitSchedulerHost = {
+/** Narrow surface {@link WaitStore} needs from the orchestrator. */
+export type WaitStoreHost = {
   nodeStatus(flowId: string, nodeKey: string): Promise<string | null>;
   /** keyed delegate to the transition authority (declared from→to set) */
   setNodeStatus(flowId: string, nodeKey: string, key: TransitionKey, opts?: KeyedTransitionOpts): Promise<boolean>;
@@ -28,7 +28,7 @@ export type WaitSchedulerHost = {
 };
 
 /** Narrow surface {@link EdgeActivator} needs from the orchestrator. */
-export type EdgeActivatorHost = WaitSchedulerHost & {
+export type EdgeActivatorHost = WaitStoreHost & {
   ctx(flowId: string): Promise<FlowCtx>;
   defOf(flowId: string, nodeKey: string): Promise<NodeDefinition>;
   runNode(flowId: string, nodeKey: string, rawInput: unknown, deliveryPayload?: unknown): Promise<string>;

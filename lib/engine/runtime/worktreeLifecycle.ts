@@ -15,6 +15,7 @@ import {
 } from "../../git/worktrees";
 import { depPolicies, type RepoDepOverrides } from "../../git/depPolicy";
 import { worktreeSetup } from "../../git/worktreeSetup";
+import { NODE_LEASE_SECONDS } from "../constants/leases";
 import type { FlowCtx } from "../nodes/shared/runContext";
 
 interface RemovalTarget {
@@ -75,16 +76,21 @@ export class WorktreeManager {
   }
 
   /**
-   * Warm-up heartbeat: stamp the attributed node's `updated_at` each time an
-   * ensure step emits activity. A first-checkout ensure (`git worktree add` +
-   * the bounded deps copy) runs for minutes with no agent run row yet, and
-   * Reconciler's START_GRACE keys on `updated_at` — without the stamps the
-   * reconciler fails the live node as "left running without an active run"
-   * (the same aliveness contract the pipeline gate's per-poll stamps follow).
+   * Warm-up lease heartbeat: extend the attributed node's `lease_until` each
+   * time an ensure step emits activity. A first-checkout ensure (`git worktree
+   * add` + the bounded deps copy) runs for minutes with no agent run row yet,
+   * and the reconciler's liveness test is `lease_until > now()` (step 03,
+   * Invariant 2) — without these extensions the reconciler fails the live
+   * node once the claim's initial lease budget lapses.
    */
   private async touchNode(flowId: string, nodeId: string | null | undefined): Promise<void> {
     if (!nodeId) return;
-    await db.prisma.node.updateMany({ where: { id: nodeId, flowId }, data: { updatedAt: new Date() } });
+    await db.prisma.$executeRawUnsafe(
+      `UPDATE nodes SET lease_until = now() + make_interval(secs => $1) WHERE id=$2 AND flow_id=$3`,
+      NODE_LEASE_SECONDS,
+      nodeId,
+      flowId,
+    );
   }
 
   /** A flow's worktree dir: `workspaces/worktrees/<flowId>` (unique per flow; sweep-joinable). */

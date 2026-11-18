@@ -27,7 +27,7 @@ const ALLOWED = "lib/db/prismaClient.ts";
  * is forbidden.
  */
 const FROZEN_OFFENDERS: readonly string[] = [
-  "lib/db/app.ts", // the `db` facade singleton + lazy background-workers side effect (Q10)
+  "lib/db/app.ts", // the `db` facade singleton (Q9 — the one sanctioned DB-pool survivor's sibling)
   "lib/db/dbAccess.ts", // the bound-db slot accessor
   "lib/db/rowGatewayAccess.ts", // the bound-row-gateway slot accessor
   "lib/git/gitRunner.ts",
@@ -49,16 +49,12 @@ const FROZEN_OFFENDERS: readonly string[] = [
   "lib/integrations/jira/singleton.ts", // jira
   "lib/integrations/gitlab/singleton.ts", // gitLab
   "lib/integrations/localAgent/agent.ts", // localAgent
-  "lib/localApi/token.ts", // localApi token
   "lib/engine/nodes/declarativeRegistry.ts", // declarativeKindRegistry/declarativeDefCache
   "lib/engine/tasks/taskService.ts",
   "lib/engine/tasks/liveTaskFeed.ts", // liveTaskFeed
-  "lib/engine/runtime/flowReconciler.ts", // reconciler
   "lib/engine/flowEngine.ts",
-  "lib/engine/runtime/flowPoller.ts",
   "lib/engine/runtime/fanout/stepFlowManager.ts", // stepFlows
   "lib/engine/runtime/worktreeLifecycle.ts", // worktreeManager
-  "lib/engine/runtime/hookStore.ts",
   "lib/engine/runtime/fanout/mergeArena.ts",
   "lib/engine/runtime/split/splitManager.ts",
   "lib/engine/graph/graphService.ts",

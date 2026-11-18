@@ -544,9 +544,9 @@ export class PipelineNode extends AgentRunNode<
           reply: msg,
         });
       }
-      // server-side wait liveness: the reconciler treats a fresh updated_at on a
-      // running pipeline node as "alive" (it has no agent run row while waiting)
-      await this.support.touchNode(node.id);
+      // durable wait liveness (step 03): the gate has no run row while it polls —
+      // each iteration re-extends the node lease so the reconciler sees it alive
+      await this.support.heartbeatLeases(node.id, null);
       await sleep(pollMs);
     }
   }

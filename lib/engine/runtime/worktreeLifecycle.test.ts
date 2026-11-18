@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { db } from '../../db/app';
+import { NODE_LEASE_SECONDS } from '../constants/leases';
 import { WorktreeManager } from './worktreeLifecycle';
 
 describe('WorktreeManager lifecycle events (CR-073)', () => {
@@ -25,7 +26,7 @@ describe('WorktreeManager lifecycle events (CR-073)', () => {
   });
 });
 
-describe('WorktreeManager node heartbeat', () => {
+describe('WorktreeManager node lease heartbeat', () => {
   const asTouch = (mgr: WorktreeManager) =>
     (
       mgr as unknown as {
@@ -33,34 +34,37 @@ describe('WorktreeManager node heartbeat', () => {
       }
     ).touchNode.bind(mgr);
 
-  it("stamps the attributed node row so reconcile's start-grace skips the warm-up", async () => {
-    const updateMany = vi
-      .spyOn(db.prisma.node, 'updateMany')
-      .mockResolvedValue({ count: 1 });
+  it("extends the attributed node's lease so the reconciler sees the warm-up as alive", async () => {
+    const exec = vi
+      .spyOn(db.prisma, '$executeRawUnsafe')
+      .mockResolvedValue(1);
     try {
       await asTouch(new WorktreeManager())('flow-1', 'node-row-id');
-      expect(updateMany).toHaveBeenCalledTimes(1);
-      const [payload] = updateMany.mock.calls[0] as unknown as [
-        { where: { id: string; flowId: string }; data: { updatedAt: Date } },
+      expect(exec).toHaveBeenCalledTimes(1);
+      const [sql, leaseSeconds, nodeId, flowId] = exec.mock.calls[0] as unknown as [
+        string, number, string, string,
       ];
-      expect(payload.where).toEqual({ id: 'node-row-id', flowId: 'flow-1' });
-      expect(payload.data.updatedAt).toEqual(expect.any(Date));
+      expect(sql).toContain('UPDATE nodes SET lease_until');
+      expect(sql).toContain('make_interval');
+      expect(leaseSeconds).toBe(NODE_LEASE_SECONDS);
+      expect(nodeId).toBe('node-row-id');
+      expect(flowId).toBe('flow-1');
     } finally {
-      updateMany.mockRestore();
+      exec.mockRestore();
     }
   });
 
   it("is a no-op without a node attribution (flow-level events don't stamp strangers)", async () => {
-    const updateMany = vi
-      .spyOn(db.prisma.node, 'updateMany')
-      .mockResolvedValue({ count: 1 });
+    const exec = vi
+      .spyOn(db.prisma, '$executeRawUnsafe')
+      .mockResolvedValue(1);
     try {
       const touch = asTouch(new WorktreeManager());
       await touch('flow-1', null);
       await touch('flow-1', undefined);
-      expect(updateMany).not.toHaveBeenCalled();
+      expect(exec).not.toHaveBeenCalled();
     } finally {
-      updateMany.mockRestore();
+      exec.mockRestore();
     }
   });
 });

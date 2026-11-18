@@ -1,16 +1,13 @@
 /**
- * Characterization (red): a waiting node's resume — webhook delivery and
- * timer fire — must RUN the node, not leave it stranded (engine overhaul
- * step 00; flip in step 03).
+ * Wait resume (green — engine overhaul step 03): a waiting node's resume —
+ * webhook delivery, timer fire, and restart — RUNS the node to a terminal.
  *
- * Current bug (waitScheduler.ts `resumeNodeFromWebhook` / `fireWaitTimer` →
- * edgeActivator.ts:285): the claim flips the node waiting→running, then
- * `startNodeStage` re-checks `status !== "waiting"` and silently returns —
- * the node is left `running` with no run.
- *
- * Restart case is `test.skip` until durable `wait_until` exists (step 03):
- * today waits live in WaitScheduler's in-memory `waitTimers` map, so a
- * restart loses them outright — there is nothing to resume.
+ * The step-00 bug is fixed by the durable WaitStore: firing no longer
+ * pre-claims the node (the old pre-claim made `startNodeStage`'s own
+ * `resumeWait` claim conflict and silently return, stranding the node
+ * `running` with no run) — the claim and the stage run live together in
+ * `startNodeStage`. Waits persist on `nodes.wait_until`, so the restart case
+ * is a fresh WaitStore sweeping the table.
  *
  * Runs against the isolated dockerized Postgres test database
  * (AGENTS.md §1 — never a demo/real DB).
@@ -25,8 +22,10 @@ assignTestDatabase();
 const { db } = await import("@/lib/db/app");
 const { flowEngine } = await import("@/lib/engine/flowEngine");
 const { templateStore } = await import("@/lib/engine/templates/templateStore");
+const { WaitStore } = await import("@/lib/engine/runtime/waits/waitStore");
+const { engineParts } = await import("@/lib/composition/container");
 
-registerFakeAgentPort((v) => db.setSetting("default_harness", v));
+const agent = registerFakeAgentPort((v) => db.setSetting("default_harness", v));
 const harness = new FlowHarness({ db, flowEngine, templateStore });
 
 beforeAll(resetTestDatabase);
@@ -82,8 +81,8 @@ edges:
 const { importTemplateYaml } = await import("@/lib/engine/templates/templateYaml");
 
 describe("wait resume runs the node", () => {
-  // OVERHAUL: flip in step 03
-  test.fails("webhook resume runs the node (today the claim strands it running)", async () => {
+  // OVERHAUL: flipped green in step 03 (durable WaitStore, single-owner claim)
+  test("webhook resume runs the node", async () => {
     const { id: templateId } = await importTemplateYaml(templateStore, webhookWaitYaml, {
       namePrefix: "ovh-webhook-wait",
     });
@@ -94,8 +93,12 @@ describe("wait resume runs the node", () => {
     await harness.advance(flowId, "entry");
     expect(await harness.nodeStatus(flowId, "gate")).toBe("waiting");
 
+    // the resumed stage runs one agent turn — script its outcome
+    agent.drainQueue();
+    agent.pushRun({ status: "finished", result: "delivery acknowledged." });
+
     // webhook delivery resumes the gate: target = the node RUNS to a terminal
-    flowEngine.resumeNodeFromWebhook(flowId, "gate", { delivery: true });
+    await flowEngine.resumeNodeFromWebhook(flowId, "gate", { delivery: true });
     await until(
       async () => (await harness.nodeStatus(flowId, "gate")) === "done",
       "the resumed gate to run to done",
@@ -103,8 +106,8 @@ describe("wait resume runs the node", () => {
     expect(await harness.nodeStatus(flowId, "gate")).toBe("done");
   }, 15_000);
 
-  // OVERHAUL: flip in step 03
-  test.fails("timer resume runs the node (today the claim strands it running)", async () => {
+  // OVERHAUL: flipped green in step 03
+  test("timer resume runs the node", async () => {
     const { id: templateId } = await importTemplateYaml(templateStore, timerWaitYaml, {
       namePrefix: "ovh-timer-wait",
     });
@@ -114,8 +117,12 @@ describe("wait resume runs the node", () => {
     await harness.advance(flowId, "entry");
     expect(await harness.nodeStatus(flowId, "gate")).toBe("waiting");
 
+    // the fired stage runs one agent turn — script its outcome
+    agent.drainQueue();
+    agent.pushRun({ status: "finished", result: "timer acknowledged." });
+
     // timer fire resumes the gate: target = the node RUNS to a terminal
-    flowEngine.processWaitTimers();
+    await flowEngine.processWaitTimers();
     await until(
       async () => (await harness.nodeStatus(flowId, "gate")) === "done",
       "the timer-fired gate to run to done",
@@ -123,10 +130,29 @@ describe("wait resume runs the node", () => {
     expect(await harness.nodeStatus(flowId, "gate")).toBe("done");
   }, 15_000);
 
-  // OVERHAUL: flip in step 03 (restart needs durable wait_until — skipped until then)
-  test.skip("restart during a wait resumes the node (needs durable wait_until)", () => {
-    // Step 03: waits persist on nodes.wait_until; a fresh process re-arms and
-    // fires them. Today WaitScheduler.waitTimers is in-memory, so a restart
-    // loses the deadline entirely — there is nothing to drive here yet.
-  });
+  // OVERHAUL: flipped green in step 03 — waits are durable (`nodes.wait_until`)
+  test("restart during a wait resumes the node", async () => {
+    const { id: templateId } = await importTemplateYaml(templateStore, timerWaitYaml, {
+      namePrefix: "ovh-restart-wait",
+    });
+    const flowId = await harness.seedFlowFromTemplate(templateId);
+
+    await harness.setNodeForFixture(flowId, "entry", "done");
+    await harness.advance(flowId, "entry");
+    expect(await harness.nodeStatus(flowId, "gate")).toBe("waiting");
+
+    // the fired stage runs one agent turn — script its outcome
+    agent.drainQueue();
+    agent.pushRun({ status: "finished", result: "restart acknowledged." });
+
+    // "restart": a FRESH WaitStore instance (a new process) sweeps the durable
+    // deadline — nothing was held in memory, so nothing is lost
+    const freshProcessWaits = new WaitStore(flowEngine, engineParts.events);
+    await freshProcessWaits.sweepDueWaits();
+    await until(
+      async () => (await harness.nodeStatus(flowId, "gate")) === "done",
+      "the restarted wait sweep to fire the gate to done",
+    );
+    expect(await harness.nodeStatus(flowId, "gate")).toBe("done");
+  }, 15_000);
 });

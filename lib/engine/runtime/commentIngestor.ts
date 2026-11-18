@@ -6,7 +6,7 @@ import { DomainError } from "../../errors";
 import { hostOf, type HostComment, type HostWebhookEvent } from "../ports/gitHost";
 import { templateStore } from "../templates/templateStore";
 import { commentStore } from "./commentStore";
-import type { WaitScheduler } from "./waitScheduler";
+import type { WaitStore } from "./waits/waitStore";
 
 export type CommentIngestorHost = {
   triggerPipelineGate(flowId: string, pipelineId?: number): Promise<void>;
@@ -16,7 +16,7 @@ export type CommentIngestorHost = {
 export class CommentIngestor {
   constructor(
     private readonly host: CommentIngestorHost,
-    private readonly waits: WaitScheduler,
+    private readonly waits: WaitStore,
   ) {}
 
   async findFlowByMR(projectId: number, mrIid: number, projectUrl?: string): Promise<FlowRow | undefined> {

@@ -9,15 +9,25 @@ import "server-only";
  * pending lint-config note about server-zone exceptions).
  */
 import { flowEngine } from "../lib/engine/flowEngine";
+import { Reconciler } from "../lib/engine/runtime/reconcile/reconciler";
 import type { FlowData } from "@/types/flow";
 import { flowSummaries, type FlowSummary } from "@/types/flows";
+
+/** The web process's reconcile pass (idempotent, DB-fenced — no lock needed). */
+const reconciler = new Reconciler();
 
 /**
  * The flow cockpit's initial snapshot — the same service read the thin
  * `GET /api/flows/:id` route wraps. Returns `null` when the flow doesn't
  * exist — the caller maps that to 404.
+ *
+ * Step 03: opening a flow also triggers the reconcile pass (fire-and-forget,
+ * idempotent) — the UI recovers a crashed flow immediately instead of at the
+ * next worker tick. User-initiated like every web-process claim, it shares
+ * the same DB-fenced paths, so it needs no writer lock.
  */
 export const getFlowCockpitData = async (id: string): Promise<FlowData | null> => {
+  void reconciler.reconcileFlow(id).catch(() => {});
   return flowEngine.get(id);
 };
 

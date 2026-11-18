@@ -61,6 +61,7 @@ export const migrateTestDatabase = (): void => {
 };
 
 const TRUNCATABLE_TABLES = [
+  "jobs",
   "step_merges",
   "plan_steps",
   "events",

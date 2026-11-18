@@ -9,7 +9,7 @@ assignTestDatabase();
 
 const { db } = await import("../../db/app");
 const { FlowReadModel } = await import("./flowReadModel");
-const { WaitScheduler } = await import("./waitScheduler");
+const { WaitStore } = await import("./waits/waitStore");
 const { engineParts } = await import("@/lib/composition/container");
 
 const now = () => new Date().toISOString();
@@ -65,7 +65,7 @@ describe("FlowReadModel.get", () => {
       chainBusy: async () => false,
       startNodeStage: async () => {},
     };
-    const waits = new WaitScheduler(host, engineParts.events);
+    const waits = new WaitStore(host, engineParts.events);
     const readModel = new FlowReadModel(waits);
 
     const allSpy = vi.spyOn(db, "all");

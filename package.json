@@ -9,6 +9,7 @@
     "dev": "node scripts/run-next-local.mjs dev",
     "build": "next build",
     "start": "node scripts/run-next-local.mjs start",
+    "worker": "tsx --tsconfig worker/tsconfig.json worker/main.ts",
     "typecheck": "tsc --noEmit",
     "lint": "eslint . --max-warnings=53",
     "test": "vitest run",
@@ -67,6 +68,7 @@
     "shadcn": "^4.22.1",
     "tailwindcss": "^4.3.3",
     "ts-morph": "^28.0.0",
+    "tsx": "^4.23.15",
     "typescript": "5.9",
     "vitest": "^5.0.5"
   }

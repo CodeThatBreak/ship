@@ -21,6 +21,7 @@ import { ToolPairer, type ToolEmitFn } from "./toolPairer";
 import { usageTracker, type RunCostSummary, type UsageTracker } from "./usageTracker";
 import { RunSupersededError } from "../errors/runSupersededError";
 import { EVENT_KIND, RUN_STATUS, SETTING_KEY } from "../constants/vocabulary";
+import { NODE_LEASE_HEARTBEAT_MS } from "../constants/leases";
 
 export interface ExecuteRunOptions {
   /** When false, skip the late-write guard (chat-only turns that do not own node status). */
@@ -157,6 +158,14 @@ export class AgentRunner {
     const startedWhileRunning = attemptAtStart != null;
     await this.database.emitEvent(flow.id, nodeId, EVENT_KIND.LIFECYCLE, `${label} started (${mode})`, { agentId, runId, run_id: runId, mode });
 
+    // durable liveness (step 03): while the stream is pending, heartbeat the
+    // node + run leases so a reconciler in another process (the worker) sees
+    // this stage as alive — the loop below can legitimately run for minutes
+    // between callbacks, so liveness cannot hang off stream events
+    const leaseHeartbeat = setInterval(() => {
+      void this.support.heartbeatLeases(nodeId, runId).catch(() => {});
+    }, NODE_LEASE_HEARTBEAT_MS);
+
     const stream = new StreamBuffer(flow.id, nodeId, runId);
     const emitTool: ToolEmitFn = async (name, status, callId, args, result, startedAtMs) =>
       await this.database.emitEvent(flow.id, nodeId, EVENT_KIND.TOOL, `${name}: ${status}`, {
@@ -204,9 +213,10 @@ export class AgentRunner {
         stream.flushAll();
       }
     } finally {
+      clearInterval(leaseHeartbeat);
       const runRowStatus = result?.status === RUN_STATUS.FINISHED ? RUN_STATUS.FINISHED : RUN_STATUS.ERROR;
       await this.database.run(
-        `UPDATE runs SET status=$1, updated_at=$2 WHERE run_ref=$3`,
+        `UPDATE runs SET status=$1, lease_until=NULL, updated_at=$2 WHERE run_ref=$3`,
         runRowStatus,
         this.database.now(),
         runId,

@@ -5,30 +5,62 @@ import { db } from "../../db/app";
 import { FlowRow } from "../../db/rows";
 import { gitHostRegistry } from "../ports/gitHost";
 import { flowEngine } from "../flowEngine";
-import { reconciler } from "./flowReconciler";
 import { templateStore } from "../templates/templateStore";
-import { processSingleton } from "../../singleton";
 import { worktreeManager } from "./worktreeLifecycle";
-import { nextScheduleFireAt } from "./scheduleTrigger";
+import { Reconciler } from "./reconcile/reconciler";
+import { WaitStore } from "./waits/waitStore";
+import { JobQueue } from "./jobs/jobQueue";
+import { WebhookDeliveryHandler } from "./jobs/webhookDeliveryHandler";
+import { ScheduleFireHandler } from "./jobs/scheduleFireHandler";
+import { ProcessLock } from "./locks/processLock";
+import { JOB_KIND } from "./jobs/constants/jobVocabulary";
+import { scheduleFireDedupKey } from "./jobs/utils/jobDedupKeys";
+import type { JobHandlers } from "./jobs/types/job";
 
 /**
- * Background poller for active flows: pipeline status + CR (MR/PR) comments.
- * Drives the pipeline-fix loop directly, and the comment-resolve loop via the
- * flow engine's wait-timer tick (each new comment restarts the debounced
- * resolve's quiet period; it fires only once the pipeline gate is clear and
- * the flow has been quiet for the configured delay).
+ * FlowPoller — the worker process's tick over active flows (step 03,
+ * decisions Q9/Q10): durable wait fires (`nodes.wait_until` + the WaitStore),
+ * the template-schedule sweep (enqueues `schedule_fire` jobs — the handler
+ * fires and advances `schedule_next_at` in the same transaction as the job's
+ * completion), the job sweep (webhook deliveries + schedule fires, claimed
+ * with `SKIP LOCKED` leases), the reconcile pass (Reconciler v2 — every
+ * non-terminal state, every active flow), then per-MR pipeline + discussion
+ * polling via the git host port. New open comments bounce the resolve
+ * debounce.
  *
- * Phase 4: the tick also drives the trigger layer — `wait_for: timer` node
- * resumes, and due `schedule` flow triggers (new flow per fire from the
- * template's task/repo binding).
+ * The tick refuses to run unless THIS process holds the {@link ProcessLock}
+ * (the Postgres advisory lock) — a non-holder logs once and idles; the lock
+ * makes "keep one server running" code, not a runbook line.
+ *
+ * Must never: tick without the lock, compare schedules/leases against
+ * app-server time, or start background work from the web process (that is
+ * this class's one job, in the worker).
  */
 export class FlowPoller {
   private started = false;
   private ticking = false;
+  /** Logged the not-the-writer refusal at most once per process. */
+  private loggedLockRefusal = false;
   /** Last open-comment count announced per flow — avoids repeating the wait message every tick. */
   private lastCommentCount = new Map<string, number>();
 
-  /** Start polling active flows (idempotent). */
+  private readonly jobs = new JobQueue();
+  private readonly webhookDeliveries = new WebhookDeliveryHandler();
+  private readonly scheduleFires = new ScheduleFireHandler(this.jobs);
+
+  private readonly handlers: JobHandlers = {
+    [JOB_KIND.WEBHOOK_DELIVERY]: async (job) => this.webhookDeliveries.handle(job),
+    [JOB_KIND.SCHEDULE_FIRE]: async (job) => this.scheduleFires.handle(job),
+  };
+
+  constructor(
+    private readonly lock: ProcessLock,
+    private readonly reconciler: Reconciler = new Reconciler(),
+    private readonly waits: WaitStore = flowEngine.waitsStore,
+  ) {}
+
+  /** Start the tick loop (idempotent). One-time sweeps first: worktrees and
+   *  stuck step merges — resume what a restart interrupted. */
   start(intervalMs = 30_000): void {
     if (this.started) return;
     this.started = true;
@@ -38,14 +70,13 @@ export class FlowPoller {
       console.warn(`worktree sweep failed: ${e instanceof Error ? e.message : e}`)
     );
     // one-time global pass over stuck step_merges (plan fan-out Phase 2B):
-    // resume or flag merge-backs a restart interrupted — even when nobody has
-    // opened a flow page yet
-    void reconciler.sweepStuckStepMerges().catch((e: unknown) =>
+    // resume or flag merge-backs a restart interrupted — even when nobody
+    // has opened a flow page yet
+    void this.reconciler.sweepStuckStepMerges().catch((e: unknown) =>
       console.warn(`step-merge reconcile failed: ${e instanceof Error ? e.message : e}`)
     );
-    void Promise.resolve(flowEngine.reArmWaitingTimers()).catch((e: unknown) =>
-      console.warn(`wait-timer re-arm failed: ${e instanceof Error ? e.message : e}`)
-    );
+    // NOTE (step 03): no wait re-arm pass — waits are durable
+    // (`nodes.wait_until`); the first tick's sweep resumes them
     setTimeout(() => void this.runTick(intervalMs), intervalMs).unref?.();
   }
 
@@ -68,15 +99,34 @@ export class FlowPoller {
   }
 
   private async tick(): Promise<void> {
+    // single-writer gate: without the advisory lock this process must not
+    // run ANY time-driven engine work — log once and idle
+    if (!this.lock.held) {
+      if (!this.loggedLockRefusal) {
+        this.loggedLockRefusal = true;
+        console.warn(
+          "[flow-poller] this process does not hold the writer lock — ticks idle " +
+            "(another worker owns the poller/reconciler; see /api/health)",
+        );
+      }
+      return;
+    }
+    this.loggedLockRefusal = false;
+
     try {
-      await flowEngine.processWaitTimers();
+      await this.waits.sweepDueWaits();
     } catch (e: unknown) {
-      this.logPhaseError("processWaitTimers", e);
+      this.logPhaseError("sweepDueWaits", e);
     }
     try {
       await this.processTemplateSchedules();
     } catch (e: unknown) {
       this.logPhaseError("processTemplateSchedules", e);
+    }
+    try {
+      await this.jobs.sweepDue(this.handlers);
+    } catch (e: unknown) {
+      this.logPhaseError("jobSweep", e);
     }
     try {
       await this.reconcileActiveFlows();
@@ -123,15 +173,15 @@ export class FlowPoller {
       }
     }
     this.pruneCommentCounts(activeFlowIds);
-    await reconciler.pruneFlowMaps(activeFlowIds);
+    await this.reconciler.pruneFlowMaps(activeFlowIds);
   }
 
-  /** Re-sync stuck `running` nodes for every active flow (throttled per flow). */
+  /** Reconciler pass over every active flow (idempotent, every tick). */
   private async reconcileActiveFlows(): Promise<void> {
     const flows = await db.prisma.flow.findMany({ where: { status: "active" }, select: { id: true } });
     for (const f of flows) {
       try {
-        await reconciler.reconcileFlow(f.id);
+        await this.reconciler.reconcileFlow(f.id);
       } catch (e: unknown) {
         this.logPhaseError(`reconcile ${f.id}`, e);
       }
@@ -147,11 +197,11 @@ export class FlowPoller {
   }
 
   /**
-   * Fire due `schedule` flow triggers (Phase 4C): one new flow per fire,
-   * created + started by the engine from the template's task/repo binding.
-   * The next fire time (`schedule_next_at`, armed on first save by
-   * TemplateStore) advances by the interval immediately — a failing fire
-   * skips this round and the schedule keeps its beat instead of spinning.
+   * Fire due `schedule` flow triggers (Phase 4C) through the job queue: the
+   * sweep only ENQUEUES (idempotent — dedup key `template:<id>:<fireAt>`);
+   * the claimed job starts the flow and advances `schedule_next_at` in the
+   * same transaction as its completion. The old advance-then-fire order
+   * silently dropped a fire on a crash between the two writes (step 03).
    */
   private async processTemplateSchedules(): Promise<void> {
     const templates = await db.prisma.flowTemplate.findMany({
@@ -165,20 +215,11 @@ export class FlowPoller {
       const trigger = (() => { try { return (t.trigger && typeof t.trigger === "object" ? t.trigger : {}) as Record<string, unknown>; } catch { return {}; } })();
       const intervalMin = typeof trigger.interval_min === "number" && trigger.interval_min > 0
         ? trigger.interval_min : 60;
-      const nextAt = nextScheduleFireAt(due, now, intervalMin);
-      await db.prisma.flowTemplate.update({
-        where: { id: t.id },
-        data: { scheduleNextAt: new Date(nextAt) },
+      await this.jobs.enqueue({
+        kind: JOB_KIND.SCHEDULE_FIRE,
+        dedupKey: scheduleFireDedupKey(t.id, due),
+        payload: { templateId: t.id, fireAt: due, intervalMin },
       });
-      try {
-        // the fire provides nothing (the start contract's defaults apply) —
-        // an ad-hoc body would fail the start contract's strict shape check
-        await flowEngine.startFromTemplate(t.id, {});
-      } catch (e: unknown) {
-        // no flow instance exists to attach an event to — the dev server log
-        // and the template editor (which validates the binding) surface it
-        console.error(`schedule trigger for template ${t.id}: ${e instanceof Error ? e.message : e}`);
-      }
     }
   }
 
@@ -244,8 +285,8 @@ export class FlowPoller {
     });
     if (newOpen > 0 && openCount > 0) {
       // debounce: each new open comment restarts the quiet period on the
-      // debounced resolve wait — the wait-timer tick fires it once the flow
-      // has been quiet for the delay and the pipeline gate is clear
+      // debounced resolve wait — the durable wait sweep fires it once the
+      // flow has been quiet for the delay and the pipeline gate is clear
       await flowEngine.bounceCommentWaits(f.id);
       const countKey = branchName ? `${f.id}:${branchName}` : f.id;
       if (this.lastCommentCount.get(countKey) !== openCount) {
@@ -266,5 +307,3 @@ export class FlowPoller {
       { hour: "2-digit", minute: "2-digit", hour12: false });
   }
 }
-
-export const flowPoller = processSingleton("flowPoller", () => new FlowPoller());

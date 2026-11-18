@@ -53,11 +53,33 @@ cp .env.example .env   # fill in workspace path; leave DATABASE_URL unset for pr
 npm install
 npm run db:up          # docker compose up -d postgres (dev `devflow` + test `devflow_test` databases)
 npm run db:migrate     # prisma migrate deploy + builtin template seed
-npm run dev            # http://localhost:3000
+npm run dev            # http://localhost:3000  (terminal 1 — the web process)
+npm run worker         # terminal 2 — the worker process (see below)
 ```
 
 Any Postgres works instead of Docker: point `DATABASE_URL` at it and run
 `npm run db:migrate`.
+
+### The worker process (two terminals in dev)
+
+The web process is pure request/response: every user action (approve, retry,
+run, chat, webhook) claims synchronously in-request through DB-fenced paths,
+so the UI works without the worker. **Time-driven** behavior — `wait_for`
+timer/comment fires, template schedules, job retries, the reconcile pass,
+and the MR pipeline/comment polling — lives in a dedicated worker process:
+
+```bash
+npm run worker         # acquires the writer lock, then: poller + reconciler + job sweeps
+```
+
+Run it alongside `npm run dev` (two terminals). It is idempotent: the worker
+holds a Postgres advisory lock (`pg_try_advisory_lock`), so a second worker —
+duplicate deploy, dev accident — logs one line and idles (retrying, so a dead
+holder is replaced). `GET /api/health` reports whether the writer lock is held
+(`{ writer, since }`). Without the worker running, timers, schedules, and
+crash recovery simply pause — nothing is lost, since every deadline and
+claim lives in Postgres (`nodes.wait_until`, `nodes.lease_until`, the `jobs`
+table).
 
 ### Demo flows (showcase the structured plan / editable checklist and plan fan-out)
 

@@ -9,24 +9,6 @@ describe("maskHookSecret (CR-254)", () => {
   });
 });
 
-describe("HookStore delivery dedup", () => {
-  it("does not record webhook-id until markDeliverySeen (CR-043)", async () => {
-    const hookId = db.uid("hk_");
-    await db.run(
-      `INSERT INTO hooks (id,template_id,flow_id,node_key,secret,filter,created_at)
-       VALUES ($1,NULL,NULL,NULL,$2,NULL,$3)`,
-      hookId, "whsec_test", db.now(),
-    );
-    const deliveryId = "msg_retry_1";
-
-    expect(await hookStore.isDeliverySeen(hookId, deliveryId)).toBe(false);
-    expect(await hookStore.isDeliverySeen(hookId, deliveryId)).toBe(false);
-
-    await hookStore.markDeliverySeen(hookId, deliveryId);
-    expect(await hookStore.isDeliverySeen(hookId, deliveryId)).toBe(true);
-  });
-});
-
 describe("HookStore verify fallback", () => {
   const hookId = db.uid("hk_");
   const secret = "whsec_fallback_test";

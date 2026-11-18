@@ -88,9 +88,7 @@ const FROZEN_OFFENDERS: readonly string[] = [
   "lib/engine/runtime/commentStore.ts",
   "lib/engine/runtime/fanout/stepFlowManager.ts",
   "lib/engine/runtime/flowFactory.ts",
-  "lib/engine/runtime/flowPoller.ts",
-  "lib/engine/runtime/flowReconciler.ts",
-  "lib/engine/runtime/hookStore.ts", // TTL consts
+  "lib/engine/runtime/hookStore.ts",
   "lib/engine/runtime/nodeStore.ts",
   "lib/engine/runtime/planStepStore.ts",
   "lib/engine/runtime/split/splitManager.ts",

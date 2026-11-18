@@ -11,6 +11,7 @@ import {
   RUN_AGENT_REF,
   RUN_STATUS,
 } from "../../constants/vocabulary";
+import { NODE_LEASE_SECONDS, RUN_LEASE_SECONDS } from "../../constants/leases";
 import type { HostNote } from "../../ports/gitHost";
 import type { EngineNodeStatus } from "../../constants/nodeStatus";
 import type {
@@ -90,12 +91,19 @@ export class NodeSupport {
   }
 
   /**
-   * Refresh a running node's `updated_at` (liveness for the reconciler's
-   * pipeline-gate freshness check) without touching status — the old
-   * re-stamp-`running` trick reduced to its honest effect.
+   * Heartbeat a running stage's durable leases (step 03, Invariant 2):
+   * extend `nodes.lease_until` (and `runs.lease_until` while a run row
+   * exists — `runRef` null when it does not yet). Every loop that owns a
+   * running node calls this at least every NODE_LEASE_HEARTBEAT_MS; the
+   * reconciler's liveness test is `lease_until > now()`.
    */
-  async touchNode(nodeId: string): Promise<void> {
-    await db.run(`UPDATE nodes SET updated_at=$1 WHERE id=$2`, db.now(), nodeId);
+  async heartbeatLeases(nodeId: string, runRef: string | null): Promise<void> {
+    await db.run(`UPDATE nodes SET lease_until = now() + make_interval(secs => $1) WHERE id=$2`,
+      NODE_LEASE_SECONDS, nodeId);
+    if (runRef) {
+      await db.run(`UPDATE runs SET lease_until = now() + make_interval(secs => $1) WHERE run_ref=$2`,
+        RUN_LEASE_SECONDS, runRef);
+    }
   }
 
   // ── transition-authority delegates (Invariant 1 funnels) ─────────────────
@@ -187,7 +195,9 @@ export class NodeSupport {
   /**
    * Placeholder run row for the current attempt — written at the start of
    * `executeRun` so reconcile sees a run while the agent is still starting.
-   * `run_ref` is the attempt token until `persistRun` upgrades the row.
+   * `run_ref` is the attempt token until `persistRun` upgrades the row; the
+   * attempt token and a run lease (`runs.lease_until`) are stamped next to it
+   * so liveness survives the process that started the run (step 03).
    */
   async registerStartupRun(flowId: string, nodeId: string, attemptId: string): Promise<void> {
     const existing = await db.get<{ agentRef: string; runRef: string }>(
@@ -197,25 +207,13 @@ export class NodeSupport {
     if (existing?.agentRef === RUN_AGENT_REF.PENDING && existing.runRef === attemptId) {
       return;
     }
-    await db.run(
-      `UPDATE runs SET status=$1, updated_at=$2 WHERE node_id=$3 AND status=$4`,
-      RUN_STATUS.ERROR,
-      db.now(),
-      nodeId,
-      RUN_STATUS.RUNNING,
-    );
+    await db.run(`UPDATE runs SET status=$1, lease_until=NULL, updated_at=$2 WHERE node_id=$3 AND status=$4`,
+      RUN_STATUS.ERROR, db.now(), nodeId, RUN_STATUS.RUNNING);
     const id = db.uid("run_");
     await db.run(
-      `INSERT INTO runs (id,flow_id,node_id,agent_ref,run_ref,status,created_at,updated_at)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
-      id,
-      flowId,
-      nodeId,
-      RUN_AGENT_REF.PENDING,
-      attemptId,
-      RUN_STATUS.RUNNING,
-      db.now(),
-      db.now(),
+      `INSERT INTO runs (id,flow_id,node_id,agent_ref,run_ref,attempt_id,lease_until,status,created_at,updated_at)
+       VALUES ($1,$2,$3,$4,$5,$6, now() + make_interval(secs => $7),$8,$9,$10)`,
+      id, flowId, nodeId, RUN_AGENT_REF.PENDING, attemptId, attemptId, RUN_LEASE_SECONDS, RUN_STATUS.RUNNING, db.now(), db.now(),
     );
   }
 
@@ -228,10 +226,13 @@ export class NodeSupport {
       `SELECT attempt_id AS "attemptId" FROM nodes WHERE id=$1`, nodeId))?.attemptId;
     if (attemptId) {
       const changes = await db.run(
-        `UPDATE runs SET agent_ref=$1, run_ref=$2, updated_at=$3
-         WHERE node_id=$4 AND status=$5 AND agent_ref=$6 AND run_ref=$7`,
+        `UPDATE runs SET agent_ref=$1, run_ref=$2, attempt_id=$3,
+            lease_until = now() + make_interval(secs => $4), updated_at=$5
+         WHERE node_id=$6 AND status=$7 AND agent_ref=$8 AND run_ref=$9`,
         agentId,
         runId,
+        attemptId,
+        RUN_LEASE_SECONDS,
         db.now(),
         nodeId,
         RUN_STATUS.RUNNING,
@@ -259,9 +260,9 @@ export class NodeSupport {
     await db.run(`UPDATE runs SET status=$1, updated_at=$2 WHERE node_id=$3 AND status=$4`, RUN_STATUS.ERROR, db.now(), nodeId, RUN_STATUS.RUNNING);
     const id = db.uid("run_");
     await db.run(
-      `INSERT INTO runs (id,flow_id,node_id,agent_ref,run_ref,status,created_at,updated_at)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
-      id, flowId, nodeId, agentId, runId, RUN_STATUS.RUNNING, db.now(), db.now()
+      `INSERT INTO runs (id,flow_id,node_id,agent_ref,run_ref,attempt_id,lease_until,status,created_at,updated_at)
+       VALUES ($1,$2,$3,$4,$5,$6, now() + make_interval(secs => $7),$8,$9,$10)`,
+      id, flowId, nodeId, agentId, runId, attemptId, RUN_LEASE_SECONDS, RUN_STATUS.RUNNING, db.now(), db.now(),
     );
     return id;
   }

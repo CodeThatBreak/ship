@@ -64,11 +64,11 @@ export interface EngineParts {
  * The shared `engineParts` instance is deliberately NOT process-pinned:
  * every part is stateless or DB-fenced, so per-module-graph copies cannot
  * disagree (the authority's writes are conditional UPDATEs against the same
- * rows). The one in-memory map — the attempt registry's liveness hint — is
- * only ever consulted through the `flowEngine` singleton's copy (reconcile
- * asks `flowEngine.activeAttempt`), and its role ends in step 03. Modules
- * not yet container-owned (node-kind helpers, reconciler, poller) import
- * `engineParts` until their step rewires them.
+ * rows). The one in-memory map — the attempt registry — no longer carries
+ * a liveness role (step 03 replaced it with durable leases); it is a
+ * per-process cache of currently-held attempt tokens only. Modules not yet
+ * container-owned (node-kind helpers) import `engineParts` until their step
+ * rewires them.
  */
 export const createEngineParts = (): EngineParts => {
   const nodeStore = new NodeStore();
