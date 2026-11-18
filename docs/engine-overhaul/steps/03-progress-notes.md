@@ -81,6 +81,12 @@ markers for this step flipped).
   WaitingHandler. The `wait_fire` / `merge_back` job kinds are authored in
   the enum per target-architecture §3 but carry no dispatchers yet
   (`merge_back` is the step-07 merge-back coordinator's).
+- **Test coverage note**: `StepMergeRecovery` is byte-ported legacy logic
+  (fan-out family recovery) exercised indirectly by every `reconcileFlow`
+  test; its dedicated coverage rides with the step-07 fan-out work that
+  owns that domain. `ScheduleFireHandler`, `WebhookDeliveryHandler`,
+  `JobQueue`, `ProcessLock`, `WaitStore`, `Reconciler` and the handlers all
+  have direct tests.
 
 ## Deviations / flags for review
 
