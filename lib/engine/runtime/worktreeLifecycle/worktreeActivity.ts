@@ -48,7 +48,21 @@ export class WorktreeActivity {
    */
   async touchNode(flowId: string, nodeId: string | null | undefined): Promise<void> {
     if (!nodeId) return;
-    await db.prisma.$executeRawUnsafe(
+    await this.stampNodeLease(flowId, nodeId);
+  }
+
+  /**
+   * Lease invariant (step 03, Invariant 2): a live node satisfies
+   * `nodes.lease_until > now()` evaluated on the DB-server clock. The stamp is
+   * interval arithmetic on DB time (`now() + make_interval`) — kept raw like
+   * every other lease stamp (nodeSupport's stampNodeLease/stampRunLease,
+   * jobQueue's claims), never app-server `Date.now()`. Raw-SQL containment
+   * list (same rule as `lib/engine/runtime/jobs/jobQueue.ts`): this file is on
+   * the containment list the Task 12 lint rule allowlists. The `flow_id`
+   * guard keeps the never-stamp-a-stranger's-node invariant.
+   */
+  private async stampNodeLease(flowId: string, nodeId: string): Promise<void> {
+    await db.run(
       `UPDATE nodes SET lease_until = now() + make_interval(secs => $1) WHERE id=$2 AND flow_id=$3`,
       NODE_LEASE_SECONDS,
       nodeId,

@@ -1,7 +1,8 @@
 import "server-only";
 
 import type { Database } from "@/lib/db/app";
-import { Task, rows } from "@/lib/db/rows";
+import { Task } from "@/lib/db/rows";
+import { parseRows } from "./utils/ormRows";
 import type { TaskProviderRegistry } from "../registry/taskProviderRegistry";
 
 /** Task service (§1): the task list read model (rows joined with each provider's live `externalUrl`) and the repo-url update. Provider lookups go through the injected registry; the single write is the repo-url column — nothing else mutates task rows here. */
@@ -12,7 +13,15 @@ export class TaskService {
   ) {}
 
   async list() {
-    const taskRows = await rows.all(Task, `SELECT id, type, key, summary, description, status, issue_type AS "issueType", priority, repo_url AS "repoUrl", parent_key AS "parentKey", external_url AS "externalUrl", raw, synced_at AS "syncedAt", fields FROM tasks ORDER BY synced_at DESC`);
+    const taskRows = parseRows(
+      Task,
+      await this.database.prisma.task.findMany({
+        // Postgres `ORDER BY synced_at DESC` defaults to NULLS FIRST — pinned
+        // explicitly so Prisma's null ordering can't drift from the raw path
+        orderBy: { syncedAt: { sort: "desc", nulls: "first" } },
+      }),
+      "tasks list",
+    );
     const tasks = await Promise.all(
       taskRows.map(async (t) => ({
         ...t,
@@ -28,7 +37,9 @@ export class TaskService {
   }
 
   async updateRepoUrl(id: string, repoUrl: string): Promise<{ ok: true; updated_at: string }> {
-    await this.database.run(`UPDATE tasks SET repo_url=$1 WHERE id=$2`, repoUrl, id);
+    // `updateMany` keeps the raw UPDATE's semantics: an unknown id is a silent
+    // no-op (the route answers ok regardless) — `update` would throw P2025.
+    await this.database.prisma.task.updateMany({ where: { id }, data: { repoUrl } });
     return { ok: true, updated_at: this.database.now() };
   }
 }

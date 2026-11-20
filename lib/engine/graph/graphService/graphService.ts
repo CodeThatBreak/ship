@@ -1,7 +1,8 @@
 import "server-only";
 
 import { NotFoundError } from "@/lib/errors";
-import { FlowRow, rows, type NodeTemplateRow } from "@/lib/db/rows";
+import { db } from "@/lib/db/app";
+import { type NodeTemplateRow } from "@/lib/db/rows";
 import { nodeRegistry } from "@/lib/engine/nodes/registry";
 import { outputFieldsFor } from "@/lib/engine/templates/outputFields";
 import { templateStore } from "@/lib/engine/templates/templateStore";
@@ -26,7 +27,9 @@ export class GraphService {
       }
       resolvedTemplateId = templateId;
     } else {
-      const flow = await rows.get(FlowRow, `SELECT id, task_id AS "taskId", name, status, mr_url AS "mrUrl", mr_iid AS "mrIid", mr_branch AS "mrBranch", repo_url AS "repoUrl", gitlab_project_id AS "gitlabProjectId", execution_mode AS "executionMode", repo_id AS "repoId", template_id AS "templateId", template_graph AS "templateGraph", trigger_payload AS "triggerPayload", worktree_dir AS "worktreeDir", parent_flow_id AS "parentFlowId", kind, created_at AS "createdAt", updated_at AS "updatedAt" FROM flows WHERE id=$1`, flowId ?? "");
+      // only the template binding is consumed here — a scalar select is fully
+      // Prisma-typed, so no zod row narrowing is needed
+      const flow = await db.prisma.flow.findUnique({ where: { id: flowId ?? "" }, select: { templateId: true } });
       if (!flow) {
         throw new NotFoundError("flow", flowId ?? "");
       }

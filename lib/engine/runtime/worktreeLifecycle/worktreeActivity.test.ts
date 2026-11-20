@@ -31,36 +31,31 @@ describe('WorktreeActivity lifecycle events (CR-073)', () => {
 
 describe('WorktreeActivity node lease heartbeat', () => {
   it("extends the attributed node's lease so the reconciler sees the warm-up as alive", async () => {
-    const exec = vi
-      .spyOn(db.prisma, '$executeRawUnsafe')
-      .mockResolvedValue(1);
+    const run = vi.spyOn(db, 'run').mockResolvedValue(1);
     try {
       await new WorktreeActivity().touchNode('flow-1', 'node-row-id');
-      expect(exec).toHaveBeenCalledTimes(1);
-      const [sql, leaseSeconds, nodeId, flowId] = exec.mock.calls[0] as unknown as [
-        string, number, string, string,
-      ];
-      expect(sql).toContain('UPDATE nodes SET lease_until');
-      expect(sql).toContain('make_interval');
-      expect(leaseSeconds).toBe(NODE_LEASE_SECONDS);
-      expect(nodeId).toBe('node-row-id');
-      expect(flowId).toBe('flow-1');
+      expect(run).toHaveBeenCalledTimes(1);
+      const [sql, ...args] = run.mock.calls[0];
+      // DB-server clock stamp: interval arithmetic in SQL, never app Date.now()
+      expect(sql).toBe(
+        'UPDATE nodes SET lease_until = now() + make_interval(secs => $1) WHERE id=$2 AND flow_id=$3',
+      );
+      // never stamp a stranger's node: the update is fenced by the flow id
+      expect(args).toEqual([NODE_LEASE_SECONDS, 'node-row-id', 'flow-1']);
     } finally {
-      exec.mockRestore();
+      run.mockRestore();
     }
   });
 
   it("is a no-op without a node attribution (flow-level events don't stamp strangers)", async () => {
-    const exec = vi
-      .spyOn(db.prisma, '$executeRawUnsafe')
-      .mockResolvedValue(1);
+    const run = vi.spyOn(db, 'run').mockResolvedValue(0);
     try {
       const activity = new WorktreeActivity();
       await activity.touchNode('flow-1', null);
       await activity.touchNode('flow-1', undefined);
-      expect(exec).not.toHaveBeenCalled();
+      expect(run).not.toHaveBeenCalled();
     } finally {
-      exec.mockRestore();
+      run.mockRestore();
     }
   });
 });

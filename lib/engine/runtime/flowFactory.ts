@@ -5,10 +5,12 @@ import { Prisma } from "@prisma/client";
 import { FlowRow, Task } from "../../db/rows";
 import { ConflictError, NotFoundError, ValidationError } from "../../errors";
 import { FLOW_KIND } from "../constants/flowKind";
-import { FLOW_CHILD_TABLES } from "../constants/flowChildTables";
+import { NODE_STATUS } from "../constants/nodeStatus";
 import { nodeRegistry } from "../nodes/registry";
 import { mergeArena } from "./fanout/mergeArena";
 import { worktreeManager } from "./worktreeLifecycle";
+import { deleteFlowChildRows } from "./flowFactory/utils/flowChildDeletes";
+import { parseRow } from "./flowFactory/utils/ormRows";
 import type { NodeStore } from "./nodeStore";
 import { parseStartContract, validateAgainstContract } from "../nodes/kinds/start/contract";
 import { NO_TASK_TYPE, SDLC_TEMPLATE_ID, templateStore } from "../templates/templateStore";
@@ -19,10 +21,6 @@ import type { CreateFlowOptions } from "./types/flowFactory";
 
 /** Flow creation and template-triggered starts. */
 export class FlowFactory {
-  private static readonly TASK_SELECT = `SELECT id, type, key, summary, description, status,
-       issue_type AS "issueType", priority, repo_url AS "repoUrl",
-       parent_key AS "parentKey", external_url AS "externalUrl", raw,
-       synced_at AS "syncedAt", fields FROM tasks`;
   private static readonly REPO_DELIVERY_KEY = "repo";
   private static readonly EXEC_MODE_DELIVERY_KEY = "execution_mode";
   private static readonly EXEC_MODE_DELIVERY_ALIAS = "harness";
@@ -35,9 +33,9 @@ export class FlowFactory {
 
   /** Delete a flow tree: cancel active nodes, drop worktrees, delete the child tables in FK-safe order. */
   async deleteFlow(id: string): Promise<void> {
-    const flow = await db.get<{ id: string }>(`SELECT id FROM flows WHERE id=$1`, id);
+    const flow = await db.prisma.flow.findUnique({ where: { id }, select: { id: true } });
     if (!flow) throw new NotFoundError('flow', id);
-    const childIds = (await db.all<{ id: string }>(`SELECT id FROM flows WHERE parent_flow_id=$1`, id)).map(r => r.id);
+    const childIds = (await db.prisma.flow.findMany({ where: { parentFlowId: id }, select: { id: true } })).map(r => r.id);
     const ids = [id, ...childIds];
     for (const fid of ids) {
       if (mergeArena.isMerging(fid)) {
@@ -45,10 +43,10 @@ export class FlowFactory {
       }
     }
     for (const fid of ids) {
-      const active = await db.all<{ nodeKey: string; status: string }>(
-        `SELECT node_key AS "nodeKey", status FROM nodes WHERE flow_id=$1 AND status IN ('running','waiting')`,
-        fid
-      );
+      const active = await db.prisma.node.findMany({
+        where: { flowId: fid, status: { in: [NODE_STATUS.RUNNING, NODE_STATUS.WAITING] } },
+        select: { nodeKey: true },
+      });
       for (const n of active) {
         await this.cancelNodeOf(fid, n.nodeKey);
       }
@@ -59,11 +57,9 @@ export class FlowFactory {
     await Promise.allSettled(ids.map(fid => worktreeManager.removeFlowWorktree(fid, { reason: 'flow deleted' })));
     await db.transaction(async (tx) => {
       for (const fid of ids) {
-        for (const table of FLOW_CHILD_TABLES) {
-          await tx.$executeRawUnsafe(`DELETE FROM ${table} WHERE flow_id=$1`, fid);
-        }
+        await deleteFlowChildRows(tx, fid);
       }
-      await tx.$executeRawUnsafe(`DELETE FROM flows WHERE id IN (${ids.map((_, i) => `$${i + 1}`).join(',')})`, ...ids);
+      await tx.flow.deleteMany({ where: { id: { in: ids } } });
     });
   }
 
@@ -72,8 +68,9 @@ export class FlowFactory {
   }
 
   async create(taskId: string, repoUrl: string, name?: string, opts: CreateFlowOptions = {}, tx?: Prisma.TransactionClient): Promise<string> {
-    const task = await db.rows.get(Task, `${FlowFactory.TASK_SELECT} WHERE id=$1`, taskId);
-    if (!task) throw new NotFoundError("task", taskId);
+    const taskRow = await db.prisma.task.findUnique({ where: { id: taskId } });
+    if (!taskRow) throw new NotFoundError("task", taskId);
+    const task = parseRow(Task, taskRow, `task ${taskId}`);
     const repo = opts.repoId ? await db.repoById(opts.repoId) : undefined;
     if (repo) repoUrl = repo.cloudUrl;
     const executionMode = opts.executionMode === "local" ? "local" : "cloud";
@@ -126,8 +123,9 @@ export class FlowFactory {
     opts: { branch: string | null },
     tx?: Prisma.TransactionClient,
   ): Promise<string> {
-    const parent = await db.rows.get(FlowRow, `SELECT id, task_id AS "taskId", name, status, mr_url AS "mrUrl", mr_iid AS "mrIid", mr_branch AS "mrBranch", repo_url AS "repoUrl", gitlab_project_id AS "gitlabProjectId", execution_mode AS "executionMode", repo_id AS "repoId", template_id AS "templateId", template_graph AS "templateGraph", trigger_payload AS "triggerPayload", worktree_dir AS "worktreeDir", parent_flow_id AS "parentFlowId", kind, created_at AS "createdAt", updated_at AS "updatedAt" FROM flows WHERE id=$1`, parentFlowId);
-    if (!parent) throw new NotFoundError("flow", parentFlowId);
+    const parentRow = await db.prisma.flow.findUnique({ where: { id: parentFlowId } });
+    if (!parentRow) throw new NotFoundError("flow", parentFlowId);
+    const parent = parseRow(FlowRow, parentRow, `flow ${parentFlowId}`);
     const graph = await templateStore.graph(templateId);
     if (!graph) throw new NotFoundError("flow template", templateId);
     const startSpec = graph.nodes.find((n) => n.defKey === nodeRegistry.entryKey());
@@ -170,8 +168,9 @@ export class FlowFactory {
     payload: SplitChildPayload,
     tx?: Prisma.TransactionClient,
   ): Promise<string> {
-    const parent = await db.rows.get(FlowRow, `SELECT id, task_id AS "taskId", name, status, mr_url AS "mrUrl", mr_iid AS "mrIid", mr_branch AS "mrBranch", repo_url AS "repoUrl", gitlab_project_id AS "gitlabProjectId", execution_mode AS "executionMode", repo_id AS "repoId", template_id AS "templateId", template_graph AS "templateGraph", trigger_payload AS "triggerPayload", worktree_dir AS "worktreeDir", parent_flow_id AS "parentFlowId", kind, created_at AS "createdAt", updated_at AS "updatedAt" FROM flows WHERE id=$1`, parentFlowId);
-    if (!parent) throw new NotFoundError("flow", parentFlowId);
+    const parentRow = await db.prisma.flow.findUnique({ where: { id: parentFlowId } });
+    if (!parentRow) throw new NotFoundError("flow", parentFlowId);
+    const parent = parseRow(FlowRow, parentRow, `flow ${parentFlowId}`);
     const graph = await templateStore.graph(templateId);
     if (!graph) throw new NotFoundError("flow template", templateId);
     const templateName = (await templateStore.flowTemplate(templateId))?.name ?? templateId;
@@ -252,8 +251,9 @@ export class FlowFactory {
       }
       taskId = latest.id;
     }
-    const task = await db.rows.get(Task, `SELECT id, type, key, summary, description, status, issue_type AS "issueType", priority, repo_url AS "repoUrl", parent_key AS "parentKey", external_url AS "externalUrl", raw, synced_at AS "syncedAt", fields FROM tasks WHERE id=$1`, taskId);
-    if (!task) throw new NotFoundError("task", taskId);
+    const taskRow = await db.prisma.task.findUnique({ where: { id: taskId } });
+    if (!taskRow) throw new NotFoundError("task", taskId);
+    const task = parseRow(Task, taskRow, `task ${taskId}`);
     const repo = await db.repoById(repoId);
     if (!repo) {
       throw new ValidationError(

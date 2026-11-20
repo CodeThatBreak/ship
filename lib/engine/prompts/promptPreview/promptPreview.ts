@@ -1,7 +1,8 @@
 import "server-only";
 
 import { db } from "../../../db/app";
-import { FlowRow, Task, rows, NodeRow } from "../../../db/rows";
+import { FlowRow, Task, NodeRow } from "../../../db/rows";
+import { parseRow, parseRows } from "./utils/ormRows";
 import { PROMPT_SOURCES } from "../../nodes/shared/nodeSharedExports";
 import type { FlowCtx, NodeDefinition, PromptPreviewParams, PromptSource } from "../../nodes/shared/nodeSharedExports";
 import { nodeRoles } from "../../nodes/shared/nodeRoles";
@@ -27,14 +28,17 @@ export class PromptPreview {
       branch: url.searchParams.get("branch") ?? undefined,
     };
 
-    const flow = await rows.get(FlowRow, `SELECT id, task_id AS "taskId", name, status, mr_url AS "mrUrl", mr_iid AS "mrIid", mr_branch AS "mrBranch", repo_url AS "repoUrl", gitlab_project_id AS "gitlabProjectId", execution_mode AS "executionMode", repo_id AS "repoId", template_id AS "templateId", template_graph AS "templateGraph", trigger_payload AS "triggerPayload", worktree_dir AS "worktreeDir", parent_flow_id AS "parentFlowId", kind, created_at AS "createdAt", updated_at AS "updatedAt" FROM flows WHERE id=$1`, flowId);
-    if (!flow) return this.notFound("flow not found");
-    const task = await rows.get(Task, `SELECT id, type, key, summary, description, status, issue_type AS "issueType", priority, repo_url AS "repoUrl", parent_key AS "parentKey", external_url AS "externalUrl", raw, synced_at AS "syncedAt", fields FROM tasks WHERE id=$1`, flow.taskId);
-    if (!task) return this.notFound("task not found");
+    const flowRow = await db.prisma.flow.findUnique({ where: { id: flowId } });
+    if (!flowRow) return this.notFound("flow not found");
+    const flow = parseRow(FlowRow, flowRow, `flow ${flowId}`);
+    const taskRow = await db.prisma.task.findUnique({ where: { id: flow.taskId } });
+    if (!taskRow) return this.notFound("task not found");
+    const task = parseRow(Task, taskRow, `task ${flow.taskId}`);
     const repo = flow.repoId ? await db.repoById(flow.repoId) ?? null : null;
     const ctx: FlowCtx = { flow, task, repo };
 
-    const node = await rows.get(NodeRow, `SELECT id, flow_id AS "flowId", node_key AS "nodeKey", type, status, attempt_id AS "attemptId", agent_id AS "agentId", agent_ref AS "agentRef", session_id AS "sessionId", label, config, join_mode AS "joinMode", input, output, created_at AS "createdAt", updated_at AS "updatedAt" FROM nodes WHERE flow_id=$1 AND node_key=$2`, flowId, nodeKey) ?? null;
+    const nodeRow = await db.prisma.node.findUnique({ where: { flowId_nodeKey: { flowId, nodeKey } } });
+    const node = nodeRow ? parseRow(NodeRow, nodeRow, `node ${nodeKey} of flow ${flowId}`) : null;
     const def = await this.defFor(flowId, nodeKey, node);
     // §T4: the preview role is routed through the role router — defs without
     // a previewable prompt (the start def) decline; the declarative
@@ -69,15 +73,17 @@ export class PromptPreview {
    * the single-node route's rejection of unsupported nodes.
    */
   async allFor(flowId: string): Promise<AllPromptsResult> {
-    const flow = await rows.get(FlowRow, `SELECT id, task_id AS "taskId", name, status, mr_url AS "mrUrl", mr_iid AS "mrIid", mr_branch AS "mrBranch", repo_url AS "repoUrl", gitlab_project_id AS "gitlabProjectId", execution_mode AS "executionMode", repo_id AS "repoId", template_id AS "templateId", template_graph AS "templateGraph", trigger_payload AS "triggerPayload", worktree_dir AS "worktreeDir", parent_flow_id AS "parentFlowId", kind, created_at AS "createdAt", updated_at AS "updatedAt" FROM flows WHERE id=$1`, flowId);
-    if (!flow) return this.notFound("flow not found");
-    const task = await rows.get(Task, `SELECT id, type, key, summary, description, status, issue_type AS "issueType", priority, repo_url AS "repoUrl", parent_key AS "parentKey", external_url AS "externalUrl", raw, synced_at AS "syncedAt", fields FROM tasks WHERE id=$1`, flow.taskId);
-    if (!task) return this.notFound("task not found");
+    const flowRow = await db.prisma.flow.findUnique({ where: { id: flowId } });
+    if (!flowRow) return this.notFound("flow not found");
+    const flow = parseRow(FlowRow, flowRow, `flow ${flowId}`);
+    const taskRow = await db.prisma.task.findUnique({ where: { id: flow.taskId } });
+    if (!taskRow) return this.notFound("task not found");
+    const task = parseRow(Task, taskRow, `task ${flow.taskId}`);
     const repo = flow.repoId ? await db.repoById(flow.repoId) ?? null : null;
     const ctx: FlowCtx = { flow, task, repo };
 
     const prompts: Record<string, string> = {};
-    for (const node of await rows.all(NodeRow, `SELECT id, flow_id AS "flowId", node_key AS "nodeKey", type, status, attempt_id AS "attemptId", agent_id AS "agentId", agent_ref AS "agentRef", session_id AS "sessionId", label, config, join_mode AS "joinMode", input, output, created_at AS "createdAt", updated_at AS "updatedAt" FROM nodes WHERE flow_id=$1`, flowId)) {
+    for (const node of parseRows(NodeRow, await db.prisma.node.findMany({ where: { flowId } }), `nodes of flow ${flowId}`)) {
       const def = await this.defFor(flowId, node.nodeKey, node);
       const previewer = nodeRoles.promptPreviewerOf(def);
       const preview = previewer ? await previewer.previewPrompt(ctx, node, {}) : null;
@@ -112,7 +118,12 @@ export class PromptPreview {
     nodeKey: string;
   }): Promise<PromptPreviewPayload> {
     const tpl = this.templateOf(input.templateKey);
-    const node = await rows.get(NodeRow, `SELECT id, flow_id AS "flowId", node_key AS "nodeKey", type, status, attempt_id AS "attemptId", agent_id AS "agentId", agent_ref AS "agentRef", session_id AS "sessionId", label, config, join_mode AS "joinMode", input, output, created_at AS "createdAt", updated_at AS "updatedAt" FROM nodes WHERE flow_id=$1 AND node_key=$2`, input.ctx.flow.id, input.nodeKey);
+    const nodeRow = await db.prisma.node.findUnique({
+      where: { flowId_nodeKey: { flowId: input.ctx.flow.id, nodeKey: input.nodeKey } },
+    });
+    const node = nodeRow
+      ? parseRow(NodeRow, nodeRow, `node ${input.nodeKey} of flow ${input.ctx.flow.id}`)
+      : null;
     const recordedInput = node?.input ?? null;
     // the last run's prompt: what run N actually sent — every run records the
     // exact final text into nodes.input.prompt (build/step-build/review/
