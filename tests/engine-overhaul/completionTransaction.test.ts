@@ -45,6 +45,8 @@ const realTransaction: TransactionFn = db.transaction.bind(db);
  * rolls back with the transaction.
  */
 const injectTransactionFault = (failOn: RegExp): void => {
+  /** Prisma models whose calls ride the fault seam (completion-batch writers). */
+  const FAULTED_MODELS: readonly string[] = ["planStep", "artifact"];
   (db as { transaction: TransactionFn }).transaction = (async (fn, tx) => {
     if (tx) return realTransaction(fn, tx); // joined transactions keep the caller's (proxied) tx
     return db.prisma.$transaction(async (inner) => {
@@ -61,13 +63,16 @@ const injectTransactionFault = (failOn: RegExp): void => {
               faultOrRun(sql, () =>
                 ((target as Record<string, unknown>)[prop as string] as (...a: unknown[]) => unknown).apply(target, [sql, ...args]));
           }
-          // model-API writes (e.g. planStep.updateMany) fault on `<model>.<method>`
-          if (prop === "planStep") {
+          // model-API writes (e.g. planStep.updateMany, artifact.create) fault
+          // on `<model>.<method>` — the ORM conversion moved the completion
+          // batch's writes from raw SQL onto these model delegates, so the
+          // fault seam follows them.
+          if (FAULTED_MODELS.includes(prop as string)) {
             const model = Reflect.get(target, prop, receiver) as unknown as Record<string | symbol, (...a: unknown[]) => unknown>;
             return new Proxy(model, {
               get(modelTarget, method) {
                 return (...args: unknown[]) =>
-                  faultOrRun(`planStep.${String(method)}`, () =>
+                  faultOrRun(`${String(prop)}.${String(method)}`, () =>
                     (modelTarget[method] as (...a: unknown[]) => unknown).apply(modelTarget, args));
               },
             });
@@ -155,7 +160,7 @@ describe("completion batch transaction (step 06, Invariant 7)", () => {
     const ctx = await flowEngine.ctx(flowId);
     const apply = await applyOutcomeOf(flowId, "triage");
 
-    injectTransactionFault(/INSERT INTO artifacts/);
+    injectTransactionFault(/artifact\.create/);
     await expect(apply(ctx, TRIX_OUTCOME)).rejects.toThrow(/simulated crash/);
 
     expect(await artifactsOf(flowId)).toEqual([]);
