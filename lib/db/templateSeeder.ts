@@ -1,8 +1,58 @@
 import "server-only";
 
-import type { PrismaClient } from "@prisma/client";
+import type { EdgeKind, NodeTemplateKind, PrismaClient } from "@prisma/client";
 import { Prisma } from "@prisma/client";
 import { SDLC_TEMPLATE_ID, NODE_KEYS, STEP_BUILD_TEMPLATE_ID } from "../engine/constants/nodeKeys";
+
+type NodeTemplateSeed = {
+  readonly id: string;
+  readonly key: string;
+  readonly name: string;
+  readonly description: string;
+  readonly icon: string;
+};
+
+type StarterNodeSeed = NodeTemplateSeed & {
+  readonly kind: NodeTemplateKind;
+  readonly config: Prisma.InputJsonValue;
+};
+
+type FlowTemplateNodeSeed = {
+  readonly nodeKey: string;
+  readonly nodeTemplateId: string;
+  readonly trigger: Prisma.InputJsonValue;
+};
+
+type FlowTemplateEdgeSeed = {
+  readonly from: string;
+  readonly to: string;
+  readonly kind: EdgeKind;
+  readonly condition: string | null;
+};
+
+type StarterTemplateNodeSeed = {
+  readonly key: string;
+  readonly nodeTemplateId: string;
+  readonly trigger: Prisma.InputJsonValue;
+  readonly config: Prisma.InputJsonValue;
+  readonly inputMap: Prisma.InputJsonValue;
+};
+
+type StarterTemplateEdgeSeed = {
+  readonly from: string;
+  readonly to: string;
+  readonly kind: EdgeKind;
+  readonly label: string | null;
+};
+
+type StarterTemplateSeed = {
+  readonly id: string;
+  readonly name: string;
+  readonly description: string;
+  readonly trigger: Prisma.InputJsonValue;
+  readonly nodes: readonly StarterTemplateNodeSeed[];
+  readonly edges: readonly StarterTemplateEdgeSeed[];
+};
 
 /**
  * Idempotent built-in node and flow template seed (the sqlite-era migration
@@ -13,114 +63,210 @@ import { SDLC_TEMPLATE_ID, NODE_KEYS, STEP_BUILD_TEMPLATE_ID } from "../engine/c
  * KEEP IN SYNC with `prisma/migrations/20261116100000_builtin_template_seed/`
  * — that migration seeds the same catalog on every `prisma migrate deploy`
  * (dev/prod bootstrap); this class re-seeds truncated test databases.
+ *
+ * Idempotency contract: every insert targets a deterministic id and never
+ * overwrites an existing row — `upsert` with an **empty** `update` (or
+ * `createMany({ skipDuplicates: true })`) leaves user-edited rows untouched.
  */
 export class TemplateSeeder {
   async seed(tx: PrismaClient | Prisma.TransactionClient): Promise<void> {
     const now = new Date();
 
-    const nt: [string, string, string, string, string][] = [
+    // ── Built-in node templates ─────────────────────────────────────────────
+    const builtinNodeTemplates: readonly NodeTemplateSeed[] = [
       // id, key, name, description, icon
-      ["nt_start", "start", "Start", "The template's entry node — carries the branch trigger, then finishes immediately", "Play"],
-      ["nt_plan", "plan", "Plan", "Plan the implementation on a planning agent", "Compass"],
-      ["nt_build", "build", "Build", "Implement the approved plan on an agent", "Hammer"],
-      ["nt_step_build", "step_build", "Step build", "One plan step built by its own child flow (plan fan-out) — per-step branch, diff and approval", "Hammer"],
-      ["nt_pipeline", "pipeline", "Pipeline", "Wait for a green CI pipeline, fixing failures", "Gauge"],
-      ["nt_review", "review", "Review", "AI review of the MR diff", "ScanSearch"],
-      ["nt_resolve", "resolve", "Resolve", "Address open MR comments", "CheckCheck"],
+      { id: "nt_start", key: NODE_KEYS.START, name: "Start", description: "The template's entry node — carries the branch trigger, then finishes immediately", icon: "Play" },
+      { id: "nt_plan", key: NODE_KEYS.PLAN, name: "Plan", description: "Plan the implementation on a planning agent", icon: "Compass" },
+      { id: "nt_build", key: NODE_KEYS.BUILD, name: "Build", description: "Implement the approved plan on an agent", icon: "Hammer" },
+      { id: "nt_step_build", key: NODE_KEYS.STEP_BUILD, name: "Step build", description: "One plan step built by its own child flow (plan fan-out) — per-step branch, diff and approval", icon: "Hammer" },
+      { id: "nt_pipeline", key: NODE_KEYS.PIPELINE, name: "Pipeline", description: "Wait for a green CI pipeline, fixing failures", icon: "Gauge" },
+      { id: "nt_review", key: NODE_KEYS.REVIEW, name: "Review", description: "AI review of the MR diff", icon: "ScanSearch" },
+      { id: "nt_resolve", key: NODE_KEYS.RESOLVE, name: "Resolve", description: "Address open MR comments", icon: "CheckCheck" },
     ];
-    for (const [id, key, name, description, icon] of nt) {
-      await tx.$executeRaw`
-        INSERT INTO node_templates (id,key,name,kind,version,description,icon,config,is_builtin,created_at,updated_at)
-        VALUES (${id},${key},${name},'builtin',1,${description},${icon},'{}'::jsonb,true,${now},${now})
-        ON CONFLICT (id) DO NOTHING`;
+    for (const node of builtinNodeTemplates) {
+      await tx.nodeTemplate.upsert({
+        where: { id: node.id },
+        create: {
+          id: node.id,
+          key: node.key,
+          name: node.name,
+          kind: "builtin",
+          version: 1,
+          description: node.description,
+          icon: node.icon,
+          config: {},
+          isBuiltin: true,
+          createdAt: now,
+          updatedAt: now,
+        },
+        // Empty update IS the contract: an existing row (possibly user-edited)
+        // is left untouched on every re-seed.
+        update: {},
+      });
     }
-    const hasSdlc = await tx.$queryRaw<{ "?column?": number }[]>`
-      SELECT 1 FROM flow_templates WHERE id=${SDLC_TEMPLATE_ID}`;
-    if (hasSdlc.length === 0) {
-      await tx.$executeRaw`
-        INSERT INTO flow_templates (id,name,description,version,is_builtin,trigger,created_at,updated_at)
-        VALUES (${SDLC_TEMPLATE_ID},'SDLC loop',${"The built-in software development loop: plan → build → pipeline → review → resolve."},1,true,'{"type":"manual"}'::jsonb,${now},${now})`;
-      // (key, trigger JSON) — minutes mirrors the resolve quiet-period default
-      const nodes: [string, string][] = [
-        [NODE_KEYS.PLAN, '{"type":"manual"}'],
-        [NODE_KEYS.BUILD, '{"type":"approval"}'],
-        [NODE_KEYS.PIPELINE, '{"type":"auto","wait_for":"pipeline"}'],
-        [NODE_KEYS.REVIEW, '{"type":"auto"}'],
-        [NODE_KEYS.RESOLVE, '{"type":"debounced","minutes":10,"wait_for":"comments"}'],
+
+    const sdlcTemplate = await tx.flowTemplate.findUnique({
+      where: { id: SDLC_TEMPLATE_ID },
+      select: { id: true },
+    });
+    if (!sdlcTemplate) {
+      await tx.flowTemplate.create({
+        data: {
+          id: SDLC_TEMPLATE_ID,
+          name: "SDLC loop",
+          description: "The built-in software development loop: plan → build → pipeline → review → resolve.",
+          version: 1,
+          isBuiltin: true,
+          trigger: { type: "manual" },
+          createdAt: now,
+          updatedAt: now,
+        },
+      });
+      // (node key, trigger) — minutes mirrors the resolve quiet-period default
+      const sdlcNodes: readonly FlowTemplateNodeSeed[] = [
+        { nodeKey: NODE_KEYS.PLAN, nodeTemplateId: `nt_${NODE_KEYS.PLAN}`, trigger: { type: "manual" } },
+        { nodeKey: NODE_KEYS.BUILD, nodeTemplateId: `nt_${NODE_KEYS.BUILD}`, trigger: { type: "approval" } },
+        { nodeKey: NODE_KEYS.PIPELINE, nodeTemplateId: `nt_${NODE_KEYS.PIPELINE}`, trigger: { type: "auto", wait_for: "pipeline" } },
+        { nodeKey: NODE_KEYS.REVIEW, nodeTemplateId: `nt_${NODE_KEYS.REVIEW}`, trigger: { type: "auto" } },
+        { nodeKey: NODE_KEYS.RESOLVE, nodeTemplateId: `nt_${NODE_KEYS.RESOLVE}`, trigger: { type: "debounced", minutes: 10, wait_for: "comments" } },
       ];
-      for (const [key, trigger] of nodes) {
-        const id = `ftn_${key}`;
-        const nodeTemplateId = `nt_${key}`;
-        await tx.$executeRaw`
-          INSERT INTO flow_template_nodes (id,template_id,node_key,node_template_id,label,trigger,join_mode,config,input_map,created_at,updated_at)
-          VALUES (${id},${SDLC_TEMPLATE_ID},${key},${nodeTemplateId},NULL,${trigger}::jsonb,'all','{}'::jsonb,'{}'::jsonb,${now},${now})`;
-      }
+      await tx.flowTemplateNode.createMany({
+        data: sdlcNodes.map((node) => ({
+          id: `ftn_${node.nodeKey}`,
+          templateId: SDLC_TEMPLATE_ID,
+          nodeKey: node.nodeKey,
+          nodeTemplateId: node.nodeTemplateId,
+          label: null,
+          trigger: node.trigger,
+          joinMode: "all",
+          config: {},
+          inputMap: {},
+          createdAt: now,
+          updatedAt: now,
+        })),
+      });
       // (from, to, kind, condition) — the loop is template data now: resolve
       // re-enters the CI gate only when the resolve agent actually pushed code
       // (JSONata over the resolve output contract); a no-code fix ends the
       // cycle. Condition-less loop edges stay display metadata.
-      const edges: [string, string, string, string | null][] = [
-        [NODE_KEYS.PLAN, NODE_KEYS.BUILD, "next", null],
-        [NODE_KEYS.BUILD, NODE_KEYS.PIPELINE, "next", null],
-        [NODE_KEYS.PIPELINE, NODE_KEYS.REVIEW, "next", null],
-        [NODE_KEYS.REVIEW, NODE_KEYS.RESOLVE, "next", null],
-        [NODE_KEYS.RESOLVE, NODE_KEYS.PIPELINE, "loop", "nodes.resolve.output.pushed = true"],
+      const sdlcEdges: readonly FlowTemplateEdgeSeed[] = [
+        { from: NODE_KEYS.PLAN, to: NODE_KEYS.BUILD, kind: "next", condition: null },
+        { from: NODE_KEYS.BUILD, to: NODE_KEYS.PIPELINE, kind: "next", condition: null },
+        { from: NODE_KEYS.PIPELINE, to: NODE_KEYS.REVIEW, kind: "next", condition: null },
+        { from: NODE_KEYS.REVIEW, to: NODE_KEYS.RESOLVE, kind: "next", condition: null },
+        { from: NODE_KEYS.RESOLVE, to: NODE_KEYS.PIPELINE, kind: "loop", condition: "nodes.resolve.output.pushed = true" },
       ];
-      for (const [from, to, kind, condition] of edges) {
-        await tx.$executeRaw`
-          INSERT INTO flow_template_edges (id,template_id,from_key,to_key,kind,label,condition,created_at,updated_at)
-          VALUES (${`fte_${from}_${to}`},${SDLC_TEMPLATE_ID},${from},${to},${kind},NULL,${condition},${now},${now})
-          ON CONFLICT DO NOTHING`;
-      }
+      await tx.flowTemplateEdge.createMany({
+        data: sdlcEdges.map((edge) => ({
+          id: `fte_${edge.from}_${edge.to}`,
+          templateId: SDLC_TEMPLATE_ID,
+          fromKey: edge.from,
+          toKey: edge.to,
+          kind: edge.kind,
+          label: null,
+          condition: edge.condition,
+          createdAt: now,
+          updatedAt: now,
+        })),
+        // Matches the raw `ON CONFLICT DO NOTHING` (no target): skips on any
+        // unique violation — the `id` PK and the
+        // (template_id, from_key, to_key, label) unique both exist in the schema.
+        skipDuplicates: true,
+      });
     } else {
       // migrate older seedings: the display-only `resolve → review` loop edge
       // becomes the real re-entry `resolve → pipeline` edge (conditioned on
       // the resolve output contract). Idempotent: deterministic edge ids, and
       // existing running flows keep their snapshotted graph semantics.
-      await tx.$executeRaw`
-        DELETE FROM flow_template_edges
-        WHERE template_id=${SDLC_TEMPLATE_ID} AND id='fte_resolve_review'
-          AND from_key=${NODE_KEYS.RESOLVE} AND kind='loop'`;
-      await tx.$executeRaw`
-        INSERT INTO flow_template_edges (id,template_id,from_key,to_key,kind,label,condition,created_at,updated_at)
-        VALUES ('fte_resolve_pipeline',${SDLC_TEMPLATE_ID},${NODE_KEYS.RESOLVE},${NODE_KEYS.PIPELINE},'loop',NULL,${"nodes.resolve.output.pushed = true"},${now},${now})
-        ON CONFLICT DO NOTHING`;
+      await tx.flowTemplateEdge.deleteMany({
+        where: {
+          id: `fte_${NODE_KEYS.RESOLVE}_${NODE_KEYS.REVIEW}`,
+          templateId: SDLC_TEMPLATE_ID,
+          fromKey: NODE_KEYS.RESOLVE,
+          kind: "loop",
+        },
+      });
+      await tx.flowTemplateEdge.createMany({
+        // Single-row `ON CONFLICT DO NOTHING` (no target) equivalent:
+        // `skipDuplicates` skips on any unique violation, exactly like the raw
+        // statement did (an `upsert` keyed only on `id` would instead throw on
+        // a composite-unique conflict).
+        data: [{
+          id: `fte_${NODE_KEYS.RESOLVE}_${NODE_KEYS.PIPELINE}`,
+          templateId: SDLC_TEMPLATE_ID,
+          fromKey: NODE_KEYS.RESOLVE,
+          toKey: NODE_KEYS.PIPELINE,
+          kind: "loop",
+          label: null,
+          condition: "nodes.resolve.output.pushed = true",
+          createdAt: now,
+          updatedAt: now,
+        }],
+        skipDuplicates: true,
+      });
     }
 
     // ── Plan fan-out: the built-in step template ────────────────────────────
     // The child template a fan-out `build` node defaults to (`child` unset).
     // `hidden` keeps it out of the gallery (it is a child template; the fan-out
     // knob references it by id, never the picker).
-    const hasStepBuild = await tx.$queryRaw<{ "?column?": number }[]>`
-      SELECT 1 FROM flow_templates WHERE id=${STEP_BUILD_TEMPLATE_ID}`;
-    if (hasStepBuild.length === 0) {
-      await tx.$executeRaw`
-        INSERT INTO flow_templates (id,name,description,version,is_builtin,trigger,hidden,created_at,updated_at)
-        VALUES (${STEP_BUILD_TEMPLATE_ID},'Step build',${"One plan step built by its own child flow — per-step branch, diff and approval gate (fan-out child of the build node)."},1,true,'{"type":"manual"}'::jsonb,true,${now},${now})`;
-      await tx.$executeRaw`
-        INSERT INTO flow_template_nodes (id,template_id,node_key,node_template_id,label,trigger,join_mode,config,input_map,created_at,updated_at)
-        VALUES ('ftn_tpl_step_build_step_build',${STEP_BUILD_TEMPLATE_ID},${NODE_KEYS.STEP_BUILD},'nt_step_build',NULL,'{"type":"approval"}'::jsonb,'all','{}'::jsonb,'{}'::jsonb,${now},${now})`;
+    const stepBuildTemplate = await tx.flowTemplate.findUnique({
+      where: { id: STEP_BUILD_TEMPLATE_ID },
+      select: { id: true },
+    });
+    if (!stepBuildTemplate) {
+      await tx.flowTemplate.create({
+        data: {
+          id: STEP_BUILD_TEMPLATE_ID,
+          name: "Step build",
+          description: "One plan step built by its own child flow — per-step branch, diff and approval gate (fan-out child of the build node).",
+          version: 1,
+          isBuiltin: true,
+          trigger: { type: "manual" },
+          hidden: true,
+          createdAt: now,
+          updatedAt: now,
+        },
+      });
+      await tx.flowTemplateNode.create({
+        data: {
+          id: "ftn_tpl_step_build_step_build",
+          templateId: STEP_BUILD_TEMPLATE_ID,
+          nodeKey: NODE_KEYS.STEP_BUILD,
+          nodeTemplateId: "nt_step_build",
+          label: null,
+          trigger: { type: "approval" },
+          joinMode: "all",
+          config: {},
+          inputMap: {},
+          createdAt: now,
+          updatedAt: now,
+        },
+      });
     }
 
     // ── Starter templates ───────────────────────────────────────────────────
     // Declarative catalog rows the starters reference (is_builtin=false — the
     // user may edit/duplicate them like any authored node), then three built-in
     // flow templates exercising agent / decision / http / script + input maps.
-    // Idempotent: deterministic ids + ON CONFLICT DO NOTHING; configs mirror
-    // the docs/flow-templates/*.yaml fixtures so export/import round-trips.
-    const starterNodes: [string, string, string, string, string, string, string][] = [
-      // id, key, kind, name, icon, description, config JSON
-      ["nt_st_summarize", "docs_summary", "agent", "Docs summarize", "agent",
-        "Plan-mode agent that summarizes shipped work into markdown",
-        JSON.stringify({
+    // Idempotent: deterministic ids + skipDuplicates/upsert-with-empty-update;
+    // configs mirror the docs/flow-templates/*.yaml fixtures so export/import
+    // round-trips.
+    const starterNodeTemplates: readonly StarterNodeSeed[] = [
+      {
+        id: "nt_st_summarize", key: "docs_summary", kind: "agent", name: "Docs summarize", icon: "agent",
+        description: "Plan-mode agent that summarizes shipped work into markdown",
+        config: {
           mode: "plan", output: "markdown",
           prompt: "Summarize the shipped work on task {{task.key}} — {{task.summary}}.\n"
             + "Read the repo at {{repo.local_path}} and cover: user-facing changes,\n"
             + "configuration surface, and gotchas. Write it as markdown.",
-        })],
-      ["nt_st_write_doc", "docs_write", "script", "Docs write", "Terminal",
-        "Shell script that saves the mapped `doc` field into the repo's docs/",
-        JSON.stringify({
+        },
+      },
+      {
+        id: "nt_st_write_doc", key: "docs_write", kind: "script", name: "Docs write", icon: "Terminal",
+        description: "Shell script that saves the mapped `doc` field into the repo's docs/",
+        config: {
           runtime: "shell",
           script: "cat > docs/devflow-summary.md\nprintf '{\"written\":true}' > \"$DEVFLOW_OUTPUT\"",
           cwd: "repo",
@@ -129,33 +275,41 @@ export class TemplateSeeder {
             required: ["written"],
             properties: { written: { type: "boolean" } },
           },
-        })],
-      ["nt_st_release_notes", "release_notes", "agent", "Release notes draft", "agent",
-        "Plan-mode agent that drafts release notes from the task",
-        JSON.stringify({
+        },
+      },
+      {
+        id: "nt_st_release_notes", key: "release_notes", kind: "agent", name: "Release notes draft", icon: "agent",
+        description: "Plan-mode agent that drafts release notes from the task",
+        config: {
           mode: "plan", output: "markdown",
           prompt: "Draft release notes for task {{task.key}} ({{task.summary}}).\n"
             + "Lead with user impact, then notable behavior changes and migrations. Under 200 words.",
-        })],
-      ["nt_st_ship_decision", "ship_decision", "decision", "Ship decision", "Split",
-        "Manual choice: send the draft out or drop it",
-        JSON.stringify({
+        },
+      },
+      {
+        id: "nt_st_ship_decision", key: "ship_decision", kind: "decision", name: "Ship decision", icon: "Split",
+        description: "Manual choice: send the draft out or drop it",
+        config: {
           source: "manual",
           choices: [
             { label: "send", description: "Good enough — notify the webhook" },
             { label: "drop", description: "Not ready — skip the notify" },
           ],
-        })],
-      ["nt_st_notify", "notify_slack", "http", "Notify webhook", "Send",
-        "Outbound HTTP notification ({{secrets.SLACK_WEBHOOK}} resolves at run time)",
-        JSON.stringify({
+        },
+      },
+      {
+        id: "nt_st_notify", key: "notify_slack", kind: "http", name: "Notify webhook", icon: "Send",
+        description: "Outbound HTTP notification ({{secrets.SLACK_WEBHOOK}} resolves at run time)",
+        config: {
           url: "{{secrets.SLACK_WEBHOOK}}",
           method: "POST",
           body: "Release notes:\n\n{{nodes.release_notes.output.markdown}}",
-        })],
-      ["nt_st_triage", "triage_agent", "agent", "Sentry triage", "agent",
-        "Plan-mode agent that triages a Sentry issue into structured JSON",
-        JSON.stringify({
+        },
+      },
+      {
+        id: "nt_st_triage", key: "triage_agent", kind: "agent", name: "Sentry triage", icon: "agent",
+        description: "Plan-mode agent that triages a Sentry issue into structured JSON",
+        config: {
           mode: "plan", output: "json",
           prompt: "Triage this Sentry issue: {{trigger.payload.issue.title}}\n\nStacktrace:\n{{trigger.payload.issue.stacktrace}}\n"
             + "Task context: {{task.key}} — {{task.summary}}\n\n"
@@ -169,106 +323,161 @@ export class TemplateSeeder {
               suggested_fix: { type: "string" },
             },
           },
-        })],
-      ["nt_st_worth_fixing", "worth_fixing", "decision", "Worth fixing?", "Split",
-        "Agent proposes; with trigger: approval the user disposes (§4.3)",
-        JSON.stringify({
+        },
+      },
+      {
+        id: "nt_st_worth_fixing", key: "worth_fixing", kind: "decision", name: "Worth fixing?", icon: "Split",
+        description: "Agent proposes; with trigger: approval the user disposes (§4.3)",
+        config: {
           source: "agent",
           question: "Given the triage result, is this issue worth an automated fix PR?",
           choices: [
             { label: "fix", description: "Real user-facing bug with a plausible localized fix" },
             { label: "ignore", description: "Noise, duplicate, or too risky to auto-fix" },
           ],
-        })],
-      ["nt_st_open_pr", "open_pr", "agent", "Open fix PR", "Bot",
-        "Agent-mode run with repo access that fixes the triaged issue",
-        JSON.stringify({
+        },
+      },
+      {
+        id: "nt_st_open_pr", key: "open_pr", kind: "agent", name: "Open fix PR", icon: "Bot",
+        description: "Agent-mode run with repo access that fixes the triaged issue",
+        config: {
           mode: "agent",
           prompt: "Fix the issue: {{nodes.triage.output.suggested_fix}} — issue {{task.key}}.",
-        })],
-      ["nt_st_triage_notify", "triage_notify", "http", "Notify webhook", "Send",
-        "Outbound notification with the triage summary (secrets resolve at run time)",
-        JSON.stringify({
+        },
+      },
+      {
+        id: "nt_st_triage_notify", key: "triage_notify", kind: "http", name: "Notify webhook", icon: "Send",
+        description: "Outbound notification with the triage summary (secrets resolve at run time)",
+        config: {
           url: "{{secrets.SLACK_WEBHOOK}}",
           method: "POST",
           body: "{ \"text\": \"Triaged {{task.key}}: {{nodes.triage.output.summary}}\" }",
-        })],
+        },
+      },
     ];
-    for (const [id, key, kind, name, icon, description, config] of starterNodes) {
-      await tx.$executeRaw`
-        INSERT INTO node_templates (id,key,name,kind,version,description,icon,config,is_builtin,created_at,updated_at)
-        VALUES (${id},${key},${name},${kind},1,${description},${icon},${config}::jsonb,false,${now},${now})
-        ON CONFLICT (id) DO NOTHING`;
+    for (const node of starterNodeTemplates) {
+      await tx.nodeTemplate.upsert({
+        where: { id: node.id },
+        create: {
+          id: node.id,
+          key: node.key,
+          name: node.name,
+          kind: node.kind,
+          version: 1,
+          description: node.description,
+          icon: node.icon,
+          config: node.config,
+          isBuiltin: false,
+          createdAt: now,
+          updatedAt: now,
+        },
+        // Empty update IS the contract: an existing row (possibly user-edited)
+        // is left untouched on every re-seed.
+        update: {},
+      });
     }
 
-    const starterTemplates: {
-      id: string; name: string; description: string; trigger: string;
-      nodes: [string, string, string, string | null, string | null][]; // key, nodeTemplateId, trigger, config, inputMap
-      edges: [string, string, string, string | null][]; // from, to, kind, label
-    }[] = [
+    const starterTemplates: readonly StarterTemplateSeed[] = [
       {
         id: "tpl_docs_generation",
         name: "Docs generation",
         description: "Summarize shipped work on a task into a docs page in the repo — starter: agent → script with input mapping.",
-        trigger: '{"type":"manual"}',
+        trigger: { type: "manual" },
         nodes: [
-          ["summarize", "nt_st_summarize", '{"type":"auto"}', null, null],
-          ["write_doc", "nt_st_write_doc", '{"type":"auto"}', null, '{"doc":"nodes.summarize.output.markdown"}'],
+          { key: "summarize", nodeTemplateId: "nt_st_summarize", trigger: { type: "auto" }, config: {}, inputMap: {} },
+          { key: "write_doc", nodeTemplateId: "nt_st_write_doc", trigger: { type: "auto" }, config: {}, inputMap: { doc: "nodes.summarize.output.markdown" } },
         ],
-        edges: [["summarize", "write_doc", "next", null]],
+        edges: [
+          { from: "summarize", to: "write_doc", kind: "next", label: null },
+        ],
       },
       {
         id: "tpl_release_notify",
         name: "Release notes + notify",
         description: "Draft release notes from a task, decide whether to ship them, and notify a webhook — starter: agent → decision (manual) → http.",
-        trigger: '{"type":"manual"}',
+        trigger: { type: "manual" },
         nodes: [
-          ["release_notes", "nt_st_release_notes", '{"type":"auto"}', null, null],
-          ["ship_decision", "nt_st_ship_decision", '{"type":"auto"}', null, null],
-          ["notify", "nt_st_notify", '{"type":"auto"}', null, null],
+          { key: "release_notes", nodeTemplateId: "nt_st_release_notes", trigger: { type: "auto" }, config: {}, inputMap: {} },
+          { key: "ship_decision", nodeTemplateId: "nt_st_ship_decision", trigger: { type: "auto" }, config: {}, inputMap: {} },
+          { key: "notify", nodeTemplateId: "nt_st_notify", trigger: { type: "auto" }, config: {}, inputMap: {} },
         ],
         edges: [
-          ["release_notes", "ship_decision", "next", null],
-          ["ship_decision", "notify", "next", "send"],
+          { from: "release_notes", to: "ship_decision", kind: "next", label: null },
+          { from: "ship_decision", to: "notify", kind: "next", label: "send" },
         ],
       },
       {
         id: "tpl_sentry_triage",
         name: "Sentry triage",
         description: "Inbound-webhook triage: agent triages a Sentry issue, an agent-proposes / approval-disposes decision branches fix/ignore, Slack gets notified. Duplicate to bind a task type + repo.",
-        trigger: '{"type":"webhook","filter":"payload.event = \'issue.created\'"}',
+        trigger: { type: "webhook", filter: "payload.event = 'issue.created'" },
         nodes: [
-          ["triage", "nt_st_triage", '{"type":"auto"}', null,
-            '{"summary":"trigger.payload.issue.title","stack":"trigger.payload.issue.stacktrace"}'],
-          ["worth_fixing", "nt_st_worth_fixing", '{"type":"approval"}', null, null],
-          ["open_pr", "nt_st_open_pr", '{"type":"auto"}', null, null],
-          ["notify", "nt_st_triage_notify", '{"type":"auto"}', null, null],
+          {
+            key: "triage", nodeTemplateId: "nt_st_triage", trigger: { type: "auto" }, config: {},
+            inputMap: { summary: "trigger.payload.issue.title", stack: "trigger.payload.issue.stacktrace" },
+          },
+          { key: "worth_fixing", nodeTemplateId: "nt_st_worth_fixing", trigger: { type: "approval" }, config: {}, inputMap: {} },
+          { key: "open_pr", nodeTemplateId: "nt_st_open_pr", trigger: { type: "auto" }, config: {}, inputMap: {} },
+          { key: "notify", nodeTemplateId: "nt_st_triage_notify", trigger: { type: "auto" }, config: {}, inputMap: {} },
         ],
         edges: [
-          ["triage", "worth_fixing", "next", null],
-          ["worth_fixing", "open_pr", "next", "fix"],
-          ["triage", "notify", "next", null],
+          { from: "triage", to: "worth_fixing", kind: "next", label: null },
+          { from: "worth_fixing", to: "open_pr", kind: "next", label: "fix" },
+          { from: "triage", to: "notify", kind: "next", label: null },
         ],
       },
     ];
-    for (const st of starterTemplates) {
-      const exists = await tx.$queryRaw<{ "?column?": number }[]>`
-        SELECT 1 FROM flow_templates WHERE id=${st.id}`;
-      if (exists.length > 0) continue;
-      await tx.$executeRaw`
-        INSERT INTO flow_templates (id,name,description,version,is_builtin,trigger,created_at,updated_at)
-        VALUES (${st.id},${st.name},${st.description},1,true,${st.trigger}::jsonb,${now},${now})`;
-      for (const [key, nodeTemplateId, trigger, config, inputMap] of st.nodes) {
-        await tx.$executeRaw`
-          INSERT INTO flow_template_nodes (id,template_id,node_key,node_template_id,label,trigger,join_mode,config,input_map,x,y,created_at,updated_at)
-          VALUES (${`ftn_${st.id.slice(4)}_${key}`},${st.id},${key},${nodeTemplateId},NULL,${trigger}::jsonb,'all',${config ?? "{}"}::jsonb,${inputMap ?? "{}"}::jsonb,NULL,NULL,${now},${now})`;
-      }
-      for (const [from, to, kind, label] of st.edges) {
-        await tx.$executeRaw`
-          INSERT INTO flow_template_edges (id,template_id,from_key,to_key,kind,label,condition,created_at,updated_at)
-          VALUES (${`fte_${st.id.slice(4)}_${from}_${to}${label ? `_${label}` : ""}`},${st.id},${from},${to},${kind},${label},NULL,${now},${now})
-          ON CONFLICT DO NOTHING`;
-      }
+    for (const template of starterTemplates) {
+      const existing = await tx.flowTemplate.findUnique({
+        where: { id: template.id },
+        select: { id: true },
+      });
+      if (existing) continue;
+      await tx.flowTemplate.create({
+        data: {
+          id: template.id,
+          name: template.name,
+          description: template.description,
+          version: 1,
+          isBuiltin: true,
+          trigger: template.trigger,
+          createdAt: now,
+          updatedAt: now,
+        },
+      });
+      await tx.flowTemplateNode.createMany({
+        data: template.nodes.map((node) => ({
+          id: `ftn_${template.id.slice(4)}_${node.key}`,
+          templateId: template.id,
+          nodeKey: node.key,
+          nodeTemplateId: node.nodeTemplateId,
+          label: null,
+          trigger: node.trigger,
+          joinMode: "all",
+          config: node.config,
+          inputMap: node.inputMap,
+          x: null,
+          y: null,
+          createdAt: now,
+          updatedAt: now,
+        })),
+      });
+      await tx.flowTemplateEdge.createMany({
+        data: template.edges.map((edge) => ({
+          id: `fte_${template.id.slice(4)}_${edge.from}_${edge.to}${edge.label ? `_${edge.label}` : ""}`,
+          templateId: template.id,
+          fromKey: edge.from,
+          toKey: edge.to,
+          kind: edge.kind,
+          label: edge.label,
+          condition: null,
+          createdAt: now,
+          updatedAt: now,
+        })),
+        // Same `ON CONFLICT DO NOTHING` (no target) semantics as the raw
+        // statement — see the SDLC edges block above for the constraint note.
+        skipDuplicates: true,
+      });
     }
   }
 }
