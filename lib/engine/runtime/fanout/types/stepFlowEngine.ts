@@ -43,7 +43,7 @@ export type StepFlowEngine = {
   /** the latest artifact version a chain role's def published as a
    *  first-class resource (§T3/F3) — the plan version the mode resolution
    *  reads, scoped through the plan def's metadata instead of a literal kind */
-  latestResourceArtifact<T>(flowId: string, role: ChainRole, columns?: string): Promise<T | undefined>;
+  latestResourceArtifact<T>(flowId: string, role: ChainRole): Promise<T | undefined>;
   /** typed lifecycle emission (step 07: the gate's shadowed-knob trail event) */
   emitLifecycle(flowId: string, nodeKey: string | null, message: string, data?: Record<string, unknown>): Promise<void>;
   /** the flow's template graph — the aggregate publish reads the node's

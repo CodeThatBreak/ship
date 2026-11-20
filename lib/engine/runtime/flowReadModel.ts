@@ -338,14 +338,10 @@ export class FlowReadModel {
    * The latest artifact version a chain role's def published as a first-class
    * resource (§T3/F3) — e.g. the plan document the plan editor and the
    * approval flow consume. Also on the StepFlowManager's engine surface
-   * (publishedExecution reads the plan version through it).
-   *
-   * `_columns` is a vestige of the raw-SQL column list this read replaced —
-   * the host interfaces still declare it; the ORM read returns the full row
-   * and every caller picks its fields.
+   * (publishedExecution reads the plan version through it). The ORM read
+   * returns the full row and every caller picks its fields.
    */
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars -- host interfaces still declare the raw-SQL columns param this read replaced
-  async latestResourceArtifact<T>(flowId: string, role: ChainRole, _columns?: string): Promise<T | undefined> {
+  async latestResourceArtifact<T>(flowId: string, role: ChainRole): Promise<T | undefined> {
     const kinds = this.resourceKinds(role);
     if (!kinds.length) return undefined;
     const artifact = await db.prisma.artifact.findFirst({

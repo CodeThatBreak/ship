@@ -38,6 +38,6 @@ export interface RetryHost {
   postTerminal(flowId: string, nodeKey: string): Promise<void>;
   /** full config layer stack for the retried node's run */
   nodeConfigFor(flowId: string, nodeKey: string): Promise<Record<string, unknown>>;
-  latestResourceArtifact<T>(flowId: string, role: ChainRole, columns?: string): Promise<T | undefined>;
+  latestResourceArtifact<T>(flowId: string, role: ChainRole): Promise<T | undefined>;
   emitLifecycle(flowId: string, nodeKey: string | null, message: string, data?: Record<string, unknown>): Promise<void>;
 }

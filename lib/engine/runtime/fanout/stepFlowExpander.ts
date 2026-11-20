@@ -81,7 +81,7 @@ export class StepFlowExpander {
 
   /** The plan node's published execution on the latest plan artifact (plan-meta `execution`). */
   async publishedExecution(flowId: string): Promise<"whole" | "steps" | null> {
-    const meta = (await this.e.latestResourceArtifact<{ meta: string | null }>(flowId, NODE_KEYS.PLAN, "a.meta"))
+    const meta = (await this.e.latestResourceArtifact<{ meta: string | null }>(flowId, NODE_KEYS.PLAN))
       ?.meta ?? null;
     if (!meta) return null;
     try {

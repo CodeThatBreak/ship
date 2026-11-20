@@ -1,8 +1,10 @@
 import "server-only";
 
-import { NodeRow, rows } from "../../db/rows";
+import { db } from "../../db/app";
+import { NodeRow } from "../../db/rows";
 import { NODE_KEYS } from "../constants/nodeKeys";
 import { NotFoundError, ValidationError } from "../../errors";
+import { parseRow } from "../nodes/shared/nodeSupport/utils/ormRows";
 import { TRIGGER_SOURCE } from "../runtime/triggers/constants/triggerSources";
 import type { TransitionKey } from "../runtime/transitions/types/transitions";
 import type { TriggerResult } from "../runtime/triggers/types/triggerGateway";
@@ -33,7 +35,8 @@ export class FlowManualRunService {
     if (def.chainRole === NODE_KEYS.PLAN) {
       throw new ValidationError('The plan node only accepts input via POST /api/flows/:id/chat');
     }
-    const node = await rows.get(NodeRow, `SELECT id, flow_id AS "flowId", node_key AS "nodeKey", type, status, attempt_id AS "attemptId", agent_id AS "agentId", agent_ref AS "agentRef", session_id AS "sessionId", label, config, join_mode AS "joinMode", input, output, created_at AS "createdAt", updated_at AS "updatedAt" FROM nodes WHERE flow_id=$1 AND node_key=$2`, flowId, nodeKey);
+    const row = await db.prisma.node.findFirst({ where: { flowId, nodeKey } });
+    const node = row ? parseRow(NodeRow, row, `node ${nodeKey} for flow ${flowId}`) : null;
     if (!node) throw new NotFoundError('node', nodeKey);
     // the status read only SELECTS the claim key — the claim's from-set still
     // decides (a racer that claimed first loses atomically and emits the

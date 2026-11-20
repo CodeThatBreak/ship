@@ -1,9 +1,10 @@
 import "server-only";
 
 import { db } from "../../db/app";
-import { NodeRow, rows } from "../../db/rows";
+import { NodeRow } from "../../db/rows";
 import { NotFoundError, ValidationError } from "../../errors";
 import { NODE_KEYS } from "../constants/nodeKeys";
+import { parseRow } from "../nodes/shared/nodeSupport/utils/ormRows";
 import { PlanInput } from "../nodes/kinds/plan/schema";
 import {
   PLAN_CHAT_READY_LIFECYCLE,
@@ -41,7 +42,8 @@ export class FlowRetryService {
   constructor(private readonly host: RetryHost) {}
 
   async retryNode(flowId: string, nodeKey: string): Promise<TriggerResult> {
-    const node = await rows.get(NodeRow, `SELECT id, flow_id AS "flowId", node_key AS "nodeKey", type, status, attempt_id AS "attemptId", agent_id AS "agentId", agent_ref AS "agentRef", session_id AS "sessionId", label, config, join_mode AS "joinMode", input, output, created_at AS "createdAt", updated_at AS "updatedAt" FROM nodes WHERE flow_id=$1 AND node_key=$2`, flowId, nodeKey);
+    const row = await db.prisma.node.findFirst({ where: { flowId, nodeKey } });
+    const node = row ? parseRow(NodeRow, row, `node ${nodeKey} for flow ${flowId}`) : null;
     if (!node) throw new NotFoundError('node', nodeKey);
     const def = await this.host.defOf(flowId, nodeKey);
     if (!def.retryable) throw new ValidationError(`cannot retry node ${nodeKey}`);
@@ -141,6 +143,7 @@ export class FlowRetryService {
   }
 
   private async touch(flowId: string): Promise<void> {
-    await db.run(`UPDATE flows SET updated_at=$1 WHERE id=$2`, db.now(), flowId);
+    // updateMany keeps the raw write's no-op-on-missing-row semantics
+    await db.prisma.flow.updateMany({ where: { id: flowId }, data: { updatedAt: new Date() } });
   }
 }

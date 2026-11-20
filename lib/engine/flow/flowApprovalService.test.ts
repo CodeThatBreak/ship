@@ -85,14 +85,16 @@ describe("FlowApprovalService", () => {
     await seedPlanArtifact(flowId, "art_skip_1");
     const service = new FlowApprovalService(makeHost({
       latestResourceArtifact: async () =>
-        (await db.get<{ id: string; content: string; meta: unknown }>(
-          `SELECT id, content, meta FROM artifacts WHERE id=$1`, "art_skip_1")) as never,
+        (await db.prisma.artifact.findUnique({
+          where: { id: "art_skip_1" },
+          select: { id: true, content: true, meta: true },
+        })) as never,
       transitionTrigger: async () => SKIP,
     }));
     const result = await service.approvePlan(flowId);
     expect(result).toEqual(SKIP);
     // the skip leaves the plan artifact untouched — no approval bookkeeping
-    const art = await db.get<{ status: string }>(`SELECT status FROM artifacts WHERE id=$1`, "art_skip_1");
+    const art = await db.prisma.artifact.findUnique({ where: { id: "art_skip_1" }, select: { status: true } });
     expect(art?.status).toBe("draft");
   });
 
@@ -131,14 +133,16 @@ describe("FlowApprovalService", () => {
     await seedPlanArtifact(flowId, "art_ov_1", { execution: "whole", executionSource: "planner" });
     const service = new FlowApprovalService(makeHost({
       latestResourceArtifact: async () =>
-        (await db.get<{ id: string; content: string; meta: unknown }>(
-          `SELECT id, content, meta FROM artifacts WHERE id=$1`, "art_ov_1")) as never,
+        (await db.prisma.artifact.findUnique({
+          where: { id: "art_ov_1" },
+          select: { id: true, content: true, meta: true },
+        })) as never,
       emitLifecycle: async (_flowId, _nodeKey, message) => {
         events.push(message);
       },
     }));
     await service.approvePlan(flowId, "steps");
-    const meta = await db.get<{ meta: unknown }>(`SELECT meta FROM artifacts WHERE id=$1`, "art_ov_1");
+    const meta = await db.prisma.artifact.findUnique({ where: { id: "art_ov_1" }, select: { meta: true } });
     const parsed = typeof meta?.meta === "string" ? JSON.parse(meta.meta) : meta?.meta;
     expect(parsed).toMatchObject({ execution: "steps", executionSource: "override" });
     expect(parsed.execution_rationale).toBeUndefined();

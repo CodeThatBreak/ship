@@ -2,10 +2,12 @@ import "server-only";
 
 import { db } from "../../db/app";
 import { ConflictError, ValidationError } from "../../errors";
+import { ARTIFACT_STATUS } from "../constants/vocabulary";
 import { NODE_KEYS } from "../constants/nodeKeys";
 import { stepFlows } from "../runtime/fanout/stepFlowManager";
 import { TRIGGER_SOURCE } from "../runtime/triggers/constants/triggerSources";
-import type { NodeRow } from "../../db/rows";
+import { NodeRow } from "../../db/rows";
+import { jsonInput, parseRow } from "../nodes/shared/nodeSupport/utils/ormRows";
 import type { FlowCtx } from "../nodes/shared/nodeSharedExports";
 import type { ApprovalHost } from "./types/approvalHost";
 import type { TriggerResult } from "../runtime/triggers/types/triggerGateway";
@@ -71,8 +73,12 @@ export class FlowApprovalService {
         meta.execution = executionOverride;
         meta.executionSource = 'override';
         delete meta.execution_rationale; // the planner's rationale no longer applies
-        // (artifacts carry no updated_at column — the meta rewrite is the whole write)
-        await db.run(`UPDATE artifacts SET meta=$1 WHERE id=$2`, JSON.stringify(meta), plan.id);
+        // (artifacts carry no updated_at column — the meta rewrite is the whole
+        // write; updateMany keeps the raw write's no-op-on-missing-row
+        // semantics). `meta` is an already-parsed object, so the ORM write
+        // stores the object the old text→jsonb cast produced (no stringify
+        // round-trip).
+        await db.prisma.artifact.updateMany({ where: { id: plan.id }, data: { meta: jsonInput(meta) } });
         await this.host.emitLifecycle(
           flowId,
           planKey,
@@ -81,7 +87,10 @@ export class FlowApprovalService {
         );
       }
     }
-    await db.run(`UPDATE artifacts SET status='approved' WHERE id=$1`, plan.id);
+    await db.prisma.artifact.updateMany({
+      where: { id: plan.id },
+      data: { status: ARTIFACT_STATUS.APPROVED },
+    });
 
     // approvePlan originally inlined the plan→build handoff (plan-meta branch
     // decomposition, sequential builds). It now lives in the build node's
@@ -159,15 +168,8 @@ export class FlowApprovalService {
   }
 
   private async nodeOf(flowId: string, nodeKey: string): Promise<NodeRow> {
-    const node = await db.get<NodeRow>(
-      `SELECT id, flow_id AS "flowId", node_key AS "nodeKey", type, status,
-              attempt_id AS "attemptId", agent_id AS "agentId", agent_ref AS "agentRef",
-              session_id AS "sessionId", label, config,
-              join_mode AS "joinMode", input, output, created_at AS "createdAt",
-              updated_at AS "updatedAt" FROM nodes WHERE flow_id=$1 AND node_key=$2`,
-      flowId,
-      nodeKey,
-    );
+    const row = await db.prisma.node.findFirst({ where: { flowId, nodeKey } });
+    const node = row ? parseRow(NodeRow, row, `node ${nodeKey} for flow ${flowId}`) : null;
     if (!node) throw new ConflictError(`${nodeKey} not found in flow ${flowId}`);
     return node;
   }

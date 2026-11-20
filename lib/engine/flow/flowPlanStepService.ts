@@ -2,6 +2,7 @@ import "server-only";
 
 import { db } from "../../db/app";
 import { NODE_KEYS } from "../constants/nodeKeys";
+import { NODE_STATUS } from "../constants/nodeStatus";
 import { stepFlows } from "../runtime/fanout/stepFlowManager";
 import { planSteps } from "../runtime/planStepStore";
 import type { PlanStepInput } from "../runtime/planStepStore/types/planStep";
@@ -24,12 +25,12 @@ export class FlowPlanStepService {
 
   private async assertPlanEditable(flowId: string) {
     // derive the in-flight run from node statuses (Q5: current_node is gone)
-    const running = await db.get<{ nodeKey: string }>(
-      `SELECT node_key AS "nodeKey" FROM nodes WHERE flow_id=$1 AND status='running' LIMIT 1`,
-      flowId
-    );
+    const running = await db.prisma.node.findFirst({
+      where: { flowId, status: NODE_STATUS.RUNNING },
+      select: { nodeKey: true },
+    });
     if (running) throw new Error(`wait for the ${running.nodeKey} run to finish before editing steps`);
-    return this.host.latestResourceArtifact<{ id: string }>(flowId, NODE_KEYS.PLAN, 'a.id');
+    return this.host.latestResourceArtifact<{ id: string }>(flowId, NODE_KEYS.PLAN);
   }
 
   /** Bulk-replace the checklist from the Plan view editor.
@@ -94,6 +95,7 @@ export class FlowPlanStepService {
   }
 
   private async touch(flowId: string): Promise<void> {
-    await db.run(`UPDATE flows SET updated_at=$1 WHERE id=$2`, db.now(), flowId);
+    // updateMany keeps the raw write's no-op-on-missing-row semantics
+    await db.prisma.flow.updateMany({ where: { id: flowId }, data: { updatedAt: new Date() } });
   }
 }

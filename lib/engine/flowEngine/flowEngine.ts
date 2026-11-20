@@ -3,10 +3,11 @@ import 'server-only';
 import type { Prisma } from '@prisma/client';
 import type { FlowData } from '@/types/flow';
 import { db } from '../../db/app';
-import { NodeRow, rows } from '../../db/rows';
+import { NodeRow } from '../../db/rows';
 import type { HostWebhookEvent } from '../ports/gitHost';
 import type { ChainRole, FlowCtx } from '../nodes/shared/nodeSharedExports';
 import { nodeRegistry } from '../nodes/registry';
+import { parseRow } from '../nodes/shared/nodeSupport/utils/ormRows';
 import '../nodes/declarativeBootstrap';
 import {
   templateStore,
@@ -15,7 +16,7 @@ import {
 import { appLayerConfig, mergeConfigLayers } from '../templates/nodeConfig';
 import { type SdlcChain } from '../nodes/chains/sdlcChain';
 import { createSdlcChain } from '../nodes/chains/utils/createSdlcChain';
-import type { EngineNodeStatus } from '../constants/nodeStatus';
+import { NODE_STATUS, type EngineNodeStatus } from '../constants/nodeStatus';
 import type { TransitionKey } from '../runtime/transitions/types/transitions';
 import type { TriggerResult, TriggerSource } from '../runtime/triggers/types/triggerGateway';
 import { stepFlows } from '../runtime/fanout/stepFlowManager';
@@ -175,8 +176,8 @@ export class FlowEngine {
   }
 
   /** The latest artifact version a chain role's def published (§T3/F3). */
-  async latestResourceArtifact<T>(flowId: string, role: ChainRole, columns = 'a.*'): Promise<T | undefined> {
-    return this.readModel.latestResourceArtifact<T>(flowId, role, columns);
+  async latestResourceArtifact<T>(flowId: string, role: ChainRole): Promise<T | undefined> {
+    return this.readModel.latestResourceArtifact<T>(flowId, role);
   }
 
   /** The CI gate node (waits on the pipeline kind's event source). */
@@ -190,13 +191,14 @@ export class FlowEngine {
   }
 
   async isStepChild(flowId: string): Promise<boolean> {
-    const row = await db.get<{ parentFlowId: string | null }>(`SELECT parent_flow_id AS "parentFlowId" FROM flows WHERE id=$1`, flowId);
+    const row = await db.prisma.flow.findUnique({ where: { id: flowId }, select: { parentFlowId: true } });
     return row?.parentFlowId != null;
   }
 
   /** flows.updated_at heartbeat — the fan-out runtime's aggregate publish rides it. */
   async touch(flowId: string): Promise<void> {
-    await db.run(`UPDATE flows SET updated_at=$1 WHERE id=$2`, db.now(), flowId);
+    // updateMany keeps the raw write's no-op-on-missing-row semantics
+    await db.prisma.flow.updateMany({ where: { id: flowId }, data: { updatedAt: new Date() } });
   }
 
   // ── staging (StageRunner — runtime/staging/) ─────────────────────────────
@@ -352,7 +354,8 @@ export class FlowEngine {
 
   /** Update a node instance's config layer (nodes.config), merging per key. */
   async setNodeConfig(flowId: string, nodeKey: string, config: Record<string, unknown>): Promise<void> {
-    const node = await rows.get(NodeRow, `SELECT id, flow_id AS "flowId", node_key AS "nodeKey", type, status, attempt_id AS "attemptId", agent_id AS "agentId", agent_ref AS "agentRef", session_id AS "sessionId", label, config, join_mode AS "joinMode", input, output, created_at AS "createdAt", updated_at AS "updatedAt" FROM nodes WHERE flow_id=$1 AND node_key=$2`, flowId, nodeKey);
+    const row = await db.prisma.node.findFirst({ where: { flowId, nodeKey } });
+    const node = row ? parseRow(NodeRow, row, `node ${nodeKey} for flow ${flowId}`) : null;
     if (!node) throw new NotFoundError('node', nodeKey);
     if (node.status === 'running') throw new ConflictError("can't reconfigure a node while it is running");
     if (!config || typeof config !== 'object' || Array.isArray(config)) {
@@ -390,9 +393,13 @@ export class FlowEngine {
 
   /** Stop an in-flight node: journal the cancel intent write-ahead (Invariant 7), then run the same CancelHandler the worker sweep's re-claim would (step 06 task 4). */
   async cancelNode(flowId: string, nodeKey: string): Promise<void> {
-    const node = await db.get<{ status: string }>(`SELECT status FROM nodes WHERE flow_id=$1 AND node_key=$2`, flowId, nodeKey);
+    const node = await db.prisma.node.findFirst({ where: { flowId, nodeKey }, select: { status: true } });
     if (!node) throw new NotFoundError('node', nodeKey);
-    if (node.status !== 'running' && node.status !== 'waiting' && node.status !== 'awaiting_approval') {
+    if (
+      node.status !== NODE_STATUS.RUNNING &&
+      node.status !== NODE_STATUS.WAITING &&
+      node.status !== NODE_STATUS.AWAITING_APPROVAL
+    ) {
       throw new ConflictError(`cannot cancel ${nodeKey} while it is ${node.status}`);
     }
     // write the intent first; whoever wins the claim finalizes — a crash

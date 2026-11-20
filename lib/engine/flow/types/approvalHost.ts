@@ -15,7 +15,7 @@ export interface ApprovalHost {
   graph(flowId: string): Promise<{ edges: { kind: string; from: string; to: string }[]; byKey: Map<string, { trigger: { type: string } }> } | null>;
   ctx(flowId: string): Promise<FlowCtx>;
   isStepChild(flowId: string): Promise<boolean>;
-  latestResourceArtifact<T>(flowId: string, role: ChainRole, columns?: string): Promise<T | undefined>;
+  latestResourceArtifact<T>(flowId: string, role: ChainRole): Promise<T | undefined>;
   /** the TriggerGateway approval-style door (step 06) — the from-set is the
    *  duplicate fence; a lost approve emits the typed skip event */
   transitionTrigger(params: {

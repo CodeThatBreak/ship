@@ -9,7 +9,7 @@ import type { ChainRole } from "../../nodes/shared/nodeSharedExports";
  * implements it).
  */
 export interface FlowPlanStepHost {
-  latestResourceArtifact<T>(flowId: string, role: ChainRole, columns?: string): Promise<T | undefined>;
+  latestResourceArtifact<T>(flowId: string, role: ChainRole): Promise<T | undefined>;
   keyOfRole(flowId: string, role: ChainRole): Promise<string | null>;
   emitLifecycle(flowId: string, nodeKey: string | null, message: string, data?: Record<string, unknown>): Promise<void>;
 }
