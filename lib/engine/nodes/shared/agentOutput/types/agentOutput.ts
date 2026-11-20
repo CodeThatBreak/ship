@@ -1,3 +1,5 @@
+import "server-only";
+
 import type { FlowCtx } from "../../nodeSharedExports";
 import type { AgentOutputError } from "../../agent/outputError/outputErrorExports";
 

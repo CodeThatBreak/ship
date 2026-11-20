@@ -71,12 +71,9 @@ export class PlanNode extends AgentRunNode<PlanInput, PlanOutput> {
   readonly order = 10;
   override readonly edges = [[NODE_KEYS.BUILD, 'next']] as const;
 
-  /**
-   * The plan is the chat's first-class node: the composer-as-prompt
-   * conversation mode, the prompt prefill before the first run, the first
-   * run's send label, and the panel title (the chat panel keys all of this
-   * off these capabilities — no node-key checks).
-   */
+  /** The plan is the chat's first-class node: composer-as-prompt mode, the
+   *  pre-first-run prompt prefill, the send label, the panel title — the chat
+   *  panel keys all of this off these capabilities (no node-key checks). */
   override readonly capabilities: NodeCapabilities = {
     refinable: true,
     chatMode: 'plan',
@@ -101,15 +98,11 @@ export class PlanNode extends AgentRunNode<PlanInput, PlanOutput> {
     prompt_body: z.string().optional(),
     /**
      * Plan fan-out (§1 "who decides the mode"): the published execution
-     * resolution. `follow` = the PLANNER decides per plan version — the
-     * plan prompt gains the execution directive and the response's
-     * `execution` + `execution_rationale` are published in plan-meta
-     * (unknown/missing ⇒ whole, never a parse failure). Its "steps" choice
-     * fans the plan's branches out as one child flow per branch via the
-     * split runtime (overridable at approve). The published value rides
-     * every plan version in `artifacts.meta.execution` (source: knob |
-     * planner | default | override), and the plan panel offers the
-     * override at approve.
+     * resolution. `follow` = the PLANNER decides per plan version (unknown/
+     * missing ⇒ whole, never a parse failure); its "steps" choice fans the
+     * plan's branches out as one child flow per branch (overridable at
+     * approve). The value rides every plan version in
+     * `artifacts.meta.execution` (source: knob | planner | default | override).
      */
     execution_default: z.enum(['whole', 'follow']).default('whole'),
     /** ambient MCP servers for plan agent runs — defaults to ALL sources enabled */

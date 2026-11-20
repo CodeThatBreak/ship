@@ -2,6 +2,7 @@ import "server-only";
 
 import { z } from "zod";
 import { RESOLVE_COMMENT_ACTIONS } from "./constants/commentActions";
+import { PUSH_STATE } from "./constants/pushState";
 
 // ── input / output schemas ───────────────────────────────────────────────────
 export const ResolveInput = z.object({
@@ -78,3 +79,19 @@ export type ResolveAgentResponse = z.infer<typeof ResolveAgentResponse>;
  * server-side; the advertised schema is the structural contract only.
  */
 export const RESOLVE_RESPONSE_JSON_SCHEMA: unknown = z.toJSONSchema(ResolveAgentResponse);
+
+/** The recovery schema of the resolve artifact meta — what a crashed run's
+ *  restart needs to pick back up: the idempotency ledger (G10) and the
+ *  engine-verified push state + codeChanged computed before the crash. */
+export const RECOVERY_META = z.object({
+  ledger: z
+    .object({
+      replies: z.array(z.object({ hash: z.string(), noteId: z.string() })),
+      resolvedDiscussions: z.array(z.string()),
+    })
+    .optional(),
+  pushState: z
+    .enum([PUSH_STATE.PUSHED, PUSH_STATE.LOCAL_ONLY, PUSH_STATE.NONE, PUSH_STATE.UNKNOWN])
+    .optional(),
+  codeChanged: z.boolean().optional(),
+});

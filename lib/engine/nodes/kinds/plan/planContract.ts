@@ -8,11 +8,10 @@ import { AGENT_OUTPUT_ERROR, AgentOutputError } from '../../shared/agent/outputE
 import { AgentOutputPipeline } from '../../shared/agentOutput/agentOutputPipeline';
 import { retryFeedbackBody } from '../../shared/agentOutput/utils/retryFeedback';
 import { validateStandardAgentOutput } from '../../shared/agentOutput/utils/standardOutput';
-import type { AgentRunner, ExecuteRunResult } from '../../../harness/harnessExports';
+import type { AgentRunner } from '../../../harness/harnessExports';
 import { RunSupersededError } from '../../../errors/runSupersededError';
 import type { NodeSupport } from '../../shared/nodeSupport';
 import type { NodeRow } from '../../../../db/rows';
-import { extractJson } from "../../shared/extractJson";
 import { FLOW_STATUS } from '../../../../../constants/flow';
 import { BranchRefinement } from './branchRefinement';
 import { planBodyDiverged } from './planPrompt';

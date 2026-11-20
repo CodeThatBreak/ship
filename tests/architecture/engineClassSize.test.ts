@@ -43,9 +43,7 @@ const FROZEN_GIANTS: readonly string[] = [
   "lib/engine/flowEngine.ts", // 1214 — facade carve-up (steps 02→07; approvals extracted in step 02)
   "lib/engine/nodes/kinds/agent/agentNode.ts", // 576 — output pipeline migration (step 05)
   "lib/engine/nodes/kinds/build/buildNode.ts", // 569 — output pipeline migration (step 05)
-  "lib/engine/nodes/kinds/pipeline/pipelineNode.ts", // 688 — GateWaitLoop/GateFixRunner split (step 05)
   "lib/engine/nodes/kinds/plan/planContract.ts", // 515 — contract dedup (step 05)
-  "lib/engine/nodes/kinds/resolve/resolveNode.ts", // 722 — collaborator extraction (step 05)
   "lib/engine/runtime/fanout/stepFlowManager.ts", // 1347 — Expander/Scheduler/Rollup split (step 07)
   "lib/engine/runtime/split/splitManager.ts", // 695 — Expander/Join/LinkageStore split (step 07)
   "lib/engine/runtime/worktreeLifecycle.ts", // 567 — worktree decomposition (step 03/05)
@@ -75,9 +73,7 @@ describe("engineClassSize", () => {
       ["lib/engine/flowEngine.ts", 1214],
       ["lib/engine/nodes/kinds/agent/agentNode.ts", 576],
       ["lib/engine/nodes/kinds/build/buildNode.ts", 569],
-      ["lib/engine/nodes/kinds/pipeline/pipelineNode.ts", 688],
       ["lib/engine/nodes/kinds/plan/planContract.ts", 515],
-      ["lib/engine/nodes/kinds/resolve/resolveNode.ts", 722],
       ["lib/engine/runtime/fanout/stepFlowManager.ts", 1347],
       ["lib/engine/runtime/split/splitManager.ts", 695],
       ["lib/engine/runtime/worktreeLifecycle.ts", 567],

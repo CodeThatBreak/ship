@@ -158,24 +158,19 @@ export abstract class NodeDefinition<I = unknown, O extends Record<string, unkno
   /** strict schema for the node's persisted `output` column */
   abstract readonly outputSchema: z.ZodType<O>;
 
-  /**
-   * The upstream fields this node needs in its materialized stage-start input
-   * (Invariant 5). The ContractPipeline validates the materialized input
-   * against it at stage start; failure ⇒ typed `input_contract_violation`
-   * naming the field and the producing node. Default: empty. Declarative
-   * kinds declare their needs through the template node's `input_map`
-   * targets instead (validated at the same seam).
-   */
+  /** The upstream fields this node needs in its materialized stage-start input
+   *  (Invariant 5): the ContractPipeline validates the materialized input at
+   *  stage start; failure ⇒ typed `input_contract_violation` naming the field
+   *  and the producing node. Default empty; declarative kinds declare their
+   *  needs through the template node's `input_map` targets (same seam). */
   readonly consumes: z.ZodType<Record<string, unknown>> = z.object({});
 
   /** typed config knobs — `configFields` drives the auto-generated form (Phase 2) */
   readonly configFields: readonly ConfigField[] = [];
-  /**
-   * Declarative nodes declare no input contract: the run input is inherited
-   * from the previous node's output (§3 — the flow's parent chain). The
-   * engine seeds the auto-start input with the upstream `next`-edge sources'
-   * merged outputs; `input_map` overlays explicit mappings on top.
-   */
+  /** Declarative nodes declare no input contract: the run input is inherited
+   *  from the previous node's output (§3); the engine seeds the auto-start
+   *  input with the upstream `next`-edge sources' merged outputs, `input_map`
+   *  overlays explicit mappings. */
   readonly inheritsParentInput: boolean = false;
   /** typed config schema: `.parse({})` yields the class-layer defaults. Every knob's default equals today's behavior. */
   readonly configSchema: z.ZodTypeAny = z.object({}).strict();
@@ -183,12 +178,10 @@ export abstract class NodeDefinition<I = unknown, O extends Record<string, unkno
   /** Whether this node can be retried from its recorded input. */
   readonly retryable: boolean = true;
 
-  /**
-   * The bounded feedback-retry budget the agent-output pipeline spends on
-   * retryable contract misses (`no_json` / `schema_mismatch`) — step 05,
-   * Invariant 6. 0 = validation-only: the first miss is terminal (the kind
-   * maps it to a failed outcome itself; there is no feedback turn to spend).
-   */
+  /** The bounded feedback-retry budget the agent-output pipeline spends on
+   *  retryable contract misses (`no_json` / `schema_mismatch`) — step 05,
+   *  Invariant 6. 0 = validation-only: the first miss is terminal (the kind
+   *  maps it to a failed outcome itself; there is no feedback turn). */
   readonly retryBudget: number = 1;
 
   /** Shared services (constructor-injected; the singletons are the defaults).
@@ -300,15 +293,13 @@ export abstract class NodeDefinition<I = unknown, O extends Record<string, unkno
 
   /**
    * Finish a run that completed while the server was down — the fixed
-   * recovery ABI (Invariant 4, step 05): return `{ kind: "recovered" }` after
-   * producing a terminal outcome (the impl returns a {@link RunOutcome} and
-   * the base applies it via {@link applyOutcome}), or
-   * `{ kind: "manual", reason }` when recovery is impossible —
-   * {@link completeNodeFromResult} then fails the node for manual retry, with
-   * `reason` in the trail. NEVER throws: a throw is caught once at the
-   * recovery seam and mapped to `manual` + event, so the reconciler pass is
-   * crash-safe per node. Must not mutate node status or emit terminal events
-   * when returning `manual`.
+   * recovery ABI (Invariant 4, step 05): `{ kind: "recovered" }` after a
+   * terminal outcome (the impl builds a {@link RunOutcome} and the base
+   * applies it via {@link applyOutcome}), `{ kind: "manual", reason }` when
+   * recovery is impossible (the seam fails the node for retry, reason in the
+   * trail). NEVER throws — a throw is caught once at the recovery seam and
+   * mapped to `manual` + event. Must not mutate node status or emit terminal
+   * events when returning `manual`.
    */
   abstract recover(ctx: FlowCtx, node: NodeRow, result: AgentRunResult, note: string): Promise<RecoveryResult>;
 
@@ -339,25 +330,19 @@ export abstract class NodeDefinition<I = unknown, O extends Record<string, unkno
     return this.support.nodeByKey(ctx.flow.id, this.key);
   }
 
-  /**
-   * Persist a run's full input blob. Retry fidelity: `retryNode` re-runs
-   * `def.run()` from this record, and its recorded `prompt` field carries the
-   * exact final prompt the run sent.
-   */
+  /** Persist a run's full input blob — retry fidelity: `retryNode` re-runs
+   *  `def.run()` from this record; the recorded `prompt` carries the exact
+   *  final prompt the run sent. */
   protected async recordInput(nodeId: string, input: Record<string, unknown>): Promise<void> {
     await this.support.setNode(nodeId, { input: JSON.stringify(input) });
   }
 
-  /**
-   * Persist a run's input blob. The engine's claim already holds the node
-   * `running`; this records the input and refreshes `updated_at` (liveness
-   * for long-lived waits that touch it separately).
-   */
+  /** Persist a run's input blob — the engine's claim already holds the node
+   *  `running`; this records the input (liveness for long-lived waits that
+   *  touch `updated_at` separately). */
   protected async markRunning(ctx: FlowCtx, input: Record<string, unknown>): Promise<void> {
     const node = await this.node(ctx);
-    await this.support.setNode(node.id, {
-      input: JSON.stringify(input),
-    });
+    await this.support.setNode(node.id, { input: JSON.stringify(input) });
   }
 
   /**
