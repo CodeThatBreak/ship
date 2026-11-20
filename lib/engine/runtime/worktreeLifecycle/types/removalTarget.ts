@@ -1,3 +1,5 @@
+import "server-only";
+
 /**
  * One unit of worktree removal (crash-safe): everything the remover needs to
  * gate, record, execute and clean up a single worktree dir. Persisted into

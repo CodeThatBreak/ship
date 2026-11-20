@@ -1,6 +1,9 @@
 import "server-only";
 
 import type { JobKind, JobStatus } from "../constants/jobVocabulary";
+import type { FlowCtx } from "../../../nodes/shared/nodeSharedExports";
+import type { EngineNodeStatus } from "../../../constants/nodeStatus";
+import type { TransitionKey } from "../../transitions/types/transitions";
 
 /** What a webhook dispatch did — the routes echo it, the worker sweep ignores it. */
 export type WebhookDispatchResult = {
@@ -37,6 +40,25 @@ export type ClaimedJob<P> = {
  * claimed (their rows sit queued until the owning step registers one).
  */
 export type JobHandlers = Partial<Record<JobKind, (job: JobRecord) => Promise<unknown>>>;
+
+/**
+ * The engine surface the MR-create handler needs — injected via the
+ * constructor (dependency inversion) instead of importing the flowEngine
+ * pin: the handler sits in the class module's import graph
+ * (flowEngine/flowEngine.ts → sdlcChain → here), so a module-scope import
+ * of the pin would re-close the singleton cycle and read the const before
+ * its initialization (TDZ: "FlowEngine is not a constructor").
+ */
+export type MrCreateEngine = {
+  ctx(flowId: string): Promise<FlowCtx>;
+  emitMrFailed(flowId: string, nodeKey: string | null, message: string, data?: Record<string, unknown>): Promise<void>;
+  setNodeStatus(
+    flowId: string,
+    nodeKey: string,
+    key: TransitionKey,
+    opts?: { toStatus?: EngineNodeStatus; patch?: Record<string, unknown>; detail?: string },
+  ): Promise<boolean>;
+};
 
 /**
  * What a `runFix` callback resolves to — the creation coordinates the

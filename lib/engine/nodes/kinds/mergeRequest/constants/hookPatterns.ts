@@ -1,3 +1,5 @@
+import "server-only";
+
 /** Push-rejection signatures that mark an MR-creation failure as repairable code state. */
 export const HOOK_PATTERNS = [
   /pre-receive/i,

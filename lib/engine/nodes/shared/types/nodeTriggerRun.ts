@@ -1,3 +1,5 @@
+import "server-only";
+
 /**
  * One run inside an engine-triggered bundle (a single trigger may start
  * several runs — e.g. the sequential multi-branch build). Input is

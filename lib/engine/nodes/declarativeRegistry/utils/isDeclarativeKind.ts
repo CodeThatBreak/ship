@@ -1,3 +1,5 @@
+import "server-only";
+
 import { DECLARATIVE_KINDS, type DeclarativeKind } from "../constants/declarativeKinds";
 
 /** Whether a `node_templates` row kind is one of the declarative kinds. */

@@ -1,3 +1,5 @@
+import "server-only";
+
 import { FALLBACK_TIMESTAMP_TOLERANCE_SEC } from "../constants/hookVerification";
 
 /** Unix seconds within the standardwebhooks tolerance window. */

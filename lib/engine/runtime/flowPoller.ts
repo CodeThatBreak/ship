@@ -56,7 +56,7 @@ export class FlowPoller {
   /** step 06 task 5: the re-claim path's commit-fix run goes through the
    *  engine's delegate (the SDLC chain's loop — the adopt path picks up the
    *  existing MR on a crashed creation). */
-  private readonly mrCreates = new MrCreateHandler(this.jobs, (t, attempt, error) =>
+  private readonly mrCreates = new MrCreateHandler(flowEngine, this.jobs, (t, attempt, error) =>
     flowEngine.chain.runBuildCommitFix(t.flowId, t.buildKey, t.branch, attempt, t.maxAttempts, error));
 
   private readonly handlers: JobHandlers = {

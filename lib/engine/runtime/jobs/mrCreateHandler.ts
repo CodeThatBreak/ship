@@ -1,6 +1,5 @@
 import "server-only";
 
-import { flowEngine } from "../../flowEngine";
 import type { ChangeRequest } from "../../ports/gitHost";
 import {
   isCommitError,
@@ -10,7 +9,7 @@ import {
 import { JobQueue } from "./jobQueue";
 import { mrCreatePayloadSchema } from "./schemas/jobPayloads";
 import { MR_CREATE_DEFAULTS } from "./constants/jobVocabulary";
-import type { JobRecord, MrCreateFixTarget } from "./types/job";
+import type { JobRecord, MrCreateEngine, MrCreateFixTarget } from "./types/job";
 /**
  * MrCreateHandler — dispatches a claimed `mr_create` job (step 06 task 5,
  * Invariant 7): the MR-creation sequence (create-or-adopt + the bounded
@@ -36,6 +35,7 @@ import type { JobRecord, MrCreateFixTarget } from "./types/job";
  */
 export class MrCreateHandler {
   constructor(
+    private readonly engine: MrCreateEngine,
     private readonly jobs: JobQueue,
     private readonly runFix: (
       target: MrCreateFixTarget,
@@ -60,7 +60,7 @@ export class MrCreateHandler {
       maxAttempts,
     };
     try {
-      return await mergeRequests.createWithFixes(await flowEngine.ctx(p.flowId), p.branchName, {
+      return await mergeRequests.createWithFixes(await this.engine.ctx(p.flowId), p.branchName, {
         maxAttempts,
         emitNodeKey: p.emitNodeKey,
         gateKey: p.gateKey,
@@ -79,7 +79,7 @@ export class MrCreateHandler {
       if (!isCommitError(e) || !p.emitNodeKey) throw e;
       // budget exhausted — a normal terminal: record the outcome in the feed
       // and hand the build back (moved here from sdlcChain's catch)
-      await flowEngine.emitMrFailed(
+      await this.engine.emitMrFailed(
         p.flowId,
         p.emitNodeKey,
         `MR creation failed: ${e.message} — fix the issue, then click "Approve & create MR" again to retry`,
@@ -89,7 +89,7 @@ export class MrCreateHandler {
           detail: e.detail !== e.message ? e.detail : undefined,
         },
       );
-      await flowEngine.setNodeStatus(p.flowId, p.emitNodeKey, "mrHandback");
+      await this.engine.setNodeStatus(p.flowId, p.emitNodeKey, "mrHandback");
       await this.jobs.complete(job.id);
       await this.jobs.clearDedupKey(job.id);
       return null;

@@ -1,3 +1,5 @@
+import "server-only";
+
 import type { TriggerResult, TriggerSource } from "../triggers/types/triggerGateway";
 
 export type CommentIngestorHost = {

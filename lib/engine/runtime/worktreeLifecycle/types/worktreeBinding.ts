@@ -1,3 +1,5 @@
+import "server-only";
+
 /**
  * The flow's worktree binding, returned by ensureFlowWorktree: the run cwd
  * plus a one-line setup note when deps setup failed (non-fatal — the caller

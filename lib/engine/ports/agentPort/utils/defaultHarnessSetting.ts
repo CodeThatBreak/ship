@@ -1,3 +1,5 @@
+import "server-only";
+
 import { db } from "../../../../db/app";
 import { settingString } from "../../../../schemas/settingValues";
 

@@ -1,3 +1,5 @@
+import "server-only";
+
 import type { NodeRunStatus } from "../../../../../constants/flow";
 
 /**

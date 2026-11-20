@@ -1,3 +1,5 @@
+import "server-only";
+
 import { nodeRegistry } from "@/lib/engine/nodes/registry";
 
 /** The `/api/graph` response payload (node order, metadata, edges). */

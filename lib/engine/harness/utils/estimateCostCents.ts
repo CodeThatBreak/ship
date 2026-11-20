@@ -1,3 +1,5 @@
+import "server-only";
+
 import { uncachedInputTokens } from "../../../usage";
 import type { PricingEntry } from "../../ports/agentPort";
 

@@ -1,3 +1,5 @@
+import "server-only";
+
 import type { NodeRow } from "../../../../../db/rows";
 import type { PromptAssembly } from "../../../../prompts/promptLibrary/types/promptLibrary";
 import type { FlowCtx } from "../../runContext/types/flowContext";

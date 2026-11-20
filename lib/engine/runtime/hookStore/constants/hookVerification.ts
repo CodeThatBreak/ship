@@ -1,3 +1,5 @@
+import "server-only";
+
 /** Standardwebhooks signature headers the spec-compliant verification checks. */
 export const HEADER_NAMES = ["webhook-id", "webhook-timestamp", "webhook-signature"] as const;
 

@@ -1,3 +1,5 @@
+import "server-only";
+
 import type { PromptBlock } from "../../promptDefaults";
 import type { PromptAssembly, PromptSections } from "../types/promptLibrary";
 

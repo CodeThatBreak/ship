@@ -1,3 +1,5 @@
+import "server-only";
+
 import type { EditorCatalogEntry } from "@/types/templateEditor";
 import type { NodeTemplateRow } from "../../../../db/rows";
 

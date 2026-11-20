@@ -1,3 +1,5 @@
+import "server-only";
+
 export const sampleValue = (type: unknown): unknown => {
   switch (type) {
     case "number":

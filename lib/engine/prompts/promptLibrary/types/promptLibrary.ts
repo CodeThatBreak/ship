@@ -1,3 +1,5 @@
+import "server-only";
+
 import type { PromptBlock, PromptTemplate } from "../../promptDefaults";
 
 export type PromptCtx = Record<string, string | undefined>;

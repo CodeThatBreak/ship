@@ -1,3 +1,5 @@
+import "server-only";
+
 import type { LiveTask } from "../../types/taskProvider";
 
 export type LiveTaskFeedMeta = {

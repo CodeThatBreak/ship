@@ -1,3 +1,5 @@
+import "server-only";
+
 import { taskRegistry } from "../../../tasks/registry";
 
 /** Task types a template's trigger may declare — the registered provider kinds

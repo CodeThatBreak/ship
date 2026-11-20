@@ -158,7 +158,7 @@ export class SdlcChain {
     const job = await jobs.claimById(jobId);
     if (!job) return null; // the worker sweep owns the dispatch
     try {
-      return await new MrCreateHandler(jobs, (t, attempt, error) =>
+      return await new MrCreateHandler(this.host, jobs, (t, attempt, error) =>
         this.runBuildCommitFix(t.flowId, t.buildKey, t.branch, attempt, t.maxAttempts, error),
       ).handle(job);
     } catch (e: unknown) {

@@ -1,3 +1,5 @@
+import "server-only";
+
 import { CommitError, MrCreationFailed } from "../errors";
 
 /** Map approve-build failures to a typed MR error only when the cause is known. */

@@ -1,3 +1,5 @@
+import "server-only";
+
 export interface CreateFlowOptions {
   executionMode?: "cloud" | "local";
   repoId?: string;

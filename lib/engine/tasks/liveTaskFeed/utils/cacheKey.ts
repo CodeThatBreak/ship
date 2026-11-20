@@ -1,3 +1,5 @@
+import "server-only";
+
 import type { ResolvedLiveTaskFilters } from "../../types/taskProvider";
 
 /** Normalized filter tuple → cache key. */

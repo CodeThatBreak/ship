@@ -1,3 +1,5 @@
+import "server-only";
+
 /** Pending declarative defs from the template editor save payload. */
 export interface DraftNodeTemplateInput {
   draft_id?: string;

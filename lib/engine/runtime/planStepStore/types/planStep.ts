@@ -1,3 +1,5 @@
+import "server-only";
+
 export interface PlanStepInput {
   id?: string; // agent-emitted steps: the planner's meta_id; editor payloads: the plan_steps row id
   title: string;

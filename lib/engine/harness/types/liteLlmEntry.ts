@@ -1,3 +1,5 @@
+import "server-only";
+
 /** LiteLLM pricing entry — the fields DevFlow maps onto a rate card. */
 export interface LiteLLMEntry {
   mode?: string;

@@ -1,3 +1,5 @@
+import "server-only";
+
 /** A cycle in the declared unit dependencies — a producer error, loud like a
  *  contract failure. `path` is the closed walk, e.g. ["a", "b", "a"]. */
 export class UnitCycleError extends Error {

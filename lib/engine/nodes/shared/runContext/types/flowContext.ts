@@ -1,3 +1,5 @@
+import "server-only";
+
 import type { Repo } from "../../../../../db/app";
 import type { FlowRow, Task } from "../../../../../db/rows";
 

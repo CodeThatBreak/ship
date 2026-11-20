@@ -1,3 +1,5 @@
+import "server-only";
+
 import crypto from "node:crypto";
 
 /** A `whsec_`-prefixed random secret the standardwebhooks library accepts. */

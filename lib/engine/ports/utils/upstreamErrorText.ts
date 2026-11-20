@@ -1,3 +1,5 @@
+import "server-only";
+
 /** Cap for echoing an upstream response body into an error message. */
 const MAX_UPSTREAM_BODY_CHARS = 500;
 

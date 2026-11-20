@@ -1,3 +1,5 @@
+import "server-only";
+
 import { db } from "../../../db/app";
 
 /** Persist an estimated cost, flagging it in the usage JSON so a later

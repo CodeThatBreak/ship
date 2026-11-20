@@ -1,3 +1,5 @@
+import "server-only";
+
 /** Where a recorded run's prompt came from. */
 export const PROMPT_SOURCE = {
   MODAL: "modal",

@@ -1,3 +1,5 @@
+import "server-only";
+
 import { RESPONSE_EXCERPT_LENGTH } from "../constants";
 
 /** The head of a raw response: full text when short, the first slice + ellipsis.

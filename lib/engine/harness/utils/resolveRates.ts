@@ -1,3 +1,5 @@
+import "server-only";
+
 import type { PricingEntry } from "../../ports/agentPort";
 import type { PricingSource } from "../pricingSource";
 

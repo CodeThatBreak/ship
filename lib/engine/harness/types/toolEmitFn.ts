@@ -1,3 +1,5 @@
+import "server-only";
+
 /** Emit callback for paired tool-call events (name, status, ids, payload). */
 export type ToolEmitFn = (
   name: string,

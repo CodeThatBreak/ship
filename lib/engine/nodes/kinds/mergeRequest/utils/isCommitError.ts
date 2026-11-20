@@ -1,3 +1,5 @@
+import "server-only";
+
 import { CommitError } from "../errors";
 
 /** True when an error looks like a code/hook rejection rather than infra. */

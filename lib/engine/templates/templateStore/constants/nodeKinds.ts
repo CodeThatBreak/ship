@@ -1,3 +1,5 @@
+import "server-only";
+
 export const KINDED_NODE_TEMPLATE_KINDS = ["agent", "http", "script", "decision"] as const;
 
 export type DeclarativeNodeKind = (typeof KINDED_NODE_TEMPLATE_KINDS)[number];

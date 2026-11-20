@@ -1,3 +1,5 @@
+import "server-only";
+
 import type { PromptSections } from "../../promptLibrary/types/promptLibrary";
 import type { PromptSource } from "../../../nodes/shared/nodeSharedExports";
 

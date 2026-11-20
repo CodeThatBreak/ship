@@ -1,3 +1,5 @@
+import "server-only";
+
 import type { CommentRow } from "../../../../../db/rows";
 import { RESOLVE_COMMENT_ACTION } from "../constants/commentActions";
 import { AI_RESOLVE_PREFIX } from "../constants/aiResolvePrefix";

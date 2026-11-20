@@ -1,3 +1,5 @@
+import "server-only";
+
 import { HOOK_PATTERNS } from "../constants/hookPatterns";
 
 /**

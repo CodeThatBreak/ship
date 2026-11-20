@@ -20,6 +20,10 @@ assignTestDatabase();
 const { db } = await import("../db/app");
 const { FlowEngine } = await import("./flowEngine/flowEngine");
 const { stepFlows } = await import("./runtime/fanout/stepFlowManager");
+// the pin module's tail binds stepFlows/splitManager to the shared engine —
+// loading the class alone (the split moved the bind to the pin, the old
+// monolith's module tail) leaves the rollup's engine reference unset
+await import("./flowEngine");
 const { ERROR_CODE } = await import("../errors");
 const { NODE_KEYS } = await import("./constants/nodeKeys");
 const { templateStore } = await import("./templates/templateStore");

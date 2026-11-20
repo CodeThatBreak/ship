@@ -1,3 +1,5 @@
+import "server-only";
+
 
 /**
  * A task fetched live from the provider's source — never stored as-is. The

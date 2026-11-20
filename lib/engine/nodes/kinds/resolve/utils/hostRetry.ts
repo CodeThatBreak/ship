@@ -1,3 +1,5 @@
+import "server-only";
+
 import type { HostRetrySleep } from "../types/resolveEffects";
 import { GitHostApiError, GitHostTimeoutError } from "../../../../ports/gitHostErrors";
 import {

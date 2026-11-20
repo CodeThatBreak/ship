@@ -158,7 +158,7 @@ describe("mr_create journal (step 06 task 5)", () => {
     // handler (runFix wired through the engine's delegate, as the poller does)
     await db.run(`UPDATE jobs SET lease_until = now() - interval '1 second' WHERE id=$1`, jobId);
     const processed = await jobs.sweepDue({
-      [JOB_KIND.MR_CREATE]: (job) => new MrCreateHandler(jobs, (t, attempt, error) =>
+      [JOB_KIND.MR_CREATE]: (job) => new MrCreateHandler(flowEngine, jobs, (t, attempt, error) =>
         flowEngine.chain.runBuildCommitFix(t.flowId, t.buildKey, t.branch, attempt, t.maxAttempts, error),
       ).handle(job),
     });
@@ -209,7 +209,7 @@ describe("mr_create journal (step 06 task 5)", () => {
       // a no-op runFix keeps the test on the handler's terminal path (the
       // chain's commit-fix run has its own seam); the wiring through
       // `flowEngine.chain.runBuildCommitFix` is exercised by the re-claim test above
-      const handler = new MrCreateHandler(jobs, async () => {});
+      const handler = new MrCreateHandler(flowEngine, jobs, async () => {});
       await expect(handler.handle(job)).resolves.toBeNull(); // recorded failure, not a crash
 
       expect(await harness.nodeStatus(flowId, buildKey)).toBe("awaiting_approval"); // mrHandback landed

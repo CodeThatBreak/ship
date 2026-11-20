@@ -1,3 +1,5 @@
+import "server-only";
+
 import type { AgentRunLookupError } from "../../agentErrors";
 import type { CatalogModel } from "../../../../modelSpec";
 import type { SettingSource } from "../../../templates/schemas/mcpSources";

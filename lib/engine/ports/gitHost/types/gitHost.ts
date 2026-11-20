@@ -1,3 +1,5 @@
+import "server-only";
+
 export type ChangeRequestDiffs = {
   changes: { oldPath: string; newPath: string; diff: string }[];
   /** true when the host truncated or capped the diff list */

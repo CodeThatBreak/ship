@@ -1,3 +1,5 @@
+import "server-only";
+
 /** Lowercased URL host ("gitlab.company.com"), null when unparseable. */
 export const hostOf = (url: string): string | null => {
   const trimmed = url.trim();
