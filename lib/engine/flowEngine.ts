@@ -1,6 +1,7 @@
 import 'server-only';
 
 import type { Prisma } from '@prisma/client';
+import type { QueryExecutor } from '../db/database';
 import type { FlowData } from '@/types/flow';
 import { db } from '../db/app';
 import { FlowRow, NodeRow, Task, rows } from '../db/rows';
@@ -237,7 +238,7 @@ export class FlowEngine {
    * terminal. The authority's `running` from-set is the fence: a late
    * aggregate that resolves after the user retried the node loses silently.
    */
-  async finishFanout(parentFlowId: string, nodeKey: string, output: Record<string, unknown>, attemptId?: string | null): Promise<void> {
+  async finishFanout(parentFlowId: string, nodeKey: string, output: Record<string, unknown>, attemptId?: string | null, tx?: QueryExecutor): Promise<void> {
     // the aggregate validates against the def's fanoutOutput contract at the
     // authority's seam (step 04) — a violation fails the node typed, `false`
     // comes back, and the flow never advances on unvalidated data
@@ -249,7 +250,7 @@ export class FlowEngine {
       output: { ...output, steps },
       attemptId,
       detail: `fan-out resolved — aggregate published (${(steps as unknown[])?.length ?? 0} steps)${status === NODE_STATUS.AWAITING_APPROVAL ? ' · awaiting the final approval' : ''}`,
-    });
+    }, tx);
     if (!published) return;
     await this.touch(parentFlowId);
     if (isNodeTerminalSuccess(status)) {
@@ -269,7 +270,7 @@ export class FlowEngine {
    * from-set is the fence — a stale aggregate can no longer clobber a node
    * the user retried or cancelled (the step-00 characterization test).
    */
-  async finishSplit(parentFlowId: string, nodeKey: string, output: Record<string, unknown>, attemptId?: string | null): Promise<void> {
+  async finishSplit(parentFlowId: string, nodeKey: string, output: Record<string, unknown>, attemptId?: string | null, tx?: QueryExecutor): Promise<void> {
     const units: unknown = output.units ?? [];
     // worst-of the unit entries (decision 4): failed > awaiting_approval > done
     const entries = Array.isArray(units) ? (units as { status?: unknown }[]) : [];
@@ -283,7 +284,7 @@ export class FlowEngine {
       output: { ...output, units },
       attemptId,
       detail: `split resolved — aggregate published (${entries.length} units)${status === NODE_STATUS.AWAITING_APPROVAL ? ' · a unit awaits approval' : status === NODE_STATUS.FAILED ? ' · a unit failed' : ''}`,
-    });
+    }, tx);
     if (!published) return;
     await this.touch(parentFlowId);
     if (isNodeTerminalSuccess(status)) {
