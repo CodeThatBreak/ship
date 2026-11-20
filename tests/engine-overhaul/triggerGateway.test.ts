@@ -18,7 +18,6 @@ import { assignTestDatabase, resetTestDatabase } from "../helpers/testDatabase";
 import { FlowHarness } from "../helpers/flowHarness";
 import { registerFakeGitHost } from "../helpers/fakeGitHost";
 import { TRIGGER_SOURCE } from "@/lib/engine/runtime/triggers/constants/triggerSources";
-import type { TriggerSource } from "@/lib/engine/runtime/triggers/types/triggerGateway";
 
 assignTestDatabase();
 

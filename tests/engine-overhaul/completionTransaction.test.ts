@@ -64,7 +64,7 @@ const injectTransactionFault = (failOn: RegExp): void => {
           if (prop === "planStep") {
             const model = Reflect.get(target, prop, receiver) as Record<string, (...a: unknown[]) => unknown>;
             return new Proxy(model, {
-              get(modelTarget, method, modelReceiver) {
+              get(modelTarget, method) {
                 return (...args: unknown[]) =>
                   faultOrRun(`planStep.${String(method)}`, () =>
                     (modelTarget[method] as (...a: unknown[]) => unknown).apply(modelTarget, args));
