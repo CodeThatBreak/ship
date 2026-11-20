@@ -2,7 +2,7 @@
 
 Concrete recipes for writing code in this repo. [AGENTS.md](../AGENTS.md) holds the rules. This doc shows how to follow them for the problems DevFlow actually has: a long-running flow engine with a node state machine, background agent runs, git side effects, Postgres (Prisma), and a polling React UI.
 
-Some primitives below don't exist yet. Each one is marked **(added in Task NN)** and links to the task in [`docs/review-tasks/`](review-tasks/README.md) that creates it. Until it lands, follow the closest existing pattern and don't invent a parallel one.
+Some primitives are marked **(added in Task NN)** with a link to the task in [`docs/review-tasks/`](review-tasks/README.md) that introduced them — those tasks have landed; the links are provenance, not TODOs.
 
 **Reference implementations to copy from:**
 
@@ -62,7 +62,7 @@ lib/engine/runtime/**    orchestrators (poller, reconciler, fan-out, split) -> s
 import { z } from "zod";
 import { parseJson } from "@/lib/http/parse";        // added in Task 10
 import { toErrorResponse } from "@/lib/errors";      // added in Task 09
-import { flowEngine } from "@/lib/engine/flow-engine";
+import { flowEngine } from "@/lib/engine/flowEngine";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -139,7 +139,7 @@ export const toErrorResponse = (e: unknown): Response => {
 | Webhook payloads | Zod schema in the integration's `parseWebhook`, after signature verification |
 | Node config | `configSchema.parse` at the top of `run()`/`turn()` and in `setNodeConfig`. An invalid config fails the node with a readable message and never silently falls back to catalog defaults |
 | Persisted JSON (artifact meta, events, trigger payloads) | Row mapper in `lib/db/rows.ts`, `safeParse` raising `RowDecodeError` with table, column and id |
-| Agent output | The output contract (`PlanOutputContract`, `AgentOutputError`) |
+| Agent output | The agent-output pipeline (`AgentOutputPipeline` — contract validation + bounded feedback retry; §3.13) |
 | Env | `lib/config.ts` only |
 
 ### 3.5 Persistence
@@ -168,6 +168,14 @@ export const toErrorResponse = (e: unknown): Response => {
 - **Row counts over `.changes`.** A conditional `UPDATE … WHERE …` (claim,
   attempt-fenced terminal write) checks the affected-row count returned by
   `$executeRaw`/`updateMany` — `0` means lost race, `1` means claimed.
+- **External-I/O sequences journal through the `jobs` table** (Invariant 7):
+  insert the job write-ahead (`dedupKey`, `runAt`), claim it atomically
+  (`UPDATE … SET status='claimed', lease_until=… WHERE id=? AND
+  status='queued'` — `FOR UPDATE SKIP LOCKED`), do the host work, mark
+  done/failed. A crash leaves a leased job whose lease expires → the worker
+  sweep re-claims or flags it. Applies to webhook deliveries, schedule fires,
+  MR creation, cancels (dedup keys are freed on terminal so a retry can
+  re-enqueue).
 - **Schema changes** go through Prisma migrations (`prisma/schema.prisma` +
   `prisma migrate dev`). Ask before changing the schema, keep
   `lib/db/rows.ts` (JSONB payload validators) in the same PR, and remember
@@ -177,34 +185,71 @@ export const toErrorResponse = (e: unknown): Response => {
 - **Secrets** are read only through a `SecretStore`. List queries never
   select token columns (`rows.ts` `.omit({ token: true })`).
 
-### 3.6 Node state machine
+### 3.6 Node state machine and the transition authority
 
-The engine decides node ownership through the database, not through in-memory checks.
+The `TransitionAuthority` (`lib/engine/runtime/transitions/nodeTransitions.ts`)
+is the ONLY writer of `nodes.status` / `attempt_id` (Invariant 1). The declared
+transition table (`runtime/transitions/constants/transitionTable.ts`) is the
+entire legal edge set — anything not listed there is a bug the tests reject.
 
-- **Claim atomically (added in [Task 17](review-tasks/17-node-claim-and-attempts.md)).** Every trigger path (run, retry, chat, approve, webhook resume) claims the node synchronously, before handing work to the background:
+- **Every status write goes through the authority.** `claim` (atomic claim from
+  a declared from-set; stamps `attempt_id` + `lease_until`, clears
+  `wait_until`), `publishOutcome` / `publishAggregate` (terminal, attempt-
+  fenced, output-validated), `apply` / `applyFlowScope` for the rest. The
+  arch test rejects a raw status write, and `NodeSupport.setNode` refuses
+  `status`/`attempt_id` keys at runtime.
+- **Triggers funnel through the TriggerGateway** (`runtime/triggers/`): run,
+  retry, chat, approve, webhook resume, wait/schedule fires — every path
+  claims through it. The loser of the atomic claim emits one typed
+  `skipped_duplicate_trigger` event and returns `{ started: false }` — no
+  silent-return-vs-throw split.
+- **Adding a legal transition:**
+  1. Add a row to the transition table (`from` set → `to` set, actor) in
+     `runtime/transitions/constants/transitionTable.ts`.
+  2. If the actor is new, add it to the vocabulary in
+     `runtime/transitions/types/transitions.ts`.
+  3. Emit a typed event for the transition via `TransitionEvents` (new kind in
+     `EVENT_KIND` + the client mirror in `constants/events.ts`).
+  4. Write it through the authority's methods — never a direct Prisma status
+     write. The transition-table arch test pins the table.
+- **A terminal write is one atomic batch**: the validated output, the
+  lifecycle event and the artifact save land in the same transaction
+  (`applyOutcome` → §3.5). A crash between them leaves no partial state.
+- **`recover()` returns a `RecoveryResult`** — `{ kind: "recovered" } |
+  { kind: "manual", reason }` (`nodes/shared/types/recovery.ts`) — and never
+  throws. The single try/catch lives at the recovery seam
+  (`RecoveryDriver` via the engine's `completeNodeFromResult`); a throw maps
+  to `manual` + an error event, once.
+- **Status vocabulary** comes from the predicate sets in
+  `runtime/transitions/constants/statusSets.ts`. Never inline
+  `status === "done" || status === "approved"`.
+- **Chat-only turns don't own the node.** They must not run through code paths
+  that can set the node to `failed`.
 
-  ```ts
-  // NodeStore
-  async claim(flowId: string, nodeKey: string, from: readonly NodeStatus[]): Promise<AttemptId> {
-    const attempt = this.db.uid("att_");
-    const changed = await this.db.prisma.node.updateMany({
-      where: { flowId, nodeKey, status: { in: [...from] } },
-      data: { status: NODE_STATUS.RUNNING, attemptId: attempt, updatedAt: new Date() },
-    });
-    if (changed.count !== 1) throw new ConflictError(`Node ${nodeKey} is not in ${from.join("/")}`);
-    return attempt;
-  }
-  ```
+### 3.6.1 Contracts (`consumes` / `outputSchema`)
 
-  (One conditional write — the `WHERE status IN (…)` predicate is the race
-  fence; check the affected-row count.)
-- **Every later write is fenced by the attempt.** Terminal writes use
-  `WHERE id = ? AND attempt_id = ?` (`updateMany` predicate
-  `{ id, attemptId }`). If the count is `0`, the run was superseded. Throw
-  `RunSupersededError` and let the caller stop without writing artifacts, comments or MR side effects.
-- **One terminal writer.** `applyOutcome` is the only code that sets a node's final status and emits its terminal event. `recover()` returns a `RunOutcome` and has no side effects.
-- **Status vocabulary** comes from one constant with named predicate sets (`STARTED`, `TERMINAL_SUCCESS`, `RESETTABLE`). Never repeat `status === "done" || status === "approved"` inline. Two guards already disagree on whether `skipped` counts as started (CR-180).
-- **Chat-only turns don't own the node.** They must not run through code paths that can set the node to `failed`.
+Every node kind declares what it needs and what it publishes
+(`lib/engine/runtime/contractPipeline.ts`, Invariant 5):
+
+- **Stage start — `consumes`** (default `z.object({})` on `NodeDefinition`):
+  the materialized input map is validated before the def runs. A miss is a
+  typed `InputContractError` (`{nodeKey, missingField, producerKey}`) → the
+  stage fails with an `input_contract_violation` event. Refuse-to-proceed is
+  the default; never silently pass an empty input. Declarative kinds declare
+  their needs through the template node's `input_map` targets, validated at
+  the same seam (a mapped expression resolving to nothing fails loudly).
+- **Stage end — `outputSchema`**: the terminal write validates the published
+  output; a fan-out/split aggregate validates against the def's
+  `fanoutOutput`/`splitOutput` capability. A miss is a typed
+  `OutputContractError` + an `output_contract_violation` event — the node
+  fails, nothing unvalidated is ever published. Failed/skipped terminals are
+  exempt (the violation detail travels in the event, not the output column).
+- **Declarative configs author contracts in Zod**; `z.toJSONSchema()` produces
+  the agent-facing directive, and raw JSON Schema configs convert at the
+  boundary via `zod-from-json-schema` (`lib/engine/templates/jsonSchemaToZod.ts`).
+- **Edge/loop conditions** referencing `nodes.<key>.output.<field>` are
+  lint-checked at template save/validate against the producing node's schema
+  (`lib/jsonata/nodeOutputRefs.ts` + `templateLint.ts`).
 
 ### 3.7 Background work and promises
 
@@ -265,6 +310,67 @@ lib/engine/nodes/kinds/<kind>/
 - New kinds register in `lib/engine/nodes/registry.ts`. Don't add `switch (kind)` branches anywhere.
 - Declarative kinds share one `DeclarativeNode<Def>` base (config parsing, approval hold, description), added in [Task 49](review-tasks/49-node-kind-structure.md).
 - `previewPrompt` and `run` call the same builder. A test asserts the preview equals the sent prompt for a fixture.
+
+### 3.12 The effects registry (post-terminal sequencing)
+
+"What happens after Y finishes" is registered data, not call-site chaining
+(`lib/engine/runtime/effects/`, Invariant 8).
+
+- **Register `NodeEffects` at engine boot** — the FlowEngine constructor's
+  registry dispatch, keyed by `(defKey, lifecycle)` over the five declared
+  lifecycles (`afterSuccess | afterFailure | afterApproval |
+  onChildTerminal | loopReentry`, `constants/effectLifecycles.ts`):
+
+  ```ts
+  // a runtime or kind module registers its own post-finish behavior
+  registry.register(NODE_KEYS.PIPELINE, {
+    afterSuccess: async (ctx) => { /* gate green → the edges */ },
+  });
+  ```
+
+- **Implementations stay in their owning module** (`sdlcEffects.ts` over the
+  SDLC chain, `fanoutEffects.ts` / `splitEffects.ts` over the runtimes); the
+  registry never parks sequencing logic. The fan-out/split child-terminal
+  notifications register under the runtime wildcard key (`EFFECT_KEY_ANY`) —
+  fan-out/split children can run any node kind, so exact-key registration
+  would miss them; relevance is decided by the runtime's own linkage lookup.
+- **Dispatch is centralized**: the StageRunner's `postTerminal` runs
+  `onChildTerminal`, then `afterSuccess` → `loopReentry` → falls through to
+  the default edge walk; `afterFailure` never advances; the approval door
+  dispatches `afterApproval` on a won approve. Never add a sequencing call
+  site — register an effect instead. Unclaimed lifecycles fall through to the
+  template's edge walk (the edges stay the stage-ordering data).
+- **Effect-driven stage starts claim through the TriggerGateway**, so a lost
+  claim emits the same typed skip event a user click would. Never add a
+  dispatch path that skips a claim.
+
+### 3.13 The agent-output pipeline
+
+Every agent-emitting node consumes one output path
+(`lib/engine/nodes/shared/agentOutput/`, Invariant 6):
+
+```text
+agent text → extractJson → validate against the node's contract
+           ├─ ok            → typed success event → outcome
+           ├─ no_json / schema_mismatch
+           │     → output_error envelope → bounded feedback retry (per-node budget)
+           │     → exhausted → typed output_contract_violation event → failed
+           └─ agent_reported → typed event → failed (never retried)
+```
+
+- **A node integrates by running its response through the pipeline with its
+  own schema** (`NodeDefinition.retryBudget` is the per-kind knob — default 1;
+  review/build validate at 0 and map misses to failed outcomes themselves).
+  Never hand-roll a parse/fallback loop beside it.
+- **Missing/malformed output is a first-class, distinguishable failure** —
+  never a default. Banned by test: `(empty response)` fabrication, `markDone`
+  title salvage, empty-pass review, stdout scavenging, `?? {}`/`?? []`
+  fallbacks, case-insensitive label salvage. Node kinds differ only in output
+  shape, never in fallback language.
+- **The retry feedback is one shared builder** (`utils/retryFeedback.ts`); the
+  "return JSON" directive is schema-generated (`AgentOutputError.directive`)
+  so the advertised schema and the validator cannot drift — first turn and
+  retry render the same bytes.
 
 ---
 
@@ -393,7 +499,7 @@ The skeleton mirrors the real layout and lives next to the real component. Share
 
 - **Where:** co-located `*.test.ts` next to the module for `lib/` (Vitest, `npm test`). UI logic that can be pulled out (reducers, `utils/`, hooks with injected fetchers) gets tests under the feature or in `tests/`.
 - **What must have tests:** every service, store and row mapper (AGENTS.md DoD), every state-machine transition you touch, and every bug fix. Write the failing test first.
-- **DB tests** use an in-memory database built from `schema.sql` through the shared test helper ([Task 05](review-tasks/05-test-coverage-baseline.md)). Never use the dev DB file.
+- **DB tests** run against the Postgres test database (`devflow_test`, dockerized via `npm run db:up`) through the shared harness (`tests/helpers/testDatabase.ts`, `tests/globalSetup.ts`). Never use the dev DB.
 - **"Latest", ordering and idempotency** tests always use at least two rows or two calls.
 - **Fixtures:** every `docs/flow-templates/*.yaml` is imported by a test, so the fixtures can't rot.
 - Vitest doesn't type-check, so `npm run typecheck` is part of the gate.

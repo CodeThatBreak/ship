@@ -3,7 +3,7 @@ node_key: templates
 kind: subsystem
 status: current
 owner: engine+flows
-last_reviewed: 2026-11-01
+last_reviewed: 2026-11-20
 ---
 
 # Flow and node templates
@@ -16,7 +16,7 @@ Templates are the design-time definition of a flow: a `flow_templates` row plus 
 
 ### Data model and the store
 
-`TemplateStore` (`lib/engine/templates/templateStore.ts`, singleton `templateStore`) is the design-time service:
+`TemplateStore` (`lib/engine/templates/templateStore.ts`, shared `templateStore` const) is the design-time service:
 
 - **`graph(templateId)`** — assembles the runtime `TemplateGraph` (`lib/engine/types/template.ts`: `TemplateNodeSpec` / `TemplateEdgeSpec` / `TemplateGraph`). A node's `defKey` is the catalog **key** for built-ins and the `node_templates` row **id** for declarative kinds, so the node registry can hydrate one runtime instance per catalog entry.
 - **`graphForFlow(flowId)`** — the graph a flow actually runs: the persisted snapshot (`flows.template_graph`) when present, the live template (defaulting to `tpl_sdlc_loop`) for legacy rows.
@@ -31,7 +31,9 @@ Templates are the design-time definition of a flow: a `flow_templates` row plus 
 
 ### Seeded built-ins
 
-`TemplateSeeder` (`lib/db/templateSeeder.ts`) runs at migration `user_version 1`, idempotently (`INSERT OR IGNORE`, deterministic ids):
+The builtin catalog is seeded idempotently by the `builtin_template_seed`
+Prisma migration (deterministic ids, `ON CONFLICT DO NOTHING`) — every
+`prisma migrate deploy` (dev, test, prod) leaves the database with:
 
 - **Catalog built-ins** — `nt_start`, `nt_plan`, `nt_build`, `nt_step_build`, `nt_pipeline`, `nt_review`, `nt_resolve` (kind `builtin`).
 - **`tpl_sdlc_loop`** (`SDLC_TEMPLATE_ID`) — the SDLC loop: `plan` (manual) → `build` (approval) → `pipeline` (`auto`, `wait_for: pipeline`) → `review` (`auto`) → `resolve` (`debounced`, 10 min, `wait_for: comments`), with a `loop` edge `resolve → pipeline` conditioned on the JSONata expression `nodes.resolve.output.pushed = true` — the cycle re-enters the CI gate only when the resolve's fix is verified on the remote MR head.
@@ -48,6 +50,8 @@ Two layers run before any save or import (and live via `lintDraft` for the edito
  - JSONata compiles in `input_map`, decision `pass` maps and expression-sourced choice conditions, http `response_map`, and edge conditions.
  - **Fan-out rules** (`fanoutOf` from `nodeConfig.ts`; modes `whole` / `steps` / `from-plan`): a fan-out node must sit downstream of a plan node; an explicit `child` template must exist and contain exactly one node — never `plan`/`pipeline`/`review`/`resolve` built-ins and never its own fan-out knob (no nesting); upstream of a fan-out, the referenced node's contract collapses to `steps` so downstream mappings stay stable across plan revisions.
  - **Agent split checks** — `split.field` must be a declared array in the agent's `output_schema`; `key_field` / `depends_on_field` / `target_field` must exist on the array's element shape; the default target resolves (node key or node template) and the item shape must satisfy the target template's start contract strictly.
+ - **Edge/loop-condition output keys** (engine overhaul step 04) — every `nodes.<key>.output.<field>` referenced by an edge or loop condition must exist in the producing node's published output contract (`lib/jsonata/nodeOutputRefs.ts` walks the compiled JSONata AST; unknown node or field rejects the save — the seeded `resolve → pipeline` loop condition is a checked reference, not a floating string).
+ - **Plan execution knob** (step 09) — the plan node's `execution_default: "steps"` is retired (`lintPlanExecution.ts`): the knob is `whole` | `follow`; old configs carrying the retired value fail lint loudly instead of silently re-resolving.
 
 Problems carry machine coordinates (`nodeKey` / `edgeIndex`) so the canvas can badge the offending element; the store throws the joined message on save/import.
 

@@ -278,7 +278,7 @@ Each item below can be fixed independently. Severity headings group the items; w
 
 ### CR-006 [High] Timer and comment-debounce waits are memory-only, so a restart strands `waiting` nodes forever
 
-- **Status at `abaa007`:** **Fixed** ([Task 25](review-tasks/25-wait-timers-and-poller.md) — startup re-arm; durable `nodes.wait_until` deferred)
+- **Status at `abaa007`:** **Fixed** ([Task 25](review-tasks/25-wait-timers-and-poller.md) — startup re-arm; the deferred durable `wait_until` landed with [engine-overhaul step 03](engine-overhaul/steps/03-durable-waits-leases-reconcile.md): `nodes.wait_until`/`nodes.lease_until` + the durable `WaitStore` sweep (claim+fire owned by `startNodeStage`); restart resume pinned by `tests/engine-overhaul/waitResume.test.ts` — "restart during a wait resumes the node")
 - **Current location:** lib/engine/flow-engine.ts:1290-1295 (armNodeWait), 1325-1333 (bounceCommentWaits), 1895-1925 (waitTimers / processWaitTimers); lib/engine/runtime/flow-poller.ts:26-41 (start: no re-arm pass)
 - **Re-verification note:** Timer and comment-debounce deadlines still live only in the in-memory `waitTimers` Map, and nothing re-arms `waiting` nodes after a restart. The comment at 1895-1900 claims a restart re-arms "on the next join evaluation", but no code does that. Persist `wait_until` on the node row (needs schema approval and a row-mapper update), or at minimum add a startup pass in `FlowPoller.start()` that re-arms every `waiting` timer/comments node from `updated_at` plus its configured minutes.
 
@@ -680,7 +680,7 @@ Original findings, verbatim:
 
 ### CR-021 [High] DB connection is cached before schema/migrations finish — a failed migration is never retried and the app runs half-migrated
 
-- **Status at `abaa007`:** **Open**, fix in [Task 08](review-tasks/08-db-bootstrap-and-schema.md)
+- **Status at `abaa007`:** **Obsolete** — the SQLite bootstrap this finding describes was deleted by the Postgres + Prisma migration ([engine-overhaul step 01](engine-overhaul/steps/01-postgres-prisma-migration.md)); schema is owned by `prisma/schema.prisma` + versioned migrations applied out-of-process via `prisma migrate deploy` (tracked in `_prisma_migrations`), so the app never migrates in-process (`tests/architecture/noSqliteInLib.test.ts` guards the deletion)
 - **Status:** **Fixed** (Task 08 — bootstrap opens into a pending handle, assigns `conn` only on success, throws `DatabaseMigrationError` on failure)
 - **Current location:** lib/db/index.ts:38-55
 - **Re-verification note:** `this.conn` is still assigned before `renameTicketsToTasks`, `exec(schema)` and `migrate()` run, so a failed migration leaves a cached, half-migrated handle for every later caller. Open into a local, run bootstrap and migrations, assign `this.conn` only on success, and otherwise `close()` and throw a typed `DatabaseMigrationError`.
@@ -709,7 +709,7 @@ Original findings, verbatim:
 
 ### CR-022 [High] Migrations and seeding are not atomic; table rebuilds are not resumable after a crash
 
-- **Status at `abaa007`:** **Open**, fix in [Task 08](review-tasks/08-db-bootstrap-and-schema.md)
+- **Status at `abaa007`:** **Obsolete** — the legacy SQLite migration/table-rebuild code this finding describes is gone ([engine-overhaul step 01](engine-overhaul/steps/01-postgres-prisma-migration.md), Postgres + Prisma): each Prisma migration is applied exactly once and atomically tracked, and the builtin template seed is an idempotent `ON CONFLICT DO NOTHING` migration (`20261116100000_builtin_template_seed`)
 - **Status:** **Fixed** (Task 08 — legacy table rebuilds removed; `seedTemplates` runs inside the version-1 migration transaction)
 - **Current severity:** Medium (was High)
 - **Current location:** lib/db/index.ts:588-660 (seedTemplates, non-atomic SDLC template seed); legacy-only parts: lib/db/index.ts:64-70, 82-84, 198-208, 466-494, 547-580
@@ -1404,7 +1404,7 @@ Original findings, verbatim:
 
 ### CR-045 [Medium] GET handlers and server loaders start the poller and run the reconciler as side effects
 
-- **Status at `abaa007`:** **Fixed** ([Task 25](review-tasks/25-wait-timers-and-poller.md))
+- **Status at `abaa007`:** **Fixed** ([Task 25](review-tasks/25-wait-timers-and-poller.md); reworked by [engine-overhaul step 03](engine-overhaul/steps/03-durable-waits-leases-reconcile.md) — the worker process owns the poller/reconciler (`worker/main.ts` + `ProcessLock`), `instrumentation.ts` is deleted, and loaders only run the idempotent flow-open reconcile pass)
 - **Current location:** app/api/flows/route.ts:8,13, app/api/flows/[id]/route.ts:9,14, app/api/flows/[id]/events/route.ts:11, loaders/flows.ts:25,28,42, app/api/hooks/[id]/route.ts:63, app/api/webhooks/gitlab/route.ts:33
 - **Re-verification note:** GET handlers and loaders still call `flowPoller.start()` and fire `reconciler.reconcileFlow(id)` (for any id, every 3 s from the events poll) with errors swallowed by `.catch(() => {})`; there is still no `instrumentation.ts`. Start the poller once from `instrumentation.ts` `register()`, move reconcile onto the poller tick or an explicit POST, and log reconcile failures.
 
@@ -1797,8 +1797,8 @@ Original findings, verbatim:
 
 ### CR-060 [Medium] Poller ticks can overlap, and non-MR steps of the tick run outside any try/catch
 
-- **Status at `abaa007`:** **Fixed** ([Task 25](review-tasks/25-wait-timers-and-poller.md))
-- **Current location:** lib/engine/runtime/flow-poller.ts:40,43-72
+- **Status at `abaa007`:** **Fixed** ([Task 25](review-tasks/25-wait-timers-and-poller.md); reworked by [engine-overhaul step 03](engine-overhaul/steps/03-durable-waits-leases-reconcile.md) — the `ticking` re-entrancy guard and self-rescheduling `setTimeout` carry over into the rewritten `lib/engine/runtime/flowPoller.ts`, with each tick phase wrapped and gated on the `ProcessLock`)
+- **Current location:** lib/engine/runtime/flowPoller.ts
 - **Re-verification note:** `setInterval(() => void this.tick(), …)` still allows overlapping ticks, and `processWaitTimers()`/`processTemplateSchedules()` still run outside any try/catch, so a throw aborts the tick as an unhandled rejection. Add a `ticking` re-entrancy guard (or self-rescheduling `setTimeout`) and wrap each tick phase in its own logged try/catch.
 
 - **Severity:** Medium
@@ -2059,7 +2059,7 @@ Original findings, verbatim:
 
 ### CR-070 [Medium] `FlowEngine` is a god class with about ten responsibilities in 1,800 lines
 
-- **Status at `abaa007`:** **Fixed** ([Task 45](review-tasks/45-flow-engine-decomposition.md))
+- **Status at `abaa007`:** **Fixed** ([Task 45](review-tasks/45-flow-engine-decomposition.md); closed by [engine-overhaul step 07](engine-overhaul/steps/07-effect-join-layer.md) — `flowEngine.ts` is now a thin composition+delegation facade (`FlowFactory`, `FlowReadModel`, `FlowChatService`/`FlowRetryService`/`FlowPlanStepService`, `FlowManualRunService`, `BgRunner`, the staging/fan-out/split runtimes all extracted; `engineClassSize` lost the `flowEngine` entry))
 - **Current location:** lib/engine/flow-engine.ts (facade); lib/engine/runtime/flow-factory.ts, flow-read-model.ts, edge-activator.ts, wait-scheduler.ts, comment-ingestor.ts
 - **Re-verification note:** The file grew from about 1,800 to 2,039 lines. Split-runtime proxies (skip/retry/approve/cancelSplitUnit, finishSplit) were added alongside the existing responsibilities. Only the SDLC chain, the split manager and the step-flow manager live outside it. Extract FlowFactory, FlowReadModel, EdgeActivator, WaitScheduler and CommentIngestor/MrLocator behind a thin facade, one per PR.
 
@@ -2171,7 +2171,7 @@ Original findings, verbatim:
 
 ### CR-074 [Medium] Per-branch cost attribution never applies: `tagLatestRun` runs after the run row is already closed
 
-- **Status at `abaa007`:** **Open**, fix in [Task 18](review-tasks/18-terminal-outcome-writer.md)
+- **Status at `abaa007`:** **Fixed** ([Task 18](review-tasks/18-terminal-outcome-writer.md) — `BranchStore.tagRun(runRowId, …)` updates by primary key and `AgentRunner.executeRun` returns the persisted runs-row id; pinned by `branchStore.test.ts` — "sets branch_id on a closed run row by primary key")
 - **Current location:** lib/engine/nodes/kinds/build/build-node.ts:327-333, lib/engine/nodes/kinds/build/branch-store.ts:39-45, lib/engine/harness/agent-runner.ts:168-169, lib/engine/nodes/shared/agent-run-node.ts:132-134
 - **Re-verification note:** `execute()` runs `finalize` only after `executeRun` has already closed the run row to finished/error. `tagLatestRun`'s `WHERE node_id=? AND status='running'` therefore never matches, and `runs.branch_id` stays null. Fix: return the run row id from `executeRun` (or pass a branchId option) and tag `WHERE id=?`.
 
@@ -2482,7 +2482,7 @@ Original findings, verbatim:
 
 ### CR-088 [Medium] An agent-node chat overwrites the recorded input, so a later Retry loses the inherited upstream input
 
-- **Status at `abaa007`:** **Open**, fix in [Task 18](review-tasks/18-terminal-outcome-writer.md)
+- **Status at `abaa007`:** **Fixed** ([Task 18](review-tasks/18-terminal-outcome-writer.md) — agent `chat()` merges the inherited input instead of replacing it: `input: { ...priorInput, model, feedback }` in `agentTemplateNode.ts`)
 - **Current location:** lib/engine/nodes/kinds/agent/agent-node.ts:383-405 (input at 392), lib/engine/nodes/shared/agent-run-node.ts:124-129, lib/engine/flow-engine.ts:1666,1678
 - **Re-verification note:** The agent node's `chat()` still calls `execute()` with `input: {model, feedback}`, which overwrites `nodes.input`. A later `retryNode` replays that, losing the inherited upstream fields, and `{{input.*}}` renders empty. Fix: merge `{...node.input, feedback}`, or add an `execute` option that skips recording input for follow-ups.
 
@@ -2567,7 +2567,7 @@ Original findings, verbatim:
 
 ### CR-092 [Medium] Built-ins bypass the shared `execute`/`applyOutcome` persistence path and hand-roll status, output and event writes
 
-- **Status at `abaa007`:** **Partly fixed**, fix in [Task 18](review-tasks/18-terminal-outcome-writer.md)
+- **Status at `abaa007`:** **Fixed** ([Task 18](review-tasks/18-terminal-outcome-writer.md); completed by [engine-overhaul steps 02/05/06](engine-overhaul/steps/02-transition-authority.md) — every terminal write is the authority's `publishOutcome` (output-validated, batched with the artifact + lifecycle event in one transaction), `NodeSupport.setNode` refuses `status`/`attempt_id` keys, and a `setNode(…{ status` grep over `lib/engine/nodes` is clean; the completion batch is pinned by `completionTransaction.test.ts`)
 - **Current location:** lib/engine/nodes/kinds/pipeline/pipeline-node.ts:327-332, 417-431, 440-451, 474; lib/engine/nodes/kinds/resolve/resolve-node.ts:98-105; lib/engine/nodes/kinds/start/start-node.ts:74-83; lib/engine/nodes/kinds/build/build-node.ts:440-456; lib/engine/nodes/kinds/http/http-node.ts:92-98, 152-154; lib/engine/nodes/kinds/script/script-node.ts:107-111, 120-121, 132-133, 179-180; lib/engine/nodes/kinds/plan/plan-node.ts:230-241, 276-288
 - **Re-verification note:** Plan, agent and decision success and recover paths now finish through `applyOutcome`. Pipeline (green/failed/canceled), resolve's no-comments early return, start (event "Flow started…" vs returned "flow started"), build `recoverBranch`, and the http/script failure paths still hand-roll `setNode` + emit. Fix: make `applyOutcome` (with optional agentId) the only terminal writer, have `recover()` return a `RunOutcome`, and add a base `markRunning()`.
 
@@ -3099,7 +3099,7 @@ Original findings, verbatim:
 
 ### CR-112 [Medium] One malformed JSON column fails the entire `rows.all()` read
 
-- **Status at `abaa007`:** **Open**, fix in [Task 34](review-tasks/34-db-row-safety.md)
+- **Status at `abaa007`:** **Fixed** ([Task 34](review-tasks/34-db-row-safety.md) — `rows.ts` decodes with `safeParse` and throws a typed `RowDecodeError` carrying the query and row id instead of failing the whole read silently; pinned by `rows.test.ts`)
 - **Current location:** lib/db/rows.ts:17-29, lib/db/rows.ts:414-430
 - **Re-verification note:** `jsonCol` still turns a parse failure into a Zod issue, and `RowGateway.all` still calls `schema.parse` per row, so one bad JSON cell (for example non-object `events.data` from `emitEvent`) throws for the whole list, with no table, column or row id in the error. Fix: use `safeParse` in `RowGateway`, raise or log a typed `RowDecodeError` with context, and skip bad rows in `all`; optionally make read-tolerant columns fall back to `null`.
 
@@ -3124,7 +3124,7 @@ Original findings, verbatim:
 
 ### CR-113 [Medium] Missing indexes for hot queries
 
-- **Status at `abaa007`:** **Open**, fix in [Task 34](review-tasks/34-db-row-safety.md)
+- **Status at `abaa007`:** **Fixed** ([Task 34](review-tasks/34-db-row-safety.md) — the hot-query indexes exist in the Prisma schema: `idx_runs_node/flow/run_ref/status`, `idx_flows_parent/gitlab_project/status/template/repo`, `idx_plan_steps_sub_flow`, `idx_step_merges_flow/parent`, `idx_hook_deliveries_created`; declared in `prisma/schema.prisma` and applied by migration)
 - **Current location:** lib/db/schema.sql:20-37, lib/db/schema.sql:83, lib/db/schema.sql:114-131, lib/db/schema.sql:151-162, lib/db/schema.sql:299-302, lib/db/schema.sql:325-339
 - **Re-verification note:** No new indexes were added. `runs(node_id|flow_id|run_ref|status)`, `flows(parent_flow_id|gitlab_project_id|status|template_id)`, `plan_steps(sub_flow_id)`, `step_merges(flow_id)` and `hook_deliveries(created_at)` are still unindexed; `cursor_run_id` was renamed to `run_ref`. The redundant `UNIQUE(discussion_id, id)` on `comments` is still there. Fix: add `CREATE INDEX IF NOT EXISTS` statements; this is a schema change, so get approval first.
 
@@ -3155,7 +3155,7 @@ Original findings, verbatim:
 
 ### CR-114 [Medium] Deleting a repo referenced by any flow throws an unhandled FK error (500); no foreign key declares `ON DELETE` behaviour
 
-- **Status at `abaa007`:** **Open**, fix in [Task 34](review-tasks/34-db-row-safety.md)
+- **Status at `abaa007`:** **Fixed** ([Task 34](review-tasks/34-db-row-safety.md) — `RepoService.delete` throws `NotFoundError` for an unknown id and `ConflictError` ("N flows still reference it") before any delete; the route maps via `toErrorResponse`; pinned by `repoService.test.ts`)
 - **Current location:** lib/db/index.ts:90, lib/db/index.ts:988-990, app/api/repos/[id]/route.ts:54-58, lib/db/schema.sql:20-37, lib/db/schema.sql:151-162
 - **Re-verification note:** `deleteRepo` is still a bare `DELETE`, and the route calls it with no checks. Deleting a repo that any flow references throws an FK error (500), and an unknown id returns `{ok:true}`. Fix: add a `RepoService.delete` that throws `NotFoundError` or `RepoInUseError`, mapped to 404/409; longer term, add `ON DELETE` clauses (needs schema approval).
 
@@ -3208,7 +3208,7 @@ Original findings, verbatim:
 
 ### CR-115 [Medium] Row mappers bypassed: hand-written row interfaces and unvalidated `db.get/all` in the area
 
-- **Status at `abaa007`:** **Open**, fix in [Task 34](review-tasks/34-db-row-safety.md)
+- **Status at `abaa007`:** **Fixed** ([Task 34](review-tasks/34-db-row-safety.md) — the public row types are derived from the `rows.ts` schemas (`type Repo = RepoRow`), `getSetting<S extends ZodTypeAny>` takes a Zod schema instead of an unchecked cast, `listMessages` no longer returns `all<any>`, and `JiraInstanceRow`/`WorktreeRemovalRow` schemas exist)
 - **Current location:** lib/db/index.ts:10-25, lib/db/index.ts:885-889, lib/db/index.ts:913-917, lib/db/index.ts:929-935, lib/integrations/gitlab/client.ts:5-10, lib/integrations/gitlab/client.ts:182-184, lib/integrations/jira/service.ts:5-11, lib/integrations/jira/service.ts:27-29, lib/engine/runtime/worktree-lifecycle.ts:25-34, lib/engine/runtime/worktree-lifecycle.ts:314, lib/db/rows.ts:11, lib/db/rows.ts:43, lib/db/rows.ts:175
 - **Re-verification note:** These still bypass the row schemas: the hand-written `Repo` and `GitLabInstance` interfaces duplicate `RepoRow` and `GitLabInstanceRow` (the latter is still unused), `listMessages` returns `all<any>`, there are still no `JiraInstanceRow`, `WorktreeRemovalRow` or `SettingRow` schemas, `getSetting<T = any>` is still an unchecked cast, and `raw` columns stay `z.string()` despite the header comment. Fix: route these reads through `rows.get/all` with schemas, delete the duplicate interfaces, and make `getSetting` take a Zod schema.
 
@@ -4406,7 +4406,7 @@ Original findings, verbatim:
 
 ### CR-162 [Medium] AGENTS.md §5 rules are downgraded to `warn` for `lib/**` and `scripts/**`, which hides 56 `any` and about 30 `!`
 
-- **Status at `abaa007`:** **Fixed** (Task 03 — frozen offender list, `--max-warnings`, `reportUnusedDisableDirectives`, typed `no-floating-promises` on `lib/**`)
+- **Status at `abaa007`:** **Fixed** (Task 03 — frozen offender list, `--max-warnings`, `reportUnusedDisableDirectives`, typed `no-floating-promises` on `lib/**`; ratcheted to `--max-warnings=0` in [engine-overhaul step 09](engine-overhaul/steps/09-consistency-docs.md) — no violation is hidden anymore, the frozen offender files all lint clean)
 
 - **Severity:** Medium
 - **Category:** Boundaries
@@ -4663,7 +4663,7 @@ Original findings, verbatim:
 
 ### CR-171 [Low] The artifact GET crashes with a 500 on malformed `meta` JSON
 
-- **Status at `abaa007`:** **Open**, fix in [Task 34](review-tasks/34-db-row-safety.md)
+- **Status at `abaa007`:** **Fixed** ([Task 34](review-tasks/34-db-row-safety.md) — the route calls `artifactService.get(id)` and maps failures via `toErrorResponse`; the malformed-meta case is pinned by `artifact-service.test.ts`)
 - **Current location:** app/api/artifacts/[id]/route.ts:8,12-14
 - **Re-verification note:** `JSON.parse(art.meta)` is still unguarded, so one corrupt `meta` row gives an unhandled 500. The row type is still an ad-hoc `Record<string, unknown>` instead of a `lib/db/rows.ts` mapper. Read through the existing `ArtifactRow` mapper (or add one with a safe JSON column parse) via an `ArtifactService.get(id)`.
 
@@ -5379,7 +5379,7 @@ Original findings, verbatim:
 
 ### CR-203 [Low] Build, review, resolve and pipeline `chat()` overrides drop the chat panel's model override
 
-- **Status at `abaa007`:** **Partly fixed**, fix in [Task 18](review-tasks/18-terminal-outcome-writer.md)
+- **Status at `abaa007`:** **Fixed** ([Task 18](review-tasks/18-terminal-outcome-writer.md) — every agent-emitting `chat()` override carries the `model` override (plan/build/review/resolve/pipeline/agent); [engine-overhaul step 05](engine-overhaul/steps/05-agent-output-pipeline-recover.md) additionally removed decision's hardcoded `model: null`)
 - **Current location:** lib/engine/nodes/kinds/pipeline/pipeline-node.ts:628-643
 - **Re-verification note:** Build, review and resolve now go through `AgentRunNode.chat(ctx, content, model)` and `chatInput(content, model)`, so the chat panel's model is honored. The pipeline override still declares `chat(ctx, content)` and spreads the previous input, so the developer's model pick is ignored (the previous run's model, or the default, is used). Fix: accept `model?: string` and set `model: model ?? null` in the parsed input.
 
@@ -5437,7 +5437,7 @@ Original findings, verbatim:
 
 ### CR-206 [Low] `recover()` contracts are inconsistent across nodes (double-fail, or "recovered" after failing)
 
-- **Status at `abaa007`:** **Open**, fix in [Task 18](review-tasks/18-terminal-outcome-writer.md)
+- **Status at `abaa007`:** **Fixed** ([Task 18](review-tasks/18-terminal-outcome-writer.md); completed by [engine-overhaul step 05](engine-overhaul/steps/05-agent-output-pipeline-recover.md) — every kind's `recover()` returns `Promise<RecoveryResult>` and never throws; script/http return `manual` with the reason; the single try/catch seam is `FlowEngine.completeNodeFromResult`; pinned by `recoverAbi.test.ts` + `recoveryDriver.test.ts`)
 - **Current location:** lib/engine/nodes/kinds/script/script-node.ts:106-112; lib/engine/nodes/kinds/http/http-node.ts:92-98; lib/engine/flow-engine.ts:1955-1961; lib/engine/nodes/shared/node-definition.ts:262-266
 - **Re-verification note:** The script node still sets `failed` and emits an error, then returns `false`, so the engine fails the node again (and emits a second error when the run did not finish). The HTTP node still sets `failed` and returns `true` ("recovered"). Fix: have both return `false` with no side effects, and document the contract on `NodeDefinition.recover`.
 
@@ -5531,7 +5531,7 @@ Original findings, verbatim:
 
 ### CR-210 [Low] `schema.sql` is not the canonical schema; migrations are unversioned and re-run every boot
 
-- **Status at `abaa007`:** **Open**, fix in [Task 08](review-tasks/08-db-bootstrap-and-schema.md)
+- **Status at `abaa007`:** **Obsolete** — `lib/db/schema.sql` is deleted (unreferenced after the Postgres + Prisma migration, [engine-overhaul step 01](engine-overhaul/steps/01-postgres-prisma-migration.md); removed in [step 02](engine-overhaul/steps/02-transition-authority.md)); `prisma/schema.prisma` plus the versioned migrations under `prisma/migrations/` are the single canonical schema
 - **Status:** **Fixed** (Task 08 — columns folded into `schema.sql`, `user_version` migration v1 seeds templates once per transaction)
 - **Current location:** lib/db/schema.sql:20-37,39-52,133,151-161; lib/db/index.ts:73-259; scripts/init-prod-db.mjs:21; scripts/seed-custom-flow.mjs:38; scripts/seed-demo-flow.mjs:31
 - **Re-verification note:** `schema.sql` is still not canonical. These columns exist only as `ALTER TABLE` in `migrate()`: `flows.execution_mode/repo_id/template_id/trigger_payload`, `nodes.session_id/prompt_override/label/config/join_mode`, and the `runs` model/token/cost columns. So the scripts that bootstrap from `schema.sql` alone produce a DB that does not match `rows.ts`. There is still no `user_version`, every probe and seed re-runs on each boot, and the stray "durable cursor-run handles" comment still sits above `branches`. Fix: fold all columns into `schema.sql` and gate steps on `PRAGMA user_version`. The legacy-data parts of this item should be deleted rather than versioned (see CR-211 and CR-212).
@@ -5791,7 +5791,7 @@ Original findings, verbatim:
 
 ### CR-221 [Low] `schema.sql` is loaded relative to `process.cwd()`
 
-- **Status at `abaa007`:** **Open**, fix in [Task 08](review-tasks/08-db-bootstrap-and-schema.md)
+- **Status at `abaa007`:** **Obsolete** — with `schema.sql` deleted there is no cwd-relative SQL file to load; schema ownership is `prisma/schema.prisma` + versioned migrations ([engine-overhaul step 01](engine-overhaul/steps/01-postgres-prisma-migration.md))
 - **Status:** **Fixed** (Task 08 — `config.db.schemaSqlPath()` resolves from repo root; `AppConfig.root` no longer follows `process.cwd()`)
 - **Current location:** lib/db/index.ts:48-51
 - **Re-verification note:** `schema.sql` is still read from `path.join(process.cwd(), "lib/db/schema.sql")`, so launching from any other directory throws ENOENT on first DB access. Fix: resolve the path via `config` or embed the schema as a TS string module.
@@ -7266,29 +7266,29 @@ One row per finding, at `abaa007`.
 | CR-003 | High | Gap | Partly fixed | [Task 10](review-tasks/10-api-input-validation-flows.md), [Task 11](review-tasks/11-api-input-validation-settings.md) |
 | CR-004 | High | Bug | Fixed | [Task 28](review-tasks/28-prompt-preview-parity.md) |
 | CR-005 | High | Bug | Fixed | [Task 13](review-tasks/13-frontend-query-ownership.md) |
-| CR-006 | High | Bug | Fixed (Task 25) | [Task 25](review-tasks/25-wait-timers-and-poller.md) |
+| CR-006 | High | Bug | Fixed | [Task 25](review-tasks/25-wait-timers-and-poller.md) |
 | CR-007 | High | Bug | Fixed | [Task 23](review-tasks/23-graph-semantics-and-validation.md) |
 | CR-008 | High | Bug | Fixed | [Task 20](review-tasks/20-merge-arena-and-workspaces.md) |
-| CR-009 | High | Bug | Open | [Task 19](review-tasks/19-fanout-rollup-and-promises.md) |
-| CR-010 | High | Bug | Open | [Task 19](review-tasks/19-fanout-rollup-and-promises.md) |
+| CR-009 | High | Bug | Fixed | [Task 19](review-tasks/19-fanout-rollup-and-promises.md) |
+| CR-010 | High | Bug | Fixed | [Task 19](review-tasks/19-fanout-rollup-and-promises.md) |
 | CR-011 | High | Bug | Fixed | [Task 21](review-tasks/21-multi-branch-correctness.md) |
 | CR-012 | High | Bug | Fixed | [Task 12](review-tasks/12-db-transactions.md) |
-| CR-013 | High | Bug | Fixed (Task 27) | [Task 27](review-tasks/27-plan-checklist-integrity.md) |
-| CR-014 | High | Bug | Open | [Task 16](review-tasks/16-run-lifecycle-late-writes.md) |
+| CR-013 | High | Bug | Fixed | [Task 27](review-tasks/27-plan-checklist-integrity.md) |
+| CR-014 | High | Bug | Fixed | [Task 16](review-tasks/16-run-lifecycle-late-writes.md) |
 | CR-015 | High | Bug | Fixed | [Task 17](review-tasks/17-node-claim-and-attempts.md) |
 | CR-016 | High | Security | Fixed | [Task 60](review-tasks/60-security-process-and-network-isolation.md) |
 | CR-017 | High | Bug | Fixed | [Task 21](review-tasks/21-multi-branch-correctness.md) |
 | CR-018 | High | Bug | Fixed | — |
 | CR-019 | High | Bug | Fixed | [Task 21](review-tasks/21-multi-branch-correctness.md) |
 | CR-020 | High | Bug | Fixed | [Task 21](review-tasks/21-multi-branch-correctness.md) |
-| CR-021 | High | Infra | Fixed (Task 08) | [Task 08](review-tasks/08-db-bootstrap-and-schema.md) |
-| CR-022 | Medium | Infra | Fixed (Task 08) | [Task 08](review-tasks/08-db-bootstrap-and-schema.md) |
+| CR-021 | High | Infra | Obsolete (legacy, no fix) | [Task 08](review-tasks/08-db-bootstrap-and-schema.md) |
+| CR-022 | Medium | Infra | Obsolete (legacy, no fix) | [Task 08](review-tasks/08-db-bootstrap-and-schema.md) |
 | CR-023 | High | Security | Fixed | [Task 59](review-tasks/59-security-credential-hygiene.md) |
 | CR-024 | High | Security | Fixed | [Task 59](review-tasks/59-security-credential-hygiene.md) |
-| CR-025 | High | Gap | Open | [Task 31](review-tasks/31-git-host-clients.md) |
-| CR-026 | High | Bug | Open | [Task 30](review-tasks/30-events-feed.md) |
+| CR-025 | High | Gap | Fixed | [Task 31](review-tasks/31-git-host-clients.md) |
+| CR-026 | High | Bug | Fixed | [Task 30](review-tasks/30-events-feed.md) |
 | CR-027 | High | Gap | Fixed | [Task 15](review-tasks/15-frontend-mutation-conventions.md) |
-| CR-028 | High | Bug | Fixed (Task 35) | [Task 35](review-tasks/35-cockpit-panel-state.md) |
+| CR-028 | High | Bug | Fixed | [Task 35](review-tasks/35-cockpit-panel-state.md) |
 | CR-029 | High | Bug | Fixed (Task 37) | [Task 37](review-tasks/37-editor-save-integrity.md) |
 | CR-030 | High | Bug | Fixed (Task 37) | [Task 37](review-tasks/37-editor-save-integrity.md) |
 | CR-031 | High | Bug | Fixed | [Task 39](review-tasks/39-editor-fields-and-effects.md) |
@@ -7296,70 +7296,70 @@ One row per finding, at `abaa007`.
 | CR-033 | High | Bug | Fixed | [Task 39](review-tasks/39-editor-fields-and-effects.md) |
 | CR-034 | High | Accessibility | Fixed | [Task 39](review-tasks/39-editor-fields-and-effects.md) |
 | CR-035 | High | Bug | Fixed | [Task 42](review-tasks/42-settings-forms.md) |
-| CR-036 | High | Gap | Open | [Task 14](review-tasks/14-frontend-throwing-fetchers.md) |
+| CR-036 | High | Gap | Fixed | [Task 14](review-tasks/14-frontend-throwing-fetchers.md) |
 | CR-037 | High | Gap | Fixed | Task 43 |
-| CR-038 | High | Bug | Open | [Task 41](review-tasks/41-settings-data-and-errors.md) |
+| CR-038 | High | Bug | Fixed | [Task 41](review-tasks/41-settings-data-and-errors.md) |
 | CR-039 | High | Infra | Fixed | — |
 | CR-040 | High | Bug | Fixed | [Task 06](review-tasks/06-db-path-and-seed-safety.md) |
 | CR-041 | Medium | Infra | Partly fixed | [Task 05](review-tasks/05-test-coverage-baseline.md) |
-| CR-042 | Medium | Bug | Open | [Task 10](review-tasks/10-api-input-validation-flows.md) |
-| CR-043 | Medium | Bug | Open | [Task 29](review-tasks/29-webhook-reliability.md) |
-| CR-044 | Medium | Bug | Open | [Task 29](review-tasks/29-webhook-reliability.md) |
-| CR-045 | Medium | Bug | Fixed (Task 25) | [Task 25](review-tasks/25-wait-timers-and-poller.md) |
-| CR-046 | Medium | Code quality | Open | [Task 09](review-tasks/09-typed-errors.md) |
-| CR-047 | Medium | Gap | Open | [Task 10](review-tasks/10-api-input-validation-flows.md) |
+| CR-042 | Medium | Bug | Fixed | [Task 10](review-tasks/10-api-input-validation-flows.md) |
+| CR-043 | Medium | Bug | Fixed | [Task 29](review-tasks/29-webhook-reliability.md) |
+| CR-044 | Medium | Bug | Fixed | [Task 29](review-tasks/29-webhook-reliability.md) |
+| CR-045 | Medium | Bug | Fixed | [Task 25](review-tasks/25-wait-timers-and-poller.md) |
+| CR-046 | Medium | Code quality | Fixed | [Task 09](review-tasks/09-typed-errors.md) |
+| CR-047 | Medium | Gap | Fixed | [Task 10](review-tasks/10-api-input-validation-flows.md) |
 | CR-048 | Medium | Bug | Fixed | [Task 11](review-tasks/11-api-input-validation-settings.md) |
 | CR-049 | Low | Code quality | Fixed | [Task 28](review-tasks/28-prompt-preview-parity.md) |
 | CR-050 | Medium | Bug | Fixed | [Task 12](review-tasks/12-db-transactions.md) |
 | CR-051 | Medium | Code quality | Open | [Task 47](review-tasks/47-thin-routes-and-services.md) |
-| CR-052 | Medium | Code quality | Open | [Task 41](review-tasks/41-settings-data-and-errors.md) |
+| CR-052 | Medium | Code quality | Fixed | [Task 41](review-tasks/41-settings-data-and-errors.md) |
 | CR-053 | Low | Code quality | Open | [Task 47](review-tasks/47-thin-routes-and-services.md) |
 | CR-054 | Medium | Bug | Fixed | [Task 17](review-tasks/17-node-claim-and-attempts.md) |
 | CR-055 | Medium | Bug | Fixed | [Task 17](review-tasks/17-node-claim-and-attempts.md) |
 | CR-056 | Medium | Bug | Fixed | [Task 17](review-tasks/17-node-claim-and-attempts.md) |
-| CR-057 | Medium | Bug | Open | [Task 19](review-tasks/19-fanout-rollup-and-promises.md) |
-| CR-058 | Medium | Bug | Open | [Task 19](review-tasks/19-fanout-rollup-and-promises.md) |
+| CR-057 | Medium | Bug | Fixed | [Task 19](review-tasks/19-fanout-rollup-and-promises.md) |
+| CR-058 | Medium | Bug | Fixed | [Task 19](review-tasks/19-fanout-rollup-and-promises.md) |
 | CR-059 | Medium | Bug | Fixed | [Task 20](review-tasks/20-merge-arena-and-workspaces.md) |
-| CR-060 | Medium | Bug | Fixed (Task 25) | [Task 25](review-tasks/25-wait-timers-and-poller.md) |
-| CR-061 | Medium | Bug | Open | [Task 19](review-tasks/19-fanout-rollup-and-promises.md) |
+| CR-060 | Medium | Bug | Fixed | [Task 25](review-tasks/25-wait-timers-and-poller.md) |
+| CR-061 | Medium | Bug | Fixed | [Task 19](review-tasks/19-fanout-rollup-and-promises.md) |
 | CR-062 | Medium | Gap | Fixed | [Task 23](review-tasks/23-graph-semantics-and-validation.md) |
 | CR-063 | Medium | Gap | Fixed | [Task 23](review-tasks/23-graph-semantics-and-validation.md) |
-| CR-064 | Medium | Bug | Open | [Task 19](review-tasks/19-fanout-rollup-and-promises.md) |
+| CR-064 | Medium | Bug | Fixed | [Task 19](review-tasks/19-fanout-rollup-and-promises.md) |
 | CR-065 | Medium | Bug | Fixed | [Task 24](review-tasks/24-template-snapshot-and-yaml.md) |
 | CR-066 | Medium | Bug | Fixed | [Task 17](review-tasks/17-node-claim-and-attempts.md) |
 | CR-067 | Medium | Bug | Fixed | [Task 12](review-tasks/12-db-transactions.md) |
 | CR-068 | Medium | Security | Fixed | [Task 60](review-tasks/60-security-process-and-network-isolation.md) |
 | CR-069 | Medium | Security | Fixed | [Task 58](review-tasks/58-security-webhook-auth.md) |
 | CR-070 | Medium | Code quality | Fixed | [Task 45](review-tasks/45-flow-engine-decomposition.md) |
-| CR-071 | Medium | Code quality | Partly fixed | [Task 44](review-tasks/44-engine-stores-and-constants.md) |
+| CR-071 | Medium | Code quality | Fixed | [Task 44](review-tasks/44-engine-stores-and-constants.md) |
 | CR-072 | Medium | Bug | Fixed | [Task 17](review-tasks/17-node-claim-and-attempts.md) |
 | CR-073 | Medium | Bug | Fixed (Task 33) | [Task 33](review-tasks/33-git-and-worktree-process-safety.md) |
 | CR-074 | Medium | Bug | Fixed | [Task 18](review-tasks/18-terminal-outcome-writer.md) |
-| CR-075 | Medium | Bug | Fixed (Task 22) | [Task 22](review-tasks/22-pipeline-review-resolve.md) |
+| CR-075 | Medium | Bug | Fixed | [Task 22](review-tasks/22-pipeline-review-resolve.md) |
 | CR-076 | Medium | Gap | Fixed | [Task 26](review-tasks/26-node-config-validation.md) |
 | CR-077 | Medium | Bug | Fixed | [Task 26](review-tasks/26-node-config-validation.md) |
 | CR-078 | Medium | Bug | Fixed | [Task 26](review-tasks/26-node-config-validation.md) |
 | CR-079 | Medium | Bug | Fixed | [Task 26](review-tasks/26-node-config-validation.md) |
 | CR-080 | Medium | Bug | Fixed | [Task 26](review-tasks/26-node-config-validation.md) |
-| CR-081 | Medium | Bug | Open | [Task 16](review-tasks/16-run-lifecycle-late-writes.md) |
-| CR-082 | Medium | Bug | Open | [Task 16](review-tasks/16-run-lifecycle-late-writes.md) |
+| CR-081 | Medium | Bug | Fixed | [Task 16](review-tasks/16-run-lifecycle-late-writes.md) |
+| CR-082 | Medium | Bug | Fixed | [Task 16](review-tasks/16-run-lifecycle-late-writes.md) |
 | CR-083 | Medium | Bug | Fixed | [Task 21](review-tasks/21-multi-branch-correctness.md) |
-| CR-084 | Medium | Bug | Fixed (Task 27) | [Task 27](review-tasks/27-plan-checklist-integrity.md) |
-| CR-085 | Medium | Bug | Fixed (Task 22) | [Task 22](review-tasks/22-pipeline-review-resolve.md) |
-| CR-086 | Medium | Bug | Fixed (Task 22) | [Task 22](review-tasks/22-pipeline-review-resolve.md) |
+| CR-084 | Medium | Bug | Fixed | [Task 27](review-tasks/27-plan-checklist-integrity.md) |
+| CR-085 | Medium | Bug | Fixed | [Task 22](review-tasks/22-pipeline-review-resolve.md) |
+| CR-086 | Medium | Bug | Fixed | [Task 22](review-tasks/22-pipeline-review-resolve.md) |
 | CR-087 | Medium | Bug | Fixed | — |
 | CR-088 | Medium | Bug | Fixed | [Task 18](review-tasks/18-terminal-outcome-writer.md) |
 | CR-089 | Low | Code quality | Fixed | [Task 26](review-tasks/26-node-config-validation.md) |
-| CR-090 | Medium | Code quality | Fixed (Task 27) | [Task 27](review-tasks/27-plan-checklist-integrity.md) |
+| CR-090 | Medium | Code quality | Fixed | [Task 27](review-tasks/27-plan-checklist-integrity.md) |
 | CR-091 | Medium | Code quality | Fixed | — |
 | CR-092 | Medium | Code quality | Fixed | [Task 18](review-tasks/18-terminal-outcome-writer.md) |
 | CR-093 | Medium | Code quality | Fixed | [Task 49](review-tasks/49-node-kind-structure.md) |
 | CR-094 | Medium | Code quality | Fixed | [Task 21](review-tasks/21-multi-branch-correctness.md) |
 | CR-095 | Medium | Code quality | Partly fixed | [Task 48](review-tasks/48-backend-dependency-injection.md) |
 | CR-096 | Medium | Code quality | Fixed | [Task 49](review-tasks/49-node-kind-structure.md) |
-| CR-097 | Low | Bug | Partly fixed (Task 27) | [Task 27](review-tasks/27-plan-checklist-integrity.md) |
-| CR-098 | Medium | Bug | Open | [Task 31](review-tasks/31-git-host-clients.md) |
-| CR-099 | Medium | Gap | Open | [Task 31](review-tasks/31-git-host-clients.md) |
+| CR-097 | Low | Bug | Partly fixed | [Task 27](review-tasks/27-plan-checklist-integrity.md) |
+| CR-098 | Medium | Bug | Fixed | [Task 31](review-tasks/31-git-host-clients.md) |
+| CR-099 | Medium | Gap | Fixed | [Task 31](review-tasks/31-git-host-clients.md) |
 | CR-100 | Medium | Security | Fixed | [Task 60](review-tasks/60-security-process-and-network-isolation.md) |
 | CR-101 | Medium | Bug | Open | [Task 32](review-tasks/32-agent-ports.md) |
 | CR-102 | Medium | Gap | Open | [Task 32](review-tasks/32-agent-ports.md) |
@@ -7368,83 +7368,83 @@ One row per finding, at `abaa007`.
 | CR-105 | Medium | Security | Fixed | [Task 60](review-tasks/60-security-process-and-network-isolation.md) |
 | CR-106 | Medium | Bug | Fixed | [Task 20](review-tasks/20-merge-arena-and-workspaces.md) |
 | CR-107 | Medium | Bug | Fixed | [Task 20](review-tasks/20-merge-arena-and-workspaces.md) |
-| CR-108 | Medium | Bug | Open | [Task 30](review-tasks/30-events-feed.md) |
+| CR-108 | Medium | Bug | Fixed | [Task 30](review-tasks/30-events-feed.md) |
 | CR-109 | Medium | Bug | Open | [Task 32](review-tasks/32-agent-ports.md) |
 | CR-110 | Medium | Bug | Open | [Task 32](review-tasks/32-agent-ports.md) |
 | CR-111 | Medium | Bug | Open | [Task 32](review-tasks/32-agent-ports.md) |
-| CR-112 | Medium | Bug | Open | [Task 34](review-tasks/34-db-row-safety.md) |
-| CR-113 | Medium | Performance | Open | [Task 34](review-tasks/34-db-row-safety.md) |
-| CR-114 | Medium | Bug | Open | [Task 34](review-tasks/34-db-row-safety.md) |
-| CR-115 | Medium | Code quality | Open | [Task 34](review-tasks/34-db-row-safety.md) |
+| CR-112 | Medium | Bug | Fixed | [Task 34](review-tasks/34-db-row-safety.md) |
+| CR-113 | Medium | Performance | Fixed | [Task 34](review-tasks/34-db-row-safety.md) |
+| CR-114 | Medium | Bug | Fixed | [Task 34](review-tasks/34-db-row-safety.md) |
+| CR-115 | Medium | Code quality | Fixed | [Task 34](review-tasks/34-db-row-safety.md) |
 | CR-116 | Medium | Code quality | Fixed (Task 48) | [Task 48](review-tasks/48-backend-dependency-injection.md) |
 | CR-117 | Medium | Security | Fixed | [Task 61](review-tasks/61-security-secrets-at-rest-and-rendering.md) |
 | CR-118 | Medium | Code quality | Fixed (Task 48) | [Task 48](review-tasks/48-backend-dependency-injection.md) |
-| CR-119 | Medium | Bug | Open | [Task 30](review-tasks/30-events-feed.md) |
+| CR-119 | Medium | Bug | Fixed | [Task 30](review-tasks/30-events-feed.md) |
 | CR-120 | Medium | Gap | Fixed | [Task 13](review-tasks/13-frontend-query-ownership.md) |
 | CR-121 | Medium | Bug | Fixed | [Task 13](review-tasks/13-frontend-query-ownership.md) |
-| CR-122 | Medium | Bug | Fixed (Task 35) | [Task 35](review-tasks/35-cockpit-panel-state.md) |
-| CR-123 | Medium | Bug | Fixed (Task 35) | [Task 35](review-tasks/35-cockpit-panel-state.md) |
-| CR-124 | Medium | Bug | Fixed (Task 35) | [Task 35](review-tasks/35-cockpit-panel-state.md) |
+| CR-122 | Medium | Bug | Fixed | [Task 35](review-tasks/35-cockpit-panel-state.md) |
+| CR-123 | Medium | Bug | Fixed | [Task 35](review-tasks/35-cockpit-panel-state.md) |
+| CR-124 | Medium | Bug | Fixed | [Task 35](review-tasks/35-cockpit-panel-state.md) |
 | CR-125 | Medium | Bug | Fixed | — |
 | CR-126 | Medium | Bug | Fixed | [Task 15](review-tasks/15-frontend-mutation-conventions.md) |
-| CR-127 | Medium | Bug | Fixed (Task 35) | [Task 35](review-tasks/35-cockpit-panel-state.md) |
-| CR-128 | Medium | Bug | Partly fixed | [Task 36](review-tasks/36-cockpit-a11y-and-rendering.md) |
+| CR-127 | Medium | Bug | Fixed | [Task 35](review-tasks/35-cockpit-panel-state.md) |
+| CR-128 | Medium | Bug | Fixed | [Task 36](review-tasks/36-cockpit-a11y-and-rendering.md) |
 | CR-129 | Medium | Gap | Fixed | [Task 15](review-tasks/15-frontend-mutation-conventions.md) |
-| CR-130 | Medium | Bug | Fixed (Task 35) | [Task 35](review-tasks/35-cockpit-panel-state.md) |
-| CR-131 | Medium | Accessibility | Open | [Task 36](review-tasks/36-cockpit-a11y-and-rendering.md) |
-| CR-132 | Medium | Bug | Open | [Task 38](review-tasks/38-editor-draft-machine.md) |
-| CR-133 | Medium | Bug | Open | [Task 38](review-tasks/38-editor-draft-machine.md) |
-| CR-134 | Medium | Bug | Open | [Task 38](review-tasks/38-editor-draft-machine.md) |
+| CR-130 | Medium | Bug | Fixed | [Task 35](review-tasks/35-cockpit-panel-state.md) |
+| CR-131 | Medium | Accessibility | Fixed | [Task 36](review-tasks/36-cockpit-a11y-and-rendering.md) |
+| CR-132 | Medium | Bug | Fixed | [Task 38](review-tasks/38-editor-draft-machine.md) |
+| CR-133 | Medium | Bug | Fixed | [Task 38](review-tasks/38-editor-draft-machine.md) |
+| CR-134 | Medium | Bug | Fixed | [Task 38](review-tasks/38-editor-draft-machine.md) |
 | CR-135 | Medium | Bug | Fixed | [Task 13](review-tasks/13-frontend-query-ownership.md) |
 | CR-136 | Medium | Bug | Fixed (Task 37) | [Task 37](review-tasks/37-editor-save-integrity.md) |
 | CR-137 | Medium | Bug | Fixed | [Task 39](review-tasks/39-editor-fields-and-effects.md) |
 | CR-138 | Medium | Bug | Fixed | [Task 39](review-tasks/39-editor-fields-and-effects.md) |
-| CR-139 | Medium | Bug | Open | [Task 38](review-tasks/38-editor-draft-machine.md) |
+| CR-139 | Medium | Bug | Fixed | [Task 38](review-tasks/38-editor-draft-machine.md) |
 | CR-140 | Medium | Bug | Fixed (Task 37) | [Task 37](review-tasks/37-editor-save-integrity.md) |
-| CR-141 | Medium | Gap | Open | [Task 38](review-tasks/38-editor-draft-machine.md) |
+| CR-141 | Medium | Gap | Fixed | [Task 38](review-tasks/38-editor-draft-machine.md) |
 | CR-142 | Medium | Bug | Fixed (Task 37) | [Task 37](review-tasks/37-editor-save-integrity.md) |
-| CR-143 | Medium | Gap | Open | [Task 14](review-tasks/14-frontend-throwing-fetchers.md) |
-| CR-144 | Medium | Bug | Open | [Task 40](review-tasks/40-editor-performance.md) |
-| CR-145 | Medium | Performance | Open | [Task 40](review-tasks/40-editor-performance.md) |
+| CR-143 | Medium | Gap | Fixed | [Task 14](review-tasks/14-frontend-throwing-fetchers.md) |
+| CR-144 | Medium | Bug | Fixed | [Task 40](review-tasks/40-editor-performance.md) |
+| CR-145 | Medium | Performance | Fixed | [Task 40](review-tasks/40-editor-performance.md) |
 | CR-146 | Medium | Code quality | Fixed | [Task 39](review-tasks/39-editor-fields-and-effects.md) |
 | CR-147 | Medium | Bug | Fixed | [Task 42](review-tasks/42-settings-forms.md) |
 | CR-148 | Medium | Bug | Fixed | Task 43 |
 | CR-149 | Medium | Gap | Fixed | [Task 42](review-tasks/42-settings-forms.md) |
-| CR-150 | Medium | Gap | Fixed (settings integrations; repo-pin in [Task 43](review-tasks/43-tasks-feature.md)) | [Task 42](review-tasks/42-settings-forms.md) |
-| CR-151 | Medium | Bug | Open | [Task 41](review-tasks/41-settings-data-and-errors.md) |
-| CR-152 | Medium | Bug | Open | [Task 41](review-tasks/41-settings-data-and-errors.md) |
+| CR-150 | Medium | Gap | Fixed | [Task 42](review-tasks/42-settings-forms.md) |
+| CR-151 | Medium | Bug | Fixed | [Task 41](review-tasks/41-settings-data-and-errors.md) |
+| CR-152 | Medium | Bug | Fixed | [Task 41](review-tasks/41-settings-data-and-errors.md) |
 | CR-153 | Medium | Bug | Fixed | Task 43 |
 | CR-154 | Medium | Security | Fixed | [Task 61](review-tasks/61-security-secrets-at-rest-and-rendering.md) |
 | CR-155 | Medium | Code quality | Open | [Task 55](review-tasks/55-frontend-constants-and-types.md) |
-| CR-156 | Medium | Accessibility | Open | [Task 52](review-tasks/52-shared-ui-components.md) |
+| CR-156 | Medium | Accessibility | Fixed | [Task 52](review-tasks/52-shared-ui-components.md) |
 | CR-157 | Medium | Infra | Fixed | [Task 06](review-tasks/06-db-path-and-seed-safety.md) |
-| CR-158 | Medium | Infra | Fixed (Task 08) | [Task 08](review-tasks/08-db-bootstrap-and-schema.md) |
+| CR-158 | Medium | Infra | Obsolete (legacy, no fix) | [Task 08](review-tasks/08-db-bootstrap-and-schema.md) |
 | CR-159 | Medium | Infra | Fixed | [Task 06](review-tasks/06-db-path-and-seed-safety.md) |
 | CR-160 | Medium | Infra | Partly fixed | [Task 05](review-tasks/05-test-coverage-baseline.md) |
-| CR-161 | Medium | Infra | Open | [Task 04](review-tasks/04-client-server-boundaries.md) |
-| CR-162 | Medium | Infra | Open | [Task 03](review-tasks/03-lint-rule-hardening.md) |
-| CR-163 | Medium | Infra | Partial | [Task 39](review-tasks/39-editor-fields-and-effects.md) — suppressions removed; `eslint-plugin-eslint-comments` disable-ban deferred (new dep) |
+| CR-161 | Medium | Infra | Fixed | [Task 04](review-tasks/04-client-server-boundaries.md) |
+| CR-162 | Medium | Infra | Fixed | [Task 03](review-tasks/03-lint-rule-hardening.md) |
+| CR-163 | Medium | Infra | Partly fixed | [Task 39](review-tasks/39-editor-fields-and-effects.md) — suppressions removed; `eslint-plugin-eslint-comments` disable-ban deferred (new dep) |
 | CR-164 | Medium | Bug | Open | [Task 05](review-tasks/05-test-coverage-baseline.md) |
-| CR-165 | Medium | Infra | Open | [Task 04](review-tasks/04-client-server-boundaries.md) |
-| CR-166 | Medium | Code quality | Open | [Task 04](review-tasks/04-client-server-boundaries.md) |
+| CR-165 | Medium | Infra | Fixed | [Task 04](review-tasks/04-client-server-boundaries.md) |
+| CR-166 | Medium | Code quality | Fixed | [Task 04](review-tasks/04-client-server-boundaries.md) |
 | CR-167 | Low | Code quality | Fixed | [Task 11](review-tasks/11-api-input-validation-settings.md) |
 | CR-168 | Low | Code quality | Open | [Task 47](review-tasks/47-thin-routes-and-services.md) |
 | CR-169 | Low | Code quality | Open | [Task 47](review-tasks/47-thin-routes-and-services.md) |
-| CR-170 | Low | Infra | Open | [Task 03](review-tasks/03-lint-rule-hardening.md) |
-| CR-171 | Low | Bug | Open | [Task 34](review-tasks/34-db-row-safety.md) |
+| CR-170 | Low | Infra | Fixed | [Task 03](review-tasks/03-lint-rule-hardening.md) |
+| CR-171 | Low | Bug | Fixed | [Task 34](review-tasks/34-db-row-safety.md) |
 | CR-172 | Low | Bug | Open | [Task 47](review-tasks/47-thin-routes-and-services.md) |
 | CR-173 | Low | Code quality | Fixed | [Task 46](review-tasks/46-backend-types-cleanup.md) |
-| CR-174 | Low | Code quality | Open | [Task 52](review-tasks/52-shared-ui-components.md) |
+| CR-174 | Low | Code quality | Fixed | [Task 52](review-tasks/52-shared-ui-components.md) |
 | CR-175 | Low | Code quality | Open | [Task 47](review-tasks/47-thin-routes-and-services.md) |
 | CR-176 | Low | Bug | Fixed | [Task 58](review-tasks/58-security-webhook-auth.md) |
 | CR-177 | Low | Code quality | Partly fixed | [Task 47](review-tasks/47-thin-routes-and-services.md) |
 | CR-178 | Low | Performance | Open | [Task 47](review-tasks/47-thin-routes-and-services.md) |
 | CR-179 | Low | Code quality | Open | [Task 47](review-tasks/47-thin-routes-and-services.md) |
-| CR-180 | Low | Code quality | Open | [Task 44](review-tasks/44-engine-stores-and-constants.md) |
-| CR-181 | Low | Code quality | Partly fixed | [Task 44](review-tasks/44-engine-stores-and-constants.md) |
+| CR-180 | Low | Code quality | Fixed | [Task 44](review-tasks/44-engine-stores-and-constants.md) |
+| CR-181 | Low | Code quality | Fixed | [Task 44](review-tasks/44-engine-stores-and-constants.md) |
 | CR-182 | Low | Code quality | Fixed | [Task 46](review-tasks/46-backend-types-cleanup.md) |
 | CR-183 | Low | Code quality | Fixed | [Task 46](review-tasks/46-backend-types-cleanup.md) |
-| CR-184 | Low | Code quality | Open | [Task 44](review-tasks/44-engine-stores-and-constants.md) |
+| CR-184 | Low | Code quality | Fixed | [Task 44](review-tasks/44-engine-stores-and-constants.md) |
 | CR-185 | Low | Performance | Fixed | [Task 45](review-tasks/45-flow-engine-decomposition.md) |
 | CR-186 | Low | Code quality | Fixed | [Task 50](review-tasks/50-small-module-cleanups.md) |
 | CR-187 | Low | Code quality | Fixed | Task 07 |
@@ -7452,58 +7452,58 @@ One row per finding, at `abaa007`.
 | CR-189 | Low | Bug | Fixed | [Task 60](review-tasks/60-security-process-and-network-isolation.md) |
 | CR-190 | Low | Bug | Fixed | [Task 60](review-tasks/60-security-process-and-network-isolation.md) |
 | CR-191 | Low | Bug | Fixed | [Task 24](review-tasks/24-template-snapshot-and-yaml.md) |
-| CR-192 | Low | Bug | Fixed (Task 27) | [Task 27](review-tasks/27-plan-checklist-integrity.md) |
-| CR-193 | Low | Bug | Fixed (Task 25) | [Task 25](review-tasks/25-wait-timers-and-poller.md) |
-| CR-194 | Low | Performance | Fixed (Task 25) | [Task 25](review-tasks/25-wait-timers-and-poller.md) |
+| CR-192 | Low | Bug | Fixed | [Task 27](review-tasks/27-plan-checklist-integrity.md) |
+| CR-193 | Low | Bug | Fixed | [Task 25](review-tasks/25-wait-timers-and-poller.md) |
+| CR-194 | Low | Performance | Fixed | [Task 25](review-tasks/25-wait-timers-and-poller.md) |
 | CR-195 | Low | Code quality | Fixed | [Task 50](review-tasks/50-small-module-cleanups.md) |
 | CR-196 | Low | Security | Fixed | [Task 58](review-tasks/58-security-webhook-auth.md) |
 | CR-197 | Low | Code quality | Fixed | [Task 50](review-tasks/50-small-module-cleanups.md) |
-| CR-198 | Low | Bug | Open | [Task 31](review-tasks/31-git-host-clients.md) |
+| CR-198 | Low | Bug | Partly fixed | [Task 31](review-tasks/31-git-host-clients.md) |
 | CR-199 | Low | Security | Fixed | [Task 60](review-tasks/60-security-process-and-network-isolation.md) |
 | CR-200 | Low | Bug | Fixed | [Task 26](review-tasks/26-node-config-validation.md) |
 | CR-201 | Low | Code quality | Partly fixed | [Task 44](review-tasks/44-engine-stores-and-constants.md) |
 | CR-202 | Low | Code quality | Fixed | [Task 46](review-tasks/46-backend-types-cleanup.md) |
 | CR-203 | Low | Bug | Fixed | [Task 18](review-tasks/18-terminal-outcome-writer.md) |
 | CR-204 | Low | Code quality | Fixed | — |
-| CR-205 | Low | Bug | Open | [Task 16](review-tasks/16-run-lifecycle-late-writes.md) |
+| CR-205 | Low | Bug | Fixed | [Task 16](review-tasks/16-run-lifecycle-late-writes.md) |
 | CR-206 | Low | Code quality | Fixed | [Task 18](review-tasks/18-terminal-outcome-writer.md) |
 | CR-207 | Low | Code quality | Fixed | Task 07 |
 | CR-208 | Low | Code quality | Fixed | [Task 49](review-tasks/49-node-kind-structure.md) |
-| CR-209 | Low | Bug | Fixed (Task 22) | [Task 22](review-tasks/22-pipeline-review-resolve.md) |
-| CR-210 | Low | Infra | Fixed (Task 08) | [Task 08](review-tasks/08-db-bootstrap-and-schema.md) |
-| CR-211 | Low | Bug | Fixed (Task 08) | [Task 08](review-tasks/08-db-bootstrap-and-schema.md) |
-| CR-212 | Low | Performance | Fixed (Task 08) | [Task 08](review-tasks/08-db-bootstrap-and-schema.md) |
+| CR-209 | Low | Bug | Fixed | [Task 22](review-tasks/22-pipeline-review-resolve.md) |
+| CR-210 | Low | Infra | Obsolete (legacy, no fix) | [Task 08](review-tasks/08-db-bootstrap-and-schema.md) |
+| CR-211 | Low | Bug | Obsolete (legacy, no fix) | [Task 08](review-tasks/08-db-bootstrap-and-schema.md) |
+| CR-212 | Low | Performance | Obsolete (legacy, no fix) | [Task 08](review-tasks/08-db-bootstrap-and-schema.md) |
 | CR-213 | Low | Code quality | Fixed | [Task 46](review-tasks/46-backend-types-cleanup.md) |
 | CR-214 | Low | Code quality | Fixed (Task 33) | [Task 33](review-tasks/33-git-and-worktree-process-safety.md) |
 | CR-215 | Low | Code quality | Fixed (Task 33) | [Task 33](review-tasks/33-git-and-worktree-process-safety.md) |
 | CR-216 | Low | Code quality | Fixed | [Task 50](review-tasks/50-small-module-cleanups.md) |
-| CR-217 | Low | Code quality | Open | [Task 44](review-tasks/44-engine-stores-and-constants.md) |
+| CR-217 | Low | Code quality | Fixed | [Task 44](review-tasks/44-engine-stores-and-constants.md) |
 | CR-218 | Low | Bug | Fixed (Task 33) | [Task 33](review-tasks/33-git-and-worktree-process-safety.md) |
-| CR-219 | Low | Bug | Open | [Task 31](review-tasks/31-git-host-clients.md) |
-| CR-220 | Low | Bug | Open | [Task 31](review-tasks/31-git-host-clients.md) |
-| CR-221 | Low | Infra | Fixed (Task 08) | [Task 08](review-tasks/08-db-bootstrap-and-schema.md) |
+| CR-219 | Low | Bug | Fixed | [Task 31](review-tasks/31-git-host-clients.md) |
+| CR-220 | Low | Bug | Fixed | [Task 31](review-tasks/31-git-host-clients.md) |
+| CR-221 | Low | Infra | Obsolete (legacy, no fix) | [Task 08](review-tasks/08-db-bootstrap-and-schema.md) |
 | CR-222 | Low | Code quality | Fixed (Task 33) | [Task 33](review-tasks/33-git-and-worktree-process-safety.md) |
 | CR-223 | Low | Bug | Open | [Task 32](review-tasks/32-agent-ports.md) |
 | CR-224 | Low | Bug | Fixed (Task 33) | [Task 33](review-tasks/33-git-and-worktree-process-safety.md) |
-| CR-225 | Low | Bug | Open | [Task 31](review-tasks/31-git-host-clients.md) |
+| CR-225 | Low | Bug | Fixed | [Task 31](review-tasks/31-git-host-clients.md) |
 | CR-226 | Low | Bug | Fixed | — |
-| CR-227 | Low | Bug | Open | [Task 36](review-tasks/36-cockpit-a11y-and-rendering.md) |
+| CR-227 | Low | Bug | Fixed | [Task 36](review-tasks/36-cockpit-a11y-and-rendering.md) |
 | CR-228 | Low | Code quality | Partly fixed | [Task 55](review-tasks/55-frontend-constants-and-types.md) |
-| CR-229 | Low | Code quality | Open | [Task 54](review-tasks/54-feature-layout-and-naming.md) |
-| CR-230 | Low | Code quality | Partly fixed | [Task 54](review-tasks/54-feature-layout-and-naming.md) |
-| CR-231 | Low | Code quality | Open | [Task 52](review-tasks/52-shared-ui-components.md) |
+| CR-229 | Low | Code quality | Fixed | [Task 54](review-tasks/54-feature-layout-and-naming.md) |
+| CR-230 | Low | Code quality | Fixed | [Task 54](review-tasks/54-feature-layout-and-naming.md) |
+| CR-231 | Low | Code quality | Fixed | [Task 52](review-tasks/52-shared-ui-components.md) |
 | CR-232 | Low | Code quality | Open | [Task 55](review-tasks/55-frontend-constants-and-types.md) |
-| CR-233 | Low | Performance | Open | [Task 36](review-tasks/36-cockpit-a11y-and-rendering.md) |
-| CR-234 | Low | Performance | Open | [Task 36](review-tasks/36-cockpit-a11y-and-rendering.md) |
-| CR-235 | Low | Code quality | Fixed (Task 35) | [Task 35](review-tasks/35-cockpit-panel-state.md) |
-| CR-236 | Low | Code quality | Open | [Task 36](review-tasks/36-cockpit-a11y-and-rendering.md) |
+| CR-233 | Low | Performance | Fixed | [Task 36](review-tasks/36-cockpit-a11y-and-rendering.md) |
+| CR-234 | Low | Performance | Fixed | [Task 36](review-tasks/36-cockpit-a11y-and-rendering.md) |
+| CR-235 | Low | Code quality | Fixed | [Task 35](review-tasks/35-cockpit-panel-state.md) |
+| CR-236 | Low | Code quality | Partly fixed | [Task 36](review-tasks/36-cockpit-a11y-and-rendering.md) |
 | CR-237 | Low | Bug | Fixed | [Task 15](review-tasks/15-frontend-mutation-conventions.md) |
 | CR-238 | Low | Code quality | Open | [Task 55](review-tasks/55-frontend-constants-and-types.md) |
-| CR-239 | Low | Code quality | Open | [Task 54](review-tasks/54-feature-layout-and-naming.md) |
-| CR-240 | Low | Accessibility | Open | [Task 38](review-tasks/38-editor-draft-machine.md) |
+| CR-239 | Low | Code quality | Partly fixed | [Task 54](review-tasks/54-feature-layout-and-naming.md) |
+| CR-240 | Low | Accessibility | Fixed | [Task 38](review-tasks/38-editor-draft-machine.md) |
 | CR-241 | Low | Bug | Fixed | [Task 39](review-tasks/39-editor-fields-and-effects.md) |
 | CR-242 | Low | Bug | Fixed | [Task 39](review-tasks/39-editor-fields-and-effects.md) |
-| CR-243 | Low | Code quality | Open | [Task 52](review-tasks/52-shared-ui-components.md) |
+| CR-243 | Low | Code quality | Fixed | [Task 52](review-tasks/52-shared-ui-components.md) |
 | CR-244 | Low | Bug | Fixed | [Task 53](review-tasks/53-app-shell-and-settings-dedup.md) |
 | CR-245 | Low | Code quality | Fixed | [Task 53](review-tasks/53-app-shell-and-settings-dedup.md) |
 | CR-246 | Low | Code quality | Open | [Task 55](review-tasks/55-frontend-constants-and-types.md) |
@@ -7511,15 +7511,15 @@ One row per finding, at `abaa007`.
 | CR-248 | Low | Code quality | Fixed | [Task 53](review-tasks/53-app-shell-and-settings-dedup.md) |
 | CR-249 | Low | Code quality | Fixed | [Task 53](review-tasks/53-app-shell-and-settings-dedup.md) |
 | CR-250 | Low | Accessibility | Fixed | [Task 42](review-tasks/42-settings-forms.md) |
-| CR-251 | Low | Bug | Open | [Task 52](review-tasks/52-shared-ui-components.md) |
-| CR-252 | Low | Code quality | Open | [Task 52](review-tasks/52-shared-ui-components.md) |
+| CR-251 | Low | Bug | Fixed | [Task 52](review-tasks/52-shared-ui-components.md) |
+| CR-252 | Low | Code quality | Fixed | [Task 52](review-tasks/52-shared-ui-components.md) |
 | CR-253 | Low | Code quality | Open | [Task 55](review-tasks/55-frontend-constants-and-types.md) |
 | CR-254 | Low | Security | Fixed | [Task 59](review-tasks/59-security-credential-hygiene.md) |
-| CR-255 | Low | Performance | Open | [Task 41](review-tasks/41-settings-data-and-errors.md) |
-| CR-256 | Low | Code quality | Open | [Task 41](review-tasks/41-settings-data-and-errors.md) |
+| CR-255 | Low | Performance | Fixed | [Task 41](review-tasks/41-settings-data-and-errors.md) |
+| CR-256 | Low | Code quality | Fixed | [Task 41](review-tasks/41-settings-data-and-errors.md) |
 | CR-257 | Low | Infra | Fixed | [Task 02](review-tasks/02-typecheck-and-build-gates.md) |
 | CR-258 | Low | Infra | Partly fixed | [Task 51](review-tasks/51-tsconfig-strictness.md) / [Task 63](review-tasks/63-no-unchecked-indexed-access.md) |
-| CR-259 | Low | Code quality | Open | [Task 52](review-tasks/52-shared-ui-components.md) |
+| CR-259 | Low | Code quality | Fixed | [Task 52](review-tasks/52-shared-ui-components.md) |
 | CR-260 | Low | Docs | Fixed | [Task 56](review-tasks/56-docs-refresh.md) |
 | CR-261 | Low | Docs | Fixed | [Task 56](review-tasks/56-docs-refresh.md) |
 | CR-262 | Low | Infra | Partly fixed | [Task 06](review-tasks/06-db-path-and-seed-safety.md) |
@@ -7529,7 +7529,7 @@ One row per finding, at `abaa007`.
 | CR-266 | Low | Infra | Fixed | [Task 02](review-tasks/02-typecheck-and-build-gates.md) |
 | CR-267 | Low | Infra | Open | [Task 05](review-tasks/05-test-coverage-baseline.md) |
 | CR-268 | Low | Docs | Fixed | [Task 56](review-tasks/56-docs-refresh.md) |
-| CR-269 | Medium | Bug | Open | [Task 16](review-tasks/16-run-lifecycle-late-writes.md) |
+| CR-269 | Medium | Bug | Fixed | [Task 16](review-tasks/16-run-lifecycle-late-writes.md) |
 | CR-270 | High | Bug | Fixed | [Task 01](review-tasks/01-plan-artifact-ordering-hotfix.md) |
 | CR-271 | Medium | Gap | Fixed | [Task 15](review-tasks/15-frontend-mutation-conventions.md) |
 | CR-272 | Low | Bug | Fixed | [Task 06](review-tasks/06-db-path-and-seed-safety.md) |

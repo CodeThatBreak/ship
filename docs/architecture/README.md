@@ -146,9 +146,9 @@ Compact table: **Concern → primary file(s)** for navigation.
 
 | Doc | Topic |
 |-----|--------|
-| [database.md](./database.md) | SQLite access layer, schema migrations, row mapping, secret storage |
+| [database.md](./database.md) | Postgres/Prisma access layer, schema migrations, row mapping, secret storage |
 | [git.md](./git.md) | Git runner, auth hygiene, worktree lifecycle |
 | [gitlab-integration.md](./gitlab-integration.md) | GitHost port, GitLab client, merge request service |
 | [domain-services.md](./domain-services.md) | Artifacts, comments, contracts, settings, status, model catalog |
-| [platform.md](./platform.md) | Config, singletons, typed errors, SSRF guard, local API auth, schemas |
+| [platform.md](./platform.md) | Config, composition roots, typed errors, SSRF guard, local API auth, schemas |
 | [client-bundle-boundaries.md](./client-bundle-boundaries.md) | Client vs server imports, ESLint allowlist, loaders seam |

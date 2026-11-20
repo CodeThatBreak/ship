@@ -33,7 +33,7 @@ The GitLab integration is the engine's only registered git host: it opens merge 
 
 ### Builtin wiring
 
-`wireGitHostBuiltins` (`lib/db/wireGitHostBuiltins.ts`) runs once from the `Database` constructor (`lib/db/database.ts`) and registers `new GitLabHostService(gitLab)` — adding another host is one adapter file plus one `register()` line. The `gitLab` export (`lib/integrations/gitlab/singleton.ts`) is a `processSingleton` holding a lazy proxy that resolves `getDb()` on first use, so importing the registry never forces DB construction. The registry throws if used before wiring (`Git host registry is empty — import @/lib/db first`).
+`wireGitHostBuiltins` (`lib/db/wireGitHostBuiltins.ts`) runs once from the `Database` constructor (`lib/db/database.ts`) and registers `new GitLabHostService(gitLab)` — adding another host is one adapter file plus one `register()` line. The `gitLab` export (`lib/integrations/gitlab/singleton.ts`) is a plain module const (decision Q9) wrapping a lazy proxy that resolves `getDb()` on first use, so importing the registry never forces DB construction; per-graph copies of the DB-backed delegate cannot disagree. The registry throws if used before wiring (`Git host registry is empty — import @/lib/db first`).
 
 ### Repo URL parsing and normalization
 

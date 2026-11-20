@@ -6,6 +6,8 @@ Rules for AI agents and contributors working in this repository.
 
 Where a rule here conflicts with an existing pattern in neighboring files, follow the rule for new code and flag the mismatch in the PR description. Do not rewrite untouched code.
 
+The flow engine's architecture — the transition authority, the contract/effect layers, durable waits and leases, the trigger gateway and worker process, the engine module layout — is specified in [`docs/engine-overhaul/target-architecture.md`](docs/engine-overhaul/target-architecture.md). Read it before touching `lib/engine/**`: its invariants are acceptance criteria (each enforced by a test), not suggestions. Working recipes live in [`docs/coding-patterns.md`](docs/coding-patterns.md).
+
 ---
 
 ## 0. Commands and Definition of Done
@@ -280,6 +282,7 @@ export class FlowService {
 - **Interfaces for boundaries:** one interface per external port (task providers, node registry, git host integrations). Depend on the interface. Follow the patterns in `lib/engine/tasks/task-provider.ts` and `lib/engine/ports/`.
 - **Registries over type-string `switch`:** new node and task kinds register into `lib/engine/nodes/registry.ts` and `lib/engine/tasks/registry.ts` instead of adding branches.
 - **One class per file**, named after the class in camelCase (`flowPoller.ts` exports `FlowPoller`). Pure helpers: camelCase module names (`readCappedBody.ts`).
+- **Every multi-row write is one Prisma transaction** (`$transaction`): the callback may `await` DB work only — async I/O (git, HTTP, agent calls) runs before or after, never inside. External-I/O sequences journal through the `jobs` table (write-ahead enqueue → atomic claim → terminal). Recipe: [`docs/coding-patterns.md`](docs/coding-patterns.md) §3.5.
 - **Errors:** throw typed error classes. Routes catch them and map to HTTP responses.
 - **Thin route handlers:** `app/api/**/route.ts` only parses and validates input, calls a service method, and serializes the response. No business logic.
 - **Node prompt templates live with the node def:** a node's `PromptTemplate` is authored in its own folder (`lib/engine/nodes/kinds/<node>/promptTemplate.ts`) and merely registered into `DEFAULT_PROMPT_TEMPLATES` by `lib/engine/prompts/promptDefaults.ts` — `promptDefaults` is the registry, not the author. Engine-authored behavioral text goes in locked `contract`/`data` blocks, never as a user-style "Rules" list — the editable body may already carry developer rules.

@@ -3,24 +3,30 @@ node_key: platform
 kind: subsystem
 status: current
 owner: engine+flows
-last_reviewed: 2026-11-01
+last_reviewed: 2026-11-20
 ---
 
 # Platform utilities
 
 ## Summary
 
-The platform layer is the cross-cutting foundation every other `lib/` subsystem builds on: environment configuration, HMR-safe singletons, the typed error hierarchy with HTTP mapping, request-boundary helpers (Zod parsing, capped body reads), the SSRF guard for template-authored outbound calls, local API authorization, the JSONata evaluator, and the shared Zod schema catalog. Nothing here knows about flows or nodes — dependencies point inward only.
+The platform layer is the cross-cutting foundation every other `lib/` subsystem builds on: environment configuration, the composition roots (plain module consts for stateless services, `pinnedProcessService` for process-bound state), the typed error hierarchy with HTTP mapping, request-boundary helpers (Zod parsing, capped body reads), the SSRF guard for template-authored outbound calls, local API authorization, the JSONata evaluator, and the shared Zod schema catalog. Nothing here knows about flows or nodes — dependencies point inward only.
 
 ## Architecture
 
 ### Config (`lib/config.ts`)
 
-The **only** source of env values (AGENTS.md §1 — secrets and env come only from here). Values are read lazily via methods so tests and long-running processes see the current environment. The environment carries infrastructure config only (db path, workspace, `GITLAB_WEBHOOK_SECRET`, `DEVFLOW_SECRETS_KEY`); integration credentials live in the DB via Settings → Integrations. The secrets master key: `DEVFLOW_SECRETS_KEY` (32-byte base64url) in production; a deterministic scrypt dev key derived from the DB path otherwise (see `database.md` for the cipher).
+The **only** source of env values (AGENTS.md §1 — secrets and env come only from here). Values are read lazily via methods so tests and long-running processes see the current environment. The environment carries infrastructure config only (`DATABASE_URL`, workspace, `SERVER_PUBLIC_URL`, `GITLAB_WEBHOOK_SECRET`, `DEVFLOW_SECRETS_KEY`); integration credentials live in the DB via Settings → Integrations. The secrets master key: `DEVFLOW_SECRETS_KEY` (32-byte base64url) in production; a deterministic scrypt dev key derived from the database URL otherwise (see `database.md` for the cipher).
 
-### Singletons (`lib/singleton.ts`)
+### Composition roots (decision Q9 — no singleton factory)
 
-`processSingleton(key, create)` pins instances on `globalThis` via `Symbol.for`. Under `next dev`, route handlers bundle into separate module graphs, so module-scope `new Foo()` is **not** one-per-process — for stateful services (run-handle maps, throttle maps, interval flags) that divergence caused reconcile to fail healthy runs. This is the documented singleton factory; reuse it instead of inventing new `globalThis` patterns.
+`lib/singleton.ts` is deleted. Services are composed in one of three places:
+
+- **Plain module consts** for stateless or DB-fenced services (`db` in `lib/db/app.ts`, `flowEngine`, the store/service singletons) — under `next dev` route handlers bundle into separate module graphs, but per-graph copies of a stateless service cannot disagree because all truth lives in Postgres.
+- **`pinnedProcessService`** (`lib/composition/processServices.ts`) for the genuinely process-bound in-memory state (run-handle maps, worktree coordination, def caches) — the defining module pins its own export; the arch test `tests/architecture/noProcessSingletonOutsideDb.test.ts` allows exactly one other pin: the Prisma client.
+- **The Prisma client** (`lib/db/prismaClient.ts`) — the only `globalThis`-pinned singleton (its connection pool must survive HMR), pinned inline under `Symbol.for("devflow.singleton.prisma")`.
+
+Never invent a new `globalThis` pattern; register process-bound state through `pinnedProcessService` instead.
 
 ### Errors (`lib/errors.ts`)
 
@@ -73,7 +79,7 @@ Stateless, except: the local API token (process env), the JSONata compile cache 
 | Concern | Location |
 |---------|----------|
 | Env/config | `lib/config.ts` |
-| Singleton factory | `lib/singleton.ts` |
+| Composition roots | `lib/composition/container.ts`, `lib/composition/processServices.ts` |
 | Typed errors | `lib/errors.ts` |
 | Body parsing | `lib/http/parse.ts`, `lib/net/readCappedBody.ts` |
 | SSRF guard | `lib/net/ssrfGuard.ts`, `ssrfHelpers.ts`, `ssrfError.ts` |

@@ -31,8 +31,8 @@ Set the default mode and local-agent options (auto-approve tools, sandbox, timeo
                                                                ▲─────────────┘
 ```
 
-- **Plan node** — Cursor agent (plan mode) reads the repo + task PRD + Figma links and drafts an implementation plan. Refine it in a loop; every iteration is versioned (`v1, v2, …`) and you can view/diff each version. Every plan also ends with a structured `plan-meta` block — an ordered **step checklist** (`{id, title, detail, files, branch}`) plus optional multi-branch decomposition. The checklist is extracted into an **editable UI**: toggle steps done, retitle/reword, add/delete steps, reorder — manual edits survive across refinements, and done steps stay done when a refinement keeps their id.
-- **Build node** — Cursor agent (agent mode) implements the approved plan, pushes a branch. The pending checklist is injected into the build prompt; the agent reports progress back via a `build-progress` block and steps get **checked off automatically** (you can also toggle them by hand in the Build panel, which shows live checklist progress). You review the **diff in-screen**, then approve → creates the **GitLab MR** and waits for it. If the push is rejected (pre-push/pre-receive hooks — type checks, lint gates), a commit-fix agent repairs the code in the build step and retries automatically; infra errors (network/auth) hand the step back with the error so you can fix it and click **Approve & create MR** again.
+- **Plan node** — Cursor agent (plan mode) reads the repo + task PRD + Figma links and drafts an implementation plan. Refine it in a loop; every iteration is versioned (`v1, v2, …`) and you can view/diff each version. Every planner turn returns a JSON envelope (`PlanTurnOutput`: a `reply` plus at most one of a full plan, a sub-plan, or a checklist patch). A published plan version is an ordered **step checklist** (`{id, title, detail, files, branch}`) plus optional multi-branch decomposition, persisted as validated JSONB in the plan artifact's meta (`{feedback, steps, branches, execution, executionSource, execution_rationale}` — written by `planStore.persistPlan`) — there is no markdown meta block to parse. The checklist is extracted into an **editable UI**: toggle steps done, retitle/reword, add/delete steps, reorder — manual edits survive across refinements, and done steps stay done when a refinement keeps their id.
+- **Build node** — Cursor agent (agent mode) implements the approved plan, pushes a branch. The pending checklist is injected into the build prompt; the agent reports progress through the authenticated `claim_checklist_progress` tool (or the `build-progress` prose fence as a fallback) and steps get **checked off automatically** (you can also toggle them by hand in the Build panel, which shows live checklist progress). You review the **diff in-screen**, then approve → creates the **GitLab MR** and waits for it. If the push is rejected (pre-push/pre-receive hooks — type checks, lint gates), a commit-fix agent repairs the code in the build step and retries automatically; infra errors (network/auth) hand the step back with the error so you can fix it and click **Approve & create MR** again.
 - **Pipeline node (CI gate)** — after the MR exists (and after every later code change — comment resolutions, build refines), the gate ensures a pipeline exists for the MR head — **triggering one via the GitLab API** (merged-results MR pipeline, falling back to a branch pipeline) when the project doesn't start one on push (manual-CI setups) — then waits for green. While waiting it re-reads the MR **head** pipeline every cycle (so a superseded/retried pipeline never leaves the UI stuck on a stale status) and **plays manual jobs via the API** (bounded) so manual-gated projects don't sit until the timeout; a failed pipeline triggers a fix agent that reads the failed job logs and pushes to the MR branch, then the gate re-waits (bounded attempts). Pipeline failures reported by the webhook/poller also (re)trigger the gate directly. Review only starts once the pipeline is green — and every gate path (approval, re-check, retry, resolve re-gate) runs through the single `afterPipelineGate` chain (gate → review → resolve-if-open), so a green pipeline can never leave review stranded and resolve never double-runs for the same batch.
 - **Review node** — an agent reviews the MR diff and posts inline comments.
 - **Resolve node** — an agent fixes every open MR comment; loops until none remain. New comments (webhook or poller) **queue** it rather than starting it: the resolve fires only once the pipeline step has passed **and** no new open comment has arrived for the configured quiet period (default **10 minutes** — each new comment resets the timer, so a reviewer dropping several comments gets one resolve run for the batch). Every resolve that changes code re-runs the pipeline gate before the flow returns to review, and any comments still open after the re-gate loop straight back into resolve. Comments the agent resolved stay resolved even when GitLab keeps reporting them as unresolved (plain MR notes — bot reports, summaries — aren't resolvable via the API), so they never retrigger a redundant run.
@@ -185,10 +185,16 @@ components/flows/       WorkflowGraph, NodePanel + panels/ (self-registering pan
                         DiffView, ReviewView (normalized comments payload)
 components/template-editor/  visual builder (BuilderCanvas on @xyflow/react), NodeConfigurator (Trigger/Config/Contract), AddNodeDialog
 
-lib/                    strict OOP: every module is a class with one responsibility, exported as a
-                        shared singleton (db, flowEngine, nodeRegistry, …)
+lib/                    strict OOP: one class per responsibility; services are plain module
+                        consts or constructor-injected from the composition roots
+                        (lib/composition/) — the Prisma client is the only process singleton
   config.ts             AppConfig — env-sourced infrastructure config (db, workspace,
-                        optional webhook secret and DEFAULT_MODEL); integration secrets in DB
+                        optional webhook secret, SERVER_PUBLIC_URL and DEFAULT_MODEL);
+                        integration secrets in DB
+  composition/          the composition roots: container.ts (request-scoped stateless
+                        services + the engineParts wiring), processServices.ts
+                        (pinnedProcessService — the only home for process-bound
+                        in-memory state: run handles, worktree coordination, def caches)
   utils.ts              Styles — Tailwind-aware className merging (`cn` alias for components)
   groupEvents.ts        EventGrouper — folds the flat event list into run sections for the unified chat panel
   engine/ports/         the integration boundary — neutral interfaces + normalized types the
@@ -205,54 +211,86 @@ lib/                    strict OOP: every module is a class with one responsibil
                         shared by both modes); cursor.ts CursorClient is a thin shim over it
     local-agent/        Local agent adapter (in-process agent loop: branch checkout, settings)
   engine/
-    flow.ts             FlowEngine — generic graph mechanics only: registry-driven node runs,
+    flowEngine/         FlowEngine — generic graph mechanics only: registry-driven node runs,
                         input maps, edge conditions (JSONata), joins, triggers, wait-arming,
                         webhook/timer resume, approvals/retry/cancel. The SDLC gate→review→
-                        resolve loop is template data (sdlc chain helpers live in nodes/sdlc).
+                        resolve loop is template data; flow/ holds the action services
+                        (FlowApprovalService, FlowChatService, FlowRetryService,
+                        FlowPlanStepService, FlowManualRunService).
+    runtime/            the engine's runtime layer (target-architecture §1):
+      transitions/      TransitionAuthority — the ONLY writer of nodes.status/attempt_id;
+                        the declared transition table + typed transition events
+      staging/          StageRunner (stage claim → input materialization → consumes check →
+                        run → outcome publish), InputMaterializer, ConditionEvaluator, LoopJoin
+      triggers/         TriggerGateway — every trigger (run/retry/chat/approve/webhook/timer/
+                        schedule/poller) claims here; the loser emits skipped_duplicate_trigger
+      contractPipeline.ts  ContractPipeline — validates stage-start input against the node's
+                        `consumes` and terminal output against its outputSchema (fail loud)
+      waits/            WaitStore — durable nodes.wait_until waits (timers, the debounced resolve)
+      jobs/             JobQueue — write-ahead job journal (webhook deliveries, schedule fires,
+                        MR creation, cancels) with lease-based claims + dedup keys
+      effects/          EffectRegistry — "what happens after Y finishes" as registrations
+                        (SDLC chain sequencing, fan-out/split rollups, loop joins)
+      reconcile/        Reconciler — walks every non-terminal node on open/poll: leases, durable
+                        waits, per-status handlers + RecoveryDriver (the fixed recover() ABI)
+      locks/            ProcessLock — the PG advisory lock held by the single writer process
     nodes/
-      keys.ts           NODE_KEYS — stable node-key constants (use these, not string literals).
-      base/             shared node infrastructure, one class per file:
-        node-definition.ts  NodeDefinition (abstract): key/label/order/edges + Zod inputSchema/
-                            outputSchema + capabilities (refinable, chatMode, panelTitle)
+      (stable node-key constants live in lib/engine/constants/nodeKeys.ts —
+                        use NODE_KEYS, not string literals).
+      shared/           shared node infrastructure, one class per file:
+        nodeDefinition.ts   NodeDefinition (abstract): key/label/order/edges + Zod inputSchema/
+                            outputSchema/consumes + capabilities (refinable, chatMode, panelTitle)
                             + run/chat/recover, with shared services injected.
-        agent-runner.ts     AgentRunner — startAgent/executeRun via the agent-runner port registry.
-        flow-context.ts     FlowContextHelper — mode/branch/diff facts + the {{task.*}} context
+        agentRunNode.ts     AgentRunNode — the agent run lifecycle: startAgent/executeRun via the
+                            agent-runner port registry, streaming, the agent-tools prompt block.
+        runContext/         FlowContextHelper — mode/branch/diff facts + the {{task.*}} context
                             universe (generic keys + the provider's contextFields).
-        node-support.ts     NodeSupport — row/artifact/run persistence helpers.
-        stream-buffer.ts    StreamBuffer — buffered thinking/assistant event flushing.
-        tool-pairer.ts      ToolPairer — tool-call start/end pairing for local mode.
-        usage-tracker.ts    UsageTracker — token-usage and cost accounting (port usage types).
-      plan/             PlanNode — plan prompt, structured plan-meta parse/validate
-                        (plan-meta-parser.ts), checklist sync, plan recovery; schema.ts holds
-                        the Zod schemas.
-      build/            BuildNode — build + chat-refine, build-progress application, diff artifact,
-                        branch recovery; branch-store.ts (BranchStore) for multi-branch branch rows.
-      merge-request/    MergeRequestService — MR creation between build approval and the
+        nodeSupport.ts      NodeSupport — row/artifact/run persistence helpers.
+      harness/          StreamBuffer (buffered thinking/assistant event flushing), ToolPairer
+                        (tool-call start/end pairing for local mode), UsageTracker (token/cost
+                        accounting over the port usage types).
+      shared/agentOutput/  AgentOutputPipeline — the one agent-output path: extractJson → contract
+                        validation → bounded feedback retry → typed events (no silent defaults).
+      plan/             PlanNode — the unified plan turn envelope (PlanTurnOutput) parse/validate
+                        (planContract.ts), artifact persistence + checklist sync (planStore.ts —
+                        writes artifacts.meta {feedback, steps, branches, execution,
+                        executionSource, execution_rationale}), prompt assembly (planPrompt.ts);
+                        schema.ts holds the Zod schemas.
+      build/            BuildNode — build + chat-refine, build-progress application
+                        (buildFinalizer), diff artifact, branch recovery; branchStore.ts
+                        (BranchStore) for multi-branch branch rows.
+      mergeRequest/     MergeRequestService — MR creation between build approval and the
                         pipeline gate; classifies push rejections (CommitError) so the
                         build step can fix them with an agent.
       pipeline/         PipelineNode — the CI gate: waits for a green MR head pipeline
                         (re-reading the head every cycle, playing manual jobs via the
                         API when a pipeline stalls on `manual`), running fix agents on
                         failures (bounded), before review may start. Also (re)triggered
-                        by pipeline-failure webhooks/polls.
+                        by pipeline-failure webhooks/polls. Durable gate progress
+                        (GateProgressStore) survives restarts.
       review/           ReviewNode — MR diff review, inline comment posting.
       resolve/          ResolveNode — open-comment resolution + discussion closing.
       chains/           sdlcChain.ts — the builtin SDLC chain module (gate→review→resolve
                         re-gate loop); its post-finish sequencing is declared as effect
                         registrations in sdlcEffects.ts (engine-overhaul step 07).
       registry.ts       NodeRegistry — the single source of truth: node map, graph order, edges, labels.
-    prompts.ts          PromptLibrary — prompt templates (customizable via settings)
-    steps.ts            PlanStepStore — structured plan checklist: plan-meta sync, edits, build-progress
+    agentTools/         AgentToolService + ToolRegistry — the authenticated self-repair surface
+                        for running agents (read_flow_state, claim_checklist_progress,
+                        report_failure) behind the per-attempt capability token (runs.api_token).
+    prompts/            PromptLibrary — prompt templates (customizable via settings);
+                        untrustedData.ts/caps.ts wrap untrusted interpolation loudly.
     tasks/              TaskProvider registry — one class per task provider
                         (providers/jira.ts: fetch, ADF→text, PRD/figma extraction, upsert sync);
                         task providers are an extension point: subclass TaskProvider + register
                         in the registry — the sync route, import screen, and {{task.*}} lint pick it up
-    poller.ts           FlowPoller — 30s poll: pipeline status + MR discussions → pipeline-gate triggers;
-                        new comments restart the debounced resolve's quiet period (a generic
-                        wait-timer — processWaitTimers fires it when quiet + the gate is clear)
-    reconcile.ts        Reconciler — re-sync stuck `running` nodes with real run state on flow open/poll
-    templates.ts        TemplateStore — flow templates (graph, nodes, edges, trigger) + static lint
-    templates-yaml.ts   YAML export/import (config-as-code §7 shape); validation is the store's
+    runtime/flowPoller.ts  FlowPoller — 30s poll: pipeline status + MR discussions → pipeline-gate
+                        triggers; new comments restart the debounced resolve's quiet period
+                        (the WaitStore re-defers when quiet + the gate is clear); also sweeps
+                        due waits and jobs in the worker process
+    runtime/reconcile/  Reconciler — re-syncs stuck `running` nodes with real run state on flow open/poll
+    templates/          TemplateStore — flow templates (graph, nodes, edges, trigger) + the static
+                        lint cluster (templateLint.ts + lint*.ts)
+    templates/templateYaml.ts  YAML export/import (config-as-code §7 shape); validation is the store's
   git/local.ts          LocalGit — clone/diff/push/worktrees; authed clone URLs come from the
                         repo's git-host adapter (no integration imports here)
   db/
@@ -263,6 +301,8 @@ lib/                    strict OOP: every module is a class with one responsibil
                         validated once at the DB boundary, so consumers never see `any`.
     ../prisma/schema.prisma  Postgres schema source of truth (camelCase fields, @map columns,
                         enums, JSONB) + prisma/migrations/
+worker/main.ts          the worker process (npm run worker): writer advisory lock, then the
+                        poller + reconciler loop + job sweeps — all time-driven behavior
 data/                   (sqlite-era files; the one-off scripts/migrate-sqlite-to-pg.mjs
                         reads a legacy devflow.db to load its data into Postgres)
 workspaces/             per-flow dirs: git worktrees for local agent runs (Phase 1 worktrees —
@@ -294,8 +334,9 @@ The workflow is a registry of `NodeDefinition` classes — one folder per node t
 
 1. **Create the node folder** — `lib/engine/nodes/<name>/` with:
    - `schema.ts` — strict Zod `inputSchema` (everything a run needs — validated on trigger **and** on retry) and `outputSchema` (what gets persisted to the node's `output` column)
-   - `<name>-node.ts` — the node class extending `NodeDefinition<I, O>` from `nodes/base`: declare `key` (from `NODE_KEYS` in `keys.ts`), `label`, `order` (graph position), `edges` (graph connections), and `promptKeys`; implement `run(ctx, input)` — usually via the base `execute()` helper, which handles status/input persistence, agent start (cloud/local), streaming, cost capture, artifact saving, output validation, and the lifecycle event; optionally override `chat()` (follow-up runs on the node's agent) and `recover()` (how to finish a run that completed while the server was down — return `false` to fail for manual retry, the right choice for nodes with non-idempotent side effects)
-   - `index.ts` — re-exports
+   - `<name>Node.ts` — the node class extending `NodeDefinition<I, O>` from `nodes/shared/nodeDefinition.ts`: declare `key` (from `NODE_KEYS` in `lib/engine/constants/nodeKeys.ts`), `label`, `order` (graph position), `edges` (graph connections), and `promptKeys`; implement `run(ctx, input)` — usually via the base `execute()` helper, which handles status/input persistence, agent start (cloud/local), streaming, cost capture, artifact saving, output validation, and the lifecycle event; optionally override `chat()` (follow-up runs on the node's agent) and `recover()` (how to finish a run that completed while the server was down — return `{ kind: "manual", reason }` to fail for manual retry, the right choice for nodes with non-idempotent side effects; the fixed recovery ABI never throws)
+   - declare `consumes` / `outputSchema` (Zod) — the ContractPipeline validates stage input and terminal output against them; a status write never happens outside the TransitionAuthority
+   - a registration-only export module (`<kind>Exports.ts`) — no barrel imports elsewhere
 2. **Register it** — one line in `lib/engine/nodes/registry.ts`.
 3. **(Optional) UI panel** — add a panel component under `components/flows/panels/` and
    register it (or the declarative kind's generic panel covers it automatically).
@@ -308,11 +349,12 @@ Nodes are pluggable — the same engine can model other use cases (docs generati
 
 - **Plan fan-out (step sub-flows):** a node downstream of a plan with `fanout.mode != whole` runs one child flow per pending plan step (built-in `step-build` for build; every other kind auto-wraps itself as a hidden child template; the **`fanout_child` knob** explicitly picks a gallery template for the child on any fan-out-capable node — save-time lint keeps children one-node chains with no plan/pipeline/review/resolve/fan-out of their own, and a declared child start contract is validated against the `{plan, step, siblings}` payload exactly like a webhook delivery). Approving a step merges its branch into the parent's integration branch in a dedicated arena clone (`workspaces/<flowId>-arena`), serialized per branch. Conflicts and hook-rejected pushes go to a **bounded merge-fix agent** on the step branch (`max_merge_fix_attempts`, default 2) — the branch merges origin/integration locally and resolves conflicts respecting both intents, never rebased; a stale (diverged) branch is repaired by the same merge (the parent card shows a "stale base" chip). Exhaustion or infra failures fail the step visibly; Retry re-runs the merge (+ fix agent). Restarts mid-merge are recovered by the reconciler: stuck `step_merges` rows resume or fail loud, orphan children surface on the parent. Skipped steps delete their child's branch and sweep the child worktree.
 - **Fan-out parallelism:** `fanout.parallel_max` (default 1 = sequential) lets file-disjoint siblings build concurrently — a step whose `files` overlap an in-flight sibling (or has no file list) always waits, and a failed *code* sibling keeps stalling its overlapping neighbours while failed non-code siblings release the rest. Merges still serialize per integration branch (FIFO lock; step order when approvals arrive in step order, out-of-order landings repaired by merge commits), and step children see a **live sibling context pack** (building / awaiting approval / merged / failed, output summaries for non-code children, merge state for code children) instead of the expand-time snapshot.
-- **Who decides execution (whole vs per-branch):** the plan node's `execution_default` knob publishes the resolution into plan-meta on every plan version — `whole` fixed, or **`follow`**: the PLANNER decides per plan version (the plan prompt gains a small execution directive, the response's `execution` + `execution_rationale` are parsed leniently — missing/unknown ⇒ whole, never a parse failure) with sources `knob | planner | default | override` in `artifacts.meta.executionSource`. Under `follow`, a "steps" decision fans the plan's declared branches out as one child flow per branch via the split runtime (`build` consumes `split_consume: "source"` and honors the plan node's published `splitResolution` — explicit `whole`/`per-unit` on the build still beats it), scheduled by the branches' declared `dependsOn` + `split_parallel_max`; the panel shows the resolution at approve ("will execute: one child flow per branch (4 branches)") with an override control, and forcing whole/per-branch at approve writes an `override` into plan-meta. The legacy knob value `steps` (per-step child flows) is superseded, not deleted: old configs carrying it now resolve to the same per-branch fan-out, and the per-step `StepFlowManager` machinery remains but is dormant by default (build's fan-out knob stays `whole`).
+- **Who decides execution (whole vs per-branch):** the plan node's `execution_default` knob publishes the resolution into the plan artifact's meta on every plan version — `whole` fixed, or **`follow`**: the PLANNER decides per plan version (the plan prompt gains a small execution directive, the response's `execution` + `execution_rationale` are parsed leniently — missing/unknown ⇒ whole, never a parse failure) with sources `knob | planner | default | override` in `artifacts.meta.executionSource`. Under `follow`, a "steps" decision fans the plan's declared branches out as one child flow per branch via the split runtime (`build` consumes `split_consume: "source"` and honors the plan node's published `splitResolution` — explicit `whole`/`per-unit` on the build still beats it), scheduled by the branches' declared `dependsOn` + `split_parallel_max`; the panel shows the resolution at approve ("will execute: one child flow per branch (4 branches)") with an override control, and forcing whole/per-branch at approve writes `executionSource: "override"` into the same meta. The legacy knob value `steps` (per-step child flows) is retired: a template carrying `execution_default: "steps"` now fails template lint loudly (`lintPlanExecution.ts`) — re-author it as `whole` or `follow`. The per-step `StepFlowManager` machinery remains but is dormant by default (build's fan-out knob stays `whole`).
 - **Fan-out monitoring (Phase 4):** the parent panel's step cards show per-step **cost + duration** (the child flow's own billed runs — `cost n/a` before a child's first run lands) with a rollup line above them (`6 steps · 2 resolved · … · $1.33 · 4m 12s`); the graph subtitle rolls the same numbers up (`steps 3/6 · building · $0.42`) and the parent card's border reflects the AGGREGATE child state while the orchestrator row itself holds `running` — red when any step failed, warning while per-step approvals are pending, info while steps build, success once every child resolved and the final aggregate approval is up. The flow header's cost chip now includes the step children's runs (its tooltip breaks cost/duration down per step), and the home flow list shows a `6 steps · 2 merged` badge on rows with an in-progress fan-out. `node scripts/seed-demo-fanout.mjs` seeds a DEMO-143 flow mid fan-out (children at mixed states, sample cost data) so the monitoring surface can be sampled without running agents.
 - **Push options / CI:** every engine-driven push carries `-o ci.skip` (with a plain fallback for hosts that reject push options) so engine merges and branch deletions never spawn CI. Agent-initiated pushes **cannot** carry push options — the merge-fix/commit-fix agent pushes the step branch itself, so repo-side CI rules scoped to step-branch patterns are the mitigation. Only the parent's FINAL approval creates the MR, whose pipeline is expected to run.
 
+- **Agent self-repair tools (step 08):** while an agent run is in flight it can call the flow's own API — `POST /api/flows/:id/nodes/:nodeKey/agent-tools` with `read_flow_state` (node statuses, open checklist steps, open comments, pipeline state), `claim_checklist_progress` (build/step-build — the authoritative progress path), and `report_failure` (any agent kind — fails the node with the agent's reason). Auth is a per-attempt capability token (`runs.api_token`, minted at claim, dead at the terminal transition), not the local-API token; the tools are advertised in the run prompt only when `SERVER_PUBLIC_URL` is set.
 - Cursor Cloud Agents work directly against self-hosted GitLab repos (`repos[].url = https://gitlab.company.com/group/repo`) — no local checkout needed for agent runs; local clones are only for rendering diffs.
 - Local mode runs the agent in-process via `@cursor/sdk` (`Agent.create({ local: { cwd } })`) in the repo's local path, so the agent can commit and push with your local git credentials. Auth uses the Cursor API key from **Settings → Integrations → Harness** (passed explicitly to the SDK — there is no env fallback in app code; Node ≥ 22.13 required). The `local_agent.sandbox` setting maps to `local.sandboxOptions.enabled`; `local_agent.force` maps to `send({ local: { force } })` to expire a wedged run before a follow-up. The SDK surfaces per-run token usage, so local runs record tokens as well as duration/model. Build prompts instruct it to create a `bugfix/<ticket>-<id>` branch (`feature/` for stories — repos commonly enforce branch-name patterns via pre-receive hooks, which reject `cursor/...` names); fix/resolve runs check out the MR branch first (best effort). If the branch didn't get pushed (agent died, network), the MR step pushes it from the local checkout — trying the origin remote first, then the token-authed HTTPS URL.
 - Every node run streams live assistant/thinking/tool events into the unified chat panel from the SDK's normalized `SDKMessage` stream (`run.stream()`) — the same event shape whether the agent runs locally or in a Cursor VM.
-- **Restart resilience:** local runs execute in-process, so a dev-server restart leaves their nodes stuck in `running`. `lib/engine/reconcile.ts` re-syncs them from the SDK's own state rather than any process bookkeeping: a run this process still owns (the in-memory handle map, pinned on `globalThis` via `lib/singleton.ts` so Next dev route bundles can't split it) is genuinely alive and left alone; anything else is read back from the SDK's persisted local store (`Agent.getRun(...).status`), which is the ground truth for how the turn ended — a finished turn is recovered (plan text / build diff), an unfinished or unloadable run is failed so you can retry. The pipeline gate's server-side wait loop has no agent run while polling, so it stamps its node row each iteration — the reconciler treats a fresh stamp as alive; a stale one fails the node, and a retry re-reads the current head pipeline (an already-green pipeline finishes immediately). For cloud mode it asks the Cursor API and re-attaches the event stream for runs that are still going. A late-finishing run whose node was already failed/retried is ignored instead of resurrecting the node or double-stamping an artifact. All git commands have timeouts so an unreachable remote can never hang the page.
+- **Restart resilience:** local runs execute in-process, so a dev-server restart leaves their nodes stuck in `running`. The reconciler (`lib/engine/runtime/reconcile/`) walks every non-terminal node on flow open/poll and never trusts in-process bookkeeping: liveness is the durable lease (`nodes.lease_until` / `runs.lease_until`, heartbeated by the owning loop) plus the SDK's persisted local store (`Agent.getRun(...).status`), which is the ground truth for how the turn ended — a finished turn is recovered through the node's `recover()` (plan text / build diff / gate resume), an unfinished or unloadable run is failed so you can retry. The pipeline gate's server-side wait loop heartbeats the node lease while it polls; an expired lease hands the node to `recover()`, which re-enters the wait from the durable `gate_progress` snapshot (the original deadline rides it, so a crash loop cannot reset the window), and a retry re-reads the current head pipeline (an already-green pipeline finishes immediately). For cloud mode it asks the Cursor API and re-attaches the event stream for runs that are still going. A late-finishing run whose node was already failed/retried is ignored instead of resurrecting the node or double-stamping an artifact. All git commands have timeouts so an unreachable remote can never hang the page.

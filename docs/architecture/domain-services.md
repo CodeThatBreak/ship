@@ -10,7 +10,7 @@ last_reviewed: 2026-11-01
 
 ## Summary
 
-The domain services are the class-based backends behind the workspace and per-flow API routes that don't belong to the engine orchestrator: artifacts, comments, output contracts, settings, system status, and the model catalog. Each follows the AGENTS.md §3 conventions — constructor-injected dependencies, thin route handlers, Zod at the boundary — and most are HMR-safe `processSingleton`s.
+The domain services are the class-based backends behind the workspace and per-flow API routes that don't belong to the engine orchestrator: artifacts, comments, output contracts, settings, system status, and the model catalog. Each follows the AGENTS.md §3 conventions — constructor-injected dependencies, thin route handlers, Zod at the boundary — and all are plain module consts (decision Q9: they are stateless or DB-fenced, so per-module-graph copies cannot disagree).
 
 ## Architecture
 

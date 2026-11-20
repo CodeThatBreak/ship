@@ -34,7 +34,7 @@ flowchart TD
 
 - **Pure layer** takes plain inputs (repo path, branch, dir) and returns plain results; it never imports `lib/db` or `lib/engine`.
 - **Engine layer** joins the pure layer to db/config state: `flows.worktree_dir`, repo rows, lifecycle events.
-- Long-lived instances (`gitRunner`, `worktrees`, `worktreeSetup`, `localGit`, `worktreeManager`) are `processSingleton`s so `next dev` module-graph splits keep one instance per process.
+- Long-lived instances: the worktree-coordination classes (`worktrees`, `worktreeManager`) pin through `pinnedProcessService` (`lib/composition/processServices.ts`) — their in-flight-listing/coalescing state is per-process; `gitRunner`, `worktreeSetup` and `localGit` are plain module consts (stateless over injected deps).
 
 ## Bounded exec (`GitRunner`)
 

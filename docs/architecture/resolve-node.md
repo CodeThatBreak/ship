@@ -3,7 +3,7 @@ node_key: resolve
 kind: builtin
 status: current
 owner: engine+flows
-last_reviewed: 2026-11-05
+last_reviewed: 2026-11-20
 ---
 
 # Resolve node
@@ -23,7 +23,7 @@ The resolve node consumes the merge request's open review comments and drives a 
 
 Engine-only (not serialized to UI):
 
-- `chainRole: resolve` — the chain and `WaitScheduler.resolveDelayMs` resolve the role by key.
+- `chainRole: resolve` — the chain and `WaitStore.resolveDelayMs` resolve the role by key.
 - `edges: [[pipeline, "loop"]]` — re-enters the CI gate when the fix is verified on the remote MR head.
 - `order: 50` — builtin graph ordering (last in the chain).
 - `quiet_minutes` config knob — engine-consumed quiet period for the debounced wait (default 10).
@@ -34,7 +34,7 @@ Engine-only (not serialized to UI):
 
 - **Entry:** A `review` run finished, or a new open MR comment arrived (webhook or poller ingestion), and the resolve node holds at `waiting`.
 - **Surface:** Panel — a clock line: "Auto-resolve of open comments starts at 14:32" (`flow.resolveScheduleAt`, rendered by `resolveClockLabel`); the lifecycle event log names the same time.
-- **Action:** None required; "Resolve comments" forces a manual run. Each new open comment bounces the quiet-period timer (`WaitScheduler.bounceCommentWaits`).
+- **Action:** None required; "Resolve comments" forces a manual run. Each new open comment bounces the quiet-period timer (`WaitStore.bounceCommentWaits`).
 - **Outcome:** When the quiet period elapses with open comments present and the chain idle, the wait-timer tick fires the run; with zero open comments or a busy chain it re-arms and keeps waiting.
 
 ### Phase 2 — Resolve run
@@ -112,7 +112,7 @@ Generic `NodeChat` → `ChatPanel`; sends go to `POST /api/flows/:id/chat` and r
 - `gitHostResolver` (injected) — `getChangeRequest` (MR head SHA), `resolveComment` (closes the MR discussion), `replyToComment` (posts into an existing discussion — the GitLab host implements it); `localGit` — branch state verification and the engine push.
 - `mrTargetResolver` — resolves `{ mrIid, mrBranch }`.
 - `worktreeManager` — ensures the flow worktree with the MR branch checked out (local mode).
-- `WaitScheduler` / `flowPoller` — arm, bounce, and fire the debounced wait.
+- `WaitStore` / `flowPoller` — arm, bounce, and fire the debounced wait.
 
 ### Run lifecycle (`run`)
 
@@ -121,7 +121,7 @@ Generic `NodeChat` → `ChatPanel`; sends go to `POST /api/flows/:id/chat` and r
 3. Local mode only: ensures the flow worktree, then a **pre-run push flush** — if the local branch holds commits the remote branch lacks (previous cycle stranded by an infra push failure, detected via `unpushedAhead`), the engine pushes before the agent starts.
 4. Builds the prompt: the editable body, the contract block (semantics + the schema-generated directive), the id-tagged comment list, optional setup note and developer instructions — one assembly for the default and prompt-body path. Then runs the agent via `execute` (worktree `cwd` in local mode, `startingRef` in cloud mode).
 5. `finalize`:
-   - **Contract** — the response is parsed against `ResolveAgentResponse`; a retryable miss gets exactly ONE feedback turn on the same agent session, a second miss fails the node.
+   - **Contract** — the response runs through the shared agent-output pipeline (`AgentOutputPipeline`, §Invariant 6): validate → `output_error` envelope → ONE bounded feedback turn on the same agent session (`retryBudget`), a second miss fails the node. `agent_reported` propagates immediately with the agent's reason.
    - **Push-state verification** (§6A) — the MR head SHA (moved ⇒ `pushed`), else local commits the remote branch lacks (`local_only`), else `none`; an unreadable MR yields `unknown` (loud error, threads stay open). A crashed run's recorded verify wins over a re-attempt.
    - **Engine push** (local mode, `pushState = local_only`) — see the push-state model below.
    - **Effects** (`resolveEffects`) — per-decision replies then closes, applied deterministically and idempotently against the artifact ledger.
@@ -129,11 +129,11 @@ Generic `NodeChat` → `ChatPanel`; sends go to `POST /api/flows/:id/chat` and r
 
 ### Restart recovery (`recover`)
 
-Re-entering `finalize` from the dropped node row and the recorded run result: the artifact's ledger supplies what the host already received (idempotently skipped), the recorded verify supplies the push state, and `pushBranch` is a no-op re-push on an already-pushed branch. The completed outcome is applied through the one persistence path with a `recovered:` note on the event. Returns `false` only when the recorded input/result is missing or unparseable — the reconciler then fails the node for manual retry.
+Re-entering `finalize` from the dropped node row and the recorded run result: the artifact's ledger supplies what the host already received (idempotently skipped), the recorded verify supplies the push state, and `pushBranch` is a no-op re-push on an already-pushed branch. The completed outcome is applied through the one persistence path with a `recovered:` note on the event. Returns `{ kind: "manual", reason }` when the recorded input/result is missing or unparseable — the reconciler then fails the node for manual retry — and `{ kind: "recovered" }` otherwise (the fixed recovery ABI never throws).
 
 ### Approval and advance
 
-No approval gate. A `done` run calls `advanceFrom('resolve')`; the loop edge activates only on `pushed = true` and resets `pipeline` plus its downstream path to `pending` before re-running. Pipeline and review both operate on the remote MR, so looping on a local-only change would re-review a diff without the fix — the loop gate is the verified push state, not the agent's self-report.
+No approval gate. A `done` run dispatches through the effect registry (`postTerminal`): the resolve's `loopReentry` effect (registered in `sdlcEffects.ts`) re-enters the pipeline gate via the declared loop join — the loop edge fires only on `pushed = true`, resets `pipeline` plus its downstream path to `pending`, and re-runs the gate. Pipeline and review both operate on the remote MR, so looping on a local-only change would re-review a diff without the fix — the loop gate is the verified push state, not the agent's self-report.
 
 ### Key files
 
@@ -141,8 +141,8 @@ No approval gate. A `done` run calls `advanceFrom('resolve')`; the loop edge act
 - `lib/engine/nodes/kinds/resolve/resolveContract.ts`
 - `lib/engine/nodes/kinds/resolve/resolveEffects.ts`
 - `lib/engine/nodes/kinds/resolve/schema.ts`
-- `lib/engine/runtime/waitScheduler.ts`, `lib/engine/runtime/flowPoller.ts`
-- `lib/engine/runtime/edgeActivator.ts` (loop-edge re-entry)
+- `lib/engine/runtime/waits/waitStore.ts`, `lib/engine/runtime/flowPoller.ts`
+- `lib/engine/runtime/staging/` (`ConditionEvaluator`, `LoopJoin` — loop-edge re-entry)
 
 ## API surface
 
@@ -150,7 +150,7 @@ No approval gate. A `done` run calls `advanceFrom('resolve')`; the loop edge act
 
 | Route | Caller | Purpose |
 |-------|--------|---------|
-| `POST /api/flows/:id/action` (`resolve`) | `ResolveView` / `ReviewView` footers, prompt modal | Manual resolve run via `flowEngine.triggerResolve` (rejects while the chain is busy; claims the node from `pending`/`failed`/`done`/`waiting`). |
+| `POST /api/flows/:id/action` (`resolve`) | `ResolveView` / `ReviewView` footers, prompt modal | Manual resolve run via `flowEngine.chain.triggerResolve` (claims through the TriggerGateway — a busy chain loses the claim and answers `409 skipped_duplicate_trigger`). |
 | `POST /api/flows/:id/action` (`retry` / `cancel`) | `PanelShell` | Failed-run retry / cancel. |
 | `POST /api/flows/:id/chat` | `NodeChat` | Instructed resolve run (`{ nodeKey, content, model? }`). |
 | `GET /api/flows/:id/comments` | `useFlowComments` (review panel) | Open/resolved state of the threads this node works on. |
@@ -161,7 +161,7 @@ No approval gate. A `done` run calls `advanceFrom('resolve')`; the loop edge act
 
 | Action | When | Engine |
 |--------|------|--------|
-| `resolve` | Run the fix agent on open comments | `flowEngine.triggerResolve` → `sdlcChain.triggerResolve` |
+| `resolve` | Run the fix agent on open comments | `flowEngine.chain.triggerResolve` → `sdlcChain.triggerResolve` (TriggerGateway claim) |
 | `retry` | Failed resolve run | `flowEngine.retryNode` |
 | `cancel` | Stuck run | `flowEngine.cancelNode` |
 
@@ -235,7 +235,7 @@ Four layers, each with exactly one behavior:
 
 ## Fan-out and downstream
 
-The loop edge is the downstream: seeded in `lib/db/templateSeeder.ts` as `resolve → pipeline`, kind `loop`, condition `nodes.resolve.output.pushed = true`. A truthy condition makes `EdgeActivator.advanceFrom` reset `pipeline` and its success-terminal downstream path to `pending` and re-run the gate; a falsy one leaves the loop edge as display metadata and the cycle terminates. Termination therefore happens when the fix is not verified on the remote MR head: nothing to resolve, an answered-only cycle, a degraded `local_only`, or an unverifiable MR.
+The loop edge is the downstream: seeded in `lib/db/templateSeeder.ts` as `resolve → pipeline`, kind `loop`, condition `nodes.resolve.output.pushed = true` (lint-checked against the resolve node's output contract at template save). A truthy condition makes the stage's loop join (`lib/engine/runtime/staging/LoopJoin`, declared reset set in `staging/constants/loopJoin.ts`) reset `pipeline` and its success-terminal downstream path to `pending` and re-run the gate; a falsy one leaves the loop edge as display metadata and the cycle terminates. Termination therefore happens when the fix is not verified on the remote MR head: nothing to resolve, an answered-only cycle, a degraded `local_only`, or an unverifiable MR.
 
 ## Out of scope
 
@@ -254,10 +254,10 @@ The loop edge is the downstream: seeded in `lib/db/templateSeeder.ts` as `resolv
 | Input / output schemas | `lib/engine/nodes/kinds/resolve/schema.ts` |
 | Resolve prompt template | `lib/engine/nodes/kinds/resolve/promptTemplate.ts` (registered in `lib/engine/prompts/promptDefaults.ts`) |
 | Reply-to-discussion host port | `lib/engine/ports/gitHost.ts`, `lib/integrations/gitlab/client.ts` / `gitHost.ts` |
-| Debounced wait + quiet period | `lib/engine/runtime/waitScheduler.ts` |
+| Debounced wait + quiet period | `lib/engine/runtime/waits/waitStore.ts` |
 | Comment polling + bounce | `lib/engine/runtime/flowPoller.ts` (`checkDiscussions`) |
 | Comment ingestion (webhook) | `lib/engine/runtime/commentIngestor.ts` |
-| Loop-edge condition + re-entry | `lib/db/templateSeeder.ts`, `lib/engine/runtime/edgeActivator.ts` |
+| Loop-edge condition + re-entry | `lib/db/templateSeeder.ts`, `lib/engine/runtime/staging/` (`ConditionEvaluator`, `LoopJoin`), `lib/engine/nodes/chains/sdlcEffects.ts` (`loopReentry`) |
 | Open/resolved comment rows | `lib/engine/nodes/shared/nodeSupport.ts` (`openComments`, `resolveComments`, `recordAgentReply`) |
 | Manual trigger | `lib/engine/nodes/chains/sdlcChain.ts` (`triggerResolve`) |
 | Panel | `components/flows/panels/views/ResolveView.tsx` |

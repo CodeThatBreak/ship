@@ -3,7 +3,7 @@ node_key: database
 kind: subsystem
 status: current
 owner: engine+flows
-last_reviewed: 2026-11-16
+last_reviewed: 2026-11-20
 ---
 
 # Database subsystem
@@ -14,9 +14,10 @@ DevFlow persists all state in **Postgres 16 via Prisma** (driver adapter
 `@prisma/adapter-pg`): typed models from `prisma/schema.prisma`, JSONB for
 payload columns, real enums for status vocabularies, `timestamptz` timestamps,
 and real foreign keys. API routes that touch the DB use the Node runtime
-(AGENTS §3.3). The Prisma client is the **only** process singleton
-(`lib/db/prismaClient.ts` via `processSingleton`, HMR-safe); the `Database`
-facade composes per-table store classes on top of it. Integration secrets
+(AGENTS §3.3). The Prisma client is the **only** process-pinned singleton
+(`lib/db/prismaClient.ts` — pinned inline on `globalThis`, HMR-safe); the
+`Database` facade is a plain module const (`lib/db/app.ts`) composing
+per-table store classes on top of it. Integration secrets
 (GitLab/Jira tokens, the Cursor API key, the flow-secrets map) are sealed at
 rest with AES-256-GCM.
 
@@ -24,12 +25,13 @@ rest with AES-256-GCM.
 
 Three layers, top to bottom:
 
-1. **Access layer** — `lib/db/app.ts` creates the process-wide `db` singleton
-   via `processSingleton` (`lib/singleton.ts`), so `next dev` module-graph
-   splits never produce a second connection. Constructing `db` also starts the
-   background workers (`flowPoller`) unless `NODE_ENV=test` or `VITEST=true`
-   (this lazy side effect moves to the dedicated worker process in the step
-   that lands it — decision Q10).
+1. **Access layer** — `lib/db/app.ts` exports the shared `db` facade as a
+   plain module const (decision Q9 — no process pinning: the facade is
+   stateless over the Prisma pool, so `next dev` module-graph splits cannot
+   disagree). Importing `db` starts nothing — the web process is pure
+   request/response (decision Q10); all time-driven work (poller, reconciler,
+   job sweeps) runs in the dedicated worker process (`npm run worker`,
+   `worker/main.ts`).
 2. **Client + facade layer** — `prismaClient.ts` builds the `PrismaClient`
    with the pg driver adapter at `config.db.url()`. `Database`
    (`lib/db/database.ts`) wraps it: `transaction(fn)` maps to
@@ -47,11 +49,11 @@ Three layers, top to bottom:
 ```mermaid
 flowchart TD
   subgraph access [Access layer]
-    APP["lib/db/app.ts — db (processSingleton)"] --> DB["Database — lib/db/database.ts"]
+    APP["lib/db/app.ts — db (plain module const)"] --> DB["Database — lib/db/database.ts"]
     DBA["dbAccess.getDb()"] -.-> DB
     RGA["rowGatewayAccess.getRowGateway()"] -.-> RG
   end
-  DB --> PC["prismaClient.ts — PrismaClient + @prisma/adapter-pg (the ONLY processSingleton)"]
+  DB --> PC["prismaClient.ts — PrismaClient + @prisma/adapter-pg (the ONLY process-pinned singleton)"]
   DB --> RG["RowGateway + JSONB payload schemas — lib/db/rows.ts"]
   DB --> ST["stores/* — eventStore, messageStore, settingsStore, repoStore, gitlabInstanceStore, jiraInstanceStore"]
   ST --> PC
@@ -63,22 +65,24 @@ flowchart TD
 ### Singleton and access layering
 
 - `app.ts` is the import entrypoint (`@/lib/db/app`). It re-exports `Database`,
-  `RowGateway`, `getDb`, `getRowGateway`.
-- `dbAccess.ts` pins the `Database` instance on `globalThis`
-  (`Symbol.for("devflow.database")`) from the constructor, so config helpers
-  and code that cannot import the entrypoint still resolve the live singleton
-  via `getDb()`. `rowGatewayAccess.ts` does the same for the `RowGateway`
+  `RowGateway`, `getDb`, `getRowGateway` and the `db` module const.
+- `dbAccess.ts` is a lazy resolution slot (`Symbol.for("devflow.database")`),
+  bound by the `Database` constructor, so config helpers and code that cannot
+  import the entrypoint still resolve the live facade via `getDb()` without
+  forcing construction or creating an import cycle.
+  `rowGatewayAccess.ts` does the same for the `RowGateway`
   (`Symbol.for("devflow.rowGateway")`). Both throw when accessed before
-  construction.
-- `rows.ts` additionally exports a `rows` proxy that forwards to the pinned
+  binding.
+- `rows.ts` additionally exports a `rows` proxy that forwards to the bound
   gateway for call sites that hold no `Database` reference.
 - The `Database` constructor also calls `wireGitHostBuiltins()`
   (`lib/db/wireGitHostBuiltins.ts`), registering the GitLab adapter into
   `gitHostRegistry` once per process.
 - The arch test `tests/architecture/noProcessSingletonOutsideDb.test.ts`
-  enforces that `processSingleton` survives only in `prismaClient.ts` (the
-  39-site inventory shrinks every step; `lib/composition/container.ts` is the
-  composition root it converges to — decision Q9).
+  enforces the Q9 boundary: the Prisma client is the only `globalThis`-pinned
+  service; everything else is a plain module const or constructor-injected
+  from the composition roots (`lib/composition/container.ts`,
+  `lib/composition/processServices.ts` for the process-bound exceptions).
 
 ### Ids and timestamps
 
@@ -128,8 +132,8 @@ as text is reinterpreted in the session timezone).
   (`rowIdFromRaw`), and the Zod issues. `RowGateway.all` logs and skips
   undecodable rows instead of failing the whole list.
 - Stores use the Prisma query API; the raw `get`/`all`/`run` +
-  `RowGateway` path is the shrinking legacy surface (composition-root
-  migration, step 09).
+  `RowGateway` path is the shrinking legacy surface — no NEW raw SQL
+  (ORM-first).
 
 ## Secrets at rest
 
@@ -193,8 +197,8 @@ The subsystem owns no HTTP routes; consumers import from `@/lib/db/app`.
 
 | Export | Kind | Purpose |
 |--------|------|---------|
-| `db` | singleton | Shared `Database`; constructing it starts background workers outside tests |
-| `prisma` | singleton | The raw PrismaClient (`lib/db/prismaClient.ts`) — composition-root dependency |
+| `db` | module const | Shared `Database` facade — starts nothing; time-driven work lives in the worker process |
+| `prisma` | singleton | The raw PrismaClient (`lib/db/prismaClient.ts`) — composition-root dependency, the only process-pinned service |
 | `getDb()` | accessor | Resolve the pinned `Database` without importing the entrypoint |
 | `getRowGateway()` / `rows` | accessor | Zod-validated typed queries |
 | `Database` | class | Transactions, store facade, app-side `uid`/`now` |
@@ -207,6 +211,12 @@ The subsystem owns no HTTP routes; consumers import from `@/lib/db/app`.
 
 - **Tasks and flows:** `tasks`, `flows`, `nodes`, `artifacts`, `runs`,
   `branches`, `plan_steps`, `step_merges`.
+- **Engine durability:** the `jobs` table (write-ahead journal for
+  webhook deliveries, schedule fires, MR creation, cancels — `dedup_key`,
+  lease-based claims, attempt counts) plus the correctness columns
+  `nodes.attempt_id` / `wait_until` / `lease_until` and
+  `runs.attempt_id` / `lease_until` / `api_token` (the per-attempt
+  capability token for the agent-tools surface).
 - **Collaboration:** `messages`, `events`, `comments`.
 - **Integrations and settings:** `repos`, `gitlab_instances`,
   `jira_instances`, `settings`.
@@ -242,10 +252,11 @@ verification; demo/dev targets only).
 
 | Concern | Location |
 |---------|----------|
-| Prisma client (the only processSingleton) | `lib/db/prismaClient.ts`, `lib/singleton.ts` |
+| Prisma client (the only process-pinned singleton) | `lib/db/prismaClient.ts` |
 | Facade: transactions, store composition | `lib/db/database.ts` |
-| Import entrypoint / `db` singleton | `lib/db/app.ts` |
-| `globalThis` pinning | `lib/db/dbAccess.ts`, `lib/db/rowGatewayAccess.ts`, `lib/singleton.ts` |
+| Import entrypoint / `db` module const | `lib/db/app.ts` |
+| Lazy resolution slots | `lib/db/dbAccess.ts`, `lib/db/rowGatewayAccess.ts` |
+| Composition roots | `lib/composition/container.ts`, `lib/composition/processServices.ts` |
 | Schema (source of truth) | `prisma/schema.prisma` |
 | Migrations | `prisma/migrations/`, `npm run db:migrate` |
 | Migration failure type | `lib/db/databaseMigrationError.ts` |

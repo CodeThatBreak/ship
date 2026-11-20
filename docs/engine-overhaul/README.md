@@ -62,14 +62,14 @@ Reliability is the goal; readability is how it survives. Enforced by arch tests
 
 ## Definition of done (from the overhaul prompt, mapped to steps)
 
-- [ ] No `nodes.status` write outside the transition authority (enforced by test) — **step 02**
-- [ ] No silent-default fallback for agent output (grep checklist) — **steps 04 + 05**
-- [ ] Webhook/timer resume actually runs the node, incl. after restart — **step 03**
-- [ ] Concurrent triggers ⇒ one run + one `skipped_duplicate_trigger` event — **step 06**
-- [ ] Reconciler resolves every non-terminal state without guessing — **step 03**
-- [ ] `recover()` can never throw out of the reconciler — **step 05**
-- [ ] Restart during pipeline wait resumes the gate — **step 05**
-- [ ] `consumes` validated at stage start, typed error names the producer — **step 04**
-- [ ] Plan-node Retry dead-end (`docs/current-issue-plan.md` Issue 2) closed — **step 05**
-- [ ] Edge conditions referencing nonexistent output keys rejected by lint/validate — **step 04**
-- [ ] `npm run check` + build green; zero new `any`; no suppressed `exhaustive-deps` — **every step**
+- [x] No `nodes.status` write outside the transition authority (enforced by test) — **step 02** — `tests/architecture/noRawNodeStatusWrite.test.ts` source-scans `nodes SET status` / `attempt_id` writes / `setStatus(` outside `lib/engine/runtime/transitions/` and asserts zero offenders, with the in-memory transition-log assert (`tests/helpers/transitionLogAssert.ts`) wired into the SDLC/fan-out drives
+- [x] No silent-default fallback for agent output (grep checklist) — **steps 04 + 05** — `tests/engine-overhaul/agentOutputFallbacks.test.ts` (review empty reply, decision case-mismatch, agent empty markdown each ⇒ `failed`) plus the pipeline's typed retry/exhaust/agent-reported events in `lib/engine/nodes/shared/agentOutput/agentOutputPipeline.test.ts`
+- [x] Webhook/timer resume actually runs the node, incl. after restart — **step 03** — `tests/engine-overhaul/waitResume.test.ts` ("webhook resume runs the node", "timer resume runs the node", "restart during a wait resumes the node") and the exactly-once delivery window in `tests/engine-overhaul/webhookCrashWindow.test.ts`
+- [x] Concurrent triggers ⇒ one run + one `skipped_duplicate_trigger` event — **step 06** — `tests/engine-overhaul/duplicateTrigger.test.ts` (poller + webhook + manual of a running gate ⇒ one run, one skip event) and `lib/engine/runtime/triggers/triggerGateway.test.ts` (every source, won-claim result shape, chain-guard characterization)
+- [x] Reconciler resolves every non-terminal state without guessing — **step 03** — `tests/engine-overhaul/reconcileStates.test.ts` (approved-without-MR ⇒ revert-or-adopt, expired waiting ⇒ the wait fires, awaiting_approval with a dead upstream ⇒ failed) with per-status handler coverage co-located in `lib/engine/runtime/reconcile/`
+- [x] `recover()` can never throw out of the reconciler — **step 05** — `tests/engine-overhaul/recoverAbi.test.ts` (no kind throws; result-object ABI) and the throw⇒`manual` seam through the real engine in `lib/engine/runtime/reconcile/recoveryDriver.test.ts`
+- [x] Restart during pipeline wait resumes the gate — **step 05** — `tests/engine-overhaul/pipelineGate.test.ts` ("restart mid-wait resumes the gate from durable progress — the fix budget is not re-spent" + "restart mid-wait with a green watched pipeline resumes straight to done")
+- [x] `consumes` validated at stage start, typed error names the producer — **step 04** — `tests/engine-overhaul/consumesValidation.test.ts` (missing field ⇒ `failed` + typed error naming the producer) and `lib/engine/runtime/contractPipeline.test.ts` (input/output paths + the collision event)
+- [x] Plan-node Retry dead-end (`docs/current-issue-plan.md` Issue 2) closed — **step 05** — `tests/engine-overhaul/planRetryDeadEnd.test.ts`
+- [x] Edge conditions referencing nonexistent output keys rejected by lint/validate — **step 04** — `tests/engine-overhaul/edgeConditionLint.test.ts` (bad template rejected by `lintDraft` and the validate route; good case passes)
+- [ ] `npm run check` + build green; zero new `any`; no suppressed `exhaustive-deps` — **every step** — **GAP at the step-09 head (2026-11-20):** `npm run typecheck`, `npm run lint` (`--max-warnings=0`) and `npm run build` pass, but `npm test` is red with three pre-existing failures unrelated to the docs pass — (1) `lib/engine/flowEngine.test.ts` / `flowEngineHostWebhook.test.ts` / `flowEngineLoopReset.test.ts` fail to import (`TypeError: FlowEngine is not a constructor` at `lib/engine/flowEngine.ts:8` via the `mrCreateHandler` → `sdlcChain` import cycle), (2) `tests/serverOnlyPolicy.test.ts` lists ~30 step-09-created `lib/` modules (liveTaskFeed, templateStore subfolders, tasks/types, …) missing `import "server-only"`, (3) `lib/git/worktreeWiring.test.ts`'s local-runner ensure chokepoint tripwire no longer matches. Fix these three, then tick.
