@@ -32,6 +32,7 @@ import { planSteps, type PlanStepRow } from "../planStepStore";
 import { configNumber, configString, fanoutOf, parseConfigSnapshot, stripFanoutKeys, type FanoutKnob } from "../../templates/nodeConfig";
 import { mergeArena } from "./mergeArena";
 import { worktreeManager } from "../worktreeLifecycle";
+import { executorFor } from "../transitions/utils/executor";
 import { processSingleton } from "../../../singleton";
 
 // ── plan fan-out: the StepFlowManager (Phase 1) ──────────────────────────────
@@ -631,32 +632,22 @@ export class StepFlowManager {
     if (!states.length) return;
     if (states.some((s) => s.childFlowId != null && !s.isResolved && !s.isFailed)) return;
     if (states.some((s) => s.childFlowId == null && s.step.status === "pending")) return;
-    // successful children flip their plan steps done (`plan_steps.status`
-    // semantics unchanged — done on child success/merge, never on agent claim)
-    for (const s of states) {
-      if (s.step.status === "pending" && s.isResolved && !s.isFailed) {
-        await planSteps.setStatus(parentFlowId, s.step.id, "done", "child");
-      }
-    }
-    await this.onAllResolved(parentFlowId, nodeKey);
+    await this.onAllResolved(parentFlowId, nodeKey, states); // check-offs batched inside (step 06, Invariant 7)
   }
 
   // ── all resolved: aggregate output contract + parent terminal ──────────────
 
   /**
    * Publish the aggregate output contract (the def's `fanoutOutput`, default
-   * `{steps: [{id, title, status, branch?, artifact_id?, output?}]}`), move the
-   * node to its trigger-type terminal (approval ⇒ `awaiting_approval` — the
-   * SDLC build's final aggregate approval then flows through the untouched
-   * approveBuild chain → MR creation), then the engine's normal edge
-   * evaluation continues downstream.
+   * `{steps: [{id, title, status, branch?, artifact_id?, output?}]}`), move the node to its
+   * trigger-type terminal (approval ⇒ `awaiting_approval`), then the normal edge evaluation.
    */
-  async onAllResolved(parentFlowId: string, nodeKey: string): Promise<void> {
+  async onAllResolved(parentFlowId: string, nodeKey: string, states?: StepState[]): Promise<void> {
     const parentRunning = await engineParts.nodeStore.statusOf(parentFlowId, nodeKey);
     if (parentRunning !== NODE_STATUS.RUNNING) return;
 
     const ctx = await this.e.ctx(parentFlowId);
-    const states = await this.statesOf(parentFlowId, nodeKey);
+    states ??= await this.statesOf(parentFlowId, nodeKey);
     const def = await this.e.defOf(parentFlowId, nodeKey);
     const isCode = typeof def.capabilities.mergeBack === "function";
 
@@ -675,33 +666,37 @@ export class StepFlowManager {
     }));
     const aggregate = { steps: DEFAULT_FANOUT_OUTPUT.parse({ steps: stepsOut }).steps };
 
-    // code children merged onto integration branches: publish the parent-side
-    // diff artifacts (the whole-mode finalizeBuild contract: branch +
-    // latestArtifact) underneath the aggregate — the BuildView panel reads them
+    // merged code children publish the parent-side diff artifacts (the
+    // whole-mode finalizeBuild contract) — `makeDiff` captures run BEFORE the
+    // batch: git I/O never joins a transaction (step 06 risk note)
     const integrationBranches = [...new Set(states.map((s) => s.integrationBranch).filter((b): b is string => Boolean(b)))];
-    const perBranch: Record<string, string> = {};
+    const perBranch: Record<string, string> = {}, diffs: Record<string, { raw: string; stat: string }> = {};
     let latestArtifact: string | null = null;
-    if (isCode) {
-      const nodeId = await engineParts.nodeStore.idOf(parentFlowId, nodeKey);
-      for (const branch of integrationBranches) {
-        const group = states.filter((s) => s.integrationBranch === branch);
-        if (!group.some((s) => s.step.status === "done" && s.step.completedBy === "merge")) continue;
-        await branchStore.upsert(parentFlowId, branch, { status: "awaiting_approval" });
-        await db.run(`UPDATE flows SET mr_branch=$1 WHERE id=$2 AND (mr_branch IS NULL OR mr_branch='')`, branch, parentFlowId);
-        if (!nodeId) continue;
-        try {
-          const diff = await flowCtxHelper.makeDiff(ctx, branch);
-          const art = await nodeSupport.saveArtifact(
-            nodeId, parentFlowId, "diff",
-            diff ? diff.raw : "(diff unavailable)",
-            { branch, stat: diff?.stat ?? "", fanout: true });
-          perBranch[branch] = art.id;
-          latestArtifact = latestArtifact ?? art.id;
-        } catch {
-          // per-branch diff failure is non-fatal here — the aggregate still publishes
-        }
-      }
+    const diffNodeId = isCode ? await engineParts.nodeStore.idOf(parentFlowId, nodeKey) : null;
+    for (const branch of integrationBranches) {
+      if (!diffNodeId || !states.some((s) => s.integrationBranch === branch && s.step.status === "done" && s.step.completedBy === "merge")) continue;
+      try { const d = await flowCtxHelper.makeDiff(ctx, branch); diffs[branch] = { raw: d ? d.raw : "(diff unavailable)", stat: d?.stat ?? "" }; } catch { /* per-branch diff failure is non-fatal — the aggregate still publishes */ }
     }
+
+    // Rollup completion batch (step 06, Invariant 7): plan-step check-offs +
+    // branch upserts + flows.mr_branch + diff artifact saves in ONE tx (the
+    // check-off is raw — `planSteps.setStatus` has no tx seam yet, follow-up
+    // flagged). The aggregate publish stays OUTSIDE: `finishFanout` continues
+    // into the edge evaluation (downstream stage starts = agent I/O, never
+    // inside a tx) — one attempt-fenced statement, idempotently re-runnable.
+    await db.transaction(async (tx) => {
+      for (const s of states) if (s.step.status === "pending" && s.isResolved && !s.isFailed) await tx.$executeRawUnsafe(`UPDATE plan_steps SET status='done', completed_by='child', updated_at=$1 WHERE id=$2 AND flow_id=$3`, db.now(), s.step.id, parentFlowId);
+      for (const branch of integrationBranches) {
+        const diff = diffs[branch];
+        if (diff === undefined) continue; // merged-done guard — no capture, no batch for this branch
+        await branchStore.upsert(parentFlowId, branch, { status: "awaiting_approval" }, tx);
+        await tx.$executeRawUnsafe(`UPDATE flows SET mr_branch=$1 WHERE id=$2 AND (mr_branch IS NULL OR mr_branch='')`, branch, parentFlowId);
+        if (!diffNodeId) continue;
+        const art = await nodeSupport.saveArtifact(diffNodeId, parentFlowId, "diff", diff.raw, { branch, stat: diff.stat, fanout: true }, undefined, tx);
+        perBranch[branch] = art.id;
+        latestArtifact = latestArtifact ?? art.id;
+      }
+    });
 
     await this.e.finishFanout(parentFlowId, nodeKey, {
       steps: aggregate.steps,
@@ -851,11 +846,14 @@ export class StepFlowManager {
         ))?.id ?? mergeRowId;
 
         if (result.status === "merged") {
-          await planSteps.setStatus(parentFlowId, stepRow.id, "done", "merge");
-          await this.closeChild(childFlowId);
-          await db.emitEvent(parentFlowId, null, "lifecycle",
-            `step "${stepRow.title}" merged into ${integrationBranch}${result.stale ? " (stale base resolved by merge — no rebase)" : ""}`,
-            { nodeKey: nodeOwnerKey, childFlowId });
+          // merge-back completion batch (step 06, Invariant 7): check-off
+          // (raw — `planSteps.setStatus` has no tx seam yet, follow-up flagged)
+          // + child close + announcement in ONE tx (the worktree sweep is I/O, outside)
+          await db.transaction(async (tx) => {
+            await tx.$executeRawUnsafe(`UPDATE plan_steps SET status='done', completed_by='merge', updated_at=$1 WHERE id=$2 AND flow_id=$3`, db.now(), stepRow.id, parentFlowId);
+            await this.closeChild(childFlowId, tx);
+            await db.emitEvent(parentFlowId, null, "lifecycle", `step "${stepRow.title}" merged into ${integrationBranch}${result.stale ? " (stale base resolved by merge — no rebase)" : ""}`, { nodeKey: nodeOwnerKey, childFlowId }, tx);
+          });
           await this.onChildFinished(childFlowId);
           return;
         }
@@ -1031,18 +1029,18 @@ export class StepFlowManager {
       (step.subFlowId ? (await this.childPayload(step.subFlowId))?.parentNodeKey : null) ??
       await this.firstFanoutNodeKey(parentFlowId);
     if (!nodeKey) throw new Error("no fan-out node on this flow");
-    await planSteps.setStatus(parentFlowId, stepId, "done", "skipped");
-    if (step.subFlowId) {
-      const childId = step.subFlowId;
+    // skip batching (step 06, Invariant 7): check-off + stuck-merge hand-back
+    // in one tx (raw check-off — `planSteps.setStatus` has no tx seam yet, follow-up flagged)
+    const childId = step.subFlowId;
+    await db.transaction(async (tx) => {
+      await tx.$executeRawUnsafe(`UPDATE plan_steps SET status='done', completed_by='skipped', updated_at=$1 WHERE id=$2 AND flow_id=$3`, db.now(), stepId, parentFlowId);
+      if (childId) await tx.$executeRawUnsafe(`UPDATE step_merges SET status='failed', error='step skipped — the merge-back was abandoned', updated_at=$1 WHERE flow_id=$2 AND status IN ('running','conflict','rejected')`, db.now(), childId);
+    });
+    if (childId) {
       const childFlow = await this.childFlowOf(childId);
-      // a stuck merge-back must never resume for a step the user skipped
-      await db.run(`UPDATE step_merges SET status='failed', error='step skipped — the merge-back was abandoned', updated_at=$1 WHERE flow_id=$2 AND status IN ('running','conflict','rejected')`,
-        db.now(), childId);
       const codeChild = typeof (await this.engineCapabilitiesOfMergeBack(childId)) === "function";
       for (const n of await db.all<{ nodeKey: string; status: string }>(`SELECT node_key AS "nodeKey", status FROM nodes WHERE flow_id=$1`, childId)) {
-        if (NODE_CANCELABLE_STATUSES.includes(n.status)) {
-          await this.e.cancelNode(childId, n.nodeKey); // marks failed + stops in-flight local runs (standard stop)
-        }
+        if (NODE_CANCELABLE_STATUSES.includes(n.status)) await this.e.cancelNode(childId, n.nodeKey); // marks failed + stops in-flight local runs
       }
       // step-branch deletion on skip (Phase 2C) — the branch was created for
       // this step, and a skipped hand-back does not keep its work product
@@ -1055,9 +1053,10 @@ export class StepFlowManager {
             { nodeKey, branch: childFlow.mrBranch });
         }
       }
-      await this.closeChild(childId);
+      await db.transaction(async (tx) => { await this.closeChild(childId, tx); await db.emitEvent(parentFlowId, null, "lifecycle", `plan step skipped: ${step.title}`, { nodeKey }, tx); });
+    } else {
+      await db.emitEvent(parentFlowId, null, "lifecycle", `plan step skipped: ${step.title}`, { nodeKey });
     }
-    await db.emitEvent(parentFlowId, null, "lifecycle", `plan step skipped: ${step.title}`, { nodeKey });
     await this.advance(parentFlowId, nodeKey);
   }
 
@@ -1257,9 +1256,10 @@ export class StepFlowManager {
     return db.get<FlowRow>(`SELECT id, task_id AS "taskId", name, status, mr_url AS "mrUrl", mr_iid AS "mrIid", mr_branch AS "mrBranch", repo_url AS "repoUrl", gitlab_project_id AS "gitlabProjectId", execution_mode AS "executionMode", repo_id AS "repoId", template_id AS "templateId", template_graph AS "templateGraph", trigger_payload AS "triggerPayload", worktree_dir AS "worktreeDir", parent_flow_id AS "parentFlowId", kind, created_at AS "createdAt", updated_at AS "updatedAt" FROM flows WHERE id=$1`, childFlowId);
   }
 
-  /** Close a child flow (standard terminal state; keeps rows for the audit trail). */
-  private async closeChild(childFlowId: string): Promise<void> {
-    await db.run(`UPDATE flows SET status='done', updated_at=$1 WHERE id=$2 AND status<>'done'`, db.now(), childFlowId);
+  /** Close a child flow (standard terminal state; keeps rows for the audit trail).
+   *  `tx` joins the caller's completion batch — the worktree sweep (I/O) stays outside. */
+  private async closeChild(childFlowId: string, tx?: Prisma.TransactionClient): Promise<void> {
+    await executorFor(db, tx).run(`UPDATE flows SET status='done', updated_at=$1 WHERE id=$2 AND status<>'done'`, db.now(), childFlowId);
     // child worktree sweep on terminal (Phase 2C): the local-mode child's
     // per-step worktree is transient — removed now, not on the next startup
     // sweep. `deleteBranch:false`: the branch ref lives in the hub, so a later

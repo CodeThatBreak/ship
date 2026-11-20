@@ -299,8 +299,8 @@ export class FlowEngine {
   }
 
   /**
-   * Delete a whole flow: its step children (plan fan-out), every flow-owned
-   * row, and the local worktree(s). Throws when the flow does not exist.
+   * Delete a whole flow: its step children (plan fan-out), every flow-owned row, and the local worktree(s).
+   * Throws when the flow does not exist.
    */
   async delete(id: string): Promise<void> {
     const flow = await db.get<{ id: string }>(`SELECT id FROM flows WHERE id=$1`, id);
@@ -1089,6 +1089,5 @@ export const flowEngine = processSingleton('flowEngine', () => new FlowEngine())
 // at module scope)
 stepFlows.bind(flowEngine);
 
-// split runtime (agent-node split plan §3): same cycle resolution for the
-// SplitManager — flow-engine.ts imports it for the child-terminal hooks
+// split runtime (agent-node split plan §3): same cycle resolution — imported for the child-terminal hooks
 splitManager.bind(flowEngine);

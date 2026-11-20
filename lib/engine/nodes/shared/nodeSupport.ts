@@ -1,6 +1,8 @@
 import "server-only";
 
+import type { Prisma } from "@prisma/client";
 import { db } from "../../../db/app";
+import type { QueryExecutor } from "../../../db/database";
 import { CommentRow, NodeRow, rows } from "../../../db/rows";
 import { ValidationError } from "../../../errors";
 import {
@@ -19,6 +21,7 @@ import type {
   TransitionKey,
 } from "../../runtime/transitions/types/transitions";
 import type { TransitionAuthority } from "../../runtime/transitions/nodeTransitions";
+import { executorFor } from "../../runtime/transitions/utils/executor";
 
 const NODE_SELECT = `SELECT id, flow_id AS "flowId", node_key AS "nodeKey", type, status,
        attempt_id AS "attemptId", agent_id AS "agentId", agent_ref AS "agentRef",
@@ -46,6 +49,11 @@ const COMMENT_SELECT = `SELECT id, flow_id AS "flowId", mr_iid AS "mrIid",
  */
 export class NodeSupport {
   constructor(private readonly transitions: TransitionAuthority) {}
+
+  /** One pure-DB sequence in a transaction — or joined to the caller's tx (step 06, Invariant 7). */
+  transaction<T>(fn: (tx: Prisma.TransactionClient) => Promise<T>, tx?: Prisma.TransactionClient): Promise<T> {
+    return db.transaction(fn, tx);
+  }
 
   async nodeByKey(flowId: string, key: string): Promise<NodeRow> {
     const n = await rows.get(NodeRow, `${NODE_SELECT} WHERE flow_id=$1 AND node_key=$2`, flowId, key);
@@ -146,7 +154,7 @@ export class NodeSupport {
     nodeKey: string;
     nodeId: string;
     attemptId?: string | null;
-    outcome: NodeOutcome;
+    outcome: NodeOutcome; tx?: QueryExecutor;
   }): Promise<void> {
     return this.transitions.publishOutcome(params);
   }
@@ -162,34 +170,24 @@ export class NodeSupport {
     return db.addMessage(flowId, nodeKey, role, content, thread ?? null);
   }
 
+  /**
+   * Save a new artifact version — supersede + insert (with the version read)
+   * in ONE transaction (step 06, Invariant 7): a crash never leaves a kind
+   * with no draft artifact. Joins the caller's tx when passed.
+   */
   async saveArtifact(
-    nodeId: string,
-    flowId: string,
-    kind: string,
-    content: string,
-    meta?: unknown,
-    status = ARTIFACT_STATUS.DRAFT
+    nodeId: string, flowId: string, kind: string, content: string,
+    meta?: unknown, status = ARTIFACT_STATUS.DRAFT, tx?: QueryExecutor,
   ): Promise<{ id: string; version: number }> {
-    const prev = await db.get<{ v: number | null }>(
-      `SELECT MAX(version) AS v FROM artifacts WHERE node_id=$1 AND kind=$2`,
-      nodeId,
-      kind
-    );
-    const version = (prev?.v ?? 0) + 1;
-    await db.run(
-      `UPDATE artifacts SET status=$1 WHERE node_id=$2 AND kind=$3 AND status=$4`,
-      ARTIFACT_STATUS.SUPERSEDED,
-      nodeId,
-      kind,
-      ARTIFACT_STATUS.DRAFT,
-    );
-    const id = db.uid("art_");
-    await db.run(
-      `INSERT INTO artifacts (id,node_id,flow_id,kind,version,content,meta,status,created_at)
-       VALUES ($1,$2,$3,$4,$5,$6,$7::jsonb,$8,$9)`,
-      id, nodeId, flowId, kind, version, content, meta ? JSON.stringify(meta) : null, status, db.now()
-    );
-    return { id, version };
+    return this.transaction(async (t) => {
+      const exec = executorFor(db, t);
+      const version = ((await exec.get<{ v: number | null }>(`SELECT MAX(version) AS v FROM artifacts WHERE node_id=$1 AND kind=$2`, nodeId, kind))?.v ?? 0) + 1;
+      await exec.run(`UPDATE artifacts SET status=$1 WHERE node_id=$2 AND kind=$3 AND status=$4`, ARTIFACT_STATUS.SUPERSEDED, nodeId, kind, ARTIFACT_STATUS.DRAFT);
+      const id = db.uid("art_");
+      await exec.run(`INSERT INTO artifacts (id,node_id,flow_id,kind,version,content,meta,status,created_at) VALUES ($1,$2,$3,$4,$5,$6,$7::jsonb,$8,$9)`,
+        id, nodeId, flowId, kind, version, content, meta ? JSON.stringify(meta) : null, status, db.now());
+      return { id, version };
+    }, tx);
   }
 
   /**
@@ -207,14 +205,16 @@ export class NodeSupport {
     if (existing?.agentRef === RUN_AGENT_REF.PENDING && existing.runRef === attemptId) {
       return;
     }
-    await db.run(`UPDATE runs SET status=$1, lease_until=NULL, updated_at=$2 WHERE node_id=$3 AND status=$4`,
-      RUN_STATUS.ERROR, db.now(), nodeId, RUN_STATUS.RUNNING);
-    const id = db.uid("run_");
-    await db.run(
-      `INSERT INTO runs (id,flow_id,node_id,agent_ref,run_ref,attempt_id,lease_until,status,created_at,updated_at)
-       VALUES ($1,$2,$3,$4,$5,$6, now() + make_interval(secs => $7),$8,$9,$10)`,
-      id, flowId, nodeId, RUN_AGENT_REF.PENDING, attemptId, attemptId, RUN_LEASE_SECONDS, RUN_STATUS.RUNNING, db.now(), db.now(),
-    );
+    // close-prior-runs UPDATE + placeholder INSERT in ONE tx (step 06, Invariant 7)
+    await this.transaction(async (t) => {
+      const exec = executorFor(db, t);
+      await exec.run(`UPDATE runs SET status=$1, lease_until=NULL, updated_at=$2 WHERE node_id=$3 AND status=$4`,
+        RUN_STATUS.ERROR, db.now(), nodeId, RUN_STATUS.RUNNING);
+      const id = db.uid("run_");
+      await exec.run(`INSERT INTO runs (id,flow_id,node_id,agent_ref,run_ref,attempt_id,lease_until,status,created_at,updated_at)
+         VALUES ($1,$2,$3,$4,$5,$6, now() + make_interval(secs => $7),$8,$9,$10)`,
+        id, flowId, nodeId, RUN_AGENT_REF.PENDING, attemptId, attemptId, RUN_LEASE_SECONDS, RUN_STATUS.RUNNING, db.now(), db.now());
+    });
   }
 
   isStartupRun(agentRef: string): boolean {
@@ -256,19 +256,21 @@ export class NodeSupport {
     }
     // close out any prior `running` rows for this node — they're stale (their
     // process died with a previous server/run) and would otherwise be picked up
-    // as the "latest running run" by reconcile, clobbering this fresh run
-    await db.run(`UPDATE runs SET status=$1, updated_at=$2 WHERE node_id=$3 AND status=$4`, RUN_STATUS.ERROR, db.now(), nodeId, RUN_STATUS.RUNNING);
-    const id = db.uid("run_");
-    await db.run(
-      `INSERT INTO runs (id,flow_id,node_id,agent_ref,run_ref,attempt_id,lease_until,status,created_at,updated_at)
-       VALUES ($1,$2,$3,$4,$5,$6, now() + make_interval(secs => $7),$8,$9,$10)`,
-      id, flowId, nodeId, agentId, runId, attemptId, RUN_LEASE_SECONDS, RUN_STATUS.RUNNING, db.now(), db.now(),
-    );
-    return id;
+    // as the "latest running run" by reconcile; close + insert in ONE tx (step 06, Invariant 7)
+    return this.transaction(async (t) => {
+      const exec = executorFor(db, t);
+      await exec.run(`UPDATE runs SET status=$1, updated_at=$2 WHERE node_id=$3 AND status=$4`, RUN_STATUS.ERROR, db.now(), nodeId, RUN_STATUS.RUNNING);
+      const id = db.uid("run_");
+      await exec.run(
+        `INSERT INTO runs (id,flow_id,node_id,agent_ref,run_ref,attempt_id,lease_until,status,created_at,updated_at)
+         VALUES ($1,$2,$3,$4,$5,$6, now() + make_interval(secs => $7),$8,$9,$10)`,
+        id, flowId, nodeId, agentId, runId, attemptId, RUN_LEASE_SECONDS, RUN_STATUS.RUNNING, db.now(), db.now());
+      return id;
+    });
   }
 
-  async lastAgentId(nodeId: string): Promise<string | null> {
-    return (await db.get<{ agentRef: string }>(
+  async lastAgentId(nodeId: string, tx?: QueryExecutor): Promise<string | null> {
+    return (await executorFor(db, tx).get<{ agentRef: string }>(
       `SELECT agent_ref AS "agentRef" FROM runs WHERE node_id=$1 AND agent_ref<>$2 ORDER BY created_at DESC LIMIT 1`,
       nodeId, RUN_AGENT_REF.PENDING))?.agentRef ?? null;
   }
@@ -433,14 +435,15 @@ export class NodeSupport {
 
   // ── feed events ──────────────────────────────────────────────────────────
 
-  /** A flow-feed event of any type ("pipeline", "error", "log" — named
-   *  lifecycle transitions go through `emitLifecycle`). */
-  emit(flowId: string, nodeId: string | null, type: string, message: string, data?: Record<string, unknown>): Promise<void> {
-    return db.emitEvent(flowId, nodeId, type, message, data);
+  /** A flow-feed event of any type ("pipeline", "error", "log"); `tx` joins the
+   *  caller's completion transaction (step 06, Invariant 7). Named lifecycle
+   *  transitions go through `emitLifecycle`. */
+  emit(flowId: string, nodeId: string | null, type: string, message: string, data?: Record<string, unknown>, tx?: QueryExecutor): Promise<void> {
+    return db.emitEvent(flowId, nodeId, type, message, data, tx);
   }
 
   /** The lifecycle event: run transitions and state changes the UI trail is built from. */
-  emitLifecycle(flowId: string, nodeId: string | null, message: string, data?: Record<string, unknown>): Promise<void> {
-    return db.emitEvent(flowId, nodeId, EVENT_KIND.LIFECYCLE, message, data);
+  emitLifecycle(flowId: string, nodeId: string | null, message: string, data?: Record<string, unknown>, tx?: QueryExecutor): Promise<void> {
+    return db.emitEvent(flowId, nodeId, EVENT_KIND.LIFECYCLE, message, data, tx);
   }
 }

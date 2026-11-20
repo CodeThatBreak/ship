@@ -370,9 +370,7 @@ export abstract class NodeDefinition<I = unknown, O extends Record<string, unkno
     } else if (opts?.fenceSuperseded && node.status !== "running") {
       throw new RunSupersededError(node.id, node.status, "applyOutcome");
     }
-    if (outcome.artifact) {
-      await this.support.saveArtifact(node.id, ctx.flow.id, outcome.artifact.kind, outcome.artifact.content, outcome.artifact.meta);
-    }
+    // validation stays OUTSIDE the transaction (pure — nothing to batch)
     let validatedOutput: O;
     try {
       validatedOutput = this.outputSchema.parse(outcome.output);
@@ -385,23 +383,27 @@ export abstract class NodeDefinition<I = unknown, O extends Record<string, unkno
       }
       throw e;
     }
-    await this.support.publishOutcome({
-      flowId: ctx.flow.id,
-      nodeKey: node.nodeKey,
-      nodeId: node.id,
-      attemptId: opts?.fenceSuperseded && attemptId ? attemptId : undefined,
-      outcome: {
-        status: outcome.status,
-        output: validatedOutput,
-        agentId: await this.support.lastAgentId(node.id),
-      },
+    // The completion batch (step 06, Invariant 7): artifact + terminal + lifecycle
+    // event in ONE pure-DB transaction — a crash leaves no partial state.
+    await this.support.transaction(async (tx) => {
+      if (outcome.artifact) {
+        await this.support.saveArtifact(node.id, ctx.flow.id, outcome.artifact.kind, outcome.artifact.content, outcome.artifact.meta, undefined, tx);
+      }
+      await this.support.publishOutcome({
+        flowId: ctx.flow.id,
+        nodeKey: node.nodeKey,
+        nodeId: node.id,
+        attemptId: opts?.fenceSuperseded && attemptId ? attemptId : undefined,
+        outcome: {
+          status: outcome.status,
+          output: validatedOutput,
+          agentId: await this.support.lastAgentId(node.id, tx),
+        },
+        tx,
+      });
+      await this.support.emitLifecycle(ctx.flow.id, node.id,
+        opts?.note ? `${outcome.event} (${opts.note})` : outcome.event, outcome.eventData, tx);
     });
-    await this.support.emitLifecycle(
-      ctx.flow.id,
-      node.id,
-      opts?.note ? `${outcome.event} (${opts.note})` : outcome.event,
-      outcome.eventData,
-    );
     return { ...outcome, output: validatedOutput as Record<string, unknown> };
   }
 
@@ -413,7 +415,6 @@ export abstract class NodeDefinition<I = unknown, O extends Record<string, unkno
    */
   private async failOutputContract(ctx: FlowCtx, node: NodeRow, issues: string[], opts?: { attemptId?: string | null; fenceSuperseded?: boolean }): Promise<RunOutcome> {
     const message = `${node.nodeKey}: output contract violation — ${issues[0] ?? "the output did not satisfy its schema"}`;
-    await this.support.emit(ctx.flow.id, node.id, EVENT_KIND.OUTPUT_CONTRACT_VIOLATION, message, { nodeKey: node.nodeKey, issues });
     const failed: RunOutcome = {
       status: NODE_RUN_STATUS.FAILED,
       output: {},
@@ -421,14 +422,17 @@ export abstract class NodeDefinition<I = unknown, O extends Record<string, unkno
       eventData: { error: message, issues },
       reply: message,
     };
-    await this.support.publishOutcome({
-      flowId: ctx.flow.id,
-      nodeKey: node.nodeKey,
-      nodeId: node.id,
-      attemptId: opts?.fenceSuperseded ? opts.attemptId ?? undefined : undefined,
-      outcome: { status: failed.status, output: failed.output, agentId: await this.support.lastAgentId(node.id) },
+    // the violation batch (step 06, Invariant 7): typed event + failed terminal + lifecycle in one tx
+    await this.support.transaction(async (tx) => {
+      await this.support.emit(ctx.flow.id, node.id, EVENT_KIND.OUTPUT_CONTRACT_VIOLATION, message, { nodeKey: node.nodeKey, issues }, tx);
+      await this.support.publishOutcome({
+        flowId: ctx.flow.id, nodeKey: node.nodeKey, nodeId: node.id,
+        attemptId: opts?.fenceSuperseded ? opts.attemptId ?? undefined : undefined,
+        outcome: { status: failed.status, output: failed.output, agentId: await this.support.lastAgentId(node.id, tx) },
+        tx,
+      });
+      await this.support.emitLifecycle(ctx.flow.id, node.id, failed.event, failed.eventData, tx);
     });
-    await this.support.emitLifecycle(ctx.flow.id, node.id, failed.event, failed.eventData);
     return failed;
   }
 
