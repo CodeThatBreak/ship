@@ -45,7 +45,6 @@ const inSchemaHome = (rel: string): boolean =>
 const FROZEN_SCHEMA_OFFENDERS: readonly string[] = [
   "lib/engine/nodes/declarative.ts", // DeclarativeRowSchema boundary parse
   "lib/engine/nodes/declarativeSchemas.ts", // AgentDefSchema/DecisionDefSchema/HttpDefSchema/ScriptDefSchema — the declarative kind schemas, consolidated in step 04
-  "lib/engine/nodes/kinds/resolve/resolveNode.ts", // inline schema (resolve kind)
   "lib/engine/nodes/kinds/review/reviewComments.ts", // reviewCommentItemSchema
   "lib/engine/nodes/kinds/start/startNode.ts", // inline start-contract schema
   "lib/engine/nodes/shared/capabilities.ts", // DEFAULT_FANOUT_OUTPUT + DEFAULT_SPLIT_OUTPUT (z. schema consts; the split default moved here from the split runtime in step 04)

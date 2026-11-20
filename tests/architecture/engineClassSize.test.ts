@@ -40,7 +40,7 @@ const walk = (dir: string, out: string[] = []): string[] => {
  * that migrates it shrinks it under the ceiling. NOTHING is ever added.
  */
 const FROZEN_GIANTS: readonly string[] = [
-  "lib/engine/flowEngine.ts", // 1214 — facade carve-up (steps 02→07; approvals extracted in step 02)
+  "lib/engine/flowEngine.ts", // 1114 — facade carve-up (steps 02→07; approvals in step 02, chat/retry in step 05)
   "lib/engine/nodes/kinds/agent/agentNode.ts", // 576 — output pipeline migration (step 05)
   "lib/engine/nodes/kinds/build/buildNode.ts", // 569 — output pipeline migration (step 05)
   "lib/engine/nodes/kinds/plan/planContract.ts", // 515 — contract dedup (step 05)
@@ -70,7 +70,7 @@ describe("engineClassSize", () => {
     // a frozen giant may leave the list by shrinking under the ceiling; it may
     // NEVER grow. Pin each giant's current line count as its ceiling.
     const frozen = new Map<string, number>([
-      ["lib/engine/flowEngine.ts", 1214],
+      ["lib/engine/flowEngine.ts", 1114],
       ["lib/engine/nodes/kinds/agent/agentNode.ts", 576],
       ["lib/engine/nodes/kinds/build/buildNode.ts", 569],
       ["lib/engine/nodes/kinds/plan/planContract.ts", 515],

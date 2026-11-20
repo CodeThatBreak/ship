@@ -20,6 +20,7 @@ import { BuildRunSupport } from "./buildRunSupport";
 import { branchStore } from "./branchStore";
 import { splitUnitItemOf } from "./utils/splitUnitItem";
 import { parseBuildProgressReport } from "./utils/buildProgress";
+import { topoSortBranches } from "./utils/topoSortBranches";
 import { EVENT_KIND } from "../../../constants/vocabulary";
 import { BuildConsumes, BuildInput, BuildOutput, type BuildBranchInfo } from "./schema";
 import { type PlanBranch, parsePlanArtifactMeta, PlanOutput } from "../plan/schema";
@@ -177,7 +178,7 @@ export class BuildNode extends AgentRunNode<BuildInput, BuildOutput> {
     }
 
     if (branches && branches.length > 1) {
-      const sorted = BuildNode.topoSortBranches(branches);
+      const sorted = topoSortBranches(branches);
       // branch rows first (pending) — today's approvePlan behavior
       for (const [i, b] of sorted.entries()) {
         await branchStore.upsert(ctx.flow.id, b.name, { title: b.title, order: i, status: "pending" });
@@ -199,23 +200,6 @@ export class BuildNode extends AgentRunNode<BuildInput, BuildOutput> {
     return [{
       input: { plan: planContent, prompt: null, branchInfo: null, feedback: null, model: planModel ?? null },
     }];
-  }
-
-  /** Topologically sort branches by dependsOn. Simple DFS — safe for small N. */
-  static topoSortBranches(branches: PlanBranch[]): PlanBranch[] {
-    const byName = new Map(branches.map((b) => [b.name, b]));
-    const visited = new Set<string>();
-    const result: PlanBranch[] = [];
-    const visit = (name: string) => {
-      if (visited.has(name)) return;
-      visited.add(name);
-      const b = byName.get(name);
-      if (!b) return;
-      for (const dep of b.dependsOn ?? []) visit(dep);
-      result.push(b);
-    };
-    for (const b of branches) visit(b.name);
-    return result;
   }
 
   /**

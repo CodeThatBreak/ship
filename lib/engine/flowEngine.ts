@@ -12,7 +12,6 @@ import {
   type ChainRole,
   type FlowCtx,
 } from './nodes/shared/nodeSharedExports';
-import { CHAT_DECLINED, nodeRoles } from './nodes/shared/nodeRoles';
 import { nodeRegistry } from './nodes/registry';
 import './nodes/declarativeBootstrap';
 import { NODE_KEYS } from './constants/nodeKeys';
@@ -37,11 +36,6 @@ import { worktreeManager } from './runtime/worktreeLifecycle';
 import { engineParts, type EngineParts } from '../composition/container';
 import { processSingleton } from '../singleton';
 
-import { PlanInput } from './nodes/kinds/plan/schema';
-import {
-  PLAN_CHAT_READY_LIFECYCLE,
-  resolvePlanFailedRetryStatus,
-} from './nodes/kinds/plan/planRetryRevert';
 import { ConflictError, NotFoundError, ValidationError } from '../errors';
 import { RunSupersededError } from './errors/runSupersededError';
 import { CommentIngestor } from './runtime/commentIngestor';
@@ -50,30 +44,10 @@ import { FlowFactory, type CreateFlowOptions } from './runtime/flowFactory';
 import { FlowReadModel } from './runtime/flowReadModel';
 import { WaitStore } from './runtime/waits/waitStore';
 import { FlowApprovalService } from './flow/flowApprovalService';
+import { FlowChatService } from './flow/flowChatService';
+import { FlowRetryService } from './flow/flowRetryService';
 
 export type { CreateFlowOptions };
-
-/**
- * Built-in agent kinds whose retry REBUILDS the prompt from the current
- * template + recorded vars (step 05 retry coherence — the plan pattern):
- * their run input records the RENDERED final prompt, so replaying it verbatim
- * would pin the retry to the template as it stood when the run failed. The
- * recorded prompt keys are stripped and each def's run path re-resolves
- * (build/review/resolve/pipeline all fall back to `prompts.resolve`/
- * `assemblePrompt` when `input.prompt` is empty). Declarative agent/http/
- * script retries keep replaying their recorded prompt; plan retries route
- * through the chat-first branch above.
- */
-const PROMPT_REBUILD_RETRY_KEYS: ReadonlySet<string> = new Set([
-  NODE_KEYS.BUILD,
-  NODE_KEYS.STEP_BUILD,
-  NODE_KEYS.REVIEW,
-  NODE_KEYS.RESOLVE,
-  NODE_KEYS.PIPELINE,
-]);
-
-/** The engine-owned recorded-prompt keys a prompt-rebuilding retry strips. */
-const RECORDED_PROMPT_KEYS: readonly string[] = ["prompt", "promptIsBody", "prompt_source"];
 
 /** Flow-owned tables, in FK-safe delete order (children before `flows`).
  *  Keep in sync with `FLOW_CHILD_TABLES` in scripts/lib/seed-db.mjs. */
@@ -120,6 +94,8 @@ export class FlowEngine {
   private readonly comments: CommentIngestor;
   private readonly chain: SdlcChain;
   private readonly approvals: FlowApprovalService;
+  private readonly chats: FlowChatService;
+  private readonly retries: FlowRetryService;
 
   /** Engine parts are constructor-injected from the composition root (Q9). */
   constructor(parts: EngineParts = engineParts) {
@@ -133,6 +109,8 @@ export class FlowEngine {
     this.comments = new CommentIngestor(this, this.waits);
     this.chain = createSdlcChain(this);
     this.approvals = new FlowApprovalService(this);
+    this.chats = new FlowChatService(this);
+    this.retries = new FlowRetryService(this);
   }
 
   async create(taskId: string, repoUrl: string, name?: string, opts: CreateFlowOptions = {}): Promise<string> {
@@ -387,6 +365,18 @@ export class FlowEngine {
   async claimNode(flowId: string, nodeKey: string, key: TransitionKey): Promise<string> {
     const { attemptId } = await this.parts.transitions.claim(flowId, nodeKey, key);
     return attemptId;
+  }
+
+  /** The keyed transition wrapper for callers whose contract says the
+   *  from-set MUST hold (the retry service's plan-retry revert) — keyed
+   *  delegate to the authority. */
+  async applyOrThrow(
+    flowId: string,
+    nodeKey: string,
+    key: TransitionKey,
+    opts: { toStatus?: EngineNodeStatus; patch?: Record<string, unknown>; detail?: string } = {},
+  ): Promise<void> {
+    return this.parts.transitions.applyOrThrow(flowId, nodeKey, key, opts);
   }
 
   // fire-and-forget wrapper: runs, marks the node failed on error via the
@@ -964,105 +954,18 @@ export class FlowEngine {
     await this.retryNode(step.subFlowId, workNodeKey);
   }
 
+  // ── retry (FlowRetryService — lib/engine/flow/) ───────────────────────────
+
   /** Re-run a node after failure, using its recorded (schema-validated) input. */
   async retryNode(flowId: string, nodeKey: string): Promise<void> {
-    const node = await rows.get(NodeRow, `SELECT id, flow_id AS "flowId", node_key AS "nodeKey", type, status, attempt_id AS "attemptId", agent_id AS "agentId", agent_ref AS "agentRef", session_id AS "sessionId", label, config, join_mode AS "joinMode", input, output, created_at AS "createdAt", updated_at AS "updatedAt" FROM nodes WHERE flow_id=$1 AND node_key=$2`, flowId, nodeKey);
-    if (!node) throw new NotFoundError('node', nodeKey);
-    const def = await this.defOf(flowId, nodeKey);
-    if (!def.retryable) throw new ValidationError(`cannot retry node ${nodeKey}`);
-
-    // the recorded input is validated against the node's schema — retry fails
-    // fast with a clear error rather than running with a corrupt payload
-    const recorded = def.parseInput(node.input ?? {});
-    if (node.status === 'running') throw new ConflictError(`${nodeKey} is already running`);
-    if (node.status === 'waiting') {
-      throw new ConflictError(`${nodeKey} is waiting for its event source — retry after it resumes (or cancel it)`);
-    }
-    if ((await templateStore.chainNodeKeys(flowId)).includes(nodeKey) && (await this.chainBusy(flowId))) {
-      throw new ConflictError('wait for the current pipeline/review/resolve run to finish first');
-    }
-    if (def.capabilities.chatMode === 'plan') {
-      await this.retryPlanNode(flowId, nodeKey, node, def, PlanInput.parse(recorded));
-      return;
-    }
-
-    await this.parts.events.lifecycle(flowId, nodeKey, `retrying ${nodeKey}`);
-    await this.claimNode(flowId, nodeKey, 'retry');
-    this.bg(flowId, nodeKey, async () => {
-      // a retried node re-runs on its recorded input — with the recorded
-      // prompt stripped for the prompt-rebuilding kinds (step 05 retry
-      // coherence): the run path REBUILDS the prompt from the CURRENT
-      // template + the recorded vars. The recorded prompt itself stays
-      // persisted for audit/preview only.
-      // the pipeline gate self-heals (an already-green head finishes
-      // immediately) and a green gate then advances the template edges
-      // (review → debounced resolve)
-      const runInput = this.rebuildRetryInput(def, recorded) as typeof recorded;
-      await def.run(await this.ctx(flowId), runInput, await this.nodeConfigFor(flowId, nodeKey));
-      // a retried generic node that now succeeded advances the template
-      // edges exactly like the engine's auto-start path
-      const finalStatus = await this.nodeStatus(flowId, nodeKey);
-      if (await this.isStepChild(flowId)) {
-        // child-terminal notification hook (plan fan-out): the parent's
-        // scheduler/rollup reacts to the retried child's terminal state
-        await stepFlows.onChildFinished(flowId);
-        await splitManager.onChildFinished(flowId); // split runtime (§3) — no-op without split linkage
-      }
-      if (isNodeTerminalSuccess(finalStatus ?? '')) {
-        await this.advanceFrom(flowId, nodeKey);
-      }
-    });
+    await this.retries.retryNode(flowId, nodeKey);
   }
 
-  /** The input a retry runs on: the recorded input as-is, except the
-   *  prompt-rebuilding kinds (see the module constant) lose their recorded
-   *  prompt keys so the def's run path rebuilds from the current template. */
+  /** The input a retry runs on — the retry service owns the step-05
+   *  prompt-rebuild coherence; this private delegate keeps the engine-internal
+   *  seam the promptRetryRebuild characterization asserts through unchanged. */
   private rebuildRetryInput(def: NodeDefinition, recorded: unknown): unknown {
-    if (!PROMPT_REBUILD_RETRY_KEYS.has(def.key)) return recorded;
-    const stripped = { ...(recorded as Record<string, unknown>) };
-    for (const key of RECORDED_PROMPT_KEYS) delete stripped[key];
-    return stripped;
-  }
-
-  /** Plan retry: replay a recorded chat turn, or revert when nothing was recorded. */
-  private async retryPlanNode(
-    flowId: string,
-    nodeKey: string,
-    node: NodeRow,
-    def: NodeDefinition,
-    recorded: PlanInput
-  ): Promise<void> {
-    await this.parts.events.lifecycle(flowId, nodeKey, `retrying ${nodeKey}`);
-    const turnMessage = recorded.turnUserMessage?.trim();
-    if (!turnMessage) {
-      const revertStatus = resolvePlanFailedRetryStatus(
-        recorded,
-        (await this.latestResourceArtifact(flowId, NODE_KEYS.PLAN)) != null
-      );
-      await this.parts.transitions.applyOrThrow(flowId, nodeKey, 'planRetryRevert', { toStatus: revertStatus });
-      await this.parts.events.lifecycle(flowId, nodeKey, PLAN_CHAT_READY_LIFECYCLE);
-      await this.touch(flowId);
-      return;
-    }
-
-    await this.claimNode(flowId, nodeKey, 'retry');
-    this.bg(flowId, nodeKey, async () => {
-      const chatRefiner = nodeRoles.chatRefinerOf(def);
-      if (!chatRefiner) {
-        throw new ValidationError(`${nodeKey} does not accept chat replay`);
-      }
-      const chatResponse = await chatRefiner.turn(await this.ctx(flowId), turnMessage, {
-        model: recorded.model ?? undefined,
-        thread: recorded.planThread,
-      });
-      await db.addMessage(
-        flowId,
-        nodeKey,
-        'assistant',
-        chatResponse || 'Done.',
-        recorded.planThread ?? null
-      );
-    });
+    return this.retries.rebuildRetryInput(def, recorded);
   }
 
   /**
@@ -1097,6 +1000,8 @@ export class FlowEngine {
     }
   }
 
+  // ── chat (FlowChatService — lib/engine/flow/) ─────────────────────────────
+
   /**
    * Chat with a node's agent — routed through the §T4 role interfaces
    * (`nodeRoles`): `chatOnly` asks a Converser for a lightweight conversational
@@ -1104,45 +1009,7 @@ export class FlowEngine {
    * when its capabilities opt in, and declines otherwise.
    */
   async sendChat(flowId: string, nodeKey: string, content: string, model?: string, thread?: string | null): Promise<void> {
-    const def = await this.defOf(flowId, nodeKey);
-    await db.addMessage(flowId, nodeKey, 'user', content, thread ?? null);
-    // the pre-claim status decides "did THIS turn land a success terminal":
-    // the claim flips the node to running, so it must be read first
-    const preClaimStatus = await this.nodeStatus(flowId, nodeKey);
-    // a waiting node's durable wait clears itself: the chatRefine claim below
-    // leaves `waiting` through the authority, which clears wait_until
-    const wasSuccess = isNodeTerminalSuccess(preClaimStatus ?? '');
-    await this.claimNode(flowId, nodeKey, 'chatRefine');
-
-    this.bg(
-      flowId,
-      nodeKey,
-      async () => {
-        const flowCtx = await this.ctx(flowId);
-        const chatRefiner = nodeRoles.chatRefinerOf(def);
-
-        const chatResponse = !chatRefiner
-          ? CHAT_DECLINED
-          : await chatRefiner.turn(flowCtx, content, {
-              model,
-              thread,
-              // the claim already flipped the row to `running` — the turn
-              // needs the pre-claim status for its no-apply reverts
-              previousStatus: preClaimStatus,
-            });
-
-        await db.addMessage(flowId, nodeKey, 'assistant', chatResponse || 'Done.', thread);
-        // a refine turn that lands the node on a NEW success terminal
-        // (failed → done via feedback, a first-turn chat run) obeys the same
-        // terminal contract as retryNode / runNodeManual: advance the template
-        // edges so the flow never stalls behind a recovery typed in the chat
-        // panel. An already-successful node's refine (done → done) never
-        // re-advances — its downstream already consumed the prior output.
-        if (!wasSuccess && isNodeTerminalSuccess((await this.nodeStatus(flowId, nodeKey)) ?? '')) {
-          await this.advanceFrom(flowId, nodeKey);
-        }
-      },
-    );
+    await this.chats.sendChat(flowId, nodeKey, content, model, thread);
   }
 
   // ── Phase 4: triggers — flow start, webhooks, schedule, wait timers ──────
