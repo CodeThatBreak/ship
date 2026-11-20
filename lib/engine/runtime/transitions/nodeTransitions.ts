@@ -1,16 +1,17 @@
 import "server-only";
 
 import { db } from "../../../db/app";
-import type { Database } from "../../../db/database";
+import type { Database, QueryExecutor } from "../../../db/database";
 import { ConflictError } from "../../../errors";
 import { NODE_STATUS, type EngineNodeStatus } from "../../constants/nodeStatus";
 import { NODE_LEASE_SECONDS } from "../../constants/leases";
-import { RunSupersededError } from "../../errors/runSupersededError";
 import { NodeAttemptRegistry } from "../nodeAttemptRegistry";
 import { ContractPipeline } from "../contractPipeline";
 import { OutputContractError } from "../../errors/outputContractError";
 import { EVENT_KIND } from "../../constants/vocabulary";
 import { isClaimKey, resolveToStatus, sqlMarks } from "./utils/transitionLookup";
+import { executorFor } from "./utils/executor";
+import { supersededOrConflict } from "./utils/supersededOrConflict";
 import { TRANSITION_TABLE } from "./constants/transitionTable";
 import type {
   NodeOutcome,
@@ -262,7 +263,7 @@ export class TransitionAuthority {
       ...values,
     );
     if (changes !== 1) {
-      await this.supersededOrConflict(params.nodeId, params.attemptId, row.from, params.nodeKey);
+      await supersededOrConflict(this.database, params.nodeId, params.attemptId, row.from, params.nodeKey);
     }
     this.attempts.clear(params.nodeId);
     this.record(params.flowId, params.nodeKey, params.key, to);
@@ -284,6 +285,7 @@ export class TransitionAuthority {
     nodeId: string;
     attemptId?: string | null;
     outcome: NodeOutcome;
+    tx?: QueryExecutor;
   }): Promise<void> {
     const to = resolveToStatus("outcome", params.outcome.status);
     const row = TRANSITION_TABLE.outcome;
@@ -294,7 +296,8 @@ export class TransitionAuthority {
       }
     }
     const agentId = params.outcome.agentId ?? null;
-    const changes = await this.database.run(
+    const d = executorFor(this.database, params.tx);
+    const changes = await d.run(
       `UPDATE nodes SET status=$1, attempt_id=NULL, lease_until=NULL, output=$2::jsonb, agent_id=$3, updated_at=$4
        WHERE id=$5${params.attemptId ? ` AND attempt_id=$6` : ""} AND status IN (${sqlMarks(row.from, params.attemptId ? 7 : 6)})`,
       ...([
@@ -309,7 +312,7 @@ export class TransitionAuthority {
     );
     if (changes !== 1) {
       if (params.attemptId) {
-        await this.supersededOrConflict(params.nodeId, params.attemptId, row.from, params.nodeKey);
+        await supersededOrConflict(this.database, params.nodeId, params.attemptId, row.from, params.nodeKey);
       }
       throw new ConflictError(`Node ${params.nodeKey} is not in ${row.from.join("/")}`);
     }
@@ -334,6 +337,7 @@ export class TransitionAuthority {
     nodeKey: string,
     key: "fanoutOutcome" | "splitOutcome",
     outcome: { status: EngineNodeStatus; output: Record<string, unknown>; detail?: string; attemptId?: string | null },
+    tx?: QueryExecutor,
   ): Promise<boolean> {
     const to = resolveToStatus(key, outcome.status);
     const row = TRANSITION_TABLE[key];
@@ -368,7 +372,7 @@ export class TransitionAuthority {
       ...(fence ? [outcome.attemptId] : []),
       ...row.from,
     ];
-    const applied = await this.database.get<{ id: string }>(
+    const applied = await executorFor(this.database, tx).get<{ id: string }>(
       `UPDATE nodes SET status=$1, attempt_id=NULL, lease_until=NULL, output=$2::jsonb, updated_at=$3
        WHERE flow_id=$4 AND node_key=$5${attemptGuard} AND status IN (${sqlMarks(row.from, fence ? 7 : 6)})
        RETURNING id`,
@@ -377,7 +381,7 @@ export class TransitionAuthority {
     if (!applied) return false;
     this.attempts.clear(applied.id);
     const record = this.record(flowId, nodeKey, key, to);
-    await this.events.announcedTransition(record, outcome.detail);
+    await this.events.announcedTransition(record, outcome.detail, tx);
     return true;
   }
 
@@ -404,26 +408,6 @@ export class TransitionAuthority {
       issues: [...issues],
     });
     await this.failFromRunning(flowId, nodeKey);
-  }
-
-  /**
-   * Distinguish a superseded attempt from an undeclared from-state after a
-   * fenced write missed: the attempt token decides which error to throw.
-   */
-  private async supersededOrConflict(
-    nodeId: string,
-    attemptId: string,
-    from: readonly EngineNodeStatus[],
-    nodeKey: string,
-  ): Promise<never> {
-    const node = await this.database.get<{ attemptId: string | null; status: string }>(
-      `SELECT attempt_id AS "attemptId", status FROM nodes WHERE id=$1`,
-      nodeId,
-    );
-    if (!node || node.attemptId !== attemptId) {
-      throw new RunSupersededError(nodeId, node?.status ?? "unknown", attemptId);
-    }
-    throw new ConflictError(`Node ${nodeKey} is not in ${from.join("/")}`);
   }
 
   private record(

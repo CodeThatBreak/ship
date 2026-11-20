@@ -1,7 +1,7 @@
 import "server-only";
 
 import { db } from "../../../db/app";
-import type { Database } from "../../../db/database";
+import type { Database, QueryExecutor } from "../../../db/database";
 import { EVENT_KIND, type EventKind } from "../../constants/vocabulary";
 import { TRANSITION_MESSAGES } from "./constants/transitionMessages";
 import type { TransitionRecord } from "./types/transitions";
@@ -21,7 +21,7 @@ export class TransitionEvents {
   constructor(private readonly database: Database = db) {}
 
   /** A lifecycle line for an applied transition (message from the table's templates). */
-  async announcedTransition(record: TransitionRecord, detail?: string): Promise<void> {
+  async announcedTransition(record: TransitionRecord, detail?: string, tx?: QueryExecutor): Promise<void> {
     const template = TRANSITION_MESSAGES[record.key];
     if (template == null) return; // silent key — the call site owns richer context
     const message = template
@@ -30,7 +30,7 @@ export class TransitionEvents {
     await this.emit(record.flowId, record.nodeKey, EVENT_KIND.LIFECYCLE, message, {
       nodeKey: record.nodeKey,
       transition: record.key,
-    });
+    }, tx);
   }
 
   /** A lifecycle event addressed by node key (resolves the node id). */
@@ -63,13 +63,19 @@ export class TransitionEvents {
     await this.emit(flowId, nodeKey, EVENT_KIND.MR_FAILED, message, data);
   }
 
-  /** The typed emission primitive — `kind` is constrained to the catalog. */
+  /**
+   * The typed emission primitive — `kind` is constrained to the catalog.
+   * Pass `tx` to join the emission into a caller's completion transaction
+   * (step 06, Invariant 7 — the terminal write and its announcement land
+   * atomically or not at all).
+   */
   async emit(
     flowId: string,
     nodeKey: string | null,
     kind: EventKind,
     message: string,
     data?: Record<string, unknown>,
+    tx?: QueryExecutor,
   ): Promise<void> {
     const nodeId = nodeKey
       ? (await this.database.get<{ id: string }>(
@@ -78,6 +84,6 @@ export class TransitionEvents {
           nodeKey,
         ))?.id ?? null
       : null;
-    await this.database.emitEvent(flowId, nodeId, kind, message, data);
+    await this.database.emitEvent(flowId, nodeId, kind, message, data, tx);
   }
 }
