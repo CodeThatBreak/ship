@@ -2,61 +2,35 @@ import "server-only";
 
 import { z } from "zod";
 import type { NodeRow } from "../../../../db/rows";
-import { gitHostRegistry, type GitHostResolver, type HostJob } from "../../../ports/gitHost";
+import { gitHostRegistry, type GitHostResolver } from "../../../ports/gitHost";
 import { prompts } from "../../../prompts/promptLibrary";
 import { AgentRunNode, nodeRoles, nodeSupport, type FlowCtx, type NodePromptPreview, type PromptPreviewParams, type RunOutcome } from "../../shared/nodeSharedExports";
 import { flowCtxHelper, type FlowContextHelper } from "../../shared/runContext";
 import type { NodeSupport } from "../../shared/nodeSupport";
 import type { AgentRunner } from "../../../harness/harnessExports";
-import { RunSupersededError } from "../../../errors/runSupersededError";
-import type { RecoveryResult } from "../../shared/types/recovery";
 import type { NodeCapabilities } from "../../shared/capabilities";
 import { NODE_KEYS } from "../../../constants/nodeKeys";
 import type { ConfigField } from "../../../templates/nodeConfig";
-import { configBool, configNumber, configString, splitConsumerConfigFields } from "../../../templates/nodeConfig";
+import { configString, splitConsumerConfigFields } from "../../../templates/nodeConfig";
 import { splitConsumeSchema, splitParallelMaxSchema } from "../../shared/split";
-import { mrTargetResolver } from "../../shared/mrTargetResolver";
 import { PipelineConsumes, PipelineInput, PipelineOutput } from "./schema";
-import {
-  classifyHeadPipeline,
-  shouldDeferPipelineTrigger,
-  type HeadPipelineLookup,
-} from "./pipelineHead";
-
-/** Poll interval while waiting for a pipeline to reach a terminal state. */
-const POLL_MS_DEFAULT = 20_000;
-/** Give up waiting (node → failed, retryable) after this long. */
-const WAIT_TIMEOUT_MS_DEFAULT = 80 * 60_000;
-/** Max agent fix attempts before failing the node for manual intervention. */
-const MAX_FIX_ATTEMPTS_DEFAULT = 3;
-/** Max times we press "play" on manual jobs for one pipeline. */
-const MAX_MANUAL_PLAYS = 20;
-/** After a fix push: how long to wait for the push's new pipeline to appear on
- *  the MR head before triggering one ourselves (manual-CI projects never start
- *  one on push) — long enough for GitLab to attach it, short enough to keep
- *  the loop moving when it never comes. */
-const FIX_PIPELINE_GRACE_MS = 2 * 60_000;
-
-const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
-
-/** Prompt template used for fix runs (kept as a customizable template in settings). */
-const FIX_PROMPT_KEY = "pipeline_fix";
+import type { AgentRunResult } from "../../../ports/agentPort";
+import type { RecoveryResult } from "../../shared/types/recovery";
+import type { GateProgress } from "./types/gateProgress";
+import { GateFixRunner } from "./gateFixRunner";
+import { GateProgressStore } from "./gateProgressStore";
+import { GateWaitLoop } from "./gateWaitLoop";
+import { FIX_PROMPT_KEY, MAX_FIX_ATTEMPTS_DEFAULT, POLL_MS_DEFAULT, WAIT_TIMEOUT_MS_DEFAULT } from "./constants/waiting";
 
 /**
- * The CI gate between code changes and review: ensure a pipeline exists for
- * the MR head (triggering one via the GitLab API when none starts on its own —
- * e.g. manual-CI projects), wait for green, and when it fails run a fix agent
- * (reading failed job logs, pushing to the same branch), looping until the
- * pipeline is green. Review only starts after this node is done.
- *
- * Robustness rules that keep the flow moving and the UI truthful:
- *  - every cycle re-reads the MR's *head* pipeline; when the watched pipeline
- *    is superseded by a newer head (a push, a retry, a manual trigger from
- *    GitLab), the gate switches to the head instead of flapping on a stale id.
- *  - a `manual`/`blocked` pipeline is driven forward by playing its manual
- *    jobs via the API (bounded) rather than sitting until the deadline.
- *  - an already-green head finishes immediately, so a retry after a timeout
- *    self-heals instead of re-waiting.
+ * PipelineNode — the CI gate between code changes and review (the thin def
+ * half of the step-05 decomposition): triggerRuns-less; `run` folds the
+ * prompt-body knob, records the input, and drives the {@link GateWaitLoop}
+ * with a fresh progress snapshot; `recover` re-enters the SAME loop from the
+ * durable {@link GateProgress} snapshot (step 05, Invariant 9) instead of
+ * failing the node. The loop owns the polling/supersede/manual-play rules;
+ * {@link GateFixRunner} owns the fix-agent runs; {@link GateProgressStore}
+ * owns the durable state.
  */
 export class PipelineNode extends AgentRunNode<
   PipelineInput,
@@ -147,147 +121,26 @@ export class PipelineNode extends AgentRunNode<
     ...splitConsumerConfigFields,
   ] as const satisfies readonly ConfigField[];
 
-  private readonly gitHosts: GitHostResolver;
+  private readonly waitLoop: GateWaitLoop;
+  private readonly progressStore: GateProgressStore;
 
   constructor(
     support: NodeSupport = nodeSupport,
     runner?: AgentRunner,
     ctxHelper: FlowContextHelper = flowCtxHelper,
     gitHosts: GitHostResolver = gitHostRegistry,
+    /** test seam: milliseconds-scale poll/timeout for the wait loop (step 05) */
+    timing: { pollMs?: number; timeoutMin?: number } = {},
   ) {
     super(support, runner, ctxHelper);
-    this.gitHosts = gitHosts;
-  }
-
-  /** Resolve the MR (iid + git branch) this gate watches — per-branch or flow-level. */
-  private async resolveMr(
-    ctx: FlowCtx,
-    branchName?: string | null,
-  ): Promise<{ mrIid: number; mrBranch: string | null }> {
-    return mrTargetResolver.resolve(ctx, branchName);
-  }
-
-  /**
-   * The MR's current head pipeline, validated against the MR's head sha.
-   * This is the single source of truth for "what should the gate be watching":
-   * a pipeline for an older sha is stale (a push superseded it) and treated as
-   * "no pipeline" so a fresh one gets triggered.
-   */
-  private async headPipeline(ctx: FlowCtx, mrIid: number): Promise<HeadPipelineLookup> {
-    const repoUrl = ctx.flow.repoUrl ?? "";
-    const host = await this.gitHosts.forRepo(repoUrl);
-    let crFailed = false;
-    let cr: Awaited<ReturnType<typeof host.getChangeRequest>> | null = null;
-    try {
-      cr = await host.getChangeRequest(repoUrl, mrIid);
-    } catch {
-      crFailed = true;
-    }
-    const hp = cr?.headPipeline;
-    if (crFailed || !hp) {
-      return classifyHeadPipeline(cr, crFailed, null, false);
-    }
-    let pipeFailed = false;
-    let pipe: Awaited<ReturnType<typeof host.getPipeline>> | null = null;
-    try {
-      pipe = await host.getPipeline(repoUrl, hp.id);
-    } catch {
-      pipeFailed = true;
-    }
-    return classifyHeadPipeline(cr, false, pipe, pipeFailed);
-  }
-
-  /**
-   * Trigger a pipeline for the MR via the GitLab API — MR (merged-results)
-   * pipeline first, plain branch pipeline as fallback. Returns the new
-   * pipeline id, or null when GitLab refuses (CI rules) — then we keep
-   * waiting for a human-started pipeline until the deadline.
-   */
-  private async triggerPipeline(
-    ctx: FlowCtx,
-    mrIid: number,
-    mrBranch: string | null,
-    nodeId: string,
-  ): Promise<number | null> {
-    const repoUrl = ctx.flow.repoUrl ?? "";
-    const host = await this.gitHosts.forRepo(repoUrl);
-    const errMsg = (e: unknown) =>
-      (e instanceof Error ? e.message : String(e)).slice(0, 300);
-    await this.support.emitLifecycle(
-      ctx.flow.id,
-      nodeId,
-      `no pipeline found for ${mrBranch ?? "the MR"} — triggering one via the git host API…`,
+    this.progressStore = new GateProgressStore(support);
+    this.waitLoop = new GateWaitLoop(
+      support,
+      gitHosts,
+      new GateFixRunner(support, runner, ctxHelper, gitHosts),
+      this.progressStore,
+      timing,
     );
-    try {
-      const p = await host.createCRPipeline(repoUrl, mrIid);
-      await this.support.emitLifecycle(
-        ctx.flow.id,
-        nodeId,
-        `pipeline #${p.id} triggered (merge-request pipeline)`,
-      );
-      return p.id;
-    } catch (e1) {
-      if (!mrBranch) {
-        await this.support.emit(
-          ctx.flow.id,
-          nodeId,
-          "error",
-          `could not trigger a pipeline: ${errMsg(e1)} — start it manually from the git host`,
-        );
-        return null;
-      }
-      try {
-        const p = await host.createPipeline(repoUrl, mrBranch);
-        await this.support.emitLifecycle(
-          ctx.flow.id,
-          nodeId,
-          `pipeline #${p.id} triggered (branch pipeline)`,
-        );
-        return p.id;
-      } catch (e2) {
-        await this.support.emit(
-          ctx.flow.id,
-          nodeId,
-          "error",
-          `could not trigger a pipeline via the git host API: ${errMsg(e2)} — start it manually from the git host or check the project's CI rules`,
-        );
-        return null;
-      }
-    }
-  }
-
-  /**
-   * Drive a `manual`/`blocked` pipeline forward: play its pending manual jobs
-   * via the API. Returns how many jobs were played this cycle. Failures are
-   * logged but non-fatal — the next cycle re-reads the pipeline anyway.
-   */
-  private async playManualJobs(
-    ctx: FlowCtx,
-    nodeId: string,
-    pipelineId: number,
-  ): Promise<number> {
-    const repoUrl = ctx.flow.repoUrl ?? "";
-    const host = await this.gitHosts.forRepo(repoUrl);
-    const jobs = (await host
-      .listPipelineJobs(repoUrl, pipelineId)
-      .catch(() => [])) as HostJob[];
-    const playable = jobs.filter((j) => j.manual);
-    let played = 0;
-    for (const j of playable) {
-      const ok = await host
-        .playJob(repoUrl, j.id)
-        .then(() => true)
-        .catch(() => false);
-      if (ok) {
-        played++;
-        await this.support.emitLifecycle(
-          ctx.flow.id,
-          nodeId,
-          `played manual job "${j.name}" (#${j.id}) on pipeline #${pipelineId}`,
-        );
-      }
-    }
-    return played;
   }
 
   /**
@@ -317,21 +170,6 @@ export class PipelineNode extends AgentRunNode<
     input: PipelineInput,
     config: Record<string, unknown>,
   ): Promise<RunOutcome> {
-    const pollMs =
-      configNumber(config, "poll_interval_sec", POLL_MS_DEFAULT / 1000) * 1000;
-    const maxFixAttempts = configNumber(
-      config,
-      "max_fix_attempts",
-      MAX_FIX_ATTEMPTS_DEFAULT,
-    );
-    const gateTimeoutMin = configNumber(
-      config,
-      "gate_timeout_min",
-      WAIT_TIMEOUT_MS_DEFAULT / 60_000,
-    );
-    const playManualJobs = configBool(config, "play_manual_jobs", true);
-    const { mrIid, mrBranch } = await this.resolveMr(ctx, input.branchName);
-
     // the fix-run prompt-body knob folds into the per-run prompt override path
     if (!input.prompt) {
       const body = configString(config, "fix_prompt_body");
@@ -345,301 +183,15 @@ export class PipelineNode extends AgentRunNode<
     const label = input.branchName
       ? `pipeline (${input.branchName})`
       : "pipeline";
-    let watchedId = input.pipelineId ?? null;
-    let lastSeen: string | null = null; // "<id>:<status>" — emit only on change
-    const fixedIds = new Set<number>(); // pipelines we already ran a fix for — superseded
-    let triggerAttempted = false; // one API trigger per "no pipeline" episode
-    let fixWaitStart: number | null = null; // set when a fix push completes — grace before API trigger
-    let headLookupWarned = false;
-    const manualPlays = new Map<number, { plays: number; warned: boolean }>(); // per-pipeline manual-job play state
-    let fixes = 0;
-    const deadline = Date.now() + gateTimeoutMin * 60_000;
-
-    for (;;) {
-      // user cancelled / retry started while we were waiting — stop quietly
-      const statusNow = await this.support.nodeStatus(node.id);
-      if (statusNow !== "running") throw new Error("pipeline wait cancelled");
-
-      // Always re-read the MR head: the watched pipeline can be superseded by a
-      // push, a retry, or a pipeline started from the GitLab UI — the head is
-      // the only status worth reporting.
-      const headLookup = await this.headPipeline(ctx, mrIid);
-      if (headLookup.kind === "error" && !headLookupWarned) {
-        headLookupWarned = true;
-        await this.support.emitLifecycle(
-          ctx.flow.id,
-          node.id,
-          "could not read the MR head pipeline from the git host — retrying without triggering a new pipeline",
-        );
-      }
-      if (headLookup.kind !== "error") headLookupWarned = false;
-
-      const head = headLookup.kind === "ok" ? headLookup.pipe : null;
-      const inFixGrace =
-        fixWaitStart != null && Date.now() - fixWaitStart < FIX_PIPELINE_GRACE_MS;
-      if (fixWaitStart != null && !inFixGrace) fixWaitStart = null;
-      if (head && fixWaitStart != null) fixWaitStart = null;
-
-      let pipe = watchedId
-        ? await (await this.gitHosts.forRepo(ctx.flow.repoUrl ?? ""))
-              .getPipeline(ctx.flow.repoUrl ?? "", watchedId)
-              .catch(() => null)
-        : null;
-      // switch to the head when it's newer/different — stops the watched id
-      // from dragging the UI back to a stale/failed state
-      if (head && (!pipe || head.id !== pipe.id)) {
-        if (pipe && pipe.id !== head.id && !fixedIds.has(pipe.id)) {
-          await this.support.emitLifecycle(
-            ctx.flow.id,
-            node.id,
-            `pipeline #${pipe.id} superseded by head pipeline #${head.id} — watching the head`,
-          );
-        }
-        pipe = head;
-        watchedId = head.id;
-      }
-      // a pipeline we already fixed must not re-enter the fix loop — during the
-      // post-fix grace window wait for the push's new head pipeline instead.
-      if (pipe != null && fixedIds.has(pipe.id)) {
-        if (inFixGrace || headLookup.kind === "stale") {
-          pipe = null;
-          watchedId = null;
-        }
-      }
-
-      if (pipe) {
-        watchedId = pipe.id;
-        triggerAttempted = false;
-        fixWaitStart = null;
-        const seen = `${pipe.id}:${pipe.status}`;
-        if (seen !== lastSeen) {
-          lastSeen = seen;
-          await this.support.emit(
-            ctx.flow.id,
-            node.id,
-            "pipeline",
-            `pipeline #${pipe.id}: ${pipe.status}`,
-            {
-              status: pipe.status,
-              id: pipe.id,
-              branchName: input.branchName ?? undefined,
-            },
-          );
-        }
-
-        if (pipe.status === "success") {
-          const output = this.outputSchema.parse({
-            pipelineId: pipe.id,
-            status: pipe.status,
-            fixes,
-            branchName: input.branchName ?? undefined,
-          });
-          return await this.applyOutcome(ctx, {
-            status: "done",
-            output,
-            event: `pipeline #${pipe.id} green${fixes ? ` after ${fixes} fix run(s)` : ""} — ready for review`,
-            reply: `Pipeline #${pipe.id} succeeded${fixes ? ` after ${fixes} fix run(s)` : ""}.`,
-          });
-        }
-
-        if (pipe.status === "failed") {
-          if (fixes >= maxFixAttempts) {
-            const msg = `pipeline #${pipe.id} still failing after ${maxFixAttempts} fix run(s) — fix manually or retry`;
-            const output = this.outputSchema.parse({
-              pipelineId: pipe.id,
-              status: pipe.status,
-              fixes,
-              branchName: input.branchName ?? undefined,
-            });
-            return await this.applyOutcome(ctx, {
-              status: "failed",
-              output,
-              event: msg,
-              eventData: { pipelineId: pipe.id, error: msg },
-              reply: msg,
-            });
-          }
-          fixes++;
-          fixedIds.add(pipe.id);
-          await this.runFix(
-            ctx,
-            node,
-            input,
-            pipe.id,
-            mrBranch,
-            fixes,
-            maxFixAttempts,
-            label,
-          );
-          fixWaitStart = Date.now();
-          watchedId = null; // the fix pushed new commits — re-read the head pipeline
-          continue;
-        }
-
-        if (pipe.status === "canceled" || pipe.status === "skipped") {
-          const msg = `pipeline #${pipe.id} was ${pipe.status} — retry the pipeline node after starting a new pipeline`;
-          return await this.applyOutcome(ctx, {
-            status: "failed",
-            output: this.outputSchema.parse({
-              pipelineId: pipe.id,
-              status: pipe.status,
-              fixes,
-              branchName: input.branchName ?? undefined,
-            }),
-            event: msg,
-            eventData: { pipelineId: pipe.id, error: msg },
-            reply: msg,
-          });
-        }
-
-        // created | waiting_for_resource | preparing | pending | running → keep waiting
-        // manual | blocked → drive it forward by playing manual jobs (bounded)
-        if (pipe.status === "manual" || pipe.status === "blocked") {
-          const state = manualPlays.get(pipe.id) ?? { plays: 0, warned: false };
-          if (playManualJobs && state.plays < MAX_MANUAL_PLAYS) {
-            const played = await this.playManualJobs(ctx, node.id, pipe.id);
-            state.plays += played;
-            if (played === 0 && !state.warned) {
-              // nothing playable — some manual jobs need a human in the GitLab UI
-              state.warned = true;
-              await this.support.emitLifecycle(
-                ctx.flow.id,
-                node.id,
-                `pipeline #${pipe.id} is waiting on manual job(s) — playing them via the API; if none start, run them from GitLab`,
-              );
-            }
-            manualPlays.set(pipe.id, state);
-          }
-        }
-      } else if (
-        configBool(config, "auto_trigger_pipeline", true) &&
-        !watchedId &&
-        !triggerAttempted &&
-        !shouldDeferPipelineTrigger(headLookup, inFixGrace)
-      ) {
-        // no pipeline on the MR head (manual-CI projects don't start one on
-        // push) — start it via the API, exactly once per episode. After a fix
-        // push this only fires once the grace period elapsed without a new
-        // head pipeline appearing.
-        triggerAttempted = true;
-        watchedId = await this.triggerPipeline(ctx, mrIid, mrBranch, node.id);
-      }
-
-      if (Date.now() > deadline) {
-        const last = lastSeen?.split(":");
-        let output: Record<string, unknown> | undefined;
-        if (last) {
-          output = this.outputSchema.parse({
-            pipelineId: Number(last[0]),
-            status: last[1],
-            fixes,
-            branchName: input.branchName ?? undefined,
-          });
-        }
-        const msg = `timed out waiting for the pipeline on ${mrBranch ?? "the MR"} — retry the pipeline node`;
-        return await this.applyOutcome(ctx, {
-          status: "failed",
-          output: output ?? {},
-          event: msg,
-          reply: msg,
-        });
-      }
-      // durable wait liveness (step 03): the gate has no run row while it polls —
-      // each iteration re-extends the node lease so the reconciler sees it alive
-      await this.support.heartbeatLeases(node.id, null);
-      await sleep(pollMs);
-    }
-  }
-
-  /** Run the fix agent against a failed pipeline: fetch logs, prompt, execute. */
-  private async runFix(
-    ctx: FlowCtx,
-    node: NodeRow,
-    input: PipelineInput,
-    pipelineId: number,
-    mrBranch: string | null,
-    attempt: number,
-    maxFixAttempts: number,
-    label: string,
-  ): Promise<void> {
-    const jobs = await (
-      await this.gitHosts.forRepo(ctx.flow.repoUrl ?? "")
-    ).listPipelineJobs(ctx.flow.repoUrl ?? "", pipelineId);
-    const failed = jobs.filter((j: HostJob) => j.status === "failed");
-    let logs = "";
-    for (const j of failed.slice(0, 3)) {
-      const trace = await (
-        await this.gitHosts.forRepo(ctx.flow.repoUrl ?? "")
-      )
-        .getJobTrace(ctx.flow.repoUrl ?? "", j.id)
-        .catch(() => "");
-      logs += `\n\n===== job ${j.name} (#${j.id}) =====\n${trace.slice(-8000)}`;
-    }
-
-    const mode = this.ctxHelper.execMode(ctx);
-    const instructions =
-      mode === "local" ? `Start by checking out branch ${mrBranch}.` : "";
-    const guidance = input.guidance
-      ? `Developer guidance: ${input.guidance}`
-      : "";
-
-    // byte-parity rule (I7): internal-block whitespace is normalized inside
-    // PromptLibrary — no per-node collapse, preview and run stay identical
-    const prompt = input.prompt
-      ? input.promptIsBody
-        ? prompts.assemblePrompt(
-            FIX_PROMPT_KEY,
-            { branch: mrBranch ?? "", pipelineId: String(pipelineId) },
-            { instructions, guidance, logs: logs || "(logs unavailable)" },
-            { body: input.prompt },
-          ).final
-        : input.prompt
-      : prompts.resolve(
-          FIX_PROMPT_KEY,
-          { branch: mrBranch ?? "", pipelineId: String(pipelineId) },
-          { instructions, guidance, logs: logs || "(logs unavailable)" },
-        );
-
-    await this.support.emitLifecycle(
-      ctx.flow.id,
-      node.id,
-      `pipeline #${pipelineId} failed — fix run ${attempt}/${maxFixAttempts}`,
-      { pipelineId, attempt },
-    );
-
-    let result: Awaited<ReturnType<typeof this.runner.executeRun>>;
-    try {
-      result = await this.runner.executeRun(
-        ctx,
-        node.id,
-        () =>
-          this.runner.startAgent(ctx, {
-            prompt,
-            mode: "agent",
-            name: `${label} fix ${ctx.task.key}`,
-            startingRef: mrBranch ?? undefined,
-            model: input.model,
-          }),
-        `${label} fix`,
-      );
-    } catch (e) {
-      if (e instanceof RunSupersededError) return;
-      throw e;
-    }
-
-    await this.support.saveArtifact(
-      node.id,
-      ctx.flow.id,
-      "fix",
-      result.result.result ?? "",
-      { pipelineId, attempt },
-    );
-    await this.support.emitLifecycle(
-      ctx.flow.id,
-      node.id,
-      `fix run ${attempt} pushed to ${mrBranch} — waiting for the new pipeline`,
-      { pipelineId },
-    );
+    return this.waitLoop.run({
+      ctx,
+      node,
+      input,
+      config,
+      label,
+      progress: GateWaitLoop.fresh(),
+      finish: (outcome) => this.applyOutcome(ctx, outcome),
+    });
   }
 
   override async chat(ctx: FlowCtx, content: string, model?: string): Promise<string> {
@@ -677,12 +229,42 @@ export class PipelineNode extends AgentRunNode<
   }
 
   /**
-   * A pipeline wait interrupted mid-run cannot be resumed yet (step 05 lands
-   * the durable gate progress + resumable wait) — manual, with the reason the
-   * trail shows; the retry re-reads the current head pipeline, so
-   * already-green pipelines finish immediately.
+   * Restart recovery re-enters the wait from the durable progress (step 05,
+   * Invariant 9): the loop resumes with its persisted budget (`fixes`,
+   * `manualPlays`, `lastSeen`) and ORIGINAL deadline, and publishes the
+   * terminal through the one outcome path. No persisted progress (or an
+   * unparseable one) is `manual` with the reason — never a fabricated fresh
+   * wait that would re-spend the fix budget.
+   *
+   * Cadence note: the resumed loop runs to its terminal inside this call (the
+   * lease heartbeat inside the loop keeps the reconciler from re-recovering a
+   * live gate); the reconciler pass therefore takes as long as the remaining
+   * wait — flagged for the step-06 concurrency pass.
    */
-  async recover(): Promise<RecoveryResult> {
-    return { kind: "manual", reason: "the pipeline wait cannot resume mid-loop — retry the node; an already-green head pipeline finishes immediately" };
+  async recover(ctx: FlowCtx, node: NodeRow, _result: AgentRunResult, note: string): Promise<RecoveryResult> {
+    void _result;
+    let progress: GateProgress;
+    try {
+      const loaded = await this.progressStore.load(ctx);
+      if (!loaded) {
+        return { kind: "manual", reason: "no durable gate progress to resume — retry the node (an already-green head pipeline finishes immediately)" };
+      }
+      progress = loaded;
+    } catch (e: unknown) {
+      return { kind: "manual", reason: `the persisted gate progress is unparseable: ${e instanceof Error ? e.message : String(e)}` };
+    }
+    const input = this.inputSchema.parse(node.input ?? {});
+    const config = await this.nodeConfig(ctx);
+    const label = input.branchName ? `pipeline (${input.branchName})` : "pipeline";
+    const outcome = await this.waitLoop.run({
+      ctx,
+      node,
+      input,
+      config,
+      label,
+      progress,
+      finish: (o) => this.applyOutcome(ctx, o, { note: `recovered: ${note}` }),
+    });
+    return { kind: "recovered" };
   }
 }

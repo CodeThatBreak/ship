@@ -40,7 +40,6 @@ import { isHookRejection } from "../mergeRequest/errors";
 import { ResolveConsumes, ResolveInput, ResolveOutput, RESOLVE_RESPONSE_JSON_SCHEMA } from "./schema";
 import { ResolveEffects } from "./resolveEffects";
 import { ResolveOutputContract } from "./resolveContract";
-import { RETRYABLE_OUTPUT_ERRORS } from "../../shared/agentOutput/constants/agentOutput";
 import { PUSH_STATE } from "./constants/pushState";
 import type { ResolveAgentResponse, ResolveCommentDecision } from "./schema";
 import type { ResolveEffectLedger } from "./types/resolveEffects";
