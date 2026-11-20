@@ -12,7 +12,7 @@ assignTestDatabase();
 
 beforeAll(resetTestDatabase);
 
-const { AgentTemplateNode } = await import("./kinds/agent/agentNode");
+const { AgentTemplateNode } = await import("./kinds/agent/agentTemplateNode");
 const { DecisionTemplateNode } = await import("./kinds/decision/decisionNode");
 const { nodeRoles } = await import("./shared/nodeRoles");
 import type { FlowCtx } from "./shared/nodeSharedExports";

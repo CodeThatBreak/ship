@@ -10,7 +10,7 @@
  *  - decision case-mismatched label ⇒ today case-insensitively salvaged
  *    (`decisionNode.ts:334-336`).
  *  - agent markdown empty ⇒ today the fabricated `"(empty response)"`
- *    (`agentNode.ts:559`).
+ *    (`agentNode.ts:559` — now `agentOutcome.ts`, the empty-markdown guard).
  *
  * Runs against the isolated dockerized Postgres test database
  * (AGENTS.md §1 — never a demo/real DB).

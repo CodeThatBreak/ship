@@ -33,20 +33,16 @@ const walk = (dir: string, out: string[] = []): string[] => {
 };
 
 /**
- * Frozen giants (append-frozen, shrink-only). The named god classes the
- * overhaul decomposes (flowEngine, stepFlowManager, splitManager,
- * pipelineNode, buildNode, resolveNode, edgeActivator) plus the other current
- * over-ceiling modules frozen at step 00. Each leaves the list when the step
- * that migrates it shrinks it under the ceiling. NOTHING is ever added.
+ * Frozen giants (append-frozen, shrink-only). Each leaves the list when the
+ * step that migrates it shrinks it under the ceiling. NOTHING is ever added.
+ *
+ * Step 09 close-out: every giant was decomposed except ONE documented
+ * exception — `templateStore.ts`, the template persistence store, whose
+ * decomposition is deferred (tracked as follow-up work); it may shrink but
+ * never grow.
  */
 const FROZEN_GIANTS: readonly string[] = [
-  // step 07: flowEngine's facade collapsed to composition + delegation (449) — exited the list
-  "lib/engine/nodes/kinds/agent/agentNode.ts", // 576 — output pipeline migration (step 05)
-  "lib/engine/nodes/kinds/build/buildNode.ts", // 569→557 — output pipeline migrated (step 05); below-450 split deferred, stays listed with this note
-  "lib/engine/nodes/kinds/plan/planContract.ts", // 515 — contract dedup (step 05)
-  "lib/engine/runtime/worktreeLifecycle.ts", // 567 — worktree decomposition (step 03/05)
-  "lib/engine/templates/templateLint.ts", // 712 — lint split as contract checks land (step 04)
-  "lib/engine/templates/templateStore.ts", // 1268 — store decomposition (step 04+)
+  "lib/engine/templates/templateStore.ts", // 1268 — the one documented step-09 exception (store decomposition deferred)
 ];
 
 const giantsOver = (): string[] => {
@@ -67,12 +63,7 @@ describe("engineClassSize", () => {
   it("the frozen giants only ever shrink (none grew past its frozen size)", () => {
     // a frozen giant may leave the list by shrinking under the ceiling; it may
     // NEVER grow. Pin each giant's current line count as its ceiling.
-const frozen = new Map<string, number>([
-  ["lib/engine/nodes/kinds/agent/agentNode.ts", 576],
-      ["lib/engine/nodes/kinds/build/buildNode.ts", 569],
-      ["lib/engine/nodes/kinds/plan/planContract.ts", 515],
-      ["lib/engine/runtime/worktreeLifecycle.ts", 567],
-      ["lib/engine/templates/templateLint.ts", 712],
+    const frozen = new Map<string, number>([
       ["lib/engine/templates/templateStore.ts", 1268],
     ]);
     const over: string[] = [];

@@ -6,7 +6,7 @@ import { flowEngine } from "@/lib/engine/flowEngine";
 import { nodeRegistry } from "@/lib/engine/nodes/registry";
 import { parseStartContract } from "@/lib/engine/nodes/kinds/start/contract";
 import { taskRegistry } from "@/lib/engine/tasks/registry";
-import { outputFieldsFor } from "@/lib/engine/templates/templateLint";
+import { outputFieldsFor } from "@/lib/engine/templates/outputFields";
 import { templateStore } from "@/lib/engine/templates/templateStore";
 import { evalJsonata } from "@/lib/jsonata/eval";
 

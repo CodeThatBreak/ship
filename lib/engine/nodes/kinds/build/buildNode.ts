@@ -5,31 +5,35 @@ import type { NodeRow } from "../../../../db/rows";
 import type { AgentRunResult } from "../../../ports/agentPort";
 import type { RecoveryResult } from "../../shared/types/recovery";
 import { prompts } from "../../../prompts/promptLibrary";
-import { untrustedData } from "../../../prompts/untrustedData";
-import { planSteps } from "../../../runtime/planStepStore";
 import { agentRunner, type AgentRunner } from "../../../harness/harnessExports";
 import { AgentRunNode, flowCtxHelper, nodeRoles, type FlowContextHelper, type FlowCtx, type NodePromptPreview, type NodeTriggerRun, type RunOutcome } from "../../shared/nodeSharedExports";
 import { DEFAULT_FANOUT_OUTPUT, type NodeCapabilities } from "../../shared/capabilities";
 import { NODE_KEYS, STEP_BUILD_TEMPLATE_ID } from "../../../constants/nodeKeys";
 import type { ConfigField } from "../../../templates/nodeConfig";
-import { DEFAULT_MCP_SOURCES, configString, fanoutConfigFields, mcpSourcesOf, mcpSourcesSchema, mcpSourceConfigFields, splitConsumerConfigFields } from "../../../templates/nodeConfig";
+import { configString, DEFAULT_MCP_SOURCES, fanoutConfigFields, mcpSourcesOf, mcpSourcesSchema, mcpSourceConfigFields, splitConsumerConfigFields } from "../../../templates/nodeConfig";
 import { splitConsumeSchema, splitParallelMaxSchema } from "../../shared/split";
 import type { NodeSupport } from "../../shared/nodeSupport";
 import { nodeSupport } from "@/lib/composition/container";
 import { BuildRunSupport } from "./buildRunSupport";
 import { branchStore } from "./branchStore";
-import { splitUnitItemOf } from "./utils/splitUnitItem";
-import { parseBuildProgressReport } from "./utils/buildProgress";
-import { topoSortBranches } from "./utils/topoSortBranches";
-import { EVENT_KIND } from "../../../constants/vocabulary";
+import { BuildTriggerPlanner } from "./buildTriggerPlanner";
+import { BuildPromptAssembler } from "./buildPromptAssembler";
+import { BuildFinalizer } from "./buildFinalizer";
 import { AGENT_TOOL_SETS } from "../../../agentTools/constants/agentTools";
-import { BuildConsumes, BuildInput, BuildOutput, type BuildBranchInfo } from "./schema";
-import { type PlanBranch, parsePlanArtifactMeta, PlanOutput } from "../plan/schema";
+import { BuildConsumes, BuildInput, BuildOutput } from "./schema";
 
 /**
  * The build def (the SDLC chain's code stage): triggerRuns materializes the
  * approved plan (whole / multi-branch sequential), the fan-out manager owns
  * step children, and a split child consumes its unit via `splitUnitItemOf`.
+ *
+ * Composition (engine overhaul §12): the def is a thin orchestrator over its
+ * collaborators — `BuildTriggerPlanner` (engine-trigger materialization:
+ * split-unit consumption, approved-plan read, multi-branch decomposition),
+ * `BuildPromptAssembler` (the ONE run/preview prompt assembly path) and
+ * `BuildFinalizer` (the build terminal: checklist progress, branch row, diff
+ * artifact). The def itself keeps the declarative metadata and the
+ * run/refine/chat/recover orchestration.
  */
 export class BuildNode extends AgentRunNode<BuildInput, BuildOutput> {
   readonly key = NODE_KEYS.BUILD;
@@ -56,6 +60,9 @@ export class BuildNode extends AgentRunNode<BuildInput, BuildOutput> {
   /** Composed run machinery shared with the step child (§T6) — built from
    *  this def's own injected services so a test stub rides the same seam. */
   protected readonly buildRun: BuildRunSupport;
+  private readonly triggerPlanner: BuildTriggerPlanner;
+  private readonly promptAssembler: BuildPromptAssembler;
+  private readonly finisher: BuildFinalizer;
 
   constructor(
     support: NodeSupport = nodeSupport,
@@ -64,6 +71,9 @@ export class BuildNode extends AgentRunNode<BuildInput, BuildOutput> {
   ) {
     super(support, runner, ctxHelper);
     this.buildRun = new BuildRunSupport(support, ctxHelper);
+    this.triggerPlanner = new BuildTriggerPlanner(support);
+    this.promptAssembler = new BuildPromptAssembler(this.buildRun, ctxHelper);
+    this.finisher = new BuildFinalizer(support, this.buildRun, BuildOutput, this.key);
   }
 
   readonly inputSchema = BuildInput; // includes the optional fan-out `step` (see schema.ts)
@@ -126,97 +136,22 @@ export class BuildNode extends AgentRunNode<BuildInput, BuildOutput> {
   }
 
   /**
-   * Engine-triggered runs (the plan → build edge activation when the plan is
-   * approved): the approved plan artifact + branch decomposition from the plan
-   * meta + the model picked for the plan run. Plan-meta parsing is a built-in
-   * internal — it lives in the node class, never in the engine. Multi-branch
-   * plans come back as sequential runs.
-   */
-  /**
-   * Split-child consumption (agent-node split plan §2.4 — Phase 6): when
-   * this build instance is a split child (the auto-wrapped build), the unit
-   * rides the child flow's trigger payload — consume it as the run input:
-   * the branch's plan document + branch contract, the exact input shape this
-   * def's own multi-branch triggerRuns decomposition passes. Null on an
-   * ordinary parent-flow build — the plan-based behavior below is unchanged.
+   * Split-child consumption (§2.4 — Phase 6): the unit trigger payload IS
+   * the run input; null on an ordinary parent-flow build.
+   * {@link BuildTriggerPlanner} owns the materialization.
    */
   override triggerInput(ctx: FlowCtx): BuildInput | null {
-    const unit = splitUnitItemOf(ctx.flow.triggerPayload);
-    if (!unit) return null;
-    return {
-      plan: unit.plan,
-      prompt: null,
-      promptIsBody: false,
-      branchInfo: { name: unit.name, title: unit.title, scope: unit.scope },
-      feedback: null,
-      model: null,
-    };
-  }
-
-  override async triggerRuns(ctx: FlowCtx): Promise<NodeTriggerRun[]> {
-    // split child (Phase 6): the unit payload IS the run input — the plan
-    // artifact reads below are parent-flow behavior only
-    const unitInput = this.triggerInput(ctx);
-    if (unitInput) return [{ input: unitInput }];
-    const plan = await this.approvedPlan(ctx);
-    const planContent = plan.content;
-
-    // carry the model selected for the plan run into the build (from plan
-    // output) — validated against the PLAN node's published output contract
-    // (step 04/05: never a blind cast with a silent `?? undefined` fallback)
-    const planNode = await this.support.nodeByType(ctx.flow.id, NODE_KEYS.PLAN);
-    const parsedPlanOutput = PlanOutput.safeParse(planNode?.output ?? null);
-    const planModel = parsedPlanOutput.success ? (parsedPlanOutput.data.model ?? undefined) : undefined;
-
-    // structured branches from the plan-meta (validated by the plan node at save time)
-    let branches: PlanBranch[] | null = null;
-    const meta = plan.meta ?? null;
-    if (meta != null) {
-      // step 05: a CORRUPT plan meta is a typed failure, not a silent
-      // single-branch fallback — the branch decomposition would silently
-      // vanish (parsePlanArtifactMeta returns null only for a shape the
-      // schema rejects; legacy metas without branches still parse)
-      const parsed = parsePlanArtifactMeta(meta);
-      if (parsed == null) {
-        throw new Error(`the approved plan artifact's meta does not satisfy the plan contract — re-approve a valid plan instead of building from corrupt meta`);
-      }
-      if (parsed.branches.length > 0) branches = parsed.branches;
-    }
-
-    if (branches && branches.length > 1) {
-      const sorted = topoSortBranches(branches);
-      // branch rows first (pending) — today's approvePlan behavior
-      for (const [i, b] of sorted.entries()) {
-        await branchStore.upsert(ctx.flow.id, b.name, { title: b.title, order: i, status: "pending" });
-      }
-      await this.support.emitLifecycle(ctx.flow.id, null, `plan approved with ${branches.length} branches — building sequentially`,
-        { nodeKey: planNode?.nodeKey ?? NODE_KEYS.PLAN });
-      return sorted.map((b) => ({
-        input: {
-          plan: planContent, prompt: null,
-          branchInfo: { name: b.name, title: b.title, scope: b.scope },
-          feedback: null, model: planModel ?? null,
-        },
-        before: () => { void branchStore.upsert(ctx.flow.id, b.name, { status: "building" }); },
-        after: () => { void branchStore.upsert(ctx.flow.id, b.name, { status: "awaiting_approval" }); },
-      }));
-    }
-
-    // single-branch fast path
-    return [{
-      input: { plan: planContent, prompt: null, branchInfo: null, feedback: null, model: planModel ?? null },
-    }];
+    return this.triggerPlanner.triggerInput(ctx);
   }
 
   /**
-   * The approved plan the build runs against — the same upstream read the
-   * chain's approve path uses (the plan node's published plan artifact).
-   * Shared by the engine trigger and the chat panel's first turn.
+   * Engine-triggered runs (the plan → build edge activation when the plan is
+   * approved): the approved plan + branch decomposition + the plan run's
+   * model, as sequential multi-branch runs. {@link BuildTriggerPlanner}
+   * owns the materialization.
    */
-  private async approvedPlan(ctx: FlowCtx): Promise<{ id: string; version: number; content: string; meta: unknown }> {
-    const plan = await this.support.latestArtifact(ctx.flow.id, "plan", { nodeType: NODE_KEYS.PLAN });
-    if (!plan) throw new Error("no plan to build — approve the plan first");
-    return plan;
+  override async triggerRuns(ctx: FlowCtx): Promise<NodeTriggerRun[]> {
+    return this.triggerPlanner.triggerRuns(ctx);
   }
 
   async run(ctx: FlowCtx, input: BuildInput, config: Record<string, unknown>): Promise<RunOutcome> {
@@ -240,7 +175,7 @@ export class BuildNode extends AgentRunNode<BuildInput, BuildOutput> {
 
     const { worktree, setupNote } = await this.buildRun.worktree(ctx, branch, node.id);
 
-    const prompt = (await this.buildPromptAssembly(ctx, config, {
+    const prompt = (await this.promptAssembler.assemble(ctx, config, {
       plan,
       branchInfo: input.branchInfo,
       promptOverride: input.prompt,
@@ -263,77 +198,8 @@ export class BuildNode extends AgentRunNode<BuildInput, BuildOutput> {
         settingSources: mcpSourcesOf(config),
       },
       label,
-      finalize: (result, meta) => this.finalizeBuild(ctx, result, branch, input.branchInfo, node.id, meta.runRowId),
+      finalize: (result, meta) => this.finisher.finalize(ctx, result, branch, input.branchInfo, node.id, meta.runRowId),
     });
-  }
-
-  private async finalizeBuild(
-    ctx: FlowCtx,
-    result: AgentRunResult,
-    branch: string,
-    branchInfo: BuildBranchInfo | null,
-    nodeId: string,
-    runRowId: string,
-  ): Promise<RunOutcome> {
-    // step 05: the build-progress report through the shared validation — a
-    // missing/unparseable report with steps still pending is a FAILED node
-    // (typed event), never a silent empty list that fakes checklist progress
-    const report = parseBuildProgressReport(result.result ?? "");
-    const pending = (await planSteps.list(ctx.flow.id)).filter((s) => s.status !== "done");
-    if (report == null && pending.length > 0) {
-      const message = `the build agent's response carries no parseable "build-progress" report and ${pending.length} plan step(s) ${pending.length === 1 ? "is" : "are"} still open — the checklist was not updated`;
-      await this.support.emit(ctx.flow.id, nodeId, EVENT_KIND.OUTPUT_CONTRACT_VIOLATION, message, {
-        nodeKey: this.key,
-        pending: pending.length,
-      });
-      return {
-        status: "failed" as const,
-        output: {},
-        event: `build failed — no parseable build-progress report with ${pending.length} step(s) pending`,
-        eventData: { error: message, pending: pending.length },
-        reply: message,
-      };
-    }
-
-    // apply the build agent's structured progress report to the plan checklist
-    // (step 08: progress acceptance is API claims ∪ fence parse — the API's
-    // claims are already persisted on plan_steps; the fence adds whatever it
-    // still carries, idempotently). The fence path logs that the API was
-    // bypassed — the prompt-snapshot fallback it is.
-    // step 08: the fence path logs that the API was bypassed (its fallback note)
-    if (report != null) await this.support.emit(ctx.flow.id, nodeId, EVENT_KIND.LOG, `build-progress accepted via the prose fence — the claim_checklist_progress API was bypassed`, { nodeKey: this.key, fenceCompleted: report.completed.length });
-    await planSteps.markDone(ctx.flow.id, nodeId, report?.completed ?? []);
-
-    const resultBranch = await this.buildRun.resultBranch(ctx, result, branch);
-
-    await this.support.setFlowBranch(ctx.flow.id, resultBranch);
-    ctx.flow.mrBranch = resultBranch;
-
-    if (branchInfo) {
-      const branchRowId = await branchStore.upsert(ctx.flow.id, branchInfo.name, {
-        title: branchInfo.title,
-        status: "building",
-        gitBranch: resultBranch,
-      });
-      await branchStore.tagRun(runRowId, branchRowId);
-    }
-
-    const art = await this.buildRun.diffArtifact(ctx, nodeId, resultBranch, {
-      noDiffContent: "(diff unavailable — fetch from GitLab)",
-      extraMeta: { branchName: branchInfo?.name ?? undefined },
-    });
-
-    return {
-      status: "awaiting_approval",
-      output: this.outputSchema.parse({
-        branch: resultBranch,
-        latestArtifact: art.id,
-        branchName: branchInfo?.name ?? undefined,
-      }),
-      event: `build pushed branch ${resultBranch}; diff ready for review`,
-      eventData: { stat: art.stat },
-      reply: result.result ?? "",
-    };
   }
 
   /** Chat-driven changes: follow up on the build agent, regenerate the diff. */
@@ -408,7 +274,7 @@ export class BuildNode extends AgentRunNode<BuildInput, BuildOutput> {
       const outcome = await this.run(
         ctx,
         this.inputSchema.parse({
-          plan: (await this.approvedPlan(ctx)).content,
+          plan: (await this.triggerPlanner.approvedPlan(ctx)).content,
           prompt: content,
           promptIsBody: true,
           model: model ?? null,
@@ -421,107 +287,15 @@ export class BuildNode extends AgentRunNode<BuildInput, BuildOutput> {
   }
 
   /**
-   * Shared build prompt assembly for `run` and `previewPrompt` — one branch
-   * name, instruction text, checklist block, and resolve/assemble path.
-   */
-  private async buildPromptAssembly(
-    ctx: FlowCtx,
-    config: Record<string, unknown>,
-    args: {
-      /** the approved plan content; null renders the "(no plan yet)" placeholder */
-      plan: string | null;
-      branchInfo: BuildBranchInfo | null;
-      promptOverride: string | null;
-      promptIsBody?: boolean;
-      setupNote: string | null;
-    },
-  ): Promise<{ configBody: string | null; assembly: ReturnType<typeof prompts.assemblePrompt> }> {
-    const branchSuffix = args.branchInfo?.name;
-    const branch = this.buildRun.branchName(ctx, config, branchSuffix);
-    const mode = this.ctxHelper.execMode(ctx);
-
-    // the approved plan is authored by a previous agent run — untrusted data,
-    // fenced (no cap exists today; none added)
-    const planBlock = args.plan
-      ? untrustedData({ source: "approved plan", text: args.plan }).text
-      : "(no plan yet)";
-    let scopedPlan = planBlock;
-    if (args.branchInfo?.scope) {
-      scopedPlan = `Branch scope: ${args.branchInfo.scope}\n\n${planBlock}`;
-    }
-
-    const ticketType = this.ctxHelper.taskLabel(ctx);
-    let instructions = mode === "local"
-      ? `Implement the following approved plan for a ${ticketType} ticket. Your working directory is a git worktree already checked out on branch "${branch}" (fresh off the repo's default branch). Make the code changes, commit them to that branch, and push the branch to origin. Do NOT open a merge request, do not switch branches, and do not touch any checkout outside this directory.`
-      : `Implement the following approved plan for a ${ticketType} ticket. Make the code changes, commit them, and push to a feature branch. Do NOT open a merge request yet.`;
-    instructions += this.buildRun.setupAdvisory(args.setupNote);
-
-    const checklistRows = await planSteps.markdown(ctx.flow.id, args.branchInfo?.name ?? null);
-    const checklist = checklistRows
-      ? [
-          `## Plan checklist`,
-          `Work through these steps (ids in brackets):`,
-          checklistRows,
-          ``,
-          `When you finish, report the ids of the steps you fully completed — prefer the claim_checklist_progress API (see Tools available); the prose fence is also accepted as a fallback:`,
-          `\`\`\`json build-progress`,
-          `{"completed":["s1","s2"]}`,
-          `\`\`\``,
-        ].join("\n")
-      : "";
-
-    const configBody = args.promptOverride;
-    if (configBody) {
-      if (args.promptIsBody) {
-        // chat first turn: the message is the full edited body — the same
-        // resolution the verbatim `prompt_body` config knob produces (the
-        // build template is body-only: plan, checklist and instructions all
-        // render inside the body, so a light edit of the prefilled body keeps
-        // them). Distinct from review/resolve/pipeline, whose internal blocks
-        // carry the contracts and re-append around their body slot.
-        return {
-          configBody,
-          assembly: prompts.assemblePrompt(
-            NODE_KEYS.BUILD,
-            { ticket: this.ctxHelper.taskContext(ctx), branch, mode },
-            { instructions, plan: scopedPlan, checklist },
-            { body: configBody },
-          ),
-        };
-      }
-      const final = prompts.resolve(
-        NODE_KEYS.BUILD,
-        { ticket: this.ctxHelper.taskContext(ctx), branch, mode },
-        { instructions, plan: scopedPlan, checklist },
-        configBody,
-      );
-      return {
-        configBody,
-        assembly: {
-          body: configBody.trim(),
-          blocks: [],
-          final,
-        },
-      };
-    }
-
-    const assembly = prompts.assemblePrompt(
-      NODE_KEYS.BUILD,
-      { ticket: this.ctxHelper.taskContext(ctx), branch, mode },
-      { instructions, plan: scopedPlan, checklist },
-    );
-    return { configBody: null, assembly };
-  }
-
-  /**
-   * Live prompt preview: same branch/instructions/checklist path as `run`.
-   * Worktree setup notes appear only after a worktree exists (null beforehand).
+   * Live prompt preview: same branch/instructions/checklist path as `run`
+   * (the ONE {@link BuildPromptAssembler} assembly — CR-004). Worktree setup
+   * notes appear only after a worktree exists (null beforehand).
    */
   async previewPrompt(ctx: FlowCtx, node: NodeRow | null): Promise<NodePromptPreview | null> {
     const config = await nodeRoles.previewConfig(this, node);
     const planRow = await this.support.latestArtifact(ctx.flow.id, "plan");
     const configBody = configString(config, "prompt_body") ?? null;
-    const { configBody: resolvedBody, assembly } = await this.buildPromptAssembly(ctx, config, {
+    const { configBody: resolvedBody, assembly } = await this.promptAssembler.assemble(ctx, config, {
       plan: planRow?.content ?? null,
       branchInfo: null,
       promptOverride: configBody,

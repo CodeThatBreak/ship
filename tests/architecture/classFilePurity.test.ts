@@ -91,7 +91,6 @@ const FROZEN_OFFENDERS: readonly string[] = [
   "lib/engine/runtime/nodeStore.ts",
   "lib/engine/runtime/planStepStore.ts",
   "lib/engine/runtime/split/splitManager.ts",
-  "lib/engine/runtime/worktreeLifecycle.ts",
   "lib/engine/runtime/worktreeStatusService.ts",
   "lib/engine/secretStore.ts",
   "lib/engine/tasks/liveTaskFeed.ts",

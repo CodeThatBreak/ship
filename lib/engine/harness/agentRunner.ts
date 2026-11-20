@@ -13,7 +13,8 @@ import {
   type SettingSource,
 } from "../ports/agentPort";
 import { flowCtxHelper, type FlowContextHelper, type FlowCtx } from "../nodes/shared/runContext";
-import { worktreeManager, type WorktreeManager } from "../runtime/worktreeLifecycle";
+import { worktreeManager } from "../runtime/worktreeLifecycle";
+import type { WorktreeManager } from "../runtime/worktreeLifecycle/worktreeManager";
 import type { NodeSupport } from "../nodes/shared/nodeSupport";
 import { nodeSupport, engineParts } from "@/lib/composition/container";
 import { StreamBuffer } from "./streamBuffer";

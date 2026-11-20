@@ -46,7 +46,6 @@ const FROZEN_MULTI_CLASS: readonly string[] = [
 ];
 
 const FROZEN_MISNAMED: readonly string[] = [
-  "lib/engine/nodes/kinds/agent/agentNode.ts",
   "lib/engine/nodes/kinds/decision/decisionNode.ts",
   "lib/engine/nodes/kinds/http/httpNode.ts",
   "lib/engine/nodes/kinds/plan/planContext.ts",
@@ -63,7 +62,6 @@ const FROZEN_MISNAMED: readonly string[] = [
   // step-02 doc mandate: the TransitionAuthority lives in `nodeTransitions.ts`
   // (target-architecture §12 layout names the file, not the class)
   "lib/engine/runtime/transitions/nodeTransitions.ts",
-  "lib/engine/runtime/worktreeLifecycle.ts",
   "lib/engine/tasks/providers/jira.ts",
   "lib/engine/tasks/registry.ts",
   "lib/engine/templates/templateYaml.ts",

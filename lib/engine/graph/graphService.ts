@@ -3,7 +3,7 @@ import "server-only";
 import { NotFoundError } from "@/lib/errors";
 import { FlowRow, rows, type NodeTemplateRow } from "@/lib/db/rows";
 import { nodeRegistry } from "@/lib/engine/nodes/registry";
-import { outputFieldsFor } from "@/lib/engine/templates/templateLint";
+import { outputFieldsFor } from "@/lib/engine/templates/outputFields";
 import { templateStore } from "@/lib/engine/templates/templateStore";
 
 export type GraphApiPayload = {

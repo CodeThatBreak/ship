@@ -27,7 +27,7 @@ const { AgentRunner } = await import("../../../harness/agentRunner");
 const { config } = await import("../../../../config");
 const { agentPortRegistry } = await import("../../../ports/agentPort");
 const { worktreeManager } = await import("../../../runtime/worktreeLifecycle");
-const { AgentTemplateNode } = await import("./agentNode");
+const { AgentTemplateNode } = await import("./agentTemplateNode");
 import type { Started, AgentStartInput, ExecuteRunResult } from "../../../harness/agentRunner";
 import type { AgentRunResult } from "../../../ports/agentPort";
 import type { FlowCtx } from "../../shared/nodeSharedExports";

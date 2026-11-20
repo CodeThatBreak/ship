@@ -2,7 +2,6 @@ import 'server-only';
 
 import { z } from 'zod';
 import type { AgentRunResult } from '../../../ports/agentPort';
-import { planSteps } from '../../../runtime/planStepStore';
 import { TemplateRenderer, type FlowCtx, type RunOutcome } from '../../shared/nodeSharedExports';
 import { AGENT_OUTPUT_ERROR, AgentOutputError } from '../../shared/agent/outputError/outputErrorExports';
 import { AgentOutputPipeline } from '../../shared/agentOutput/agentOutputPipeline';
@@ -13,8 +12,10 @@ import { RunSupersededError } from '../../../errors/runSupersededError';
 import type { NodeSupport } from '../../shared/nodeSupport';
 import type { NodeRow } from '../../../../db/rows';
 import { FLOW_STATUS } from '../../../../../constants/flow';
-import { BranchRefinement } from './branchRefinement';
+import { PlanApplyRefusedError } from './planApplyRefusedError';
+import { PlanScopedOutcome } from './planScopedOutcome';
 import { planBodyDiverged } from './planPrompt';
+import { planOutcome, readRunModel } from './utils/planOutcome';
 import {
   REFINED_FROM_SOURCE,
   PLAN_APPLY_ALLOWED,
@@ -27,11 +28,9 @@ import {
   PLAN_TURN_OUTPUT_JSON_SCHEMA,
   PlanResponse,
   PlanTurnOutput,
-  SubPlanResponse,
   withStepIds,
   type PlanInput,
   type PlanMeta,
-  type SubPlanPatch,
 } from './schema';
 import type { PlanStore } from './planStore';
 import type { ExecutionKnob } from './planPrompt';
@@ -40,16 +39,24 @@ import type { ScopedRefine } from './types/planTypeExports';
 import { PlanTurnKind } from './constants/planTurn';
 
 /**
- * The plan output contract: validate the agent's plan-mode response
- * against the plan schemas, do the plan-domain work it implies (version
- * publish + checklist sync + deterministic scoped merge), and build the run
- * outcome — with ONE bounded self-heal retry when the first response misses
- * the contract. The artifact is saved HERE, not via `outcome.artifact`: the
- * output blob derives from the just-saved artifact row (id, version,
- * execution/scopedRefine provenance) — `applyOutcome` persists the rest.
+ * The plan output contract: validate the agent's plan-mode response against
+ * the plan schemas and apply what it implies — the whole-plan publish path
+ * (version publish + checklist sync via `PlanStore.persistPlan`, then awaiting
+ * approval) and the branch-scoped refine path (delegated to
+ * {@link PlanScopedOutcome}) — plus the ONE bounded self-heal retry when a
+ * response misses the contract. The artifact is saved HERE, not via
+ * `outcome.artifact`: the output blob derives from the just-saved artifact row
+ * (id, version, execution/scopedRefine provenance) — `applyOutcome` persists
+ * the rest.
+ *
+ * Invariant: a whole-plan turn is applied only while THIS turn still owns the
+ * node's claim (§3b guard, fenced on OWNERSHIP) — a cancelled/retried
+ * mid-turn refuses with {@link PlanApplyRefusedError}, never a silent
+ * mid-run mutation. Must never parse or persist outside the plan schemas.
  */
 export class PlanOutputContract {
   private readonly pipeline: AgentOutputPipeline;
+  private readonly scoped: PlanScopedOutcome;
 
   constructor(
     private readonly support: NodeSupport,
@@ -59,6 +66,7 @@ export class PlanOutputContract {
     private readonly label: string
   ) {
     this.pipeline = new AgentOutputPipeline(support);
+    this.scoped = new PlanScopedOutcome(support);
   }
 
   /**
@@ -81,7 +89,8 @@ export class PlanOutputContract {
   /**
    * Unified turn parse + apply: `PlanTurnOutput` envelope, then plan |
    * subPlan | subPlanPatch | reply-only. Throws {@link AgentOutputError} on
-   * contract violations (including whole `plan` on branch turns).
+   * contract violations (including whole `plan` on branch turns) and
+   * {@link PlanApplyRefusedError} when the §3b apply guard refuses.
    */
   async applyTurnResult(
     ctx: FlowCtx,
@@ -125,7 +134,7 @@ export class PlanOutputContract {
             response: text,
           });
         }
-        return { reply, outcome: await this.scopedSubPlanOutcome(ctx, node, scoped, subPlan) };
+        return { reply, outcome: await this.scoped.subPlanOutcome(ctx, node, scoped, subPlan) };
       }
       if (hasPatch) {
         const subPlanPatch = envelope.subPlanPatch;
@@ -138,7 +147,7 @@ export class PlanOutputContract {
             response: text,
           });
         }
-        return { reply, outcome: await this.scopedPatchOutcome(ctx, node, scoped, subPlanPatch) };
+        return { reply, outcome: await this.scoped.patchOutcome(ctx, node, scoped, subPlanPatch) };
       }
     }
 
@@ -301,13 +310,7 @@ export class PlanOutputContract {
       knob: await this.knobOf(ctx),
       refined: opts.refined,
     });
-    return this.planOutcome(art, planMeta, stepCount, plan.markdown, this.readRunModel(node));
-  }
-
-  private readRunModel(node: NodeRow): string | null {
-    const input = node.input as { model?: string | null } | null;
-    if (!input || input.model == null) return null;
-    return input.model;
+    return planOutcome(art, planMeta, stepCount, plan.markdown, readRunModel(node));
   }
 
   /**
@@ -342,127 +345,5 @@ export class PlanOutputContract {
   async recoverOutcome(ctx: FlowCtx, node: NodeRow, result: AgentRunResult, input?: PlanInput): Promise<RunOutcome | null> {
     if (!input?.planTurnKind) return null;
     return this.recoverTurnOutcome(ctx, node, result, input);
-  }
-
-  /** The scoped refine's tail: deterministic merge → new artifact version
-   *  (plan markdown unchanged) → scoped checklist sync → awaiting approval. */
-  private async scopedSubPlanOutcome(ctx: FlowCtx, node: NodeRow, scoped: ScopedRefine, sub: SubPlanResponse): Promise<RunOutcome> {
-    const branchName = scoped.branch.name;
-
-    const merged = BranchRefinement.merge(scoped.latest.meta, branchName, sub);
-    const art = await this.support.saveArtifact(node.id, ctx.flow.id, 'plan', scoped.latest.art.content, {
-      ...scoped.latest.rawMeta,
-      steps: merged.steps,
-      branches: merged.branches,
-      scopedRefine: { branch: branchName, from: scoped.latest.art.version },
-      refinedFrom: { version: scoped.latest.art.version, source: REFINED_FROM_SOURCE.BRANCH },
-    });
-
-    const stepCount = await planSteps.replaceBranch(
-      ctx.flow.id,
-      art.id,
-      branchName,
-      merged.steps.filter(s => s.branch === branchName)
-    );
-
-    const branchSteps = merged.steps.filter(s => s.branch === branchName);
-    const oldSteps = scoped.latest.meta.steps.filter(s => s.branch === branchName);
-    const { added, removed, changed } = BranchRefinement.diffSteps(oldSteps, branchSteps);
-    const diffNote = `(+${added.length} / −${removed.length}${changed.length ? `, ${changed.length} changed` : ''})`;
-
-    return {
-      status: 'awaiting_approval',
-      output: this.scopedOutputBlob(ctx, node, art, merged, branchName, scoped.latest.art.version),
-      event: `branch '${branchName}' sub-plan refined · ${stepCount} steps ${diffNote} — other branches untouched`,
-      reply: sub.markdown,
-    };
-  }
-
-  private async scopedPatchOutcome(ctx: FlowCtx, node: NodeRow, scoped: ScopedRefine, patch: SubPlanPatch): Promise<RunOutcome> {
-    const branchName = scoped.branch.name;
-    const merged = BranchRefinement.applyPatch(scoped.latest.meta, branchName, patch);
-    const art = await this.support.saveArtifact(node.id, ctx.flow.id, 'plan', scoped.latest.art.content, {
-      ...scoped.latest.rawMeta,
-      steps: merged.steps,
-      branches: merged.branches,
-      scopedRefine: { branch: branchName, from: scoped.latest.art.version },
-      refinedFrom: { version: scoped.latest.art.version, source: REFINED_FROM_SOURCE.BRANCH },
-    });
-
-    const branchSteps = merged.steps.filter(s => s.branch === branchName);
-    const stepCount = await planSteps.replaceBranch(ctx.flow.id, art.id, branchName, branchSteps);
-
-    const oldSteps = scoped.latest.meta.steps.filter(s => s.branch === branchName);
-    const { added, removed, changed } = BranchRefinement.diffSteps(oldSteps, branchSteps);
-    const diffNote = `(+${added.length} / −${removed.length}${changed.length ? `, ${changed.length} changed` : ''})`;
-
-    return {
-      status: 'awaiting_approval',
-      output: this.scopedOutputBlob(ctx, node, art, merged, branchName, scoped.latest.art.version),
-      event: `branch '${branchName}' sub-plan patched · ${stepCount} steps ${diffNote} — other branches untouched`,
-      reply: patch.markdown ?? `Updated branch "${branchName}".`,
-    };
-  }
-
-  private scopedOutputBlob(
-    _ctx: FlowCtx,
-    node: NodeRow,
-    art: { id: string; version: number },
-    merged: PlanMeta,
-    branchName: string,
-    fromVersion: number
-  ): Record<string, unknown> {
-    const branchAgents = this.readBranchAgents(node);
-    const model = this.readRunModel(node);
-    return {
-      latestArtifact: art.id,
-      version: art.version,
-      branches: merged.branches,
-      steps: merged.steps,
-      scopedRefine: { branch: branchName, from: fromVersion },
-      ...(model != null ? { model } : {}),
-      ...(branchAgents ? { branchAgents } : {}),
-    };
-  }
-
-  private readBranchAgents(node: NodeRow): Record<string, string> | undefined {
-    if (!node.output) return undefined;
-    const raw = node.output as { branchAgents?: Record<string, string> };
-    return raw.branchAgents;
-  }
-
-  /** The whole-plan outcome: awaiting approval, the output blob pointing at
-   *  the fresh artifact version, the lifecycle event. */
-  planOutcome(
-    art: { id: string; version: number },
-    planMeta: PlanMeta,
-    stepCount: number,
-    text: string,
-    model: string | null
-  ): RunOutcome {
-    const branchNote = planMeta.branches.length
-      ? ` (${planMeta.branches.length} branch${planMeta.branches.length > 1 ? 'es' : ''})`
-      : '';
-    const stepNote = stepCount ? ` · ${stepCount} steps` : '';
-    return {
-      status: 'awaiting_approval',
-      output: {
-        latestArtifact: art.id,
-        version: art.version,
-        ...(model != null ? { model } : {}),
-        ...(planMeta.branches.length ? { branches: planMeta.branches } : {}),
-        ...(planMeta.steps.length ? { steps: planMeta.steps } : {}),
-      },
-      event: `plan v${art.version} ready for review${branchNote}${stepNote}`,
-      reply: text,
-    };
-  }
-}
-
-/** Conversational refusal from the §3b apply guard — not a contract retry. */
-class PlanApplyRefusedError extends Error {
-  constructor(readonly reply: string) {
-    super(reply);
-    this.name = 'PlanApplyRefusedError';
   }
 }

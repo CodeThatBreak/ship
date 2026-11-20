@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { lintNodeTrigger, lintTemplate } from "./templateLint";
+import { lintTemplate } from "./templateLint";
+import { lintNodeTrigger } from "./lintNodeTrigger";
 
 describe("template-lint — node triggers", () => {
   it("flags unknown wait_for sources", () => {

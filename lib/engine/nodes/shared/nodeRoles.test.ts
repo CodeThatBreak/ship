@@ -33,7 +33,7 @@ await import("../registry");
 const { PlanNode } = await import("../kinds/plan/planNode");
 const { StartNode } = await import("../kinds/start/startNode");
 const { DecisionTemplateNode } = await import("../kinds/decision/decisionNode");
-const { AgentTemplateNode } = await import("../kinds/agent/agentNode");
+const { AgentTemplateNode } = await import("../kinds/agent/agentTemplateNode");
 const { HttpTemplateNode } = await import("../kinds/http/httpNode");
 const { ScriptTemplateNode } = await import("../kinds/script/scriptNode");
 
