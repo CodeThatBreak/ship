@@ -14,11 +14,15 @@ describe("HookStore verify fallback", () => {
   const hookId = db.uid("hk_");
   const secret = "whsec_fallback_test";
 
-  const hookFixture = db.run(
-    `INSERT INTO hooks (id,template_id,flow_id,node_key,secret,filter,created_at)
-     VALUES ($1,NULL,NULL,NULL,$2,NULL,$3)`,
-    hookId, secret, db.now(),
-  ).then(() => hookStore.hook(hookId));
+  const hookFixture = db.prisma.hook
+    .create({
+      data: {
+        id: hookId,
+        secret,
+        createdAt: new Date(),
+      },
+    })
+    .then(() => hookStore.hook(hookId));
   const hookOf = async () => {
     const hook = await hookFixture;
     if (!hook) throw new Error("hook fixture missing");

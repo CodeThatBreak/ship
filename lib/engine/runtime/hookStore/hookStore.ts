@@ -4,15 +4,13 @@ import crypto from "node:crypto";
 
 import { Webhook } from "standardwebhooks";
 import { db } from "../../../db/app";
-import { HookRow, rows } from "../../../db/rows";
+import type { HookRow } from "../../../db/rows";
 import type { Prisma } from "@prisma/client";
 import {
   FALLBACK_HEADER,
   HEADER_NAMES,
 } from "./constants/hookVerification";
-import { HOOK_SELECT } from "./constants/hookSelect";
 import { fallbackTimestampOk } from "./utils/hookTimestampOk";
-import { firstHookRow } from "./utils/firstHookRow";
 import { newSecret } from "./utils/newHookSecret";
 import { parseJsonObject } from "./utils/parseJsonObject";
 
@@ -39,22 +37,25 @@ import { parseJsonObject } from "./utils/parseJsonObject";
 export class HookStore {
   // ── reads ────────────────────────────────────────────────────────────────
 
-  hook(id: string): Promise<HookRow | undefined> {
-    return rows.get(HookRow, `${HOOK_SELECT} WHERE id=$1`, id);
+  async hook(id: string): Promise<HookRow | undefined> {
+    const row = await db.prisma.hook.findUnique({ where: { id } });
+    return row ? this.toRow(row) : undefined;
   }
 
   /** The hook that starts flows from a template (webhook flow trigger). */
-  hookForTemplate(templateId: string, tx?: Prisma.TransactionClient): Promise<HookRow | undefined> {
-    if (tx) return firstHookRow(tx, `${HOOK_SELECT} WHERE template_id=$1 AND flow_id IS NULL`, templateId);
-    return rows.get(HookRow,
-      `${HOOK_SELECT} WHERE template_id=$1 AND flow_id IS NULL`, templateId);
+  async hookForTemplate(templateId: string, tx?: Prisma.TransactionClient): Promise<HookRow | undefined> {
+    const row = await (tx ?? db.prisma).hook.findFirst({
+      where: { templateId, flowId: null },
+    });
+    return row ? this.toRow(row) : undefined;
   }
 
   /** The hook that feeds a waiting node instance (wait_for webhook). */
-  hookForNode(flowId: string, nodeKey: string, tx?: Prisma.TransactionClient): Promise<HookRow | undefined> {
-    if (tx) return firstHookRow(tx, `${HOOK_SELECT} WHERE flow_id=$1 AND node_key=$2`, flowId, nodeKey);
-    return rows.get(HookRow,
-      `${HOOK_SELECT} WHERE flow_id=$1 AND node_key=$2`, flowId, nodeKey);
+  async hookForNode(flowId: string, nodeKey: string, tx?: Prisma.TransactionClient): Promise<HookRow | undefined> {
+    const row = await (tx ?? db.prisma).hook.findFirst({
+      where: { flowId, nodeKey },
+    });
+    return row ? this.toRow(row) : undefined;
   }
 
   // ── provisioning (called from TemplateStore save paths + flow creation) ──
@@ -68,8 +69,10 @@ export class HookStore {
    * No-op for unknown templates.
    */
   async syncTemplate(templateId: string, tx?: Prisma.TransactionClient): Promise<void> {
-    const tpl = await db.get<{ trigger: unknown; hidden: boolean }>(
-      `SELECT trigger, hidden FROM flow_templates WHERE id=$1`, templateId);
+    const tpl = await (tx ?? db.prisma).flowTemplate.findUnique({
+      where: { id: templateId },
+      select: { trigger: true, hidden: true },
+    });
     if (!tpl) return;
     if (tpl.hidden) return;
     const trigger = parseJsonObject(tpl.trigger);
@@ -77,20 +80,26 @@ export class HookStore {
       ? trigger.filter.trim() : null;
     const existing = await this.hookForTemplate(templateId);
     if (!existing) {
-      await (tx ?? db.prisma).$executeRawUnsafe(
-        `INSERT INTO hooks (id,template_id,flow_id,node_key,secret,filter,created_at)
-         VALUES ($1,$2,NULL,NULL,$3,$4,$5)`,
-        db.uid("hk_"), templateId, newSecret(), filter, db.now()
-      );
+      await (tx ?? db.prisma).hook.create({
+        data: {
+          id: db.uid("hk_"),
+          templateId,
+          secret: newSecret(),
+          filter,
+          createdAt: new Date(),
+        },
+      });
     } else if (existing.filter !== filter) {
-      await (tx ?? db.prisma).$executeRawUnsafe(`UPDATE hooks SET filter=$1 WHERE id=$2`, filter, existing.id);
+      await (tx ?? db.prisma).hook.update({
+        where: { id: existing.id },
+        data: { filter },
+      });
     }
   }
 
   /** Remove a template's flow-trigger hook (template deleted). */
   async removeTemplate(templateId: string, tx?: Prisma.TransactionClient): Promise<void> {
-    await (tx ?? db.prisma).$executeRawUnsafe(
-      `DELETE FROM hooks WHERE template_id=$1 AND flow_id IS NULL`, templateId);
+    await (tx ?? db.prisma).hook.deleteMany({ where: { templateId, flowId: null } });
   }
 
   /** The hook that feeds a waiting node (wait_for webhook) — find-or-create. */
@@ -98,20 +107,27 @@ export class HookStore {
     const client = tx ?? db.prisma;
     const existing = await this.hookForNode(flowId, nodeKey);
     if (existing) return existing;
-    await client.$executeRawUnsafe(
-      `INSERT INTO hooks (id,template_id,flow_id,node_key,secret,filter,created_at)
-       VALUES ($1,NULL,$2,$3,$4,NULL,$5)`,
-      db.uid("hk_"), flowId, nodeKey, newSecret(), db.now()
-    );
-    const hook = await this.hookForNode(flowId, nodeKey, tx);
+    await client.hook.create({
+      data: {
+        id: db.uid("hk_"),
+        flowId,
+        nodeKey,
+        secret: newSecret(),
+        createdAt: new Date(),
+      },
+    });
+    const hook = await client.hook.findFirst({ where: { flowId, nodeKey } });
     if (!hook) throw new Error(`hook insert failed for flow ${flowId} node ${nodeKey}`);
-    return hook;
+    return this.toRow(hook);
   }
 
   /** The inbound hooks feeding this flow's waiting nodes. */
-  hooksForFlow(flowId: string): Promise<HookRow[]> {
-    return rows.all(HookRow,
-      `${HOOK_SELECT} WHERE flow_id=$1 AND node_key IS NOT NULL ORDER BY created_at`, flowId);
+  async hooksForFlow(flowId: string): Promise<HookRow[]> {
+    const rows = await db.prisma.hook.findMany({
+      where: { flowId, nodeKey: { not: null } },
+      orderBy: { createdAt: "asc" },
+    });
+    return rows.map((row) => this.toRow(row));
   }
 
   // ── verification ─────────────────────────────────────────────────────────
@@ -157,5 +173,25 @@ export class HookStore {
   }
 
   // ── dedup (write-ahead jobs — step 03, Invariant 7) ─────────────────────
-}
 
+  /** Prisma row → shared `HookRow` shape (ISO timestamp; no JSONB payloads on hooks). */
+  private toRow(row: {
+    id: string;
+    templateId: string | null;
+    flowId: string | null;
+    nodeKey: string | null;
+    secret: string;
+    filter: string | null;
+    createdAt: Date;
+  }): HookRow {
+    return {
+      id: row.id,
+      templateId: row.templateId,
+      flowId: row.flowId,
+      nodeKey: row.nodeKey,
+      secret: row.secret,
+      filter: row.filter,
+      createdAt: row.createdAt.toISOString(),
+    };
+  }
+}
