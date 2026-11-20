@@ -4,9 +4,11 @@ import { db } from "../../db/app";
 import { ConflictError, ValidationError } from "../../errors";
 import { NODE_KEYS } from "../constants/nodeKeys";
 import { stepFlows } from "../runtime/fanout/stepFlowManager";
+import { TRIGGER_SOURCE } from "../runtime/triggers/constants/triggerSources";
 import type { NodeRow } from "../../db/rows";
 import type { FlowCtx } from "../nodes/shared/nodeSharedExports";
 import type { ApprovalHost } from "./types/approvalHost";
+import type { TriggerResult } from "../runtime/triggers/types/triggerGateway";
 
 /**
  * FlowApprovalService — the user-approval paths carved out of the FlowEngine
@@ -23,13 +25,28 @@ import type { ApprovalHost } from "./types/approvalHost";
 export class FlowApprovalService {
   constructor(private readonly host: ApprovalHost) {}
 
-  async approvePlan(flowId: string, executionOverride?: 'whole' | 'steps'): Promise<void> {
+  async approvePlan(flowId: string, executionOverride?: 'whole' | 'steps'): Promise<TriggerResult> {
     const planKey = await this.host.keyOfRole(flowId, NODE_KEYS.PLAN);
     if (!planKey) throw new Error('this flow template has no plan node');
-    const planStatus = await this.host.nodeStatus(flowId, planKey);
-    if (planStatus !== 'awaiting_approval') {
-      throw new ConflictError(`plan is not awaiting approval (${planStatus})`);
-    }
+    // the plan artifact must exist before anything is written — a missing
+    // plan is a loud error, not an approval
+    const plan = await this.host.latestResourceArtifact<{ id: string; content: string; meta: string | null }>(
+      flowId,
+      NODE_KEYS.PLAN
+    );
+    if (!plan) throw new Error('no plan to approve');
+    // the approve transition's from-set IS the fence (step 06): a node not
+    // awaiting approval loses here with the typed skip event — the old
+    // status pre-read + ConflictError pair is gone. The transition lands
+    // before the artifact bookkeeping so a stale panel click never flips
+    // artifact states.
+    const approved = await this.host.transitionTrigger({
+      flowId,
+      nodeKey: planKey,
+      source: TRIGGER_SOURCE.UI,
+      key: 'approve',
+    });
+    if (!approved.started) return approved;
     // Phase 3B: the plan panel's override chip — the user forced whole/steps
     // at approve. Recorded in the plan version's plan-meta (execution +
     // executionSource: "override") so a downstream from-plan fan-out node
@@ -64,29 +81,24 @@ export class FlowApprovalService {
         );
       }
     }
-    const plan = await this.host.latestResourceArtifact<{ id: string; content: string; meta: string | null }>(
-      flowId,
-      NODE_KEYS.PLAN
-    );
-    if (!plan) throw new Error('no plan to approve');
     await db.run(`UPDATE artifacts SET status='approved' WHERE id=$1`, plan.id);
-    await this.host.setNodeStatus(flowId, planKey, 'approve');
 
     // approvePlan originally inlined the plan→build handoff (plan-meta branch
     // decomposition, sequential builds). It now lives in the build node's
     // triggerRuns (a built-in internal) and is activated by the template edge
     // evaluation here.
     await this.releaseDownstream(flowId, planKey);
+    return approved;
   }
 
-  async approveBuild(flowId: string, branchName?: string): Promise<void> {
+  async approveBuild(flowId: string, branchName?: string): Promise<TriggerResult> {
     // step children route to the fan-out approve (merge-back, approve ≠ MR);
     // the parent's aggregate approval flows through the untouched chain below
     if (await this.host.isStepChild(flowId)) {
       await stepFlows.approveChildStep(flowId);
-      return;
+      return { started: true };
     }
-    await this.host.sdlcApproveBuild(flowId, branchName);
+    return this.host.sdlcApproveBuild(flowId, branchName);
   }
 
   /**
@@ -94,20 +106,26 @@ export class FlowApprovalService {
    * declarative nodes; e.g. an agent output held for review). Outgoing
    * template edges activate on approval — the same contract as plan/build.
    */
-  async approveNode(flowId: string, nodeKey: string): Promise<void> {
+  async approveNode(flowId: string, nodeKey: string): Promise<TriggerResult> {
     const node = await this.nodeOf(flowId, nodeKey);
     // step children route to the fan-out approve (merge-back vs plain approval)
     if ((await this.host.isStepChild(flowId)) && node.status === 'awaiting_approval') {
       await stepFlows.approveChildStep(flowId);
-      return;
-    }
-    if (node.status !== 'awaiting_approval') {
-      throw new ConflictError(`${nodeKey} is not awaiting approval`);
+      return { started: true };
     }
     const def = await this.host.defOf(flowId, nodeKey);
     if (def.builtinApproval) throw new ValidationError(`${nodeKey} approval belongs to its built-in flow actions`);
-    await this.host.setNodeStatus(flowId, nodeKey, 'approve');
+    // the approve transition's from-set IS the fence (step 06): a node not
+    // awaiting approval loses here with the typed skip event
+    const approved = await this.host.transitionTrigger({
+      flowId,
+      nodeKey,
+      source: TRIGGER_SOURCE.UI,
+      key: 'approve',
+    });
+    if (!approved.started) return approved;
     await this.releaseDownstream(flowId, nodeKey);
+    return approved;
   }
 
   /**

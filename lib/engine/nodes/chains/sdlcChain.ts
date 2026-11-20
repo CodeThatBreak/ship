@@ -2,12 +2,14 @@ import "server-only";
 
 import type { ChainRole, FlowCtx } from "../shared/nodeSharedExports";
 import { NODE_KEYS } from "../../constants/nodeKeys";
-import { ConflictError } from "../../../errors";
+import { NotFoundError } from "../../../errors";
+import { TRIGGER_SOURCE } from "../../runtime/triggers/constants/triggerSources";
 import { configNumber } from "../../templates/nodeConfig";
 import { branchStore } from "../kinds/build/buildExports";
 import { mergeRequests, toMrCreationFailure, type CommitError } from "../kinds/mergeRequest/mergeRequestExports";
 import type { EngineNodeStatus } from "../../constants/nodeStatus";
 import type { TransitionKey } from "../../runtime/transitions/types/transitions";
+import type { TriggerResult, TriggerSource } from "../../runtime/triggers/types/triggerGateway";
 
 /** The engine surface the chain drives — the generic orchestration primitives. */
 export interface ChainHost {
@@ -18,7 +20,6 @@ export interface ChainHost {
   setNodeStatus(flowId: string, nodeKey: string, key: TransitionKey, opts?: { toStatus?: EngineNodeStatus; patch?: Record<string, unknown>; detail?: string }): Promise<boolean>;
   claimNode(flowId: string, nodeKey: string, key: TransitionKey): Promise<string>;
   nodeStatus(flowId: string, nodeKey: string): Promise<string | null>;
-  nodeRunning(flowId: string, nodeKey: string): Promise<boolean>;
   nodeConfigFor(flowId: string, nodeKey: string): Promise<Record<string, unknown>>;
   emitLifecycle(flowId: string, nodeKey: string | null, message: string, data?: Record<string, unknown>): Promise<void>;
   emitMrFailed(flowId: string, nodeKey: string | null, message: string, data?: Record<string, unknown>): Promise<void>;
@@ -29,8 +30,25 @@ export interface ChainHost {
   gateKey(flowId: string): Promise<string | null>;
   /** resolve a node's outgoing edges and start what becomes eligible */
   advanceFrom(flowId: string, fromKey: string): Promise<void>;
-  /** true while any post-MR chain stage (pipeline/review/resolve) is running */
-  chainBusy(flowId: string): Promise<boolean>;
+  /** the instance keys of the flow's post-MR chain stages (the claim
+   *  guard's in-flight set — step 06 folds the old chainBusy read into the
+   *  claim UPDATE itself) */
+  chainKeys(flowId: string): Promise<string[]>;
+  /** the TriggerGateway doors (step 06): every trigger claims here — a lost
+   *  claim emits the typed skip event and returns the skipped result */
+  claimTrigger(params: {
+    flowId: string;
+    nodeKey: string;
+    source: TriggerSource;
+    key: TransitionKey;
+    chainKeys?: readonly string[];
+  }): Promise<TriggerResult>;
+  transitionTrigger(params: {
+    flowId: string;
+    nodeKey: string;
+    source: TriggerSource;
+    key: TransitionKey;
+  }): Promise<TriggerResult>;
 }
 
 /**
@@ -61,17 +79,22 @@ export class SdlcChain {
    * between build approval and the CI gate, so the edges must not start the
    * gate before a CR exists.
    */
-  async approveBuild(flowId: string, branchName?: string): Promise<void> {
+  async approveBuild(flowId: string, branchName?: string): Promise<TriggerResult> {
     const buildKey = await this.host.keyOfRole(flowId, NODE_KEYS.BUILD);
     if (!buildKey) throw new Error("this flow template has no build node");
     const gate = await this.host.gateKey(flowId);
     if (!gate) throw new Error("this flow template has no pipeline gate node");
     const reviewKey = await this.host.keyOfRole(flowId, NODE_KEYS.REVIEW);
     // declared approval: awaiting_approval → approved (the button's contract)
-    if (!(await this.host.setNodeStatus(flowId, buildKey, "buildApprove"))) {
-      const status = await this.host.nodeStatus(flowId, buildKey);
-      throw new ConflictError(`build is not awaiting approval (${status ?? "missing"})`);
-    }
+    // — claimed through the gateway (step 06): a node not in the from-set
+    // loses here with the typed skip event instead of the ad-hoc throw
+    const approved = await this.host.transitionTrigger({
+      flowId,
+      nodeKey: buildKey,
+      source: TRIGGER_SOURCE.UI,
+      key: "buildApprove",
+    });
+    if (!approved.started) return approved;
     this.host.bg(flowId, null, async () => {
       try {
         const maxAttempts = configNumber(
@@ -119,6 +142,7 @@ export class SdlcChain {
         await this.host.setNodeStatus(flowId, buildKey, "mrHandback");
       }
     });
+    return approved;
   }
 
   /**
@@ -162,51 +186,88 @@ export class SdlcChain {
     }
   }
 
-  /** (Re)run the pipeline gate — from the Pipeline panel, poller, or webhook. */
-  async triggerPipelineGate(flowId: string, pipelineId?: number, model?: string): Promise<void> {
-    if (await this.host.chainBusy(flowId)) return;
+  /**
+   * (Re)run the pipeline gate — from the Pipeline panel, poller, or webhook.
+   * The claim (manualStage from-set + the chain in-flight guard in the same
+   * conditional UPDATE) is the duplicate fence: the loser emits the typed
+   * `skipped_duplicate_trigger` event and the caller's route answers 409 —
+   * the old silent `chainBusy` return is gone (step 06).
+   */
+  async triggerPipelineGate(
+    flowId: string,
+    pipelineId?: number,
+    model?: string,
+    source: TriggerSource = TRIGGER_SOURCE.UI,
+  ): Promise<TriggerResult> {
     const gate = await this.host.gateKey(flowId);
     if (!gate) throw new Error("this flow template has no pipeline gate node");
-    await this.host.claimNode(flowId, gate, "manualStage");
+    const result = await this.host.claimTrigger({
+      flowId,
+      nodeKey: gate,
+      source,
+      key: "manualStage",
+      chainKeys: await this.host.chainKeys(flowId),
+    });
+    if (!result.started) return result;
     this.host.bg(flowId, gate, async () => {
       await this.host.runNode(flowId, gate, {
         branchName: null, pipelineId: pipelineId ?? null, guidance: null, model: model ?? null,
       });
       await this.host.advanceFrom(flowId, gate);
     });
+    return result;
   }
 
-  /** Manual resolve run (Run button / API): run the stage, then the edges. */
-  async triggerResolve(flowId: string, model?: string): Promise<void> {
+  /**
+   * Manual resolve run (Run button / API): run the stage, then the edges.
+   * The claim (manualResolve from-set + chain guard) covers both old guards
+   * — the `nodeRunning` silent return and the `chainBusy` throw are gone
+   * (step 06): a busy chain or an in-flight resolve loses the claim and
+   * emits the skip event.
+   */
+  async triggerResolve(flowId: string, model?: string, source: TriggerSource = TRIGGER_SOURCE.UI): Promise<TriggerResult> {
     const resolveKey = await this.host.keyOfRole(flowId, NODE_KEYS.RESOLVE);
-    if (!resolveKey) return;
-    if (await this.host.nodeRunning(flowId, resolveKey)) return;
-    // Direct triggers respect the chain — resolve must not run while the
-    // pipeline/review/resolve chain is in flight.
-    if (await this.host.chainBusy(flowId)) {
-      throw new Error("wait for the pipeline/review step to finish before running resolve");
-    }
-    await this.host.claimNode(flowId, resolveKey, "manualResolve");
+    if (!resolveKey) throw new NotFoundError("node", "resolve");
+    const result = await this.host.claimTrigger({
+      flowId,
+      nodeKey: resolveKey,
+      source,
+      key: "manualResolve",
+      chainKeys: await this.host.chainKeys(flowId),
+    });
+    if (!result.started) return result;
     this.host.bg(flowId, resolveKey, async () => {
       await this.host.runNode(flowId, resolveKey, {
         instructions: null, branchName: null, model: model ?? null,
       });
       await this.host.advanceFrom(flowId, resolveKey);
     });
+    return result;
   }
 
-  /** Manual review run (Run button / API): run the stage, then the edges. */
-  async triggerReview(flowId: string, model?: string): Promise<void> {
+  /**
+   * Manual review run (Run button / API): run the stage, then the edges.
+   * The claim (manualStage from-set + chain guard) replaces the `chainBusy`
+   * throw (step 06) — a busy chain loses the claim and emits the skip event.
+   */
+  async triggerReview(flowId: string, model?: string, source: TriggerSource = TRIGGER_SOURCE.UI): Promise<TriggerResult> {
     const reviewKey = await this.host.keyOfRole(flowId, NODE_KEYS.REVIEW);
     if (!reviewKey) throw new Error("this flow template has no review node");
-    if (await this.host.chainBusy(flowId)) throw new Error("wait for the current pipeline/review/resolve run to finish first");
-    await this.host.claimNode(flowId, reviewKey, "manualStage");
+    const result = await this.host.claimTrigger({
+      flowId,
+      nodeKey: reviewKey,
+      source,
+      key: "manualStage",
+      chainKeys: await this.host.chainKeys(flowId),
+    });
+    if (!result.started) return result;
     this.host.bg(flowId, reviewKey, async () => {
       await this.host.runNode(flowId, reviewKey, {
         instructions: null, branchName: null, model: model ?? null,
       });
       await this.host.advanceFrom(flowId, reviewKey);
     });
+    return result;
   }
 }
 

@@ -5,19 +5,25 @@ assignTestDatabase();
 
 const { db } = await import("../../db/app");
 const { FlowRetryService } = await import("./flowRetryService");
-const { ConflictError, ValidationError } = await import("../../errors");
+const { ValidationError } = await import("../../errors");
 const { PLAN_CHAT_READY_LIFECYCLE } = await import("../nodes/kinds/plan/planRetryRevert");
 const { NODE_KEYS } = await import("../constants/nodeKeys");
+const { NODE_STATUS } = await import("../constants/nodeStatus");
 import type { RetryHost } from "./types/retryHost";
+
+type TriggerResult = import("../runtime/triggers/types/triggerGateway").TriggerResult;
+
+const SKIP: TriggerResult = { started: false, skipped: true, reason: "skipped_duplicate_trigger" };
 
 /**
  * FlowRetryService — the retry path's own contract (step-05 carve-out): the
- * fast-fail guards (non-retryable def, running/waiting node, busy post-MR
- * chain), the plan dead-end fix (no recorded turn ⇒ the declared
- * `planRetryRevert` transition + the chat-ready lifecycle event), and the
- * step-05 prompt-rebuild coherence strip. The end-to-end retry flows are
- * covered by the engine tests (planRetryDeadEnd, promptRetryRebuild,
- * sdlcHappyPath).
+ * fast-fail guards (non-retryable def, input parse), the `retry` claim whose
+ * from-set is the step-06 duplicate fence (a running/waiting node or a busy
+ * post-MR chain loses it atomically — the old ConflictError guards are gone),
+ * the plan dead-end fix (no recorded turn ⇒ the declared `planRetryRevert`
+ * transition + the chat-ready lifecycle event), and the step-05
+ * prompt-rebuild coherence strip. The end-to-end retry flows are covered by
+ * the engine tests (planRetryDeadEnd, promptRetryRebuild, sdlcHappyPath).
  */
 const seedNode = async (flowId: string, nodeKey: string, type: string, status: string, input?: unknown): Promise<void> => {
   await db.run(
@@ -38,13 +44,12 @@ const seedNode = async (flowId: string, nodeKey: string, type: string, status: s
 const makeHost = (over: Partial<RetryHost> = {}): RetryHost => ({
   defOf: async () => ({ key: "build", retryable: true, capabilities: {}, parseInput: (x: unknown) => x }) as never,
   nodeStatus: async () => "failed",
-  claimNode: async () => "attempt_1",
-  applyOrThrow: async () => {},
+  claimTrigger: async () => ({ started: true, attemptId: "attempt_1" }) as TriggerResult,
+  transitionTrigger: async () => ({ started: true }) as TriggerResult,
   bg: () => {},
   ctx: async () => ({}) as never,
   advanceFrom: async () => {},
   nodeConfigFor: async () => ({}),
-  chainBusy: async () => false,
   isStepChild: async () => false,
   latestResourceArtifact: async () => undefined,
   emitLifecycle: async () => {},
@@ -65,25 +70,60 @@ describe("FlowRetryService", () => {
     await expect(service.retryNode(flowId, "agent")).rejects.toThrow(ValidationError);
   });
 
-  it("rejects a running node", async () => {
+  it("a running node loses the retry claim without a lifecycle emission", async () => {
     const flowId = "flw_retry_2";
     await seedNode(flowId, "build", "build", "running");
-    const service = new FlowRetryService(makeHost());
-    await expect(service.retryNode(flowId, "build")).rejects.toThrow(ConflictError);
+    let lifecycleCalls = 0;
+    let bgCalls = 0;
+    const service = new FlowRetryService(makeHost({
+      claimTrigger: async () => SKIP,
+      emitLifecycle: async () => { lifecycleCalls += 1; },
+      bg: () => { bgCalls += 1; },
+    }));
+    const result = await service.retryNode(flowId, "build");
+    // the claim's from-set is the fence (step 06) — a running node loses it
+    // atomically and nothing runs
+    expect(result).toEqual(SKIP);
+    expect(lifecycleCalls).toBe(0);
+    expect(bgCalls).toBe(0);
   });
 
-  it("rejects a node waiting for its event source", async () => {
+  it("a node waiting for its event source loses the retry claim", async () => {
     const flowId = "flw_retry_3";
     await seedNode(flowId, "gate", "pipeline", "waiting");
-    const service = new FlowRetryService(makeHost());
-    await expect(service.retryNode(flowId, "gate")).rejects.toThrow(/waiting for its event source/);
+    let lifecycleCalls = 0;
+    let bgCalls = 0;
+    const service = new FlowRetryService(makeHost({
+      claimTrigger: async () => SKIP,
+      emitLifecycle: async () => { lifecycleCalls += 1; },
+      bg: () => { bgCalls += 1; },
+    }));
+    const result = await service.retryNode(flowId, "gate");
+    expect(result).toEqual(SKIP);
+    expect(lifecycleCalls).toBe(0);
+    expect(bgCalls).toBe(0);
   });
 
-  it("rejects while the post-MR chain is busy", async () => {
+  it("a busy post-MR chain loses the retry claim (the guard rides the claim)", async () => {
     const flowId = "flw_retry_4";
     await seedNode(flowId, "review", "review", "failed");
-    const service = new FlowRetryService(makeHost({ chainBusy: async () => true }));
-    await expect(service.retryNode(flowId, "review")).rejects.toThrow(/pipeline\/review\/resolve run to finish/);
+    const claimed: { key?: string; chainKeys?: readonly string[] } = {};
+    let lifecycleCalls = 0;
+    let bgCalls = 0;
+    const service = new FlowRetryService(makeHost({
+      claimTrigger: async (params) => {
+        claimed.key = params.key;
+        claimed.chainKeys = params.chainKeys;
+        return SKIP;
+      },
+      emitLifecycle: async () => { lifecycleCalls += 1; },
+      bg: () => { bgCalls += 1; },
+    }));
+    const result = await service.retryNode(flowId, "review");
+    expect(result).toEqual(SKIP);
+    expect(claimed.key).toBe("retry");
+    expect(lifecycleCalls).toBe(0);
+    expect(bgCalls).toBe(0);
   });
 
   it("a plan retry with no recorded turn applies the declared planRetryRevert + chat-ready event", async () => {
@@ -92,21 +132,46 @@ describe("FlowRetryService", () => {
       turnUserMessage: null,
       previousStatus: null,
     });
-    const applied: string[] = [];
+    const applied: { key?: string; toStatus?: string } = {};
     const events: string[] = [];
     const service = new FlowRetryService(makeHost({
       defOf: async () =>
         ({ key: "plan", retryable: true, capabilities: { chatMode: "plan" }, parseInput: (x: unknown) => x }) as never,
-      applyOrThrow: async (_flowId, nodeKey, key) => {
-        applied.push(`${nodeKey}:${key}`);
+      transitionTrigger: async (params) => {
+        applied.key = params.key;
+        applied.toStatus = params.toStatus;
+        return { started: true } as TriggerResult;
       },
       emitLifecycle: async (_flowId, _nodeKey, message) => {
         events.push(message);
       },
     }));
     await service.retryNode(flowId, NODE_KEYS.PLAN);
-    expect(applied).toEqual([`${NODE_KEYS.PLAN}:planRetryRevert`]);
+    expect(applied.key).toBe("planRetryRevert");
+    // no previousStatus snapshot and no published plan → back to pending
+    expect(applied.toStatus).toBe(NODE_STATUS.PENDING);
     expect(events).toContain(PLAN_CHAT_READY_LIFECYCLE);
+  });
+
+  it("a plan revert that loses the transition emits nothing and stays untouched", async () => {
+    const flowId = "flw_retry_6";
+    await seedNode(flowId, NODE_KEYS.PLAN, "plan", "failed", {
+      turnUserMessage: null,
+      previousStatus: null,
+    });
+    let lifecycleCalls = 0;
+    let bgCalls = 0;
+    const service = new FlowRetryService(makeHost({
+      defOf: async () =>
+        ({ key: "plan", retryable: true, capabilities: { chatMode: "plan" }, parseInput: (x: unknown) => x }) as never,
+      transitionTrigger: async () => SKIP,
+      emitLifecycle: async () => { lifecycleCalls += 1; },
+      bg: () => { bgCalls += 1; },
+    }));
+    const result = await service.retryNode(flowId, NODE_KEYS.PLAN);
+    expect(result).toEqual(SKIP);
+    expect(lifecycleCalls).toBe(0);
+    expect(bgCalls).toBe(0);
   });
 
   it("strips the recorded prompt keys for the prompt-rebuilding kinds (step 05 coherence)", () => {

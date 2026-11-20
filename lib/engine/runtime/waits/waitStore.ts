@@ -1,5 +1,6 @@
 import "server-only";
 
+import { TRIGGER_SOURCE } from "../triggers/constants/triggerSources";
 import { db } from "../../../db/app";
 import { NotFoundError, ValidationError } from "../../../errors";
 import { NODE_KEYS } from "../../constants/nodeKeys";
@@ -194,6 +195,7 @@ export class WaitStore {
         resumeWaiting: true,
         rawInput: { payload, prompt: null, model: null },
         rawPayload: payload,
+        source: TRIGGER_SOURCE.WEBHOOK,
       }).then(() => {})
     );
   }
@@ -212,7 +214,7 @@ export class WaitStore {
       note ? `${nodeKey} ${note} — resuming` : `${nodeKey} timer elapsed — resuming`,
     );
     this.host.bg(flowId, nodeKey, () =>
-      this.host.startNodeStage(flowId, nodeKey, { resumeWaiting: true }).then(() => {})
+      this.host.startNodeStage(flowId, nodeKey, { resumeWaiting: true, source: TRIGGER_SOURCE.POLLER }).then(() => {})
     );
   }
 

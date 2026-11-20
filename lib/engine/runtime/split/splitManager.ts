@@ -9,6 +9,7 @@ import {
   NODE_TERMINAL_STATUSES,
 } from "../transitions/constants/statusSets";
 import type { TransitionKey } from "../transitions/types/transitions";
+import type { TriggerResult } from "../triggers/types/triggerGateway";
 import { engineParts } from "@/lib/composition/container";
 import { processSingleton } from "../../../singleton";
 import type { FlowCtx, NodeDefinition } from "../../nodes/shared/nodeSharedExports";
@@ -211,7 +212,7 @@ interface SplitEngineSurface {
   startStepChild(childFlowId: string): Promise<void>;
   finishSplit(parentFlowId: string, nodeKey: string, output: Record<string, unknown>, attemptId?: string | null): Promise<void>;
   setNodeStatus(flowId: string, nodeKey: string, key: TransitionKey): Promise<boolean>;
-  retryNode(flowId: string, nodeKey: string): Promise<void>;
+  retryNode(flowId: string, nodeKey: string): Promise<TriggerResult>;
   cancelNode(flowId: string, nodeKey: string): Promise<void>;
   advanceFrom(flowId: string, nodeKey: string): Promise<void>;
 }

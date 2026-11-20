@@ -51,3 +51,12 @@ export interface TransitionRecord {
   attemptId?: string;
   at: number;
 }
+
+/**
+ * The atomic trigger claim's two outcomes (step 06, Invariant 11): either the
+ * conditional claim UPDATE won (attempt token stamped) or it lost — with the
+ * holder's state read back so the skip event can name who holds the node.
+ */
+export type TriggerClaim =
+  | { claimed: true; attemptId: string; nodeId: string }
+  | { claimed: false; status: string | null; holderAttemptId: string | null };

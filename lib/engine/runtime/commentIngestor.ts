@@ -6,10 +6,12 @@ import { DomainError } from "../../errors";
 import { hostOf, type HostComment, type HostWebhookEvent } from "../ports/gitHost";
 import { templateStore } from "../templates/templateStore";
 import { commentStore } from "./commentStore";
+import { TRIGGER_SOURCE } from "./triggers/constants/triggerSources";
 import type { WaitStore } from "./waits/waitStore";
+import type { TriggerResult, TriggerSource } from "./triggers/types/triggerGateway";
 
 export type CommentIngestorHost = {
-  triggerPipelineGate(flowId: string, pipelineId?: number): Promise<void>;
+  triggerPipelineGate(flowId: string, pipelineId?: number, model?: string, source?: TriggerSource): Promise<TriggerResult>;
 };
 
 /** Git-host MR lookup and comment ingestion. */
@@ -97,7 +99,7 @@ export class CommentIngestor {
           { status: event.pipeline.status, id: event.pipeline.id, nodeKey: gateKey ?? undefined });
       }
       if (event.pipeline.status === "failed") {
-        await this.host.triggerPipelineGate(f.id, event.pipeline.id);
+        await this.host.triggerPipelineGate(f.id, event.pipeline.id, undefined, TRIGGER_SOURCE.WEBHOOK);
       }
     } catch (e: unknown) {
       if (e instanceof DomainError) {

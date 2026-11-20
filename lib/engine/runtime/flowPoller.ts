@@ -15,6 +15,7 @@ import { ScheduleFireHandler } from "./jobs/scheduleFireHandler";
 import { ProcessLock } from "./locks/processLock";
 import { JOB_KIND } from "./jobs/constants/jobVocabulary";
 import { scheduleFireDedupKey } from "./jobs/utils/jobDedupKeys";
+import { TRIGGER_SOURCE } from "./triggers/constants/triggerSources";
 import type { JobHandlers } from "./jobs/types/job";
 
 /**
@@ -266,8 +267,9 @@ export class FlowPoller {
     }
 
     if (pipe.status === "failed") {
-      // the pipeline gate owns fixes — trigger it (it guards against double-runs)
-      await flowEngine.triggerPipelineGate(f.id, pipe.id);
+      // the pipeline gate owns fixes — trigger it; the gateway claim (step 06)
+      // is the duplicate fence against the webhook path's identical trigger
+      await flowEngine.triggerPipelineGate(f.id, pipe.id, undefined, TRIGGER_SOURCE.POLLER);
     }
   }
 

@@ -2,7 +2,7 @@ import "server-only";
 
 import { db } from "../../db/app";
 import { NodeRow, rows } from "../../db/rows";
-import { ConflictError, NotFoundError, ValidationError } from "../../errors";
+import { NotFoundError, ValidationError } from "../../errors";
 import { NODE_KEYS } from "../constants/nodeKeys";
 import { PlanInput } from "../nodes/kinds/plan/schema";
 import {
@@ -13,10 +13,12 @@ import { nodeRoles } from "../nodes/shared/nodeRoles";
 import { stepFlows } from "../runtime/fanout/stepFlowManager";
 import { splitManager } from "../runtime/split/splitManager";
 import { isNodeTerminalSuccess } from "../runtime/transitions/constants/statusSets";
+import { TRIGGER_SOURCE } from "../runtime/triggers/constants/triggerSources";
 import { templateStore } from "../templates/templateStore";
 import { PROMPT_REBUILD_RETRY_KEYS, RECORDED_PROMPT_KEYS } from "./constants/retryPromptRebuild";
 import type { RetryHost } from "./types/retryHost";
 import type { NodeDefinition } from "../nodes/shared/nodeSharedExports";
+import type { TriggerResult } from "../runtime/triggers/types/triggerGateway";
 
 /**
  * FlowRetryService — the retry paths carved out of the FlowEngine facade
@@ -31,14 +33,17 @@ import type { NodeDefinition } from "../nodes/shared/nodeSharedExports";
  *
  * Must never: run a retry on an unvalidated recorded payload (the recorded
  * input parses against the node's schema first — retry fails fast rather
- * than running corrupt), retry a running/waiting node, or start a retry
- * while the post-MR chain is busy. The recorded prompt itself stays
- * persisted for audit/preview only.
+ * than running corrupt), or write node status outside the gateway/authority
+ * doors. The duplicate fence is the `retry` claim's from-set (step 06): a
+ * running/waiting node or a busy post-MR chain loses the claim atomically,
+ * emits the typed `skipped_duplicate_trigger` event and returns the skipped
+ * result — the old ad-hoc `ConflictError` guards are gone. The recorded
+ * prompt itself stays persisted for audit/preview only.
  */
 export class FlowRetryService {
   constructor(private readonly host: RetryHost) {}
 
-  async retryNode(flowId: string, nodeKey: string): Promise<void> {
+  async retryNode(flowId: string, nodeKey: string): Promise<TriggerResult> {
     const node = await rows.get(NodeRow, `SELECT id, flow_id AS "flowId", node_key AS "nodeKey", type, status, attempt_id AS "attemptId", agent_id AS "agentId", agent_ref AS "agentRef", session_id AS "sessionId", label, config, join_mode AS "joinMode", input, output, created_at AS "createdAt", updated_at AS "updatedAt" FROM nodes WHERE flow_id=$1 AND node_key=$2`, flowId, nodeKey);
     if (!node) throw new NotFoundError('node', nodeKey);
     const def = await this.host.defOf(flowId, nodeKey);
@@ -47,20 +52,18 @@ export class FlowRetryService {
     // the recorded input is validated against the node's schema — retry fails
     // fast with a clear error rather than running with a corrupt payload
     const recorded = def.parseInput(node.input ?? {});
-    if (node.status === 'running') throw new ConflictError(`${nodeKey} is already running`);
-    if (node.status === 'waiting') {
-      throw new ConflictError(`${nodeKey} is waiting for its event source — retry after it resumes (or cancel it)`);
-    }
-    if ((await templateStore.chainNodeKeys(flowId)).includes(nodeKey) && (await this.host.chainBusy(flowId))) {
-      throw new ConflictError('wait for the current pipeline/review/resolve run to finish first');
-    }
     if (def.capabilities.chatMode === 'plan') {
-      await this.retryPlanNode(flowId, nodeKey, node, def, PlanInput.parse(recorded));
-      return;
+      return this.retryPlanNode(flowId, nodeKey, node, def, PlanInput.parse(recorded));
     }
 
+    // a chain node's retry respects the chain — the guard rides the claim
+    // UPDATE itself (step 06), not a read-then-act pre-check
+    const chainKeys = (await templateStore.chainNodeKeys(flowId)).includes(nodeKey)
+      ? await templateStore.chainNodeKeys(flowId)
+      : undefined;
+    const result = await this.host.claimTrigger({ flowId, nodeKey, source: TRIGGER_SOURCE.UI, key: 'retry', chainKeys });
+    if (!result.started) return result;
     await this.host.emitLifecycle(flowId, nodeKey, `retrying ${nodeKey}`);
-    await this.host.claimNode(flowId, nodeKey, 'retry');
     this.host.bg(flowId, nodeKey, async () => {
       // a retried node re-runs on its recorded input — with the recorded
       // prompt stripped for the prompt-rebuilding kinds (step 05 retry
@@ -85,6 +88,7 @@ export class FlowRetryService {
         await this.host.advanceFrom(flowId, nodeKey);
       }
     });
+    return result;
   }
 
   /** Plan retry: replay a recorded chat turn, or revert when nothing was recorded. */
@@ -94,21 +98,29 @@ export class FlowRetryService {
     node: NodeRow,
     def: NodeDefinition,
     recorded: PlanInput
-  ): Promise<void> {
-    await this.host.emitLifecycle(flowId, nodeKey, `retrying ${nodeKey}`);
+  ): Promise<TriggerResult> {
     const turnMessage = recorded.turnUserMessage?.trim();
     if (!turnMessage) {
       const revertStatus = resolvePlanFailedRetryStatus(
         recorded,
         (await this.host.latestResourceArtifact(flowId, NODE_KEYS.PLAN)) != null
       );
-      await this.host.applyOrThrow(flowId, nodeKey, 'planRetryRevert', { toStatus: revertStatus });
+      const reverted = await this.host.transitionTrigger({
+        flowId,
+        nodeKey,
+        source: TRIGGER_SOURCE.UI,
+        key: 'planRetryRevert',
+        toStatus: revertStatus,
+      });
+      if (!reverted.started) return reverted;
       await this.host.emitLifecycle(flowId, nodeKey, PLAN_CHAT_READY_LIFECYCLE);
       await this.touch(flowId);
-      return;
+      return reverted;
     }
 
-    await this.host.claimNode(flowId, nodeKey, 'retry');
+    const result = await this.host.claimTrigger({ flowId, nodeKey, source: TRIGGER_SOURCE.UI, key: 'retry' });
+    if (!result.started) return result;
+    await this.host.emitLifecycle(flowId, nodeKey, `retrying ${nodeKey}`);
     this.host.bg(flowId, nodeKey, async () => {
       const chatRefiner = nodeRoles.chatRefinerOf(def);
       if (!chatRefiner) {
@@ -126,6 +138,7 @@ export class FlowRetryService {
         recorded.planThread ?? null
       );
     });
+    return result;
   }
 
   /** The input a retry runs on: the recorded input as-is, except the

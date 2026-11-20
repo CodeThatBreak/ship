@@ -16,7 +16,7 @@ import { nodeRegistry } from './nodes/registry';
 import './nodes/declarativeBootstrap';
 import { NODE_KEYS } from './constants/nodeKeys';
 import { RUN_STATUS } from './constants/vocabulary';
-import { planSteps, type PlanStepInput } from './runtime/planStepStore';
+import type { PlanStepInput } from './runtime/planStepStore';
 import {
   templateStore,
   type TemplateGraph,
@@ -28,6 +28,8 @@ import { evalJsonata } from '@/lib/jsonata/eval';
 import { NODE_STATUS, type EngineNodeStatus } from './constants/nodeStatus';
 import { isNodeTerminalSuccess } from './runtime/transitions/constants/statusSets';
 import type { TransitionKey } from './runtime/transitions/types/transitions';
+import { TRIGGER_SOURCE } from './runtime/triggers/constants/triggerSources';
+import type { TriggerResult, TriggerSource } from './runtime/triggers/types/triggerGateway';
 import { InputContractError } from './errors/inputContractError';import { EVENT_KIND } from './constants/vocabulary';
 import { stepFlows, type StepChildPayload } from './runtime/fanout/stepFlowManager';
 import { mergeArena } from './runtime/fanout/mergeArena';
@@ -46,6 +48,7 @@ import { WaitStore } from './runtime/waits/waitStore';
 import { FlowApprovalService } from './flow/flowApprovalService';
 import { FlowChatService } from './flow/flowChatService';
 import { FlowRetryService } from './flow/flowRetryService';
+import { FlowPlanStepService } from './flow/flowPlanStepService';
 
 export type { CreateFlowOptions };
 
@@ -96,6 +99,7 @@ export class FlowEngine {
   private readonly approvals: FlowApprovalService;
   private readonly chats: FlowChatService;
   private readonly retries: FlowRetryService;
+  private readonly planStepEdits: FlowPlanStepService;
 
   /** Engine parts are constructor-injected from the composition root (Q9). */
   constructor(parts: EngineParts = engineParts) {
@@ -111,6 +115,7 @@ export class FlowEngine {
     this.approvals = new FlowApprovalService(this);
     this.chats = new FlowChatService(this);
     this.retries = new FlowRetryService(this);
+    this.planStepEdits = new FlowPlanStepService(this);
   }
 
   async create(taskId: string, repoUrl: string, name?: string, opts: CreateFlowOptions = {}): Promise<string> {
@@ -566,76 +571,16 @@ export class FlowEngine {
 
   // ── public triggers ──────────────────────────────────────────────────────
 
-  // ── structured plan step editing ─────────────────────────────────────────
-  private async assertPlanEditable(flowId: string) {
-    // derive the in-flight run from node statuses (Q5: current_node is gone)
-    const running = await db.get<{ nodeKey: string }>(
-      `SELECT node_key AS "nodeKey" FROM nodes WHERE flow_id=$1 AND status='running' LIMIT 1`,
-      flowId
-    );
-    if (running) throw new Error(`wait for the ${running.nodeKey} run to finish before editing steps`);
-    return this.latestResourceArtifact<{ id: string }>(flowId, NODE_KEYS.PLAN, 'a.id');
-  }
+  // ── structured plan step editing (FlowPlanStepService — lib/engine/flow/) ─
 
-  /** Bulk-replace the checklist from the Plan view editor.
-   *  Phase 3B softened fan-out guards: the editor sends each row's plan-step
-   *  row id (PlanSteps payload), so a harmless title/detail/files edit keeps
-   *  the row — and its pending child sub-flow's linkage — instead of being
-   *  read as a remove + re-add (the old title-match-only guard errored loudly
-   *  on renames and destroyed pending children). Rows that are actually
-   *  removed still hit the guards: a pending child's flow closes silently, a
-   *  started/merged child's step refuses loudly. */
+  /** Bulk-replace the checklist from the Plan view editor. */
   async updatePlanSteps(flowId: string, input: PlanStepInput[]): Promise<void> {
-    if (!Array.isArray(input) || input.some(s => !s?.title?.trim?.())) {
-      throw new Error('steps must be an array of {title, detail?, files?}');
-    }
-    const latestPlan = await this.assertPlanEditable(flowId);
-    const guards = await stepFlows.deletableStepIds(flowId);
-    const existing = await planSteps.list(flowId);
-    const byId = new Map(existing.map(s => [s.id, s]));
-    const claimed = new Set<string>(); // existing rows matched to a kept input row
-    const matched = new Map<number, string>(); // input index → existing row id
-    for (const [i, row] of input.entries()) {
-      const sentId = typeof row.id === 'string' ? row.id.trim() : '';
-      const m = sentId ? byId.get(sentId) : undefined;
-      if (m && !claimed.has(m.id)) {
-        claimed.add(m.id);
-        matched.set(i, m.id);
-      }
-    }
-    // rows the user removed: a started/merged child's step cannot go (loud);
-    // rows matched above are by definition kept — never treated as removed
-    const removedIds = existing.filter(s => !claimed.has(s.id) && !guards.deletable.has(s.id));
-    if (removedIds.length) {
-      throw new Error(
-        `plan step "${removedIds[0].title}" has an active or merged sub-flow and can't be removed — skip the step instead`
-      );
-    }
-    for (const [stepId, childId] of guards.toCancel) {
-      // a step the user REMOVED whose child never started — close the child so
-      // no half-scheduled sub-flow lingers (kept rows cancel nothing)
-      if (claimed.has(stepId)) continue;
-      await stepFlows.cancelUnstartedChild(childId);
-    }
-    const updated = await planSteps.replace(
-      flowId,
-      latestPlan?.id ?? null,
-      input.map(s => ({ title: s.title.trim(), detail: s.detail, files: s.files, branch: s.branch })),
-      { matchedRows: matched }
-    );
-    await this.parts.events.lifecycle(flowId, null, `plan checklist edited (${updated.length} steps)`, {
-      // route the event to the tab that owns the checklist (§3.3 — stamped at
-      // emit time; the feed no longer guesses from message text)
-      nodeKey: (await this.keyOfRole(flowId, NODE_KEYS.PLAN)) ?? undefined,
-    });
-    await this.touch(flowId);
+    await this.planStepEdits.updatePlanSteps(flowId, input);
   }
 
   /** Toggle one step done/pending. */
   async setPlanStepStatus(flowId: string, stepId: string, status: 'pending' | 'done'): Promise<void> {
-    if (status !== 'pending' && status !== 'done') throw new Error('status must be pending|done');
-    if (!(await planSteps.setStatus(flowId, stepId, status, 'manual'))) throw new Error('step not found');
-    await this.touch(flowId);
+    await this.planStepEdits.setPlanStepStatus(flowId, stepId, status);
   }
 
   // ── template topology + edge-driven activation ───────────────────────────
@@ -744,19 +689,19 @@ export class FlowEngine {
   // ── approvals (FlowApprovalService — lib/engine/flow/) ───────────────────
 
   /** Approve the plan (optional execution override chip) and release its edges. */
-  async approvePlan(flowId: string, executionOverride?: 'whole' | 'steps'): Promise<void> {
-    await this.approvals.approvePlan(flowId, executionOverride);
+  async approvePlan(flowId: string, executionOverride?: 'whole' | 'steps'): Promise<TriggerResult> {
+    return this.approvals.approvePlan(flowId, executionOverride);
   }
 
   /** Approve the build output ("Approve & create MR") — step children route
    *  to the fan-out approve. */
-  async approveBuild(flowId: string, branchName?: string): Promise<void> {
-    await this.approvals.approveBuild(flowId, branchName);
+  async approveBuild(flowId: string, branchName?: string): Promise<TriggerResult> {
+    return this.approvals.approveBuild(flowId, branchName);
   }
 
   /** The ChainHost / ApprovalHost port: the builtin chain's build approval. */
-  async sdlcApproveBuild(flowId: string, branchName?: string): Promise<void> {
-    await this.chain.approveBuild(flowId, branchName);
+  async sdlcApproveBuild(flowId: string, branchName?: string): Promise<TriggerResult> {
+    return this.chain.approveBuild(flowId, branchName);
   }
 
   /** The ChainHost / ApprovalHost port: typed lifecycle emission. */
@@ -771,8 +716,8 @@ export class FlowEngine {
 
   /** Approve an `awaiting_approval` node generically (approval-triggered
    *  declarative nodes; e.g. an agent output held for review). */
-  async approveNode(flowId: string, nodeKey: string): Promise<void> {
-    await this.approvals.approveNode(flowId, nodeKey);
+  async approveNode(flowId: string, nodeKey: string): Promise<TriggerResult> {
+    return this.approvals.approveNode(flowId, nodeKey);
   }
 
   /** Record a branch pick on a decision node awaiting its choice (§4.3). */
@@ -780,19 +725,26 @@ export class FlowEngine {
     await this.approvals.chooseNode(flowId, nodeKey, chosen, rationale);
   }
 
-  /** (Re)run the pipeline gate — from the Pipeline panel, poller, or webhook. */
-  async triggerPipelineGate(flowId: string, pipelineId?: number, model?: string): Promise<void> {
-    await this.chain.triggerPipelineGate(flowId, pipelineId, model);
+  /** (Re)run the pipeline gate — from the Pipeline panel, poller, or webhook.
+   * The gateway claim is the duplicate fence; the skipped result maps to 409
+   * at the route (step 06). */
+  async triggerPipelineGate(
+    flowId: string,
+    pipelineId?: number,
+    model?: string,
+    source: TriggerSource = TRIGGER_SOURCE.UI,
+  ): Promise<TriggerResult> {
+    return this.chain.triggerPipelineGate(flowId, pipelineId, model, source);
   }
 
-  async triggerResolve(flowId: string, model?: string): Promise<void> {
+  async triggerResolve(flowId: string, model?: string, source: TriggerSource = TRIGGER_SOURCE.UI): Promise<TriggerResult> {
     // a waiting resolve's durable wait clears itself: the chain's claim below
     // leaves `waiting` through the authority, which clears wait_until
-    await this.chain.triggerResolve(flowId, model);
+    return this.chain.triggerResolve(flowId, model, source);
   }
 
-  async triggerReview(flowId: string, model?: string): Promise<void> {
-    await this.chain.triggerReview(flowId, model);
+  async triggerReview(flowId: string, model?: string, source: TriggerSource = TRIGGER_SOURCE.UI): Promise<TriggerResult> {
+    return this.chain.triggerReview(flowId, model, source);
   }
 
   /**
@@ -802,23 +754,44 @@ export class FlowEngine {
    * the generic wait-timer state rather than a chain scheduler.
    */
 
-  // true when the node already has an in-flight run — guards against the webhook
-  // + poller + UI all triggering the same node concurrently.
-  // Engine internals shared with the SDLC builtin-chain module — not a public API.
-  nodeRunning(flowId: string, nodeKey: string): Promise<boolean> {
-    return (
-      db.get<{ status: string }>(`SELECT status FROM nodes WHERE flow_id=$1 AND node_key=$2`, flowId, nodeKey).then(
-        row => row?.status === 'running'
-      )
-    );
+  /**
+   * The instance keys of the flow's post-MR chain stages — the claim guard's
+   * in-flight set (step 06): the TriggerGateway folds it into the claim's
+   * conditional UPDATE, so no read-then-act `chainBusy` pre-check guards a
+   * trigger anymore. (The WaitStore's comments-debounce re-defer keeps a
+   * scheduling read on this — it extends a wait, it never guards a status
+   * write.)
+   */
+  async chainKeys(flowId: string): Promise<string[]> {
+    return templateStore.chainNodeKeys(flowId);
+  }
+
+  /** The gateway's claim door (step 06, Invariant 11) — every run-starting
+   * trigger loses its duplicates here, with the typed skip event emitted. */
+  claimTrigger(params: {
+    flowId: string;
+    nodeKey: string;
+    source: TriggerSource;
+    key: TransitionKey;
+    chainKeys?: readonly string[];
+  }): Promise<TriggerResult> {
+    return this.parts.triggers.claimTrigger(params);
+  }
+
+  /** The gateway's approval-style door (step 06). */
+  transitionTrigger(params: {
+    flowId: string;
+    nodeKey: string;
+    source: TriggerSource;
+    key: TransitionKey;
+  }): Promise<TriggerResult> {
+    return this.parts.triggers.transitionTrigger(params);
   }
   /**
    * True while any stage of the post-MR chain (pipeline gate → review →
-   * resolve) is running. The chain executes inline in one background task, so
-   * between node statuses flipping there is always exactly one `running` stage
-   * — this guard keeps the poller/webhook/UI from starting a second chain
-   * alongside it.
-   * Engine internals shared with the SDLC builtin-chain module — not a public API.
+   * resolve) is running. Survives only as a scheduling read (the WaitStore's
+   * comments-debounce re-defer) — no trigger coordination reads it anymore
+   * (step 06 folded the guard into the claim UPDATE).
    */
   async chainBusy(flowId: string): Promise<boolean> {
     for (const key of await templateStore.chainNodeKeys(flowId)) {
@@ -839,7 +812,7 @@ export class FlowEngine {
     flowId: string,
     nodeKey: string,
     opts: { prompt?: string; model?: string; input?: Record<string, unknown> } = {}
-  ): Promise<void> {
+  ): Promise<TriggerResult> {
     const def = await this.defOf(flowId, nodeKey);
     if (def.chainRole === NODE_KEYS.PLAN) {
       throw new ValidationError('The plan node only accepts input via POST /api/flows/:id/chat');
@@ -847,12 +820,18 @@ export class FlowEngine {
     const node = await rows.get(NodeRow, `SELECT id, flow_id AS "flowId", node_key AS "nodeKey", type, status, attempt_id AS "attemptId", agent_id AS "agentId", agent_ref AS "agentRef", session_id AS "sessionId", label, config, join_mode AS "joinMode", input, output, created_at AS "createdAt", updated_at AS "updatedAt" FROM nodes WHERE flow_id=$1 AND node_key=$2`, flowId, nodeKey);
     if (!node) throw new NotFoundError('node', nodeKey);
     // a failed entry node re-runs from the form — its recorded input never
-    // satisfied the contract, so the retry path (recorded input) can't help
-    if (node.status !== 'pending' && !(node.status === 'failed' && def.isEntry)) {
-      throw new ConflictError(`run is not available while the node is ${node.status}`);
-    }
+    // satisfied the contract, so the retry path (recorded input) can't help.
+    // The status read only SELECTS the claim key — the claim's from-set still
+    // decides (a racer that claimed first loses atomically and emits the
+    // typed skip event; the old status pre-read throw is gone, step 06).
     const claimKey: TransitionKey = node.status === 'failed' && def.isEntry ? 'retry' : 'runFromPending';
-    await this.claimNode(flowId, nodeKey, claimKey);
+    const result = await this.parts.triggers.claimTrigger({
+      flowId,
+      nodeKey,
+      source: TRIGGER_SOURCE.UI,
+      key: claimKey,
+    });
+    if (!result.started) return result;
     this.bg(flowId, nodeKey, async () => {
       const g = await this.graph(flowId);
       if (g && !(await this.joinSatisfied(flowId, g, nodeKey))) {
@@ -883,6 +862,7 @@ export class FlowEngine {
         await this.advanceFrom(flowId, nodeKey);
       }
     });
+    return result;
   }
 
   /** Update a node instance's config layer (nodes.config), merging per key. */
@@ -957,8 +937,8 @@ export class FlowEngine {
   // ── retry (FlowRetryService — lib/engine/flow/) ───────────────────────────
 
   /** Re-run a node after failure, using its recorded (schema-validated) input. */
-  async retryNode(flowId: string, nodeKey: string): Promise<void> {
-    await this.retries.retryNode(flowId, nodeKey);
+  async retryNode(flowId: string, nodeKey: string): Promise<TriggerResult> {
+    return this.retries.retryNode(flowId, nodeKey);
   }
 
   /** The input a retry runs on — the retry service owns the step-05
@@ -1008,8 +988,8 @@ export class FlowEngine {
    * reply (node state untouched); everything else goes to the node's ChatRefiner
    * when its capabilities opt in, and declines otherwise.
    */
-  async sendChat(flowId: string, nodeKey: string, content: string, model?: string, thread?: string | null): Promise<void> {
-    await this.chats.sendChat(flowId, nodeKey, content, model, thread);
+  async sendChat(flowId: string, nodeKey: string, content: string, model?: string, thread?: string | null): Promise<TriggerResult> {
+    return this.chats.sendChat(flowId, nodeKey, content, model, thread);
   }
 
   // ── Phase 4: triggers — flow start, webhooks, schedule, wait timers ──────

@@ -16,6 +16,7 @@ import type {
   NodeOutcome,
   TransitionKey,
   TransitionRecord,
+  TriggerClaim,
 } from "./types/transitions";
 import type { OutcomeContractSource } from "./types/contractSource";
 import type { TransitionEvents } from "./transitionEvents";
@@ -107,6 +108,45 @@ export class TransitionAuthority {
     this.attempts.mark(claimed.id, attemptId);
     this.record(flowId, nodeKey, key, NODE_STATUS.RUNNING, attemptId);
     return { attemptId, nodeId: claimed.id };
+  }
+
+  /**
+   * The atomic trigger claim with the chain in-flight guard folded into the SAME
+   * conditional UPDATE (step 06, Invariant 11): a post-MR chain trigger loses
+   * atomically when a sibling stage runs; a lost claim never throws — the
+   * holder's state returns so the TriggerGateway emits the typed skip event.
+   */
+  async claimTrigger(
+    flowId: string,
+    nodeKey: string,
+    key: TransitionKey,
+    opts: { chainKeys?: readonly string[] } = {},
+  ): Promise<TriggerClaim> {
+    const row = TRANSITION_TABLE[key];
+    const chainKeys = opts.chainKeys ?? [];
+    // guard excludes the target (itself a chain key); old chainBusy predicate: running siblings only
+    const chainGuard = chainKeys.length
+      ? ` AND NOT EXISTS (SELECT 1 FROM nodes c WHERE c.flow_id=$5 AND c.node_key <> $6
+           AND c.status='${NODE_STATUS.RUNNING}' AND c.node_key IN (${chainKeys.map((_, i) => `$${7 + i}`).join(", ")}))`
+      : "";
+    const attemptId = this.database.uid("att_");
+    const claimed = await this.database.get<{ id: string }>(
+      `UPDATE nodes SET status=$1, attempt_id=$2, wait_until=NULL,
+         lease_until = now() + make_interval(secs => $3), updated_at=$4
+       WHERE flow_id=$5 AND node_key=$6${chainGuard}
+         AND status IN (${sqlMarks(row.from, 7 + chainKeys.length)})
+       RETURNING id`,
+      NODE_STATUS.RUNNING, attemptId, NODE_LEASE_SECONDS, this.database.now(),
+      flowId, nodeKey, ...chainKeys, ...row.from,
+    );
+    if (!claimed) {
+      const holder = await this.database.get<{ status: string; attemptId: string | null }>(
+        `SELECT status, attempt_id AS "attemptId" FROM nodes WHERE flow_id=$1 AND node_key=$2`, flowId, nodeKey);
+      return { claimed: false, status: holder?.status ?? null, holderAttemptId: holder?.attemptId ?? null };
+    }
+    this.attempts.mark(claimed.id, attemptId);
+    this.record(flowId, nodeKey, key, NODE_STATUS.RUNNING, attemptId);
+    return { claimed: true, attemptId, nodeId: claimed.id };
   }
 
   /**

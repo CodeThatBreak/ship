@@ -24,7 +24,12 @@ export const POST = async (req: Request, { params }: { params: Promise<{ id: str
   try {
     const { id } = await params;
     const body = await parseJson(req, ChatBody);
-    await flowEngine.sendChat(id, body.nodeKey, body.content, body.model, body.thread);
+    const result = await flowEngine.sendChat(id, body.nodeKey, body.content, body.model, body.thread);
+    // step 06 (Invariant 11): a turn that lost the claim answers 409 with the
+    // typed code — the skip event is already on the flow's feed
+    if (!result.started) {
+      return NextResponse.json({ code: result.reason }, { status: 409 });
+    }
     return NextResponse.json({ ok: true });
   } catch (e: unknown) {
     return toErrorResponse(e);

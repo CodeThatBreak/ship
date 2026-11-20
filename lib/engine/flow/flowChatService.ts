@@ -3,7 +3,9 @@ import "server-only";
 import { db } from "../../db/app";
 import { CHAT_DECLINED, nodeRoles } from "../nodes/shared/nodeRoles";
 import { isNodeTerminalSuccess } from "../runtime/transitions/constants/statusSets";
+import { TRIGGER_SOURCE } from "../runtime/triggers/constants/triggerSources";
 import type { ChatHost } from "./types/chatHost";
+import type { TriggerResult } from "../runtime/triggers/types/triggerGateway";
 
 /**
  * FlowChatService — the chat paths carved out of the FlowEngine facade
@@ -23,7 +25,7 @@ import type { ChatHost } from "./types/chatHost";
 export class FlowChatService {
   constructor(private readonly host: ChatHost) {}
 
-  async sendChat(flowId: string, nodeKey: string, content: string, model?: string, thread?: string | null): Promise<void> {
+  async sendChat(flowId: string, nodeKey: string, content: string, model?: string, thread?: string | null): Promise<TriggerResult> {
     const def = await this.host.defOf(flowId, nodeKey);
     await db.addMessage(flowId, nodeKey, 'user', content, thread ?? null);
     // the pre-claim status decides "did THIS turn land a success terminal":
@@ -32,7 +34,10 @@ export class FlowChatService {
     // a waiting node's durable wait clears itself: the chatRefine claim below
     // leaves `waiting` through the authority, which clears wait_until
     const wasSuccess = isNodeTerminalSuccess(preClaimStatus ?? '');
-    await this.host.claimNode(flowId, nodeKey, 'chatRefine');
+    // the claim is the duplicate fence (step 06): a concurrent turn — or any
+    // running node — loses it atomically and emits the typed skip event
+    const result = await this.host.claimTrigger({ flowId, nodeKey, source: TRIGGER_SOURCE.UI, key: 'chatRefine' });
+    if (!result.started) return result;
 
     this.host.bg(
       flowId,
@@ -63,5 +68,6 @@ export class FlowChatService {
         }
       },
     );
+    return result;
   }
 }

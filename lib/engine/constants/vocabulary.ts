@@ -24,6 +24,11 @@ export const EVENT_KIND = {
   /** the agent answered with the standard error envelope — its reason is the
    *  failure, never retried (step 05) */
   AGENT_REPORTED: "agent_reported",
+  /** a trigger lost the atomic claim (step 06, Invariant 11): the node is
+   *  already in flight or not in the trigger's from-set. Debug-level and
+   *  dedup-friendly in the UI — concurrent webhook/poller races on the same
+   *  event emit one per losing source, so the feed groups identical skips. */
+  SKIPPED_DUPLICATE_TRIGGER: "skipped_duplicate_trigger",
 } as const;
 
 export type EventKind = (typeof EVENT_KIND)[keyof typeof EVENT_KIND];

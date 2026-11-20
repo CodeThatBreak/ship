@@ -145,10 +145,19 @@ describe("engine chain-role routing (T3)", () => {
       now(),
       now(),
     );
-    await expect(engine.sendChat(flowId, planKey, "second message")).rejects.toThrow(ConflictError);
+    // step 06 (Invariant 11): the duplicate loses the atomic claim and emits
+    // the typed skip event — no throw, and the node stays running
+    const result = await engine.sendChat(flowId, planKey, "second message");
+    expect(result).toEqual({ started: false, skipped: true, reason: "skipped_duplicate_trigger" });
+    const skips = await db.all(
+      `SELECT type FROM events WHERE flow_id=$1 AND type='skipped_duplicate_trigger'`,
+      flowId,
+    );
+    expect(skips.length).toBeGreaterThan(0);
+    expect((await db.get<{ status: string }>(`SELECT status FROM nodes WHERE id=$1`, `node_${flowId}_plan`))?.status).toBe("running");
   });
 
-  it("approvePlan rejects when the plan node is running (refine in flight)", async () => {
+  it("approvePlan skips when the plan node is running (refine in flight)", async () => {
     const flowId = await seedFlow(5);
     const planKey = await engine.keyOfRole(flowId, NODE_KEYS.PLAN);
     if (!planKey) throw new Error("expected plan key");
@@ -163,7 +172,21 @@ describe("engine chain-role routing (T3)", () => {
       now(),
       now(),
     );
-    await expect(engine.approvePlan(flowId)).rejects.toThrow(/not awaiting approval/);
+    // the approve door needs the plan artifact present (it is validated
+    // before the transition); with it seeded, the running node loses the
+    // approve transition atomically and emits the typed skip event
+    await db.run(
+      `INSERT INTO artifacts (id, node_id, flow_id, kind, version, content, status, created_at)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
+      `art_${flowId}`, `node_${flowId}_plan`, flowId, "plan", 1, "{}", "draft", now(),
+    );
+    const result = await engine.approvePlan(flowId);
+    expect(result).toEqual({ started: false, skipped: true, reason: "skipped_duplicate_trigger" });
+    const skips = await db.all(
+      `SELECT type FROM events WHERE flow_id=$1 AND type='skipped_duplicate_trigger'`,
+      flowId,
+    );
+    expect(skips.length).toBeGreaterThan(0);
   });
 
   it("triggerResolve re-runs when the resolve node is already done", async () => {

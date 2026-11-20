@@ -1,7 +1,6 @@
 import "server-only";
 
 import { db } from "../../db/app";
-import { ConflictError } from "../../errors";
 import { evalJsonata, jsonataTruthy } from "@/lib/jsonata/eval";
 import { buildFlowContext } from "../context/flowVariables";
 import { NODE_STATUS } from "../constants/nodeStatus";
@@ -9,6 +8,7 @@ import { isNodeTerminalSuccess } from "./transitions/constants/statusSets";
 import { NodeDefinition, splitConsumeOf, type FlowCtx, type SplitConsumeMode } from "../nodes/shared/nodeSharedExports";
 import { nodeRegistry } from "../nodes/registry";
 import { EVENT_KIND } from "../constants/vocabulary";
+import { TRIGGER_SOURCE } from "./triggers/constants/triggerSources";
 import { InputContractError } from "../errors/inputContractError";
 import { parseStartContract } from "../nodes/kinds/start/contract";
 import { templateStore, type TemplateEdgeSpec, type TemplateGraph } from "../templates/templateStore";
@@ -17,6 +17,7 @@ import { splitManager } from "./split/splitManager";
 import type { TransitionEvents } from "./transitions/transitionEvents";
 import type { EdgeActivatorHost } from "./flowEngineHost";
 import type { WaitStore } from "./waits/waitStore";
+import type { TriggerSource } from "./triggers/types/triggerGateway";
 
 /** Template edge activation, join/skip propagation, and auto-start stages. */
 export class EdgeActivator {
@@ -303,7 +304,7 @@ export class EdgeActivator {
   async startNodeStage(
     flowId: string,
     nodeKey: string,
-    opts: { rawInput?: unknown; rawPayload?: unknown; resumeWaiting?: boolean } = {},
+    opts: { rawInput?: unknown; rawPayload?: unknown; resumeWaiting?: boolean; source?: TriggerSource } = {},
   ): Promise<void> {
     const status = await this.host.nodeStatus(flowId, nodeKey);
     if (opts.resumeWaiting ? status !== "waiting" : status !== "pending") return;
@@ -335,12 +336,16 @@ export class EdgeActivator {
       }
     }
     const claimKey = opts.resumeWaiting ? "resumeWait" : "runFromPending";
-    try {
-      await this.host.claimNode(flowId, nodeKey, claimKey);
-    } catch (e: unknown) {
-      if (e instanceof ConflictError) return;
-      throw e;
-    }
+    // the gateway claim is the duplicate fence (step 06): an auto/resume
+    // start that loses the race emits the typed skip event (source-tagged)
+    // instead of the old silent ConflictError swallow
+    const claim = await this.host.claimTrigger({
+      flowId,
+      nodeKey,
+      source: opts.source ?? TRIGGER_SOURCE.EFFECT,
+      key: claimKey,
+    });
+    if (!claim.started) return;
     try {
       const def = await this.host.defOf(flowId, nodeKey);
       // ── fan-out check (plan fan-out, Phase 1): the only engine hook into the

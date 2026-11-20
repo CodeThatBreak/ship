@@ -8,13 +8,18 @@ const { FlowChatService } = await import("./flowChatService");
 const { CHAT_DECLINED } = await import("../nodes/shared/nodeRoles");
 import type { ChatHost } from "./types/chatHost";
 
+type TriggerResult = import("../runtime/triggers/types/triggerGateway").TriggerResult;
+
+const SKIP: TriggerResult = { started: false, skipped: true, reason: "skipped_duplicate_trigger" };
+
 /**
  * FlowChatService — the chat path's own contract (step-05 carve-out): the
- * `chatRefine` claim, the §T4 role routing (decline without a refiner), the
- * recorded user/assistant messages, and the terminal contract (advance the
- * template edges only when THIS turn lands a NEW success terminal). The
- * end-to-end chat flows are covered by the engine tests (flowEngineChatAndManual,
- * planChatToGate, sdlcHappyPath).
+ * `chatRefine` claim (whose atomic fence is the step-06 gateway door), the
+ * §T4 role routing (decline without a refiner), the recorded user/assistant
+ * messages, and the terminal contract (advance the template edges only when
+ * THIS turn lands a NEW success terminal). The end-to-end chat flows are
+ * covered by the engine tests (flowEngineChatAndManual, planChatToGate,
+ * sdlcHappyPath).
  */
 const seedFlow = async (flowId: string): Promise<void> => {
   await db.run(
@@ -30,7 +35,7 @@ const seedFlow = async (flowId: string): Promise<void> => {
 const makeHost = (over: Partial<ChatHost> = {}): ChatHost => ({
   defOf: async () => ({ key: "agent", capabilities: {} }) as never,
   nodeStatus: async () => "failed",
-  claimNode: async () => "attempt_1",
+  claimTrigger: async () => ({ started: true, attemptId: "attempt_1" }) as TriggerResult,
   bg: () => {},
   ctx: async () => ({}) as never,
   advanceFrom: async () => {},
@@ -52,9 +57,9 @@ describe("FlowChatService", () => {
     const advanced: string[] = [];
     let bgBody: (() => Promise<void>) | undefined;
     const service = new FlowChatService(makeHost({
-      claimNode: async (_flowId, _nodeKey, key) => {
-        claimed.push(key);
-        return "attempt_1";
+      claimTrigger: async (params) => {
+        claimed.push(params.key);
+        return { started: true, attemptId: "attempt_1" } as TriggerResult;
       },
       bg: (_flowId, _nodeKey, fn) => {
         bgBody = fn;
@@ -68,6 +73,22 @@ describe("FlowChatService", () => {
     if (bgBody) await bgBody();
     expect(await assistantMessages(flowId)).toEqual([CHAT_DECLINED]);
     expect(advanced).toEqual([]);
+  });
+
+  it("returns the skip result without a background turn when the claim loses", async () => {
+    const flowId = "flw_chat_4";
+    await seedFlow(flowId);
+    let bgCalls = 0;
+    let advanced = 0;
+    const service = new FlowChatService(makeHost({
+      claimTrigger: async () => SKIP,
+      bg: () => { bgCalls += 1; },
+      advanceFrom: async () => { advanced += 1; },
+    }));
+    const result = await service.sendChat(flowId, "agent", "hello");
+    expect(result).toEqual(SKIP);
+    expect(bgCalls).toBe(0);
+    expect(advanced).toBe(0);
   });
 
   it("advances the template edges when the turn lands a NEW success terminal", async () => {

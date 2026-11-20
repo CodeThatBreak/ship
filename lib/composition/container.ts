@@ -16,6 +16,7 @@ import { NodeAttemptRegistry } from "../engine/runtime/nodeAttemptRegistry";
 import { ContractPipeline } from "../engine/runtime/contractPipeline";
 import { TransitionAuthority } from "../engine/runtime/transitions/nodeTransitions";
 import { TransitionEvents } from "../engine/runtime/transitions/transitionEvents";
+import { TriggerGateway } from "../engine/runtime/triggers/triggerGateway";
 
 /**
  * Composition root (decision Q9 — lands incrementally through step 09).
@@ -55,6 +56,8 @@ export interface EngineParts {
   contracts: ContractPipeline;
   transitions: TransitionAuthority;
   events: TransitionEvents;
+  /** the trigger claim door (step 06, Invariant 11) */
+  triggers: TriggerGateway;
 }
 
 /**
@@ -79,7 +82,8 @@ export const createEngineParts = (): EngineParts => {
   const contracts = new ContractPipeline();
   const transitions = new TransitionAuthority(attemptRegistry, events, contracts);
   const nodeSupport = new NodeSupport(transitions);
-  return { nodeSupport, nodeStore, attemptRegistry, contracts, transitions, events };
+  const triggers = new TriggerGateway(transitions, events);
+  return { nodeSupport, nodeStore, attemptRegistry, contracts, transitions, events, triggers };
 };
 
 export const engineParts = createEngineParts();

@@ -29,8 +29,9 @@ const harness = new FlowHarness({ db, flowEngine, templateStore });
 beforeAll(resetTestDatabase);
 
 describe("duplicate triggers collapse to one run + one skip event", () => {
-  // OVERHAUL: flip in step 06
-  test.fails("poller + webhook + manual triggers of the gate ⇒ one run, one skipped_duplicate_trigger", async () => {
+  // step 06: flipped — the TriggerGateway's atomic claim fences the losers,
+  // each emitting a typed `skipped_duplicate_trigger` event
+  test("poller + webhook + manual triggers of the gate ⇒ one run, one skipped_duplicate_trigger", async () => {
     const flowId = await harness.seedSdlcFlow();
     await db.run(`UPDATE flows SET mr_iid=$1, mr_branch=$2 WHERE id=$3`, 1, "devflow/ovh-dup", flowId);
     // the gate is mid-run (an in-flight pipeline wait owns it)

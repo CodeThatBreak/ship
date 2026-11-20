@@ -3,12 +3,23 @@ import "server-only";
 import type { FlowCtx, NodeDefinition } from "../nodes/shared/nodeSharedExports";
 import type { EngineNodeStatus } from "../constants/nodeStatus";
 import type { TransitionKey } from "./transitions/types/transitions";
+import type { TriggerResult, TriggerSource } from "./triggers/types/triggerGateway";
 
 /** The keyed transition opts the engine's wrappers forward to the authority. */
 export type KeyedTransitionOpts = {
   toStatus?: EngineNodeStatus;
   patch?: Record<string, unknown>;
   detail?: string;
+};
+
+/** The TriggerGateway claim door's parameter shape, shared by the hosts that
+ *  start runs (step 06 — the atomic duplicate fence). */
+export type GatewayClaimParams = {
+  flowId: string;
+  nodeKey: string;
+  source: TriggerSource;
+  key: TransitionKey;
+  chainKeys?: readonly string[];
 };
 
 /** Narrow surface {@link WaitStore} needs from the orchestrator. */
@@ -23,7 +34,7 @@ export type WaitStoreHost = {
   startNodeStage(
     flowId: string,
     nodeKey: string,
-    opts?: { rawInput?: unknown; rawPayload?: unknown; resumeWaiting?: boolean },
+    opts?: { rawInput?: unknown; rawPayload?: unknown; resumeWaiting?: boolean; source?: TriggerSource },
   ): Promise<void>;
 };
 
@@ -34,6 +45,8 @@ export type EdgeActivatorHost = WaitStoreHost & {
   runNode(flowId: string, nodeKey: string, rawInput: unknown, deliveryPayload?: unknown): Promise<string>;
   isStepChild(flowId: string): Promise<boolean>;
   armNodeWait(flowId: string, nodeKey: string, wait: "webhook" | "timer" | "comments", minutes: number | null): Promise<void>;
+  /** the TriggerGateway claim door (step 06) — the stage-start duplicate fence */
+  claimTrigger(params: GatewayClaimParams): Promise<TriggerResult>;
 };
 
 /** Narrow surface {@link FlowFactory} needs from the orchestrator. */
