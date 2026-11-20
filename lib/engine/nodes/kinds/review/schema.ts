@@ -21,3 +21,15 @@ export const ReviewOutput = z.object({
   branchName: z.string().optional(),
 });
 export type ReviewOutput = z.infer<typeof ReviewOutput>;
+
+/**
+ * The review's `consumes` contract (step 04): the per-branch MR fact the run
+ * acts on. The MR itself resolves from flow state at run time
+ * (`mrTargetResolver`) — the materialized input carries only the optional
+ * branch override, so the contract is deliberately thin here; the typed
+ * input-contract seam gets its real workout on the declarative kinds'
+ * `input_map` targets.
+ */
+export const ReviewConsumes = z.object({
+  branchName: z.string().nullable().optional(),
+});

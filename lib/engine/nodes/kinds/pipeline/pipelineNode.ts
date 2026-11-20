@@ -15,7 +15,7 @@ import type { ConfigField } from "../../../templates/nodeConfig";
 import { configBool, configNumber, configString, splitConsumerConfigFields } from "../../../templates/nodeConfig";
 import { splitConsumeSchema, splitParallelMaxSchema } from "../../shared/split";
 import { mrTargetResolver } from "../../shared/mrTargetResolver";
-import { PipelineInput, PipelineOutput } from "./schema";
+import { PipelineConsumes, PipelineInput, PipelineOutput } from "./schema";
 import {
   classifyHeadPipeline,
   shouldDeferPipelineTrigger,
@@ -30,12 +30,10 @@ const WAIT_TIMEOUT_MS_DEFAULT = 80 * 60_000;
 const MAX_FIX_ATTEMPTS_DEFAULT = 3;
 /** Max times we press "play" on manual jobs for one pipeline. */
 const MAX_MANUAL_PLAYS = 20;
-/**
- * After a fix push, how long to wait for the push's new pipeline to appear on
- * the MR head before triggering one ourselves (manual-CI projects never start
- * one on push). Long enough for GitLab to attach the pipeline (seconds), short
- * enough to keep the loop moving when it never comes.
- */
+/** After a fix push: how long to wait for the push's new pipeline to appear on
+ *  the MR head before triggering one ourselves (manual-CI projects never start
+ *  one on push) — long enough for GitLab to attach it, short enough to keep
+ *  the loop moving when it never comes. */
 const FIX_PIPELINE_GRACE_MS = 2 * 60_000;
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -84,6 +82,7 @@ export class PipelineNode extends AgentRunNode<
 
   readonly inputSchema = PipelineInput;
   readonly outputSchema = PipelineOutput;
+  override readonly consumes = PipelineConsumes;
 
   /** Typed config knobs (defaults = today's behavior). */
   override readonly configSchema = z.object({

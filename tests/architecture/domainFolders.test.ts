@@ -4,11 +4,11 @@
  * `schema.ts`/`schemas/`, exported types only in `types/`, exported constants
  * only in `constants/` (engine overhaul §12; AGENTS §2.7).
  *
- * Scoped to the step-04 contract work: the inline Zod schemas parked in the
- * decision/http/script/agent node defs and `plan/schema.ts`'s `withStepIds`
- * function. Those are frozen below (shrink-only); step 04 moves them into each
- * kind's `schema.ts` / `utils/` and removes the entries. A NEW inline schema
- * outside `schema.ts`/`schemas/` fails the suite.
+ * Scoped to the step-04 contract work: `plan/schema.ts`'s `withStepIds`
+ * function (the one function allowed a schema file — it IS a schema home) and
+ * the remaining kind schemas still parked inline. The decision/http/script
+ * node-def entries were removed in step 04 — their schemas now live in each
+ * kind's `schema.ts` / `utils/`. Adding an entry is forbidden.
  *
  * Scans the source text — static gate, not runtime.
  */
@@ -45,15 +45,11 @@ const inSchemaHome = (rel: string): boolean =>
 const FROZEN_SCHEMA_OFFENDERS: readonly string[] = [
   "lib/engine/nodes/declarative.ts", // DeclarativeRowSchema boundary parse
   "lib/engine/nodes/declarativeSchemas.ts", // AgentDefSchema/DecisionDefSchema/HttpDefSchema/ScriptDefSchema — the declarative kind schemas, consolidated in step 04
-  "lib/engine/nodes/kinds/decision/decisionNode.ts", // inline inputSchema/outputSchema
-  "lib/engine/nodes/kinds/http/httpNode.ts", // inline inputSchema/outputSchema
   "lib/engine/nodes/kinds/resolve/resolveNode.ts", // inline schema (resolve kind)
   "lib/engine/nodes/kinds/review/reviewComments.ts", // reviewCommentItemSchema
-  "lib/engine/nodes/kinds/script/scriptNode.ts", // inline inputSchema/outputSchema
   "lib/engine/nodes/kinds/start/startNode.ts", // inline start-contract schema
-  "lib/engine/nodes/shared/capabilities.ts", // DEFAULT_FANOUT_OUTPUT (z. schema const)
+  "lib/engine/nodes/shared/capabilities.ts", // DEFAULT_FANOUT_OUTPUT + DEFAULT_SPLIT_OUTPUT (z. schema consts; the split default moved here from the split runtime in step 04)
   "lib/engine/nodes/shared/split.ts", // splitConsumeSchema/splitParallelMaxSchema
-  "lib/engine/runtime/split/splitManager.ts", // DEFAULT_SPLIT_OUTPUT
   "lib/engine/templates/nodeConfig.ts", // mcpSourcesSchema
 ];
 

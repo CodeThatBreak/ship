@@ -7,6 +7,9 @@ import { NODE_STATUS, type EngineNodeStatus } from "../../constants/nodeStatus";
 import { NODE_LEASE_SECONDS } from "../../constants/leases";
 import { RunSupersededError } from "../../errors/runSupersededError";
 import { NodeAttemptRegistry } from "../nodeAttemptRegistry";
+import { ContractPipeline } from "../contractPipeline";
+import { OutputContractError } from "../../errors/outputContractError";
+import { EVENT_KIND } from "../../constants/vocabulary";
 import { isClaimKey, resolveToStatus, sqlMarks } from "./utils/transitionLookup";
 import { TRANSITION_TABLE } from "./constants/transitionTable";
 import type {
@@ -14,6 +17,7 @@ import type {
   TransitionKey,
   TransitionRecord,
 } from "./types/transitions";
+import type { OutcomeContractSource } from "./types/contractSource";
 import type { TransitionEvents } from "./transitionEvents";
 
 /**
@@ -38,12 +42,25 @@ import type { TransitionEvents } from "./transitionEvents";
  */
 export class TransitionAuthority {
   private readonly log: TransitionRecord[] = [];
+  /** The bound def resolver (step 04's contract seam) — composition binds it. */
+  private defs: OutcomeContractSource | null = null;
 
   constructor(
     private readonly attempts: NodeAttemptRegistry,
     private readonly events: TransitionEvents,
+    private readonly contracts?: ContractPipeline,
     private readonly database: Database = db,
   ) {}
+
+  /**
+   * Bind the def resolver the contract seam validates through (step 04):
+   * called once by the FlowEngine at construction — the authority must not
+   * know how defs hydrate. Unbound (pre-composition direct constructions),
+   * the terminal writes skip contract validation.
+   */
+  bindOutcomeContracts(defs: OutcomeContractSource): void {
+    this.defs = defs;
+  }
 
   /** The applied-transition log (tests assert every entry is declared). */
   records(flowId?: string): readonly TransitionRecord[] {
@@ -213,12 +230,13 @@ export class TransitionAuthority {
 
   /**
    * THE terminal door for a finished run (the defs' `applyOutcome` write):
-   * validate the target against the `outcome` row, then write status +
-   * validated output + agent cursor in ONE conditional `UPDATE` — fenced by
-   * the attempt token when the run holds one (a superseded run throws
-   * {@link RunSupersededError}), from-set fenced otherwise. `output` arrives
-   * already contract-validated by the def; step 04 moves that validation
-   * behind the authority's contract seam.
+   * validate the outcome against the node's declared output contract (step
+   * 04 — nothing is published unvalidated; a violation throws
+   * {@link OutputContractError} and the caller maps it to a failed node +
+   * typed event), then write status + validated output + agent cursor in ONE
+   * conditional `UPDATE` — fenced by the attempt token when the run holds one
+   * (a superseded run throws {@link RunSupersededError}), from-set fenced
+   * otherwise.
    */
   async publishOutcome(params: {
     flowId: string;
@@ -229,6 +247,12 @@ export class TransitionAuthority {
   }): Promise<void> {
     const to = resolveToStatus("outcome", params.outcome.status);
     const row = TRANSITION_TABLE.outcome;
+    if (this.contracts && this.defs) {
+      const def = await this.defs.defOf(params.flowId, params.nodeKey);
+      if (def) {
+        this.contracts.validateTerminalOutput(def, to, params.outcome.output);
+      }
+    }
     const agentId = params.outcome.agentId ?? null;
     const changes = await this.database.run(
       `UPDATE nodes SET status=$1, attempt_id=NULL, lease_until=NULL, output=$2::jsonb, agent_id=$3, updated_at=$4
@@ -273,6 +297,24 @@ export class TransitionAuthority {
   ): Promise<boolean> {
     const to = resolveToStatus(key, outcome.status);
     const row = TRANSITION_TABLE[key];
+    // step 04: the seam closes the aggregates too — an aggregate that misses
+    // its def's declared aggregate contract (capabilities fanout/splitOutput,
+    // the generic defaults otherwise) is never written: the refusal maps to
+    // the typed `output_contract_violation` event + the failed terminal right
+    // here (the authority owns status writes), and the caller sees `false` —
+    // it does not advance the flow on unvalidated data.
+    if (this.contracts && this.defs) {
+      const def = await this.defs.defOf(flowId, nodeKey);
+      if (def) {
+        try {
+          this.contracts.validateAggregateOutput(key, def, outcome.output);
+        } catch (e: unknown) {
+          if (!(e instanceof OutputContractError)) throw e;
+          await this.failContractViolation(flowId, nodeKey, e.issues);
+          return false;
+        }
+      }
+    }
     const fence = outcome.attemptId != null;
     const attemptGuard = fence
       ? ` AND (status <> '${NODE_STATUS.RUNNING}' OR attempt_id IS NULL OR attempt_id = $6)`
@@ -306,6 +348,22 @@ export class TransitionAuthority {
    */
   async failFromRunning(flowId: string, nodeKey: string): Promise<void> {
     await this.apply(flowId, nodeKey, "stageError");
+  }
+
+  /**
+   * The typed terminal for an aggregate that violated its contract (step 04 —
+   * the old swallow-and-publish escape): a typed
+   * `output_contract_violation` event carrying the per-path violations, then
+   * the failed terminal (no output publish, no advance — the downstream never
+   * consumes unvalidated data). Retriable like any other failed node.
+   */
+  private async failContractViolation(flowId: string, nodeKey: string, issues: readonly string[]): Promise<void> {
+    const message = `${nodeKey}: output contract violation — ${issues[0] ?? "the output did not satisfy its schema"}`;
+    await this.events.emit(flowId, nodeKey, EVENT_KIND.OUTPUT_CONTRACT_VIOLATION, message, {
+      nodeKey,
+      issues: [...issues],
+    });
+    await this.failFromRunning(flowId, nodeKey);
   }
 
   /**

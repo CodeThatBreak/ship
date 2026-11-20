@@ -10,6 +10,12 @@ export const EVENT_KIND = {
   ASSISTANT: "assistant",
   TOOL: "tool",
   STATUS: "status",
+  /** stage start refused: the materialized input missed the node's `consumes`
+   *  / `input_map` targets (step 04, Invariant 5) */
+  INPUT_CONTRACT_VIOLATION: "input_contract_violation",
+  /** a terminal outcome failed its declared output contract — never published
+   *  (step 04, Invariant 5) */
+  OUTPUT_CONTRACT_VIOLATION: "output_contract_violation",
 } as const;
 
 export type EventKind = (typeof EVENT_KIND)[keyof typeof EVENT_KIND];

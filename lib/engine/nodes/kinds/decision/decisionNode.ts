@@ -11,6 +11,7 @@ import { mcpSourceConfigFields } from "../../../templates/nodeConfig";
 import { DecisionDefSchema, type DecisionDef } from "../../declarativeSchemas";
 import { digestJsonText } from "../../shared/payloadDigest";
 import { extractJson } from "../../shared/extractJson";
+import { DecisionRunInput, decisionOutputContract } from "./schema";
 
 // ── helpers ──────────────────────────────────────────────────────────────────
 
@@ -46,11 +47,10 @@ export class DecisionTemplateNode extends DeclarativeAgentNode<DecisionDef, Reco
   readonly order = 1001;
   override readonly retryable = true;
 
-  readonly inputSchema = z.looseObject({}) as z.ZodType<Record<string, unknown>>;
-  readonly outputSchema = z.looseObject({
-    chosen: z.array(z.string()).default([]),
-    rationale: z.string().optional(),
-  }) as unknown as z.ZodType<Record<string, unknown>>;
+  readonly inputSchema: z.ZodType<Record<string, unknown>>;
+  /** the REAL output contract — chosen/rationale strict, plus one field per
+   *  `pass` key (see ./schema) */
+  readonly outputSchema: z.ZodType<Record<string, unknown>>;
 
   /** no declared input contract — the input is the previous node's output */
   override readonly inheritsParentInput = true;
@@ -88,6 +88,10 @@ export class DecisionTemplateNode extends DeclarativeAgentNode<DecisionDef, Reco
     instanceKey?: string,
   ) {
     super(tmpl, instanceKey, DecisionDefSchema.parse(tmpl.config ?? {}), "decision");
+    this.inputSchema = DecisionRunInput;
+    // the REAL output contract (step 04): built once per instance — the
+    // declarative def cache holds instances
+    this.outputSchema = decisionOutputContract(this.def);
   }
 
   /** A decision's labels — the engine validates manual picks against them. */
@@ -101,9 +105,13 @@ export class DecisionTemplateNode extends DeclarativeAgentNode<DecisionDef, Reco
     const cfg = this.runConfig(await this.nodeConfig(ctx));
     this.validateChoice(chosen, cfg);
     const passed = await this.evalPass(cfg, await buildFlowContext(ctx));
+    // the manual pick's output must satisfy the node's own contract BEFORE it
+    // is written (step 04: nothing is published unvalidated) — a violation
+    // throws loudly here, before the transition
+    const output = this.outputSchema.parse({ ...passed, chosen, rationale: rationale ?? "chosen by the user" });
     // declared transition (awaiting_approval → approved) with the choice output
     await this.support.applyTransition(flowId, node.nodeKey, "chooseBranch", {
-      patch: { output: JSON.stringify({ ...passed, chosen, rationale: rationale ?? "chosen by the user" }) },
+      patch: { output: JSON.stringify(output) },
     });
     await this.support.emitLifecycle(flowId, node.id, `branch chosen: ${chosen.join(" + ")}`);
   }

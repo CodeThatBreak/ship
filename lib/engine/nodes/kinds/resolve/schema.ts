@@ -35,6 +35,17 @@ export const ResolveOutput = z.object({
 });
 export type ResolveOutput = z.infer<typeof ResolveOutput>;
 
+/**
+ * The resolve's `consumes` contract (step 04): the per-branch MR fact the run
+ * acts on. The open review comments the node disposes come from the comment
+ * store at run time (not the input map), and the MR resolves from flow state
+ * — the materialized input carries only the optional branch override, so the
+ * contract is deliberately thin here.
+ */
+export const ResolveConsumes = z.object({
+  branchName: z.string().nullable().optional(),
+});
+
 // ── the agent response contract (the plan/schema.ts precedent) ───────────────
 
 export const ResolveCommentDecision = z.object({

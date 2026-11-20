@@ -49,7 +49,7 @@ describe("fan-out aggregate publish (step 02)", () => {
     expect(await harness.nodeStatus(flowId, "build")).toBe("running");
 
     await flowEngine.finishFanout(flowId, "build", {
-      steps: [{ key: "s1", title: "Step one", status: "done", output: {} }],
+      steps: [{ id: "s1", title: "Step one", status: "done", output: {} }],
     });
 
     // the aggregate landed: terminal status + the validated steps shape
@@ -64,7 +64,7 @@ describe("fan-out aggregate publish (step 02)", () => {
 
     // a stale re-publish loses silently — the from-set no longer holds
     await flowEngine.finishFanout(flowId, "build", {
-      steps: [{ key: "s2", title: "Step two", status: "done", output: {} }],
+      steps: [{ id: "s2", title: "Step two", status: "done", output: {} }],
     });
     expect((await db.get<{ output: unknown }>(
       `SELECT output FROM nodes WHERE flow_id=$1 AND node_key='build'`,

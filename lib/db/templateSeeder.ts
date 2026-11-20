@@ -122,8 +122,13 @@ export class TemplateSeeder {
         "Shell script that saves the mapped `doc` field into the repo's docs/",
         JSON.stringify({
           runtime: "shell",
-          script: "cat > docs/devflow-summary.md\necho '{\"written\": true}'",
+          script: "cat > docs/devflow-summary.md\nprintf '{\"written\":true}' > \"$DEVFLOW_OUTPUT\"",
           cwd: "repo",
+          output_schema: {
+            type: "object",
+            required: ["written"],
+            properties: { written: { type: "boolean" } },
+          },
         })],
       ["nt_st_release_notes", "release_notes", "agent", "Release notes draft", "agent",
         "Plan-mode agent that drafts release notes from the task",

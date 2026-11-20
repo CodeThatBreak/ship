@@ -19,8 +19,13 @@ nodes:
     trigger: {type: auto}
     config:
       runtime: shell
-      script: "cat > docs/devflow-summary.md\necho '{\"written\": true}'"
+      script: "cat > docs/devflow-summary.md\nprintf '{\"written\":true}' > \"$DEVFLOW_OUTPUT\""
       cwd: repo
+      output_schema:
+        type: object
+        required: [written]
+        properties:
+          written: {type: boolean}
     input_map:
       doc: nodes.summarize.output.markdown
 edges:

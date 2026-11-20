@@ -1,12 +1,14 @@
 /**
- * Characterization (red): a fan-out/split aggregate that fails its output
- * contract must fail the node loudly — never publish unvalidated and advance
- * the flow (engine overhaul step 00; flip in step 04).
+ * Flip (green, step 04): a fan-out/split aggregate that fails its output
+ * contract fails the node loudly — never published unvalidated, the flow does
+ * not advance (engine overhaul step 00 red marker → step 04 implementation).
  *
- * Current bug (flowEngine.ts finishFanout / finishSplit): a contract failure
- * emits a "publishing it unvalidated" error event, then still writes the
- * terminal status + output and advances the outgoing edges — the downstream
- * consumes an aggregate nothing validated.
+ * Was (flowEngine.ts finishFanout / finishSplit): a contract failure emitted
+ * a "publishing it unvalidated" error event, then still wrote the terminal
+ * status + output and advanced the outgoing edges — the downstream consumed
+ * an aggregate nothing validated. Now `publishAggregate` validates at the
+ * authority's contract seam; the runtime managers map the refusal to a typed
+ * `output_contract_violation` event + the failed terminal, no advance.
  *
  * Runs against the isolated dockerized Postgres test database
  * (AGENTS.md §1 — never a demo/real DB).
@@ -45,8 +47,8 @@ edges:
 const { importTemplateYaml } = await import("@/lib/engine/templates/templateYaml");
 
 describe("unvalidated fan-out/split aggregate", () => {
-  // OVERHAUL: flip in step 04
-  test.fails("finishSplit contract failure fails the node and does NOT advance the flow", async () => {
+  // flipped green in step 04: publishAggregate validates at the contract seam
+  test("finishSplit contract failure fails the node and does NOT advance the flow", async () => {
     const { id: templateId } = await importTemplateYaml(templateStore, splitFlowYaml, {
       namePrefix: "ovh-unvalidated",
     });

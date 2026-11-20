@@ -17,12 +17,13 @@ import {
 } from '../../shared/nodeSharedExports';
 import { DeclarativeAgentNode } from "../../shared/declarativeNode";
 import { parseConfigSnapshot } from '../../../templates/nodeConfig';
-import { extractJson, jsonSchemaIssues } from './jsonSchemaLite';
+import { extractJson } from "../../shared/extractJson";
 import { AGENT_OUTPUT_ERROR, AgentOutputError, type AgentOutputErrorCode } from '../../shared/agent/outputError/outputErrorExports';
 import { AgentDefSchema, type AgentDef } from '../../declarativeSchemas';
 import type { SplitUnit } from '../../shared/nodeSharedExports';
 import { splitDirective } from './splitDirective';
 import { AGENT_CONFIG_FIELDS } from './constants/agentConstantsExports';
+import { AgentRunInput, agentOutputContract } from './schema';
 
 export type { AgentDef };
 
@@ -75,20 +76,10 @@ export class AgentTemplateNode extends DeclarativeAgentNode<AgentDef, Record<str
   ) {
     const def = AgentDefSchema.parse(tmpl.config ?? {});
     super(tmpl, instanceKey, def, "agent", services);
-    // No declared input contract (§3): the run input is inherited from the
-    // previous node's output — everything else reaches the prompt through the
-    // flow-context variables. Loose: extra context fields (prompt refs,
-    // retries) pass through unenforced.
-    this.inputSchema = z.looseObject({
-      model: z.string().nullish(),
-      prompt: z.string().nullish(),
-    }) as z.ZodType<Record<string, unknown>>;
-
-    this.outputSchema = (
-      this.def.output === AGENT_OUTPUT_FORMAT.JSON
-        ? z.looseObject({})
-        : z.looseObject({ [AGENT_OUTPUT_FORMAT.MARKDOWN]: z.string() })
-    ) as z.ZodType<Record<string, unknown>>;
+    this.inputSchema = AgentRunInput;
+    // the real output contract (step 04): the declarative def cache holds
+    // instances, so the JSON-Schema → Zod conversion happens once per instance
+    this.outputSchema = agentOutputContract(this.def, this.label);
   }
 
   /**
@@ -274,10 +265,16 @@ export class AgentTemplateNode extends DeclarativeAgentNode<AgentDef, Record<str
    */
   private composePrompt(body: string, cfg: AgentDef): string {
     if (cfg.output !== AGENT_OUTPUT_FORMAT.JSON) return body;
+    // the directive carries the schema GENERATED FROM THE CONTRACT —
+    // `z.toJSONSchema(this.outputSchema)` is byte-identical to the validator
+    // the response is checked against (step 04). A json output without a
+    // declared schema has no schema block: the contract is just "one JSON
+    // object" (the record contract's semantics).
+    const hasSchema = cfg.output_schema != null && typeof cfg.output_schema === "object";
     const composed = TemplateRenderer.compose(body)
       .addBlankLine()
       .addBlankLine()
-      .addLine(AgentOutputError.directive(cfg.output_schema));
+      .addLine(AgentOutputError.directive(hasSchema ? z.toJSONSchema(this.outputSchema) : null));
     if (cfg.split) {
       composed.addBlankLine().addBlankLine().addLine(splitDirective(cfg.split));
     }
@@ -479,8 +476,9 @@ export class AgentTemplateNode extends DeclarativeAgentNode<AgentDef, Record<str
 
   /**
    * Shape the agent's text into the declared output contract. `output: json`
-   * validates against the declared JSON Schema and fails loudly on a bad
-   * response — with the standard {@link AgentOutputError} payload: the
+   * validates against the output contract (the def's schema converted to Zod,
+   * or the record contract when no schema is declared) and fails loudly on a
+   * bad response — with the standard {@link AgentOutputError} payload: the
    * machine-readable code, every schema violation (path + message), and the
    * head of the raw response so the trail shows what actually came back.
    * The agent may also self-report that it cannot comply by answering with
@@ -528,19 +526,22 @@ export class AgentTemplateNode extends DeclarativeAgentNode<AgentDef, Record<str
           response: text,
         });
       }
-      if (cfg.output_schema && typeof cfg.output_schema === 'object') {
-        const issues = jsonSchemaIssues(cfg.output_schema, parsed, this.label);
-        if (issues.length) {
-          throw new AgentOutputError({
-            code: AGENT_OUTPUT_ERROR.SCHEMA_MISMATCH,
-            label: this.label,
-            // the first violation stays the headline text — the same human message
-            // a bare `validateJsonSchema` throw produced, unchanged for existing UI
-            message: issues[0]?.message ?? `${this.label}: the agent response violated its output schema`,
-            issues,
-            response: text,
-          });
-        }
+      const checked = this.outputSchema.safeParse(parsed);
+      if (!checked.success) {
+        const issues = checked.error.issues.map((issue) => ({
+          path: issue.path.join("."),
+          message: issue.message,
+        }));
+        throw new AgentOutputError({
+          code: AGENT_OUTPUT_ERROR.SCHEMA_MISMATCH,
+          label: this.label,
+          // the first violation stays the headline text — the same human
+          // message shape the former lite validator's throw produced (the
+          // wording differs: the contract is Zod now)
+          message: issues[0]?.message ?? `${this.label}: the agent response violated its output schema`,
+          issues,
+          response: text,
+        });
       }
       const output = parsed as Record<string, unknown>;
       return {

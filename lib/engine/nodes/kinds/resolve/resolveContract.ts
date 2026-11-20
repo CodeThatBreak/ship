@@ -13,7 +13,7 @@ import "server-only";
  * refinements) carrying every violation. Contracts themselves live in
  * `schema.ts` and domain constants in `constants/` — this file is behavior.
  */
-import { extractJson } from "../agent/jsonSchemaLite";
+import { extractJson } from "../../shared/extractJson";
 import {
   AGENT_OUTPUT_ERROR,
   AgentOutputError,

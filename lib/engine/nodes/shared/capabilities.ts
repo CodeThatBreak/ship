@@ -149,3 +149,16 @@ export const DEFAULT_FANOUT_OUTPUT = z.object({
     })
   ),
 });
+
+/** The split consumer's worst-of aggregate shape (moved from the split runtime
+ *  so the contract seam owns both defaults next to the fan-out one). */
+export const DEFAULT_SPLIT_OUTPUT = z.object({
+  units: z.array(
+    z.object({
+      key: z.string(),
+      title: z.string(),
+      status: z.string(),
+      output: z.unknown().optional(),
+    })
+  ),
+});

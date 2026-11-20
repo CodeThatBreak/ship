@@ -28,10 +28,10 @@ import { evalJsonata } from '@/lib/jsonata/eval';
 import { NODE_STATUS, type EngineNodeStatus } from './constants/nodeStatus';
 import { isNodeTerminalSuccess } from './runtime/transitions/constants/statusSets';
 import type { TransitionKey } from './runtime/transitions/types/transitions';
-import { DEFAULT_FANOUT_OUTPUT, type NodeCapabilities } from './nodes/shared/capabilities';
+import { InputContractError } from './errors/inputContractError';import { EVENT_KIND } from './constants/vocabulary';
 import { stepFlows, type StepChildPayload } from './runtime/fanout/stepFlowManager';
 import { mergeArena } from './runtime/fanout/mergeArena';
-import { DEFAULT_SPLIT_OUTPUT, splitManager, type SplitChildPayload } from './runtime/split/splitManager';
+import { splitManager, type SplitChildPayload } from './runtime/split/splitManager';
 import { worktreeManager } from './runtime/worktreeLifecycle';
 import { engineParts, type EngineParts } from '../composition/container';
 import { processSingleton } from '../singleton';
@@ -101,6 +101,8 @@ export class FlowEngine {
   /** Engine parts are constructor-injected from the composition root (Q9). */
   constructor(parts: EngineParts = engineParts) {
     this.parts = parts;
+    // step 04: the authority's contract seam resolves defs through this engine
+    parts.transitions.bindOutcomeContracts({ defOf: (flowId, nodeKey) => this.defOf(flowId, nodeKey) });
     this.waits = new WaitStore(this, parts.events);
     this.edges = new EdgeActivator(this, this.waits, parts.events);
     this.readModel = new FlowReadModel(this.waits);
@@ -230,22 +232,10 @@ export class FlowEngine {
    * aggregate that resolves after the user retried the node loses silently.
    */
   async finishFanout(parentFlowId: string, nodeKey: string, output: Record<string, unknown>, attemptId?: string | null): Promise<void> {
-    const def = await this.defOf(parentFlowId, nodeKey);
-    // the aggregate `steps` array validates against the def's fanoutOutput
-    // contract when one is published (default shape otherwise); the parent's
-    // native fields (branch / latestArtifact) ride alongside it
-    const fanoutContract = (def.capabilities as NodeCapabilities | undefined)?.fanoutOutput;
-    let steps: unknown = output.steps ?? [];
-    try {
-      steps = ((fanoutContract ?? DEFAULT_FANOUT_OUTPUT).parse({ steps }) as { steps?: unknown })?.steps ?? steps;
-    } catch (e: unknown) {
-      await this.parts.events.error(
-        parentFlowId,
-        nodeKey,
-        `${nodeKey}: the fan-out aggregate failed its output contract — publishing it unvalidated (${e instanceof Error ? e.message : e})`,
-        { nodeKey }
-      );
-    }
+    // the aggregate validates against the def's fanoutOutput contract at the
+    // authority's seam (step 04) — a violation fails the node typed, `false`
+    // comes back, and the flow never advances on unvalidated data
+    const steps: unknown = output.steps ?? [];
     const tt = (await this.graph(parentFlowId))?.byKey.get(nodeKey)?.trigger.type ?? 'auto';
     const status = tt === 'approval' ? NODE_STATUS.AWAITING_APPROVAL : NODE_STATUS.DONE;
     const published = await this.parts.transitions.publishAggregate(parentFlowId, nodeKey, 'fanoutOutcome', {
@@ -274,19 +264,7 @@ export class FlowEngine {
    * the user retried or cancelled (the step-00 characterization test).
    */
   async finishSplit(parentFlowId: string, nodeKey: string, output: Record<string, unknown>, attemptId?: string | null): Promise<void> {
-    const def = await this.defOf(parentFlowId, nodeKey);
-    const splitContract = (def.capabilities as NodeCapabilities | undefined)?.splitOutput;
-    let units: unknown = output.units ?? [];
-    try {
-      units = ((splitContract ?? DEFAULT_SPLIT_OUTPUT).parse({ units }) as { units?: unknown })?.units ?? units;
-    } catch (e: unknown) {
-      await this.parts.events.error(
-        parentFlowId,
-        nodeKey,
-        `${nodeKey}: the split aggregate failed its output contract — publishing it unvalidated (${e instanceof Error ? e.message : e})`,
-        { nodeKey }
-      );
-    }
+    const units: unknown = output.units ?? [];
     // worst-of the unit entries (decision 4): failed > awaiting_approval > done
     const entries = Array.isArray(units) ? (units as { status?: unknown }[]) : [];
     const status = entries.some(u => u?.status === NODE_STATUS.FAILED)
@@ -446,7 +424,19 @@ export class FlowEngine {
     const ctx = deliveryPayload !== undefined ? this.ctxWithDelivery(c, deliveryPayload) : c;
     // the context map the input maps evaluate against — with the delivery
     // override when a webhook resumed the run
-    const mapped = await this.evalInputMap(flowId, nodeKey, rawInput, await buildFlowContext(ctx));
+    const spec = (await this.graph(flowId))?.byKey.get(nodeKey);
+    const mapped = await this.evalInputMap(flowId, nodeKey, rawInput, await buildFlowContext(ctx), spec?.inputMap);
+    // Invariant 5 (step 04): the stage refuses to proceed on an input that
+    // misses the node's declared upstream needs — typed event names field + producer.
+    try {
+      this.parts.contracts.validateInput(def, mapped, { inputMap: spec?.inputMap });
+    } catch (e: unknown) {
+      if (e instanceof InputContractError) {
+        await this.parts.events.emit(flowId, nodeKey, EVENT_KIND.INPUT_CONTRACT_VIOLATION, e.message,
+          { nodeKey, field: e.missingField, ...(e.producerKey != null ? { producer: e.producerKey } : {}) });
+      }
+      throw e;
+    }
     const input = def.parseInput(mapped);
     const config = def.parseRunConfig(await this.nodeConfigFor(flowId, nodeKey));
     const outcome = await def.run(ctx, input, config);
@@ -463,11 +453,10 @@ export class FlowEngine {
     flowId: string,
     nodeKey: string,
     rawInput: unknown,
-    ctxMap?: FlowContextMap
+    ctxMap?: FlowContextMap,
+    inputMap?: Record<string, unknown>,
   ): Promise<unknown> {
-    const g = await this.graph(flowId);
-    const spec = g?.byKey.get(nodeKey);
-    const map = spec?.inputMap ?? {};
+    const map = inputMap ?? (await this.graph(flowId))?.byKey.get(nodeKey)?.inputMap ?? {};
     const entries = Object.entries(map).filter(([, v]) => typeof v === 'string' && (v as string).trim());
     if (!entries.length) return rawInput;
     const base: Record<string, unknown> =

@@ -12,6 +12,10 @@ import { allowlistResponseHeaders, capSerializedPayload } from "../../shared/pay
 import { secretStore } from "../../../secretStore";
 import { settingsService } from "@/lib/settings/settingsService";
 import { guardedRequest } from "../../../../net/ssrfGuard";
+import { EVENT_KIND } from "../../../constants/vocabulary";
+import { HttpDefaultOutput, HttpFreeOutput, HttpRunInput } from "./schema";
+import { redactResponseBody } from "./utils/redactResponseBody";
+import { safeDigest } from "./utils/safeDigest";
 
 /**
  * The declarative outbound-HTTP node (§4.4): one runtime class per
@@ -29,9 +33,9 @@ export class HttpTemplateNode extends DeclarativeNode<HttpDef> {
   readonly order = 1002;
   override readonly retryable = true;
 
-  readonly inputSchema = z.looseObject({}) as z.ZodType<Record<string, unknown>>;
-  /** default response contract — `response_map` may reshape the output */
-  readonly outputSchema = z.looseObject({}) as unknown as z.ZodType<Record<string, unknown>>;
+  readonly inputSchema: z.ZodType<Record<string, unknown>>;
+  /** the REAL response contract — `response_map` reshapes it to the free object */
+  readonly outputSchema: z.ZodType<Record<string, unknown>>;
 
   /** no declared input contract — the input is the previous node's output */
   override readonly inheritsParentInput = true;
@@ -55,6 +59,10 @@ export class HttpTemplateNode extends DeclarativeNode<HttpDef> {
     instanceKey?: string,
   ) {
     super(tmpl, instanceKey, HttpDefSchema.parse(tmpl.config ?? {}), "http");
+    this.inputSchema = HttpRunInput;
+    // a `response_map` reshapes the fixed response contract — the mapped
+    // output must still be an object (mapResponse enforces it at run time)
+    this.outputSchema = this.def.response_map?.trim() ? HttpFreeOutput : HttpDefaultOutput;
   }
 
   /** The default http contract — response_map may reshape it at run time. */
@@ -124,14 +132,23 @@ export class HttpTemplateNode extends DeclarativeNode<HttpDef> {
         allowlist: await settingsService.httpAllowlist(),
       });
 
+      // secret-echo closure (step 04, task 8): redact the RAW body BEFORE
+      // parsing/deriving anything — the default output, the response_map
+      // input, the artifact digest and the reply all carry the redacted text.
+      const rawBody = await redactResponseBody(res.body, (s) => secretStore.redact(s));
+
       // parse the body: JSON when the content type says so, text otherwise
       const contentType = res.headers["content-type"] ?? "";
-      let parsedBody: unknown = res.body;
+      let parsedBody: unknown = rawBody;
       if (contentType.includes("json")) {
         try {
-          parsedBody = JSON.parse(res.body);
+          parsedBody = JSON.parse(rawBody);
         } catch {
-          /* keep as text */
+          // keep as text — but say so: a JSON-typed body that failed to parse
+          // is a producer surprise worth a trail line
+          await this.support.emit(ctx.flow.id, node.id, EVENT_KIND.LOG,
+            `${this.label}: response body declared content-type "${contentType}" but was not valid JSON — kept as text`,
+            { contentType });
         }
       }
       const defaultOutput = {
@@ -206,13 +223,3 @@ import type { NodeDefinition } from "../../shared/nodeDefinition";
 
 declarativeKindRegistry.register("http", HttpDefSchema, (row, inst) =>
   new HttpTemplateNode(row, inst) as NodeDefinition<unknown, Record<string, unknown>>);
-
-/** Artifact digest capping oversized bodies (headers + a body summary). */
-function safeDigest(o: Record<string, unknown>): Record<string, unknown> {
-  return {
-    status: o.status,
-    ok: o.ok,
-    body: capSerializedPayload(o.body),
-    headers: allowlistResponseHeaders(o.headers as Record<string, string> | undefined),
-  };
-}

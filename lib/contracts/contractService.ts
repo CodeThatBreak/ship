@@ -3,7 +3,7 @@ import "server-only";
 import { z } from "zod";
 import { nodeRegistry } from "@/lib/engine/nodes/registry";
 import "@/lib/engine/nodes/declarativeBootstrap";
-import { isNodeDefinition } from "@/lib/engine/nodes/shared/nodeDefinition";
+import { isNodeDefinition } from "@/lib/engine/nodes/shared/nodeDefinitionGuard";
 import { processSingleton } from "@/lib/singleton";
 import { templateStore } from "@/lib/engine/templates/templateStore";
 import { prompts } from "@/lib/engine/prompts/promptLibrary";

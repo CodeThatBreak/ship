@@ -1,6 +1,4 @@
 import "server-only";
-
-import { z } from "zod";
 import { Prisma } from "@prisma/client";
 import { db } from "../../../db/app";
 import { FLOW_STATUS } from "../../../../constants/flow";
@@ -84,17 +82,9 @@ const WORST_OF_PRECEDENCE: readonly SplitUnitStatus[] = ["failed", "awaiting_app
 
 /** The aggregate shape the join publishes on the consumer node — the split
  *  counterpart of the fan-out `steps` aggregate (unit order, per decision 4).
- *  A consumer def narrows it via its `splitOutput` capability. */
-export const DEFAULT_SPLIT_OUTPUT = z.object({
-  units: z.array(
-    z.object({
-      key: z.string(),
-      title: z.string(),
-      status: z.string(),
-      output: z.unknown().optional(),
-    })
-  ),
-});
+ *  A consumer def narrows it via its `splitOutput` capability. The schema
+ *  itself lives in `nodes/shared/capabilities.ts` beside DEFAULT_FANOUT_OUTPUT
+ *  (the contract seam owns both defaults); split unit statuses stay here. */
 
 /** The split child's trigger payload — persisted on the child flow row as
  *  `trigger_payload` (decision 1: linkage rides the flow). `parentNodeKey`

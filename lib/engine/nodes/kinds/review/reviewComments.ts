@@ -2,7 +2,7 @@ import "server-only";
 
 import { createHash } from "node:crypto";
 import { z } from "zod";
-import { extractJson } from "../agent/jsonSchemaLite";
+import { extractJson } from "../../shared/extractJson";
 
 export const reviewCommentItemSchema = z.object({
   file: z.string().optional(),

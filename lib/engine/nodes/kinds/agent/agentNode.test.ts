@@ -223,7 +223,9 @@ describe("AgentTemplateNode — the agent's self-report channel (json output)", 
     const feedback = runner.starts[1]?.prompt;
     if (feedback == null) throw new Error("the retry never started an agent");
     expect(feedback).toContain("violated the output contract");
-    expect(feedback).toContain(`cost: ${LABEL} at cost must be of type integer (got string)`);
+    // the issue wording is the Zod contract's now (step 04) — not the lite
+    // validator's "must be of type" phrasing
+    expect(feedback).toContain("cost: Invalid input: expected number, received string");
     expect(feedback).toContain('"output_error"'); // the full contract is re-stated
     expect(runner.starts[1]?.followUpOn).toBe("agt_test");
 
@@ -257,7 +259,8 @@ describe("AgentTemplateNode — the agent's self-report channel (json output)", 
     );
     await expect(node.run(seeded.ctx, { prompt: "Check the costs" }, JSON_CONFIG)).rejects.toMatchObject({
       code: "schema_mismatch",
-      message: `${LABEL} at cost must be of type integer (got string)`,
+      // the headline rides the first Zod issue (step 04 wording)
+      message: "Invalid input: expected number, received string",
     });
   });
 });

@@ -11,6 +11,9 @@ import type { NodeCapabilities } from "./capabilities";
 import type { ConfigField } from "../../templates/nodeConfig";
 import { appLayerConfig, mergeConfigLayers, parseConfigSnapshot } from "../../templates/nodeConfig";
 import type { NodeRunStatus } from "../../../../constants/flow";
+import { NODE_RUN_STATUS } from "../../../../constants/flow";
+import { EVENT_KIND } from "../../constants/vocabulary";
+import { NODE_DEFINITION_BRAND } from "./nodeDefinitionGuard";
 import { RunSupersededError } from "../../errors/runSupersededError";
 
 /** A role in the SDLC builtin chain (plan → build → review → resolve). */
@@ -57,15 +60,13 @@ export interface NodeTriggerRun {
  * `AgentRunNode` for the run lifecycle, `base/node-roles.ts` for the role
  * interfaces they dispatch through.
  */
-const NODE_DEFINITION_BRAND = "devflow.NodeDefinition.v1";
-
 export abstract class NodeDefinition<I = unknown, O extends Record<string, unknown> = Record<string, unknown>> {
   /**
-   * HMR-stable brand. `instanceof` cannot be trusted across dev-server
-   * module-graph re-evaluations (a hot-reloaded route gets a fresh class
-   * copy, while the `globalThis`-pinned kind registry still holds instances
-   * built by the previous copy) — cross-boundary checks use
-   * `isNodeDefinition`, which compares this brand instead.
+   * HMR-stable brand (value from `nodeDefinitionGuard.ts`). `instanceof`
+   * cannot be trusted across dev-server module-graph re-evaluations (a
+   * hot-reloaded route gets a fresh class copy, while the `globalThis`-pinned
+   * kind registry still holds instances built by the previous copy) —
+   * cross-boundary checks use `isNodeDefinition`, which compares this brand.
    */
   static readonly IS_NODE_DEFINITION = NODE_DEFINITION_BRAND;
   /** stable node key, e.g. "plan" */
@@ -155,6 +156,16 @@ export abstract class NodeDefinition<I = unknown, O extends Record<string, unkno
   abstract readonly inputSchema: z.ZodType<I>;
   /** strict schema for the node's persisted `output` column */
   abstract readonly outputSchema: z.ZodType<O>;
+
+  /**
+   * The upstream fields this node needs in its materialized stage-start input
+   * (Invariant 5). The ContractPipeline validates the materialized input
+   * against it at stage start; failure ⇒ typed `input_contract_violation`
+   * naming the field and the producing node. Default: empty. Declarative
+   * kinds declare their needs through the template node's `input_map`
+   * targets instead (validated at the same seam).
+   */
+  readonly consumes: z.ZodType<Record<string, unknown>> = z.object({});
 
   /** typed config knobs — `configFields` drives the auto-generated form (Phase 2) */
   readonly configFields: readonly ConfigField[] = [];
@@ -364,7 +375,18 @@ export abstract class NodeDefinition<I = unknown, O extends Record<string, unkno
     if (outcome.artifact) {
       await this.support.saveArtifact(node.id, ctx.flow.id, outcome.artifact.kind, outcome.artifact.content, outcome.artifact.meta);
     }
-    const validatedOutput = this.outputSchema.parse(outcome.output);
+    let validatedOutput: O;
+    try {
+      validatedOutput = this.outputSchema.parse(outcome.output);
+    } catch (e: unknown) {
+      if (e instanceof z.ZodError) {
+        // Invariant 5: nothing is published unvalidated — a contract-violating
+        // outcome maps to a failed node with a typed event (retriable), never
+        // to the requested success terminal.
+        return await this.failOutputContract(ctx, node, e.issues.map((i) => `${i.path.length ? `${i.path.join(".")}: ` : ""}${i.message}`), { ...opts, attemptId });
+      }
+      throw e;
+    }
     await this.support.publishOutcome({
       flowId: ctx.flow.id,
       nodeKey: node.nodeKey,
@@ -385,23 +407,37 @@ export abstract class NodeDefinition<I = unknown, O extends Record<string, unkno
     return { ...outcome, output: validatedOutput as Record<string, unknown> };
   }
 
+  /**
+   * The typed terminal for an outcome that violated `outputSchema` (step 04):
+   * a typed `output_contract_violation` event with the per-path issues, then
+   * the failed terminal (failed writes carry no payload data — the violation
+   * detail lives in the event). Retriable like any other failed node.
+   */
+  private async failOutputContract(ctx: FlowCtx, node: NodeRow, issues: string[], opts?: { attemptId?: string | null; fenceSuperseded?: boolean }): Promise<RunOutcome> {
+    const message = `${node.nodeKey}: output contract violation — ${issues[0] ?? "the output did not satisfy its schema"}`;
+    await this.support.emit(ctx.flow.id, node.id, EVENT_KIND.OUTPUT_CONTRACT_VIOLATION, message, { nodeKey: node.nodeKey, issues });
+    const failed: RunOutcome = {
+      status: NODE_RUN_STATUS.FAILED,
+      output: {},
+      event: `${node.nodeKey} failed — output contract violation`,
+      eventData: { error: message, issues },
+      reply: message,
+    };
+    await this.support.publishOutcome({
+      flowId: ctx.flow.id,
+      nodeKey: node.nodeKey,
+      nodeId: node.id,
+      attemptId: opts?.fenceSuperseded ? opts.attemptId ?? undefined : undefined,
+      outcome: { status: failed.status, output: failed.output, agentId: await this.support.lastAgentId(node.id) },
+    });
+    await this.support.emitLifecycle(ctx.flow.id, node.id, failed.event, failed.eventData);
+    return failed;
+  }
+
   async makeDiff(ctx: FlowCtx, branch: string) {
     return this.ctxHelper.makeDiff(ctx, branch);
   }
 }
-
-/**
- * Type guard for any `NodeDefinition` instance, stable across dev-server
- * module-graph re-evaluations — the instanceof-proof counterpart to the
- * class's HMR-stable brand (see `NodeDefinition.IS_NODE_DEFINITION`).
- */
-export const isNodeDefinition = (
-  value: unknown,
-): value is NodeDefinition<unknown, Record<string, unknown>> => {
-  if (typeof value !== "object" || value === null) return false;
-  const ctor = (value as { constructor?: { IS_NODE_DEFINITION?: string } }).constructor;
-  return ctor?.IS_NODE_DEFINITION === NODE_DEFINITION_BRAND;
-};
 
 function formatZodConfigError(nodeKey: string, error: z.ZodError): Error {
   const first = error.issues[0];

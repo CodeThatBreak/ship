@@ -1,12 +1,14 @@
 /**
- * Characterization (red): a template whose edge condition references a
- * nonexistent output key must be REJECTED by lint / the validate route
- * (engine overhaul step 00; flip in step 04).
+ * Edge conditions (green — engine overhaul step 04): a template whose edge or
+ * loop condition references a nonexistent output key must be REJECTED by lint
+ * / the validate route, and a condition whose references sit inside the
+ * producing node's declared contract saves cleanly.
  *
- * Current gap (`templateLint.ts:397-403`): edge + loop conditions are only
- * checked for JSONata syntax — a condition like
- * `nodes.build.output.doesNotExist = true` compiles fine, so the bad
- * reference sails through save/validate and only misbehaves at run time.
+ * Raw JSONata conditions carry no `{{...}}` wrappers, so the linter walks the
+ * compiled AST for `nodes.<key>.output.<field>` paths and checks them against
+ * the same contract map the template refs use (same wildcard / free-form
+ * free-passes — builtin loop conditions like the SDLC's
+ * `nodes.resolve.output.pushed = true` stay valid).
  *
  * Runs against the isolated dockerized Postgres test database
  * (AGENTS.md §1 — never a demo/real DB).
@@ -21,27 +23,58 @@ const { templateStore } = await import("@/lib/engine/templates/templateStore");
 beforeAll(resetTestDatabase);
 
 describe("edge condition output-key lint", () => {
-  // OVERHAUL: flip in step 04
-  test.fails("an edge condition referencing a nonexistent output key is rejected", async () => {
-    // resolve publishes a fixed contract; the loop condition references a field
-    // that is not in it — target: save/import rejects the template
+  test("an edge condition referencing a nonexistent output key is rejected", async () => {
+    // the seeded triage agent publishes {severity, summary, suggested_fix};
+    // the loop condition references a field outside that contract —
+    // save/import rejects the template
     const badTemplate = {
       name: "ovh bad edge condition",
       trigger: { type: "manual", task_type: "jira" },
       nodes: [
-        { key: "pipeline", nodeTemplateId: "nt_pipeline", trigger: { type: "auto" } },
+        { key: "triage", nodeTemplateId: "nt_st_triage", trigger: { type: "auto" } },
         { key: "resolve", nodeTemplateId: "nt_resolve", trigger: { type: "debounced" } },
       ],
       edges: [
         {
-          from: "resolve",
-          to: "pipeline",
+          from: "triage",
+          to: "resolve",
           kind: "loop" as const,
-          condition: "nodes.resolve.output.doesNotExist = true",
+          condition: "nodes.triage.output.doesNotExist = true",
         },
       ],
     };
 
     await expect(templateStore.create(badTemplate)).rejects.toThrow(/doesNotExist|output|edge/i);
+  });
+
+  test("an edge condition inside the producing node's contract saves cleanly", async () => {
+    const goodTemplate = {
+      name: "ovh good edge condition",
+      trigger: { type: "manual", task_type: "jira" },
+      nodes: [
+        {
+          key: "builder",
+          nodeTemplateId: "nt_st_summarize",
+          trigger: { type: "auto" },
+          config: {
+            output: "json",
+            output_schema: { type: "object", properties: { pushed: { type: "boolean" } } },
+          },
+        },
+        { key: "pipeline", nodeTemplateId: "nt_pipeline", trigger: { type: "auto", wait_for: "pipeline" } },
+      ],
+      edges: [
+        { from: "builder", to: "pipeline", kind: "next" as const, label: null, condition: null },
+        {
+          from: "pipeline",
+          to: "builder",
+          kind: "loop" as const,
+          label: null,
+          condition: "nodes.builder.output.pushed = true",
+        },
+      ],
+    };
+
+    await expect(templateStore.create(goodTemplate)).resolves.toMatch(/^tpl_/);
   });
 });

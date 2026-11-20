@@ -3,6 +3,7 @@ import "server-only";
 import type { Prisma } from "@prisma/client";
 import { db } from "../../db/app";
 import { lintJsonata } from "@/lib/jsonata/eval";
+import { nodeOutputRefs } from "@/lib/jsonata/nodeOutputRefs";
 import { NODE_TRIGGER_TYPES, WAIT_FOR_SOURCES } from "../constants/triggers";
 import { lintStartContract, parseStartContract } from "../nodes/kinds/start/contract";
 import type { LintProblem } from "@/types/templateLint";
@@ -373,6 +374,26 @@ export async function lintTemplate(
     if (src?.kind === "decision") continue;
     const err = lintJsonata(e.condition);
     if (err) problems.push({ where: `edge ${e.from} → ${e.to}`, message: err, edgeIndex: i });
+    // the raw expression's `nodes.<key>.output.<field>` references resolve
+    // against the same contract map the {{...}} refs use (step 04) — same
+    // wildcard / free-form free-passes, so builtin loop conditions stay valid
+    for (const { nodeKey, field } of nodeOutputRefs(e.condition)) {
+      const where = `edge ${e.from} → ${e.to}`;
+      const stamp = { where, edgeIndex: i };
+      if (!byKey.has(nodeKey)) {
+        problems.push({ ...stamp, message: `the condition references unknown node "${nodeKey}"` });
+        continue;
+      }
+      addressesOutput(`${nodeKey}.output.${field}`, (unknownField) => {
+        const fields = contractOfKey.get(nodeKey)?.fields ?? [];
+        problems.push({
+          ...stamp,
+          message: `node "${nodeKey}" publishes ${
+            fields.length === 1 && fields[0] === "markdown" ? '{"markdown"}' : "fields " + JSON.stringify(fields)
+          } — not .${unknownField}`,
+        });
+      });
+    }
   }
 
   return { error: problems.length ? joinProblems(problems) : null, problems };
@@ -462,7 +483,9 @@ function lintRef(where: string, ref: string, ctx: LintCtx): void {
       });
       return;
     }
-    ctx.addressesOutput(ref, (field) => ctx.problems.push({
+    // the machinery addresses `<key>.output.<field>` — the ref's `nodes.`
+    // root segment is the lookup namespace, not part of the address
+    ctx.addressesOutput(segments.slice(1).join("."), (field) => ctx.problems.push({
       where,
       ref,
       message: `node "${nodeKey}" publishes ${field === "markdown" ? '{"markdown"}' : "fields " + JSON.stringify(ctx.contractOfKey.get(nodeKey)?.fields) + " — not .${field}"}`,

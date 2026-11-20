@@ -13,6 +13,7 @@ import {
 import { NodeSupport } from "../engine/nodes/shared/nodeSupport";
 import { NodeStore } from "../engine/runtime/nodeStore";
 import { NodeAttemptRegistry } from "../engine/runtime/nodeAttemptRegistry";
+import { ContractPipeline } from "../engine/runtime/contractPipeline";
 import { TransitionAuthority } from "../engine/runtime/transitions/nodeTransitions";
 import { TransitionEvents } from "../engine/runtime/transitions/transitionEvents";
 
@@ -46,11 +47,12 @@ export const createContainer = (prisma: PrismaClient) => {
 
 export type Container = ReturnType<typeof createContainer>;
 
-/** The engine-cluster parts (step 02): the transition authority's collaborators. */
+/** The engine-cluster parts (step 02+): the transition authority's collaborators. */
 export interface EngineParts {
   nodeSupport: NodeSupport;
   nodeStore: NodeStore;
   attemptRegistry: NodeAttemptRegistry;
+  contracts: ContractPipeline;
   transitions: TransitionAuthority;
   events: TransitionEvents;
 }
@@ -74,9 +76,10 @@ export const createEngineParts = (): EngineParts => {
   const nodeStore = new NodeStore();
   const attemptRegistry = new NodeAttemptRegistry();
   const events = new TransitionEvents();
-  const transitions = new TransitionAuthority(attemptRegistry, events);
+  const contracts = new ContractPipeline();
+  const transitions = new TransitionAuthority(attemptRegistry, events, contracts);
   const nodeSupport = new NodeSupport(transitions);
-  return { nodeSupport, nodeStore, attemptRegistry, transitions, events };
+  return { nodeSupport, nodeStore, attemptRegistry, contracts, transitions, events };
 };
 
 export const engineParts = createEngineParts();

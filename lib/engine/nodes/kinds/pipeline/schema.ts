@@ -25,3 +25,14 @@ export const PipelineOutput = z.object({
   branchName: z.string().optional(),
 });
 export type PipelineOutput = z.infer<typeof PipelineOutput>;
+
+/**
+ * The gate's `consumes` contract (step 04): the branch/pipeline facts the run
+ * watches. The MR (and its head pipeline) resolve from flow state at run time
+ * (`mrTargetResolver` + the GitLab host) — the materialized input carries the
+ * optional overrides, so the contract is deliberately thin here.
+ */
+export const PipelineConsumes = z.object({
+  branchName: z.string().nullable().optional(),
+  pipelineId: z.number().int().positive().nullable().optional(),
+});

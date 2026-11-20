@@ -9,8 +9,9 @@
  * current offenders are frozen below — the full step-00 scan, SHRINK-ONLY:
  * each step removes entries as it moves helpers/consts/types into their
  * domain folders; nothing is ever added. The step-00 named offenders
- * (sdlcChain MANUAL_* consts, hookStore TTL consts, buildNode splitUnitItemOf,
- * flowEngine helpers) are annotated inline.
+ * (sdlcChain MANUAL_* consts, hookStore TTL consts, flowEngine helpers) are
+ * annotated inline — buildNode's splitUnitItemOf left with step 04 (moved to
+ * `build/utils/splitUnitItem.ts`).
  *
  * Scans the source text — static gate, not runtime.
  */
@@ -59,8 +60,6 @@ const FROZEN_OFFENDERS: readonly string[] = [
   "lib/engine/nodes/chains/sdlcChain.ts", // ChainHost interface + createSdlcChain factory
   "lib/engine/nodes/declarativeRegistry.ts",
   "lib/engine/nodes/kinds/build/branchStore.ts",
-  "lib/engine/nodes/kinds/build/buildNode.ts", // splitUnitItemOf
-  "lib/engine/nodes/kinds/http/httpNode.ts",
   "lib/engine/nodes/kinds/mergeRequest/errors.ts",
   "lib/engine/nodes/kinds/mergeRequest/mergeRequestService.ts",
   "lib/engine/nodes/kinds/plan/planPrompt.ts",

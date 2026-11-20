@@ -35,7 +35,7 @@ import { splitConsumeSchema, splitParallelMaxSchema } from "../../shared/split";
 import { mrTargetResolver } from "../../shared/mrTargetResolver";
 import { worktreeManager } from "../../../runtime/worktreeLifecycle";
 import { isHookRejection } from "../mergeRequest/errors";
-import { ResolveInput, ResolveOutput, RESOLVE_RESPONSE_JSON_SCHEMA } from "./schema";
+import { ResolveConsumes, ResolveInput, ResolveOutput, RESOLVE_RESPONSE_JSON_SCHEMA } from "./schema";
 import { ResolveEffects } from "./resolveEffects";
 import { ResolveOutputContract } from "./resolveContract";
 import { RETRYABLE_OUTPUT_ERRORS } from "./constants/retryableErrors";
@@ -164,6 +164,7 @@ export class ResolveNode extends AgentRunNode<ResolveInput, ResolveOutput> {
 
   readonly inputSchema = ResolveInput;
   readonly outputSchema = ResolveOutput;
+  override readonly consumes = ResolveConsumes;
 
   /** Typed config knobs (defaults = today's behavior). */
   override readonly configSchema = z.object({

@@ -9,7 +9,7 @@ import type { AgentRunner, ExecuteRunResult } from '../../../harness/harnessExpo
 import { RunSupersededError } from '../../../errors/runSupersededError';
 import type { NodeSupport } from '../../shared/nodeSupport';
 import type { NodeRow } from '../../../../db/rows';
-import { extractJson } from '../agent/jsonSchemaLite';
+import { extractJson } from "../../shared/extractJson";
 import { FLOW_STATUS } from '../../../../../constants/flow';
 import { BranchRefinement } from './branchRefinement';
 import { planBodyDiverged } from './planPrompt';

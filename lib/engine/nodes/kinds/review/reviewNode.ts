@@ -14,7 +14,7 @@ import type { ConfigField } from "../../../templates/nodeConfig";
 import { configNumber, configString, mcpSourcesOf, mcpSourcesSchema, mcpSourceConfigFields, splitConsumerConfigFields } from "../../../templates/nodeConfig";
 import { splitConsumeSchema, splitParallelMaxSchema } from "../../shared/split";
 import { mrTargetResolver } from "../../shared/mrTargetResolver";
-import { ReviewInput, ReviewOutput } from "./schema";
+import { ReviewConsumes, ReviewInput, ReviewOutput } from "./schema";
 import {
   parseReviewComments,
   readPostedCommentHashes,
@@ -42,6 +42,7 @@ export class ReviewNode extends AgentRunNode<ReviewInput, ReviewOutput> {
 
   readonly inputSchema = ReviewInput;
   readonly outputSchema = ReviewOutput;
+  override readonly consumes = ReviewConsumes;
 
   /** Typed config knobs (defaults = today's behavior). */
   override readonly configSchema = z.object({

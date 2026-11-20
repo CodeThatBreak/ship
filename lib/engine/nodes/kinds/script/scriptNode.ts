@@ -9,9 +9,12 @@ import type { AgentRunResult } from "../../../ports/agentPort";
 import { type FlowCtx, type RunOutcome } from "../../shared/nodeSharedExports";
 import { DeclarativeNode } from "../../shared/declarativeNode";
 import { ScriptDefSchema, type ScriptDef } from "../../declarativeSchemas";
-import { validateJsonSchema } from "../agent/jsonSchemaLite";
+import { EVENT_KIND } from "../../../constants/vocabulary";
+import { OutputContractError } from "../../../errors/outputContractError";
 import { worktreeManager } from "../../../runtime/worktreeLifecycle";
 import { workspaceForFlow } from "../../../../git/local";
+import { firstLines, headLines, runProcess } from "./utils/exec";
+import { ScriptRunInput, scriptOutputContract } from "./schema";
 
 /**
  * The declarative local-script node (§4.5): one runtime class per
@@ -23,11 +26,12 @@ import { workspaceForFlow } from "../../../../git/local";
  * Contract:
  *
  *  - the node's mapped input JSON arrives on stdin AND as `DEVFLOW_INPUT`
- *  - the script writes `$DEVFLOW_OUTPUT` (a file path), or its LAST stdout
- *    line must be the output JSON — for node scripts, a top-level `return`
- *    value is emitted as the output JSON (when defined)
- *  - the output is validated against the declared `output_schema` (when set)
- *    and must be a JSON object (downstream maps address
+ *  - the script writes its output JSON to `$DEVFLOW_OUTPUT` (a file path) —
+ *    stdout is NOT an output channel; for node scripts, a top-level `return`
+ *    value is written to the file (when defined)
+ *  - a declared `output_schema` is required to publish: an output-bearing
+ *    script without one fails with an output-contract violation; `{}` is
+ *    published only when the script produced nothing (downstream maps address
  *    `nodes.<key>.output.<field>`)
  *  - `timeout_ms` kills the process, non-zero exit fails the node with stderr
  *  - env is allowlisted: PATH/HOME + the declared names + the DevFlow wiring
@@ -37,8 +41,10 @@ export class ScriptTemplateNode extends DeclarativeNode<ScriptDef> {
   readonly order = 1003;
   override readonly retryable = true;
 
-  readonly inputSchema = z.looseObject({}) as z.ZodType<Record<string, unknown>>;
-  readonly outputSchema = z.looseObject({}) as unknown as z.ZodType<Record<string, unknown>>;
+  readonly inputSchema: z.ZodType<Record<string, unknown>>;
+  /** the REAL output contract — the declared schema converted to Zod, or the
+   *  "must be a JSON object" record when none is declared */
+  readonly outputSchema: z.ZodType<Record<string, unknown>>;
 
   /** no declared input contract — the input is the previous node's output */
   override readonly inheritsParentInput = true;
@@ -53,7 +59,7 @@ export class ScriptTemplateNode extends DeclarativeNode<ScriptDef> {
       ],
     },
     { key: "script", label: "Script", type: "text" as const,
-      help: "stdin gets the mapped input JSON; $DEVFLOW_INPUT holds it too — node scripts may `return` the output object" },
+      help: "stdin gets the mapped input JSON; $DEVFLOW_INPUT holds it too — write the output JSON to the $DEVFLOW_OUTPUT file (node scripts: a top-level `return` is written there)" },
     {
       key: "cwd", label: "Working directory", type: "select" as const,
       help: "Where the script runs",
@@ -66,7 +72,7 @@ export class ScriptTemplateNode extends DeclarativeNode<ScriptDef> {
     { key: "env", label: "Env allowlist (JSON array)", type: "string" as const,
       help: `e.g. ["CI","NODE_ENV"] — always available: PATH, HOME` },
     { key: "output_schema", label: "Output schema", type: "ts_output" as const,
-      help: "TS-lite members (same box as the agent node) or a pasted JSON Schema the output JSON must satisfy" },
+      help: "Required to publish output — the $DEVFLOW_OUTPUT JSON must satisfy it (TS-lite members, same box as the agent node, or a pasted JSON Schema); without a schema the script publishes nothing" },
   ];
 
   declare readonly def: ScriptDef;
@@ -76,6 +82,10 @@ export class ScriptTemplateNode extends DeclarativeNode<ScriptDef> {
     instanceKey?: string,
   ) {
     super(tmpl, instanceKey, ScriptDefSchema.parse(tmpl.config ?? {}), "script");
+    this.inputSchema = ScriptRunInput;
+    // the REAL output contract (step 04): the declarative def cache holds
+    // instances, so the JSON-Schema → Zod conversion happens once per instance
+    this.outputSchema = scriptOutputContract(this.def.output_schema, this.label);
   }
 
   /** The script's output contract: its declared output schema, or free-form. */
@@ -143,20 +153,56 @@ export class ScriptTemplateNode extends DeclarativeNode<ScriptDef> {
       if (result.exitCode !== 0) {
         // stderr: the diagnostic (syntax error message, thrown Error, …) sits at
         // the TOP — the tail is framework stack + the Node version banner, which
-        // hides the real cause. stdout: keep the tail (output lives there).
+        // hides the real cause. stdout: keep the tail (diagnostics only — the
+        // output rides the $DEVFLOW_OUTPUT file).
         const tail = headLines(result.stderr) || firstLines(result.stdout) || "(no output)";
         throw new Error(`script exited with code ${result.exitCode}\n${tail}`);
       }
-      const parsed = this.extractOutput(result.stdout, outPath);
-      if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
-        throw new Error(
-          "the script's output must be a JSON object — the last stdout line is the output JSON, or write it to the $DEVFLOW_OUTPUT file");
+      // Output resolution: the $DEVFLOW_OUTPUT file ONLY — stdout is not an
+      // output channel. A missing or empty file means the script produced
+      // NOTHING: publish the empty output (applyOutcome validates it against
+      // the contract — a declared schema rejects {} when it requires fields).
+      const declaredSchema = cfg.output_schema != null && typeof cfg.output_schema === "object";
+      const raw = this.readOutputFile(outPath);
+      if (raw == null) {
+        return await this.applyOutcome(ctx, await this.finish(ctx, {}, result.stdout));
       }
-      if (cfg.output_schema && typeof cfg.output_schema === "object") {
-        validateJsonSchema(cfg.output_schema, parsed, this.label);
+      let parsed: unknown;
+      try {
+        parsed = JSON.parse(raw);
+      } catch {
+        // the script produced something invalid — a contract violation, typed
+        throw new OutputContractError({
+          nodeKey: this.key,
+          issues: ["the script's $DEVFLOW_OUTPUT did not contain valid JSON"],
+        });
+      }
+      if (!declaredSchema) {
+        // the publishing rule: no declared schema ⇒ nothing is published —
+        // even valid output stays unpublished until the author declares one
+        throw new OutputContractError({
+          nodeKey: this.key,
+          issues: ["the script produced output but declares no output_schema — declare one to publish"],
+        });
       }
       return await this.applyOutcome(ctx, await this.finish(ctx, parsed as Record<string, unknown>, result.stdout));
     } catch (e: unknown) {
+      if (e instanceof OutputContractError) {
+        // the typed event first (the trail explains the refusal), then the
+        // failed terminal through the one persistence path
+        const issues = [...e.issues];
+        const message = `${this.label}: ${e.issues[0] ?? "output contract violation"}`;
+        await this.support.emit(ctx.flow.id, node.id, EVENT_KIND.OUTPUT_CONTRACT_VIOLATION, message, {
+          nodeKey: this.key,
+          issues,
+        });
+        return await this.applyOutcome(ctx, {
+          status: "failed",
+          output: {},
+          event: `${this.label} failed — output contract violation`,
+          reply: message,
+        });
+      }
       const msg = `${this.label}: ${e instanceof Error ? e.message : String(e)}`;
       return await this.applyOutcome(ctx, {
         status: "failed",
@@ -181,27 +227,12 @@ export class ScriptTemplateNode extends DeclarativeNode<ScriptDef> {
     };
   }
 
-  /** Output resolution: the $DEVFLOW_OUTPUT file first, then the last parseable stdout line. */
-  private extractOutput(stdout: string, outPath: string): unknown {
-    if (existsSync(outPath)) {
-      try {
-        return JSON.parse(readFileSync(outPath, "utf8"));
-      } catch {
-        /* fall through to stdout */
-      }
-    }
-    const lines = stdout.split("\n").map((l) => l.trim()).filter(Boolean);
-    if (!lines.length) {
-      throw new Error("the script produced no output — the last stdout line must be the output JSON (or write the $DEVFLOW_OUTPUT file)");
-    }
-    for (let i = lines.length - 1; i >= Math.max(0, lines.length - 8); i--) {
-      try {
-        return JSON.parse(lines[i]);
-      } catch {
-        /* keep walking — logging around the output line is allowed */
-      }
-    }
-    throw new Error("none of the last stdout lines parsed as JSON — the last stdout line must be the output JSON (or write the $DEVFLOW_OUTPUT file)");
+  /** Output resolution: the $DEVFLOW_OUTPUT file ONLY. Returns null when the
+   *  file is missing or empty — the script produced nothing. */
+  private readOutputFile(outPath: string): string | null {
+    if (!existsSync(outPath)) return null;
+    const content = readFileSync(outPath, "utf8");
+    return content.trim() ? content : null;
   }
 
   /** The script's working directory: the repo checkout, or the flow workspace clone. */
@@ -255,11 +286,12 @@ export class ScriptTemplateNode extends DeclarativeNode<ScriptDef> {
   private command(cfg: ScriptDef): [string, string[]] {
     switch (cfg.runtime) {
       case "node":
-        // Wrap in an async function so a top-level `return` is legal and its
-        // value is emitted as the output JSON (when defined). Scripts that
-        // print their output instead are unaffected — `v` is undefined.
+        // Wrap in an async function so a top-level `return` is legal; the
+        // returned value IS the output JSON — written to the $DEVFLOW_OUTPUT
+        // file (stdout is not an output channel). Scripts that write the file
+        // themselves are unaffected; an explicit `return` overwrites it.
         return ["node", ["-e", `async function __devflowMain() {\n${cfg.script}\n}\n` +
-          "__devflowMain().then((v) => { if (v !== undefined) console.log(JSON.stringify(v)); })"]];
+          "__devflowMain().then((v) => { const out = process.env.DEVFLOW_OUTPUT; if (v !== undefined && out) require('node:fs').writeFileSync(out, JSON.stringify(v)); })"]];
       case "python":
         return [process.platform === "win32" ? "python" : "python3", ["-c", cfg.script]];
       case "shell":
@@ -279,64 +311,3 @@ import type { NodeDefinition } from "../../shared/nodeDefinition";
 
 declarativeKindRegistry.register("script", ScriptDefSchema, (row, inst) =>
   new ScriptTemplateNode(row, inst) as NodeDefinition<unknown, Record<string, unknown>>);
-
-function firstLines(text: string): string {
-  const t = (text ?? "").trim();
-  return t ? t.split("\n").slice(-4).join("\n") : "";
-}
-
-/** The FIRST few lines — for stderr, where the actual diagnostic lives. */
-function headLines(text: string): string {
-  const t = (text ?? "").trim();
-  return t ? t.split("\n").slice(0, 8).join("\n") : "";
-}
-
-// ── execa plumbing (dynamic import: execa is ESM-only) ───────────────────────
-
-interface ExecResult {
-  exitCode: number;
-  stdout: string;
-  stderr: string;
-  durationMs?: number;
-  timedOut: boolean;
-}
-
-async function runProcess(
-  bin: string,
-  args: string[],
-  opts: { input: string; timeoutMs: number; cwd: string; env: Record<string, string> },
-): Promise<ExecResult> {
-  const started = Date.now();
-  try {
-    const { execa } = (await import("execa")) as unknown as {
-      execa: (
-        file: string,
-        args: string[],
-        o: Record<string, unknown>,
-      ) => Promise<{ exitCode: number | null; stdout: string; stderr: string; timedOut: boolean; failed: boolean }>;
-    };
-    const res = await execa(bin, args, {
-      input: opts.input,
-      timeout: opts.timeoutMs,
-      cwd: opts.cwd,
-      env: opts.env,
-      extendEnv: false,
-      killSignal: "SIGKILL",
-      stripFinalNewline: false,
-      reject: false,
-      windowsHide: true,
-    });
-    return {
-      exitCode: res.exitCode ?? (res.failed ? 1 : 0),
-      stdout: String(res.stdout ?? ""),
-      stderr: String(res.stderr ?? ""),
-      durationMs: Date.now() - started,
-      timedOut: Boolean(res.timedOut),
-    };
-  } catch (e: unknown) {
-    // thrown before execution (e.g. binary not found) — execa's promise API
-    // with reject:false still throws in that case
-    throw new Error(
-      `${bin} failed to launch — ensure it is installed and on PATH (${e instanceof Error ? e.message : String(e)})`);
-  }
-}

@@ -43,6 +43,42 @@ export const BuildOutput = z.object({
 });
 export type BuildOutput = z.infer<typeof BuildOutput>;
 
+/** The unit item a build split child consumes (agent-node split plan §2.4):
+ *  the branch's plan document + branch contract. `title`/`scope` are
+ *  required — the old hand-narrow silently defaulted a missing title to the
+ *  name and an empty scope (the audit's silent-default hole, closed here). */
+export const SplitUnitItem = z.object({
+  name: z.string().min(1),
+  title: z.string().min(1),
+  scope: z.string(),
+  plan: z.string().nullable(),
+});
+
+export type SplitUnitItem = z.infer<typeof SplitUnitItem>;
+
+/** The split child's trigger payload — `{ parentNodeKey, unit: {…, item } }`. */
+export const SplitUnitPayload = z.object({ unit: z.object({ item: SplitUnitItem }) });
+
+/**
+ * The build's `consumes` contract (step 04): the upstream facts a build run's
+ * materialized input carries. Whole runs carry the plan; split children carry
+ * the `unit` (or their derived plan); fan-out step children carry the `step`
+ * payload; the commit-fix loop carries `feedback` (approved → running
+ * effect). At least one must be present — an empty build input is a contract
+ * violation, not a silent no-op run.
+ */
+export const BuildConsumes = z
+  .object({
+    plan: z.string().min(1).nullable().optional(),
+    unit: z.unknown().optional(),
+    step: z.unknown().optional(),
+    feedback: z.string().min(1).nullable().optional(),
+  })
+  .refine(
+    (v) => v.plan != null || v.unit != null || v.step != null || v.feedback != null,
+    { message: "a build run carries its plan (whole or split unit), a fan-out step payload, or commit-fix feedback" },
+  );
+
 // ── step-build child trigger payload (fan-out) ───────────────────────────────
 
 export const StepBuildSibling = z.object({

@@ -16,49 +16,15 @@ import type { NodeSupport } from "../../shared/nodeSupport";
 import { nodeSupport } from "@/lib/composition/container";
 import { BuildRunSupport } from "./buildRunSupport";
 import { branchStore } from "./branchStore";
-import { BuildInput, BuildOutput, type BuildBranchInfo } from "./schema";
+import { splitUnitItemOf } from "./utils/splitUnitItem";
+import { BuildConsumes, BuildInput, BuildOutput, type BuildBranchInfo } from "./schema";
 import { type PlanBranch, parsePlanArtifactMeta } from "../plan/schema";
 
-/** Narrow an unknown value to a plain object (no null / arrays). */
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
 /**
- * The split-child trigger payload's unit item, narrowed (null otherwise):
- * a split child's `trigger_payload` is `{ parentNodeKey, unit: { key,
- * title, dependsOn, item, position } }` (the split runtime's linkage,
- * aliased through `ctx.flow.triggerPayload`), and the plan node's branch
- * units carry `item.name/title/scope/plan`.
+ * The build def (the SDLC chain's code stage): triggerRuns materializes the
+ * approved plan (whole / multi-branch sequential), the fan-out manager owns
+ * step children, and a split child consumes its unit via `splitUnitItemOf`.
  */
-function splitUnitItemOf(payload: unknown): {
-  name: string;
-  title: string;
-  scope: string;
-  plan: string | null;
-} | null {
-  if (typeof payload === "string") {
-    try {
-      payload = JSON.parse(payload);
-    } catch {
-      return null;
-    }
-  }
-  if (!isRecord(payload)) return null;
-  const unit = payload.unit;
-  if (!isRecord(unit)) return null;
-  const item = unit.item;
-  if (!isRecord(item)) return null;
-  const { name, title, scope, plan } = item;
-  if (typeof name !== "string" || !name) return null;
-  return {
-    name,
-    title: typeof title === "string" && title ? title : name,
-    scope: typeof scope === "string" ? scope : "",
-    plan: typeof plan === "string" ? plan : null,
-  };
-}
-
 export class BuildNode extends AgentRunNode<BuildInput, BuildOutput> {
   readonly key = NODE_KEYS.BUILD;
   readonly label = "Build";
@@ -96,6 +62,7 @@ export class BuildNode extends AgentRunNode<BuildInput, BuildOutput> {
 
   readonly inputSchema = BuildInput; // includes the optional fan-out `step` (see schema.ts)
   readonly outputSchema = BuildOutput;
+  override readonly consumes = BuildConsumes;
 
   /** Typed config knobs (defaults = today's behavior). */
   override readonly configSchema = z.object({

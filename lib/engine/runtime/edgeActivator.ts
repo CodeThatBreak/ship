@@ -8,6 +8,8 @@ import { NODE_STATUS } from "../constants/nodeStatus";
 import { isNodeTerminalSuccess } from "./transitions/constants/statusSets";
 import { NodeDefinition, splitConsumeOf, type FlowCtx, type SplitConsumeMode } from "../nodes/shared/nodeSharedExports";
 import { nodeRegistry } from "../nodes/registry";
+import { EVENT_KIND } from "../constants/vocabulary";
+import { InputContractError } from "../errors/inputContractError";
 import { parseStartContract } from "../nodes/kinds/start/contract";
 import { templateStore, type TemplateEdgeSpec, type TemplateGraph } from "../templates/templateStore";
 import { stepFlows } from "./fanout/stepFlowManager";
@@ -41,7 +43,25 @@ export class EdgeActivator {
       .map((e) => e.from);
     const nodesMap = (await buildFlowContext(ctx)).nodes;
     const out: Record<string, unknown> = {};
-    for (const p of parents) Object.assign(out, nodesMap[p]?.output ?? {});
+    const producers = new Map<string, string[]>();
+    for (const p of parents) {
+      const output: Record<string, unknown> = (nodesMap[p] as { output?: Record<string, unknown> } | undefined)?.output ?? {};
+      for (const key of Object.keys(output)) {
+        out[key] = output[key];
+        producers.set(key, [...(producers.get(key) ?? []), p]);
+      }
+    }
+    // step 04 (decision Q8): several parents publishing the same key keep the
+    // documented last-wins semantics — but the collision stops hiding: this
+    // log names the key and every producer so the template author can fix the
+    // overlap instead of guessing which value downstream consumed.
+    const collisions = [...producers.entries()].filter(([, ps]) => ps.length > 1);
+    if (collisions.length) {
+      const described = collisions.map(([key, ps]) => `${key} (${ps.join(", ")})`).join(", ");
+      await this.events.emit(flowId, nodeKey, EVENT_KIND.LOG,
+        `${nodeKey}: inherited-input collision — several upstream outputs share keys, last writer wins: ${described}`,
+        { nodeKey, collisions: collisions.map(([key, ps]) => ({ field: key, producers: ps })) });
+    }
     // split children (agent-node split plan §2.1): the own unit rides the run
     // input — `{{input.unit.*}}` — alongside any inherited parent outputs
     // (only split children carry a unit on their trigger payload)
@@ -381,7 +401,12 @@ export class EdgeActivator {
       if (fanout === "whole-wrap") await stepFlows.wrapWholeOutput(flowId, nodeKey);
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : String(e);
-      await this.events.error(flowId, nodeKey, msg, { nodeKey });
+      // a typed contract violation already emitted its own
+      // input_contract_violation event (step 04) — the generic error line
+      // would only duplicate it in the feed
+      if (!(e instanceof InputContractError)) {
+        await this.events.error(flowId, nodeKey, msg, { nodeKey });
+      }
       // declared stageError: running → failed, attempt cleared — silently
       // skipped when the node already moved on (the error event carries the
       // failure detail)

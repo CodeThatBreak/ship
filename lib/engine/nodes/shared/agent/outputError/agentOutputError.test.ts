@@ -6,7 +6,7 @@
  * just the first.
  */
 import { describe, expect, it } from "vitest";
-import { jsonSchemaIssues } from "../../../kinds/agent/jsonSchemaLite";
+import { jsonSchemaToZod } from "../../../../templates/jsonSchemaToZod";
 import {
   AGENT_ERROR_ENVELOPE_EXAMPLE,
   AGENT_OUTPUT_ERROR,
@@ -62,8 +62,8 @@ describe("AgentOutputError — the standard payload", () => {
     const err = new AgentOutputError({
       code: AGENT_OUTPUT_ERROR.SCHEMA_MISMATCH,
       label: LABEL,
-      // the headline message rides the first issue — the same human text a
-      // bare validateJsonSchema throw produced
+      // the headline message rides the first issue — the same human message
+      // shape the contract validator's first issue produces
       message: issues[0]?.message ?? `${LABEL}: violated`,
       issues,
       response: '{"cost":"free"}',
@@ -81,7 +81,9 @@ describe("AgentOutputError — the standard payload", () => {
   });
 });
 
-describe("jsonSchemaIssues — collects every violation", () => {
+describe("jsonSchemaToZod — the former lite-validator fixtures convert to the contract validator", () => {
+  // the SAME schema objects the old lite validator's tests used — now the agent
+  // node's real contract validator (step 04)
   const schema = {
     type: "object",
     properties: {
@@ -92,37 +94,38 @@ describe("jsonSchemaIssues — collects every violation", () => {
     required: ["cost", "color"],
   };
 
-  it("returns [] for a valid value", () => {
-    expect(jsonSchemaIssues(schema, { cost: 1, color: "red" }, LABEL)).toEqual([]);
+  it("a valid value passes the converted contract", () => {
+    const contract = jsonSchemaToZod(schema, LABEL);
+    expect(contract.safeParse({ cost: 1, color: "red" }).success).toBe(true);
   });
 
-  it("reports all violations with their dotted paths, root included", () => {
-    const issues = jsonSchemaIssues(schema, { note: "hi" }, LABEL);
-    const [costIssue, colorIssue, noteIssue] = issues;
-    // a required row: throws instead of a `!` assertion (AGENTS.md §3.4)
-    if (costIssue == null || colorIssue == null || noteIssue == null) {
-      throw new Error(`expected three issues, got ${JSON.stringify(issues)}`);
-    }
-    expect(issues.map((i) => i.path)).toEqual(["", "", "note"]);
-    expect(costIssue.message).toBe(`${LABEL} is missing required property "cost"`);
-    expect(colorIssue.message).toBe(`${LABEL} is missing required property "color"`);
-    // the human text matches the old bare-throw wording exactly
-    expect(noteIssue.message).toBe(`${LABEL} at note is shorter than 3 characters`);
+  it("every fixture violation makes the converted contract fail", () => {
+    const contract = jsonSchemaToZod(schema, LABEL);
+    // missing required properties
+    expect(contract.safeParse({ note: "hi" }).success).toBe(false);
+    // wrong primitive type (integer)
+    expect(contract.safeParse({ cost: "free", color: "red" }).success).toBe(false);
+    // enum violation
+    expect(contract.safeParse({ cost: 1, color: "green" }).success).toBe(false);
+    // minLength violation
+    expect(contract.safeParse({ cost: 1, color: "red", note: "hi" }).success).toBe(false);
   });
 
-  it("nests paths through arrays", () => {
-    const [first] = jsonSchemaIssues({ type: "array", items: { type: "string" } }, ["ok", 3], LABEL);
-    if (first == null) throw new Error("expected one issue");
-    expect(first.path).toBe("1");
+  it("the converted contract reports the violation path", () => {
+    const contract = jsonSchemaToZod(
+      { type: "object", properties: { tags: { type: "array", items: { type: "string" } } }, required: ["tags"] },
+      LABEL,
+    );
+    const result = contract.safeParse({ tags: ["ok", 3] });
+    if (result.success) throw new Error("expected the array item violation to fail");
+    const at = result.error.issues.find((issue) => issue.path.join(".").startsWith("tags"));
+    if (at == null) throw new Error(`expected a tags-path issue, got ${JSON.stringify(result.error.issues)}`);
+    expect(at.path.join(".")).toContain("tags");
   });
 
   it("stays loud on an invalid schema — an authoring error, not a response failure", () => {
-    expect(() => jsonSchemaIssues(null, { a: 1 }, LABEL)).toThrow(`${LABEL}: invalid output schema (missing)`);
-  });
-
-  it("validateJsonSchema throws the first issue's message (script-node contract)", async () => {
-    const { validateJsonSchema } = await import("../../../kinds/agent/jsonSchemaLite");
-    expect(() => validateJsonSchema(schema, { note: "hi" }, LABEL)).toThrow(`${LABEL} is missing required property "cost"`);
+    expect(() => jsonSchemaToZod(null, LABEL)).toThrow(`${LABEL}: invalid output schema`);
+    expect(() => jsonSchemaToZod("type: object", LABEL)).toThrow(`${LABEL}: invalid output schema`);
   });
 });
 

@@ -14,7 +14,7 @@ import { NODE_KEYS } from "../../../constants/nodeKeys";
 import { DEFAULT_MCP_SOURCES, mcpSourceConfigFields, mcpSourcesOf, mcpSourcesSchema } from "../../../templates/nodeConfig";
 import { mergeArena } from "../../../runtime/fanout/mergeArena";
 import { BuildRunSupport } from "./buildRunSupport";
-import { BuildInput, BuildOutput, StepBuildTriggerPayload, formatStepBuildContextPack } from "./schema";
+import { BuildConsumes, BuildInput, BuildOutput, StepBuildTriggerPayload, formatStepBuildContextPack } from "./schema";
 
 // ── the fan-out step child of build (`step_build`, Phase 1C) ─────────────────
 // ONE plan step built by its own child flow on its own branch.
@@ -92,6 +92,7 @@ export class StepBuildNode extends AgentRunNode<BuildInput, BuildOutput> {
 
   readonly inputSchema = BuildInput;
   readonly outputSchema = BuildOutput;
+  override readonly consumes = BuildConsumes;
 
   constructor(
     support: NodeSupport = nodeSupport,
