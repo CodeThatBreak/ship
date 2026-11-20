@@ -25,8 +25,8 @@ import { PlanInput, PlanOutput } from './schema';
 import {
   AgentOutputError,
   AGENT_OUTPUT_ERROR,
-  type AgentOutputError as AgentOutputErrorT,
 } from '../../shared/agent/outputError/outputErrorExports';
+import { firstViolation } from '../../shared/agent/outputError/utils/firstViolation';
 import { RunSupersededError } from '../../../errors/runSupersededError';
 import type { RecoveryResult } from '../../shared/types/recovery';
 import { toStatusOf } from '../../../runtime/transitions/utils/transitionLookup';
@@ -313,7 +313,7 @@ export class PlanNode extends AgentRunNode<PlanInput, PlanOutput> {
       if (!(e instanceof AgentOutputError) || !RETRYABLE_OUTPUT_ERRORS.has(e.code)) throw e;
       await revert(previousStatus ?? 'awaiting_approval');
       await this.support.emitLifecycle(ctx.flow.id, node.id, planValidationFailedEvent);
-      return planValidationRefusalReply(this.firstViolation(e));
+      return planValidationRefusalReply(firstViolation(e));
     }
   }
 
@@ -338,14 +338,6 @@ export class PlanNode extends AgentRunNode<PlanInput, PlanOutput> {
     } else {
       await this.support.applyTransition(ctx.flow.id, node.nodeKey, 'chatRevert', { toStatus, patch });
     }
-  }
-
-  /** The FIRST violation in plain words — the same headline a schema_mismatch
-   *  run event shows (the empty case is genuinely possible: `agent_reported`). */
-  private firstViolation(failure: AgentOutputErrorT): string {
-    const issue = failure.detail.issues[0];
-    if (issue == null || issue.message === '') return failure.detail.message;
-    return issue.message;
   }
 
   async recover(ctx: FlowCtx, node: NodeRow, result: AgentRunResult, note: string): Promise<RecoveryResult> {

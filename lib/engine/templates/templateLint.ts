@@ -10,6 +10,8 @@ import type { LintProblem } from "@/types/templateLint";
 import { nodeRegistry } from "../nodes/registry";
 import { resolveSplitTarget, type SplitTargetLookup } from "../nodes/shared/split";
 import { fanoutOf } from "./nodeConfig";
+import { lintPlanExecution } from "./lintPlanExecution";
+import { schemaTypeOf } from "./utils/schemaTypeOf";
 import { NODE_KEYS } from "../constants/nodeKeys";
 
 /**
@@ -638,31 +640,7 @@ async function lintAgentSplit(
   }
 }
 
-/**
- * The plan node's execution-knob check (step 09): `execution_default` is
- * domain whole | follow — a template still carrying the retired per-step
- * "steps" value (the pre-split-runtime child-flow fan-out) fails at
- * save/import instead of silently degrading to whole at run time. A targeted
- * value check, not a configSchema run (template lint stays schema-free).
- */
-const lintPlanExecution = (cfg: Record<string, unknown>, where: string, nodeKey: string, problems: LintProblem[]): void => {
-  if (cfg.execution_default !== "steps") return;
-  problems.push({
-    where,
-    message: 'execution_default "steps" is retired — the plan knob is "whole" | "follow" ("follow" lets the planner publish per-branch fan-out in the plan-meta)',
-    nodeKey,
-  });
-};
-
 /** A JSON Schema node's primary type ("array" / "string" / …) — null when undeclared. */
-function schemaTypeOf(s: unknown): string | null {
-  if (!s || typeof s !== "object") return null;
-  const t = (s as { type?: unknown }).type;
-  if (typeof t === "string") return t;
-  if (Array.isArray(t) && typeof t[0] === "string") return t[0];
-  return null;
-}
-
 function templateRefs(config: unknown, instanceConfig: unknown): string[] {
   const out = new Set<string>();
   for (const ref of refsIn(config)) out.add(ref);
