@@ -6,7 +6,6 @@ import {
   type StreamCallbacks,
 } from "../cursorSdk";
 import { parseModelSpec } from "../../modelSpec";
-import { processSingleton } from "../../singleton";
 import type { AgentRunQuery } from "../../engine/ports/agentPort";
 
 // ── cloud run result / usage shapes (SDK-native, re-exported) ───────────────
@@ -123,4 +122,5 @@ export class CursorClient {
   }
 }
 
-export const cursorClient = processSingleton("cursorClient", () => new CursorClient());
+/** Shared cloud-agent client (stateless over {@link cursorAgent} — decision Q9, plain module const). */
+export const cursorClient = new CursorClient();

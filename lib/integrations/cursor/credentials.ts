@@ -1,7 +1,6 @@
 import "server-only";
 
 import type { IntegrationSecretStore } from "../../db/integrationSecretStore";
-import { processSingleton } from "../../singleton";
 import { db } from "../../db/app";
 
 /**
@@ -35,7 +34,5 @@ export class CursorCredentials {
   }
 }
 
-export const cursorCredentials = processSingleton(
-  "cursorCredentials",
-  () => new CursorCredentials(db.integrationSecrets),
-);
+/** Shared Cursor credentials (stateless, db-injected — decision Q9, plain module const). */
+export const cursorCredentials = new CursorCredentials(db.integrationSecrets);

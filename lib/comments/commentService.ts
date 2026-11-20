@@ -1,7 +1,6 @@
 import "server-only";
 
 import { db } from "../db/app";
-import { processSingleton } from "../singleton";
 import { type HostComment } from "../engine/ports/gitHost";
 
 export type ApiComment = {
@@ -54,7 +53,5 @@ export class CommentService {
   }
 }
 
-export const commentService = processSingleton(
-  "commentService",
-  () => new CommentService(),
-);
+/** Shared comments service (stateless — decision Q9, plain module const). */
+export const commentService = new CommentService();

@@ -2,7 +2,7 @@ import "server-only";
 
 import fs from "fs";
 import path from "path";
-import { processSingleton } from "../singleton";
+import { pinnedProcessService } from "../composition/processServices";
 import { resolveWorktreeBaseRef } from "./baseRef";
 import { GitCommandError } from "./gitErrors";
 import {
@@ -691,5 +691,11 @@ export class Worktrees {
   }
 }
 
-/** Shared worktree mechanics (one instance per process — coalesces in-flight listings). */
-export const worktrees = processSingleton("worktrees", () => new Worktrees());
+/**
+ * Shared worktree mechanics. Process-pinned via the process-services
+ * container (decision Q9): `dirChains` is a per-directory MUTEX serializing
+ * create/switch/remove — per-module-graph copies would let two Next route
+ * bundles run concurrent mutations on the same worktree directory. The
+ * `inflight` scan map is only a benign coalescing cache that rides along.
+ */
+export const worktrees = pinnedProcessService("worktrees", () => new Worktrees());

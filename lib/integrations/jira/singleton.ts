@@ -1,7 +1,6 @@
 import "server-only";
 
 import { getDb } from "../../db/dbAccess";
-import { processSingleton } from "../../singleton";
 import { JiraService } from "./service";
 
 const createJiraService = (): JiraService => {
@@ -19,5 +18,10 @@ const createJiraService = (): JiraService => {
   });
 };
 
-/** Shared Jira integration service (resolves {@link getDb} on first use). */
-export const jira = processSingleton("jira", createJiraService);
+/**
+ * Shared Jira integration service (resolves {@link getDb} on first use —
+ * decision Q9, plain module const; the lazy proxy keeps importing this
+ * module from forcing DB construction, and per-graph copies of the
+ * DB-backed delegate cannot disagree).
+ */
+export const jira = createJiraService();

@@ -5,7 +5,6 @@ import fs from "fs";
 import os from "os";
 import path from "path";
 import { promisify } from "util";
-import { processSingleton } from "../singleton";
 import { MAX_GIT_BUFFER } from "./gitRunner";
 import { worktrees } from "./worktrees";
 import {
@@ -675,5 +674,5 @@ function fail(actions: string[], error: string): WorktreeSetupResult {
   return { ok: false, error, actions };
 }
 
-/** Shared worktree-setup executor (stateless — one instance per process). */
-export const worktreeSetup = processSingleton("worktreeSetup", () => new WorktreeSetup());
+/** Shared worktree-setup executor (stateless — decision Q9, plain module const). */
+export const worktreeSetup = new WorktreeSetup();

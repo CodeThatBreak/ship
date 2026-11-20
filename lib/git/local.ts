@@ -2,7 +2,6 @@ import "server-only";
 
 import fs from "fs";
 import path from "path";
-import { processSingleton } from "../singleton";
 import { localBranchBaseCandidates } from "./baseRef";
 import { AuthedUrlResolutionError } from "./gitErrors";
 import {
@@ -325,7 +324,8 @@ export class LocalGit {
   }
 }
 
-export const localGit = processSingleton("localGit", () => new LocalGit());
+/** Shared local-git reads (stateless — decision Q9, plain module const). */
+export const localGit = new LocalGit();
 
 /** The per-flow workspace clone directory (`workspaces/clones/<flowId>`), or null when absent. */
 export function workspaceForFlow(flowId: string): string | null {

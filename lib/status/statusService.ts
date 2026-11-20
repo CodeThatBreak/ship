@@ -3,7 +3,6 @@ import "server-only";
 import { FLOW_STATUS } from "@/constants/flow";
 import { RUN_MODE } from "@/constants/execution";
 import { db, type Database } from "../db/app";
-import { processSingleton } from "../singleton";
 
 export type StatusSnapshot = {
   agents: {
@@ -91,4 +90,5 @@ export class StatusService {
   }
 }
 
-export const statusService = processSingleton("statusService", () => new StatusService(db));
+/** Shared system-status service (stateless, db-injected — decision Q9, plain module const). */
+export const statusService = new StatusService(db);

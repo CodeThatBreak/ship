@@ -9,7 +9,7 @@ import {
 } from "../cursorSdk";
 import { parseModelSpec } from "../../modelSpec";
 import { db, type Database } from "../../db/app";
-import { processSingleton } from "../../singleton";
+import { pinnedProcessService } from "../../composition/processServices";
 import { SETTINGS_KEYS } from "@/constants/settings";
 import { settingBoolean, settingNumber } from "../../schemas/settingValues";
 import { GIT_FETCH_TIMEOUT_MS, runGit } from "../../git/boundedExec";
@@ -247,7 +247,13 @@ function usageFromResult(result: AgentRunResult): LocalUsage | null {
   };
 }
 
-export const localAgent = processSingleton(
+/**
+ * Shared local-agent service — process-pinned via the process-services
+ * container (decision Q9): it drives {@link cursorAgent}'s live in-process
+ * run handles (stream/cancel/timeout), so it must be the same one instance
+ * per process the run registry lives in.
+ */
+export const localAgent = pinnedProcessService(
   "localAgent",
   () => new LocalAgentService(db),
 );

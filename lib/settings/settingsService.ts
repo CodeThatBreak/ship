@@ -2,7 +2,6 @@ import "server-only";
 
 import type { Database } from "../db/app";
 import { db } from "../db/app";
-import { processSingleton } from "../singleton";
 import { config } from "../config";
 import { normalizeModelSpec } from "../modelSpec";
 import type { SettingsPatchBody } from "../schemas/settingsPatch";
@@ -102,7 +101,5 @@ export class SettingsService {
   }
 }
 
-export const settingsService = processSingleton(
-  "settingsService",
-  () => new SettingsService(db),
-);
+/** Shared settings service (stateless, db-injected — decision Q9, plain module const). */
+export const settingsService = new SettingsService(db);

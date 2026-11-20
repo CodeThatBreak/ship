@@ -2,7 +2,6 @@ import "server-only";
 
 import { ArtifactRow, rows, type ArtifactRow as ArtifactRowType } from "../db/rows";
 import { NotFoundError } from "../errors";
-import { processSingleton } from "../singleton";
 
 export class ArtifactService {
   async get(id: string): Promise<ArtifactRowType> {
@@ -14,7 +13,5 @@ export class ArtifactService {
   }
 }
 
-export const artifactService = processSingleton(
-  "artifactService",
-  () => new ArtifactService(),
-);
+/** Shared artifact service (stateless — decision Q9, plain module const). */
+export const artifactService = new ArtifactService();

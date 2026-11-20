@@ -24,31 +24,11 @@ const ALLOWED = "lib/db/prismaClient.ts";
  * Frozen known call sites (step doc task 8 — the 39-site inventory, mapped to
  * real module paths). SHRINK-ONLY: a step removes an entry when it
  * constructor-injects that service from the composition root. Adding an entry
- * is forbidden.
+ * is forbidden. Step 09 task 7 (non-engine half) emptied everything outside
+ * `lib/engine/**` — the remaining entries are the engine half's second agent.
  */
 const FROZEN_OFFENDERS: readonly string[] = [
-  "lib/db/app.ts", // the `db` facade singleton (Q9 — the one sanctioned DB-pool survivor's sibling)
-  "lib/db/dbAccess.ts", // the bound-db slot accessor
-  "lib/db/rowGatewayAccess.ts", // the bound-row-gateway slot accessor
-  "lib/git/gitRunner.ts",
-  "lib/git/worktrees.ts",
-  "lib/git/worktreeSetup.ts",
-  "lib/git/local.ts", // localGit
-  "lib/git/depPolicy.ts", // depPolicies
   "lib/engine/secretStore.ts",
-  "lib/modelCatalog/modelCatalogService.ts",
-  "lib/comments/commentService.ts",
-  "lib/settings/settingsService.ts",
-  "lib/repos/repoService.ts",
-  "lib/artifacts/artifactService.ts",
-  "lib/status/statusService.ts",
-  "lib/contracts/contractService.ts",
-  "lib/integrations/cursorSdk.ts",
-  "lib/integrations/cursor/client.ts", // cursorClient
-  "lib/integrations/cursor/credentials.ts", // cursorCredentials
-  "lib/integrations/jira/singleton.ts", // jira
-  "lib/integrations/gitlab/singleton.ts", // gitLab
-  "lib/integrations/localAgent/agent.ts", // localAgent
   "lib/engine/nodes/declarativeRegistry.ts", // declarativeKindRegistry/declarativeDefCache
   "lib/engine/tasks/taskService.ts",
   "lib/engine/tasks/liveTaskFeed.ts", // liveTaskFeed

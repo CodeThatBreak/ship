@@ -3,7 +3,6 @@ import "server-only";
 import fs from "fs";
 import path from "path";
 import { db, type Database, type Repo } from "../db/app";
-import { processSingleton } from "../singleton";
 import { ConflictError, NotFoundError, ValidationError } from "../errors";
 import {
   expandRepoLocalPath,
@@ -100,4 +99,5 @@ export class RepoService {
   }
 }
 
-export const repoService = processSingleton("repoService", () => new RepoService(db));
+/** Shared repo service (stateless, db-injected — decision Q9, plain module const). */
+export const repoService = new RepoService(db);

@@ -4,7 +4,6 @@ import { FAST_ON, FAST_PARAM } from "@/constants/models";
 import { agentPortRegistry, type AgentPortRegistry } from "../engine/ports/agentPort";
 import { parseModelSpec, type CatalogModel } from "../modelSpec";
 import { settingsService } from "../settings/settingsService";
-import { processSingleton } from "../singleton";
 
 const isNoiseFastParam = (p: { id: string; value: string }): boolean =>
   p.id === FAST_PARAM && p.value !== FAST_ON;
@@ -99,7 +98,5 @@ export class ModelCatalogService {
   }
 }
 
-export const modelCatalogService = processSingleton(
-  "modelCatalogService",
-  () => new ModelCatalogService(agentPortRegistry),
-);
+/** Shared model-catalog service (stateless — decision Q9, plain module const). */
+export const modelCatalogService = new ModelCatalogService(agentPortRegistry);

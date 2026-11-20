@@ -4,7 +4,6 @@ import { z } from "zod";
 import { nodeRegistry } from "@/lib/engine/nodes/registry";
 import "@/lib/engine/nodes/declarativeBootstrap";
 import { isNodeDefinition } from "@/lib/engine/nodes/shared/nodeDefinitionGuard";
-import { processSingleton } from "@/lib/singleton";
 import { templateStore } from "@/lib/engine/templates/templateStore";
 import { prompts } from "@/lib/engine/prompts/promptLibrary";
 import { instantiateDeclarative, type DeclarativeRow } from "@/lib/engine/nodes/declarative";
@@ -149,7 +148,5 @@ export class ContractService {
   }
 }
 
-export const contractService = processSingleton(
-  "contractService",
-  () => new ContractService(),
-);
+/** Shared node-contract service (stateless — decision Q9, plain module const). */
+export const contractService = new ContractService();

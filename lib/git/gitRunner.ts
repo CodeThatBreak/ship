@@ -2,7 +2,6 @@ import "server-only";
 
 import { execFile } from "child_process";
 import { promisify } from "util";
-import { processSingleton } from "../singleton";
 import { GitCommandError } from "./gitErrors";
 
 const execFileAsync = promisify(execFile);
@@ -42,4 +41,5 @@ export class GitRunner {
   }
 }
 
-export const gitRunner = processSingleton("gitRunner", () => new GitRunner());
+/** Shared bounded-git executor (stateless — decision Q9, plain module const). */
+export const gitRunner = new GitRunner();

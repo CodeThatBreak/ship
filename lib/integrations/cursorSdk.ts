@@ -15,7 +15,7 @@ import {
 } from "@cursor/sdk";
 import fs from "fs";
 import { FAST_OFF, FAST_ON, FAST_PARAM } from "../../constants/models";
-import { processSingleton } from "../singleton";
+import { pinnedProcessService } from "../composition/processServices";
 import { cursorCredentials } from "./cursor/credentials";
 import { AgentRunLookupError } from "../engine/ports/agentErrors";
 import type { AgentRunQuery } from "../engine/ports/agentPort";
@@ -487,7 +487,13 @@ export class CursorAgentService {
 
 }
 
-export const cursorAgent = processSingleton(
+/**
+ * Shared agent service — process-pinned via the process-services container
+ * (decision Q9): `runs` holds the live in-process run handles the engine
+ * streams and cancels against; per-module-graph copies would disagree about
+ * which runs this process still owns.
+ */
+export const cursorAgent = pinnedProcessService(
   "cursorAgent",
   () => new CursorAgentService(),
 );

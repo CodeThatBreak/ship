@@ -3,9 +3,13 @@ import "server-only";
 import type { Database } from "./database";
 
 /**
- * Pinned on `globalThis` for the same reason as `processSingleton` (see
- * `lib/singleton.ts`): under `next dev`, module-scope state is per bundle,
- * but the `Database` singleton is process-wide.
+ * Lazy resolution slot so modules that must not import `lib/db/app` (the
+ * integration singletons' lazy proxies, `lib/engine/templates/nodeConfig.ts`)
+ * can reach the shared `Database` without forcing its construction or
+ * creating an import cycle. {@link bindDatabase} is called from the
+ * `Database` constructor; the instance itself is a plain module const in
+ * `lib/db/app.ts` (decision Q9 — no process pinning needed, the facade is
+ * stateless).
  */
 const DATABASE_SLOT = Symbol.for("devflow.database");
 

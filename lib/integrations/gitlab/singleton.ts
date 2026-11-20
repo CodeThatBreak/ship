@@ -1,7 +1,6 @@
 import "server-only";
 
 import { getDb } from "../../db/dbAccess";
-import { processSingleton } from "../../singleton";
 import { GitLabService } from "./client";
 
 const createGitLabService = (): GitLabService => {
@@ -20,5 +19,10 @@ const createGitLabService = (): GitLabService => {
   });
 };
 
-/** Shared GitLab integration service (resolves {@link getDb} on first use). */
-export const gitLab = processSingleton("gitLab", createGitLabService);
+/**
+ * Shared GitLab integration service (resolves {@link getDb} on first use —
+ * decision Q9, plain module const; the lazy proxy keeps importing this
+ * module from forcing DB construction, and per-graph copies of the
+ * DB-backed delegate cannot disagree).
+ */
+export const gitLab = createGitLabService();
