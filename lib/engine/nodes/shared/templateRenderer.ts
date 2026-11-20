@@ -1,13 +1,7 @@
 import "server-only";
 
 import { TemplateComposer } from './templateComposer';
-
-export type TemplateRenderOptions = {
-  /** Resolve `{{secrets.NAME}}` at render time (values must not be persisted). */
-  resolveSecret?: (name: string) => string | null | undefined;
-  /** Label for missing-secret errors. */
-  label?: string;
-};
+import type { TemplateRenderOptions } from "./types/templateRenderer";
 
 /**
  * Prompt rendering for declarative nodes: builds the `{{expr}}` variable map

@@ -36,21 +36,11 @@ const inSchemaHome = (rel: string): boolean =>
   /\/schemas?\//.test(rel) || path.basename(rel) === "schema.ts";
 
 /**
- * Frozen offenders (shrink-only) — files with an inline Zod schema definition
- * outside a `schema.ts`/`schemas/` home at step 00. Step 04 moves the
- * decision/http/script/agent inline schemas into each kind's `schema.ts`;
- * `plan/schema.ts`'s `withStepIds` is the one function allowed a schema file
- * (it IS a schema home). Adding an entry is forbidden.
+ * Frozen offenders — EMPTY since step 09: every inline Zod schema in
+ * `lib/engine/**` lives in its `schema.ts`/`schemas/` home. From here on a
+ * NEW inline schema outside a schema home fails the suite.
  */
-const FROZEN_SCHEMA_OFFENDERS: readonly string[] = [
-  "lib/engine/nodes/declarative.ts", // DeclarativeRowSchema boundary parse
-  "lib/engine/nodes/declarativeSchemas.ts", // AgentDefSchema/DecisionDefSchema/HttpDefSchema/ScriptDefSchema — the declarative kind schemas, consolidated in step 04
-  "lib/engine/nodes/kinds/review/reviewComments.ts", // reviewCommentItemSchema
-  "lib/engine/nodes/kinds/start/startNode.ts", // inline start-contract schema
-  "lib/engine/nodes/shared/capabilities.ts", // DEFAULT_FANOUT_OUTPUT + DEFAULT_SPLIT_OUTPUT (z. schema consts; the split default moved here from the split runtime in step 04)
-  "lib/engine/nodes/shared/split.ts", // splitConsumeSchema/splitParallelMaxSchema
-  "lib/engine/templates/nodeConfig.ts", // mcpSourcesSchema
-];
+const FROZEN_SCHEMA_OFFENDERS: readonly string[] = [];
 
 // An inline Zod schema definition: `const X = z.<something>` at module scope
 // (exported or not). `schema.ts`/`schemas/` files are exempt by location.

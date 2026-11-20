@@ -5,7 +5,7 @@ import {
   DecisionDefSchema,
   HttpDefSchema,
   ScriptDefSchema,
-} from "./declarativeSchemas";
+} from "./schemas/declarativeSchemas";
 
 /** Parse a kind's declarative config, throwing the first problem as a readable Error. */
 export const parseDeclarativeConfig = (

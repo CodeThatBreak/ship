@@ -1,21 +1,9 @@
 import "server-only";
 
+import { asResultText } from "./utils/asResultText";
+import type { ToolEmitFn } from "./types/toolEmitFn";
+
 // ── tool-call pairing for local mode (FIFO unmatched-start per name) ─────────
-
-export type ToolEmitFn = (
-  name: string,
-  status: string,
-  callId: string,
-  args?: unknown,
-  result?: string,
-  startedAt?: number
-) => void;
-
-/** Serialize a tool result payload (unknown per the SDK) to display text. */
-function asResultText(v: unknown): string | undefined {
-  if (v == null) return undefined;
-  return typeof v === "string" ? v : JSON.stringify(v);
-}
 
 /**
  * Pairs tool-call start/end events for local runs: matches by callId when

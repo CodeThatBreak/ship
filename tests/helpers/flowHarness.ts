@@ -16,8 +16,8 @@
  */
 import type { Database } from "@/lib/db/app";
 import type { TransitionKey } from "@/lib/engine/runtime/transitions/types/transitions";
-import type { FlowEngine } from "@/lib/engine/flowEngine";
-import type { TemplateStore } from "@/lib/engine/templates/templateStore";
+import type { FlowEngine } from "@/lib/engine/flowEngine/flowEngine";
+import type { TemplateStore } from "@/lib/engine/templates/templateStore/templateStore";
 import type { TemplateGraph, TemplateInput } from "@/lib/engine/types/template";
 
 // ── minimal inline graphs (fixtures; AGENTS §2.7 exempts test data) ──────────

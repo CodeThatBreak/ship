@@ -8,15 +8,13 @@ import {
   NODE_TERMINAL_STATUSES,
 } from "../transitions/constants/statusSets";
 import { nodeRegistry } from "../../nodes/registry";
-import {
-  DEFAULT_FANOUT_OUTPUT,
-  type NodeCapabilities,
-} from "../../nodes/shared/capabilities";
+import { DEFAULT_FANOUT_OUTPUT } from "../../nodes/shared/schemas/defaultOutputs";
+import type { NodeCapabilities } from "../../nodes/shared/capabilities";
 import { flowCtxHelper } from "../../nodes/shared/runContext";
 import { branchStore } from "../../nodes/kinds/build/branchStore";
 import { engineParts, nodeSupport } from "@/lib/composition/container";
 import { planSteps } from "../planStepStore";
-import type { PlanStepRow } from "../planStepStore";
+import type { PlanStepRow } from "../planStepStore/types/planStep";
 import type { StepChildPayload } from "./types/stepChildPayload";
 import type { StepState } from "./types/stepState";
 import type { StepFlowEngine } from "./types/stepFlowEngine";

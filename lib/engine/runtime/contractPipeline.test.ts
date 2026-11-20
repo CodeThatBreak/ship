@@ -9,7 +9,7 @@ import type { RecoveryResult } from "../nodes/shared/types/recovery";
 import { ContractPipeline } from "./contractPipeline";
 import { InputContractError } from "../errors/inputContractError";
 import { OutputContractError } from "../errors/outputContractError";
-import { DEFAULT_SPLIT_OUTPUT } from "../nodes/shared/capabilities";
+import { DEFAULT_SPLIT_OUTPUT } from "../nodes/shared/schemas/defaultOutputs";
 import { NODE_STATUS } from "../constants/nodeStatus";
 
 /** A minimal concrete def: schemas injected per scenario, nothing runs. */

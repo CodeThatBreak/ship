@@ -17,7 +17,8 @@ import {
 import type { NodeCapabilities } from '../../shared/capabilities';
 import { NODE_KEYS } from '../../../constants/nodeKeys';
 
-import { DEFAULT_MCP_SOURCES, mcpSourcesOf, mcpSourcesSchema } from '../../../templates/nodeConfig';
+import { DEFAULT_MCP_SOURCES, mcpSourcesSchema } from '../../../templates/schemas/mcpSources';
+import { mcpSourcesOf } from '../../../templates/nodeConfig';
 import { agentRunner, type AgentRunner } from '../../../harness/harnessExports';
 import { flowCtxHelper, type FlowContextHelper, type NodeSupport } from '../../shared/nodeSharedExports';
 import { nodeSupport } from '@/lib/composition/container';
@@ -43,7 +44,8 @@ import { resolvePlanTurnPreviousStatus } from './planRetryRevert';
 
 import { PlanStore } from './planStore';
 import { PlanContextBlocks } from './planContext';
-import { PlanPromptBuilder, type ExecutionKnob } from './planPrompt';
+import { PlanPromptBuilder } from './planPrompt';
+import type { ExecutionKnob } from './types/executionKnob';
 import { PlanOutputContract } from './planContract';
 import { PlanSplitter } from './planSplit';
 

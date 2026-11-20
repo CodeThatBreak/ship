@@ -3,11 +3,15 @@ import "server-only";
 import { config } from "../../../config";
 import type { AgentRunResult } from "../../ports/agentPort";
 import { agentRunner, type AgentRunner, type AgentStartInput } from "../../harness/harnessExports";
-import { flowCtxHelper, type FlowContextHelper, type FlowCtx } from "./runContext";
+import { flowCtxHelper } from "./runContext";
+import type { FlowContextHelper } from "./runContext/flowContextHelper";
+import type { FlowCtx } from "./runContext/types/flowContext";
 import type { NodeSupport } from "./nodeSupport";
 import { nodeSupport, engineParts } from "@/lib/composition/container";
-import { NodeDefinition, type RunOutcome } from "./nodeDefinition";
-import type { ChatTurnOpts } from "./nodeRoles";
+import { NodeDefinition } from "./nodeDefinition";
+import type { RunOutcome } from "./types/runOutcome";
+import type { ChatTurnOpts } from "./nodeRoles/types/nodeRoles";
+import type { ExecuteRunMeta } from "./types/executeRunMeta";
 import { AGENT_TOKEN_ENV, AGENT_TOOL_SETS } from "../../agentTools/constants/agentTools";
 import type { ToolDescriptor } from "../../agentTools/types/tools";
 import { agentToolsBlock, redactCapabilityToken } from "../../agentTools/utils/toolsPromptBlock";
@@ -15,11 +19,6 @@ import type { NodeRunStatus } from "../../../../constants/flow";
 import { FLOW_STATUS } from "../../../../constants/flow";
 import type { NodeRow } from "../../../db/rows";
 import { RunSupersededError } from "../../errors/runSupersededError";
-
-/** Metadata from {@link AgentRunner.executeRun} passed into finalize hooks. */
-export interface ExecuteRunMeta {
-  runRowId: string;
-}
 
 /**
  * The middle tier of the node family (§T4b): a run here goes through the

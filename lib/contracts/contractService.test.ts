@@ -17,7 +17,7 @@ assignTestDatabase();
 
 const { templateStore } = await import("@/lib/engine/templates/templateStore");
 const { contractService } = await import("./contractService");
-const { DECLARATIVE_KINDS } = await import("@/lib/engine/nodes/declarativeRegistry");
+const { DECLARATIVE_KINDS } = await import("@/lib/engine/nodes/declarativeRegistry/constants/declarativeKinds");
 
 /** Minimal valid defs — one per declarative kind (schemas in declarativeSchemas.ts). */
 const MIN_CONFIG: Record<string, Record<string, unknown>> = {

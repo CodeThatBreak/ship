@@ -8,15 +8,7 @@ import { templateStore } from "../templates/templateStore";
 import { commentStore } from "./commentStore";
 import { TRIGGER_SOURCE } from "./triggers/constants/triggerSources";
 import type { WaitStore } from "./waits/waitStore";
-import type { TriggerResult, TriggerSource } from "./triggers/types/triggerGateway";
-
-export type CommentIngestorHost = {
-  /** the SDLC builtin chain (step 07: the facade no longer re-exports the
-   *  chain's stage entries — callers drive the chain directly) */
-  chain: {
-    triggerPipelineGate(flowId: string, pipelineId?: number, model?: string, source?: TriggerSource): Promise<TriggerResult>;
-  };
-};
+import type { CommentIngestorHost } from "./types/commentIngestor";
 
 /** Git-host MR lookup and comment ingestion. */
 export class CommentIngestor {

@@ -15,26 +15,19 @@ import { NO_TASK_TYPE, SDLC_TEMPLATE_ID, templateStore } from "../templates/temp
 import type { StepChildPayload } from "./fanout/types/stepChildPayload";
 import type { SplitChildPayload } from "./split/types/splitChildPayload";
 import type { FlowFactoryHost } from "./flowEngineHost";
-const TASK_SELECT = `SELECT id, type, key, summary, description, status,
-       issue_type AS "issueType", priority, repo_url AS "repoUrl",
-       parent_key AS "parentKey", external_url AS "externalUrl", raw,
-       synced_at AS "syncedAt", fields FROM tasks`;
-
-export interface CreateFlowOptions {
-  executionMode?: "cloud" | "local";
-  repoId?: string;
-  templateId?: string;
-  triggerPayload?: unknown;
-  autoStart?: boolean;
-}
-
-const REPO_DELIVERY_KEY = "repo";
-const EXEC_MODE_DELIVERY_KEY = "execution_mode";
-const EXEC_MODE_DELIVERY_ALIAS = "harness";
-const EXEC_MODE_VALUES = ["local", "cloud"] as const;
+import type { CreateFlowOptions } from "./types/flowFactory";
 
 /** Flow creation and template-triggered starts. */
 export class FlowFactory {
+  private static readonly TASK_SELECT = `SELECT id, type, key, summary, description, status,
+       issue_type AS "issueType", priority, repo_url AS "repoUrl",
+       parent_key AS "parentKey", external_url AS "externalUrl", raw,
+       synced_at AS "syncedAt", fields FROM tasks`;
+  private static readonly REPO_DELIVERY_KEY = "repo";
+  private static readonly EXEC_MODE_DELIVERY_KEY = "execution_mode";
+  private static readonly EXEC_MODE_DELIVERY_ALIAS = "harness";
+  private static readonly EXEC_MODE_VALUES = ["local", "cloud"] as const;
+
   constructor(
     private readonly host: FlowFactoryHost,
     private readonly nodeStore: NodeStore,
@@ -79,7 +72,7 @@ export class FlowFactory {
   }
 
   async create(taskId: string, repoUrl: string, name?: string, opts: CreateFlowOptions = {}, tx?: Prisma.TransactionClient): Promise<string> {
-    const task = await db.rows.get(Task, `${TASK_SELECT} WHERE id=$1`, taskId);
+    const task = await db.rows.get(Task, `${FlowFactory.TASK_SELECT} WHERE id=$1`, taskId);
     if (!task) throw new NotFoundError("task", taskId);
     const repo = opts.repoId ? await db.repoById(opts.repoId) : undefined;
     if (repo) repoUrl = repo.cloudUrl;
@@ -211,15 +204,15 @@ export class FlowFactory {
     const taskType = typeof trigger.taskType === "string" ? trigger.taskType : NO_TASK_TYPE;
     const body = payload && typeof payload === "object" && !Array.isArray(payload)
       ? (payload as Record<string, unknown>) : {};
-    const deliveryRepo =
-      typeof body[REPO_DELIVERY_KEY] === "string" ? body[REPO_DELIVERY_KEY].trim() : "";
+    const deliveryRepoRaw: unknown = body[FlowFactory.REPO_DELIVERY_KEY];
+    const deliveryRepo = typeof deliveryRepoRaw === "string" ? deliveryRepoRaw.trim() : "";
     const rawMode =
-      typeof body[EXEC_MODE_DELIVERY_KEY] === "string"
-        ? (body[EXEC_MODE_DELIVERY_KEY] as string).trim().toLowerCase()
-        : typeof body[EXEC_MODE_DELIVERY_ALIAS] === "string"
-          ? (body[EXEC_MODE_DELIVERY_ALIAS] as string).trim().toLowerCase()
+      typeof body[FlowFactory.EXEC_MODE_DELIVERY_KEY] === "string"
+        ? (body[FlowFactory.EXEC_MODE_DELIVERY_KEY] as string).trim().toLowerCase()
+        : typeof body[FlowFactory.EXEC_MODE_DELIVERY_ALIAS] === "string"
+          ? (body[FlowFactory.EXEC_MODE_DELIVERY_ALIAS] as string).trim().toLowerCase()
           : "";
-    const deliveryMode = (EXEC_MODE_VALUES as readonly string[]).includes(rawMode)
+    const deliveryMode = (FlowFactory.EXEC_MODE_VALUES as readonly string[]).includes(rawMode)
       ? (rawMode as "local" | "cloud") : undefined;
     let repoId = typeof trigger.repoId === "string" ? trigger.repoId : "";
     if (deliveryRepo) {
@@ -228,7 +221,7 @@ export class FlowFactory {
         ?? (await db.listRepos()).find((r) => r.name === deliveryRepo);
       if (!deliveryRepoRow) {
         throw new Error(
-          `the delivery's "${REPO_DELIVERY_KEY}" doesn't match a registered repo — ` +
+          `the delivery's "${FlowFactory.REPO_DELIVERY_KEY}" doesn't match a registered repo — ` +
           `use the repo's id, URL or name`);
       }
       repoId = deliveryRepoRow.id;
@@ -237,7 +230,7 @@ export class FlowFactory {
       throw new Error(
         `template "${t.name}" has no repo binding — schedule fires and webhook ` +
         `deliveries auto-create flows, so either bind a repo in the template ` +
-        `editor's flow settings or pass "${REPO_DELIVERY_KEY}" in the payload`);
+        `editor's flow settings or pass "${FlowFactory.REPO_DELIVERY_KEY}" in the payload`);
     }
     let taskId = typeof opts.taskId === "string" ? opts.taskId.trim() : "";
     if (taskId) {
@@ -271,9 +264,9 @@ export class FlowFactory {
     const contractFields = startSpec ? parseStartContract(startSpec.config) : [];
     if (contractFields.length) {
       const contractPayload: Record<string, unknown> = { ...body };
-      delete contractPayload[REPO_DELIVERY_KEY];
-      delete contractPayload[EXEC_MODE_DELIVERY_KEY];
-      delete contractPayload[EXEC_MODE_DELIVERY_ALIAS];
+      delete contractPayload[FlowFactory.REPO_DELIVERY_KEY];
+      delete contractPayload[FlowFactory.EXEC_MODE_DELIVERY_KEY];
+      delete contractPayload[FlowFactory.EXEC_MODE_DELIVERY_ALIAS];
       const v = validateAgainstContract(contractFields, contractPayload);
       if (!v.ok) {
         throw new ValidationError(`payload doesn't match the "${t.name}" start contract — ${v.error}`);

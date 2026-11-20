@@ -14,7 +14,7 @@ import type { NodeRow } from '../../../../db/rows';
 import { FLOW_STATUS } from '../../../../../constants/flow';
 import { PlanApplyRefusedError } from './planApplyRefusedError';
 import { PlanScopedOutcome } from './planScopedOutcome';
-import { planBodyDiverged } from './planPrompt';
+import { planBodyDiverged } from './utils/planBodyDiverged';
 import { planOutcome, readRunModel } from './utils/planOutcome';
 import {
   REFINED_FROM_SOURCE,
@@ -33,7 +33,7 @@ import {
   type PlanMeta,
 } from './schema';
 import type { PlanStore } from './planStore';
-import type { ExecutionKnob } from './planPrompt';
+import type { ExecutionKnob } from './types/executionKnob';
 import type { PlanRunArgs } from './types/planTypeExports';
 import type { ScopedRefine } from './types/planTypeExports';
 import { PlanTurnKind } from './constants/planTurn';

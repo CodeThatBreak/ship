@@ -7,45 +7,13 @@ import {
   worktrees,
 } from "@/lib/git/worktrees";
 import { localGit } from "@/lib/git/local";
-
-const GIT_CONCURRENCY = 8;
-
-async function mapPool<T, R>(items: T[], limit: number, fn: (item: T) => Promise<R>): Promise<R[]> {
-  const out: R[] = new Array(items.length);
-  let next = 0;
-  const workers = Array.from({ length: Math.min(limit, items.length) }, async () => {
-    for (;;) {
-      const i = next;
-      next += 1;
-      if (i >= items.length) return;
-      out[i] = await fn(items[i]);
-    }
-  });
-  await Promise.all(workers);
-  return out;
-}
-
-type FlowWorktreeRow = {
-  id: string;
-  worktreeDir: string;
-  mrBranch: string | null;
-  repoId: string | null;
-};
-
-export type WorktreeStatusEntry = {
-  path: string;
-  registered: boolean;
-  reason?: string;
-  branch?: string | null;
-  dirty?: boolean;
-  ahead?: number;
-  behind?: number;
-  pushed?: boolean;
-  stat?: string;
-  mrBranch?: string | null;
-};
+import { mapPool } from "./utils/mapPool";
+import type { FlowWorktreeRow, WorktreeStatusEntry } from "./types/worktreeStatus";
 
 export class WorktreeStatusService {
+  /** Concurrent git probes per repo batch — a tuning value, not a correctness number. */
+  private static readonly GIT_CONCURRENCY = 8;
+
   async statusesForActiveFlows(): Promise<Record<string, WorktreeStatusEntry>> {
     const flowRows = (await db.prisma.flow.findMany({
       where: { worktreeDir: { not: null } },
@@ -72,7 +40,7 @@ export class WorktreeStatusService {
       };
     }
 
-    await mapPool([...byRepo.entries()], GIT_CONCURRENCY, async ([repoId, flows]) => {
+    await mapPool([...byRepo.entries()], WorktreeStatusService.GIT_CONCURRENCY, async ([repoId, flows]) => {
       const repo = await db.repoById(repoId);
       if (!repo?.localPath) {
         for (const f of flows) {
@@ -97,7 +65,7 @@ export class WorktreeStatusService {
         return;
       }
 
-      await mapPool(flows, GIT_CONCURRENCY, async (flow) => {
+      await mapPool(flows, WorktreeStatusService.GIT_CONCURRENCY, async (flow) => {
         out[flow.id] = await this.statusForFlow(flow, localPath, baseBranch, list);
       });
     });

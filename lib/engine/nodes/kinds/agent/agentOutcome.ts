@@ -6,7 +6,7 @@ import { AGENT_OUTPUT_FORMAT } from "../../../constants/declarative";
 import type { RunOutcome } from "../../shared/nodeSharedExports";
 import { validateStandardAgentOutput } from "../../shared/agentOutput/utils/standardOutput";
 import { AGENT_OUTPUT_ERROR, AgentOutputError } from "../../shared/agent/outputError/outputErrorExports";
-import type { AgentDef } from "../../declarativeSchemas";
+import type { AgentDef } from "../../schemas/declarativeSchemas";
 
 /**
  * The agent kind's output-contract shaping: the agent's raw response text

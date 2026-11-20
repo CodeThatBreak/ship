@@ -9,7 +9,7 @@ import type { AgentRunResult } from "../../../ports/agentPort";
 import type { RecoveryResult } from "../../shared/types/recovery";
 import { type FlowCtx, type RunOutcome } from "../../shared/nodeSharedExports";
 import { DeclarativeNode } from "../../shared/declarativeNode";
-import { ScriptDefSchema, type ScriptDef } from "../../declarativeSchemas";
+import { ScriptDefSchema, type ScriptDef } from "../../schemas/declarativeSchemas";
 import { EVENT_KIND } from "../../../constants/vocabulary";
 import { OutputContractError } from "../../../errors/outputContractError";
 import { worktreeManager } from "../../../runtime/worktreeLifecycle";
@@ -306,9 +306,6 @@ export class ScriptTemplateNode extends DeclarativeNode<ScriptDef> {
     }
   }
 }
-
-/** @internal Vitest-only export for child env contract checks. */
-export const runScriptProcessForTests = runProcess;
 
 import { declarativeKindRegistry } from "../../declarativeRegistry";
 import type { NodeDefinition } from "../../shared/nodeDefinition";

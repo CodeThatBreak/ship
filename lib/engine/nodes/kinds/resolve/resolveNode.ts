@@ -25,8 +25,9 @@ import { AgentOutputError } from "../../shared/agent/outputError/outputErrorExpo
 import type { NodeCapabilities } from "../../shared/capabilities";
 import { NODE_KEYS } from "../../../constants/nodeKeys";
 import type { ConfigField } from "../../../templates/nodeConfig";
-import { configString, mcpSourcesOf, mcpSourcesSchema, mcpSourceConfigFields, splitConsumerConfigFields } from "../../../templates/nodeConfig";
-import { splitConsumeSchema, splitParallelMaxSchema } from "../../shared/split";
+import { mcpSourcesSchema } from "../../../templates/schemas/mcpSources";
+import { configString, mcpSourcesOf, mcpSourceConfigFields, splitConsumerConfigFields } from "../../../templates/nodeConfig";
+import { splitConsumeSchema, splitParallelMaxSchema } from "../../shared/split/schemas/splitKnobs";
 import { mrTargetResolver } from "../../shared/mrTargetResolver";
 import { worktreeManager } from "../../../runtime/worktreeLifecycle";
 import { EVENT_KIND } from "../../../constants/vocabulary";

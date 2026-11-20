@@ -3,6 +3,7 @@ import "server-only";
 import YAML from "yaml";
 import type { Prisma } from "@prisma/client";
 import { db } from "../../db/app";
+import { YamlTemplateError } from "./yamlTemplateError";
 
 /**
  * Config-as-code for flow templates (§7 YAML form). Export writes each node as
@@ -13,13 +14,6 @@ import { db } from "../../db/app";
  * Phase 3) via find-or-create on the effective definition.
  */
 export const DECLARATIVE_KINDS = ["agent", "http", "script", "decision"] as const;
-
-export class YamlTemplateError extends Error {
-  constructor(message: string) {
-    super(message);
-    this.name = "YamlTemplateError";
-  }
-}
 
 interface YamlNodeEntry {
   key: string;

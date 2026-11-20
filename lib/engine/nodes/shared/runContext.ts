@@ -1,118 +1,12 @@
 import "server-only";
 
-import fs from "fs";
-import path from "path";
-import type { Repo } from "../../../db/app";
-import type { FlowRow, Task } from "../../../db/rows";
-import { localGit } from "../../../git/local";
-import { gitRemoteContextFor } from "../../ports/gitHost";
-import { taskRegistry } from "../../tasks/registry";
-import { untrustedData } from "../../prompts/untrustedData";
-import { TASK_PRD_CAP } from "../../prompts/caps";
-import { branchNamer } from "./branchNamer";
-
-// ── context ──────────────────────────────────────────────────────────────────
-export type ExecMode = "cloud" | "local";
-
-export interface FlowCtx {
-  flow: FlowRow;
-  task: Task;
-  repo?: Repo | null; // registered repo (when flow.repo_id set / matched)
-}
+import { FlowContextHelper } from "./runContext/flowContextHelper";
 
 /**
- * Derived facts about a flow context: execution mode, local path, branch
- * naming, task prompt block, and diff construction. Stateless — safe to
- * share as a singleton.
+ * Process pin for the flow-context helper (decision Q9). The
+ * FlowContextHelper class lives in `runContext/` (its types in
+ * `runContext/types/flowContext.ts`); this module keeps the pin so the
+ * import surface (`flowCtxHelper`) is unchanged. Stateless — class files
+ * are pure (classFilePurity arch test), so the instance is pinned here.
  */
-export class FlowContextHelper {
-  execMode(ctx: FlowCtx): ExecMode {
-    return ctx.flow.executionMode === "local" ? "local" : "cloud";
-  }
-
-  localPath(ctx: FlowCtx): string | null {
-    return ctx.repo?.localPath ?? null;
-  }
-
-  requireLocalPath(ctx: FlowCtx): string {
-    const p = this.localPath(ctx);
-    if (!p) {
-      throw new Error(
-        "This flow runs in local mode but its repo has no local path configured. Set one on the Settings page."
-      );
-    }
-    return p;
-  }
-
-  /**
-   * The cwd local agent runs should use: the flow's git worktree when one is
-   * persisted and still on disk, else the registered checkout (the hub).
-   * Worktree mechanics stay in lib/git/worktrees.ts; this only reads the
-   * flow row's pointer.
-   */
-  runCwd(ctx: FlowCtx): string | null {
-    const wt = ctx.flow.worktreeDir;
-    if (wt) {
-      try {
-        if (fs.existsSync(path.join(wt, ".git"))) return wt;
-      } catch { /* fall through to the hub */ }
-    }
-    return this.localPath(ctx);
-  }
-
-  /** Like requireLocalPath, but prefers the flow's worktree. */
-  requireRunCwd(ctx: FlowCtx): string {
-    const p = this.runCwd(ctx);
-    if (!p) {
-      throw new Error(
-        "This flow runs in local mode but its repo has no local path configured. Set one on the Settings page."
-      );
-    }
-    return p;
-  }
-
-  taskContext(ctx: FlowCtx): string {
-    const t = ctx.task;
-    const figma = (t.figmaUrls ?? []).map((u: string) => `- ${u}`).join("\n");
-    // the PRD/description is untrusted provider content — fenced with the loud
-    // cap (the plan/build/step-build prompts all embed this block)
-    const prdSource = t.prdText || t.description || "";
-    const prd = prdSource
-      ? untrustedData({ source: "task PRD", text: prdSource, cap: TASK_PRD_CAP }).text
-      : "(none)";
-    return [
-      `# ${this.taskLabel(ctx)} ${t.key}: ${t.summary}`,
-      `Status: ${t.status} · Type: ${t.issueType} · Priority: ${t.priority}`,
-      `\n## PRD / Description\n${prd}`,
-      figma ? `\n## Figma designs\n${figma}` : "",
-    ].join("\n");
-  }
-
-  /** The task provider's UI label for the flow's task type ("task" when unregistered). */
-  taskLabel(ctx: FlowCtx): string {
-    return taskRegistry.maybe(ctx.task.type)?.label ?? "task";
-  }
-
-  /**
-   * Branch naming shared by cloud + local builds.
-   * Uses bugfix/<task>-<flowid6> (feature/ when the task is a story) — many
-   * repos enforce branch-name patterns via pre-receive hooks, and a `cursor/...`
-   * name gets rejected on push. Optional suffix for multi-branch builds.
-   */
-  buildBranch(ctx: FlowCtx, suffix?: string): string {
-    return branchNamer.builtInBranch(ctx, suffix);
-  }
-
-  async makeDiff(ctx: FlowCtx, branch: string) {
-    // Prefer local refs when the branch only exists locally — diffBranch fetches
-    // from origin, which can hang for a minute+ when the remote is unreachable.
-    const lp = this.localPath(ctx);
-    if (lp) {
-      const s = await localGit.localBranchState(lp, branch, ctx.repo?.defaultBranch ?? "main").catch(() => null);
-      if (s && s.exists && s.raw) return { files: [], stat: s.stat, raw: s.raw };
-    }
-    return localGit.diffBranch(ctx.flow.id, ctx.flow.repoUrl ?? "", branch, undefined, lp, gitRemoteContextFor).catch(() => null);
-  }
-}
-
 export const flowCtxHelper = new FlowContextHelper();

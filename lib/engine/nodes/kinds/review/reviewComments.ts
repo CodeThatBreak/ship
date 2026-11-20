@@ -1,24 +1,8 @@
 import "server-only";
 
 import { createHash } from "node:crypto";
-import { z } from "zod";
 import { extractJson } from "../../shared/extractJson";
-
-export const reviewCommentItemSchema = z.object({
-  file: z.string().optional(),
-  line: z.number().int().optional(),
-  body: z.string().min(1),
-});
-
-export type ReviewCommentItem = z.infer<typeof reviewCommentItemSchema>;
-
-/** The review's response contract: the comment ARRAY the directive advertises
- *  and the validator checks (one byte-identical pair — step 05). */
-export const ReviewCommentsSchema = z.array(reviewCommentItemSchema);
-
-/** JSON Schema generated from `ReviewCommentsSchema` — carried into
- *  `AgentOutputError.directive(schema, "array")` on the review prompt. */
-export const REVIEW_COMMENTS_JSON_SCHEMA: unknown = z.toJSONSchema(ReviewCommentsSchema);
+import { ReviewCommentsSchema, type ReviewCommentItem } from "./schema";
 
 export type ParseReviewCommentsResult = {
   comments: ReviewCommentItem[];

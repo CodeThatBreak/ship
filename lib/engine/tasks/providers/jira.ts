@@ -4,7 +4,7 @@ import { db } from "../../../db/app";
 import type { JiraInstance, Task } from "../../../db/rows";
 import { UpstreamError, ValidationError } from "../../../errors";
 import { baseUrlOverrideRequiresToken } from "../../../integrations/instanceCredentialPolicy";
-import { truncateUpstreamBody } from '../../ports/gitHostErrors';
+import { truncateUpstreamBody } from '../../ports/utils/upstreamErrorText';
 import { AdfRenderer } from "../../../integrations/jira/adfRenderer";
 import { jiraAuthHeaders, jiraMyselfPath, jiraSearchPath, type JiraAuthMode } from "../../../integrations/jira/apiProfile";
 import { JIRA_HTTP_TIMEOUT_MS } from "../../../integrations/jira/constants";
@@ -12,12 +12,15 @@ import { jira } from "../../../integrations/jira/singleton";
 import { maskToken } from "../../../integrations/jira/service";
 import {
   TaskProvider,
-  type LiveTask,
-  type LiveTaskFilters,
-  type ProviderInstance,
-  type TaskField,
-  type TaskInstanceStore,
 } from "../taskProvider";
+import type {
+  LiveTask,
+  LiveTaskFilters,
+  ProviderInstance,
+  TaskField,
+  TaskInstanceStore,
+} from "../types/taskProvider";
+import type { JiraIssue } from "./jira/types/jiraIssue";
 
 /**
  * The Jira task provider — moved verbatim from lib/integrations/jira.ts
@@ -38,6 +41,9 @@ import {
 export class JiraTaskProvider extends TaskProvider implements TaskInstanceStore {
   readonly kind = "jira";
   readonly label = "Jira";
+
+  /** Figma links scanned out of issue summary + description. */
+  private static readonly FIGMA_RE = /https?:\/\/(?:www\.)?figma\.com\/[^\s)\]"']+/g;
 
   /** The {{task.*}} vocabulary this type exposes (Phase-3 lint vocabulary). */
   readonly contextFields: TaskField[] = [
@@ -230,7 +236,7 @@ export class JiraTaskProvider extends TaskProvider implements TaskInstanceStore 
       typeof f.description === "string" ? f.description : AdfRenderer.toText(f.description);
     const summary = typeof f.summary === "string" ? f.summary : "";
     const full = `${summary}\n${descText}`;
-    const figma = Array.from(new Set(full.match(FIGMA_RE) ?? []));
+    const figma = Array.from(new Set(full.match(JiraTaskProvider.FIGMA_RE) ?? []));
     const statusObj = f.status as { name?: string } | undefined;
     const typeObj = f.issuetype as { name?: string } | undefined;
     const priorityObj = f.priority as { name?: string } | undefined;
@@ -323,21 +329,3 @@ export class JiraTaskProvider extends TaskProvider implements TaskInstanceStore 
     return row.id;
   }
 }
-
-export interface JiraIssue {
-  id: string;
-  key: string;
-  summary: string;
-  description: string;
-  status: string;
-  issueType: string;
-  priority: string;
-  prdText: string;
-  figmaUrls: string[];
-  externalUrl: string;
-  /** Parent issue key when this is a sub-task (e.g. a story's child). */
-  parentKey: string;
-  raw: unknown;
-}
-
-const FIGMA_RE = /https?:\/\/(?:www\.)?figma\.com\/[^\s)\]"']+/g;

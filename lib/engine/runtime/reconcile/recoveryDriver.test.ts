@@ -35,7 +35,7 @@ import type {
   AgentStarted,
   AgentStreamOutcome,
 } from "../../ports/agentPort";
-import type { RunOutcome } from "../../nodes/shared/nodeDefinition";
+import type { RunOutcome } from "../../nodes/shared/types/runOutcome";
 import type { FlowCtx } from "../../nodes/shared/nodeSharedExports";
 import type { RecoveryResult } from "../../nodes/shared/types/recovery";
 import type { FlowRow, NodeRow } from "../../../db/rows";

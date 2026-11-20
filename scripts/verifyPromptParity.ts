@@ -42,7 +42,8 @@ import {
   type AgentStreamOutcome,
 } from '../lib/engine/ports/agentPort';
 import { gitHostRegistry, type ChangeRequest, type GitHostService } from '../lib/engine/ports/gitHost';
-import { usageTracker, type RunCostSummary } from '../lib/engine/harness/usageTracker';
+import { usageTracker } from '../lib/engine/harness/usageTracker';
+import type { RunCostSummary } from '../lib/engine/harness/types/runCostSummary';
 import type { NodeDefinition } from '../lib/engine/nodes/shared/nodeSharedExports';
 import { nodeRoles } from '../lib/engine/nodes/shared/nodeRoles';
 import { FlowRow, Task, NodeRow, rows } from '../lib/db/rows';

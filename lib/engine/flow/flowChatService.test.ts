@@ -5,7 +5,7 @@ assignTestDatabase();
 
 const { db } = await import("../../db/app");
 const { FlowChatService } = await import("./flowChatService");
-const { CHAT_DECLINED } = await import("../nodes/shared/nodeRoles");
+const { CHAT_DECLINED } = await import("../nodes/shared/constants/chatDeclined");
 import type { ChatHost } from "./types/chatHost";
 
 type TriggerResult = import("../runtime/triggers/types/triggerGateway").TriggerResult;

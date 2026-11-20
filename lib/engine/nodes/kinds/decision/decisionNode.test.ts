@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { DecisionDefSchema } from "../../declarativeSchemas";
+import { DecisionDefSchema } from "../../schemas/declarativeSchemas";
 
 describe("DecisionDefSchema", () => {
   it("does not retain the legacy single global expression field", () => {

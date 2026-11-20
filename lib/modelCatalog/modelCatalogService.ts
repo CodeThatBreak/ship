@@ -1,7 +1,8 @@
 import "server-only";
 
 import { FAST_ON, FAST_PARAM } from "@/constants/models";
-import { agentPortRegistry, type AgentPortRegistry } from "../engine/ports/agentPort";
+import { agentPortRegistry } from "../engine/ports/agentPort";
+import type { AgentPortRegistry } from "../engine/ports/agentPort/agentPortRegistry";
 import { parseModelSpec, type CatalogModel } from "../modelSpec";
 import { settingsService } from "../settings/settingsService";
 

@@ -8,7 +8,7 @@ import { GateProgressSchema } from "../../nodes/kinds/pipeline/schema";
 import type { AgentToolAuth, AgentToolExecutor } from "../types/tools";
 import { AGENT_TOOL, AGENT_TOOL_DESCRIPTORS } from "../constants/agentTools";
 import type { NodeStore } from "../../runtime/nodeStore";
-import type { PlanStepStore } from "../../runtime/planStepStore";
+import type { PlanStepStore } from "../../runtime/planStepStore/planStepStore";
 import type { NodeSupport } from "../../nodes/shared/nodeSupport";
 
 /**

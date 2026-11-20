@@ -1,6 +1,5 @@
 import "server-only";
 
-import { z } from "zod";
 import { db } from "../../db/app";
 import { NodeDefinition } from "./shared/nodeSharedExports";
 import {
@@ -8,16 +7,9 @@ import {
   declarativeKindRegistry,
   type DeclarativeRow,
 } from "./declarativeRegistry";
+import { DeclarativeRowSchema } from "./schemas/declarativeRow";
 
 export type { DeclarativeRow } from "./declarativeRegistry";
-
-const DeclarativeRowSchema = z.object({
-  id: z.string(),
-  name: z.string(),
-  description: z.string().nullable(),
-  kind: z.string(),
-  config: z.unknown(),
-});
 
 const loadRow = async (defKey: string): Promise<DeclarativeRow | undefined> => {
   const decode = (r: Record<string, unknown> | undefined): DeclarativeRow | undefined => {

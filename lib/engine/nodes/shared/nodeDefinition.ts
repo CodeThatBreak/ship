@@ -3,14 +3,15 @@ import "server-only";
 import { z } from "zod";
 import type { NodeRow } from "../../../db/rows";
 import type { AgentRunResult } from "../../ports/agentPort";
-import { flowCtxHelper, type FlowContextHelper, type FlowCtx } from "./runContext";
+import { flowCtxHelper } from "./runContext";
+import type { FlowContextHelper } from "./runContext/flowContextHelper";
+import type { FlowCtx } from "./runContext/types/flowContext";
 import type { NodeSupport } from "./nodeSupport";
 import { nodeSupport } from "@/lib/composition/container";
 import type { SplitUnit } from "./split";
 import type { NodeCapabilities } from "./capabilities";
 import type { ConfigField } from "../../templates/nodeConfig";
 import { appLayerConfig, mergeConfigLayers, parseConfigSnapshot } from "../../templates/nodeConfig";
-import type { NodeRunStatus } from "../../../../constants/flow";
 import { NODE_RUN_STATUS } from "../../../../constants/flow";
 import { EVENT_KIND } from "../../constants/vocabulary";
 import { NODE_DEFINITION_BRAND } from "./nodeDefinitionGuard";
@@ -18,39 +19,9 @@ import { RunSupersededError } from "../../errors/runSupersededError";
 import type { RecoveryResult } from "./types/recovery";
 import type { ToolDescriptor } from "../../agentTools/types/tools";
 import { formatZodConfigError } from "./utils/formatZodConfigError";
-
-/** A role in the SDLC builtin chain (plan → build → review → resolve). */
-export type ChainRole = "plan" | "build" | "review" | "resolve";
-
-/**
- * What a node stores in its `output` column when it finishes a run.
- * Each node narrows this with its own schema.
- */
-export interface RunOutcome {
-  output: Record<string, unknown>;
-  /** final node status — the closed set in `NODE_RUN_STATUS` (§2.7) */
-  status: NodeRunStatus;
-  /** artifact to save (kind + content + meta); nodes may save more themselves */
-  artifact?: { kind: string; content: string; meta?: unknown };
-  /** lifecycle event message */
-  event: string;
-  eventData?: Record<string, unknown>;
-  /** text returned to chat callers */
-  reply: string;
-}
-
-/**
- * One run inside an engine-triggered bundle (a single trigger may start
- * several runs — e.g. the sequential multi-branch build). Input is
- * parseInput-validated by the engine; before/after own the surrounding wiring.
- */
-export interface NodeTriggerRun {
-  input: unknown;
-  /** runs before the node run (e.g. branch row → building) */
-  before?: () => void;
-  /** runs after the node run succeeded (e.g. branch row → awaiting_approval) */
-  after?: () => void;
-}
+import type { ChainRole } from "./types/chainRole";
+import type { RunOutcome } from "./types/runOutcome";
+import type { NodeTriggerRun } from "./types/nodeTriggerRun";
 
 /**
  * A workflow node type. The class owns everything specific to the node:

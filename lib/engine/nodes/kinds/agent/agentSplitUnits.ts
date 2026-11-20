@@ -2,7 +2,7 @@ import "server-only";
 
 import { AGENT_OUTPUT_ERROR, AgentOutputError } from "../../shared/agent/outputError/outputErrorExports";
 import type { SplitUnit } from "../../shared/nodeSharedExports";
-import type { AgentDef } from "../../declarativeSchemas";
+import type { AgentDef } from "../../schemas/declarativeSchemas";
 
 /**
  * The agent kind's split-source mapping (agent-node split plan §2.1, Phase 3):

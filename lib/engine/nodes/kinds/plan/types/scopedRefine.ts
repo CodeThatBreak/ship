@@ -1,6 +1,6 @@
 import "server-only";
 
-import type { PlanStepRow } from '../../../../runtime/planStepStore';
+import type { PlanStepRow } from '../../../../runtime/planStepStore/types/planStep';
 import type { PlanBranch, PlanMeta } from '../schema';
 
 /**

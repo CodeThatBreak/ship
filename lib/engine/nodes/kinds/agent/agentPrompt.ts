@@ -11,7 +11,7 @@ import {
 import { AgentOutputError } from "../../shared/agent/outputError/outputErrorExports";
 import { buildFlowContext } from "../../../context/flowVariables";
 import { untrustedData } from "../../../prompts/untrustedData";
-import type { AgentDef } from "../../declarativeSchemas";
+import type { AgentDef } from "../../schemas/declarativeSchemas";
 import { splitDirective } from "./splitDirective";
 
 /**

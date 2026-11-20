@@ -2,7 +2,7 @@ import "server-only";
 
 import { ConflictError, ValidationError } from "../../errors";
 import { baseUrlOverrideRequiresToken } from "../instanceCredentialPolicy";
-import { truncateUpstreamBody } from "../../engine/ports/gitHostErrors";
+import { truncateUpstreamBody } from "../../engine/ports/utils/upstreamErrorText";
 import type { JiraInstanceStore, JiraInstanceMeta } from "../../db/stores/jiraInstanceStore";
 import { type JiraInstance } from "../../db/rows";
 import { jiraAuthHeaders, jiraAuthModeForInstance, jiraMyselfPath, type JiraAuthMode } from "./apiProfile";

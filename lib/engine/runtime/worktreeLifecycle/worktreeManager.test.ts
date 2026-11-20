@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type { FlowCtx } from '../../nodes/shared/runContext';
+import type { FlowCtx } from '../../nodes/shared/runContext/types/flowContext';
 import { WorktreeManager } from './worktreeManager';
 
 const ctx = {} as FlowCtx; // the pin-win / plan-mode paths never touch the ctx

@@ -2,7 +2,7 @@ import "server-only";
 
 import { EFFECT_KEY_ANY } from "../effects/constants/effectLifecycles";
 import type { EffectRegistry } from "../effects/effectRegistry";
-import type { SplitManager } from "./splitManager";
+import type { SplitManager } from "./splitManager/splitManager";
 
 /**
  * The split runtime's effect registrations (step 07, Invariant 8): the

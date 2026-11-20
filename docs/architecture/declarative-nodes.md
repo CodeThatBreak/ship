@@ -84,7 +84,7 @@ The `mergeRequest` kind is **not** declarative — MR creation is the graph-leve
 |---------|----------|
 | Resolution + cache | `lib/engine/nodes/declarative.ts`, `declarativeRegistry.ts` |
 | Bootstrap / wiring | `lib/engine/nodes/declarativeBootstrap.ts`, `declarativeWiring.ts` |
-| Kind config schemas | `lib/engine/nodes/declarativeSchemas.ts` |
+| Kind config schemas | `lib/engine/nodes/schemas/declarativeSchemas.ts` |
 | Base classes | `lib/engine/nodes/shared/declarativeNode.ts`, `declarativeRunConfig.ts` |
 | Agent kind | `lib/engine/nodes/kinds/agent/agentNode.ts` |
 | Decision kind | `lib/engine/nodes/kinds/decision/decisionNode.ts` |

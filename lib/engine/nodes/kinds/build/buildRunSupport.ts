@@ -2,7 +2,8 @@ import "server-only";
 
 import { localGit } from "../../../../git/local";
 import type { FlowCtx } from "../../shared/nodeSharedExports";
-import { flowCtxHelper, type FlowContextHelper } from "../../shared/runContext";
+import { flowCtxHelper } from "../../shared/runContext";
+import type { FlowContextHelper } from "../../shared/runContext/flowContextHelper";
 import type { NodeSupport } from "../../shared/nodeSupport";
 import { nodeSupport } from "@/lib/composition/container";
 import type { AgentRunResult } from "../../../ports/agentPort";

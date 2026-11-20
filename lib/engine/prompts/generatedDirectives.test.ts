@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import { DEFAULT_PROMPT_TEMPLATES, composeTemplate } from "./promptDefaults";
 import { AgentOutputError } from "../nodes/shared/agent/outputError/outputErrorExports";
 import { PLAN_TURN_OUTPUT_JSON_SCHEMA } from "../nodes/kinds/plan/schema";
-import { REVIEW_COMMENTS_JSON_SCHEMA } from "../nodes/kinds/review/reviewComments";
+import { REVIEW_COMMENTS_JSON_SCHEMA } from "../nodes/kinds/review/schema";
 
 /** The contract block(s) of one template, joined the way the assembly does. */
 const contractBlock = (key: string): string =>

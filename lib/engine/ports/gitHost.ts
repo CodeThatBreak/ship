@@ -1,326 +1,18 @@
 import "server-only";
 
-import type { GitRemoteContext } from "../../git/local";
+import { GitHostRegistry } from "./gitHost/gitHostRegistry";
 import { AuthedUrlResolutionError } from "../../git/gitErrors";
-
-/** Lowercased URL host ("gitlab.company.com"), null when unparseable. */
-export const hostOf = (url: string): string | null => {
-  const trimmed = url.trim();
-  const sshMatch = trimmed.match(/^ssh:\/\/(?:[^/@]+@)?([^/:]+)(?::\d+)?/i);
-  if (sshMatch) return sshMatch[1].toLowerCase();
-  const scpMatch = trimmed.match(/^[^@]+@([^:/]+):/);
-  if (scpMatch) return scpMatch[1].toLowerCase();
-  try {
-    return new URL(trimmed).host.toLowerCase();
-  } catch {
-    return null;
-  }
-};
-
-export type ChangeRequestDiffs = {
-  changes: { oldPath: string; newPath: string; diff: string }[];
-  /** true when the host truncated or capped the diff list */
-  truncated: boolean;
-};
-
-/** The CI pipeline attached to a change request's head (null when none). */
-export interface HeadPipelineInfo {
-  id: number;
-  status: string;
-  webUrl: string;
-}
-
-/** SHAs GitLab uses to anchor an inline MR discussion on the diff. */
-export interface ChangeRequestDiffRefs {
-  baseSha: string;
-  startSha: string;
-  headSha: string;
-}
-
-/** A change request (merge request / pull request), normalized. */
-export interface ChangeRequest {
-  /** host-native stable id (string form) */
-  id: string;
-  /** host-native human number (GitLab MR iid, GitHub PR number) — DB `mr_iid` */
-  number: number;
-  title: string;
-  state: string;
-  webUrl: string;
-  sourceBranch: string;
-  targetBranch: string;
-  sha: string;
-  headPipeline?: HeadPipelineInfo | null;
-  projectId: number;
-  /** Present when the host exposes MR diff refs (required for inline review threads). */
-  diffRefs?: ChangeRequestDiffRefs | null;
-}
-
-/** Host context for posting a review comment on a specific diff line. */
-export type InlineCommentPositionContext = {
-  diffRefs: ChangeRequestDiffRefs | null | undefined;
-  changes: ChangeRequestDiffs["changes"];
-};
-
-export type InlineCommentInput = {
-  path: string;
-  line: number;
-  body: string;
-};
-
-/** A CI pipeline, normalized. */
-export interface Pipeline {
-  id: number;
-  status: string;
-  ref: string;
-  sha: string;
-  webUrl: string;
-}
-
-/** One review comment, normalized. `id` is the DB comment row id. */
-export interface HostComment {
-  id: string;
-  /** the discussion/thread this comment belongs to (DB `discussion_id`) */
-  threadId: string;
-  body: string;
-  author: string;
-  /** participates in the resolve loop (only true for resolvable review threads) */
-  resolvable: boolean;
-  resolved: boolean;
-  /** bot/system notes — ingested but never counted open */
-  system: boolean;
-  path?: string | null;
-  line?: number | null;
-  createdAt: string;
-}
-
-/** A note the host created on our behalf (a reply posted into a thread). */
-export interface HostNote {
-  /** host-native note id, normalized to the comment id scheme (`gl_<noteId>`) */
-  id: string;
-  author: string;
-  createdAt: string;
-}
-
-/** A CI pipeline job, normalized. */
-export interface HostJob {
-  id: number;
-  name: string;
-  status: string;
-  /** the job waits for a human/agent to press play */
-  manual: boolean;
-}
-
-/** A repository (project), normalized — only what the engine stores on flows. */
-export interface HostProject {
-  id: number;
-  webUrl?: string | null;
-}
-
-/** A configured host instance (tenant/self-hosted deployment) — no secrets. */
-export interface HostInstance {
-  id: string;
-  name: string | null;
-  baseUrl: string;
-  /** masked token ("••••abcd") for the settings UI — never the real value */
-  tokenMasked: string;
-}
-
-/** Create-a-change-request input, normalized. */
-export interface CreateChangeRequestInput {
-  sourceBranch: string;
-  targetBranch: string;
-  title: string;
-  description?: string;
-}
-
-/** A normalized webhook delivery from a git host. */
-export type HostWebhookEvent =
-  | {
-      kind: "cr_comment";
-      projectId: number;
-      projectUrl: string;
-      crNumber: number;
-      comment: HostComment;
-    }
-  | {
-      kind: "pipeline";
-      projectId: number;
-      projectUrl: string;
-      /** null for non-CR pipeline events */
-      crNumber: number | null;
-      pipeline: { id: number; status: string };
-    };
+import type { GitRemoteContext } from "../../git/local";
 
 /**
- * Per-repo API surface for one host. Bound to a repo URL by the service —
- * every method fails loudly when the host has no instance for the repo.
+ * The engine's git-host seam — the registry pin plus the repo-auth helpers
+ * that route through it. The GitHostRegistry class lives in `gitHost/`
+ * (its normalized types in `gitHost/types/`); class files are pure
+ * (classFilePurity arch test), so this module keeps the pin, the
+ * registry-bound helpers and the surface's re-exports so every existing
+ * consumer keeps its import path.
  */
-export interface GitHostClient {
-  getChangeRequest(crNumber: number): Promise<ChangeRequest>;
-  createChangeRequest(input: CreateChangeRequestInput): Promise<ChangeRequest>;
-  listChangeRequestsByBranch(sourceBranch: string): Promise<ChangeRequest[]>;
-  /** the diff of a change request, per file */
-  getChanges(crNumber: number): Promise<ChangeRequestDiffs>;
-  getPipeline(pipelineId: number): Promise<Pipeline>;
-  /** pipeline for the CR's changed code (merged-results style) */
-  createCRPipeline(crNumber: number): Promise<Pipeline>;
-  /** plain branch pipeline — the "run pipeline" button, via API */
-  createPipeline(ref: string): Promise<Pipeline>;
-  listPipelineJobs(pipelineId: number): Promise<HostJob[]>;
-  /** press play on a manual job so a manual-gated pipeline proceeds */
-  playJob(jobId: number): Promise<unknown>;
-  /** retry the failed/canceled jobs of a pipeline */
-  retryPipeline(pipelineId: number): Promise<Pipeline>;
-  getJobTrace(jobId: number): Promise<string>;
-  listComments(crNumber: number): Promise<HostComment[]>;
-  createComment(crNumber: number, body: string): Promise<unknown>;
-  /** Inline diff thread when path/line resolve against `positionContext`; throws when not postable. */
-  createInlineComment(
-    crNumber: number,
-    input: InlineCommentInput,
-    positionContext: InlineCommentPositionContext,
-  ): Promise<unknown>;
-  resolveComment(crNumber: number, threadId: string, resolved?: boolean): Promise<unknown>;
-  /** Post a note into an existing discussion thread; returns the created note. */
-  replyToComment(crNumber: number, threadId: string, body: string): Promise<HostNote>;
-  getProject(): Promise<HostProject>;
-}
-
-/**
- * One git host integration. The registry's registered instances route every
- * repo-scoped call; instance CRUD + webhook verification + host metadata
- * (kind/label) back the settings UI and the webhook routes.
- */
-export interface GitHostService {
-  /** stable registry key, e.g. "gitlab" */
-  readonly kind: string;
-  /** UI label, e.g. "GitLab" */
-  readonly label: string;
-
-  /** True when usable at all (at least one registered instance). */
-  configured(): Promise<boolean>;
-  /** True when this host has credentials for the given repo URL. */
-  ownsRepo(repoUrl: string): Promise<boolean>;
-  /** API client bound to the instance that owns the given repo URL. */
-  clientForRepo(repoUrl: string): Promise<GitHostClient>;
-  /** Plain HTTPS clone/push URL (credentials supplied via {@link gitAuthEnv}). */
-  authedCloneUrl(repoUrl: string): Promise<string>;
-  /** `GIT_CONFIG_*` env for HTTPS auth without embedding tokens in URLs. */
-  gitAuthEnv(repoUrl: string): Promise<Record<string, string>>;
-  /** Secret values to strip from git error text for this repo. */
-  gitRedactValues(repoUrl: string): Promise<readonly string[]>;
-
-  // ── instance registry (settings admin) ───────────────────────────────────
-  instances(): Promise<HostInstance[]>;
-  addInstance(input: { name?: string | null; baseUrl: string; token: string }): Promise<HostInstance>;
-  /** Update by id; a blank/absent token keeps the stored one. */
-  updateInstance(id: string, input: { name?: string | null; baseUrl?: string; token?: string }): Promise<void>;
-  removeInstance(id: string): Promise<void>;
-  /**
-   * Quick reachability/auth check used by the settings page — tests the
-   * stored instance's credentials, with optional overrides (e.g. the form
-   * values before saving).
-   */
-  testInstance(id: string, input?: { baseUrl?: string; token?: string }): Promise<{ ok: boolean; detail: string }>;
-
-  // ── webhook ingestion ────────────────────────────────────────────────────
-  /**
-   * True when the delivery's `x-gitlab-token` matches `GITLAB_WEBHOOK_SECRET`,
-   * or when unsigned deliveries are explicitly allowed (`GITLAB_WEBHOOK_ALLOW_UNSIGNED=1`).
-   */
-  verifyWebhook(headers: { get(name: string): string | null }): boolean;
-  /** Normalize a delivery body; null for event kinds the engine ignores. */
-  parseWebhook(body: unknown): HostWebhookEvent | null;
-
-  // ── repo-scoped convenience surface (what engine/API code calls) ─────────
-  getChangeRequest(repoUrl: string, crNumber: number): Promise<ChangeRequest>;
-  createChangeRequest(repoUrl: string, input: CreateChangeRequestInput): Promise<ChangeRequest>;
-  listChangeRequestsByBranch(repoUrl: string, sourceBranch: string): Promise<ChangeRequest[]>;
-  getChanges(repoUrl: string, crNumber: number): Promise<ChangeRequestDiffs>;
-  getPipeline(repoUrl: string, pipelineId: number): Promise<Pipeline>;
-  createCRPipeline(repoUrl: string, crNumber: number): Promise<Pipeline>;
-  createPipeline(repoUrl: string, ref: string): Promise<Pipeline>;
-  listPipelineJobs(repoUrl: string, pipelineId: number): Promise<HostJob[]>;
-  playJob(repoUrl: string, jobId: number): Promise<unknown>;
-  retryPipeline(repoUrl: string, pipelineId: number): Promise<Pipeline>;
-  getJobTrace(repoUrl: string, jobId: number): Promise<string>;
-  listComments(repoUrl: string, crNumber: number): Promise<HostComment[]>;
-  createComment(repoUrl: string, crNumber: number, body: string): Promise<unknown>;
-  createInlineComment(
-    repoUrl: string,
-    crNumber: number,
-    input: InlineCommentInput,
-    positionContext: InlineCommentPositionContext,
-  ): Promise<unknown>;
-  resolveComment(repoUrl: string, crNumber: number, threadId: string, resolved?: boolean): Promise<unknown>;
-  /** Post a note into an existing discussion thread; returns the created note. */
-  replyToComment(repoUrl: string, crNumber: number, threadId: string, body: string): Promise<HostNote>;
-  getProject(repoUrl: string): Promise<HostProject>;
-}
-
-/** Repo-scoped git host resolution (injected into nodes that call GitLab APIs). */
-export type GitHostResolver = Pick<GitHostRegistry, "forRepo">;
-
-/**
- * The git-host registry — the engine's single seam for anything host-shaped.
- * Mirrors `TaskProviderRegistry` (lib/engine/tasks/registry.ts): adding a host
- * = one adapter file + one `register()` line here.
- */
-export class GitHostRegistry {
-  private readonly registry = new Map<string, GitHostService>();
-
-  private assertReady(): void {
-    if (this.registry.size === 0) {
-      throw new Error("Git host registry is empty — import @/lib/db before using gitHostRegistry");
-    }
-  }
-
-  register(service: GitHostService): void {
-    if (this.registry.has(service.kind)) {
-      throw new Error(`duplicate git host kind: ${service.kind}`);
-    }
-    this.registry.set(service.kind, service);
-  }
-
-  /** Get a host by kind, or throw. */
-  get(kind: string): GitHostService {
-    this.assertReady();
-    const svc = this.registry.get(kind);
-    if (!svc) throw new Error(`unknown git host kind: ${kind}`);
-    return svc;
-  }
-
-  /** Get a host by kind, or undefined. */
-  maybe(kind: string): GitHostService | undefined {
-    return this.registry.get(kind);
-  }
-
-  /** All registered hosts (registration order). */
-  list(): GitHostService[] {
-    this.assertReady();
-    return [...this.registry.values()];
-  }
-
-  /** The host that serves the given repo URL, or throw. */
-  async forRepo(repoUrl: string): Promise<GitHostService> {
-    this.assertReady();
-    for (const svc of this.list()) {
-      if (await svc.ownsRepo(repoUrl)) return svc;
-    }
-    throw new Error(
-      `no git host configured for repo "${repoUrl}" — add one on the Settings page`
-    );
-  }
-}
-
-/** The engine's git-host seam. */
 export const gitHostRegistry = new GitHostRegistry();
-
-/** Ensure `.git` suffix for HTTPS remotes (GitLab redirect quirk). */
-export const normalizeCloneUrl = (repoUrl: string): string => {
-  const trimmed = repoUrl.trim();
-  return trimmed.endsWith(".git") ? trimmed : `${trimmed}.git`;
-};
 
 /**
  * Plain clone URL plus out-of-band auth for local git operations. Keeps
@@ -340,10 +32,32 @@ export const gitRemoteContextFor = async (repoUrl: string): Promise<GitRemoteCon
  * `lib/git` local operations (ensureClone / pushBranch) — keeps `lib/git` free
  * of engine imports while the registry stays the only instance router.
  */
-export async function authedCloneUrlFor(repoUrl: string): Promise<string> {
+export const authedCloneUrlFor = async (repoUrl: string): Promise<string> => {
   try {
     return (await gitRemoteContextFor(repoUrl)).cloneUrl;
   } catch (e: unknown) {
     throw new AuthedUrlResolutionError(repoUrl, e);
   }
-}
+};
+
+export { hostOf } from "./gitHost/utils/hostOf";
+export { normalizeCloneUrl } from "./gitHost/utils/normalizeCloneUrl";
+export type {
+  ChangeRequest,
+  ChangeRequestDiffRefs,
+  ChangeRequestDiffs,
+  CreateChangeRequestInput,
+  GitHostClient,
+  GitHostService,
+  HeadPipelineInfo,
+  HostComment,
+  HostInstance,
+  HostJob,
+  HostNote,
+  HostProject,
+  HostWebhookEvent,
+  InlineCommentInput,
+  InlineCommentPositionContext,
+  Pipeline,
+} from "./gitHost/types/gitHost";
+export type { GitHostResolver } from "./gitHost/types/gitHostResolver";

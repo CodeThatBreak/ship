@@ -37,12 +37,12 @@ const walk = (dir: string, out: string[] = []): string[] => {
  * step that migrates it shrinks it under the ceiling. NOTHING is ever added.
  *
  * Step 09 close-out: every giant was decomposed except ONE documented
- * exception — `templateStore.ts`, the template persistence store, whose
+ * exception — `templateStore/templateStore.ts`, the template persistence
  * decomposition is deferred (tracked as follow-up work); it may shrink but
  * never grow.
  */
 const FROZEN_GIANTS: readonly string[] = [
-  "lib/engine/templates/templateStore.ts", // 1268 — the one documented step-09 exception (store decomposition deferred)
+  "lib/engine/templates/templateStore/templateStore.ts", // 1155 — the one documented step-09 exception (store decomposition deferred; the class moved here from `templateStore.ts`, now the instance pin)
 ];
 
 const giantsOver = (): string[] => {
@@ -64,7 +64,7 @@ describe("engineClassSize", () => {
     // a frozen giant may leave the list by shrinking under the ceiling; it may
     // NEVER grow. Pin each giant's current line count as its ceiling.
     const frozen = new Map<string, number>([
-      ["lib/engine/templates/templateStore.ts", 1268],
+      ["lib/engine/templates/templateStore/templateStore.ts", 1155],
     ]);
     const over: string[] = [];
     for (const [rel, ceiling] of frozen) {

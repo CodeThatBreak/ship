@@ -2,7 +2,7 @@ import 'server-only';
 
 import type { FlowCtx, SplitUnit } from '../../shared/nodeSharedExports';
 import type { PlanStore } from './planStore';
-import type { ExecutionKnob } from './planPrompt';
+import type { ExecutionKnob } from './types/executionKnob';
 
 import { MAIN_PLAN_THREAD_TAB_ID } from './constants/planThread';
 

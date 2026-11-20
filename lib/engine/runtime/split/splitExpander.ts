@@ -3,8 +3,6 @@ import "server-only";
 import { db } from "../../../db/app";
 import { NodeDefinition } from "../../nodes/shared/nodeSharedExports";
 import {
-  SplitTargetError,
-  UnitCycleError,
   assertSplitTargetCompatible,
   detectUnitCycle,
   resolveSplitTarget,
@@ -13,6 +11,8 @@ import {
   type SplitTarget,
   type SplitUnit,
 } from "../../nodes/shared/split";
+import { SplitTargetError } from "../../nodes/shared/split/splitTargetError";
+import { UnitCycleError } from "../../nodes/shared/split/unitCycleError";
 import { flowSplitTargetLookup } from "../../nodes/shared/splitLookup";
 import { parseStartContract, type StartContractField } from "../../nodes/kinds/start/contract";
 import { configString } from "../../templates/nodeConfig";

@@ -11,7 +11,7 @@ assignTestDatabase();
 const { db } = await import("../../../../db/app");
 
 beforeAll(resetTestDatabase);
-const { MergeRequestService } = await import("./mergeRequestService");
+const { MergeRequestService } = await import("./mergeRequestService/mergeRequestService");
 
 const now = () => new Date().toISOString();
 

@@ -18,10 +18,12 @@ import { nodeRegistry } from "../nodes/registry";
 import { uiCapabilities } from "../nodes/shared/capabilities";
 import type { ChainRole, FlowCtx } from "../nodes/shared/nodeSharedExports";
 import { appLayerConfig, mergeConfigLayers, parseConfigSnapshot } from "../templates/nodeConfig";
-import { hookStore, maskHookSecret } from "./hookStore";
+import { hookStore } from "./hookStore";
+import { maskHookSecret } from "./hookStore/utils/maskHookSecret";
 import { templateStore, type TemplateGraph } from "../templates/templateStore";
 import { NotFoundError } from "../../errors";
-import { stepFlows, StepFlowManager } from "./fanout/stepFlowManager";
+import { stepFlows } from "./fanout/stepFlowManager";
+import { StepFlowManager } from "./fanout/stepFlowManager/stepFlowManager";
 import { accumulateRunRow, emptyRunTokenBucket } from "../utils/runTokenRollup";
 import type { WaitStore } from "./waits/waitStore";
 

@@ -3,7 +3,7 @@ import "server-only";
 import type { Prisma } from "@prisma/client";
 import { db } from "../../../db/app";
 import type { FlowRow } from "../../../db/rows";
-import type { PlanStepRow } from "../planStepStore";
+import type { PlanStepRow } from "../planStepStore/types/planStep";
 import { executorFor } from "../transitions/utils/executor";
 import { worktreeManager } from "../worktreeLifecycle";
 import type { StepChildPayload } from "./types/stepChildPayload";

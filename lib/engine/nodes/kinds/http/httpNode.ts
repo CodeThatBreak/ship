@@ -8,7 +8,7 @@ import { TemplateRenderer, type FlowCtx, type RunOutcome } from "../../shared/no
 import { DeclarativeNode } from "../../shared/declarativeNode";
 import { buildFlowContext } from "../../../context/flowVariables";
 import { evalJsonata } from "@/lib/jsonata/eval";
-import { HttpDefSchema, type HttpDef } from "../../declarativeSchemas";
+import { HttpDefSchema, type HttpDef } from "../../schemas/declarativeSchemas";
 import { allowlistResponseHeaders, capSerializedPayload } from "../../shared/payloadDigest";
 import { secretStore } from "../../../secretStore";
 import { settingsService } from "@/lib/settings/settingsService";

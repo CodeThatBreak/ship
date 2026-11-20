@@ -1,50 +1,50 @@
 import "server-only";
 
-export { branchNamer, BranchNamer } from "./branchNamer";
-export { mrTargetResolver, MrTargetResolver } from "./mrTargetResolver";
-export { FlowContextHelper, flowCtxHelper, type ExecMode, type FlowCtx } from "./runContext";
+export { branchNamer } from "./branchNamer";
+export { BranchNamer } from "./branchNamer/branchNamer";
+export { mrTargetResolver } from "./mrTargetResolver";
+export { MrTargetResolver } from "./mrTargetResolver/mrTargetResolver";
+export { flowCtxHelper } from "./runContext";
+export { FlowContextHelper } from "./runContext/flowContextHelper";
+export type { ExecMode, FlowCtx } from "./runContext/types/flowContext";
 export { NodeSupport } from "./nodeSupport";
 // the shared instance is composition-root owned (step 02, decision Q9)
 export { nodeSupport } from "../../../composition/container";
 export { AgentRunNode } from "./agentRunNode";
-export {
-  NodeDefinition,
-  type ChainRole,
-  type NodeTriggerRun,
-  type RunOutcome,
-} from "./nodeDefinition";
-export {
-  CHAT_DECLINED,
-  nodeRoles,
-  NodeRoleRouter,
-  PROMPT_SOURCES,
-  PROMPT_SOURCE,
-  type ChatRefiner,
-  type ChatTurnOpts,
-  type Converser,
-  type NodePromptPreview,
-  type PromptPreviewParams,
-  type PromptPreviewer,
-  type PromptSource,
-} from "./nodeRoles";
+export { NodeDefinition } from "./nodeDefinition";
+export type { ChainRole } from "./types/chainRole";
+export type { NodeTriggerRun } from "./types/nodeTriggerRun";
+export type { RunOutcome } from "./types/runOutcome";
+export { nodeRoles } from "./nodeRoles";
+export { NodeRoleRouter } from "./nodeRoles/nodeRoleRouter";
+export { CHAT_DECLINED } from "./constants/chatDeclined";
+export { PROMPT_SOURCES, PROMPT_SOURCE, type PromptSource } from "./constants/promptSource";
+export type {
+  ChatRefiner,
+  ChatTurnOpts,
+  Converser,
+  NodePromptPreview,
+  PromptPreviewParams,
+  PromptPreviewer,
+} from "./nodeRoles/types/nodeRoles";
 export {
   DEFAULT_SPLIT_CONSUME,
   SPLIT_CONSUME_MODES,
-  SplitTargetError,
-  UnitCycleError,
   assertSplitTargetCompatible,
   detectUnitCycle,
   resolveSplitTarget,
   splitConsumeOf,
-  splitConsumeSchema,
   splitParallelMaxOf,
-  splitParallelMaxSchema,
   type SplitConsumeMode,
   type SplitTarget,
   type SplitTargetLookup,
   type SplitUnit,
 } from "./split";
+export { SplitTargetError } from "./split/splitTargetError";
+export { UnitCycleError } from "./split/unitCycleError";
+export { splitConsumeSchema, splitParallelMaxSchema } from "./split/schemas/splitKnobs";
 export type { NodeCapabilities } from "./capabilities";
-export { TemplateRenderer, type TemplateRenderOptions } from "./templateRenderer";
+export { TemplateRenderer } from "./templateRenderer";
+export type { TemplateRenderOptions } from "./types/templateRenderer";
 export { TemplateComposer } from "./templateComposer";
 export { extractJson } from "./extractJson";

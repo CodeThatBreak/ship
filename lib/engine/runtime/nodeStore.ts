@@ -8,12 +8,7 @@ import type { TemplateGraph } from "../types/template";
 import type { QueryExecutor } from "../../db/database";
 import type { Prisma } from "@prisma/client";
 import { hookStore } from "./hookStore";
-
-export type InsertNodeSnapshotsOptions = {
-  /** When true, provision wait_for webhook hooks per node (top-level flow create). */
-  provisionWebhookHooks?: boolean;
-  ts?: string;
-};
+import type { InsertNodeSnapshotsOptions } from "./types/nodeStore";
 
 /**
  * Node table access for engine orchestrators (flow engine, fan-out, reconciler).

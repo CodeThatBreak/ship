@@ -17,20 +17,11 @@ import "server-only";
 import {
   AGENT_ERROR_ENVELOPE_EXAMPLE,
   AGENT_ERROR_ENVELOPE_KEY,
-  RESPONSE_EXCERPT_LENGTH,
   type AgentOutputErrorCode,
 } from "./constants";
 import { AgentErrorEnvelopeSchema, AgentOutputErrorDetailSchema } from "./schema";
 import type { AgentOutputErrorDetail, AgentOutputErrorInput, AgentReportedError } from "./types";
-
-/** The head of a raw response: full text when short, the first slice + ellipsis.
- *  Module-private — the constructor excerpts `input.response`; callers never
- *  build `response_excerpt` by hand. */
-function responseExcerpt(text: string): string {
-  const trimmed = (text ?? "").trim();
-  if (trimmed.length <= RESPONSE_EXCERPT_LENGTH) return trimmed;
-  return `${trimmed.slice(0, RESPONSE_EXCERPT_LENGTH)}…`;
-}
+import { responseExcerpt } from "./utils/responseExcerpt";
 
 export class AgentOutputError extends Error {
   readonly code: AgentOutputErrorCode;

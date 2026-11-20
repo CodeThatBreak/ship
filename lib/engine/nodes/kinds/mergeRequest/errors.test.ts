@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { isHookRejection, toMrCreationFailure, CommitError, MrCreationFailed } from "./errors";
+import { CommitError, MrCreationFailed } from "./errors";
+import { isHookRejection } from "./utils/isHookRejection";
+import { toMrCreationFailure } from "./utils/toMrCreationFailure";
 
 describe("merge-request errors", () => {
   it("isHookRejection matches pre-receive hook failures", () => {

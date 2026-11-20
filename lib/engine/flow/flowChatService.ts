@@ -1,7 +1,8 @@
 import "server-only";
 
 import { db } from "../../db/app";
-import { CHAT_DECLINED, nodeRoles } from "../nodes/shared/nodeRoles";
+import { CHAT_DECLINED } from "../nodes/shared/constants/chatDeclined";
+import { nodeRoles } from "../nodes/shared/nodeRoles";
 import { isNodeTerminalSuccess } from "../runtime/transitions/constants/statusSets";
 import { TRIGGER_SOURCE } from "../runtime/triggers/constants/triggerSources";
 import type { ChatHost } from "./types/chatHost";

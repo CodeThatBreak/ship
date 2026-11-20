@@ -6,7 +6,7 @@ import { digestJsonText } from "../../../shared/payloadDigest";
 import { AgentOutputError } from "../../../shared/agent/outputError/outputErrorExports";
 import { retryFeedbackBody } from "../../../shared/agentOutput/utils/retryFeedback";
 import { DECISION_CHOICE_JSON_SCHEMA } from "../schema";
-import type { DecisionDef } from "../../../declarativeSchemas";
+import type { DecisionDef } from "../../../schemas/declarativeSchemas";
 
 /** The read-only footer both the first-turn prompt and the retry carry. */
 export const decisionFooter = (): string =>

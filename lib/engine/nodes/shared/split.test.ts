@@ -18,8 +18,6 @@ import { beforeAll, describe, expect, it } from "vitest";
 import {
   DEFAULT_SPLIT_CONSUME,
   SPLIT_CONSUME_MODES,
-  SplitTargetError,
-  UnitCycleError,
   assertSplitTargetCompatible,
   detectUnitCycle,
   resolveSplitTarget,
@@ -27,6 +25,8 @@ import {
   type SplitTargetLookup,
   type SplitUnit,
 } from "./split";
+import { SplitTargetError } from "./split/splitTargetError";
+import { UnitCycleError } from "./split/unitCycleError";
 import type { StartContractField } from "../kinds/start/contract";
 
 import { assignTestDatabase, resetTestDatabase } from "../../../../tests/helpers/testDatabase";
@@ -35,7 +35,7 @@ assignTestDatabase();
 
 const { templateStore } = await import("../../templates/templateStore");
 const { flowSplitTargetLookup } = await import("./splitLookup");
-const { AgentDefSchema } = await import("../declarativeSchemas");
+const { AgentDefSchema } = await import("../schemas/declarativeSchemas");
 
 beforeAll(resetTestDatabase);
 

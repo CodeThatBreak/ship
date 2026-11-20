@@ -2,7 +2,8 @@ import "server-only";
 
 import { NODE_KEYS } from "../../constants/nodeKeys";
 import type { EffectRegistry } from "../../runtime/effects/effectRegistry";
-import type { ChainHost, SdlcChain } from "./sdlcChain";
+import type { SdlcChain } from "./sdlcChain";
+import type { ChainHost } from "./types/chainHost";
 
 /**
  * The SDLC builtin chain expressed as effect registrations (step 07,

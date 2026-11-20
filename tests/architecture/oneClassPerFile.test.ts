@@ -37,10 +37,8 @@ const exportedClasses = (text: string): string[] =>
  * it. Adding an entry is forbidden.
  */
 const FROZEN_MULTI_CLASS: readonly string[] = [
-  "lib/engine/nodes/declarativeRegistry.ts",
   "lib/engine/nodes/kinds/mergeRequest/errors.ts",
   "lib/engine/nodes/shared/declarativeNode.ts",
-  "lib/engine/nodes/shared/split.ts",
   "lib/engine/ports/agentErrors.ts",
   "lib/engine/ports/gitHostErrors.ts",
 ];
@@ -54,17 +52,10 @@ const FROZEN_MISNAMED: readonly string[] = [
   "lib/engine/nodes/kinds/plan/planSplit.ts",
   "lib/engine/nodes/kinds/resolve/resolveContract.ts",
   "lib/engine/nodes/kinds/script/scriptNode.ts",
-  "lib/engine/nodes/registry.ts",
-  "lib/engine/nodes/shared/nodeRoles.ts",
-  "lib/engine/nodes/shared/runContext.ts",
-  "lib/engine/ports/agentPort.ts",
-  "lib/engine/ports/gitHost.ts",
   // step-02 doc mandate: the TransitionAuthority lives in `nodeTransitions.ts`
   // (target-architecture §12 layout names the file, not the class)
   "lib/engine/runtime/transitions/nodeTransitions.ts",
   "lib/engine/tasks/providers/jira.ts",
-  "lib/engine/tasks/registry.ts",
-  "lib/engine/templates/templateYaml.ts",
 ];
 
 const camel = (s: string): string => s.charAt(0).toLowerCase() + s.slice(1);

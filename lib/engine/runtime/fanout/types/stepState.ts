@@ -1,6 +1,6 @@
 import "server-only";
 
-import type { PlanStepRow } from "../../planStepStore";
+import type { PlanStepRow } from "../../planStepStore/types/planStep";
 
 /** Live state of one step child, derived from plan_steps + the child flow. */
 export interface StepState {

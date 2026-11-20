@@ -1,58 +1,11 @@
 import "server-only";
 
-import { db } from "../../db/app";
-import type { HostComment } from "../ports/gitHost";
-import { COMMENT_STATUS } from "../constants/vocabulary";
+import { CommentStore } from "./commentStore/commentStore";
 
 /**
- * MR comment upserts for git-host ingestion (flow engine webhook paths).
+ * Shared comment store pin (stateless, db-fenced — decision Q9). The
+ * CommentStore class lives in `commentStore/`; this module keeps the pin so
+ * the import surface (`commentStore`) is unchanged. Class files are pure
+ * (classFilePurity arch test), so the instance is pinned here.
  */
-export class CommentStore {
-  async ingest(flowId: string, incoming: HostComment[], mrIid?: number): Promise<number> {
-    let newOpen = 0;
-    for (const c of incoming) {
-      if (c.system) continue;
-      const existing = await db.prisma.comment.findUnique({
-        where: { id: c.id },
-        select: { id: true, status: true, resolvedBy: true },
-      });
-      const status = c.resolved ? COMMENT_STATUS.RESOLVED : COMMENT_STATUS.OPEN;
-      if (!existing) {
-        await db.prisma.comment.create({
-          data: {
-            id: c.id,
-            flowId,
-            mrIid: mrIid ?? null,
-            discussionId: c.threadId,
-            author: c.author,
-            body: c.body,
-            filePath: c.path ?? null,
-            line: c.line ?? null,
-            status,
-            raw: JSON.stringify(c),
-            createdAt: new Date(c.createdAt),
-            updatedAt: new Date(),
-          },
-        });
-        if (status === COMMENT_STATUS.OPEN) newOpen++;
-      } else if (existing.status !== status) {
-        if (
-          existing.status === COMMENT_STATUS.RESOLVED
-          && existing.resolvedBy === "agent"
-          && status === COMMENT_STATUS.OPEN
-        ) {
-          continue;
-        }
-        await db.prisma.comment.update({
-          where: { id: c.id },
-          data: { status, updatedAt: new Date() },
-        });
-        if (status === COMMENT_STATUS.OPEN) newOpen++;
-      }
-    }
-    return newOpen;
-  }
-}
-
-/** Shared comment store (stateless, db-fenced — decision Q9, plain module const). */
 export const commentStore = new CommentStore();

@@ -18,7 +18,7 @@ import { describe, expect, it } from 'vitest';
 import type { PlanMeta } from './schema';
 import { PlanSplitter } from './planSplit';
 import type { PlanStore } from './planStore';
-import type { ExecutionKnob } from './planPrompt';
+import type { ExecutionKnob } from './types/executionKnob';
 import type { FlowCtx } from '../../shared/nodeSharedExports';
 import type { LatestPlan } from './types/planTypeExports';
 

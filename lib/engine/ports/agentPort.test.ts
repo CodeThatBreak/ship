@@ -21,8 +21,8 @@ process.env.DATABASE_PATH = path.join(
   "test.db",
 );
 
-const { AgentPortRegistry } = await import("./agentPort");
-import type { AgentPort, AgentRunHandle, AgentRunQuery, AgentStreamOutcome } from "./agentPort";
+const { AgentPortRegistry } = await import("./agentPort/agentPortRegistry");
+import type { AgentPort, AgentRunHandle, AgentRunQuery, AgentStreamOutcome } from "./agentPort/types/agentPort";
 
 /** Identity-metaphor stub: selection only reads kind/harness/execMode; every
  *  port method throws loudly so a test cannot accidentally drive one. */

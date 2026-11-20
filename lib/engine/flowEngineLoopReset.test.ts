@@ -9,7 +9,7 @@ process.env.DATABASE_PATH = path.join(
 );
 
 const { db } = await import("../db/app");
-const { FlowEngine } = await import("./flowEngine");
+const { FlowEngine } = await import("./flowEngine/flowEngine");
 const { importTemplateYaml } = await import("./templates/templateYaml");
 const { templateStore } = await import("./templates/templateStore");
 

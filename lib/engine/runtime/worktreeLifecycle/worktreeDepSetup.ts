@@ -3,7 +3,7 @@ import "server-only";
 import { db, type Repo } from "../../../db/app";
 import { depPolicies, type RepoDepOverrides } from "../../../git/depPolicy";
 import { worktreeSetup } from "../../../git/worktreeSetup";
-import type { FlowCtx } from "../../nodes/shared/runContext";
+import type { FlowCtx } from "../../nodes/shared/runContext/types/flowContext";
 import type { WorktreeActivity } from "./worktreeActivity";
 
 /**

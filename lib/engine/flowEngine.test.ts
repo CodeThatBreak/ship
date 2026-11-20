@@ -18,7 +18,7 @@ import { assignTestDatabase, resetTestDatabase } from "../../tests/helpers/testD
 assignTestDatabase();
 
 const { db } = await import("../db/app");
-const { FlowEngine } = await import("./flowEngine");
+const { FlowEngine } = await import("./flowEngine/flowEngine");
 const { stepFlows } = await import("./runtime/fanout/stepFlowManager");
 const { ERROR_CODE } = await import("../errors");
 const { NODE_KEYS } = await import("./constants/nodeKeys");

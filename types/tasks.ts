@@ -3,8 +3,8 @@
  * from the task-provider module (type-only — erased before bundling) so
  * client components never import `lib/` (AGENTS.md §2.1).
  */
-export type { LiveTask } from "@/lib/engine/tasks/taskProvider";
-import type { LiveTask } from "@/lib/engine/tasks/taskProvider";
+export type { LiveTask } from "@/lib/engine/tasks/types/taskProvider";
+import type { LiveTask } from "@/lib/engine/tasks/types/taskProvider";
 
 export type { RunMode as ExecutionMode } from "@/constants/execution";
 

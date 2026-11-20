@@ -1,7 +1,7 @@
 import "server-only";
 
 import { z } from "zod";
-import type { DecisionDef } from "../../declarativeSchemas";
+import type { DecisionDef } from "../../schemas/declarativeSchemas";
 
 /**
  * No declared input contract — the input is the previous node's output.

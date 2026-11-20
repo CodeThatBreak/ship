@@ -2,17 +2,13 @@ import "server-only";
 
 import type { FlowCtx } from '../../shared/nodeSharedExports';
 import type { NodeSupport } from '../../shared/nodeSupport';
-import { planSteps, type PlanStepRow } from '../../../runtime/planStepStore';
+import { planSteps } from '../../../runtime/planStepStore';
+import type { PlanStepRow } from '../../../runtime/planStepStore/types/planStep';
 import { type NodeRow } from '../../../../db/rows';
 import { type PlanMeta, type PlanBranch, parsePlanArtifactMeta } from './schema';
 import type { RefinedFrom } from './constants/refine';
 import type { LatestPlan, ScopedRefine } from './types/planTypeExports';
-
-/** The planner's execution decision out of a parsed plan response. */
-export interface PlannerExecution {
-  value: 'whole' | 'steps';
-  rationale: string | null;
-}
+import type { PlannerExecution } from './types/plannerExecution';
 
 /**
  * The plan domain's data access + publish seam: the latest plan artifact (with

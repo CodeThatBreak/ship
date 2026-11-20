@@ -5,7 +5,7 @@ import { AgentOutputError } from "../nodes/shared/agent/outputError/outputErrorE
 import {
   PLAN_TURN_OUTPUT_JSON_SCHEMA,
 } from "../nodes/kinds/plan/schema";
-import { REVIEW_COMMENTS_JSON_SCHEMA } from "../nodes/kinds/review/reviewComments";
+import { REVIEW_COMMENTS_JSON_SCHEMA } from "../nodes/kinds/review/schema";
 
 /**
  * The default prompt templates as an explicit three-part split:

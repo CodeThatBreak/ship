@@ -38,8 +38,8 @@ const { HttpTemplateNode } = await import("../kinds/http/httpNode");
 const { ScriptTemplateNode } = await import("../kinds/script/scriptNode");
 
 import { z } from "zod";
-import type { FlowCtx } from "./runContext";
-import type { RunOutcome } from "./nodeDefinition";
+import type { FlowCtx } from "./runContext/types/flowContext";
+import type { RunOutcome } from "./types/runOutcome";
 import type { RecoveryResult } from "./types/recovery";
 
 /** A template-row subject: id/name/config mirror a node_templates row. */

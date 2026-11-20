@@ -14,7 +14,7 @@ vi.mock("execa", () => ({ execa: execaMock }));
 
 process.env.DEVFLOW_SCRIPT_ENV_PROBE = "must-not-leak";
 
-const { runScriptProcessForTests } = await import("./scriptNode");
+const { runProcess: runScriptProcessForTests } = await import("./utils/exec");
 
 describe("script child process env", () => {
   it("does not inherit non-allowlisted server environment variables", async () => {

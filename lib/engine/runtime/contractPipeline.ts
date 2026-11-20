@@ -1,7 +1,7 @@
 import "server-only";
 
 import { NODE_STATUS, type EngineNodeStatus } from "../constants/nodeStatus";
-import { DEFAULT_FANOUT_OUTPUT, DEFAULT_SPLIT_OUTPUT } from "../nodes/shared/capabilities";
+import { DEFAULT_FANOUT_OUTPUT, DEFAULT_SPLIT_OUTPUT } from "../nodes/shared/schemas/defaultOutputs";
 import { InputContractError } from "../errors/inputContractError";
 import { OutputContractError } from "../errors/outputContractError";
 import { producerKeyOf } from "./utils/contractProducers";

@@ -5,11 +5,13 @@ import type { GitLabInstanceStore, GitLabInstanceMeta } from "../../db/stores/gi
 import { type GitLabInstance } from "../../db/rows";
 import {
   GitHostTimeoutError,
-  gitHostErrorFromResponse,
+} from "../../engine/ports/gitHostErrors";
+import { gitHostErrorFromResponse } from "../../engine/ports/utils/gitHostErrorFromResponse";
+import {
   parseRetryAfterMs,
   redactSecretsInText,
   truncateUpstreamBody,
-} from "../../engine/ports/gitHostErrors";
+} from "../../engine/ports/utils/upstreamErrorText";
 import {
   GITLAB_HTTP_TIMEOUT_MS,
   GITLAB_MAX_GET_RETRIES,

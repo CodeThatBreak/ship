@@ -2,7 +2,7 @@ import "server-only";
 
 import { z } from "zod";
 import { AGENT_OUTPUT_FORMAT } from "../../../constants/declarative";
-import type { AgentDef } from "../../declarativeSchemas";
+import type { AgentDef } from "../../schemas/declarativeSchemas";
 import { jsonSchemaToZod } from "../../../templates/jsonSchemaToZod";
 
 /**

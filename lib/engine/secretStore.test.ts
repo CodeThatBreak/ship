@@ -1,7 +1,7 @@
 import { beforeAll, describe, expect, it } from "vitest";
 import { SETTINGS_KEYS } from "@/constants/settings";
 import { assignTestDatabase, resetTestDatabase } from "../../tests/helpers/testDatabase";
-import { SecretStore } from "./secretStore";
+import { SecretStore } from "./secretStore/secretStore";
 
 assignTestDatabase();
 

@@ -1,11 +1,11 @@
 import "server-only";
 
 // ── the flow entry node ──────────────────────────────────────────────────────
-import { z } from "zod";
 import { NodeDefinition, type FlowCtx, type NodeTriggerRun, type RunOutcome } from "../../shared/nodeSharedExports";
 import type { RecoveryResult } from "../../shared/types/recovery";
 import type { NodeCapabilities } from "../../shared/capabilities";
 import { NODE_KEYS } from "../../../constants/nodeKeys";
+import { StartPayload } from "./schema";
 import {
   parseStartContract,
   StartContractConfigSchema,
@@ -29,10 +29,6 @@ import {
  * contract. Without a declared contract the node behaves exactly as before
  * (finishes immediately, publishes nothing).
  */
-
-/** trigger input / published output — validated against the contract in run() */
-const StartPayload = z.record(z.string(), z.unknown());
-type StartPayload = z.infer<typeof StartPayload>;
 
 export class StartNode extends NodeDefinition<StartPayload, StartPayload> {
   readonly key = NODE_KEYS.START;

@@ -1,7 +1,7 @@
 import "server-only";
 
-import { z } from "zod";
 import { validateAgainstContract, type StartContractField } from "../kinds/start/contract";
+import { SplitTargetError } from "./split/splitTargetError";
 
 /**
  * The agent-node split contracts (agent-node split plan §2 — Phase 1:
@@ -11,6 +11,11 @@ import { validateAgainstContract, type StartContractField } from "../kinds/start
  * resolver + cycle detector are pure functions the split runtime (Phase 2)
  * will call. No db / registry imports — the resolution seams are injected
  * ports so every contract is testable without a database.
+ *
+ * The error classes live in `split/` (`splitTargetError.ts`,
+ * `unitCycleError.ts`) and the knob Zod fragments in
+ * `split/schemas/splitKnobs.ts` — class files are pure (arch gate) and Zod
+ * schemas live in a schema home (domainFolders arch gate).
  */
 
 // ── §2.1 the producer port's unit ─────────────────────────────────────────────
@@ -40,15 +45,6 @@ export interface SplitUnit {
 export type SplitTarget =
   | { kind: "node"; key: string }
   | { kind: "template"; id: string };
-
-/** Authoring errors surfaced by target resolution and the compatibility
- *  check — loud, like a contract failure (the plan's stated policy). */
-export class SplitTargetError extends Error {
-  constructor(message: string) {
-    super(message);
-    this.name = "SplitTargetError";
-  }
-}
 
 /**
  * The names a split target is resolved against, injected so this module
@@ -113,19 +109,6 @@ export function assertSplitTargetCompatible(
 
 // ── §3 (expansion) unit-DAG cycle detection ───────────────────────────────────
 
-/** A cycle in the declared unit dependencies — a producer error, loud like a
- *  contract failure. `path` is the closed walk, e.g. ["a", "b", "a"]. */
-export class UnitCycleError extends Error {
-  /** the cycle path, first and last element the same unit key */
-  readonly path: string[];
-
-  constructor(path: string[]) {
-    super(`unit dependency cycle: ${path.join(" → ")}`);
-    this.name = "UnitCycleError";
-    this.path = path;
-  }
-}
-
 /**
  * Detect a cycle in the units' declared `dependsOn` DAG — pure, the split
  * manager runs it at expansion time (§3). Dependencies pointing at unknown
@@ -180,10 +163,6 @@ export type SplitConsumeMode = (typeof SPLIT_CONSUME_MODES)[number];
 /** The zero-behavior default — every consumer consumes `whole` unless configured. */
 export const DEFAULT_SPLIT_CONSUME: SplitConsumeMode = "whole";
 
-/** Zod fragment for the knob (default = today's behavior). Not yet wired
- *  into any def's `configSchema`/`configFields` — that is Phase 4. */
-export const splitConsumeSchema = z.enum(SPLIT_CONSUME_MODES).default(DEFAULT_SPLIT_CONSUME);
-
 /**
  * Defensive read of the flat `split_consume` knob from a merged config
  * layer — snapshots ride raw into `run(config)` on the built-in kinds, and
@@ -202,10 +181,6 @@ export function splitConsumeOf(cfg: Record<string, unknown> | null | undefined):
 
 /** The default parallelism — one unit at a time (§3: parallelism is opt-in). */
 export const DEFAULT_SPLIT_PARALLEL_MAX = 1;
-
-/** Zod fragment for the flat `split_parallel_max` knob — wired beside
- *  `splitConsumeSchema` into every split-capable consumer's config schema. */
-export const splitParallelMaxSchema = z.number().int().min(1).default(DEFAULT_SPLIT_PARALLEL_MAX);
 
 /**
  * Defensive read of the flat `split_parallel_max` knob from a merged config

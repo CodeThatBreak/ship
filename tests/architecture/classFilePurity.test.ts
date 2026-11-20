@@ -5,13 +5,11 @@
  * no exported `interface`/`type` — those live in `constants/`, `types/`,
  * `schema.ts`/`schemas/`, `utils/` with relevant names.
  *
- * NEW files get ZERO tolerance (not being on the list = must pass). The
- * current offenders are frozen below — the full step-00 scan, SHRINK-ONLY:
- * each step removes entries as it moves helpers/consts/types into their
- * domain folders; nothing is ever added. The step-00 named offenders
- * (sdlcChain MANUAL_* consts, hookStore TTL consts, flowEngine helpers) are
- * annotated inline — buildNode's splitUnitItemOf left with step 04 (moved to
- * `build/utils/splitUnitItem.ts`).
+ * The gate is `lib/**`-wide. Step 09 emptied it for `lib/engine/**` — every
+ * engine class file is pure (zero tolerance from here on: any NEW offender,
+ * engine or not, fails). The remaining frozen offenders are all NON-engine
+ * (`lib/db`, `lib/git`, `lib/integrations`, service modules) — shrink-only,
+ * flagged for follow-up work rather than fixed in the overhaul diff.
  *
  * Scans the source text — static gate, not runtime.
  */
@@ -36,71 +34,22 @@ const walk = (dir: string, out: string[] = []): string[] => {
 };
 
 /**
- * Frozen offenders (shrink-only) — the full step-00 scan result. A `lib/**`
- * class file is impure when it ALSO exports a module-scope function, a runtime
- * const/let, or an interface/type. Adding an entry is forbidden.
+ * Frozen offenders (shrink-only) — the step-09 scan result, non-engine only.
+ * A `lib/**` class file is impure when it ALSO exports a module-scope
+ * function, a runtime const/let, or an interface/type. Adding an entry is
+ * forbidden.
  */
 const FROZEN_OFFENDERS: readonly string[] = [
   "lib/artifacts/artifactService.ts",
   "lib/comments/commentService.ts",
   "lib/config.ts",
   "lib/contracts/contractService.ts",
-  "lib/db/database.ts", // step-01 facade — QueryExecutor type + re-exports
+  "lib/db/database.ts",
   "lib/db/rowDecodeError.ts",
   "lib/db/rows.ts",
   "lib/db/stores/gitlabInstanceStore.ts",
   "lib/db/stores/jiraInstanceStore.ts",
-  "lib/db/templateSeeder.ts", // step-01 — seed tuple consts (module-scope data)
-  "lib/engine/flowEngine.ts", // module helpers
-  "lib/engine/graph/graphService.ts",
-  "lib/engine/harness/agentRunner.ts",
-  "lib/engine/harness/pricingSource.ts",
-  "lib/engine/harness/toolPairer.ts",
-  "lib/engine/harness/usageTracker.ts",
-  "lib/engine/nodes/chains/sdlcChain.ts", // ChainHost interface + createSdlcChain factory
-  "lib/engine/nodes/declarativeRegistry.ts",
-  "lib/engine/nodes/kinds/build/branchStore.ts",
-  "lib/engine/nodes/kinds/mergeRequest/errors.ts",
-  "lib/engine/nodes/kinds/mergeRequest/mergeRequestService.ts",
-  "lib/engine/nodes/kinds/plan/planPrompt.ts",
-  "lib/engine/nodes/kinds/plan/planStore.ts",
-  "lib/engine/nodes/kinds/resolve/resolveContract.ts",
-  "lib/engine/nodes/kinds/resolve/resolveEffects.ts",
-  "lib/engine/nodes/kinds/script/scriptNode.ts",
-  "lib/engine/nodes/registry.ts",
-  "lib/engine/nodes/shared/agent/outputError/agentOutputError.ts",
-  "lib/engine/nodes/shared/agentRunNode.ts",
-  "lib/engine/nodes/shared/branchNamer.ts",
-  "lib/engine/nodes/shared/declarativeNode.ts",
-  "lib/engine/nodes/shared/mrTargetResolver.ts",
-  "lib/engine/nodes/shared/nodeDefinition.ts",
-  "lib/engine/nodes/shared/nodeRoles.ts",
-  "lib/engine/nodes/shared/runContext.ts",
-  "lib/engine/nodes/shared/split.ts",
-  "lib/engine/nodes/shared/templateRenderer.ts",
-  "lib/engine/ports/agentPort.ts",
-  "lib/engine/ports/gitHost.ts",
-  "lib/engine/ports/gitHostErrors.ts",
-  "lib/engine/prompts/promptLibrary.ts",
-  "lib/engine/prompts/promptPreview.ts",
-  "lib/engine/runtime/commentIngestor.ts",
-  "lib/engine/runtime/commentStore.ts",
-  "lib/engine/runtime/fanout/stepFlowManager.ts",
-  "lib/engine/runtime/flowFactory.ts",
-  "lib/engine/runtime/hookStore.ts",
-  "lib/engine/runtime/nodeStore.ts",
-  "lib/engine/runtime/planStepStore.ts",
-  "lib/engine/runtime/split/splitManager.ts",
-  "lib/engine/runtime/worktreeStatusService.ts",
-  "lib/engine/secretStore.ts",
-  "lib/engine/tasks/liveTaskFeed.ts",
-  "lib/engine/tasks/providers/jira.ts",
-  "lib/engine/tasks/registry.ts",
-  "lib/engine/tasks/taskProvider.ts",
-  "lib/engine/tasks/taskService.ts",
-  "lib/engine/templates/templatePreviewService.ts",
-  "lib/engine/templates/templateStore.ts",
-  "lib/engine/templates/templateYaml.ts",
+  "lib/db/templateSeeder.ts",
   "lib/errors.ts",
   "lib/git/branchName.ts",
   "lib/git/depPolicy.ts",
@@ -148,7 +97,7 @@ const offenders = (): string[] => {
 };
 
 describe("classFilePurity", () => {
-  it("no impure class file beyond the frozen offenders (zero tolerance for new files)", () => {
+  it("no impure class file beyond the frozen non-engine offenders (engine is clean; zero tolerance for new files)", () => {
     expect(offenders()).toEqual([...FROZEN_OFFENDERS].sort());
   });
 });

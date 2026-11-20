@@ -3,7 +3,7 @@ import "server-only";
 import { EVENT_KIND } from "../../constants/vocabulary";
 import { AGENT_API_COMPLETED_BY, AGENT_TOOL, AGENT_TOOL_DESCRIPTORS } from "../constants/agentTools";
 import type { AgentToolAuth, AgentToolCall, AgentToolExecutor } from "../types/tools";
-import type { PlanStepStore } from "../../runtime/planStepStore";
+import type { PlanStepStore } from "../../runtime/planStepStore/planStepStore";
 import type { Database } from "../../../db/database";
 import { ValidationError } from "../../../errors";
 

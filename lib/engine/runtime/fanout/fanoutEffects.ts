@@ -2,7 +2,7 @@ import "server-only";
 
 import { EFFECT_KEY_ANY } from "../effects/constants/effectLifecycles";
 import type { EffectRegistry } from "../effects/effectRegistry";
-import type { StepFlowManager } from "./stepFlowManager";
+import type { StepFlowManager } from "./stepFlowManager/stepFlowManager";
 
 /**
  * The plan fan-out runtime's effect registrations (step 07, Invariant 8):

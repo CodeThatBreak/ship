@@ -8,7 +8,7 @@
  */
 import { describe, expect, it } from "vitest";
 import { AgentOutputError } from "../../shared/agent/outputError/outputErrorExports";
-import type { AgentDef } from "../../declarativeSchemas";
+import type { AgentDef } from "../../schemas/declarativeSchemas";
 import { agentSplitUnits } from "./agentSplitUnits";
 
 const LABEL = "Test Agent";

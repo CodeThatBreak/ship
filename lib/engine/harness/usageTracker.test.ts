@@ -14,7 +14,8 @@ import { describe, expect, it, vi } from "vitest";
 
 assignTestDatabase();
 
-const { estimateCostCents, UsageTracker } = await import("./usageTracker");
+const { estimateCostCents } = await import("./utils/estimateCostCents");
+const { UsageTracker } = await import("./usageTracker/usageTracker");
 const { PricingSource } = await import("./pricingSource");
 import type { AgentPort, AgentRunResult, PricingEntry } from "../ports/agentPort";
 import type { PricingSource as PricingSourceT } from "./pricingSource";

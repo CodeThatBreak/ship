@@ -18,7 +18,7 @@ beforeAll(resetTestDatabase);
 // dynamic imports execute in statement order after the static ones hoist —
 // the test database is assigned by then (agentTemplateNode.test.ts's pattern)
 const { composeAgentPrompt, agentContractDirective } = await import("./agentPrompt");
-const { AgentDefSchema } = await import("../../declarativeSchemas");
+const { AgentDefSchema } = await import("../../schemas/declarativeSchemas");
 
 const SCHEMA = { type: "object", properties: { cost: { type: "integer" } }, required: ["cost"] };
 

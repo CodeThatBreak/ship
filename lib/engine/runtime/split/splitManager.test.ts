@@ -33,7 +33,7 @@ const {
   splitConsumeOf,
   splitParallelMaxOf,
 } = await import("../../../../tests/helpers/splitFixtureHarness");
-const { SplitManager } = await import("./splitManager");
+const { SplitManager } = await import("./splitManager/splitManager");
 const { SplitLinkageStore } = await import("./splitLinkageStore");
 
 beforeAll(() => setupSplitFixtures());

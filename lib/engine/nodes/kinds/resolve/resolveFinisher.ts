@@ -49,7 +49,7 @@ import { EVENT_KIND } from "../../../constants/vocabulary";
 import { NODE_KEYS } from "../../../constants/nodeKeys";
 import type { mcpSourcesOf } from "../../../templates/nodeConfig";
 import type { NodeRow } from "../../../../db/rows";
-import { isHookRejection } from "../mergeRequest/errors";
+import { isHookRejection } from "../mergeRequest/utils/isHookRejection";
 import { ResolveEffects } from "./resolveEffects";
 import { ResolveOutputContract } from "./resolveContract";
 import {

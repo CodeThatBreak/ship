@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
 
 const { db } = await import("../../db/app");
-const { hookStore, maskHookSecret } = await import("./hookStore");
+const { hookStore } = await import("./hookStore");
+const { maskHookSecret } = await import("./hookStore/utils/maskHookSecret");
 
 describe("maskHookSecret (CR-254)", () => {
   it("masks hook secrets for flow snapshots", () => {

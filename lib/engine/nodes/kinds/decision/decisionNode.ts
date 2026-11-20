@@ -9,7 +9,7 @@ import { DeclarativeAgentNode } from "../../shared/declarativeNode";
 import { buildFlowContext } from "../../../context/flowVariables";
 import { evalJsonata, jsonataTruthy } from "@/lib/jsonata/eval";
 import { mcpSourceConfigFields } from "../../../templates/nodeConfig";
-import { DecisionDefSchema, type DecisionDef } from "../../declarativeSchemas";
+import { DecisionDefSchema, type DecisionDef } from "../../schemas/declarativeSchemas";
 import { AgentOutputPipeline } from "../../shared/agentOutput/agentOutputPipeline";
 import { validateStandardAgentOutput } from "../../shared/agentOutput/utils/standardOutput";
 import { DecisionRunInput, decisionModelOverride, decisionOutputContract, DecisionAgentChoice } from "./schema";

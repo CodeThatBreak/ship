@@ -19,7 +19,7 @@ const { db } = await import("../../../../db/app");
 
 beforeAll(resetTestDatabase);
 const { nodeSupport } = await import("@/lib/composition/container");
-const { FlowContextHelper } = await import("../../shared/runContext");
+const { FlowContextHelper } = await import("../../shared/runContext/flowContextHelper");
 const { BuildFinalizer } = await import("./buildFinalizer");
 const { BuildRunSupport } = await import("./buildRunSupport");
 const { branchStore } = await import("./branchStore");

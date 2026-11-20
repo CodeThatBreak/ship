@@ -33,3 +33,20 @@ export type ReviewOutput = z.infer<typeof ReviewOutput>;
 export const ReviewConsumes = z.object({
   branchName: z.string().nullable().optional(),
 });
+
+/** One review comment the agent returns (CR-085) — `file` / `line` optional,
+ *  `body` non-empty (docs/architecture/review-node.md). */
+export const reviewCommentItemSchema = z.object({
+  file: z.string().optional(),
+  line: z.number().int().optional(),
+  body: z.string().min(1),
+});
+export type ReviewCommentItem = z.infer<typeof reviewCommentItemSchema>;
+
+/** The review's response contract: the comment ARRAY the directive advertises
+ *  and the validator checks (one byte-identical pair — step 05). */
+export const ReviewCommentsSchema = z.array(reviewCommentItemSchema);
+
+/** JSON Schema generated from `ReviewCommentsSchema` — carried into
+ *  `AgentOutputError.directive(schema, "array")` on the review prompt. */
+export const REVIEW_COMMENTS_JSON_SCHEMA: unknown = z.toJSONSchema(ReviewCommentsSchema);

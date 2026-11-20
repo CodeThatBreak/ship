@@ -1,8 +1,8 @@
 import "server-only";
 
 import { z } from "zod";
-import { mcpSourcesSchema } from "../templates/nodeConfig";
-import { splitConsumeSchema, splitParallelMaxSchema } from "./shared/split";
+import { mcpSourcesSchema } from "../../templates/schemas/mcpSources";
+import { splitConsumeSchema, splitParallelMaxSchema } from "../shared/split/schemas/splitKnobs";
 import {
   AGENT_MODE,
   AGENT_MODES,
@@ -11,7 +11,7 @@ import {
   DECISION_SOURCES,
   HTTP_METHODS,
   SCRIPT_RUNTIMES,
-} from "../constants/declarative";
+} from "../../constants/declarative";
 
 /** Closed value sets live in `constants/declarative.ts`; re-exported here so
  *  this module's public surface is unchanged. */
@@ -23,8 +23,8 @@ export {
   DECISION_SOURCES,
   HTTP_METHODS,
   SCRIPT_RUNTIMES,
-} from "../constants/declarative";
-export type { AgentMode, AgentOutputFormat } from "../constants/declarative";
+} from "../../constants/declarative";
+export type { AgentMode, AgentOutputFormat } from "../../constants/declarative";
 
 /**
  * The declarative node definitions stored on `node_templates.config` (§4.3–4.5).
@@ -139,5 +139,3 @@ export const ScriptDefSchema = z.looseObject({
   output_schema: z.unknown().optional().default(null),
 });
 export type ScriptDef = z.infer<typeof ScriptDefSchema>;
-
-export { parseDeclarativeConfig } from "./declarativeConfigParser";

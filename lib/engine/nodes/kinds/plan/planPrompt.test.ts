@@ -13,7 +13,7 @@ process.env.DATABASE_PATH = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'dev
 
 await import('../../registry');
 const { PlanPromptBuilder } = await import('./planPrompt');
-const { planBodyDiverged } = await import('./planPrompt');
+const { planBodyDiverged } = await import('./utils/planBodyDiverged');
 const { DEFAULT_PROMPT_TEMPLATES } = await import('../../../prompts/promptDefaults');
 const { AgentOutputError } = await import('../../shared/agent/outputError/outputErrorExports');
 const { PLAN_TURN_OUTPUT_JSON_SCHEMA } = await import('./schema');

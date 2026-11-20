@@ -6,12 +6,13 @@
  */
 import { beforeAll, describe, expect, it } from "vitest";
 import type { StepFlowEngine } from "./types/stepFlowEngine";
-import type { StepFlowManager } from "./stepFlowManager";
+import type { StepFlowManager } from "./stepFlowManager/stepFlowManager";
 
 const { db } = await import("../../../db/app");
 const { resetTestDatabase } = await import("../../../../tests/helpers/testDatabase");
 const { flowEngine } = await import("../../flowEngine");
-const { stepFlows, StepFlowManager: managerClass } = await import("./stepFlowManager");
+const { stepFlows } = await import("./stepFlowManager");
+const { StepFlowManager: managerClass } = await import("./stepFlowManager/stepFlowManager");
 const { hookStore } = await import("../hookStore");
 
 const now = () => new Date().toISOString();

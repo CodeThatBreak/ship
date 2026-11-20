@@ -6,16 +6,15 @@ import { templateStore, type TemplateGraph } from "../../templates/templateStore
 import { nodeRegistry } from "../../nodes/registry";
 import { NODE_KEYS } from "../../constants/nodeKeys";
 import { splitConsumeOf } from "../../nodes/shared/nodeSharedExports";
-import {
-  DEFAULT_FANOUT_OUTPUT,
-  type NodeCapabilities,
-} from "../../nodes/shared/capabilities";
+import { DEFAULT_FANOUT_OUTPUT } from "../../nodes/shared/schemas/defaultOutputs";
+import type { NodeCapabilities } from "../../nodes/shared/capabilities";
 import { parseStartContract, validateAgainstContract } from "../../nodes/kinds/start/contract";
 import { branchStore } from "../../nodes/kinds/build/branchStore";
 import { branchNamer } from "../../nodes/shared/branchNamer";
 import type { NodeDefinition } from "../../nodes/shared/nodeSharedExports";
 import { configString, fanoutOf, stripFanoutKeys, type FanoutKnob } from "../../templates/nodeConfig";
-import { planSteps, type PlanStepRow } from "../planStepStore";
+import { planSteps } from "../planStepStore";
+import type { PlanStepRow } from "../planStepStore/types/planStep";
 import { fanoutAutoWrapDescription, hashFanoutChildConfig } from "./utils/autowrapKey";
 import { filesOf } from "./utils/stepFiles";
 import type { StepFlowEngine } from "./types/stepFlowEngine";

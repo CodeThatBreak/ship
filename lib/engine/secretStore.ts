@@ -1,41 +1,12 @@
 import "server-only";
 
-import { SETTINGS_KEYS } from "@/constants/settings";
-import { db, type Database } from "../db/app";
-import type { IntegrationSecretStore } from "../db/integrationSecretStore";
-import { settingUnknownRecord } from "../schemas/settingValues";
+import { db } from "../db/app";
+import { SecretStore } from "./secretStore/secretStore";
 
 /**
- * Flow secrets (§4.4): stored under the `secrets` settings key as a {NAME: value}
- * map. They interpolate `{{secrets.NAME}}` in http node config at execution
- * time only — never persisted into node rows, inputs, or run events.
+ * Shared secret store pin (stateless, db-fenced — decision Q9). The
+ * SecretStore class lives in `secretStore/`; this module keeps the pin so
+ * the import surface (`secretStore`) is unchanged. Class files are pure
+ * (classFilePurity arch test), so the instance is pinned here.
  */
-export class SecretStore {
-  constructor(
-    private readonly database: Database,
-    private readonly integrationSecrets: IntegrationSecretStore,
-  ) {}
-
-  /** All configured secret name → value pairs. */
-  async all(): Promise<Record<string, string>> {
-    const stored = await this.database.getSetting(SETTINGS_KEYS.SECRETS, settingUnknownRecord.nullable(), null);
-    if (!stored || typeof stored !== "object" || Array.isArray(stored)) return {};
-    const raw: Record<string, string> = {};
-    for (const [k, v] of Object.entries(stored)) {
-      if (typeof v === "string" && k.trim()) raw[k.trim()] = v;
-    }
-    return this.integrationSecrets.openSecretsMap(raw);
-  }
-
-  /** Remove every secret value from user-renderable text (events, errors, logs). */
-  async redact(text: string, secrets?: Record<string, string>): Promise<string> {
-    let out = text ?? "";
-    for (const v of Object.values(secrets ?? await this.all())) {
-      if (v && v.length > 3 && out.includes(v)) out = out.split(v).join("••••");
-    }
-    return out;
-  }
-}
-
-/** Shared secret store (stateless, db-fenced — decision Q9, plain module const). */
 export const secretStore = new SecretStore(db, db.integrationSecrets);

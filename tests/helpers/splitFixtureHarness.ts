@@ -26,7 +26,7 @@ const { NodeDefinition } = await import("@/lib/engine/nodes/shared/nodeDefinitio
 const { nodeRegistry } = await import("@/lib/engine/nodes/registry");
 const { templateStore } = await import("@/lib/engine/templates/templateStore");
 const { agentPortRegistry } = await import("@/lib/engine/ports/agentPort");
-const { AgentDefSchema } = await import("@/lib/engine/nodes/declarativeSchemas");
+const { AgentDefSchema } = await import("@/lib/engine/nodes/schemas/declarativeSchemas");
 const { NODE_KEYS } = await import("@/lib/engine/constants/nodeKeys");
 const { splitConsumeOf, splitParallelMaxOf } = await import("@/lib/engine/nodes/shared/split");
 const { engineParts } = await import("@/lib/composition/container");
@@ -40,7 +40,7 @@ import type {
   AgentStreamOutcome,
 } from "@/lib/engine/ports/agentPort";
 import type { FlowCtx } from "@/lib/engine/nodes/shared/nodeSharedExports";
-import type { RunOutcome } from "@/lib/engine/nodes/shared/nodeDefinition";
+import type { RunOutcome } from "@/lib/engine/nodes/shared/types/runOutcome";
 import type { RecoveryResult } from "@/lib/engine/nodes/shared/types/recovery";
 import type { SplitChildPayload } from "@/lib/engine/runtime/split/types/splitChildPayload";
 import type { SplitUnit } from "@/lib/engine/nodes/shared/split";

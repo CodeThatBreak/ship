@@ -2,9 +2,10 @@ import "server-only";
 
 export {
   CommitError,
-  isCommitError,
-  isHookRejection,
   MrCreationFailed,
-  toMrCreationFailure,
 } from "./errors";
-export { MergeRequestService, mergeRequests } from "./mergeRequestService";
+export { isCommitError } from "./utils/isCommitError";
+export { isHookRejection } from "./utils/isHookRejection";
+export { toMrCreationFailure } from "./utils/toMrCreationFailure";
+export { MergeRequestService } from "./mergeRequestService/mergeRequestService";
+export { mergeRequests } from "./mergeRequestService";

@@ -10,7 +10,7 @@ const { db } = await import("../../db/app");
 const { nodeSupport } = await import("@/lib/composition/container");
 const { flowCtxHelper } = await import("../nodes/shared/runContext");
 const { usageTracker } = await import("./usageTracker");
-const { AgentRunner } = await import("./agentRunner");
+const { AgentRunner } = await import("./agentRunner/agentRunner");
 const { RunSupersededError } = await import("../errors/runSupersededError");
 const { AgentRunLookupError } = await import("../ports/agentErrors");
 const { agentPortRegistry } = await import("../ports/agentPort");
@@ -24,7 +24,7 @@ import type {
   AgentStartSpec,
   AgentStreamOutcome,
 } from "../ports/agentPort";
-import type { FlowCtx } from "../nodes/shared/runContext";
+import type { FlowCtx } from "../nodes/shared/runContext/types/flowContext";
 
 const now = () => new Date().toISOString();
 

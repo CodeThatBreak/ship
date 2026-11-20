@@ -5,7 +5,7 @@ import path from "path";
 import { db, type Repo } from "../../../db/app";
 import { samePath, worktrees } from "../../../git/worktrees";
 import { workspacePaths } from "../../../git/workspacePaths";
-import type { FlowCtx } from "../../nodes/shared/runContext";
+import type { FlowCtx } from "../../nodes/shared/runContext/types/flowContext";
 import type { WorktreeBinding } from "./types/worktreeBinding";
 import { realpathOrResolve } from "./utils/realpathOrResolve";
 import { WorktreeActivity } from "./worktreeActivity";

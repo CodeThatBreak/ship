@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { NotFoundError } from "@/lib/errors";
-import { GraphService } from "./graphService";
+import { GraphService } from "./graphService/graphService";
 
 describe("GraphService.resolve", () => {
   const service = new GraphService();

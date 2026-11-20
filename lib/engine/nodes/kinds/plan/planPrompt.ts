@@ -1,34 +1,13 @@
 import 'server-only';
 
 import { prompts } from '../../../prompts/promptLibrary';
-import { DEFAULT_PROMPT_TEMPLATES } from '../../../prompts/promptDefaults';
 import { TemplateRenderer, type FlowCtx, type FlowContextHelper } from '../../shared/nodeSharedExports';
 import type { NodeRow } from '../../../../db/rows';
 import { PlanInput } from './schema';
 import type { PlanContextBlocks } from './planContext';
 import type { PlanStore } from './planStore';
 import type { ScopedRefine } from './types/planTypeExports';
-
-/** The plan node's `execution_default` knob resolution. */
-export type ExecutionKnob = 'whole' | 'follow';
-
-/** @deprecated unused — plan node has no manual `run()`. */
-export interface RunIntent {
-  label: string;
-  followUpOn: string | null;
-}
-
-/**
- * Whether a `promptIsBody` run body DIVERGES from the plan template's body
- * (§8 / §6c 'start' provenance): only a CLEARLY different body counts — the
- * comparison is the same normalization the assembly applies (trim + collapse
- * blank-line runs), so when in doubt the default is NO provenance (§6c).
- */
-export function planBodyDiverged(prompt: string | null | undefined): boolean {
-  if (!prompt?.trim()) return false;
-  const norm = (s: string): string => s.trim().replace(/\n{3,}/g, '\n\n');
-  return norm(prompt) !== norm(DEFAULT_PROMPT_TEMPLATES.plan.userTemplate);
-}
+import type { ExecutionKnob } from './types/executionKnob';
 
 /**
  * The plan node's prompts: the whole-plan prompt (verbatim override or base

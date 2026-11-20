@@ -1,8 +1,7 @@
 import "server-only";
 
-import { NODE_TRIGGER_TYPE } from "../../constants/triggers";
-import { templateStore } from "../../templates/templateStore";
-import type { FlowContextHelper, FlowCtx } from "./runContext";
+import type { FlowContextHelper } from "./runContext/flowContextHelper";
+import type { FlowCtx } from "./runContext/types/flowContext";
 import { flowCtxHelper } from "./runContext";
 import type { NodeSupport } from "./nodeSupport";
 import { nodeSupport } from "@/lib/composition/container";
@@ -14,20 +13,8 @@ import {
   parseDeclarativeRunConfig,
   type DeclarativeTemplateKind,
 } from "./declarativeRunConfig";
-
-export type DeclarativeTemplateRow = {
-  id: string;
-  name: string;
-  description: string | null;
-  config: unknown;
-};
-
-export const declarativeHoldsForApproval = async (ctx: FlowCtx, nodeKey: string): Promise<boolean> => {
-  const graph = await templateStore.graphForFlow(ctx.flow.id);
-  if (!graph) return false;
-  const spec = graph.byKey.get(nodeKey);
-  return spec?.trigger.type === NODE_TRIGGER_TYPE.APPROVAL;
-};
+import type { DeclarativeTemplateRow } from "./types/declarativeTemplateRow";
+import { declarativeHoldsForApproval } from "./utils/declarativeHoldsForApproval";
 
 /**
  * Shared identity + config validation for declarative `node_templates` rows

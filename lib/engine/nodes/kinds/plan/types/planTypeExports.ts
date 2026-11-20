@@ -1,6 +1,6 @@
 import "server-only";
 
-import { type SettingSource } from '../../../../templates/nodeConfig';
+import { type SettingSource } from '../../../../templates/schemas/mcpSources';
 
 /** What a plan-mode agent run (initial or retry) needs beyond its prompt. */
 interface PlanRunArgs {

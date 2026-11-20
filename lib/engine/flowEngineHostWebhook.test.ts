@@ -3,7 +3,7 @@ import { assignTestDatabase } from "../../tests/helpers/testDatabase";
 
 assignTestDatabase();
 
-const { FlowEngine } = await import("./flowEngine");
+const { FlowEngine } = await import("./flowEngine/flowEngine");
 
 describe("FlowEngine.handleHostEvent", () => {
   const engine = new FlowEngine();

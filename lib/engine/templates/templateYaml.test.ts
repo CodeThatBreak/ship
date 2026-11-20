@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { exportTemplateYaml, parseTemplateYaml, YamlTemplateError } from "./templateYaml";
+import { exportTemplateYaml, parseTemplateYaml } from "./templateYaml";
+import { YamlTemplateError } from "./yamlTemplateError";
 
 describe("parseTemplateYaml", () => {
   it("parses nodes and edges from the SDLC fixture shape", () => {

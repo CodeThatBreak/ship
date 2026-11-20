@@ -1,6 +1,6 @@
 import "server-only";
 
-import type { AgentDef } from "../../declarativeSchemas";
+import type { AgentDef } from "../../schemas/declarativeSchemas";
 
 /**
  * The split directive (agent-node split plan §2.2): the short static block a

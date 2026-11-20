@@ -13,7 +13,7 @@ process.env.DATABASE_PATH = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'dev
 
 await import('../../registry');
 const { PlanContextBlocks } = await import('./planContext');
-import type { PlanStepRow } from '../../../runtime/planStepStore';
+import type { PlanStepRow } from '../../../runtime/planStepStore/types/planStep';
 import type { PlanBranch, PlanStep } from './schema';
 import type { FlowCtx, FlowContextHelper, NodeSupport } from '../../shared/nodeSharedExports';
 import type { PlanStore } from './planStore';

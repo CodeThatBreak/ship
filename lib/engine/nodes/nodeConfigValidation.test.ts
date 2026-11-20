@@ -3,8 +3,9 @@ import { describe, expect, it } from "vitest";
 const { nodeRegistry } = await import("./registry");
 const { AgentTemplateNode } = await import("./kinds/agent/agentTemplateNode");
 const { DecisionTemplateNode } = await import("./kinds/decision/decisionNode");
-const { parseDeclarativeConfig, DecisionDefSchema } = await import("./declarativeSchemas");
-import type { DecisionDef } from "./declarativeSchemas";
+const { parseDeclarativeConfig } = await import("./declarativeConfigParser");
+const { DecisionDefSchema } = await import("./schemas/declarativeSchemas");
+import type { DecisionDef } from "./schemas/declarativeSchemas";
 
 describe("parseRunConfig — built-in nodes", () => {
   it("rejects poll_interval_sec below the schema minimum", async () => {

@@ -3,7 +3,8 @@ import "server-only";
 import { db } from "../../db/app";
 import { NODE_KEYS } from "../constants/nodeKeys";
 import { stepFlows } from "../runtime/fanout/stepFlowManager";
-import { planSteps, type PlanStepInput } from "../runtime/planStepStore";
+import { planSteps } from "../runtime/planStepStore";
+import type { PlanStepInput } from "../runtime/planStepStore/types/planStep";
 import type { FlowPlanStepHost } from "./types/flowPlanStepHost";
 
 /**

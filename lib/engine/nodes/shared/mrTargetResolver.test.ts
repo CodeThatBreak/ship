@@ -12,7 +12,7 @@ const { db } = await import("../../../db/app");
 
 beforeAll(resetTestDatabase);
 const { branchStore } = await import("../kinds/build/branchStore");
-const { MrTargetResolver } = await import('./mrTargetResolver');
+const { MrTargetResolver } = await import('./mrTargetResolver/mrTargetResolver');
 const { NodeSupport } = await import('./nodeSupport');
 const { engineParts } = await import('@/lib/composition/container');
 
