@@ -121,7 +121,7 @@ export class FlowReadModel {
         childFlowById.set(child.id, child);
       }
       for (const node of await db.rows.all(NodeRow,
-        `SELECT id, flow_id AS "flowId", node_key AS "nodeKey", type, status, attempt_id AS "attemptId", agent_id AS "agentId", agent_ref AS "agentRef", session_id AS "sessionId", prompt_override AS "promptOverride", label, config, join_mode AS "joinMode", input, output, created_at AS "createdAt", updated_at AS "updatedAt" FROM nodes WHERE flow_id IN (${placeholders}) ORDER BY created_at`, ...childFlowIds)) {
+        `SELECT id, flow_id AS "flowId", node_key AS "nodeKey", type, status, attempt_id AS "attemptId", agent_id AS "agentId", agent_ref AS "agentRef", session_id AS "sessionId", label, config, join_mode AS "joinMode", input, output, created_at AS "createdAt", updated_at AS "updatedAt" FROM nodes WHERE flow_id IN (${placeholders}) ORDER BY created_at`, ...childFlowIds)) {
         const list = childNodesByFlowId.get(node.flowId);
         if (list) list.push(node);
         else childNodesByFlowId.set(node.flowId, [node]);
@@ -180,7 +180,7 @@ export class FlowReadModel {
     });
     const ntOf = buildNodeTemplateIndex(ntRows as NodeTemplateRow[]);
 
-    const nodeRows = (await db.rows.all(NodeRow, `SELECT id, flow_id AS "flowId", node_key AS "nodeKey", type, status, attempt_id AS "attemptId", agent_id AS "agentId", agent_ref AS "agentRef", session_id AS "sessionId", prompt_override AS "promptOverride", label, config, join_mode AS "joinMode", input, output, created_at AS "createdAt", updated_at AS "updatedAt" FROM nodes WHERE flow_id=$1`, id))
+    const nodeRows = (await db.rows.all(NodeRow, `SELECT id, flow_id AS "flowId", node_key AS "nodeKey", type, status, attempt_id AS "attemptId", agent_id AS "agentId", agent_ref AS "agentRef", session_id AS "sessionId", label, config, join_mode AS "joinMode", input, output, created_at AS "createdAt", updated_at AS "updatedAt" FROM nodes WHERE flow_id=$1`, id))
       .sort((a, b) => order.indexOf(a.nodeKey) - order.indexOf(b.nodeKey));
 
     const artifactsByNodeId = new Map<string, ArtifactRow[]>();

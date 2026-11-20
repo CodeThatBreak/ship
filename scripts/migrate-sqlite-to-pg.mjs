@@ -215,7 +215,7 @@ const TABLES = [
   ["node", "nodes", (r) => ({
     id: r.id, flowId: r.flow_id, nodeKey: r.node_key, type: r.type, status: r.status,
     attemptId: r.attempt_id, agentId: r.agent_id, agentRef: r.agent_ref,
-    sessionId: r.session_id, promptOverride: r.prompt_override, label: r.label,
+    sessionId: r.session_id, label: r.label,
     config: json(r.config, `node ${r.id}.config`),
     joinMode: r.join_mode,
     input: json(r.input, `node ${r.id}.input`),

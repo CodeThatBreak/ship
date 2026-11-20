@@ -1,6 +1,11 @@
 import "server-only";
 
 import { resolveTemplate } from "../nodes/kinds/resolve/promptTemplate";
+import { AgentOutputError } from "../nodes/shared/agent/outputError/outputErrorExports";
+import {
+  PLAN_TURN_OUTPUT_JSON_SCHEMA,
+} from "../nodes/kinds/plan/schema";
+import { REVIEW_COMMENTS_JSON_SCHEMA } from "../nodes/kinds/review/reviewComments";
 
 /**
  * The default prompt templates as an explicit three-part split:
@@ -20,11 +25,14 @@ import { resolveTemplate } from "../nodes/kinds/resolve/promptTemplate";
  *
  * The blocks compose back to the exact strings that were hardcoded in the
  * pre-Phase-2 `nodes.ts` and carried verbatim through earlier phases:
- * `composeTemplate` joins body + blocks with blank lines. The plan-family and
- * pipeline_fix compositions are byte-identical to those strings; review and
- * resolve now assemble the body first (previously buried mid-template and
- * DUPLICATED — `internalSuffix`'s prefix-strip failed for them because the
- * body placeholder is not the template's first line).
+ * `composeTemplate` joins body + blocks with blank lines. The pipeline_fix
+ * composition is byte-identical to that string; review and resolve assemble
+ * the body first (previously buried mid-template and DUPLICATED —
+ * `internalSuffix`'s prefix-strip failed for them because the body placeholder
+ * is not the template's first line). The plan-family and review output
+ * contracts are NOT hand-authored: their contract blocks are the schema-
+ * generated `AgentOutputError.directive()` (step 05) — the same text the run
+ * path appends, so the advertised schema can never drift from the validator.
  */
 
 export interface PromptBlock {
@@ -68,17 +76,9 @@ export const DEFAULT_PROMPT_TEMPLATES: Record<string, PromptTemplate> = {
     ].join("\n"),
     internalBlocks: [
       { kind: "data", text: `{{context}}` },
-      {
-        kind: "contract",
-        text: [
-          `Return a single JSON object ONLY — no prose before or after, no code fences (PlanTurnOutput):`,
-          `{`,
-          `  "reply": "<what you did or answered — shown in the chat>",`,
-          `  "plan": { "markdown": "...", "steps": [...], "branches": [...] }   // omit or null until you publish the first plan version`,
-          `}`,
-          `Use at most one of plan, subPlan, subPlanPatch — on the first plan run use "plan" only when publishing.`,
-        ].join("\n"),
-      },
+      // the schema-generated directive (step 05) — byte-identical to the one
+      // the plan retry prompt appends (PlanOutputContract.turnRetryPrompt)
+      { kind: "contract", text: AgentOutputError.directive(PLAN_TURN_OUTPUT_JSON_SCHEMA) },
       {
         kind: "rules",
         text: [
@@ -90,7 +90,7 @@ export const DEFAULT_PROMPT_TEMPLATES: Record<string, PromptTemplate> = {
           `- each step "files" lists the exact paths it touches; use [] when no files`,
           `- every step "branch" must be null (simple plans are single-branch)`,
           `- do NOT add any fields not listed above`,
-          `- your entire response must be parseable as a single JSON object`,
+          `- use at most one of plan, subPlan, subPlanPatch — on the first plan run use "plan" only when publishing`,
           `- you may reply without "plan" while clarifying — publish with "plan" when the checklist is ready`,
         ].join("\n"),
       },
@@ -118,21 +118,14 @@ export const DEFAULT_PROMPT_TEMPLATES: Record<string, PromptTemplate> = {
       `- omit "plan" for questions, critiques, status requests — do NOT echo the plan back unchanged`,
       `- when "plan" IS present it must be the COMPLETE plan response — untouched branches are returned byte-identical; reuse existing step ids so unchanged`,
       `  steps keep their identity`,
+      `- use at most one of plan, subPlan, subPlanPatch — whole-plan turns use "plan" only when publishing`,
       `- the "Current checklist" in your context may include developer hand edits — treat them as`,
       `  intent and preserve them unless the message changes them`,
     ].join("\n"),
     internalBlocks: [
-      {
-        kind: "contract",
-        text: [
-          `Return a single JSON object ONLY — no prose, no code fences (PlanTurnOutput):`,
-          `{`,
-          `  "reply": "<what you did or answered, in plain text for the developer>",`,
-          `  "plan": { "markdown": "...", "steps": [...], "branches": [...] }   // omit or null when not changing the plan`,
-          `}`,
-          `Use at most one of plan, subPlan, subPlanPatch — whole-plan turns use "plan" only when publishing.`,
-        ].join("\n"),
-      },
+      // the schema-generated directive (step 05) — the same PlanTurnOutput
+      // contract the plan retry prompt re-states
+      { kind: "contract", text: AgentOutputError.directive(PLAN_TURN_OUTPUT_JSON_SCHEMA) },
     ],
     variables: ["feedback", "context"],
     mode: "plan",
@@ -172,31 +165,22 @@ export const DEFAULT_PROMPT_TEMPLATES: Record<string, PromptTemplate> = {
         ].join("\n"),
       },
       { kind: "data", text: `## Current steps\n{{currentSteps}}` },
-      {
-        kind: "contract",
-        text: [
-          `Return a single JSON object ONLY — no prose before or after, no code fences (PlanTurnOutput):`,
-          `{`,
-          `  "reply": "<what you changed on this branch — shown in chat>",`,
-          `  "subPlanPatch": { "markdown"?, "upsertSteps"?, "removeStepIds"? }   // preferred for iterative refines`,
-          `  // OR "subPlan": { "markdown": "...", "steps": [...] } for a full rewrite of THIS branch`,
-          `}`,
-          `Never include "plan" on branch turns — patch or subPlan only. Use at most one publish field.`,
-        ].join("\n"),
-      },
+      // the schema-generated directive (step 05) — the same PlanTurnOutput
+      // contract the plan retry prompt re-states on branch turns
+      { kind: "contract", text: AgentOutputError.directive(PLAN_TURN_OUTPUT_JSON_SCHEMA) },
       {
         kind: "rules",
         text: [
           `Rules:`,
           `- your output replaces ONLY the \`{{branch}}\` sub-plan — other branches are planned elsewhere and your response must not affect them`,
           `- prefer "subPlanPatch" for small changes; use "subPlan" only for a full branch rewrite`,
+          `- use at most one publish field — subPlanPatch or subPlan, never both`,
           `- never emit a whole "plan" object on branch turns`,
           `- the branch scope and file list above are the contract: keep the sub-plan inside them; if the feedback seems to require going outside the scope, keep the change minimal and say so in the first step's "detail"`,
           `- "steps" is REQUIRED — non-empty, ordered; unique short ids (s1, s2, …) — reuse the existing ids of unchanged steps so they keep their identity (the diff is id-based)`,
           `- each step "files" lists exact paths; reuse the current steps where they are still correct — don't rewrite what doesn't need to change`,
           `- the "Current steps" list may include developer hand edits — treat them as intent and preserve them unless the feedback changes them`,
           `- do NOT add any fields not listed above`,
-          `- your entire response must be parseable as a single JSON object`,
         ].join("\n"),
       },
     ],
@@ -254,22 +238,6 @@ export const DEFAULT_PROMPT_TEMPLATES: Record<string, PromptTemplate> = {
     variables: ["ticket", "plan", "branch", "mode", "instructions", "step_section", "context_pack"],
     mode: "agent",
   },
-  commit_fix: {
-    label: "Commit/push fix",
-    description:
-      "Sent to the build agent when committing or pushing the build branch failed (e.g. a pre-push hook type check) so it fixes the code and re-pushes.",
-    userTemplate: [
-      `Committing or pushing branch {{branch}} failed with the error below.`,
-      `Fix the underlying problem in the code, then commit and push to the SAME branch ({{branch}}).`,
-      `Do NOT open a merge request.`,
-      `{{instructions}}`,
-      ``,
-      `Error:\n{{error}}`,
-    ].join("\n"),
-    internalBlocks: [],
-    variables: ["branch", "error", "instructions"],
-    mode: "agent",
-  },
   merge_fix: {
     label: "Merge-conflict fix (fan-out step child)",
     description:
@@ -321,9 +289,12 @@ export const DEFAULT_PROMPT_TEMPLATES: Record<string, PromptTemplate> = {
         kind: "contract",
         text: [
           `You are a senior engineer reviewing a merge request for {{ticket_type}} {{ticket_key}}.`,
-          `Review the diff below. Return a JSON array ONLY, no prose, of inline comments:`,
-          `[{"file": "path", "line": <new-file line number>, "body": "comment"}]`,
+          `Review the diff below.`,
           `Only flag genuine issues (bugs, correctness, security, meaningful maintainability). If none, return [].`,
+          ``,
+          // the schema-generated directive (step 05) — the review response is
+          // an ARRAY, so the directive carries the "array" shape
+          AgentOutputError.directive(REVIEW_COMMENTS_JSON_SCHEMA, "array"),
         ].join("\n"),
       },
       { kind: "data", text: `Ticket context:\n{{ticket_summary}}\n\nPRD:\n{{ticket_prd}}` },

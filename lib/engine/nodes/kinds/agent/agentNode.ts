@@ -24,6 +24,9 @@ import { validateStandardAgentOutput } from '../../shared/agentOutput/utils/stan
 import { AGENT_OUTPUT_ERROR, AgentOutputError } from '../../shared/agent/outputError/outputErrorExports';
 import { AgentDefSchema, type AgentDef } from '../../declarativeSchemas';
 import { untrustedData } from '../../../prompts/untrustedData';
+import { buildFlowContext } from '../../../context/flowVariables';
+import type { RenderedBlock } from '../../../prompts/promptLibrary';
+import { nodeRoles, type NodePromptPreview, type PromptPreviewParams } from '../../shared/nodeSharedExports';
 import type { SplitUnit } from '../../shared/nodeSharedExports';
 import { splitDirective } from './splitDirective';
 import { AGENT_CONFIG_FIELDS } from './constants/agentConstantsExports';
@@ -108,6 +111,40 @@ export class AgentTemplateNode extends DeclarativeAgentNode<AgentDef, Record<str
    * clickable chips.
    */
   override readonly configFields = AGENT_CONFIG_FIELDS;
+
+  /**
+   * Live prompt preview (step 05): the composed prompt a fresh run would
+   * send, built through the SAME `getPrompt`/`composePrompt` path `run()`
+   * uses so the preview is byte-identical to the run bytes — the config
+   * prompt rendered against the flow vars, plus the contract/split
+   * directives as the display blocks. The recorded run input is not
+   * consulted here (the modal's last-run overlay shows that separately).
+   * Returns null when no prompt is configured — nothing would be sent.
+   */
+  async previewPrompt(ctx: FlowCtx, node: NodeRow | null, params: PromptPreviewParams): Promise<NodePromptPreview | null> {
+    void params;
+    const config = await nodeRoles.previewConfig(this, node);
+    const cfg = this.runConfig(config);
+    if (!(typeof cfg.prompt === "string" && cfg.prompt.trim())) return null;
+    const { prompt, body } = await this.getPrompt(ctx, {}, config);
+    const blocks: RenderedBlock[] = [];
+    if (cfg.output === AGENT_OUTPUT_FORMAT.JSON) {
+      // the same directive bytes composePrompt appends at run time
+      const hasSchema = cfg.output_schema != null && typeof cfg.output_schema === "object";
+      blocks.push({
+        kind: "contract",
+        text: AgentOutputError.directive(hasSchema ? z.toJSONSchema(this.outputSchema) : null),
+      });
+    }
+    if (cfg.split) {
+      blocks.push({ kind: "rules", text: splitDirective(cfg.split) });
+    }
+    return {
+      templateKey: this.declarativeKind,
+      configBody: cfg.prompt,
+      assembly: { body, blocks, final: prompt },
+    };
+  }
 
   /**
    * The split source port (agent-node split plan §2.1, Phase 3): map the
@@ -215,11 +252,11 @@ export class AgentTemplateNode extends DeclarativeAgentNode<AgentDef, Record<str
     });
   }
 
-  private getPrompt(
+  private async getPrompt(
     ctx: FlowCtx,
     rawInput: Record<string, unknown>,
     config: Record<string, unknown>
-  ): { prompt: string; source: PromptSource } {
+  ): Promise<{ prompt: string; body: string; source: PromptSource }> {
     const cfg = this.runConfig(config);
     const { prompt: inputPrompt, model: _, ...inheritedInput } = rawInput;
     void _;
@@ -241,7 +278,9 @@ export class AgentTemplateNode extends DeclarativeAgentNode<AgentDef, Record<str
     // response must satisfy and the agent's error-envelope escape hatch (it
     // self-reports when it cannot comply — applyOutput recognizes the envelope)
     const promptWithoutContract = TemplateRenderer.render(template, {
-      ...TemplateRenderer.vars(ctx),
+      // the flow variable universe is async (it reads the nodes' outputs) —
+      // awaited, never spread as a promise
+      ...(await buildFlowContext(ctx)),
       input: Object.fromEntries(
         Object.entries(inheritedInput).map(([field, value]) => [
           field,
@@ -261,7 +300,7 @@ export class AgentTemplateNode extends DeclarativeAgentNode<AgentDef, Record<str
         ? PROMPT_SOURCE.CONFIG
         : PROMPT_SOURCE.DEFAULT;
 
-    return { prompt: this.composePrompt(promptWithoutContract, cfg), source };
+    return { prompt: this.composePrompt(promptWithoutContract, cfg), body: promptWithoutContract, source };
   }
 
   /**
@@ -290,7 +329,7 @@ export class AgentTemplateNode extends DeclarativeAgentNode<AgentDef, Record<str
     return composed.build();
   }
 
-  private getModel(ctx: FlowCtx, rawInput: Record<string, unknown>, config: Record<string, unknown>): string | null {
+  private async getModel(ctx: FlowCtx, rawInput: Record<string, unknown>, config: Record<string, unknown>): Promise<string | null> {
     const cfg = this.runConfig(config);
 
     const { model: inputModel } = rawInput;
@@ -299,7 +338,7 @@ export class AgentTemplateNode extends DeclarativeAgentNode<AgentDef, Record<str
     // the model override may itself be a {{...}} ref (an upstream node that
     // picks the model) — rendered against the flow context at run time
     const modelTemplate = runModel ?? cfg.model ?? null;
-    return modelTemplate ? TemplateRenderer.render(modelTemplate, TemplateRenderer.vars(ctx)).trim() : null;
+    return modelTemplate ? TemplateRenderer.render(modelTemplate, await buildFlowContext(ctx)).trim() : null;
   }
 
   /**
@@ -339,8 +378,8 @@ export class AgentTemplateNode extends DeclarativeAgentNode<AgentDef, Record<str
   async run(ctx: FlowCtx, rawInput: Record<string, unknown>, config: Record<string, unknown>): Promise<RunOutcome> {
     const cfg = this.runConfig(config);
 
-    const model = this.getModel(ctx, rawInput, cfg);
-    const { prompt, source } = this.getPrompt(ctx, rawInput, cfg);
+    const model = await this.getModel(ctx, rawInput, cfg);
+    const { prompt, source } = await this.getPrompt(ctx, rawInput, cfg);
 
     const input: Record<string, unknown> = {
       ...rawInput,
@@ -372,7 +411,7 @@ export class AgentTemplateNode extends DeclarativeAgentNode<AgentDef, Record<str
     const node = await this.node(ctx);
 
     const prompt = this.composePrompt(
-      TemplateRenderer.render(content, TemplateRenderer.vars(ctx)),
+      TemplateRenderer.render(content, await buildFlowContext(ctx)),
       cfg,
     );
 

@@ -15,6 +15,8 @@ await import('../../registry');
 const { PlanPromptBuilder } = await import('./planPrompt');
 const { planBodyDiverged } = await import('./planPrompt');
 const { DEFAULT_PROMPT_TEMPLATES } = await import('../../../prompts/promptDefaults');
+const { AgentOutputError } = await import('../../shared/agent/outputError/outputErrorExports');
+const { PLAN_TURN_OUTPUT_JSON_SCHEMA } = await import('./schema');
 import type { PlanBranch, PlanStep, PlanInput } from './schema';
 import type { NodeRow } from '../../../../db/rows';
 import type { FlowCtx, FlowContextHelper } from '../../shared/nodeSharedExports';
@@ -128,12 +130,14 @@ describe('PlanPromptBuilder.refineTurn — the conversation contract template (�
     expect(await makeBuilder('follow').refineTurn(ctx, 'msg')).toContain('"execution": "whole" or "steps"');
   });
 
-  it('the plan_refine template carries PlanTurnOutput in the locked contract block', () => {
+  it('the plan_refine template carries the generated PlanTurnOutput directive in the locked contract block', () => {
     const tpl = DEFAULT_PROMPT_TEMPLATES.plan_refine;
     expect(tpl.variables).toEqual(['feedback', 'context']);
     expect(tpl.internalBlocks).toHaveLength(1);
     expect(tpl.internalBlocks[0]?.kind).toBe('contract');
-    expect(tpl.internalBlocks[0]?.text).toContain('PlanTurnOutput');
+    // step 05: the contract block IS the schema-generated directive — the
+    // same bytes the plan retry prompt appends (see generatedDirectives.test)
+    expect(tpl.internalBlocks[0]?.text).toBe(AgentOutputError.directive(PLAN_TURN_OUTPUT_JSON_SCHEMA));
     expect(tpl.userTemplate).toContain('The conversation continues');
     // the base `plan` template body is untouched by this phase
     expect(DEFAULT_PROMPT_TEMPLATES.plan.userTemplate.startsWith('You are planning the implementation of a {{ticket_type}}')).toBe(true);

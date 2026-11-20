@@ -62,14 +62,22 @@ export class AgentOutputError extends Error {
    * the schema the response must satisfy, and the standard error envelope as
    * the agent's escape hatch — so a blocked agent can convey why instead of
    * producing garbage output we would only fail on a second later.
+   *
+   * `shape` names the top-level JSON shape the contract expects — `"object"`
+   * (the default; every existing call site) or `"array"` (the review comment
+   * list). The object path's bytes are frozen: plan/resolve/agent retry
+   * prompts are compared against them. Only the "one JSON …" noun changes for
+   * array contracts; the schema block and the error-envelope instruction are
+   * identical for both.
    */
-  static directive(outputSchema: unknown): string {
+  static directive(outputSchema: unknown, shape: "object" | "array" = "object"): string {
+    const noun = shape === "array" ? "array" : "object";
     const schemaBlock = outputSchema == null
       ? ""
       : `\n  2. It must satisfy this JSON Schema:\n${JSON.stringify(outputSchema, null, 2).replace(/^/gm, "     ")}\n`;
     return (
       `RESPONSE FORMAT\n` +
-      `  1. Your entire response must be exactly one JSON object — no prose before or after.\n` +
+      `  1. Your entire response must be exactly one JSON ${noun} — no prose before or after.\n` +
       schemaBlock +
       `  3. If you cannot produce JSON that satisfies the contract — the request is missing input, ambiguous, or impossible — respond instead with this error envelope, exactly:\n` +
       `     ${AGENT_ERROR_ENVELOPE_EXAMPLE}\n`

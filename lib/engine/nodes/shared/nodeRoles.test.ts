@@ -90,16 +90,15 @@ describe("NodeRoleRouter — conversational (chatOnly) routing", () => {
 });
 
 describe("NodeRoleRouter — prompt preview routing", () => {
-  it("routes the serving built-ins, declines kinds without one", () => {
-    for (const def of [planDef]) {
+  it("routes the serving built-ins and the declarative agent/decision kinds, declines the rest", () => {
+    for (const def of [planDef, agentDef, decisionDef]) {
       expect(nodeRoles.promptPreviewerOf(def)).not.toBeNull();
     }
-    // agent kinds publish no preview yet (declarative preview pending I10)
-    expect(nodeRoles.promptPreviewerOf(agentDef)).toBeNull();
+    // start/http/script have no prompt surface (step 05: agent/decision
+    // publish theirs via the shared assembly)
     expect(nodeRoles.promptPreviewerOf(startDef)).toBeNull();
     expect(nodeRoles.promptPreviewerOf(httpDef)).toBeNull();
     expect(nodeRoles.promptPreviewerOf(scriptDef)).toBeNull();
-    expect(nodeRoles.promptPreviewerOf(decisionDef)).toBeNull();
   });
 });
 

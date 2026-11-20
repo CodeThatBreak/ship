@@ -236,7 +236,6 @@ model Node {
   agentId        String?    @map("agent_id")
   agentRef       String?    @map("agent_ref")
   sessionId      String?    @map("session_id")
-  promptOverride String?    @map("prompt_override")
   label          String?
   config         Json?
   joinMode       String?    @map("join_mode")

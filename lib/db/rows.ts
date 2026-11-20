@@ -162,7 +162,6 @@ export const NodeRow = z.object({
   /** runtime agent handle (cloud agent id / local session id) */
   agentRef: z.string().nullable(),
   sessionId: z.string().nullable(),
-  promptOverride: z.string().nullable(),
   /** display name override from the template instance */
   label: z.string().nullable(),
   /** effective config snapshot (class defaults ← app settings ← template ← flow), merged at creation */

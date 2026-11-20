@@ -12,7 +12,13 @@ export const reviewCommentItemSchema = z.object({
 
 export type ReviewCommentItem = z.infer<typeof reviewCommentItemSchema>;
 
-const reviewCommentsSchema = z.array(reviewCommentItemSchema);
+/** The review's response contract: the comment ARRAY the directive advertises
+ *  and the validator checks (one byte-identical pair — step 05). */
+export const ReviewCommentsSchema = z.array(reviewCommentItemSchema);
+
+/** JSON Schema generated from `ReviewCommentsSchema` — carried into
+ *  `AgentOutputError.directive(schema, "array")` on the review prompt. */
+export const REVIEW_COMMENTS_JSON_SCHEMA: unknown = z.toJSONSchema(ReviewCommentsSchema);
 
 export type ParseReviewCommentsResult = {
   comments: ReviewCommentItem[];
@@ -33,7 +39,7 @@ export const parseReviewComments = (text: string): ParseReviewCommentsResult => 
       warning: "Review output had no parseable JSON comment array.",
     };
   }
-  const result = reviewCommentsSchema.safeParse(parsed);
+  const result = ReviewCommentsSchema.safeParse(parsed);
   if (!result.success) {
     return {
       comments: [],

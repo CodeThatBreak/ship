@@ -85,6 +85,59 @@ describe("PromptPreview.allFor — the composer's bulk prompt read", () => {
   });
 });
 
+describe("PromptPreview divergesReason — why the last run diverges (step 05)", () => {
+  const setNodeInput = async (flowId: string, nodeKey: string, input: unknown): Promise<void> => {
+    await db.run(
+      `UPDATE nodes SET input=$1 WHERE flow_id=$2 AND node_key=$3`,
+      JSON.stringify(input),
+      flowId,
+      nodeKey,
+    );
+  };
+
+  const planPreview = async (flowId: string) => {
+    const result = await promptPreview.previewFor(
+      flowId,
+      new URL(`http://fixture.local/?node=${encodeURIComponent(NODE_KEYS.PLAN)}`),
+    );
+    if (!result.ok) throw new Error("expected an ok preview");
+    return result.payload;
+  };
+
+  it("only the run-data slots differ → run-data", async () => {
+    const flowId = await seedFlow(20);
+    await seedNode(flowId, NODE_KEYS.PLAN, NODE_KEYS.PLAN);
+    const { final } = await planPreview(flowId);
+    // the recorded run prompt = the same resolution + the live context block
+    await setNodeInput(flowId, NODE_KEYS.PLAN, { prompt: `${final}\n\nCONTEXT-PACK-DATA` });
+
+    const payload = await planPreview(flowId);
+    expect(payload.diverges).toBe(true);
+    expect(payload.divergesReason).toBe("run-data");
+  });
+
+  it("a template section moved → template-edited", async () => {
+    const flowId = await seedFlow(21);
+    await seedNode(flowId, NODE_KEYS.PLAN, NODE_KEYS.PLAN);
+    await setNodeInput(flowId, NODE_KEYS.PLAN, { prompt: "an old prompt from before the template edit" });
+
+    const payload = await planPreview(flowId);
+    expect(payload.diverges).toBe(true);
+    expect(payload.divergesReason).toBe("template-edited");
+  });
+
+  it("identical → no divergence, no reason", async () => {
+    const flowId = await seedFlow(22);
+    await seedNode(flowId, NODE_KEYS.PLAN, NODE_KEYS.PLAN);
+    const { final } = await planPreview(flowId);
+    await setNodeInput(flowId, NODE_KEYS.PLAN, { prompt: final });
+
+    const payload = await planPreview(flowId);
+    expect(payload.diverges).toBe(false);
+    expect(payload.divergesReason).toBeUndefined();
+  });
+});
+
 describe("PromptPreview.previewFor — branch-scoped plan (CR-049)", () => {
   it("the pipeline node preview assembles the fix-run body", async () => {
     const flowId = await seedFlow(10);

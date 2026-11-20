@@ -228,10 +228,11 @@ export class PlanNode extends AgentRunNode<PlanInput, PlanOutput> {
         priorInput.success ? priorInput.data : null,
       );
     const attemptId = node.attemptId;
-    // Todo: Revisit this, there should be only one source of truth for main agent id
-    const mainAgentId = opts.branch
-      ? (node.agentId ?? (await this.support.lastAgentId(node.id)))
-      : null;
+    // One source of truth for the main agent id (step 05): the runs table via
+    // `lastAgentId` — the node-row `agent_id` mirror lags the run row, so it
+    // is not consulted here. (Removing the mirror column itself is step 06/07
+    // scope; `PlanAgentSessions.recordAgent` still writes it for its readers.)
+    const mainAgentId = opts.branch ? (await this.support.lastAgentId(node.id)) : null;
 
     const followUpOnAgent = await this.sessions.resolveFollowUp(node, opts.branch);
 

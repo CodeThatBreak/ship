@@ -230,7 +230,16 @@ describe("sendChat — a refine turn obeys the terminal contract", () => {
       async () => (await nodeStatus(flowId, "topic_agent")) === "done" && (await nodeStatus(flowId, "paragraph_agent")) === "done",
       "the refined node and its downstream successor",
     );
-    expect(stub.prompts.some((p) => p.startsWith("Write a paragraph on react"))).toBe(true);
+    // the inherited upstream value rides the untrusted-data fence (step 05
+    // Q3): the body renders, then the fenced block carrying the topic
+    expect(
+      stub.prompts.some(
+        (p) =>
+          p.startsWith("Write a paragraph on") &&
+          p.includes('<untrusted-data source="input.topic">') &&
+          p.includes("\nreact\n"),
+      ),
+    ).toBe(true);
     expect((await recordedInput(flowId, "paragraph_agent")).topic).toBe("react");
   });
 
@@ -266,7 +275,15 @@ describe("runNodeManual — agent nodes inherit the upstream input", () => {
     void flowEngine.runNodeManual(flowId, "paragraph_agent");
 
     await until(async () => (await nodeStatus(flowId, "paragraph_agent")) === "done", "the manual run");
-    expect(stub.prompts.some((p) => p.startsWith("Write a paragraph on react"))).toBe(true);
+    // the inherited upstream value rides the untrusted-data fence (step 05 Q3)
+    expect(
+      stub.prompts.some(
+        (p) =>
+          p.startsWith("Write a paragraph on") &&
+          p.includes('<untrusted-data source="input.topic">') &&
+          p.includes("\nreact\n"),
+      ),
+    ).toBe(true);
     expect((await recordedInput(flowId, "paragraph_agent")).topic).toBe("react");
   });
 });

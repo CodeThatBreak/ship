@@ -48,3 +48,14 @@ export type DecisionAgentChoice = z.infer<typeof DecisionAgentChoice>;
  *  from the contract the pipeline validates against (byte-identical pair). */
 export const DECISION_CHOICE_JSON_SCHEMA: unknown = z.toJSONSchema(DecisionAgentChoice);
 
+/**
+ * The per-run model override an agent-source decision accepts (prompt audit
+ * #11 — the same override every other agent kind honors): a non-empty
+ * trimmed string from the loose run record, else null. Parsed, not cast —
+ * `DecisionRunInput` is a loose record.
+ */
+export const decisionModelOverride = (rawInput: Record<string, unknown>): string | null => {
+  const parsed = z.string().trim().min(1).safeParse(rawInput.model);
+  return parsed.success ? parsed.data : null;
+};
+

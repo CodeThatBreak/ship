@@ -16,7 +16,8 @@ import { AgentOutputError } from "../../shared/agent/outputError/outputErrorExpo
 import { AgentOutputPipeline } from "../../shared/agentOutput/agentOutputPipeline";
 import { retryFeedbackBody } from "../../shared/agentOutput/utils/retryFeedback";
 import { validateStandardAgentOutput } from "../../shared/agentOutput/utils/standardOutput";
-import { DecisionRunInput, decisionOutputContract, DecisionAgentChoice, DECISION_CHOICE_JSON_SCHEMA } from "./schema";
+import { DecisionRunInput, decisionModelOverride, decisionOutputContract, DecisionAgentChoice, DECISION_CHOICE_JSON_SCHEMA } from "./schema";
+import { nodeRoles, type NodePromptPreview, type PromptPreviewParams } from "../../shared/nodeSharedExports";
 
 // ── helpers ──────────────────────────────────────────────────────────────────
 
@@ -138,6 +139,32 @@ export class DecisionTemplateNode extends DeclarativeAgentNode<DecisionDef, Reco
   }
 
   /**
+   * Live prompt preview (step 05): the agent-source decision prompt a fresh
+   * run would send — `buildAgentPrompt` over the flow context plus the
+   * inherited input (the node's recorded input minus the engine-owned
+   * `source` key, the same shape `run()` passes), so preview === run bytes.
+   * The decision prompt carries a built-in fallback question, so a def
+   * without a configured question still previews.
+   */
+  async previewPrompt(ctx: FlowCtx, node: NodeRow | null, params: PromptPreviewParams): Promise<NodePromptPreview | null> {
+    void params;
+    const cfg = this.runConfig(await nodeRoles.previewConfig(this, node));
+    const flowCtx = await buildFlowContext(ctx);
+    const recorded =
+      node?.input != null && typeof node.input === "object" && !Array.isArray(node.input)
+        ? (node.input as Record<string, unknown>)
+        : {};
+    const { source: _, ...inherited } = recorded;
+    void _;
+    const prompt = this.buildAgentPrompt(cfg, { ...flowCtx, input: inherited });
+    return {
+      templateKey: this.declarativeKind,
+      configBody: cfg.question || null,
+      assembly: { body: prompt, blocks: [], final: prompt },
+    };
+  }
+
+  /**
    * The decision's published output fields: chosen / rationale + the
    * pass-down variables (each maps a field name → a JSONata expression over
    * the flow context). Downstream nodes' variable chips read from this.
@@ -220,19 +247,23 @@ export class DecisionTemplateNode extends DeclarativeAgentNode<DecisionDef, Reco
     // the previous node's output (the node declares no input contract).
     const inherited = { ...(rawInput ?? {}) };
     delete inherited.source;
+    // the per-run model override, resolved ONCE — the main run and the
+    // pipeline's bounded retry turn pass the SAME resolved model (prompt
+    // audit #11; null = the flow/default model)
+    const model = decisionModelOverride(rawInput ?? {});
     return this.execute(ctx, {
-      input: { ...rawInput, source: "agent" },
+      input: { ...rawInput, source: "agent", model },
       prompt: this.buildAgentPrompt(cfg, { ...flowCtx, input: inherited }),
       agent: {
         mode: "plan",
         name: `${this.label} ${ctx.task.key}`,
-        model: null, // a decision is a judgment call — it uses the flow/default model
+        model,
         startingRef: ctx.flow.mrBranch ?? undefined,
         settingSources: cfg.mcp_sources,
       },
       label: `${this.label.toLowerCase()} decision`,
       finalize: async (runResult) => {
-        const parsed = await this.pickFromAgent(ctx, node, cfg, runResult.result ?? "");
+        const parsed = await this.pickFromAgent(ctx, node, cfg, runResult.result ?? "", model);
         return await this.applyPick(ctx, [parsed.choice], parsed.rationale, passed);
       },
     });
@@ -322,7 +353,7 @@ export class DecisionTemplateNode extends DeclarativeAgentNode<DecisionDef, Reco
    * contract with its bounded feedback retry (`retryBudget`), the typed
    * events on every outcome.
    */
-  private async pickFromAgent(ctx: FlowCtx, node: NodeRow, cfg: DecisionDef, text: string): Promise<{ choice: string; rationale: string }> {
+  private async pickFromAgent(ctx: FlowCtx, node: NodeRow, cfg: DecisionDef, text: string, model: string | null): Promise<{ choice: string; rationale: string }> {
     return this.outputPipeline.run<{ choice: string; rationale: string }>({
       ctx,
       nodeId: node.id,
@@ -340,7 +371,8 @@ export class DecisionTemplateNode extends DeclarativeAgentNode<DecisionDef, Reco
               prompt,
               mode: "plan",
               name: `${this.label} ${ctx.task.key}`,
-              model: null, // a decision is a judgment call — it uses the flow/default model
+              // the SAME resolved model the main run started with (audit #11)
+              model,
               followUpOn: await this.support.lastAgentId(node.id),
               settingSources: cfg.mcp_sources,
             }),

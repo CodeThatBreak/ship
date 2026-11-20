@@ -53,6 +53,28 @@ import { FlowApprovalService } from './flow/flowApprovalService';
 
 export type { CreateFlowOptions };
 
+/**
+ * Built-in agent kinds whose retry REBUILDS the prompt from the current
+ * template + recorded vars (step 05 retry coherence — the plan pattern):
+ * their run input records the RENDERED final prompt, so replaying it verbatim
+ * would pin the retry to the template as it stood when the run failed. The
+ * recorded prompt keys are stripped and each def's run path re-resolves
+ * (build/review/resolve/pipeline all fall back to `prompts.resolve`/
+ * `assemblePrompt` when `input.prompt` is empty). Declarative agent/http/
+ * script retries keep replaying their recorded prompt; plan retries route
+ * through the chat-first branch above.
+ */
+const PROMPT_REBUILD_RETRY_KEYS: ReadonlySet<string> = new Set([
+  NODE_KEYS.BUILD,
+  NODE_KEYS.STEP_BUILD,
+  NODE_KEYS.REVIEW,
+  NODE_KEYS.RESOLVE,
+  NODE_KEYS.PIPELINE,
+]);
+
+/** The engine-owned recorded-prompt keys a prompt-rebuilding retry strips. */
+const RECORDED_PROMPT_KEYS: readonly string[] = ["prompt", "promptIsBody", "prompt_source"];
+
 /** Flow-owned tables, in FK-safe delete order (children before `flows`).
  *  Keep in sync with `FLOW_CHILD_TABLES` in scripts/lib/seed-db.mjs. */
 export const FLOW_CHILD_TABLES = [
@@ -632,7 +654,7 @@ export class FlowEngine {
   async keysOfType(flowId: string, defKey: string): Promise<string[]> {
     const g = await this.graph(flowId);
     if (g) return g.nodes.filter(n => n.defKey === defKey).map(n => n.key);
-    const nodeRows = await rows.all(NodeRow, `SELECT id, flow_id AS "flowId", node_key AS "nodeKey", type, status, attempt_id AS "attemptId", agent_id AS "agentId", agent_ref AS "agentRef", session_id AS "sessionId", prompt_override AS "promptOverride", label, config, join_mode AS "joinMode", input, output, created_at AS "createdAt", updated_at AS "updatedAt" FROM nodes WHERE flow_id=$1`, flowId);
+    const nodeRows = await rows.all(NodeRow, `SELECT id, flow_id AS "flowId", node_key AS "nodeKey", type, status, attempt_id AS "attemptId", agent_id AS "agentId", agent_ref AS "agentRef", session_id AS "sessionId", label, config, join_mode AS "joinMode", input, output, created_at AS "createdAt", updated_at AS "updatedAt" FROM nodes WHERE flow_id=$1`, flowId);
     return nodeRows.filter(n => n.type === defKey).map(n => n.nodeKey);
   }
 
@@ -698,7 +720,7 @@ export class FlowEngine {
     const g = await this.graph(flowId);
     const spec = g?.byKey.get(nodeKey);
     if (spec) return spec.defKey;
-    const n = await rows.get(NodeRow, `SELECT id, flow_id AS "flowId", node_key AS "nodeKey", type, status, attempt_id AS "attemptId", agent_id AS "agentId", agent_ref AS "agentRef", session_id AS "sessionId", prompt_override AS "promptOverride", label, config, join_mode AS "joinMode", input, output, created_at AS "createdAt", updated_at AS "updatedAt" FROM nodes WHERE flow_id=$1 AND node_key=$2`, flowId, nodeKey);
+    const n = await rows.get(NodeRow, `SELECT id, flow_id AS "flowId", node_key AS "nodeKey", type, status, attempt_id AS "attemptId", agent_id AS "agentId", agent_ref AS "agentRef", session_id AS "sessionId", label, config, join_mode AS "joinMode", input, output, created_at AS "createdAt", updated_at AS "updatedAt" FROM nodes WHERE flow_id=$1 AND node_key=$2`, flowId, nodeKey);
     return n?.type ?? nodeKey;
   }
 
@@ -832,7 +854,7 @@ export class FlowEngine {
     if (def.chainRole === NODE_KEYS.PLAN) {
       throw new ValidationError('The plan node only accepts input via POST /api/flows/:id/chat');
     }
-    const node = await rows.get(NodeRow, `SELECT id, flow_id AS "flowId", node_key AS "nodeKey", type, status, attempt_id AS "attemptId", agent_id AS "agentId", agent_ref AS "agentRef", session_id AS "sessionId", prompt_override AS "promptOverride", label, config, join_mode AS "joinMode", input, output, created_at AS "createdAt", updated_at AS "updatedAt" FROM nodes WHERE flow_id=$1 AND node_key=$2`, flowId, nodeKey);
+    const node = await rows.get(NodeRow, `SELECT id, flow_id AS "flowId", node_key AS "nodeKey", type, status, attempt_id AS "attemptId", agent_id AS "agentId", agent_ref AS "agentRef", session_id AS "sessionId", label, config, join_mode AS "joinMode", input, output, created_at AS "createdAt", updated_at AS "updatedAt" FROM nodes WHERE flow_id=$1 AND node_key=$2`, flowId, nodeKey);
     if (!node) throw new NotFoundError('node', nodeKey);
     // a failed entry node re-runs from the form — its recorded input never
     // satisfied the contract, so the retry path (recorded input) can't help
@@ -875,7 +897,7 @@ export class FlowEngine {
 
   /** Update a node instance's config layer (nodes.config), merging per key. */
   async setNodeConfig(flowId: string, nodeKey: string, config: Record<string, unknown>): Promise<void> {
-    const node = await rows.get(NodeRow, `SELECT id, flow_id AS "flowId", node_key AS "nodeKey", type, status, attempt_id AS "attemptId", agent_id AS "agentId", agent_ref AS "agentRef", session_id AS "sessionId", prompt_override AS "promptOverride", label, config, join_mode AS "joinMode", input, output, created_at AS "createdAt", updated_at AS "updatedAt" FROM nodes WHERE flow_id=$1 AND node_key=$2`, flowId, nodeKey);
+    const node = await rows.get(NodeRow, `SELECT id, flow_id AS "flowId", node_key AS "nodeKey", type, status, attempt_id AS "attemptId", agent_id AS "agentId", agent_ref AS "agentRef", session_id AS "sessionId", label, config, join_mode AS "joinMode", input, output, created_at AS "createdAt", updated_at AS "updatedAt" FROM nodes WHERE flow_id=$1 AND node_key=$2`, flowId, nodeKey);
     if (!node) throw new NotFoundError('node', nodeKey);
     if (node.status === 'running') throw new ConflictError("can't reconfigure a node while it is running");
     if (!config || typeof config !== 'object' || Array.isArray(config)) {
@@ -944,7 +966,7 @@ export class FlowEngine {
 
   /** Re-run a node after failure, using its recorded (schema-validated) input. */
   async retryNode(flowId: string, nodeKey: string): Promise<void> {
-    const node = await rows.get(NodeRow, `SELECT id, flow_id AS "flowId", node_key AS "nodeKey", type, status, attempt_id AS "attemptId", agent_id AS "agentId", agent_ref AS "agentRef", session_id AS "sessionId", prompt_override AS "promptOverride", label, config, join_mode AS "joinMode", input, output, created_at AS "createdAt", updated_at AS "updatedAt" FROM nodes WHERE flow_id=$1 AND node_key=$2`, flowId, nodeKey);
+    const node = await rows.get(NodeRow, `SELECT id, flow_id AS "flowId", node_key AS "nodeKey", type, status, attempt_id AS "attemptId", agent_id AS "agentId", agent_ref AS "agentRef", session_id AS "sessionId", label, config, join_mode AS "joinMode", input, output, created_at AS "createdAt", updated_at AS "updatedAt" FROM nodes WHERE flow_id=$1 AND node_key=$2`, flowId, nodeKey);
     if (!node) throw new NotFoundError('node', nodeKey);
     const def = await this.defOf(flowId, nodeKey);
     if (!def.retryable) throw new ValidationError(`cannot retry node ${nodeKey}`);
@@ -967,10 +989,16 @@ export class FlowEngine {
     await this.parts.events.lifecycle(flowId, nodeKey, `retrying ${nodeKey}`);
     await this.claimNode(flowId, nodeKey, 'retry');
     this.bg(flowId, nodeKey, async () => {
-      // a retried node re-runs on its recorded input; the pipeline gate
-      // self-heals (an already-green head finishes immediately) and a green
-      // gate then advances the template edges (review → debounced resolve)
-      await def.run(await this.ctx(flowId), recorded, await this.nodeConfigFor(flowId, nodeKey));
+      // a retried node re-runs on its recorded input — with the recorded
+      // prompt stripped for the prompt-rebuilding kinds (step 05 retry
+      // coherence): the run path REBUILDS the prompt from the CURRENT
+      // template + the recorded vars. The recorded prompt itself stays
+      // persisted for audit/preview only.
+      // the pipeline gate self-heals (an already-green head finishes
+      // immediately) and a green gate then advances the template edges
+      // (review → debounced resolve)
+      const runInput = this.rebuildRetryInput(def, recorded) as typeof recorded;
+      await def.run(await this.ctx(flowId), runInput, await this.nodeConfigFor(flowId, nodeKey));
       // a retried generic node that now succeeded advances the template
       // edges exactly like the engine's auto-start path
       const finalStatus = await this.nodeStatus(flowId, nodeKey);
@@ -984,6 +1012,16 @@ export class FlowEngine {
         await this.advanceFrom(flowId, nodeKey);
       }
     });
+  }
+
+  /** The input a retry runs on: the recorded input as-is, except the
+   *  prompt-rebuilding kinds (see the module constant) lose their recorded
+   *  prompt keys so the def's run path rebuilds from the current template. */
+  private rebuildRetryInput(def: NodeDefinition, recorded: unknown): unknown {
+    if (!PROMPT_REBUILD_RETRY_KEYS.has(def.key)) return recorded;
+    const stripped = { ...(recorded as Record<string, unknown>) };
+    for (const key of RECORDED_PROMPT_KEYS) delete stripped[key];
+    return stripped;
   }
 
   /** Plan retry: replay a recorded chat turn, or revert when nothing was recorded. */
@@ -1032,7 +1070,7 @@ export class FlowEngine {
    * and marks the node failed so it can be retried.
    */
   async cancelNode(flowId: string, nodeKey: string): Promise<void> {
-    const node = await rows.get(NodeRow, `SELECT id, flow_id AS "flowId", node_key AS "nodeKey", type, status, attempt_id AS "attemptId", agent_id AS "agentId", agent_ref AS "agentRef", session_id AS "sessionId", prompt_override AS "promptOverride", label, config, join_mode AS "joinMode", input, output, created_at AS "createdAt", updated_at AS "updatedAt" FROM nodes WHERE flow_id=$1 AND node_key=$2`, flowId, nodeKey);
+    const node = await rows.get(NodeRow, `SELECT id, flow_id AS "flowId", node_key AS "nodeKey", type, status, attempt_id AS "attemptId", agent_id AS "agentId", agent_ref AS "agentRef", session_id AS "sessionId", label, config, join_mode AS "joinMode", input, output, created_at AS "createdAt", updated_at AS "updatedAt" FROM nodes WHERE flow_id=$1 AND node_key=$2`, flowId, nodeKey);
     if (!node) throw new NotFoundError('node', nodeKey);
     if (node.status !== 'running' && node.status !== 'waiting' && node.status !== 'awaiting_approval') {
       throw new ConflictError(`cannot cancel ${nodeKey} while it is ${node.status}`);

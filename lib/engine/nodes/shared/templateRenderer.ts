@@ -1,7 +1,5 @@
 import "server-only";
 
-import type { FlowCtx } from './runContext';
-import { buildFlowContext } from '../../context/flowVariables';
 import { TemplateComposer } from './templateComposer';
 
 export type TemplateRenderOptions = {
@@ -17,19 +15,6 @@ export type TemplateRenderOptions = {
  * every method is static, no instance required.
  */
 export class TemplateRenderer {
-  /**
-   * Prompt variables available to `{{expr}}` references in node prompts
-   * (§3 input mapping context): the shared flow-context map —
-   * `{{task.*}}`, `{{repo.*}}`, `{{flow.*}}`, `{{trigger.payload.*}}`, and
-   * `{{nodes.<key>.output.*}}` (outputs of upstream nodes, small structured data
-   * — large content stays in artifacts and reaches prompts as prompt variables,
-   * §5 data-passing rule) — plus `{{input.*}}`: the inherited run input, i.e.
-   * the previous node's output fields (the node declares no input contract).
-   */
-  static vars(ctx: FlowCtx): Record<string, unknown> {
-    return buildFlowContext(ctx) as unknown as Record<string, unknown>;
-  }
-
   /**
    * Start a fluent multi-part template (see {@link TemplateComposer}):
    * accumulate lines/sections, then `.render(vars)` to interpolate.

@@ -82,7 +82,6 @@ const nodeRow = (over: Partial<NodeRow> = {}): NodeRow =>
     agent_id: null,
     agent_ref: null,
     session_id: null,
-    prompt_override: null,
     label: null,
     config: null,
     join_mode: null,

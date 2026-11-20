@@ -15,7 +15,7 @@ const EVENT_SELECT = `SELECT id, flow_id AS "flowId", node_id AS "nodeId", type,
        created_at AS "createdAt" FROM events`;
 const NODE_SELECT = `SELECT id, flow_id AS "flowId", node_key AS "nodeKey", type, status,
        attempt_id AS "attemptId", agent_id AS "agentId", agent_ref AS "agentRef",
-       session_id AS "sessionId", prompt_override AS "promptOverride", label, config,
+       session_id AS "sessionId", label, config,
        join_mode AS "joinMode", input, output, created_at AS "createdAt",
        updated_at AS "updatedAt" FROM nodes`;
 

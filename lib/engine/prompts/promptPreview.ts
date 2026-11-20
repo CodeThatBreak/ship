@@ -7,7 +7,7 @@ import type { FlowCtx, NodeDefinition, PromptPreviewParams, PromptSource } from 
 import { nodeRoles } from "../nodes/shared/nodeRoles";
 import { NODE_KEYS } from "../constants/nodeKeys";
 import { nodeRegistry } from "../nodes/registry";
-import { prompts, sectionsOf, type PromptSections } from "./promptLibrary";
+import { prompts, sectionsOf, type PromptSections, type PromptTemplate } from "./promptLibrary";
 import { templateStore } from "../templates/templateStore";
 
 /**
@@ -42,6 +42,14 @@ export interface PromptPreviewPayload {
   // nodes.input.prompt, and whether it diverges from the current resolution
   lastRun: string | null;
   diverges: boolean;
+  /**
+   * Why the last run's prompt diverges from the current resolution (step 05):
+   * `"template-edited"` — a body/rules/contract section changed since the run
+   * (template edit or config body change); `"run-data"` — the template
+   * resolution is intact and only the run-data slots differ. Undefined when
+   * nothing diverges.
+   */
+  divergesReason?: "template-edited" | "run-data";
   /** where the last run's prompt came from (recorded for agent kinds, inferred from the config knob for built-ins) */
   promptSource: PromptSource;
 }
@@ -73,10 +81,11 @@ export class PromptPreview {
     const repo = flow.repoId ? await db.repoById(flow.repoId) ?? null : null;
     const ctx: FlowCtx = { flow, task, repo };
 
-    const node = await rows.get(NodeRow, `SELECT id, flow_id AS "flowId", node_key AS "nodeKey", type, status, attempt_id AS "attemptId", agent_id AS "agentId", agent_ref AS "agentRef", session_id AS "sessionId", prompt_override AS "promptOverride", label, config, join_mode AS "joinMode", input, output, created_at AS "createdAt", updated_at AS "updatedAt" FROM nodes WHERE flow_id=$1 AND node_key=$2`, flowId, nodeKey) ?? null;
+    const node = await rows.get(NodeRow, `SELECT id, flow_id AS "flowId", node_key AS "nodeKey", type, status, attempt_id AS "attemptId", agent_id AS "agentId", agent_ref AS "agentRef", session_id AS "sessionId", label, config, join_mode AS "joinMode", input, output, created_at AS "createdAt", updated_at AS "updatedAt" FROM nodes WHERE flow_id=$1 AND node_key=$2`, flowId, nodeKey) ?? null;
     const def = await this.defFor(flowId, nodeKey, node);
     // §T4: the preview role is routed through the role router — defs without
-    // a previewable prompt (agent kinds leave it to the phase-2 work) decline.
+    // a previewable prompt (the start def) decline; the declarative
+    // agent/decision kinds publish theirs via the shared assembly (step 05).
     const previewer = nodeRoles.promptPreviewerOf(def);
     const preview = previewer ? await previewer.previewPrompt(ctx, node, params) : null;
     if (!preview) {
@@ -92,7 +101,7 @@ export class PromptPreview {
       templateKey: preview.templateKey,
       configBody: preview.configBody,
       bodySource: preview.configBody != null ? "config" : "default",
-      appendsInternal: prompts.getTemplate(preview.templateKey).internalBlocks.length > 0,
+      appendsInternal: this.templateOf(preview.templateKey).internalBlocks.length > 0,
       ctx,
       nodeKey,
     });
@@ -103,7 +112,7 @@ export class PromptPreview {
    * The composer's bulk prompt read: every promptable node's editable body
    * (the same live resolution one node's preview does) keyed by node key —
    * one bounded fetch instead of one per node. Nodes whose def declines a
-   * preview (agent kinds without a prompt surface) are skipped, matching
+   * preview (defs with no prompt surface, e.g. start) are skipped, matching
    * the single-node route's rejection of unsupported nodes.
    */
   async allFor(flowId: string): Promise<AllPromptsResult> {
@@ -115,7 +124,7 @@ export class PromptPreview {
     const ctx: FlowCtx = { flow, task, repo };
 
     const prompts: Record<string, string> = {};
-    for (const node of await rows.all(NodeRow, `SELECT id, flow_id AS "flowId", node_key AS "nodeKey", type, status, attempt_id AS "attemptId", agent_id AS "agentId", agent_ref AS "agentRef", session_id AS "sessionId", prompt_override AS "promptOverride", label, config, join_mode AS "joinMode", input, output, created_at AS "createdAt", updated_at AS "updatedAt" FROM nodes WHERE flow_id=$1`, flowId)) {
+    for (const node of await rows.all(NodeRow, `SELECT id, flow_id AS "flowId", node_key AS "nodeKey", type, status, attempt_id AS "attemptId", agent_id AS "agentId", agent_ref AS "agentRef", session_id AS "sessionId", label, config, join_mode AS "joinMode", input, output, created_at AS "createdAt", updated_at AS "updatedAt" FROM nodes WHERE flow_id=$1`, flowId)) {
       const def = await this.defFor(flowId, node.nodeKey, node);
       const previewer = nodeRoles.promptPreviewerOf(def);
       const preview = previewer ? await previewer.previewPrompt(ctx, node, {}) : null;
@@ -149,8 +158,8 @@ export class PromptPreview {
     ctx: FlowCtx;
     nodeKey: string;
   }): Promise<PromptPreviewPayload> {
-    const tpl = prompts.getTemplate(input.templateKey);
-    const node = await rows.get(NodeRow, `SELECT id, flow_id AS "flowId", node_key AS "nodeKey", type, status, attempt_id AS "attemptId", agent_id AS "agentId", agent_ref AS "agentRef", session_id AS "sessionId", prompt_override AS "promptOverride", label, config, join_mode AS "joinMode", input, output, created_at AS "createdAt", updated_at AS "updatedAt" FROM nodes WHERE flow_id=$1 AND node_key=$2`, input.ctx.flow.id, input.nodeKey);
+    const tpl = this.templateOf(input.templateKey);
+    const node = await rows.get(NodeRow, `SELECT id, flow_id AS "flowId", node_key AS "nodeKey", type, status, attempt_id AS "attemptId", agent_id AS "agentId", agent_ref AS "agentRef", session_id AS "sessionId", label, config, join_mode AS "joinMode", input, output, created_at AS "createdAt", updated_at AS "updatedAt" FROM nodes WHERE flow_id=$1 AND node_key=$2`, input.ctx.flow.id, input.nodeKey);
     const recordedInput = node?.input ?? null;
     // the last run's prompt: what run N actually sent — every run records the
     // exact final text into nodes.input.prompt (build/step-build/review/
@@ -166,6 +175,23 @@ export class PromptPreview {
     const promptSource: PromptSource =
       recordedSource ??
       (input.configBody != null ? "config" : "default");
+
+    // the why (step 05): when every non-run-data section of the current
+    // resolution still appears verbatim in the recorded prompt, only the
+    // run-data slots differ; anything else means the template resolution
+    // itself moved (a template edit or a config body change) — and if
+    // nothing diverges there is no reason to report
+    const diverges = lastRun != null && lastRun !== input.sections.final;
+    const templateSections = [
+      input.sections.body,
+      input.sections.engineRules,
+      input.sections.outputContract,
+    ].filter((s) => s.trim());
+    const divergesReason = diverges
+      ? templateSections.every((s) => lastRun.includes(s))
+        ? ("run-data" as const)
+        : ("template-edited" as const)
+      : undefined;
 
     return {
       prompt: input.sections.body,
@@ -184,9 +210,30 @@ export class PromptPreview {
       finalChars: input.sections.final.length,
       // last-run overlay
       lastRun,
-      diverges: lastRun != null && lastRun !== input.sections.final,
+      diverges,
+      ...(divergesReason ? { divergesReason } : {}),
       promptSource,
     };
+  }
+
+  /**
+   * The template metadata a preview's key resolves to — synthesized for the
+   * declarative kinds (agent/decision, step 05), whose prompts live in their
+   * template row's config instead of the library: the modal then shows the
+   * kind name and an empty metadata set rather than crashing on a missing
+   * library entry.
+   */
+  private templateOf(templateKey: string): PromptTemplate {
+    return (
+      prompts.getTemplate(templateKey) ?? {
+        label: templateKey,
+        description: "",
+        variables: [],
+        mode: "agent",
+        userTemplate: "",
+        internalBlocks: [],
+      }
+    );
   }
 }
 

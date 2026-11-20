@@ -56,8 +56,7 @@ export function sectionsOf(asm: PromptAssembly): PromptSections {
  * The library of prompt templates: the three-part defaults
  * (`prompt-defaults.ts`) plus `{{var}}` rendering and one assembly path used
  * by both the run-time nodes and the prompt modal's preview. Custom prompt
- * bodies are a per-node config knob (`prompt_body`) — the global
- * `prompt_templates` settings overlay was removed.
+ * bodies are a per-node config knob (`prompt_body`).
  */
 export class PromptLibrary {
   /**
