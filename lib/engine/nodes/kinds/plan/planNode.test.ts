@@ -397,8 +397,10 @@ describe('PlanNode — the split source port (Phase 6: branches are the units)',
     expect(await planNodeWith('whole', planRow({ branches, execution: 'whole' })).splitResolution(ctx)).toBe('whole');
   });
 
-  it('splitResolution: legacy "steps" knob config → whole (the legacy fan-out is retired)', async () => {
-    expect(await planNodeWith('steps', planRow({ branches, execution: 'whole' })).splitResolution(ctx)).toBe('whole');
+  it('splitResolution: a legacy "steps" knob config fails loudly (the value is retired from the knob domain)', async () => {
+    await expect(
+      planNodeWith('steps', planRow({ branches, execution: 'whole' })).splitResolution(ctx)
+    ).rejects.toThrow(/invalid config for plan\.execution_default/);
   });
 
   it('splitResolution: follow + published steps → per-unit', async () => {

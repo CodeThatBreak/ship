@@ -87,7 +87,7 @@ const latest: LatestPlan = {
 const ctxWith = (knob: ExecutionKnob): FlowCtx => ({ flow: { id: 'flow-1', knob } }) as unknown as FlowCtx;
 
 // The same wiring the plan node uses at run time; the store is the only stub.
-const knobOf = (ctx: FlowCtx): Promise<ExecutionKnob> => Promise.resolve((ctx.flow as { knob?: string }).knob === 'follow' ? 'follow' : 'whole');
+const knobOf = (ctx: FlowCtx): Promise<ExecutionKnob> => Promise.resolve((ctx.flow as { knob?: ExecutionKnob }).knob ?? 'whole');
 const splitter = new PlanSplitter({ latestPlan: async () => latest } as unknown as PlanStore, knobOf);
 
 describe('dummy walkthrough — a branched plan through the split source port', () => {
@@ -127,19 +127,11 @@ describe('dummy walkthrough — a branched plan through the split source port', 
   it('3 · splitResolution: what the build consumer honors (split_consume: "source")', async () => {
     expect(await splitter.resolution(ctxWith('whole'))).toBe('whole');
     expect(await splitter.resolution(ctxWith('follow'))).toBe('per-unit'); // published "steps" ⇒ per-branch fan-out
-    // legacy "steps" knob configs degrade to whole (the retired mapping);
     // the approve_plan override writes executionSource "override" into the
     // same meta and is honored the same way at approve time
-
-     
     console.log('\n── splitResolution (knob → recommendation) ──');
-     
     console.log('  knob whole:        whole');
-     
     console.log('  knob follow:       per-unit (published "steps")');
-     
-    console.log('  legacy steps knob: whole (retired per-step config → default)');
-     
     console.log('  approve override:  executionSource "override" in the same meta');
   });
 

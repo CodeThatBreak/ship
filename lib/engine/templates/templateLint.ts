@@ -364,6 +364,12 @@ export async function lintTemplate(
       if (nt.kind === "agent") {
         await lintAgentSplit(merge(nt.config, n.config), `node "${n.key}"`, n.key, problems);
       }
+      // the plan node's execution knob (step 09): the retired per-step
+      // "steps" value is a template error at save/import, not a silent
+      // degrade — the knob domain is whole | follow
+      if (nt.isBuiltin && nt.key === NODE_KEYS.PLAN) {
+        lintPlanExecution(merge(nt.config, n.config), `node "${n.key}"`, n.key, problems);
+      }
     }
   }
 
@@ -631,6 +637,22 @@ async function lintAgentSplit(
     }
   }
 }
+
+/**
+ * The plan node's execution-knob check (step 09): `execution_default` is
+ * domain whole | follow — a template still carrying the retired per-step
+ * "steps" value (the pre-split-runtime child-flow fan-out) fails at
+ * save/import instead of silently degrading to whole at run time. A targeted
+ * value check, not a configSchema run (template lint stays schema-free).
+ */
+const lintPlanExecution = (cfg: Record<string, unknown>, where: string, nodeKey: string, problems: LintProblem[]): void => {
+  if (cfg.execution_default !== "steps") return;
+  problems.push({
+    where,
+    message: 'execution_default "steps" is retired — the plan knob is "whole" | "follow" ("follow" lets the planner publish per-branch fan-out in the plan-meta)',
+    nodeKey,
+  });
+};
 
 /** A JSON Schema node's primary type ("array" / "string" / …) — null when undeclared. */
 function schemaTypeOf(s: unknown): string | null {

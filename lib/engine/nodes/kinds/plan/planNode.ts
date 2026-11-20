@@ -437,13 +437,17 @@ export class PlanNode extends AgentRunNode<PlanInput, PlanOutput> {
   }
 
   /**
-   * The plan node's `execution_default` knob (class ← app ← flow snapshot).
-   * The knob domain is whole|follow; anything else → "whole" (the retired
-   * "steps" legacy value included — old per-step configs degrade to the
-   * default whole execution).
+   * The plan node's `execution_default` knob (class ← app ← flow snapshot),
+   * resolved through the declared configSchema: the knob domain is
+   * whole|follow — a config outside it (the retired per-step "steps" value
+   * included) fails loudly via the typed config error instead of degrading.
    */
   private async executionDefault(ctx: FlowCtx): Promise<ExecutionKnob> {
-    const raw = (await this.nodeConfig(ctx))['execution_default'];
-    return raw === 'follow' ? raw : 'whole';
+    const config = this.parseRunConfig(await this.nodeConfig(ctx));
+    const knob = config['execution_default'];
+    if (knob !== 'whole' && knob !== 'follow') {
+      throw new Error(`invalid config for ${this.key}.execution_default: expected "whole" | "follow", got ${JSON.stringify(knob)}`);
+    }
+    return knob;
   }
 }

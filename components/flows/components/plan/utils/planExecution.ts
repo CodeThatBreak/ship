@@ -11,9 +11,8 @@ export interface ResolvedExecution {
   publishedSource: string;
   /** the planner's one-line rationale for the published decision */
   plannerRationale: string | null;
-  /** effective resolution: an explicit whole knob wins; follow (and a LEGACY
-   *  "steps" knob — it now means the same per-branch fan-out) defer to the
-   *  published value */
+  /** effective resolution: an explicit whole knob wins; follow (or an absent
+   *  knob) defers to the published value */
   resolution: PlanExecutionMode;
 }
 
@@ -30,9 +29,6 @@ export function resolveExecution(node: Node, meta: Record<string, unknown> | und
   const published = meta?.execution === EXECUTION_MODE.STEPS ? EXECUTION_MODE.STEPS : EXECUTION_MODE.WHOLE;
   const publishedSource = typeof meta?.executionSource === 'string' ? meta.executionSource : 'unknown';
   const plannerRationale = typeof meta?.execution_rationale === 'string' ? meta.execution_rationale : null;
-  // the raw knob domain is whole|follow now; a LEGACY raw knob "steps" (the
-  // retired per-step child flows) means what "follow" means — the published
-  // value wins, so old configs surface their published (per-branch) resolution
   const resolution = knob === EXECUTION_MODE.WHOLE ? EXECUTION_MODE.WHOLE : published;
   return { knob, published, publishedSource, plannerRationale, resolution };
 }
