@@ -12,6 +12,14 @@ must produce the identical pass/fail profile before and after.
 
 Step 00 (the characterization suite is the safety net).
 
+> **Finished — see the follow-up migration record.** The raw SQL → Prisma ORM
+> cleanup this step left open ("the raw helpers migrate incrementally") is
+> complete: `db.get/all/run` and `rowsFor` are gone, and raw SQL survives only
+> in the containment list (each entry justified by a Postgres invariant the
+> ORM cannot express). New raw SQL outside that list fails
+> `tests/architecture/noRawSqlOutsideContainment.test.ts` and the lib-scoped
+> ESLint rule. Final record: [`docs/orm-migration/README.md`](../../orm-migration/README.md).
+
 ## Files affected
 
 - New: `prisma/schema.prisma`, `prisma/migrations/`, `docker-compose.yml`

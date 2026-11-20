@@ -2,6 +2,7 @@ import { dirname } from "path";
 import { fileURLToPath } from "url";
 import { FlatCompat } from "@eslint/eslintrc";
 import { FROZEN_PHASE0_OFFENDERS } from "./eslint/frozenPhase0Offenders.mjs";
+import { RAW_SQL_CONTAINMENT } from "./eslint/rawSqlContainment.mjs";
 import { devflowPlugin } from "./eslint/rules/devflowPlugin.mjs";
 
 const __filename = fileURLToPath(import.meta.url);
@@ -324,13 +325,36 @@ const eslintConfig = [
     },
   },
 
-  // lib/** has no components/routes: backend functions stay camelCase.
-  {
-    files: ["lib/**/*.{ts,tsx}"],
-    rules: {
-      "@typescript-eslint/naming-convention": LIB_NAMING_CONVENTION_RULE,
-    },
+// lib/** has no components/routes: backend functions stay camelCase.
+{
+  files: ["lib/**/*.{ts,tsx}"],
+  rules: {
+    "@typescript-eslint/naming-convention": LIB_NAMING_CONVENTION_RULE,
   },
+},
+
+// Raw-SQL ratchet (orm-migration Task 12, AGENTS.md §0): lib/** bans the
+// Prisma raw-SQL call/tagged-template shapes outside the containment
+// allowlist. The allowlist lives in one module shared with the architecture
+// scan (tests/architecture/noRawSqlOutsideContainment.test.ts) so the two
+// gates cannot drift — each entry's invariant justification lives there too.
+// The deleted db.get/db.run/db.all helpers have no callable shape left to
+// lint; their reintroduction is caught textually by the architecture scan.
+{
+  files: ["lib/**/*.ts"],
+  ignores: RAW_SQL_CONTAINMENT,
+  rules: {
+    "no-restricted-syntax": [
+      "error",
+      {
+        selector:
+          "CallExpression[callee.property.name=/^\\$(queryRawUnsafe|executeRawUnsafe)$/], TaggedTemplateExpression[tag.property.name=/^\\$(queryRaw|executeRaw)$/]",
+        message:
+          "Raw SQL outside the containment list is banned (ORM-first, AGENTS.md §0). Use the Prisma query API, or move the statement behind an allowlisted invariant site — see docs/orm-migration/README.md.",
+      },
+    ],
+  },
+},
 ];
 
 export default eslintConfig;

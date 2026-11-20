@@ -29,6 +29,7 @@ node scripts/seed-split-smoke.mjs         # split smoke template seed; --reset
 A task is done only when all of these are true:
 
 - [ ] `npm run typecheck`, `npm run lint`, `npm test`, and `npm run build` pass
+- [ ] No new raw SQL outside the containment list (`tests/architecture/noRawSqlOutsideContainment.test.ts`; the list and its justifications live in `docs/orm-migration/README.md`)
 - [ ] Diff is focused: no unrelated reformatting or renames
 - [ ] Every async UI has loading, error and empty states
 - [ ] New service classes and row mappers have tests

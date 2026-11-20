@@ -144,7 +144,7 @@ export const toErrorResponse = (e: unknown): Response => {
 
 ### 3.5 Persistence
 
-- **Stores own queries.** One class per table family (`NodeStore`, `CommentStore`, `PlanStepStore`), reading through the Prisma query API (new persistence) or the `rows.ts` mappers over raw SQL (legacy read paths — no NEW raw SQL). Engine orchestrators call store methods, not `db.get`/`db.all`.
+- **Stores own queries.** One class per table family (`NodeStore`, `CommentStore`, `PlanStepStore`), all persistence through the Prisma query API — ORM-first. Raw SQL survives ONLY in the containment list (`docs/orm-migration/README.md`): sites whose Postgres invariant the ORM cannot express (SKIP LOCKED atomic claims, DB-clock interval arithmetic, the transition authority's attempt-fenced CAS, advisory locks, COALESCE partial updates) — each entry justified by that invariant and enforced by `tests/architecture/noRawSqlOutsideContainment.test.ts` plus the lib-scoped ESLint rule. Engine orchestrators call store methods, not `db.get`/`db.all`.
 - **Bind constants as parameters.** Tagged templates (`prisma.$executeRaw\`WHERE status = ${FLOW_STATUS.RUNNING}\``) or positional `$1, $2, …` params — never interpolate a literal into a SQL string.
 - **"Latest" means `ORDER BY`.** Any "latest/newest" read has an explicit `ORDER BY … DESC` and a test with more than one row (see CR-270).
 - **Transactions** are async Prisma interactive transactions ([Task 12](review-tasks/12-db-transactions.md), carried over to step 01):

@@ -131,9 +131,13 @@ as text is reinterpreted in the session timezone).
   schema mismatch — the error carries the SQL, the row `id` when present
   (`rowIdFromRaw`), and the Zod issues. `RowGateway.all` logs and skips
   undecodable rows instead of failing the whole list.
-- Stores use the Prisma query API; the raw `get`/`all`/`run` +
-  `RowGateway` path is the shrinking legacy surface — no NEW raw SQL
-  (ORM-first).
+- Stores use the Prisma query API (ORM-first). The raw `get`/`all`/`run`
+  helpers and the `RowGateway` SQL gateway are deleted — `RowGateway`'s
+  remaining role is the JSONB payload zod schemas. Raw SQL survives only in
+  the containment allowlist (`eslint/rawSqlContainment.mjs`), enforced by
+  `tests/architecture/noRawSqlOutsideContainment.test.ts` and a lib-scoped
+  ESLint rule; each entry is justified by a Postgres invariant Prisma cannot
+  express (see `docs/orm-migration/README.md`).
 
 ## Secrets at rest
 
