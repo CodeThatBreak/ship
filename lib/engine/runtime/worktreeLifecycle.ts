@@ -5,7 +5,7 @@ import os from "os";
 import path from "path";
 import { workspacePaths } from "../../git/workspacePaths";
 import { db, type Repo } from "../../db/app";
-import { processSingleton } from "../../singleton";
+import { pinnedProcessService } from "../../composition/processServices";
 import {
   containsPath,
   isDangerousWorktreeRemovalPath,
@@ -562,4 +562,5 @@ export class WorktreeManager {
 }
 
 /** Shared engine manager (one instance per process across module graphs). */
-export const worktreeManager = processSingleton("worktreeManager", () => new WorktreeManager());
+/** Process-pinned via the process-services container (decision Q9): `ensureInFlight` coalesces one ensure per flow — per-module-graph copies would race the same worktree path; durable truth (bindings, removal records) lives in Postgres. */
+export const worktreeManager = pinnedProcessService("worktreeManager", () => new WorktreeManager());

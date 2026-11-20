@@ -11,7 +11,6 @@ import { engineParts } from "@/lib/composition/container";
 import { fanoutOf, parseConfigSnapshot, type FanoutKnob } from "../../templates/nodeConfig";
 import type { TemplateGraph } from "../../templates/templateStore";
 import { planSteps } from "../planStepStore";
-import { processSingleton } from "../../../singleton";
 import type { StepFlowEngine } from "./types/stepFlowEngine";
 import type { StepChildPayload } from "./types/stepChildPayload";
 import type { StepState } from "./types/stepState";
@@ -341,5 +340,5 @@ export class StepFlowManager {
   }
 }
 
-/** Shared application manager — bound to the flow engine by flowEngine.ts at load. */
-export const stepFlows = processSingleton("stepFlows", () => new StepFlowManager());
+/** Shared application manager — bound to the flow engine by flowEngine.ts at load. Plain module const (decision Q9): the bound engine reference is the only in-memory field; all step/child state derives from DB rows, so per-module-graph copies cannot disagree. */
+export const stepFlows = new StepFlowManager();

@@ -3,7 +3,6 @@ import "server-only";
 import { db } from "../../db/app";
 import type { HostComment } from "../ports/gitHost";
 import { COMMENT_STATUS } from "../constants/vocabulary";
-import { processSingleton } from "../../singleton";
 
 /**
  * MR comment upserts for git-host ingestion (flow engine webhook paths).
@@ -55,4 +54,5 @@ export class CommentStore {
   }
 }
 
-export const commentStore = processSingleton("commentStore", () => new CommentStore());
+/** Shared comment store (stateless, db-fenced — decision Q9, plain module const). */
+export const commentStore = new CommentStore();

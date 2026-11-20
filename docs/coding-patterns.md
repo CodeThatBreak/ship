@@ -14,7 +14,7 @@ Some primitives below don't exist yet. Each one is marked **(added in Task NN)**
 | Throwing fetch helpers | `hooks/fetch-json.ts` (`fetchJson`, `postJson`, `errorMessageOf`) |
 | Query keys | `constants/query-keys.ts` |
 | Domain constants | `constants/flow.ts` (`FLOW_STATUS` + derived type), `lib/engine/constants/` |
-| Process singletons | `lib/singleton.ts` (`processSingleton`) |
+| Process-bound services | `lib/composition/processServices.ts` (`pinnedProcessService`) |
 
 ---
 
@@ -220,7 +220,11 @@ The engine decides node ownership through the database, not through in-memory ch
 
 ### 3.8 Process state
 
-- Any in-memory state (locks, run handles, throttles, caches, timers) lives in instance fields of a class created through `processSingleton("name", () => new Thing(deps))`. Never put state in a module-level `const map = new Map()`.
+- **Composition-root rule (decision Q9).** Services are constructed in one of three composition roots in `lib/composition/` — never as ad-hoc globalThis pins:
+  - **Request container** (`container.ts` → `createContainer(prisma)`): stateless, DB-fenced services. Routes, loaders and server components get services from here.
+  - **Engine wiring** (`container.ts` → `engineParts`): the engine cluster's collaborators, wired once and exported as a plain module const. Every part is stateless or DB-fenced, so per-module-graph copies cannot disagree.
+  - **Process-services container** (`processServices.ts` → `pinnedProcessService(key, create)`): the ONLY home for genuinely process-bound in-memory state — run handles, mutexes, live-feed buffers, coalescing maps whose per-module-graph copies would diverge (e.g. `cursorAgent`, `localAgent`, `worktrees`, `mergeArena`, `worktreeManager`, `liveTaskFeed`). The defining module pins its own export, keeping the import graph unchanged. Never register a stateless service here.
+- The DB client (`lib/db/prismaClient.ts`) is the only other process-pinned service (its connection pool must survive HMR, pinned inline under `Symbol.for("devflow.singleton.prisma")`). The arch test `tests/architecture/noProcessSingletonOutsideDb.test.ts` enforces that nothing else pins process state.
 - In-memory state is a cache, never the source of truth. Anything that must survive a restart (wait deadlines, merge state) is persisted, and the poller re-arms it on start.
 - Maps are bounded (size cap or TTL sweep) and pruned when a flow is deleted or finishes.
 - Locks are keyed by the resource they protect. If the directory is per parent flow, the lock is per parent flow.

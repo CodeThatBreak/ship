@@ -253,7 +253,7 @@ Stateful and domain logic in `app/api/**` and `lib/**` uses classes. Pure, state
 
 - Each domain concept is a class with one responsibility: `FlowEngine`, `FlowPoller`, `WorktreeManager`, `SecretStore`.
 - Dependencies (db handle, config, clients) are constructor-injected private fields.
-- No module-level mutable singletons, except through the documented singleton factory in `lib/singleton.ts`.
+- No module-level mutable singletons. Services are constructor-injected from the composition roots in `lib/composition/` (§3.3); genuinely process-bound state pins through `pinnedProcessService` (`lib/composition/processServices.ts`).
 
 ```ts
 // Bad: loose functions and module-level mutable state
@@ -287,7 +287,7 @@ export class FlowService {
 ### 3.3 Runtime and Server Boundaries
 
 - `lib/` is server-only. Never import it from client components.
-- Postgres via Prisma. API routes that touch the DB must use the Node runtime, never Edge. The Prisma client (`lib/db/prismaClient.ts`) is the only dev singleton that must survive HMR — use the `globalThis` pattern implemented in `lib/singleton.ts`, and reuse it instead of inventing a new one (other services are constructor-injected from `lib/composition/`).
+- Postgres via Prisma. API routes that touch the DB must use the Node runtime, never Edge. Services are constructor-injected from the composition roots in `lib/composition/`: the request container (`container.ts`, stateless services), the engine wiring (`engineParts`), and the process-services container (`processServices.ts` — the only home for genuinely process-bound in-memory state, pinned via `pinnedProcessService`). The DB client (`lib/db/prismaClient.ts`) is the only singleton; never invent other globalThis pinning.
 
 ### 3.4 Validation
 

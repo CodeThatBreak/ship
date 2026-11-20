@@ -15,12 +15,12 @@ import "server-only";
  * central construction here would cycle with the very modules it constructs).
  *
  * Invariants:
- * - Pinning is the `lib/singleton.ts` globalThis trick, implemented inline:
+ * - Pinning is the `globalThis` trick implemented inline by the container:
  *   `Symbol.for("devflow.processService.<key>")`, one instance per process
  *   regardless of how many module graphs import the service. The arch test
- *   `tests/architecture/noProcessSingletonOutsideDb.test.ts` forbids the
- *   `processSingleton` NAME everywhere except the Prisma client — do not
- *   reintroduce it here.
+ *   `tests/architecture/noProcessSingletonOutsideDb.test.ts` enforces that
+ *   no service outside the DB client pins process state — do not reintroduce
+ *   other pinning patterns.
  * - Only services with correctness-relevant in-memory state may register.
  *
  * Must-never: never store DB truth here (Invariant 2 — all truth lives in

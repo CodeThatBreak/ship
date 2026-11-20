@@ -5,7 +5,6 @@ import {
   NODE_IN_FLIGHT_STATUSES,
 } from "../transitions/constants/statusSets";
 import { engineParts } from "@/lib/composition/container";
-import { processSingleton } from "../../../singleton";
 import type { SplitEngineSurface } from "./types/splitEngineSurface";
 import type { SplitUnitState } from "./types/splitUnitState";
 import type { SplitLinkIndex } from "./types/splitLinkIndex";
@@ -213,5 +212,8 @@ export class SplitManager {
 
 /** Shared split runtime manager — bound to the flow engine by flow-engine.ts
  *  at load. Constructor-injected linkage (the `SplitLinkIndex` seam) so a
- *  future `split_units` table swap never ripples into the runtime. */
-export const splitManager = processSingleton("splitManager", () => new SplitManager());
+ *  future `split_units` table swap never ripples into the runtime. Plain
+ *  module const (decision Q9): the bound engine reference is the only
+ *  in-memory field — every unit's state derives from `flows` rows, so
+ *  per-module-graph copies cannot disagree. */
+export const splitManager = new SplitManager();

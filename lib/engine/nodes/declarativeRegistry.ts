@@ -1,7 +1,7 @@
 import "server-only";
 
 import { z } from "zod";
-import { processSingleton } from "../../singleton";
+import { pinnedProcessService } from "../../composition/processServices";
 import type { NodeDefinition } from "./shared/nodeDefinition";
 import { parseDeclarativeConfig } from "./declarativeConfigParser";
 
@@ -74,12 +74,20 @@ export class DeclarativeDefCache {
   }
 }
 
-export const declarativeKindRegistry = processSingleton(
-  "declarativeKindRegistry",
-  () => new DeclarativeKindRegistry(),
-);
+/** Shared declarative kind registry (decision Q9, plain module const): the
+ *  registrations are static side-effect imports (`declarativeWiring.ts`) —
+ *  every module-graph copy registers the same entries, so copies cannot
+ *  disagree. */
+export const declarativeKindRegistry = new DeclarativeKindRegistry();
 
-export const declarativeDefCache = processSingleton(
+/**
+ * Shared declarative def cache. Process-pinned via the process-services
+ * container (decision Q9): it caches DB-row-hydrated defs WITHOUT a TTL and
+ * relies on explicit `invalidate()` on template edit — per-module-graph
+ * copies would serve a stale def from another bundle after an edit instead
+ * of re-reading the row.
+ */
+export const declarativeDefCache = pinnedProcessService(
   "declarativeDefCache",
   () => new DeclarativeDefCache(),
 );

@@ -1,14 +1,11 @@
 import { NextResponse } from "next/server";
-import { processSingleton } from "@/lib/singleton";
 import { WorktreeStatusService } from "@/lib/engine/runtime/worktreeStatusService";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
-const worktreeStatusService = processSingleton(
-  "worktreeStatusService",
-  () => new WorktreeStatusService(),
-);
+/** Shared worktree-status service (stateless, db-fenced — decision Q9, plain module const). */
+const worktreeStatusService = new WorktreeStatusService();
 
 export const GET = async () => {
   const statuses = await worktreeStatusService.statusesForActiveFlows();

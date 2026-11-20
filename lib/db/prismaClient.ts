@@ -7,9 +7,8 @@ import { config } from "../config";
 /**
  * The application PrismaClient — the ONLY process-pinned service (decision
  * Q9). Prisma's connection pool must be one-per-process and survive `next
- * dev` HMR, so the instance is pinned on `globalThis` inline (the old
- * `processSingleton` helper survives only for the engine half's migration;
- * this module no longer imports it). Every other service is either a plain
+ * dev` HMR, so the instance is pinned on `globalThis` inline
+ * (`Symbol.for("devflow.singleton.prisma")`). Every other service is either a plain
  * module const or constructor-injected from the composition roots
  * (`lib/composition/container.ts`, `lib/composition/processServices.ts`);
  * the arch test `tests/architecture/noProcessSingletonOutsideDb.test.ts`

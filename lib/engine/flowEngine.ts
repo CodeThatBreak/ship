@@ -28,7 +28,6 @@ import { registerFanoutEffects } from './runtime/fanout/fanoutEffects';
 import { registerSplitEffects } from './runtime/split/splitEffects';
 import { registerSdlcEffects } from './nodes/chains/sdlcEffects';
 import { engineParts, type EngineParts } from '../composition/container';
-import { processSingleton } from '../singleton';
 
 import { ConflictError, NotFoundError, ValidationError } from '../errors';
 import { CommentIngestor } from './runtime/commentIngestor';
@@ -429,7 +428,9 @@ export class FlowEngine {
   }
 }
 
-export const flowEngine = processSingleton('flowEngine', () => new FlowEngine());
+/** Shared flow engine (decision Q9 — plain module const): composition + delegation only; every collaborator is stateless or DB-fenced, so per-module-graph copies cannot disagree (the `engineParts` precedent). */
+export const flowEngine = new FlowEngine();
+
 
 // plan fan-out: bind the StepFlowManager to the engine — resolves the
 // flow ↔ step-flow-manager singleton cycle (step-flow-manager is imported by

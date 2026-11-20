@@ -9,7 +9,7 @@ import { localGit } from "../../../git/local";
 import { redactGitSecrets } from "../../../git/redactGitSecrets";
 import { assertValidBranchName } from "../../../git/branchName";
 import { workspacePaths } from "../../../git/workspacePaths";
-import { processSingleton } from "../../../singleton";
+import { pinnedProcessService } from "../../../composition/processServices";
 import { gitRemoteContextFor } from "../../ports/gitHost";
 import { isHookRejection } from "../../nodes/kinds/mergeRequest/mergeRequestExports";
 import type { MergeBackArgs, MergeBackResult } from "../../nodes/shared/capabilities";
@@ -324,4 +324,13 @@ class MergeArena {
   }
 }
 
-export const mergeArena = processSingleton("mergeArena", () => new MergeArena());
+/**
+ * Shared merge arena. Process-pinned via the process-services container
+ * (decision Q9): `locks` is a per-parent-flow MUTEX serializing
+ * integration-branch merges and `inFlight` is the run set the reconciler
+ * consults (`isMerging`) so a resume never double-books a merge this process
+ * still owns — per-module-graph copies would run two merge loops on the same
+ * child and arena checkout. The durable `step_merges` rows are the restart
+ * truth; these fields only carry the live process's in-flight work.
+ */
+export const mergeArena = pinnedProcessService("mergeArena", () => new MergeArena());

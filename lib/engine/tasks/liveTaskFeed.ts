@@ -1,7 +1,7 @@
 import "server-only";
 
 import { TtlCache } from "@/lib/cache";
-import { processSingleton } from "@/lib/singleton";
+import { pinnedProcessService } from "@/lib/composition/processServices";
 import type { TaskProviderRegistry } from "./registry";
 import { taskRegistry } from "./registry";
 import type {
@@ -122,7 +122,14 @@ export class LiveTaskFeed {
   }
 }
 
-export const liveTaskFeed = processSingleton(
+/**
+ * Shared live-task feed. Process-pinned via the process-services container
+ * (decision Q9): the `TtlCache` holds EXTERNAL-provider fetch results (not
+ * DB rows) and backs the stale-on-error fallback — per-module-graph copies
+ * would double-fetch the provider and disagree about `cached`/`stale`/age
+ * metadata shown to the user.
+ */
+export const liveTaskFeed = pinnedProcessService(
   "liveTaskFeed",
   () => new LiveTaskFeed(taskRegistry),
 );

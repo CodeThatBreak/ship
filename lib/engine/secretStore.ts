@@ -3,7 +3,6 @@ import "server-only";
 import { SETTINGS_KEYS } from "@/constants/settings";
 import { db, type Database } from "../db/app";
 import type { IntegrationSecretStore } from "../db/integrationSecretStore";
-import { processSingleton } from "../singleton";
 import { settingUnknownRecord } from "../schemas/settingValues";
 
 /**
@@ -38,7 +37,5 @@ export class SecretStore {
   }
 }
 
-export const secretStore = processSingleton(
-  "secretStore",
-  () => new SecretStore(db, db.integrationSecrets),
-);
+/** Shared secret store (stateless, db-fenced — decision Q9, plain module const). */
+export const secretStore = new SecretStore(db, db.integrationSecrets);

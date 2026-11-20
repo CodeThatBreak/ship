@@ -5,7 +5,6 @@ import { FlowRow, rows, type NodeTemplateRow } from "@/lib/db/rows";
 import { nodeRegistry } from "@/lib/engine/nodes/registry";
 import { outputFieldsFor } from "@/lib/engine/templates/templateLint";
 import { templateStore } from "@/lib/engine/templates/templateStore";
-import { processSingleton } from "@/lib/singleton";
 
 export type GraphApiPayload = {
   templateId?: string;
@@ -88,7 +87,5 @@ export class GraphService {
   }
 }
 
-export const graphService = processSingleton(
-  "graphService",
-  () => new GraphService(),
-);
+/** Shared graph API service (stateless, db-fenced — decision Q9, plain module const). */
+export const graphService = new GraphService();

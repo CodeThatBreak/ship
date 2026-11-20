@@ -2,7 +2,6 @@ import "server-only";
 
 import type { Database } from "@/lib/db/app";
 import { db } from "@/lib/db/app";
-import { processSingleton } from "@/lib/singleton";
 import { Task, rows } from "@/lib/db/rows";
 import type { TaskProviderRegistry } from "./registry";
 import { taskRegistry } from "./registry";
@@ -35,7 +34,5 @@ export class TaskService {
   }
 }
 
-export const taskService = processSingleton(
-  "taskService",
-  () => new TaskService(db, taskRegistry),
-);
+/** Shared task service (stateless, db-injected — decision Q9, plain module const). */
+export const taskService = new TaskService(db, taskRegistry);

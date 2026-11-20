@@ -32,8 +32,7 @@ import { planSteps } from "../engine/runtime/planStepStore";
  * here, holding only its dependencies — all truth lives in Postgres
  * (Invariant 2), so two instances can never disagree. Routes, loaders and
  * server components migrate to `createContainer(prisma)` as their step
- * touches them; the legacy `processSingleton` call sites shrink per the
- * `tests/architecture/noProcessSingletonOutsideDb.test.ts` inventory.
+ * touches them.
  *
  * The DB client is the ONLY singleton (`lib/db/prismaClient.ts`).
  */
