@@ -5,6 +5,7 @@
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
 import { NodeDefinition } from "../nodes/shared/nodeDefinition";
+import type { RecoveryResult } from "../nodes/shared/types/recovery";
 import { ContractPipeline } from "./contractPipeline";
 import { InputContractError } from "../errors/inputContractError";
 import { OutputContractError } from "../errors/outputContractError";
@@ -36,8 +37,8 @@ class StubDef extends NodeDefinition<Record<string, unknown>, Record<string, unk
     throw new Error("stub def never runs");
   }
 
-  async recover(): Promise<boolean> {
-    return false;
+  async recover(): Promise<RecoveryResult> {
+    return { kind: "manual", reason: "stub never recovers" };
   }
 }
 

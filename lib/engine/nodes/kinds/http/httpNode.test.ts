@@ -58,7 +58,7 @@ describe("HttpTemplateNode.recover", () => {
     if (!nodeRow) throw new Error("missing node row");
 
     const ok = await node.recover(ctx, nodeRow, { status: "finished" } satisfies AgentRunResult, "server restarted");
-    expect(ok).toBe(false);
+    expect(ok).toMatchObject({ kind: "manual" });
 
     const after = await db.get<{ status: string }>(`SELECT status FROM nodes WHERE id=$1`, nodeId);
     expect(after?.status).toBe("running");

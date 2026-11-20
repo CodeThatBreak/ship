@@ -13,12 +13,12 @@ import "server-only";
  * refinements) carrying every violation. Contracts themselves live in
  * `schema.ts` and domain constants in `constants/` — this file is behavior.
  */
-import { extractJson } from "../../shared/extractJson";
 import {
-  AGENT_OUTPUT_ERROR,
   AgentOutputError,
   type AgentOutputIssue,
 } from "../../shared/agent/outputError/outputErrorExports";
+import { retryFeedbackBody } from "../../shared/agentOutput/utils/retryFeedback";
+import { validateStandardAgentOutput } from "../../shared/agentOutput/utils/standardOutput";
 import { TemplateRenderer } from "../../shared/templateRenderer";
 import type { CommentRow } from "../../../../db/rows";
 import {
@@ -71,53 +71,16 @@ export class ResolveOutputContract {
    * Throws the standard {@link AgentOutputError}.
    */
   parse(text: string, openIds: readonly string[]): ResolveAgentResponse {
-    const parsed = extractJson(text ?? "");
-    if (parsed == null) {
-      throw new AgentOutputError({
-        code: AGENT_OUTPUT_ERROR.NO_JSON,
-        label: this.label,
-        message: `${this.label}: the agent response contained no JSON — the resolve response must be a single JSON object`,
-        issues: [],
-        response: text,
-      });
-    }
-    // the agent's escape hatch: it answered with the standard error envelope
-    // instead of contract-conforming output — convey its reason
-    const reported = AgentOutputError.reported(parsed);
-    if (reported != null) {
-      throw new AgentOutputError({
-        code: AGENT_OUTPUT_ERROR.AGENT_REPORTED,
-        label: this.label,
-        // the agent's reason is the headline — its words, conveyed to the user
-        message: `${this.label}: ${reported.reason}`,
-        issues: [],
-        reported,
-        response: text,
-      });
-    }
-    const result = ResolveAgentResponse.safeParse(parsed);
-    if (!result.success) {
-      const issues = result.error.issues.map((i) => ({ path: i.path.join("."), message: i.message }));
-      throw new AgentOutputError({
-        code: AGENT_OUTPUT_ERROR.SCHEMA_MISMATCH,
-        label: this.label,
-        // the first violation stays the headline — every issue in the payload
-        message: issues[0]?.message ?? `${this.label}: the resolve response violated its schema`,
-        issues,
-        response: text,
-      });
-    }
-    const issues = this.semanticIssues(result.data, openIds);
-    if (issues.length) {
-      throw new AgentOutputError({
-        code: AGENT_OUTPUT_ERROR.SCHEMA_MISMATCH,
-        label: this.label,
-        message: issues[0]?.message ?? `${this.label}: the resolve response violated its schema`,
-        issues,
-        response: text,
-      });
-    }
-    return result.data;
+    // the standard validation (step 05 — the private copy is gone) plus the
+    // resolve-domain semantic gate: exactly one decision per presented id
+    return validateStandardAgentOutput({
+      label: this.label,
+      text,
+      schema: ResolveAgentResponse,
+      noJsonNote: "the resolve response must be a single JSON object",
+      mismatchNote: `${this.label}: the resolve response violated its schema`,
+      semantic: (value) => this.semanticIssues(value, openIds),
+    });
   }
 
   /**
@@ -155,27 +118,14 @@ export class ResolveOutputContract {
   }
 
   /**
-   * ONE bounded retry prompt for a contract miss — the specific issues (the
-   * first miss's own words) plus the re-stated directive carrying the exact
-   * same exported JSON Schema, so the advertised and enforced contracts never
-   * drift.
+   * ONE bounded retry prompt for a contract miss — the shared feedback body
+   * (step 05) plus the resolve-domain rule, re-stating the directive carrying
+   * the exact same exported JSON Schema, so the advertised and enforced
+   * contracts never drift.
    */
   retryPrompt(failure: AgentOutputError, openIds: readonly string[]): string {
-    const body =
-      failure.code === AGENT_OUTPUT_ERROR.NO_JSON
-        ? TemplateRenderer.compose("Your previous response could not be used: no JSON object could be parsed from it.")
-            .addBlankLine()
-            .addLine("Re-emit your ENTIRE response as a single JSON object.")
-            .build()
-        : TemplateRenderer.compose("Your previous response was valid JSON but violated the resolve contract:")
-            .addBlankLine()
-            .addLines(failure.detail.issues.map((i) => `  - ${i.path ? `${i.path}: ` : ""}${i.message}`))
-            .addBlankLine()
-            .addLine(
-              `Re-emit a single JSON object with exactly one decision per open comment (${openIds.join(", ")}).`,
-            )
-            .build();
-    return TemplateRenderer.compose(body)
+    const extra = `Re-emit a single JSON object with exactly one decision per open comment (${openIds.join(", ")}).`;
+    return TemplateRenderer.compose(retryFeedbackBody(failure, { extraInstruction: extra }))
       .addBlankLine()
       .addBlankLine()
       .addLine(AgentOutputError.directive(RESOLVE_RESPONSE_JSON_SCHEMA))

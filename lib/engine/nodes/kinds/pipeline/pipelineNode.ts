@@ -9,6 +9,7 @@ import { flowCtxHelper, type FlowContextHelper } from "../../shared/runContext";
 import type { NodeSupport } from "../../shared/nodeSupport";
 import type { AgentRunner } from "../../../harness/harnessExports";
 import { RunSupersededError } from "../../../errors/runSupersededError";
+import type { RecoveryResult } from "../../shared/types/recovery";
 import type { NodeCapabilities } from "../../shared/capabilities";
 import { NODE_KEYS } from "../../../constants/nodeKeys";
 import type { ConfigField } from "../../../templates/nodeConfig";
@@ -676,11 +677,12 @@ export class PipelineNode extends AgentRunNode<
   }
 
   /**
-   * A pipeline wait interrupted mid-run can't be resumed (the fix runs are
-   * non-idempotent) — fail so the user retries; the retry re-reads the current
-   * head pipeline, so already-green pipelines finish immediately.
+   * A pipeline wait interrupted mid-run cannot be resumed yet (step 05 lands
+   * the durable gate progress + resumable wait) — manual, with the reason the
+   * trail shows; the retry re-reads the current head pipeline, so
+   * already-green pipelines finish immediately.
    */
-  async recover(): Promise<boolean> {
-    return false;
+  async recover(): Promise<RecoveryResult> {
+    return { kind: "manual", reason: "the pipeline wait cannot resume mid-loop — retry the node; an already-green head pipeline finishes immediately" };
   }
 }

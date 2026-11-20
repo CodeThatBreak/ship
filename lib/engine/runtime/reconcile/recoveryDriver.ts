@@ -11,9 +11,12 @@ import type { RecoveryHost } from "./types/reconcile";
 
 /**
  * RecoveryDriver — drives one lease-expired `running` node to
- * recovered-or-manual (Invariant 3, step 03 interim ABI: the full
- * result-object ABI lands in step 05). A throw never escapes: any failure
- * maps to `failOrphanedNode` (manual — the user retries), so the reconciler
+ * recovered-or-manual (Invariant 3; owns the fixed `recover()` ABI of
+ * Invariant 4 — step 05: `def.recover` returns a
+ * `{kind:"recovered"} | {kind:"manual", reason}` result and never throws; the
+ * single try/catch that enforces the never-throws contract lives at the
+ * recovery seam, `FlowEngine.completeNodeFromResult`). A failure here maps to
+ * `failOrphanedNode` (manual — the user retries), so the reconciler
  * pass itself is crash-safe per node.
  *
  * Liveness here is lease + persisted agent state, never in-process handles:
@@ -32,7 +35,7 @@ export class RecoveryDriver {
   ) {}
 
   /**
-   * Recover one expired node. Interim ABI (step 05): resolves on
+   * Recover one expired node. The fixed ABI (step 05): resolves on
    * recovered/failed, never throws — an internal error fails the node
    * manually with the reason.
    */

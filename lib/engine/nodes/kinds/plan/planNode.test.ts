@@ -526,6 +526,10 @@ describe('PlanNode — chat via the follow-up contract (docs/plan-conversation-r
       emitLifecycle: async (_flowId: string, _nodeId: string, message: string) => {
         observ.events.push(message);
       },
+      // typed pipeline events (step 05: output_retry / output_exhausted / agent_reported)
+      emit: async (_flowId: string, _nodeId: string, _kind: string, message: string) => {
+        observ.events.push(message);
+      },
     } as unknown as NodeSupport;
     const runner = {
       startAgent: (_ctx: FlowCtx, input: unknown) => {
@@ -614,7 +618,8 @@ describe('PlanNode — chat via the follow-up contract (docs/plan-conversation-r
     expect(observ.startAgentInputs).toHaveLength(2); // the initial turn + ONE retry
     expect(observ.labels).toEqual(['plan chat', 'plan chat retry']);
     expect(observ.savedMetas).toHaveLength(0); // no partial version ever persisted
-    expect(observ.events).toContain('plan chat output contract failed — retrying with feedback (schema_mismatch)');
+    // the pipeline's typed `output_retry` event (step 05) names the retry
+    expect(observ.events).toContain('plan chat: output contract failed — retrying with feedback (schema_mismatch)');
     expect(observ.events).toContain('plan refine failed validation — nothing was changed');
     expect(reply).toContain("I couldn't produce a valid plan for that —");
     expect(reply).toContain('duplicate step id');
@@ -818,6 +823,7 @@ describe('PlanNode.turn — unified send routing', () => {
         return { id, version };
       },
       emitLifecycle: async () => {},
+      emit: async () => {},
     } as unknown as NodeSupport;
     const runner = {
       startAgent: (_ctx: FlowCtx, input: unknown) => {

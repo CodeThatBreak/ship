@@ -3,6 +3,7 @@ import "server-only";
 // ── the flow entry node ──────────────────────────────────────────────────────
 import { z } from "zod";
 import { NodeDefinition, type FlowCtx, type NodeTriggerRun, type RunOutcome } from "../../shared/nodeSharedExports";
+import type { RecoveryResult } from "../../shared/types/recovery";
 import type { NodeCapabilities } from "../../shared/capabilities";
 import { NODE_KEYS } from "../../../constants/nodeKeys";
 import {
@@ -85,7 +86,7 @@ export class StartNode extends NodeDefinition<StartPayload, StartPayload> {
 
   /** Nothing to recover — a start run finishing while the server was down is
    *  just done (the node already completes synchronously in one stage). */
-  async recover(): Promise<boolean> {
-    return true;
+  async recover(): Promise<RecoveryResult> {
+    return { kind: "recovered" };
   }
 }

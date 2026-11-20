@@ -16,6 +16,14 @@ export const EVENT_KIND = {
   /** a terminal outcome failed its declared output contract — never published
    *  (step 04, Invariant 5) */
   OUTPUT_CONTRACT_VIOLATION: "output_contract_violation",
+  /** the agent-output pipeline retries a contract miss with feedback
+   *  (step 05, Invariant 6) */
+  OUTPUT_RETRY: "output_retry",
+  /** the bounded feedback budget is spent — the node fails loudly (step 05) */
+  OUTPUT_EXHAUSTED: "output_exhausted",
+  /** the agent answered with the standard error envelope — its reason is the
+   *  failure, never retried (step 05) */
+  AGENT_REPORTED: "agent_reported",
 } as const;
 
 export type EventKind = (typeof EVENT_KIND)[keyof typeof EVENT_KIND];

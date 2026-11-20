@@ -15,6 +15,7 @@ import { NODE_RUN_STATUS } from "../../../../constants/flow";
 import { EVENT_KIND } from "../../constants/vocabulary";
 import { NODE_DEFINITION_BRAND } from "./nodeDefinitionGuard";
 import { RunSupersededError } from "../../errors/runSupersededError";
+import type { RecoveryResult } from "./types/recovery";
 
 /** A role in the SDLC builtin chain (plan → build → review → resolve). */
 export type ChainRole = "plan" | "build" | "review" | "resolve";
@@ -182,6 +183,14 @@ export abstract class NodeDefinition<I = unknown, O extends Record<string, unkno
   /** Whether this node can be retried from its recorded input. */
   readonly retryable: boolean = true;
 
+  /**
+   * The bounded feedback-retry budget the agent-output pipeline spends on
+   * retryable contract misses (`no_json` / `schema_mismatch`) — step 05,
+   * Invariant 6. 0 = validation-only: the first miss is terminal (the kind
+   * maps it to a failed outcome itself; there is no feedback turn to spend).
+   */
+  readonly retryBudget: number = 1;
+
   /** Shared services (constructor-injected; the singletons are the defaults).
    *  Tests override them by passing their own instances to the constructor.
    *  The agent runner is NOT here (§T4b): kinds whose runs go through it
@@ -290,14 +299,18 @@ export abstract class NodeDefinition<I = unknown, O extends Record<string, unkno
   }
 
   /**
-   * Finish a run that completed while the server was down.
-   * Return true when recovery produced a terminal outcome (the impl returns a
-   * {@link RunOutcome} and the base applies it via {@link applyOutcome}), false
-   * when recovery is impossible — {@link completeNodeFromResult} then fails the
-   * node for manual retry. Must not mutate node status or emit terminal events
-   * when returning false.
+   * Finish a run that completed while the server was down — the fixed
+   * recovery ABI (Invariant 4, step 05): return `{ kind: "recovered" }` after
+   * producing a terminal outcome (the impl returns a {@link RunOutcome} and
+   * the base applies it via {@link applyOutcome}), or
+   * `{ kind: "manual", reason }` when recovery is impossible —
+   * {@link completeNodeFromResult} then fails the node for manual retry, with
+   * `reason` in the trail. NEVER throws: a throw is caught once at the
+   * recovery seam and mapped to `manual` + event, so the reconciler pass is
+   * crash-safe per node. Must not mutate node status or emit terminal events
+   * when returning `manual`.
    */
-  abstract recover(ctx: FlowCtx, node: NodeRow, result: AgentRunResult, note: string): Promise<boolean>;
+  abstract recover(ctx: FlowCtx, node: NodeRow, result: AgentRunResult, note: string): Promise<RecoveryResult>;
 
   // ── shared helpers available to subclasses ──────────────────────────────
 

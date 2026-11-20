@@ -3,6 +3,7 @@ import "server-only";
 import { z } from "zod";
 import type { NodeRow } from "../../../../db/rows";
 import type { AgentRunResult } from "../../../ports/agentPort";
+import type { RecoveryResult } from "../../shared/types/recovery";
 import { TemplateRenderer, type FlowCtx, type RunOutcome } from "../../shared/nodeSharedExports";
 import { DeclarativeNode } from "../../shared/declarativeNode";
 import { buildFlowContext } from "../../../context/flowVariables";
@@ -86,11 +87,14 @@ export class HttpTemplateNode extends DeclarativeNode<HttpDef> {
     return this.executeStep(ctx, rawInput, cfg);
   }
 
-  /** Restart recovery: a completed run's response cannot be re-materialized — fail for retry. */
-  async recover(_ctx: FlowCtx, _node: NodeRow, result: AgentRunResult, _note: string): Promise<boolean> {
+  /** Restart recovery: a completed run's response cannot be re-materialized —
+   *  manual (the fixed recovery ABI), the retry re-runs the call. */
+  async recover(_ctx: FlowCtx, _node: NodeRow, result: AgentRunResult, _note: string): Promise<RecoveryResult> {
     void _note;
-    if (result.status !== "finished") return false;
-    return false;
+    if (result.status !== "finished") {
+      return { kind: "manual", reason: `the http run ended with ${result.status}` };
+    }
+    return { kind: "manual", reason: "a completed http run's response cannot be re-materialized — retry re-runs the call" };
   }
 
   // ── internals ─────────────────────────────────────────────────────────────

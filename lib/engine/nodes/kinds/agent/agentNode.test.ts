@@ -229,9 +229,10 @@ describe("AgentTemplateNode — the agent's self-report channel (json output)", 
     expect(feedback).toContain('"output_error"'); // the full contract is re-stated
     expect(runner.starts[1]?.followUpOn).toBe("agt_test");
 
-    // the trail shows the contract failure and the bounded retry
+    // the trail shows the contract failure and the bounded retry — the
+    // pipeline's typed `output_retry` event (step 05)
     const events = await db.all<{ message: string }>(
-      `SELECT message FROM events WHERE node_id=$1 AND type='lifecycle'`, seeded.nodeId,
+      `SELECT message FROM events WHERE node_id=$1 AND type='output_retry'`, seeded.nodeId,
     );
     expect(events.some((e) => e.message.includes("retrying with feedback"))).toBe(true);
   });
@@ -282,7 +283,7 @@ describe("AgentTemplateNode — one persistence path (T2)", () => {
     const nodeRow = must(await db.get<NodeRow>(`SELECT * FROM nodes WHERE id=$1`, b.nodeId), `node ${b.nodeId}`);
     await nodeSupport.persistRun(b.flowId, b.nodeId, "agt_test", "run_orphan"); // the run row left by the dead process
     const recovered = await nodeB.recover(b.ctx, nodeRow, result, NOTE);
-    expect(recovered).toBe(true);
+    expect(recovered).toEqual({ kind: "recovered" });
     const recoveredRows = await appliedRows(b.flowId, "agent_2");
 
     // byte-identical persistence (the only sanctioned difference: the note)
@@ -307,7 +308,7 @@ describe("AgentTemplateNode — one persistence path (T2)", () => {
     const nodeB = agentNode(3, new StubRunner({ status: "finished", result: FINISHED_TEXT }));
     const nodeRow = must(await db.get<NodeRow>(`SELECT * FROM nodes WHERE id=$1`, b.nodeId), `node ${b.nodeId}`);
     const declined = await nodeB.recover(b.ctx, nodeRow, { status: "error" }, "server restarted");
-    expect(declined).toBe(false);
+    expect(declined).toMatchObject({ kind: "manual" });
     const node = must(await db.get<{ status: string }>(`SELECT status FROM nodes WHERE id=$1`, b.nodeId), `node ${b.nodeId}`);
     expect(node.status).toBe("running"); // completeNodeFromResult owns the failing
   });

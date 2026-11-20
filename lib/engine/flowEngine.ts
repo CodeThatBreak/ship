@@ -6,6 +6,7 @@ import { db } from '../db/app';
 import { FlowRow, NodeRow, Task, rows } from '../db/rows';
 import { agentPortRegistry, type AgentRunResult } from './ports/agentPort';
 import { type HostComment, type HostWebhookEvent } from './ports/gitHost';
+import type { RecoveryResult } from './nodes/shared/types/recovery';
 import {
   NodeDefinition,
   type ChainRole,
@@ -1143,24 +1144,31 @@ export class FlowEngine {
     if (node.status !== 'running') return true; // already reconciled by a concurrent pass
 
     const def = await this.defOf(c.flow.id, node.nodeKey);
-    const ok = await def.recover(c, node, result, note);
-    if (ok) return true;
-
-    // node declined recovery → fail it so the user can retry
-    await this.parts.transitions.apply(c.flow.id, node.nodeKey, 'recoverDeclined');
-    if (result.status !== 'finished') {
+    // The fixed recover() ABI (Invariant 4, step 05): a throw out of a def's
+    // recover() is caught ONCE here — the recovery seam — and mapped to
+    // `manual` + an error event, so the reconciler pass never sees a
+    // recovery throw.
+    let recovery: RecoveryResult;
+    try {
+      recovery = await def.recover(c, node, result, note);
+    } catch (e: unknown) {
+      const reason = e instanceof Error ? e.message : String(e);
       await this.parts.events.error(
         c.flow.id,
         node.nodeKey,
-        `${node.nodeKey} run ended with ${result.status} (${note}) — retry the node to continue`
+        `${node.nodeKey} recover() threw — recovery failed: ${reason}`,
       );
-    } else {
-      await this.parts.events.lifecycle(
-        c.flow.id,
-        node.nodeKey,
-        `${node.nodeKey} run finished while disconnected (${note}) — retry the node to apply it`
-      );
+      recovery = { kind: "manual", reason: `recover() threw: ${reason}` };
     }
+    if (recovery.kind === 'recovered') return true;
+
+    // recovery is manual → fail the node so the user can retry
+    await this.parts.transitions.apply(c.flow.id, node.nodeKey, 'recoverDeclined');
+    await this.parts.events.error(
+      c.flow.id,
+      node.nodeKey,
+      `${node.nodeKey} recovery is manual (${recovery.reason}) — retry the node to continue`
+    );
     return true;
   }
 

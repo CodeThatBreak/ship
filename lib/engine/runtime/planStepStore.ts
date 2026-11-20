@@ -372,32 +372,20 @@ export class PlanStepStore {
     return count > 0;
   }
 
-  /** Parse the build agent's trailing ```json build-progress``` block. */
-  parseBuildProgress(text: string): string[] {
-    const m = text.match(/```json build-progress\s*\n([\s\S]*?)```/);
-    if (!m) return [];
-    try {
-      const parsed = JSON.parse(m[1]);
-      if (!Array.isArray(parsed?.completed)) return [];
-      return parsed.completed.filter((x: unknown) => typeof x === "string");
-    } catch {
-      return [];
-    }
-  }
-
   /**
-   * Mark steps done from the build agent's progress report. Matches by meta_id
-   * first, then by exact title (case-insensitive). Emits one lifecycle event
+   * Mark steps done from the build agent's progress report — by step id
+   * (meta_id) ONLY (step 05: the case-insensitive title salvage is deleted;
+   * a report naming titles instead of ids matches nothing, which the build
+   * def's missing-report gate surfaces). Emits one lifecycle event
    * summarising what was checked off.
    */
   async markDone(flowId: string, nodeId: string | null, refs: string[]): Promise<number> {
     if (!refs.length) return 0;
     const rows = (await this.list(flowId)).filter((s) => s.status !== "done");
-    const norm = (s: string) => s.trim().toLowerCase();
-    const want = new Set(refs.map(norm));
+    const want = new Set(refs);
     const done: string[] = [];
     for (const s of rows) {
-      if ((s.metaId && want.has(norm(s.metaId))) || want.has(norm(s.title))) {
+      if (s.metaId && want.has(s.metaId)) {
         await this.setStatus(flowId, s.id, "done", NODE_KEYS.BUILD);
         done.push(s.title);
       }

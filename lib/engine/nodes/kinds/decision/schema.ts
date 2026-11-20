@@ -30,3 +30,21 @@ export const decisionOutputContract = (def: DecisionDef): z.ZodType<Record<strin
     ...passFields,
   }) as unknown as z.ZodType<Record<string, unknown>>;
 };
+
+/**
+ * The agent-source response contract (step 05): `{"choice","rationale"}` —
+ * the shape the prompt's generated directive advertises and the pipeline
+ * validates (the agent's error envelope is recognized by the shared
+ * validator). The label membership check is the def's semantic gate (exact
+ * match only — no case-insensitive salvage).
+ */
+export const DecisionAgentChoice = z.object({
+  choice: z.string().min(1),
+  rationale: z.string().optional(),
+});
+export type DecisionAgentChoice = z.infer<typeof DecisionAgentChoice>;
+
+/** The JSON Schema the decision prompt's directive advertises — generated
+ *  from the contract the pipeline validates against (byte-identical pair). */
+export const DECISION_CHOICE_JSON_SCHEMA: unknown = z.toJSONSchema(DecisionAgentChoice);
+

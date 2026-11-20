@@ -5,6 +5,9 @@ import type { AgentRunResult } from '../../../ports/agentPort';
 import { planSteps } from '../../../runtime/planStepStore';
 import { TemplateRenderer, type FlowCtx, type RunOutcome } from '../../shared/nodeSharedExports';
 import { AGENT_OUTPUT_ERROR, AgentOutputError } from '../../shared/agent/outputError/outputErrorExports';
+import { AgentOutputPipeline } from '../../shared/agentOutput/agentOutputPipeline';
+import { retryFeedbackBody } from '../../shared/agentOutput/utils/retryFeedback';
+import { validateStandardAgentOutput } from '../../shared/agentOutput/utils/standardOutput';
 import type { AgentRunner, ExecuteRunResult } from '../../../harness/harnessExports';
 import { RunSupersededError } from '../../../errors/runSupersededError';
 import type { NodeSupport } from '../../shared/nodeSupport';
@@ -13,7 +16,6 @@ import { extractJson } from "../../shared/extractJson";
 import { FLOW_STATUS } from '../../../../../constants/flow';
 import { BranchRefinement } from './branchRefinement';
 import { planBodyDiverged } from './planPrompt';
-import { RETRYABLE_OUTPUT_ERRORS } from './constants/retryableErrors';
 import {
   REFINED_FROM_SOURCE,
   PLAN_APPLY_ALLOWED,
@@ -48,59 +50,33 @@ import { PlanTurnKind } from './constants/planTurn';
  * execution/scopedRefine provenance) — `applyOutcome` persists the rest.
  */
 export class PlanOutputContract {
+  private readonly pipeline: AgentOutputPipeline;
+
   constructor(
     private readonly support: NodeSupport,
     private readonly store: PlanStore,
     private readonly runner: AgentRunner,
     private readonly knobOf: (ctx: FlowCtx) => Promise<ExecutionKnob>,
     private readonly label: string
-  ) {}
+  ) {
+    this.pipeline = new AgentOutputPipeline(support);
+  }
 
   /**
    * Validate the agent's text against the plan response contract. Throws the
    * standard {@link AgentOutputError}: `no_json`, the agent's error envelope
    * (`agent_reported`), or `schema_mismatch` carrying every violation — the
-   * run trail shows what actually came back.
+   * run trail shows what actually came back. Delegates to the ONE shared
+   * standard validation (step 05 — the private copy is gone).
    */
   parse<T>(text: string, schema: z.ZodType<T>): T {
-    const parsed = extractJson(text);
-    if (parsed == null) {
-      throw new AgentOutputError({
-        code: AGENT_OUTPUT_ERROR.NO_JSON,
-        label: this.label,
-        message: `${this.label}: the agent response contained no JSON — the plan response must be a single JSON object`,
-        issues: [],
-        response: text,
-      });
-    }
-    // the agent's escape hatch: it answered with the standard error envelope
-    // instead of contract-conforming output — convey its reason
-    const reported = AgentOutputError.reported(parsed);
-    if (reported != null) {
-      throw new AgentOutputError({
-        code: AGENT_OUTPUT_ERROR.AGENT_REPORTED,
-        label: this.label,
-        // the agent's reason is the headline — its words, conveyed to the user
-        message: `${this.label}: ${reported.reason}`,
-        issues: [],
-        reported,
-        response: text,
-      });
-    }
-    const result = schema.safeParse(parsed);
-    if (!result.success) {
-      const issues = result.error.issues.map(i => ({ path: i.path.join('.'), message: i.message }));
-      throw new AgentOutputError({
-        code: AGENT_OUTPUT_ERROR.SCHEMA_MISMATCH,
-        label: this.label,
-        // the first violation stays the headline — the same human message the
-        // old validator produced, now with every issue in the structured payload
-        message: issues[0]?.message ?? `${this.label}: the plan response violated its schema`,
-        issues,
-        response: text,
-      });
-    }
-    return result.data;
+    return validateStandardAgentOutput({
+      label: this.label,
+      text,
+      schema,
+      noJsonNote: 'the plan response must be a single JSON object',
+      mismatchNote: `${this.label}: the plan response violated its schema`,
+    });
   }
 
   /**
@@ -229,28 +205,16 @@ export class PlanOutputContract {
   }
 
   /**
-   * ONE bounded retry prompt for unified turns — re-states `PlanTurnOutput`
-   * with turn-kind-specific guidance.
+   * ONE bounded retry prompt for unified turns — the shared feedback body
+   * (step 05) plus turn-kind-specific guidance, re-stating `PlanTurnOutput`
+   * through the generated directive.
    */
   turnRetryPrompt(failure: AgentOutputError, turnKind: PlanTurnKind): string {
     const branch = turnKind === 'branch';
-    const body =
-      failure.code === AGENT_OUTPUT_ERROR.NO_JSON
-        ? TemplateRenderer.compose('Your previous response could not be used: no JSON object could be parsed from it.')
-            .addBlankLine()
-            .addLine('Re-emit your ENTIRE response as a single JSON object.')
-            .build()
-        : TemplateRenderer.compose('Your previous response was valid JSON but violated the plan turn contract:')
-            .addBlankLine()
-            .addLines(failure.detail.issues.map(i => `  - ${i.path ? `${i.path}: ` : ''}${i.message}`))
-            .addBlankLine()
-            .addLine(
-              branch
-                ? 'Re-emit a single JSON object with "reply" and optionally "subPlanPatch" (preferred) or "subPlan" — never include "plan" on branch turns.'
-                : 'Re-emit a single JSON object with "reply" and optionally "plan" when changing the plan document.'
-            )
-            .build();
-    return TemplateRenderer.compose(body)
+    const extra = branch
+      ? 'Branch turns: a single JSON object with "reply" and optionally "subPlanPatch" (preferred) or "subPlan" — never include "plan" on branch turns.'
+      : 'Whole/pre-publish turns: a single JSON object with "reply" and optionally "plan" when changing the plan document.';
+    return TemplateRenderer.compose(retryFeedbackBody(failure, { extraInstruction: extra }))
       .addBlankLine()
       .addBlankLine()
       .addLine(AgentOutputError.directive(PLAN_TURN_OUTPUT_JSON_SCHEMA))
@@ -267,59 +231,50 @@ export class PlanOutputContract {
     args: PlanRunArgs
   ): Promise<{ reply: string; outcome: RunOutcome | null }> {
     try {
-      return await this.applyTurnResult(ctx, node, turnKind, userMessage, text, scoped);
-    } catch (e: unknown) {
-      if (e instanceof PlanApplyRefusedError) {
-        return { reply: e.reply, outcome: null };
-      }
-      if (!(e instanceof AgentOutputError) || !RETRYABLE_OUTPUT_ERRORS.has(e.code)) throw e;
-      return this.turnRetry(ctx, node, turnKind, userMessage, scoped, e, args);
-    }
-  }
-
-  private async turnRetry(
-    ctx: FlowCtx,
-    node: NodeRow,
-    turnKind: PlanTurnKind,
-    userMessage: string,
-    scoped: ScopedRefine | null,
-    failure: AgentOutputError,
-    args: PlanRunArgs
-  ): Promise<{ reply: string; outcome: RunOutcome | null }> {
-    await this.support.emitLifecycle(
-      ctx.flow.id,
-      node.id,
-      `${args.label} output contract failed — retrying with feedback (${failure.code})`
-    );
-    let retry: ExecuteRunResult;
-    try {
-      retry = await this.runner.executeRun(
+      // the ONE bounded feedback loop (step 05): the pipeline validates each
+      // response against the turn contract and spends `retryBudget` feedback
+      // turns on retryable misses; `agent_reported` and exhaustion throw
+      return await this.pipeline.run<{ reply: string; outcome: RunOutcome | null }>({
         ctx,
-        node.id,
-        async () =>
-          this.runner.startAgent(ctx, {
-            prompt: this.turnRetryPrompt(failure, turnKind),
-            mode: 'plan',
-            name: `${args.label} ${ctx.task.key}`,
-            followUpOn: await this.support.lastAgentId(node.id),
-            model: args.model,
-            settingSources: args.settingSources,
-          }),
-        `${args.label} retry`
-      );
-    } catch (e) {
+        nodeId: node.id,
+        label: args.label,
+        text,
+        budget: args.retryBudget,
+        validate: async (t) => {
+          try {
+            return await this.applyTurnResult(ctx, node, turnKind, userMessage, t, scoped);
+          } catch (e: unknown) {
+            if (e instanceof PlanApplyRefusedError) {
+              return { reply: e.reply, outcome: null };
+            }
+            throw e;
+          }
+        },
+        retryPrompt: (failure) => this.turnRetryPrompt(failure, turnKind),
+        executeRetry: async (prompt) => {
+          const retry = await this.runner.executeRun(
+            ctx,
+            node.id,
+            async () =>
+              this.runner.startAgent(ctx, {
+                prompt,
+                mode: 'plan',
+                name: `${args.label} ${ctx.task.key}`,
+                followUpOn: await this.support.lastAgentId(node.id),
+                model: args.model,
+                settingSources: args.settingSources,
+              }),
+            `${args.label} retry`
+          );
+          return retry.result.result ?? '';
+        },
+      });
+    } catch (e: unknown) {
+      // a superseded retry turn is not a contract failure — the claim moved
+      // on (cancelled/retried mid-turn); the caller treats it as a quiet no-op
       if (e instanceof RunSupersededError) {
         return { reply: '', outcome: null };
       }
-      throw e;
-    }
-    try {
-      return await this.applyTurnResult(ctx, node, turnKind, userMessage, retry.result.result ?? '', scoped);
-    } catch (e: unknown) {
-      if (e instanceof PlanApplyRefusedError) {
-        return { reply: e.reply, outcome: null };
-      }
-      if (!(e instanceof AgentOutputError) || !RETRYABLE_OUTPUT_ERRORS.has(e.code)) throw e;
       throw e;
     }
   }

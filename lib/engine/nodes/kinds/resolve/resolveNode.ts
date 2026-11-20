@@ -9,6 +9,7 @@ import {
   type GitHostResolver,
 } from "../../../ports/gitHost";
 import type { AgentRunResult } from "../../../ports/agentPort";
+import type { RecoveryResult } from "../../shared/types/recovery";
 import { prompts } from "../../../prompts/promptLibrary";
 import {
   AgentRunNode,
@@ -26,6 +27,7 @@ import type { NodeSupport } from "../../shared/nodeSupport";
 import type { AgentRunner } from "../../../harness/harnessExports";
 import { agentRunner } from "../../../harness/harnessExports";
 import { AgentOutputError } from "../../shared/agent/outputError/outputErrorExports";
+import { AgentOutputPipeline } from "../../shared/agentOutput/agentOutputPipeline";
 import { EVENT_KIND } from "../../../constants/vocabulary";
 import type { NodeCapabilities } from "../../shared/capabilities";
 import { NODE_KEYS } from "../../../constants/nodeKeys";
@@ -38,7 +40,7 @@ import { isHookRejection } from "../mergeRequest/errors";
 import { ResolveConsumes, ResolveInput, ResolveOutput, RESOLVE_RESPONSE_JSON_SCHEMA } from "./schema";
 import { ResolveEffects } from "./resolveEffects";
 import { ResolveOutputContract } from "./resolveContract";
-import { RETRYABLE_OUTPUT_ERRORS } from "./constants/retryableErrors";
+import { RETRYABLE_OUTPUT_ERRORS } from "../../shared/agentOutput/constants/agentOutput";
 import { PUSH_STATE } from "./constants/pushState";
 import type { ResolveAgentResponse, ResolveCommentDecision } from "./schema";
 import type { ResolveEffectLedger } from "./types/resolveEffects";
@@ -188,6 +190,8 @@ export class ResolveNode extends AgentRunNode<ResolveInput, ResolveOutput> {
   private readonly gitHosts: GitHostResolver;
   private readonly contract: ResolveOutputContract;
   private readonly effects: ResolveEffects;
+  /** the ONE agent-output path for this kind's response (step 05) */
+  private readonly outputPipeline: AgentOutputPipeline;
 
   constructor(
     support: NodeSupport = nodeSupport,
@@ -199,6 +203,7 @@ export class ResolveNode extends AgentRunNode<ResolveInput, ResolveOutput> {
     this.gitHosts = gitHosts;
     this.contract = new ResolveOutputContract();
     this.effects = new ResolveEffects(support, gitHosts);
+    this.outputPipeline = new AgentOutputPipeline(support);
   }
 
   /**
@@ -447,45 +452,44 @@ export class ResolveNode extends AgentRunNode<ResolveInput, ResolveOutput> {
   }
 
   /**
-   * Contract retry (§6 layer 1): retryable misses (`no_json`, `schema_mismatch`)
-   * get ONE feedback turn on the same agent session; an `agent_reported`
-   * propagates immediately with the agent's reason; a second miss throws —
-   * the node fails for manual retry.
+   * Contract retry (§6 layer 1) through the ONE agent-output pipeline
+   * (step 05): retryable misses (`no_json`, `schema_mismatch`) spend the def's
+   * `retryBudget` feedback turns on the same agent session; an
+   * `agent_reported` propagates immediately with the agent's reason; a
+   * budget-exhausted miss throws — the node fails for manual retry.
    */
-  private async parseWithRetry(
+  private parseWithRetry(
     ctx: FlowCtx,
     p: FinishParams,
     result: AgentRunResult,
     openIds: readonly string[],
   ): Promise<ResolveAgentResponse> {
-    let failure: AgentOutputError;
-    try {
-      return this.contract.parse(result.result ?? "", openIds);
-    } catch (e: unknown) {
-      if (!(e instanceof AgentOutputError) || !RETRYABLE_OUTPUT_ERRORS.has(e.code)) throw e;
-      failure = e;
-    }
-    await this.support.emitLifecycle(
-      ctx.flow.id,
-      p.node.id,
-      `resolve output contract failed — one retry with feedback (${failure.code})`,
-    );
-    const { result: retry } = await this.runner.executeRun(
+    return this.outputPipeline.run<ResolveAgentResponse>({
       ctx,
-      p.node.id,
-      async () =>
-        this.runner.startAgent(ctx, {
-          prompt: this.contract.retryPrompt(failure, openIds),
-          mode: "agent",
-          name: `${p.label} ${ctx.task.key}`,
-          followUpOn: await this.support.lastAgentId(p.node.id),
-          model: p.model,
-          settingSources: p.settingSources,
-        }),
-      `${p.label} contract retry`,
-    );
-    // a second miss throws — one bounded retry, then a failed node
-    return this.contract.parse(retry.result ?? "", openIds);
+      nodeId: p.node.id,
+      label: p.label,
+      text: result.result ?? "",
+      budget: this.retryBudget,
+      validate: (t) => this.contract.parse(t, openIds),
+      retryPrompt: (failure) => this.contract.retryPrompt(failure, openIds),
+      executeRetry: async (prompt) => {
+        const { result: retry } = await this.runner.executeRun(
+          ctx,
+          p.node.id,
+          async () =>
+            this.runner.startAgent(ctx, {
+              prompt,
+              mode: "agent",
+              name: `${p.label} ${ctx.task.key}`,
+              followUpOn: await this.support.lastAgentId(p.node.id),
+              model: p.model,
+              settingSources: p.settingSources,
+            }),
+          `${p.label} contract retry`,
+        );
+        return retry.result ?? "";
+      },
+    });
   }
 
   /**
@@ -622,7 +626,10 @@ export class ResolveNode extends AgentRunNode<ResolveInput, ResolveOutput> {
     }
   }
 
-  /** The crashed run's persisted ledger + verified push state (restart recovery). */
+  /** The crashed run's persisted ledger + verified push state (restart recovery).
+   *  Step 05: an UNPARSEABLE meta THROWS — mapping it to an empty ledger would
+   *  re-apply every effect (double-posted replies, re-resolved threads);
+   *  recover() maps the throw to `{ kind: "manual" }` with this reason. */
   private async readRecoveryState(ctx: FlowCtx): Promise<{
     ledger: ResolveEffectLedger;
     pushState: PushState | null;
@@ -630,16 +637,12 @@ export class ResolveNode extends AgentRunNode<ResolveInput, ResolveOutput> {
   }> {
     const art = await this.support.latestArtifact(ctx.flow.id, RESOLVE_ARTIFACT_KIND, { nodeType: NODE_KEYS.RESOLVE });
     if (!art?.meta) return { ledger: EMPTY_LEDGER, pushState: null, codeChanged: null };
-    try {
-      const parsed = RECOVERY_META.parse(art.meta);
-      return {
-        ledger: parsed.ledger ?? EMPTY_LEDGER,
-        pushState: parsed.pushState ?? null,
-        codeChanged: parsed.codeChanged ?? null,
-      };
-    } catch {
-      return { ledger: EMPTY_LEDGER, pushState: null, codeChanged: null };
-    }
+    const parsed = RECOVERY_META.parse(art.meta);
+    return {
+      ledger: parsed.ledger ?? EMPTY_LEDGER,
+      pushState: parsed.pushState ?? null,
+      codeChanged: parsed.codeChanged ?? null,
+    };
   }
 
   /** MR head SHA + local branch fingerprint before a run (null when unusable). */
@@ -685,15 +688,18 @@ export class ResolveNode extends AgentRunNode<ResolveInput, ResolveOutput> {
   /**
    * Restart recovery re-applies the recorded agent result through the contract
    * and completes the remaining effects from the artifact ledger — the
-   * `agentNode.recover` precedent ("recovery is persistence-only"). Returns
-   * false when the recorded input/result is missing or unparseable → the
-   * reconciler fails the node for manual retry.
+   * `agentNode.recover` precedent ("recovery is persistence-only"). The fixed
+   * recovery ABI: a missing/unparseable recorded state is `manual` with the
+   * reason (an UNPARSEABLE ledger meta is manual + the event the recovery
+   * seam emits — never an empty-ledger re-apply of already-applied effects).
    */
-  async recover(ctx: FlowCtx, node: NodeRow, result: AgentRunResult, note: string): Promise<boolean> {
-    if (result.status !== "finished") return false;
+  async recover(ctx: FlowCtx, node: NodeRow, result: AgentRunResult, note: string): Promise<RecoveryResult> {
+    if (result.status !== "finished") {
+      return { kind: "manual", reason: `the resolve run ended with ${result.status}` };
+    }
     try {
       const repoUrl = ctx.flow.repoUrl;
-      if (!repoUrl) return false;
+      if (!repoUrl) return { kind: "manual", reason: "the flow has no repository URL" };
       const recorded = this.inputSchema.parse(node.input ?? {});
       const { mrIid, mrBranch } = await mrTargetResolver.resolve(ctx, recorded.branchName);
       const open = await this.support.openComments(ctx.flow.id, mrIid);
@@ -711,9 +717,9 @@ export class ResolveNode extends AgentRunNode<ResolveInput, ResolveOutput> {
         restart: true,
       });
       await this.applyOutcome(ctx, outcome, { note: `recovered: ${note}` });
-      return true;
-    } catch {
-      return false;
+      return { kind: "recovered" };
+    } catch (e: unknown) {
+      return { kind: "manual", reason: `replaying the resolve run failed: ${e instanceof Error ? e.message : String(e)}` };
     }
   }
 }

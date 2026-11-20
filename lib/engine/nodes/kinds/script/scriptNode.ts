@@ -6,6 +6,7 @@ import path from "node:path";
 import { z } from "zod";
 import type { NodeRow } from "../../../../db/rows";
 import type { AgentRunResult } from "../../../ports/agentPort";
+import type { RecoveryResult } from "../../shared/types/recovery";
 import { type FlowCtx, type RunOutcome } from "../../shared/nodeSharedExports";
 import { DeclarativeNode } from "../../shared/declarativeNode";
 import { ScriptDefSchema, type ScriptDef } from "../../declarativeSchemas";
@@ -100,11 +101,14 @@ export class ScriptTemplateNode extends DeclarativeNode<ScriptDef> {
     return this.runScript(ctx, rawInput, cfg);
   }
 
-  /** Restart recovery: a finished run's stdout is not persisted for scripts — retry re-runs it. */
-  async recover(_ctx: FlowCtx, _node: NodeRow, result: AgentRunResult, _note: string): Promise<boolean> {
+  /** Restart recovery: a finished run's output file is not persisted — the
+   * script must re-run (manual, with the reason the trail shows). */
+  async recover(_ctx: FlowCtx, _node: NodeRow, result: AgentRunResult, _note: string): Promise<RecoveryResult> {
     void _note;
-    if (result.status !== "finished") return false;
-    return false;
+    if (result.status !== "finished") {
+      return { kind: "manual", reason: `the script run ended with ${result.status}` };
+    }
+    return { kind: "manual", reason: "a finished script run's output is not persisted — retry re-runs the script" };
   }
 
   // ── internals ─────────────────────────────────────────────────────────────

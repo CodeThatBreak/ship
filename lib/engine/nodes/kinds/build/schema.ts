@@ -43,6 +43,17 @@ export const BuildOutput = z.object({
 });
 export type BuildOutput = z.infer<typeof BuildOutput>;
 
+/**
+ * The build agent's trailing ` ```json build-progress` ` report (step 05): the
+ * ids of the plan steps the run fully completed. The contract the shared
+ * agent-output validator enforces — a missing or unparseable report with
+ * pending steps is a failed node, never a silent empty list.
+ */
+export const BuildProgressReport = z.object({
+  completed: z.array(z.string()),
+});
+export type BuildProgressReport = z.infer<typeof BuildProgressReport>;
+
 /** The unit item a build split child consumes (agent-node split plan §2.4):
  *  the branch's plan document + branch contract. `title`/`scope` are
  *  required — the old hand-narrow silently defaulted a missing title to the

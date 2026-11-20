@@ -28,6 +28,7 @@ import {
   type AgentOutputError as AgentOutputErrorT,
 } from '../../shared/agent/outputError/outputErrorExports';
 import { RunSupersededError } from '../../../errors/runSupersededError';
+import type { RecoveryResult } from '../../shared/types/recovery';
 import { toStatusOf } from '../../../runtime/transitions/utils/transitionLookup';
 import type { EngineNodeStatus } from '../../../constants/nodeStatus';
 import { PlanAgentSessions } from './planAgentSessions';
@@ -36,7 +37,7 @@ import { PlanTurnKind } from './constants/planTurn';
 
 import { PROMPT_KEYS } from './constants/promptKeys';
 import { AGENT_CONFIG_FIELDS } from './constants/config/planConfigExports';
-import { RETRYABLE_OUTPUT_ERRORS } from './constants/retryableErrors';
+import { RETRYABLE_OUTPUT_ERRORS } from '../../shared/agentOutput/constants/agentOutput';
 import { PLAN_CHAT_LABEL, planValidationFailedEvent, planValidationRefusalReply } from './constants/refine';
 import { resolvePlanTurnPreviousStatus } from './planRetryRevert';
 
@@ -245,6 +246,7 @@ export class PlanNode extends AgentRunNode<PlanInput, PlanOutput> {
       label: opts.label,
       model: opts.model,
       settingSources: opts.settingSources,
+      retryBudget: this.retryBudget,
     };
 
     const finalInputPrompt = PlanInput.parse({
@@ -352,21 +354,27 @@ export class PlanNode extends AgentRunNode<PlanInput, PlanOutput> {
     return issue.message;
   }
 
-  async recover(ctx: FlowCtx, node: NodeRow, result: AgentRunResult, note: string): Promise<boolean> {
-    if (result.status !== 'finished') return false;
+  async recover(ctx: FlowCtx, node: NodeRow, result: AgentRunResult, note: string): Promise<RecoveryResult> {
+    if (result.status !== 'finished') {
+      return { kind: 'manual', reason: `the plan run ended with ${result.status}` };
+    }
 
     let recorded: PlanInput;
     try {
       recorded = this.inputSchema.parse(node.input ?? {});
-    } catch {
-      recorded = PlanInput.parse({});
+    } catch (e: unknown) {
+      return { kind: 'manual', reason: `the recorded plan turn input is unparseable: ${e instanceof Error ? e.message : String(e)}` };
     }
 
-    if (!recorded.planTurnKind) return false;
+    if (!recorded.planTurnKind) {
+      return { kind: 'manual', reason: 'the recorded input has no plan turn to replay' };
+    }
 
     const branch = recorded.planThread?.trim() || null;
     const scoped = branch ? await this.store.scopedRefine(ctx.flow.id, branch) : null;
-    if (branch && !scoped) return false;
+    if (branch && !scoped) {
+      return { kind: 'manual', reason: `branch thread "${branch}" has no scoped-refine context` };
+    }
     try {
       const applied = await this.contract.applyTurnResult(
         ctx,
@@ -385,9 +393,9 @@ export class PlanNode extends AgentRunNode<PlanInput, PlanOutput> {
         await this.revertChat(ctx, node, null, toStatusOf('chatRevert', previousStatus), agentId ? { agent_id: agentId } : {});
         await this.support.emitLifecycle(ctx.flow.id, node.id, `recovered: ${note} (reply-only turn)`);
       }
-      return true;
-    } catch {
-      return false;
+      return { kind: 'recovered' };
+    } catch (e: unknown) {
+      return { kind: 'manual', reason: `replaying the recorded plan turn failed: ${e instanceof Error ? e.message : String(e)}` };
     }
   }
 

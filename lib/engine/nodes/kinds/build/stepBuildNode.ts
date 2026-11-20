@@ -8,6 +8,7 @@ import type { NodeSupport } from "../../shared/nodeSupport";
 import { nodeSupport } from "@/lib/composition/container";
 import type { NodeRow } from "../../../../db/rows";
 import type { AgentRunResult } from "../../../ports/agentPort";
+import type { RecoveryResult } from "../../shared/types/recovery";
 import { prompts } from "../../../prompts/promptLibrary";
 import { DEFAULT_FANOUT_OUTPUT, type MergeBackArgs, type MergeBackResult, type NodeCapabilities } from "../../shared/capabilities";
 import { NODE_KEYS } from "../../../constants/nodeKeys";
@@ -237,10 +238,12 @@ export class StepBuildNode extends AgentRunNode<BuildInput, BuildOutput> {
    * inherited from the parent build's recovery before the composition split
    * (§T6), now persisted through the ONE outcome path (§T2).
    */
-  async recover(ctx: FlowCtx, node: NodeRow, result: AgentRunResult, note: string): Promise<boolean> {
-    if (result.status !== "finished") return false;
+  async recover(ctx: FlowCtx, node: NodeRow, result: AgentRunResult, note: string): Promise<RecoveryResult> {
+    if (result.status !== "finished") {
+      return { kind: "manual", reason: `the step-build run ended with ${result.status}` };
+    }
     // idempotent: a concurrent reconcile may have already recovered this node
-    if (node.status !== "running") return true;
+    if (node.status !== "running") return { kind: "recovered" };
     const branch = this.buildRun.reportedBranch(result) ?? this.buildRun.flowBranch(ctx);
     await this.support.setFlowBranch(ctx.flow.id, branch);
     ctx.flow.mrBranch = branch;
@@ -255,7 +258,7 @@ export class StepBuildNode extends AgentRunNode<BuildInput, BuildOutput> {
       eventData: { stat: art.stat, recovered: true },
       reply: "",
     }, { note });
-    return true;
+    return { kind: "recovered" };
   }
 
   // ── helpers ─────────────────────────────────────────────────────────────────

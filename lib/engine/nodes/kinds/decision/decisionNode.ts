@@ -3,6 +3,7 @@ import "server-only";
 import { z } from "zod";
 import type { NodeRow } from "../../../../db/rows";
 import type { AgentRunResult } from "../../../ports/agentPort";
+import type { RecoveryResult } from "../../shared/types/recovery";
 import { TemplateRenderer, type FlowCtx, type RunOutcome } from "../../shared/nodeSharedExports";
 import { DeclarativeAgentNode } from "../../shared/declarativeNode";
 import { buildFlowContext } from "../../../context/flowVariables";
@@ -10,8 +11,11 @@ import { evalJsonata, jsonataTruthy } from "@/lib/jsonata/eval";
 import { mcpSourceConfigFields } from "../../../templates/nodeConfig";
 import { DecisionDefSchema, type DecisionDef } from "../../declarativeSchemas";
 import { digestJsonText } from "../../shared/payloadDigest";
-import { extractJson } from "../../shared/extractJson";
-import { DecisionRunInput, decisionOutputContract } from "./schema";
+import { AgentOutputError } from "../../shared/agent/outputError/outputErrorExports";
+import { AgentOutputPipeline } from "../../shared/agentOutput/agentOutputPipeline";
+import { retryFeedbackBody } from "../../shared/agentOutput/utils/retryFeedback";
+import { validateStandardAgentOutput } from "../../shared/agentOutput/utils/standardOutput";
+import { DecisionRunInput, decisionOutputContract, DecisionAgentChoice, DECISION_CHOICE_JSON_SCHEMA } from "./schema";
 
 // ── helpers ──────────────────────────────────────────────────────────────────
 
@@ -83,12 +87,16 @@ export class DecisionTemplateNode extends DeclarativeAgentNode<DecisionDef, Reco
 
   declare readonly def: DecisionDef;
 
+  /** the ONE agent-output path for this kind's agent pick (step 05) */
+  private readonly outputPipeline: AgentOutputPipeline;
+
   constructor(
     tmpl: { id: string; name: string; description: string | null; config: unknown },
     instanceKey?: string,
   ) {
     super(tmpl, instanceKey, DecisionDefSchema.parse(tmpl.config ?? {}), "decision");
     this.inputSchema = DecisionRunInput;
+    this.outputPipeline = new AgentOutputPipeline(this.support);
     // the REAL output contract (step 04): built once per instance — the
     // declarative def cache holds instances
     this.outputSchema = decisionOutputContract(this.def);
@@ -223,7 +231,7 @@ export class DecisionTemplateNode extends DeclarativeAgentNode<DecisionDef, Reco
       },
       label: `${this.label.toLowerCase()} decision`,
       finalize: async (runResult) => {
-        const parsed = this.parseAgentChoice(cfg, runResult.result ?? "");
+        const parsed = await this.pickFromAgent(ctx, node, cfg, runResult.result ?? "");
         return await this.applyPick(ctx, [parsed.choice], parsed.rationale, passed);
       },
     });
@@ -231,21 +239,29 @@ export class DecisionTemplateNode extends DeclarativeAgentNode<DecisionDef, Reco
 
   /** Restart recovery: re-apply the same result through the shared
    * persistence path (applyOutcome) — byte-identical rows to a normal finish,
-   * with the note on the event. */
-  override async recover(ctx: FlowCtx, node: NodeRow, result: AgentRunResult, note: string): Promise<boolean> {
-    if (result.status !== "finished") return false; // fail it — decision runs are re-runnable
-    const cfg = this.runConfig(await this.nodeConfig(ctx));
-    let outcome: RunOutcome;
-    if (cfg.source === "agent") {
-      const parsed = this.parseAgentChoice(cfg, result.result ?? "");
-      outcome = await this.applyPick(ctx, [parsed.choice], parsed.rationale, await this.evalPass(cfg, await buildFlowContext(ctx)));
-    } else if (cfg.source === "manual") {
-      outcome = this.awaiting("pick a branch in the decision card", await this.evalPass(cfg, await buildFlowContext(ctx)), cfg);
-    } else {
-      return false; // expression decisions run inline — nothing to recover from
+   * with the note on the event. A malformed recorded pick is `manual` with
+   * the parse failure as the reason (never a throw — the fixed recovery
+   * ABI). */
+  override async recover(ctx: FlowCtx, node: NodeRow, result: AgentRunResult, note: string): Promise<RecoveryResult> {
+    if (result.status !== "finished") {
+      return { kind: "manual", reason: `the decision run ended with ${result.status} — decision runs are re-runnable` };
     }
-    await this.applyOutcome(ctx, outcome, { note });
-    return true;
+    const cfg = this.runConfig(await this.nodeConfig(ctx));
+    try {
+      if (cfg.source === "agent") {
+        const parsed = this.parseAgentChoice(cfg, result.result ?? "");
+        const outcome = await this.applyPick(ctx, [parsed.choice], parsed.rationale, await this.evalPass(cfg, await buildFlowContext(ctx)));
+        await this.applyOutcome(ctx, outcome, { note });
+      } else if (cfg.source === "manual") {
+        const outcome = this.awaiting("pick a branch in the decision card", await this.evalPass(cfg, await buildFlowContext(ctx)), cfg);
+        await this.applyOutcome(ctx, outcome, { note });
+      } else {
+        return { kind: "manual", reason: "expression decisions run inline — nothing to recover from" };
+      }
+      return { kind: "recovered" };
+    } catch (e: unknown) {
+      return { kind: "manual", reason: `re-applying the recorded pick failed: ${e instanceof Error ? e.message : String(e)}` };
+    }
   }
 
   // ── internals ─────────────────────────────────────────────────────────────
@@ -301,11 +317,66 @@ export class DecisionTemplateNode extends DeclarativeAgentNode<DecisionDef, Reco
   }
 
   /**
+   * The agent pick through the ONE agent-output pipeline (step 05): the
+   * contract with its bounded feedback retry (`retryBudget`), the typed
+   * events on every outcome.
+   */
+  private async pickFromAgent(ctx: FlowCtx, node: NodeRow, cfg: DecisionDef, text: string): Promise<{ choice: string; rationale: string }> {
+    return this.outputPipeline.run<{ choice: string; rationale: string }>({
+      ctx,
+      nodeId: node.id,
+      label: this.label,
+      text,
+      budget: this.retryBudget,
+      validate: (t) => this.parseAgentChoice(cfg, t),
+      retryPrompt: (failure) => this.agentRetryPrompt(cfg, failure),
+      executeRetry: async (prompt) => {
+        const { result: retry } = await this.runner.executeRun(
+          ctx,
+          node.id,
+          async () =>
+            this.runner.startAgent(ctx, {
+              prompt,
+              mode: "plan",
+              name: `${this.label} ${ctx.task.key}`,
+              model: null, // a decision is a judgment call — it uses the flow/default model
+              followUpOn: await this.support.lastAgentId(node.id),
+              settingSources: cfg.mcp_sources,
+            }),
+          `${this.label.toLowerCase()} decision retry`,
+        );
+        return retry.result ?? "";
+      },
+    });
+  }
+
+  /**
+   * The bounded retry prompt: the shared feedback body (step 05) re-stating
+   * the generated directive, so a retry advertises the same contract the
+   * first turn did.
+   */
+  private agentRetryPrompt(cfg: DecisionDef, failure: AgentOutputError): string {
+    return TemplateRenderer.compose(retryFeedbackBody(failure))
+      .addBlankLine()
+      .addBlankLine()
+      .addLine(AgentOutputError.directive(DECISION_CHOICE_JSON_SCHEMA))
+      .addBlankLine()
+      .addLine(this.decisionFooter())
+      .build();
+  }
+
+  /** The read-only footer both the first-turn prompt and the retry carry. */
+  private decisionFooter(): string {
+    return "Do not modify any files — this is a read-only judgment call.";
+  }
+
+  /**
    * Build the agent decision prompt: the user's prompt (how to make the
    * decision, `{{vars}}` interpolated via the agent node's interpolation) +
-   * the flow-state JSON + the branch list. The return format is appended
-   * automatically — the strict {"choice","rationale"} JSON is how the engine
-   * maps the answer back onto a branch (outgoing edge label).
+   * the flow-state JSON + the branch list. The response contract is the
+   * generated directive (step 05 — the hand-authored "Return format" prose is
+   * gone): the strict {"choice","rationale"} JSON is how the engine maps the
+   * answer back onto a branch (outgoing edge label).
    */
   private buildAgentPrompt(cfg: DecisionDef, vars: Record<string, unknown>): string {
     const choices = cfg.choices.map((c) => `- ${c.label}: ${c.description ?? ""}`.trim()).join("\n");
@@ -322,32 +393,36 @@ export class DecisionTemplateNode extends DeclarativeAgentNode<DecisionDef, Reco
       "The branch you pick must be exactly one of these labels:",
       choices,
       "",
-      'Return format — respond ONLY with a JSON object: {"choice": "<one of the branch labels above>", "rationale": "<1-2 sentences explaining the pick>"}.',
-      "Do not modify any files — this is a read-only judgment call.",
+      AgentOutputError.directive(DECISION_CHOICE_JSON_SCHEMA),
+      this.decisionFooter(),
     ].join("\n");
   }
 
+  /**
+   * Validate the agent's choice against the contract (step 05 — the standard
+   * shared validation; the case-insensitive label salvage is DELETED: a label
+   * that is not exactly one of the choices is a typed schema_mismatch the
+   * pipeline's feedback retry can fix).
+   */
   private parseAgentChoice(cfg: DecisionDef, text: string): { choice: string; rationale: string } {
-    const label = this.label;
-    const parsed = extractJson(text);
-    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
-      throw new Error(
-        `${label}: the agent response contained no decision JSON — expected {"choice": "...", "rationale": "..."}`);
-    }
-    const choiceRaw = (parsed as Record<string, unknown>).choice;
-    const rationale = String((parsed as Record<string, unknown>).rationale ?? "").trim();
-    if (typeof choiceRaw !== "string" || !choiceRaw.trim()) {
-      throw new Error(`${label}: the agent did not return a "choice" label — retry to ask again`);
-    }
-    const choice = choiceRaw.trim();
-    // case-insensitive labels are a common agent slip — normalize instead of failing
-    const labels = this.choiceLabels(cfg);
-    const exact = labels.find((l) => l === choice) ?? labels.find((l) => l.toLowerCase() === choice.toLowerCase());
-    if (!exact) {
-      throw new Error(
-        `${label}: the agent returned "${choice}", which is not one of the choice labels (${labels.join(", ")}) — retry to ask again`);
-    }
-    return { choice: exact, rationale };
+    const parsed = validateStandardAgentOutput({
+      label: this.label,
+      text,
+      schema: DecisionAgentChoice,
+      noJsonNote: 'expected {"choice": "...", "rationale": "..."}',
+      mismatchNote: `${this.label}: the decision response violated its schema`,
+      semantic: (value) => {
+        const labels = this.choiceLabels(cfg);
+        if (!labels.includes(value.choice)) {
+          return [{
+            path: "choice",
+            message: `${this.label}: the agent returned "${value.choice}", which is not one of the choice labels (${labels.join(", ")})`,
+          }];
+        }
+        return [];
+      },
+    });
+    return { choice: parsed.choice, rationale: parsed.rationale ?? "" };
   }
 }
 

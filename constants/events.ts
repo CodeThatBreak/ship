@@ -15,6 +15,12 @@ export const FLOW_EVENT_TYPE = {
   INPUT_CONTRACT_VIOLATION: "input_contract_violation",
   /** a terminal outcome failed its declared output contract — never published (step 04) */
   OUTPUT_CONTRACT_VIOLATION: "output_contract_violation",
+  /** the agent-output pipeline retries a contract miss with feedback (step 05) */
+  OUTPUT_RETRY: "output_retry",
+  /** the bounded feedback budget is spent — the node fails loudly (step 05) */
+  OUTPUT_EXHAUSTED: "output_exhausted",
+  /** the agent answered with the standard error envelope — never retried (step 05) */
+  AGENT_REPORTED: "agent_reported",
 } as const;
 
 export type FlowEventType = (typeof FLOW_EVENT_TYPE)[keyof typeof FLOW_EVENT_TYPE];

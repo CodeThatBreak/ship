@@ -72,7 +72,7 @@ describe("SDLC happy path (fake ports)", () => {
     // build (whole): the agent ships a branch and reports it
     const buildKey = await flowEngine.keyOfRole(flowId, NODE_KEYS.BUILD);
     if (!buildKey) throw new Error("expected a build node");
-    agent.pushRun({ status: "finished", result: "built and pushed" });
+    agent.pushRun({ status: "finished", result: 'built and pushed\n\n```json build-progress\n{"completed":["s1","s2"]}\n```' });
     await harness.runStage(flowId, buildKey);
     await until(
       async () => (await harness.nodeStatus(flowId, buildKey)) === "awaiting_approval",

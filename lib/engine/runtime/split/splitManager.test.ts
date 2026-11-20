@@ -49,6 +49,7 @@ import type {
 } from "../../ports/agentPort";
 import type { FlowCtx } from "../../nodes/shared/nodeSharedExports";
 import type { RunOutcome } from "../../nodes/shared/nodeDefinition";
+import type { RecoveryResult } from "../../nodes/shared/types/recovery";
 import type { SplitChildPayload } from "./splitManager";
 import type { SplitUnit } from "../../nodes/shared/split";
 
@@ -179,8 +180,8 @@ class FixtureWorkerDef extends NodeDefinition<Record<string, unknown>, { summary
     });
   }
 
-  async recover(): Promise<boolean> {
-    return false;
+  async recover(): Promise<RecoveryResult> {
+    return { kind: "manual", reason: "fixture never recovers" };
   }
 }
 
@@ -230,8 +231,8 @@ class FixtureSourceDef extends NodeDefinition<Record<string, unknown>, Record<st
     });
   }
 
-  async recover(): Promise<boolean> {
-    return false;
+  async recover(): Promise<RecoveryResult> {
+    return { kind: "manual", reason: "fixture never recovers" };
   }
 }
 
@@ -289,8 +290,8 @@ class FixtureConsumerDef extends NodeDefinition<Record<string, unknown>, Record<
     });
   }
 
-  async recover(): Promise<boolean> {
-    return false;
+  async recover(): Promise<RecoveryResult> {
+    return { kind: "manual", reason: "fixture never recovers" };
   }
 }
 

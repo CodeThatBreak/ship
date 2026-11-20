@@ -40,6 +40,7 @@ const { ScriptTemplateNode } = await import("../kinds/script/scriptNode");
 import { z } from "zod";
 import type { FlowCtx } from "./runContext";
 import type { RunOutcome } from "./nodeDefinition";
+import type { RecoveryResult } from "./types/recovery";
 
 /** A template-row subject: id/name/config mirror a node_templates row. */
 const tmpl = (id: string, name: string, config: unknown = {}) => ({ id, name, description: null, config });
@@ -135,8 +136,8 @@ class RecipeNode extends AgentRunNode<Record<string, unknown>, Record<string, un
     return { status: "done", output: {}, event: "recipe done", reply: "ok" };
   }
 
-  async recover(): Promise<boolean> {
-    return false;
+  async recover(): Promise<RecoveryResult> {
+    return { kind: "manual", reason: "stub never recovers" };
   }
 }
 

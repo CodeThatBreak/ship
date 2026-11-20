@@ -1,16 +1,9 @@
 /**
- * Characterization (red): `recover()` must NEVER throw out of the reconciler,
- * for every node kind (engine overhaul step 00; flip in step 05).
- *
- * Current bugs (a recover() throw escapes the reconciler's per-node guard as a
- * reconcile `error` event instead of a `manual` recovery outcome):
- *  - agent (`agentNode.ts:398-403`): re-parses the recorded output with NO
- *    try/catch — a contract-violating recorded result throws.
- *  - decision (`decisionNode.ts:230-232`): re-parses the agent pick the same
- *    way — a malformed recorded result throws.
- *  - review (`reviewNode.ts:309-311`) and the other always-false kinds:
- *    recover() just returns false — safe today, pinned so the step-05 ABI
- *    ({kind:"manual"} instead of false) keeps them non-throwing.
+ * The fixed `recover()` ABI (engine overhaul step 05, Invariant 4): every
+ * node kind's recover() returns a `{kind:"recovered"} | {kind:"manual",
+ * reason}` result and NEVER throws — a contract-violating recorded result is
+ * a `manual` recovery with the violation as the reason, and the reconciler
+ * pass is crash-safe per node.
  *
  * Runs against the isolated dockerized Postgres test database
  * (AGENTS.md §1 — never a demo/real DB).
@@ -51,8 +44,7 @@ const defOfNode = async (flowId: string, nodeKey: string) => {
 };
 
 describe("recover() never throws out of the reconciler", () => {
-  // OVERHAUL: flip in step 05
-  test.fails("agent recover() with a contract-violating recorded result resolves, never throws", async () => {
+  test("agent recover() with a contract-violating recorded result resolves to manual", async () => {
     // a declarative json-output agent node (its contract the recover re-parse enforces)
     const flowId = await harness.seedInlineFlow(
       [
@@ -76,14 +68,14 @@ describe("recover() never throws out of the reconciler", () => {
     const ctx = await flowEngine.ctx(flowId);
     const node = await nodeRowOf(flowId, "triage");
     const def = await defOfNode(flowId, "triage");
-    // a finished result whose text violates the agent's JSON output contract
+    // a finished result whose text violates the agent's JSON output contract —
+    // a `manual` recovery with the violation as the reason, never a throw
     await expect(
       def.recover(ctx, node, { status: "finished", result: "not json at all" }, "reconcile"),
-    ).resolves.not.toThrow();
+    ).resolves.toMatchObject({ kind: "manual", reason: expect.stringContaining("no JSON") });
   });
 
-  // OVERHAUL: flip in step 05
-  test.fails("decision recover() with a malformed recorded result resolves, never throws", async () => {
+  test("decision recover() with a malformed recorded result resolves to manual", async () => {
     const flowId = await harness.seedInlineFlow(
       [
         {
@@ -95,25 +87,31 @@ describe("recover() never throws out of the reconciler", () => {
             choices: [{ label: "fix" }, { label: "ship" }],
           },
         },
+        { key: "fix_path", def: "nt_st_write_doc", config: { runtime: "shell", script: "echo '{}'" } },
+        { key: "ship_path", def: "nt_st_write_doc", config: { runtime: "shell", script: "echo '{}'" } },
       ],
-      [],
+      [
+        { from: "pick", to: "fix_path", label: "fix" },
+        { from: "pick", to: "ship_path", label: "ship" },
+      ],
     );
     const ctx = await flowEngine.ctx(flowId);
     const node = await nodeRowOf(flowId, "pick");
     const def = await defOfNode(flowId, "pick");
     await expect(
       def.recover(ctx, node, { status: "finished", result: "totally unparseable" }, "reconcile"),
-    ).resolves.not.toThrow();
+    ).resolves.toMatchObject({ kind: "manual", reason: expect.any(String) });
   });
 
-  // OVERHAUL: flip in step 05 (already safe today — pinned for the ABI change)
-  test("review recover() returns false (not a throw) — the always-false kinds stay safe", async () => {
+  test("review recover() resolves to the fixed ABI result (never a throw)", async () => {
     const flowId = await harness.seedSdlcFlow();
     const ctx = await flowEngine.ctx(flowId);
     const node = await nodeRowOf(flowId, "review");
     const def = await defOfNode(flowId, "review");
+    // the ledger-backed recovery path re-runs the posting — whatever the
+    // recorded state holds, the ABI result comes back (never a throw)
     await expect(
       def.recover(ctx, node, { status: "finished", result: "[]" }, "reconcile"),
-    ).resolves.toBe(false);
+    ).resolves.toMatchObject({ kind: expect.any(String) });
   });
 });

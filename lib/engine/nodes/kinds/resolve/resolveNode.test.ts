@@ -294,8 +294,9 @@ describe("ResolveNode — the contract retry (§6 layer 1)", () => {
     expect(j.labels).toEqual(["resolve", "resolve contract retry"]);
     // the feedback re-runs on the SAME agent session
     expect(j.startAgentInputs[1]?.followUpOn).toBe("agent_1");
-    // the lifecycle trail names the retry; nothing on the host was touched
-    expect((await eventsByType("lifecycle")).some((e) => e.message.includes("one retry with feedback"))).toBe(true);
+    // the trail names the retry via the pipeline's typed `output_retry`
+    // event (step 05); nothing on the host was touched
+    expect((await eventsByType("output_retry")).some((e) => e.message.includes("retrying with feedback"))).toBe(true);
     expect(host.resolveCalls).toEqual([]);
   });
 });
@@ -510,7 +511,7 @@ describe("ResolveNode — recover()", () => {
       "server restarted mid-finalize",
     );
 
-    expect(ok).toBe(true);
+    expect(ok).toEqual({ kind: "recovered" });
     expect(await commentStatus("gl_1")).toEqual({ status: "resolved" });
     expect(recoveredHost.resolveCalls).toEqual(["d_gl_1"]);
     // the ledgered reply is NOT posted again (replied stays 0)

@@ -51,7 +51,7 @@ describe("plan chat → approve → build → gate (fake ports)", () => {
     await flowEngine.approvePlan(flowId);
     expect(await harness.nodeStatus(flowId, NODE_KEYS.PLAN)).toBe("approved");
 
-    agent.pushRun({ status: "finished", result: "built and pushed" });
+    agent.pushRun({ status: "finished", result: 'built and pushed\n\n```json build-progress\n{"completed":["s1","s2"]}\n```' });
     await harness.runStage(flowId, NODE_KEYS.BUILD);
     await until(
       async () => (await harness.nodeStatus(flowId, NODE_KEYS.BUILD)) === "awaiting_approval",

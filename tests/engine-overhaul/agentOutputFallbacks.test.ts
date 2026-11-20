@@ -1,7 +1,7 @@
 /**
- * Characterization (red): every silent default in the agent-output path must
- * become a loud, typed failure — missing output is a first-class state, never
- * a fabricated value (engine overhaul step 00; flip in step 05).
+ * Every silent default in the agent-output path is a loud, typed failure —
+ * missing output is a first-class state, never a fabricated value (engine
+ * overhaul step 05; the step-00 red markers are flipped).
  *
  * Current fallbacks under test (each cited in the step-00 file):
  *  - review empty reply ⇒ today a silent done-with-0-comments
@@ -46,8 +46,7 @@ const seedReviewReady = async () => {
 };
 
 describe("agent output silent defaults become loud failures", () => {
-  // OVERHAUL: flip in step 05
-  test.fails("review empty reply ⇒ failed (today a silent done-with-0)", async () => {
+  test("review empty reply ⇒ failed (today a silent done-with-0)", async () => {
     const { flowId } = await seedReviewReady();
     // fake the MR + its host so resolveMr/getChanges/getChangeRequest succeed
     const { registerFakeGitHost } = await import("../helpers/fakeGitHost");
@@ -62,8 +61,7 @@ describe("agent output silent defaults become loud failures", () => {
     expect(await harness.nodeStatus(flowId, "review")).toBe("failed");
   }, 15_000);
 
-  // OVERHAUL: flip in step 05
-  test.fails("decision case-mismatched label ⇒ failed (today case-insensitively salvaged)", async () => {
+  test("decision case-mismatched label ⇒ failed (today case-insensitively salvaged)", async () => {
     const flowId = await harness.seedInlineFlow(
       [
         {
@@ -94,8 +92,7 @@ describe("agent output silent defaults become loud failures", () => {
     expect(await harness.nodeStatus(flowId, "pick")).toBe("failed");
   }, 15_000);
 
-  // OVERHAUL: flip in step 05
-  test.fails("agent markdown empty ⇒ failed (today fabricated as \"(empty response)\")", async () => {
+  test("agent markdown empty ⇒ failed (today fabricated as \"(empty response)\")", async () => {
     const flowId = await harness.seedInlineFlow(
       [
         {

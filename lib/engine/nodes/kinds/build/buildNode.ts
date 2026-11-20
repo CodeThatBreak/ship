@@ -3,6 +3,7 @@ import "server-only";
 import { z } from "zod";
 import type { NodeRow } from "../../../../db/rows";
 import type { AgentRunResult } from "../../../ports/agentPort";
+import type { RecoveryResult } from "../../shared/types/recovery";
 import { prompts } from "../../../prompts/promptLibrary";
 import { planSteps } from "../../../runtime/planStepStore";
 import { agentRunner, type AgentRunner } from "../../../harness/harnessExports";
@@ -17,8 +18,10 @@ import { nodeSupport } from "@/lib/composition/container";
 import { BuildRunSupport } from "./buildRunSupport";
 import { branchStore } from "./branchStore";
 import { splitUnitItemOf } from "./utils/splitUnitItem";
+import { parseBuildProgressReport } from "./utils/buildProgress";
+import { EVENT_KIND } from "../../../constants/vocabulary";
 import { BuildConsumes, BuildInput, BuildOutput, type BuildBranchInfo } from "./schema";
-import { type PlanBranch, parsePlanArtifactMeta } from "../plan/schema";
+import { type PlanBranch, parsePlanArtifactMeta, PlanOutput } from "../plan/schema";
 
 /**
  * The build def (the SDLC chain's code stage): triggerRuns materializes the
@@ -63,6 +66,9 @@ export class BuildNode extends AgentRunNode<BuildInput, BuildOutput> {
   readonly inputSchema = BuildInput; // includes the optional fan-out `step` (see schema.ts)
   readonly outputSchema = BuildOutput;
   override readonly consumes = BuildConsumes;
+  /** validation-only: the build-progress fence has no feedback turn — a
+   *  missing/unparseable report with pending steps fails the node (step 05) */
+  override readonly retryBudget = 0;
 
   /** Typed config knobs (defaults = today's behavior). */
   override readonly configSchema = z.object({
@@ -147,18 +153,27 @@ export class BuildNode extends AgentRunNode<BuildInput, BuildOutput> {
     const plan = await this.approvedPlan(ctx);
     const planContent = plan.content;
 
-    // carry the model selected for the plan run into the build (from plan output)
+    // carry the model selected for the plan run into the build (from plan
+    // output) — validated against the PLAN node's published output contract
+    // (step 04/05: never a blind cast with a silent `?? undefined` fallback)
     const planNode = await this.support.nodeByType(ctx.flow.id, NODE_KEYS.PLAN);
-    const planOutput = planNode?.output as { model?: string | null } | null;
-    const planModel = planOutput?.model ?? undefined;
+    const parsedPlanOutput = PlanOutput.safeParse(planNode?.output ?? null);
+    const planModel = parsedPlanOutput.success ? (parsedPlanOutput.data.model ?? undefined) : undefined;
 
     // structured branches from the plan-meta (validated by the plan node at save time)
     let branches: PlanBranch[] | null = null;
-    try {
-      const meta = plan.meta ?? null;
+    const meta = plan.meta ?? null;
+    if (meta != null) {
+      // step 05: a CORRUPT plan meta is a typed failure, not a silent
+      // single-branch fallback — the branch decomposition would silently
+      // vanish (parsePlanArtifactMeta returns null only for a shape the
+      // schema rejects; legacy metas without branches still parse)
       const parsed = parsePlanArtifactMeta(meta);
-      if (parsed && parsed.branches.length > 0) branches = parsed.branches;
-    } catch { /* single-branch fallback */ }
+      if (parsed == null) {
+        throw new Error(`the approved plan artifact's meta does not satisfy the plan contract — re-approve a valid plan instead of building from corrupt meta`);
+      }
+      if (parsed.branches.length > 0) branches = parsed.branches;
+    }
 
     if (branches && branches.length > 1) {
       const sorted = BuildNode.topoSortBranches(branches);
@@ -269,8 +284,28 @@ export class BuildNode extends AgentRunNode<BuildInput, BuildOutput> {
     nodeId: string,
     runRowId: string,
   ): Promise<RunOutcome> {
+    // step 05: the build-progress report through the shared validation — a
+    // missing/unparseable report with steps still pending is a FAILED node
+    // (typed event), never a silent empty list that fakes checklist progress
+    const report = parseBuildProgressReport(result.result ?? "");
+    const pending = (await planSteps.list(ctx.flow.id)).filter((s) => s.status !== "done");
+    if (report == null && pending.length > 0) {
+      const message = `the build agent's response carries no parseable "build-progress" report and ${pending.length} plan step(s) ${pending.length === 1 ? "is" : "are"} still open — the checklist was not updated`;
+      await this.support.emit(ctx.flow.id, nodeId, EVENT_KIND.OUTPUT_CONTRACT_VIOLATION, message, {
+        nodeKey: this.key,
+        pending: pending.length,
+      });
+      return {
+        status: "failed" as const,
+        output: {},
+        event: `build failed — no parseable build-progress report with ${pending.length} step(s) pending`,
+        eventData: { error: message, pending: pending.length },
+        reply: message,
+      };
+    }
+
     // apply the build agent's structured progress report to the plan checklist
-    await planSteps.markDone(ctx.flow.id, nodeId, planSteps.parseBuildProgress(result.result ?? ""));
+    await planSteps.markDone(ctx.flow.id, nodeId, report?.completed ?? []);
 
     const resultBranch = await this.buildRun.resultBranch(ctx, result, branch);
 
@@ -310,10 +345,15 @@ export class BuildNode extends AgentRunNode<BuildInput, BuildOutput> {
     if (!feedback) throw new Error("feedback is required for a build refine");
     const node = await this.node(ctx);
     if (!node.agentId) {
-      // no build agent yet — treat as a full build with the latest plan + note
+      // no build agent yet — a full build with the latest plan + note. Step 05:
+      // WITHOUT a plan this used to build from an empty string (the
+      // `(plan?.content ?? "")` silent default) — refuse loudly instead.
       const plan = await this.support.latestArtifact(ctx.flow.id, "plan");
+      if (!plan?.content) {
+        throw new Error("build refine has no build agent to follow up on and no approved plan to build from — start a build first");
+      }
       return this.run(ctx, this.inputSchema.parse({
-        plan: (plan?.content ?? "") + `\n\nDeveloper note: ${feedback}`,
+        plan: plan.content + `\n\nDeveloper note: ${feedback}`,
         model: input.model ?? null,
       }), await this.nodeConfig(ctx));
     }
@@ -494,13 +534,16 @@ export class BuildNode extends AgentRunNode<BuildInput, BuildOutput> {
 
   /**
    * Complete a build whose agent run was orphaned (server restarted mid-run)
-   * but left commits on the build branch.
+   * but left commits on the build branch. Non-finished recorded runs are
+   * `manual` (the fixed recovery ABI — never a bare false).
    */
-  async recover(ctx: FlowCtx, node: NodeRow, result: AgentRunResult, note: string): Promise<boolean> {
-    if (result.status !== "finished") return false;
+  async recover(ctx: FlowCtx, node: NodeRow, result: AgentRunResult, note: string): Promise<RecoveryResult> {
+    if (result.status !== "finished") {
+      return { kind: "manual", reason: `the build run ended with ${result.status} — the branch state is re-derived on retry` };
+    }
     const branch = this.buildRun.reportedBranch(result) ?? this.buildRun.flowBranch(ctx);
     await this.recoverBranch(ctx, node, branch, note);
-    return true;
+    return { kind: "recovered" };
   }
 
   /** Recover an orphaned build from a known branch (reconcile calls this too). */

@@ -208,7 +208,7 @@ describe("StepBuildNode — fan-out child paths (T6)", () => {
     const nodeRow = must(await db.get<NodeRow>(`SELECT * FROM nodes WHERE id=$1`, s.nodeId), `node ${s.nodeId}`);
     const step = new StepBuildNode();
 
-    expect(await step.recover(s.ctx, nodeRow, { status: "finished", result: "step done" } as unknown as AgentRunResult, "server restarted")).toBe(true);
+    expect(await step.recover(s.ctx, nodeRow, { status: "finished", result: "step done" } as unknown as AgentRunResult, "server restarted")).toEqual({ kind: "recovered" });
 
     const node = must(
       await db.get<{ status: string; agent_id: string | null; output: Record<string, unknown> | null }>(
@@ -238,7 +238,7 @@ describe("StepBuildNode — fan-out child paths (T6)", () => {
 
     // idempotent: a concurrent reconcile finding a non-running node declines silently
     const recovered = must(await db.get<NodeRow>(`SELECT * FROM nodes WHERE id=$1`, s.nodeId), `node ${s.nodeId}`);
-    expect(await step.recover(s.ctx, recovered, { status: "finished", result: "again" } as unknown as AgentRunResult, "again")).toBe(true);
+    expect(await step.recover(s.ctx, recovered, { status: "finished", result: "again" } as unknown as AgentRunResult, "again")).toEqual({ kind: "recovered" });
     expect((await db.get<{ id: string; version: number }>(
       `SELECT id, version FROM artifacts WHERE node_id=$1 AND kind='diff' ORDER BY version DESC LIMIT 1`, s.nodeId,
     ))?.version).toBe(1); // no second artifact
@@ -248,7 +248,7 @@ describe("StepBuildNode — fan-out child paths (T6)", () => {
     const s = must(await seed(42, { nodeKey: "step_build", type: "step_build", status: "running" }), "seed 42");
     const nodeRow = must(await db.get<NodeRow>(`SELECT * FROM nodes WHERE id=$1`, s.nodeId), `node ${s.nodeId}`);
     const step = new StepBuildNode();
-    expect(await step.recover(s.ctx, nodeRow, { status: "error" } as unknown as AgentRunResult, "server restarted")).toBe(false);
+    expect(await step.recover(s.ctx, nodeRow, { status: "error" } as unknown as AgentRunResult, "server restarted")).toMatchObject({ kind: "manual" });
     expect((await db.get<{ status: string }>(`SELECT status FROM nodes WHERE id=$1`, s.nodeId))?.status).toBe("running");
   });
 

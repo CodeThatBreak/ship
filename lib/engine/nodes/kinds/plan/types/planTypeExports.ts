@@ -7,6 +7,8 @@ interface PlanRunArgs {
   label: string;
   model: string | null;
   settingSources: SettingSource[];
+  /** the def's bounded feedback-retry budget (the agent-output pipeline spends it) */
+  retryBudget: number;
 }
 
 export type { PlanRunArgs };

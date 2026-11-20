@@ -17,7 +17,7 @@ process.env.DATABASE_PATH = path.join(
 
 const { ResolveOutputContract } = await import("./resolveContract");
 const { RESOLVE_COMMENT_ACTION, RESOLVED_BY_AGENT } = await import("./constants/commentActions");
-const { RETRYABLE_OUTPUT_ERRORS } = await import("./constants/retryableErrors");
+const { RETRYABLE_OUTPUT_ERRORS } = await import("../../shared/agentOutput/constants/agentOutput");
 const { AGENT_OUTPUT_ERROR } = await import("../../shared/agent/outputError/outputErrorExports");
 import type { CommentRow } from "../../../../db/rows";
 import type { AgentOutputErrorCode } from "../../shared/agent/outputError/outputErrorExports";
