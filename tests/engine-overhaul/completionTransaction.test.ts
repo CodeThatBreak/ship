@@ -48,14 +48,30 @@ const injectTransactionFault = (failOn: RegExp): void => {
     if (tx) return realTransaction(fn, tx); // joined transactions keep the caller's (proxied) tx
     return db.prisma.$transaction(async (inner) => {
       let calls = 0;
+      const faultOrRun = (label: string, run: () => unknown): unknown => {
+        calls += 1;
+        if (failOn.test(label)) throw new Error(`simulated crash mid-transaction (call #${calls}: ${label})`);
+        return run();
+      };
       const proxy = new Proxy(inner, {
         get(target, prop, receiver) {
-          if (prop !== "$executeRawUnsafe" && prop !== "$queryRawUnsafe") return Reflect.get(target, prop, receiver);
-          return async (sql: string, ...args: unknown[]) => {
-            calls += 1;
-            if (failOn.test(sql)) throw new Error(`simulated crash mid-transaction (raw call #${calls})`);
-            return ((target as Record<string, unknown>)[prop as string] as (...a: unknown[]) => unknown).apply(target, [sql, ...args]);
-          };
+          if (prop === "$executeRawUnsafe" || prop === "$queryRawUnsafe") {
+            return (sql: string, ...args: unknown[]) =>
+              faultOrRun(sql, () =>
+                ((target as Record<string, unknown>)[prop as string] as (...a: unknown[]) => unknown).apply(target, [sql, ...args]));
+          }
+          // model-API writes (e.g. planStep.updateMany) fault on `<model>.<method>`
+          if (prop === "planStep") {
+            const model = Reflect.get(target, prop, receiver) as Record<string, (...a: unknown[]) => unknown>;
+            return new Proxy(model, {
+              get(modelTarget, method, modelReceiver) {
+                return (...args: unknown[]) =>
+                  faultOrRun(`planStep.${String(method)}`, () =>
+                    (modelTarget[method] as (...a: unknown[]) => unknown).apply(modelTarget, args));
+              },
+            });
+          }
+          return Reflect.get(target, prop, receiver);
         },
       }) as Prisma.TransactionClient;
       return fn(proxy);
@@ -220,7 +236,9 @@ describe("completion batch transaction (step 06, Invariant 7)", () => {
     );
 
     const rollup = stepFlows as unknown as { checkRollup(flowId: string, nodeKey: string): Promise<void> };
-    injectTransactionFault(/UPDATE plan_steps/);
+    // the check-off rides the Prisma model API through the tx — crashing ON
+    // it must roll the WHOLE batch back (no partial rollup)
+    injectTransactionFault(/planStep\.updateMany/);
     await expect(rollup.checkRollup(flowId, "build")).rejects.toThrow(/simulated crash/);
 
     // nothing partial: the step is still pending, the parent still running,
