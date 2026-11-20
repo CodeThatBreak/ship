@@ -12,6 +12,7 @@ import { workspacePaths } from "../../../git/workspacePaths";
 import { pinnedProcessService } from "../../../composition/processServices";
 import { gitRemoteContextFor } from "../../ports/gitHost";
 import { isHookRejection } from "../../nodes/kinds/mergeRequest/mergeRequestExports";
+import { STEP_MERGE_STATUS } from "./constants/stepMergeStatus";
 import type { MergeBackArgs, MergeBackResult } from "../../nodes/shared/capabilities";
 
 const execFileAsync = promisify(execFile);
@@ -131,31 +132,49 @@ class MergeArena {
     await assertValidBranchName(args.branch);
     await assertValidBranchName(args.integrationBranch);
     const key = args.parentFlowId;
-    const ts = () => db.now();
+    const now = () => new Date();
     // one durable row per attempt SERIES — a re-attempt (merge-fix / reconcile
     // resume) updates the same row and increments `attempts`
     let rowId = args.mergeRowId ?? null;
     if (rowId) {
-      await db.run(
-        `UPDATE step_merges SET status='running', attempts=attempts+1, error=NULL, updated_at=$1 WHERE id=$2`,
-        ts(), rowId
-      );
-      rowId = (await db.get<{ id: string }>(`SELECT id FROM step_merges WHERE id=$1`, rowId))?.id ?? null;
+      const updated = await db.prisma.stepMerge.updateMany({
+        where: { id: rowId },
+        data: {
+          status: STEP_MERGE_STATUS.RUNNING,
+          attempts: { increment: 1 },
+          error: null,
+          updatedAt: now(),
+        },
+      });
+      rowId = updated.count === 1 ? rowId : null;
     }
     if (!rowId) {
       rowId = db.uid("sm_");
-      await db.run(
-        `INSERT INTO step_merges (id,flow_id,parent_flow_id,parent_node,branch,status,attempts,created_at,updated_at)
-         VALUES ($1,$2,$3,$4,$5,'running',1,$6,$7) ON CONFLICT DO NOTHING`,
-        rowId, args.childFlowId, args.parentFlowId, args.parentNodeKey, args.branch, ts(), ts()
-      );
+      // skipDuplicates ≙ ON CONFLICT DO NOTHING — the only unique constraint on
+      // step_merges is the primary key (`id`), so that is the dedup target.
+      await db.prisma.stepMerge.createMany({
+        data: [{
+          id: rowId,
+          flowId: args.childFlowId,
+          parentFlowId: args.parentFlowId,
+          parentNode: args.parentNodeKey,
+          branch: args.branch,
+          status: STEP_MERGE_STATUS.RUNNING,
+          attempts: 1,
+          createdAt: now(),
+          updatedAt: now(),
+        }],
+        skipDuplicates: true,
+      });
     }
+    const rowKey: string = rowId;
     this.inFlight.add(args.childFlowId);
     try {
       const result = await this.withLock(key, async () => {
-        const flow = await db.get<{ repoUrl: string | null; executionMode: string | null }>(
-          `SELECT repo_url AS "repoUrl", execution_mode AS "executionMode" FROM flows WHERE id=$1`, args.parentFlowId
-        );
+        const flow = await db.prisma.flow.findUnique({
+          where: { id: args.parentFlowId },
+          select: { repoUrl: true },
+        });
         const repoUrl = flow?.repoUrl ?? "";
         if (!repoUrl) return { status: "failed" as const, error: "the parent flow has no repo url" };
         const known = await db.repoByCloudUrl(repoUrl);
@@ -216,8 +235,10 @@ class MergeArena {
           await db.emitEvent(args.parentFlowId, null, "error",
             `step "${args.branch}" merge-back CONFLICT against ${args.integrationBranch} — running the bounded merge-fix agent`,
             { nodeKey: args.parentNodeKey, childFlowId: args.childFlowId, branch: args.branch });
-          await db.run(`UPDATE step_merges SET status='conflict', error=$1, updated_at=$2 WHERE id=$3`,
-            conflictText, ts(), rowId);
+          await db.prisma.stepMerge.updateMany({
+            where: { id: rowKey },
+            data: { status: STEP_MERGE_STATUS.CONFLICT, error: conflictText, updatedAt: now() },
+          });
           return { status: "conflict" as const, error: conflictText };
         }
 
@@ -232,8 +253,10 @@ class MergeArena {
           if (isHookRejection(text)) {
             // pre-receive/pre-push hook declined the integration push —
             // repairable CODE state → the StepFlowManager's bounded fix agent
-            await db.run(`UPDATE step_merges SET status='rejected', error=$1, updated_at=$2 WHERE id=$3`,
-              text.slice(0, 2000), ts(), rowId);
+            await db.prisma.stepMerge.updateMany({
+              where: { id: rowKey },
+              data: { status: STEP_MERGE_STATUS.REJECTED, error: text.slice(0, 2000), updatedAt: now() },
+            });
             await db.emitEvent(args.parentFlowId, null, "error",
               `merge-back: pushing ${args.integrationBranch} was rejected by a hook — running the bounded commit-fix agent`,
               { nodeKey: args.parentNodeKey, childFlowId: args.childFlowId, branch: args.branch });
@@ -245,8 +268,10 @@ class MergeArena {
           } catch (e2: unknown) {
             const text2 = this.errorText(e2);
             if (isHookRejection(text2)) {
-              await db.run(`UPDATE step_merges SET status='rejected', error=$1, updated_at=$2 WHERE id=$3`,
-                text2.slice(0, 2000), ts(), rowId);
+              await db.prisma.stepMerge.updateMany({
+                where: { id: rowKey },
+                data: { status: STEP_MERGE_STATUS.REJECTED, error: text2.slice(0, 2000), updatedAt: now() },
+              });
               return { status: "rejected" as const, error: text2.slice(0, 2000) };
             }
             throw e2; // network / auth — infra, fails visible for manual retry
@@ -255,8 +280,14 @@ class MergeArena {
         // success: the step branch was a scoping unit, not an MR unit — delete
         // it from origin too (best effort; ci.skip + plain fallback)
         await this.deleteStepBranch(args.parentFlowId, args.branch).catch(() => null);
-        await db.run(`UPDATE step_merges SET status='merged', error=$1, updated_at=$2 WHERE id=$3`,
-          stale ? "merged — the branch was stale against the integration branch" : null, ts(), rowId);
+        await db.prisma.stepMerge.updateMany({
+          where: { id: rowKey },
+          data: {
+            status: STEP_MERGE_STATUS.MERGED,
+            error: stale ? "merged — the branch was stale against the integration branch" : null,
+            updatedAt: now(),
+          },
+        });
         return { status: "merged" as const, ...(stale ? { stale: true } : {}) };
       });
       return result;
@@ -265,7 +296,10 @@ class MergeArena {
       // pre-receive infra — surfaced to the developer (goes to failed; the
       // retry path re-runs the merge)
       const msg = this.errorText(e).slice(0, 2000);
-      await db.run(`UPDATE step_merges SET status='failed', error=$1, updated_at=$2 WHERE id=$3`, msg, ts(), rowId);
+      await db.prisma.stepMerge.updateMany({
+        where: { id: rowKey },
+        data: { status: STEP_MERGE_STATUS.FAILED, error: msg, updatedAt: now() },
+      });
       return { status: "failed" as const, error: msg };
     } finally {
       this.inFlight.delete(args.childFlowId);
@@ -281,7 +315,7 @@ class MergeArena {
   async deleteStepBranch(parentFlowId: string, branch: string, parentNodeKey?: string): Promise<void> {
     await assertValidBranchName(branch);
     await this.withLock(parentFlowId, async () => {
-      const parent = await db.get<{ repoUrl: string | null }>(`SELECT repo_url AS "repoUrl" FROM flows WHERE id=$1`, parentFlowId);
+      const parent = await db.prisma.flow.findUnique({ where: { id: parentFlowId }, select: { repoUrl: true } });
       const repoUrl = parent?.repoUrl;
       if (!repoUrl) return;
       const arena = await this.ensureWorkspaceUnlocked(parentFlowId, repoUrl);

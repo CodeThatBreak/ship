@@ -79,7 +79,10 @@ export class StepRollup {
    * Early-returns unless the whole child is terminal, then reschedules.
    */
   async onChildFinished(childFlowId: string): Promise<void> {
-    const link = await db.get<{ flowId: string }>(`SELECT flow_id AS "flowId" FROM plan_steps WHERE sub_flow_id=$1`, childFlowId);
+    const link = await db.prisma.planStep.findFirst({
+      where: { subFlowId: childFlowId },
+      select: { flowId: true },
+    });
     if (!link) return;
     const payload = await this.children.childPayload(childFlowId);
     const parentNodeKey = payload?.parentNodeKey;
@@ -157,7 +160,12 @@ export class StepRollup {
         const diff = diffs[branch];
         if (diff === undefined) continue; // merged-done guard — no capture, no batch for this branch
         await branchStore.upsert(parentFlowId, branch, { status: "awaiting_approval" }, tx);
-        await tx.$executeRawUnsafe(`UPDATE flows SET mr_branch=$1 WHERE id=$2 AND (mr_branch IS NULL OR mr_branch='')`, branch, parentFlowId);
+        // conditional set-if-empty: only the first sibling's merge claims the
+        // parent's mr_branch (the aggregate MR's head)
+        await tx.flow.updateMany({
+          where: { id: parentFlowId, OR: [{ mrBranch: null }, { mrBranch: "" }] },
+          data: { mrBranch: branch },
+        });
         if (!diffNodeId) continue;
         const art = await nodeSupport.saveArtifact(diffNodeId, parentFlowId, "diff", diff.raw, { branch, stat: diff.stat, fanout: true }, undefined, tx);
         perBranch[branch] = art.id;
@@ -248,8 +256,11 @@ export class StepRollup {
     if (!childFlowId) throw new Error("stateOf requires a linked sub-flow");
     const childFlow = (await this.children.childFlowOf(childFlowId)) ?? null;
     const workNodeKey = payload.workNodeKey ?? await this.children.childWorkNodeKey(childFlowId);
-    const nodes = await db.all<{ nodeKey: string; type: string; status: string }>(
-      `SELECT node_key AS "nodeKey", type, status FROM nodes WHERE flow_id=$1 ORDER BY created_at`, childFlowId);
+    const nodes = await db.prisma.node.findMany({
+      where: { flowId: childFlowId },
+      orderBy: { createdAt: "asc" },
+      select: { nodeKey: true, type: true, status: true },
+    });
     const workNode = nodes.find((n) => n.nodeKey === workNodeKey) ?? nodes[0];
     const statuses = workNode ? [workNode.status] : nodes.map((n) => n.status);
     const childDef = workNode ? nodeRegistry.maybe(workNode.type) : undefined;

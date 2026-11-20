@@ -16,6 +16,7 @@ import { configString, fanoutOf, stripFanoutKeys, type FanoutKnob } from "../../
 import { planSteps } from "../planStepStore";
 import type { PlanStepRow } from "../planStepStore/types/planStep";
 import { fanoutAutoWrapDescription, hashFanoutChildConfig } from "./utils/autowrapKey";
+import { jsonInput } from "./utils/ormRows";
 import { filesOf } from "./utils/stepFiles";
 import type { StepFlowEngine } from "./types/stepFlowEngine";
 import type { StepChildPayload } from "./types/stepChildPayload";
@@ -212,8 +213,15 @@ export class StepFlowExpander {
           { branch },
           tx
         );
-        await tx.$executeRawUnsafe(`UPDATE plan_steps SET sub_flow_id=$1, updated_at=$2 WHERE id=$3 AND flow_id=$4`,
-          childId, db.now(), stepRow.id, parentFlowId);
+        // the composite guard (id + flow) is the linkage fence — a child is
+        // linked to its own parent's step only; a zero-count update is a bug
+        const linked = await tx.planStep.updateMany({
+          where: { id: stepRow.id, flowId: parentFlowId },
+          data: { subFlowId: childId, updatedAt: new Date() },
+        });
+        if (linked.count !== 1) {
+          throw new Error(`fan-out: plan step "${stepRow.id}" could not be linked to its child flow`);
+        }
         if (codeChild) {
           // integration branch rows mirror the whole-mode branch decomposition so
           // the final aggregate approval's MR targets resolve through the chain
@@ -295,8 +303,10 @@ export class StepFlowExpander {
           };
         }),
     );
-    await db.run(`UPDATE flows SET trigger_payload=$1::jsonb, updated_at=$2 WHERE id=$3`,
-      JSON.stringify(payload), db.now(), childFlowId);
+    await db.prisma.flow.update({
+      where: { id: childFlowId },
+      data: { triggerPayload: jsonInput(payload), updatedAt: new Date() },
+    });
   }
 
   /** The child template's declared start contract, validated against the step payload
@@ -373,7 +383,10 @@ export class StepFlowExpander {
       ],
       edges: [],
     }, { skipLint: true });
-    await db.run(`UPDATE flow_templates SET hidden=true, updated_at=$1 WHERE id=$2`, db.now(), tplId);
+    await db.prisma.flowTemplate.update({
+      where: { id: tplId },
+      data: { hidden: true, updatedAt: new Date() },
+    });
     return tplId;
   }
 
@@ -400,8 +413,10 @@ export class StepFlowExpander {
    * (`step.id: "whole"` distinguishes it — spec §contract consequence).
    */
   async wrapWholeOutput(flowId: string, nodeKey: string): Promise<void> {
-    const node = await db.get<{ id: string; output: unknown }>(
-      `SELECT id, output FROM nodes WHERE flow_id=$1 AND node_key=$2`, flowId, nodeKey);
+    const node = await db.prisma.node.findUnique({
+      where: { flowId_nodeKey: { flowId, nodeKey } },
+      select: { id: true, output: true },
+    });
     if (!node) return;
     let native: unknown = null;
     try { native = typeof node.output === "string" ? JSON.parse(node.output) : node.output ?? null; } catch { native = null; }
@@ -410,7 +425,10 @@ export class StepFlowExpander {
       steps: [{ id: "whole", title: task?.summary ?? nodeKey, status: "done", output: native ?? {} }],
     };
     DEFAULT_FANOUT_OUTPUT.parse(wrapped);
-    await db.run(`UPDATE nodes SET output=$1::jsonb, updated_at=$2 WHERE id=$3`, JSON.stringify(wrapped), db.now(), node.id);
+    await db.prisma.node.update({
+      where: { id: node.id },
+      data: { output: jsonInput(wrapped), updatedAt: new Date() },
+    });
   }
 
   /** The parent plan's title/summary for the child payload (`plan` part). */

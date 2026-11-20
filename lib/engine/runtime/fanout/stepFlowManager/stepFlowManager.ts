@@ -19,6 +19,7 @@ import { StepFlowExpander } from "../stepFlowExpander";
 import { StepScheduler } from "../stepScheduler";
 import { StepRollup } from "../stepRollup";
 import { MergeBackCoordinator } from "../mergeBackCoordinator";
+import { STEP_MERGE_STATUS } from "../constants/stepMergeStatus";
 
 // ── plan fan-out: the StepFlowManager facade (step 07 decomposition) ─────────
 // State authority for the fan-out knob (`fanout.mode != whole` on any node
@@ -210,12 +211,24 @@ export class StepFlowManager {
     const childId = step.subFlowId;
     await db.transaction(async (tx) => {
       await planSteps.setStatus(parentFlowId, stepId, "done", "skipped", tx);
-      if (childId) await tx.$executeRawUnsafe(`UPDATE step_merges SET status='failed', error='step skipped — the merge-back was abandoned', updated_at=$1 WHERE flow_id=$2 AND status IN ('running','conflict','rejected')`, db.now(), childId);
+      if (childId) {
+        await tx.stepMerge.updateMany({
+          where: {
+            flowId: childId,
+            status: { in: [STEP_MERGE_STATUS.RUNNING, STEP_MERGE_STATUS.CONFLICT, STEP_MERGE_STATUS.REJECTED] },
+          },
+          data: {
+            status: STEP_MERGE_STATUS.FAILED,
+            error: "step skipped — the merge-back was abandoned",
+            updatedAt: new Date(),
+          },
+        });
+      }
     });
     if (childId) {
       const childFlow = await this.children.childFlowOf(childId);
       const codeChild = typeof (await this.mergeBack.engineCapabilitiesOfMergeBack(childId)) === "function";
-      for (const n of await db.all<{ nodeKey: string; status: string }>(`SELECT node_key AS "nodeKey", status FROM nodes WHERE flow_id=$1`, childId)) {
+      for (const n of await db.prisma.node.findMany({ where: { flowId: childId }, select: { nodeKey: true, status: true } })) {
         if (NODE_CANCELABLE_STATUSES.includes(n.status)) await this.e.cancelNode(childId, n.nodeKey); // marks failed + stops in-flight local runs
       }
       // step-branch deletion on skip (Phase 2C) — the branch was created for
@@ -243,11 +256,10 @@ export class StepFlowManager {
    * non-code ones). The MR still comes only from the parent's final approval.
    */
   async approveFanoutStep(parentFlowId: string, stepId: string): Promise<void> {
-    const step = await db.get<{ subFlowId: string | null }>(
-      `SELECT sub_flow_id AS "subFlowId" FROM plan_steps WHERE id=$1 AND flow_id=$2`,
-      stepId,
-      parentFlowId
-    );
+    const step = await db.prisma.planStep.findFirst({
+      where: { id: stepId, flowId: parentFlowId },
+      select: { subFlowId: true },
+    });
     if (!step?.subFlowId) throw new Error('that step has no sub-flow yet');
     await this.e.approvals.approveBuild(step.subFlowId); // step children route to the fan-out approve
   }
@@ -257,19 +269,17 @@ export class StepFlowManager {
    *  approval state survive, so re-running the build prompt would discard the
    *  fix-agent work the conflict surfaced. */
   async retryFanoutStep(parentFlowId: string, stepId: string): Promise<void> {
-    const step = await db.get<{ subFlowId: string | null }>(
-      `SELECT sub_flow_id AS "subFlowId" FROM plan_steps WHERE id=$1 AND flow_id=$2`,
-      stepId,
-      parentFlowId
-    );
+    const step = await db.prisma.planStep.findFirst({
+      where: { id: stepId, flowId: parentFlowId },
+      select: { subFlowId: true },
+    });
     if (!step?.subFlowId) throw new Error('that step has no sub-flow yet');
     if (await this.resumeMergeRetry(parentFlowId, step.subFlowId)) return;
     const workNodeKey = await this.childWorkNodeKey(step.subFlowId);
-    const workNode = await db.get<{ status: string }>(
-      `SELECT status FROM nodes WHERE flow_id=$1 AND node_key=$2`,
-      step.subFlowId,
-      workNodeKey
-    );
+    const workNode = await db.prisma.node.findUnique({
+      where: { flowId_nodeKey: { flowId: step.subFlowId, nodeKey: workNodeKey } },
+      select: { status: true },
+    });
     if (!workNode || workNode.status !== 'failed') {
       throw new Error('the step child has no failed node to retry');
     }
@@ -277,8 +287,20 @@ export class StepFlowManager {
   }
 
   private async firstFanoutNodeKey(parentFlowId: string): Promise<string | null> {
-    for (const n of await db.all<{ nodeKey: string; config: string | null }>(`SELECT node_key AS "nodeKey", config FROM nodes WHERE flow_id=$1`, parentFlowId)) {
-      if (fanoutOf(parseConfigSnapshot(n.config)).mode !== "whole") return n.nodeKey;
+    const nodes = await db.prisma.node.findMany({
+      where: { flowId: parentFlowId },
+      orderBy: { createdAt: "asc" },
+      select: { nodeKey: true, config: true },
+    });
+    for (const n of nodes) {
+      // nodes.config JSONB (legacy string-encoded rows still parse)
+      const raw: unknown = n.config;
+      const config = typeof raw === "string"
+        ? parseConfigSnapshot(raw)
+        : raw != null && typeof raw === "object" && !Array.isArray(raw)
+          ? (raw as Record<string, unknown>)
+          : {};
+      if (fanoutOf(config).mode !== "whole") return n.nodeKey;
     }
     return null;
   }

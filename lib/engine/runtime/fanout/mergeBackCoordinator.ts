@@ -6,6 +6,7 @@ import { configNumber } from "../../templates/nodeConfig";
 import { prompts } from "../../prompts/promptLibrary";
 import { nodeRegistry } from "../../nodes/registry";
 import type { NodeCapabilities } from "../../nodes/shared/capabilities";
+import { STEP_MERGE_STATUS } from "./constants/stepMergeStatus";
 import { mergeArena } from "./mergeArena";
 import { engineParts } from "@/lib/composition/container";
 import { planSteps } from "../planStepStore";
@@ -78,8 +79,10 @@ export class MergeBackCoordinator {
     }
     const parentFlowId = childFlow.parentFlowId;
     const workNodeKey = await this.children.childWorkNodeKey(childFlowId);
-    const node = await db.get<{ nodeKey: string; status: string }>(
-      `SELECT node_key AS "nodeKey", status FROM nodes WHERE flow_id=$1 AND node_key=$2`, childFlowId, workNodeKey);
+    const node = await db.prisma.node.findUnique({
+      where: { flowId_nodeKey: { flowId: childFlowId, nodeKey: workNodeKey } },
+      select: { nodeKey: true, status: true },
+    });
     if (!node) throw new Error("the step child has no work node");
     if (node.status !== "awaiting_approval") throw new Error(`the step is ${node.status}, not awaiting approval`);
     const stepRow = await this.children.stepRowOf(childFlowId);
@@ -90,9 +93,13 @@ export class MergeBackCoordinator {
     if (mergeArena.isMerging(childFlowId)) {
       throw new Error("the step merge is already in progress");
     }
-    const activeMerge = await db.get<{ id: string }>(
-      `SELECT id FROM step_merges WHERE flow_id=$1 AND status IN ('running','conflict','rejected') LIMIT 1`,
-      childFlowId);
+    const activeMerge = await db.prisma.stepMerge.findFirst({
+      where: {
+        flowId: childFlowId,
+        status: { in: [STEP_MERGE_STATUS.RUNNING, STEP_MERGE_STATUS.CONFLICT, STEP_MERGE_STATUS.REJECTED] },
+      },
+      select: { id: true },
+    });
     if (activeMerge) {
       throw new Error("the step merge is already in progress");
     }
@@ -105,16 +112,19 @@ export class MergeBackCoordinator {
       `step approved${typeof (await this.engineCapabilitiesOfMergeBack(childFlowId)) === "function" ? ` — merging ${branch} into ${integrationBranch}` : ""}`);
     if (typeof (await this.engineCapabilitiesOfMergeBack(childFlowId)) !== "function") {
       // non-code child: nothing to merge — approval closes the child
-      await db.run(`UPDATE plan_steps SET status='done', completed_by='approved', updated_at=$1 WHERE sub_flow_id=$2`,
-        db.now(), childFlowId);
+      await db.prisma.planStep.updateMany({
+        where: { subFlowId: childFlowId },
+        data: { status: "done", completedBy: "approved", updatedAt: new Date() },
+      });
       await this.children.closeChild(childFlowId);
       await this.rollup.onChildFinished(childFlowId);
       return;
     }
-    const claimed = await db.run(
-      `UPDATE plan_steps SET completed_by='merge', updated_at=$1 WHERE sub_flow_id=$2 AND (completed_by IS NULL OR completed_by='')`,
-      db.now(), childFlowId);
-    if (claimed === 0) {
+    const claimed = await db.prisma.planStep.updateMany({
+      where: { subFlowId: childFlowId, OR: [{ completedBy: null }, { completedBy: "" }] },
+      data: { completedBy: "merge", updatedAt: new Date() },
+    });
+    if (claimed.count === 0) {
       throw new Error("the step merge is already in progress");
     }
     this.e.bg(childFlowId, workNodeKey, () =>
@@ -187,9 +197,11 @@ export class MergeBackCoordinator {
           ...(mergeRowId ? { mergeRowId } : {}),
         });
         // the arena ROW id is bookkeeping truth — adopt it for re-attempts
-        mergeRowId = (await db.get<{ id: string }>(
-          `SELECT id FROM step_merges WHERE flow_id=$1 ORDER BY created_at DESC, id DESC LIMIT 1`, childFlowId
-        ))?.id ?? mergeRowId;
+        mergeRowId = (await db.prisma.stepMerge.findFirst({
+          where: { flowId: childFlowId },
+          orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+          select: { id: true },
+        }))?.id ?? mergeRowId;
 
         if (result.status === "merged") {
           // merge-back completion batch (step 06, Invariant 7): check-off
@@ -212,7 +224,10 @@ export class MergeBackCoordinator {
 
         // conflict / rejected — repairable code state → the bounded fix agent
         const attempts = mergeRowId
-          ? ((await db.get<{ attempts: number }>(`SELECT attempts FROM step_merges WHERE id=$1`, mergeRowId))?.attempts ?? 0)
+          ? ((await db.prisma.stepMerge.findUnique({
+              where: { id: mergeRowId },
+              select: { attempts: true },
+            }))?.attempts ?? 0)
           : 1;
         if (attempts > maxAttempts) {
           const err = `${result.status} after ${attempts - 1} merge-fix agent runs (max ${maxAttempts}): ${result.error}`;
@@ -266,8 +281,13 @@ export class MergeBackCoordinator {
     parentNodeKey: string,
     error: string,
   ): Promise<void> {
-    await db.run(`UPDATE step_merges SET status='failed', error=$1, updated_at=$2 WHERE flow_id=$3 AND status IN ('running','conflict','rejected')`,
-      error.slice(0, 2000), db.now(), childFlowId);
+    await db.prisma.stepMerge.updateMany({
+      where: {
+        flowId: childFlowId,
+        status: { in: [STEP_MERGE_STATUS.RUNNING, STEP_MERGE_STATUS.CONFLICT, STEP_MERGE_STATUS.REJECTED] },
+      },
+      data: { status: STEP_MERGE_STATUS.FAILED, error: error.slice(0, 2000), updatedAt: new Date() },
+    });
     // declared mergeBackFailed — from-set fenced; published terminals are never overwritten
     await this.e.setNodeStatus(childFlowId, childNodeKey, "mergeBackFailed");
     await db.emitEvent(childFlowId, null, "error", `merge-back failed: ${error}`, { nodeKey: childNodeKey });
@@ -288,12 +308,16 @@ export class MergeBackCoordinator {
     const payload = await this.children.childPayload(childFlowId);
     const stepRow = await this.children.stepRowOf(childFlowId);
     const workNodeKey = await this.children.childWorkNodeKey(childFlowId);
-    const childNode = await db.get<{ nodeKey: string; status: string }>(
-      `SELECT node_key AS "nodeKey", status FROM nodes WHERE flow_id=$1 AND node_key=$2`, childFlowId, workNodeKey);
+    const childNode = await db.prisma.node.findUnique({
+      where: { flowId_nodeKey: { flowId: childFlowId, nodeKey: workNodeKey } },
+      select: { nodeKey: true, status: true },
+    });
     const childFlow = await this.children.childFlowOf(childFlowId);
-    const row = await db.get<{ id: string; status: string }>(
-      `SELECT id, status FROM step_merges WHERE flow_id=$1 AND status IN ('running','conflict') ORDER BY created_at DESC LIMIT 1`,
-      childFlowId);
+    const row = await db.prisma.stepMerge.findFirst({
+      where: { flowId: childFlowId, status: { in: [STEP_MERGE_STATUS.RUNNING, STEP_MERGE_STATUS.CONFLICT] } },
+      orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+      select: { id: true, status: true },
+    });
     if (!payload?.parentNodeKey || !stepRow || !childNode || !childFlow?.parentFlowId || !row) {
       await db.emitEvent(childFlowId, null, "error", "a pending step merge could not be resumed (the fan-out linkage is gone)");
       return;
@@ -303,8 +327,14 @@ export class MergeBackCoordinator {
       parentFlowId, payload.parentNodeKey, stepRow.branch ?? null);
     const branch = childFlow.mrBranch;
     if (!branch) {
-      await db.run(`UPDATE step_merges SET status='failed', error='restart interrupted the merge and the step branch is lost', updated_at=$1 WHERE id=$2`,
-        db.now(), row.id);
+      await db.prisma.stepMerge.updateMany({
+        where: { id: row.id },
+        data: {
+          status: STEP_MERGE_STATUS.FAILED,
+          error: "restart interrupted the merge and the step branch is lost",
+          updatedAt: new Date(),
+        },
+      });
       return;
     }
     this.e.bg(parentFlowId, payload.parentNodeKey, () =>
@@ -321,12 +351,19 @@ export class MergeBackCoordinator {
    * routing to the standard node retry).
    */
   async resumeMergeRetry(parentFlowId: string, childFlowId: string): Promise<boolean> {
-    const row = await db.get<{ id: string }>(
-      `SELECT id FROM step_merges WHERE flow_id=$1 AND status IN ('conflict','rejected','failed') ORDER BY created_at DESC LIMIT 1`,
-      childFlowId);
+    const row = await db.prisma.stepMerge.findFirst({
+      where: {
+        flowId: childFlowId,
+        status: { in: [STEP_MERGE_STATUS.CONFLICT, STEP_MERGE_STATUS.REJECTED, STEP_MERGE_STATUS.FAILED] },
+      },
+      orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+      select: { id: true },
+    });
     const workNodeKey = await this.children.childWorkNodeKey(childFlowId);
-    const childNode = await db.get<{ nodeKey: string; status: string }>(
-      `SELECT node_key AS "nodeKey", status FROM nodes WHERE flow_id=$1 AND node_key=$2`, childFlowId, workNodeKey);
+    const childNode = await db.prisma.node.findUnique({
+      where: { flowId_nodeKey: { flowId: childFlowId, nodeKey: workNodeKey } },
+      select: { status: true },
+    });
     if (!row || !childNode || childNode.status !== "failed") return false;
     await this.e.setNodeStatus(childFlowId, workNodeKey, "mergeRetryAwaiting");
     await this.resumePendingMerge(childFlowId);
