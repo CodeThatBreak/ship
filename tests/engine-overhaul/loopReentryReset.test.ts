@@ -3,7 +3,7 @@
  * downstream success terminals back to pending so the cycle runs again
  * (engine overhaul step 00). Mirrors `flowEngineLoopReset.test.ts`'s inline
  * decision graph through the step-00 harness — the reset is pure
- * EdgeActivator behavior, so terminal states are placed via fixture writes
+ * StageRunner behavior, so terminal states are placed via fixture writes
  * and the assertion reads the reset after a bare `advanceFrom`.
  *
  * Runs against the isolated dockerized Postgres test database

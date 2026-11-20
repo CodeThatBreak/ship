@@ -52,7 +52,7 @@ const makeHost = (over: Partial<ApprovalHost> = {}): ApprovalHost => ({
   isStepChild: async () => false,
   latestResourceArtifact: async () => undefined,
   transitionTrigger: async () => ({ started: true }) as TriggerResult,
-  sdlcApproveBuild: async () => ({ started: true }) as TriggerResult,
+  chain: { approveBuild: async () => ({ started: true }) as TriggerResult },
   emitLifecycle: async () => {},
   bg: () => {},
   advanceFrom: async () => {},

@@ -38,13 +38,11 @@ export type WaitStoreHost = {
   ): Promise<void>;
 };
 
-/** Narrow surface {@link EdgeActivator} needs from the orchestrator. */
-export type EdgeActivatorHost = WaitStoreHost & {
+/** Narrow surface {@link StageRunner} needs from the orchestrator. */
+export type StageRunnerHost = WaitStoreHost & {
   ctx(flowId: string): Promise<FlowCtx>;
   defOf(flowId: string, nodeKey: string): Promise<NodeDefinition>;
   runNode(flowId: string, nodeKey: string, rawInput: unknown, deliveryPayload?: unknown): Promise<string>;
-  isStepChild(flowId: string): Promise<boolean>;
-  armNodeWait(flowId: string, nodeKey: string, wait: "webhook" | "timer" | "comments", minutes: number | null): Promise<void>;
   /** the TriggerGateway claim door (step 06) — the stage-start duplicate fence */
   claimTrigger(params: GatewayClaimParams): Promise<TriggerResult>;
 };
@@ -52,10 +50,6 @@ export type EdgeActivatorHost = WaitStoreHost & {
 /** Narrow surface {@link FlowFactory} needs from the orchestrator. */
 export type FlowFactoryHost = {
   start(flowId: string): Promise<void>;
-};
-
-
-/** Schedule fields folded into the flow read model. */
-export type FlowReadScheduleHost = {
-  resolveScheduleAt(flowId: string): Promise<number | null>;
+  /** the journal-fenced cancel — the factory's deleteFlow cancels active nodes first */
+  cancelNode(flowId: string, nodeKey: string): Promise<void>;
 };

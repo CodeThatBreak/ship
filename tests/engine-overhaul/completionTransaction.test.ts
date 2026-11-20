@@ -14,6 +14,7 @@
  */
 import { afterEach, beforeAll, describe, expect, test } from "vitest";
 import type { Prisma } from "@prisma/client";
+import type { StepRollup } from "@/lib/engine/runtime/fanout/stepRollup";
 import { assignTestDatabase, resetTestDatabase } from "../helpers/testDatabase";
 import { FlowHarness } from "../helpers/flowHarness";
 import { expectTransitionsDeclared } from "../helpers/transitionLogAssert";
@@ -62,7 +63,7 @@ const injectTransactionFault = (failOn: RegExp): void => {
           }
           // model-API writes (e.g. planStep.updateMany) fault on `<model>.<method>`
           if (prop === "planStep") {
-            const model = Reflect.get(target, prop, receiver) as Record<string, (...a: unknown[]) => unknown>;
+            const model = Reflect.get(target, prop, receiver) as unknown as Record<string | symbol, (...a: unknown[]) => unknown>;
             return new Proxy(model, {
               get(modelTarget, method) {
                 return (...args: unknown[]) =>
@@ -235,7 +236,9 @@ describe("completion batch transaction (step 06, Invariant 7)", () => {
       "step_ctx_1", flowId, 0, "Step one", null, "[]", childFlowId, db.now(), db.now(),
     );
 
-    const rollup = stepFlows as unknown as { checkRollup(flowId: string, nodeKey: string): Promise<void> };
+    // the rollup moved into the fan-out runtime's StepRollup (step 07) —
+    // reached through the bound facade's rollup member
+    const rollup = (stepFlows as unknown as { rollup: StepRollup }).rollup;
     // the check-off rides the Prisma model API through the tx — crashing ON
     // it must roll the WHOLE batch back (no partial rollup)
     injectTransactionFault(/planStep\.updateMany/);

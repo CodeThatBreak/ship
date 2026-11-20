@@ -22,6 +22,11 @@ assignTestDatabase();
 const { db } = await import("@/lib/db/app");
 const { flowEngine } = await import("@/lib/engine/flowEngine");
 const { templateStore } = await import("@/lib/engine/templates/templateStore");
+// the split aggregate publish moved to the SplitJoin (step 07 decomposition);
+// the facade composes it (private member — test seam)
+const { splitManager } = await import("@/lib/engine/runtime/split/splitManager");
+type SplitJoinClass = InstanceType<(typeof import("@/lib/engine/runtime/split/splitJoin"))["SplitJoin"]>;
+const splitJoin = (splitManager as unknown as { join: SplitJoinClass }).join;
 
 const harness = new FlowHarness({ db, flowEngine, templateStore });
 
@@ -57,7 +62,7 @@ describe("unvalidated fan-out/split aggregate", () => {
     // the split consumer is mid-run when a malformed aggregate resolves: the
     // `units` entries violate the split contract (status out of vocabulary)
     await harness.claimNode(flowId, "build", "manualStage");
-    await flowEngine.finishSplit(flowId, "build", {
+    await splitJoin.finishSplit(flowId, "build", {
       units: [{ key: "u1", title: "Unit", status: 12345, output: {} }],
     });
 

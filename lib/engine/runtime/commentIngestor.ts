@@ -11,7 +11,11 @@ import type { WaitStore } from "./waits/waitStore";
 import type { TriggerResult, TriggerSource } from "./triggers/types/triggerGateway";
 
 export type CommentIngestorHost = {
-  triggerPipelineGate(flowId: string, pipelineId?: number, model?: string, source?: TriggerSource): Promise<TriggerResult>;
+  /** the SDLC builtin chain (step 07: the facade no longer re-exports the
+   *  chain's stage entries — callers drive the chain directly) */
+  chain: {
+    triggerPipelineGate(flowId: string, pipelineId?: number, model?: string, source?: TriggerSource): Promise<TriggerResult>;
+  };
 };
 
 /** Git-host MR lookup and comment ingestion. */
@@ -99,7 +103,7 @@ export class CommentIngestor {
           { status: event.pipeline.status, id: event.pipeline.id, nodeKey: gateKey ?? undefined });
       }
       if (event.pipeline.status === "failed") {
-        await this.host.triggerPipelineGate(f.id, event.pipeline.id, undefined, TRIGGER_SOURCE.WEBHOOK);
+        await this.host.chain.triggerPipelineGate(f.id, event.pipeline.id, undefined, TRIGGER_SOURCE.WEBHOOK);
       }
     } catch (e: unknown) {
       if (e instanceof DomainError) {

@@ -4,7 +4,7 @@
  * status (engine overhaul step 00; flip in step 05, per
  * `docs/current-issue-plan.md` Issue 2).
  *
- * The F2 fix landed ahead of the overhaul (`flowEngine.retryNode` chat-first
+ * The F2 fix landed ahead of the overhaul (`flowEngine.retries.retryNode` chat-first
  * branch + `resolvePlanFailedRetryStatus`), so these pin the TARGET behavior
  * GREEN — the regression guard step 05's acceptance keeps green.
  *
@@ -75,7 +75,7 @@ describe("plan node Retry is never a dead end", () => {
     );
     agent.pushRun({ status: "finished", result: PLAN_TURN });
 
-    flowEngine.retryNode(flowId, NODE_KEYS.PLAN);
+    flowEngine.retries.retryNode(flowId, NODE_KEYS.PLAN);
 
     await until(
       async () => (await harness.nodeStatus(flowId, NODE_KEYS.PLAN)) === "awaiting_approval",
@@ -94,7 +94,7 @@ describe("plan node Retry is never a dead end", () => {
       db.now(), plan.id,
     );
 
-    flowEngine.retryNode(flowId, NODE_KEYS.PLAN);
+    flowEngine.retries.retryNode(flowId, NODE_KEYS.PLAN);
 
     await until(
       async () => (await harness.nodeStatus(flowId, NODE_KEYS.PLAN)) === "pending",

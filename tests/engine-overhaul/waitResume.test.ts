@@ -98,7 +98,7 @@ describe("wait resume runs the node", () => {
     agent.pushRun({ status: "finished", result: "delivery acknowledged." });
 
     // webhook delivery resumes the gate: target = the node RUNS to a terminal
-    await flowEngine.resumeNodeFromWebhook(flowId, "gate", { delivery: true });
+    await flowEngine.waitsStore.resumeNodeFromWebhook(flowId, "gate", { delivery: true });
     await until(
       async () => (await harness.nodeStatus(flowId, "gate")) === "done",
       "the resumed gate to run to done",
@@ -122,7 +122,7 @@ describe("wait resume runs the node", () => {
     agent.pushRun({ status: "finished", result: "timer acknowledged." });
 
     // timer fire resumes the gate: target = the node RUNS to a terminal
-    await flowEngine.processWaitTimers();
+    await flowEngine.waitsStore.sweepDueWaits();
     await until(
       async () => (await harness.nodeStatus(flowId, "gate")) === "done",
       "the timer-fired gate to run to done",

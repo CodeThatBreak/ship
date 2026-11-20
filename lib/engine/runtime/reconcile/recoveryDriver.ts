@@ -7,6 +7,9 @@ import { flowEngine } from "../../flowEngine";
 import { agentPortRegistry } from "../../ports/agentPort";
 import { flowCtxHelper, type FlowCtx } from "../../nodes/shared/nodeSharedExports";
 import type { NodeSupport } from "../../nodes/shared/nodeSupport";
+import { RUN_STATUS } from "../../constants/vocabulary";
+import type { RecoveryResult } from "../../nodes/shared/types/recovery";
+import type { AgentRunResult } from "../../ports/agentPort";
 import type { RecoveryHost } from "./types/reconcile";
 
 /**
@@ -46,7 +49,7 @@ export class RecoveryDriver {
       await this.recoverNode(flow, full);
     } catch (e: unknown) {
       const reason = e instanceof Error ? e.message : String(e);
-      await this.host
+      await this
         .failOrphanedNode(flow.id, node.id, node.nodeKey, `recovery failed: ${reason}`)
         .catch(() => {});
     }
@@ -83,12 +86,12 @@ export class RecoveryDriver {
     if (runRow && port.hasActiveRun(runRow.runRef)) return;
 
     if (!runRow) {
-      await this.host.failOrphanedNode(flowCtx.id, node.id, node.nodeKey, "node was left running without an active run");
+      await this.failOrphanedNode(flowCtx.id, node.id, node.nodeKey, "node was left running without an active run");
       return;
     }
 
     if (this.support.isStartupRun(runRow.agentRef)) {
-      await this.host.failOrphanedNode(flowCtx.id, node.id, node.nodeKey, "node startup was interrupted");
+      await this.failOrphanedNode(flowCtx.id, node.id, node.nodeKey, "node startup was interrupted");
       return;
     }
 
@@ -104,7 +107,7 @@ export class RecoveryDriver {
         : null;
 
     if (!probe) {
-      await this.host.failOrphanedNode(
+      await this.failOrphanedNode(
         flowCtx.id, node.id, node.nodeKey,
         "server restarted mid-run and the agent session could not be re-attached",
       );
@@ -112,7 +115,7 @@ export class RecoveryDriver {
     }
 
     if (!probe.completed) {
-      await this.host.failOrphanedNode(
+      await this.failOrphanedNode(
         flowCtx.id, node.id, node.nodeKey,
         "server restarted mid-run — the agent session shows an unfinished turn",
       );
@@ -122,7 +125,7 @@ export class RecoveryDriver {
     // the turn finished before the server died — recover it
     await db.emitEvent(flowCtx.id, node.id, "lifecycle",
       `server restarted — re-attached to the agent session; the ${node.nodeKey} turn had finished, recovering`);
-    await this.host.completeNodeFromResult(
+    await this.completeNodeFromResult(
       ctx,
       node,
       { id: runRow.runRef, status: "finished", result: probe.text },
@@ -140,23 +143,23 @@ export class RecoveryDriver {
     const { flow: flowCtx } = ctx;
     const port = await agentPortRegistry.forMode("cloud");
     if (!runRow) {
-      await this.host.failOrphanedNode(flowCtx.id, node.id, node.nodeKey, "node was left running without an active run");
+      await this.failOrphanedNode(flowCtx.id, node.id, node.nodeKey, "node was left running without an active run");
       return;
     }
 
     if (this.support.isStartupRun(runRow.agentRef)) {
-      await this.host.failOrphanedNode(flowCtx.id, node.id, node.nodeKey, "node startup was interrupted");
+      await this.failOrphanedNode(flowCtx.id, node.id, node.nodeKey, "node startup was interrupted");
       return;
     }
 
     const query = await port.getRun({ agentId: runRow.agentRef, runId: runRow.runRef });
     if (query.state === "unavailable") {
-      await this.host.failOrphanedNode(flowCtx.id, node.id, node.nodeKey, query.error.message);
+      await this.failOrphanedNode(flowCtx.id, node.id, node.nodeKey, query.error.message);
       return;
     }
     const TERMINAL = ["finished", "error", "cancelled"];
     if (query.state === "terminal" && TERMINAL.includes(query.result.status)) {
-      await this.host.completeNodeFromResult(ctx, node, query.result, "reconciled from the git/agent API");
+      await this.completeNodeFromResult(ctx, node, query.result, "reconciled from the git/agent API");
       return;
     }
 
@@ -175,12 +178,72 @@ export class RecoveryDriver {
             onTool: (name, status, args) =>
               db.emitEvent(flowCtx.id, node.id, "tool", `${name}: ${status}`, { args: JSON.stringify(args ?? {}).slice(0, 300) }),
           });
-        await this.host.completeNodeFromResult(ctx, node, final.result, "completed after re-attach");
+        await this.completeNodeFromResult(ctx, node, final.result, "completed after re-attach");
       } catch (e: unknown) {
-        await this.host.failOrphanedNode(flowCtx.id, node.id, node.nodeKey, `lost run stream: ${e instanceof Error ? e.message : e}`);
+        await this.failOrphanedNode(flowCtx.id, node.id, node.nodeKey, `lost run stream: ${e instanceof Error ? e.message : e}`);
       } finally {
         this.reattached.delete(runRow.runRef);
       }
     })();
+  }
+
+  /**
+   * Finish a running node from a run result obtained out-of-band (server
+   * restart recovery / cloud re-attach) — the recovery seam itself: delegates
+   * to the node's own recover().
+   */
+  async completeNodeFromResult(c: FlowCtx, node: NodeRow, result: AgentRunResult, note: string): Promise<boolean> {
+    await db.run(
+      `UPDATE runs SET status=$1, lease_until=NULL, updated_at=$2 WHERE node_id=$3 AND status='running'`,
+      result.status === 'finished' ? 'finished' : 'error',
+      db.now(),
+      node.id
+    );
+    if (node.status !== 'running') return true; // already reconciled by a concurrent pass
+
+    const def = await this.host.defOf(c.flow.id, node.nodeKey);
+    // The fixed recover() ABI (Invariant 4, step 05): a throw out of a def's
+    // recover() is caught ONCE here — the recovery seam — and mapped to
+    // `manual` + an error event, so the reconciler pass never sees a
+    // recovery throw.
+    let recovery: RecoveryResult;
+    try {
+      recovery = await def.recover(c, node, result, note);
+    } catch (e: unknown) {
+      const reason = e instanceof Error ? e.message : String(e);
+      await engineParts.events.error(
+        c.flow.id,
+        node.nodeKey,
+        `${node.nodeKey} recover() threw — recovery failed: ${reason}`,
+      );
+      recovery = { kind: "manual", reason: `recover() threw: ${reason}` };
+    }
+    if (recovery.kind === 'recovered') return true;
+
+    // recovery is manual → fail the node so the user can retry
+    await engineParts.transitions.apply(c.flow.id, node.nodeKey, 'recoverDeclined');
+    await engineParts.events.error(
+      c.flow.id,
+      node.nodeKey,
+      `${node.nodeKey} recovery is manual (${recovery.reason}) — retry the node to continue`
+    );
+    return true;
+  }
+
+  /**
+   * Reconciler surface: mark an orphaned run's node failed (nothing
+   * recoverable) through the declared `orphanFail` transition.
+   */
+  async failOrphanedNode(flowId: string, nodeId: string, nodeKey: string, reason: string): Promise<void> {
+    const applied = await engineParts.transitions.apply(flowId, nodeKey, 'orphanFail');
+    if (!applied) return; // already reconciled by a concurrent pass
+    await db.run(
+      `UPDATE runs SET status=$1, lease_until=NULL, updated_at=$2 WHERE node_id=$3 AND status=$4`,
+      RUN_STATUS.ERROR,
+      db.now(),
+      nodeId,
+      RUN_STATUS.RUNNING,
+    );
+    await engineParts.events.error(flowId, nodeKey, `${nodeKey}: ${reason} — retry the node to continue`);
   }
 }

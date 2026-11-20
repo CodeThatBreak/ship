@@ -3,14 +3,17 @@ import "server-only";
 import { db } from "../../db/app";
 import { Prisma } from "@prisma/client";
 import { FlowRow, Task } from "../../db/rows";
-import { NotFoundError, ValidationError } from "../../errors";
+import { ConflictError, NotFoundError, ValidationError } from "../../errors";
 import { FLOW_KIND } from "../constants/flowKind";
+import { FLOW_CHILD_TABLES } from "../constants/flowChildTables";
 import { nodeRegistry } from "../nodes/registry";
+import { mergeArena } from "./fanout/mergeArena";
+import { worktreeManager } from "./worktreeLifecycle";
 import type { NodeStore } from "./nodeStore";
 import { parseStartContract, validateAgainstContract } from "../nodes/kinds/start/contract";
 import { NO_TASK_TYPE, SDLC_TEMPLATE_ID, templateStore } from "../templates/templateStore";
-import type { StepChildPayload } from "./fanout/stepFlowManager";
-import type { SplitChildPayload } from "./split/splitManager";
+import type { StepChildPayload } from "./fanout/types/stepChildPayload";
+import type { SplitChildPayload } from "./split/types/splitChildPayload";
 import type { FlowFactoryHost } from "./flowEngineHost";
 const TASK_SELECT = `SELECT id, type, key, summary, description, status,
        issue_type AS "issueType", priority, repo_url AS "repoUrl",
@@ -36,6 +39,44 @@ export class FlowFactory {
     private readonly host: FlowFactoryHost,
     private readonly nodeStore: NodeStore,
   ) {}
+
+  /** Delete a flow tree: cancel active nodes, drop worktrees, delete the child tables in FK-safe order. */
+  async deleteFlow(id: string): Promise<void> {
+    const flow = await db.get<{ id: string }>(`SELECT id FROM flows WHERE id=$1`, id);
+    if (!flow) throw new NotFoundError('flow', id);
+    const childIds = (await db.all<{ id: string }>(`SELECT id FROM flows WHERE parent_flow_id=$1`, id)).map(r => r.id);
+    const ids = [id, ...childIds];
+    for (const fid of ids) {
+      if (mergeArena.isMerging(fid)) {
+        throw new ConflictError('cannot delete a flow while a step merge is in progress');
+      }
+    }
+    for (const fid of ids) {
+      const active = await db.all<{ nodeKey: string; status: string }>(
+        `SELECT node_key AS "nodeKey", status FROM nodes WHERE flow_id=$1 AND status IN ('running','waiting')`,
+        fid
+      );
+      for (const n of active) {
+        await this.cancelNodeOf(fid, n.nodeKey);
+      }
+    }
+    // durable waits die with the rows: cancelNode moved every running/waiting
+    // node out of `waiting` (clearing wait_until), and the child-table delete
+    // below removes the node rows entirely
+    await Promise.allSettled(ids.map(fid => worktreeManager.removeFlowWorktree(fid, { reason: 'flow deleted' })));
+    await db.transaction(async (tx) => {
+      for (const fid of ids) {
+        for (const table of FLOW_CHILD_TABLES) {
+          await tx.$executeRawUnsafe(`DELETE FROM ${table} WHERE flow_id=$1`, fid);
+        }
+      }
+      await tx.$executeRawUnsafe(`DELETE FROM flows WHERE id IN (${ids.map((_, i) => `$${i + 1}`).join(',')})`, ...ids);
+    });
+  }
+
+  private cancelNodeOf(flowId: string, nodeKey: string): Promise<void> {
+    return this.host.cancelNode(flowId, nodeKey);
+  }
 
   async create(taskId: string, repoUrl: string, name?: string, opts: CreateFlowOptions = {}, tx?: Prisma.TransactionClient): Promise<string> {
     const task = await db.rows.get(Task, `${TASK_SELECT} WHERE id=$1`, taskId);

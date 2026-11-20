@@ -4,6 +4,7 @@ import { parseJson } from "@/lib/http/parse";
 import { flowActionBodySchema, type FlowActionBody } from "@/lib/schemas/flowActionBody";
 import { NextResponse } from "next/server";
 import { flowEngine } from "../../../../../lib/engine/flowEngine";
+import { splitManager } from "../../../../../lib/engine/runtime/split/splitManager";
 import type { TriggerResult } from "../../../../../lib/engine/runtime/triggers/types/triggerGateway";
 
 export const dynamic = "force-dynamic";
@@ -12,23 +13,23 @@ export const runtime = "nodejs";
 const dispatchAction = async (flowId: string, body: FlowActionBody): Promise<TriggerResult | undefined> => {
   switch (body.action) {
     case FLOW_ACTION.APPROVE_PLAN:
-      return flowEngine.approvePlan(flowId, body.executionOverride);
+      return flowEngine.approvals.approvePlan(flowId, body.executionOverride);
     case FLOW_ACTION.UPDATE_PLAN_STEPS:
-      await flowEngine.updatePlanSteps(flowId, body.steps);
+      await flowEngine.planStepEdits.updatePlanSteps(flowId, body.steps);
       return undefined;
     case FLOW_ACTION.SET_PLAN_STEP:
-      await flowEngine.setPlanStepStatus(flowId, body.stepId, body.status);
+      await flowEngine.planStepEdits.setPlanStepStatus(flowId, body.stepId, body.status);
       return undefined;
     case FLOW_ACTION.APPROVE_BUILD:
       return flowEngine.approveBuild(flowId, body.branch);
     case FLOW_ACTION.PIPELINE:
-      return flowEngine.triggerPipelineGate(flowId, body.pipelineId, body.model);
+      return flowEngine.chain.triggerPipelineGate(flowId, body.pipelineId, body.model);
     case FLOW_ACTION.RESOLVE:
-      return flowEngine.triggerResolve(flowId, body.model);
+      return flowEngine.chain.triggerResolve(flowId, body.model);
     case FLOW_ACTION.REVIEW:
-      return flowEngine.triggerReview(flowId, body.model);
+      return flowEngine.chain.triggerReview(flowId, body.model);
     case FLOW_ACTION.RETRY:
-      return flowEngine.retryNode(flowId, body.nodeKey);
+      return flowEngine.retries.retryNode(flowId, body.nodeKey);
     case FLOW_ACTION.CANCEL:
       await flowEngine.cancelNode(flowId, body.nodeKey);
       return undefined;
@@ -39,12 +40,12 @@ const dispatchAction = async (flowId: string, body: FlowActionBody): Promise<Tri
         input: body.input,
       });
     case FLOW_ACTION.APPROVE_NODE:
-      return flowEngine.approveNode(flowId, body.nodeKey);
+      return flowEngine.approvals.approveNode(flowId, body.nodeKey);
     case FLOW_ACTION.SET_NODE_CONFIG:
       await flowEngine.setNodeConfig(flowId, body.nodeKey, body.config);
       return undefined;
     case FLOW_ACTION.CHOOSE_NODE:
-      await flowEngine.chooseNode(flowId, body.nodeKey, body.chosen, body.rationale);
+      await flowEngine.approvals.chooseNode(flowId, body.nodeKey, body.chosen, body.rationale);
       return undefined;
     case FLOW_ACTION.APPROVE_FANOUT_STEP:
       await flowEngine.approveFanoutStep(flowId, body.stepId);
@@ -56,16 +57,16 @@ const dispatchAction = async (flowId: string, body: FlowActionBody): Promise<Tri
       await flowEngine.skipFanoutStep(flowId, body.stepId);
       return undefined;
     case FLOW_ACTION.SKIP_SPLIT_UNIT:
-      await flowEngine.skipSplitUnit(flowId, body.unitKey, body.consumerNodeKey);
+      await splitManager.skipUnit(flowId, body.consumerNodeKey, body.unitKey);
       return undefined;
     case FLOW_ACTION.RETRY_SPLIT_UNIT:
-      await flowEngine.retrySplitUnit(flowId, body.unitKey, body.consumerNodeKey);
+      await splitManager.retryUnit(flowId, body.consumerNodeKey, body.unitKey);
       return undefined;
     case FLOW_ACTION.APPROVE_SPLIT_UNIT:
-      await flowEngine.approveSplitUnit(flowId, body.unitKey, body.consumerNodeKey);
+      await splitManager.approveUnit(flowId, body.consumerNodeKey, body.unitKey);
       return undefined;
     case FLOW_ACTION.CANCEL_SPLIT_UNIT:
-      await flowEngine.cancelSplitUnit(flowId, body.unitKey, body.consumerNodeKey);
+      await splitManager.cancelUnit(flowId, body.consumerNodeKey, body.unitKey);
       return undefined;
     default: {
       const _exhaustive: never = body;

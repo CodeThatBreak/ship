@@ -12,7 +12,9 @@ import { MrCreateHandler } from "../../runtime/jobs/mrCreateHandler";
 import { JOB_KIND } from "../../runtime/jobs/constants/jobVocabulary";
 import { mrCreateDedupKey } from "../../runtime/jobs/utils/jobDedupKeys";
 import type { ChangeRequest } from "../../ports/gitHost";
-import type { EngineNodeStatus } from "../../constants/nodeStatus";
+import { NODE_STATUS, type EngineNodeStatus } from "../../constants/nodeStatus";
+import { EFFECT_LIFECYCLE, type EffectLifecycle } from "../../runtime/effects/constants/effectLifecycles";
+import type { EffectCtx } from "../../runtime/effects/types/nodeEffects";
 import type { TransitionKey } from "../../runtime/transitions/types/transitions";
 import type { TriggerResult, TriggerSource } from "../../runtime/triggers/types/triggerGateway";
 
@@ -35,6 +37,13 @@ export interface ChainHost {
   gateKey(flowId: string): Promise<string | null>;
   /** resolve a node's outgoing edges and start what becomes eligible */
   advanceFrom(flowId: string, fromKey: string): Promise<void>;
+  /** the post-terminal dispatch (step 07): child-terminal notifications +
+   *  the registered afterSuccess / loopReentry effects, falling through to
+   *  the edge walk when nothing claims the follow-on */
+  postTerminal(flowId: string, nodeKey: string): Promise<void>;
+  /** the effect registry's dispatch door (step 07): run the effects
+   *  registered for (defKey, lifecycle); true when one claimed the follow-on */
+  runEffect(lifecycle: EffectLifecycle, ctx: EffectCtx): Promise<boolean>;
   /** the instance keys of the flow's post-MR chain stages (the claim
    *  guard's in-flight set — step 06 folds the old chainBusy read into the
    *  claim UPDATE itself) */
@@ -79,17 +88,16 @@ export class SdlcChain {
   constructor(private readonly host: ChainHost) {}
 
   /**
-   * Approve the build output and hand off to the template edges. CR creation
-   * (with the bounded commit-fix agent on the build step) runs here — it sits
-   * between build approval and the CI gate, so the edges must not start the
-   * gate before a CR exists.
+   * Approve the build output. The MR-create sequencing is NOT here — it is
+   * the build's declared `afterApproval` effect (registered by `sdlcEffects`,
+   * dispatched through the effect registry on this won approve): the
+   * CR-before-gate ordering is registry data, not call ordering.
    */
   async approveBuild(flowId: string, branchName?: string): Promise<TriggerResult> {
     const buildKey = await this.host.keyOfRole(flowId, NODE_KEYS.BUILD);
     if (!buildKey) throw new Error("this flow template has no build node");
     const gate = await this.host.gateKey(flowId);
     if (!gate) throw new Error("this flow template has no pipeline gate node");
-    const reviewKey = await this.host.keyOfRole(flowId, NODE_KEYS.REVIEW);
     // declared approval: awaiting_approval → approved (the button's contract)
     // — claimed through the gateway (step 06): a node not in the from-set
     // loses here with the typed skip event instead of the ad-hoc throw
@@ -100,7 +108,32 @@ export class SdlcChain {
       key: "buildApprove",
     });
     if (!approved.started) return approved;
+    // the won approve fires the registered afterApproval effect — the
+    // MR-create sequence + the deferred edge advance (CR-before-gate)
+    await this.host.runEffect(EFFECT_LIFECYCLE.AFTER_APPROVAL, {
+      flowId,
+      nodeKey: buildKey,
+      defKey: NODE_KEYS.BUILD,
+      status: NODE_STATUS.APPROVED,
+      output: null,
+      source: TRIGGER_SOURCE.UI,
+      params: { branchName },
+    });
+    return approved;
+  }
+
+  /**
+   * The build `afterApproval` effect implementation (registered by
+   * `sdlcEffects`): CR creation with the bounded commit-fix agent on the
+   * build step. It sits between build approval and the CI gate, so the edges
+   * must not start the gate before a CR exists — the advance past the build
+   * happens here, only when every branch target's creation landed.
+   */
+  async mrCreateSequence(flowId: string, buildKey: string, branchName?: string): Promise<void> {
     this.host.bg(flowId, null, async () => {
+      const gate = await this.host.gateKey(flowId);
+      if (!gate) throw new Error("this flow template has no pipeline gate node");
+      const reviewKey = await this.host.keyOfRole(flowId, NODE_KEYS.REVIEW);
       const maxAttempts = configNumber(
         await this.host.nodeConfigFor(flowId, buildKey), "max_commit_fix_attempts", 2);
       // multi-branch: one CR per awaiting branch; single-branch: the flow-level MR
@@ -137,7 +170,6 @@ export class SdlcChain {
       // green gate flows on to review → debounced resolve via edges)
       await this.host.advanceFrom(flowId, buildKey);
     });
-    return approved;
   }
 
   /**
@@ -190,7 +222,7 @@ export class SdlcChain {
    * One commit-fix attempt: run the build node's agent with the push-rejection
    * feedback so it fixes the code and re-pushes to the same branch. Public
    * since step 06 task 5 — the mr_create journal's re-claim path dispatches
-   * it through `flowEngine.sdlcCommitFix` (the poller's handler wiring).
+   * it through `flowEngine.chain.runBuildCommitFix` (the poller's handler wiring).
    */
   async runBuildCommitFix(
     flowId: string,
@@ -256,7 +288,7 @@ export class SdlcChain {
       await this.host.runNode(flowId, gate, {
         branchName: null, pipelineId: pipelineId ?? null, guidance: null, model: model ?? null,
       });
-      await this.host.advanceFrom(flowId, gate);
+      await this.host.postTerminal(flowId, gate);
     });
     return result;
   }
@@ -283,7 +315,7 @@ export class SdlcChain {
       await this.host.runNode(flowId, resolveKey, {
         instructions: null, branchName: null, model: model ?? null,
       });
-      await this.host.advanceFrom(flowId, resolveKey);
+      await this.host.postTerminal(flowId, resolveKey);
     });
     return result;
   }
@@ -308,7 +340,7 @@ export class SdlcChain {
       await this.host.runNode(flowId, reviewKey, {
         instructions: null, branchName: null, model: model ?? null,
       });
-      await this.host.advanceFrom(flowId, reviewKey);
+      await this.host.postTerminal(flowId, reviewKey);
     });
     return result;
   }

@@ -98,7 +98,7 @@ export class FlowApprovalService {
       await stepFlows.approveChildStep(flowId);
       return { started: true };
     }
-    return this.host.sdlcApproveBuild(flowId, branchName);
+    return this.host.chain.approveBuild(flowId, branchName);
   }
 
   /**

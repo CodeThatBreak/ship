@@ -19,6 +19,11 @@ const { db } = await import("@/lib/db/app");
 const { flowEngine } = await import("@/lib/engine/flowEngine");
 const { engineParts } = await import("@/lib/composition/container");
 const { templateStore } = await import("@/lib/engine/templates/templateStore");
+// the split aggregate publish moved to the SplitJoin (step 07 decomposition);
+// the facade composes it (private member — test seam)
+const { splitManager } = await import("@/lib/engine/runtime/split/splitManager");
+type SplitJoinClass = InstanceType<(typeof import("@/lib/engine/runtime/split/splitJoin"))["SplitJoin"]>;
+const splitJoin = (splitManager as unknown as { join: SplitJoinClass }).join;
 
 const harness = new FlowHarness({ db, flowEngine, templateStore });
 
@@ -45,14 +50,14 @@ describe("finishSplit overwrite guard", () => {
     // a STALE aggregate resolves late — carrying the ORIGINAL run's attempt
     // (exactly what the split manager's checkJoin passes): it must NOT
     // overwrite the retried node's live state
-    await flowEngine.finishSplit(flowId, buildKey, {
+    await splitJoin.finishSplit(flowId, buildKey, {
       units: [{ key: "u1", title: "Unit", status: "done", output: {} }],
     }, original.attemptId);
     expect(await harness.nodeStatus(flowId, buildKey)).toBe("running");
 
     // the CURRENT attempt's aggregate still publishes through the declared
     // splitOutcome transition
-    await flowEngine.finishSplit(flowId, buildKey, {
+    await splitJoin.finishSplit(flowId, buildKey, {
       units: [{ key: "u1", title: "Unit", status: "done", output: {} }],
     }, retried.attemptId);
     expect(await harness.nodeStatus(flowId, buildKey)).toBe("done");

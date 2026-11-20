@@ -10,9 +10,6 @@ import {
   resolvePlanFailedRetryStatus,
 } from "../nodes/kinds/plan/planRetryRevert";
 import { nodeRoles } from "../nodes/shared/nodeRoles";
-import { stepFlows } from "../runtime/fanout/stepFlowManager";
-import { splitManager } from "../runtime/split/splitManager";
-import { isNodeTerminalSuccess } from "../runtime/transitions/constants/statusSets";
 import { TRIGGER_SOURCE } from "../runtime/triggers/constants/triggerSources";
 import { templateStore } from "../templates/templateStore";
 import { PROMPT_REBUILD_RETRY_KEYS, RECORDED_PROMPT_KEYS } from "./constants/retryPromptRebuild";
@@ -75,18 +72,10 @@ export class FlowRetryService {
       // (review → debounced resolve)
       const runInput = this.rebuildRetryInput(def, recorded) as typeof recorded;
       await def.run(await this.host.ctx(flowId), runInput, await this.host.nodeConfigFor(flowId, nodeKey));
-      // a retried generic node that now succeeded advances the template
-      // edges exactly like the engine's auto-start path
-      const finalStatus = await this.host.nodeStatus(flowId, nodeKey);
-      if (await this.host.isStepChild(flowId)) {
-        // child-terminal notification hook (plan fan-out): the parent's
-        // scheduler/rollup reacts to the retried child's terminal state
-        await stepFlows.onChildFinished(flowId);
-        await splitManager.onChildFinished(flowId); // split runtime (§3) — no-op without split linkage
-      }
-      if (isNodeTerminalSuccess(finalStatus ?? '')) {
-        await this.host.advanceFrom(flowId, nodeKey);
-      }
+      // the post-terminal dispatch (step 07): the registered child-terminal /
+      // lifecycle effects react; when nothing claims, the template edges
+      // advance exactly like the engine's auto-start path
+      await this.host.postTerminal(flowId, nodeKey);
     });
     return result;
   }

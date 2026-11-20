@@ -50,13 +50,14 @@ export class FlowPoller {
   private readonly jobs = new JobQueue();
   private readonly webhookDeliveries = new WebhookDeliveryHandler();
   private readonly scheduleFires = new ScheduleFireHandler(this.jobs);
-  /** step 06 task 4: the sweep's re-claim finalizes an orphaned cancel intent. */
-  private readonly cancels = new CancelHandler(this.jobs);
+  /** step 06 task 4: the sweep's re-claim finalizes an orphaned cancel intent
+   *  (step 07: the child-terminal notify rides the engine's effect registry). */
+  private readonly cancels = new CancelHandler(this.jobs, flowEngine.effects);
   /** step 06 task 5: the re-claim path's commit-fix run goes through the
    *  engine's delegate (the SDLC chain's loop — the adopt path picks up the
    *  existing MR on a crashed creation). */
   private readonly mrCreates = new MrCreateHandler(this.jobs, (t, attempt, error) =>
-    flowEngine.sdlcCommitFix(t.flowId, t.buildKey, t.branch, attempt, t.maxAttempts, error));
+    flowEngine.chain.runBuildCommitFix(t.flowId, t.buildKey, t.branch, attempt, t.maxAttempts, error));
 
   private readonly handlers: JobHandlers = {
     [JOB_KIND.WEBHOOK_DELIVERY]: async (job) => this.webhookDeliveries.handle(job),
@@ -280,7 +281,7 @@ export class FlowPoller {
     if (pipe.status === "failed") {
       // the pipeline gate owns fixes — trigger it; the gateway claim (step 06)
       // is the duplicate fence against the webhook path's identical trigger
-      await flowEngine.triggerPipelineGate(f.id, pipe.id, undefined, TRIGGER_SOURCE.POLLER);
+      await flowEngine.chain.triggerPipelineGate(f.id, pipe.id, undefined, TRIGGER_SOURCE.POLLER);
     }
   }
 
@@ -292,7 +293,7 @@ export class FlowPoller {
       .listComments(repoUrl, mrIid)
       .catch(() => null);
     if (!comments) return;
-    const newOpen = await flowEngine.ingestComments(f.id, comments, mrIid);
+    const newOpen = await flowEngine.ingest.ingestComments(f.id, comments, mrIid);
     const openCount = await db.prisma.comment.count({
       where: { flowId: f.id, status: "open", mrIid },
     });
@@ -300,14 +301,14 @@ export class FlowPoller {
       // debounce: each new open comment restarts the quiet period on the
       // debounced resolve wait — the durable wait sweep fires it once the
       // flow has been quiet for the delay and the pipeline gate is clear
-      await flowEngine.bounceCommentWaits(f.id);
+      await flowEngine.waitsStore.bounceCommentWaits(f.id);
       const countKey = branchName ? `${f.id}:${branchName}` : f.id;
       if (this.lastCommentCount.get(countKey) !== openCount) {
         this.lastCommentCount.set(countKey, openCount);
-        const mins = Math.round((await flowEngine.resolveDelayMs(f.id)) / 60_000);
+        const mins = Math.round((await flowEngine.waitsStore.resolveDelayMs(f.id)) / 60_000);
         await db.emitEvent(f.id, null, "lifecycle",
           `${openCount} open comment(s)${branchName ? ` (${branchName})` : ""} — resolve queued for ` +
-          `${await flowEngine.resolveScheduleClock(f.id) ?? FlowPoller.clockIn(await flowEngine.resolveDelayMs(f.id))} ` +
+          `${await flowEngine.waitsStore.resolveScheduleClock(f.id) ?? FlowPoller.clockIn(await flowEngine.waitsStore.resolveDelayMs(f.id))} ` +
           `(${mins} min quiet, then the pipeline gate)`,
           { nodeKey: (await templateStore.waitNodeKey(f.id, "comments")) ?? undefined });
       }

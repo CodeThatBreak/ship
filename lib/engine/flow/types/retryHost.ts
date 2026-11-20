@@ -33,9 +33,11 @@ export interface RetryHost {
   bg(flowId: string, nodeKey: string | null, fn: () => Promise<void>): void;
   ctx(flowId: string): Promise<FlowCtx>;
   advanceFrom(flowId: string, fromKey: string): Promise<void>;
+  /** the post-terminal dispatch (step 07): child-terminal notifications +
+   *  the registered lifecycle effects, falling through to the edge walk */
+  postTerminal(flowId: string, nodeKey: string): Promise<void>;
   /** full config layer stack for the retried node's run */
   nodeConfigFor(flowId: string, nodeKey: string): Promise<Record<string, unknown>>;
-  isStepChild(flowId: string): Promise<boolean>;
   latestResourceArtifact<T>(flowId: string, role: ChainRole, columns?: string): Promise<T | undefined>;
   emitLifecycle(flowId: string, nodeKey: string | null, message: string, data?: Record<string, unknown>): Promise<void>;
 }

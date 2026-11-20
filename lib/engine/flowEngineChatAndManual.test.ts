@@ -224,7 +224,7 @@ describe("sendChat — a refine turn obeys the terminal contract", () => {
     stub.pushResult('{"topic":"react"}');
     stub.pushResult("React is a library for building UIs from components.");
 
-    void flowEngine.sendChat(flowId, "topic_agent", "pick react as topic");
+    void flowEngine.chats.sendChat(flowId, "topic_agent", "pick react as topic");
 
     await until(
       async () => (await nodeStatus(flowId, "topic_agent")) === "done" && (await nodeStatus(flowId, "paragraph_agent")) === "done",
@@ -254,7 +254,7 @@ describe("sendChat — a refine turn obeys the terminal contract", () => {
     stub.pushResult("no json here");
     stub.pushResult("still no json here");
 
-    void flowEngine.sendChat(flowId, "topic_agent", "pick react as topic");
+    void flowEngine.chats.sendChat(flowId, "topic_agent", "pick react as topic");
     await until(async () => (await nodeStatus(flowId, "topic_agent")) === "failed", "the refined node to re-fail");
 
     expect(await nodeStatus(flowId, "paragraph_agent")).toBe("pending");
@@ -381,7 +381,7 @@ describe("retryNode — plan node chat replay", () => {
     );
     stub.pushResult(planTurnJson("Moved step 2 below step 1."));
 
-    void flowEngine.retryNode(flowId, NODE_KEYS.PLAN);
+    void flowEngine.retries.retryNode(flowId, NODE_KEYS.PLAN);
 
     await until(
       async () => (await nodeStatus(flowId, NODE_KEYS.PLAN)) === "awaiting_approval",
@@ -402,7 +402,7 @@ describe("retryNode — plan node chat replay", () => {
       plan.id,
     );
 
-    void flowEngine.retryNode(flowId, NODE_KEYS.PLAN);
+    void flowEngine.retries.retryNode(flowId, NODE_KEYS.PLAN);
 
     await until(
       async () => (await nodeStatus(flowId, NODE_KEYS.PLAN)) === "pending",
@@ -423,7 +423,7 @@ describe("retryNode — plan node chat replay", () => {
       plan.id,
     );
 
-    void flowEngine.retryNode(flowId, NODE_KEYS.PLAN);
+    void flowEngine.retries.retryNode(flowId, NODE_KEYS.PLAN);
 
     await until(
       async () => (await nodeStatus(flowId, NODE_KEYS.PLAN)) === "awaiting_approval",

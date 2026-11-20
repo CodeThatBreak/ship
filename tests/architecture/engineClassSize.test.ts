@@ -40,12 +40,10 @@ const walk = (dir: string, out: string[] = []): string[] => {
  * that migrates it shrinks it under the ceiling. NOTHING is ever added.
  */
 const FROZEN_GIANTS: readonly string[] = [
-  "lib/engine/flowEngine.ts", // 1114→1094 — plan-step editing carved to FlowPlanStepService (step 06)
+  // step 07: flowEngine's facade collapsed to composition + delegation (449) — exited the list
   "lib/engine/nodes/kinds/agent/agentNode.ts", // 576 — output pipeline migration (step 05)
   "lib/engine/nodes/kinds/build/buildNode.ts", // 569→557 — output pipeline migrated (step 05); below-450 split deferred, stays listed with this note
   "lib/engine/nodes/kinds/plan/planContract.ts", // 515 — contract dedup (step 05)
-  "lib/engine/runtime/fanout/stepFlowManager.ts", // 1347 — Expander/Scheduler/Rollup split (step 07)
-  "lib/engine/runtime/split/splitManager.ts", // 695 — Expander/Join/LinkageStore split (step 07)
   "lib/engine/runtime/worktreeLifecycle.ts", // 567 — worktree decomposition (step 03/05)
   "lib/engine/templates/templateLint.ts", // 712 — lint split as contract checks land (step 04)
   "lib/engine/templates/templateStore.ts", // 1268 — store decomposition (step 04+)
@@ -69,13 +67,10 @@ describe("engineClassSize", () => {
   it("the frozen giants only ever shrink (none grew past its frozen size)", () => {
     // a frozen giant may leave the list by shrinking under the ceiling; it may
     // NEVER grow. Pin each giant's current line count as its ceiling.
-    const frozen = new Map<string, number>([
-      ["lib/engine/flowEngine.ts", 1094],
-      ["lib/engine/nodes/kinds/agent/agentNode.ts", 576],
+const frozen = new Map<string, number>([
+  ["lib/engine/nodes/kinds/agent/agentNode.ts", 576],
       ["lib/engine/nodes/kinds/build/buildNode.ts", 569],
       ["lib/engine/nodes/kinds/plan/planContract.ts", 515],
-      ["lib/engine/runtime/fanout/stepFlowManager.ts", 1347],
-      ["lib/engine/runtime/split/splitManager.ts", 695],
       ["lib/engine/runtime/worktreeLifecycle.ts", 567],
       ["lib/engine/templates/templateLint.ts", 712],
       ["lib/engine/templates/templateStore.ts", 1268],

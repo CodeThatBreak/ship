@@ -9,6 +9,7 @@
  * (AGENTS.md §1 — never a demo/real DB).
  */
 import { beforeAll, describe, expect, test } from "vitest";
+import type { StepRollup } from "@/lib/engine/runtime/fanout/stepRollup";
 import { assignTestDatabase, resetTestDatabase } from "../helpers/testDatabase";
 import { FlowHarness } from "../helpers/flowHarness";
 import { expectTransitionsDeclared } from "../helpers/transitionLogAssert";
@@ -17,7 +18,12 @@ assignTestDatabase();
 
 const { db } = await import("@/lib/db/app");
 const { flowEngine } = await import("@/lib/engine/flowEngine");
+const { stepFlows } = await import("@/lib/engine/runtime/fanout/stepFlowManager");
 const { templateStore } = await import("@/lib/engine/templates/templateStore");
+
+/** the aggregate publish moved off FlowEngine into the fan-out runtime's
+ *  StepRollup (step 07) — tests drive it through the bound facade's rollup */
+const rollup = (stepFlows as unknown as { rollup: StepRollup }).rollup;
 
 const harness = new FlowHarness({ db, flowEngine, templateStore });
 
@@ -48,7 +54,7 @@ describe("fan-out aggregate publish (step 02)", () => {
     await harness.claimNode(flowId, "build", "runFromPending");
     expect(await harness.nodeStatus(flowId, "build")).toBe("running");
 
-    await flowEngine.finishFanout(flowId, "build", {
+    await rollup.finishFanout(flowId, "build", {
       steps: [{ id: "s1", title: "Step one", status: "done", output: {} }],
     });
 
@@ -63,7 +69,7 @@ describe("fan-out aggregate publish (step 02)", () => {
     expect(steps?.length).toBe(1);
 
     // a stale re-publish loses silently — the from-set no longer holds
-    await flowEngine.finishFanout(flowId, "build", {
+    await rollup.finishFanout(flowId, "build", {
       steps: [{ id: "s2", title: "Step two", status: "done", output: {} }],
     });
     expect((await db.get<{ output: unknown }>(

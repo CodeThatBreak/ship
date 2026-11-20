@@ -340,7 +340,7 @@ describe("RecoveryDriver — the fixed recover() ABI at the recovery seam (Invar
     );
 
     await expect(
-      flowEngine.completeNodeFromResult(
+      new RecoveryDriver(flowEngine).completeNodeFromResult(
         ctx,
         node as unknown as NodeRow,
         { status: "finished", result: "text" } satisfies AgentRunResult,

@@ -1,6 +1,7 @@
 import "server-only";
 
 import { db } from "../../db/app";
+import { rows } from "../../db/rows";
 import {
   ArtifactRow,
   BranchRow,
@@ -15,11 +16,14 @@ import type { Artifact, FlowData, Node as FlowNode } from "@/types/flow";
 import { declarativeDef } from "../nodes/declarative";
 import { nodeRegistry } from "../nodes/registry";
 import { uiCapabilities } from "../nodes/shared/capabilities";
+import type { ChainRole, FlowCtx } from "../nodes/shared/nodeSharedExports";
+import { appLayerConfig, mergeConfigLayers, parseConfigSnapshot } from "../templates/nodeConfig";
 import { hookStore, maskHookSecret } from "./hookStore";
-import { templateStore } from "../templates/templateStore";
+import { templateStore, type TemplateGraph } from "../templates/templateStore";
+import { NotFoundError } from "../../errors";
 import { stepFlows, StepFlowManager } from "./fanout/stepFlowManager";
 import { accumulateRunRow, emptyRunTokenBucket } from "../utils/runTokenRollup";
-import type { FlowReadScheduleHost } from "./flowEngineHost";
+import type { WaitStore } from "./waits/waitStore";
 
 type NodeTemplateRow = {
   id: string;
@@ -66,7 +70,7 @@ const toFlowArtifact = (art: ArtifactRow): Artifact => ({
 
 /** Flow list/detail read model — batched SQL, artifact bodies lazy-loaded via GET /api/artifacts/:id. */
 export class FlowReadModel {
-  constructor(private readonly schedule: FlowReadScheduleHost) {}
+  constructor(private readonly schedule: WaitStore) {}
 
   async get(id: string): Promise<FlowData | null> {
     const flow = await db.rows.get(FlowRow, `SELECT id, task_id AS "taskId", name, status, mr_url AS "mrUrl", mr_iid AS "mrIid", mr_branch AS "mrBranch", repo_url AS "repoUrl", gitlab_project_id AS "gitlabProjectId", execution_mode AS "executionMode", repo_id AS "repoId", template_id AS "templateId", template_graph AS "templateGraph", trigger_payload AS "triggerPayload", worktree_dir AS "worktreeDir", parent_flow_id AS "parentFlowId", kind, created_at AS "createdAt", updated_at AS "updatedAt" FROM flows WHERE id=$1`, id);
@@ -283,5 +287,108 @@ export class FlowReadModel {
       }
     }
     return flows;
+  }
+
+  // ── engine lookups (step 07 facade collapse) ──────────────────────────────
+  // The read-side lookups the orchestrator surfaces and the runtime host
+  // interfaces consume — moved here so the FlowEngine facade stays
+  // composition + delegation (target-architecture §12).
+
+  /** The flow's resolved template graph (null when the flow runs the builtin template). */
+  async graph(flowId: string): Promise<TemplateGraph | null> {
+    return templateStore.graphForFlow(flowId);
+  }
+
+  /** The flow context one run/trigger evaluates against (flow + task + repo). */
+  async ctx(flowId: string): Promise<FlowCtx> {
+    const flow = await rows.get(FlowRow, `SELECT id, task_id AS "taskId", name, status, mr_url AS "mrUrl", mr_iid AS "mrIid", mr_branch AS "mrBranch", repo_url AS "repoUrl", gitlab_project_id AS "gitlabProjectId", execution_mode AS "executionMode", repo_id AS "repoId", template_id AS "templateId", template_graph AS "templateGraph", trigger_payload AS "triggerPayload", worktree_dir AS "worktreeDir", parent_flow_id AS "parentFlowId", kind, created_at AS "createdAt", updated_at AS "updatedAt" FROM flows WHERE id=$1`, flowId);
+    if (!flow) throw new NotFoundError('flow', flowId);
+    const task = await rows.get(Task, `SELECT id, type, key, summary, description, status, issue_type AS "issueType", priority, repo_url AS "repoUrl", parent_key AS "parentKey", external_url AS "externalUrl", raw, synced_at AS "syncedAt", fields FROM tasks WHERE id=$1`, flow.taskId);
+    if (!task) throw new NotFoundError('task', flow.taskId);
+    const repo = flow.repoId ? (await db.repoById(flow.repoId) ?? null) : null;
+    return { flow, task, repo };
+  }
+
+  /** Instance keys of a def key in the flow (graph first, SQL fallback). */
+  async keysOfType(flowId: string, defKey: string): Promise<string[]> {
+    const g = await this.graph(flowId);
+    if (g) return g.nodes.filter(n => n.defKey === defKey).map(n => n.key);
+    const nodeRows = await rows.all(NodeRow, `SELECT id, flow_id AS "flowId", node_key AS "nodeKey", type, status, attempt_id AS "attemptId", agent_id AS "agentId", agent_ref AS "agentRef", session_id AS "sessionId", label, config, join_mode AS "joinMode", input, output, created_at AS "createdAt", updated_at AS "updatedAt" FROM nodes WHERE flow_id=$1`, flowId);
+    return nodeRows.filter(n => n.type === defKey).map(n => n.nodeKey);
+  }
+
+  /** Instance keys → first instance of a def key. */
+  async firstKeyOfType(flowId: string, defKey: string): Promise<string | null> {
+    return (await this.keysOfType(flowId, defKey))[0] ?? null;
+  }
+
+  /** The catalog def holding a chain role (plan/build/review/resolve), or undefined. */
+  private roleDef(role: ChainRole) {
+    return nodeRegistry.all().find(d => d.chainRole === role);
+  }
+
+  /** The instance key of the flow's node holding a chain role — the
+   *  metadata-routed lookup the SDLC chain module and panel entries consume. */
+  async keyOfRole(flowId: string, role: ChainRole): Promise<string | null> {
+    const def = this.roleDef(role);
+    return def ? this.firstKeyOfType(flowId, def.key) : null;
+  }
+
+  /** Artifact kinds a chain role's def publishes as first-class engine
+   *  resources (§T3/F3) — resource queries scope through this, not a literal kind. */
+  private resourceKinds(role: ChainRole): readonly string[] {
+    return this.roleDef(role)?.resourceArtifacts ?? [];
+  }
+
+  /**
+   * The latest artifact version a chain role's def published as a first-class
+   * resource (§T3/F3) — e.g. the plan document the plan editor and the
+   * approval flow consume. Also on the StepFlowManager's engine surface
+   * (publishedExecution reads the plan version through it).
+   */
+  async latestResourceArtifact<T>(flowId: string, role: ChainRole, columns = 'a.*'): Promise<T | undefined> {
+    const kinds = this.resourceKinds(role);
+    if (!kinds.length) return undefined;
+    return db.get<T>(
+      `SELECT ${columns} FROM artifacts a JOIN nodes n ON n.id=a.node_id
+       WHERE n.flow_id=$1 AND a.kind IN (${kinds.map((_, i) => `$${i + 2}`).join(',')})
+       ORDER BY a.version DESC LIMIT 1`,
+      flowId,
+      ...kinds
+    );
+  }
+
+  /** Role lookups: the CI gate node (waits on the wait-source def's event
+   *  source — the pipeline kind declares `waitForKind`, §T3/F1). */
+  async gateKey(flowId: string): Promise<string | null> {
+    const source = nodeRegistry.all().find(d => d.waitForKind);
+    if (!source?.waitForKind) return null;
+    return (await templateStore.waitNodeKey(flowId, source.waitForKind)) ?? (await this.firstKeyOfType(flowId, source.key));
+  }
+
+  /** def key of a node instance (for def resolution). */
+  async defKeyOf(flowId: string, nodeKey: string): Promise<string> {
+    const g = await this.graph(flowId);
+    const spec = g?.byKey.get(nodeKey);
+    if (spec) return spec.defKey;
+    const n = await rows.get(NodeRow, `SELECT id, flow_id AS "flowId", node_key AS "nodeKey", type, status, attempt_id AS "attemptId", agent_id AS "agentId", agent_ref AS "agentRef", session_id AS "sessionId", label, config, join_mode AS "joinMode", input, output, created_at AS "createdAt", updated_at AS "updatedAt" FROM nodes WHERE flow_id=$1 AND node_key=$2`, flowId, nodeKey);
+    return n?.type ?? nodeKey;
+  }
+
+  /** The node instance's own config snapshot (nodes.config JSONB; legacy
+   *  string-encoded rows still parse). */
+  async flowNodeConfig(flowId: string, nodeKey: string): Promise<Record<string, unknown>> {
+    const raw = (await db.get<{ config: unknown }>(`SELECT config FROM nodes WHERE flow_id=$1 AND node_key=$2`, flowId, nodeKey))?.config;
+    if (raw == null) return {};
+    if (typeof raw === 'string') return parseConfigSnapshot(raw);
+    if (typeof raw === 'object' && !Array.isArray(raw)) return raw as Record<string, unknown>;
+    return {};
+  }
+
+  /** Full config layer stack for a node instance: class ← app ← flow snapshot. */
+  async nodeConfigFor(flowId: string, nodeKey: string): Promise<Record<string, unknown>> {
+    const def = await nodeRegistry.resolve(await this.defKeyOf(flowId, nodeKey), nodeKey);
+    const appKey = await this.defKeyOf(flowId, nodeKey);
+    return mergeConfigLayers(def.defaultConfig(), await appLayerConfig(appKey), await this.flowNodeConfig(flowId, nodeKey));
   }
 }

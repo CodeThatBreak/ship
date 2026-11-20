@@ -3,7 +3,7 @@ import os from "node:os";
 import path from "node:path";
 import Database from "better-sqlite3";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { FLOW_CHILD_TABLES as ENGINE_FLOW_CHILD_TABLES } from "@/lib/engine/flowEngine";
+import { FLOW_CHILD_TABLES as ENGINE_FLOW_CHILD_TABLES } from "@/lib/engine/constants/flowChildTables";
 import { AppConfig } from "@/lib/config";
 import {
   deleteFlowCascade,

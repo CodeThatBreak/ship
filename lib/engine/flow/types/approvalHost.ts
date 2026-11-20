@@ -24,8 +24,11 @@ export interface ApprovalHost {
     source: TriggerSource;
     key: TransitionKey;
   }): Promise<TriggerResult>;
-  /** the SDLC builtin chain's build approval (MR creation lives there) */
-  sdlcApproveBuild(flowId: string, branchName?: string): Promise<TriggerResult>;
+  /** the SDLC builtin chain (step 07: the facade no longer re-exports the
+   *  chain's actions — callers drive the chain directly) */
+  chain: {
+    approveBuild(flowId: string, branchName?: string): Promise<TriggerResult>;
+  };
   emitLifecycle(flowId: string, nodeKey: string | null, message: string, data?: Record<string, unknown>): Promise<void>;
   bg(flowId: string, nodeKey: string | null, fn: () => Promise<void>): void;
   advanceFrom(flowId: string, fromKey: string): Promise<void>;

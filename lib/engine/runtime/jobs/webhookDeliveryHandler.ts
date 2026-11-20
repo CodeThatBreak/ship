@@ -46,7 +46,7 @@ export class WebhookDeliveryHandler {
     }
     if (payload.flowId && payload.nodeKey) {
       try {
-        await flowEngine.resumeNodeFromWebhook(payload.flowId, payload.nodeKey, payload.body);
+        await flowEngine.waitsStore.resumeNodeFromWebhook(payload.flowId, payload.nodeKey, payload.body);
       } catch (e: unknown) {
         // already resumed by the first dispatch of this job (crash re-claim)
         // — the delivery happened, the job completes

@@ -12,10 +12,9 @@ import { describe, expect, it } from "vitest";
 
 const { flowEngine } = await import("../../lib/engine/flowEngine");
 
-/** The private strip step, accessed through a typed narrow (no `any`). */
-const rebuild = (flowEngine as unknown as {
-  rebuildRetryInput(def: { key: string }, recorded: Record<string, unknown>): unknown;
-}).rebuildRetryInput.bind(flowEngine);
+/** The strip step — the retry service owns it (step 07 moved it off the facade). */
+const rebuild = (def: { key: string }, recorded: Record<string, unknown>): unknown =>
+  flowEngine.retries.rebuildRetryInput(def as unknown as Parameters<typeof flowEngine.retries.rebuildRetryInput>[0], recorded);
 
 describe("retryNode prompt rebuild (step 05)", () => {
   it("strips the recorded prompt keys for the built-in agent kinds", () => {

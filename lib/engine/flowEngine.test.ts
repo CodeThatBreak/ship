@@ -10,6 +10,7 @@
  * singleton (AGENTS.md §1 — never a real database).
  */
 import { beforeAll, describe, expect, it, vi } from "vitest";
+import type { StepRollup } from "./runtime/fanout/stepRollup";
 import { assignTestDatabase, resetTestDatabase } from "../../tests/helpers/testDatabase";
 
 // Must run before any `../db` import touches the connection — dynamic imports
@@ -18,9 +19,14 @@ assignTestDatabase();
 
 const { db } = await import("../db/app");
 const { FlowEngine } = await import("./flowEngine");
+const { stepFlows } = await import("./runtime/fanout/stepFlowManager");
 const { ERROR_CODE } = await import("../errors");
 const { NODE_KEYS } = await import("./constants/nodeKeys");
 const { templateStore } = await import("./templates/templateStore");
+
+/** the aggregate publish moved off FlowEngine into the fan-out runtime's
+ *  StepRollup (step 07) — tests drive it through the bound facade's rollup */
+const rollup = (stepFlows as unknown as { rollup: StepRollup }).rollup;
 
 const now = () => new Date().toISOString();
 
@@ -77,7 +83,7 @@ describe("engine chain-role routing (T3)", () => {
         `INSERT INTO nodes (id, flow_id, node_key, type, status, created_at, updated_at) VALUES ($1,$2,$3,$4,$5,$6,$7)`,
         `node_${flowId}_${nodeKey}`, flowId, nodeKey, type, "awaiting_approval", now(), now(),
       );
-      await expect(engine.approveNode(flowId, nodeKey))
+      await expect(engine.approvals.approveNode(flowId, nodeKey))
         .rejects.toThrow(`${nodeKey} approval belongs to its built-in flow actions`);
     }
   });
@@ -146,7 +152,7 @@ describe("engine chain-role routing (T3)", () => {
     );
     // step 06 (Invariant 11): the duplicate loses the atomic claim and emits
     // the typed skip event — no throw, and the node stays running
-    const result = await engine.sendChat(flowId, planKey, "second message");
+    const result = await engine.chats.sendChat(flowId, planKey, "second message");
     expect(result).toEqual({ started: false, skipped: true, reason: "skipped_duplicate_trigger" });
     const skips = await db.all(
       `SELECT type FROM events WHERE flow_id=$1 AND type='skipped_duplicate_trigger'`,
@@ -179,7 +185,7 @@ describe("engine chain-role routing (T3)", () => {
        VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
       `art_${flowId}`, `node_${flowId}_plan`, flowId, "plan", 1, "{}", "draft", now(),
     );
-    const result = await engine.approvePlan(flowId);
+    const result = await engine.approvals.approvePlan(flowId);
     expect(result).toEqual({ started: false, skipped: true, reason: "skipped_duplicate_trigger" });
     const skips = await db.all(
       `SELECT type FROM events WHERE flow_id=$1 AND type='skipped_duplicate_trigger'`,
@@ -203,7 +209,7 @@ describe("engine chain-role routing (T3)", () => {
       now(),
     );
     vi.spyOn(engine, "bg").mockImplementation(() => {});
-    await engine.triggerResolve(flowId);
+    await engine.chain.triggerResolve(flowId);
     expect(
       (
         await db.get<{ status: string }>(
@@ -232,12 +238,12 @@ describe("engine chain-role routing (T3)", () => {
     const aggregate = {
       steps: [{ id: "s1", title: "Step", status: "done" as const, output: {} }],
     };
-    await engine.finishFanout(flowId, buildKey, aggregate);
+    await rollup.finishFanout(flowId, buildKey, aggregate);
     const afterFirst = await db.get<{ status: string; output: string | null }>(
       `SELECT status, output FROM nodes WHERE flow_id=$1 AND node_key=$2`, flowId, buildKey);
     expect(afterFirst?.status).toBe("awaiting_approval");
 
-    await engine.finishFanout(flowId, buildKey, {
+    await rollup.finishFanout(flowId, buildKey, {
       steps: [{ id: "s2", title: "Retry", status: "failed" as const, output: {} }],
     });
     const afterSecond = await db.get<{ status: string; output: string | null }>(
@@ -254,7 +260,7 @@ describe("ingestComments", () => {
 
   it("stores mr_iid on new comment rows", async () => {
     const flowId = await seedFlow(50);
-    const n = await engine.ingestComments(flowId, [{
+    const n = await engine.ingest.ingestComments(flowId, [{
       id: "host-c1",
       threadId: "t1",
       author: "reviewer",

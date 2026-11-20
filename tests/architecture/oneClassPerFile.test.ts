@@ -43,7 +43,6 @@ const FROZEN_MULTI_CLASS: readonly string[] = [
   "lib/engine/nodes/shared/split.ts",
   "lib/engine/ports/agentErrors.ts",
   "lib/engine/ports/gitHostErrors.ts",
-  "lib/engine/runtime/split/splitManager.ts",
 ];
 
 const FROZEN_MISNAMED: readonly string[] = [

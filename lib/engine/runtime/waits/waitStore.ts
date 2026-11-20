@@ -22,7 +22,7 @@ import type { WaitStoreHost } from "../flowEngineHost";
  *
  * Claim-then-fire ordering (the original resume bug): firing a wait must NOT
  * claim the node here — the claim and the stage run live together in
- * `EdgeActivator.startNodeStage` (its `resumeWait` claim), so the pair can
+ * `StageRunner.startNodeStage` (its `resumeWait` claim), so the pair can
  * never split across modules again. This class only guards (`waiting`?),
  * announces, and hands the stage over.
  *

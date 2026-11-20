@@ -236,8 +236,9 @@ lib/                    strict OOP: every module is a class with one responsibil
                         by pipeline-failure webhooks/polls.
       review/           ReviewNode — MR diff review, inline comment posting.
       resolve/          ResolveNode — open-comment resolution + discussion closing.
-      sdlc/             chain.ts — the builtin SDLC chain module (gate→review→resolve
-                        re-gate loop) extracted from flow.ts as an advance interceptor.
+      chains/           sdlcChain.ts — the builtin SDLC chain module (gate→review→resolve
+                        re-gate loop); its post-finish sequencing is declared as effect
+                        registrations in sdlcEffects.ts (engine-overhaul step 07).
       registry.ts       NodeRegistry — the single source of truth: node map, graph order, edges, labels.
     prompts.ts          PromptLibrary — prompt templates (customizable via settings)
     steps.ts            PlanStepStore — structured plan checklist: plan-meta sync, edits, build-progress

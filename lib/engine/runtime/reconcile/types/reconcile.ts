@@ -1,8 +1,6 @@
 import "server-only";
 
-import type { NodeRow } from "../../../../db/rows";
-import type { FlowCtx } from "../../../nodes/shared/nodeSharedExports";
-import type { AgentRunResult } from "../../../ports/agentPort";
+import type { FlowCtx, NodeDefinition } from "../../../nodes/shared/nodeSharedExports";
 
 /**
  * A node the reconciler walker selected from durable state — the raw
@@ -19,14 +17,12 @@ export type NodeStateView = {
   waitDue: boolean;
 };
 
-/** The engine surface the recovery driver needs (FlowEngine satisfies it). */
+/**
+ * The engine surface the recovery driver needs (FlowEngine satisfies it).
+ * Step 07: the completion/orphan finalizers moved INTO the driver (they are
+ * the recover() ABI's seam) — the host carries the lookups the ABI needs.
+ */
 export type RecoveryHost = {
   ctx(flowId: string): Promise<FlowCtx>;
-  completeNodeFromResult(
-    c: FlowCtx,
-    node: NodeRow,
-    result: AgentRunResult,
-    note: string,
-  ): Promise<boolean>;
-  failOrphanedNode(flowId: string, nodeId: string, nodeKey: string, reason: string): Promise<void>;
+  defOf(flowId: string, nodeKey: string): Promise<NodeDefinition>;
 };

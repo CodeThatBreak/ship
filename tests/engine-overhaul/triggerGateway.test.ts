@@ -47,7 +47,7 @@ describe("TriggerGateway — one claim door, one skip convention", () => {
       // the gate is mid-run: an in-flight pipeline wait owns it
       await harness.claimNode(flowId, "pipeline", "manualStage");
 
-      const result = await flowEngine.triggerPipelineGate(flowId, undefined, undefined, source);
+      const result = await flowEngine.chain.triggerPipelineGate(flowId, undefined, undefined, source);
       expect(result).toEqual({ started: false, skipped: true, reason: SKIP_CODE });
 
       const skips = await skipEventsOf(flowId);
@@ -64,7 +64,7 @@ describe("TriggerGateway — one claim door, one skip convention", () => {
     const flowId = await harness.seedSdlcFlow();
     await db.run(`UPDATE flows SET mr_iid=$1, mr_branch=$2 WHERE id=$3`, 1, "devflow/ovh-gw2", flowId);
 
-    const result = await flowEngine.triggerPipelineGate(flowId, undefined, undefined, TRIGGER_SOURCE.UI);
+    const result = await flowEngine.chain.triggerPipelineGate(flowId, undefined, undefined, TRIGGER_SOURCE.UI);
     expect(result.started).toBe(true);
     if (!result.started) throw new Error("unreachable");
     expect(result.attemptId).toMatch(/^att_/);
@@ -78,9 +78,9 @@ describe("TriggerGateway — one claim door, one skip convention", () => {
     await harness.claimNode(flowId, "pipeline", "manualStage");
 
     // review + resolve lose while the gate runs (the old chainBusy read)
-    const review = await flowEngine.triggerReview(flowId, undefined, TRIGGER_SOURCE.POLLER);
+    const review = await flowEngine.chain.triggerReview(flowId, undefined, TRIGGER_SOURCE.POLLER);
     expect(review).toEqual({ started: false, skipped: true, reason: SKIP_CODE });
-    const resolve = await flowEngine.triggerResolve(flowId, undefined, TRIGGER_SOURCE.WEBHOOK);
+    const resolve = await flowEngine.chain.triggerResolve(flowId, undefined, TRIGGER_SOURCE.WEBHOOK);
     expect(resolve).toEqual({ started: false, skipped: true, reason: SKIP_CODE });
     expect(await harness.nodeStatus(flowId, "review")).not.toBe("running");
     expect(await harness.nodeStatus(flowId, "resolve")).not.toBe("running");
@@ -88,7 +88,7 @@ describe("TriggerGateway — one claim door, one skip convention", () => {
     // and a terminal (done) sibling never blocked a trigger — the gate's own
     // claim decides, the chain guard only looks at `running`
     await flowEngine.cancelNode(flowId, "pipeline");
-    const gateAgain = await flowEngine.triggerPipelineGate(flowId, undefined, undefined, TRIGGER_SOURCE.UI);
+    const gateAgain = await flowEngine.chain.triggerPipelineGate(flowId, undefined, undefined, TRIGGER_SOURCE.UI);
     expect(gateAgain.started).toBe(true);
   });
 
