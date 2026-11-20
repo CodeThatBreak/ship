@@ -11,7 +11,8 @@
  * guard refuses any other database (AGENTS.md §1) — see scripts/lib/seed-db.mjs.
  *
  * What you get (open http://localhost:3000 → "DEMO-143 flow"):
- *   - a demo task whose approved plan published `execution: steps` in plan-meta
+ *   - a demo task whose approved plan published `execution: steps` in the
+ *     plan artifact meta
  *   - the build node mid fan-out: one REAL child flow row per plan step
  *     (kind='step', parent_flow_id set, checklist linked via sub_flow_id) at
  *     MIXED states — you never need agent runs to sample the panel:
@@ -27,6 +28,7 @@
  * agent runs, branches or diffs behind them. Try the real feature (fanout.mode
  * = steps on a build node) for an end-to-end run.
  */
+import { FANOUT_PLAN } from "./demoPlanFixtures.mjs";
 import {
   deleteFlowCascadePg,
   minsAgo,
@@ -60,37 +62,11 @@ in muscle memory.
 - Creating, applying, sharing and pinning a view round-trips through the API.
 - URL query params reflect the applied view so refresh keeps it.`;
 
-const PLAN = `# Saved dashboard views — implementation plan
-
-## Approach
-Backdrop the saved views as first-class rows with an ownership model, wire the
-dashboard filter bar to read/write them, and layer sharing + pinning on top
-with dedup protection for view-level params.
-
-## Files to create/change
-- \`db/migrations/031_saved_views.sql\` — views table
-- \`lib/views/store.ts\` — CRUD + visibility transitions
-- \`lib/views/filters.ts\` — filter-set encode/decode (URL ⇄ row)
-- \`app/api/views/route.ts\` — list/create
-- \`app/api/views/[id]/route.ts\` — update/share/pin/delete
-- \`app/dashboard/ViewBar.tsx\` — view picker + save control
-- tests for store + filters
-
-\`\`\`json plan-meta
-{"execution":"steps","executionSource":"knob","steps":[
- {"id":"s1","title":"Saved views table + migration","detail":"Migration 031: id, owner_id, name, filters JSON, shared, pinned, created/updated.","files":["db/migrations/031_saved_views.sql"]},
- {"id":"s2","title":"View store CRUD + visibility","detail":"create/list/update/delete, share toggle, pin single-default invariant enforced in lib/views/store.ts.","files":["lib/views/store.ts"]},
- {"id":"s3","title":"Filter encode/decode","detail":"lib/views/filters.ts: canonical ⇄ URL query string ⇄ row payload round-trips; unknown params degrade gracefully.","files":["lib/views/filters.ts"]},
- {"id":"s4","title":"Views API routes","detail":"app/api/views + [id]: validation, ownership checks, sharing ACL, 404 vs 403 semantics.","files":["app/api/views/route.ts","app/api/views/[id]/route.ts"]},
- {"id":"s5","title":"Dashboard ViewBar UI","detail":"app/dashboard/ViewBar.tsx: picker, apply, save (name dialog), pin control; wired to the filter bar state.","files":["app/dashboard/ViewBar.tsx"]},
- {"id":"s6","title":"Tests: store, filters, routes","detail":"Unit coverage for CRUD + encode/decode round-trips, route ACL tests.","files":["__tests__/views/"]}
-],"branches":[]}
-\`\`\``;
-
-const meta = (() => {
-  try { return JSON.parse(PLAN.match(/```json plan-meta\s*\n([\s\S]*?)```/)[1]); }
-  catch (e) { console.error("plan-meta parse failed", e); process.exit(1); }
-})();
+// plan fixture: markdown + authored meta live in scripts/demoPlanFixtures.mjs —
+// the shape planStore.persistPlan writes into artifacts.meta (execution "steps"
+// published by the knob); no markdown plan-meta fence, no regex parse
+const PLAN = FANOUT_PLAN.markdown;
+const meta = FANOUT_PLAN.meta;
 
 // ── step runs: cost/duration pairs per state (sample charging) ──────────────
 const RUN = (mStart, durSec, cents, outTok) => ({
@@ -188,7 +164,7 @@ await prisma.artifact.create({
     kind: "plan",
     version: 1,
     content: PLAN,
-    meta: { execution: "steps", executionSource: "knob", steps: meta.steps, branches: [] },
+    meta: FANOUT_PLAN.meta,
     status: "approved",
     feedback: null,
     createdAt: minsAgo(42),
