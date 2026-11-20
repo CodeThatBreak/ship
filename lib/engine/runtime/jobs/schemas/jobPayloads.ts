@@ -43,3 +43,32 @@ export const scheduleFirePayloadSchema = z.object({
 });
 
 export type ScheduleFirePayload = z.infer<typeof scheduleFirePayloadSchema>;
+
+/** A cancel intent: the node the cancel finalizes (step 06 task 4). */
+export const cancelPayloadSchema = z.object({
+  flowId: z.string().min(1),
+  nodeKey: z.string().min(1),
+});
+
+export type CancelPayload = z.infer<typeof cancelPayloadSchema>;
+
+/**
+ * An MR creation: one job per branch target (step 06 task 5). `branchName`
+ * absent = the flow-level MR; `emitNodeKey` is the build node (the commit-fix
+ * stage the fix attempts claim, and the node a budget-exhausted handback
+ * reverts). `gateKey`/`reviewKey` ride along so the re-claim path resets the
+ * same nodes the inline path would.
+ */
+export const mrCreatePayloadSchema = z.object({
+  flowId: z.string().min(1),
+  branchName: z.string().min(1).optional(),
+  emitNodeKey: z.string().min(1).optional(),
+  gateKey: z.string().min(1).nullable().optional(),
+  reviewKey: z.string().min(1).nullable().optional(),
+  /** multi-branch: the chain resets gate+review once after ALL targets —
+   *  single-branch: `create` resets them itself */
+  skipGateReviewReset: z.boolean().optional(),
+  maxCommitFixAttempts: z.number().int().positive().optional(),
+});
+
+export type MrCreatePayload = z.infer<typeof mrCreatePayloadSchema>;

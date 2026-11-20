@@ -130,6 +130,19 @@ export class JobQueue {
     )) ?? null;
   }
 
+  /**
+   * Free a job's dedup key: a COMPLETED intent frees its key (inside the
+   * completion transaction when one exists) so a later intent for the same
+   * target can enqueue — cancel-after-retry, re-approve after a failed MR
+   * creation. The side effect's dedup is the adopt/resume path's job, not
+   * the key's. A crash before the free is healed by the owning handler's
+   * re-claim (no-op + free).
+   */
+  async clearDedupKey(jobId: string, tx?: QueryExecutor): Promise<void> {
+    const client: QueryExecutor = tx ?? this.database.prisma;
+    await client.$executeRawUnsafe(`UPDATE jobs SET dedup_key=NULL WHERE id=$1`, jobId);
+  }
+
   /** Mark a dispatched job done. Pass `tx` to join the completion into a
    *  caller transaction (the schedule fire advances its template in the same
    *  tx — a crash can no longer drop a fire). */
@@ -203,7 +216,7 @@ export class JobQueue {
     const exhausted = await this.database.all<{
       id: string; kind: JobKind; flowId: string | null;
     }>(
-      `UPDATE jobs SET status=$${kinds.length + 1}, lease_until=NULL, updated_at=now()
+      `UPDATE jobs SET status=$${kinds.length + 1}, lease_until=NULL, dedup_key=NULL, updated_at=now()
        WHERE status='${JOB_STATUS.CLAIMED}' AND lease_until < now()
          AND attempts >= $${kinds.length + 2} AND kind IN (${marks})
        RETURNING id, kind, flow_id AS "flowId"`,
@@ -222,8 +235,11 @@ export class JobQueue {
     flowId: string | null,
     error: string,
   ): Promise<void> {
+    // terminal: free the dedup key too — a re-triggered intent for the same
+    // target must be able to enqueue a fresh job (the failed row stays for
+    // the audit trail)
     await this.database.run(
-      `UPDATE jobs SET status=$1, lease_until=NULL, updated_at=now() WHERE id=$2`,
+      `UPDATE jobs SET status=$1, lease_until=NULL, dedup_key=NULL, updated_at=now() WHERE id=$2`,
       JOB_STATUS.FAILED,
       jobId,
     );

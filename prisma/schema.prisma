@@ -99,6 +99,8 @@ enum JobKind {
   schedule_fire
   wait_fire
   merge_back
+  cancel
+  mr_create
 
   @@map("job_kind")
 }

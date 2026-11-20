@@ -1,5 +1,6 @@
 import "server-only";
 
+import type { Prisma } from "@prisma/client";
 import { db } from "../../../../db/app";
 import { localGit } from "../../../../git/local";
 import { gitHostRegistry, gitRemoteContextFor, type ChangeRequest } from "../../../ports/gitHost";
@@ -41,6 +42,14 @@ export class MergeRequestService {
       gateKey?: string | null;
       reviewKey?: string | null;
       skipGateReviewReset?: boolean;
+      /**
+       * Completion hook (step 06 task 5, Invariant 7): runs in the SAME
+       * transaction as the MR rows' persist (branch/flow update), so a crash
+       * cannot leave a persisted MR with a still-claimed journal job. The
+       * gate reset + lifecycle event stay OUTSIDE (transitions announce
+       * outside transactions; no host I/O ever runs inside).
+       */
+      onPersist?: (tx: Prisma.TransactionClient) => Promise<void>;
     } = {},
   ): Promise<ChangeRequest> {
     const flow = ctx.flow;
@@ -92,24 +101,31 @@ export class MergeRequestService {
     }
     const project = await host.getProject(repoUrl);
 
-    if (branchName) {
-      // Multi-branch: update the branch row, not the flow row
-      await branchStore.upsert(flow.id, branchName, {
-        mrUrl: cr.webUrl,
-        mrIid: cr.number,
-        status: "approved",
-      });
-      // Ensure the host project id is set on the flow (needed by webhook/poller)
-      await db.prisma.flow.updateMany({
-        where: { id: flow.id, gitlabProjectId: null },
-        data: { gitlabProjectId: project.id, updatedAt: new Date() },
-      });
-    } else {
-      await db.prisma.flow.update({
-        where: { id: flow.id },
-        data: { mrUrl: cr.webUrl, mrIid: cr.number, gitlabProjectId: project.id, updatedAt: new Date() },
-      });
-    }
+    // The DB-write tail — the MR rows and the flows row' gitlabProjectId —
+    // and the caller's completion hook land in ONE transaction (step 06 task
+    // 5): a crash cannot split the MR's persistence from the journal job's
+    // completion. The host I/O above stays outside.
+    await db.transaction(async (tx) => {
+      if (branchName) {
+        // Multi-branch: update the branch row, not the flow row
+        await branchStore.upsert(flow.id, branchName, {
+          mrUrl: cr.webUrl,
+          mrIid: cr.number,
+          status: "approved",
+        }, tx);
+        // Ensure the host project id is set on the flow (needed by webhook/poller)
+        await tx.flow.updateMany({
+          where: { id: flow.id, gitlabProjectId: null },
+          data: { gitlabProjectId: project.id, updatedAt: new Date() },
+        });
+      } else {
+        await tx.flow.update({
+          where: { id: flow.id },
+          data: { mrUrl: cr.webUrl, mrIid: cr.number, gitlabProjectId: project.id, updatedAt: new Date() },
+        });
+      }
+      await opts.onPersist?.(tx);
+    });
     if (!opts.skipGateReviewReset) {
       await this.resetGateReview(flow.id, opts.gateKey ?? null, opts.reviewKey ?? null);
     }
@@ -136,6 +152,7 @@ export class MergeRequestService {
       gateKey?: string | null;
       reviewKey?: string | null;
       skipGateReviewReset?: boolean;
+      onPersist?: (tx: Prisma.TransactionClient) => Promise<void>;
     },
   ): Promise<ChangeRequest> {
     for (let attempt = 0; ; attempt++) {
@@ -145,6 +162,7 @@ export class MergeRequestService {
           gateKey: opts.gateKey,
           reviewKey: opts.reviewKey,
           skipGateReviewReset: opts.skipGateReviewReset,
+          onPersist: opts.onPersist,
         });
       } catch (e: unknown) {
         if (!isCommitError(e) || attempt >= opts.maxAttempts) throw e;

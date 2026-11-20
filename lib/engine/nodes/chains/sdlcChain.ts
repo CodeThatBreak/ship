@@ -6,7 +6,12 @@ import { NotFoundError } from "../../../errors";
 import { TRIGGER_SOURCE } from "../../runtime/triggers/constants/triggerSources";
 import { configNumber } from "../../templates/nodeConfig";
 import { branchStore } from "../kinds/build/buildExports";
-import { mergeRequests, toMrCreationFailure, type CommitError } from "../kinds/mergeRequest/mergeRequestExports";
+import { mergeRequests, type CommitError } from "../kinds/mergeRequest/mergeRequestExports";
+import { JobQueue } from "../../runtime/jobs/jobQueue";
+import { MrCreateHandler } from "../../runtime/jobs/mrCreateHandler";
+import { JOB_KIND } from "../../runtime/jobs/constants/jobVocabulary";
+import { mrCreateDedupKey } from "../../runtime/jobs/utils/jobDedupKeys";
+import type { ChangeRequest } from "../../ports/gitHost";
 import type { EngineNodeStatus } from "../../constants/nodeStatus";
 import type { TransitionKey } from "../../runtime/transitions/types/transitions";
 import type { TriggerResult, TriggerSource } from "../../runtime/triggers/types/triggerGateway";
@@ -96,60 +101,98 @@ export class SdlcChain {
     });
     if (!approved.started) return approved;
     this.host.bg(flowId, null, async () => {
-      try {
-        const maxAttempts = configNumber(
-          await this.host.nodeConfigFor(flowId, buildKey), "max_commit_fix_attempts", 2);
-        // multi-branch: one CR per awaiting branch; single-branch: the flow-level MR
-        const branchTargets = branchName
-          ? [branchName]
-          : (await branchStore.list(flowId))
+      const maxAttempts = configNumber(
+        await this.host.nodeConfigFor(flowId, buildKey), "max_commit_fix_attempts", 2);
+      // multi-branch: one CR per awaiting branch; single-branch: the flow-level MR
+      const branchTargets = branchName
+        ? [branchName]
+        : (await branchStore.list(flowId))
               .filter((b) => b.status === "awaiting_approval" || b.status === "approved")
               .map((b) => b.name);
-        const targets = branchTargets.length > 1
+      const targets = branchTargets.length > 1
           ? branchTargets.map((b) => b as string | null)
           : [branchTargets[0] ?? null];
-        const multiBranch = targets.length > 1;
-        for (const b of targets) {
-          await mergeRequests.createWithFixes(await this.host.ctx(flowId), b ?? undefined, {
-            maxAttempts,
-            emitNodeKey: buildKey,
-            gateKey: gate,
-            reviewKey,
-            skipGateReviewReset: multiBranch,
-            runFix: (attempt, error) => this.runBuildCommitFix(flowId, buildKey, b, attempt, maxAttempts, error),
-          });
-        }
-        if (multiBranch) {
-          await mergeRequests.resetGateReview(flowId, gate, reviewKey);
-        }
-        // CR created — the build → pipeline edge starts the gate (and the
-        // green gate flows on to review → debounced resolve via edges)
-        await this.host.advanceFrom(flowId, buildKey);
-      } catch (e: unknown) {
-        // CR creation failed (infra, or commit-fix attempts exhausted): hand
-        // the step back to the developer — the "Approve & create MR" button
-        // reappears and clicking it retries creation with the current state.
-        // (Failures inside the edge advance are contained by the stage runner
-        // — those nodes carry their own failed status + Retry.)
-        const msg = e instanceof Error ? e.message : String(e);
-        const mrError = toMrCreationFailure(e);
-        await this.host.emitMrFailed(flowId, buildKey,
-                    `MR creation failed: ${mrError.message} — fix the issue, then click "Approve & create MR" again to retry`,
-                    { branchName, nodeKey: buildKey, detail: msg !== mrError.message ? msg : undefined });
-        // declared hand-back: approved → awaiting_approval. A node the fix
-        // loop left in another state (e.g. failed) keeps that state — the
-        // failure stands visible for retry.
-        await this.host.setNodeStatus(flowId, buildKey, "mrHandback");
+      const multiBranch = targets.length > 1;
+      // step 06 task 5 (Invariant 7): the MR-creation sequence is journaled
+      // write-ahead — one `mr_create` job per branch target, claimed and
+      // dispatched inline through the same handler the worker sweep's
+      // re-claim runs. A crash between the approval and the persisted MR
+      // leaves the job for the sweep (the adopt path picks the MR up).
+      const jobs = new JobQueue();
+      const outcomes: (ChangeRequest | null)[] = [];
+      for (const b of targets) {
+        outcomes.push(await this.dispatchJournaledMrCreate(
+          flowId, buildKey, gate, reviewKey, b, multiBranch, maxAttempts, jobs,
+        ));
       }
+      // any deferred/failed target blocks the advance — a recorded failure
+      // handed the build back (the button reappears), a live intent still
+      // owns its creation; the retrying job's terminal fail reverts via the
+      // reconciler's approved-no-MR branch
+      if (outcomes.some((o) => o == null)) return;
+      if (multiBranch) {
+        await mergeRequests.resetGateReview(flowId, gate, reviewKey);
+      }
+      // CR created — the build → pipeline edge starts the gate (and the
+      // green gate flows on to review → debounced resolve via edges)
+      await this.host.advanceFrom(flowId, buildKey);
     });
     return approved;
   }
 
   /**
-   * One commit-fix attempt: run the build node's agent with the push-rejection
-   * feedback so it fixes the code and re-pushes to the same branch.
+   * One branch target's journaled MR creation (step 06 task 5): enqueue the
+   * `mr_create` job write-ahead, claim it, dispatch the MrCreateHandler
+   * inline with this chain's commit-fix run wired in. Returns null when the
+   * target's creation is deferred to a live intent or ended in a recorded
+   * failure — the caller must not advance past the build.
    */
-  private async runBuildCommitFix(
+  private async dispatchJournaledMrCreate(
+    flowId: string,
+    buildKey: string,
+    gate: string,
+    reviewKey: string | null,
+    branch: string | null,
+    skipGateReviewReset: boolean,
+    maxAttempts: number,
+    jobs: JobQueue,
+  ): Promise<ChangeRequest | null> {
+    const { id: jobId, deduplicated } = await jobs.enqueue({
+      kind: JOB_KIND.MR_CREATE,
+      flowId,
+      dedupKey: mrCreateDedupKey(flowId, branch ?? undefined),
+      payload: {
+        flowId,
+        branchName: branch ?? undefined,
+        emitNodeKey: buildKey,
+        gateKey: gate,
+        reviewKey,
+        skipGateReviewReset,
+        maxCommitFixAttempts: maxAttempts,
+      },
+    });
+    if (deduplicated) return null; // a live intent owns this branch's MR
+    const job = await jobs.claimById(jobId);
+    if (!job) return null; // the worker sweep owns the dispatch
+    try {
+      return await new MrCreateHandler(jobs, (t, attempt, error) =>
+        this.runBuildCommitFix(t.flowId, t.buildKey, t.branch, attempt, t.maxAttempts, error),
+      ).handle(job);
+    } catch (e: unknown) {
+      // infra failure — requeue with backoff; the sweep's re-claim (or the
+      // developer's re-approve once the budget terminal-fails) owns the retry
+      await jobs.fail(jobId, e instanceof Error ? e.message : String(e));
+      return null;
+    }
+  }
+
+  /**
+   * One commit-fix attempt: run the build node's agent with the push-rejection
+   * feedback so it fixes the code and re-pushes to the same branch. Public
+   * since step 06 task 5 — the mr_create journal's re-claim path dispatches
+   * it through `flowEngine.sdlcCommitFix` (the poller's handler wiring).
+   */
+  async runBuildCommitFix(
     flowId: string,
     buildKey: string,
     branch: string | null,

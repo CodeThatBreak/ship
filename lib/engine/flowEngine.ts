@@ -5,7 +5,7 @@ import type { QueryExecutor } from '../db/database';
 import type { FlowData } from '@/types/flow';
 import { db } from '../db/app';
 import { FlowRow, NodeRow, Task, rows } from '../db/rows';
-import { agentPortRegistry, type AgentRunResult } from './ports/agentPort';
+import { type AgentRunResult } from './ports/agentPort';
 import { type HostComment, type HostWebhookEvent } from './ports/gitHost';
 import type { RecoveryResult } from './nodes/shared/types/recovery';
 import {
@@ -50,6 +50,11 @@ import { FlowApprovalService } from './flow/flowApprovalService';
 import { FlowChatService } from './flow/flowChatService';
 import { FlowRetryService } from './flow/flowRetryService';
 import { FlowPlanStepService } from './flow/flowPlanStepService';
+import { JobQueue } from './runtime/jobs/jobQueue';
+import { CancelHandler } from './runtime/jobs/cancelHandler';
+import { JOB_KIND } from './runtime/jobs/constants/jobVocabulary';
+import { cancelDedupKey } from './runtime/jobs/utils/jobDedupKeys';
+import type { CommitError } from './nodes/kinds/mergeRequest/mergeRequestExports';
 
 export type { CreateFlowOptions };
 
@@ -715,6 +720,11 @@ export class FlowEngine {
     await this.parts.events.mrFailed(flowId, nodeKey, message, data);
   }
 
+  /** step 06 task 5 — the mr_create re-claim path's commit-fix run: the SDLC
+   *  chain's loop, public for the poller's handler wiring. */
+  sdlcCommitFix = (flowId: string, buildKey: string, branch: string | null, attempt: number, maxAttempts: number, error: CommitError): Promise<void> =>
+    this.chain.runBuildCommitFix(flowId, buildKey, branch, attempt, maxAttempts, error);
+
   /** Approve an `awaiting_approval` node generically (approval-triggered
    *  declarative nodes; e.g. an agent output held for review). */
   async approveNode(flowId: string, nodeKey: string): Promise<TriggerResult> {
@@ -949,36 +959,23 @@ export class FlowEngine {
     return this.retries.rebuildRetryInput(def, recorded);
   }
 
-  /**
-   * Stop a node that is stuck in `running`. Kills the in-process run (local mode)
-   * and marks the node failed so it can be retried.
-   */
+  /** Stop an in-flight node: journal the cancel intent write-ahead (Invariant 7), then run
+   *  the same CancelHandler the worker sweep's re-claim would (step 06 task 4). */
   async cancelNode(flowId: string, nodeKey: string): Promise<void> {
-    const node = await rows.get(NodeRow, `SELECT id, flow_id AS "flowId", node_key AS "nodeKey", type, status, attempt_id AS "attemptId", agent_id AS "agentId", agent_ref AS "agentRef", session_id AS "sessionId", label, config, join_mode AS "joinMode", input, output, created_at AS "createdAt", updated_at AS "updatedAt" FROM nodes WHERE flow_id=$1 AND node_key=$2`, flowId, nodeKey);
+    const node = await db.get<{ status: string }>(`SELECT status FROM nodes WHERE flow_id=$1 AND node_key=$2`, flowId, nodeKey);
     if (!node) throw new NotFoundError('node', nodeKey);
     if (node.status !== 'running' && node.status !== 'waiting' && node.status !== 'awaiting_approval') {
       throw new ConflictError(`cannot cancel ${nodeKey} while it is ${node.status}`);
     }
-    const mode = (await db.get<{ executionMode: string | null }>(`SELECT execution_mode AS "executionMode" FROM flows WHERE id=$1`, flowId))?.executionMode === 'local' ? 'local' : 'cloud';
-    const active = await db.all<{ runRef: string }>(
-      `SELECT run_ref AS "runRef" FROM runs WHERE node_id=$1 AND status='running'`,
-      node.id
-    );
-    for (const r of active) {
-      await (await agentPortRegistry.forMode(mode)).cancel({ runId: r.runRef });
-    }
-    // the cancel transition clears the durable wait + node lease (the
-    // authority's non-claim UPDATE clears wait_until/lease_until with the
-    // status); the interrupted run rows drop their leases here
-    await db.run(`UPDATE runs SET status='error', lease_until=NULL, updated_at=$1 WHERE node_id=$2 AND status='running'`, db.now(), node.id);
-    await this.parts.transitions.applyOrThrow(flowId, nodeKey, 'cancel');
-    await this.touch(flowId);
-    if (await this.isStepChild(flowId)) {
-      // child-terminal notification hook (plan fan-out): a stopped step child
-      // surfaces failed in its parent's rollup
-      await stepFlows.onChildFinished(flowId);
-      await splitManager.onChildFinished(flowId); // split runtime (§3) — no-op without split linkage
-    }
+    // write the intent first; whoever wins the claim finalizes — a crash
+    // between claim and finalize leaves the job for the sweep's re-claim
+    const jobs = new JobQueue();
+    const { id: jobId, deduplicated } = await jobs.enqueue({ kind: JOB_KIND.CANCEL, flowId, dedupKey: cancelDedupKey(flowId, nodeKey), payload: { flowId, nodeKey } });
+    if (deduplicated) return; // a live intent owns the finalize
+    const job = await jobs.claimById(jobId);
+    if (!job) return; // the sweep (or a concurrent cancel) owns the finalize
+    await new CancelHandler(jobs).handle(job); // a throw surfaces here; the claim's lease expiry re-claims the job
+    await jobs.complete(jobId);
   }
 
   // ── chat (FlowChatService — lib/engine/flow/) ─────────────────────────────

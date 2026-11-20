@@ -5,7 +5,6 @@ import { JobQueue } from "@/lib/engine/runtime/jobs/jobQueue";
 import { WebhookDeliveryHandler } from "@/lib/engine/runtime/jobs/webhookDeliveryHandler";
 import { JOB_KIND } from "@/lib/engine/runtime/jobs/constants/jobVocabulary";
 import { gitlabDeliveryDedupKey } from "@/lib/engine/runtime/jobs/utils/jobDedupKeys";
-import { toErrorResponse } from "@/lib/errors";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -62,8 +61,15 @@ export const POST = async (req: Request) => {
     await jobs.complete(jobId);
     return NextResponse.json({ ok: true });
   } catch (e: unknown) {
-    await jobs.fail(jobId, e instanceof Error ? e.message : String(e));
-    return toErrorResponse(e);
+    const msg = e instanceof Error ? e.message : String(e);
+    const delivery = await jobs.fail(jobId, msg);
+    // Poison delivery → ALWAYS answer 200 with the queue's ownership verdict.
+    // GitLab retries 5xx deliveries forever, which would double-drive our own
+    // requeue (attempts/backoff live in the job queue). The trade BY DESIGN:
+    // the failure is hidden from the sender's retry UI but loud in OUR event
+    // feed — `jobs.fail` terminal-fails at JOB_LIMITS.MAX_ATTEMPTS and emits a
+    // typed `error` event on the flow (kind + error in the message).
+    return NextResponse.json({ ok: true, delivery });
   }
 };
 

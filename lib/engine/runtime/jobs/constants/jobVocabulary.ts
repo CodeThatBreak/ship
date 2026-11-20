@@ -12,12 +12,20 @@ import "server-only";
  *  - `wait_fire` / `merge_back` — declared vocabulary; the durable wait sweep
  *    (step 03) claims and fires waits directly through the WaitStore instead,
  *    and merge-backs become jobs with the step-07 coordinator
+ *  - `cancel` — the cancel-intent journal (step 06 task 4): written ahead of
+ *    the remote cancel + finalize; the worker sweep's re-claim completes an
+ *    interrupted cancel exactly as the inline path would
+ *  - `mr_create` — the MR-creation journal (step 06 task 5): one job per
+ *    branch target; a crash between the build approval and the persisted MR
+ *    is healed by the re-claim's adopt path
  */
 export const JOB_KIND = {
   WEBHOOK_DELIVERY: "webhook_delivery",
   SCHEDULE_FIRE: "schedule_fire",
   WAIT_FIRE: "wait_fire",
   MERGE_BACK: "merge_back",
+  CANCEL: "cancel",
+  MR_CREATE: "mr_create",
 } as const;
 
 export type JobKind = (typeof JOB_KIND)[keyof typeof JOB_KIND];
@@ -44,8 +52,11 @@ export const JOB_LIMITS = {
   BACKOFF_BASE_SECONDS: 30,
 } as const;
 
-/** The kinds with a dispatcher registered today (step 03). */
+/** The kinds with a dispatcher registered today (step 03; step 06 adds the
+ *  cancel + MR-create journals). */
 export const DISPATCHABLE_JOB_KINDS: readonly JobKind[] = [
   JOB_KIND.WEBHOOK_DELIVERY,
   JOB_KIND.SCHEDULE_FIRE,
+  JOB_KIND.CANCEL,
+  JOB_KIND.MR_CREATE,
 ];

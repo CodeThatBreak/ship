@@ -5,6 +5,7 @@ import type { FlowRow } from "../../../db/rows";
 import { NODE_KEYS } from "../../constants/nodeKeys";
 import { nodeRegistry } from "../../nodes/registry";
 import { templateStore } from "../../templates/templateStore";
+import { JOB_KIND } from "../jobs/constants/jobVocabulary";
 import type { TransitionAuthority } from "../transitions/nodeTransitions";
 import type { TransitionEvents } from "../transitions/transitionEvents";
 
@@ -21,7 +22,9 @@ import type { TransitionEvents } from "../transitions/transitionEvents";
  * Plan nodes and branch-choice nodes also rest in `approved` legitimately
  * while the flow continues; reverting those would break live flows.
  *
- * Must never: revert a node whose flow HAS an MR (branch or flow level), or
+ * Must never: revert a node whose flow HAS an MR (branch or flow level),
+ * revert while a live `mr_create` job exists (step 06 task 5 — the journal
+ * owns the interrupted creation; the re-claim's adopt path lands the MR), or
  * treat a non-build approved node as MR-less stuck state.
  */
 export class ApprovedHandler {
@@ -34,6 +37,10 @@ export class ApprovedHandler {
     const isBuild = await this.isMrProducingNode(flow.id, node.nodeKey);
     if (!isBuild) return;
     if (await this.flowHasMergeRequest(flow)) return;
+    // step 06 task 5: a live `mr_create` job owns this flow's MR creation —
+    // the journal (its re-claim's adopt path), not this revert, finishes an
+    // interrupted creation. Only a truly job-less approved build reverts.
+    if (await this.hasLiveMrCreateJob(flow.id)) return;
     const applied = await this.transitions.apply(flow.id, node.nodeKey, "mrHandback");
     if (!applied) return;
     await this.events.error(
@@ -54,6 +61,18 @@ export class ApprovedHandler {
     return Boolean(await db.get(
       `SELECT 1 FROM branches WHERE flow_id=$1 AND mr_iid IS NOT NULL LIMIT 1`,
       flow.id,
+    ));
+  }
+
+  /** A live `mr_create` job: queued, or claimed with an unexpired lease
+   *  (a claimed job whose lease lapsed is the sweep's to re-claim). */
+  private async hasLiveMrCreateJob(flowId: string): Promise<boolean> {
+    return Boolean(await db.get(
+      `SELECT 1 FROM jobs WHERE flow_id=$1 AND kind=$2
+         AND (status='queued' OR (status='claimed' AND lease_until > now()))
+       LIMIT 1`,
+      flowId,
+      JOB_KIND.MR_CREATE,
     ));
   }
 }

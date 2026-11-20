@@ -12,6 +12,8 @@ import { WaitStore } from "./waits/waitStore";
 import { JobQueue } from "./jobs/jobQueue";
 import { WebhookDeliveryHandler } from "./jobs/webhookDeliveryHandler";
 import { ScheduleFireHandler } from "./jobs/scheduleFireHandler";
+import { CancelHandler } from "./jobs/cancelHandler";
+import { MrCreateHandler } from "./jobs/mrCreateHandler";
 import { ProcessLock } from "./locks/processLock";
 import { JOB_KIND } from "./jobs/constants/jobVocabulary";
 import { scheduleFireDedupKey } from "./jobs/utils/jobDedupKeys";
@@ -48,10 +50,19 @@ export class FlowPoller {
   private readonly jobs = new JobQueue();
   private readonly webhookDeliveries = new WebhookDeliveryHandler();
   private readonly scheduleFires = new ScheduleFireHandler(this.jobs);
+  /** step 06 task 4: the sweep's re-claim finalizes an orphaned cancel intent. */
+  private readonly cancels = new CancelHandler(this.jobs);
+  /** step 06 task 5: the re-claim path's commit-fix run goes through the
+   *  engine's delegate (the SDLC chain's loop — the adopt path picks up the
+   *  existing MR on a crashed creation). */
+  private readonly mrCreates = new MrCreateHandler(this.jobs, (t, attempt, error) =>
+    flowEngine.sdlcCommitFix(t.flowId, t.buildKey, t.branch, attempt, t.maxAttempts, error));
 
   private readonly handlers: JobHandlers = {
     [JOB_KIND.WEBHOOK_DELIVERY]: async (job) => this.webhookDeliveries.handle(job),
     [JOB_KIND.SCHEDULE_FIRE]: async (job) => this.scheduleFires.handle(job),
+    [JOB_KIND.CANCEL]: async (job) => this.cancels.handle(job),
+    [JOB_KIND.MR_CREATE]: async (job) => this.mrCreates.handle(job),
   };
 
   constructor(
