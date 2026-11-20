@@ -1,9 +1,9 @@
 import "server-only";
 
-import type { Prisma } from "@prisma/client";
+import { Prisma } from "@prisma/client";
 import { db } from "../../../db/app";
 import type { QueryExecutor } from "../../../db/database";
-import { CommentRow, NodeRow, rows } from "../../../db/rows";
+import { CommentRow, NodeRow } from "../../../db/rows";
 import { ValidationError } from "../../../errors";
 import {
   ARTIFACT_STATUS,
@@ -21,17 +21,7 @@ import type {
   TransitionKey,
 } from "../../runtime/transitions/types/transitions";
 import type { TransitionAuthority } from "../../runtime/transitions/nodeTransitions";
-import { executorFor } from "../../runtime/transitions/utils/executor";
-
-const NODE_SELECT = `SELECT id, flow_id AS "flowId", node_key AS "nodeKey", type, status,
-       attempt_id AS "attemptId", agent_id AS "agentId", agent_ref AS "agentRef",
-       session_id AS "sessionId", label, config,
-       join_mode AS "joinMode", input, output, created_at AS "createdAt",
-       updated_at AS "updatedAt" FROM nodes`;
-const COMMENT_SELECT = `SELECT id, flow_id AS "flowId", mr_iid AS "mrIid",
-       discussion_id AS "discussionId", author, body, file_path AS "filePath", line,
-       status, resolved_by AS "resolvedBy", raw, created_at AS "createdAt",
-       updated_at AS "updatedAt" FROM comments`;
+import { jsonInput, parseNodeJsonPatch, parseRow, parseRows } from "./nodeSupport/utils/ormRows";
 
 /**
  * Persistence helpers for node rows, artifacts, runs and flow-feed events —
@@ -55,27 +45,35 @@ export class NodeSupport {
     return db.transaction(fn, tx);
   }
 
+  /** The flow-node row (null when absent), narrowed through the shared NodeRow mapper. */
+  private async nodeRow(flowId: string, nodeKey: string): Promise<NodeRow | null> {
+    const row = await db.prisma.node.findFirst({ where: { flowId, nodeKey } });
+    return row ? parseRow(NodeRow, row, `node ${nodeKey} for flow ${flowId}`) : null;
+  }
+
   async nodeByKey(flowId: string, key: string): Promise<NodeRow> {
-    const n = await rows.get(NodeRow, `${NODE_SELECT} WHERE flow_id=$1 AND node_key=$2`, flowId, key);
+    const n = await this.nodeRow(flowId, key);
     if (!n) throw new Error(`node ${key} not found for flow ${flowId}`);
     return n;
   }
 
   /** Like nodeByKey but null when the instance key is absent (optional chain stages). */
   async optionalNodeByKey(flowId: string, key: string): Promise<NodeRow | null> {
-    return (await rows.get(NodeRow, `${NODE_SELECT} WHERE flow_id=$1 AND node_key=$2`, flowId, key)) ?? null;
+    return this.nodeRow(flowId, key);
   }
 
   /** First node row of a given built-in node type (instance keys may differ
    *  from the type; callers that address by node_key use `nodeByKey`). */
   async nodeByType(flowId: string, type: string): Promise<NodeRow | null> {
-    return (await rows.get(NodeRow, `${NODE_SELECT} WHERE flow_id=$1 AND type=$2`, flowId, type)) ?? null;
+    const row = await db.prisma.node.findFirst({ where: { flowId, type } });
+    return row ? parseRow(NodeRow, row, `node of type ${type} for flow ${flowId}`) : null;
   }
 
   /** A node's current status (null when the row is gone) — polling callers
    * use this to detect an external cancel/retry mid-wait. */
   async nodeStatus(nodeId: string): Promise<string | null> {
-    return (await db.get<{ status: string }>(`SELECT status FROM nodes WHERE id=$1`, nodeId))?.status ?? null;
+    const row = await db.prisma.node.findUnique({ where: { id: nodeId }, select: { status: true } });
+    return row?.status ?? null;
   }
 
   /**
@@ -90,12 +88,15 @@ export class NodeSupport {
     }
     const keys = Object.keys(patch);
     if (keys.length === 0) return;
-    await db.run(
-      `UPDATE nodes SET ${keys.map((k, i) => `${k}=$${i + 1}`).join(",")}, updated_at=$${keys.length + 1} WHERE id=$${keys.length + 2}`,
-      ...keys.map((k) => patch[k] as never),
-      db.now(),
-      id
-    );
+    // text→jsonb cast parity + column-name contract: pre-serialized strings
+    // for the nodes JSONB columns (input/output/config) are parsed before
+    // reaching Prisma, which the old `text → jsonb` cast used to do, and the
+    // raw-era snake_case column keys map onto Prisma field names
+    // (see parseNodeJsonPatch).
+    await db.prisma.node.update({
+      where: { id },
+      data: { ...parseNodeJsonPatch(patch), updatedAt: new Date() } as Prisma.NodeUpdateInput,
+    });
   }
 
   /**
@@ -106,12 +107,28 @@ export class NodeSupport {
    * reconciler's liveness test is `lease_until > now()`.
    */
   async heartbeatLeases(nodeId: string, runRef: string | null): Promise<void> {
+    await this.stampNodeLease(nodeId);
+    if (runRef) {
+      await this.stampRunLease(runRef);
+    }
+  }
+
+  /**
+   * Lease invariant (step 03, Invariant 2): a `running` node is alive while
+   * `nodes.lease_until > now()`. The stamp is interval arithmetic on
+   * DB-server time (`make_interval` has no Prisma equivalent) — kept raw,
+   * isolated here as the ONLY raw `nodes` write in this seam, touching
+   * `lease_until` only (never `status`/`attempt_id`).
+   */
+  private async stampNodeLease(nodeId: string): Promise<void> {
     await db.run(`UPDATE nodes SET lease_until = now() + make_interval(secs => $1) WHERE id=$2`,
       NODE_LEASE_SECONDS, nodeId);
-    if (runRef) {
-      await db.run(`UPDATE runs SET lease_until = now() + make_interval(secs => $1) WHERE run_ref=$2`,
-        RUN_LEASE_SECONDS, runRef);
-    }
+  }
+
+  /** Run-lease half of the same invariant: `runs.lease_until > now()` while the agent runs. */
+  private async stampRunLease(runRef: string): Promise<void> {
+    await db.run(`UPDATE runs SET lease_until = now() + make_interval(secs => $1) WHERE run_ref=$2`,
+      RUN_LEASE_SECONDS, runRef);
   }
 
   // ── transition-authority delegates (Invariant 1 funnels) ─────────────────
@@ -180,12 +197,30 @@ export class NodeSupport {
     meta?: unknown, status = ARTIFACT_STATUS.DRAFT, tx?: QueryExecutor,
   ): Promise<{ id: string; version: number }> {
     return this.transaction(async (t) => {
-      const exec = executorFor(db, t);
-      const version = ((await exec.get<{ v: number | null }>(`SELECT MAX(version) AS v FROM artifacts WHERE node_id=$1 AND kind=$2`, nodeId, kind))?.v ?? 0) + 1;
-      await exec.run(`UPDATE artifacts SET status=$1 WHERE node_id=$2 AND kind=$3 AND status=$4`, ARTIFACT_STATUS.SUPERSEDED, nodeId, kind, ARTIFACT_STATUS.DRAFT);
+      const top = await t.artifact.findFirst({
+        where: { nodeId, kind },
+        orderBy: { version: "desc" },
+        select: { version: true },
+      });
+      const version = (top?.version ?? 0) + 1;
+      await t.artifact.updateMany({
+        where: { nodeId, kind, status: ARTIFACT_STATUS.DRAFT },
+        data: { status: ARTIFACT_STATUS.SUPERSEDED },
+      });
       const id = db.uid("art_");
-      await exec.run(`INSERT INTO artifacts (id,node_id,flow_id,kind,version,content,meta,status,created_at) VALUES ($1,$2,$3,$4,$5,$6,$7::jsonb,$8,$9)`,
-        id, nodeId, flowId, kind, version, content, meta ? JSON.stringify(meta) : null, status, db.now());
+      await t.artifact.create({
+        data: {
+          id,
+          nodeId,
+          flowId,
+          kind,
+          version,
+          content,
+          meta: meta ? jsonInput(meta) : Prisma.JsonNull,
+          status,
+          createdAt: new Date(),
+        },
+      });
       return { id, version };
     }, tx);
   }
@@ -197,23 +232,39 @@ export class NodeSupport {
    * attempt token, capability token and a run lease are stamped next to it.
    */
   async registerStartupRun(flowId: string, nodeId: string, attemptId: string, apiToken?: string | null): Promise<void> {
-    const existing = await db.get<{ agentRef: string; runRef: string }>(
-      `SELECT agent_ref AS "agentRef", run_ref AS "runRef" FROM runs
-       WHERE node_id=$1 AND status=$2 ORDER BY created_at DESC LIMIT 1`,
-      nodeId, RUN_STATUS.RUNNING);
+    const existing = await db.prisma.run.findFirst({
+      where: { nodeId, status: RUN_STATUS.RUNNING },
+      orderBy: { createdAt: "desc" },
+      select: { agentRef: true, runRef: true },
+    });
     if (existing?.agentRef === RUN_AGENT_REF.PENDING && existing.runRef === attemptId) {
       return;
     }
     // close-prior-runs UPDATE + placeholder INSERT in ONE tx (step 06, Invariant 7)
     await this.transaction(async (t) => {
-      const exec = executorFor(db, t);
-      await exec.run(`UPDATE runs SET status=$1, lease_until=NULL, updated_at=$2 WHERE node_id=$3 AND status=$4`,
-        RUN_STATUS.ERROR, db.now(), nodeId, RUN_STATUS.RUNNING);
-      const id = db.uid("run_");
+      await t.run.updateMany({
+        where: { nodeId, status: RUN_STATUS.RUNNING },
+        data: { status: RUN_STATUS.ERROR, leaseUntil: null, updatedAt: new Date() },
+      });
       // api_token (step 08): the claim-minted capability token rides the startup row.
-      await exec.run(`INSERT INTO runs (id,flow_id,node_id,agent_ref,run_ref,attempt_id,api_token,lease_until,status,created_at,updated_at)
-         VALUES ($1,$2,$3,$4,$5,$6,$7, now() + make_interval(secs => $8),$9,$10,$11)`,
-        id, flowId, nodeId, RUN_AGENT_REF.PENDING, attemptId, attemptId, apiToken ?? null, RUN_LEASE_SECONDS, RUN_STATUS.RUNNING, db.now(), db.now());
+      await t.run.create({
+        data: {
+          id: db.uid("run_"),
+          flowId,
+          nodeId,
+          agentRef: RUN_AGENT_REF.PENDING,
+          runRef: attemptId,
+          attemptId,
+          apiToken: apiToken ?? null,
+          // Claim insert: the lease timestamp is computed in JS instead of the
+          // old `now() + make_interval(...)` SQL — the single-writer lock makes
+          // app-clock skew acceptable (decision in orm-migration task 03).
+          leaseUntil: new Date(Date.now() + RUN_LEASE_SECONDS * 1000),
+          status: RUN_STATUS.RUNNING,
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        },
+      });
     });
   }
 
@@ -222,34 +273,34 @@ export class NodeSupport {
   }
 
   async persistRun(flowId: string, nodeId: string, agentId: string, runId: string, apiToken?: string | null): Promise<string> {
-    const attemptId = (await db.get<{ attemptId: string | null }>(
-      `SELECT attempt_id AS "attemptId" FROM nodes WHERE id=$1`, nodeId))?.attemptId;
+    const node = await db.prisma.node.findUnique({ where: { id: nodeId }, select: { attemptId: true } });
+    const attemptId = node?.attemptId;
     if (attemptId) {
-      const changes = await db.run(
-        `UPDATE runs SET agent_ref=$1, run_ref=$2, attempt_id=$3,
-            lease_until = now() + make_interval(secs => $4), updated_at=$5
-         WHERE node_id=$6 AND status=$7 AND agent_ref=$8 AND run_ref=$9`,
-        agentId,
-        runId,
-        attemptId,
-        RUN_LEASE_SECONDS,
-        db.now(),
-        nodeId,
-        RUN_STATUS.RUNNING,
-        RUN_AGENT_REF.PENDING,
-        attemptId,
-      );
-      if (changes === 1) {
-        const upgraded = await db.get<{ id: string }>(`SELECT id FROM runs WHERE run_ref=$1`, runId);
+      const changes = await db.prisma.run.updateMany({
+        where: {
+          nodeId,
+          status: RUN_STATUS.RUNNING,
+          agentRef: RUN_AGENT_REF.PENDING,
+          runRef: attemptId,
+        },
+        data: {
+          agentRef: agentId,
+          runRef: runId,
+          attemptId,
+          // Lease re-stamp rides the upgrade CAS: computed in JS (single-writer
+          // lock makes app-clock skew acceptable — same rationale as the claim
+          // inserts) so the fenced upgrade stays ONE statement.
+          leaseUntil: new Date(Date.now() + RUN_LEASE_SECONDS * 1000),
+          updatedAt: new Date(),
+        },
+      });
+      if (changes.count === 1) {
+        const upgraded = await db.prisma.run.findFirst({ where: { runRef: runId }, select: { id: true } });
         if (upgraded) {
-          await db.run(
-            `UPDATE runs SET status=$1, updated_at=$2 WHERE node_id=$3 AND status=$4 AND run_ref<>$5`,
-            RUN_STATUS.ERROR,
-            db.now(),
-            nodeId,
-            RUN_STATUS.RUNNING,
-            runId,
-          );
+          await db.prisma.run.updateMany({
+            where: { nodeId, status: RUN_STATUS.RUNNING, runRef: { not: runId } },
+            data: { status: RUN_STATUS.ERROR, updatedAt: new Date() },
+          });
           return upgraded.id;
         }
       }
@@ -258,26 +309,46 @@ export class NodeSupport {
     // process died with a previous server/run) and would otherwise be picked up
     // as the "latest running run" by reconcile; close + insert in ONE tx (step 06, Invariant 7)
     return this.transaction(async (t) => {
-      const exec = executorFor(db, t);
-      await exec.run(`UPDATE runs SET status=$1, updated_at=$2 WHERE node_id=$3 AND status=$4`, RUN_STATUS.ERROR, db.now(), nodeId, RUN_STATUS.RUNNING);
+      await t.run.updateMany({
+        where: { nodeId, status: RUN_STATUS.RUNNING },
+        data: { status: RUN_STATUS.ERROR, updatedAt: new Date() },
+      });
       const id = db.uid("run_");
-      await exec.run(
-        `INSERT INTO runs (id,flow_id,node_id,agent_ref,run_ref,attempt_id,api_token,lease_until,status,created_at,updated_at)
-         VALUES ($1,$2,$3,$4,$5,$6,$7, now() + make_interval(secs => $8),$9,$10,$11)`,
-        id, flowId, nodeId, agentId, runId, attemptId, apiToken ?? null, RUN_LEASE_SECONDS, RUN_STATUS.RUNNING, db.now(), db.now());
+      await t.run.create({
+        data: {
+          id,
+          flowId,
+          nodeId,
+          agentRef: agentId,
+          runRef: runId,
+          attemptId: attemptId ?? null,
+          apiToken: apiToken ?? null,
+          // Claim insert: lease computed in JS (see registerStartupRun).
+          leaseUntil: new Date(Date.now() + RUN_LEASE_SECONDS * 1000),
+          status: RUN_STATUS.RUNNING,
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        },
+      });
       return id;
     });
   }
 
   async lastAgentId(nodeId: string, tx?: QueryExecutor): Promise<string | null> {
-    return (await executorFor(db, tx).get<{ agentRef: string }>(
-      `SELECT agent_ref AS "agentRef" FROM runs WHERE node_id=$1 AND agent_ref<>$2 ORDER BY created_at DESC LIMIT 1`,
-      nodeId, RUN_AGENT_REF.PENDING))?.agentRef ?? null;
+    const row = await (tx ?? db.prisma).run.findFirst({
+      where: { nodeId, agentRef: { not: RUN_AGENT_REF.PENDING } },
+      orderBy: { createdAt: "desc" },
+      select: { agentRef: true },
+    });
+    return row?.agentRef ?? null;
   }
 
   /** Update the run row with the real agent/session id once known (local mode). */
   async setRunAgentId(runId: string, agentId: string): Promise<void> {
-    await db.run(`UPDATE runs SET agent_ref=$1, updated_at=$2 WHERE run_ref=$3`, agentId, db.now(), runId);
+    await db.prisma.run.updateMany({
+      where: { runRef: runId },
+      data: { agentRef: agentId, updatedAt: new Date() },
+    });
   }
 
   // ── artifacts ────────────────────────────────────────────────────────────
@@ -302,21 +373,24 @@ export class NodeSupport {
     kind: string,
     opts: { nodeType?: string; limit?: number } = {},
   ): Promise<{ id: string; version: number; content: string; meta: unknown }[]> {
-    const type = opts.nodeType;
-    const scope = type ? ` AND n.type=$3` : "";
-    const cap = opts.limit ? ` LIMIT ${Math.trunc(opts.limit)}` : "";
-    const sql = `SELECT a.id, a.version, a.content, a.meta FROM artifacts a JOIN nodes n ON n.id=a.node_id
-       WHERE n.flow_id=$1 AND a.kind=$2${scope}
-       ORDER BY a.version DESC, a.created_at DESC${cap}`;
-    return type ? await db.all(sql, flowId, kind, type) : await db.all(sql, flowId, kind);
+    const found = await db.prisma.artifact.findMany({
+      where: {
+        kind,
+        node: { flowId, ...(opts.nodeType ? { type: opts.nodeType } : {}) },
+      },
+      orderBy: [{ version: "desc" }, { createdAt: "desc" }],
+      take: opts.limit ? Math.trunc(opts.limit) : undefined,
+      select: { id: true, version: true, content: true, meta: true },
+    });
+    return found.map((a) => ({ id: a.id, version: a.version, content: a.content, meta: a.meta }));
   }
 
   // ── branches ─────────────────────────────────────────────────────────────
 
   /** A branch row's MR iid (null when the branch has no merge request yet). */
   async branchMrIid(flowId: string, name: string): Promise<number | null> {
-    return (await db.get<{ mrIid: number | null }>(
-      `SELECT mr_iid AS "mrIid" FROM branches WHERE flow_id=$1 AND name=$2`, flowId, name))?.mrIid ?? null;
+    const row = await db.prisma.branch.findFirst({ where: { flowId, name }, select: { mrIid: true } });
+    return row?.mrIid ?? null;
   }
 
   // ── comments ─────────────────────────────────────────────────────────────
@@ -327,21 +401,20 @@ export class NodeSupport {
    * contract's decision coverage are built from this ordering.
    */
   async openComments(flowId: string, mrIid?: number | null): Promise<CommentRow[]> {
-    if (mrIid != null) {
-      return rows.all(
-        CommentRow,
-        `${COMMENT_SELECT} WHERE flow_id=$1 AND status=$2 AND mr_iid=$3 ORDER BY created_at ASC, id ASC`,
-        flowId,
-        COMMENT_STATUS.OPEN,
-        mrIid,
-      );
-    }
-    return rows.all(
-      CommentRow,
-      `${COMMENT_SELECT} WHERE flow_id=$1 AND status=$2 ORDER BY created_at ASC, id ASC`,
+    return this.commentRows({
       flowId,
-      COMMENT_STATUS.OPEN,
-    );
+      status: COMMENT_STATUS.OPEN,
+      ...(mrIid != null ? { mrIid } : {}),
+    });
+  }
+
+  /** Comment rows in deterministic (created_at, id) order (G12), narrowed through the shared mapper. */
+  private async commentRows(where: Prisma.CommentWhereInput): Promise<CommentRow[]> {
+    const found = await db.prisma.comment.findMany({
+      where,
+      orderBy: [{ createdAt: "asc" }, { id: "asc" }],
+    });
+    return parseRows(CommentRow, found, "comments");
   }
 
   /** Record an agent resolution for a comment row. */
@@ -357,14 +430,14 @@ export class NodeSupport {
    */
   async resolveComments(ids: readonly string[]): Promise<void> {
     if (ids.length === 0) return;
-    const marks = ids.map((_, i) => `$${i + 4}`).join(",");
-    await db.run(
-      `UPDATE comments SET status=$1, resolved_by=$2, updated_at=$3 WHERE id IN (${marks})`,
-      COMMENT_STATUS.RESOLVED,
-      RESOLVED_BY_AGENT,
-      db.now(),
-      ...ids,
-    );
+    await db.prisma.comment.updateMany({
+      where: { id: { in: [...ids] } },
+      data: {
+        status: COMMENT_STATUS.RESOLVED,
+        resolvedBy: RESOLVED_BY_AGENT,
+        updatedAt: new Date(),
+      },
+    });
   }
 
   /**
@@ -374,21 +447,11 @@ export class NodeSupport {
    * reviewer hasn't responded yet. Deterministic order for the prompt.
    */
   async agentReplies(flowId: string, mrIid?: number | null): Promise<CommentRow[]> {
-    if (mrIid != null) {
-      return rows.all(
-        CommentRow,
-        `${COMMENT_SELECT} WHERE flow_id=$1 AND mr_iid=$2 AND resolved_by=$3 ORDER BY created_at ASC, id ASC`,
-        flowId,
-        mrIid,
-        RESOLVED_BY_AGENT,
-      );
-    }
-    return rows.all(
-      CommentRow,
-      `${COMMENT_SELECT} WHERE flow_id=$1 AND resolved_by=$2 ORDER BY created_at ASC, id ASC`,
+    return this.commentRows({
       flowId,
-      RESOLVED_BY_AGENT,
-    );
+      resolvedBy: RESOLVED_BY_AGENT,
+      ...(mrIid != null ? { mrIid } : {}),
+    });
   }
 
   /**
@@ -405,32 +468,36 @@ export class NodeSupport {
     body: string;
     note: HostNote;
   }): Promise<void> {
-    const existing = await db.get<{ id: string }>(`SELECT id FROM comments WHERE id=$1`, params.note.id);
+    const existing = await db.prisma.comment.findUnique({ where: { id: params.note.id }, select: { id: true } });
     if (existing) return;
-    await db.run(
-      `INSERT INTO comments (id,flow_id,mr_iid,discussion_id,author,body,file_path,line,status,resolved_by,raw,created_at,updated_at)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13) ON CONFLICT (id) DO NOTHING`,
-      params.note.id,
-      params.flowId,
-      params.mrIid,
-      params.discussionId,
-      params.note.author,
-      params.body,
-      null,
-      null,
-      COMMENT_STATUS.RESOLVED,
-      RESOLVED_BY_AGENT,
-      null,
-      params.note.createdAt,
-      db.now(),
-    );
+    // The upsert's no-op update branch carries the old ON CONFLICT DO NOTHING
+    // semantics: an ingest that raced the read above keeps its row untouched.
+    await db.prisma.comment.upsert({
+      where: { id: params.note.id },
+      create: {
+        id: params.note.id,
+        flowId: params.flowId,
+        mrIid: params.mrIid,
+        discussionId: params.discussionId,
+        author: params.note.author,
+        body: params.body,
+        filePath: null,
+        line: null,
+        status: COMMENT_STATUS.RESOLVED,
+        resolvedBy: RESOLVED_BY_AGENT,
+        raw: null,
+        createdAt: params.note.createdAt,
+        updatedAt: new Date(),
+      },
+      update: {},
+    });
   }
 
   // ── flows ────────────────────────────────────────────────────────────────
 
   /** Point the flow's merge-request branch at `branch`. */
   async setFlowBranch(flowId: string, branch: string): Promise<void> {
-    await db.run(`UPDATE flows SET mr_branch=$1 WHERE id=$2`, branch, flowId);
+    await db.prisma.flow.update({ where: { id: flowId }, data: { mrBranch: branch } });
   }
 
   // ── feed events ──────────────────────────────────────────────────────────

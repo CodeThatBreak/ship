@@ -16,7 +16,7 @@ const { db } = await import("../../../db/app");
 beforeAll(resetTestDatabase);
 const { NodeSupport } = await import("./nodeSupport");
 const { engineParts } = await import("@/lib/composition/container");
-const { ConflictError } = await import("../../../errors");
+const { ConflictError, ValidationError } = await import("../../../errors");
 
 const now = () => new Date().toISOString();
 
@@ -138,6 +138,39 @@ describe("NodeSupport.claim (Task 17)", () => {
     const flowId = "flw_refuse";
     const nodeId = await seedPlanNode(flowId);
     await expect(support.setNode(nodeId, { status: "done" })).rejects.toThrow(/TransitionAuthority/);
+  });
+});
+
+describe("NodeSupport.setNode — JSONB text→jsonb cast parity", () => {
+  const support = new NodeSupport(engineParts.transitions);
+
+  it("parses pre-serialized JSON text for input/output/config so the column stores an object", async () => {
+    const flowId = "flw_json_cast";
+    const nodeId = await seedPlanNode(flowId);
+    await support.setNode(nodeId, {
+      input: JSON.stringify({ prompt: "hello" }),
+      output: JSON.stringify({ answer: 42 }),
+      config: JSON.stringify({ snapshot: true }),
+    });
+    const node = await support.nodeByKey(flowId, "plan");
+    expect(node.input).toEqual({ prompt: "hello" });
+    expect(node.output).toEqual({ answer: 42 });
+    expect(node.config).toEqual({ snapshot: true });
+  });
+
+  it("throws ValidationError on invalid JSON text for a JSONB column", async () => {
+    const flowId = "flw_json_bad";
+    const nodeId = await seedPlanNode(flowId);
+    await expect(support.setNode(nodeId, { input: "{not json" })).rejects.toThrow(ValidationError);
+  });
+
+  it("maps raw-era snake_case column keys onto Prisma field names", async () => {
+    const flowId = "flw_col_names";
+    const nodeId = await seedPlanNode(flowId);
+    await support.setNode(nodeId, { agent_id: "agt_x" });
+    expect(
+      (await db.get<{ agent_id: string | null }>(`SELECT agent_id FROM nodes WHERE id=$1`, nodeId))?.agent_id,
+    ).toBe("agt_x");
   });
 });
 

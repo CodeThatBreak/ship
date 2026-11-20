@@ -1,15 +1,19 @@
 import "server-only";
 
-import { ArtifactRow, rows, type ArtifactRow as ArtifactRowType } from "../db/rows";
+import { db } from "../db/app";
+import { ArtifactRow, type ArtifactRow as ArtifactRowType } from "../db/rows";
 import { NotFoundError } from "../errors";
+import { parseRow } from "./utils/ormRows";
 
 export class ArtifactService {
   async get(id: string): Promise<ArtifactRowType> {
-    const art = await rows.get(ArtifactRow, `SELECT id, node_id AS "nodeId", flow_id AS "flowId", kind, version, content, meta, status, feedback, created_at AS "createdAt" FROM artifacts WHERE id=$1`, id);
-    if (!art) {
+    const row = await db.prisma.artifact.findUnique({ where: { id } });
+    if (!row) {
       throw new NotFoundError("artifact", id);
     }
-    return art;
+    // The `artifacts.meta` JSONB payload stays narrowed through the shared
+    // row mapper (RowGateway.get semantics: RowDecodeError on a bad shape).
+    return parseRow(ArtifactRow, row, `artifact ${id}`);
   }
 }
 
