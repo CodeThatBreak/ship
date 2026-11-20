@@ -23,6 +23,7 @@ import { retryFeedbackBody } from '../../shared/agentOutput/utils/retryFeedback'
 import { validateStandardAgentOutput } from '../../shared/agentOutput/utils/standardOutput';
 import { AGENT_OUTPUT_ERROR, AgentOutputError } from '../../shared/agent/outputError/outputErrorExports';
 import { AgentDefSchema, type AgentDef } from '../../declarativeSchemas';
+import { untrustedData } from '../../../prompts/untrustedData';
 import type { SplitUnit } from '../../shared/nodeSharedExports';
 import { splitDirective } from './splitDirective';
 import { AGENT_CONFIG_FIELDS } from './constants/agentConstantsExports';
@@ -232,13 +233,23 @@ export class AgentTemplateNode extends DeclarativeAgentNode<AgentDef, Record<str
     // The inherited run input is prompt-addressable: {{input.<field>}} refs the
     // previous node's output fields directly (the node inherits the parent's
     // contract); the engine-owned prompt/model keys are stripped from it.
+    // The values are untrusted upstream output — top-level string values ride
+    // the shared untrusted-data fence; non-strings stay intact so nested
+    // {{input.<field>.<sub>}} refs keep resolving.
 
     // json output rides the standard contract directive: the schema the
     // response must satisfy and the agent's error-envelope escape hatch (it
     // self-reports when it cannot comply — applyOutput recognizes the envelope)
     const promptWithoutContract = TemplateRenderer.render(template, {
       ...TemplateRenderer.vars(ctx),
-      input: inheritedInput,
+      input: Object.fromEntries(
+        Object.entries(inheritedInput).map(([field, value]) => [
+          field,
+          typeof value === "string" && value
+            ? untrustedData({ source: `input.${field}`, text: value }).text
+            : value,
+        ]),
+      ),
     });
 
     // the run record's input.prompt is the RENDERED final prompt — the exact

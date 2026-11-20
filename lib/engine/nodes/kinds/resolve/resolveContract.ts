@@ -20,6 +20,7 @@ import {
 import { retryFeedbackBody } from "../../shared/agentOutput/utils/retryFeedback";
 import { validateStandardAgentOutput } from "../../shared/agentOutput/utils/standardOutput";
 import { TemplateRenderer } from "../../shared/templateRenderer";
+import { untrustedData } from "../../../prompts/untrustedData";
 import type { CommentRow } from "../../../../db/rows";
 import {
   RESOLVE_COMMENT_ACTION,
@@ -96,11 +97,14 @@ export class ResolveOutputContract {
     agentReplies: readonly CommentRow[] = [],
   ): PresentedComments {
     const replyDates = this.latestAgentReplyDates(agentReplies);
-    const lines = open.map((row) => this.commentLine(row, replyDates.get(row.discussionId ?? "") ?? null));
+    // the loud-cap signal travels back to the node (a pure class has no
+    // support/ctx): one entry per cap that bit, for the caller's log event
+    const truncations: string[] = [];
+    const lines = open.map((row) => this.commentLine(row, replyDates.get(row.discussionId ?? "") ?? null, truncations));
 
     const block = lines.join("\n");
     if (block.length <= RESOLVE_COMMENTS_BLOCK_CAP) {
-      return { text: block, ids: open.map((row) => row.id) };
+      return { text: block, ids: open.map((row) => row.id), truncations };
     }
 
     // keep whole id-tagged lines (each is a decision target) that fit, then the note
@@ -113,8 +117,11 @@ export class ResolveOutputContract {
       used += cost;
       kept.push(line);
     }
+    truncations.push(
+      `open-comment list capped to ${RESOLVE_COMMENTS_BLOCK_CAP} characters — ${open.length - kept.length} of ${open.length} comment(s) omitted`,
+    );
     const text = [...kept, RESOLVE_COMMENTS_TRUNCATION_NOTE].join("\n");
-    return { text, ids: kept.length ? open.slice(0, kept.length).map((row) => row.id) : [] };
+    return { text, ids: kept.length ? open.slice(0, kept.length).map((row) => row.id) : [], truncations };
   }
 
   /**
@@ -187,17 +194,21 @@ export class ResolveOutputContract {
     return issues;
   }
 
-  private capText(value: string, cap: number): string {
-    return value.length > cap ? `${value.slice(0, cap)}… (truncated)` : value;
-  }
-
-  /** One id-tagged line per open comment — the exact ids the decisions reference. */
-  private commentLine(row: CommentRow, repliedAt: string | null): string {
+  /** One id-tagged line per open comment — the exact ids the decisions
+   *  reference. The comment body is untrusted reviewer content: fenced through
+   *  the shared `untrustedData` wrapper (cap kept at RESOLVE_BODY_CAP), and a
+   *  cap that bite is recorded in `truncations` for the node's log event. */
+  private commentLine(row: CommentRow, repliedAt: string | null, truncations: string[]): string {
     const meta: string[] = [];
     if (row.author) meta.push(`author: @${row.author}`);
     if (repliedAt) meta.push(`you replied on ${repliedAt.slice(0, 10)} — awaiting reviewer`);
     const metaPart = meta.length ? ` (${meta.join("; ")})` : "";
-    const body = this.capText(row.body ?? "", RESOLVE_BODY_CAP);
+    const body = row.body ?? "";
+    const fenced = body ? untrustedData({ source: `comment ${row.id}`, text: body, cap: RESOLVE_BODY_CAP }) : null;
+    if (fenced?.truncated) {
+      truncations.push(`comment ${row.id} body capped to ${RESOLVE_BODY_CAP} of ${fenced.originalLength} characters`);
+    }
+    const bodyPart = fenced?.text ?? "";
 
     const location = row.filePath
       ? `${row.filePath}${row.line != null ? `:${row.line}` : ""}`
@@ -205,7 +216,7 @@ export class ResolveOutputContract {
     const marker = !commentResolvable(row) ? "(MR note, not resolvable)" : null;
     const head = [`[${row.id}]`, location ?? marker].filter(Boolean).join(" ");
     const separator = location || marker ? " — " : " ";
-    return `- ${head}${separator}${body}${metaPart}`;
+    return `- ${head}${separator}${bodyPart}${metaPart}`;
   }
 
   /** Latest same-thread agent reply date (yyyy-mm-dd), per discussion. */

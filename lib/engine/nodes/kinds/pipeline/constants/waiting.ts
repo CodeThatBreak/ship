@@ -26,3 +26,9 @@ export const GATE_PROGRESS_ARTIFACT = "gate_progress";
 
 /** Prompt template used for fix runs (kept as a customizable template in settings). */
 export const FIX_PROMPT_KEY = "pipeline_fix";
+
+/** How many failed jobs' logs the fix prompt assembles (the existing 3×8k budget). */
+export const FIX_JOB_LOGS = 3;
+
+/** The per-job log-tail cap the fix prompt assembles. */
+export const FIX_JOB_TRACE_TAIL = 8000;

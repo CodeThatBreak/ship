@@ -8,14 +8,12 @@ import { agentRunner } from "../../../harness/harnessExports";
 import { gitHostRegistry, type GitHostResolver, type HostJob } from "../../../ports/gitHost";
 import { RunSupersededError } from "../../../errors/runSupersededError";
 import { prompts } from "../../../prompts/promptLibrary";
-import { TemplateRenderer } from "../../shared/templateRenderer";
 import { flowCtxHelper, type FlowContextHelper } from "../../shared/runContext";
 import { nodeSupport } from "@/lib/composition/container";
+import { EVENT_KIND } from "../../../constants/vocabulary";
 import { FIX_PROMPT_KEY } from "./constants/waiting";
+import { assembleFixLogs } from "./utils/fixLogs";
 import type { PipelineInput } from "./schema";
-/** The per-job log cap the fix prompt assembles (the existing 3×8k budget). */
-const FIX_JOB_LOGS = 3;
-const FIX_JOB_TRACE_TAIL = 8000;
 
 /**
  * GateFixRunner — the CI gate's fix-agent runs (step 05 decomposition of
@@ -49,14 +47,21 @@ export class GateFixRunner {
   }): Promise<void> {
     const { ctx, node, input, pipelineId, mrBranch, attempt, maxFixAttempts, label } = args;
     const repoUrl = ctx.flow.repoUrl ?? "";
-    const jobs = await (await this.gitHosts.forRepo(repoUrl)).listPipelineJobs(repoUrl, pipelineId);
+    const host = await this.gitHosts.forRepo(repoUrl);
+    const jobs = await host.listPipelineJobs(repoUrl, pipelineId);
     const failed = jobs.filter((j: HostJob) => j.status === "failed");
-    let logs = "";
-    for (const j of failed.slice(0, FIX_JOB_LOGS)) {
-      const trace = await (await this.gitHosts.forRepo(repoUrl))
-        .getJobTrace(repoUrl, j.id)
-        .catch(() => "");
-      logs += `\n\n===== job ${j.name} (#${j.id}) =====\n${trace.slice(-FIX_JOB_TRACE_TAIL)}`;
+    // loud caps (step 05): every cap that bites is announced in-prompt AND
+    // folded into ONE log event naming the caps — silent truncation is banned
+    const { logs, truncations } = await assembleFixLogs(failed, (job) =>
+      host.getJobTrace(repoUrl, job.id).catch(() => ""),
+    );
+    if (truncations.length > 0) {
+      await this.support.emit(
+        ctx.flow.id,
+        node.id,
+        EVENT_KIND.LOG,
+        `pipeline fix prompt logs truncated: ${truncations.join("; ")}`,
+      );
     }
 
     const mode = this.ctxHelper.execMode(ctx);

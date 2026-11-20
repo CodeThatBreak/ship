@@ -5,6 +5,8 @@ import type { AgentRunResult } from "../../../ports/agentPort";
 import { z } from "zod";
 import { gitHostRegistry, type ChangeRequest, type ChangeRequestDiffs, type GitHostResolver, type GitHostService } from "../../../ports/gitHost";
 import { prompts } from "../../../prompts/promptLibrary";
+import { untrustedData, type UntrustedDataResult } from "../../../prompts/untrustedData";
+import { REVIEW_DIFF_CAP, TASK_PRD_CAP } from "../../../prompts/caps";
 import { AgentRunNode, nodeRoles, nodeSupport, type FlowCtx, type NodePromptPreview, type PromptPreviewParams, type RunOutcome } from "../../shared/nodeSharedExports";
 import type { RecoveryResult } from "../../shared/types/recovery";
 import { EVENT_KIND } from "../../../constants/vocabulary";
@@ -93,6 +95,18 @@ export class ReviewNode extends AgentRunNode<ReviewInput, ReviewOutput> {
   }
 
   /**
+   * The task PRD as a fenced untrusted-data block (cap unchanged at
+   * TASK_PRD_CAP) — shared by run and preview so the two render byte-equal
+   * text for the same task (I7). Null when the task carries no PRD: the empty
+   * `{{ticket_prd}}` slot stays empty instead of fencing nothing.
+   */
+  private taskPrd(ctx: FlowCtx): UntrustedDataResult | null {
+    return ctx.task.prdText
+      ? untrustedData({ source: "task PRD", text: ctx.task.prdText, cap: TASK_PRD_CAP })
+      : null;
+  }
+
+  /**
    * Live prompt preview (verbatim from the route's former review case). The
    * diff is run data — fetched at run time, so the preview shows the
    * contract/rules + ticket context with an empty diff slot.
@@ -105,7 +119,7 @@ export class ReviewNode extends AgentRunNode<ReviewInput, ReviewOutput> {
         ticket_key: ctx.task.key,
         ticket_type: this.ctxHelper.taskLabel(ctx),
         ticket_summary: ctx.task.summary ?? "",
-        ticket_prd: ctx.task.prdText?.slice(0, 4000) ?? "",
+        ticket_prd: this.taskPrd(ctx)?.text ?? "",
       },
       {
         instructions: params.instructions
@@ -132,10 +146,30 @@ export class ReviewNode extends AgentRunNode<ReviewInput, ReviewOutput> {
 
     const changes = await host.getChanges(repoUrl, mrIid);
     const changeRequest = await host.getChangeRequest(repoUrl, mrIid);
-    const diffText = changes.changes
+    const rawDiff = changes.changes
       .map((c) => `--- ${c.oldPath}\n+++ ${c.newPath}\n${c.diff}`)
-      .join("\n")
-      .slice(0, 60000);
+      .join("\n");
+    // untrusted host content rides the shared fence (cap value unchanged);
+    // a cap that bites is loud in-prompt AND logged once here
+    const diff = rawDiff ? untrustedData({ source: "MR diff", text: rawDiff, cap: REVIEW_DIFF_CAP }) : null;
+    if (diff?.truncated) {
+      await this.support.emit(
+        ctx.flow.id,
+        node.id,
+        EVENT_KIND.LOG,
+        `MR diff truncated to ${REVIEW_DIFF_CAP} of ${diff.originalLength} characters — the source material was capped`,
+      );
+    }
+    const prd = this.taskPrd(ctx);
+    if (prd?.truncated) {
+      await this.support.emit(
+        ctx.flow.id,
+        node.id,
+        EVENT_KIND.LOG,
+        `task PRD truncated to ${TASK_PRD_CAP} of ${prd.originalLength} characters — the source material was capped`,
+      );
+    }
+    const diffText = diff?.text ?? "";
 
     const truncatedNote = changes.truncated
       ? "Note: the MR diff from GitLab was truncated (large change set). Review what is present and call out that the diff may be incomplete.\n"
@@ -153,7 +187,7 @@ export class ReviewNode extends AgentRunNode<ReviewInput, ReviewOutput> {
       ticket_key: ctx.task.key,
       ticket_type: this.ctxHelper.taskLabel(ctx),
       ticket_summary: ctx.task.summary,
-      ticket_prd: ctx.task.prdText?.slice(0, 4000) ?? "",
+      ticket_prd: prd?.text ?? "",
     };
 
     // byte-parity rule (I7): the internal-block whitespace is normalized inside

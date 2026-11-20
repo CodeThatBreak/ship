@@ -7,6 +7,8 @@ import type { FlowRow, Task } from "../../../db/rows";
 import { localGit } from "../../../git/local";
 import { gitRemoteContextFor } from "../../ports/gitHost";
 import { taskRegistry } from "../../tasks/registry";
+import { untrustedData } from "../../prompts/untrustedData";
+import { TASK_PRD_CAP } from "../../prompts/caps";
 import { branchNamer } from "./branchNamer";
 
 // ── context ──────────────────────────────────────────────────────────────────
@@ -72,10 +74,16 @@ export class FlowContextHelper {
   taskContext(ctx: FlowCtx): string {
     const t = ctx.task;
     const figma = (t.figmaUrls ?? []).map((u: string) => `- ${u}`).join("\n");
+    // the PRD/description is untrusted provider content — fenced with the loud
+    // cap (the plan/build/step-build prompts all embed this block)
+    const prdSource = t.prdText || t.description || "";
+    const prd = prdSource
+      ? untrustedData({ source: "task PRD", text: prdSource, cap: TASK_PRD_CAP }).text
+      : "(none)";
     return [
       `# ${this.taskLabel(ctx)} ${t.key}: ${t.summary}`,
       `Status: ${t.status} · Type: ${t.issueType} · Priority: ${t.priority}`,
-      `\n## PRD / Description\n${t.prdText || t.description || "(none)"}`,
+      `\n## PRD / Description\n${prd}`,
       figma ? `\n## Figma designs\n${figma}` : "",
     ].join("\n");
   }

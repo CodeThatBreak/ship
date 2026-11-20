@@ -29,6 +29,7 @@ import { configString, mcpSourcesOf, mcpSourcesSchema, mcpSourceConfigFields, sp
 import { splitConsumeSchema, splitParallelMaxSchema } from "../../shared/split";
 import { mrTargetResolver } from "../../shared/mrTargetResolver";
 import { worktreeManager } from "../../../runtime/worktreeLifecycle";
+import { EVENT_KIND } from "../../../constants/vocabulary";
 import { ResolveConsumes, ResolveInput, ResolveOutput, RESOLVE_RESPONSE_JSON_SCHEMA } from "./schema";
 import { ResolveOutputContract } from "./resolveContract";
 import { ResolveFinisher } from "./resolveFinisher";
@@ -190,6 +191,16 @@ export class ResolveNode extends AgentRunNode<ResolveInput, ResolveOutput> {
       open,
       await this.support.agentReplies(ctx.flow.id, mrIid),
     );
+    // the loud-cap contract: a cap that bit is announced to the agent in-prompt
+    // AND logged once here, naming what was capped
+    if (presented.truncations.length > 0) {
+      await this.support.emit(
+        ctx.flow.id,
+        node.id,
+        EVENT_KIND.LOG,
+        `resolve prompt comment data truncated: ${presented.truncations.join("; ")}`,
+      );
+    }
     const contractDirective = AgentOutputError.directive(RESOLVE_RESPONSE_JSON_SCHEMA);
 
     // byte-parity rule (I7): internal-block whitespace is normalized inside

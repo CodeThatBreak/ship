@@ -5,6 +5,7 @@ import type { NodeRow } from "../../../../db/rows";
 import type { AgentRunResult } from "../../../ports/agentPort";
 import type { RecoveryResult } from "../../shared/types/recovery";
 import { prompts } from "../../../prompts/promptLibrary";
+import { untrustedData } from "../../../prompts/untrustedData";
 import { planSteps } from "../../../runtime/planStepStore";
 import { agentRunner, type AgentRunner } from "../../../harness/harnessExports";
 import { AgentRunNode, flowCtxHelper, nodeRoles, type FlowContextHelper, type FlowCtx, type NodePromptPreview, type NodeTriggerRun, type RunOutcome } from "../../shared/nodeSharedExports";
@@ -431,7 +432,8 @@ export class BuildNode extends AgentRunNode<BuildInput, BuildOutput> {
     ctx: FlowCtx,
     config: Record<string, unknown>,
     args: {
-      plan: string;
+      /** the approved plan content; null renders the "(no plan yet)" placeholder */
+      plan: string | null;
       branchInfo: BuildBranchInfo | null;
       promptOverride: string | null;
       promptIsBody?: boolean;
@@ -442,9 +444,14 @@ export class BuildNode extends AgentRunNode<BuildInput, BuildOutput> {
     const branch = this.buildRun.branchName(ctx, config, branchSuffix);
     const mode = this.ctxHelper.execMode(ctx);
 
-    let scopedPlan = args.plan;
+    // the approved plan is authored by a previous agent run — untrusted data,
+    // fenced (no cap exists today; none added)
+    const planBlock = args.plan
+      ? untrustedData({ source: "approved plan", text: args.plan }).text
+      : "(no plan yet)";
+    let scopedPlan = planBlock;
     if (args.branchInfo?.scope) {
-      scopedPlan = `Branch scope: ${args.branchInfo.scope}\n\n${args.plan}`;
+      scopedPlan = `Branch scope: ${args.branchInfo.scope}\n\n${planBlock}`;
     }
 
     const ticketType = this.ctxHelper.taskLabel(ctx);
@@ -517,10 +524,9 @@ export class BuildNode extends AgentRunNode<BuildInput, BuildOutput> {
   async previewPrompt(ctx: FlowCtx, node: NodeRow | null): Promise<NodePromptPreview | null> {
     const config = await nodeRoles.previewConfig(this, node);
     const planRow = await this.support.latestArtifact(ctx.flow.id, "plan");
-    const planContent = planRow?.content ?? "(no plan yet)";
     const configBody = configString(config, "prompt_body") ?? null;
     const { configBody: resolvedBody, assembly } = await this.buildPromptAssembly(ctx, config, {
-      plan: planContent,
+      plan: planRow?.content ?? null,
       branchInfo: null,
       promptOverride: configBody,
       setupNote: null,

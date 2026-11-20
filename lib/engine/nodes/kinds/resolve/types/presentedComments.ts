@@ -8,4 +8,7 @@ export type PresentedComments = {
   text: string;
   /** the ids actually presented — the parse coverage set */
   ids: string[];
+  /** loud-cap messages naming every truncation applied while presenting
+   *  (empty = nothing was capped) — the node turns them into one `log` event */
+  truncations: string[];
 };

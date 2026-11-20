@@ -200,13 +200,16 @@ describe("presentComments", () => {
       row({ id: "gl_125", body: "Drop the cast.", filePath: "src/b.ts", line: 9, author: "reviewer", discussionId: "d2" }),
     ];
     const presented = contract.presentComments(open);
-    expect(presented.text).toBe(
-      [
-        "- [gl_123] src/a.ts:2 — Rename the variable. (author: @reviewer)",
-        "- [gl_125] src/b.ts:9 — Drop the cast. (author: @reviewer)",
-      ].join("\n"),
-    );
+    // bodies are untrusted reviewer content — each rides the shared fence
+    expect(presented.text).toContain("- [gl_123] src/a.ts:2 — ");
+    expect(presented.text).toContain("<untrusted-data source=\"comment gl_123\">");
+    expect(presented.text).toContain("Rename the variable.");
+    expect(presented.text).toContain("- [gl_125] src/b.ts:9 — ");
+    expect(presented.text).toContain("Drop the cast.");
+    expect(presented.text).toContain("(author: @reviewer)");
+    expect(presented.text).toContain("</untrusted-data>");
     expect(presented.ids).toEqual(["gl_123", "gl_125"]);
+    expect(presented.truncations).toEqual([]);
   });
 
   it("marks a resolvable comment without a file path with body only, null body as empty", () => {
@@ -223,9 +226,9 @@ describe("presentComments", () => {
     const presented = contract.presentComments([
       row({ id: "gl_124", filePath: null, line: null, discussionId: null, raw: JSON.stringify({ resolvable: false }), body: "Question: why two clients?" }),
     ]);
-    expect(presented.text).toBe(
-      "- [gl_124] (MR note, not resolvable) — Question: why two clients? (author: @reviewer)",
-    );
+    expect(presented.text).toContain("- [gl_124] (MR note, not resolvable) — ");
+    expect(presented.text).toContain("Question: why two clients?");
+    expect(presented.text).toContain("(author: @reviewer)");
     expect(presented.ids).toEqual(["gl_124"]);
   });
 
@@ -251,12 +254,20 @@ describe("presentComments", () => {
     expect(presented.text).not.toContain("awaiting reviewer");
   });
 
-  it("per-comment bodies cap at 2 000 chars with a truncation suffix", () => {
+  it("per-comment bodies cap at 2 000 chars with the LOUD truncation note inside the fence", () => {
     const presented = contract.presentComments([
       row({ id: "gl_1", body: "x".repeat(3000) }),
     ]);
-    expect(presented.text).toContain("… (truncated)");
-    expect(presented.text.length).toBeLessThan(2100);
+    // the shared untrusted-data wrapper: fenced + loud in-prompt cap note
+    expect(presented.text).toContain('<untrusted-data source="comment gl_1">');
+    expect(presented.text).toContain("[truncated to 2000 of 3000 characters — the source material was capped]");
+    // the old silent marker is gone
+    expect(presented.text).not.toContain("… (truncated)");
+    expect(presented.text.length).toBeLessThan(2500);
+    // the truncation signal travels back for the node's log event
+    expect(presented.truncations).toEqual([
+      "comment gl_1 body capped to 2000 of 3000 characters",
+    ]);
   });
 
   it("caps the whole block at 40 000 chars, drops whole lines and names the truncation", () => {
@@ -273,6 +284,10 @@ describe("presentComments", () => {
       expect(presented.text).toContain(`[${id}]`);
     }
     expect(presented.ids).toEqual(open.slice(0, presented.ids.length).map((r) => r.id));
+    // the block-level cap is part of the returned loud-cap signal
+    expect(presented.truncations.length).toBe(1);
+    expect(presented.truncations[0]).toContain("open-comment list capped to 40000 characters");
+    expect(presented.truncations[0]).toContain(`${open.length - presented.ids.length} of ${open.length} comment(s) omitted`);
   });
 });
 
