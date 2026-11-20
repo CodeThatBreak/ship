@@ -110,7 +110,7 @@ export default function ChatComposerForm({
   useImperativeHandle(
     chatInputRef,
     () => ({
-      focus: (position?: number) => {
+      focus: () => {
         textareaRef.current?.focus();
       },
 

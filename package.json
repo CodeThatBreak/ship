@@ -11,7 +11,7 @@
     "start": "node scripts/run-next-local.mjs start",
     "worker": "tsx --tsconfig worker/tsconfig.json worker/main.ts",
     "typecheck": "tsc --noEmit",
-    "lint": "eslint . --max-warnings=53",
+    "lint": "eslint . --max-warnings=0",
     "test": "vitest run",
     "check": "npm run typecheck && npm run lint && npm test",
     "db:init:prod": "node scripts/init-prod-db.mjs",
