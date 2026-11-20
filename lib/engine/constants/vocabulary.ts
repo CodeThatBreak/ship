@@ -24,6 +24,10 @@ export const EVENT_KIND = {
   /** the agent answered with the standard error envelope — its reason is the
    *  failure, never retried (step 05) */
   AGENT_REPORTED: "agent_reported",
+  /** step 08 (Invariant 10): the running agent failed its OWN node via the
+   *  bounded `report_failure` tool — the reason is the agent's, carried
+   *  through the authority's declared `agentReportedFailure` transition */
+  AGENT_REPORTED_FAILURE: "agent_reported_failure",
   /** a trigger lost the atomic claim (step 06, Invariant 11): the node is
    *  already in flight or not in the trigger's from-set. Debug-level and
    *  dedup-friendly in the UI — concurrent webhook/poller races on the same

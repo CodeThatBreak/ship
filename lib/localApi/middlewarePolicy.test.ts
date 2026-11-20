@@ -45,6 +45,16 @@ describe("evaluateLocalApiMiddleware", () => {
     expect(evaluateLocalApiMiddleware(req, token)).toBeNull();
   });
 
+  // step 08: the agent-tools route self-authenticates with the per-attempt
+  // capability token in its handler — the local-API token must not gate it
+  it("stands down on the self-authenticating agent-tools route", () => {
+    const req = mutating({
+      url: "http://127.0.0.1:3000/api/flows/f1/nodes/build/agent-tools",
+      headers: { [LOCAL_API.TOKEN_HEADER]: "" },
+    });
+    expect(evaluateLocalApiMiddleware(req, token)).toBeNull();
+  });
+
   it("blocks cross-site fetches when Sec-Fetch-Site is cross-site", () => {
     const req = mutating({ headers: { "sec-fetch-site": "cross-site" } });
     expect(evaluateLocalApiMiddleware(req, token)?.status).toBe(403);

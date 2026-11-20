@@ -149,6 +149,16 @@ export class AppConfig {
   readonly secrets = new SecretsConfig();
 
   /**
+   * The public base URL agents reach this server on (step 08, `SERVER_PUBLIC_URL`).
+   * Cloud agents cannot reach `localhost`, so the agent-tools feature only
+   * advertises its tools when this is set — unset means the tools block is
+   * omitted and behavior is exactly the pre-step-08 fence path.
+   */
+  serverPublicUrl(): string {
+    return AppConfig.env("SERVER_PUBLIC_URL");
+  }
+
+  /**
    * Last-resort default agent model (the `DEFAULT_MODEL` env var).
    * Vendor-neutral: applies to whichever harness executes the run; per-run
    * selection and the `default_model` setting override it.

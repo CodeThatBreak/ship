@@ -43,7 +43,7 @@ describe("transitionTable", () => {
 
   it("every row declares an actor from the vocabulary and non-empty sets", () => {
     for (const row of Object.values(TRANSITION_TABLE)) {
-      expect(["trigger", "effect", "reconcile", "user", "system"]).toContain(row.actor);
+      expect(["trigger", "effect", "reconcile", "user", "system", "agent"]).toContain(row.actor);
       expect(row.from.length).toBeGreaterThan(0);
       expect(row.to.length).toBeGreaterThan(0);
     }

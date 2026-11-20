@@ -108,6 +108,7 @@ Infrastructure only — integration credentials (GitLab, Jira, Cursor) live in t
 | `DEFAULT_MODEL` | Optional last-resort default model id when settings do not specify one |
 | `GITLAB_WEBHOOK_SECRET` | Shared secret for `POST /api/webhooks/gitlab` (required unless `GITLAB_WEBHOOK_ALLOW_UNSIGNED=1`) |
 | `GITLAB_WEBHOOK_ALLOW_UNSIGNED` | Set to `1` to accept unsigned GitLab webhooks when the secret is unset (local dev only) |
+| `SERVER_PUBLIC_URL` | Optional public base URL agents reach this server on (e.g. `https://devflow.example.com`). When set, running agents get the step-08 self-repair tools (`read_flow_state`, `claim_checklist_progress`, `report_failure`) advertised in their prompt, authenticated by a per-attempt capability token. Cloud agents cannot reach `localhost` — unset, the feature stays off and builds report progress via the prose fence as before |
 
 ### GitLab webhook (for live CI + comment triggers)
 

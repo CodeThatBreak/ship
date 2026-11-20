@@ -116,6 +116,13 @@ export interface AgentStartSpec {
    * project/team/plugins plus dashboard servers.
    */
   settingSources?: SettingSource[];
+  /**
+   * Per-run env vars injected into the agent's shell (step 08 — the
+   * agent-tools capability token). Cloud runtimes map this to the SDK's
+   * `cloud.envVars` (encrypted at rest, deleted with the agent); local
+   * runtimes have no env channel and receive the values through the prompt.
+   */
+  env?: Record<string, string>;
 }
 
 /** A streamed-to-completion run: result plus the local follow-up handle. */

@@ -1,12 +1,16 @@
 import "server-only";
 
+import { config } from "../../../config";
 import type { AgentRunResult } from "../../ports/agentPort";
 import { agentRunner, type AgentRunner, type AgentStartInput } from "../../harness/harnessExports";
 import { flowCtxHelper, type FlowContextHelper, type FlowCtx } from "./runContext";
 import type { NodeSupport } from "./nodeSupport";
-import { nodeSupport } from "@/lib/composition/container";
+import { nodeSupport, engineParts } from "@/lib/composition/container";
 import { NodeDefinition, type RunOutcome } from "./nodeDefinition";
 import type { ChatTurnOpts } from "./nodeRoles";
+import { AGENT_TOKEN_ENV, AGENT_TOOL_SETS } from "../../agentTools/constants/agentTools";
+import type { ToolDescriptor } from "../../agentTools/types/tools";
+import { agentToolsBlock, redactCapabilityToken } from "../../agentTools/utils/toolsPromptBlock";
 import type { NodeRunStatus } from "../../../../constants/flow";
 import { FLOW_STATUS } from "../../../../constants/flow";
 import type { NodeRow } from "../../../db/rows";
@@ -44,6 +48,14 @@ export abstract class AgentRunNode<
 > extends NodeDefinition<I, O> {
   /** The agent runner — constructor-injected, the singleton is the default. */
   protected readonly runner: AgentRunner;
+
+  /** Step 08 (Invariant 10) — the agent-run tier's default toolset: every
+   *  kind that runs an agent gets live flow state + the bounded
+   *  self-failure; build/step-build override with the checklist-claim tool.
+   *  Non-agent kinds (start/http/script) keep the base `[]` default. */
+  override agentTools(): ToolDescriptor[] {
+    return [...AGENT_TOOL_SETS.readAndReport];
+  }
 
   constructor(
     support: NodeSupport = nodeSupport,
@@ -151,11 +163,32 @@ export abstract class AgentRunNode<
   ): Promise<RunOutcome> {
     const node = await this.node(ctx);
     const attemptId = node.attemptId;
+    // Step 08 (Invariant 10): the running agent's tools ride the prompt as a
+    // locked appended block — only when the endpoint is reachable
+    // (SERVER_PUBLIC_URL) and the kind declares tools. Cloud runs get the
+    // token injected into the run environment instead of prompt text; local
+    // runs (no env channel) carry it inline in the block. The recorded input
+    // blob always redacts the token (it is what the UI/retry record shows).
+    const apiToken = attemptId != null ? (engineParts.attemptRegistry.apiTokenOf(node.id) ?? null) : null;
+    const toolsBlock = agentToolsBlock({
+      baseUrl: config.serverPublicUrl(),
+      flowId: ctx.flow.id,
+      nodeKey: node.nodeKey,
+      token: apiToken,
+      execMode: this.ctxHelper.execMode(ctx),
+      tools: this.agentTools(),
+    });
+    const prompt = toolsBlock ? `${opts.prompt}\n\n${toolsBlock}` : opts.prompt;
     await this.support.setNode(node.id, {
-      input: JSON.stringify(opts.input),
+      input: redactCapabilityToken(JSON.stringify(opts.input), apiToken),
     });
     const start = () =>
-      this.runner.startAgent(ctx, { ...opts.agent, prompt: opts.prompt, nodeId: node.id });
+      this.runner.startAgent(ctx, {
+        ...opts.agent,
+        prompt,
+        nodeId: node.id,
+        env: apiToken ? { [AGENT_TOKEN_ENV]: apiToken } : undefined,
+      });
     try {
       const { result, runRowId } = await this.runner.executeRun(ctx, node.id, start, opts.label, {
         attemptId: attemptId ?? undefined,

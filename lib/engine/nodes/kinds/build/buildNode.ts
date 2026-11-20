@@ -22,6 +22,7 @@ import { splitUnitItemOf } from "./utils/splitUnitItem";
 import { parseBuildProgressReport } from "./utils/buildProgress";
 import { topoSortBranches } from "./utils/topoSortBranches";
 import { EVENT_KIND } from "../../../constants/vocabulary";
+import { AGENT_TOOL_SETS } from "../../../agentTools/constants/agentTools";
 import { BuildConsumes, BuildInput, BuildOutput, type BuildBranchInfo } from "./schema";
 import { type PlanBranch, parsePlanArtifactMeta, PlanOutput } from "../plan/schema";
 
@@ -71,6 +72,11 @@ export class BuildNode extends AgentRunNode<BuildInput, BuildOutput> {
   /** validation-only: the build-progress fence has no feedback turn — a
    *  missing/unparseable report with pending steps fails the node (step 05) */
   override readonly retryBudget = 0;
+
+  /** Step 08 (Invariant 10): the build agent gets the full toolset. */
+  override agentTools() {
+    return [...AGENT_TOOL_SETS.build];
+  }
 
   /** Typed config knobs (defaults = today's behavior). */
   override readonly configSchema = z.object({
@@ -290,6 +296,12 @@ export class BuildNode extends AgentRunNode<BuildInput, BuildOutput> {
     }
 
     // apply the build agent's structured progress report to the plan checklist
+    // (step 08: progress acceptance is API claims ∪ fence parse — the API's
+    // claims are already persisted on plan_steps; the fence adds whatever it
+    // still carries, idempotently). The fence path logs that the API was
+    // bypassed — the prompt-snapshot fallback it is.
+    // step 08: the fence path logs that the API was bypassed (its fallback note)
+    if (report != null) await this.support.emit(ctx.flow.id, nodeId, EVENT_KIND.LOG, `build-progress accepted via the prose fence — the claim_checklist_progress API was bypassed`, { nodeKey: this.key, fenceCompleted: report.completed.length });
     await planSteps.markDone(ctx.flow.id, nodeId, report?.completed ?? []);
 
     const resultBranch = await this.buildRun.resultBranch(ctx, result, branch);
@@ -451,7 +463,7 @@ export class BuildNode extends AgentRunNode<BuildInput, BuildOutput> {
           `Work through these steps (ids in brackets):`,
           checklistRows,
           ``,
-          `When you finish, end your response with a \`\`\`json build-progress\`\`\` block listing the ids of the steps you fully completed:`,
+          `When you finish, report the ids of the steps you fully completed — prefer the claim_checklist_progress API (see Tools available); the prose fence is also accepted as a fallback:`,
           `\`\`\`json build-progress`,
           `{"completed":["s1","s2"]}`,
           `\`\`\``,

@@ -10,6 +10,7 @@ import type { NodeRow } from "../../../../db/rows";
 import type { AgentRunResult } from "../../../ports/agentPort";
 import type { RecoveryResult } from "../../shared/types/recovery";
 import { prompts } from "../../../prompts/promptLibrary";
+import { AGENT_TOOL_SETS } from "../../../agentTools/constants/agentTools";
 import { DEFAULT_FANOUT_OUTPUT, type MergeBackArgs, type MergeBackResult, type NodeCapabilities } from "../../shared/capabilities";
 import { NODE_KEYS } from "../../../constants/nodeKeys";
 import { DEFAULT_MCP_SOURCES, mcpSourceConfigFields, mcpSourcesOf, mcpSourcesSchema } from "../../../templates/nodeConfig";
@@ -54,6 +55,13 @@ export class StepBuildNode extends AgentRunNode<BuildInput, BuildOutput> {
   readonly label = "Step build";
   readonly promptKeys: readonly string[] = [NODE_KEYS.STEP_BUILD, "build_refine"];
   override readonly promptSections: readonly string[] = [NODE_KEYS.STEP_BUILD];
+
+  /** Step 08 (Invariant 10): the step child gets the parent build kind's
+   *  toolset — it may claim its own step's checklist progress via the API
+   *  (the parent rollup stays merge-driven and idempotent). */
+  override agentTools() {
+    return [...AGENT_TOOL_SETS.build];
+  }
   /** Fan-out children ride the parent build's graph slot (no template row of
    *  their own in the built-in graph; edges default to none — the child's
    *  flow runs the seeded step-build template, not the build → pipeline edge). */

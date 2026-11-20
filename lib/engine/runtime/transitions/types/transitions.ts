@@ -6,8 +6,10 @@ import type { TRANSITION_TABLE } from "../constants/transitionTable";
 /**
  * Who may fire a declared transition (step-02 spec): the actor metadata the
  * transition table carries so tests can assert *who* fired a status change.
+ * Step 08 adds `"agent"` — the running agent failing its own node
+ * (`report_failure` through the agent-tools endpoint).
  */
-export type TransitionActor = "trigger" | "effect" | "reconcile" | "user" | "system";
+export type TransitionActor = "trigger" | "effect" | "reconcile" | "user" | "system" | "agent";
 
 /**
  * One declared edge of the node state machine (target-architecture §2):
@@ -58,5 +60,5 @@ export interface TransitionRecord {
  * holder's state read back so the skip event can name who holds the node.
  */
 export type TriggerClaim =
-  | { claimed: true; attemptId: string; nodeId: string }
+  | { claimed: true; attemptId: string; nodeId: string; /** step 08: the paired capability token (Invariant 10) */ apiToken: string }
   | { claimed: false; status: string | null; holderAttemptId: string | null };

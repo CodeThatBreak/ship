@@ -39,6 +39,10 @@ export interface CreateAgentInput {
   model?: string;
   name?: string;
   customSubagents?: { name: string; instructions: string }[];
+  /** Per-run env vars injected into the cloud agent's shell (step 08 — the
+   *  agent-tools capability token). SDK `cloud.envVars`: encrypted at rest,
+   *  deleted with the agent. */
+  envVars?: Record<string, string>;
 }
 
 /**
@@ -61,6 +65,7 @@ export class CursorClient {
       name: input.name,
       customSubagents: input.customSubagents,
       model: this.modelSelection(input.model),
+      envVars: input.envVars,
     });
     return { agent: { id: started.agentId }, run: { id: started.runId } };
   }

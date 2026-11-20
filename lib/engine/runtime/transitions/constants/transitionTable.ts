@@ -107,6 +107,11 @@ export const TRANSITION_TABLE = {
   // ── failures ─────────────────────────────────────────────────────────────
   /** A stage's fire-and-forget run errored (bg catch / stage catch). */
   stageError: { from: [NODE_STATUS.RUNNING], to: [NODE_STATUS.FAILED], actor: "system" },
+  /** Step 08 (Invariant 10): the running agent reported its own failure
+   *  (`report_failure` through the agent-tools endpoint, capability-gated by
+   *  the attempt token). The agent's reason rides the typed
+   *  `agent_reported_failure` event the service emits at the transition. */
+  agentReportedFailure: { from: [NODE_STATUS.RUNNING], to: [NODE_STATUS.FAILED], actor: "agent" },
   /** User cancel of an in-flight node. */
   cancel: {
     from: [NODE_STATUS.RUNNING, NODE_STATUS.WAITING, NODE_STATUS.AWAITING_APPROVAL],

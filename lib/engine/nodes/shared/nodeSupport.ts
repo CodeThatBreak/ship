@@ -194,10 +194,9 @@ export class NodeSupport {
    * Placeholder run row for the current attempt — written at the start of
    * `executeRun` so reconcile sees a run while the agent is still starting.
    * `run_ref` is the attempt token until `persistRun` upgrades the row; the
-   * attempt token and a run lease (`runs.lease_until`) are stamped next to it
-   * so liveness survives the process that started the run (step 03).
+   * attempt token, capability token and a run lease are stamped next to it.
    */
-  async registerStartupRun(flowId: string, nodeId: string, attemptId: string): Promise<void> {
+  async registerStartupRun(flowId: string, nodeId: string, attemptId: string, apiToken?: string | null): Promise<void> {
     const existing = await db.get<{ agentRef: string; runRef: string }>(
       `SELECT agent_ref AS "agentRef", run_ref AS "runRef" FROM runs
        WHERE node_id=$1 AND status=$2 ORDER BY created_at DESC LIMIT 1`,
@@ -211,9 +210,10 @@ export class NodeSupport {
       await exec.run(`UPDATE runs SET status=$1, lease_until=NULL, updated_at=$2 WHERE node_id=$3 AND status=$4`,
         RUN_STATUS.ERROR, db.now(), nodeId, RUN_STATUS.RUNNING);
       const id = db.uid("run_");
-      await exec.run(`INSERT INTO runs (id,flow_id,node_id,agent_ref,run_ref,attempt_id,lease_until,status,created_at,updated_at)
-         VALUES ($1,$2,$3,$4,$5,$6, now() + make_interval(secs => $7),$8,$9,$10)`,
-        id, flowId, nodeId, RUN_AGENT_REF.PENDING, attemptId, attemptId, RUN_LEASE_SECONDS, RUN_STATUS.RUNNING, db.now(), db.now());
+      // api_token (step 08): the claim-minted capability token rides the startup row.
+      await exec.run(`INSERT INTO runs (id,flow_id,node_id,agent_ref,run_ref,attempt_id,api_token,lease_until,status,created_at,updated_at)
+         VALUES ($1,$2,$3,$4,$5,$6,$7, now() + make_interval(secs => $8),$9,$10,$11)`,
+        id, flowId, nodeId, RUN_AGENT_REF.PENDING, attemptId, attemptId, apiToken ?? null, RUN_LEASE_SECONDS, RUN_STATUS.RUNNING, db.now(), db.now());
     });
   }
 
@@ -221,7 +221,7 @@ export class NodeSupport {
     return agentRef === RUN_AGENT_REF.PENDING;
   }
 
-  async persistRun(flowId: string, nodeId: string, agentId: string, runId: string): Promise<string> {
+  async persistRun(flowId: string, nodeId: string, agentId: string, runId: string, apiToken?: string | null): Promise<string> {
     const attemptId = (await db.get<{ attemptId: string | null }>(
       `SELECT attempt_id AS "attemptId" FROM nodes WHERE id=$1`, nodeId))?.attemptId;
     if (attemptId) {
@@ -262,9 +262,9 @@ export class NodeSupport {
       await exec.run(`UPDATE runs SET status=$1, updated_at=$2 WHERE node_id=$3 AND status=$4`, RUN_STATUS.ERROR, db.now(), nodeId, RUN_STATUS.RUNNING);
       const id = db.uid("run_");
       await exec.run(
-        `INSERT INTO runs (id,flow_id,node_id,agent_ref,run_ref,attempt_id,lease_until,status,created_at,updated_at)
-         VALUES ($1,$2,$3,$4,$5,$6, now() + make_interval(secs => $7),$8,$9,$10)`,
-        id, flowId, nodeId, agentId, runId, attemptId, RUN_LEASE_SECONDS, RUN_STATUS.RUNNING, db.now(), db.now());
+        `INSERT INTO runs (id,flow_id,node_id,agent_ref,run_ref,attempt_id,api_token,lease_until,status,created_at,updated_at)
+         VALUES ($1,$2,$3,$4,$5,$6,$7, now() + make_interval(secs => $8),$9,$10,$11)`,
+        id, flowId, nodeId, agentId, runId, attemptId, apiToken ?? null, RUN_LEASE_SECONDS, RUN_STATUS.RUNNING, db.now(), db.now());
       return id;
     });
   }

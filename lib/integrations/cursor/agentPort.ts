@@ -45,6 +45,8 @@ export class CursorCloudAgentPort implements AgentPort {
       name: spec.name,
       customSubagents: spec.customSubagents,
       model: spec.model ?? undefined,
+      // step 08: the agent-tools capability token rides the run environment
+      envVars: spec.env,
     });
     return { agentId: created.agent.id as string, runId: created.run.id as string };
   }

@@ -8,10 +8,11 @@ import { NODE_LEASE_SECONDS } from "../../constants/leases";
 import { NodeAttemptRegistry } from "../nodeAttemptRegistry";
 import { ContractPipeline } from "../contractPipeline";
 import { OutputContractError } from "../../errors/outputContractError";
-import { EVENT_KIND } from "../../constants/vocabulary";
+import { EVENT_KIND, RUN_STATUS } from "../../constants/vocabulary";
 import { isClaimKey, resolveToStatus, sqlMarks } from "./utils/transitionLookup";
 import { executorFor } from "./utils/executor";
 import { supersededOrConflict } from "./utils/supersededOrConflict";
+import { generateCapabilityToken } from "./utils/capabilityToken";
 import { TRANSITION_TABLE } from "./constants/transitionTable";
 import type {
   NodeOutcome,
@@ -87,9 +88,11 @@ export class TransitionAuthority {
     flowId: string,
     nodeKey: string,
     key: TransitionKey,
-  ): Promise<{ attemptId: string; nodeId: string }> {
+  ): Promise<{ attemptId: string; nodeId: string; apiToken: string }> {
     const row = TRANSITION_TABLE[key];
     const attemptId = this.database.uid("att_");
+    // step 08: the attempt and its capability token are born together (Invariant 10).
+    const apiToken = generateCapabilityToken();
     const claimed = await this.database.get<{ id: string }>(
       `UPDATE nodes SET status=$1, attempt_id=$2, wait_until=NULL,
          lease_until = now() + make_interval(secs => $3), updated_at=$4
@@ -106,9 +109,9 @@ export class TransitionAuthority {
     if (!claimed) {
       throw new ConflictError(`Node ${nodeKey} is not in ${row.from.join("/")}`);
     }
-    this.attempts.mark(claimed.id, attemptId);
+    this.attempts.mark(claimed.id, attemptId, apiToken);
     this.record(flowId, nodeKey, key, NODE_STATUS.RUNNING, attemptId);
-    return { attemptId, nodeId: claimed.id };
+    return { attemptId, nodeId: claimed.id, apiToken };
   }
 
   /**
@@ -131,6 +134,7 @@ export class TransitionAuthority {
            AND c.status='${NODE_STATUS.RUNNING}' AND c.node_key IN (${chainKeys.map((_, i) => `$${7 + i}`).join(", ")}))`
       : "";
     const attemptId = this.database.uid("att_");
+    const apiToken = generateCapabilityToken(); // step 08: paired capability token
     const claimed = await this.database.get<{ id: string }>(
       `UPDATE nodes SET status=$1, attempt_id=$2, wait_until=NULL,
          lease_until = now() + make_interval(secs => $3), updated_at=$4
@@ -145,9 +149,9 @@ export class TransitionAuthority {
         `SELECT status, attempt_id AS "attemptId" FROM nodes WHERE flow_id=$1 AND node_key=$2`, flowId, nodeKey);
       return { claimed: false, status: holder?.status ?? null, holderAttemptId: holder?.attemptId ?? null };
     }
-    this.attempts.mark(claimed.id, attemptId);
+    this.attempts.mark(claimed.id, attemptId, apiToken);
     this.record(flowId, nodeKey, key, NODE_STATUS.RUNNING, attemptId);
-    return { claimed: true, attemptId, nodeId: claimed.id };
+    return { claimed: true, attemptId, nodeId: claimed.id, apiToken };
   }
 
   /**
@@ -317,6 +321,7 @@ export class TransitionAuthority {
       throw new ConflictError(`Node ${params.nodeKey} is not in ${row.from.join("/")}`);
     }
     this.attempts.clear(params.nodeId);
+    await this.clearRunTokens(params.nodeId, d);
     this.record(params.flowId, params.nodeKey, "outcome", to);
   }
 
@@ -380,6 +385,7 @@ export class TransitionAuthority {
     );
     if (!applied) return false;
     this.attempts.clear(applied.id);
+    await this.clearRunTokens(applied.id, executorFor(this.database, tx));
     const record = this.record(flowId, nodeKey, key, to);
     await this.events.announcedTransition(record, outcome.detail, tx);
     return true;
@@ -392,6 +398,17 @@ export class TransitionAuthority {
    */
   async failFromRunning(flowId: string, nodeKey: string): Promise<void> {
     await this.apply(flowId, nodeKey, "stageError");
+  }
+
+  /** Step 08: the attempt's capability token dies with the terminal — same
+   *  executor/tx as the write, so a crash can't leave a live token behind. */
+  private async clearRunTokens(nodeId: string, exec: Pick<Database, "run">): Promise<void> {
+    await exec.run(
+      `UPDATE runs SET api_token=NULL, updated_at=$2 WHERE node_id=$1 AND status=$3`,
+      nodeId,
+      this.database.now(),
+      RUN_STATUS.RUNNING,
+    );
   }
 
   /**

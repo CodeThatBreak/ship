@@ -1,4 +1,4 @@
-import { LOCAL_API, LOCAL_API_EXEMPT_PREFIXES } from "./constants/localApi";
+import { LOCAL_API, LOCAL_API_EXEMPT_PREFIXES, isSelfAuthenticatedApiPath } from "./constants/localApi";
 
 const MUTATING = new Set(["POST", "PUT", "PATCH", "DELETE"]);
 
@@ -59,6 +59,10 @@ export const evaluateLocalApiMiddleware = (
   const { pathname } = new URL(req.url);
   if (!pathname.startsWith("/api/")) return null;
   if (isLocalApiExemptPath(pathname)) return null;
+  // self-authenticated routes (step 08: the agent-tools endpoint validates
+  // its own per-attempt Bearer token in the handler — the Edge middleware
+  // cannot reach the DB to check it)
+  if (isSelfAuthenticatedApiPath(pathname)) return null;
   if (!MUTATING.has(req.method.toUpperCase())) return null;
 
   if (!expectedToken) {

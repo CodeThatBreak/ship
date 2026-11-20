@@ -66,6 +66,10 @@ export interface CreateRunInput {
   customSubagents?: { name: string; instructions: string }[];
   // local runtime — ambient setting layers (their MCP servers) the agent loads
   settingSources?: SdkSettingSource[];
+  // cloud runtime — per-run env vars injected into the agent's shell (step 08:
+  // the agent-tools capability token). SDK `cloud.envVars` — encrypted at
+  // rest, deleted with the agent.
+  envVars?: Record<string, string>;
   // resume an existing agent conversation (follow-up)
   resumeAgentId?: string;
 }
@@ -230,6 +234,9 @@ export class CursorAgentService {
         opts.cloud = {
           repos: input.repos?.length ? input.repos : [],
           autoCreatePR: input.autoCreatePR ?? false,
+          // per-run env vars (step 08: the agent-tools capability token) —
+          // SDK cloud.envVars; omitted when unset so default runs are unchanged
+          ...(input.envVars && Object.keys(input.envVars).length ? { envVars: input.envVars } : {}),
         };
         if (input.customSubagents?.length) {
           opts.agents = Object.fromEntries(

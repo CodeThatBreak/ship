@@ -402,6 +402,11 @@ model Run {
   // never in-process handles (step 03).
   attemptId       String?   @map("attempt_id")
   leaseUntil      DateTime? @map("lease_until") @db.Timestamptz
+  // Invariant 10 (step 08): the per-attempt capability token the node's agent
+  // presents on the agent-tools endpoint — minted by the authority's claim,
+  // persisted here by registerStartupRun, cleared when the run closes. Valid
+  // only while this attempt still owns the node (nodes.attempt_id match).
+  apiToken        String?   @map("api_token")
   model           String?
   inputTokens     Int?      @map("input_tokens")
   outputTokens    Int?      @map("output_tokens")

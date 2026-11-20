@@ -2,6 +2,7 @@ import "server-only";
 
 import type { PrismaClient } from "@prisma/client";
 import { RowGateway } from "../db/rows";
+import { db } from "../db/app";
 import {
   EventStore,
   GitLabInstanceStore,
@@ -17,6 +18,12 @@ import { ContractPipeline } from "../engine/runtime/contractPipeline";
 import { TransitionAuthority } from "../engine/runtime/transitions/nodeTransitions";
 import { TransitionEvents } from "../engine/runtime/transitions/transitionEvents";
 import { TriggerGateway } from "../engine/runtime/triggers/triggerGateway";
+import { ToolRegistry } from "../engine/agentTools/toolRegistry";
+import { ReadFlowStateTool } from "../engine/agentTools/tools/readFlowStateTool";
+import { ClaimChecklistProgressTool } from "../engine/agentTools/tools/claimChecklistProgressTool";
+import { ReportFailureTool } from "../engine/agentTools/tools/reportFailureTool";
+import { AgentToolService } from "../engine/agentTools/agentToolService";
+import { planSteps } from "../engine/runtime/planStepStore";
 
 /**
  * Composition root (decision Q9 — lands incrementally through step 09).
@@ -58,6 +65,10 @@ export interface EngineParts {
   events: TransitionEvents;
   /** the trigger claim door (step 06, Invariant 11) */
   triggers: TriggerGateway;
+  /** the agent self-repair surface (step 08, Invariant 10) */
+  agentTools: AgentToolService;
+  /** the tool registry behind `agentTools` (exposed for tests) */
+  agentToolRegistry: ToolRegistry;
 }
 
 /**
@@ -83,7 +94,17 @@ export const createEngineParts = (): EngineParts => {
   const transitions = new TransitionAuthority(attemptRegistry, events, contracts);
   const nodeSupport = new NodeSupport(transitions);
   const triggers = new TriggerGateway(transitions, events);
-  return { nodeSupport, nodeStore, attemptRegistry, contracts, transitions, events, triggers };
+  // step 08 (Invariant 10): the agent self-repair surface — built-in tool
+  // executors registered here; per-kind capability lives on the defs.
+  const agentToolRegistry = new ToolRegistry();
+  agentToolRegistry.register(new ReadFlowStateTool(nodeStore, planSteps, nodeSupport));
+  agentToolRegistry.register(new ClaimChecklistProgressTool(planSteps, db));
+  agentToolRegistry.register(new ReportFailureTool(transitions, db));
+  const agentTools = new AgentToolService(nodeSupport, transitions, agentToolRegistry);
+  return {
+    nodeSupport, nodeStore, attemptRegistry, contracts, transitions, events, triggers,
+    agentTools, agentToolRegistry,
+  };
 };
 
 export const engineParts = createEngineParts();

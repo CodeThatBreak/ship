@@ -15,7 +15,7 @@ import {
 import { flowCtxHelper, type FlowContextHelper, type FlowCtx } from "../nodes/shared/runContext";
 import { worktreeManager, type WorktreeManager } from "../runtime/worktreeLifecycle";
 import type { NodeSupport } from "../nodes/shared/nodeSupport";
-import { nodeSupport } from "@/lib/composition/container";
+import { nodeSupport, engineParts } from "@/lib/composition/container";
 import { StreamBuffer } from "./streamBuffer";
 import { ToolPairer, type ToolEmitFn } from "./toolPairer";
 import { usageTracker, type RunCostSummary, type UsageTracker } from "./usageTracker";
@@ -56,6 +56,11 @@ export interface AgentStartInput {
   nodeId?: string | null; // lifecycle-event attribution for engine-side ensures
   /** MCP/setting layers the local runtime loads MCP servers from (see AgentStartSpec) */
   settingSources?: SettingSource[];
+  /** Per-run env vars for the agent's shell (step 08: the agent-tools
+   *  capability token rides `DEVFLOW_AGENT_TOKEN`). Cloud runtimes inject
+   *  them natively (SDK `cloud.envVars`); local runs have no env channel and
+   *  receive the token through the prompt's tools block instead. */
+  env?: Record<string, string>;
 }
 
 type AgentRunnerDatabase = Pick<Database, "get" | "run" | "now" | "emitEvent" | "getSetting">;
@@ -101,6 +106,7 @@ export class AgentRunner {
       autoCreatePR: input.autoCreatePR,
       customSubagents: input.customSubagents,
       settingSources: input.settingSources?.length ? input.settingSources : undefined,
+      env: input.env,
     };
     if (port.execMode === "local") {
       // worktree-aware cwd: the flow's worktree when it has one, else the
@@ -146,13 +152,17 @@ export class AgentRunner {
     const attemptAtStart =
       options?.attemptId
       ?? (await this.database.get<{ attemptId: string | null }>(`SELECT attempt_id AS "attemptId" FROM nodes WHERE id=$1`, nodeId))?.attemptId;
+    // step 08 (Invariant 10): the claim-minted capability token rides the
+    // startup run row — durable truth the agent-tools endpoint validates
+    // against (the in-process registry is only the claim→row carrier).
+    const apiToken = ownsNodeStatus && attemptAtStart ? engineParts.attemptRegistry.apiTokenOf(nodeId) : null;
     if (ownsNodeStatus && attemptAtStart) {
-      await this.support.registerStartupRun(flow.id, nodeId, attemptAtStart);
+      await this.support.registerStartupRun(flow.id, nodeId, attemptAtStart, apiToken);
     }
     const startedAt = Date.now();
     const { agentId, runId } = await start();
     try {
-      await this.support.persistRun(flow.id, nodeId, agentId, runId);
+      await this.support.persistRun(flow.id, nodeId, agentId, runId, apiToken);
       const runRowId = (await this.database.get<{ id: string }>(`SELECT id FROM runs WHERE run_ref=$1`, runId))?.id;
       if (!runRowId) throw new Error(`run row missing after persist for ${runId}`);
     const startedWhileRunning = attemptAtStart != null;
@@ -215,8 +225,10 @@ export class AgentRunner {
     } finally {
       clearInterval(leaseHeartbeat);
       const runRowStatus = result?.status === RUN_STATUS.FINISHED ? RUN_STATUS.FINISHED : RUN_STATUS.ERROR;
+      // api_token cleared with the run close (step 08): the agent is done —
+      // its capability token must not outlive the run it was minted for.
       await this.database.run(
-        `UPDATE runs SET status=$1, lease_until=NULL, updated_at=$2 WHERE run_ref=$3`,
+        `UPDATE runs SET status=$1, lease_until=NULL, api_token=NULL, updated_at=$2 WHERE run_ref=$3`,
         runRowStatus,
         this.database.now(),
         runId,

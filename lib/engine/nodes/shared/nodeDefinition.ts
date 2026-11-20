@@ -16,6 +16,8 @@ import { EVENT_KIND } from "../../constants/vocabulary";
 import { NODE_DEFINITION_BRAND } from "./nodeDefinitionGuard";
 import { RunSupersededError } from "../../errors/runSupersededError";
 import type { RecoveryResult } from "./types/recovery";
+import type { ToolDescriptor } from "../../agentTools/types/tools";
+import { formatZodConfigError } from "./utils/formatZodConfigError";
 
 /** A role in the SDLC builtin chain (plan → build → review → resolve). */
 export type ChainRole = "plan" | "build" | "review" | "resolve";
@@ -132,6 +134,12 @@ export abstract class NodeDefinition<I = unknown, O extends Record<string, unkno
    * nothing waits on.
    */
   readonly waitForKind: string | null = null;
+
+  /** The tools this kind's agent may call (step 08, Invariant 10) — the
+   *  allowlist the service enforces and the prompt tools block's source. */
+  agentTools(): ToolDescriptor[] {
+    return [];
+  }
 
   /**
    * The addressable output fields (the configurator's Contract tab). Built-ins
@@ -313,11 +321,9 @@ export abstract class NodeDefinition<I = unknown, O extends Record<string, unkno
     return this.outputSchema.parse(raw);
   }
 
-  /**
-   * Validate the engine's merged config (class ← app ← flow snapshot) before a
-   * run or after a set_node_config patch. Declarative kinds override to use
-   * their declarative schema instead of `configSchema`.
-   */
+  /** Validate the engine's merged config (class ← app ← flow snapshot) before
+   *  a run or after a set_node_config patch. Declarative kinds override to
+   *  use their declarative schema instead of `configSchema`. */
   parseRunConfig(config: Record<string, unknown>): Record<string, unknown> {
     const parsed = this.configSchema.safeParse(config);
     if (!parsed.success) {
@@ -325,7 +331,6 @@ export abstract class NodeDefinition<I = unknown, O extends Record<string, unkno
     }
     return parsed.data as Record<string, unknown>;
   }
-
   async node(ctx: FlowCtx): Promise<NodeRow> {
     return this.support.nodeByKey(ctx.flow.id, this.key);
   }
@@ -441,9 +446,3 @@ export abstract class NodeDefinition<I = unknown, O extends Record<string, unkno
   }
 }
 
-function formatZodConfigError(nodeKey: string, error: z.ZodError): Error {
-  const first = error.issues[0];
-  if (!first) return new Error(`invalid config for ${nodeKey}`);
-  const at = first.path.length ? `${nodeKey}.${first.path.join(".")}` : nodeKey;
-  return new Error(`invalid config for ${at}: ${first.message}`);
-}
