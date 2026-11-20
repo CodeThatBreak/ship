@@ -11,6 +11,7 @@
  * Runs against the isolated dockerized Postgres test database
  * (AGENTS.md §1 — never a demo/real DB).
  */
+import { testGet, testRun } from "@/tests/helpers/rawTestDb";
 import { beforeAll, describe, expect, test } from "vitest";
 import { assignTestDatabase, resetTestDatabase } from "../helpers/testDatabase";
 import { FlowHarness, until } from "../helpers/flowHarness";
@@ -31,7 +32,7 @@ const harness = new FlowHarness({ db, flowEngine, templateStore });
 beforeAll(resetTestDatabase);
 
 const planNodeRow = async (flowId: string) => {
-  const row = await db.get<{ id: string }>(
+  const row = await testGet<{ id: string }>(
     `SELECT id FROM nodes WHERE flow_id=$1 AND node_key=$2`,
     flowId, NODE_KEYS.PLAN,
   );
@@ -56,7 +57,7 @@ describe("plan node Retry is never a dead end", () => {
     const flowId = await harness.seedSdlcFlow();
     const plan = await planNodeRow(flowId);
     // a plan version exists, and the failed node recorded the refine turn
-    await db.run(
+    await testRun(
       `INSERT INTO artifacts (id, node_id, flow_id, kind, version, content, meta, status, created_at)
        VALUES ($1,$2,$3,$4,$5,$6,$7,'draft',$8)`,
       `art_plan_${flowId}`, plan.id, flowId, "plan", 1, "# Plan",
@@ -69,7 +70,7 @@ describe("plan node Retry is never a dead end", () => {
       planThread: null,
       model: null,
     });
-    await db.run(
+    await testRun(
       `UPDATE nodes SET status='failed', input=$1, updated_at=$2 WHERE id=$3`,
       JSON.stringify(recorded), db.now(), plan.id,
     );
@@ -88,7 +89,7 @@ describe("plan node Retry is never a dead end", () => {
   test("retry with no recorded turn reverts to an actionable status with the chat-ready event", async () => {
     const flowId = await harness.seedSdlcFlow();
     const plan = await planNodeRow(flowId);
-    await db.run(
+    await testRun(
       `UPDATE nodes SET status='failed', input=$1, updated_at=$2 WHERE id=$3`,
       JSON.stringify(PlanInput.parse({ turnUserMessage: null, previousStatus: null })),
       db.now(), plan.id,

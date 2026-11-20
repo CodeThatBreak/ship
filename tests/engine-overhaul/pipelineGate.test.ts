@@ -14,6 +14,7 @@
  * Runs against the isolated dockerized Postgres test database
  * (AGENTS.md §1 — never a demo/real DB).
  */
+import { testAll, testGet, testRun } from "@/tests/helpers/rawTestDb";
 import { beforeAll, describe, expect, test } from "vitest";
 import { assignTestDatabase, resetTestDatabase } from "../helpers/testDatabase";
 import { FlowHarness } from "../helpers/flowHarness";
@@ -35,11 +36,11 @@ const GATE_INPUT = { branchName: null, pipelineId: null, guidance: null, model: 
 
 /** Put the gate node in `running` (a mid-wait crash leaves it there). */
 const claimGate = async (flowId: string): Promise<import("@/lib/db/rows").NodeRow> => {
-  await db.run(
+  await testRun(
     `UPDATE nodes SET status='running', attempt_id='att_gate_resume' WHERE flow_id=$1 AND node_key='pipeline'`,
     flowId,
   );
-  const node = await db.get<import("@/lib/db/rows").NodeRow>(
+  const node = await testGet<import("@/lib/db/rows").NodeRow>(
     `SELECT * FROM nodes WHERE flow_id=$1 AND node_key='pipeline'`,
     flowId,
   );
@@ -50,7 +51,7 @@ const claimGate = async (flowId: string): Promise<import("@/lib/db/rows").NodeRo
 describe("pipeline gate terminal output is schema-valid", () => {
   test("deadline timeout with no head pipeline publishes a schema-valid PipelineOutput", async () => {
     const flowId = await harness.seedSdlcFlow();
-    await db.run(`UPDATE flows SET mr_iid=$1, mr_branch=$2 WHERE id=$3`, 1, "devflow/ovh-gate", flowId);
+    await testRun(`UPDATE flows SET mr_iid=$1, mr_branch=$2 WHERE id=$3`, 1, "devflow/ovh-gate", flowId);
     await claimGate(flowId);
 
     const graph = await harness.graphForFlow(flowId);
@@ -74,7 +75,7 @@ describe("pipeline gate terminal output is schema-valid", () => {
 
   test("restart mid-wait resumes the gate from durable progress — the fix budget is not re-spent", async () => {
     const flowId = await harness.seedSdlcFlow();
-    await db.run(`UPDATE flows SET mr_iid=$1, mr_branch=$2 WHERE id=$3`, 1, "devflow/ovh-gate-resume", flowId);
+    await testRun(`UPDATE flows SET mr_iid=$1, mr_branch=$2 WHERE id=$3`, 1, "devflow/ovh-gate-resume", flowId);
     const node = await claimGate(flowId);
 
     // the fake host holds a FAILING pipeline the crashed run already spent its
@@ -92,7 +93,7 @@ describe("pipeline gate terminal output is schema-valid", () => {
       fixes: 3,
       deadlineAt: Date.now() + 60_000,
     };
-    await db.run(
+    await testRun(
       `INSERT INTO artifacts (id,node_id,flow_id,kind,version,content,meta,status,created_at)
        VALUES ('art_gate_resume',$1,$2,'gate_progress',1,$3,$4::jsonb,'draft',$5)`,
       node.id, flowId, JSON.stringify(progress), JSON.stringify(progress), db.now(),
@@ -113,7 +114,7 @@ describe("pipeline gate terminal output is schema-valid", () => {
     expect(await harness.nodeStatus(flowId, "pipeline")).toBe("failed");
     // the durable budget was honored: no new fix-agent run was spent
     expect(gitHost.calls.some((c) => c.kind === "playJob")).toBe(false);
-    const events = await db.all<{ message: string }>(
+    const events = await testAll<{ message: string }>(
       `SELECT message FROM events WHERE flow_id=$1 AND message LIKE '%still failing after 3 fix run(s)%'`,
       flowId,
     );
@@ -122,7 +123,7 @@ describe("pipeline gate terminal output is schema-valid", () => {
 
   test("restart mid-wait with a green watched pipeline resumes straight to done", async () => {
     const flowId = await harness.seedSdlcFlow();
-    await db.run(`UPDATE flows SET mr_iid=$1, mr_branch=$2 WHERE id=$3`, 1, "devflow/ovh-gate-green", flowId);
+    await testRun(`UPDATE flows SET mr_iid=$1, mr_branch=$2 WHERE id=$3`, 1, "devflow/ovh-gate-green", flowId);
     const node = await claimGate(flowId);
 
     gitHost.pipelines.set(9, { id: 9, status: "success", sha: "sha_9" } as never);
@@ -136,7 +137,7 @@ describe("pipeline gate terminal output is schema-valid", () => {
       fixes: 0,
       deadlineAt: Date.now() + 60_000,
     };
-    await db.run(
+    await testRun(
       `INSERT INTO artifacts (id,node_id,flow_id,kind,version,content,meta,status,created_at)
        VALUES ('art_gate_green',$1,$2,'gate_progress',1,$3,$4::jsonb,'draft',$5)`,
       node.id, flowId, JSON.stringify(progress), JSON.stringify(progress), db.now(),

@@ -1,3 +1,4 @@
+import { testRun } from "@/tests/helpers/rawTestDb";
 import { beforeAll, describe, expect, it } from "vitest";
 import { assignTestDatabase, resetTestDatabase } from "../../../tests/helpers/testDatabase";
 import { hydrateFlowTemplateGraph, serializeFlowTemplateGraph } from "./flowGraphSnapshot";
@@ -8,7 +9,6 @@ assignTestDatabase();
 const { importTemplateYaml } = await import("./templateYaml");
 const { templateStore } = await import("./templateStore");
 const { flowEngine } = await import("../flowEngine");
-const { db } = await import("../../db/app");
 
 const miniYaml = `
 name: Snapshot test
@@ -33,7 +33,7 @@ describe("flow template graph snapshot (CR-065)", () => {
     const before = await templateStore.graph(templateId);
     expect(before?.edges).toEqual([{ from: "plan", to: "build", kind: "next", label: null, condition: null }]);
 
-    await db.run(
+    await testRun(
       `INSERT INTO tasks (id, type, key, summary, status, issue_type, priority) VALUES ($1,$2,$3,$4,$5,$6,$7)`,
       "task_snap", "jira", "SNAP-1", "snap test", "open", "task", "P2",
     );
@@ -42,7 +42,7 @@ describe("flow template graph snapshot (CR-065)", () => {
       autoStart: false,
     });
 
-    await db.run(`DELETE FROM flow_template_edges WHERE template_id=$1`, templateId);
+    await testRun(`DELETE FROM flow_template_edges WHERE template_id=$1`, templateId);
 
     const live = await templateStore.graph(templateId);
     expect(live?.edges).toEqual([]);

@@ -213,7 +213,7 @@ export class WaitStore {
    * (Invariant 2; the orm-migration containment list, Task 12 lint allowlist).
    */
   private async dueWaitingNodes(flowId?: string): Promise<{ flowId: string; nodeKey: string }[]> {
-    return db.all<{ flowId: string; nodeKey: string }>(
+    return db.prisma.$queryRawUnsafe<{ flowId: string; nodeKey: string }[]>(
       `SELECT n.flow_id AS "flowId", n.node_key AS "nodeKey" FROM nodes n
        JOIN flows f ON f.id = n.flow_id
        WHERE n.wait_until <= now() AND f.status='active' AND n.status='waiting'
@@ -230,7 +230,7 @@ export class WaitStore {
    * authority owns those).
    */
   private async deferDebounceWait(flowId: string, nodeKey: string, minutes: number): Promise<void> {
-    await db.run(
+    await db.prisma.$executeRawUnsafe(
       `UPDATE nodes SET wait_until = now() + make_interval(mins => $1), updated_at = now()
        WHERE flow_id=$2 AND node_key=$3`,
       minutes,

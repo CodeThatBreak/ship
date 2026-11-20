@@ -1,3 +1,4 @@
+import { testRun } from "@/tests/helpers/rawTestDb";
 import { beforeAll, describe, expect, it } from "vitest";
 import { assignTestDatabase, resetTestDatabase } from "../../../tests/helpers/testDatabase";
 
@@ -10,7 +11,7 @@ const { isNodeStarted, childFlowHasStarted } = await import("./transitions/const
 const { ConflictError } = await import("../../errors");
 
 const seedFlow = async (flowId: string, taskId: string) => {
-  await db.run(
+  await testRun(
     `INSERT INTO tasks (id, type, key, summary, status, issue_type, priority) VALUES ($1,$2,$3,$4,$5,$6,$7)`,
     taskId,
     "generic",
@@ -20,7 +21,7 @@ const seedFlow = async (flowId: string, taskId: string) => {
     "task",
     "P2",
   );
-  await db.run(
+  await testRun(
     `INSERT INTO flows (id, task_id, name, status, created_at, updated_at) VALUES ($1,$2,$3,$4,now(),now())`,
     flowId,
     taskId,

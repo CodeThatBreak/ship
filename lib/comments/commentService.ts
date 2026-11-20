@@ -20,15 +20,19 @@ const COMMENT_RESOLVED = "resolved";
 
 export class CommentService {
   async listForFlow(flowId: string): Promise<ApiComment[]> {
-    const comments = await db.all<{
-      id: string;
-      discussionId: string | null;
-      author: string | null;
-      body: string;
-      status: string;
-      raw: string | null;
-      createdAt: string;
-    }>(`SELECT id, flow_id AS "flowId", mr_iid AS "mrIid", discussion_id AS "discussionId", author, body, file_path AS "filePath", line, status, resolved_by AS "resolvedBy", raw, created_at AS "createdAt", updated_at AS "updatedAt" FROM comments WHERE flow_id=$1 ORDER BY created_at DESC`, flowId);
+    const comments = await db.prisma.comment.findMany({
+      where: { flowId },
+      orderBy: { createdAt: "desc" },
+      select: {
+        id: true,
+        discussionId: true,
+        author: true,
+        body: true,
+        status: true,
+        raw: true,
+        createdAt: true,
+      },
+    });
     return comments.map((c): ApiComment => {
         let parsed: Partial<HostComment> = {};
         try {
@@ -40,14 +44,14 @@ export class CommentService {
           id: c.id,
           threadId: c.discussionId,
           author: c.author,
-          body: c.body,
+          body: c.body ?? "",
           path: parsed.path ?? null,
           line: parsed.line ?? null,
           status: c.status,
           resolvable: typeof parsed.resolvable === "boolean" ? parsed.resolvable : true,
           resolved:
             typeof parsed.resolved === "boolean" ? parsed.resolved : c.status === COMMENT_RESOLVED,
-          createdAt: parsed.createdAt ?? c.createdAt,
+          createdAt: parsed.createdAt ?? c.createdAt.toISOString(),
         };
       });
   }

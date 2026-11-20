@@ -8,6 +8,7 @@
  * Runs against the isolated dockerized Postgres test database
  * (AGENTS.md §1 — never a demo/real DB).
  */
+import { testGet } from "@/tests/helpers/rawTestDb";
 import { beforeAll, describe, expect, test } from "vitest";
 import { assignTestDatabase, resetTestDatabase } from "../helpers/testDatabase";
 import { FlowHarness } from "../helpers/flowHarness";
@@ -27,7 +28,7 @@ type NodeRow = import("@/lib/db/rows").NodeRow;
 
 /** A node row recover() reads (resolved through the engine's own graph). */
 const nodeRowOf = async (flowId: string, nodeKey: string): Promise<NodeRow> => {
-  const row = await db.get<Record<string, unknown>>(
+  const row = await testGet<Record<string, unknown>>(
     `SELECT * FROM nodes WHERE flow_id=$1 AND node_key=$2`,
     flowId, nodeKey,
   );

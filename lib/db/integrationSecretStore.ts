@@ -28,19 +28,19 @@ export class IntegrationSecretStore {
   }
 
   async readGitLabToken(id: string): Promise<string> {
-    const row = await this.database.get<{ token: string }>(
-      `SELECT token FROM gitlab_instances WHERE id=$1`,
-      id,
-    );
+    const row = await this.database.prisma.gitlabInstance.findUnique({
+      where: { id },
+      select: { token: true },
+    });
     if (!row?.token) return "";
     return this.open(row.token);
   }
 
   async readJiraToken(id: string): Promise<string> {
-    const row = await this.database.get<{ token: string }>(
-      `SELECT token FROM jira_instances WHERE id=$1`,
-      id,
-    );
+    const row = await this.database.prisma.jiraInstance.findUnique({
+      where: { id },
+      select: { token: true },
+    });
     if (!row?.token) return "";
     return this.open(row.token);
   }

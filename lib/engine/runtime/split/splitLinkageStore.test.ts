@@ -5,12 +5,12 @@
  * unit-position ordering (decision 4's deterministic aggregate order) and
  * the per-unit consumer addressing.
  */
+import { testRun } from "@/tests/helpers/rawTestDb";
 import { beforeAll, describe, expect, it } from "vitest";
 import { assignTestDatabase, resetTestDatabase } from "../../../../tests/helpers/testDatabase";
 
 assignTestDatabase();
 
-const { db } = await import("../../../db/app");
 const { SplitLinkageStore } = await import("./splitLinkageStore");
 
 const now = () => new Date().toISOString();
@@ -24,11 +24,11 @@ const payloadOf = (parentNodeKey: string, key: string, position: number): unknow
 
 describe("SplitLinkageStore", () => {
   it("linksOf: one parent's split children for the consumer, in unit (position) order", async () => {
-    await db.run(
+    await testRun(
       `INSERT INTO tasks (id, type, key, summary, status, issue_type, priority) VALUES ($1,$2,$3,$4,$5,$6,$7)`,
       "task_link_1", "jira", "LNK-1", "linkage", "open", "task", "P2"
     );
-    await db.run(
+    await testRun(
       `INSERT INTO flows (id, task_id, name, status, created_at, updated_at) VALUES ($1,$2,$3,'active',$4,$4)`,
       "flw_link_parent", "task_link_1", "parent", now()
     );
@@ -41,7 +41,7 @@ describe("SplitLinkageStore", () => {
       ["flw_link_non_split", payloadOf("build", "n", 3), "step"],
     ];
     for (const [id, payload, kind] of children) {
-      await db.run(
+      await testRun(
         `INSERT INTO flows (id, task_id, name, status, parent_flow_id, kind, trigger_payload, created_at, updated_at)
          VALUES ($1,$2,$3,'active',$4,$5,$6::jsonb,$7,$7)`,
         id, "task_link_1", id, "flw_link_parent", kind, payload, now()

@@ -79,11 +79,13 @@ export class RecoveryDriver {
   private async latestRunLeaseState(
     nodeId: string,
   ): Promise<{ agentRef: string; runRef: string; leaseLive: boolean } | undefined> {
-    return await db.get<{ agentRef: string; runRef: string; leaseLive: boolean }>(
-      `SELECT agent_ref AS "agentRef", run_ref AS "runRef", (lease_until > now()) AS "leaseLive"
+    return (
+      await db.prisma.$queryRawUnsafe<{ agentRef: string; runRef: string; leaseLive: boolean }[]>(
+        `SELECT agent_ref AS "agentRef", run_ref AS "runRef", (lease_until > now()) AS "leaseLive"
        FROM runs WHERE node_id=$1 AND status='running' ORDER BY created_at DESC LIMIT 1`,
-      nodeId,
-    );
+        nodeId,
+      )
+    )[0];
   }
 
   // ── local mode: the in-process handle means alive; otherwise the SDK's ────

@@ -2,7 +2,6 @@ import "server-only";
 
 import type { Prisma } from "@prisma/client";
 import type { z } from "zod";
-import { RowDecodeError, rowIdFromRaw } from "../../../../db/rowDecodeError";
 import { FlowTemplateNodeRow, type TemplateNodeTrigger } from "../../../../db/rows";
 import type { TemplateEdgeSpec, TemplateNodeSpec } from "../../../types/template";
 
@@ -10,7 +9,10 @@ import type { TemplateEdgeSpec, TemplateNodeSpec } from "../../../types/template
  * ORM-row helpers for the template store: the decode/payload semantics the
  * raw queries used to get from the RowGateway (`lib/db/rows.ts`), now over
  * Prisma rows. JSONB payloads stay narrowed through the rows.ts zod schemas;
- * scalar columns are Prisma-typed and need no checks.
+ * scalar columns are Prisma-typed and need no checks. The shared row-decode
+ * helpers (`parseRow`/`parseRows`/`jsonInput`) live in
+ * `lib/db/ormRowHelpers.ts` — only the template-store-specific payload and
+ * spec mappers stay here.
  */
 
 /** Parse a string-or-object JSON cell; malformed JSON falls back. */
@@ -21,31 +23,6 @@ export const parseJson = <T>(raw: unknown, fallback: T): T => {
   } catch {
     return fallback;
   }
-};
-
-/** RowGateway.get semantics over an ORM row: zod-narrow, throwing on undecodable. */
-export const parsedRow = <S extends z.ZodTypeAny>(schema: S, row: unknown, source: string): z.infer<S> => {
-  const result = schema.safeParse(row);
-  if (!result.success) throw new RowDecodeError(source, rowIdFromRaw(row), result.error);
-  return result.data;
-};
-
-/** RowGateway.all semantics: drop (and log) rows that no longer decode. */
-export const parsedRows = <S extends z.ZodTypeAny>(schema: S, rowList: readonly unknown[], source: string): z.infer<S>[] => {
-  const decoded: z.infer<S>[] = [];
-  for (const row of rowList) {
-    const result = schema.safeParse(row);
-    if (!result.success) {
-      console.error("[rows] skipping undecodable row", {
-        sql: source,
-        rowId: rowIdFromRaw(row),
-        issues: result.error.issues,
-      });
-      continue;
-    }
-    decoded.push(result.data);
-  }
-  return decoded;
 };
 
 /**
@@ -62,9 +39,6 @@ export const jsonPayload = <S extends z.ZodType<Record<string, unknown> | null>>
   const parsed = schema.safeParse(value);
   return parsed.success && parsed.data ? parsed.data : {};
 };
-
-/** A plain object as a Prisma `Json` field value (`InputJsonValue`). */
-export const jsonInput = (value: unknown): Prisma.InputJsonValue => value as Prisma.InputJsonValue;
 
 /** A node trigger payload ({type, minutes?, wait_for?}) as the TS vocabulary shape. */
 export const parseNodeTrigger = (o: Record<string, unknown>): TemplateNodeTrigger => {

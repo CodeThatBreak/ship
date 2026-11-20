@@ -4,6 +4,7 @@
  * the facade forwards the gate/expansion surface to the `StepFlowExpander`
  * (the class-level coverage lives in each collaborator's co-located test).
  */
+import { testRun } from "@/tests/helpers/rawTestDb";
 import { beforeAll, describe, expect, it } from "vitest";
 import type { StepFlowEngine } from "./types/stepFlowEngine";
 import type { StepFlowManager } from "./stepFlowManager/stepFlowManager";
@@ -23,15 +24,15 @@ describe("StepFlowManager (Task 19)", () => {
   it("skipStepFlow rejects when the plan step is no longer pending (CR-010)", async () => {
     const taskId = "task_skip_async";
     const flowId = "flw_skip_async";
-    await db.run(
+    await testRun(
       `INSERT INTO tasks (id, type, key, summary, status, issue_type, priority) VALUES ($1,$2,$3,$4,$5,$6,$7)`,
       taskId, "generic", "SK-1", "skip async", "open", "task", "P2",
     );
-    await db.run(
+    await testRun(
       `INSERT INTO flows (id, task_id, name, status, created_at, updated_at) VALUES ($1,$2,$3,$4,$5,$6)`,
       flowId, taskId, "parent", "active", now(), now(),
     );
-    await db.run(
+    await testRun(
       `INSERT INTO plan_steps (id, flow_id, title, status, position, created_at, updated_at) VALUES ($1,$2,$3,$4,$5,$6,$7)`,
       "ps_skip", flowId, "Step", "done", 0, now(), now(),
     );
@@ -42,7 +43,7 @@ describe("StepFlowManager (Task 19)", () => {
   it("does not provision inbound hooks for hidden auto-wrap templates (CR-064)", async () => {
     const tplId = db.uid("tpl_");
     const ts = db.now();
-    await db.run(
+    await testRun(
       `INSERT INTO flow_templates (id,name,description,version,is_builtin,trigger,hidden,created_at,updated_at)
        VALUES ($1,$2,$3,$4,$5,$6::jsonb,$7,$8,$9)`,
       tplId, "Hidden child", "fanout-autowrap:tpl_src:build:deadbeef", 1, false,

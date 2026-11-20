@@ -2,6 +2,7 @@
  * CR-004: build `previewPrompt` must share branch/instructions/checklist
  * assembly with `run` (local-mode worktree wording, branchName not mr_branch).
  */
+import { testRun } from "@/tests/helpers/rawTestDb";
 import { beforeAll, describe, expect, it } from "vitest";
 
 
@@ -9,7 +10,6 @@ import { assignTestDatabase, resetTestDatabase } from "../../../../../tests/help
 
 assignTestDatabase();
 
-const { db } = await import("../../../../db/app");
 
 beforeAll(resetTestDatabase);
 const { nodeRegistry } = await import("../../registry");
@@ -26,19 +26,19 @@ const seedLocalFlow = async (index: number, mrBranch: string | null): Promise<{ 
   const taskId = `task_${index}`;
   const flowId = `flw_${index}`;
   const nodeId = `node_${index}`;
-  await db.run(
+  await testRun(
     `INSERT INTO tasks (id, type, key, summary, status, issue_type, priority) VALUES ($1,$2,$3,$4,$5,$6,$7)`,
     taskId, "generic", `TST-${index}`, "build prompt parity", "open", "story", "P2",
   );
-  await db.run(
+  await testRun(
     `INSERT INTO flows (id, task_id, name, status, execution_mode, mr_branch, created_at, updated_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
     flowId, taskId, `parity ${index}`, "active", "local", mrBranch, now(), now(),
   );
-  await db.run(
+  await testRun(
     `INSERT INTO nodes (id, flow_id, node_key, type, status, created_at, updated_at) VALUES ($1,$2,$3,$4,$5,$6,$7)`,
     nodeId, flowId, NODE_KEYS.BUILD, NODE_KEYS.BUILD, "pending", now(), now(),
   );
-  await db.run(
+  await testRun(
     `INSERT INTO artifacts (id, node_id, flow_id, kind, version, content, meta, status, created_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
     `art_plan_${index}`, nodeId, flowId, "plan", 1, "# Plan\n\nDo the thing.", null, "draft", now(),
   );

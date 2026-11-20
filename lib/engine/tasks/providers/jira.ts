@@ -2,6 +2,7 @@ import "server-only";
 
 import { db } from "../../../db/app";
 import type { JiraInstance, Task } from "../../../db/rows";
+import { jsonInput } from "@/lib/db/ormRowHelpers";
 import { UpstreamError, ValidationError } from "../../../errors";
 import { baseUrlOverrideRequiresToken } from "../../../integrations/instanceCredentialPolicy";
 import { truncateUpstreamBody } from '../../ports/utils/upstreamErrorText';
@@ -307,24 +308,45 @@ export class JiraTaskProvider extends TaskProvider implements TaskInstanceStore 
   private async upsert(issue: JiraIssue, ts: string): Promise<string> {
     // JSONB column: bind the payload object directly (no JSON.stringify)
     const fields = { prd: issue.prdText, figmaUrls: issue.figmaUrls };
-    const existing = await db.get<{ id: string }>(`SELECT id FROM tasks WHERE key=$1`, issue.key);
+    const existing = await db.prisma.task.findFirst({ where: { key: issue.key }, select: { id: true } });
     if (existing) {
-      await db.run(
-                `UPDATE tasks SET summary=$1,description=$2,status=$3,issue_type=$4,priority=$5,external_url=$6,parent_key=$7,raw=$8,fields=$9,synced_at=$10 WHERE key=$11`,
-                issue.summary, issue.description, issue.status, issue.issueType, issue.priority,
-                issue.externalUrl, issue.parentKey || null,
-                JSON.stringify(issue.raw), fields, ts, issue.key
-              );
+      await db.prisma.task.updateMany({
+        where: { key: issue.key },
+        data: {
+          summary: issue.summary,
+          description: issue.description,
+          status: issue.status,
+          issueType: issue.issueType,
+          priority: issue.priority,
+          externalUrl: issue.externalUrl,
+          parentKey: issue.parentKey || null,
+          raw: JSON.stringify(issue.raw),
+          fields: jsonInput(fields),
+          syncedAt: ts,
+        },
+      });
       return existing.id;
     }
-    await db.run(
-            `INSERT INTO tasks (id,key,summary,description,status,issue_type,priority,repo_url,parent_key,external_url,raw,fields,type,synced_at)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,'jira',$13) ON CONFLICT DO NOTHING`,
-            db.uid("task_"), issue.key, issue.summary, issue.description, issue.status, issue.issueType,
-            issue.priority, null,
-            issue.parentKey || null, issue.externalUrl, JSON.stringify(issue.raw), fields, ts
-          );
-    const row = await db.get<{ id: string }>(`SELECT id FROM tasks WHERE key=$1`, issue.key);
+    await db.prisma.task.createMany({
+      data: [{
+        id: db.uid("task_"),
+        key: issue.key,
+        summary: issue.summary,
+        description: issue.description,
+        status: issue.status,
+        issueType: issue.issueType,
+        priority: issue.priority,
+        repoUrl: null,
+        parentKey: issue.parentKey || null,
+        externalUrl: issue.externalUrl,
+        raw: JSON.stringify(issue.raw),
+        fields: jsonInput(fields),
+        type: "jira",
+        syncedAt: ts,
+      }],
+      skipDuplicates: true,
+    });
+    const row = await db.prisma.task.findFirst({ where: { key: issue.key }, select: { id: true } });
     if (!row) throw new Error(`failed to insert task row for ${issue.key}`);
     return row.id;
   }

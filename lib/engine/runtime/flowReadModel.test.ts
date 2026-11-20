@@ -2,6 +2,7 @@
  * FlowReadModel batching (CR-185): child flows/nodes load in one query each;
  * artifact rows omit bodies for lazy fetch via GET /api/artifacts/:id.
  */
+import { testRun } from "@/tests/helpers/rawTestDb";
 import { beforeAll, describe, expect, it, vi } from "vitest";
 import { assignTestDatabase, resetTestDatabase } from "../../../tests/helpers/testDatabase";
 
@@ -24,33 +25,33 @@ describe("FlowReadModel.get", () => {
     const parentId = "flw_parent";
     const childId = "flw_child";
     const nodeId = "node_1";
-    await db.run(
+    await testRun(
       `INSERT INTO tasks (id, type, key, summary, status, issue_type, priority) VALUES ($1,$2,$3,$4,$5,$6,$7)`,
       taskId, "generic", "RM-1", "read model", "open", "task", "P2",
     );
-    await db.run(
+    await testRun(
       `INSERT INTO flows (id, task_id, name, status, created_at, updated_at) VALUES ($1,$2,$3,$4,$5,$6)`,
       parentId, taskId, "parent", "active", now(), now(),
     );
-    await db.run(
+    await testRun(
       `INSERT INTO flows (id, task_id, name, status, parent_flow_id, kind, trigger_payload, created_at, updated_at)
        VALUES ($1,$2,$3,$4,$5,$6,$7::jsonb,$8,$9)`,
       childId, taskId, "child", "active", parentId, "step", JSON.stringify({ parentNodeKey: "build" }), now(), now(),
     );
-    await db.run(
+    await testRun(
       `INSERT INTO nodes (id, flow_id, node_key, type, status, created_at, updated_at) VALUES ($1,$2,$3,$4,$5,$6,$7)`,
       nodeId, parentId, "plan", "plan", "done", now(), now(),
     );
-    await db.run(
+    await testRun(
       `INSERT INTO plan_steps (id, flow_id, title, position, status, sub_flow_id, created_at, updated_at)
        VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
       "step_1", parentId, "Step A", 0, "pending", childId, now(), now(),
     );
-    await db.run(
+    await testRun(
       `INSERT INTO nodes (id, flow_id, node_key, type, status, created_at, updated_at) VALUES ($1,$2,$3,$4,$5,$6,$7)`,
       "node_child", childId, "work", "build", "running", now(), now(),
     );
-    await db.run(
+    await testRun(
       `INSERT INTO artifacts (id, node_id, flow_id, kind, version, content, status, created_at)
        VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
       "art_1", nodeId, parentId, "plan", 1, "# Large plan body", "draft", now(),

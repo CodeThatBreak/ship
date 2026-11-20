@@ -18,10 +18,10 @@ export const supersededOrConflict = async (
   from: readonly EngineNodeStatus[],
   nodeKey: string,
 ): Promise<never> => {
-  const node = await database.get<{ attemptId: string | null; status: string }>(
-    `SELECT attempt_id AS "attemptId", status FROM nodes WHERE id=$1`,
-    nodeId,
-  );
+  const node = await database.prisma.node.findUnique({
+    where: { id: nodeId },
+    select: { attemptId: true, status: true },
+  });
   if (!node || node.attemptId !== attemptId) {
     throw new RunSupersededError(nodeId, node?.status ?? "unknown", attemptId);
   }

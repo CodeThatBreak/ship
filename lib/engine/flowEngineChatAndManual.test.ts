@@ -16,6 +16,7 @@
  * first `db` import isolates the singleton (AGENTS.md §1 — never a real
  * database).
  */
+import { testAll, testGet, testRun } from "@/tests/helpers/rawTestDb";
 import { beforeAll, describe, expect, it } from "vitest";
 import { assignTestDatabase, resetTestDatabase } from "../../tests/helpers/testDatabase";
 
@@ -156,13 +157,13 @@ beforeAll(async () => {
 
 const nodeStatus = async (flowId: string, key: string): Promise<string> =>
   must(
-    await db.get<{ status: string }>(`SELECT status FROM nodes WHERE flow_id=$1 AND node_key=$2`, flowId, key),
+    await testGet<{ status: string }>(`SELECT status FROM nodes WHERE flow_id=$1 AND node_key=$2`, flowId, key),
     `node ${key} of ${flowId}`,
   ).status;
 
 const recordedInput = async (flowId: string, key: string): Promise<Record<string, unknown>> => {
   const raw = must(
-    await db.get<{ input: string | null }>(`SELECT input FROM nodes WHERE flow_id=$1 AND node_key=$2`, flowId, key),
+    await testGet<{ input: string | null }>(`SELECT input FROM nodes WHERE flow_id=$1 AND node_key=$2`, flowId, key),
     `recorded input of ${key}`,
   ).input;
   // JSONB column: the driver hands back a parsed object (a legacy TEXT row
@@ -192,7 +193,7 @@ async function seedAgentFlow(index: number): Promise<string> {
     { skipLint: true },
   );
   const taskId = `task_chat_manual_${index}`;
-  await db.run(
+  await testRun(
     `INSERT INTO tasks (id, type, key, summary, status, issue_type, priority) VALUES ($1,$2,$3,$4,$5,$6,$7)`,
     taskId, "jira", `CM-${index}`, "speechless test", "open", "task", "P2",
   );
@@ -216,7 +217,7 @@ describe("sendChat — a refine turn obeys the terminal contract", () => {
   it("failed → chat feedback → done advances the edge: the next node starts with the topic", async () => {
     const flowId = await seedAgentFlow(1);
     // the topic agent failed its run (the model self-reported missing input)
-    await db.run(
+    await testRun(
       `UPDATE nodes SET status='failed', updated_at=$1 WHERE flow_id=$2 AND node_key='topic_agent'`,
       db.now(), flowId,
     );
@@ -245,7 +246,7 @@ describe("sendChat — a refine turn obeys the terminal contract", () => {
 
   it("a turn that misses the output contract again leaves the node failed — no advance", async () => {
     const flowId = await seedAgentFlow(2);
-    await db.run(
+    await testRun(
       `UPDATE nodes SET status='failed', updated_at=$1 WHERE flow_id=$2 AND node_key='topic_agent'`,
       db.now(), flowId,
     );
@@ -266,7 +267,7 @@ describe("runNodeManual — agent nodes inherit the upstream input", () => {
     const flowId = await seedAgentFlow(3);
     // the topic agent finished with topic=react but the follow-up edge never
     // activated (the pre-fix chat stall) — the user starts the node manually
-    await db.run(
+    await testRun(
       `UPDATE nodes SET status='done', output=$1, updated_at=$2 WHERE flow_id=$3 AND node_key='topic_agent'`,
       JSON.stringify({ topic: "react" }), db.now(), flowId,
     );
@@ -308,7 +309,7 @@ const planTurnJson = (reply: string) =>
 
 const planNodeRow = async (flowId: string) =>
   must(
-    await db.get<{ id: string; input: string | null }>(
+    await testGet<{ id: string; input: string | null }>(
       `SELECT id, input FROM nodes WHERE flow_id=$1 AND node_key=$2`,
       flowId,
       NODE_KEYS.PLAN,
@@ -317,7 +318,7 @@ const planNodeRow = async (flowId: string) =>
   );
 
 const insertPlanArtifact = async (flowId: string, nodeId: string, version = 1): Promise<void> => {
-  await db.run(
+  await testRun(
     `INSERT INTO artifacts (id, node_id, flow_id, kind, version, content, meta, status, created_at)
      VALUES ($1,$2,$3,$4,$5,$6,$7,'draft',$8)`,
     `art_plan_${flowId}_${version}`,
@@ -343,7 +344,7 @@ async function seedPlanFlow(index: number): Promise<string> {
     { skipLint: true },
   );
   const taskId = `task_plan_retry_${index}`;
-  await db.run(
+  await testRun(
     `INSERT INTO tasks (id, type, key, summary, status, issue_type, priority) VALUES ($1,$2,$3,$4,$5,$6,$7)`,
     taskId, "jira", `PR-${index}`, "plan retry test", "open", "task", "P2",
   );
@@ -354,7 +355,7 @@ async function seedPlanFlow(index: number): Promise<string> {
 
 const lifecycleMessages = async (flowId: string, nodeId: string): Promise<string[]> =>
   (
-    await db.all<{ message: string }>(
+    await testAll<{ message: string }>(
       `SELECT message FROM events WHERE flow_id=$1 AND node_id=$2 AND type='lifecycle' ORDER BY created_at`,
       flowId,
       nodeId,
@@ -373,7 +374,7 @@ describe("retryNode — plan node chat replay", () => {
       planThread: null,
       model: null,
     });
-    await db.run(
+    await testRun(
       `UPDATE nodes SET status='failed', input=$1, updated_at=$2 WHERE id=$3`,
       JSON.stringify(recorded),
       db.now(),
@@ -395,7 +396,7 @@ describe("retryNode — plan node chat replay", () => {
   it("with no recorded turn reverts to pending and emits plan chat ready", async () => {
     const flowId = await seedPlanFlow(2);
     const plan = await planNodeRow(flowId);
-    await db.run(
+    await testRun(
       `UPDATE nodes SET status='failed', input=$1, updated_at=$2 WHERE id=$3`,
       JSON.stringify(PlanInput.parse({ turnUserMessage: null, previousStatus: null })),
       db.now(),
@@ -416,7 +417,7 @@ describe("retryNode — plan node chat replay", () => {
     const flowId = await seedPlanFlow(3);
     const plan = await planNodeRow(flowId);
     await insertPlanArtifact(flowId, plan.id);
-    await db.run(
+    await testRun(
       `UPDATE nodes SET status='failed', input=$1, updated_at=$2 WHERE id=$3`,
       JSON.stringify(PlanInput.parse({ turnUserMessage: null, previousStatus: null })),
       db.now(),

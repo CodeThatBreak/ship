@@ -14,6 +14,7 @@
  * Runs against the isolated dockerized Postgres via `assignTestDatabase()` /
  * `resetTestDatabase()` (tests/helpers/testDatabase).
  */
+import { testAll, testGet, testRun } from "@/tests/helpers/rawTestDb";
 import { beforeAll, describe, expect, it } from "vitest";
 import { z } from "zod";
 import { assignTestDatabase, resetTestDatabase } from "../../../../tests/helpers/testDatabase";
@@ -195,28 +196,28 @@ const seedRecoveryNode = async (fixtureKey: string, opts: { runLeaseLive: boolea
   const flowId = `flw_rd_${runSeq}`;
   const nodeId = db.uid("node_");
   const runRef = `run_rd_${runSeq}`;
-  await db.run(
+  await testRun(
     `INSERT INTO repos (id, name, cloud_url, local_path, created_at, updated_at)
      VALUES ($1,$2,$3,$4,now(),now())`,
     `repo_${flowId}`, `repo ${flowId}`, `https://git.example/${flowId}.git`, "/tmp/devflow-recovery-fixture",
   );
-  await db.run(
+  await testRun(
     `INSERT INTO tasks (id, type, key, summary, status, issue_type, priority) VALUES ($1,$2,$3,$4,$5,$6,$7)`,
     `task_${flowId}`, "generic", flowId.toUpperCase(), "recovery driver test", "open", "task", "P2",
   );
-  await db.run(
+  await testRun(
     `INSERT INTO flows (id, task_id, name, status, execution_mode, repo_id, created_at, updated_at)
      VALUES ($1,$2,$3,'active','local',$4,now(),now())`,
     flowId, `task_${flowId}`, "t", `repo_${flowId}`,
   );
-  await db.run(
+  await testRun(
     `INSERT INTO nodes (id, flow_id, node_key, type, status, created_at, updated_at)
      VALUES ($1,$2,$3,$4,'running',now(),now())`,
     nodeId, flowId, fixtureKey, fixtureKey,
   );
   // the node lease lapsed — the driver is what should now own the node
-  await db.run(`UPDATE nodes SET lease_until = now() - interval '5 minutes' WHERE id=$1`, nodeId);
-  await db.run(
+  await testRun(`UPDATE nodes SET lease_until = now() - interval '5 minutes' WHERE id=$1`, nodeId);
+  await testRun(
     `INSERT INTO runs (id, flow_id, node_id, agent_ref, run_ref, status, lease_until, created_at, updated_at)
      VALUES ($1,$2,$3,'sess_recovery',$4,'running',$5,now(),now())`,
     db.uid("run_"), flowId, nodeId, runRef,
@@ -227,7 +228,7 @@ const seedRecoveryNode = async (fixtureKey: string, opts: { runLeaseLive: boolea
 
 /** The flow row the driver entry takes, with the mapped fields it reads. */
 const flowRowOf = async (flowId: string): Promise<FlowRow> => {
-  const row = await db.get<{ id: string; executionMode: string }>(
+  const row = await testGet<{ id: string; executionMode: string }>(
     `SELECT id, execution_mode AS "executionMode" FROM flows WHERE id=$1`,
     flowId,
   );
@@ -236,13 +237,13 @@ const flowRowOf = async (flowId: string): Promise<FlowRow> => {
 };
 
 const nodeStatusOf = async (nodeId: string): Promise<string | undefined> =>
-  (await db.get<{ status: string }>(`SELECT status FROM nodes WHERE id=$1`, nodeId))?.status;
+  (await testGet<{ status: string }>(`SELECT status FROM nodes WHERE id=$1`, nodeId))?.status;
 
 const errorEventsOf = async (flowId: string): Promise<{ message: string }[]> =>
-  await db.all<{ message: string }>(`SELECT message FROM events WHERE flow_id=$1 AND type='error' ORDER BY created_at`, flowId);
+  await testAll<{ message: string }>(`SELECT message FROM events WHERE flow_id=$1 AND type='error' ORDER BY created_at`, flowId);
 
 const runStatusOf = async (nodeId: string): Promise<string | undefined> =>
-  (await db.get<{ status: string }>(`SELECT status FROM runs WHERE node_id=$1 ORDER BY created_at DESC LIMIT 1`, nodeId))?.status;
+  (await testGet<{ status: string }>(`SELECT status FROM runs WHERE node_id=$1 ORDER BY created_at DESC LIMIT 1`, nodeId))?.status;
 
 describe("RecoveryDriver — the fixed recover() ABI at the recovery seam (Invariant 4)", () => {
   const driver = new RecoveryDriver();
@@ -332,7 +333,7 @@ describe("RecoveryDriver — the fixed recover() ABI at the recovery seam (Invar
     const { flowId, nodeId } = await seedRecoveryNode(FIXTURE_THROWING, { runLeaseLive: false });
     const ctx: FlowCtx = await flowEngine.ctx(flowId);
     const node = must(
-      await db.get<{ id: string; nodeKey: string; status: string; attemptId: null }>(
+      await testGet<{ id: string; nodeKey: string; status: string; attemptId: null }>(
         `SELECT id, node_key AS "nodeKey", status, attempt_id AS "attemptId" FROM nodes WHERE id=$1`,
         nodeId,
       ),

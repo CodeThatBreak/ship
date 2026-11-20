@@ -46,7 +46,6 @@ const FROZEN_OFFENDERS: readonly string[] = [
   "lib/contracts/contractService.ts",
   "lib/db/database.ts",
   "lib/db/rowDecodeError.ts",
-  "lib/db/rows.ts",
   "lib/db/stores/gitlabInstanceStore.ts",
   "lib/db/stores/jiraInstanceStore.ts",
   "lib/db/templateSeeder.ts",

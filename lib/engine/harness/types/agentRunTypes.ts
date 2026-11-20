@@ -45,7 +45,7 @@ export interface AgentStartInput {
   env?: Record<string, string>;
 }
 
-export type AgentRunnerDatabase = Pick<Database, "get" | "run" | "now" | "emitEvent" | "getSetting">;
+export type AgentRunnerDatabase = Pick<Database, "prisma" | "now" | "emitEvent" | "getSetting">;
 export type AgentPortRegistry = Pick<typeof import("../../ports/agentPort").agentPortRegistry, "forMode">;
 export type AppConfig = Pick<typeof config, "defaultModel">;
 export type WorktreeRunManager = Pick<WorktreeManager, "ensureForRun">;

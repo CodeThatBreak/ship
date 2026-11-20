@@ -1,7 +1,7 @@
 import "server-only";
 
 import { db } from "../../../db/app";
-import { jsonInput } from "../../nodes/shared/nodeSupport/utils/ormRows";
+import { jsonInput } from "@/lib/db/ormRowHelpers";
 
 /** Persist an estimated cost, flagging it in the usage JSON so a later
  *  backfill (e.g. after the pricing rates change) re-prices it. */

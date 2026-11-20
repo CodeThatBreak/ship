@@ -1,9 +1,9 @@
 /**
  * Plan checklist bulk edit + sync integrity (Task 27 / CR-013, CR-192).
  */
+import { testRun } from "@/tests/helpers/rawTestDb";
 import { describe, expect, it } from "vitest";
 
-const { db } = await import("../../db/app");
 const { planSteps } = await import("./planStepStore");
 const { formatStepBuildContextPack } = await import("../nodes/kinds/build/schema");
 const { parsePlanArtifactMeta } = await import("../nodes/kinds/plan/schema");
@@ -12,7 +12,7 @@ const now = () => new Date().toISOString();
 
 const seedFlow = async (flowId: string) => {
   const taskId = `task_${flowId}`;
-  await db.run(
+  await testRun(
     `INSERT INTO tasks (id, type, key, summary, status, issue_type, priority) VALUES ($1,$2,$3,$4,$5,$6,$7)`,
     taskId,
     "generic",
@@ -22,7 +22,7 @@ const seedFlow = async (flowId: string) => {
     "task",
     "P2",
   );
-  await db.run(
+  await testRun(
     `INSERT INTO flows (id, task_id, name, status, parent_flow_id, kind, created_at, updated_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
     flowId,
     taskId,
@@ -33,7 +33,7 @@ const seedFlow = async (flowId: string) => {
     now(),
     now(),
   );
-  await db.run(
+  await testRun(
     `INSERT INTO nodes (id, flow_id, node_key, type, status, created_at, updated_at) VALUES ($1,$2,$3,$4,$5,$6,$7)`,
     `node_${flowId}`,
     flowId,
@@ -46,7 +46,7 @@ const seedFlow = async (flowId: string) => {
 };
 
 const seedArtifact = async (flowId: string, id: string) => {
-  await db.run(
+  await testRun(
     `INSERT INTO artifacts (id, node_id, flow_id, kind, version, content, meta, status, created_at)
      VALUES ($1,$2,$3,$4,$5,$6,$7,'draft',$8)`,
     id,
@@ -70,7 +70,7 @@ const insertStep = async (args: {
   metaId?: string | null;
   artifactId?: string | null;
 }) => {
-  await db.run(
+  await testRun(
     `INSERT INTO plan_steps (id, flow_id, artifact_id, meta_id, position, title, detail, files, branch, status, origin, created_at, updated_at)
      VALUES ($1,$2,$3,$4,$5,$6,$7,$8::jsonb,$9,$10,$11,$12,$13)`,
     args.id,
@@ -141,7 +141,7 @@ describe("PlanStepStore.replace (Task 27)", () => {
     const parentId = flowId;
     const childId = "flw_child_started";
     await seedFlow(parentId);
-    void db.run(
+    void testRun(
       `INSERT INTO flows (id, task_id, name, status, parent_flow_id, kind, created_at, updated_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
       childId,
       `task_${parentId}`,
@@ -152,7 +152,7 @@ describe("PlanStepStore.replace (Task 27)", () => {
       now(),
       now(),
     );
-    void db.run(
+    void testRun(
       `INSERT INTO nodes (id, flow_id, node_key, type, status, created_at, updated_at) VALUES ($1,$2,$3,$4,$5,$6,$7)`,
       "node_child",
       childId,
@@ -164,7 +164,7 @@ describe("PlanStepStore.replace (Task 27)", () => {
     );
 
     await insertStep({ id: "step_pending", flowId, title: "First", position: 0, metaId: "s1" });
-    void db.run(
+    void testRun(
       `INSERT INTO plan_steps (id, flow_id, artifact_id, meta_id, position, title, detail, files, branch, status, origin, sub_flow_id, created_at, updated_at)
        VALUES ($1,$2,$3,$4,$5,$6,$7,$8::jsonb,$9,$10,$11,$12,$13,$14)`,
       "step_started",

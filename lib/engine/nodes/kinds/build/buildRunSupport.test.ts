@@ -16,6 +16,7 @@
  * lib/config.ts, so setting it before the first `db` import isolates the
  * singleton (AGENTS.md §1 — never a real database).
  */
+import { testAll, testGet, testRun } from "@/tests/helpers/rawTestDb";
 import { beforeAll, describe, expect, it } from "vitest";
 
 // Must run before any `../../../db` import touches the connection — dynamic
@@ -65,15 +66,15 @@ async function seed(index: number, opts: { nodeKey?: string; type?: string; mrBr
   const nodeId = `node_${index}`;
   const nodeKey = opts.nodeKey ?? "build";
   const type = opts.type ?? nodeKey;
-  await db.run(
+  await testRun(
     `INSERT INTO tasks (id, type, key, summary, status, issue_type, priority) VALUES ($1,$2,$3,$4,$5,$6,$7)`,
     taskId, "generic", `TST-${index}`, "build run support test", "open", "story", "P2",
   );
-  await db.run(
+  await testRun(
     `INSERT INTO flows (id, task_id, name, status, execution_mode, mr_branch, created_at, updated_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
     flowId, taskId, `build run support test ${index}`, "active", "cloud", opts.mrBranch ?? null, now(), now(),
   );
-  await db.run(
+  await testRun(
     `INSERT INTO nodes (id, flow_id, node_key, type, status, created_at, updated_at) VALUES ($1,$2,$3,$4,$5,$6,$7)`,
     nodeId, flowId, nodeKey, type, opts.status ?? "pending", now(), now(),
   );
@@ -106,7 +107,7 @@ class StubRunner extends AgentRunner {
     label: string,
   ): Promise<ExecuteRunResult> {
     await this.support.persistRun(ctx.flow.id, nodeId, "agt_test", "run_test");
-    const runRowId = (await db.get<{ id: string }>(`SELECT id FROM runs WHERE run_ref=$1`, "run_test"))?.id;
+    const runRowId = (await testGet<{ id: string }>(`SELECT id FROM runs WHERE run_ref=$1`, "run_test"))?.id;
     if (!runRowId) throw new Error("missing run row");
     await db.emitEvent(ctx.flow.id, nodeId, "lifecycle", `${label} started (cloud)`);
     await db.emitEvent(ctx.flow.id, nodeId, "lifecycle", `${label} finished`);
@@ -176,7 +177,7 @@ describe("BuildRunSupport — the per-branch diff artifact", () => {
     const run = new BuildRunSupport(nodeSupport, new DiffStub({ files: [], stat: "3 files changed", raw: "diff --git a/x b/x" }));
     const art = await run.diffArtifact(s.ctx, s.nodeId, "bugfix/tst-31-flw_31", { extraMeta: { feedback: "fix it" } });
     const row = must(
-      await db.get<{ kind: string; content: string; meta: unknown; status: string }>(
+      await testGet<{ kind: string; content: string; meta: unknown; status: string }>(
         `SELECT kind, content, meta, status FROM artifacts WHERE id=$1`, art.id,
       ),
       `artifact ${art.id}`,
@@ -191,7 +192,7 @@ describe("BuildRunSupport — the per-branch diff artifact", () => {
     const run = new BuildRunSupport(nodeSupport, new DiffStub(null));
     const art = await run.diffArtifact(s.ctx, s.nodeId, "bugfix/tst-32-flw_32", { noDiffContent: "(diff unavailable)" });
     const row = must(
-      await db.get<{ content: string; meta: unknown }>(
+      await testGet<{ content: string; meta: unknown }>(
         `SELECT content, meta FROM artifacts WHERE id=$1`, art.id,
       ),
       `artifact ${art.id}`,
@@ -206,13 +207,13 @@ describe("StepBuildNode — fan-out child paths (T6)", () => {
     const s = must(await seed(41, { nodeKey: "step_build", type: "step_build", mrBranch: "bugfix/step-2", status: "running" }), "seed 41");
     // the run row the dead process left behind
     await nodeSupport.persistRun(s.flowId, s.nodeId, "agt_orphan", "run_orphan");
-    const nodeRow = must(await db.get<NodeRow>(`SELECT * FROM nodes WHERE id=$1`, s.nodeId), `node ${s.nodeId}`);
+    const nodeRow = must(await testGet<NodeRow>(`SELECT * FROM nodes WHERE id=$1`, s.nodeId), `node ${s.nodeId}`);
     const step = new StepBuildNode();
 
     expect(await step.recover(s.ctx, nodeRow, { status: "finished", result: "step done" } as unknown as AgentRunResult, "server restarted")).toEqual({ kind: "recovered" });
 
     const node = must(
-      await db.get<{ status: string; agent_id: string | null; output: Record<string, unknown> | null }>(
+      await testGet<{ status: string; agent_id: string | null; output: Record<string, unknown> | null }>(
         `SELECT status, agent_id, output FROM nodes WHERE id=$1`, s.nodeId,
       ),
       `node ${s.nodeId}`,
@@ -222,7 +223,7 @@ describe("StepBuildNode — fan-out child paths (T6)", () => {
     const output = (node.output ?? {}) as { branch: string; latestArtifact: string };
     expect(output.branch).toBe("bugfix/step-2");
     const art = must(
-      await db.get<{ kind: string; content: string; meta: unknown }>(
+      await testGet<{ kind: string; content: string; meta: unknown }>(
         `SELECT kind, content, meta FROM artifacts WHERE id=$1`, output.latestArtifact,
       ),
       `artifact ${output.latestArtifact}`,
@@ -230,7 +231,7 @@ describe("StepBuildNode — fan-out child paths (T6)", () => {
     expect(art.kind).toBe("diff");
     expect(art.content).toBe("(diff unavailable — fetch from GitLab)");
     expect(art.meta).toEqual({ branch: "bugfix/step-2", stat: "", recovered: true });
-    const events = await db.all<{ type: string; message: string; data: unknown }>(
+    const events = await testAll<{ type: string; message: string; data: unknown }>(
       `SELECT type, message, data FROM events WHERE node_id=$1 AND message LIKE '%recovered%'`, s.nodeId,
     );
     expect(events.at(-1)?.type).toBe("lifecycle");
@@ -238,19 +239,19 @@ describe("StepBuildNode — fan-out child paths (T6)", () => {
     expect(events.at(-1)?.data).toEqual({ recovered: true });
 
     // idempotent: a concurrent reconcile finding a non-running node declines silently
-    const recovered = must(await db.get<NodeRow>(`SELECT * FROM nodes WHERE id=$1`, s.nodeId), `node ${s.nodeId}`);
+    const recovered = must(await testGet<NodeRow>(`SELECT * FROM nodes WHERE id=$1`, s.nodeId), `node ${s.nodeId}`);
     expect(await step.recover(s.ctx, recovered, { status: "finished", result: "again" } as unknown as AgentRunResult, "again")).toEqual({ kind: "recovered" });
-    expect((await db.get<{ id: string; version: number }>(
+    expect((await testGet<{ id: string; version: number }>(
       `SELECT id, version FROM artifacts WHERE node_id=$1 AND kind='diff' ORDER BY version DESC LIMIT 1`, s.nodeId,
     ))?.version).toBe(1); // no second artifact
   });
 
   it("a non-finished run declines recovery", async () => {
     const s = must(await seed(42, { nodeKey: "step_build", type: "step_build", status: "running" }), "seed 42");
-    const nodeRow = must(await db.get<NodeRow>(`SELECT * FROM nodes WHERE id=$1`, s.nodeId), `node ${s.nodeId}`);
+    const nodeRow = must(await testGet<NodeRow>(`SELECT * FROM nodes WHERE id=$1`, s.nodeId), `node ${s.nodeId}`);
     const step = new StepBuildNode();
     expect(await step.recover(s.ctx, nodeRow, { status: "error" } as unknown as AgentRunResult, "server restarted")).toMatchObject({ kind: "manual" });
-    expect((await db.get<{ status: string }>(`SELECT status FROM nodes WHERE id=$1`, s.nodeId))?.status).toBe("running");
+    expect((await testGet<{ status: string }>(`SELECT status FROM nodes WHERE id=$1`, s.nodeId))?.status).toBe("running");
   });
 
   it("the chat-refine terminal reruns on the step branch and saves the per-step diff", async () => {
@@ -267,19 +268,19 @@ describe("StepBuildNode — fan-out child paths (T6)", () => {
     expect(outcome.status).toBe("awaiting_approval");
     expect(outcome.reply).toBe("step fixed");
     const output = (must(
-      await db.get<{ output: Record<string, unknown> | null }>(`SELECT output FROM nodes WHERE id=$1`, s.nodeId),
+      await testGet<{ output: Record<string, unknown> | null }>(`SELECT output FROM nodes WHERE id=$1`, s.nodeId),
       `node output ${s.nodeId}`,
     ).output ?? {}) as { branch: string; latestArtifact: string };
     expect(output.branch).toBe("bugfix/step-3");
     const art = must(
-      await db.get<{ kind: string; content: string; meta: unknown }>(
+      await testGet<{ kind: string; content: string; meta: unknown }>(
         `SELECT kind, content, meta FROM artifacts WHERE id=$1`, output.latestArtifact,
       ),
       `artifact ${output.latestArtifact}`,
     );
     expect(art.content).toBe("step fixed"); // no diff — the agent's reply stands in
     expect(art.meta).toEqual({ branch: "bugfix/step-3", stat: "", feedback: "fix the flaky test" });
-    const events = await db.all<{ message: string }>(
+    const events = await testAll<{ message: string }>(
       `SELECT message FROM events WHERE node_id=$1 AND message LIKE '%step updated%'`, s.nodeId,
     );
     expect(events.at(-1)?.message).toBe("step updated per feedback; new per-step diff ready");

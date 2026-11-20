@@ -88,11 +88,11 @@ async function main() {
 
   if (dbMode) {
     const limit = Math.max(1, Number(args[1]) || 5);
-    const agents = await db.all<{
+    const agents = await db.prisma.$queryRawUnsafe<{
       agentRef: string;
       runRef: string;
       status: string;
-    }>(
+    }[]>(
       `SELECT DISTINCT agent_ref AS "agentRef", run_ref AS "runRef", status FROM runs
        WHERE agent_ref IS NOT NULL ORDER BY created_at DESC LIMIT $1`,
       limit,

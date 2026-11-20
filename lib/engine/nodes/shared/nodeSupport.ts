@@ -20,7 +20,8 @@ import type {
   TransitionKey,
 } from "../../runtime/transitions/types/transitions";
 import type { TransitionAuthority } from "../../runtime/transitions/nodeTransitions";
-import { jsonInput, parseNodeJsonPatch, parseRow, parseRows } from "./nodeSupport/utils/ormRows";
+import { parseNodeJsonPatch } from "./nodeSupport/utils/ormRows";
+import { jsonInput, parseRow, parseRows } from "@/lib/db/ormRowHelpers";
 import {
   lastRunAgentId,
   persistRunRows,
@@ -126,13 +127,15 @@ export class NodeSupport {
    * `lease_until` only (never `status`/`attempt_id`).
    */
   private async stampNodeLease(nodeId: string): Promise<void> {
-    await db.run(`UPDATE nodes SET lease_until = now() + make_interval(secs => $1) WHERE id=$2`,
+    await db.prisma.$executeRawUnsafe(
+      `UPDATE nodes SET lease_until = now() + make_interval(secs => $1) WHERE id=$2`,
       NODE_LEASE_SECONDS, nodeId);
   }
 
   /** Run-lease half of the same invariant: `runs.lease_until > now()` while the agent runs. */
   private async stampRunLease(runRef: string): Promise<void> {
-    await db.run(`UPDATE runs SET lease_until = now() + make_interval(secs => $1) WHERE run_ref=$2`,
+    await db.prisma.$executeRawUnsafe(
+      `UPDATE runs SET lease_until = now() + make_interval(secs => $1) WHERE run_ref=$2`,
       RUN_LEASE_SECONDS, runRef);
   }
 

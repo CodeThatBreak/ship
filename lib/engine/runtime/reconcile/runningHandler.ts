@@ -53,13 +53,15 @@ export class RunningHandler {
    * arithmetic against DB-server time; Prisma has no equivalent.
    */
   private async mergeInFlight(flowId: string): Promise<boolean> {
-    return Boolean(await db.get(
-      `SELECT 1 FROM step_merges
+    return Boolean((
+      await db.prisma.$queryRawUnsafe<{ ok: number }[]>(
+        `SELECT 1 AS ok FROM step_merges
        WHERE parent_flow_id=$1 AND status IN ('running','conflict','rejected')
          AND updated_at > now() - make_interval(secs => $2)
        LIMIT 1`,
-      flowId,
-      STEP_MERGE_GRACE_MS / 1000,
-    ));
+        flowId,
+        STEP_MERGE_GRACE_MS / 1000,
+      )
+    )[0]);
   }
 }

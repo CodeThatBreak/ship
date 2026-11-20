@@ -15,10 +15,10 @@ import { sampleValue } from "./utils/sampleValue";
 /** Template preview (§1 read model): samples a start-contract context and evaluates the template's nodes/edges to preview a hypothetical run — variables, outputs, edges. Read-only: samples synthetic values, never writes flows/nodes. */
 export class TemplatePreviewService {
   private async sampleContext(templateId: string): Promise<FlowContextMap> {
-    const tpl = await db.get<{ trigger: unknown }>(
-          `SELECT trigger FROM flow_templates WHERE id=$1`,
-          templateId,
-        );
+    const tpl = await db.prisma.flowTemplate.findFirst({
+      where: { id: templateId },
+      select: { trigger: true },
+    });
     const trigger = (tpl?.trigger ?? {}) as Record<string, unknown>;
 
     const provider = taskRegistry.maybe(String(trigger.taskType ?? ""));
@@ -39,15 +39,15 @@ export class TemplatePreviewService {
     };
 
     const nodes: Record<string, { output: unknown }> = {};
-    const nodeRows = await db.all<{ nodeKey: string; nodeTemplateId: string; config: unknown }>(
-          `SELECT node_key AS "nodeKey", node_template_id AS "nodeTemplateId", config FROM flow_template_nodes WHERE template_id=$1`,
-          templateId,
-        );
+    const nodeRows = await db.prisma.flowTemplateNode.findMany({
+      where: { templateId },
+      select: { nodeKey: true, nodeTemplateId: true, config: true },
+    });
     for (const r of nodeRows) {
-      const nt = await db.get<{ kind: string; config: unknown }>(
-              `SELECT kind, config FROM node_templates WHERE id=$1`,
-              r.nodeTemplateId,
-            );
+      const nt = await db.prisma.nodeTemplate.findFirst({
+        where: { id: r.nodeTemplateId },
+        select: { kind: true, config: true },
+      });
       if (!nt) continue;
       const instConfig: unknown = r.config ?? {};
       const defConfig: unknown = nt.config ?? {};
@@ -81,13 +81,11 @@ export class TemplatePreviewService {
 
   private async sampleTriggerPayload(templateId: string): Promise<Record<string, unknown>> {
     const entryKey = nodeRegistry.entryKey();
-    const row = await db.get<{ config: unknown }>(
-          `SELECT n.config FROM flow_template_nodes n
-     JOIN node_templates t ON t.id = n.node_template_id
-     WHERE n.template_id=$1 AND t.key=$2`,
-          templateId,
-          entryKey,
-        );
+    if (entryKey == null) return {};
+    const row = await db.prisma.flowTemplateNode.findFirst({
+      where: { templateId, nodeTemplate: { key: entryKey } },
+      select: { config: true },
+    });
     if (row?.config == null) return {};
     const config: unknown = row.config;
     return Object.fromEntries(
@@ -114,10 +112,11 @@ export class TemplatePreviewService {
     let context: unknown;
     let source: "run" | "sample" = "sample";
     if (scope === "context") {
-      const flow = await db.get<{ id: string }>(
-              `SELECT id FROM flows WHERE template_id=$1 ORDER BY updated_at DESC LIMIT 1`,
-              templateId,
-            );
+      const flow = await db.prisma.flow.findFirst({
+        where: { templateId },
+        orderBy: { updatedAt: "desc" },
+        select: { id: true },
+      });
       if (flow) {
         try {
           context = await buildFlowContext(await flowEngine.ctx(flow.id));

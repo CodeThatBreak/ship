@@ -1,3 +1,4 @@
+import { testGet } from "@/tests/helpers/rawTestDb";
 import { beforeAll, describe, expect, it } from "vitest";
 import { assignTestDatabase, resetTestDatabase } from "../../tests/helpers/testDatabase";
 import { AtRestCipher } from "./atRestCipher";
@@ -32,7 +33,7 @@ describe("GitLabInstanceStore at rest", () => {
       token: "secret-token",
     });
 
-    const row = await db.get<{ token: string }>(`SELECT token FROM gitlab_instances WHERE id=$1`, inst.id);
+    const row = await testGet<{ token: string }>(`SELECT token FROM gitlab_instances WHERE id=$1`, inst.id);
     expect(row?.token).toBeTruthy();
     expect(row?.token).not.toBe("secret-token");
     expect(db.integrationSecrets.isSealed(row?.token ?? "")).toBe(true);

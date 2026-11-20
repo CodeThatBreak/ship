@@ -5,6 +5,7 @@
  * the artifact ledger (§4). Fake GitHostResolver + injected retry sleep +
  * isolated temp SQLite DB (AGENTS.md §1).
  */
+import { testAll, testGet, testRun } from "@/tests/helpers/rawTestDb";
 import { beforeAll, describe, expect, it } from "vitest";
 
 
@@ -12,7 +13,6 @@ import { assignTestDatabase, resetTestDatabase } from "../../../../../tests/help
 
 assignTestDatabase();
 
-const { db } = await import("../../../../db/app");
 
 beforeAll(resetTestDatabase);
 const { NodeSupport } = await import("../../shared/nodeSupport");
@@ -70,16 +70,16 @@ const EMPTY_LEDGER: ResolveEffectLedger = { replies: [], resolvedDiscussions: []
 
 const seedFlow = async (flowId: string): Promise<string> => {
   const taskId = `task_${flowId}`;
-  await db.run(
+  await testRun(
     `INSERT INTO tasks (id, type, key, summary, status, issue_type, priority) VALUES ($1,$2,$3,$4,$5,$6,$7)`,
     taskId, "generic", `TST-${flowId}`, "resolve effects test", "open", "task", "P2",
   );
-  await db.run(
+  await testRun(
     `INSERT INTO flows (id, task_id, name, status, created_at, updated_at) VALUES ($1,$2,$3,$4,$5,$6)`,
     flowId, taskId, "resolve effects test", "active", now(), now(),
   );
   const nodeId = `node_${flowId}`;
-  await db.run(
+  await testRun(
     `INSERT INTO nodes (id, flow_id, node_key, type, status, created_at, updated_at) VALUES ($1,$2,$3,$4,$5,$6,$7)`,
     nodeId, flowId, "resolve", "resolve", "running", now(), now(),
   );
@@ -232,7 +232,7 @@ const hostOf = (service: FakeHostService): GitHostResolver =>
   ({ forRepo: async () => service }) as unknown as GitHostResolver;
 
 const eventsByType = (flowId: string, type: string) =>
-  db.all<{ type: string; message: string }>(
+  testAll<{ type: string; message: string }>(
     `SELECT type, message FROM events WHERE flow_id=$1 AND type=$2 ORDER BY created_at ASC`,
     flowId,
     type,
@@ -255,7 +255,7 @@ describe("ResolveEffects.apply — host effects with retry + ledger", () => {
   ) => {
     // an explicit null must seed a threadless row (the ?? default only covers an omitted key)
     const thread = discussionId === undefined ? `d_${id}` : discussionId;
-    await db.run(
+    await testRun(
       `INSERT INTO comments (id, flow_id, mr_iid, discussion_id, author, body, file_path, line, status, raw, created_at, updated_at)
        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)`,
       id, flowId, 42, thread, "reviewer", `comment ${id}`, "src/a.ts", 2,
@@ -264,7 +264,7 @@ describe("ResolveEffects.apply — host effects with retry + ledger", () => {
   };
 
   const commentRows = async () =>
-    await db.all<CommentRow>(
+    await testAll<CommentRow>(
       `SELECT id, flow_id AS "flowId", mr_iid AS "mrIid", discussion_id AS "discussionId", author, body,
               file_path AS "filePath", line, status, resolved_by AS "resolvedBy", raw,
               created_at AS "createdAt", updated_at AS "updatedAt"
@@ -294,12 +294,12 @@ describe("ResolveEffects.apply — host effects with retry + ledger", () => {
     const noteId = host.calls[0].noteId;
     if (!noteId) throw new Error("expected the reply to return a note id");
     // G10: the posted reply is locally closed before the poller can re-deliver it
-    expect(await db.get<{ status: string; resolved_by: string }>(
+    expect(await testGet<{ status: string; resolved_by: string }>(
       `SELECT status, resolved_by FROM comments WHERE id=$1`,
       noteId,
     )).toEqual({ status: "resolved", resolved_by: "agent" });
     expect(result).toMatchObject({ resolved: 1, replied: 1, wontfix: 0, skipped: 0, hostFailures: 0 });
-    expect(await db.get<{ status: string }>(`SELECT status FROM comments WHERE id='gl_a'`)).toEqual({ status: "resolved" });
+    expect(await testGet<{ status: string }>(`SELECT status FROM comments WHERE id='gl_a'`)).toEqual({ status: "resolved" });
   });
 
   it("local-only closes for non-resolvable rows: nothing host-called, never a failure (G8)", async () => {
@@ -322,9 +322,9 @@ describe("ResolveEffects.apply — host effects with retry + ledger", () => {
     expect(host.calls).toEqual([]);
     expect(result.resolved).toBe(2);
     expect(result.hostFailures).toBe(0);
-    expect(await db.get<{ status: string }>(`SELECT status FROM comments WHERE id='gl_c'`)).toEqual({ status: "resolved" });
+    expect(await testGet<{ status: string }>(`SELECT status FROM comments WHERE id='gl_c'`)).toEqual({ status: "resolved" });
     // the reply could not be posted (no thread) and the notes stay open (G11 marker path)
-    expect(await db.get<{ status: string }>(`SELECT status FROM comments WHERE id='gl_d'`)).toEqual({ status: "open" });
+    expect(await testGet<{ status: string }>(`SELECT status FROM comments WHERE id='gl_d'`)).toEqual({ status: "open" });
     expect((await eventsByType(flowId, "log")).some((e) => e.message.includes("no discussion thread"))).toBe(true);
   });
 
@@ -343,7 +343,7 @@ describe("ResolveEffects.apply — host effects with retry + ledger", () => {
     expect(result.replied).toBe(1);
     expect(result.resolved).toBe(0);
     expect(result.hostFailures).toBe(0);
-    expect(await db.get<{ status: string }>(`SELECT status FROM comments WHERE id='gl_e'`)).toEqual({ status: "open" });
+    expect(await testGet<{ status: string }>(`SELECT status FROM comments WHERE id='gl_e'`)).toEqual({ status: "open" });
     expect((await eventsByType(flowId, "log")).some((e) => e.message.includes("not pushed"))).toBe(true);
   });
 
@@ -364,7 +364,7 @@ describe("ResolveEffects.apply — host effects with retry + ledger", () => {
     expect(delays).toEqual([2500]);
     expect(result.resolved).toBe(1);
     expect(result.hostFailures).toBe(0);
-    expect(await db.get<{ status: string }>(`SELECT status FROM comments WHERE id='gl_f'`)).toEqual({ status: "resolved" });
+    expect(await testGet<{ status: string }>(`SELECT status FROM comments WHERE id='gl_f'`)).toEqual({ status: "resolved" });
   });
 
   it("exhausted 429 retries count one hostFailure and leave the thread open", async () => {
@@ -387,7 +387,7 @@ describe("ResolveEffects.apply — host effects with retry + ledger", () => {
     expect(host.calls.filter((c) => c.op === "resolve")).toHaveLength(3); // initial + 2 bounded retries
     expect(delays).toEqual([1000, 2000]); // backoff min(1s·2ⁿ, 8s)
     expect(result.hostFailures).toBe(1);
-    expect(await db.get<{ status: string }>(`SELECT status FROM comments WHERE id='gl_g'`)).toEqual({ status: "open" });
+    expect(await testGet<{ status: string }>(`SELECT status FROM comments WHERE id='gl_g'`)).toEqual({ status: "open" });
     expect((await eventsByType(flowId, "error")).some((e) => e.message.includes("could not resolve MR thread"))).toBe(true);
   });
 
@@ -462,7 +462,7 @@ describe("ResolveEffects.apply — host effects with retry + ledger", () => {
 
     // one persist per landed effect: reply, then host resolve
     expect(saves).toBe(2);
-    const versions = await db.all<{ version: number; meta: unknown }>(
+    const versions = await testAll<{ version: number; meta: unknown }>(
       `SELECT version, meta FROM artifacts WHERE node_id=$1 AND kind='resolve' ORDER BY version`,
       nodeId,
     );
@@ -488,6 +488,6 @@ describe("ResolveEffects.apply — host effects with retry + ledger", () => {
 
     expect(result.hostFailures).toBe(1);
     expect(result.resolved).toBe(1); // gl_m's thread still closed
-    expect(await db.get<{ status: string }>(`SELECT status FROM comments WHERE id='gl_m'`)).toEqual({ status: "resolved" });
+    expect(await testGet<{ status: string }>(`SELECT status FROM comments WHERE id='gl_m'`)).toEqual({ status: "resolved" });
   });
 });

@@ -10,6 +10,7 @@
  * Runs against the isolated dockerized Postgres test database
  * (AGENTS.md §1 — never a demo/real DB).
  */
+import { testGet, testRun } from "@/tests/helpers/rawTestDb";
 import { beforeAll, describe, expect, test } from "vitest";
 import { assignTestDatabase, resetTestDatabase } from "../helpers/testDatabase";
 import { FlowHarness, until } from "../helpers/flowHarness";
@@ -43,10 +44,10 @@ describe("reconciler resolves every non-terminal state", () => {
     // event (adopt/recreate lands with the step-07 effect layer)
     const status = await harness.nodeStatus(flowId, "build");
     expect(status === "awaiting_approval" || status === "done" || status === "approved").toBe(true);
-    const resolved = await db.get<{ mr_iid: number | null }>(`SELECT mr_iid FROM flows WHERE id=$1`, flowId);
+    const resolved = await testGet<{ mr_iid: number | null }>(`SELECT mr_iid FROM flows WHERE id=$1`, flowId);
     const revertedOrAdopted = status === "awaiting_approval" || resolved?.mr_iid != null;
     expect(revertedOrAdopted).toBe(true);
-    const event = await db.get<{ message: string }>(
+    const event = await testGet<{ message: string }>(
       `SELECT message FROM events WHERE flow_id=$1 AND type='error' AND message LIKE '%no MR exists%'`,
       flowId);
     expect(event?.message).toContain("reverted to awaiting approval");
@@ -79,7 +80,7 @@ edges: []
     // the gate is waiting with a deadline already in the past (the process
     // that armed it is gone) — the reconciler must fire it
     await harness.setNodeForFixture(flowId, "gate", "waiting");
-    await db.run(
+    await testRun(
       `UPDATE nodes SET wait_until = now() - interval '10 minutes' WHERE flow_id=$1 AND node_key='gate'`,
       flowId);
     agent.drainQueue();
@@ -107,7 +108,7 @@ edges: []
 
     // a node awaiting approval whose upstream is dead fails with a typed event
     expect(await harness.nodeStatus(flowId, "build")).toBe("failed");
-    const event = await db.get<{ message: string }>(
+    const event = await testGet<{ message: string }>(
       `SELECT message FROM events WHERE flow_id=$1 AND type='error' AND message LIKE '%upstream plan failed%'`,
       flowId);
     expect(event?.message).toContain("upstream plan failed");

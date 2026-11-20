@@ -1,7 +1,8 @@
 import "server-only";
 
 import { db } from "../../../../../db/app";
-import { BranchRow, type BranchStatus } from "../../../../../db/rows";
+import { BranchRow } from "../../../../../db/rows";
+import { type BranchStatus } from "../../../../../db/constants/rowStatuses";
 import type { QueryExecutor } from "../../../../../db/database";
 
 /**

@@ -12,6 +12,7 @@
  * Runs against the isolated dockerized Postgres test database
  * (AGENTS.md §1 — never a demo/real DB).
  */
+import { testAll, testGet, testRun } from "@/tests/helpers/rawTestDb";
 import { afterEach, beforeAll, describe, expect, test } from "vitest";
 import type { Prisma } from "@prisma/client";
 import type { StepRollup } from "@/lib/engine/runtime/fanout/stepRollup";
@@ -92,16 +93,16 @@ afterEach(() => {
 // ── read handles (SQL reads only — never a write path) ───────────────────────
 
 const nodeRowOf = async (flowId: string, nodeKey: string): Promise<Record<string, unknown>> => {
-  const row = await db.get<Record<string, unknown>>(`SELECT * FROM nodes WHERE flow_id=$1 AND node_key=$2`, flowId, nodeKey);
+  const row = await testGet<Record<string, unknown>>(`SELECT * FROM nodes WHERE flow_id=$1 AND node_key=$2`, flowId, nodeKey);
   if (!row) throw new Error(`no node row for ${flowId}/${nodeKey}`);
   return row;
 };
 
 const artifactsOf = async (flowId: string): Promise<{ id: string; kind: string; version: number; status: string }[]> =>
-  db.all(`SELECT id, kind, version, status FROM artifacts WHERE flow_id=$1 ORDER BY version`, flowId);
+  testAll(`SELECT id, kind, version, status FROM artifacts WHERE flow_id=$1 ORDER BY version`, flowId);
 
 const eventsOf = async (flowId: string): Promise<{ type: string; message: string }[]> =>
-  db.all(`SELECT type, message FROM events WHERE flow_id=$1 ORDER BY created_at, id`, flowId);
+  testAll(`SELECT type, message FROM events WHERE flow_id=$1 ORDER BY created_at, id`, flowId);
 
 const defOfNode = async (flowId: string, nodeKey: string) => {
   const spec = (await harness.graphForFlow(flowId))?.byKey.get(nodeKey);
@@ -235,7 +236,7 @@ describe("completion batch transaction (step 06, Invariant 7)", () => {
     await harness.setNodeOutputForFixture(childFlowId, "work", "done", { summary: "child work" });
     // fixture setup ONLY: link the pending plan step to its child flow (the
     // planSteps store has no sub_flow_id setter — the expansion writes it raw)
-    await db.run(
+    await testRun(
       `INSERT INTO plan_steps (id, flow_id, position, title, detail, files, status, origin, sub_flow_id, created_at, updated_at)
        VALUES ($1,$2,$3,$4,$5,$6,'pending','agent',$7,$8,$9)`,
       "step_ctx_1", flowId, 0, "Step one", null, "[]", childFlowId, db.now(), db.now(),

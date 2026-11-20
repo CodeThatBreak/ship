@@ -3,6 +3,7 @@
  * dedup, atomic claim (exclusive under concurrent claimers), lease-expiry
  * re-claim, and the bounded attempts→failed budget.
  */
+import { testAll, testGet, testRun } from "@/tests/helpers/rawTestDb";
 import { beforeAll, describe, expect, it } from "vitest";
 import { assignTestDatabase, resetTestDatabase } from "../../../../tests/helpers/testDatabase";
 
@@ -31,7 +32,7 @@ describe("JobQueue enqueue dedup", () => {
     });
     expect(first.deduplicated).toBe(false);
     expect(retry.deduplicated).toBe(true);
-    const rows = await db.all<{ count: string }>(
+    const rows = await testAll<{ count: string }>(
       `SELECT COUNT(*) AS count FROM jobs WHERE dedup_key='hook:hk_dedup:msg_1'`);
     expect(Number(rows[0].count)).toBe(1);
   });
@@ -68,7 +69,7 @@ describe("JobQueue lease expiry", () => {
     if (!first) throw new Error("expected the enqueued job to be claimable");
     expect(first.attempts).toBe(1);
     // simulate the crash: the claim lease lapses before done
-    await db.run(`UPDATE jobs SET lease_until = now() - interval '1 second' WHERE id=$1`, id);
+    await testRun(`UPDATE jobs SET lease_until = now() - interval '1 second' WHERE id=$1`, id);
     const reclaimed = await q.reclaimExpired([JOB_KIND.WEBHOOK_DELIVERY]);
     if (!reclaimed) throw new Error("expected the expired claim to be reclaimable");
     expect(reclaimed.id).toBe(id);
@@ -80,10 +81,10 @@ describe("JobQueue attempts budget", () => {
   it("a failing job requeues with backoff, then lands failed with an event", async () => {
     const q = queue();
     const flowId = "flw_jobfail";
-    await db.run(
+    await testRun(
       `INSERT INTO tasks (id, type, key, summary, status, issue_type, priority) VALUES ($1,$2,$3,$4,$5,$6,$7)`,
       "task_jobfail", "generic", "TST-J", "jobfail", "open", "task", "P2");
-    await db.run(
+    await testRun(
       `INSERT INTO flows (id, task_id, name, status, created_at, updated_at) VALUES ($1,$2,$3,$4,$5,$6)`,
       flowId, "task_jobfail", "jobfail", "active", db.now(), db.now());
     const { id } = await q.enqueue({
@@ -100,9 +101,9 @@ describe("JobQueue attempts budget", () => {
       if (outcome === "failed") break;
     }
     expect(outcome).toBe("failed");
-    const row = await db.get<{ status: string }>(`SELECT status FROM jobs WHERE id=$1`, id);
+    const row = await testGet<{ status: string }>(`SELECT status FROM jobs WHERE id=$1`, id);
     expect(row?.status).toBe(JOB_STATUS.FAILED);
-    const event = await db.get<{ message: string }>(
+    const event = await testGet<{ message: string }>(
       `SELECT message FROM events WHERE flow_id=$1 AND type='error' AND message LIKE '%schedule_fire%'`,
       flowId);
     expect(event?.message).toContain("failed after 5 attempts");
@@ -123,7 +124,7 @@ describe("JobQueue sweepDue", () => {
     });
     expect(processed).toBe(1);
     expect(handled).toEqual([id]);
-    const row = await db.get<{ status: string }>(`SELECT status FROM jobs WHERE id=$1`, id);
+    const row = await testGet<{ status: string }>(`SELECT status FROM jobs WHERE id=$1`, id);
     expect(row?.status).toBe(JOB_STATUS.DONE);
   });
 
@@ -137,7 +138,7 @@ describe("JobQueue sweepDue", () => {
     await q.sweepDue({
       [JOB_KIND.SCHEDULE_FIRE]: async () => { throw new Error("dispatch exploded"); },
     });
-    const row = await db.get<{ status: string; attempts: number }>(
+    const row = await testGet<{ status: string; attempts: number }>(
       `SELECT status, attempts FROM jobs WHERE id=$1`, id);
     expect(row?.status).toBe(JOB_STATUS.QUEUED);
     expect(row?.attempts).toBe(1);

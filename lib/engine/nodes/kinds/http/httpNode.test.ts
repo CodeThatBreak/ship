@@ -1,3 +1,4 @@
+import { testAll, testGet, testRun } from "@/tests/helpers/rawTestDb";
 import { beforeAll, describe, expect, it } from "vitest";
 
 
@@ -5,7 +6,6 @@ import { assignTestDatabase, resetTestDatabase } from "../../../../../tests/help
 
 assignTestDatabase();
 
-const { db } = await import("../../../../db/app");
 
 beforeAll(resetTestDatabase);
 const { HttpTemplateNode } = await import("./httpNode");
@@ -20,7 +20,7 @@ describe("HttpTemplateNode.recover", () => {
     const taskId = "task_http_recover";
     const flowId = "flw_http_recover";
     const nodeId = "node_http_recover";
-    await db.run(
+    await testRun(
       `INSERT INTO tasks (id, type, key, summary, status, issue_type, priority) VALUES ($1,$2,$3,$4,$5,$6,$7)`,
       taskId,
       "generic",
@@ -30,7 +30,7 @@ describe("HttpTemplateNode.recover", () => {
       "story",
       "P2",
     );
-    await db.run(
+    await testRun(
       `INSERT INTO flows (id, task_id, name, status, created_at, updated_at) VALUES ($1,$2,$3,$4,$5,$6)`,
       flowId,
       taskId,
@@ -39,7 +39,7 @@ describe("HttpTemplateNode.recover", () => {
       now(),
       now(),
     );
-    await db.run(
+    await testRun(
       `INSERT INTO nodes (id, flow_id, node_key, type, status, created_at, updated_at) VALUES ($1,$2,$3,$4,$5,$6,$7)`,
       nodeId,
       flowId,
@@ -54,15 +54,15 @@ describe("HttpTemplateNode.recover", () => {
       task: { id: "task_http_recover", type: "generic", key: "HTTP-1", summary: "test", fields: {}, status: "open", issueType: "story", priority: "P2" },
     } as unknown as FlowCtx;
     const node = new HttpTemplateNode({ id: "http_call", name: "HTTP", description: null, config: { url: "https://example.com", method: "GET" } });
-    const nodeRow = await db.get<NodeRow>(`SELECT * FROM nodes WHERE id=$1`, nodeId);
+    const nodeRow = await testGet<NodeRow>(`SELECT * FROM nodes WHERE id=$1`, nodeId);
     if (!nodeRow) throw new Error("missing node row");
 
     const ok = await node.recover(ctx, nodeRow, { status: "finished" } satisfies AgentRunResult, "server restarted");
     expect(ok).toMatchObject({ kind: "manual" });
 
-    const after = await db.get<{ status: string }>(`SELECT status FROM nodes WHERE id=$1`, nodeId);
+    const after = await testGet<{ status: string }>(`SELECT status FROM nodes WHERE id=$1`, nodeId);
     expect(after?.status).toBe("running");
-    const errors = await db.all<{ type: string }>(`SELECT type FROM events WHERE node_id=$1`, nodeId);
+    const errors = await testAll<{ type: string }>(`SELECT type FROM events WHERE node_id=$1`, nodeId);
     expect(errors.some((e) => e.type === "error")).toBe(false);
   });
 });

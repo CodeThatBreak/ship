@@ -19,6 +19,7 @@
  * Runs against the test Postgres database (DATABASE_URL — AGENTS.md §1, never
  * a real database).
  */
+import { testAll, testGet, testRun } from "@/tests/helpers/rawTestDb";
 import { describe, expect, it } from "vitest";
 import { assignTestDatabase, resetTestDatabase } from "../../../tests/helpers/testDatabase";
 
@@ -289,7 +290,7 @@ interface SplitChildPayload {
  * assertions ride the splitter's own deterministic `position`, not row order.
  */
 async function splitChildren(flowId: string): Promise<{ id: string; name: string; payload: SplitChildPayload }[]> {
-  return (await db.all<{ id: string; name: string; trigger_payload: SplitChildPayload | null }>(
+  return (await testAll<{ id: string; name: string; trigger_payload: SplitChildPayload | null }>(
     `SELECT id, name, trigger_payload FROM flows WHERE parent_flow_id=$1 AND kind='split' ORDER BY created_at, id`,
     flowId,
   ))
@@ -307,7 +308,7 @@ interface AggregateEntry { key: string; title: string; status: string; output?: 
 /** One flow node's status + parsed output. */
 async function nodeOf(flowId: string, nodeKey: string): Promise<{ status: string; output: Record<string, unknown> }> {
   const row = must(
-    await db.get<{ status: string; output: Record<string, unknown> | null }>(
+    await testGet<{ status: string; output: Record<string, unknown> | null }>(
       `SELECT status, output FROM nodes WHERE flow_id=$1 AND node_key=$2`, flowId, nodeKey,
     ),
     `node ${nodeKey} of ${flowId}`,
@@ -358,7 +359,7 @@ describe("split smoke template — authoring path (templateStore + template-lint
 describe("split smoke template — end-to-end run (source → per-unit children → join → parent continues)", () => {
   it("fans units out, schedules the dependency, publishes the aggregate and continues", async () => {
     const taskId = "task_smoke_e2e";
-    await db.run(
+    await testRun(
       `INSERT INTO tasks (id, type, key, summary, status, issue_type, priority) VALUES ($1,$2,$3,$4,$5,$6,$7)`,
       taskId, "jira", "SMOKE-1", "split smoke end-to-end run", "open", "task", "P2",
     );

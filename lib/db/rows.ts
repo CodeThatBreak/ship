@@ -1,60 +1,33 @@
 import 'server-only';
 
 import { z } from 'zod';
-import type { Database } from './database';
 
 /**
- * Zod validators for JSONB payloads + typed raw-query helpers.
+ * Zod validators for the DB row shapes — the JSONB boundary.
  *
  * Column types come from Prisma (`prisma/schema.prisma`) — this module no
  * longer re-declares them. What remains is boundary validation for JSONB
  * payloads (the typed shapes the engine writes into `nodes.input/output`,
- * `artifacts.meta`, event `data`, trigger payloads, …) and the RowGateway
- * used by the async raw-SQL call sites during the step-01 conversion.
+ * `artifacts.meta`, event `data`, trigger payloads, …): every ORM read that
+ * crosses a JSONB column narrows its payload through these schemas (via
+ * `lib/db/ormRowHelpers.ts`). Status vocabularies live in
+ * `lib/db/constants/rowStatuses.ts`.
  *
  * Naming (Q11): all row shapes are camelCase — Postgres stays snake_case via
- * Prisma `@map`s, and raw queries alias snake_case columns to camelCase.
+ * Prisma `@map`s.
  */
 
-import { RowDecodeError, rowIdFromRaw } from './rowDecodeError';
-import { getRowGateway } from './rowGatewayAccess';
-
-// ── status vocabularies (mirror the PG enums in prisma/schema.prisma) ───────
-export const FLOW_STATUSES = ['active', 'done', 'failed', 'skipped'] as const;
-export type FlowRowStatus = (typeof FLOW_STATUSES)[number];
-
-export const FLOW_KINDS = ['sdlc', 'step', 'split'] as const;
-export type FlowKindRow = (typeof FLOW_KINDS)[number];
-
-export const NODE_STATUSES = [
-  'pending',
-  'waiting',
-  'running',
-  'awaiting_approval',
-  'approved',
-  'done',
-  'failed',
-  'skipped',
-] as const;
-export type NodeStatus = (typeof NODE_STATUSES)[number];
-
-export const ARTIFACT_STATUSES = ['draft', 'approved', 'superseded'] as const;
-export type ArtifactStatus = (typeof ARTIFACT_STATUSES)[number];
-
-export const COMMENT_STATUSES = ['open', 'resolving', 'resolved', 'wontfix'] as const;
-export type CommentStatus = (typeof COMMENT_STATUSES)[number];
-
-export const PLAN_STEP_STATUSES = ['pending', 'done'] as const;
-export type PlanStepStatus = (typeof PLAN_STEP_STATUSES)[number];
-
-export const BRANCH_STATUSES = ['pending', 'building', 'awaiting_approval', 'approved', 'failed', 'done'] as const;
-export type BranchStatus = (typeof BRANCH_STATUSES)[number];
-
-export const RUN_STATUSES = ['running', 'finished', 'error', 'cancelled'] as const;
-export type RunRowStatus = (typeof RUN_STATUSES)[number];
-
-export const STEP_MERGE_STATUSES = ['running', 'conflict', 'rejected', 'merged', 'failed'] as const;
-export type StepMergeStatus = (typeof STEP_MERGE_STATUSES)[number];
+import {
+  ARTIFACT_STATUSES,
+  BRANCH_STATUSES,
+  COMMENT_STATUSES,
+  FLOW_KINDS,
+  FLOW_STATUSES,
+  NODE_STATUSES,
+  PLAN_STEP_STATUSES,
+  RUN_STATUSES,
+  STEP_MERGE_STATUSES,
+} from './constants/rowStatuses';
 
 // ── helpers ──────────────────────────────────────────────────────────────────
 /** ISO 8601 timestamp string (raw queries surface timestamptz as Date — callers alias and convert). */
@@ -470,58 +443,3 @@ export const StepMergeRow = z.object({
   updatedAt: isoTs,
 });
 export type StepMergeRow = z.infer<typeof StepMergeRow>;
-
-// ── typed query helpers ──────────────────────────────────────────────────────
-/**
- * Schema-validated access to DB rows. Like `db.get`/`db.all`, but each
- * returned row is parsed through the given schema. Unknown keys are stripped
- * (zod default) — `SELECT *`-equivalent raw queries (with camelCase aliases)
- * are fine.
- */
-export class RowGateway {
-  constructor(private readonly database: Pick<Database, 'get' | 'all'>) {}
-
-  private parseRow<S extends z.ZodTypeAny>(
-    schema: S,
-    raw: unknown,
-    sql: string,
-    mode: 'get' | 'all'
-  ): z.infer<S> | undefined {
-    const result = schema.safeParse(raw);
-    if (result.success) return result.data;
-    const rowId = rowIdFromRaw(raw);
-    if (mode === 'get') {
-      throw new RowDecodeError(sql, rowId, result.error);
-    }
-    console.error('[rows] skipping undecodable row', {
-      sql,
-      rowId,
-      issues: result.error.issues,
-    });
-    return undefined;
-  }
-
-  async get<S extends z.ZodTypeAny>(schema: S, sql: string, ...args: unknown[]): Promise<z.infer<S> | undefined> {
-    const row = await this.database.get<unknown>(sql, ...args);
-    if (row == null) return undefined;
-    return this.parseRow(schema, row, sql, 'get');
-  }
-
-  async all<S extends z.ZodTypeAny>(schema: S, sql: string, ...args: unknown[]): Promise<z.infer<S>[]> {
-    const decoded: z.infer<S>[] = [];
-    for (const raw of await this.database.all<unknown>(sql, ...args)) {
-      const row = this.parseRow(schema, raw, sql, 'all');
-      if (row !== undefined) decoded.push(row);
-    }
-    return decoded;
-  }
-}
-
-/** Backward-compatible accessor — prefer `import { rows } from "@/lib/db/app"`. */
-export const rows: RowGateway = new Proxy({} as RowGateway, {
-  get(_target, prop: keyof RowGateway) {
-    const gateway = getRowGateway();
-    const value = gateway[prop];
-    return typeof value === 'function' ? (value as (...args: never[]) => unknown).bind(gateway) : value;
-  },
-});

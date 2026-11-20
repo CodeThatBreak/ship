@@ -10,6 +10,7 @@
  * singleton (AGENTS.md §1 — never a real database). The imports hoist it —
  * dynamic imports keep the order.
  */
+import { testAll, testGet, testRun } from "@/tests/helpers/rawTestDb";
 import { beforeAll, describe, expect, it } from 'vitest';
 
 
@@ -422,16 +423,16 @@ describe('PlanNode — chat via the follow-up contract (docs/plan-conversation-r
   // shared test DB — see chatNode's saveArtifact); `db` resolves above with the
   // other dynamic imports
   beforeAll(async () => {
-    await db.run(
+    await testRun(
       `INSERT INTO tasks (id, type, key, summary, status, issue_type, priority)
        VALUES ('task_chat','generic','T-1','plan chat contract test','open','task','P2') ON CONFLICT DO NOTHING`
     );
-    await db.run(
+    await testRun(
       `INSERT INTO flows (id, task_id, name, status, created_at, updated_at)
        VALUES ('flow-1','task_chat','plan chat contract test','active',$1,$2) ON CONFLICT DO NOTHING`,
       db.now(), db.now()
     );
-    await db.run(
+    await testRun(
       `INSERT INTO nodes (id, flow_id, node_key, type, status, agent_id, created_at, updated_at)
        VALUES ('node-1','flow-1','plan','plan','awaiting_approval',NULL,$1,$2) ON CONFLICT DO NOTHING`,
       db.now(), db.now()
@@ -511,10 +512,10 @@ describe('PlanNode — chat via the follow-up contract (docs/plan-conversation-r
       async saveArtifact(nodeId: string, flowId: string, kind: string, content: string, meta?: unknown) {
         observ.savedMetas.push((meta ?? null) as Record<string, unknown> | null);
         observ.savedContents.push(content);
-        const prev = await db.get<{ v: number | null }>(`SELECT MAX(version) AS v FROM artifacts WHERE node_id=$1 AND kind=$2`, nodeId, kind);
+        const prev = await testGet<{ v: number | null }>(`SELECT MAX(version) AS v FROM artifacts WHERE node_id=$1 AND kind=$2`, nodeId, kind);
         const version = (prev?.v ?? 0) + 1;
         const id = `art_chat_${String(++chatArtifactSeq)}`;
-        await db.run(
+        await testRun(
           `INSERT INTO artifacts (id,node_id,flow_id,kind,version,content,meta,status,created_at)
            VALUES ($1,$2,$3,$4,$5,$6,$7::jsonb,'draft',$8)`,
           id, nodeId, flowId, kind, version, content, meta ? JSON.stringify(meta) : null, db.now()
@@ -607,7 +608,7 @@ describe('PlanNode — chat via the follow-up contract (docs/plan-conversation-r
     expect(observ.events).toContain(`plan v${art.version} ready for review · 2 steps`);
     // the checklist synced from the plan payload (Id runs through the store's
     // real syncFromPlan into the live rows)
-    const checklist = await db.all<{ title: string }>(`SELECT title FROM plan_steps WHERE flow_id=$1 ORDER BY position`, 'flow-1');
+    const checklist = await testAll<{ title: string }>(`SELECT title FROM plan_steps WHERE flow_id=$1 ORDER BY position`, 'flow-1');
     expect(checklist.map(r => r.title)).toEqual(['First', 'Second']);
   });
 
@@ -810,10 +811,10 @@ describe('PlanNode.turn — unified send routing', () => {
       artifactsOfKind: async () => [branchedPlanRow],
       async saveArtifact(nodeId: string, flowId: string, kind: string, content: string, meta?: unknown) {
         observ.savedMetas.push((meta ?? null) as Record<string, unknown>);
-        const prev = await db.get<{ v: number | null }>(`SELECT MAX(version) AS v FROM artifacts WHERE node_id=$1 AND kind=$2`, nodeId, kind);
+        const prev = await testGet<{ v: number | null }>(`SELECT MAX(version) AS v FROM artifacts WHERE node_id=$1 AND kind=$2`, nodeId, kind);
         const version = (prev?.v ?? 0) + 1;
         const id = `art_turn_${String(++turnArtifactSeq)}`;
-        await db.run(
+        await testRun(
           `INSERT INTO artifacts (id,node_id,flow_id,kind,version,content,meta,status,created_at)
            VALUES ($1,$2,$3,$4,$5,$6,$7::jsonb,'draft',$8)`,
           id,

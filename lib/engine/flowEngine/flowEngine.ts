@@ -7,7 +7,7 @@ import { NodeRow } from '../../db/rows';
 import type { HostWebhookEvent } from '../ports/gitHost';
 import type { ChainRole, FlowCtx } from '../nodes/shared/nodeSharedExports';
 import { nodeRegistry } from '../nodes/registry';
-import { parseRow } from '../nodes/shared/nodeSupport/utils/ormRows';
+import { parseRow } from '@/lib/db/ormRowHelpers';
 import '../nodes/declarativeBootstrap';
 import {
   templateStore,

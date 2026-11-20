@@ -89,7 +89,7 @@ export class Reconciler {
    * node) — one bad row never aborts the pass.
    */
   private async reconcileNodeStates(flow: FlowRow): Promise<void> {
-    const nodes = await db.all<NodeStateView>(
+    const nodes = await db.prisma.$queryRawUnsafe<NodeStateView[]>(
       `SELECT id, node_key AS "nodeKey", status, attempt_id AS "attemptId",
           (lease_until IS NULL OR lease_until <= now()) AS "leaseExpired",
           (wait_until IS NOT NULL AND wait_until <= now()) AS "waitDue"

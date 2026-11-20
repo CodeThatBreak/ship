@@ -8,6 +8,7 @@
  * `saveArtifact` is a stub so the publish is observable, while the branch
  * checklist replace runs against real `plan_steps` rows (FK to artifacts).
  */
+import { testRun } from "@/tests/helpers/rawTestDb";
 import { beforeAll, describe, expect, it } from 'vitest';
 import { assignTestDatabase, resetTestDatabase } from '../../../../../tests/helpers/testDatabase';
 
@@ -15,7 +16,6 @@ assignTestDatabase();
 
 beforeAll(resetTestDatabase);
 
-const { db } = await import('../../../../db/app');
 const { planSteps } = await import('../../../runtime/planStepStore');
 const { PlanScopedOutcome } = await import('./planScopedOutcome');
 const { REFINED_FROM_SOURCE } = await import('./constants/refine');
@@ -62,7 +62,7 @@ const ctx = { flow: { id: FLOW_ID } } as unknown as FlowCtx;
 const node = { id: 'node-1' } as unknown as NodeRow;
 
 beforeAll(async () => {
-  await db.run(
+  await testRun(
     `INSERT INTO tasks (id, type, key, summary, status, issue_type, priority) VALUES ($1,$2,$3,$4,$5,$6,$7)`,
     'task_1',
     'generic',
@@ -72,7 +72,7 @@ beforeAll(async () => {
     'task',
     'P2'
   );
-  await db.run(
+  await testRun(
     `INSERT INTO flows (id, task_id, name, status, created_at, updated_at) VALUES ($1,$2,$3,$4,$5,$6)`,
     FLOW_ID,
     'task_1',
@@ -81,7 +81,7 @@ beforeAll(async () => {
     now(),
     now()
   );
-  await db.run(
+  await testRun(
     `INSERT INTO nodes (id, flow_id, node_key, type, status, created_at, updated_at) VALUES ($1,$2,$3,$4,$5,$6,$7)`,
     'node-1',
     FLOW_ID,
@@ -92,7 +92,7 @@ beforeAll(async () => {
     now()
   );
   for (const id of ['art_old', 'art_new']) {
-    await db.run(
+    await testRun(
       `INSERT INTO artifacts (id, node_id, flow_id, kind, version, content, meta, status, created_at)
        VALUES ($1,$2,$3,'plan',1,'# P',NULL,'draft',$4)`,
       id,

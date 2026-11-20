@@ -4,6 +4,7 @@
  *
  * Isolated temp SQLite DB (AGENTS.md §1).
  */
+import { testAll, testGet, testRun } from "@/tests/helpers/rawTestDb";
 import { beforeAll, describe, expect, it } from "vitest";
 
 
@@ -11,7 +12,6 @@ import { assignTestDatabase, resetTestDatabase } from "../../../../tests/helpers
 
 assignTestDatabase();
 
-const { db } = await import("../../../db/app");
 
 beforeAll(resetTestDatabase);
 const { NodeSupport } = await import("./nodeSupport");
@@ -22,7 +22,7 @@ const now = () => new Date().toISOString();
 
 const seedPlanNode = async (flowId: string): Promise<string> => {
   const taskId = `task_${flowId}`;
-  await db.run(
+  await testRun(
     `INSERT INTO tasks (id, type, key, summary, status, issue_type, priority) VALUES ($1,$2,$3,$4,$5,$6,$7)`,
     taskId,
     "generic",
@@ -32,7 +32,7 @@ const seedPlanNode = async (flowId: string): Promise<string> => {
     "task",
     "P2",
   );
-  await db.run(
+  await testRun(
     `INSERT INTO flows (id, task_id, name, status, created_at, updated_at) VALUES ($1,$2,$3,$4,$5,$6)`,
     flowId,
     taskId,
@@ -42,7 +42,7 @@ const seedPlanNode = async (flowId: string): Promise<string> => {
     now(),
   );
   const nodeId = `node_${flowId}`;
-  await db.run(
+  await testRun(
     `INSERT INTO nodes (id, flow_id, node_key, type, status, created_at, updated_at) VALUES ($1,$2,$3,$4,$5,$6,$7)`,
     nodeId,
     flowId,
@@ -81,12 +81,12 @@ describe("NodeSupport — startup run rows", () => {
   it("registerStartupRun is idempotent and persistRun upgrades the placeholder", async () => {
     const flowId = "flw_startup_run";
     const nodeId = await seedPlanNode(flowId);
-    await db.run(`UPDATE nodes SET status='running', attempt_id='att_test' WHERE id=$1`, nodeId);
+    await testRun(`UPDATE nodes SET status='running', attempt_id='att_test' WHERE id=$1`, nodeId);
 
     await support.registerStartupRun(flowId, nodeId, "att_test");
     await support.registerStartupRun(flowId, nodeId, "att_test");
 
-    const pending = await db.get<{ agent_ref: string; run_ref: string; status: string }>(
+    const pending = await testGet<{ agent_ref: string; run_ref: string; status: string }>(
       `SELECT agent_ref, run_ref, status FROM runs WHERE node_id=$1 AND status='running'`,
       nodeId,
     );
@@ -97,7 +97,7 @@ describe("NodeSupport — startup run rows", () => {
     });
 
     const runRowId = await support.persistRun(flowId, nodeId, "agt_real", "run_real");
-    const upgraded = await db.get<{ id: string; agent_ref: string; run_ref: string }>(
+    const upgraded = await testGet<{ id: string; agent_ref: string; run_ref: string }>(
       `SELECT id, agent_ref, run_ref FROM runs WHERE id=$1`,
       runRowId,
     );
@@ -112,11 +112,11 @@ describe("NodeSupport.claim (Task 17)", () => {
   it("stamps attempt_id and rejects a second concurrent claim", async () => {
     const flowId = "flw_claim";
     const nodeId = await seedPlanNode(flowId);
-    await db.run(`UPDATE nodes SET status='pending' WHERE id=$1`, nodeId);
+    await testRun(`UPDATE nodes SET status='pending' WHERE id=$1`, nodeId);
 
     const { attemptId } = await engineParts.transitions.claim(flowId, "plan", "runFromPending");
     expect(attemptId.startsWith("att_")).toBe(true);
-    expect(await db.get<{ status: string; attempt_id: string }>(
+    expect(await testGet<{ status: string; attempt_id: string }>(
       `SELECT status, attempt_id FROM nodes WHERE id=$1`,
       nodeId,
     )).toMatchObject({ status: "running", attempt_id: attemptId });
@@ -128,7 +128,7 @@ describe("NodeSupport.claim (Task 17)", () => {
     const flowId = "flw_transition";
     await seedPlanNode(flowId);
     await support.applyTransition(flowId, "plan", "approve");
-    expect(await db.get<{ status: string; attempt_id: null }>(
+    expect(await testGet<{ status: string; attempt_id: null }>(
       `SELECT status, attempt_id FROM nodes WHERE flow_id=$1 AND node_key='plan'`,
       flowId,
     )).toMatchObject({ status: "approved", attempt_id: null });
@@ -169,7 +169,7 @@ describe("NodeSupport.setNode — JSONB text→jsonb cast parity", () => {
     const nodeId = await seedPlanNode(flowId);
     await support.setNode(nodeId, { agent_id: "agt_x" });
     expect(
-      (await db.get<{ agent_id: string | null }>(`SELECT agent_id FROM nodes WHERE id=$1`, nodeId))?.agent_id,
+      (await testGet<{ agent_id: string | null }>(`SELECT agent_id FROM nodes WHERE id=$1`, nodeId))?.agent_id,
     ).toBe("agt_x");
   });
 });
@@ -183,7 +183,7 @@ describe("NodeSupport — comment queries and agent reply effects", () => {
     id: string,
     overrides: { mrIid?: number; discussionId?: string; createdAt?: string } = {},
   ) => {
-    await db.run(
+    await testRun(
       `INSERT INTO comments (id, flow_id, mr_iid, discussion_id, author, body, file_path, line, status, created_at, updated_at)
        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`,
       id,
@@ -225,7 +225,7 @@ describe("NodeSupport — comment queries and agent reply effects", () => {
 
     await support.resolveComments(["gl_10", "gl_11"]);
     expect(
-      await db.all<{ id: string; status: string; resolved_by: string }>(
+      await testAll<{ id: string; status: string; resolved_by: string }>(
         `SELECT id, status, resolved_by FROM comments WHERE flow_id=$1 ORDER BY id`,
         flowId,
       ),
@@ -236,7 +236,7 @@ describe("NodeSupport — comment queries and agent reply effects", () => {
     ]);
     // the single-row method delegates to the same batch path
     await support.resolveComment("gl_12");
-    expect(await db.get<{ status: string; resolved_by: string }>(
+    expect(await testGet<{ status: string; resolved_by: string }>(
       `SELECT status, resolved_by FROM comments WHERE id=$1`,
       "gl_12",
     )).toEqual({ status: "resolved", resolved_by: "agent" });
@@ -253,7 +253,7 @@ describe("NodeSupport — comment queries and agent reply effects", () => {
       body: "Fixed by renaming the variable.",
       note: { id: "gl_777", author: "ai-bot", createdAt: "2026-11-05T12:00:00.000Z" },
     });
-    const row = await db.get<{ id: string; status: string; resolved_by: string; author: string; body: string; discussion_id: string; created_at: Date }>(
+    const row = await testGet<{ id: string; status: string; resolved_by: string; author: string; body: string; discussion_id: string; created_at: Date }>(
       `SELECT id, status, resolved_by, author, body, discussion_id, created_at FROM comments WHERE id='gl_777'`,
     );
     expect(row && { ...row, created_at: row.created_at.toISOString() }).toEqual({
@@ -267,7 +267,7 @@ describe("NodeSupport — comment queries and agent reply effects", () => {
     });
 
     // the poller raced: the same note already arrived via ingest
-    await db.run(`INSERT INTO comments (id, flow_id, mr_iid, discussion_id, author, body, status, created_at, updated_at)
+    await testRun(`INSERT INTO comments (id, flow_id, mr_iid, discussion_id, author, body, status, created_at, updated_at)
             VALUES ('gl_778', $1, 42, 'd_2', 'ai-bot', 'poller beat us', 'open', $2, $3)`, flowId, now(), now());
     await support.recordAgentReply({
       flowId,
@@ -276,7 +276,7 @@ describe("NodeSupport — comment queries and agent reply effects", () => {
       body: "poller copy",
       note: { id: "gl_778", author: "ai-bot", createdAt: now() },
     });
-    expect(await db.get<{ status: string; body: string }>(
+    expect(await testGet<{ status: string; body: string }>(
       `SELECT status, body FROM comments WHERE id='gl_778'`,
     )).toEqual({ status: "open", body: "poller beat us" });
   });

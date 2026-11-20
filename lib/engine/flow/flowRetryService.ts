@@ -4,7 +4,7 @@ import { db } from "../../db/app";
 import { NodeRow } from "../../db/rows";
 import { NotFoundError, ValidationError } from "../../errors";
 import { NODE_KEYS } from "../constants/nodeKeys";
-import { parseRow } from "../nodes/shared/nodeSupport/utils/ormRows";
+import { parseRow } from "@/lib/db/ormRowHelpers";
 import { PlanInput } from "../nodes/kinds/plan/schema";
 import {
   PLAN_CHAT_READY_LIFECYCLE,

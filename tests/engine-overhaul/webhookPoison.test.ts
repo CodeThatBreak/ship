@@ -12,6 +12,7 @@
  * Runs against the isolated dockerized Postgres test database
  * (AGENTS.md §1 — never a demo/real DB).
  */
+import { testAll, testGet, testRun } from "@/tests/helpers/rawTestDb";
 import { beforeAll, describe, expect, test } from "vitest";
 import { assignTestDatabase, resetTestDatabase } from "../helpers/testDatabase";
 import { FlowHarness } from "../helpers/flowHarness";
@@ -60,15 +61,15 @@ describe("webhook poison handling", () => {
     // until the attempt cap, then lands the job `failed`
     for (let i = 0; i < JOB_LIMITS.MAX_ATTEMPTS; i += 1) {
       // one sweep cycle: make the requeued job due again, then sweep
-      await db.run(`UPDATE jobs SET run_at = now() - interval '1 second' WHERE id=$1`, jobId);
+      await testRun(`UPDATE jobs SET run_at = now() - interval '1 second' WHERE id=$1`, jobId);
       await jobs.sweepDue({ [JOB_KIND.WEBHOOK_DELIVERY]: poisonHandler });
     }
-    const jobRow = await db.get<{ status: string }>(`SELECT status FROM jobs WHERE id=$1`, jobId);
+    const jobRow = await testGet<{ status: string }>(`SELECT status FROM jobs WHERE id=$1`, jobId);
     expect(jobRow?.status).toBe(JOB_STATUS.FAILED);
 
     // the failure is loud in OUR event feed: one typed `error` event carrying
     // the job kind, the attempt budget and the handler error
-    const events = await db.all<{ type: string; message: string }>(
+    const events = await testAll<{ type: string; message: string }>(
       `SELECT type, message FROM events WHERE flow_id=$1 AND type=$2 ORDER BY created_at`,
       flowId,
       EVENT_KIND.ERROR,

@@ -12,6 +12,7 @@
  * `finally` so cases stay independent). Runs against the isolated
  * dockerized Postgres test database (AGENTS.md §1 — never a demo/real DB).
  */
+import { testAll, testGet } from "@/tests/helpers/rawTestDb";
 import { beforeAll, describe, expect, it } from "vitest";
 import { assignTestDatabase, resetTestDatabase } from "../helpers/testDatabase";
 import { FlowHarness, until } from "../helpers/flowHarness";
@@ -63,11 +64,11 @@ const interleaveDuringStream = (interleave: () => Promise<void>): (() => Promise
 
 /** The capability token the in-flight run row carries (aliased snake_case). */
 const runningApiToken = async (flowId: string, nodeKey: string): Promise<string> => {
-  const nodeRow = await db.get<{ id: string }>(
+  const nodeRow = await testGet<{ id: string }>(
     `SELECT id FROM nodes WHERE flow_id=$1 AND node_key=$2`, flowId, nodeKey,
   );
   if (!nodeRow) throw new Error(`no node row for ${flowId}/${nodeKey}`);
-  const run = await db.get<{ apiToken: string | null }>(
+  const run = await testGet<{ apiToken: string | null }>(
     `SELECT api_token AS "apiToken" FROM runs WHERE node_id=$1 AND status='running' ORDER BY created_at DESC LIMIT 1`,
     nodeRow.id,
   );
@@ -88,7 +89,7 @@ const driveToApprovedPlan = async (flowId: string): Promise<void> => {
 };
 
 const planStepStatuses = async (flowId: string): Promise<string[]> => {
-  const rows = await db.all<{ status: string }>(
+  const rows = await testAll<{ status: string }>(
     `SELECT status FROM plan_steps WHERE flow_id=$1 ORDER BY position, created_at`, flowId,
   );
   return rows.map((r) => r.status);
@@ -170,7 +171,7 @@ describe("build progress via the agent-tools API (fake ports)", () => {
         "the build to fail via report_failure",
         10_000,
       );
-      const reported = await db.all<{ type: string; data: Record<string, unknown> }>(
+      const reported = await testAll<{ type: string; data: Record<string, unknown> }>(
         `SELECT type, data FROM events WHERE flow_id=$1 AND type=$2`,
         flowId, EVENT_KIND.AGENT_REPORTED_FAILURE,
       );

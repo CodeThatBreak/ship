@@ -1,3 +1,4 @@
+import { testGet, testRun } from "@/tests/helpers/rawTestDb";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -8,7 +9,6 @@ process.env.DATABASE_PATH = path.join(
   "test.db",
 );
 
-const { db } = await import("../db/app");
 const { FlowEngine } = await import("./flowEngine/flowEngine");
 const { importTemplateYaml } = await import("./templates/templateYaml");
 const { templateStore } = await import("./templates/templateStore");
@@ -57,7 +57,7 @@ const setNode = (
   status: string,
   output: Record<string, unknown> | null = null,
 ) => {
-  return db.run(
+  return testRun(
     `UPDATE nodes SET status=$1, output=$2, updated_at=$3 WHERE flow_id=$4 AND node_key=$5`,
     status,
     output ? JSON.stringify(output) : null,
@@ -69,7 +69,7 @@ const setNode = (
 
 const statusOf = async (flowId: string, nodeKey: string): Promise<string> =>
   (
-    await db.get<{ status: string }>(
+    await testGet<{ status: string }>(
       `SELECT status FROM nodes WHERE flow_id=$1 AND node_key=$2`,
       flowId,
       nodeKey,
@@ -84,7 +84,7 @@ describe("resetLoopEntry skipped branches (CR-007)", () => {
       namePrefix: "loop-decision",
     });
     const taskId = "task_loop_decision";
-    await db.run(
+    await testRun(
       `INSERT INTO tasks (id, type, key, summary, status, issue_type, priority) VALUES ($1,$2,$3,$4,$5,$6,$7)`,
       taskId,
       "jira",

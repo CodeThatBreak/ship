@@ -13,6 +13,7 @@
  * Runs against the isolated dockerized Postgres test database
  * (AGENTS.md §1 — never a demo/real DB).
  */
+import { testAll, testRun } from "@/tests/helpers/rawTestDb";
 import { beforeAll, describe, expect, test } from "vitest";
 import { assignTestDatabase, resetTestDatabase } from "../helpers/testDatabase";
 import { FlowHarness } from "../helpers/flowHarness";
@@ -33,7 +34,7 @@ beforeAll(resetTestDatabase);
 const SKIP_CODE = "skipped_duplicate_trigger";
 
 const skipEventsOf = async (flowId: string) =>
-  db.all<{ data: { source?: string; holderAttemptId?: string | null; status?: string | null } }>(
+  testAll<{ data: { source?: string; holderAttemptId?: string | null; status?: string | null } }>(
     `SELECT data FROM events WHERE flow_id=$1 AND type=$2 ORDER BY created_at ASC`,
     flowId,
     SKIP_CODE,
@@ -43,7 +44,7 @@ describe("TriggerGateway — one claim door, one skip convention", () => {
   test("every source skips the same way, each event naming its source", async () => {
     for (const source of Object.values(TRIGGER_SOURCE)) {
       const flowId = await harness.seedSdlcFlow();
-      await db.run(`UPDATE flows SET mr_iid=$1, mr_branch=$2 WHERE id=$3`, 1, "devflow/ovh-gw", flowId);
+      await testRun(`UPDATE flows SET mr_iid=$1, mr_branch=$2 WHERE id=$3`, 1, "devflow/ovh-gw", flowId);
       // the gate is mid-run: an in-flight pipeline wait owns it
       await harness.claimNode(flowId, "pipeline", "manualStage");
 
@@ -62,7 +63,7 @@ describe("TriggerGateway — one claim door, one skip convention", () => {
 
   test("a won trigger returns {started} with the attempt token and claims the node", async () => {
     const flowId = await harness.seedSdlcFlow();
-    await db.run(`UPDATE flows SET mr_iid=$1, mr_branch=$2 WHERE id=$3`, 1, "devflow/ovh-gw2", flowId);
+    await testRun(`UPDATE flows SET mr_iid=$1, mr_branch=$2 WHERE id=$3`, 1, "devflow/ovh-gw2", flowId);
 
     const result = await flowEngine.chain.triggerPipelineGate(flowId, undefined, undefined, TRIGGER_SOURCE.UI);
     expect(result.started).toBe(true);
@@ -74,7 +75,7 @@ describe("TriggerGateway — one claim door, one skip convention", () => {
 
   test("the chain guard matches the old chainBusy predicate: a running sibling blocks, nothing else does", async () => {
     const flowId = await harness.seedSdlcFlow();
-    await db.run(`UPDATE flows SET mr_iid=$1, mr_branch=$2 WHERE id=$3`, 1, "devflow/ovh-gw3", flowId);
+    await testRun(`UPDATE flows SET mr_iid=$1, mr_branch=$2 WHERE id=$3`, 1, "devflow/ovh-gw3", flowId);
     await harness.claimNode(flowId, "pipeline", "manualStage");
 
     // review + resolve lose while the gate runs (the old chainBusy read)

@@ -69,11 +69,10 @@ export class TriggerGateway {
       toStatus: params.toStatus,
     });
     if (applied) return { started: true };
-    const node = await this.database.get<{ status: string }>(
-      `SELECT status FROM nodes WHERE flow_id=$1 AND node_key=$2`,
-      params.flowId,
-      params.nodeKey,
-    );
+    const node = await this.database.prisma.node.findFirst({
+      where: { flowId: params.flowId, nodeKey: params.nodeKey },
+      select: { status: true },
+    });
     await this.emitSkip(params.flowId, params.nodeKey, params.source, params.key, {
       status: node?.status ?? null,
       holderAttemptId: null,

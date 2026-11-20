@@ -1,9 +1,9 @@
+import { testAll, testRun } from "@/tests/helpers/rawTestDb";
 import { beforeAll, describe, expect, it } from "vitest";
 import { assignTestDatabase, resetTestDatabase } from "../../../tests/helpers/testDatabase";
 
 assignTestDatabase();
 
-const { db } = await import("../../db/app");
 const { FlowChatService } = await import("./flowChatService");
 const { CHAT_DECLINED } = await import("../nodes/shared/constants/chatDeclined");
 import type { ChatHost } from "./types/chatHost";
@@ -22,11 +22,11 @@ const SKIP: TriggerResult = { started: false, skipped: true, reason: "skipped_du
  * sdlcHappyPath).
  */
 const seedFlow = async (flowId: string): Promise<void> => {
-  await db.run(
+  await testRun(
     `INSERT INTO tasks (id, type, key, summary, status, issue_type, priority) VALUES ($1,$2,$3,$4,$5,$6,$7)`,
     `task_${flowId}`, "generic", flowId.toUpperCase(), "chat test", "open", "task", "P2",
   );
-  await db.run(
+  await testRun(
     `INSERT INTO flows (id, task_id, name, status, created_at, updated_at) VALUES ($1,$2,$3,$4,now(),now())`,
     flowId, `task_${flowId}`, "t", "active",
   );
@@ -43,7 +43,7 @@ const makeHost = (over: Partial<ChatHost> = {}): ChatHost => ({
 });
 
 const assistantMessages = async (flowId: string): Promise<string[]> =>
-  (await db.all<{ content: string }>(`SELECT content FROM messages WHERE flow_id=$1 AND role='assistant'`, flowId)).map(m => m.content);
+  (await testAll<{ content: string }>(`SELECT content FROM messages WHERE flow_id=$1 AND role='assistant'`, flowId)).map(m => m.content);
 
 describe("FlowChatService", () => {
   beforeAll(async () => {

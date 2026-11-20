@@ -7,7 +7,7 @@ import { NODE_KEYS } from "../constants/nodeKeys";
 import { stepFlows } from "../runtime/fanout/stepFlowManager";
 import { TRIGGER_SOURCE } from "../runtime/triggers/constants/triggerSources";
 import { NodeRow } from "../../db/rows";
-import { jsonInput, parseRow } from "../nodes/shared/nodeSupport/utils/ormRows";
+import { jsonInput, parseRow } from "@/lib/db/ormRowHelpers";
 import type { FlowCtx } from "../nodes/shared/nodeSharedExports";
 import type { ApprovalHost } from "./types/approvalHost";
 import type { TriggerResult } from "../runtime/triggers/types/triggerGateway";

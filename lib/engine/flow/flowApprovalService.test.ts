@@ -1,3 +1,4 @@
+import { testRun } from "@/tests/helpers/rawTestDb";
 import { beforeAll, describe, expect, it } from "vitest";
 import { assignTestDatabase, resetTestDatabase } from "../../../tests/helpers/testDatabase";
 
@@ -22,22 +23,22 @@ type TriggerResult = import("../runtime/triggers/types/triggerGateway").TriggerR
 const SKIP: TriggerResult = { started: false, skipped: true, reason: "skipped_duplicate_trigger" };
 
 const seedNode = async (flowId: string, nodeKey: string, status: string): Promise<void> => {
-  await db.run(
+  await testRun(
     `INSERT INTO tasks (id, type, key, summary, status, issue_type, priority) VALUES ($1,$2,$3,$4,$5,$6,$7)`,
     `task_${flowId}`, "generic", flowId.toUpperCase(), "approval test", "open", "task", "P2",
   );
-  await db.run(
+  await testRun(
     `INSERT INTO flows (id, task_id, name, status, created_at, updated_at) VALUES ($1,$2,$3,$4,now(),now())`,
     flowId, `task_${flowId}`, "t", "active",
   );
-  await db.run(
+  await testRun(
     `INSERT INTO nodes (id, flow_id, node_key, type, status, created_at, updated_at) VALUES ($1,$2,$3,'agent',$4,now(),now())`,
     db.uid("node_"), flowId, nodeKey, status,
   );
 };
 
 const seedPlanArtifact = async (flowId: string, id: string, meta: unknown = null): Promise<void> => {
-  await db.run(
+  await testRun(
     `INSERT INTO artifacts (id, node_id, flow_id, kind, version, content, meta, status, created_at)
      VALUES ($1,(SELECT id FROM nodes WHERE flow_id=$2 AND node_key='plan'),$2,'plan',1,'# plan',$3::jsonb,'draft',now())`,
     id, flowId, meta === null ? null : JSON.stringify(meta),

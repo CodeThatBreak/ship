@@ -1,13 +1,13 @@
 import "server-only";
 
-import type { z } from "zod";
 import { ArtifactRow, Task } from "../../../../db/rows";
 import type { Artifact, FlowData } from "@/types/flow";
 
 /**
- * ORM-row helpers for the flow read model: the row decode/narrow semantics and
- * the row→UI mappers the snapshot assembly uses. JSONB payloads stay narrowed
- * through the rows.ts zod schemas (`lib/db/rows.ts`).
+ * Feature-local row→UI mappers for the flow read model. The shared row-decode
+ * helpers (`parseRow`/`parseRowTolerant`/`parseRows`) live in
+ * `lib/db/ormRowHelpers.ts`; what stays here is the read model's own
+ * projections.
  */
 
 export type NodeTemplateRow = {
@@ -21,26 +21,6 @@ export type NodeTemplateRow = {
 
 /** Snapshot artifact row — the body is lazy-loaded via GET /api/artifacts/:id. */
 export const ArtifactListRow = ArtifactRow.omit({ content: true });
-
-/** Narrow a Prisma row through its rows.ts schema (JSONB payloads + Date → ISO). */
-export const parseRow = <S extends z.ZodTypeAny>(schema: S, raw: unknown): z.infer<S> | undefined => {
-  const result = schema.safeParse(raw);
-  return result.success ? result.data : undefined;
-};
-
-/** Narrow Prisma rows through their rows.ts schema, skipping undecodable rows. */
-export const parseRows = <S extends z.ZodTypeAny>(schema: S, raws: readonly unknown[]): z.infer<S>[] => {
-  const parsed: z.infer<S>[] = [];
-  for (const raw of raws) {
-    const result = schema.safeParse(raw);
-    if (result.success) parsed.push(result.data);
-    else
-      console.error("[flowReadModel] skipping undecodable row", {
-        issues: result.error.issues,
-      });
-  }
-  return parsed;
-};
 
 export const buildNodeTemplateIndex = (ntRows: NodeTemplateRow[]) => {
   const byId = new Map<string, NodeTemplateRow>();

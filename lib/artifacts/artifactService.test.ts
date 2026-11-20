@@ -1,3 +1,4 @@
+import { testRun } from "@/tests/helpers/rawTestDb";
 import { beforeAll, describe, expect, it } from "vitest";
 import { assignTestDatabase, resetTestDatabase } from "../../tests/helpers/testDatabase";
 import { NotFoundError } from "../errors";
@@ -6,7 +7,8 @@ import { ArtifactService } from "./artifactService";
 assignTestDatabase();
 
 const { db } = await import("../db/app");
-const { rows, ArtifactRow } = await import("../db/rows");
+const { ArtifactRow } = await import("../db/rows");
+const { parseRow } = await import("@/lib/db/ormRowHelpers");
 
 const now = () => new Date().toISOString();
 
@@ -16,14 +18,14 @@ describe("ArtifactService", () => {
   });
 
   it("returns parsed meta via the row mapper", async () => {
-    await db.run(
+    await testRun(
       `INSERT INTO tasks (id, type, key, summary) VALUES ($1,$2,$3,$4)`,
       "task_a",
       "generic",
       "A-1",
       "a",
     );
-    await db.run(
+    await testRun(
       `INSERT INTO flows (id, task_id, name, status, created_at, updated_at) VALUES ($1,$2,$3,$4,$5,$6)`,
       "flw_a",
       "task_a",
@@ -32,7 +34,7 @@ describe("ArtifactService", () => {
       now(),
       now(),
     );
-    await db.run(
+    await testRun(
       `INSERT INTO nodes (id, flow_id, node_key, type, status, created_at, updated_at)
        VALUES ($1,$2,$3,$4,$5,$6,$7)`,
       "node_a",
@@ -44,7 +46,7 @@ describe("ArtifactService", () => {
       now(),
     );
     // JSONB column: bind the payload object directly (no JSON.stringify)
-    await db.run(
+    await testRun(
       `INSERT INTO artifacts (id, node_id, flow_id, kind, version, content, meta, status, created_at)
        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
       "art_1",
@@ -61,14 +63,9 @@ describe("ArtifactService", () => {
     const service = new ArtifactService();
     const art = await service.get("art_1");
     expect(art.meta).toEqual({ branch: "main" });
-    // raw reads alias snake_case columns to the camelCase row shape (Q11)
-    expect(
-      (await rows.get(
-        ArtifactRow,
-        `SELECT id, node_id AS "nodeId", flow_id AS "flowId", kind, version, content, meta, status, feedback, created_at AS "createdAt" FROM artifacts WHERE id=$1`,
-        "art_1",
-      ))?.meta,
-    ).toEqual({ branch: "main" });
+    // the ORM read narrows `artifacts.meta` through the ArtifactRow schema
+    const row = await db.prisma.artifact.findUnique({ where: { id: "art_1" } });
+    expect(row ? parseRow(ArtifactRow, row, "artifact art_1").meta : undefined).toEqual({ branch: "main" });
   });
 
   it("throws NotFoundError for a missing artifact", async () => {
@@ -78,14 +75,14 @@ describe("ArtifactService", () => {
 
   it("throws RowDecodeError on corrupt meta when fetched directly", async () => {
     const { RowDecodeError } = await import("../db/rowDecodeError");
-    await db.run(
+    await testRun(
       `INSERT INTO tasks (id, type, key, summary) VALUES ($1,$2,$3,$4)`,
       "task_b",
       "generic",
       "B-1",
       "b",
     );
-    await db.run(
+    await testRun(
       `INSERT INTO flows (id, task_id, name, status, created_at, updated_at) VALUES ($1,$2,$3,$4,$5,$6)`,
       "flw_b",
       "task_b",
@@ -94,7 +91,7 @@ describe("ArtifactService", () => {
       now(),
       now(),
     );
-    await db.run(
+    await testRun(
       `INSERT INTO nodes (id, flow_id, node_key, type, status, created_at, updated_at)
        VALUES ($1,$2,$3,$4,$5,$6,$7)`,
       "node_b",
@@ -105,7 +102,7 @@ describe("ArtifactService", () => {
       now(),
       now(),
     );
-    await db.run(
+    await testRun(
       `INSERT INTO artifacts (id, node_id, flow_id, kind, version, content, meta, status, created_at)
        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
       "art_bad",

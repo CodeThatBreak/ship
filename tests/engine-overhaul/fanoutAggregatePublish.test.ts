@@ -8,6 +8,7 @@
  * Runs against the isolated dockerized Postgres test database
  * (AGENTS.md §1 — never a demo/real DB).
  */
+import { testGet } from "@/tests/helpers/rawTestDb";
 import { beforeAll, describe, expect, test } from "vitest";
 import type { StepRollup } from "@/lib/engine/runtime/fanout/stepRollup";
 import { assignTestDatabase, resetTestDatabase } from "../helpers/testDatabase";
@@ -60,7 +61,7 @@ describe("fan-out aggregate publish (step 02)", () => {
 
     // the aggregate landed: terminal status + the validated steps shape
     expect(await harness.nodeStatus(flowId, "build")).toBe("done");
-    const output = await db.get<{ output: unknown }>(
+    const output = await testGet<{ output: unknown }>(
       `SELECT output FROM nodes WHERE flow_id=$1 AND node_key='build'`,
       flowId,
     );
@@ -72,7 +73,7 @@ describe("fan-out aggregate publish (step 02)", () => {
     await rollup.finishFanout(flowId, "build", {
       steps: [{ id: "s2", title: "Step two", status: "done", output: {} }],
     });
-    expect((await db.get<{ output: unknown }>(
+    expect((await testGet<{ output: unknown }>(
       `SELECT output FROM nodes WHERE flow_id=$1 AND node_key='build'`,
       flowId,
     ))?.output).toEqual(output?.output);

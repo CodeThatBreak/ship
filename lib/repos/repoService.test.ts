@@ -1,3 +1,4 @@
+import { testRun } from "@/tests/helpers/rawTestDb";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -35,7 +36,7 @@ describe("RepoService", () => {
 
   it("delete throws ConflictError when flows reference the repo", async () => {
     const ts = new Date().toISOString();
-    await db.run(
+    await testRun(
       `INSERT INTO repos (id,name,cloud_url,default_branch,skip_install,created_at,updated_at)
        VALUES ($1,$2,$3,$4,$5,$6,$7)`,
       "repo_in_use",
@@ -46,14 +47,14 @@ describe("RepoService", () => {
       ts,
       ts,
     );
-    await db.run(
+    await testRun(
       `INSERT INTO tasks (id,type,key,summary) VALUES ($1,$2,$3,$4)`,
       "task_r",
       "generic",
       "R-1",
       "t",
     );
-    await db.run(
+    await testRun(
       `INSERT INTO flows (id,task_id,name,status,repo_id,created_at,updated_at) VALUES ($1,$2,$3,$4,$5,$6,$7)`,
       "flw_r",
       "task_r",

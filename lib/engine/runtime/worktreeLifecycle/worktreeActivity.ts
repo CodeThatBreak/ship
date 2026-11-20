@@ -62,7 +62,7 @@ export class WorktreeActivity {
    * guard keeps the never-stamp-a-stranger's-node invariant.
    */
   private async stampNodeLease(flowId: string, nodeId: string): Promise<void> {
-    await db.run(
+    await db.prisma.$executeRawUnsafe(
       `UPDATE nodes SET lease_until = now() + make_interval(secs => $1) WHERE id=$2 AND flow_id=$3`,
       NODE_LEASE_SECONDS,
       nodeId,

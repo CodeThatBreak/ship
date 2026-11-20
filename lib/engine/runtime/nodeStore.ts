@@ -1,7 +1,7 @@
 import "server-only";
 
 import { db } from "../../db/app";
-import { type NodeStatus } from "../../db/rows";
+import { type NodeStatus } from "../../db/constants/rowStatuses";
 import { NODE_STATUS } from "../constants/nodeStatus";
 import { appLayerConfig, mergeConfigLayers } from "../templates/nodeConfig";
 import type { TemplateGraph } from "../types/template";

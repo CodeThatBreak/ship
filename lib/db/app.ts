@@ -5,9 +5,7 @@ import { Database } from "./database";
 
 export type { Repo } from "./rows";
 export { Database, DatabaseMigrationError } from "./database";
-export { RowGateway } from "./rows";
 export { getDb } from "./dbAccess";
-export { getRowGateway } from "./rowGatewayAccess";
 
 /**
  * Shared application database facade over the Prisma singleton. Plain module

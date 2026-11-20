@@ -7,13 +7,13 @@
  * semantics (a failed unit blocks its dependents; non-dependents proceed)
  * and the unit-order aggregate publication.
  */
+import { testGet } from "@/tests/helpers/rawTestDb";
 import { beforeAll, describe, expect, it } from "vitest";
 import { assignTestDatabase } from "../../../../tests/helpers/testDatabase";
 
 assignTestDatabase();
 
 const {
-  db,
   splitManager,
   setupSplitFixtures,
   seedParentFlow,
@@ -129,7 +129,7 @@ describe("SplitJoin — failure semantics + join", () => {
     expect(consumer.units.map((u) => `${u.key}:${u.status}`)).toEqual(["a:failed", "c:blocked", "b:done"]);
     // the blocked dependent was never started
     const cChild = must((await childFlowsOf(flowId)).find((c) => c.unitKey === "c"), "child c");
-    expect((await db.get<{ status: string }>(`SELECT status FROM nodes WHERE flow_id=$1`, cChild.id))?.status).toBe("pending");
+    expect((await testGet<{ status: string }>(`SELECT status FROM nodes WHERE flow_id=$1`, cChild.id))?.status).toBe("pending");
     expect(FixtureWorkerDef.started).toEqual(["a", "b"]);
   });
 

@@ -7,13 +7,13 @@
  * the engine's split gate end-to-end (the consumes handoff, Phase 4 mode
  * resolution, the several-sources fail-loudly rule).
  */
+import { testAll, testGet, testRun } from "@/tests/helpers/rawTestDb";
 import { beforeAll, describe, expect, it } from "vitest";
 import { assignTestDatabase } from "../../../../tests/helpers/testDatabase";
 
 assignTestDatabase();
 
 const {
-  db,
   flowEngine,
   engineParts,
   splitManager,
@@ -99,7 +99,7 @@ describe("SplitExpander — expansion", () => {
 
     expect((await consumerOf(flowId)).status).toBe("done");
     const child = must((await childFlowsOf(flowId))[0], "node-target child");
-    const childTpl = await db.get<{ name: string; hidden: boolean }>(
+    const childTpl = await testGet<{ name: string; hidden: boolean }>(
       `SELECT f.name, f.hidden FROM flow_templates f JOIN flows c ON c.template_id=f.id WHERE c.id=$1`, child.id
     );
     expect(childTpl?.name).toBe("Split worker fixture · unit"); // the auto-wrapped graph
@@ -123,7 +123,7 @@ describe("SplitExpander — expansion", () => {
     expect((await consumerOf(flowId)).status).toBe("done");
     const children = await childFlowsOf(flowId);
     const tplOf = async (childId: string) =>
-      (await db.get<{ name: string }>(
+      (await testGet<{ name: string }>(
         `SELECT f.name FROM flow_templates f JOIN flows c ON c.template_id=f.id WHERE c.id=$1`, childId
       ))?.name;
     expect(await tplOf(must(children.find((c) => c.unitKey === "t"), "child t").id)).toBe("Unit worker declarative · unit");
@@ -166,12 +166,12 @@ describe("SplitExpander — guards", () => {
     // a child flow (parent_flow_id set) carrying a per-unit consumer + source
     const parentId = await seedParentFlow(501);
     const taskId = `task_nested_501`;
-    await db.run(
+    await testRun(
       `INSERT INTO tasks (id, type, key, summary, status, issue_type, priority) VALUES ($1,$2,$3,$4,$5,$6,$7)`,
       taskId, "jira", `SPL-501-NESTED`, "nested", "open", "task", "P2"
     );
     const childFlowId = `flw_nested_501`;
-    await db.run(
+    await testRun(
       `INSERT INTO flows (id, task_id, name, status, template_id, parent_flow_id, kind, created_at, updated_at)
        VALUES ($1,$2,$3,$4,$5,$6,'split',$7,$8)`,
       childFlowId, taskId, "nested child", "active", "tpl_sdlc_loop", parentId, new Date().toISOString(), new Date().toISOString()
@@ -180,7 +180,7 @@ describe("SplitExpander — guards", () => {
       ["split_source_fixture", "split_source_fixture", JSON.stringify({ units: [unit("n")] })],
       ["split_consumer_fixture", "split_consumer_fixture", JSON.stringify({ split_consume: "per-unit" })],
     ] as const) {
-      await db.run(
+      await testRun(
         `INSERT INTO nodes (id, flow_id, node_key, type, status, config, created_at, updated_at)
          VALUES ($1,$2,$3,$4,'pending',$5::jsonb,$6,$7)`,
         `node_nested_${key}`, childFlowId, key, type, config, new Date().toISOString(), new Date().toISOString()
@@ -188,7 +188,7 @@ describe("SplitExpander — guards", () => {
     }
 
     expect(await expander.expand(childFlowId, "split_consumer_fixture", "split_source_fixture")).toBe(false);
-    expect(await db.all<{ id: string }>(`SELECT id FROM flows WHERE parent_flow_id=$1`, childFlowId)).toHaveLength(0);
+    expect(await testAll<{ id: string }>(`SELECT id FROM flows WHERE parent_flow_id=$1`, childFlowId)).toHaveLength(0);
   });
 
   it("a cycle in the unit DAG fails the expansion loudly before any child row exists", async () => {
@@ -255,7 +255,7 @@ describe("SplitExpander — the engine split gate", () => {
 
     expect(FixtureConsumerDef.wholeRuns).toBe(1);
     expect(await childFlowsOf(flowId)).toHaveLength(0);
-    const row = await db.get<{ output: unknown }>(
+    const row = await testGet<{ output: unknown }>(
       `SELECT output FROM nodes WHERE flow_id=$1 AND node_key='split_consumer_fixture'`, flowId
     );
     expect(typeof row?.output === "string" ? JSON.parse(row.output) : row?.output ?? {}).toEqual({ whole: true });
@@ -335,7 +335,7 @@ describe("SplitExpander — the engine split gate", () => {
     // write lands a beat after the outcome publish (a status poll can read
     // the pre-wrap output)
     await until(async () => {
-      const row = await db.get<{ output: unknown }>(
+      const row = await testGet<{ output: unknown }>(
         `SELECT output FROM nodes WHERE flow_id=$1 AND node_key='split_consumer_fixture'`, flowId);
       const out = typeof row?.output === "string" ? JSON.parse(row.output) : row?.output;
       return (out as { steps?: unknown[] } | null)?.steps != null;
@@ -343,7 +343,7 @@ describe("SplitExpander — the engine split gate", () => {
 
     expect(FixtureConsumerDef.wholeRuns).toBe(1);
     expect(await childFlowsOf(flowId)).toHaveLength(0);
-    const row = await db.get<{ output: unknown }>(
+    const row = await testGet<{ output: unknown }>(
       `SELECT output FROM nodes WHERE flow_id=$1 AND node_key='split_consumer_fixture'`, flowId
     );
     const out = (typeof row?.output === "string" ? JSON.parse(row.output) : row?.output ?? {}) as { steps?: { id: string }[] };
@@ -370,7 +370,7 @@ describe("SplitExpander — the engine split gate", () => {
       ],
     }, { skipLint: true });
     const taskId = "task_split_710";
-    await db.run(
+    await testRun(
       `INSERT INTO tasks (id, type, key, summary, status, issue_type, priority) VALUES ($1,$2,$3,$4,$5,$6,$7)`,
       taskId, "jira", "SPL-710", "two sources", "open", "task", "P2"
     );
@@ -378,7 +378,7 @@ describe("SplitExpander — the engine split gate", () => {
     await flowEngine.start(flowId);
 
     await until(async () => (await consumerOf(flowId)).status === "failed", "the multi-source failure");
-    const errors = await db.all<{ message: string }>(
+    const errors = await testAll<{ message: string }>(
       `SELECT message FROM events WHERE flow_id=$1 AND type='error'`, flowId
     );
     expect(errors.some((e) => e.message?.includes("several upstream nodes publish"))).toBe(true);

@@ -1,6 +1,7 @@
 /**
  * Agent run lifecycle: late-write guard, run-row closure, converse mode.
  */
+import { testGet, testRun } from "@/tests/helpers/rawTestDb";
 import { beforeAll, describe, expect, it, vi } from "vitest";
 import { assignTestDatabase, resetTestDatabase } from "../../../tests/helpers/testDatabase";
 
@@ -85,7 +86,7 @@ async function seed(status: string, index: number): Promise<{ ctx: FlowCtx; node
   const flowId = `flw_runner_test_${index}`;
   const nodeId = `node_runner_test_${index}`;
   const taskId = `task_runner_test_${index}`;
-  await db.run(
+  await testRun(
     `INSERT INTO tasks (id, type, key, summary, status, issue_type, priority) VALUES ($1,$2,$3,$4,$5,$6,$7)`,
     taskId,
     "generic",
@@ -95,7 +96,7 @@ async function seed(status: string, index: number): Promise<{ ctx: FlowCtx; node
     "story",
     "P2",
   );
-  await db.run(
+  await testRun(
     `INSERT INTO flows (id, task_id, name, status, execution_mode, created_at, updated_at) VALUES ($1,$2,$3,$4,$5,$6,$7)`,
     flowId,
     taskId,
@@ -105,7 +106,7 @@ async function seed(status: string, index: number): Promise<{ ctx: FlowCtx; node
     now(),
     now(),
   );
-  await db.run(
+  await testRun(
     `INSERT INTO nodes (id, flow_id, node_key, type, status, attempt_id, created_at, updated_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
     nodeId,
     flowId,
@@ -143,14 +144,14 @@ async function seed(status: string, index: number): Promise<{ ctx: FlowCtx; node
 }
 
 async function runRowStatus(runRef: string): Promise<string | undefined> {
-  return (await db.get<{ status: string }>(`SELECT status FROM runs WHERE run_ref=$1`, runRef))?.status;
+  return (await testGet<{ status: string }>(`SELECT status FROM runs WHERE run_ref=$1`, runRef))?.status;
 }
 
 let supersedeDuringStream: string | null = null;
 
 const runnerTestPort = new RunnerTestPort(async () => {
   if (supersedeDuringStream) {
-    await db.run(
+    await testRun(
       `UPDATE nodes SET attempt_id=$1, updated_at=$2 WHERE id=$3`,
       "att_superseded",
       now(),

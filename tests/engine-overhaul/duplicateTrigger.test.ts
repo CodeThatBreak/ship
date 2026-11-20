@@ -12,6 +12,7 @@
  * Runs against the isolated dockerized Postgres test database
  * (AGENTS.md §1 — never a demo/real DB).
  */
+import { testRun } from "@/tests/helpers/rawTestDb";
 import { beforeAll, describe, expect, test } from "vitest";
 import { assignTestDatabase, resetTestDatabase } from "../helpers/testDatabase";
 import { FlowHarness } from "../helpers/flowHarness";
@@ -33,7 +34,7 @@ describe("duplicate triggers collapse to one run + one skip event", () => {
   // each emitting a typed `skipped_duplicate_trigger` event
   test("poller + webhook + manual triggers of the gate ⇒ one run, one skipped_duplicate_trigger", async () => {
     const flowId = await harness.seedSdlcFlow();
-    await db.run(`UPDATE flows SET mr_iid=$1, mr_branch=$2 WHERE id=$3`, 1, "devflow/ovh-dup", flowId);
+    await testRun(`UPDATE flows SET mr_iid=$1, mr_branch=$2 WHERE id=$3`, 1, "devflow/ovh-dup", flowId);
     // the gate is mid-run (an in-flight pipeline wait owns it)
     await harness.claimNode(flowId, "pipeline", "manualStage");
     expect(await harness.nodeStatus(flowId, "pipeline")).toBe("running");

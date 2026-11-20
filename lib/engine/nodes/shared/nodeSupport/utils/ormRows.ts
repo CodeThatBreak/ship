@@ -1,44 +1,12 @@
 import "server-only";
 
-import type { Prisma } from "@prisma/client";
-import type { z } from "zod";
-import { RowDecodeError, rowIdFromRaw } from "../../../../../db/rowDecodeError";
 import { ValidationError } from "../../../../../errors";
 
 /**
- * ORM-row helpers for node support: the decode semantics the raw queries used
- * to get from the RowGateway (`lib/db/rows.ts`), now over Prisma rows. JSONB
- * payloads (nodes.config/input/output) stay narrowed through the rows.ts zod
- * schemas; scalar columns are Prisma-typed and need no checks.
+ * Feature-local helpers for node support. The shared row-decode helpers
+ * (`parseRow`/`parseRows`/`jsonInput`) live in `lib/db/ormRowHelpers.ts`;
+ * what stays here is the nodes-table-specific patch normalization.
  */
-
-/** RowGateway.get semantics over an ORM row: zod-narrow, throwing on undecodable. */
-export const parseRow = <S extends z.ZodTypeAny>(schema: S, row: unknown, source: string): z.infer<S> => {
-  const result = schema.safeParse(row);
-  if (!result.success) throw new RowDecodeError(source, rowIdFromRaw(row), result.error);
-  return result.data;
-};
-
-/** RowGateway.all semantics: drop (and log) rows that no longer decode. */
-export const parseRows = <S extends z.ZodTypeAny>(schema: S, rowList: readonly unknown[], source: string): z.infer<S>[] => {
-  const decoded: z.infer<S>[] = [];
-  for (const row of rowList) {
-    const result = schema.safeParse(row);
-    if (!result.success) {
-      console.error("[nodeSupport] skipping undecodable row", {
-        sql: source,
-        rowId: rowIdFromRaw(row),
-        issues: result.error.issues,
-      });
-      continue;
-    }
-    decoded.push(result.data);
-  }
-  return decoded;
-};
-
-/** A plain object as a Prisma `Json` field value (`InputJsonValue`). */
-export const jsonInput = (value: unknown): Prisma.InputJsonValue => value as Prisma.InputJsonValue;
 
 /**
  * The nodes table's JSONB columns whose patch values may arrive pre-serialized

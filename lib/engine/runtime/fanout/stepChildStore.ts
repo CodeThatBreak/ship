@@ -5,7 +5,7 @@ import { db } from "../../../db/app";
 import { FlowRow } from "../../../db/rows";
 import type { PlanStepRow } from "../planStepStore/types/planStep";
 import { toRow } from "../planStepStore/utils/toPlanStepRow";
-import { parseRow } from "./utils/ormRows";
+import { parseRowTolerant } from "@/lib/db/ormRowHelpers";
 import { worktreeManager } from "../worktreeLifecycle";
 import type { StepChildPayload } from "./types/stepChildPayload";
 
@@ -55,7 +55,7 @@ export class StepChildStore {
 
   async childFlowOf(childFlowId: string): Promise<FlowRow | undefined> {
     const row = await db.prisma.flow.findUnique({ where: { id: childFlowId } });
-    return row ? parseRow(FlowRow, row) : undefined;
+    return row ? parseRowTolerant(FlowRow, row) : undefined;
   }
 
   async childFlowStatus(childFlowId: string): Promise<string> {

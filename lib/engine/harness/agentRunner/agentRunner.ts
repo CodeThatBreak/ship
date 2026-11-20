@@ -114,7 +114,7 @@ export class AgentRunner {
     const ownsNodeStatus = options?.ownsNodeStatus !== false;
     const attemptAtStart =
       options?.attemptId
-      ?? (await this.database.get<{ attemptId: string | null }>(`SELECT attempt_id AS "attemptId" FROM nodes WHERE id=$1`, nodeId))?.attemptId;
+      ?? (await this.database.prisma.node.findUnique({ where: { id: nodeId }, select: { attemptId: true } }))?.attemptId;
     // step 08 (Invariant 10): the claim-minted capability token rides the
     // startup run row — durable truth the agent-tools endpoint validates
     // against (the in-process registry is only the claim→row carrier).
@@ -126,7 +126,7 @@ export class AgentRunner {
     const { agentId, runId } = await start();
     try {
       await this.support.persistRun(flow.id, nodeId, agentId, runId, apiToken);
-      const runRowId = (await this.database.get<{ id: string }>(`SELECT id FROM runs WHERE run_ref=$1`, runId))?.id;
+      const runRowId = (await this.database.prisma.run.findFirst({ where: { runRef: runId }, select: { id: true } }))?.id;
       if (!runRowId) throw new Error(`run row missing after persist for ${runId}`);
     const startedWhileRunning = attemptAtStart != null;
     await this.database.emitEvent(flow.id, nodeId, EVENT_KIND.LIFECYCLE, `${label} started (${mode})`, { agentId, runId, run_id: runId, mode });
@@ -190,12 +190,11 @@ export class AgentRunner {
       const runRowStatus = result?.status === RUN_STATUS.FINISHED ? RUN_STATUS.FINISHED : RUN_STATUS.ERROR;
       // api_token cleared with the run close (step 08): the agent is done —
       // its capability token must not outlive the run it was minted for.
-      await this.database.run(
-        `UPDATE runs SET status=$1, lease_until=NULL, api_token=NULL, updated_at=$2 WHERE run_ref=$3`,
-        runRowStatus,
-        this.database.now(),
-        runId,
-      );
+      // updateMany keeps the raw write's no-op-on-missing-row semantics.
+      await this.database.prisma.run.updateMany({
+        where: { runRef: runId },
+        data: { status: runRowStatus, leaseUntil: null, apiToken: null, updatedAt: new Date() },
+      });
     }
 
     if (streamError) throw streamError;
@@ -215,10 +214,10 @@ export class AgentRunner {
 
     const ownsNodeStatus = options?.ownsNodeStatus !== false;
     if (ownsNodeStatus && startedWhileRunning && attemptAtStart) {
-      const nodeNow = await this.database.get<{ attemptId: string | null; status: string }>(
-        `SELECT attempt_id AS "attemptId", status FROM nodes WHERE id=$1`,
-        nodeId,
-      );
+      const nodeNow = await this.database.prisma.node.findUnique({
+        where: { id: nodeId },
+        select: { attemptId: true, status: true },
+      });
       if (nodeNow?.attemptId !== attemptAtStart) {
         await this.database.emitEvent(
           flow.id,

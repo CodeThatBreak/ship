@@ -1,3 +1,4 @@
+import { testGet } from "@/tests/helpers/rawTestDb";
 import fs from "node:fs";
 import path from "node:path";
 import { beforeAll, describe, expect, it } from "vitest";
@@ -10,7 +11,6 @@ const fixturePaths = fs.readdirSync(fixtureDir).filter((f) => f.endsWith(".yaml"
 
 const { importTemplateYaml } = await import("../lib/engine/templates/templateYaml");
 const { templateStore } = await import("../lib/engine/templates/templateStore");
-const { db } = await import("../lib/db/app");
 
 beforeAll(resetTestDatabase);
 
@@ -20,7 +20,7 @@ describe("docs/flow-templates fixtures", () => {
     const { id } = await importTemplateYaml(templateStore, text, { namePrefix: "fixture-test" });
     expect(id).toMatch(/^tpl_/);
 
-    const pipeline = await db.get<{ trigger: unknown }>(
+    const pipeline = await testGet<{ trigger: unknown }>(
       `SELECT trigger FROM flow_template_nodes n
        WHERE n.template_id = $1 AND n.node_key = 'pipeline'`,
       id,
@@ -34,7 +34,7 @@ describe("docs/flow-templates fixtures", () => {
   it("the SDLC loop edge re-enters CI only on a verified push (§6A)", async () => {
     // the seeded template's loop edge — the one value the pipeline/review loop
     // actually gate on
-    const seeded = await db.get<{ condition: string }>(
+    const seeded = await testGet<{ condition: string }>(
       `SELECT condition FROM flow_template_edges
        WHERE template_id = 'tpl_sdlc_loop' AND from_key = 'resolve' AND kind = 'loop'`,
     );

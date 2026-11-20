@@ -69,7 +69,10 @@ export const lintFanoutRules = async (
   for (const n of fanoutNodes) {
     const cfg = fanoutOf(shallowMerge(catalog[n.nodeTemplateId]?.config, n.config));
     if (!cfg.child) continue;
-    const child = await db.get<{ id: string }>(`SELECT id FROM flow_templates WHERE id=$1`, cfg.child);
+    const child = await db.prisma.flowTemplate.findFirst({
+      where: { id: cfg.child },
+      select: { id: true },
+    });
     if (!child) {
       problems.push({
         where: `node "${n.key}"`,
@@ -78,10 +81,19 @@ export const lintFanoutRules = async (
       });
       continue;
     }
-    const childNodes = await db.all<{ nodeKey: string; kind: string; ntKey: string; config: unknown; nodeTemplateId: string }>(
-          `SELECT n.node_key AS "nodeKey", nt.kind AS kind, nt.key AS "ntKey", n.config AS config, n.node_template_id AS "nodeTemplateId"
-       FROM flow_template_nodes n JOIN node_templates nt ON nt.id = n.node_template_id
-       WHERE n.template_id=$1`, cfg.child);
+    // joins-as-separate-typed-queries: the child's node rows with their
+    // catalog entries (the relation ships nodeTemplate in one round trip)
+    const childNodeRows = await db.prisma.flowTemplateNode.findMany({
+      where: { templateId: cfg.child },
+      include: { nodeTemplate: true },
+    });
+    const childNodes = childNodeRows.map((n) => ({
+      nodeKey: n.nodeKey,
+      kind: n.nodeTemplate.kind,
+      ntKey: n.nodeTemplate.key,
+      config: n.config,
+      nodeTemplateId: n.nodeTemplateId,
+    }));
     if (childNodes.length !== 1) {
       problems.push({
         where: `node "${n.key}"`,

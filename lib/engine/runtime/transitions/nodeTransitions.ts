@@ -89,19 +89,14 @@ export class TransitionAuthority {
     const attemptId = this.database.uid("att_");
     // step 08: the attempt and its capability token are born together (Invariant 10).
     const apiToken = generateCapabilityToken();
-    const claimed = await this.database.get<{ id: string }>(
+    const claimed = (await this.database.prisma.$queryRawUnsafe<{ id: string }[]>(
       `UPDATE nodes SET status=$1, attempt_id=$2, wait_until=NULL,
          lease_until = now() + make_interval(secs => $3), updated_at=$4
        WHERE flow_id=$5 AND node_key=$6 AND status IN (${sqlMarks(row.from, 7)})
        RETURNING id`,
-      NODE_STATUS.RUNNING,
-      attemptId,
-      NODE_LEASE_SECONDS,
-      this.database.now(),
-      flowId,
-      nodeKey,
-      ...row.from,
-    );
+      NODE_STATUS.RUNNING, attemptId, NODE_LEASE_SECONDS, this.database.now(),
+      flowId, nodeKey, ...row.from,
+    ))[0];
     if (!claimed) {
       throw new ConflictError(`Node ${nodeKey} is not in ${row.from.join("/")}`);
     }
@@ -132,7 +127,7 @@ export class TransitionAuthority {
       : "";
     const attemptId = this.database.uid("att_");
     const apiToken = generateCapabilityToken(); // step 08: paired capability token
-    const claimed = await this.database.get<{ id: string }>(
+    const claimed = (await this.database.prisma.$queryRawUnsafe<{ id: string }[]>(
       `UPDATE nodes SET status=$1, attempt_id=$2, wait_until=NULL,
          lease_until = now() + make_interval(secs => $3), updated_at=$4
        WHERE flow_id=$5 AND node_key=$6${chainGuard}
@@ -140,7 +135,7 @@ export class TransitionAuthority {
        RETURNING id`,
       NODE_STATUS.RUNNING, attemptId, NODE_LEASE_SECONDS, this.database.now(),
       flowId, nodeKey, ...chainKeys, ...row.from,
-    );
+    ))[0];
     if (!claimed) {
       const holder = await this.database.prisma.node.findFirst({ where: { flowId, nodeKey }, select: { status: true, attemptId: true } });
       return { claimed: false, status: holder?.status ?? null, holderAttemptId: holder?.attemptId ?? null };
@@ -178,12 +173,12 @@ export class TransitionAuthority {
       + (patchEntries.length ? `, ${patchEntries.map((e, i) => `${e[0]}=$${i + 3}`).join(", ")}` : "");
     const params: unknown[] = [to, this.database.now(), ...patchEntries.map((e) => e[1]), flowId, nodeKey, ...row.from];
     const offset = 3 + patchEntries.length;
-    const applied = await this.database.get<{ id: string }>(
+    const applied = (await this.database.prisma.$queryRawUnsafe<{ id: string }[]>(
       `UPDATE nodes SET ${sets}
        WHERE flow_id=$${offset} AND node_key=$${offset + 1} AND status IN (${sqlMarks(row.from, offset + 2)})
        RETURNING id`,
       ...params,
-    );
+    ))[0];
     if (!applied) return false;
     this.attempts.clear(applied.id);
     const record = this.record(flowId, nodeKey, key, to);
@@ -217,7 +212,7 @@ export class TransitionAuthority {
       throw new Error(`transition "${key}" targets running — claim it instead`);
     }
     const row = TRANSITION_TABLE[key];
-    const affected = await this.database.all<{ id: string; node_key: string }>(
+    const affected = await this.database.prisma.$queryRawUnsafe<{ id: string; node_key: string }[]>(
       `UPDATE nodes SET status=$1, attempt_id=NULL, lease_until=NULL, wait_until=NULL, updated_at=$2
        WHERE flow_id=$3 AND status IN (${sqlMarks(row.from, 4)})
        RETURNING id, node_key AS "node_key"`,
@@ -258,7 +253,7 @@ export class TransitionAuthority {
     const attemptIdx = values.length + 1;
     const idIdx = values.length + 2;
     values.push(params.attemptId, params.nodeId, ...row.from);
-    const changes = await this.database.run(
+    const changes = await this.database.prisma.$executeRawUnsafe(
       `UPDATE nodes SET ${sets}
        WHERE id=$${idIdx} AND attempt_id=$${attemptIdx} AND status IN (${sqlMarks(row.from, idIdx + 1)})`,
       ...values,

@@ -14,6 +14,7 @@
  * demo/real database). Call `setupSplitFixtures()` from each test file's
  * `beforeAll` (truncate + re-seed).
  */
+import { testAll, testGet, testRun } from "@/tests/helpers/rawTestDb";
 import { assignTestDatabase } from "./testDatabase";
 import { z } from "zod";
 
@@ -293,7 +294,7 @@ for (const def of [new FixtureWorkerDef(), new FixtureSourceDef(), new FixtureSo
 
 /** Built-in-style catalog rows so templates can instance the fixture defs. */
 const seedCatalogRow = async (index: number, key: string, name: string): Promise<void> => {
-  await db.run(
+  await testRun(
     `INSERT INTO node_templates (id,key,name,kind,version,description,icon,config,is_builtin,created_at,updated_at)
      VALUES ($1,$2,$3,'builtin',1,$4,NULL,'{}'::jsonb,true,$5,$6)
      ON CONFLICT DO NOTHING`,
@@ -374,7 +375,7 @@ export const seedParentFlow = async (
     edges: [{ from: "split_source_fixture", to: "split_consumer_fixture", kind: "next" }],
   }, { skipLint: true });
   const taskId = `task_split_${index}`;
-  await db.run(
+  await testRun(
     `INSERT INTO tasks (id, type, key, summary, status, issue_type, priority) VALUES ($1,$2,$3,$4,$5,$6,$7)`,
     taskId, "jira", `SPL-${index}`, "split runtime test", "open", "task", "P2"
   );
@@ -398,7 +399,7 @@ export const unit = (key: string, opts: { dependsOn?: string[]; target?: string;
 
 /** The parent's split children (the derived linkage), in expansion order. */
 export const childFlowsOf = async (flowId: string): Promise<{ id: string; unitKey: string; payload: SplitChildPayload }[]> => {
-  const rows = await db.all<{ id: string; triggerPayload: unknown }>(
+  const rows = await testAll<{ id: string; triggerPayload: unknown }>(
     `SELECT id, trigger_payload AS "triggerPayload" FROM flows WHERE parent_flow_id=$1 AND kind='split' ORDER BY created_at, id`,
     flowId
   );
@@ -418,7 +419,7 @@ interface AggregateEntry { key: string; title: string; status: string; output?: 
 /** The consumer node's status + parsed aggregate output. */
 export const consumerOf = async (flowId: string): Promise<{ status: string; units: AggregateEntry[] }> => {
   const row = must(
-    await db.get<{ status: string; output: unknown }>(
+    await testGet<{ status: string; output: unknown }>(
       `SELECT status, output FROM nodes WHERE flow_id=$1 AND node_key='split_consumer_fixture'`, flowId
     ),
     `consumer node of ${flowId}`

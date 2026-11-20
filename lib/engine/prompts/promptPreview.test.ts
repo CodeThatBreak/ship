@@ -9,12 +9,12 @@
  * it; `resetTestDatabase` truncates + re-seeds per file — AGENTS.md §1 —
  * never a real database).
  */
+import { testRun } from "@/tests/helpers/rawTestDb";
 import { beforeAll, describe, expect, it } from "vitest";
 import { assignTestDatabase, resetTestDatabase } from "../../../tests/helpers/testDatabase";
 
 assignTestDatabase();
 
-const { db } = await import("../../db/app");
 
 beforeAll(resetTestDatabase);
 
@@ -27,11 +27,11 @@ const now = () => new Date().toISOString();
 async function seedFlow(index: number): Promise<string> {
   const taskId = `task_${index}`;
   const flowId = `flw_${index}`;
-  await db.run(
+  await testRun(
     `INSERT INTO tasks (id, type, key, summary, status, issue_type, priority) VALUES ($1,$2,$3,$4,$5,$6,$7)`,
     taskId, "generic", `TST-${index}`, "prompt bulk read", "open", "task", "P2",
   );
-  await db.run(
+  await testRun(
     `INSERT INTO flows (id, task_id, name, status, created_at, updated_at) VALUES ($1,$2,$3,'active',$4,$5)`,
     flowId, taskId, `prompt bulk read ${index}`, now(), now(),
   );
@@ -39,7 +39,7 @@ async function seedFlow(index: number): Promise<string> {
 }
 
 async function seedNode(flowId: string, nodeKey: string, type: string) {
-  await db.run(
+  await testRun(
     `INSERT INTO nodes (id, flow_id, node_key, type, status, created_at, updated_at) VALUES ($1,$2,$3,$4,$5,$6,$7)`,
     `node_${flowId}_${nodeKey}`, flowId, nodeKey, type, "pending", now(), now(),
   );
@@ -87,7 +87,7 @@ describe("PromptPreview.allFor — the composer's bulk prompt read", () => {
 
 describe("PromptPreview divergesReason — why the last run diverges (step 05)", () => {
   const setNodeInput = async (flowId: string, nodeKey: string, input: unknown): Promise<void> => {
-    await db.run(
+    await testRun(
       `UPDATE nodes SET input=$1 WHERE flow_id=$2 AND node_key=$3`,
       JSON.stringify(input),
       flowId,

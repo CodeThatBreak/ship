@@ -13,10 +13,9 @@ import {
   SettingsStore,
 } from "./stores/storeExports";
 import { bindDatabase } from "./dbAccess";
-import { bindRowGateway } from "./rowGatewayAccess";
-import { RowGateway, type Repo } from "./rows";
 import { wireGitHostBuiltins } from "./wireGitHostBuiltins";
 
+import type { Repo } from "./rows";
 export type { Repo } from "./rows";
 
 /** Options a caller can pass to raw queries — inside a transaction, the tx client. */
@@ -26,20 +25,25 @@ export type QueryExecutor = PrismaClient | Prisma.TransactionClient;
  * The application database (Postgres, via Prisma) — composition root for the
  * domain stores.
  *
- * Engine stores receive the typed Prisma client via this facade — new
- * persistence goes through the Prisma ORM query API (decision Q1).
+ * ORM-first (decision Q1): engine stores receive the typed Prisma client via
+ * this facade and all new persistence goes through the Prisma ORM query API.
+ * Raw SQL survives ONLY inside the contained invariant sites (the
+ * orm-migration containment list — atomic claims with `FOR UPDATE SKIP
+ * LOCKED`, lease/interval arithmetic on DB-server time, the transition
+ * authority's attempt-fenced CAS, advisory locks); each sits behind a named
+ * method that calls `$queryRaw*`/`$executeRaw*` on the client directly —
+ * there is no generic raw-query helper on this facade anymore, so a new raw
+ * statement outside the containment list is a deliberate, reviewable edit
+ * (Task 12's lint rule enforces it).
+ *
  * `transaction(fn)` maps to `prisma.$transaction`; async I/O stays outside
- * the callback. The raw `get`/`all`/`run` helpers remain for the read-model
- * serialization paths that still hand SQL to the RowGateway — they migrate
- * to the composition root incrementally through step 09 (decision Q9), and
- * no NEW raw SQL is introduced (hard requirement: ORM-first).
+ * the callback.
  */
 export class Database {
   /** Same-millisecond counter so event ids sort lexicographically in emit order. */
   private uidLastMs = 0;
   private uidSeqInMs = 0;
 
-  readonly rows: RowGateway;
   readonly integrationSecrets: IntegrationSecretStore;
   readonly gitlabInstances: GitLabInstanceStore;
   readonly jiraInstances: JiraInstanceStore;
@@ -51,8 +55,6 @@ export class Database {
 
   constructor(readonly prisma: PrismaClient) {
     bindDatabase(this);
-    this.rows = new RowGateway(this);
-    bindRowGateway(this.rows);
     this.messageStore = new MessageStore(this);
     this.eventStore = new EventStore(this);
     this.settingsStore = new SettingsStore(this);
@@ -62,21 +64,6 @@ export class Database {
     this.gitlabInstances = new GitLabInstanceStore(this, this.integrationSecrets);
     this.jiraInstances = new JiraInstanceStore(this, this.integrationSecrets);
     wireGitHostBuiltins();
-  }
-
-  /**
-   * A RowGateway whose reads run on `executor` — inside a transaction pass the
-   * tx client so same-transaction reads see the uncommitted rows; outside,
-   * the global pool. Decode/validation behavior is identical to `this.rows`.
-   */
-  rowsFor(executor?: QueryExecutor): RowGateway {
-    if (!executor) return this.rows;
-    return new RowGateway({
-      get: async <T>(sql: string, ...args: unknown[]) =>
-        (await executor.$queryRawUnsafe<T[]>(sql, ...args))[0],
-      all: async <T>(sql: string, ...args: unknown[]) =>
-        executor.$queryRawUnsafe<T[]>(sql, ...args),
-    });
   }
 
   /**
@@ -107,20 +94,6 @@ export class Database {
     const seqPart = seq.toString(36).padStart(4, "0");
     const entropy = Math.random().toString(36).slice(2, 6);
     return `${prefix}${ms.toString(36)}${seqPart}${entropy}`;
-  }
-
-  async get<T = unknown>(sql: string, ...args: unknown[]): Promise<T | undefined> {
-    const rows = await this.prisma.$queryRawUnsafe<T[]>(sql, ...args);
-    return rows[0];
-  }
-
-  async all<T = unknown>(sql: string, ...args: unknown[]): Promise<T[]> {
-    return this.prisma.$queryRawUnsafe<T[]>(sql, ...args);
-  }
-
-  /** Execute a write. Returns the affected row count (like sqlite's `changes`). */
-  async run(sql: string, ...args: unknown[]): Promise<number> {
-    return this.prisma.$executeRawUnsafe(sql, ...args);
   }
 
   addMessage(

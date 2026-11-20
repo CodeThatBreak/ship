@@ -15,6 +15,7 @@
  * Runs against the isolated dockerized Postgres test database
  * (AGENTS.md §1 — never a demo/real DB).
  */
+import { testRun } from "@/tests/helpers/rawTestDb";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -52,7 +53,7 @@ describe("agent output silent defaults become loud failures", () => {
     const { registerFakeGitHost } = await import("../helpers/fakeGitHost");
     const gitHost = registerFakeGitHost();
     gitHost.addChangeRequest({ number: 1, sha: "sha_1" });
-    await db.run(`UPDATE flows SET mr_iid=$1, mr_branch=$2 WHERE id=$3`, 1, "devflow/ovh-fallback", flowId);
+    await testRun(`UPDATE flows SET mr_iid=$1, mr_branch=$2 WHERE id=$3`, 1, "devflow/ovh-fallback", flowId);
 
     agent.pushRun({ status: "finished", result: "   " }); // empty reply
     await harness.runStage(flowId, "review");

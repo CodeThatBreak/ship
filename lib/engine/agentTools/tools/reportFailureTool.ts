@@ -27,12 +27,16 @@ export class ReportFailureTool implements AgentToolExecutor {
 
   async execute(auth: AgentToolAuth, call: AgentToolCall): Promise<unknown> {
     const reason = call.reason ?? "";
-    const already = await this.database.get<{ id: string }>(
-      `SELECT id FROM events WHERE node_id=$1 AND type=$2 AND data->>'attemptId'=$3 LIMIT 1`,
-      auth.nodeId,
-      EVENT_KIND.AGENT_REPORTED_FAILURE,
-      auth.attemptId,
-    );
+    const already = await this.database.prisma.event.findFirst({
+      where: {
+        nodeId: auth.nodeId,
+        type: EVENT_KIND.AGENT_REPORTED_FAILURE,
+        // the event's JSONB payload carries the attempt token (the durable
+        // one-call-per-attempt fence)
+        data: { path: ["attemptId"], equals: auth.attemptId },
+      },
+      select: { id: true },
+    });
     if (already) {
       throw new ConflictError(`${AGENT_TOOL.REPORT_FAILURE} was already called for this attempt`);
     }

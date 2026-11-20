@@ -1,6 +1,7 @@
 /**
  * Multi-branch correctness: MR target resolution and comment scoping.
  */
+import { testRun } from "@/tests/helpers/rawTestDb";
 import { beforeAll, describe, expect, it } from "vitest";
 
 
@@ -8,7 +9,6 @@ import { assignTestDatabase, resetTestDatabase } from "../../../../tests/helpers
 
 assignTestDatabase();
 
-const { db } = await import("../../../db/app");
 
 beforeAll(resetTestDatabase);
 const { branchStore } = await import("../kinds/build/branchStore");
@@ -19,11 +19,11 @@ const { engineParts } = await import('@/lib/composition/container');
 const now = () => new Date().toISOString();
 
 const seed = async () => {
-  await db.run(
+  await testRun(
     `INSERT INTO tasks (id, type, key, summary, status, issue_type, priority) VALUES ($1,$2,$3,$4,$5,$6,$7)`,
     "task_1", "generic", "TST-1", "mr target", "open", "story", "P2",
   );
-  await db.run(
+  await testRun(
     `INSERT INTO flows (id, task_id, name, status, execution_mode, created_at, updated_at) VALUES ($1,$2,$3,$4,$5,$6,$7)`,
     "flw_1", "task_1", "test", "active", "cloud", now(), now(),
   );
@@ -32,11 +32,11 @@ const seed = async () => {
     mrIid: 42,
     gitBranch: "custom/pattern-backend",
   });
-  await db.run(
+  await testRun(
     `INSERT INTO comments (id, flow_id, mr_iid, discussion_id, author, body, file_path, line, status, created_at, updated_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`,
     "c1", "flw_1", 42, "d1", "dev", "fix backend", null, null, "open", now(), now(),
   );
-  await db.run(
+  await testRun(
     `INSERT INTO comments (id, flow_id, mr_iid, discussion_id, author, body, file_path, line, status, created_at, updated_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`,
     "c2", "flw_1", 99, "d2", "dev", "other mr", null, null, "open", now(), now(),
   );
@@ -60,19 +60,19 @@ describe("MrTargetResolver", () => {
   it("openComments filters by mr_iid", async () => {
     const support = new NodeSupport(engineParts.transitions);
     const flowId = "flw_2";
-    await db.run(
+    await testRun(
       `INSERT INTO tasks (id, type, key, summary, status, issue_type, priority) VALUES ($1,$2,$3,$4,$5,$6,$7)`,
       "task_2", "generic", "TST-2", "comments", "open", "story", "P2",
     );
-    await db.run(
+    await testRun(
       `INSERT INTO flows (id, task_id, name, status, execution_mode, created_at, updated_at) VALUES ($1,$2,$3,$4,$5,$6,$7)`,
       flowId, "task_2", "test2", "active", "cloud", now(), now(),
     );
-    await db.run(
+    await testRun(
       `INSERT INTO comments (id, flow_id, mr_iid, discussion_id, author, body, file_path, line, status, created_at, updated_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`,
       "c1b", flowId, 42, "d1", "dev", "fix backend", null, null, "open", now(), now(),
     );
-    await db.run(
+    await testRun(
       `INSERT INTO comments (id, flow_id, mr_iid, discussion_id, author, body, file_path, line, status, created_at, updated_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`,
       "c2b", flowId, 99, "d2", "dev", "other mr", null, null, "open", now(), now(),
     );

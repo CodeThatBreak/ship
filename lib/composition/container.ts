@@ -1,7 +1,6 @@
 import "server-only";
 
 import type { PrismaClient } from "@prisma/client";
-import { RowGateway } from "../db/rows";
 import { db } from "../db/app";
 import {
   EventStore,
@@ -46,7 +45,6 @@ export const createContainer = (prisma: PrismaClient) => {
       repos: RepoStore,
       settings: SettingsStore,
     },
-    rows: RowGateway,
     prisma,
     engine: engineParts,
   };

@@ -3,7 +3,7 @@ import "server-only";
 import { db } from "../db/app";
 import { ArtifactRow, type ArtifactRow as ArtifactRowType } from "../db/rows";
 import { NotFoundError } from "../errors";
-import { parseRow } from "./utils/ormRows";
+import { parseRow } from "@/lib/db/ormRowHelpers";
 
 export class ArtifactService {
   async get(id: string): Promise<ArtifactRowType> {

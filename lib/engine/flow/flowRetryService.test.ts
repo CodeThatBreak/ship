@@ -1,3 +1,4 @@
+import { testRun } from "@/tests/helpers/rawTestDb";
 import { beforeAll, describe, expect, it } from "vitest";
 import { assignTestDatabase, resetTestDatabase } from "../../../tests/helpers/testDatabase";
 
@@ -26,15 +27,15 @@ const SKIP: TriggerResult = { started: false, skipped: true, reason: "skipped_du
  * the engine tests (planRetryDeadEnd, promptRetryRebuild, sdlcHappyPath).
  */
 const seedNode = async (flowId: string, nodeKey: string, type: string, status: string, input?: unknown): Promise<void> => {
-  await db.run(
+  await testRun(
     `INSERT INTO tasks (id, type, key, summary, status, issue_type, priority) VALUES ($1,$2,$3,$4,$5,$6,$7)`,
     `task_${flowId}`, "generic", flowId.toUpperCase(), "retry test", "open", "task", "P2",
   );
-  await db.run(
+  await testRun(
     `INSERT INTO flows (id, task_id, name, status, created_at, updated_at) VALUES ($1,$2,$3,$4,now(),now())`,
     flowId, `task_${flowId}`, "t", "active",
   );
-  await db.run(
+  await testRun(
     `INSERT INTO nodes (id, flow_id, node_key, type, status, input, created_at, updated_at)
      VALUES ($1,$2,$3,$4,$5,$6::jsonb,now(),now())`,
     db.uid("node_"), flowId, nodeKey, type, status, input === undefined ? null : JSON.stringify(input),

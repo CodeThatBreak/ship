@@ -13,6 +13,7 @@
  * §1 — never a real database). Imports hoist — dynamic imports keep the
  * evaluation order.
  */
+import { testAll, testGet, testRun } from "@/tests/helpers/rawTestDb";
 import { beforeAll, afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 
@@ -20,7 +21,6 @@ import { assignTestDatabase, resetTestDatabase } from "../../../../../tests/help
 
 assignTestDatabase();
 
-const { db } = await import("../../../../db/app");
 
 beforeAll(resetTestDatabase);
 // registry first — it pulls the node kinds (and their prompt assemblies) in
@@ -91,24 +91,24 @@ const seedFlow = async () => {
   // idempotent seed + per-test state reset: the file runs against the shared
   // test database, so flow-owned state (comments, artifacts, runs, events,
   // the node row) is cleared and the static rows are re-inserted safely
-  await db.run(`INSERT INTO tasks (id, type, key, summary, status, issue_type, priority) VALUES ($1,$2,$3,$4,$5,$6,$7) ON CONFLICT DO NOTHING`,
+  await testRun(`INSERT INTO tasks (id, type, key, summary, status, issue_type, priority) VALUES ($1,$2,$3,$4,$5,$6,$7) ON CONFLICT DO NOTHING`,
     "task_rn", "generic", "T-RN", "resolve node test", "open", "story", "P2",
   );
-  await db.run(`INSERT INTO flows (id, task_id, name, status, mr_iid, mr_branch, created_at, updated_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8) ON CONFLICT DO NOTHING`,
+  await testRun(`INSERT INTO flows (id, task_id, name, status, mr_iid, mr_branch, created_at, updated_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8) ON CONFLICT DO NOTHING`,
     "flw_rn", "task_rn", "resolve node test", "active", 7, "feature/x", now(), now(),
   );
-  await db.run(`INSERT INTO nodes (id, flow_id, node_key, type, status, created_at, updated_at) VALUES ($1,$2,$3,$4,$5,$6,$7) ON CONFLICT DO NOTHING`,
+  await testRun(`INSERT INTO nodes (id, flow_id, node_key, type, status, created_at, updated_at) VALUES ($1,$2,$3,$4,$5,$6,$7) ON CONFLICT DO NOTHING`,
     "node_rn", "flw_rn", "resolve", "resolve", "running", now(), now(),
   );
-  await db.run(`DELETE FROM comments WHERE flow_id='flw_rn'`);
-  await db.run(`DELETE FROM events WHERE flow_id='flw_rn'`);
-  await db.run(`DELETE FROM runs WHERE node_id='node_rn'`);
-  await db.run(`DELETE FROM artifacts WHERE node_id='node_rn'`);
-  await db.run(`UPDATE nodes SET status='running', input=NULL, output=NULL, attempt_id=NULL WHERE id='node_rn'`);
+  await testRun(`DELETE FROM comments WHERE flow_id='flw_rn'`);
+  await testRun(`DELETE FROM events WHERE flow_id='flw_rn'`);
+  await testRun(`DELETE FROM runs WHERE node_id='node_rn'`);
+  await testRun(`DELETE FROM artifacts WHERE node_id='node_rn'`);
+  await testRun(`UPDATE nodes SET status='running', input=NULL, output=NULL, attempt_id=NULL WHERE id='node_rn'`);
 };
 
 const seedComment = async (id: string, discussionId = `d_${id}`) =>
-  await db.run(
+  await testRun(
     `INSERT INTO comments (id, flow_id, mr_iid, discussion_id, author, body, file_path, line, status, raw, created_at, updated_at)
      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)`,
     id, "flw_rn", 7, discussionId, "reviewer", "Rename the badly named variable.",
@@ -258,18 +258,18 @@ const withFlushedTimers = async (run: () => Promise<unknown>): Promise<unknown> 
 };
 
 const eventsByType = (type: string) =>
-  db.all<{ type: string; message: string }>(
+  testAll<{ type: string; message: string }>(
     `SELECT type, message FROM events WHERE flow_id='flw_rn' AND type=$1 ORDER BY created_at ASC`,
     type,
   );
 
 const nodeOutputRecord = async (): Promise<Record<string, unknown>> => {
-  const raw = (await db.get<{ output: Record<string, unknown> | null }>(`SELECT output FROM nodes WHERE id='node_rn'`))?.output;
+  const raw = (await testGet<{ output: Record<string, unknown> | null }>(`SELECT output FROM nodes WHERE id='node_rn'`))?.output;
   return (raw ?? {}) as Record<string, unknown>;
 };
 
 const commentStatus = async (id: string): Promise<{ status: string } | undefined> =>
-  await db.get<{ status: string }>(`SELECT status FROM comments WHERE id=$1`, id);
+  await testGet<{ status: string }>(`SELECT status FROM comments WHERE id=$1`, id);
 
 beforeEach(async () => {
   await seedFlow();
@@ -372,7 +372,7 @@ describe("ResolveNode — the engine push (§6A)", () => {
     expect(pushSpy).toHaveBeenCalledTimes(1);
     expect(host.resolveCalls).toEqual(["d_gl_1"]);
     expect(await nodeOutputRecord()).toMatchObject({ resolved: 1, replied: 1, codeChanged: true, pushed: true });
-    expect(await db.get<{ status: string }>(`SELECT status FROM nodes WHERE id='node_rn'`)).toEqual({ status: "done" });
+    expect(await testGet<{ status: string }>(`SELECT status FROM nodes WHERE id='node_rn'`)).toEqual({ status: "done" });
   });
 
   it("a hook rejection gets ONE agent fix turn then one re-push; a second rejection fails the node", { timeout: 20_000 }, async () => {    localPathValue = "/repo/checkout";
@@ -432,7 +432,7 @@ describe("ResolveNode — the engine push (§6A)", () => {
     expect(host.resolveCalls).toEqual([]); // …but a local-only fix never closes
     expect(await commentStatus("gl_1")).toEqual({ status: "open" });
     expect(await nodeOutputRecord()).toMatchObject({ resolved: 0, replied: 1, pushed: false, hostFailures: 0 });
-    expect(await db.get<{ status: string }>(`SELECT status FROM nodes WHERE id='node_rn'`)).toEqual({ status: "done" });
+    expect(await testGet<{ status: string }>(`SELECT status FROM nodes WHERE id='node_rn'`)).toEqual({ status: "done" });
     // …and the failure names the push, not the node
     expect(
       (await eventsByType("error")).some((e) => e.message.includes("push of branch feature/x failed")),

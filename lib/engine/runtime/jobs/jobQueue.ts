@@ -84,8 +84,9 @@ export class JobQueue {
   async claimNext(kinds: readonly JobKind[]): Promise<JobRecord | null> {
     if (kinds.length === 0) return null;
     const marks = kinds.map((_, i) => `$${i + 2}`).join(", ");
-    return (await this.database.get<JobRecord>(
-      `UPDATE jobs SET status=$1, lease_until = now() + make_interval(secs => $${kinds.length + 2}),
+    return (
+      await this.database.prisma.$queryRawUnsafe<JobRecord[]>(
+        `UPDATE jobs SET status=$1, lease_until = now() + make_interval(secs => $${kinds.length + 2}),
           attempts = attempts + 1, updated_at = now()
        WHERE id = (
          SELECT id FROM jobs WHERE status='${JOB_STATUS.QUEUED}' AND run_at <= now()
@@ -94,10 +95,11 @@ export class JobQueue {
        )
        RETURNING id, kind, flow_id AS "flowId", payload, status, attempts,
           dedup_key AS "dedupKey", run_at AS "runAt"`,
-      JOB_STATUS.CLAIMED,
-      ...kinds,
-      JOB_LIMITS.LEASE_SECONDS,
-    )) ?? null;
+        JOB_STATUS.CLAIMED,
+        ...kinds,
+        JOB_LIMITS.LEASE_SECONDS,
+      )
+    )[0] ?? null;
   }
 
   /**
@@ -111,16 +113,18 @@ export class JobQueue {
    * against a concurrent sweep.
    */
   async claimById(jobId: string): Promise<JobRecord | null> {
-    return (await this.database.get<JobRecord>(
-      `UPDATE jobs SET status=$1, lease_until = now() + make_interval(secs => $2),
+    return (
+      await this.database.prisma.$queryRawUnsafe<JobRecord[]>(
+        `UPDATE jobs SET status=$1, lease_until = now() + make_interval(secs => $2),
           attempts = attempts + 1, updated_at = now()
        WHERE id=$3 AND status='${JOB_STATUS.QUEUED}'
        RETURNING id, kind, flow_id AS "flowId", payload, status, attempts,
           dedup_key AS "dedupKey", run_at AS "runAt"`,
-      JOB_STATUS.CLAIMED,
-      JOB_LIMITS.LEASE_SECONDS,
-      jobId,
-    )) ?? null;
+        JOB_STATUS.CLAIMED,
+        JOB_LIMITS.LEASE_SECONDS,
+        jobId,
+      )
+    )[0] ?? null;
   }
 
   /**
@@ -135,8 +139,9 @@ export class JobQueue {
   async reclaimExpired(kinds: readonly JobKind[]): Promise<JobRecord | null> {
     if (kinds.length === 0) return null;
     const marks = kinds.map((_, i) => `$${i + 1}`).join(", ");
-    return (await this.database.get<JobRecord>(
-      `UPDATE jobs SET lease_until = now() + make_interval(secs => $${kinds.length + 2}),
+    return (
+      await this.database.prisma.$queryRawUnsafe<JobRecord[]>(
+        `UPDATE jobs SET lease_until = now() + make_interval(secs => $${kinds.length + 2}),
           attempts = attempts + 1, updated_at = now()
        WHERE id = (
          SELECT id FROM jobs WHERE status='${JOB_STATUS.CLAIMED}' AND lease_until < now()
@@ -145,10 +150,11 @@ export class JobQueue {
        )
        RETURNING id, kind, flow_id AS "flowId", payload, status, attempts,
           dedup_key AS "dedupKey", run_at AS "runAt"`,
-      ...kinds,
-      JOB_LIMITS.MAX_ATTEMPTS,
-      JOB_LIMITS.LEASE_SECONDS,
-    )) ?? null;
+        ...kinds,
+        JOB_LIMITS.MAX_ATTEMPTS,
+        JOB_LIMITS.LEASE_SECONDS,
+      )
+    )[0] ?? null;
   }
 
   /**
@@ -205,7 +211,7 @@ export class JobQueue {
    * on DB-server time; Prisma has no equivalent.
    */
   private async requeueWithBackoff(jobId: string, backoffSeconds: number): Promise<void> {
-    await this.database.run(
+    await this.database.prisma.$executeRawUnsafe(
       `UPDATE jobs SET status=$1, lease_until=NULL,
           run_at = now() + make_interval(secs => $2), updated_at = now()
        WHERE id=$3 AND status='${JOB_STATUS.CLAIMED}'`,
@@ -251,9 +257,9 @@ export class JobQueue {
   private async failExhausted(kinds: readonly JobKind[]): Promise<void> {
     if (kinds.length === 0) return;
     const marks = kinds.map((_, i) => `$${i + 1}`).join(", ");
-    const exhausted = await this.database.all<{
+    const exhausted = await this.database.prisma.$queryRawUnsafe<{
       id: string; kind: JobKind; flowId: string | null;
-    }>(
+    }[]>(
       `UPDATE jobs SET status=$${kinds.length + 1}, lease_until=NULL, dedup_key=NULL, updated_at=now()
        WHERE status='${JOB_STATUS.CLAIMED}' AND lease_until < now()
          AND attempts >= $${kinds.length + 2} AND kind IN (${marks})

@@ -31,31 +31,45 @@ export class StatusService {
   constructor(private readonly database: Database) {}
 
   async snapshot(): Promise<StatusSnapshot> {
-    const agents = await this.database.all<{
-      flowId: string;
-      taskKey: string;
-      taskSummary: string;
-      runningNode: string | null;
-      executionMode: string | null;
-      status: string;
-      mrUrl: string | null;
-      mrIid: number | null;
-    }>(
-      `SELECT f.id AS "flowId", t.key AS "taskKey", t.summary AS "taskSummary",
-              f.execution_mode AS "executionMode", f.status, f.mr_url AS "mrUrl", f.mr_iid AS "mrIid",
-              (SELECT n.node_key FROM nodes n WHERE n.flow_id = f.id AND n.status = $2
-               ORDER BY n.created_at, n.node_key LIMIT 1) AS "runningNode"
-       FROM flows f JOIN tasks t ON t.id = f.task_id
-       WHERE f.status = $1
-       ORDER BY f.updated_at DESC`,
-      FLOW_STATUS.ACTIVE,
-      FLOW_STATUS.RUNNING,
-    );
+    // joins-as-separate-typed-queries: active flows, their tasks and each
+    // flow's first running node (the correlated subselect's ORDER BY/LIMIT 1)
+    const flows = await this.database.prisma.flow.findMany({
+      where: { status: FLOW_STATUS.ACTIVE },
+      orderBy: { updatedAt: "desc" },
+      select: { id: true, taskId: true, executionMode: true, status: true, mrUrl: true, mrIid: true },
+    });
+    const tasks = await this.database.prisma.task.findMany({
+      where: { id: { in: flows.map((f) => f.taskId) } },
+      select: { id: true, key: true, summary: true },
+    });
+    const taskById = new Map(tasks.map((t) => [t.id, t]));
+    const runningNodes = await this.database.prisma.node.findMany({
+      where: { flowId: { in: flows.map((f) => f.id) }, status: FLOW_STATUS.RUNNING },
+      orderBy: [{ createdAt: "asc" }, { nodeKey: "asc" }],
+      select: { flowId: true, nodeKey: true },
+    });
+    const firstRunningNodeByFlow = new Map<string, string>();
+    for (const n of runningNodes) {
+      if (!firstRunningNodeByFlow.has(n.flowId)) firstRunningNodeByFlow.set(n.flowId, n.nodeKey);
+    }
 
-    const runsRunning =
-      Number((await this.database.get<{ c: number }>(`SELECT COUNT(*) AS c FROM runs WHERE status = $1`, FLOW_STATUS.RUNNING))
-        ?.c ?? 0);
-    const repoCount = Number((await this.database.get<{ c: number }>(`SELECT COUNT(*) AS c FROM repos`))?.c ?? 0);
+    const agents = flows.flatMap((f) => {
+      const task = taskById.get(f.taskId);
+      if (!task) return [];
+      return [{
+        flowId: f.id,
+        taskKey: task.key,
+        taskSummary: task.summary,
+        runningNode: firstRunningNodeByFlow.get(f.id) ?? null,
+        executionMode: f.executionMode,
+        status: f.status,
+        mrUrl: f.mrUrl,
+        mrIid: f.mrIid,
+      }];
+    });
+
+    const runsRunning = await this.database.prisma.run.count({ where: { status: FLOW_STATUS.RUNNING } });
+    const repoCount = await this.database.prisma.repo.count();
 
     const openMrs = agents.flatMap((a) =>
       a.mrUrl

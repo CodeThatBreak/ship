@@ -4,6 +4,7 @@
  * statement as the status, webhook waits are indefinite, and the sweep
  * claims-and-fires due waits (a fresh instance resumes them — restart-proof).
  */
+import { testGet, testRun } from "@/tests/helpers/rawTestDb";
 import { beforeAll, describe, expect, it } from "vitest";
 import { assignTestDatabase, resetTestDatabase } from "../../../../tests/helpers/testDatabase";
 
@@ -15,11 +16,11 @@ const { engineParts } = await import("../../../composition/container");
 import type { WaitStoreHost } from "../flowEngineHost";
 
 const seedFlow = async (flowId: string): Promise<void> => {
-  await db.run(
+  await testRun(
     `INSERT INTO tasks (id, type, key, summary, status, issue_type, priority) VALUES ($1,$2,$3,$4,$5,$6,$7)`,
     `task_${flowId}`, "generic", flowId.toUpperCase(), "wait test", "open", "task", "P2",
   );
-  await db.run(
+  await testRun(
     `INSERT INTO flows (id, task_id, name, status, created_at, updated_at) VALUES ($1,$2,$3,$4,now(),now())`,
     flowId, `task_${flowId}`, "t", "active",
   );
@@ -27,7 +28,7 @@ const seedFlow = async (flowId: string): Promise<void> => {
 
 const seedNode = async (flowId: string, nodeKey: string, status: string): Promise<string> => {
   const nodeId = db.uid("node_");
-  await db.run(
+  await testRun(
     `INSERT INTO nodes (id, flow_id, node_key, type, status, created_at, updated_at) VALUES ($1,$2,$3,'agent',$4,now(),now())`,
     nodeId, flowId, nodeKey, status,
   );
@@ -41,7 +42,7 @@ const seedNode = async (flowId: string, nodeKey: string, status: string): Promis
  */
 const makeHost = (started: () => void): WaitStoreHost => ({
   nodeStatus: async (flowId, nodeKey) =>
-    (await db.get<{ status: string }>(`SELECT status FROM nodes WHERE flow_id=$1 AND node_key=$2`, flowId, nodeKey))?.status ?? null,
+    (await testGet<{ status: string }>(`SELECT status FROM nodes WHERE flow_id=$1 AND node_key=$2`, flowId, nodeKey))?.status ?? null,
   setNodeStatus: async (flowId, nodeKey, key, opts) =>
     engineParts.transitions.apply(flowId, nodeKey, key, opts),
   claimNode: async (flowId, nodeKey, key) =>
@@ -70,7 +71,7 @@ describe("WaitStore durable waits", () => {
 
     await store.armNodeWait(flowId, "gate", "timer", 5);
 
-    const row = await db.get<{ status: string; waitUntil: Date | null }>(
+    const row = await testGet<{ status: string; waitUntil: Date | null }>(
       `SELECT status, wait_until AS "waitUntil" FROM nodes WHERE flow_id=$1 AND node_key='gate'`,
       flowId);
     expect(row?.status).toBe("waiting");
@@ -86,13 +87,13 @@ describe("WaitStore durable waits", () => {
     const store = new WaitStore(makeHost(() => { started++; }), engineParts.events);
 
     await store.armNodeWait(flowId, "gate", "webhook", null);
-    expect((await db.get<{ waitUntil: Date | null }>(
+    expect((await testGet<{ waitUntil: Date | null }>(
       `SELECT wait_until AS "waitUntil" FROM nodes WHERE flow_id=$1 AND node_key='gate'`, flowId))?.waitUntil
     ).toBeNull();
 
     await store.sweepDueWaits();
     expect(started).toBe(0);
-    expect((await db.get<{ status: string }>(
+    expect((await testGet<{ status: string }>(
       `SELECT status FROM nodes WHERE flow_id=$1 AND node_key='gate'`, flowId))?.status
     ).toBe("waiting");
   });
@@ -101,7 +102,7 @@ describe("WaitStore durable waits", () => {
     const flowId = "flw_ws_due";
     await seedFlow(flowId);
     await seedNode(flowId, "gate", "waiting");
-    await db.run(
+    await testRun(
       `UPDATE nodes SET wait_until = now() - interval '1 minute' WHERE flow_id=$1 AND node_key='gate'`,
       flowId);
     let started = 0;
@@ -113,7 +114,7 @@ describe("WaitStore durable waits", () => {
     await store.sweepDueWaits(flowId); // idempotent: a second pass finds nothing waiting
 
     expect(started).toBe(1);
-    expect((await db.get<{ status: string }>(
+    expect((await testGet<{ status: string }>(
       `SELECT status FROM nodes WHERE flow_id=$1 AND node_key='gate'`, flowId))?.status
     ).toBe("running");
   });
@@ -122,7 +123,7 @@ describe("WaitStore durable waits", () => {
     const flowId = "flw_ws_restart";
     await seedFlow(flowId);
     await seedNode(flowId, "gate", "waiting");
-    await db.run(
+    await testRun(
       `UPDATE nodes SET wait_until = now() - interval '1 minute' WHERE flow_id=$1 AND node_key='gate'`,
       flowId);
     let started = 0;
@@ -134,7 +135,7 @@ describe("WaitStore durable waits", () => {
     await untilStatus(flowId, "gate", "running");
 
     expect(started).toBe(1);
-    expect((await db.get<{ status: string }>(
+    expect((await testGet<{ status: string }>(
       `SELECT status FROM nodes WHERE flow_id=$1 AND node_key='gate'`, flowId))?.status
     ).toBe("running");
   });
@@ -144,7 +145,7 @@ describe("WaitStore durable waits", () => {
 const untilStatus = async (flowId: string, nodeKey: string, want: string): Promise<void> => {
   const deadline = Date.now() + 3_000;
   for (;;) {
-    const status = (await db.get<{ status: string }>(
+    const status = (await testGet<{ status: string }>(
       `SELECT status FROM nodes WHERE flow_id=$1 AND node_key=$2`, flowId, nodeKey))?.status;
     if (status === want) return;
     if (Date.now() > deadline) throw new Error(`timed out waiting for ${nodeKey} to be ${want}`);

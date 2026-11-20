@@ -9,13 +9,13 @@
  * `claim_checklist_progress` API was bypassed (step 08); the outcome is
  * RETURNED, never applied here.
  */
+import { testAll, testGet, testRun } from "@/tests/helpers/rawTestDb";
 import { beforeAll, describe, expect, it } from "vitest";
 
 import { assignTestDatabase, resetTestDatabase } from "../../../../../tests/helpers/testDatabase";
 
 assignTestDatabase();
 
-const { db } = await import("../../../../db/app");
 
 beforeAll(resetTestDatabase);
 const { nodeSupport } = await import("@/lib/composition/container");
@@ -46,20 +46,20 @@ async function seed(index: number, opts: { stepIds?: string[] } = {}): Promise<{
   const taskId = `task_${index}`;
   const flowId = `flw_${index}`;
   const nodeId = `node_${index}`;
-  await db.run(
+  await testRun(
     `INSERT INTO tasks (id, type, key, summary, status, issue_type, priority) VALUES ($1,$2,$3,$4,$5,$6,$7)`,
     taskId, "generic", `TST-${index}`, "finalizer test", "open", "story", "P2",
   );
-  await db.run(
+  await testRun(
     `INSERT INTO flows (id, task_id, name, status, execution_mode, mr_branch, created_at, updated_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
     flowId, taskId, `finalizer ${index}`, "active", "cloud", null, now(), now(),
   );
-  await db.run(
+  await testRun(
     `INSERT INTO nodes (id, flow_id, node_key, type, status, created_at, updated_at) VALUES ($1,$2,$3,$4,$5,$6,$7)`,
     nodeId, flowId, "build", "build", "running", now(), now(),
   );
   const artId = `art_plan_${index}`;
-  await db.run(
+  await testRun(
     `INSERT INTO artifacts (id, node_id, flow_id, kind, version, content, meta, status, created_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
     artId, nodeId, flowId, "plan", 1, "# Plan", null, "draft", now(),
   );
@@ -89,7 +89,7 @@ describe("BuildFinalizer — the build-progress gate (step 05)", () => {
     expect(outcome.status).toBe("failed");
     expect(outcome.eventData).toMatchObject({ pending: 2 });
     expect(outcome.reply).toContain("no parseable \"build-progress\" report");
-    const events = await db.all<{ type: string; data: { pending?: number } | null }>(
+    const events = await testAll<{ type: string; data: { pending?: number } | null }>(
       `SELECT type, data FROM events WHERE node_id=$1 AND type='output_contract_violation'`, s.nodeId,
     );
     expect(events).toHaveLength(1);
@@ -111,7 +111,7 @@ describe("BuildFinalizer — the build-progress gate (step 05)", () => {
     const steps = await planSteps.list(s.flowId);
     expect(steps.find((st) => st.metaId === "s1")?.status).toBe("done");
     expect(steps.find((st) => st.metaId === "s2")?.status).toBe("pending");
-    const logEvents = await db.all<{ message: string; data: { fenceCompleted?: number } | null }>(
+    const logEvents = await testAll<{ message: string; data: { fenceCompleted?: number } | null }>(
       `SELECT message, data FROM events WHERE node_id=$1 AND type='log' AND message LIKE '%bypassed%'`, s.nodeId,
     );
     expect(logEvents).toHaveLength(1);
@@ -120,17 +120,17 @@ describe("BuildFinalizer — the build-progress gate (step 05)", () => {
     const rows = await branchStore.list(s.flowId);
     expect(rows).toHaveLength(1);
     expect(rows[0]).toMatchObject({ name: "br-a", status: "building", gitBranch: "bugfix/pushed-branch" });
-    const run = await db.get<{ branchId: string | null }>(`SELECT branch_id AS "branchId" FROM runs WHERE id=$1`, runRowId);
+    const run = await testGet<{ branchId: string | null }>(`SELECT branch_id AS "branchId" FROM runs WHERE id=$1`, runRowId);
     expect(run?.branchId).toBe(rows[0]?.id);
     // the flow points at the pushed branch
-    expect((await db.get<{ mrBranch: string | null }>(`SELECT mr_branch AS "mrBranch" FROM flows WHERE id=$1`, s.flowId))?.mrBranch).toBe("bugfix/pushed-branch");
+    expect((await testGet<{ mrBranch: string | null }>(`SELECT mr_branch AS "mrBranch" FROM flows WHERE id=$1`, s.flowId))?.mrBranch).toBe("bugfix/pushed-branch");
   });
 
   it("no report with NOTHING pending: no bypass log, straight to awaiting_approval", async () => {
     const s = await seed(63, { stepIds: [] });
     const outcome = await finisherWith(null).finalize(s.ctx, pushedResult("done, no fence"), "bugfix/assigned", null, s.nodeId, "run_missing");
     expect(outcome.status).toBe("awaiting_approval");
-    const logEvents = await db.all<{ message: string }>(
+    const logEvents = await testAll<{ message: string }>(
       `SELECT message FROM events WHERE node_id=$1 AND message LIKE '%bypassed%'`, s.nodeId,
     );
     expect(logEvents).toEqual([]);

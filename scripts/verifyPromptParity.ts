@@ -46,12 +46,30 @@ import { usageTracker } from '../lib/engine/harness/usageTracker';
 import type { RunCostSummary } from '../lib/engine/harness/types/runCostSummary';
 import type { NodeDefinition } from '../lib/engine/nodes/shared/nodeSharedExports';
 import { nodeRoles } from '../lib/engine/nodes/shared/nodeRoles';
-import { FlowRow, Task, NodeRow, rows } from '../lib/db/rows';
+import { FlowRow, Task, NodeRow } from '../lib/db/rows';
 import { nodeRegistry } from '../lib/engine/nodes/registry';
 import { promptPreview } from '../lib/engine/prompts/promptPreview';
 import { NODE_KEYS } from '../lib/engine/constants/nodeKeys';
 
 // ── runtime stubs ─────────────────────────────────────────────────────────────
+import type { z } from 'zod';
+
+/** First row of a raw query over the fixture DB (the deleted `db.get`). */
+const rawGet = async <T = unknown>(sql: string, ...args: unknown[]): Promise<T | undefined> =>
+  (await db.prisma.$queryRawUnsafe<T[]>(sql, ...args))[0];
+
+/** A single fixture row narrowed through its rows.ts schema (the deleted `rows.get`). */
+const zodGet = async <S extends z.ZodTypeAny>(
+  schema: S,
+  sql: string,
+  ...args: unknown[]
+): Promise<z.infer<S> | undefined> => {
+  const raw = await rawGet(sql, ...args);
+  if (raw == null) return undefined;
+  const parsed = schema.safeParse(raw);
+  return parsed.success ? parsed.data : undefined;
+};
+
 const capturedSpecs: string[] = [];
 const usageAccess = usageTracker as unknown as Record<string, unknown>;
 usageAccess.captureRunUsage = async (): Promise<RunCostSummary> => ({});
@@ -156,7 +174,7 @@ async function main(): Promise<void> {
   // ── fixture DB rows ────────────────────────────────────────────────────────
   const now = () => new Date().toISOString();
   const taskId = 'PARITY-1';
-  await db.run(
+  await db.prisma.$executeRawUnsafe(
     `INSERT INTO tasks (id, type, fields, key, summary, description, status, issue_type) VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
     taskId,
     'jira',
@@ -169,7 +187,7 @@ async function main(): Promise<void> {
     'bug'
   );
   const flowId = 'flow_fixture_sdlc';
-  await db.run(
+  await db.prisma.$executeRawUnsafe(
     `INSERT INTO flows (id, task_id, name, status, mr_url, mr_iid, mr_branch, repo_url, execution_mode, created_at, updated_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`,
     flowId,
     taskId,
@@ -184,7 +202,7 @@ async function main(): Promise<void> {
     now()
   );
   const parentFlowId = 'flow_fixture_parent';
-  await db.run(
+  await db.prisma.$executeRawUnsafe(
     `INSERT INTO flows (id, task_id, name, status, mr_url, mr_iid, mr_branch, repo_url, execution_mode, parent_flow_id, kind, created_at, updated_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)`,
     parentFlowId,
     taskId,
@@ -200,7 +218,7 @@ async function main(): Promise<void> {
     now(),
     now()
   );
-  await db.run(
+  await db.prisma.$executeRawUnsafe(
     `INSERT INTO nodes (id, flow_id, node_key, type, status, created_at, updated_at) VALUES ($1,$2,$3,$4,'pending',$5,$6)`,
     'node_fixture_art',
     parentFlowId,
@@ -209,7 +227,7 @@ async function main(): Promise<void> {
     now(),
     now()
   );
-  await db.run(
+  await db.prisma.$executeRawUnsafe(
     `INSERT INTO artifacts (id, node_id, flow_id, kind, version, content, status, created_at) VALUES ($1,$2,$3,$4,1,$5,$6,$7)`,
     'art_fixture_plan',
     'node_fixture_art',
@@ -220,7 +238,7 @@ async function main(): Promise<void> {
     now()
   );
   const childFlowId = 'flow_fixture_step';
-  await db.run(
+  await db.prisma.$executeRawUnsafe(
     `INSERT INTO flows (id, task_id, name, status, mr_url, mr_iid, mr_branch, repo_url, execution_mode, parent_flow_id, kind, trigger_payload, created_at, updated_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)`,
     childFlowId,
     taskId,
@@ -241,7 +259,7 @@ async function main(): Promise<void> {
     now(),
     now()
   );
-  await db.run(
+  await db.prisma.$executeRawUnsafe(
     `INSERT INTO comments (id, flow_id, mr_iid, discussion_id, author, body, file_path, line, status, created_at, updated_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`,
     'cmt_1',
     flowId,
@@ -256,7 +274,7 @@ async function main(): Promise<void> {
     now()
   );
   for (const node of ['plan', 'build', 'review', 'resolve'] as const) {
-    await db.run(
+    await db.prisma.$executeRawUnsafe(
       `INSERT INTO nodes (id, flow_id, node_key, type, status, created_at, updated_at) VALUES ($1,$2,$3,$4,'pending',$5,$6)`,
       `node_fixture_${node}`,
       flowId,
@@ -266,7 +284,7 @@ async function main(): Promise<void> {
       now()
     );
   }
-  await db.run(
+  await db.prisma.$executeRawUnsafe(
     `INSERT INTO nodes (id, flow_id, node_key, type, status, created_at, updated_at) VALUES ($1,$2,$3,$4,'pending',$5,$6)`,
     'node_fixture_step_build',
     childFlowId,
@@ -277,7 +295,7 @@ async function main(): Promise<void> {
   );
   // declarative agent def + its node row (resolved via nodeRegistry.resolve)
   const agDefId = 'ag_fixture_parity';
-  await db.run(
+  await db.prisma.$executeRawUnsafe(
     `INSERT INTO node_templates (id, key, name, kind, version, description, config, is_builtin, created_at, updated_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`,
     agDefId,
     'parity-agent',
@@ -291,7 +309,7 @@ async function main(): Promise<void> {
     now(),
     now()
   );
-  await db.run(
+  await db.prisma.$executeRawUnsafe(
     `INSERT INTO nodes (id, flow_id, node_key, type, status, created_at, updated_at) VALUES ($1,$2,$3,$4,'pending',$5,$6)`,
     'node_fixture_agent',
     childFlowId,
@@ -312,8 +330,8 @@ async function main(): Promise<void> {
     input: unknown;
   }): Promise<string | null> => {
     const { kind, def, flowId: flow, nodeKey } = args;
-    const flowRow = await rows.get(FlowRow, FLOW_BY_ID, flow);
-    const taskRow = await rows.get(Task, TASK_BY_ID, taskId);
+    const flowRow = await zodGet(FlowRow, FLOW_BY_ID, flow);
+    const taskRow = await zodGet(Task, TASK_BY_ID, taskId);
     if (!flowRow || !taskRow) {
       results.push({
         kind,
@@ -333,7 +351,7 @@ async function main(): Promise<void> {
       const preview = previewer
         ? await previewer.previewPrompt(
             ctx,
-            (await rows.get(NodeRow, NODE_BY_KEY, flow, nodeKey)) ?? null,
+            (await zodGet(NodeRow, NODE_BY_KEY, flow, nodeKey)) ?? null,
             {}
           )
         : null;
@@ -357,7 +375,7 @@ async function main(): Promise<void> {
     }
     const specPrompt = capturedSpecs[specStart] ?? null;
 
-    const recorded = (await db.get<{ input: Record<string, unknown> | null }>(
+    const recorded = (await rawGet<{ input: Record<string, unknown> | null }>(
       `SELECT input FROM nodes WHERE flow_id=$1 AND node_key=$2`,
       flow,
       nodeKey
@@ -443,8 +461,8 @@ async function main(): Promise<void> {
 
   // ── declarative agent: rendered prompt === spec.prompt + prompt_source ─────
   {
-    const flowRow = await rows.get(FlowRow, FLOW_BY_ID, childFlowId);
-    const taskRow = await rows.get(Task, TASK_BY_ID, taskId);
+    const flowRow = await zodGet(FlowRow, FLOW_BY_ID, childFlowId);
+    const taskRow = await zodGet(Task, TASK_BY_ID, taskId);
     if (!flowRow || !taskRow) {
       results.push({
         kind: 'agent',
@@ -466,7 +484,7 @@ async function main(): Promise<void> {
         runError = e instanceof Error ? e.message : String(e);
       }
       const specPrompt = capturedSpecs[specStart] ?? null;
-      const recorded = (await db.get<{ input: Record<string, unknown> | null }>(
+      const recorded = (await rawGet<{ input: Record<string, unknown> | null }>(
         `SELECT input FROM nodes WHERE flow_id=$1 AND node_key=$2`,
         childFlowId,
         'parity-agent'
@@ -493,8 +511,8 @@ async function main(): Promise<void> {
   // ── pipeline: the gate's fix prompt is assembled inside runFix() — not
   //    simulable off-server; full parity rides the Phase-2 preview work (I5)
   {
-    const flowRow = await rows.get(FlowRow, FLOW_BY_ID, flowId);
-    const taskRow = await rows.get(Task, TASK_BY_ID, taskId);
+    const flowRow = await zodGet(FlowRow, FLOW_BY_ID, flowId);
+    const taskRow = await zodGet(Task, TASK_BY_ID, taskId);
     if (!flowRow || !taskRow) {
       results.push({
         kind: 'pipeline',

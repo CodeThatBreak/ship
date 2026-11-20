@@ -19,7 +19,8 @@ import type { ChainRole, FlowCtx } from "../nodes/shared/nodeSharedExports";
 import { appLayerConfig, mergeConfigLayers, parseConfigSnapshot } from "../templates/nodeConfig";
 import { hookStore } from "./hookStore";
 import { maskHookSecret } from "./hookStore/utils/maskHookSecret";
-import { ArtifactListRow, buildNodeTemplateIndex, parseRow, parseRows, toFlowArtifact, toFlowTask } from "./flowReadModel/utils/ormRows";
+import { parseRowTolerant, parseRows } from "@/lib/db/ormRowHelpers";
+import { ArtifactListRow, buildNodeTemplateIndex, toFlowArtifact, toFlowTask } from "./flowReadModel/utils/ormRows";
 import { templateStore, type TemplateGraph } from "../templates/templateStore";
 import { NotFoundError } from "../../errors";
 import { stepFlows } from "./fanout/stepFlowManager";
@@ -32,9 +33,9 @@ export class FlowReadModel {
   constructor(private readonly schedule: WaitStore) {}
 
   async get(id: string): Promise<FlowData | null> {
-    const flow = parseRow(FlowRow, await db.prisma.flow.findUnique({ where: { id } }));
+    const flow = parseRowTolerant(FlowRow, await db.prisma.flow.findUnique({ where: { id } }));
     if (!flow) return null;
-    const task = parseRow(Task, await db.prisma.task.findUnique({ where: { id: flow.taskId } }));
+    const task = parseRowTolerant(Task, await db.prisma.task.findUnique({ where: { id: flow.taskId } }));
     if (!task) return null;
 
     const runs = parseRows(
@@ -292,9 +293,9 @@ export class FlowReadModel {
 
   /** The flow context one run/trigger evaluates against (flow + task + repo). */
   async ctx(flowId: string): Promise<FlowCtx> {
-    const flow = parseRow(FlowRow, await db.prisma.flow.findUnique({ where: { id: flowId } }));
+    const flow = parseRowTolerant(FlowRow, await db.prisma.flow.findUnique({ where: { id: flowId } }));
     if (!flow) throw new NotFoundError('flow', flowId);
-    const task = parseRow(Task, await db.prisma.task.findUnique({ where: { id: flow.taskId } }));
+    const task = parseRowTolerant(Task, await db.prisma.task.findUnique({ where: { id: flow.taskId } }));
     if (!task) throw new NotFoundError('task', flow.taskId);
     const repo = flow.repoId ? (await db.repoById(flow.repoId) ?? null) : null;
     return { flow, task, repo };
@@ -348,7 +349,7 @@ export class FlowReadModel {
       where: { node: { flowId }, kind: { in: [...kinds] } },
       orderBy: { version: "desc" },
     });
-    const parsed = artifact ? parseRow(ArtifactRow, artifact) : undefined;
+    const parsed = artifact ? parseRowTolerant(ArtifactRow, artifact) : undefined;
     return parsed as unknown as T | undefined;
   }
 
@@ -365,7 +366,7 @@ export class FlowReadModel {
     const g = await this.graph(flowId);
     const spec = g?.byKey.get(nodeKey);
     if (spec) return spec.defKey;
-    const node = parseRow(
+    const node = parseRowTolerant(
       NodeRow,
       await db.prisma.node.findUnique({ where: { flowId_nodeKey: { flowId, nodeKey } } }),
     );

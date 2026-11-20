@@ -78,11 +78,12 @@ export class TransitionEvents {
     tx?: QueryExecutor,
   ): Promise<void> {
     const nodeId = nodeKey
-      ? (await this.database.get<{ id: string }>(
-          `SELECT id FROM nodes WHERE flow_id=$1 AND node_key=$2`,
-          flowId,
-          nodeKey,
-        ))?.id ?? null
+      ? (
+          await this.database.prisma.node.findFirst({
+            where: { flowId, nodeKey },
+            select: { id: true },
+          })
+        )?.id ?? null
       : null;
     await this.database.emitEvent(flowId, nodeId, kind, message, data, tx);
   }

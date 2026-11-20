@@ -5,6 +5,7 @@
  * old advance-then-fire order silently dropped a fire on a crash between
  * the two writes.
  */
+import { testGet, testRun } from "@/tests/helpers/rawTestDb";
 import { beforeAll, describe, expect, it } from "vitest";
 import { assignTestDatabase, resetTestDatabase } from "../../../../tests/helpers/testDatabase";
 
@@ -24,10 +25,10 @@ describe("ScheduleFireHandler", () => {
     // a repo + a jira task (the schedule fire auto-creates a flow from the
     // template's repo binding and the default task type)
     const repoId = db.uid("repo_");
-    await db.run(
+    await testRun(
       `INSERT INTO repos (id, name, cloud_url, local_path, created_at, updated_at) VALUES ($1,$2,$3,$4,$5,$6)`,
       repoId, "schedule repo", "https://git.example.com/schedule/repo.git", null, db.now(), db.now());
-    await db.run(
+    await testRun(
       `INSERT INTO tasks (id, type, key, summary, status, issue_type, priority) VALUES ($1,$2,$3,$4,$5,$6,$7)`,
       "task_sched", "jira", "TST-S", "schedule fire", "open", "task", "P2");
 
@@ -53,7 +54,7 @@ nodes:
 
     // the due instant is in the past — what the poller's sweep would enqueue
     const fireAt = Date.now() - 60_000;
-    await db.run(`UPDATE flow_templates SET schedule_next_at=$1 WHERE id=$2`, new Date(fireAt), templateId);
+    await testRun(`UPDATE flow_templates SET schedule_next_at=$1 WHERE id=$2`, new Date(fireAt), templateId);
 
     const jobs = new JobQueue();
     const handler = new ScheduleFireHandler(jobs);
@@ -69,16 +70,16 @@ nodes:
     expect(processed).toBe(1);
 
     // the fire created exactly one flow from the template
-    const flow = await db.get<{ id: string; template_id: string }>(
+    const flow = await testGet<{ id: string; template_id: string }>(
       `SELECT id, template_id FROM flows WHERE template_id=$1`,
       templateId);
     expect(flow?.id).toBeTruthy();
 
     // the job completed AND the schedule advanced past the fired instant —
     // the crash-drops-a-fire window is closed
-    const jobRow = await db.get<{ status: string }>(`SELECT status FROM jobs WHERE id=$1`, jobId);
+    const jobRow = await testGet<{ status: string }>(`SELECT status FROM jobs WHERE id=$1`, jobId);
     expect(jobRow?.status).toBe("done");
-    const tpl = await db.get<{ scheduleNextAt: Date | null }>(
+    const tpl = await testGet<{ scheduleNextAt: Date | null }>(
       `SELECT schedule_next_at AS "scheduleNextAt" FROM flow_templates WHERE id=$1`,
       templateId);
     if (!tpl?.scheduleNextAt) throw new Error("expected the fired schedule to have advanced");

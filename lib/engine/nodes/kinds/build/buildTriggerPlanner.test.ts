@@ -8,13 +8,13 @@
  * 05), the plan model comes from the PLAN node's validated output contract,
  * and a split child's unit payload rides straight into the run input.
  */
+import { testAll, testRun } from "@/tests/helpers/rawTestDb";
 import { beforeAll, describe, expect, it } from "vitest";
 
 import { assignTestDatabase, resetTestDatabase } from "../../../../../tests/helpers/testDatabase";
 
 assignTestDatabase();
 
-const { db } = await import("../../../../db/app");
 
 beforeAll(resetTestDatabase);
 const { nodeSupport } = await import("@/lib/composition/container");
@@ -31,20 +31,20 @@ async function seed(index: number, opts: { planContent?: string; planMeta?: unkn
   const flowId = `flw_${index}`;
   const planNodeId = `node_plan_${index}`;
   const artId = `art_plan_${index}`;
-  await db.run(
+  await testRun(
     `INSERT INTO tasks (id, type, key, summary, status, issue_type, priority) VALUES ($1,$2,$3,$4,$5,$6,$7)`,
     taskId, "generic", `TST-${index}`, "trigger planner test", "open", "story", "P2",
   );
-  await db.run(
+  await testRun(
     `INSERT INTO flows (id, task_id, name, status, execution_mode, mr_branch, created_at, updated_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
     flowId, taskId, `planner ${index}`, "active", "cloud", null, now(), now(),
   );
-  await db.run(
+  await testRun(
     `INSERT INTO nodes (id, flow_id, node_key, type, status, created_at, updated_at) VALUES ($1,$2,$3,$4,$5,$6,$7)`,
     planNodeId, flowId, NODE_KEYS.PLAN, NODE_KEYS.PLAN, "done", now(), now(),
   );
   if (opts.planContent != null) {
-    await db.run(
+    await testRun(
       `INSERT INTO artifacts (id, node_id, flow_id, kind, version, content, meta, status, created_at) VALUES ($1,$2,$3,$4,$5,$6,$7::jsonb,$8,$9)`,
       artId, planNodeId, flowId, "plan", 1, opts.planContent, opts.planMeta ? JSON.stringify(opts.planMeta) : null, "draft", now(),
     );
@@ -119,7 +119,7 @@ describe("BuildTriggerPlanner — triggerRuns", () => {
       { name: "br-a", order: 0, status: "pending" },
       { name: "br-b", order: 1, status: "pending" },
     ]);
-    const events = await db.all<{ message: string }>(
+    const events = await testAll<{ message: string }>(
       `SELECT message FROM events WHERE flow_id=$1 AND message LIKE '%building sequentially%'`, s.flowId,
     );
     expect(events).toHaveLength(1);

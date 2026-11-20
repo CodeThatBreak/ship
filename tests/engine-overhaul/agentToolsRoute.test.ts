@@ -9,12 +9,12 @@
  * `engineParts.agentTools`). Runs against the isolated dockerized Postgres
  * test database (AGENTS.md §1 — never a demo/real database).
  */
+import { testRun } from "@/tests/helpers/rawTestDb";
 import { beforeAll, describe, expect, it } from "vitest";
 import { assignTestDatabase, resetTestDatabase } from "../helpers/testDatabase";
 
 assignTestDatabase();
 
-const { db } = await import("@/lib/db/app");
 const { engineParts } = await import("@/lib/composition/container");
 const { NODE_KEYS } = await import("@/lib/engine/constants/nodeKeys");
 const { NODE_STATUS } = await import("@/lib/engine/constants/nodeStatus");
@@ -36,15 +36,15 @@ interface Seed {
 const seedAttempt = async (index: number, type: string): Promise<Seed> => {
   const flowId = `flw_rt_${index}`;
   const nodeId = `node_rt_${index}`;
-  await db.run(
+  await testRun(
     `INSERT INTO tasks (id, type, key, summary, status, issue_type, priority) VALUES ($1,$2,$3,$4,$5,$6,$7)`,
     `task_rt_${index}`, "generic", `TRT-${index}`, "agent tools route", "open", "story", "P2",
   );
-  await db.run(
+  await testRun(
     `INSERT INTO flows (id, task_id, name, status, execution_mode, created_at, updated_at) VALUES ($1,$2,$3,$4,$5,$6,$7)`,
     flowId, `task_rt_${index}`, `tools route ${index}`, "active", "cloud", now(), now(),
   );
-  await db.run(
+  await testRun(
     `INSERT INTO nodes (id, flow_id, node_key, type, status, created_at, updated_at) VALUES ($1,$2,$3,$4,$5,$6,$7)`,
     nodeId, flowId, type, type, NODE_STATUS.PENDING, now(), now(),
   );

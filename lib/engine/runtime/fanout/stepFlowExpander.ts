@@ -16,7 +16,7 @@ import { configString, fanoutOf, stripFanoutKeys, type FanoutKnob } from "../../
 import { planSteps } from "../planStepStore";
 import type { PlanStepRow } from "../planStepStore/types/planStep";
 import { fanoutAutoWrapDescription, hashFanoutChildConfig } from "./utils/autowrapKey";
-import { jsonInput } from "./utils/ormRows";
+import { jsonInput } from "@/lib/db/ormRowHelpers";
 import { filesOf } from "./utils/stepFiles";
 import type { StepFlowEngine } from "./types/stepFlowEngine";
 import type { StepChildPayload } from "./types/stepChildPayload";

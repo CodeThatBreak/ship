@@ -58,16 +58,16 @@ export class FlowHarness {
    * reads (`db.listRepos` / `repoByCloudUrl`). Idempotent per harness.
    */
   async registerRepoWithLocalPath(localPath: string): Promise<void> {
-    const existing = await this.deps.db.get<{ id: string }>(
+    const existing = (await this.deps.db.prisma.$queryRawUnsafe<{ id: string }[]>(
       `SELECT id FROM repos WHERE cloud_url=$1`,
       this.repoUrl,
-    );
+    ))[0];
     if (existing) {
       this.repoId = existing.id;
       return;
     }
     this.repoId = this.deps.db.uid("repo_");
-    await this.deps.db.run(
+    await this.deps.db.prisma.$executeRawUnsafe(
       `INSERT INTO repos (id, name, cloud_url, local_path, created_at, updated_at) VALUES ($1,$2,$3,$4,$5,$6)`,
       this.repoId, "overhaul repo", this.repoUrl, localPath, this.deps.db.now(), this.deps.db.now(),
     );
@@ -118,7 +118,7 @@ export class FlowHarness {
   async seedFlowFromTemplate(templateId: string | null): Promise<string> {
     this.flowCounter += 1;
     const taskId = `task_overhaul_${this.flowCounter}`;
-    await this.deps.db.run(
+    await this.deps.db.prisma.$executeRawUnsafe(
       `INSERT INTO tasks (id, type, key, summary, status, issue_type, priority) VALUES ($1,$2,$3,$4,$5,$6,$7)`,
       taskId, "jira", `OVH-${this.flowCounter}`, "overhaul harness task", "open", "task", "P2",
     );
@@ -131,19 +131,19 @@ export class FlowHarness {
   // ── read handles (SQL reads only — never a write path) ─────────────────────
 
   async nodeStatus(flowId: string, nodeKey: string): Promise<string> {
-    const row = await this.deps.db.get<{ status: string }>(
+    const row = (await this.deps.db.prisma.$queryRawUnsafe<{ status: string }[]>(
       `SELECT status FROM nodes WHERE flow_id=$1 AND node_key=$2`,
       flowId, nodeKey,
-    );
+    ))[0];
     if (!row) throw new Error(`harness: no node row for ${flowId}/${nodeKey}`);
     return row.status;
   }
 
   async nodeOutput(flowId: string, nodeKey: string): Promise<Record<string, unknown> | null> {
-    const row = await this.deps.db.get<{ output: unknown }>(
+    const row = (await this.deps.db.prisma.$queryRawUnsafe<{ output: unknown }[]>(
       `SELECT output FROM nodes WHERE flow_id=$1 AND node_key=$2`,
       flowId, nodeKey,
-    );
+    ))[0];
     if (!row) throw new Error(`harness: no node row for ${flowId}/${nodeKey}`);
     // jsonb columns come back already parsed — shape-check, never re-parse
     const parsed: unknown = row.output;
@@ -157,7 +157,7 @@ export class FlowHarness {
   /** Feed events (optionally one node, one type) in creation order. */
   async events(flowId: string, filter: { nodeKey?: string; type?: string } = {}): Promise<{ type: string; message: string }[]> {
     const nodeId = filter.nodeKey ? await this.nodeIdOf(flowId, filter.nodeKey) : undefined;
-    const rows = await this.deps.db.all<{ type: string; message: string }>(
+    const rows = await this.deps.db.prisma.$queryRawUnsafe<{ type: string; message: string }[]>(
       `SELECT type, message FROM events
        WHERE flow_id=$1
          AND ($2::text IS NULL OR node_id = $3)
@@ -213,7 +213,7 @@ export class FlowHarness {
    * the direct status writes the repo's existing engine tests do inline.
    */
   async setNodeForFixture(flowId: string, nodeKey: string, status: string): Promise<void> {
-    await this.deps.db.run(
+    await this.deps.db.prisma.$executeRawUnsafe(
       `UPDATE nodes SET status=$1, updated_at=$2 WHERE flow_id=$3 AND node_key=$4`,
       status, this.deps.db.now(), flowId, nodeKey,
     );
@@ -226,17 +226,17 @@ export class FlowHarness {
     status: string,
     output: Record<string, unknown>,
   ): Promise<void> {
-    await this.deps.db.run(
+    await this.deps.db.prisma.$executeRawUnsafe(
       `UPDATE nodes SET status=$1, output=$2, updated_at=$3 WHERE flow_id=$4 AND node_key=$5`,
       status, JSON.stringify(output), this.deps.db.now(), flowId, nodeKey,
     );
   }
 
   private async nodeIdOf(flowId: string, nodeKey: string): Promise<string> {
-    const row = await this.deps.db.get<{ id: string }>(
+    const row = (await this.deps.db.prisma.$queryRawUnsafe<{ id: string }[]>(
       `SELECT id FROM nodes WHERE flow_id=$1 AND node_key=$2`,
       flowId, nodeKey,
-    );
+    ))[0];
     if (!row) throw new Error(`harness: no node row for ${flowId}/${nodeKey}`);
     return row.id;
   }

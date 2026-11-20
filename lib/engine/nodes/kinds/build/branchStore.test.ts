@@ -1,3 +1,4 @@
+import { testGet, testRun } from "@/tests/helpers/rawTestDb";
 import { beforeAll, describe, expect, it } from "vitest";
 
 
@@ -19,7 +20,7 @@ describe("BranchStore.tagRun", () => {
     const nodeId = "node_branch_tag";
     const runRowId = db.uid("run_");
     const branchRowId = db.uid("br_");
-    await db.run(
+    await testRun(
       `INSERT INTO tasks (id, type, key, summary, status, issue_type, priority) VALUES ($1,$2,$3,$4,$5,$6,$7)`,
       taskId,
       "generic",
@@ -29,7 +30,7 @@ describe("BranchStore.tagRun", () => {
       "story",
       "P2",
     );
-    await db.run(
+    await testRun(
       `INSERT INTO flows (id, task_id, name, status, created_at, updated_at) VALUES ($1,$2,$3,$4,$5,$6)`,
       flowId,
       taskId,
@@ -38,7 +39,7 @@ describe("BranchStore.tagRun", () => {
       now(),
       now(),
     );
-    await db.run(
+    await testRun(
       `INSERT INTO branches (id, flow_id, name, title, status, created_at, updated_at) VALUES ($1,$2,$3,$4,$5,$6,$7)`,
       branchRowId,
       flowId,
@@ -48,7 +49,7 @@ describe("BranchStore.tagRun", () => {
       now(),
       now(),
     );
-    await db.run(
+    await testRun(
       `INSERT INTO nodes (id, flow_id, node_key, type, status, created_at, updated_at) VALUES ($1,$2,$3,$4,$5,$6,$7)`,
       nodeId,
       flowId,
@@ -58,7 +59,7 @@ describe("BranchStore.tagRun", () => {
       now(),
       now(),
     );
-    await db.run(
+    await testRun(
       `INSERT INTO runs (id, flow_id, node_id, agent_ref, run_ref, status, created_at, updated_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
       runRowId,
       flowId,
@@ -72,7 +73,7 @@ describe("BranchStore.tagRun", () => {
 
     await branchStore.tagRun(runRowId, branchRowId);
 
-    const tagged = await db.get<{ branch_id: string | null }>(`SELECT branch_id FROM runs WHERE id=$1`, runRowId);
+    const tagged = await testGet<{ branch_id: string | null }>(`SELECT branch_id FROM runs WHERE id=$1`, runRowId);
     expect(tagged?.branch_id).toBe(branchRowId);
   });
 });

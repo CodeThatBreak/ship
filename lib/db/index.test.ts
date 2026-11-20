@@ -3,6 +3,7 @@
  * paging, repo upsert semantics and message threads — against the dockerized
  * test database (vitest globalSetup migrates it; truncated per file).
  */
+import { testGet, testRun } from "@/tests/helpers/rawTestDb";
 import { beforeAll, describe, expect, it, vi } from "vitest";
 import { assignTestDatabase, resetTestDatabase } from "../../tests/helpers/testDatabase";
 
@@ -11,12 +12,12 @@ assignTestDatabase();
 const { db } = await import("./app");
 
 const seedFlow = async (flowId: string, taskId: string) => {
-  await db.run(
+  await testRun(
     `INSERT INTO tasks (id,type,fields,key,summary) VALUES ($1,'jira','{}'::jsonb,$2,'s') ON CONFLICT (id) DO NOTHING`,
     taskId,
     taskId.toUpperCase(),
   );
-  await db.run(
+  await testRun(
     `INSERT INTO flows (id,task_id,name,status,created_at,updated_at) VALUES ($1,$2,'n','active',now(),now()) ON CONFLICT (id) DO NOTHING`,
     flowId,
     taskId,
@@ -37,7 +38,7 @@ describe("Database facade", () => {
   });
 
   it("seeds built-in templates", async () => {
-    const row = await db.get<{ ok: number }>(
+    const row = await testGet<{ ok: number }>(
       `SELECT 1 AS ok FROM flow_templates WHERE id='tpl_sdlc_loop'`,
     );
     expect(row).toEqual({ ok: 1 });
@@ -45,15 +46,15 @@ describe("Database facade", () => {
 
   it("listEvents pages with id > after and listEventsTail returns newest window", async () => {
     await seedFlow("flw_ev", "t_ev");
-    await db.run(`DELETE FROM events WHERE flow_id=$1`, "flw_ev");
+    await testRun(`DELETE FROM events WHERE flow_id=$1`, "flw_ev");
     const ts = "2026-01-01T00:00:00.000Z";
-    await db.run(
+    await testRun(
       `INSERT INTO events (id,flow_id,node_id,type,message,data,created_at) VALUES ($1,$2,NULL,'s','a',NULL,$3)`,
       "ev_a",
       "flw_ev",
       ts,
     );
-    await db.run(
+    await testRun(
       `INSERT INTO events (id,flow_id,node_id,type,message,data,created_at) VALUES ($1,$2,NULL,'s','b',NULL,$3)`,
       "ev_b",
       "flw_ev",
@@ -88,7 +89,7 @@ describe("Database facade", () => {
   it("addMessage stores messages.thread from the schema", async () => {
     await seedFlow("flw_1", "t_1");
     await db.addMessage("flw_1", "plan", "user", "refine auth", "auth");
-    const row = await db.get<{ thread: string | null }>(
+    const row = await testGet<{ thread: string | null }>(
       `SELECT thread FROM messages WHERE flow_id='flw_1' LIMIT 1`,
     );
     expect(row?.thread).toBe("auth");

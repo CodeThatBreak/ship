@@ -6,6 +6,7 @@
  * NodeSupport so the store's calls are observable without touching real rows
  * (the plan_steps sync itself is covered by the runtime's own tests).
  */
+import { testRun } from "@/tests/helpers/rawTestDb";
 import { beforeAll, describe, expect, it } from 'vitest';
 import { assignTestDatabase, resetTestDatabase } from '../../../../../tests/helpers/testDatabase';
 
@@ -107,19 +108,19 @@ describe('PlanStore.scopedRefine — the ref-count bundle or null', () => {
   it('resolves the branch + its rows from the LATEST plan only', async () => {
     // real plan_steps rows in the isolated DB — liveRows reads the real table
     const { db } = await import('../../../../db/app');
-    await db.run(
+    await testRun(
       `INSERT INTO tasks (id, type, key, summary, status, issue_type, priority) VALUES ('task_1','generic','TST-1','plan store','open','task','P2')`
     );
-    await db.run(
+    await testRun(
       `INSERT INTO flows (id, task_id, name, status, created_at, updated_at) VALUES ('flow-1','task_1','plan store','active',$1,$2)`,
       db.now(), db.now()
     );
-    await db.run(
+    await testRun(
       `INSERT INTO plan_steps (id,flow_id,artifact_id,meta_id,position,title,detail,files,branch,status,origin,completed_by,sub_flow_id,created_at,updated_at)
        VALUES ('r1','flow-1',NULL,'s1',0,'A',NULL,'[]','auth','pending','agent',NULL,NULL,$1,$2)`,
       db.now(), db.now()
     );
-    await db.run(
+    await testRun(
       `INSERT INTO plan_steps (id,flow_id,artifact_id,meta_id,position,title,detail,files,branch,status,origin,completed_by,sub_flow_id,created_at,updated_at)
        VALUES ('r2','flow-1',NULL,'s2',1,'B',NULL,'[]','billing','pending','agent',NULL,NULL,$1,$2)`,
       db.now(), db.now()

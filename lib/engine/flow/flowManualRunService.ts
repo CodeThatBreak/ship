@@ -4,7 +4,7 @@ import { db } from "../../db/app";
 import { NodeRow } from "../../db/rows";
 import { NODE_KEYS } from "../constants/nodeKeys";
 import { NotFoundError, ValidationError } from "../../errors";
-import { parseRow } from "../nodes/shared/nodeSupport/utils/ormRows";
+import { parseRow } from "@/lib/db/ormRowHelpers";
 import { TRIGGER_SOURCE } from "../runtime/triggers/constants/triggerSources";
 import type { TransitionKey } from "../runtime/transitions/types/transitions";
 import type { TriggerResult } from "../runtime/triggers/types/triggerGateway";

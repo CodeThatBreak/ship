@@ -2,7 +2,7 @@ import "server-only";
 
 import { db } from "../../../db/app";
 import { FlowRow, Task, NodeRow } from "../../../db/rows";
-import { parseRow, parseRows } from "./utils/ormRows";
+import { parseRow, parseRows } from "@/lib/db/ormRowHelpers";
 import { PROMPT_SOURCES } from "../../nodes/shared/nodeSharedExports";
 import type { FlowCtx, NodeDefinition, PromptPreviewParams, PromptSource } from "../../nodes/shared/nodeSharedExports";
 import { nodeRoles } from "../../nodes/shared/nodeRoles";

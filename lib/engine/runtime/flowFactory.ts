@@ -10,7 +10,7 @@ import { nodeRegistry } from "../nodes/registry";
 import { mergeArena } from "./fanout/mergeArena";
 import { worktreeManager } from "./worktreeLifecycle";
 import { deleteFlowChildRows } from "./flowFactory/utils/flowChildDeletes";
-import { parseRow } from "./flowFactory/utils/ormRows";
+import { parseRow } from "@/lib/db/ormRowHelpers";
 import type { NodeStore } from "./nodeStore";
 import { parseStartContract, validateAgainstContract } from "../nodes/kinds/start/contract";
 import { NO_TASK_TYPE, SDLC_TEMPLATE_ID, templateStore } from "../templates/templateStore";

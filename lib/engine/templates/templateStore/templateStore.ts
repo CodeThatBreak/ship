@@ -9,13 +9,11 @@ import {
   type TemplateNodeTrigger,
 } from "../../../db/rows";
 import {
-  jsonInput,
   jsonPayload,
-  parsedRow,
-  parsedRows,
   templateEdgeSpecFromRow,
   templateNodeSpecFromRow,
 } from "./utils/ormRows";
+import { jsonInput, parseRow, parseRows } from "@/lib/db/ormRowHelpers";
 import { isDeclarativeKind } from "../../nodes/declarativeRegistry/utils/isDeclarativeKind";
 import type {
   EditorCatalogEntry,
@@ -173,7 +171,7 @@ export class TemplateStore {
    *  `opts.includeHidden` brings back the auto-wrapped fan-out child templates
    *  (hidden=1) — the gallery excludes them by default. */
   async list(opts: { includeHidden?: boolean } = {}): Promise<(FlowTemplateRow & { nodeCount: number })[]> {
-    const templates = parsedRows(
+    const templates = parseRows(
       FlowTemplateRow,
       await db.prisma.flowTemplate.findMany({
         where: opts.includeHidden ? undefined : { hidden: false },
@@ -192,7 +190,7 @@ export class TemplateStore {
   /** One template row (or undefined). Tx-scoped inside a transaction. */
   async flowTemplate(id: string, tx?: Prisma.TransactionClient): Promise<FlowTemplateRow | undefined> {
     const row = await (tx ?? db.prisma).flowTemplate.findUnique({ where: { id } });
-    return row ? parsedRow(FlowTemplateRow, row, "flowTemplate.flowTemplate") : undefined;
+    return row ? parseRow(FlowTemplateRow, row, "flowTemplate.flowTemplate") : undefined;
   }
 
   /**
@@ -619,7 +617,7 @@ export class TemplateStore {
 
   /** The node-type catalog, grouped for the configurator palette. */
   async listNodeTemplates(): Promise<NodeTemplateRow[]> {
-    return parsedRows(
+    return parseRows(
       NodeTemplateRow,
       await db.prisma.nodeTemplate.findMany({ orderBy: [{ isBuiltin: "desc" }, { createdAt: "asc" }, { id: "asc" }] }),
       "nodeTemplate.listNodeTemplates",
@@ -639,13 +637,13 @@ export class TemplateStore {
   }> {
     const paletteWhere = (owner: string | null) => ({ isBuiltin: false, templateId: owner });
     return {
-      library: parsedRows(
+      library: parseRows(
         NodeTemplateRow,
         await db.prisma.nodeTemplate.findMany({ where: paletteWhere(null), orderBy: [{ createdAt: "asc" }, { id: "asc" }] }),
         "nodeTemplate.listNodeTemplatesForPalette",
       ),
       templateLocal: templateId !== undefined
-        ? parsedRows(
+        ? parseRows(
             NodeTemplateRow,
             await db.prisma.nodeTemplate.findMany({ where: paletteWhere(templateId), orderBy: [{ createdAt: "asc" }, { id: "asc" }] }),
             "nodeTemplate.listNodeTemplatesForPalette",
@@ -656,12 +654,12 @@ export class TemplateStore {
 
   async nodeTemplate(id: string, tx?: Prisma.TransactionClient): Promise<NodeTemplateRow | undefined> {
     const row = await (tx ?? db.prisma).nodeTemplate.findUnique({ where: { id } });
-    return row ? parsedRow(NodeTemplateRow, row, "nodeTemplate.nodeTemplate") : undefined;
+    return row ? parseRow(NodeTemplateRow, row, "nodeTemplate.nodeTemplate") : undefined;
   }
 
   async nodeTemplateByKey(key: string, tx?: Prisma.TransactionClient): Promise<NodeTemplateRow | undefined> {
     const row = await (tx ?? db.prisma).nodeTemplate.findFirst({ where: { key } });
-    return row ? parsedRow(NodeTemplateRow, row, "nodeTemplate.nodeTemplateByKey") : undefined;
+    return row ? parseRow(NodeTemplateRow, row, "nodeTemplate.nodeTemplateByKey") : undefined;
   }
 
   /**
@@ -751,7 +749,7 @@ export class TemplateStore {
     // another def). Rows local to other templates always get a fresh copy
     // scoped to this template.
     const slug = TemplateStore.slugify(name);
-    const identical = parsedRows(
+    const identical = parseRows(
       NodeTemplateRow,
       await (tx ?? db.prisma).nodeTemplate.findMany({
         where: {
@@ -865,7 +863,7 @@ export class TemplateStore {
     }
     // normalize the config once so "identical" comparisons compare parsed forms
     const normalized = parseDeclarativeConfig(kind, input.config ?? {}, name);
-    const candidates = parsedRows(
+    const candidates = parseRows(
       NodeTemplateRow,
       await (tx ?? db.prisma).nodeTemplate.findMany({ where: { key, isBuiltin: false } }),
       "nodeTemplate.ensureNodeTemplate",

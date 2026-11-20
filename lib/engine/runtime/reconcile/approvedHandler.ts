@@ -72,12 +72,14 @@ export class ApprovedHandler {
    *  rule): lease liveness compares against DB-server time
    *  (`lease_until > now()`), which Prisma's query API cannot express. */
   private async hasLiveMrCreateJob(flowId: string): Promise<boolean> {
-    return Boolean(await db.get(
-      `SELECT 1 FROM jobs WHERE flow_id=$1 AND kind=$2
+    return Boolean((
+      await db.prisma.$queryRawUnsafe<{ ok: number }[]>(
+        `SELECT 1 AS ok FROM jobs WHERE flow_id=$1 AND kind=$2
          AND (status='queued' OR (status='claimed' AND lease_until > now()))
        LIMIT 1`,
-      flowId,
-      JOB_KIND.MR_CREATE,
-    ));
+        flowId,
+        JOB_KIND.MR_CREATE,
+      )
+    )[0]);
   }
 }

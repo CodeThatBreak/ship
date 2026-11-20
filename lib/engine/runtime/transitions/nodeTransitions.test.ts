@@ -1,3 +1,4 @@
+import { testGet, testRun } from "@/tests/helpers/rawTestDb";
 import { beforeAll, describe, expect, it } from "vitest";
 import { assignTestDatabase, resetTestDatabase } from "../../../../tests/helpers/testDatabase";
 
@@ -19,11 +20,11 @@ const { NODE_STATUS } = await import("../../constants/nodeStatus");
  */
 
 const seedFlow = async (flowId: string): Promise<void> => {
-  await db.run(
+  await testRun(
     `INSERT INTO tasks (id, type, key, summary, status, issue_type, priority) VALUES ($1,$2,$3,$4,$5,$6,$7)`,
     `task_${flowId}`, "generic", flowId.toUpperCase(), "authority test", "open", "task", "P2",
   );
-  await db.run(
+  await testRun(
     `INSERT INTO flows (id, task_id, name, status, created_at, updated_at) VALUES ($1,$2,$3,$4,now(),now())`,
     flowId, `task_${flowId}`, "t", "active",
   );
@@ -31,7 +32,7 @@ const seedFlow = async (flowId: string): Promise<void> => {
 
 const seedNode = async (flowId: string, nodeKey: string, status: string): Promise<string> => {
   const nodeId = db.uid("node_");
-  await db.run(
+  await testRun(
     `INSERT INTO nodes (id, flow_id, node_key, type, status, created_at, updated_at) VALUES ($1,$2,$3,'agent',$4,now(),now())`,
     nodeId, flowId, nodeKey, status,
   );
@@ -53,7 +54,7 @@ describe("TransitionAuthority", () => {
     const { attemptId } = await authority.claim(flowId, "build", "runFromPending");
     expect(attemptId).toMatch(/^att_/);
     expect(
-      await db.get<{ status: string; attemptId: string | null }>(
+      await testGet<{ status: string; attemptId: string | null }>(
         `SELECT status, attempt_id AS "attemptId" FROM nodes WHERE id=$1`, nodeId),
     ).toMatchObject({ status: NODE_STATUS.RUNNING, attemptId: attemptId });
     expect(authority.records(flowId).some((r) => r.key === "runFromPending" && r.attemptId === attemptId)).toBe(true);
@@ -72,7 +73,7 @@ describe("TransitionAuthority", () => {
     const nodeId = await seedNode(flowId, "gate", NODE_STATUS.WAITING);
     expect(await authority.apply(flowId, "gate", "cancel")).toBe(true);
     expect(
-      await db.get<{ status: string; attemptId: string | null }>(
+      await testGet<{ status: string; attemptId: string | null }>(
         `SELECT status, attempt_id AS "attemptId" FROM nodes WHERE id=$1`, nodeId),
     ).toMatchObject({ status: NODE_STATUS.FAILED, attemptId: null });
     // already failed — the from-set misses, fire-and-forget callers see false
@@ -96,7 +97,7 @@ describe("TransitionAuthority", () => {
       flowId, nodeKey: "agent", nodeId, attemptId,
       outcome: { status: NODE_STATUS.DONE, output: { answer: 42 }, agentId: "agent_x" },
     });
-    const row = await db.get<{ status: string; attemptId: string | null; output: unknown; agentId: string | null }>(
+    const row = await testGet<{ status: string; attemptId: string | null; output: unknown; agentId: string | null }>(
       `SELECT status, attempt_id AS "attemptId", output, agent_id AS "agentId" FROM nodes WHERE id=$1`, nodeId);
     expect(row).toMatchObject({ status: NODE_STATUS.DONE, attemptId: null, agentId: "agent_x" });
     expect((row?.output as { answer?: number }).answer).toBe(42);
@@ -139,7 +140,7 @@ describe("TransitionAuthority", () => {
     expect(await authority.publishAggregate(flowId, "split", "splitOutcome", {
       status: NODE_STATUS.DONE, output: { units: [] }, attemptId: original.attemptId,
     })).toBe(false);
-    expect(await db.get<{ status: string }>(`SELECT status FROM nodes WHERE flow_id=$1 AND node_key='split'`, flowId))
+    expect(await testGet<{ status: string }>(`SELECT status FROM nodes WHERE flow_id=$1 AND node_key='split'`, flowId))
       .toMatchObject({ status: NODE_STATUS.RUNNING });
     // the aggregate's own held/failed states (attempt cleared by its own
     // earlier publish) republish — the per-unit retry path depends on it
@@ -159,7 +160,7 @@ describe("TransitionAuthority", () => {
       key: "chatRevert", toStatus: NODE_STATUS.AWAITING_APPROVAL, patch: { agent_id: "agent_y" },
     });
     expect(
-      await db.get<{ status: string; agentId: string | null }>(
+      await testGet<{ status: string; agentId: string | null }>(
         `SELECT status, agent_id AS "agentId" FROM nodes WHERE id=$1`, nodeId),
     ).toMatchObject({ status: NODE_STATUS.AWAITING_APPROVAL, agentId: "agent_y" });
   });
@@ -173,7 +174,7 @@ describe("TransitionAuthority", () => {
     const affected = await authority.applyFlowScope(flowId, "skipUnit");
     expect(affected.sort()).toEqual(["unit_a", "unit_b"]);
     expect(
-      await db.get<{ status: string }>(`SELECT status FROM nodes WHERE flow_id=$1 AND node_key='unit_c'`, flowId),
+      await testGet<{ status: string }>(`SELECT status FROM nodes WHERE flow_id=$1 AND node_key='unit_c'`, flowId),
     ).toMatchObject({ status: NODE_STATUS.DONE });
   });
 
@@ -183,7 +184,7 @@ describe("TransitionAuthority", () => {
     await seedNode(flowId, "gate", NODE_STATUS.PENDING);
     await authority.claim(flowId, "gate", "runFromPending");
     await authority.failFromRunning(flowId, "gate");
-    expect(await db.get<{ status: string }>(`SELECT status FROM nodes WHERE flow_id=$1 AND node_key='gate'`, flowId))
+    expect(await testGet<{ status: string }>(`SELECT status FROM nodes WHERE flow_id=$1 AND node_key='gate'`, flowId))
       .toMatchObject({ status: NODE_STATUS.FAILED });
     // second call: no longer running — silent no-op, no throw
     await authority.failFromRunning(flowId, "gate");

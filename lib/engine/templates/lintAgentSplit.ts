@@ -17,13 +17,15 @@ import type { LintProblem } from "@/types/templateLint";
 const lintSplitTargetLookup: SplitTargetLookup = {
   isNodeKey: (key) => nodeRegistry.has(key),
   template: async (idOrKey) => {
-    const byId = await db.get<{ id: string; isBuiltin: boolean }>(
-          `SELECT id, is_builtin AS "isBuiltin" FROM node_templates WHERE id=$1`, idOrKey,
-        );
+    const byId = await db.prisma.nodeTemplate.findFirst({
+      where: { id: idOrKey },
+      select: { id: true, isBuiltin: true },
+    });
     if (byId) return { id: byId.id };
-    const byKey = await db.get<{ id: string; isBuiltin: boolean }>(
-          `SELECT id, is_builtin AS "isBuiltin" FROM node_templates WHERE key=$1`, idOrKey,
-        );
+    const byKey = await db.prisma.nodeTemplate.findFirst({
+      where: { key: idOrKey },
+      select: { id: true, isBuiltin: true },
+    });
     return byKey && !byKey.isBuiltin ? { id: byKey.id } : null;
   },
 };
@@ -102,9 +104,10 @@ export const lintAgentSplit = async (
     try {
       const resolved = await resolveSplitTarget(target, lintSplitTargetLookup);
       if (resolved.kind === "template" && elementKeys != null) {
-        const configRow = await db.get<{ config: unknown }>(
-                  `SELECT config FROM node_templates WHERE id=$1`, resolved.id,
-                );
+        const configRow = await db.prisma.nodeTemplate.findFirst({
+          where: { id: resolved.id },
+          select: { config: true },
+        });
         const fields = parseStartContract(parseJsonObject(configRow?.config));
         if (fields.length) {
           const missing = fields.filter((f) => f.required && !elementKeys.includes(f.key)).map((f) => f.key);

@@ -16,6 +16,7 @@
  * Runs against the isolated dockerized Postgres test database
  * (AGENTS.md §1 — never a demo/real DB).
  */
+import { testGet, testRun } from "@/tests/helpers/rawTestDb";
 import { beforeAll, describe, expect, test } from "vitest";
 import { assignTestDatabase, resetTestDatabase } from "../helpers/testDatabase";
 import { FlowHarness } from "../helpers/flowHarness";
@@ -46,12 +47,12 @@ beforeAll(resetTestDatabase);
  *  interrupted stage looks like to the engine). Returns the run ref. */
 const placeRunningWithRun = async (flowId: string, nodeKey: string): Promise<string> => {
   await harness.setNodeForFixture(flowId, nodeKey, "running");
-  const node = await db.get<{ id: string }>(
+  const node = await testGet<{ id: string }>(
     `SELECT id FROM nodes WHERE flow_id=$1 AND node_key=$2`, flowId, nodeKey,
   );
   if (!node) throw new Error(`fixture: no node row for ${nodeKey}`);
   const runRef = `run_cancel_${node.id.slice(-6)}`;
-  await db.run(
+  await testRun(
     `INSERT INTO runs (id, flow_id, node_id, agent_ref, run_ref, status, created_at, updated_at)
      VALUES ($1,$2,$3,$4,$5,'running',$6,$7)`,
     db.uid("run_"), flowId, node.id, "agent_fixture", runRef, db.now(), db.now(),
@@ -61,7 +62,7 @@ const placeRunningWithRun = async (flowId: string, nodeKey: string): Promise<str
 
 /** The job row's status + dedup key by id. */
 const jobRowOf = async (jobId: string): Promise<{ status: string; dedupKey: string | null }> => {
-  const row = await db.get<{ status: string; dedupKey: string | null }>(
+  const row = await testGet<{ status: string; dedupKey: string | null }>(
     `SELECT status, dedup_key AS "dedupKey" FROM jobs WHERE id=$1`, jobId,
   );
   if (!row) throw new Error(`fixture: no job row ${jobId}`);
@@ -88,14 +89,14 @@ describe("cancel journal (step 06 task 4)", () => {
 
     // crash window: the claim lease lapses; the sweep re-claims and finalizes
     // with the SAME handler the inline path would run
-    await db.run(`UPDATE jobs SET lease_until = now() - interval '1 second' WHERE id=$1`, jobId);
+    await testRun(`UPDATE jobs SET lease_until = now() - interval '1 second' WHERE id=$1`, jobId);
     const processed = await jobs.sweepDue({
       [JOB_KIND.CANCEL]: (job) => new CancelHandler(jobs).handle(job),
     });
     expect(processed).toBe(1);
 
     expect(await harness.nodeStatus(flowId, buildKey)).toBe("failed");
-    const run = await db.get<{ status: string; leaseUntil: string | null }>(
+    const run = await testGet<{ status: string; leaseUntil: string | null }>(
       `SELECT status, lease_until AS "leaseUntil" FROM runs WHERE run_ref=$1`, runRef,
     );
     expect(run?.status).toBe("error");
@@ -114,7 +115,7 @@ describe("cancel journal (step 06 task 4)", () => {
     await flowEngine.cancelNode(flowId, buildKey);
     expect(await harness.nodeStatus(flowId, buildKey)).toBe("failed");
     expect(agent.wasCancelled(runRef)).toBe(true); // the remote cancel ran
-    const job = await db.get<{ status: string }>(
+    const job = await testGet<{ status: string }>(
       `SELECT status FROM jobs WHERE flow_id=$1 AND kind='cancel' ORDER BY created_at DESC LIMIT 1`,
       flowId,
     );
@@ -156,7 +157,7 @@ describe("mr_create journal (step 06 task 5)", () => {
 
     // crash window: the lease lapses; the sweep re-claims and dispatches the
     // handler (runFix wired through the engine's delegate, as the poller does)
-    await db.run(`UPDATE jobs SET lease_until = now() - interval '1 second' WHERE id=$1`, jobId);
+    await testRun(`UPDATE jobs SET lease_until = now() - interval '1 second' WHERE id=$1`, jobId);
     const processed = await jobs.sweepDue({
       [JOB_KIND.MR_CREATE]: (job) => new MrCreateHandler(flowEngine, jobs, (t, attempt, error) =>
         flowEngine.chain.runBuildCommitFix(t.flowId, t.buildKey, t.branch, attempt, t.maxAttempts, error),
@@ -166,11 +167,11 @@ describe("mr_create journal (step 06 task 5)", () => {
 
     // the adopt path landed the EXISTING MR — no second create on the host
     expect(gitHost.calls.filter((c) => c.kind === "createChangeRequest")).toHaveLength(0);
-    const flow = await db.get<{ gitlabProjectId: number | null }>(
+    const flow = await testGet<{ gitlabProjectId: number | null }>(
       `SELECT gitlab_project_id AS "gitlabProjectId" FROM flows WHERE id=$1`, flowId,
     );
     expect(flow?.gitlabProjectId).toBe(1); // the flows row was updated
-    const branch = await db.get<{ mrIid: number | null }>(
+    const branch = await testGet<{ mrIid: number | null }>(
       `SELECT mr_iid AS "mrIid" FROM branches WHERE flow_id=$1 AND name='b1'`, flowId,
     );
     expect(branch?.mrIid).toBe(mrNumber);

@@ -94,12 +94,13 @@ export class AgentToolService {
     attemptId: string | null;
     apiToken: string | null;
   } | null> {
-    return (await db.get<{ id: string; runRef: string; attemptId: string | null; apiToken: string | null }>(
-      `SELECT id, run_ref AS "runRef", attempt_id AS "attemptId", api_token AS "apiToken" FROM runs
-       WHERE node_id=$1 AND status=$2 ORDER BY created_at DESC LIMIT 1`,
-      nodeId,
-      RUN_STATUS.RUNNING,
-    )) ?? null;
+    return (
+      await db.prisma.run.findFirst({
+        where: { nodeId, status: RUN_STATUS.RUNNING },
+        orderBy: { createdAt: "desc" },
+        select: { id: true, runRef: true, attemptId: true, apiToken: true },
+      })
+    ) ?? null;
   }
 
   /** The node kind's declared allowlist decides what its agent may call.

@@ -1,6 +1,7 @@
 import "server-only";
 
 import { db } from "../../../db/app";
+import { RunRow } from "../../../db/rows";
 import { pricingTableSchema } from "../../../schemas/settingValues";
 import { uncachedInputTokens } from "../../../usage";
 import {
@@ -36,8 +37,11 @@ export class UsageTracker {
   ): Promise<void> {
     // COALESCE-backed partial update: unspecified columns keep their existing
     // value, so a duration-only touch (agent-runner after capture) can't wipe
-    // the tokens/cost that were just persisted.
-    await db.run(
+    // the tokens/cost that were just persisted. Contained raw: a column-wise
+    // COALESCE update has no Prisma query-API equivalent — read-then-write
+    // would race the concurrent persist paths. Same statement is what keeps
+    // the partial update atomic.
+    await db.prisma.$executeRawUnsafe(
             `UPDATE runs SET model=COALESCE($1,model), input_tokens=COALESCE($2,input_tokens), output_tokens=COALESCE($3,output_tokens),
           cache_read_tokens=COALESCE($4,cache_read_tokens), cache_write_tokens=COALESCE($5,cache_write_tokens),
           duration_ms=COALESCE($6,duration_ms), cost_cents=COALESCE($7,cost_cents), usage=COALESCE($8,usage),
@@ -131,15 +135,30 @@ export class UsageTracker {
   async backfillCosts(force = false): Promise<void> {
     if (this.backfilled && !force) return;
     this.backfilled = true;
-    const pending = await db.all<{
-          id: string; model: string | null; usage: unknown;
-          inputTokens: number | null; outputTokens: number | null;
-          cacheReadTokens: number | null; cacheWriteTokens: number | null;
-        }>(
-          `SELECT id, model, usage, input_tokens AS "inputTokens", output_tokens AS "outputTokens", cache_read_tokens AS "cacheReadTokens", cache_write_tokens AS "cacheWriteTokens" FROM runs
-       WHERE (input_tokens IS NOT NULL OR output_tokens IS NOT NULL)
-         AND (cost_cents IS NULL OR cost_cents = 0
-              OR (usage IS NOT NULL AND usage->>'costSource' = 'estimate'))`);
+    const pending = await db.prisma.run.findMany({
+      where: {
+        AND: [
+          { OR: [{ inputTokens: { not: null } }, { outputTokens: { not: null } }] },
+          {
+            OR: [
+              { costCents: null },
+              { costCents: 0 },
+              // stored usage marked as an estimate is re-priced with the current card
+              { usage: { path: ["costSource"], equals: "estimate" } },
+            ],
+          },
+        ],
+      },
+      select: {
+        id: true,
+        model: true,
+        usage: true,
+        inputTokens: true,
+        outputTokens: true,
+        cacheReadTokens: true,
+        cacheWriteTokens: true,
+      },
+    });
     if (!pending.length) return;
 
     const pricing = await db.getSetting("pricing", pricingTableSchema, {});
@@ -149,6 +168,9 @@ export class UsageTracker {
     const discount = (ports.find((p) => p.execMode === "cloud") ?? ports[0])?.listDiscount ?? 0;
     const table = await rateTable(this.pricingSource, overrides);
     for (const r of pending) {
+      // the usage JSONB payload stays narrowed at the boundary (zod) — a
+      // non-object stored cell prices like an uncosted run
+      const usage = RunRow.shape.usage.nullable().catch(null).parse(r.usage);
       const est = estimateCostCents({
         model: r.model ?? undefined,
         inputTokens: r.inputTokens ?? 0,
@@ -159,7 +181,7 @@ export class UsageTracker {
       // zero-token rows price to exactly 0 — leave them uncosted rather than
       // pretend a free run happened
       if (est?.cents == null || est.cents <= 0) continue;
-      await markEstimated(r.id, est.cents, r.usage);
+      await markEstimated(r.id, est.cents, usage);
     }
   }
 }

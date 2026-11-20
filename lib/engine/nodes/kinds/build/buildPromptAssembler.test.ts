@@ -7,13 +7,13 @@
  * prefix, the fenced untrusted plan block, the checklist block advertising
  * `claim_checklist_progress` (step 08), and the two override routes.
  */
+import { testRun } from "@/tests/helpers/rawTestDb";
 import { beforeAll, describe, expect, it } from "vitest";
 
 import { assignTestDatabase, resetTestDatabase } from "../../../../../tests/helpers/testDatabase";
 
 assignTestDatabase();
 
-const { db } = await import("../../../../db/app");
 
 beforeAll(resetTestDatabase);
 // the registry singleton first — entering the prompts → registry → build
@@ -34,20 +34,20 @@ async function seed(index: number, stepIds: string[]): Promise<{ flowId: string;
   const taskId = `task_${index}`;
   const flowId = `flw_${index}`;
   const nodeId = `node_${index}`;
-  await db.run(
+  await testRun(
     `INSERT INTO tasks (id, type, key, summary, status, issue_type, priority) VALUES ($1,$2,$3,$4,$5,$6,$7)`,
     taskId, "generic", `TST-${index}`, "assembler test", "open", "story", "P2",
   );
-  await db.run(
+  await testRun(
     `INSERT INTO flows (id, task_id, name, status, execution_mode, mr_branch, created_at, updated_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
     flowId, taskId, `assembler ${index}`, "active", "local", null, now(), now(),
   );
-  await db.run(
+  await testRun(
     `INSERT INTO nodes (id, flow_id, node_key, type, status, created_at, updated_at) VALUES ($1,$2,$3,$4,$5,$6,$7)`,
     nodeId, flowId, "build", "build", "pending", now(), now(),
   );
   const artId = `art_plan_${index}`;
-  await db.run(
+  await testRun(
     `INSERT INTO artifacts (id, node_id, flow_id, kind, version, content, meta, status, created_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
     artId, nodeId, flowId, "plan", 1, "# Plan", null, "draft", now(),
   );

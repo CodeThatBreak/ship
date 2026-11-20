@@ -8,6 +8,7 @@
  * Runs against the isolated dockerized Postgres test database
  * (AGENTS.md §1 — never a demo/real DB).
  */
+import { testAll, testGet, testRun } from "@/tests/helpers/rawTestDb";
 import { beforeAll, describe, expect, test } from "vitest";
 import { assignTestDatabase, resetTestDatabase } from "../helpers/testDatabase";
 import { FlowHarness, until } from "../helpers/flowHarness";
@@ -103,7 +104,7 @@ describe("webhook delivery crash window", () => {
     );
 
     // crash window: the claim lease lapses; the sweep re-claims and re-dispatches
-    await db.run(`UPDATE jobs SET lease_until = now() - interval '1 second' WHERE id=$1`, jobId);
+    await testRun(`UPDATE jobs SET lease_until = now() - interval '1 second' WHERE id=$1`, jobId);
     const reclaimed = await jobs.reclaimExpired([JOB_KIND.WEBHOOK_DELIVERY]);
     if (!reclaimed) throw new Error("expected the crashed claim to be reclaimable");
     expect(reclaimed.id).toBe(jobId);
@@ -111,12 +112,12 @@ describe("webhook delivery crash window", () => {
     await jobs.complete(jobId);
 
     // exactly-once: one resume announcement, one run of the gate
-    const resumed = await db.all<{ message: string }>(
+    const resumed = await testAll<{ message: string }>(
       `SELECT message FROM events WHERE flow_id=$1 AND type='lifecycle' AND message LIKE '%resumed by a webhook delivery%'`,
       flowId);
     expect(resumed.length).toBe(1);
     expect(await harness.nodeStatus(flowId, "gate")).toBe("done");
-    const jobRow = await db.get<{ status: string }>(`SELECT status FROM jobs WHERE id=$1`, jobId);
+    const jobRow = await testGet<{ status: string }>(`SELECT status FROM jobs WHERE id=$1`, jobId);
     expect(jobRow?.status).toBe("done");
   }, 15_000);
 });

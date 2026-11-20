@@ -40,10 +40,10 @@ export class BgRunner {
           const nodeId = await this.parts.nodeStore.idOf(flowId, nodeKey);
           if (nodeId) {
             const attemptId = (
-              await db.get<{ attemptId: string | null }>(
-                `SELECT attempt_id AS "attemptId" FROM nodes WHERE id=$1`,
-                nodeId,
-              )
+              await db.prisma.node.findUnique({
+                where: { id: nodeId },
+                select: { attemptId: true },
+              })
             )?.attemptId;
             this.parts.attemptRegistry.clear(nodeId, attemptId);
           }

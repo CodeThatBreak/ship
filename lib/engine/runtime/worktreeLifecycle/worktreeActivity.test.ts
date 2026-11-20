@@ -31,7 +31,7 @@ describe('WorktreeActivity lifecycle events (CR-073)', () => {
 
 describe('WorktreeActivity node lease heartbeat', () => {
   it("extends the attributed node's lease so the reconciler sees the warm-up as alive", async () => {
-    const run = vi.spyOn(db, 'run').mockResolvedValue(1);
+    const run = vi.spyOn(db.prisma, '$executeRawUnsafe').mockResolvedValue(1);
     try {
       await new WorktreeActivity().touchNode('flow-1', 'node-row-id');
       expect(run).toHaveBeenCalledTimes(1);
@@ -48,7 +48,7 @@ describe('WorktreeActivity node lease heartbeat', () => {
   });
 
   it("is a no-op without a node attribution (flow-level events don't stamp strangers)", async () => {
-    const run = vi.spyOn(db, 'run').mockResolvedValue(0);
+    const run = vi.spyOn(db.prisma, '$executeRawUnsafe').mockResolvedValue(0);
     try {
       const activity = new WorktreeActivity();
       await activity.touchNode('flow-1', null);

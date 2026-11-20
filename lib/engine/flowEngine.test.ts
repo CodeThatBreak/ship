@@ -9,6 +9,7 @@
  * lib/config.ts, so setting it before the first `db` import isolates the
  * singleton (AGENTS.md §1 — never a real database).
  */
+import { testAll, testGet, testRun } from "@/tests/helpers/rawTestDb";
 import { beforeAll, describe, expect, it, vi } from "vitest";
 import type { StepRollup } from "./runtime/fanout/stepRollup";
 import { assignTestDatabase, resetTestDatabase } from "../../tests/helpers/testDatabase";
@@ -40,11 +41,11 @@ beforeAll(resetTestDatabase);
 async function seedFlow(index: number): Promise<string> {
   const taskId = `task_${index}`;
   const flowId = `flw_${index}`;
-  await db.run(
+  await testRun(
     `INSERT INTO tasks (id, type, key, summary, status, issue_type, priority) VALUES ($1,$2,$3,$4,$5,$6,$7)`,
     taskId, "generic", `TST-${index}`, "metadata test", "open", "task", "P2",
   );
-  await db.run(
+  await testRun(
     `INSERT INTO flows (id, task_id, name, status, created_at, updated_at) VALUES ($1,$2,$3,$4,$5,$6)`,
     flowId, taskId, `metadata test ${index}`, "active", now(), now(),
   );
@@ -83,7 +84,7 @@ describe("engine chain-role routing (T3)", () => {
   it("plan and build approvals belong to their built-in flow actions (the flag, not the key)", async () => {
     const flowId = await seedFlow(3);
     for (const [nodeKey, type] of [[NODE_KEYS.PLAN, NODE_KEYS.PLAN], [NODE_KEYS.BUILD, NODE_KEYS.BUILD]] as const) {
-      await db.run(
+      await testRun(
         `INSERT INTO nodes (id, flow_id, node_key, type, status, created_at, updated_at) VALUES ($1,$2,$3,$4,$5,$6,$7)`,
         `node_${flowId}_${nodeKey}`, flowId, nodeKey, type, "awaiting_approval", now(), now(),
       );
@@ -94,7 +95,7 @@ describe("engine chain-role routing (T3)", () => {
 
   it("rolls back flow rows when node insert fails mid-create (CR-012)", async () => {
     const taskId = "task_create_txn";
-    await db.run(
+    await testRun(
       `INSERT INTO tasks (id, type, key, summary, status, issue_type, priority) VALUES ($1,$2,$3,$4,$5,$6,$7)`,
       taskId, "jira", "CREATE-TXN", "txn test", "open", "task", "P2",
     );
@@ -135,15 +136,15 @@ describe("engine chain-role routing (T3)", () => {
     } finally {
       txSpy.mockRestore();
     }
-    expect(await db.all(`SELECT id FROM flows WHERE task_id=$1`, taskId)).toHaveLength(0);
-    expect(await db.all(`SELECT id FROM nodes WHERE flow_id IN (SELECT id FROM flows WHERE task_id=$1)`, taskId)).toHaveLength(0);
+    expect(await testAll(`SELECT id FROM flows WHERE task_id=$1`, taskId)).toHaveLength(0);
+    expect(await testAll(`SELECT id FROM nodes WHERE flow_id IN (SELECT id FROM flows WHERE task_id=$1)`, taskId)).toHaveLength(0);
   });
 
   it("sendChat refuses a second refine while the plan node is already running", async () => {
     const flowId = await seedFlow(4);
     const planKey = await engine.keyOfRole(flowId, NODE_KEYS.PLAN);
     if (!planKey) throw new Error("expected plan key");
-    await db.run(
+    await testRun(
       `INSERT INTO nodes (id, flow_id, node_key, type, status, attempt_id, created_at, updated_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
       `node_${flowId}_plan`,
       flowId,
@@ -158,19 +159,19 @@ describe("engine chain-role routing (T3)", () => {
     // the typed skip event — no throw, and the node stays running
     const result = await engine.chats.sendChat(flowId, planKey, "second message");
     expect(result).toEqual({ started: false, skipped: true, reason: "skipped_duplicate_trigger" });
-    const skips = await db.all(
+    const skips = await testAll(
       `SELECT type FROM events WHERE flow_id=$1 AND type='skipped_duplicate_trigger'`,
       flowId,
     );
     expect(skips.length).toBeGreaterThan(0);
-    expect((await db.get<{ status: string }>(`SELECT status FROM nodes WHERE id=$1`, `node_${flowId}_plan`))?.status).toBe("running");
+    expect((await testGet<{ status: string }>(`SELECT status FROM nodes WHERE id=$1`, `node_${flowId}_plan`))?.status).toBe("running");
   });
 
   it("approvePlan skips when the plan node is running (refine in flight)", async () => {
     const flowId = await seedFlow(5);
     const planKey = await engine.keyOfRole(flowId, NODE_KEYS.PLAN);
     if (!planKey) throw new Error("expected plan key");
-    await db.run(
+    await testRun(
       `INSERT INTO nodes (id, flow_id, node_key, type, status, attempt_id, created_at, updated_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
       `node_${flowId}_plan`,
       flowId,
@@ -184,14 +185,14 @@ describe("engine chain-role routing (T3)", () => {
     // the approve door needs the plan artifact present (it is validated
     // before the transition); with it seeded, the running node loses the
     // approve transition atomically and emits the typed skip event
-    await db.run(
+    await testRun(
       `INSERT INTO artifacts (id, node_id, flow_id, kind, version, content, status, created_at)
        VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
       `art_${flowId}`, `node_${flowId}_plan`, flowId, "plan", 1, "{}", "draft", now(),
     );
     const result = await engine.approvals.approvePlan(flowId);
     expect(result).toEqual({ started: false, skipped: true, reason: "skipped_duplicate_trigger" });
-    const skips = await db.all(
+    const skips = await testAll(
       `SELECT type FROM events WHERE flow_id=$1 AND type='skipped_duplicate_trigger'`,
       flowId,
     );
@@ -202,7 +203,7 @@ describe("engine chain-role routing (T3)", () => {
     const flowId = await seedFlow(7);
     const resolveKey = await engine.keyOfRole(flowId, NODE_KEYS.RESOLVE);
     if (!resolveKey) throw new Error("expected resolve key");
-    await db.run(
+    await testRun(
       `INSERT INTO nodes (id, flow_id, node_key, type, status, created_at, updated_at) VALUES ($1,$2,$3,$4,$5,$6,$7)`,
       `node_${flowId}_resolve`,
       flowId,
@@ -216,7 +217,7 @@ describe("engine chain-role routing (T3)", () => {
     await engine.chain.triggerResolve(flowId);
     expect(
       (
-        await db.get<{ status: string }>(
+        await testGet<{ status: string }>(
           `SELECT status FROM nodes WHERE flow_id=$1 AND node_key=$2`,
           flowId,
           resolveKey,
@@ -229,7 +230,7 @@ describe("engine chain-role routing (T3)", () => {
     const flowId = await seedFlow(6);
     const buildKey = await engine.keyOfRole(flowId, NODE_KEYS.BUILD);
     if (!buildKey) throw new Error("expected build key");
-    await db.run(
+    await testRun(
       `INSERT INTO nodes (id, flow_id, node_key, type, status, created_at, updated_at) VALUES ($1,$2,$3,$4,$5,$6,$7)`,
       `node_${flowId}_build`,
       flowId,
@@ -243,14 +244,14 @@ describe("engine chain-role routing (T3)", () => {
       steps: [{ id: "s1", title: "Step", status: "done" as const, output: {} }],
     };
     await rollup.finishFanout(flowId, buildKey, aggregate);
-    const afterFirst = await db.get<{ status: string; output: string | null }>(
+    const afterFirst = await testGet<{ status: string; output: string | null }>(
       `SELECT status, output FROM nodes WHERE flow_id=$1 AND node_key=$2`, flowId, buildKey);
     expect(afterFirst?.status).toBe("awaiting_approval");
 
     await rollup.finishFanout(flowId, buildKey, {
       steps: [{ id: "s2", title: "Retry", status: "failed" as const, output: {} }],
     });
-    const afterSecond = await db.get<{ status: string; output: string | null }>(
+    const afterSecond = await testGet<{ status: string; output: string | null }>(
       `SELECT status, output FROM nodes WHERE flow_id=$1 AND node_key=$2`, flowId, buildKey);
     expect(afterSecond?.status).toBe(afterFirst?.status);
     // JSONB column: each read surfaces a fresh object — compare the payload,
@@ -278,7 +279,7 @@ describe("ingestComments", () => {
     }], 7);
     expect(n).toBe(1);
     expect(
-      (await db.get<{ mrIid: number | null }>(`SELECT mr_iid AS "mrIid" FROM comments WHERE id=$1`, "host-c1"))?.mrIid,
+      (await testGet<{ mrIid: number | null }>(`SELECT mr_iid AS "mrIid" FROM comments WHERE id=$1`, "host-c1"))?.mrIid,
     ).toBe(7);
   });
 });

@@ -5,13 +5,13 @@
  * the checklist-claim tool's idempotency, and `report_failure`'s one-shot
  * bound.
  */
+import { testAll, testGet, testRun } from "@/tests/helpers/rawTestDb";
 import { beforeAll, describe, expect, it } from "vitest";
 
 import { assignTestDatabase, resetTestDatabase } from "../../../tests/helpers/testDatabase";
 
 assignTestDatabase();
 
-const { db } = await import("../../db/app");
 const { engineParts } = await import("@/lib/composition/container");
 const { NODE_KEYS } = await import("../constants/nodeKeys");
 const { NODE_STATUS } = await import("../constants/nodeStatus");
@@ -34,15 +34,15 @@ interface Seed {
 const seedAttempt = async (index: number, type: string): Promise<Seed> => {
   const flowId = `flw_at_${index}`;
   const nodeId = `node_at_${index}`;
-  await db.run(
+  await testRun(
     `INSERT INTO tasks (id, type, key, summary, status, issue_type, priority) VALUES ($1,$2,$3,$4,$5,$6,$7)`,
     `task_at_${index}`, "generic", `TST-${index}`, "agent tools", "open", "story", "P2",
   );
-  await db.run(
+  await testRun(
     `INSERT INTO flows (id, task_id, name, status, execution_mode, created_at, updated_at) VALUES ($1,$2,$3,$4,$5,$6,$7)`,
     flowId, `task_at_${index}`, `tools ${index}`, "active", "cloud", now(), now(),
   );
-  await db.run(
+  await testRun(
     `INSERT INTO nodes (id, flow_id, node_key, type, status, created_at, updated_at) VALUES ($1,$2,$3,$4,$5,$6,$7)`,
     nodeId, flowId, type, type, NODE_STATUS.PENDING, now(), now(),
   );
@@ -70,7 +70,7 @@ describe("agentToolService", () => {
     const seed = await seedAttempt(2, NODE_KEYS.BUILD);
     await expect(AGENT_TOKEN_MISMATCH_DISPATCH(seed)).rejects.toMatchObject({ status: 401 });
     // the run row's token cleared (closed run) — nothing left to authenticate
-    await db.run(`UPDATE runs SET api_token=NULL WHERE node_id=$1`, seed.nodeId);
+    await testRun(`UPDATE runs SET api_token=NULL WHERE node_id=$1`, seed.nodeId);
     await expect(dispatch(seed, AGENT_TOOL.READ_FLOW_STATE)).rejects.toMatchObject({ status: 401 });
   });
 
@@ -92,7 +92,7 @@ describe("agentToolService", () => {
   it("claims checklist progress by meta id, idempotently, with an event; unknown ids fail loudly", async () => {
     const seed = await seedAttempt(5, NODE_KEYS.BUILD);
     // the plan artifact the steps hang off (plan_steps.artifact_id FK)
-    await db.run(
+    await testRun(
       `INSERT INTO artifacts (id, node_id, flow_id, kind, version, content, meta, status, created_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
       `art_steps_5`, seed.nodeId, seed.flowId, "plan", 1, "# Plan", null, "draft", now(),
     );
@@ -109,7 +109,7 @@ describe("agentToolService", () => {
     // unknown ids fail loudly — a hallucinated id never silently vanishes
     await expect(dispatch(seed, AGENT_TOOL.CLAIM_CHECKLIST_PROGRESS, { stepIds: ["nope"] }))
       .rejects.toMatchObject({ status: 400 });
-    const events = await db.all<{ type: string }>(`SELECT type FROM events WHERE flow_id=$1`, seed.flowId);
+    const events = await testAll<{ type: string }>(`SELECT type FROM events WHERE flow_id=$1`, seed.flowId);
     expect(events.some((e) => e.type === EVENT_KIND.LIFECYCLE)).toBe(true);
   });
 
@@ -117,7 +117,7 @@ describe("agentToolService", () => {
     const seed = await seedAttempt(6, NODE_KEYS.BUILD);
     await dispatch(seed, AGENT_TOOL.REPORT_FAILURE, { reason: "tests fail", detail: "3 failing" });
     expect(await engineParts.nodeSupport.nodeStatus(seed.nodeId)).toBe(NODE_STATUS.FAILED);
-    const events = await db.all<{ type: string; data: Record<string, unknown> }>(
+    const events = await testAll<{ type: string; data: Record<string, unknown> }>(
       `SELECT type, data FROM events WHERE flow_id=$1 AND type=$2`, seed.flowId, EVENT_KIND.AGENT_REPORTED_FAILURE);
     expect(events).toHaveLength(1);
     expect(events[0]?.data).toMatchObject({ reason: "tests fail", detail: "3 failing" });
@@ -129,10 +129,10 @@ describe("agentToolService", () => {
   it("report_failure is bounded: a second call while the attempt still holds the node is a 409", async () => {
     const seed = await seedAttempt(7, NODE_KEYS.BUILD);
     // the durable one-per-attempt marker (the event trail) already recorded
-    await db.run(
+    await testRun(
       `INSERT INTO events (id, flow_id, node_id, type, message, data, created_at) VALUES ($1,$2,$3,$4,$5,$6::jsonb,$7)`,
       `ev_rf_${seed.nodeId}`, seed.flowId, seed.nodeId, EVENT_KIND.AGENT_REPORTED_FAILURE,
-      "agent reported failure: earlier", JSON.stringify({ attemptId: (await db.get<{ attemptId: string }>(`SELECT attempt_id AS "attemptId" FROM nodes WHERE id=$1`, seed.nodeId))?.attemptId }), now(),
+      "agent reported failure: earlier", JSON.stringify({ attemptId: (await testGet<{ attemptId: string }>(`SELECT attempt_id AS "attemptId" FROM nodes WHERE id=$1`, seed.nodeId))?.attemptId }), now(),
     );
     await expect(dispatch(seed, AGENT_TOOL.REPORT_FAILURE, { reason: "again" }))
       .rejects.toMatchObject({ status: 409 });

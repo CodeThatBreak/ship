@@ -2,7 +2,7 @@ import "server-only";
 
 import type { Database } from "@/lib/db/app";
 import { Task } from "@/lib/db/rows";
-import { parseRows } from "./utils/ormRows";
+import { parseRows } from "@/lib/db/ormRowHelpers";
 import type { TaskProviderRegistry } from "../registry/taskProviderRegistry";
 
 /** Task service (§1): the task list read model (rows joined with each provider's live `externalUrl`) and the repo-url update. Provider lookups go through the injected registry; the single write is the repo-url column — nothing else mutates task rows here. */
