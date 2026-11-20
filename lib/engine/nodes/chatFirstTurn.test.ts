@@ -148,6 +148,9 @@ const stubSupport = (j: Journal, node: NodeRow, opts: { openComments?: unknown[]
     emit: () => {},
     emitLifecycle: () => {},
     saveArtifact: () => ({ id: "art_stub_1" }),
+    // the completion batch (step 06) runs its writes through the support
+    // transaction — the stub executes the batch inline against the journal
+    transaction: async (fn: (tx: unknown) => Promise<unknown>) => fn({}),
     setFlowBranch: () => {},
     latestArtifact: () => null,
     nodeStatus: () => "running",

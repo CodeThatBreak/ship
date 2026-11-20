@@ -530,6 +530,9 @@ describe('PlanNode — chat via the follow-up contract (docs/plan-conversation-r
       emit: async (_flowId: string, _nodeId: string, _kind: string, message: string) => {
         observ.events.push(message);
       },
+      // the completion batch (step 06) runs its writes through the support
+      // transaction — the stub executes the batch inline against the real DB
+      transaction: async (fn: (tx: unknown) => Promise<unknown>) => fn({}),
     } as unknown as NodeSupport;
     const runner = {
       startAgent: (_ctx: FlowCtx, input: unknown) => {
@@ -824,6 +827,9 @@ describe('PlanNode.turn — unified send routing', () => {
       },
       emitLifecycle: async () => {},
       emit: async () => {},
+      // the completion batch (step 06) runs its writes through the support
+      // transaction — the stub executes the batch inline
+      transaction: async (fn: (tx: unknown) => Promise<unknown>) => fn({}),
     } as unknown as NodeSupport;
     const runner = {
       startAgent: (_ctx: FlowCtx, input: unknown) => {

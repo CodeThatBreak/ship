@@ -359,9 +359,10 @@ export class PlanStepStore {
     flowId: string,
     stepId: string,
     status: "pending" | "done",
-    completedBy: string | null
+    completedBy: string | null,
+    tx?: Prisma.TransactionClient,
   ): Promise<boolean> {
-    const { count } = await db.prisma.planStep.updateMany({
+    const { count } = await (tx ?? db.prisma).planStep.updateMany({
       where: { id: stepId, flowId },
       data: {
         status,

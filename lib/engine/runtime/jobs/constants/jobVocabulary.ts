@@ -52,6 +52,12 @@ export const JOB_LIMITS = {
   BACKOFF_BASE_SECONDS: 30,
 } as const;
 
+/** The commit-fix budget a hand-authored `mr_create` payload falls back to
+ *  (the inline path always carries the build node's configured value). */
+export const MR_CREATE_DEFAULTS = {
+  MAX_COMMIT_FIX_ATTEMPTS: 2,
+} as const;
+
 /** The kinds with a dispatcher registered today (step 03; step 06 adds the
  *  cancel + MR-create journals). */
 export const DISPATCHABLE_JOB_KINDS: readonly JobKind[] = [

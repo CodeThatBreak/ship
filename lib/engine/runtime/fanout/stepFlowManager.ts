@@ -685,7 +685,7 @@ export class StepFlowManager {
     // into the edge evaluation (downstream stage starts = agent I/O, never
     // inside a tx) — one attempt-fenced statement, idempotently re-runnable.
     await db.transaction(async (tx) => {
-      for (const s of states) if (s.step.status === "pending" && s.isResolved && !s.isFailed) await tx.$executeRawUnsafe(`UPDATE plan_steps SET status='done', completed_by='child', updated_at=$1 WHERE id=$2 AND flow_id=$3`, db.now(), s.step.id, parentFlowId);
+      for (const s of states) if (s.step.status === "pending" && s.isResolved && !s.isFailed) await planSteps.setStatus(parentFlowId, s.step.id, "done", "child", tx);
       for (const branch of integrationBranches) {
         const diff = diffs[branch];
         if (diff === undefined) continue; // merged-done guard — no capture, no batch for this branch
@@ -850,7 +850,7 @@ export class StepFlowManager {
           // (raw — `planSteps.setStatus` has no tx seam yet, follow-up flagged)
           // + child close + announcement in ONE tx (the worktree sweep is I/O, outside)
           await db.transaction(async (tx) => {
-            await tx.$executeRawUnsafe(`UPDATE plan_steps SET status='done', completed_by='merge', updated_at=$1 WHERE id=$2 AND flow_id=$3`, db.now(), stepRow.id, parentFlowId);
+            await planSteps.setStatus(parentFlowId, stepRow.id, "done", "merge", tx);
             await this.closeChild(childFlowId, tx);
             await db.emitEvent(parentFlowId, null, "lifecycle", `step "${stepRow.title}" merged into ${integrationBranch}${result.stale ? " (stale base resolved by merge — no rebase)" : ""}`, { nodeKey: nodeOwnerKey, childFlowId }, tx);
           });
@@ -1033,7 +1033,7 @@ export class StepFlowManager {
     // in one tx (raw check-off — `planSteps.setStatus` has no tx seam yet, follow-up flagged)
     const childId = step.subFlowId;
     await db.transaction(async (tx) => {
-      await tx.$executeRawUnsafe(`UPDATE plan_steps SET status='done', completed_by='skipped', updated_at=$1 WHERE id=$2 AND flow_id=$3`, db.now(), stepId, parentFlowId);
+      await planSteps.setStatus(parentFlowId, stepId, "done", "skipped", tx);
       if (childId) await tx.$executeRawUnsafe(`UPDATE step_merges SET status='failed', error='step skipped — the merge-back was abandoned', updated_at=$1 WHERE flow_id=$2 AND status IN ('running','conflict','rejected')`, db.now(), childId);
     });
     if (childId) {

@@ -37,3 +37,16 @@ export type ClaimedJob<P> = {
  * claimed (their rows sit queued until the owning step registers one).
  */
 export type JobHandlers = Partial<Record<JobKind, (job: JobRecord) => Promise<unknown>>>;
+
+/**
+ * What a `runFix` callback resolves to — the creation coordinates the
+ * MR-create handler parsed out of the payload, so both dispatch paths (the
+ * chain's inline claim and the poller's re-claim) wire the same commit-fix
+ * run.
+ */
+export type MrCreateFixTarget = {
+  flowId: string;
+  buildKey: string;
+  branch: string | null;
+  maxAttempts: number;
+};

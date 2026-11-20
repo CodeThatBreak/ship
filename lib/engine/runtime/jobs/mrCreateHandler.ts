@@ -9,24 +9,8 @@ import {
 } from "../../nodes/kinds/mergeRequest/mergeRequestExports";
 import { JobQueue } from "./jobQueue";
 import { mrCreatePayloadSchema } from "./schemas/jobPayloads";
-import type { JobRecord } from "./types/job";
-
-/** Fix budget when the payload omits it (the inline path always carries the
- *  build node's configured value; a hand-authored payload does not). */
-const DEFAULT_MAX_COMMIT_FIX_ATTEMPTS = 2;
-
-/**
- * What a `runFix` callback resolves to — the creation coordinates the
- * handler parsed out of the payload, so both dispatch paths (the chain's
- * inline claim and the poller's re-claim) wire the same commit-fix run.
- */
-export type MrCreateFixTarget = {
-  flowId: string;
-  buildKey: string;
-  branch: string | null;
-  maxAttempts: number;
-};
-
+import { MR_CREATE_DEFAULTS } from "./constants/jobVocabulary";
+import type { JobRecord, MrCreateFixTarget } from "./types/job";
 /**
  * MrCreateHandler — dispatches a claimed `mr_create` job (step 06 task 5,
  * Invariant 7): the MR-creation sequence (create-or-adopt + the bounded
@@ -68,7 +52,7 @@ export class MrCreateHandler {
       throw new Error(`mr_create payload failed validation: ${parsed.error.message}`);
     }
     const p = parsed.data;
-    const maxAttempts = p.maxCommitFixAttempts ?? DEFAULT_MAX_COMMIT_FIX_ATTEMPTS;
+    const maxAttempts = p.maxCommitFixAttempts ?? MR_CREATE_DEFAULTS.MAX_COMMIT_FIX_ATTEMPTS;
     const target: MrCreateFixTarget = {
       flowId: p.flowId,
       buildKey: p.emitNodeKey ?? "",
