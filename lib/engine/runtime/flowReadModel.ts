@@ -1,7 +1,6 @@
 import "server-only";
 
 import { db } from "../../db/app";
-import { rows } from "../../db/rows";
 import {
   ArtifactRow,
   BranchRow,
@@ -12,7 +11,7 @@ import {
   RunRow,
   Task,
 } from "../../db/rows";
-import type { Artifact, FlowData, Node as FlowNode } from "@/types/flow";
+import type { FlowData, Node as FlowNode } from "@/types/flow";
 import { declarativeDef } from "../nodes/declarative";
 import { nodeRegistry } from "../nodes/registry";
 import { uiCapabilities } from "../nodes/shared/capabilities";
@@ -20,6 +19,7 @@ import type { ChainRole, FlowCtx } from "../nodes/shared/nodeSharedExports";
 import { appLayerConfig, mergeConfigLayers, parseConfigSnapshot } from "../templates/nodeConfig";
 import { hookStore } from "./hookStore";
 import { maskHookSecret } from "./hookStore/utils/maskHookSecret";
+import { ArtifactListRow, buildNodeTemplateIndex, parseRow, parseRows, toFlowArtifact, toFlowTask } from "./flowReadModel/utils/ormRows";
 import { templateStore, type TemplateGraph } from "../templates/templateStore";
 import { NotFoundError } from "../../errors";
 import { stepFlows } from "./fanout/stepFlowManager";
@@ -27,61 +27,23 @@ import { StepFlowManager } from "./fanout/stepFlowManager/stepFlowManager";
 import { accumulateRunRow, emptyRunTokenBucket } from "../utils/runTokenRollup";
 import type { WaitStore } from "./waits/waitStore";
 
-type NodeTemplateRow = {
-  id: string;
-  key: string;
-  name: string;
-  kind: string;
-  icon: string | null;
-  isBuiltin: boolean;
-};
-
-const ARTIFACT_LIST_COLUMNS =
-  `id, node_id AS "nodeId", flow_id AS "flowId", kind, version, '' AS content, meta, status, feedback, created_at AS "createdAt"`;
-
-const buildNodeTemplateIndex = (ntRows: NodeTemplateRow[]) => {
-  const byId = new Map<string, NodeTemplateRow>();
-  const byBuiltinKey = new Map<string, NodeTemplateRow>();
-  for (const r of ntRows) {
-    byId.set(r.id, r);
-    if (r.isBuiltin) byBuiltinKey.set(r.key, r);
-  }
-  return (type: string) => byId.get(type) ?? byBuiltinKey.get(type) ?? null;
-};
-
-const toFlowTask = (task: Task): FlowData["task"] => ({
-  key: task.key,
-  summary: task.summary,
-  status: task.status ?? "",
-  issueType: task.issueType ?? "",
-  priority: task.priority ?? "",
-  prdText: task.prdText,
-  figmaUrls: task.figmaUrls,
-  externalUrl: task.externalUrl ?? "",
-});
-
-const toFlowArtifact = (art: ArtifactRow): Artifact => ({
-  id: art.id,
-  kind: art.kind,
-  version: art.version,
-  status: art.status,
-  created_at: art.createdAt,
-  feedback: art.feedback ?? undefined,
-  meta: art.meta ?? undefined,
-});
-
-/** Flow list/detail read model — batched SQL, artifact bodies lazy-loaded via GET /api/artifacts/:id. */
+/** Flow list/detail read model — batched ORM reads, artifact bodies lazy-loaded via GET /api/artifacts/:id. */
 export class FlowReadModel {
   constructor(private readonly schedule: WaitStore) {}
 
   async get(id: string): Promise<FlowData | null> {
-    const flow = await db.rows.get(FlowRow, `SELECT id, task_id AS "taskId", name, status, mr_url AS "mrUrl", mr_iid AS "mrIid", mr_branch AS "mrBranch", repo_url AS "repoUrl", gitlab_project_id AS "gitlabProjectId", execution_mode AS "executionMode", repo_id AS "repoId", template_id AS "templateId", template_graph AS "templateGraph", trigger_payload AS "triggerPayload", worktree_dir AS "worktreeDir", parent_flow_id AS "parentFlowId", kind, created_at AS "createdAt", updated_at AS "updatedAt" FROM flows WHERE id=$1`, id);
+    const flow = parseRow(FlowRow, await db.prisma.flow.findUnique({ where: { id } }));
     if (!flow) return null;
-    const task = await db.rows.get(Task, `SELECT id, type, key, summary, description, status, issue_type AS "issueType", priority, repo_url AS "repoUrl", parent_key AS "parentKey", external_url AS "externalUrl", raw, synced_at AS "syncedAt", fields FROM tasks WHERE id=$1`, flow.taskId);
+    const task = parseRow(Task, await db.prisma.task.findUnique({ where: { id: flow.taskId } }));
     if (!task) return null;
 
-    const runs = await db.rows.all(RunRow,
-      `SELECT id, flow_id AS "flowId", node_id AS "nodeId", agent_ref AS "agentRef", run_ref AS "runRef", branch_id AS "branchId", status, model, input_tokens AS "inputTokens", output_tokens AS "outputTokens", cache_read_tokens AS "cacheReadTokens", cache_write_tokens AS "cacheWriteTokens", duration_ms AS "durationMs", cost_cents AS "costCents", usage, created_at AS "createdAt", updated_at AS "updatedAt" FROM runs WHERE flow_id=$1 ORDER BY created_at, id`, id);
+    const runs = parseRows(
+      RunRow,
+      await db.prisma.run.findMany({
+        where: { flowId: id },
+        orderBy: [{ createdAt: "asc" }, { id: "asc" }],
+      }),
+    );
     const nodeCosts = new Map<string, ReturnType<typeof emptyRunTokenBucket>>();
     for (const r of runs) {
       const c = nodeCosts.get(r.nodeId) ?? emptyRunTokenBucket();
@@ -95,10 +57,21 @@ export class FlowReadModel {
     };
 
     const stepRunStats = new Map<string, { costCents: number; tokens: number; durationMs: number; runCount: number }>();
-    const branches = await db.rows.all(BranchRow, `SELECT id, flow_id AS "flowId", name, git_branch AS "gitBranch", title, status, mr_url AS "mrUrl", mr_iid AS "mrIid", "order", created_at AS "createdAt", updated_at AS "updatedAt" FROM branches WHERE flow_id=$1 ORDER BY "order", created_at`, id);
+    const branches = parseRows(
+      BranchRow,
+      await db.prisma.branch.findMany({
+        where: { flowId: id },
+        orderBy: [{ order: "asc" }, { createdAt: "asc" }],
+      }),
+    );
     const mergeStateMap = await stepFlows.mergeStates(id);
-    const steps = (await db.rows.all(PlanStepRow, `SELECT id, flow_id AS "flowId", artifact_id AS "artifactId", meta_id AS "metaId", position, title, detail, files, branch, status, origin, completed_by AS "completedBy", sub_flow_id AS "subFlowId", created_at AS "createdAt", updated_at AS "updatedAt" FROM plan_steps WHERE flow_id=$1 ORDER BY position, created_at`, id))
-      .map((s) => ({ ...s, files: s.files ?? [] }));
+    const steps = parseRows(
+      PlanStepRow,
+      await db.prisma.planStep.findMany({
+        where: { flowId: id },
+        orderBy: [{ position: "asc" }, { createdAt: "asc" }],
+      }),
+    ).map((s) => ({ ...s, files: s.files ?? [] }));
 
     /** rows.ts rows are camelCase; the UI read model keeps its snake_case shape. */
     const toUiStep = (s: (typeof steps)[number]) => ({
@@ -121,19 +94,30 @@ export class FlowReadModel {
     const childFlowById = new Map<string, FlowRow>();
     const childNodesByFlowId = new Map<string, NodeRow[]>();
     if (childFlowIds.length) {
-      const placeholders = childFlowIds.map((_, i) => `$${i + 1}`).join(",");
-      for (const child of await db.rows.all(FlowRow,
-        `SELECT id, task_id AS "taskId", name, status, mr_url AS "mrUrl", mr_iid AS "mrIid", mr_branch AS "mrBranch", repo_url AS "repoUrl", gitlab_project_id AS "gitlabProjectId", execution_mode AS "executionMode", repo_id AS "repoId", template_id AS "templateId", template_graph AS "templateGraph", trigger_payload AS "triggerPayload", worktree_dir AS "worktreeDir", parent_flow_id AS "parentFlowId", kind, created_at AS "createdAt", updated_at AS "updatedAt" FROM flows WHERE id IN (${placeholders})`, ...childFlowIds)) {
+      for (const child of parseRows(
+        FlowRow,
+        await db.prisma.flow.findMany({ where: { id: { in: childFlowIds } } }),
+      )) {
         childFlowById.set(child.id, child);
       }
-      for (const node of await db.rows.all(NodeRow,
-        `SELECT id, flow_id AS "flowId", node_key AS "nodeKey", type, status, attempt_id AS "attemptId", agent_id AS "agentId", agent_ref AS "agentRef", session_id AS "sessionId", label, config, join_mode AS "joinMode", input, output, created_at AS "createdAt", updated_at AS "updatedAt" FROM nodes WHERE flow_id IN (${placeholders}) ORDER BY created_at`, ...childFlowIds)) {
+      for (const node of parseRows(
+        NodeRow,
+        await db.prisma.node.findMany({
+          where: { flowId: { in: childFlowIds } },
+          orderBy: { createdAt: "asc" },
+        }),
+      )) {
         const list = childNodesByFlowId.get(node.flowId);
         if (list) list.push(node);
         else childNodesByFlowId.set(node.flowId, [node]);
       }
-      const childRuns = await db.rows.all(RunRow,
-        `SELECT id, flow_id AS "flowId", node_id AS "nodeId", agent_ref AS "agentRef", run_ref AS "runRef", branch_id AS "branchId", status, model, input_tokens AS "inputTokens", output_tokens AS "outputTokens", cache_read_tokens AS "cacheReadTokens", cache_write_tokens AS "cacheWriteTokens", duration_ms AS "durationMs", cost_cents AS "costCents", usage, created_at AS "createdAt", updated_at AS "updatedAt" FROM runs WHERE flow_id IN (${placeholders}) ORDER BY created_at, id`, ...childFlowIds);
+      const childRuns = parseRows(
+        RunRow,
+        await db.prisma.run.findMany({
+          where: { flowId: { in: childFlowIds } },
+          orderBy: [{ createdAt: "asc" }, { id: "asc" }],
+        }),
+      );
       for (const r of childRuns) {
         const c = stepRunStats.get(r.flowId) ?? { costCents: 0, tokens: 0, durationMs: 0, runCount: 0 };
         if (r.costCents != null) c.costCents += r.costCents;
@@ -184,18 +168,23 @@ export class FlowReadModel {
     const ntRows = await db.prisma.nodeTemplate.findMany({
       select: { id: true, key: true, name: true, kind: true, icon: true, isBuiltin: true },
     });
-    const ntOf = buildNodeTemplateIndex(ntRows as NodeTemplateRow[]);
+    const ntOf = buildNodeTemplateIndex(ntRows);
 
-    const nodeRows = (await db.rows.all(NodeRow, `SELECT id, flow_id AS "flowId", node_key AS "nodeKey", type, status, attempt_id AS "attemptId", agent_id AS "agentId", agent_ref AS "agentRef", session_id AS "sessionId", label, config, join_mode AS "joinMode", input, output, created_at AS "createdAt", updated_at AS "updatedAt" FROM nodes WHERE flow_id=$1`, id))
-      .sort((a, b) => order.indexOf(a.nodeKey) - order.indexOf(b.nodeKey));
+    const nodeRows = parseRows(
+      NodeRow,
+      await db.prisma.node.findMany({ where: { flowId: id } }),
+    ).sort((a, b) => order.indexOf(a.nodeKey) - order.indexOf(b.nodeKey));
 
     const artifactsByNodeId = new Map<string, ArtifactRow[]>();
     if (nodeRows.length) {
       const nodeIds = nodeRows.map((n) => n.id);
-      const artPlaceholders = nodeIds.map((_, i) => `$${i + 1}`).join(",");
-      const allArtifacts = await db.rows.all(ArtifactRow,
-        `SELECT ${ARTIFACT_LIST_COLUMNS} FROM artifacts WHERE node_id IN (${artPlaceholders}) ORDER BY kind, version`,
-        ...nodeIds);
+      const allArtifacts = parseRows(
+        ArtifactListRow,
+        await db.prisma.artifact.findMany({
+          where: { nodeId: { in: nodeIds } },
+          orderBy: [{ kind: "asc" }, { version: "asc" }],
+        }),
+      ).map((a): ArtifactRow => ({ ...a, content: "" }));
       for (const art of allArtifacts) {
         const list = artifactsByNodeId.get(art.nodeId);
         if (list) list.push(art);
@@ -303,19 +292,22 @@ export class FlowReadModel {
 
   /** The flow context one run/trigger evaluates against (flow + task + repo). */
   async ctx(flowId: string): Promise<FlowCtx> {
-    const flow = await rows.get(FlowRow, `SELECT id, task_id AS "taskId", name, status, mr_url AS "mrUrl", mr_iid AS "mrIid", mr_branch AS "mrBranch", repo_url AS "repoUrl", gitlab_project_id AS "gitlabProjectId", execution_mode AS "executionMode", repo_id AS "repoId", template_id AS "templateId", template_graph AS "templateGraph", trigger_payload AS "triggerPayload", worktree_dir AS "worktreeDir", parent_flow_id AS "parentFlowId", kind, created_at AS "createdAt", updated_at AS "updatedAt" FROM flows WHERE id=$1`, flowId);
+    const flow = parseRow(FlowRow, await db.prisma.flow.findUnique({ where: { id: flowId } }));
     if (!flow) throw new NotFoundError('flow', flowId);
-    const task = await rows.get(Task, `SELECT id, type, key, summary, description, status, issue_type AS "issueType", priority, repo_url AS "repoUrl", parent_key AS "parentKey", external_url AS "externalUrl", raw, synced_at AS "syncedAt", fields FROM tasks WHERE id=$1`, flow.taskId);
+    const task = parseRow(Task, await db.prisma.task.findUnique({ where: { id: flow.taskId } }));
     if (!task) throw new NotFoundError('task', flow.taskId);
     const repo = flow.repoId ? (await db.repoById(flow.repoId) ?? null) : null;
     return { flow, task, repo };
   }
 
-  /** Instance keys of a def key in the flow (graph first, SQL fallback). */
+  /** Instance keys of a def key in the flow (graph first, node-table fallback). */
   async keysOfType(flowId: string, defKey: string): Promise<string[]> {
     const g = await this.graph(flowId);
     if (g) return g.nodes.filter(n => n.defKey === defKey).map(n => n.key);
-    const nodeRows = await rows.all(NodeRow, `SELECT id, flow_id AS "flowId", node_key AS "nodeKey", type, status, attempt_id AS "attemptId", agent_id AS "agentId", agent_ref AS "agentRef", session_id AS "sessionId", label, config, join_mode AS "joinMode", input, output, created_at AS "createdAt", updated_at AS "updatedAt" FROM nodes WHERE flow_id=$1`, flowId);
+    const nodeRows = parseRows(
+      NodeRow,
+      await db.prisma.node.findMany({ where: { flowId } }),
+    );
     return nodeRows.filter(n => n.type === defKey).map(n => n.nodeKey);
   }
 
@@ -347,17 +339,21 @@ export class FlowReadModel {
    * resource (§T3/F3) — e.g. the plan document the plan editor and the
    * approval flow consume. Also on the StepFlowManager's engine surface
    * (publishedExecution reads the plan version through it).
+   *
+   * `_columns` is a vestige of the raw-SQL column list this read replaced —
+   * the host interfaces still declare it; the ORM read returns the full row
+   * and every caller picks its fields.
    */
-  async latestResourceArtifact<T>(flowId: string, role: ChainRole, columns = 'a.*'): Promise<T | undefined> {
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars -- host interfaces still declare the raw-SQL columns param this read replaced
+  async latestResourceArtifact<T>(flowId: string, role: ChainRole, _columns?: string): Promise<T | undefined> {
     const kinds = this.resourceKinds(role);
     if (!kinds.length) return undefined;
-    return db.get<T>(
-      `SELECT ${columns} FROM artifacts a JOIN nodes n ON n.id=a.node_id
-       WHERE n.flow_id=$1 AND a.kind IN (${kinds.map((_, i) => `$${i + 2}`).join(',')})
-       ORDER BY a.version DESC LIMIT 1`,
-      flowId,
-      ...kinds
-    );
+    const artifact = await db.prisma.artifact.findFirst({
+      where: { node: { flowId }, kind: { in: [...kinds] } },
+      orderBy: { version: "desc" },
+    });
+    const parsed = artifact ? parseRow(ArtifactRow, artifact) : undefined;
+    return parsed as unknown as T | undefined;
   }
 
   /** Role lookups: the CI gate node (waits on the wait-source def's event
@@ -373,14 +369,20 @@ export class FlowReadModel {
     const g = await this.graph(flowId);
     const spec = g?.byKey.get(nodeKey);
     if (spec) return spec.defKey;
-    const n = await rows.get(NodeRow, `SELECT id, flow_id AS "flowId", node_key AS "nodeKey", type, status, attempt_id AS "attemptId", agent_id AS "agentId", agent_ref AS "agentRef", session_id AS "sessionId", label, config, join_mode AS "joinMode", input, output, created_at AS "createdAt", updated_at AS "updatedAt" FROM nodes WHERE flow_id=$1 AND node_key=$2`, flowId, nodeKey);
-    return n?.type ?? nodeKey;
+    const node = parseRow(
+      NodeRow,
+      await db.prisma.node.findUnique({ where: { flowId_nodeKey: { flowId, nodeKey } } }),
+    );
+    return node?.type ?? nodeKey;
   }
 
   /** The node instance's own config snapshot (nodes.config JSONB; legacy
    *  string-encoded rows still parse). */
   async flowNodeConfig(flowId: string, nodeKey: string): Promise<Record<string, unknown>> {
-    const raw = (await db.get<{ config: unknown }>(`SELECT config FROM nodes WHERE flow_id=$1 AND node_key=$2`, flowId, nodeKey))?.config;
+    const raw = (await db.prisma.node.findUnique({
+      where: { flowId_nodeKey: { flowId, nodeKey } },
+      select: { config: true },
+    }))?.config;
     if (raw == null) return {};
     if (typeof raw === 'string') return parseConfigSnapshot(raw);
     if (typeof raw === 'object' && !Array.isArray(raw)) return raw as Record<string, unknown>;

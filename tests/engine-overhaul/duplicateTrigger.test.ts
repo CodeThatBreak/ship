@@ -40,10 +40,15 @@ describe("duplicate triggers collapse to one run + one skip event", () => {
 
     // three duplicate triggers race the in-flight gate: the poller's
     // pipeline-status tick, a GitLab webhook delivery, and the Pipeline
-    // panel's manual re-run
-    flowEngine.chain.triggerPipelineGate(flowId); // poller
-    flowEngine.chain.triggerPipelineGate(flowId, 42); // webhook
-    flowEngine.chain.triggerPipelineGate(flowId, undefined, "model-x"); // manual
+    // panel's manual re-run. They start concurrently (Promise.all fires all
+    // three before either settles) but are awaited before the event read —
+    // the ORM read path's first-query latency means an unawaited read can
+    // observe the DB before the losers' skip events land.
+    await Promise.all([
+      flowEngine.chain.triggerPipelineGate(flowId), // poller
+      flowEngine.chain.triggerPipelineGate(flowId, 42), // webhook
+      flowEngine.chain.triggerPipelineGate(flowId, undefined, "model-x"), // manual
+    ]);
 
     // target: the losers emit exactly one typed skipped_duplicate_trigger
     // event each is too much to ask of the current silent code — the target

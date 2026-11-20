@@ -68,7 +68,9 @@ describe("FlowReadModel.get", () => {
     const waits = new WaitStore(host, engineParts.events);
     const readModel = new FlowReadModel(waits);
 
-    const allSpy = vi.spyOn(db, "all");
+    const flowFindMany = vi.spyOn(db.prisma.flow, "findMany");
+    const nodeFindMany = vi.spyOn(db.prisma.node, "findMany");
+    const artifactFindMany = vi.spyOn(db.prisma.artifact, "findMany");
 
     const snapshot = await readModel.get(parentId);
     expect(snapshot).not.toBeNull();
@@ -79,19 +81,19 @@ describe("FlowReadModel.get", () => {
     expect(planNode?.artifacts[0]?.id).toBe("art_1");
     expect(planNode?.artifacts[0]).not.toHaveProperty("content");
 
-    const batchedChildFlow = allSpy.mock.calls.some(
-      (c) => typeof c[0] === "string" && c[0].includes("FROM flows WHERE id IN"),
-    );
-    const batchedChildNodes = allSpy.mock.calls.some(
-      (c) => typeof c[0] === "string" && c[0].includes("FROM nodes WHERE flow_id IN"),
-    );
-    const batchedArtifacts = allSpy.mock.calls.some(
-      (c) => typeof c[0] === "string" && c[0].includes("FROM artifacts WHERE node_id IN"),
-    );
-    expect(batchedChildFlow).toBe(true);
-    expect(batchedChildNodes).toBe(true);
-    expect(batchedArtifacts).toBe(true);
+    /** A Prisma `findMany` whose `where` carries an `IN` filter = one batched query. */
+    const batchedInWhere = (args: unknown): boolean => {
+      const where = (args as { where?: Record<string, unknown> } | undefined)?.where;
+      return Object.values(where ?? {}).some(
+        (v) => typeof v === "object" && v !== null && "in" in v,
+      );
+    };
+    expect(flowFindMany.mock.calls.some((c) => batchedInWhere(c[0]))).toBe(true);
+    expect(nodeFindMany.mock.calls.some((c) => batchedInWhere(c[0]))).toBe(true);
+    expect(artifactFindMany.mock.calls.some((c) => batchedInWhere(c[0]))).toBe(true);
 
-    allSpy.mockRestore();
+    flowFindMany.mockRestore();
+    nodeFindMany.mockRestore();
+    artifactFindMany.mockRestore();
   });
 });
