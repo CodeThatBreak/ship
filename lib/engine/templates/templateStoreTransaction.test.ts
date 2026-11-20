@@ -25,10 +25,7 @@ describe("TemplateStore transactions", () => {
 
   it("saveWithDrafts leaves no draft rows when update fails (CR-050)", async () => {
     const { id } = await importTemplateYaml(templateStore, miniYaml, { namePrefix: "save-drafts" });
-    const before = (await db.all<{ id: string }>(
-      `SELECT id FROM node_templates WHERE template_id=$1`,
-      id,
-    )).length;
+    const before = await db.prisma.nodeTemplate.count({ where: { templateId: id } });
 
     const spy = vi.spyOn(templateStore, "update").mockImplementation(() => {
       throw new ValidationError("simulated save failure");
@@ -58,10 +55,7 @@ describe("TemplateStore transactions", () => {
       spy.mockRestore();
     }
 
-    const after = (await db.all<{ id: string }>(
-      `SELECT id FROM node_templates WHERE template_id=$1`,
-      id,
-    )).length;
+    const after = await db.prisma.nodeTemplate.count({ where: { templateId: id } });
     expect(after).toBe(before);
   });
 
@@ -96,7 +90,7 @@ edges:
     await expect(() => importTemplateYaml(templateStore, badYaml, { namePrefix: "cr067" })).rejects.toThrow();
     expect((await templateStore.nodeTemplate(existing.id))?.id).toBe(existing.id);
     expect(
-      (await db.get<{ c: number }>(`SELECT COUNT(*)::int c FROM flow_templates WHERE name LIKE $1`, "cr067 — Broken import%"))?.c,
+      await db.prisma.flowTemplate.count({ where: { name: { startsWith: "cr067 — Broken import" } } }),
     ).toBe(0);
   });
 });

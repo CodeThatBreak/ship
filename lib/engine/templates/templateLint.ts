@@ -2,6 +2,7 @@ import "server-only";
 
 import type { Prisma } from "@prisma/client";
 import { db } from "../../db/app";
+import { NodeTemplateRow } from "../../db/rows";
 import { NODE_KEYS } from "../constants/nodeKeys";
 import { lintPlanExecution } from "./lintPlanExecution";
 import { lintAgentSplit } from "./lintAgentSplit";
@@ -131,12 +132,19 @@ export const catalogForNodeTemplateIds = async (
   tx?: Prisma.TransactionClient,
 ): Promise<Record<string, { kind: string; config: unknown; key: string; isBuiltin: boolean }>> => {
   const out: Record<string, { kind: string; config: unknown; key: string; isBuiltin: boolean }> = {};
-  for (const id of ids) {
-    const row = (await (tx ?? db.prisma).$queryRawUnsafe<{ id: string; key: string; kind: string; config: unknown; isBuiltin: boolean }[]>(
-          `SELECT id, key, kind, config, is_builtin AS "isBuiltin" FROM node_templates WHERE id=$1`, id
-        ))[0];
-    if (!row) continue;
-    out[row.id] = { kind: row.kind, config: row.config ?? {}, key: row.key, isBuiltin: Boolean(row.isBuiltin) };
+  if (!ids.length) return out;
+  const rows = await (tx ?? db.prisma).nodeTemplate.findMany({
+    where: { id: { in: ids } },
+    select: { id: true, key: true, kind: true, config: true, isBuiltin: true },
+  });
+  for (const row of rows) {
+    const config = NodeTemplateRow.shape.config.safeParse(row.config);
+    out[row.id] = {
+      kind: row.kind,
+      config: config.success && config.data ? config.data : {},
+      key: row.key,
+      isBuiltin: row.isBuiltin,
+    };
   }
   return out;
 };

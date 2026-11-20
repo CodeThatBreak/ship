@@ -6,9 +6,17 @@ import type { Prisma } from "@prisma/client";
 import {
   FlowTemplateRow,
   NodeTemplateRow,
-  rows,
   type TemplateNodeTrigger,
 } from "../../../db/rows";
+import {
+  jsonInput,
+  jsonPayload,
+  parsedRow,
+  parsedRows,
+  templateEdgeSpecFromRow,
+  templateNodeSpecFromRow,
+} from "./utils/ormRows";
+import { isDeclarativeKind } from "../../nodes/declarativeRegistry/utils/isDeclarativeKind";
 import type {
   EditorCatalogEntry,
   EditorNodeRow,
@@ -42,7 +50,6 @@ import type {
   TemplateGraph,
   TemplateInput,
   TemplateNodeInput,
-  TemplateNodeSpec,
 } from "../../types/template";
 /**
  * Design-time template store: reads flow templates (+ their node instances and
@@ -60,57 +67,26 @@ import type {
 export class TemplateStore {
   /** Load a template's graph, or null when the template does not exist. */
   async graph(templateId: string): Promise<TemplateGraph | null> {
-    const tpl = await db.get<{ version: number; trigger: Record<string, unknown> | null }>(
-      `SELECT version, trigger FROM flow_templates WHERE id=$1`, templateId
-    );
+    const tpl = await db.prisma.flowTemplate.findUnique({ where: { id: templateId }, select: { version: true, trigger: true } });
     if (!tpl) return null;
 
-    const nodes = (await db.all<Record<string, unknown>>(
-      `SELECT n.id, n.node_key AS "nodeKey", n.node_template_id AS "nodeTemplateId", n.label, n.trigger, n.join_mode AS "joinMode", n.config, n.input_map AS "inputMap", n.x, n.y,
-              nt.key AS "defKey", nt.id AS "ntId", nt.kind AS "ntKind", nt.icon AS "ntIcon",
-              nt.name AS "ntName", nt.is_builtin AS "ntBuiltin"
-       FROM flow_template_nodes n JOIN node_templates nt ON nt.id = n.node_template_id
-       WHERE n.template_id=$1 ORDER BY n.created_at, n.id`,
-      templateId
-    )).map((r) => {
-      // Built-ins resolve their NodeDefinition by registry key; declarative
-      // kinds (agent, …) resolve by the node_templates row id so the registry
-      // can hydrate a runtime instance per catalog entry.
-      const defKey = r.ntBuiltin ? (r.defKey as string) : (r.ntId as string);
-      const spec: TemplateNodeSpec = {
-        key: r.nodeKey as string,
-        defKey,
-        nodeTemplateId: r.nodeTemplateId as string,
-        catalogKind: r.ntKind as string,
-        label: (r.label as string | null) ?? (r.ntName as string),
-        joinMode: (r.joinMode as "all" | "any") === "any" ? "any" : "all",
-        config: TemplateStore.parseJson<Record<string, unknown>>(r.config as string, {}),
-        trigger: TemplateStore.parseTrigger(TemplateStore.parseJson<Record<string, unknown>>(r.trigger as string, {})),
-        inputMap: TemplateStore.parseJson<Record<string, unknown>>(r.inputMap as string, {}),
-        x: typeof r.x === "number" ? r.x : null,
-        y: typeof r.y === "number" ? r.y : null,
-      };
-      return spec;
-    });
+    const nodes = (await db.prisma.flowTemplateNode.findMany({
+      where: { templateId },
+      orderBy: [{ createdAt: "asc" }, { id: "asc" }],
+      include: { nodeTemplate: true },
+    })).map(templateNodeSpecFromRow);
 
-    const edges = (await db.all<Record<string, unknown>>(
-      `SELECT from_key AS "fromKey", to_key AS "toKey", kind, label, condition
-       FROM flow_template_edges WHERE template_id=$1 ORDER BY created_at, id`,
-      templateId
-    )).map((r) => ({
-      from: r.fromKey as string,
-      to: r.toKey as string,
-      kind: (r.kind as "next" | "loop") === "loop" ? "loop" as const : "next" as const,
-      label: (r.label as string | null) ?? null,
-      condition: (r.condition as string | null) ?? null,
-    }));
+    const edges = (await db.prisma.flowTemplateEdge.findMany({
+      where: { templateId },
+      orderBy: [{ createdAt: "asc" }, { id: "asc" }],
+    })).map(templateEdgeSpecFromRow);
 
     return {
       templateId,
       version: tpl.version,
       // normalized on read: an absent task_type parses back as the default
       // (the first registered provider) — trigger rows need no migration
-      flowTrigger: TemplateStore.flowTrigger(TemplateStore.parseJson<Record<string, unknown>>(tpl.trigger, { type: "manual" })),
+      flowTrigger: TemplateStore.flowTrigger(jsonPayload(FlowTemplateRow.shape.trigger, tpl.trigger)),
       nodes,
       edges,
       byKey: new Map(nodes.map((n) => [n.key, n])),
@@ -123,10 +99,7 @@ export class TemplateStore {
    * the live template (same as pre-snapshot behavior).
    */
   async graphForFlow(flowId: string): Promise<TemplateGraph | null> {
-    const row = await db.get<{ templateId: string | null; templateGraph: unknown }>(
-      `SELECT template_id AS "templateId", template_graph AS "templateGraph" FROM flows WHERE id=$1`,
-      flowId,
-    );
+    const row = await db.prisma.flow.findUnique({ where: { id: flowId }, select: { templateId: true, templateGraph: true } });
     if (!row) return null;
     // Json columns arrive parsed from Prisma; the snapshot helper still speaks
     // its serialized form, so re-stringify the object at this boundary
@@ -139,11 +112,12 @@ export class TemplateStore {
 
   /** Persist the template graph snapshot taken when a flow is created. */
   async persistFlowGraphSnapshot(flowId: string, graph: TemplateGraph, tx?: Prisma.TransactionClient): Promise<void> {
-    await (tx ?? db.prisma).$executeRawUnsafe(
-      `UPDATE flows SET template_graph=$1 WHERE id=$2`,
-      serializeFlowTemplateGraph(graph),
-      flowId,
-    );
+    // the snapshot helper speaks its serialized form — parse it back so the
+    // jsonb column keeps storing the object (not a string scalar)
+    await (tx ?? db.prisma).flow.updateMany({
+      where: { id: flowId },
+      data: { templateGraph: JSON.parse(serializeFlowTemplateGraph(graph)) as Prisma.InputJsonValue },
+    });
   }
 
   /**
@@ -199,21 +173,26 @@ export class TemplateStore {
    *  `opts.includeHidden` brings back the auto-wrapped fan-out child templates
    *  (hidden=1) — the gallery excludes them by default. */
   async list(opts: { includeHidden?: boolean } = {}): Promise<(FlowTemplateRow & { nodeCount: number })[]> {
-    const templates = opts.includeHidden
-      ? await rows.all(FlowTemplateRow, `SELECT id, name, description, version, is_builtin AS "isBuiltin", trigger, schedule_next_at AS "scheduleNextAt", hidden, created_at AS "createdAt", updated_at AS "updatedAt" FROM flow_templates ORDER BY created_at, id`)
-      : await rows.all(FlowTemplateRow, `SELECT id, name, description, version, is_builtin AS "isBuiltin", trigger, schedule_next_at AS "scheduleNextAt", hidden, created_at AS "createdAt", updated_at AS "updatedAt" FROM flow_templates WHERE hidden=false ORDER BY created_at, id`);
-    const out: (FlowTemplateRow & { nodeCount: number })[] = [];
-    for (const t of templates) {
-      const c = await db.get<{ c: number }>(
-        `SELECT COUNT(*)::int c FROM flow_template_nodes WHERE template_id=$1`, t.id);
-      out.push({ ...t, nodeCount: c?.c ?? 0 });
-    }
-    return out;
+    const templates = parsedRows(
+      FlowTemplateRow,
+      await db.prisma.flowTemplate.findMany({
+        where: opts.includeHidden ? undefined : { hidden: false },
+        orderBy: [{ createdAt: "asc" }, { id: "asc" }],
+      }),
+      "flowTemplate.list",
+    );
+    const counts = await db.prisma.flowTemplateNode.groupBy({
+      by: ["templateId"],
+      _count: { _all: true },
+    });
+    const nodeCountByTemplate = new Map(counts.map((c) => [c.templateId, c._count._all]));
+    return templates.map((t) => ({ ...t, nodeCount: nodeCountByTemplate.get(t.id) ?? 0 }));
   }
 
   /** One template row (or undefined). Tx-scoped inside a transaction. */
   async flowTemplate(id: string, tx?: Prisma.TransactionClient): Promise<FlowTemplateRow | undefined> {
-    return db.rowsFor(tx).get(FlowTemplateRow, `SELECT id, name, description, version, is_builtin AS "isBuiltin", trigger, schedule_next_at AS "scheduleNextAt", hidden, created_at AS "createdAt", updated_at AS "updatedAt" FROM flow_templates WHERE id=$1`, id);
+    const row = await (tx ?? db.prisma).flowTemplate.findUnique({ where: { id } });
+    return row ? parsedRow(FlowTemplateRow, row, "flowTemplate.flowTemplate") : undefined;
   }
 
   /**
@@ -432,14 +411,16 @@ export class TemplateStore {
   async create(input: TemplateInput, opts: { isBuiltin?: boolean; id?: string; skipLint?: boolean } = {}, tx?: Prisma.TransactionClient): Promise<string> {
     const { nodes, edges, trigger } = await this.validated(input, { skipLint: opts.skipLint === true }, tx);
     const id = opts.id ?? db.uid("tpl_");
-    const ts = db.now();
+    const ts = new Date();
     await db.transaction(async (exec) => {
-      await exec.$executeRawUnsafe(
-        `INSERT INTO flow_templates (id,name,description,version,is_builtin,trigger,created_at,updated_at)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8) ON CONFLICT DO NOTHING`,
-        id, input.name?.trim() || "Untitled flow", input.description ?? null,
-        1, Boolean(opts.isBuiltin), JSON.stringify(trigger), ts, ts
-      );
+      await exec.flowTemplate.createMany({
+        data: {
+          id, name: input.name?.trim() || "Untitled flow", description: input.description ?? null,
+          version: 1, isBuiltin: Boolean(opts.isBuiltin), trigger: jsonInput(trigger),
+          createdAt: ts, updatedAt: ts,
+        },
+        skipDuplicates: true,
+      });
       await this.writeNodesAndEdges(id, nodes, edges, {}, exec);
       await TemplateStore.syncTriggers(id, trigger, exec);
     }, tx);
@@ -458,15 +439,15 @@ export class TemplateStore {
     if (!tpl) throw new NotFoundError("template", templateId);
     await this.assertEditable(templateId, tx);
     if (patch.name !== undefined || patch.description !== undefined || patch.trigger !== undefined) {
-      await (tx ?? db.prisma).$executeRawUnsafe(
-        `UPDATE flow_templates SET name=$1, description=$2, trigger=$3, updated_at=$4 WHERE id=$5`,
-        patch.name?.trim() || tpl.name,
-        patch.description !== undefined ? patch.description : tpl.description,
-        patch.trigger !== undefined
-          ? JSON.stringify(TemplateStore.flowTrigger(patch.trigger))
-          : tpl.trigger,
-        db.now(), templateId
-      );
+      await (tx ?? db.prisma).flowTemplate.update({
+        where: { id: templateId },
+        data: {
+          name: patch.name?.trim() || tpl.name,
+          description: patch.description !== undefined ? patch.description : tpl.description,
+          trigger: patch.trigger !== undefined ? jsonInput(TemplateStore.flowTrigger(patch.trigger)) : jsonInput(tpl.trigger),
+          updatedAt: new Date(),
+        },
+      });
     }
     if (patch.nodes !== undefined && patch.edges !== undefined) {
       const { nodes, edges } = await this.validated({ name: patch.name, nodes: patch.nodes, edges: patch.edges }, {}, tx);
@@ -551,8 +532,7 @@ export class TemplateStore {
   /** Delete a template (built-ins are protected; in-use templates are locked). */
   async delete(templateId: string): Promise<void> {
     await this.assertEditable(templateId);
-    const used = (await db.get<{ c: number }>(
-      `SELECT COUNT(*)::int c FROM flows WHERE template_id=$1`, templateId))?.c ?? 0;
+    const used = await db.prisma.flow.count({ where: { templateId } });
     if (used > 0) {
       throw new ConflictError(
         `this template is used by ${used} flow${used > 1 ? "s" : ""} — delete the flows first`,
@@ -560,8 +540,8 @@ export class TemplateStore {
     }
     await hookStore.removeTemplate(templateId);
     await db.transaction(async (exec) => {
-      await exec.$executeRawUnsafe(`DELETE FROM flow_template_nodes WHERE template_id=$1`, templateId);
-      await exec.$executeRawUnsafe(`DELETE FROM flow_template_edges WHERE template_id=$1`, templateId);
+      await exec.flowTemplateNode.deleteMany({ where: { templateId } });
+      await exec.flowTemplateEdge.deleteMany({ where: { templateId } });
       // Template-local node templates (the canvas creator's rows): gone with
       // their template — but only when no OTHER template's node still
       // references one (belt-and-braces: Add to Library promotes without
@@ -569,17 +549,13 @@ export class TemplateStore {
       // the flow_templates delete (the FK is enforced); a stray external
       // reference detaches the row to the shared Library instead of blocking
       // the delete forever.
-      const locals = await exec.$queryRawUnsafe<{ id: string }[]>(
-        `SELECT id FROM node_templates WHERE template_id=$1 AND is_builtin=false`, templateId
-      );
+      const locals = await exec.nodeTemplate.findMany({ where: { templateId, isBuiltin: false }, select: { id: true } });
       for (const l of locals) {
-        const used = ((await exec.$queryRawUnsafe<{ c: number }[]>(
-          `SELECT COUNT(*)::int c FROM flow_template_nodes WHERE node_template_id=$1 AND template_id<>$2`,
-          l.id, templateId))[0]?.c) ?? 0;
-        if (used === 0) await exec.$executeRawUnsafe(`DELETE FROM node_templates WHERE id=$1`, l.id);
-        else await exec.$executeRawUnsafe(`UPDATE node_templates SET template_id=NULL WHERE id=$1`, l.id);
+        const usedElsewhere = await exec.flowTemplateNode.count({ where: { nodeTemplateId: l.id, templateId: { not: templateId } } });
+        if (usedElsewhere === 0) await exec.nodeTemplate.deleteMany({ where: { id: l.id } });
+        else await exec.nodeTemplate.updateMany({ where: { id: l.id }, data: { templateId: null } });
       }
-      await exec.$executeRawUnsafe(`DELETE FROM flow_templates WHERE id=$1`, templateId);
+      await exec.flowTemplate.deleteMany({ where: { id: templateId } });
     });
   }
 
@@ -600,17 +576,13 @@ export class TemplateStore {
    */
   async hasDraftNodes(templateId: string): Promise<boolean> {
     return (
-      ((await db.get<{ c: number }>(
-        `SELECT COUNT(*)::int c FROM flow_template_nodes WHERE template_id=$1 AND node_template_id LIKE 'draft:%'`,
-        templateId,
-      ))?.c ?? 0) > 0
+      (await db.prisma.flowTemplateNode.count({ where: { templateId, nodeTemplateId: { startsWith: "draft:" } } })) > 0
     );
   }
 
   /** Structural edits are refused while flows are active on this template. */
   private async assertNotRunning(templateId: string, tx?: Prisma.TransactionClient): Promise<void> {
-    const active = ((await (tx ?? db.prisma).$queryRawUnsafe<{ c: number }[]>(
-      `SELECT COUNT(*)::int c FROM flows WHERE template_id=$1 AND status=$2`, templateId, FLOW_STATUS.ACTIVE))[0]?.c) ?? 0;
+    const active = await (tx ?? db.prisma).flow.count({ where: { templateId, status: FLOW_STATUS.ACTIVE } });
     if (active > 0) {
       throw new ConflictError(
         `${active} flow${active > 1 ? "s are" : " is"} active on this template — cancel/finish them before restructuring`,
@@ -630,23 +602,28 @@ export class TemplateStore {
       (kv) => kv[0] && Number.isFinite(kv[1]?.x) && Number.isFinite(kv[1]?.y),
     );
     if (!entries.length) return;
-    const known = await db.all<{ nodeKey: string }>(
-      `SELECT node_key AS "nodeKey" FROM flow_template_nodes WHERE template_id=$1`, templateId);
+    const known = await db.prisma.flowTemplateNode.findMany({ where: { templateId }, select: { nodeKey: true } });
     const keys = new Set(known.map((k) => k.nodeKey));
-    const ts = db.now();
+    const ts = new Date();
     for (const [key, pos] of entries) {
       if (!keys.has(key)) continue; // don't create rows for stray keys
-      await db.run(`UPDATE flow_template_nodes SET x=$1, y=$2, updated_at=$3 WHERE template_id=$4 AND node_key=$5`,
-        pos.x, pos.y, ts, templateId, key);
+      await db.prisma.flowTemplateNode.updateMany({
+        where: { templateId, nodeKey: key },
+        data: { x: pos.x, y: pos.y, updatedAt: ts },
+      });
     }
-    await db.run(`UPDATE flow_templates SET updated_at=$1 WHERE id=$2`, ts, templateId);
+    await db.prisma.flowTemplate.updateMany({ where: { id: templateId }, data: { updatedAt: ts } });
   }
 
   // ── node-template (catalog) CRUD ──────────────────────────────────────────
 
   /** The node-type catalog, grouped for the configurator palette. */
   async listNodeTemplates(): Promise<NodeTemplateRow[]> {
-    return rows.all(NodeTemplateRow, `SELECT id, key, name, kind, version, description, icon, config, is_builtin AS "isBuiltin", template_id AS "templateId", created_at AS "createdAt", updated_at AS "updatedAt" FROM node_templates ORDER BY is_builtin DESC, created_at, id`);
+    return parsedRows(
+      NodeTemplateRow,
+      await db.prisma.nodeTemplate.findMany({ orderBy: [{ isBuiltin: "desc" }, { createdAt: "asc" }, { id: "asc" }] }),
+      "nodeTemplate.listNodeTemplates",
+    );
   }
 
   /**
@@ -660,22 +637,31 @@ export class TemplateStore {
     library: NodeTemplateRow[];
     templateLocal: NodeTemplateRow[];
   }> {
+    const paletteWhere = (owner: string | null) => ({ isBuiltin: false, templateId: owner });
     return {
-      library: await rows.all(NodeTemplateRow,
-        `SELECT id, key, name, kind, version, description, icon, config, is_builtin AS "isBuiltin", template_id AS "templateId", created_at AS "createdAt", updated_at AS "updatedAt" FROM node_templates WHERE is_builtin=false AND template_id IS NULL ORDER BY created_at, id`),
+      library: parsedRows(
+        NodeTemplateRow,
+        await db.prisma.nodeTemplate.findMany({ where: paletteWhere(null), orderBy: [{ createdAt: "asc" }, { id: "asc" }] }),
+        "nodeTemplate.listNodeTemplatesForPalette",
+      ),
       templateLocal: templateId !== undefined
-        ? await rows.all(NodeTemplateRow,
-            `SELECT id, key, name, kind, version, description, icon, config, is_builtin AS "isBuiltin", template_id AS "templateId", created_at AS "createdAt", updated_at AS "updatedAt" FROM node_templates WHERE is_builtin=false AND template_id=$1 ORDER BY created_at, id`, templateId)
+        ? parsedRows(
+            NodeTemplateRow,
+            await db.prisma.nodeTemplate.findMany({ where: paletteWhere(templateId), orderBy: [{ createdAt: "asc" }, { id: "asc" }] }),
+            "nodeTemplate.listNodeTemplatesForPalette",
+          )
         : [],
     };
   }
 
   async nodeTemplate(id: string, tx?: Prisma.TransactionClient): Promise<NodeTemplateRow | undefined> {
-    return db.rowsFor(tx).get(NodeTemplateRow, `SELECT id, key, name, kind, version, description, icon, config, is_builtin AS "isBuiltin", template_id AS "templateId", created_at AS "createdAt", updated_at AS "updatedAt" FROM node_templates WHERE id=$1`, id);
+    const row = await (tx ?? db.prisma).nodeTemplate.findUnique({ where: { id } });
+    return row ? parsedRow(NodeTemplateRow, row, "nodeTemplate.nodeTemplate") : undefined;
   }
 
   async nodeTemplateByKey(key: string, tx?: Prisma.TransactionClient): Promise<NodeTemplateRow | undefined> {
-    return db.rowsFor(tx).get(NodeTemplateRow, `SELECT id, key, name, kind, version, description, icon, config, is_builtin AS "isBuiltin", template_id AS "templateId", created_at AS "createdAt", updated_at AS "updatedAt" FROM node_templates WHERE key=$1`, key);
+    const row = await (tx ?? db.prisma).nodeTemplate.findFirst({ where: { key } });
+    return row ? parsedRow(NodeTemplateRow, row, "nodeTemplate.nodeTemplateByKey") : undefined;
   }
 
   /**
@@ -690,7 +676,7 @@ export class TemplateStore {
   }, opts: { templateId?: string } = {}, tx?: Prisma.TransactionClient): Promise<NodeTemplateRow> {
     const client = tx ?? db.prisma;
     const kind = (input.kind ?? "").trim();
-    if (!(KINDED_NODE_TEMPLATE_KINDS as readonly string[]).includes(kind)) {
+    if (!isDeclarativeKind(kind)) {
       throw new Error(`unsupported node kind "${kind}" — declarative kinds: ${KINDED_NODE_TEMPLATE_KINDS.join(", ")}`);
     }
     const name = input.name.trim();
@@ -708,20 +694,22 @@ export class TemplateStore {
     }
     // a declarative key must not shadow a built-in component (the registry
     // resolves built-ins first)
-    const builtinKey = ((await client.$queryRawUnsafe<{ key: string }[]>(
-      `SELECT key FROM node_templates WHERE key=$1 AND is_builtin=true`, key
-    ))[0]);
-    if (builtinKey) throw new Error(`"${key}" is a built-in node key — pick another name`);
+    if (await client.nodeTemplate.findFirst({ where: { key, isBuiltin: true }, select: { key: true } })) {
+      throw new Error(`"${key}" is a built-in node key — pick another name`);
+    }
     // validate the declarative definition up front (same schema the runtime hydrates)
     const config = parseDeclarativeConfig(kind, input.config ?? {}, name);
     const id = db.uid("nt_");
-    const ts = db.now();
-    await client.$executeRawUnsafe(
-      `INSERT INTO node_templates (id,key,name,kind,version,description,icon,config,is_builtin,template_id,created_at,updated_at)
-       VALUES ($1,$2,$3,$4,1,$5,$6,$7,false,$8,$9,$10) ON CONFLICT DO NOTHING`,
-      id, key, name, kind, input.description ?? null, input.icon ?? null,
-      JSON.stringify(config), opts.templateId ?? null, ts, ts
-    );
+    const ts = new Date();
+    await client.nodeTemplate.createMany({
+      data: {
+        id, key, name, kind, version: 1,
+        description: input.description ?? null, icon: input.icon ?? null,
+        config: jsonInput(config), isBuiltin: false, templateId: opts.templateId ?? null,
+        createdAt: ts, updatedAt: ts,
+      },
+      skipDuplicates: true,
+    });
     return this.requireNodeTemplate(id, tx);
   }
 
@@ -763,12 +751,19 @@ export class TemplateStore {
     // another def). Rows local to other templates always get a fresh copy
     // scoped to this template.
     const slug = TemplateStore.slugify(name);
-    const identical = (await db.rowsFor(tx).all(NodeTemplateRow,
-      `SELECT id, key, name, kind, version, description, icon, config, is_builtin AS "isBuiltin", template_id AS "templateId", created_at AS "createdAt", updated_at AS "updatedAt" FROM node_templates
-       WHERE is_builtin=false AND (key=$1 OR key LIKE $2 ESCAPE '\\')
-         AND (template_id IS NULL OR template_id=$3)`,
-      slug, `${TemplateStore.likeEscape(slug)}\\_local%`, opts.templateId,
-    )).find((r) => r.kind === kind && JSON.stringify(r.config ?? {}) === JSON.stringify(config));
+    const identical = parsedRows(
+      NodeTemplateRow,
+      await (tx ?? db.prisma).nodeTemplate.findMany({
+        where: {
+          isBuiltin: false,
+          AND: [
+            { OR: [{ key: slug }, { key: { startsWith: `${slug}_local` } }] },
+            { OR: [{ templateId: null }, { templateId: opts.templateId }] },
+          ],
+        },
+      }),
+      "nodeTemplate.createOrReuseNodeTemplate",
+    ).find((r) => r.kind === kind && JSON.stringify(r.config ?? {}) === JSON.stringify(config));
     if (identical) return { id: identical.id, created: false };
     try {
       return {
@@ -819,10 +814,10 @@ export class TemplateStore {
     const key = owner && owner.id !== row.id
       ? await TemplateStore.freeKeyVariant(row.key)
       : row.key;
-    await db.run(
-      `UPDATE node_templates SET template_id=NULL, key=$1, updated_at=$2 WHERE id=$3`,
-      key, db.now(), id
-    );
+    await db.prisma.nodeTemplate.update({
+      where: { id },
+      data: { templateId: null, key, updatedAt: new Date() },
+    });
     return this.requireNodeTemplate(id);
   }
 
@@ -834,16 +829,18 @@ export class TemplateStore {
     if (!row) throw new Error("node template not found");
     if (row.isBuiltin) throw new Error("built-in node templates are read-only");
     const config = patch.config !== undefined
-      ? JSON.stringify(parseDeclarativeConfig(row.kind, patch.config, patch.name?.trim() || row.name))
-      : JSON.stringify(row.config);
-    await db.run(
-      `UPDATE node_templates SET name=$1, description=$2, icon=$3, config=$4, updated_at=$5 WHERE id=$6`,
-      patch.name?.trim() || row.name,
-      patch.description !== undefined ? patch.description : row.description,
-      patch.icon !== undefined ? patch.icon : row.icon,
-      config,
-      db.now(), id
-    );
+      ? parseDeclarativeConfig(row.kind, patch.config, patch.name?.trim() || row.name)
+      : (row.config ?? {});
+    await db.prisma.nodeTemplate.update({
+      where: { id },
+      data: {
+        name: patch.name?.trim() || row.name,
+        description: patch.description !== undefined ? patch.description : row.description,
+        icon: patch.icon !== undefined ? patch.icon : row.icon,
+        config: jsonInput(config),
+        updatedAt: new Date(),
+      },
+    });
     return this.requireNodeTemplate(id);
   }
 
@@ -857,33 +854,38 @@ export class TemplateStore {
   }, tx?: Prisma.TransactionClient): Promise<{ id: string; created: boolean }> {
     const client = tx ?? db.prisma;
     const kind = (input.kind ?? "").trim();
-    if (!(KINDED_NODE_TEMPLATE_KINDS as readonly string[]).includes(kind)) {
+    if (!isDeclarativeKind(kind)) {
       throw new Error(`unsupported node kind "${kind}"`);
     }
     const name = input.name.trim();
     if (!name) throw new Error("name is required");
     const key = TemplateStore.slugify(input.key?.trim() || name);
-    if ((await client.$queryRawUnsafe<{ key: string }[]>(
-      `SELECT key FROM node_templates WHERE key=$1 AND is_builtin=true`, key))[0]) {
+    if (await client.nodeTemplate.findFirst({ where: { key, isBuiltin: true }, select: { key: true } })) {
       throw new Error(`"${key}" is a built-in node key — pick another name`);
     }
     // normalize the config once so "identical" comparisons compare parsed forms
     const normalized = parseDeclarativeConfig(kind, input.config ?? {}, name);
-    const candidates = await db.rowsFor(tx).all(NodeTemplateRow,
-      `SELECT id, key, name, kind, version, description, icon, config, is_builtin AS "isBuiltin", template_id AS "templateId", created_at AS "createdAt", updated_at AS "updatedAt" FROM node_templates WHERE key=$1 AND is_builtin=false`, key);
+    const candidates = parsedRows(
+      NodeTemplateRow,
+      await (tx ?? db.prisma).nodeTemplate.findMany({ where: { key, isBuiltin: false } }),
+      "nodeTemplate.ensureNodeTemplate",
+    );
     const identical = candidates.find(
       (r) => r.kind === kind && JSON.stringify(r.config ?? {}) === JSON.stringify(normalized)
     );
     if (identical) return { id: identical.id, created: false };
     const version = candidates.reduce((m, r) => Math.max(m, r.version), 0) + 1;
     const id = db.uid("nt_");
-    const ts = db.now();
-    await client.$executeRawUnsafe(
-      `INSERT INTO node_templates (id,key,name,kind,version,description,icon,config,is_builtin,created_at,updated_at)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,false,$9,$10) ON CONFLICT DO NOTHING`,
-      id, key, name, kind, version, null, input.icon ?? null,
-      JSON.stringify(normalized), ts, ts
-    );
+    const ts = new Date();
+    await client.nodeTemplate.createMany({
+      data: {
+        id, key, name, kind, version,
+        description: null, icon: input.icon ?? null,
+        config: jsonInput(normalized), isBuiltin: false,
+        createdAt: ts, updatedAt: ts,
+      },
+      skipDuplicates: true,
+    });
     return { id, created: true };
   }
 
@@ -892,10 +894,9 @@ export class TemplateStore {
     const row = await this.nodeTemplate(id);
     if (!row) throw new Error("node template not found");
     if (row.isBuiltin) throw new Error("built-in node templates are read-only");
-    const used = (await db.get<{ c: number }>(
-      `SELECT COUNT(*)::int c FROM flow_template_nodes WHERE node_template_id=$1`, id))?.c ?? 0;
+    const used = await db.prisma.flowTemplateNode.count({ where: { nodeTemplateId: id } });
     if (used > 0) throw new Error(`this node template is used by ${used} template node${used > 1 ? "s" : ""}`);
-    await db.run(`DELETE FROM node_templates WHERE id=$1`, id);
+    await db.prisma.nodeTemplate.delete({ where: { id } });
   }
 
   // ── write path helpers ────────────────────────────────────────────────────
@@ -987,29 +988,40 @@ export class TemplateStore {
   ): Promise<void> {
     const write = async (exec: Prisma.TransactionClient) => {
       if (opts.replace) {
-        await exec.$executeRawUnsafe(`DELETE FROM flow_template_nodes WHERE template_id=$1`, templateId);
-        await exec.$executeRawUnsafe(`DELETE FROM flow_template_edges WHERE template_id=$1`, templateId);
+        await exec.flowTemplateNode.deleteMany({ where: { templateId } });
+        await exec.flowTemplateEdge.deleteMany({ where: { templateId } });
       }
-      const ts = db.now();
-      for (const n of nodes) {
-        const trigger = JSON.stringify(TemplateStore.nodeTrigger(n.trigger));
-        const config = JSON.stringify(n.config && Object.keys(n.config).length ? n.config : {});
-        const inputMap = JSON.stringify(n.input_map && Object.keys(n.input_map).length ? n.input_map : {});
-        await exec.$executeRawUnsafe(
-          `INSERT INTO flow_template_nodes (id,template_id,node_key,node_template_id,label,trigger,join_mode,config,input_map,x,y,created_at,updated_at)
-           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13) ON CONFLICT DO NOTHING`,
-          db.uid("ftn_"), templateId, n.key.trim(), n.nodeTemplateId, n.label ?? null, trigger,
-          n.join_mode === "any" ? "any" : "all", config, inputMap, n.x ?? null, n.y ?? null, ts, ts
-        );
+      const ts = new Date();
+      if (nodes.length) {
+        await exec.flowTemplateNode.createMany({
+          data: nodes.map((n) => ({
+            id: db.uid("ftn_"),
+            templateId,
+            nodeKey: n.key.trim(),
+            nodeTemplateId: n.nodeTemplateId,
+            label: n.label ?? null,
+            trigger: jsonInput(TemplateStore.nodeTrigger(n.trigger)),
+            joinMode: n.join_mode === "any" ? "any" : "all",
+            config: jsonInput(n.config && Object.keys(n.config).length ? n.config : {}),
+            inputMap: jsonInput(n.input_map && Object.keys(n.input_map).length ? n.input_map : {}),
+            x: n.x ?? null, y: n.y ?? null,
+            createdAt: ts, updatedAt: ts,
+          })),
+          skipDuplicates: true,
+        });
       }
-      for (const e of edges) {
-        await exec.$executeRawUnsafe(
-          `INSERT INTO flow_template_edges (id,template_id,from_key,to_key,kind,label,condition,created_at,updated_at)
-           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) ON CONFLICT DO NOTHING`,
-          db.uid("fte_"), templateId, e.from, e.to, e.kind ?? "next", e.label, e.condition, ts, ts
-        );
+      if (edges.length) {
+        await exec.flowTemplateEdge.createMany({
+          data: edges.map((e) => ({
+            id: db.uid("fte_"), templateId,
+            fromKey: e.from, toKey: e.to,
+            kind: e.kind ?? "next", label: e.label ?? null, condition: e.condition ?? null,
+            createdAt: ts, updatedAt: ts,
+          })),
+          skipDuplicates: true,
+        });
       }
-      await exec.$executeRawUnsafe(`UPDATE flow_templates SET updated_at=$1 WHERE id=$2`, ts, templateId);
+      await exec.flowTemplate.update({ where: { id: templateId }, data: { updatedAt: ts } });
     };
     await db.transaction(write, tx);
   }
@@ -1027,14 +1039,15 @@ export class TemplateStore {
     if (trigger.type === "schedule") {
       const intervalMin = typeof trigger.interval_min === "number" && trigger.interval_min > 0
         ? trigger.interval_min : 60;
-      const cur = ((await (tx ?? db.prisma).$queryRawUnsafe<{ scheduleNextAt: string | null }[]>(
-        `SELECT schedule_next_at AS "scheduleNextAt" FROM flow_templates WHERE id=$1`, templateId))[0]);
+      const cur = await (tx ?? db.prisma).flowTemplate.findUnique({ where: { id: templateId }, select: { scheduleNextAt: true } });
       if (cur && !cur.scheduleNextAt) {
-        await (tx ?? db.prisma).$executeRawUnsafe(`UPDATE flow_templates SET schedule_next_at=$1 WHERE id=$2`,
-          new Date(Date.now() + intervalMin * 60_000).toISOString(), templateId);
+        await (tx ?? db.prisma).flowTemplate.update({
+          where: { id: templateId },
+          data: { scheduleNextAt: new Date(Date.now() + intervalMin * 60_000) },
+        });
       }
     } else {
-      await (tx ?? db.prisma).$executeRawUnsafe(`UPDATE flow_templates SET schedule_next_at=NULL WHERE id=$1`, templateId);
+      await (tx ?? db.prisma).flowTemplate.updateMany({ where: { id: templateId }, data: { scheduleNextAt: null } });
     }
   }
 
@@ -1120,35 +1133,11 @@ export class TemplateStore {
    * uniqueness check then reports the collision.
    */
   private static async freeKeyVariant(slug: string): Promise<string> {
-    if (!(await db.get<{ k: number }>(`SELECT 1 k FROM node_templates WHERE key=$1`, slug))) return slug;
+    if (!(await db.prisma.nodeTemplate.findFirst({ where: { key: slug }, select: { key: true } }))) return slug;
     for (let n = 1; n < 500; n++) {
       const variant = n === 1 ? `${slug}_local` : `${slug}_local${n}`;
-      if (!(await db.get<{ k: number }>(`SELECT 1 k FROM node_templates WHERE key=$1`, variant))) return variant;
+      if (!(await db.prisma.nodeTemplate.findFirst({ where: { key: variant }, select: { key: true } }))) return variant;
     }
     return slug;
-  }
-
-  /** Escape a slug for a `LIKE … ESCAPE '\'` pattern prefix (slugs carry `_`). */
-  private static likeEscape(value: string): string {
-    return value.replace(/[\\%_]/g, "\\$&");
-  }
-
-  private static parseJson<T>(raw: unknown, fallback: T): T {
-    if (typeof raw !== "string") return raw as T ?? fallback;
-    try {
-      return JSON.parse(raw) as T;
-    } catch {
-      return fallback;
-    }
-  }
-
-  private static parseTrigger(o: Record<string, unknown>): TemplateNodeTrigger {
-    return {
-      type: (typeof o.type === "string" ? o.type : "auto"),
-      minutes: typeof o.minutes === "number" ? o.minutes : undefined,
-      // the stored payload keeps the snake_case `wait_for` key (client + seeder
-      // format); the TS vocabulary field is camelCase
-      waitFor: typeof o.wait_for === "string" ? o.wait_for : undefined,
-    };
   }
 }
