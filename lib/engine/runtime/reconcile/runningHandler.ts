@@ -2,6 +2,7 @@ import "server-only";
 
 import { db } from "../../../db/app";
 import type { FlowRow } from "../../../db/rows";
+import { FLOW_STATUS } from "../../../../constants/flow";
 import { STEP_MERGE_GRACE_MS } from "./constants/reconcileTiming";
 import { RecoveryDriver } from "./recoveryDriver";
 
@@ -34,10 +35,11 @@ export class RunningHandler {
 
   /** Any active step/split child flow ⇒ a fan-out/split aggregate is mid-run. */
   private async flowHasActiveChildren(flowId: string): Promise<boolean> {
-    return Boolean(await db.get(
-      `SELECT 1 FROM flows WHERE parent_flow_id=$1 AND status='active' LIMIT 1`,
-      flowId,
-    ));
+    const child = await db.prisma.flow.findFirst({
+      where: { parentFlowId: flowId, status: FLOW_STATUS.ACTIVE },
+      select: { id: true },
+    });
+    return child !== null;
   }
 
   /**
@@ -45,6 +47,10 @@ export class RunningHandler {
    * `step_merges` row is stamped by each attempt — fresh means alive. The
    * in-process guard (`mergeArena.isMerging`) lives in StepMergeRecovery,
    * which owns that domain; this check must stay durable-state-only.
+   *
+   * Contained raw (target-architecture §9, Invariant 3): the staleness
+   * window is `updated_at > now() - make_interval(secs => $n)` — interval
+   * arithmetic against DB-server time; Prisma has no equivalent.
    */
   private async mergeInFlight(flowId: string): Promise<boolean> {
     return Boolean(await db.get(

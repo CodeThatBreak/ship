@@ -20,6 +20,14 @@ import type { JobHandlers, JobRecord } from "./types/job";
  * Clock rule: lease writes and sweeps compare on DB-server time (`now()`),
  * never app-server `Date.now()` (step 03 risk: clock skew).
  *
+ * Raw-SQL containment list (docs/orm-migration/09-jobs-isolate-raw.md): the
+ * atomic claims, the backoff requeue, and the lease-expiry sweeps keep raw
+ * SQL on purpose — `FOR UPDATE SKIP LOCKED`, `make_interval` interval
+ * arithmetic, and lease comparisons against DB-server time have no Prisma
+ * equivalent. This file is on the containment list the Task 12 lint rule
+ * allowlists; raw SQL may not appear outside the named methods below, and no
+ * new raw SQL may be added.
+ *
  * Must never: dispatch inside the claim UPDATE (claim and dispatch stay
  * separate so a handler crash cannot lose the claim), write `nodes`/`runs`
  * state (that is the authority's and the stores' job), or retry a job past
@@ -67,6 +75,11 @@ export class JobQueue {
    * under concurrent claimers: the loser simply finds nothing) that stamps
    * the lease and bumps `attempts` in the same statement. Null when nothing
    * is due.
+   *
+   * Contained raw (target-architecture §8, Invariant 7): the claim subselect
+   * (`FOR UPDATE SKIP LOCKED`) and the same-statement lease stamp
+   * (`make_interval`) are the atomic-claim correctness primitive — no Prisma
+   * equivalent.
    */
   async claimNext(kinds: readonly JobKind[]): Promise<JobRecord | null> {
     if (kinds.length === 0) return null;
@@ -92,6 +105,10 @@ export class JobQueue {
    * in-request dispatch): the write-ahead insert is deduped, then THIS claim
    * decides who dispatches — a concurrent worker sweep that got there first
    * makes this return null and the route answers `dedup`.
+   *
+   * Contained raw (target-architecture §8, Invariant 7): the status-fenced
+   * claim UPDATE — the fence (`status='queued'`) is what loses the race
+   * against a concurrent sweep.
    */
   async claimById(jobId: string): Promise<JobRecord | null> {
     return (await this.database.get<JobRecord>(
@@ -110,6 +127,10 @@ export class JobQueue {
    * Reclaim a job whose claim lease lapsed — the crash window between
    * dispatch and done. Bounded by the attempt cap; a job that exhausted its
    * budget mid-crash is failed loudly by {@link failExhausted}.
+   *
+   * Contained raw (target-architecture §8, Invariant 7): the crash-recovery
+   * re-claim — `FOR UPDATE SKIP LOCKED` over expired leases compared on
+   * DB-server time.
    */
   async reclaimExpired(kinds: readonly JobKind[]): Promise<JobRecord | null> {
     if (kinds.length === 0) return null;
@@ -140,7 +161,10 @@ export class JobQueue {
    */
   async clearDedupKey(jobId: string, tx?: QueryExecutor): Promise<void> {
     const client: QueryExecutor = tx ?? this.database.prisma;
-    await client.$executeRawUnsafe(`UPDATE jobs SET dedup_key=NULL WHERE id=$1`, jobId);
+    // `updateMany`, not `update`: a vanished row must stay a silent no-op
+    // (the raw-era `UPDATE` semantics) — a late free must never fail the
+    // completion path with a P2025.
+    await client.job.updateMany({ where: { id: jobId }, data: { dedupKey: null } });
   }
 
   /** Mark a dispatched job done. Pass `tx` to join the completion into a
@@ -148,12 +172,10 @@ export class JobQueue {
    *  tx — a crash can no longer drop a fire). */
   async complete(jobId: string, tx?: QueryExecutor): Promise<void> {
     const client: QueryExecutor = tx ?? this.database.prisma;
-    await client.$executeRawUnsafe(
-      `UPDATE jobs SET status=$1, lease_until=NULL, updated_at=now()
-       WHERE id=$2 AND status='${JOB_STATUS.CLAIMED}'`,
-      JOB_STATUS.DONE,
-      jobId,
-    );
+    await client.job.updateMany({
+      where: { id: jobId, status: JOB_STATUS.CLAIMED },
+      data: { status: JOB_STATUS.DONE, leaseUntil: null },
+    });
   }
 
   /**
@@ -162,26 +184,35 @@ export class JobQueue {
    * when the job carries no flow — nothing else exists to attach it to).
    */
   async fail(jobId: string, error: string): Promise<"requeued" | "failed"> {
-    const job = await this.database.get<{ attempts: number; kind: JobKind; flowId: string | null }>(
-      `SELECT attempts, kind, flow_id AS "flowId" FROM jobs WHERE id=$1`,
-      jobId,
-    );
+    const job = await this.database.prisma.job.findUnique({
+      where: { id: jobId },
+      select: { attempts: true, kind: true, flowId: true },
+    });
     if (!job) return "failed";
     if (job.attempts < JOB_LIMITS.MAX_ATTEMPTS) {
       // backoff: base * 2^(attempts-1) — attempt 1 waits one base interval
       const backoffSeconds = JOB_LIMITS.BACKOFF_BASE_SECONDS * 2 ** (job.attempts - 1);
-      await this.database.run(
-        `UPDATE jobs SET status=$1, lease_until=NULL,
-            run_at = now() + make_interval(secs => $2), updated_at = now()
-         WHERE id=$3 AND status='${JOB_STATUS.CLAIMED}'`,
-        JOB_STATUS.QUEUED,
-        backoffSeconds,
-        jobId,
-      );
+      await this.requeueWithBackoff(jobId, backoffSeconds);
       return "requeued";
     }
     await this.finishFailed(jobId, job.kind, job.flowId, error);
     return "failed";
+  }
+
+  /**
+   * Contained raw (target-architecture §8, Invariant 7): the backoff requeue
+   * stamps `run_at = now() + make_interval(secs => $n)` — interval arithmetic
+   * on DB-server time; Prisma has no equivalent.
+   */
+  private async requeueWithBackoff(jobId: string, backoffSeconds: number): Promise<void> {
+    await this.database.run(
+      `UPDATE jobs SET status=$1, lease_until=NULL,
+          run_at = now() + make_interval(secs => $2), updated_at = now()
+       WHERE id=$3 AND status='${JOB_STATUS.CLAIMED}'`,
+      JOB_STATUS.QUEUED,
+      backoffSeconds,
+      jobId,
+    );
   }
 
   /**
@@ -209,7 +240,14 @@ export class JobQueue {
     return processed;
   }
 
-  /** Terminal-fail `claimed` jobs a crash left past the attempt cap. */
+  /**
+   * Terminal-fail `claimed` jobs a crash left past the attempt cap.
+   *
+   * Contained raw (target-architecture §8, Invariant 7): the sweep compares
+   * leases on DB-server time (`lease_until < now()`) and needs the failed
+   * rows back in one atomic statement (`RETURNING`) to emit their events —
+   * `updateMany` can neither compare against DB `now()` nor return rows.
+   */
   private async failExhausted(kinds: readonly JobKind[]): Promise<void> {
     if (kinds.length === 0) return;
     const marks = kinds.map((_, i) => `$${i + 1}`).join(", ");
@@ -238,11 +276,10 @@ export class JobQueue {
     // terminal: free the dedup key too — a re-triggered intent for the same
     // target must be able to enqueue a fresh job (the failed row stays for
     // the audit trail)
-    await this.database.run(
-      `UPDATE jobs SET status=$1, lease_until=NULL, dedup_key=NULL, updated_at=now() WHERE id=$2`,
-      JOB_STATUS.FAILED,
-      jobId,
-    );
+    await this.database.prisma.job.update({
+      where: { id: jobId },
+      data: { status: JOB_STATUS.FAILED, leaseUntil: null, dedupKey: null },
+    });
     await this.emitJobFailed(jobId, kind, flowId, error);
   }
 

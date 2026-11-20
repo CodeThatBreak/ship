@@ -58,14 +58,19 @@ export class ApprovedHandler {
 
   private async flowHasMergeRequest(flow: FlowRow): Promise<boolean> {
     if (flow.mrIid != null) return true;
-    return Boolean(await db.get(
-      `SELECT 1 FROM branches WHERE flow_id=$1 AND mr_iid IS NOT NULL LIMIT 1`,
-      flow.id,
-    ));
+    const branch = await db.prisma.branch.findFirst({
+      where: { flowId: flow.id, mrIid: { not: null } },
+      select: { id: true },
+    });
+    return branch !== null;
   }
 
   /** A live `mr_create` job: queued, or claimed with an unexpired lease
-   *  (a claimed job whose lease lapsed is the sweep's to re-claim). */
+   *  (a claimed job whose lease lapsed is the sweep's to re-claim).
+   *
+   *  Contained raw (target-architecture §8, Invariant 7 — the jobs clock
+   *  rule): lease liveness compares against DB-server time
+   *  (`lease_until > now()`), which Prisma's query API cannot express. */
   private async hasLiveMrCreateJob(flowId: string): Promise<boolean> {
     return Boolean(await db.get(
       `SELECT 1 FROM jobs WHERE flow_id=$1 AND kind=$2

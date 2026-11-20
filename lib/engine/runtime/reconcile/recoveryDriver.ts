@@ -56,11 +56,7 @@ export class RecoveryDriver {
   }
 
   private async recoverNode(flow: FlowRow, node: NodeRow): Promise<void> {
-    const runRow = await db.get<{ agentRef: string; runRef: string; leaseLive: boolean }>(
-      `SELECT agent_ref AS "agentRef", run_ref AS "runRef", (lease_until > now()) AS "leaseLive"
-       FROM runs WHERE node_id=$1 AND status='running' ORDER BY created_at DESC LIMIT 1`,
-      node.id,
-    );
+    const runRow = await this.latestRunLeaseState(node.id);
     // the run's own lease is still current — whichever process started it is
     // alive and heartbeating (the worker reconciles runs owned by the web
     // process; liveness is the lease, never this process's handle set)
@@ -70,6 +66,24 @@ export class RecoveryDriver {
       return this.recoverLocal(ctx, flow, node, runRow);
     }
     return this.recoverCloud(ctx, flow, node, runRow);
+  }
+
+  /**
+   * The newest run row of a node with its lease liveness.
+   *
+   * Contained raw (target-architecture §9, Invariant 3): liveness is the
+   * run's lease against DB-server time (`lease_until > now()` — never the
+   * app clock; the step 03 skew rule), a computed column Prisma's query API
+   * cannot express.
+   */
+  private async latestRunLeaseState(
+    nodeId: string,
+  ): Promise<{ agentRef: string; runRef: string; leaseLive: boolean } | undefined> {
+    return await db.get<{ agentRef: string; runRef: string; leaseLive: boolean }>(
+      `SELECT agent_ref AS "agentRef", run_ref AS "runRef", (lease_until > now()) AS "leaseLive"
+       FROM runs WHERE node_id=$1 AND status='running' ORDER BY created_at DESC LIMIT 1`,
+      nodeId,
+    );
   }
 
   // ── local mode: the in-process handle means alive; otherwise the SDK's ────
@@ -193,12 +207,14 @@ export class RecoveryDriver {
    * to the node's own recover().
    */
   async completeNodeFromResult(c: FlowCtx, node: NodeRow, result: AgentRunResult, note: string): Promise<boolean> {
-    await db.run(
-      `UPDATE runs SET status=$1, lease_until=NULL, updated_at=$2 WHERE node_id=$3 AND status='running'`,
-      result.status === 'finished' ? 'finished' : 'error',
-      db.now(),
-      node.id
-    );
+    await db.prisma.run.updateMany({
+      where: { nodeId: node.id, status: RUN_STATUS.RUNNING },
+      data: {
+        status: result.status === "finished" ? RUN_STATUS.FINISHED : RUN_STATUS.ERROR,
+        leaseUntil: null,
+        updatedAt: db.now(),
+      },
+    });
     if (node.status !== 'running') return true; // already reconciled by a concurrent pass
 
     const def = await this.host.defOf(c.flow.id, node.nodeKey);
@@ -237,13 +253,10 @@ export class RecoveryDriver {
   async failOrphanedNode(flowId: string, nodeId: string, nodeKey: string, reason: string): Promise<void> {
     const applied = await engineParts.transitions.apply(flowId, nodeKey, 'orphanFail');
     if (!applied) return; // already reconciled by a concurrent pass
-    await db.run(
-      `UPDATE runs SET status=$1, lease_until=NULL, updated_at=$2 WHERE node_id=$3 AND status=$4`,
-      RUN_STATUS.ERROR,
-      db.now(),
-      nodeId,
-      RUN_STATUS.RUNNING,
-    );
+    await db.prisma.run.updateMany({
+      where: { nodeId, status: RUN_STATUS.RUNNING },
+      data: { status: RUN_STATUS.ERROR, leaseUntil: null, updatedAt: db.now() },
+    });
     await engineParts.events.error(flowId, nodeKey, `${nodeKey}: ${reason} — retry the node to continue`);
   }
 }
