@@ -5,9 +5,24 @@
  */
 import { apiFetch, withLocalApiAuth } from "@/hooks/localApiToken";
 
-export type JsonErrorBody = { error?: string };
+export type JsonErrorBody = { error?: string; code?: string };
 
 export { apiFetch, withLocalApiAuth };
+
+/** An HTTP failure carrying the body's typed `code` when the API answers with
+ *  one (step 06: a skipped duplicate trigger answers 409 `{ code }` with no
+ *  `error` field) — UI layers branch on the code, not the message text. */
+export class HttpError extends Error {
+  readonly status: number;
+  readonly code?: string;
+
+  constructor(message: string, options: { status: number; code?: string }) {
+    super(message);
+    this.name = "HttpError";
+    this.status = options.status;
+    this.code = options.code;
+  }
+}
 
 /** fetch + parse JSON, throwing on transport or HTTP errors. */
 export async function fetchJson<T>(url: string): Promise<T> {
@@ -46,8 +61,19 @@ export function errorMessageOf(error: unknown): string | null {
   return null;
 }
 
-/** Build an Error carrying the server's `error` message (or the status). */
+/** A mutation/query failure's typed `code` from the response body — null when
+ *  the failure carried none (transport error, or a body with only `error`). */
+export function errorCodeOf(error: unknown): string | null {
+  if (error instanceof HttpError) return error.code ?? null;
+  return null;
+}
+
+/** Build the Error for a failed response, carrying the body's `error` message
+ *  (or the status) plus its typed `code` when the body declares one. */
 async function errorOf(res: Response): Promise<Error> {
   const body = (await res.json().catch(() => ({}))) as JsonErrorBody;
-  return new Error(body.error ?? `Request failed (${res.status})`);
+  return new HttpError(body.error ?? `Request failed (${res.status})`, {
+    status: res.status,
+    code: body.code,
+  });
 }

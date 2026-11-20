@@ -21,6 +21,8 @@ export const FLOW_EVENT_TYPE = {
   OUTPUT_EXHAUSTED: "output_exhausted",
   /** the agent answered with the standard error envelope — never retried (step 05) */
   AGENT_REPORTED: "agent_reported",
+  /** a trigger lost the atomic claim — the node was already running (step 06) */
+  SKIPPED_DUPLICATE_TRIGGER: "skipped_duplicate_trigger",
 } as const;
 
 export type FlowEventType = (typeof FLOW_EVENT_TYPE)[keyof typeof FLOW_EVENT_TYPE];

@@ -12,7 +12,8 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Spinner } from "@/components/ui/spinner";
-import { errorMessageOf } from "@/hooks/fetchJson";
+import { errorMessageOf, errorCodeOf } from "@/hooks/fetchJson";
+import { API_ERROR_CODE, SKIPPED_DUPLICATE_TRIGGER_COPY } from "@/constants/api";
 import { CostChip } from "./CostChip";
 import { apiFetch } from "@/hooks/localApiToken";
 import { useNodePanel } from "./context";
@@ -57,6 +58,10 @@ export function PanelShell({
   } = useNodePanel();
   const cockpitFlow = flow ?? contextFlow;
   const actionMessage = errorMessageOf(actionError);
+  // a skipped duplicate trigger (step 06) is not a failure — the node is
+  // already running, so it surfaces as friendly notice without a Retry
+  const actionSkipped =
+    errorCodeOf(actionError) === API_ERROR_CODE.SKIPPED_DUPLICATE_TRIGGER;
 
   return (
     <div className="flex flex-col h-full min-h-0">
@@ -75,7 +80,16 @@ export function PanelShell({
       {/* scrollable content */}
       <ScrollArea className="flex-1">
         <div className="px-5 py-4">
-        {actionMessage && (
+        {actionSkipped && (
+          <Alert className="mb-3.5">
+            <Clock size={16} className="shrink-0" />
+            <span className="flex-1">{SKIPPED_DUPLICATE_TRIGGER_COPY}</span>
+            <Button size="sm" variant="ghost" onClick={() => resetAction()}>
+              Dismiss
+            </Button>
+          </Alert>
+        )}
+        {!actionSkipped && actionMessage && (
           <Alert variant="destructive" className="mb-3.5">
             <AlertTriangle size={16} className="shrink-0" />
             <span className="flex-1">{actionMessage}</span>

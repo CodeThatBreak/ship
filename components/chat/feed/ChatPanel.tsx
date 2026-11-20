@@ -1,13 +1,14 @@
 'use client';
 
 import { useMemo, useCallback, type ReactNode, type RefObject } from 'react';
-import { CircleAlertIcon, MessageCircleDashedIcon } from 'lucide-react';
+import { CircleAlertIcon, ClockIcon, MessageCircleDashedIcon } from 'lucide-react';
 
 import type { ModelChoice } from '@/types/modelSpec';
 import type { NodeUiCapabilities } from '@/types/nodeCapabilities';
 import type { FeedEvent } from '../timeline';
 import type { ChatTab, ChatInputHandle } from '../types';
-import { errorMessageOf } from '@/hooks/fetchJson';
+import { errorMessageOf, errorCodeOf } from '@/hooks/fetchJson';
+import { API_ERROR_CODE, SKIPPED_DUPLICATE_TRIGGER_COPY } from '@/constants/api';
 import { useChatComposer, type SendMutationFn } from '../hooks/useChatComposer';
 import { useChatFeed } from '../hooks/useChatFeed';
 import { TabStrip } from "@/components/shared/TabStrip";
@@ -170,6 +171,10 @@ export default function ChatPanel({
   const onSend = useCallback((draft: string) => sendMessageMutation(draft), [sendMessageMutation]);
 
   const sendFailureMessage = errorMessageOf(sendMutationError);
+  // a skipped duplicate trigger (step 06) is not a failure — the node is
+  // already running, so the send's skip surfaces muted, not destructive
+  const sendSkipped =
+    errorCodeOf(sendMutationError) === API_ERROR_CODE.SKIPPED_DUPLICATE_TRIGGER;
 
   return (
     <div className="flex h-full min-h-0 flex-col">
@@ -201,12 +206,17 @@ export default function ChatPanel({
         emptyDescription={activeThread?.emptyDescription}
       />
 
-      {sendFailureMessage && (
+      {sendSkipped ? (
+        <p className="shrink-0 flex items-center gap-1.5 pl-4 pr-4 pb-1 text-[11px] text-muted-foreground">
+          <ClockIcon className="size-3 shrink-0" />
+          {SKIPPED_DUPLICATE_TRIGGER_COPY}
+        </p>
+      ) : sendFailureMessage ? (
         <p role="alert" className="shrink-0 flex items-center gap-1.5 pl-4 pr-4 pb-1 text-[11px] text-destructive">
           <CircleAlertIcon className="size-3 shrink-0" />
           {sendFailureMessage}
         </p>
-      )}
+      ) : null}
 
       <ChatComposerForm
         aside={aside}

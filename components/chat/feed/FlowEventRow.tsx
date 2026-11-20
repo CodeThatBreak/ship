@@ -1,6 +1,6 @@
 "use client";
 
-import { BotIcon, CircleAlertIcon } from "lucide-react";
+import { BotIcon, CircleAlertIcon, CircleMinusIcon } from "lucide-react";
 
 import {
   CodeBlock,
@@ -16,10 +16,24 @@ import TaskCollapsible from "./TaskCollapsible";
 import type { FeedEvent } from '../timeline';
 import { FLOW_EVENT_TYPE } from "@/constants/events";
 
-/** Flow-level event row (MR pushes, pipeline results, checklist edits). */
+/** Flow-level event row (MR pushes, pipeline results, checklist edits; a
+ *  skipped duplicate trigger stays a muted debug-level line). */
 export default function FlowEventRow({ ev }: { ev: FeedEvent }) {
   const failed = ev.type === FLOW_EVENT_TYPE.ERROR;
   const steps = parseSteps(ev);
+
+  if (ev.type === FLOW_EVENT_TYPE.SKIPPED_DUPLICATE_TRIGGER) {
+    return (
+      <Trace>
+        <TraceLine status="pending">
+          <TraceIcon>
+            <CircleMinusIcon />
+          </TraceIcon>
+          <TraceTitle>{ev.message ?? "skipped duplicate trigger"}</TraceTitle>
+        </TraceLine>
+      </Trace>
+    );
+  }
 
   if (failed || steps) {
     return (
