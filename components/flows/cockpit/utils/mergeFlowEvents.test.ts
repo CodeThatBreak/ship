@@ -2,14 +2,14 @@ import { describe, expect, it } from "vitest";
 import type { FeedEvent } from "@/components/chat/timeline";
 import { mergeFlowEvents } from "./mergeFlowEvents";
 
-const ev = (id: string, created_at: string): FeedEvent => ({
+const ev = (id: string, createdAt: string): FeedEvent => ({
   id,
   flow_id: "flw_1",
   node_id: null,
   type: "status",
   message: id,
   data: null,
-  created_at,
+  created_at: createdAt,
 });
 
 describe("mergeFlowEvents", () => {

@@ -19,10 +19,21 @@ const CAMEL = /^[a-z][A-Za-z0-9]*$/;
 const SNAKE = /^[a-z][a-z0-9]*(_[a-z0-9]+)*$/;
 
 type ModelBlock = { name: string; body: string };
+type EnumBlock = { name: string; body: string };
 
 const parseModels = (text: string): ModelBlock[] => {
   const blocks: ModelBlock[] = [];
   const re = /^model\s+(\w+)\s*\{([\s\S]*?)^\}/gm;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(text))) {
+    blocks.push({ name: m[1], body: m[2] });
+  }
+  return blocks;
+};
+
+const parseEnums = (text: string): EnumBlock[] => {
+  const blocks: EnumBlock[] = [];
+  const re = /^enum\s+(\w+)\s*\{([\s\S]*?)^\}/gm;
   let m: RegExpExecArray | null;
   while ((m = re.exec(text))) {
     blocks.push({ name: m[1], body: m[2] });
@@ -84,5 +95,33 @@ describe("prismaSchemaCasing", () => {
       expect(text).toContain(`@@map("${en}")`);
     }
     expect(text).toMatch(/enum NodeStatus\s*\{[^}]*\bskipped\b/);
+  });
+
+  it("every enum name is PascalCase and mapped to a snake_case PG enum", () => {
+    const violations: string[] = [];
+    for (const { name, body } of parseEnums(text)) {
+      if (!/^[A-Z][A-Za-z0-9]*$/.test(name)) {
+        violations.push(`enum ${name}: enum name must be PascalCase`);
+      }
+      const mapMatch = /@@map\("([a-z0-9_]+)"\)/.exec(body);
+      if (!mapMatch) {
+        violations.push(`enum ${name}: missing @@map("snake_case")`);
+      }
+    }
+    expect(violations).toEqual([]);
+  });
+
+  it("every enum member is an all-lowercase DB value (snake_case allowed — enum values are sticky persisted data)", () => {
+    const violations: string[] = [];
+    for (const { name, body } of parseEnums(text)) {
+      for (const line of body.split("\n")) {
+        const member = line.trim().split(/\s+/)[0];
+        if (!member || member.startsWith("//") || member.startsWith("@@")) continue;
+        if (!/^[a-z][a-z0-9_]*$/.test(member)) {
+          violations.push(`enum ${name}.${member}: member must be an all-lowercase DB value`);
+        }
+      }
+    }
+    expect(violations).toEqual([]);
   });
 });

@@ -28,6 +28,7 @@ import {
   reviewCommentPostHash,
 } from "./reviewComments";
 
+/** The review kind's node definition (§T3 chain review role, §T4 refinable): runs the AI review of the MR diff and declares the contract/config below. Definition only — execution lives in AgentRunNode + the kind's collaborators; this class never writes status directly. */
 export class ReviewNode extends AgentRunNode<ReviewInput, ReviewOutput> {
   readonly key = NODE_KEYS.REVIEW;
   readonly label = "Review";

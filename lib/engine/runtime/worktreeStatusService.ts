@@ -10,6 +10,7 @@ import { localGit } from "@/lib/git/local";
 import { mapPool } from "./utils/mapPool";
 import type { FlowWorktreeRow, WorktreeStatusEntry } from "./types/worktreeStatus";
 
+/** Batched git worktree status probes for every active flow's worktree (dirtiness, branch drift) — concurrency-capped per repo batch. Read-only: probes and reports, never mutates git state or node status. */
 export class WorktreeStatusService {
   /** Concurrent git probes per repo batch — a tuning value, not a correctness number. */
   private static readonly GIT_CONCURRENCY = 8;

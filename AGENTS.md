@@ -160,7 +160,7 @@ export type FlowStatus = (typeof FLOW_STATUS)[keyof typeof FLOW_STATUS];
 ```
 
 - Closed sets of values: `as const` object plus a derived union type. Use the object in code, never the raw value.
-- Repeated literals: `constants/<domain>.ts` on the frontend, a module-level `const` in a backend class or module.
+- Repeated literals: `constants/<domain>.ts` on the frontend; on the backend, a `constants/` folder with named files next to the owning service (`lib/engine/constants/` for engine-wide values, `<kind>/constants/<domain>.ts` per kind/feature). A class file stays pure (target-architecture §12): no module-level constants parked at its top or bottom.
 - TanStack Query keys live in one `queryKeys` object so invalidation matches fetching.
 - Grep before you type a domain string that likely exists elsewhere, and reuse its constant.
 - **Exempt:** Tailwind class strings, aria-labels, log messages, test fixtures and test data. Repeated class strings should still be extracted into a `cn()` helper or a constant when it improves readability.
@@ -202,6 +202,7 @@ export function NodePanelSkeleton() {
   - Constants, types, utils, and **all other non-component modules** (including `lib/**` and scripts that are TS) use camelCase filenames (`constants/queryKeys.ts`, `lib/engine/flowEngine.ts`).
   - **Folders** under `components/`, `lib/`, and `hooks/` use camelCase (`templateEditor/`, `workflowGraph/`). Do not rename `components/ui/**` or Next.js `app/api/**` route segments (URL paths).
 - Tailwind: follow existing utility patterns. Extract repeated class strings into a constant or `cn()`. Never create a new CSS file.
+- **Casing** (enforced by `@typescript-eslint/naming-convention`): camelCase for variables, functions, methods and parameters; SCREAMING_SNAKE_CASE only for true compile-time constants (`const` domain objects and tuning values — a `let` in UPPER_CASE is a lint error); PascalCase for type-likes (classes, interfaces, types, enums). React components and Zod schemas are the sanctioned PascalCase `const` bindings; Next.js route exports (`GET`/`POST`/…) are the sanctioned UPPER_CASE functions. Leading underscores are allowed for intentionally-unused parameters.
 - Accessibility: interactive elements need labels and keyboard handling. Use `button`, not `div` with `onClick`.
 - No `any`. Use proper types, or `unknown` with narrowing as a last resort.
 - No direct mutation of props or state.
@@ -282,7 +283,7 @@ export class FlowService {
 - **Errors:** throw typed error classes. Routes catch them and map to HTTP responses.
 - **Thin route handlers:** `app/api/**/route.ts` only parses and validates input, calls a service method, and serializes the response. No business logic.
 - **Node prompt templates live with the node def:** a node's `PromptTemplate` is authored in its own folder (`lib/engine/nodes/kinds/<node>/promptTemplate.ts`) and merely registered into `DEFAULT_PROMPT_TEMPLATES` by `lib/engine/prompts/promptDefaults.ts` — `promptDefaults` is the registry, not the author. Engine-authored behavioral text goes in locked `contract`/`data` blocks, never as a user-style "Rules" list — the editable body may already carry developer rules.
-- Module-level string constants for repeated domain values (see 2.7).
+- Repeated domain values live in `constants/` named files (see 2.7) — not as module-level constants inside a class file.
 
 ### 3.3 Runtime and Server Boundaries
 

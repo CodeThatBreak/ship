@@ -65,6 +65,7 @@ import { artifactContent, finishEvent } from "./utils/finishNotes";
 import type { CapturedState, FinishParams } from "./types/resolveFinish";
 import type { ResolveEffectLedger } from "./types/resolveEffects";
 
+/** The resolve kind's finisher (§3.11 collaborator): captures the agent's pushed state, applies the recheck/fix ledger and artifact, and finishes the node through NodeSupport + the effect layer. The ONLY writer for this kind's terminal outcome; never a direct status write, never a second agent-output path. */
 export class ResolveFinisher {
   private readonly contract: ResolveOutputContract;
   private readonly effects: ResolveEffects;

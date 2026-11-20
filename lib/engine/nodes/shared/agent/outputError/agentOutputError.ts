@@ -1,5 +1,14 @@
 import "server-only";
 
+import {
+  AGENT_ERROR_ENVELOPE_EXAMPLE,
+  AGENT_ERROR_ENVELOPE_KEY,
+  type AgentOutputErrorCode,
+} from "./constants";
+import { AgentErrorEnvelopeSchema, AgentOutputErrorDetailSchema } from "./schema";
+import type { AgentOutputErrorDetail, AgentOutputErrorInput, AgentReportedError } from "./types";
+import { responseExcerpt } from "./utils/responseExcerpt";
+
 /**
  * The standard error for agent output-contract failures: a node whose declared
  * output format (e.g. `output: json` + an output schema) is not satisfied by
@@ -14,14 +23,6 @@ import "server-only";
  * There are no factory functions: consumers construct the error directly with
  * `new AgentOutputError({ code, label, message, issues, response, reported? })`.
  */
-import {
-  AGENT_ERROR_ENVELOPE_EXAMPLE,
-  AGENT_ERROR_ENVELOPE_KEY,
-  type AgentOutputErrorCode,
-} from "./constants";
-import { AgentErrorEnvelopeSchema, AgentOutputErrorDetailSchema } from "./schema";
-import type { AgentOutputErrorDetail, AgentOutputErrorInput, AgentReportedError } from "./types";
-import { responseExcerpt } from "./utils/responseExcerpt";
 
 export class AgentOutputError extends Error {
   readonly code: AgentOutputErrorCode;

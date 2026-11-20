@@ -1,3 +1,12 @@
+import "server-only";
+
+import type { AgentOutputRequest } from "./types/agentOutput";
+import type { NodeSupport } from "../nodeSupport";
+import { nodeSupport } from "@/lib/composition/container";
+import { EVENT_KIND } from "../../../constants/vocabulary";
+import { AGENT_OUTPUT_ERROR, AgentOutputError } from "../agent/outputError/outputErrorExports";
+import { RETRYABLE_OUTPUT_ERRORS } from "./constants/agentOutput";
+
 /**
  * The one agent-output pipeline (Invariant 6, engine overhaul step 05): every
  * agent-emitting node funnels its response through THIS component —
@@ -13,14 +22,6 @@
  * own reason goes to the user, not back to the agent), or swallow a
  * non-`AgentOutputError` throw — those belong to the kind's execution path.
  */
-import "server-only";
-
-import type { AgentOutputRequest } from "./types/agentOutput";
-import type { NodeSupport } from "../nodeSupport";
-import { nodeSupport } from "@/lib/composition/container";
-import { EVENT_KIND } from "../../../constants/vocabulary";
-import { AGENT_OUTPUT_ERROR, AgentOutputError } from "../agent/outputError/outputErrorExports";
-import { RETRYABLE_OUTPUT_ERRORS } from "./constants/agentOutput";
 
 export class AgentOutputPipeline {
   constructor(private readonly support: NodeSupport = nodeSupport) {}

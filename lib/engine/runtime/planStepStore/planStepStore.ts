@@ -9,6 +9,7 @@ import type { PlanStepDelegate, PlanStepInput, PlanStepRow } from "./types/planS
 import { toRow } from "./utils/toPlanStepRow";
 import { engineParts } from "@/lib/composition/container";
 
+/** SQL store for plan steps (§12 `runtime/stores/`): the plan node's checklist — rows, ordering, per-branch scoping — and the Markdown projection injected into the build prompt. Owns plan-step reads/writes only; never node status or flow rows. */
 export class PlanStepStore {
   async list(flowId: string, tx?: QueryExecutor): Promise<PlanStepRow[]> {
     const rows = await (tx ?? db.prisma).planStep.findMany({

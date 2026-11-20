@@ -137,8 +137,8 @@ export function FlowSettingsBody({
         reposError={reposError}
         onRetryRepos={onRetryRepos}
         onToggleScheduled={scheduledOn}
-        onIntervalChange={(interval_min) => setTrigger({ interval_min })}
-        onRepoChange={(repo_id) => setTrigger({ repo_id })}
+        onIntervalChange={(intervalMin) => setTrigger({ interval_min: intervalMin })}
+        onRepoChange={(repoId) => setTrigger({ repo_id: repoId })}
       />
 
       {/* ── Advanced (webhook is always available): filter + payload + hook ── */}

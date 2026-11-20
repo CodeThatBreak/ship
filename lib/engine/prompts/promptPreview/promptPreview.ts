@@ -18,6 +18,7 @@ import type {
   PromptPreviewResult,
 } from "./types/promptPreview";
 
+/** Prompt preview surface for the template editor (§1 read model): renders each node's effective prompt — source resolution, sections, live flow context — without executing anything. Read-only; never runs an agent or writes state. */
 export class PromptPreview {
   async previewFor(flowId: string, url: URL): Promise<PromptPreviewResult> {
     const nodeKey = url.searchParams.get("node") ?? "";

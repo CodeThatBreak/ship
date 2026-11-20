@@ -7,6 +7,7 @@ import { outputFieldsFor } from "@/lib/engine/templates/outputFields";
 import { templateStore } from "@/lib/engine/templates/templateStore";
 import type { GraphApiPayload } from "../types/graphApiPayload";
 
+/** Graph API read model (§1): resolves the workflow-graph payload for a live flow (nodes + live status + edges) or a template (registry meta/edges when unattached). Read-only — never mutates nodes, status or templates. */
 export class GraphService {
   async resolve(query: { flowId: string | null; templateId: string | null }): Promise<GraphApiPayload> {
     const { flowId, templateId } = query;

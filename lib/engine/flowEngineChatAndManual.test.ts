@@ -119,13 +119,13 @@ agentPortRegistry.register(stub);
 
 // ── fixture: topic agent (json) → paragraph agent (markdown) ─────────────────
 
-let TOPIC_ROW: { id: string };
-let PARAGRAPH_ROW: { id: string };
+let topicRow: { id: string };
+let paragraphRow: { id: string };
 
 beforeAll(async () => {
   await resetTestDatabase();
   await db.setSetting("default_harness", "stub"); // forMode("cloud") selects the stub
-  TOPIC_ROW = must(
+  topicRow = must(
     await templateStore.createNodeTemplate({
       key: "topic_agent_fixture",
       name: "Topic agent fixture",
@@ -143,7 +143,7 @@ beforeAll(async () => {
     }),
     "topic agent row",
   );
-  PARAGRAPH_ROW = must(
+  paragraphRow = must(
     await templateStore.createNodeTemplate({
       key: "paragraph_agent_fixture",
       name: "Paragraph agent fixture",
@@ -184,8 +184,8 @@ async function seedAgentFlow(index: number): Promise<string> {
       name: `chat-manual fixture ${index}`,
       trigger: { type: "manual", task_type: "jira" },
       nodes: [
-        { key: "topic_agent", nodeTemplateId: TOPIC_ROW.id, trigger: { type: "auto" } },
-        { key: "paragraph_agent", nodeTemplateId: PARAGRAPH_ROW.id, trigger: { type: "auto" } },
+        { key: "topic_agent", nodeTemplateId: topicRow.id, trigger: { type: "auto" } },
+        { key: "paragraph_agent", nodeTemplateId: paragraphRow.id, trigger: { type: "auto" } },
       ],
       edges: [{ from: "topic_agent", to: "paragraph_agent", kind: "next" }],
     },

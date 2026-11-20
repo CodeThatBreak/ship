@@ -11,6 +11,7 @@ import { CACHE_TTL_MS } from "./constants/liveTaskFeedCache";
 import { cacheKey } from "./utils/cacheKey";
 import type { LiveTaskFeedResult } from "./types/liveTaskFeed";
 
+/** Live task feed over the registered task providers (§1): fetches provider tasks with filters behind a TTL cache, reporting cache age/meta honestly. Read-only — never writes tasks, never invents a provider. */
 export class LiveTaskFeed {
   private readonly cache = new TtlCache<LiveTask[]>(CACHE_TTL_MS);
 

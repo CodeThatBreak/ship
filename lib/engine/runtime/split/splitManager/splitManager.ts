@@ -43,6 +43,22 @@ import { SplitLinkageStore } from "../splitLinkageStore";
 // StepFlowManager uses — this module cannot import the flowEngine value
 // directly because flow-engine.ts imports the split manager for the
 // child-terminal hooks.
+/**
+ * SplitManager — the split runtime facade (agent-node split plan §3, step 07
+ * decomposition). State authority for the `split_consume: "per-unit"` knob:
+ * one real child flow per published unit, scheduled by declared `dependsOn` +
+ * a `parallel_max` slot budget, joined into an aggregate published on the
+ * consumer node in unit order. This class only delegates — the stage gate +
+ * expansion (`SplitExpander`), the scheduler + publication (`SplitJoin`) and
+ * the unit↔child linkage (`SplitLinkageStore` behind the `SplitLinkIndex`
+ * seam) are the collaborators the module notes below map.
+ *
+ * Must never: infer file-overlap or plan-shaped linkage — linkage is derived
+ * from `flows` via the seam so a future `split_units` table can replace the
+ * index class without touching this runtime. The engine reference arrives via
+ * `bind()` (flow-engine.ts module tail, the same cycle resolution as
+ * StepFlowManager).
+ */
 export class SplitManager {
   private engine: SplitEngineSurface | null = null;
 

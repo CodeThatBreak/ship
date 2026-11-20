@@ -19,8 +19,8 @@ describe("template-lint — plan execution knob", () => {
   });
 
   it("accepts the current whole | follow knob values", async () => {
-    for (const execution_default of ["whole", "follow"]) {
-      const lint = await lintTemplate(planNode({ execution_default }), [], catalog);
+    for (const knob of ["whole", "follow"]) {
+      const lint = await lintTemplate(planNode({ execution_default: knob }), [], catalog);
       expect(lint.error).toBeNull();
     }
   });

@@ -20,6 +20,92 @@ const PHASE0_DOWNGRADED_RULES = {
   "@typescript-eslint/no-non-null-assertion": "warn",
 };
 
+/**
+ * Naming convention (AGENTS.md §2.9, target-architecture §12, decision Q11).
+ *
+ * Scoped to the step's enforceable core — variables, functions, parameters,
+ * methods, accessors, type-likes. Two blanket checks were tried and REJECTED
+ * after measuring the noise:
+ * - a `default` selector (flags type/object-literal properties repo-wide):
+ *   ~1600 systemic offenders in non-engine wire shapes — DB-row-aliased types
+ *   in `types/**`, test fixtures, config-map keys (vitest's `"@"` alias).
+ * - an `objectLiteralProperty` check scoped to `lib/engine/**`: still ~150
+ *   offenders that are legitimate external contracts, not naming drift —
+ *   DB-row keys (`created_at`, `mr_url`), YAML template keys (`join_mode`,
+ *   `input_map`), HTTP headers (`content-type`), env keys, UPPER_CASE lookup
+ *   tables (`STATUS`, `EVENT_KIND` maps). Properties stay unchecked; the
+ *   camelCase discipline for engine payload KEYS is carried by the Zod
+ *   schemas + typed row mappers, and the Prisma schema arch test
+ *   (`prismaSchemaCasing.test.ts`).
+ *
+ * Scoping decisions:
+ * - `leadingUnderscore: "allow"` — the repo already uses leading underscores
+ *   for intentionally-unused parameters (`_req`, `_host`, `_data`) throughout
+ *   `app/api/**` route handlers and provider callbacks.
+ * - `const` variables additionally allow UPPER_CASE (true compile-time
+ *   constants: `as const` domain objects, tuning values, Next.js `GET`/`POST`
+ *   route exports) and PascalCase (React components and Zod schemas are
+ *   declared as PascalCase `const` values by repo convention — AGENTS §2.9
+ *   and the user rules). A `let`/`var` in UPPER_CASE or PascalCase remains an
+ *   error via the general `variable` entry.
+ * - `function` allows PascalCase (React components declared as `function`
+ *   declarations across `components/**`/`app/**` — the shadcn primitive
+ *   pattern — and Next.js page components) and UPPER_CASE (Next.js route
+ *   handler exports `GET`/`POST`/`PUT`/`DELETE`/`PATCH`). The `lib/**` block
+ *   below re-tightens functions to camelCase-only where no components exist.
+ * - `parameter` allows PascalCase (component-typed props destructured as
+ *   `icon: Icon` — a JSX element must bind PascalCase to render as a
+ *   component).
+ * - `method` is filtered to identifier-like names: quoted wire keys used as
+ *   object-method keys (`"origin/main..feature/fix"` git ranges in test
+ *   harnesses) are external contracts, not method names.
+ * - `enumMember` allows PascalCase/UPPER_CASE (the one TS enum,
+ *   `PlanTurnKind`, uses PascalCase members by convention).
+ */
+const NAMING_CONVENTION_RULE = [
+  "error",
+  { selector: "variable", format: ["camelCase"], leadingUnderscore: "allow" },
+  {
+    selector: "variable",
+    modifiers: ["const"],
+    format: ["camelCase", "UPPER_CASE", "PascalCase"],
+    leadingUnderscore: "allow",
+  },
+  { selector: "function", format: ["camelCase", "PascalCase", "UPPER_CASE"] },
+  { selector: "parameter", format: ["camelCase", "PascalCase"], leadingUnderscore: "allow" },
+  {
+    selector: "method",
+    format: ["camelCase"],
+    filter: { regex: "^[A-Za-z$_][A-Za-z0-9$_]*$", match: true },
+  },
+  { selector: "accessor", format: ["camelCase"] },
+  { selector: "enumMember", format: ["PascalCase", "UPPER_CASE"] },
+  { selector: "typeLike", format: ["PascalCase"] },
+];
+
+// lib/** has no React components and no Next route exports: functions and
+// methods are camelCase, full stop (engine included).
+const LIB_NAMING_CONVENTION_RULE = [
+  "error",
+  { selector: "variable", format: ["camelCase"], leadingUnderscore: "allow" },
+  {
+    selector: "variable",
+    modifiers: ["const"],
+    format: ["camelCase", "UPPER_CASE", "PascalCase"],
+    leadingUnderscore: "allow",
+  },
+  { selector: "function", format: ["camelCase"] },
+  { selector: "parameter", format: ["camelCase", "PascalCase"], leadingUnderscore: "allow" },
+  {
+    selector: "method",
+    format: ["camelCase"],
+    filter: { regex: "^[A-Za-z$_][A-Za-z0-9$_]*$", match: true },
+  },
+  { selector: "accessor", format: ["camelCase"] },
+  { selector: "enumMember", format: ["PascalCase", "UPPER_CASE"] },
+  { selector: "typeLike", format: ["PascalCase"] },
+];
+
 const LIB_CLIENT_IMPORT_PATTERNS = [
   {
     group: [
@@ -227,6 +313,22 @@ const eslintConfig = [
           ],
         },
       ],
+    },
+  },
+
+  // Naming convention (AGENTS.md §2.9, target-architecture §12, decision Q11).
+  {
+    files: ["**/*.{ts,tsx}"],
+    rules: {
+      "@typescript-eslint/naming-convention": NAMING_CONVENTION_RULE,
+    },
+  },
+
+  // lib/** has no components/routes: backend functions stay camelCase.
+  {
+    files: ["lib/**/*.{ts,tsx}"],
+    rules: {
+      "@typescript-eslint/naming-convention": LIB_NAMING_CONVENTION_RULE,
     },
   },
 ];

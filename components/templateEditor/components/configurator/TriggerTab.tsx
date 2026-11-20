@@ -106,8 +106,8 @@ export function TriggerTab({
           <Select
             value={t.wait_for ?? null}
             onValueChange={(v) => {
-              const wait_for = (v as string) || undefined;
-              const nextContract = withContextFields(contractFields, wait_for);
+              const waitFor = (v as string) || undefined;
+              const nextContract = withContextFields(contractFields, waitFor);
               const contractPatch =
                 JSON.stringify(nextContract) === JSON.stringify(contractFields)
                   ? {}
@@ -118,7 +118,7 @@ export function TriggerTab({
                       },
                     };
               onChange({
-                trigger: { ...t, wait_for },
+                trigger: { ...t, wait_for: waitFor },
                 ...contractPatch,
               });
             }}

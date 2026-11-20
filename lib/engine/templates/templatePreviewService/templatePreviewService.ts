@@ -12,6 +12,7 @@ import { evalJsonata } from "@/lib/jsonata/eval";
 import type { PreviewScope } from "./types/previewScope";
 import { sampleValue } from "./utils/sampleValue";
 
+/** Template preview (§1 read model): samples a start-contract context and evaluates the template's nodes/edges to preview a hypothetical run — variables, outputs, edges. Read-only: samples synthetic values, never writes flows/nodes. */
 export class TemplatePreviewService {
   private async sampleContext(templateId: string): Promise<FlowContextMap> {
     const tpl = await db.get<{ trigger: unknown }>(

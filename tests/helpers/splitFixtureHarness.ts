@@ -306,8 +306,8 @@ const seedCatalogRow = async (index: number, key: string, name: string): Promise
  * Phase-1 lookup). The contract row declares a start contract the unit item
  * must match (the compatibility check).
  */
-let DECL_ROW: { id: string };
-let DECL_ROW_CONTRACT: { id: string };
+let declRowFixture: { id: string };
+let declRowContractFixture: { id: string };
 
 /** Reset the shared test database and seed the fixture catalog rows +
  *  declarative target rows the tests reference. Call from each DB-touching
@@ -320,7 +320,7 @@ export const setupSplitFixtures = async (): Promise<void> => {
   // a second SOURCE def for the multi-source conflict test (catalog keys are
   // UNIQUE(key, version) — the second source needs its own def + row)
   await seedCatalogRow(1, "split_source_fixture_b", "Split source fixture B");
-  DECL_ROW = must(
+  declRowFixture = must(
     await templateStore.createNodeTemplate({
       key: "unit_worker_decl",
       name: "Unit worker declarative",
@@ -329,7 +329,7 @@ export const setupSplitFixtures = async (): Promise<void> => {
     }),
     "declarative agent row"
   );
-  DECL_ROW_CONTRACT = must(
+  declRowContractFixture = must(
     await templateStore.createNodeTemplate({
       key: "unit_worker_contract",
       name: "Unit worker contract",
@@ -346,9 +346,9 @@ export const setupSplitFixtures = async (): Promise<void> => {
 };
 
 /** The declarative `template` target row (assigned by `setupSplitFixtures`). */
-export const declRow = (): { id: string } => DECL_ROW;
+export const declRow = (): { id: string } => declRowFixture;
 /** The declarative `template` target row carrying a start contract. */
-export const declRowContract = (): { id: string } => DECL_ROW_CONTRACT;
+export const declRowContract = (): { id: string } => declRowContractFixture;
 
 // ── seeding + polling helpers ────────────────────────────────────────────────
 

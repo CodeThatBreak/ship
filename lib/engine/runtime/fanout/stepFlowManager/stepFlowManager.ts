@@ -51,6 +51,21 @@ import { MergeBackCoordinator } from "../mergeBackCoordinator";
 // `FlowEngine` (module tail) supplies the engine reference via `bind()`: this
 // runtime cannot import the flowEngine value directly (flowEngine imports the
 // manager for the fan-out hook; the singleton cycle resolves at bind time).
+/**
+ * StepFlowManager — the fan-out runtime facade (step 07 decomposition, §12).
+ * State authority for the `fanout.mode != whole` knob: one real child flow per
+ * pending plan step, monitorable/approvable on its own flow screen, aggregated
+ * into the parent node's output contract on all-resolved. This class only
+ * delegates — expansion (`StepFlowExpander`), scheduling (`StepScheduler`),
+ * the child-terminal join + aggregate publication (`StepRollup`) and the
+ * approve→merge-back loop (`MergeBackCoordinator`) are the collaborators the
+ * module notes below map; shared child-row access is `StepChildStore`.
+ *
+ * Must never: grow fan-out special cases into the stage runner or chain — a
+ * new concern registers into the layer that owns it (staging, effects). The
+ * engine reference arrives via `bind()` from flowEngine's module tail; this
+ * module cannot import the flowEngine value directly (import cycle).
+ */
 export class StepFlowManager {
   /** Engine surface the fan-out runtime drives (bound once by flowEngine's module tail). */
   private engine: StepFlowEngine | null = null;

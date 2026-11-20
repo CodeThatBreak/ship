@@ -20,7 +20,7 @@ export function LocalAgentOptions({
   savingField: LocalAgentField | null;
   onToggle: (field: LocalAgentField) => void;
 }) {
-  const { force, sandbox, timeout_ms } = options;
+  const { force, sandbox, timeout_ms: timeoutMs } = options;
   const pending = savingField !== null;
 
   // stable per §1.3 — callbacks keep their identity across renders
@@ -55,7 +55,7 @@ export function LocalAgentOptions({
           {LOCAL_AGENT_LABELS.SANDBOX}: {sandbox ? TOGGLE_STATE.ON : TOGGLE_STATE.OFF}
         </Button>
         <span className="text-[12px] text-muted-foreground ml-1">
-          {LOCAL_AGENT_LABELS.TIMEOUT_PREFIX} {Math.round(timeout_ms / MS_PER_MINUTE)}{" "}
+          {LOCAL_AGENT_LABELS.TIMEOUT_PREFIX} {Math.round(timeoutMs / MS_PER_MINUTE)}{" "}
           {LOCAL_AGENT_LABELS.TIMEOUT_UNIT}
         </span>
       </div>

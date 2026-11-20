@@ -243,8 +243,8 @@ The engine decides node ownership through the database, not through in-memory ch
 | --- | --- |
 | Client-safe shared values (statuses, actions, event types, execution modes, query keys) | `constants/<domain>.ts` |
 | Server-only engine values (node keys, trigger sources, declarative kinds) | `lib/engine/constants/` |
-| Values of one node kind or feature | That kind's or feature's `constants/` folder, barrelled through `constants/index.ts` |
-| A value used inside one backend module | A module-level `const` |
+| Values of one node kind or feature | That kind's or feature's `constants/` folder, named files per domain (`constants/waiting.ts` — never an `index.ts` barrel, AGENTS §2.3) |
+| A value used by a backend class | The owning feature's `constants/` folder — a class file stays pure (§12): no module-level constants parked inside it |
 
 Always use an `as const` object plus a derived union type. Before adding a value, search for an existing one (`rg '"awaiting_approval"'`).
 
@@ -257,7 +257,7 @@ lib/engine/nodes/kinds/<kind>/
   <kind>-contract.ts    output parsing and validation
   <kind>-prompt.ts      prompt assembly (shared by run and previewPrompt, so the preview can't drift)
   schema.ts             config and output Zod schemas
-  constants/ types/     barrelled
+  constants/ types/     named files, no barrels (`constants/waiting.ts`, `types/gateProgress.ts`)
   *.test.ts             co-located
   index.ts              registration only
 ```
@@ -279,7 +279,7 @@ components/<feature>/
   queries.ts            queryOptions factories for this feature's server data
   components/           presentational subcomponents (props in, JSX out)
   hooks/                useThing.ts: stateful and data logic, mutations
-  constants/ types/     barrelled through index.ts
+  constants/ types/     named files, no barrels — import the concrete module (AGENTS §2.3)
   utils/                pure TS, no React, no fetching
 ```
 
@@ -407,3 +407,11 @@ The skeleton mirrors the real layout and lives next to the real component. Share
 - [ ] Multi-statement writes are in a transaction. State transitions are conditional updates.
 - [ ] No legacy shim added. Legacy code you touched is deleted.
 - [ ] If the work closes review findings, their status in [`docs/code-review.md`](code-review.md) and the task checkbox in [`docs/review-tasks/README.md`](review-tasks/README.md) are updated.
+
+## 7. Engine module design (target-architecture §12)
+
+New `lib/engine/**` code lands in the target layout — [`docs/engine-overhaul/target-architecture.md`](engine-overhaul/target-architecture.md) §12 is the source of truth; the recipes here defer to it.
+
+- **Class files are pure.** A file that exports a class exports only that class — no module-scope functions, constants, schemas or types parked at its edges. Constants go to `constants/` named files, Zod schemas to `schema.ts`/`schemas/`, types to `types/`, pure helpers to `utils/` (enforced by `tests/architecture/classFilePurity.test.ts` and `oneClassPerFile.test.ts`).
+- **Every exported class carries a JSDoc header** directly above the declaration: its role in the mental model, the invariant(s) it upholds, and what it must never do (enforced by `tests/architecture/engineClassHeaderDoc.test.ts`).
+- **Casing** follows AGENTS §2.9 (lint-enforced): camelCase variables/functions/methods, SCREAMING_SNAKE_CASE for true constants only, PascalCase type-likes; Prisma fields camelCase with `@map` columns (`tests/architecture/prismaSchemaCasing.test.ts`).

@@ -35,6 +35,7 @@ import { ResolveConsumes, ResolveInput, ResolveOutput, RESOLVE_RESPONSE_JSON_SCH
 import { ResolveOutputContract } from "./resolveContract";
 import { ResolveFinisher } from "./resolveFinisher";
 
+/** The resolve kind's node definition (§T3 chain resolve role, §T4 refinable): a debounced quiet-period re-resolution of review comments, driven by the declared contract/config below. Definition only — execution lives in the kind's collaborators (finisher, effects); this class never runs the agent itself. */
 export class ResolveNode extends AgentRunNode<ResolveInput, ResolveOutput> {
   readonly key = NODE_KEYS.RESOLVE;
   readonly label = "Resolve";

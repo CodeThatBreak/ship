@@ -72,7 +72,7 @@ export function useEditorSave(deps: EditorSaveDeps): EditorSaveApi {
         setError(problemsMessage(problems));
         return;
       }
-      const new_node_templates = collectPendingDefs(d);
+      const newNodeTemplates = collectPendingDefs(d);
       const res = await apiFetch(`/api/templates/${d.template.id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
@@ -80,7 +80,7 @@ export function useEditorSave(deps: EditorSaveDeps): EditorSaveApi {
           name: d.template.name,
           description: d.template.description,
           trigger: d.template.trigger,
-          ...(new_node_templates.length ? { new_node_templates } : {}),
+          ...(newNodeTemplates.length ? { new_node_templates: newNodeTemplates } : {}),
           nodes: d.nodes.map((n) => ({
             key: n.key,
             nodeTemplateId: n.nodeTemplateId,
@@ -117,7 +117,7 @@ export function useEditorSave(deps: EditorSaveDeps): EditorSaveApi {
         setNotice("Draft saved — new flows snapshot this version.");
         setDirty(false);
         validation.clear();
-        if (new_node_templates.length) setCatalogEpoch((e) => e + 1);
+        if (newNodeTemplates.length) setCatalogEpoch((e) => e + 1);
         const refreshed = await detailQuery.refetch();
         if (refreshed.data) {
           replaceDraft(detailToDraft(refreshed.data).draft);

@@ -4,6 +4,7 @@ import type { Database } from "@/lib/db/app";
 import { Task, rows } from "@/lib/db/rows";
 import type { TaskProviderRegistry } from "../registry/taskProviderRegistry";
 
+/** Task service (§1): the task list read model (rows joined with each provider's live `externalUrl`) and the repo-url update. Provider lookups go through the injected registry; the single write is the repo-url column — nothing else mutates task rows here. */
 export class TaskService {
   constructor(
     private readonly database: Database,
