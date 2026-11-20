@@ -256,7 +256,7 @@ export class PipelineNode extends AgentRunNode<
     const input = this.inputSchema.parse(node.input ?? {});
     const config = await this.nodeConfig(ctx);
     const label = input.branchName ? `pipeline (${input.branchName})` : "pipeline";
-    const outcome = await this.waitLoop.run({
+    await this.waitLoop.run({
       ctx,
       node,
       input,

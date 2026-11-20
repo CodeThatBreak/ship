@@ -459,7 +459,7 @@ export class AgentTemplateNode extends DeclarativeAgentNode<AgentDef, Record<str
   /**
    * The output-contract path both run() and chat() finalize through: markdown
    * output is validated directly (an empty response is a typed failure —
-   * never a fabricated `"(empty response)"`); json output rides the ONE
+   * never a fabricated empty-response placeholder); json output rides the ONE
    * agent-output pipeline (step 05) — the contract with its bounded feedback
    * retry (`retryBudget`), typed events on every outcome.
    */
@@ -546,7 +546,7 @@ export class AgentTemplateNode extends DeclarativeAgentNode<AgentDef, Record<str
       };
     }
     // step 05: an empty response is a typed failure — missing output is a
-    // first-class state, never a fabricated `"(empty response)"` value
+    // first-class state, never a fabricated empty-response placeholder
     const body = text.trim();
     if (!body) {
       throw new AgentOutputError({
