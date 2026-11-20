@@ -29,6 +29,12 @@ import type { WaitStoreHost } from "../flowEngineHost";
  * Must never: write `nodes.status`/`attempt_id` (the authority owns both),
  * compare a deadline against app-server time, or leave a deadline armed when
  * the node leaves `waiting` (the authority's transitions clear `wait_until`).
+ *
+ * The remaining raw statements here (`wait_until <= now()` sweep read and the
+ * `now() + make_interval(...)` re-arms) are the sanctioned raw-SQL exception —
+ * DB-server-time comparisons and interval arithmetic have no Prisma query-API
+ * equivalent (the orm-migration containment list); they sit on Task 12's lint
+ * allowlist, each behind a named method.
  */
 export class WaitStore {
   constructor(
@@ -123,13 +129,7 @@ export class WaitStore {
     for (const spec of g.nodes) {
       if (spec.trigger.type !== "debounced" || spec.trigger.waitFor !== "comments") continue;
       if ((await this.host.nodeStatus(flowId, spec.key)) !== "waiting") continue;
-      await db.run(
-        `UPDATE nodes SET wait_until = now() + make_interval(mins => $1), updated_at = now()
-         WHERE flow_id=$2 AND node_key=$3`,
-        await this.debounceMinutesForNode(flowId, spec.key, spec),
-        flowId,
-        spec.key,
-      );
+      await this.deferDebounceWait(flowId, spec.key, await this.debounceMinutesForNode(flowId, spec.key, spec));
     }
   }
 
@@ -142,13 +142,7 @@ export class WaitStore {
    * the chain is busy (the resolve only fires on a quiet flow).
    */
   async sweepDueWaits(flowId?: string): Promise<void> {
-    const due = await db.all<{ flowId: string; nodeKey: string }>(
-      `SELECT n.flow_id AS "flowId", n.node_key AS "nodeKey" FROM nodes n
-       JOIN flows f ON f.id = n.flow_id
-       WHERE n.wait_until <= now() AND f.status='active' AND n.status='waiting'
-         AND ($1::text IS NULL OR n.flow_id=$1)`,
-      flowId ?? null,
-    );
+    const due = await this.dueWaitingNodes(flowId);
     for (const { flowId, nodeKey } of due) {
       const spec = (await templateStore.graphForFlow(flowId))?.byKey.get(nodeKey);
       if (spec?.trigger.type === "debounced" && spec.trigger.waitFor === "comments") {
@@ -156,13 +150,7 @@ export class WaitStore {
           where: { flowId, status: "open" },
         });
         if (open === 0 || (await this.host.chainBusy(flowId))) {
-          await db.run(
-            `UPDATE nodes SET wait_until = now() + make_interval(mins => $1), updated_at = now()
-             WHERE flow_id=$2 AND node_key=$3`,
-            await this.debounceMinutesForNode(flowId, nodeKey, spec),
-            flowId,
-            nodeKey,
-          );
+          await this.deferDebounceWait(flowId, nodeKey, await this.debounceMinutesForNode(flowId, nodeKey, spec));
           continue;
         }
       }
@@ -215,6 +203,39 @@ export class WaitStore {
     );
     this.host.bg(flowId, nodeKey, () =>
       this.host.startNodeStage(flowId, nodeKey, { resumeWaiting: true, source: TRIGGER_SOURCE.POLLER }).then(() => {})
+    );
+  }
+
+  /**
+   * The sweep's due-wait read: `wait_until <= now()` compared on DB-server
+   * time (the clock-skew rule — never against app-server time), so the
+   * deadline comparison stays raw like the interval arithmetic it pairs with
+   * (Invariant 2; the orm-migration containment list, Task 12 lint allowlist).
+   */
+  private async dueWaitingNodes(flowId?: string): Promise<{ flowId: string; nodeKey: string }[]> {
+    return db.all<{ flowId: string; nodeKey: string }>(
+      `SELECT n.flow_id AS "flowId", n.node_key AS "nodeKey" FROM nodes n
+       JOIN flows f ON f.id = n.flow_id
+       WHERE n.wait_until <= now() AND f.status='active' AND n.status='waiting'
+         AND ($1::text IS NULL OR n.flow_id=$1)`,
+      flowId ?? null,
+    );
+  }
+
+  /**
+   * Re-arm a debounced wait's deadline on DB-server time:
+   * `wait_until = now() + make_interval(mins => $n)` is interval arithmetic
+   * Prisma cannot express (the orm-migration containment list, Task 12 lint
+   * allowlist). Writes `wait_until` only — never `status`/`attempt_id` (the
+   * authority owns those).
+   */
+  private async deferDebounceWait(flowId: string, nodeKey: string, minutes: number): Promise<void> {
+    await db.run(
+      `UPDATE nodes SET wait_until = now() + make_interval(mins => $1), updated_at = now()
+       WHERE flow_id=$2 AND node_key=$3`,
+      minutes,
+      flowId,
+      nodeKey,
     );
   }
 

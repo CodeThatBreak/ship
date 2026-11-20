@@ -10,16 +10,10 @@ import { ContractPipeline } from "../contractPipeline";
 import { OutputContractError } from "../../errors/outputContractError";
 import { EVENT_KIND, RUN_STATUS } from "../../constants/vocabulary";
 import { isClaimKey, resolveToStatus, sqlMarks } from "./utils/transitionLookup";
-import { executorFor } from "./utils/executor";
 import { supersededOrConflict } from "./utils/supersededOrConflict";
 import { generateCapabilityToken } from "./utils/capabilityToken";
 import { TRANSITION_TABLE } from "./constants/transitionTable";
-import type {
-  NodeOutcome,
-  TransitionKey,
-  TransitionRecord,
-  TriggerClaim,
-} from "./types/transitions";
+import type { NodeOutcome, TransitionKey, TransitionRecord, TriggerClaim } from "./types/transitions";
 import type { OutcomeContractSource } from "./types/contractSource";
 import type { TransitionEvents } from "./transitionEvents";
 
@@ -28,8 +22,10 @@ import type { TransitionEvents } from "./transitionEvents";
  * (Invariant 1). Every write resolves a row in the declared transition table
  * first (`constants/transitionTable.ts`, target-architecture §2) and is a
  * single conditional `UPDATE … WHERE status IN (from-set)` — attempt-fenced
- * on every later write, with the terminal write carrying the validated
- * `output` in the same statement.
+ * on every later write, the terminal carrying the validated `output` in the
+ * same statement. The CAS UPDATEs are the sanctioned raw-SQL exception (the
+ * orm-migration containment list: from-set + `NOT EXISTS` fencing has no
+ * Prisma query-API equivalent) and sit on Task 12's lint allowlist.
  *
  * The `NodeSupport.claim`/`NodeStore.claim` duplicates collapsed into this
  * class; `NodeSupport` keeps only thin delegates over it plus its
@@ -76,13 +72,13 @@ export class TransitionAuthority {
   }
 
   /**
-   * Claim a node for a run: conditional `UPDATE` to `running` guarded by the
-   * key's from-set, stamping a fresh attempt token. Marks the attempt
-   * registry so reconcile can distinguish this process's in-flight runs.
-   * Leaves `waiting` (wait_until cleared) and stamps the durable node lease
+   * Claim a node for a run (Invariant 7 — the attempt-fenced CAS: from-set
+   * guard, attempt stamp and lease stamp in ONE conditional UPDATE, so a
+   * loser can never half-claim): `running` guarded by the key's from-set,
+   * stamping a fresh attempt token (marks the registry for reconcile).
+   * Leaves `waiting` (wait_until cleared); stamps the durable lease
    * (`lease_until = now() + NODE_LEASE_SECONDS`, DB-server time — the
-   * clock-skew rule: never compare a lease against app-server time).
-   * Throws {@link ConflictError} when the node is not in the from-set.
+   * clock-skew rule). Throws {@link ConflictError} outside the from-set.
    */
   async claim(
     flowId: string,
@@ -115,10 +111,11 @@ export class TransitionAuthority {
   }
 
   /**
-   * The atomic trigger claim with the chain in-flight guard folded into the SAME
-   * conditional UPDATE (step 06, Invariant 11): a post-MR chain trigger loses
-   * atomically when a sibling stage runs; a lost claim never throws — the
-   * holder's state returns so the TriggerGateway emits the typed skip event.
+   * The atomic trigger claim (Invariant 11 — claim or lose, never queue) with
+   * the chain in-flight guard folded into the SAME conditional UPDATE: a
+   * post-MR chain trigger loses atomically when a sibling stage runs; a lost
+   * claim never throws — the holder's state returns so the TriggerGateway
+   * emits the typed skip event.
    */
   async claimTrigger(
     flowId: string,
@@ -145,8 +142,7 @@ export class TransitionAuthority {
       flowId, nodeKey, ...chainKeys, ...row.from,
     );
     if (!claimed) {
-      const holder = await this.database.get<{ status: string; attemptId: string | null }>(
-        `SELECT status, attempt_id AS "attemptId" FROM nodes WHERE flow_id=$1 AND node_key=$2`, flowId, nodeKey);
+      const holder = await this.database.prisma.node.findFirst({ where: { flowId, nodeKey }, select: { status: true, attemptId: true } });
       return { claimed: false, status: holder?.status ?? null, holderAttemptId: holder?.attemptId ?? null };
     }
     this.attempts.mark(claimed.id, attemptId, apiToken);
@@ -155,11 +151,11 @@ export class TransitionAuthority {
   }
 
   /**
-   * Apply a keyed transition by (flow, nodeKey): conditional `UPDATE` guarded
-   * by the row's from-set, clearing `attempt_id` (this never targets
-   * `running` — claims do). Returns false when the from-set missed (fire-
-   * and-forget callers tolerate the race; loud callers use
-   * {@link applyOrThrow}).
+   * Apply a keyed transition by (flow, nodeKey) (Invariant 7 — attempt-fenced
+   * CAS: from-set guard + attempt clear in ONE conditional UPDATE): guarded
+   * by the row's from-set, clearing `attempt_id` (never targets `running` —
+   * claims do). Returns false when the from-set missed (fire-and-forget
+   * callers tolerate the race; loud callers use {@link applyOrThrow}).
    */
   async apply(
     flowId: string,
@@ -211,9 +207,9 @@ export class TransitionAuthority {
 
   /**
    * Apply a transition to every node of a flow in the row's from-set (the
-   * split runtime's bulk unit skip). One statement; returns the affected node
-   * keys for the caller's trail. Never announces per node (the feed never
-   * showed the bulk skip).
+   * split runtime's bulk unit skip; Invariant 7 — one attempt-fenced CAS over
+   * the whole from-set). Returns the affected node keys for the caller's
+   * trail. Never announces per node (the feed never showed the bulk skip).
    */
   async applyFlowScope(flowId: string, key: TransitionKey): Promise<string[]> {
     const to = resolveToStatus(key);
@@ -238,10 +234,11 @@ export class TransitionAuthority {
   }
 
   /**
-   * Attempt-fenced transition by node id (a chat turn's revert to its
-   * pre-claim status, plan retry reverts). Throws {@link RunSupersededError}
-   * when the attempt token no longer matches, {@link ConflictError} when the
-   * status left the from-set.
+   * Attempt-fenced transition by node id (Invariants 7/11 — fences on the
+   * attempt token AND the from-set, so a superseded attempt never reverts a
+   * newer one; a chat turn's revert to its pre-claim status, plan retry
+   * reverts). Throws {@link RunSupersededError} when the attempt token no
+   * longer matches, {@link ConflictError} when the status left the from-set.
    */
   async transitionFenced(params: {
     flowId: string;
@@ -274,14 +271,14 @@ export class TransitionAuthority {
   }
 
   /**
-   * THE terminal door for a finished run (the defs' `applyOutcome` write):
-   * validate the outcome against the node's declared output contract (step
-   * 04 — nothing is published unvalidated; a violation throws
-   * {@link OutputContractError} and the caller maps it to a failed node +
-   * typed event), then write status + validated output + agent cursor in ONE
-   * conditional `UPDATE` — fenced by the attempt token when the run holds one
-   * (a superseded run throws {@link RunSupersededError}), from-set fenced
-   * otherwise.
+   * THE terminal door for a finished run (Invariants 7/11 — the terminal CAS:
+   * status + validated output land in ONE attempt-fenced UPDATE inside the
+   * caller's completion transaction): validate the outcome against the node's
+   * declared output contract (step 04 — a violation throws
+   * {@link OutputContractError}, mapped by the caller to a failed node +
+   * typed event), then write status + output + agent cursor in ONE
+   * conditional `UPDATE` — attempt-fenced when the run holds a token,
+   * from-set fenced otherwise.
    */
   async publishOutcome(params: {
     flowId: string;
@@ -300,8 +297,9 @@ export class TransitionAuthority {
       }
     }
     const agentId = params.outcome.agentId ?? null;
-    const d = executorFor(this.database, params.tx);
-    const changes = await d.run(
+    // the raw CAS runs on the caller's tx when one is open (Invariant 7 — the terminal write joins the completion transaction)
+    const client = params.tx ?? this.database.prisma;
+    const changes = await client.$executeRawUnsafe(
       `UPDATE nodes SET status=$1, attempt_id=NULL, lease_until=NULL, output=$2::jsonb, agent_id=$3, updated_at=$4
        WHERE id=$5${params.attemptId ? ` AND attempt_id=$6` : ""} AND status IN (${sqlMarks(row.from, params.attemptId ? 7 : 6)})`,
       ...([
@@ -321,12 +319,14 @@ export class TransitionAuthority {
       throw new ConflictError(`Node ${params.nodeKey} is not in ${row.from.join("/")}`);
     }
     this.attempts.clear(params.nodeId);
-    await this.clearRunTokens(params.nodeId, d);
+    await this.clearRunTokens(params.nodeId, client);
     this.record(params.flowId, params.nodeKey, "outcome", to);
   }
 
   /**
-   * Publish a fan-out/split aggregate terminal by (flow, nodeKey).
+   * Publish a fan-out/split aggregate terminal by (flow, nodeKey)
+   * (Invariants 7/11 — the aggregate CAS: the three-way attempt guard + the
+   * from-set in ONE conditional UPDATE inside the caller's transaction).
    *
    * Fence semantics (CR-009 + the finishSplit overwrite bug, both fixed):
    *  - a bare caller (no captured attempt) may only publish a `running`
@@ -377,15 +377,16 @@ export class TransitionAuthority {
       ...(fence ? [outcome.attemptId] : []),
       ...row.from,
     ];
-    const applied = await executorFor(this.database, tx).get<{ id: string }>(
+    const client = tx ?? this.database.prisma;
+    const applied = (await client.$queryRawUnsafe<{ id: string }[]>(
       `UPDATE nodes SET status=$1, attempt_id=NULL, lease_until=NULL, output=$2::jsonb, updated_at=$3
        WHERE flow_id=$4 AND node_key=$5${attemptGuard} AND status IN (${sqlMarks(row.from, fence ? 7 : 6)})
        RETURNING id`,
       ...params,
-    );
+    ))[0];
     if (!applied) return false;
     this.attempts.clear(applied.id);
-    await this.clearRunTokens(applied.id, executorFor(this.database, tx));
+    await this.clearRunTokens(applied.id, client);
     const record = this.record(flowId, nodeKey, key, to);
     await this.events.announcedTransition(record, outcome.detail, tx);
     return true;
@@ -401,14 +402,12 @@ export class TransitionAuthority {
   }
 
   /** Step 08: the attempt's capability token dies with the terminal — same
-   *  executor/tx as the write, so a crash can't leave a live token behind. */
-  private async clearRunTokens(nodeId: string, exec: Pick<Database, "run">): Promise<void> {
-    await exec.run(
-      `UPDATE runs SET api_token=NULL, updated_at=$2 WHERE node_id=$1 AND status=$3`,
-      nodeId,
-      this.database.now(),
-      RUN_STATUS.RUNNING,
-    );
+   *  client/tx as the status write, so a crash can't leave a live token behind. */
+  private async clearRunTokens(nodeId: string, client: QueryExecutor): Promise<void> {
+    await client.run.updateMany({
+      where: { nodeId, status: RUN_STATUS.RUNNING },
+      data: { apiToken: null, updatedAt: this.database.now() },
+    });
   }
 
   /**
