@@ -2,15 +2,18 @@
 import { Wrench } from "lucide-react";
 import type { BranchRow } from "@/types/flow";
 import { FLOW_ACTION, FLOW_STATUS } from "@/constants/flow";
-import { Alert } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { PanelShell, GenericArtifact } from '../shared';
 import { useNodePanel } from '../context';
+import { PipelineStatusBody } from "../artifacts/components/PipelineStatusBody";
 
 /**
  * The CI-gate panel: the pipeline status, the fix runs the gate performed, and
  * the manual re-check / retrigger actions (task 17 — retrigger presses retry
  * on the failed pipeline the gate recorded, through the panel-verb door).
+ * Task 18: the status/progress body is the shared `PipelineStatusBody` (the
+ * same view the `pipeline` artifact renderer shows) — this panel keeps its
+ * shell, footer and actions, and its `fix` artifacts as the history slot.
  */
 export default function PipelineView() {
   const { flow, node, action, model } = useNodePanel();
@@ -42,14 +45,12 @@ export default function PipelineView() {
   return (
     <>
       <PanelShell node={node} flow={flow} runningLabel="Waiting for a green pipeline — failures are fixed automatically…" footer={footer}>
-        {node.status === FLOW_STATUS.DONE && output?.pipelineId && (
-          <Alert className="bg-success/10 text-success mb-3.5">
-            <span className="flex-1">
-              Pipeline #{output.pipelineId} is green{output.fixes ? ` after ${output.fixes} fix run${output.fixes > 1 ? "s" : ""}` : ""}.
-            </span>
-          </Alert>
-        )}
-        <GenericArtifact node={node} kind="fix" icon={Wrench} empty="No pipeline fix runs yet." />
+        <PipelineStatusBody
+          green={node.status === FLOW_STATUS.DONE}
+          pipelineId={output?.pipelineId ?? null}
+          fixes={output?.fixes ?? 0}
+          history={<GenericArtifact node={node} kind="fix" icon={Wrench} empty="No pipeline fix runs yet." />}
+        />
       </PanelShell>
     </>
   );

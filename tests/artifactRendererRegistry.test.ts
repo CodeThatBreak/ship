@@ -15,8 +15,10 @@ import {
   rendererForKind,
 } from "@/components/flows/panels/artifacts/artifactRenderers";
 import { GenericDeclarativePanel } from "@/components/flows/panels/genericDeclarativePanel";
+import PipelineView from "@/components/flows/panels/views/PipelineView";
 import { NodePanelContext, type NodePanelContextValue } from "@/components/flows/panels/context";
 import { resolveNodePanel } from "@/components/flows/panels/panelFactory";
+import { FLOW_STATUS } from "@/constants/flow";
 import { queryKeys } from "@/constants/queryKeys";
 import type { Artifact, FlowData, Node } from "@/types/flow";
 
@@ -95,13 +97,14 @@ const renderPanel = (html: (q: QueryClient) => void, nodeOverride: Partial<Node>
 };
 
 describe("artifact renderer registry", () => {
-  it("pins the five built-in kinds and the <pre> fallback", () => {
-    expect(Object.keys(artifactRenderers).sort()).toEqual(["diff", "json", "markdown", "plan", "usage"]);
+  it("pins the six built-in kinds and the <pre> fallback", () => {
+    expect(Object.keys(artifactRenderers).sort()).toEqual(["diff", "json", "markdown", "pipeline", "plan", "usage"]);
     expect(rendererForKind("markdown")).toBe(artifactRenderers.markdown);
     expect(rendererForKind("json")).toBe(artifactRenderers.json);
     expect(rendererForKind("diff")).toBe(artifactRenderers.diff);
     expect(rendererForKind("plan")).toBe(artifactRenderers.plan);
     expect(rendererForKind("usage")).toBe(artifactRenderers.usage);
+    expect(rendererForKind("pipeline")).toBe(artifactRenderers.pipeline);
     // an unregistered kind still renders — via the existing <pre> fallback
     expect(rendererForKind("something_new")).toBe(fallbackArtifactRenderer);
   });
@@ -196,6 +199,83 @@ describe("usage artifact renderer (task 21)", () => {
   });
 });
 
+describe("pipeline artifact renderer (task 18)", () => {
+  const pipelineArtifact: Artifact = {
+    id: "art-pipeline",
+    kind: "pipeline",
+    version: 1,
+    status: "done",
+    created_at: "2026-11-21T00:00:00.000Z",
+  };
+
+  const renderPipeline = (detail: Record<string, unknown>): string =>
+    renderPanel((queryClient) => {
+      queryClient.setQueryData(queryKeys.artifacts.detail(pipelineArtifact.id), detail);
+    }, { artifacts: [pipelineArtifact] });
+
+  it("renders the status badge, the job list and the fix-run ledger from the snapshot", () => {
+    const html = renderPipeline({
+      content: JSON.stringify({
+        status: "failed",
+        pipelineId: 42,
+        fixes: 2,
+        jobs: [
+          { id: 101, name: "rspec", status: "failed", manual: false },
+          { id: 102, name: "deploy", status: "manual", manual: true },
+        ],
+        fixRuns: [
+          { attempt: 1, summary: "bumped the flaky timeout" },
+          { attempt: 2, summary: "pinned the lockfile" },
+        ],
+      }),
+      meta: { nodeKey: "ci" },
+    });
+
+    // the structured renderer produced the view — not the raw-body fallback
+    expect(html).not.toContain("<pre");
+    // the status badge names the watched pipeline and its status
+    expect(html).toContain("Pipeline #42 · failed");
+    // the job snapshot with the manual-play marker
+    expect(html).toContain("Jobs");
+    expect(html).toContain("rspec");
+    expect(html).toContain("deploy");
+    expect(html).toContain("manual");
+    // the fix-run ledger the gate spent
+    expect(html).toContain("Fix runs");
+    expect(html).toContain("bumped the flaky timeout");
+    expect(html).toContain("pinned the lockfile");
+    // the retrigger affordance rides the panel dispatcher to the recorded node
+    expect(html).toContain("Retrigger pipeline");
+  });
+
+  it("renders the green banner for a success snapshot and no retrigger", () => {
+    const html = renderPipeline({
+      content: JSON.stringify({ status: "success", pipelineId: 7, fixes: 2, jobs: [], fixRuns: [] }),
+    });
+
+    expect(html).toContain("Pipeline #7 is green after 2 fix runs.");
+    expect(html).not.toContain("Retrigger pipeline");
+    expect(html).not.toContain("<pre");
+  });
+
+  it("offers no retrigger without the snapshot's node key", () => {
+    const html = renderPipeline({
+      content: JSON.stringify({ status: "failed", pipelineId: 42, fixes: 1, jobs: [], fixRuns: [] }),
+    });
+
+    expect(html).toContain("Pipeline #42 · failed");
+    expect(html).not.toContain("Retrigger pipeline");
+  });
+
+  it("falls back to the raw body when the content is not a pipeline snapshot", () => {
+    const html = renderPipeline({ content: "not json" });
+
+    expect(html).toContain("not json");
+    expect(html).not.toContain("Pipeline #");
+    expect(html).not.toContain("Retrigger pipeline");
+  });
+});
+
 describe("generic declarative panel — in-flow reconfiguration (task 05)", () => {
   it("offers Configure for a pending node", () => {
     const html = renderPanel(() => undefined, { status: "pending" });
@@ -215,5 +295,63 @@ describe("generic declarative panel — in-flow reconfiguration (task 05)", () =
   it("offers no Configure for a done node", () => {
     const html = renderPanel(() => undefined, { status: "done" });
     expect(html).not.toContain("Configure");
+  });
+});
+
+describe("built-in PipelineView — unchanged after the PipelineStatusBody swap (task 18)", () => {
+  const gateNode: Node = {
+    ...node,
+    node_key: "ci",
+    type: "pipeline",
+    kind: "builtin",
+    status: FLOW_STATUS.FAILED,
+    artifacts: [],
+    output: { pipelineId: 7, status: "failed", fixes: 2 },
+  };
+  const gateFlow: FlowData = {
+    ...flow,
+    mr_url: "https://git.example.com/o/r/-/merge_requests/1",
+    branches: [],
+  };
+
+  const renderView = (nodeOverride: Partial<Node>): string => {
+    const context: NodePanelContextValue = {
+      flow: gateFlow,
+      node: { ...gateNode, ...nodeOverride },
+      action: () => undefined,
+      actionAsync: async () => undefined,
+      actionPending: false,
+      actionError: null,
+      resetAction: () => undefined,
+      retryAction: () => undefined,
+      events: [],
+      model: "",
+      modelChoice: null,
+      setModelChoice: () => undefined,
+    };
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    return renderToStaticMarkup(
+      createElement(
+        QueryClientProvider,
+        { client: queryClient },
+        createElement(NodePanelContext.Provider, { value: context }, createElement(PipelineView)),
+      ),
+    );
+  };
+
+  it("matches the pre-refactor snapshot on a failed gate with a recorded pipeline", () => {
+    const html = renderView({});
+    expect(html).toMatchSnapshot();
+    // the footer keeps both affordances, the body keeps its empty state
+    expect(html).toContain("Retrigger pipeline");
+    expect(html).toContain("Check pipeline");
+    expect(html).toContain("No pipeline fix runs yet.");
+  });
+
+  it("matches the pre-refactor snapshot on a green gate", () => {
+    const html = renderView({ status: FLOW_STATUS.DONE, output: { pipelineId: 7, status: "success", fixes: 2 } });
+    expect(html).toMatchSnapshot();
+    // the moved green banner renders through the shared body, byte-identical
+    expect(html).toContain("Pipeline #7 is green after 2 fix runs.");
   });
 });
