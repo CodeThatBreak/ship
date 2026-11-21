@@ -5,6 +5,7 @@ import { fanoutConfigFields, mcpSourceConfigFields, splitConsumerConfigFields } 
 import { MODE_CONFIG_FIELD } from "./mode";
 import { PROMPT_CONFIG_FIELD } from "./prompt";
 import { MODEL_CONFIG_FIELD } from "./model";
+import { baseRefConfigFields, retryBudgetConfigFields } from "./agentConfigFields";
 import { OUTPUT_CONFIG_FIELD } from "./output";
 import { OUTPUT_SCHEMA_CONFIG_FIELD } from "./outputSchema";
 import { SPLIT_CONFIG_FIELD } from "./split";
@@ -20,6 +21,11 @@ export const AGENT_CONFIG_FIELDS: readonly ConfigField[] = [
   MODE_CONFIG_FIELD,
   PROMPT_CONFIG_FIELD,
   MODEL_CONFIG_FIELD,
+  // run-target knobs (Task 03): the ref the runs branch from (empty = the
+  // flow's MR branch) and the bounded feedback-retry budget for the json
+  // output contract — declarative data, not class-level behavior
+  ...baseRefConfigFields,
+  ...retryBudgetConfigFields,
   // the MCP-sources knob (Cursor local.settingSources): the shared agent-run
   // field set — empty = runtime default (inline servers only)
   ...mcpSourceConfigFields,

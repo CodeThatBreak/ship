@@ -21,6 +21,8 @@ import type { RenderedBlock } from "../../../prompts/promptLibrary/types/promptL
 import { nodeRoles, type NodePromptPreview, type PromptPreviewParams } from "../../shared/nodeSharedExports";
 import type { SplitUnit } from "../../shared/nodeSharedExports";
 import { splitDirective } from "./splitDirective";
+import { resolveStartingRef } from "./baseRefResolver";
+import { retryBudgetOf } from "./retryBudget";
 import { AGENT_CONFIG_FIELDS } from "./constants/agentConstantsExports";
 import { AGENT_START_LABEL } from "./constants/startLabel";
 import { AgentRunInput, agentOutputContract } from "./schema";
@@ -243,7 +245,7 @@ export class AgentTemplateNode extends DeclarativeAgentNode<AgentDef, Record<str
         mode: cfg.mode,
         name: `${this.label} ${ctx.task.key}`,
         model,
-        startingRef: ctx.flow.mrBranch ?? undefined,
+        startingRef: await resolveStartingRef(ctx, cfg),
         settingSources: cfg.mcp_sources,
       },
       label: this.label.toLowerCase(),
@@ -284,7 +286,7 @@ export class AgentTemplateNode extends DeclarativeAgentNode<AgentDef, Record<str
         mode: cfg.mode,
         name: `${this.label} ${ctx.task.key}`,
         model: model ?? cfg.model ?? null,
-        startingRef: ctx.flow.mrBranch ?? undefined,
+        startingRef: await resolveStartingRef(ctx, cfg),
         followUpOn: await this.support.lastAgentId(node.id),
         settingSources: cfg.mcp_sources,
       },
@@ -335,7 +337,7 @@ export class AgentTemplateNode extends DeclarativeAgentNode<AgentDef, Record<str
       nodeId: node.id,
       label: this.label,
       text: result.result ?? '',
-      budget: this.retryBudget,
+      budget: retryBudgetOf(cfg, this.retryBudget),
       validate: (t) => this.applyOutput(ctx, t, cfg),
       // the retry prompt re-states the full contract (one JSON object, the
       // schema, the error-envelope escape hatch) on top of the shared feedback
@@ -350,6 +352,9 @@ export class AgentTemplateNode extends DeclarativeAgentNode<AgentDef, Record<str
               mode: cfg.mode,
               name: `${this.label} ${ctx.task.key}`,
               model,
+              // E2 fix: the feedback retry starts from the SAME ref the first
+              // run did — the one resolver, not a dropped knob
+              startingRef: await resolveStartingRef(ctx, cfg),
               followUpOn: await this.support.lastAgentId(node.id),
               settingSources: cfg.mcp_sources,
             }),

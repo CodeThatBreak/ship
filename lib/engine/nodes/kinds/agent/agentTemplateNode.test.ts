@@ -524,3 +524,120 @@ async function splitUnitsErrorOf(node: InstanceType<typeof AgentTemplateNode>, c
   }
   throw new Error("expected splitUnits to fail loudly");
 }
+
+// ── Task 03: the `base_ref` + `retry_budget` knobs ───────────────────────────
+
+/** A template instance whose config overrides come straight from the test. */
+function configuredAgentNode(
+  index: number,
+  runner: InstanceType<typeof AgentRunner>,
+  config: Record<string, unknown>,
+): InstanceType<typeof AgentTemplateNode> {
+  return new AgentTemplateNode(
+    { id: `nt_${index}`, name: LABEL, description: null, config },
+    `agent_${index}`,
+    { runner },
+  );
+}
+
+/** The seeded ctx, with the flow's MR branch set (the base_ref fallback). */
+const ctxWithMrBranch = (seeded: { ctx: FlowCtx }, mrBranch: string): FlowCtx =>
+  ({ ...seeded.ctx, flow: { ...seeded.ctx.flow, mrBranch } }) as unknown as FlowCtx;
+
+describe("AgentTemplateNode — base_ref + retry_budget (Task 03)", () => {
+  it("a declared base_ref starts the run from that ref", async () => {
+    const seeded = await seedAgentNode(51);
+    const runner = new StubRunner({ status: "finished", result: FINISHED_TEXT });
+    const node = agentNode(51, runner);
+    await node.run(seeded.ctx, { prompt: "Do the work" }, { base_ref: "develop" });
+    expect(runner.starts[0]?.startingRef).toBe("develop");
+  });
+
+  it("a {{...}} base_ref renders against the flow context at run time", async () => {
+    const seeded = await seedAgentNode(52);
+    const runner = new StubRunner({ status: "finished", result: FINISHED_TEXT });
+    const node = agentNode(52, runner);
+    await node.run(seeded.ctx, { prompt: "Do the work" }, { base_ref: "{{task.key}}" });
+    expect(runner.starts[0]?.startingRef).toBe("TST-52");
+  });
+
+  it("a null base_ref falls back to the flow's MR branch", async () => {
+    const seeded = await seedAgentNode(53);
+    const runner = new StubRunner({ status: "finished", result: FINISHED_TEXT });
+    const node = agentNode(53, runner);
+    await node.run(ctxWithMrBranch(seeded, "feature/x"), { prompt: "Do the work" }, {});
+    expect(runner.starts[0]?.startingRef).toBe("feature/x");
+  });
+
+  it("a flow without an MR branch starts undefined (the runner's default)", async () => {
+    const seeded = await seedAgentNode(58); // the seeded ctx carries no mrBranch
+    const runner = new StubRunner({ status: "finished", result: FINISHED_TEXT });
+    const node = agentNode(58, runner);
+    await node.run(seeded.ctx, { prompt: "Do the work" }, {});
+    expect(runner.starts[0]?.startingRef).toBeUndefined();
+  });
+
+  it("the chat follow-up starts from the same declared ref", async () => {
+    const seeded = await seedAgentNode(54);
+    const runner = new StubRunner(
+      { status: "finished", result: FINISHED_TEXT },
+      { status: "finished", result: FINISHED_TEXT },
+    );
+    const node = agentNode(54, runner);
+    const cfg = { base_ref: "develop" };
+    await node.run(seeded.ctx, { prompt: "Do the work" }, cfg);
+    // the follow-up reads the node row's config snapshot — persist the knob,
+    // and put the row back in `running` (execute owns the done transition)
+    await testRun(`UPDATE nodes SET config=$1, status='running' WHERE id=$2`, JSON.stringify(cfg), seeded.nodeId);
+    await node.chat(seeded.ctx, "tweak this", "model-x");
+    expect(runner.starts[0]?.startingRef).toBe("develop");
+    expect(runner.starts[1]?.startingRef).toBe("develop");
+  });
+
+  it("the contract feedback retry passes the SAME startingRef as the first run (E2)", async () => {
+    const seeded = await seedAgentNode(55);
+    const runner = new StubRunner(
+      { status: "finished", result: '{"cost":"free"}' },
+      { status: "finished", result: '{"cost":42}' },
+    );
+    const config = { ...JSON_CONFIG, base_ref: "develop" };
+    const node = configuredAgentNode(55, runner, config);
+    const outcome = await node.run(seeded.ctx, { prompt: "Check the costs" }, config);
+    expect(outcome.output).toEqual({ cost: 42 });
+    expect(runner.starts[0]?.startingRef).toBe("develop");
+    expect(runner.starts[1]?.startingRef).toBe("develop");
+  });
+
+  it("retry_budget: 2 spends two retries then fails with output_exhausted", async () => {
+    const seeded = await seedAgentNode(56);
+    const runner = new StubRunner(
+      { status: "finished", result: '{"cost":"free"}' },
+      { status: "finished", result: '{"cost":"still free"}' },
+      { status: "finished", result: '{"cost":"forever free"}' },
+    );
+    const config = { ...JSON_CONFIG, retry_budget: 2 };
+    const node = configuredAgentNode(56, runner, config);
+    await expect(node.run(seeded.ctx, { prompt: "Check the costs" }, config)).rejects.toMatchObject({
+      code: "schema_mismatch",
+    });
+    expect(runner.starts).toHaveLength(3);
+    const exhausted = await testAll<{ message: string; data: unknown }>(
+      `SELECT message, data FROM events WHERE node_id=$1 AND type='output_exhausted'`, seeded.nodeId,
+    );
+    expect(exhausted).toHaveLength(1);
+    const raw = exhausted[0]?.data;
+    const data = (typeof raw === "string" ? JSON.parse(raw) : raw) as { budget?: number };
+    expect(data.budget).toBe(2);
+  });
+
+  it("retry_budget: 0 makes the first miss terminal — no feedback turn", async () => {
+    const seeded = await seedAgentNode(57);
+    const runner = new StubRunner({ status: "finished", result: '{"cost":"free"}' });
+    const config = { ...JSON_CONFIG, retry_budget: 0 };
+    const node = configuredAgentNode(57, runner, config);
+    await expect(node.run(seeded.ctx, { prompt: "Check the costs" }, config)).rejects.toMatchObject({
+      code: "schema_mismatch",
+    });
+    expect(runner.starts).toHaveLength(1);
+  });
+});

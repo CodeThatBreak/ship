@@ -40,6 +40,14 @@ export const AgentDefSchema = z.looseObject({
   mode: z.enum(AGENT_MODES).default(AGENT_MODE.PLAN),
   /** null = the flow/default model (settings.default_model) */
   model: z.string().nullable().default(null),
+  /** branch/ref the runs start from — text or a `{{...}}` ref, rendered
+   * against the flow context at run time; null = the flow's MR branch
+   * (resolved through the kind's one `resolveStartingRef` seam) */
+  base_ref: z.string().nullable().default(null),
+  /** bounded feedback retries the json output contract may spend (0 = the
+   * first miss is terminal); read via the kind's `retryBudgetOf` — config
+   * wins, the class default is the fallback */
+  retry_budget: z.number().int().min(0).max(5).default(1),
   /**
    * Ambient setting layers the local runtime loads MCP servers from
    * (Cursor `local.settingSources`) — [] = SDK default, inline servers only.
