@@ -8,6 +8,7 @@ import { agentPortRegistry } from "../../ports/agentPort";
 import { flowCtxHelper, type FlowCtx } from "../../nodes/shared/nodeSharedExports";
 import type { NodeSupport } from "../../nodes/shared/nodeSupport";
 import { RUN_STATUS } from "../../constants/vocabulary";
+import { RUN_MODE } from "../../../../constants/execution";
 import type { RecoveryResult } from "../../nodes/shared/types/recovery";
 import type { AgentRunResult } from "../../ports/agentPort";
 import type { RecoveryHost } from "./types/reconcile";
@@ -61,6 +62,16 @@ export class RecoveryDriver {
     // alive and heartbeating (the worker reconciles runs owned by the web
     // process; liveness is the lease, never this process's handle set)
     if (runRow?.leaseLive) return;
+    // dry-run (task 27, design §7): the simulation harness's runs live in its
+    // in-memory port — a restart cannot re-attach, so the node fails loudly
+    // instead of probing the REAL cloud runtime with the fake run's ids
+    if (flow.executionMode === RUN_MODE.DRY_RUN) {
+      await this.failOrphanedNode(
+        flow.id, node.id, node.nodeKey,
+        "the dry-run harness keeps its runs in memory — a restart cannot re-attach; delete the trace or start a fresh dry run",
+      );
+      return;
+    }
     const ctx = await this.host.ctx(flow.id);
     if (flow.executionMode === "local") {
       return this.recoverLocal(ctx, flow, node, runRow);

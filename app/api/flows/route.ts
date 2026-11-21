@@ -3,6 +3,7 @@ import { parseJson } from "@/lib/http/parse";
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { flowEngine } from "../../../lib/engine/flowEngine";
+import { RUN_MODE } from "../../../constants/execution";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -12,7 +13,7 @@ const CreateFlowBody = z
     taskId: z.string().min(1),
     repoUrl: z.string().optional(),
     repoId: z.string().optional(),
-    executionMode: z.enum(["cloud", "local"]).optional(),
+    executionMode: z.enum([RUN_MODE.CLOUD, RUN_MODE.LOCAL, RUN_MODE.DRY_RUN]).optional(),
     name: z.string().optional(),
     templateId: z.string().optional(),
   })

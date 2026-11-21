@@ -1,5 +1,7 @@
 import "server-only";
 
+import { RUN_MODE } from "../../../../constants/execution";
+import { HARNESS_KEYS } from "../../constants/harnesses";
 import type { GitHostService } from "./types/gitHost";
 
 /**
@@ -42,9 +44,16 @@ export class GitHostRegistry {
     return [...this.registry.values()];
   }
 
-  /** The host that serves the given repo URL, or throw. */
-  async forRepo(repoUrl: string): Promise<GitHostService> {
+  /**
+   * The host that serves the given repo URL, or throw. A `dry-run`
+   * execution-mode flow (task 27, design §7) resolves the simulation
+   * harness's fake host explicitly by mode — its MRs/pipelines are
+   * fabrications, so no real host is ever touched; the fake claims no repos,
+   * so it can never win the URL-based resolution below.
+   */
+  async forRepo(repoUrl: string, executionMode?: string | null): Promise<GitHostService> {
     this.assertReady();
+    if (executionMode === RUN_MODE.DRY_RUN) return this.get(HARNESS_KEYS.DRY_RUN);
     for (const svc of this.list()) {
       if (await svc.ownsRepo(repoUrl)) return svc;
     }

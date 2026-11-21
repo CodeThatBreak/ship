@@ -171,6 +171,9 @@ export function BuildModal({ task, repos, templates, defaultMode, defaultTemplat
                   <span className="text-warning">(no local path)</span>
                 )}
               </SelectItem>
+              <SelectItem value={RUN_MODE.DRY_RUN}>
+                Dry run (simulated)
+              </SelectItem>
             </SelectContent>
           </Select>
         </Field>

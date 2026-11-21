@@ -6,6 +6,7 @@ import "server-only";
  */
 import { agentPortRegistry } from "@/lib/engine/ports/agentPort";
 import { gitHostRegistry } from "@/lib/engine/ports/gitHost";
+import { HARNESS_KEYS } from "@/lib/engine/constants/harnesses";
 import { taskRegistry } from "@/lib/engine/tasks/registry";
 import { cursorCredentials } from "@/lib/integrations/cursor/credentials";
 import { db } from "@/lib/db/app";
@@ -54,6 +55,9 @@ const harnessGroups = (
         configured: statuses.get(port.kind)?.configured ?? false,
       });
     }
+    // the dry-run simulation harness (task 27) registers a `dry-run`-mode
+    // port only — it is not a configurable runtime, so it never lists here
+    if (modes.length === 0) continue;
     out.push({
       key,
       label: ports[0].label.replace(/\s+(cloud|local)$/i, ""),
@@ -87,7 +91,13 @@ export const loadSettings = async (): Promise<Settings> => {
       localAgentConfigured:
         statuses.get((await agentPortRegistry.forMode("local")).kind)?.configured ?? false,
       gitHosts: Object.fromEntries(
-        await Promise.all(gitHostRegistry.list().map(async (h) => [h.kind, await h.configured()] as const)),
+        await Promise.all(
+          gitHostRegistry
+            .list()
+            // the dry-run simulation host is not a configurable host (task 27)
+            .filter((h) => h.kind !== HARNESS_KEYS.DRY_RUN)
+            .map(async (h) => [h.kind, await h.configured()] as const),
+        ),
       ),
       taskProviders: Object.fromEntries(
         await Promise.all(taskRegistry.list().map(async (p) => [p.kind, await p.configured()] as const)),

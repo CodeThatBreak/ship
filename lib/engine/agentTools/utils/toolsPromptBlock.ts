@@ -1,5 +1,6 @@
 import "server-only";
 
+import type { RunMode } from "../../../../constants/execution";
 import { AGENT_TOKEN_ENV } from "../constants/agentTools";
 import type { ToolDescriptor } from "../types/tools";
 
@@ -24,17 +25,18 @@ export const agentToolsBlock = (args: {
   /** null = preview/assembly without a live attempt — the block describes
    *  the token as "issued at run start" instead of inlining one. */
   token: string | null;
-  /** cloud runs reference the injected env var; local runs need it inline */
-  execMode: "cloud" | "local";
+  /** local runs need the token inline; every other mode (cloud, dry-run)
+   *  references the injected env var */
+  execMode: RunMode;
   tools: readonly ToolDescriptor[];
 }): string => {
   if (!args.baseUrl || args.tools.length === 0) return "";
   const endpoint = `${args.baseUrl.replace(/\/$/, "")}/api/flows/${args.flowId}/nodes/${args.nodeKey}/agent-tools`;
   const tokenLine = args.token == null
     ? "Authorization: Bearer <capability token — issued at run start>"
-    : args.execMode === "cloud"
-      ? `Authorization: Bearer $${AGENT_TOKEN_ENV} (injected into your run environment)`
-      : `Authorization: Bearer ${args.token}`;
+    : args.execMode === "local"
+      ? `Authorization: Bearer ${args.token}`
+      : `Authorization: Bearer $${AGENT_TOKEN_ENV} (injected into your run environment)`;
   return [
     `## Tools available`,
     `You can query and act on this flow's live state via the agent-tools endpoint:`,

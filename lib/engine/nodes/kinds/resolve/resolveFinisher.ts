@@ -155,6 +155,7 @@ export class ResolveFinisher {
       flowId: ctx.flow.id,
       nodeId: p.node.id,
       repoUrl: p.repoUrl,
+      executionMode: ctx.flow.executionMode,
       mrIid: p.mrIid,
       response,
       open: p.open,
@@ -227,7 +228,7 @@ export class ResolveFinisher {
     mrBranch: string | null,
   ): Promise<CapturedState> {
     const mrSha = mrIid
-      ? ((await (await this.gitHosts.forRepo(repoUrl)).getChangeRequest(repoUrl, mrIid).catch(() => null))?.sha ?? null)
+      ? ((await (await this.gitHosts.forRepo(repoUrl, ctx.flow.executionMode)).getChangeRequest(repoUrl, mrIid).catch(() => null))?.sha ?? null)
       : null;
     const lp = this.ctxHelper.localPath(ctx);
     const localState =
@@ -377,7 +378,7 @@ export class ResolveFinisher {
     for (const delay of reads) {
       if (delay) await new Promise((r) => setTimeout(r, delay));
       try {
-        afterSha = (await (await this.gitHosts.forRepo(p.repoUrl)).getChangeRequest(p.repoUrl, p.mrIid))?.sha ?? null;
+        afterSha = (await (await this.gitHosts.forRepo(p.repoUrl, ctx.flow.executionMode)).getChangeRequest(p.repoUrl, p.mrIid))?.sha ?? null;
         if (before?.mrSha && afterSha && afterSha !== before.mrSha) {
           return { pushState: PUSH_STATE.PUSHED, codeChanged: true };
         }

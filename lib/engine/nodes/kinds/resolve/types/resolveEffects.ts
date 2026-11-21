@@ -55,6 +55,8 @@ export type ResolveEffectInput = {
   flowId: string;
   nodeId: string;
   repoUrl: string;
+  /** the flow's execution mode — a `dry-run` flow's host effects resolve the simulation harness's fake host (task 27) */
+  executionMode: string | null;
   mrIid: number;
   /** the validated agent response (the contract guarantees decision coverage) */
   response: ResolveAgentResponse;

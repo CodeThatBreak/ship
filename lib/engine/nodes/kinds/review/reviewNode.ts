@@ -145,7 +145,7 @@ export class ReviewNode extends AgentRunNode<ReviewInput, ReviewOutput> {
 
     const { mrIid, mrBranch } = await this.resolveMr(ctx, input.branchName);
     const repoUrl = ctx.flow.repoUrl ?? "";
-    const host = await this.gitHosts.forRepo(repoUrl);
+    const host = await this.gitHosts.forRepo(repoUrl, ctx.flow.executionMode);
 
     const changes = await host.getChanges(repoUrl, mrIid);
     const changeRequest = await host.getChangeRequest(repoUrl, mrIid);
@@ -415,7 +415,7 @@ export class ReviewNode extends AgentRunNode<ReviewInput, ReviewOutput> {
       const config = await this.nodeConfig(ctx);
       const { mrIid } = await this.resolveMr(ctx, input.branchName);
       const repoUrl = ctx.flow.repoUrl ?? "";
-      const host = await this.gitHosts.forRepo(repoUrl);
+      const host = await this.gitHosts.forRepo(repoUrl, ctx.flow.executionMode);
       const changes = await host.getChanges(repoUrl, mrIid);
       const changeRequest = await host.getChangeRequest(repoUrl, mrIid);
       const outcome = await this.reviewOutcome(ctx, node, result, input, config, {

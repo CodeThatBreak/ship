@@ -12,9 +12,10 @@ import type { SettingSource } from "../templates/schemas/mcpSources";
  * Concrete runtimes implement `AgentPort` in `lib/integrations/<vendor>/` and
  * register themselves in `agentPortRegistry` (composition point — the one
  * place concrete integrations are named on the engine side). The engine
- * selects the port by the flow's execution mode ("cloud" | "local"),
- * preferring the port of the configured default harness when several ports
- * share that mode.
+ * selects the port by the flow's execution mode ("cloud" | "local" |
+ * "dry-run" — the dry-run simulation harness's fake, task 27), preferring
+ * the port of the configured default harness when several ports share that
+ * mode.
  *
  * The AgentPortRegistry class lives in `agentPort/` (its port types in
  * `agentPort/types/agentPort.ts`) — class files are pure (classFilePurity

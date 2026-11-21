@@ -7,6 +7,7 @@ import { worktrees } from "../../../../git/worktrees";
 import { gitRemoteContextFor } from "../../../ports/gitHost";
 import { taskRegistry } from "../../../tasks/registry";
 import { untrustedData } from "../../../prompts/untrustedData";
+import { resolveRunMode } from "../../../utils/runMode";
 import { TASK_PRD_CAP } from "../../../prompts/caps";
 import { branchNamer } from "../branchNamer";
 import type { ExecMode, FlowCtx } from "./types/flowContext";
@@ -21,7 +22,7 @@ import type { DiffCapture, DiffProjection } from "../../../facts/types/facts";
  */
 export class FlowContextHelper {
   execMode(ctx: FlowCtx): ExecMode {
-    return ctx.flow.executionMode === "local" ? "local" : "cloud";
+    return resolveRunMode(ctx.flow.executionMode);
   }
 
   localPath(ctx: FlowCtx): string | null {

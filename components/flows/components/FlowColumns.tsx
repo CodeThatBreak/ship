@@ -1,8 +1,9 @@
 "use client";
 import type { ColumnDef } from "@tanstack/react-table";
-import { Cloud, FolderGit2, GitMerge } from "lucide-react";
+import { Cloud, FlaskConical, FolderGit2, GitMerge } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import type { FlowSummary, WorktreeStatus } from "@/types/flows";
+import { RUN_MODE } from "@/constants/execution";
 import { EXECUTION_MODE_LOCAL } from '../constants';
 import { EMPTY_CELL, StatusBadge, WorktreeBadge, FlowStatusDot } from '../flowStatus/flowStatusExports';
 
@@ -45,6 +46,10 @@ export function flowColumns(
         row.original.executionMode === EXECUTION_MODE_LOCAL ? (
           <Badge variant="outline">
             <FolderGit2 size={11} /> local
+          </Badge>
+        ) : row.original.executionMode === RUN_MODE.DRY_RUN ? (
+          <Badge variant="outline">
+            <FlaskConical size={11} /> dry-run
           </Badge>
         ) : (
           <Badge variant="outline">

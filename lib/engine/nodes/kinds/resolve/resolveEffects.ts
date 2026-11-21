@@ -74,7 +74,7 @@ export class ResolveEffects {
       (d) => d.action === RESOLVE_COMMENT_ACTION.SKIPPED,
     ).length;
 
-    const host = await this.gitHosts.forRepo(input.repoUrl);
+    const host = await this.gitHosts.forRepo(input.repoUrl, input.executionMode);
     const persist = async () => input.persistProgress(ledger);
 
     for (const effect of plan.effects) {

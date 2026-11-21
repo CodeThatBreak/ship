@@ -1,7 +1,11 @@
-/** Flow build execution mode (cloud agent vs local SDK) — not plan whole/steps. */
+/** Flow build execution mode (cloud agent vs local SDK vs the dry-run
+ *  simulation) — not plan whole/steps. */
 export const RUN_MODE = {
   CLOUD: "cloud",
   LOCAL: "local",
+  /** Whole-template simulated execution (design §7, task 27): real graph,
+   *  contracts and effects, fake side effects on the promoted fake ports. */
+  DRY_RUN: "dry-run",
 } as const;
 
 export type RunMode = (typeof RUN_MODE)[keyof typeof RUN_MODE];

@@ -21,6 +21,7 @@ import type {
 } from "../../runtime/transitions/types/transitions";
 import type { TransitionAuthority } from "../../runtime/transitions/nodeTransitions";
 import { parseNodeJsonPatch } from "./nodeSupport/utils/ormRows";
+import { loadStampedArtifactMeta } from "./nodeSupport/utils/dryRunArtifactMeta";
 import { jsonInput, parseRow, parseRows } from "@/lib/db/ormRowHelpers";
 import {
   lastRunAgentId,
@@ -205,6 +206,10 @@ export class NodeSupport {
     meta?: unknown, status = ARTIFACT_STATUS.DRAFT, tx?: QueryExecutor,
   ): Promise<{ id: string; version: number }> {
     return this.transaction(async (t) => {
+      // dry-run provenance (task 27): every artifact a `dry-run` flow produces
+      // is stamped `meta.dryRun: true` — the badge flag the renderer registry
+      // reads — before the version lands
+      const stamped = await loadStampedArtifactMeta(t, flowId, meta);
       const top = await t.artifact.findFirst({
         where: { nodeId, kind },
         orderBy: { version: "desc" },
@@ -224,7 +229,7 @@ export class NodeSupport {
           kind,
           version,
           content,
-          meta: meta ? jsonInput(meta) : Prisma.JsonNull,
+          meta: stamped ? jsonInput(stamped) : Prisma.JsonNull,
           status,
           createdAt: new Date(),
         },

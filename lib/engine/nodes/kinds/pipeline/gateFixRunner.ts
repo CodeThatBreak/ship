@@ -48,7 +48,7 @@ export class GateFixRunner {
   }): Promise<void> {
     const { ctx, node, input, pipelineId, mrBranch, attempt, maxFixAttempts, label } = args;
     const repoUrl = ctx.flow.repoUrl ?? "";
-    const host = await this.gitHosts.forRepo(repoUrl);
+    const host = await this.gitHosts.forRepo(repoUrl, ctx.flow.executionMode);
     const jobs = await host.listPipelineJobs(repoUrl, pipelineId);
     const failed = jobs.filter((j: HostJob) => j.status === "failed");
     // loud caps (step 05): every cap that bites is announced in-prompt AND

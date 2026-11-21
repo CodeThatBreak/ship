@@ -16,6 +16,7 @@
  */
 import type { Database } from "@/lib/db/app";
 import type { TransitionKey } from "@/lib/engine/runtime/transitions/types/transitions";
+import type { RunMode } from "@/constants/execution";
 import type { FlowEngine } from "@/lib/engine/flowEngine/flowEngine";
 import type { TemplateStore } from "@/lib/engine/templates/templateStore/templateStore";
 import type { TemplateGraph, TemplateInput } from "@/lib/engine/types/template";
@@ -88,7 +89,7 @@ export class FlowHarness {
    * rejection would hide the seam under test (the lint itself has its own
    * red test).
    */
-  async seedInlineFlow(nodes: InlineNodeInput[], edges: InlineEdgeInput[]): Promise<string> {
+  async seedInlineFlow(nodes: InlineNodeInput[], edges: InlineEdgeInput[], opts: { executionMode?: RunMode } = {}): Promise<string> {
     this.flowCounter += 1;
     const templateId = await this.deps.templateStore.create(
       {
@@ -111,11 +112,12 @@ export class FlowHarness {
       } satisfies TemplateInput,
       { skipLint: true },
     );
-    return this.seedFlowFromTemplate(templateId);
+    return this.seedFlowFromTemplate(templateId, opts);
   }
 
-  /** Seed a task + flow on a stored template (YAML-imported or inline-created). */
-  async seedFlowFromTemplate(templateId: string | null): Promise<string> {
+  /** Seed a task + flow on a stored template (YAML-imported or inline-created).
+   *  `opts.executionMode` overrides the default cloud mode (task 27: `dry-run`). */
+  async seedFlowFromTemplate(templateId: string | null, opts: { executionMode?: RunMode } = {}): Promise<string> {
     this.flowCounter += 1;
     const taskId = `task_overhaul_${this.flowCounter}`;
     await this.deps.db.prisma.$executeRawUnsafe(
@@ -125,6 +127,7 @@ export class FlowHarness {
     return this.deps.flowEngine.create(taskId, this.repoUrl, `overhaul harness ${this.flowCounter}`, {
       ...(templateId ? { templateId } : {}),
       ...(this.repoId ? { repoId: this.repoId } : {}),
+      ...(opts.executionMode ? { executionMode: opts.executionMode } : {}),
     });
   }
 

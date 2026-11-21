@@ -1,4 +1,5 @@
 import { FAST_OFF, FAST_ON, FAST_PARAM, LOCAL_DEFAULT_MODEL } from "../constants/models";
+import type { RunMode } from "../constants/execution";
 
 /**
  * Model spec strings: "<model-id>" or "<model-id>[param=value,param=value]".
@@ -91,7 +92,7 @@ export function resolveAgentRunModel(
   perRun: string | null | undefined,
   settingsDefault: string,
   envDefault: string,
-  execMode: "cloud" | "local",
+  execMode: RunMode,
   fallbackModels: readonly string[] = [],
 ): string | undefined {
   const requested = perRun?.trim() || settingsDefault.trim() || envDefault.trim();

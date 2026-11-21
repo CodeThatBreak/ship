@@ -276,6 +276,7 @@ describe("ResolveEffects.apply — host effects with retry + ledger", () => {
     flowId,
     nodeId,
     repoUrl,
+    executionMode: null,
     mrIid: 42,
     ledger: EMPTY_LEDGER,
     persistProgress: async () => {},

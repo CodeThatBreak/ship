@@ -6,6 +6,7 @@ import { engineParts, nodeSupport } from "../../../composition/container";
 import { agentPortRegistry } from "../../ports/agentPort";
 import { NODE_STATUS } from "../../constants/nodeStatus";
 import { RUN_STATUS } from "../../constants/vocabulary";
+import { resolveRunMode } from "../../utils/runMode";
 import { EffectRegistry } from "../effects/effectRegistry";
 import { EFFECT_LIFECYCLE } from "../effects/constants/effectLifecycles";
 import { TRIGGER_SOURCE } from "../triggers/constants/triggerSources";
@@ -65,7 +66,7 @@ export class CancelHandler {
       where: { id: flowId },
       select: { executionMode: true },
     });
-    const mode = flow?.executionMode === "local" ? "local" : "cloud";
+    const mode = resolveRunMode(flow?.executionMode);
     // remote cancel per running run row (local mode kills the in-process run)
     const active = await db.prisma.run.findMany({
       where: { nodeId: node.id, status: RUN_STATUS.RUNNING },

@@ -63,7 +63,7 @@ export class RetriggerPipeline {
     if (!repoUrl) {
       throw new Error(`flow ${ctx.flowId} has no repo url — no git host to retrigger the pipeline on`);
     }
-    const host = await this.gitHosts.forRepo(repoUrl);
+    const host = await this.gitHosts.forRepo(repoUrl, flowCtx.flow.executionMode);
     await host.retryPipeline(repoUrl, pipelineId);
     return true;
   }

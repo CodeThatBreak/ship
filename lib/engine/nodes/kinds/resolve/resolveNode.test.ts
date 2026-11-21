@@ -478,6 +478,7 @@ describe("ResolveNode — recover()", () => {
       flowId: "flw_rn",
       nodeId: "node_rn",
       repoUrl: REPO_URL,
+      executionMode: null,
       mrIid: 7,
       response,
       open: await support.openComments("flw_rn", 7),

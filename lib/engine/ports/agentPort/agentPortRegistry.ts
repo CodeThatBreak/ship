@@ -2,6 +2,8 @@ import "server-only";
 
 import { CursorCloudAgentPort } from "../../../integrations/cursor/agentPort";
 import { CursorLocalAgentPort } from "../../../integrations/localAgent/agentPort";
+import type { RunMode } from "../../../../constants/execution";
+import { FakeAgentPort } from "./fakeAgentPort";
 import { defaultHarnessSetting } from "./utils/defaultHarnessSetting";
 import type {
   AgentPort,
@@ -39,6 +41,10 @@ export class AgentPortRegistry {
   private registerBuiltins(): void {
     this.register(new CursorCloudAgentPort());
     this.register(new CursorLocalAgentPort());
+    // the dry-run simulation harness (task 27, design §7): a distinct
+    // harness key — the registries forbid duplicate kinds, so the fake is
+    // selected by the `dry-run` execution mode, never by resolution surgery
+    this.register(new FakeAgentPort());
   }
 
   register(port: AgentPort): void {
@@ -75,7 +81,7 @@ export class AgentPortRegistry {
    * single-harness installs see no change). Unknown/unregistered keys fall
    * back too, so a stale setting can never hard-fail a run.
    */
-  async forMode(mode: "cloud" | "local"): Promise<AgentPort> {
+  async forMode(mode: RunMode): Promise<AgentPort> {
     this.ensureBuiltins();
     const harness = await this.resolveDefaultHarness();
     const chosen = (harness

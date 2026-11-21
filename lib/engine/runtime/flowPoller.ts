@@ -18,6 +18,7 @@ import { ProcessLock } from "./locks/processLock";
 import { JOB_KIND } from "./jobs/constants/jobVocabulary";
 import { scheduleFireDedupKey } from "./jobs/utils/jobDedupKeys";
 import { TRIGGER_SOURCE } from "./triggers/constants/triggerSources";
+import { isRealMrFlow } from "../utils/runMode";
 import type { JobHandlers } from "./jobs/types/job";
 
 /**
@@ -164,6 +165,10 @@ export class FlowPoller {
       },
     });
     for (const f of flows) {
+      // dry-run exclusion (task 27, design §7): a dry-run flow's MRs are the
+      // simulation harness's fabrications — the poller's MR duties must never
+      // resolve them against the real git host
+      if (!isRealMrFlow(f.executionMode)) continue;
       try {
         // Phase 3C: iterate over branches with MRs, then the flow-level MR
         const branchMRs = await db.prisma.branch.findMany({

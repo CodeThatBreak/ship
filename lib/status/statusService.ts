@@ -72,7 +72,7 @@ export class StatusService {
     const repoCount = await this.database.prisma.repo.count();
 
     const openMrs = agents.flatMap((a) =>
-      a.mrUrl
+      a.mrUrl && a.executionMode !== RUN_MODE.DRY_RUN
         ? [
             {
               flowId: a.flowId,

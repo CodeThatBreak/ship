@@ -91,7 +91,7 @@ export class PublishReviewComments {
     if (!repoUrl) {
       throw new Error(`flow ${ctx.flowId} has no repo url — no git host to post review comments on`);
     }
-    const host = await this.gitHosts.forRepo(repoUrl);
+    const host = await this.gitHosts.forRepo(repoUrl, flowCtx.flow.executionMode);
     const config = node.config ?? {};
 
     const style = configString(config, "comment_style") === "summary" ? "summary" : "inline";

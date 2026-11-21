@@ -2,8 +2,9 @@ import "server-only";
 
 import type { Repo } from "../../../../../db/app";
 import type { FlowRow, Task } from "../../../../../db/rows";
+import type { RunMode } from "../../../../../../constants/execution";
 
-export type ExecMode = "cloud" | "local";
+export type ExecMode = RunMode;
 
 export interface FlowCtx {
   flow: FlowRow;

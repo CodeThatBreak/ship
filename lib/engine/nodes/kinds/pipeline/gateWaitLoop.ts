@@ -96,7 +96,7 @@ export class GateWaitLoop {
       if (head && progress.fixWaitStart != null) progress.fixWaitStart = null;
 
       let pipe = progress.watchedId
-        ? await (await this.gitHosts.forRepo(ctx.flow.repoUrl ?? ""))
+        ? await (await this.gitHosts.forRepo(ctx.flow.repoUrl ?? "", ctx.flow.executionMode))
               .getPipeline(ctx.flow.repoUrl ?? "", progress.watchedId)
               .catch(() => null)
         : null;
@@ -306,7 +306,7 @@ export class GateWaitLoop {
    */
   private async headPipeline(ctx: FlowCtx, mrIid: number): Promise<HeadPipelineLookup> {
     const repoUrl = ctx.flow.repoUrl ?? "";
-    const host = await this.gitHosts.forRepo(repoUrl);
+    const host = await this.gitHosts.forRepo(repoUrl, ctx.flow.executionMode);
     let crFailed = false;
     let cr: Awaited<ReturnType<typeof host.getChangeRequest>> | null = null;
     try {
@@ -341,7 +341,7 @@ export class GateWaitLoop {
     nodeId: string,
   ): Promise<number | null> {
     const repoUrl = ctx.flow.repoUrl ?? "";
-    const host = await this.gitHosts.forRepo(repoUrl);
+    const host = await this.gitHosts.forRepo(repoUrl, ctx.flow.executionMode);
     const errMsg = (e: unknown) =>
       (e instanceof Error ? e.message : String(e)).slice(0, 300);
     await this.support.emitLifecycle(
@@ -398,7 +398,7 @@ export class GateWaitLoop {
     pipelineId: number,
   ): Promise<number> {
     const repoUrl = ctx.flow.repoUrl ?? "";
-    const host = await this.gitHosts.forRepo(repoUrl);
+    const host = await this.gitHosts.forRepo(repoUrl, ctx.flow.executionMode);
     const jobs = (await host
       .listPipelineJobs(repoUrl, pipelineId)
       .catch(() => [])) as HostJob[];

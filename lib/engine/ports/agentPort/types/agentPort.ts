@@ -3,6 +3,7 @@ import "server-only";
 import type { AgentRunLookupError } from "../../agentErrors";
 import type { CatalogModel } from "../../../../modelSpec";
 import type { SettingSource } from "../../../templates/schemas/mcpSources";
+import type { RunMode } from "../../../../../constants/execution";
 
 /** Stream/event callbacks a run's consumer receives (SDK message shapes). */
 export interface AgentStreamCallbacks {
@@ -128,7 +129,7 @@ export interface AgentPort {
   /** UI label, e.g. "Cursor cloud" */
   readonly label: string;
   /** the flow execution mode this port runs */
-  readonly execMode: "cloud" | "local";
+  readonly execMode: RunMode;
   /**
    * the product surface that owns this port, e.g. "cursor" — the key
    * `forMode` matches against the `default_harness` selection within a mode
