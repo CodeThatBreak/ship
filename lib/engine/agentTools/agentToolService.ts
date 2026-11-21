@@ -9,6 +9,7 @@ import type { AgentToolAuth, AgentToolCall } from "./types/tools";
 import type { AgentToolCallPayload } from "./schemas/agentToolCalls";
 import type { ToolRegistry } from "./toolRegistry";
 import type { NodeSupport } from "../nodes/shared/nodeSupport";
+import { effectiveAgentTools } from "../nodes/shared/runToolPolicy";
 import type { TransitionAuthority } from "../runtime/transitions/nodeTransitions";
 import { capabilityTokensEqual } from "../runtime/transitions/utils/capabilityToken";
 import { ForbiddenError, NotFoundError, UnauthorizedError } from "../../errors";
@@ -110,15 +111,14 @@ export class AgentToolService {
    *  kind's allowlist, never widen it (a def without per-node config — null
    *  — keeps the kind's allowlist alone, today's behavior). The registry
    *  import is lazy (same construction-cycle break NodeStore documents:
-   *  container → agentTools → registry → kinds → container). */
+   *  container → agentTools → registry → kinds → container). The effective
+   *  set is the ONE `effectiveAgentTools` seam `AgentRunNode` records with
+   *  (task 16) — the enforced and the recorded allowlist cannot drift. */
   private async authorize(auth: AgentToolAuth, tool: AgentToolName): Promise<void> {
     const { nodeRegistry } = await import("../nodes/registry");
     const def = await nodeRegistry.resolve(auth.defKey, auth.nodeKey);
-    const declared = def.declaredAgentTools();
-    const allowed = def.agentTools().some(
-      (t) => t.name === tool && (declared == null || declared.includes(tool)),
-    );
-    if (!allowed) {
+    const effective = effectiveAgentTools(def.agentTools(), def.declaredAgentTools());
+    if (!effective.includes(tool)) {
       throw new ForbiddenError(`tool ${tool} is not available to the ${def.label} node`);
     }
   }

@@ -15,6 +15,8 @@ import type { ExecuteRunMeta } from "./types/executeRunMeta";
 import { AGENT_TOKEN_ENV, AGENT_TOOL_SETS } from "../../agentTools/constants/agentTools";
 import type { ToolDescriptor } from "../../agentTools/types/tools";
 import { agentToolsBlock, redactCapabilityToken } from "../../agentTools/utils/toolsPromptBlock";
+import { TOOL_POLICY_INPUT_KEY } from "../../constants/agentRunPolicy";
+import { effectiveAgentTools, recordedRunToolPolicy } from "./runToolPolicy";
 import { hasRunUsage, runUsagePayload } from "../../usage/runUsagePayload";
 import type { NodeRunStatus } from "../../../../constants/flow";
 import { FLOW_STATUS } from "../../../../constants/flow";
@@ -147,9 +149,11 @@ export abstract class AgentRunNode<
 
   /**
    * Full run lifecycle: mark running, persist the input blob (whose recorded
-   * `prompt` field is the exact final prompt), execute through the runner, then
-   * apply the outcome (artifact, output, status, event). Returns the outcome
-   * so run() can hand it back to the orchestrator.
+   * `prompt` field is the exact final prompt, and whose `tool_policy` field
+   * records the effective tool/MCP policy the run ran under — task 16, C2),
+   * execute through the runner, then apply the outcome (artifact, output,
+   * status, event). Returns the outcome so run() can hand it back to the
+   * orchestrator.
    */
   protected async execute(
     ctx: FlowCtx,
@@ -169,18 +173,31 @@ export abstract class AgentRunNode<
     // token injected into the run environment instead of prompt text; local
     // runs (no env channel) carry it inline in the block. The recorded input
     // blob always redacts the token (it is what the UI/retry record shows).
+    const execMode = this.ctxHelper.execMode(ctx);
     const apiToken = attemptId != null ? (engineParts.attemptRegistry.apiTokenOf(node.id) ?? null) : null;
     const toolsBlock = agentToolsBlock({
       baseUrl: config.serverPublicUrl(),
       flowId: ctx.flow.id,
       nodeKey: node.nodeKey,
       token: apiToken,
-      execMode: this.ctxHelper.execMode(ctx),
+      execMode,
       tools: this.agentTools(),
     });
     const prompt = toolsBlock ? `${opts.prompt}\n\n${toolsBlock}` : opts.prompt;
+    // Task 16 (C2): the effective tool/MCP policy is RECORDED, not silent —
+    // the `env` channel's sibling rides the recorded-input blob next to the
+    // recorded prompt, so cloud-vs-local divergence (the cloud adapter's
+    // local-runtime-only `settingSources` drop) is a recorded decision.
+    const toolPolicy = recordedRunToolPolicy({
+      execMode,
+      requested: opts.agent.settingSources,
+      tools: effectiveAgentTools(this.agentTools(), this.declaredAgentTools()),
+    });
     await this.support.setNode(node.id, {
-      input: redactCapabilityToken(JSON.stringify(opts.input), apiToken),
+      input: redactCapabilityToken(
+        JSON.stringify({ ...opts.input, [TOOL_POLICY_INPUT_KEY]: toolPolicy }),
+        apiToken,
+      ),
     });
     const start = () =>
       this.runner.startAgent(ctx, {
