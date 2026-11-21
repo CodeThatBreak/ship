@@ -78,12 +78,13 @@ export function mergeUpstreamFields(
   }));
 }
 
-/** The `flow.*` / `repo.*` context fields — the two fixed two-key roots of
- *  the context universe that no contract declares. The Inputs tab's mapping
+/** The `flow.*` / `repo.*` context fields — the two fixed roots of the
+ *  context universe that no contract declares. The Inputs tab's mapping
  *  source picker offers them as their own group. */
 export const FLOW_REPO_FIELDS: { path: string; label: string; type: string }[] = [
   { path: "flow.mr_url", label: "MR url", type: "string" },
   { path: "flow.mr_branch", label: "MR branch", type: "string" },
+  { path: "flow.mr_iid", label: "MR iid", type: "number" },
   { path: "repo.cloud_url", label: "Repo cloud url", type: "string" },
   { path: "repo.local_path", label: "Repo local path", type: "string" },
 ];

@@ -1,7 +1,9 @@
 import "server-only";
 
 import type { FlowCtx } from "../nodes/shared/nodeSharedExports";
+import { branchStore } from "../nodes/kinds/build/branchStore";
 import { db } from "../../db/app";
+import type { BranchStatus } from "../../db/constants/rowStatuses";
 
 /**
  * The flow context map (§3 input mapping): the single variable universe every
@@ -12,7 +14,8 @@ import { db } from "../../db/app";
  *           them (fields keys override/augment; jira writes `fields.prd` /
  *           `fields.figma_urls`)
  *   repo    { cloud_url, local_path }
- *   flow    { mr_url, mr_branch }
+ *   flow    { mr_url, mr_branch, mr_iid }
+ *   branches { <name>: { mr_iid, mr_url, status } } — the flow's branch rows
  *   trigger { payload }            — the payload that started the flow
  *   nodes   { <node_key>: { output } }
    input   { unit }               — split children (agent-node split plan §2.1):
@@ -26,6 +29,7 @@ export interface FlowContextMap extends Record<string, unknown> {
   task: Record<string, unknown>;
   repo: Record<string, unknown>;
   flow: Record<string, unknown>;
+  branches: Record<string, { mr_iid: number | null; mr_url: string; status: BranchStatus }>;
   trigger: { payload: unknown };
   nodes: Record<string, { output: unknown }>;
   /** plan fan-out step children (Phase 1): the plan context, the own step and
@@ -48,6 +52,10 @@ export async function buildFlowContext(ctx: FlowCtx): Promise<FlowContextMap> {
   for (const r of rowsOut) {
     // db.all is the raw row — the output column is a JSON TEXT blob
     nodes[r.nodeKey] = { output: parseJsonObject(r.output) };
+  }
+  const branches: FlowContextMap["branches"] = {};
+  for (const b of await branchStore.list(ctx.flow.id)) {
+    branches[b.name] = { mr_iid: b.mrIid, mr_url: b.mrUrl ?? "", status: b.status };
   }
   let payload: unknown = ctx.flow.triggerPayload ?? null;
   if (typeof payload === "string") payload = parseJsonObject(payload);
@@ -73,7 +81,9 @@ export async function buildFlowContext(ctx: FlowCtx): Promise<FlowContextMap> {
     flow: {
       mr_url: ctx.flow.mrUrl ?? "",
       mr_branch: ctx.flow.mrBranch ?? "",
+      mr_iid: ctx.flow.mrIid,
     },
+    branches,
     trigger: { payload },
     nodes,
     plan: planPart,

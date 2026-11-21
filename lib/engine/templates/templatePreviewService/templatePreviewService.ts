@@ -73,7 +73,9 @@ export class TemplatePreviewService {
       flow: {
         mr_url: "https://git.example.com/acme/widgets/-/merge_requests/42",
         mr_branch: "sample/branch",
+        mr_iid: 42,
       },
+      branches: {},
       trigger: { payload: this.sampleTriggerPayload(templateId) },
       nodes,
     };

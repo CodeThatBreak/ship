@@ -57,6 +57,50 @@ describe("MrTargetResolver", () => {
     expect(target.mrBranch).toBe("custom/pattern-backend");
   });
 
+  it("falls back to the most recent branch-row MR when the flow has no MR yet", async () => {
+    await testRun(
+      `INSERT INTO tasks (id, type, key, summary, status, issue_type, priority) VALUES ($1,$2,$3,$4,$5,$6,$7)`,
+      "task_4", "generic", "TST-4", "fallback", "open", "story", "P2",
+    );
+    await testRun(
+      `INSERT INTO flows (id, task_id, name, status, execution_mode, created_at, updated_at) VALUES ($1,$2,$3,$4,$5,$6,$7)`,
+      "flw_4", "task_4", "test4", "active", "cloud", now(), now(),
+    );
+    await branchStore.upsert("flw_4", "backend", {
+      title: "Backend",
+      mrIid: 42,
+      gitBranch: "custom/pattern-backend",
+    });
+    const resolver = new MrTargetResolver(new NodeSupport(engineParts.transitions));
+    const ctx = {
+      flow: { id: "flw_4", taskId: "task_4", mrIid: null, mrBranch: null },
+      task: { key: "TST-4", issueType: "story" },
+    } as never;
+    // no throw — the change_request fact fallback resolves the branch's MR
+    const target = await resolver.resolve(ctx);
+    expect(target.mrIid).toBe(42);
+    expect(target.mrBranch).toBe("custom/pattern-backend");
+  });
+
+  it("still throws when neither the flow nor any branch row carries an MR", async () => {
+    await testRun(
+      `INSERT INTO tasks (id, type, key, summary, status, issue_type, priority) VALUES ($1,$2,$3,$4,$5,$6,$7)`,
+      "task_3", "generic", "TST-3", "no mr", "open", "story", "P2",
+    );
+    await testRun(
+      `INSERT INTO flows (id, task_id, name, status, execution_mode, created_at, updated_at) VALUES ($1,$2,$3,$4,$5,$6,$7)`,
+      "flw_3", "task_3", "test3", "active", "cloud", now(), now(),
+    );
+    const resolver = new MrTargetResolver(new NodeSupport(engineParts.transitions));
+    const ctx = {
+      flow: { id: "flw_3", taskId: "task_3", mrIid: null, mrBranch: null },
+      task: { key: "TST-3", issueType: "story" },
+    } as never;
+    await expect(resolver.resolve(ctx)).rejects.toThrow(
+      /approve the build to create one first/,
+    );
+  });
+
   it("openComments filters by mr_iid", async () => {
     const support = new NodeSupport(engineParts.transitions);
     const flowId = "flw_2";

@@ -70,6 +70,22 @@ export class BranchStore {
     return row?.gitBranch ?? null;
   }
 
+  /**
+   * The most recently updated branch row carrying an MR (the change_request
+   * fact fallback) — null when no branch of the flow has an MR yet.
+   */
+  async latestWithMr(
+    flowId: string,
+  ): Promise<{ name: string; mrIid: number; gitBranch: string | null } | null> {
+    const row = await db.prisma.branch.findFirst({
+      where: { flowId, mrIid: { not: null } },
+      orderBy: [{ updatedAt: "desc" }, { createdAt: "desc" }],
+      select: { name: true, mrIid: true, gitBranch: true },
+    });
+    if (!row || row.mrIid === null) return null;
+    return { name: row.name, mrIid: row.mrIid, gitBranch: row.gitBranch };
+  }
+
   /** Tag a specific run row with a branch_id (per-branch cost attribution). */
   async tagRun(runRowId: string, branchRowId: string): Promise<void> {
     await db.prisma.run.updateMany({

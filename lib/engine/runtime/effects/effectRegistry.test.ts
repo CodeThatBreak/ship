@@ -3,6 +3,14 @@ import { describe, expect, it } from "vitest";
 import { EFFECT_KEY_ANY, EFFECT_LIFECYCLE } from "./constants/effectLifecycles";
 import { EffectRegistry } from "./effectRegistry";
 import { TRIGGER_SOURCE } from "../triggers/constants/triggerSources";
+import { registerSdlcEffects } from "../../nodes/chains/sdlcEffects";
+import type { ChainHost } from "../../nodes/chains/types/chainHost";
+import type { SdlcChain } from "../../nodes/chains/sdlcChain";
+import { registerFanoutEffects } from "../fanout/fanoutEffects";
+import type { StepFlowManager } from "../fanout/stepFlowManager/stepFlowManager";
+import { registerSplitEffects } from "../split/splitEffects";
+import type { SplitManager } from "../split/splitManager/splitManager";
+import { NODE_KEYS } from "../../constants/nodeKeys";
 import type { EffectCtx, NodeEffects } from "./types/nodeEffects";
 
 const ctxOf = (defKey: string): EffectCtx => ({
@@ -16,6 +24,10 @@ const ctxOf = (defKey: string): EffectCtx => ({
 
 /** A stable handler identity the double-boot guard can recognize. */
 const handler = async () => {};
+
+/** The snapshot only reads registrations — the handlers never fire, so the
+ *  collaborators are inert stubs. */
+const inert = <T>(): T => ({}) as T;
 
 describe("EffectRegistry (step 07 — Invariant 8)", () => {
   it("dispatches the lifecycle registered for the defKey and reports the claim", async () => {
@@ -80,6 +92,26 @@ describe("EffectRegistry (step 07 — Invariant 8)", () => {
       { defKey: EFFECT_KEY_ANY, lifecycle: "onChildTerminal" },
       { defKey: "build", lifecycle: "afterApproval" },
       { defKey: "resolve", lifecycle: "loopReentry" },
+    ]);
+  });
+});
+
+describe("EffectRegistry built-in snapshot (the F1 guard)", () => {
+  it("registers exactly the SDLC chain's def keys plus the runtime-owned wildcard", () => {
+    const registry = new EffectRegistry();
+    registerSdlcEffects(registry, inert<ChainHost>(), inert<SdlcChain>());
+    registerFanoutEffects(registry, inert<StepFlowManager>());
+    registerSplitEffects(registry, inert<SplitManager>());
+
+    // The executable answer to "what happens when X finishes?" — every later
+    // effects task extends this snapshot with its own registration.
+    expect(registry.entries()).toEqual([
+      { defKey: EFFECT_KEY_ANY, lifecycle: "onChildTerminal" },
+      { defKey: EFFECT_KEY_ANY, lifecycle: "onChildTerminal" },
+      { defKey: NODE_KEYS.BUILD, lifecycle: "afterApproval" },
+      { defKey: NODE_KEYS.PIPELINE, lifecycle: "afterSuccess" },
+      { defKey: NODE_KEYS.RESOLVE, lifecycle: "loopReentry" },
+      { defKey: NODE_KEYS.REVIEW, lifecycle: "afterSuccess" },
     ]);
   });
 });
