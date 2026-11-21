@@ -22,13 +22,7 @@ export default function ToolRow({ tool }: { tool: ToolCall }) {
   const failed = /fail|error/i.test(tool.status);
   const running =
     !tool.result && !failed && /start|running|tool/i.test(tool.status);
-  const truncated = tool.events.some((e) => {
-    try {
-      return JSON.parse(e.data ?? "{}").truncated;
-    } catch {
-      return false;
-    }
-  });
+  const truncated = tool.events.some((e) => Boolean(e.data?.truncated));
 
   const summary = summarizeArgs(tool.name, tool.args);
   const input = tool.args ? prettyJson(tool.args) : "";

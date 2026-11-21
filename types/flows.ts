@@ -6,13 +6,13 @@
 /** One row of the workspace flow list (engine flow projection, §flow list). */
 export type FlowSummary = {
   id: string;
-  task_id: string;
+  taskId: string;
   name: string;
   status: string;
-  task_key: string;
-  task_summary: string;
-  mr_url?: string;
-  execution_mode?: string;
+  taskKey: string;
+  taskSummary: string;
+  mrUrl?: string;
+  executionMode?: string;
   /** plan fan-out (Phase 4): step-progress summary when a checklist is linked
    *  to step sub-flows (`active` = children still unresolved) */
   fanout?: { steps: number; done: number; active: boolean };
@@ -50,21 +50,29 @@ function fanoutOf(v: unknown): FlowSummary["fanout"] {
   return { steps, done, active: done < steps };
 }
 
+/** The list row selects the task relation as `{ key, summary }` (Prisma row). */
+function taskOf(v: unknown): { key: string; summary: string } {
+  if (typeof v !== "object" || v === null || Array.isArray(v)) return { key: "", summary: "" };
+  const t = v as Record<string, unknown>;
+  return { key: str(t.key), summary: str(t.summary) };
+}
+
 /**
- * Narrow one engine flow row (`flowEngine.list()` returns loosely-typed
- * row records) into the typed list row. Unknown fields are dropped; the
- * missing fallbacks mirror the old client-side JSON handling.
+ * Narrow one engine flow row (`flowEngine.list()` returns camelCase Prisma
+ * rows) into the typed list row. Unknown fields are dropped; the missing
+ * fallbacks mirror the old client-side JSON handling.
  */
 export function flowSummary(row: Record<string, unknown>): FlowSummary {
+  const task = taskOf(row.task);
   return {
     id: str(row.id),
-    task_id: str(row.task_id),
+    taskId: str(row.taskId),
     name: str(row.name),
     status: str(row.status),
-    task_key: str(row.task_key),
-    task_summary: str(row.task_summary),
-    mr_url: optStr(row.mr_url),
-    execution_mode: optStr(row.execution_mode),
+    taskKey: task.key,
+    taskSummary: task.summary,
+    mrUrl: optStr(row.mrUrl),
+    executionMode: optStr(row.executionMode),
     fanout: fanoutOf(row.fanout),
   };
 }

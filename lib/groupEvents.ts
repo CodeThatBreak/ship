@@ -1,7 +1,7 @@
 /**
  * Client-side grouping for the activity feed (Phase 1B/1C).
  *
- * Events arrive ordered by (created_at, id). We group them into run sections —
+ * Events arrive ordered by (createdAt, id). We group them into run sections —
  * one per agent run — and within each section, coalesce consecutive same-type
  * events (thinking/assistant) into merged cards and pair tool_call start/finish
  * events into single invocation rows.
@@ -12,12 +12,13 @@
 
 export interface FeedEvent {
   id: string;
-  flow_id: string;
-  node_id: string | null;
+  flowId: string;
+  nodeId: string | null;
   type: string;
   message: string | null;
-  data: string | null;
-  created_at: string;
+  /** event payload — Prisma JSONB, already parsed by the row validator */
+  data: Record<string, unknown> | null;
+  createdAt: string;
 }
 
 const eventString = (value: unknown): string | undefined =>
@@ -85,23 +86,14 @@ export class EventGrouper {
 
   private parseData(e: FeedEvent): Record<string, unknown> {
     if (this.parsedData.has(e)) return this.parsedData.get(e) ?? {};
-    let parsed: Record<string, unknown>;
-    try {
-      const raw: unknown = e.data ? JSON.parse(e.data) : {};
-      parsed =
-        raw && typeof raw === "object" && !Array.isArray(raw)
-          ? (raw as Record<string, unknown>)
-          : {};
-    } catch {
-      parsed = {};
-    }
-    this.parsedData.set(e, parsed);
-    return parsed;
+    const data = e.data ?? {};
+    this.parsedData.set(e, data);
+    return data;
   }
 
   private nodeKeyOf(e: FeedEvent, nodeKeysByNodeId?: Map<string, string>): string | undefined {
     if (this.nodeKeys.has(e)) return this.nodeKeys.get(e);
-    const key = e.node_id ? nodeKeysByNodeId?.get(e.node_id) : undefined;
+    const key = e.nodeId ? nodeKeysByNodeId?.get(e.nodeId) : undefined;
     this.nodeKeys.set(e, key);
     return key;
   }
@@ -139,11 +131,11 @@ export class EventGrouper {
         const section: RunSection = {
           key: runId,
           runId,
-          nodeId: e.node_id,
+          nodeId: e.nodeId,
           nodeKey,
           label: (e.message ?? "").replace(/\s*started.*$/, ""),
           mode: eventString(d.mode),
-          startedAt: e.created_at,
+          startedAt: e.createdAt,
           active: true,
           items: [],
         };
@@ -184,10 +176,10 @@ export class EventGrouper {
         current = {
           key: runId,
           runId,
-          nodeId: e.node_id,
+          nodeId: e.nodeId,
           nodeKey,
           label: nodeKey ?? "run",
-          startedAt: e.created_at,
+          startedAt: e.createdAt,
           active: true,
           items: [],
         };
@@ -198,20 +190,20 @@ export class EventGrouper {
 
       // legacy rows without run_id: fold into the current section if it's the
       // same node and within the gap window, else a loose section
-      const ts = Date.parse(e.created_at);
-      const last = current?.items.length ? this.lastEvent(current)?.created_at : current?.startedAt;
+      const ts = Date.parse(e.createdAt);
+      const last = current?.items.length ? this.lastEvent(current)?.createdAt : current?.startedAt;
       const lastTs = last ? Date.parse(last) : 0;
-      if (current && e.node_id === current.nodeId && ts - lastTs < EventGrouper.GAP_MS) {
+      if (current && e.nodeId === current.nodeId && ts - lastTs < EventGrouper.GAP_MS) {
         this.addToSection(current, e);
         continue;
       }
       closeCurrent();
       current = {
         key: `loose_${e.id}`,
-        nodeId: e.node_id,
+        nodeId: e.nodeId,
         nodeKey,
         label: nodeKey ? `${nodeKey} activity` : "flow activity",
-        startedAt: e.created_at,
+        startedAt: e.createdAt,
         active: false,
         items: [],
       };
@@ -236,7 +228,7 @@ export class EventGrouper {
     const d = this.parseData(e);
     if (this.isStreamType(e.type)) {
       const last = s.items[s.items.length - 1];
-      const ts = Date.parse(e.created_at);
+      const ts = Date.parse(e.createdAt);
       if (
         last?.kind === "group" &&
         last.group.kind === e.type &&
@@ -244,7 +236,7 @@ export class EventGrouper {
       ) {
         last.group.text += e.type === "status" ? `\n${e.message}` : (e.message ?? "");
         last.group.events.push(e);
-        last.group.lastAt = e.created_at;
+        last.group.lastAt = e.createdAt;
       } else {
         s.items.push({
           kind: "group",
@@ -253,7 +245,7 @@ export class EventGrouper {
             kind: e.type as FeedGroup["kind"],
             text: e.message ?? "",
             events: [e],
-            lastAt: e.created_at,
+            lastAt: e.createdAt,
           },
         });
       }
@@ -312,25 +304,16 @@ export class EventGrouper {
 export const eventGrouper = new EventGrouper();
 
 /**
- * Flow-level events (node_id = null) are emitted for the whole flow even though
+ * Flow-level events (nodeId = null) are emitted for the whole flow even though
  * most of them concern a single stage. Emitters that know the owning node
  * stamp it into the event data at emit time (§3.3) — no message-text guessing
  * here. Returns null for generic events (infra errors and the like) that every
  * tab should still see.
  */
 export function flowEventNodeKeys(e: FeedEvent): string[] | null {
-  if (e.node_id != null) return null; // node-scoped — already filtered by the caller
+  if (e.nodeId != null) return null; // node-scoped — already filtered by the caller
 
-  let data: Record<string, unknown> = {};
-  try {
-    const parsed: unknown = e.data ? JSON.parse(e.data) : {};
-    data =
-      parsed && typeof parsed === "object" && !Array.isArray(parsed)
-        ? (parsed as Record<string, unknown>)
-        : {};
-  } catch {
-    data = {};
-  }
+  const data = e.data ?? {};
   const nodeKey = data.nodeKey;
   return typeof nodeKey === "string" && nodeKey ? [nodeKey] : null;
 }

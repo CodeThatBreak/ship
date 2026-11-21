@@ -4,16 +4,16 @@ import { fetchJson, postJson } from './fetchJson';
 
 const CHAT_REFETCH_MS = 4000;
 
-/** One chat turn, scoped to a node (or flow-level when node_key is unset).
+/** One chat turn, scoped to a node (or flow-level when nodeKey is unset).
  *  `thread` (the plan node's branch names) puts the turn in a refinement tab
  *  instead of the main conversation. */
 export type ChatMessage = {
   id: string;
-  node_key?: string;
+  nodeKey?: string;
   thread?: string | null;
   role: 'user' | 'assistant';
   content: string;
-  created_at: string;
+  createdAt: string;
 };
 
 type ChatPayload = { messages?: ChatMessage[] };

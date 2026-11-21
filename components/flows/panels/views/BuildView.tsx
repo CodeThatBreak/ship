@@ -54,13 +54,8 @@ export default function BuildView() {
     for (let i = events.length - 1; i >= 0; i--) {
       const e = events[i];
       if (e.type === FLOW_EVENT_TYPE.MR_FAILED) {
-        let b: string | undefined;
-        try {
-          b = e.data ? (JSON.parse(e.data).branchName ?? undefined) : undefined;
-        } catch {
-          /* ignore */
-        }
-        if (b === branch) return e.message as string;
+        const branchName = e.data?.branchName;
+        if (typeof branchName === "string" && branchName === branch) return e.message as string;
         continue;
       }
       if (e.type === FLOW_EVENT_TYPE.LIFECYCLE || e.type === FLOW_EVENT_TYPE.ERROR) return null;

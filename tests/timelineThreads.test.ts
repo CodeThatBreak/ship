@@ -16,7 +16,7 @@ const msg = (id: string, over: Partial<ChatMessage> = {}): ChatMessage => ({
   id,
   role: "user",
   content: id,
-  created_at: "2026-01-01T00:00:00Z",
+  createdAt: "2026-01-01T00:00:00Z",
   ...over,
 });
 
@@ -25,11 +25,11 @@ const MAIN: string | null = null;
 describe("selectNodeMessages — the thread split", () => {
   const transcript = [
     msg("flow-hello"),                                  // flow-level, unthreaded
-    msg("main-1", { node_key: "plan" }),                // node-level, unthreaded
-    msg("auth-1", { node_key: "plan", thread: "auth" }),
-    msg("main-2", { node_key: "plan", thread: null }),
-    msg("build-1", { node_key: "build", thread: "auth" }), // another node's thread
-    msg("legacy-1", { node_key: "plan" }),              // row without the thread field
+    msg("main-1", { nodeKey: "plan" }),                // node-level, unthreaded
+    msg("auth-1", { nodeKey: "plan", thread: "auth" }),
+    msg("main-2", { nodeKey: "plan", thread: null }),
+    msg("build-1", { nodeKey: "build", thread: "auth" }), // another node's thread
+    msg("legacy-1", { nodeKey: "plan" }),              // row without the thread field
   ];
 
   it("main conversation: the node's unthreaded turns + flow-level turns, no thread turns", () => {

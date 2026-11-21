@@ -24,14 +24,14 @@ export const POST = async (req: Request) => {
   }
 
   const overrides: RepoDepOverrides = {
-    install_command: body.install_command,
-    skip_install: Boolean(body.skip_install),
-    setup_command: body.setup_command,
-    sync_paths: body.sync_paths,
-    shared_dirs: body.shared_dirs,
+    install_command: body.installCommand,
+    skip_install: Boolean(body.skipInstall),
+    setup_command: body.setupCommand,
+    sync_paths: body.syncPaths,
+    shared_dirs: body.sharedDirs,
   };
-  const base = body.default_branch ?? undefined;
-  const hubPath = body.local_path;
+  const base = body.defaultBranch ?? undefined;
+  const hubPath = body.localPath;
 
   const encoder = new TextEncoder();
   const stream = new ReadableStream<Uint8Array>({
@@ -50,7 +50,7 @@ export const POST = async (req: Request) => {
             overrides,
             base,
             baseDir: config.workspace.dir(),
-            addTimeoutMs: body.worktree_timeout_s ?? undefined,
+            addTimeoutMs: body.worktreeTimeoutS ?? undefined,
             onEvent: (message) => send({ type: "event", message }),
           });
           send({ type: "result", result });

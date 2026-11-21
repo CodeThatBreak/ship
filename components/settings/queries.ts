@@ -27,10 +27,10 @@ const loadSettings = (): Promise<Settings> =>
   fetchJson<Settings>("/api/settings");
 
 const loadRepos = async (): Promise<ReposQueryData> => {
-  const payload = await fetchJson<{ repos?: Repo[]; server_home?: string }>("/api/repos");
+  const payload = await fetchJson<{ repos?: Repo[]; serverHome?: string }>("/api/repos");
   return {
     repos: payload.repos ?? [],
-    serverHome: payload.server_home ?? "",
+    serverHome: payload.serverHome ?? "",
   };
 };
 

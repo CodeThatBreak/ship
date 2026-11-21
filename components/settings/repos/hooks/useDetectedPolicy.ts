@@ -5,9 +5,9 @@ import { fetchJsonOr } from "../../queries";
 
 /** What DevFlow would apply with no per-repo overrides (see /api/repos/detect). */
 export type DetectedPolicy = {
-  install_command: string | null;
-  sync_paths: string;
-  shared_dirs: string | null;
+  installCommand: string | null;
+  syncPaths: string;
+  sharedDirs: string | null;
   source: string;
 };
 
@@ -21,7 +21,7 @@ export const useDetectedPolicy = (localPath: string, enabled: boolean) => {
     queryKey: queryKeys.reposDetect(trimmed),
     queryFn: () =>
       fetchJsonOr<DetectedPolicy | null>(
-        `/api/repos/detect?local_path=${encodeURIComponent(trimmed)}`,
+        `/api/repos/detect?localPath=${encodeURIComponent(trimmed)}`,
         null,
       ),
     enabled: enabled && trimmed.length > 0,

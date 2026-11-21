@@ -76,14 +76,8 @@ type ParsedStep = {
 };
 
 function parseSteps(ev: FeedEvent): ParsedStep[] | null {
-  let data: unknown = {};
-  try {
-    data = ev.data ? JSON.parse(ev.data) : {};
-  } catch {
-    data = {};
-  }
-  if (typeof data !== "object" || data === null) return null;
-  const steps = (data as Record<string, unknown>).steps;
+  const data = ev.data ?? {};
+  const steps = data.steps;
   if (!Array.isArray(steps) || steps.length === 0) return null;
   return steps.map((raw: unknown) => {
     const s = typeof raw === "object" && raw !== null ? (raw as Record<string, unknown>) : {};

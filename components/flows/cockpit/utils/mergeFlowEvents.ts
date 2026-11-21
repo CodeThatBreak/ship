@@ -18,7 +18,7 @@ export const mergeFlowEvents = (
     merged.push(event);
   }
   merged.sort((a, b) => {
-    const byTime = a.created_at.localeCompare(b.created_at);
+    const byTime = a.createdAt.localeCompare(b.createdAt);
     if (byTime !== 0) {
       return byTime;
     }

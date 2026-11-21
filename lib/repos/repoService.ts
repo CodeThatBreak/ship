@@ -32,22 +32,22 @@ export class RepoService {
   }
 
   async create(input: RepoCreateBody): Promise<Repo> {
-    const localPath = input.local_path ?? null;
+    const localPath = input.localPath ?? null;
     if (localPath) {
       this.assertGitCheckout(localPath);
     }
     return this.database.upsertRepo({
       name: input.name,
-      cloudUrl: input.cloud_url,
+      cloudUrl: input.cloudUrl,
       localPath,
-      defaultBranch: input.default_branch ?? "main",
-      useWorktrees: input.use_worktrees ?? true,
-      installCommand: input.install_command ?? null,
-      skipInstall: Boolean(input.skip_install),
-      syncPaths: input.sync_paths ?? null,
-      sharedDirs: input.shared_dirs ?? null,
-      setupCommand: input.setup_command ?? null,
-      worktreeTimeoutMs: input.worktree_timeout_s ?? null,
+      defaultBranch: input.defaultBranch ?? "main",
+      useWorktrees: input.useWorktrees ?? true,
+      installCommand: input.installCommand ?? null,
+      skipInstall: Boolean(input.skipInstall),
+      syncPaths: input.syncPaths ?? null,
+      sharedDirs: input.sharedDirs ?? null,
+      setupCommand: input.setupCommand ?? null,
+      worktreeTimeoutMs: input.worktreeTimeoutS ?? null,
     });
   }
 
@@ -56,7 +56,7 @@ export class RepoService {
     if (!existing) {
       throw new NotFoundError("repo", id);
     }
-    const localPath = patch.local_path !== undefined ? patch.local_path : existing.localPath;
+    const localPath = patch.localPath !== undefined ? patch.localPath : existing.localPath;
     if (localPath) {
       this.assertGitCheckout(localPath);
     }
@@ -68,19 +68,19 @@ export class RepoService {
     return this.database.upsertRepo({
       id,
       name: patch.name ?? existing.name,
-      cloudUrl: patch.cloud_url ?? existing.cloudUrl,
+      cloudUrl: patch.cloudUrl ?? existing.cloudUrl,
       localPath: localPath || null,
-      defaultBranch: patch.default_branch ?? existing.defaultBranch,
+      defaultBranch: patch.defaultBranch ?? existing.defaultBranch,
       useWorktrees:
-        patch.use_worktrees !== undefined ? Boolean(patch.use_worktrees) : Boolean(existing.useWorktrees),
-      installCommand: trimOrKeep(patch.install_command, existing.installCommand),
+        patch.useWorktrees !== undefined ? Boolean(patch.useWorktrees) : Boolean(existing.useWorktrees),
+      installCommand: trimOrKeep(patch.installCommand, existing.installCommand),
       skipInstall:
-        patch.skip_install !== undefined ? Boolean(patch.skip_install) : Boolean(existing.skipInstall),
-      syncPaths: trimOrKeep(patch.sync_paths, existing.syncPaths),
-      sharedDirs: trimOrKeep(patch.shared_dirs, existing.sharedDirs),
-      setupCommand: trimOrKeep(patch.setup_command, existing.setupCommand),
+        patch.skipInstall !== undefined ? Boolean(patch.skipInstall) : Boolean(existing.skipInstall),
+      syncPaths: trimOrKeep(patch.syncPaths, existing.syncPaths),
+      sharedDirs: trimOrKeep(patch.sharedDirs, existing.sharedDirs),
+      setupCommand: trimOrKeep(patch.setupCommand, existing.setupCommand),
       worktreeTimeoutMs:
-        patch.worktree_timeout_s !== undefined ? patch.worktree_timeout_s : existing.worktreeTimeoutMs,
+        patch.worktreeTimeoutS !== undefined ? patch.worktreeTimeoutS : existing.worktreeTimeoutMs,
     });
   }
 

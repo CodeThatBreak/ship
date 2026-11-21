@@ -35,7 +35,7 @@ export function DeleteFlowDialog({
     <AlertDialog open={flow != null} onOpenChange={(v) => { if (!v) onClose(); }}>
       <AlertDialogContent>
         <AlertDialogHeader>
-          <AlertDialogTitle>Delete flow for “{flow?.task_key}”?</AlertDialogTitle>
+          <AlertDialogTitle>Delete flow for “{flow?.taskKey}”?</AlertDialogTitle>
           <AlertDialogDescription>
             The whole flow is removed: nodes, runs, comments, events and any
             fanned-out step sub-flows. The local worktree (if any) is deleted

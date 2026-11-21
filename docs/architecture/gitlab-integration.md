@@ -89,7 +89,7 @@ flowchart LR
 | `DELETE /api/host-instances/[host]/[id]` | Remove an instance |
 | `POST /api/host-instances/[host]/[id]` | Test connectivity/auth (`testInstance`; optional baseUrl/token overrides) |
 | `POST /api/webhooks/gitlab` | GitLab webhook: verifies `x-gitlab-token` against `GITLAB_WEBHOOK_SECRET` (timing-safe SHA-256 compare; `GITLAB_WEBHOOK_ALLOW_UNSIGNED=1` opts out), normalizes note/pipeline deliveries, hands them to `flowEngine.handleHostEvent` |
-| `GET/POST /api/repos`, `GET/PATCH/DELETE /api/repos/[id]` | Repo registry: `cloud_url` links flows to a GitLab project (validated by `gitLabRepoCloudUrlSchema`) |
+| `GET/POST /api/repos`, `GET/PATCH/DELETE /api/repos/[id]` | Repo registry: `cloudUrl` links flows to a GitLab project (validated by `gitLabRepoCloudUrlSchema`) |
 
 ### UI surface
 

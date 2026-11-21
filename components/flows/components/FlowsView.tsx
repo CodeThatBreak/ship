@@ -34,7 +34,7 @@ export function FlowsView({ initialFlows }: { initialFlows: FlowSummary[] }) {
   // Worktree status (dirty / ahead / behind) for local flows: refreshed every
   // 5s — flow events land in the DB and the rows pick the git state up here.
   const hasLocal = (flows.data ?? []).some(
-    (f) => f.execution_mode === EXECUTION_MODE_LOCAL,
+    (f) => f.executionMode === EXECUTION_MODE_LOCAL,
   );
   const worktrees = useWorktreeStatus(hasLocal);
 

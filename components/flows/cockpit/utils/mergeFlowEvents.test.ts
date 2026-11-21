@@ -4,12 +4,12 @@ import { mergeFlowEvents } from "./mergeFlowEvents";
 
 const ev = (id: string, createdAt: string): FeedEvent => ({
   id,
-  flow_id: "flw_1",
-  node_id: null,
+  flowId: "flw_1",
+  nodeId: null,
   type: "status",
   message: id,
   data: null,
-  created_at: createdAt,
+  createdAt,
 });
 
 describe("mergeFlowEvents", () => {

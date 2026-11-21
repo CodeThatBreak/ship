@@ -17,16 +17,16 @@ export function flowColumns(
 ): ColumnDef<FlowSummary>[] {
   return [
     {
-      accessorKey: "task_key",
+      accessorKey: "taskKey",
       header: "Flow",
       cell: ({ row }) => {
         const f = row.original;
         return (
           <div className="flex items-center gap-2.5 min-w-[240px] max-w-[560px]">
             <FlowStatusDot status={f.status} />
-            <span className="font-mono text-[12px] text-info shrink-0">{f.task_key}</span>
+            <span className="font-mono text-[12px] text-info shrink-0">{f.taskKey}</span>
             <span className="block truncate text-[13px] font-medium leading-tight">
-              {f.task_summary}
+              {f.taskSummary}
             </span>
           </div>
         );
@@ -39,10 +39,10 @@ export function flowColumns(
     },
     {
       id: "mode",
-      accessorFn: (f) => f.execution_mode ?? "",
+      accessorFn: (f) => f.executionMode ?? "",
       header: "Mode",
       cell: ({ row }) =>
-        row.original.execution_mode === EXECUTION_MODE_LOCAL ? (
+        row.original.executionMode === EXECUTION_MODE_LOCAL ? (
           <Badge variant="outline">
             <FolderGit2 size={11} /> local
           </Badge>
@@ -59,7 +59,7 @@ export function flowColumns(
       cell: ({ row }) => {
         const f = row.original;
         const wt = worktrees[f.id];
-        return f.execution_mode === EXECUTION_MODE_LOCAL && wt ? (
+        return f.executionMode === EXECUTION_MODE_LOCAL && wt ? (
           <WorktreeBadge status={wt} />
         ) : (
           EMPTY_CELL
@@ -90,7 +90,7 @@ export function flowColumns(
       header: "MR",
       enableSorting: false,
       cell: ({ row }) =>
-        row.original.mr_url ? (
+        row.original.mrUrl ? (
           <Badge className="bg-violet-500/10 text-violet-400">
             <GitMerge size={11} /> MR open
           </Badge>

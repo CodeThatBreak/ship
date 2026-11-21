@@ -10,7 +10,7 @@ export const runtime = "nodejs";
 export const GET = async () => {
   return NextResponse.json({
     repos: await repoService.listWithPathStatus(),
-    server_home: process.env.HOME ?? "",
+    serverHome: process.env.HOME ?? "",
   });
 };
 

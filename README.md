@@ -14,7 +14,7 @@ Set the default mode and local-agent options (auto-approve tools, sandbox, timeo
 ## Settings page (`/settings`)
 
 - **Agent execution** — default cloud/local mode + local SDK options (auto-approve tools, sandbox, timeout), plus the **default model** for agent runs (list comes from the Cursor API when a key is configured, with a built-in fallback list otherwise; per-run overrides on each node's run buttons and in the *Edit prompt & run* dialog). `DEFAULT_MODEL` env remains the final fallback. Also the **comment-resolution quiet period**: how long after the last new MR comment the Resolve node auto-starts (default 10 min; set the node's `quiet_minutes` config to change it). The resolve always waits for the pipeline step to pass first, regardless of this delay.
-- **Repositories** — registry of your repos: `name`, `cloud_url` (any GitLab domain), `local_path` (needed for local mode + local diffs), `default_branch`. Local paths are validated (must be a git repo).
+- **Repositories** — registry of your repos: `name`, `cloudUrl` (any GitLab domain), `localPath` (needed for local mode + local diffs), `defaultBranch`. Local paths are validated (must be a git repo).
 - **Git host instances** — one entry per self-hosted GitLab domain (`base_url` + PAT with `api` scope). DevFlow picks the token whose domain matches each repo's cloud URL for API calls, MRs, CI polling, comments, and cloning. Each instance has a **Test** button to verify auth. (GitLab is the first registered git host; the settings UI reads host metadata from `GET /api/git-hosts`.)
 
 ## The loop

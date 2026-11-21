@@ -1,6 +1,6 @@
 /**
  * Timeline assembly for the chat feed: chat messages, run sections and
- * flow-level events (node_id = null) sorted into one interleaved,
+ * flow-level events (nodeId = null) sorted into one interleaved,
  * time-ordered row list.
  *
  * This is the only module that imports lib/groupEvents directly (its grouper
@@ -43,15 +43,15 @@ export function sectionSortKey(s: RunSection): number {
 function sectionLastTime(s: RunSection): string {
   for (let i = s.items.length - 1; i >= 0; i--) {
     const it = s.items[i];
-    if (it.kind === "event") return it.event.created_at;
+    if (it.kind === "event") return it.event.createdAt;
     if (it.kind === "tool")
-      return it.tool.events[it.tool.events.length - 1].created_at;
+      return it.tool.events[it.tool.events.length - 1].createdAt;
     if (it.kind === "group") return it.group.lastAt;
   }
   return s.startedAt ?? "";
 }
 
-/** The flow's messages scoped to one node and one thread (node_key empty =
+/** The flow's messages scoped to one node and one thread (nodeKey empty =
  *  flow-level; thread empty = the main conversation, threaded messages stay
  *  in their refinement tabs). */
 export function selectNodeMessages(
@@ -61,14 +61,14 @@ export function selectNodeMessages(
 ): ChatMessage[] {
   return (messages ?? []).filter(
     (m) =>
-      (!m.node_key || m.node_key === nodeKey) &&
+      (!m.nodeKey || m.nodeKey === nodeKey) &&
       // flow-level messages are unthreaded — a refinement tab only shows its
       // node's turns, the main tab only shows unthreaded ones
       (m.thread ?? null) === thread,
   );
 }
 
-/** Run sections for this node only (chat is scoped by node_key; events by
+/** Run sections for this node only (chat is scoped by nodeKey; events by
  *  run/node-id). A section whose "finished" event fell outside the fetched
  *  event window stays open in the grouper forever — the node's authoritative
  *  status (kept current by the engine/reconciler) is the tiebreaker: a
@@ -100,22 +100,22 @@ export function buildTimelineRows(
 ): TimelineRow[] {
   const out: TimelineRow[] = nodeMsgs.map((m) => ({
     kind: "msg",
-    t: Date.parse(m.created_at),
+    t: Date.parse(m.createdAt),
     msg: m,
   }));
   for (const s of sections)
     out.push({ kind: "run", t: sectionSortKey(s), section: s });
-  // flow-level events (node_id = null: MR pushes, pipeline results, checklist
+  // flow-level events (nodeId = null: MR pushes, pipeline results, checklist
   // edits, resolve queueing) are mapped to the node they belong to so each
   // tab only shows activity relevant to it; anything unmatched (infra errors)
   // stays visible everywhere. The boilerplate "flow created" announcement is
   // skipped — the chat feed starts with the user's first message.
   for (const e of events) {
-    if (e.node_id != null) continue;
+    if (e.nodeId != null) continue;
     if (/^flow created\b/i.test(e.message ?? "")) continue;
     const relevantTo = flowEventNodeKeys(e);
     if (relevantTo && !relevantTo.includes(nodeKey)) continue;
-    out.push({ kind: "event", t: Date.parse(e.created_at), ev: e });
+    out.push({ kind: "event", t: Date.parse(e.createdAt), ev: e });
   }
   return out.sort((a, b) => a.t - b.t);
 }
