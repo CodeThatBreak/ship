@@ -1,7 +1,8 @@
 "use client";
 import { useState } from "react";
-import { CheckCheck, Play, Settings2, Sparkles } from "lucide-react";
-import type { Artifact } from "@/types/flow";
+import { CheckCheck, GitMerge, Play, Settings2, Sparkles } from "lucide-react";
+import type { Artifact, BranchRow } from "@/types/flow";
+import { BranchFactRow } from "@/components/shared/BranchFactRow";
 import { EmptyHint } from "@/components/shared/EmptyHint";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -30,6 +31,7 @@ export const GenericDeclarativePanel = () => {
   // one group per artifact kind present on the node; the registry decides how
   // each is rendered, so a new artifact kind needs no edit here
   const kinds = [...new Set(node.artifacts.map((a: Artifact) => a.kind))];
+  const branches = flow.branches ?? [];
   const configRows = Object.entries(cfg).filter(
     ([key, value]) => key !== "prompt"
       && (CONFIG_SUMMARY_VALUE_TYPES as readonly string[]).includes(typeof value),
@@ -97,6 +99,40 @@ export const GenericDeclarativePanel = () => {
             ))}
           </dl>
         </Card>
+      )}
+      {/* branch/change_request facts (task 09): the flow's branch rows through
+          the shared row (status badge, name, `MR !iid ↗`), the flow-level MR
+          as the change_request link — the same homes BuildView reads. */}
+      {branches.length > 0 && (
+        <div className="mb-4">
+          <h3 className="text-sm font-semibold mb-2 flex items-center gap-1.5">
+            <GitMerge size={14} /> Branches
+          </h3>
+          <div className="grid gap-2">
+            {branches.map((b: BranchRow) => (
+              <BranchFactRow
+                key={b.id}
+                name={b.name}
+                title={b.title}
+                status={b.status}
+                mrUrl={b.mr_url}
+                mrIid={b.mr_iid}
+              />
+            ))}
+          </div>
+        </div>
+      )}
+      {branches.length === 0 && flow.mr_url && (
+        <p className="text-[13px] mb-3.5">
+          <a href={flow.mr_url} target="_blank" rel="noopener noreferrer" className="text-info hover:underline">
+            MR !{flow.mr_iid} ↗
+          </a>
+          {flow.mr_branch && (
+            <>
+              {" "}on branch <code className="font-mono">{flow.mr_branch}</code>
+            </>
+          )}
+        </p>
       )}
       {kinds.map((kind) => (
         <div key={kind} className="mb-4">

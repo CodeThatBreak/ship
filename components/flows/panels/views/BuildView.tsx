@@ -3,16 +3,15 @@ import { AlertTriangle, FileDiff, GitMerge } from 'lucide-react';
 import type { BranchRow, Artifact, PlanStepRow } from '@/types/flow';
 import PlanSteps from '../../components/plan/components/planSteps/PlanSteps';
 import { DiffView } from '../artifacts/DiffView';
+import { BranchFactRow } from '@/components/shared/BranchFactRow';
 import { Alert } from '@/components/ui/alert';
-import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Card } from '@/components/ui/card';
 import { Spinner } from '@/components/ui/spinner';
 import { PanelShell, ArtifactLoader } from '../shared';
 import type { ArtifactPayload } from '../shared';
 import { useNodePanel } from '../context';
 import FanoutStepList from '../FanoutStepList';
-import { FLOW_ACTION, FLOW_STATUS, isFailedStatus, statusVariantOf } from '@/constants/flow';
+import { FLOW_ACTION, FLOW_STATUS } from '@/constants/flow';
 import { FLOW_EVENT_TYPE } from '@/constants/events';
 import { EmptyHint } from "@/components/shared/EmptyHint";
 
@@ -136,34 +135,29 @@ export default function BuildView() {
             {branches.map((b: BranchRow) => {
               const err = b.status === FLOW_STATUS.AWAITING_APPROVAL ? mrErrorFor(b.name) : null;
               return (
-                <Card key={b.id} className="px-4 py-3 flex items-center gap-3 flex-wrap">
-                  <Badge
-                    className={statusVariantOf(b.status)}
-                    variant={isFailedStatus(b.status) ? 'destructive' : undefined}
-                  >
-                    {b.status.replace(/_/g, ' ')}
-                  </Badge>
-                  <div className="flex-1 min-w-0">
-                    <span className="font-medium text-sm">{b.title ?? b.name}</span>
-                    <code className="text-xs text-muted-foreground ml-2">{b.name}</code>
-                    {err && <div className="text-destructive text-xs mt-1">{err}</div>}
-                  </div>
-                  {b.mr_url && (
-                    <a href={b.mr_url} target="_blank" rel="noopener noreferrer" className="text-info hover:underline text-xs">
-                      MR !{b.mr_iid} ↗
-                    </a>
-                  )}
-                  {creatingMrBranches.has(b.name) && (
-                    <span className="inline-flex items-center gap-1.5 text-muted-foreground text-xs">
-                      <Spinner /> Creating MR…
-                    </span>
-                  )}
-                  {b.status === FLOW_STATUS.AWAITING_APPROVAL && (
-                    <Button size="sm" onClick={() => approveBranch(b.name)}>
-                      <GitMerge size={13} /> {err ? 'Retry: accept & create MR' : 'Accept & create MR'}
-                    </Button>
-                  )}
-                </Card>
+                <BranchFactRow
+                  key={b.id}
+                  name={b.name}
+                  title={b.title}
+                  status={b.status}
+                  mrUrl={b.mr_url}
+                  mrIid={b.mr_iid}
+                  detail={err ? <div className="text-destructive text-xs mt-1">{err}</div> : null}
+                  trailing={
+                    <>
+                      {creatingMrBranches.has(b.name) && (
+                        <span className="inline-flex items-center gap-1.5 text-muted-foreground text-xs">
+                          <Spinner /> Creating MR…
+                        </span>
+                      )}
+                      {b.status === FLOW_STATUS.AWAITING_APPROVAL && (
+                        <Button size="sm" onClick={() => approveBranch(b.name)}>
+                          <GitMerge size={13} /> {err ? 'Retry: accept & create MR' : 'Accept & create MR'}
+                        </Button>
+                      )}
+                    </>
+                  }
+                />
               );
             })}
           </div>
