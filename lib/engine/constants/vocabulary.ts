@@ -61,9 +61,11 @@ export const PIPELINE_STATUS = {
   CANCELED: "canceled",
 } as const;
 
-/** Artifact row status. */
+/** Artifact row `kind` values the engine writes. */
 export const ARTIFACT_KIND = {
   PLAN: "plan",
+  /** a diff fact's artifact — meta {branch, stat} (design §4.1, Task 06) */
+  DIFF: "diff",
 } as const;
 
 export const ARTIFACT_STATUS = {

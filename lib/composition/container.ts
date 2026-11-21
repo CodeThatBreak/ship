@@ -22,6 +22,8 @@ import { ReadFlowStateTool } from "../engine/agentTools/tools/readFlowStateTool"
 import { ClaimChecklistProgressTool } from "../engine/agentTools/tools/claimChecklistProgressTool";
 import { ReportFailureTool } from "../engine/agentTools/tools/reportFailureTool";
 import { AgentToolService } from "../engine/agentTools/agentToolService";
+import { FactStore } from "../engine/facts/factStore";
+import { branchStore } from "../engine/nodes/kinds/build/branchStore";
 import { planSteps } from "../engine/runtime/planStepStore";
 
 /**
@@ -66,6 +68,9 @@ export interface EngineParts {
   agentTools: AgentToolService;
   /** the tool registry behind `agentTools` (exposed for tests) */
   agentToolRegistry: ToolRegistry;
+  /** the typed fact vocabulary (task 06, design §4.1): persists facts into
+   *  the existing homes and resolves fact lookups */
+  facts: FactStore;
 }
 
 /**
@@ -98,9 +103,12 @@ export const createEngineParts = (): EngineParts => {
   agentToolRegistry.register(new ClaimChecklistProgressTool(planSteps, db));
   agentToolRegistry.register(new ReportFailureTool(transitions, db));
   const agentTools = new AgentToolService(nodeSupport, transitions, agentToolRegistry);
+  // task 06 (design §4.1): the fact vocabulary over the existing homes —
+  // branch rows, diff artifacts, flow MR columns
+  const facts = new FactStore(nodeSupport, branchStore);
   return {
     nodeSupport, nodeStore, attemptRegistry, contracts, transitions, events, triggers,
-    agentTools, agentToolRegistry,
+    agentTools, agentToolRegistry, facts,
   };
 };
 

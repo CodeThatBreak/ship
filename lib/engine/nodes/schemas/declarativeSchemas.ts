@@ -3,6 +3,7 @@ import "server-only";
 import { z } from "zod";
 import { mcpSourcesSchema } from "../../templates/schemas/mcpSources";
 import { splitConsumeSchema, splitParallelMaxSchema } from "../shared/split/schemas/splitKnobs";
+import { PRODUCIBLE_FACTS } from "../../facts/types/facts";
 import {
   AGENT_MODE,
   AGENT_MODES,
@@ -92,6 +93,15 @@ export const AgentDefSchema = z.looseObject({
   split_consume: splitConsumeSchema,
   /** per-unit slot budget for the split scheduler (§3), default 1 = sequential */
   split_parallel_max: splitParallelMaxSchema,
+  /**
+   * The git side effects this node's runs may establish (Task 06, Invariant
+   * F4): `result.git` is consumed only for the declared kinds — an undeclared
+   * kind stays dropped. Facts persist through the FactStore inside the
+   * terminal write's batch (Invariant F2). `change_request` is not
+   * producible — MRs are established by the `create_change_request` verb
+   * (Phase 3), never directly by a run.
+   */
+  produces: z.array(z.enum(PRODUCIBLE_FACTS)).default([]),
 });
 export type AgentDef = z.infer<typeof AgentDefSchema>;
 
