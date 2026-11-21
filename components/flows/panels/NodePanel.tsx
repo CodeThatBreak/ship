@@ -81,7 +81,7 @@ export default function NodePanel({
             ScrollArea) — the rail's children re-add their own right inset to
             keep the copy where it was. */}
         {Chat && (
-          <div className="bg-card min-w-[340px] py-3.5 px-3.5 pr-0 min-h-0">
+          <div className="bg-card w-1/2  py-3.5 px-3.5 pr-0 min-h-0">
             <Chat key={node.node_key} />
           </div>
         )}
