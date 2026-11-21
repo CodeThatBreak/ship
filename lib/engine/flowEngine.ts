@@ -3,6 +3,7 @@ import "server-only";
 import { FlowEngine } from "./flowEngine/flowEngine";
 import { stepFlows } from "./runtime/fanout/stepFlowManager";
 import { splitManager } from "./runtime/split/splitManager";
+import { subflowFlows } from "./runtime/subflow/subflowManager";
 
 /** Shared flow engine (decision Q9 — plain module const): composition + delegation only; every collaborator is stateless or DB-fenced, so per-module-graph copies cannot disagree (the `engineParts` precedent). The FlowEngine class lives in `flowEngine/flowEngine.ts` — class files are pure (classFilePurity arch test); this module keeps the pin so the import surface is unchanged. */
 export const flowEngine = new FlowEngine();
@@ -15,3 +16,6 @@ stepFlows.bind(flowEngine);
 
 // split runtime (agent-node split plan §3): same cycle resolution
 splitManager.bind(flowEngine);
+
+// subflow runtime (task 26, finding B4): same cycle resolution
+subflowFlows.bind(flowEngine);

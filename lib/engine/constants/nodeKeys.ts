@@ -12,6 +12,7 @@ export const NODE_KEYS = {
   PIPELINE: "pipeline",
   REVIEW: "review",
   RESOLVE: "resolve",
+  SUBFLOW: "subflow",
 } as const;
 
 export type NodeKey = (typeof NODE_KEYS)[keyof typeof NODE_KEYS];

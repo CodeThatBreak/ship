@@ -21,24 +21,18 @@ import type { TransitionKey } from '../runtime/transitions/types/transitions';
 import type { TriggerResult, TriggerSource } from '../runtime/triggers/types/triggerGateway';
 import { stepFlows } from '../runtime/fanout/stepFlowManager';
 import type { StepChildPayload } from '../runtime/fanout/types/stepChildPayload';
-import { splitManager } from '../runtime/split/splitManager';
+import type { SubflowChildPayload } from '../runtime/subflow/types/subflowChildPayload';
 import type { SplitChildPayload } from '../runtime/split/types/splitChildPayload';
 import { EffectRegistry } from '../runtime/effects/effectRegistry';
 import type { EffectCtx } from '../runtime/effects/types/nodeEffects';
 import type { EffectLifecycle } from '../runtime/effects/constants/effectLifecycles';
-import { registerFanoutEffects } from '../runtime/fanout/fanoutEffects';
-import { registerSplitEffects } from '../runtime/split/splitEffects';
-import { registerSdlcEffects } from '../nodes/chains/sdlcEffects';
-import { registerDeclarativeEffects } from '../nodes/declarativeEffects';
-import { verbRegistry } from '../runtime/effects/verbs/verbWiring';
+import { registerStageGates, registerRuntimeEffects } from './engineBoot';
 import { engineParts, type EngineParts } from '../../composition/container';
 
 import { ConflictError, NotFoundError, ValidationError } from '../../errors';
 import { CommentIngestor } from '../runtime/commentIngestor';
 import { StageRunner } from '../runtime/staging/stageRunner';
 import { StageGateRegistry } from '../runtime/staging/stageGateRegistry';
-import { registerFanoutStageGate } from '../runtime/fanout/fanoutStageGate';
-import { registerSplitStageGate } from '../runtime/split/splitStageGate';
 import { BgRunner } from '../runtime/bgRunner';
 import { FlowFactory } from '../runtime/flowFactory';
 import type { CreateFlowOptions } from '../runtime/types/flowFactory';
@@ -96,27 +90,25 @@ export class FlowEngine {
     parts.transitions.bindOutcomeContracts({ defOf: (flowId, nodeKey) => this.defOf(flowId, nodeKey) });
     this.waits = new WaitStore(this, parts.events);
     // the effect/join layer (step 07, Invariant 8): the SDLC chain and the
-    // fan-out/split runtimes register their post-finish effects at this boot
-    // point — one registry per engine instance, so tests constructing their
-    // own engine get their own dispatch scope
+    // fan-out/split/subflow runtimes register their post-finish effects at
+    // this boot point — one registry per engine instance, so tests
+    // constructing their own engine get their own dispatch scope. The boot
+    // wiring lives in engineBoot.ts (the composition root stays under its
+    // shrink-only arch ceiling); the wiring order there IS the dispatch order
+    // and the registry snapshot tests pin it.
     this.effects = new EffectRegistry();
-    // task 10: the declarative effect verbs (shared registry) + their config-decided wildcard dispatch (Invariant F1/F3)
-    registerDeclarativeEffects(this.effects, verbRegistry, this);
-    // the stage-ownership gate axis (task 24, finding E1): the fan-out and
-    // split runtimes register their expansion gates at this boot point — one
-    // registry per engine instance; the REGISTRATION ORDER is the evaluation
-    // order and preserves the old literal chain (fan-out first, then split)
+    // the stage-ownership gate axis (task 24, finding E1; task 26 extends it
+    // with the subflow gate): the runtimes register their expansion gates at
+    // this boot point — the REGISTRATION ORDER is the evaluation order
+    // (fan-out first, then split, then subflow)
     this.stageGates = new StageGateRegistry();
-    registerFanoutStageGate(this.stageGates, stepFlows);
-    registerSplitStageGate(this.stageGates, splitManager);
+    registerStageGates(this.stageGates);
     this.stages = new StageRunner(this, this.waits, parts.events, this.effects, parts.contracts, this.stageGates);
     this.readModel = new FlowReadModel(this.waits);
     this.factory = new FlowFactory(this, parts.nodeStore);
     this.comments = new CommentIngestor(this, this.waits);
     this.chain = createSdlcChain(this);
-    registerSdlcEffects(this.effects, this, this.chain);
-    registerFanoutEffects(this.effects, stepFlows);
-    registerSplitEffects(this.effects, splitManager);
+    registerRuntimeEffects(this.effects, this, this.chain);
     this.approvals = new FlowApprovalService(this);
     this.chats = new FlowChatService(this);
     this.retries = new FlowRetryService(this);
@@ -133,7 +125,7 @@ export class FlowEngine {
   }
 
   async createStepChild(
-    parentFlowId: string, templateId: string, name: string, payload: StepChildPayload,
+    parentFlowId: string, templateId: string, name: string, payload: StepChildPayload | SubflowChildPayload,
     opts: { branch: string | null }, tx?: Prisma.TransactionClient,
   ): Promise<string> {
     return this.factory.createStepChild(parentFlowId, templateId, name, payload, opts, tx);

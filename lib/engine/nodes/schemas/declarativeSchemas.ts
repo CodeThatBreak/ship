@@ -217,3 +217,28 @@ export const ScriptDefSchema = z.looseObject({
   needs: z.array(z.enum(NEEDABLE_FACTS)).default([]),
 });
 export type ScriptDef = z.infer<typeof ScriptDefSchema>;
+
+export const SubflowDefSchema = z.looseObject({
+  /**
+   * The delegated child flow (task 26, design §7, finding B4): a
+   * `flow_templates` id the stage gate expands ONE child flow from. null =
+   * not configured yet — the gate skips (the frozen whole path) and the
+   * def's own run fails loudly instead of delegating silently.
+   */
+  child: z.string().nullable().default(null),
+  /**
+   * Concurrency ceiling for the delegation. A subflow expands exactly ONE
+   * child flow today (B4: "a small addition on the new gate, not a new
+   * runtime"); the knob stays validated data so a later multi-child shape
+   * never re-authors the config.
+   */
+  parallel_max: z.number().int().min(1).default(1),
+  /**
+   * Optional pass mapping: field → JSONata over the child's terminal output
+   * (the decision `pass` precedent). Non-empty ⇒ the mapped fields publish
+   * as the parent node's aggregate; empty ⇒ the child's terminal output
+   * publishes as-is. Evaluated at rollup time, never persisted raw.
+   */
+  pass: z.record(z.string(), z.string()).default({}),
+});
+export type SubflowDef = z.infer<typeof SubflowDefSchema>;

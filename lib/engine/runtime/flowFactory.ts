@@ -15,8 +15,10 @@ import type { NodeStore } from "./nodeStore";
 import { parseStartContract, validateAgainstContract } from "../nodes/kinds/start/contract";
 import { NO_TASK_TYPE, SDLC_TEMPLATE_ID, templateStore } from "../templates/templateStore";
 import type { StepChildPayload } from "./fanout/types/stepChildPayload";
+import type { SubflowChildPayload } from "./subflow/types/subflowChildPayload";
 import type { SplitChildPayload } from "./split/types/splitChildPayload";
 import type { FlowFactoryHost } from "./flowEngineHost";
+import { resolveRunMode } from "../utils/runMode";
 import type { CreateFlowOptions } from "./types/flowFactory";
 
 /** Flow creation and template-triggered starts. */
@@ -73,7 +75,7 @@ export class FlowFactory {
     const task = parseRow(Task, taskRow, `task ${taskId}`);
     const repo = opts.repoId ? await db.repoById(opts.repoId) : undefined;
     if (repo) repoUrl = repo.cloudUrl;
-    const executionMode = opts.executionMode === "local" ? "local" : "cloud";
+    const executionMode = opts.executionMode != null ? resolveRunMode(opts.executionMode) : "cloud";
     if (executionMode === "local" && !repo?.localPath) {
       throw new ValidationError(
         "Local mode requires a repo registered on the Settings page with a local path.",
@@ -119,7 +121,9 @@ export class FlowFactory {
     parentFlowId: string,
     templateId: string,
     name: string,
-    payload: StepChildPayload,
+    // task 26: the subflow runtime's payload rides the same path — the
+    // delegated input (contract-validated) beside the fan-out step payload
+    payload: StepChildPayload | SubflowChildPayload,
     opts: { branch: string | null },
     tx?: Prisma.TransactionClient,
   ): Promise<string> {

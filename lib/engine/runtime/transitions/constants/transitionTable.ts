@@ -115,6 +115,16 @@ export const TRANSITION_TABLE = {
     to: [NODE_STATUS.FAILED, NODE_STATUS.AWAITING_APPROVAL, NODE_STATUS.DONE],
     actor: "effect",
   },
+  /** Subflow aggregate terminal (task 26): the ONE delegated child's terminal
+   *  output (or the declared `pass` mapping) publishes as the parent's
+   *  aggregate — failed child ⇒ failed parent, approval-triggered parent
+   *  holds. From-set mirrors the other aggregates so a stale child terminal
+   *  after a re-claim loses to the attempt fence. */
+  subflowOutcome: {
+    from: [NODE_STATUS.RUNNING, NODE_STATUS.AWAITING_APPROVAL, NODE_STATUS.FAILED],
+    to: [NODE_STATUS.FAILED, NODE_STATUS.AWAITING_APPROVAL, NODE_STATUS.DONE],
+    actor: "effect",
+  },
 
   // ── failures ─────────────────────────────────────────────────────────────
   /** A stage's fire-and-forget run errored (bg catch / stage catch). */

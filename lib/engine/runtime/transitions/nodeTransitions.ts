@@ -335,7 +335,7 @@ export class TransitionAuthority {
   async publishAggregate(
     flowId: string,
     nodeKey: string,
-    key: "fanoutOutcome" | "splitOutcome",
+    key: "fanoutOutcome" | "splitOutcome" | "subflowOutcome",
     outcome: { status: EngineNodeStatus; output: Record<string, unknown>; detail?: string; attemptId?: string | null },
     tx?: QueryExecutor,
   ): Promise<boolean> {

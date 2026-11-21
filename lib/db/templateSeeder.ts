@@ -77,6 +77,7 @@ export class TemplateSeeder {
       // id, key, name, description, icon
       { id: "nt_start", key: NODE_KEYS.START, name: "Start", description: "The template's entry node — carries the branch trigger, then finishes immediately", icon: "Play" },
       { id: "nt_plan", key: NODE_KEYS.PLAN, name: "Plan", description: "Plan the implementation on a planning agent", icon: "Compass" },
+      { id: "nt_subflow", key: NODE_KEYS.SUBFLOW, name: "Subflow", description: "Delegate to one child flow from a chosen template — the child's terminal output publishes as this node's aggregate", icon: "GitFork" },
       { id: "nt_build", key: NODE_KEYS.BUILD, name: "Build", description: "Implement the approved plan on an agent", icon: "Hammer" },
       { id: "nt_step_build", key: NODE_KEYS.STEP_BUILD, name: "Step build", description: "One plan step built by its own child flow (plan fan-out) — per-step branch, diff and approval", icon: "Hammer" },
       { id: "nt_pipeline", key: NODE_KEYS.PIPELINE, name: "Pipeline", description: "Wait for a green CI pipeline, fixing failures", icon: "Gauge" },

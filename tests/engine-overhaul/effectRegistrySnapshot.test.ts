@@ -33,8 +33,9 @@ describe("SDLC effect registry snapshot (step 07)", () => {
       // post-success sequencing, both under the runtime wildcard key
       { defKey: EFFECT_KEY_ANY, lifecycle: "afterApproval" },
       { defKey: EFFECT_KEY_ANY, lifecycle: "afterSuccess" },
-      // the runtime-owned child-terminal doors: fan-out + split each register
-      // one onChildTerminal under the runtime wildcard key
+      // the runtime-owned child-terminal doors: fan-out + split + subflow each
+      // register one onChildTerminal under the runtime wildcard key
+      { defKey: EFFECT_KEY_ANY, lifecycle: "onChildTerminal" },
       { defKey: EFFECT_KEY_ANY, lifecycle: "onChildTerminal" },
       { defKey: EFFECT_KEY_ANY, lifecycle: "onChildTerminal" },
     ]);

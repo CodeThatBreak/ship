@@ -10,6 +10,8 @@ import { registerFanoutEffects } from "../fanout/fanoutEffects";
 import type { StepFlowManager } from "../fanout/stepFlowManager/stepFlowManager";
 import { registerSplitEffects } from "../split/splitEffects";
 import type { SplitManager } from "../split/splitManager/splitManager";
+import { registerSubflowEffects } from "../subflow/subflowEffects";
+import type { SubflowManager } from "../subflow/subflowManager/subflowManager";
 import { NODE_KEYS } from "../../constants/nodeKeys";
 import type { EffectCtx, NodeEffects } from "./types/nodeEffects";
 import { VerbRegistry } from "./verbRegistry";
@@ -125,6 +127,8 @@ describe("EffectRegistry built-in snapshot (the F1 guard)", () => {
     registerSdlcEffects(registry, inert<ChainHost>(), inert<SdlcChain>());
     registerFanoutEffects(registry, inert<StepFlowManager>());
     registerSplitEffects(registry, inert<SplitManager>());
+    // task 26: the subflow runtime's child-terminal rollup (the third wildcard)
+    registerSubflowEffects(registry, inert<SubflowManager>());
     // task 10: the declarative wildcard effects — relevance comes from the
     // node's config, so the registration is wildcard-only (Invariant F1: no
     // literal declarative def key ever enters this registry)
@@ -133,10 +137,12 @@ describe("EffectRegistry built-in snapshot (the F1 guard)", () => {
     registerDeclarativeEffects(registry, verbs, inert<DeclarativeEffectsHost>());
 
     // The executable answer to "what happens when X finishes?" — every later
-    // effects task extends this snapshot with its own registration.
+    // effects task extends this snapshot with its own registration. Task 26
+    // adds the subflow runtime's third onChildTerminal wildcard.
     expect(registry.entries()).toEqual([
       { defKey: EFFECT_KEY_ANY, lifecycle: "afterApproval" },
       { defKey: EFFECT_KEY_ANY, lifecycle: "afterSuccess" },
+      { defKey: EFFECT_KEY_ANY, lifecycle: "onChildTerminal" },
       { defKey: EFFECT_KEY_ANY, lifecycle: "onChildTerminal" },
       { defKey: EFFECT_KEY_ANY, lifecycle: "onChildTerminal" },
       { defKey: NODE_KEYS.BUILD, lifecycle: "afterApproval" },

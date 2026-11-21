@@ -75,16 +75,20 @@ export class ContractPipeline {
   }
 
   /**
-   * The fan-out/split aggregate's terminal-write check: the full aggregate
-   * output against the def's declared aggregate contract (the
-   * `fanoutOutput`/`splitOutput` capability, the generic default otherwise).
+   * The fan-out/split/subflow aggregate's terminal-write check: the full
+   * aggregate output against the def's declared aggregate contract (the
+   * `fanoutOutput`/`splitOutput` capability, the generic default otherwise;
+   * the subflow aggregate validates against the def's OWN declared output
+   * contract — the child's terminal output is the node's terminal output).
    * The runtime managers' failure mapping (typed event + failed node, no
    * advance) lives with their finish paths — the seam only refuses.
    */
-  validateAggregateOutput(key: "fanoutOutcome" | "splitOutcome", node: NodeDefinition, output: unknown): void {
+  validateAggregateOutput(key: "fanoutOutcome" | "splitOutcome" | "subflowOutcome", node: NodeDefinition, output: unknown): void {
     const contract = key === "fanoutOutcome"
       ? node.capabilities.fanoutOutput ?? DEFAULT_FANOUT_OUTPUT
-      : node.capabilities.splitOutput ?? DEFAULT_SPLIT_OUTPUT;
+      : key === "splitOutcome"
+        ? node.capabilities.splitOutput ?? DEFAULT_SPLIT_OUTPUT
+        : node.outputSchema;
     const result = contract.safeParse(output);
     if (!result.success) {
       throw new OutputContractError({

@@ -59,8 +59,8 @@ const seedTask = async (id: string, key: string, summary: string): Promise<void>
 };
 
 describe("stage gate dispatch (task 24 — the registered axis)", () => {
-  it("the live engine's registry pins the built-in gates in the frozen order — fan-out first, then split", () => {
-    expect(flowEngine.stageGates.entries()).toEqual([{ name: "fanout" }, { name: "split" }]);
+  it("the live engine's registry pins the built-in gates in the frozen order — fan-out first, then split, then subflow (task 26)", () => {
+    expect(flowEngine.stageGates.entries()).toEqual([{ name: "fanout" }, { name: "split" }, { name: "subflow" }]);
   });
 
   it("the fan-out expansion owns the node: one child flow per pending plan step, the def never runs, the aggregate publishes", async () => {

@@ -7,7 +7,7 @@ import { InputContractError } from "../../errors/inputContractError";
 import { parseStartContract } from "../../nodes/kinds/start/contract";
 import { nodeRegistry } from "../../nodes/registry";
 import { buildFlowContext, type FlowContextMap } from "../../context/flowVariables";
-import { evalJsonata } from "@/lib/jsonata/eval";
+import { evalInputMapOver } from "./utils/evalInputMap";
 import type { FlowCtx } from "../../nodes/shared/nodeSharedExports";
 import { templateStore, type TemplateGraph } from "../../templates/templateStore";
 import { EffectRegistry } from "../effects/effectRegistry";
@@ -324,22 +324,15 @@ export class StageRunner {
     ctxMap?: FlowContextMap,
     inputMap?: Record<string, unknown>,
   ): Promise<unknown> {
-    const map = inputMap ?? (await this.graph(flowId))?.byKey.get(nodeKey)?.inputMap ?? {};
-    const entries = Object.entries(map).filter(([, v]) => typeof v === 'string' && (v as string).trim());
-    if (!entries.length) return rawInput;
-    const base: Record<string, unknown> =
-      rawInput && typeof rawInput === 'object' && !Array.isArray(rawInput)
-        ? { ...(rawInput as Record<string, unknown>) }
-        : {};
-    const ctx = ctxMap ?? (await buildFlowContext(await this.host.ctx(flowId)));
-    for (const [field, expr] of entries) {
-      const r = await evalJsonata(expr as string, ctx);
-      if (!r.ok) {
-        throw new Error(`${nodeKey}: input_map.${field} ("${expr}") failed — ${r.error}`);
-      }
-      if (r.value !== undefined) base[field] = r.value;
-    }
-    return base;
+    // the shared evaluator (the subflow expansion gate drives the same one —
+    // the gate owns the stage and must materialize the same input the def
+    // run would have seen)
+    return evalInputMapOver({
+      nodeKey,
+      rawInput,
+      ctxMap,
+      inputMap: inputMap ?? (await this.graph(flowId))?.byKey.get(nodeKey)?.inputMap ?? {},
+    });
   }
 
   /** The dispatch context one effect consult carries (identity + lifecycle

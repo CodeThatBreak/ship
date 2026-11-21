@@ -1,7 +1,9 @@
 import "server-only";
 
+import type { RunMode } from "../../../../constants/execution";
+
 export interface CreateFlowOptions {
-  executionMode?: "cloud" | "local";
+  executionMode?: RunMode;
   repoId?: string;
   templateId?: string;
   triggerPayload?: unknown;
