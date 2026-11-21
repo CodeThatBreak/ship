@@ -5,6 +5,8 @@ import { JsonArtifact } from "./JsonArtifact";
 import { MarkdownArtifact } from "./MarkdownArtifact";
 import { PipelineStatusView } from "./PipelineStatusView";
 import { PlanArtifactView } from "./PlanArtifactView";
+import { ResolveArtifactView } from "./ResolveArtifactView";
+import { ReviewArtifactView } from "./ReviewArtifactView";
 import { UsageView } from "./UsageView";
 import type { ArtifactRenderer } from "./types/artifactRenderer";
 
@@ -20,6 +22,8 @@ export const artifactRenderers: Record<string, ArtifactRenderer> = {
   [ARTIFACT_KIND.PLAN]: PlanArtifactView,
   [ARTIFACT_KIND.USAGE]: UsageView,
   [ARTIFACT_KIND.PIPELINE]: PipelineStatusView,
+  [ARTIFACT_KIND.REVIEW]: ReviewArtifactView,
+  [ARTIFACT_KIND.RESOLVE]: ResolveArtifactView,
 };
 
 /** An unregistered kind still renders — as the existing `<pre>` fallback. */

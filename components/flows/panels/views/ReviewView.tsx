@@ -3,14 +3,13 @@ import { useMemo } from "react";
 import { ScanSearch, CheckCheck, MessageSquare, CircleAlert } from "lucide-react";
 import { PanelShell } from '../shared';
 import { useNodePanel } from '../context';
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Spinner } from "@/components/ui/spinner";
 import { EmptyHint } from "@/components/shared/EmptyHint";
 import { useFlowComments } from '../../hooks/useFlowComments';
 import { FLOW_ACTION, FLOW_STATUS } from "@/constants/flow";
 import { buildThreads } from '../review/buildThreads';
-import { ThreadCard } from '../review/ThreadCard';
+import { ThreadList } from '../review/ThreadList';
 import { ThreadListSkeleton } from '../review/ThreadListSkeleton';
 
 export default function ReviewView() {
@@ -21,7 +20,6 @@ export default function ReviewView() {
 
   const threads = useMemo(() => buildThreads(comments), [comments]);
   const openThreads = threads.filter((t) => t.open && t.resolvable);
-  const resolvedThreads = threads.filter((t) => !t.open && t.resolvable);
 
   const running = node.status === FLOW_STATUS.RUNNING;
   const commentIssue = commentsQuery.isLoading || commentsQuery.isError;
@@ -70,25 +68,7 @@ export default function ReviewView() {
           </EmptyHint>
         )}
 
-        {threads.length > 0 && (
-          <div>
-            <h3 className="text-sm font-semibold mb-2 flex items-center gap-1.5">
-              <MessageSquare size={14} /> Discussion threads
-            </h3>
-            <div className="flex gap-2 mb-3 flex-wrap">
-              <Badge className="bg-warning/10 text-warning">{openThreads.length} open</Badge>
-              <Badge className="bg-success/10 text-success">{resolvedThreads.length} resolved</Badge>
-              {threads.length !== openThreads.length + resolvedThreads.length && (
-                <Badge>{threads.length - openThreads.length - resolvedThreads.length} note{threads.length - openThreads.length - resolvedThreads.length > 1 ? "s" : ""}</Badge>
-              )}
-            </div>
-            <div className="grid gap-2.5">
-              {threads.map((t) => (
-                <ThreadCard key={t.id} thread={t} />
-              ))}
-            </div>
-          </div>
-        )}
+        {threads.length > 0 && <ThreadList threads={threads} />}
       </PanelShell>
     </>
   );

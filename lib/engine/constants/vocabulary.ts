@@ -73,6 +73,13 @@ export const ARTIFACT_KIND = {
   /** a run's token/cost usage — content is the RunUsagePayload JSON
    *  (use case 8d, Task 21) */
   USAGE: "usage",
+  /** a review run's posted-comment projection — the `postedHashes`
+   *  idempotency ledger rides the meta (the built-in review node's home;
+   *  task 19's `publish_review_comments` verb writes it declaratively) */
+  REVIEW: "review",
+  /** a resolve run's summary/decisions ledger — the effect ledger rides the
+   *  meta (the built-in resolve node's home) */
+  RESOLVE: "resolve",
 } as const;
 
 export const ARTIFACT_STATUS = {

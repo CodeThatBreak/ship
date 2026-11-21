@@ -34,12 +34,14 @@ describe("VerbRegistry (task 10 — design §4.2)", () => {
     expect(registry.descriptors().map((d) => d.id)).toEqual([
       EFFECT_VERB.CREATE_CHANGE_REQUEST,
       EFFECT_VERB.PUBLISH_DIFF,
+      EFFECT_VERB.PUBLISH_REVIEW_COMMENTS,
       EFFECT_VERB.RETRIGGER_PIPELINE,
     ]);
     const byId = new Map(registry.descriptors().map((d) => [d.id, d]));
     expect(byId.get(EFFECT_VERB.CREATE_CHANGE_REQUEST)?.requiredFacts).toEqual([FACT_KIND.BRANCH]);
     expect(byId.get(EFFECT_VERB.PUBLISH_DIFF)?.requiredFacts).toEqual([FACT_KIND.DIFF]);
     expect(byId.get(EFFECT_VERB.RETRIGGER_PIPELINE)?.requiredFacts).toEqual([FACT_KIND.CHANGE_REQUEST]);
+    expect(byId.get(EFFECT_VERB.PUBLISH_REVIEW_COMMENTS)?.requiredFacts).toEqual([FACT_KIND.CHANGE_REQUEST]);
   });
 
   it("throws on a duplicate verb registration (the double-boot guard)", () => {
@@ -74,7 +76,7 @@ describe("VerbRegistry (task 10 — design §4.2)", () => {
     await expect(registry.run(EFFECT_VERB.CREATE_CHANGE_REQUEST, ctxOf())).rejects.toThrow(/unknown effect verb/);
   });
 
-  it("the still-unwired stub verb throws the typed not-wired error, not a silent no-op (task 19 wires publish_diff)", async () => {
+  it("the still-unwired stub verb throws the typed not-wired error, not a silent no-op", async () => {
     const registry = new VerbRegistry();
     registerVerbDescriptors(registry);
     await expect(registry.run(EFFECT_VERB.PUBLISH_DIFF, ctxOf())).rejects.toThrow(VerbNotWiredError);

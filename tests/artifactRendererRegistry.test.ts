@@ -97,14 +97,18 @@ const renderPanel = (html: (q: QueryClient) => void, nodeOverride: Partial<Node>
 };
 
 describe("artifact renderer registry", () => {
-  it("pins the six built-in kinds and the <pre> fallback", () => {
-    expect(Object.keys(artifactRenderers).sort()).toEqual(["diff", "json", "markdown", "pipeline", "plan", "usage"]);
+  it("pins the eight built-in kinds and the <pre> fallback", () => {
+    expect(Object.keys(artifactRenderers).sort()).toEqual([
+      "diff", "json", "markdown", "pipeline", "plan", "resolve", "review", "usage",
+    ]);
     expect(rendererForKind("markdown")).toBe(artifactRenderers.markdown);
     expect(rendererForKind("json")).toBe(artifactRenderers.json);
     expect(rendererForKind("diff")).toBe(artifactRenderers.diff);
     expect(rendererForKind("plan")).toBe(artifactRenderers.plan);
     expect(rendererForKind("usage")).toBe(artifactRenderers.usage);
     expect(rendererForKind("pipeline")).toBe(artifactRenderers.pipeline);
+    expect(rendererForKind("review")).toBe(artifactRenderers.review);
+    expect(rendererForKind("resolve")).toBe(artifactRenderers.resolve);
     // an unregistered kind still renders — via the existing <pre> fallback
     expect(rendererForKind("something_new")).toBe(fallbackArtifactRenderer);
   });
@@ -273,6 +277,97 @@ describe("pipeline artifact renderer (task 18)", () => {
     expect(html).toContain("not json");
     expect(html).not.toContain("Pipeline #");
     expect(html).not.toContain("Retrigger pipeline");
+  });
+});
+
+describe("review artifact renderer (task 19)", () => {
+  const reviewArtifact: Artifact = {
+    id: "art-review",
+    kind: "review",
+    version: 1,
+    status: "done",
+    created_at: "2026-11-21T00:00:00.000Z",
+  };
+
+  const renderReview = (detail: Record<string, unknown>): string =>
+    renderPanel((queryClient) => {
+      queryClient.setQueryData(queryKeys.artifacts.detail(reviewArtifact.id), detail);
+    }, { artifacts: [reviewArtifact] });
+
+  it("renders the published comment threads through the shared ThreadList", () => {
+    const html = renderReview({
+      content: JSON.stringify({
+        comments: [
+          { file: "src/a.ts", line: 12, body: "Unused variable." },
+          { body: "Overall the error handling is thin." },
+        ],
+      }),
+      meta: { posted: 2, mrIid: 21, review_verdict: "approve" },
+    });
+
+    // the structured renderer produced the view — not the raw-body fallback
+    expect(html).not.toContain("<pre");
+    expect(html).toContain("Discussion threads");
+    expect(html).toContain("2 open");
+    expect(html).toContain("Unused variable.");
+    expect(html).toContain("Overall the error handling is thin.");
+    // the file:line projection rides the note header
+    expect(html).toContain("src/a.ts:12");
+    // the verdict badge (the meta projection)
+    expect(html).toContain("approve");
+  });
+
+  it("falls back to the raw body when the content is not a review payload", () => {
+    const html = renderReview({ content: "not json" });
+
+    expect(html).toContain("not json");
+    expect(html).not.toContain("Discussion threads");
+  });
+});
+
+describe("resolve artifact renderer (task 19)", () => {
+  const resolveArtifact: Artifact = {
+    id: "art-resolve",
+    kind: "resolve",
+    version: 1,
+    status: "done",
+    created_at: "2026-11-21T00:00:00.000Z",
+  };
+
+  const renderResolve = (detail: Record<string, unknown>): string =>
+    renderPanel((queryClient) => {
+      queryClient.setQueryData(queryKeys.artifacts.detail(resolveArtifact.id), detail);
+    }, { artifacts: [resolveArtifact] });
+
+  it("renders the summary and the per-comment decision ledger from the meta", () => {
+    const html = renderResolve({
+      content: "Fixed the two open threads.",
+      meta: {
+        summary: "Fixed the two open threads.",
+        decisions: [
+          { id: "gl_1", action: "fixed", resolve: true, reply: "Extracted the helper." },
+          { id: "gl_2", action: "wontfix", resolve: false, note: "intentional" },
+        ],
+      },
+    });
+
+    // the structured renderer produced the view — not the raw-body fallback
+    expect(html).not.toContain("<pre");
+    expect(html).toContain("Fixed the two open threads.");
+    expect(html).toContain("Comment decisions");
+    expect(html).toContain("gl_1");
+    expect(html).toContain("fixed");
+    expect(html).toContain("Extracted the helper.");
+    expect(html).toContain("wontfix");
+    expect(html).toContain("thread stays open");
+    expect(html).toContain("intentional");
+  });
+
+  it("falls back to the raw body when the meta carries no ledger", () => {
+    const html = renderResolve({ content: "plain run notes", meta: {} });
+
+    expect(html).toContain("plain run notes");
+    expect(html).not.toContain("Comment decisions");
   });
 });
 

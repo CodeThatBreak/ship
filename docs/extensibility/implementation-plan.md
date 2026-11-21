@@ -376,7 +376,7 @@ cases surfaced. Each artifact kind is one registry entry + one renderer — no p
 | [ ] | 16 | Recorded effective tool/MCP policy on the run row | C2 | 6 | S | 13 |
 | [ ] | 17 | `retrigger_pipeline` verb + panel button | — | 6 | S | 10 |
 | [ ] | 18 | `pipeline` artifact renderer (status/jobs/fix history) | — | 6 | S | 01 |
-| [ ] | 19 | `review`/`resolve` artifact renderers + `publish_review_comments` verb | — | 7 | M | 10, 01 |
+| [x] | 19 | `review`/`resolve` artifact renderers + `publish_review_comments` verb | — | 7 | M | 10, 01 |
 | [ ] | 20 | `failed_output` artifact on retry exhaustion | — | 8e | S | 01 |
 | [x] | 21 | `usage` artifact / run-row cost columns (needs approval) | — | 8d | S | 06 |
 | [ ] | 22 | `transcript` artifact (capped tool-call log) | — | 8c | M | 01 |

@@ -10,13 +10,16 @@ import type { VerbDescriptor } from "./types/verbDescriptor";
 import { VerbNotWiredError } from "./verbNotWiredError";
 import { CreateChangeRequest } from "./createChangeRequest";
 import { RetriggerPipeline } from "./retriggerPipeline";
+import { PublishReviewComments } from "./publishReviewComments";
 import { gitHostRegistry } from "../../../ports/gitHost";
 
 /**
- * The verb descriptors registered at engine boot (tasks 10/11/17). The registry's
+ * The verb descriptors registered at engine boot (tasks 10/11/17/19). The registry's
  * shape is final — `create_change_request` wraps `MergeRequestService` (task
  * 11), `retrigger_pipeline` wraps the git host port's `retryPipeline` (task
- * 17); `publish_diff`'s `run` is still the stub seam task 19 replaces.
+ * 17), `publish_review_comments` wraps the built-in review node's posting
+ * path (task 19); `publish_diff`'s `run` is still the unwired stub seam a
+ * later task replaces.
  */
 
 /** Interim stub run: the verb's implementation has not landed yet — throw
@@ -75,12 +78,37 @@ const RETRIGGER_PIPELINE: VerbDescriptor = {
   run: (ctx) => retriggerPipeline.run(ctx),
 };
 
+/** The wired `publish_review_comments` verb (task 19): posts the review
+ *  run's parsed comments to the established change request over the git host
+ *  port, the `postedHashes` ledger riding the review artifact's meta. The
+ *  collaborators follow the `retrigger_pipeline` precedent — the shared
+ *  module pin for the host registry and node support, a CALL-time
+ *  dereference of the engine facade's read model. */
+const publishReviewComments = new PublishReviewComments(
+  EFFECT_VERB.PUBLISH_REVIEW_COMMENTS,
+  gitHostRegistry,
+  async (flowId) => {
+    const { flowEngine } = await import("../../../flowEngine");
+    return flowEngine.ctx(flowId);
+  },
+  engineParts.facts,
+  engineParts.events,
+  engineParts.nodeSupport,
+);
+
+const PUBLISH_REVIEW_COMMENTS: VerbDescriptor = {
+  id: EFFECT_VERB.PUBLISH_REVIEW_COMMENTS,
+  requiredFacts: [FACT_KIND.CHANGE_REQUEST],
+  run: (ctx) => publishReviewComments.run(ctx),
+};
+
 /** Boot-time registration (used by the shared pin below and by tests that
  *  wire their own descriptor sets). */
 export const registerVerbDescriptors = (registry: VerbRegistry): void => {
   registry.register(CREATE_CHANGE_REQUEST);
   registry.register(PUBLISH_DIFF);
   registry.register(RETRIGGER_PIPELINE);
+  registry.register(PUBLISH_REVIEW_COMMENTS);
 };
 
 /** Shared verb registry (the `declarativeKindRegistry` precedent, decision
