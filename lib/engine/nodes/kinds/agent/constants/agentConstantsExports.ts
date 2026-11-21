@@ -5,7 +5,7 @@ import { fanoutConfigFields, mcpSourceConfigFields, splitConsumerConfigFields } 
 import { MODE_CONFIG_FIELD } from "./mode";
 import { PROMPT_CONFIG_FIELD } from "./prompt";
 import { MODEL_CONFIG_FIELD } from "./model";
-import { baseRefConfigFields, agentToolsConfigFields, producesConfigFields, retryBudgetConfigFields } from "./agentConfigFields";
+import { baseRefConfigFields, agentToolsConfigFields, producesConfigFields, retryBudgetConfigFields, secretRefsConfigFields } from "./agentConfigFields";
 import { OUTPUT_CONFIG_FIELD } from "./output";
 import { OUTPUT_SCHEMA_CONFIG_FIELD } from "./outputSchema";
 import { SPLIT_CONFIG_FIELD } from "./split";
@@ -32,6 +32,9 @@ export const AGENT_CONFIG_FIELDS: readonly ConfigField[] = [
   // the agent-tools knob (Task 13, Invariant 10): which engine tools the
   // node's running agent may call — narrowed by the kind's allowlist
   ...agentToolsConfigFields,
+  // the secret-refs knob (Task 15, C1): which flow secrets the runs may use
+  // — {{secrets.NAME}} in the prompt + the AgentStartSpec.env channel
+  ...secretRefsConfigFields,
   // the MCP-sources knob (Cursor local.settingSources): the shared agent-run
   // field set — empty = runtime default (inline servers only)
   ...mcpSourceConfigFields,

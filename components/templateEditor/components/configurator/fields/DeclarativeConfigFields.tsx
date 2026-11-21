@@ -22,11 +22,27 @@ import {
   freeTextFields,
   promptEditorKeys,
   secretFields,
+  secretRefFields,
+  secretRefOptions,
   writeConfig,
 } from "./ConfigFieldRow";
 import { PromptSectionField } from '../prompt/PromptSectionField';
 import { SplitConfigFields } from './SplitConfigFields';
 import { httpResponseVarGroups, type VarGroup } from '../../../variables';
+
+type ContractField = NonNullable<NodeContract["config"]["fields"]>[number];
+
+/** The secret-refs knob's options ARE the configured secret names (task 15):
+ *  the `multi` field's options come from the secrets list API (names only)
+ *  — the same source the http kinds' `{{secrets.NAME}}` chips read — instead
+ *  of a static vocabulary that could drift from Settings. */
+const withSecretRefOptions = (
+  field: ContractField,
+  secretNames: string[] | null,
+): ContractField =>
+  field.type === "multi" && secretRefFields.has(field.key)
+    ? { ...field, options: secretRefOptions(secretNames) ?? field.options }
+    : field;
 
 export interface DeclarativeConfigFieldsProps {
   /** the declarative kind (agent / decision / http / script) */
@@ -166,7 +182,7 @@ export function DeclarativeConfigFields({
           return (
           <ConfigFieldRow
             key={f.key}
-            field={f}
+            field={withSecretRefOptions(f, secretNames)}
             value={config[f.key]}
             defaultValue={defaults[f.key]}
             companionText={companionTextOf(config, f.key, defaults[f.key])}

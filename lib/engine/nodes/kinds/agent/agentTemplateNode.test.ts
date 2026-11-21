@@ -74,7 +74,9 @@ class StubRunner extends AgentRunner {
       throw new Error(`${label} ended with status ${result.status}`);
     }
     await db.emitEvent(ctx.flow.id, nodeId, "lifecycle", `${label} finished`);
-    return { result, runRowId };
+    // the real runner always returns the cost summary object (possibly empty —
+    // Task 21's usage side-channel reads it off the result)
+    return { result, runRowId, usage: {} };
   }
 }
 
@@ -762,5 +764,102 @@ describe("AgentTemplateNode — result.git → facts (Task 07)", () => {
       seeded.flowId,
     );
     expect(art?.content).toBe("(diff unavailable)");
+  });
+});
+
+// ── Task 15: `secret_refs` → AgentStartSpec.env + the scoped prompt resolver ──
+
+/** Seed the flow-secrets setting (the SecretStore's home) — values sealed
+ *  through the IntegrationSecretStore exactly as Settings → secrets writes
+ *  them, so the test exercises the real at-rest path. */
+const seedSecrets = async (plain: Record<string, string>): Promise<void> => {
+  const { SETTINGS_KEYS } = await import("@/constants/settings");
+  await db.setSetting(SETTINGS_KEYS.SECRETS, db.integrationSecrets.sealSecretsMap(plain));
+};
+
+/** Every persisted place the run touches (the node's recorded input blob,
+ *  artifacts, events) — the no-persistence sweep reads them raw. */
+const persistedRunText = async (flowId: string): Promise<string> => {
+  const nodes = await testAll<{ input: string | null; output: string | null }>(
+    `SELECT input::text AS input, output::text AS output FROM nodes WHERE flow_id=$1`, flowId,
+  );
+  const artifacts = await testAll<{ content: string; meta: string | null }>(
+    `SELECT content, meta FROM artifacts WHERE flow_id=$1`, flowId,
+  );
+  const events = await testAll<{ message: string; data: string | null }>(
+    `SELECT message, data::text AS data FROM events WHERE flow_id=$1`, flowId,
+  );
+  return JSON.stringify({ nodes, artifacts, events });
+};
+
+describe("AgentTemplateNode — secret_refs (Task 15)", () => {
+  it("a declared secret rides AgentStartSpec.env, and ONLY the declared ones do", async () => {
+    await seedSecrets({ API_KEY: "sk-test-123", OTHER_KEY: "sk-other-456" });
+    const seeded = await seedAgentNode(71);
+    const runner = new StubRunner({ status: "finished", result: FINISHED_TEXT });
+    const node = agentNode(71, runner);
+
+    await node.run(seeded.ctx, { prompt: "Do the work" }, { secret_refs: ["API_KEY"] });
+
+    expect(runner.starts[0]?.env).toEqual({ API_KEY: "sk-test-123" });
+  });
+
+  it("a {{secrets.NAME}} prompt ref renders for the agent, while the recorded input keeps the {{...}} ref (never the value)", async () => {
+    await seedSecrets({ API_KEY: "sk-test-123" });
+    const seeded = await seedAgentNode(72);
+    const runner = new StubRunner({ status: "finished", result: FINISHED_TEXT });
+    const node = agentNode(72, runner);
+
+    await node.run(seeded.ctx, {}, { secret_refs: ["API_KEY"], prompt: "Deploy with {{secrets.API_KEY}}" });
+
+    // the agent received the resolved value
+    expect(runner.starts[0]?.prompt).toContain("Deploy with sk-test-123");
+    // the recorded input keeps the template ref — no value anywhere
+    const recorded = (await testGet<{ input: Record<string, unknown> | null }>(`SELECT input FROM nodes WHERE id=$1`, seeded.nodeId))?.input;
+    if (recorded == null) throw new Error("the node run recorded no input");
+    expect(recorded.prompt).toContain("Deploy with {{secrets.API_KEY}}");
+    expect(String(JSON.stringify(recorded))).not.toContain("sk-test-123");
+  });
+
+  it("a {{secrets.X}} ref the node never declared fails the run loudly", async () => {
+    await seedSecrets({ API_KEY: "sk-test-123" });
+    const seeded = await seedAgentNode(73);
+    const runner = new StubRunner({ status: "finished", result: FINISHED_TEXT });
+    const node = agentNode(73, runner);
+
+    await expect(node.run(seeded.ctx, { prompt: "Use {{secrets.API_KEY}}" }, {})).rejects.toThrow(
+      `${LABEL}: secret "API_KEY" is not declared in this node's secret_refs`,
+    );
+    expect(runner.starts).toHaveLength(0); // no agent ever started
+  });
+
+  it("a declared-but-unconfigured secret throws before any agent starts (no silent empty render)", async () => {
+    await seedSecrets({ API_KEY: "sk-test-123" });
+    const seeded = await seedAgentNode(74);
+    const runner = new StubRunner({ status: "finished", result: FINISHED_TEXT });
+    const node = agentNode(74, runner);
+
+    await expect(node.run(seeded.ctx, { prompt: "Do the work" }, { secret_refs: ["MISSING_KEY"] })).rejects.toThrow(
+      `${LABEL}: secret "MISSING_KEY" is declared in the node's secret_refs but not configured`,
+    );
+    expect(runner.starts).toHaveLength(0);
+
+    // the same loudness when the ref IS configured but the prompt renders it
+    // through a resolver-less surface — undeclared there too
+    await expect(
+      node.run(seeded.ctx, { prompt: "Use {{secrets.MISSING_KEY}}" }, { secret_refs: ["MISSING_KEY"] }),
+    ).rejects.toThrow("not configured");
+  });
+
+  it("no secret value is persisted anywhere — the recorded input, artifacts and events stay clean", async () => {
+    await seedSecrets({ API_KEY: "sk-test-123" });
+    const seeded = await seedAgentNode(75);
+    const runner = new StubRunner({ status: "finished", result: FINISHED_TEXT });
+    const node = agentNode(75, runner);
+
+    await node.run(seeded.ctx, {}, { secret_refs: ["API_KEY"], prompt: "Deploy with {{secrets.API_KEY}}" });
+
+    const persisted = await persistedRunText(seeded.flowId);
+    expect(persisted).not.toContain("sk-test-123");
   });
 });

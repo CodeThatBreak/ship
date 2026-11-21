@@ -35,11 +35,12 @@ import {
   composeAgentPrompt,
   renderAgentFeedback,
   renderAgentPrompt,
-  resolveAgentModel,
 } from "./agentPrompt";
 import { agentSplitUnits } from "./agentSplitUnits";
 import { agentFactIntents } from "./agentFactIntents";
 import { shapeAgentOutcome } from "./agentOutcome";
+import { prepareAgentStart } from "./agentStartContext";
+import { resolveSecretContext } from "./secretRefs";
 
 export type { AgentDef };
 
@@ -236,6 +237,9 @@ export class AgentTemplateNode extends DeclarativeAgentNode<AgentDef, Record<str
    *   instead of `done`.
    * - **Recorded input** — the run record persists the RENDERED final prompt
    *   plus its `prompt_source` (modal | config | default), not the raw template.
+   *   Interpolated secret values are redacted back to their `{{secrets.NAME}}`
+   *   refs first (task 15) — the record shows what the agent saw, never the
+   *   values; the values ride the `AgentStartSpec.env` channel only.
    *
    * @param ctx - Flow execution context (task, flow, mr_branch, run services).
    * @param rawInput - The inherited run input; may carry a `prompt` override
@@ -251,25 +255,14 @@ export class AgentTemplateNode extends DeclarativeAgentNode<AgentDef, Record<str
    */
   async run(ctx: FlowCtx, rawInput: Record<string, unknown>, config: Record<string, unknown>): Promise<RunOutcome> {
     const cfg = this.runConfig(config);
-
-    const model = await resolveAgentModel(ctx, rawInput, cfg);
-    const { body, source } = await renderAgentPrompt(ctx, rawInput, cfg, this.label);
-    const prompt = composeAgentPrompt(body, cfg, this.outputSchema);
-    const startingRef = await resolveStartingRef(ctx, cfg);
-    // Task 08: the attribution anchor — the resolved base_ref pinned to the
-    // commit it pointed at at run start (the ctxHelper's read-only seam, the
-    // makeDiff sibling). Git I/O under the claim, never in a transaction;
-    // skipped entirely when the def declares no `diff` fact (F4).
-    const baseSha = cfg.produces.includes(FACT_KIND.DIFF)
-      ? await this.ctxHelper.baseShaOf(ctx, startingRef)
-      : null;
-
-    const input: Record<string, unknown> = {
-      ...rawInput,
-      prompt: prompt,
-      prompt_source: source,
-      model,
-    };
+    const { model, secrets, prompt, startingRef, baseSha, input } = await prepareAgentStart(
+      ctx,
+      rawInput,
+      cfg,
+      this.label,
+      this.outputSchema,
+      this.ctxHelper,
+    );
 
     return this.execute(ctx, {
       input,
@@ -280,15 +273,20 @@ export class AgentTemplateNode extends DeclarativeAgentNode<AgentDef, Record<str
         model,
         startingRef,
         settingSources: cfg.mcp_sources,
+        env: secrets.env,
       },
       label: this.label.toLowerCase(),
-      finalize: async result => this.finalizeOutput(ctx, result, cfg, model, baseSha),
+      finalize: async result => this.finalizeOutput(ctx, result, cfg, model, baseSha, secrets.env),
     });
   }
 
   /** Chat refinement: a follow-up run on the node's agent. The rendered
    * feedback rides the same contract directives a fresh run's prompt does —
-   * the follow-up output goes through the same applyOutput validation. */
+   * the follow-up output goes through the same applyOutput validation. The
+   * declared secrets resolve the same way a fresh run's do (task 15): the
+   * env channel carries the values, the feedback's {{secrets.NAME}} refs
+   * stay scoped to the declared set, and the recorded feedback is the raw
+   * chat text (never a rendered value). */
   override async chat(ctx: FlowCtx, content: string, model?: string): Promise<string> {
     if (this.isFirstTurn(await this.node(ctx))) {
       const outcome = await this.run(
@@ -301,8 +299,9 @@ export class AgentTemplateNode extends DeclarativeAgentNode<AgentDef, Record<str
     const cfg = this.runConfig(await this.nodeConfig(ctx));
     const node = await this.node(ctx);
 
+    const secrets = await resolveSecretContext(cfg.secret_refs, this.label);
     const prompt = composeAgentPrompt(
-      await renderAgentFeedback(ctx, content),
+      await renderAgentFeedback(ctx, content, { resolveSecret: secrets.resolver }),
       cfg,
       this.outputSchema,
     );
@@ -327,9 +326,10 @@ export class AgentTemplateNode extends DeclarativeAgentNode<AgentDef, Record<str
         startingRef,
         followUpOn: await this.support.lastAgentId(node.id),
         settingSources: cfg.mcp_sources,
+        env: secrets.env,
       },
       label: `${this.label.toLowerCase()} follow-up`,
-      finalize: async result => this.finalizeOutput(ctx, result, cfg, model ?? cfg.model ?? null, baseSha),
+      finalize: async result => this.finalizeOutput(ctx, result, cfg, model ?? cfg.model ?? null, baseSha, secrets.env),
     }).then(o => o.reply);
   }
 
@@ -366,7 +366,8 @@ export class AgentTemplateNode extends DeclarativeAgentNode<AgentDef, Record<str
     result: AgentRunResult,
     cfg: AgentDef,
     model: string | null,
-    baseSha: string | null
+    baseSha: string | null,
+    env: Record<string, string> = {}
   ): Promise<RunOutcome> {
     // Task 07 (A1/F4): the run's self-reported git facts become facts when the
     // def declares `produces`. The diff capture is git I/O, so it runs HERE —
@@ -404,6 +405,8 @@ export class AgentTemplateNode extends DeclarativeAgentNode<AgentDef, Record<str
               startingRef: await resolveStartingRef(ctx, cfg),
               followUpOn: await this.support.lastAgentId(node.id),
               settingSources: cfg.mcp_sources,
+              // task 15: the retry keeps the same declared-secret env channel
+              env,
             }),
           `${this.label.toLowerCase()} retry`
         );

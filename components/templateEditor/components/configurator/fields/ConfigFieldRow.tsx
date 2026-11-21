@@ -33,6 +33,8 @@ export {
   freeTextFields,
   promptEditorKeys,
   secretFields,
+  secretRefFields,
+  secretRefOptions,
   writeConfig,
 } from '../../../configFieldLogic';
 

@@ -19,6 +19,7 @@ import {
   companionTextOf,
   freeTextFields,
   promptEditorKeys,
+  secretRefFields,
   writeConfig,
 } from './fields/ConfigFieldRow';
 import { DeclarativeConfigFields } from './fields/DeclarativeConfigFields';
@@ -71,16 +72,20 @@ export function ConfigTab({
 }) {
   // http nodes (Phase 6): the configured secret names — read through the
   // shared settings query (names only; values never leave the server) and
-  // offered as {{secrets.NAME}} chips under the fields where secrets resolve
+  // offered as {{secrets.NAME}} chips under the fields where secrets resolve.
+  // Task 15: declarative knobs whose options ARE the secret names (the agent
+  // kind's `secret_refs`) read the same list.
   const isHttp = node.kind === "http";
+  const needsSecretNames =
+    isHttp || (contract?.config?.fields ?? []).some((f) => secretRefFields.has(f.key));
   const secretsQuery = useQuery({
     ...settingsQueryOptions(),
-    enabled: isHttp,
+    enabled: needsSecretNames,
   });
-  const secretNames = secretsQuery.data?.secrets ?? null;
-  // the read failed — surface it with a retry (otherwise the chips just
+  const secretNames = needsSecretNames ? (secretsQuery.data?.secrets ?? null) : null;
+  // the read failed — surface it with a retry (otherwise the chips/options just
   // vanish) — rendered in both the declarative and builtin branches
-  const secretsError = isHttp && secretsQuery.isError ? (
+  const secretsError = needsSecretNames && secretsQuery.isError ? (
     <p className="text-[11px] text-destructive m-0 flex items-center gap-2">
       Couldn&apos;t load the configured secrets.
       <Button

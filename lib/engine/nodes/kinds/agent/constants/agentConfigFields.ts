@@ -82,3 +82,20 @@ export const agentToolsConfigFields: readonly ConfigField[] = [
     })),
   },
 ] as const;
+
+/**
+ * The agent node's `secret_refs` knob (Task 15, finding C1): which flow
+ * secrets the node's runs may use. The options are NOT static — they mirror
+ * the configured secret names (the secrets list API, GET /api/settings
+ * `secrets`, names only — values never leave the server), injected by the
+ * render hosts (`DeclarativeConfigFields`) the same way the http kinds'
+ * `{{secrets.NAME}}` chip groups read them.
+ */
+export const secretRefsConfigFields: readonly ConfigField[] = [
+  {
+    key: "secret_refs",
+    label: "Secret refs",
+    type: "multi",
+    help: "flow secrets this node's runs may use — referenced as {{secrets.NAME}} in the prompt and injected into the agent's env; resolved at run start, never persisted (default: none)",
+  },
+] as const;

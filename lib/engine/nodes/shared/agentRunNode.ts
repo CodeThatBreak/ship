@@ -204,7 +204,9 @@ export abstract class AgentRunNode<
         ...opts.agent,
         prompt,
         nodeId: node.id,
-        env: apiToken ? { [AGENT_TOKEN_ENV]: apiToken } : undefined,
+        // task 15: the node's declared-secret env merges under the capability
+        // token — the token wins the key if a secret ever shares its name
+        env: this.startEnv(opts.agent.env, apiToken),
       });
     try {
       const { result, runRowId, usage } = await this.runner.executeRun(ctx, node.id, start, opts.label, {
@@ -239,5 +241,19 @@ export abstract class AgentRunNode<
       event: `${label} superseded`,
       reply: "",
     };
+  }
+
+  /**
+   * The run's env: the node's declared-secret values (task 15) merged under
+   * the attempt's capability token (step 08). The values live only on the
+   * start spec — they never touch the recorded input blob or any row.
+   */
+  private startEnv(
+    secrets: Record<string, string> | undefined,
+    apiToken: string | null,
+  ): Record<string, string> | undefined {
+    const env: Record<string, string> = { ...(secrets ?? {}) };
+    if (apiToken) env[AGENT_TOKEN_ENV] = apiToken;
+    return Object.keys(env).length > 0 ? env : undefined;
   }
 }

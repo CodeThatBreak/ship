@@ -132,6 +132,14 @@ export const AgentDefSchema = z.looseObject({
     AGENT_TOOL.READ_FLOW_STATE,
     AGENT_TOOL.REPORT_FAILURE,
   ]),
+  /**
+   * The flow secrets this node's runs may use (task 15, design §7, finding
+   * C1): each ref resolves through the SecretStore at run start — the values
+   * ride `AgentStartSpec.env` (never persisted, never recorded) and unlock
+   * `{{secrets.NAME}}` in the prompt. A prompt ref not declared here fails
+   * the run loudly; a declared ref with no configured value fails loudly too.
+   */
+  secret_refs: z.array(z.string()).default([]),
   /** the declarative effects map (task 10) — see DeclarativeEffectsSchema */
   effects: DeclarativeEffectsSchema,
   /**

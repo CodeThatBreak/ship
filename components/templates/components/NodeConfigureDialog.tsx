@@ -15,6 +15,7 @@ import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Spinner } from "@/components/ui/spinner";
 import { NODE_KIND_DESCRIPTIONS, type NodeTemplateKind, boilerplateFor } from "@/components/templateEditor/boilerplate";
+import { secretRefFields } from "@/components/templateEditor/configFieldLogic";
 import { queryKeys } from "@/constants/queryKeys";
 import { apiFetch } from "@/hooks/localApiToken";
 import { settingsQueryOptions } from "@/components/settings/queries";
@@ -61,14 +62,17 @@ export function NodeConfigureDialog({
   );
 
   // the contract rides the dialog's kind + current definition (the drawer's
-  // draft pattern); the http kinds' {{secrets.NAME}} chips need the secret
-  // names
+  // draft pattern); the http kinds' {{secrets.NAME}} chips and the declarative
+  // secret-refs options (task 15) need the configured secret names
   const contract = useNodeSchemaContract(form.kind, form.config);
+  const needsSecretNames =
+    form.kind === "http" ||
+    (contract?.config?.fields ?? []).some((f) => secretRefFields.has(f.key));
   const { data: settingsData } = useQuery({
     ...settingsQueryOptions(),
-    enabled: form.kind === "http",
+    enabled: needsSecretNames,
   });
-  const secretNames = form.kind === "http" ? (settingsData?.secrets ?? null) : null;
+  const secretNames = needsSecretNames ? (settingsData?.secrets ?? null) : null;
 
   /** A kind switch on create re-seeds the definition — boilerplate per kind,
    *  never a mixed leftover of the previous kind's shape. The description

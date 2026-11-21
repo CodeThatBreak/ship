@@ -46,6 +46,22 @@ export const freeTextFields = new Set([
  *  configured-secrets chip group under the input. */
 export const secretFields = new Set(["url", "headers", "body"]);
 
+/** The declarative knobs whose `multi` options ARE the configured secret
+ *  names (task 15, agent `secret_refs`) — the options mirror the secrets
+ *  list API (GET /api/settings `secrets`, names only) instead of a static
+ *  vocabulary, so they can never drift from what Settings actually has. */
+export const secretRefFields = new Set(["secret_refs"]);
+
+/** The `secret_refs` multi options from the configured secret names —
+ *  undefined when nothing is configured yet (the field renders its empty
+ *  state; the help text points at Settings → secrets). */
+export const secretRefOptions = (
+  secretNames?: string[] | null,
+): { value: string; label: string }[] | undefined =>
+  secretNames?.length
+    ? secretNames.map((name) => ({ value: name, label: name }))
+    : undefined;
+
 /**
  * The node's vocabulary as the condition/expression editors' groups (Phase 5):
  * brace-stripped, minus "My inputs" (the flow context map has no `input`

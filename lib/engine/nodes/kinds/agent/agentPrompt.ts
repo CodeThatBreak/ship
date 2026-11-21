@@ -78,12 +78,20 @@ export const composeAgentPrompt = (
  *
  * The returned `source` records where the prompt came from (modal | config |
  * default) so the run record can annotate lastRun in the modal.
+ *
+ * The optional `secretResolver` scopes `{{secrets.NAME}}` to the node's
+ * DECLARED refs (task 15, C1): an undeclared ref and a declared-but-unset
+ * ref both fail the run loudly — the renderer's no-resolver `""` fallback
+ * never applies on this path, because the resolver is always supplied by a
+ * caller that owns the declared-ref set (the preview declines to resolve and
+ * keeps today's no-resolver behavior — values must not reach the preview).
  */
 export const renderAgentPrompt = async (
   ctx: FlowCtx,
   rawInput: Record<string, unknown>,
   cfg: AgentDef,
   label: string,
+  opts?: { resolveSecret?: (name: string) => string | null | undefined },
 ): Promise<{ body: string; source: PromptSource }> => {
   const { prompt: inputPrompt, model: _, ...inheritedInput } = rawInput;
   void _;
@@ -106,7 +114,7 @@ export const renderAgentPrompt = async (
           : value,
       ]),
     ),
-  });
+  }, { label, ...opts });
 
   // the run record's input.prompt is the RENDERED final prompt — the exact
   // text the agent receives (nodes.config.prompt stays the un-rendered source
@@ -124,10 +132,16 @@ export const renderAgentPrompt = async (
  * Chat feedback rendering: the developer's chat message rides the SAME flow
  * variable universe a fresh run's template does — rendered before the
  * contract directives are composed on top, so the follow-up output goes
- * through the same contract validation a fresh run's does.
+ * through the same contract validation a fresh run's does. The optional
+ * `secretResolver` scopes `{{secrets.NAME}}` to the node's declared refs
+ * (task 15) — same scoping as `renderAgentPrompt`.
  */
-export const renderAgentFeedback = async (ctx: FlowCtx, content: string): Promise<string> =>
-  TemplateRenderer.render(content, await buildFlowContext(ctx));
+export const renderAgentFeedback = async (
+  ctx: FlowCtx,
+  content: string,
+  opts?: { resolveSecret?: (name: string) => string | null | undefined },
+): Promise<string> =>
+  TemplateRenderer.render(content, await buildFlowContext(ctx), opts);
 
 /**
  * Model resolution: the run input's `model` overrides the config's, and
