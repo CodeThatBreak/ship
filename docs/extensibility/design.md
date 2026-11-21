@@ -413,7 +413,7 @@ class. That is the acceptance test of the whole design.
 | A1 git facts dropped | L1 | `produces: [branch, diff]` maps `result.git` → facts; diff renders anywhere via the renderer registry |
 | A2 hardcoded base ref | L3 | `base_ref` knob, one resolver used by run/chat/retry (also fixes E2) |
 | A3 flow-level MR resolution | L1 | fact fallback in `MrTargetResolver`; `mr_iid` + per-branch MRs in the flow context |
-| B1 panels hardcoded | L4 | generic declarative panel + artifact renderer registry; fallback message deleted |
+| B1 panels hardcoded | L4 | generic declarative panel + artifact renderer registry; fallback message deleted (Fixed: Task 01) |
 | B2 config is code | L3 | shared field sets + renderer registry; unknown keys tolerated by loose schemas |
 | B3 no declarative effects | L2 | config `effects` map → wildcard dispatch → verb registry |
 | B4 no subflow | L5 | `subflow` kind on the StageGateRegistry + existing child-creation path |
@@ -425,7 +425,7 @@ class. That is the acceptance test of the whole design.
 | D2 no in-flow reconfig | L3 | config edit for `pending`/`failed` nodes (snapshot semantics preserved) |
 | E1 hardcoded stage gates | L5 | StageGateRegistry |
 | E2 retry loses base ref | L3 | single `base_ref` resolver on all paths |
-| E3/E4 flags/capabilities built-in-only | L4 | declarable on defs |
+| E3/E4 flags/capabilities built-in-only | L4 | declarable on defs (E4 Fixed: Task 01) |
 
 ---
 

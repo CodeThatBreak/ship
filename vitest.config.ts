@@ -6,6 +6,9 @@ import { defineConfig } from "vitest/config";
  * React server bundle, so it is aliased to an empty stub under vitest.
  */
 export default defineConfig({
+  // component tests import .tsx panels; tsconfig's `jsx: preserve` otherwise
+  // leaves JSX in the source and Vite's import analysis rejects it
+  oxc: { jsx: { runtime: "automatic" } },
   resolve: {
     alias: {
       "server-only": fileURLToPath(new URL("./tests/server-only-stub.ts", import.meta.url)),

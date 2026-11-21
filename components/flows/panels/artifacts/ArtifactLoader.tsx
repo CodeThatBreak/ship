@@ -4,7 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { errorMessageOf } from "@/hooks/fetchJson";
 import { useArtifact } from "../../hooks/useArtifact";
-import type { ArtifactPayload } from "./types";
+import type { ArtifactPayload } from "./types/artifactPayload";
 
 const ArtifactLoaderSkeleton = () => (
   <div

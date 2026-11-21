@@ -4,6 +4,8 @@ import type { LucideIcon } from "lucide-react";
 import type { Node } from "@/types/flow";
 import { EmptyHint } from "@/components/shared/EmptyHint";
 import { ArtifactLoader } from "./ArtifactLoader";
+import { GenericArtifactFallback } from "./GenericArtifactFallback";
+import type { ArtifactRenderer } from "./types/artifactRenderer";
 import { VersionTabs } from "./VersionTabs";
 
 /** Versioned artifact tabs + a single fetched artifact rendered by the caller. */
@@ -12,15 +14,19 @@ export const GenericArtifact = ({
   kind,
   empty,
   icon: Icon,
+  renderer,
 }: {
   node: Node;
   kind: string;
   empty: string;
   icon?: LucideIcon;
+  /** presentational renderer from the artifact-kind registry (default: `<pre>`) */
+  renderer?: ArtifactRenderer;
 }) => {
   const arts = node.artifacts.filter((a) => a.kind === kind);
   const [sel, setSel] = useState<string | null>(null);
   const current = arts.find((a) => a.id === sel) ?? arts[arts.length - 1];
+  const Renderer = renderer ?? GenericArtifactFallback;
   return (
     <div>
       {arts.length > 1 && (
@@ -29,11 +35,7 @@ export const GenericArtifact = ({
       {current ? (
         <ArtifactLoader
           id={current.id}
-          render={(loaded) => (
-            <pre className="overflow-y-auto whitespace-pre-wrap bg-background border border-border rounded-lg p-3.5 text-[12.5px] font-mono">
-              {loaded.content}
-            </pre>
-          )}
+          render={(loaded) => <Renderer artifact={loaded} />}
         />
       ) : (
         <EmptyHint icon={Icon}>{empty}</EmptyHint>

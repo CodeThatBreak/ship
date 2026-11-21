@@ -1,10 +1,9 @@
 'use client';
-import { Info, Layers, RotateCcw } from 'lucide-react';
-import { Markdown } from "@/components/shared/Markdown";
+import { Layers, RotateCcw } from 'lucide-react';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { useArtifact } from '../../../../hooks/useArtifact';
+import { PlanArtifactView } from '../../../../panels/artifacts/PlanArtifactView';
 import { MasterPlanLoader } from './MasterPlanLoader';
 
 /** The section's heading — hoisted, shared by the loading/error/success rows. */
@@ -47,34 +46,5 @@ export function MasterPlanSection({ planId }: { planId: string }) {
     );
   }
 
-  const feedback =
-    typeof artifact.meta?.feedback === "string" ? artifact.meta.feedback : null;
-
-  return (
-    <div>
-      <h3 className="mb-2 flex items-center gap-1.5 text-sm font-semibold">
-        <Layers size={14} /> Master plan
-        {feedback ? (
-          <Tooltip>
-            <TooltipTrigger
-              render={
-                <button type="button" aria-label="Plan refinement feedback" className="inline-flex" />
-              }
-            >
-              <Info size={12} className="text-muted-foreground" />
-            </TooltipTrigger>
-            <TooltipContent>
-              <div className="border-l-[3px] pl-2.5 text-xs text-muted-foreground">
-                Refined from feedback: &quot;{feedback}&quot;
-              </div>
-            </TooltipContent>
-          </Tooltip>
-        ) : null}
-      </h3>
-
-      <Card className="px-4 py-4">
-        <Markdown className="text-[13px]">{artifact.content}</Markdown>
-      </Card>
-    </div>
-  );
+  return <PlanArtifactView artifact={artifact} />;
 }

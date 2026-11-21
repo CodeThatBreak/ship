@@ -2,10 +2,11 @@
 import { useState } from "react";
 import { CheckCheck, Pencil, Play, Sparkles } from "lucide-react";
 import type { Artifact, PlanStepRow } from "@/types/flow";
-import { Markdown } from "@/components/shared/Markdown";
 import { EmptyHint } from "@/components/shared/EmptyHint";
-import { PanelShell, ArtifactLoader, VersionTabs } from '../shared';
+import { PanelShell, ArtifactLoader, VersionTabs, GenericArtifact } from '../shared';
 import type { ArtifactPayload } from '../shared';
+import { rendererForKind } from '../artifacts/artifactRenderers';
+import { ARTIFACT_KIND } from '../artifacts/constants/artifactKinds';
 import { useNodePanel } from '../context';
 import FanoutStepList from '../FanoutStepList';
 import { FLOW_ACTION, FLOW_STATUS, isFailedStatus } from "@/constants/flow";
@@ -26,7 +27,7 @@ import { Field, FieldDescription, FieldLabel } from "@/components/ui/field";
 export default function AgentView() {
   const { flow, node, action, actionAsync, model } = useNodePanel();
   const cfg = (node.config ?? {}) as { prompt?: string; mode?: string; output?: string };
-  const outputKind = cfg.output === "json" ? "json" : "markdown";
+  const outputKind = cfg.output === ARTIFACT_KIND.JSON ? ARTIFACT_KIND.JSON : ARTIFACT_KIND.MARKDOWN;
   const [editPrompt, setEditPrompt] = useState(false);
   const [draft, setDraft] = useState("");
 
@@ -35,8 +36,14 @@ export default function AgentView() {
   const awaitingApproval = node.status === FLOW_STATUS.AWAITING_APPROVAL;
   const finished = node.status === FLOW_STATUS.DONE || node.status === FLOW_STATUS.APPROVED;
   const failed = isFailedStatus(node.status);
-  const mdArts = node.artifacts.filter((a: Artifact) => a.kind === (outputKind === "json" ? "json" : "markdown"));
+  const mdArts = node.artifacts.filter((a: Artifact) => a.kind === outputKind);
   const latest = mdArts[mdArts.length - 1];
+  // rendering is keyed off artifact kind, never the node kind: the output's
+  // renderer comes from the registry, and every other kind renders below it
+  const OutputRenderer = rendererForKind(outputKind);
+  const otherKinds = [...new Set(
+    node.artifacts.filter((a: Artifact) => a.kind !== outputKind).map((a: Artifact) => a.kind),
+  )];
   const [selId, setSelId] = useState<string | null>(null);
   const current = mdArts.find((a) => a.id === selId) ?? latest;
   // plan fan-out: the node's panel swaps the prompt card for the step cards
@@ -101,11 +108,23 @@ export default function AgentView() {
               <VersionTabs arts={mdArts} sel={current.id} onSel={setSelId} className="mb-3.5" />
             )}
             <ArtifactLoader id={current.id}
-              render={(loaded: ArtifactPayload) => outputKind === "json"
-                ? <pre className="overflow-y-auto whitespace-pre-wrap bg-background border border-border rounded-lg p-3.5 text-[12.5px] font-mono">{loaded.content}</pre>
-                : <Markdown className="text-[13px] [&>*:first-child]:mt-0">{loaded.content}</Markdown>} />
+              render={(loaded: ArtifactPayload) => <OutputRenderer artifact={loaded} />} />
           </div>
         )}
+        {/* non-output artifacts (diff, plan, …) render below the output, by kind */}
+        {otherKinds.map((kind) => (
+          <div key={kind} className="mt-4">
+            <h3 className="text-sm font-semibold mb-2 flex items-center gap-1.5">
+              <Sparkles size={14} /> {kind}
+            </h3>
+            <GenericArtifact
+              node={node}
+              kind={kind}
+              empty={`No ${kind} artifact yet.`}
+              renderer={rendererForKind(kind)}
+            />
+          </div>
+        ))}
         {!current && !running && !failed && (
           <EmptyHint icon={Sparkles}>
             No output yet. {pending ? "Click Run to start." : ""}

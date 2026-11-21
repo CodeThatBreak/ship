@@ -9,7 +9,6 @@ import type { FlowData, Node } from "@/types/flow";
 import { EXECUTION_MODE_LOCAL, LOCAL_MODE_MODEL } from "../constants";
 import { NodePanelContext, type ActionPayload, type NodePanelContextValue } from "./context";
 import { resolveNodePanel } from "./panelFactory";
-import { PanelShell } from "./shared";
 
 /**
  * The node workspace dispatcher: the factory resolves the node's panel and its
@@ -85,13 +84,7 @@ export default function NodePanel({
       <div className="flex flex-1 min-h-0 min-w-0">
         {/* the node's panel column */}
         <div className="flex-[1.6] min-w-0 min-h-0 flex flex-col">
-          {Panel ? <Panel key={node.node_key} /> : (
-            <PanelShell key={node.node_key} node={node} flow={flow}>
-              {node.kind
-                ? <p className="text-muted-foreground text-[13px] m-0">The <strong>{node.kind}</strong> node type isn&apos;t supported yet — it can&apos;t run, even though you can configure it in the template editor.</p>
-                : <p className="text-muted-foreground">No panel for this node.</p>}
-            </PanelShell>
-          )}
+          <Panel key={node.node_key} />
         </div>
         {/* the node's chat rail — agent-backed nodes only, the plan node
             through the plan feature's composer config. The top/left/bottom

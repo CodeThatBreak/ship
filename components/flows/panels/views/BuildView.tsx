@@ -2,7 +2,7 @@
 import { AlertTriangle, FileDiff, GitMerge } from 'lucide-react';
 import type { BranchRow, Artifact, PlanStepRow } from '@/types/flow';
 import PlanSteps from '../../components/plan/components/planSteps/PlanSteps';
-import DiffView from './DiffView';
+import { DiffView } from '../artifacts/DiffView';
 import { Alert } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -190,7 +190,7 @@ export default function BuildView() {
           {latest ? (
             <ArtifactLoader
               id={latest.id}
-              render={(loaded: ArtifactPayload) => <DiffView raw={loaded.content} />}
+              render={(loaded: ArtifactPayload) => <DiffView artifact={loaded} />}
             />
           ) : (
             <EmptyHint icon={GitMerge}>No changes yet.</EmptyHint>

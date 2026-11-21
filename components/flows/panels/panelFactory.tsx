@@ -6,6 +6,7 @@ import PlanView from '../components/plan/PlanView';
 import AgentView from './views/AgentView';
 import BuildView from './views/BuildView';
 import DeclarativeView from './views/DeclarativeView';
+import GenericDeclarativePanel from './genericDeclarativePanel';
 import NodeChat from './NodeChat';
 import PipelineView from './views/PipelineView';
 import ResolveView from './views/ResolveView';
@@ -25,7 +26,7 @@ import StartView from './views/StartView';
 /** The workspace a node's column resolves into: a panel plus, when the node
  *  contract says so, its chat rail. */
 export interface NodeWorkspace {
-  panel: ComponentType | null;
+  panel: ComponentType;
   chat: ComponentType | null;
 }
 
@@ -56,8 +57,11 @@ const resolveChat = (node: Node): ComponentType | null => {
   return capabilities.chatMode === 'plan' ? PlanNodeChat : NodeChat;
 };
 
-/** The workspace serving this node — `panel: null` means the caller renders the fallback. */
+/** The workspace serving this node — every node resolves to a panel; unknown
+ *  declarative kinds get the generic panel and its capability-driven chat rail. */
 export function resolveNodePanel(node: Node): NodeWorkspace {
-  const panel = PANEL_BY_TYPE[node.type] ?? (node.kind ? (PANEL_BY_KIND[node.kind] ?? null) : null);
-  return { panel, chat: panel ? resolveChat(node) : null };
+  const panel = PANEL_BY_TYPE[node.type]
+    ?? (node.kind ? PANEL_BY_KIND[node.kind] : undefined)
+    ?? GenericDeclarativePanel;
+  return { panel, chat: resolveChat(node) };
 }
