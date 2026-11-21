@@ -14,7 +14,7 @@ export { AgentRunNode } from "./agentRunNode";
 export { NodeDefinition } from "./nodeDefinition";
 export type { ChainRole } from "./types/chainRole";
 export type { NodeTriggerRun } from "./types/nodeTriggerRun";
-export type { RunOutcome } from "./types/runOutcome";
+export type { RunOutcome, RunOutcomeFacts } from "./types/runOutcome";
 export { nodeRoles } from "./nodeRoles";
 export { NodeRoleRouter } from "./nodeRoles/nodeRoleRouter";
 export { CHAT_DECLINED } from "./constants/chatDeclined";

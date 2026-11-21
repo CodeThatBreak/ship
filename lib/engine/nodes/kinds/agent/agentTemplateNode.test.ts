@@ -28,6 +28,7 @@ const { AgentRunner } = await import("../../../harness/agentRunner/agentRunner")
 const { config } = await import("../../../../config");
 const { agentPortRegistry } = await import("../../../ports/agentPort");
 const { worktreeManager } = await import("../../../runtime/worktreeLifecycle");
+const { FlowContextHelper } = await import("../../shared/runContext/flowContextHelper");
 const { AgentTemplateNode } = await import("./agentTemplateNode");
 import type { Started, AgentStartInput, ExecuteRunResult } from "../../../harness/types/agentRunTypes";
 import type { AgentRunResult } from "../../../ports/agentPort";
@@ -639,5 +640,127 @@ describe("AgentTemplateNode — base_ref + retry_budget (Task 03)", () => {
       code: "schema_mismatch",
     });
     expect(runner.starts).toHaveLength(1);
+  });
+});
+
+// ── Task 07: result.git → facts in finalizeOutput ─────────────────────────────
+
+/** A ctxHelper whose makeDiff records every capture and returns a fixed
+ *  payload — the real one is git I/O and the test flow has no repo.
+ *  `failCapture` makes the capture fail (null) like the real git path can. */
+class DiffStubCtxHelper extends FlowContextHelper {
+  readonly captured: string[] = [];
+  failCapture = false;
+  override async makeDiff(_ctx: FlowCtx, branch: string): Promise<{ files: never[]; stat: string; raw: string } | null> {
+    this.captured.push(branch);
+    if (this.failCapture) return null;
+    return { files: [], stat: `1 file changed (${branch})`, raw: `diff ${branch}` };
+  }
+}
+
+/** A producing agent node whose run self-reports the given git branches. */
+const producingAgentNode = (
+  index: number,
+  ctxHelper: DiffStubCtxHelper,
+  gitBranches: string[],
+): InstanceType<typeof AgentTemplateNode> =>
+  new AgentTemplateNode(
+    { id: `nt_${index}`, name: LABEL, description: null, config: {} },
+    `agent_${index}`,
+    {
+      runner: new StubRunner({
+        status: "finished",
+        result: FINISHED_TEXT,
+        git: { branches: gitBranches.map((branch) => ({ branch })) },
+      }),
+      ctxHelper,
+    },
+  );
+
+/** The flow's branch rows (the branch-fact home). */
+const branchRowsOf = async (flowId: string): Promise<{ name: string; status: string; git_branch: string | null }[]> =>
+  testAll<{ name: string; status: string; git_branch: string | null }>(
+    `SELECT name, status::text AS status, git_branch FROM branches WHERE flow_id=$1 ORDER BY name`,
+    flowId,
+  );
+
+/** The flow's diff facts (kind:"diff" artifacts with the meta {branch, stat} shape). */
+const diffArtifactsOf = async (flowId: string): Promise<{ branch: string | null; stat: string | null }[]> =>
+  testAll<{ branch: string | null; stat: string | null }>(
+    `SELECT meta->>'branch' AS branch, meta->>'stat' AS stat FROM artifacts WHERE flow_id=$1 AND kind='diff' ORDER BY branch`,
+    flowId,
+  );
+
+describe("AgentTemplateNode — result.git → facts (Task 07)", () => {
+  it("a run with produces [branch,diff] persists one branch row + one diff artifact per reported branch", async () => {
+    const seeded = await seedAgentNode(61);
+    const ctxHelper = new DiffStubCtxHelper();
+    const node = producingAgentNode(61, ctxHelper, ["changelog/x", "docs/y"]);
+
+    await node.run(seeded.ctx, { prompt: "Do the work" }, { produces: ["branch", "diff"] });
+
+    const rows = await branchRowsOf(seeded.flowId);
+    expect(rows.map((r) => r.name)).toEqual(["changelog/x", "docs/y"]);
+    expect(rows.every((r) => r.status === "building" && r.git_branch === r.name)).toBe(true);
+    const diffs = await diffArtifactsOf(seeded.flowId);
+    expect(diffs.map((d) => d.branch)).toEqual(["changelog/x", "docs/y"]);
+    expect(diffs.every((d) => d.stat === `1 file changed (${d.branch})`)).toBe(true);
+    // the capture ran once per reported branch, BEFORE the terminal batch
+    expect(ctxHelper.captured).toEqual(["changelog/x", "docs/y"]);
+  });
+
+  it("produces [branch] alone persists the branch row and never runs the diff capture", async () => {
+    const seeded = await seedAgentNode(62);
+    const ctxHelper = new DiffStubCtxHelper();
+    const node = producingAgentNode(62, ctxHelper, ["changelog/x"]);
+
+    await node.run(seeded.ctx, { prompt: "Do the work" }, { produces: ["branch"] });
+
+    expect((await branchRowsOf(seeded.flowId)).map((r) => r.name)).toEqual(["changelog/x"]);
+    expect(await diffArtifactsOf(seeded.flowId)).toEqual([]);
+    expect(ctxHelper.captured).toEqual([]); // undeclared diff ⇒ no git I/O
+  });
+
+  it("produces [diff] alone persists the diff artifact without a branch row", async () => {
+    const seeded = await seedAgentNode(63);
+    const ctxHelper = new DiffStubCtxHelper();
+    const node = producingAgentNode(63, ctxHelper, ["changelog/x"]);
+
+    await node.run(seeded.ctx, { prompt: "Do the work" }, { produces: ["diff"] });
+
+    expect(await branchRowsOf(seeded.flowId)).toEqual([]);
+    const diffs = await diffArtifactsOf(seeded.flowId);
+    expect(diffs.map((d) => d.branch)).toEqual(["changelog/x"]);
+    expect(ctxHelper.captured).toEqual(["changelog/x"]);
+  });
+
+  it("an undeclared run persists neither (F4 — undeclared git facts stay dropped)", async () => {
+    const seeded = await seedAgentNode(64);
+    const ctxHelper = new DiffStubCtxHelper();
+    const node = producingAgentNode(64, ctxHelper, ["changelog/x"]);
+
+    await node.run(seeded.ctx, { prompt: "Do the work" }, {});
+
+    expect(await branchRowsOf(seeded.flowId)).toEqual([]);
+    expect(await diffArtifactsOf(seeded.flowId)).toEqual([]);
+    expect(ctxHelper.captured).toEqual([]);
+  });
+
+  it("a failed diff capture still persists the diff fact with the unavailable marker (the stepRollup precedent)", async () => {
+    const seeded = await seedAgentNode(65);
+    const ctxHelper = new DiffStubCtxHelper();
+    ctxHelper.failCapture = true;
+    const node = producingAgentNode(65, ctxHelper, ["changelog/x"]);
+
+    await node.run(seeded.ctx, { prompt: "Do the work" }, { produces: ["branch", "diff"] });
+
+    expect((await branchRowsOf(seeded.flowId)).map((r) => r.name)).toEqual(["changelog/x"]);
+    const diffs = await diffArtifactsOf(seeded.flowId);
+    expect(diffs).toHaveLength(1);
+    const art = await testGet<{ content: string }>(
+      `SELECT content FROM artifacts WHERE flow_id=$1 AND kind='diff'`,
+      seeded.flowId,
+    );
+    expect(art?.content).toBe("(diff unavailable)");
   });
 });

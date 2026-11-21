@@ -11,6 +11,7 @@ import {
   type FlowCtx,
   type NodeCapabilities,
   type RunOutcome,
+  type RunOutcomeFacts,
 } from "../../shared/nodeSharedExports";
 import { DeclarativeAgentNode } from "../../shared/declarativeNode";
 import { parseConfigSnapshot } from "../../../templates/nodeConfig";
@@ -34,6 +35,7 @@ import {
   resolveAgentModel,
 } from "./agentPrompt";
 import { agentSplitUnits } from "./agentSplitUnits";
+import { agentFactIntents } from "./agentFactIntents";
 import { shapeAgentOutcome } from "./agentOutcome";
 
 export type { AgentDef };
@@ -320,7 +322,8 @@ export class AgentTemplateNode extends DeclarativeAgentNode<AgentDef, Record<str
    * output is validated directly (an empty response is a typed failure —
    * never a fabricated empty-response placeholder); json output rides the ONE
    * agent-output pipeline (step 05) — the contract with its bounded feedback
-   * retry (`retryBudget`), typed events on every outcome.
+   * retry (`retryBudget`), typed events on every outcome. The doc comment on
+   * `applyOutput` covers the shared contract.
    */
   private async finalizeOutput(
     ctx: FlowCtx,
@@ -328,8 +331,13 @@ export class AgentTemplateNode extends DeclarativeAgentNode<AgentDef, Record<str
     cfg: AgentDef,
     model: string | null
   ): Promise<RunOutcome> {
+    // Task 07 (A1/F4): the run's self-reported git facts become facts when the
+    // def declares `produces`. The diff capture is git I/O, so it runs HERE —
+    // before the terminal write's batch (the stepRollup precedent: git never
+    // joins a transaction); the intents persist inside applyOutcome's tx.
+    const facts = await agentFactIntents(result, cfg, (branch) => this.makeDiff(ctx, branch));
     if (cfg.output !== AGENT_OUTPUT_FORMAT.JSON) {
-      return this.applyOutput(ctx, result.result ?? '', cfg);
+      return this.applyOutput(ctx, result.result ?? '', cfg, facts ?? undefined);
     }
     const node = await this.node(ctx);
     return this.outputPipeline.run<RunOutcome>({
@@ -338,7 +346,7 @@ export class AgentTemplateNode extends DeclarativeAgentNode<AgentDef, Record<str
       label: this.label,
       text: result.result ?? '',
       budget: retryBudgetOf(cfg, this.retryBudget),
-      validate: (t) => this.applyOutput(ctx, t, cfg),
+      validate: (t) => this.applyOutput(ctx, t, cfg, facts ?? undefined),
       // the retry prompt re-states the full contract (one JSON object, the
       // schema, the error-envelope escape hatch) on top of the shared feedback
       retryPrompt: (failure) => composeAgentPrompt(retryFeedbackBody(failure), cfg, this.outputSchema),
@@ -373,8 +381,8 @@ export class AgentTemplateNode extends DeclarativeAgentNode<AgentDef, Record<str
    * rides the ONE agent-output pipeline (step 05) via `finalizeOutput`.
    * The approval hold is computed per attempt from the flow graph.
    */
-  private async applyOutput(ctx: FlowCtx, text: string, cfg: AgentDef): Promise<RunOutcome> {
-    return shapeAgentOutcome(text, cfg, this.outputSchema, this.label, await this.holdsForApproval(ctx));
+  private async applyOutput(ctx: FlowCtx, text: string, cfg: AgentDef, facts?: RunOutcomeFacts): Promise<RunOutcome> {
+    return shapeAgentOutcome(text, cfg, this.outputSchema, this.label, await this.holdsForApproval(ctx), facts);
   }
 }
 

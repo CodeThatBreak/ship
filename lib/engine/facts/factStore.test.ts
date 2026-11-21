@@ -1,7 +1,10 @@
 import { beforeAll, describe, expect, it } from "vitest";
 
 import { assignTestDatabase, resetTestDatabase } from "../../../tests/helpers/testDatabase";
-import { testGet, testRun } from "../../../tests/helpers/rawTestDb";
+import { testAll, testGet, testRun } from "../../../tests/helpers/rawTestDb";
+import type { Started, AgentStartInput, ExecuteRunResult } from "../harness/types/agentRunTypes";
+import type { AgentRunResult } from "../ports/agentPort";
+import type { FlowCtx } from "../nodes/shared/nodeSharedExports";
 
 // Must run before any `../../db` import touches the connection — dynamic
 // imports below resolve lazily once DATABASE_URL points at the test database.
@@ -15,6 +18,14 @@ const { nodeSupport } = await import("@/lib/composition/container");
 const { AgentDefSchema } = await import("../nodes/schemas/declarativeSchemas");
 const { AGENT_CONFIG_FIELDS } = await import("../nodes/kinds/agent/constants/agentConstantsExports");
 const { FACT_KIND } = await import("./types/facts");
+const { AgentRunner } = await import("../harness/agentRunner/agentRunner");
+const { AgentTemplateNode } = await import("../nodes/kinds/agent/agentTemplateNode");
+const { FlowContextHelper } = await import("../nodes/shared/runContext/flowContextHelper");
+const { flowCtxHelper } = await import("../nodes/shared/runContext");
+const { usageTracker } = await import("../harness/usageTracker");
+const { config } = await import("../../config");
+const { agentPortRegistry } = await import("../ports/agentPort");
+const { worktreeManager } = await import("../runtime/worktreeLifecycle");
 
 const facts = new FactStore(nodeSupport, branchStore);
 
@@ -316,6 +327,128 @@ describe("AgentDefSchema.produces (Task 06 — the F4 pin Task 07 extends)", () 
   });
 });
 
-// Task 06 pins the vocabulary above; Task 07 extends this file with the F4
+// Task 06 pins the vocabulary above; the block below is Task 07's F4
 // consumption test: an agent def WITHOUT `produces` persists no branch/diff
 // rows even when `result.git.branches` is set (the finalizeOutput wiring).
+
+/** executeRun stand-in (the agentTemplateNode.test.ts pattern): the stubbed
+ *  result back to the def, the start recorded. */
+class FactTestRunner extends AgentRunner {
+  private readonly queue: AgentRunResult[];
+  readonly starts: AgentStartInput[] = [];
+
+  constructor(...results: AgentRunResult[]) {
+    super(flowCtxHelper, nodeSupport, usageTracker, db, config, agentPortRegistry, worktreeManager);
+    this.queue = [...results];
+  }
+
+  override async startAgent(_ctx: FlowCtx, input: AgentStartInput): Promise<Started> {
+    this.starts.push(input);
+    return { agentId: "agt_facts", runId: `run_facts_${this.starts.length}` };
+  }
+
+  override async executeRun(
+    ctx: FlowCtx,
+    nodeId: string,
+    start: () => Promise<Started>,
+    label: string,
+  ): Promise<ExecuteRunResult> {
+    const result = this.queue.shift();
+    if (result == null) throw new Error(`${label}: no stubbed run result left`);
+    const { agentId, runId } = await start();
+    await this.support.persistRun(ctx.flow.id, nodeId, agentId, runId);
+    if (result.status !== "finished") throw new Error(`${label} ended with status ${result.status}`);
+    return { result, runRowId: `runrow_${runId}` };
+  }
+}
+
+/** makeDiff stand-in: records every capture and returns a fixed payload —
+ *  the real one is git I/O and the test flow has no repo. */
+class FactTestCtxHelper extends FlowContextHelper {
+  readonly captured: string[] = [];
+  override async makeDiff(_ctx: FlowCtx, branch: string): Promise<{ files: never[]; stat: string; raw: string } | null> {
+    this.captured.push(branch);
+    return { files: [], stat: "1 file changed", raw: "diff --git a/x b/x" };
+  }
+}
+
+/** A minimal FlowCtx over a seeded flow (the run path reads flow/task fields only). */
+const factCtx = (flowId: string): FlowCtx =>
+  ({
+    flow: { id: flowId, taskId: `task_${flowId}`, name: "fact store test", status: "active", executionMode: "cloud", createdAt: now(), updatedAt: now() },
+    task: { id: `task_${flowId}`, type: "generic", key: `BR-${flowId}`, summary: "fact store test", fields: {}, status: "open", issueType: "story", priority: "P2" },
+  }) as unknown as FlowCtx;
+
+describe("Agent run result.git → facts (Task 07 — the F4 consumption)", () => {
+  it("an agent run reporting git.branches with produces [branch,diff] persists one branch row + one diff artifact", async () => {
+    const flowId = "flw_fact_f4_produces";
+    await seedFlow(flowId);
+    const ctxHelper = new FactTestCtxHelper();
+    const node = new AgentTemplateNode(
+      { id: "nt_f4", name: "Fact Agent", description: null, config: {} },
+      "agent_1",
+      {
+        runner: new FactTestRunner({
+          status: "finished",
+          result: "# Done",
+          git: { branches: [{ branch: "changelog/x" }] },
+        }),
+        ctxHelper,
+      },
+    );
+
+    await node.run(factCtx(flowId), { prompt: "Do the work" }, { produces: ["branch", "diff"] });
+
+    // the branch fact → exactly one branch row, the fact status, the git branch
+    const row = await testGet<{ status: string; git_branch: string | null }>(
+      `SELECT status::text AS status, git_branch FROM branches WHERE flow_id=$1 AND name=$2`,
+      flowId,
+      "changelog/x",
+    );
+    expect(row?.status).toBe("building");
+    expect(row?.git_branch).toBe("changelog/x");
+    expect(await testGet<{ count: bigint }>(`SELECT count(*) AS count FROM branches WHERE flow_id=$1`, flowId))
+      .toMatchObject({ count: 1n });
+
+    // the diff fact → exactly one kind:"diff" artifact, meta {branch, stat}
+    const diffs = await testAll<{ content: string; branch: string | null; stat: string | null }>(
+      `SELECT content, meta->>'branch' AS branch, meta->>'stat' AS stat FROM artifacts WHERE flow_id=$1 AND kind='diff'`,
+      flowId,
+    );
+    expect(diffs).toHaveLength(1);
+    expect(diffs[0]?.content).toBe("diff --git a/x b/x");
+    expect(diffs[0]?.branch).toBe("changelog/x");
+    expect(diffs[0]?.stat).toBe("1 file changed");
+    // the capture ran exactly once, for the reported branch
+    expect(ctxHelper.captured).toEqual(["changelog/x"]);
+  });
+
+  it("an agent run WITHOUT produces persists neither (F4 — undeclared git facts stay dropped)", async () => {
+    const flowId = "flw_fact_f4_undeclared";
+    await seedFlow(flowId);
+    const ctxHelper = new FactTestCtxHelper();
+    const node = new AgentTemplateNode(
+      { id: "nt_f4b", name: "Fact Agent", description: null, config: {} },
+      "agent_1",
+      {
+        runner: new FactTestRunner({
+          status: "finished",
+          result: "# Done",
+          git: { branches: [{ branch: "changelog/x" }] },
+        }),
+        ctxHelper,
+      },
+    );
+
+    await node.run(factCtx(flowId), { prompt: "Do the work" }, {});
+
+    expect(await testGet<{ count: bigint }>(`SELECT count(*) AS count FROM branches WHERE flow_id=$1`, flowId))
+      .toMatchObject({ count: 0n });
+    expect(await testGet<{ count: bigint }>(
+      `SELECT count(*) AS count FROM artifacts WHERE flow_id=$1 AND kind='diff'`,
+      flowId,
+    )).toMatchObject({ count: 0n });
+    // undeclared ⇒ no git I/O either — the capture never runs
+    expect(ctxHelper.captured).toEqual([]);
+  });
+});

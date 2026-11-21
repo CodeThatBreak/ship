@@ -7,6 +7,7 @@ import type { RunOutcome } from "../../shared/nodeSharedExports";
 import { validateStandardAgentOutput } from "../../shared/agentOutput/utils/standardOutput";
 import { AGENT_OUTPUT_ERROR, AgentOutputError } from "../../shared/agent/outputError/outputErrorExports";
 import type { AgentDef } from "../../schemas/declarativeSchemas";
+import type { RunOutcomeFacts } from "../../shared/types/runOutcome";
 
 /**
  * The agent kind's output-contract shaping: the agent's raw response text
@@ -39,6 +40,10 @@ import type { AgentDef } from "../../schemas/declarativeSchemas";
  * @param hold - Whether the node holds at `awaiting_approval` instead of
  *   `done` (approval-triggered instances — the caller computes it per
  *   attempt from the flow graph).
+ * @param facts - The run's captured fact intents (Task 07): `result.git`
+ *   mapped through the def's `produces` by `agentFactIntents` — pure data,
+ *   attached verbatim to the shaped outcome. Shaping stays pure: the
+ *   persistence belongs to `applyOutcome`'s terminal batch (Invariant F2).
  */
 export const shapeAgentOutcome = (
   text: string,
@@ -46,6 +51,7 @@ export const shapeAgentOutcome = (
   outputSchema: z.ZodType<Record<string, unknown>>,
   label: string,
   hold: boolean,
+  facts?: RunOutcomeFacts,
 ): RunOutcome => {
   if (cfg.output === AGENT_OUTPUT_FORMAT.JSON) {
     // the standard validation (step 05 — the private extractJson →
@@ -69,6 +75,7 @@ export const shapeAgentOutcome = (
       event: `${label} output ready${hold ? ' — awaiting approval' : ''}`,
       eventData: { output_format: AGENT_OUTPUT_FORMAT.JSON },
       reply: '```json\n' + JSON.stringify(output, null, 2) + '\n```',
+      ...(facts ? { facts } : {}),
     };
   }
   // step 05: an empty response is a typed failure — missing output is a
@@ -90,5 +97,6 @@ export const shapeAgentOutcome = (
     event: `${label} output ready${hold ? ' — awaiting approval' : ''}`,
     eventData: { output_format: AGENT_OUTPUT_FORMAT.MARKDOWN },
     reply: body,
+    ...(facts ? { facts } : {}),
   };
 };

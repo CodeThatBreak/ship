@@ -7,7 +7,7 @@ import { flowCtxHelper } from "./runContext";
 import type { FlowContextHelper } from "./runContext/flowContextHelper";
 import type { FlowCtx } from "./runContext/types/flowContext";
 import type { NodeSupport } from "./nodeSupport";
-import { nodeSupport } from "@/lib/composition/container";
+import { engineParts, nodeSupport } from "@/lib/composition/container";
 import type { SplitUnit } from "./split";
 import type { NodeCapabilities } from "./capabilities";
 import type { ConfigField } from "../../templates/nodeConfig";
@@ -22,6 +22,7 @@ import { formatZodConfigError } from "./utils/formatZodConfigError";
 import type { ChainRole } from "./types/chainRole";
 import type { RunOutcome } from "./types/runOutcome";
 import type { NodeTriggerRun } from "./types/nodeTriggerRun";
+import type { QueryExecutor } from "../../../db/database";
 
 /**
  * A workflow node type. The class owns everything specific to the node:
@@ -359,12 +360,14 @@ export abstract class NodeDefinition<I = unknown, O extends Record<string, unkno
       }
       throw e;
     }
-    // The completion batch (step 06, Invariant 7): artifact + terminal + lifecycle
-    // event in ONE pure-DB transaction — a crash leaves no partial state.
+    // The completion batch (step 06, Invariant 7): artifact + facts + terminal
+    // + lifecycle event in ONE pure-DB transaction — a crash leaves no partial
+    // state (the fact side-channel rides the same batch, Invariant F2).
     await this.support.transaction(async (tx) => {
       if (outcome.artifact) {
         await this.support.saveArtifact(node.id, ctx.flow.id, outcome.artifact.kind, outcome.artifact.content, outcome.artifact.meta, undefined, tx);
       }
+      await this.persistFacts(ctx.flow.id, node.id, outcome, tx);
       await this.support.publishOutcome({
         flowId: ctx.flow.id,
         nodeKey: node.nodeKey,
@@ -381,6 +384,25 @@ export abstract class NodeDefinition<I = unknown, O extends Record<string, unkno
         opts?.note ? `${outcome.event} (${opts.note})` : outcome.event, outcome.eventData, tx);
     });
     return { ...outcome, output: validatedOutput as Record<string, unknown> };
+  }
+
+  /**
+   * The fact side-channel's persistence (Task 07, Invariant F2): the run's
+   * captured git facts ride the terminal batch — `branch` facts upsert the
+   * branch rows, `diff` facts save `kind: "diff"` artifacts — inside the
+   * same transaction as the outcome's own writes. The payloads were captured
+   * from git BEFORE the batch (the stepRollup precedent): git I/O never
+   * joins a transaction.
+   */
+  private async persistFacts(flowId: string, nodeId: string, outcome: RunOutcome, tx: QueryExecutor): Promise<void> {
+    const facts = outcome.facts;
+    if (!facts) return;
+    for (const branch of facts.branches) {
+      await engineParts.facts.recordBranch(flowId, branch, tx);
+    }
+    for (const diff of facts.diffs) {
+      await engineParts.facts.recordDiff(flowId, nodeId, diff, tx);
+    }
   }
 
   /**

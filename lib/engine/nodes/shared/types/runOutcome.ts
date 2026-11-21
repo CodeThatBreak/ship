@@ -1,6 +1,21 @@
 import "server-only";
 
 import type { NodeRunStatus } from "../../../../../constants/flow";
+import type { BranchFactInput, DiffFactInput } from "../../../facts/types/facts";
+
+/**
+ * The fact side-channel a finished run may carry (Task 07, Invariant F4):
+ * the run's self-reported git facts (`result.git`) mapped through the def's
+ * `produces` declaration — pure data, captured from git BEFORE the terminal
+ * write's batch. `applyOutcome` persists it inside that batch's transaction
+ * (F2); shaping never persists anything itself.
+ */
+export interface RunOutcomeFacts {
+  /** one `branch` fact per reported branch → branchStore rows */
+  branches: BranchFactInput[];
+  /** one `diff` fact per reported branch → `kind: "diff"` artifacts */
+  diffs: DiffFactInput[];
+}
 
 /**
  * What a node stores in its `output` column when it finishes a run.
@@ -12,6 +27,9 @@ export interface RunOutcome {
   status: NodeRunStatus;
   /** artifact to save (kind + content + meta); nodes may save more themselves */
   artifact?: { kind: string; content: string; meta?: unknown };
+  /** the run's fact intents (Task 07) — persisted by `applyOutcome` inside
+   *  the terminal batch's transaction; absent when the def declares nothing */
+  facts?: RunOutcomeFacts;
   /** lifecycle event message */
   event: string;
   eventData?: Record<string, unknown>;
