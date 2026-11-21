@@ -179,7 +179,7 @@ export default function BuildView() {
           {latest ? (
             <ArtifactLoader
               id={latest.id}
-              render={(loaded: ArtifactPayload) => <DiffView artifact={loaded} />}
+              render={(loaded: ArtifactPayload) => <DiffView artifact={loaded} action={action} />}
             />
           ) : (
             <EmptyHint icon={GitMerge}>No changes yet.</EmptyHint>

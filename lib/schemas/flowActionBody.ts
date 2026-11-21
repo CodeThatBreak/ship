@@ -105,6 +105,10 @@ export const flowActionBodySchema = z.discriminatedUnion("action", [
     action: z.literal(FLOW_ACTION.CANCEL_SPLIT_UNIT),
     ...splitUnitFields,
   }),
+  z.object({
+    action: z.literal(FLOW_ACTION.REFRESH_DIFF),
+    artifactId: z.string().min(1),
+  }),
 ]);
 
 export type FlowActionBody = z.infer<typeof flowActionBodySchema>;

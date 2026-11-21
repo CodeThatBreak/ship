@@ -7,6 +7,7 @@ import { ARTIFACT_KIND } from "../constants/vocabulary";
 import type { NodeSupport } from "../nodes/shared/nodeSupport";
 import type { BranchStore } from "../nodes/kinds/build/branchStore/branchStore";
 import { BRANCH_FACT_STATUS } from "./constants/branchFactStatus";
+import { DIFF_ATTRIBUTION, DIFF_FACT_META } from "./constants/diffFactMeta";
 import { FACT_KIND } from "./types/facts";
 import type {
   BranchFactInput,
@@ -54,15 +55,29 @@ export class FactStore {
     }, tx);
   }
 
-  /** Persist a `diff` fact: a `kind: "diff"` artifact with the exact
-   *  `meta {branch, stat}` shape `stepRollup` writes. */
+  /**
+   * Persist a `diff` fact: a `kind: "diff"` artifact. The meta carries the
+   * pre-Task-08 `{branch, stat}` keys plus the Task 08 attribution shape —
+   * `baseSha` (the run-start anchor), `headSha` (the staleness anchor the
+   * refresh action bumps), `attribution`, the `uncommitted` flag and the
+   * alternate projection when both are computable.
+   */
   recordDiff(flowId: string, nodeId: string, fact: DiffFactInput, tx?: QueryExecutor): Promise<{ id: string; version: number }> {
+    const meta: Record<string, unknown> = {
+      [DIFF_FACT_META.BRANCH]: fact.branch,
+      [DIFF_FACT_META.STAT]: fact.stat,
+      [DIFF_FACT_META.ATTRIBUTION]: fact.attribution ?? DIFF_ATTRIBUTION.ALL,
+    };
+    if (fact.baseSha) meta[DIFF_FACT_META.BASE_SHA] = fact.baseSha;
+    if (fact.headSha) meta[DIFF_FACT_META.HEAD_SHA] = fact.headSha;
+    if (fact.uncommitted) meta[DIFF_FACT_META.UNCOMMITTED] = true;
+    if (fact.alt) meta[DIFF_FACT_META.ALT] = fact.alt;
     return this.support.saveArtifact(
       nodeId,
       flowId,
       ARTIFACT_KIND.DIFF,
       fact.raw,
-      { branch: fact.branch, stat: fact.stat },
+      meta,
       undefined,
       tx,
     );

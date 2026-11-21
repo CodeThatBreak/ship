@@ -434,8 +434,8 @@ export abstract class NodeDefinition<I = unknown, O extends Record<string, unkno
     return failed;
   }
 
-  async makeDiff(ctx: FlowCtx, branch: string) {
-    return this.ctxHelper.makeDiff(ctx, branch);
+  async makeDiff(ctx: FlowCtx, branch: string, opts: { baseSha?: string | null } = {}) {
+    return this.ctxHelper.makeDiff(ctx, branch, opts);
   }
 }
 

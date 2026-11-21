@@ -27,6 +27,7 @@ import { retryBudgetOf } from "./retryBudget";
 import { AGENT_CONFIG_FIELDS } from "./constants/agentConstantsExports";
 import { AGENT_START_LABEL } from "./constants/startLabel";
 import { AgentRunInput, agentOutputContract } from "./schema";
+import { FACT_KIND } from "../../../facts/types/facts";
 import {
   agentContractDirective,
   composeAgentPrompt,
@@ -232,6 +233,14 @@ export class AgentTemplateNode extends DeclarativeAgentNode<AgentDef, Record<str
     const model = await resolveAgentModel(ctx, rawInput, cfg);
     const { body, source } = await renderAgentPrompt(ctx, rawInput, cfg, this.label);
     const prompt = composeAgentPrompt(body, cfg, this.outputSchema);
+    const startingRef = await resolveStartingRef(ctx, cfg);
+    // Task 08: the attribution anchor — the resolved base_ref pinned to the
+    // commit it pointed at at run start (the ctxHelper's read-only seam, the
+    // makeDiff sibling). Git I/O under the claim, never in a transaction;
+    // skipped entirely when the def declares no `diff` fact (F4).
+    const baseSha = cfg.produces.includes(FACT_KIND.DIFF)
+      ? await this.ctxHelper.baseShaOf(ctx, startingRef)
+      : null;
 
     const input: Record<string, unknown> = {
       ...rawInput,
@@ -247,11 +256,11 @@ export class AgentTemplateNode extends DeclarativeAgentNode<AgentDef, Record<str
         mode: cfg.mode,
         name: `${this.label} ${ctx.task.key}`,
         model,
-        startingRef: await resolveStartingRef(ctx, cfg),
+        startingRef,
         settingSources: cfg.mcp_sources,
       },
       label: this.label.toLowerCase(),
-      finalize: async result => this.finalizeOutput(ctx, result, cfg, model),
+      finalize: async result => this.finalizeOutput(ctx, result, cfg, model, baseSha),
     });
   }
 
@@ -281,6 +290,11 @@ export class AgentTemplateNode extends DeclarativeAgentNode<AgentDef, Record<str
         ? (node.input as Record<string, unknown>)
         : {};
 
+    const startingRef = await resolveStartingRef(ctx, cfg);
+    const baseSha = cfg.produces.includes(FACT_KIND.DIFF)
+      ? await this.ctxHelper.baseShaOf(ctx, startingRef)
+      : null;
+
     return this.execute(ctx, {
       input: { ...priorInput, model: model ?? null, feedback: content },
       prompt,
@@ -288,12 +302,12 @@ export class AgentTemplateNode extends DeclarativeAgentNode<AgentDef, Record<str
         mode: cfg.mode,
         name: `${this.label} ${ctx.task.key}`,
         model: model ?? cfg.model ?? null,
-        startingRef: await resolveStartingRef(ctx, cfg),
+        startingRef,
         followUpOn: await this.support.lastAgentId(node.id),
         settingSources: cfg.mcp_sources,
       },
       label: `${this.label.toLowerCase()} follow-up`,
-      finalize: async result => this.finalizeOutput(ctx, result, cfg, model ?? cfg.model ?? null),
+      finalize: async result => this.finalizeOutput(ctx, result, cfg, model ?? cfg.model ?? null, baseSha),
     }).then(o => o.reply);
   }
 
@@ -329,13 +343,16 @@ export class AgentTemplateNode extends DeclarativeAgentNode<AgentDef, Record<str
     ctx: FlowCtx,
     result: AgentRunResult,
     cfg: AgentDef,
-    model: string | null
+    model: string | null,
+    baseSha: string | null
   ): Promise<RunOutcome> {
     // Task 07 (A1/F4): the run's self-reported git facts become facts when the
     // def declares `produces`. The diff capture is git I/O, so it runs HERE —
     // before the terminal write's batch (the stepRollup precedent: git never
     // joins a transaction); the intents persist inside applyOutcome's tx.
-    const facts = await agentFactIntents(result, cfg, (branch) => this.makeDiff(ctx, branch));
+    // Task 08: the capture pins the run-start `baseSha`, so the diff fact
+    // carries the agent-vs-branch attribution.
+    const facts = await agentFactIntents(result, cfg, (branch) => this.makeDiff(ctx, branch, { baseSha }));
     if (cfg.output !== AGENT_OUTPUT_FORMAT.JSON) {
       return this.applyOutput(ctx, result.result ?? '', cfg, facts ?? undefined);
     }

@@ -267,7 +267,9 @@ describe("FactStore lookups (Task 06 — resolvers and the flow context)", () =>
 
     const diffs = await facts.diffFacts(flowId);
     expect(diffs).toHaveLength(1);
-    expect(diffs[0]?.meta).toEqual({ branch: "feat/a", stat: "stat" });
+    // Task 08: the meta carries the attribution vocabulary — a capture with
+    // no pinned base reads as the whole-branch projection
+    expect(diffs[0]?.meta).toEqual({ branch: "feat/a", stat: "stat", attribution: "all" });
   });
 });
 
@@ -363,12 +365,31 @@ class FactTestRunner extends AgentRunner {
 }
 
 /** makeDiff stand-in: records every capture and returns a fixed payload —
- *  the real one is git I/O and the test flow has no repo. */
+ *  the real one is git I/O and the test flow has no repo. Task 08: the
+ *  capture records the pinned baseSha and returns the attributed shape. */
 class FactTestCtxHelper extends FlowContextHelper {
   readonly captured: string[] = [];
-  override async makeDiff(_ctx: FlowCtx, branch: string): Promise<{ files: never[]; stat: string; raw: string } | null> {
+  readonly baseShaCalls: (string | null | undefined)[] = [];
+  readonly capturedBaseSha: (string | null)[] = [];
+  override async baseShaOf(_ctx: FlowCtx, ref: string | null | undefined): Promise<string | null> {
+    this.baseShaCalls.push(ref);
+    // the resolved base_ref would rev-parse here; the stub pins a fixed SHA
+    return ref ? "sha_base_1" : null;
+  }
+  override async makeDiff(
+    _ctx: FlowCtx,
+    branch: string,
+    opts: { baseSha?: string | null } = {},
+  ): Promise<{ files: never[]; stat: string; raw: string; baseSha?: string | null; headSha?: string | null; attribution?: "agent" | "all"; alt?: { attribution: "agent" | "all"; stat: string; raw: string } } | null> {
     this.captured.push(branch);
-    return { files: [], stat: "1 file changed", raw: "diff --git a/x b/x" };
+    this.capturedBaseSha.push(opts.baseSha ?? null);
+    const pinned = Boolean(opts.baseSha);
+    return {
+      files: [],
+      stat: "1 file changed",
+      raw: "diff --git a/x b/x",
+      ...(pinned ? { baseSha: opts.baseSha, headSha: "sha_head_9", attribution: "agent" as const, alt: { attribution: "all" as const, stat: "1 file changed", raw: "diff --git a/y b/y" } } : {}),
+    };
   }
 }
 
@@ -448,7 +469,55 @@ describe("Agent run result.git → facts (Task 07 — the F4 consumption)", () =
       `SELECT count(*) AS count FROM artifacts WHERE flow_id=$1 AND kind='diff'`,
       flowId,
     )).toMatchObject({ count: 0n });
-    // undeclared ⇒ no git I/O either — the capture never runs
+    // undeclared ⇒ no git I/O either — the capture never runs, and the
+    // Task 08 base pin is never resolved
     expect(ctxHelper.captured).toEqual([]);
+    expect(ctxHelper.baseShaCalls).toEqual([]);
+  });
+});
+
+// Task 08: the diff fact's attribution — the run-start base_ref pinned to a
+// SHA, the capture's head anchor, and the agent-vs-branch projection the
+// meta carries for the panel's toggle.
+describe("Diff attribution meta (Task 08)", () => {
+  it("run start resolves baseSha and the diff fact's meta carries the agent projection + the whole-branch alt", async () => {
+    const flowId = "flw_fact_diffattr";
+    await seedFlow(flowId);
+    const ctxHelper = new FactTestCtxHelper();
+    const node = new AgentTemplateNode(
+      { id: "nt_diffattr", name: "Fact Agent", description: null, config: {} },
+      "agent_1",
+      {
+        runner: new FactTestRunner({
+          status: "finished",
+          result: "# Done",
+          git: { branches: [{ branch: "changelog/x" }] },
+        }),
+        ctxHelper,
+      },
+    );
+
+    // the resolved starting ref (flow.mrBranch) is what run start pins
+    const ctx = factCtx(flowId);
+    (ctx.flow as Record<string, unknown>).mrBranch = "develop";
+    await node.run(ctx, { prompt: "Do the work" }, { produces: ["branch", "diff"] });
+
+    // run start resolved the base ref exactly once (git I/O at run start)
+    expect(ctxHelper.baseShaCalls).toEqual(["develop"]);
+    // the capture was handed the pinned SHA
+    expect(ctxHelper.capturedBaseSha).toEqual(["sha_base_1"]);
+
+    const row = await testGet<{ meta: Record<string, unknown> }>(
+      `SELECT meta FROM artifacts WHERE flow_id=$1 AND kind='diff' AND status='draft'`,
+      flowId,
+    );
+    expect(row?.meta).toEqual({
+      branch: "changelog/x",
+      stat: "1 file changed",
+      attribution: "agent",
+      baseSha: "sha_base_1",
+      headSha: "sha_head_9",
+      alt: { attribution: "all", stat: "1 file changed", raw: "diff --git a/y b/y" },
+    });
   });
 });

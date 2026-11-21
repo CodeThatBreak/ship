@@ -68,6 +68,10 @@ export const FLOW_ACTION = {
   RETRY_SPLIT_UNIT: "retry_split_unit",
   APPROVE_SPLIT_UNIT: "approve_split_unit",
   CANCEL_SPLIT_UNIT: "cancel_split_unit",
+  /** Diff fact refresh (Task 08): re-run the read-only diff capture under the
+   *  node's current state — the panel offers it when the branch moved past
+   *  the capture. */
+  REFRESH_DIFF: "refresh_diff",
 } as const;
 
 export type FlowActionName = (typeof FLOW_ACTION)[keyof typeof FLOW_ACTION];

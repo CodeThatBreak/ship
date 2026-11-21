@@ -144,6 +144,7 @@ export const GenericDeclarativePanel = () => {
             kind={kind}
             empty={`No ${kind} artifact yet.`}
             renderer={rendererForKind(kind)}
+            action={action}
           />
         </div>
       ))}

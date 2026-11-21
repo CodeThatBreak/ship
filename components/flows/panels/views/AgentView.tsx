@@ -100,6 +100,7 @@ export default function AgentView() {
               kind={kind}
               empty={`No ${kind} artifact yet.`}
               renderer={rendererForKind(kind)}
+              action={action}
             />
           </div>
         ))}

@@ -4,6 +4,7 @@ import { parseJson } from "@/lib/http/parse";
 import { flowActionBodySchema, type FlowActionBody } from "@/lib/schemas/flowActionBody";
 import { NextResponse } from "next/server";
 import { flowEngine } from "../../../../../lib/engine/flowEngine";
+import { diffRefresh } from "../../../../../lib/engine/flow/diffRefresh";
 import { splitManager } from "../../../../../lib/engine/runtime/split/splitManager";
 import type { TriggerResult } from "../../../../../lib/engine/runtime/triggers/types/triggerGateway";
 
@@ -67,6 +68,9 @@ const dispatchAction = async (flowId: string, body: FlowActionBody): Promise<Tri
       return undefined;
     case FLOW_ACTION.CANCEL_SPLIT_UNIT:
       await splitManager.cancelUnit(flowId, body.consumerNodeKey, body.unitKey);
+      return undefined;
+    case FLOW_ACTION.REFRESH_DIFF:
+      await diffRefresh.refresh(flowId, body.artifactId);
       return undefined;
     default: {
       const _exhaustive: never = body;

@@ -224,6 +224,7 @@ const fullBranchState = (over: Partial<LocalBranchState>): LocalBranchState => (
   commitsBehind: 0,
   unpushedAhead: 0,
   base: "origin/main",
+  headSha: "sha_0",
   stat: "stat_0",
   raw: "raw",
   pushed: true,

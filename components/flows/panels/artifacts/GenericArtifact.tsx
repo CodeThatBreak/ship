@@ -5,7 +5,7 @@ import type { Node } from "@/types/flow";
 import { EmptyHint } from "@/components/shared/EmptyHint";
 import { ArtifactLoader } from "./ArtifactLoader";
 import { GenericArtifactFallback } from "./GenericArtifactFallback";
-import type { ArtifactRenderer } from "./types/artifactRenderer";
+import type { ArtifactRenderer, PanelActionFn } from "./types/artifactRenderer";
 import { VersionTabs } from "./VersionTabs";
 
 /** Versioned artifact tabs + a single fetched artifact rendered by the caller. */
@@ -15,6 +15,7 @@ export const GenericArtifact = ({
   empty,
   icon: Icon,
   renderer,
+  action,
 }: {
   node: Node;
   kind: string;
@@ -22,6 +23,9 @@ export const GenericArtifact = ({
   icon?: LucideIcon;
   /** presentational renderer from the artifact-kind registry (default: `<pre>`) */
   renderer?: ArtifactRenderer;
+  /** the panel's action dispatcher, passed through to renderers that own an
+   *  affordance (Task 08's refresh diff) */
+  action?: PanelActionFn;
 }) => {
   const arts = node.artifacts.filter((a) => a.kind === kind);
   const [sel, setSel] = useState<string | null>(null);
@@ -35,7 +39,7 @@ export const GenericArtifact = ({
       {current ? (
         <ArtifactLoader
           id={current.id}
-          render={(loaded) => <Renderer artifact={loaded} />}
+          render={(loaded) => <Renderer artifact={loaded} action={action} />}
         />
       ) : (
         <EmptyHint icon={Icon}>{empty}</EmptyHint>

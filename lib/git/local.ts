@@ -1,7 +1,9 @@
 import "server-only";
 
 import fs from "fs";
+import os from "os";
 import path from "path";
+import { randomUUID } from "crypto";
 import { localBranchBaseCandidates } from "./baseRef";
 import { AuthedUrlResolutionError } from "./gitErrors";
 import {
@@ -11,7 +13,7 @@ import {
 } from "./gitRunner";
 import { stripCredentialsFromRemoteUrl } from "./stripRemoteCredentials";
 import { workspacePaths } from "./workspacePaths";
-import { assertValidBranchName } from "./branchName";
+import { assertValidBranchName, rejectInvalidBranchNameShape } from "./branchName";
 
 export interface DiffFile {
   file: string;
@@ -29,6 +31,8 @@ export interface LocalBranchState {
    *  origin/<branch> counts every branch commit as unpushed */
   unpushedAhead: number;
   base: string;
+  /** the branch's commit SHA — the diff fact's head anchor (Task 08) */
+  headSha: string;
   stat: string;
   raw: string;
   /** origin/<branch> exists at all — not that it is current (see unpushedAhead) */
@@ -154,7 +158,7 @@ export class LocalGit {
     baseRef?: string,
     localPath?: string | null,
     resolveRemote?: GitRemoteContextResolver,
-  ): Promise<{ files: DiffFile[]; stat: string; raw: string }> {
+  ): Promise<{ files: DiffFile[]; stat: string; raw: string; headSha: string }> {
     await assertValidBranchName(branch);
     let dir: string;
     const ctx = await this.resolveRemote(repoUrl, resolveRemote);
@@ -181,7 +185,10 @@ export class LocalGit {
     }
     const { stdout: raw } = await this.git(["-C", dir, "diff", `${base}...${target}`]);
     const { stdout: stat } = await this.git(["-C", dir, "diff", "--stat", `${base}...${target}`]);
-    return { files: this.parseDiff(raw), stat, raw };
+    const headSha = await this.git(["-C", dir, "rev-parse", "--verify", target])
+      .then(({ stdout }) => stdout.trim())
+      .catch(() => "");
+    return { files: this.parseDiff(raw), stat, raw, headSha };
   }
 
   /** Current branch of a local checkout (null on error / detached). */
@@ -262,6 +269,7 @@ export class LocalGit {
       commitsBehind: 0,
       unpushedAhead: 0,
       base: baseBranch,
+      headSha: "",
       stat: "",
       raw: "",
       pushed: false,
@@ -285,6 +293,9 @@ export class LocalGit {
     const commitsAhead = parseInt(count.trim(), 10) || 0;
     const { stdout: behindCount } = await this.git([...base, "rev-list", "--count", `${branch}..${baseRef}`]);
     const commitsBehind = parseInt(behindCount.trim(), 10) || 0;
+    const headSha = await this.git([...base, "rev-parse", "--verify", branch])
+      .then(({ stdout }) => stdout.trim())
+      .catch(() => "");
     const { stdout: raw } = await this.git([...base, "diff", `${baseRef}...${branch}`]);
     const { stdout: stat } = await this.git([...base, "diff", "--stat", `${baseRef}...${branch}`]);
     const pushed = await this.git([...base, "rev-parse", "--verify", "--quiet", `origin/${branch}`])
@@ -297,7 +308,56 @@ export class LocalGit {
       ? await this.git([...base, "rev-list", "--count", `origin/${branch}..${branch}`])
           .then(({ stdout }) => parseInt(stdout.trim(), 10) || 0)
       : commitsAhead;
-    return { exists: true, commitsAhead, commitsBehind, unpushedAhead, base: baseRef, stat, raw, pushed };
+    return { exists: true, commitsAhead, commitsBehind, unpushedAhead, base: baseRef, headSha, stat, raw, pushed };
+  }
+
+  // ── diff-attribution reads (Task 08) ─────────────────────────────────────
+
+  /**
+   * Resolve a ref (branch, tag or SHA) to the commit it points at — the local
+   * ref first, then `origin/<ref>`. Null when neither resolves: the caller
+   * decides the fallback (an unanchored capture stays unattributed).
+   */
+  async resolveSha(dir: string, ref: string): Promise<string | null> {
+    rejectInvalidBranchNameShape(ref);
+    for (const candidate of [ref, `origin/${ref}`]) {
+      try {
+        const { stdout } = await this.git(["-C", dir, "rev-parse", "--verify", `${candidate}^{commit}`]);
+        const sha = stdout.trim();
+        if (sha) return sha;
+      } catch { /* try the next form */ }
+    }
+    return null;
+  }
+
+  /** The committed diff between two SHAs (the two-dot range `from..to`). */
+  async diffShaRange(dir: string, fromSha: string, toSha: string): Promise<{ stat: string; raw: string }> {
+    rejectInvalidBranchNameShape(fromSha);
+    rejectInvalidBranchNameShape(toSha);
+    const { stdout: raw } = await this.git(["-C", dir, "diff", fromSha, toSha]);
+    const { stdout: stat } = await this.git(["-C", dir, "diff", "--stat", fromSha, toSha]);
+    return { stat, raw };
+  }
+
+  /**
+   * The working tree's uncommitted diff against a ref/SHA — tracked
+   * modifications AND untracked files. Staged through a throwaway index
+   * (`GIT_INDEX_FILE`), so the worktree's own index is never touched — the
+   * capture stays read-only to the worktree's git state.
+   */
+  async worktreeDiff(dir: string, baseRef: string): Promise<{ stat: string; raw: string }> {
+    rejectInvalidBranchNameShape(baseRef);
+    const tmpIndex = path.join(os.tmpdir(), `devflow-wtindex-${randomUUID()}`);
+    const env = { GIT_INDEX_FILE: tmpIndex };
+    try {
+      await this.git(["-C", dir, "read-tree", "HEAD"], { env });
+      await this.git(["-C", dir, "add", "-A", "--"], { env });
+      const { stdout: raw } = await this.git(["-C", dir, "diff", "--cached", baseRef], { env });
+      const { stdout: stat } = await this.git(["-C", dir, "diff", "--cached", "--stat", baseRef], { env });
+      return { stat, raw };
+    } finally {
+      fs.rmSync(tmpIndex, { force: true });
+    }
   }
 
   // ── worktrees ────────────────────────────────────────────────────────────

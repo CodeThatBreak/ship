@@ -9,10 +9,14 @@ export const FLOW_EVENTS_BUFFER_MAX = 500;
 
 const FLOW_EVENTS_POLL_LIMIT = 200;
 
-/** Artifact row from GET /api/artifacts — panels read `.content` and `.meta`. */
+/** Artifact row from GET /api/artifacts — panels read `.content` and `.meta`.
+ *  Diff facts additionally carry the read-only staleness read (Task 08). */
 export type ArtifactDetail = {
+  id?: string;
   content: string;
   meta?: Record<string, unknown>;
+  /** diff facts only: the live branch head differs from the capture's headSha */
+  branchHeadStale?: boolean;
 };
 
 export const artifactQueryOptions = (id: string) =>

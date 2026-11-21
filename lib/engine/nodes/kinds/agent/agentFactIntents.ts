@@ -2,7 +2,7 @@ import "server-only";
 
 import type { AgentRunResult } from "../../../ports/agentPort";
 import type { AgentDef } from "../../schemas/declarativeSchemas";
-import { FACT_KIND, type BranchFactInput, type DiffFactInput } from "../../../facts/types/facts";
+import { FACT_KIND, type BranchFactInput, type DiffCapturePayload, type DiffFactInput } from "../../../facts/types/facts";
 import { DIFF_UNAVAILABLE_CONTENT } from "../../../facts/constants/diffCapture";
 
 /**
@@ -21,9 +21,12 @@ export interface AgentFactIntents {
 /**
  * The diff-capture seam: `ctxHelper.makeDiff` — git I/O, so the caller binds
  * it and runs the collection BEFORE the terminal write's batch (the
- * stepRollup precedent: git never joins a transaction).
+ * stepRollup precedent: git never joins a transaction). Task 08: the capture
+ * returns the attribution projections (the run's `baseSha` pins the "agent"
+ * range), so the fact's meta can distinguish the agent's work from the
+ * branch's whole diff.
  */
-export type DiffCapture = (branch: string) => Promise<{ stat: string; raw: string } | null>;
+export type DiffCaptureFn = (branch: string) => Promise<DiffCapturePayload | null>;
 
 /**
  * Map a run's `result.git` onto the facts its def declared in `produces`
@@ -37,7 +40,7 @@ export type DiffCapture = (branch: string) => Promise<{ stat: string; raw: strin
 export const agentFactIntents = async (
   result: AgentRunResult,
   cfg: AgentDef,
-  captureDiff: DiffCapture,
+  captureDiff: DiffCaptureFn,
 ): Promise<AgentFactIntents | null> => {
   const branches: BranchFactInput[] = [];
   const diffs: DiffFactInput[] = [];
@@ -48,13 +51,22 @@ export const agentFactIntents = async (
       branches.push({ name, gitBranch: name });
     }
     if (cfg.produces.includes(FACT_KIND.DIFF)) {
-      let captured: { stat: string; raw: string } | null = null;
+      let captured: DiffCapturePayload | null = null;
       try {
         captured = await captureDiff(name);
       } catch {
         // per-branch capture failure is non-fatal (the stepRollup precedent)
       }
-      diffs.push({ branch: name, raw: captured?.raw ?? DIFF_UNAVAILABLE_CONTENT, stat: captured?.stat ?? "" });
+      diffs.push({
+        branch: name,
+        raw: captured?.raw ?? DIFF_UNAVAILABLE_CONTENT,
+        stat: captured?.stat ?? "",
+        ...(captured?.baseSha ? { baseSha: captured.baseSha } : {}),
+        ...(captured?.headSha ? { headSha: captured.headSha } : {}),
+        ...(captured?.attribution ? { attribution: captured.attribution } : {}),
+        ...(captured?.uncommitted ? { uncommitted: true as const } : {}),
+        ...(captured?.alt ? { alt: captured.alt } : {}),
+      });
     }
   }
   if (!branches.length && !diffs.length) return null;
