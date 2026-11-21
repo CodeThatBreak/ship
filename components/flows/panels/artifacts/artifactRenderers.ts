@@ -1,5 +1,6 @@
 import { ARTIFACT_KIND } from "./constants/artifactKinds";
 import { DiffView } from "./DiffView";
+import { FailedOutputView } from "./FailedOutputView";
 import { GenericArtifactFallback } from "./GenericArtifactFallback";
 import { JsonArtifact } from "./JsonArtifact";
 import { MarkdownArtifact } from "./MarkdownArtifact";
@@ -24,6 +25,7 @@ export const artifactRenderers: Record<string, ArtifactRenderer> = {
   [ARTIFACT_KIND.PIPELINE]: PipelineStatusView,
   [ARTIFACT_KIND.REVIEW]: ReviewArtifactView,
   [ARTIFACT_KIND.RESOLVE]: ResolveArtifactView,
+  [ARTIFACT_KIND.FAILED_OUTPUT]: FailedOutputView,
 };
 
 /** An unregistered kind still renders — as the existing `<pre>` fallback. */

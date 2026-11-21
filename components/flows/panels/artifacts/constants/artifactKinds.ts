@@ -14,6 +14,9 @@ export const ARTIFACT_KIND = {
   /** a resolve run's summary/decisions ledger (task 19): the summary, the
    *  per-comment decisions, the effect ledger in the meta. */
   RESOLVE: "resolve",
+  /** a retry-exhausted agent run's bad output (task 20): the raw response
+   *  head as the content, the code/budget/violations ledger in the meta. */
+  FAILED_OUTPUT: "failed_output",
 } as const;
 
 export type ArtifactKind = (typeof ARTIFACT_KIND)[keyof typeof ARTIFACT_KIND];

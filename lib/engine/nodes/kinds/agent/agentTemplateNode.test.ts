@@ -253,20 +253,20 @@ describe("AgentTemplateNode — the agent's self-report channel (json output)", 
     expect(runner.starts[1]?.prompt).toContain("no JSON object could be parsed");
   });
 
-  it("a second contract miss fails the node loudly — the retry is bounded", async () => {
+  it("a second contract miss fails the node with the failed_output artifact — the retry is bounded (Task 20)", async () => {
     const seeded = await seedAgentNode(23);
-    const node = jsonAgentNode(
-      23,
-      new StubRunner(
-        { status: "finished", result: '{"cost":"free"}' },
-        { status: "finished", result: '{"cost":"still free"}' },
-      ),
+    const runner = new StubRunner(
+      { status: "finished", result: '{"cost":"free"}' },
+      { status: "finished", result: '{"cost":"still free"}' },
     );
-    await expect(node.run(seeded.ctx, { prompt: "Check the costs" }, JSON_CONFIG)).rejects.toMatchObject({
-      code: "schema_mismatch",
-      // the headline rides the first Zod issue (step 04 wording)
-      message: "Invalid input: expected number, received string",
-    });
+    const node = jsonAgentNode(23, runner);
+    // the exhaustion is a terminal failed outcome — not a throw (Task 20)
+    const outcome = await node.run(seeded.ctx, { prompt: "Check the costs" }, JSON_CONFIG);
+    expect(outcome.status).toBe("failed");
+    expect(runner.starts).toHaveLength(2);
+    const rows = await appliedRows(seeded.flowId, "agent_23");
+    expect(rows.node.status).toBe("failed");
+    expect(rows.artifact?.kind).toBe("failed_output");
   });
 });
 
@@ -611,7 +611,7 @@ describe("AgentTemplateNode — base_ref + retry_budget (Task 03)", () => {
     expect(runner.starts[1]?.startingRef).toBe("develop");
   });
 
-  it("retry_budget: 2 spends two retries then fails with output_exhausted", async () => {
+  it("retry_budget: 2 spends two retries then fails with output_exhausted and the failed_output artifact", async () => {
     const seeded = await seedAgentNode(56);
     const runner = new StubRunner(
       { status: "finished", result: '{"cost":"free"}' },
@@ -620,9 +620,7 @@ describe("AgentTemplateNode — base_ref + retry_budget (Task 03)", () => {
     );
     const config = { ...JSON_CONFIG, retry_budget: 2 };
     const node = configuredAgentNode(56, runner, config);
-    await expect(node.run(seeded.ctx, { prompt: "Check the costs" }, config)).rejects.toMatchObject({
-      code: "schema_mismatch",
-    });
+    const outcome = await node.run(seeded.ctx, { prompt: "Check the costs" }, config);
     expect(runner.starts).toHaveLength(3);
     const exhausted = await testAll<{ message: string; data: unknown }>(
       `SELECT message, data FROM events WHERE node_id=$1 AND type='output_exhausted'`, seeded.nodeId,
@@ -631,6 +629,34 @@ describe("AgentTemplateNode — base_ref + retry_budget (Task 03)", () => {
     const raw = exhausted[0]?.data;
     const data = (typeof raw === "string" ? JSON.parse(raw) : raw) as { budget?: number };
     expect(data.budget).toBe(2);
+
+    // Task 20: the failed terminal rides the one persistence path — the node
+    // row, the artifact (raw head + violations) and the lifecycle event land
+    // in the same batch (Invariant F2)
+    expect(outcome.status).toBe("failed");
+    const nodeRow = must(
+      await testGet<{ status: string }>(`SELECT status FROM nodes WHERE id=$1`, seeded.nodeId),
+      `node row ${seeded.nodeId}`,
+    );
+    expect(nodeRow.status).toBe("failed");
+    const artifact = must(
+      await testGet<{ kind: string; content: string; meta: string | null }>(
+        `SELECT kind, content, meta FROM artifacts WHERE node_id=$1 AND kind='failed_output' ORDER BY version DESC LIMIT 1`,
+        seeded.nodeId,
+      ),
+      "the failed_output artifact",
+    );
+    expect(artifact.content).toBe('{"cost":"forever free"}');
+    const meta = (typeof artifact.meta === "string" ? JSON.parse(artifact.meta) : artifact.meta) as {
+      code?: string;
+      budget?: number;
+      issues?: { path: string; message: string }[];
+    };
+    expect(meta.code).toBe("schema_mismatch");
+    expect(meta.budget).toBe(2);
+    expect(meta.issues).toEqual([
+      { path: "cost", message: "Invalid input: expected number, received string" },
+    ]);
   });
 
   it("retry_budget: 0 makes the first miss terminal — no feedback turn", async () => {
@@ -638,10 +664,11 @@ describe("AgentTemplateNode — base_ref + retry_budget (Task 03)", () => {
     const runner = new StubRunner({ status: "finished", result: '{"cost":"free"}' });
     const config = { ...JSON_CONFIG, retry_budget: 0 };
     const node = configuredAgentNode(57, runner, config);
-    await expect(node.run(seeded.ctx, { prompt: "Check the costs" }, config)).rejects.toMatchObject({
-      code: "schema_mismatch",
-    });
+    const outcome = await node.run(seeded.ctx, { prompt: "Check the costs" }, config);
+    expect(outcome.status).toBe("failed");
     expect(runner.starts).toHaveLength(1);
+    const rows = await appliedRows(seeded.flowId, "agent_57");
+    expect(rows.artifact?.kind).toBe("failed_output");
   });
 });
 

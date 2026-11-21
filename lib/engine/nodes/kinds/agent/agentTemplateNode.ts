@@ -16,6 +16,9 @@ import {
 import { DeclarativeAgentNode } from "../../shared/declarativeNode";
 import { parseConfigSnapshot } from "../../../templates/nodeConfig";
 import { AgentOutputPipeline } from "../../shared/agentOutput/agentOutputPipeline";
+import { failedOutputOutcome } from "../../shared/agentOutput/failedOutputOutcome";
+import { RETRYABLE_OUTPUT_ERRORS } from "../../shared/agentOutput/constants/agentOutput";
+import { AgentOutputError } from "../../shared/agent/outputError/outputErrorExports";
 import { retryFeedbackBody } from "../../shared/agentOutput/utils/retryFeedback";
 import { AgentDefSchema, type AgentDef } from "../../schemas/declarativeSchemas";
 import type { RenderedBlock } from "../../../prompts/promptLibrary/types/promptLibrary";
@@ -248,10 +251,9 @@ export class AgentTemplateNode extends DeclarativeAgentNode<AgentDef, Record<str
    *   falls back to the constructor-parsed `this.def` if it does not parse.
    * @returns The lifecycle outcome from `execute`: `done` or
    *   `awaiting_approval`, with the contract-shaped output, artifact and reply.
+   *   Exhaustion (Task 20) returns the failed outcome with the artifact instead.
    * @throws If neither input nor config supplies a non-empty prompt, or when
-   *   the response still misses the output contract after the one feedback
-   *   retry (no JSON, schema mismatch, or the agent's self-reported error
-   *   envelope — the envelope never retries).
+   *   the agent self-reports the error envelope (never retried).
    */
   async run(ctx: FlowCtx, rawInput: Record<string, unknown>, config: Record<string, unknown>): Promise<RunOutcome> {
     const cfg = this.runConfig(config);
@@ -358,8 +360,9 @@ export class AgentTemplateNode extends DeclarativeAgentNode<AgentDef, Record<str
    * output is validated directly (an empty response is a typed failure —
    * never a fabricated empty-response placeholder); json output rides the ONE
    * agent-output pipeline (step 05) — the contract with its bounded feedback
-   * retry (`retryBudget`), typed events on every outcome. The doc comment on
-   * `applyOutput` covers the shared contract.
+   * retry (`retryBudget`), typed events on every outcome; exhaustion returns
+   * the failed terminal with the `failed_output` artifact (Task 20, F2). The
+   * doc comment on `applyOutput` covers the shared contract.
    */
   private async finalizeOutput(
     ctx: FlowCtx,
@@ -380,39 +383,49 @@ export class AgentTemplateNode extends DeclarativeAgentNode<AgentDef, Record<str
       return this.applyOutput(ctx, result.result ?? '', cfg, facts ?? undefined);
     }
     const node = await this.node(ctx);
-    return this.outputPipeline.run<RunOutcome>({
-      ctx,
-      nodeId: node.id,
-      label: this.label,
-      text: result.result ?? '',
-      budget: retryBudgetOf(cfg, this.retryBudget),
-      validate: (t) => this.applyOutput(ctx, t, cfg, facts ?? undefined),
-      // the retry prompt re-states the full contract (one JSON object, the
-      // schema, the error-envelope escape hatch) on top of the shared feedback
-      retryPrompt: (failure) => composeAgentPrompt(retryFeedbackBody(failure), cfg, this.outputSchema),
-      executeRetry: async (prompt) => {
-        const { result: retry } = await this.runner.executeRun(
-          ctx,
-          node.id,
-          async () =>
-            this.runner.startAgent(ctx, {
-              prompt,
-              mode: cfg.mode,
-              name: `${this.label} ${ctx.task.key}`,
-              model,
-              // E2 fix: the feedback retry starts from the SAME ref the first
-              // run did — the one resolver, not a dropped knob
-              startingRef: await resolveStartingRef(ctx, cfg),
-              followUpOn: await this.support.lastAgentId(node.id),
-              settingSources: cfg.mcp_sources,
-              // task 15: the retry keeps the same declared-secret env channel
-              env,
-            }),
-          `${this.label.toLowerCase()} retry`
-        );
-        return retry.result ?? '';
-      },
-    });
+    const budget = retryBudgetOf(cfg, this.retryBudget);
+    try {
+      return await this.outputPipeline.run<RunOutcome>({
+        ctx,
+        nodeId: node.id,
+        label: this.label,
+        text: result.result ?? '',
+        budget,
+        validate: (t) => this.applyOutput(ctx, t, cfg, facts ?? undefined),
+        // the retry prompt re-states the full contract (one JSON object, the
+        // schema, the error-envelope escape hatch) on top of the shared feedback
+        retryPrompt: (failure) => composeAgentPrompt(retryFeedbackBody(failure), cfg, this.outputSchema),
+        executeRetry: async (prompt) => {
+          const { result: retry } = await this.runner.executeRun(
+            ctx,
+            node.id,
+            async () =>
+              this.runner.startAgent(ctx, {
+                prompt,
+                mode: cfg.mode,
+                name: `${this.label} ${ctx.task.key}`,
+                model,
+                // E2 fix: the feedback retry starts from the SAME ref the first
+                // run did — the one resolver, not a dropped knob
+                startingRef: await resolveStartingRef(ctx, cfg),
+                followUpOn: await this.support.lastAgentId(node.id),
+                settingSources: cfg.mcp_sources,
+                // task 15: the retry keeps the same declared-secret env channel
+                env,
+              }),
+            `${this.label.toLowerCase()} retry`
+          );
+          return retry.result ?? '';
+        },
+      });
+    } catch (e: unknown) {
+      // Task 20 (use case 8e): a retryable miss escapes the pipeline only via its
+      // exhaustion branch — the failed terminal carries the artifact (F2).
+      if (e instanceof AgentOutputError && RETRYABLE_OUTPUT_ERRORS.has(e.code)) {
+        return failedOutputOutcome(this.label, e, budget);
+      }
+      throw e;
+    }
   }
 
   /**

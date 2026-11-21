@@ -97,9 +97,9 @@ const renderPanel = (html: (q: QueryClient) => void, nodeOverride: Partial<Node>
 };
 
 describe("artifact renderer registry", () => {
-  it("pins the eight built-in kinds and the <pre> fallback", () => {
+  it("pins the nine built-in kinds and the <pre> fallback", () => {
     expect(Object.keys(artifactRenderers).sort()).toEqual([
-      "diff", "json", "markdown", "pipeline", "plan", "resolve", "review", "usage",
+      "diff", "failed_output", "json", "markdown", "pipeline", "plan", "resolve", "review", "usage",
     ]);
     expect(rendererForKind("markdown")).toBe(artifactRenderers.markdown);
     expect(rendererForKind("json")).toBe(artifactRenderers.json);
@@ -109,6 +109,7 @@ describe("artifact renderer registry", () => {
     expect(rendererForKind("pipeline")).toBe(artifactRenderers.pipeline);
     expect(rendererForKind("review")).toBe(artifactRenderers.review);
     expect(rendererForKind("resolve")).toBe(artifactRenderers.resolve);
+    expect(rendererForKind("failed_output")).toBe(artifactRenderers.failed_output);
     // an unregistered kind still renders — via the existing <pre> fallback
     expect(rendererForKind("something_new")).toBe(fallbackArtifactRenderer);
   });
@@ -368,6 +369,53 @@ describe("resolve artifact renderer (task 19)", () => {
 
     expect(html).toContain("plain run notes");
     expect(html).not.toContain("Comment decisions");
+  });
+});
+
+describe("failed_output artifact renderer (task 20)", () => {
+  const failedArtifact: Artifact = {
+    id: "art-failed",
+    kind: "failed_output",
+    version: 1,
+    status: "draft",
+    created_at: "2026-11-21T00:00:00.000Z",
+  };
+
+  const renderFailed = (detail: Record<string, unknown>): string =>
+    renderPanel((queryClient) => {
+      queryClient.setQueryData(queryKeys.artifacts.detail(failedArtifact.id), detail);
+    }, { artifacts: [failedArtifact] });
+
+  it("renders the schema violations and the raw response head from the stored payload", () => {
+    const html = renderFailed({
+      content: '{"cost": "free", "note": "here is your estimate"',
+      meta: {
+        code: "schema_mismatch",
+        budget: 2,
+        issues: [
+          { path: "cost", message: "Invalid input: expected number, received string" },
+          { path: "", message: "unterminated JSON text" },
+        ],
+      },
+    });
+
+    // the structured renderer produced the view — not the raw-body fallback
+    expect(html).toContain("Failed output");
+    expect(html).toContain("schema_mismatch");
+    expect(html).toContain("2 feedback retries spent");
+    expect(html).toContain("cost");
+    expect(html).toContain("Invalid input: expected number, received string");
+    expect(html).toContain("root");
+    expect(html).toContain("unterminated JSON text");
+    // the raw response head the run actually produced
+    expect(html).toContain("&quot;cost&quot;: &quot;free&quot;");
+  });
+
+  it("falls back to the raw body when the meta carries no violations ledger", () => {
+    const html = renderFailed({ content: "the raw bad response", meta: {} });
+
+    expect(html).toContain("the raw bad response");
+    expect(html).not.toContain("Failed output");
   });
 });
 

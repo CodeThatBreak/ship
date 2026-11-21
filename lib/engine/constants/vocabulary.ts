@@ -73,6 +73,9 @@ export const ARTIFACT_KIND = {
   /** a run's token/cost usage — content is the RunUsagePayload JSON
    *  (use case 8d, Task 21) */
   USAGE: "usage",
+  /** a retry-exhausted agent run's bad output — content is the raw response
+   *  head, meta the code/budget/violations ledger (use case 8e, Task 20) */
+  FAILED_OUTPUT: "failed_output",
   /** a review run's posted-comment projection — the `postedHashes`
    *  idempotency ledger rides the meta (the built-in review node's home;
    *  task 19's `publish_review_comments` verb writes it declaratively) */

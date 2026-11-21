@@ -358,18 +358,25 @@ export abstract class NodeDefinition<I = unknown, O extends Record<string, unkno
     } else if (opts?.fenceSuperseded && node.status !== "running") {
       throw new RunSupersededError(node.id, node.status, "applyOutcome");
     }
-    // validation stays OUTSIDE the transaction (pure — nothing to batch)
+    // validation stays OUTSIDE the transaction (pure — nothing to batch).
+    // A failed terminal carries no payload data (the failOutputContract
+    // precedent — `publishOutcome` skips the contract for failed statuses
+    // too), so the parse runs for live outcomes only.
     let validatedOutput: O;
-    try {
-      validatedOutput = this.outputSchema.parse(outcome.output);
-    } catch (e: unknown) {
-      if (e instanceof z.ZodError) {
-        // Invariant 5: nothing is published unvalidated — a contract-violating
-        // outcome maps to a failed node with a typed event (retriable), never
-        // to the requested success terminal.
-        return await this.failOutputContract(ctx, node, e.issues.map((i) => `${i.path.length ? `${i.path.join(".")}: ` : ""}${i.message}`), { ...opts, attemptId });
+    if (outcome.status === NODE_RUN_STATUS.FAILED) {
+      validatedOutput = outcome.output as O;
+    } else {
+      try {
+        validatedOutput = this.outputSchema.parse(outcome.output);
+      } catch (e: unknown) {
+        if (e instanceof z.ZodError) {
+          // Invariant 5: nothing is published unvalidated — a contract-violating
+          // outcome maps to a failed node with a typed event (retriable), never
+          // to the requested success terminal.
+          return await this.failOutputContract(ctx, node, e.issues.map((i) => `${i.path.length ? `${i.path.join(".")}: ` : ""}${i.message}`), { ...opts, attemptId });
+        }
+        throw e;
       }
-      throw e;
     }
     // The completion batch (step 06, Invariant 7): artifact + facts + usage +
     // terminal + lifecycle event in ONE pure-DB transaction — a crash leaves
