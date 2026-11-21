@@ -6,10 +6,10 @@
  */
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const listMessages = vi.fn(async () => [] as unknown[]);
+const listMessages = vi.hoisted(() => vi.fn(async () => [] as unknown[]));
 
 vi.mock("@/lib/db/app", () => ({
-  db: { listMessages: (flowId: string) => listMessages(flowId) },
+  db: { listMessages: listMessages },
 }));
 
 import { GET } from "@/app/api/flows/[id]/chat/route";
