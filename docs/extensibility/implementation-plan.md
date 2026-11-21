@@ -265,11 +265,11 @@ three ways: declarative `afterApproval`, a panel button, and an agent tool.
 
 | Done | # | Task | Findings | Use case | Effort | Depends on |
 | :---: | --- | --- | --- | --- | :---: | --- |
-| [ ] | 10 | Verb registry + declarative wildcard effects | B3, F1, F3 | 4 | M | 06 |
-| [ ] | 11 | `create_change_request` verb over `MergeRequestService` | A4, F2 | 4 | M | 10 |
-| [ ] | 12 | "Open PR" panel action (claim-gated) | A4 | 4 | S | 11 |
-| [ ] | 13 | `create_change_request` agent tool + per-node `agent_tools` allowlist | C4 | 4 | M | 11 |
-| [ ] | 14 | Fact-need lint (`needs` / `effects` static validation) | — | 3, 4 | S | 06 |
+| [x] | 10 | Verb registry + declarative wildcard effects | B3, F1, F3 | 4 | M | 06 |
+| [x] | 11 | `create_change_request` verb over `MergeRequestService` | A4, F2 | 4 | M | 10 |
+| [x] | 12 | "Open PR" panel action (claim-gated) | A4 | 4 | S | 11 |
+| [x] | 13 | `create_change_request` agent tool + per-node `agent_tools` allowlist | C4 | 4 | M | 11 |
+| [x] | 14 | Fact-need lint (`needs` / `effects` static validation) | — | 3, 4 | S | 06 |
 
 ### Task 10 — Verb registry + declarative wildcard effects
 
