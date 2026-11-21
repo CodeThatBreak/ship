@@ -97,15 +97,16 @@ const renderPanel = (html: (q: QueryClient) => void, nodeOverride: Partial<Node>
 };
 
 describe("artifact renderer registry", () => {
-  it("pins the nine built-in kinds and the <pre> fallback", () => {
+  it("pins the ten built-in kinds and the <pre> fallback", () => {
     expect(Object.keys(artifactRenderers).sort()).toEqual([
-      "diff", "failed_output", "json", "markdown", "pipeline", "plan", "resolve", "review", "usage",
+      "diff", "failed_output", "json", "markdown", "pipeline", "plan", "resolve", "review", "transcript", "usage",
     ]);
     expect(rendererForKind("markdown")).toBe(artifactRenderers.markdown);
     expect(rendererForKind("json")).toBe(artifactRenderers.json);
     expect(rendererForKind("diff")).toBe(artifactRenderers.diff);
     expect(rendererForKind("plan")).toBe(artifactRenderers.plan);
     expect(rendererForKind("usage")).toBe(artifactRenderers.usage);
+    expect(rendererForKind("transcript")).toBe(artifactRenderers.transcript);
     expect(rendererForKind("pipeline")).toBe(artifactRenderers.pipeline);
     expect(rendererForKind("review")).toBe(artifactRenderers.review);
     expect(rendererForKind("resolve")).toBe(artifactRenderers.resolve);
@@ -201,6 +202,63 @@ describe("usage artifact renderer (task 21)", () => {
 
     expect(html).toContain("not json");
     expect(html).not.toContain("Run usage");
+  });
+});
+
+describe("transcript artifact renderer (task 22)", () => {
+  const transcriptArtifact: Artifact = {
+    id: "art-transcript",
+    kind: "transcript",
+    version: 1,
+    status: "draft",
+    created_at: "2026-11-21T00:00:00.000Z",
+  };
+
+  const renderTranscript = (detail: Record<string, unknown>): string =>
+    renderPanel((queryClient) => {
+      queryClient.setQueryData(queryKeys.artifacts.detail(transcriptArtifact.id), detail);
+    }, { artifacts: [transcriptArtifact] });
+
+  it("renders the capped call timeline with names, summaries and durations", () => {
+    const html = renderTranscript({
+      content: JSON.stringify({
+        calls: [
+          { name: "Bash", status: "completed", durationMs: 1200, summary: '{"command":"npm test"}' },
+          { name: "create_change_request", status: "failed", summary: '{"branch":"changelog/x"}' },
+        ],
+        totalCalls: 2,
+        truncated: false,
+      }),
+    });
+
+    // the structured renderer produced the view — not the raw-body fallback
+    expect(html).not.toContain("<pre");
+    expect(html).toContain("Tool transcript");
+    expect(html).toContain("2 calls");
+    expect(html).toContain("Ran Bash");
+    expect(html).toContain("&quot;command&quot;:&quot;npm test&quot;");
+    expect(html).toContain("1s");
+    // the failed call marks the timeline row
+    expect(html).toContain("Failed create_change_request");
+  });
+
+  it("notes the cap when the log was truncated", () => {
+    const html = renderTranscript({
+      content: JSON.stringify({
+        calls: [{ name: "Bash", status: "completed" }],
+        totalCalls: 62,
+        truncated: true,
+      }),
+    });
+
+    expect(html).toContain("showing the first 1 of 62 calls");
+  });
+
+  it("falls back to the raw body when the content is not a transcript payload", () => {
+    const html = renderTranscript({ content: "not json" });
+
+    expect(html).toContain("not json");
+    expect(html).not.toContain("Tool transcript");
   });
 });
 

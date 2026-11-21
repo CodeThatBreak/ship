@@ -4,6 +4,7 @@ import { config } from "../../../config";
 import type { Database } from "../../../db/app";
 import type { AgentRunResult, SettingSource } from "../../ports/agentPort";
 import type { WorktreeManager } from "../../runtime/worktreeLifecycle/worktreeManager";
+import type { TranscriptPayload } from "../../transcript/transcriptPayload";
 import type { RunCostSummary } from "./runCostSummary";
 
 export interface ExecuteRunOptions {
@@ -20,6 +21,10 @@ export interface ExecuteRunResult {
   /** the run's captured usage/cost summary (Task 21) — the outcome side-channel
    *  persists it as a `usage` artifact inside the terminal batch */
   usage?: RunCostSummary;
+  /** the run's capped tool-call log (task 22) — the outcome side-channel
+   *  persists it as a `transcript` artifact inside the terminal batch; absent
+   *  when the run made no tool calls */
+  transcript?: TranscriptPayload;
 }
 
 // ── agent run machinery ──────────────────────────────────────────────────────

@@ -1,6 +1,7 @@
 import "server-only";
 
 import { asResultText } from "./utils/asResultText";
+import { isToolCallEnd } from "./utils/toolCallStatus";
 import type { ToolEmitFn } from "./types/toolEmitFn";
 
 // ── tool-call pairing for local mode (FIFO unmatched-start per name) ─────────
@@ -17,7 +18,7 @@ export class ToolPairer {
 
   handle(name: string, status: string, args?: unknown, callId?: string, extra?: { result?: unknown }): void {
     const resultText = asResultText(extra?.result);
-    const isEnd = /complete|finish|success|fail|error|result|end/i.test(status) && !/start|begin|call|invok/i.test(status);
+    const isEnd = isToolCallEnd(status);
     if (isEnd) {
       const q = this.unmatched.get(name);
       if (callId) {

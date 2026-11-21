@@ -8,6 +8,7 @@ import { PipelineStatusView } from "./PipelineStatusView";
 import { PlanArtifactView } from "./PlanArtifactView";
 import { ResolveArtifactView } from "./ResolveArtifactView";
 import { ReviewArtifactView } from "./ReviewArtifactView";
+import { TranscriptView } from "./TranscriptView";
 import { UsageView } from "./UsageView";
 import type { ArtifactRenderer } from "./types/artifactRenderer";
 
@@ -22,6 +23,7 @@ export const artifactRenderers: Record<string, ArtifactRenderer> = {
   [ARTIFACT_KIND.DIFF]: DiffView,
   [ARTIFACT_KIND.PLAN]: PlanArtifactView,
   [ARTIFACT_KIND.USAGE]: UsageView,
+  [ARTIFACT_KIND.TRANSCRIPT]: TranscriptView,
   [ARTIFACT_KIND.PIPELINE]: PipelineStatusView,
   [ARTIFACT_KIND.REVIEW]: ReviewArtifactView,
   [ARTIFACT_KIND.RESOLVE]: ResolveArtifactView,

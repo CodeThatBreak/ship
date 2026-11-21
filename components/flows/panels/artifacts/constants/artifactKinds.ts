@@ -5,6 +5,9 @@ export const ARTIFACT_KIND = {
   DIFF: "diff",
   PLAN: "plan",
   USAGE: "usage",
+  /** one run's capped tool-call log (task 22): the calls the run made —
+   *  name + status + a redacted args summary, rendered as a timeline. */
+  TRANSCRIPT: "transcript",
   /** the CI gate's durable-wait progress snapshot (task 18): status badge,
    *  job list, fix-run history — any gate node's wait renders through it. */
   PIPELINE: "pipeline",

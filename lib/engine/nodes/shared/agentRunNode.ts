@@ -18,6 +18,7 @@ import { agentToolsBlock, redactCapabilityToken } from "../../agentTools/utils/t
 import { TOOL_POLICY_INPUT_KEY } from "../../constants/agentRunPolicy";
 import { effectiveAgentTools, recordedRunToolPolicy } from "./runToolPolicy";
 import { hasRunUsage, runUsagePayload } from "../../usage/runUsagePayload";
+import { hasTranscript } from "../../transcript/transcriptPayload";
 import type { NodeRunStatus } from "../../../../constants/flow";
 import { FLOW_STATUS } from "../../../../constants/flow";
 import type { NodeRow } from "../../../db/rows";
@@ -209,7 +210,7 @@ export abstract class AgentRunNode<
         env: this.startEnv(opts.agent.env, apiToken),
       });
     try {
-      const { result, runRowId, usage } = await this.runner.executeRun(ctx, node.id, start, opts.label, {
+      const { result, runRowId, usage, transcript } = await this.runner.executeRun(ctx, node.id, start, opts.label, {
         attemptId: attemptId ?? undefined,
       });
       const outcome = await opts.finalize(result, { runRowId });
@@ -219,7 +220,13 @@ export abstract class AgentRunNode<
       const withUsage: RunOutcome = hasRunUsage(usage)
         ? { ...outcome, usage: runUsagePayload(usage) }
         : outcome;
-      return this.applyOutcome(ctx, withUsage, {
+      // Task 22 (use case 8c): the capped tool-call log rides the same
+      // side-channel — persisted as a `transcript` artifact in the terminal
+      // batch. A run with no tool calls attaches nothing.
+      const withTranscript: RunOutcome = hasTranscript(transcript)
+        ? { ...withUsage, transcript }
+        : withUsage;
+      return this.applyOutcome(ctx, withTranscript, {
         fenceSuperseded: Boolean(attemptId),
         attemptId,
       });

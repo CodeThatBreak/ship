@@ -23,6 +23,7 @@ import type { RunOutcome } from "./types/runOutcome";
 import type { NodeTriggerRun } from "./types/nodeTriggerRun";
 import { persistRunFacts } from "./nodeOutcomeFacts";
 import { persistRunUsage } from "./nodeOutcomeUsage";
+import { persistRunTranscript } from "./nodeOutcomeTranscript";
 
 /**
  * A workflow node type. The class owns everything specific to the node:
@@ -379,9 +380,9 @@ export abstract class NodeDefinition<I = unknown, O extends Record<string, unkno
       }
     }
     // The completion batch (step 06, Invariant 7): artifact + facts + usage +
-    // terminal + lifecycle event in ONE pure-DB transaction — a crash leaves
-    // no partial state (the fact/usage side-channels ride the same batch,
-    // Invariant F2).
+    // transcript + terminal + lifecycle event in ONE pure-DB transaction — a
+    // crash leaves no partial state (the fact/usage/transcript side-channels
+    // ride the same batch, Invariant F2).
     await this.support.transaction(async (tx) => {
       if (outcome.artifact) {
         await this.support.saveArtifact(node.id, ctx.flow.id, outcome.artifact.kind, outcome.artifact.content, outcome.artifact.meta, undefined, tx);
@@ -389,6 +390,9 @@ export abstract class NodeDefinition<I = unknown, O extends Record<string, unkno
       await persistRunFacts(ctx.flow.id, node.id, outcome, tx);
       if (outcome.usage) {
         await persistRunUsage(ctx.flow.id, node.id, outcome.usage, tx);
+      }
+      if (outcome.transcript) {
+        await persistRunTranscript(ctx.flow.id, node.id, outcome.transcript, tx);
       }
       await this.support.publishOutcome({
         flowId: ctx.flow.id,

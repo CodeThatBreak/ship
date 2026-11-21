@@ -17,12 +17,15 @@ const { AgentRunLookupError } = await import("../ports/agentErrors");
 const { agentPortRegistry } = await import("../ports/agentPort");
 const { config } = await import("../../config");
 const { worktreeManager } = await import("../runtime/worktreeLifecycle");
+const { engineParts } = await import("@/lib/composition/container");
+const { TOKEN_MASK } = await import("../agentTools/utils/toolsPromptBlock");
 import type {
   AgentPort,
   AgentRunHandle,
   AgentRunQuery,
   AgentRunResult,
   AgentStartSpec,
+  AgentStreamCallbacks,
   AgentStreamOutcome,
 } from "../ports/agentPort";
 import type { FlowCtx } from "../nodes/shared/runContext/types/flowContext";
@@ -40,6 +43,7 @@ class RunnerTestPort implements AgentPort {
   constructor(
     private readonly streamImpl: (
       handle: AgentRunHandle,
+      callbacks?: AgentStreamCallbacks,
     ) => Promise<AgentStreamOutcome>,
   ) {}
 
@@ -51,8 +55,8 @@ class RunnerTestPort implements AgentPort {
     });
   }
 
-  stream(handle: AgentRunHandle): Promise<AgentStreamOutcome> {
-    return this.streamImpl(handle);
+  stream(handle: AgentRunHandle, callbacks?: AgentStreamCallbacks): Promise<AgentStreamOutcome> {
+    return this.streamImpl(handle, callbacks);
   }
 
   getRun(): Promise<AgentRunQuery> {
@@ -148,8 +152,14 @@ async function runRowStatus(runRef: string): Promise<string | undefined> {
 }
 
 let supersedeDuringStream: string | null = null;
+// task 22: when set, the port's stream emits these tool events before finishing
+let toolScript: ((callbacks: AgentStreamCallbacks) => void) | null = null;
 
-const runnerTestPort = new RunnerTestPort(async () => {
+const runnerTestPort = new RunnerTestPort(async (_handle, callbacks) => {
+  if (toolScript && callbacks) {
+    toolScript(callbacks);
+    toolScript = null;
+  }
   if (supersedeDuringStream) {
     await testRun(
       `UPDATE nodes SET attempt_id=$1, updated_at=$2 WHERE id=$3`,
@@ -230,5 +240,53 @@ describe("AgentRunner.executeRun", () => {
     );
     expect(result.result.result).toBe("ok");
     expect(await runRowStatus(runRef)).toBe("finished");
+  });
+});
+
+describe("AgentRunner.executeRun — the transcript capture (task 22)", () => {
+  const TOKEN = "tok_capability_deadbeef";
+
+  it("captures the streamed tool calls, capped and token-redacted, on the side-channel", async () => {
+    const { ctx, nodeId } = await seed("running", 4);
+    // the claim-minted capability token the run carries (step 08) — the
+    // capture must mask it everywhere it echoes through tool args
+    engineParts.attemptRegistry.mark(nodeId, "att_runner_test", TOKEN);
+    toolScript = (callbacks) => {
+      // start-ish emits never record
+      callbacks.onTool?.("Bash", "started", { command: "npm test" }, "c1");
+      callbacks.onTool?.("Bash", "completed", { command: `npm test --token=${TOKEN}` }, "c1");
+      callbacks.onTool?.("create_change_request", "failed", { authorization: `Bearer ${TOKEN}` }, "c2");
+      callbacks.onTool?.("read_flow_state", "completed", undefined, "c3");
+    };
+
+    try {
+      const result = await makeRunner().executeRun(
+        ctx,
+        nodeId,
+        () => runnerTestPort.start({ prompt: "p", name: "n" }),
+        "test run",
+      );
+
+      const transcript = result.transcript;
+      expect(transcript?.totalCalls).toBe(3);
+      expect(transcript?.truncated).toBe(false);
+      expect(transcript?.calls.map((c) => [c.name, c.status])).toEqual([
+        ["Bash", "completed"],
+        ["create_change_request", "failed"],
+        ["read_flow_state", "completed"],
+      ]);
+      // the redaction proof: every echoed token is masked, none survives
+      const allSummaries = transcript?.calls.map((c) => c.summary ?? "").join("\n") ?? "";
+      expect(allSummaries).toContain(TOKEN_MASK);
+      expect(allSummaries).not.toContain(TOKEN);
+      // cloud emits carry no start timestamp — duration stays absent (local
+      // pairing supplies it)
+      expect(transcript?.calls[0]?.durationMs).toBeUndefined();
+      // a call without args carries no summary
+      expect(transcript?.calls[2]?.summary).toBeUndefined();
+    } finally {
+      toolScript = null;
+      engineParts.attemptRegistry.clear(nodeId);
+    }
   });
 });

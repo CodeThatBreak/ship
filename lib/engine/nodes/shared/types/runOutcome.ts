@@ -3,6 +3,7 @@ import "server-only";
 import type { NodeRunStatus } from "../../../../../constants/flow";
 import type { BranchFactInput, DiffFactInput } from "../../../facts/types/facts";
 import type { RunUsagePayload } from "../../../usage/runUsagePayload";
+import type { TranscriptPayload } from "../../../transcript/transcriptPayload";
 
 /**
  * The fact side-channel a finished run may carry (Task 07, Invariant F4):
@@ -35,6 +36,10 @@ export interface RunOutcome {
    *  artifact inside the same terminal batch (Invariant F2); absent when the
    *  run reported no usage */
   usage?: RunUsagePayload;
+  /** the run's capped tool-call log (task 22) — persisted as a
+   *  `kind: "transcript"` artifact inside the same terminal batch (F2);
+   *  absent when the run made no tool calls */
+  transcript?: TranscriptPayload;
   /** lifecycle event message */
   event: string;
   eventData?: Record<string, unknown>;

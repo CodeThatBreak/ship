@@ -13,6 +13,7 @@ import type { NodeSupport } from "../../nodes/shared/nodeSupport";
 import { engineParts } from "@/lib/composition/container";
 import { StreamBuffer } from "../streamBuffer";
 import { ToolPairer } from "../toolPairer";
+import { TranscriptCapture } from "../../transcript/transcriptCapture";
 import type { ToolEmitFn } from "../types/toolEmitFn";
 import type {
   AgentPortRegistry,
@@ -140,13 +141,20 @@ export class AgentRunner {
     }, NODE_LEASE_HEARTBEAT_MS);
 
     const stream = new StreamBuffer(flow.id, nodeId, runId);
-    const emitTool: ToolEmitFn = async (name, status, callId, args, result, startedAtMs) =>
+    // task 22 (use case 8c): the transcript capture rides the SAME seam the
+    // tool events stream through — every terminal emit records one capped,
+    // token-redacted entry; the payload rides the outcome side-channel and
+    // persists inside the terminal batch (F2, the usage-capture pattern).
+    const transcript = new TranscriptCapture(apiToken);
+    const emitTool: ToolEmitFn = async (name, status, callId, args, result, startedAtMs) => {
+      transcript.observe(name, status, args, startedAtMs);
       await this.database.emitEvent(flow.id, nodeId, EVENT_KIND.TOOL, `${name}: ${status}`, {
         run_id: runId, callId, name, status,
         args: args != null ? JSON.stringify(args) : undefined,
         result,
         durationMs: startedAtMs != null ? Date.now() - startedAtMs : undefined,
       });
+    };
     const pairTool = new ToolPairer(emitTool);
 
     let result: AgentRunResult | undefined;
@@ -239,7 +247,13 @@ export class AgentRunner {
       estimated: costSummary.estimated || undefined,
       model: costSummary.model,
     });
-    return { result, runRowId, usage: costSummary };
+    const transcriptPayload = transcript.payload();
+    return {
+      result,
+      runRowId,
+      usage: costSummary,
+      ...(transcriptPayload ? { transcript: transcriptPayload } : {}),
+    };
     } finally {
       if (port.hasActiveRun(runId)) {
         port.releaseActiveRun(runId);
