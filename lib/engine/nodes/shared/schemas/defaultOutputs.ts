@@ -11,6 +11,8 @@ export const DEFAULT_FANOUT_OUTPUT = z.object({
       status: z.string(),
       branch: z.string().optional(),
       artifact_id: z.string().optional(),
+      /** task 25 (use case 8b): the step's own pre-merge diff fact artifact */
+      diff_artifact: z.string().optional(),
       output: z.unknown().optional(),
     })
   ),

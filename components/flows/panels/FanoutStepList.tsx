@@ -5,21 +5,24 @@ import type { FlowData, Node, PlanStepRow } from "@/types/flow";
 import { useNodePanel } from "./context";
 import { fmtDuration } from "@/lib/format";
 import { FLOW_ACTION, FLOW_STATUS } from "@/constants/flow";
+import { stepDiffArtifactId } from "./utils/stepDiffArtifact";
 import { FanoutStepCard, fanoutStepState } from "./FanoutStepCard";
 
 /**
  * The fan-out node's step cards (plan fan-out, Phase 1D): one card per plan
  * step with its child sub-flow state — state chip (pending / building /
  * awaiting approval / merged / failed / skipped), branch name, per-step cost
- * + duration (Phase 4), and the Approve · Retry · Skip · Open sub-flow
- * actions. A rollup line above the cards mirrors the node-card subtitle
+ * + duration (Phase 4), the step's own pre-merge diff (task 25, use case 8b —
+ * collapsible, rendered through the registry's diff renderer), and the
+ * Approve · Retry · Skip · Open sub-flow actions. A rollup line above the
+ * cards mirrors the node-card subtitle
  * (`N steps · M resolved · … · $X · total time`). Approve/Retry/Skip target
  * the child flow through the parent's action route; "Open sub-flow" links to
  * the child flow screen where the regular flow UI (graph, run activity, chat,
  * diff, approval) applies unchanged. Rendered inside a panel (build / agent
  * declarative) whenever the node fanned out — a no-op otherwise.
  */
-export default function FanoutStepList({ flow }: { flow: FlowData; node?: Node }) {
+export default function FanoutStepList({ flow, node }: { flow: FlowData; node?: Node }) {
   const { action, actionPending } = useNodePanel();
   const steps = (flow.planSteps ?? []).filter((s: PlanStepRow) => s.sub_flow != null);
 
@@ -88,6 +91,8 @@ export default function FanoutStepList({ flow }: { flow: FlowData; node?: Node }
               state={fanoutStepState(s)}
               actionPending={actionPending}
               approveBlocked={approveBlocked}
+              diffArtifactId={stepDiffArtifactId(node, s)}
+              action={action}
               onApprove={onApprove}
               onRetry={onRetry}
               onSkip={onSkip}

@@ -1,4 +1,5 @@
 "use client";
+import { useState } from "react";
 import Link from "next/link";
 import {
   Check,
@@ -7,6 +8,7 @@ import {
   Clock,
   Coins,
   ExternalLink,
+  FileDiff,
   GitMerge,
   Loader2,
   OctagonAlert,
@@ -22,6 +24,9 @@ import { Card } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
 import { fmtDuration } from "@/lib/format";
 import { FLOW_STATUS } from "@/constants/flow";
+import { DiffView } from "./artifacts/DiffView";
+import { ArtifactLoader } from "./artifacts/ArtifactLoader";
+import type { PanelActionFn } from "./artifacts/types/artifactRenderer";
 
 export type FanoutStepCardState = {
   label: string;
@@ -96,6 +101,8 @@ export const FanoutStepCard = ({
   state,
   actionPending,
   approveBlocked,
+  diffArtifactId,
+  action,
   onApprove,
   onRetry,
   onSkip,
@@ -104,6 +111,9 @@ export const FanoutStepCard = ({
   state: FanoutStepCardState;
   actionPending: boolean;
   approveBlocked: boolean;
+  /** the step's own pre-merge diff artifact (task 25, use case 8b) — null when none */
+  diffArtifactId: string | null;
+  action?: PanelActionFn;
   onApprove: (stepId: string) => void;
   onRetry: (stepId: string) => void;
   onSkip: (stepId: string) => void;
@@ -111,6 +121,7 @@ export const FanoutStepCard = ({
   const Icon = state.icon;
   const ms = step.sub_flow?.mergeStatus ?? null;
   const subFlow = step.sub_flow;
+  const [showDiff, setShowDiff] = useState(false);
 
   return (
     <Card
@@ -201,6 +212,27 @@ export const FanoutStepCard = ({
         >
           <ExternalLink size={12} /> Open sub-flow
         </Button>
+      )}
+      {diffArtifactId && (
+        <div className="w-full">
+          <Button
+            size="xs"
+            variant="outline"
+            aria-expanded={showDiff}
+            onClick={() => setShowDiff((v) => !v)}
+            title="This step's own changes vs its step base, captured before the merge-back — the merged result below is vs the integration base"
+          >
+            <FileDiff size={12} /> Step changes (vs step base)
+          </Button>
+          {showDiff && (
+            <div className="mt-2">
+              <ArtifactLoader
+                id={diffArtifactId}
+                render={(loaded) => <DiffView artifact={loaded} action={action} />}
+              />
+            </div>
+          )}
+        </div>
       )}
     </Card>
   );

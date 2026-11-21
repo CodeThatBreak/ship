@@ -14,6 +14,7 @@ import { flowCtxHelper } from "../../nodes/shared/runContext";
 import { branchStore } from "../../nodes/kinds/build/branchStore";
 import { engineParts, nodeSupport } from "@/lib/composition/container";
 import { planSteps } from "../planStepStore";
+import type { DiffCapture } from "../../facts/types/facts";
 import type { PlanStepRow } from "../planStepStore/types/planStep";
 import type { StepChildPayload } from "./types/stepChildPayload";
 import type { StepState } from "./types/stepState";
@@ -149,11 +150,33 @@ export class StepRollup {
       try { const d = await flowCtxHelper.makeDiff(ctx, branch); diffs[branch] = { raw: d ? d.raw : "(diff unavailable)", stat: d?.stat ?? "" }; } catch { /* per-branch diff failure is non-fatal — the aggregate still publishes */ }
     }
 
+    // Per-step diff facts (task 25, use case 8b): each code step's OWN changes
+    // vs its step base, captured alongside the merged capture above. Ordering
+    // vs the merge-back: the arena merge runs entirely inside mergeArena's
+    // dedicated clone (checkout/merge/push happen there, then the step branch
+    // is deleted from ORIGIN only) and never rewrites the step branch's
+    // commits — a capture here reads the branch's pre-merge content; and it
+    // lands before the parent's aggregate approval, the only point the MR
+    // machinery ever runs (the merge-back coordinator owns that rule).
+    // The facts attach to the same parent node, gated on the CHILDREN's
+    // code-ness (a step branch only exists for a code child) — the merged
+    // capture's parent-def `mergeBack` gate stays untouched.
+    const stepDiffNodeId = diffNodeId ?? (states.some((s) => s.isCodeChild) ? await engineParts.nodeStore.idOf(parentFlowId, nodeKey) : null);
+    const stepDiffCaptures = new Map<string, DiffCapture>();
+    for (const s of states) {
+      if (!stepDiffNodeId || !s.isCodeChild || !s.branch || stepDiffCaptures.has(s.branch)) continue;
+      try {
+        const d = await flowCtxHelper.makeDiff(ctx, s.branch);
+        if (d) stepDiffCaptures.set(s.branch, d);
+      } catch { /* per-step diff failure is non-fatal — the aggregate still publishes */ }
+    }
+
     // Rollup completion batch (step 06, Invariant 7): plan-step check-offs +
     // branch upserts + flows.mr_branch + diff artifact saves in ONE tx. The
     // aggregate publish stays OUTSIDE: `finishFanout` continues into the edge
     // evaluation (downstream stage starts = agent I/O, never inside a tx) —
     // one attempt-fenced statement, idempotently re-runnable.
+    const stepDiffArtifacts = new Map<string, string>();
     await db.transaction(async (tx) => {
       for (const s of states) if (s.step.status === "pending" && s.isResolved && !s.isFailed) await planSteps.setStatus(parentFlowId, s.step.id, "done", "child", tx);
       for (const branch of integrationBranches) {
@@ -171,10 +194,35 @@ export class StepRollup {
         perBranch[branch] = art.id;
         latestArtifact = latestArtifact ?? art.id;
       }
+      // the per-step diff facts ride the SAME batch (F2): persisted through the
+      // FactStore seam (task 06) keyed by the step's branch
+      for (const s of states) {
+        if (!s.branch || !stepDiffNodeId) continue;
+        const capture = stepDiffCaptures.get(s.branch);
+        if (!capture) continue;
+        const art = await engineParts.facts.recordDiff(parentFlowId, stepDiffNodeId, {
+          branch: s.branch,
+          stat: capture.stat,
+          raw: capture.raw,
+          baseSha: capture.baseSha,
+          headSha: capture.headSha,
+          attribution: capture.attribution,
+          uncommitted: capture.uncommitted,
+          alt: capture.alt,
+        }, tx);
+        stepDiffArtifacts.set(s.branch, art.id);
+      }
+    });
+
+    // each resolved step's aggregate entry carries its own pre-merge diff
+    // artifact id (the `artifact_id` precedent) — the step card's data path
+    const stepsWithDiffs = aggregate.steps.map((step) => {
+      const diffArtifactId = step.branch ? stepDiffArtifacts.get(step.branch) : undefined;
+      return diffArtifactId ? { ...step, diff_artifact: diffArtifactId } : step;
     });
 
     await this.finishFanout(parentFlowId, nodeKey, {
-      steps: aggregate.steps,
+      steps: stepsWithDiffs,
       ...(integrationBranches[0] ? { branch: integrationBranches[0] } : {}),
       ...(latestArtifact ? { latestArtifact } : {}),
       ...(integrationBranches.length > 1 ? { branchArtifacts: perBranch } : {}),

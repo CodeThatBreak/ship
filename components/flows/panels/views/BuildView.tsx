@@ -3,6 +3,7 @@ import { AlertTriangle, FileDiff, GitMerge } from 'lucide-react';
 import type { BranchRow, Artifact, PlanStepRow } from '@/types/flow';
 import PlanSteps from '../../components/plan/components/planSteps/PlanSteps';
 import { DiffView } from '../artifacts/DiffView';
+import { ARTIFACT_META } from '../artifacts/constants/artifactMeta';
 import { BranchFactRow } from '@/components/shared/BranchFactRow';
 import { Alert } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
@@ -31,7 +32,10 @@ import { EmptyHint } from "@/components/shared/EmptyHint";
 export default function BuildView() {
   const { flow, node, action, events } = useNodePanel();
   const diffs = node.artifacts.filter((a: Artifact) => a.kind === 'diff');
-  const latest = diffs[diffs.length - 1];
+  // fan-out: the merged result is the artifact the rollup marked `fanout` — a
+  // per-step diff fact (task 25) must not displace it as the displayed diff
+  const mergedDiff = diffs.filter((a) => a.meta?.[ARTIFACT_META.FANOUT] === true).at(-1);
+  const latest = mergedDiff ?? diffs[diffs.length - 1];
   const canApprove = node.status === FLOW_STATUS.AWAITING_APPROVAL;
   const branches = flow.branches ?? [];
   const hasBranches = branches.length > 1;
