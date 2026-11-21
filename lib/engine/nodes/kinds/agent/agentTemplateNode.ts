@@ -22,6 +22,7 @@ import { nodeRoles, type NodePromptPreview, type PromptPreviewParams } from "../
 import type { SplitUnit } from "../../shared/nodeSharedExports";
 import { splitDirective } from "./splitDirective";
 import { AGENT_CONFIG_FIELDS } from "./constants/agentConstantsExports";
+import { AGENT_START_LABEL } from "./constants/startLabel";
 import { AgentRunInput, agentOutputContract } from "./schema";
 import {
   agentContractDirective,
@@ -59,8 +60,10 @@ export class AgentTemplateNode extends DeclarativeAgentNode<AgentDef, Record<str
   readonly order = 1000;
   override readonly retryable = true;
 
-  /** §T4: chat messages re-run the agent with the rendered feedback. */
-  override readonly capabilities: NodeCapabilities = { refinable: true };
+  /** Chat is the node's entry point: the first turn (before any output) runs the
+   * rendered prompt body; later turns refine. The prompt-node key is the
+   * per-instance key so the composer preview targets this node's own config. */
+  override readonly capabilities: NodeCapabilities;
 
   readonly inputSchema: z.ZodType<Record<string, unknown>>;
   readonly outputSchema: z.ZodType<Record<string, unknown>>;
@@ -90,6 +93,7 @@ export class AgentTemplateNode extends DeclarativeAgentNode<AgentDef, Record<str
   ) {
     const def = AgentDefSchema.parse(tmpl.config ?? {});
     super(tmpl, instanceKey, def, "agent", services);
+    this.capabilities = { refinable: true, promptNode: this.key, startLabel: AGENT_START_LABEL };
     this.inputSchema = AgentRunInput;
     this.outputPipeline = new AgentOutputPipeline(this.support);
     // the real output contract (step 04): the declarative def cache holds
@@ -251,6 +255,14 @@ export class AgentTemplateNode extends DeclarativeAgentNode<AgentDef, Record<str
    * feedback rides the same contract directives a fresh run's prompt does —
    * the follow-up output goes through the same applyOutput validation. */
   override async chat(ctx: FlowCtx, content: string, model?: string): Promise<string> {
+    if (this.isFirstTurn(await this.node(ctx))) {
+      const outcome = await this.run(
+        ctx,
+        { prompt: content, model: model ?? null },
+        await this.nodeConfig(ctx),
+      );
+      return outcome.reply;
+    }
     const cfg = this.runConfig(await this.nodeConfig(ctx));
     const node = await this.node(ctx);
 

@@ -15,6 +15,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
+import { uiCapabilities } from "./shared/capabilities";
 
 process.env.DATABASE_PATH = path.join(
   fs.mkdtempSync(path.join(os.tmpdir(), "devflow-chat-first-turn-")),
@@ -22,6 +23,7 @@ process.env.DATABASE_PATH = path.join(
 );
 
 await import("./registry");
+const { AgentTemplateNode } = await import("./kinds/agent/agentTemplateNode");
 const { ReviewNode } = await import("./kinds/review/reviewNode");
 const { ResolveNode } = await import("./kinds/resolve/resolveNode");
 const { PipelineNode } = await import("./kinds/pipeline/pipelineNode");
@@ -485,6 +487,113 @@ describe("BuildNode chat", () => {
     const turn = j.startAgentInputs[0] as unknown as { prompt: string; followUpOn: string | null };
     expect(turn.followUpOn).toBe("agent_prev");
     expect(turn.prompt).toContain("Please squash the commits");
+  });
+});
+
+// ── declarative agent ────────────────────────────────────────────────────────
+
+describe("AgentTemplateNode chat", () => {
+  const make = (node: NodeRow, config: Record<string, unknown>, responses: string[]) => {
+    const j = newJournal();
+    const def = new AgentTemplateNode(
+      { id: "nt_ft", name: "Test Agent", description: null, config },
+      "agent_ft",
+      { support: stubSupport(j, node), runner: stubRunner(j, responses), ctxHelper },
+    );
+    return { def, j };
+  };
+
+  const turn = (j: Journal) => j.startAgentInputs[0] as unknown as { prompt: string; followUpOn: string | null };
+
+  it("first turn on a never-run node: the chat message IS the prompt body (body override, not a refine)", async () => {
+    const { def, j } = make(nodeRow({ nodeKey: "agent_ft", type: "agent" }), {}, ["analysis done"]);
+    const reply = await def.chat(ctx, "Run the auth analysis");
+    expect(j.labels).toContain("test agent");
+    expect(turn(j).prompt).toContain("Run the auth analysis");
+    expect(recordedInputs(j)[0]).toMatchObject({
+      prompt: "Run the auth analysis",
+      prompt_source: "modal",
+    });
+    expect(recordedInputs(j)[0]).not.toHaveProperty("feedback");
+    expect(reply).toBe("analysis done");
+  });
+
+  it("json output keeps the RESPONSE FORMAT contract directive on the first-turn body", async () => {
+    const config = {
+      output: "json",
+      output_schema: {
+        type: "object",
+        properties: { cost: { type: "integer" } },
+        required: ["cost"],
+      },
+    };
+    const { def, j } = make(nodeRow({ nodeKey: "agent_ft", type: "agent" }), config, ['{"cost":1}']);
+    await def.chat(ctx, "Estimate the cost");
+    expect(turn(j).prompt).toContain("Estimate the cost");
+    expect(turn(j).prompt).toContain("RESPONSE FORMAT");
+    expect(recordedInputs(j)[0]).toMatchObject({ prompt_source: "modal" });
+  });
+
+  it("second turn after a run: the message is the feedback refine with a follow-up session", async () => {
+    const { def, j } = make(
+      nodeRow({
+        nodeKey: "agent_ft",
+        type: "agent",
+        status: "done",
+        output: { markdown: "prior" },
+        agentId: "agent_prev",
+      }),
+      {},
+      ["tightened"],
+    );
+    await def.chat(ctx, "Tighten the wording");
+    expect(recordedInputs(j)[0]).toMatchObject({ feedback: "Tighten the wording" });
+    expect(recordedInputs(j)[0]).not.toHaveProperty("prompt");
+    expect(recordedInputs(j)[0]).not.toHaveProperty("prompt_source");
+    expect(turn(j).followUpOn).toBe("agent_1");
+    expect(turn(j).prompt).toContain("Tighten the wording");
+  });
+
+  it("a failed node with no output is still a first turn", async () => {
+    const { def, j } = make(
+      nodeRow({ nodeKey: "agent_ft", type: "agent", status: "failed" }),
+      {},
+      ["retried"],
+    );
+    await def.chat(ctx, "Retry the analysis");
+    expect(turn(j).prompt).toContain("Retry the analysis");
+    expect(recordedInputs(j)[0]).toMatchObject({
+      prompt: "Retry the analysis",
+      prompt_source: "modal",
+    });
+  });
+
+  it("a failed node that already published output takes the refine path", async () => {
+    const { def, j } = make(
+      nodeRow({
+        nodeKey: "agent_ft",
+        type: "agent",
+        status: "failed",
+        output: { markdown: "partial" },
+        agentId: "agent_prev",
+      }),
+      {},
+      ["refined"],
+    );
+    await def.chat(ctx, "Fix the partial output");
+    expect(recordedInputs(j)[0]).toMatchObject({ feedback: "Fix the partial output" });
+    expect(recordedInputs(j)[0]).not.toHaveProperty("prompt_source");
+    expect(turn(j).followUpOn).toBe("agent_1");
+  });
+
+  it("capabilities: promptNode is the instance key and startLabel projects through uiCapabilities", () => {
+    const { def } = make(nodeRow({ nodeKey: "agent_ft", type: "agent" }), {}, []);
+    expect(def.capabilities.promptNode).toBe(def.key);
+    expect(def.key).toBe("agent_ft");
+    const ui = uiCapabilities(def.capabilities);
+    expect(ui).not.toBeNull();
+    expect(ui?.startLabel).toBe("Run agent");
+    expect(ui?.promptNode).toBe(def.key);
   });
 });
 

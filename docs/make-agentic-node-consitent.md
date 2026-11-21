@@ -55,6 +55,7 @@ Build never used the modal, and its first run needs the approved plan:
 - Override `chat()`: first turn → pull the approved plan from the plan node's published output (reuse the same upstream read the chain's approve path uses; extract a small helper if it lives inside `sdlcChain`) and run `{ plan, prompt: content, promptIsBody: true, model }`; else existing `feedback` refine.
 - Capabilities: add `promptNode: NODE_KEYS.BUILD`, `startLabel: 'Start build'` (keep existing `panelTitle`, `fanoutOutput`, `mergeBack`).
 - **Out of scope:** `step_build` first-turn (step children are engine-spawned via fan-out; chat refine already works), `decision` (deliberately not refinable), declarative `agent` nodes (already chat-capable; prompt editing stays in AgentView's Configure dialog).
+  - **Update (Phase 3):** declarative `agent` nodes are now in scope and implemented in [`docs/agent-node-chat-first.md`](agent-node-chat-first.md) — the first run goes through the chat composer prefill. `AgentView`'s prompt card and Run button were removed, and a follow-up decision also removed the Configure dialog, making prompt editing chat-only.
 
 ### 1.6 Capabilities plumbing
 
@@ -121,7 +122,7 @@ Keep the footer action buttons (`Run AI review`, `Resolve N comments`, pipeline 
    - `lib/engine/flowEngine.ts`: trim `prompt`/`promptIsBody` params from `triggerReview`/`triggerResolve`/`triggerPipelineGate` (~line 780).
    - `lib/engine/nodes/chains/sdlcChain.ts:150-198`: trim the same params from the three chain triggers; `runNode` inputs no longer pass `prompt`/`promptIsBody` (chain auto-runs use the default template, as before).
    - **Keep** `prompt`/`promptIsBody` in the node _input_ schemas — chat turns now produce them.
-5. **Keep (still used):** `/api/flows/[id]/prompt` + `/prompts` routes, `PromptPreview` service, all `previewPrompt` methods, `useNodePrompt`/`useFetchAllNodePrompt`, `invalidateFlowPrompts` (used by `useFlowMutation` + `frontendMutationConventions.test.ts`), `SET_NODE_CONFIG` (AgentView), `components/shared/Modal` (BuildModal, FormModal).
+5. **Keep (still used):** `/api/flows/[id]/prompt` + `/prompts` routes, `PromptPreview` service, all `previewPrompt` methods, `useNodePrompt`/`useFetchAllNodePrompt`, `invalidateFlowPrompts` (used by `useFlowMutation` + `frontendMutationConventions.test.ts`), `SET_NODE_CONFIG` (AgentView at the time; later removed), `components/shared/Modal` (BuildModal, FormModal).
 
 ---
 
