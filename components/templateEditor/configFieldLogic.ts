@@ -86,6 +86,12 @@ export function writeConfig(
   return { ...(config ?? {}), ...extra, [key]: v };
 }
 
+/** The value a knob shows: the instance override, else the catalog/class default. */
+export const effectiveConfigValue = (
+  value: unknown,
+  defaultValue: unknown,
+): unknown => (value !== undefined ? value : defaultValue);
+
 /** The value an inserted `{{...}}` ref lands on: appended after the current
  *  text (space-separated), or the ref alone when the field is empty. */
 export function appendConfigRef(current: string, ref: string): string {
