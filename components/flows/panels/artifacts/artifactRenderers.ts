@@ -10,14 +10,18 @@ import { ResolveArtifactView } from "./ResolveArtifactView";
 import { ReviewArtifactView } from "./ReviewArtifactView";
 import { TranscriptView } from "./TranscriptView";
 import { UsageView } from "./UsageView";
+import { withDryRunBadge } from "./DryRunArtifactBadge";
 import type { ArtifactRenderer } from "./types/artifactRenderer";
 
 /**
  * The only artifact-kind dispatch point: rendering keys off `artifact.kind`,
  * never the node's kind/type (extensibility plan Task 01). Renderers are
  * presentational — they receive the loaded artifact and do no fetching.
+ * Task 23: every registry entry composes the shared dry-run provenance badge
+ * here at the dispatch point (the only place it applies), so a new renderer
+ * inherits the badge by registering — no renderer touches its own internals.
  */
-export const artifactRenderers: Record<string, ArtifactRenderer> = {
+const registryRenderers: Record<string, ArtifactRenderer> = {
   [ARTIFACT_KIND.MARKDOWN]: MarkdownArtifact,
   [ARTIFACT_KIND.JSON]: JsonArtifact,
   [ARTIFACT_KIND.DIFF]: DiffView,
@@ -29,6 +33,10 @@ export const artifactRenderers: Record<string, ArtifactRenderer> = {
   [ARTIFACT_KIND.RESOLVE]: ResolveArtifactView,
   [ARTIFACT_KIND.FAILED_OUTPUT]: FailedOutputView,
 };
+
+export const artifactRenderers: Record<string, ArtifactRenderer> = Object.fromEntries(
+  Object.entries(registryRenderers).map(([kind, renderer]) => [kind, withDryRunBadge(renderer)]),
+);
 
 /** An unregistered kind still renders — as the existing `<pre>` fallback. */
 export const fallbackArtifactRenderer: ArtifactRenderer = GenericArtifactFallback;

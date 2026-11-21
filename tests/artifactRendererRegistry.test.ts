@@ -14,6 +14,8 @@ import {
   fallbackArtifactRenderer,
   rendererForKind,
 } from "@/components/flows/panels/artifacts/artifactRenderers";
+import { ARTIFACT_META } from "@/components/flows/panels/artifacts/constants/artifactMeta";
+import type { ArtifactPayload } from "@/components/flows/panels/artifacts/types/artifactPayload";
 import { GenericDeclarativePanel } from "@/components/flows/panels/genericDeclarativePanel";
 import PipelineView from "@/components/flows/panels/views/PipelineView";
 import { NodePanelContext, type NodePanelContextValue } from "@/components/flows/panels/context";
@@ -474,6 +476,85 @@ describe("failed_output artifact renderer (task 20)", () => {
 
     expect(html).toContain("the raw bad response");
     expect(html).not.toContain("Failed output");
+  });
+});
+
+describe("dry-run artifact provenance badge (task 23)", () => {
+  const dryRunMeta = (): Record<string, unknown> => ({ [ARTIFACT_META.DRY_RUN]: true });
+  // through the registry dispatch point — the only place the wrapper applies
+  const renderKind = (kind: string, detail: ArtifactPayload): string =>
+    renderToStaticMarkup(createElement(rendererForKind(kind), { artifact: detail }));
+  const diffContent =
+    "diff --git a/x.txt b/x.txt\n--- a/x.txt\n+++ b/x.txt\n@@ -1 +1 @@\n-old\n+new";
+  const pipelineContent = JSON.stringify({ status: "failed", pipelineId: 42, fixes: 1, jobs: [], fixRuns: [] });
+
+  it("frames a dry-run markdown artifact under the provenance badge", () => {
+    const html = renderKind("markdown", { content: "# Changelog\nhello-md", meta: dryRunMeta() });
+
+    expect(html).toContain("Dry run");
+    expect(html).toContain("simulated output");
+    // the markdown renderer still produced the heading under the wrapper
+    expect(html).toContain("<h1");
+    expect(html).toContain("hello-md");
+  });
+
+  it("frames a dry-run diff artifact under the provenance badge", () => {
+    const html = renderKind("diff", { content: diffContent, meta: dryRunMeta() });
+
+    expect(html).toContain("Dry run");
+    expect(html).toContain("simulated output");
+    expect(html).toContain("x.txt");
+  });
+
+  it("frames a dry-run pipeline artifact under the provenance badge", () => {
+    const html = renderKind("pipeline", { content: pipelineContent, meta: dryRunMeta() });
+
+    expect(html).toContain("Dry run");
+    expect(html).toContain("simulated output");
+    expect(html).toContain("Pipeline #42");
+  });
+
+  it("renders the same kinds unchanged without the flag — no badge, same output", () => {
+    const md = renderKind("markdown", { content: "# Changelog\nhello-md", meta: {} });
+    const diff = renderKind("diff", { content: diffContent, meta: {} });
+    const pipeline = renderKind("pipeline", { content: pipelineContent, meta: {} });
+
+    for (const html of [md, diff, pipeline]) {
+      expect(html).not.toContain("Dry run");
+      expect(html).not.toContain("simulated output");
+    }
+    // the renderers' own output is untouched by the composition
+    expect(md).toContain("hello-md");
+    expect(diff).toContain("x.txt");
+    expect(pipeline).toContain("Pipeline #42");
+  });
+
+  it("reads the flag tolerantly — anything but the literal true is a real artifact", () => {
+    const html = renderKind("markdown", { content: "real run", meta: { [ARTIFACT_META.DRY_RUN]: "yes" } });
+
+    expect(html).not.toContain("Dry run");
+    expect(html).toContain("real run");
+  });
+
+  it("applies the wrapper only at the registry dispatch point — the raw <pre> fallback stays unwrapped", () => {
+    const html = renderToStaticMarkup(
+      createElement(fallbackArtifactRenderer, { artifact: { content: "raw body", meta: dryRunMeta() } }),
+    );
+
+    expect(html).toContain("raw body");
+    expect(html).not.toContain("Dry run");
+  });
+
+  it("shows the badge end to end through the generic panel's registry dispatch", () => {
+    const html = renderPanel((queryClient) => {
+      queryClient.setQueryData(queryKeys.artifacts.detail(mdArtifact.id), {
+        content: "# Changelog\nhello-md",
+        meta: dryRunMeta(),
+      });
+    });
+
+    expect(html).toContain("Dry run");
+    expect(html).toContain("hello-md");
   });
 });
 
