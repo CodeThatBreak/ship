@@ -8,7 +8,7 @@ import { lintPlanExecution } from "./lintPlanExecution";
 import { lintAgentSplit } from "./lintAgentSplit";
 import { lintFanoutRules } from "./lintFanout";
 import { buildNodeContracts, inheritedInputFields, makeAddressesOutput } from "./lintContracts";
-import { lintDecisionJsonata, lintEdgeConditions, lintHttpJsonata, lintInputMapJsonata } from "./lintExpressions";
+import { lintDecisionJsonata, lintEdgeConditions, lintHttpJsonata, lintInputMapJsonata, lintNeedsSatisfiability } from "./lintExpressions";
 import { lintRef } from "./lintRefs";
 import { templateRefs } from "./utils/templateRefs";
 import { shallowMerge } from "./utils/shallowMerge";
@@ -32,7 +32,7 @@ import type { CatalogEntry, LintEdge, LintNode, TaskUniverse } from "./lintTypes
  * `lintTemplate` is the orchestrator; the rules live in their own modules:
  * `lintContracts` (output contracts + trigger/start-contract checks),
  * `lintFanout` (fan-out rules 1–3), `lintRefs` ({{...}} reference rules),
- * `lintExpressions` (JSONata checks), `lintAgentSplit` (split-knob rules),
+ * `lintExpressions` (JSONata checks + the fact-need satisfiability walk), `lintAgentSplit` (split-knob rules),
  * `lintNodeTrigger`, `lintPlanExecution`, `outputFields`.
  */
 
@@ -120,6 +120,11 @@ export const lintTemplate = async (
 
   // edge + loop conditions compile (not on decision branches — those gate on labels)
   lintEdgeConditions(edges, nodes, catalog, byKey, contractOfKey, addressesOutput, problems);
+
+  // the declarative fact needs (task 14, design §4.1): every declared `needs`
+  // entry must be statically satisfiable by some upstream node's
+  // `produces`/`effects` declarations (graph walk over declarations only)
+  lintNeedsSatisfiability(nodes, edges, catalog, problems);
 
   return { error: problems.length ? joinProblems(problems) : null, problems };
 };

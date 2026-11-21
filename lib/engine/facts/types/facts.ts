@@ -26,6 +26,13 @@ export type FactKind = (typeof FACT_KIND)[keyof typeof FACT_KIND];
 export const PRODUCIBLE_FACTS = [FACT_KIND.BRANCH, FACT_KIND.DIFF] as const;
 export type ProducibleFact = (typeof PRODUCIBLE_FACTS)[number];
 
+/** The fact kinds a declarative def's `needs` may declare (task 14): the
+ *  facts a node can require an upstream node to establish. The static
+ *  satisfiability check in template lint walks the graph over declarations
+ *  only — it never chases runtime facts. */
+export const NEEDABLE_FACTS = [FACT_KIND.CHANGE_REQUEST, FACT_KIND.BRANCH] as const;
+export type NeedableFact = (typeof NEEDABLE_FACTS)[number];
+
 /** A `branch` fact's payload — captured from the run result, persisted into the branch row. */
 export interface BranchFactInput {
   name: string;

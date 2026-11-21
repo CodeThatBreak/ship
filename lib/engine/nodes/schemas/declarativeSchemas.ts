@@ -3,7 +3,7 @@ import "server-only";
 import { z } from "zod";
 import { mcpSourcesSchema } from "../../templates/schemas/mcpSources";
 import { splitConsumeSchema, splitParallelMaxSchema } from "../shared/split/schemas/splitKnobs";
-import { PRODUCIBLE_FACTS } from "../../facts/types/facts";
+import { NEEDABLE_FACTS, PRODUCIBLE_FACTS } from "../../facts/types/facts";
 import {
   EFFECT_VERBS_AFTER_APPROVAL,
   EFFECT_VERBS_AFTER_SUCCESS,
@@ -122,6 +122,14 @@ export const AgentDefSchema = z.looseObject({
   produces: z.array(z.enum(PRODUCIBLE_FACTS)).default([]),
   /** the declarative effects map (task 10) — see DeclarativeEffectsSchema */
   effects: DeclarativeEffectsSchema,
+  /**
+   * The facts this node REQUIRES an upstream node to establish (task 14,
+   * design §4.1): the static satisfiability check in template lint fails
+   * save/import when no upstream `produces`/`effects` declaration can
+   * establish a declared need. Declarations only — runtime facts are never
+   * chased at lint time.
+   */
+  needs: z.array(z.enum(NEEDABLE_FACTS)).default([]),
 });
 export type AgentDef = z.infer<typeof AgentDefSchema>;
 
@@ -148,6 +156,8 @@ export const DecisionDefSchema = z.object({
   ).min(1, "a decision needs at least one choice"),
   /** the declarative effects map (task 10) — see DeclarativeEffectsSchema */
   effects: DeclarativeEffectsSchema,
+  /** the declared fact needs (task 14) — see AgentDefSchema.needs */
+  needs: z.array(z.enum(NEEDABLE_FACTS)).default([]),
 });
 export type DecisionDef = z.infer<typeof DecisionDefSchema>;
 
@@ -163,6 +173,8 @@ export const HttpDefSchema = z.object({
   response_map: z.string().nullable().default(null),
   /** the declarative effects map (task 10) — see DeclarativeEffectsSchema */
   effects: DeclarativeEffectsSchema,
+  /** the declared fact needs (task 14) — see AgentDefSchema.needs */
+  needs: z.array(z.enum(NEEDABLE_FACTS)).default([]),
 });
 export type HttpDef = z.infer<typeof HttpDefSchema>;
 
@@ -181,5 +193,7 @@ export const ScriptDefSchema = z.looseObject({
   output_schema: z.unknown().optional().default(null),
   /** the declarative effects map (task 10) — see DeclarativeEffectsSchema */
   effects: DeclarativeEffectsSchema,
+  /** the declared fact needs (task 14) — see AgentDefSchema.needs */
+  needs: z.array(z.enum(NEEDABLE_FACTS)).default([]),
 });
 export type ScriptDef = z.infer<typeof ScriptDefSchema>;
