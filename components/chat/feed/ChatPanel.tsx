@@ -1,17 +1,19 @@
 'use client';
 
 import { useMemo, useCallback, type ReactNode, type RefObject } from 'react';
-import { CircleAlertIcon, ClockIcon, MessageCircleDashedIcon } from 'lucide-react';
+import { AlertTriangleIcon, CircleAlertIcon, ClockIcon, MessageCircleDashedIcon } from 'lucide-react';
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 
 import type { ModelChoice } from '@/types/modelSpec';
 import type { NodeUiCapabilities } from '@/types/nodeCapabilities';
 import type { FeedEvent } from '../timeline';
 import type { ChatTab, ChatInputHandle } from '../types';
 import { errorMessageOf, errorCodeOf } from '@/hooks/fetchJson';
+import { useSettingsQuery } from '@/components/settings/hooks/useSettingsQuery';
 import { API_ERROR_CODE, SKIPPED_DUPLICATE_TRIGGER_COPY } from '@/constants/api';
 import { useChatComposer, type SendMutationFn } from '../hooks/useChatComposer';
 import { useChatFeed } from '../hooks/useChatFeed';
-import { TabStrip } from "@/components/shared/TabStrip";
+import { TabStrip } from '@/components/shared/TabStrip';
 import ChatFeed from './ChatFeed';
 import ChatComposerForm from '../components/chatComposerForm/ChatComposerForm';
 import { ChatAction } from '../types/action';
@@ -170,16 +172,25 @@ export default function ChatPanel({
   // else the rail's standard chat send
   const onSend = useCallback((draft: string) => sendMessageMutation(draft), [sendMessageMutation]);
 
+  // A connected agent harness is what runs a send; without one a model pick
+  // and a run button are both meaningless (Settings → Integrations → Harness).
+  // The cached settings query is the same source the harness tab reads. While
+  // it is still unknown we stay permissive — a transient fetch failure must
+  // not lock the composer; the backend remains the authority on a real run.
+  const { settings } = useSettingsQuery();
+  const harnessAdded = settings ? settings.status.cursorApiKeySet : true;
+  // an explicit `canSend` from a feature still gates on top of harness presence
+  const effectiveCanSend = (canSend ?? true) && harnessAdded;
+
   const sendFailureMessage = errorMessageOf(sendMutationError);
   // a skipped duplicate trigger (step 06) is not a failure — the node is
   // already running, so the send's skip surfaces muted, not destructive
-  const sendSkipped =
-    errorCodeOf(sendMutationError) === API_ERROR_CODE.SKIPPED_DUPLICATE_TRIGGER;
+  const sendSkipped = errorCodeOf(sendMutationError) === API_ERROR_CODE.SKIPPED_DUPLICATE_TRIGGER;
 
   return (
     <div className="flex h-full min-h-0 flex-col">
       {/* panel heading — a configured panel title replaces the generic agent label */}
-      <div className="shrink-0 flex items-center gap-2 pl-1 pr-4.5 pb-2.5">
+      <div className="flex shrink-0 items-center gap-2 pb-2.5 pl-1 pr-4.5">
         <MessageCircleDashedIcon className="size-4 shrink-0 text-muted-foreground" />
         <h2 className="m-0 text-[13.5px] font-semibold leading-none">Chat</h2>
         <span className="truncate text-[11px] text-muted-foreground">
@@ -192,30 +203,44 @@ export default function ChatPanel({
         active={activeThreadId}
         onSelect={onThreadChange}
         label="Conversation tabs"
-        className="shrink-0 pl-1 pr-4.5 pb-2"
+        className="pr-4.5"
       />
 
-      <ChatFeed
-        rows={rows}
-        loading={messagesLoading}
-        errorText={messagesError?.message}
-        onRetry={refetchMessage}
-        awaitingReply={awaitingReply}
-        nodeLabel={nodeLabel}
-        emptyTitle={activeThread?.emptyTitle}
-        emptyDescription={activeThread?.emptyDescription}
-      />
+      {/* the transcript owns the space between the heading and the pinned footer */}
+      <div className="flex min-h-0 flex-1 flex-col">
+        <ChatFeed
+          rows={rows}
+          loading={messagesLoading}
+          errorText={messagesError?.message}
+          onRetry={refetchMessage}
+          awaitingReply={awaitingReply}
+          nodeLabel={nodeLabel}
+          emptyTitle={activeThread?.emptyTitle}
+          emptyDescription={activeThread?.emptyDescription}
+        />
+      </div>
 
+      {/* send feedback and the harness warning sit directly above the composer */}
       {sendSkipped ? (
-        <p className="shrink-0 flex items-center gap-1.5 pl-4 pr-4 pb-1 text-[11px] text-muted-foreground">
+        <p className="flex shrink-0 items-center gap-1.5 px-4 pb-1 text-[11px] text-muted-foreground">
           <ClockIcon className="size-3 shrink-0" />
           {SKIPPED_DUPLICATE_TRIGGER_COPY}
         </p>
       ) : sendFailureMessage ? (
-        <p role="alert" className="shrink-0 flex items-center gap-1.5 pl-4 pr-4 pb-1 text-[11px] text-destructive">
+        <p role="alert" className="flex shrink-0 items-center gap-1.5 px-4 pb-1 text-[11px] text-destructive">
           <CircleAlertIcon className="size-3 shrink-0" />
           {sendFailureMessage}
         </p>
+      ) : null}
+
+      {!harnessAdded ? (
+        <Alert className="py-2 mx-2 w-fit shrink-0 border-amber-200 bg-amber-50 text-amber-900 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-50">
+          <AlertTriangleIcon />
+          <AlertTitle className="text-xs">No agent harness connected</AlertTitle>
+          <AlertDescription className="text-xs">
+            Add one in Settings → Integrations → Harness to pick a model and run agents.
+          </AlertDescription>
+        </Alert>
       ) : null}
 
       <ChatComposerForm
@@ -223,7 +248,8 @@ export default function ChatPanel({
         error={error}
         caption={caption}
         loading={loading}
-        canSend={canSend}
+        canSend={effectiveCanSend}
+        canSelectModel={harnessAdded}
         canReset={canReset}
         sending={isSendingMessage}
         draft={initialDraft}

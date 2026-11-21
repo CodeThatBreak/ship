@@ -28,10 +28,13 @@ export default function ModelSelector({
   value,
   onChange,
   className,
+  disabled = false,
 }: {
   value?: ModelChoice | null;
   onChange: (choice: ModelChoice | null) => void;
   className?: string;
+  /** no connected harness — the model pick (and its options) are read-only */
+  disabled?: boolean;
 }) {
   const { data, isLoading, isError, refetch } = useModelCatalog();
   const models = React.useMemo(() => data?.catalog ?? [], [data]);
@@ -91,6 +94,7 @@ export default function ModelSelector({
         isError={isError}
         onSelect={setModel}
         onRetry={() => void refetch()}
+        disabled={disabled}
       />
 
       {/* options menu — fast mode / effort / context for this model */}
@@ -100,6 +104,7 @@ export default function ModelSelector({
           effectiveParams={effectiveParams}
           valueParams={valueParams}
           onSetParam={setParam}
+          disabled={disabled}
         />
       )}
     </div>

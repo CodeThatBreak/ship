@@ -43,6 +43,7 @@ export default function ChatComposerForm({
   sendLabel,
   canReset,
   canSend,
+  canSelectModel = true,
   sending,
   chatInputRef,
   aside,
@@ -60,6 +61,8 @@ export default function ChatComposerForm({
   canReset: boolean;
   /** explicit send-gating override (e.g. the invalidated scoped chip) */
   canSend?: boolean;
+  /** model-picker gating (false when no agent harness is connected) */
+  canSelectModel?: boolean;
 
   /** outer send-in-progress state (the mutation's isPending); combined with
    *  the form's own pending — true while a send is accepted but unfinished */
@@ -194,7 +197,7 @@ export default function ChatComposerForm({
             {textarea}
           </ScrollArea>
           <InputGroupAddon align="block-end">
-            <ModelSelector value={modelChoice} onChange={onModelChange} />
+            <ModelSelector value={modelChoice} onChange={onModelChange} disabled={!canSelectModel} />
             {aside}
             <SendButton sendLabel={sendLabel} canSend={disableSendButton} sending={isSending} />
           </InputGroupAddon>

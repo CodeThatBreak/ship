@@ -26,6 +26,7 @@ export function ModelOptionsMenu({
   effectiveParams,
   valueParams,
   onSetParam,
+  disabled = false,
 }: {
   paramDefs: ModelParameterDefinition[];
   /** defaults overlaid with explicit picks — what the rows preselect */
@@ -33,6 +34,8 @@ export function ModelOptionsMenu({
   /** the explicitly picked params (the Options button's badge colors) */
   valueParams: Record<string, string>;
   onSetParam: (def: ModelParameterDefinition, rawValue: string | null) => void;
+  /** no connected harness — the options picker cannot be opened */
+  disabled?: boolean;
 }) {
   const optionsPreview = paramDefs
     .map((def) => {
@@ -54,7 +57,12 @@ export function ModelOptionsMenu({
             size="xs"
             variant="outline"
             aria-label="Model options"
-            title="Model variants: fast mode, effort, context…"
+            title={
+              disabled
+                ? "Connect an agent harness in Settings to change model options"
+                : "Model variants: fast mode, effort, context…"
+            }
+            disabled={disabled}
             className="max-w-[130px]"
           />
         }

@@ -1,14 +1,14 @@
-"use client";
-import { useMemo, useState } from "react";
+'use client';
+import { useMemo, useState } from 'react';
 // value from lib/modelSpec (pure helpers, Phase 0 allowlist); the types flow
 // through types/model-spec per the Phase 0 guidance
-import { composeModelChoice } from "@/lib/modelSpec";
-import type { ModelChoice } from "@/types/modelSpec";
-import type { FeedEvent } from "@/components/chat/timeline";
-import type { FlowData, Node } from "@/types/flow";
-import { EXECUTION_MODE_LOCAL, LOCAL_MODE_MODEL } from "../constants";
-import { NodePanelContext, type ActionPayload, type NodePanelContextValue } from "./context";
-import { resolveNodePanel } from "./panelFactory";
+import { composeModelChoice } from '@/lib/modelSpec';
+import type { ModelChoice } from '@/types/modelSpec';
+import type { FeedEvent } from '@/components/chat/timeline';
+import type { FlowData, Node } from '@/types/flow';
+import { EXECUTION_MODE_LOCAL, LOCAL_MODE_MODEL } from '../constants';
+import { NodePanelContext, type ActionPayload, type NodePanelContextValue } from './context';
+import { resolveNodePanel } from './panelFactory';
 
 /**
  * The node workspace dispatcher: the factory resolves the node's panel and its
@@ -62,19 +62,7 @@ export default function NodePanel({
       modelChoice,
       setModelChoice,
     }),
-    [
-      flow,
-      node,
-      action,
-      actionAsync,
-      actionPending,
-      actionError,
-      resetAction,
-      retryAction,
-      events,
-      model,
-      modelChoice,
-    ],
+    [flow, node, action, actionAsync, actionPending, actionError, resetAction, retryAction, events, model, modelChoice]
   );
 
   const { panel: Panel, chat: Chat } = resolveNodePanel(node);
@@ -93,9 +81,9 @@ export default function NodePanel({
             ScrollArea) — the rail's children re-add their own right inset to
             keep the copy where it was. */}
         {Chat && (
-          <aside className="flex-1 flex flex-col bg-card min-w-[340px] py-3.5 pl-3.5 pr-0 min-h-0">
+          <div className="bg-card min-w-[340px] py-3.5 px-3.5 pr-0 min-h-0">
             <Chat key={node.node_key} />
-          </aside>
+          </div>
         )}
       </div>
     </NodePanelContext.Provider>

@@ -28,6 +28,7 @@ export function ModelMenu({
   isError,
   onSelect,
   onRetry,
+  disabled = false,
 }: {
   modelLabel: string;
   /** the selected model id ("" = the account's default) */
@@ -39,6 +40,8 @@ export function ModelMenu({
   isError: boolean;
   onSelect: (id: string) => void;
   onRetry: () => void;
+  /** no connected harness — the picker is shown but cannot be opened */
+  disabled?: boolean;
 }) {
   return (
     <DropdownMenu>
@@ -49,10 +52,13 @@ export function ModelMenu({
             variant="outline"
             aria-label={`Model: ${modelLabel}`}
             title={
-              isError
-                ? "Model catalog failed to load — open the menu to retry"
-                : "Model for runs started from this panel"
+              disabled
+                ? "Connect an agent harness in Settings to choose a model"
+                : isError
+                  ? "Model catalog failed to load — open the menu to retry"
+                  : "Model for runs started from this panel"
             }
+            disabled={disabled}
             className="max-w-[170px]"
           />
         }
