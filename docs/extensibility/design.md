@@ -416,14 +416,14 @@ class. That is the acceptance test of the whole design.
 | B1 panels hardcoded | L4 | generic declarative panel + artifact renderer registry; fallback message deleted (Fixed: Task 01) |
 | B2 config is code | L3 | shared field sets + renderer registry; unknown keys tolerated by loose schemas (Fixed: Task 02) |
 | B3 no declarative effects | L2 | config `effects` map → wildcard dispatch → verb registry (Fixed: Task 10) |
-| B4 no subflow | L5 | `subflow` kind on the StageGateRegistry + existing child-creation path |
+| B4 no subflow | L5 | `subflow` kind on the StageGateRegistry + existing child-creation path (Fixed: Task 26 — declarative-shaped built-in, `FlowKind.step` reuse; `NodeTemplateKind` enum is sticky) |
 | C1 secrets in prompts | L3/L5 | `secret_refs` → `AgentStartSpec.env`; scoped resolver; no silent `""` (Fixed: Task 15) |
 | C2 mode-dependent tools | L5 | per-node `agent_tools` + recorded effective policy (Fixed: Task 16) |
 | C3 class-level retry | L3 | `retry_budget` knob (Fixed: Task 03) |
 | C4 read-only tools | L2 | effect verbs double as capability-gated tools (`create_change_request` first) (Fixed: Task 13) |
-| D1 no dry run | L5 | `"dry-run"` execution mode + promoted fake ports |
+| D1 no dry run | L5 | `"dry-run"` execution mode + promoted fake ports (Fixed: Task 27) |
 | D2 no in-flow reconfig | L3 | config edit for `pending`/`failed` nodes (snapshot semantics preserved) (Fixed: Task 05) |
-| E1 hardcoded stage gates | L5 | StageGateRegistry |
+| E1 hardcoded stage gates | L5 | StageGateRegistry (Fixed: Task 24) |
 | E2 retry loses base ref | L3 | single `base_ref` resolver on all paths (Fixed: Task 03) |
 | E3/E4 flags/capabilities built-in-only | L4 | declarable on defs (E4 Fixed: Task 01) |
 

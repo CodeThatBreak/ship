@@ -518,10 +518,10 @@ stage-ownership axis the EffectRegistry never had.
 
 | Done | # | Task | Findings | Use case | Effort | Depends on |
 | :---: | --- | --- | --- | --- | :---: | --- |
-| [ ] | 24 | `StageGateRegistry` (fan-out/split re-register; StageRunner slims) | E1 | — | M | 10 |
+| [x] | 24 | `StageGateRegistry` (fan-out/split re-register; StageRunner slims) | E1 | — | M | 10 |
 | [x] | 25 | Per-step diff facts in the fan-out rollup | — | 8b | S | 07, 24 |
-| [ ] | 26 | `subflow` declarative kind on the new gate (needs approval) | B4 | — | L | 24 |
-| [ ] | 27 | `"dry-run"` execution mode + promoted fake ports | D1 | 8h | L | 23 |
+| [x] | 26 | `subflow` declarative kind on the new gate (needs approval) | B4 | — | L | 24 |
+| [x] | 27 | `"dry-run"` execution mode + promoted fake ports | D1 | 8h | L | 23 |
 
 ### Task 24 — `StageGateRegistry`
 
