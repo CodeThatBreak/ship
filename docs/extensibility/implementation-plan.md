@@ -52,10 +52,10 @@ to put their output.
 | Done | # | Task | Findings | Use case | Effort | Depends on |
 | :---: | --- | --- | --- | --- | :---: | --- |
 | [x] | 01 | Artifact renderer registry + generic declarative panel | B1, E4 | 5, 7 (rendering base for all) | M | — |
-| [ ] | 02 | Config field renderer registry (field `type` → component) | B2 | all (knob authoring) | S | — |
-| [ ] | 03 | `base_ref` + `retry_budget` knobs (one resolver each) | A2, C3, E2 | 3 | S | 02 |
-| [ ] | 04 | Flow context fact exposure + `MrTargetResolver` fact fallback | A3 | 3 | S | — |
-| [ ] | 05 | `SET_NODE_CONFIG` for `pending`/`failed` nodes + `config_updated` event | D2 | 8g | S | — |
+| [x] | 02 | Config field renderer registry (field `type` → component) | B2 | all (knob authoring) | S | — |
+| [x] | 03 | `base_ref` + `retry_budget` knobs (one resolver each) | A2, C3, E2 | 3 | S | 02 |
+| [x] | 04 | Flow context fact exposure + `MrTargetResolver` fact fallback | A3 | 3 | S | — |
+| [x] | 05 | `SET_NODE_CONFIG` for `pending`/`failed` nodes + `config_updated` event | D2 | 8g | S | — |
 
 ### Task 01 — Artifact renderer registry + generic declarative panel
 

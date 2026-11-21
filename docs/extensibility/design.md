@@ -411,20 +411,20 @@ class. That is the acceptance test of the whole design.
 | Issue | Layer | Outcome |
 | --- | --- | --- |
 | A1 git facts dropped | L1 | `produces: [branch, diff]` maps `result.git` → facts; diff renders anywhere via the renderer registry |
-| A2 hardcoded base ref | L3 | `base_ref` knob, one resolver used by run/chat/retry (also fixes E2) |
-| A3 flow-level MR resolution | L1 | fact fallback in `MrTargetResolver`; `mr_iid` + per-branch MRs in the flow context |
+| A2 hardcoded base ref | L3 | `base_ref` knob, one resolver used by run/chat/retry (also fixes E2) (Fixed: Task 03) |
+| A3 flow-level MR resolution | L1 | fact fallback in `MrTargetResolver`; `mr_iid` + per-branch MRs in the flow context (Fixed: Task 04) |
 | B1 panels hardcoded | L4 | generic declarative panel + artifact renderer registry; fallback message deleted (Fixed: Task 01) |
-| B2 config is code | L3 | shared field sets + renderer registry; unknown keys tolerated by loose schemas |
+| B2 config is code | L3 | shared field sets + renderer registry; unknown keys tolerated by loose schemas (Fixed: Task 02) |
 | B3 no declarative effects | L2 | config `effects` map → wildcard dispatch → verb registry |
 | B4 no subflow | L5 | `subflow` kind on the StageGateRegistry + existing child-creation path |
 | C1 secrets in prompts | L3/L5 | `secret_refs` → `AgentStartSpec.env`; scoped resolver; no silent `""` |
 | C2 mode-dependent tools | L5 | per-node `agent_tools` + recorded effective policy |
-| C3 class-level retry | L3 | `retry_budget` knob |
+| C3 class-level retry | L3 | `retry_budget` knob (Fixed: Task 03) |
 | C4 read-only tools | L2 | effect verbs double as capability-gated tools (`create_change_request` first) |
 | D1 no dry run | L5 | `"dry-run"` execution mode + promoted fake ports |
-| D2 no in-flow reconfig | L3 | config edit for `pending`/`failed` nodes (snapshot semantics preserved) |
+| D2 no in-flow reconfig | L3 | config edit for `pending`/`failed` nodes (snapshot semantics preserved) (Fixed: Task 05) |
 | E1 hardcoded stage gates | L5 | StageGateRegistry |
-| E2 retry loses base ref | L3 | single `base_ref` resolver on all paths |
+| E2 retry loses base ref | L3 | single `base_ref` resolver on all paths (Fixed: Task 03) |
 | E3/E4 flags/capabilities built-in-only | L4 | declarable on defs (E4 Fixed: Task 01) |
 
 ---
