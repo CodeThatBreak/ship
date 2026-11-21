@@ -410,7 +410,7 @@ class. That is the acceptance test of the whole design.
 
 | Issue | Layer | Outcome |
 | --- | --- | --- |
-| A1 git facts dropped | L1 | `produces: [branch, diff]` maps `result.git` → facts; diff renders anywhere via the renderer registry |
+| A1 git facts dropped | L1 | `produces: [branch, diff]` maps `result.git` → facts; diff renders anywhere via the renderer registry (Fixed: Task 07) |
 | A2 hardcoded base ref | L3 | `base_ref` knob, one resolver used by run/chat/retry (also fixes E2) (Fixed: Task 03) |
 | A3 flow-level MR resolution | L1 | fact fallback in `MrTargetResolver`; `mr_iid` + per-branch MRs in the flow context (Fixed: Task 04) |
 | B1 panels hardcoded | L4 | generic declarative panel + artifact renderer registry; fallback message deleted (Fixed: Task 01) |

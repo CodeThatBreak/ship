@@ -170,10 +170,10 @@ parallel store.
 
 | Done | # | Task | Findings | Use case | Effort | Depends on |
 | :---: | --- | --- | --- | --- | :---: | --- |
-| [ ] | 06 | Fact vocabulary + `FactStore` + `produces` on the agent def | A1, F2, F4 | 1 | M | 01, 04 |
-| [ ] | 07 | `result.git` → facts in `finalizeOutput` + fact persistence in the batch | A1, F2 | 1 | M | 06 |
-| [ ] | 08 | Diff attribution: `baseSha`/`headSha` meta, uncommitted flag, refresh action | — | 2 | M | 07 |
-| [ ] | 09 | Branch/change_request fact rows in the generic panel | A3 | 3 | S | 06 |
+| [x] | 06 | Fact vocabulary + `FactStore` + `produces` on the agent def | A1, F2, F4 | 1 | M | 01, 04 |
+| [x] | 07 | `result.git` → facts in `finalizeOutput` + fact persistence in the batch | A1, F2 | 1 | M | 06 |
+| [x] | 08 | Diff attribution: `baseSha`/`headSha` meta, uncommitted flag, refresh action | — | 2 | M | 07 |
+| [x] | 09 | Branch/change_request fact rows in the generic panel | A3 | 3 | S | 06 |
 
 ### Task 06 — Fact vocabulary + `FactStore` + `produces` on the agent def
 
