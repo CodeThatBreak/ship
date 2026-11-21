@@ -9,11 +9,14 @@ import { VerbRegistry } from "../verbRegistry";
 import type { VerbDescriptor } from "./types/verbDescriptor";
 import { VerbNotWiredError } from "./verbNotWiredError";
 import { CreateChangeRequest } from "./createChangeRequest";
+import { RetriggerPipeline } from "./retriggerPipeline";
+import { gitHostRegistry } from "../../../ports/gitHost";
 
 /**
- * The verb descriptors registered at engine boot (tasks 10/11). The registry's
+ * The verb descriptors registered at engine boot (tasks 10/11/17). The registry's
  * shape is final — `create_change_request` wraps `MergeRequestService` (task
- * 11); `publish_diff`'s `run` is still the stub seam task 19 replaces.
+ * 11), `retrigger_pipeline` wraps the git host port's `retryPipeline` (task
+ * 17); `publish_diff`'s `run` is still the stub seam task 19 replaces.
  */
 
 /** Interim stub run: the verb's implementation has not landed yet — throw
@@ -51,11 +54,33 @@ const PUBLISH_DIFF: VerbDescriptor = {
   run: notWiredYet(EFFECT_VERB.PUBLISH_DIFF),
 };
 
+/** The wired `retrigger_pipeline` verb (task 17): presses retry on the gate's
+ *  recorded pipeline over the git host port. The collaborators follow the
+ *  `create_change_request` precedent — the shared module pin for the host
+ *  registry and a CALL-time dereference of the engine facade's read model. */
+const retriggerPipeline = new RetriggerPipeline(
+  EFFECT_VERB.RETRIGGER_PIPELINE,
+  gitHostRegistry,
+  async (flowId) => {
+    const { flowEngine } = await import("../../../flowEngine");
+    return flowEngine.ctx(flowId);
+  },
+  engineParts.facts,
+  engineParts.events,
+);
+
+const RETRIGGER_PIPELINE: VerbDescriptor = {
+  id: EFFECT_VERB.RETRIGGER_PIPELINE,
+  requiredFacts: [FACT_KIND.CHANGE_REQUEST],
+  run: (ctx) => retriggerPipeline.run(ctx),
+};
+
 /** Boot-time registration (used by the shared pin below and by tests that
  *  wire their own descriptor sets). */
 export const registerVerbDescriptors = (registry: VerbRegistry): void => {
   registry.register(CREATE_CHANGE_REQUEST);
   registry.register(PUBLISH_DIFF);
+  registry.register(RETRIGGER_PIPELINE);
 };
 
 /** Shared verb registry (the `declarativeKindRegistry` precedent, decision

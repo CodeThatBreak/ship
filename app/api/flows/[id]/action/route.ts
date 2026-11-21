@@ -75,6 +75,8 @@ const dispatchAction = async (flowId: string, body: FlowActionBody): Promise<Tri
       return undefined;
     case FLOW_ACTION.CREATE_CHANGE_REQUEST:
       return flowEngine.panelVerbs.run(flowId, body.nodeKey, EFFECT_VERB.CREATE_CHANGE_REQUEST, body.branch);
+    case FLOW_ACTION.RETRIGGER_PIPELINE:
+      return flowEngine.panelVerbs.run(flowId, body.nodeKey, EFFECT_VERB.RETRIGGER_PIPELINE);
     default: {
       const _exhaustive: never = body;
       throw _exhaustive;

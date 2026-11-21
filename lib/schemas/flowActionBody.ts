@@ -114,6 +114,10 @@ export const flowActionBodySchema = z.discriminatedUnion("action", [
     nodeKey: z.string().min(1),
     branch: z.string().optional(),
   }),
+  z.object({
+    action: z.literal(FLOW_ACTION.RETRIGGER_PIPELINE),
+    nodeKey: z.string().min(1),
+  }),
 ]);
 
 export type FlowActionBody = z.infer<typeof flowActionBodySchema>;

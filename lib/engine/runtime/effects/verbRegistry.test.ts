@@ -34,10 +34,12 @@ describe("VerbRegistry (task 10 — design §4.2)", () => {
     expect(registry.descriptors().map((d) => d.id)).toEqual([
       EFFECT_VERB.CREATE_CHANGE_REQUEST,
       EFFECT_VERB.PUBLISH_DIFF,
+      EFFECT_VERB.RETRIGGER_PIPELINE,
     ]);
     const byId = new Map(registry.descriptors().map((d) => [d.id, d]));
     expect(byId.get(EFFECT_VERB.CREATE_CHANGE_REQUEST)?.requiredFacts).toEqual([FACT_KIND.BRANCH]);
     expect(byId.get(EFFECT_VERB.PUBLISH_DIFF)?.requiredFacts).toEqual([FACT_KIND.DIFF]);
+    expect(byId.get(EFFECT_VERB.RETRIGGER_PIPELINE)?.requiredFacts).toEqual([FACT_KIND.CHANGE_REQUEST]);
   });
 
   it("throws on a duplicate verb registration (the double-boot guard)", () => {

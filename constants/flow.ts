@@ -76,6 +76,10 @@ export const FLOW_ACTION = {
    *  verb directly — the same gateway-claimed action route the approval uses,
    *  without the approval hold. */
   CREATE_CHANGE_REQUEST: "create_change_request",
+  /** Panel "Retrigger pipeline" (task 17): press retry on the failed
+   *  pipeline the gate recorded — the `retrigger_pipeline` verb through the
+   *  same gateway-claimed panel-verb door. */
+  RETRIGGER_PIPELINE: "retrigger_pipeline",
 } as const;
 
 export type FlowActionName = (typeof FLOW_ACTION)[keyof typeof FLOW_ACTION];

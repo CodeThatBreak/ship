@@ -9,7 +9,8 @@ import { useNodePanel } from '../context';
 
 /**
  * The CI-gate panel: the pipeline status, the fix runs the gate performed, and
- * the manual re-check action.
+ * the manual re-check / retrigger actions (task 17 — retrigger presses retry
+ * on the failed pipeline the gate recorded, through the panel-verb door).
  */
 export default function PipelineView() {
   const { flow, node, action, model } = useNodePanel();
@@ -25,6 +26,11 @@ export default function PipelineView() {
           : "Run the pipeline gate to check CI and auto-fix failures."}
       </span>
       <div className="flex-1" />
+      {node.status === FLOW_STATUS.FAILED && output?.pipelineId != null && (
+        <Button variant="outline" onClick={() => action(FLOW_ACTION.RETRIGGER_PIPELINE, { nodeKey: node.node_key })}>
+          Retrigger pipeline
+        </Button>
+      )}
       <Button variant="default" onClick={() => action(FLOW_ACTION.PIPELINE, { model: model || undefined })}>
         {node.status === FLOW_STATUS.DONE ? "Re-check pipeline" : "Check pipeline"}
       </Button>

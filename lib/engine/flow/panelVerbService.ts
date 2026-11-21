@@ -6,13 +6,13 @@ import { ConflictError, NotFoundError, ValidationError } from "../../errors";
 import { parseRow } from "@/lib/db/ormRowHelpers";
 import { nodeCatalogKind, declaredEffectVerbs } from "../nodes/declarativeEffects";
 import { isDeclarativeKind } from "../nodes/declarativeRegistry/utils/isDeclarativeKind";
-import { EFFECT_LIFECYCLE } from "../runtime/effects/constants/effectLifecycles";
-import type { EffectVerb } from "../runtime/effects/constants/effectVerbs";
+import { EFFECT_VERB_LIFECYCLE, type EffectVerb } from "../runtime/effects/constants/effectVerbs";
 import { verbRegistry } from "../runtime/effects/verbs/verbWiring";
 import type { VerbCtx } from "../runtime/effects/verbs/types/verbDescriptor";
 import { isInFromSet, toStatusOf } from "../runtime/transitions/utils/transitionLookup";
 import { TRIGGER_SOURCE } from "../runtime/triggers/constants/triggerSources";
 import type { TriggerResult } from "../runtime/triggers/types/triggerGateway";
+import { PANEL_VERB_BUILTIN_DEFS } from "./constants/panelVerbBuiltinDefs";
 import type { PanelVerbHost } from "./types/panelVerbHost";
 
 /**
@@ -22,11 +22,14 @@ import type { PanelVerbHost } from "./types/panelVerbHost";
  * path: the same flow-action route, the same TriggerGateway door and the
  * same VerbRegistry the approval's wildcard effect dispatches through.
  *
- * Capability rule: the effects declaration IS the capability (design §4.2
- * declares no separate capability vocabulary) — the node's effective config
- * must declare the verb under `effects.afterApproval`, and the node must be
- * a declarative kind (Invariant F3 — a declarative effect never runs for a
- * built-in node).
+ * Capability rule: for a declarative verb, the effects declaration IS the
+ * capability (design §4.2 declares no separate capability vocabulary) — the
+ * node's effective config must declare the verb under the verb's owning
+ * lifecycle, and the node must be a declarative kind (Invariant F3 — a
+ * declarative effect never runs for a built-in node). Task 17 adds the
+ * built-in exception: a verb listed in `PANEL_VERB_BUILTIN_DEFS` runs on
+ * exactly that built-in def, where the verb's own required-fact contract is
+ * the capability.
  *
  * Claim discipline (Invariant 11): the trigger claims through the
  * TriggerGateway's transition door — the `panelVerb` row's terminal from-set
@@ -49,16 +52,30 @@ export class PanelVerbService {
     if (!isInFromSet("panelVerb", node.status)) {
       throw new ConflictError(`${nodeKey} is ${node.status} — open the change request after its run finishes`);
     }
-    const kind = await nodeCatalogKind(flowId, nodeKey);
-    if (!kind || !isDeclarativeKind(kind)) {
-      throw new ValidationError(`${nodeKey} is not a declarative node — no panel verb is declared for it`);
-    }
-    const declared = declaredEffectVerbs(
-      await this.host.nodeConfigFor(flowId, nodeKey),
-      EFFECT_LIFECYCLE.AFTER_APPROVAL,
-    );
-    if (!declared.includes(verb)) {
-      throw new ValidationError(`${nodeKey} does not declare the "${verb}" effect verb`);
+    // two capability doors (design §4.2 + task 17): a declarative verb's
+    // declaration IS the capability — the node must be a declarative kind and
+    // declare the verb under the verb's OWN lifecycle (the
+    // `retrigger_pipeline` door is the afterSuccess-class exception: offered
+    // on its built-in def only, where no effects config exists to declare
+    // it — the verb's own required-fact contract is the capability there)
+    const builtinDefs = PANEL_VERB_BUILTIN_DEFS[verb];
+    if (builtinDefs) {
+      const def = await this.host.defOf(flowId, nodeKey);
+      if (!builtinDefs.includes(def.key)) {
+        throw new ValidationError(`the "${verb}" panel verb is not offered on the "${def.key}" node`);
+      }
+    } else {
+      const kind = await nodeCatalogKind(flowId, nodeKey);
+      if (!kind || !isDeclarativeKind(kind)) {
+        throw new ValidationError(`${nodeKey} is not a declarative node — no panel verb is declared for it`);
+      }
+      const declared = declaredEffectVerbs(
+        await this.host.nodeConfigFor(flowId, nodeKey),
+        EFFECT_VERB_LIFECYCLE[verb],
+      );
+      if (!declared.includes(verb)) {
+        throw new ValidationError(`${nodeKey} does not declare the "${verb}" effect verb`);
+      }
     }
     // the gateway door (Invariant 11): the terminal from-set is the fence —
     // a lost claim emits the typed skip event and the route answers 409
