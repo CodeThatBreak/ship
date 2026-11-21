@@ -1,6 +1,6 @@
 'use client';
 
-import { BotIcon, CircleAlertIcon, CircleMinusIcon } from 'lucide-react';
+import { BotIcon, CircleAlertIcon, CircleMinusIcon, Settings2Icon } from 'lucide-react';
 
 import { CodeBlock, CodeBlockContent } from '@/components/ui/code-block';
 import {
@@ -14,10 +14,32 @@ import {
 import type { FeedEvent } from '../timeline';
 import { FLOW_EVENT_TYPE } from '@/constants/events';
 
+/** The edit's changed keys off `data.changedKeys` — an unexpected payload
+ *  shape stays silent rather than guessing at keys. */
+const changedKeysOf = (ev: FeedEvent): string[] => {
+  const raw = (ev.data ?? {}).changedKeys;
+  if (!Array.isArray(raw)) return [];
+  return raw.filter((key): key is string => typeof key === 'string');
+};
+
 /** Non-tool events inside a run (errors get a destructive Code Block, a
  *  skipped duplicate trigger stays a muted debug-level line). */
 export default function EventRow({ ev }: { ev: FeedEvent }) {
   const failed = ev.type === FLOW_EVENT_TYPE.ERROR;
+  if (ev.type === FLOW_EVENT_TYPE.CONFIG_UPDATED) {
+    const changedKeys = changedKeysOf(ev);
+    return (
+      <TraceLine>
+        <TraceIcon>
+          <Settings2Icon />
+        </TraceIcon>
+        <TraceTitle>
+          {ev.message ?? 'config updated'}
+          {changedKeys.length > 0 ? ` — ${changedKeys.join(', ')}` : ''}
+        </TraceTitle>
+      </TraceLine>
+    );
+  }
   if (ev.type === FLOW_EVENT_TYPE.SKIPPED_DUPLICATE_TRIGGER) {
     return (
       <TraceLine status="pending">

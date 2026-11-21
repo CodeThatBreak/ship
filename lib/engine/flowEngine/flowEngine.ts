@@ -352,12 +352,19 @@ export class FlowEngine {
     return this.manualRuns.runNodeManual(flowId, nodeKey, opts);
   }
 
-  /** Update a node instance's config layer (nodes.config), merging per key. */
+  /** Update a node instance's config layer (nodes.config), merging per key.
+   *  Task 05: in-flow reconfiguration is for not-yet-started work only —
+   *  `pending` (edit before the first run) and `failed` (fix the knobs, then
+   *  retry) — anything else rejects with a ConflictError. The edit touches
+   *  THIS flow's snapshot only (the template's semantics are untouched) and
+   *  the next run picks it up through the run-time `nodeConfig()` re-read. */
   async setNodeConfig(flowId: string, nodeKey: string, config: Record<string, unknown>): Promise<void> {
     const row = await db.prisma.node.findFirst({ where: { flowId, nodeKey } });
     const node = row ? parseRow(NodeRow, row, `node ${nodeKey} for flow ${flowId}`) : null;
     if (!node) throw new NotFoundError('node', nodeKey);
-    if (node.status === 'running') throw new ConflictError("can't reconfigure a node while it is running");
+    if (node.status !== NODE_STATUS.PENDING && node.status !== NODE_STATUS.FAILED) {
+      throw new ConflictError(`only a pending or failed node can be reconfigured — ${nodeKey} is ${node.status}`);
+    }
     if (!config || typeof config !== 'object' || Array.isArray(config)) {
       throw new ValidationError('config must be an object');
     }
@@ -371,7 +378,7 @@ export class FlowEngine {
       throw new ValidationError(msg);
     }
     await this.parts.nodeSupport.setNode(node.id, { config: JSON.stringify(snapshot) });
-    await this.parts.events.lifecycle(flowId, nodeKey, `${nodeKey} config updated`);
+    await this.parts.events.configUpdated(flowId, nodeKey, Object.keys(config));
     await this.touch(flowId);
   }
 

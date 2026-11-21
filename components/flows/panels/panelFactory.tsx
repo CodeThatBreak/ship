@@ -6,7 +6,7 @@ import PlanView from '../components/plan/PlanView';
 import AgentView from './views/AgentView';
 import BuildView from './views/BuildView';
 import DeclarativeView from './views/DeclarativeView';
-import GenericDeclarativePanel from './genericDeclarativePanel';
+import { GenericDeclarativePanel } from './genericDeclarativePanel';
 import NodeChat from './NodeChat';
 import PipelineView from './views/PipelineView';
 import ResolveView from './views/ResolveView';

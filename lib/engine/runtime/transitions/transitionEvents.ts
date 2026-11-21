@@ -63,6 +63,19 @@ export class TransitionEvents {
     await this.emit(flowId, nodeKey, EVENT_KIND.MR_FAILED, message, data);
   }
 
+  /** A not-yet-started node's config snapshot was edited in-flow (task 05) —
+   *  the feed renders the changed keys off `data.changedKeys`. */
+  async configUpdated(
+    flowId: string,
+    nodeKey: string,
+    changedKeys: readonly string[],
+  ): Promise<void> {
+    await this.emit(flowId, nodeKey, EVENT_KIND.CONFIG_UPDATED, `${nodeKey} config updated`, {
+      nodeKey,
+      changedKeys: [...changedKeys],
+    });
+  }
+
   /**
    * The typed emission primitive — `kind` is constrained to the catalog.
    * Pass `tx` to join the emission into a caller's completion transaction

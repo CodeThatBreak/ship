@@ -14,7 +14,7 @@ import {
   fallbackArtifactRenderer,
   rendererForKind,
 } from "@/components/flows/panels/artifacts/artifactRenderers";
-import GenericDeclarativePanel from "@/components/flows/panels/genericDeclarativePanel";
+import { GenericDeclarativePanel } from "@/components/flows/panels/genericDeclarativePanel";
 import { NodePanelContext, type NodePanelContextValue } from "@/components/flows/panels/context";
 import { resolveNodePanel } from "@/components/flows/panels/panelFactory";
 import { queryKeys } from "@/constants/queryKeys";
@@ -63,22 +63,22 @@ const flow: FlowData = {
   },
 };
 
-const context: NodePanelContextValue = {
-  flow,
-  node,
-  action: () => undefined,
-  actionAsync: async () => undefined,
-  actionPending: false,
-  actionError: null,
-  resetAction: () => undefined,
-  retryAction: () => undefined,
-  events: [],
-  model: "",
-  modelChoice: null,
-  setModelChoice: () => undefined,
-};
-
-const renderPanel = (html: (q: QueryClient) => void): string => {
+const renderPanel = (html: (q: QueryClient) => void, nodeOverride: Partial<Node> = {}): string => {
+  const panelNode: Node = { ...node, ...nodeOverride };
+  const context: NodePanelContextValue = {
+    flow,
+    node: panelNode,
+    action: () => undefined,
+    actionAsync: async () => undefined,
+    actionPending: false,
+    actionError: null,
+    resetAction: () => undefined,
+    retryAction: () => undefined,
+    events: [],
+    model: "",
+    modelChoice: null,
+    setModelChoice: () => undefined,
+  };
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   html(queryClient);
   return renderToStaticMarkup(
@@ -137,5 +137,27 @@ describe("generic declarative panel", () => {
     // no "isn't supported yet" branch, no empty state
     expect(html).not.toContain("supported yet");
     expect(html).not.toContain("No output yet");
+  });
+});
+
+describe("generic declarative panel — in-flow reconfiguration (task 05)", () => {
+  it("offers Configure for a pending node", () => {
+    const html = renderPanel(() => undefined, { status: "pending" });
+    expect(html).toContain("Configure");
+  });
+
+  it("offers Configure for a failed node", () => {
+    const html = renderPanel(() => undefined, { status: "failed" });
+    expect(html).toContain("Configure");
+  });
+
+  it("offers no Configure for a running node (the engine rejects the edit)", () => {
+    const html = renderPanel(() => undefined, { status: "running" });
+    expect(html).not.toContain("Configure");
+  });
+
+  it("offers no Configure for a done node", () => {
+    const html = renderPanel(() => undefined, { status: "done" });
+    expect(html).not.toContain("Configure");
   });
 });

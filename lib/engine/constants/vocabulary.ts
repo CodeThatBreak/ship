@@ -33,6 +33,10 @@ export const EVENT_KIND = {
    *  dedup-friendly in the UI — concurrent webhook/poller races on the same
    *  event emit one per losing source, so the feed groups identical skips. */
   SKIPPED_DUPLICATE_TRIGGER: "skipped_duplicate_trigger",
+  /** a not-yet-started node's config snapshot was edited in-flow (task 05):
+   *  only `pending`/`failed` nodes accept the edit, the feed renders the
+   *  changed keys, and the next run re-reads the edited snapshot */
+  CONFIG_UPDATED: "config_updated",
 } as const;
 
 export type EventKind = (typeof EVENT_KIND)[keyof typeof EVENT_KIND];

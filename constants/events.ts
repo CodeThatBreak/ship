@@ -23,6 +23,9 @@ export const FLOW_EVENT_TYPE = {
   AGENT_REPORTED: "agent_reported",
   /** a trigger lost the atomic claim — the node was already running (step 06) */
   SKIPPED_DUPLICATE_TRIGGER: "skipped_duplicate_trigger",
+  /** a not-yet-started node's config snapshot was edited in-flow (task 05) —
+   *  `data.changedKeys` names what the edit touched */
+  CONFIG_UPDATED: "config_updated",
 } as const;
 
 export type FlowEventType = (typeof FLOW_EVENT_TYPE)[keyof typeof FLOW_EVENT_TYPE];
