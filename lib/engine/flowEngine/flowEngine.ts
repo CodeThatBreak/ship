@@ -29,6 +29,8 @@ import type { EffectLifecycle } from '../runtime/effects/constants/effectLifecyc
 import { registerFanoutEffects } from '../runtime/fanout/fanoutEffects';
 import { registerSplitEffects } from '../runtime/split/splitEffects';
 import { registerSdlcEffects } from '../nodes/chains/sdlcEffects';
+import { registerDeclarativeEffects } from '../nodes/declarativeEffects';
+import { verbRegistry } from '../runtime/effects/verbs/verbWiring';
 import { engineParts, type EngineParts } from '../../composition/container';
 
 import { ConflictError, NotFoundError, ValidationError } from '../../errors';
@@ -91,6 +93,8 @@ export class FlowEngine {
     // point — one registry per engine instance, so tests constructing their
     // own engine get their own dispatch scope
     this.effects = new EffectRegistry();
+    // task 10: the declarative effect verbs (shared registry) + their config-decided wildcard dispatch (Invariant F1/F3)
+    registerDeclarativeEffects(this.effects, verbRegistry, this);
     this.stages = new StageRunner(this, this.waits, parts.events, this.effects, parts.contracts);
     this.readModel = new FlowReadModel(this.waits);
     this.factory = new FlowFactory(this, parts.nodeStore);

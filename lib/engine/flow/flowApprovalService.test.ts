@@ -57,6 +57,7 @@ const makeHost = (over: Partial<ApprovalHost> = {}): ApprovalHost => ({
   emitLifecycle: async () => {},
   bg: () => {},
   advanceFrom: async () => {},
+  runEffect: async () => false,
   ...over,
 });
 
@@ -175,6 +176,56 @@ describe("FlowApprovalService", () => {
     expect(result).toEqual(SKIP);
     expect(bgCalls).toBe(0);
     expect(advanced).toBe(0);
+  });
+
+  it("approveNode consults the registered effects on a won approve; a claimed follow-on skips the release", async () => {
+    const flowId = "flw_ap_8";
+    await seedNode(flowId, "agent", NODE_STATUS.AWAITING_APPROVAL);
+    const consulted: Array<{ lifecycle: string; defKey: string; status: string; nodeKey: string }> = [];
+    let advanced = 0;
+    const service = new FlowApprovalService(makeHost({
+      defOf: async () => ({ key: "tmpl_agent_1", builtinApproval: false, capabilities: {} }) as never,
+      runEffect: async (lifecycle, ctx) => {
+        consulted.push({ lifecycle, defKey: ctx.defKey, status: ctx.status ?? "", nodeKey: ctx.nodeKey });
+        return true;
+      },
+      advanceFrom: async () => { advanced += 1; },
+    }));
+    await service.approveNode(flowId, "agent");
+    // the declarative wildcard's approval door (task 10): the AFTER_APPROVAL
+    // lifecycle carries the node's identity and the approved status
+    expect(consulted).toEqual([
+      { lifecycle: "afterApproval", defKey: "tmpl_agent_1", status: "approved", nodeKey: "agent" },
+    ]);
+    // the effect claimed the follow-on (a verb ran) — it advances the edges
+    // itself; the service must not double-run the release
+    expect(advanced).toBe(0);
+  });
+
+  it("approveNode releases downstream when no effect claims the won approve (the pre-wildcard behavior)", async () => {
+    const flowId = "flw_ap_9";
+    await seedNode(flowId, "agent", NODE_STATUS.AWAITING_APPROVAL);
+    let effectRuns = 0;
+    const captured: { fn?: () => Promise<void> } = {};
+    const released: string[] = [];
+    const service = new FlowApprovalService(makeHost({
+      defOf: async () => ({ builtinApproval: false, capabilities: {} }) as never,
+      runEffect: async () => {
+        effectRuns += 1;
+        return false;
+      },
+      bg: (_flowId, nodeKey, fn) => {
+        expect(nodeKey).toBe("agent");
+        captured.fn = fn;
+      },
+      advanceFrom: async (_flowId, fromKey) => {
+        released.push(fromKey);
+      },
+    }));
+    await service.approveNode(flowId, "agent");
+    expect(effectRuns).toBe(1);
+    if (captured.fn) await captured.fn();
+    expect(released).toEqual(["agent"]);
   });
 
   it("chooseNode rejects a node that is not a decision", async () => {

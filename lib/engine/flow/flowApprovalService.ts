@@ -4,8 +4,10 @@ import { db } from "../../db/app";
 import { ConflictError, ValidationError } from "../../errors";
 import { ARTIFACT_STATUS } from "../constants/vocabulary";
 import { NODE_KEYS } from "../constants/nodeKeys";
+import { NODE_STATUS } from "../constants/nodeStatus";
 import { stepFlows } from "../runtime/fanout/stepFlowManager";
 import { TRIGGER_SOURCE } from "../runtime/triggers/constants/triggerSources";
+import { EFFECT_LIFECYCLE } from "../runtime/effects/constants/effectLifecycles";
 import { NodeRow } from "../../db/rows";
 import { jsonInput, parseRow } from "@/lib/db/ormRowHelpers";
 import type { FlowCtx } from "../nodes/shared/nodeSharedExports";
@@ -133,6 +135,23 @@ export class FlowApprovalService {
       key: 'approve',
     });
     if (!approved.started) return approved;
+    // the registered effects consult the won approve (step 07, Invariant 8):
+    // the declarative wildcard dispatches the node's config-declared verbs
+    // and claims the follow-on when one ran — it advances the edges itself.
+    // Unclaimed (the default: no declared effects) releases downstream here,
+    // byte-for-byte the pre-wildcard behavior.
+    if (
+      await this.host.runEffect(EFFECT_LIFECYCLE.AFTER_APPROVAL, {
+        flowId,
+        nodeKey,
+        defKey: def.key,
+        status: NODE_STATUS.APPROVED,
+        output: null,
+        source: TRIGGER_SOURCE.UI,
+      })
+    ) {
+      return approved;
+    }
     await this.releaseDownstream(flowId, nodeKey);
     return approved;
   }

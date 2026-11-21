@@ -3,6 +3,7 @@ import "server-only";
 import type { ChainRole, FlowCtx, NodeDefinition } from "../../nodes/shared/nodeSharedExports";
 import type { TransitionKey } from "../../runtime/transitions/types/transitions";
 import type { TriggerResult, TriggerSource } from "../../runtime/triggers/types/triggerGateway";
+import type { EffectCtx, EffectLifecycle } from "../../runtime/effects/types/nodeEffects";
 
 /**
  * The orchestrator surface {@link FlowApprovalService} drives — the engine
@@ -32,4 +33,8 @@ export interface ApprovalHost {
   emitLifecycle(flowId: string, nodeKey: string | null, message: string, data?: Record<string, unknown>): Promise<void>;
   bg(flowId: string, nodeKey: string | null, fn: () => Promise<void>): void;
   advanceFrom(flowId: string, fromKey: string): Promise<void>;
+  /** the effect registry's dispatch door (step 07, Invariant 8) — the
+   *  generic approval path consults the registered effects on a won approve;
+   *  `true` = an effect claimed the follow-on (it advances the edges itself) */
+  runEffect(lifecycle: EffectLifecycle, ctx: EffectCtx): Promise<boolean>;
 }

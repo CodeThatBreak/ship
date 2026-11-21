@@ -22,8 +22,13 @@ export interface EffectCtx {
   params?: Record<string, unknown>;
 }
 
-/** One registered effect: a lifecycle handler owned by its runtime module. */
-export type EffectHandler = (ctx: EffectCtx) => Promise<void>;
+/**
+ * One registered effect: a lifecycle handler owned by its runtime module.
+ * An exact-defKey handler claims its follow-on by existing; a wildcard
+ * handler claims only by RETURNING `true` (its relevance is decided inside,
+ * from config or linkage — see EffectRegistry.run).
+ */
+export type EffectHandler = (ctx: EffectCtx) => Promise<boolean | void>;
 
 /**
  * The effect surface a node kind or runtime registers (target-architecture

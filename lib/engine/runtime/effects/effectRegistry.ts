@@ -65,16 +65,30 @@ export class EffectRegistry {
 
   /**
    * Run every handler registered for (ctx.defKey, lifecycle) in registration
-   * order. Returns `true` when at least one effect ran — the follow-on is the
-   * effects' responsibility and the caller must not run its default (the
-   * edge walk); `false` means nothing claimed this lifecycle.
+   * order: the exact defKey's owners first, then the runtime-owned wildcard
+   * registrations. Returns `true` when the follow-on is CLAIMED and the
+   * caller must not run its default (the edge walk):
+   *
+   * - an exact defKey registration claims by existing — the registration IS
+   *   the ownership (the SDLC chain's lifecycles);
+   * - a wildcard registration claims only by RETURNING `true` — its relevance
+   *   is decided inside the handler from config or linkage (the declarative
+   *   effects' config-declared verbs), so a wildcard that finds nothing to do
+   *   leaves the caller's default intact (Invariant F3: config-absent ⇒
+   *   wildcard no-op ⇒ default edge walk, byte-for-byte).
+   *
+   * `false` means nothing claimed this lifecycle.
    */
   async run(lifecycle: EffectLifecycle, ctx: EffectCtx): Promise<boolean> {
-    const handlers = this.handlersFor(ctx.defKey, lifecycle);
-    for (const handler of handlers) {
+    const exact = this.registry.get(this.keyOf(ctx.defKey, lifecycle)) ?? [];
+    for (const handler of exact) {
       await handler(ctx);
     }
-    return handlers.length > 0;
+    let claimed = exact.length > 0;
+    for (const handler of this.registry.get(this.keyOf(EFFECT_KEY_ANY, lifecycle)) ?? []) {
+      if ((await handler(ctx)) === true) claimed = true;
+    }
+    return claimed;
   }
 
   /** The registered (defKey, lifecycle) pairs, sorted — the snapshot the

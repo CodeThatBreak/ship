@@ -12,6 +12,9 @@ import { registerSplitEffects } from "../split/splitEffects";
 import type { SplitManager } from "../split/splitManager/splitManager";
 import { NODE_KEYS } from "../../constants/nodeKeys";
 import type { EffectCtx, NodeEffects } from "./types/nodeEffects";
+import { VerbRegistry } from "./verbRegistry";
+import { registerVerbDescriptors } from "./verbs/verbWiring";
+import { registerDeclarativeEffects, type DeclarativeEffectsHost } from "../../nodes/declarativeEffects";
 
 const ctxOf = (defKey: string): EffectCtx => ({
   flowId: "flow-1",
@@ -66,8 +69,28 @@ describe("EffectRegistry (step 07 — Invariant 8)", () => {
 
     expect(await registry.run(EFFECT_LIFECYCLE.ON_CHILD_TERMINAL, ctxOf("step_build"))).toBe(true);
     expect(order).toEqual(["exact", "wildcard-a", "wildcard-b"]);
-    // a kind with no registration at all is unclaimed
-    expect(await registry.run(EFFECT_LIFECYCLE.ON_CHILD_TERMINAL, ctxOf("agent"))).toBe(true); // wildcard still owns child terminals
+    // a kind with no exact registration is unclaimed by void wildcard
+    // handlers: a wildcard claims only by RETURNING true (task 10's claim
+    // refinement) — the onChildTerminal callers ignore the return anyway,
+    // and the declarative wildcard's config-decided claim rides the same rule
+    expect(await registry.run(EFFECT_LIFECYCLE.ON_CHILD_TERMINAL, ctxOf("agent"))).toBe(false);
+  });
+
+  it("a wildcard handler claims the follow-on only by returning true", async () => {
+    const registry = new EffectRegistry();
+    registry.register(EFFECT_KEY_ANY, {
+      afterSuccess: async () => true,
+    });
+    // the wildcard decided relevance inside itself (config/linkage) and ran
+    expect(await registry.run(EFFECT_LIFECYCLE.AFTER_SUCCESS, ctxOf("agent"))).toBe(true);
+
+    const silent = new EffectRegistry();
+    silent.register(EFFECT_KEY_ANY, {
+      afterSuccess: async () => {},
+    });
+    // a wildcard that found nothing to do leaves the caller's default (the
+    // edge walk) intact — Invariant F3's config-absent no-op
+    expect(await silent.run(EFFECT_LIFECYCLE.AFTER_SUCCESS, ctxOf("agent"))).toBe(false);
   });
 
   it("throws on a double-boot of the identical handler for the same pair", () => {
@@ -97,15 +120,23 @@ describe("EffectRegistry (step 07 — Invariant 8)", () => {
 });
 
 describe("EffectRegistry built-in snapshot (the F1 guard)", () => {
-  it("registers exactly the SDLC chain's def keys plus the runtime-owned wildcard", () => {
+  it("registers exactly the built-ins' def keys plus the runtime-owned wildcards — never a literal declarative def key", () => {
     const registry = new EffectRegistry();
     registerSdlcEffects(registry, inert<ChainHost>(), inert<SdlcChain>());
     registerFanoutEffects(registry, inert<StepFlowManager>());
     registerSplitEffects(registry, inert<SplitManager>());
+    // task 10: the declarative wildcard effects — relevance comes from the
+    // node's config, so the registration is wildcard-only (Invariant F1: no
+    // literal declarative def key ever enters this registry)
+    const verbs = new VerbRegistry();
+    registerVerbDescriptors(verbs);
+    registerDeclarativeEffects(registry, verbs, inert<DeclarativeEffectsHost>());
 
     // The executable answer to "what happens when X finishes?" — every later
     // effects task extends this snapshot with its own registration.
     expect(registry.entries()).toEqual([
+      { defKey: EFFECT_KEY_ANY, lifecycle: "afterApproval" },
+      { defKey: EFFECT_KEY_ANY, lifecycle: "afterSuccess" },
       { defKey: EFFECT_KEY_ANY, lifecycle: "onChildTerminal" },
       { defKey: EFFECT_KEY_ANY, lifecycle: "onChildTerminal" },
       { defKey: NODE_KEYS.BUILD, lifecycle: "afterApproval" },
@@ -113,5 +144,11 @@ describe("EffectRegistry built-in snapshot (the F1 guard)", () => {
       { defKey: NODE_KEYS.RESOLVE, lifecycle: "loopReentry" },
       { defKey: NODE_KEYS.REVIEW, lifecycle: "afterSuccess" },
     ]);
+    // the F1 guard itself: every registered def key is the runtime wildcard
+    // or a built-in NODE_KEY — a declarative template id would be a literal
+    // def-key dispatch (the thing findings B3/F1 forbid)
+    for (const { defKey } of registry.entries()) {
+      expect(defKey === EFFECT_KEY_ANY || Object.values(NODE_KEYS).includes(defKey as never)).toBe(true);
+    }
   });
 });

@@ -5,6 +5,10 @@ import { mcpSourcesSchema } from "../../templates/schemas/mcpSources";
 import { splitConsumeSchema, splitParallelMaxSchema } from "../shared/split/schemas/splitKnobs";
 import { PRODUCIBLE_FACTS } from "../../facts/types/facts";
 import {
+  EFFECT_VERBS_AFTER_APPROVAL,
+  EFFECT_VERBS_AFTER_SUCCESS,
+} from "../../runtime/effects/constants/effectVerbs";
+import {
   AGENT_MODE,
   AGENT_MODES,
   AGENT_OUTPUT_FORMAT,
@@ -26,6 +30,20 @@ export {
   SCRIPT_RUNTIMES,
 } from "../../constants/declarative";
 export type { AgentMode, AgentOutputFormat } from "../../constants/declarative";
+
+/**
+ * The declarative effects map (task 10, design §4.2): what the engine should
+ * DO after one of the node's lifecycles fires. Verbs are a closed union
+ * (`EFFECT_VERB`) — the config composes registered verbs, it never invents
+ * them; the declarative wildcard effects read this map at dispatch time
+ * (relevance from config, never a def key — Invariant F1).
+ */
+const DeclarativeEffectsSchema = z
+  .object({
+    afterApproval: z.array(z.enum(EFFECT_VERBS_AFTER_APPROVAL)).default([]),
+    afterSuccess: z.array(z.enum(EFFECT_VERBS_AFTER_SUCCESS)).default([]),
+  })
+  .default({ afterApproval: [], afterSuccess: [] });
 
 /**
  * The declarative node definitions stored on `node_templates.config` (§4.3–4.5).
@@ -102,6 +120,8 @@ export const AgentDefSchema = z.looseObject({
    * (Phase 3), never directly by a run.
    */
   produces: z.array(z.enum(PRODUCIBLE_FACTS)).default([]),
+  /** the declarative effects map (task 10) — see DeclarativeEffectsSchema */
+  effects: DeclarativeEffectsSchema,
 });
 export type AgentDef = z.infer<typeof AgentDefSchema>;
 
@@ -126,6 +146,8 @@ export const DecisionDefSchema = z.object({
       condition: z.string().optional().default(""),
     }),
   ).min(1, "a decision needs at least one choice"),
+  /** the declarative effects map (task 10) — see DeclarativeEffectsSchema */
+  effects: DeclarativeEffectsSchema,
 });
 export type DecisionDef = z.infer<typeof DecisionDefSchema>;
 
@@ -139,6 +161,8 @@ export const HttpDefSchema = z.object({
   timeout_ms: z.number().nonnegative().default(30_000),
   /** optional JSONata over the response {status, ok, body, headers} — must yield an object */
   response_map: z.string().nullable().default(null),
+  /** the declarative effects map (task 10) — see DeclarativeEffectsSchema */
+  effects: DeclarativeEffectsSchema,
 });
 export type HttpDef = z.infer<typeof HttpDefSchema>;
 
@@ -155,5 +179,7 @@ export const ScriptDefSchema = z.looseObject({
    *  schema box's source — unknown keys tolerated on purpose, same as the
    *  agent node). */
   output_schema: z.unknown().optional().default(null),
+  /** the declarative effects map (task 10) — see DeclarativeEffectsSchema */
+  effects: DeclarativeEffectsSchema,
 });
 export type ScriptDef = z.infer<typeof ScriptDefSchema>;
