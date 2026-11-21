@@ -7,4 +7,9 @@ export interface RunCostSummary {
   costCents?: number;
   estimated?: boolean;
   model?: string;
+  /** the run's reported token split (Task 21 — the usage artifact's source) */
+  inputTokens?: number;
+  outputTokens?: number;
+  cacheReadTokens?: number;
+  cacheWriteTokens?: number;
 }

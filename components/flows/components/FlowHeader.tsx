@@ -1,4 +1,4 @@
-import { ArrowLeft, Cloud, Coins, FolderGit2, Frame, GitMerge } from 'lucide-react';
+import { ArrowLeft, Cloud, Coins, FolderGit2, Frame, GitMerge, Zap } from 'lucide-react';
 import Link from 'next/link';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -15,6 +15,13 @@ export default function FlowHeader({ flow }: { flow: FlowData }) {
   const { task } = flow;
   const mrBranches = (flow.branches ?? []).filter((b: BranchRow) => b.mr_url);
   const cost = flow.cost && flow.cost.runCount > 0 ? flow.cost : undefined;
+  // Task 21 (use case 8d): the `usage` artifacts rolled up across runs —
+  // the artifact-derived spend with the per-model breakdown the run-row
+  // aggregate doesn't carry
+  const usage = flow.usage;
+  const usageTokens = usage
+    ? usage.inputTokens + usage.outputTokens + usage.cacheTokens
+    : 0;
   // plan fan-out (Phase 4): the flow total includes the step children's runs
   // — the tooltip breaks that share down per step (cost · duration · runs)
   const stepCosts = (flow.planSteps ?? []).filter(s => s.sub_flow && (s.sub_flow.runCount ?? 0) > 0);
@@ -91,6 +98,35 @@ export default function FlowHeader({ flow }: { flow: FlowData }) {
                     </div>
                   );
                 })}
+              </div>
+            )}
+          </TooltipContent>
+        </Tooltip>
+      )}
+
+      {usage && (
+        <Tooltip>
+          <TooltipTrigger render={<Badge variant="secondary" className="cursor-default font-mono text-[11px]" />}>
+            <Zap data-icon="inline-start" />
+            {usageTokens > 0 ? fmtTokens(usageTokens) : `${usage.runs} run${usage.runs > 1 ? 's' : ''}`}
+            {usage.costCents > 0 ? ` · $${(usage.costCents / 100).toFixed(2)}` : ''}
+          </TooltipTrigger>
+          <TooltipContent>
+            {usage.runs} run{usage.runs > 1 ? 's' : ''} · per model
+            <div className="mt-1 grid text-[11px] font-mono max-w-[340px]">
+              {usage.models.map(m => (
+                <div key={m.model} className="flex gap-2 justify-between">
+                  <span className="truncate opacity-80">{m.model}</span>
+                  <span className="shrink-0">
+                    {fmtTokens(m.inputTokens + m.outputTokens + m.cacheTokens)}
+                    {m.costCents > 0 ? ` · $${(m.costCents / 100).toFixed(2)}` : ''}
+                  </span>
+                </div>
+              ))}
+            </div>
+            {usage.estimatedRuns > 0 && (
+              <div className="mt-1 opacity-60">
+                {usage.estimatedRuns} of {usage.runs} estimated from list prices
               </div>
             )}
           </TooltipContent>

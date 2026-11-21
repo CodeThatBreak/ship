@@ -239,7 +239,7 @@ export class AgentRunner {
       estimated: costSummary.estimated || undefined,
       model: costSummary.model,
     });
-    return { result, runRowId };
+    return { result, runRowId, usage: costSummary };
     } finally {
       if (port.hasActiveRun(runId)) {
         port.releaseActiveRun(runId);

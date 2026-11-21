@@ -70,6 +70,9 @@ export const ARTIFACT_KIND = {
   PLAN: "plan",
   /** a diff fact's artifact — meta {branch, stat} (design §4.1, Task 06) */
   DIFF: "diff",
+  /** a run's token/cost usage — content is the RunUsagePayload JSON
+   *  (use case 8d, Task 21) */
+  USAGE: "usage",
 } as const;
 
 export const ARTIFACT_STATUS = {

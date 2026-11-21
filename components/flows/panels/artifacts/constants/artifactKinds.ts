@@ -4,6 +4,7 @@ export const ARTIFACT_KIND = {
   JSON: "json",
   DIFF: "diff",
   PLAN: "plan",
+  USAGE: "usage",
 } as const;
 
 export type ArtifactKind = (typeof ARTIFACT_KIND)[keyof typeof ARTIFACT_KIND];

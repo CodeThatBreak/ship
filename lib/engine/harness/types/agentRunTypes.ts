@@ -4,6 +4,7 @@ import { config } from "../../../config";
 import type { Database } from "../../../db/app";
 import type { AgentRunResult, SettingSource } from "../../ports/agentPort";
 import type { WorktreeManager } from "../../runtime/worktreeLifecycle/worktreeManager";
+import type { RunCostSummary } from "./runCostSummary";
 
 export interface ExecuteRunOptions {
   /** When false, skip the late-write guard (chat-only turns that do not own node status). */
@@ -16,6 +17,9 @@ export interface ExecuteRunOptions {
 export interface ExecuteRunResult {
   result: AgentRunResult;
   runRowId: string;
+  /** the run's captured usage/cost summary (Task 21) — the outcome side-channel
+   *  persists it as a `usage` artifact inside the terminal batch */
+  usage?: RunCostSummary;
 }
 
 // ── agent run machinery ──────────────────────────────────────────────────────

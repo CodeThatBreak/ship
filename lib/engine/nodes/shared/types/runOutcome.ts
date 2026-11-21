@@ -2,6 +2,7 @@ import "server-only";
 
 import type { NodeRunStatus } from "../../../../../constants/flow";
 import type { BranchFactInput, DiffFactInput } from "../../../facts/types/facts";
+import type { RunUsagePayload } from "../../../usage/runUsagePayload";
 
 /**
  * The fact side-channel a finished run may carry (Task 07, Invariant F4):
@@ -30,6 +31,10 @@ export interface RunOutcome {
   /** the run's fact intents (Task 07) — persisted by `applyOutcome` inside
    *  the terminal batch's transaction; absent when the def declares nothing */
   facts?: RunOutcomeFacts;
+  /** the run's token/cost usage (Task 21) — persisted as a `kind: "usage"`
+   *  artifact inside the same terminal batch (Invariant F2); absent when the
+   *  run reported no usage */
+  usage?: RunUsagePayload;
   /** lifecycle event message */
   event: string;
   eventData?: Record<string, unknown>;

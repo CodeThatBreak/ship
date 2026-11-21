@@ -27,6 +27,26 @@ export type NodeCost = {
   /** the node's raw run rows (the cost chip re-derives its rollup from these) */
   runs: unknown[];
 };
+/** One model's share of the flow's `usage` rollup (Task 21, use case 8d). */
+export type UsageRollupModel = {
+  model: string;
+  runs: number;
+  inputTokens: number;
+  outputTokens: number;
+  cacheTokens: number;
+  costCents: number;
+};
+/** The flow's `usage` artifacts summed across runs — the queryable cost fact. */
+export type UsageRollup = {
+  runs: number;
+  inputTokens: number;
+  outputTokens: number;
+  cacheTokens: number;
+  costCents: number;
+  /** runs whose cost came from the rate-card estimate, not a billed charge */
+  estimatedRuns: number;
+  models: UsageRollupModel[];
+};
 export type Node = {
   id: string;
   node_key: string;
@@ -106,6 +126,9 @@ export type FlowData = {
   repo_url?: string;
   execution_mode?: string;
   cost?: { totalCents: number; tokens: number; runCount: number };
+  /** Task 21 (use case 8d): the flow's `usage` artifacts rolled up across
+   *  runs — null when no run established one */
+  usage?: UsageRollup;
   /** epoch ms of the queued auto-resolve start (quiet-period end), or null */
   resolveScheduleAt?: number | null;
   branches?: BranchRow[];

@@ -95,12 +95,13 @@ const renderPanel = (html: (q: QueryClient) => void, nodeOverride: Partial<Node>
 };
 
 describe("artifact renderer registry", () => {
-  it("pins the four built-in kinds and the <pre> fallback", () => {
-    expect(Object.keys(artifactRenderers).sort()).toEqual(["diff", "json", "markdown", "plan"]);
+  it("pins the five built-in kinds and the <pre> fallback", () => {
+    expect(Object.keys(artifactRenderers).sort()).toEqual(["diff", "json", "markdown", "plan", "usage"]);
     expect(rendererForKind("markdown")).toBe(artifactRenderers.markdown);
     expect(rendererForKind("json")).toBe(artifactRenderers.json);
     expect(rendererForKind("diff")).toBe(artifactRenderers.diff);
     expect(rendererForKind("plan")).toBe(artifactRenderers.plan);
+    expect(rendererForKind("usage")).toBe(artifactRenderers.usage);
     // an unregistered kind still renders — via the existing <pre> fallback
     expect(rendererForKind("something_new")).toBe(fallbackArtifactRenderer);
   });
@@ -137,6 +138,61 @@ describe("generic declarative panel", () => {
     // no "isn't supported yet" branch, no empty state
     expect(html).not.toContain("supported yet");
     expect(html).not.toContain("No output yet");
+  });
+});
+
+describe("usage artifact renderer (task 21)", () => {
+  it("renders the run's model, token split and cost from the stored payload", () => {
+    const usageArtifact: Artifact = {
+      id: "art-usage",
+      kind: "usage",
+      version: 1,
+      status: "draft",
+      created_at: "2026-11-21T00:00:00.000Z",
+    };
+    const html = renderPanel((queryClient) => {
+      queryClient.setQueryData(queryKeys.artifacts.detail(usageArtifact.id), {
+        content: JSON.stringify({
+          model: "claude-sonnet-4",
+          inputTokens: 1500,
+          outputTokens: 300,
+          cacheReadTokens: 800,
+          cacheWriteTokens: 400,
+          costCents: 12,
+          estimated: true,
+          durationMs: 42000,
+        }),
+      });
+    }, { artifacts: [usageArtifact] });
+
+    // the usage renderer (not the <pre> fallback) produced the structured view
+    expect(html).toContain("Run usage");
+    expect(html).toContain("claude-sonnet-4");
+    expect(html).toContain("300 tok"); // uncached input (1500 − 1200 cached)
+    expect(html).toContain("1k tok"); // cache read + write
+    expect(html).toContain("$0.12"); // formatCostCents(12)
+    expect(html).toContain("estimated");
+    expect(html).toContain("42s");
+    // the structured renderer produced the view — not the raw-body fallback
+    expect(html).not.toContain("<pre");
+  });
+
+  it("falls back to the raw body when the content is not a usage payload", () => {
+    const usageArtifact: Artifact = {
+      id: "art-usage-bad",
+      kind: "usage",
+      version: 1,
+      status: "draft",
+      created_at: "2026-11-21T00:00:00.000Z",
+    };
+    const html = renderPanel((queryClient) => {
+      queryClient.setQueryData(queryKeys.artifacts.detail(usageArtifact.id), {
+        content: "not json",
+      });
+    }, { artifacts: [usageArtifact] });
+
+    expect(html).toContain("not json");
+    expect(html).not.toContain("Run usage");
   });
 });
 

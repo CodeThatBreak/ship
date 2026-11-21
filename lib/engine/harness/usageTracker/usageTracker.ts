@@ -114,7 +114,9 @@ export class UsageTracker {
       durationMs: result.durationMs, costCents,
       raw: estimated ? { ...u, costSource: "estimate" } : u,
     });
-    return { durationMs: result.durationMs, tokens, costCents, estimated, model };
+    return { durationMs: result.durationMs, tokens, costCents, estimated, model,
+      inputTokens: u.inputTokens, outputTokens: u.outputTokens,
+      cacheReadTokens: u.cacheReadTokens, cacheWriteTokens: u.cacheWriteTokens };
   }
 
   /**

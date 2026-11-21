@@ -15,6 +15,7 @@ import type { ExecuteRunMeta } from "./types/executeRunMeta";
 import { AGENT_TOKEN_ENV, AGENT_TOOL_SETS } from "../../agentTools/constants/agentTools";
 import type { ToolDescriptor } from "../../agentTools/types/tools";
 import { agentToolsBlock, redactCapabilityToken } from "../../agentTools/utils/toolsPromptBlock";
+import { hasRunUsage, runUsagePayload } from "../../usage/runUsagePayload";
 import type { NodeRunStatus } from "../../../../constants/flow";
 import { FLOW_STATUS } from "../../../../constants/flow";
 import type { NodeRow } from "../../../db/rows";
@@ -189,11 +190,17 @@ export abstract class AgentRunNode<
         env: apiToken ? { [AGENT_TOKEN_ENV]: apiToken } : undefined,
       });
     try {
-      const { result, runRowId } = await this.runner.executeRun(ctx, node.id, start, opts.label, {
+      const { result, runRowId, usage } = await this.runner.executeRun(ctx, node.id, start, opts.label, {
         attemptId: attemptId ?? undefined,
       });
       const outcome = await opts.finalize(result, { runRowId });
-      return this.applyOutcome(ctx, outcome, {
+      // Task 21: the run's token/cost usage rides the outcome as a side-channel —
+      // `applyOutcome` persists it as a `usage` artifact inside the terminal
+      // batch (Invariant F2). A run that reported no usage attaches nothing.
+      const withUsage: RunOutcome = hasRunUsage(usage)
+        ? { ...outcome, usage: runUsagePayload(usage) }
+        : outcome;
+      return this.applyOutcome(ctx, withUsage, {
         fenceSuperseded: Boolean(attemptId),
         attemptId,
       });

@@ -21,11 +21,13 @@ import { hookStore } from "./hookStore";
 import { maskHookSecret } from "./hookStore/utils/maskHookSecret";
 import { parseRowTolerant, parseRows } from "@/lib/db/ormRowHelpers";
 import { ArtifactListRow, buildNodeTemplateIndex, toFlowArtifact, toFlowTask } from "./flowReadModel/utils/ormRows";
+import { sumUsageArtifacts } from "./flowReadModel/utils/usageRollup";
 import { templateStore, type TemplateGraph } from "../templates/templateStore";
 import { NotFoundError } from "../../errors";
 import { stepFlows } from "./fanout/stepFlowManager";
 import { StepFlowManager } from "./fanout/stepFlowManager/stepFlowManager";
 import { accumulateRunRow, emptyRunTokenBucket } from "../utils/runTokenRollup";
+import { ARTIFACT_KIND } from "../constants/vocabulary";
 import type { WaitStore } from "./waits/waitStore";
 
 /** Flow list/detail read model — batched ORM reads, artifact bodies lazy-loaded via GET /api/artifacts/:id. */
@@ -56,6 +58,16 @@ export class FlowReadModel {
       tokens: [...nodeCosts.values()].reduce((s, c) => s + c.tokens, 0),
       runCount: runs.length,
     };
+
+    // Task 21 (use case 8d): the flow's `usage` artifacts rolled up across
+    // runs — every stored version is one run's usage, so the sum is the
+    // flow's true token/cost spend, queryable per model
+    const usage = sumUsageArtifacts(
+      (await db.prisma.artifact.findMany({
+        where: { node: { flowId: id }, kind: ARTIFACT_KIND.USAGE },
+        select: { content: true },
+      })).map((r) => r.content),
+    );
 
     const stepRunStats = new Map<string, { costCents: number; tokens: number; durationMs: number; runCount: number }>();
     const branches = parseRows(
@@ -203,6 +215,7 @@ export class FlowReadModel {
       repo_url: flow.repoUrl ?? undefined,
       execution_mode: flow.executionMode ?? undefined,
       cost: flowCost,
+      usage: usage ?? undefined,
       branches: branches.map((b) => ({
         id: b.id,
         flow_id: b.flowId,

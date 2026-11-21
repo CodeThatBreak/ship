@@ -22,6 +22,7 @@ import type { ChainRole } from "./types/chainRole";
 import type { RunOutcome } from "./types/runOutcome";
 import type { NodeTriggerRun } from "./types/nodeTriggerRun";
 import { persistRunFacts } from "./nodeOutcomeFacts";
+import { persistRunUsage } from "./nodeOutcomeUsage";
 
 /**
  * A workflow node type. The class owns everything specific to the node:
@@ -370,14 +371,18 @@ export abstract class NodeDefinition<I = unknown, O extends Record<string, unkno
       }
       throw e;
     }
-    // The completion batch (step 06, Invariant 7): artifact + facts + terminal
-    // + lifecycle event in ONE pure-DB transaction — a crash leaves no partial
-    // state (the fact side-channel rides the same batch, Invariant F2).
+    // The completion batch (step 06, Invariant 7): artifact + facts + usage +
+    // terminal + lifecycle event in ONE pure-DB transaction — a crash leaves
+    // no partial state (the fact/usage side-channels ride the same batch,
+    // Invariant F2).
     await this.support.transaction(async (tx) => {
       if (outcome.artifact) {
         await this.support.saveArtifact(node.id, ctx.flow.id, outcome.artifact.kind, outcome.artifact.content, outcome.artifact.meta, undefined, tx);
       }
       await persistRunFacts(ctx.flow.id, node.id, outcome, tx);
+      if (outcome.usage) {
+        await persistRunUsage(ctx.flow.id, node.id, outcome.usage, tx);
+      }
       await this.support.publishOutcome({
         flowId: ctx.flow.id,
         nodeKey: node.nodeKey,
