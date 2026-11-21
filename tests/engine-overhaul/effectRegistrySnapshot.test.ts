@@ -28,6 +28,13 @@ describe("SDLC effect registry snapshot (step 07)", () => {
     // the runtime-owned child-terminal doors: fan-out + split each register
     // one onChildTerminal under the runtime wildcard key
     expect(entries.filter((e) => e.defKey === EFFECT_KEY_ANY)).toEqual([
+      // the declarative wildcard effects (task 10) — F1-guarded additions:
+      // every approval door re-fires its effect, every success door runs the
+      // post-success sequencing, both under the runtime wildcard key
+      { defKey: EFFECT_KEY_ANY, lifecycle: "afterApproval" },
+      { defKey: EFFECT_KEY_ANY, lifecycle: "afterSuccess" },
+      // the runtime-owned child-terminal doors: fan-out + split each register
+      // one onChildTerminal under the runtime wildcard key
       { defKey: EFFECT_KEY_ANY, lifecycle: "onChildTerminal" },
       { defKey: EFFECT_KEY_ANY, lifecycle: "onChildTerminal" },
     ]);

@@ -1,3 +1,5 @@
+import "server-only";
+
 /**
  * The `diff` fact's artifact-meta vocabulary (Task 08 — AGENTS §2.7): the
  * keys the FactStore writes into a `kind: "diff"` artifact's meta and the

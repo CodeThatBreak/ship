@@ -1,3 +1,5 @@
+import "server-only";
+
 /**
  * The `diff` fact's content when the diff capture failed (the stepRollup
  * precedent — a per-branch capture failure is non-fatal): the branch fact is
