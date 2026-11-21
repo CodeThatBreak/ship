@@ -72,9 +72,41 @@ export const FLOW_ACTION = {
    *  node's current state — the panel offers it when the branch moved past
    *  the capture. */
   REFRESH_DIFF: "refresh_diff",
+  /** Panel "Open PR" (task 12): fire the declarative `create_change_request`
+   *  verb directly — the same gateway-claimed action route the approval uses,
+   *  without the approval hold. */
+  CREATE_CHANGE_REQUEST: "create_change_request",
 } as const;
 
 export type FlowActionName = (typeof FLOW_ACTION)[keyof typeof FLOW_ACTION];
+
+/**
+ * The declarative effects config the generic panel reads to decide its verb
+ * affordances (task 12): the client mirror of the engine's closed verb
+ * vocabulary (`lib/engine/runtime/effects/constants/effectVerbs.ts`) — the
+ * client never imports `lib/`. The effects declaration IS the capability
+ * (design §4.2): no separate declarable capability vocabulary exists, so a
+ * node whose config declares the verb under `afterApproval` may fire it
+ * from the panel.
+ */
+export const DECLARED_EFFECTS = {
+  CONFIG_KEY: "effects",
+  AFTER_APPROVAL: "afterApproval",
+  CREATE_CHANGE_REQUEST: "create_change_request",
+} as const;
+
+/**
+ * The node statuses the panel's direct verb affordances offer — the client
+ * mirror of the engine's `panelVerb` transition row's from-set (`lib/engine/
+ * runtime/transitions/constants/transitionTable.ts`): a live run still owns
+ * its branch, so the affordance hides for every non-terminal status (the
+ * engine's fence would skip the trigger anyway).
+ */
+export const PANEL_VERB_STATUSES: readonly FlowStatus[] = [
+  FLOW_STATUS.DONE,
+  FLOW_STATUS.APPROVED,
+  FLOW_STATUS.FAILED,
+];
 
 /** Plan fan-out aggregate child state (Phase 4 monitoring, §5): the node's
  *  own status stays `running` while it orchestrates, so the per-step rollup

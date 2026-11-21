@@ -46,10 +46,8 @@ import { FlowChatService } from '../flow/flowChatService';
 import { FlowRetryService } from '../flow/flowRetryService';
 import { FlowPlanStepService } from '../flow/flowPlanStepService';
 import { FlowManualRunService } from '../flow/flowManualRunService';
-import { JobQueue } from '../runtime/jobs/jobQueue';
-import { CancelHandler } from '../runtime/jobs/cancelHandler';
-import { JOB_KIND } from '../runtime/jobs/constants/jobVocabulary';
-import { cancelDedupKey } from '../runtime/jobs/utils/jobDedupKeys';
+import { PanelVerbService } from '../flow/panelVerbService';
+import { FlowCancelService } from '../flow/flowCancelService';
 
 
 /** FlowEngine — the composition root of the flow cluster and its read-model delegation surface (target-architecture §12: after steps 02–07 the facade is composition + delegation only — approvals/chat/retry live in `flow/`, staging in `runtime/staging/`, the chain in `nodes/chains/`, the effect/join layer in `runtime/effects/`, fan-out/split in their runtimes). Every `nodes.status` write goes through the transition authority (step 02, Invariant 1); every trigger claims through the gateway (step 06, Invariant 11); everything that happens after a stage/child/approval finishes dispatches through the effect registry (step 07, Invariant 8). Must never: grow chain logic or fan-out/split special cases back in — a new concern registers into the layer that owns it. */
@@ -74,6 +72,10 @@ export class FlowEngine {
   readonly retries: FlowRetryService;
   /** the plan-checklist editing (the action route drives it directly) */
   readonly planStepEdits: FlowPlanStepService;
+  /** the panel's direct verb door (the action route drives it directly) */
+  readonly panelVerbs: PanelVerbService;
+  /** the node-cancel path (the action route drives it directly) */
+  private readonly cancelService: FlowCancelService;
   private readonly manualRuns: FlowManualRunService;
 
   /** The comment ingestion surface (the poller's comment sweep drives it). */
@@ -107,6 +109,8 @@ export class FlowEngine {
     this.chats = new FlowChatService(this);
     this.retries = new FlowRetryService(this);
     this.planStepEdits = new FlowPlanStepService(this);
+    this.panelVerbs = new PanelVerbService(this);
+    this.cancelService = new FlowCancelService(this);
     this.manualRuns = new FlowManualRunService(this);
   }
 
@@ -327,12 +331,14 @@ export class FlowEngine {
     return this.parts.triggers.claimTrigger(params);
   }
 
-  /** The gateway's approval-style door. */
+  /** The gateway's approval-style door. `toStatus` rides the multi-target
+   *  rows (the chat revert, the panel verb's status-preserving mirror). */
   transitionTrigger(params: {
     flowId: string;
     nodeKey: string;
     source: TriggerSource;
     key: TransitionKey;
+    toStatus?: EngineNodeStatus;
   }): Promise<TriggerResult> {
     return this.parts.triggers.transitionTrigger(params);
   }
@@ -400,28 +406,11 @@ export class FlowEngine {
     await stepFlows.retryFanoutStep(parentFlowId, stepId);
   }
 
-  // ── plan steps (FlowPlanStepService), retry, cancel, chat ─────────────────
+  // ── cancel (FlowCancelService — flow/) ────────────────────────────────────
 
   /** Stop an in-flight node: journal the cancel intent write-ahead (Invariant 7), then run the same CancelHandler the worker sweep's re-claim would (step 06 task 4). */
   async cancelNode(flowId: string, nodeKey: string): Promise<void> {
-    const node = await db.prisma.node.findFirst({ where: { flowId, nodeKey }, select: { status: true } });
-    if (!node) throw new NotFoundError('node', nodeKey);
-    if (
-      node.status !== NODE_STATUS.RUNNING &&
-      node.status !== NODE_STATUS.WAITING &&
-      node.status !== NODE_STATUS.AWAITING_APPROVAL
-    ) {
-      throw new ConflictError(`cannot cancel ${nodeKey} while it is ${node.status}`);
-    }
-    // write the intent first; whoever wins the claim finalizes — a crash
-    // between claim and finalize leaves the job for the sweep's re-claim
-    const jobs = new JobQueue();
-    const { id: jobId, deduplicated } = await jobs.enqueue({ kind: JOB_KIND.CANCEL, flowId, dedupKey: cancelDedupKey(flowId, nodeKey), payload: { flowId, nodeKey } });
-    if (deduplicated) return; // a live intent owns the finalize
-    const job = await jobs.claimById(jobId);
-    if (!job) return; // the sweep (or a concurrent cancel) owns the finalize
-    await new CancelHandler(jobs, this.effects).handle(job); // a throw surfaces here; the claim's lease expiry re-claims the job
-    await jobs.complete(jobId);
+    await this.cancelService.cancel(flowId, nodeKey);
   }
 
   // ── flow start ────────────────────────────────────────────────────────────

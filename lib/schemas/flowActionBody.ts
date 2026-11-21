@@ -109,6 +109,11 @@ export const flowActionBodySchema = z.discriminatedUnion("action", [
     action: z.literal(FLOW_ACTION.REFRESH_DIFF),
     artifactId: z.string().min(1),
   }),
+  z.object({
+    action: z.literal(FLOW_ACTION.CREATE_CHANGE_REQUEST),
+    nodeKey: z.string().min(1),
+    branch: z.string().optional(),
+  }),
 ]);
 
 export type FlowActionBody = z.infer<typeof flowActionBodySchema>;

@@ -65,3 +65,10 @@ export function isClaimKey(key: TransitionKey): boolean {
   const row: TransitionRow = TRANSITION_TABLE[key];
   return row.to.includes(NODE_STATUS.RUNNING);
 }
+
+/** Whether an untyped status read sits in a row's from-set — the loud
+ *  boundary for fence pre-checks on data-shaped statuses (the caller still
+ *  claims through the authority; the read only selects). */
+export function isInFromSet(key: TransitionKey, status: string): boolean {
+  return TRANSITION_TABLE[key].from.some((member) => member === status);
+}

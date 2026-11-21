@@ -46,6 +46,18 @@ export const TRANSITION_TABLE = {
     to: [NODE_STATUS.RUNNING],
     actor: "user",
   },
+  /** Panel verb trigger (task 12 — the "Open PR" affordance): the finished
+   *  run's terminal from-set IS the fence — a live run that still owns the
+   *  branch (pending/running/waiting) loses atomically with the typed skip
+   *  event. The verb never touches `nodes.status`, so the row's to-set
+   *  mirrors its from-set and the caller stamps the read-back status (the
+   *  chatRevert precedent); the verb's own mr_create journal carries the
+   *  creation idempotency. */
+  panelVerb: {
+    from: [NODE_STATUS.DONE, NODE_STATUS.APPROVED, NODE_STATUS.FAILED],
+    to: [NODE_STATUS.DONE, NODE_STATUS.APPROVED, NODE_STATUS.FAILED],
+    actor: "user",
+  },
 
   // ── waits and branch resolution ──────────────────────────────────────────
   /** A node holds at `waiting` until its event source delivers (§6). */

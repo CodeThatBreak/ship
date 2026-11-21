@@ -6,10 +6,11 @@ import { BranchFactRow } from "@/components/shared/BranchFactRow";
 import { EmptyHint } from "@/components/shared/EmptyHint";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
-import { FLOW_ACTION, FLOW_STATUS } from "@/constants/flow";
+import { FLOW_ACTION, DECLARED_EFFECTS, FLOW_STATUS } from "@/constants/flow";
 import { useNodePanel } from "./context";
 import { GenericArtifact, PanelShell, panelTitle } from "./shared";
 import { rendererForKind } from "./artifacts/artifactRenderers";
+import { declaresEffectVerb, isPanelVerbEligible } from "./utils/panelVerbCapability";
 import { ConfigureNodeDialog } from "./ConfigureNodeDialog";
 
 /** Only scalar snapshot values make a readable config summary. */
@@ -44,6 +45,15 @@ export const GenericDeclarativePanel = () => {
   // the engine only reconfigures not-yet-started work (pending) and failed
   // runs (fix the knobs, then retry) — everything else gets no affordance
   const reconfigurable = pending || failed;
+  // "Open PR" (task 12, use case 4): the direct affordance for the declared
+  // `create_change_request` verb — the effects declaration IS the capability
+  // (design §4.2), a branch fact must exist for the verb to target, and the
+  // node must sit in a terminal the engine's `panelVerb` fence accepts (an
+  // approval-held node uses its Approve button, which runs the same verb).
+  const openPrVisible =
+    declaresEffectVerb(cfg, DECLARED_EFFECTS.CREATE_CHANGE_REQUEST)
+    && branches.length > 0
+    && isPanelVerbEligible(node.status);
 
   const footer = (
     <>
@@ -70,6 +80,14 @@ export const GenericDeclarativePanel = () => {
       {pending && !running && (
         <Button onClick={() => action(FLOW_ACTION.RUN_NODE, { nodeKey: node.node_key, model: model || undefined })}>
           <Play size={13} /> Run
+        </Button>
+      )}
+      {openPrVisible && (
+        <Button
+          variant="outline"
+          onClick={() => action(FLOW_ACTION.CREATE_CHANGE_REQUEST, { nodeKey: node.node_key })}
+        >
+          <GitMerge size={13} /> Open PR
         </Button>
       )}
     </>

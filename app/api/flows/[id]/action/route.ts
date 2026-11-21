@@ -5,6 +5,7 @@ import { flowActionBodySchema, type FlowActionBody } from "@/lib/schemas/flowAct
 import { NextResponse } from "next/server";
 import { flowEngine } from "../../../../../lib/engine/flowEngine";
 import { diffRefresh } from "../../../../../lib/engine/flow/diffRefresh";
+import { EFFECT_VERB } from "../../../../../lib/engine/runtime/effects/constants/effectVerbs";
 import { splitManager } from "../../../../../lib/engine/runtime/split/splitManager";
 import type { TriggerResult } from "../../../../../lib/engine/runtime/triggers/types/triggerGateway";
 
@@ -72,6 +73,8 @@ const dispatchAction = async (flowId: string, body: FlowActionBody): Promise<Tri
     case FLOW_ACTION.REFRESH_DIFF:
       await diffRefresh.refresh(flowId, body.artifactId);
       return undefined;
+    case FLOW_ACTION.CREATE_CHANGE_REQUEST:
+      return flowEngine.panelVerbs.run(flowId, body.nodeKey, EFFECT_VERB.CREATE_CHANGE_REQUEST, body.branch);
     default: {
       const _exhaustive: never = body;
       throw _exhaustive;
