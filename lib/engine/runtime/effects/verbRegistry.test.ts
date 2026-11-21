@@ -1,13 +1,21 @@
 import { describe, expect, it } from "vitest";
 
-import { EFFECT_VERB } from "./constants/effectVerbs";
-import { VerbRegistry } from "./verbRegistry";
-import { registerVerbDescriptors } from "./verbs/verbWiring";
-import { VerbNotWiredError } from "./verbs/verbNotWiredError";
 import type { VerbDescriptor } from "./verbs/types/verbDescriptor";
-import { FACT_KIND } from "../../facts/types/facts";
-import { TRIGGER_SOURCE } from "../triggers/constants/triggerSources";
 import type { EffectCtx } from "./types/nodeEffects";
+import { assignTestDatabase } from "../../../../tests/helpers/testDatabase";
+
+// Task 11: `create_change_request` is wired over MergeRequestService (whose
+// module graph reaches the DB client), so the descriptors register through
+// the dynamic-import pattern every DB-touching test file uses — env assigned
+// before any `db` import resolves.
+assignTestDatabase();
+
+const { EFFECT_VERB } = await import("./constants/effectVerbs");
+const { VerbRegistry } = await import("./verbRegistry");
+const { registerVerbDescriptors } = await import("./verbs/verbWiring");
+const { VerbNotWiredError } = await import("./verbs/verbNotWiredError");
+const { FACT_KIND } = await import("../../facts/types/facts");
+const { TRIGGER_SOURCE } = await import("../triggers/constants/triggerSources");
 
 const ctxOf = (): EffectCtx => ({
   flowId: "flow-1",
@@ -19,7 +27,7 @@ const ctxOf = (): EffectCtx => ({
 });
 
 describe("VerbRegistry (task 10 — design §4.2)", () => {
-  it("registers the closed verb union exactly once each, with their required facts", () => {
+  it("registers the closed verb union exactly once each, with their required facts", async () => {
     const registry = new VerbRegistry();
     registerVerbDescriptors(registry);
 
@@ -64,10 +72,9 @@ describe("VerbRegistry (task 10 — design §4.2)", () => {
     await expect(registry.run(EFFECT_VERB.CREATE_CHANGE_REQUEST, ctxOf())).rejects.toThrow(/unknown effect verb/);
   });
 
-  it("the unwired stub verbs throw the typed not-wired error, not a silent no-op", async () => {
+  it("the still-unwired stub verb throws the typed not-wired error, not a silent no-op (task 19 wires publish_diff)", async () => {
     const registry = new VerbRegistry();
     registerVerbDescriptors(registry);
-    await expect(registry.run(EFFECT_VERB.CREATE_CHANGE_REQUEST, ctxOf())).rejects.toThrow(VerbNotWiredError);
     await expect(registry.run(EFFECT_VERB.PUBLISH_DIFF, ctxOf())).rejects.toThrow(VerbNotWiredError);
   });
 });

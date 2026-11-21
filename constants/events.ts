@@ -26,6 +26,9 @@ export const FLOW_EVENT_TYPE = {
   /** a not-yet-started node's config snapshot was edited in-flow (task 05) —
    *  `data.changedKeys` names what the edit touched */
   CONFIG_UPDATED: "config_updated",
+  /** a declared effect verb refused: the fact it requires was never
+   *  established (task 11) — `data` names `{verb, fact}` */
+  EFFECT_CONTRACT_VIOLATION: "effect_contract_violation",
 } as const;
 
 export type FlowEventType = (typeof FLOW_EVENT_TYPE)[keyof typeof FLOW_EVENT_TYPE];

@@ -37,6 +37,10 @@ export const EVENT_KIND = {
    *  only `pending`/`failed` nodes accept the edit, the feed renders the
    *  changed keys, and the next run re-reads the edited snapshot */
   CONFIG_UPDATED: "config_updated",
+  /** a declared effect verb refused to run: the fact it requires was never
+   *  established (task 11, the effect-layer analogue of
+   *  `input_contract_violation`) — `data` names `{verb, fact}` */
+  EFFECT_CONTRACT_VIOLATION: "effect_contract_violation",
 } as const;
 
 export type EventKind = (typeof EVENT_KIND)[keyof typeof EVENT_KIND];

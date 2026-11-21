@@ -1,17 +1,19 @@
 import "server-only";
 
 import { pinnedProcessService } from "../../../../composition/processServices";
+import { engineParts } from "../../../../composition/container";
+import { mergeRequests } from "../../../nodes/kinds/mergeRequest/mergeRequestExports";
 import { EFFECT_VERB, type EffectVerb } from "../constants/effectVerbs";
 import { FACT_KIND } from "../../../facts/types/facts";
 import { VerbRegistry } from "../verbRegistry";
 import type { VerbDescriptor } from "./types/verbDescriptor";
 import { VerbNotWiredError } from "./verbNotWiredError";
+import { CreateChangeRequest } from "./createChangeRequest";
 
 /**
- * The verb descriptors registered at engine boot (task 10). The registry's
- * shape is final — the two verbs' `run` implementations are the stub seams
- * tasks 11 (`create_change_request` over `MergeRequestService`) and 19
- * (`publish_diff` over the review posting) replace; nothing else changes.
+ * The verb descriptors registered at engine boot (tasks 10/11). The registry's
+ * shape is final — `create_change_request` wraps `MergeRequestService` (task
+ * 11); `publish_diff`'s `run` is still the stub seam task 19 replaces.
  */
 
 /** Interim stub run: the verb's implementation has not landed yet — throw
@@ -20,10 +22,27 @@ const notWiredYet = (id: EffectVerb) => async (): Promise<boolean> => {
   throw new VerbNotWiredError(id);
 };
 
+/** The wired `create_change_request` verb. The collaborators are the shared
+ *  module pins (the `mergeRequests`/`engineParts` precedent — DB-fenced, so
+ *  per-module-graph copies cannot disagree); the flow context loads through
+ *  the engine facade's read model, dereferenced at CALL time — this module
+ *  sits inside the engine's boot import graph, so a wiring-time dereference
+ *  would read the still-initializing pin. */
+const createChangeRequest = new CreateChangeRequest(
+  EFFECT_VERB.CREATE_CHANGE_REQUEST,
+  mergeRequests,
+  async (flowId) => {
+    const { flowEngine } = await import("../../../flowEngine");
+    return flowEngine.ctx(flowId);
+  },
+  engineParts.facts,
+  engineParts.events,
+);
+
 const CREATE_CHANGE_REQUEST: VerbDescriptor = {
   id: EFFECT_VERB.CREATE_CHANGE_REQUEST,
   requiredFacts: [FACT_KIND.BRANCH],
-  run: notWiredYet(EFFECT_VERB.CREATE_CHANGE_REQUEST),
+  run: (ctx) => createChangeRequest.run(ctx),
 };
 
 const PUBLISH_DIFF: VerbDescriptor = {
