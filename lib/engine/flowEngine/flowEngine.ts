@@ -36,6 +36,9 @@ import { engineParts, type EngineParts } from '../../composition/container';
 import { ConflictError, NotFoundError, ValidationError } from '../../errors';
 import { CommentIngestor } from '../runtime/commentIngestor';
 import { StageRunner } from '../runtime/staging/stageRunner';
+import { StageGateRegistry } from '../runtime/staging/stageGateRegistry';
+import { registerFanoutStageGate } from '../runtime/fanout/fanoutStageGate';
+import { registerSplitStageGate } from '../runtime/split/splitStageGate';
 import { BgRunner } from '../runtime/bgRunner';
 import { FlowFactory } from '../runtime/flowFactory';
 import type { CreateFlowOptions } from '../runtime/types/flowFactory';
@@ -59,6 +62,8 @@ export class FlowEngine {
   readonly chain: SdlcChain;
   /** the effect/join layer (step 07, Invariant 8) — what happens after a stage/child/approval finishes, registered at this engine's boot */
   readonly effects: EffectRegistry;
+  /** the stage-ownership gate axis (task 24, finding E1) — who owns a node's stage, registered at this engine's boot; the StageRunner consults it instead of chaining runtime imports */
+  readonly stageGates: StageGateRegistry;
   private readonly waits: WaitStore;
   private readonly stages: StageRunner;
   private readonly readModel: FlowReadModel;
@@ -97,7 +102,14 @@ export class FlowEngine {
     this.effects = new EffectRegistry();
     // task 10: the declarative effect verbs (shared registry) + their config-decided wildcard dispatch (Invariant F1/F3)
     registerDeclarativeEffects(this.effects, verbRegistry, this);
-    this.stages = new StageRunner(this, this.waits, parts.events, this.effects, parts.contracts);
+    // the stage-ownership gate axis (task 24, finding E1): the fan-out and
+    // split runtimes register their expansion gates at this boot point — one
+    // registry per engine instance; the REGISTRATION ORDER is the evaluation
+    // order and preserves the old literal chain (fan-out first, then split)
+    this.stageGates = new StageGateRegistry();
+    registerFanoutStageGate(this.stageGates, stepFlows);
+    registerSplitStageGate(this.stageGates, splitManager);
+    this.stages = new StageRunner(this, this.waits, parts.events, this.effects, parts.contracts, this.stageGates);
     this.readModel = new FlowReadModel(this.waits);
     this.factory = new FlowFactory(this, parts.nodeStore);
     this.comments = new CommentIngestor(this, this.waits);

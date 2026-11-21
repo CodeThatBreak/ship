@@ -10,8 +10,6 @@ import { buildFlowContext, type FlowContextMap } from "../../context/flowVariabl
 import { evalJsonata } from "@/lib/jsonata/eval";
 import type { FlowCtx } from "../../nodes/shared/nodeSharedExports";
 import { templateStore, type TemplateGraph } from "../../templates/templateStore";
-import { stepFlows } from "../fanout/stepFlowManager";
-import { splitManager } from "../split/splitManager";
 import { EffectRegistry } from "../effects/effectRegistry";
 import { EFFECT_LIFECYCLE } from "../effects/constants/effectLifecycles";
 import type { EffectCtx } from "../effects/types/nodeEffects";
@@ -24,6 +22,7 @@ import type { ContractPipeline } from "../contractPipeline";
 import { ConditionEvaluator } from "./conditionEvaluator";
 import { InputMaterializer } from "./inputMaterializer";
 import { LoopJoin } from "./loopJoin";
+import type { StageGateRegistry } from "./stageGateRegistry";
 import { DEFAULT_LOOP_JOIN_DESCRIPTOR } from "./constants/loopJoin";
 
 /**
@@ -55,6 +54,7 @@ export class StageRunner {
     private readonly events: TransitionEvents,
     private readonly effects: EffectRegistry,
     private readonly contracts: ContractPipeline,
+    private readonly gates: StageGateRegistry,
   ) {
     this.conditions = new ConditionEvaluator(host, events);
     this.inputs = new InputMaterializer(host, events);
@@ -179,20 +179,18 @@ export class StageRunner {
     if (!claim.started) return;
     try {
       const def = await this.host.defOf(flowId, nodeKey);
-      // ── stage-ownership gates (step 07): the runtimes own their expansion
-      // decisions — this runner carries no fan-out/split logic, only the
-      // delegation. The fan-out knob outranks the split consume (documented
-      // conflict rule; the shadowed-knob trail event lives inside the gate).
-      // `whole-wrap` runs the def's normal whole path and wraps the native
-      // output as a single-entry aggregate afterwards; `fanout` expands into
-      // child flows and owns the node (the aggregate + terminal transition
-      // happen on all-resolved, through the registry's roll-up).
-      const fanout = await stepFlows.gate(flowId, nodeKey);
-      if (fanout === "fanout") {
-        await stepFlows.expand(flowId, nodeKey);
-        return;
-      }
-      if (fanout == null && (await splitManager.stageGate(flowId, nodeKey))) return;
+      // ── stage-ownership gates (task 24): the registered axis answers "who
+      // owns this node's stage" — the fan-out and split runtimes register
+      // their gates at engine boot; a third runtime registers and never
+      // edits this file (finding E1). "own" = a gate ran the stage (the def
+      // run is skipped); { run, afterRun } = the def's normal whole path runs
+      // and the gate post-processes its output (the fan-out whole-wrap
+      // aggregate — the fan-out knob outranking the split consume, and the
+      // shadowed-knob trail event, live inside the gates); every gate
+      // answering "run" is the frozen default whole path. The gates claim
+      // through the same gateway — only the dispatch indirection moved.
+      const gate = await this.gates.resolve(flowId, nodeKey);
+      if (gate === "own") return;
       const runs =
         opts.rawInput !== undefined
           ? [{ input: opts.rawInput }]
@@ -206,7 +204,7 @@ export class StageRunner {
         await this.host.runNode(flowId, nodeKey, run.input, opts.rawPayload);
         run.after?.();
       }
-      if (fanout === "whole-wrap") await stepFlows.wrapWholeOutput(flowId, nodeKey);
+      if (typeof gate === "object") await gate.afterRun();
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : String(e);
       // a typed contract violation already emitted its own
