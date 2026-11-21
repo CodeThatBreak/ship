@@ -10,8 +10,8 @@
  * single seam until its consumers collapse onto `@/lib/groupEvents` (Phase 6
  * checklist).
  */
-import type { ChatMessage } from "@/hooks/useFlowChat";
-import { FLOW_STATUS } from "@/constants/flow";
+import type { ChatMessage } from '@/hooks/useFlowChat';
+import { FLOW_STATUS } from '@/constants/flow';
 import {
   eventGrouper,
   flowEventNodeKeys,
@@ -20,16 +20,16 @@ import {
   type FeedItem,
   type RunSection,
   type ToolCall,
-} from "../../lib/groupEvents";
+} from '../../lib/groupEvents';
 
 // Re-exported so the chat subcomponents can type against them without each
 // importing lib/groupEvents (Phase 6 conflict stays isolated to this module).
 export type { FeedEvent, FeedGroup, FeedItem, RunSection, ToolCall };
 
 export type TimelineRow =
-  | { kind: "msg"; t: number; msg: ChatMessage }
-  | { kind: "run"; t: number; section: RunSection }
-  | { kind: "event"; t: number; ev: FeedEvent };
+  | { kind: 'msg'; t: number; msg: ChatMessage }
+  | { kind: 'run'; t: number; section: RunSection }
+  | { kind: 'event'; t: number; ev: FeedEvent };
 
 /** Sort key for a run section: while it's running it sits at the time it started
  *  (the block is open/live); a finished section floats to its last event's time,
@@ -43,12 +43,11 @@ export function sectionSortKey(s: RunSection): number {
 function sectionLastTime(s: RunSection): string {
   for (let i = s.items.length - 1; i >= 0; i--) {
     const it = s.items[i];
-    if (it.kind === "event") return it.event.createdAt;
-    if (it.kind === "tool")
-      return it.tool.events[it.tool.events.length - 1].createdAt;
-    if (it.kind === "group") return it.group.lastAt;
+    if (it.kind === 'event') return it.event.createdAt;
+    if (it.kind === 'tool') return it.tool.events[it.tool.events.length - 1].createdAt;
+    if (it.kind === 'group') return it.group.lastAt;
   }
-  return s.startedAt ?? "";
+  return s.startedAt ?? '';
 }
 
 /** The flow's messages scoped to one node and one thread (nodeKey empty =
@@ -57,14 +56,15 @@ function sectionLastTime(s: RunSection): string {
 export function selectNodeMessages(
   messages: ChatMessage[] | undefined,
   nodeKey: string,
-  thread: string | null = null,
+  thread: string | null = null
 ): ChatMessage[] {
+  console.log('selectNodeMessages', messages);
   return (messages ?? []).filter(
-    (m) =>
+    m =>
       (!m.nodeKey || m.nodeKey === nodeKey) &&
       // flow-level messages are unthreaded — a refinement tab only shows its
       // node's turns, the main tab only shows unthreaded ones
-      (m.thread ?? null) === thread,
+      (m.thread ?? null) === thread
   );
 }
 
@@ -78,16 +78,16 @@ export function nodeRunSections(
   events: FeedEvent[],
   nodeKeysByNodeId: Map<string, string> | undefined,
   nodeStatusByNodeId: Map<string, string> | undefined,
-  nodeKey: string,
+  nodeKey: string
 ): RunSection[] {
   return eventGrouper
     .group(events, nodeKeysByNodeId)
-    .map((s) => {
+    .map(s => {
       if (!s.active) return s;
-      const status = nodeStatusByNodeId?.get(s.nodeId ?? "");
+      const status = nodeStatusByNodeId?.get(s.nodeId ?? '');
       return status && status !== FLOW_STATUS.RUNNING ? { ...s, active: false } : s;
     })
-    .filter((s) => s.nodeKey === nodeKey);
+    .filter(s => s.nodeKey === nodeKey);
 }
 
 /** Interleave the node's messages, run sections and relevant flow-level events
@@ -96,15 +96,14 @@ export function buildTimelineRows(
   nodeMsgs: ChatMessage[],
   sections: RunSection[],
   events: FeedEvent[],
-  nodeKey: string,
+  nodeKey: string
 ): TimelineRow[] {
-  const out: TimelineRow[] = nodeMsgs.map((m) => ({
-    kind: "msg",
+  const out: TimelineRow[] = nodeMsgs.map(m => ({
+    kind: 'msg',
     t: Date.parse(m.createdAt),
     msg: m,
   }));
-  for (const s of sections)
-    out.push({ kind: "run", t: sectionSortKey(s), section: s });
+  for (const s of sections) out.push({ kind: 'run', t: sectionSortKey(s), section: s });
   // flow-level events (nodeId = null: MR pushes, pipeline results, checklist
   // edits, resolve queueing) are mapped to the node they belong to so each
   // tab only shows activity relevant to it; anything unmatched (infra errors)
@@ -112,10 +111,10 @@ export function buildTimelineRows(
   // skipped — the chat feed starts with the user's first message.
   for (const e of events) {
     if (e.nodeId != null) continue;
-    if (/^flow created\b/i.test(e.message ?? "")) continue;
+    if (/^flow created\b/i.test(e.message ?? '')) continue;
     const relevantTo = flowEventNodeKeys(e);
     if (relevantTo && !relevantTo.includes(nodeKey)) continue;
-    out.push({ kind: "event", t: Date.parse(e.createdAt), ev: e });
+    out.push({ kind: 'event', t: Date.parse(e.createdAt), ev: e });
   }
   return out.sort((a, b) => a.t - b.t);
 }

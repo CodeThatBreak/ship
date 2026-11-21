@@ -17,7 +17,9 @@ const ChatBody = z.object({
 
 export const GET = async (_req: Request, { params }: { params: Promise<{ id: string }> }) => {
   const { id } = await params;
-  return NextResponse.json({ messages: db.listMessages(id) });
+  // listMessages is async (Prisma) — await it, otherwise JSON.stringify turns
+  // the Promise into `{}` and the client's `messages ?? []` guard never fires
+  return NextResponse.json({ messages: await db.listMessages(id) });
 };
 
 export const POST = async (req: Request, { params }: { params: Promise<{ id: string }> }) => {
