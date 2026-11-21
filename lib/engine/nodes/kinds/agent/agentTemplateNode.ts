@@ -26,6 +26,8 @@ import { resolveStartingRef } from "./baseRefResolver";
 import { retryBudgetOf } from "./retryBudget";
 import { AGENT_CONFIG_FIELDS } from "./constants/agentConstantsExports";
 import { AGENT_START_LABEL } from "./constants/startLabel";
+import { AGENT_TOOL_DESCRIPTORS } from "../../../agentTools/constants/agentTools";
+import type { AgentToolName, ToolDescriptor } from "../../../agentTools/types/tools";
 import { AgentRunInput, agentOutputContract } from "./schema";
 import { FACT_KIND } from "../../../facts/types/facts";
 import {
@@ -133,6 +135,26 @@ export class AgentTemplateNode extends DeclarativeAgentNode<AgentDef, Record<str
    * clickable chips.
    */
   override readonly configFields = AGENT_CONFIG_FIELDS;
+
+  /**
+   * Task 13 (Invariant 10): the declarative agent kind's kind-level allowlist
+   * is the FULL built-in tool vocabulary (the descriptors record — the same
+   * source every allowlist renders from); the per-node `agent_tools` config
+   * is the policy that narrows it. Overriding here (not on the shared
+   * declarative tier) keeps decision nodes' tier default untouched. The
+   * AgentToolService enforces the same narrowing (`agentTools()` ∩ declared),
+   * so the prompt's tools block and the enforced capability cannot drift.
+   */
+  override agentTools(): ToolDescriptor[] {
+    const declared = new Set(this.def.agent_tools);
+    return Object.values(AGENT_TOOL_DESCRIPTORS).filter((tool) => declared.has(tool.name));
+  }
+
+  /** The declared set the AgentToolService intersects the kind's allowlist
+   *  with (the authorize seam — task 13, Invariant 10). */
+  override declaredAgentTools(): readonly AgentToolName[] {
+    return this.def.agent_tools;
+  }
 
   /**
    * Live prompt preview (step 05): the composed prompt a fresh run would

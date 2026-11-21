@@ -18,8 +18,18 @@ const { NODE_STATUS } = await import("../constants/nodeStatus");
 const { EVENT_KIND } = await import("../constants/vocabulary");
 const { AGENT_TOOL } = await import("./constants/agentTools");
 const { planSteps } = await import("../runtime/planStepStore");
+const { templateStore } = await import("../templates/templateStore");
+const { db } = await import("../../db/app");
+// wires the declarative resolver — the def-key resolution authorize() rides
+await import("../nodes/declarativeBootstrap");
+const { registerFakeGitHost } = await import("@/tests/helpers/fakeGitHost");
 
-beforeAll(resetTestDatabase);
+let git: import("@/tests/helpers/fakeGitHost").FakeGitHost;
+
+beforeAll(async () => {
+  await resetTestDatabase();
+  git = registerFakeGitHost();
+});
 
 const now = () => new Date().toISOString();
 
@@ -137,6 +147,92 @@ describe("agentToolService", () => {
     await expect(dispatch(seed, AGENT_TOOL.REPORT_FAILURE, { reason: "again" }))
       .rejects.toMatchObject({ status: 409 });
     expect(await engineParts.nodeSupport.nodeStatus(seed.nodeId)).toBe(NODE_STATUS.RUNNING);
+  });
+
+  // ── task 13: `create_change_request` tool + per-node `agent_tools` ────────
+
+  /** A declarative agent node claimed through the real authority — the same
+   *  seedAttempt discipline, with the node's def key pointing at a seeded
+   *  `node_templates` row whose config carries the declared `agent_tools`. */
+  const seedAgentNodeAttempt = async (index: number, agentTools: string[] | null): Promise<Seed> => {
+    const template = await templateStore.createNodeTemplate({
+      key: `agent_tools_fixture_${index}`,
+      name: `Agent tools fixture ${index}`,
+      kind: "agent",
+      config: {
+        mode: "plan",
+        prompt: "do the work",
+        output: "markdown",
+        ...(agentTools ? { agent_tools: agentTools } : {}),
+      },
+    });
+    const flowId = `flw_at_${index}`;
+    const nodeId = `node_at_${index}`;
+    const nodeKey = "changelog";
+    await testRun(
+      `INSERT INTO tasks (id, type, key, summary, status, issue_type, priority) VALUES ($1,$2,$3,$4,$5,$6,$7)`,
+      `task_at_${index}`, "generic", `TST-${index}`, "agent tools", "open", "story", "P2",
+    );
+    await testRun(
+      `INSERT INTO flows (id, task_id, name, status, execution_mode, created_at, updated_at) VALUES ($1,$2,$3,$4,$5,$6,$7)`,
+      flowId, `task_at_${index}`, `tools ${index}`, "active", "cloud", now(), now(),
+    );
+    await testRun(
+      `INSERT INTO nodes (id, flow_id, node_key, type, status, created_at, updated_at) VALUES ($1,$2,$3,$4,$5,$6,$7)`,
+      nodeId, flowId, nodeKey, template.id, NODE_STATUS.PENDING, now(), now(),
+    );
+    const claim = await engineParts.transitions.claim(flowId, nodeKey, "runFromPending");
+    await engineParts.nodeSupport.registerStartupRun(flowId, nodeId, claim.attemptId, claim.apiToken);
+    return { flowId, nodeId, nodeKey, apiToken: claim.apiToken };
+  };
+
+  /** A branch fact the verb targets (fixture setup; the verb test's insert). */
+  const seedBranchFact = async (flowId: string, name: string): Promise<void> => {
+    await testRun(
+      `INSERT INTO branches (id, flow_id, name, git_branch, title, status, created_at, updated_at)
+       VALUES ($1,$2,$3,$3,$3,'building',$4,$4)`,
+      db.uid("br_"), flowId, name, now(),
+    );
+  };
+
+  const mrCreateJobs = (flowId: string) =>
+    testAll<{ status: string }>(`SELECT status::text AS status FROM jobs WHERE flow_id=$1 AND kind='mr_create'`, flowId);
+
+  it("create_change_request runs the SAME verb under the attempt claim for a node that declares it", async () => {
+    const seed = await seedAgentNodeAttempt(9, ["read_flow_state", "create_change_request"]);
+    await seedBranchFact(seed.flowId, "feat/changelog");
+
+    const result = await dispatch(seed, AGENT_TOOL.CREATE_CHANGE_REQUEST) as { requested: boolean; created: boolean };
+    expect(result).toEqual({ requested: true, created: true });
+
+    // the engine — not agent prose — established the change_request fact: the
+    // host saw exactly one create, the branch row carries it, the journal job
+    // completed in the persist transaction
+    const creates = git.calls.filter((c) => c.kind === "createChangeRequest");
+    expect(creates).toHaveLength(1);
+    expect(creates[0]?.input.sourceBranch).toBe("feat/changelog");
+    const branch = await testGet<{ mr_iid: number | null; status: string }>(
+      `SELECT mr_iid, status::text AS status FROM branches WHERE flow_id=$1 AND name='feat/changelog'`,
+      seed.flowId,
+    );
+    expect(branch?.mr_iid).not.toBeNull();
+    expect(branch?.status).toBe("approved");
+    const jobs = await mrCreateJobs(seed.flowId);
+    expect(jobs).toHaveLength(1);
+    expect(jobs[0]?.status).toBe("done");
+  });
+
+  it("create_change_request is denied with the typed authorization failure for a node that does not declare it", async () => {
+    const seed = await seedAgentNodeAttempt(10, null); // the schema default: read + report_failure only
+    const callsBefore = git.calls.length;
+
+    await expect(dispatch(seed, AGENT_TOOL.CREATE_CHANGE_REQUEST)).rejects.toMatchObject({ status: 403 });
+    // nothing ran: no host call, no journal job — the deny precedes any effect
+    expect(git.calls.length).toBe(callsBefore);
+    expect(await mrCreateJobs(seed.flowId)).toHaveLength(0);
+    // the default preserves today's behavior exactly
+    await expect(dispatch(seed, AGENT_TOOL.READ_FLOW_STATE)).resolves.toBeTruthy();
+    await expect(dispatch(seed, AGENT_TOOL.REPORT_FAILURE, { reason: "tests fail" })).resolves.toBeTruthy();
   });
 });
 

@@ -19,6 +19,12 @@ export const agentToolCallSchema = z.discriminatedUnion("tool", [
     reason: z.string().min(1).max(2000),
     detail: z.string().max(8000).optional(),
   }),
+  z.object({
+    tool: z.literal(AGENT_TOOL.CREATE_CHANGE_REQUEST),
+    /** optional override naming an established branch fact; absent = the
+     *  flow's latest branch fact (the verb's own default) */
+    branchName: z.string().min(1).optional(),
+  }),
 ]);
 
 export type AgentToolCallPayload = z.infer<typeof agentToolCallSchema>;

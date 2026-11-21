@@ -21,6 +21,7 @@ import { ToolRegistry } from "../engine/agentTools/toolRegistry";
 import { ReadFlowStateTool } from "../engine/agentTools/tools/readFlowStateTool";
 import { ClaimChecklistProgressTool } from "../engine/agentTools/tools/claimChecklistProgressTool";
 import { ReportFailureTool } from "../engine/agentTools/tools/reportFailureTool";
+import { CreateChangeRequestTool } from "../engine/agentTools/tools/createChangeRequestTool";
 import { AgentToolService } from "../engine/agentTools/agentToolService";
 import { FactStore } from "../engine/facts/factStore";
 import { branchStore } from "../engine/nodes/kinds/build/branchStore";
@@ -102,6 +103,16 @@ export const createEngineParts = (): EngineParts => {
   agentToolRegistry.register(new ReadFlowStateTool(nodeStore, planSteps, nodeSupport));
   agentToolRegistry.register(new ClaimChecklistProgressTool(planSteps, db));
   agentToolRegistry.register(new ReportFailureTool(transitions, db));
+  // task 13 (C4): the agent's create-MR tool runs the SAME verb the
+  // declarative effects dispatch — the verb-run seam is injected with a
+  // call-time import because verbWiring's module init dereferences the
+  // engine pins (a static import here would cycle the boot graph)
+  agentToolRegistry.register(
+    new CreateChangeRequestTool(async (verb, ctx) => {
+      const { verbRegistry } = await import("../engine/runtime/effects/verbs/verbWiring");
+      return verbRegistry.run(verb, ctx);
+    }),
+  );
   const agentTools = new AgentToolService(nodeSupport, transitions, agentToolRegistry);
   // task 06 (design §4.1): the fact vocabulary over the existing homes —
   // branch rows, diff artifacts, flow MR columns

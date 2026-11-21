@@ -17,6 +17,7 @@ import {
   HTTP_METHODS,
   SCRIPT_RUNTIMES,
 } from "../../constants/declarative";
+import { AGENT_TOOL, AGENT_TOOL_NAMES } from "../../agentTools/constants/agentTools";
 
 /** Closed value sets live in `constants/declarative.ts`; re-exported here so
  *  this module's public surface is unchanged. */
@@ -120,6 +121,17 @@ export const AgentDefSchema = z.looseObject({
    * (Phase 3), never directly by a run.
    */
   produces: z.array(z.enum(PRODUCIBLE_FACTS)).default([]),
+  /**
+   * The engine tools this node's running agent may call (task 13, Invariant
+   * 10): the AgentToolService authorizes against the kind's `agentTools()`
+   * allowlist ∩ this declared set — a declaration can only narrow the kind's
+   * allowlist, never widen it. The default preserves today's behavior
+   * exactly (the agent-run tier's read + report_failure pair).
+   */
+  agent_tools: z.array(z.enum(AGENT_TOOL_NAMES)).default([
+    AGENT_TOOL.READ_FLOW_STATE,
+    AGENT_TOOL.REPORT_FAILURE,
+  ]),
   /** the declarative effects map (task 10) — see DeclarativeEffectsSchema */
   effects: DeclarativeEffectsSchema,
   /**

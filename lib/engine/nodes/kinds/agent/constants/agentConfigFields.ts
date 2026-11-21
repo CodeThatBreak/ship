@@ -3,6 +3,7 @@ import "server-only";
 import type { ConfigField } from "../../../../templates/nodeConfig";
 import { PRODUCIBLE_FACTS } from "../../../../facts/types/facts";
 import type { ProducibleFact } from "../../../../facts/types/facts";
+import { AGENT_TOOL_DESCRIPTORS, AGENT_TOOL_NAMES } from "../../../../agentTools/constants/agentTools";
 
 /**
  * The agent node's `base_ref` knob (Task 03): the ref the node's runs branch
@@ -56,6 +57,28 @@ export const producesConfigFields: readonly ConfigField[] = [
       value: kind,
       label: kind,
       description: PRODUCES_HELP[kind],
+    })),
+  },
+] as const;
+
+/**
+ * The agent node's `agent_tools` knob (task 13, Invariant 10): which engine
+ * tools the node's running agent may call. The AgentToolService enforces the
+ * intersection with the kind's `agentTools()` allowlist — a declaration can
+ * only narrow, never widen. Options come from the tool vocabulary
+ * (`AGENT_TOOL_DESCRIPTORS`), so the form and the enforced capability cannot
+ * drift.
+ */
+export const agentToolsConfigFields: readonly ConfigField[] = [
+  {
+    key: "agent_tools",
+    label: "Agent tools",
+    type: "multi",
+    help: "engine tools this node's running agent may call — intersected with the kind's allowlist (default: read_flow_state + report_failure)",
+    options: AGENT_TOOL_NAMES.map((name) => ({
+      value: name,
+      label: name,
+      description: AGENT_TOOL_DESCRIPTORS[name].description,
     })),
   },
 ] as const;

@@ -40,6 +40,8 @@ export interface AgentToolCall {
   /** report_failure */
   reason?: string;
   detail?: string;
+  /** create_change_request — the optional branch-fact override */
+  branchName?: string;
 }
 
 /**

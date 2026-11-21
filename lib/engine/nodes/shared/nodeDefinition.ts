@@ -7,8 +7,7 @@ import { flowCtxHelper } from "./runContext";
 import type { FlowContextHelper } from "./runContext/flowContextHelper";
 import type { FlowCtx } from "./runContext/types/flowContext";
 import type { NodeSupport } from "./nodeSupport";
-import { engineParts, nodeSupport } from "@/lib/composition/container";
-import type { SplitUnit } from "./split";
+import { nodeSupport } from "@/lib/composition/container";import type { SplitUnit } from "./split";
 import type { NodeCapabilities } from "./capabilities";
 import type { ConfigField } from "../../templates/nodeConfig";
 import { appLayerConfig, mergeConfigLayers, parseConfigSnapshot } from "../../templates/nodeConfig";
@@ -22,7 +21,7 @@ import { formatZodConfigError } from "./utils/formatZodConfigError";
 import type { ChainRole } from "./types/chainRole";
 import type { RunOutcome } from "./types/runOutcome";
 import type { NodeTriggerRun } from "./types/nodeTriggerRun";
-import type { QueryExecutor } from "../../../db/database";
+import { persistRunFacts } from "./nodeOutcomeFacts";
 
 /**
  * A workflow node type. The class owns everything specific to the node:
@@ -111,6 +110,17 @@ export abstract class NodeDefinition<I = unknown, O extends Record<string, unkno
    *  allowlist the service enforces and the prompt tools block's source. */
   agentTools(): ToolDescriptor[] {
     return [];
+  }
+
+  /**
+   * The node's own declared engine-tool set (task 13, Invariant 10) — the
+   * per-node `agent_tools` config the service intersects with `agentTools()`.
+   * Null = the kind has no per-node tool config, so the kind's allowlist
+   * governs alone (today's behavior, byte-for-byte). A declared set can only
+   * NARROW the kind's allowlist — the service enforces the intersection.
+   */
+  declaredAgentTools(): readonly ToolDescriptor["name"][] | null {
+    return null;
   }
 
   /**
@@ -367,7 +377,7 @@ export abstract class NodeDefinition<I = unknown, O extends Record<string, unkno
       if (outcome.artifact) {
         await this.support.saveArtifact(node.id, ctx.flow.id, outcome.artifact.kind, outcome.artifact.content, outcome.artifact.meta, undefined, tx);
       }
-      await this.persistFacts(ctx.flow.id, node.id, outcome, tx);
+      await persistRunFacts(ctx.flow.id, node.id, outcome, tx);
       await this.support.publishOutcome({
         flowId: ctx.flow.id,
         nodeKey: node.nodeKey,
@@ -384,25 +394,6 @@ export abstract class NodeDefinition<I = unknown, O extends Record<string, unkno
         opts?.note ? `${outcome.event} (${opts.note})` : outcome.event, outcome.eventData, tx);
     });
     return { ...outcome, output: validatedOutput as Record<string, unknown> };
-  }
-
-  /**
-   * The fact side-channel's persistence (Task 07, Invariant F2): the run's
-   * captured git facts ride the terminal batch — `branch` facts upsert the
-   * branch rows, `diff` facts save `kind: "diff"` artifacts — inside the
-   * same transaction as the outcome's own writes. The payloads were captured
-   * from git BEFORE the batch (the stepRollup precedent): git I/O never
-   * joins a transaction.
-   */
-  private async persistFacts(flowId: string, nodeId: string, outcome: RunOutcome, tx: QueryExecutor): Promise<void> {
-    const facts = outcome.facts;
-    if (!facts) return;
-    for (const branch of facts.branches) {
-      await engineParts.facts.recordBranch(flowId, branch, tx);
-    }
-    for (const diff of facts.diffs) {
-      await engineParts.facts.recordDiff(flowId, nodeId, diff, tx);
-    }
   }
 
   /**

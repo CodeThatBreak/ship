@@ -17,7 +17,8 @@ import { ForbiddenError, NotFoundError, UnauthorizedError } from "../../errors";
  * AgentToolService (step 08, Invariant 10) — the ONE door for a running
  * agent's self-repair calls: authenticate (per-attempt capability token →
  * the run row → the node row), authorize (the node kind's `agentTools()`
- * allowlist), dispatch (the ToolRegistry). Transport-agnostic — the REST
+ * allowlist ∩ the node's declared `agent_tools` — task 13, Invariant 10),
+ * dispatch (the ToolRegistry). Transport-agnostic — the REST
  * route is today's adapter; an MCP server can ride the same service later.
  *
  * Must never: authenticate against anything but the attempt's own run row
@@ -103,13 +104,20 @@ export class AgentToolService {
     ) ?? null;
   }
 
-  /** The node kind's declared allowlist decides what its agent may call.
-   *  The registry import is lazy (same construction-cycle break NodeStore
-   *  documents: container → agentTools → registry → kinds → container). */
+  /** The node kind's declared allowlist decides what its agent may call —
+   *  intersected with the node's own declared `agent_tools` set (task 13,
+   *  Invariant 10): a def that exposes per-node config can only NARROW the
+   *  kind's allowlist, never widen it (a def without per-node config — null
+   *  — keeps the kind's allowlist alone, today's behavior). The registry
+   *  import is lazy (same construction-cycle break NodeStore documents:
+   *  container → agentTools → registry → kinds → container). */
   private async authorize(auth: AgentToolAuth, tool: AgentToolName): Promise<void> {
     const { nodeRegistry } = await import("../nodes/registry");
     const def = await nodeRegistry.resolve(auth.defKey, auth.nodeKey);
-    const allowed = def.agentTools().some((t) => t.name === tool);
+    const declared = def.declaredAgentTools();
+    const allowed = def.agentTools().some(
+      (t) => t.name === tool && (declared == null || declared.includes(tool)),
+    );
     if (!allowed) {
       throw new ForbiddenError(`tool ${tool} is not available to the ${def.label} node`);
     }
@@ -121,6 +129,8 @@ export class AgentToolService {
         return { tool: payload.tool, stepIds: payload.stepIds };
       case AGENT_TOOL.REPORT_FAILURE:
         return { tool: payload.tool, reason: payload.reason, detail: payload.detail };
+      case AGENT_TOOL.CREATE_CHANGE_REQUEST:
+        return { tool: payload.tool, branchName: payload.branchName };
       default:
         return { tool: payload.tool };
     }
