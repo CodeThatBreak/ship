@@ -1,6 +1,7 @@
 import "server-only";
 
 import { db } from "../../../db/app";
+import { ACTIVITY_GROUP } from "@/constants/events";
 import { NODE_LEASE_SECONDS } from "../../constants/leases";
 
 /**
@@ -35,7 +36,13 @@ export class WorktreeActivity {
   ): Promise<Record<string, unknown> | undefined> {
     const nodeKey = await this.nodeKeyFor(flowId, nodeId);
     if (!nodeKey && !extra) return undefined;
-    return { ...(extra ?? {}), ...(nodeKey ? { nodeKey } : {}) };
+    // one feed section for the whole worktree lifecycle — setup and creation
+    // can be minutes apart, which the plain gap heuristic would split apart
+    return {
+      ...(extra ?? {}),
+      ...(nodeKey ? { nodeKey } : {}),
+      activityGroup: ACTIVITY_GROUP.WORKTREE,
+    };
   }
 
   /**

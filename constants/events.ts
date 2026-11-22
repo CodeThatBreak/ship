@@ -33,6 +33,24 @@ export const FLOW_EVENT_TYPE = {
 
 export type FlowEventType = (typeof FLOW_EVENT_TYPE)[keyof typeof FLOW_EVENT_TYPE];
 
+/**
+ * Optional grouping key stamped into event data by emitters that know their
+ * events belong together even when the work spans gaps longer than the
+ * activity feed's run-section heuristic (e.g. worktree setup → created →
+ * deps ready). The feed keeps every event with the same group + node in one
+ * section instead of scattering them across several "<node> activity" blocks.
+ */
+export const ACTIVITY_GROUP = {
+  WORKTREE: "worktree",
+} as const;
+
+export type ActivityGroup = (typeof ACTIVITY_GROUP)[keyof typeof ACTIVITY_GROUP];
+
+/** Section heading shown for each activity group. */
+export const ACTIVITY_SECTION_LABEL: Record<ActivityGroup, string> = {
+  [ACTIVITY_GROUP.WORKTREE]: "Worktree related",
+};
+
 /** Plan step / branch merge rollup statuses (STEP_MERGE_STATUSES on the wire). */
 export const MERGE_STATUS = {
   RUNNING: "running",

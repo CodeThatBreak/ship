@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
+import { ACTIVITY_GROUP } from '@/constants/events';
 import { db } from '../../../db/app';
 import { NODE_LEASE_SECONDS } from '../../constants/leases';
 import { WorktreeActivity } from './worktreeActivity';
@@ -14,6 +15,7 @@ describe('WorktreeActivity lifecycle events (CR-073)', () => {
     expect(findFirst).toHaveBeenCalled();
     expect(data?.nodeKey).toBe('build');
     expect(data?.nodeKey).not.toBe('node-row-id');
+    expect(data?.activityGroup).toBe(ACTIVITY_GROUP.WORKTREE);
     findFirst.mockRestore();
   });
 

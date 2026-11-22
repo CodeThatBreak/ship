@@ -7,8 +7,12 @@
  * events into single invocation rows.
  *
  * New events carry `data.run_id`; for rows written before that, we fall back to
- * node + contiguity + a <30s gap heuristic.
+ * node + contiguity + a <30s gap heuristic. Emitters can also stamp
+ * `data.activityGroup` (e.g. the worktree lifecycle) to force otherwise loose
+ * events into one named section regardless of gaps.
  */
+
+import { ACTIVITY_GROUP, ACTIVITY_SECTION_LABEL, type ActivityGroup } from "@/constants/events";
 
 export interface FeedEvent {
   id: string;
@@ -109,6 +113,14 @@ export class EventGrouper {
     return typeof runId === "string" ? runId : undefined;
   }
 
+  /** Emitter-declared activity group, when it is one the feed knows about. */
+  private activityGroupOf(e: FeedEvent): ActivityGroup | undefined {
+    const raw = this.parseData(e).activityGroup;
+    return typeof raw === "string"
+      ? Object.values(ACTIVITY_GROUP).find((group) => group === raw)
+      : undefined;
+  }
+
   /** Group ordered events into run sections. */
   group(events: FeedEvent[], nodeKeysByNodeId?: Map<string, string>): RunSection[] {
     const sections: RunSection[] = [];
@@ -123,6 +135,31 @@ export class EventGrouper {
       const d = this.parseData(e);
       const nodeKey = this.nodeKeyOf(e, nodeKeysByNodeId);
       const runId = this.runIdOf(e);
+
+      // ── emitter-declared activity groups ───────────────────────────────
+      // One stable section per group + node. Worktree setup and creation can
+      // be minutes apart (git worktree add + deps copy), so the generic
+      // node/contiguity/gap heuristic would otherwise show two "<node>
+      // activity" blocks for what is a single piece of work.
+      const activityGroup = this.activityGroupOf(e);
+      if (activityGroup) {
+        const key = `activity_${activityGroup}_${e.nodeId ?? "flow"}`;
+        let section = sections.find((s) => s.key === key);
+        if (!section) {
+          section = {
+            key,
+            nodeId: e.nodeId,
+            nodeKey: eventString(d.nodeKey) ?? nodeKey,
+            label: ACTIVITY_SECTION_LABEL[activityGroup],
+            startedAt: e.createdAt,
+            active: false,
+            items: [],
+          };
+          sections.push(section);
+        }
+        this.addToSection(section, e);
+        continue;
+      }
 
       // ── section boundaries ─────────────────────────────────────────────
       const startsRun = e.type === "lifecycle" && /started/.test(e.message ?? "") && runId;
