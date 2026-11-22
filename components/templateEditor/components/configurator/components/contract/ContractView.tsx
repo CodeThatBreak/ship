@@ -4,9 +4,10 @@
  * inputs (each connected parent's published outputs) and the node's own
  * published outputs, as declared by the contract.
  */
-import { ListChecks } from "lucide-react";
+import { Info, ListChecks } from "lucide-react";
 import { Badge } from '../../../../../ui/badge';
 import { Skeleton } from '../../../../../ui/skeleton';
+import { Tooltip, TooltipContent, TooltipTrigger } from '../../../../../ui/tooltip';
 import type { EditorNode, NodeContract } from '../../../../types';
 import type { UpstreamGroup } from '../../hooks/useUpstreamGroups';
 import { schemaRows } from '../../../../variables';
@@ -27,7 +28,19 @@ export function ContractView({
     <div className="grid gap-4">
       <section>
         <h4 className="text-[12.5px] font-medium mb-1.5 flex items-center gap-1.5">
-          <ListChecks size={13} /> Inputs — inherited from the upstream nodes
+          <ListChecks size={13} /> Inputs
+          <Tooltip>
+            <TooltipTrigger
+              render={
+                <span className="inline-flex cursor-help text-muted-foreground hover:text-foreground transition-colors">
+                  <Info size={12} />
+                </span>
+              }
+            />
+            <TooltipContent className="max-w-[300px] whitespace-normal text-left leading-relaxed">
+              Inherited from the upstream nodes.
+            </TooltipContent>
+          </Tooltip>
         </h4>
         {groups.length === 0 && (
           <p className="text-[12px] text-muted-foreground m-0">
@@ -54,7 +67,19 @@ export function ContractView({
       </section>
       <section>
         <h4 className="text-[12.5px] font-medium mb-1.5 flex items-center gap-1.5">
-          <ListChecks size={13} /> Outputs — published to the flow
+          <ListChecks size={13} /> Outputs
+          <Tooltip>
+            <TooltipTrigger
+              render={
+                <span className="inline-flex cursor-help text-muted-foreground hover:text-foreground transition-colors">
+                  <Info size={12} />
+                </span>
+              }
+            />
+            <TooltipContent className="max-w-[300px] whitespace-normal text-left leading-relaxed">
+              Published to the flow.
+            </TooltipContent>
+          </Tooltip>
         </h4>
         <ContractTable rows={rows} empty="No declared output fields." />
         {(() => {
@@ -113,17 +138,15 @@ function ContractTable({
  * placeholders matching ContractTable's layout.
  */
 function ContractViewSkeleton() {
-  const sections = [
-    "Inputs — inherited from the upstream nodes",
-    "Outputs — published to the flow",
-  ];
+  const sections = ["Inputs", "Outputs"];
   return (
     <div className="grid gap-4" aria-hidden>
       {sections.map((title) => (
         <section key={title}>
           <div className="flex items-center gap-1.5 mb-1.5">
             <Skeleton className="size-3.5" />
-            <Skeleton className="h-3.5 w-64" />
+            <Skeleton className="h-3.5 w-20" />
+            <Skeleton className="size-3" />
           </div>
           <div className="border border-border rounded-lg overflow-hidden">
             {Array.from({ length: 3 }, (_, i) => (

@@ -56,8 +56,8 @@ export function InputsTab({
 
   return (
     <div className="grid gap-3">
-      <div className="flex items-start gap-1.5">
-        <p className="text-[12.5px] font-medium m-0">Inputs — what this node receives</p>
+      <div className="flex items-center gap-1.5">
+        <p className="text-[12.5px] font-medium m-0">Inputs</p>
         <Tooltip>
           <TooltipTrigger
             render={

@@ -49,7 +49,7 @@ describe("effects config authoring vocabulary", () => {
     );
   });
 
-  it("renders a plain-English after-approval checkbox with no sub text", () => {
+  it("renders a plain-English after-approval switch with no sub text", () => {
     const html = renderToStaticMarkup(
       createElement(EffectsConfigFields, {
         field: { key: "effects", label: "Effects", type: "json" },

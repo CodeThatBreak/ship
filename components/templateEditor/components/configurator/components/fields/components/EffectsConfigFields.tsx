@@ -1,12 +1,12 @@
 "use client";
 /**
- * The declarative `effects` block: one checkbox group per lifecycle. It is a
+ * The declarative `effects` block: one on/off switch per lifecycle verb. It is a
  * nested object (the split block's precedent), so a plain ConfigField row
  * can't express it — `DeclarativeConfigFields` dispatches this component by
  * key. Options come from the client-safe mirror of the engine's closed verb
  * union (`constants/effects.ts`); the def schema re-validates at save.
  */
-import { Checkbox } from "../../../../../../ui/checkbox";
+import { Switch } from "../../../../../../ui/switch";
 import { Field, FieldLabel } from "../../../../../../ui/field";
 import type { ConfigFieldDef } from "../../../../../configFieldLogic";
 import { EFFECT_LIFECYCLE_SECTIONS, type EffectLifecycle } from "@/constants/effects";
@@ -48,20 +48,21 @@ export function EffectsConfigFields({
               {section.verbs.map((verb) => (
                 <label
                   key={verb.value}
-                  className="flex items-center gap-2 text-[12.5px] cursor-pointer"
+                  className="flex items-center justify-between gap-2 text-[12.5px] cursor-pointer"
                 >
-                  <Checkbox
+                  <span className="leading-tight">{verb.label}</span>
+                  <Switch
+                    size="sm"
                     checked={selected.includes(verb.value)}
                     onCheckedChange={(checked) =>
                       write(
                         section.key,
-                        checked === true
+                        checked
                           ? [...selected, verb.value]
                           : selected.filter((v) => v !== verb.value),
                       )
                     }
                   />
-                  <span className="leading-tight">{verb.label}</span>
                 </label>
               ))}
             </div>

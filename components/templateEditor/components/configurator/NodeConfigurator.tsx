@@ -191,7 +191,7 @@ export function NodeConfiguratorBody({
         </TabsList>
 
         <ScrollArea className="flex-1">
-          <fieldset disabled={readOnly} className="min-w-0 border-0 p-0 m-0 pt-4 pr-1 disabled:opacity-100">
+          <fieldset disabled={readOnly} className="min-w-0 border-0 p-0 m-0 px-5 pt-4 pb-4 disabled:opacity-100">
             {tab === 'trigger' ? (
               <TriggerTab node={node} onChange={emitChange} />
             ) : tab === 'inputs' ? (
