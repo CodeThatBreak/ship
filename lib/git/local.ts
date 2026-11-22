@@ -1,19 +1,15 @@
-import "server-only";
+import 'server-only';
 
-import fs from "fs";
-import os from "os";
-import path from "path";
-import { randomUUID } from "crypto";
-import { localBranchBaseCandidates } from "./baseRef";
-import { AuthedUrlResolutionError } from "./gitErrors";
-import {
-  GitRunner,
-  GIT_FETCH_TIMEOUT_MS,
-  gitRunner,
-} from "./gitRunner";
-import { stripCredentialsFromRemoteUrl } from "./stripRemoteCredentials";
-import { workspacePaths } from "./workspacePaths";
-import { assertValidBranchName, rejectInvalidBranchNameShape } from "./branchName";
+import fs from 'fs';
+import os from 'os';
+import path from 'path';
+import { randomUUID } from 'crypto';
+import { localBranchBaseCandidates } from './baseRef';
+import { AuthedUrlResolutionError } from './gitErrors';
+import { GitRunner, GIT_FETCH_TIMEOUT_MS, gitRunner } from './gitRunner';
+import { stripCredentialsFromRemoteUrl } from './stripRemoteCredentials';
+import { workspacePaths } from './workspacePaths';
+import { assertValidBranchName, rejectInvalidBranchNameShape } from './branchName';
 
 export interface DiffFile {
   file: string;
@@ -70,15 +66,12 @@ export class LocalGit {
       maxBuffer?: number;
       env?: Record<string, string>;
       redactSecrets?: readonly string[];
-    } = {},
+    } = {}
   ): Promise<{ stdout: string; stderr: string }> {
     return this.gitExec.run(args, opts);
   }
 
-  private async resolveRemote(
-    repoUrl: string,
-    resolve?: GitRemoteContextResolver,
-  ): Promise<GitRemoteContext> {
+  private async resolveRemote(repoUrl: string, resolve?: GitRemoteContextResolver): Promise<GitRemoteContext> {
     if (!resolve) {
       return { cloneUrl: repoUrl, env: {}, redactSecrets: [] };
     }
@@ -90,16 +83,12 @@ export class LocalGit {
   }
 
   /** Clone (or reuse) a repo for a flow and fetch a branch. */
-  async ensureClone(
-    flowId: string,
-    repoUrl: string,
-    resolveRemote?: GitRemoteContextResolver,
-  ): Promise<string> {
+  async ensureClone(flowId: string, repoUrl: string, resolveRemote?: GitRemoteContextResolver): Promise<string> {
     const dir = this.cloneDir(flowId);
     fs.mkdirSync(path.dirname(dir), { recursive: true });
     const remote = await this.resolveRemote(repoUrl, resolveRemote);
-    if (!fs.existsSync(path.join(dir, ".git"))) {
-      await this.git(["clone", "--no-checkout", remote.cloneUrl, dir], {
+    if (!fs.existsSync(path.join(dir, '.git'))) {
+      await this.git(['clone', '--no-checkout', remote.cloneUrl, dir], {
         timeout: GIT_FETCH_TIMEOUT_MS * 8,
         env: remote.env,
         redactSecrets: remote.redactSecrets,
@@ -107,10 +96,11 @@ export class LocalGit {
     } else {
       await this.sanitizeOriginRemote(dir);
     }
-    await this.git(
-      ["-C", dir, "fetch", "origin", "--prune"],
-      { timeout: GIT_FETCH_TIMEOUT_MS, env: remote.env, redactSecrets: remote.redactSecrets },
-    );
+    await this.git(['-C', dir, 'fetch', 'origin', '--prune'], {
+      timeout: GIT_FETCH_TIMEOUT_MS,
+      env: remote.env,
+      redactSecrets: remote.redactSecrets,
+    });
     return dir;
   }
 
@@ -118,24 +108,25 @@ export class LocalGit {
     flowId: string,
     repoUrl: string,
     branch: string,
-    resolveRemote?: GitRemoteContextResolver,
+    resolveRemote?: GitRemoteContextResolver
   ): Promise<string> {
     await assertValidBranchName(branch);
     const dir = await this.ensureClone(flowId, repoUrl, resolveRemote);
     const ctx = await this.resolveRemote(repoUrl, resolveRemote);
-    await this.git(
-      ["-C", dir, "fetch", "origin", "--end-of-options", branch],
-      { timeout: GIT_FETCH_TIMEOUT_MS, env: ctx.env, redactSecrets: ctx.redactSecrets },
-    ).catch(() => {});
+    await this.git(['-C', dir, 'fetch', 'origin', '--end-of-options', branch], {
+      timeout: GIT_FETCH_TIMEOUT_MS,
+      env: ctx.env,
+      redactSecrets: ctx.redactSecrets,
+    }).catch(() => {});
     return dir;
   }
   private async sanitizeOriginRemote(dir: string): Promise<void> {
     try {
-      const { stdout } = await this.git(["-C", dir, "remote", "get-url", "origin"]);
+      const { stdout } = await this.git(['-C', dir, 'remote', 'get-url', 'origin']);
       const current = stdout.trim();
       const plain = stripCredentialsFromRemoteUrl(current);
       if (plain && plain !== current) {
-        await this.git(["-C", dir, "remote", "set-url", "origin", plain]);
+        await this.git(['-C', dir, 'remote', 'set-url', 'origin', plain]);
       }
     } catch {
       /* no origin yet */
@@ -157,46 +148,48 @@ export class LocalGit {
     branch: string,
     baseRef?: string,
     localPath?: string | null,
-    resolveRemote?: GitRemoteContextResolver,
+    resolveRemote?: GitRemoteContextResolver
   ): Promise<{ files: DiffFile[]; stat: string; raw: string; headSha: string }> {
     await assertValidBranchName(branch);
     let dir: string;
     const ctx = await this.resolveRemote(repoUrl, resolveRemote);
-    if (localPath && fs.existsSync(path.join(localPath, ".git"))) {
+    if (localPath && fs.existsSync(path.join(localPath, '.git'))) {
       dir = localPath;
-      await this.git(
-        ["-C", dir, "fetch", "origin", "--prune"],
-        { timeout: GIT_FETCH_TIMEOUT_MS, env: ctx.env, redactSecrets: ctx.redactSecrets },
-      ).catch(() => {});
-      await this.git(
-        ["-C", dir, "fetch", "origin", "--end-of-options", branch],
-        { timeout: GIT_FETCH_TIMEOUT_MS, env: ctx.env, redactSecrets: ctx.redactSecrets },
-      ).catch(() => {});
+      await this.git(['-C', dir, 'fetch', 'origin', '--prune'], {
+        timeout: GIT_FETCH_TIMEOUT_MS,
+        env: ctx.env,
+        redactSecrets: ctx.redactSecrets,
+      }).catch(() => {});
+      await this.git(['-C', dir, 'fetch', 'origin', '--end-of-options', branch], {
+        timeout: GIT_FETCH_TIMEOUT_MS,
+        env: ctx.env,
+        redactSecrets: ctx.redactSecrets,
+      }).catch(() => {});
     } else {
       dir = await this.fetchBranch(flowId, repoUrl, branch, resolveRemote);
     }
     const target = `origin/${branch}`;
     // make sure base exists; fall back to master
-    let base = baseRef ?? "origin/main";
+    let base = baseRef ?? 'origin/main';
     try {
-      await this.git(["-C", dir, "rev-parse", "--verify", base]);
+      await this.git(['-C', dir, 'rev-parse', '--verify', base]);
     } catch {
-      base = "origin/master";
+      base = 'origin/master';
     }
-    const { stdout: raw } = await this.git(["-C", dir, "diff", `${base}...${target}`]);
-    const { stdout: stat } = await this.git(["-C", dir, "diff", "--stat", `${base}...${target}`]);
-    const headSha = await this.git(["-C", dir, "rev-parse", "--verify", target])
+    const { stdout: raw } = await this.git(['-C', dir, 'diff', `${base}...${target}`]);
+    const { stdout: stat } = await this.git(['-C', dir, 'diff', '--stat', `${base}...${target}`]);
+    const headSha = await this.git(['-C', dir, 'rev-parse', '--verify', target])
       .then(({ stdout }) => stdout.trim())
-      .catch(() => "");
+      .catch(() => '');
     return { files: this.parseDiff(raw), stat, raw, headSha };
   }
 
   /** Current branch of a local checkout (null on error / detached). */
   async currentBranch(localPath: string): Promise<string | null> {
     try {
-      const { stdout } = await this.git(["-C", localPath, "rev-parse", "--abbrev-ref", "HEAD"]);
+      const { stdout } = await this.git(['-C', localPath, 'rev-parse', '--abbrev-ref', 'HEAD']);
       const b = stdout.trim();
-      return b && b !== "HEAD" ? b : null;
+      return b && b !== 'HEAD' ? b : null;
     } catch {
       return null;
     }
@@ -211,14 +204,14 @@ export class LocalGit {
     localPath: string,
     branch: string,
     repoUrl?: string,
-    resolveRemote?: GitRemoteContextResolver,
-  ): Promise<"origin" | "https"> {
+    resolveRemote?: GitRemoteContextResolver
+  ): Promise<'origin' | 'https'> {
     await assertValidBranchName(branch);
-    const base = ["-C", localPath];
+    const base = ['-C', localPath];
     const opts = { timeout: GIT_FETCH_TIMEOUT_MS };
     try {
-      await this.git([...base, "push", "-u", "origin", "--end-of-options", branch], opts);
-      return "origin";
+      await this.git([...base, 'push', '-u', 'origin', '--end-of-options', branch], opts);
+      return 'origin';
     } catch (e: unknown) {
       if (!repoUrl) {
         const msg = e instanceof Error ? e.message : String(e);
@@ -237,16 +230,16 @@ export class LocalGit {
     // succeeds on the retry
     for (let attempt = 0; attempt < 2; attempt++) {
       try {
-        await this.git([...base, "push", remote.cloneUrl, "--end-of-options", `${branch}:${branch}`], pushOpts);
+        await this.git([...base, 'push', remote.cloneUrl, '--end-of-options', `${branch}:${branch}`], pushOpts);
         // keep origin/<branch> in sync for later diffs
-        await this.git([...base, "fetch", "origin", "--end-of-options", branch], pushOpts).catch(() => {});
-        return "https";
+        await this.git([...base, 'fetch', 'origin', '--end-of-options', branch], pushOpts).catch(() => {});
+        return 'https';
       } catch (e: unknown) {
         lastErr = e;
+        console.error(e);
       }
     }
-    const lastMsg =
-      lastErr instanceof Error ? lastErr.message : lastErr != null ? String(lastErr) : "unknown error";
+    const lastMsg = lastErr instanceof Error ? lastErr.message : lastErr != null ? String(lastErr) : 'unknown error';
     throw new Error(
       `could not push branch ${branch} — check VPN/network access to the git host and your git credentials (${lastMsg.slice(0, 300)})`
     );
@@ -257,11 +250,7 @@ export class LocalGit {
    * branch was never pushed (unlike diffBranch, which needs origin/<branch>).
    * Used to recover build runs that were orphaned by a server restart.
    */
-  async localBranchState(
-    localPath: string,
-    branch: string,
-    baseBranch = "main"
-  ): Promise<LocalBranchState> {
+  async localBranchState(localPath: string, branch: string, baseBranch = 'main'): Promise<LocalBranchState> {
     await assertValidBranchName(branch);
     const none: LocalBranchState = {
       exists: false,
@@ -269,14 +258,14 @@ export class LocalGit {
       commitsBehind: 0,
       unpushedAhead: 0,
       base: baseBranch,
-      headSha: "",
-      stat: "",
-      raw: "",
+      headSha: '',
+      stat: '',
+      raw: '',
       pushed: false,
     };
-    const base = ["-C", localPath];
+    const base = ['-C', localPath];
     try {
-      await this.git([...base, "rev-parse", "--verify", "--quiet", branch]);
+      await this.git([...base, 'rev-parse', '--verify', '--quiet', branch]);
     } catch {
       return none;
     }
@@ -284,29 +273,32 @@ export class LocalGit {
     let baseRef = `origin/${baseBranch}`;
     for (const cand of localBranchBaseCandidates(baseBranch)) {
       try {
-        await this.git([...base, "rev-parse", "--verify", cand]);
+        await this.git([...base, 'rev-parse', '--verify', cand]);
         baseRef = cand;
         break;
-      } catch { /* try next */ }
+      } catch {
+        /* try next */
+      }
     }
-    const { stdout: count } = await this.git([...base, "rev-list", "--count", `${baseRef}..${branch}`]);
+    const { stdout: count } = await this.git([...base, 'rev-list', '--count', `${baseRef}..${branch}`]);
     const commitsAhead = parseInt(count.trim(), 10) || 0;
-    const { stdout: behindCount } = await this.git([...base, "rev-list", "--count", `${branch}..${baseRef}`]);
+    const { stdout: behindCount } = await this.git([...base, 'rev-list', '--count', `${branch}..${baseRef}`]);
     const commitsBehind = parseInt(behindCount.trim(), 10) || 0;
-    const headSha = await this.git([...base, "rev-parse", "--verify", branch])
+    const headSha = await this.git([...base, 'rev-parse', '--verify', branch])
       .then(({ stdout }) => stdout.trim())
-      .catch(() => "");
-    const { stdout: raw } = await this.git([...base, "diff", `${baseRef}...${branch}`]);
-    const { stdout: stat } = await this.git([...base, "diff", "--stat", `${baseRef}...${branch}`]);
-    const pushed = await this.git([...base, "rev-parse", "--verify", "--quiet", `origin/${branch}`])
+      .catch(() => '');
+    const { stdout: raw } = await this.git([...base, 'diff', `${baseRef}...${branch}`]);
+    const { stdout: stat } = await this.git([...base, 'diff', '--stat', `${baseRef}...${branch}`]);
+    const pushed = await this.git([...base, 'rev-parse', '--verify', '--quiet', `origin/${branch}`])
       .then(() => true)
       .catch(() => false);
     // How far the local branch is ahead of origin/<branch> — the push-state
     // signal ("local_only") for callers. `pushed` only says origin/<branch>
     // exists, so a stale (or missing) remote ref needs this count.
     const unpushedAhead = pushed
-      ? await this.git([...base, "rev-list", "--count", `origin/${branch}..${branch}`])
-          .then(({ stdout }) => parseInt(stdout.trim(), 10) || 0)
+      ? await this.git([...base, 'rev-list', '--count', `origin/${branch}..${branch}`]).then(
+          ({ stdout }) => parseInt(stdout.trim(), 10) || 0
+        )
       : commitsAhead;
     return { exists: true, commitsAhead, commitsBehind, unpushedAhead, base: baseRef, headSha, stat, raw, pushed };
   }
@@ -322,10 +314,12 @@ export class LocalGit {
     rejectInvalidBranchNameShape(ref);
     for (const candidate of [ref, `origin/${ref}`]) {
       try {
-        const { stdout } = await this.git(["-C", dir, "rev-parse", "--verify", `${candidate}^{commit}`]);
+        const { stdout } = await this.git(['-C', dir, 'rev-parse', '--verify', `${candidate}^{commit}`]);
         const sha = stdout.trim();
         if (sha) return sha;
-      } catch { /* try the next form */ }
+      } catch {
+        /* try the next form */
+      }
     }
     return null;
   }
@@ -334,8 +328,8 @@ export class LocalGit {
   async diffShaRange(dir: string, fromSha: string, toSha: string): Promise<{ stat: string; raw: string }> {
     rejectInvalidBranchNameShape(fromSha);
     rejectInvalidBranchNameShape(toSha);
-    const { stdout: raw } = await this.git(["-C", dir, "diff", fromSha, toSha]);
-    const { stdout: stat } = await this.git(["-C", dir, "diff", "--stat", fromSha, toSha]);
+    const { stdout: raw } = await this.git(['-C', dir, 'diff', fromSha, toSha]);
+    const { stdout: stat } = await this.git(['-C', dir, 'diff', '--stat', fromSha, toSha]);
     return { stat, raw };
   }
 
@@ -350,10 +344,10 @@ export class LocalGit {
     const tmpIndex = path.join(os.tmpdir(), `devflow-wtindex-${randomUUID()}`);
     const env = { GIT_INDEX_FILE: tmpIndex };
     try {
-      await this.git(["-C", dir, "read-tree", "HEAD"], { env });
-      await this.git(["-C", dir, "add", "-A", "--"], { env });
-      const { stdout: raw } = await this.git(["-C", dir, "diff", "--cached", baseRef], { env });
-      const { stdout: stat } = await this.git(["-C", dir, "diff", "--cached", "--stat", baseRef], { env });
+      await this.git(['-C', dir, 'read-tree', 'HEAD'], { env });
+      await this.git(['-C', dir, 'add', '-A', '--'], { env });
+      const { stdout: raw } = await this.git(['-C', dir, 'diff', '--cached', baseRef], { env });
+      const { stdout: stat } = await this.git(['-C', dir, 'diff', '--cached', '--stat', baseRef], { env });
       return { stat, raw };
     } finally {
       fs.rmSync(tmpIndex, { force: true });
@@ -369,16 +363,16 @@ export class LocalGit {
     const files: DiffFile[] = [];
     const chunks = raw.split(/^diff --git /m).filter(Boolean);
     for (const c of chunks) {
-      const head = c.split("\n", 1)[0];
+      const head = c.split('\n', 1)[0];
       const m = head.match(/a\/(.+?) b\/(.+)/);
       const file = m ? m[2] : head;
       let additions = 0;
       let deletions = 0;
-      for (const line of c.split("\n")) {
-        if (line.startsWith("+") && !line.startsWith("+++")) additions++;
-        else if (line.startsWith("-") && !line.startsWith("---")) deletions++;
+      for (const line of c.split('\n')) {
+        if (line.startsWith('+') && !line.startsWith('+++')) additions++;
+        else if (line.startsWith('-') && !line.startsWith('---')) deletions++;
       }
-      files.push({ file, patch: "diff --git " + c, additions, deletions });
+      files.push({ file, patch: 'diff --git ' + c, additions, deletions });
     }
     return files;
   }
@@ -391,7 +385,7 @@ export const localGit = new LocalGit();
 export function workspaceForFlow(flowId: string): string | null {
   const dir = workspacePaths.cloneDir(flowId);
   try {
-    const dotGit = path.join(dir, ".git");
+    const dotGit = path.join(dir, '.git');
     if (!fs.existsSync(dotGit)) return null;
     return fs.lstatSync(dotGit).isDirectory() ? dir : null;
   } catch {

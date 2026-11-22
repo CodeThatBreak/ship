@@ -70,6 +70,35 @@ export class JobQueue {
   }
 
   /**
+   * Re-arm a DEDUPED job for an immediate in-request retry. A failed push
+   * requeues its `mr_create` job with backoff while KEEPING the dedup key, so a
+   * second "Open PR" click would otherwise be deduplicated into a silent
+   * no-op. This makes that still-queued job due now so the caller can re-claim
+   * and dispatch it synchronously — the SAME job row, not a second intent. The
+   * sweep may win the race; `claimById` then returns null and the caller defers
+   * to it. A job with a LIVE claim (a worker is actively dispatching) is not
+   * queued and is left alone — a genuine concurrent intent wins.
+   *
+   * Returns the re-armed job's id, or null when no retryable intent exists.
+   */
+  async reviveForRetry(dedupKey: string, kind: JobKind): Promise<string | null> {
+    const job = await this.database.prisma.job.findFirst({
+      where: { dedupKey, kind, status: JOB_STATUS.QUEUED },
+      orderBy: { createdAt: "desc" },
+      select: { id: true },
+    });
+    if (!job) return null;
+    // `runAt` is a "due now" stamp, like enqueue()'s default — not a lease or
+    // sweep comparison, so app time is fine (the clock rule governs those).
+    // The dedup key stays put: no second job can be created while this one is live.
+    await this.database.prisma.job.update({
+      where: { id: job.id },
+      data: { runAt: new Date(), leaseUntil: null },
+    });
+    return job.id;
+  }
+
+  /**
    * Atomically claim the oldest due queued job of `kinds`. One conditional
    * UPDATE fenced by the claim subselect (`FOR UPDATE SKIP LOCKED` — correct
    * under concurrent claimers: the loser simply finds nothing) that stamps

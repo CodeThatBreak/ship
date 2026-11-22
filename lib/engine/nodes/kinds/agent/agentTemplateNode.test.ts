@@ -30,6 +30,7 @@ const { agentPortRegistry } = await import("../../../ports/agentPort");
 const { worktreeManager } = await import("../../../runtime/worktreeLifecycle");
 const { FlowContextHelper } = await import("../../shared/runContext/flowContextHelper");
 const { localGit } = await import("../../../../git/local");
+const { worktrees } = await import("../../../../git/worktrees");
 const { RUN_MODE } = await import("@/constants/execution");
 const { AgentTemplateNode } = await import("./agentTemplateNode");
 import type { Started, AgentStartInput, ExecuteRunResult } from "../../../harness/types/agentRunTypes";
@@ -847,6 +848,110 @@ describe("AgentTemplateNode — result.git → facts (Task 07)", () => {
     expect(branchSpy).not.toHaveBeenCalled();
     expect(ctxHelper.captured).toEqual([]);
     expect(await diffArtifactsOf(seeded.flowId)).toEqual([]);
+  });
+});
+
+// ── Reuse: an unchanged diff fact is not re-captured on every run ────────────
+
+/** A capture whose head/base anchors are the ones the reuse guard compares.
+ *  `headSha` can be moved between runs to simulate a branch moving on. */
+class ReuseCtxHelper extends DiffStubCtxHelper {
+  headSha = "sha_head_1";
+  override async baseShaOf(): Promise<string | null> {
+    return "sha_base_1";
+  }
+  override async headShaOf(): Promise<string | null> {
+    return this.headSha;
+  }
+  override runCwd(): string | null {
+    return "/test/worktree";
+  }
+  override async makeDiff(_ctx: FlowCtx, branch: string) {
+    this.captured.push(branch);
+    return {
+      files: [],
+      stat: `1 file changed (${branch})`,
+      raw: `diff ${branch}`,
+      baseSha: "sha_base_1",
+      headSha: this.headSha,
+      attribution: "agent" as const,
+    };
+  }
+}
+
+const reuseAgentNode = (index: number, helper: ReuseCtxHelper): InstanceType<typeof AgentTemplateNode> =>
+  new AgentTemplateNode(
+    { id: `nt_${index}`, name: LABEL, description: null, config: {} },
+    `agent_${index}`,
+    {
+      runner: new StubRunner(
+        ...Array.from({ length: 3 }, () => ({
+          status: "finished",
+          result: FINISHED_TEXT,
+          git: { branches: [{ branch: "changelog/x" }] },
+        })),
+      ),
+      ctxHelper: helper,
+    },
+  );
+
+/** A second run needs the node back in `running` (execute owns the terminal
+ *  transition) — the same reset the chat follow-up test uses. */
+const rerun = async (nodeId: string): Promise<void> => {
+  await testRun(`UPDATE nodes SET status='running' WHERE id=$1`, nodeId);
+};
+
+describe("AgentTemplateNode — diff fact reuse (no repeat git I/O)", () => {
+  afterEach(() => vi.restoreAllMocks());
+
+  it("same head/base and a clean worktree: the second run captures nothing and writes no new artifact", async () => {
+    const seeded = await seedAgentNode(80);
+    const helper = new ReuseCtxHelper();
+    vi.spyOn(worktrees, "isWorktreeDirty").mockResolvedValue(false);
+    const node = reuseAgentNode(80, helper);
+    const config = { produces: ["branch", "diff"] };
+
+    await node.run(seeded.ctx, { prompt: "Do the work" }, config);
+    expect(helper.captured).toEqual(["changelog/x"]);
+    expect(await diffArtifactsOf(seeded.flowId)).toHaveLength(1);
+
+    await rerun(seeded.nodeId);
+    await node.run(seeded.ctx, { prompt: "Do the work" }, config);
+
+    expect(helper.captured).toEqual(["changelog/x"]); // no second capture
+    expect(await diffArtifactsOf(seeded.flowId)).toHaveLength(1); // no new version
+  });
+
+  it("a moved branch head triggers a fresh capture", async () => {
+    const seeded = await seedAgentNode(81);
+    const helper = new ReuseCtxHelper();
+    vi.spyOn(worktrees, "isWorktreeDirty").mockResolvedValue(false);
+    const node = reuseAgentNode(81, helper);
+    const config = { produces: ["branch", "diff"] };
+
+    await node.run(seeded.ctx, { prompt: "Do the work" }, config);
+    helper.headSha = "sha_head_2";
+    await rerun(seeded.nodeId);
+    await node.run(seeded.ctx, { prompt: "Do the work" }, config);
+
+    expect(helper.captured).toEqual(["changelog/x", "changelog/x"]);
+    expect(await diffArtifactsOf(seeded.flowId)).toHaveLength(2);
+  });
+
+  it("a dirty worktree triggers a fresh capture even with the same head", async () => {
+    const seeded = await seedAgentNode(82);
+    const helper = new ReuseCtxHelper();
+    const dirty = vi.spyOn(worktrees, "isWorktreeDirty").mockResolvedValue(true);
+    const node = reuseAgentNode(82, helper);
+    const config = { produces: ["branch", "diff"] };
+
+    await node.run(seeded.ctx, { prompt: "Do the work" }, config);
+    await rerun(seeded.nodeId);
+    await node.run(seeded.ctx, { prompt: "Do the work" }, config);
+
+    expect(dirty).toHaveBeenCalledWith("/test/worktree");
+    expect(helper.captured).toEqual(["changelog/x", "changelog/x"]);
+    expect(await diffArtifactsOf(seeded.flowId)).toHaveLength(2);
   });
 });
 

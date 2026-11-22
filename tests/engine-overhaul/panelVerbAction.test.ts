@@ -15,7 +15,7 @@
  * the creation. Runs against the isolated dockerized Postgres test database
  * (AGENTS.md §1 — never a demo/real database).
  */
-import { beforeAll, describe, expect, it } from "vitest";
+import { beforeAll, describe, expect, it, vi } from "vitest";
 
 import { assignTestDatabase, resetTestDatabase } from "../helpers/testDatabase";
 
@@ -141,6 +141,45 @@ describe("Open PR panel action (task 12 — design §4.2 use case 4)", () => {
     expect(claims[0]?.actor).toBe("user");
     // the verb never touches node status — the terminal is preserved
     expect(await harness.nodeStatus(flowId, nodeKey)).toBe("done");
+  });
+
+  it("a failed push is retried by a second Open PR click — the held dedup key does not swallow it", async () => {
+    const { flowId, nodeKey } = await seedDeclarativeFlow({ produces: ["branch"] });
+    // The fake agent port repeats its last outcome — drain the prior test's
+    // sticky tail so this run establishes THIS test's branch fact.
+    agent.drainQueue();
+    await runToBranchFact(flowId, nodeKey, "feat/retry");
+    const before = gitCreates().length;
+
+    // First click: the push/host create fails. The verb requeues its journal
+    // job with backoff and KEEPS the dedup key — the state that used to make
+    // every subsequent click a silent no-op.
+    const create = vi.spyOn(git, "createChangeRequest").mockRejectedValueOnce(new Error("push failed"));
+    try {
+      const first = await callAction(flowId, { action: FLOW_ACTION.CREATE_CHANGE_REQUEST, nodeKey });
+      expect(first.status).toBe(500);
+    } finally {
+      create.mockRestore();
+    }
+
+    const failedJobs = await mrCreateJobs(flowId);
+    expect(failedJobs).toHaveLength(1);
+    expect(failedJobs[0]?.status).toBe("queued");
+
+    // Second click: the pending job is revived in-place and the push is
+    // actually re-attempted, not deduplicated away.
+    const second = await callAction(flowId, { action: FLOW_ACTION.CREATE_CHANGE_REQUEST, nodeKey });
+    expect(second.status).toBe(200);
+
+    const creates = gitCreates();
+    expect(creates.length).toBe(before + 1);
+    expect(creates[before]?.input.sourceBranch).toBe("feat/retry");
+    expect((await branchRow(flowId, "feat/retry"))?.mr_iid).not.toBeNull();
+
+    // the SAME job row was revived and completed — no second job created
+    const jobs = await mrCreateJobs(flowId);
+    expect(jobs).toHaveLength(1);
+    expect(jobs[0]?.status).toBe("done");
   });
 
   it("a live run owns the branch — the fence refuses with 409", async () => {

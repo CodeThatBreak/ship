@@ -70,4 +70,47 @@ describe("agentFactIntents — local branch fallback", () => {
     expect(resolveLocalBranch).toHaveBeenCalledTimes(1);
     expect(intents?.diffs).toMatchObject([{ branch: "bugfix/local-4" }]);
   });
+
+  it("a repeated reported branch is captured and published once", async () => {
+    const captureDiff = vi.fn(capture);
+
+    const intents = await agentFactIntents(runOf(["changelog/x", "changelog/x"]), cfgOf(["branch", "diff"]), captureDiff);
+
+    expect(captureDiff).toHaveBeenCalledTimes(1);
+    expect(intents?.branches).toEqual([{ name: "changelog/x", gitBranch: "changelog/x" }]);
+    expect(intents?.diffs).toMatchObject([{ branch: "changelog/x" }]);
+  });
+
+  it("an unchanged diff is skipped — no capture and no new fact intent", async () => {
+    const captureDiff = vi.fn(capture);
+    const reuseUnchangedDiff = vi.fn().mockResolvedValue(true);
+
+    const intents = await agentFactIntents(
+      runOf(["changelog/x"]),
+      cfgOf(["branch", "diff"]),
+      captureDiff,
+      { reuseUnchangedDiff },
+    );
+
+    expect(reuseUnchangedDiff).toHaveBeenCalledWith("changelog/x");
+    expect(captureDiff).not.toHaveBeenCalled();
+    // the branch fact still rides the terminal write; only the diff is reused
+    expect(intents?.branches).toEqual([{ name: "changelog/x", gitBranch: "changelog/x" }]);
+    expect(intents?.diffs).toEqual([]);
+  });
+
+  it("a changed diff is captured as before", async () => {
+    const captureDiff = vi.fn(capture);
+    const reuseUnchangedDiff = vi.fn().mockResolvedValue(false);
+
+    const intents = await agentFactIntents(
+      runOf(["changelog/x"]),
+      cfgOf(["diff"]),
+      captureDiff,
+      { reuseUnchangedDiff },
+    );
+
+    expect(captureDiff).toHaveBeenCalledWith("changelog/x");
+    expect(intents?.diffs).toMatchObject([{ branch: "changelog/x" }]);
+  });
 });

@@ -113,6 +113,23 @@ export class FlowContextHelper {
   }
 
   /**
+   * The live head SHA of a ref — the write-path counterpart of the diff
+   * staleness probe (`facts/diffStalenessProbe.ts`): worktree first, then the
+   * hub checkout, at most two bounded local rev-parses. Null when neither
+   * resolves — in cloud mode there is no local checkout, so callers fall
+   * through to a full capture rather than confusing "unprobeable" with
+   * "unchanged". Read-only: never fetches and never persists.
+   */
+  async headShaOf(ctx: FlowCtx, ref: string): Promise<string | null> {
+    const dirs = [this.runCwd(ctx), this.localPath(ctx)].filter((d): d is string => Boolean(d));
+    for (const dir of dirs) {
+      const sha = await localGit.resolveSha(dir, ref).catch(() => null);
+      if (sha) return sha;
+    }
+    return null;
+  }
+
+  /**
    * The diff capture behind a `diff` fact (Task 08 attribution). With a
    * pinned `baseSha` (the run-start base SHA) the capture carries BOTH
    * projections: the `agent` projection (`git diff baseSha..head` — the

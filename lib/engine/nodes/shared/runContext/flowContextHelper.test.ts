@@ -121,3 +121,22 @@ describe("FlowContextHelper.makeDiff — attribution (Task 08)", () => {
     expect(capture.uncommitted).toBeUndefined();
   });
 });
+
+describe("FlowContextHelper.headShaOf — the diff-reuse read", () => {
+  it("resolves the live branch head from the local checkout", async () => {
+    const { hub } = seedRepo();
+
+    expect(await new FlowContextHelper().headShaOf(ctxFor(hub), "feat/a"))
+      .toBe(git(hub, "rev-parse", "feat/a").trim());
+  });
+
+  it("no local checkout (cloud mode) reads as null, never 'unchanged'", async () => {
+    const ctx = {
+      flow: { id: "flw_nolocal", repoUrl: null, worktreeDir: null, executionMode: "cloud" },
+      task: { id: "task_x", type: "generic", key: "BR-1", summary: "head probe test" },
+      repo: { localPath: null, defaultBranch: "main" },
+    } as unknown as FlowCtx;
+
+    expect(await new FlowContextHelper().headShaOf(ctx, "feat/a")).toBeNull();
+  });
+});

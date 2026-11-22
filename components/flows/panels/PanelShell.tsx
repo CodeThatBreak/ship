@@ -35,7 +35,7 @@ export const statusVariant = statusVariantOf;
  * feels like one consistent surface.
  */
 export function PanelShell({
-  node, headerEnd, runningLabel = "Agent is working…", footer, children, flow, hideFailed,
+  node, headerEnd, runningLabel = "Agent is working…", footer, children, flow, hideFailed, hideCost,
 }: {
   node: Node;
   /** when given, the waiting-state banner shows the node's hook endpoint (Phase 4B) */
@@ -47,6 +47,8 @@ export function PanelShell({
   children: React.ReactNode;
   /** start nodes surface their own failed alert (the form doubles as the fix) */
   hideFailed?: boolean;
+  /** nodes whose usage/cost is already shown in a tab hide the header cost tooltip */
+  hideCost?: boolean;
 }) {
   const {
     action,
@@ -72,7 +74,7 @@ export function PanelShell({
           <span className="size-1.5 rounded-full bg-current" />
           {node.status.replace(/_/g, " ")}
         </Badge>
-        <CostChip node={node} />
+        {!hideCost && <CostChip node={node} />}
         <div className="flex-1" />
         {headerEnd}
       </div>

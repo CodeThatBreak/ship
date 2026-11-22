@@ -93,7 +93,13 @@ export class PanelVerbService {
       source: TRIGGER_SOURCE.UI,
       ...(branchName ? { params: { branchName } } : {}),
     };
-    await verbRegistry.run(verb, ctx);
+    const ran = await verbRegistry.run(verb, ctx);
+    if (!ran) {
+      // A verb that did nothing (e.g. a live worker already owns the branch's
+      // MR creation) is not a success — tell the user instead of answering 200
+      // with no effect and no feedback.
+      throw new ConflictError(`${nodeKey}: a ${verb} is already in progress — retry when it settles`);
+    }
     return { started: true };
   }
 }

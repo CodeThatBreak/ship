@@ -20,6 +20,11 @@ const STEPS_TAB = 'steps';
  *  its active underline spans the whole tab (the strip has no inset padding) */
 const TRIGGER_CLASS =
   'min-w-0 flex-1 truncate rounded-none border-b-2 border-b-transparent px-3 py-2 text-[12.5px] font-medium after:hidden data-active:border-b-foreground data-active:text-foreground';
+/** `-mx-5` cancels the panel body's 20px insets; `w-full` alone would only
+ *  span the content box and stop 20px short on the right, so add the insets
+ *  back to make the strip truly edge-to-edge. */
+const TABS_LIST_CLASS =
+  '-mx-5 -mt-4 h-auto w-[calc(100%+2.5rem)] rounded-none border-b border-border bg-transparent p-0';
 
 /** Tab label for an artifact-backed tab (e.g. `failed_output` → "Failed output"). */
 const kindTabLabel = (kind: string): string =>
@@ -114,17 +119,14 @@ export default function AgentView() {
       <PanelShell
         node={node}
         flow={flow}
+        hideCost
         runningLabel={`${node.label || node.template_name || node.node_key} is running…`}
         footer={footer}
       >
         {hasTabs ? (
           <Tabs value={activeTab} onValueChange={setTab} className="gap-0">
             {tabValues.length > 1 && (
-              <TabsList
-                variant="line"
-                aria-label="Agent views"
-                className="-mx-5 -mt-4 h-auto w-full rounded-none border-b border-border bg-transparent p-0"
-              >
+              <TabsList variant="line" aria-label="Agent views" className={TABS_LIST_CLASS}>
                 <TabsTrigger value={OUTPUT_TAB} className={TRIGGER_CLASS}>Output</TabsTrigger>
                 {fannedOut && (
                   <TabsTrigger value={STEPS_TAB} className={TRIGGER_CLASS}>Steps</TabsTrigger>

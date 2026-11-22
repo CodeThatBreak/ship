@@ -66,10 +66,11 @@ export class CreateChangeRequest {
     // write-ahead journal (Invariant 7): the intent exists before any host
     // I/O, deduped per branch target — a retried approve re-enqueues into
     // the SAME job row instead of a second creation
+    const dedupKey = mrCreateDedupKey(ctx.flowId, branch);
     const { id: jobId, deduplicated } = await jobs.enqueue({
       kind: JOB_KIND.MR_CREATE,
       flowId: ctx.flowId,
-      dedupKey: mrCreateDedupKey(ctx.flowId, branch),
+      dedupKey,
       payload: {
         flowId: ctx.flowId,
         branchName: branch,
@@ -79,8 +80,16 @@ export class CreateChangeRequest {
         skipGateReviewReset: true,
       },
     });
-    if (deduplicated) return false; // a live intent owns this branch's MR
-    const job = await jobs.claimById(jobId);
+    // A prior attempt may have failed the push (or host create) and left its
+    // job queued with backoff, dedup key still held. An explicit re-trigger —
+    // the "Open PR" click — re-arms that SAME job for an immediate in-request
+    // retry instead of being deduplicated into a no-op. A worker with a live
+    // claim owns the dispatch in that case; defer to it.
+    const dispatchId = deduplicated
+      ? await jobs.reviveForRetry(dedupKey, JOB_KIND.MR_CREATE)
+      : jobId;
+    if (!dispatchId) return false; // a live intent owns this branch's MR
+    const job = await jobs.claimById(dispatchId);
     if (!job) return false; // the worker sweep owns the dispatch
     try {
       await this.mr.create(await this.ctxOf(ctx.flowId), branch, {
@@ -90,15 +99,16 @@ export class CreateChangeRequest {
         // transaction (the service's own contract) — a crash cannot split
         // the established change_request fact from a still-claimed job
         onPersist: async (tx: Prisma.TransactionClient) => {
-          await jobs.complete(jobId, tx);
-          await jobs.clearDedupKey(jobId, tx);
+          await jobs.complete(dispatchId, tx);
+          await jobs.clearDedupKey(dispatchId, tx);
         },
       });
     } catch (e: unknown) {
       // host/infra failure — requeue with backoff (the sweep's re-claim owns
       // the retry and its adopt path), then rethrow so the effect dispatch
-      // surfaces the failure instead of advancing past a missing MR
-      await jobs.fail(jobId, e instanceof Error ? e.message : String(e));
+      // surfaces the failure instead of advancing past a missing MR. The dedup
+      // key stays held; a manual re-trigger revives this row via reviveForRetry.
+      await jobs.fail(dispatchId, e instanceof Error ? e.message : String(e));
       throw e;
     }
     return true;

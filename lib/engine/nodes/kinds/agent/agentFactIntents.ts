@@ -39,6 +39,13 @@ export type LocalBranchResolver = () => Promise<string | null>;
 
 export interface AgentFactIntentOptions {
   resolveLocalBranch?: LocalBranchResolver;
+  /**
+   * The write-path reuse guard (agent kind): true means the persisted diff
+   * fact for this branch is still current, so no new capture is emitted. The
+   * decision comes from an injected callback — this mapper stays pure data
+   * and owns no git/DB I/O.
+   */
+  reuseUnchangedDiff?: (branch: string) => Promise<boolean>;
 }
 
 /**
@@ -49,6 +56,8 @@ export interface AgentFactIntentOptions {
  * I/O at all. A local fallback branch is used only when the run reported none;
  * a per-branch capture failure is non-fatal (the stepRollup precedent): the
  * diff fact is still established, its content names the capture as unavailable.
+ * Reported branch names are deduplicated, and an injected `reuseUnchangedDiff`
+ * guard can skip a capture whose persisted fact is still current.
  */
 export const agentFactIntents = async (
   result: AgentRunResult,
@@ -58,9 +67,11 @@ export const agentFactIntents = async (
 ): Promise<AgentFactIntents | null> => {
   const branches: BranchFactInput[] = [];
   const diffs: DiffFactInput[] = [];
-  const reported = (result.git?.branches ?? [])
+  // Reported branches are a set, not a list: a run that pushed the same ref
+  // twice must not pay for two captures or publish two facts for it.
+  const reported = [...new Set((result.git?.branches ?? [])
     .map((entry) => entry?.branch)
-    .filter((name): name is string => typeof name === "string" && name.length > 0);
+    .filter((name): name is string => typeof name === "string" && name.length > 0))];
   const declaresFacts =
     cfg.produces.includes(FACT_KIND.BRANCH) || cfg.produces.includes(FACT_KIND.DIFF);
   let branchNames = reported;
@@ -78,6 +89,9 @@ export const agentFactIntents = async (
       branches.push({ name, gitBranch: name });
     }
     if (cfg.produces.includes(FACT_KIND.DIFF)) {
+      // A prior capture with the same head/base and a clean worktree is still
+      // valid — skip the git I/O entirely and leave the existing fact alone.
+      if (await options.reuseUnchangedDiff?.(name)) continue;
       let captured: DiffCapturePayload | null = null;
       try {
         captured = await captureDiff(name);
