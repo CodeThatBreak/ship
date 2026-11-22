@@ -9,7 +9,7 @@
  * singleton (AGENTS.md §1 — never a real database).
  */
 import { testAll, testGet, testRun } from "@/tests/helpers/rawTestDb";
-import { beforeAll, describe, expect, it } from "vitest";
+import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 
 // Must run before any `../../../db` import touches the connection — dynamic
 // imports below execute in statement order after the static ones hoist.
@@ -29,6 +29,8 @@ const { config } = await import("../../../../config");
 const { agentPortRegistry } = await import("../../../ports/agentPort");
 const { worktreeManager } = await import("../../../runtime/worktreeLifecycle");
 const { FlowContextHelper } = await import("../../shared/runContext/flowContextHelper");
+const { localGit } = await import("../../../../git/local");
+const { RUN_MODE } = await import("@/constants/execution");
 const { AgentTemplateNode } = await import("./agentTemplateNode");
 import type { Started, AgentStartInput, ExecuteRunResult } from "../../../harness/types/agentRunTypes";
 import type { AgentRunResult } from "../../../ports/agentPort";
@@ -679,7 +681,16 @@ describe("AgentTemplateNode — base_ref + retry_budget (Task 03)", () => {
  *  `failCapture` makes the capture fail (null) like the real git path can. */
 class DiffStubCtxHelper extends FlowContextHelper {
   readonly captured: string[] = [];
+  readonly cwdReads: string[] = [];
   failCapture = false;
+  localMode = false;
+  override execMode(): ReturnType<InstanceType<typeof FlowContextHelper>["execMode"]> {
+    return this.localMode ? RUN_MODE.LOCAL : RUN_MODE.CLOUD;
+  }
+  override requireRunCwd(): string {
+    this.cwdReads.push("/test/worktree");
+    return "/test/worktree";
+  }
   override async makeDiff(_ctx: FlowCtx, branch: string): Promise<{ files: never[]; stat: string; raw: string } | null> {
     this.captured.push(branch);
     if (this.failCapture) return null;
@@ -721,6 +732,8 @@ const diffArtifactsOf = async (flowId: string): Promise<{ branch: string | null;
   );
 
 describe("AgentTemplateNode — result.git → facts (Task 07)", () => {
+  afterEach(() => vi.restoreAllMocks());
+
   it("a run with produces [branch,diff] persists one branch row + one diff artifact per reported branch", async () => {
     const seeded = await seedAgentNode(61);
     const ctxHelper = new DiffStubCtxHelper();
@@ -791,6 +804,49 @@ describe("AgentTemplateNode — result.git → facts (Task 07)", () => {
       seeded.flowId,
     );
     expect(art?.content).toBe("(diff unavailable)");
+  });
+
+  it("a local run that reported no branches captures the diff from the worktree HEAD", async () => {
+    const seeded = await seedAgentNode(66);
+    const ctxHelper = new DiffStubCtxHelper();
+    ctxHelper.localMode = true;
+    const branchSpy = vi.spyOn(localGit, "currentBranch").mockResolvedValue("bugfix/local-66");
+    const node = producingAgentNode(66, ctxHelper, []);
+
+    await node.run(seeded.ctx, { prompt: "Do the work" }, { produces: ["branch", "diff"] });
+
+    expect(branchSpy).toHaveBeenCalledWith("/test/worktree");
+    expect(ctxHelper.cwdReads).toEqual(["/test/worktree"]);
+    expect((await branchRowsOf(seeded.flowId)).map((r) => r.name)).toEqual(["bugfix/local-66"]);
+    expect((await diffArtifactsOf(seeded.flowId)).map((d) => d.branch)).toEqual(["bugfix/local-66"]);
+    expect(ctxHelper.captured).toEqual(["bugfix/local-66"]);
+  });
+
+  it("a cloud run with no reported branches does no worktree git I/O", async () => {
+    const seeded = await seedAgentNode(67);
+    const ctxHelper = new DiffStubCtxHelper();
+    const branchSpy = vi.spyOn(localGit, "currentBranch").mockResolvedValue("bugfix/local-67");
+    const node = producingAgentNode(67, ctxHelper, []);
+
+    await node.run(seeded.ctx, { prompt: "Do the work" }, { produces: ["branch", "diff"] });
+
+    expect(branchSpy).not.toHaveBeenCalled();
+    expect(ctxHelper.captured).toEqual([]);
+    expect(await diffArtifactsOf(seeded.flowId)).toEqual([]);
+  });
+
+  it("a local run without produces never probes the worktree (F4)", async () => {
+    const seeded = await seedAgentNode(68);
+    const ctxHelper = new DiffStubCtxHelper();
+    ctxHelper.localMode = true;
+    const branchSpy = vi.spyOn(localGit, "currentBranch").mockResolvedValue("bugfix/local-68");
+    const node = producingAgentNode(68, ctxHelper, []);
+
+    await node.run(seeded.ctx, { prompt: "Do the work" }, {});
+
+    expect(branchSpy).not.toHaveBeenCalled();
+    expect(ctxHelper.captured).toEqual([]);
+    expect(await diffArtifactsOf(seeded.flowId)).toEqual([]);
   });
 });
 

@@ -24,6 +24,11 @@ import { isDeclarativeKind } from "./declarativeRegistry/utils/isDeclarativeKind
  * compiled effects untouched, and the built-ins' config carries no `effects`
  * map, so the wildcard no-ops for them (Invariant F3).
  *
+ * This is the AUTOMATIC door only — the declaration gates the engine-fired
+ * `afterApproval`/`afterSuccess` dispatch. A MANUAL panel fire goes through
+ * `PanelVerbService`, where the verb's own required-fact contract is the
+ * capability and the declaration is never consulted.
+ *
  * When a declared verb actually ran, the registration claims the follow-on
  * (returns `true` — Invariant 8: the effect owns what happens next, so IT
  * advances the template edges); when nothing ran, the caller's default edge

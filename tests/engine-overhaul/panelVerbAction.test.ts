@@ -4,9 +4,11 @@
  * TriggerGateway's transition door — the `panelVerb` row's terminal from-set
  * IS the fence (Invariant 11: a concurrent click loses atomically with the
  * typed skip event) — and runs the declarative `create_change_request` verb
- * under that claim, the same verb the approval's wildcard effect
- * dispatches. A node that does not declare the verb (the effects declaration
- * IS the capability) or is not a declarative kind never reaches the claim.
+ * under that claim, the same verb the approval's wildcard effect dispatches.
+ * A MANUAL fire needs no `effects` declaration (that gates only the automatic
+ * after-approval dispatch) — the verb's own required-fact contract is the
+ * capability, so a node whose branch fact is missing fails loudly in the
+ * verb; a non-declarative kind never reaches the claim.
  *
  * Seeding mirrors the co-located verb test (`createChangeRequest.test.ts`):
  * the fake agent port establishes the branch fact, the fake git host records
@@ -156,14 +158,29 @@ describe("Open PR panel action (task 12 — design §4.2 use case 4)", () => {
     expect(gitCreates().length).toBe(before);
   });
 
-  it("a node that does not declare the verb is rejected before any claim", async () => {
+  it("a manual fire needs no declaration — the declarative-kind door accepts the fact-driven verb", async () => {
+    // the node's config carries NO `effects` declaration; the node finishes
+    // (no git work) and the branch fact is seeded directly, so the test is
+    // independent of the agent-run queue. The manual fire claims through the
+    // gateway and runs the verb off the established fact — the declaration
+    // gates only the automatic after-approval dispatch, never this door. (The
+    // verb's own fact requirement is covered by the co-located verb test and
+    // the first test here.)
     const { flowId, nodeKey } = await seedDeclarativeFlow({ produces: ["branch"] });
-    await runToBranchFact(flowId, nodeKey, "feat/undeclared");
-    const before = gitCreates().length;
+    agent.pushRun({ status: "finished", result: "# no git work reported" });
+    await flowEngine.startNodeStage(flowId, nodeKey);
+    await testRun(
+      `INSERT INTO branches (id, flow_id, name, title, status, created_at, updated_at)
+       VALUES ($1,$2,$3,$3,'building',$4,$4)`,
+      db.uid("br_"), flowId, "feat/undeclared", "2026-01-01T00:00:00Z",
+    );
 
     const res = await callAction(flowId, { action: FLOW_ACTION.CREATE_CHANGE_REQUEST, nodeKey });
-    expect(res.status).toBe(400);
-    expect(gitCreates().length).toBe(before);
+    // accepted (the claim won) — not the 400 declaration refusal of before
+    expect(res.status).toBe(200);
+    // the verb claimed through the gateway's panelVerb transition door
+    const claims = flowEngine.transitions.records(flowId).filter((r) => r.key === "panelVerb");
+    expect(claims).toHaveLength(1);
   });
 
   it("a declared verb without a branch fact fails loudly — no half-established fact", async () => {

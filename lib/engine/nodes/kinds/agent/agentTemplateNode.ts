@@ -41,6 +41,7 @@ import {
 } from "./agentPrompt";
 import { agentSplitUnits } from "./agentSplitUnits";
 import { agentFactIntents } from "./agentFactIntents";
+import { localFactIntentOptions } from "./localFactIntentOptions";
 import { shapeAgentOutcome } from "./agentOutcome";
 import { prepareAgentStart } from "./agentStartContext";
 import { resolveSecretContext } from "./secretRefs";
@@ -378,7 +379,7 @@ export class AgentTemplateNode extends DeclarativeAgentNode<AgentDef, Record<str
     // joins a transaction); the intents persist inside applyOutcome's tx.
     // Task 08: the capture pins the run-start `baseSha`, so the diff fact
     // carries the agent-vs-branch attribution.
-    const facts = await agentFactIntents(result, cfg, (branch) => this.makeDiff(ctx, branch, { baseSha }));
+    const facts = await agentFactIntents(result, cfg, (branch) => this.makeDiff(ctx, branch, { baseSha }), localFactIntentOptions(ctx, this.ctxHelper));
     if (cfg.output !== AGENT_OUTPUT_FORMAT.JSON) {
       return this.applyOutput(ctx, result.result ?? '', cfg, facts ?? undefined);
     }

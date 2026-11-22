@@ -1,13 +1,13 @@
-import "server-only";
+import 'server-only';
 
-import { execFile } from "child_process";
-import { promisify } from "util";
-import { GitCommandError } from "./gitErrors";
+import { execFile } from 'child_process';
+import { promisify } from 'util';
+import { GitCommandError } from './gitErrors';
 
 const execFileAsync = promisify(execFile);
 
-export const GIT_COMMAND_TIMEOUT_MS = 20_000;
-export const GIT_FETCH_TIMEOUT_MS = 15_000;
+export const GIT_COMMAND_TIMEOUT_MS = 200_000;
+export const GIT_FETCH_TIMEOUT_MS = 300_000;
 export const GIT_WORKTREE_ADD_TIMEOUT_MS = 120_000;
 export const MAX_GIT_BUFFER = 1024 * 1024 * 50;
 
@@ -25,12 +25,9 @@ export type GitRunOpts = {
 export class GitRunner {
   constructor(private readonly defaults: GitRunOpts = {}) {}
 
-  async run(
-    args: string[],
-    opts: GitRunOpts = {},
-  ): Promise<{ stdout: string; stderr: string }> {
+  async run(args: string[], opts: GitRunOpts = {}): Promise<{ stdout: string; stderr: string }> {
     try {
-      return await execFileAsync("git", args, {
+      return await execFileAsync('git', args, {
         maxBuffer: opts.maxBuffer ?? this.defaults.maxBuffer ?? MAX_GIT_BUFFER,
         timeout: opts.timeout ?? this.defaults.timeout ?? GIT_COMMAND_TIMEOUT_MS,
         env: opts.env ? ({ ...process.env, ...opts.env } as NodeJS.ProcessEnv) : process.env,

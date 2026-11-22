@@ -115,10 +115,12 @@ const DiffBody = ({
         return (
           <details key={file.name} open={files.length <= 5} className="group mt-3">
             <summary className="cursor-pointer list-none flex items-center gap-2 font-sans font-semibold bg-card border border-border rounded-t-[9px] group-open:rounded-b-none group-not-open:rounded-lg px-3 py-2">
-              <FileCode2 size={14} className="text-muted-foreground" />
-              <span className="flex-1">{file.name}</span>
-              <span className="text-success font-medium">+{added}</span>
-              <span className="text-destructive font-medium">−{deleted}</span>
+              <FileCode2 size={14} className="shrink-0 text-muted-foreground" />
+              {/* long paths must not push the counts out of the header — the
+                  full name stays available on hover (AGENTS §2.9: no overflow) */}
+              <span className="min-w-0 flex-1 truncate" title={file.name}>{file.name}</span>
+              <span className="shrink-0 text-success font-medium">+{added}</span>
+              <span className="shrink-0 text-destructive font-medium">−{deleted}</span>
             </summary>
             <div className="border border-border border-t-0 rounded-b-[9px] overflow-x-auto bg-background group-not-open:hidden">
               <ReactDiffViewer

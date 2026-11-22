@@ -29,24 +29,51 @@ export interface AgentFactIntents {
 export type DiffCaptureFn = (branch: string) => Promise<DiffCapturePayload | null>;
 
 /**
+ * Local-mode branch fallback: a local run that committed but never pushed
+ * reports no `git.branches`, yet the engine owns the worktree and can read its
+ * HEAD. The caller binds `localGit.currentBranch` on the run cwd; this seam is
+ * invoked lazily — only when a fact kind is declared and no branch was
+ * self-reported — so cloud runs and undeclared facts do no extra git I/O.
+ */
+export type LocalBranchResolver = () => Promise<string | null>;
+
+export interface AgentFactIntentOptions {
+  resolveLocalBranch?: LocalBranchResolver;
+}
+
+/**
  * Map a run's `result.git` onto the facts its def declared in `produces`
  * (Task 07, Invariant F4): one `branch` fact per reported branch, plus one
  * `diff` fact per branch whose payload is captured through `captureDiff`.
  * Undeclared kinds stay dropped — `produces: []` yields null and runs no git
- * I/O at all. A per-branch capture failure is non-fatal (the stepRollup
- * precedent): the diff fact is still established, its content names the
- * capture as unavailable.
+ * I/O at all. A local fallback branch is used only when the run reported none;
+ * a per-branch capture failure is non-fatal (the stepRollup precedent): the
+ * diff fact is still established, its content names the capture as unavailable.
  */
 export const agentFactIntents = async (
   result: AgentRunResult,
   cfg: AgentDef,
   captureDiff: DiffCaptureFn,
+  options: AgentFactIntentOptions = {},
 ): Promise<AgentFactIntents | null> => {
   const branches: BranchFactInput[] = [];
   const diffs: DiffFactInput[] = [];
-  for (const entry of result.git?.branches ?? []) {
-    if (!entry?.branch) continue; // a malformed/empty report entry establishes nothing
-    const name = entry.branch;
+  const reported = (result.git?.branches ?? [])
+    .map((entry) => entry?.branch)
+    .filter((name): name is string => typeof name === "string" && name.length > 0);
+  const declaresFacts =
+    cfg.produces.includes(FACT_KIND.BRANCH) || cfg.produces.includes(FACT_KIND.DIFF);
+  let branchNames = reported;
+  if (!branchNames.length && declaresFacts && options.resolveLocalBranch) {
+    let local: string | null = null;
+    try {
+      local = await options.resolveLocalBranch();
+    } catch {
+      // the worktree probe is best-effort, like a per-branch diff capture
+    }
+    if (local) branchNames = [local];
+  }
+  for (const name of branchNames) {
     if (cfg.produces.includes(FACT_KIND.BRANCH)) {
       branches.push({ name, gitBranch: name });
     }

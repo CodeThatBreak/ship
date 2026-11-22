@@ -320,9 +320,10 @@ fact).
 
 **Changes.**
 - `genericDeclarativePanel.tsx` — an "Open PR" affordance shown when the node has a
-  `branch` fact and the def declares the `create_change_request` capability. Fires a
-  typed flow action routed through the TriggerGateway claim (the same path as approval —
-  no new dispatch path, Invariant 11).
+  `branch` fact (the verb's own required-fact contract is the capability — the `effects`
+  declaration gates only the automatic `afterApproval` dispatch, never a manual click).
+  Fires a typed flow action routed through the TriggerGateway claim (the same path as
+  approval — no new dispatch path, Invariant 11).
 - `app/api/flows/[id]/action/route.ts` — the action dispatches to the verb via the
   gateway (thin route per AGENTS §3.2).
 

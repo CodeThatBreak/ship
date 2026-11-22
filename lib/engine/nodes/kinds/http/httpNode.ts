@@ -14,6 +14,7 @@ import { secretStore } from "../../../secretStore";
 import { settingsService } from "@/lib/settings/settingsService";
 import { guardedRequest } from "../../../../net/ssrfGuard";
 import { EVENT_KIND } from "../../../constants/vocabulary";
+import { EFFECTS_CONFIG_FIELD } from "../../../constants/effectsConfig";
 import { HttpDefaultOutput, HttpFreeOutput, HttpRunInput } from "./schema";
 import { redactResponseBody } from "./utils/redactResponseBody";
 import { safeDigest } from "./utils/safeDigest";
@@ -51,6 +52,7 @@ export class HttpTemplateNode extends DeclarativeNode<HttpDef> {
     { key: "body", label: "Body", type: "text" as const, help: "Sent as-is ({{...}} interpolated) — set the Content-Type header for JSON" },
     { key: "timeout_ms", label: "Timeout (ms)", type: "number" as const },
     { key: "response_map", label: "Response map", type: "text" as const, help: "Optional JSONata over {status, ok, body, headers} — must yield an object stored as the node output" },
+    EFFECTS_CONFIG_FIELD,
   ];
 
   declare readonly def: HttpDef;

@@ -28,6 +28,7 @@ import {
 } from "./ConfigFieldRow";
 import { PromptSectionField } from '../prompt/PromptSectionField';
 import { SplitConfigFields } from './SplitConfigFields';
+import { EffectsConfigFields } from './EffectsConfigFields';
 import { httpResponseVarGroups, type VarGroup } from '../../../variables';
 
 type ContractField = NonNullable<NodeContract["config"]["fields"]>[number];
@@ -154,6 +155,21 @@ export function DeclarativeConfigFields({
                 split={config[f.key]}
                 output={contract.output}
                 onSplitChange={(next) =>
+                  onConfigChange(writeConfig(config, f.key, next))
+                }
+              />
+            );
+          }
+          // the effects block: a nested { afterApproval, afterSuccess } object
+          // with a closed checkbox vocabulary — no plain ConfigField row can
+          // express it (same dispatch pattern as the split block)
+          if (f.key === "effects") {
+            return (
+              <EffectsConfigFields
+                key={f.key}
+                field={f}
+                value={config[f.key]}
+                onChange={(next) =>
                   onConfigChange(writeConfig(config, f.key, next))
                 }
               />

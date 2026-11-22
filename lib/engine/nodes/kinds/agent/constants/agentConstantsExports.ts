@@ -2,6 +2,7 @@ import "server-only";
 
 import type { ConfigField } from "../../../../templates/nodeConfig";
 import { fanoutConfigFields, mcpSourceConfigFields, splitConsumerConfigFields } from "../../../../templates/nodeConfig";
+import { EFFECTS_CONFIG_FIELD } from "../../../../constants/effectsConfig";
 import { MODE_CONFIG_FIELD } from "./mode";
 import { PROMPT_CONFIG_FIELD } from "./prompt";
 import { MODEL_CONFIG_FIELD } from "./model";
@@ -29,6 +30,10 @@ export const AGENT_CONFIG_FIELDS: readonly ConfigField[] = [
   // the produces knob (Task 06, Invariant F4): which facts the runs may
   // establish from result.git — undeclared kinds stay dropped
   ...producesConfigFields,
+  // the declarative effects map: side effects (e.g. create_change_request)
+  // declared under a lifecycle — the declaration IS the capability for the
+  // AUTOMATIC after-approval dispatch (a manual panel verb needs none)
+  EFFECTS_CONFIG_FIELD,
   // the agent-tools knob (Task 13, Invariant 10): which engine tools the
   // node's running agent may call — narrowed by the kind's allowlist
   ...agentToolsConfigFields,

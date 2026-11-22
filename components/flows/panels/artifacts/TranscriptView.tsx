@@ -32,9 +32,15 @@ const TranscriptCallRow = ({ call }: { call: TranscriptCallView }) => {
           <TraceTitle>
             {failed ? "Failed" : "Ran"} {call.name}
           </TraceTitle>
-          {call.summary && <TraceDescription className="ms-1">{call.summary}</TraceDescription>}
+          {/* the redacted args summary can be long: let it shrink and ellipsize
+              instead of pushing the duration (and the row) past the panel */}
+          {call.summary && (
+            <TraceDescription className="ms-1 min-w-0 shrink truncate" title={call.summary}>
+              {call.summary}
+            </TraceDescription>
+          )}
           {call.durationMs != null && (
-            <TraceDescription className="ms-1">{fmtDuration(call.durationMs)}</TraceDescription>
+            <TraceDescription className="ms-1 shrink-0">{fmtDuration(call.durationMs)}</TraceDescription>
           )}
         </TraceLine>
       </TraceCollapsibleTrigger>

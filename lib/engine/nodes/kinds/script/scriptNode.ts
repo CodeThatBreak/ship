@@ -11,6 +11,7 @@ import { type FlowCtx, type RunOutcome } from "../../shared/nodeSharedExports";
 import { DeclarativeNode } from "../../shared/declarativeNode";
 import { ScriptDefSchema, type ScriptDef } from "../../schemas/declarativeSchemas";
 import { EVENT_KIND } from "../../../constants/vocabulary";
+import { EFFECTS_CONFIG_FIELD } from "../../../constants/effectsConfig";
 import { OutputContractError } from "../../../errors/outputContractError";
 import { worktreeManager } from "../../../runtime/worktreeLifecycle";
 import { workspaceForFlow } from "../../../../git/local";
@@ -74,6 +75,7 @@ export class ScriptTemplateNode extends DeclarativeNode<ScriptDef> {
       help: `e.g. ["CI","NODE_ENV"] — always available: PATH, HOME` },
     { key: "output_schema", label: "Output schema", type: "ts_output" as const,
       help: "Required to publish output — the $DEVFLOW_OUTPUT JSON must satisfy it (TS-lite members, same box as the agent node, or a pasted JSON Schema); without a schema the script publishes nothing" },
+    EFFECTS_CONFIG_FIELD,
   ];
 
   declare readonly def: ScriptDef;

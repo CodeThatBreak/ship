@@ -4,9 +4,9 @@ import { db } from "../../db/app";
 import { NodeRow } from "../../db/rows";
 import { ConflictError, NotFoundError, ValidationError } from "../../errors";
 import { parseRow } from "@/lib/db/ormRowHelpers";
-import { nodeCatalogKind, declaredEffectVerbs } from "../nodes/declarativeEffects";
+import { nodeCatalogKind } from "../nodes/declarativeEffects";
 import { isDeclarativeKind } from "../nodes/declarativeRegistry/utils/isDeclarativeKind";
-import { EFFECT_VERB_LIFECYCLE, type EffectVerb } from "../runtime/effects/constants/effectVerbs";
+import type { EffectVerb } from "../runtime/effects/constants/effectVerbs";
 import { verbRegistry } from "../runtime/effects/verbs/verbWiring";
 import type { VerbCtx } from "../runtime/effects/verbs/types/verbDescriptor";
 import { isInFromSet, toStatusOf } from "../runtime/transitions/utils/transitionLookup";
@@ -17,19 +17,22 @@ import type { PanelVerbHost } from "./types/panelVerbHost";
 
 /**
  * PanelVerbService — the panel's direct verb door (task 12, design §4.2 use
- * case 4): a declarative node's panel can fire a declared effect verb
- * without an approval hold — the "Open PR" affordance. No new dispatch
- * path: the same flow-action route, the same TriggerGateway door and the
- * same VerbRegistry the approval's wildcard effect dispatches through.
+ * case 4): a declarative node's panel can fire an effect verb without an
+ * approval hold — the "Open PR" affordance. No new dispatch path: the same
+ * flow-action route, the same TriggerGateway door and the same VerbRegistry
+ * the approval's wildcard effect dispatches through.
  *
- * Capability rule: for a declarative verb, the effects declaration IS the
- * capability (design §4.2 declares no separate capability vocabulary) — the
- * node's effective config must declare the verb under the verb's owning
- * lifecycle, and the node must be a declarative kind (Invariant F3 — a
- * declarative effect never runs for a built-in node). Task 17 adds the
- * built-in exception: a verb listed in `PANEL_VERB_BUILTIN_DEFS` runs on
+ * Capability rule: the verb's own required-fact contract is the capability
+ * for a MANUAL fire — the node must be a declarative kind (Invariant F3 — a
+ * declarative effect never runs for a built-in node), and a node whose
+ * branch fact is missing fails loudly in the verb (the typed
+ * `effect_contract_violation` event). The `effects` declaration gates only
+ * the AUTOMATIC dispatch (the `afterApproval` wildcard the approval
+ * triggers): a manual button click is the user's prerogative on a fact that
+ * already exists, not the template's automation policy. Task 17's built-in
+ * door set the precedent: a verb listed in `PANEL_VERB_BUILTIN_DEFS` runs on
  * exactly that built-in def, where the verb's own required-fact contract is
- * the capability.
+ * likewise the capability.
  *
  * Claim discipline (Invariant 11): the trigger claims through the
  * TriggerGateway's transition door — the `panelVerb` row's terminal from-set
@@ -52,12 +55,11 @@ export class PanelVerbService {
     if (!isInFromSet("panelVerb", node.status)) {
       throw new ConflictError(`${nodeKey} is ${node.status} — open the change request after its run finishes`);
     }
-    // two capability doors (design §4.2 + task 17): a declarative verb's
-    // declaration IS the capability — the node must be a declarative kind and
-    // declare the verb under the verb's OWN lifecycle (the
-    // `retrigger_pipeline` door is the afterSuccess-class exception: offered
-    // on its built-in def only, where no effects config exists to declare
-    // it — the verb's own required-fact contract is the capability there)
+    // two doors, one capability rule (the verb's own required-fact contract
+    // — the class doc): a built-in verb runs on exactly the def its
+    // `PANEL_VERB_BUILTIN_DEFS` row names; a declarative verb runs on any
+    // declarative kind. Neither consults the `effects` declaration — that
+    // gates only the AUTOMATIC `afterApproval` dispatch, not a manual click.
     const builtinDefs = PANEL_VERB_BUILTIN_DEFS[verb];
     if (builtinDefs) {
       const def = await this.host.defOf(flowId, nodeKey);
@@ -67,14 +69,7 @@ export class PanelVerbService {
     } else {
       const kind = await nodeCatalogKind(flowId, nodeKey);
       if (!kind || !isDeclarativeKind(kind)) {
-        throw new ValidationError(`${nodeKey} is not a declarative node — no panel verb is declared for it`);
-      }
-      const declared = declaredEffectVerbs(
-        await this.host.nodeConfigFor(flowId, nodeKey),
-        EFFECT_VERB_LIFECYCLE[verb],
-      );
-      if (!declared.includes(verb)) {
-        throw new ValidationError(`${nodeKey} does not declare the "${verb}" effect verb`);
+        throw new ValidationError(`${nodeKey} is not a declarative node — no panel verb is offered on it`);
       }
     }
     // the gateway door (Invariant 11): the terminal from-set is the fence —

@@ -85,13 +85,12 @@ export const FLOW_ACTION = {
 export type FlowActionName = (typeof FLOW_ACTION)[keyof typeof FLOW_ACTION];
 
 /**
- * The declarative effects config the generic panel reads to decide its verb
- * affordances (task 12): the client mirror of the engine's closed verb
+ * The declarative effects config's client mirror of the engine's closed verb
  * vocabulary (`lib/engine/runtime/effects/constants/effectVerbs.ts`) — the
- * client never imports `lib/`. The effects declaration IS the capability
- * (design §4.2): no separate declarable capability vocabulary exists, so a
- * node whose config declares the verb under `afterApproval` may fire it
- * from the panel.
+ * client never imports `lib/`. The declaration gates the engine's AUTOMATIC
+ * `afterApproval` dispatch (task 10); a MANUAL panel verb needs no
+ * declaration — the verb's own required-fact contract is the capability
+ * (the panel shows the affordance from the fact the verb targets).
  */
 export const DECLARED_EFFECTS = {
   CONFIG_KEY: "effects",

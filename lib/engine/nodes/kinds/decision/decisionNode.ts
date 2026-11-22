@@ -9,6 +9,7 @@ import { DeclarativeAgentNode } from "../../shared/declarativeNode";
 import { buildFlowContext } from "../../../context/flowVariables";
 import { evalJsonata, jsonataTruthy } from "@/lib/jsonata/eval";
 import { mcpSourceConfigFields } from "../../../templates/nodeConfig";
+import { EFFECTS_CONFIG_FIELD } from "../../../constants/effectsConfig";
 import { DecisionDefSchema, type DecisionDef } from "../../schemas/declarativeSchemas";
 import { AgentOutputPipeline } from "../../shared/agentOutput/agentOutputPipeline";
 import { validateStandardAgentOutput } from "../../shared/agentOutput/utils/standardOutput";
@@ -82,6 +83,7 @@ export class DecisionTemplateNode extends DeclarativeAgentNode<DecisionDef, Reco
     },
     // source=agent runs may load ambient MCP servers (Cursor local.settingSources)
     ...mcpSourceConfigFields,
+    EFFECTS_CONFIG_FIELD,
   ];
 
   declare readonly def: DecisionDef;
