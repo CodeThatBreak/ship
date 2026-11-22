@@ -1,6 +1,6 @@
 "use client";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQueryClient, type QueryClient } from "@tanstack/react-query";
 
 import type { JsonErrorBody } from "@/hooks/fetchJson";
 import { apiFetch } from "@/hooks/localApiToken";
@@ -37,6 +37,29 @@ export const mergePositionsIntoDetail = (
   }),
 });
 
+/**
+ * Cache the dragged coordinates so revisiting the editor within gcTime seeds
+ * the same layout, but keep `dataUpdatedAt` unchanged. A positions PATCH is
+ * display metadata only — it never changes the graph — and the page treats a
+ * new `dataUpdatedAt` as fresh server data and replaces the live draft from
+ * this cache. That cache's node set can lag the draft (local placements aren't
+ * persisted until a structural Save), so bumping the timestamp made every
+ * autosave drop locally-added nodes from the canvas.
+ */
+export function mergePositionsIntoDetailCache(
+  queryClient: QueryClient,
+  templateId: string,
+  positions: PositionsMap,
+): void {
+  const key = queryKeys.templates.detail(templateId);
+  const updatedAt = queryClient.getQueryState(key)?.dataUpdatedAt;
+  queryClient.setQueryData<TemplateEditorDetail>(
+    key,
+    (cur) => (cur ? mergePositionsIntoDetail(cur, positions) : cur),
+    { updatedAt },
+  );
+}
+
 async function patchTemplatePositions(
   templateId: string,
   positions: PositionsMap,
@@ -70,10 +93,7 @@ export const useNodePositions = (
     onMutate: () => setLayoutSync("pending"),
     onSuccess: (_data, snapshot) => {
       setLayoutSync("saved");
-      queryClient.setQueryData<TemplateEditorDetail>(
-        queryKeys.templates.detail(templateId),
-        (cur) => (cur ? mergePositionsIntoDetail(cur, snapshot) : cur),
-      );
+      mergePositionsIntoDetailCache(queryClient, templateId, snapshot);
     },
     onError: () => setLayoutSync("error"),
   });
@@ -102,12 +122,7 @@ export const useNodePositions = (
       body: JSON.stringify({ positions: snapshot }),
       keepalive: true,
     }).then((res) => {
-      if (res.ok) {
-        queryClient.setQueryData<TemplateEditorDetail>(
-          queryKeys.templates.detail(templateId),
-          (cur) => (cur ? mergePositionsIntoDetail(cur, snapshot) : cur),
-        );
-      }
+      if (res.ok) mergePositionsIntoDetailCache(queryClient, templateId, snapshot);
     });
   }, [queryClient, templateId]);
 
