@@ -19,25 +19,10 @@ export interface WaitForSource {
   contextField?: { key: string; type: StartFieldType };
 }
 
-/** Wait-for sources, grouped for the picker (flat list kept for lookups). */
+/** Wait-for sources, grouped for the picker (flat list kept for lookups).
+ *  Pipeline and comment waits are engine-managed (the CI gate and the
+ *  debounced comment wait) — they are not author-selectable here. */
 export const WAIT_FOR_GROUPS: { label: string; sources: WaitForSource[] }[] = [
-  {
-    label: "Pipeline & comments",
-    sources: [
-      {
-        value: "pipeline",
-        label: "CI pipeline",
-        description: "Waits for CI pipeline events",
-        contextField: { key: "pipeline", type: "string" },
-      },
-      {
-        value: "comments",
-        label: "Change-request comments",
-        description: "Waits for review comment events",
-        contextField: { key: "mr", type: "string" },
-      },
-    ],
-  },
   {
     label: "Resumes",
     sources: [
