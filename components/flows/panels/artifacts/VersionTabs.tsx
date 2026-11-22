@@ -3,18 +3,25 @@ import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { FLOW_STATUS } from "@/constants/flow";
 
+/** Default artifact-version caption; features that number something else
+ *  (an agent node's runs) pass their own `versionLabel`. */
+const defaultVersionLabel = (version: number): string => `v${version}`;
+
 export const VersionTabs = ({
   arts,
   sel,
   onSel,
   className,
   captions,
+  versionLabel = defaultVersionLabel,
 }: {
   arts: { id: string; version: number; status: string }[];
   sel?: string;
   onSel: (id: string) => void;
   className?: string;
   captions?: Map<string, string>;
+  /** Overrides the default `v1` label — the agent panel calls its versions runs. */
+  versionLabel?: (version: number) => string;
 }) => (
   <div className={cn("flex gap-1.5 flex-wrap", className)}>
     {arts.map((a) => {
@@ -31,7 +38,7 @@ export const VersionTabs = ({
           onClick={() => onSel(a.id)}
         >
           <span>
-            v{a.version}
+            {versionLabel(a.version)}
             {a.status === FLOW_STATUS.APPROVED ? " ✓" : ""}
           </span>
           {caption && (

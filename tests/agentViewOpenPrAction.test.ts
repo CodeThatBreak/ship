@@ -14,7 +14,7 @@ import { describe, expect, it } from "vitest";
 import AgentView from "@/components/flows/panels/views/AgentView";
 import { NodePanelContext, type NodePanelContextValue } from "@/components/flows/panels/context";
 import { FLOW_STATUS } from "@/constants/flow";
-import type { BranchRow, FlowData, Node } from "@/types/flow";
+import type { Artifact, BranchRow, FlowData, Node } from "@/types/flow";
 
 const branchRow: BranchRow = {
   id: "branch-1",
@@ -82,6 +82,24 @@ const renderPanel = (context: NodePanelContextValue): string => {
     ),
   );
 };
+
+describe("agent node panel — output version labels", () => {
+  const outputArtifacts: Artifact[] = [1, 2].map((version) => ({
+    id: `art_${version}`,
+    kind: "markdown",
+    version,
+    status: "done",
+    created_at: `2026-01-0${version}T00:00:00.000Z`,
+  }));
+
+  it("labels output versions as runs, not v1/v2", () => {
+    const html = renderPanel(contextFor({ artifacts: outputArtifacts }));
+    expect(html).toContain("Run 1");
+    expect(html).toContain("Run 2");
+    expect(html).not.toContain("v1");
+    expect(html).not.toContain("v2");
+  });
+});
 
 describe("agent node panel — Open PR affordance", () => {
   it("offers Open PR on a terminal node with a branch fact — no declaration needed", () => {

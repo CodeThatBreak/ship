@@ -30,6 +30,9 @@ const TABS_LIST_CLASS =
 const kindTabLabel = (kind: string): string =>
   kind.replaceAll('_', ' ').replace(/^./, char => char.toUpperCase());
 
+/** The agent panel numbers its output versions as runs, not `v1`/`v2`. */
+const runVersionLabel = (version: number): string => `Run ${version}`;
+
 /**
  * The generic runtime panel for declarative nodes (§8 2C): markdown/JSON
  * output viewer, approval button and run monitoring. The prompt is edited in
@@ -147,7 +150,15 @@ export default function AgentView() {
             <TabsContent value={OUTPUT_TAB} className="pt-4">
               {current ? (
                 <div>
-                  {mdArts.length > 1 && <VersionTabs arts={mdArts} sel={current.id} onSel={setSelId} className="mb-3.5" />}
+                  {mdArts.length > 1 && (
+                    <VersionTabs
+                      arts={mdArts}
+                      sel={current.id}
+                      onSel={setSelId}
+                      versionLabel={runVersionLabel}
+                      className="mb-3.5"
+                    />
+                  )}
                   <ArtifactLoader
                     id={current.id}
                     render={(loaded: ArtifactPayload) => <OutputRenderer artifact={loaded} />}
