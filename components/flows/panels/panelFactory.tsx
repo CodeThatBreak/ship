@@ -3,7 +3,7 @@ import type { ComponentType } from 'react';
 import type { Node } from '@/types/flow';
 import PlanNodeChat from '../components/plan/PlanNodeChat';
 import PlanView from '../components/plan/PlanView';
-import AgentView from './views/AgentView';
+import AgentView from './views/agentView/AgentView';
 import BuildView from './views/BuildView';
 import DeclarativeView from './views/DeclarativeView';
 import { GenericDeclarativePanel } from './genericDeclarativePanel';
