@@ -77,12 +77,20 @@ type FlowEdge = Edge<BuilderEdgeData>;
 const nodeTypes = { template: BuilderNodeView };
 const edgeTypes = { template: BuilderEdgeView };
 
+type MeasuredSize = { width: number; height: number };
+
 export function BuilderFlow(props: BuilderCanvasProps) {
   const [nodeMenu, setNodeMenu] = useState<{
     x: number;
     y: number;
     nodeKey: string;
   } | null>(null);
+  // React Flow measures each node and reports it as a `dimensions` change.
+  // The controlled nodes we hand back must carry `measured`, otherwise every
+  // time the graph is replaced (a layout autosave re-seeds the draft) React
+  // Flow re-adopts unmeasured nodes and dragging logs error #015 — nodes can
+  // render at zero size until the observer measures them again.
+  const [measured, setMeasured] = useState<Record<string, MeasuredSize>>({});
 
   useEffect(() => {
     if (!nodeMenu) return;
@@ -97,6 +105,7 @@ export function BuilderFlow(props: BuilderCanvasProps) {
         id: n.key,
         type: "template",
         position: props.positions[n.key] ?? { x: 0, y: 0 },
+        measured: measured[n.key],
         selected: props.selectedNodeKey === n.key,
         data: {
           node: n,
@@ -113,7 +122,7 @@ export function BuilderFlow(props: BuilderCanvasProps) {
         // deletable (the page guards this too)
         deletable: !props.readonly && n.nodeTemplateId !== START_NODE_TEMPLATE_ID,
       })),
-    [props.nodes, props.edges, props.positions, props.selectedNodeKey, props.readonly, props.onNodeOpen, props.branchChoices, props.nodeProblems],
+    [props.nodes, props.edges, props.positions, props.selectedNodeKey, props.readonly, props.onNodeOpen, props.branchChoices, props.nodeProblems, measured],
   );
 
   const rfEdges: FlowEdge[] = useMemo(
@@ -144,7 +153,28 @@ export function BuilderFlow(props: BuilderCanvasProps) {
       // Backspace/Delete on a selected node — the page applies it to the draft
       // (removing the node and its edges); positions keep autosaving as before
       if (c.type === "remove") {
+        setMeasured((cur) => {
+          if (!(c.id in cur)) return cur;
+          const next = { ...cur };
+          delete next[c.id];
+          return next;
+        });
         props.onNodeRemove?.(c.id);
+        continue;
+      }
+      // The ResizeObserver's dimensions change must be written back onto the
+      // controlled nodes (see React Flow's applyNodeChanges). Without it the
+      // recreated nodes are unmeasured and React Flow logs error #015 on drag.
+      if (c.type === "dimensions") {
+        if (!c.dimensions) continue;
+        const size = c.dimensions;
+        setMeasured((cur) => {
+          const prev = cur[c.id];
+          if (prev && prev.width === size.width && prev.height === size.height) {
+            return cur;
+          }
+          return { ...cur, [c.id]: size };
+        });
         continue;
       }
       if (c.type !== "position" || !c.position) continue;

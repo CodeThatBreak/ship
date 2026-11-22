@@ -91,10 +91,14 @@ export function TemplateEditor({ templateId }: TemplateEditorProps) {
   const { resetPositions } = layout;
 
   useEffect(() => {
-    if (!detailQuery.data || dirty) return;
+    if (!detailQuery.data) return;
     const updatedAt = detailQuery.dataUpdatedAt;
     if (adoptedDetailAt.current === updatedAt) return;
+    // Record the timestamp before the dirty guard: a refetch that lands while
+    // the draft has unsaved edits must not stay queued and adopt stale cache
+    // data the moment Save clears dirty (its own refetch adopts the fresh copy).
     adoptedDetailAt.current = updatedAt;
+    if (dirty) return;
     replaceDraft(detailToDraft(detailQuery.data).draft);
     resetPositions(positionsOf(detailQuery.data));
   }, [

@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { QueryClient } from "@tanstack/react-query";
 
 import {
   editorSaveErrorFromResponse,
@@ -6,46 +7,66 @@ import {
 } from "@/components/builder/utils/editorSaveResponse";
 import { shouldApplyValidationSeq } from "@/components/templateEditor/utils/validationSeq";
 
-import { mergePositionsIntoDetail } from "@/components/templateEditor/hooks/useNodePositions";
+import {
+  mergePositionsIntoDetail,
+  mergePositionsIntoDetailCache,
+} from "@/components/templateEditor/hooks/useNodePositions";
+import { queryKeys } from "@/constants/queryKeys";
 import type { TemplateEditorDetail } from "@/types/templateEditor";
+
+const detail = {
+  template: {
+    id: "t1",
+    name: "Flow",
+    description: null,
+    version: 1,
+    is_builtin: false,
+    trigger: { type: "manual" },
+  },
+  hook: null,
+  nodes: [
+    {
+      key: "a",
+      node_template_id: "nt1",
+      label: null,
+      trigger: null,
+      join_mode: null,
+      config: {},
+      input_map: {},
+      kind: null,
+      icon: null,
+      catalog_name: null,
+      catalog_key: null,
+      is_builtin: false,
+      is_local: false,
+      x: 0,
+      y: 0,
+    },
+  ],
+  edges: [],
+} satisfies TemplateEditorDetail;
 
 describe("mergePositionsIntoDetail", () => {
   it("writes dragged coordinates into the detail cache row (CR-140)", () => {
-    const detail = {
-      template: {
-        id: "t1",
-        name: "Flow",
-        description: null,
-        version: 1,
-        is_builtin: false,
-        trigger: { type: "manual" },
-      },
-      hook: null,
-      nodes: [
-        {
-          key: "a",
-          node_template_id: "nt1",
-          label: null,
-          trigger: null,
-          join_mode: null,
-          config: {},
-          input_map: {},
-          kind: null,
-          icon: null,
-          catalog_name: null,
-          catalog_key: null,
-          is_builtin: false,
-          is_local: false,
-          x: 0,
-          y: 0,
-        },
-      ],
-      edges: [],
-    } satisfies TemplateEditorDetail;
-
     const merged = mergePositionsIntoDetail(detail, { a: { x: 12, y: 34 } });
     expect(merged.nodes[0]?.x).toBe(12);
     expect(merged.nodes[0]?.y).toBe(34);
+  });
+});
+
+describe("mergePositionsIntoDetailCache", () => {
+  it("does not advance dataUpdatedAt, so autosave cannot trigger draft adoption that drops local nodes", () => {
+    const queryClient = new QueryClient();
+    const key = queryKeys.templates.detail("t1");
+    queryClient.setQueryData(key, detail, { updatedAt: 1000 });
+
+    mergePositionsIntoDetailCache(queryClient, "t1", { a: { x: 12, y: 34 } });
+
+    const state = queryClient.getQueryState<TemplateEditorDetail>(key);
+    expect(state?.dataUpdatedAt).toBe(1000);
+    expect(state?.data?.nodes[0]?.x).toBe(12);
+    expect(state?.data?.nodes[0]?.y).toBe(34);
+    expect(state?.data?.nodes).toHaveLength(1);
   });
 });
 
